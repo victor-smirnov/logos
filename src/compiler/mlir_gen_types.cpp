@@ -243,7 +243,7 @@ bool MLIRGenImpl::register_struct(lir_view::StructView sd) {
         // would yield the struct value, mismatching arg-passing ABI.
         if ((fv.kind() == LogosType::Kind::ZonedStruct ||
              fv.kind() == LogosType::Kind::Struct) &&
-            type_str(fv) == "AnyVal") {
+            is_anyval(fv)) {
             ft = logos_to_mlir(f.type);
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
             field_types.push_back(ft);

@@ -1,0 +1,21 @@
+// CONTROL for anyval_homonym_repr.logos — the identical program under a
+// collision-free name. `ZqAnyVal` appears in no compiler table, so its layout,
+// its field offsets and its fn-boundary treatment are its own. This file
+// printed `raw=4294967296` and exited 20 on the PRE-fix compiler and on the
+// fixed one; the homonym printed garbage and exited 1 before the fix and
+// prints the same thing as this file after it.
+//
+// The PAIR is the evidence. Alone, the homonym would pass on a compiler that
+// had broken nothing at all; alone, this control would pass on a compiler that
+// still miscompiled every struct named `AnyVal`.
+package test;
+use logos.std.fmt;
+
+struct ZqAnyVal { pub raw: i64 }
+
+fn main() -> i32 {
+    let u: ZqAnyVal = ZqAnyVal { raw: 4294967296i64 };
+    println!("raw={}", u.raw);
+    if u.raw == 4294967296i64 { return 20i32; }
+    return 1i32;
+}

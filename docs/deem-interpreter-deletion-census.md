@@ -3085,9 +3085,187 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7444
-REGISTRY-NOIMPORTED  3761
+REGISTRY-ALL         7446
+REGISTRY-NOIMPORTED  3763
 REGISTRY-TIERCOMMIT  44
+# 2026-08-22 (#99 POST-VERIFY — the round's own adversarial verify REFUTED its
+# partition, and this is what was done about it before committing.
+#
+#   1. `is_writ_static` was filed QUALIFIED-strict, "the census saw that package
+#      and nothing else". The census is a statement about the CORPUS, and the
+#      corpus contains no user `struct WritStatic` — the same construction that
+#      hid the AnyVal defect for as long as it existed. A 4-line paired probe
+#      admits the homonym, prints `mlir_gen: struct '<pkg>.WritStatic' has no
+#      field 'ptr'`, writes the object and exits 0; the binary then reads a
+#      field that was never stored. Nine other stdlib names and a nonce refuse
+#      identically.
+#      DIAGNOSED ONE LAYER DOWN and filed as #102: the root is not the
+#      predicate but `make_struct_type(name, pkg={})`, which resolves an omitted
+#      package via `resolve_struct_pkg_` BY BARE NAME against the module under
+#      compilation — so a type the COMPILER synthesises for itself is handed the
+#      USER's package and becomes the user's type. 40 package-less sites over 11
+#      names (Type 17, WritStatic 8, AnyVal 4, ExprBlob 3, Ident 2, WSchemaH,
+#      Writ, QuoteItemBlob, IdentSpan, DataRef, Allocator 1 each). Landed here:
+#      only the hardcoded `struct_types_.find("WritStatic")` in mlir_gen_expr,
+#      now qualified-first / bare-last. That is a correct hardening and it does
+#      NOT close #102 — the admission happens in sema, before mlir_gen runs.
+#
+#   2. FACT 4's widened matcher had a blind spot over sites THIS ROUND ITSELF
+#      CONVERTED: the argument pattern barred parens, so
+#      `type_str(recv_t.pointee()) == "AnyVal"` was invisible, and HEAD carried
+#      two of them in mlir_gen_expr.cpp. The ledger had claimed the widening
+#      "exposes eight sites" and stated no residual. Now one level of nesting is
+#      matched, the reversed operand order (`"X" == t.struct_name()`) is matched
+#      too, and the four spellings that still evade are written down as an
+#      HONEST LIMIT at the site with the reason each is or is not chased.
+#      Bitten: nested-paren plant -> rc 1 naming the file; reversed-operand
+#      plant -> rc 1; restore -> rc 0. Roster re-derived with `--scan-raw`.
+#
+#   3. Filed, not fixed: #103 (56 `mlir_gen:` diagnostics do not fail the
+#      compile — the object is written and logosc exits 0, which is WHY both
+#      wrong answers were invisible to a corpus that asserts exit codes) and
+#      #104 (capturing a genuine StringView into a writ literal SIGSEGVs the
+#      compiler — the "capability" #99 cited as the reason not to delete
+#      `is_string_view` has never worked; nothing in the corpus reaches it).
+# Registry unchanged by this addendum: 7446 / 3763 / 44, measured by ctest -N.
+# 2026-08-22 (#99 — THE NINE BARE-NAME TYPE PREDICATES. `is_named_struct(t,name)`
+# in sema_impl.hpp matches a BARE struct name, and nine predicates were built on
+# it two lines below `is_stdlib_box`, whose comment already spells out why that
+# is wrong: "Matching by bare name would let a user `struct Box` in their own
+# package hijack the box special-casing". `is_anyval` was the live wrong answer:
+# it decides a REPRESENTATION (i32 everywhere, layout {4,4}, "no interior
+# pointers", a skipped fn-arg slot), so a user `struct AnyVal { raw: i64 }`
+# printed `raw=-8757281498698088448` and exited 1, silently, the value varying
+# run to run.
+#
+# THE OWNING PACKAGES WERE MEASURED, NOT READ OFF THE DIRECTORY TREE, and the
+# tree would have lied about five of them: ExprBlob/QuoteItemBlob/ItemList/Ident
+# all declare `package logos.std.compiler.metaprog`, not `logos.mem.compiler.
+# metaprog.ast` / `...itemlist` / `...tokens`. `Ident` is declared TWICE in
+# stdlib — stdlib/mem/compiler/tokens/tokens.logos:79 and
+# stdlib/mem/compiler/metaprog/ast.logos:158, in different packages — so no
+# single grep could have answered it; an instrumented build — every predicate logging
+# the pkg of each type it accepted, over a full 53-target stdlib+examples build
+# AND over all 7406 corpus .logos (5887 of which compile) — gave the roster:
+#   is_anyval          <EMPTY>                       (no declaration exists)
+#   is_writ_static     logos.lang.writ.wstatic
+#   is_ident           logos.std.compiler.metaprog   (NOT ...tokens)
+#   is_exprblob        logos.std.compiler.metaprog
+#   is_quote_item_blob logos.std.compiler.metaprog
+#   is_item_list       logos.std.compiler.metaprog
+#   is_writ            never answered YES
+#   is_string_view     never answered YES
+#   is_dataref         never answered YES
+# THE RED LIST PER PREDICATE IS THEREFORE EMPTY BY MEASUREMENT — the census is a
+# stronger instrument than a post-hoc red list, because it enumerates what the
+# predicate ACCEPTED rather than what happened to break. Each conversion still
+# got its own full rebuild (~3m45 each, 9 of them) with
+# `ctest -j32 -R "writ|anyval|metaprog|quote|ir_"` (431/431) between.
+#
+# THE PARTITION SUMS TO NINE. 8 QUALIFIED, 1 DELETED:
+#   is_anyval          QUALIFIED on `pkg.empty()` — and that is the
+#                      DISCRIMINATOR here, not a tolerance hatch: `struct AnyVal`
+#                      is declared in NO .logos anywhere (stdlib, tests, and the
+#                      6132 generated units the facts tier emits
+#                      all hold zero), so the compiler's own un-packaged
+#                      make_struct_type("AnyVal") is the only legitimate subject.
+#   is_writ_static / is_ident / is_exprblob / is_quote_item_blob / is_item_list
+#                      QUALIFIED, STRICT (no `pkg.empty()` arm): the census saw
+#                      an empty package for none of them, so an empty-tolerating
+#                      hatch would have had no measured user.
+#   is_writ / is_string_view
+#                      QUALIFIED, cell UNEXERCISED-NOT-DEAD. Never answered YES,
+#                      but their TYPES are live in stdlib; what no corpus program
+#                      does is take the one path that asks (a bare-`Writ` freeze,
+#                      a StringView writ-capture). Deleting would retire a
+#                      capability on the strength of a corpus gap; qualifying
+#                      removes the hazard and keeps it. Said out loud because it
+#                      is the one place this round did NOT delete a zero-firing
+#                      arm.
+#   is_dataref         DELETED, with both arms it gated (try_dataref_field_write
+#                      in sema_stmt + its call, and the ergonomic field read in
+#                      sema_expr). Its cell is different from the two above: the
+#                      SUBJECT cannot exist. `struct DataRef` is declared nowhere
+#                      in the tree and the compiler never synthesises one, so this
+#                      was not an unexercised path but an arm no program can
+#                      reach — kept alive only by a bare name a user `struct
+#                      DataRef` could have walked into, which would have fired an
+#                      unsafe `.mut_ptr()`/`.ptr()` desugar on a stranger's struct.
+#
+# THE FOUR FREE-FUNCTION SITES, AND FOUR MORE THE TASK DID NOT NAME.
+# mlir_gen.cpp:934/943/1109 (`type_str(recv_ty) == "AnyVal"`) and :1189
+# (`gen_struct_lit`'s `if (name == "AnyVal")`, which sat AHEAD of the qualified
+# `mlir_struct_key` probe three lines below it) all now go through the
+# pkg-checked `is_anyval`; :1189's arm is DELETED outright (below). The same
+# channel had four more bare sites in mlir_gen_fn.cpp:67, mlir_gen_stmt.cpp:1800,
+# mlir_gen_types.cpp:246 and mlir_gen_expr.cpp:2945 (`strip_struct_pkg(tname) ==
+# "AnyVal"` — the strip is what made it bare; it now compares the UNSTRIPPED mlir
+# key, and the synthesised AnyVal's key IS the bare name while a user's is
+# "<pkg>.AnyVal"), plus two `.struct_name() == "StringView"` writ-capture sites
+# in mlir_gen_expr.cpp that EXTRACT fields 0 and 1 out of whatever they are
+# handed. All closed.
+#
+# THE DEAD ARM, MEASURED AND DELETED. `gen_struct_lit`'s AnyVal arm existed
+# because "Writ source still spells it as a struct literal". `AnyVal {` occurs in
+# ZERO stdlib modules, ZERO of the 6132 generated units, and exactly one .logos
+# tree-wide: tests/logos/ir/param_attrs_freeze_lattice.logos, which DECLARES ITS
+# OWN `struct AnyVal { raw: i64 }`. The instrumented build confirmed the arm's
+# only firing site corpus-wide was that user struct's `main` — the very case it
+# miscompiles. Zero firings for its stated purpose, so DELETED, not shipped
+# guarded.
+#
+# AND THE PIN THAT ASSERTED THE DEFECT IS RE-AIMED, NOT PRESERVED.
+# param_attrs_freeze_lattice.check:147 pinned `align 4 dereferenceable(4)` for
+# `axis_anyval` and the comment above it called that 4/4 "the discriminator"
+# — i.e. the .check asserted, as expected output, that the compiler had given a
+# user's 8-byte struct its own internal 4-byte representation. It now pins
+# `align 8 dereferenceable(8)`, and the axis is re-aimed to the NEGATIVE
+# direction: drop the qualification and the line goes back to 4/4 and red. The
+# `; AXIS axis_anyval` marker and freeze_arms.ledger row 2 are unchanged — the
+# arm still exists, it is only qualified — and the pre-existing HONEST LIMIT
+# (the Struct arm answers Freeze for `{raw:i64}` too, so this line never pinned
+# the arm's EXISTENCE) is carried over verbatim.
+#
+# THE GATE THAT SHOULD HAVE CAUGHT IT, WIDENED AND BITTEN.
+# key_identity_scan.py's FACT 4 matched `name == "X"` and `.type_str() == "X"`
+# but NOT the free-function `type_str(recv_ty) == "X"`, so three of the four
+# mlir_gen.cpp sites were invisible while the fourth was counted — which is
+# exactly how the file's #SCAN row read green over a live silent miscompile.
+# SCAN_FREE added (7 free-function name producers, BOTH `==` and `!=`). Over the
+# HEAD tree the widening exposes EIGHT previously-invisible sites: mlir_gen.cpp
+# 1->4, mlir_gen_expr.cpp 5->8, mlir_gen_types.cpp 1->2, and mlir_gen_fn.cpp /
+# mlir_gen_stmt.cpp 0->1 each (two files that had NO row at all and so could not
+# have gone red). BITTEN two ways: the pre-fix mlir_gen.cpp reads `1 f40e89e1`
+# under the old matcher and `4 7fe89614` under the widened one; and a planted
+# `type_str(p) == "ZzBiteProbe"` in module_loader.cpp reds the lint (rc 1,
+# naming the file), restored rc 0. Roster re-derived with `--scan-raw`: 19 rows
+# -> 18 (mlir_gen.cpp RETIRED at zero, mlir_gen_expr.cpp 5->2, mlir_gen_impl.hpp
+# 1->2 for the two pkg-checked predicates).
+#
+# +2 registered tests (the homonym PAIR below), pass fixtures, so ALL and
+# NOIMPORTED move and tier_commit does not. PREDICTED 7446 / 3763 / 44 BEFORE
+# the reconfigure and measured identical after, by direct `ctest -N`, not by
+# addition.
+#   tests/logos/pass/anyval_homonym_repr.logos      (+ .expected)
+#   tests/logos/pass/anyval_homonym_repr_ctl.logos  (+ .expected)
+# THE ADMIT ASSERTS AN OBSERVABLE VALUE, not an exit code: `raw: i64` set to
+# 4294967296 = 1<<32, whose whole content lives ABOVE the low 32 bits, so it
+# survives iff the field really is 8 bytes. `_ctl` is the same program under
+# `ZqAnyVal`, in no compiler table. CONTROL REVERT recorded in the task notes:
+# with `is_anyval` put back to the bare form the homonym goes red and the
+# control stays green.
+# ⚠ EIGHT OF THE NINE HAVE NO FIXTURE, AND THE PROGRAMS THAT TRIED ARE THE
+# EVIDENCE. A homonym/control pair was written for all nine names in the same
+# shape as the AnyVal pair (a `{ pub raw: i64 }` struct, the 1<<32 payload, a
+# printed field read); only AnyVal bit — the other eight compiled and ran
+# correctly on the PRE-fix compiler, because a plain struct never reaches their
+# sites. A second attempt put a user `struct ItemList` in a module that imports
+# `logos.std.compiler.metaprog` and drives the metaprog machinery: also green.
+# Those sites are reached only through `macro_info->ret_type` on a real macro
+# dispatch, and a module cannot both import the package that declares the name
+# and declare it itself. So the eight are converted DEFENSIVELY, on the census,
+# and the honest statement is that no fixture in this corpus can see either
+# direction for them.
 # 2026-08-21 (#85 residue — ONE SCHEDULER, the lint. The conversion round closed
 # the three CORPUS-CENSUS gates but left the CLASS standing: three registered
 # gates still run `xargs -P` from inside a ctest slot, which is the shape that

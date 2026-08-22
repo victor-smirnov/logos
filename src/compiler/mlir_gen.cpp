@@ -931,7 +931,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(lir_view:
         // The logical type is Ptr/Ref/MutRef with pointee=Struct.
         if (recv_ty) {
             TypeRef tv{recv_ty};
-            if (type_str(recv_ty) == "AnyVal") {
+            if (is_anyval(recv_ty)) {
                 auto sc = scope_.find(name);
                 if (sc != scope_.end())
                     return {sc->second, "AnyVal"};
@@ -940,7 +940,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(lir_view:
                  tv.kind() == LogosType::Kind::Ref ||
                  tv.kind() == LogosType::Kind::MutRef) && tv.pointee()) {
                 TypeRef inner = tv.pointee();
-                if (type_str(inner) == "AnyVal") {
+                if (is_anyval(inner)) {
                     auto sc = scope_.find(name);
                     if (sc != scope_.end())
                         return {sc->second, "AnyVal"};
@@ -1106,7 +1106,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(lir_view:
     // If the result is an aggregate struct (by-value return), spill to alloca.
     // AnyVal is a scalar-like 4-byte slot, not a by-value aggregate receiver.
     if (mlir::isa<mlir::LLVM::LLVMStructType>(ptr.getType()) &&
-        (!recv_ty || type_str(recv_ty) != "AnyVal"))
+        (!recv_ty || !is_anyval(recv_ty)))
         ptr = spill_to_alloca(ptr);
     if (recv_ty) {
         TypeRef t = recv_ty;
@@ -1186,23 +1186,21 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(lir_view:
 mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
     namespace ec = lir_schema::expr;
     std::string name(v.name());
-    if (name == "AnyVal") {
-        // AnyVal is lowered as a scalar i32 everywhere in MLIR.
-        // Writ source still spells it as a struct literal (`AnyVal { raw: ... }`),
-        // so treat that syntax as a constructor for the raw slot value.
-        std::vector<std::pair<std::string, lir_view::ExprRef>> fields;
-        v.each_field([&](std::string_view fn, lir_view::ExprRef val){
-            fields.emplace_back(std::string(fn), val);
-        });
-        if (fields.size() != 1 || fields.front().first != "raw") {
-            std::fprintf(stderr, "mlir_gen: AnyVal literal expects a single 'raw' field\n");
-            return nullptr;
-        }
-        if (!fields.front().second) return nullptr;
-        auto raw = gen_expr(fields.front().second);
-        if (!raw) return nullptr;
-        return coerce_numeric(raw, builder_.getI32Type());
-    }
+    // ── DELETED (task #99): the `if (name == "AnyVal")` arm ────────────────
+    // It sat AHEAD of the pkg-qualified `mlir_struct_key` probe three lines
+    // below, intercepting the BARE literal name, and its stated purpose was
+    // "Writ source still spells it as a struct literal (`AnyVal { raw: ... }`)".
+    // MEASURED: `AnyVal {` occurs in ZERO stdlib modules, ZERO of the 6132
+    // generated units under build/tests/logos/facts/*/gen/, and exactly one
+    // .logos in the tree — tests/logos/ir/param_attrs_freeze_lattice.logos,
+    // which DECLARES ITS OWN `struct AnyVal { raw: i64 }`. An instrumented
+    // build confirmed the arm's only firing site corpus-wide (7406 files,
+    // 5887 compiling) was that user struct's `main`, i.e. the very case it
+    // miscompiles: the i64 payload was coerced into an i32 slot and read back
+    // as garbage. The arm fired zero times for its stated purpose, so it is
+    // deleted rather than shipped guarded, and the qualified key below — which
+    // already answers correctly for the synthesised, un-packaged AnyVal — is
+    // now the only path.
     // Try the pkg-qualified key first (via the lit's TypeRef), fall back to bare.
     std::string lookup_key;
     if (TypeRef lt = v.self.type(pool_impl());

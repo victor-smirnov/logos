@@ -53,14 +53,50 @@
 # it only refuses to let one appear unnoticed.
 #
 # ROW: #SCAN <basename> <count> <md5-8 of the sorted literal list>
+#
+# ── ROSTER RE-DERIVED 2026-08-22 (task #99), AND THE MATCHER WIDENED ────────
+# The matcher above had a MEASURED blind spot: it read a name out of a VARIABLE
+# or a METHOD (`t.type_str() == "X"`) but not out of a FREE FUNCTION
+# (`type_str(recv_ty) == "X"`), which is how mlir-gen spells the same intercept.
+# Over the HEAD tree the widening exposes EIGHT sites the gate could not see:
+#   mlir_gen.cpp        1 -> 4   (+3: the three `type_str(...) == "AnyVal"`)
+#   mlir_gen_expr.cpp   5 -> 8   (+3)
+#   mlir_gen_fn.cpp     0 -> 1   (a file with NO row at all — unpinnable)
+#   mlir_gen_stmt.cpp   0 -> 1   (likewise)
+#   mlir_gen_types.cpp  1 -> 2   (+1)
+# BITTEN: run the pre-fix mlir_gen.cpp past both matchers — old says
+# `#SCAN mlir_gen.cpp 1 f40e89e1`, widened says `#SCAN mlir_gen.cpp 4 7fe89614`.
+# The fourth of those four is `if (name == "AnyVal")`, which the OLD matcher did
+# count (its LHS happens to be a variable called `name`) — that is how a file
+# holding a live silent miscompile read green: the row was pinned at the one
+# site that was visible.
+#
+# All eight are the same AnyVal/StringView representation channel and all eight
+# are closed by this round, so the rows move DOWN, not up:
+#   mlir_gen.cpp       RETIRED — it now holds ZERO bare-name intercepts. The
+#                      `if (name == "AnyVal")` arm in gen_struct_lit is DELETED
+#                      (measured: zero firings for its stated purpose over the
+#                      whole tree) and the three `type_str(...) == "AnyVal"`
+#                      comparisons now call the pkg-checked `is_anyval`.
+#   mlir_gen_expr.cpp  5 -> 2. The two `.struct_name() == "StringView"` writ
+#                      capture sites now call `is_stdlib_string_view`; the
+#                      `strip_struct_pkg(tname) == "AnyVal"` spill test now
+#                      compares the UNSTRIPPED mlir key. Remaining 2: `rint`
+#                      (an LLVM intrinsic name, not an entity) and the
+#                      unstripped `tname == "AnyVal"` — which is a QUALIFIED
+#                      decision spelled as a bare literal, because the mlir key
+#                      of the compiler's own un-packaged AnyVal IS "AnyVal"
+#                      while a user's is "<pkg>.AnyVal".
+#   mlir_gen_impl.hpp  1 -> 2. `is_anyval` and the new `is_stdlib_string_view`,
+#                      both pkg-checked; the literal is the bare name they
+#                      qualify, which is the intended shape.
 #SCAN borrow_check.cpp 6 f7194ec0
 #SCAN emit_module.cpp 6 5ec06a0f
 #SCAN main.cpp 4 04f2bc11
-#SCAN mlir_gen.cpp 1 f40e89e1
 #SCAN mlir_gen_debug.cpp 2 c5f7c386
 #SCAN mlir_gen_dyn.cpp 1 fad58de7
-#SCAN mlir_gen_expr.cpp 5 83543b0d
-#SCAN mlir_gen_impl.hpp 1 f40e89e1
+#SCAN mlir_gen_expr.cpp 2 077ff06b
+#SCAN mlir_gen_impl.hpp 2 0d0525bf
 #SCAN mlir_gen_types.cpp 1 95c89e84
 #SCAN module_loader.cpp 1 dfda2a6a
 #SCAN mono_clone.cpp 97 64d05c85

@@ -1,0 +1,44 @@
+// A USER STRUCT NAMED `AnyVal` KEEPS ITS OWN REPRESENTATION.
+//
+// `AnyVal` is the compiler's internal heterogeneous writ slot: it is lowered as
+// a bare i32 EVERYWHERE in mlir-gen — `logos_to_mlir` → getI32Type(),
+// `layout_of` → {4,4}, `type_is_freeze` → "no interior pointers", and the fn
+// boundary skips its argument slot. Every one of those decisions was taken on
+// the BARE struct name, so a user `struct AnyVal` in a user package inherited
+// the compiler's internal representation: this exact program printed
+//
+//     raw=-8757281498698088448
+//
+// and exited 1, with NO diagnostic, and with the printed value varying from run
+// to run — an 8-byte i64 payload squeezed through a 4-byte slot and read back
+// out of whatever happened to be next to it. It is a REPRESENTATION decision,
+// not a diagnostic one, which is why the failure is silent.
+//
+// 4294967296 = 1 << 32 is the discriminator: it is exactly the value whose
+// entire content lives ABOVE the low 32 bits, so it survives if and only if the
+// field really is 8 bytes wide. A payload that fitted in an i32 would pass on
+// the broken compiler too.
+//
+// THE PAIR: `anyval_homonym_repr_ctl.logos` is this same program under the
+// collision-free name `ZqAnyVal`, which is in no compiler table. Alone, this
+// file would also pass on a compiler that had simply broken i64 fields for
+// everyone; alone, the control says nothing about the homonym. Both are needed.
+//
+// FIXED by qualifying `is_anyval` on the owning package (task #99). `AnyVal`
+// has no declaration in any .logos — stdlib, corpus or generated unit — so the
+// compiler's own synthesised type is the only legitimate subject and it carries
+// an EMPTY package; a user declaration always carries its own. The bare-name
+// arm in `gen_struct_lit`, which intercepted the literal ahead of the qualified
+// `mlir_struct_key` probe, was deleted outright: measured over the whole tree
+// its only firing site was this very miscompile.
+package test;
+use logos.std.fmt;
+
+struct AnyVal { pub raw: i64 }
+
+fn main() -> i32 {
+    let u: AnyVal = AnyVal { raw: 4294967296i64 };
+    println!("raw={}", u.raw);
+    if u.raw == 4294967296i64 { return 20i32; }
+    return 1i32;
+}

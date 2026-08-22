@@ -1797,7 +1797,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
     };
     LetCtx s{std::string(v.name()), v.type(pool_impl()), v.is_mut(), val_le};
     TypeRef s_val_ty = s.value.type(pool_impl());
-    if (s.type && type_str(s.type) == "AnyVal") {
+    if (s.type && is_anyval(s.type)) {
         auto val = gen_expr(s.value);
         if (!val) return;
         val = coerce_numeric(val, builder_.getI32Type());

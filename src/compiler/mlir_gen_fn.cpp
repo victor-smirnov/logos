@@ -64,7 +64,7 @@ mlir::Value MLIRGenImpl::sizeof_struct(mlir::LLVM::LLVMStructType struct_type) {
 mlir::Type MLIRGenImpl::fn_call_ret_llvm_type(TypeRef ret_type) {
     if (!ret_type) return nullptr;
     TypeRef rv{ret_type};
-    if (type_str(ret_type) == "AnyVal") return builder_.getI32Type();
+    if (is_anyval(ret_type)) return builder_.getI32Type();
     if (rv.kind() == LogosType::Kind::Tuple) {
         return tuple_llvm_type(ret_type);
     }

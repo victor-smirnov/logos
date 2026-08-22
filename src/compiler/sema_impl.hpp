@@ -1698,15 +1698,122 @@ private:
         auto pkg = TypeRef(t).pkg_name();
         return pkg.empty() || pkg == "logos.mem.boxed";
     }
-    static bool is_anyval(TypeRef t)         { return is_named_struct(t, "AnyVal"); }
-    static bool is_writ_static(TypeRef t)  { return is_named_struct(t, "WritStatic"); }
-    static bool is_writ(TypeRef t)         { return is_named_struct(t, "Writ"); }
-    static bool is_string_view(TypeRef t)    { return is_named_struct(t, "StringView"); }
-    static bool is_ident(TypeRef t)          { return is_named_struct(t, "Ident"); }
-    static bool is_exprblob(TypeRef t)       { return is_named_struct(t, "ExprBlob"); }
-    static bool is_dataref(TypeRef t)        { return is_named_struct(t, "DataRef"); }
-    static bool is_quote_item_blob(TypeRef t){ return is_named_struct(t, "QuoteItemBlob"); }
-    static bool is_item_list(TypeRef t)      { return is_named_struct(t, "ItemList"); }
+    // FQN-checked, the same shape and for the same reason as is_stdlib_box.
+    // `AnyVal` is the one member of this family with NO declaration anywhere:
+    // MEASURED over stdlib/, tests/ and the 6132 generated units under
+    // build/tests/logos/facts/*/gen/, `struct AnyVal` occurs exactly ONCE
+    // tree-wide — in tests/logos/ir/param_attrs_freeze_lattice.logos, as a USER
+    // struct. Its only producer is the compiler's own make_struct_type("AnyVal")
+    // on the writ path, and that carries NO package: a census over a full 53-
+    // target stdlib+examples build saw `is_anyval` answer YES with an EMPTY pkg
+    // and with nothing else. So `pkg.empty()` here is the DISCRIMINATOR, not a
+    // tolerance hatch — a user `struct AnyVal` always carries its declaring
+    // package, and before this it was accepted, lowered to an i32 (mlir_gen_types
+    // getI32Type / {4,4} / "no interior pointers") and its i64 field read back as
+    // garbage that varied run to run, with no diagnostic (task #99).
+    // ⚠ RESIDUAL, unproven: make_struct_type resolves an omitted pkg from the
+    // declaration table BY BARE NAME, so a module that BOTH declares its own
+    // `struct AnyVal` AND drives the writ path would hand the synthesised type
+    // the user's package and be refused here. That direction is an over-refusal,
+    // not a wrong answer, and no program in the corpus takes it.
+    static bool is_anyval(TypeRef t) {
+        return is_named_struct(t, "AnyVal") && TypeRef(t).pkg_name().empty();
+    }
+    // FQN-checked (task #99). `WritStatic` is declared ONCE tree-wide, in
+    // stdlib/lang/writ/wstatic.logos, package `logos.lang.writ.wstatic` — NOT
+    // `logos.lang.writ` and not the directory path; the `package` line is the
+    // truth. A census over a full 53-target stdlib+examples build and over all
+    // 7406 corpus .logos files (5887 of which compile) saw this predicate answer
+    // YES for that package and for NOTHING else — never for an empty package —
+    // so there is no `pkg.empty()` tolerance here to argue about: it would be a
+    // hatch with no measured user.
+    static bool is_writ_static(TypeRef t) {
+        return is_named_struct(t, "WritStatic") &&
+               TypeRef(t).pkg_name() == "logos.lang.writ.wstatic";
+    }
+    // FQN-checked (task #99). Declared once, stdlib/lang/writ/container.logos:29,
+    // package `logos.lang.writ.container`.
+    // ⚠ CELL: UNEXERCISED, not dead — same argument as is_string_view. The
+    // census never saw it answer YES, and its own call site says why: the live
+    // runtime container is `Rc<Writ>`, matched at sema_expr by a SEPARATE
+    // disjunct, and the bare `Writ` spelling this predicate names is the legacy
+    // one. The type is live in stdlib, so the arm is qualified, not deleted; the
+    // B-he-05 `WritStatic ← Writ` diagnostic it gates stays reachable in
+    // principle. No fixture can see it either way.
+    static bool is_writ(TypeRef t) {
+        return is_named_struct(t, "Writ") &&
+               TypeRef(t).pkg_name() == "logos.lang.writ.container";
+    }
+    // FQN-checked (task #99). Declared once, stdlib/lang/writ/wstatic.logos:36,
+    // package `logos.lang.writ.wstatic` (the same module as WritStatic).
+    // ⚠ CELL: UNEXERCISED, not dead. The census over a full stdlib+examples
+    // build and all 7406 corpus .logos never saw this predicate answer YES —
+    // but the TYPE is live (wstatic.logos uses it); what no corpus program does
+    // is capture a StringView into a writ `${…}`, which is this predicate's one
+    // call site (the capture-legality switch in sema_expr). So the arm is
+    // QUALIFIED rather than deleted: deleting it would silently retire a
+    // capability, while a bare name here would let a user `struct StringView`
+    // acquire varchar-capture semantics. No fixture can see either direction —
+    // the program that tried is recorded in the task notes.
+    static bool is_string_view(TypeRef t) {
+        return is_named_struct(t, "StringView") &&
+               TypeRef(t).pkg_name() == "logos.lang.writ.wstatic";
+    }
+    // FQN-checked (task #99). ⚠ `Ident` is declared TWICE in stdlib — at
+    // stdlib/mem/compiler/tokens/tokens.logos:79 (package
+    // `logos.std.compiler.tokens`) and at
+    // stdlib/mem/compiler/metaprog/ast.logos:158 (package
+    // `logos.std.compiler.metaprog`) — so the owning package could not be read
+    // off the directory tree; the `package` line and a census were both needed.
+    // MEASURED over a full stdlib+examples build and all 7406 corpus .logos:
+    // this predicate answers YES for `logos.std.compiler.metaprog` and NOTHING
+    // else, never for the tokens `Ident` and never for an empty package. That is
+    // consistent with its two call sites, which type quote-placeholder variables.
+    static bool is_ident(TypeRef t) {
+        return is_named_struct(t, "Ident") &&
+               TypeRef(t).pkg_name() == "logos.std.compiler.metaprog";
+    }
+    // FQN-checked (task #99). Declared once, stdlib/mem/compiler/metaprog/
+    // ast.logos:203, package `logos.std.compiler.metaprog` (NOT the directory
+    // path). Census over a full stdlib+examples build and all 7406 corpus
+    // .logos: that package and nothing else, never empty. A user `struct
+    // ExprBlob` had already been met once as a live wrong answer (task #59).
+    static bool is_exprblob(TypeRef t) {
+        return is_named_struct(t, "ExprBlob") &&
+               TypeRef(t).pkg_name() == "logos.std.compiler.metaprog";
+    }
+    // ── DELETED (task #99): `is_dataref`, and both arms it gated. ──────────
+    // Unlike its eight siblings, this predicate's SUBJECT does not exist:
+    // `struct DataRef` is declared in NO .logos anywhere — not in stdlib/, not
+    // in tests/, not in any of the 6132 generated units under
+    // build/tests/logos/facts/*/gen/ — and the compiler never synthesises one
+    // (no make_struct_type("DataRef") site). The only three mentions left in the
+    // tree are prose: a docs line, a `type_diag_2` .expected, and two pass
+    // fixtures whose comments call `Held<T>` "the writ successor of DataRef".
+    // An instrumented census over a full 53-target stdlib+examples build and all
+    // 7406 corpus .logos confirmed it answered YES zero times. So this was not
+    // an unexercised path (is_writ / is_string_view's cell — their types are
+    // live) but an arm no program can reach, kept alive only by a bare name that
+    // a user `struct DataRef` could have walked into: the ergonomic-deref write
+    // and read would then have fired on a stranger's struct, in unsafe context,
+    // through a `.mut_ptr()` / `.ptr()` method it does not have. Deleted rather
+    // than shipped guarded.
+    // FQN-checked (task #99). Declared once, stdlib/mem/compiler/metaprog/
+    // ast.logos:189, package `logos.std.compiler.metaprog`. Census: that package
+    // and nothing else, never empty.
+    static bool is_quote_item_blob(TypeRef t) {
+        return is_named_struct(t, "QuoteItemBlob") &&
+               TypeRef(t).pkg_name() == "logos.std.compiler.metaprog";
+    }
+    // FQN-checked (task #99). Declared once, stdlib/mem/compiler/metaprog/
+    // itemlist.logos:18 — package `logos.std.compiler.metaprog`, NOT
+    // `…metaprog.itemlist`: the file sits in its own directory but declares the
+    // same package as ast.logos. Census: that package and nothing else, never
+    // empty.
+    static bool is_item_list(TypeRef t) {
+        return is_named_struct(t, "ItemList") &&
+               TypeRef(t).pkg_name() == "logos.std.compiler.metaprog";
+    }
 
     // Sema goes through 3 phases:
     //   Init     — primitives populated, no user ASTs touched
@@ -5705,9 +5812,6 @@ private:
     std::optional<lir_view::StmtRef> try_index_mut_assign(
         const std::string& arr_name, TypeRef arr_type,
         writ::TinyMapView idx_node, writ::TinyMapView val_node);
-    std::optional<lir_view::StmtRef> try_dataref_field_write(
-        const std::string& recv_name, const std::string& field_name,
-        writ::TinyMapView val_node);
     // ADR 0011 — schema field WRITE: `p.field = v` ⇒ `(&mut* p.m).set(KEY, WAny::from(v))`.
     std::optional<lir_view::StmtRef> try_schema_field_write(
         const std::string& recv_name, const std::string& field_name,

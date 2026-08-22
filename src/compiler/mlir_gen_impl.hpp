@@ -1710,7 +1710,25 @@ private:
         auto k = t.kind();
         if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct)
             return false;
-        return t.struct_name() == "AnyVal";
+        // pkg-CHECKED, mirroring the sema-side twin (task #99). AnyVal has no
+        // declaration in any .logos; the compiler synthesises it un-packaged.
+        // A user `struct AnyVal` carries its own package and must NOT be lowered
+        // as an i32 — that read its i64 field as garbage, silently.
+        return t.struct_name() == "AnyVal" && t.pkg_name().empty();
+    }
+    // pkg-CHECKED (task #99), the mlir twin of sema's `is_string_view`. The writ
+    // capture path treats a StringView as a (ptr,len) pair and EXTRACTS fields 0
+    // and 1 out of it; a user `struct StringView` of any other shape would have
+    // had two arbitrary words read out of it and handed to writ_ctr_alloc_str.
+    // Declared once tree-wide: stdlib/lang/writ/wstatic.logos:36, package
+    // `logos.lang.writ.wstatic`.
+    static bool is_stdlib_string_view(TypeRef t) noexcept {
+        if (!t) return false;
+        auto k = t.kind();
+        if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct)
+            return false;
+        return t.struct_name() == "StringView" &&
+               t.pkg_name() == "logos.lang.writ.wstatic";
     }
     // FQN-checked stdlib `logos.mem.boxed.Box<T>` (not a user struct named Box).
     // See the sema-side twin for rationale. pkg tolerated empty for internal

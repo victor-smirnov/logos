@@ -134,14 +134,17 @@ fn axis_scalar(x: &i64) -> i64 { return *x; }
 //    reaches it by recursion, so nothing pinned the arm itself. ────────────
 fn axis_unsafecell_item(u: &UnsafeCell<i64>) -> i64 { return 0i64; }
 
-// ── AXIS 13: the pre-switch `is_anyval` short-circuit. ─────────────────────
-//    `is_anyval` matches ANY struct named `AnyVal`, in any package, and lowers
-//    it as an i32 everywhere — so a local declaration reaches the arm. The 4/4
-//    in the .check is the discriminator: `{ raw: i64 }` is 8/8 by every other
-//    route, so `align 4 dereferenceable(4)` can only mean the anyval path fired.
-//    ⚠ HONEST LIMIT: DELETING this arm would not move the line — the Struct arm
-//    answers Freeze for `{ raw: i64 }` too. The line pins the ANSWER and the
-//    layout, not the arm's existence; the ledger says so.
+// ── AXIS 13: the `is_anyval` short-circuit must NOT reach a USER struct. ───
+//    RE-AIMED 2026-08-22 (task #99). `is_anyval` used to match ANY struct named
+//    `AnyVal` in any package, so this local declaration reached the arm and was
+//    lowered as an i32: the .check pinned 4/4 and `u.raw` below read garbage.
+//    `is_anyval` is now FQN-checked (empty package only — the compiler's own
+//    synthesised AnyVal), so this declaration keeps its own 8/8 layout and the
+//    8-byte payload survives. The 8/8 in the .check is the discriminator in the
+//    other direction: drop the qualification and the line goes back to 4/4.
+//    ⚠ HONEST LIMIT: DELETING the arm would not move the line either — the
+//    Struct arm answers Freeze for `{ raw: i64 }` too. The line pins the ANSWER
+//    and the layout, not the arm's existence; the ledger says so.
 struct AnyVal { raw: i64 }
 fn axis_anyval(a: &AnyVal) -> i64 { return 0i64; }
 

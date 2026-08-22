@@ -2828,13 +2828,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
     }
 
     if (method == "as_offset" && recv_t) {
-        bool is_anyval =
-            type_str(recv_t) == "AnyVal" ||
+        bool recv_is_anyval =
+            is_anyval(recv_t) ||
             ((recv_t.kind() == LogosType::Kind::Ptr ||
               recv_t.kind() == LogosType::Kind::Ref ||
               recv_t.kind() == LogosType::Kind::MutRef) &&
-             recv_t.pointee() && type_str(recv_t.pointee()) == "AnyVal");
-        if (is_anyval) {
+             recv_t.pointee() && is_anyval(recv_t.pointee()));
+        if (recv_is_anyval) {
             auto recv = gen_expr(recv_ref);
             if (!recv) return nullptr;
             if (recv.getType() == ptr_type())
@@ -2942,7 +2942,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
     auto [ptr, tname] = recv_is_fat_zone ? gen_recv_struct_inner(recv_ref)
                                          : gen_recv_struct(recv_ref);
     if (!ptr || tname.empty()) return nullptr;
-    if (strip_struct_pkg(tname) == "AnyVal" && ptr.getType() != ptr_type()) {
+    // ⚠ NOT strip_struct_pkg (task #99): the compiler-synthesised AnyVal has no
+    // package, so its mlir key IS the bare "AnyVal"; a user `struct AnyVal` keys
+    // as "<pkg>.AnyVal" and must not be spilled into an i32 slot.
+    if (tname == "AnyVal" && ptr.getType() != ptr_type()) {
         auto slot = create_entry_alloca(builder_.getI32Type());
         builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_numeric(ptr, builder_.getI32Type()), slot);
         ptr = slot;
@@ -3119,13 +3122,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type)
     TypeRef recv_ty = v.receiver().type(pool_impl());
     std::string field{v.field()};
     if (TypeRef rt(recv_ty); field == "raw" && rt) {
-        bool is_anyval = type_str(recv_ty) == "AnyVal";
+        bool is_anyval_v = is_anyval(recv_ty);
         bool is_anyval_ptr = (rt.kind() == LogosType::Kind::Ptr ||
                               rt.kind() == LogosType::Kind::Ref ||
                               rt.kind() == LogosType::Kind::MutRef) &&
                              rt.pointee() &&
-                             type_str(rt.pointee()) == "AnyVal";
-        if (is_anyval || is_anyval_ptr) {
+                             is_anyval(rt.pointee());
+        if (is_anyval_v || is_anyval_ptr) {
             auto recv = gen_expr(v.receiver());
             if (!recv) return nullptr;
             if (recv.getType() == ptr_type())
@@ -6555,7 +6558,7 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
             // is_capturable no longer allows these; return null AnyVal as fallback.
             return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
         case K::Struct:
-            if (TypeRef(t).struct_name() == "AnyVal") {
+            if (is_anyval(t)) {
                 // C4 bug fix: use mlir::ArrayRef (not llvm::ArrayRef) for ExtractValueOp
                 // to match the MLIR dialect API which takes mlir::ArrayRef<int64_t>.
                 return builder_.create<mlir::LLVM::ExtractValueOp>(
@@ -6606,7 +6609,7 @@ mlir::Value MLIRGenImpl::coerce_to_wany_raw(mlir::Value v, TypeRef t) {
             }
             break;
         case K::Struct:
-            if (TypeRef(t).struct_name() == "AnyVal") {
+            if (is_anyval(t)) {
                 // Legacy 4-byte AnyVal word zero-extended (i24/bool Pod encodings
                 // coincide with writ in the low 32 bits).
                 mlir::Value w = builder_.create<mlir::LLVM::ExtractValueOp>(
@@ -6655,7 +6658,25 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EReflectOfView v, TypeRef) {
         loc_, ptr_type(), i8, global_ptr, mlir::ValueRange{offset8});
 
     // Return WritStatic { ptr: blob_ptr } as an alloca.
-    auto sit = struct_types_.find("WritStatic");
+    //
+    // QUALIFIED KEY FIRST, BARE SLOT LAST (task #99, second half). This lookup
+    // was hardcoded BARE, and `struct_types_`'s bare slot is a
+    // first-registered-wins alias -- so a user `struct WritStatic` in their own
+    // package answered here. MEASURED, 4 lines, and it is a SILENT WRONG
+    // ANSWER: the same program under nine other stdlib names and under a nonce
+    // is correctly refused (`initializer type mismatch`), while the homonym is
+    // ADMITTED, prints `mlir_gen: struct '<pkg>.WritStatic' has no field 'ptr'`,
+    // writes the object, exits 0, and the binary then reads a field that was
+    // never stored. Qualifying the PREDICATE (`is_writ_static`) was not enough
+    // because this site never asks the predicate -- it asks the map by name.
+    //
+    // The bare fallback stays LAST and is not deleted: reversing that order
+    // reddened two imported tests once, and the comment at sema's
+    // `find_struct_repr_` records why. What changes is only that the stdlib's
+    // own key is asked FIRST, so the alias can no longer answer ahead of it.
+    static constexpr std::string_view kWritStaticPkg = "logos.lang.writ.wstatic";
+    auto sit = struct_types_.find(qualify_pkg(kWritStaticPkg, "WritStatic"));
+    if (sit == struct_types_.end()) sit = struct_types_.find("WritStatic");
     if (sit == struct_types_.end()) return blob_ptr;
     auto alloca = create_entry_alloca(sit->second.llvm_type);
     auto gep = gep_field(alloca, sit->second, "ptr");
@@ -6841,7 +6862,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
         if (tk == K::F64 || tk == K::F32 || tk == K::FloatLit) return true;
         if (tk == K::Ptr) return true;  // *const u8 → C-string varchar
         if (tk == K::Slice && TypeRef(t).elem() && TypeRef(t).elem().kind() == K::U8) return true; // str → varchar
-        if (tk == K::Struct && TypeRef(t).struct_name() == "StringView") return true;
+        if (tk == K::Struct && is_stdlib_string_view(t)) return true;
         return false;
     };
     bool any_zone_alloc = false;
@@ -6965,7 +6986,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
                     auto r = builder_.create<mlir::func::CallOp>(
                         loc_, alloc_str_fn, mlir::ValueRange{ctr_alloca, sv_ptr, sv_len});
                     raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
-                } else if (ctk == K::Struct && TypeRef(ct).struct_name() == "StringView"
+                } else if (ctk == K::Struct && is_stdlib_string_view(ct)
                            && alloc_str_fn) {
                     // StringView: extract ptr (field 0) and len (field 1).
                     mlir::Value sv_ptr = builder_.create<mlir::LLVM::ExtractValueOp>(

@@ -436,9 +436,20 @@ PIN = {
     #   ls tests/logos/pass/*.logos | wc -l                       -> 2254
     #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
     # partition closes: 2254 = 191 + 2063. DOOR counts unmoved (36 = 10 + 26).
-    'corpus'            : 2254,
+    # 2026-08-22 (task #99 — the nine bare-name type predicates; `is_anyval`
+    # decided a REPRESENTATION on a bare struct name, so a user
+    # `struct AnyVal { raw: i64 }` was lowered as an i32 and read garbage,
+    # silently): +2/0/+2, the anyval_homonym_repr homonym/control PAIR.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 2 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2256
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2256 = 191 + 2065. The round added NO fail fixture at
+    # all — the defect is a wrong ANSWER, not a missing refusal — so the fail
+    # corpus is unmoved too. DOOR counts unmoved (36 = 10 + 26): neither file
+    # declares a container family or a `direct` output form.
+    'corpus'            : 2256,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2063,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2065,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

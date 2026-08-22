@@ -29,8 +29,10 @@
 ;   SelfCell / SelfPlain          = 16/8 (ptr + 8-byte field)
 ;   i64                           = 8/8
 ;   UnsafeCell<i64>               = 8/8
-;   AnyVal{raw: i64}              = 4/4  — the is_anyval short-circuit lowers it
-;                                         as an i32; 8/8 by every other route
+;   AnyVal{raw: i64}              = 8/8  — a USER struct; since task #99
+;                                         `is_anyval` demands an empty package,
+;                                         so the i32 short-circuit no longer
+;                                         steals this declaration's layout
 
 ; ── AXIS 1: ARRAY ELEMENT RECURSION ────────────────────────────────────────
 ; The two pointees have the IDENTICAL 32/8 layout and differ only in the
@@ -137,14 +139,30 @@
 ; AXIS axis_unsafecell_item
 ; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_unsafecell_item{{[^(]*}}(ptr noundef align 8 dereferenceable(8) %0)
 
-; ── AXIS 13: THE `is_anyval` SHORT-CIRCUIT ─────────────────────────────────
-; `is_anyval` matches any struct NAMED AnyVal in any package and lowers it as an
-; i32, so `{ raw: i64 }` is 4/4 here and 8/8 by every other route — that is what
-; makes this line evidence the pre-switch arm fired at all.
-; ⚠ It pins the ANSWER, not the arm's existence: delete the arm and the Struct
-; arm answers Freeze for `{ raw: i64 }` too. Stated in the ledger, not implied.
+; ── AXIS 13: THE `is_anyval` SHORT-CIRCUIT DOES NOT FIRE FOR A USER STRUCT ──
+; RE-AIMED 2026-08-22 (task #99). This line used to pin `align 4
+; dereferenceable(4)`, and the comment above it said so approvingly: `is_anyval`
+; matched any struct NAMED AnyVal in ANY package and lowered it as an i32. But
+; `AnyVal` in THIS file is a LOCAL user declaration — `struct AnyVal { raw: i64 }`
+; at line 145, the only `struct AnyVal` in the whole tree — so the 4/4 the check
+; pinned was the compiler assigning the user's 8-byte struct the compiler's own
+; internal 4-byte representation. The same short-circuit made `u.raw` read back
+; as garbage (`raw=-8757281498698088448`, varying run to run, exit 1 instead of
+; 20, NO diagnostic). The pin asserted the DEFECT as expected output.
+;
+; `is_anyval` is now FQN-checked like `is_stdlib_box`: it demands an EMPTY
+; package, which is what the compiler's own synthesised AnyVal carries and what
+; a user declaration never does. So this axis now pins the CORRECT lowering —
+; `{ raw: i64 }` is 8/8 by the ordinary Struct route — and it is the NEGATIVE
+; pin for the shadowing hazard: if the qualification is ever dropped, the
+; short-circuit fires again and this line goes back to 4/4 and red.
+; ⚠ It still pins the ANSWER, not the arm's existence: the Struct arm answers
+; Freeze for `{ raw: i64 }` too, so the `noalias readonly` pair is unmoved.
+; The arm's OWN reachability is not observable from this file at all any more —
+; only the compiler-synthesised, un-packaged AnyVal reaches it, and no source
+; program declares one. Stated in the ledger, not implied.
 ; AXIS axis_anyval
-; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_anyval{{[^(]*}}(ptr noalias noundef readonly align 4 dereferenceable(4) %0)
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_anyval{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(8) %0)
 
 ; ── RESIDUE: CONSERVATIVE ON AN UNRESOLVABLE POINTEE ────────────────────────
 ; `Id::call`'s second parameter is the HRTB binder's `&'a T` — a bare TypeVar,

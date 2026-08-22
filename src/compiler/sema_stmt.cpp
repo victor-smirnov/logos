@@ -7502,50 +7502,6 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
     return std::nullopt;
 }
 
-// `p.field = v` where p is a DataRef<ZonedStruct>: ergonomic smart-pointer write
-// (Logos's DerefMut analog) desugars to `{ let __t = p.mut_ptr(); (*__t).field = v; }`.
-// Returns the lowered block if p is such a DataRef, else nullopt (caller falls
-// through to the plain field place-write). Relocated from the retired
-// lower_field_write.
-std::optional<lir_view::StmtRef> SemaChecker::try_dataref_field_write(
-    const std::string& recv_name, const std::string& field_name,
-    writ::TinyMapView val_node) {
-    TypeRef recv_type = lookup(recv_name);
-    if (!recv_type || TypeRef(recv_type).kind() != LogosType::Kind::Struct ||
-        !is_dataref(recv_type) || TypeRef(recv_type).type_args().size() != 1)
-        return std::nullopt;
-    TypeRef T = TypeRef(recv_type).type_args()[0];
-    if (!T || TypeRef(T).kind() != LogosType::Kind::ZonedStruct) return std::nullopt;
-    auto ft = field_type_of_for_type(T, field_name);
-    if (!ft) return std::nullopt;
-    if (!inside_unsafe_)
-        error(std::format("DataRef<T>.{}: field write requires unsafe context", field_name));
-    if (!lookup_is_mut(recv_name))
-        error(std::format("field write to immutable DataRef variable '{}'", recv_name));
-    lir::LExprPtr val = lower_expr(val_node);
-    expect_type(val, ft, CoercePos::PlaceWrite,
-                std::format("field write '{}.{}':", recv_name, field_name));
-    TypeRef mut_ptr_T = make_ptr(true, T);
-    std::string tmp = "__dr_tmp_" + recv_name;
-    auto recv_expr = builder().var_ref(recv_name, recv_type);
-    lir::SLet let_s;
-    let_s.name   = tmp;
-    let_s.type   = mut_ptr_T;
-    let_s.is_mut = false;
-    let_s.value  = builder().method_call(std::move(recv_expr), "mut_ptr", "", {}, {}, -1, mut_ptr_T);
-    track_write_move(val);
-    lir::SDerefFieldWrite dfw;
-    dfw.receiver  = tmp;
-    dfw.type_name = concrete_struct_name(T);
-    dfw.field     = field_name;
-    dfw.value     = std::move(val);
-    std::vector<lir_view::StmtRef> inner;
-    inner.push_back(make_stmt_emit(node_line_, std::move(let_s)));
-    inner.push_back(make_stmt_emit(node_line_, std::move(dfw)));
-    return make_stmt_emit(node_line_,
-        lir::SBlock{lir_mirror_block(*cur_prog_, inner), /*transparent=*/true});
-}
-
 // ADR 0011 — schema field WRITE: `p.field = v` ⇒ `(&mut* p.m).set(KEY, WAny::from(v))`.
 // TOM `set` is fixed-capacity in-place (no realloc), so the thin view suffices for
 // Pod-fitting values. Boxed types (i32/i64/u32/u64/f64/str) need the arena allocator
@@ -7748,17 +7704,12 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
             }
         }
     }
-    // Smart-pointer field write (Logos's DerefMut analog): `p.field = v` where
-    // p is a DataRef<ZonedStruct> ergonomically desugars to
-    // `(*p.mut_ptr()).field = v`. Handle before the generic place path.
+    // (The DataRef<ZonedStruct> ergonomic field write that used to be handled
+    // here was DELETED with `is_dataref` — task #99; see sema_impl.hpp.)
     if (pc == la::FIELD_READ) {
         auto recv = map_of(place_node.get(la::RECEIVER.code));
         if (code_of(recv) == la::VAR_REF) {
             auto rn = std::string(str_of(recv.get(la::NAME.code)));
-            if (auto s = try_dataref_field_write(rn,
-                    std::string(str_of(place_node.get(la::FIELD.code))),
-                    map_of(node.get(la::VALUE.code))))
-                return std::move(*s);
             // ADR 0011 — schema field write `p.field = v`.
             if (auto s = try_schema_field_write(rn,
                     std::string(str_of(place_node.get(la::FIELD.code))),

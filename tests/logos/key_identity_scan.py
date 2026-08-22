@@ -307,6 +307,53 @@ SCAN_LHS = re.compile(
 SCAN_ACC = re.compile(
     r'\.(?:name|target_type|trait_name|struct_name|callee|type_name|type_str)'
     r'\(\)\s*==\s*"([^"\\]*)"')
+# ── FACT 4's MEASURED BLIND SPOT (task #99) ─────────────────────────────────
+# The two patterns above read an entity name out of a VARIABLE or out of a
+# METHOD on a receiver (`t.type_str() == "X"`). Neither can see the FREE-function
+# spelling of exactly the same intercept:
+#
+#     if (type_str(recv_ty) == "AnyVal")            // mlir_gen.cpp:934, 943
+#     if (!recv_ty || type_str(recv_ty) != "AnyVal") // mlir_gen.cpp:1109
+#
+# `type_str` and `concrete_struct_name` are free functions in mlir-gen; the
+# call has no leading `.`, and `recv_ty`/`inner`/`fv`/`ret_type` are not in the
+# LHS name list. So three of the four bare `AnyVal` intercepts in mlir_gen.cpp
+# were INVISIBLE to this gate while the fourth — `if (name == "AnyVal")`, which
+# happens to bind a variable called `name` — was counted, and the file's #SCAN
+# row read green over a live silent miscompile. A gate blind to three quarters
+# of the shape it exists to census is the "green that vouches" this FACT was
+# written against, so the matcher is widened to the free-function form, in BOTH
+# comparison directions (`!=` intercepts just as hard as `==`: it is the same
+# decision with the arms swapped).
+# ⚠ THE ARG PATTERN ALLOWS ONE LEVEL OF NESTING, and that was a MEASURED hole,
+# not a hypothetical one. The first spelling of this pattern barred parens in the
+# argument (`[^()"]*`), so `type_str(recv_t.pointee()) == "AnyVal"` was invisible
+# — and HEAD carried two of those in `mlir_gen_expr.cpp` (:2836, :3127), sites
+# THIS ROUND ITSELF CONVERTED, while the ledger claimed the widening "exposes
+# eight sites" and stated no residual. A gate that misses the shape it was just
+# widened for is the blind spot one layer down.
+#
+# HONEST LIMIT, stated because FACT 4's own header demands it rather than left
+# for the next verify to find. Four spellings still evade this matcher, each
+# measured green on a plant:
+#   `entity_ident == "X"`            LHS name not in SCAN_LHS's list
+#   `sname_of(t) == "X"`             free fn not in SCAN_FREE's list
+#   `"X" == t.struct_name()`         operands reversed
+#   `t.struct_name().starts_with("X")` not an equality at all
+# The first two are open sets — a matcher that chased them would either grow a
+# hand-kept list of names (the drift this class is made of) or count every
+# string compare in the compiler and become a gate nobody can keep green. The
+# reversed form is closed and cheap, so it IS matched below. `starts_with` is
+# left: no instance exists today, and a prefix test on an entity name is a
+# different question than an identity test.
+SCAN_FREE = re.compile(
+    r'\b(?:type_str|concrete_struct_name|struct_name_from_type|strip_struct_pkg|'
+    r'mlir_struct_key|qualified_name|enum_name_of)'
+    r'\s*\((?:[^()"]|\([^()"]*\))*\)\s*[!=]=\s*"([^"\\]*)"')
+# The REVERSED operand order, closed and cheap: `"X" == t.struct_name()`.
+SCAN_REV = re.compile(
+    r'"([^"\\]*)"\s*[!=]=\s*(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?'
+    r'(?:type_str|struct_name|trait_name|type_name|enum_name|name)\s*\(')
 
 
 def scans(src, inc):
@@ -321,7 +368,8 @@ def scans(src, inc):
         return None
     for p in files:
         t = strip_line_comments(open(p, encoding='utf-8', errors='replace').read())
-        lits = SCAN_LHS.findall(t) + SCAN_ACC.findall(t)
+        lits = (SCAN_LHS.findall(t) + SCAN_ACC.findall(t) +
+                SCAN_FREE.findall(t) + SCAN_REV.findall(t))
         if not lits:
             continue
         h = hashlib.md5('\n'.join(sorted(lits)).encode()).hexdigest()[:8]

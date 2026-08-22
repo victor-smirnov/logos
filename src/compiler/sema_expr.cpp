@@ -10752,25 +10752,8 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         }  // if (is_schema)
     }  // if (recv_base_t is Struct)
 
-    // DataRef<T> ergonomic read: p.field → p.ptr().field
-    // Intercept before normal struct field lookup so that DataRef<T>.x works without
-    // an explicit let pw = p.ptr() intermediate step.
-    if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Struct &&
-        is_dataref(recv_base_t) &&
-        TypeRef(recv_base_t).type_args().size() == 1) {
-        TypeRef T = TypeRef(recv_base_t).type_args()[0];
-        if (T && TypeRef(T).kind() == LogosType::Kind::ZonedStruct) {
-            auto ft = field_type_of_for_type(T, field_name);
-            if (ft) {
-                if (!inside_unsafe_)
-                    error(std::format("DataRef<T>.{}: field access requires unsafe context",
-                                      field_name));
-                TypeRef ptr_t = make_ptr(false, T);
-                auto mc = builder().method_call(std::move(recv), "ptr", "", {}, {}, -1, ptr_t);
-                return builder().field_read(std::move(mc), std::string(field_name), ft);
-            }
-        }
-    }
+    // (The DataRef<T> ergonomic field read that used to be intercepted here was
+    // DELETED with `is_dataref` — task #99; see sema_impl.hpp.)
 
     auto sname = struct_name_from_type(recv_base_t);
     if (sname.empty()) {
