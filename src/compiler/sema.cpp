@@ -7900,7 +7900,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         else if (elem_name == "F64") elem_t = prim(LogosType::Kind::F64);
         else elem_t = error_t();
         // Result type: struct LogosType with special name "WritArr".
-        return make_generic_struct("WritArr", {elem_t});
+        return make_synth_generic_struct("WritArr", {elem_t});
     }
     if (tc == la::WRIT_MAP_TYPE) {
         auto key_name = str_of(node.get(la::TYPE.code));
@@ -7924,14 +7924,14 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         else key_t = error_t();
         TypeRef val_t = nullptr;
         if (val_name == "AnyVal") {
-            val_t = make_struct_type("AnyVal");
+            val_t = make_synth_struct("AnyVal");
         } else {
             // C6-fix2: emit error for unsupported val type (previously silent error_t()).
             error(std::format("<{},{}>" "{{}} type: unsupported val type '{}'; "
                               "supported: AnyVal", key_name, val_name, val_name));
             return error_t();
         }
-        return make_generic_struct("WritMap", {key_t, val_t});
+        return make_synth_generic_struct("WritMap", {key_t, val_t});
     }
 
     if (tc == la::PACK_EXPAND) {

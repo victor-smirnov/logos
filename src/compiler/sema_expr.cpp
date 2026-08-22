@@ -3615,7 +3615,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             error("reify_type(t: Type) requires exactly one argument");
             return error_expr();
         }
-        auto type_t = make_struct_type("Type");
+        auto type_t = make_synth_struct("Type");
         std::vector<lir::LExprPtr> rargs;
         rargs.push_back(std::move(arg_exprs[0]));
         return builder().call("__reify_type__", {}, std::move(rargs), type_t);
@@ -3633,7 +3633,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             error("type_apply(name: &[u8], args: [Type; N]) requires exactly 2 arguments");
             return error_expr();
         }
-        auto type_t = make_struct_type("Type");
+        auto type_t = make_synth_struct("Type");
         std::vector<lir::LExprPtr> rargs;
         rargs.push_back(std::move(arg_exprs[0]));
         rargs.push_back(std::move(arg_exprs[1]));
@@ -3644,7 +3644,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             error("apply_generic(g: Type, args: [Type; N]) requires exactly 2 arguments");
             return error_expr();
         }
-        auto type_t = make_struct_type("Type");
+        auto type_t = make_synth_struct("Type");
         std::vector<lir::LExprPtr> rargs;
         rargs.push_back(std::move(arg_exprs[0]));
         rargs.push_back(std::move(arg_exprs[1]));
@@ -5269,7 +5269,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_generic_of(TinyMapView node) {
     };
     fnv_mix("generic:");
     fnv_mix(sname);
-    auto type_t = make_struct_type("Type");
+    auto type_t = make_synth_struct("Type");
     std::vector<std::pair<std::string, lir::LExprPtr>> f;
     f.emplace_back("kind", builder().lit_int(
         (int64_t)LogosType::Kind::Generic, prim(LogosType::Kind::U32)));
@@ -5581,7 +5581,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_reflect(TinyMapView node) {
                             std::string fqn = pkg.empty() ? tname : pkg + "::" + tname;
                             lir_mirror_map_put_null(*cur_prog_, cur_prog_->reflect_requests, fqn);
                         }
-                        auto hs_type = make_struct_type("WritStatic");
+                        auto hs_type = make_synth_struct("WritStatic");
                         // Synthesize a ZonedStruct type for EReflectOf codegen.
                         TypeRef gtp = make_datatype_type(tname, cur_package_);
                         return builder().reflect_of(gtp, hs_type);
@@ -5598,7 +5598,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_reflect(TinyMapView node) {
     TypeRef T = ts[0];
     if (TypeRef(T).kind() == LogosType::Kind::TypeVar) {
         // Inside a generic function — defer; mono will resolve and register.
-        auto hs_type = make_struct_type("WritStatic");
+        auto hs_type = make_synth_struct("WritStatic");
         return builder().reflect_of(T, hs_type);
     }
     if (TypeRef(T).kind() != LogosType::Kind::ZonedStruct || !TypeRef(T).type_args().empty()) {
@@ -5610,7 +5610,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_reflect(TinyMapView node) {
         std::string fqn = pkg.empty() ? std::string(TypeRef(T).struct_name()) : pkg + "::" + std::string(TypeRef(T).struct_name());
         lir_mirror_map_put_null(*cur_prog_, cur_prog_->reflect_requests, fqn);
     }
-    auto hs_type = make_struct_type("WritStatic");
+    auto hs_type = make_synth_struct("WritStatic");
     return builder().reflect_of(T, hs_type);
 }
 
@@ -5906,7 +5906,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         auto uid_call = builder().call("__type_uid_of__",
                                        std::move(ut_targs), {},
                                        prim(LogosType::Kind::U64));
-        auto type_t = make_struct_type("Type");
+        auto type_t = make_synth_struct("Type");
         std::vector<std::pair<std::string, lir::LExprPtr>> fields;
         fields.emplace_back("kind", std::move(kind_call));
         fields.emplace_back("name", std::move(name_call));
@@ -5934,7 +5934,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
             error("args_of::<T>() requires exactly one type argument");
             return error_expr();
         }
-        auto type_t = make_struct_type("Type");
+        auto type_t = make_synth_struct("Type");
         LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
         arr_b.elem = type_t;
         arr_b.arr_size = 0;  // mono retypes once T is concrete
@@ -6182,7 +6182,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
                                   std::move(targs), {}, prim(LogosType::Kind::I64));
         }
         if (callee == "typelist_head") {
-            auto type_t = make_struct_type("Type");
+            auto type_t = make_synth_struct("Type");
             return builder().call("__typelist_head__",
                                   std::move(targs), {}, type_t);
         }
@@ -6205,12 +6205,12 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
                 error("typelist_nth::<L>(i) requires exactly one i64 index argument");
                 return error_expr();
             }
-            auto type_t = make_struct_type("Type");
+            auto type_t = make_synth_struct("Type");
             return builder().call("__typelist_nth__",
                                   std::move(targs), std::move(rargs), type_t);
         }
         // typelist_tail
-        auto type_t = make_struct_type("Type");
+        auto type_t = make_synth_struct("Type");
         LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
         arr_b.elem = type_t;
         arr_b.arr_size = 0;  // mono retypes once L is concrete
@@ -6312,7 +6312,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
             error("tuple_elems_of::<T>() requires exactly one type argument");
             return error_expr();
         }
-        auto type_t = make_struct_type("Type");
+        auto type_t = make_synth_struct("Type");
         LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
         arr_b.elem = type_t;
         arr_b.arr_size = 0;
@@ -6365,7 +6365,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         }
         bool names = (callee == "field_names_of");
         TypeRef arr_elem_t = names ? make_slice_type(u8_t())
-                                   : make_struct_type("Type");
+                                   : make_synth_struct("Type");
         LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
         arr_b.elem = arr_elem_t;
         arr_b.arr_size = 0;  // mono retypes
@@ -6418,7 +6418,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         TypeRef arr_elem_t;
         if (callee == "variant_names_of")           arr_elem_t = make_slice_type(u8_t());
         else if (callee == "variant_payload_counts_of") arr_elem_t = prim(LogosType::Kind::I64);
-        else                                         arr_elem_t = make_struct_type("Type");
+        else                                         arr_elem_t = make_synth_struct("Type");
         LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
         arr_b.elem = arr_elem_t;
         arr_b.arr_size = 0;
@@ -6444,7 +6444,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
                     targs.push_back(resolve_type(map_of(items.get(i))));
             }
         }
-        auto type_t = make_struct_type("Type");
+        auto type_t = make_synth_struct("Type");
         LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
         arr_b.elem = type_t;
         arr_b.arr_size = 0;  // mono retypes once pack count is known
@@ -10160,8 +10160,8 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
     auto [spkg, ssi] = find_struct_by_name(sname);
     if (!ssi || !ssi->is_schema) return std::nullopt;
 
-    TypeRef wmap     = make_generic_struct("WMap", {make_struct_type("Wu6"),
-                                                    make_enum_type("WAny")});
+    TypeRef wmap     = make_synth_generic_struct("WMap", {make_synth_struct("Wu6"),
+                                                    make_synth_enum("WAny")});
     TypeRef wmap_cptr = make_ptr(false, wmap);
     TypeRef u8ptr     = make_ptr(true, u8_t());
     // ADR 0011 generics — for `make::<Box<i64>>()` the turbofish type `st` carries
@@ -10190,7 +10190,7 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
     // `method_call` on a `&WAny` (enum) receiver returns null in mlir-gen
     // (gen_recv_struct rejects enums) — same trap as the read-path accessors.
     auto resolve_wany = [&](lir::LExprPtr any_val) -> lir::LExprPtr {
-        TypeRef wany_ref = make_ref(false, make_enum_type("WAny"));
+        TypeRef wany_ref = make_ref(false, make_synth_enum("WAny"));
         TypeRef rt0 = expr_type(any_val);
         lir::LExprPtr any_ref = (rt0 && is_ref_like(TypeRef(rt0).kind()))
             ? std::move(any_val)
@@ -10212,7 +10212,7 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
             (rt && is_ref_like(TypeRef(rt).kind()))
                 ? std::move(recv)
                 : builder().addr_of_temp(std::move(recv), false,
-                                         make_ref(false, make_struct_type("Writ")));
+                                         make_ref(false, make_synth_struct("Writ")));
         int64_t cap = static_cast<int64_t>(ssi->schema_fields.size() < 1
                                            ? 1 : ssi->schema_fields.size());
         std::vector<lir::LExprPtr> margs;
@@ -10220,7 +10220,7 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
         margs.push_back(builder().lit_int(static_cast<int64_t>(inst_code),
                                           prim(LogosType::Kind::U64)));
         auto h = builder().method_call(std::move(wref), "make_schema_h", "", {},
-                                       std::move(margs), -1, make_struct_type("WSchemaH"));
+                                       std::move(margs), -1, make_synth_struct("WSchemaH"));
         builder().retype_expr(h, view_t);   // WSchemaH {m,z} → S {m,z} (identical layout)
         return h;
     }
@@ -10353,7 +10353,7 @@ lir::LExprPtr SemaChecker::schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ft
     // absolute address and reinterpret. (Pointers aren't WritField — no by-value
     // conversion.) WAny::resolve takes `&WAny`, so addr_of_temp the value first.
     if (k == K::Ptr || k == K::Ref || k == K::MutRef) {
-        TypeRef wany_ref = make_ref(false, make_enum_type("WAny"));
+        TypeRef wany_ref = make_ref(false, make_synth_enum("WAny"));
         auto any_ref = builder().addr_of_temp(std::move(anyval), false, wany_ref);
         std::string rsym = "WAny__resolve";
         for (auto* c : find_func_candidates("WAny__resolve"))
@@ -10738,9 +10738,9 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                 }
             }
             // m: *const WMap<Wu6,WAny>  (the real field) → reinterpret as &WMap to call get(&self).
-            TypeRef wmap  = make_generic_struct("WMap", {make_struct_type("Wu6"),
-                                                         make_enum_type("WAny")});
-            TypeRef wany  = make_enum_type("WAny");
+            TypeRef wmap  = make_synth_generic_struct("WMap", {make_synth_struct("Wu6"),
+                                                         make_synth_enum("WAny")});
+            TypeRef wany  = make_synth_enum("WAny");
             auto m_ptr    = builder().field_read(std::move(recv), "m", make_ptr(false, wmap));
             auto m_ref    = builder().cast(std::move(m_ptr), make_ref(false, wmap));
             auto key_lit  = builder().lit_int(static_cast<int64_t>(key), prim(LogosType::Kind::U8));
@@ -17555,7 +17555,7 @@ lir::LExprPtr SemaChecker::lower_writ_lit(TinyMapView node) {
             return error_expr();
         }
     } else {
-        result_type = make_struct_type("WritStatic");
+        result_type = make_synth_struct("WritStatic");
     }
     return builder().writ_lit_v(std::move(lit), result_type);
 }
@@ -17626,8 +17626,8 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                                        // nested `#(…)*` — Vec<Vec<Ident>>)
     };
     std::vector<Placeholder> placeholders;
-    TypeRef ident_t = make_struct_type("Ident");
-    TypeRef expr_blob_t = make_struct_type("ExprBlob");
+    TypeRef ident_t = make_synth_struct("Ident");
+    TypeRef expr_blob_t = make_synth_struct("ExprBlob");
     auto is_ident_type = [](TypeRef t) {
         return TypeRef(t).kind() == LogosType::Kind::Struct
             && is_ident(t);
@@ -18094,7 +18094,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
 
     lir::EWritLit lit;
     lit.static_blob.assign(data, data + used);
-    auto hs_t = make_struct_type("WritStatic");
+    auto hs_t = make_synth_struct("WritStatic");
     auto template_lit = builder().writ_lit_v(std::move(lit), hs_t);
 
     // ── Build block expr returning QuoteItemBlob ──────────────────────
@@ -18321,7 +18321,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     auto t_ptr  = builder().field_read(std::move(t_ref), "ptr", u8_ptr_t);
     auto t_size = builder().lit_int(static_cast<int64_t>(used), u64_ty);
 
-    auto qib_t = make_struct_type("QuoteItemBlob");
+    auto qib_t = make_synth_struct("QuoteItemBlob");
     std::vector<std::pair<std::string, lir::LExprPtr>> fields;
     fields.emplace_back("template_ptr",  std::move(t_ptr));
     fields.emplace_back("template_size", std::move(t_size));
@@ -18375,7 +18375,7 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
     }
     auto inner = map_of(node.get(la::TYPE.code));
     auto inner_code = code_of(inner);
-    auto type_t_h = make_struct_type("Type");
+    auto type_t_h = make_synth_struct("Type");
     auto make_arg_producer = [&](TinyMapView item) -> lir::LExprPtr {
         auto ic = code_of(item);
         if (ic == la::ANTIQUOT_TYPE.code) {
@@ -18478,7 +18478,7 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
             auto pk_node = map_of(items_pk.get(0));
             auto vname = std::string(str_of(pk_node.get(la::NAME.code)));
             auto name = std::string(str_of(inner.get(la::NAME.code)));
-            auto type_t = make_struct_type("Type");
+            auto type_t = make_synth_struct("Type");
             LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
             ab.elem = type_t; ab.arr_size = 0;
             TypeRef arr_t = pool_->alloc(std::move(ab));
@@ -18509,7 +18509,7 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
         }
         if (has_antiquot) {
             auto name = std::string(str_of(inner.get(la::NAME.code)));
-            auto type_t = make_struct_type("Type");
+            auto type_t = make_synth_struct("Type");
             std::vector<lir::LExprPtr> elems;
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto item = map_of(items.get(i));
@@ -18576,7 +18576,7 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
     auto uid_call = builder().call("__type_uid_of__",
                                    std::move(ut_targs), {},
                                    prim(LogosType::Kind::U64));
-    auto type_t = make_struct_type("Type");
+    auto type_t = make_synth_struct("Type");
     std::vector<std::pair<std::string, lir::LExprPtr>> fields;
     fields.emplace_back("kind", std::move(kind_call));
     fields.emplace_back("name", std::move(name_call));
@@ -18663,7 +18663,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         uint64_t cursor_count;   // 1 scalar, N for [Ident; N], 0 for Vec<Ident>
     };
     std::vector<ExprPlaceholder> placeholders;
-    TypeRef ident_t = make_struct_type("Ident");
+    TypeRef ident_t = make_synth_struct("Ident");
     auto is_ident_type = [](TypeRef t) {
         return TypeRef(t).kind() == LogosType::Kind::Struct
             && is_ident(t);
@@ -18978,7 +18978,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     const uint8_t* data = packed_arena.head().data();
     size_t used = packed_arena.total_used();
 
-    auto eb_t = make_struct_type("ExprBlob");
+    auto eb_t = make_synth_struct("ExprBlob");
 
     if (N == 0) {
         // Simple path: no antiquot. Emit static rodata + ExprBlob{ptr}.
@@ -18999,7 +18999,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     // For scalar Ident the ptr is `&v` (cast from &Ident to *const Ident),
     // count=1. For cursor `[Ident; M]`, ptr is `&v[0]` (cast from
     // *const [Ident; M] to *const Ident), count=M.
-    auto hs_t = make_struct_type("WritStatic");
+    auto hs_t = make_synth_struct("WritStatic");
     lir::EWritLit lit;
     lit.static_blob.assign(data, data + used);
     auto template_lit = builder().writ_lit_v(std::move(lit), hs_t);
@@ -19031,7 +19031,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     TypeRef u8_ptr_t        = make_ptr(false, u8_t());
     TypeRef ident_ptr_t     = make_ptr(false, ident_t);
     TypeRef u64_ty          = prim(LogosType::Kind::U64);
-    auto span_t             = make_struct_type("IdentSpan");
+    auto span_t             = make_synth_struct("IdentSpan");
     TypeRef span_ptr_t      = make_ptr(false, span_t);
 
     // Both scalar Ident vars and `[Ident; M]` cursor vars are passed to
@@ -19046,7 +19046,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     std::vector<lir::LExprPtr> elems;
     elems.reserve(N);
     int span_tmp_idx = 0;
-    auto eb_struct_t = make_struct_type("ExprBlob");
+    auto eb_struct_t = make_synth_struct("ExprBlob");
     for (auto& ph : placeholders) {
         lir::LExprPtr ptr_v = nullptr;
         uint64_t kind = 0;
@@ -19243,7 +19243,7 @@ lir::LExprPtr SemaChecker::lower_writ_blob(TinyMapView node) {
     // Fallback: opaque WritStatic data blob.
     lir::EWritLit lit;
     lit.static_blob.assign(bytes.data(), bytes.size());
-    auto result_type = make_struct_type("WritStatic");
+    auto result_type = make_synth_struct("WritStatic");
     return builder().writ_lit_v(std::move(lit), result_type);
 }
 
@@ -19786,7 +19786,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         // even when the callee returns Writ (mutable) — auto-freeze copies
         // bytes into a static blob, so user code consumes WritStatic.
         if (rt_is_writ && lowered) {
-            builder().retype_expr(lowered, make_struct_type("WritStatic"));
+            builder().retype_expr(lowered, make_synth_struct("WritStatic"));
         }
     }
 

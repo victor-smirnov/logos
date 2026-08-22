@@ -447,9 +447,21 @@ PIN = {
     # all — the defect is a wrong ANSWER, not a missing refusal — so the fail
     # corpus is unmoved too. DOOR counts unmoved (36 = 10 + 26): neither file
     # declares a container family or a `direct` output form.
-    'corpus'            : 2256,
+    # 2026-08-22 (task #102 — a compiler-SYNTHESISED type could be handed the
+    # USER's package by `resolve_struct_pkg_`'s bare-name lookup, whose first
+    # tier is the module under compilation; a user `struct WritStatic` was
+    # admitted and the binary exited 2): +4/+2/+4 — two homonym/control PAIRS in
+    # pass (`synth_pkg_type_homonym`, `synth_pkg_identspan_quote`) and one in
+    # fail (`synth_pkg_writstatic_homonym`), the fail pair being the refusal the
+    # round's headline repro now gets instead of a silent wrong answer.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 4 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2260
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2260 = 191 + 2069. DOOR counts unmoved (36 = 10 + 26):
+    # none of the six declares a container family or a `direct` output form.
+    'corpus'            : 2260,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2065,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2069,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

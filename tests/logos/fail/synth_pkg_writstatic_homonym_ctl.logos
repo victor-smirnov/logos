@@ -1,0 +1,13 @@
+// CONTROL for `synth_pkg_writstatic_homonym.logos`: the same four lines under
+// the collision-free name `ZqNonce9`, which is in no compiler table and is
+// therefore never synthesised. It refuses for the ordinary reason — a writ
+// literal is a `logos.lang.writ.wstatic.WritStatic` and this const is declared
+// as something else — and its diagnostic names `ZqNonce9` on the LEFT.
+//
+// Without this file the homonym's refusal would also be produced by a compiler
+// that had simply broken every `@{...}` const initializer; with it, the pair
+// says the refusal is about the NAME.
+package k_ZqNonce9;
+struct ZqNonce9 { pub zz: i64 }
+pub const SHAPE: ZqNonce9 = @{"x": 1};
+unsafe fn main() -> i32 { let s: ZqNonce9 = SHAPE; if s.zz != 0i64 { return 2; } return 0; }

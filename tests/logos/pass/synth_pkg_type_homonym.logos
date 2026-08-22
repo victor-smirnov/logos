@@ -1,0 +1,51 @@
+// A USER STRUCT NAMED `Type` DOES NOT DISPLACE THE METAPROG REFLECTION TYPE.
+//
+// `Type` is the metaprog reflection record — declared in
+// stdlib/mem/compiler/metaprog/ast.logos, whose `package` line is
+// `logos.std.compiler.metaprog` — and the compiler synthesises one at SEVENTEEN
+// sites in sema_expr.cpp, more than any other internal name. Before task #102
+// those sites called `make_struct_type("Type")` with no package, and
+// `resolve_struct_pkg_` filled one in by BARE name through `lookup_qualified_`,
+// whose first tier is the package of the module being compiled. So inside this
+// module the compiler's own reflection record became `t.Type` — the one-field
+// user struct below — and `type_of::<i64>().size` was refused outright:
+//
+//     field read: struct 'Type' has no field 'size'
+//
+// (over-refusal; for `WritStatic` the same mechanism ran the other way and
+// silently miscompiled — see tests/logos/fail/synth_pkg_writstatic_homonym).
+//
+// WHAT IS ASSERTED. Not an exit code: `mlir_gen:` diagnostics do not fail a
+// compile (task #103), so a fixture that only checks rc proves nothing in this
+// class. `sz=8` is the OBSERVABLE — the reflected byte size of `i64`, produced
+// by the synthesised metaprog `Type` — and `k=4294967296` is the user struct's
+// own i64 field, which is 1<<32 precisely so that its whole content lives above
+// the low 32 bits and a narrowed slot cannot fake it.
+//
+// THE PAIR: `synth_pkg_type_homonym_ctl.logos` is this same program under the
+// collision-free name `ZqType9`, which is in no compiler table.
+//
+// ⚠ THE `use logos.std.compiler.metaprog;` LINE IS LOAD-BEARING, and putting it
+// there is what makes the pair a pair. WITHOUT it, MEASURED on a compiler with
+// only the seventeen `Type` sites reverted (full 53-target rebuild, so the
+// stdlib archives match the compiler under test), BOTH halves refuse with
+// `field read: struct 'Type' has no field 'size'` — because with `Type` invisible
+// `resolve_struct_pkg_` returned EMPTY for everyone, so the control failed
+// identically and proved nothing. WITH the import, the same reverted compiler
+// refuses the homonym and ACCEPTS `ZqType9` — the difference is the name, which
+// is the whole claim. (That the no-import spelling now works too is a second,
+// unrelated over-refusal this fix closes; it is not what this file asserts.)
+
+package t;
+use logos.std.fmt;
+use logos.std.compiler.metaprog;
+
+struct Type { pub k: i64 }
+
+fn main() -> i32 {
+    let u: Type = Type { k: 4294967296i64 };
+    let ti = type_of::<i64>();
+    println!("k={} sz={}", u.k, ti.size);
+    if u.k == 4294967296i64 { return 20i32; }
+    return 1i32;
+}

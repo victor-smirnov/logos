@@ -4821,9 +4821,9 @@ void SemaChecker::collect_schema(TinyMapView node) {
     // z = arena allocator (for boxing wide values on write; null for read-only
     // views bound from an erased WAny). Together a 16-byte fat view.
     {
-        TypeRef wu6  = make_struct_type("Wu6");
-        TypeRef wany = make_enum_type("WAny");
-        TypeRef wmap = make_generic_struct("WMap", {wu6, wany});
+        TypeRef wu6  = make_synth_struct("Wu6");
+        TypeRef wany = make_synth_enum("WAny");
+        TypeRef wmap = make_synth_generic_struct("WMap", {wu6, wany});
         info.fields.push_back({std::string_view{"m"}, make_ptr(/*mut=*/false, wmap),
                                /*is_pub=*/false, /*is_variadic=*/false, {}});
         info.fields.push_back({std::string_view{"z"}, make_ptr(/*mut=*/true, prim(LogosType::Kind::U8)),
@@ -4913,8 +4913,8 @@ void SemaChecker::collect_schema_enum(TinyMapView node) {
 
     // Real fields {m, z} — same layout as a schema view (TOM ptr + allocator).
     info.fields.push_back({std::string_view{"m"},
-        make_ptr(false, make_generic_struct("WMap", {make_struct_type("Wu6"),
-                                                     make_enum_type("WAny")})),
+        make_ptr(false, make_synth_generic_struct("WMap", {make_synth_struct("Wu6"),
+                                                     make_synth_enum("WAny")})),
         false, false, {}});
     info.fields.push_back({std::string_view{"z"}, make_ptr(true, prim(LogosType::Kind::U8)),
         false, false, {}});

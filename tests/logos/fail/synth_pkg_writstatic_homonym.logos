@@ -1,0 +1,41 @@
+// A USER STRUCT NAMED `WritStatic` IS NOT THE COMPILER'S WRIT BLOB.
+//
+// THE DEFECT (task #102, the root under #99). The compiler synthesises its own
+// internal types with NO package and let `make_struct_type` fill one in from
+// `resolve_struct_pkg_`, which resolves a BARE name through `lookup_qualified_`
+// — whose FIRST tier is `sema_key(cur_package_, name)`, the package of the
+// MODULE BEING COMPILED, ahead of every import. So inside a module that happens
+// to declare a homonym, the compiler's OWN `WritStatic` was handed the USER's
+// package and BECAME the user's struct. `types_compatible` then correctly found
+// the two equal — it does compare `pkg_name` — and this exact program
+//
+//   * compiled rc 0, with only `mlir_gen: struct 'k_WritStatic.WritStatic' has
+//     no field 'ptr' (in fn main)` on stderr — and a `mlir_gen:` line does NOT
+//     fail the compile (task #103): logosc wrote the object and exited 0,
+//   * linked, and the binary EXITED 2: `s.zz` read as nonzero out of a writ
+//     blob's `ptr` slot.
+//
+// So an exit code is not the assertion here and neither is rc: what pins this
+// is the REFUSAL, and the refusal must name BOTH packages — the whole content
+// of the fix is that the two identities stop being one.
+//
+// FIXED by `synth_owner_pkg_` + the `make_synth_*` constructors: a compiler-
+// synthesised type's package comes from a fixed NAME→OWNER table and can no
+// longer come from the module under compilation. `WritStatic` is declared in
+// stdlib/lang/writ/wstatic.logos, whose `package` line is
+// `logos.lang.writ.wstatic` — read from the package LINE, never the directory.
+//
+// THE PAIR: `synth_pkg_writstatic_homonym_ctl.logos` is this same program under
+// the collision-free name `ZqNonce9`, which is in no compiler table; it refuses
+// too, and its diagnostic names `ZqNonce9` on the left. Alone this file would
+// also pass on a compiler that had simply broken `@{...}` consts for everyone.
+//
+// CONTROL, measured: with `synth_owner_pkg_("WritStatic")` set to a nonce
+// package the diagnostic's RIGHT side follows it verbatim
+// (`got zz.nonce.wstatic.WritStatic`), and the 53-target stdlib build reds at
+// stdlib/mem/any/any.logos:48 and stdlib/mem/bt/storecfg.logos:523 — so this
+// site fires, and the table value is what reaches the comparison.
+package k_WritStatic;
+struct WritStatic { pub zz: i64 }
+pub const SHAPE: WritStatic = @{"x": 1};
+unsafe fn main() -> i32 { let s: WritStatic = SHAPE; if s.zz != 0i64 { return 2; } return 0; }

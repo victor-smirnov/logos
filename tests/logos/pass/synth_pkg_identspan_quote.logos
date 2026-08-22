@@ -1,0 +1,45 @@
+// A HOMONYM OF A NAME THE USER NEVER WRITES.
+//
+// `IdentSpan` is declared in stdlib/mem/compiler/metaprog/emitter.logos
+// (`package logos.std.compiler.metaprog`) and the compiler synthesises one
+// inside `lower_quote_expr` — nothing in the program below mentions it. That is
+// what makes this cell the nastiest shape of task #102: before the fix,
+// `make_struct_type("IdentSpan")` resolved the package by BARE name against the
+// module under compilation, so the compiler's own span record became `t.IdentSpan`
+// — the one-field struct declared here — and the quote lowering then walked off
+// it. MEASURED on the pre-fix compiler, on this exact shape:
+//
+//     mlir_gen: struct 'k_qIdentSpan.IdentSpan' has no field 'ptr'
+//     let __qei_2 initializer produced no value — statement DROPPED
+//     return value lowered to no value … the RETURN was silently discarded
+//
+// The user is handed a malfunction inside a name they did not write, in a
+// program whose only sin is declaring a two-word struct.
+//
+// ASSERTED: exit 42 = 37 (the antiquoted `#foo` → `y`, substituted through the
+// quote runtime, which is the path that consumes the synthesised IdentSpan) + 5
+// (the user's own `IdentSpan.k`). Both halves must survive; either binding
+// going to the wrong package moves the sum.
+//
+// THE PAIR: `synth_pkg_identspan_quote_ctl.logos` — the same program under
+// `ZqSpan9`, a name in no compiler table. Base shape borrowed from
+// `quote_expr_antiquot.logos`, which is the same program with no extra struct.
+package t;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+struct IdentSpan { pub k: i64 }
+
+fn build_expr() -> ExprBlob {
+    let s: str = "y";
+    let foo: Ident = Ident::new(s);
+    return quote_expr! { #foo };
+}
+
+unsafe fn main() -> i32 {
+    let u: IdentSpan = IdentSpan { k: 5i64 };
+    let y: i64 = 37;
+    let x: i64 = metacall build_expr();
+    return (x + u.k) as i32;
+}

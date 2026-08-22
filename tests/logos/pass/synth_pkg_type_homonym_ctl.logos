@@ -1,0 +1,18 @@
+// CONTROL for `synth_pkg_type_homonym.logos`: the same program under the
+// collision-free name `ZqType9`, which is in no compiler table and is therefore
+// never synthesised. Same observable, same exit. Without it, the homonym file's
+// green would also be produced by a compiler on which `type_of::<i64>().size`
+// simply answered 8 for everyone regardless of what the module declares.
+package t;
+use logos.std.fmt;
+use logos.std.compiler.metaprog;
+
+struct ZqType9 { pub k: i64 }
+
+fn main() -> i32 {
+    let u: ZqType9 = ZqType9 { k: 4294967296i64 };
+    let ti = type_of::<i64>();
+    println!("k={} sz={}", u.k, ti.size);
+    if u.k == 4294967296i64 { return 20i32; }
+    return 1i32;
+}

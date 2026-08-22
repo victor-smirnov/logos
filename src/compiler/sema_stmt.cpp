@@ -7555,7 +7555,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
     // seam). `z` (the view-carried arena allocator) is passed for boxing; inline
     // conversions ignore it. A dynamic `WAny` field stores the value verbatim.
     using K = LogosType::Kind;
-    TypeRef wany = make_enum_type("WAny");
+    TypeRef wany = make_synth_enum("WAny");
     lir::LExprPtr wany_val;
     if (TypeRef(ftype).kind() == K::Enum && TypeRef(ftype).enum_name() == "WAny") {
         wany_val = std::move(val);
@@ -7581,7 +7581,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
                     sym = c->symbol_name.empty() ? base : c->symbol_name; break;
                 }
         }
-        TypeRef alloc_ptr = make_ptr(true, make_struct_type("Allocator"));
+        TypeRef alloc_ptr = make_ptr(true, make_synth_struct("Allocator"));
         auto z_raw = builder().field_read(builder().var_ref(recv_name, rt), "z",
                                           make_ptr(true, u8_t()));
         auto z = builder().cast(std::move(z_raw), alloc_ptr);
@@ -7598,7 +7598,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
     }
 
     // (&mut * p.m).set(key, wany).  m is *const WMap<Wu6,WAny>; reinterpret to &mut.
-    TypeRef wmap = make_generic_struct("WMap", {make_struct_type("Wu6"), make_enum_type("WAny")});
+    TypeRef wmap = make_synth_generic_struct("WMap", {make_synth_struct("Wu6"), make_synth_enum("WAny")});
     auto recv_expr = builder().var_ref(recv_name, rt);
     auto m_ptr = builder().field_read(std::move(recv_expr), "m", make_ptr(false, wmap));
     auto m_mut = builder().cast(std::move(m_ptr), make_ref(true, wmap));
@@ -8604,8 +8604,8 @@ lir_view::StmtRef SemaChecker::lower_schema_enum_match(TinyMapView node,
                                                        lir::LExprPtr scrut,
                                                        TypeRef scrut_type) {
     auto [epkg, esi] = find_struct_by_name(std::string(TypeRef(scrut_type).struct_name()));
-    TypeRef wmap      = make_generic_struct("WMap", {make_struct_type("Wu6"),
-                                                     make_enum_type("WAny")});
+    TypeRef wmap      = make_synth_generic_struct("WMap", {make_synth_struct("Wu6"),
+                                                     make_synth_enum("WAny")});
     TypeRef wmap_cptr = make_ptr(false, wmap);
     TypeRef u64t      = prim(LogosType::Kind::U64);
 
@@ -8917,7 +8917,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             auto root_cands = find_func_candidates(root_helper);
             const SemaFuncInfo* root_fi = nullptr;
             for (auto* c : root_cands) if (c->param_types.size() == 1) { root_fi = c; break; }
-            anyval_t = root_fi ? root_fi->ret_type : make_datatype_type("AnyVal");
+            anyval_t = root_fi ? root_fi->ret_type : make_synth_datatype("AnyVal");
             if (!root_fi)
                 error("match with Writ patterns requires `use logos.lang.writ.pat;`");
         }
@@ -9573,7 +9573,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             sl.value = std::move(scrut);
             hoist_let_view = make_stmt_emit(node_line_, std::move(sl));
         }
-        anyval_t = make_datatype_type("AnyVal");
+        anyval_t = make_synth_datatype("AnyVal");
         root_var = "__hmatche_root_" + std::to_string(tmp_var_count_++);
         {
             auto view_ref = builder().var_ref(view_var, scrut_type);

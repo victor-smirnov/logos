@@ -290,6 +290,97 @@ private:
         if (ei) return epkg;
         return {};
     }
+    // ── Compiler-SYNTHESISED types: the package is FIXED, never resolved ──────
+    // task #102, the root under #99. resolve_struct_pkg_/resolve_enum_pkg_ go
+    // through lookup_qualified_, whose FIRST tier is sema_key(cur_package_,name)
+    // — the package of the MODULE BEING COMPILED, ahead of every import. So when
+    // the compiler synthesised one of ITS OWN internal types inside a module
+    // that happened to declare a homonym, the synthesised type was handed the
+    // USER's package and BECAME the user's type: types_compatible then correctly
+    // found the two equal (it does compare pkg_name) and the wrong lowering
+    // followed with NO diagnostic — measured, a 4-line `struct WritStatic` +
+    // `pub const SHAPE: WritStatic = @{...}` compiled rc 0 and ran to exit 2.
+    //
+    // The synth_* constructors below consult THIS table and never the
+    // declaration tables, so the fallback to a user package is IMPOSSIBLE rather
+    // than unlikely. The owner package is read from each declaration's `package`
+    // LINE, never from its directory (the #99 brief got five of nine wrong that
+    // way). A name ABSENT from the table is compiler-owned and its package is
+    // EMPTY — which is exactly what is_anyval's `pkg.empty()` discriminator
+    // already assumes and, before this, could not enforce: `AnyVal`, `WritArr`
+    // and `WritMap` are declared in no .logos anywhere.
+    //
+    // ⚠ `Ident` is declared TWICE — stdlib/mem/compiler/tokens/tokens.logos
+    // (logos.std.compiler.tokens) and stdlib/mem/compiler/metaprog/ast.logos
+    // (logos.std.compiler.metaprog). Both live synthesis sites are the QUOTE
+    // path, whose `IdentSpan.ptr` is declared `*const Ident` in metaprog's
+    // emitter.logos, so metaprog is the one they mean. The two layouts are
+    // byte-identical today (tokens.logos says so in a comment); that
+    // coincidence is NOT the reason for the choice and must not become one.
+    //
+    // ⚠ AN EARLIER DRAFT OF THIS COMMENT SAID "a module importing both measured
+    // green either way". THAT WAS FALSE, and it is corrected here rather than
+    // softened: one import ORDER was measured and the result generalised to
+    // both. Measured properly (task #105), the orders differ —
+    //   `use logos.std.compiler.tokens;` BEFORE `use …metaprog;`  -> rc 1,
+    //       `quote_expr!: '#foo' — expected Ident or ExprBlob`
+    //   metaprog first, or tokens absent                          -> rc 0, and
+    //       the antiquoted value flows (run exit 37)
+    // The metaprog choice below is still the right one and is unaffected. What
+    // is affected is the claim: a fact asserted in a comment that the tree
+    // contradicts is worse than no comment, because the next reader spends the
+    // measurement it saved them and then some.
+    static std::string_view synth_owner_pkg_(std::string_view name) {
+        struct SynthOwner { std::string_view name, pkg; };
+        // Not a bare-name lookup KEY: the name here is a compile-time literal
+        // written by the compiler at the synthesis site, and the value is the
+        // qualification. This table is what makes those sites qualified.
+        static constexpr SynthOwner tbl[] = {
+            // stdlib/mem/compiler/metaprog/ast.logos, emitter.logos
+            {"Type",          "logos.std.compiler.metaprog"},
+            {"ExprBlob",      "logos.std.compiler.metaprog"},
+            {"Ident",         "logos.std.compiler.metaprog"},
+            {"QuoteItemBlob", "logos.std.compiler.metaprog"},
+            {"IdentSpan",     "logos.std.compiler.metaprog"},
+            // stdlib/lang/writ/*
+            {"WritStatic",    "logos.lang.writ.wstatic"},
+            {"Wu6",           "logos.lang.writ.wmap"},
+            {"WSchemaH",      "logos.lang.writ.wmap"},
+            {"WMap",          "logos.lang.writ.wmap"},
+            {"WAny",          "logos.lang.writ.anyval"},
+            {"Writ",          "logos.lang.writ.container"},
+            {"Allocator",     "logos.lang.writ.allocator"},
+            // compiler-owned, declared nowhere: AnyVal, WritArr, WritMap —
+            // deliberately ABSENT, so they get the empty package.
+        };
+        for (const auto& e : tbl) if (e.name == name) return e.pkg;
+        return {};
+    }
+    TypeRef make_synth_struct(std::string_view name) {
+        LogosTypeBuilder t; t.kind = LogosType::Kind::Struct; t.struct_name = name;
+        t.pkg_name = std::string(synth_owner_pkg_(name));
+        return pool_->alloc(std::move(t));
+    }
+    TypeRef make_synth_datatype(std::string_view name) {
+        LogosTypeBuilder t; t.kind = LogosType::Kind::ZonedStruct; t.struct_name = std::string(name);
+        t.pkg_name = std::string(synth_owner_pkg_(name));
+        return pool_->alloc(std::move(t));
+    }
+    TypeRef make_synth_enum(std::string_view name) {
+        LogosTypeBuilder t; t.kind = LogosType::Kind::Enum; t.enum_name = name;
+        t.pkg_name = std::string(synth_owner_pkg_(name));
+        return pool_->alloc(std::move(t));
+    }
+    TypeRef make_synth_generic_struct(std::string_view name,
+                                      std::vector<TypeRef> args,
+                                      std::vector<std::string> lt_args = {}) {
+        LogosTypeBuilder t; t.kind = LogosType::Kind::Struct;
+        t.struct_name   = std::string(name);
+        t.type_args     = std::move(args);
+        t.lifetime_args = std::move(lt_args);
+        t.pkg_name = std::string(synth_owner_pkg_(name));
+        return pool_->alloc(std::move(t));
+    }
     TypeRef make_struct_type(std::string_view name, std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Struct; t.struct_name = name;
         if (!pkg.empty()) t.pkg_name = std::string(pkg);

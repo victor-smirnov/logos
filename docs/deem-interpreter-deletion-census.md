@@ -3085,9 +3085,90 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7446
-REGISTRY-NOIMPORTED  3763
+REGISTRY-ALL         7452
+REGISTRY-NOIMPORTED  3769
 REGISTRY-TIERCOMMIT  44
+# 2026-08-22 (#102 — A COMPILER-SYNTHESISED TYPE CAN NO LONGER BE HANDED THE
+# USER'S PACKAGE. Root under #99. `make_struct_type(name, pkg={})` and its three
+# siblings filled an omitted package from `resolve_struct_pkg_`, which resolves a
+# BARE name through `lookup_qualified_` — whose FIRST tier is
+# `sema_key(cur_package_, name)`, the module being compiled, ahead of every
+# import. So the compiler's own internal type, synthesised inside a module that
+# declares a homonym, BECAME the user's type; `types_compatible` then correctly
+# found them equal (it does compare pkg_name) and the wrong lowering followed
+# with no diagnostic.
+#
+# LANDED: `synth_owner_pkg_` — a fixed NAME -> OWNER-PACKAGE table — plus
+# `make_synth_struct` / `make_synth_datatype` / `make_synth_enum` /
+# `make_synth_generic_struct`, which consult ONLY that table and never the
+# declaration tables. A name ABSENT from the table is compiler-owned and gets the
+# EMPTY package, which is what `is_anyval`'s `pkg.empty()` discriminator already
+# assumed and could not enforce (`AnyVal`, `WritArr`, `WritMap` are declared in
+# no .logos anywhere). Owners read from each declaration's `package` LINE, never
+# its directory; all twelve table values match the packages #99's nine qualified
+# predicates already demand, which is an independent derivation of the same map.
+#
+# POPULATION, re-derived (the #99 brief's "40 sites / 11 names" is wrong in both
+# directions): 46 grep hits, TWO of them inside COMMENTS (sema_impl.hpp:1785 and
+# :1869 — the latter is #99's own "(no make_struct_type(\"DataRef\") site)", so
+# `DataRef` has ZERO live sites), leaving 44 live over 11 names — Type 17,
+# WritStatic 8, Wu6 6, AnyVal 3, ExprBlob 3, Ident 2, and WSchemaH / Writ /
+# QuoteItemBlob / IdentSpan / Allocator 1 each. All 44 converted, ONE NAME PER
+# STEP, each with a full 53-target rebuild (rc 0) and a targeted red list; `Type`
+# landed alone. Beyond the brief's scope, the identical three lines in
+# `make_enum_type` (WAny, 10 sites) and the 4th-parameter generic constructors
+# (WMap 6, WritArr 1, WritMap 1) were converted too — Wu6 is only ever a type
+# ARGUMENT of WMap<Wu6,WAny>, so converting it alone would have left the cluster
+# half-qualified. 62 synth calls now; the grep for package-less sites returns
+# only the two comments.
+#
+# NOT CONVERTED, and why — `Vec` 7 + `HashMap` 1 (make_generic_struct, 4th param
+# omitted) are a DIFFERENT CELL: those sites do not name a compiler-internal
+# type, they invent a type for a USER value (a var_ref/field_read against
+# `ph.var_name`, or a comprehension whose guard `find_struct_by_name("Vec")`
+# already resolved a package and then DISCARDED it). The repair there is to carry
+# the resolution, not to pin a package — pinning would silently change which
+# `Vec` a list comprehension uses in a module that declares its own, and
+# tests/logos/pass/vec_usage.logos declares exactly that and is green. Same for
+# the one open-coded copy of the three lines outside all five constructors,
+# sema_expr.cpp:11597 in the struct-literal lowering, where `sname` is
+# user-written and the resolution is the correct one. Filed with #98/#100.
+#
+# CONTROLS, each a full rebuild so the stdlib archives match the compiler under
+# test (a revert measured against prebuilt archives proves nothing):
+#   * `synth_owner_pkg_("WritStatic")` -> a nonce package: the diagnostic's right
+#     side follows it verbatim, and the 53-target build REDS at
+#     stdlib/mem/any/any.logos:48 and stdlib/mem/bt/storecfg.logos:523. The site
+#     fires and the table value is what reaches the comparison.
+#   * `WritStatic` sites reverted: fail/synth_pkg_writstatic_homonym REDS, its
+#     _ctl stays green.
+#   * `Type`'s 17 sites reverted: pass/synth_pkg_type_homonym REDS
+#     (`field read: struct 'Type' has no field 'size'`), _ctl green.
+#   * `IdentSpan` reverted: pass/synth_pkg_identspan_quote REDS with exactly the
+#     censused malfunction (`mlir_gen: struct 't.IdentSpan' has no field 'ptr'`
+#     -> `let __qei_2 initializer produced no value - statement DROPPED`), _ctl
+#     green.
+#   * `WSchemaH` / `Writ` / `Allocator` -> nonce packages: build rc 0 and 1203
+#     targeted tests green. Their package is UNOBSERVED on every path the tree
+#     exercises. Converted anyway (the table is the point), but recorded as
+#     UNPROVEN-FIRING rather than claimed inert.
+#
+# +6 fixtures (4 pass, 2 fail), all with `_ctl` twins under names in no compiler
+# table, all asserting an observable VALUE and not an exit code — a `mlir_gen:`
+# line does not fail a compile (#103), so rc alone proves nothing in this class:
+#   tests/logos/fail/synth_pkg_writstatic_homonym.logos       (+_ctl)
+#   tests/logos/pass/synth_pkg_type_homonym.logos             (+_ctl)
+#   tests/logos/pass/synth_pkg_identspan_quote.logos          (+_ctl)
+# PREDICTED 7452 / 3769 / 44 BEFORE reconfiguring (+4 pass, +2 fail, none
+# declaring tier_commit); MEASURED 7452 / 3769 / 44 by `ctest -N`.
+#
+# RESIDUAL, measured, NOT closed here: a `struct QuoteItemBlob` homonym over the
+# quote_item path still fails (`'logos_lang…mem$dealloc__f__pmut_u8' does not
+# reference a valid function` -> `mlir_gen: module verification failed`) while
+# its `ZqQib9` control compiles. It failed before this round too (with a
+# different diagnostic), so it is not a regression; the residual binding is not
+# in the synthesis constructor. No fixture pins it — a green test asserting a
+# defect is worse than none.
 # 2026-08-22 (#99 POST-VERIFY — the round's own adversarial verify REFUTED its
 # partition, and this is what was done about it before committing.
 #

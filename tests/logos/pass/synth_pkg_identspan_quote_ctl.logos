@@ -1,0 +1,24 @@
+// CONTROL for `synth_pkg_identspan_quote.logos`: the same program under the
+// collision-free name `ZqSpan9`, which is in no compiler table and is never
+// synthesised. Same exit 42. Without it the homonym file's green would also be
+// produced by a compiler on which the antiquot path simply worked for everyone
+// — the pair is what says the malfunction was about the NAME.
+package t;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+struct ZqSpan9 { pub k: i64 }
+
+fn build_expr() -> ExprBlob {
+    let s: str = "y";
+    let foo: Ident = Ident::new(s);
+    return quote_expr! { #foo };
+}
+
+unsafe fn main() -> i32 {
+    let u: ZqSpan9 = ZqSpan9 { k: 5i64 };
+    let y: i64 = 37;
+    let x: i64 = metacall build_expr();
+    return (x + u.k) as i32;
+}
