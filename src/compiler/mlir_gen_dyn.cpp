@@ -1903,6 +1903,14 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         switch (tv.kind()) {
         case LogosType::Kind::Struct:
         case LogosType::Kind::ZonedStruct: {
+            // KEY-IDENTITY: OPEN #98 — bare `concrete_struct_name(tv)` with the
+            // TypeRef (carrying pkg) in hand, and NO qualified probe ahead of
+            // it. This is the #60 class residual: the bare slot in
+            // struct_types_ is register_struct's first-registered-wins alias,
+            // so a user struct sharing an imported name gets the FOREIGN
+            // aggregate's field layout for an owned closure capture. Not
+            // measured this round — censused, not classified. The conversion is
+            // `find_struct_it(tv)`, which probes mlir_struct_key first.
             auto sit = struct_types_.find(concrete_struct_name(tv));
             if (sit != struct_types_.end()) return sit->second.llvm_type;
             return logos_to_mlir(ct);

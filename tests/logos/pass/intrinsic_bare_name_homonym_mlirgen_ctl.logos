@@ -1,0 +1,16 @@
+// CONTROL for intrinsic_bare_name_homonym_mlirgen.logos — the SAME program
+// under a collision-free name. `my_atomic_load32` is in no intrinsic table, so
+// this file was green before the conversion and after it.
+package test;
+use logos.std.fmt;
+
+fn my_atomic_load32(p: *const i32) -> i32 { return 77i32; }
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let p: *const i32 = &x as *const i32;
+    let r: i32 = unsafe { my_atomic_load32(p) };
+    println!("my_atomic_load32 -> {}", r);
+    if r == 77i32 { return 42i32; }
+    return 1i32;
+}

@@ -139,6 +139,8 @@ bool SemaChecker::is_auto_trait_satisfied(
 
     // ── TypeVar: satisfied if bound list includes the trait ─────────────────
     case Kind::TypeVar: {
+        // KEY-IDENTITY: a TYPE-PARAMETER name, scoped to the signature being
+        // checked — see SemaChecker::normalize_assoc_eq for the full ground.
         auto it = current_type_bounds_.find(std::string(tv.type_var_name()));
         if (it != current_type_bounds_.end()) {
             for (auto& b : it->second)
@@ -271,6 +273,13 @@ bool SemaChecker::is_auto_trait_satisfied(
     //    (e.g. a bare `dyn Fn` annotation) is conservative `false` — like
     //    Rust's `dyn Fn()` without an explicit `+ Send`.
     case Kind::Closure: {
+        // KEY-IDENTITY: keyed by the closure SIGNATURE, and that is the intent
+        // HERE, unlike closure_kind_ (#90). The Send/Sync question is asked of
+        // the closure TYPE, and this map answers it by UNION over every literal
+        // of that signature: if any literal captures a !Send value the type is
+        // !Send. Union is conservative in the safe direction, so sharing the
+        // slot cannot admit an unsound answer — only a stricter one. #90's fix
+        // must SPLIT the two maps, not convert them together.
         auto it = closure_capture_env_.find(type_str(tv));
         if (it == closure_capture_env_.end()) return false;
         for (auto e : it->second)

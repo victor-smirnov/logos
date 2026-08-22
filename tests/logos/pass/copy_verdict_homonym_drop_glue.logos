@@ -1,0 +1,43 @@
+// A LOOKUP KEY IS NOT AN IDENTITY — THE SOUNDNESS CELL.
+//
+// Two bare-keyed tables answered for a user struct that shares a stdlib name,
+// and between them they deleted this program's destructor:
+//
+//   1. `copy_types_` (sema_impl.hpp) held only the BARE struct name, and
+//      struct_type_is_copy read `copy_types_.count(struct_name())`. The stdlib
+//      `TypeId` is auto-Copy, so the user's `TypeId` — which holds a
+//      Drop-carrying field — was judged Copy: not a move type, no move
+//      tracking, and a use-after-move admitted. MEASURED over all 421 stdlib
+//      struct names: 36 of them made a same-named user struct Copy.
+//
+//   2. `all_struct_defs_` (mlir_gen.cpp pass 0) registers a BARE alias per
+//      packaged struct on a documented FIRST-REGISTERED-WINS rule, and the
+//      SDrop field-drop walk in mlir_gen_stmt.cpp accepted it. So even with (1)
+//      fixed, the recursive field drop read the STDLIB TypeId's field list —
+//      all Copy, nothing droppable — and emitted no drop at all.
+//
+// THE ORACLE IS AN OBSERVABLE SIDE EFFECT, not an exit code: `Inner_::drop`
+// prints. Two values are created and each is consumed by a by-value call, so
+// the destructor must run exactly TWICE. Under the collision it ran ZERO
+// times; `copy_verdict_homonym_drop_glue_ctl.logos` is the identical program
+// under the collision-free name `TidX` and printed `D7 D7` throughout.
+//
+// ⚠ `TypeId` is chosen because it is auto-Copy in the stdlib AND its bare name
+// is registered first. A name that is neither would exercise nothing.
+package test;
+use logos.std.fmt;
+
+struct Inner_ { pub v: i64 }
+impl Drop for Inner_ { fn drop(self: &mut Inner_) { print!("D7 "); } }
+
+struct TypeId { pub v: Inner_ }
+
+fn take(x: TypeId) -> i64 { return x.v.v; }
+
+fn main() -> i32 {
+    let a: TypeId = TypeId{ v: Inner_{ v: 1i64 } };
+    let b: TypeId = TypeId{ v: Inner_{ v: 2i64 } };
+    let s: i64 = take(a) + take(b);
+    println!("s={}", s);
+    return s as i32;
+}

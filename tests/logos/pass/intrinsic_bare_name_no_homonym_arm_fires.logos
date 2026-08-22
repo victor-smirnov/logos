@@ -1,0 +1,56 @@
+// THE ARM STILL FIRES, AND THE EXEMPTION IS CHECKED IN THE ABUSE DIRECTION.
+//
+// The homonym pair (intrinsic_bare_name_homonym_sema/_mlirgen) proves the
+// intrinsic tables stop answering for a user's spelling. That refusal is only
+// worth anything if the tables still answer when nobody else claims the name —
+// a conversion whose site is never reached is not a fix, and a guard that
+// disables the whole intrinsic set would pass the homonym pair while breaking
+// every stdlib caller.
+//
+// Block A pins the SEMA-intercepted family by VALUE:
+//   popcount_u64(0b1011)      = 3   (llvm.ctpop)
+//   leading_zeros_u64(1)      = 63  (llvm.ctlz)
+//   trailing_zeros_u64(8)     = 3   (llvm.cttz)
+//   bswap_u64(1)              = 1 << 56
+//   pdep_u64(0b101, 0b1010101)= 0b0010001
+// None of these is reachable by ordinary resolution: no `fn popcount_u64`
+// exists anywhere in the stdlib (grepped 2026-08-21) — the value IS the proof
+// that the intercept ran.
+//
+// Block B is the ABUSE DIRECTION of the one exemption the conversion carries:
+// an `extern fn` of an intrinsic name is deliberately NOT treated as a rival
+// identity, because it declares the very runtime symbol the intrinsic replaces
+// (`stdlib/lang/atomic/atomic.logos` and `bench/mpsc_stress.logos` both spell
+// it that way). So the declaration below must still lower to an MLIR atomic
+// RMW: the counter reads 5 after one fetch_add of 5 onto 0, and — the half an
+// exit code alone cannot see — `nm -u` on this object must show NO undefined
+// `logos_atomic_fetch_add64`, i.e. no call to the assembly stub was emitted.
+package test;
+use logos.std.fmt;
+
+extern fn logos_atomic_fetch_add64(ptr: *mut i64, v: i64) -> i64;
+
+fn main() -> i32 {
+    // ── Block A: the sema-intercepted intrinsics still lower ──────────────
+    let a: u32 = popcount_u64(11u64);
+    let b: u32 = leading_zeros_u64(1u64);
+    let c: u32 = trailing_zeros_u64(8u64);
+    let d: u64 = bswap_u64(1u64);
+    let e: u64 = pdep_u64(5u64, 85u64);
+    println!("A {} {} {} {} {}", a, b, c, d, e);
+    if a != 3u32 { return 11i32; }
+    if b != 63u32 { return 12i32; }
+    if c != 3u32 { return 13i32; }
+    if d != 72057594037927936u64 { return 14i32; }
+    if e != 17u64 { return 15i32; }
+
+    // ── Block B: an extern declaration is not a shadow ────────────────────
+    let mut ctr: i64 = 0i64;
+    let cp: *mut i64 = &mut ctr as *mut i64;
+    let prev: i64 = unsafe { logos_atomic_fetch_add64(cp, 5i64) };
+    println!("B {} {}", prev, ctr);
+    if prev != 0i64 { return 21i32; }
+    if ctr != 5i64 { return 22i32; }
+
+    return 43i32;
+}

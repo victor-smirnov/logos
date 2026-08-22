@@ -3040,8 +3040,32 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
 // bounds in generic bodies.
 bool SemaChecker::struct_type_is_copy(TypeRef x) const {
     std::string nm(TypeRef(x).struct_name());
-    if (copy_types_.count(nm)) return true;
-    if (auto it = conditional_copy_.find(nm); it != conditional_copy_.end()) {
+    // ── A LOOKUP KEY IS NOT AN IDENTITY ──────────────────────────────────
+    // This used to be `copy_types_.count(nm)` on the BARE struct name, so a
+    // user `struct TypeId` read the STDLIB TypeId's Copy verdict. MEASURED
+    // 2026-08-21 over all 421 stdlib struct names: 36 of them make a
+    // same-named user struct Copy, which means its Drop-carrying field's glue
+    // runs ZERO times and a use-after-move is admitted — a soundness hole, not
+    // a diagnostic difference. (`struct TypeId { v: Inner_ }` with a printing
+    // `impl Drop for Inner_` printed nothing at all; the `TidX` control printed
+    // `D7 D7`.)
+    //
+    // Both spellings are registered (see the two insert sites: the explicit
+    // `impl Copy` in sema_collect and compute_auto_copy_types' fixpoint), so a
+    // type that CARRIES a package is answered by its QUALIFIED key alone.
+    // Falling through to the bare slot is precisely the collision, so this
+    // lookup deliberately does NOT do it — unlike find_struct_repr_, where the
+    // bare slot is a real fallback for names that never had a package. Here
+    // the bare slot answers only a package-less TypeRef (generic parameter
+    // substitution, mono-produced instances), which is what it was always for.
+    std::string_view pkg = TypeRef(x).pkg_name();
+    std::string qkey = sema_key(pkg, nm);
+    if (copy_types_.count(qkey)) return true;
+    if (pkg.empty() && copy_types_.count(nm)) return true;
+    auto cond_it = conditional_copy_.find(qkey);
+    if (cond_it == conditional_copy_.end() && pkg.empty())
+        cond_it = conditional_copy_.find(nm);
+    if (auto it = cond_it; it != conditional_copy_.end()) {
         auto targs = TypeRef(x).type_args();
         for (size_t pos : it->second) {
             if (pos >= targs.size() || !targs[pos]) return false;
@@ -3112,6 +3136,11 @@ TypeRef SemaChecker::normalize_assoc_eq(TypeRef t) const {
     if (!t || TypeRef(t).kind() != LogosType::Kind::AssocType) return t;
     TypeRef base = TypeRef(t).assoc_base();
     if (!base || TypeRef(base).kind() != LogosType::Kind::TypeVar) return t;
+    // KEY-IDENTITY: the key is a TYPE-PARAMETER name (`T`, `Item`), not an
+    // entity name. Its namespace is the signature currently being checked —
+    // entries are erased as each generic scope closes (sema_impl.hpp and
+    // sema_decl.cpp both erase by tp.name), so no two packages' `T` coexist in
+    // this map and a package qualifier would have nothing to qualify.
     auto bit = current_type_bounds_.find(std::string(TypeRef(base).type_var_name()));
     if (bit == current_type_bounds_.end()) return t;
     std::string an(TypeRef(t).assoc_type_name());
@@ -3214,6 +3243,8 @@ bool SemaChecker::has_droppable_fields(TypeRef t) const {
     // generic enums). Mirrors the Copy-bound check in is_move_type.
     auto is_copy_tv = [&](TypeRef x) -> bool {
         if (!x || TypeRef(x).kind() != LogosType::Kind::TypeVar) return false;
+        // KEY-IDENTITY: a TYPE-PARAMETER name, scoped to the signature being
+        // checked — see normalize_assoc_eq for the full ground.
         auto bit = current_type_bounds_.find(std::string(TypeRef(x).type_var_name()));
         if (bit != current_type_bounds_.end())
             for (auto& b : bit->second) if (b.trait_name == "Copy") return true;
@@ -3386,7 +3417,12 @@ void SemaChecker::compute_auto_copy_types() {
             std::string bare = skey;
             if (auto sep = bare.rfind("::"); sep != std::string::npos)
                 bare = bare.substr(sep + 2);
-            if (copy_types_.count(bare)) continue;
+            // ⚠ The "already promoted" test is on the QUALIFIED key. On the
+            // bare one, a user struct whose name a stdlib Copy type already
+            // owns was skipped forever — it never got its own entry, and after
+            // struct_type_is_copy stopped falling back to the bare slot that
+            // would have turned a legitimately-all-Copy user struct move-only.
+            if (copy_types_.count(skey)) continue;
             // Spec / annotation / Writ datatypes — leave to manual `impl Copy`.
             if (!info.is_data_plain) continue;
             if (info.fields.empty()) continue;  // zero-sized; skip (Logos treats odd)
@@ -3396,7 +3432,12 @@ void SemaChecker::compute_auto_copy_types() {
                 if (!is_copy_field(f.type)) { all_copy = false; break; }
             }
             if (all_copy) {
+                // ── A LOOKUP KEY IS NOT AN IDENTITY ──────────────────────
+                // Both spellings: `skey` IS the identity ("pkg::name"), the
+                // bare one remains for package-less TypeRefs. struct_type_is_copy
+                // answers a packaged TypeRef from the qualified key alone.
                 copy_types_.insert(bare);
+                if (skey != bare) copy_types_.insert(skey);
                 changed = true;
             }
         }
@@ -3412,7 +3453,29 @@ void SemaChecker::compute_auto_copy_types() {
         constexpr std::string_view kCopyPrefix = "Copy::";
         if (ikey.rfind(kCopyPrefix, 0) != 0) continue;
         std::string target = ikey.substr(kCopyPrefix.size());
-        if (impls_.count("Drop::" + target)) {
+        auto dit = impls_.find("Drop::" + target);
+        if (dit != impls_.end()) {
+            // ── A LOOKUP KEY IS NOT AN IDENTITY: THE TARGET HALF (#88) ───
+            // `impls_` is keyed `Trait::Target` with a BARE target, so the
+            // stdlib's `Copy::TypeId` and a user package's `Drop::TypeId` met
+            // on one key and this arm refused a program that has no Copy impl
+            // at all. MEASURED over all 421 stdlib struct names: DView,
+            // NonZero, Pin, StringView, TypeId reached it.
+            //
+            // The bare key is CARRIED (~50 probes across sema compose a bare
+            // stdlib trait name and are correct only because that trait owns
+            // the bare slot — see the note at the insert site in
+            // sema_collect.cpp), so the identity is recovered HERE, from the
+            // `target_pkg` each impl captured at collect time, instead of by
+            // minting a third key spelling that nothing else would read. An
+            // empty package on either side stays a WILDCARD — the same rule
+            // drop_fn_for uses for intrinsics and pre-pkg-tracking paths — so
+            // nothing that used to be caught stops being caught, and the arm
+            // still fires for a genuine `impl Copy` + `impl Drop` pair (pinned
+            // by the pre-existing copy_drop / E0184 fail fixtures).
+            const std::string& cp = info.target_pkg;
+            const std::string& dp = dit->second.target_pkg;
+            if (!cp.empty() && !dp.empty() && cp != dp) continue;
             error(std::format(
                 "impl Copy for {}: the type also implements Drop (E0184) — "
                 "Copy types are duplicated bitwise, so each copy would run "
@@ -3448,6 +3511,14 @@ void SemaChecker::compute_auto_copy_types() {
                 return stable_ok(ft.elem(), why);
             case K::Struct:
             case K::ZonedStruct: {
+                // KEY-IDENTITY: OPEN #88 — `impls_` is keyed `Trait::Target`
+                // with a BARE target, so a user struct sharing a stdlib name
+                // inherits that name's StableLayout verdict (and is refused
+                // when the stdlib homonym lacks one). ⚠ The FIRST probe below
+                // launders the name through the local `n`, so this lint does
+                // not see it: `key_identity_lint.sh` records that blind spot
+                // and names this exact site. Do not read the census count for
+                // this statement as three of three.
                 std::string n{ft.struct_name()};
                 if (impls_.count("StableLayout::" + n) ||
                     impls_.count("StableLayout::" + concrete_struct_name(ft)) ||
@@ -6685,6 +6756,10 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
     if (tit != traits_.end()) {
         for (auto& at : tit->second.assoc_types) {
             if (at.name == assoc && !at.bounds.empty()) {
+                // KEY-IDENTITY: the key is the projection's own type spelling in
+                // the signature being checked, in the same type-parameter
+                // namespace the rest of current_type_bounds_ uses — not an
+                // entity name. See normalize_assoc_eq for the scoping ground.
                 current_type_bounds_[type_str(result)] = at.bounds;
                 break;
             }
@@ -8459,6 +8534,15 @@ TypeRef SemaChecker::field_type_of_for_type(TypeRef struct_t,
 
     // Bug 5: look up structs_ OR datatypes_ for the substitution info.
     // Try bare name first (same-package/unqualified), then pkg_name-qualified key.
+    //
+    // KEY-IDENTITY: OPEN #98 — THE ORDER IS INVERTED. The settled shape is
+    // QUALIFIED KEY FIRST, BARE SLOT LAST (find_struct_repr_ records why:
+    // reversing it once reddened two imported tests). Here the bare probe runs
+    // FIRST and wins, so a user struct sharing a stdlib name takes the stdlib
+    // homonym's SemaStructInfo — and it is `type_params` that is read out of
+    // it, i.e. the substitution map. Swapping the two halves is the whole
+    // conversion, but it moves keys for the entire stdlib and owes a RED LIST
+    // over a full rebuild of all 53 targets, so it is filed, not done here.
     SemaStructInfo* si2 = nullptr;
     { auto it = structs_.find(TypeRef(struct_t).struct_name()); if (it != structs_.end()) si2 = &it->second; }
     if (!si2) { auto it = datatypes_.find(TypeRef(struct_t).struct_name()); if (it != datatypes_.end()) si2 = &it->second; }

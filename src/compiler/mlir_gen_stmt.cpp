@@ -1238,7 +1238,22 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
         auto k = st.kind();
         if (k == K::Struct || k == K::ZonedStruct) {
             std::string name = concrete_struct_name(st);
-            auto sdit = all_struct_defs_.find(name);
+            auto sdit = all_struct_defs_.end();
+            if (!st.pkg_name().empty())
+                sdit = all_struct_defs_.find(
+                    qualify_pkg(std::string(st.pkg_name()), name));
+            if (sdit == all_struct_defs_.end())
+                sdit = all_struct_defs_.find(name);
+            // ── A LOOKUP KEY IS NOT AN IDENTITY ──────────────────────────
+            // `all_struct_defs_` carries a BARE alias for every packaged
+            // struct on a documented FIRST-REGISTERED-WINS rule (mlir_gen.cpp
+            // pass 0). Falling straight from the concrete name to that alias
+            // is how a user `struct TypeId { v: Inner_ }` got the STDLIB
+            // TypeId's field list here: all-Copy, no droppable field, and the
+            // whole recursive field-drop step below emitted NOTHING. MEASURED
+            // 2026-08-21: the `Inner_` destructor ran zero times under the
+            // homonym and twice under a renamed control. Ask for the
+            // PACKAGE-QUALIFIED def before accepting the shared bare slot.
             if (sdit == all_struct_defs_.end())
                 sdit = all_struct_defs_.find(std::string(st.struct_name()));
             auto sit = struct_types_.find(mlir_struct_key(st));

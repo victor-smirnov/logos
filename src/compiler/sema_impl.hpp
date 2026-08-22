@@ -3187,6 +3187,18 @@ private:
         // impl actually targets, instead of whatever same-name trait holds the
         // bare slot. Empty ⇒ fall back to bare trait_name (non-colliding).
         std::string canonical_trait;
+        // ── A LOOKUP KEY IS NOT AN IDENTITY: THE TARGET HALF (#88) ───────
+        // The impls_ key is `Trait::Target` with a BARE target, so the stdlib's
+        // `Copy::TypeId` and a user package's `Drop::TypeId` land on one key.
+        // `target_typeref` cannot answer: it is documented as set only for
+        // GENERIC-target impls, and MEASURED 2026-08-21 it is null for every
+        // plain `impl Drop for X` (the resolve has not run yet at collect time).
+        // So the identity is captured HERE, at the one moment cur_package_ is
+        // the impl's own package AND the local declaration registry can be
+        // asked: non-empty exactly when THIS package declares a type of that
+        // name, i.e. when `target` denotes a LOCAL type rather than a foreign
+        // one. Empty ⇒ the target is whatever owns the bare slot, unchanged.
+        std::string target_pkg;
     };
 
     // Type params in scope for the function/struct currently being processed.
@@ -4759,6 +4771,41 @@ private:
                                                         const std::vector<TypeRef>& param_types,
                                                         bool is_vararg = false) const;
     std::vector<const SemaFuncInfo*> find_func_candidates(std::string_view base_name) const;
+
+    // ── A BUILTIN NAME IS NOT AN IDENTITY ────────────────────────────────
+    // The intrinsic intercepts in `lower_call`'s early builtin section and in
+    // `lower_type_intrinsic` are a SCAN KEYED BY THE BARE CALLEE SPELLING:
+    // `callee == "popcount_u64"` answers for whoever writes that name, so a
+    // user package declaring `fn popcount_u64` never reaches
+    // resolve_function_call — its body is emitted, never called, and the call
+    // site silently gets llvm.ctpop (measured: the user's `return 12345` lost,
+    // no diagnostic, rc 0). The intrinsics that DO have a stdlib declaration
+    // (`str_from_raw` in logos.lang.str, whose body is dead by design) own the
+    // bare slot legitimately; the ones that have no declaration anywhere
+    // (`popcount_u64`, `pdep_u64`, the reflection family) own it by default.
+    // Either way the owner is the stdlib, and a declaration from a NON-stdlib
+    // package is a DIFFERENT identity that must win.
+    //
+    // ⚠ An `extern fn` does NOT shadow. `extern fn logos_atomic_fetch_add64`
+    // (bench/mpsc_stress.logos, and the same spelling inside
+    // stdlib/lang/atomic) DECLARES the very runtime symbol the intrinsic
+    // lowers — it names the same entity, it does not introduce a second one.
+    // Only a definition with a body is a rival identity.
+    //
+    // All 192 stdlib packages are `logos.*` (checked by listing
+    // `^package` over stdlib/, 2026-08-21) and no non-stdlib .logos in the
+    // tree declares one, so the prefix test IS the ownership test.
+    bool builtin_name_shadowed(std::string_view callee) const {
+        for (const SemaFuncInfo* fi : find_func_candidates(callee)) {
+            if (!fi) continue;
+            if (fi->is_extern) continue;
+            const std::string& p = fi->package;
+            if (p.empty()) continue;
+            if (p == "logos" || p.starts_with("logos.")) continue;
+            return true;
+        }
+        return false;
+    }
 
     // Direct call / macro-call to a `-> !` (Never-returning) function — used
     // to decide whether a syntactic position diverges. Generalises the

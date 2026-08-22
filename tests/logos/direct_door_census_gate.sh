@@ -470,9 +470,26 @@ PIN = {
     # round's other TEN fixtures are FAIL fixtures and this population is the
     # PASS corpus, so they move nothing here. DOOR counts unmoved (36 = 10 + 26):
     # no container, no `direct` output form in any of the thirteen.
-    'corpus'            : 2243,
+    # 2026-08-21 (CLASS SWEEP A, sites b1+b2 of "a lookup KEY is not an
+    # IDENTITY"): +7/0/+7. RE-DERIVED BY DIRECT FILE LISTING, not by adding 7:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2250
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2250 = 191 + 2059. The seven are the five
+    # intrinsic_bare_name_* fixtures (homonym + _ctl for each of the two
+    # intercept families, plus the arm-fires/abuse-direction pin) and the
+    # copy_verdict_homonym_drop_glue pair. The round's eighth fixture is a FAIL
+    # fixture (copy_verdict_homonym_use_after_move_fail) and this population is
+    # the PASS corpus, so it moves nothing here. DOOR counts unmoved
+    # (36 = 10 + 26): no container and no `direct` output form in any of them.
+    # 2026-08-21 (CLASS SWEEP A, site b5 / task #88 — the impls_ TARGET half):
+    # +4/0/+4, the impl_target_homonym_drop and impl_target_homonym_copy_verdict
+    # pairs. RE-DERIVED BY DIRECT FILE LISTING:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2254
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2254 = 191 + 2063. DOOR counts unmoved (36 = 10 + 26).
+    'corpus'            : 2254,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2052,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2063,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

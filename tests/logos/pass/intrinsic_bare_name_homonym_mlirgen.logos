@@ -1,0 +1,28 @@
+// A BUILTIN NAME IS NOT AN IDENTITY — the mlir-gen-only half.
+//
+// The 40 `logos_atomic_*` names are NOT intercepted in sema; they are ordinary
+// calls that mlir_gen_expr.cpp rewrites into MLIR atomic ops. It recovered the
+// name to match by STRIPPING THE PACKAGE off the mangled callee
+// (`callee.rfind('$')`, then cut at `__f__`), so a user definition mangled to
+// `test$logos_atomic_load32__f__pcst_i32` stripped straight back to
+// `logos_atomic_load32` and the call became an atomic load of the pointee —
+// the user's body emitted, never called, no diagnostic. The strip now yields a
+// name only when the callee is unmangled (compiler-spelled, or an `extern fn`
+// symbol) or mangled under a `logos.*` package.
+//
+// Observable: the body ignores the pointer entirely and returns 77, a value no
+// atomic load of `x = 5` can produce. `_ctl` is the same program under a
+// collision-free name.
+package test;
+use logos.std.fmt;
+
+fn logos_atomic_load32(p: *const i32) -> i32 { return 77i32; }
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let p: *const i32 = &x as *const i32;
+    let r: i32 = unsafe { logos_atomic_load32(p) };
+    println!("logos_atomic_load32 -> {}", r);
+    if r == 77i32 { return 42i32; }
+    return 1i32;
+}

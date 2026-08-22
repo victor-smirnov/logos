@@ -1,0 +1,15 @@
+// CONTROL for intrinsic_bare_name_homonym_sema.logos — the SAME program under
+// a collision-free name. `mypopcount_u64` is in no intrinsic table, so this
+// file was green before the conversion and after it; the pair is what shows the
+// conversion moved the HOMONYM and left ordinary resolution alone.
+package test;
+use logos.std.fmt;
+
+fn mypopcount_u64(x: u64) -> u64 { return x * 1000u64 + 7u64; }
+
+fn main() -> i32 {
+    let r: u64 = mypopcount_u64(3u64);
+    println!("mypopcount_u64 -> {}", r);
+    if r == 3007u64 { return 41i32; }
+    return 1i32;
+}

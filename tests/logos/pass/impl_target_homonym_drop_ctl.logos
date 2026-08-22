@@ -1,0 +1,17 @@
+// CONTROL for impl_target_homonym_drop.logos — the identical program under
+// the collision-free name `MyStr`. It was green before the conversion and
+// after it; the PAIR is what shows the conversion moved the homonym.
+package test;
+
+struct MyStr { pub a: i64, pub p: *mut i64 }
+impl Drop for MyStr {
+    fn drop(self: &mut MyStr) { unsafe { *self.p = *self.p + 10i64; } }
+}
+
+fn main() -> i32 {
+    let mut witness: i64 = 0i64;
+    let wp: *mut i64 = &mut witness as *mut i64;
+    { let s: MyStr = MyStr{ a: 7i64, p: wp }; }
+    { let t: MyStr = MyStr{ a: 8i64, p: wp }; }
+    return witness as i32;
+}

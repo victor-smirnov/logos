@@ -1,0 +1,16 @@
+// CONTROL for impl_target_homonym_copy_verdict.logos — the identical program
+// under the collision-free name `TidY`, which no stdlib Copy impl claims.
+package test;
+
+struct TidY { pub a: i64, pub p: *mut i64 }
+impl Drop for TidY {
+    fn drop(self: &mut TidY) { unsafe { *self.p = *self.p + 10i64; } }
+}
+
+fn main() -> i32 {
+    let mut witness: i64 = 0i64;
+    let wp: *mut i64 = &mut witness as *mut i64;
+    { let s: TidY = TidY{ a: 7i64, p: wp }; }
+    { let t: TidY = TidY{ a: 8i64, p: wp }; }
+    return witness as i32;
+}

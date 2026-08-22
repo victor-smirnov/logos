@@ -3573,6 +3573,15 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     }
     uint64_t n_args = arg_exprs.size();
 
+    // ── A BUILTIN NAME IS NOT AN IDENTITY ─────────────────────────────────
+    // Everything in this block, and all of lower_type_intrinsic, is a scan
+    // keyed by the BARE callee spelling. A non-stdlib package that DEFINES a
+    // function of the same name owns that name in its own program and must be
+    // resolved normally; see SemaChecker::builtin_name_shadowed for why an
+    // `extern fn` of the same name is NOT a shadow.
+    const bool builtin_shadowed = builtin_name_shadowed(callee);
+    if (!builtin_shadowed) {
+
     // str_from_raw(ptr: *const u8, len: i64) -> str — compiler intrinsic.
     // Constructs a str fat-pointer; codegen in mlir_gen_expr.cpp handles emission.
     if (callee == "str_from_raw") {
@@ -3674,6 +3683,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         for (auto& a : arg_exprs) ec.args.push_back(std::move(a));
         return builder().call_v(std::move(ec), prim(LogosType::Kind::U64));
     }
+
+    }  // end: !builtin_shadowed — bare-name intrinsic intercepts
 
     bool call_has_pack_expand = false;
     for (auto& a : arg_exprs) {
@@ -4598,6 +4609,15 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
             continue;
         for (auto& b : tp.bounds) {
             if (b.is_fn_family || b.type_args.empty()) continue;
+            // KEY-IDENTITY: OPEN #88 — `Trait::Target` with a BARE target. The
+            // target half carries no package, so the bound is checked against
+            // whichever package's homonym registered the impl first. The #88
+            // conversion put the target's identity on the two DECISION sites
+            // (coherence_keys_ and the E0184 arm) and deliberately left the 69
+            // `impls_` probes bare, because ~50 of them compose a bare stdlib
+            // trait name and are correct only because that trait owns the bare
+            // slot. This is one of the ~15 whose target comes from a resolved
+            // TypeRef and could take a qualified probe ahead of the bare one.
             auto iit = impls_.find(b.trait_name + "::" +
                                    std::string(TypeRef(actual).struct_name()));
             if (iit == impls_.end()) continue;
@@ -5383,6 +5403,11 @@ lir::LExprPtr SemaChecker::lower_intrinsic_type_code_of(TinyMapView node) {
         } else {
             SemaStructInfo* gsi = nullptr;
             { auto [dp, dsi] = find_datatype_by_name(TypeRef(elem).struct_name()); gsi = dsi; }
+            // KEY-IDENTITY: OPEN #98 — bare struct name into datatypes_, with no
+            // qualified probe ahead (find_datatype_by_name is a scan over the
+            // same bare spelling, not a qualified lookup). The value read out is
+            // the datatype's PACKAGE, so a homonym hit here mis-attributes the
+            // element's package to the wrong one. Censused, not measured.
             if (!gsi) { auto it = datatypes_.find(TypeRef(elem).struct_name()); if (it != datatypes_.end()) gsi = &it->second; }
             if (gsi) pkg = gsi->package;
             else pkg = cur_package_;
@@ -5701,6 +5726,13 @@ lir::LExprPtr SemaChecker::lower_intrinsic_get_annotation(TinyMapView node) {
 }
 
 std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node, std::string_view callee) {
+    // ── A BUILTIN NAME IS NOT AN IDENTITY ─────────────────────────────────
+    // Every arm below is `callee == "<bare name>"`. The turbofish entry
+    // (lower_generic_call) reaches this BEFORE any function resolution, so a
+    // non-stdlib package defining `fn type_of<T>()` would silently get the
+    // reflection intrinsic. Yield to a real, non-extern definition from a
+    // non-stdlib package; see builtin_name_shadowed.
+    if (builtin_name_shadowed(callee)) return std::nullopt;
 
     // Type-trait predicates lower to magic calls so mono can evaluate them
     // *after* substitution — inside generic bodies, T is a TypeVar at sema.
@@ -16982,6 +17014,10 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // (lang-types.auto-traits.closure); owned (move) captures enter as T.
     // RFC-2229 narrow captures use the captured FIELD's type.
     {
+        // KEY-IDENTITY: signature-keyed BY DESIGN — this is the write side of
+        // the Send/Sync union; see the read site in sema_auto_trait.cpp for why
+        // union-over-literals is conservative in the safe direction and must
+        // NOT be converted along with closure_kind_ (#90).
         auto& env = closure_capture_env_[type_str(ctype)];
         for (size_t i = 0; i < ec->captures.size(); ++i) {
             TypeRef ct = (i < ec->capture_field_types.size() &&
@@ -17009,6 +17045,13 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             if (body_moved_outer.count(ec->captures[i])) { kind = 2; break; }
             if (i < ec->mut_captures.size() && ec->mut_captures[i]) kind = 1;
         }
+        // KEY-IDENTITY: OPEN #90 — the WRITE side. `type_str(ctype)` is the
+        // closure's SIGNATURE, so every literal with the same params/ret shares
+        // one slot and the max is taken across them. Unlike the Send/Sync union
+        // next door, "most restrictive wins" is NOT conservative here: it
+        // REFUSES a sibling `Fn` literal because some other literal of the same
+        // shape mutates a capture. The repair is a per-literal identity carried
+        // inside the Closure TypeRef so check_type_bounds can see it.
         auto it = closure_kind_.find(type_str(ctype));
         if (it == closure_kind_.end() || kind > it->second)
             closure_kind_[type_str(ctype)] = kind;

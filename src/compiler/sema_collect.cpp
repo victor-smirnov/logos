@@ -1443,6 +1443,14 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 if (cv.kind() == LogosType::Kind::Closure) {
                     int req = (bound.trait_name == "Fn")    ? 0
                             : (bound.trait_name == "FnMut") ? 1 : 2;
+                    // KEY-IDENTITY: OPEN #90 — this is the READ side of the
+                    // signature-keyed Fn-kind verdict. `check_type_bounds`
+                    // receives (target_name, type_params, args) and no caller
+                    // passes an argument expression, so the literal's identity
+                    // cannot be recovered here: one closure's FnMut verdict
+                    // refuses a sibling literal of the same signature.
+                    // MEASURED live; fixture-free because the repair reaches
+                    // make_closure_type, mono and the mangler.
                     auto kit = closure_kind_.find(type_str(cv));
                     int ck = (kit == closure_kind_.end()) ? 0 : kit->second;
                     if (ck > req)
@@ -4366,10 +4374,25 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 }
             }
         }
-        if (cond_positions.empty())
+        // ── A LOOKUP KEY IS NOT AN IDENTITY ──────────────────────────────
+        // Register BOTH spellings. The bare one is what a package-less TypeRef
+        // (generic substitution, mono-produced instance) can look up; the
+        // qualified one is the identity, and struct_type_is_copy answers a
+        // packaged TypeRef from it ALONE — otherwise a user struct sharing a
+        // stdlib name inherits the stdlib's Copy verdict and silently loses its
+        // Drop glue (36 of 421 stdlib names, measured).
+        std::string_view copy_pkg = target_resolved
+                                        ? TypeRef(target_resolved).pkg_name()
+                                        : std::string_view{};
+        if (copy_pkg.empty()) copy_pkg = cur_package_;
+        std::string copy_qkey = sema_key(copy_pkg, target);
+        if (cond_positions.empty()) {
             copy_types_.insert(target);
-        else
+            if (copy_qkey != target) copy_types_.insert(copy_qkey);
+        } else {
+            if (copy_qkey != target) conditional_copy_[copy_qkey] = cond_positions;
             conditional_copy_[target] = std::move(cond_positions);
+        }
     }
     // Standalone unsafe impl (no trait) makes no semantic sense.
     if (impl_is_unsafe && trait_name.empty())
@@ -4426,7 +4449,38 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // disambiguates the dispatch entry.
         std::string coh_trait = trait_name.empty() ? trait_name
                                                     : canonical_trait_name(trait_name);
-        std::string coh_key = coh_trait + trait_args_key + "::" + target;
+        // ── A LOOKUP KEY IS NOT AN IDENTITY: THE TARGET HALF (#88) ───────
+        // The trait half of this key was disambiguated by `canonical_trait_name`
+        // (B-mv-02). The TARGET half stayed BARE, so `impl Drop for String` in a
+        // user package composed the same coherence key as the stdlib's
+        // `impl Drop for logos.mem.string.String` and was refused as
+        // "conflicting implementations of trait 'Drop' for type 'String'".
+        // MEASURED over all 421 stdlib struct names: `String` is the one that
+        // reaches this arm (the other five reach the E0184 arm in sema.cpp).
+        // Coherence is a property of (trait identity, TYPE identity), so the
+        // key takes the target's package when the target resolved to one. A
+        // package-less target (a primitive, `str`, an unresolved name) keeps the
+        // bare spelling — it has no other identity to be keyed by.
+        // ⚠ This is a RE-KEY, not an addition: two entries for one impl would
+        // make the conflict check answer on whichever spelling matched first,
+        // which is the defect. `coherence_keys_` is read only here and by the
+        // snapshot plumbing in sema.cpp (grepped 2026-08-21), so the re-key is
+        // contained; `impls_` keeps its bare target and is NOT touched.
+        // ⚠ NOT `target_resolved`: it is null at this point for every plain
+        // `impl Drop for X` (MEASURED — the debug print showed tr=0 for all 421
+        // sweep names). The one identity available here is "does THIS package
+        // declare a type of this name": if it does, `target` denotes the local
+        // type and the key must say so; if it does not, the target is foreign
+        // and the bare spelling already names the right thing.
+        std::string tgt_pkg;
+        if (!cur_package_.empty() && !target.empty()) {
+            std::string lk = sema_key(cur_package_, target);
+            if (structs_.count(lk) || enums_.count(lk) || datatypes_.count(lk))
+                tgt_pkg = cur_package_;
+        }
+        info.target_pkg = tgt_pkg;
+        std::string coh_target = tgt_pkg.empty() ? target : sema_key(tgt_pkg, target);
+        std::string coh_key = coh_trait + trait_args_key + "::" + coh_target;
         std::string key = trait_name + "::" + target;
         info.canonical_trait = coh_trait;  // for global supertrait verification
         bool is_generic_impl = !impl_tps.empty() || !impl_lt_params.empty();
@@ -4692,6 +4746,14 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
                 if (fv.kind() == LogosType::Kind::ZonedStruct) {
                     if (!fv.type_args().empty()) return true;  // generic → conservative
                     // Try bare name, then current-package qualified, then pkg_name qualified.
+                    //
+                    // KEY-IDENTITY: OPEN #98 — THE ORDER IS INVERTED, and the
+                    // qualification is hand-composed rather than routed through
+                    // sema_key. The settled shape is QUALIFIED FIRST, BARE
+                    // LAST; here the bare probe wins first, so a user datatype
+                    // sharing a stdlib name is answered by the homonym's
+                    // `is_data_plain` flag. Same conversion as sema.cpp's
+                    // `si2` lookup and it lands with it.
                     auto ndit = datatypes_.find(std::string(fv.struct_name()));
                     if (ndit == datatypes_.end() && !cur_package_.empty())
                         ndit = datatypes_.find(cur_package_ + "::" + std::string(fv.struct_name()));

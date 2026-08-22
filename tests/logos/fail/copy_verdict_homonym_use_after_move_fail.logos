@@ -1,0 +1,23 @@
+// A LOOKUP KEY IS NOT AN IDENTITY — THE REFUSE HALF of copy_verdict_homonym.
+//
+// The admit half (pass/copy_verdict_homonym_drop_glue.logos) shows the
+// destructor running. This is the other consequence of the same wrong verdict:
+// `copy_types_` answered on the BARE struct name, the stdlib `TypeId` is
+// auto-Copy, so the user's Drop-carrying `TypeId` was Copy — not a move type,
+// no move tracking — and this double consume COMPILED CLEAN (rc 0). The two
+// bindings then aliased one value and each would have run `Inner_::drop`.
+//
+// A fail fixture is the only shape that can see this: an admitted use-after-
+// move produces a program that runs, so the pass harness cannot tell it from a
+// correct one. `_ctl` (pass/copy_verdict_homonym_drop_glue_ctl.logos) carries
+// the collision-free twin.
+package test;
+struct Inner_ { pub v: i64 }
+impl Drop for Inner_ { fn drop(self: &mut Inner_) { } }
+struct TypeId { pub v: Inner_ }
+fn take(x: TypeId) -> i64 { return x.v.v; }
+fn main() -> i32 {
+    let a: TypeId = TypeId{ v: Inner_{ v: 1i64 } };
+    let s: i64 = take(a) + take(a);
+    return s as i32;
+}

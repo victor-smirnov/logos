@@ -1,0 +1,30 @@
+// A BUILTIN NAME IS NOT AN IDENTITY — the sema-intercepted half.
+//
+// `lower_call`'s early builtin section and `lower_type_intrinsic` are scans
+// keyed by the BARE callee spelling: `callee == "popcount_u64"` fires before
+// `resolve_function_call` is ever reached. A package that DEFINES a function of
+// that name therefore never got it called — the body below was emitted
+// (`nm` showed `T test$popcount_u64__f__u64` defined and never referenced) and
+// the call site became `llvm.intr.ctpop`, const-folded to popcount(3) = 2, with
+// NO diagnostic at all. Same shape as ffo_canonical's package-stripping
+// canonical fallback: a lookup key is not an identity.
+//
+// The oracle is an OBSERVABLE VALUE, not an exit code alone: the body returns
+// `x * 1000 + 7`, a number the intrinsic cannot produce for any input (ctpop of
+// a u64 is ≤ 64). `_ctl` is the same program under a collision-free name and
+// must print and exit identically.
+//
+// ⚠ An `extern fn` of the same name is deliberately NOT a shadow — it declares
+// the very runtime symbol the intrinsic lowers. That direction is pinned by
+// intrinsic_bare_name_no_homonym_arm_fires.logos.
+package test;
+use logos.std.fmt;
+
+fn popcount_u64(x: u64) -> u64 { return x * 1000u64 + 7u64; }
+
+fn main() -> i32 {
+    let r: u64 = popcount_u64(3u64);
+    println!("popcount_u64 -> {}", r);
+    if r == 3007u64 { return 41i32; }
+    return 1i32;
+}

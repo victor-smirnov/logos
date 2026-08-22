@@ -3085,9 +3085,154 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7424
-REGISTRY-NOIMPORTED  3741
-REGISTRY-TIERCOMMIT  36
+REGISTRY-ALL         7438
+REGISTRY-NOIMPORTED  3755
+REGISTRY-TIERCOMMIT  38
+# 2026-08-21 (CLASS SWEEP A, THE GATE — the class is now held by a census, not
+# by the memory of the six rounds that found it. +1 test, tier_commit, 0.94 s.
+#   THE INSTRUMENT: tests/logos/key_identity_lint.sh + key_identity_scan.py,
+#     pinned by tests/logos/key_identity.ledger. Registered in
+#     tests/logos/CMakeLists.txt as logos_00_key_identity_lint.
+#   POPULATION, DERIVED, NEVER LISTED. Subject = an access into a string-keyed
+#     container whose KEY EXPRESSION is built by an ENTITY-NAME producer and not
+#     by a package-qualifying primitive. The container set is grepped from the
+#     tree (StrMap/StrSet included — impls_, traits_, coherence_keys_ and
+#     cfg_features_ are spelled that way and are INVISIBLE to a `<std::string`
+#     grep, so a lint built on the headline grep would not see #88 at all). The
+#     QUALIFIER set is a FIXPOINT seeded by sema_key/qualify_pkg, because
+#     mlir_struct_key IS qualify_pkg under another name: 6 keymakers, 18 probes,
+#     both reviewable. ⚠ The probe half is ONE HOP, not a fixpoint — the
+#     transitive version was MEASURED and ran away, marking all 41 rows "safe".
+#   RESULT: 41 rows / 44 sites over 12 files. Cells O 20, B#98 8, D 6, B#88 3,
+#     B#90 2, Q 2. The naive population (every std::*map<std::string,…>) is 352
+#     declarations / 1,554 sites / 1,519 textually bare — a 372-row ledger is the
+#     rubber stamp separator_split_lint.sh refused when it declined `::`.
+#   NO UNCHECKED HATCH. O (qualified probe first, bare slot last) and Q (key is a
+#     mangled link name) are DERIVED — the ledger can only agree, never assert.
+#     D and B#nn demand a `KEY-IDENTITY:` ground comment AT THE SITE, and B#nn's
+#     task number must match on both sides. `!UNGROUNDED` is refused BY NAME on
+#     either side, so pasting one into the ledger cannot silence a site.
+#   FACT 3 — THE SCAN-BY-NAME HALF, which has no map in it and produced the
+#     WRONG ANSWER. Pinned structurally: 14 `callee == "<lit>"` inside the
+#     `if (!builtin_shadowed)` guard, 66 inside lower_type_intrinsic, 11
+#     unguarded; both guards asserted present.
+#   IT EARNED ITS KEEP AT BIRTH: filed task #98 — sema.cpp ~8516 and
+#     sema_collect.cpp ~4741 probe BARE FIRST, qualified last, the documented
+#     order property inverted, with the sites' own comments stating it.
+#   BITE TABLE — every assertion perturbed in a sandbox copy of the tree
+#   (/home/logos/sandbox/gateA/bite), md5-restored after each:
+#     B1  new unqualified lookup added          rc 1, names the site
+#     B2  new QUALIFIED lookup added            rc 0  (no false positive)
+#     B3  an existing site converted away       rc 1  (held both directions)
+#     B4  qualified probe inside find_struct_it rc 1  (4 call sites flip out of O)
+#         deleted
+#     B5  a KEY-IDENTITY ground comment deleted rc 1, names the site
+#     B5b the ground renumbered #90 -> #77      rc 1  (one side only)
+#     B6  !UNGROUNDED pasted into the ledger    rc 1  (the hatch, refused by name)
+#     B7  bare-callee compare outside guards    rc 1  (unguarded 11 -> 12)
+#     B8  `if (!builtin_shadowed)` deleted      rc 1
+#     B9  bare_intrinsic stops yielding         rc 1
+#     B10 lower_type_intrinsic early return cut rc 1
+#     B11 subject does not resolve              rc 2
+#     B12 ledger does not resolve               rc 2
+#     B13 subject resolves but is EMPTY         rc 2
+#     B14 registries but zero subjects          rc 2  (never reads as a pass)
+#     B15 scanner's producer regex neutered     rc 2  (canary: saw 0, wants 3)
+#     B16 scanner stops stripping // comments   rc 2  (canary: saw 4, wants 3)
+#     B17 scanner forgets the qualifier roots   rc 2  (canary: saw 5, wants 3)
+#   ⚠ THE CANARY LIED FIRST. Its original form counted output LINES and was
+#     blind to B16 exactly: with stripping off, the `//` plant and the block-
+#     comment plant share one (file, registry, cell, key) ROW, so the row count
+#     stayed 3 and the canary passed a scanner that had lost comment handling.
+#     It now sums the SITE column. Recorded because the failure is the lesson:
+#     a canary that counts the wrong thing certifies the tree it cannot see.
+#   ⚠ WHAT THE LINT DOES NOT COVER, so nobody reads it as total: keys LAUNDERED
+#     THROUGH A LOCAL are invisible (sema.cpp's `std::string n{ft.struct_name()};
+#     impls_.count("StableLayout::" + n)` — an UNDER-count, the same blind spot
+#     separator_split_lint.sh records for its own pattern); `/* */` blocks count
+#     as live code (over-count, the safe direction); and the scan-by-name
+#     sub-population is held structurally by FACT 3, not censused.
+#   No compiler behaviour changed this round: the src/compiler edits are the 19
+#   ground COMMENTS the cells demand. Full build rc 0, all 53 targets.
+
+# 2026-08-21 (CLASS SWEEP A — "a lookup KEY is not an IDENTITY", sites b1/b2/b5
+# of the consequence-ordered cell (b). Three conversions, each landed and
+# measured on its own full rebuild of all 53 targets with the other two in place.
+#   b1 THE INTRINSIC TABLES. sema's ~66 `callee == "<bare name>"` intercepts run
+#      BEFORE resolve_function_call, and mlir_gen recovers a bare name by
+#      STRIPPING THE PACKAGE off the mangled callee, so a user package's
+#      `fn popcount_u64` was emitted, never called, and the call site became
+#      llvm.intr.ctpop with NO diagnostic. Sema now yields to a non-extern
+#      definition from a non-stdlib package (SemaChecker::builtin_name_shadowed);
+#      mlir_gen strips only when the callee is unmangled or `logos.*`-mangled.
+#      An `extern fn` of an intrinsic name is deliberately NOT a shadow — it
+#      names the very runtime symbol the op replaces — and that exemption is
+#      probed in the ABUSE direction by the arm-fires fixture and the gate.
+#   b2 THE COPY VERDICT AND THE FIELD-DROP WALK. `copy_types_` held only the
+#      BARE struct name and `all_struct_defs_` carries a first-registered-wins
+#      bare alias, so a user struct sharing a stdlib name was judged Copy AND had
+#      the stdlib's field list read for its drop walk: the destructor of a
+#      Drop-carrying field ran ZERO times and a use-after-move was admitted.
+#      SWEEP over all 421 stdlib struct names, one program each, drop glue
+#      counted by an observable side effect: 99 RED before, 5 RED after — and the
+#      five (Formatter, String, WArray, WMap, WString) REFUSE for two OTHER open
+#      classes (the print!-expansion `let __buf: String` quote channel, and a
+#      mono duplicate-mangling abort), not silently.
+#   b5 THE impls_ TARGET HALF (task #88). `Trait::Target` with a bare target made
+#      the stdlib's `Copy::TypeId` meet a user `Drop::TypeId`, and the stdlib's
+#      `Drop::String` meet a user one. `target_typeref` cannot answer (measured
+#      null for all 421 plain impls), so the identity is captured at collect time
+#      as SemaImplInfo::target_pkg — non-empty exactly when THIS package declares
+#      a type of that name. coherence_keys_ is RE-keyed by it; the E0184 arm
+#      compares it. impls_ itself keeps its bare key: the ~50 bare stdlib trait
+#      probes named at the insert site are correct only because that trait owns
+#      the bare slot, and re-keying would silence them. SWEEP: 6/421 refused
+#      before, 0/421 after; the genuine local `impl Copy` + `impl Drop` pair and
+#      a genuine duplicate impl both still refuse.
+# PREDICTED +13/+13/+1 (7424/3741/36 -> 7437/3754/37) before the reconfigure and
+# MET exactly. THIRTEEN new registry entries: eleven pass fixtures, one fail
+# fixture, and one gate test.
+#   b1 tests/logos/pass/intrinsic_bare_name_homonym_sema.logos      (was rc 1,
+#        printed ctpop(3)=2 where the body returns 3007)
+#      tests/logos/pass/intrinsic_bare_name_homonym_sema_ctl.logos
+#      tests/logos/pass/intrinsic_bare_name_homonym_mlirgen.logos   (was rc 1)
+#      tests/logos/pass/intrinsic_bare_name_homonym_mlirgen_ctl.logos
+#      tests/logos/pass/intrinsic_bare_name_no_homonym_arm_fires.logos (the arm
+#        still fires, BY VALUE, and the extern exemption is abused on purpose)
+#      tests/logos/intrinsic_bare_name_binding_gate.sh -> the new tier_commit
+#        test logos_00_intrinsic_bare_name_binding: asserts the RELOCATION out of
+#        `main` and the undefined-symbol list, because the pre-fix compiler
+#        emitted the user's fn as a DEFINED symbol and never called it.
+#        ⚠ ITS FIRST DRAFT PASSED ON THE CONTROL REVERT — it grepped the whole
+#        `objdump -dr`, which prints a header line per DEFINED symbol, so it
+#        matched the defect. It now greps ONLY relocation lines; that is why the
+#        control revert is run before the gate is believed.
+#   b2 tests/logos/pass/copy_verdict_homonym_drop_glue.logos        (printed
+#        nothing; the control printed `D7 D7`)
+#      tests/logos/pass/copy_verdict_homonym_drop_glue_ctl.logos
+#      tests/logos/fail/copy_verdict_homonym_use_after_move_fail.logos (compiled
+#        clean at rc 0 — the admitted use-after-move no pass fixture can see)
+#   b5 tests/logos/pass/impl_target_homonym_drop.logos              (was rc 1)
+#      tests/logos/pass/impl_target_homonym_drop_ctl.logos
+#      tests/logos/pass/impl_target_homonym_copy_verdict.logos      (was rc 1)
+#      tests/logos/pass/impl_target_homonym_copy_verdict_ctl.logos
+# ⚠ b1's cell-(a) claim, checked in the ABUSE direction and left UNCONVERTED:
+# the mlir_gen `match_intr` family (`__vtable_of__`, `__dyn_from_parts__`,
+# `__dyn_data__`) is compiler-synthesized under a leading-dunder spelling and
+# was not converted; no program in this round provoked it.
+# ⚠ NOT closed this round, with repros: task #90 (closure_kind_ keyed by
+# type_str(signature)) — the read site, check_type_bounds, receives only a
+# TypeRef and every one of its ~10 callers passes (name, type_params, args) with
+# no argument expression, so nothing short of giving a closure LITERAL an
+# identity that survives to the bound check repairs it. That is a type-identity
+# change with mono/mangling reach. The site's own comment already says so; this
+# round CONFIRMED the refusal is live (rc 1 with the sibling closure present,
+# rc 0 with it deleted) and did not weaken anything to hide it.
+# ⚠ AND ONE FINDING OUTSIDE THIS CLASS, recorded not fixed: 56 `mlir_gen: …`
+# diagnostics do not set the exit code. b2's conversion removed the specific
+# diagnostics that made it visible here (the stdlib field list crossing onto a
+# user homonym), but the exit-code plumbing is untouched and belongs to
+# the exit-code-gate-lies class, which already has logos_00_mlir_gen_exit_code.
 # 2026-08-21 (#95 diagnostic RE-SPELLING — the aggregate-slot refusal stopped
 # impersonating the type-mismatch verdict. The two new emitters spelled
 # `expected {}, got {}`, which scripts/lint-mismatch-monopoly.sh reserves for

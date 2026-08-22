@@ -406,6 +406,13 @@ void Mono::scan_expr(lir_view::ExprRef e) {
                 else if (k != LogosType::Kind::TraitObject &&
                          k != LogosType::Kind::TypeVar && k != LogosType::Kind::Error)
                     nm = type_str(src);   // primitives, etc.
+                // KEY-IDENTITY: OPEN #98 — the coercion-target index is keyed by
+                // a BARE trait name, so two packages declaring the same trait
+                // share one target set and each other's devirtualisation
+                // candidates. Not measured this round; a user `trait Hash` with
+                // `&dyn Hash` dispatch was measured to bind correctly in the
+                // enumeration round, which is evidence about DISPATCH, not
+                // about this index.
                 if (!nm.empty())
                     dyn_coerced_targets_[std::string(TypeRef(tgt).trait_name())]
                         .emplace(std::move(nm), src);

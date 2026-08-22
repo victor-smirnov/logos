@@ -1,0 +1,41 @@
+// A LOOKUP KEY IS NOT AN IDENTITY: THE TARGET HALF (task #88).
+//
+// `impls_` and `coherence_keys_` are keyed `Trait::Target` with a BARE target.
+// The trait half was disambiguated in an earlier round (canonical_trait_name);
+// the target half was not, so a user package's `impl Drop for String` composed
+// the same key as the stdlib's `impl Drop for logos.mem.string.String` and was
+// REFUSED: "conflicting implementations of trait 'Drop' for type 'String'".
+// MEASURED over all 421 stdlib struct names: 6 refused — String through the
+// coherence arm, DView / NonZero / Pin / StringView / TypeId through the E0184
+// arm (`impl Copy for X: the type also implements Drop`), which read the
+// stdlib homonym's Copy impl against this program's Drop impl.
+//
+// ⚠ `target_typeref` cannot supply the identity: it is documented as set only
+// for GENERIC-target impls and is null for every plain `impl Drop for X`
+// (measured, tr=0 for all 421). The identity is captured at collect time as
+// "does THIS package declare a type of that name" — see SemaImplInfo::target_pkg.
+//
+// THE ORACLE IS AN OBSERVABLE SIDE EFFECT: the destructor adds 10 to a witness
+// through a raw pointer, and the exit code IS the witness — 20 means both
+// destructors ran, 0 means none did. `_ctl` is the same program under the
+// collision-free name `MyStr`.
+//
+// ⚠ NO `print!` HERE, DELIBERATELY. The format expansion binds its own
+// `let __buf: String`, which a package declaring `String` re-binds — a
+// SEPARATE live instance of this class in the quote channel, still open, and
+// noted in mlirgen_odr_drop_glue_homonym.logos's header. Using print! here
+// would make this fixture red for someone else's defect.
+package test;
+
+struct String { pub a: i64, pub p: *mut i64 }
+impl Drop for String {
+    fn drop(self: &mut String) { unsafe { *self.p = *self.p + 10i64; } }
+}
+
+fn main() -> i32 {
+    let mut witness: i64 = 0i64;
+    let wp: *mut i64 = &mut witness as *mut i64;
+    { let s: String = String{ a: 7i64, p: wp }; }
+    { let t: String = String{ a: 8i64, p: wp }; }
+    return witness as i32;
+}

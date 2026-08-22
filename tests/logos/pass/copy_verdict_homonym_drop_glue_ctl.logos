@@ -1,0 +1,23 @@
+// CONTROL for copy_verdict_homonym_drop_glue.logos — the identical program
+// under a collision-free name. `TidX` is in no stdlib table, so its Copy
+// verdict and its field list are its own; this file printed `D7 D7` on the
+// pre-conversion compiler and on the converted one. The PAIR is the evidence:
+// alone, the homonym file would pass on a compiler that dropped nothing
+// anywhere, and the control alone proves nothing about the homonym.
+package test;
+use logos.std.fmt;
+
+struct Inner_ { pub v: i64 }
+impl Drop for Inner_ { fn drop(self: &mut Inner_) { print!("D7 "); } }
+
+struct TidX { pub v: Inner_ }
+
+fn take(x: TidX) -> i64 { return x.v.v; }
+
+fn main() -> i32 {
+    let a: TidX = TidX{ v: Inner_{ v: 1i64 } };
+    let b: TidX = TidX{ v: Inner_{ v: 2i64 } };
+    let s: i64 = take(a) + take(b);
+    println!("s={}", s);
+    return s as i32;
+}

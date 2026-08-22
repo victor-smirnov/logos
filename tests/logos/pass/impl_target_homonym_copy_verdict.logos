@@ -1,0 +1,32 @@
+// A LOOKUP KEY IS NOT AN IDENTITY: THE TARGET HALF, E0184 ARM (task #88).
+//
+// The sibling (impl_target_homonym_drop) exercises the COHERENCE arm through
+// `String`. This one exercises the OTHER arm the same bare target key fed: the
+// E0184 check walks `impls_` for every `Copy::<T>` and asks for `Drop::<T>` on
+// the same bare spelling. The stdlib's `TypeId` has an `impl Copy`; this
+// program's `TypeId` has an `impl Drop` and no Copy impl at all — and the two
+// met on `Copy::TypeId` / `Drop::TypeId` and refused with
+// "impl Copy for TypeId: the type also implements Drop (E0184)", naming an
+// impl this file does not contain. MEASURED over 421 stdlib struct names:
+// DView, NonZero, Pin, StringView and TypeId reached this arm.
+//
+// The abuse direction of the fix — a GENUINE local `impl Copy` + `impl Drop`
+// pair must still be refused — is pinned by fail/copy_drop_e0184.logos, which
+// was green before and after.
+//
+// Observable: the destructor adds 10 to a witness through a raw pointer and the
+// exit code IS the witness.
+package test;
+
+struct TypeId { pub a: i64, pub p: *mut i64 }
+impl Drop for TypeId {
+    fn drop(self: &mut TypeId) { unsafe { *self.p = *self.p + 10i64; } }
+}
+
+fn main() -> i32 {
+    let mut witness: i64 = 0i64;
+    let wp: *mut i64 = &mut witness as *mut i64;
+    { let s: TypeId = TypeId{ a: 7i64, p: wp }; }
+    { let t: TypeId = TypeId{ a: 8i64, p: wp }; }
+    return witness as i32;
+}

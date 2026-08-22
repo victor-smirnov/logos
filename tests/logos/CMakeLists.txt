@@ -1237,6 +1237,26 @@ set_tests_properties(logos_00_sep_symbol_shape PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# ── A BUILTIN NAME IS NOT AN IDENTITY: THE HALF AN EXIT CODE CANNOT SEE ─────
+# The intrinsic-homonym fixtures assert values, and the values are the primary
+# oracle. Two facts are still invisible to them: WHICH symbol the call site
+# binds (the pre-fix compiler emitted the user's fn as a defined symbol and
+# never called it, so "the definition exists" proves nothing), and whether the
+# one exemption the conversion carries — an `extern fn` of an intrinsic name is
+# NOT a shadow — is a hatch. This gate asserts the relocations and the
+# undefined-symbol list; every claim was measured on both compilers.
+add_test(
+    NAME logos_00_intrinsic_bare_name_binding
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/intrinsic_bare_name_binding_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+)
+set_tests_properties(logos_00_intrinsic_bare_name_binding PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ── R2's VERDICT MUST REACH THE EXIT CODE, AND NO fail TEST CAN SEE THAT ────
 # `run_test.sh`'s fail mode runs logosc under `|| true` and greps stderr, so it
 # passes identically on rc 0 and rc 1: the property "a self-diagnosed
@@ -1321,6 +1341,35 @@ add_test(
             ${CMAKE_CURRENT_SOURCE_DIR}/separator_split.ledger
 )
 set_tests_properties(logos_00_separator_split_lint PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;lint;suite_lint;tier_commit"
+)
+
+# ── A LOOKUP KEY IS NOT AN IDENTITY ────────────────────────────────────────
+# The sibling of the separator class, and the more expensive one. A map keyed by
+# an entity's NAME answers for whoever registered that name FIRST, so a second
+# declaration of the same name silently inherits the first one's meaning. Six
+# instances were confirmed separately — the mangler's type-arg spelling
+# (#58/#59/#60), ffo_canonical's package-stripping fallback, mono's devirt
+# worklist key (#83), `impls_`'s bare trait target (#88), `closure_kind_`'s
+# signature key (#90) — each found on its own, each costing a full round, and
+# one of them producing a WRONG ANSWER with no diagnostic at all: a user
+# `fn popcount_u64` compiled to llvm.ctpop while its own body was emitted and
+# never called.
+#
+# The class is MECHANICALLY ENUMERABLE, so it gets a census rather than a
+# seventh bug report. Population and cells are DERIVED from the tree; the two
+# cells that cannot be derived demand a `KEY-IDENTITY:` ground at the site.
+#
+# `tier_commit`: this reds the day a new bare-keyed lookup is WRITTEN, which is
+# the only day it is cheap to fix — after that it is a round. 0.94 s.
+add_test(
+    NAME logos_00_key_identity_lint
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/key_identity_lint.sh
+            ${CMAKE_SOURCE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/key_identity.ledger
+)
+set_tests_properties(logos_00_key_identity_lint PROPERTIES
     TIMEOUT 60
     LABELS  "logos;lint;suite_lint;tier_commit"
 )

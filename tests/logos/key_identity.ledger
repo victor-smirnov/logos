@@ -1,0 +1,115 @@
+# key_identity.ledger — the BARE ENTITY-NAME KEY census.
+#
+# Held by tests/logos/key_identity_lint.sh. Read that file's header for what a
+# subject is, how the population is derived, and what each cell means; this file
+# is the pin, not the argument.
+#
+# ROW: <file> <TAB> <registry> <TAB> <cell> <TAB> <count> <TAB> <normalised key expression>
+#
+# Line numbers are DELIBERATELY absent: they drift with every edit above them,
+# and a ledger keyed on them goes red for reasons that have nothing to do with
+# this class. The key expression is the site's identity and also documents it.
+#
+# CELLS — two DERIVED (the ledger can only agree with the tree, never assert
+# onto it), two demanding a ground comment AT THE SITE:
+#   O     qualified probe FIRST, bare slot LAST. Derived: a package-qualifying
+#         probe appears within the preceding 900 characters. Delete that probe
+#         and the cell flips — RED.
+#   Q     the key IS a mangled link name, qualified by construction. Derived.
+#   D     bare by a carried design decision; needs `KEY-IDENTITY:` at the site.
+#   B#nn  bare and reachable, a KNOWN OPEN DEFECT; needs `KEY-IDENTITY: OPEN #nn`
+#         at the site with the SAME task number.
+#
+# ⚠ A NEW ROW IS NOT A FORMALITY. It says a lookup in the compiler answers for
+# whoever registered a name first. Qualify the key (sema_key / qualify_pkg, or
+# a keymaker grown from them such as mlir_struct_key) before you add one.
+#
+# ⚠ HELD IN BOTH DIRECTIONS. A REMOVED row is red too: a conversion is a
+# deliberate ledger edit in the same commit, so the count can only move on
+# purpose. A number that drifts down on its own is a measurement nobody reads.
+#
+# 41 rows / 44 sites. Cells: O 20, B#98 8, D 6, B#88 3, B#90 2, Q 2.
+
+# ── FACT 3 pins: the scan-by-name guards (no map, same class) ───────────────
+# `callee == "<bare name>"` comparisons in sema_expr.cpp, by region. The two
+# guarded regions are pinned so a comparison moving between them is seen; the
+# third is the one that matters most — a bare-name intrinsic comparison written
+# outside BOTH guards is the wrong-answer instance regrowing.
+#GUARD sema_expr_callee_eq_in_lower_call_guard 14
+#GUARD sema_expr_callee_eq_in_lower_type_intrinsic 66
+#GUARD sema_expr_callee_eq_unguarded 11
+
+# ── FACT 4: THE SCAN-BY-NAME POPULATION, PER FILE, WITH A ROSTER DIGEST ─────
+# FACT 3 pins the two guards in sema_expr.cpp STRUCTURALLY. That is necessary
+# and it is NOT sufficient: this round's own verify planted a bare-name
+# intercept in sema_stmt.cpp and the gate stayed green, and the tree already
+# held `if (name == "AnyVal")` in mlir_gen.cpp — a SILENT WRONG ANSWER of
+# exactly the shape FACT 3 exists to stop, in a file FACT 3 does not read.
+#
+# So the population is censused tree-wide instead: <file> <count> <digest of the
+# sorted literals>. A new intercept moves the count in whatever file it is born
+# in; a literal swapped for another at a constant count moves the digest. The
+# gate does not classify the site — that is the human's job at the pin move —
+# it only refuses to let one appear unnoticed.
+#
+# ROW: #SCAN <basename> <count> <md5-8 of the sorted literal list>
+#SCAN borrow_check.cpp 6 f7194ec0
+#SCAN emit_module.cpp 6 5ec06a0f
+#SCAN main.cpp 4 04f2bc11
+#SCAN mlir_gen.cpp 1 f40e89e1
+#SCAN mlir_gen_debug.cpp 2 c5f7c386
+#SCAN mlir_gen_dyn.cpp 1 fad58de7
+#SCAN mlir_gen_expr.cpp 5 83543b0d
+#SCAN mlir_gen_impl.hpp 1 f40e89e1
+#SCAN mlir_gen_types.cpp 1 95c89e84
+#SCAN module_loader.cpp 1 dfda2a6a
+#SCAN mono_clone.cpp 97 64d05c85
+#SCAN mono_impl.hpp 14 3dae6516
+#SCAN sema.cpp 49 5a50bc47
+#SCAN sema_auto_trait.cpp 15 9ab14bd6
+#SCAN sema_collect.cpp 40 5c052a20
+#SCAN sema_decl.cpp 2 ce09ff69
+#SCAN sema_expr.cpp 153 219fd2b8
+#SCAN sema_impl.hpp 29 14d2f131
+#SCAN sema_stmt.cpp 15 fa9e12e1
+mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
+mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)
+mlir_gen_dyn.cpp	struct_types_	O	1	std::string(TypeRef(cur_t).struct_name())
+mlir_gen_expr.cpp	struct_types_	O	1	std::string(TypeRef(ret_type).struct_name())
+mlir_gen_impl.hpp	all_struct_defs_	O	1	concrete_struct_name(t)
+mlir_gen_impl.hpp	struct_types_	O	1	concrete_struct_name(t)
+mlir_gen_impl.hpp	struct_types_	O	1	std::string(rt.struct_name())
+mlir_gen_stmt.cpp	all_struct_defs_	O	1	std::string(st.struct_name())
+mlir_gen_stmt.cpp	struct_types_	O	1	concrete_struct_name(t.pointee())
+mlir_gen_stmt.cpp	struct_types_	O	1	std::string(st.struct_name())
+mlir_gen_types.cpp	all_struct_defs_	O	1	concrete_struct_name(e)
+mlir_gen_types.cpp	all_struct_defs_	O	1	concrete_struct_name(f.type)
+mlir_gen_types.cpp	struct_types_	O	1	std::string(TypeRef(lt).struct_name())
+mono.cpp	poisoned_fns_	Q	1	sym::link_name(fn, out_.pkg_module_ids)
+mono.cpp	poisoned_fns_	Q	1	sym::link_name(m, out_.pkg_module_ids)
+mono_scan.cpp	dyn_coerced_targets_	B#98	1	std::string(TypeRef(tgt).trait_name())
+sema_auto_trait.cpp	closure_capture_env_	D	1	type_str(tv)
+sema_auto_trait.cpp	current_type_bounds_	D	1	std::string(tv.type_var_name())
+sema_collect.cpp	closure_kind_	B#90	1	type_str(cv)
+sema_collect.cpp	datatypes_	B#98	1	cur_package_ + "::" + std::string(fv.struct_name())
+sema_collect.cpp	datatypes_	B#98	1	std::string(fv.pkg_name()) + "::" + std::string(fv.struct_name())
+sema_collect.cpp	datatypes_	B#98	1	std::string(fv.struct_name())
+sema.cpp	current_type_bounds_	D	1	std::string(TypeRef(base).type_var_name())
+sema.cpp	current_type_bounds_	D	1	std::string(TypeRef(x).type_var_name())
+sema.cpp	current_type_bounds_	D	1	type_str(result)
+sema.cpp	datatypes_	B#98	1	TypeRef(struct_t).struct_name()
+sema.cpp	enums_	O	1	std::string(TypeRef(t).enum_name())
+sema.cpp	impls_	B#88	1	"StableLayout::" + concrete_struct_name(ft)
+sema.cpp	impls_	B#88	1	"StableLayout::" + type_str(ft)
+sema.cpp	structs_	B#98	1	TypeRef(struct_t).struct_name()
+sema.cpp	structs_	O	2	std::string(TypeRef(t).struct_name())
+sema_expr.cpp	closure_capture_env_	D	1	type_str(ctype)
+sema_expr.cpp	closure_kind_	B#90	2	type_str(ctype)
+sema_expr.cpp	datatypes_	B#98	1	TypeRef(elem).struct_name()
+sema_expr.cpp	enums_	O	1	TypeRef(inner_t).enum_name()
+sema_expr.cpp	impls_	B#88	1	b.trait_name + "::" + std::string(TypeRef(actual).struct_name())
+sema_impl.hpp	datatypes_	O	1	tr.struct_name()
+sema_impl.hpp	enums_	O	1	tr.enum_name()
+sema_impl.hpp	structs_	O	1	tr.struct_name()
+sema_stmt.cpp	enums_	O	1	TypeRef(next_ret).enum_name()
+sema_stmt.cpp	enums_	O	2	TypeRef(scrut_type).enum_name()

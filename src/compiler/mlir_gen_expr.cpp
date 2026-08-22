@@ -2106,7 +2106,31 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     // `std.lang.text$str_from_raw__f__pcst_u8__i64` etc. Strip pkg
     // prefix and the `__f__<sig>` / `__g__<sig>` suffix to recover
     // the bare name for matching against the known-intrinsic set.
+    // ── A BUILTIN NAME IS NOT AN IDENTITY ─────────────────────────────────
+    // Stripping the package to recover a bare name makes the 49 comparisons
+    // below answer for WHOEVER OWNS THE SPELLING: a user package's
+    // `fn popcount_u64` mangles to `cpop$popcount_u64__f__u64`, strips back to
+    // `popcount_u64`, and the call becomes llvm.ctpop while the user's body is
+    // emitted and never called. Same shape as ffo_canonical's package-stripping
+    // canonical fallback.
+    //
+    // The bare slot belongs to the stdlib. A callee reaches an intrinsic match
+    // only when it is UNMANGLED (compiler-spelled `popcount_u64`, or an
+    // `extern fn` symbol like `logos_atomic_load32`, which names the very
+    // runtime stub these ops replace) or mangled under a `logos.*` package —
+    // all 192 stdlib packages are `logos.*` and no non-stdlib .logos in the
+    // tree declares one. Mangled names carry `<module>.<package>$<base>`, e.g.
+    // `logos_lang.logos.lang.str$str_from_raw__f__pcst_u8__i64`.
+    const bool intrinsic_slot_owned_by_stdlib = [&]() -> bool {
+        auto dollar = callee.rfind('$');
+        if (dollar == std::string::npos) return true;
+        std::string_view pfx{callee.data(), dollar};
+        return pfx == "logos" || pfx.rfind("logos.", 0) == 0 ||
+               pfx.find(".logos.") != std::string_view::npos;
+    }();
     auto bare_intrinsic = [&]() -> std::string {
+        // Empty is unmatchable — no intrinsic has the empty name.
+        if (!intrinsic_slot_owned_by_stdlib) return std::string{};
         auto dollar = callee.rfind('$');
         std::string_view body = (dollar == std::string::npos)
             ? std::string_view{callee}
