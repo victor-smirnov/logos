@@ -3085,9 +3085,156 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7438
-REGISTRY-NOIMPORTED  3755
-REGISTRY-TIERCOMMIT  38
+REGISTRY-ALL         7444
+REGISTRY-NOIMPORTED  3761
+REGISTRY-TIERCOMMIT  44
+# 2026-08-21 (#85 residue — ONE SCHEDULER, the lint. The conversion round closed
+# the three CORPUS-CENSUS gates but left the CLASS standing: three registered
+# gates still run `xargs -P` from inside a ctest slot, which is the shape that
+# produced #82 in one direction and the serial-for-nothing case in the other.
+# The population is a grep, so the recorded rule is sweep-and-gate. The three
+# are not pure folds (plan_independence recompiles each fixture a second time
+# with FORCED flags — a different compile from the one the fixture's own test
+# runs), so they are sized as #101 and pinned as OPEN rows instead of converted
+# here. The lint reds BOTH directions: a new fan-out in any registered script,
+# and an OPEN row whose subject stopped fanning out, so the rows cannot rot.
+# Bitten in three shapes (new xargs in a converted gate -> rc 1 naming it; an
+# OPEN row gone stale -> rc 1; the registration read broken -> rc 2), restore
+# green. One measured FALSE POSITIVE was fixed at the matcher rather than by
+# exempting the file: `&&` at a line end is a continued boolean, not a
+# background job, and it fired on an awk one-liner in flat_body_gate.sh — an
+# exemption there would have hidden a real `&` in the same file.
+#   tests/logos/one_scheduler_lint.sh                       (new, tier_commit)
+# +1 registered test in all three columns; measured by direct `ctest -N`, not
+# by addition: 7444 / 3761 / 44.
+#
+# TWO HOLES THE ROUND'S OWN VERIFY MEASURED IN facts_require, closed here:
+#   `plan.err` was consumed by the door census and NOT required — deleting one
+#   fixture's left the gate rc 0 and green with a `grep: No such file` on a
+#   stderr nobody reads. It is now required with `rc`, `stamp` and `gen/`.
+#   `args` was RECORDED so a fold "can say what it folded over" and never read
+#   — the verify wrote `-lTOTALLY_BOGUS` into a fixture's and every fold stayed
+#   green and byte-identical. Its md5 is now a third stamp line, so the
+#   existing staleness check covers it. A recorded fact no consumer checks is
+#   not a fact, it is a comment — and this one carries the archive map the door
+#   gate's own argument rests on.
+# 2026-08-21 (task #85, TEST INFRA — THE SWEEP GATES STOP BEING A SECOND
+# SCHEDULER. Victor: «зачем там shell-скрипты, когда тесты запускаются
+# ctest-ом?» / «короче, xargs тебе вообще не надо». +5 tests, tier_commit.
+#   THE DEFECT, NOT MERELY SLOW. Three census gates each swept a fixture corpus
+#     with a `one()` worker of their own behind `xargs -0 -P "$SWEEP_P"`, with
+#     `SWEEP_P` picked from LOGOS_GATE_SWEEP_P / CTEST_INTERACTIVE_DEBUG_MODE /
+#     nproc. #82's "serial under ctest" was a patch on the seam between TWO
+#     schedulers: `ctest -j32 -R "logos_09_pull_shape|logos_09_plan_ground
+#     _census"` selected two tests, held 32 idle slots and ran two `logosc`
+#     processes for ~19 minutes. And all 2636 of those compiles were RECOMPILES
+#     — the ordinary per-fixture ctest test already compiles every one of these
+#     fixtures; run_test.sh simply did not pass `--gen-dir`.
+#   THE SHAPE NOW.
+#     tests/logos/facts_emit.sh   the ONE compile, with `--gen-dir` and
+#       LOGOS_TRACE_PLAN=1, writing gen/ (unit by unit — the three gates scope
+#       units differently and the scoping is load-bearing), plan.err, rc, args
+#       and a STAMP, into a durable per-fixture dir under the BUILD tree.
+#     tests/logos/run_test.sh     pass mode calls it when LOGOS_FACTS_DIR is
+#       set; unset, byte-for-byte the old behaviour (a hand invocation stays
+#       clean). Trace lines are dropped from the compile-failure message —
+#       `[plan] ` is that channel's only spelling.
+#     tests/logos/facts_fold.sh   `facts_require`, sourced by all three gates:
+#       the population's expected list is derived exactly as before and EVERY
+#       missing or wrongly-stamped member is named at exit 2. This is the
+#       gate-lie the change had to not introduce — SILENCE READ AS ZERO, "not
+#       selected under -R" reading as "no doors here".
+#     tests/logos/CMakeLists.txt  every `tests/logos/pass` test is
+#       FIXTURES_SETUP for `logos_facts_all` (and for `logos_facts_glob` if it
+#       is `wql_*`/`deem_*`); the gates declare FIXTURES_REQUIRED. Five
+#       `pass/*.logos` have no `.expected` and so no corpus test — all five in
+#       unregistered.ledger — so `logos_09_facts_<base>` is registered for them
+#       FROM THE SAME GLOB, derived and not listed. Without that the door census
+#       would have measured 2249 of 2254 or reddened forever.
+#   DELETED ENTIRELY, zero live hits left in the tree (15 remaining mentions are
+#     all comments recording the history): the three `one()` workers, `xargs`,
+#     `SWEEP_P`, `LOGOS_GATE_SWEEP_P`, the `CTEST_INTERACTIVE_DEBUG_MODE`
+#     branch, `PROCESSORS 8`, the `PRESWEPT` hooks, `LOGOS_DOOR_SWEEP_OUT`, and
+#     direct_door_census_gate.sh's hand-copy of `logos_pass_extra_args` (the
+#     archive map — twenty-odd `-l` lines, the `memoria_` prefix rule and the
+#     `--test` rule, a mirror its own comment admitted drifts).
+#   ⚠ THE OLD `PRESWEPT` HOOK WAS ITSELF THE LIE. pull_shape_gate.sh set
+#     `NFIX=0`, `cp "$PRESWEPT"/*.user 2>/dev/null`, and SKIPPED the probe-
+#     completeness check — fed 3 fixtures it measured 3 and reported green.
+#     There is one path now, and the refusals run on it.
+#   TWO PINS MOVED, PREDICTED AND PROVED BY CONTROL. Riding the fixture's own
+#     test means inheriting its `-l` archives, so the two GLOB fixtures the old
+#     sweep could not compile now do. `wql_wref_field_pkg` emits 0 gen units and
+#     0 trace lines (measured) and moves nothing; every delta is
+#     `wql_mapping_cross_module_e2e`'s own 7 units / 25 trace lines.
+#     CONTROL: the facts tree copied, that fixture's gen/ + plan.err emptied and
+#     rc set back to 4 — exactly the state the failed compile left — and both
+#     gates re-run against the copy: rc 0, output BYTE-IDENTICAL to HEAD
+#     1711035e. So nothing else moved, and NO per-fixture plan-vs-artifact
+#     identity moved at all.
+#       tests/logos/pull_shape_gate.sh   dumps 174->175 · walks_total
+#         3301->3313 · walks_internal 2513->2517 · walks_fixpoint 610->618.
+#         Every other pin unmoved (nb_pull, nb_forward, SliceStream, .next()
+#         and its four classes, walks_param/field/unclaimed, all door pins).
+#       tests/logos/plan_ground_census_gate.sh  EXPECT_FAILED {the two} -> {} ·
+#         OUTQ 609->610 · OUTR/RLND 45->46 · OUTHEAD "query output" 481->482,
+#         "rel result" 45->46 · FPACC 84->85 · ARRANGE/INDEX 599->602 ·
+#         HASHJOIN 496->499 · NOMAT container 76->77 · REFUSED 492->493 ·
+#         DXWHY "borrows" 18->19 · FPHEAD derived-frontier 222->223,
+#         novelty-set 218->219, frontier 176->177, rel-dedup-set 45->46.
+#         EXPECT_FIXTURES stays 191 — the population was never what was missing.
+#       tests/logos/direct_door_census_gate.sh  NOTHING MOVED. Output BYTE-
+#         IDENTICAL: corpus 2254 = glob 191 + nonglob 2063 · unswept 0 ·
+#         doors 36 = glob 10 + nonglob 26 · plan 36 · non-deem residual 1/1.
+#   BITE TABLE — the missing-facts refusal is the new assertion, so it is the
+#   one bitten, on sandbox COPIES of the facts tree (the real tree untouched):
+#     A  delete deem_pipeline_chain's facts        pull_shape   rc 2, named
+#     B  delete a second one                       plan_ground  rc 2, both named
+#     C  delete a NON-glob fixture (`hello`)        direct_door  rc 2, named
+#     D  delete a LEDGER fixture (lforge_manifest) direct_door  rc 2, named
+#        — the leg that proves the five no-.expected fixtures are covered
+#     E  forge one stamp (`logosc 1 1`)            direct_door  rc 2, "facts
+#        from a DIFFERENT tree", the fixture named
+#     restore -> rc 0, the green checkpoint, after every leg.
+#   AND ON THE REAL TREE: the `deem_source_size` facts directory (under the
+#     BUILD tree's facts root, not the source tree) deleted ->
+#     pull_shape rc 2 naming it; then `ctest -R '^logos_09_pull_shape$'` ->
+#     FIXTURES_REQUIRED re-ran the producer and the gate passed. The regenerated
+#     facts differ from the deleted ones in ONE byte-range: logosc's own
+#     `logosc: wrote /tmp/tmp.XXXX/test.o` line in plan.err (a mktemp path). Every
+#     gen unit, the rc, args, stamp and every `[plan] ` line byte-identical.
+#   WALL-CLOCK, same box, idle, `-j32`:
+#     BEFORE (each gate standalone, its own sweep at -P32, compiles included)
+#       pull_shape 60 s · plan_ground 61 s · direct_door 249 s = 370 s, and that
+#       is BEFORE the 2254-test pass corpus runs at all. Under ctest the two
+#       glob gates ran serially by design: the `-j32 -R` two-gate case #82 was
+#       patching took ~19 min.
+#     AFTER (`ctest -j32 -R '^logos_09_(pull_shape|plan_ground_census|direct_
+#       door_census)$'` = 2257 tests: 2254 pass fixtures COMPILED, LINKED and
+#       RUN, the 5 facts tests, and all three gates)
+#       285.5 s total. The folds themselves: pull_shape 5.0 s ·
+#       direct_door 19.8 s · plan_ground 22.8 s = 47.6 s.
+#   TIMEOUTS RE-PRICED DOWN (a strengthening, not a relaxation): all three
+#     1800 -> 300, and `PROCESSORS 8` dropped. The compiles these gates no
+#     longer run are timed by their own tests at 120 s each.
+#   THE FIVE FACTS TESTS ARE THE +5 IN THE THREE NUMBERS ABOVE
+#     (7438->7443, 3755->3760, 38->43), predicted before the gate was re-run.
+#     They assert only what the door census already asserted about all 2254
+#     (`unswept` pinned 0): the compiler accepts the file. They do NOT discharge
+#     unregistered.ledger — there is still no `.expected` and nothing compares
+#     an exit code or a stdout.
+#   MEASURED AND LEFT ALONE, a pre-existing drift found en route: the prose
+#     table at the head of pull_shape_gate.sh says `next_batch() calls 1040 /
+#     PULLS 1030`, while the PIN block says `nb_pull 1031` and the gate measures
+#     1041/1031 — the table went stale at the V2-M1 round and no clause reads
+#     it. Not touched here: a number I did not derive is not a number I may
+#     re-type.
+#   L1 732/732 · L2 2336/2336 · `ctest -j32 -L fail` 1440/1440 · the three gates
+#     green both standalone and under ctest. logos_00_gate_lint and
+#     logos_00_census_pin both reddened first and were fixed at the class:
+#     facts_fold.sh into NOT_GATES with its ground (a sourced library with no
+#     main — R5), an inline `# lint:exit-ok` on facts_emit.sh's `exit "$rc"`
+#     (R1 — a real wait status, captured at `$?`), and the registry pin above.
 # 2026-08-21 (CLASS SWEEP A, THE GATE — the class is now held by a census, not
 # by the memory of the six rounds that found it. +1 test, tier_commit, 0.94 s.
 #   THE INSTRUMENT: tests/logos/key_identity_lint.sh + key_identity_scan.py,

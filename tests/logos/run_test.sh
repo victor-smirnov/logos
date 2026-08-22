@@ -54,7 +54,35 @@ fi
 # ── Pass mode ──────────────────────────────────────────────────────────────
 OBJ="$TMPD/test.o"
 
-if ! "$LOGOSC" "$TEST_LOGOS" -o "$OBJ" "${EXTRA[@]}" 2>"$TMPD/sema.err"; then
+# ── THE FACTS SIDE PRODUCT (task #85) ──────────────────────────────────────
+# `LOGOS_FACTS_DIR` set  → the SAME single compile also writes its `--gen-dir`
+# units, its whole stderr under `LOGOS_TRACE_PLAN=1`, its rc and a stamp into
+# that durable directory, for the three `logos_09_*` census gates to fold over
+# afterwards. The argument for this living here rather than in three sweep
+# scripts is at the top of `facts_emit.sh`.
+# `LOGOS_FACTS_DIR` unset → byte-for-byte the previous behaviour: one plain
+# compile, no `--gen-dir`, no trace, nothing written outside `$TMPD`. A hand
+# invocation of this script stays clean, which is why the emission is REQUESTED
+# rather than always-on.
+#
+# ⚠ THE TRACE MUST NOT REACH THE FAILURE MESSAGE. `LOGOS_TRACE_PLAN=1` puts the
+# plan trace on the SAME stderr as the diagnostics, and one `wql_*` fixture's
+# trace is up to 41 KB. A compile failure here used to print stderr verbatim;
+# printing it now would bury the diagnostic under the trace. `[plan] ` is the
+# trace channel's ONLY spelling (`wql/codegen.logos::plan_trace` writes the
+# prefix unconditionally), so the diagnostic is recovered by dropping exactly
+# those lines — nothing else is filtered, and the non-facts path below is
+# untouched.
+if [ -n "${LOGOS_FACTS_DIR:-}" ]; then
+    # ⚠ `if !`, NOT a bare call plus `$?`: this script runs under `set -e`, so a
+    # bare call that failed would exit before the diagnostic was printed.
+    if ! "$(dirname "$0")/facts_emit.sh" "$LOGOSC" "$TEST_LOGOS" \
+            "$LOGOS_FACTS_DIR" "$OBJ" "${EXTRA[@]}"; then
+        echo "FAIL: logosc failed:"
+        grep -v '^\[plan\] ' "$LOGOS_FACTS_DIR/plan.err" 2>/dev/null || true
+        exit 1
+    fi
+elif ! "$LOGOSC" "$TEST_LOGOS" -o "$OBJ" "${EXTRA[@]}" 2>"$TMPD/sema.err"; then
     echo "FAIL: logosc failed:"
     cat "$TMPD/sema.err"
     exit 1

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# plan_ground_census_gate.sh LOGOSC PASS_DIR WHY_LOGOS ACCESS_PLAN_LOGOS
+# plan_ground_census_gate.sh LOGOSC PASS_DIR WHY_LOGOS ACCESS_PLAN_LOGOS FACTS_ROOT
 #
 # THE REFUSAL CENSUS, RE-DERIVED BY MACHINE — ADR 0025 S2 ("the refusal census
 # (why-vocabulary) re-derived, no silence where a drain happens").
@@ -303,10 +303,18 @@ LOGOSC="$1"
 PASS="$2"
 WHY_SRC="$3"
 AP_SRC="$4"
+# The facts tree written by the per-fixture ctest tests (task #85). See the
+# fold below, and `facts_emit.sh` / `facts_fold.sh` for the argument. Copy this
+# tree and pass the copy to perturb the census's INPUT for a bite-proof — the
+# completeness and staleness refusals run on the copy exactly as on the real
+# one, which is what this gate's siblings' old `PRESWEPT` hook gave away.
+FACTS="${5:?facts root}"
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
 export LC_ALL=C
+# shellcheck source=facts_fold.sh
+. "$(dirname "$0")/facts_fold.sh"
 
 shopt -s nullglob
 FIXTURES=("$PASS"/wql_*.logos "$PASS"/deem_*.logos)
@@ -314,20 +322,39 @@ if [ "${#FIXTURES[@]}" -lt 150 ]; then
     echo "FAIL: only ${#FIXTURES[@]} corpus fixtures matched — the census is blind."
     exit 1
 fi
+# EVERY member of the population, or nothing at all. A census that measured 3
+# of 191 fixtures and reported green would be strictly worse than the sweep it
+# replaced; the refusal names every missing member. See facts_fold.sh.
+facts_require "$FACTS" "$LOGOSC" "plan-ground" "${FIXTURES[@]}"
 
-# ── the sweep, one process per fixture, $(nproc) at a time ───────────────────
-# Each worker writes THREE files and no shared state: the trace, and the two
-# artifact counts. A worker that cannot compile writes its name into `_failed`.
+# ── THE FOLD (task #85) ─────────────────────────────────────────────────────
+# THIS GATE NO LONGER COMPILES ANYTHING. It used to write a `one.sh` worker to
+# a temp dir and drive 191 of them with `xargs -0 -P "$SWEEP_P"`, where
+# `SWEEP_P` came from `LOGOS_GATE_SWEEP_P` / `CTEST_INTERACTIVE_DEBUG_MODE` /
+# `nproc` — a second scheduler inside a test that ctest was already scheduling,
+# re-compiling 191 programs the corpus tests compile anyway. Every line of that
+# is deleted. The per-fixture ctest tests emit their `--gen-dir` units, their
+# whole `LOGOS_TRACE_PLAN=1` stderr and their rc as a side product of the one
+# compile they already run (`run_test.sh` -> `facts_emit.sh`); this gate
+# declares `FIXTURES_REQUIRED "logos_facts_glob"` so ctest runs them first; and
+# what remains here is a serial fold over what they wrote.
+#
+# The staging below reproduces EXACTLY the file layout the worker produced —
+# `$O/<b>.err`, `$O/<b>.count`, `$O/<b>.dx`, `$O/_failed` — so the census pass
+# that reads them is untouched. The grep block is the worker's, verbatim, with
+# one substitution: the dumps come from the facts tree (`$G/gen`) instead of
+# from a compile this script ran, and `$d` is now scratch only. `_failed` is
+# derived from the RECORDED rc rather than from the exit status of a compile
+# that happened here — the same fact, read where it was written down.
 mkdir -p "$TMPD/o"
-cat > "$TMPD/one.sh" <<'WORKER'
-#!/usr/bin/env bash
-set -uo pipefail
-f="$1"; LOGOSC="$2"; O="$3"
+O="$TMPD/o"
+for f in "${FIXTURES[@]}"; do
 b=$(basename "$f" .logos)
+G="$FACTS/$b"
 d="$O/$b.d"
 mkdir -p "$d"
-if LOGOS_TRACE_PLAN=1 "$LOGOSC" "$f" --gen-dir "$d/gen" -o "$d/out.o" \
-        > "$d/log" 2> "$O/$b.err"; then :; else echo "$b" >> "$O/_failed"; fi
+cp "$G/plan.err" "$O/$b.err"
+if [ "$(cat "$G/rc")" = 0 ]; then :; else echo "$b" >> "$O/_failed"; fi
 shopt -s nullglob
 # The USER module's dumps only: `logos.gen.*` holds the family DEFINITIONS, and
 # a producer found there says nothing about what this query builds.
@@ -338,7 +365,7 @@ shopt -s nullglob
 # emitted side — 4 `__ks` vectors between them — was invisible to this census
 # while looking exactly like a fixture that builds nothing. Named by shape, so a
 # third fixture with its own package name cannot go quiet the same way.
-ALLD=("$d"/gen/*.gen.logos)
+ALLD=("$G"/gen/*.gen.logos)
 UD=()
 for x in "${ALLD[@]}"; do
     case "$(basename "$x")" in logos.gen.*) ;; *) UD+=("$x");; esac
@@ -550,47 +577,9 @@ if [ "${#UD[@]}" -ge 1 ]; then
 fi
 echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga $nqo $nqs $nro $nfdl $nfnd $nfrs $nfos $nfbe $nfky $nfrd $ncpr $ncpf $ncpl $ncpt $nitt $niod $nirm $niwc $ninw $niec $nipr $nilt $nrdb $nrsb $nrelb $nrfa $nrfaa $nrelv $nrls $nrlsa $nrelw" > "$O/$b.count"
 echo "$ndx" > "$O/$b.dx"
-rm -rf "$d/gen" "$d/out.o"
-WORKER
-chmod +x "$TMPD/one.sh"
+rm -rf "$d"
+done
 
-# ⚠ THE SWEEP'S FAN-OUT IS A BUDGET, NOT `nproc` (task #82). This read
-# `-P "$(nproc)"` while `test-levels.sh` runs `ctest -j"$(nproc)"`, so one gate
-# asked for 32 workers from inside one of 32 concurrent ctest slots — ~1024-way
-# oversubscription on 32 cores. Measured over seven L4 runs on 2026-08-19: every
-# run timed out 1-4 tier_full gates, a DIFFERENT subset each time, and every one
-# of them passed ALONE in 4-33 s against its ceiling. Wall-clock timeouts under
-# that much oversubscription pick victims at random, and a gate that reds at
-# random trains the reader to shrug at a red.
-# The number below is DECLARED TO CTEST as this test's PROCESSORS in
-# tests/logos/CMakeLists.txt — the two must agree, or the declaration is a lie
-# and ctest will schedule this gate next to 31 neighbours again.
-# ⚠ WHO PARALLELISES, AND WHY IT IS NOT BOTH (Victor, 2026-08-20; task #82).
-# UNDER CTEST the parallelism is CTEST'S JOB — it already runs the suite at
-# `-j$(nproc)`, so a gate that also fans out `-P$(nproc)` double-dips and the two
-# levels MULTIPLY: ~1024 workers on 32 cores. Measured over seven L4 runs
-# (2026-08-19): 1-4 tier_full gates timed out on every run, a DIFFERENT subset
-# each time, and each passed ALONE in 4-33 s against its ceiling. So under ctest
-# this sweep runs SERIALLY and lets ctest schedule the concurrency.
-# RUN BY HAND (diagnosis, a bite-proof, a one-off census) there is no outer
-# scheduler and the whole box is yours: the default is `nproc`.
-# `CTEST_INTERACTIVE_DEBUG_MODE` is set by ctest for every test it runs; it is
-# the only marker that needs no cmake-side cooperation, which is what keeps the
-# script honest when invoked directly. `LOGOS_GATE_SWEEP_P` overrides both.
-if [ -n "${LOGOS_GATE_SWEEP_P:-}" ]; then
-    SWEEP_P="$LOGOS_GATE_SWEEP_P"
-elif [ -n "${CTEST_INTERACTIVE_DEBUG_MODE:-}" ]; then
-    SWEEP_P=1
-else
-    SWEEP_P="$(nproc)"
-fi
-printf '%s\0' "${FIXTURES[@]}" \
-  | xargs -0 -P "$SWEEP_P" -I{} "$TMPD/one.sh" {} "$LOGOSC" "$TMPD/o"
-sweep_rc=$?
-if [ "$sweep_rc" -ne 0 ]; then
-    echo "FAIL: the corpus sweep itself failed (xargs rc $sweep_rc) — nothing was measured."
-    exit 1
-fi
 
 # ── the census ───────────────────────────────────────────────────────────────
 python3 - "$TMPD/o" "$WHY_SRC" "$AP_SRC" "${#FIXTURES[@]}" <<'PY'
@@ -840,6 +829,39 @@ fail = []
 # `stdlib/mem/wql/writ_graph.logos`'s REFUSAL block. A later round closing it
 # must move `container` 205 -> 164 and land those 41 on a re-walk ground, NOT on
 # `MG_REL_BLOCK`/`MG_SECOND_USE`.
+# ── ⚠ task #85 (2026-08-21): THE TWO ARCHIVE FIXTURES JOINED THE CENSUS ──────
+# This gate stopped compiling its own corpus. The facts now come off the
+# compile each fixture's own ctest test already runs, WITH the `-l` archive
+# flags CMake gives it — and the sweep this gate used to run never passed any,
+# so `wql_mapping_cross_module_e2e` (needs `-l libwql_map_lib.a`) and
+# `wql_wref_field_pkg` (needs `-l libpub_lib.a`) failed to compile (rc 4) and
+# contributed NOTHING. They were pinned as such in `EXPECT_FAILED`, which is
+# how this census recorded its own blind spot. `direct_door_census_gate.sh`
+# named it in as many words: "compiles the two GLOB fixtures `pull_shape`
+# cannot … it is right by luck".
+#
+# Both now compile. `wql_wref_field_pkg` emits NO user dump (measured: 0 gen
+# units, 0 trace lines), so it moves nothing; every delta below is
+# `wql_mapping_cross_module_e2e`'s own artifact — 7 user units, 25 trace lines.
+#
+# PROVED BY CONTROL, not by inspection: the facts tree was copied, and for those
+# two fixtures ONLY the `gen/` units and `plan.err` were emptied and the
+# recorded rc set back to 4 — which is exactly the state the old failed compile
+# left. Re-run against the copy: rc 0, output BYTE-IDENTICAL to this gate at
+# HEAD 1711035e. So no pin below moved for any other reason, and NO per-fixture
+# identity moved at all — every FACT's plan side and artifact side moved
+# together, which is the whole point of their being two.
+#
+# THE DELTAS, all +1 unless stated, all one fixture:
+#   EXPECT_FAILED  {the two} -> {} (they compile)
+#   OUTQ 609->610 · OUTR/RLND 45->46 · OUTHEAD "query output" 481->482 and
+#   "rel result" 45->46 · FPACC 84->85 · ARRANGE/INDEX 599->602 (+3) ·
+#   HASHJOIN 496->499 (+3) · NOMAT container 76->77 · REFUSED 492->493 ·
+#   DXWHY "borrows" 18->19 · FPHEAD derived-frontier 222->223, novelty-set
+#   218->219, frontier 176->177, rel-dedup-set 45->46
+# UNMOVED and worth saying so: EXPECT_FIXTURES (191 either way — the population
+# was never the thing that was missing), DRAIN_SORT, IT, RDB, RSB, KS, PERM,
+# FRAME, CPHEAD, CPT, IWHEAD, DIRECT (10).
 EXPECT_FIXTURES   = 191  # V2-M1 (ADR 0025 §12, 2026-08-19): 190 -> 191, +1
                          # `deem_direct_fallible_buffered` — the fixture that
                          # witnesses the CHECKED-ARITHMETIC refusal clause. It is
@@ -868,7 +890,7 @@ EXPECT_FIXTURES   = 191  # V2-M1 (ADR 0025 §12, 2026-08-19): 190 -> 191, +1
 # suite supplies through a lib path (LOCAL_PUBLIB_USERS / LOCAL_WQLMAP_USERS in
 # CMakeLists.txt). Named, so that a THIRD compile failure — or one of these two
 # starting to compile, which would mean the pin is stale — is red.
-EXPECT_FAILED     = {"wql_mapping_cross_module_e2e", "wql_wref_field_pkg"}
+EXPECT_FAILED     = set()   # task #85: both now compile with their archives
 EXPECT_DRAIN_SORT = 12    # drain 7 + sort 5, corpus-wide  (S2h: drain 4 -> 7; S3f: 7 -> 8; S3-desc: sort 3 -> 5; S5-D5: drain 8 -> 7, see RE-DERIVATION above)
 EXPECT_IT         = 12    # `let mut __it_…` prelude bindings in the artifacts  (S5-D5: 13 -> 12)
 # ── ADR 0025 R-F — THE LANDING SIDE, SPLIT BY NODE (FACT N) ─────────────────
@@ -880,9 +902,9 @@ EXPECT_IT         = 12    # `let mut __it_…` prelude bindings in the artifacts
 # Measured on the R-F tree: 7 + 5 == 12 == EXPECT_IT, no fixture mixing.
 EXPECT_RDB        = 7     # `let mut __rdb_<r>: Buffer<…>` — the Drain node's landing
 EXPECT_RSB        = 5     # `let mut __rsb_<r>: Buffer<…>` — the Sort node's landing
-EXPECT_ARRANGE    = 599   # Arrange nodes (R-D: +1) — S2d: == EXPECT_INDEX, exactly
-EXPECT_HASHJOIN   = 496   # (R-D: +1) `hash join on` strategy decisions (nest 0 + pre-decided)
-EXPECT_INDEX      = 599   # (R-D: +1) emitted `__hm`/`__hs`/`__bt` bindings
+EXPECT_ARRANGE    = 602   # Arrange nodes (R-D: +1) — S2d: == EXPECT_INDEX, exactly
+EXPECT_HASHJOIN   = 499   # (R-D: +1) `hash join on` strategy decisions (nest 0 + pre-decided)
+EXPECT_INDEX      = 602   # (R-D: +1) emitted `__hm`/`__hs`/`__bt` bindings
 EXPECT_KS         = 129   # emitted `__ks` sort-key vectors == `key vector` lines  (S4: +2, `wql_group_single_pass_fold_e2e`; R-A: +2, `deem_slice_param_batch_e2e`'s two `order by` queries)
 # S3e — THE PERMUTATION VECTORS, PINNED BUT NOT ATTRIBUTED TO A SORT NODE.
 # 311 `let mut __ix<k>` across 89 fixtures. This is a COUNT, not an equality
@@ -926,12 +948,12 @@ EXPECT_PERM       = 321   # (R-A: +2, `deem_slice_param_batch_e2e`'s two `order 
 # sentence was true all along. The number is no longer "every landing that
 # reached the `!offers` arm"; it is the arm's actual population, and the two
 # were different by 129.
-EXPECT_NOMAT      = {"container": 76, "readonce": 29, "elided": 8}   # R-D: readonce 25 -> 26 (deem_batch_build_side_join); R-G: container 205 -> 121 (arm A) -> 76 (arm B); D7 #62: readonce 26 -> 27 (deem_emitted_struct_field_layout's one scan); S5-direct: readonce 27 -> 28 (deem_direct_stream_pull's one scan — the SAME query that moves EXPECT_FIXTURES/OUTQ/OUTHEAD, counted once per pin); V2-M1: readonce 28 -> 29 (deem_direct_fallible_buffered's one scan, same rule)
+EXPECT_NOMAT      = {"container": 77, "readonce": 29, "elided": 8}   # R-D: readonce 25 -> 26 (deem_batch_build_side_join); R-G: container 205 -> 121 (arm A) -> 76 (arm B); D7 #62: readonce 26 -> 27 (deem_emitted_struct_field_layout's one scan); S5-direct: readonce 27 -> 28 (deem_direct_stream_pull's one scan — the SAME query that moves EXPECT_FIXTURES/OUTQ/OUTHEAD, counted once per pin); V2-M1: readonce 28 -> 29 (deem_direct_fallible_buffered's one scan, same rule)
 # ADR 0025 R-G (FACT O) — the fixpoint accumulator. Measured at G2 in
 # `criterion1_materialization_instrument.sh` on the emitter-only tree, BEFORE
 # the head was classified anywhere: 84 unclassified `fixpoint accumulator`
 # lines, against 84 `let mut __rfa_<r>: Vec<…> = Vec::<…>::new()` landings.
-EXPECT_FPACC      = 84
+EXPECT_FPACC      = 85   # task #85: 84 -> 85
 # ADR 0025 §8 — THE GROUP FRAME, PINNED PER FAMILY AND NOT AS ONE TOTAL. The
 # four have different consumers and different lives (`__g_cnt` exists for `avg`,
 # `__g_row` for the representative class), so one number would let a family
@@ -965,7 +987,7 @@ EXPECT_FRAME      = {"gkey": 152, "gacc": 208, "gcnt": 13, "grow": 7}
 # artifact builds". A stage that emits a landing without a node, or a node
 # without a landing, is red per fixture even if the two errors cancel in the
 # total. The totals are here so that a corpus that quietly SHRANK is also red.
-EXPECT_OUTQ       = 609   # (R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout;
+EXPECT_OUTQ       = 610   # (R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout;
                           #  S5-direct: +1 deem_direct_stream_pull;
                           #  V2-M1: +1 deem_direct_fallible_buffered — a REFUSED
                           #  door still has a `_run` landing, which is why this
@@ -985,7 +1007,7 @@ EXPECT_OUTQ       = 609   # (R-D: +1; D7 #62: +1 deem_emitted_struct_field_layou
                           # ⚠ R-H (b′): the landing TYPE became `Buffer<` (was
                           # `Vec<`); the FLOOR did not move — same bindings,
                           # re-typed. The artifact grep moved with it.
-EXPECT_OUTR       = 45    # `let mut __rout:` rel one-shot landings
+EXPECT_OUTR       = 46    # `let mut __rout:` rel one-shot landings
 # ADR 0025 R-G arm B — the one-shot rel helper's result, bound in the prelude.
 # Measured at G2 the same way (45 unclassified `rel result landing` lines on the
 # emitter-only tree). It is spelled as `EXPECT_OUTR` rather than as a second
@@ -1001,7 +1023,7 @@ EXPECT_RLND       = EXPECT_OUTR
 # criterion-1 population either (that filter is Vec|Buffer|HashMap|BTreeMap), so
 # this pin is the only place in the tree that counts it at all.
 EXPECT_OUTS       = 1     # `let mut __out: String` trama template render buffers
-EXPECT_OUTHEAD    = {"query output": 481, "query output bounded by limit": 16,
+EXPECT_OUTHEAD    = {"query output": 482, "query output bounded by limit": 16,
                      # D7 #62: "query output" 478 -> 479, the new fixture's one
                      # unbounded scan seam. The other four heads did not move.
                      # S5-direct: 479 -> 480, `deem_direct_stream_pull`'s one
@@ -1016,7 +1038,7 @@ EXPECT_OUTHEAD    = {"query output": 481, "query output bounded by limit": 16,
                      # the sentence, which now names the CHECKED-ARITHMETIC
                      # refusal.
                      "query output distinct carrier": 5,
-                     "incremental snapshot output": 107, "rel result": 45}
+                     "incremental snapshot output": 107, "rel result": 46}
 
 # ── ADR 0025 §12 `direct` — THE DOOR CENSUS (S5-direct, this stage) ──────────
 #
@@ -1048,7 +1070,7 @@ EXPECT_OUTHEAD    = {"query output": 481, "query output bounded by limit": 16,
 # no `#[borrow_carrying] pub struct …Dx` backs is the failure this catches, and
 # it is exactly the failure a plan-only pin would call green.
 EXPECT_DIRECT     = 10
-EXPECT_REFUSED    = 492
+EXPECT_REFUSED    = 493  # task #85: 492 -> 493
 # ── THE REFUSAL CENSUS, PER CLAUSE (ADR 0025 §12; re-derived 2026-08-19) ─────
 # FIRST-REASON counts over an `else if` CASCADE — see the note beside `DXWHY`.
 # A query true of three clauses is counted once, under the first one asked, so
@@ -1080,7 +1102,7 @@ EXPECT_DXWHY = {
     "distinct"    :   4,
     "limit"       :   7,
     "generic"     :   1,
-    "borrows"     :  18,
+    "borrows"     :  19,   # task #85: 18 -> 19
     "sel_prelude" :   1,
     "whr_prelude" :   0,
     "fallible"    :  29,
@@ -1110,14 +1132,14 @@ EXPECT_DXWHY = {
 # fires four times out of 670 is the arm a refactor silently routes into its
 # neighbour. Identity (ii) is what would catch that, and these pins are what
 # catch identity (ii) being satisfied by both sides moving at once.
-EXPECT_FPHEAD     = {"fixpoint derived frontier": 222,
-                     "fixpoint novelty set": 218,
-                     "fixpoint frontier": 176,
+EXPECT_FPHEAD     = {"fixpoint derived frontier": 223,
+                     "fixpoint novelty set": 219,
+                     "fixpoint frontier": 177,
                      "over-deletion set": 46,
                      "fixpoint novelty lattice": 4,
                      "fixpoint lattice key roster": 4,
                      # R-C3 — 1:1 with `rel result`; see the identity below.
-                     "rel dedup set": 45}
+                     "rel dedup set": 46}
 # ── ADR 0025 R-E — THE RETRACTION SNAPSHOT'S THREE HEADS (FACT L) ───────────
 # Measured at the emitter BEFORE the heads were classified anywhere (the R-B0
 # discipline: the criterion-1 instrument was run on the emitter-only tree and

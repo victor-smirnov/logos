@@ -198,6 +198,18 @@ MEMORIA_PREFIX = "memoria_"
 #
 # Adding a name here is the only way past R5, and the ground is the cost.
 NOT_GATES = {
+    # A SOURCED LIBRARY, not a script anyone runs. `facts_fold.sh` defines one
+    # function (`facts_require`) and is `.`-sourced by the three `logos_09_*`
+    # census gates; it has no `main`, and a ctest test whose COMMAND is this file
+    # would define a function and exit 0. It is exempt because it cannot be run,
+    # not because nobody bothered: the verdict it carries — every population
+    # member has facts, and they are this build's — is pronounced inside each of
+    # the three gates that source it, and each of those IS registered. Bitten
+    # 2026-08-21 on all three (a deleted facts dir, and a forged stamp): exit 2,
+    # the missing/stale members named.
+    "facts_fold.sh":           "a sourced bash LIBRARY (one function, no main); "
+                               "its verdict is pronounced by the three "
+                               "logos_09_* census gates that source it",
     # Reporters. They pronounce no verdict at all — this is also written down in
     # verdict.py's gate census.
     "ctest-summary.sh":        "reports a ctest run; asserts nothing",

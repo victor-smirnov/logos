@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pull_shape_gate.sh LOGOSC PASS_DIR
+# pull_shape_gate.sh LOGOSC PASS_DIR FACTS_ROOT
 #
 # ADR 0025 CRITERION 2 — THE PULL SHAPE, PINNED. (R-H, 2026-08-16.)
 #
@@ -68,9 +68,9 @@
 #       native iterator scan                 14   declared source kind (Part 3a)
 #       drain prelude                         9   declared source kind (Part 3a)
 #       join build side                       3   the fourth pull site
-#   indexed walks (canonical grep)         3301
-#       INTERNAL compiler containers       2513   not sources; no route claims
-#       fixpoint `_sl` slices               610   the (b′) plane
+#   indexed walks (canonical grep)         3313   task #85: +12 (see `dumps`)
+#       INTERNAL compiler containers       2517   not sources; no route claims
+#       fixpoint `_sl` slices               618   the (b′) plane
 #       DECLARED SLICE PARAMS               156   the routable population, was 1010
 #       FIELD slices of the bound row        22   step_wrap's byval tier
 #
@@ -106,93 +106,74 @@ set -uo pipefail
 
 LOGOSC="${1:?logosc}"
 PASS="${2:?pass dir}"
-# The third argument is a private hook for the bite-proof: a directory of
-# already-swept `*.user` dumps to read INSTEAD of sweeping. It exists so a
-# perturbation can be applied to the gate's INPUT (a copy of the corpus dumps)
-# rather than to the stdlib emitter, which is the only way to red a clause
-# without a stdlib rebuild inside a test. Unused by the registered test.
-PRESWEPT="${3:-}"
+# The facts tree written by the per-fixture ctest tests (task #85). THIS GATE
+# NO LONGER COMPILES ANYTHING. It used to carry a `one()` worker, an
+# `xargs -0 -P "$SWEEP_P"` and a `SWEEP_P` picked from `LOGOS_GATE_SWEEP_P` /
+# `CTEST_INTERACTIVE_DEBUG_MODE` / `nproc` — a second scheduler inside a test
+# ctest was already scheduling, re-compiling 191 programs that the corpus tests
+# compile anyway. All of it is gone: `logos_02_..._pass_wql_*` /
+# `..._pass_deem_*` each write their own facts as a side product of the compile
+# they already run (`run_test.sh` -> `facts_emit.sh`), this gate declares
+# `FIXTURES_REQUIRED "logos_facts_glob"` so ctest runs them first, and what is
+# left here is a pure SERIAL FOLD over what they wrote.
+#
+# ⚠ IT IS ALSO THE BITE-PROOF HOOK, and a better one than the `PRESWEPT` third
+# argument it replaces. That argument took a directory of already-swept dumps
+# to read INSTEAD of sweeping — and, crucially, it SKIPPED the probe-
+# completeness check while doing so (`NFIX=0`, `cp … 2>/dev/null`), so a
+# perturbation could delete a fixture and the gate would measure what was left
+# and report green. There is now ONE path: copy this tree, perturb the copy,
+# pass the copy as `$3`. The completeness and staleness refusals run on it like
+# on any other, which is the property the old hook gave away.
+FACTS="${3:?facts root}"
 
 export LC_ALL=C
 [ -x "$LOGOSC" ] || { echo "FAIL(2): no logosc at $LOGOSC"; exit 2; }
+# shellcheck source=facts_fold.sh
+. "$(dirname "$0")/facts_fold.sh"
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
 OUT="$TMPD/o"
 mkdir -p "$OUT/_st"
 
-# ⚠ THE SWEEP'S FAN-OUT IS A BUDGET, NOT `nproc` (task #82). This read
-# `-P "$(nproc)"` while `test-levels.sh` runs `ctest -j"$(nproc)"`, so one gate
-# asked for 32 workers from inside one of 32 concurrent ctest slots — ~1024-way
-# oversubscription on 32 cores. Measured over seven L4 runs on 2026-08-19: every
-# run timed out 1-4 tier_full gates, a DIFFERENT subset each time, and every one
-# of them passed ALONE in 4-33 s against its ceiling. Wall-clock timeouts under
-# that much oversubscription pick victims at random, and a gate that reds at
-# random trains the reader to shrug at a red.
-# The number below is DECLARED TO CTEST as this test's PROCESSORS in
-# tests/logos/CMakeLists.txt — the two must agree, or the declaration is a lie
-# and ctest will schedule this gate next to 31 neighbours again.
-# ⚠ WHO PARALLELISES, AND WHY IT IS NOT BOTH (Victor, 2026-08-20; task #82).
-# UNDER CTEST the parallelism is CTEST'S JOB — it already runs the suite at
-# `-j$(nproc)`, so a gate that also fans out `-P$(nproc)` double-dips and the two
-# levels MULTIPLY: ~1024 workers on 32 cores. Measured over seven L4 runs
-# (2026-08-19): 1-4 tier_full gates timed out on every run, a DIFFERENT subset
-# each time, and each passed ALONE in 4-33 s against its ceiling. So under ctest
-# this sweep runs SERIALLY and lets ctest schedule the concurrency.
-# RUN BY HAND (diagnosis, a bite-proof, a one-off census) there is no outer
-# scheduler and the whole box is yours: the default is `nproc`.
-# `CTEST_INTERACTIVE_DEBUG_MODE` is set by ctest for every test it runs; it is
-# the only marker that needs no cmake-side cooperation, which is what keeps the
-# script honest when invoked directly. `LOGOS_GATE_SWEEP_P` overrides both.
-if [ -n "${LOGOS_GATE_SWEEP_P:-}" ]; then
-    SWEEP_P="$LOGOS_GATE_SWEEP_P"
-elif [ -n "${CTEST_INTERACTIVE_DEBUG_MODE:-}" ]; then
-    SWEEP_P=1
-else
-    SWEEP_P="$(nproc)"
+shopt -s nullglob
+FIXTURES=("$PASS"/wql_*.logos "$PASS"/deem_*.logos)
+NFIX=${#FIXTURES[@]}
+# THE BLINDNESS FLOOR. A gate that folds three fixtures and finds all its
+# pins at zero reads exactly like a gate whose subject was deleted.
+if [ "$NFIX" -lt 150 ]; then
+    echo "FAIL(2): only $NFIX corpus fixtures matched — the fold is blind."
+    exit 2
 fi
-if [ -n "$PRESWEPT" ]; then
-    [ -d "$PRESWEPT" ] || { echo "FAIL(2): no pre-swept dir $PRESWEPT"; exit 2; }
-    cp "$PRESWEPT"/*.user "$OUT/" 2>/dev/null
-    NFIX=0
-else
-    shopt -s nullglob
-    FIXTURES=("$PASS"/wql_*.logos "$PASS"/deem_*.logos)
-    NFIX=${#FIXTURES[@]}
-    # THE BLINDNESS FLOOR. A gate that sweeps three fixtures and finds all its
-    # pins at zero reads exactly like a gate whose subject was deleted.
-    if [ "$NFIX" -lt 150 ]; then
-        echo "FAIL(2): only $NFIX corpus fixtures matched — the sweep is blind."
-        exit 2
-    fi
-    one() {
-        local f="$1" OUT="$2" LOGOSC="$3"
-        local b; b=$(basename "$f" .logos)
-        local d; d=$(mktemp -d)
-        LOGOS_TRACE_PLAN=1 "$LOGOSC" "$f" --gen-dir "$d/gen" -o "$d/o.o" \
-            > "$d/out" 2> "$d/err"
-        echo "$?" > "$OUT/_st/$b"
-        shopt -s nullglob
-        # The USER module's dumps only — `logos.gen.*` holds the family
-        # DEFINITIONS, and a `next_batch()` found there is the stdlib's own
-        # `BatchStream` impl, not a query pulling anything. Scoped by SHAPE
-        # ("everything that is not `logos.gen.*`") and not by `test.*`, because
-        # two corpus fixtures declare their own package name — the S2d defect.
-        local U=() x
-        for x in "$d"/gen/*.gen.logos; do
-            case "$(basename "$x")" in logos.gen.*) ;; *) U+=("$x");; esac
-        done
-        [ "${#U[@]}" -ge 1 ] && cat "${U[@]}" > "$OUT/$b.user"
-        rm -rf "$d"
-    }
-    export -f one
-    printf '%s\0' "${FIXTURES[@]}" \
-        | xargs -0 -P "$SWEEP_P" -I{} bash -c 'one "$@"' _ {} "$OUT" "$LOGOSC"
-    ST=("$OUT"/_st/*)
-    if [ "${#ST[@]}" -ne "$NFIX" ]; then
-        echo "FAIL(2): ${#ST[@]} rc files for $NFIX probes — probes were lost."
-        exit 2
-    fi
+# EVERY member, or nothing. See facts_fold.sh for the argument.
+facts_require "$FACTS" "$LOGOSC" "pull-shape" "${FIXTURES[@]}"
+
+# ── the fold: stage what the census reads, from the facts ────────────────────
+# Identical in shape to what the deleted worker wrote, so the python pass below
+# is UNCHANGED: `$OUT/<base>.user` and `$OUT/_st/<base>`.
+for f in "${FIXTURES[@]}"; do
+    b=$(basename "$f" .logos)
+    cp "$FACTS/$b/rc" "$OUT/_st/$b"
+    # The USER module's dumps only — `logos.gen.*` holds the family
+    # DEFINITIONS, and a `next_batch()` found there is the stdlib's own
+    # `BatchStream` impl, not a query pulling anything. Scoped by SHAPE
+    # ("everything that is not `logos.gen.*`") and not by `test.*`, because
+    # two corpus fixtures declare their own package name — the S2d defect.
+    # ⚠ THE SCOPING LIVES HERE, NOT IN `facts_emit.sh`, and that is why the
+    # facts keep the units SEPARATE instead of pre-concatenating them: the
+    # door census reads the very same tree and deliberately keeps the
+    # `logos.gen.*` units, because 4 of its 36 doors are in them.
+    U=()
+    for x in "$FACTS/$b"/gen/*.gen.logos; do
+        case "$(basename "$x")" in logos.gen.*) ;; *) U+=("$x");; esac
+    done
+    [ "${#U[@]}" -ge 1 ] && cat "${U[@]}" > "$OUT/$b.user"
+done
+ST=("$OUT"/_st/*)
+if [ "${#ST[@]}" -ne "$NFIX" ]; then
+    echo "FAIL(2): ${#ST[@]} rc files for $NFIX fixtures — the staging lost some."
+    exit 2
 fi
 
 python3 - "$OUT" "$NFIX" <<'PY'
@@ -230,7 +211,32 @@ PIN = {
     # `_run` body's batch pull, and +0 on `nb_forward`, `dx_struct`,
     # `dx_inherent`, `dx_facade` and the `BatchStream` impl count, all of which
     # stay at 10. That asymmetry is the fixture's whole assertion, read here.
-    'dumps'            : 174,
+    # ⚠ task #85 (2026-08-21): 174 -> 175, AND NO STAGE MOVED THE PLANE. This
+    # gate stopped compiling its own corpus: the facts now come off the compile
+    # each fixture's own ctest test already runs, WITH the `-l` archive flags
+    # CMake gives it. `wql_mapping_cross_module_e2e` needs
+    # `-l libwql_map_lib.a` and this gate's sweep never passed it, so the
+    # fixture failed to compile (rc 4) and contributed NO dumps at all — a
+    # blindness `direct_door_census_gate.sh` already recorded in as many words
+    # ("compiles the two GLOB fixtures `pull_shape` cannot … Both extras are 0
+    # doors today, so that gate's 10 is right — but it is right by luck").
+    # It now compiles, and its own artifact is the whole delta.
+    #
+    # PROVED BY CONTROL, not by inspection: the facts tree was copied, that ONE
+    # fixture's `gen/*.gen.logos` deleted (which is exactly the state a failed
+    # compile left), and the gate re-run against the copy — rc 0 and output
+    # BYTE-IDENTICAL to this gate's output at HEAD 1711035e. So every pin below
+    # that moved, moved by that fixture's own count and by nothing else:
+    #   dumps           174 -> 175   (its 7 user units, previously absent)
+    #   walks_total    3301 -> 3313  (+12)
+    #   walks_internal 2513 -> 2517  (+4)
+    #   walks_fixpoint  610 ->  618  (+8)
+    #   walks_param, walks_field, walks_unclaimed  UNMOVED
+    #   nb_pull, nb_forward, SliceStream, .next() and every door pin UNMOVED
+    # The direction is the one this gate's movement rule sanctions in the
+    # weakest sense — the population grew because a fixture stopped being
+    # invisible, not because the pull plane changed.
+    'dumps'            : 175,
 
     # ── BATCH PULLS ─────────────────────────────────────────────────────────
     # `next_batch()` is criterion 2's numerator. R-F took it 165 → 1018 by
@@ -360,7 +366,8 @@ PIN = {
     # The canonical grep is §2's fixed derivation (BOTH paren spellings — the
     # single-paren version cannot see the `limit` arm and understated the
     # population by 8%).
-    'walks_total'      : 3301,
+    # task #85: 3301 -> 3313, `wql_mapping_cross_module_e2e` (see `dumps`).
+    'walks_total'      : 3313,
     # (i) INTERNAL compiler containers — `__ks`, `__ix0`, `__g_key`, `__bv<s>`,
     # `__h.__s<n>`, `__out` … Not sources; no route has ever claimed them.
     # ⚠ DEFINED BY A POSITIVE RULE (an UNPARENTHESISED dotted-or-bare name),
@@ -370,7 +377,8 @@ PIN = {
     # green the R-F F2 lesson is about. All four rules are positive and the
     # UNCLAIMED count below is pinned at zero, so a fifth walk subject reds
     # here instead of being absorbed.
-    'walks_internal'   : 2513,
+    # task #85: 2513 -> 2517, `wql_mapping_cross_module_e2e` (see `dumps`).
+    'walks_internal'   : 2517,
     'walks_unclaimed'  : 0,
     # (ii) THE FIXPOINT `_sl` PLANE — `(__rel_<r>_sl)` / `(__dl_<r>_sl)`.
     # DECLARED OUT per S6-B (ADR §7 C2 (c)): the DRed/fixpoint driver walks
@@ -378,7 +386,8 @@ PIN = {
     # contract. ⚠ 0 of the 1002 `SliceStream` wraps touch one of these names
     # (R-H Part 2 measured it): the rel plane is off the batch plane entirely,
     # which is the ground on which the re-walk capability was refused.
-    'walks_fixpoint'   : 610,
+    # task #85: 610 -> 618, `wql_mapping_cross_module_e2e` (see `dumps`).
+    'walks_fixpoint'   : 618,
     # (iii) DECLARED SLICE PARAMS — `(<param>).len()`, the ONLY routable
     # population, 1010 before R-F and 156 after. The residual is entirely
     # declared-out planes (119 incremental/DRed + 37 fixpoint drivers).
@@ -427,7 +436,7 @@ M['nb_forward']        = n(r'return self\.next_batch\(\);')
 # absorbed it into `nb_pull` silently, leaving the partition green. Nothing in
 # today's corpus spells it, so the fix moves no number; it moves what the gate
 # is CAPABLE of seeing, which is the only thing a permissive rule can be tested
-# for. Bite-proved on a PRESWEPT copy: an injected `().next_batch()` reds
+# for. Bite-proved on a copy of the FACTS tree: an injected `().next_batch()` reds
 # CLAUSE 7 with `+` and is silently counted as a pull with `*`.
 # PULL rule (b): the drain prelude's own binding, `__it_<s>.next_batch()`.
 M['nb_pull']           = (n(r'\([A-Za-z_0-9.]+\)\.next_batch\(\)')

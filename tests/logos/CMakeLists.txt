@@ -15,6 +15,15 @@ endif()
 logos_require_tier_labels()
 
 set(TEST_RUNNER ${CMAKE_CURRENT_SOURCE_DIR}/run_test.sh)
+set(FACTS_EMIT  ${CMAKE_CURRENT_SOURCE_DIR}/facts_emit.sh)
+# ── THE PER-FIXTURE FACTS TREE (task #85) ────────────────────────────────────
+# One durable directory per `tests/logos/pass` fixture, written as a SIDE
+# PRODUCT of the compile that fixture's own ctest test already runs, and folded
+# afterwards by the three `logos_09_*` census gates. It lives in the BUILD tree
+# — never in the source tree — and every entry carries a stamp of the compiler
+# binary and of the fixture source, so a fact from a previous build cannot be
+# counted as this build's. See `facts_emit.sh`.
+set(LOGOS_FACTS_ROOT ${CMAKE_CURRENT_BINARY_DIR}/facts)
 set(STDLIB      ${CMAKE_SOURCE_DIR}/stdlib)
 set(PUB_LIB     ${CMAKE_CURRENT_SOURCE_DIR}/pub_lib)
 
@@ -1059,6 +1068,39 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
     # derived from the artifact, not from whoever remembered to add a name.
     list(APPEND _env "LOGOS_MLIRGEN_BUG_LEDGER=${CMAKE_CURRENT_SOURCE_DIR}/mlir_gen_bug.ledger")
 
+    # ── THE FACTS SIDE PRODUCT, AND CTEST AS THE ONLY SCHEDULER (task #85) ───
+    # The three `logos_09_*` census gates each used to RE-COMPILE a fixture
+    # corpus behind an `xargs -P $SWEEP_P` of their own — a second scheduler
+    # inside a test ctest was already scheduling, and 2636 compiles of programs
+    # THIS test compiles anyway. The compile now happens once, here, and writes
+    # what those gates want beside it (`facts_emit.sh` carries the argument and
+    # the stamp rule). The gates became pure serial folds.
+    #
+    # ⚠ POPULATION DERIVED, NOT LISTED, AND IT FAILS IN THE LOUD DIRECTION.
+    # `logos_facts_glob` is the `wql_*`/`deem_*` half — the population of
+    # `pull_shape` and `plan_ground_census` — and `logos_facts_all` is the whole
+    # `pass/` corpus, which is `direct_door_census`'s. The two names exist so
+    # that `ctest -R '^logos_09_pull_shape$'` pulls 191 setups and not 2254.
+    # The prefix rule here is a SECOND SPELLING of the gates' own glob, so it
+    # can drift — but only one way hurts, and that way is caught: a gate
+    # derives its expected list from the glob itself and exits 2 naming every
+    # member whose facts are missing, so a NARROWER rule here is a loud refusal
+    # and a WIDER one is merely some unread facts.
+    #
+    # ⚠ `tests/logos/pass` ONLY. `tests/imported/pass` is not any gate's
+    # population, and making 3600 imported tests fixture setups would put them
+    # in front of every census gate for nothing.
+    if (MODE STREQUAL pass AND LOGOS_FILE MATCHES "/tests/logos/pass/")
+        list(APPEND _env "LOGOS_FACTS_DIR=${LOGOS_FACTS_ROOT}/${BASE}")
+        if (BASE MATCHES "^(wql|deem)_")
+            set(_fixtures "logos_facts_all;logos_facts_glob")
+        else()
+            set(_fixtures "logos_facts_all")
+        endif()
+    else()
+        set(_fixtures "")
+    endif()
+
     add_test(
         NAME  ${_test_name}
         COMMAND ${TEST_RUNNER} ${MODE} $<TARGET_FILE:logosc>
@@ -1068,6 +1110,7 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
         TIMEOUT ${_timeout}
         LABELS  "${_labels}"
         ENVIRONMENT "${_env}"
+        FIXTURES_SETUP "${_fixtures}"
     )
     # THE WORKING DIRECTORY IS PART OF THE CONTRACT for the memoria corpus: the
     # ssrle/pdtbuf fixture tests read their byte fixtures
@@ -1374,6 +1417,31 @@ set_tests_properties(logos_00_key_identity_lint PROPERTIES
     LABELS  "logos;lint;suite_lint;tier_commit"
 )
 
+# ── ONE SCHEDULER: A REGISTERED TEST MAY NOT FAN OUT ITS OWN ────────────────
+# ctest is told `-j N` and fills N slots. A gate that runs `xargs -P $(nproc)`
+# from inside one of those slots is a second scheduler nested in the first, and
+# the two cannot see each other: under the full suite it oversubscribes (#82 —
+# gates that timed out "at random" while finishing in 10-33 s alone), and under
+# a narrow `-R` it goes SERIAL for nothing (two logosc on a 32-core box, load
+# 4, ~19 minutes, because the gate's own budget answered the PROXY question
+# "am I under ctest?" instead of "how much of the box is mine?").
+#
+# The three corpus-census gates were converted in the same round that added
+# this: the per-fixture compile their fixtures' own tests already run emits the
+# facts, and each gate became a serial fold. This lint keeps the shape from
+# growing back and pins the three still-unconverted gates as OPEN rows (#101),
+# both directions red — a new fan-out, and an OPEN row whose subject went away.
+# 0.1 s, so tier_commit.
+add_test(
+    NAME logos_00_one_scheduler_lint
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/one_scheduler_lint.sh
+            ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(logos_00_one_scheduler_lint PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;lint;suite_lint;tier_commit"
+)
+
 # ── THE ROOT COORDINATE HAS ONE DEFINITION, AND ONE MEMBERSHIP ─────────────
 # WG_ROOT_PARENT/KEY/IDX/ORD collapsed four hand-written spellings of the
 # virtual-root coordinate into one definition. That closed the VALUE axis. It
@@ -1623,6 +1691,59 @@ foreach(SUITE IN LISTS LOGOS_SUITE_ORDER)
             logos_add_grouped_test(fail ${BASE} ${EXP_FILE} ${LOGOS_FILE} ${SUITE})
         endif()
     endforeach()
+endforeach()
+
+# ── THE FACTS OF THE FIXTURES NO SUITE REGISTERS (task #85) ──────────────────
+# `logos_09_direct_door_census`'s population is EVERY `pass/*.logos`, and the
+# loop above registers a test only where a sibling `.expected` exists. Measured
+# 2026-08-21 by direct listing: 2254 `pass/*.logos`, 5 with no `.expected` —
+# `assoc_proj_in_default_method`, `default_type_param_fn`, `lforge_manifest`,
+# `struct_lifetime_generic`, `struct_lifetime_param`, all five carried by
+# `unregistered.ledger` and held there in both directions by
+# `logos_00_corpus_registration`.
+#
+# ⚠ THIS IS EXACTLY THE HOLE THE #85 DESIGN COULD HAVE FALLEN INTO, and it is
+# the recorded class of SILENCE READ AS ZERO. With facts riding the per-fixture
+# test only, those five fixtures would emit none, and a door census that
+# quietly measured 2249 of 2254 and passed is strictly worse than the slow
+# sweep it replaced. The gate refuses LOUD on a missing member, so the choice
+# was between a red door census forever and producing their facts here.
+#
+# ⚠ WHAT THIS DOES *NOT* DO: it does not register these fixtures as tests of
+# their own behaviour, and it must not be read as discharging the ledger. There
+# is no `.expected`, so nothing is compared — no exit code, no stdout. The only
+# assertion is the one the door census already makes about all 2254 (`unswept`
+# pinned 0): the compiler accepts the file. Measured: all five exit 0 today.
+#
+# DERIVED FROM THE GLOB, NOT LISTED. A sixth orphan appearing tomorrow gets its
+# facts automatically instead of reddening the door census with a name nobody
+# recognises — and it still reddens `logos_00_corpus_registration`, which is the
+# gate that owns that fact.
+file(GLOB _facts_pass_logos CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/pass/*.logos)
+foreach(_fl IN LISTS _facts_pass_logos)
+    string(REGEX REPLACE "\\.logos$" ".expected" _fe ${_fl})
+    if (EXISTS ${_fe})
+        continue()
+    endif()
+    get_filename_component(_fb ${_fl} NAME_WE)
+    logos_pass_extra_args(${_fb} _fx)
+    add_test(
+        NAME logos_09_facts_${_fb}
+        COMMAND ${FACTS_EMIT} $<TARGET_FILE:logosc> ${_fl}
+                ${LOGOS_FACTS_ROOT}/${_fb} ${LOGOS_FACTS_ROOT}/${_fb}/obj.o ${_fx}
+    )
+    if (_fb MATCHES "^(wql|deem)_")
+        set(_ff "logos_facts_all;logos_facts_glob")
+    else()
+        set(_ff "logos_facts_all")
+    endif()
+    set_tests_properties(logos_09_facts_${_fb} PROPERTIES
+        TIMEOUT 180
+        LABELS  "logos;pass;suite_semantic_core;tier_commit"
+        ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+        FIXTURES_SETUP "${_ff}"
+    )
 endforeach()
 
 # ── IR snapshot tests ─────────────────────────────────────────────────────────
@@ -2027,33 +2148,42 @@ add_test(
             ${CMAKE_CURRENT_SOURCE_DIR}/pass
             ${CMAKE_SOURCE_DIR}/stdlib/mem/wql/why.logos
             ${CMAKE_SOURCE_DIR}/stdlib/mem/wql/access_plan.logos
+            ${LOGOS_FACTS_ROOT}
 )
 set_tests_properties(logos_09_plan_ground_census PROPERTIES
-    # ⚠ THE PARALLELISM IS CTEST'S, NOT THE GATE'S (Victor, 2026-08-20; #82).
-    # This gate sweeps the whole corpus. It used to fan out `xargs -P$(nproc)`
-    # from inside one of ctest's `-j$(nproc)` slots, so the two levels
-    # MULTIPLIED — ~1024 workers on 32 cores — and a wall-clock timeout picked
-    # victims at random: seven L4 runs on 2026-08-19 each timed out 1-4
-    # tier_full gates, a DIFFERENT subset every time, each passing ALONE in
-    # 4-33 s against its ceiling. The rule is now stated where it belongs: under
-    # ctest the gate sweeps SERIALLY and ctest schedules the concurrency; run by
-    # hand it uses `nproc`, because then there is no outer scheduler. The script
-    # decides by `CTEST_INTERACTIVE_DEBUG_MODE` (set by ctest for every test —
-    # verified empirically, not assumed), so no cmake-side cooperation is needed
-    # and the script stays honest when invoked directly.
-    # Hence NO `PROCESSORS` property: the test really does use one process, and
-    # a declaration of 8 would have been a lie the moment the sweep went serial.
-    # ⚠ 1800, NOT 900, AND THE REASON IS SCHEDULING, NOT SLOWNESS (2026-08-20).
-    # With the sweep serial under ctest this gate compiles its 191-fixture glob
-    # one at a time: measured 668 s (plan_ground_census) / 682 s (pull_shape)
-    # running ALONE. Inside a full L4 it ALSO waits its turn among 31
-    # neighbours, and at 900 s both timed out deterministically. The work did not
-    # grow; the gate stopped taking the box for itself. The ceiling now absorbs
-    # suite contention at the same ratio the door census already carries (415 s
-    # alone against 1800). A ceiling RE-PRICED against a measured cost, not a
-    # tolerance relaxed to make a red go away — no assertion moved — and #85 (one
-    # shared corpus sweep for all three gates) is what takes it back down.
-    TIMEOUT 1800
+    # ⚠ CTEST IS THE ONLY SCHEDULER (task #85; Victor, 2026-08-21: «зачем там
+    # shell-скрипты, когда тесты запускаются ctest-ом?» и «короче, xargs тебе
+    # вообще не надо»). THIS GATE NO LONGER COMPILES ANYTHING.
+    #
+    # The shape it replaces: the gate carried a `one()` worker and drove the
+    # 191-fixture glob with `xargs -0 -P "$SWEEP_P"`, `SWEEP_P` taken from
+    # `LOGOS_GATE_SWEEP_P` / `CTEST_INTERACTIVE_DEBUG_MODE` / `nproc`. That was
+    # a SECOND SCHEDULER inside a test ctest was already scheduling, and #82's
+    # fix — "serial under ctest" — was a patch on the seam between the two:
+    # `ctest -j32 -R "logos_09_pull_shape|logos_09_plan_ground_census"` selected
+    # two tests, held 32 idle slots, ran two `logosc` processes on a 32-core box
+    # and took ~19 minutes. And every one of those compiles was a RECOMPILE of
+    # a program the corpus test right next to it compiles anyway.
+    #
+    # The shape now: each `pass/wql_*` / `pass/deem_*` test writes its
+    # `--gen-dir` units, its `LOGOS_TRACE_PLAN=1` stderr and its rc as a side
+    # product of the ONE compile it already runs (`run_test.sh` ->
+    # `facts_emit.sh`), and this gate is a pure serial fold over that tree.
+    # `FIXTURES_REQUIRED` is what makes the fold safe: ctest runs every producer
+    # before this test whatever the selection was — measured on ctest 3.28.3,
+    # `-R` and `-L` both pull them, and a FAILING producer leaves this test
+    # `***Not Run` and FAILED rather than green over a smaller census.
+    FIXTURES_REQUIRED "logos_facts_glob"
+    # Hence NO `PROCESSORS`: one process, and it is now a fold, not a sweep.
+    # ⚠ THE CEILING IS RE-PRICED DOWN, WHICH IS A STRENGTHENING. It was 1800 for
+    # a gate that compiled 191 fixtures one at a time (measured 668 s / 682 s
+    # alone). The fold reads ~10 MB of already-written text; measured 2026-08-21
+    # on this tree: the fold is 22.8 s under ctest (23 s by hand on an
+    # idle box), against 61 s for the sweep it replaced and ~19 min for the
+    # two-glob-gate `-j32` case #82 was patching. 300 s leaves that its full shared-box
+    # margin while no longer covering a hang of a compile this test does not run
+    # — the compiles are timed by their own tests, at 120 s each.
+    TIMEOUT 300
     LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
@@ -2160,33 +2290,42 @@ add_test(
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/pull_shape_gate.sh
             $<TARGET_FILE:logosc>
             ${CMAKE_CURRENT_SOURCE_DIR}/pass
+            ${LOGOS_FACTS_ROOT}
 )
 set_tests_properties(logos_09_pull_shape PROPERTIES
-    # ⚠ THE PARALLELISM IS CTEST'S, NOT THE GATE'S (Victor, 2026-08-20; #82).
-    # This gate sweeps the whole corpus. It used to fan out `xargs -P$(nproc)`
-    # from inside one of ctest's `-j$(nproc)` slots, so the two levels
-    # MULTIPLIED — ~1024 workers on 32 cores — and a wall-clock timeout picked
-    # victims at random: seven L4 runs on 2026-08-19 each timed out 1-4
-    # tier_full gates, a DIFFERENT subset every time, each passing ALONE in
-    # 4-33 s against its ceiling. The rule is now stated where it belongs: under
-    # ctest the gate sweeps SERIALLY and ctest schedules the concurrency; run by
-    # hand it uses `nproc`, because then there is no outer scheduler. The script
-    # decides by `CTEST_INTERACTIVE_DEBUG_MODE` (set by ctest for every test —
-    # verified empirically, not assumed), so no cmake-side cooperation is needed
-    # and the script stays honest when invoked directly.
-    # Hence NO `PROCESSORS` property: the test really does use one process, and
-    # a declaration of 8 would have been a lie the moment the sweep went serial.
-    # ⚠ 1800, NOT 900, AND THE REASON IS SCHEDULING, NOT SLOWNESS (2026-08-20).
-    # With the sweep serial under ctest this gate compiles its 191-fixture glob
-    # one at a time: measured 668 s (plan_ground_census) / 682 s (pull_shape)
-    # running ALONE. Inside a full L4 it ALSO waits its turn among 31
-    # neighbours, and at 900 s both timed out deterministically. The work did not
-    # grow; the gate stopped taking the box for itself. The ceiling now absorbs
-    # suite contention at the same ratio the door census already carries (415 s
-    # alone against 1800). A ceiling RE-PRICED against a measured cost, not a
-    # tolerance relaxed to make a red go away — no assertion moved — and #85 (one
-    # shared corpus sweep for all three gates) is what takes it back down.
-    TIMEOUT 1800
+    # ⚠ CTEST IS THE ONLY SCHEDULER (task #85; Victor, 2026-08-21: «зачем там
+    # shell-скрипты, когда тесты запускаются ctest-ом?» и «короче, xargs тебе
+    # вообще не надо»). THIS GATE NO LONGER COMPILES ANYTHING.
+    #
+    # The shape it replaces: the gate carried a `one()` worker and drove the
+    # 191-fixture glob with `xargs -0 -P "$SWEEP_P"`, `SWEEP_P` taken from
+    # `LOGOS_GATE_SWEEP_P` / `CTEST_INTERACTIVE_DEBUG_MODE` / `nproc`. That was
+    # a SECOND SCHEDULER inside a test ctest was already scheduling, and #82's
+    # fix — "serial under ctest" — was a patch on the seam between the two:
+    # `ctest -j32 -R "logos_09_pull_shape|logos_09_plan_ground_census"` selected
+    # two tests, held 32 idle slots, ran two `logosc` processes on a 32-core box
+    # and took ~19 minutes. And every one of those compiles was a RECOMPILE of
+    # a program the corpus test right next to it compiles anyway.
+    #
+    # The shape now: each `pass/wql_*` / `pass/deem_*` test writes its
+    # `--gen-dir` units, its `LOGOS_TRACE_PLAN=1` stderr and its rc as a side
+    # product of the ONE compile it already runs (`run_test.sh` ->
+    # `facts_emit.sh`), and this gate is a pure serial fold over that tree.
+    # `FIXTURES_REQUIRED` is what makes the fold safe: ctest runs every producer
+    # before this test whatever the selection was — measured on ctest 3.28.3,
+    # `-R` and `-L` both pull them, and a FAILING producer leaves this test
+    # `***Not Run` and FAILED rather than green over a smaller census.
+    FIXTURES_REQUIRED "logos_facts_glob"
+    # Hence NO `PROCESSORS`: one process, and it is now a fold, not a sweep.
+    # ⚠ THE CEILING IS RE-PRICED DOWN, WHICH IS A STRENGTHENING. It was 1800 for
+    # a gate that compiled 191 fixtures one at a time (measured 668 s / 682 s
+    # alone). The fold reads ~10 MB of already-written text; measured 2026-08-21
+    # on this tree: the fold is 5.0 s under ctest (5 s by hand on an
+    # idle box), against 60 s for the sweep it replaced and ~19 min for the
+    # two-glob-gate `-j32` case #82 was patching. 300 s leaves that its full shared-box
+    # margin while no longer covering a hang of a compile this test does not run
+    # — the compiles are timed by their own tests, at 120 s each.
+    TIMEOUT 300
     LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
@@ -2252,31 +2391,37 @@ add_test(
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/direct_door_census_gate.sh
             $<TARGET_FILE:logosc>
             ${CMAKE_CURRENT_SOURCE_DIR}/pass
-            ${CMAKE_CURRENT_BINARY_DIR}
+            ${LOGOS_FACTS_ROOT}
 )
 set_tests_properties(logos_09_direct_door_census PROPERTIES
-    # ⚠ 8, AND IT MATCHES `SWEEP_P` IN THE SCRIPT (see the note there). This gate
-    # is the measured exception to the serial-under-ctest rule: its 2194-fixture
-    # sweep costs ~7 360 CPU-seconds, so serially it is 4.1x this TIMEOUT and
-    # reds deterministically on an idle box. Declaring 8 keeps ctest from
-    # stacking these; the two smaller sweep gates ARE serial under ctest and fit
-    # their 900 s ceilings (measured 668 s and 682 s).
-    PROCESSORS 8
-    # ⚠ THE PARALLELISM IS CTEST'S, NOT THE GATE'S (Victor, 2026-08-20; #82).
-    # This gate sweeps the whole corpus. It used to fan out `xargs -P$(nproc)`
-    # from inside one of ctest's `-j$(nproc)` slots, so the two levels
-    # MULTIPLIED — ~1024 workers on 32 cores — and a wall-clock timeout picked
-    # victims at random: seven L4 runs on 2026-08-19 each timed out 1-4
-    # tier_full gates, a DIFFERENT subset every time, each passing ALONE in
-    # 4-33 s against its ceiling. The rule is now stated where it belongs: under
-    # ctest the gate sweeps SERIALLY and ctest schedules the concurrency; run by
-    # hand it uses `nproc`, because then there is no outer scheduler. The script
-    # decides by `CTEST_INTERACTIVE_DEBUG_MODE` (set by ctest for every test —
-    # verified empirically, not assumed), so no cmake-side cooperation is needed
-    # and the script stays honest when invoked directly.
-    # Hence NO `PROCESSORS` property: the test really does use one process, and
-    # a declaration of 8 would have been a lie the moment the sweep went serial.
-    TIMEOUT 1800
+    # ⚠ CTEST IS THE ONLY SCHEDULER (task #85). THIS GATE NO LONGER COMPILES
+    # ANYTHING, and it is the gate that paid most for the old shape: it swept
+    # the WHOLE pass corpus — 2254 compiles, ~7 360 CPU-seconds — and was the
+    # measured EXCEPTION to #82's serial-under-ctest rule, running `xargs -P 8`
+    # with `PROCESSORS 8` declared here to match. Both are gone. The facts come
+    # off the compile each fixture's own ctest test already runs; this gate is a
+    # serial fold over ~15 MB of already-written text.
+    #
+    # ⚠ SO IS THE ARCHIVE MAP. The script used to carry a hand copy of
+    # `logos_pass_extra_args` (twenty-odd `-l` lines, the `memoria_` prefix rule,
+    # the `--test` rule) so its own sweep could reproduce the flags each fixture
+    # is really given. There is no copy now: the flags are CMake's, applied once,
+    # at the fixture's own registration.
+    #
+    # `FIXTURES_REQUIRED "logos_facts_all"` is the WHOLE pass corpus, which is
+    # this gate's population — the two glob gates require the narrower
+    # `logos_facts_glob` so that selecting one of them does not pull 2254 tests.
+    # A producer that FAILS leaves this test `***Not Run` and FAILED; a producer
+    # that was never run leaves no facts and the fold refuses `exit 2` NAMING the
+    # fixture. Neither can read as a smaller census.
+    FIXTURES_REQUIRED "logos_facts_all"
+    # ⚠ THE CEILING IS RE-PRICED DOWN, WHICH IS A STRENGTHENING — it was 1800 for
+    # 2254 compiles. Measured 2026-08-21 on this tree: the fold is 19.8 s
+    # under ctest (20 s by hand on an idle box), against 249 s for the
+    # 2254-compile sweep it replaced.
+    # The compiles it no longer runs are timed by their own tests, at 120 s
+    # each.
+    TIMEOUT 300
     LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )

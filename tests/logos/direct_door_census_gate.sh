@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# direct_door_census_gate.sh LOGOSC PASS_DIR ARCHIVE_DIR [PRESWEPT]
+# direct_door_census_gate.sh LOGOSC PASS_DIR FACTS_ROOT
 #
 # THE DIRECT-DOOR CENSUS OVER THE **WHOLE** `tests/logos/pass` CORPUS —
 # ADR 0025 §12 `direct`.
@@ -41,6 +41,11 @@
 #      standalone (they consume fixture archives via `-l`); teaching the two
 #      existing gates the archive map adds a failure surface to instruments that
 #      currently need none.
+#      ⚠ REASON 4 IS RETIRED BY task #85 AND KEPT AS HISTORY. Nothing here
+#      knows an archive map any more: the facts come off the compile each
+#      fixture's own ctest test already runs, with the flags CMake gave it.
+#      Reasons 1-3 are what still keeps this gate separate — 3 in particular,
+#      now that the cost is a FOLD rather than 2254 recompiles.
 #
 # So: a THIN gate, carrying ONLY the door facts, over the WHOLE corpus. The
 # populations and their sum are asserted here (CLAUSE 1) so the two instruments
@@ -103,153 +108,97 @@ set -uo pipefail
 
 LOGOSC="${1:?logosc}"
 PASS="${2:?pass dir}"
-ARCH="${3:?fixture archive dir}"
-# Private hook for the bite-proof, same contract as `pull_shape_gate.sh`: a
-# directory of already-swept `*.user` / `_plan` / `_st` trees to read INSTEAD of
-# sweeping, so a perturbation lands on the gate's INPUT rather than on the
-# stdlib emitter (which no test may rebuild).
-PRESWEPT="${4:-}"
+# The facts tree written by the per-fixture ctest tests (task #85).
+#
+# ⚠ THE ARCHIVE MAP IS GONE, AND THAT IS THE BIGGEST SINGLE THING THIS CHANGE
+# BUYS HERE. This script used to carry a `case "$b" in …` mirror of
+# `logos_pass_extra_args` in `tests/logos/CMakeLists.txt` — twenty-odd `-l`
+# lines plus the `memoria_` prefix rule plus the `--test` rule — because its
+# own sweep had to reproduce, by hand, the flags each fixture's real test is
+# given. The comment above admitted the copy drifts and offered the `unswept`
+# pin as the mechanism that makes the drift red. There is now no copy: the
+# facts come off the compile the fixture's OWN ctest test runs, with the flags
+# CMake gave it, and a rule added there reaches this census by construction.
+#
+# The other half of what went: a `one.sh` worker, `xargs -0 -P "$SWEEP_P"` and
+# a `SWEEP_P` picked from `LOGOS_GATE_SWEEP_P` / `CTEST_INTERACTIVE_DEBUG_MODE`
+# / `nproc` — a second scheduler inside a test ctest was already scheduling.
+# This gate was the measured EXCEPTION to "serial under ctest" (2254 compiles,
+# ~7360 CPU-seconds, 4.1x its own ceiling if run serially), and the exception
+# existed only because the compiles were re-done here. They are not re-done.
+#
+# ⚠ AND IT IS THE BITE-PROOF HOOK, replacing the `PRESWEPT` fourth argument and
+# the `LOGOS_DOOR_SWEEP_OUT` copy-out that went with it. That pair had a hole
+# its siblings' had too: the PRESWEPT branch skipped the probe-completeness
+# check, so a perturbation that DELETED a fixture left the gate measuring what
+# remained. There is one path now — copy this tree, perturb the copy, pass the
+# copy — and the completeness and staleness refusals run on it like on any
+# other, which is exactly what CLAUSE 1's "never probed" leg is about.
+FACTS="${3:?facts root}"
 
 export LC_ALL=C
 [ -x "$LOGOSC" ] || { echo "FAIL(2): no logosc at $LOGOSC"; exit 2; }
 [ -d "$PASS" ]   || { echo "FAIL(2): no pass dir $PASS"; exit 2; }
+# shellcheck source=facts_fold.sh
+. "$(dirname "$0")/facts_fold.sh"
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
 OUT="$TMPD/o"
 mkdir -p "$OUT/_st" "$OUT/_plan"
 
-if [ -n "$PRESWEPT" ]; then
-    [ -d "$PRESWEPT" ] || { echo "FAIL(2): no pre-swept dir $PRESWEPT"; exit 2; }
-    cp -r "$PRESWEPT"/. "$OUT"/ || { echo "FAIL(2): could not read $PRESWEPT"; exit 2; }
-else
-    [ -d "$ARCH" ] || { echo "FAIL(2): no archive dir $ARCH"; exit 2; }
-    shopt -s nullglob
-    FIXTURES=("$PASS"/*.logos)
-    NFIX=${#FIXTURES[@]}
-    # THE BLINDNESS FLOOR (the `pull_shape` reason): a sweep that finds three
-    # fixtures and all its pins at zero reads exactly like a healthy one.
-    if [ "$NFIX" -lt 1500 ]; then
-        echo "FAIL(2): only $NFIX pass fixtures matched — the sweep is blind."
-        exit 2
-    fi
-
-# ⚠ THE SWEEP'S FAN-OUT IS A BUDGET, NOT `nproc` (task #82). This read
-# `-P "$(nproc)"` while `test-levels.sh` runs `ctest -j"$(nproc)"`, so one gate
-# asked for 32 workers from inside one of 32 concurrent ctest slots — ~1024-way
-# oversubscription on 32 cores. Measured over seven L4 runs on 2026-08-19: every
-# run timed out 1-4 tier_full gates, a DIFFERENT subset each time, and every one
-# of them passed ALONE in 4-33 s against its ceiling. Wall-clock timeouts under
-# that much oversubscription pick victims at random, and a gate that reds at
-# random trains the reader to shrug at a red.
-# The number below is DECLARED TO CTEST as this test's PROCESSORS in
-# tests/logos/CMakeLists.txt — the two must agree, or the declaration is a lie
-# and ctest will schedule this gate next to 31 neighbours again.
-# ⚠ WHO PARALLELISES, AND WHY IT IS NOT BOTH (Victor, 2026-08-20; task #82).
-# UNDER CTEST the parallelism is CTEST'S JOB — it already runs the suite at
-# `-j$(nproc)`, so a gate that also fans out `-P$(nproc)` double-dips and the two
-# levels MULTIPLY: ~1024 workers on 32 cores. Measured over seven L4 runs
-# (2026-08-19): 1-4 tier_full gates timed out on every run, a DIFFERENT subset
-# each time, and each passed ALONE in 4-33 s against its ceiling. So under ctest
-# this sweep runs SERIALLY and lets ctest schedule the concurrency.
-# RUN BY HAND (diagnosis, a bite-proof, a one-off census) there is no outer
-# scheduler and the whole box is yours: the default is `nproc`.
-# `CTEST_INTERACTIVE_DEBUG_MODE` is set by ctest for every test it runs; it is
-# the only marker that needs no cmake-side cooperation, which is what keeps the
-# script honest when invoked directly. `LOGOS_GATE_SWEEP_P` overrides both.
-if [ -n "${LOGOS_GATE_SWEEP_P:-}" ]; then
-    SWEEP_P="$LOGOS_GATE_SWEEP_P"
-elif [ -n "${CTEST_INTERACTIVE_DEBUG_MODE:-}" ]; then
-    # ⚠ THIS GATE IS THE ONE MEASURED EXCEPTION TO "SERIAL UNDER CTEST", and the
-    # exception is arithmetic, not preference. Its sweep is 2203 fixtures and
-    # costs ~7 360 CPU-seconds (108 m user + 14 m sys, measured 2026-08-20) —
-    # SERIALLY that is 4.1x its own 1800 s ceiling, so the rule as stated turns
-    # this test into a deterministic red, which the #83 round's verify measured
-    # on an IDLE box (Timeout 1800.12 s, not a load lottery). At 8 it runs in
-    # ~415 s with margin. The number is DECLARED to ctest as PROCESSORS 8 at the
-    # registration so ctest does not stack eight of these side by side — the two
-    # must agree or the declaration is a lie.
-    # THE REAL FIX IS TO STOP PAYING IT THREE TIMES: this gate, pull_shape and
-    # plan_ground_census each re-compile the SAME corpus. One shared sweep would
-    # make the serial rule affordable here too, and it is filed as such.
-    SWEEP_P=8
-else
-    SWEEP_P="$(nproc)"
-fi
-    cat > "$TMPD/one.sh" <<'WORKER'
-#!/usr/bin/env bash
-f="$1"; OUT="$2"; LOGOSC="$3"; A="$4"
-b=$(basename "$f" .logos)
-# ── THE ARCHIVE MAP — mirrors `logos_pass_extra_args` (tests/logos/CMakeLists
-# .txt). Same order, same rules: the `memoria_` PREFIX rule first (CMake's own
-# comment explains why it is a prefix and not a list), then the name lists.
-EX=()
-case "$b" in
-  memoria_*) EX=(-l "$A/libmemoria-ctr.a" -l "$A/libmemoria-store.a" -l "$A/libmemoria-testkit.a");;
-  metacall_item_use_inherit|pub_module_internal_use|pub_module_type_internal|\
-  pub_cross_package|pkg_multifile|pub_reexport|pub_enum_trait_cross_pkg|\
-  pub_static_cross_module|pub_dyn_cross_module|wql_wref_field_pkg)
-      EX=(-l "$A/libpub_lib.a");;
-  interior_mut_freeze_canary)   EX=(-l "$A/libub_boundary.a");;
-  wql_mapping_cross_module_e2e) EX=(-l "$A/libwql_map_lib.a");;
-  cross_pkg_coexistence|cross_pkg_type_coexistence|cross_pkg_type_id_distinct|\
-  cross_pkg_const_scoped)       EX=(-l "$A/libcoex.a");;
-  coex_from_a|coex_from_b)      EX=(-l "$A/libcoex2a.a" -l "$A/libcoex2b.a");;
-  lazy_pkg_basic)               EX=(-l "$A/liblazy_pkg.a");;
-  sd_dst_module_methods)        EX=(-l "$A/libsd_dst_mod.a");;
-  container_item_from_module)   EX=(-l "$A/libctr_mod.a");;
-  metaclass_pmap_from_module)   EX=(-l "$A/libpmap_mod.a");;
-  lazy_pkg_chain)               EX=(-l "$A/liblazy_lower.a" -l "$A/liblazy_upper.a");;
-  three_layer_chain)            EX=(-l "$A/libhi.a" -l "$A/libmid.a" -l "$A/liblow.a");;
-  trait_ident_pkg_chain|trait_ident_bare_alias_bound)
-      EX=(-l "$A/libhmid.a" -l "$A/liblhom.a");;
-  trait_blanket_bare_alias_bound)     EX=(-l "$A/libbmid.a");;
-  trait_blanket_homonym_bound_admits) EX=(-l "$A/libbprobe.a");;
-  bc_d1r5_h6_cross_archive_admits)    EX=(-l "$A/libbcxa.a");;
-esac
-case "$b" in test_harness_*) EX+=(--test);; esac
-d=$(mktemp -d)
-LOGOS_TRACE_PLAN=1 "$LOGOSC" "$f" "${EX[@]}" --gen-dir "$d/gen" -o "$d/o.o" \
-    > "$d/out" 2> "$d/err"
-echo "$?" > "$OUT/_st/$b"
-# The plan trace goes to stderr. Only the door sentence is kept — the rest is
-# megabytes of ground text this gate has no claim on.
-grep -c '`_stream` DOOR is now the §12 DIRECT form' "$d/err" > "$OUT/_plan/$b"
 shopt -s nullglob
-# ⚠ EVERY unit, INCLUDING `logos.gen.*` — and that is a DELIBERATE DIVERGENCE
-# from `pull_shape_gate.sh`, which drops them. That gate's subject is the PULL,
-# and a `next_batch()` in a `logos.gen.*` unit is the stdlib's own `BatchStream`
-# impl for a container family, not a query pulling anything — dropping them is
-# right THERE. It is wrong HERE: MEASURED, `memoria_showcase_deem` emits 4
-# direct doors and 2 of them land in `logos.gen.borrow_carrying.Hs*` units,
-# `container_item_from_module` and `memoria_ctr_vec_deem` one each — a door for
-# a container family declared in an imported package is emitted into that
-# package's gen unit. Inheriting the user-module rule would have hidden 4 of the
-# corpus's 36 doors from the very gate written to stop doors hiding. What
-# scopes this gate is PROVENANCE (`// emitted by: deem`), not package name.
-U=("$d"/gen/*.gen.logos)
-[ "${#U[@]}" -ge 1 ] && cat "${U[@]}" > "$OUT/$b.user"
-rm -rf "$d"
-WORKER
-    chmod +x "$TMPD/one.sh"
-    printf '%s\0' "${FIXTURES[@]}" \
-      | xargs -0 -P "$SWEEP_P" -I{} "$TMPD/one.sh" {} "$OUT" "$LOGOSC" "$ARCH"
-    sweep_rc=$?
-    if [ "$sweep_rc" -ne 0 ]; then
-        echo "FAIL(2): the corpus sweep itself failed (xargs rc $sweep_rc)."
-        exit 2
-    fi
-    ST=("$OUT"/_st/*)
-    if [ "${#ST[@]}" -ne "$NFIX" ]; then
-        echo "FAIL(2): ${#ST[@]} rc files for $NFIX probes — probes were lost."
-        exit 2
-    fi
-    # The other half of the bite-proof hook: `LOGOS_DOOR_SWEEP_OUT=<dir>` keeps
-    # a copy of the sweep so a perturbation can be applied to it and fed back
-    # through `$4`. Unset by the registered test.
-    if [ -n "${LOGOS_DOOR_SWEEP_OUT:-}" ]; then
-        mkdir -p "$LOGOS_DOOR_SWEEP_OUT" && cp -r "$OUT"/. "$LOGOS_DOOR_SWEEP_OUT"/
-    fi
+FIXTURES=("$PASS"/*.logos)
+NFIX=${#FIXTURES[@]}
+# THE BLINDNESS FLOOR (the `pull_shape` reason): a fold that finds three
+# fixtures and all its pins at zero reads exactly like a healthy one.
+if [ "$NFIX" -lt 1500 ]; then
+    echo "FAIL(2): only $NFIX pass fixtures matched — the fold is blind."
+    exit 2
+fi
+# EVERY member of the population, or nothing at all — the refusal names each
+# missing one. This is the clause that keeps "not selected under -R" from
+# reading as "no doors here". See facts_fold.sh.
+#
+# ⚠ IT COVERS THE FIVE FIXTURES NO SUITE REGISTERS. `pass/*.logos` holds 2254
+# files and five of them have no `.expected`, so the loop that registers corpus
+# tests never sees them (they are `unregistered.ledger`'s, held in both
+# directions by `logos_00_corpus_registration`). Their facts are produced by
+# `logos_09_facts_<base>` tests registered from the same glob in
+# `tests/logos/CMakeLists.txt` — derived there, not listed — precisely so that
+# this population stays 2254 rather than quietly becoming 2249.
+facts_require "$FACTS" "$LOGOSC" "direct-door" "${FIXTURES[@]}"
+
+# ── the fold: stage what the census reads, from the facts ────────────────────
+# The layout is the deleted worker's, so the python census below is unchanged.
+for f in "${FIXTURES[@]}"; do
+    b=$(basename "$f" .logos)
+    G="$FACTS/$b"
+    cp "$G/rc" "$OUT/_st/$b"
+    # The plan trace is the compile's whole stderr. Only the door sentence is
+    # kept — the rest is megabytes of ground text this gate has no claim on.
+    grep -c '`_stream` DOOR is now the §12 DIRECT form' "$G/plan.err" > "$OUT/_plan/$b"
+    # ⚠ EVERY unit, INCLUDING `logos.gen.*` — and that is a DELIBERATE
+    # DIVERGENCE from `pull_shape_gate.sh`, which drops them. That gate's
+    # subject is the PULL, and a `next_batch()` in a `logos.gen.*` unit is the
+    # stdlib's own `BatchStream` impl for a container family, not a query
+    # pulling anything — dropping them is right THERE. It is wrong HERE:
+    # MEASURED, `memoria_showcase_deem` emits 4 direct doors and 2 of them land
+    # in `logos.gen.borrow_carrying.Hs*` units, `container_item_from_module` and
+    # `memoria_ctr_vec_deem` one each — a door for a container family declared
+    # in an imported package is emitted into that package's gen unit.
+    # Inheriting the user-module rule would have hidden 4 of the corpus's 36
+    # doors from the very gate written to stop doors hiding. What scopes this
+    # gate is PROVENANCE (`// emitted by: deem`), not package name.
+    # ⚠ THIS IS WHY `facts_emit.sh` KEEPS THE UNITS SEPARATE instead of
+    # concatenating them once: three gates, three scoping rules, one artifact.
+    U=("$G"/gen/*.gen.logos)
+    [ "${#U[@]}" -ge 1 ] && cat "${U[@]}" > "$OUT/$b.user"
+done
+ST=("$OUT"/_st/*)
+if [ "${#ST[@]}" -ne "$NFIX" ]; then
+    echo "FAIL(2): ${#ST[@]} rc files for $NFIX fixtures — the staging lost some."
+    exit 2
 fi
 
 python3 - "$OUT" "$PASS" <<'PY'
@@ -762,9 +711,12 @@ if glob_set - corpus_set:
 # means "no fixture was dropped". The sum above is forced by arithmetic (the two
 # halves are computed from one listing) and the set-equality above compares two
 # spellings of one rule; NEITHER can catch the real failure, which is a fixture
-# that was LISTED and never PROBED. That is compared here: the swept set against
-# the corpus listing, both directions. In PRESWEPT mode it is also what refuses
-# a stale sweep taken before the corpus changed.
+# that was LISTED and never PROBED. That is compared here: the staged set
+# against the corpus listing, both directions. Since task #85 there is a second,
+# EARLIER refusal of the same failure — `facts_require` names every population
+# member whose facts are missing or stamped for another tree, before a single
+# door is counted — and this clause is the one that still fires if the staging
+# itself drops one.
 swept = set(st)
 if corpus_set - swept:
     d = sorted(corpus_set - swept)
