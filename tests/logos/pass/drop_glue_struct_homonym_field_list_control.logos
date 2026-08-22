@@ -1,0 +1,18 @@
+// CONTROL half of the #103 drop-glue homonym pair: byte-identical to
+// drop_glue_struct_homonym_field_list except the struct is named `Widget`,
+// which no stdlib package declares. It printed the two INNER DROP lines both
+// before and after the fix — so a future regression that silences the homonym
+// half again shows up as a DIFFERENCE between these two fixtures, not as a
+// pair of tests that both go quiet.
+package dghflc;
+use logos.std.fmt;
+use logos.lang.iter;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("INNER DROP n={}", self.n); } }
+struct Widget { pub inner: Inner }
+fn main() -> i32 {
+    let o: Option<Widget> = Option::Some(Widget { inner: Inner { n: 7i64 } });
+    let c: i64 = o.into_iter().count();
+    println!("count={}", c);
+    return 0i32;
+}

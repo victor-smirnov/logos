@@ -186,24 +186,44 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     // about a quantified TypeVar in a position where "no MLIR type" is the
     // right answer and nothing is dropped. A malfunction here is a property of
     // the CALLER that needed a type and got none; it belongs at that caller.
+    //
+    // ── #103: `warning:`, AND WHY THAT IS NOT A DOWNGRADE ────────────────
+    // These four lines are the NEGATIVE ANSWER OF A TOTAL QUERY, not a report
+    // that something was dropped. Nothing is skipped here: the caller receives
+    // the nullptr and decides. The callers that NEED a type now report the
+    // malfunction themselves and fail the compile — `register_struct`'s field
+    // and tuple-field arms route through `struct_reg_fail` → the R2 sink — so
+    // the enforcement moved to where the consequence is, exactly as the note
+    // above says it belongs. Spelling them `mlir_gen: …` unqualified made them
+    // indistinguishable from a real drop, and they are the 30 lines that made
+    // 4 CORRECT pass fixtures look broken: in every one of them the line comes
+    // from a METAPROG FIXPOINT ROUND whose program is a snapshot, and the FINAL
+    // gen — the one whose module becomes the object — asks the same question
+    // over the same types and gets a resolved answer (measured 2026-08-22:
+    // 0 lines in the final round of all four). The line is still PRINTED, every
+    // time, unconditionally; only its claim is corrected.
     case LogosType::Kind::TypeVar:
-        std::fprintf(stderr, "mlir_gen: unresolved TypeVar '%s' — mono_pass required\n",
+        std::fprintf(stderr, "mlir_gen: warning: no MLIR type for TypeVar '%s' —"
+                     " unresolved here; a caller that needs one must report\n",
                      std::string(tv.type_var_name()).c_str());
         return nullptr;
     case LogosType::Kind::ConstVar:
-        std::fprintf(stderr, "mlir_gen: unresolved ConstVar '%s' — mono_pass required\n",
+        std::fprintf(stderr, "mlir_gen: warning: no MLIR type for ConstVar '%s' —"
+                     " unresolved here; a caller that needs one must report\n",
                      std::string(tv.type_var_name()).c_str());
         return nullptr;
     case LogosType::Kind::AssocType: {
         std::string base_s = tv.assoc_base() ? type_str(tv.assoc_base()) : "<null>";
         std::fprintf(stderr,
-                     "mlir_gen: unresolved AssocType '%s::%s::%s' — mono_pass required\n",
+                     "mlir_gen: warning: no MLIR type for AssocType '%s::%s::%s' —"
+                     " unresolved here; a caller that needs one must report\n",
                      base_s.c_str(), std::string(tv.trait_name()).c_str(),
                      std::string(tv.assoc_type_name()).c_str());
         return nullptr;
     }
     case LogosType::Kind::InferredType:
-        std::fprintf(stderr, "mlir_gen: unresolved InferredType '_' — sema/mono_pass required\n");
+        std::fprintf(stderr, "mlir_gen: warning: no MLIR type for InferredType '_' —"
+                     " unresolved here; a caller that needs one must report\n");
         return nullptr;
     case LogosType::Kind::Error:       return nullptr;
     case LogosType::Kind::ImplTrait:   return nullptr;
@@ -337,9 +357,10 @@ bool MLIRGenImpl::register_struct(lir_view::StructView sd) {
                 // and then ABORTED in the always-on cross-check —
                 // "size — layout_of says 16, llvm::DataLayout says 8". An
                 // element with no MLIR type is not a pointer; decline.
-                std::fprintf(stderr,
-                    "mlir_gen: unknown tuple field type in '%s'\n", sd_name.c_str());
-                return false;
+                // #103: round-aware — the FINAL gen counts and fails; a
+                // metaprog round says "deferred" (mlir_gen.cpp's caller was
+                // already declining to refuse here).
+                return struct_reg_fail("unknown tuple field type in '{}'", sd_name);
             }
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
             field_types.push_back(ft);
@@ -394,8 +415,7 @@ bool MLIRGenImpl::register_struct(lir_view::StructView sd) {
         } else {
             ft = logos_to_mlir(f.type);
             if (!ft) {
-                std::fprintf(stderr, "mlir_gen: unknown field type in '%s'\n", sd_name.c_str());
-                return false;
+                return struct_reg_fail("unknown field type in '{}'", sd_name);
             }
         }
         info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname, {}, false});
@@ -429,13 +449,11 @@ bool MLIRGenImpl::register_struct(lir_view::StructView sd) {
                 builder_.getI8Type(), pad));
         }
         if (mlir::failed(struct_type.setBody(body, false))) {
-            std::fprintf(stderr, "mlir_gen: failed to set union body for '%s'\n", key.c_str());
-            return false;
+            return struct_reg_fail("failed to set union body for '{}'", key);
         }
         for (auto& finfo : info.fields) finfo.index = 0;
     } else if (mlir::failed(struct_type.setBody(field_types, false))) {
-        std::fprintf(stderr, "mlir_gen: failed to set struct body for '%s'\n", key.c_str());
-        return false;
+        return struct_reg_fail("failed to set struct body for '{}'", key);
     }
     struct_types_[key] = info;
     // Back-compat alias under the bare name for paths that look up via

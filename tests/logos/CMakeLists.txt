@@ -1319,6 +1319,11 @@ add_test(
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/mlir_gen_exit_code_gate.sh
             $<TARGET_FILE:logosc>
             ${CMAKE_CURRENT_SOURCE_DIR}/fail
+            # #103 part 2: the roster is DERIVED from the compiler source every
+            # run, so the gate needs the source dir. Passed explicitly rather
+            # than guessed from $0 so an out-of-tree layout fails loud (exit 2)
+            # instead of measuring an empty roster and certifying it green.
+            ${CMAKE_SOURCE_DIR}/src/compiler
 )
 set_tests_properties(logos_00_mlir_gen_exit_code PROPERTIES
     TIMEOUT 120

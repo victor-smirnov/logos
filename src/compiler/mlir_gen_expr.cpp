@@ -229,7 +229,7 @@ mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
 
 mlir::Value MLIRGenImpl::gen_expr(lir_view::ExprRef er) {
     if (!er) {
-        std::fprintf(stderr, "mlir_gen: gen_expr called without LIR mirror\n");
+        bug_printf("gen_expr called without LIR mirror");
         return nullptr;
     }
     TypeRef ty = er.type(pool_impl());
@@ -537,14 +537,34 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
                 return alloca;
             }
         }
-        // Suppress noise from stale VarRefs left over by mono specialization
-        // of `Option<void>` / `Result<void, …>` etc. — pattern variable
-        // bindings for void payloads (e.g. `Option::Some(v) => return v`)
-        // become unreachable but mono still clones them. Print only under
-        // an opt-in env var so debugging stays available.
-        if (std::getenv("LOGOS_MLIRGEN_DEBUG_UNDEF"))
-            std::fprintf(stderr, "mlir_gen: undefined '%s' in fn '%s'\n",
-                         name.c_str(), cur_fn_name_.c_str());
+        // Stale VarRefs left over by mono specialization of `Option<void>` /
+        // `Result<void, …>` etc. — pattern variable bindings for void payloads
+        // (e.g. `Option::Some(v) => return v`) become unreachable but mono
+        // still clones them.
+        // ── #103: UN-GUARDED. The env var made this a SILENT arm, and a
+        // silent arm is the exact defect this round exists to close: the
+        // lookup missed, nullptr is returned, and whatever needed the slot
+        // was not emitted. It is spelled `warning:` and not routed to the
+        // R2 sink because it is MEASURED to fire on correct programs.
+        //
+        // ⚠ THE NUMBER FIRST WRITTEN HERE WAS WRONG BY ~230x AND IS CORRECTED
+        // RATHER THAN SOFTENED. It said "8 firings across 4 green fixtures",
+        // measured over `tests/logos/pass` alone. Re-measured 2026-08-22 by
+        // this round's verify:
+        //     tests/logos/pass      8 firings /   3 fixtures
+        //     imported + spec    1871 firings / 295 fixtures  (top:
+        //                        test_harness_coretest_int_battery, 183)
+        // and the sibling `warning: no MLIR type for TypeVar`, recorded here as
+        // never-firing, fires 20 times across 11 fixtures (10 hrtb-*, coerce_3).
+        // The recoverability argument was sampled on 8 of 1879 — so what is
+        // established is that these firings do not break the 2275-fixture pass
+        // corpus, NOT that every one of them is the stale-VarRef shape. It
+        // prints every time now, and the count is a ledger row, not a silence.
+        // An arm whose ground quotes a number from one tier while the tree has
+        // two is exactly the reading that let this channel stay quiet.
+        std::fprintf(stderr, "mlir_gen: warning: undefined '%s' in fn '%s'"
+                     " — no value emitted for this reference\n",
+                     name.c_str(), cur_fn_name_.c_str());
         return nullptr;
     }
     // Enum value-repr: the slot holds the inline storage ptr directly (one
@@ -1234,7 +1254,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
         if (op == ">=") return builder_.create<mlir::arith::CmpIOp>(loc_,
             is_unsigned_cmp ? mlir::arith::CmpIPredicate::uge : mlir::arith::CmpIPredicate::sge, lhs, rhs);
     }
-    std::fprintf(stderr, "mlir_gen: unknown op '%s'\n", op.c_str());
+    bug_printf("unknown op '%s'", op.c_str());
     return nullptr;
 }
 
@@ -1253,7 +1273,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EUnaryView v, TypeRef) {
     if (op == "!") {
         auto itype = mlir::dyn_cast<mlir::IntegerType>(val.getType());
         if (!itype) {
-            std::fprintf(stderr, "mlir_gen: unary '!' on non-integer type\n");
+            bug_printf("unary '!' on non-integer type");
             return nullptr;
         }
         unsigned width = itype.getWidth();
@@ -1267,7 +1287,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EUnaryView v, TypeRef) {
             return builder_.create<mlir::arith::XOrIOp>(loc_, val, allones);
         }
     }
-    std::fprintf(stderr, "mlir_gen: unknown unary op '%.*s'\n",
+    bug_printf("unknown unary op '%.*s'",
                  int(op.size()), op.data());
     return nullptr;
 }
@@ -1539,14 +1559,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
         if (cv) {
             auto val = gen_expr(cv->value());
             if (!val) {
-                std::fprintf(stderr, "mlir_gen: & const '%s' eval failed\n", var_name.c_str());
+                bug_printf("& const '%s' eval failed", var_name.c_str());
                 return nullptr;
             }
             auto alloca = create_entry_alloca(val.getType());
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
             return alloca;
         }
-        std::fprintf(stderr, "mlir_gen: & undefined '%s'\n", var_name.c_str());
+        bug_printf("& undefined '%s'", var_name.c_str());
         return nullptr;
     }
     // Parameter whose SSA arg holds a VALUE — `&p` is the address of the param's
@@ -2500,7 +2520,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     if (vararg_fns_.count(callee)) {
         auto callee_fn = parent_mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(callee);
         if (!callee_fn) {
-            std::fprintf(stderr, "mlir_gen: undefined vararg function '%s'\n", callee.c_str());
+            bug_printf("undefined vararg function '%s'", callee.c_str());
             return nullptr;
         }
         llvm::SmallVector<mlir::Value> args;
@@ -3584,7 +3604,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
         auto build_fn = find_func_op(parent_mod, writ_build_fn);
         if (!build_fn) {
-            std::fprintf(stderr, "mlir_gen: '%s' not found — add 'use logos.mem.writ.ctr;'\n",
+            bug_printf("'%s' not found — add 'use logos.mem.writ.ctr;'",
                          writ_build_fn.c_str());
             return nullptr;
         }
@@ -5898,8 +5918,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFormatCallView v, TypeRef) {
     auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     auto impl_fn = mod.lookupSymbol<mlir::func::FuncOp>("__format_impl");
     if (!impl_fn) {
-        std::fprintf(stderr,
-            "mlir_gen: format() requires 'use std.lang.text;' to be imported\n");
+        bug_printf(
+            "format() requires 'use std.lang.text;' to be imported");
         return nullptr;
     }
     auto n_i32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, n, 32);
@@ -6108,7 +6128,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
 
     auto* te = resolve_tagged_enum(std::string(TypeRef(inner_ty).enum_name()), inner_ty);
     if (!te) {
-        std::fprintf(stderr, "mlir_gen: ETry: cannot resolve Result enum\n");
+        bug_printf("ETry: cannot resolve Result enum");
         return nullptr;
     }
 
@@ -6937,8 +6957,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
         auto alloc_cstr_fn = find_func_op(parent_mod, "writ_ctr_alloc_cstr");
         // C5-fix4: check all alloc helpers upfront — missing functions cause silent null AnyVal.
         if (!new_fn || !patch_fn || !alloc_f64_fn || !alloc_str_fn || !alloc_cstr_fn) {
-            std::fprintf(stderr, "mlir_gen: writ zone-alloc helpers not found — "
-                         "add 'use logos.lang.writ.tmpl;' to your file\n");
+            bug_printf("writ zone-alloc helpers not found — "
+                         "add 'use logos.lang.writ.tmpl;' to your file");
             return nullptr;
         }
 
@@ -7078,8 +7098,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
 
     auto build_fn = find_func_op(parent_mod, "writ_build_from_template");
     if (!build_fn) {
-        std::fprintf(stderr, "mlir_gen: writ_build_from_template not found — "
-                     "add 'use logos.lang.writ.tmpl;' to your file\n");
+        bug_printf("writ_build_from_template not found — "
+                     "add 'use logos.lang.writ.tmpl;' to your file");
         return nullptr;
     }
     llvm::SmallVector<mlir::Value> build_args{

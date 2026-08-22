@@ -465,9 +465,21 @@ PIN = {
     # 2026-08-22 (#94): +3 more, the array-in-arm miscompile pair and its
     # tuple control. Same argument — none declares a family or a `direct`
     # form. partition closes: 2273 = 191 + 2082. DOORS unmoved (36 = 10 + 26).
-    'corpus'            : 2273,
+    # 2026-08-22 (#103 — the `mlir_gen:` channel becomes fatal): +2, the
+    # drop-glue homonym/control PAIR (`drop_glue_struct_homonym_field_list`,
+    # `…_control`). `gen_drop_value` asked `all_struct_defs_` BARE-FIRST, so a
+    # user `struct Item` inside a stdlib generic instance took
+    # `logos.std.compiler.metaprog.Item`'s field list and every field destructor
+    # was skipped — 0 drops under the homonym against the control's 2. Neither
+    # file declares a container family or a `direct` output form, so the DOOR
+    # counts are unmoved; only the population moves.
+    # RE-DERIVED BY DIRECT FILE LISTING, never by adding to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2275
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2275 = 191 + 2084. DOORS unmoved (36 = 10 + 26).
+    'corpus'            : 2275,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2082,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2084,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

@@ -347,7 +347,7 @@ void MLIRGenImpl::prescan_uninit_flags(lir_view::BlockRef block, int depth,
 
 void MLIRGenImpl::gen_stmt(lir_view::StmtRef sr) {
     if (!sr) {
-        std::fprintf(stderr, "mlir_gen: gen_stmt called without LIR mirror\n");
+        bug_printf("gen_stmt called without LIR mirror");
         return;
     }
     // -g: stamp every op emitted for this statement with its source line (fused
@@ -953,8 +953,22 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
                 // (mirrors SDrop). Nested: stop (by-value self consumes them).
                 if (!top_level) return;
             }
-        auto sdit = all_struct_defs_.find(name);
-        auto sit  = struct_types_.find(mlir_struct_key(ty));
+        // #103 / #98 — A LOOKUP KEY IS NOT AN IDENTITY, and here the order was
+        // INVERTED: `all_struct_defs_.find(name)` asked the BARE first-
+        // registered-wins alias (mlir_gen.cpp pass 0) before the pkg-qualified
+        // key. `name` is concrete_struct_name(ty), which carries the generic
+        // fold but NOT the package, so a user `struct Item` inside a stdlib
+        // generic instance (OptionIter$G1$Item$M…) got the IMPORTED
+        // `logos.std.compiler.metaprog.Item`'s field list — field `raw`, which
+        // the user struct does not have. gep_field then returned nullptr and
+        // every field drop was SKIPPED: MEASURED 2026-08-22, the inner
+        // destructor ran 0 times under the homonym and 2 times under a renamed
+        // control. The struct_types_ side was already qualified-first, so the
+        // two halves disagreed and only the DEF half was wrong. Qualified
+        // first, bare last — the recorded find_struct_*_it order.
+        auto sdit = find_struct_def_it(ty);
+        if (sdit == all_struct_defs_.end()) sdit = all_struct_defs_.find(name);
+        auto sit  = find_struct_it(ty);
         if (sit == struct_types_.end()) sit = struct_types_.find(name);
         if (sdit != all_struct_defs_.end() && sit != struct_types_.end()) {
             auto& info = sit->second;
@@ -2365,7 +2379,7 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
     std::string name(v.name());
     auto it = scope_.find(name);
     if (it == scope_.end()) {
-        std::fprintf(stderr, "mlir_gen: assign to undefined '%s'\n", name.c_str());
+        bug_printf("assign to undefined '%s'", name.c_str());
         return;
     }
     // B8 drop-before-replace: sema's definite-assignment analysis flagged this
@@ -3261,7 +3275,7 @@ void MLIRGenImpl::gen_field_write(lir_view::SFieldWriteView v) {
             }
         }
         if (!ptr || type_name.empty()) {
-            std::fprintf(stderr, "mlir_gen: field write: '%s' is not a struct\n",
+            bug_printf("field write: '%s' is not a struct",
                          receiver.c_str());
             return;
         }
@@ -3335,7 +3349,7 @@ void MLIRGenImpl::gen_deref_field_write(lir_view::SDerefFieldWriteView v) {
 
     auto it = scope_.find(receiver);
     if (it == scope_.end()) {
-        std::fprintf(stderr, "mlir_gen: deref-field-write: undefined '%s'\n", receiver.c_str());
+        bug_printf("deref-field-write: undefined '%s'", receiver.c_str());
         return;
     }
     // Mutable class pointer vars store an alloca(ptr); load to get the actual object ptr.
@@ -3366,12 +3380,12 @@ void MLIRGenImpl::gen_deref_field_write(lir_view::SDerefFieldWriteView v) {
             if (vsi != var_struct_.end()) resolved_name = vsi->second;
         }
         if (resolved_name.empty()) {
-            std::fprintf(stderr, "mlir_gen: deref-field-write: unknown type '%s'\n", type_name.c_str());
+            bug_printf("deref-field-write: unknown type '%s'", type_name.c_str());
             return;
         }
         sit = struct_types_.find(resolved_name);
         if (sit == struct_types_.end()) {
-            std::fprintf(stderr, "mlir_gen: deref-field-write: unknown type '%s' (recv resolved to '%s' which has no entry)\n",
+            bug_printf("deref-field-write: unknown type '%s' (recv resolved to '%s' which has no entry)",
                          type_name.c_str(), resolved_name.c_str());
             return;
         }
@@ -3444,7 +3458,7 @@ void MLIRGenImpl::gen_chain_field_write(lir_view::SChainFieldWriteView v) {
             }
         }
         if (!cur_ptr || cur_type_name.empty()) {
-            std::fprintf(stderr, "mlir_gen: chain-field-write: '%s' is not a struct\n",
+            bug_printf("chain-field-write: '%s' is not a struct",
                          receiver.c_str());
             return;
         }
@@ -3456,7 +3470,7 @@ void MLIRGenImpl::gen_chain_field_write(lir_view::SChainFieldWriteView v) {
     for (size_t i = 0; i + 1 < path.size(); ++i) {
         auto cti = struct_types_.find(cur_type_name);
         if (cti == struct_types_.end()) {
-            std::fprintf(stderr, "mlir_gen: chain-field-write: unknown type '%s'\n",
+            bug_printf("chain-field-write: unknown type '%s'",
                          cur_type_name.c_str());
             return;
         }
@@ -3493,7 +3507,7 @@ void MLIRGenImpl::gen_chain_field_write(lir_view::SChainFieldWriteView v) {
             }
         }
         if (next_type_name.empty()) {
-            std::fprintf(stderr, "mlir_gen: chain-field-write: cannot resolve struct type for '%s.%s'\n",
+            bug_printf("chain-field-write: cannot resolve struct type for '%s.%s'",
                          cur_type_name.c_str(), path[i].c_str());
             return;
         }
@@ -3508,7 +3522,7 @@ void MLIRGenImpl::gen_chain_field_write(lir_view::SChainFieldWriteView v) {
     // Final GEP into the destination field.
     auto fti = struct_types_.find(cur_type_name);
     if (fti == struct_types_.end()) {
-        std::fprintf(stderr, "mlir_gen: chain-field-write: unknown final type '%s'\n",
+        bug_printf("chain-field-write: unknown final type '%s'",
                      cur_type_name.c_str());
         return;
     }
@@ -3534,13 +3548,13 @@ void MLIRGenImpl::gen_tuple_write(lir_view::STupleWriteView v) {
     std::string receiver(v.receiver());
     auto it = scope_.find(receiver);
     if (it == scope_.end()) {
-        std::fprintf(stderr, "mlir_gen: tuple write: undefined '%s'\n", receiver.c_str());
+        bug_printf("tuple write: undefined '%s'", receiver.c_str());
         return;
     }
     // Get the LLVM struct type for the tuple from the LIR receiver type.
     auto stype = tuple_llvm_type(v.recv_type(pool_impl()));
     if (!stype) {
-        std::fprintf(stderr, "mlir_gen: tuple write: cannot derive tuple type for '%s'\n",
+        bug_printf("tuple write: cannot derive tuple type for '%s'",
                      receiver.c_str());
         return;
     }
@@ -3561,7 +3575,7 @@ void MLIRGenImpl::gen_index_write(lir_view::SIndexWriteView v) {
     std::string arr(v.arr());
     auto it = scope_.find(arr);
     if (it == scope_.end()) {
-        std::fprintf(stderr, "mlir_gen: index write: undefined '%s'\n", arr.c_str());
+        bug_printf("index write: undefined '%s'", arr.c_str());
         return;
     }
     // Local pointer variables: scope_ holds an alloca(ptr); load the actual ptr first.
@@ -3657,7 +3671,7 @@ void MLIRGenImpl::gen_field_index_write(lir_view::SFieldIndexWriteView v) {
     // Get struct type info to find the field.
     auto sit = var_struct_.find(receiver);
     if (sit == var_struct_.end()) {
-        std::fprintf(stderr, "mlir_gen: field index write: '%s' not struct\n",
+        bug_printf("field index write: '%s' not struct",
                      receiver.c_str());
         return;
     }

@@ -3085,9 +3085,131 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7472
-REGISTRY-NOIMPORTED  3789
+REGISTRY-ALL         7474
+REGISTRY-NOIMPORTED  3791
 REGISTRY-TIERCOMMIT  45
+# 2026-08-22 (#103 — THE `mlir_gen:` CHANNEL BECOMES FATAL. `logosc` printed its
+# OWN diagnosis that lowering had dropped a store, a call or a whole field-drop
+# chain, then printed `logosc: wrote <obj>` and EXITED 0. The line was not
+# prefixed `internal:`, so it did not count toward the R2 tally either — and
+# because every pass fixture asserts an exit code, a compile that emits a broken
+# object and exits 0 is INVISIBLE TO THE CORPUS BY CONSTRUCTION. This is the
+# permissive-defect-invisible-to-green class at its source.
+#
+# THE POPULATION, derived from the source and partitioned to its total. 55 grep
+# hits for `"mlir_gen: ` in src/compiler, of which 2 are mentions inside
+# COMMENTS (mlir_gen_expr.cpp's own note that "44 sites still bypass bugs_"),
+# leaving 53 emission sites. Before:
+#   cell I   (not a malfunction report)                        8
+#   cell II  (already fatal at the site)                       3
+#   cell III (debug-guarded, SILENT by default)                4
+#   cell IV  (raw malfunction, compile CONTINUES)             38
+#   —— 8 + 3 + 4 + 38 = 53.
+# After: cell IV is EMPTY. 30 sites route through the R2 sink via a new printf
+# adapter `bug_printf` (same `bug_raw`, so counted / `internal:`-marked /
+# enforced; printf spelling kept because hand-translating 40 format strings to
+# std::format is 40 chances to change a message in a round about this channel
+# being untrustworthy); 4 register_struct sites route through the new
+# round-aware `struct_reg_fail`; 4 `logos_to_mlir` arms are re-spelled
+# `warning:` because they are the negative answer of a TOTAL QUERY; the 4 cell
+# III arms lose their env guard (3 of them) and are re-spelled `warning:`.
+# Final roster of RAW `mlir_gen:` emissions: 20, all cells I/II/III.
+# ⚠ THE AFTER-PARTITION IS DERIVED FROM THE PIN, NOT RESTATED FROM THE PLAN.
+# This entry first carried an after-column of I=8 / II=3 / III=12 / IV=0 = 23
+# while asserting both columns total 53 — it did not sum, and it was written
+# from what the round INTENDED rather than from what the roster holds. Counted
+# off `PINNED_WITH_CELLS` in tests/logos/mlir_gen_exit_code_gate.sh:
+#     I = 9, II = 3, III = 8, IV = 0  ->  20, which is the roster's own count.
+# The other 33 of the 53 are no longer raw: 30 route through the R2 sink
+# (`bug_printf`), 3 through `struct_reg_fail`. 20 + 33 = 53, and the 53 itself
+# is 55 grep hits minus the 2 comment mentions. A partition that does not sum is
+# not a partition, and in a round whose whole subject is a channel nobody could
+# trust, an arithmetic that has to be taken on faith is the wrong artefact.
+#
+# ── CAUSE 1, AND IT IS A LIVE MISCOMPILE, NOT TIDINESS ──────────────────────
+# `mlir_gen_stmt.cpp gen_drop_value` asked `all_struct_defs_.find(name)` — the
+# BARE first-registered-wins alias — BEFORE the package-qualified key. This is
+# the #98 "bare-FIRST, order property inverted" cell of the key-identity class,
+# and the STRUCT_TYPES_ half of the very same lookup was already qualified-first,
+# so the two halves disagreed and only the DEF half was wrong. A user
+# `struct Item` inside a stdlib generic instance took
+# `logos.std.compiler.metaprog.Item`'s field list (`raw: WAny`, from
+# stdlib/mem/compiler/metaprog/ast.logos), `gep_field` found no field `raw`,
+# returned nullptr, and EVERY field drop was skipped.
+# THE OBSERVABLE IS A VALUE, not a diagnostic: the homonym program printed the
+# inner destructor 0 times, the byte-identical renamed control 2 times.
+# CONTROL REVERT, its own build each way: fix reverted -> homonym 0 drops /
+# control 2 drops; fix restored -> both 2. Two fixtures pin it as a PAIR so a
+# regression shows up as a DIFFERENCE, not as both halves going quiet together.
+# The 29 `has no field 'raw'` lines on `vec_struct_homonym_stride_shapes` — the
+# largest emitter in the corpus — are gone with it.
+# ⚠ THE PRIOR DIAGNOSIS NAMED THE WRONG SITE (mlir_gen_stmt.cpp's SDrop path,
+# already hardened on 08-21). That site resolves CORRECTLY: instrumented, it
+# printed `hit='r1.Item' f0='id'` every time. The real caller was found by an
+# execinfo backtrace at the failing `gep_field`, not by reading the neighbouring
+# comment — a hardened site next to an unhardened one is exactly what makes the
+# comment look like the answer.
+#
+# ── CAUSE 2 — SUPERSEDED METAPROG ROUNDS, and why this is NOT an exemption ──
+# The `unresolved AssocType` / `unknown field type` lines on the four
+# `ctr_*`/`typeof_container_*` fixtures all come from METAPROG FIXPOINT ROUNDS.
+# Their `plan.err` holds three layout-verify blocks; the FINAL round — the one
+# whose module becomes the object — emits ZERO of them (measured per round:
+# 4/4/0 and 4/4/0 with `declined` 7/10/0). `register_struct`'s caller in
+# mlir_gen.cpp ALREADY defers a failed registration in a metaprog round (#61,
+# "a decline in a metaprog round is NOT YET, not NEVER"), so the message printed
+# from inside register_struct was announcing a decision the caller had already
+# declined to make. It now reports at a round-aware helper: `warning: metaprog
+# round — deferred, not refused` in a fixpoint round (UNCONDITIONAL, not
+# env-gated — louder than before), `bug_false` → the R2 sink → COMPILE FAILED in
+# the final gen. The recoverability is established by RE-RUNNING THE IDENTICAL
+# CHECK at the point the object is built, not by "the tests still pass".
+# The refuse side is unmoved and STRENGTHENED: `typeof_container_field_no_family_fail`
+# and `…_tuple_field_no_family_fail` still refuse (rc=1, no object), and their
+# `.expected` now demands `mlir_gen: internal: …` rather than the bare text —
+# i.e. the refusal must go through the sink, which the old assertion could not
+# distinguish from a raw fprintf.
+#
+# ── THE OTHER DIRECTION, SWEPT ──────────────────────────────────────────────
+# All 2275 pass fixtures compiled with the flipped compiler and BOTH
+# `*_DEBUG_UNDEF` vars forced on: `mlir_gen: internal:` fires ZERO times, and no
+# `self-diagnosed malfunction(s) — COMPILE FAILED` line appears anywhere. The
+# whole stdlib + examples build (54 targets) is likewise clean. The only
+# remaining emissions over the corpus are 30 `warning: no MLIR type for
+# AssocType` and 2 `warning: metaprog round`, all inside superseded rounds.
+# Residual cell-III counts, recorded rather than assumed: `undefined '%s' in fn`
+# 8 firings over 4 GREEN fixtures (stale VarRefs from mono void-payload specs);
+# `method '%s' not found` 3 firings (already accounted at the STATEMENT level via
+# method_lower_misses_); `get_struct_ptr` / `get_subscript_ptr` undefined ZERO
+# firings over both the corpus and the stdlib build.
+# ⚠ THOSE TWO ZERO-FIRING ARMS ARE UN-GUARDED, NOT DELETED, and the reason is
+# stated rather than assumed: their `return nullptr` is still reachable, so
+# deleting the only REPORT of that malfunction would make the channel quieter —
+# the one move this round forbids. Un-guarding is what turns "never observed"
+# into "observable"; the next sweep counts them for free.
+#
+# ── THE GATE (the deliverable that keeps this closed) ───────────────────────
+# `tests/logos/mlir_gen_exit_code_gate.sh` is EXTENDED, not duplicated — a second
+# gate asserting a neighbouring property is how one class grows two ledgers that
+# disagree, which this ledger's own header records happening once. Part 1 (one
+# specimen: rc != 0, no object, the sink reached, the enforcement line present,
+# plus a clean-control instrument canary) is untouched. Part 2 DERIVES the roster
+# of raw `mlir_gen:` emission sites from the compiler source on every run, keyed
+# by FILE + MESSAGE PREFIX and never by line number, and diffs it against a pin
+# of 20 rows carrying a cell letter each. A new raw site reds at birth with
+# exactly two honest moves offered (route it through `bug*()`, or roster it with
+# its cell and the ground written at the site). It ALSO refuses to accept a
+# pinned `IV |…` row at all, so the property cannot be slipped through the
+# equality check by widening the pin. It exits 2 — not 1 — when it cannot
+# measure: zero extracted sites is impossible while the sink's own
+# `"mlir_gen: internal: %s"` exists, so that reads as a broken instrument, not a
+# pass. `mlir_gen_bug_ledger_gate.sh` is untouched and still re-measures its four
+# rows in both directions; nothing in this round changes a ledgered count.
+#   tests/logos/pass/drop_glue_struct_homonym_field_list.logos          (+ .expected)
+#   tests/logos/pass/drop_glue_struct_homonym_field_list_control.logos  (+ .expected)
+# +2 registered: 7472 -> 7474 / 3789 -> 3791 / tier_commit 45 unchanged (the
+# gate was EXTENDED, so no test was added).
+# Door pins re-derived by direct listing: 2275 = 191 + 2084, doors 36 = 10 + 26.
 # 2026-08-22 (#94 — an ARRAY literal in a match arm / if branch was read back as
 # the ADDRESS of the arm's buffer. `logos_to_mlir` answers `ptr` for a Tuple and
 # the ARRAY TYPE for an array, while BOTH literals lower to a pointer into an

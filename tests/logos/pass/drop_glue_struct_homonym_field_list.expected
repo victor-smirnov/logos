@@ -1,0 +1,20 @@
+# ⚠ THE SECOND `INNER DROP` LINE IS A DEFECT (#110), PINNED HERE AS OBSERVED
+# OUTPUT AND NOT AS CORRECT BEHAVIOUR. One `Inner` is constructed and its
+# destructor runs TWICE — measured: one logical value, two stack slots, both
+# dropped (`DROP n=7 at 0x…288` / `…448`). With a heap-owning field it is a
+# double free: a plain scope drops once, `Option::Some(x).into_iter().count()`
+# drops twice; `Vec<D>` is correct, so the defect is specific to the
+# Option->into_iter move path.
+#
+# This file still asserts two lines because it is the only shape that REACHES
+# the drop-glue field-list consult this round fixed — measured by control
+# revert: with the bare lookup restored this fixture reds (the destructor ran
+# ZERO times) while a plain-scope version of the same program stays GREEN, i.e.
+# the plain shape never executes the site and would be a pin over a branch that
+# never ran. So the count discriminates 0-vs-2, which is the claim; the 2 is
+# #110's subject and this file must be RE-AIMED TO ONE LINE when #110 lands.
+exit: 0
+stdout:
+INNER DROP n=7
+INNER DROP n=7
+count=1

@@ -830,8 +830,14 @@ mlir::Value MLIRGenImpl::get_struct_ptr(const std::string& name) {
     if (it == scope_.end()) {
         // Same suppression as gen_expr_kind's EVarRefView path — stale
         // VarRefs from mono void-payload specs.
-        if (std::getenv("LOGOS_MLIRGEN_DEBUG_UNDEF"))
-            std::fprintf(stderr, "mlir_gen: undefined '%s'\n", name.c_str());
+        // ── #103: UN-GUARDED, and measured. Both `LOGOS_MLIRGEN_DEBUG_UNDEF`
+        // arms in this file fired ZERO times over the 2275-fixture pass
+        // corpus with the var forced on (2026-08-22). Zero firings over ONE
+        // population is not zero firings, so the arm is not deleted — it is
+        // made unconditional, which is what turns 'never observed' into
+        // 'observable'. The next sweep counts it for free.
+        std::fprintf(stderr, "mlir_gen: warning: undefined '%s'"
+                     " — get_struct_ptr found no slot\n", name.c_str());
         return nullptr;
     }
     // Mutable raw-pointer locals are stored as alloca(ptr) slots.
@@ -850,7 +856,7 @@ mlir::Value MLIRGenImpl::gep_field(mlir::Value base, const StructInfo& info,
                 loc_, ptr_type(), info.llvm_type, base, idx);
         }
     }
-    std::fprintf(stderr, "mlir_gen: struct '%s' has no field '%s' (in fn %s)\n",
+    bug_printf("struct '%s' has no field '%s' (in fn %s)",
                  info.name.c_str(), field_name.c_str(), cur_fn_name_.c_str());
     return nullptr;
 }
@@ -1018,7 +1024,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(lir_view:
                         }
                     }
                 }
-                std::fprintf(stderr, "mlir_gen: field '%s' is not a struct type\n",
+                bug_printf("field '%s' is not a struct type",
                              field.c_str());
                 return {nullptr, {}};
             }
@@ -1174,9 +1180,9 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(lir_view:
             return {nullptr, {}};
     }
     // Name the genuinely unexpected offender: WHICH type, in which fn.
-    std::fprintf(stderr,
-                 "mlir_gen: unsupported receiver kind for struct access "
-                 "(recv type '%s', kind %d, in %s)\n",
+    bug_printf(
+                 "unsupported receiver kind for struct access "
+                 "(recv type '%s', kind %d, in %s)",
                  recv_ty ? std::string(type_str(recv_ty)).c_str() : "<none>",
                  recv_ty ? static_cast<int>(TypeRef(recv_ty).kind()) : -1,
                  cur_fn_name_.empty() ? "<unknown fn>" : cur_fn_name_.c_str());
@@ -1228,7 +1234,7 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
     // still assert an observable VALUE, not rc.
     auto sit = struct_types_.find(lookup_key);
     if (sit == struct_types_.end()) {
-        std::fprintf(stderr, "mlir_gen: unknown struct '%s' (qualified '%s')\n",
+        bug_printf("unknown struct '%s' (qualified '%s')",
                      name.c_str(), lookup_key.c_str());
         return nullptr;
     }
@@ -1408,8 +1414,14 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
 mlir::Value MLIRGenImpl::get_subscript_ptr(const std::string& name) {
     auto it = scope_.find(name);
     if (it == scope_.end()) {
-        if (std::getenv("LOGOS_MLIRGEN_DEBUG_UNDEF"))
-            std::fprintf(stderr, "mlir_gen: undefined '%s'\n", name.c_str());
+        // ── #103: UN-GUARDED, and measured. Both `LOGOS_MLIRGEN_DEBUG_UNDEF`
+        // arms in this file fired ZERO times over the 2275-fixture pass
+        // corpus with the var forced on (2026-08-22). Zero firings over ONE
+        // population is not zero firings, so the arm is not deleted — it is
+        // made unconditional, which is what turns 'never observed' into
+        // 'observable'. The next sweep counts it for free.
+        std::fprintf(stderr, "mlir_gen: warning: undefined '%s'"
+                     " — get_subscript_ptr found no slot\n", name.c_str());
         return nullptr;
     }
     return it->second;

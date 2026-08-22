@@ -1,0 +1,22 @@
+// #103 / #98 — gen_drop_value asked `all_struct_defs_` by the BARE name FIRST.
+// `Item` is also `logos.std.compiler.metaprog.Item` (stdlib/mem/compiler/
+// metaprog/ast.logos), pulled in by `use logos.std.fmt`, and the bare
+// first-registered-wins alias answered with ITS field list (`raw: WAny`).
+// gep_field then found no field `raw` on the user's `Item`, printed
+// `mlir_gen: struct 'pkg.Item' has no field 'raw'` — and returned nullptr, so
+// EVERY field drop was skipped while logosc exited 0 with an object written.
+// THE OBSERVABLE IS THE DESTRUCTOR COUNT, not the diagnostic: pre-fix this
+// program printed no INNER DROP line at all; the byte-identical renamed
+// control (drop_glue_struct_homonym_field_list_control) printed two.
+package dghfl;
+use logos.std.fmt;
+use logos.lang.iter;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("INNER DROP n={}", self.n); } }
+struct Item { pub inner: Inner }
+fn main() -> i32 {
+    let o: Option<Item> = Option::Some(Item { inner: Inner { n: 7i64 } });
+    let c: i64 = o.into_iter().count();
+    println!("count={}", c);
+    return 0i32;
+}

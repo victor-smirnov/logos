@@ -1,0 +1,5 @@
+exit: 0
+stdout:
+INNER DROP n=7
+INNER DROP n=7
+count=1

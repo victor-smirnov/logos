@@ -39,6 +39,7 @@
 #include <string>
 #include <vector>
 #include <cstdio>
+#include <cstdarg>
 #include <variant>
 
 namespace logos::compiler {
@@ -1276,6 +1277,69 @@ private:
     mlir::Value bug_value(std::format_string<A...> f, A&&... a) const {
         bug_raw(std::format(f, std::forward<A>(a)...));
         return {};
+    }
+    // ── #103: THE PRINTF ADAPTER ONTO THE SAME SINK ─────────────────────
+    // Not a second channel: it formats and calls `bug_raw`, so a message sent
+    // here is counted, logged, `internal:`-marked and enforced exactly like one
+    // sent through `bug()`. It exists because the 40 raw
+    // `std::fprintf(stderr, "mlir_gen: …")` malfunction reports this round
+    // converts were written in printf spelling with printf arguments
+    // (`%.*s` + int/ptr pairs, `.c_str()` everywhere), and hand-translating 40
+    // format strings to `std::format` is 40 chances to change a message, swap
+    // two arguments or lose a specifier — in a round whose whole subject is
+    // that this channel cannot be trusted. The message text is preserved
+    // byte-for-byte; only the prefix and the trailing newline move to the sink.
+    __attribute__((format(printf, 2, 3)))
+    void bug_printf(const char* fmt, ...) const {
+        va_list ap; va_start(ap, fmt);
+        va_list ap2; va_copy(ap2, ap);
+        int n = std::vsnprintf(nullptr, 0, fmt, ap);
+        va_end(ap);
+        std::string msg;
+        if (n > 0) { msg.resize(size_t(n)); std::vsnprintf(msg.data(), size_t(n) + 1, fmt, ap2); }
+        else       { msg = fmt; }
+        va_end(ap2);
+        bug_raw(std::move(msg));
+    }
+    __attribute__((format(printf, 2, 3)))
+    std::nullptr_t bug_printf_null(const char* fmt, ...) const {
+        va_list ap; va_start(ap, fmt);
+        va_list ap2; va_copy(ap2, ap);
+        int n = std::vsnprintf(nullptr, 0, fmt, ap);
+        va_end(ap);
+        std::string msg;
+        if (n > 0) { msg.resize(size_t(n)); std::vsnprintf(msg.data(), size_t(n) + 1, fmt, ap2); }
+        else       { msg = fmt; }
+        va_end(ap2);
+        bug_raw(std::move(msg));
+        return nullptr;
+    }
+    // ── #103: REGISTRATION FAILURE IS ROUND-AWARE ───────────────────────
+    // `register_struct` runs in every metaprog fixpoint round as well as in the
+    // final gen. A metaprog round's program is a SNAPSHOT the metaprog has not
+    // finished emitting into (#61), and mlir_gen.cpp's caller already DEFERS a
+    // failed registration in that case rather than refusing — so the message
+    // printed from inside register_struct was describing a decision the caller
+    // had already declined to make. MEASURED 2026-08-22 over the four fixtures
+    // that emitted this shape (ctr_leaf_family_spelling,
+    // ctr_vec_leaf_family_spelling, typeof_container_hand_written_state,
+    // typeof_container_field_admit): the FINAL gen — the one whose module
+    // becomes the object file — asks the same question over the same types and
+    // answers CLEAN, 0 lines, in every one of them. The recoverability is
+    // therefore established by re-running the identical check at the point the
+    // object is built, not by "the tests still pass".
+    // The metaprog-round line is NOT silenced and NOT env-gated: it is printed
+    // every time, spelled `warning:` and naming the round, so the channel gets
+    // LOUDER here, not quieter. The final gen routes to the R2 sink and fails.
+    template <class... A>
+    bool struct_reg_fail(std::format_string<A...> f, A&&... a) const {
+        if (metaprog_round_) {
+            std::fprintf(stderr,
+                "mlir_gen: warning: metaprog round — deferred, not refused: %s\n",
+                std::format(f, std::forward<A>(a)...).c_str());
+            return false;
+        }
+        return bug_false(f, std::forward<A>(a)...);
     }
 
     // Is the program being compiled RIGHT NOW listed in the R2 ledger?
