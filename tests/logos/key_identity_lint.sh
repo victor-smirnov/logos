@@ -253,15 +253,75 @@ python3 "$SCANNER" "$SRC" "$INC" --scans "$LEDGER"; s4=$?
 if [ "$s4" = 2 ]; then exit 2; fi
 if [ "$s4" != 0 ]; then rc=1; fi
 
+# ── FACT 5: A NAME PASSED, NOT A NAME COMPARED (task #106) ──────────────────
+# FACT 4's four matchers ALL key on `==` / `!=`. The whole `struct_lit("Type",
+# …)` channel — a bare entity name handed to a synthesis call as an ARGUMENT —
+# is not a comparison, so seventeen sites were invisible to it, one of them two
+# lines below a site #102 had converted. That is the SECOND time a channel
+# escaped this gate because a matcher tracked a SPELLING rather than the
+# question; the first was the nested-paren hole closed in #99, over sites that
+# round had itself converted. FACT 5 asks the other half of the question.
+#
+# The population is pinned PER CALLEE (count + roster digest), and the callee
+# set is DERIVED — every callee whose first argument is a nominal-entity-shaped
+# literal — never hand-listed. So a future `struct_lit("Foo", …)` reds at birth
+# as a NEW ROW even though `struct_lit` holds zero such sites today.
+#
+# ⚠ FACT 5 DOES NOT CLASSIFY, and most of its rows are CORRECT: `make_synth_*`
+# is the #102 FIX, and its bare literal is the KEY into the owner table rather
+# than a lookup. Presence is a census, not an accusation.
+#
+# FACT 5's OWN CANARY. Same reason FACT 0 exists: a matcher that silently stops
+# matching would turn this whole fact green. Planted subjects go through the
+# SAME scanner.
+ACAN=$(mktemp -d); trap 'rm -rf "$CANARY" "$ACAN"' EXIT
+mkdir -p "$ACAN/src/compiler" "$ACAN/include/logos/compiler"
+cat > "$ACAN/src/compiler/acanary.cpp" <<'AEOF'
+struct C {
+    void a() { make_widget_type("AnyVal"); }
+    void b() { struct_lit("QuoteItemBlob", f, t); }
+    void c() { getenv("LOGOS_DUMP_EVERYTHING"); }
+    void d() { emplace_back("kind", v); }
+    void e() { make_widget_type(pkg, "AnyVal"); }
+    void f() { // struct_lit("Commented", f, t);
+    }
+};
+AEOF
+# a() and b() are subjects on two DIFFERENT callees -> 2 rows, 2 sites.
+# c() is ALL-CAPS (env var) and must not match — it is the 91-site class whose
+# inclusion would make this gate unkeepable. d() is all-lowercase (a FIELD name,
+# not an entity). e() has the name in SECOND position — a stated blind spot,
+# asserted here so the limit stays deliberate rather than accidental. f() is a
+# `//` comment and must vanish.
+arows=$(python3 "$SCANNER" "$ACAN/src/compiler" "$ACAN/include/logos/compiler" \
+        --argscan-raw 2>/dev/null | grep -c .)
+asites=$(python3 "$SCANNER" "$ACAN/src/compiler" "$ACAN/include/logos/compiler" \
+        --argscan-raw 2>/dev/null | awk '{s+=$3} END{print s+0}')
+if [ "$arows" != "2" ] || [ "$asites" != "2" ]; then
+    echo "FAIL(2): the FACT 5 arg-position matcher is BLIND or MISCALIBRATED."
+    echo "         Planted 2 entity-name arguments on 2 callees + an ALL-CAPS"
+    echo "         env string + an all-lowercase field name + a second-position"
+    echo "         name + a // comment; the scanner saw $arows row(s)/$asites site(s),"
+    echo "         expected 2/2."
+    python3 "$SCANNER" "$ACAN/src/compiler" "$ACAN/include/logos/compiler" \
+        --argscan-raw 2>&1 | sed 's/^/           /'
+    exit 2
+fi
+
+python3 "$SCANNER" "$SRC" "$INC" --argscans "$LEDGER"; s5=$?
+if [ "$s5" = 2 ]; then exit 2; fi
+if [ "$s5" != 0 ]; then rc=1; fi
+
 if [ "$rc" = 0 ]; then
     nrows=$(printf '%s\n' "$got" | grep -c .)
     echo "key-identity lint: census matches the ledger ($nrows rows, $nsites bare"
     echo "  entity-name-keyed sites); cells O/Q re-derived, D/B grounds present at"
     echo "  their sites; scan-by-name guards contain their comparisons; the tree-wide"
-    echo "  bare-name intercept roster matches per file; canaries live."
+    echo "  bare-name intercept roster matches per file; the bare entity-name ARGUMENT"
+    echo "  roster matches per callee (FACT 5, #106); canaries live."
 fi
 # `rc` is a LITERAL, never a captured process status: set to 0 once above and to
-# 1 at exactly four `rc=1` sites in this file, so the 8-bit ceiling that turns
+# 1 at exactly five `rc=1` sites in this file, so the 8-bit ceiling that turns
 # `exit 256` into a green run is unreachable. Every path that cannot MEASURE has
 # already exited 2 directly, so a 0 here always means "measured, and clean".
 exit $rc  # lint:exit-ok — `rc` is set only to the literals 0 and 1, see above

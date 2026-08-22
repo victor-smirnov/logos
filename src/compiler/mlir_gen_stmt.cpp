@@ -1818,7 +1818,16 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
         evict_var_shapes(s.name);
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
-        var_struct_[s.name] = s.type ? mlir_struct_key(s.type) : std::string(lit.name());
+        // #106 — the `: std::string(lit.name())` arm is DELETED. It recorded the
+        // let-binding's struct identity from the LITERAL's bare name whenever the
+        // `let` had no type, and every downstream reader of `var_struct_` treats
+        // that string as a `struct_types_` key — i.e. it fed the same
+        // first-registered-wins bare alias `register_struct` installs (#60).
+        // MEASURED with the arm instrumented (`[slit-let-bare]`, bite-proved
+        // live by its `[slit-any]` twin on the same lowering): across the whole
+        // tests/logos corpus the `!s.type` case occurred ZERO times — a
+        // StructLit-initialised `let` always carries its type by here.
+        var_struct_[s.name] = mlir_struct_key(s.type);
         return;
     }
 

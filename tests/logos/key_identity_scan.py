@@ -356,13 +356,173 @@ SCAN_REV = re.compile(
     r'(?:type_str|struct_name|trait_name|type_name|enum_name|name)\s*\(')
 
 
+# ── FACT 5's SUBJECT (task #106) — A NAME PASSED, NOT A NAME COMPARED ───────
+# THE SECOND TIME A CHANNEL WAS INVISIBLE TO FACT 4 BECAUSE THE MATCHER TRACKED
+# A SPELLING RATHER THAN THE QUESTION. The first was the nested-paren hole #99
+# closed, over sites that round had itself converted. This one is worse: all
+# four FACT 4 matchers key on EQUALITY, and the whole `struct_lit("Type", …)`
+# channel — a bare entity name handed to a SYNTHESIS CALL as an ARGUMENT — is
+# not a comparison at all. Seventeen sites sat in `mono_clone.cpp` and
+# `sema_expr.cpp`, one of them two lines below a site #102 converted, and FACT 4
+# could not see a single one of them.
+#
+# THE CALLEE SET IS DERIVED FROM THE TREE, NOT HAND-LISTED. Hand-listing is the
+# drift this whole class is made of, and #106's own brief demonstrated it: its
+# grep was single-line, so `struct_lit(\n  "IdentSpan", …)` — a REAL site, on a
+# name #102 had closed — was missing from a population the brief stated as
+# exact. The rule here is a SHAPE, the same justification SCAN_LHS carries: a
+# call whose FIRST argument is a string literal shaped like a NOMINAL ENTITY —
+# leading uppercase, at least one lowercase, no underscore (`AnyVal`, `Vec`,
+# `QuoteItemBlob`, `Option`, `Drop`). That shape is what excludes `getenv`,
+# `emplace_back`, `find`, `rfind` and `starts_with`, which dominate the
+# unfiltered population and would have made this gate unkeepable.
+#
+# ⚠ THE NUMBERS HERE WERE WRONG WHEN FIRST WRITTEN, and they were labelled
+# MEASURED. This round's verify re-ran the shipped matcher and got 33 callees /
+# 178 sites, not the 34 / 179 stated in three places; and the raw figure
+# "73 / 721" is not reproducible from the shipped regex at all (the same
+# expression over the same files gives 35 / 204). A wrong number presented as
+# MEASURED, at the site, is precisely what this lint's own preamble exists to
+# prevent — so it is corrected rather than softened, and only the number the
+# SHIPPED matcher produces is quoted:
+#   FILTERED, by `--argscan-raw` over src/compiler + include/logos/compiler:
+#     33 callees / 178 sites  (== the ledger's #ARGSCAN rows, diff empty)
+# The unfiltered figure is deliberately NOT quoted: it depends on the raw regex
+# rather than on the gate, so it would rot the moment the shape filter moves and
+# nothing would catch it. What matters is that the filter is what makes the gate
+# keepable, and the ledger's rows are what pin the result.
+#
+# The row is PER CALLEE, not per file: count + roster digest. A NEW callee that
+# starts taking a bare entity name is a NEW ROW and reds; a new site on an
+# existing callee moves its count; a name swapped at constant count moves the
+# digest. So a future `struct_lit("Foo", …)` reds at birth even though
+# `struct_lit` holds ZERO such sites today and is therefore absent from the pins.
+#
+# ⚠ HONEST LIMITS, stated here rather than left for the next verify:
+#   * ONLY the first argument. `f(x, "AnyVal")` is invisible. Measured: the
+#     synthesis constructors this class is about all take the name FIRST, and
+#     the ones that take a package take it LATER (`make_generic_*`), so first
+#     position is where the question lives — but it is a position, not a proof.
+#   * A name with NO LOWERCASE LETTER AT ALL (`W64`, `U8`, `P`, `T`) fails the
+#     shape test and is invisible. This was MISSING from the limits as first
+#     written, which named only the all-lowercase and underscored cases — and
+#     the tree already holds 17 such arguments (`satisfies("T")`,
+#     `add_impl("A")`, `make_typevar("T")`, `write("WRITAST0")`). Widening the
+#     shape to admit them would pull in every ALL-CAPS constant and tag string
+#     in the compiler, which is why it is a stated limit and not a fix; but an
+#     inaccurate limit is worse than a wide one, because it is read as coverage.
+#   * A name reaching the callee in a VARIABLE (`std::string n = "AnyVal"; f(n)`)
+#     is invisible, as it is to every FACT 4 matcher.
+#   * The shape filter cannot see an entity name that is all-lowercase or holds
+#     an underscore. No nominal type in this compiler is spelled that way today.
+#   * It does NOT classify. Presence in the roster is not a defect — most rows
+#     here are correct (`make_synth_*` is the #102 FIX, and its literal is the
+#     KEY into the owner table, not a lookup). Classification happens at the pin
+#     move, deliberately, exactly as FACT 4 intends.
+ARG_ENTITY = re.compile(
+    r'\b([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*"([A-Z][A-Za-z0-9]*)"')
+
+
+def _entity_shaped(lit):
+    """Nominal-entity SHAPE: leading uppercase AND at least one lowercase.
+    Excludes ALL-CAPS env-var / attribute strings, which is what keeps
+    `getenv("LOGOS_DUMP_…")` — 91 sites — out of this population."""
+    return any(ch.islower() for ch in lit)
+
+
+def arg_scans(src, inc):
+    """FACT 5 — one row per CALLEE: how many bare entity-name ARGUMENTS it is
+    handed tree-wide, and a digest of WHICH names."""
+    import hashlib
+    per = {}
+    # ⚠ `*.inc` IS COMPILER SOURCE. `src/compiler/borrow_flow_summary.inc` is
+    # #include'd at borrow_check.cpp:1571 — real code that this scanner's own
+    # FACT-1 census (`load`, above) already reads. FACT 4 and FACT 5 were
+    # written with a `.cpp|.hpp` glob and therefore could not see a bare entity
+    # name planted there: MEASURED green on a plant, by this round's verify.
+    # A file the compiler compiles and the gate does not read is an exemption
+    # nobody wrote down, which is the worst kind.
+    files = sorted(glob.glob(os.path.join(src, '*.cpp')) +
+                   glob.glob(os.path.join(src, '*.hpp')) +
+                   glob.glob(os.path.join(src, '*.inc')) +
+                   glob.glob(os.path.join(inc, '*.hpp')))
+    if not files:
+        return None
+    for p in files:
+        t = strip_line_comments(open(p, encoding='utf-8', errors='replace').read())
+        for m in ARG_ENTITY.finditer(t):
+            if not _entity_shaped(m.group(2)):
+                continue
+            per.setdefault(m.group(1), []).append(m.group(2))
+    out = []
+    for callee in sorted(per):
+        lits = per[callee]
+        h = hashlib.md5('\n'.join(sorted(lits)).encode()).hexdigest()[:8]
+        out.append((callee, len(lits), h))
+    return out
+
+
+def check_arg_scans(src, inc, ledger):
+    got = arg_scans(src, inc)
+    if got is None:
+        print("FAIL(2): FACT 5 subject does not resolve — no sources under %s" % src)
+        return 2
+    if not got:
+        print("FAIL(2): FACT 5 censused ZERO bare entity-name arguments.")
+        print("      This compiler synthesises its own types by name; a zero here")
+        print("      means the matcher stopped matching, not that the class closed.")
+        return 2
+    pins = {}
+    for ln in open(ledger, encoding='utf-8'):
+        m = re.match(r'#ARGSCAN\s+(\S+)\s+(\d+)\s+(\S+)\s*$', ln.strip())
+        if m:
+            pins[m.group(1)] = (int(m.group(2)), m.group(3))
+    if not pins:
+        print("FAIL(2): the ledger carries no #ARGSCAN rows — FACT 5 is unpinned.")
+        return 2
+    rc = 0
+    seen = set()
+    for callee, n, h in got:
+        seen.add(callee)
+        want = pins.get(callee)
+        if want is None:
+            print("FAIL: %s() is handed %d bare entity NAME(s) and the ledger pins"
+                  " NONE." % (callee, n))
+            print("      A nominal name passed as a bare string carries no package,")
+            print("      so whatever it reaches binds by first-registered-wins — the")
+            print("      #102/#106 shape. Pass the qualified identity (or the TypeRef")
+            print("      that already holds it), or add an #ARGSCAN row saying why.")
+            rc = 1
+        elif (n, h) != want:
+            what = ("count %d, ledger pins %d" % (n, want[0])) if n != want[0] else \
+                   ("same count %d but a DIFFERENT roster (%s vs pinned %s) — a name"
+                    " was swapped for another" % (n, h, want[1]))
+            print("FAIL: %s() bare entity-name arguments: %s." % (callee, what))
+            rc = 1
+    for callee, want in sorted(pins.items()):
+        if callee not in seen:
+            print("FAIL: the ledger pins %s() at %d bare entity-name argument(s) and"
+                  " the tree holds none." % (callee, want[0]))
+            print("      A pin whose subject vanished must be RETIRED deliberately.")
+            rc = 1
+    return rc
+
+
 def scans(src, inc):
     """FACT 4 — one row per FILE: how many bare-name intercepts it holds and a
     digest of WHICH names, so a swap at a constant count is still red."""
     import hashlib
     out = []
+    # ⚠ `*.inc` IS COMPILER SOURCE. `src/compiler/borrow_flow_summary.inc` is
+    # #include'd at borrow_check.cpp:1571 — real code that this scanner's own
+    # FACT-1 census (`load`, above) already reads. FACT 4 and FACT 5 were
+    # written with a `.cpp|.hpp` glob and therefore could not see a bare entity
+    # name planted there: MEASURED green on a plant, by this round's verify.
+    # A file the compiler compiles and the gate does not read is an exemption
+    # nobody wrote down, which is the worst kind.
     files = sorted(glob.glob(os.path.join(src, '*.cpp')) +
                    glob.glob(os.path.join(src, '*.hpp')) +
+                   glob.glob(os.path.join(src, '*.inc')) +
                    glob.glob(os.path.join(inc, '*.hpp')))
     if not files:
         return None
@@ -442,6 +602,15 @@ def main():
             sys.exit(2)
         for fn, n, h in rows:
             print("#SCAN %s %d %s" % (fn, n, h))
+        sys.exit(0)
+    if rest and rest[0] == '--argscans':
+        sys.exit(check_arg_scans(src, inc, rest[1]))
+    if rest and rest[0] == '--argscan-raw':
+        rows = arg_scans(src, inc)
+        if not rows:
+            sys.exit(2)
+        for callee, n, h in rows:
+            print("#ARGSCAN %s %d %s" % (callee, n, h))
         sys.exit(0)
     rows, regs = census(src, inc)
     if rows is None:

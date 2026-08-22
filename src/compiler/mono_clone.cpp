@@ -1904,7 +1904,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     uid_to_type_[uid] = ti;
                     f.emplace_back("uid", b.lit_int((int64_t)uid, u64_t));
                 }
-                auto sl = b.struct_lit("Type", std::move(f), type_t);
+                auto sl = b.struct_lit(type_t, std::move(f));
                 rt_ = type_t;
                 mp_ = sl.addr();
                 break;
@@ -1912,7 +1912,9 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // reify_type(t: Type) -> Type — recover source TypeRef from
             // a direct producer expression and emit a fresh `Type`
             // struct lit. MVP shapes (no let indirection):
-            //   1. struct_lit("Type", ...) where the "uid" field is
+            //   1. a `Type` struct lit (built by the #106 synthesis overload
+            //      `struct_lit(type_t, …)`, whose stored name comes from the
+            //      TypeRef, not from a bare literal) where the "uid" field is
             //      a `__type_uid_of__::<T>()` call (sema producers like
             //      `type_of`, `quote_ty!`). Pull T from type_args, subst.
             //   2. Call to a mono-emitting Type producer
@@ -2008,7 +2010,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("size", b.size_of(ti, i64_t));
                 f.emplace_back("align", b.align_of(ti, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
-                auto sl = b.struct_lit("Type", std::move(f), type_t);
+                auto sl = b.struct_lit(type_t, std::move(f));
                 rt_ = type_t;
                 mp_ = sl.addr();
                 break;
@@ -2132,8 +2134,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         f.emplace_back("size", std::move(size_e));
                         f.emplace_back("align", std::move(align_e));
                         f.emplace_back("uid",  std::move(uid_e));
-                        auto sl = b.struct_lit("Type",
-                                               std::move(f), type_t);
+                        auto sl = b.struct_lit(type_t, std::move(f));
                         rt_ = type_t;
                         mp_ = sl.addr();
                         break;
@@ -2244,7 +2245,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("size", b.size_of(inst_t, i64_t));
                 f.emplace_back("align", b.align_of(inst_t, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
-                auto sl = b.struct_lit("Type", std::move(f), type_t);
+                auto sl = b.struct_lit(type_t, std::move(f));
                 rt_ = type_t;
                 mp_ = sl.addr();
                 break;
@@ -2393,7 +2394,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("size", b.size_of(inst_t, i64_t));
                 f.emplace_back("align", b.align_of(inst_t, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
-                auto sl = b.struct_lit("Type", std::move(f), type_t);
+                auto sl = b.struct_lit(type_t, std::move(f));
                 rt_ = type_t;
                 mp_ = sl.addr();
                 break;
@@ -2542,7 +2543,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("size", b.size_of(inst_t, i64_t));
                 f.emplace_back("align", b.align_of(inst_t, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
-                auto sl = b.struct_lit("Type", std::move(f), type_t);
+                auto sl = b.struct_lit(type_t, std::move(f));
                 rt_ = type_t;
                 mp_ = sl.addr();
                 break;
@@ -2622,7 +2623,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 f.emplace_back("uid",
                                     b.lit_int((int64_t)uid, u64_t));
                                 elems.push_back(
-                                    b.struct_lit("Type", std::move(f), elem_t));
+                                    b.struct_lit(elem_t, std::move(f)));
                             });
                         });
                     }
@@ -3032,7 +3033,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         uid_to_type_[uid] = ti;
                         f.emplace_back("uid", b.lit_int((int64_t)uid, u64_t));
                     }
-                    elems.push_back(b.struct_lit("Type", std::move(f), elem_t));
+                    elems.push_back(b.struct_lit(elem_t, std::move(f)));
                 }
                 LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
                 ab.elem = elem_t;

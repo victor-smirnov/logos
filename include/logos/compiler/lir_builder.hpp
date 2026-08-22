@@ -67,6 +67,34 @@ public:
     lir_view::ExprRef struct_lit(std::string name,
                              std::vector<std::pair<std::string, lir_view::ExprRef>> fields,
                              TypeRef ty);
+    // #106 — the SYNTHESIS overload. The name a struct literal stores is the
+    // SECOND spelling of an identity its TypeRef already carries, and all three
+    // readers of that string resolve the pkg-QUALIFIED key off the TypeRef
+    // FIRST, consulting the string only as a fallback: mlir_gen.cpp
+    // gen_struct_lit (`mlir_struct_key(lt)` then `struct_types_.find(name)`),
+    // mlir_gen_stmt.cpp's Let path (`s.type ? mlir_struct_key(s.type) :
+    // lit.name()`), and mono_clone.cpp's re-emit (`concrete_struct_name(rt_)`
+    // for a generic instance, else `v.name()`). A COMPILER SYNTHESIS site that
+    // writes the name as a BARE STRING LITERAL therefore keeps an unqualified
+    // duplicate of a qualified fact — the #102 question asked a second time, at
+    // literal construction instead of type construction.
+    //
+    // ⚠ MEASURED BEFORE CONVERTING, and the measurement CORRECTS the brief:
+    // the fallback is not merely preferred-against, it is DEAD. Instrumented
+    // (`LOGOS_DBG_SLIT`, both fallbacks, arm bite-proved live by an
+    // unconditional `[slit-any]` twin that printed 44,614 times), the whole
+    // tests/logos corpus — 3,055 files, pass + fail + ir, the #99/#102 homonym
+    // fixtures included — took the bare-name arm ZERO times in gen_struct_lit
+    // and ZERO times in the Let path. Every lowering resolved qualified.
+    // So this overload does NOT fix a live miscompile, and no fixture can show
+    // one; what it removes is the DUPLICATE SPELLING, so the identity cannot
+    // drift back apart the way #99's deleted `name == "AnyVal"` arm did.
+    //
+    // The derived name is `concrete_struct_name(ty)` — the same canonical
+    // identity `mlir_struct_key` and `register_struct` use, module fold (`$M…`)
+    // and `$G…` args included — NOT the bare base name.
+    lir_view::ExprRef struct_lit(TypeRef ty,
+                             std::vector<std::pair<std::string, lir_view::ExprRef>> fields);
     lir_view::ExprRef enum_lit(std::string enum_name, std::string variant,
                            int64_t disc, TypeRef ty);
     lir_view::ExprRef closure_box(lir::EClosure* inner, TypeRef ty);

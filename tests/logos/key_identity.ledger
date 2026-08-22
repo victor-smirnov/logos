@@ -91,6 +91,7 @@
 #                      both pkg-checked; the literal is the bare name they
 #                      qualify, which is the intended shape.
 #SCAN borrow_check.cpp 6 f7194ec0
+#SCAN borrow_flow_summary.inc 1 b14a7b80
 #SCAN emit_module.cpp 6 5ec06a0f
 #SCAN main.cpp 4 04f2bc11
 #SCAN mlir_gen_debug.cpp 2 c5f7c386
@@ -149,3 +150,57 @@ sema_impl.hpp	enums_	O	1	tr.enum_name()
 sema_impl.hpp	structs_	O	1	tr.struct_name()
 sema_stmt.cpp	enums_	O	1	TypeRef(next_ret).enum_name()
 sema_stmt.cpp	enums_	O	2	TypeRef(scrut_type).enum_name()
+
+# ── FACT 5 (task #106) — BARE ENTITY NAME IN CALL-ARGUMENT POSITION ─────────
+# One row per CALLEE: how many nominal-entity-shaped string literals it is
+# handed as its FIRST argument, tree-wide, plus an md5-8 of the sorted roster.
+# Derived, never hand-listed — re-derive with:
+#   python3 tests/logos/key_identity_scan.py src/compiler include/logos/compiler \
+#       --argscan-raw
+# A NEW callee that starts taking a bare entity name is a NEW ROW and reds; this
+# is what makes a future `struct_lit("Foo", …)` red at birth even though
+# `struct_lit` holds ZERO such sites today and so has no row.
+#
+# ⚠ PRESENCE HERE IS A CENSUS, NOT AN ACCUSATION. `make_synth_struct` (42) is
+# the #102 FIX: its literal is the KEY into `synth_owner_pkg_`, which is what
+# supplies the package — the opposite of a bare lookup. `satisfies`/`add_impl`/
+# `add_blanket`/`add_shape_auto_impl`/`trace_satisfies`/`add_auto_impl`/
+# `add_negative`/`resolve` are trait_engine_test.cpp, a TEST harness. The rows
+# that are open questions are the RESOLVERS — find_struct_by_name (2),
+# find_enum_by_name (3), make_generic_struct (8), make_generic_enum (3),
+# enum_lit (3), enum_lit_data (3), try_variant (4), try_prelude (3),
+# try_prelude_variant (3), prelude_remap (4), remap (2) — and they are task #98's
+# and #100's subject, not this round's.
+#ARGSCAN add_auto_impl 1 94966d90
+#ARGSCAN add_blanket 3 fea4701d
+#ARGSCAN add_impl 5 81db077d
+#ARGSCAN add_negative 1 94966d90
+#ARGSCAN add_shape_auto_impl 6 a5242d3e
+#ARGSCAN at 3 7a506430
+#ARGSCAN count 9 507529e7
+#ARGSCAN enum_lit 3 d49e815d
+#ARGSCAN enum_lit_data 3 1eae352f
+#ARGSCAN erase 9 ab9caa8e
+#ARGSCAN find 12 1f8dc25a
+#ARGSCAN find_enum_by_name 3 d49e815d
+#ARGSCAN find_struct_by_name 2 d4135532
+#ARGSCAN has_any_ 3 87d658f1
+#ARGSCAN make_generic_enum 3 d49e815d
+#ARGSCAN make_generic_struct 8 9c59a2d0
+#ARGSCAN make_synth_datatype 2 63094128
+#ARGSCAN make_synth_enum 10 c24a7b9e
+#ARGSCAN make_synth_generic_struct 8 57869d2d
+#ARGSCAN make_synth_struct 42 06543857
+#ARGSCAN make_typevar 3 7a506430
+#ARGSCAN mk 1 bd8ed301
+#ARGSCAN pick 1 616dd64d
+#ARGSCAN prelude_remap 4 c4d77dbf
+#ARGSCAN remap 2 22dd1906
+#ARGSCAN resolve 2 8a6a5ca7
+#ARGSCAN satisfies 15 0272b985
+#ARGSCAN sema_has_impl_recursive 1 fae8a925
+#ARGSCAN string 2 d2bde611
+#ARGSCAN trace_satisfies 1 ff245904
+#ARGSCAN try_prelude 3 80fa0975
+#ARGSCAN try_prelude_variant 3 80fa0975
+#ARGSCAN try_variant 4 c4d77dbf

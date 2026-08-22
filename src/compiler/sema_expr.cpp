@@ -5281,7 +5281,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_generic_of(TinyMapView node) {
         (int64_t)0, prim(LogosType::Kind::I64)));
     f.emplace_back("uid",  builder().lit_int(
         (int64_t)uid, prim(LogosType::Kind::U64)));
-    return builder().struct_lit("Type", std::move(f), type_t);
+    return builder().struct_lit(type_t, std::move(f));
 }
 
 lir::LExprPtr SemaChecker::lower_intrinsic_template_of(TinyMapView node) {
@@ -5913,7 +5913,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         fields.emplace_back("size", std::move(size_expr));
         fields.emplace_back("align", std::move(align_expr));
         fields.emplace_back("uid",  std::move(uid_call));
-        return builder().struct_lit("Type", std::move(fields), type_t);
+        return builder().struct_lit(type_t, std::move(fields));
     }
 
     // args_of::<T>() — extracts generic type arguments of T as `[Type; N]`.
@@ -18328,8 +18328,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     fields.emplace_back("idents_blob",   std::move(idents_blob_e));
     fields.emplace_back("blobs_blob",    std::move(blobs_blob_e));
     fields.emplace_back("cursors_blob",  std::move(cursors_blob_e));
-    auto qib_lit = builder().struct_lit("QuoteItemBlob",
-                                        std::move(fields), qib_t);
+    auto qib_lit = builder().struct_lit(qib_t, std::move(fields));
 
     pop_scope();
     return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(qib_lit), qib_t);
@@ -18401,7 +18400,7 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
         f.emplace_back("size", std::move(size_e));
         f.emplace_back("align", std::move(align_e));
         f.emplace_back("uid",  std::move(uid_call));
-        return builder().struct_lit("Type", std::move(f), type_t_h);
+        return builder().struct_lit(type_t_h, std::move(f));
     };
     // Tuple antiquot: `quote_ty! { ($t1, $t2, ...) }` — lower to
     // __tuple_type_apply__([elem_producers]). Mixed literal/antiquot OK.
@@ -18544,7 +18543,7 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
                     f.emplace_back("size", std::move(size_e));
                     f.emplace_back("align", std::move(align_e));
                     f.emplace_back("uid",  std::move(uid_call));
-                    elems.push_back(builder().struct_lit("Type", std::move(f), type_t));
+                    elems.push_back(builder().struct_lit(type_t, std::move(f)));
                 }
             }
             LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
@@ -18583,7 +18582,7 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
     fields.emplace_back("size", std::move(size_expr));
     fields.emplace_back("align", std::move(align_expr));
     fields.emplace_back("uid",  std::move(uid_call));
-    return builder().struct_lit("Type", std::move(fields), type_t);
+    return builder().struct_lit(type_t, std::move(fields));
 }
 
 lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
@@ -19125,8 +19124,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         sf.emplace_back("ptr", std::move(ptr_v));
         sf.emplace_back("count", std::move(cnt_v));
         sf.emplace_back("kind", std::move(kind_v));
-        elems.push_back(builder().struct_lit(
-            "IdentSpan", std::move(sf), span_t));
+        elems.push_back(builder().struct_lit(span_t, std::move(sf)));
     }
     auto arr_e = builder().arr_lit(std::move(elems), arr_t);
     std::string aname = "__qei_" + std::to_string(tmp_var_count_++);
@@ -19162,7 +19160,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     // Wrap as ExprBlob { ptr: <subst_call> }.
     std::vector<std::pair<std::string, lir::LExprPtr>> fields;
     fields.emplace_back("ptr", std::move(subst_call));
-    auto eb_lit = builder().struct_lit("ExprBlob", std::move(fields), eb_t);
+    auto eb_lit = builder().struct_lit(eb_t, std::move(fields));
 
     pop_scope();
     return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(eb_lit), eb_t);

@@ -1207,9 +1207,26 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
         lt && (lt.kind() == LogosType::Kind::Struct ||
                lt.kind() == LogosType::Kind::ZonedStruct))
         lookup_key = mlir_struct_key(lt);
-    auto sit = (!lookup_key.empty() && struct_types_.count(lookup_key))
-        ? struct_types_.find(lookup_key)
-        : struct_types_.find(name);
+    // ── DELETED (task #106): the `: struct_types_.find(name)` bare-name arm ──
+    // It was the last path by which a struct LITERAL could bind by bare name,
+    // and `struct_types_`'s bare slot is the FIRST-REGISTERED-WINS alias
+    // `register_struct` installs (#60) — so the arm's only possible effect was
+    // to bind a literal to a same-named struct from ANOTHER package, silently,
+    // exactly the wrong answer #99 and #102 closed at their own sites.
+    //
+    // MEASURED before deleting, with the arm bite-proved live by an
+    // unconditional `[slit-any]` twin printed from this very line: across
+    // 91,923 struct-literal lowerings — 44,614 from tests/logos (3,055 files,
+    // pass + fail + ir, the #99/#102 homonym fixtures included), 35,582 from
+    // the stdlib + examples build, 11,727 from tests/imported (3,711 files) —
+    // the qualified key resolved EVERY time and this arm fired ZERO times.
+    // An arm that fires zero times is deleted, not shipped guarded.
+    //
+    // A miss is now the `unknown struct` diagnostic below, which already names
+    // BOTH the bare name and the qualified key. ⚠ That diagnostic does not, by
+    // itself, fail the compile (task #103) — a caller that needs a refusal must
+    // still assert an observable VALUE, not rc.
+    auto sit = struct_types_.find(lookup_key);
     if (sit == struct_types_.end()) {
         std::fprintf(stderr, "mlir_gen: unknown struct '%s' (qualified '%s')\n",
                      name.c_str(), lookup_key.c_str());

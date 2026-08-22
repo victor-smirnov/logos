@@ -5,6 +5,7 @@
 #include <logos/compiler/lir_builder.hpp>
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/lir_view.hpp>
+#include <logos/compiler/sema.hpp>   // concrete_struct_name — #106
 
 namespace logos::compiler {
 
@@ -168,6 +169,14 @@ lir_view::ExprRef LirBuilder::struct_lit(
     TypeRef ty) {
     return direct(prog_, ty,
         [&](auto& p, TypeRef t){ return lir_mirror_emit_struct_lit(p, t, name, fields); });
+}
+
+// #106 — see the header. The name comes FROM the type, so a synthesis site has
+// no bare entity-name string of its own to get wrong.
+lir_view::ExprRef LirBuilder::struct_lit(
+    TypeRef ty,
+    std::vector<std::pair<std::string, lir::LExprPtr>> fields) {
+    return struct_lit(concrete_struct_name(ty), std::move(fields), ty);
 }
 
 lir_view::ExprRef LirBuilder::enum_lit(std::string enum_name, std::string variant,

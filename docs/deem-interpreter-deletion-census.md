@@ -3088,6 +3088,195 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 REGISTRY-ALL         7452
 REGISTRY-NOIMPORTED  3769
 REGISTRY-TIERCOMMIT  44
+# 2026-08-22, +0/+0/0 (7452/3769/44 -> 7452/3769/44), PREDICTED BEFORE THE
+# RECONFIGURE AS ZERO AND MET. #106 — THE SECOND PACKAGE-LESS SYNTHESIS CHANNEL,
+# AND THE MEASUREMENT THAT REFUTED ITS OWN BRIEF.
+#
+# THE PREDICTION OF ZERO IS THE FINDING, not an omission. The brief tasked this
+# round with closing `LirBuilder::struct_lit`'s bare-name channel and expected
+# `QuoteItemBlob`'s refusal to fall out of it. It does not, and no fixture can
+# claim it does, because THE CHANNEL IS NOT LIVE.
+#
+# WHAT WAS MEASURED, with the arm bite-proved by an unconditional `[slit-any]`
+# twin printed from the same line (44,614 prints on the corpus alone, so a zero
+# from the guarded arm is a zero and not a dead probe): the bare-name FALLBACK
+# in `gen_struct_lit` (`: struct_types_.find(name)`) and the one in
+# `mlir_gen_stmt.cpp`'s StructLit-`let` path (`: std::string(lit.name())`) fired
+# ZERO times across 91,923 struct-literal lowerings —
+#   44,614  tests/logos, 3,055 files (pass + fail + ir), the #99/#102 homonym
+#           fixtures included
+#   35,582  the stdlib + examples build
+#   11,727  tests/imported, 3,711 files
+# Every one resolved through the pkg-QUALIFIED key off the literal's TypeRef.
+# Post-#102 that TypeRef already carries the owner package, so the bare string
+# beside it was never consulted. The brief's premise — "the literal carries no
+# package and binds by first-registered-wins downstream" — is REFUTED at the
+# only three sites that read the string, all of which are qualified-first.
+#
+# CONTROL REVERT, the proof that nothing moved: the six repros (QuoteItemBlob
+# shapes A and B, Wu6, WMap, WAny, and the collision-free `Zq*` twins) were run
+# against a build of 4b0673d5 with this round STASHED and against the same tree
+# with it restored. BYTE-IDENTICAL rc and diagnostic in all six. And 247
+# metaprog/writ/quote/reflect/anyval objects compiled before and after the
+# conversion hash IDENTICALLY, 247/247.
+#
+# SO NO FIXTURE IS ADDED. A refuse/admit pair here could only assert the
+# behaviour the tree already had, under a label claiming this round caused it —
+# a green over a branch that never executed, with the round's own name on it.
+# The prediction was made BEFORE the reconfigure precisely so that zero would
+# have to be defended rather than discovered.
+#
+# WHAT DID LAND, and why it is worth landing without a fixture:
+#   (1) ALL 17 SYNTHESIS SITES CONVERTED to a new overload
+#       `LirBuilder::struct_lit(TypeRef ty, fields)` that derives the stored
+#       name from the type through `concrete_struct_name` — the same canonical
+#       identity `mlir_struct_key` and `register_struct` use, `$M…` module fold
+#       and `$G…` args included. The identity now has ONE spelling at these
+#       sites instead of two that can drift apart, which is how #99's deleted
+#       `name == "AnyVal"` arm came to exist in the first place.
+#   (2) BOTH ZERO-FIRING FALLBACK ARMS DELETED rather than shipped guarded.
+#       `struct_types_`'s bare slot is the first-registered-wins alias #60
+#       installed, so the arms' ONLY possible effect was to bind a literal to a
+#       same-named struct from another package, silently. A miss is now the
+#       `unknown struct` diagnostic, which names both the bare name and the
+#       qualified key. ⚠ That diagnostic does not by itself fail the compile
+#       (#103), so it is a louder failure, not a refusal.
+#
+# THE CENSUS CORRECTED THE BRIEF IN BOTH DIRECTIONS, and the correction is the
+# same class of error the brief was written to warn about:
+#   * NOT 16 SITES BUT 17. The brief's grep was SINGLE-LINE, so
+#     `builder().struct_lit(\n    "IdentSpan", …)` at sema_expr.cpp — a real
+#     site, on a name #102 had itself closed — was missing from a population
+#     stated as exact. A matcher tracking a SPELLING, one layer down, for the
+#     third time in this arc.
+#   * NOT 9 mono_clone SITES BUT 8. The 9th (mono_clone.cpp:1915) is a COMMENT
+#     describing the shape; it is updated to the new spelling rather than
+#     counted.
+#   THE PARTITION SUMS: 17 = 8 (mono_clone code) + 8 (sema_expr `Type`×5,
+#   `QuoteItemBlob`, `ExprBlob`, `IdentSpan`) + 1 (mono_clone COMMENT, not code,
+#   not converted, rewritten). Sites NOT converted: exactly the one comment.
+#
+# THE FOUR #107 RESIDUALS, RE-MEASURED AFTER THE CHANGE, none moved:
+#   WMap  rc 1 `mlir-gen: duplicate function body for symbol
+#         'WMap$Mc77fa5795c9df79c$G2$WString$WAny__set'` — the MANGLING end
+#         (#58/#60), not this channel. `ZqWMap9` rc 0.
+#   WAny  rc 1, same shape, `'WArray$G1$WAny$Md1acff0cedb26168__push'`.
+#         `ZqWAny9` rc 0.
+#   Wu6   rc 1 `mlir_gen: internal: 'let __ret_tmp_0' initializer produced no
+#         value (expr kind 18) — statement DROPPED` + `'return' value lowered to
+#         no value` + `2 self-diagnosed malfunction(s) — COMPILE FAILED`.
+#         ⚠ THIS IS NOT #107's DIAGNOSTIC (`func.call op incorrect number of
+#         operands`). #107's 8-line repro was not reproduced verbatim — it is
+#         described in the task text but not stored as a file — so what is
+#         recorded here is a NEW repro of the same subject (a user `struct Wu6`
+#         + `schema … make::<S>()` + one field write), measured identically on
+#         baseline and post-change. Whether it is #107's exact shape is UNKNOWN
+#         and is stated as unknown rather than assumed. `ZqWu69` rc 0.
+#   QuoteItemBlob  TWO shapes, both refuse, both identical on baseline:
+#         (A) `let blob: QuoteItemBlob = quote_item!{…}` beside a user
+#             `struct QuoteItemBlob` -> rc 1 `let 'blob': type mismatch —
+#             expected main.QuoteItemBlob, got
+#             logos.std.compiler.metaprog.QuoteItemBlob`. Its `ZqQib9` twin
+#             refuses too, with the nonce on the left — so this shape is a
+#             CORRECT refusal of a user annotation, not a homonym defect.
+#         (B) `metacall assemble_greeter::<…>()` beside a user
+#             `struct QuoteItemBlob` -> rc 1 `metacall (item position): callee
+#             must return QuoteItemBlob or ItemList`; `ZqQib9` twin rc 0.
+#         Neither is the `field read: struct 'QuoteItemBlob' has no field
+#         'idents_blob'` #107 recorded. That diagnostic's source is now NAMED:
+#         it is GENERATED SOURCE TEXT — the metacall thunk built in
+#         sema_expr.cpp (:21587/:21611, :24048/:24071, :24368/:24389) emits
+#         `let __b: QuoteItemBlob = …; … __b.idents_blob` INTO THE USER'S
+#         PACKAGE, where the bare name resolves to the user's struct. See the
+#         THIRD CHANNEL below.
+#
+# THE THIRD CHANNEL, asked because the brief asked for it, and found:
+#   (3a) GENERATED SOURCE TEXT. The metacall thunk (6 `std::format` sites in
+#        sema_expr.cpp) spells `QuoteItemBlob`, `ItemList` and `Vec<QuoteItemBlob>`
+#        as BARE NAMES in Logos source emitted into `package {pkg}` = the USER's
+#        package. This is not a C++ lookup key and no C++-side matcher can see
+#        it. It is also NOT FIXABLE by qualification today: MEASURED, a
+#        qualified type path does not parse —
+#          `let id: logos.std.compiler.metaprog::Ident = …`
+#          -> `syntax error near '::' at line 6 col 84`, rc 4.
+#        So this channel needs a LANGUAGE feature (a qualified type path, or a
+#        hygiene marker for compiler-generated source) before it can be closed.
+#        NAMED, NOT CLOSED. This is #107's true residual for QuoteItemBlob.
+#   (3b) THE RESOLVER CALLS. Tree-wide census of bare entity names in
+#        call-argument position. ⚠ CORRECTED: this entry first said "73 callees /
+#        721 sites unfiltered; 34 callees / 179 sites filtered", labelled
+#        MEASURED. The shipped matcher gives 33 callees / 178 sites (== the
+#        ledger's #ARGSCAN rows, diff empty), and the unfiltered pair is not
+#        reproducible from the shipped regex (35 / 204). Only the filtered
+#        figure the gate itself produces is quoted now. Partition:
+#          42+10+8+2  make_synth_{struct,enum,generic_struct,datatype} — the
+#                     #102 FIX; the literal is the KEY into `synth_owner_pkg_`,
+#                     which SUPPLIES the package. Correct, not a channel.
+#          33         trait_engine_test.cpp (satisfies/add_impl/add_blanket/
+#                     add_shape_auto_impl/resolve/trace_satisfies/add_auto_impl/
+#                     add_negative) — a TEST harness, not the compiler.
+#          33         THE OPEN SET: find_struct_by_name 2, find_enum_by_name 3,
+#                     make_generic_struct 8, make_generic_enum 3, enum_lit 3,
+#                     enum_lit_data 3, try_variant 4, try_prelude 3,
+#                     try_prelude_variant 3, prelude_remap 4, remap 2.
+#                     ⚠ `enum_lit`/`enum_lit_data` are LirBuilder siblings of
+#                     `struct_lit` with the SAME bare-string signature — the
+#                     exact analogue, un-converted, and NOT measured for
+#                     liveness this round. That is #98's and #100's subject and
+#                     is left to them rather than half-done here.
+#          38         residue: find 12, count 9, erase 9, at 3, make_typevar 3,
+#                     has_any_ 3, string 2, mk 1, pick 1,
+#                     sema_has_impl_recursive 1 — container/utility calls whose
+#                     literal happens to be entity-shaped.
+#        34+179 is the pinned population; 33 of those sites are open questions
+#        this round did not answer, and says so.
+#
+# THE GATE, and it is half of what landed. `tests/logos/key_identity_lint.sh`
+# FACT 4 pins bare-name intercepts per FILE, and ALL FOUR of its matchers
+# (SCAN_LHS / SCAN_ACC / SCAN_FREE / SCAN_REV) key on `==`/`!=`. A name PASSED
+# as an argument is not a comparison, so the entire 17-site channel was
+# invisible to it — the SECOND time a channel escaped this gate because a
+# matcher tracked a spelling rather than the question (the first was the
+# nested-paren hole #99 closed, over sites that round had itself converted).
+# WIDENED, not merely stated: FACT 5, one row per CALLEE (count + roster
+# digest), with the callee set DERIVED from the tree by a SHAPE — first argument
+# is a string literal with a leading uppercase and at least one lowercase — and
+# never hand-listed. The shape filter is what drops `getenv` (91 sites),
+# `emplace_back`, `find`, `rfind` and `starts_with` and keeps the gate keepable:
+# the filtered result is 33 callees / 178 sites, which is exactly what the
+# ledger's #ARGSCAN rows hold (diff against `--argscan-raw` empty). ⚠ The
+# earlier "73/721 -> 34/179, MEASURED both ways" was wrong on BOTH halves and
+# is corrected above; neither figure was reproducible from the shipped matcher.
+# A future `struct_lit("Foo", …)` reds AT BIRTH as a NEW ROW even though
+# `struct_lit` now holds ZERO such sites and therefore has no pin.
+# BITTEN IN FIVE SHAPES, all red, restore green after each:
+#   1 a new `struct_lit("IdentSpan", …)` site -> `struct_lit() is handed 1 bare
+#     entity NAME(s) and the ledger pins NONE` (a NEW ROW, the #106 channel
+#     returning)
+#   2 literal swap at CONSTANT count -> `make_synth_struct() … same count 42 but
+#     a DIFFERENT roster (6f1e7530 vs pinned 06543857)`
+#   3 an existing callee gains a site -> `count 43, ledger pins 42`
+#   4 a pin whose subject vanished -> `the ledger pins never_existed_fn() … and
+#     the tree holds none`
+#   5 the shape filter blinded -> exit 2 `the FACT 5 arg-position matcher is
+#     BLIND or MISCALIBRATED`, NOT a green
+# FACT 5 carries its OWN canary (2 planted subjects on 2 callees, plus an
+# ALL-CAPS env string, an all-lowercase field name, a SECOND-position name and a
+# `//` comment, all of which must NOT match), so the matcher cannot go quiet.
+# FACT 4's `--scan-raw` roster RE-DERIVED and UNCHANGED by this round (18 rows).
+# ⚠ FACT 5's STATED LIMITS, at the site: first argument only; a name reaching
+# the callee in a VARIABLE is invisible; an all-lowercase or underscored entity
+# name is invisible; and it does NOT classify — most of its rows are correct.
+#
+# GATES: L1 734/734 + gates tier 44/44 (rc 0), L2 2346/2346 + gates tier 44/44
+# (rc 0), `ctest -j32 -R "writ|anyval|metaprog|quote|reflect|ir_"` rc 0,
+# `ctest -j32 -L fail` rc 0 (502 tests), census_pin + plan_ground_census +
+# direct_door_census + spec_path_lint + key_identity_lint + one_scheduler_lint
+# all Passed (2266/2266 in the combined -R run). scripts/abi-check.sh:
+# sym 12518 / type 369 / vtable 123 / schema 2 on both sides, ADDED 0,
+# VERDICT ABI-PRESERVING; abi_closure_gate OK, 3 canaries caught.
+# Registry re-derived BY DIRECT `ctest -N`, not by addition: ALL 7452,
+# -LE imported 3769, -L '^tier_commit$' 44 — unmoved, as predicted.
 # 2026-08-22 (#102 — A COMPILER-SYNTHESISED TYPE CAN NO LONGER BE HANDED THE
 # USER'S PACKAGE. Root under #99. `make_struct_type(name, pkg={})` and its three
 # siblings filled an omitted package from `resolve_struct_pkg_`, which resolves a
