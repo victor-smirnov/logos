@@ -1,0 +1,10 @@
+// The CONTROL for arr_match_arm_value.logos: the same program with a TUPLE in
+// the arm instead of an array. It was green before the fix and is green after.
+// It is not redundant — it is the half of the pair that says the defect was
+// about the array's slot REPRESENTATION and not about match arms in general.
+package test;
+fn main() -> i32 { let k: i64 = 1i64;
+  let m: (i64, i64) = match k { 1i64 => (7i64, 8i64), _ => (1i64, 2i64) };
+  if m.0 != 7i64 { return 3i32; }
+  if m.1 != 8i64 { return 4i32; }
+  return 42i32; }

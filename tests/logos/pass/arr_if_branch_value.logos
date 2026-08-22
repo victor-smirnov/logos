@@ -1,0 +1,10 @@
+// #94, the `if` spelling of the same defect — measured red on the same binary
+// (exit 3), so the fix had to move BOTH the match's `store_arm_result` and the
+// if-expression's two open-coded arm stores. Without this file the if half
+// would have been fixed with nothing asserting it.
+package test;
+fn main() -> i32 { let k: i64 = 1i64;
+  let m: [i64; 2] = if k == 1i64 { [7i64, 8i64] } else { [1i64, 2i64] };
+  if m[0] != 7i64 { return 3i32; }
+  if m[1] != 8i64 { return 4i32; }
+  return 42i32; }

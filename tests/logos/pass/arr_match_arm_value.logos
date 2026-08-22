@@ -1,0 +1,17 @@
+// #94 — an ARRAY literal as a match-arm VALUE was read back as the ADDRESS of
+// the arm's buffer, not as its bytes. `logos_to_mlir` answers `ptr` for a Tuple
+// and the ARRAY TYPE for an array, while both literals lower to a pointer into
+// an arm-local buffer — so the merge slot for an array was a VALUE slot fed a
+// POINTER, and the first element read back 8 bytes of address. Measured before
+// the fix: exit 3, no diagnostic at any layer. The tuple spelling of the
+// identical program was green, which is exactly what kept it invisible; that
+// spelling is pinned beside this one as arr_match_arm_value_tuple_ctl.
+//
+// Exit 42 requires BOTH elements to survive the merge, so a fix that recovered
+// only the first would still red here.
+package test;
+fn main() -> i32 { let k: i64 = 1i64;
+  let m: [i64; 2] = match k { 1i64 => [7i64, 8i64], _ => [1i64, 2i64] };
+  if m[0] != 7i64 { return 3i32; }
+  if m[1] != 8i64 { return 4i32; }
+  return 42i32; }

@@ -4245,13 +4245,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIfExprView v, TypeRef type) {
     if (!is_terminated(builder_.getBlock())) {
         if (result_type) {
             if (!then_val) then_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
-            then_val = coerce_numeric(then_val, result_type);
             // Branches may return a struct by-value (function call) while the merge
             // slot expects a pointer (struct values are normally pointer-aliased).
-            // Spill aggregate values so both branches store a pointer.
+            // Spill aggregate values so both branches store a pointer — and the
+            // MIRROR case, an aggregate-by-value slot fed a pointer, which is
+            // what every array branch does (task #94; see the match's
+            // `store_arm_result` for the measurement). Both directions first,
+            // THEN the numeric coercion: `coerce_numeric` on a pointer against
+            // an array slot is a no-op that silently leaves the mismatch.
             if (result_type == ptr_type() &&
-                mlir::isa<mlir::LLVM::LLVMStructType>(then_val.getType()))
+                (mlir::isa<mlir::LLVM::LLVMStructType>(then_val.getType()) ||
+                 mlir::isa<mlir::LLVM::LLVMArrayType>(then_val.getType())))
                 then_val = spill_to_alloca(then_val);
+            else if (then_val.getType() == ptr_type() && result_type != ptr_type() &&
+                     (mlir::isa<mlir::LLVM::LLVMStructType>(result_type) ||
+                      mlir::isa<mlir::LLVM::LLVMArrayType>(result_type)))
+                then_val = builder_.create<mlir::LLVM::LoadOp>(loc_, result_type, then_val);
+            then_val = coerce_numeric(then_val, result_type);
             builder_.create<mlir::LLVM::StoreOp>(loc_, then_val, result_alloca);
         }
         builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
@@ -4262,10 +4272,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIfExprView v, TypeRef type) {
     if (!is_terminated(builder_.getBlock())) {
         if (result_type) {
             if (!else_val) else_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
-            else_val = coerce_numeric(else_val, result_type);
             if (result_type == ptr_type() &&
-                mlir::isa<mlir::LLVM::LLVMStructType>(else_val.getType()))
+                (mlir::isa<mlir::LLVM::LLVMStructType>(else_val.getType()) ||
+                 mlir::isa<mlir::LLVM::LLVMArrayType>(else_val.getType())))
                 else_val = spill_to_alloca(else_val);
+            else if (else_val.getType() == ptr_type() && result_type != ptr_type() &&
+                     (mlir::isa<mlir::LLVM::LLVMStructType>(result_type) ||
+                      mlir::isa<mlir::LLVM::LLVMArrayType>(result_type)))
+                else_val = builder_.create<mlir::LLVM::LoadOp>(loc_, result_type, else_val);
+            else_val = coerce_numeric(else_val, result_type);
             builder_.create<mlir::LLVM::StoreOp>(loc_, else_val, result_alloca);
         }
         builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
@@ -4313,6 +4328,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             (mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()) ||
              mlir::isa<mlir::LLVM::LLVMArrayType>(val.getType())))
             return spill_to_alloca(val);
+        // ⚠ AND THE OTHER DIRECTION, which was missing and is task #94: the slot
+        // is an aggregate BY VALUE while the arm yielded a POINTER. That is not
+        // an exotic combination — it is what an ARRAY does every time, because
+        // `logos_to_mlir` answers `ptr` for a Tuple and the ARRAY TYPE for an
+        // array, while both literals lower to a pointer into an arm-local
+        // buffer. The store then wrote 8 bytes of ADDRESS into the first
+        // element of the slot and the merge read them back as data:
+        //     let m: [i64; 2] = match k { 1 => [7,8], _ => [1,2] };
+        //     m[0]  ->  the address of the arm's buffer, not 7
+        // measured as `exit 3` where 42 was expected, with no diagnostic at any
+        // layer. The tuple spelling of the identical program was green, which
+        // is what kept this invisible: the two aggregates disagree on the slot
+        // representation, and only one side of the mismatch had a guard.
+        if (val && val.getType() == ptr_type() && rt != ptr_type() &&
+            (mlir::isa<mlir::LLVM::LLVMStructType>(rt) ||
+             mlir::isa<mlir::LLVM::LLVMArrayType>(rt)))
+            return builder_.create<mlir::LLVM::LoadOp>(loc_, rt, val);
         return coerce_numeric(val, rt);
     };
 

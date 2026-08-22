@@ -460,12 +460,14 @@ PIN = {
     # `traits_` bare). None declares a container family or a `direct` output
     # form, so the DOOR counts are unmoved; only the population moves.
     # RE-DERIVED BY DIRECT FILE LISTING, never by adding to the previous pin:
-    #   ls tests/logos/pass/*.logos | wc -l                       -> 2270
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2273
     #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
-    # partition closes: 2270 = 191 + 2079. DOOR counts unmoved (36 = 10 + 26).
-    'corpus'            : 2270,
+    # 2026-08-22 (#94): +3 more, the array-in-arm miscompile pair and its
+    # tuple control. Same argument — none declares a family or a `direct`
+    # form. partition closes: 2273 = 191 + 2082. DOORS unmoved (36 = 10 + 26).
+    'corpus'            : 2273,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2079,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2082,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

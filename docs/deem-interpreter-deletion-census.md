@@ -3085,9 +3085,35 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7469
-REGISTRY-NOIMPORTED  3786
+REGISTRY-ALL         7472
+REGISTRY-NOIMPORTED  3789
 REGISTRY-TIERCOMMIT  45
+# 2026-08-22 (#94 — an ARRAY literal in a match arm / if branch was read back as
+# the ADDRESS of the arm's buffer. `logos_to_mlir` answers `ptr` for a Tuple and
+# the ARRAY TYPE for an array, while BOTH literals lower to a pointer into an
+# arm-local buffer — so the merge slot for an array was a VALUE slot fed a
+# POINTER, and `m[0]` read 8 bytes of address as data. Three lines, no dyn, no
+# call, no diagnostic at any layer: `exit 3` where 42 was expected.
+#
+# The guard for the OPPOSITE direction already existed (slot is `ptr`, arm
+# yielded an aggregate by value -> spill) and had a paragraph explaining itself;
+# the mirror case had neither. Landed at three sites: the match's
+# `store_arm_result` and the if-expression's two open-coded arm stores, which
+# had drifted from each other — the if arms also missed LLVMArrayType in the
+# spill direction. ⚠ The load is placed BEFORE `coerce_numeric`, not after: on a
+# pointer against an array slot that call is a no-op that silently leaves the
+# mismatch in place.
+#
+# CONTROL REVERT, one stash + rebuild: `match` and `if` both red (exit 3), the
+# TUPLE spelling green — which is what kept this invisible, since the tuple
+# corpus covers the shape and the array one did not.
+#   tests/logos/pass/arr_match_arm_value.logos            (+ .expected, exit 42)
+#   tests/logos/pass/arr_if_branch_value.logos            (+ .expected, exit 42)
+#   tests/logos/pass/arr_match_arm_value_tuple_ctl.logos  (+ .expected, exit 42)
+# Both admits check BOTH elements, so a fix recovering only the first still
+# reds; oracles bitten on the exit code and on the m[1] arm separately.
+# +3 registered: 7469 -> 7472 / 3786 -> 3789 / tier_commit 45 unchanged.
+# Door pins re-derived by direct listing: 2273 = 191 + 2082, doors 36 = 10 + 26.
 # 2026-08-22 (#100 RESIDUAL — the round's OWN VERIFY witnessed a live instance of
 # the class the round declared closed, and it is fixed here rather than filed.
 # `sema.cpp`'s GAT-arity check (`Bug 5 fix`) consulted `traits_` BARE, so a user
