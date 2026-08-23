@@ -1,0 +1,9 @@
+exit: 0
+stdout:
+any=true
+all=false
+pos=1
+fold=126
+saw 51
+saw 52
+saw 53

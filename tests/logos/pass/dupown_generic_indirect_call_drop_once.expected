@@ -1,0 +1,11 @@
+exit: 0
+stdout:
+-- fnptr
+DROP n=1
+-- bound
+DROP n=2
+-- direct
+DROP n=3
+-- byref
+DROP n=4
+-- end

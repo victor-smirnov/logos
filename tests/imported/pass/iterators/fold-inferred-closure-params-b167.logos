@@ -27,7 +27,7 @@ impl Iterator<i32> for Counter {
 }
 
 fn tripler(x: i32) -> i32 { return x * 3i32; }
-fn is_even(x: i32) -> bool { return x % 2i32 == 0i32; }
+fn is_even(x: &i32) -> bool { return *x % 2i32 == 0i32; }
 
 fn main() -> i32 {
     let c: Counter = Counter { cur: 1i32, max: 5i32 };

@@ -1,9 +1,15 @@
 package cmp_min_max_by_test;
 use logos.lang.cmp;
 
-fn cmp_i32(a: i32, b: i32) -> Ordering {
-    if a < b { return Ordering::Less; }
-    if a > b { return Ordering::Greater; }
+// #114: `cmp_min_by`/`cmp_max_by` take a BORROWING comparator. By value the
+// comparator consumed both operands and the function then returned one of
+// them — two owners for one value. The signature is Rust's
+// (`FnOnce(&T, &T) -> Ordering`), and this fixture is the caller re-aim.
+fn cmp_i32(a: &i32, b: &i32) -> Ordering {
+    let x: i32 = *a;
+    let y: i32 = *b;
+    if x < y { return Ordering::Less; }
+    if x > y { return Ordering::Greater; }
     return Ordering::Equal;
 }
 

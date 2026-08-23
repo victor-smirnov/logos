@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+min=1
+max=4
+imin=5
+imax=10

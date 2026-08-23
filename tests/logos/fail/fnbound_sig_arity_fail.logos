@@ -1,0 +1,17 @@
+// #115 — the ARITY half, through an EXPLICIT type argument. `find` declares
+// `FindFn: FnMut(&Item) -> bool` (one parameter); a two-parameter callable
+// was admitted at 93e123df with no diagnostic at all.
+package fnbound_sig_arity_fail;
+
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+fn two(x: i64, y: i64) -> bool { return x == y; }
+
+unsafe fn main() -> i32 {
+    let mut s: Vec<i64> = vec_new::<i64>();
+    let mut it: VecIntoIter<i64> = s.into_iter();
+    let m: Option<i64> = it.find::<fn(i64, i64) -> bool>(two);
+    return 0i32;
+}

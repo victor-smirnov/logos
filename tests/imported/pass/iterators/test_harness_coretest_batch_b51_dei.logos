@@ -29,8 +29,8 @@ use logos.lang.iter;
 use logos.lang.option;
 
 fn neg(x: i32) -> i32 { return 0i32 - x; }
-fn is_even(x: i32) -> bool { return (x % 2i32) == 0i32; }
-fn noop(_x: i32) { return; }
+fn is_even(x: &i32) -> bool { return (*x % 2i32) == 0i32; }
+fn noop(_x: &i32) { return; }
 
 #[test]
 fn test_double_ended_map() {

@@ -1,0 +1,51 @@
+// ArrayIntoIter destroys each element EXACTLY ONCE — drained, partially
+// drained, and never advanced (was: 2 items in -> 4 destructor calls, rc 0).
+//
+// #116 — the missing half was never the raw read (that is a correct
+// `ptr::read`); it was the absence of a `Drop` reconciling the cursor, plus
+// the inline array's own drop glue firing for all N regardless of `idx`.
+// THE CLASS IS "A VALUE WITH TWO OWNERS", enumerated BY THE PROPERTY:
+// for a program that constructs exactly k droppable values, the number of
+// executed destructor calls must be exactly k. `>k` is a double free, `<k` is
+// a leak, and a fixture that only checks "it stopped crashing" sees neither.
+// The payload OWNS HEAP (`Vec<i64>`) and PRINTS on destruction: both halves are
+// load-bearing — a printing-only payload read `min_by` as sound while a
+// heap-owning one aborted rc 134, and #112 shipped a leak that never aborted.
+
+package dupown_array_into_iter_drop_once;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.lang.array;
+use logos.mem.collections.vec;
+
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+// 8 values constructed below; the .expected pins 8 destructor lines in order.
+fn main() -> i32 {
+    println!("-- drained");
+    {
+        let arr: [Inner; 3] = [mk(1i64), mk(2i64), mk(3i64)];
+        let mut it: ArrayIntoIter<Inner, 3> = array_into_iter::<Inner, 3>(arr);
+        let c: i64 = it.count();
+        println!("count={}", c);
+    }
+    println!("-- partial");
+    {
+        let arr: [Inner; 3] = [mk(4i64), mk(5i64), mk(6i64)];
+        let mut it: ArrayIntoIter<Inner, 3> = array_into_iter::<Inner, 3>(arr);
+        match it.next() { Option::Some(x) => { println!("got {}", x.n); } Option::None => { println!("none"); } }
+        println!("-- iterator dies holding 2");
+    }
+    println!("-- untouched");
+    {
+        let arr: [Inner; 2] = [mk(7i64), mk(8i64)];
+        let it: ArrayIntoIter<Inner, 2> = array_into_iter::<Inner, 2>(arr);
+        println!("built, never advanced");
+    }
+    println!("-- end");
+    return 0i32;
+}

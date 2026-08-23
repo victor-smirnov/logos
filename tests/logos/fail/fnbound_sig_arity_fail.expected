@@ -1,0 +1,1 @@
+does not match the signature of `FnMut(&i64) -> bool` required by parameter 'FindFn': it takes 2 parameter(s), the bound declares 1

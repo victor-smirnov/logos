@@ -1,0 +1,29 @@
+package dupown_copy_bound_typevar_reuse_ctl;
+
+use logos.std.fmt;
+
+// EXEMPTION PROOF for #114's narrowed skip. The old code skipped move-marking
+// for EVERY TypeVar argument of an indirect call; the repair skips only a
+// `Copy`-BOUNDED one. This fixture is the arm that must still fire: `T: Copy`,
+// passed by value to a fn-pointer, and USED AGAIN afterwards. If the skip were
+// deleted outright instead of narrowed, this program would be refused with
+// "use of moved variable".
+fn twice<T: Copy>(v: T, f: fn(T) -> i64) -> i64 {
+    let a: i64 = f(v);
+    let b: i64 = f(v);   // reuse after an indirect by-value call — legal for Copy
+    return a + b;
+}
+
+fn id(x: i64) -> i64 { return x; }
+
+struct P { pub a: i64, pub b: i64 }
+impl Copy for P {}
+fn first(p: P) -> i64 { return p.a; }
+
+fn main() -> i32 {
+    println!("i64 {}", twice::<i64>(21i64, id));
+    let p: P = P { a: 5i64, b: 6i64 };
+    println!("struct {}", twice::<P>(p, first));
+    println!("still here {}", p.b);
+    return 0i32;
+}

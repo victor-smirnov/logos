@@ -1,0 +1,5 @@
+exit: 0
+stdout:
+i64 42
+struct 10
+still here 6

@@ -1,0 +1,7 @@
+exit: 0
+stdout:
+v=10
+v=20
+v=30
+v=40
+count=3

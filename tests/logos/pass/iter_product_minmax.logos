@@ -2,7 +2,10 @@ package iter_product_minmax_test;
 use logos.lang.iter;
 use logos.lang.option;
 
-fn cmp_i32(a: i32, b: i32) -> i32 {
+// #112/#114: `iter_max_by`/`iter_min_by` now take a BORROWING comparator
+// (`fn(&T,&T) -> i32`) — the signature change that removed the raw bitwise
+// duplicate. The comparator moves with it; the assertions below are unchanged.
+fn cmp_i32(a: &i32, b: &i32) -> i32 {
     if a < b { return -1i32; }
     if a > b { return 1i32; }
     return 0i32;

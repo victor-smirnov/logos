@@ -501,9 +501,9 @@ PIN = {
     # previous line. The DOOR counts are unmoved (36 = 10 + 26): none of the 23
     # declares a container family — they are stdlib destructor-count fixtures over
     # Vec / Option / iterator adapters.
-    'corpus'            : 2311,
+    'corpus'            : 2319,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2120,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2128,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

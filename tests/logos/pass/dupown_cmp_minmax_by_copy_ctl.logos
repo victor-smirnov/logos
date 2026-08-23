@@ -1,0 +1,29 @@
+// CONTROL twin of dupown_cmp_minmax_by_drop_once: a Copy payload still gets
+// the right winner out of all four comparator-driven selectors.
+// #114.
+
+package dupown_cmp_minmax_by_copy_ctl;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+fn by_i(a: &i64, b: &i64) -> Ordering {
+    if *a < *b { return Ordering::Less; }
+    if *a > *b { return Ordering::Greater; }
+    return Ordering::Equal;
+}
+fn by_i_i32(a: &i64, b: &i64) -> i32 {
+    if *a < *b { return -1i32; }
+    if *a > *b { return 1i32; }
+    return 0i32;
+}
+unsafe fn main() -> i32 {
+    println!("min={}", cmp_min_by::<i64>(1i64, 2i64, by_i));
+    println!("max={}", cmp_max_by::<i64>(3i64, 4i64, by_i));
+    let mut s: Vec<i64> = vec_new::<i64>(); s.push(6i64); s.push(5i64); s.push(7i64);
+    match iter_min_by::<VecIntoIter<i64>, i64>(s.into_iter(), by_i_i32) { Option::Some(x) => { println!("imin={}", x); } Option::None => { println!("imin=none"); } }
+    let mut t: Vec<i64> = vec_new::<i64>(); t.push(8i64); t.push(10i64); t.push(9i64);
+    match iter_max_by::<VecIntoIter<i64>, i64>(t.into_iter(), by_i_i32) { Option::Some(x) => { println!("imax={}", x); } Option::None => { println!("imax=none"); } }
+    return 0i32;
+}

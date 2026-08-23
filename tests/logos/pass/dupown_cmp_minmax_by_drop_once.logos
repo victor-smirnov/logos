@@ -1,0 +1,60 @@
+// `cmp_min_by` / `cmp_max_by` / `iter_min_by` / `iter_max_by` destroy each
+// candidate EXACTLY ONCE.
+//
+// #114, BOTH DIRECTIONS, and the second one only appeared after the first was
+// closed. (1) The comparator took both operands BY VALUE and the function then
+// returned one of them — two owners, a double free with any heap-owning `T`;
+// the signature is now Rust's `fn(&T,&T)`. (2) With that closed, the two
+// free-fn `iter_*_by` twins still LEAKED: three items in, one destructor call
+// out, because `if take { best = Some(v); } else { best = Some(cur); }` is a
+// CONDITIONAL move out of a match binding and the compiler emits no drop on
+// the not-moved path. They now route through `iter_pick_by`, as #112 already
+// did for the trait methods.
+//
+// 10 values are constructed; the .expected pins 10 destructor lines.
+
+package dupown_cmp_minmax_by_drop_once;
+
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+fn by_n(a: &Inner, b: &Inner) -> Ordering {
+    if a.n < b.n { return Ordering::Less; }
+    if a.n > b.n { return Ordering::Greater; }
+    return Ordering::Equal;
+}
+fn by_n_i32(a: &Inner, b: &Inner) -> i32 {
+    if a.n < b.n { return -1i32; }
+    if a.n > b.n { return 1i32; }
+    return 0i32;
+}
+
+unsafe fn main() -> i32 {
+    println!("-- cmp_min_by");
+    { let r: Inner = cmp_min_by::<Inner>(mk(1i64), mk(2i64), by_n); println!("min={}", r.n); }
+    println!("-- cmp_max_by");
+    { let r: Inner = cmp_max_by::<Inner>(mk(3i64), mk(4i64), by_n); println!("max={}", r.n); }
+    println!("-- iter_min_by");
+    {
+        let mut s: Vec<Inner> = vec_new::<Inner>();
+        s.push(mk(6i64)); s.push(mk(5i64)); s.push(mk(7i64));
+        let r: Option<Inner> = iter_min_by::<VecIntoIter<Inner>, Inner>(s.into_iter(), by_n_i32);
+        match r { Option::Some(x) => { println!("imin={}", x.n); } Option::None => { println!("imin=none"); } }
+    }
+    println!("-- iter_max_by");
+    {
+        let mut s: Vec<Inner> = vec_new::<Inner>();
+        s.push(mk(8i64)); s.push(mk(10i64)); s.push(mk(9i64));
+        let r: Option<Inner> = iter_max_by::<VecIntoIter<Inner>, Inner>(s.into_iter(), by_n_i32);
+        match r { Option::Some(x) => { println!("imax={}", x.n); } Option::None => { println!("imax=none"); } }
+    }
+    println!("-- end");
+    return 0i32;
+}

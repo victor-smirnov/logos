@@ -1,0 +1,45 @@
+// THE TWO-LINE FORM OF #114, with no trait, no iterator, no Option, no match:
+//     fn via_fnptr<Item>(v: Item, f: fn(Item) -> bool) { f(v); }
+// At 93e123df this printed the payload's destructor TWICE and aborted rc 134.
+// The discriminators, each measured separately: the argument's static type
+// must be a TYPE PARAMETER (a concrete `Inner` was always clean), the call
+// must be INDIRECT (a direct `eat::<Item>(v)` was always clean), and the
+// callee parameter must be BY VALUE (an `fn(&Item)` param was always clean).
+// All four shapes are held below so a regression cannot hide in one arm.
+//
+// 4 values are constructed; the .expected pins 4 destructor lines.
+
+package dupown_generic_indirect_call_drop_once;
+
+use logos.std.fmt;
+use logos.mem.collections.vec;
+
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+fn eat(x: Inner) -> bool { return x.n > 0i64; }
+
+// (1) fn-POINTER parameter, called indirectly.
+fn via_fnptr<Item>(v: Item, f: fn(Item) -> bool) { f(v); }
+// (2) generic `F: FnMut` parameter, called indirectly.
+fn via_bound<Item, F: FnMut(Item) -> bool>(v: Item, f: F) { let mut g: F = f; g(v); }
+// (3) DIRECT call of a generic fn — the arm that was always correct.
+fn via_direct<Item>(v: Item) { eat_generic::<Item>(v); }
+fn eat_generic<Item>(_x: Item) { return; }
+// (4) a BORROWING indirect callee still must NOT consume.
+fn via_ref<Item>(v: Item, f: fn(&Item) -> bool) { f(&v); }
+fn peek(x: &Inner) -> bool { return x.n > 0i64; }
+
+fn main() -> i32 {
+    println!("-- fnptr");
+    via_fnptr::<Inner>(mk(1i64), eat);
+    println!("-- bound");
+    via_bound::<Inner, fn(Inner) -> bool>(mk(2i64), eat);
+    println!("-- direct");
+    via_direct::<Inner>(mk(3i64));
+    println!("-- byref");
+    via_ref::<Inner>(mk(4i64), peek);
+    println!("-- end");
+    return 0i32;
+}

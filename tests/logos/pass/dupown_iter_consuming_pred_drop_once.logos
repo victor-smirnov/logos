@@ -1,0 +1,54 @@
+// `Iterator::any` / `all` / `position` / `fold` / `for_each` destroy each item
+// EXACTLY ONCE (was: rc 134, `free(): double free detected in tcache 2`, the
+// first item's destructor printed twice).
+//
+// #114 — the root is NOT #110's trait-default axis and not the iterator at
+// all: the three INDIRECT-call arms of sema skipped move-marking for EVERY
+// TypeVar argument, so a by-value `Item` handed to an `FnMut` parameter was
+// dropped by the callee AND by the caller's scope exit. The two-line form of
+// the same bug is dupown_generic_indirect_call_drop_once.
+//
+// THE CLASS IS "A VALUE WITH TWO OWNERS", enumerated BY THE PROPERTY: for a
+// program that constructs exactly k droppable values, the number of executed
+// destructor calls must be exactly k. `>k` is a double free, `<k` is a leak.
+// The payload OWNS HEAP and PRINTS: both halves are load-bearing.
+// 15 values are constructed below; the .expected pins 15 destructor lines.
+
+package dupown_iter_consuming_pred_drop_once;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+fn mkv(a: i64, b: i64, c: i64) -> Vec<Inner> {
+    let mut s: Vec<Inner> = vec_new::<Inner>();
+    s.push(mk(a)); s.push(mk(b)); s.push(mk(c));
+    return s;
+}
+
+fn is_two(x: Inner) -> bool { return x.n % 10i64 == 2i64; }
+fn sum_n(acc: i64, x: Inner) -> i64 { return acc + x.n; }
+fn shout(x: Inner) { println!("saw {}", x.n); }
+
+unsafe fn main() -> i32 {
+    println!("-- any");
+    let a: bool = mkv(11i64, 12i64, 13i64).into_iter().any(is_two);
+    println!("any={}", a);
+    println!("-- all");
+    let b: bool = mkv(21i64, 22i64, 23i64).into_iter().all(is_two);
+    println!("all={}", b);
+    println!("-- position");
+    let p: Option<i64> = mkv(31i64, 32i64, 33i64).into_iter().position(is_two);
+    match p { Option::Some(i) => { println!("pos={}", i); } Option::None => { println!("pos=none"); } }
+    println!("-- fold");
+    let f: i64 = mkv(41i64, 42i64, 43i64).into_iter().fold(0i64, sum_n);
+    println!("fold={}", f);
+    println!("-- for_each");
+    mkv(51i64, 52i64, 53i64).into_iter().for_each(shout);
+    println!("-- end");
+    return 0i32;
+}

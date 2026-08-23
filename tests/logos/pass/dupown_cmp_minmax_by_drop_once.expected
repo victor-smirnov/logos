@@ -1,0 +1,21 @@
+exit: 0
+stdout:
+-- cmp_min_by
+DROP n=2
+min=1
+DROP n=1
+-- cmp_max_by
+DROP n=3
+max=4
+DROP n=4
+-- iter_min_by
+DROP n=6
+DROP n=7
+imin=5
+DROP n=5
+-- iter_max_by
+DROP n=8
+DROP n=9
+imax=10
+DROP n=10
+-- end

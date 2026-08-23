@@ -1,0 +1,18 @@
+// #115 — the RETURN-TYPE half. `find` declares `FindFn: FnMut(&Item) -> bool`;
+// a callable returning `i64` was admitted at 93e123df and ran to completion
+// with rc 0, silently reading a bool out of an i64 return slot. Only the
+// signature check sees this one — no crash, no drop-count anomaly.
+package fnbound_sig_ret_fail;
+
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+fn wrong_ret(x: &i64) -> i64 { return *x; }
+
+unsafe fn main() -> i32 {
+    let mut s: Vec<i64> = vec_new::<i64>();
+    let mut it: VecIntoIter<i64> = s.into_iter();
+    let m: Option<i64> = it.find::<fn(&i64) -> i64>(wrong_ret);
+    return 0i32;
+}

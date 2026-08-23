@@ -1,0 +1,1 @@
+does not match the signature of `FnMut(&Pay) -> bool` required by parameter 'FindFn': it parameter 1 is 'Pay', the bound declares '&Pay'

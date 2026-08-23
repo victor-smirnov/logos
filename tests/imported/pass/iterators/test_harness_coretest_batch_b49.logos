@@ -42,17 +42,22 @@ use logos.lang.str;
 use logos.lang.iter;
 use logos.lang.option;
 
-fn is_even(x: i32) -> bool { return (x % 2i32) == 0i32; }
-fn eq_4(x: i32)    -> bool { return x == 4i32; }
-fn eq_40(x: i32)   -> bool { return x == 40i32; }
+fn is_even(x: &i32) -> bool { return (*x % 2i32) == 0i32; }
+fn eq_4(x: &i32)    -> bool { return *x == 4i32; }
+fn eq_40(x: &i32)   -> bool { return *x == 40i32; }
 fn eq_50(x: i32)   -> bool { return x == 50i32; }
 fn eq_5(x: i32)    -> bool { return x == 5i32; }
 fn lt_5(x: i32)    -> bool { return x < 5i32; }
+// #114/#115: `any`/`all` consume the item (Rust's `FnMut(Self::Item)`), while
+// `find`/`filter`/`take_while`/`skip_while`/`inspect` BORROW it. Two
+// predicates, one per shape — the single by-value spelling used to satisfy
+// both only because an Fn-family bound's signature was never checked.
+fn lt_5_ref(x: &i32) -> bool { return *x < 5i32; }
 fn lt_3(x: i32)    -> bool { return x < 3i32; }
 fn lt_100(x: i32)  -> bool { return x < 100i32; }
 fn gt_100(x: i32)  -> bool { return x > 100i32; }
 fn neg(x: i32) -> i32 { return 0i32 - x; }
-fn noop(_x: i32) { return; }
+fn noop(_x: &i32) { return; }
 
 #[test]
 fn test_iterator_enumerate_count() {
@@ -255,7 +260,7 @@ fn test_iterator_take_find() {
 fn test_iterator_take_while_count() {
     let xs: [i32; 9] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32];
     unsafe {
-        let n: i64 = iter_take_while::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), lt_5, 0i32).count();
+        let n: i64 = iter_take_while::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), lt_5_ref, 0i32).count();
         assert_eq!(n, 5i64);
     }
 }
@@ -264,7 +269,7 @@ fn test_iterator_take_while_count() {
 fn test_iterator_skip_while_count() {
     let xs: [i32; 9] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32];
     unsafe {
-        let n: i64 = iter_skip_while::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), lt_5, 0i32).count();
+        let n: i64 = iter_skip_while::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), lt_5_ref, 0i32).count();
         assert_eq!(n, 4i64);
     }
 }

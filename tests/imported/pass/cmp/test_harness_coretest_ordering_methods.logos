@@ -11,9 +11,12 @@ use logos.mem.string;
 use logos.lang.str;
 use logos.lang.cmp;
 
-fn abs_cmp(a: i32, b: i32) -> Ordering {
-    let aa: i32 = a.abs();
-    let bb: i32 = b.abs();
+// #114: `cmp_min_by`/`cmp_max_by` now take a BORROWING comparator
+// (`fn(&T,&T) -> Ordering`, Rust's own signature) — by value they consumed
+// both operands and then returned one of them.
+fn abs_cmp(a: &i32, b: &i32) -> Ordering {
+    let aa: i32 = (*a).abs();
+    let bb: i32 = (*b).abs();
     if aa < bb { return Ordering::Less; }
     if aa > bb { return Ordering::Greater; }
     return Ordering::Equal;

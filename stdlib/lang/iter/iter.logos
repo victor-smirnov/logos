@@ -2511,41 +2511,49 @@ pub unsafe fn iter_product_i64<I: Iterator<i64>>(iter: I) -> i64 {
 
 // SL-sl-05: min_by / max_by — caller supplies a `cmp` closure so we don't
 // need Ord bound. Returns Option<T>; empty iterator → None.
+// #114: the comparator BORROWS (`fn(&T,&T)`). By value it consumed both the
+// candidate and the incumbent and then stored one of them back into `best` —
+// a double free with any heap-owning `T`, hidden because the caller's
+// move-marking skipped every TypeVar argument.
+// AND the loser goes through `iter_pick_by`, not `if take { best = v; }`:
+// closing only the comparator left the OTHER direction open — MEASURED after
+// the signature repair, three heap-owning items in, ONE destructor call out,
+// two allocations leaked (a CONDITIONAL move out of a match binding emits no
+// drop on the not-moved path). The trait methods `min_by`/`max_by` were
+// converted by #112; these free-fn twins were not.
 /// Returns the comparator-maximal item, or `None` if empty; the last of equals wins (Rust).
-pub fn iter_max_by<I: Iterator<T>, T>(iter: I, cmp: fn(T, T) -> i32) -> Option<T> {
+pub fn iter_max_by<I: Iterator<T>, T>(iter: I, cmp: fn(&T, &T) -> i32) -> Option<T> {
     let mut it: I = iter;
     let mut best: Option<T> = Option::None;
     loop {
         match it.next() {
             Option::None    => { return best; }
             Option::Some(v) => {
-                match best {
-                    Option::None        => { best = Option::Some(v); }
-                    Option::Some(cur)   => {
-                        if cmp(v, cur) >= 0i32 { best = Option::Some(v); }
-                        else                   { best = Option::Some(cur); }
-                    }
+                let mut take_v: bool = true;
+                match &best {
+                    Option::None       => { take_v = true; }
+                    Option::Some(bref) => { take_v = cmp(&v, bref) >= 0i32; }
                 }
+                best = iter_pick_by::<Option<T>>(best, Option::Some(v), take_v);
             }
         }
     }
 }
 
 /// Returns the comparator-minimal item, or `None` if empty; the first of equals wins.
-pub fn iter_min_by<I: Iterator<T>, T>(iter: I, cmp: fn(T, T) -> i32) -> Option<T> {
+pub fn iter_min_by<I: Iterator<T>, T>(iter: I, cmp: fn(&T, &T) -> i32) -> Option<T> {
     let mut it: I = iter;
     let mut best: Option<T> = Option::None;
     loop {
         match it.next() {
             Option::None    => { return best; }
             Option::Some(v) => {
-                match best {
-                    Option::None        => { best = Option::Some(v); }
-                    Option::Some(cur)   => {
-                        if cmp(v, cur) < 0i32 { best = Option::Some(v); }
-                        else                  { best = Option::Some(cur); }
-                    }
+                let mut take_v: bool = true;
+                match &best {
+                    Option::None       => { take_v = true; }
+                    Option::Some(bref) => { take_v = cmp(&v, bref) < 0i32; }
                 }
+                best = iter_pick_by::<Option<T>>(best, Option::Some(v), take_v);
             }
         }
     }

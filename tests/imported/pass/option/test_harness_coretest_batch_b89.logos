@@ -22,8 +22,8 @@ use logos.mem.string;
 use logos.lang.str;
 use logos.lang.option;
 
-fn is_even(x: i32) -> bool { return (x & 1i32) == 0i32; }
-fn is_pos(x: i32)  -> bool { return x > 0i32; }
+fn is_even(x: &i32) -> bool { return (*x & 1i32) == 0i32; }
+fn is_pos(x: &i32)  -> bool { return *x > 0i32; }
 fn alt_some_42() -> Option<i32> { return Some(42i32); }
 fn alt_none()    -> Option<i32> { return None; }
 

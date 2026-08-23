@@ -58,9 +58,45 @@
 #           traded for a leak. This lint checks the pairing is complete, so deleting
 #           one half of a pair reds.
 #
+#   FACT 6  EVERY OWNING YIELDER RECONCILES ITS CURSOR. Added by #116. A struct
+#           whose whole job is to hand out OWNED elements from storage it owns
+#           (`*IntoIter` / `*Drain` / `*IntoValues` / `*IntoKeys`) must carry an
+#           `impl … Drop for` it in the same file. `ArrayIntoIter` did not: its
+#           `next` performed a correct `ptr::read`, and the inline `[T; N]` field's
+#           automatic drop glue then destroyed EVERY element a second time —
+#           MEASURED 2 items in, 4 destructor calls out, rc 0. No widening of the
+#           raw-duplicate grep could ever have seen it, because the defect was the
+#           ABSENCE of a line and a missing line has no spelling. This fact is
+#           derived from the tree (the struct roster and the impl roster), not
+#           listed, so a NEW owning yielder written without a `Drop` reds at birth.
+#
+#   FACT 7  THE #114/#115/#116 ADMIT FIXTURES ARE PAIRED, like FACT 5's.
+#           `tests/logos/pass/dupown_*_drop_once` (heap-owning payload, printing
+#           `Drop`, exact destructor-line count) each with a `_copy_ctl` twin.
+#
+# ── WHAT THIS LINT DOES *NOT* SEE — SAID PLAINLY, BECAUSE ITS GREEN VOUCHES ──
+# FACTs 1-5 hold exactly ONE READ SPELLING: the broad grep's
+# `*((&X) as *const T)`. The property is "a value read out of, or duplicated from,
+# a place that still owns it, such that two paths run its destructor", and stdlib
+# contains at least three further spellings of it, ALL INVISIBLE HERE:
+#   A'  two-step:  `let p: *const T = (&X) as *const T; let v: T = p[i];`
+#                  — array.logos (the #116 site).
+#   B   raw-ptr field index: `let val: T = self.<rawptrfield>[i];`
+#                  — vec.logos x6, deque.logos x2. All sound TODAY, and sound
+#                    because of a reconciling `Drop`, which is what FACT 6 pins.
+#   C   raw deref: `let old: T = *p;` — cell.logos x6, slice.logos x1. UNMEASURED.
+# FACT 6 covers the OBLIGATION side of A'/B (the reconciling Drop) for the
+# yielder families it can name; it does not cover C, and it does not cover an
+# owning yielder whose name is outside those four suffixes. The instrument that
+# DOES answer the property is a drop-count harness with a heap-owning payload —
+# the `*_drop_once` fixtures FACTs 5 and 7 pin — and its coverage is by
+# REACHABILITY: a surface no fixture instantiates is unmeasured, whatever the
+# spelling. Do not read a green here as "the class is closed".
+#
 # EXIT 2 (cannot measure), never 0, when: the repo root or ledger is missing, the
 # broad grep returns nothing at all (the shape was renamed and this lint has silently
-# become a no-op), or the narrow grep is not a subset of the broad one.
+# become a no-op), the narrow grep is not a subset of the broad one, or the
+# owning-yielder roster of FACT 6 comes back empty.
 
 set -uo pipefail
 
@@ -184,6 +220,45 @@ $hdr"
     fi
 done < <(grep -vE '^[[:space:]]*(#|$)' "$LEDGER" | awk '{printf "%s\t%s\t%s\t%s\n", $1, $2, $3, $4}')
 
+# ── FACT 7: THE UNVERIFIABLE GROUNDS ARE COUNTED, BECAUSE THEY ARE A HATCH ──
+# FACT 3 re-derives `copy-bound` from the impl header and demands a refuse
+# fixture — that ground earns its keep. `bc-blocked` and `rust-contract` earn
+# nothing: they are prose. This round's verify planted a brand-new, genuine
+# class-A raw duplicate in array.logos with a fabricated
+# `// #112-ROSTER: Bogus::yank, ground=bc-blocked` and one ledger line, and the
+# gate reported `OK: 6 surviving raw duplicates, all grounded and rostered`.
+# Anyone could neutralise this lint for any new duplicate with a comment and a
+# text line — and the project's own rule is that a gate's EXEMPTION must be
+# checked in the ABUSE direction, because an unchecked hatch is worse than no
+# gate: the green now vouches for it.
+#
+# The grounds cannot be verified mechanically — `bc-blocked` means "the borrow
+# checker refuses the correct spelling", which is a fact about the compiler on
+# the day it was written. What CAN be held is that no NEW row acquires one
+# unnoticed. So the count per ground is pinned. Adding a `bc-blocked` row is
+# then a deliberate act with a number to move, exactly like every other census
+# in this tree; removing one (because it got fixed) is equally visible.
+#
+# ⚠ HONEST LIMIT, at the site: this pins the COUNT, not the TRUTH. A new
+# duplicate can still take the place of an old one at a constant count if the
+# old one is deleted in the same change — the roster's per-symbol rows below
+# are what make that visible, not this fact.
+GROUND_PIN="bc-blocked 1
+copy-bound 3
+rust-contract 1"
+GROUND_NOW=$(grep -vE '^[[:space:]]*(#|$)' "$LEDGER" | awk '{print $3}' | sort | uniq -c \
+             | awk '{printf "%s %s\n", $2, $1}' | sort)
+if [ "$(printf '%s' "$GROUND_NOW")" != "$(printf '%s' "$GROUND_PIN" | sort)" ]; then
+    fail "the per-ground row census moved.
+      pinned:
+$(printf '%s' "$GROUND_PIN" | sort | sed 's/^/        /')
+      measured:
+$(printf '%s' "$GROUND_NOW" | sed 's/^/        /')
+      `bc-blocked` and `rust-contract` are PROSE — nothing verifies them, so a new
+      row carrying one is how this lint gets switched off for a new duplicate.
+      Move the pin deliberately and say what the new row is for."
+fi
+
 # ── FACT 5: the admit/control pairing is complete ───────────────────────────
 PAIR_MISS=0
 for p in tests/logos/pass/rawdup_*_drop_once.logos; do
@@ -198,7 +273,55 @@ done
 NPAIR=$(ls tests/logos/pass/rawdup_*_drop_once.logos 2>/dev/null | wc -l)
 [ "$NPAIR" -ge 11 ] || fail "only $NPAIR rawdup_*_drop_once fixtures found; #112 repaired
       eleven call surfaces and each must keep its counting oracle"
-echo "pairs: $NPAIR drop_once fixtures, each with a _copy_ctl twin"
+echo "pairs: $NPAIR drop_once fixtures rostered (pairing checked above)"
+
+# ── FACT 6: every owning yielder reconciles its cursor with a Drop ──────────
+# The population is derived, not listed: the four owning-yielder name families.
+# ⚠ THIS IS A NAME FAMILY, i.e. still a spelling — see the header's limit note.
+# What it buys is the axis the grep cannot reach at all: the ABSENCE of a Drop.
+YIELDER_RE='^[[:space:]]*pub struct ([A-Za-z0-9_]*(IntoIter|Drain|IntoValues|IntoKeys))[<[:space:]{]'
+YIELDERS=$(grep -rnE "$YIELDER_RE" stdlib/ | sort)
+Y_OK=0
+N_YIELD=$(printf '%s' "$YIELDERS" | grep -c . || true)
+[ "$N_YIELD" -gt 0 ] || die2 \
+  "the owning-yielder roster is EMPTY. stdlib always has at least VecIntoIter; an
+   empty roster means the name families were renamed and FACT 6 has silently become
+   a no-op, which is the failure mode its own header says it prevents."
+while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    yf=${hit%%:*}
+    name=$(printf '%s' "$hit" | sed -E "s/.*pub struct ([A-Za-z0-9_]+).*/\1/")
+    if ! grep -qE "^[[:space:]]*impl[<[:space:]].*Drop for ${name}\b" "$yf"; then
+        fail "OWNING YIELDER WITH NO RECONCILING DROP: $name in $yf
+      It hands out OWNED elements from storage it owns, so the elements it has
+      already yielded belong to the consumer and the ones it has not belong to it.
+      Without an 'impl Drop for $name' that drops exactly the un-yielded tail, the
+      compiler's own field glue destroys elements the consumer already owns (#116:
+      MEASURED 2 items in, 4 destructor calls out, rc 0 — no abort, only the COUNT
+      sees it). Write the Drop, and pin it with a tests/logos/pass/*_drop_once
+      fixture whose .expected holds the exact destructor lines."
+        continue
+    fi
+    Y_OK=$(( Y_OK + 1 ))
+done <<< "$YIELDERS"
+echo "yielders: $Y_OK of $N_YIELD owning-yielder structs carry a reconciling Drop"
+
+# ── FACT 7: the #114/#115/#116 admit/control pairing ────────────────────────
+for p in tests/logos/pass/dupown_*_drop_once.logos; do
+    [ -e "$p" ] || continue
+    twin=${p%_drop_once.logos}_copy_ctl.logos
+    [ -f "$twin" ] || fail "$p has no _copy_ctl twin ($twin)"
+    exp=${p%.logos}.expected
+    [ -f "$exp" ] || fail "$p has no .expected"
+    grep -q 'DROP n=' "$exp" || fail "$exp pins no destructor line — the oracle of this
+      family is a DESTRUCTOR COUNT with a heap-owning payload, not an exit code"
+done
+NDUP=$(ls tests/logos/pass/dupown_*_drop_once.logos 2>/dev/null | wc -l)
+[ "$NDUP" -ge 4 ] || fail "only $NDUP dupown_*_drop_once fixtures found; the #114/#116
+      round closed four surfaces (ArrayIntoIter, the consuming-predicate adapters, the
+      two-line generic indirect call, the four comparator selectors) and each must keep
+      its counting oracle"
+echo "dupown pairs: $NDUP drop_once fixtures rostered (pairing checked above)"
 
 if [ "$RC" = 0 ]; then
     echo "OK: $N_BROAD surviving raw duplicates, all grounded and rostered"

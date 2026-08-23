@@ -3,6 +3,7 @@
 #include "sema_impl.hpp"
 #include "ctfe.hpp"
 
+#include <cctype>
 #include <cstdio>
 #include <format>
 #include <functional>
@@ -1427,10 +1428,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 }
             }
             // Sprint 5.7c: Fn-family bound (`F: FnOnce(args) -> R`)
-            // satisfied by any closure or fn-pointer type. Arity /
-            // arg-type / ret-type compatibility is enforced at the
-            // call site (lower_call synthesises a callable type from
-            // the bound). When F resolves to FnPtr at mono time, the
+            // satisfied by a closure or fn-pointer type WHOSE SIGNATURE
+            // MATCHES — arity / arg types / return type are checked below
+            // (#115; they were checked nowhere before). When F resolves to
+            // FnPtr at mono time, the
             // ClosureCall LIR op rewrites to FnPtrCall in mono_clone.
             if (bound.is_fn_family && (cv.kind() == LogosType::Kind::Closure ||
                                        LogosType::is_fn_value_kind(cv.kind()))) {
@@ -1460,6 +1461,122 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                             bound.trait_name,
                             ck == 2 ? "moves out (consumes)" : "mutates",
                             ck == 2 ? "FnOnce" : "FnMut"));
+                }
+                // #115 — THE SIGNATURE, NOT ONLY THE CALLABILITY.
+                // The comment two paragraphs up claimed "Arity / arg-type /
+                // ret-type compatibility is enforced at the call site
+                // (lower_call synthesises a callable type from the bound)".
+                // MEASURED at 93e123df, it is not enforced ANYWHERE:
+                //   `it.find::<fn(Pay) -> bool>(consuming)` against
+                //   `FindFn: FnMut(&Item) -> bool`  -> admitted, rc 134
+                //   `find::<fn(Pay, i64) -> bool>`  (arity)  -> admitted
+                //   `find::<fn(&Pay) -> i64>`       (return) -> admitted
+                // and the turbofish is NOT the hatch — the inferred spelling
+                // `it.find(consuming)` is admitted identically. Only
+                // CALLABILITY was checked (`i64` is refused; any callable of
+                // any shape is accepted). Handing a callee that declared
+                // `Pay` by value a `&Pay` is a type confusion; the double
+                // free is only its most visible symptom.
+                //
+                // Checked here, where the bound and the supplied type meet.
+                // DECIDABILITY: the declared signature may mention type
+                // params (`FnMut(&Item) -> bool`); substitute THIS call's
+                // args and check only when nothing TypeVar-shaped survives —
+                // otherwise defer to mono exactly as the subject type does
+                // (`mentions_tv` above). A bound written without parentheses
+                // (`F: FnMut`) carries no signature and is not checked; that
+                // is the stated limit of this arm.
+                if (!bound.fn_params.empty() || bound.fn_ret) {
+                    std::function<bool(TypeRef)> tv_in = [&](TypeRef t) -> bool {
+                        if (!t) return false;
+                        if (t.kind() == LogosType::Kind::TypeVar) return true;
+                        if (t.pointee() && tv_in(t.pointee())) return true;
+                        if (t.elem()    && tv_in(t.elem()))    return true;
+                        for (auto a : t.type_args())      if (tv_in(a)) return true;
+                        for (auto e : t.tuple_elems())    if (tv_in(e)) return true;
+                        for (auto q : t.closure_params()) if (tv_in(q)) return true;
+                        if (t.closure_ret() && tv_in(t.closure_ret())) return true;
+                        return false;
+                    };
+                    bool decidable = true;
+                    std::vector<TypeRef> want;
+                    for (auto pt : bound.fn_params) {
+                        TypeRef q = pt ? TypeRef(subst_type_sema(pt, call_subst))
+                                       : TypeRef(nullptr);
+                        if (!q || tv_in(q)) { decidable = false; break; }
+                        want.push_back(q);
+                    }
+                    TypeRef want_ret{nullptr};
+                    if (decidable && bound.fn_ret) {
+                        want_ret = TypeRef(subst_type_sema(bound.fn_ret, call_subst));
+                        if (!want_ret || tv_in(want_ret)) decidable = false;
+                    }
+                    auto got = cv.closure_params();
+                    for (auto g : got) if (!g || tv_in(TypeRef(g))) decidable = false;
+                    if (cv.closure_ret() && tv_in(TypeRef(cv.closure_ret())))
+                        decidable = false;
+                    if (decidable) {
+                        // LIFETIMES ARE NOT PART OF THIS QUESTION. An HRTB
+                        // bound renders as `Fn(&'a i32) -> &'a i32` while the
+                        // supplied fn-ptr renders as `fn(&i32) -> &i32`;
+                        // Logos has no region inference, so a raw type_str
+                        // comparison would refuse SIX green imported HRTB
+                        // fixtures (measured: hrtb-fn-family-bound,
+                        // hrtb-fn-family-stress, hrtb-fn-trait-bound,
+                        // hrtb-fnmut-via-Fn-family, hrtb-closure-arg,
+                        // fn-bound-with-where-outlives). Compare the SHAPE.
+                        auto shape = [](const std::string& t) {
+                            std::string o;
+                            for (size_t q = 0; q < t.size(); ) {
+                                if (t[q] == '\'' ) {           // 'a / 'static
+                                    ++q;
+                                    while (q < t.size() &&
+                                           (std::isalnum((unsigned char)t[q]) ||
+                                            t[q] == '_')) ++q;
+                                    while (q < t.size() && t[q] == ' ') ++q;
+                                    continue;
+                                }
+                                o += t[q++];
+                            }
+                            return o;
+                        };
+                        std::string why;
+                        if (got.size() != want.size())
+                            why = std::format(
+                                "takes {} parameter(s), the bound declares {}",
+                                got.size(), want.size());
+                        for (size_t q = 0; why.empty() && q < want.size(); ++q)
+                            if (shape(type_str(got[q])) != shape(type_str(want[q])))
+                                why = std::format(
+                                    "parameter {} is '{}', the bound declares '{}'",
+                                    q + 1, type_str(got[q]), type_str(want[q]));
+                        if (why.empty() && want_ret) {
+                            TypeRef gr = TypeRef(cv.closure_ret());
+                            std::string gs = gr ? type_str(gr) : std::string("()");
+                            if (shape(gs) != shape(type_str(want_ret)))
+                                why = std::format(
+                                    "returns '{}', the bound declares '{}'",
+                                    gs, type_str(want_ret));
+                        }
+                        if (!why.empty()) {
+                            if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
+                            std::string sig;
+                            for (size_t q = 0; q < want.size(); ++q) {
+                                if (q) sig += ", ";
+                                sig += type_str(want[q]);
+                            }
+                            error(std::format(
+                                "'{}': callable '{}' does not match the "
+                                "signature of `{}({}){}` required by "
+                                "parameter '{}': it {}",
+                                target_name, concrete_str, bound.trait_name,
+                                sig,
+                                want_ret ? " -> " + type_str(want_ret)
+                                         : std::string(),
+                                tp.name, why));
+                            continue;
+                        }
+                    }
                 }
                 continue;
             }

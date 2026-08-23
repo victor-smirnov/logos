@@ -1634,6 +1634,48 @@ private:
             b.trait_name, b.canonical_trait, b.trait_name);
     }
 
+    // #114 — A TYPEVAR ARGUMENT IS A MOVE UNLESS ITS PARAMETER IS `Copy`-BOUND.
+    //
+    // The three INDIRECT-call arms (`f(args)` through a callable variable, and
+    // the two expression-as-callee arms) used to skip EVERY TypeVar argument
+    // when marking by-value args moved, on the ground that "`T: Copy` → passed
+    // by copy, reused after the call". That blanket skip bought the suppression
+    // of one over-refusal at the price of a DOUBLE FREE for every non-Copy `T`.
+    // MEASURED at 93e123df with a heap-owning payload:
+    //     fn go<Item>(v: Item, f: fn(Item) -> bool) { f(v); }
+    //     go::<Inner>(mk(1), pred)
+    //   -> `DROP n=1` twice, `free(): double free detected in tcache 2`, rc 134.
+    // The direct-call path (`track_args_moved`) has no such skip, which is why
+    // the same program with `eat::<Item>(v)` is clean — the two paths disagreed.
+    // That two-line program is the whole of #114: `Iterator::any`/`all`/
+    // `position`/`fold` reach it because a trait default calls its `FnMut`
+    // parameter with a by-value `Item`.
+    //
+    // The question decidable AT SEMA is not "will the instantiation be Copy"
+    // (it is a TypeVar; it is not known here) but Rust's own rule: does the
+    // PARAMETER carry a `Copy` bound. An unbounded `T` is a move type at the
+    // generic site even when some instantiation happens to be Copy — Rust
+    // refuses reuse-after-move there too. So: skip only the Copy-BOUNDED ones.
+    bool typevar_param_is_copy_bounded(TypeRef t) const {
+        if (!t || TypeRef(t).kind() != LogosType::Kind::TypeVar) return false;
+        // KEY-IDENTITY: a TYPE-PARAMETER name, scoped to the signature being
+        // checked — see SemaChecker::normalize_assoc_eq for the full ground.
+        auto it = current_type_bounds_.find(
+            std::string(TypeRef(t).type_var_name()));
+        if (it == current_type_bounds_.end()) return false;
+        // A bound's written name may be bare (`Copy`) or the registry's
+        // canonical identity (`logos.lang.marker::Copy`) — #97/#100: a lookup
+        // KEY is not an IDENTITY, so compare the trailing segment of both.
+        auto last_seg = [](std::string_view s) -> std::string_view {
+            auto p = s.find_last_of(":.");
+            return p == std::string_view::npos ? s : s.substr(p + 1);
+        };
+        for (auto& b : it->second)
+            if (last_seg(b.trait_name) == "Copy" ||
+                last_seg(b.canonical_trait) == "Copy") return true;
+        return false;
+    }
+
     uint32_t     tmp_var_count_ = 0;   // for generating unique internal names
 
     uint32_t get_line(writ::TinyMapView node) noexcept {

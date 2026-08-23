@@ -1,0 +1,25 @@
+// #115 — AN Fn-FAMILY BOUND MUST CHECK ITS SIGNATURE, NOT ONLY CALLABILITY.
+// `Iterator::find` declares `FindFn: FnMut(&Item) -> bool`. Handing it a
+// predicate that takes `Item` BY VALUE was admitted at 93e123df — with a
+// heap-owning payload the program aborted rc 134, and worse, the callee was
+// handed a `&Inner` where it declared `Inner`: a type confusion of which the
+// double free is only the visible symptom.
+// The turbofish is NOT the hatch — the INFERRED spelling below was admitted
+// identically; see fnbound_sig_arity_fail for the explicit one.
+package fnbound_sig_param_by_value_fail;
+
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+struct Pay { pub n: i64, pub v: Vec<i64> }
+impl Drop for Pay { fn drop(self: &mut Pay) { return; } }
+
+fn consuming(x: Pay) -> bool { return x.n == 2i64; }
+
+unsafe fn main() -> i32 {
+    let mut s: Vec<Pay> = vec_new::<Pay>();
+    let mut it: VecIntoIter<Pay> = s.into_iter();
+    let m: Option<Pay> = it.find(consuming);
+    return 0i32;
+}

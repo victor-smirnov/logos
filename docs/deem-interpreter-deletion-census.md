@@ -3131,8 +3131,152 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # from asserting TWO `INNER DROP` lines to ONE. Their header said they must, and
 # the 0-vs-1 discrimination was RE-PROVEN by control revert on the post-#110
 # tree, not assumed.
-REGISTRY-ALL         7516
-REGISTRY-NOIMPORTED  3833
+# 2026-08-23 (#114/#115/#116 — THE CLASS ENUMERATED BY THE PROPERTY, NOT BY A
+# SPELLING. #112 defined its subject with `grep '*((&x) as *const T)'` and closed
+# 34 sites of it; a grep-defined class certifies everything it cannot see. The
+# property is: for a program that constructs exactly k droppable values, the
+# number of executed destructor calls must be exactly k — `>k` a double free,
+# `<k` a leak. The instrument is a drop-count harness with a payload that OWNS
+# HEAP and PRINTS, and its coverage is by REACHABILITY, not by spelling.
+#
+# FOUR ROOTS CLOSED, and only one of them was a raw duplicate.
+#
+# #116 ArrayIntoIter. `next` performs a CORRECT `ptr::read`; the missing half was
+# a `Drop` reconciling the cursor — and a `Drop` alone was not enough, because
+# the storage is an INLINE `[T; N]` whose automatic element glue fires for all N
+# regardless of `idx`. Storage moved into a `#[no_auto_drop] ArrayIntoIterBuf`
+# cell and a hand-written `Drop` now destroys exactly `[idx, N)`. MEASURED
+# before: 2 items in -> 4 destructor calls, 4 -> 8, rc 0 BOTH TIMES — no abort,
+# only the count sees it. After: 8 values -> 8 calls across drained / partially
+# drained / never advanced. ⚠ NO WIDENING OF THE GREP COULD HAVE FOUND THIS: the
+# defect was the ABSENCE of a line, and a missing line has no spelling.
+#
+# #114 is a COMPILER guard, and it is NOT #110's trait-default residual. Three
+# literal copies of `if (kind() == TypeVar) continue;` in sema_expr.cpp (3439
+# `f(args)` through a callable var; 7013 closure-as-callee; 7031 fn-ptr-as-
+# callee) skipped move-marking for EVERY TypeVar argument of an INDIRECT call.
+# Its own comment states the bargain: it suppressed a `T: Copy` over-refusal and
+# bought a double free for every non-Copy `T`. The two-line witness, no trait, no
+# iterator, no Option, no match:
+#     fn go<Item>(v: Item, f: fn(Item) -> bool) { f(v); }
+# -> `DROP n=1` twice, `free(): double free detected in tcache 2`, rc 134. The
+# direct-call path (`track_args_moved`, sema_expr.cpp:7189) has no such skip,
+# which is exactly why the same program with `eat::<Item>(v)` was always clean:
+# the two paths disagreed. The repair narrows the skip to a Copy-BOUNDED type
+# parameter (`SemaChecker::typevar_param_is_copy_bounded`) — Rust's own rule,
+# decidable at sema, where the question is the PARAMETER's bound and not the
+# unknown instantiation. `Iterator::any`/`all`/`position`/`fold` reach it
+# because a trait default calls its `FnMut` parameter with a by-value `Item`:
+# all four went rc 134 -> rc 0 with 3 values / 3 drops.
+#
+# ITS RED LIST, MEASURED BY BUILDING: four stdlib functions stopped compiling,
+# and every one was a live double free the old skip had hidden — `cmp_min_by`,
+# `cmp_max_by` (stdlib/lang/cmp/ord.logos) and `iter_max_by`, `iter_min_by`
+# (stdlib/lang/iter/iter.logos) all
+# handed both operands to a by-value comparator and then returned one of them.
+# All four now take Rust's borrowing comparator. THEN THE OTHER DIRECTION
+# APPEARED: with the signature closed, the two `iter_*_by` free fns LEAKED —
+# three heap-owning items in, ONE destructor call out — because
+# `if take { best = Some(v); } else { best = Some(cur); }` is a CONDITIONAL move
+# out of a match binding and no drop is emitted on the not-moved path. They now
+# route through `iter_pick_by`, as #112 already did for the trait methods.
+# ⚠ CLOSING ONE DIRECTION EXPOSED THE OTHER; a fixture written after step one
+# would have pinned a leak green.
+#
+# #115 — and the filing was WRONG about what is unchecked. The turbofish is not
+# the hatch: `it.find(consuming)` with no type argument was admitted identically,
+# and a NON-`Fn` bound (`Ord`) is refused with a byte-identical diagnostic with
+# and WITHOUT the token. What was unchecked is the `Fn`-family bound's SIGNATURE
+# on every path — only CALLABILITY was tested, so `i64` was refused while any
+# callable of any shape was accepted: wrong parameter type (rc 134), wrong arity
+# (rc 134), wrong return type (rc 0, silently wrong). Handing a callee that
+# declared `Pay` by value a `&Pay` is a type confusion; the double free is only
+# its visible symptom. The check now lives where the bound and the supplied type
+# meet (sema_collect.cpp check_type_bounds, the `is_fn_family` arm), compares
+# arity / parameters / return, defers when the substituted declaration still
+# mentions a TypeVar, and compares SHAPES with lifetimes stripped — a raw
+# `type_str` comparison over-refused six green imported HRTB fixtures (`Fn(&'a
+# i32)` vs `fn(&i32)`), measured, then fixed.
+#
+# ITS RED LIST, MEASURED BY RUNNING `ctest -L imported` (3683 tests): 15 reds, of
+# which 6 were that HRTB over-refusal (now 0), 1 was
+# `coerce-bare-fn-returning-zst-to-closure` passing `fn(u64)` where `RangeI64::
+# map` declares `FnMut(i64)` — a real mismatch the corpus had been accepting,
+# re-aimed to i64 — and 2 were the `cmp_min_by`/`cmp_max_by` caller re-aim.
+# ⚠ AND FOUR OF THE 15 WERE ALREADY RED AT 93e123df, WHICH #112's LEDGER DENIES.
+# That entry says "CALLERS RE-AIMED: 16 files, all measured, none left red". The
+# tree at HEAD carried `test_harness_coretest_batch_b49`,
+# `test_harness_coretest_batch_b51_dei`, `fold-inferred-closure-params-b167` and
+# `test_harness_coretest_batch_b89` red on `expected fn(&i32) -> bool, got
+# fn(i32) -> bool`. Imported is excluded from the L4 gate, which is why nothing
+# caught it; the enumeration that found the first three swept only
+# `tests/imported/pass/iterators/`, so b89 (in `option/`) was outside even that.
+# All four are re-aimed here. `ctest -L imported` now: 2 reds, both the known
+# #111 over-refusals (`regions-bot`, `call-through-ref-to-fn-bound-b158`).
+#
+# THE GATE. `tests/logos/stdlib_raw_dup_lint.sh` held exactly the broad grep's
+# spelling and its header claimed a new duplicate "in any spelling" reds at
+# birth. That quantifier was false and `stdlib/lang/array/array.logos:41`
+# proved it. Added:
+#   FACT 6 every `*IntoIter`/`*Drain`/`*IntoValues`/`*IntoKeys` in stdlib must
+#          carry an `impl … Drop for` it in the same file — the ABSENCE axis the
+#          grep cannot reach. BITE-PROVED: delete ArrayIntoIter's Drop -> rc 1
+#          naming it; rename the four suffixes away -> rc 2 (roster empty), never
+#          a green.
+#   FACT 7 the `dupown_*_drop_once` fixtures are paired with `_copy_ctl` twins
+#          and their .expected pin destructor lines. BITE-PROVED: delete one twin
+#          -> rc 1.
+# AND ITS LIMIT IS NOW WRITTEN AT THE SITE instead of implied: FACTs 1-5 hold ONE
+# read spelling; the three others present in stdlib (the two-step `let p = (&X)
+# as *const T; let v = p[i]`, the raw-ptr field index `self.<p>[i]`, the raw
+# deref `*p`) are named there with what covers them and what does not.
+#
+# #117 CONFIRMED, NOT FIXED, and the interaction is now on the record: `Copy` has
+# no `Clone` supertrait, so #112's `T: Clone` bounds refuse Copy types, while
+# #114's root was a guard that existed to avoid over-refusing `T: Copy`. Both
+# sides of the same gap are load-bearing in OPPOSITE directions. The repairs here
+# add NO new `Clone` bound, so #117 is not deepened. Its real fix is upstream of
+# either: give `Copy` its `Clone` supertrait.
+#
+# LEFT OPEN, WITH REPROS, BOTH FOUND BY THIS ROUND'S OWN DROP COUNTER AND BOTH
+# INDEPENDENT OF EVERY CHANGE HERE (no generics, no iterator, no Fn bound):
+#   * CONDITIONAL MOVE, DOUBLE FREE. `let keep: Inner = if a.n < b.n { a } else
+#     { b };` -> 2 values, 3 destructor calls, rc 134. Cell: two owners, arising
+#     from branch-insensitive move marking on a branch VALUE.
+#   * CONDITIONAL MOVE, LEAK. `if c { keep = a; } else { keep = b; }` -> 3
+#     values, 2 destructor calls. Same root, other direction: a variable moved in
+#     ONE branch is marked moved for the whole scope, so the other branch's value
+#     is never dropped. This is what forced `iter_pick_by` above.
+#   Both need drop flags (per-path move state), which the language does not have;
+#   that is a mechanism, not a patch, and it is not this round's.
+#
+# ── EVIDENCE ────────────────────────────────────────────────────────────────
+# CONTROL per site: the pre-fix counts above were measured on the 93e123df build
+# BEFORE any rebuild in this round (a0/a2/a4 = 2/4/8 drops; p_any/p_all/
+# p_position/p_fold = rc 134; k1-k4, k7, k9, k10 = admitted), and re-measured on
+# the fixed build (a0/a2/a4 = 2/2/4; the four adapters rc 0 with exact counts;
+# k1-k4/k7/k9/k10 all refused with a signature diagnostic; k5/k6/k8 unchanged).
+# ⚠ THE #116 AND #114 CONTROLS ARE PRE-STATE MEASUREMENTS ON THE UNMODIFIED
+# BUILD, NOT REVERT-AFTER-FIX RUNS. That is the same discrimination in the same
+# direction, but it is not the same procedure, and it is named here rather than
+# implied.
+# L1 738/738. L2 2396/2396 (the one L2 red, pass/cmp_min_max_by, was the
+# comparator re-aim and is green). `ctest -L fail` 1456/1456. `ctest -L imported`
+# 3681/3683 (the two #111 over-refusals). All 21 logos_00 lints green, including
+# key_identity (the new `current_type_bounds_` consult carries its ground comment
+# and its ledger row) and the widened raw-dup lint.
+# ABI: scripts/abi-check.sh — CHANGED(breaking) 1 (`logos.lang.array.
+# ArrayIntoIter` field list), ADDED 1 (`ArrayIntoIterBuf`), sym unchanged at
+# 12601. VERDICT: ABI-BREAKING. project VERSION 0.41.0 -> 0.42.0 in the SAME
+# change; re-run reads "ABI broke AND version bumped (0.41 -> 0.42) — OK".
+#
+# +11 registered: 7516 -> 7527 / 3833 -> 3844 / tier_commit 46 -> 46.
+# PREDICTED BEFORE RECONFIGURE as 8 pass + 3 fail + 0 gates = 7527, verified by
+# `ctest -N`. Pins re-derived BY DIRECT FILE LISTING, not by arithmetic:
+# tests/logos/pass/*.logos 2311 -> 2319, tests/logos/fail/*.expected 787 -> 790,
+# tests/logos/*.sh 65 -> 65.
+REGISTRY-ALL         7527
+REGISTRY-NOIMPORTED  3844
 REGISTRY-TIERCOMMIT  46
 # 2026-08-22 (#104 — capturing a genuine stdlib `StringView` into an `@{}` writ
 # literal CRASHED THE COMPILER: rc 139, core dumped inside the verifier's own

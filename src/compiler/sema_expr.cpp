@@ -3429,14 +3429,18 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // callee): a by-value concrete move-type argument transfers ownership
         // into the callee, so mark the source moved — otherwise a `String`
         // passed to `f(s)` is dropped by both the callee and the caller's
-        // scope-exit (double-free). Skip TypeVar args (move-ness unknown at the
-        // generic site; `T: Copy` reuses the value) and by-ref params.
+        // scope-exit (double-free). Skip Copy-BOUNDED TypeVar args and by-ref
+        // params.
         {
             auto cps = TypeRef(callee_type).closure_params();
             for (size_t i = 0; i < arg_exprs.size(); ++i) {
                 auto& a = arg_exprs[i];
                 if (!a) continue;
-                if (TypeRef(expr_type(a)).kind() == LogosType::Kind::TypeVar) continue;
+                // #114: skip ONLY a Copy-BOUNDED TypeVar (see
+                // SemaChecker::typevar_param_is_copy_bounded). An unbounded
+                // `T` by value is a MOVE here — the blanket skip was a live
+                // rc-134 double free.
+                if (typevar_param_is_copy_bounded(expr_type(a))) continue;
                 if (i < cps.size() && cps[i] &&
                     (TypeRef(cps[i]).kind() == LogosType::Kind::Ref ||
                      TypeRef(cps[i]).kind() == LogosType::Kind::MutRef)) continue;
@@ -7006,11 +7010,11 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
             for (size_t i = 0; i < arg_exprs.size(); ++i) {
                 auto& a = arg_exprs[i];
                 if (!a) continue;
-                // Skip TypeVar args: in a generic fn, `v: T` move-ness is
-                // unknown here (`T: Copy` → passed by copy, reused after the
-                // call, e.g. SuccessorsIter). Concrete move types (String, …)
-                // are still marked.
-                if (TypeRef(expr_type(a)).kind() == LogosType::Kind::TypeVar) continue;
+                // #114: skip ONLY a Copy-BOUNDED TypeVar (see
+                // SemaChecker::typevar_param_is_copy_bounded). An unbounded
+                // `T` by value is a MOVE here — the blanket skip was a live
+                // rc-134 double free.
+                if (typevar_param_is_copy_bounded(expr_type(a))) continue;
                 if (i < cps.size() && cps[i] &&
                     (TypeRef(cps[i]).kind() == LogosType::Kind::Ref ||
                      TypeRef(cps[i]).kind() == LogosType::Kind::MutRef)) continue;
@@ -7028,7 +7032,8 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
         for (size_t i = 0; i < arg_exprs.size(); ++i) {
             auto& a = arg_exprs[i];
             if (!a) continue;
-            if (TypeRef(expr_type(a)).kind() == LogosType::Kind::TypeVar) continue;
+            // #114: skip ONLY a Copy-BOUNDED TypeVar (fn-ptr callee arm).
+            if (typevar_param_is_copy_bounded(expr_type(a))) continue;
             if (i < cps.size() && cps[i] &&
                 (TypeRef(cps[i]).kind() == LogosType::Kind::Ref ||
                  TypeRef(cps[i]).kind() == LogosType::Kind::MutRef)) continue;

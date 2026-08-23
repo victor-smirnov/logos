@@ -872,8 +872,13 @@ impl i64 {
 // closures coerce to fn-ptr when non-capturing, so call sites can pass
 // `|a, b| { … }`).
 /// Returns the smaller of `a` and `b` per `compare`; `a` when they compare equal.
-pub fn cmp_min_by<T>(a: T, b: T, compare: fn(T, T) -> Ordering) -> T {
-    match compare(a, b) {
+pub fn cmp_min_by<T>(a: T, b: T, compare: fn(&T, &T) -> Ordering) -> T {
+    // #114: the comparator BORROWS. It used to take `T` by value, which
+    // handed both operands to `compare` and then returned one of them — two
+    // owners for one value, a double free with any heap-owning `T`. The
+    // old spelling was invisible because the caller's move-marking skipped
+    // every TypeVar argument. Rust's `cmp::min_by` takes `FnOnce(&T,&T)`.
+    match compare(&a, &b) {
         Ordering::Greater => { return b; }
         Ordering::Equal   => { return a; }
         Ordering::Less    => { return a; }
@@ -881,10 +886,11 @@ pub fn cmp_min_by<T>(a: T, b: T, compare: fn(T, T) -> Ordering) -> T {
 }
 
 /// Returns the larger of `a` and `b` per `compare`; `b` when they compare equal.
-pub fn cmp_max_by<T>(a: T, b: T, compare: fn(T, T) -> Ordering) -> T {
+pub fn cmp_max_by<T>(a: T, b: T, compare: fn(&T, &T) -> Ordering) -> T {
     // Note: Rust's `cmp::max_by` returns the *second* argument when
     // `compare` yields `Equal`. Mirror that for parity with coretests.
-    match compare(a, b) {
+    // #114: borrowing comparator — see `cmp_min_by`.
+    match compare(&a, &b) {
         Ordering::Less    => { return b; }
         Ordering::Equal   => { return b; }
         Ordering::Greater => { return a; }

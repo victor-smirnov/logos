@@ -16,17 +16,81 @@ use logos.lang.ops;
 
 // ── ArrayIntoIter<T, const N> — owned-array iterator ─────────────────────
 
+// #116 — THE OWNERSHIP OBLIGATION, NOT THE SPELLING.
+// `next` reads an element out of `buf` through a raw pointer (a correct
+// `ptr::read`) and hands it to the consumer. The array slot still holds a
+// bit-identical copy, so the compiler's automatic element drop glue destroys
+// every yielded element a SECOND time. MEASURED at 93e123df with a
+// heap-owning payload: 2 items in -> 4 destructor calls; 4 items -> 8; rc 0
+// in both (only the COUNT sees it — no abort, no leak, a silent double free).
+// The missing half was never the read: it was a `Drop` that reconciles the
+// cursor, exactly the one `VecIntoIter` has (vec.logos, `impl<T> Drop for
+// VecIntoIter<T>`). A `Drop` impl alone is not enough here, because
+// `VecIntoIter`'s storage is a raw pointer (no glue) while this one is an
+// INLINE array (glue for all N regardless of `idx`); the storage must first
+// be taken out of the compiler's hands.
+//
+/// Storage cell for the array an `ArrayIntoIter` is consuming.
+/// `#[no_auto_drop]` suppresses the compiler's per-element drop glue at every
+/// nesting depth, making `ArrayIntoIter`'s hand-written `Drop` the SINGLE
+/// owner of the elements' destruction obligation.
+// ⚠ THE TYPE IS NAMEABLE, THE CONSTRUCTOR IS NOT. This type is
+// `#[no_auto_drop]`, which is exactly what makes
+// `ArrayIntoIter`'s hand-written `Drop` the single owner of the elements'
+// destruction obligation — and it is therefore a LEAK BY CONSTRUCTION if
+// anyone builds one directly: MEASURED 2 values in, 0 destructor calls out,
+// rc 0. It was `pub` when this fix first landed; the round's own verify built
+// one and watched both values vanish.
+//
+// The type itself must stay `pub`: it is the type of a field of the public
+// `ArrayIntoIter`, and making it private makes every cross-package USE of a
+// legitimately-obtained iterator refuse (measured: `'ArrayIntoIterBuf' is
+// private to package 'logos.lang.array'` at the `let` AND at the `.count()`).
+// So the CONSTRUCTOR is what closes, not the name: field `a` is private, and
+// `ArrayIntoIterBuf { a: … }` from another package is refused with
+// `field 'a' is private`. Nameable, not buildable — which is the whole
+// property, because the leak needs a construction, not a mention.
+#[no_auto_drop]
+pub struct ArrayIntoIterBuf<T, const N: i64> {
+    /// The array being consumed. Elements `[0, idx)` have been yielded and are
+    /// owned by the consumer; `[idx, N)` are still owned by the iterator.
+    a: [T; N],
+}
+
 /// Owned-array iterator; yields the elements of `[T; N]` by value.
+/// On drop, the un-yielded tail `[idx, N)` is dropped and nothing else is.
 pub struct ArrayIntoIter<T, const N: i64> {
-    /// The array being consumed.
-    pub buf: [T; N],
+    /// The array being consumed (drop-glue-suppressed; see `Drop` below).
+    pub buf: ArrayIntoIterBuf<T, N>,
     /// Index of the next element to yield.
     pub idx: i64,
 }
 
 /// Converts an owned `[T; N]` array into an iterator that yields its elements by value.
 pub fn array_into_iter<T, const N: i64>(buf: [T; N]) -> ArrayIntoIter<T, N> {
-    return ArrayIntoIter::<T, N> { buf: buf, idx: 0i64 };
+    return ArrayIntoIter::<T, N> {
+        buf: ArrayIntoIterBuf::<T, N> { a: buf },
+        idx: 0i64,
+    };
+}
+
+impl<T, const N: i64> Drop for ArrayIntoIter<T, N> {
+    fn drop(self: &mut ArrayIntoIter<T, N>) {
+        // BOTH DIRECTIONS. Exactly the un-yielded tail: `[0, idx)` already
+        // belongs to the consumer (dropping it here would be the double free
+        // this fixes), `[idx, N)` belongs to nobody else (not dropping it
+        // would be the leak the fix must not trade for). `idx = N` makes the
+        // walk idempotent if the destructor is ever reached twice.
+        unsafe {
+            let base: *const T = (&self.buf.a) as *const T;
+            let mut i: i64 = self.idx;
+            while i < N {
+                let _tail: T = base[i];   // move-and-drop on scope exit
+                i = i + 1i64;
+            }
+            self.idx = N;
+        }
+    }
 }
 
 impl<T, const N: i64> Iterator<T> for ArrayIntoIter<T, N> {
@@ -38,7 +102,7 @@ impl<T, const N: i64> Iterator<T> for ArrayIntoIter<T, N> {
         // unsafe primitive that owns that responsibility (idx advances so each
         // element is yielded once).
         unsafe {
-            let base: *const T = (&self.buf) as *const T;
+            let base: *const T = (&self.buf.a) as *const T;
             let v: T = base[self.idx];
             self.idx = self.idx + 1i64;
             return Option::<T>::Some(v);

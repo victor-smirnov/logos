@@ -56,13 +56,16 @@ fn test_isize_totalord() {
 }
 
 // Adaptation of upstream `test_ord_min_max_by`. Rust's `cmp::min_by`
-// takes a `FnOnce(&T, &T) -> Ordering`; Logos's `cmp_min_by` takes
-// `fn(T, T) -> Ordering` by value. The compare fn ranks by absolute
+// takes a `FnOnce(&T, &T) -> Ordering`; Logos's `cmp_min_by` takes the
+// same shape since #114 (by value it consumed both operands and then
+// returned one of them). The compare fn ranks by absolute
 // value to verify that `min_by` returns the *original* element, not
 // the smaller-absolute one.
-fn abs_cmp(x: i32, y: i32) -> Ordering {
-    let a: i32 = if x < 0i32 { 0i32 - x } else { x };
-    let b: i32 = if y < 0i32 { 0i32 - y } else { y };
+fn abs_cmp(x: &i32, y: &i32) -> Ordering {
+    let xv: i32 = *x;
+    let yv: i32 = *y;
+    let a: i32 = if xv < 0i32 { 0i32 - xv } else { xv };
+    let b: i32 = if yv < 0i32 { 0i32 - yv } else { yv };
     if a < b { return Ordering::Less; }
     if a > b { return Ordering::Greater; }
     return Ordering::Equal;

@@ -1,0 +1,25 @@
+// CONTROL twin of dupown_array_into_iter_drop_once: a Copy payload still
+// yields the right elements in the right order (the repair changed the
+// STORAGE of ArrayIntoIter, so the value path needs its own witness).
+//
+// #116.
+
+package dupown_array_into_iter_copy_ctl;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.lang.array;
+
+fn main() -> i32 {
+    let mut it: ArrayIntoIter<i32, 4> = array_into_iter::<i32, 4>([10i32, 20i32, 30i32, 40i32]);
+    loop {
+        match it.next() {
+            Option::Some(v) => { println!("v={}", v); }
+            Option::None    => { break; }
+        }
+    }
+    let mut it2: ArrayIntoIter<i64, 3> = array_into_iter::<i64, 3>([1i64, 2i64, 3i64]);
+    println!("count={}", it2.count());
+    return 0i32;
+}

@@ -1,0 +1,30 @@
+exit: 0
+stdout:
+-- any
+DROP n=11
+DROP n=12
+DROP n=13
+any=true
+-- all
+DROP n=21
+DROP n=22
+DROP n=23
+all=false
+-- position
+DROP n=31
+DROP n=32
+DROP n=33
+pos=1
+-- fold
+DROP n=41
+DROP n=42
+DROP n=43
+fold=126
+-- for_each
+saw 51
+DROP n=51
+saw 52
+DROP n=52
+saw 53
+DROP n=53
+-- end

@@ -1,0 +1,22 @@
+// CONTROL twin of dupown_iter_consuming_pred_drop_once: with a Copy item the
+// same five consuming-predicate adapters still compute the right answers.
+// #114 narrowed the TypeVar move-marking skip to Copy-BOUNDED params; this is
+// the value-path witness that nothing else moved.
+
+package dupown_iter_consuming_pred_copy_ctl;
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+fn mkv(a: i64, b: i64, c: i64) -> Vec<i64> { let mut s: Vec<i64> = vec_new::<i64>(); s.push(a); s.push(b); s.push(c); return s; }
+fn is_two(x: i64) -> bool { return x % 10i64 == 2i64; }
+fn sum_n(acc: i64, x: i64) -> i64 { return acc + x; }
+fn shout(x: i64) { println!("saw {}", x); }
+unsafe fn main() -> i32 {
+    println!("any={}", mkv(11i64,12i64,13i64).into_iter().any(is_two));
+    println!("all={}", mkv(21i64,22i64,23i64).into_iter().all(is_two));
+    match mkv(31i64,32i64,33i64).into_iter().position(is_two) { Option::Some(i) => { println!("pos={}", i); } Option::None => { println!("pos=none"); } }
+    println!("fold={}", mkv(41i64,42i64,43i64).into_iter().fold(0i64, sum_n));
+    mkv(51i64,52i64,53i64).into_iter().for_each(shout);
+    return 0i32;
+}

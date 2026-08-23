@@ -12605,7 +12605,8 @@ sym	u8__store_set__g__pmut_PrimVec$G1$DT::Prim__u64__DT::Prim
 sym	u8__to_string__g__T
 sym	usize__to_string__g__T
 type	logos.lang.any.TypeId	fields=[lo:u64,hi:u64]
-type	logos.lang.array.ArrayIntoIter	fields=[buf:[T; N],idx:i64]
+type	logos.lang.array.ArrayIntoIter	fields=[buf:ArrayIntoIterBuf<T, N>,idx:i64]
+type	logos.lang.array.ArrayIntoIterBuf	fields=[a:[T; N]]
 type	logos.lang.ascii.AsciiChar	fields=[byte:u8]
 type	logos.lang.atomic.AtomicBool	fields=[val:i32]
 type	logos.lang.atomic.AtomicI16	fields=[val:i32]
