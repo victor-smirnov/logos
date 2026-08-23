@@ -1,0 +1,19 @@
+// The CONTROL for writ_capture_string_view.logos: the same document built from
+// a `*const u8` capture — the arm that always worked. It was green before the
+// fix and is green after. Without it, the sibling's green would say only that
+// the program compiles, not that the StringView arm specifically was repaired.
+package svcapctl;
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.rc;
+use logos.std.fmt;
+unsafe fn main() -> i32 {
+    let s: str = "hello";
+    let p: *const u8 = s.as_ptr();
+    let doc: Rc<Writ> = @{"s": $p};
+    let h: &Writ = doc.deref();
+    let root: WAny = h.root();
+    if root.is_null() { println!("NULL"); return 1i32; }
+    println!("ok");
+    return 42i32; }

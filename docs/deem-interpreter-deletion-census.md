@@ -3131,9 +3131,36 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # from asserting TWO `INNER DROP` lines to ONE. Their header said they must, and
 # the 0-vs-1 discrimination was RE-PROVEN by control revert on the post-#110
 # tree, not assumed.
-REGISTRY-ALL         7487
-REGISTRY-NOIMPORTED  3804
+REGISTRY-ALL         7489
+REGISTRY-NOIMPORTED  3806
 REGISTRY-TIERCOMMIT  45
+# 2026-08-22 (#104 — capturing a genuine stdlib `StringView` into an `@{}` writ
+# literal CRASHED THE COMPILER: rc 139, core dumped inside the verifier's own
+# diagnostic printer (`ExtractValueOp::verifyInvariantsImpl` -> `emitOpError` ->
+# `printFunctionalType`). The arm built `ExtractValue` — an operation on an
+# aggregate VALUE — against `cap_val`, which is a POINTER to the capture. The
+# neighbouring slice arm twelve lines up GEPs the SAME `cap_val` as a pointer
+# and loads through it; the two arms disagreed about what a memory-represented
+# capture is, and only one of them had ever been executed by a test. Fixed by
+# mirroring the slice idiom, with the struct's registered layout looked up
+# qualified-first and a loud refusal if it is missing.
+#
+# ⚠ THE ARM HAD NO FIXTURE AT ALL, AND THAT IS WHY IT SURVIVED. #99 cited this
+# exact call site as the live capability that argued against deleting
+# `is_string_view`, and never compiled a program that reaches it — so the
+# capability being defended had never worked. Both halves of that reasoning are
+# now pinned:
+#   tests/logos/pass/writ_capture_string_view.logos  (+ .expected, exit 42 + stdout)
+#   tests/logos/pass/writ_capture_cstr_ctl.logos     (+ .expected, the `*const u8`
+#                                                     spelling that always worked)
+# The oracle is a VALUE, not "it stopped crashing": exit 42 requires the document
+# to be built and its root non-null, which the pre-fix compiler could not produce
+# at all. Both halves bitten (exit and stdout), restore green.
+#
+# CONTROL REVERT, one stash + rebuild: `ExtractValue` back -> rc 139, core dumped;
+# restored -> md5 of mlir_gen_expr.cpp asserted equal, pair green.
+# +2 registered: 7487 -> 7489 / 3804 -> 3806 / tier_commit 45 unchanged.
+# Door pins re-derived by direct listing: 2288 = 191 + 2097, doors 36 = 10 + 26.
 # 2026-08-22 (#103 — THE `mlir_gen:` CHANNEL BECOMES FATAL. `logosc` printed its
 # OWN diagnosis that lowering had dropped a store, a call or a whole field-drop
 # chain, then printed `logosc: wrote <obj>` and EXITED 0. The line was not

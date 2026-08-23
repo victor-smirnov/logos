@@ -7040,15 +7040,46 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
                     raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
                 } else if (ctk == K::Struct && is_stdlib_string_view(ct)
                            && alloc_str_fn) {
-                    // StringView: extract ptr (field 0) and len (field 1).
-                    mlir::Value sv_ptr = builder_.create<mlir::LLVM::ExtractValueOp>(
-                        loc_, cap_val, mlir::ArrayRef<int64_t>{0});
-                    mlir::Value sv_len = builder_.create<mlir::LLVM::ExtractValueOp>(
-                        loc_, cap_val, mlir::ArrayRef<int64_t>{1});
-                    // len is u64; writ_ctr_alloc_str takes i64 — reinterpret as i64.
-                    auto i64_type = builder_.getIntegerType(64);
-                    if (sv_len.getType() != i64_type)
-                        sv_len = builder_.create<mlir::arith::BitcastOp>(loc_, i64_type, sv_len);
+                    // StringView { ptr, len }: LOAD ptr (field 0) and len
+                    // (field 1) THROUGH the capture pointer — the same idiom as
+                    // the slice arm 12 lines up, and for the same reason.
+                    //
+                    // ⚠ THIS ARM USED `ExtractValueOp` ON `cap_val`, WHICH IS A
+                    // POINTER. #104: `ExtractValue` takes an aggregate VALUE, so
+                    // the op failed the LLVM dialect verifier and logosc died in
+                    // the verifier's own diagnostic printer —
+                    // `mlir::LLVM::ExtractValueOp::verifyInvariantsImpl` ->
+                    // `emitOpError` -> `printFunctionalType`, core dumped, rc
+                    // 139, on a 15-line program that captures a genuine
+                    // `StringView` into an `@{}` literal. The neighbouring slice
+                    // arm GEPs the SAME `cap_val` as a pointer, so the two arms
+                    // disagreed about what a memory-represented capture is, and
+                    // only one of them was ever executed by a test.
+                    //
+                    // ⚠ AND NOTHING IN THE CORPUS REACHES THIS ARM. #99 cited it
+                    // as the live capability that argued against deleting
+                    // `is_string_view`, and never compiled a program that
+                    // reaches it — so the capability it was defending had never
+                    // worked. That is why this fix ships with a fixture.
+                    auto sv_t = find_struct_it(ct) != struct_types_.end()
+                              ? find_struct_it(ct)->second.llvm_type
+                              : mlir::Type{};
+                    if (!sv_t) {
+                        bug_printf("StringView capture: no registered layout for "
+                                   "'%s' — the ptr/len load has no type to walk",
+                                   std::string(type_str(ct)).c_str());
+                        return nullptr;
+                    }
+                    llvm::SmallVector<mlir::LLVM::GEPArg> svpi{int32_t(0), int32_t(0)};
+                    auto svpp = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), sv_t, cap_val, svpi);
+                    mlir::Value sv_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                        loc_, ptr_type(), svpp);
+                    llvm::SmallVector<mlir::LLVM::GEPArg> svli{int32_t(0), int32_t(1)};
+                    auto svlp = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), sv_t, cap_val, svli);
+                    mlir::Value sv_len = builder_.create<mlir::LLVM::LoadOp>(
+                        loc_, builder_.getI64Type(), svlp);
                     auto r = builder_.create<mlir::func::CallOp>(
                         loc_, alloc_str_fn, mlir::ValueRange{ctr_alloca, sv_ptr, sv_len});
                     raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;

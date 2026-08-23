@@ -490,9 +490,9 @@ PIN = {
     #   ls tests/logos/pass/*.logos | wc -l                       -> 2286
     #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
     # partition closes: 2286 = 191 + 2095. DOORS unmoved (36 = 10 + 26).
-    'corpus'            : 2286,
+    'corpus'            : 2288,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2095,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2097,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

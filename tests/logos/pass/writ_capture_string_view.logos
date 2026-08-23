@@ -1,0 +1,34 @@
+// #104 — capturing a genuine stdlib `StringView` into an `@{}` writ literal
+// CRASHED THE COMPILER: rc 139, core dumped inside the verifier's own
+// diagnostic printer (`ExtractValueOp::verifyInvariantsImpl` -> `emitOpError`
+// -> `printFunctionalType`). The arm built `ExtractValue` on `cap_val`, which
+// is a POINTER to the capture, while the neighbouring slice arm twelve lines
+// up GEPs the same `cap_val` as a pointer and loads through it. The two arms
+// disagreed about what a memory-represented capture is, and only one of them
+// was ever executed by a test.
+//
+// ⚠ THE ARM HAD NO FIXTURE AT ALL, AND THAT IS THE POINT. #99 cited it as the
+// live capability that argued against deleting `is_string_view`, and never
+// compiled a program that reaches it — so the capability being defended had
+// never worked. This file is that program.
+//
+// The oracle is a VALUE, not "it stopped crashing": exit 42 requires the
+// document to be built and its root to be non-null, which the pre-fix compiler
+// could not produce at all. The `*const u8` capture spelling — the arm that
+// always worked — is pinned beside this one as writ_capture_cstr_ctl.
+package svcap;
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstatic;
+use logos.lang.rc;
+use logos.std.fmt;
+unsafe fn main() -> i32 {
+    let s: str = "hello";
+    let sv: StringView = StringView { ptr: s.as_ptr(), len: 5u64 };
+    let doc: Rc<Writ> = @{"s": $sv};
+    let h: &Writ = doc.deref();
+    let root: WAny = h.root();
+    if root.is_null() { println!("NULL"); return 1i32; }
+    println!("ok");
+    return 42i32; }
