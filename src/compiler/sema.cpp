@@ -3846,9 +3846,47 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
         if (auto co = capture_owner_.find(n);
             co != capture_owner_.end() && frame.vars.count(co->second))
             continue;
-        if (auto* info = eligible(n))
+        // #118 — a local whose ownership at this point depends on the PATH
+        // TAKEN carries a runtime drop flag; its destructor is emitted
+        // GUARDED rather than skipped. This arm must precede `eligible`,
+        // which returns nullptr for anything in `moved_vars_` — the union
+        // merge puts a conditionally-moved local there, which is precisely
+        // how the leak was produced (`if c { k = a } else { k = b }` skipped
+        // BOTH sources, so whichever branch was not taken lost its value).
+        // ⚠ A `move`-CLOSURE CAPTURE IS NOT A CONDITIONAL MOVE, AND THIS ARM
+        // MUST YIELD TO IT. `closure_owned_drop_` marks a var whose value was
+        // moved INTO a `move` closure: it stays in `moved_vars_` on purpose,
+        // and `eligible` un-skips it so the drop is emitted UNGUARDED — the
+        // closure owns the value and the frame still destroys it exactly once.
+        // The first version of this arm sat above `eligible` and never asked,
+        // so a `move` closure inside ANY branch — `if true { … }` included, so
+        // not a path question at all — cleared its flag on the taken path and
+        // LOST the capture. MEASURED by this round's verify across eight
+        // spellings (if / if-else / match / nested / plain block containing an
+        // if / while-cond / `&&` / `||`), each EXACT before and LEAKING after,
+        // with the unconditional twins unchanged. The invariant was stated in
+        // this function's own header comment three lines above the insertion.
+        //
+        // The corpus could not catch it: all ten `move |` sites in
+        // tests/logos/pass are unconditional, and the dedicated regression
+        // fixture `move_closure_capture_drop_once.logos` puts its closure in a
+        // plain block. One `if` away from red, and green.
+        if (auto cf = frame.cond_move_flags.find(n);
+            cf != frame.cond_move_flags.end() && !closure_owned_drop_.count(n)) {
+            // ⚠ `extra_skip` is DELIBERATELY not consulted here. Its one
+            // caller passes `body_ever_moved_` — the fn-epilogue's
+            // conservative "a param moved on ANY branch gets no drop at all"
+            // rule, whose own comment names drop-flag elaboration as the
+            // proper fix and whose cost is exactly the leak this task is
+            // about. A flagged local has an EXACT runtime answer, so the
+            // conservative skip is superseded for it (and only for it).
+            if (auto vit = frame.vars.find(n); vit != frame.vars.end())
+                if (auto d = make_drop_stmt(n, vit->second))
+                    drops.push_back(guard_with_flag(cf->second, std::move(*d)));
+        } else if (auto* info = eligible(n)) {
             if (auto d = make_drop_stmt(n, *info))
                 drops.push_back(std::move(*d));
+        }
         // A closure binding's drop group: its captures drop here, in
         // capture order — even when the binding's own drop was skipped
         // (the group preserves the drop SET, fixes only the order).
@@ -3858,6 +3896,62 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
                     if (auto d = make_drop_stmt(c, *cinfo))
                         drops.push_back(std::move(*d));
     }
+}
+
+// #118 — THE CONDITIONAL-MOVE ELABORATION, shared by every branch construct
+// (if-stmt, if-expr, match-stmt, match-expr). `reaching` is the set of
+// alternative paths that arrive at the enclosing frame's scope-exit drops —
+// which is NOT the same as the non-diverging ones: a `return` branch leaves
+// the function (its moves are already accounted for at the return's own
+// unwind), while a `break`/`continue` branch still arrives, via the loop edge.
+//
+// A local moved on SOME reaching path and not others has no static ownership
+// answer, so it gets a runtime flag: true at the declaration, cleared on each
+// path that moved it, tested at the drop. Everything else is untouched — a
+// local moved on EVERY reaching path keeps today's static suppression, and a
+// local moved on none keeps today's unguarded drop. Cost is therefore one i8
+// and one branch per CONDITIONALLY-moved local, zero for the rest.
+void SemaChecker::elaborate_cond_moves(const std::set<std::string>& pre,
+                                       std::vector<CondMoveBranch>& reaching) {
+    if (reaching.size() < 2) return;
+    std::set<std::string> cand;
+    for (auto& b : reaching)
+        for (auto& n : b.moves)
+            if (!pre.count(n)) cand.insert(n);
+    for (auto& n : cand) {
+        bool all = true;
+        for (auto& b : reaching) if (!b.moves.count(n)) { all = false; break; }
+        // Moved on every reaching path AND not already flagged by an inner
+        // merge: the union suppression is exact, leave it alone.
+        if (all && !has_cond_move_flag(n)) continue;
+        std::string fl = cond_move_flag_for(n);
+        if (fl.empty()) continue;
+        for (auto& b : reaching) {
+            if (!b.moves.count(n)) continue;
+            bool handled = false;
+            for (size_t i = b.clear_mark; i < b.clear_end && i < flag_clear_log_.size(); ++i)
+                if (flag_clear_log_[i] == n) { handled = true; break; }
+            if (handled) continue;   // an inner merge inside this branch did it
+            if (b.blk)      splice_flag_clear(*b.blk, cond_move_clear_stmt(fl));
+            else if (b.val) *b.val = append_stmt_to_value(*b.val,
+                                                          cond_move_clear_stmt(fl));
+            flag_clear_log_.push_back(n);
+        }
+    }
+}
+
+// #118 — `if <flag> { <drop> }`. const like its only caller (emit_frame_drops
+// and the three collect_* walks); the builder writes through cur_prog_, which
+// is a pointer, exactly as make_drop_stmt above already does.
+lir_view::StmtRef SemaChecker::guard_with_flag(const std::string& flag,
+                                               lir_view::StmtRef d) const {
+    auto* self = const_cast<SemaChecker*>(this);
+    lir::SIf sif;
+    sif.cond = self->builder().var_ref(flag, self->prim(LogosType::Kind::Bool));
+    std::vector<lir_view::StmtRef> b;
+    b.push_back(std::move(d));
+    sif.then_ = lir_mirror_block(*cur_prog_, b);
+    return self->make_stmt_emit(node_line_, std::move(sif));
 }
 
 std::vector<lir_view::StmtRef> SemaChecker::collect_drops() const {

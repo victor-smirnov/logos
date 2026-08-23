@@ -1,0 +1,48 @@
+package cond_move_loop_exit_ctl;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+/// HEAP-OWNING payload. The `Vec` is what makes the oracle bite: a second
+/// destructor call on the same value is a genuine double free (glibc aborts),
+/// a missing one a genuine leak. Every conditional move already in the corpus
+/// carries a Copy payload, which is exactly why 3844 green tests could hold
+/// this defect — the counting oracle below is the only thing that sees it.
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay {
+    fn drop(self: Pay) { pr("D%ld ", self.n); }
+}
+fn mk(n: i64) -> Pay {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(n);
+    pr("M%ld ", n);
+    return Pay { n: n, v: v };
+}
+fn consume(p: Pay) -> i64 { return p.n; }
+
+/// #118 CONTROL for `cond_move_loop_exit`: the same loop with NO move inside
+/// (nothing to flag), and an unconditional consume before the loop (moved on
+/// every path — static suppression, no flag). Counts must be unchanged.
+fn ctlNoMove(c: bool) {
+    let a: Pay = mk(1); let b: Pay = mk(2);
+    let mut i: i64 = 0;
+    while i < 1 as i64 {
+        if c { pr("i=%ld ", a.n); break; }
+        i = i + 1 as i64;
+    }
+    pr("b=%ld ", b.n);
+}
+fn ctlUncondConsume() {
+    let a: Pay = mk(1); let b: Pay = mk(2);
+    pr("u=%ld ", consume(a));
+    pr("b=%ld ", b.n);
+}
+unsafe fn main() -> i32 {
+    ps("Z+ "); ctlNoMove(true);  ps("\n");
+    ps("Z- "); ctlNoMove(false); ps("\n");
+    ps("U "); ctlUncondConsume(); ps("\n");
+    return 0;
+}

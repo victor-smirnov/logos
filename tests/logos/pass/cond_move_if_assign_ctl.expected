@@ -1,0 +1,5 @@
+B+ M1 M0 D0 k=1 D1 
+B- M1 M0 D0 k=1 D1 
+N M1 M0 D0 k=1 D1 
+Z+ M1 M0 M7 D0 k=7 a=1 D7 D1 
+Z- M1 M0 M8 D0 k=8 a=1 D8 D1 

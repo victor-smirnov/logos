@@ -1,0 +1,75 @@
+package cond_move_if_expr;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+/// HEAP-OWNING payload. The `Vec` is what makes the oracle bite: a second
+/// destructor call on the same value is a genuine double free (glibc aborts),
+/// a missing one a genuine leak. Every conditional move already in the corpus
+/// carries a Copy payload, which is exactly why 3844 green tests could hold
+/// this defect — the counting oracle below is the only thing that sees it.
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay {
+    fn drop(self: Pay) { pr("D%ld ", self.n); }
+}
+fn mk(n: i64) -> Pay {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(n);
+    pr("M%ld ", n);
+    return Pay { n: n, v: v };
+}
+fn consume(p: Pay) -> i64 { return p.n; }
+struct Holder { p: Pay }
+
+/// #118 cell B — `let k: Pay = if c { a } else { b };`. Before the fix this
+/// ABORTED (rc 134, `free(): double free detected in tcache 2`): the
+/// if-expression lowering marked NOTHING moved, so both arm sources kept their
+/// scope-exit destructors AND `k` — a bitwise copy of whichever arm slot the
+/// pointer-select yielded — got its own. Three destructor calls, two values.
+fn cellB(c: bool) {
+    let a: Pay = mk(1); let b: Pay = mk(2);
+    let k: Pay = if c { a } else { b };
+    pr("k=%ld ", k.n);
+}
+
+/// cell R — nested if-expressions; the inner merge arms the flag, the outer
+/// must leave it alone.
+fn cellR(c: bool, d: bool) {
+    let a: Pay = mk(1); let b: Pay = mk(2); let e: Pay = mk(3);
+    let k: Pay = if c { if d { a } else { b } } else { e };
+    pr("k=%ld ", k.n);
+}
+
+/// cell N — the if-expression assigned to an EXISTING local (drop-before-
+/// replace on the destination, drop flag on the sources).
+fn cellN(c: bool) {
+    let a: Pay = mk(1); let b: Pay = mk(2); let mut k: Pay = mk(0);
+    k = if c { a } else { b };
+    pr("k=%ld ", k.n);
+}
+
+/// cell O — the if-expression written into a FIELD. This one exited 0 while
+/// calling four destructors for three values: the worst cell in the sweep and
+/// the one no exit-code gate can see.
+fn cellO(c: bool) {
+    let a: Pay = mk(1); let b: Pay = mk(2);
+    let mut h: Holder = Holder { p: mk(0) };
+    h.p = if c { a } else { b };
+    pr("k=%ld ", h.p.n);
+}
+
+unsafe fn main() -> i32 {
+    ps("B+ "); cellB(true);  ps("\n");
+    ps("B- "); cellB(false); ps("\n");
+    ps("R++ "); cellR(true, true);  ps("\n");
+    ps("R+- "); cellR(true, false); ps("\n");
+    ps("R- "); cellR(false, true);  ps("\n");
+    ps("N+ "); cellN(true);  ps("\n");
+    ps("N- "); cellN(false); ps("\n");
+    ps("O+ "); cellO(true);  ps("\n");
+    ps("O- "); cellO(false); ps("\n");
+    return 0;
+}

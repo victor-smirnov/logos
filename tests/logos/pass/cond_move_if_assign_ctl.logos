@@ -1,0 +1,53 @@
+package cond_move_if_assign_ctl;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+/// HEAP-OWNING payload. The `Vec` is what makes the oracle bite: a second
+/// destructor call on the same value is a genuine double free (glibc aborts),
+/// a missing one a genuine leak. Every conditional move already in the corpus
+/// carries a Copy payload, which is exactly why 3844 green tests could hold
+/// this defect — the counting oracle below is the only thing that sees it.
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay {
+    fn drop(self: Pay) { pr("D%ld ", self.n); }
+}
+fn mk(n: i64) -> Pay {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(n);
+    pr("M%ld ", n);
+    return Pay { n: n, v: v };
+}
+fn consume(p: Pay) -> i64 { return p.n; }
+
+/// #118 CONTROL for `cond_move_if_assign`. Same shapes with the move made
+/// UNCONDITIONAL across the reaching paths — no drop flag is armed at all, so
+/// this pins the OTHER direction: the elaboration must not add a second
+/// destructor call where the static answer was already exact.
+fn ctlBoth(c: bool) {
+    let a: Pay = mk(1); let mut k: Pay = mk(0);
+    // `a` moves on EVERY reaching path: definitely moved, no flag.
+    if c { k = a; } else { k = a; }
+    pr("k=%ld ", k.n);
+}
+fn ctlNoBranch() {
+    let a: Pay = mk(1); let mut k: Pay = mk(0);
+    k = a;
+    pr("k=%ld ", k.n);
+}
+fn ctlNoMove(c: bool) {
+    let a: Pay = mk(1); let mut k: Pay = mk(0);
+    if c { k = mk(7); } else { k = mk(8); }
+    pr("k=%ld ", k.n); pr("a=%ld ", a.n);
+}
+unsafe fn main() -> i32 {
+    ps("B+ "); ctlBoth(true);  ps("\n");
+    ps("B- "); ctlBoth(false); ps("\n");
+    ps("N "); ctlNoBranch();   ps("\n");
+    ps("Z+ "); ctlNoMove(true);  ps("\n");
+    ps("Z- "); ctlNoMove(false); ps("\n");
+    return 0;
+}

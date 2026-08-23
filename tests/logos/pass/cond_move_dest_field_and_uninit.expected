@@ -1,0 +1,4 @@
+L+ M1 M2 M0 D0 k=1 D1 D2 
+L- M1 M2 M0 D0 k=2 D2 D1 
+Q+ M1 M2 k=1 D1 D2 
+Q- M1 M2 k=2 D2 D1 

@@ -501,9 +501,20 @@ PIN = {
     # previous line. The DOOR counts are unmoved (36 = 10 + 26): none of the 23
     # declares a container family — they are stdlib destructor-count fixtures over
     # Vec / Option / iterator adapters.
-    'corpus'            : 2319,
+    # ⚠ RE-DERIVED at the #118 conditional-move-drop-flag stage. 12 PASS
+    # fixtures added — six `cond_move_*` cells of the path lattice and their six
+    # `_ctl` twins — and none matches the `wql_*` / `deem_*` glob, so the whole
+    # delta lands in `nonglob`: 2319 + 12 = 2331 = 191 + 2140, and 2128 + 12 =
+    # 2140. Both halves RE-DERIVED BY DIRECT FILE LISTING
+    # (`ls tests/logos/pass/*.logos` = 2331,
+    #  `ls tests/logos/pass/{wql_*,deem_*}.logos` = 191), never by adding 12 to
+    # the previous line. The round added NO fail fixture — it landed a FIX, not a
+    # refusal — so the fail corpus is unmoved. DOOR counts unmoved (36 = 10 + 26):
+    # none of the 12 declares a container family or a `direct` output form; they
+    # are destructor-count fixtures over a heap-owning `struct Pay`.
+    'corpus'            : 2331,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2128,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2140,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

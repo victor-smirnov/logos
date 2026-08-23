@@ -1,0 +1,42 @@
+package cond_move_reinit_and_param_ctl;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+/// HEAP-OWNING payload. The `Vec` is what makes the oracle bite: a second
+/// destructor call on the same value is a genuine double free (glibc aborts),
+/// a missing one a genuine leak. Every conditional move already in the corpus
+/// carries a Copy payload, which is exactly why 3844 green tests could hold
+/// this defect — the counting oracle below is the only thing that sees it.
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay {
+    fn drop(self: Pay) { pr("D%ld ", self.n); }
+}
+fn mk(n: i64) -> Pay {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(n);
+    pr("M%ld ", n);
+    return Pay { n: n, v: v };
+}
+fn consume(p: Pay) -> i64 { return p.n; }
+
+/// #118 CONTROL for `cond_move_reinit_and_param`: re-init on BOTH paths (no
+/// move at all), and a param consumed UNCONDITIONALLY / never. Neither arms a
+/// flag, and each value is still destroyed exactly once.
+fn ctlReinitBoth(c: bool) {
+    let mut k: Pay = mk(0);
+    if c { k = mk(8); } else { k = mk(9); }
+    pr("k=%ld ", k.n);
+}
+fn ctlEatAlways(p: Pay) { pr("u=%ld ", consume(p)); }
+fn ctlEatNever(p: Pay)  { pr("n=%ld ", p.n); }
+unsafe fn main() -> i32 {
+    ps("R+ "); ctlReinitBoth(true);  ps("\n");
+    ps("R- "); ctlReinitBoth(false); ps("\n");
+    ps("A "); ctlEatAlways(mk(4)); ps("\n");
+    ps("N "); ctlEatNever(mk(5));  ps("\n");
+    return 0;
+}

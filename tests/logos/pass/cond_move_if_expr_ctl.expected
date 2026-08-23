@@ -1,0 +1,5 @@
+V+ M1 k=1 D1 
+V- M2 k=2 D2 
+K M1 k=1 D1 
+S+ M1 k=1 D1 
+S- M1 k=1 D1 

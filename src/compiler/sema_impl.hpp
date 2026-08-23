@@ -2571,8 +2571,30 @@ private:
         // statement down to AND INCLUDING this one. Set by lower_block when
         // pending_loop_body_scope_ is armed by the loop lowering.
         bool loop_boundary = false;
+        // #118 — the frame `lower_block` pushes for a `{ ... }` statement
+        // list. Only such a frame HAS a statement list to splice a hidden
+        // `let` into, so it is the only kind that can host a drop flag; every
+        // other frame (params, a match arm, an if-expression branch) retargets
+        // to its nearest block frame.
+        bool block_frame = false;
+        // #118 — CONDITIONAL-MOVE DROP FLAGS. A local moved on SOME reaching
+        // path and not on others has an ownership state that is not a static
+        // fact, so its scope-exit destructor needs a runtime carrier. Maps the
+        // local's name to the name of the hidden `bool` that carries it (true
+        // = still owned). Lives in the frame that DECLARES the local, so it
+        // dies with that frame — a sibling block that reuses the name is not
+        // confused by it, and the flag `let` is always in scope at the drop.
+        logos::compiler::StrMap<std::string> cond_move_flags;
     };
     std::vector<Frame> scope_;
+    // #118 — hidden `let mut __df_N: bool = true;` statements waiting to be
+    // spliced into the block of the frame whose local they guard. The move
+    // that needs a flag is discovered at a BRANCH MERGE, arbitrarily deep
+    // inside the statement being lowered, while the flag must be declared in
+    // the ENCLOSING block of the local it guards — `lower_block` flushes the
+    // entries addressed to its own frame just before it appends the statement
+    // that produced them, so the declaration always precedes every use.
+    std::vector<std::pair<size_t, lir_view::StmtRef>> pending_frame_lets_;
     // Phase-1 string-interning: per-function dense variable SLOT counter. Each
     // call to define() (let / param / pattern / for / closure binding — the
     // single registrar) hands out the next slot; the final value is the
@@ -2796,6 +2818,145 @@ private:
         // ever-set, NOT just the post-merge moved_vars_. (Proper fix is
         // B8-style drop-flag elaboration extended to params — tracked.)
         body_ever_moved_.insert(name);
+    }
+
+    // #118 — allocate (once) the drop flag for a conditionally-moved local,
+    // declaring it in the frame that OWNS the local. Returns "" when no flag
+    // is possible or needed: a dotted field path, a name not visible in a live
+    // frame below a closure boundary, or a local whose scope exit runs no
+    // destructor at all (nothing to guard). Idempotent per (frame, name): an
+    // inner merge that already armed the flag makes every enclosing merge a
+    // no-op, which is what keeps `if c { if d { consume(a); } }` to ONE flag
+    // and one clear.
+    std::string cond_move_flag_for(const std::string& name) {
+        if (name.find('.') != std::string::npos) return {};
+        size_t fi = SIZE_MAX;
+        for (size_t i = scope_.size(); i-- > 0; ) {
+            if (scope_[i].vars.count(name)) { fi = i; break; }
+            if (scope_[i].closure_boundary) return {};
+        }
+        if (fi == SIZE_MAX) return {};
+        // The flag DECLARATION must land in a statement list that encloses
+        // both every clear and the guarded drop. That is the nearest block
+        // frame at or below the declaring frame — or, for the params frame
+        // (which has none below it), the function's body block just above.
+        size_t target = SIZE_MAX;
+        for (size_t j = fi + 1; j-- > 0; )
+            if (scope_[j].block_frame) { target = j; break; }
+        if (target == SIZE_MAX)
+            for (size_t j = fi + 1; j < scope_.size(); ++j)
+                if (scope_[j].block_frame) { target = j; break; }
+        if (target == SIZE_MAX) return {};
+        auto& fr = scope_[fi];
+        if (auto it = fr.cond_move_flags.find(name); it != fr.cond_move_flags.end())
+            return it->second;
+        auto vit = fr.vars.find(name);
+        if (vit == fr.vars.end()) return {};
+        const VarInfo& info = vit->second;
+        bool droppable = info.type &&
+            (TypeRef(info.type).owning_trait_object() ||
+             (info.owning_dyn &&
+              TypeRef(info.type).kind() == LogosType::Kind::TraitObject) ||
+             !drop_fn_for(info.type).empty() || has_droppable_fields(info.type));
+        if (!droppable || !cur_prog_) return {};
+        std::string fl = std::format("__df_{}", tmp_var_count_++);
+        lir::SLet sl;
+        sl.name = fl;
+        sl.type = prim(LogosType::Kind::Bool);
+        sl.is_mut = true;
+        sl.value = builder().lit_bool(true, prim(LogosType::Kind::Bool));
+        pending_frame_lets_.emplace_back(target, make_stmt_emit(node_line_, std::move(sl)));
+        fr.cond_move_flags[name] = fl;
+        return fl;
+    }
+
+    // Every local for which a flag CLEAR has been spliced, in emission order.
+    // A merge snapshots its size before lowering a branch: the names appended
+    // while that branch was lowered are the ones an INNER merge already
+    // handled inside it, and must not be cleared a second time at the outer
+    // merge (the inner clear is conditional on the inner path; an outer one
+    // would fire on the whole branch).
+    std::vector<std::string> flag_clear_log_;
+    bool has_cond_move_flag(const std::string& name) const {
+        for (size_t i = scope_.size(); i-- > 0; ) {
+            if (scope_[i].cond_move_flags.count(name)) return true;
+            if (scope_[i].vars.count(name)) return false;
+            if (scope_[i].closure_boundary) return false;
+        }
+        return false;
+    }
+
+    // Wrap a drop in `if <flag> { ... }` (see cond_move_flag_for).
+    lir_view::StmtRef guard_with_flag(const std::string& flag,
+                                      lir_view::StmtRef d) const;
+
+    // One alternative path through a branch construct that REACHES the
+    // enclosing frame's scope-exit drops. `blk` is null for a synthesised
+    // fall-through (a missing `else`, an unmatched tail) — such a path moves
+    // nothing, so it never needs a clear spliced into it.
+    struct CondMoveBranch {
+        std::vector<lir_view::StmtRef>* blk = nullptr;
+        // An EXPRESSION-form arm (match-expr / if-expr) has no statement list
+        // to splice into; its clear is appended by rebuilding the arm value as
+        // `{ let t = <val>; __df = false; t }`.
+        lir::LExprPtr*                  val = nullptr;
+        std::set<std::string> moves;
+        size_t clear_mark = 0;   // flag_clear_log_ size before this branch
+        size_t clear_end  = 0;   // ... and after it
+    };
+    void elaborate_cond_moves(const std::set<std::string>& pre,
+                              std::vector<CondMoveBranch>& reaching);
+
+    // #118 — append a statement AFTER an expression's evaluation without
+    // changing its value: `{ let t = <v>; <s>; t }`. Used to clear a drop flag
+    // on an expression-form arm, where there is no statement list to splice
+    // into. Same shape lower_match_expr already uses for its arm drops.
+    lir::LExprPtr append_stmt_to_value(lir::LExprPtr v, lir_view::StmtRef st) {
+        TypeRef vt = v ? TypeRef(expr_type(v)) : TypeRef(void_t());
+        std::vector<lir_view::StmtRef> blk;
+        if (!v || TypeRef(vt).kind() == LogosType::Kind::Void) {
+            if (v) {
+                lir::SExprStmt es; es.expr = std::move(v);
+                blk.push_back(make_stmt_emit(node_line_, std::move(es)));
+            }
+            blk.push_back(std::move(st));
+            return builder().block_expr(lir_mirror_block(*cur_prog_, blk),
+                                        nullptr, vt);
+        }
+        std::string tmp = std::format("__dfv_{}", tmp_var_count_++);
+        lir::SLet sl;
+        sl.name = tmp; sl.type = vt; sl.is_mut = false; sl.value = std::move(v);
+        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        blk.push_back(std::move(st));
+        return builder().block_expr(lir_mirror_block(*cur_prog_, blk),
+                                    builder().var_ref(tmp, vt), vt);
+    }
+
+    // `__df_N = false;` — emitted on the path that performed the move.
+    lir_view::StmtRef cond_move_clear_stmt(const std::string& flag) {
+        lir::SAssign sa;
+        sa.name  = flag;
+        sa.value = builder().lit_bool(false, prim(LogosType::Kind::Bool));
+        return make_stmt_emit(node_line_, std::move(sa));
+    }
+
+    // Splice a flag clear into a branch's statement list, BEFORE a trailing
+    // `return`/`break`/`continue` (and before the drop glue lower_block
+    // already inserted ahead of it) — appending after a terminator would be
+    // dead code, and the loop-exit path is exactly the one that needs it.
+    void splice_flag_clear(std::vector<lir_view::StmtRef>& blk,
+                           lir_view::StmtRef clear) const {
+        using C = lir_schema::stmt::Code;
+        size_t at = blk.size();
+        while (at > 0) {
+            auto br = stmt_ref_of(blk[at - 1]);
+            if (!br) break;
+            auto k = br.kind();
+            if (k == C::Return || k == C::Break || k == C::Continue ||
+                k == C::Drop) { --at; continue; }
+            break;
+        }
+        blk.insert(blk.begin() + (ptrdiff_t)at, std::move(clear));
     }
 
     // Writing a move-type RHS into a memory cell (deref, indexed, field, …)

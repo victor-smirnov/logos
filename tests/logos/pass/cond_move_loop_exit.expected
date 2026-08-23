@@ -1,0 +1,4 @@
+H+ M1 M2 D1 u=1 b=2 D2 
+H- M1 M2 b=2 D2 D1 
+G+ M1 M2 D1 u=1 D2 
+G- M1 M2 b=2 D2 D1 

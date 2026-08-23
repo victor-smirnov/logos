@@ -1,0 +1,4 @@
+D-L M1 M2 M0 D0 k=1 D1 D2 
+D-R M1 M2 M0 D0 k=2 D2 D1 
+E-L M1 M2 k=1 D1 D2 
+E-R M1 M2 k=2 D2 D1 

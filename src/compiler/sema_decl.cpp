@@ -626,6 +626,11 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // locals never leaked (distinct scopes/names), which masked this.
     moved_vars_.clear();
     body_ever_moved_.clear();  // §7.1: reset ever-moved per fn (consulted in param-drop)
+    // #118: drop-flag bookkeeping is per-function too. A leftover pending
+    // `let` would be spliced into an unrelated body, and a leftover clear-log
+    // entry would suppress a needed clear.
+    pending_frame_lets_.clear();
+    flag_clear_log_.clear();
     closure_drop_group_.clear();  // capture-drop groups are per-fn (name-keyed)
     capture_owner_.clear();
     pending_closure_capture_drops_.clear();

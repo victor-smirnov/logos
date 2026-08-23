@@ -1,0 +1,9 @@
+B+ M1 M2 k=1 D1 D2 
+B- M1 M2 k=2 D2 D1 
+R++ M1 M2 M3 k=1 D1 D3 D2 
+R+- M1 M2 M3 k=2 D2 D3 D1 
+R- M1 M2 M3 k=3 D3 D2 D1 
+N+ M1 M2 M0 D0 k=1 D1 D2 
+N- M1 M2 M0 D0 k=2 D2 D1 
+O+ M1 M2 M0 D0 k=1 D1 D2 
+O- M1 M2 M0 D0 k=2 D2 D1 

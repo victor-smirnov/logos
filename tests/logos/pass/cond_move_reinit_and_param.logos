@@ -1,0 +1,58 @@
+package cond_move_reinit_and_param;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+/// HEAP-OWNING payload. The `Vec` is what makes the oracle bite: a second
+/// destructor call on the same value is a genuine double free (glibc aborts),
+/// a missing one a genuine leak. Every conditional move already in the corpus
+/// carries a Copy payload, which is exactly why 3844 green tests could hold
+/// this defect — the counting oracle below is the only thing that sees it.
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay {
+    fn drop(self: Pay) { pr("D%ld ", self.n); }
+}
+fn mk(n: i64) -> Pay {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(n);
+    pr("M%ld ", n);
+    return Pay { n: n, v: v };
+}
+fn consume(p: Pay) -> i64 { return p.n; }
+
+/// #118 cell K — a move in one arm and a RE-INIT in the other. On the re-init
+/// path the local is live again and must be destroyed; on the move path it must
+/// not be.
+fn cellK(c: bool) {
+    let a: Pay = mk(1); let mut k: Pay = mk(0);
+    if c { k = a; } else { k = mk(9); }
+    pr("k=%ld ", k.n);
+}
+
+/// cell S — a conditional move with NO destination at all (`consume` eats it).
+fn cellS(c: bool) {
+    let a: Pay = mk(1);
+    if c { pr("u=%ld ", consume(a)); }
+}
+
+/// #118 — the PARAM case. `body_ever_moved_` used to suppress the fn-epilogue
+/// drop of any param moved on ANY branch ("conservative skip (sound, may leak
+/// on the non-move path)"); its own comment named drop-flag elaboration as the
+/// proper fix. The flag is exact, so it now supersedes that skip. This is the
+/// shape the stdlib actually contains (`HashMap::get_or_insert`).
+fn eatMaybe(p: Pay, c: bool) {
+    if c { pr("u=%ld ", consume(p)); }
+}
+
+unsafe fn main() -> i32 {
+    ps("K+ "); cellK(true);  ps("\n");
+    ps("K- "); cellK(false); ps("\n");
+    ps("S+ "); cellS(true);  ps("\n");
+    ps("S- "); cellS(false); ps("\n");
+    ps("P+ "); eatMaybe(mk(4), true);  ps("\n");
+    ps("P- "); eatMaybe(mk(5), false); ps("\n");
+    return 0;
+}

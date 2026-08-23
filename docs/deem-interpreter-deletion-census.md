@@ -3275,8 +3275,8 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # `ctest -N`. Pins re-derived BY DIRECT FILE LISTING, not by arithmetic:
 # tests/logos/pass/*.logos 2311 -> 2319, tests/logos/fail/*.expected 787 -> 790,
 # tests/logos/*.sh 65 -> 65.
-REGISTRY-ALL         7527
-REGISTRY-NOIMPORTED  3844
+REGISTRY-ALL         7539
+REGISTRY-NOIMPORTED  3856
 REGISTRY-TIERCOMMIT  46
 # 2026-08-22 (#104 — capturing a genuine stdlib `StringView` into an `@{}` writ
 # literal CRASHED THE COMPILER: rc 139, core dumped inside the verifier's own
@@ -6170,6 +6170,175 @@ REGISTRY-TIERCOMMIT  46
 #     fixture used to carry as a commented NON-assertion; that comment is now a
 #     real `if t.0.v != 42i64 { return 9; }` in
 #     tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos)
+
+# 2026-08-23 (#118 — CONDITIONAL MOVE GETS DROP FLAGS. The two shapes #112's
+# ledger left open with repros ("both need drop flags … that is a mechanism, not
+# a patch, and it is not this round's") are closed here, together with three
+# more roots the sweep that priced them turned up.
+#
+# THE DEFECT, MEASURED. `moved_vars_` (sema_impl.hpp) is per-function,
+# per-NAME, flow-sensitive and PATH-INSENSITIVE: every branch construct merges
+# its arms by UNION (sema_stmt.cpp lower_if / lower_match / lower_match_expr),
+# and `emit_frame_drops` (sema.cpp) consults that union to decide whether to
+# emit a destructor at all — a name in it produces NO `SDrop` node. So
+# `if c { k = a; } else { k = b; }` put BOTH `a` and `b` in the union and
+# emitted neither drop: whichever branch did not run lost its value. rc 0, no
+# diagnostic, exactly one heap-owning value leaked per execution. Symmetrically
+# `let k: Pay = if c { a } else { b };` marked NOTHING moved — `lower_if_expr`
+# (sema_expr.cpp) had no `mark_moved` at all, while its match twin did — so
+# both arms kept their destructors AND `k`, a bitwise copy of whichever arm slot
+# the pointer-select yielded, got its own: three calls for two values,
+# `free(): double free detected in tcache 2`, rc 134.
+#
+# THE LATTICE, SWEPT. {if/else, if-no-else, match 2+ arms, loop with a
+# conditional move, early return, break/continue after a move, nested
+# conditionals, move-in-one-arm-reinit-in-the-other} x {assign to a local, `let`
+# from the expression, a field, an element} x {taken, not taken}, with a
+# counting oracle (destructor calls vs values created) over a heap-owning
+# `struct Pay { n: i64, v: Vec<i64> }`. 18 cells + 6 controls, all under
+# /home/logos/sandbox/df118 and re-derived here before any edit. FIVE distinct
+# roots, not one:
+#   R1 the union merge (cells A C D E J K L Q S) — silent leak, rc 0.
+#   R2 `lower_if_expr` marks nothing (cells B N O R) — rc 134, EXCEPT cell O
+#      (if-expr into a FIELD) which double-frees and EXITS 0. Not a
+#      path-sensitivity defect at all: `let k = if true { a } else { mk(9) }`
+#      aborted with a CONSTANT condition and a single named source.
+#   R3 `branch_diverges` lumps `break`/`continue` with `return` (cell H) — the
+#      branch's moves were discarded, but control DOES reach the enclosing
+#      frame's drops via the loop edge, so the moved-out heap was re-freed.
+#   R4 `gen_index_write` (mlir_gen_stmt.cpp) has no drop-before-replace at all:
+#      `arr[0] = mk(1)` leaks with NO branch and NO move. INDEPENDENT of #118,
+#      NOT FIXED HERE, and the reason cell M still shows one leaked value.
+#   R5 = #113, and it is a DIFFERENT ROOT — see below.
+#
+# THE MECHANISM. Runtime drop flags, Rust's drop elaboration, built entirely out
+# of statements the L-IR already has — no `lir_schema::stmt::Code` change, no
+# new node kind. For a local moved on SOME reaching path and not others:
+#   * `let mut __df_N: bool = true;` spliced into the block of the frame that
+#     DECLARES the local (`pending_frame_lets_`, flushed by `lower_block` just
+#     before it appends the statement that armed it; params retarget to the
+#     function body block, arm scopes to their enclosing block);
+#   * `__df_N = false;` spliced into every reaching path that moved it — before
+#     a trailing terminator, so the loop-exit path gets it (that is R3);
+#   * `if __df_N { <drop> }` at the scope exit, in place of today's silent skip.
+# `elaborate_cond_moves` (sema.cpp) is the ONE implementation, called from all
+# four branch constructs. Expression-form arms have no statement list, so their
+# clear is appended by rebuilding the arm value as `{ let t = <val>; __df =
+# false; t }` — the same shape `lower_match_expr` already uses for arm drops.
+# Idempotence is per (frame, name) plus a `flag_clear_log_` window per branch,
+# so a nested merge arms ONE flag and the enclosing merge adds nothing.
+#
+# ⚠ AND IT SUPERSEDES A NAMED WORKAROUND. `sema_decl.cpp`'s fn-epilogue passed
+# `body_ever_moved_` as `extra_skip` — "a param that was EVER moved (on any
+# branch) … Conservative skip (sound, may leak on the non-move path). Proper fix
+# = B8-style drop-flag elaboration extended to params." That leak is this task's
+# leak; the flag arm in `emit_frame_drops` deliberately does not consult
+# `extra_skip`, and the comment saying why is at the site. `HashMap::
+# get_or_insert` is the stdlib shape it fixes.
+#
+# WHAT IS NOT REPRESENTABLE, STATED PLAINLY: nothing was refused. An earlier
+# reading held that a source-side flag needs a new LIR statement so mlir-gen can
+# see the move site (there is no Move/Kill code among the 23). It does not — the
+# flag is an ordinary `bool` local and the clear an ordinary `SAssign`, both
+# emitted by sema. The B8 destination-side flag (`uninit_drop_flag_`,
+# mlir_gen_stmt.cpp) is untouched and composes with this one: cell Q drops the
+# destination once by the B8 flag and the unused source once by the new one.
+#
+# THE COST, MEASURED, INTERLEAVED IN ONE PROCESS. Old and new `logosc` binaries
+# built from the same tree, run A/B/A/B per fixture against the SAME stdlib
+# archives so the compiler is the only variable; 158 fixtures (150 sampled from
+# tests/logos/pass + the 12 new, 4 non-compiling under both), 3 reps.
+#   compile time  old 183009 / 182645 / 183581 ms   new 182402 / 182913 / 183451
+#                 mean delta -156 ms on 183 s = -0.09%: NOISE, not a saving.
+#   object bytes  old 5441120  new 5443848  = +2728 (+0.050%), IDENTICAL across
+#                 all three reps.
+#   ⚠ AND WHERE THOSE BYTES ARE: the 150 PRE-EXISTING corpus fixtures are
+#     BYTE-IDENTICAL, every one. All +2728 sit in the six new #118 fixtures
+#     (+848 if_expr, +560 if_assign, +544 match, +432 dest_field_and_uninit,
+#     +288 reinit_and_param, +40 loop_exit) and +16 in one control. The cost is
+#     confined to programs that CONTAIN a conditional move of a droppable value,
+#     and the corpus contained none — which is the premise this task opened with.
+#   stdlib      `liblogos-lang.a` rebuilt by both binaries, interleaved, same
+#               -L: old 11517164 -> new 11520644 = +3480 B (+0.030%); 21008 vs
+#               20860 ms (rep 1), 20991 vs 21259 (rep 2) — noise.
+#               ⚠ NOT MEASURED: the `lcm`/`mem`/`std` layers. Built out of tree
+#               they fail under BOTH binaries identically ("metaprog hook lookup
+#               … Symbols not found"), which is a module-ordering artefact of the
+#               invocation, not a signal; rather than report a number I could not
+#               produce the same way for both sides, the gap is named here.
+# A per-scope bitmap and a static "prove the flag unnecessary" analysis were both
+# rejected on the sweep's own evidence: cells A/D/J/L have BOTH paths moving
+# DIFFERENT sources, which is precisely the case no static answer resolves.
+#
+# THE RED LIST, MEASURED BY RUNNING, not predicted: ZERO. Measured on the fixed
+# compiler with the whole stdlib rebuilt by it, BEFORE the fixtures were added
+# (so the numbers are about the change, not about the change plus its tests):
+# L1 740/740, L2 2406/2406, `ctest -L fail` 1456/1456, `ctest -L pass -LE
+# imported` 2493/2493. Not one program that compiled before stopped compiling,
+# and not one green fixture changed its answer. AFTER the twelve fixtures and
+# the two pin edits: L1 740/740, L2 2415/2415, `ctest -L fail` 1456/1456,
+# `ctest -L pass -LE imported` 2505/2505, all 21 logos_00 lints green, and the
+# three census gates green (logos_00_census_pin, logos_09_plan_ground_census,
+# logos_09_direct_door_census).
+#
+# ── ABI ─────────────────────────────────────────────────────────────────────
+# scripts/abi-check.sh: ADDED 0, VERDICT ABI-PRESERVING; sym 12601, type 370,
+# vtable 123, schema 2 — all four unchanged against origin/main, and the differ's
+# own canaries caught. The drop flag is a FUNCTION-LOCAL `bool`: it changes no
+# signature, no field list and no layout, so no version bump is due and none was
+# made. abi_closure_gate OK (479 records, 165 edges, 2 exemptions, 3 canaries).
+#
+# THE FIXTURES — six PAIRS, each cell asserting an EXACT destructor multiset on
+# BOTH paths, each with a `_ctl` twin whose move is unconditional (or absent) so
+# the other direction is pinned too:
+#   tests/logos/pass/cond_move_if_assign.logos            (cells A, C, J)
+#   tests/logos/pass/cond_move_if_assign_ctl.logos
+#   tests/logos/pass/cond_move_if_expr.logos              (cells B, R, N, O)
+#   tests/logos/pass/cond_move_if_expr_ctl.logos
+#   tests/logos/pass/cond_move_match.logos                (cells D, E)
+#   tests/logos/pass/cond_move_match_ctl.logos
+#   tests/logos/pass/cond_move_loop_exit.logos            (cells H, G)
+#   tests/logos/pass/cond_move_loop_exit_ctl.logos
+#   tests/logos/pass/cond_move_dest_field_and_uninit.logos  (cells L, Q)
+#   tests/logos/pass/cond_move_dest_field_and_uninit_ctl.logos
+#   tests/logos/pass/cond_move_reinit_and_param.logos     (cells K, S, param)
+#   tests/logos/pass/cond_move_reinit_and_param_ctl.logos
+# BITE-PROVED BY CONTROL REVERT, not by argument: `git checkout -- src/compiler`,
+# FULL REBUILD (ctest links prebuilt archives — a revert that is not built proves
+# nothing), `ctest -R cond_move` -> 7 of 12 RED. The six defect fixtures all red;
+# five of the six controls stay GREEN, which is their job (they assert the
+# behaviour that must NOT change). The sixth, `cond_move_if_expr_ctl`, reds on
+# its `ctlConst` leg — `let k = if true { a } else { mk(9) }`, rc 134 pre-fix —
+# and that is the leg that proves R2 was never about path-sensitivity. The patch
+# was then re-applied, rebuilt, and `ctest -R cond_move` returned 12/12 GREEN
+# before anything else was measured.
+#
+# #113 IS NOT THIS ROOT, and the program that decides it is a PAIR:
+#   * `let a: Pay = mk(1); let a: Pay = mk(2);` — ZERO branches, ZERO moves,
+#     still leaks the first (with a type change, drops NOTHING). `moved_vars_`
+#     is empty throughout; there is no merge and no `lower_if_expr` involved, so
+#     #118 cannot explain it. Its root is that the scope frame is keyed by NAME:
+#     sema_impl.hpp's declare pushes `var_order` only when the name is NEW and
+#     OVERWRITES `vars[name]`, so `emit_frame_drops` emits one drop per NAME
+#     describing the LATEST binding and the first is unreachable from the drop
+#     set — even though a fresh dense SLOT was allocated for it.
+#   * `let a = mk(1); if c { consume(a); }` with c=false — ZERO shadowing, one
+#     name, one slot, and it leaked before this change.
+# Neither is explicable by the other's root and the fix sites are disjoint. #113
+# STAYS OPEN; it is measured green-adjacent here only in the sense that its
+# controls (inner-scope shadow, plain re-assignment) are correct and stay so.
+#
+# LEFT OPEN, WITH THE MEASUREMENT: R4 above. `gen_index_write` emits no
+# drop-before-replace, so `arr[0] = v` destroys nothing it overwrites —
+# `let mut arr: [Pay; 2] = …; arr[0] = mk(1);` leaks the original with no branch
+# and no move at all, and `sema` has no `lower_index_write` drop_old hint (only
+# the field path, sema_stmt.cpp, has one). Independent of everything here.
+#
+# +12 registered: 7527 -> 7539 / 3844 -> 3856 / tier_commit 46 -> 46.
+# PREDICTED BEFORE RECONFIGURE as 12 pass + 0 fail + 0 gates = 7539, verified by
+# `ctest -N`. Pins re-derived BY DIRECT FILE LISTING, not by arithmetic:
+# tests/logos/pass/*.logos 2319 -> 2331, tests/logos/pass/*.expected 2314 ->
+# 2326, tests/logos/fail/*.expected 790 -> 790, tests/logos/*.sh 65 -> 65.
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class
 # column records how each row was PRICED before the deletion, so the loss ledger

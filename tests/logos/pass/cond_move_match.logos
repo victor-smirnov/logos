@@ -1,0 +1,50 @@
+package cond_move_match;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+/// HEAP-OWNING payload. The `Vec` is what makes the oracle bite: a second
+/// destructor call on the same value is a genuine double free (glibc aborts),
+/// a missing one a genuine leak. Every conditional move already in the corpus
+/// carries a Copy payload, which is exactly why 3844 green tests could hold
+/// this defect — the counting oracle below is the only thing that sees it.
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay {
+    fn drop(self: Pay) { pr("D%ld ", self.n); }
+}
+fn mk(n: i64) -> Pay {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(n);
+    pr("M%ld ", n);
+    return Pay { n: n, v: v };
+}
+fn consume(p: Pay) -> i64 { return p.n; }
+enum Sel { L, R }
+
+/// #118 cell D — a two-arm `match` assigning to an existing local. Same union
+/// merge, same silent leak of whichever source the taken arm did not use.
+fn cellD(s: Sel) {
+    let a: Pay = mk(1); let b: Pay = mk(2); let mut k: Pay = mk(0);
+    match s { Sel::L => { k = a; } Sel::R => { k = b; } }
+    pr("k=%ld ", k.n);
+}
+
+/// cell E — the same shape in EXPRESSION form (`let k = match … { … }`). The
+/// arm value is a move (lower_match_expr already marked it), so the union
+/// suppressed both sources' destructors.
+fn cellE(s: Sel) {
+    let a: Pay = mk(1); let b: Pay = mk(2);
+    let k: Pay = match s { Sel::L => a, Sel::R => b };
+    pr("k=%ld ", k.n);
+}
+
+unsafe fn main() -> i32 {
+    ps("D-L "); cellD(Sel::L); ps("\n");
+    ps("D-R "); cellD(Sel::R); ps("\n");
+    ps("E-L "); cellE(Sel::L); ps("\n");
+    ps("E-R "); cellE(Sel::R); ps("\n");
+    return 0;
+}

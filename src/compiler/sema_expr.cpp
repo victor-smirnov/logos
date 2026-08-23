@@ -16030,6 +16030,19 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         // order `lower_expr_temp_scoped` uses for a temp scope. When the branch
         // declares nothing droppable this is byte-identical to the old shape.
         auto finish = [&](lir::LExprPtr res, TypeRef rt) -> lir::LExprPtr {
+            // #118 R2 — THE ARM VALUE IS A MOVE, and this lowering never said
+            // so. `lower_match_expr` marks its arm value moved
+            // (sema_stmt.cpp, `mark_moved_in_expr_recursive` before
+            // `collect_drops`); the if-expression twin marked nothing, so
+            // `let k = if c { a } else { b }` left BOTH `a` and `b` unmoved:
+            // the enclosing frame dropped them at scope exit AND dropped `k`,
+            // which is a bitwise copy of whichever arm slot the select
+            // yielded — three destructor calls for two values, `free():
+            // double free detected in tcache 2`, rc 134. Marking here makes
+            // the if-expression's arm behave exactly like a match arm's.
+            if (res && TypeRef(expr_type(res)).kind() != LogosType::Kind::Error &&
+                TypeRef(expr_type(res)).kind() != LogosType::Kind::Never)
+                mark_moved_in_expr_recursive(expr_ref_of(res));
             auto drops = collect_drops();
             if (drops.empty()) {
                 pop_scope();
@@ -16056,19 +16069,78 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         return finish(std::move(result), rt);
     };
 
+    // #118 R2 — per-branch move tracking, the same save / restore / union
+    // merge `lower_match_expr` and `lower_if` (stmt form) already run. The
+    // arms are ALTERNATIVES: each starts from the pre-state, and the merge is
+    // the union over the non-diverging ones (a var moved on any reaching path
+    // is maybe-moved after).
+    auto ifx_pre_moves = moved_vars_;
+    std::set<std::string> ifx_post_moves;
+    bool ifx_any_non_diverging = false;
+    std::set<std::string> ifx_then_moves, ifx_else_moves;
+    // #118 — the two arms as reaching paths, for drop-flag elaboration.
+    std::vector<CondMoveBranch> ifx_reaching;
+    size_t ifx_then_mark = flag_clear_log_.size(), ifx_then_end = ifx_then_mark;
+    size_t ifx_else_mark = ifx_then_mark,          ifx_else_end = ifx_then_mark;
+    bool ifx_then_div = false, ifx_else_div = false;
+    auto ifx_merge = [&](const lir::LExprPtr& v, std::set<std::string>& into) {
+        into = moved_vars_;
+        if (v && TypeRef(expr_type(v)).kind() == LogosType::Kind::Never) return true;
+        ifx_any_non_diverging = true;
+        for (auto& m : moved_vars_) ifx_post_moves.insert(m);
+        return false;
+    };
+
     if (node.has_key(la::THEN)) {
         auto then_node = map_of(node.get(la::THEN.code));
+        moved_vars_ = ifx_pre_moves;
+        ifx_then_mark = flag_clear_log_.size();
         if (code_of(then_node) == la::BLOCK)
             then_val = lower_block_last_expr(then_node);
-        else
+        else {
             then_val = lower_expr_temp_scoped(then_node);
+            if (then_val &&
+                TypeRef(expr_type(then_val)).kind() != LogosType::Kind::Error &&
+                TypeRef(expr_type(then_val)).kind() != LogosType::Kind::Never)
+                mark_moved_in_expr_recursive(expr_ref_of(then_val));
+        }
+        ifx_then_end = flag_clear_log_.size();
+        ifx_then_div = ifx_merge(then_val, ifx_then_moves);
+    } else {
+        ifx_then_moves = ifx_pre_moves;
+        ifx_any_non_diverging = true;
+        for (auto& m : ifx_pre_moves) ifx_post_moves.insert(m);
     }
 
     auto else_node = map_of(node.get(la::ELSE.code));
+    moved_vars_ = ifx_pre_moves;
+    ifx_else_mark = flag_clear_log_.size();
     if (code_of(else_node) == la::BLOCK)
         else_val = lower_block_last_expr(else_node);
-    else
+    else {
         else_val = lower_expr_temp_scoped(else_node);
+        if (else_val &&
+            TypeRef(expr_type(else_val)).kind() != LogosType::Kind::Error &&
+            TypeRef(expr_type(else_val)).kind() != LogosType::Kind::Never)
+            mark_moved_in_expr_recursive(expr_ref_of(else_val));
+    }
+    ifx_else_end = flag_clear_log_.size();
+    ifx_else_div = ifx_merge(else_val, ifx_else_moves);
+
+    moved_vars_ = ifx_any_non_diverging ? ifx_post_moves : ifx_pre_moves;
+
+    // #118 — a source moved by only ONE arm keeps its destructor, guarded.
+    // Both arms are value positions, so the clear is appended by rebuilding
+    // the arm value (`append_stmt_to_value`); this must happen BEFORE the
+    // result-type unification below reads `expr_type(then_val)`, and the
+    // rebuild preserves that type exactly.
+    if (!ifx_then_div)
+        ifx_reaching.push_back({nullptr, &then_val, ifx_then_moves,
+                                ifx_then_mark, ifx_then_end});
+    if (!ifx_else_div)
+        ifx_reaching.push_back({nullptr, &else_val, ifx_else_moves,
+                                ifx_else_mark, ifx_else_end});
+    elaborate_cond_moves(ifx_pre_moves, ifx_reaching);
 
     // Determine result type: pick the more concrete type when IntLit vs concrete int.
     // A diverging (Never) branch contributes no type — the if-expression's type

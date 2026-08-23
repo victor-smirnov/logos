@@ -1,0 +1,45 @@
+package cond_move_match_ctl;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+/// HEAP-OWNING payload. The `Vec` is what makes the oracle bite: a second
+/// destructor call on the same value is a genuine double free (glibc aborts),
+/// a missing one a genuine leak. Every conditional move already in the corpus
+/// carries a Copy payload, which is exactly why 3844 green tests could hold
+/// this defect — the counting oracle below is the only thing that sees it.
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay {
+    fn drop(self: Pay) { pr("D%ld ", self.n); }
+}
+fn mk(n: i64) -> Pay {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(n);
+    pr("M%ld ", n);
+    return Pay { n: n, v: v };
+}
+fn consume(p: Pay) -> i64 { return p.n; }
+enum Sel { L, R }
+
+/// #118 CONTROL for `cond_move_match`: the same source moved by EVERY arm
+/// (definitely moved — no flag), and arms that build their own values (nothing
+/// moved at all). Both counts must be unchanged by the elaboration.
+fn ctlEveryArm(s: Sel) {
+    let a: Pay = mk(1); let mut k: Pay = mk(0);
+    match s { Sel::L => { k = a; } Sel::R => { k = a; } }
+    pr("k=%ld ", k.n);
+}
+fn ctlRvalueArms(s: Sel) {
+    let k: Pay = match s { Sel::L => mk(1), Sel::R => mk(2) };
+    pr("k=%ld ", k.n);
+}
+unsafe fn main() -> i32 {
+    ps("A-L "); ctlEveryArm(Sel::L); ps("\n");
+    ps("A-R "); ctlEveryArm(Sel::R); ps("\n");
+    ps("V-L "); ctlRvalueArms(Sel::L); ps("\n");
+    ps("V-R "); ctlRvalueArms(Sel::R); ps("\n");
+    return 0;
+}

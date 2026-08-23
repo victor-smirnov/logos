@@ -1,0 +1,53 @@
+package cond_move_dest_field_and_uninit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+/// HEAP-OWNING payload. The `Vec` is what makes the oracle bite: a second
+/// destructor call on the same value is a genuine double free (glibc aborts),
+/// a missing one a genuine leak. Every conditional move already in the corpus
+/// carries a Copy payload, which is exactly why 3844 green tests could hold
+/// this defect — the counting oracle below is the only thing that sees it.
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay {
+    fn drop(self: Pay) { pr("D%ld ", self.n); }
+}
+fn mk(n: i64) -> Pay {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(n);
+    pr("M%ld ", n);
+    return Pay { n: n, v: v };
+}
+fn consume(p: Pay) -> i64 { return p.n; }
+struct Holder { p: Pay }
+
+/// #118 cell L — the destination is a FIELD, not a local. The flag lives on
+/// the SOURCE, so the destination spelling is irrelevant; before the fix the
+/// untaken branch's source leaked exactly as for a local destination.
+fn cellL(c: bool) {
+    let a: Pay = mk(1); let b: Pay = mk(2);
+    let mut h: Holder = Holder { p: mk(0) };
+    if c { h.p = a; } else { h.p = b; }
+    pr("k=%ld ", h.p.n);
+}
+
+/// cell Q — a destination declared WITHOUT an initializer. The B8 dynamic flag
+/// on the DESTINATION was already exact (it drops `k` once); this pins that the
+/// new SOURCE-side flag composes with it instead of replacing it.
+fn cellQ(c: bool) {
+    let a: Pay = mk(1); let b: Pay = mk(2);
+    let mut k: Pay;
+    if c { k = a; } else { k = b; }
+    pr("k=%ld ", k.n);
+}
+
+unsafe fn main() -> i32 {
+    ps("L+ "); cellL(true);  ps("\n");
+    ps("L- "); cellL(false); ps("\n");
+    ps("Q+ "); cellQ(true);  ps("\n");
+    ps("Q- "); cellQ(false); ps("\n");
+    return 0;
+}
