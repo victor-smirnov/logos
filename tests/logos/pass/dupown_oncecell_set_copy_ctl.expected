@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+first ok
+err 4
+kept 3
+is_set=true

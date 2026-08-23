@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+is_set=false
+get=None
+ptr_null=true
+lazy built, never forced

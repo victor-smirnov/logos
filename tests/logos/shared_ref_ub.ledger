@@ -131,6 +131,7 @@ stdlib/lcm/sync/sync.logos	RwLock	axis_rwlock
 # FORMAT: `<repo-relative path>\t<Name>\t<axis id | ->`  (TAB-separated)
 TRANSITIVE
 stdlib/lang/cell/cell.logos	LazyCell	axis_lazycell
+stdlib/lang/cell/cell.logos	OnceCellTakeGuard	-
 stdlib/lang/fabric/fabric.logos	Buffer	-
 stdlib/lang/writ/objdata.logos	WritObjectData	-
 stdlib/lcm/deem/data/bt/cow.logos	LeafDirNode	-
@@ -144,6 +145,19 @@ stdlib/mem/bt/memstore.logos	SnapDesc	-
 stdlib/mem/deem/tpl.logos	Tpl	-
 stdlib/mem/sync/arc.logos	ArcInner	-
 stdlib/std/io/bytes/bytes.logos	BytesInner	-
+#
+# 2026-08-23 — `OnceCellTakeGuard` (logos.lang.cell) APPEARS here, added by #119.
+# REVIEWED and intended. It is a `#[no_auto_drop]` sole-field wrapper holding a
+# `OnceCell<T>` BY VALUE, so the field recursion reaches the INTERIOR root
+# `OnceCell` and the row is the recursion working. Its whole job is to be the
+# single owner for the length of `OnceCell::into_inner`: the value is read out of
+# `storage` by a raw read and the cell's field glue must not then destroy it a
+# second time (MEASURED before the fix: one destructor line printed TWICE, rc 0,
+# silent). Non-Freeze is the RIGHT answer for it — a `&OnceCellTakeGuard` earning
+# noalias+readonly would be as wrong as it is for the `OnceCell` inside. It takes
+# no axis: it is not `pub`, appears in no public signature, and has no `&T`
+# parameter anywhere in the tree, so an axis would be a standing gate over a
+# surface that does not exist.
 #
 # ── SECTION `LAUNDER` ────────────────────────────────────────────────────────
 # Per-file count of the const->mut laundering shape in stdlib — the shape the

@@ -1,0 +1,52 @@
+// `OnceCell::set` destroys the SEEDED `T::default()` it overwrites — exactly
+// once, and the rejected second value exactly once.
+//
+// #119 leak half. `once_cell_new` seeds `storage` with `T::default()`; that
+// value is OWNED. `set` then wrote the new value over it with a raw store,
+// which runs no destructor. MEASURED BEFORE THE FIX: fresh cell, one `set`,
+// k=2 values in, ONE destructor call out (`DROP n=0` never ran); a second
+// `set`, k=3, two out. The seed leaked on every call.
+//
+// AN UNSET CELL STILL OWNS ITS SEED — the `n=0` lines below are the value
+// `once_cell_new` constructed, not noise, and a fix that drops the double-drop
+// half while leaking these trades one defect for the other.
+
+package dupown_oncecell_set_drop_once;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cell;
+use logos.mem.collections.vec;
+
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+impl Default for Inner {
+    fn default() -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(0i64); return Inner { n: 0i64, v: v }; }
+}
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+// 5 values constructed below (2 seeds + 3 set arguments); 5 destructor lines pinned.
+fn main() -> i32 {
+    println!("-- A set once, cell dies SET. k=2");
+    {
+        let c: OnceCell<Inner> = once_cell_new::<Inner>();
+        let _r = c.set(mk(1i64));
+        println!("set ok, cell alive");
+    }
+    println!("-- B second set is REJECTED and hands the value back. k=3");
+    {
+        let c: OnceCell<Inner> = once_cell_new::<Inner>();
+        match c.set(mk(3i64)) {
+            Result::Ok(_)  => { println!("first ok"); }
+            Result::Err(_) => { println!("UNEXPECTED first err"); }
+        }
+        match c.set(mk(4i64)) {
+            Result::Ok(_)  => { println!("UNEXPECTED second ok"); }
+            Result::Err(v) => { println!("err {}", v.n); }
+        }
+        println!("cell still holds 3");
+    }
+    println!("-- end");
+    return 0i32;
+}

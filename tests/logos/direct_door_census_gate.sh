@@ -512,9 +512,23 @@ PIN = {
     # refusal — so the fail corpus is unmoved. DOOR counts unmoved (36 = 10 + 26):
     # none of the 12 declares a container family or a `direct` output form; they
     # are destructor-count fixtures over a heap-owning `struct Pay`.
-    'corpus'            : 2331,
+    # ⚠ RE-DERIVED at the #119 OnceCell stage. 11 PASS fixtures added — five
+    # `dupown_oncecell_*`/`dupown_lazycell_*_drop_once` destructor-count cells,
+    # their five `_copy_ctl` twins, and `ptr_drop_in_place_recurses` (the admit
+    # half of the corrected `ptr::drop_in_place` promise) — and none matches the
+    # `wql_*` / `deem_*` glob, so the whole delta lands in `nonglob`:
+    # 2331 + 11 = 2342 = 191 + 2151, and 2140 + 11 = 2151. Both halves
+    # RE-DERIVED BY DIRECT FILE LISTING (`ls tests/logos/pass/*.logos` = 2342,
+    # `ls tests/logos/pass/{wql_*,deem_*}.logos` = 191), never by adding 11 to
+    # the previous line. The round also added ONE fail fixture
+    # (`ptr_drop_in_place_needs_unsafe_fail`, the refuse half of that promise),
+    # which this gate does not count. DOOR counts unmoved (36 = 10 + 26): none
+    # of the 11 declares a container family or a `direct` output form; they are
+    # destructor-count fixtures over `OnceCell`/`LazyCell` with a heap-owning
+    # `struct Inner { n, Vec<i64> }`.
+    'corpus'            : 2342,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2140,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2151,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

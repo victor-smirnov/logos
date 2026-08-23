@@ -1,0 +1,16 @@
+exit: 0
+stdout:
+-- A force twice: init runs once, seed dies once, value dies once. k=2
+mk9 ran
+DROP n=0
+v1=9
+v2=9
+DROP n=9
+-- B two lazy cells, one forced one not: three values, three deaths. k=3
+mk11 ran
+DROP n=0
+a=11
+b left unforced
+DROP n=0
+DROP n=11
+-- end

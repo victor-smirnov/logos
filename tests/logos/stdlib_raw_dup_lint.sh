@@ -84,7 +84,14 @@
 #   B   raw-ptr field index: `let val: T = self.<rawptrfield>[i];`
 #                  — vec.logos x6, deque.logos x2. All sound TODAY, and sound
 #                    because of a reconciling `Drop`, which is what FACT 6 pins.
-#   C   raw deref: `let old: T = *p;` — cell.logos x6, slice.logos x1. UNMEASURED.
+#   C   raw deref: `let old: T = *p;` — cell.logos x6, slice.logos x1. One of the
+#                  six is now MEASURED and pinned: `OnceCell::into_inner` (#119)
+#                  was a live silent double drop in exactly this spelling — k=2,
+#                  one destructor line printed TWICE, rc 0 — repaired by moving
+#                  `self` into a private `#[no_auto_drop]` guard so the read has
+#                  a single owner, and held by
+#                  tests/logos/pass/dupown_oncecell_into_inner_drop_once. The
+#                  other five, and slice.logos's, remain UNMEASURED.
 # FACT 6 covers the OBLIGATION side of A'/B (the reconciling Drop) for the
 # yielder families it can name; it does not cover C, and it does not cover an
 # owning yielder whose name is outside those four suffixes. The instrument that

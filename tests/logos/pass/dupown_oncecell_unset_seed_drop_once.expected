@@ -1,0 +1,14 @@
+exit: 0
+stdout:
+-- A built, never touched, dies unset. k=1
+built
+DROP n=0
+-- B read-only surface hands out no ownership. k=1
+is_set=false
+get=None
+ptr_null=true
+DROP n=0
+-- C a LazyCell that is never forced also dies owning its seed. k=1
+lazy built, never forced
+DROP n=0
+-- end

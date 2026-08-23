@@ -31,6 +31,11 @@ use logos.lang.default;
 use logos.lang.clone;
 use logos.lang.panic;
 use logos.lang.drop;
+// `ptr::drop_in_place` — `OnceCell::{set, get_or_init}` destroy the seeded
+// `T::default()` they are about to overwrite. `logos.lang.ptr` imports only
+// `logos.lang.option`, which this module already imports, so the edge is
+// cycle-free.
+use logos.lang.ptr;
 
 // `#[repr(transparent)]` — same layout / ABI as `T`. Required for
 // `UnsafeCell::from_mut` to be a sound `&mut T → &mut UnsafeCell<T>`
@@ -464,6 +469,24 @@ pub fn refcell_take<T: Default>(c: &RefCell<T>) -> T {
 
 /// Provides write-once interior mutability: set once via `&self`, then read-only.
 /// Construct with `once_cell_new` (bears the `T: Default` bound that seeds storage).
+///
+/// ── OWNERSHIP INVARIANT (#119) ───────────────────────────────────────
+/// `storage` ALWAYS holds exactly ONE live `T`: the `T::default()` seed while
+/// `present` is false, the set value afterwards. Never zero, never two.
+///
+/// Two consequences, and every method here is written to keep them:
+///   * A method that OVERWRITES storage (`set`, `get_or_init`) must destroy the
+///     value it is overwriting first — the write is a raw bitwise store and does
+///     not run a destructor. Omitting that leaked the seed on every call
+///     (MEASURED: fresh cell, one `set`, k=2 values in, ONE destructor out).
+///   * A method that MOVES the value OUT (`into_inner`) must suppress the cell's
+///     own field glue for the rest of that scope, or the glue destroys the value
+///     the caller now owns (MEASURED: k=2, the same destructor line printed
+///     TWICE, the seed's never, rc 0 — silent). `OnceCellTakeGuard` below is that
+///     suppression.
+/// Because the invariant is total, the compiler's ordinary field glue is correct
+/// on every OTHER path — a cell that dies unset destroys its seed exactly once,
+/// and that is not a special case, it is the invariant holding.
 pub struct OnceCell<T> {
     storage: UnsafeCell<T>,
     present: UnsafeCell<bool>,
@@ -475,6 +498,32 @@ pub fn once_cell_new<T: Default>() -> OnceCell<T> {
         storage: UnsafeCell::new(T::default()),
         present: UnsafeCell::new(false),
     };
+}
+
+// Drop-glue suppressor for `OnceCell::into_inner`, and for nothing else.
+//
+// `into_inner` moves the stored `T` out of `self.storage` with a raw read. After
+// that read the cell must NOT run its field glue: the glue would destroy the very
+// value just handed to the caller. Moving `self` into a `#[no_auto_drop]` wrapper
+// removes the compiler as a second owner for the rest of the scope, leaving the
+// caller as the single owner of the returned `T`.
+//
+// Three deliberate properties, each one a measured lesson:
+//   * NOT `pub`, and it appears in no public signature — it is a local of one
+//     function. So it is neither nameable nor constructible outside this module and
+//     cannot become a leak-by-construction type of its own (#116 measured exactly
+//     that: 2 values into a publicly-constructible `#[no_auto_drop]` wrapper, 0
+//     destructor calls out).
+//   * SOLE FIELD, on purpose. A `#[no_auto_drop]` field standing beside a
+//     GENERIC-struct sibling is silently un-suppressed by today's compiler
+//     (MEASURED: sibling `i64` or a non-generic struct → 0 drops as declared;
+//     sibling `UnsafeCell<bool>` or any `MyGen<X>` → 1 drop, the suppression
+//     defeated). That defect is why `OnceCell` itself is not the wrapper.
+//   * It is used ONLY on the `present == true` path. On the unset path `self`
+//     drops normally, so the seed is destroyed exactly once.
+#[no_auto_drop]
+struct OnceCellTakeGuard<T> {
+    cell: OnceCell<T>,
 }
 
 impl<T> OnceCell<T> {
@@ -501,11 +550,17 @@ impl<T> OnceCell<T> {
     }
 
     /// Sets the value if unset; returns `Err(value)` when already set.
+    ///
+    /// The seeded `T::default()` currently in storage is destroyed first: the
+    /// store below is a raw bitwise write and runs no destructor, so without this
+    /// the seed leaked on every call (MEASURED: k=2 values in, ONE destructor out;
+    /// a second `set`, k=3, still two).
     pub fn set(&self, value: T) -> Result<(), T> {
         unsafe {
             if *self.present.get() {
                 return Result::<(), T>::Err(value);
             }
+            drop_in_place::<T>(self.storage.get());
             *self.storage.get() = value;
             *self.present.get() = true;
             return Result::<(), T>::Ok(());
@@ -513,10 +568,18 @@ impl<T> OnceCell<T> {
     }
 
     /// Returns the value, initialising it with `f()` first if unset.
+    ///
+    /// Destroys the seeded `T::default()` before overwriting it, for the reason
+    /// spelled out on `set`. `LazyCell::force` is a one-line delegate to this
+    /// method and inherits the repair with no edit of its own.
     pub fn get_or_init(&self, f: fn() -> T) -> &T {
         unsafe {
             if !*self.present.get() {
-                *self.storage.get() = f();
+                // `f()` runs BEFORE the seed is destroyed, so storage never holds a
+                // destroyed value across a call the cell does not control.
+                let v: T = f();
+                drop_in_place::<T>(self.storage.get());
+                *self.storage.get() = v;
                 *self.present.get() = true;
             }
             return &*self.storage.get();
@@ -524,10 +587,17 @@ impl<T> OnceCell<T> {
     }
 
     /// Consumes the cell, returning `Some(value)` if set, `None` otherwise.
+    ///
+    /// Set: the value moves out and the caller owns it — the cell's field glue is
+    /// suppressed for the rest of this scope by `OnceCellTakeGuard`, so nothing
+    /// destroys it a second time. Unset: `self` drops normally and its seeded
+    /// `T::default()` is destroyed exactly once.
     pub fn into_inner(self: OnceCell<T>) -> Option<T> {
         if self.is_set() {
+            // Single-owner handoff: from here on the compiler owns nothing.
+            let hold: OnceCellTakeGuard<T> = OnceCellTakeGuard::<T> { cell: self };
             unsafe {
-                let v: T = *self.storage.get();
+                let v: T = *hold.cell.storage.get();
                 return Option::Some(v);
             }
         }

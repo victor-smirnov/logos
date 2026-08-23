@@ -1,0 +1,21 @@
+exit: 0
+stdout:
+-- A control: ManuallyDrop alone destroys NOTHING
+wrapped, not dropped
+-- B user impl Drop: one line
+DROP inner n=2
+after
+-- C NO own Drop, droppable FIELD: the field glue RECURSES
+DROP inner n=3
+after
+-- D two levels of field-only droppability
+DROP inner n=4
+after
+-- E own Drop AND a droppable field: BOTH run, outer first
+DROP both n=5
+DROP inner n=5
+after
+-- F reference control: ordinary scope-exit glue on the same shape
+built
+DROP inner n=6
+-- end

@@ -1,0 +1,1 @@
+error [fn main]: call to unsafe function 'drop_in_place' requires unsafe context

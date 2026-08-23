@@ -1,0 +1,30 @@
+// COPY-PAYLOAD CONTROL for dupown_oncecell_unset_seed_drop_once.
+// An unset cell with a non-droppable payload: the read-only surface must answer
+// exactly as before the repair, and the cell must die without incident.
+package dupown_oncecell_unset_seed_copy_ctl;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cell;
+
+// NOTE: the init fn is a local `zero`, not `i64::default`. Taking a BUILTIN
+// type's trait-impl method as a fn-pointer VALUE does not lower today —
+// `lazy_cell_new::<i64>(zero)` self-diagnoses
+// "undefined 'logos.lang.default.i64__default__f__void'" and the compile fails.
+// A user type's `Inner::default` in the droppable twin lowers fine. That gap is
+// unrelated to #119 and is not what this control measures.
+fn zero() -> i64 { return 0i64; }
+
+fn main() -> i32 {
+    let c: OnceCell<i64> = once_cell_new::<i64>();
+    println!("is_set={}", c.is_set());
+    match c.get() {
+        Option::Some(r) => { println!("UNEXPECTED some {}", *r); }
+        Option::None    => { println!("get=None"); }
+    }
+    println!("ptr_null={}", c.get_ptr() == (0 as *const i64));
+    let l: LazyCell<i64> = lazy_cell_new::<i64>(zero);
+    println!("lazy built, never forced");
+    return 0i32;
+}

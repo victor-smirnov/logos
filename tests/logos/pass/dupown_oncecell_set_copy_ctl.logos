@@ -1,0 +1,27 @@
+// COPY-PAYLOAD CONTROL for dupown_oncecell_set_drop_once.
+// `set` gained a `drop_in_place` of the seed; with `T = i64` that must be a
+// no-op that changes neither the stored value nor the rejected-value handback.
+package dupown_oncecell_set_copy_ctl;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cell;
+
+fn main() -> i32 {
+    let c: OnceCell<i64> = once_cell_new::<i64>();
+    match c.set(3i64) {
+        Result::Ok(_)  => { println!("first ok"); }
+        Result::Err(_) => { println!("UNEXPECTED first err"); }
+    }
+    match c.set(4i64) {
+        Result::Ok(_)  => { println!("UNEXPECTED second ok"); }
+        Result::Err(v) => { println!("err {}", v); }
+    }
+    match c.get() {
+        Option::Some(r) => { println!("kept {}", *r); }
+        Option::None    => { println!("UNEXPECTED none"); }
+    }
+    println!("is_set={}", c.is_set());
+    return 0i32;
+}

@@ -1,0 +1,62 @@
+// `OnceCell::into_inner` destroys the stored value EXACTLY ONCE — set, set with
+// the result discarded, and unset.
+//
+// #119 — MEASURED BEFORE THE FIX, on this exact shape: `k=2` values constructed
+// (the `T::default()` seed `once_cell_new` writes into storage, plus the value
+// handed to `set`), and the SET arm printed `DROP n=1` TWICE while `DROP n=0`
+// never ran at all, rc 0 — silent, no abort. Two opposite errors in one type:
+// `into_inner` read the value out of storage the cell still owned (double drop)
+// and `set` overwrote the seed bitwise (leak).
+//
+// THE ORACLE IS A DESTRUCTOR COUNT, BOTH DIRECTIONS: for a program that
+// constructs exactly k droppable values the executed destructor calls must be
+// exactly k — `>k` is a double free, `<k` is a leak, and "it stopped crashing"
+// sees neither. This arc has twice watched a fix trade the double drop for a
+// leak of the seed, which is why the seed's `DROP n=0` is pinned on every arm.
+// The payload OWNS HEAP (`Vec<i64>`) and PRINTS on destruction: both halves are
+// load-bearing.
+
+package dupown_oncecell_into_inner_drop_once;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cell;
+use logos.mem.collections.vec;
+
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+impl Default for Inner {
+    fn default() -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(0i64); return Inner { n: 0i64, v: v }; }
+}
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+// 5 values constructed below (3 seeds + 2 set values); 5 destructor lines pinned.
+fn main() -> i32 {
+    println!("-- A set, into_inner, result bound. k=2");
+    {
+        let c: OnceCell<Inner> = once_cell_new::<Inner>();
+        let _r = c.set(mk(1i64));
+        match c.into_inner() {
+            Option::Some(x) => { println!("got {}", x.n); }
+            Option::None    => { println!("none"); }
+        }
+    }
+    println!("-- B set, into_inner, result DISCARDED. k=2");
+    {
+        let c: OnceCell<Inner> = once_cell_new::<Inner>();
+        let _r = c.set(mk(2i64));
+        let _o: Option<Inner> = c.into_inner();
+        println!("discarded");
+    }
+    println!("-- C into_inner on an UNSET cell: None, and the seed dies once. k=1");
+    {
+        let c: OnceCell<Inner> = once_cell_new::<Inner>();
+        match c.into_inner() {
+            Option::Some(x) => { println!("got {}", x.n); }
+            Option::None    => { println!("none"); }
+        }
+    }
+    println!("-- end");
+    return 0i32;
+}

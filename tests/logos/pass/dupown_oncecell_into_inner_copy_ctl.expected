@@ -1,0 +1,5 @@
+exit: 0
+stdout:
+A got 7
+B none
+C got 0

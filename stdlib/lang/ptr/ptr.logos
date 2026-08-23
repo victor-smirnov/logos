@@ -131,14 +131,39 @@ pub unsafe fn replace<T>(dst: *mut T, src: T) -> T {
     }
 }
 
-/// Executes the pointee's `Drop` in place, leaving the storage untouched.
+/// Destroys the value at `p` in place, leaving the storage bytes untouched.
 ///
-/// Runs only a user `impl Drop`; fields are NOT recursively dropped (Logos
-/// explicit-`Drop` convention). The storage must not be read or re-dropped after.
-// Run `T`'s Drop without affecting the storage. Caller is responsible
-// for the storage afterwards (no read / no re-drop). Lowers to a
-// regular `let _ = read(p);` so the borrow checker triggers the drop
-// at the end of the statement — equivalent observable effect.
+/// ── WHAT IT PROMISES ─────────────────────────────────────────────────────
+/// Runs `T`'s FULL destructor, exactly as scope exit would: a user
+/// `impl Drop for T` if there is one, AND the recursive field/element glue.
+/// MEASURED (#119, both directions): `T = Inner` with its own printing `Drop`
+/// → one destructor line; `T = Outer { tag: i64, s: Inner }` with NO `Drop` of
+/// its own but a droppable field → `Inner`'s destructor still runs, one line,
+/// identical to `Outer`'s ordinary scope-exit glue.
+///
+/// ⚠ THE PARAGRAPH THAT USED TO BE HERE SAID THE OPPOSITE — "runs only a user
+/// `impl Drop`; fields are NOT recursively dropped" — and a two-line probe
+/// falsified it. #112 found three comments in this tree claiming "only for
+/// Copy" and a probe falsified every one; this was the fourth. An unenforced
+/// promise in an `unsafe` block is the defect one rename away, so the sentence
+/// above is the one a fixture holds: tests/logos/pass/ptr_drop_in_place_recurses.
+///
+/// ── WHAT IT DOES NOT PROMISE, AND WHAT THE CALLER OWES ───────────────────
+/// NOTHING stops this from destroying a value somebody else still owns. There
+/// is no bound to hang the obligation on (`T` is unconstrained — deliberately:
+/// requiring `T: Default` would only buy the ability to leave a replacement
+/// behind, which `mem::replace` already offers and which a caller with no
+/// `Default` bound, e.g. `OnceCell<T>`, cannot supply). It is `unsafe` for
+/// exactly this reason and for no other. The caller must be the value's owner
+/// at the call, and afterwards the storage holds a DESTROYED value: it must be
+/// neither read nor dropped again, only overwritten or forgotten. The two
+/// stdlib callers show the two legitimate shapes — `manually_drop_drop`, where
+/// the wrapper's whole job is to have suppressed the automatic owner, and
+/// `OnceCell::{set, get_or_init}`, where the destroyed slot is overwritten by
+/// the very next statement.
+// Lowers to a regular `let _v: T = p[0];` so the borrow checker triggers the
+// drop at the end of the statement — equivalent observable effect, which is
+// also why the recursion is total: it is the ordinary local-drop path.
 pub unsafe fn drop_in_place<T>(p: *mut T) {
     unsafe {
         let _v: T = p[0];

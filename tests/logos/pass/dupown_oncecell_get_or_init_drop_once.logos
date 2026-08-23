@@ -1,0 +1,51 @@
+// `OnceCell::get_or_init` destroys the SEEDED `T::default()` it overwrites —
+// exactly once — and runs `f` at most once.
+//
+// #119 leak half, second surface. `get_or_init`'s `*self.storage.get() = f();`
+// is the same raw store as `set`'s and leaked the seed identically. It is the
+// surface `LazyCell::force` delegates to, so this fixture is also the reason
+// `LazyCell` needed no edit of its own.
+//
+// The ALREADY-SET arm is the other direction: `f` must NOT run and NOTHING must
+// be destroyed — the arm exists so that a "destroy the seed" repair written one
+// line too high (outside the `if !present`) reds here instead of silently
+// destroying a live value the caller still reaches through `&T`.
+
+package dupown_oncecell_get_or_init_drop_once;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cell;
+use logos.mem.collections.vec;
+
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+impl Default for Inner {
+    fn default() -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(0i64); return Inner { n: 0i64, v: v }; }
+}
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+fn init5() -> Inner { println!("init5 ran"); return mk(5i64); }
+fn init7() -> Inner { println!("init7 ran"); return mk(7i64); }
+
+// 4 values constructed below (2 seeds + init5's 5 + set's 6); 4 destructor lines pinned.
+fn main() -> i32 {
+    println!("-- A get_or_init on an UNSET cell runs f once. k=2");
+    {
+        let c: OnceCell<Inner> = once_cell_new::<Inner>();
+        let r = c.get_or_init(init5);
+        println!("first={}", r.n);
+        let r2 = c.get_or_init(init5);
+        println!("second={}", r2.n);
+    }
+    println!("-- B get_or_init on an ALREADY-SET cell: f never runs, nothing dies. k=2");
+    {
+        let c: OnceCell<Inner> = once_cell_new::<Inner>();
+        let _r = c.set(mk(6i64));
+        let g = c.get_or_init(init7);
+        println!("kept={}", g.n);
+    }
+    println!("-- end");
+    return 0i32;
+}

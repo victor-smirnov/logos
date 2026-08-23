@@ -1,0 +1,55 @@
+// AN UNSET CELL STILL OWNS ITS SEED, and destroys it EXACTLY ONCE.
+//
+// #119's third direction, and the one this arc has twice watched a fix trade
+// away. `once_cell_new` seeds `storage` with `T::default()` — an OWNED value,
+// whatever the doc comment's "never observed" suggests. A repair that removes
+// the double drop by suppressing the cell's field glue outright (a
+// `#[no_auto_drop]` storage wrapper with no reconciling `Drop`, or a guard used
+// on both `into_inner` paths instead of only the SET one) leaks this seed and
+// prints nothing at all here. So every arm below is a cell that dies UNSET, and
+// the oracle is `DROP n=0` appearing exactly once per arm — never zero, never
+// twice.
+//
+// The read-only surface is included deliberately: `is_set`, `get`, `get_ptr`
+// hand out no ownership and must not change the count.
+
+package dupown_oncecell_unset_seed_drop_once;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cell;
+use logos.mem.collections.vec;
+
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+impl Default for Inner {
+    fn default() -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(0i64); return Inner { n: 0i64, v: v }; }
+}
+
+// 3 values constructed below, one seed per arm; 3 destructor lines pinned.
+fn main() -> i32 {
+    println!("-- A built, never touched, dies unset. k=1");
+    {
+        let c: OnceCell<Inner> = once_cell_new::<Inner>();
+        println!("built");
+    }
+    println!("-- B read-only surface hands out no ownership. k=1");
+    {
+        let c: OnceCell<Inner> = once_cell_new::<Inner>();
+        println!("is_set={}", c.is_set());
+        match c.get() {
+            Option::Some(r) => { println!("UNEXPECTED some {}", r.n); }
+            Option::None    => { println!("get=None"); }
+        }
+        let p = c.get_ptr();
+        println!("ptr_null={}", p == (0 as *const Inner));
+    }
+    println!("-- C a LazyCell that is never forced also dies owning its seed. k=1");
+    {
+        let l: LazyCell<Inner> = lazy_cell_new::<Inner>(Inner::default);
+        println!("lazy built, never forced");
+    }
+    println!("-- end");
+    return 0i32;
+}

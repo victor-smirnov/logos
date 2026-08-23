@@ -1,0 +1,42 @@
+// THE REFUSE HALF of the `ptr::drop_in_place` promise.
+//
+// The primitive destroys a value through a raw pointer with NO bound of any
+// kind, and nothing mechanical stops it from destroying a value somebody else
+// still owns. The only thing standing between it and an ordinary safe program
+// is the `unsafe` marker on its declaration — so that marker is an enforcement
+// claim, and an enforcement claim with no fixture behind it is exactly the
+// unenforced promise #112 found three of. If `unsafe` were ever dropped from
+// the signature (or the checker stopped consulting it), the admit fixture
+// tests/logos/pass/ptr_drop_in_place_recurses would stay green and nothing else
+// in the tree would notice. This fixture is what notices.
+//
+// ⚠ AND IT NOTICES ONE SPELLING ONLY. THE CLAIM ABOVE IS FALSE AS WRITTEN, and
+// it is corrected here rather than left standing. MEASURED (task #123): taking
+// an `unsafe fn` as a FN-POINTER VALUE drops the unsafe-context requirement
+// entirely —
+//     let f: fn(*mut Inner) = drop_in_place::<Inner>;   // no `unsafe` anywhere
+//     f(&mut x as *mut Inner);                          // double free, rc 134
+// — and it is a CLASS, not this function: `read::<T>`, `swap::<T>` and the
+// non-generic `alignment_new_unchecked` all launder the same way, the last one
+// then accepting a non-power-of-two. Pre-existing in the compiler and untouched
+// by this round, but this round is what made the marker load-bearing, so the
+// limit belongs here: what this fixture pins is that the DIRECT call is
+// refused. The fn-pointer route is #123's subject, and when it closes this file
+// gains its second arm.
+
+package ptr_drop_in_place_needs_unsafe_fail;
+
+use logos.lang.ptr;
+use logos.mem.collections.vec;
+
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { } }
+
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    v.push(1i64);
+    let mut x: Inner = Inner { n: 1i64, v: v };
+    // No `unsafe` block: this must be refused, not compiled.
+    drop_in_place::<Inner>(&mut x as *mut Inner);
+    return 0i32;
+}

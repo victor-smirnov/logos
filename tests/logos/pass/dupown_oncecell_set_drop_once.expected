@@ -1,0 +1,14 @@
+exit: 0
+stdout:
+-- A set once, cell dies SET. k=2
+DROP n=0
+set ok, cell alive
+DROP n=1
+-- B second set is REJECTED and hands the value back. k=3
+DROP n=0
+first ok
+err 4
+DROP n=4
+cell still holds 3
+DROP n=3
+-- end

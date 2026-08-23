@@ -1,0 +1,37 @@
+// COPY-PAYLOAD CONTROL for dupown_oncecell_into_inner_drop_once.
+//
+// The #119 repair added a `drop_in_place` to the write path and a
+// `#[no_auto_drop]` guard to `into_inner`. Neither may cost the non-droppable
+// case anything: with `T = i64` there is no destructor to run and no ownership
+// to hand over, and this twin is what proves the repair did not turn a plain
+// scalar cell into a wrong answer or a crash. The oracle here is the VALUE and
+// the exit code, not a destructor count — there are no destructors.
+package dupown_oncecell_into_inner_copy_ctl;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cell;
+
+fn main() -> i32 {
+    let c: OnceCell<i64> = once_cell_new::<i64>();
+    let _r = c.set(7i64);
+    match c.into_inner() {
+        Option::Some(x) => { println!("A got {}", x); }
+        Option::None    => { println!("A none"); }
+    }
+    let c2: OnceCell<i64> = once_cell_new::<i64>();
+    match c2.into_inner() {
+        Option::Some(x) => { println!("B got {}", x); }
+        Option::None    => { println!("B none"); }
+    }
+    // The seed is observable through into_inner ONLY when the cell is set, so an
+    // unset cell must never hand back `Default::default()` as if it were a value.
+    let c3: OnceCell<i64> = once_cell_new::<i64>();
+    let _r3 = c3.set(0i64);
+    match c3.into_inner() {
+        Option::Some(x) => { println!("C got {}", x); }
+        Option::None    => { println!("C none"); }
+    }
+    return 0i32;
+}

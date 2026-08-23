@@ -1,0 +1,20 @@
+// COPY-PAYLOAD CONTROL for dupown_lazycell_force_drop_once.
+// `LazyCell::force` delegates to the repaired `get_or_init`; with `T = i64` it
+// must still run `init` exactly once and cache.
+package dupown_lazycell_force_copy_ctl;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cell;
+
+fn nine() -> i64 { println!("nine ran"); return 9i64; }
+
+fn main() -> i32 {
+    let l: LazyCell<i64> = lazy_cell_new::<i64>(nine);
+    println!("v1={}", *l.force());
+    println!("v2={}", *l.force());
+    let u: LazyCell<i64> = lazy_cell_new::<i64>(nine);
+    println!("u left unforced");
+    return 0i32;
+}

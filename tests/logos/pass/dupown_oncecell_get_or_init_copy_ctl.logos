@@ -1,0 +1,23 @@
+// COPY-PAYLOAD CONTROL for dupown_oncecell_get_or_init_drop_once.
+// `get_or_init` now evaluates `f()` into a local BEFORE destroying the seed;
+// with `T = i64` the observable behaviour must be exactly what it was.
+package dupown_oncecell_get_or_init_copy_ctl;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cell;
+
+fn make42() -> i64 { println!("make42 ran"); return 42i64; }
+fn make99() -> i64 { println!("make99 ran"); return 99i64; }
+
+fn main() -> i32 {
+    let c: OnceCell<i64> = once_cell_new::<i64>();
+    println!("first={}", *c.get_or_init(make42));
+    println!("second={}", *c.get_or_init(make99));
+    println!("is_set={}", c.is_set());
+    let c2: OnceCell<i64> = once_cell_new::<i64>();
+    let _r = c2.set(5i64);
+    println!("kept={}", *c2.get_or_init(make99));
+    return 0i32;
+}

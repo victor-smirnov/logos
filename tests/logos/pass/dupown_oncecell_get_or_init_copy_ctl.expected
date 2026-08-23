@@ -1,0 +1,7 @@
+exit: 0
+stdout:
+make42 ran
+first=42
+second=42
+is_set=true
+kept=5

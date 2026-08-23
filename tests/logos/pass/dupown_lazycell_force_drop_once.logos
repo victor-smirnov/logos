@@ -1,0 +1,50 @@
+// `LazyCell::force` — the inherited half of #119, fixed with ZERO `LazyCell`
+// edits and pinned here so that stays true.
+//
+// `lazy_cell_new` delegates to `once_cell_new` (so a `LazyCell` owns a seeded
+// `T::default()` from birth) and `force` is a one-line delegate to
+// `OnceCell::get_or_init`. It therefore inherited the LEAK half exactly — the
+// seed overwritten bitwise on first `force` — and only that half: `LazyCell`
+// has no `into_inner`, so the double-drop half never reached it. Nothing in
+// this file touches `LazyCell`'s own source; if the delegation is ever
+// open-coded, this fixture is what notices.
+//
+// `force` twice must run `init` ONCE and destroy nothing the second time.
+
+package dupown_lazycell_force_drop_once;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cell;
+use logos.mem.collections.vec;
+
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+impl Default for Inner {
+    fn default() -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(0i64); return Inner { n: 0i64, v: v }; }
+}
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+fn mk9()  -> Inner { println!("mk9 ran");  return mk(9i64); }
+fn mk11() -> Inner { println!("mk11 ran"); return mk(11i64); }
+fn mk13() -> Inner { println!("mk13 ran"); return mk(13i64); }
+
+// 5 values constructed below (3 seeds + 9 + 11); 5 destructor lines pinned.
+fn main() -> i32 {
+    println!("-- A force twice: init runs once, seed dies once, value dies once. k=2");
+    {
+        let l: LazyCell<Inner> = lazy_cell_new::<Inner>(mk9);
+        println!("v1={}", l.force().n);
+        println!("v2={}", l.force().n);
+    }
+    println!("-- B two lazy cells, one forced one not: three values, three deaths. k=3");
+    {
+        let a: LazyCell<Inner> = lazy_cell_new::<Inner>(mk11);
+        let b: LazyCell<Inner> = lazy_cell_new::<Inner>(mk13);
+        println!("a={}", a.force().n);
+        println!("b left unforced");
+    }
+    println!("-- end");
+    return 0i32;
+}

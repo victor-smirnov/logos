@@ -1,0 +1,14 @@
+exit: 0
+stdout:
+-- A set, into_inner, result bound. k=2
+DROP n=0
+got 1
+DROP n=1
+-- B set, into_inner, result DISCARDED. k=2
+DROP n=0
+discarded
+DROP n=2
+-- C into_inner on an UNSET cell: None, and the seed dies once. k=1
+DROP n=0
+none
+-- end

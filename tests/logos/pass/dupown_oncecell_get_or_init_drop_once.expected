@@ -1,0 +1,13 @@
+exit: 0
+stdout:
+-- A get_or_init on an UNSET cell runs f once. k=2
+init5 ran
+DROP n=0
+first=5
+second=5
+DROP n=5
+-- B get_or_init on an ALREADY-SET cell: f never runs, nothing dies. k=2
+DROP n=0
+kept=6
+DROP n=6
+-- end

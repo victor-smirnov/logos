@@ -1,0 +1,79 @@
+// `ptr::drop_in_place` runs T's FULL destructor — user `impl Drop` AND the
+// recursive field glue — and runs it exactly once.
+//
+// THE ADMIT HALF OF A DOC CORRECTION. The comment at
+// stdlib/lang/ptr/ptr.logos said "Runs only a user `impl Drop`; fields are NOT
+// recursively dropped (Logos explicit-`Drop` convention)". That is FALSE, and
+// #119 leaned on the primitive precisely for the case the comment excluded:
+// `OnceCell<T>` has no bound at all, so a `T` whose droppability lives entirely
+// in its fields is the common case. #112 found three "only for Copy" comments
+// in this tree and a probe falsified all three; this was the fourth. So the
+// corrected sentence is pinned here rather than believed.
+//
+// Every arm wraps the subject in a `ManuallyDrop` first, so the local's OWN
+// scope-exit glue cannot confound the count — arm A is the control proving that
+// suppression really is in force (zero destructor lines), which is what makes
+// the other arms' lines attributable to `drop_in_place` and nothing else.
+
+package ptr_drop_in_place_recurses;
+
+use logos.std.fmt;
+use logos.lang.ptr;
+use logos.mem.manually_drop;
+use logos.mem.collections.vec;
+
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP inner n={}", self.n); } }
+fn mki(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+// NO `impl Drop` of its own — droppable only through the field.
+struct Outer { pub tag: i64, pub s: Inner }
+fn mko(n: i64) -> Outer { return Outer { tag: n, s: mki(n) }; }
+
+// Two levels of field-only droppability.
+struct Deep { pub o: Outer }
+fn mkd(n: i64) -> Deep { return Deep { o: mko(n) }; }
+
+// A payload with BOTH: its own Drop and a droppable field.
+struct Both { pub n: i64, pub s: Inner }
+impl Drop for Both { fn drop(self: &mut Both) { println!("DROP both n={}", self.n); } }
+fn mkb(n: i64) -> Both { return Both { n: n, s: mki(n) }; }
+
+fn main() -> i32 {
+    println!("-- A control: ManuallyDrop alone destroys NOTHING");
+    {
+        let md: ManuallyDrop<Inner> = manually_drop_new::<Inner>(mki(1i64));
+        println!("wrapped, not dropped");
+    }
+    println!("-- B user impl Drop: one line");
+    {
+        let mut md: ManuallyDrop<Inner> = manually_drop_new::<Inner>(mki(2i64));
+        unsafe { drop_in_place::<Inner>(&mut md.value as *mut Inner); }
+        println!("after");
+    }
+    println!("-- C NO own Drop, droppable FIELD: the field glue RECURSES");
+    {
+        let mut md: ManuallyDrop<Outer> = manually_drop_new::<Outer>(mko(3i64));
+        unsafe { drop_in_place::<Outer>(&mut md.value as *mut Outer); }
+        println!("after");
+    }
+    println!("-- D two levels of field-only droppability");
+    {
+        let mut md: ManuallyDrop<Deep> = manually_drop_new::<Deep>(mkd(4i64));
+        unsafe { drop_in_place::<Deep>(&mut md.value as *mut Deep); }
+        println!("after");
+    }
+    println!("-- E own Drop AND a droppable field: BOTH run, outer first");
+    {
+        let mut md: ManuallyDrop<Both> = manually_drop_new::<Both>(mkb(5i64));
+        unsafe { drop_in_place::<Both>(&mut md.value as *mut Both); }
+        println!("after");
+    }
+    println!("-- F reference control: ordinary scope-exit glue on the same shape");
+    {
+        let x: Outer = mko(6i64);
+        println!("built");
+    }
+    println!("-- end");
+    return 0i32;
+}

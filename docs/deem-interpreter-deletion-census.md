@@ -3275,8 +3275,165 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # `ctest -N`. Pins re-derived BY DIRECT FILE LISTING, not by arithmetic:
 # tests/logos/pass/*.logos 2311 -> 2319, tests/logos/fail/*.expected 787 -> 790,
 # tests/logos/*.sh 65 -> 65.
-REGISTRY-ALL         7539
-REGISTRY-NOIMPORTED  3856
+# 2026-08-23 (#119 — `OnceCell` HELD TWO OPPOSITE OWNERSHIP ERRORS AT ONCE, and
+# a fix measured on either one alone proves nothing about the other.
+# `impl<T> OnceCell<T>` carries NO `Copy` bound (unlike `impl<T: Copy> Cell<T>`
+# three screens above it), so a droppable `T: Default` reaches every method.
+#   LEAK      `set` (:504) and `get_or_init` (:515) did `*self.storage.get() =
+#             value;` over the live `T::default()` seed `once_cell_new` had
+#             written there. A raw store runs no destructor. MEASURED on the
+#             7585e7c9 build BEFORE any edit in this round, payload
+#             `struct Inner { n: i64, v: Vec<i64> }` with a printing `Drop`:
+#             fresh cell + one `set` = k 2 values in, ONE destructor out
+#             (`DROP n=0` never ran).
+#   DOUBLE    `into_inner` (:526) did `let v: T = *self.storage.get();` —
+#   DROP      a bitwise read out of storage `self` still owned — and then `self`
+#             dropped `storage` again. MEASURED, same build: k 2, `DROP n=2`
+#             printed TWICE, `DROP n=0` never, **rc 0 — silent, no abort**.
+#             #116's shape in the two-step spelling neither #112 grep matches.
+# `LazyCell` builds on `once_cell_new` and delegates `force` to `get_or_init`,
+# so it inherited the LEAK half exactly and only that half (it has no
+# `into_inner`).
+#
+# ⚠ THE FIRST FIX ATTEMPT WAS REVERTED BEFORE THIS ROUND, AND ITS REASON WAS
+# THIS ROUND'S FIRST DECISION. The structure that attempt reached for is #116's
+# — storage `#[no_auto_drop]` plus a hand-written `impl Drop for OnceCell<T>` as
+# the single owner. IT IS BLOCKED BY A LIVE COMPILER DEFECT, re-measured on
+# 7585e7c9 at the start of this round, no user `Drop` anywhere in the probe:
+#     #[no_auto_drop] pub struct W<T> { v: UnsafeCell<T> }
+#     pub struct N<T> { w: W<T>, c: UnsafeCell<bool> }   // -> 1 drop, expected 0
+# The suppression holds with a sole field (0 drops), with an `i64` sibling (0),
+# and with a NON-generic struct sibling (0); it is DEFEATED by ANY generic-struct
+# sibling — `UnsafeCell<bool>`, `UnsafeCell<i64>`, a user `MyGen<bool>`, all 1
+# drop (8 probe cases, 4 clean / 4 firing). `OnceCell` is
+# `{ storage, present: UnsafeCell<bool> }` — the trigger shape exactly, which is
+# why the earlier attempt's every arm dropped one too many while its own
+# hand-written `Drop` printed exactly once: the second owner was the compiler.
+# FILED SEPARATELY (task #123). Root cause NOT read — localised by black-box
+# bisection only; its resemblance to the #58/#60/#99 bare-generic-name class is
+# a hypothesis, unverified.
+#
+# ── WHAT LANDED, AND WHY IT NEEDS NO LAYOUT CHANGE ──────────────────────────
+# The invariant is written at the struct and every method keeps it: STORAGE
+# ALWAYS HOLDS EXACTLY ONE LIVE `T` — the seed while `present` is false, the set
+# value afterwards. Never zero, never two. Because it is TOTAL, the compiler's
+# ordinary field glue stays correct on every path the round does not touch, and
+# a cell that dies unset destroying its seed is not a special case but the
+# invariant holding.
+#   set / get_or_init  destroy the value they are about to overwrite:
+#                      `drop_in_place::<T>(self.storage.get());`. `get_or_init`
+#                      evaluates `f()` into a local FIRST, so storage never holds
+#                      a destroyed value across a call the cell does not control.
+#   into_inner         moves `self` into `OnceCellTakeGuard<T>`, a PRIVATE,
+#                      SOLE-FIELD `#[no_auto_drop]` wrapper, before the raw read
+#                      — the compiler owns nothing from that point and the caller
+#                      is the single owner of the returned `T`. Only on the SET
+#                      path; the unset path lets `self` drop normally.
+# ⚠ #116's SECOND LESSON DOES NOT BIND HERE, and the difference is why the guard
+# can be strictly better than `ArrayIntoIterBuf`'s pub-type/private-field
+# compromise. `ArrayIntoIterBuf` had to stay `pub` because it is the TYPE OF A
+# FIELD of a public struct, and making it private made every cross-package use
+# of a legitimately obtained value refuse (measured, #116). `OnceCellTakeGuard`
+# is a MODULE-SCOPE PRIVATE declaration whose only VALUE is a local of one
+# function, and it appears in no public signature: nameable
+# nowhere AND constructible nowhere, so it cannot become the leak-by-
+# construction type #116 also measured (2 values in, 0 destructor calls out).
+# ⚠ AND `logos.lang.cell` CANNOT REACH `ManuallyDrop`: no `stdlib/lang/*` imports
+# `logos.mem.*` (grep: zero hits), which is why the guard is declared locally
+# rather than borrowed. The one new import, `use logos.lang.ptr;`, is cycle-free
+# — `ptr.logos` imports only `logos.lang.option`, which `cell.logos` already
+# imports, and neither imports `cell`.
+#
+# ── THE PRIMITIVE WAS NOT NEW, AND ITS WRITTEN PROMISE WAS FALSE ────────────
+# The filing said `drop_in_place` DOES NOT EXIST. It does:
+# `stdlib/lang/ptr/ptr.logos:142`, `pub unsafe fn drop_in_place<T>(p: *mut T)`,
+# NO bound, already called by `manually_drop_drop`. So no language-surface
+# decision was on the table and no primitive was added. But its doc comment
+# claimed "Runs only a user `impl Drop`; fields are NOT recursively dropped
+# (Logos explicit-`Drop` convention)" — FALSIFIED BY PROBE: `T = Outer { tag,
+# s: Inner }` with no `Drop` of its own printed `Inner`'s destructor through
+# `drop_in_place`, identically to ordinary scope-exit glue. That is the FOURTH
+# comment of this shape (#112 found three claiming "only for Copy" and a probe
+# falsified every one). The comment is replaced by what a fixture holds: it runs
+# T's FULL destructor, user `impl Drop` AND recursive glue; it is `unsafe`
+# because NOTHING stops it destroying a value someone else still owns, and there
+# is no bound to hang that obligation on; afterwards the storage holds a
+# destroyed value that must be neither read nor re-dropped, only overwritten or
+# forgotten. Both directions pinned:
+#   tests/logos/pass/ptr_drop_in_place_recurses.logos      (admit: 5 payload
+#       shapes incl. field-only and two-level, + a `ManuallyDrop`-alone control
+#       proving suppression is really in force, + a scope-exit reference arm)
+#   tests/logos/fail/ptr_drop_in_place_needs_unsafe_fail.logos (refuse: the `unsafe`
+#       marker is the ONLY enforcement, so it gets a fixture; without one the
+#       admit half stays green if `unsafe` is ever dropped from the signature)
+#
+# ── EVIDENCE ────────────────────────────────────────────────────────────────
+# THE ORACLE IS A DESTRUCTOR COUNT WITH A HEAP-OWNING PAYLOAD, BOTH DIRECTIONS
+# PER METHOD, and every `.expected` pins the exact lines in order:
+#   dupown_oncecell_into_inner_drop_once   set / set-discarded / unset  k 2,2,1
+#   dupown_oncecell_set_drop_once          dies set / second set Err    k 2,3
+#   dupown_oncecell_get_or_init_drop_once  unset runs f / set does not  k 2,2
+#   dupown_oncecell_unset_seed_drop_once   never set / read-only / lazy k 1,1,1
+#   dupown_lazycell_force_drop_once        force x2 / one of two forced k 2,3
+# each with a `_copy_ctl` twin (`T = i64`) whose oracle is the VALUE and the exit
+# code. All ten predicted BEFORE running and matched byte-for-byte on the first
+# run. The `unset_seed` fixture exists because THIS ARC HAS TWICE WATCHED A FIX
+# TRADE THE DOUBLE DROP FOR A LEAK OF THE SEED.
+#
+# CONTROL REVERT PER STEP, on the fixed tree, restored to a stated-green
+# checkpoint between them (md5 294200c9e6e0a1809dc9698c5d8f2121 both times):
+#   step 1, guard removed from `into_inner` (build rc 0): into_inner fixture
+#     rc 1 — `DROP n=1` and `DROP n=2` each printed TWICE — and the OTHER FOUR
+#     STAYED GREEN. That discrimination is the point: the guard serves exactly
+#     one method.
+#   step 2, both `drop_in_place` calls removed (build rc 0): set rc 1,
+#     get_or_init rc 1, lazycell rc 1, into_inner rc 1 (its arms call `set`),
+#     and `unset_seed` STAYED GREEN — every single `DROP n=0` from a write path
+#     vanished, and only those. Restored, rebuilt, all ten green again.
+#
+# THE FIVE STANDING CONTROLS, re-measured on the landed tree with the same
+# heap-owning payload: `RefCell::replace` 2/2, `RefCell::swap` 2/2,
+# `RefCell::into_inner` 1/1, `Cell::into_inner` 2/2, `UnsafeCell::into_inner`
+# 2/2. All exact; none of their bodies, layouts or signatures is touched.
+# `impl<T> OnceCell<T>` acquires NO `Copy`, `Clone`, `Default` or `Drop` bound —
+# `T: Default` stays exactly where it was, on `once_cell_new`/`lazy_cell_new`
+# only — so none of #117's Copy-bound over-refusals is reintroduced.
+# `LazyCell` needed ZERO edits and is pinned anyway.
+#
+# L1 740/740 + 46 gates. L2 2419/2419 + 46 gates. `ctest -L fail` 1457/1457
+# (+1: the round's own refuse fixture). All 21 logos_00
+# lints green. `logos_00_shared_ref_ub_lint` was the round's ONLY unexpected red
+# and it was the census working: `OnceCellTakeGuard` reaches an INTERIOR root
+# through its field, so it is correctly non-Freeze and now carries a reviewed
+# TRANSITIVE row (axis `-`: not `pub`, in no public signature, no `&T` parameter
+# anywhere in the tree, so an axis would be a standing gate over a surface that
+# does not exist).
+# ABI: scripts/abi-check.sh — ADDED 0, sym 12601, type 370 (all unchanged),
+# VERDICT ABI-PRESERVING, no bump. The open question the decision could not
+# answer — whether a NON-`pub` struct enters `.abi-layout` at all, there being no
+# existing non-`pub` struct in `stdlib/lang/*` to sample — IS NOW ANSWERED BY
+# MEASUREMENT: it does not. `logos.lang.cell.OnceCell fields=[storage:T,
+# present:bool]` and `LazyCell fields=[cell:OnceCell<T>,init:fn() -> T]` are
+# byte-identical to base. (Contrast the blocked option, which would have inserted
+# a flag and a storage wrapper into `OnceCell` — a layout move and a mandatory
+# bump.)
+#
+# ALSO FOUND, NOT FIXED, NOT #119: taking a BUILTIN type's trait-impl method as
+# a fn-pointer VALUE does not lower — `lazy_cell_new::<i64>(i64::default)`
+# self-diagnoses `undefined 'logos.lang.default.i64__default__f__void'` and the
+# compile fails, while a user type's `Inner::default` in the same position
+# lowers fine. Recorded at the site in
+# `dupown_oncecell_unset_seed_copy_ctl.logos`, which uses a local `zero` instead.
+#
+# +12 registered: 7539 -> 7551 / 3856 -> 3868 / tier_commit 46 -> 46.
+# PREDICTED BEFORE RECONFIGURE as 11 pass + 1 fail + 0 gates = 7551, verified by
+# the gate's own measurement. Pins re-derived BY DIRECT FILE LISTING, not by
+# arithmetic: tests/logos/pass/*.logos 2331 -> 2342,
+# tests/logos/fail/*.expected 790 -> 791, tests/logos/*.sh 65 -> 65.
+# The direct-door gate's own corpus/nonglob pins moved with them (2331 -> 2342,
+# 2140 -> 2151), re-derived the same way; doors unmoved at 36 = 10 + 26.
+REGISTRY-ALL         7551
+REGISTRY-NOIMPORTED  3868
 REGISTRY-TIERCOMMIT  46
 # 2026-08-22 (#104 — capturing a genuine stdlib `StringView` into an `@{}` writ
 # literal CRASHED THE COMPILER: rc 139, core dumped inside the verifier's own
