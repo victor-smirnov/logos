@@ -1,0 +1,4 @@
+exit: 0
+stdout:
+copy_ok=true
+DROP n=7

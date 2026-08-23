@@ -1,0 +1,8 @@
+exit: 0
+stdout:
+D n=31
+DROP n=31
+D done
+E n=32
+DROP n=32
+E done

@@ -1,0 +1,25 @@
+// CONTROL twin of drop_for_loop_item_once — the SAME desugar reached through
+// its OTHER entry. drop_for_loop_item_once iterates a `Vec<T>`, whose
+// scrutinee is a `into_iter()` CALL; this file iterates an `Option<T>` (the
+// original #110 sighting) and, in its second half, a NAMED iterator local.
+//
+// The named local is the arm that needs its own witness: `for x in it` MOVES
+// `it` into the synthesised `__for_iter_N`, and until that move was marked the
+// caller's `it` slot ran the destructor a second time (MEASURED: two `DROP
+// n=32` for one value, visible only once the item binding started dropping at
+// all — one wrong answer had been masking the other).
+//
+// ⚠ Every `n` EXACTLY once, both directions, same as the twin.
+package dropforitemctl;
+use logos.std.fmt;
+use logos.lang.iter;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn main() -> i32 {
+    for x in Option::Some(Inner { n: 31i64 }) { println!("D n={}", x.n); }
+    println!("D done");
+    let it = Option::Some(Inner { n: 32i64 }).into_iter();
+    for x in it { println!("E n={}", x.n); }
+    println!("E done");
+    return 0i32;
+}

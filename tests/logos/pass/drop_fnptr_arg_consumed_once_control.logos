@@ -1,0 +1,23 @@
+// CONTROL twin of drop_fnptr_arg_consumed_once — byte-identical except the
+// consumer is a DIRECT generic call (`eat(v)`) instead of a call through an
+// fn-pointer parameter. The direct spelling was already correct at one drop
+// before the #110 fix, so the pair localises the defect to the expression CODE
+// (FnPtrCall / ClosureCall) rather than to genericity, to the match arm, or to
+// the return position — all of which the two files share.
+package dropfnptrargctl;
+use logos.std.fmt;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn eat<T>(x: T) -> bool { return true; }
+fn isa<T>(s: Option<T>) -> bool {
+    match s {
+        Option::Some(v) => { return eat(v); }
+        Option::None => { return false; }
+    }
+}
+fn main() -> i32 {
+    let a: Option<Inner> = Option::Some(Inner { n: 7i64 });
+    let c: bool = isa(a);
+    println!("hand c={}", c);
+    return 0i32;
+}

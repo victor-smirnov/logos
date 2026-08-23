@@ -477,9 +477,22 @@ PIN = {
     #   ls tests/logos/pass/*.logos | wc -l                       -> 2275
     #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
     # partition closes: 2275 = 191 + 2084. DOORS unmoved (36 = 10 + 26).
-    'corpus'            : 2275,
+    # 2026-08-22 (#110 — one value, N destructor calls): +11 pass fixtures, the
+    # counting-oracle set for five distinct drop/move roots and their control
+    # twins (drop_enum_field_struct_move_once{,_control},
+    # copy_enum_field_payload_copy, drop_option_into_iter_terminals_once,
+    # drop_for_loop_item_once{,_control}, drop_tuple_element_returned_once
+    # {,_control}, match_array_index_copy_elem, drop_fnptr_arg_consumed_once
+    # {,_control}); the round's two FAIL fixtures do not live in this
+    # population. None declares a container family or a `direct` output form,
+    # so the DOOR counts are unmoved; only the population moves.
+    # RE-DERIVED BY DIRECT FILE LISTING, never by adding to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2286
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2286 = 191 + 2095. DOORS unmoved (36 = 10 + 26).
+    'corpus'            : 2286,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2084,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2095,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

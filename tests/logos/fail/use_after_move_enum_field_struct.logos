@@ -1,0 +1,22 @@
+// REFUSE half of #110's admit/refuse pair (admit half:
+// pass/copy_enum_field_payload_copy — byte-identical but for `Option<i64>` in
+// place of `Option<Inner>`).
+//
+// The #110 root classified EVERY enum-typed field as Copy, so `WO` was a Copy
+// type, `is_move_type(WO)` was false, `mark_moved_expr` self-gated and inserted
+// nothing into `moved_vars_` — and this use-after-move COMPILED AND RAN, reading
+// a struct whose payload had already been handed to `c` and would be destroyed
+// twice. The permissive half of the defect is invisible to a green corpus by
+// construction, which is why it is pinned here and not only by the drop count.
+package uafenumfield;
+use logos.std.fmt;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+struct WO { pub o: Option<Inner> }
+fn main() -> i32 {
+    let b: WO = WO { o: Option::Some(Inner { n: 7i64 }) };
+    let c: WO = b;
+    let d: bool = b.o.is_some();
+    println!("uaf={}", d);
+    return 0i32;
+}

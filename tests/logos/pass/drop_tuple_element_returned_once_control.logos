@@ -1,0 +1,13 @@
+// CONTROL twin of drop_tuple_element_returned_once — byte-identical except the
+// tuple element is bound to a LOCAL before the return. That spelling goes
+// through lower_let, which has always marked `t.0` moved, and printed ONE line
+// both before and after the #110 R1 fix. A regression that re-breaks only the
+// direct-return position shows up as a DIFFERENCE between the two files rather
+// than as two tests moving together.
+package droptupretctl;
+use logos.std.fmt;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+struct W { pub i: Inner }
+fn prod() -> W { let t: (W, i64) = (W { i: Inner { n: 7i64 } }, 1i64); let d: W = t.0; return d; }
+fn main() -> i32 { let r: W = prod(); println!("m"); return 0i32; }

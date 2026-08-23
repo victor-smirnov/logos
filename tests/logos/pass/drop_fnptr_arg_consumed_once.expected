@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+DROP n=7
+hand c=true
+DROP n=8
+std d=true

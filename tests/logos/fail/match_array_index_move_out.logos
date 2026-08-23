@@ -1,0 +1,25 @@
+// #110 R2 — REFUSE half. `match a[0] { W { i: y } => … }` over an array whose
+// element carries drop glue used to COMPILE and double-free: the element was
+// destructured into `y`, dropped at arm end, and dropped AGAIN by the array's
+// scope-exit glue (MEASURED 2026-08-22: two `DROP n=7` for one value; the same
+// match on a plain local printed one).
+//
+// Every OTHER array-element move spelling was already refused — `let d = a[0]`,
+// `f(a[0])`, `return a[0]` — so the by-value match was the one hole in the rule,
+// and the one shape that double-freed instead of erroring. lower_match's place
+// test listed IndexRead; mark_match_scrutinee_moved's did not, so the scrutinee
+// reached neither the temp-hoist path nor the mark-moved path.
+//
+// ADMIT twin: pass/match_array_index_copy_elem — the same match over an array
+// of a Copy element, which must still compile. The refusal is conditional on
+// `needs_drop`, not on the syntax.
+package matcharrmove;
+use logos.std.fmt;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+struct W { pub i: Inner }
+fn main() -> i32 {
+    let a: [W; 1] = [W { i: Inner { n: 7i64 } }];
+    match a[0] { W { i: y } => { println!("m"); } }
+    return 0i32;
+}

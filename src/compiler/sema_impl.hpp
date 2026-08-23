@@ -2970,12 +2970,48 @@ private:
             case C::FieldRead:
                 mark_moved_expr(er);
                 return;
+            // #110 R1 — `return t.0;` DROPPED THE ELEMENT TWICE. This switch
+            // had a FieldRead case and no TupleIndex one, so the tuple-element
+            // path that `mark_moved_expr` has held since G154-4 was simply not
+            // reached from the two consumer positions that route through here
+            // (lower_return, lower_match's arm value). `t`'s scope-exit SDrop
+            // then got no `moved_fields=["0"]` and freed element 0 that the
+            // returned value already owned. MEASURED 2026-08-22: `fn prod() ->
+            // W { let t: (W,i64) = (W{..}, 1); return t.0; }` printed two
+            // destructor lines; the byte-identical `let d: W = t.0; return d;`
+            // (which goes through lower_let, not this switch) printed one, and
+            // `return h.f;` on a STRUCT field printed one. Concrete carrier, no
+            // enum and no generics — so this is NOT the auto-Copy root above.
+            case C::TupleIndex:
+                mark_moved_expr(er);
+                return;
             case C::EnumLitData:
                 lir_view::EEnumLitDataView{er}.each_payload(
                     [&](lir_view::ExprRef a) { mark_moved_in_expr_recursive(a); });
                 return;
             case C::Call:
                 lir_view::ECallView{er}.each_arg(
+                    [&](lir_view::ExprRef a) { mark_moved_in_expr_recursive(a); });
+                return;
+            // #110 — AN INDIRECT CALL CONSUMES ITS ARGUMENTS TOO. Only the
+            // direct `Call` code was walked, so `return pred(v);` with `pred:
+            // fn(T) -> bool` left `v` unmarked and the payload was dropped by
+            // BOTH the callee and the arm. MEASURED 2026-08-22: the generic
+            // `fn isa<T>(s: Option<T>, pred: fn(T)->bool) { match s { Some(v)
+            // => return pred(v), … } }` printed two destructor lines; swapping
+            // the fn-POINTER for a direct generic call `eat(v)` printed one,
+            // and so did binding the result first — the difference is exactly
+            // this expression code. `logos.lang.option.Option::is_some_and` is
+            // that body, so the stdlib combinator double-dropped its payload.
+            // (A method call's by-value args are marked at their own site —
+            // MEASURED one drop both concretely and through a generic body —
+            // so MethodCall is deliberately NOT added here.)
+            case C::FnPtrCall:
+                lir_view::EFnPtrCallView{er}.each_arg(
+                    [&](lir_view::ExprRef a) { mark_moved_in_expr_recursive(a); });
+                return;
+            case C::ClosureCall:
+                lir_view::EClosureCallView{er}.each_arg(
                     [&](lir_view::ExprRef a) { mark_moved_in_expr_recursive(a); });
                 return;
             case C::StructLit:

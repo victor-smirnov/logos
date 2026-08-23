@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+DROP n=1
+count=1
+last_done
+DROP n=2

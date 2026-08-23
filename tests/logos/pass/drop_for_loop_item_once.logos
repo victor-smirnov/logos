@@ -1,0 +1,47 @@
+// #110 LEAK HALF — a `for` loop's OWNING slots had no drop glue at all.
+//
+// MEASURED 2026-08-22 pre-fix: this program printed ZERO destructor lines for
+// three constructed values. The desugar in sema_stmt.cpp lower_for_each
+// synthesises two owners — the item binding `x` (one iteration) and the
+// iterator `__for_iter_N` (the whole loop) — and released neither. The
+// hand-written equivalent (`match it.next() { Some(x) => … }`) dropped
+// correctly, so the loss was in the desugar, not the drop machinery.
+//
+// Three arms in one program, each a separate assertion:
+//   · normal exhaustion — every item dropped at the end of ITS iteration;
+//   · `break` — the consumed item drops, then the ITERATOR drops the items it
+//     never yielded (n=13 here). With the boundary left on the body frame the
+//     item leaked on every early exit, which is why the loop_boundary moved out
+//     one frame to the item's own scope;
+//   · an item MOVED OUT into a call — dropped once, inside the callee, and NOT
+//     again by the loop (the opposite failure: this is where a naive "always
+//     drop the binding" fix double-frees).
+//
+// ⚠ BOTH DIRECTIONS. Every `n` appears EXACTLY once. A missing line is the leak
+// this fixes; a repeated line is the double free the arm-drop could cause.
+package dropforitem;
+use logos.std.fmt;
+use logos.lang.iter;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn eat(x: Inner) -> i64 { return x.n; }
+fn main() -> i32 {
+    let mut a: Vec<Inner> = Vec::new();
+    a.push(Inner { n: 1i64 });
+    a.push(Inner { n: 2i64 });
+    for x in a { println!("A n={}", x.n); }
+    println!("A done");
+
+    let mut b: Vec<Inner> = Vec::new();
+    b.push(Inner { n: 11i64 });
+    b.push(Inner { n: 12i64 });
+    b.push(Inner { n: 13i64 });
+    for x in b { println!("B n={}", x.n); if x.n == 12i64 { break; } }
+    println!("B done");
+
+    let mut c: Vec<Inner> = Vec::new();
+    c.push(Inner { n: 21i64 });
+    for x in c { let k: i64 = eat(x); println!("C k={}", k); }
+    println!("C done");
+    return 0i32;
+}

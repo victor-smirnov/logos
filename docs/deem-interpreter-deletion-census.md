@@ -3085,8 +3085,54 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7474
-REGISTRY-NOIMPORTED  3791
+# +13 / +13 / +0 (2026-08-22, #110 — ONE VALUE, N DESTRUCTOR CALLS. Five distinct
+# roots, each closed by a fixture whose oracle COUNTS `Drop` lines and whose
+# control twin proves the count is not accidental; every hunk bite-proved by a
+# control revert that reds exactly its own fixture and leaves the others green.
+# PREDICTED +13/+13/+0 before reconfiguring; MEASURED +13/+13/+0.
+#
+# (1) THE AUTO-COPY ROOT, 3+1. compute_auto_copy_types' enum arm asked
+# `struct_name()` (empty on an Enum TypeRef) against the BARE `enums_` key
+# (written only qualified): both misses landed on a generous `return true`, so
+# EVERY enum-typed field read as Copy and a struct whose only field is an enum —
+# `OptionIter<T> { state: Option<T> }`, the stdlib victim — was auto-promoted
+# into `copy_types_`. Copy AND droppable at once: no move is tracked, and drop
+# glue fires at every slot. The pair is refuse+admit, because the same root also
+# ADMITTED a use-after-move (a permissive defect is invisible to a green corpus):
+#   tests/logos/pass/drop_enum_field_struct_move_once.logos          (1 line)
+#   tests/logos/pass/drop_enum_field_struct_move_once_control.logos  (2 values, 2 lines)
+#   tests/logos/fail/use_after_move_enum_field_struct.logos          (REFUSE half)
+#   tests/logos/pass/copy_enum_field_payload_copy.logos              (ADMIT half —
+#     `Option<i64>` payload is Copy, so the struct stays Copy; a blanket
+#     "enums are never Copy" reds this file, the pre-fix rule reds its twin)
+# (2) THE FOR-LOOP LEAK, 2 — the opposite direction, present in the tree before
+# this round: lower_for_each synthesises TWO owning slots (the item binding and
+# the iterator) and released NEITHER. `for x in v` over a `Vec<Inner>` printed
+# ZERO destructor lines. The loop boundary also moved out one frame so `break`
+# releases the item, and the `for x in it` scrutinee is now marked moved:
+#   tests/logos/pass/drop_for_loop_item_once.logos          (exhaust / break / move-out)
+#   tests/logos/pass/drop_for_loop_item_once_control.logos  (Option + NAMED iterator)
+# (3) R1 `return t.0;`, 1+1 — lower_return carried a hand COPY of
+# mark_moved_in_expr_recursive; the member had grown a TupleIndex case, the copy
+# had not. One walker now:
+#   tests/logos/pass/drop_tuple_element_returned_once.logos
+#   tests/logos/pass/drop_tuple_element_returned_once_control.logos (via a local)
+# (4) R2 `match a[0]`, 1+1 — the by-value match on an array-index place was the
+# ONE array-element move spelling not refused, and the one that double-freed.
+# IndexRead joins the scrutinee place list, so it gets the same E0508 answer:
+#   tests/logos/fail/match_array_index_move_out.logos    (REFUSE half)
+#   tests/logos/pass/match_array_index_copy_elem.logos   (ADMIT half, Copy element)
+# (5) INDIRECT CALLS CONSUME THEIR ARGS, 1+1 — the return-path walker had a case
+# for `Call` and none for `FnPtrCall`/`ClosureCall`, so `return pred(v)` dropped
+# the payload in the callee AND the arm. `Option::is_some_and` is that body:
+#   tests/logos/pass/drop_fnptr_arg_consumed_once.logos          (hand + stdlib)
+#   tests/logos/pass/drop_fnptr_arg_consumed_once_control.logos  (direct call)
+# RE-AIMED, not added (no registry delta): the two #103 homonym fixtures went
+# from asserting TWO `INNER DROP` lines to ONE. Their header said they must, and
+# the 0-vs-1 discrimination was RE-PROVEN by control revert on the post-#110
+# tree, not assumed.
+REGISTRY-ALL         7487
+REGISTRY-NOIMPORTED  3804
 REGISTRY-TIERCOMMIT  45
 # 2026-08-22 (#103 — THE `mlir_gen:` CHANNEL BECOMES FATAL. `logosc` printed its
 # OWN diagnosis that lowering had dropped a store, a call or a whole field-drop

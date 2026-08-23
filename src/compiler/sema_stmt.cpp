@@ -3129,53 +3129,17 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
             // Move semantics: recursively mark any move-type variable that
             // appears in the return expression as moved, so collect_all_drops()
             // won't also drop them (avoids double-free).
-            std::function<void(lir_view::ExprRef)> mark_moved_in_expr;
-            mark_moved_in_expr = [&](lir_view::ExprRef er) {
-                if (!er) return;
-                using C = lir_schema::expr::Code;
-                switch (er.kind()) {
-                    case C::VarRef: {
-                        if (is_move_type(er.type(cur_prog_->type_pool.impl())))
-                            mark_moved(std::string(lir_view::EVarRefView{er}.name()));
-                        return;
-                    }
-                    case C::FieldRead: {
-                        // outer.field passed by value moves the field — mark
-                        // "outer.field" so collect_*_drops skips it via
-                        // SDrop.moved_fields. Nested FieldReads inside the
-                        // receiver are not recursed (those access only,
-                        // not move).
-                        mark_moved_expr(er);
-                        return;
-                    }
-                    case C::EnumLitData: {
-                        lir_view::EEnumLitDataView{er}.each_payload(
-                            [&](lir_view::ExprRef a) { mark_moved_in_expr(a); });
-                        return;
-                    }
-                    case C::Call: {
-                        lir_view::ECallView{er}.each_arg(
-                            [&](lir_view::ExprRef a) { mark_moved_in_expr(a); });
-                        return;
-                    }
-                    case C::StructLit: {
-                        lir_view::EStructLitView{er}.each_field(
-                            [&](std::string_view, lir_view::ExprRef v) { mark_moved_in_expr(v); });
-                        return;
-                    }
-                    case C::TupleLit: {
-                        lir_view::ETupleLitView{er}.each_elem(
-                            [&](lir_view::ExprRef a) { mark_moved_in_expr(a); });
-                        return;
-                    }
-                    case C::BlockExpr: {
-                        mark_moved_in_expr(lir_view::EBlockExprView{er}.result());
-                        return;
-                    }
-                    default: return;
-                }
-            };
-            if (val) mark_moved_in_expr(expr_ref_of(val));
+            //
+            // ⚠ #110 R1 — this used to be a LOCAL LAMBDA, a hand copy of the
+            // member `mark_moved_in_expr_recursive` (sema_impl.hpp) with the
+            // same seven cases. The two drifted: the member grew a TupleIndex
+            // case and this copy did not, so `return t.0;` marked nothing and
+            // `t`'s scope-exit SDrop freed element 0 that the returned value
+            // already owned — MEASURED as two destructor lines for one value,
+            // on a plain concrete carrier with no enum and no generics. There
+            // is now ONE walker: a new consumer position gets the whole set of
+            // cases, and a new case reaches every consumer.
+            if (val) mark_moved_in_expr_recursive(expr_ref_of(val));
             // If lowering the value hoisted statement-temporaries (a droppable
             // rvalue receiver `make().get()`), the temps must drop BEFORE the
             // return transfers control. lower_stmt emits drops AFTER the wrapped
@@ -7114,6 +7078,18 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         }
 
         // Synthesize: let mut __iter = iter
+        //
+        // ⚠ #110 — THIS IS A MOVE, and it was never marked. `for x in it`, with
+        // `it` a named iterator local, hands `it`'s bytes to `__for_iter_N`;
+        // with the drop half of #110 fixed, main's `it` slot then ran the
+        // destructor a SECOND time (MEASURED: `let it = Option::Some(Inner{7})
+        // .into_iter(); for x in it { }` printed two `DROP n=7`). It stayed
+        // invisible before only because `OptionIter` was misclassified Copy, so
+        // nothing anywhere tracked a move of it — one wrong answer masking
+        // another. `mark_moved_expr` self-gates to VarRef/FieldRead/TupleIndex,
+        // so the `for x in v.iter()` / `for x in Some(..)` spellings (whose
+        // scrutinee is a CALL, owning nothing named) are unaffected.
+        if (is_move_type(iter_type)) mark_moved_expr(expr_ref_of(iter));
         std::string iter_var = "__for_iter_" + std::to_string(tmp_var_count_++);
         lir::SLet let_iter;
         let_iter.name   = iter_var;
@@ -7139,21 +7115,46 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         some_pat.bindings     = {std::string(var_name)};
         some_pat.binding_types = {elem_type};
 
-        push_scope();
+        // ⚠ #110 LEAK HALF — the two OWNING slots this desugar creates had NO
+        // drop glue at all. MEASURED 2026-08-22 (pre-fix): `for x in v` over a
+        // `Vec<Inner>` with a printing `Drop` printed ZERO destructor lines for
+        // two elements; `for x in Option::Some(Inner{7})` printed zero. The
+        // hand-written equivalent (`match it.next() { Some(x) => … }`) printed
+        // one, so the loss is in THIS desugar, not in the drop machinery.
+        //
+        // Both slots are synthesised here and so must be released here:
+        //   · the ITEM BINDING `x`, owned for one iteration — frame B below,
+        //     dropped at the end of every arm body;
+        //   · the ITERATOR `__for_iter_N`, owned for the whole loop — frame A,
+        //     dropped after the SLoop. On a normal exhaustion its glue is a
+        //     runtime no-op (the iterator is empty); on an early `break` it is
+        //     the only thing that frees the un-yielded items.
+        //
+        // The loop boundary moves OUT one frame, from the body block to frame
+        // B. `collect_drops_to_loop` walks down to AND INCLUDING the first
+        // loop_boundary frame, so a `break`/`continue` in the body now releases
+        // the item binding too — with the old tagging the walk stopped at the
+        // body frame and `x` leaked on every early exit. Frame A stays OUTSIDE
+        // the boundary on purpose: the iterator must survive a `continue`.
+        push_scope();                          // frame A — the iterator
         define(iter_var, iter_type, true);
+        push_scope();                          // frame B — the item binding
+        scope_.back().loop_boundary = true;
         define(std::string(var_name), elem_type, false);
         auto pat_pro = build_for_pat(elem_type);
         std::vector<lir_view::StmtRef> then_body;
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
             loop_break_frames_.push_back({"", nullptr, false});
-        pending_loop_body_scope_ = true;  // G167-4: tag the body frame
             lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ then_body.push_back(s); });
             loop_break_frames_.pop_back();
             --loop_depth_;
         }
         prepend_for_pat(then_body, pat_pro);
-        pop_scope();
+        for (auto& d : collect_drops()) then_body.push_back(std::move(d));
+        pop_scope();                           // frame B
+        auto iter_drops = collect_drops();      // frame A — after the SLoop
+        pop_scope();                           // frame A
 
         // Else arm: _ → break
         std::vector<lir_view::StmtRef> else_body;
@@ -7173,6 +7174,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         loop_body.push_back(make_stmt_emit(node_line_, std::move(sm)));
         lir::SLoop sl; sl.body = lir_mirror_block(*cur_prog_, loop_body);
         outer_block.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        for (auto& d : iter_drops) outer_block.push_back(std::move(d));
 
         // Wrap in a block statement
         return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, outer_block), /*transparent=*/true});
@@ -7996,10 +7998,28 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
     // in moved_fields) — else the parent's scope-exit Drop double-frees the
     // moved-out payload (the issue-19367 double-free). A bare VarRef marks the
     // var. mark_moved_target dispatches to the right form.
+    // #110 R2 — INDEXREAD BELONGS IN THIS LIST. `match a[0] { W { i: y } => … }`
+    // over a `[W; 1]` with a droppable element used to reach neither arm of the
+    // machinery: lower_match's `is_place` test (which DOES list IndexRead) kept
+    // it off the temp-hoist path, and this list's omission kept it off the
+    // mark-moved path — so the element was destructured into `y`, dropped at arm
+    // end, and dropped AGAIN by the array's scope-exit glue. MEASURED
+    // 2026-08-22: two `DROP n=7` for one value; the same match on a plain local
+    // (`match s { … }`) printed one.
+    //
+    // Adding it here routes the scrutinee into `mark_moved_expr`, whose
+    // IndexRead arm has refused this since the E0508 work: `cannot move out of
+    // type '[W; 1]', a non-copy array`. That is the SAME answer every other
+    // array-element move spelling already gives (`let d = a[0]`, `f(a[0])`,
+    // `return a[0]` — all refused), so the by-value match stops being the one
+    // hole in that rule instead of being the one shape that double-frees. The
+    // refusal is element-conditional (`needs_drop`), so `match a[0]` over a
+    // Copy-element array still compiles — pinned as the admit half.
     bool scrut_is_place = scrut &&
         (expr_ref_of(scrut).kind() == ec::Code::VarRef ||
          expr_ref_of(scrut).kind() == ec::Code::FieldRead ||
-         expr_ref_of(scrut).kind() == ec::Code::TupleIndex);
+         expr_ref_of(scrut).kind() == ec::Code::TupleIndex ||
+         expr_ref_of(scrut).kind() == ec::Code::IndexRead);
     auto mark_moved_target = [&]() {
         if (expr_ref_of(scrut).kind() == ec::Code::VarRef)
             mark_moved(std::string(lir_view::EVarRefView{expr_ref_of(scrut)}.name()));

@@ -1,0 +1,29 @@
+// #110 — THE COUNTING ORACLE. `struct WO { o: Option<Inner> }` is moved once;
+// `Inner`'s destructor must run EXACTLY ONCE.
+//
+// Before the fix it ran TWICE. compute_auto_copy_types' `is_copy_field` enum
+// arm (sema.cpp) asked `TypeRef(t).struct_name()` — EMPTY on an Enum TypeRef,
+// which carries `enum_name()` — against the BARE `enums_` key, while `enums_`
+// is only ever written qualified (`enums_[sema_key(pkg,name)]`). Two independent
+// misses on one lookup, both landing on the generous `return true`, so the
+// payload arm below them had ZERO executions and EVERY enum-typed field read as
+// Copy. `WO` was therefore auto-promoted into `copy_types_`, `is_move_type(WO)`
+// answered false, and NO move was ever tracked for it — while
+// `has_droppable_fields` (which answers the enum question correctly) still put
+// drop glue on every slot the value occupied. Copy and droppable at once: one
+// value, one destructor call PER SLOT. With a heap-owning field, a double free.
+//
+// ⚠ BOTH DIRECTIONS. Two lines is the pre-fix miscompile; ZERO lines would be a
+// suppressed destructor — a leak — which is how the opposite defect is born
+// (#103 closed exactly that symptom). Neither may be accepted as "fixed".
+package dropenumfield;
+use logos.std.fmt;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+struct WO { pub o: Option<Inner> }
+fn main() -> i32 {
+    let b: WO = WO { o: Option::Some(Inner { n: 7i64 }) };
+    let c: WO = b;
+    println!("moved");
+    return 0i32;
+}

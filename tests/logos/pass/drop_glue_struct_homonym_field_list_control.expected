@@ -1,5 +1,22 @@
+# CONTROL half of the #103 drop-glue homonym pair — byte-identical to
+# drop_glue_struct_homonym_field_list except the struct is named `Widget`, a
+# name no stdlib package declares, so the bare first-registered-wins alias has
+# nothing to answer with. It printed the SAME count as its twin before and
+# after the #103 fix; a regression that silences the homonym half again shows up
+# as a DIFFERENCE between the two fixtures, not as two tests going quiet
+# together. MEASURED 2026-08-22 by control revert (bare lookup restored
+# bare-first at mlir_gen_stmt.cpp): this file printed ONE line, its twin ZERO.
+#
+# RE-AIMED 2026-08-22 from two lines to one, together with its twin, when #110
+# landed: the second line was one value's destructor running on a second stack
+# slot (`OptionIter<T> { state: Option<T> }` auto-promoted to Copy by the enum
+# arm of compute_auto_copy_types, so no move was ever tracked while every slot
+# still carried drop glue). This header did not exist before — the twin carried
+# the whole argument and this file asserted the same two lines silently.
+#
+# ⚠ BOTH DIRECTIONS. Exactly one line: zero would be the #103 regression, two
+# the #110 regression.
 exit: 0
 stdout:
-INNER DROP n=7
 INNER DROP n=7
 count=1

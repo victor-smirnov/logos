@@ -28,7 +28,11 @@
 # deliberate ledger edit in the same commit, so the count can only move on
 # purpose. A number that drifts down on its own is a measurement nobody reads.
 #
-# 41 rows / 44 sites. Cells: O 20, B#98 8, D 6, B#88 3, B#90 2, Q 2.
+# 41 rows / 45 sites. Cells: O 21, B#98 8, D 6, B#88 3, B#90 2, Q 2.
+# (+1 O site 2026-08-22, #110: compute_auto_copy_types' is_copy_field enum arm
+#  gained the qualified-then-bare `enums_` probe it never had — it used to ask
+#  `struct_name()` (empty on an Enum) against the bare key, missed always, and
+#  returned the generous `true`, classifying every enum-typed field as Copy.)
 #
 # ── ⚠ WHAT THIS LEDGER'S GREEN DOES **NOT** VOUCH FOR — `traits_` (#100) ────
 # MEASURED 2026-08-22: `python3 key_identity_scan.py src/compiler
@@ -170,7 +174,7 @@ sema.cpp	current_type_bounds_	D	1	std::string(TypeRef(base).type_var_name())
 sema.cpp	current_type_bounds_	D	1	std::string(TypeRef(x).type_var_name())
 sema.cpp	current_type_bounds_	D	1	type_str(result)
 sema.cpp	datatypes_	B#98	1	TypeRef(struct_t).struct_name()
-sema.cpp	enums_	O	1	std::string(TypeRef(t).enum_name())
+sema.cpp	enums_	O	2	std::string(TypeRef(t).enum_name())
 sema.cpp	impls_	B#88	1	"StableLayout::" + concrete_struct_name(ft)
 sema.cpp	impls_	B#88	1	"StableLayout::" + type_str(ft)
 sema.cpp	structs_	B#98	1	TypeRef(struct_t).struct_name()

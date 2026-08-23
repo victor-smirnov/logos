@@ -1,0 +1,26 @@
+// THE OVER-REFUSAL GUARD for #110's fix, and its ADMIT half. The fix replaced
+// an unconditional `return true` (every enum-typed field is Copy) — it did NOT
+// replace it with an unconditional `return false`. The rule is Rust's: an enum
+// is Copy iff it declares no `impl Drop` and EVERY variant payload type is
+// itself Copy, payload TypeVars mapped through the enum's type_params to this
+// TypeRef's type_args.
+//
+// `Option<i64>`'s payload is Copy, so `SO` stays Copy and `b` is still usable
+// after `let c: SO = b;`. Its refuse twin is
+// fail/use_after_move_enum_field_struct: the SAME program with `Option<Inner>`
+// — a droppable payload — where the very same use is now correctly refused.
+// A blanket "enums are never Copy" would red THIS file; the pre-fix "enums are
+// always Copy" reds the twin. Only the payload-recursive rule keeps both green.
+package copyenumfield;
+use logos.std.fmt;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+struct SO { pub o: Option<i64> }
+fn main() -> i32 {
+    let b: SO = SO { o: Option::Some(9i64) };
+    let c: SO = b;
+    let d: bool = b.o.is_some();
+    let e: Inner = Inner { n: 7i64 };
+    println!("copy_ok={}", d);
+    return 0i32;
+}

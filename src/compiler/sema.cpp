@@ -3121,6 +3121,7 @@ bool SemaChecker::is_move_type(TypeRef t) const {
     };
     // G156-2: an enum is a move type iff it carries a droppable payload or has a
     // user `impl Drop`. Plain C-like / all-Copy-payload enums stay non-move.
+    //
     auto enum_is_move = [&](TypeRef x) {
         return !drop_fn_for(x).empty() || has_droppable_fields(x);
     };
@@ -3377,11 +3378,44 @@ void SemaChecker::compute_auto_copy_types() {
             // Enum: Copy iff no variant has a payload AND no impl Drop.
             // (Logos enums-with-payload are tagged unions storing owned data.)
             if (k == K::Enum) {
-                auto ename = std::string(TypeRef(t).struct_name());
-                auto eit = enums_.find(ename);
-                if (eit == enums_.end()) return true;  // unknown — be generous
+                // ⚠ #110 ROOT. This lookup used to ask `struct_name()` (empty on
+                // an Enum TypeRef — enums carry ENUM_NAME) against the BARE key
+                // (`enums_` is only ever written qualified, sema_collect.cpp
+                // `enums_[sema_key(pkg,name)]`). BOTH misses landed on the
+                // generous `return true`, so the payload arm below never
+                // executed once and EVERY enum-typed field read as Copy —
+                // promoting `struct WO { o: Option<Inner> }` into copy_types_.
+                // A Copy struct is not a move-type, so no move is ever tracked,
+                // while has_droppable_fields (which answers the enum question
+                // correctly) still puts drop glue on every slot: one value,
+                // one destructor call PER SLOT. `OptionIter<T> { state:
+                // Option<T> }` is exactly that shape — the stdlib victim.
+                //
+                // Rule (Rust parity): an enum is Copy iff it has no `impl Drop`
+                // and every variant payload type is itself Copy. Payload types
+                // of a generic enum are TypeVars; map them through the enum's
+                // type_params → this TypeRef's type_args, the same shallow
+                // concretization has_droppable_fields does.
+                auto eit = enums_.end();
+                if (!TypeRef(t).pkg_name().empty())
+                    eit = enums_.find(sema_key(TypeRef(t).pkg_name(), TypeRef(t).enum_name()));
+                if (eit == enums_.end())
+                    eit = enums_.find(std::string(TypeRef(t).enum_name()));
+                if (eit == enums_.end()) return false;  // unknown — conservative
+                if (has_drop_impl(std::string(TypeRef(t).enum_name()))) return false;
+                auto targs = TypeRef(t).type_args();
+                auto& tparams = eit->second.type_params;
+                auto concretize = [&](TypeRef pt) -> TypeRef {
+                    if (pt && TypeRef(pt).kind() == K::TypeVar) {
+                        auto nm = TypeRef(pt).type_var_name();
+                        for (size_t j = 0; j < tparams.size() && j < targs.size(); ++j)
+                            if (tparams[j].name == nm) return targs[j];
+                    }
+                    return pt;
+                };
                 for (auto& v : eit->second.variants)
-                    if (!v.payload_types.empty()) return false;
+                    for (auto pt : v.payload_types)
+                        if (!is_copy_field(concretize(pt))) return false;
                 return true;
             }
             return true;

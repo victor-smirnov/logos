@@ -1,0 +1,21 @@
+// #110 R1 — `return t.0;` dropped the element TWICE. The return path's move
+// walker was a LOCAL LAMBDA in lower_return, a hand copy of the member
+// `mark_moved_in_expr_recursive`; the member had grown a TupleIndex case and
+// the copy had not, so nothing marked `t.0` moved and the tuple's scope-exit
+// SDrop freed the element the returned value already owned. The two walkers
+// are now one.
+//
+// Concrete carrier, no enum, no generics — this is NOT the auto-Copy root that
+// the rest of #110 closed; it reproduces on a struct whose field has its own
+// `impl Drop`. Its control twin (drop_tuple_element_returned_once_control)
+// spells the same move through a LOCAL first, the path that was already
+// correct: the pair says the difference is the direct-return position.
+//
+// ⚠ Exactly one line. Two is the defect; zero would be a suppressed destructor.
+package droptupret;
+use logos.std.fmt;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+struct W { pub i: Inner }
+fn prod() -> W { let t: (W, i64) = (W { i: Inner { n: 7i64 } }, 1i64); return t.0; }
+fn main() -> i32 { let r: W = prod(); println!("m"); return 0i32; }

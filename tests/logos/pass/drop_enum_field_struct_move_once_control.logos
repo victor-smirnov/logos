@@ -1,0 +1,22 @@
+// COUNTING CONTROL for drop_enum_field_struct_move_once — the twin that proves
+// the oracle can SEE a second destructor call. Byte-identical in shape except
+// there are TWO values, each moved once, so the correct output is TWO lines
+// with DISTINCT n. If a future change silences drop glue wholesale, this file
+// loses lines while its twin merely looks "still correct at one"; if the #110
+// per-slot duplication returns, this file goes to four.
+//
+// ⚠ The distinct `n` is the point. Two lines of the SAME value cannot be told
+// apart from one value dropped twice, which is precisely the defect.
+package dropenumfieldctl;
+use logos.std.fmt;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+struct WO { pub o: Option<Inner> }
+fn main() -> i32 {
+    let b1: WO = WO { o: Option::Some(Inner { n: 7i64 }) };
+    let c1: WO = b1;
+    let b2: WO = WO { o: Option::Some(Inner { n: 8i64 }) };
+    let c2: WO = b2;
+    println!("moved");
+    return 0i32;
+}

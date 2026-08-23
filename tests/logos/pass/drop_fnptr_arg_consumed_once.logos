@@ -1,0 +1,34 @@
+// #110 — an INDIRECT call consumes its arguments too. `return pred(v);` with
+// `pred: fn(T) -> bool` left `v` unmarked: the return path's move walker had a
+// case for the direct `Call` code and none for `FnPtrCall` / `ClosureCall`, so
+// the payload was dropped by the callee AND by the match arm (MEASURED
+// 2026-08-22: two `DROP n=7`; the byte-identical direct generic call `eat(v)`
+// in the same position printed one).
+//
+// `logos.lang.option.Option::is_some_and` is exactly this body, which is why
+// that stdlib combinator double-dropped its payload — re-measured to one here
+// through its own call, not only through the hand-written shape.
+//
+// ⚠ Exactly two lines, one per value (n=7 through the hand-written generic,
+// n=8 through the stdlib combinator). Distinct payloads, so a duplicate cannot
+// hide inside a pair of identical lines; a missing line is a leak.
+package dropfnptrarg;
+use logos.std.fmt;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn keep(x: Inner) -> bool { return true; }
+fn isa<T>(s: Option<T>, pred: fn(T) -> bool) -> bool {
+    match s {
+        Option::Some(v) => { return pred(v); }
+        Option::None => { return false; }
+    }
+}
+fn main() -> i32 {
+    let a: Option<Inner> = Option::Some(Inner { n: 7i64 });
+    let c: bool = isa(a, keep);
+    println!("hand c={}", c);
+    let b: Option<Inner> = Option::Some(Inner { n: 8i64 });
+    let d: bool = b.is_some_and(keep);
+    println!("std d={}", d);
+    return 0i32;
+}

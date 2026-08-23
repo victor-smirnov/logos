@@ -1,0 +1,14 @@
+// ADMIT half of #110 R2 (refuse half: fail/match_array_index_move_out). The
+// same `match a[0] { … }` over an array whose element needs NO destructor is
+// a copy, not a move, and must still compile. mark_moved_expr's IndexRead arm
+// errors only when `needs_drop(elem)`, so adding IndexRead to the match
+// scrutinee's place list closed the double-free without making the by-value
+// match over plain data illegal. A blanket refusal would red THIS file.
+package matcharrcopy;
+use logos.std.fmt;
+struct P { pub a: i64 }
+fn main() -> i32 {
+    let a: [P; 1] = [P { a: 7i64 }];
+    match a[0] { P { a: y } => { println!("y={}", y); } }
+    return 0i32;
+}

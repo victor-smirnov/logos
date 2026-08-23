@@ -1,0 +1,41 @@
+// #110 STDLIB VICTIM PIN — `OptionIter<T> { pub state: Option<T> }`
+// (stdlib/lang/iter/iter.logos) is exactly the shape the #110 root
+// misclassified: a struct whose ONLY field is an enum. Every enum-typed field
+// read as Copy, so `OptionIter` was auto-promoted into `copy_types_`, no move
+// was tracked through `into_iter()` / the terminal's `let mut it: Self = self;`
+// — and every slot still carried drop glue. MEASURED PRE-FIX: `count()` 2
+// drops, `last()` 2 drops, `min_by`/`max_by` 3.
+//
+// Both terminals here carry drop calls in the emitted IR, and each is a
+// SEPARATE program-level assertion: one `DROP n=1` and one `DROP n=2`, in that
+// order. Distinct payloads, so a duplicated drop cannot hide inside a pair of
+// identical lines.
+//
+// ⚠ TWO TERMINALS ARE STILL WRONG AND ARE NOT PINNED BY THIS FILE — named here
+// so a reader of the green does not read it as coverage:
+//   `min_by` / `max_by`  — 2 destructor calls for one value, printing AND heap
+//                          payload; no abort even at 20 000 elements, so the
+//                          second call lands on a moved-out husk (task #112).
+//   `filter`             — 3 calls, and with a heap-owning payload it ABORTS:
+//                          `free(): double free detected in tcache 2`, rc 134.
+// Every corpus user of `.filter` carries a Copy payload, so that crash is
+// invisible to a green corpus BY CONSTRUCTION — the same rule this round
+// invoked when it added the use-after-move refusal, applied to the root and
+// not to the residual that actually crashes. #112 owns both.
+//
+// ⚠ This pin is deliberately in a package that shares NO name with any stdlib
+// struct. Its homonym counterpart (drop_glue_struct_homonym_field_list) pins
+// #103's field-list consult through the same stdlib path; a change that moves
+// only one of the two says which of the two roots regressed.
+package dropoptiter;
+use logos.std.fmt;
+use logos.lang.iter;
+struct Inner { pub n: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn main() -> i32 {
+    let c: i64 = Option::Some(Inner { n: 1i64 }).into_iter().count();
+    println!("count={}", c);
+    let l: Option<Inner> = Option::Some(Inner { n: 2i64 }).into_iter().last();
+    println!("last_done");
+    return 0i32;
+}
