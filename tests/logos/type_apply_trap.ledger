@@ -66,5 +66,17 @@
 #   program at SEVEN hops compiles and runs clean, so the abort is the bound.
 #
 apply_nonliteral     | 134 | -   | mono.__type_apply__: name must be a string literal
-apply_nongeneric     | 0   | 132 | demoted to trap stubs
+# ── ROW RETIRED 2026-08-23, BECAUSE IT IMPROVED ─────────────────────────────
+# `apply_nongeneric | 0 | 132 | demoted to trap stubs` is gone. #120 made a trap
+# demotion surviving into the FINAL emission round route through the malfunction
+# sink, so that program now REFUSES (compile rc 1, no object) instead of
+# shipping `ud2`. This gate is what noticed: it compared the row against the
+# tree, saw the improvement, and printed its own instruction — delete the row,
+# land the behaviour as an ordinary test. Done: the fixture moved to
+# tests/logos/fail/type_apply_nongeneric_arity_fail.logos.
+#
+# ⚠ THE ARITY DEFECT ITSELF IS NOT FIXED. `type_apply("Marked", [T])` on a
+# non-generic `Marked` is still unchecked by parser, sema and mono; what changed
+# is only that the consequence is a refusal rather than an object file. The
+# right diagnostic names `Marked` and its arity AT the `type_apply` site.
 tuple_apply_hop_cliff | 134 | -  | mono.__tuple_type_apply__: arg[0] not a Type producer

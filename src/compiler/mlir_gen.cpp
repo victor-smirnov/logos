@@ -625,6 +625,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
             if (is_binary_skip(m) || is_lazy_skip(m)) return;
             auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(m));
             if (prog.poisoned_fns.count(link_name(m))) {
+                trap_demotion_check(link_name(m));
                 emit_trap_body(func);
                 ++method_bodies; ++bodies_emitted;
                 return;
@@ -637,6 +638,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     for (auto& fn : prog.functions) {
         if (fn.is_extern() || is_binary_skip(fn) || is_lazy_skip(fn)) continue;
         if (prog.poisoned_fns.count(link_name(fn))) {
+            trap_demotion_check(link_name(fn));
             auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(fn));
             emit_trap_body(func);
             ++fn_bodies; ++bodies_emitted;

@@ -526,9 +526,9 @@ PIN = {
     # of the 11 declares a container family or a `direct` output form; they are
     # destructor-count fixtures over `OnceCell`/`LazyCell` with a heap-owning
     # `struct Inner { n, Vec<i64> }`.
-    'corpus'            : 2342,
+    'corpus'            : 2343,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2151,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2152,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

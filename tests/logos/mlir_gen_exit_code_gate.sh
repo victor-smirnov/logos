@@ -297,6 +297,9 @@ fi
 # is already pinned by the raw roster above for the raw sites, and for sink
 # sites the message is a format string that legitimately gets re-worded. What
 # must not change silently is HOW MANY places can report.
+# 2026-08-23, moved DELIBERATELY and in the ADDING direction again: #120 gave
+# the FINAL-round trap demotion a report where it previously had a `mono: note`
+# and exit 0. mlir_gen_impl.hpp 10 -> 11.
 # 2026-08-22, moved DELIBERATELY and in the ADDING direction: #104 gave the
 # StringView capture arm a loud refusal where it previously built an invalid
 # `ExtractValue` on a pointer and let the verifier core-dump the compiler. One
@@ -306,7 +309,7 @@ fi
 REPORT_PIN=$(cat <<'REPORTS'
 mlir_gen.cpp 5
 mlir_gen_expr.cpp 15
-mlir_gen_impl.hpp 10
+mlir_gen_impl.hpp 11
 mlir_gen_stmt.cpp 15
 mlir_gen_types.cpp 4
 REPORTS
@@ -367,6 +370,6 @@ if [ "$rc_gate" -eq 0 ]; then
     echo "mlir_gen exit-code gate: rc=$subj_rc, no object file, R2 sink reached;"
     echo "  control compiled clean (rc=0, object written);"
     echo "  roster: $n_measured raw 'mlir_gen:' sites, all in cells I/II/III, cell IV empty;"
-    echo "  49 malfunction-report call sites over 5 files, unmoved."
+    echo "  50 malfunction-report call sites over 5 files, unmoved."
 fi
 exit "$rc_gate"  # lint:exit-ok — `rc_gate` is set only to the literals 0 and 1

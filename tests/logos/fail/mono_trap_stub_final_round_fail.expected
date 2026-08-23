@@ -1,0 +1,1 @@
+mlir_gen: internal: function 'main' was demoted to a trap stub in the FINAL emission round

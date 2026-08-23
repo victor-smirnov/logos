@@ -3432,9 +3432,44 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # tests/logos/fail/*.expected 790 -> 791, tests/logos/*.sh 65 -> 65.
 # The direct-door gate's own corpus/nonglob pins moved with them (2331 -> 2342,
 # 2140 -> 2151), re-derived the same way; doors unmoved at 36 = 10 + 26.
-REGISTRY-ALL         7551
-REGISTRY-NOIMPORTED  3868
+REGISTRY-ALL         7554
+REGISTRY-NOIMPORTED  3871
 REGISTRY-TIERCOMMIT  46
+# 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
+# `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
+# something it needs. Inside a metaprog round that is EXPECTED — the round is
+# superseded and its object discarded, and mono_scan's own message says so.
+# Surviving into the FINAL emission it is neither: MEASURED, `a.and::<i64>(b)`
+# binds the method-level tparam to the wrong slot, `main` itself is demoted,
+# `logosc: wrote …`, rc 0, and the linked binary dies rc 132 with ZERO
+# destructor calls. Every pass fixture asserts an exit code, so a compile that
+# replaces `main` with a trap and exits 0 is invisible BY CONSTRUCTION — #103's
+# argument one layer up, and routed through #103's SAME sink so one mechanism
+# enforces both.
+#   src/compiler/mlir_gen_impl.hpp  trap_demotion_check() (new report)
+#   src/compiler/mlir_gen.cpp       both trap-emission sites call it
+#   tests/logos/fail/mono_trap_stub_final_round_fail.logos   (+ .expected)
+#   tests/logos/pass/mono_trap_stub_final_round_ctl.logos    (+ .expected)
+# CONTROL REVERT: without the check, `logosc: wrote` and rc 0 return; restored,
+# md5 asserted equal, refusal rc 1 with no object.
+#
+# ⚠ AND A LEDGER ROW RETIRED ITSELF, WHICH IS THE POINT OF LEDGERS.
+# `tests/logos/type_apply_trap.ledger` had recorded this exact defect months ago
+# as `apply_nongeneric | 0 | 132 | demoted to trap stubs` — a program that
+# compiled clean and died on SIGILL — precisely because neither outcome fits the
+# corpus harness. When #120 landed, `type_apply_trap_gate.sh` compared the row
+# against the tree, saw it had IMPROVED, and printed its own instruction:
+# delete the row, land the behaviour as an ordinary test. Done — the fixture is
+# now tests/logos/fail/type_apply_nongeneric_arity_fail.logos, and the ledger
+# carries the retirement with its ground. The gate did not merely fail to lie;
+# it told the next person what to do about the truth.
+# ⚠ The ARITY defect underneath is NOT fixed: `type_apply("Marked", [T])` on a
+# non-generic `Marked` is still unchecked by parser, sema and mono. Only the
+# consequence moved, from an object file to a refusal.
+#
+# +3 registered: 7551 -> 7554 / 3868 -> 3871 / tier_commit 46 unchanged.
+# The mlir_gen report census moves 49 -> 50 (mlir_gen_impl.hpp 10 -> 11) — the
+# ADDING direction, pinned deliberately, same mechanism that refuses a removal.
 # 2026-08-22 (#104 — capturing a genuine stdlib `StringView` into an `@{}` writ
 # literal CRASHED THE COMPILER: rc 139, core dumped inside the verifier's own
 # diagnostic printer (`ExtractValueOp::verifyInvariantsImpl` -> `emitOpError` ->

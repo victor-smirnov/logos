@@ -1,0 +1,28 @@
+// #120, THE 15th KIND OF GATE LIE — the compiler demoted `main` to a trap stub
+// and exited 0. `poisoned_fns` replaces a function body with `ud2` when mono
+// could not instantiate something it needs; inside a metaprog round that is
+// EXPECTED and harmless (the round is superseded, its object thrown away), and
+// `mono_scan.cpp`'s own message says so. Surviving into the FINAL emission it
+// is neither: MEASURED before the fix — `logosc: wrote …`, rc 0, and the linked
+// binary died with SIGILL, rc 132, ZERO destructor calls.
+//
+// Every pass fixture asserts an exit code, so a compile that replaces `main`
+// with a trap and exits 0 is invisible to the corpus BY CONSTRUCTION. Same
+// argument that made the `mlir_gen:` channel fatal in #103, one layer up, and
+// routed through the SAME sink so it is counted and enforced by one mechanism
+// rather than two that could disagree.
+//
+// ⚠ THE UNDERLYING TYPE DEFECT IS NOT FIXED HERE AND IS NOT THIS FIXTURE'S
+// SUBJECT: `and::<i64>` binds the method-level tparam to the wrong slot. What
+// this pins is that the compiler REFUSES instead of shipping `ud2`. Its admit
+// twin `mono_trap_stub_final_round_ctl` is the same program without the
+// turbofish, and it must stay green — a fix that refuses both would be a
+// different defect.
+package monotrap;
+use logos.std.fmt;
+fn main() -> i32 {
+    let a: Option<i64> = Option::Some(1i64);
+    let b: Option<i64> = Option::Some(2i64);
+    let c: Option<i64> = a.and::<i64>(b);
+    match c { Option::Some(v) => { println!("v={}", v); }, Option::None => { println!("none"); } }
+    return 0i32; }

@@ -262,6 +262,34 @@ public:
     // before. See mlir_gen.cpp pass0.
     void set_metaprog_round(bool v) { metaprog_round_ = v; }
 
+    // #120 — A TRAP STUB IN THE FINAL ROUND IS A MALFUNCTION, NOT A NOTE.
+    // `poisoned_fns` demotes a function to `ud2` when mono could not
+    // instantiate something it needed. Inside a metaprog round that is
+    // EXPECTED and harmless: the round is superseded and its object is
+    // thrown away — `mono_scan.cpp`'s own message says "expected only before a
+    // metaprog emission round". Surviving into the FINAL emission it is
+    // neither: the object is written, `logosc` exits 0, and the program dies
+    // with SIGILL the moment it reaches the stub.
+    //
+    // MEASURED (#120): `a.and::<i64>(b)` binds the method-level tparam to the
+    // wrong slot, `main` itself is demoted, `logosc: wrote …`, rc 0, and the
+    // linked binary dies rc 132 with ZERO destructor calls. Every pass fixture
+    // asserts an exit code, so a compile that replaces `main` with a trap and
+    // exits 0 is invisible to the corpus BY CONSTRUCTION — the same reasoning
+    // that made the `mlir_gen:` channel fatal in #103, one layer up.
+    //
+    // Routed through the SAME sink, so it is counted, `internal:`-marked and
+    // enforced by the existing exit-code machinery rather than a second
+    // mechanism that could disagree with it.
+    void trap_demotion_check(const std::string& link) {
+        if (metaprog_round_) return;
+        bug_printf("function '%s' was demoted to a trap stub in the FINAL "
+                   "emission round — mono could not instantiate something it "
+                   "needs, so this symbol is `ud2` and any call to it dies "
+                   "with SIGILL",
+                   link.c_str());
+    }
+
 private:
     mlir::OpBuilder builder_;
     mlir::Location  loc_;

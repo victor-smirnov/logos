@@ -1,12 +1,22 @@
-// FIXTURE for type_apply_trap_gate.sh — NOT a corpus test, and it must not
-// become one: this program COMPILES WITH EXIT CODE 0 and the binary traps,
-// which is the one outcome `run_test.sh` pass-mode would report as an ordinary
-// wrong exit code, losing both facts that matter.
+// #120 CLOSED THIS ROW. It was `type_apply_trap.ledger`'s `apply_nongeneric`:
+// "compile 0 / run 132 / demoted to trap stubs" — a program that COMPILED
+// CLEAN and died on SIGILL. The ledger existed precisely because neither
+// outcome fits the corpus harness, and it did its job: when #120 made a trap
+// demotion in the FINAL emission round route through the malfunction sink, the
+// gate noticed the row had IMPROVED and said so, and its own instruction is
+// what this file is following — delete the row, land the behaviour as an
+// ordinary test.
 //
 // `Marked` takes NO type parameters. `type_apply("Marked", [type_of::<i32>()])`
 // applies one type argument to it. Nothing checks arity — not the parser, not
-// sema, not mono — so the compile succeeds, the object file is written, and the
-// program dies on SIGILL when it reaches the result.
+// sema, not mono — so mono demotes the caller to a trap stub. What changed is
+// only what happens next: the demotion is now a refusal instead of an object
+// file.
+//
+// ⚠ THE ARITY DEFECT ITSELF IS STILL OPEN and is not this file's subject: the
+// right answer is a diagnostic naming `Marked` and its arity at the
+// `type_apply` site, not a trap stub refused one layer down. What is pinned
+// here is that the compiler REFUSES rather than shipping `ud2`.
 //
 // ⚠ THE COMPILER IS NOT SILENT, AND SAYING SO WOULD BE OVERSTATING IT. It
 // prints, on stderr, with exit code 0:

@@ -1,0 +1,12 @@
+// The ADMIT twin of fail/mono_trap_stub_final_round_fail: the same program
+// without the turbofish. It compiled and ran correctly before the fix and must
+// keep doing so — the refusal is about a trap stub reaching the final round,
+// not about `Option::and`.
+package monotrapctl;
+use logos.std.fmt;
+fn main() -> i32 {
+    let a: Option<i64> = Option::Some(1i64);
+    let b: Option<i64> = Option::Some(2i64);
+    let c: Option<i64> = a.and(b);
+    match c { Option::Some(v) => { println!("v={}", v); }, Option::None => { println!("none"); } }
+    return 0i32; }
