@@ -48,7 +48,7 @@ unsafe fn main() -> i32 {
     let needle = 3;
     let mut it_find = range_i32(0, 10);
     unsafe {
-        match it_find.find(|x: i32| -> bool { return x == needle; }) {
+        match it_find.find(|x: &i32| -> bool { return *x == needle; }) {
             Option::Some(v) => { if v != 3 { return 5; } }
             Option::None    => { return 6; }
         }

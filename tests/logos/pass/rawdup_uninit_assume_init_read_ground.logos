@@ -1,0 +1,29 @@
+// MaybeUninit::assume_init_read is a GROUNDED survivor of the #112 raw-duplicate
+// census: it duplicates BY CONTRACT.
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+//
+// This is the one site of the 34 whose bitwise duplicate is the DECLARED SEMANTICS
+// rather than a workaround. `core::mem::MaybeUninit::assume_init_read` in Rust also
+// duplicates for every `T` and is also `unsafe` for exactly this reason: the CALLER,
+// not the callee, owns the do-not-drop-twice obligation. With a droppable `T` two
+// destructor calls for one value is therefore the CORRECT observation — which is why
+// this fixture pins the Copy-payload behaviour (the only shape a safe caller may use)
+// rather than pretending the duplicate is a defect to be removed.
+
+package rawdup_uninit_assume_init_read_ground;
+
+use logos.std.fmt;
+use logos.mem.uninit;
+
+fn main() -> i32 {
+    let mut m: MaybeUninit<i64> = MaybeUninit::<i64>::new(7i64);
+    unsafe {
+        let a: i64 = m.assume_init_read();
+        let b: i64 = m.assume_init_read();
+        println!("a={} b={}", a, b);
+        let c: i64 = m.assume_init();
+        println!("c={}", c);
+    }
+    return 0i32;
+}

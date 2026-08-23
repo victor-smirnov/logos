@@ -1583,6 +1583,24 @@ set_tests_properties(logos_00_spec_path_lint PROPERTIES
     LABELS  "logos;lint;suite_lint;tier_commit"
 )
 
+# ── #112: THE `*((&x) as *const T)` DUPLICATE-OWNER CLASS ───────────────────
+# A raw read of an OWNING value through `&x as *const T` makes a SECOND OWNER of one
+# allocation. 34 occurrences lived in stdlib and every one of them was invisible to a
+# green corpus BY CONSTRUCTION — every in-tree caller of the affected combinators
+# carried a Copy payload. `Option::filter` with a heap-owning payload aborted rc 134.
+# The shape is a grep, so the surviving population is DERIVED here and held against a
+# ledger in both directions; a new one reds at birth.
+add_test(
+    NAME logos_00_stdlib_raw_dup_lint
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/stdlib_raw_dup_lint.sh
+            ${CMAKE_SOURCE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/stdlib_raw_dup.ledger
+)
+set_tests_properties(logos_00_stdlib_raw_dup_lint PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;lint;suite_lint;tier_commit"
+)
+
 add_test(
     NAME logos_00_shared_ref_ub_lint
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/shared_ref_ub_lint.sh

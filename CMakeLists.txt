@@ -14,7 +14,7 @@ cmake_minimum_required(VERSION 3.28)
 # not and owe no bump). Authorised: the library API has no users outside Logos.
 # `scripts/abi-check.sh`'s BUMP GATE compares MAJOR.MINOR against the base ref,
 # so the MINOR is what has to move.
-project(logos VERSION 0.40.0 LANGUAGES CXX C ASM)
+project(logos VERSION 0.41.0 LANGUAGES CXX C ASM)
 
 # ── Version & parallel-install slot ──────────────────────────────────────
 # Single source of truth: project(VERSION) above + the pre-release marker

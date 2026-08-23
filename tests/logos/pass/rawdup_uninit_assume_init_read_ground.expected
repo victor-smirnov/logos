@@ -1,0 +1,4 @@
+exit: 0
+stdout:
+a=7 b=7
+c=7

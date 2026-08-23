@@ -26,7 +26,7 @@ fn test_iterator_filter_count() {
     unsafe {
         let n: i64 = iter_filter::<CopiedIter<SliceIter<i32>, i32>, i32>(
             iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)),
-            |x: i32| -> bool { return (x % 2i32) == 0i32; }
+            |x: &i32| -> bool { return (*x % 2i32) == 0i32; }
         ).count();
         assert_eq!(n, 5i64);
     }
@@ -39,7 +39,7 @@ fn test_iterator_filter_fold() {
     unsafe {
         let it = iter_filter::<CopiedIter<SliceIter<i32>, i32>, i32>(
             iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)),
-            |x: i32| -> bool { return (x % 2i32) == 0i32; }
+            |x: &i32| -> bool { return (*x % 2i32) == 0i32; }
         );
         // Sum even values: 0+2+4+6+8 = 20. Use this as a stand-in
         // for Rust's index-marching fold (no closure-captured locals

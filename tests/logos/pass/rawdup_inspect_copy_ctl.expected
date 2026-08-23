@@ -1,0 +1,5 @@
+exit: 0
+stdout:
+see 1
+see 2
+count=2

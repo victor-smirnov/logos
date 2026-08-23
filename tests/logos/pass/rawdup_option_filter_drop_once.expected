@@ -1,0 +1,7 @@
+exit: 0
+stdout:
+-- kept
+-- refused
+DROP n=2
+-- end
+DROP n=7

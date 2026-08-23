@@ -1,0 +1,40 @@
+// FilterIter::next / next_back: the filtered-out item dies once, the kept items once each.
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+
+package rawdup_filter_adapter_drop_once;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+// A payload that OWNS HEAP (`Vec<i64>`) and PRINTS on destruction. Both halves are
+// load-bearing: a printing-only `Drop` did not make the #112 double frees abort, and
+// a heap-owning-only payload cannot be counted. The assertion of every fixture in
+// this family is the EXACT set of destructor lines — "it stopped crashing" is not it.
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+fn keep(x: &Inner) -> bool { return x.n != 2i64; }
+
+fn main() -> i32 {
+    println!("-- forward");
+    let mut s: Vec<Inner> = vec_new::<Inner>();
+    s.push(mk(1i64)); s.push(mk(2i64)); s.push(mk(3i64));
+    let f: FilterIter<VecIntoIter<Inner>, Inner> =
+        iter_filter::<VecIntoIter<Inner>, Inner>(s.into_iter(), keep);
+    println!("count={}", f.count());
+    println!("-- backward");
+    let mut s2: Vec<Inner> = vec_new::<Inner>();
+    s2.push(mk(11i64)); s2.push(mk(2i64)); s2.push(mk(13i64));
+    let mut f2: FilterIter<VecIntoIter<Inner>, Inner> =
+        iter_filter::<VecIntoIter<Inner>, Inner>(s2.into_iter(), keep);
+    match f2.next_back() { Option::Some(x) => { println!("back={}", x.n); } Option::None => { println!("none"); } }
+    println!("-- drop adapter");
+    let c2: i64 = f2.count();
+    println!("rest={}", c2);
+    println!("-- end");
+    return 0i32;
+}

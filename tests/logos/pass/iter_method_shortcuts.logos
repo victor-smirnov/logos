@@ -12,7 +12,8 @@ package iter_method_shortcuts;
 use logos.lang.iter;
 use logos.lang.option;
 
-fn is_even(x: i32) -> bool { return x % 2i32 == 0i32; }
+// #112: `.filter` BORROWS the item (Rust shape).
+fn is_even(x: &i32) -> bool { return *x % 2i32 == 0i32; }
 
 fn main() -> i32 {
     let arr: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];

@@ -1,0 +1,39 @@
+// iter_max / iter_min over `T: Ord`: `Ord::cmp` already borrows, so no candidate is duplicated.
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+
+package rawdup_iter_max_min_ord_drop_once;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.mem.collections.vec;
+
+// Heap-owning AND printing payload — see rawdup_option_filter_drop_once for why both
+// halves are load-bearing. The assertion is the EXACT set of destructor lines.
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+impl Ord for Inner {
+    fn cmp(&self, other: &Inner) -> Ordering {
+        if self.n < other.n { return Ordering::Less; }
+        if self.n > other.n { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+fn src() -> VecIntoIter<Inner> {
+    let mut s: Vec<Inner> = vec_new::<Inner>();
+    s.push(mk(3i64)); s.push(mk(1i64)); s.push(mk(2i64));
+    return s.into_iter();
+}
+
+fn main() -> i32 {
+    println!("-- iter_max");
+    match iter_max::<VecIntoIter<Inner>, Inner>(src()) { Option::Some(x) => { println!("max={}", x.n); } Option::None => { println!("none"); } }
+    println!("-- iter_min");
+    match iter_min::<VecIntoIter<Inner>, Inner>(src()) { Option::Some(x) => { println!("min={}", x.n); } Option::None => { println!("none"); } }
+    println!("-- end");
+    return 0i32;
+}

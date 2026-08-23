@@ -7,8 +7,10 @@
 // Tests an iterator pipeline over a slice: filter (even) then fold to a sum.
 package iter_map_filter_sum_b138;
 
-fn is_even(x: i32) -> bool {
-    return (x % 2i32) == 0i32;
+// #112: the stdlib predicate/comparator surface now BORROWS (Rust shape:
+// `filter(&T)`, `find(&T)`, `take_while(&T)`, `min_by(&T,&T)`, `partition(&T)`).
+fn is_even(x: &i32) -> bool {
+    return (*x % 2i32) == 0i32;
 }
 
 fn add(acc: i32, x: i32) -> i32 {

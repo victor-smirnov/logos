@@ -22,7 +22,7 @@ unsafe fn main() -> i32 {
 
     // iter_filter: keep only even numbers in 0..8
     let r3 = range_i32(0, 8);     // 0,1,2,3,4,5,6,7
-    let f3 = iter_filter::<RangeI32, i32>(r3, |x: i32| -> bool { return x % 2 == 0; });
+    let f3 = iter_filter::<RangeI32, i32>(r3, |x: &i32| -> bool { return *x % 2 == 0; });
     let s3 = iter_sum_i32::<FilterIter<RangeI32, i32>>(f3);
     if s3 != 12 { return 3; }     // 0+2+4+6 = 12
 

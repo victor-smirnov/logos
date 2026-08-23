@@ -45,7 +45,7 @@ fn test_collect_after_filter() {
         // `iter.filter(|x| x % 2 == 0)` — keep even numbers only.
         let v: Vec<i32> = iter_filter::<CopiedIter<SliceIter<i32>, i32>, i32>(
             iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)),
-            |x: i32| -> bool { return (x % 2i32) == 0i32; }
+            |x: &i32| -> bool { return (*x % 2i32) == 0i32; }
         ).collect::<Vec<i32>>();
         assert_eq!(v.len, 3i64);
         assert_eq!(v.ptr[0i64], 2i32);

@@ -1,0 +1,21 @@
+// CONTROL twin of rawdup_inspect_drop_once: a Copy payload still answers correctly.
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+
+package rawdup_inspect_copy_ctl;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+fn vis(x: &i64) -> () { println!("see {}", *x); }
+
+fn main() -> i32 {
+    let mut s: Vec<i64> = vec_new::<i64>();
+    s.push(1i64); s.push(2i64);
+    let t: InspectIter<VecIntoIter<i64>, i64> =
+        unsafe { iter_inspect::<VecIntoIter<i64>, i64>(s.into_iter(), vis, 0i64) };
+    println!("count={}", t.count());
+    return 0i32;
+}

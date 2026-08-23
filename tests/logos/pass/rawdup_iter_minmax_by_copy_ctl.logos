@@ -1,0 +1,23 @@
+// CONTROL twin of rawdup_iter_minmax_by_drop_once: a Copy payload still answers correctly.
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+
+package rawdup_iter_minmax_by_copy_ctl;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+fn cmpf(a: &i64, b: &i64) -> i32 { if *a < *b { return -1i32; } if *a > *b { return 1i32; } return 0i32; }
+fn src() -> VecIntoIter<i64> {
+    let mut s: Vec<i64> = vec_new::<i64>();
+    s.push(3i64); s.push(1i64); s.push(2i64);
+    return s.into_iter();
+}
+
+fn main() -> i32 {
+    match src().min_by(cmpf) { Option::Some(x) => { println!("min={}", x); } Option::None => { println!("none"); } }
+    match src().max_by(cmpf) { Option::Some(x) => { println!("max={}", x); } Option::None => { println!("none"); } }
+    return 0i32;
+}

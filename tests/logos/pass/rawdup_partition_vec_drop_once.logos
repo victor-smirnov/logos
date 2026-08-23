@@ -1,0 +1,28 @@
+// iter_partition_vec: every item lands in exactly one bucket and is destroyed exactly once.
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+
+package rawdup_partition_vec_drop_once;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+// Heap-owning AND printing payload — see rawdup_option_filter_drop_once for why both
+// halves are load-bearing. The assertion is the EXACT set of destructor lines.
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+fn gt1(x: &Inner) -> bool { return x.n > 1i64; }
+
+fn main() -> i32 {
+    let mut s: Vec<Inner> = vec_new::<Inner>();
+    s.push(mk(1i64)); s.push(mk(2i64)); s.push(mk(3i64));
+    let p: ZipPair<Vec<Inner>, Vec<Inner>> =
+        iter_partition_vec::<VecIntoIter<Inner>, Inner>(s.into_iter(), gt1);
+    println!("yes={} no={}", p.first.len(), p.second.len());
+    println!("-- end");
+    return 0i32;
+}

@@ -1,0 +1,18 @@
+exit: 0
+stdout:
+-- once, pulled
+got=5
+DROP n=5
+exhausted
+-- once, never pulled
+-- once, next_back
+back=6
+DROP n=6
+-- repeat, two pulls
+r1=4
+DROP n=4
+r2=4
+DROP n=4
+-- end
+DROP n=4
+DROP n=9

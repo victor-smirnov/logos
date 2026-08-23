@@ -4,10 +4,10 @@ package opt_filter_or;
 use logos.lang.option;
 fn main() -> i32 {
     let a: Option<i32> = Option::Some(4i32);
-    let kept: Option<i32> = a.filter(|x: i32| -> bool { return (x % 2i32) == 0i32; });
+    let kept: Option<i32> = a.filter(|x: &i32| -> bool { return (*x % 2i32) == 0i32; });
     if kept.is_none() { return 1i32; }
     let b: Option<i32> = Option::Some(3i32);
-    let dropped: Option<i32> = b.filter(|x: i32| -> bool { return (x % 2i32) == 0i32; });
+    let dropped: Option<i32> = b.filter(|x: &i32| -> bool { return (*x % 2i32) == 0i32; });
     if dropped.is_some() { return 2i32; }
     return 0i32;
 }

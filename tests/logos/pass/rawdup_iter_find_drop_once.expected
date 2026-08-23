@@ -1,0 +1,10 @@
+exit: 0
+stdout:
+DROP n=1
+-- found
+got=2
+DROP n=2
+-- drain rest
+DROP n=3
+rest=1
+-- end

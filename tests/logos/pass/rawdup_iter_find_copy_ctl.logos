@@ -1,0 +1,21 @@
+// CONTROL twin of rawdup_iter_find_drop_once: a Copy payload still answers correctly.
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+
+package rawdup_iter_find_copy_ctl;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+fn keep(x: &i64) -> bool { return *x == 2i64; }
+
+fn main() -> i32 {
+    let mut s: Vec<i64> = vec_new::<i64>();
+    s.push(1i64); s.push(2i64); s.push(3i64);
+    let mut it: VecIntoIter<i64> = s.into_iter();
+    match it.find::<fn(&i64)->bool>(keep) { Option::Some(x) => { println!("got={}", x); } Option::None => { println!("none"); } }
+    println!("rest={}", it.count());
+    return 0i32;
+}

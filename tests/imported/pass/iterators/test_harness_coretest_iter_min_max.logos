@@ -20,9 +20,11 @@ use logos.lang.str;
 use logos.lang.iter;
 use logos.lang.option;
 
-fn cmp_i32(a: i32, b: i32) -> i32 {
-    if a < b { return -1i32; }
-    if a > b { return  1i32; }
+// #112: the stdlib predicate/comparator surface now BORROWS (Rust shape:
+// `filter(&T)`, `find(&T)`, `take_while(&T)`, `min_by(&T,&T)`, `partition(&T)`).
+fn cmp_i32(a: &i32, b: &i32) -> i32 {
+    if *a < *b { return -1i32; }
+    if *a > *b { return  1i32; }
     return 0i32;
 }
 

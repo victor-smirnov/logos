@@ -1,0 +1,18 @@
+// CONTROL twin of rawdup_option_filter_drop_once: a Copy payload still answers correctly.
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+
+package rawdup_option_filter_copy_ctl;
+
+use logos.std.fmt;
+use logos.lang.option;
+
+fn keep(x: &i64) -> bool { return *x > 5i64; }
+
+fn main() -> i32 {
+    let a: Option<i64> = Option::Some(7i64);
+    match a.filter(keep) { Option::Some(v) => { println!("kept {}", v); } Option::None => { println!("kept none"); } }
+    let b: Option<i64> = Option::Some(2i64);
+    match b.filter(keep) { Option::Some(v) => { println!("refused {}", v); } Option::None => { println!("refused none"); } }
+    return 0i32;
+}

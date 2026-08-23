@@ -1,0 +1,31 @@
+// Option::filter destroys its value exactly once on BOTH branches (was rc 134, double free).
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+
+package rawdup_option_filter_drop_once;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+// A payload that OWNS HEAP (`Vec<i64>`) and PRINTS on destruction. Both halves are
+// load-bearing: a printing-only `Drop` did not make the #112 double frees abort, and
+// a heap-owning-only payload cannot be counted. The assertion of every fixture in
+// this family is the EXACT set of destructor lines — "it stopped crashing" is not it.
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+fn keep(x: &Inner) -> bool { return x.n > 5i64; }
+
+fn main() -> i32 {
+    println!("-- kept");
+    let a: Option<Inner> = Option::Some(mk(7i64));
+    let ra: Option<Inner> = a.filter(keep);
+    println!("-- refused");
+    let b: Option<Inner> = Option::Some(mk(2i64));
+    let rb: Option<Inner> = b.filter(keep);
+    println!("-- end");
+    return 0i32;
+}

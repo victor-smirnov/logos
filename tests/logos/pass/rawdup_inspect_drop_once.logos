@@ -1,0 +1,36 @@
+// InspectIter::next / next_back: `visit` BORROWS, so the observed item is destroyed exactly once.
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+
+package rawdup_inspect_drop_once;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+// Heap-owning AND printing payload — see rawdup_option_filter_drop_once for why both
+// halves are load-bearing. The assertion is the EXACT set of destructor lines.
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+fn vis(x: &Inner) -> () { println!("see {}", x.n); }
+
+fn main() -> i32 {
+    println!("-- forward");
+    let mut s: Vec<Inner> = vec_new::<Inner>();
+    s.push(mk(1i64)); s.push(mk(2i64));
+    let t: InspectIter<VecIntoIter<Inner>, Inner> =
+        unsafe { iter_inspect::<VecIntoIter<Inner>, Inner>(s.into_iter(), vis, mk(0i64)) };
+    println!("count={}", t.count());
+    println!("-- backward");
+    let mut s2: Vec<Inner> = vec_new::<Inner>();
+    s2.push(mk(11i64)); s2.push(mk(12i64));
+    let mut t2: InspectIter<VecIntoIter<Inner>, Inner> =
+        unsafe { iter_inspect::<VecIntoIter<Inner>, Inner>(s2.into_iter(), vis, mk(0i64)) };
+    match t2.next_back() { Option::Some(x) => { println!("back={}", x.n); } Option::None => { println!("none"); } }
+    println!("rest={}", t2.count());
+    println!("-- end");
+    return 0i32;
+}

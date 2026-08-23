@@ -9,6 +9,8 @@ use logos.lang.option;
 use logos.lang.result;
 use logos.lang.cmp;
 use logos.lang.ops;
+use logos.lang.clone;               // #112: Clone-bounded duplication (intersperse / repeat)
+use logos.lang.mem;                 // #112: mem::replace — move OUT of a field we still own
 
 // ── FromIterator trait ───────────────────────────────────────────────────────
 //
@@ -164,7 +166,8 @@ pub trait Iterator<Item> {
     // mono path closes.
 
     /// Creates an adapter yielding only items for which `pred` returns `true`.
-    fn filter(self: Self, pred: fn(Item) -> bool) -> FilterIter<Self, Item> {
+    /// `pred` BORROWS the item (Rust: `FnMut(&Item) -> bool`); nothing is duplicated.
+    fn filter(self: Self, pred: fn(&Item) -> bool) -> FilterIter<Self, Item> {
         return FilterIter { inner: self, pred: pred };
     }
 
@@ -254,27 +257,28 @@ pub trait Iterator<Item> {
     // implementor's pkg to import std.lang.ord transitively).
     /// Returns the comparator-minimal item, or `None` if empty; the first of equals wins.
     /// `cmp` contract: negative = less, zero = equal, positive = greater.
-    unsafe fn min_by(self: Self, cmp: fn(Item, Item) -> i32) -> Option<Item> {
+    /// `cmp` BORROWS both sides (Rust: `FnMut(&Item, &Item) -> Ordering`); each item has
+    /// exactly one owner, so the loser is destroyed exactly once and the winner survives.
+    ///
+    /// The winner is chosen through `iter_pick_by`, NOT by `if cond { best = v; }` — a
+    /// CONDITIONAL move out of a match binding leaks on the not-moved path (measured: three
+    /// items in, two destructor calls out). Handing both candidates to a function that
+    /// returns one makes every path an unconditional move; the loser dies as a parameter.
+    /// `iter_pick_by` below carries the full argument, including why it is called at
+    /// `Option<Item>` and why the comparison uses `match &best` rather than `as_ref()`.
+    fn min_by(self: Self, cmp: fn(&Item, &Item) -> i32) -> Option<Item> {
         let mut it: Self = self;
         let mut best: Option<Item> = Option::None;
         loop {
             match it.next() {
                 Option::None    => { return best; }
                 Option::Some(v) => {
-                    let v_copy_a: Item = *((&v) as *const Item);
-                    let v_copy_b: Item = *((&v) as *const Item);
-                    match best {
-                        Option::None    => { best = Option::Some(v); }
-                        Option::Some(b) => {
-                            let b_copy_a: Item = *((&b) as *const Item);
-                            let b_copy_b: Item = *((&b) as *const Item);
-                            if cmp(v_copy_a, b_copy_a) < 0i32 {
-                                best = Option::Some(v_copy_b);
-                            } else {
-                                best = Option::Some(b_copy_b);
-                            }
-                        }
+                    let mut take_v: bool = true;
+                    match &best {
+                        Option::None       => { take_v = true; }
+                        Option::Some(bref) => { take_v = cmp(&v, bref) < 0i32; }
                     }
+                    best = iter_pick_by::<Option<Item>>(best, Option::Some(v), take_v);
                 }
             }
         }
@@ -282,27 +286,21 @@ pub trait Iterator<Item> {
 
     /// Returns the comparator-maximal item, or `None` if empty; the last of equals wins (Rust).
     /// `cmp` contract: negative = less, zero = equal, positive = greater.
-    unsafe fn max_by(self: Self, cmp: fn(Item, Item) -> i32) -> Option<Item> {
+    /// `cmp` BORROWS both sides; see `min_by` for the ownership argument and for why the
+    /// winner goes through `iter_pick_by` instead of a conditional assignment.
+    fn max_by(self: Self, cmp: fn(&Item, &Item) -> i32) -> Option<Item> {
         let mut it: Self = self;
         let mut best: Option<Item> = Option::None;
         loop {
             match it.next() {
                 Option::None    => { return best; }
                 Option::Some(v) => {
-                    let v_copy_a: Item = *((&v) as *const Item);
-                    let v_copy_b: Item = *((&v) as *const Item);
-                    match best {
-                        Option::None    => { best = Option::Some(v); }
-                        Option::Some(b) => {
-                            let b_copy_a: Item = *((&b) as *const Item);
-                            let b_copy_b: Item = *((&b) as *const Item);
-                            if cmp(v_copy_a, b_copy_a) >= 0i32 {
-                                best = Option::Some(v_copy_b);
-                            } else {
-                                best = Option::Some(b_copy_b);
-                            }
-                        }
+                    let mut take_v: bool = true;
+                    match &best {
+                        Option::None       => { take_v = true; }
+                        Option::Some(bref) => { take_v = cmp(&v, bref) >= 0i32; }
                     }
+                    best = iter_pick_by::<Option<Item>>(best, Option::Some(v), take_v);
                 }
             }
         }
@@ -318,7 +316,7 @@ pub trait Iterator<Item> {
     // initial value for its `_t` phantom field.
     /// Creates an adapter yielding items while `pred` holds; stops for good at the first failure.
     /// `zero` fills the adapter's phantom field (no `Default` yet) and is never yielded.
-    unsafe fn take_while(self: Self, pred: fn(Item) -> bool, zero: Item)
+    unsafe fn take_while(self: Self, pred: fn(&Item) -> bool, zero: Item)
         -> TakeWhileIter<Self, Item>
     {
         return TakeWhileIter { inner: self, pred: pred, done: false, _t: zero };
@@ -326,7 +324,7 @@ pub trait Iterator<Item> {
 
     /// Creates an adapter dropping items while `pred` holds, then yielding all the rest.
     /// `zero` fills the adapter's phantom field and is never yielded.
-    unsafe fn skip_while(self: Self, pred: fn(Item) -> bool, zero: Item)
+    unsafe fn skip_while(self: Self, pred: fn(&Item) -> bool, zero: Item)
         -> SkipWhileIter<Self, Item>
     {
         return SkipWhileIter { inner: self, pred: pred, primed: false, _t: zero };
@@ -340,9 +338,9 @@ pub trait Iterator<Item> {
         return StepByIter { inner: self, step: step, first: true, _t: zero };
     }
 
-    /// Creates a pass-through adapter calling `visit` on a copy of each item.
+    /// Creates a pass-through adapter calling `visit` on a BORROW of each item.
     /// `zero` fills the adapter's phantom field and is never yielded.
-    unsafe fn inspect(self: Self, visit: fn(Item) -> (), zero: Item)
+    unsafe fn inspect(self: Self, visit: fn(&Item) -> (), zero: Item)
         -> InspectIter<Self, Item>
     {
         return InspectIter { inner: self, visit: visit, _t: zero };
@@ -450,6 +448,33 @@ pub trait Iterator<Item> {
         match first {
             Option::None    => { return Option::None; }
             Option::Some(v) => {
+                // ⚠ SURVIVING RAW DUPLICATE — GROUND, and it is a COMPILER
+                // blocker, not a signature one (#112-ROSTER: Iterator::reduce, ground=bc-blocked).
+                //
+                // The natural body is `it.fold::<Item, ReduceFn>(v, g)` — `v`
+                // is the seed and is dead afterwards, so no duplicate is
+                // needed and the double destructor call this arm produces for
+                // a droppable `Item` disappears. MEASURED: with that body the
+                // stdlib does not build —
+                //   error [fn VecIterMut__reduce]: cannot return reference to
+                //   local variable '?': dangling reference
+                // because `Iterator<&mut T> for VecIterMut<T>` instantiates
+                // this default with `Item = &mut T`, `it` is a LOCAL, and the
+                // return-escape channel calls anything derived from a local
+                // dangling. Minimal repro, no iterators involved:
+                //   fn pick(o: Option<&mut i64>) -> Option<&mut i64> {
+                //       match o { Option::None => { return Option::None; }
+                //                 Option::Some(v) => { let r: &mut i64 = v;
+                //                                      return Option::Some(r); } } }
+                //   → cannot return reference to local variable '?'
+                // (the direct `return Option::Some(v);` spelling compiles, so
+                // it is the REBIND that is refused — an over-refusal of the
+                // #48/#77 provenance channel, filed separately).
+                //
+                // The bitwise duplicate LAUNDERS that provenance, which is why
+                // it is still here. It is UNSOUND for a droppable `Item`
+                // (measured: 3 destructor calls for 2 values, rc 134) and must
+                // be deleted the day the provenance over-refusal closes.
                 unsafe {
                     let init: Item = *((&v) as *const Item);
                     let acc: Item = it.fold::<Item, ReduceFn>(init, g);
@@ -560,15 +585,15 @@ pub trait Iterator<Item> {
 
     // Terminal: first item satisfying the predicate. Rust shape: `&mut self`.
     /// Returns the first item satisfying `pred`, advancing past it, or `None` if exhausted.
-    /// Probes each item via raw bitwise copy — sound only for bitwise-copyable `Item`.
-    unsafe fn find<FindFn: FnMut(Item) -> bool>(self: &mut Self, pred: FindFn) -> Option<Item> {
+    /// `pred` BORROWS the probed item (Rust: `FnMut(&Item) -> bool`); a rejected item is
+    /// destroyed exactly once at the end of the arm, the accepted one is handed to the caller.
+    fn find<FindFn: FnMut(&Item) -> bool>(self: &mut Self, pred: FindFn) -> Option<Item> {
         let mut p: FindFn = pred;
         loop {
             match self.next() {
                 Option::None    => { return Option::None; }
                 Option::Some(v) => {
-                    let v_copy: Item = *((&v) as *const Item);
-                    if p(v_copy) { return Option::Some(v); }
+                    if p(&v) { return Option::Some(v); }
                 }
             }
         }
@@ -1044,8 +1069,8 @@ impl<I: DoubleEndedIterator<T>, T, R, F: FnMut(T) -> R> DoubleEndedIterator<R> f
 pub struct FilterIter<I, T> {
     /// Source iterator.
     pub inner: I,
-    /// Predicate selecting the yielded items.
-    pub pred: fn(T) -> bool,
+    /// Predicate selecting the yielded items; BORROWS the item.
+    pub pred: fn(&T) -> bool,
 }
 
 impl<I: Iterator<T>, T> Iterator<T> for FilterIter<I, T> {
@@ -1054,9 +1079,8 @@ impl<I: Iterator<T>, T> Iterator<T> for FilterIter<I, T> {
             loop {
                 match self.inner.next() {
                     Option::Some(v) => {
-                        let v_copy: T = *((&v) as *const T);
                         let pred = self.pred;
-                        if pred(v_copy) { return Option::Some(v); }
+                        if pred(&v) { return Option::Some(v); }
                     }
                     Option::None => { return Option::None; }
                 }
@@ -1066,7 +1090,7 @@ impl<I: Iterator<T>, T> Iterator<T> for FilterIter<I, T> {
 }
 
 /// Creates a `FilterIter` yielding the items of `iter` that satisfy `pred`.
-pub fn iter_filter<I: Iterator<T>, T>(iter: I, pred: fn(T) -> bool) -> FilterIter<I, T> {
+pub fn iter_filter<I: Iterator<T>, T>(iter: I, pred: fn(&T) -> bool) -> FilterIter<I, T> {
     return FilterIter { inner: iter, pred: pred };
 }
 
@@ -1223,9 +1247,8 @@ impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for FilterIter<I, T> {
             loop {
                 match self.inner.next_back() {
                     Option::Some(v) => {
-                        let v_copy: T = *((&v) as *const T);
                         let pred = self.pred;
-                        if pred(v_copy) { return Option::Some(v); }
+                        if pred(&v) { return Option::Some(v); }
                     }
                     Option::None => { return Option::None; }
                 }
@@ -1349,8 +1372,8 @@ impl<I: ExactSizeIterator<T>, T> ExactSizeIterator<T> for SkipIter<I, T> {
 pub struct TakeWhileIter<I, T> {
     /// Source iterator.
     pub inner: I,
-    /// Predicate gating each item.
-    pub pred: fn(T) -> bool,
+    /// Predicate gating each item; BORROWS the item.
+    pub pred: fn(&T) -> bool,
     /// Set once `pred` has failed; the adapter stays exhausted.
     pub done: bool,
     /// Phantom anchor for `T`; value unused.
@@ -1364,9 +1387,8 @@ impl<I: Iterator<T>, T> Iterator<T> for TakeWhileIter<I, T> {
             match self.inner.next() {
                 Option::None    => { self.done = true; return Option::None; }
                 Option::Some(v) => {
-                    let v_copy: T = *((&v) as *const T);
                     let pred = self.pred;
-                    if pred(v_copy) { return Option::Some(v); }
+                    if pred(&v) { return Option::Some(v); }
                     self.done = true;
                     return Option::None;
                 }
@@ -1376,7 +1398,7 @@ impl<I: Iterator<T>, T> Iterator<T> for TakeWhileIter<I, T> {
 }
 
 /// Creates a `TakeWhileIter`; `zero` fills the phantom field and is never yielded.
-pub unsafe fn iter_take_while<I: Iterator<T>, T>(iter: I, pred: fn(T) -> bool, zero: T) -> TakeWhileIter<I, T> {
+pub unsafe fn iter_take_while<I: Iterator<T>, T>(iter: I, pred: fn(&T) -> bool, zero: T) -> TakeWhileIter<I, T> {
     return TakeWhileIter { inner: iter, pred: pred, done: false, _t: zero };
 }
 
@@ -1386,8 +1408,8 @@ pub unsafe fn iter_take_while<I: Iterator<T>, T>(iter: I, pred: fn(T) -> bool, z
 pub struct SkipWhileIter<I, T> {
     /// Source iterator.
     pub inner: I,
-    /// Predicate selecting the dropped prefix.
-    pub pred: fn(T) -> bool,
+    /// Predicate selecting the dropped prefix; BORROWS the item.
+    pub pred: fn(&T) -> bool,
     /// Set once the prefix has been dropped.
     pub primed: bool,
     /// Phantom anchor for `T`; value unused.
@@ -1402,9 +1424,8 @@ impl<I: Iterator<T>, T> Iterator<T> for SkipWhileIter<I, T> {
                     match self.inner.next() {
                         Option::None    => { self.primed = true; return Option::None; }
                         Option::Some(v) => {
-                            let v_copy: T = *((&v) as *const T);
                             let pred = self.pred;
-                            if !pred(v_copy) {
+                            if !pred(&v) {
                                 self.primed = true;
                                 return Option::Some(v);
                             }
@@ -1418,7 +1439,7 @@ impl<I: Iterator<T>, T> Iterator<T> for SkipWhileIter<I, T> {
 }
 
 /// Creates a `SkipWhileIter`; `zero` fills the phantom field and is never yielded.
-pub unsafe fn iter_skip_while<I: Iterator<T>, T>(iter: I, pred: fn(T) -> bool, zero: T) -> SkipWhileIter<I, T> {
+pub unsafe fn iter_skip_while<I: Iterator<T>, T>(iter: I, pred: fn(&T) -> bool, zero: T) -> SkipWhileIter<I, T> {
     return SkipWhileIter { inner: iter, pred: pred, primed: false, _t: zero };
 }
 
@@ -1461,12 +1482,12 @@ pub unsafe fn iter_step_by<I: Iterator<T>, T>(iter: I, step: i64, zero: T) -> St
 
 // ── InspectIter<I, T> — observe each item without consuming it ───────────────
 
-/// Pass-through adapter calling `visit` on a copy of each item.
+/// Pass-through adapter calling `visit` on a BORROW of each item.
 pub struct InspectIter<I, T> {
     /// Source iterator.
     pub inner: I,
-    /// Observer invoked per item.
-    pub visit: fn(T) -> (),
+    /// Observer invoked per item; BORROWS the item.
+    pub visit: fn(&T) -> (),
     /// Phantom anchor for `T`; value unused.
     pub _t: T,
 }
@@ -1477,9 +1498,8 @@ impl<I: Iterator<T>, T> Iterator<T> for InspectIter<I, T> {
             match self.inner.next() {
                 Option::None    => { return Option::None; }
                 Option::Some(v) => {
-                    let v_copy: T = *((&v) as *const T);
                     let visit = self.visit;
-                    visit(v_copy);
+                    visit(&v);
                     return Option::Some(v);
                 }
             }
@@ -1488,7 +1508,7 @@ impl<I: Iterator<T>, T> Iterator<T> for InspectIter<I, T> {
 }
 
 /// Creates an `InspectIter` calling `visit` per item; `zero` fills the phantom field.
-pub unsafe fn iter_inspect<I: Iterator<T>, T>(iter: I, visit: fn(T) -> (), zero: T) -> InspectIter<I, T> {
+pub unsafe fn iter_inspect<I: Iterator<T>, T>(iter: I, visit: fn(&T) -> (), zero: T) -> InspectIter<I, T> {
     return InspectIter { inner: iter, visit: visit, _t: zero };
 }
 
@@ -1500,9 +1520,8 @@ impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for InspectIter<I, T> 
             match self.inner.next_back() {
                 Option::None    => { return Option::None; }
                 Option::Some(v) => {
-                    let v_copy: T = *((&v) as *const T);
                     let visit = self.visit;
-                    visit(v_copy);
+                    visit(&v);
                     return Option::Some(v);
                 }
             }
@@ -1530,14 +1549,15 @@ pub struct PeekableIter<I, T> {
 impl<I: Iterator<T>, T> Iterator<T> for PeekableIter<I, T> {
     fn next(self: &mut PeekableIter<I, T>) -> Option<T> {
         unsafe {
-            // Take the cached value if present, else pull from inner.
-            let cached: Option<T> = *((&self.peeked) as *const Option<T>);
+            // #112: TAKE the cached value — move it out and leave `None` behind.
+            // The old body read the field with a raw bitwise copy and then assigned
+            // `self.peeked = Option::None`, and that assignment DESTROYS the old field
+            // value: one allocation, two owners, two destructor calls (measured).
+            let cached: Option<T> = replace::<Option<T>>(
+                (&mut self.peeked) as *mut Option<T>, Option::None);
             match cached {
-                Option::Some(v) => {
-                    self.peeked = Option::None;
-                    return Option::Some(v);
-                }
-                Option::None => { return self.inner.next(); }
+                Option::Some(v) => { return Option::Some(v); }
+                Option::None    => { return self.inner.next(); }
             }
         }
     }
@@ -1547,16 +1567,19 @@ impl<I: Iterator<T>, T> PeekableIter<I, T> {
     /// Borrows the next item without consuming it, or `None` if exhausted.
     /// Fills the cache on demand; the borrow is tied to `self.peeked`'s storage.
     pub unsafe fn peek(self: &mut PeekableIter<I, T>) -> Option<&T> {
-        // Fill the cache on first peek.
-        let probe: Option<T> = *((&self.peeked) as *const Option<T>);
-        match probe {
-            Option::None => {
-                match self.inner.next() {
-                    Option::Some(v) => { self.peeked = Option::Some(v); }
-                    Option::None => { return Option::None; }
-                }
+        // #112: this only asks WHETHER the cache is filled — it never needs the
+        // value, so the raw duplicate it used to make was gratuitous. `as_ref`
+        // answers the same question through a borrow.
+        let mut need_fill: bool = false;
+        match self.peeked.as_ref() {
+            Option::None    => { need_fill = true; }
+            Option::Some(_) => { need_fill = false; }
+        }
+        if need_fill {
+            match self.inner.next() {
+                Option::Some(v) => { self.peeked = Option::Some(v); }
+                Option::None    => { return Option::None; }
             }
-            Option::Some(_) => {}
         }
         // Borrow the cached payload via Option::as_ref — yields
         // Option<&T> with the lifetime tied to self.peeked's storage.
@@ -1580,13 +1603,12 @@ impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for PeekableIter<I, T>
             match back {
                 Option::Some(v) => { return Option::Some(v); }
                 Option::None => {
-                    let cached: Option<T> = *((&self.peeked) as *const Option<T>);
+                    // #112: take, don't duplicate — see `next`.
+                    let cached: Option<T> = replace::<Option<T>>(
+                        (&mut self.peeked) as *mut Option<T>, Option::None);
                     match cached {
-                        Option::Some(v) => {
-                            self.peeked = Option::None;
-                            return Option::Some(v);
-                        }
-                        Option::None => { return Option::None; }
+                        Option::Some(v) => { return Option::Some(v); }
+                        Option::None    => { return Option::None; }
                     }
                 }
             }
@@ -1622,35 +1644,36 @@ pub struct IntersperseIter<I, T> {
     pub emit_sep:   bool,
 }
 
-impl<I: Iterator<T>, T> Iterator<T> for IntersperseIter<I, T> {
+// #112: `T: Clone`. The separator is re-emitted on every gap and the lookahead
+// buffer is re-read on every pull, so this adapter genuinely NEEDS to duplicate a
+// value — the old body did it with a raw bitwise copy, which double-frees a
+// droppable `T`. Rust's `Iterator::intersperse` carries the same `T: Clone`.
+impl<I: Iterator<T>, T: Clone> Iterator<T> for IntersperseIter<I, T> {
     fn next(self: &mut IntersperseIter<I, T>) -> Option<T> {
         if self.emit_sep {
             // Only emit a separator when a follow-up item is actually
             // queued in `peeked_val`. has_peeked stays true through
             // the sep yield so the cached item flows out next call.
             self.emit_sep = false;
-            unsafe {
-                let s_copy: T = *((&self.sep) as *const T);
-                return Option::Some(s_copy);
-            }
+            return Option::Some(self.sep.clone());
         }
         // Pop the cached peeked item, if any, and pre-fetch one more
         // from `inner` so we know whether a separator is needed.
         if self.has_peeked {
             self.has_peeked = false;
-            unsafe {
-                let v_copy: T = *((&self.peeked_val) as *const T);
-                let nxt: Option<T> = self.inner.next();
-                match nxt {
-                    Option::Some(n) => {
-                        self.peeked_val = n;
-                        self.has_peeked = true;
-                        self.emit_sep   = true;
-                    }
-                    Option::None => {}
+            let v_copy: T = self.peeked_val.clone();
+            let nxt: Option<T> = self.inner.next();
+            match nxt {
+                Option::Some(n) => {
+                    // Assignment destroys the old `peeked_val`, which is exactly the
+                    // value `v_copy` was cloned from — one clone out, one original in.
+                    self.peeked_val = n;
+                    self.has_peeked = true;
+                    self.emit_sep   = true;
                 }
-                return Option::Some(v_copy);
+                Option::None => {}
             }
+            return Option::Some(v_copy);
         }
         // First call: prime from `inner`; if a second item exists,
         // queue it + arm separator for the call after this one.
@@ -1678,7 +1701,7 @@ impl<I: Iterator<T>, T> Iterator<T> for IntersperseIter<I, T> {
 // `peeked_val` initialisation when `T` has no `Default` impl
 // reachable from the iter pkg.
 /// Creates an `IntersperseIter` with separator `sep`; `zero` seeds the peek buffer.
-pub fn iter_intersperse<I: Iterator<T>, T>(iter: I, sep: T, zero: T)
+pub fn iter_intersperse<I: Iterator<T>, T: Clone>(iter: I, sep: T, zero: T)
     -> IntersperseIter<I, T>
 {
     return IntersperseIter {
@@ -1759,7 +1782,13 @@ pub struct ArrayChunksIter<I, T, const N: i64> {
     pub _t:    T,
 }
 
-impl<I: Iterator<T>, T, const N: i64> Iterator<[T; N]> for ArrayChunksIter<I, T, N> {
+// #112 cell (b) WITH AN ENFORCER: the chunk is handed out as a bitwise snapshot of
+// `self.buf`, which the adapter keeps and overwrites. That is sound only for a
+// bitwise-copyable `T`, and nothing used to say so — a droppable `T` double-freed the
+// chunk's items AND leaked the seed buffer (measured). Rust reaches the general case
+// through `MaybeUninit`; Logos has no equivalent for a const-generic array yet, so the
+// assumption is written down as a BOUND instead of a comment.
+impl<I: Iterator<T>, T: Copy, const N: i64> Iterator<[T; N]> for ArrayChunksIter<I, T, N> {
     fn next(self: &mut ArrayChunksIter<I, T, N>) -> Option<[T; N]> {
         let mut i: i64 = 0i64;
         while i < N {
@@ -1773,13 +1802,16 @@ impl<I: Iterator<T>, T, const N: i64> Iterator<[T; N]> for ArrayChunksIter<I, T,
             }
         }
         unsafe {
+            // GROUNDED SURVIVOR (#112-ROSTER: ArrayChunksIter::next, ground=copy-bound):
+            // a bitwise snapshot of a buffer the adapter keeps and overwrites. The `T: Copy`
+            // bound on this impl is what makes it sound.
             return Option::<[T; N]>::Some(*((&self.buf) as *const [T; N]));
         }
     }
 }
 
 /// Creates an `ArrayChunksIter`; `zero_buf` and `anchor` are placeholder initialisers.
-pub fn iter_array_chunks<I: Iterator<T>, T, const N: i64>(
+pub fn iter_array_chunks<I: Iterator<T>, T: Copy, const N: i64>(
     iter: I, zero_buf: [T; N], anchor: T) -> ArrayChunksIter<I, T, N>
 {
     return ArrayChunksIter::<I, T, N> {
@@ -1813,7 +1845,11 @@ pub struct MapWindowsIter<I, T, R, F, const N: i64> {
     pub _r:    R,
 }
 
-impl<I: Iterator<T>, T, R, F: FnMut([T; N]) -> R, const N: i64>
+// #112 cell (b) WITH AN ENFORCER — same argument as `ArrayChunksIter`: the window is
+// a bitwise snapshot of a buffer the adapter keeps and shifts, sound only for a
+// bitwise-copyable `T`. Was unenforced; measured with a droppable `T` it double-freed
+// the window items and leaked the two seed elements.
+impl<I: Iterator<T>, T: Copy, R, F: FnMut([T; N]) -> R, const N: i64>
     Iterator<R> for MapWindowsIter<I, T, R, F, N>
 {
     fn next(self: &mut MapWindowsIter<I, T, R, F, N>) -> Option<R> {
@@ -1847,6 +1883,9 @@ impl<I: Iterator<T>, T, R, F: FnMut([T; N]) -> R, const N: i64>
             }
         }
         unsafe {
+            // GROUNDED SURVIVOR (#112-ROSTER: MapWindowsIter::next, ground=copy-bound):
+            // see `ArrayChunksIter::next`. The `T: Copy` bound on this impl is what makes
+            // it sound.
             let snapshot: [T; N] = *((&self.buf) as *const [T; N]);
             return Option::<R>::Some((self.f)(snapshot));
         }
@@ -1854,7 +1893,7 @@ impl<I: Iterator<T>, T, R, F: FnMut([T; N]) -> R, const N: i64>
 }
 
 /// Creates a `MapWindowsIter`; the `zero_*`/`anchor` args are placeholder initialisers.
-pub fn iter_map_windows<I: Iterator<T>, T, R, F: FnMut([T; N]) -> R, const N: i64>(
+pub fn iter_map_windows<I: Iterator<T>, T: Copy, R, F: FnMut([T; N]) -> R, const N: i64>(
     iter: I, f: F, zero_buf: [T; N], anchor: T, zero_r: R)
     -> MapWindowsIter<I, T, R, F, N>
 {
@@ -1984,11 +2023,15 @@ impl<I: Iterator<T>, T> Iterator<T> for ByRefIter<I, T> {
 // or symmetric source has the same yield from either end).
 
 /// Single-item source: yields `val` once, then `None` forever.
+// #112: `val` is an `Option<T>` rather than a bare `T` so the single yield can MOVE
+// the value out (leaving `None`) instead of bitwise-duplicating it. With a bare `T`
+// there is nothing to leave behind — Logos has no `Default` reachable here — and the
+// duplicate double-freed a droppable payload (measured: 2 destructor calls, 1 value).
 pub struct OnceIter<T> {
     /// Set after the single yield.
     pub consumed: bool,
-    /// Value copied out on the first `next`.
-    pub val: T,
+    /// The pending value; `None` once it has been yielded.
+    pub val: Option<T>,
 }
 
 impl<T> Iterator<T> for OnceIter<T> {
@@ -1996,8 +2039,7 @@ impl<T> Iterator<T> for OnceIter<T> {
         unsafe {
             if self.consumed { return Option::None; }
             self.consumed = true;
-            let v_copy: T = *((&self.val) as *const T);
-            return Option::Some(v_copy);
+            return replace::<Option<T>>((&mut self.val) as *mut Option<T>, Option::None);
         }
     }
 }
@@ -2009,15 +2051,14 @@ impl<T> DoubleEndedIterator<T> for OnceIter<T> {
         unsafe {
             if self.consumed { return Option::None; }
             self.consumed = true;
-            let v_copy: T = *((&self.val) as *const T);
-            return Option::Some(v_copy);
+            return replace::<Option<T>>((&mut self.val) as *mut Option<T>, Option::None);
         }
     }
 }
 
 /// Creates an iterator yielding `val` exactly once.
 pub fn iter_once<T>(val: T) -> OnceIter<T> {
-    return OnceIter { consumed: false, val: val };
+    return OnceIter { consumed: false, val: Option::Some(val) };
 }
 
 // ── OptionIter<T> — 0-or-1-element iterator over an Option<T> ────────────────
@@ -2104,12 +2145,12 @@ pub fn iter_empty<T>(zero: T) -> EmptyIter<T> {
 /// Infinite source yielding a copy of `val` on every `next`.
 pub struct RepeatIter<T> { pub val: T }
 
-impl<T> Iterator<T> for RepeatIter<T> {
+// #112: `T: Clone`. An infinite repeat must produce a fresh value per pull; the raw
+// bitwise copy handed out N aliases of one allocation (measured: 3 destructor calls
+// after two pulls of one value). Rust's `core::iter::repeat` carries `T: Clone` too.
+impl<T: Clone> Iterator<T> for RepeatIter<T> {
     fn next(self: &mut RepeatIter<T>) -> Option<T> {
-        unsafe {
-            let v_copy: T = *((&self.val) as *const T);
-            return Option::Some(v_copy);
-        }
+        return Option::Some(self.val.clone());
     }
 }
 
@@ -2515,6 +2556,36 @@ pub fn iter_min_by<I: Iterator<T>, T>(iter: I, cmp: fn(T, T) -> i32) -> Option<T
 // primitive-receiver extension makes `cmp` dispatch resolve when
 // Item is a primitive (i32 / i64 / etc.).
 /// Returns the maximum item, or `None` if empty; of equal maxima the last is kept (Rust).
+// ── iter_pick_by — unconditional-move winner selection ──────────────────────
+//
+// #112. `min_by` / `max_by` / `iter_min` / `iter_max` all have to keep one of two
+// owned candidates and destroy the other. Written the obvious way —
+// `if take_v { best = v; }` — the compiler emits NO drop for `v` on the not-taken
+// path: a CONDITIONAL move out of a match binding leaks (MEASURED: three heap-owning
+// items in, two destructor calls out, one allocation never freed). Passing BOTH
+// candidates to a function and returning the winner makes every move unconditional;
+// the loser dies as an ordinary parameter of this function, exactly once, on both
+// paths.
+//
+// ⚠ IT IS CALLED AT `T = Option<Item>`, NOT AT `T = Item`, AND THAT IS MEASURED.
+// The `Item` spelling — `best = Option::Some(iter_pick_by::<Item>(b, v, take))` — does
+// not compile: `impl<T> Iterator<&mut T> for VecIterMut<T>` instantiates every trait
+// default, and with `Item = &mut T` the return-escape channel refuses it
+// ("cannot return reference to local variable 'best'"). The Option-typed spelling is
+// accepted, and the loser's payload is still destroyed exactly once because the losing
+// `Option` is destroyed as an ordinary parameter of this function.
+//
+// ⚠ AND THE COMPARISON USES `match &best`, NOT `best.as_ref()`. Both answer the same
+// question, but calling ANY inherent `Option<Item>` METHOD from a trait default that is
+// instantiated for all 81 stdlib Iterator impls makes mono emit the WHOLE
+// `impl<T> Option<T>` surface for every one of those item types: +2660 records in
+// abi/logos.abi, measured both ways. The pattern form costs nothing.
+/// Returns `b` when `take_b`, else `a`; the other is destroyed here, exactly once.
+pub fn iter_pick_by<T>(a: T, b: T, take_b: bool) -> T {
+    if take_b { return b; }
+    return a;
+}
+
 pub fn iter_max<I: Iterator<T>, T: Ord>(iter: I) -> Option<T> {
     let mut it: I = iter;
     let mut best: Option<T> = Option::None;
@@ -2522,19 +2593,20 @@ pub fn iter_max<I: Iterator<T>, T: Ord>(iter: I) -> Option<T> {
         match it.next() {
             Option::None    => { return best; }
             Option::Some(v) => {
-                match best {
-                    Option::None    => { best = Option::Some(v); }
-                    Option::Some(b) => {
-                        unsafe {
-                            let v_copy: T = *((&v) as *const T);
-                            let b_copy: T = *((&b) as *const T);
-                            match v_copy.cmp(&b_copy) {
-                                Ordering::Less => { best = Option::Some(b); }
-                                _              => { best = Option::Some(v); }
-                            }
+                // `Ord::cmp(&self, &Self)` already BORROWS, so the raw bitwise duplicates
+                // this loop used to make were gratuitous — and they destroyed one value
+                // twice. `iter_pick_by` keeps every move unconditional (see `min_by`).
+                let mut take_v: bool = true;
+                match &best {
+                    Option::None       => { take_v = true; }
+                    Option::Some(bref) => {
+                        match v.cmp(bref) {
+                            Ordering::Less => { take_v = false; }
+                            _              => { take_v = true; }
                         }
                     }
                 }
+                best = iter_pick_by::<Option<T>>(best, Option::Some(v), take_v);
             }
         }
     }
@@ -2548,19 +2620,18 @@ pub fn iter_min<I: Iterator<T>, T: Ord>(iter: I) -> Option<T> {
         match it.next() {
             Option::None    => { return best; }
             Option::Some(v) => {
-                match best {
-                    Option::None    => { best = Option::Some(v); }
-                    Option::Some(b) => {
-                        unsafe {
-                            let v_copy: T = *((&v) as *const T);
-                            let b_copy: T = *((&b) as *const T);
-                            match v_copy.cmp(&b_copy) {
-                                Ordering::Less => { best = Option::Some(v); }
-                                _              => { best = Option::Some(b); }
-                            }
+                // See `iter_max`: `cmp` borrows, so no duplicate is needed.
+                let mut take_v: bool = true;
+                match &best {
+                    Option::None       => { take_v = true; }
+                    Option::Some(bref) => {
+                        match v.cmp(bref) {
+                            Ordering::Less => { take_v = true; }
+                            _              => { take_v = false; }
                         }
                     }
                 }
+                best = iter_pick_by::<Option<T>>(best, Option::Some(v), take_v);
             }
         }
     }
@@ -2758,11 +2829,19 @@ pub struct RepeatNIter<T> {
     pub value: T,
 }
 
+// #112-ROSTER cell (b), and the ONE site of the 34 whose Copy assumption was already
+// ENFORCED before this round: `iter_repeat_n<T: Copy>` and this impl both carry the
+// bound, so a droppable `T` is refused at the call site
+// ("type 'Inner' does not implement trait 'Copy'") and the bitwise duplicate below can
+// never see one. Kept as-is; the roster in tests/logos/stdlib_raw_dup.ledger, held by stdlib_raw_dup_lint.sh, lists
+// it as a grounded survivor.
 impl<T: Copy> Iterator<T> for RepeatNIter<T> {
     fn next(self: &mut RepeatNIter<T>) -> Option<T> {
         if self.count <= 0i64 { return Option::None; }
         self.count = self.count - 1i64;
         unsafe {
+            // GROUNDED SURVIVOR (#112-ROSTER: RepeatNIter::next, ground=copy-bound):
+            // `T: Copy` on this impl and on `iter_repeat_n` is what makes it sound.
             let v_copy: T = *((&self.value) as *const T);
             return Option::Some(v_copy);
         }

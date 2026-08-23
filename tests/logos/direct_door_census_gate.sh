@@ -490,9 +490,20 @@ PIN = {
     #   ls tests/logos/pass/*.logos | wc -l                       -> 2286
     #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
     # partition closes: 2286 = 191 + 2095. DOORS unmoved (36 = 10 + 26).
-    'corpus'            : 2288,
+    # ⚠ RE-DERIVED at the #112 raw-duplicate stage (the `*((&x) as *const T)`
+    # duplicate-owner class). 23 PASS fixtures added — `rawdup_*_drop_once` (11),
+    # their `rawdup_*_copy_ctl` twins (11), and
+    # `rawdup_uninit_assume_init_read_ground` — and none matches the `wql_*` /
+    # `deem_*` glob, so the whole delta lands in `nonglob`:
+    # 2288 + 23 = 2311 = 191 + 2120, and 2097 + 23 = 2120. Both halves were
+    # RE-DERIVED BY DIRECT FILE LISTING (`ls tests/logos/pass/*.logos` = 2311,
+    # `ls tests/logos/pass/{wql_*,deem_*}.logos` = 191), not by adding 23 to the
+    # previous line. The DOOR counts are unmoved (36 = 10 + 26): none of the 23
+    # declares a container family — they are stdlib destructor-count fixtures over
+    # Vec / Option / iterator adapters.
+    'corpus'            : 2311,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2097,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2120,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

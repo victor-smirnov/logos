@@ -1,0 +1,29 @@
+# #112 — the surviving `*((&x) as *const T)` RAW-DUPLICATE population of stdlib.
+#
+# Format (tab- or space-separated, one row per SURVIVING occurrence):
+#     <repo-relative file>   <symbol>   <ground-tag>   <refuse-fixture|->
+#
+# The population is DERIVED by tests/logos/stdlib_raw_dup_lint.sh from the tree
+# (broad grep `\*\(\(&[^)]*\) as \*const `), not read from here. This file is the
+# other half of a two-way agreement: a site in the tree that is not here reds, and a
+# row here whose site is gone reds. The ground tags:
+#
+#   copy-bound    the enclosing impl carries `T: Copy`, so the bitwise duplicate can
+#                 never see a droppable payload. The lint re-derives that bound from
+#                 the impl header and requires a REFUSE fixture proving it bites.
+#   rust-contract the duplicate is the declared semantics of the Rust API being
+#                 shadowed, and the call is `unsafe` for exactly that reason.
+#   bc-blocked    the duplicate LAUNDERS a borrow-checker over-refusal; deleting it
+#                 makes the stdlib fail to build. UNSOUND for a droppable payload and
+#                 must go the day the over-refusal closes.
+#
+# History: the census that opened #112 found 34 occurrences (the prompt's own narrow
+# grep found 22 of them — it could not match a dotted receiver like `self.sep`). 29
+# were closed by making the predicate/comparator surface BORROW, by moving values out
+# with `mem::replace`, by `T: Clone`, or by deleting a gratuitous copy. These 5 remain.
+
+stdlib/lang/iter/iter.logos    Iterator::reduce                bc-blocked      -
+stdlib/lang/iter/iter.logos    ArrayChunksIter::next           copy-bound      tests/logos/fail/rawdup_array_chunks_copy_enforced_fail.expected
+stdlib/lang/iter/iter.logos    MapWindowsIter::next            copy-bound      tests/logos/fail/rawdup_map_windows_copy_enforced_fail.expected
+stdlib/lang/iter/iter.logos    RepeatNIter::next               copy-bound      tests/logos/fail/rawdup_repeat_n_copy_enforced_fail.expected
+stdlib/mem/uninit/uninit.logos MaybeUninit::assume_init_read   rust-contract   -

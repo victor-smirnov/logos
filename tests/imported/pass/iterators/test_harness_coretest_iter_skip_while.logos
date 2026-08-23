@@ -14,7 +14,9 @@ use logos.lang.str;
 use logos.lang.iter;
 use logos.lang.option;
 
-fn lt15(x: i32) -> bool { return x < 15i32; }
+// #112: the stdlib predicate/comparator surface now BORROWS (Rust shape:
+// `filter(&T)`, `find(&T)`, `take_while(&T)`, `min_by(&T,&T)`, `partition(&T)`).
+fn lt15(x: &i32) -> bool { return *x < 15i32; }
 
 #[test]
 fn test_iterator_skip_while() {

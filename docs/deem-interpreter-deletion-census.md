@@ -3131,9 +3131,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # from asserting TWO `INNER DROP` lines to ONE. Their header said they must, and
 # the 0-vs-1 discrimination was RE-PROVEN by control revert on the post-#110
 # tree, not assumed.
-REGISTRY-ALL         7489
-REGISTRY-NOIMPORTED  3806
-REGISTRY-TIERCOMMIT  45
+REGISTRY-ALL         7516
+REGISTRY-NOIMPORTED  3833
+REGISTRY-TIERCOMMIT  46
 # 2026-08-22 (#104 — capturing a genuine stdlib `StringView` into an `@{}` writ
 # literal CRASHED THE COMPILER: rc 139, core dumped inside the verifier's own
 # diagnostic printer (`ExtractValueOp::verifyInvariantsImpl` -> `emitOpError` ->
@@ -3161,6 +3161,118 @@ REGISTRY-TIERCOMMIT  45
 # restored -> md5 of mlir_gen_expr.cpp asserted equal, pair green.
 # +2 registered: 7487 -> 7489 / 3804 -> 3806 / tier_commit 45 unchanged.
 # Door pins re-derived by direct listing: 2288 = 191 + 2097, doors 36 = 10 + 26.
+# 2026-08-23 (#112 — THE `*((&x) as *const T)` DUPLICATE-OWNER CLASS. The shape
+# reads an OWNING value out of a place through a raw pointer, so one allocation
+# gets two owners. MEASURED before the repair, with a heap-owning AND printing
+# payload (`struct Inner { n: i64, v: Vec<i64> }` + `impl Drop`):
+# `Option::Some(mk(7)).filter(keep)` printed `DROP n=7` TWICE and died
+# `free(): double free detected in tcache 2`, rc 134. A printing-only payload did
+# NOT abort — that is why every fixture in this round owns heap AND prints, and
+# why the oracle is an exact destructor-line count rather than an exit code.
+#
+# ── THE POPULATION IS 34, AND THE GREP THE ROUND WAS HANDED FOUND 22 ────────
+# `\*\(\(&[a-z_]*\) as \*const ` anchors the place on `[a-z_]*` and therefore
+# CANNOT MATCH A DOTTED RECEIVER. Twelve of the occurrences were exactly that
+# (`self.sep`, `self.peeked`, `self.buf`, `self.value`). The class grep is
+# `\*\(\(&[^)]*\) as \*const ` -> 34, of which the 22 are a strict subset.
+# Widening once further (`\*\(.*&.*as \*const `) adds only unrelated shapes
+# (plan.logos WSchemaH tag reinterprets, container_item ref-to-ref).
+#
+# PARTITION, and it sums: 34 = 17 (a) + 5 (c) + 1 (b, pre-enforced) + 11 (d).
+#   (a) a CONSUMING signature forced the duplicate  -> the signature now BORROWS
+#   (c) the duplicate was gratuitous                -> deleted
+#   (b) genuinely Copy-only                         -> the bound is the enforcer
+#   (d) a fourth cell the three-cell enumeration had no slot for, a THIRD of the
+#       class: reading a value out of a place the struct STILL OWNS. No consuming
+#       callee forces it, nothing enforces Copy, and deleting the read breaks the
+#       function. They are MISSING MOVE-OUT, closed with `mem::replace`, with
+#       `T: Clone`, or (for the two const-generic array buffers) with `T: Copy`.
+# AFTER: 5 survive, each with a ground AT THE SITE and a roster row.
+#
+# ── WHAT MOVED, BY CELL ─────────────────────────────────────────────────────
+# (a) `Option::filter`, `Iterator::{filter, min_by, max_by, take_while,
+#     skip_while, inspect, find}`, `FilterIter`/`TakeWhileIter`/`SkipWhileIter`/
+#     `InspectIter` `pred`/`visit` FIELDS, `iter_filter`/`iter_take_while`/
+#     `iter_skip_while`/`iter_inspect`, `iter_partition_vec` — the predicate,
+#     comparator and observer now take `&T` (Rust's own shape:
+#     `Option::filter(self, P: FnOnce(&T) -> bool)`). Nothing is duplicated,
+#     because nothing is consumed.
+# (c) `iter_max`/`iter_min` — `Ord::cmp(&self, &Self)` ALREADY borrows, so both
+#     duplicates were pure waste (and dropped one value twice).
+# (d) `PeekableIter::{next, peek, next_back}` and `OnceIter::{next, next_back}`
+#     now MOVE the cached value out with `mem::replace` (`OnceIter.val` became
+#     `Option<T>` so there is something to leave behind);
+#     `IntersperseIter` and `RepeatIter` take `T: Clone` and clone (Rust carries
+#     the same bounds); `ArrayChunksIter` and `MapWindowsIter` take `T: Copy`,
+#     which turns an unenforced comment into a bound the compiler checks.
+#
+# ── THE TWO COMPILER DEFECTS THE REPAIR UNCOVERED, BOTH MEASURED ────────────
+# 1. A CONDITIONAL MOVE OUT OF A MATCH BINDING LEAKS. `if take_v { best = v; }`
+#    emits no drop for `v` on the not-taken path: three heap-owning items into
+#    `max_by`, TWO destructor calls out. The first repair of `min_by`/`max_by`
+#    shipped exactly the double-free-for-leak trade #110 was warned about, and
+#    the counting oracle caught it. Closed in the stdlib by routing the winner
+#    through `iter_pick_by(a, b, take_b)`, which makes every move unconditional
+#    and destroys the loser as an ordinary parameter. The COMPILER defect stands.
+# 2. THE RETURN-ESCAPE CHANNEL REFUSES A REBIND. 4-line repro, no iterators:
+#      fn pick(o: Option<&mut i64>) -> Option<&mut i64> {
+#          match o { Option::None => { return Option::None; }
+#                    Option::Some(v) => { let r: &mut i64 = v;
+#                                         return Option::Some(r); } } }
+#    -> "cannot return reference to local variable '?'". The direct
+#    `return Option::Some(v);` spelling compiles, so it is the REBIND that is
+#    refused. `impl<T> Iterator<&mut T> for VecIterMut<T>` instantiates every
+#    trait default, so this reaches `Iterator::reduce`: its raw duplicate is a
+#    BORROW-CHECKER LAUNDER, not a signature workaround, and is the one survivor
+#    that is UNSOUND (3 destructor calls for 2 values). Rostered `bc-blocked`.
+#
+# ── CALLERS RE-AIMED: 16 files, all measured, none left red ─────────────────
+# tests/logos: iter_basic, iter_more_adapters, iter_method_shortcuts,
+# iter_find_position, iter_fnmut_terminals (5).
+# tests/imported: batch_b87_iter_helpers, iter_collect, iter_min_max,
+# iter_take_while, iter_skip_while, iter_filter, iter_minmax_by, iter_search,
+# opt-filter-or, filter-fold-pipeline-itx, iter-map-filter-sum-b138 (11).
+# stdlib callers of the changed signatures: ZERO (the one `.filter(` hit in
+# stdlib/lang/iter/iter.logos:159 is a comment).
+# ⚠ TWO OF THE SIXTEEN WERE NOT COMPILE ERRORS. `iter_find_position` and
+# `iter_fnmut_terminals` COMPILED against the new `FindFn: FnMut(&Item) -> bool`
+# while still passing an `fn(i32) -> bool`, and returned WRONG ANSWERS (rc 1 and
+# rc 6-instead-of-42). A generic fn-trait bound is NOT checked against the
+# supplied fn-pointer type — a live permissive defect, filed separately; the
+# concrete `fn(&T)` parameters (filter, take_while, min_by, partition) ARE
+# checked, which is why the other fourteen were diagnostics.
+#
+# ── THE GATE ────────────────────────────────────────────────────────────────
+# tests/logos/stdlib_raw_dup_lint.sh + stdlib_raw_dup.ledger, registered
+# logos_00_stdlib_raw_dup_lint (tier_commit). Population DERIVED by the broad
+# grep; exit 2 if it matches nothing or if the narrow grep stops being a subset.
+# Five facts, and each was BITTEN with a restore to green in between:
+#   new ungrounded duplicate planted   -> rc 1 ("UNGROUNDED RAW DUPLICATE")
+#   ledger row deleted                 -> rc 1 (both the set diff and the count)
+#   `T: Copy` deleted from ArrayChunks -> rc 1 (the enforcer re-derived)
+#   a `_copy_ctl` twin deleted         -> rc 1
+#   refuse fixture stripped of its diagnostic -> rc 1
+#   a root whose stdlib has no matches  -> rc 2, never 0
+#
+# ── ABI ─────────────────────────────────────────────────────────────────────
+# scripts/abi-check.sh: REMOVED 1828, CHANGED(breaking) 5 (FilterIter,
+# InspectIter, OnceIter, SkipWhileIter, TakeWhileIter field lists), ADDED 1911.
+# VERDICT: ABI-BREAKING. project VERSION 0.40.0 -> 0.41.0 in the SAME change;
+# re-run reads "ABI broke AND version bumped (0.40 -> 0.41) — OK".
+# ⚠ AND ONE MEASUREMENT INSIDE THAT NUMBER IS WORTH KEEPING. The first working
+# `min_by` compared through `best.as_ref()`. Calling ANY inherent `Option<Item>`
+# METHOD from a trait default that is instantiated for all 81 stdlib Iterator
+# impls makes mono emit the WHOLE `impl<T> Option<T>` surface for every one of
+# those item types: the spec went 12518 -> 15578 sym. Replacing it with the
+# pattern form `match &best` — same question, no method call — gives 12601.
+# 2977 emitted symbols for one `.as_ref()`; the pattern spelling is now the
+# documented requirement at the site.
+#
+# +27 registered: 7489 -> 7516 / 3806 -> 3833 / tier_commit 45 -> 46.
+# PREDICTED BEFORE RECONFIGURE as 23 pass + 3 fail + 1 gate = 7516, verified by
+# `ctest -N`. Pins re-derived BY DIRECT FILE LISTING, not by arithmetic:
+# tests/logos/pass/*.logos 2288 -> 2311, tests/logos/fail/*.expected 784 -> 787,
+# tests/logos/*.sh 64 -> 65.
 # 2026-08-22 (#103 — THE `mlir_gen:` CHANNEL BECOMES FATAL. `logosc` printed its
 # OWN diagnosis that lowering had dropped a store, a call or a whole field-drop
 # chain, then printed `logosc: wrote <obj>` and EXITED 0. The line was not

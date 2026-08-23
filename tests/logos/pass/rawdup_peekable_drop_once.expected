@@ -1,0 +1,15 @@
+exit: 0
+stdout:
+-- peek then next
+DROP n=0
+peek=1
+next=1
+DROP n=1
+DROP n=2
+rest=1
+-- peek then next_back
+DROP n=0
+peek=11
+back=11
+DROP n=11
+-- end

@@ -222,17 +222,15 @@ impl<T> Option<T> {
         }
     }
 
-    /// Returns `Some(v)` if `self` is `Some(v)` and `pred(v)` is `true`, otherwise `None`.
-    /// `pred` receives the wrapped value by bitwise copy; the original is returned untouched.
-    pub fn filter(self: Option<T>, pred: fn(T) -> bool) -> Option<T> {
+    /// Returns `Some(v)` if `self` is `Some(v)` and `pred(&v)` is `true`, otherwise `None`.
+    /// `pred` BORROWS the wrapped value (Rust: `FnOnce(&T) -> bool`), so the value is never
+    /// duplicated: exactly one owner, exactly one destructor call on either branch.
+    pub fn filter(self: Option<T>, pred: fn(&T) -> bool) -> Option<T> {
         match self {
             Option::None    => { return Option::None; }
             Option::Some(v) => {
-                unsafe {
-                    let v_copy: T = *((&v) as *const T);
-                    if pred(v_copy) { return Option::Some(v); }
-                    return Option::None;
-                }
+                if pred(&v) { return Option::Some(v); }
+                return Option::None;
             }
         }
     }

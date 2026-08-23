@@ -36,7 +36,9 @@ fn abs_i32(x: i32) -> i32 {
     return x;
 }
 
-fn is_even(x: i32) -> bool { return (x % 2i32) == 0i32; }
+// #112: the stdlib predicate/comparator surface now BORROWS (Rust shape:
+// `filter(&T)`, `find(&T)`, `take_while(&T)`, `min_by(&T,&T)`, `partition(&T)`).
+fn is_even(x: &i32) -> bool { return (*x % 2i32) == 0i32; }
 
 #[test]
 fn test_iter_eq_same() {

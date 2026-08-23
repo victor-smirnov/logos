@@ -5,7 +5,7 @@ use logos.lang.iter;
 fn main() -> i32 {
     let xs: [i32; 6] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32];
     unsafe {
-        let it = iter_filter::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), |x: i32| -> bool { return (x % 2i32) == 0i32; });
+        let it = iter_filter::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), |x: &i32| -> bool { return (*x % 2i32) == 0i32; });
         let s: i32 = iter_fold::<FilterIter<CopiedIter<SliceIter<i32>, i32>, i32>, i32, i32, |i32, i32| -> i32>(
             it, 0i32, |a: i32, x: i32| -> i32 { return a + x; });
         if s != 12i32 { return 1i32; }

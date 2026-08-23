@@ -1,0 +1,1 @@
+'iter_array_chunks': type 'Inner' does not implement trait 'Copy' required by parameter 'T'

@@ -1,0 +1,29 @@
+// MapWindowsIter hands out a BITWISE snapshot of its sliding buffer, so `T: Copy` is a BOUND. A droppable payload is refused.
+//
+// #112 — the ADMIT/REFUSE pair for a grounded (b) survivor of the
+// `*((&x) as *const T)` duplicate-owner class. The admit half is the
+// `_copy_ctl` fixture in tests/logos/pass; this is the refuse half.
+
+package rawdup_map_windows_copy_enforced_fail;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+fn win(a: [Inner; 2i64]) -> i64 { return 1i64; }
+
+fn main() -> i32 {
+    let mut s: Vec<Inner> = vec_new::<Inner>();
+    s.push(mk(1i64)); s.push(mk(2i64));
+    let zero: [Inner; 2i64] = [mk(90i64), mk(91i64)];
+    let it: MapWindowsIter<VecIntoIter<Inner>, Inner, i64, fn([Inner; 2i64]) -> i64, 2i64> =
+        iter_map_windows::<VecIntoIter<Inner>, Inner, i64, fn([Inner; 2i64]) -> i64, 2i64>(
+            s.into_iter(), win, zero, mk(0i64), 0i64);
+    println!("count={}", it.count());
+    return 0i32;
+}

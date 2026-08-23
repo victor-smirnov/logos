@@ -22,9 +22,14 @@ fn is_even(x: i32)     -> bool { return (x % 2i32) == 0i32; }
 fn gt100(x: i32)       -> bool { return x > 100i32; }
 fn div_by_3(x: i32)    -> bool { return (x % 3i32) == 0i32; }
 fn div_by_12(x: i32)   -> bool { return (x % 12i32) == 0i32; }
-fn eq2(x: i32)         -> bool { return x == 2i32; }
-fn eq5(x: i32)         -> bool { return x == 5i32; }
-fn eq95(x: i32)        -> bool { return x == 95i32; }
+// #112: `.find` and `iter_filter` now BORROW the probed item (Rust shape); `.all` /
+// `.any` / `.position` still consume it, so the two families need separate spellings.
+fn eq2(x: &i32)        -> bool { return *x == 2i32; }
+fn eq5(x: &i32)        -> bool { return *x == 5i32; }
+fn eq95(x: &i32)       -> bool { return *x == 95i32; }
+fn is_even_ref(x: &i32)   -> bool { return (*x % 2i32) == 0i32; }
+fn div_by_3_ref(x: &i32)  -> bool { return (*x % 3i32) == 0i32; }
+fn div_by_12_ref(x: &i32) -> bool { return (*x % 12i32) == 0i32; }
 
 #[test]
 fn test_all() {
@@ -50,15 +55,15 @@ fn test_any() {
 fn test_find() {
     let v: [i32; 7] = [1i32, 3i32, 9i32, 27i32, 103i32, 14i32, 11i32];
     unsafe {
-        match iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).find(is_even) {
+        match iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).find(is_even_ref) {
             Option::Some(x) => { assert_eq!(x, 14i32); }
             Option::None    => { assert_eq!(true, false); }
         }
-        match iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).find(div_by_3) {
+        match iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).find(div_by_3_ref) {
             Option::Some(x) => { assert_eq!(x, 3i32); }
             Option::None    => { assert_eq!(true, false); }
         }
-        match iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).find(div_by_12) {
+        match iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).find(div_by_12_ref) {
             Option::Some(_) => { assert_eq!(true, false); }
             Option::None    => { }
         }

@@ -15,6 +15,10 @@ package iter_find_position;
 use logos.lang.iter;
 use logos.lang.option;
 
+// #112: `.find` BORROWS the probed item (Rust: `FnMut(&Item) -> bool`); `.position`
+// still consumes it, so the two need different predicates.
+fn is_even_ref(x: &i32) -> bool { return *x % 2i32 == 0i32; }
+fn gt100_ref(x: &i32) -> bool { return *x > 100i32; }
 fn is_even(x: i32) -> bool { return x % 2i32 == 0i32; }
 fn gt100(x: i32) -> bool { return x > 100i32; }
 
@@ -23,14 +27,14 @@ fn main() -> i32 {
     unsafe {
         // .find — first even
         let mut it1 = iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(&arr));
-        match it1.find(is_even) {
+        match it1.find(is_even_ref) {
             Option::Some(v) => { if v != 2i32 { return 1i32; } }
             Option::None    => { return 2i32; }
         }
 
         // .find — predicate never matches → None
         let mut it2 = iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(&arr));
-        match it2.find(gt100) {
+        match it2.find(gt100_ref) {
             Option::Some(_) => { return 3i32; }
             Option::None    => { }
         }

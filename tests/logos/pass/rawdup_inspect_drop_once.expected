@@ -1,0 +1,18 @@
+exit: 0
+stdout:
+-- forward
+see 1
+DROP n=1
+see 2
+DROP n=2
+DROP n=0
+count=2
+-- backward
+see 12
+back=12
+DROP n=12
+see 11
+DROP n=11
+DROP n=0
+rest=1
+-- end

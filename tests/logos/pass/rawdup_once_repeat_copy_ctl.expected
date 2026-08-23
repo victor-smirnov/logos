@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+got=5
+exhausted
+r1=4
+r2=4

@@ -555,7 +555,7 @@ pub fn iter_collect_vec<I: Iterator<T>, T>(iter: I) -> Vec<T> {
 /// Splits an iterator into two `Vec`s by a predicate: items where `pred` is true go to
 /// `first`, the rest to `second`. Rust's `Iterator::partition::<Vec<T>>` in free-fn form.
 pub fn iter_partition_vec<I: Iterator<T>, T>(
-    iter: I, pred: fn(T) -> bool,
+    iter: I, pred: fn(&T) -> bool,
 ) -> ZipPair<Vec<T>, Vec<T>> {
     let mut it: I = iter;
     let mut yes: Vec<T> = vec_new::<T>();
@@ -564,14 +564,11 @@ pub fn iter_partition_vec<I: Iterator<T>, T>(
         match it.next() {
             Option::None    => { return ZipPair { first: yes, second: no }; }
             Option::Some(v) => {
-                unsafe {
-                    let v_copy: T = *((&v) as *const T);
-                    let take_yes: bool = pred(v_copy);
-                    if take_yes {
-                        yes.push(v);
-                    } else {
-                        no.push(v);
-                    }
+                let take_yes: bool = pred(&v);
+                if take_yes {
+                    yes.push(v);
+                } else {
+                    no.push(v);
                 }
             }
         }

@@ -1,0 +1,26 @@
+// CONTROL twin of rawdup_take_skip_while_drop_once: a Copy payload still answers correctly.
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+
+package rawdup_take_skip_while_copy_ctl;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+fn lt3(x: &i64) -> bool { return *x < 3i64; }
+
+fn main() -> i32 {
+    let mut s: Vec<i64> = vec_new::<i64>();
+    s.push(1i64); s.push(2i64); s.push(3i64); s.push(4i64);
+    let t: TakeWhileIter<VecIntoIter<i64>, i64> =
+        unsafe { iter_take_while::<VecIntoIter<i64>, i64>(s.into_iter(), lt3, 0i64) };
+    println!("take={}", t.count());
+    let mut s2: Vec<i64> = vec_new::<i64>();
+    s2.push(1i64); s2.push(2i64); s2.push(3i64); s2.push(4i64);
+    let k: SkipWhileIter<VecIntoIter<i64>, i64> =
+        unsafe { iter_skip_while::<VecIntoIter<i64>, i64>(s2.into_iter(), lt3, 0i64) };
+    println!("skip={}", k.count());
+    return 0i32;
+}

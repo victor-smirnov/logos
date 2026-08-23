@@ -95,8 +95,17 @@ impl<T> MaybeUninit<T> {
     }
 
     /// Reads the inner value through `&self` without consuming the wrapper.
-    /// Same contract as `assume_init`; duplicates the value, so intended for `T: Copy`
-    /// (Rust permits any `T`; Logos shadows the same shape).
+    /// Same contract as `assume_init`; DUPLICATES the value.
+    ///
+    /// GROUNDED SURVIVOR of the #112 raw-duplicate census
+    /// (#112-ROSTER: MaybeUninit::assume_init_read, ground=rust-contract). Unlike the iterator sites,
+    /// this duplicate is the DECLARED SEMANTICS, not a workaround: it is
+    /// `core::mem::MaybeUninit::assume_init_read`, which Rust also defines for every
+    /// `T` and also marks `unsafe` precisely because the caller — not the callee —
+    /// owns the "do not drop it twice" obligation. A `T: Copy` bound here would make
+    /// the safe subset unreachable without giving anything the safe `assume_init`
+    /// (which consumes the wrapper) does not already give. MEASURED with a heap-owning
+    /// `T`: 2 destructor calls for 1 value, exactly as the contract says.
     pub unsafe fn assume_init_read(&self) -> T {
         unsafe {
             return *((&self.value) as *const T);

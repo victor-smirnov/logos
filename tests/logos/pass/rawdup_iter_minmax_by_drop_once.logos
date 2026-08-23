@@ -1,0 +1,37 @@
+// Iterator::min_by / max_by: every candidate is destroyed exactly once, losers included.
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+
+package rawdup_iter_minmax_by_drop_once;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+// A payload that OWNS HEAP (`Vec<i64>`) and PRINTS on destruction. Both halves are
+// load-bearing: a printing-only `Drop` did not make the #112 double frees abort, and
+// a heap-owning-only payload cannot be counted. The assertion of every fixture in
+// this family is the EXACT set of destructor lines — "it stopped crashing" is not it.
+struct Inner { pub n: i64, pub v: Vec<i64> }
+impl Drop for Inner { fn drop(self: &mut Inner) { println!("DROP n={}", self.n); } }
+fn mk(n: i64) -> Inner { let mut v: Vec<i64> = vec_new::<i64>(); v.push(n); return Inner { n: n, v: v }; }
+
+fn cmpf(a: &Inner, b: &Inner) -> i32 { if a.n < b.n { return -1i32; } if a.n > b.n { return 1i32; } return 0i32; }
+fn src() -> VecIntoIter<Inner> {
+    let mut s: Vec<Inner> = vec_new::<Inner>();
+    s.push(mk(3i64)); s.push(mk(1i64)); s.push(mk(2i64));
+    return s.into_iter();
+}
+
+fn main() -> i32 {
+    println!("-- min_by");
+    match src().min_by(cmpf) { Option::Some(x) => { println!("min={}", x.n); } Option::None => { println!("none"); } }
+    println!("-- max_by");
+    match src().max_by(cmpf) { Option::Some(x) => { println!("max={}", x.n); } Option::None => { println!("none"); } }
+    println!("-- empty");
+    let e: Vec<Inner> = vec_new::<Inner>();
+    match e.into_iter().min_by(cmpf) { Option::Some(x) => { println!("min={}", x.n); } Option::None => { println!("empty none"); } }
+    println!("-- end");
+    return 0i32;
+}

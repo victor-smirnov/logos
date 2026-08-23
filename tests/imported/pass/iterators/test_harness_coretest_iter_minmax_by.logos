@@ -24,9 +24,11 @@ fn abs_i32(x: i32) -> i32 {
     return x;
 }
 
-fn cmp_abs(x: i32, y: i32) -> i32 {
-    let ax: i32 = abs_i32(x);
-    let ay: i32 = abs_i32(y);
+// #112: the stdlib predicate/comparator surface now BORROWS (Rust shape:
+// `filter(&T)`, `find(&T)`, `take_while(&T)`, `min_by(&T,&T)`, `partition(&T)`).
+fn cmp_abs(x: &i32, y: &i32) -> i32 {
+    let ax: i32 = abs_i32(*x);
+    let ay: i32 = abs_i32(*y);
     if ax < ay { return -1i32; }
     if ax > ay { return  1i32; }
     return 0i32;

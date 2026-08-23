@@ -1,0 +1,21 @@
+// CONTROL twin of rawdup_once_repeat_drop_once: a Copy payload still answers correctly.
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+
+package rawdup_once_repeat_copy_ctl;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+use logos.lang.clone;
+
+fn main() -> i32 {
+    let mut a: OnceIter<i64> = iter_once::<i64>(5i64);
+    match a.next() { Option::Some(x) => { println!("got={}", x); } Option::None => { println!("none"); } }
+    match a.next() { Option::Some(x) => { println!("got2={}", x); } Option::None => { println!("exhausted"); } }
+    let mut r: RepeatIter<i64> = iter_repeat::<i64>(4i64);
+    match r.next() { Option::Some(x) => { println!("r1={}", x); } Option::None => { } }
+    match r.next() { Option::Some(x) => { println!("r2={}", x); } Option::None => { } }
+    return 0i32;
+}

@@ -1,0 +1,20 @@
+// CONTROL twin of rawdup_peekable_drop_once: a Copy payload still answers correctly.
+//
+// #112 — the `*((&x) as *const T)` duplicate-owner class.
+
+package rawdup_peekable_copy_ctl;
+
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+fn main() -> i32 {
+    let mut s: Vec<i64> = vec_new::<i64>();
+    s.push(1i64); s.push(2i64);
+    let mut p: PeekableIter<VecIntoIter<i64>, i64> = iter_peekable::<VecIntoIter<i64>, i64>(s.into_iter(), 0i64);
+    unsafe { match p.peek() { Option::Some(r) => { println!("peek={}", *r); } Option::None => { println!("peek none"); } } }
+    match p.next() { Option::Some(x) => { println!("next={}", x); } Option::None => { println!("none"); } }
+    println!("rest={}", p.count());
+    return 0i32;
+}
