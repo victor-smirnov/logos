@@ -1,0 +1,227 @@
+package cond_move_field_overlap;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+extern fn malloc(n: u64) -> *mut u8;
+extern fn free(p: *mut u8);
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+/// #121-A — TWO ORACLES, AND THE PAYLOAD IS CHOSEN SO THAT BOTH CAN SEE.
+///
+/// Oracle 1 is the destructor COUNT against values created: every line below
+/// prints exactly one `D<n>` per `M<n>`. Missing = a leak at rc 0, invisible to
+/// any exit-code gate; extra = a genuine double free.
+///
+/// Oracle 2 is valgrind, via `cond_move_field_valgrind_gate.sh`, and it needs a
+/// destructor that ACTUALLY RELEASES — hence the raw `malloc`/`free` payload
+/// rather than the `Vec<i64>` the sibling fixture uses. With a `Vec` field the
+/// owning struct's destructor never releases the sub-field (task #133), so
+/// valgrind reports the SAME 64-byte loss whether the destructor ran once,
+/// twice, or not at all: MEASURED on this file's own shapes, `definitely lost:
+/// 64 bytes` with the correct count AND with a doubled one, and never an
+/// `Invalid free`. A payload the destructor frees turns a missed drop into
+/// `definitely lost` and a doubled drop into `Invalid free` — two directions,
+/// one instrument, independent of the printing.
+struct Pay { n: i64, b: *mut u8 }
+impl Drop for Pay { fn drop(self: Pay) { pr("D%ld ", self.n); unsafe { free(self.b); } } }
+fn mk(n: i64) -> Pay { pr("M%ld ", n); unsafe { return Pay { n: n, b: malloc(64u64) }; } }
+fn consume(p: Pay) -> i64 { return p.n; }
+
+struct In2  { p: Pay, q: Pay }
+struct In3  { p: Pay, q: Pay, r: Pay }
+struct Out1 { i: In2 }
+struct OutA { i: In3 }
+struct J2   { p: Pay, q: Pay }
+struct I3   { j: J2, k: Pay }
+struct O3   { i: I3 }
+struct OT   { i: (Pay, Pay) }
+struct AI   { a: [Pay; 2] }
+struct OArr { i: AI }
+struct DI   { p: Pay, q: Pay }
+impl Drop for DI { fn drop(self: DI) { ps("Xdi "); } }
+struct ODI  { i: DI }
+
+fn eat2(m: In2) -> i64 { return m.p.n; }
+fn eat3(m: In3) -> i64 { return m.p.n; }
+fn eatI(m: I3)  -> i64 { return 0i64; }
+fn eatJ(m: J2)  -> i64 { return 0i64; }
+fn eatA(m: AI)  -> i64 { return 0i64; }
+fn eatD(m: DI)  -> i64 { return 0i64; }
+
+/// THE OVERLAPPING PAIR. `cand = {"o.i.p", "o.i"}`: the descendant is moved on
+/// BOTH arms (the else arm by its prefix) so it correctly gets no flag, while
+/// the ancestor is not moved on the then arm and keeps a flag that is SET
+/// there. Dropping `o.i` AS A UNIT on that path destroys `p` a second time.
+/// The sibling `q` is the discriminator: pre-fix `M1 M2 D1 D2 D1` — q once,
+/// p twice, rc 0, silent.
+fn ov_depth2(c: bool) {
+    let mut o: Out1 = Out1 { i: In2 { p: mk(1), q: mk(2) } };
+    if c { consume(o.i.p); } else { let m: In2 = o.i; consume(m.p); consume(m.q); }
+}
+/// The SINGLE-FIELD spelling, where the ancestor's field-wise drop is EMPTY
+/// after the skip — the decomposition must emit nothing, not fall back.
+struct Inner { p: Pay }
+struct OutS  { i: Inner }
+fn ov_single(c: bool) {
+    let mut o: OutS = OutS { i: Inner { p: mk(3) } };
+    if c { consume(o.i.p); } else { let m: Inner = o.i; consume(m.p); }
+}
+/// DEPTH 3, ancestor at depth 1 and descendant at depth 3 — two segments apart.
+fn ov_depth3_far(c: bool) {
+    let mut o: O3 = O3 { i: I3 { j: J2 { p: mk(4), q: mk(5) }, k: mk(6) } };
+    if c { consume(o.i.j.p); } else { eatI(o.i); }
+}
+/// DEPTH 3, ancestor at depth 2 — the skip is a MIDDLE segment's child.
+fn ov_depth3_near(c: bool) {
+    let mut o: O3 = O3 { i: I3 { j: J2 { p: mk(7), q: mk(8) }, k: mk(9) } };
+    if c { consume(o.i.j.p); } else { eatJ(o.i.j); }
+}
+/// A TUPLE element as the ANCESTOR (`t.0`), a struct field as the descendant.
+/// `moved_vars_` spells both with a dot but the two readers are different
+/// nodes, and the walker that records the move used to handle only one kind
+/// per chain — so `t.0.p` was recorded by NEITHER and the skip list was empty.
+fn ov_tuple_anc(c: bool) {
+    let mut t: (In2, i64) = (In2 { p: mk(10), q: mk(11) }, 5i64);
+    if c { consume(t.0.p); } else { let m: In2 = t.0; consume(m.p); consume(m.q); }
+}
+/// The MIRROR chain: a struct field as the ancestor, a TUPLE element as the
+/// descendant (`o.i.0`).
+fn ov_tuple_desc(c: bool) {
+    let mut o: OT = OT { i: (mk(12), mk(13)) };
+    if c { consume(o.i.0); } else { let m: (Pay, Pay) = o.i; consume(m.0); consume(m.1); }
+}
+/// A MIXED chain with NO conditional anywhere. Same walker gap, and a double
+/// free with not one branch in the program: pre-fix `M14 M15 D14 D15 D14`.
+fn mixed_uncond_fd() {
+    let mut t: (In2, i64) = (In2 { p: mk(14), q: mk(15) }, 5i64);
+    consume(t.0.p);
+}
+fn mixed_uncond_df() {
+    let mut o: OT = OT { i: (mk(16), mk(17)) };
+    consume(o.i.0);
+}
+/// THREE arms: one moves the ancestor, one moves the descendant, one moves
+/// nothing. Both places carry a flag, and on the third arm BOTH fire — the
+/// ancestor must drop only the sibling.
+fn ov_three_arms(c: i64) {
+    let mut o: Out1 = Out1 { i: In2 { p: mk(18), q: mk(19) } };
+    match c { 0 => { eat2(o.i); }, 1 => { consume(o.i.p); }, _ => { ps("z "); } }
+}
+/// TWO DISJOINT descendants on one arm, the ancestor on the other: the
+/// ancestor's field-wise drop skips both and destroys only `r`.
+fn ov_two_desc(c: bool) {
+    let mut o: OutA = OutA { i: In3 { p: mk(20), q: mk(21), r: mk(22) } };
+    if c { consume(o.i.p); consume(o.i.q); } else { eat3(o.i); }
+}
+/// THREE LEVELS tracked at once (`o.i`, `o.i.j`, `o.i.j.p`): each enclosing
+/// drop skips the next, and the fall-through arm runs all three.
+fn ov_three_levels(c: i64) {
+    let mut o: O3 = O3 { i: I3 { j: J2 { p: mk(23), q: mk(24) }, k: mk(25) } };
+    match c {
+        0 => { eatI(o.i); },
+        1 => { eatJ(o.i.j); },
+        2 => { consume(o.i.j.p); },
+        _ => { ps("z "); }
+    }
+}
+/// The pair through an if-EXPRESSION rather than a statement.
+fn ov_ifexpr(c: bool) -> i64 {
+    let mut o: Out1 = Out1 { i: In2 { p: mk(26), q: mk(27) } };
+    let k: Pay = if c { o.i.p } else { let m: In2 = o.i; consume(m.q); m.p };
+    return k.n;
+}
+/// A NESTED merge: the inner `if` flags nothing new, and the outer pair still
+/// decomposes.
+fn ov_nested(c: bool, d: bool) {
+    let mut o: Out1 = Out1 { i: In2 { p: mk(28), q: mk(29) } };
+    if c { if d { consume(o.i.p); } } else { eat2(o.i); }
+}
+/// A CONDITIONAL FIELD MOVE INSIDE A LOOP BODY, with NO ancestor/descendant
+/// overlap at all. The merge's per-branch move set is reverted before the
+/// enclosing frame's drops are emitted, so the path was flagged AND absent
+/// from the container's static skip list: destroyed once unguarded by the
+/// container and once by its own flag. Pre-fix `M30 M31 D30 D31 D30` on BOTH
+/// arms — the `else` arm, which moves nothing, included.
+fn loop_field(c: bool) {
+    let mut h: In2 = In2 { p: mk(30), q: mk(31) };
+    while true { if c { consume(h.p); break; } else { ps("f "); break; } }
+}
+/// The same loop, now WITH the overlapping pair — the ancestor's skip list
+/// needs a witness that survives the revert too.
+fn loop_overlap(c: bool) {
+    let mut o: Out1 = Out1 { i: In2 { p: mk(32), q: mk(33) } };
+    while true { if c { consume(o.i.p); break; } else { eat2(o.i); break; } }
+}
+/// RE-INITIALISATION of the descendant on the arm the ancestor was not moved
+/// on: three live values, three destructors.
+fn ov_reinit(c: bool) {
+    let mut o: Out1 = Out1 { i: In2 { p: mk(34), q: mk(35) } };
+    if c { consume(o.i.p); o.i.p = mk(36); } else { eat2(o.i); }
+}
+/// An ARRAY-valued descendant of the flagged ancestor: `path_segment_type`
+/// cannot name an array ELEMENT, so no element is ever separately flagged and
+/// the ancestor drops the array whole — which is correct, and pinned here so a
+/// future element-level flag cannot silently double-drop.
+fn ov_array(c: bool) {
+    let mut o: OArr = OArr { i: AI { a: [mk(37), mk(38)] } };
+    if c { ps("t "); } else { eatA(o.i); }
+}
+/// The ancestor's own type has a user `Drop`. Its `drop` runs on the whole
+/// value and the field-wise skip cannot suppress it, so the pin records what
+/// the compiler ACTUALLY does: `Xdi` once per value, fields once each.
+fn ov_userdrop(c: bool) {
+    let mut o: ODI = ODI { i: DI { p: mk(39), q: mk(40) } };
+    if c { consume(o.i.p); } else { eatD(o.i); }
+}
+/// CONTROL — two DISJOINT descendants, no ancestor tracked. Nothing here
+/// overlaps, and the decomposition must leave it exactly as it was.
+fn ctl_disjoint(c: bool) {
+    let mut o: Out1 = Out1 { i: In2 { p: mk(41), q: mk(42) } };
+    if c { consume(o.i.p); } else { consume(o.i.q); }
+}
+
+unsafe fn main() -> i32 {
+    ps("d2+     "); ov_depth2(true);        ps("\n");
+    ps("d2-     "); ov_depth2(false);       ps("\n");
+    ps("sing+   "); ov_single(true);        ps("\n");
+    ps("sing-   "); ov_single(false);       ps("\n");
+    ps("d3far+  "); ov_depth3_far(true);    ps("\n");
+    ps("d3far-  "); ov_depth3_far(false);   ps("\n");
+    ps("d3near+ "); ov_depth3_near(true);   ps("\n");
+    ps("d3near- "); ov_depth3_near(false);  ps("\n");
+    ps("tupA+   "); ov_tuple_anc(true);     ps("\n");
+    ps("tupA-   "); ov_tuple_anc(false);    ps("\n");
+    ps("tupD+   "); ov_tuple_desc(true);    ps("\n");
+    ps("tupD-   "); ov_tuple_desc(false);   ps("\n");
+    ps("mixfd   "); mixed_uncond_fd();      ps("\n");
+    ps("mixdf   "); mixed_uncond_df();      ps("\n");
+    ps("arm0    "); ov_three_arms(0i64);    ps("\n");
+    ps("arm1    "); ov_three_arms(1i64);    ps("\n");
+    ps("arm2    "); ov_three_arms(2i64);    ps("\n");
+    ps("2desc+  "); ov_two_desc(true);      ps("\n");
+    ps("2desc-  "); ov_two_desc(false);     ps("\n");
+    ps("lvl0    "); ov_three_levels(0i64);  ps("\n");
+    ps("lvl1    "); ov_three_levels(1i64);  ps("\n");
+    ps("lvl2    "); ov_three_levels(2i64);  ps("\n");
+    ps("lvl3    "); ov_three_levels(3i64);  ps("\n");
+    ps("ifex+   "); pr("r=%ld ", ov_ifexpr(true));  ps("\n");
+    ps("ifex-   "); pr("r=%ld ", ov_ifexpr(false)); ps("\n");
+    ps("nest++  "); ov_nested(true, true);  ps("\n");
+    ps("nest+-  "); ov_nested(true, false); ps("\n");
+    ps("nest--  "); ov_nested(false, false);ps("\n");
+    ps("loopf+  "); loop_field(true);       ps("\n");
+    ps("loopf-  "); loop_field(false);      ps("\n");
+    ps("loopo+  "); loop_overlap(true);     ps("\n");
+    ps("loopo-  "); loop_overlap(false);    ps("\n");
+    ps("rein+   "); ov_reinit(true);        ps("\n");
+    ps("rein-   "); ov_reinit(false);       ps("\n");
+    ps("arr+    "); ov_array(true);         ps("\n");
+    ps("arr-    "); ov_array(false);        ps("\n");
+    ps("udrop+  "); ov_userdrop(true);      ps("\n");
+    ps("udrop-  "); ov_userdrop(false);     ps("\n");
+    ps("ctl+    "); ctl_disjoint(true);     ps("\n");
+    ps("ctl-    "); ctl_disjoint(false);    ps("\n");
+    return 0;
+}

@@ -3432,8 +3432,314 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # tests/logos/fail/*.expected 790 -> 791, tests/logos/*.sh 65 -> 65.
 # The direct-door gate's own corpus/nonglob pins moved with them (2331 -> 2342,
 # 2140 -> 2151), re-derived the same way; doors unmoved at 36 = 10 + 26.
-REGISTRY-ALL         7554
-REGISTRY-NOIMPORTED  3871
+# 2026-08-23 (#121 / #122 / #123 + two UNFILED shapes — THE CONDITIONAL-MOVE
+# AND SUPPRESSION ROUND. Five holes in the drop plane, each landed alone with a
+# control revert and a rebuild between:
+#   #121 a FIELD as the move source got no drop flag (`cond_move_flag_for`
+#        refused every dotted name) — LEAK, one dot from the shape #118 closed.
+#        Widened to dotted paths (root frame, path type, tuple segments), the
+#        guarded destructor emitted as a move-and-drop of the place, and a
+#        PREFIX move now counts as a move of the path (without that last rule
+#        `if c { consume(h.p); } else { eatH(h); }` DOUBLE FREED).
+#   #122 a `return` / `break` / `continue` reached from a block lowered in
+#        EXPRESSION position ran ZERO destructors — `lower_block` was the only
+#        block builder that unwound. One shared `push_stmt_with_unwind`, 15 call
+#        sites. The filed root (`reaching.size() < 2`) was REFUTED: those
+#        programs have no conditional move at all. A `break`/`continue` ARM is
+#        diverging but still REACHING, which was the real second half.
+#   #123 `#[no_auto_drop]` was honoured in ONE place (sema's
+#        `has_droppable_fields`, which answers only for the CONTAINER), so any
+#        droppable sibling re-exposed the suppressed field. The filed condition
+#        ("a GENERIC-struct sibling") is too narrow — a plain `Pay` sibling
+#        defeats it identically. The flag now reaches LIR (struct_keys
+#        NO_AUTO_DROP 28) and mlir-gen's `value_needs_drop` asks.
+#   UNFILED-1 a move in a LAZY `&&`/`||` RHS: recorded unconditionally, so the
+#        short-circuited path LEAKED.
+#   UNFILED-2 a move in a MATCH GUARD whose guard FAILS: the next arm restarts
+#        from the pre-state and the move is forgotten — 1 value, 2 destructor
+#        calls, rc 134. The only ABORTING direction in the sweep.
+# +8 registered: 7554 -> 7562 / 3871 -> 3879 / tier_commit 46 -> 46.
+# PREDICTED BEFORE RECONFIGURE as 8 pass + 0 fail + 0 gates = 7562, verified by
+# the gate's own measurement. Pins re-derived BY DIRECT FILE LISTING, not by
+# arithmetic: tests/logos/pass/*.logos 2343 -> 2351,
+# tests/logos/fail/*.logos 800 -> 800, tests/logos/*.sh unchanged.
+# The direct-door gate's own corpus/nonglob pins moved with them (2343 -> 2351,
+# 2152 -> 2160), re-derived the same way; glob unmoved at 191 and doors unmoved
+# at 36 = 10 + 26 — none of the eight declares a container family or a `direct`
+# output form; all eight are destructor-count fixtures over
+# `struct Pay { n: i64, v: Vec<i64> }` plus their Copy-payload `_ctl` twins.
+#   tests/logos/pass/cond_move_field_source.logos        (+ _ctl)
+#   tests/logos/pass/divergent_arm_unwind.logos          (+ _ctl)
+#   tests/logos/pass/no_auto_drop_sibling.logos          (+ _ctl)
+#   tests/logos/pass/cond_move_lazy_and_guard.logos      (+ _ctl)
+# STILL OPEN, measured and NOT closed here: a conditional move of a CAPTURED
+# value inside a closure BODY (`let f = move || { if c { consume(a); } }`)
+# leaks on the not-taken path. The flag cannot be armed: the capture's
+# destructor runs in the OWNER's frame while the clear would have to run inside
+# the closure, so the closure env would have to carry `&mut __df_N` — a capture
+# -set and env-layout change, not a merge change. Filed rather than bodged.
+# 2026-08-24 (#121-A — A SUBTREE'S OWNERSHIP IS NOT ONE BIT. The #121 landing
+# opened the drop-flag keyspace to dotted paths; when an ANCESTOR and a
+# DESCENDANT are both candidates in one merge, the descendant is moved on every
+# arm (the ancestor-moving arm moves it by prefix) so it correctly gets NO flag,
+# while the ancestor keeps one that is SET on the arm that moved only the
+# descendant — and `emit_cond_move_field_drops` then destroyed the subtree AS A
+# UNIT. MEASURED with a sibling as discriminator: `M1 M2 D1 D2 D1`, q once, p
+# twice, rc 0, silent. Refusing to flag either end was tried by the previous
+# round and REVERTED — it stops the double free but LEAKS the `whole+` cell of
+# `pass/cond_move_field_source`. The answer is DECOMPOSITION: a flagged place's
+# guarded drop is emitted FIELD-WISE, skipping descendants that carry their own
+# ownership.
+#   src/compiler/sema.cpp        emit_cond_move_field_drops (skip list),
+#                                make_drop_stmt (extra_moved union),
+#                                emit_frame_drops (flagged_descendants),
+#                                elaborate_cond_moves (note_static_move)
+#   src/compiler/sema_impl.hpp   move_path_of, flagged_descendants,
+#                                note_static_move, Frame::cond_move_static_moves
+#   src/compiler/borrow_check.cpp is_cond_move_field_drop_temp takes the StmtRef
+#   include/…/lir_schema.hpp     stmt_keys::COMPILER_GLUE (42)
+#   include/…/lir_view.hpp       SLetView::compiler_glue
+#   include/…/lir.hpp            SLet::compiler_glue
+#   include/…/lir_mirror.hpp     lir_mirror_emit_let carries it
+#   src/compiler/lir_mirror.cpp  emit_let_direct writes it
+#   src/compiler/mono_clone.cpp  the Let clone carries it
+# FOUR shapes, each with its own CONTROL REVERT (build rc 0 every time; the reds
+# are the destructor COUNT and valgrind, never an exit code):
+#   1 DECOMPOSITION. ctl `make_drop_stmt(tmp, tinfo)` (no skip list):
+#     a1/a2/a3 `M1 M2 D1 D2 D1`, c1 `M1 D1 D1`, c3 arm2 `M1 M2 M3 D1 D2 D1 D3 D2
+#     D1` (9 destructor calls for 3 values), overlap fixture rc 1, valgrind gate
+#     rc 5 with `Invalid free`. Restored: every cell exact.
+#   2 MIXED FIELD/TUPLE MOVE PATH — a SECOND, PRE-EXISTING defect of the same
+#     class, found by enumerating the PROPERTY (a projection chain rooted at a
+#     local) instead of the node. `mark_moved_expr` had two walkers, FieldRead
+#     and TupleIndex, each bottoming out only at a VarRef, so a chain that MIXED
+#     them was recorded by NEITHER: `consume(t.0.p)` and `consume(o.i.0)` double
+#     -freed with NO conditional anywhere in the program (`M1 M2 D1 D2 D1`).
+#     ctl (two walkers restored): b1/b2/b3/b4/a4/a5 red, a1/c1 green — the
+#     partition is exact. valgrind gate rc 5, 4 invalid-access records.
+#   3 THE CONTAINER'S SKIP IS NOT `moved_vars_`. A merge inside a LOOP BODY has
+#     its per-branch move set reverted before the enclosing frame's drops are
+#     emitted, so a path was FLAGGED and simultaneously absent from the
+#     container's static skip: destroyed once unguarded and once by its flag,
+#     with no ancestor/descendant overlap at all. ctl (`fd` not passed):
+#     `while true { if c { consume(h.p); break; } else { break; } }` gives
+#     `M30 M31 D30 D31 D30` on BOTH arms, the else arm moving nothing.
+#   4 THE STATIC-MOVE WITNESS. Same revert, one level up: a descendant a merge
+#     proved moved on EVERY arm also vanishes from `moved_vars_` inside a loop,
+#     so the flagged ANCESTOR's field-wise drop had nothing to skip. ctl
+#     (`note_static_move` not called): loop_overlap `M32 M33 D32 D33 D32`,
+#     fixture rc 1, valgrind `Invalid free`.
+# AND THE BORROW-CHECK EXEMPTION, PINNED AND RE-CLOSED. The parent replaced a
+# NAME-prefix test with a structural one; that closed the borrow half and left
+# the MOVE half open — `let __cmfd_9: Pay = h.p; return eatH(h);` compiled rc 0
+# while the same program named `zz_9` was refused, because a field-read chain is
+# exactly what a genuine partial move looks like. The exemption is now granted
+# on PROVENANCE: the emitter stamps `stmt_keys::COMPILER_GLUE`, mono carries it,
+# the predicate demands it. CONTROL (`sl.compiler_glue = false`): both glue
+# fixtures fail to compile with "use of moved field 'h.p'" — the bit is READ,
+# not merely written. ⚠ THE `if` SPELLING IS NOT A BITE-PROOF: under that same
+# control `if c { consume(h.p); }` still compiled; only the MATCH form reaches
+# the refusing walker, which is why `pass/cond_move_glue_name_admit` spells its
+# glue cell as a match and says so at the line.
+#   tests/logos/pass/cond_move_field_overlap.logos       (+ .expected)
+#   tests/logos/pass/cond_move_glue_name_admit.logos     (+ .expected)
+#   tests/logos/fail/cond_move_glue_name_borrow_fail.logos  (+ .expected)
+#   tests/logos/fail/cond_move_glue_name_move_fail.logos    (+ .expected)
+#   tests/logos/cond_move_field_valgrind_gate.sh   (logos_09_cond_move_field_valgrind)
+# TWO ORACLES ON EVERY CELL. The count oracle is DEMONSTRATED BLIND — a
+# `Vec<i64>` payload's owning struct never releases the sub-field (#133), so
+# valgrind reports the same 64-byte loss whether the destructor ran once, twice
+# or not at all, and no `Invalid free` ever appears. The overlap fixture
+# therefore allocates with `malloc` and frees in its destructor: 90 allocs / 90
+# frees, 0 invalid accesses, 0 bytes lost. Under every control above the same
+# program aborts rc 134 (`free(): double free detected in tcache 2`) — the
+# payload choice is what turned a silent rc-0 defect into an aborting one.
+# COST, INTERLEAVED IN ONE PROCESS (ctl = this same tree with shapes 1, 3 and 4
+# reverted, saved as a second `logosc` binary; shape 2 on in both): the emitted
+# code SHRANK. 111 drop/move fixtures — compile time 186.430s -> 186.119s
+# (-0.17%), object bytes 2 051 064 -> 2 050 336 (-0.0355%), and exactly ONE
+# fixture's object changed at all (`cond_move_field_overlap`, -728 B). A
+# 60-fixture unrelated slice: -0.04% time, object bytes IDENTICAL to the byte.
+# The field-wise drop does not add code — it removes the descendant's branch
+# from the ancestor's glue.
+# STILL OPEN, MEASURED AND NOT CLOSED HERE: an ARRAY ELEMENT cannot be flagged
+# (`path_segment_type` cannot name one), so `ov_array` pins the whole-array drop
+# as correct-today rather than element-wise; and a value whose ANCESTOR type has
+# its own `impl Drop` runs that `drop` on a partially-moved value (`ov_userdrop`
+# pins what the compiler does — counts balance, Rust would refuse the move).
+# +5 registered: 7562 -> 7567 / 3879 -> 3884 / tier_commit 46 -> 46.
+# PREDICTED BEFORE RECONFIGURE as 2 pass + 2 fail + 1 gate = 7567, and the
+# tier_commit column unmoved because the valgrind gate declares tier_full;
+# verified by the gate's own measurement. Pins re-derived BY DIRECT FILE
+# LISTING: tests/logos/pass/*.logos 2351 -> 2353, tests/logos/fail/*.logos
+# 800 -> 802, tests/logos/*.sh 65 -> 66.
+# The direct-door gate's own corpus/nonglob pins moved with them (2351 -> 2353,
+# 2160 -> 2162), re-derived the same way; glob unmoved at 191 and doors unmoved
+# at 36 = 10 + 26.
+# 2026-08-24 (#123 — ONE ATTRIBUTE, THREE ANSWERS. `#[no_auto_drop]` is the
+# `ManuallyDrop<T>` lang-item shape and `docs/spec/items.md`
+# `item.struct.no-auto-drop` says it suppresses NEITHER-user-drop-NOR-field-glue.
+# The 2026-08-23 landing added the second consult (mlir-gen `value_needs_drop`,
+# which decides a FIELD's fate). MEASURED ON THIS TREE BEFORE THIS ROUND, both
+# oracles, `/home/logos/sandbox/sub_c/p{1,2,3,4}.logos`:
+#   Vec<NAD> (2 elements)        -> D1 D2      both suppressed values destroyed
+#   Box<NAD>                     -> D3
+#   fn sink<T>(t: T) at T=NAD    -> D4         (concrete `fn eat(n: NAD)` correct)
+#   Vec<Vec<NAD>>                -> D6
+#   Rc<NAD>                      -> D3
+#   Vec<ManuallyDrop<Pay>>       -> D2         the lang item itself
+#   Box<ManuallyDrop<Pay>>       -> D3
+#   `#[no_auto_drop]` + impl Drop, as a LOCAL      -> U (user destructor ran)
+#   the SAME value as a struct FIELD               -> nothing
+#   by-value param / move-closure capture / shadow -> U
+# while Vec<OQ> (OQ { n: NAD }), array, tuple, Option, Vec<Wrap> all HELD. The
+# discriminator is not the sibling and not the depth: it is whether the storage
+# site goes through a MONOMORPHISED body.
+#
+# THE CENSUS, BY THE QUESTION AND NOT BY THE ATTRIBUTE NAME. `grep -rnE
+# "(value_needs_drop|has_droppable_fields|drop_fn_for|needs_drop|
+# type_no_auto_drop|type_is_no_auto_drop)\(" --include=*.cpp --include=*.hpp
+# src/ include/` = 58 lines, of which 14 are the definitions/declarations
+# themselves, so 44 PREDICATE CONSULTS across 9 files (mlir_gen_stmt 19,
+# sema.cpp 7, sema_stmt 6, sema_impl.hpp 3, borrow_check 4, sema_expr 2,
+# sema_auto_trait 2, mlir_gen_dyn 1) — plus 6 sites that EMIT a drop without
+# consulting any predicate at all: the two steps of `gen_stmt_kind(SDropView)`
+# (`v.drop_fn()` is called on trust, `v.drop_fields()` gates the recursion) and
+# the four assignments in mono_clone's `__typevar_pending__drop` arm that
+# MANUFACTURE `drop_fn = <concrete>+"__drop"` and `drop_fields = true` for every
+# substituted struct. 50 decision sites. THE SIX UNCONSULTING ONES WERE THE
+# DEFECT: everything a generic body drops goes through them.
+#
+# WHAT LANDED — two gates, one per layer, each the layer's single answer:
+#   src/compiler/mlir_gen_stmt.cpp  MLIRGenImpl::type_is_no_auto_drop (new),
+#                                   consulted by `value_needs_drop` (replacing
+#                                   its inline lookup) AND at the top of
+#                                   `gen_stmt_kind(SDropView)` — the LAST gate,
+#                                   the one mono's manufactured drops reach
+#   src/compiler/sema.cpp           SemaChecker::type_no_auto_drop (new),
+#                                   consulted at the top of `make_drop_stmt` —
+#                                   the ORIGIN of every compiler-emitted scope
+#                                   drop, and the site that closes the
+#                                   `drop_fn_for` (user-`impl Drop`) half
+#   src/compiler/sema_impl.hpp      the declaration
+#   tests/logos/key_identity.ledger  +1 row (mlir_gen_stmt all_struct_defs_ O 1
+#                                   concrete_struct_name(ty)), and sema.cpp
+#                                   structs_ O 2 -> O 3
+# ⚠ NEITHER HELPER IS CONSULTED FROM `drop_fn_for`, `is_move_type`,
+# `compute_auto_copy_types` OR borrow_check's `needs_drop`. Suppressing the
+# destructor does not make the value COPY: a `ManuallyDrop<T>` still MOVES, and
+# a non-move `ManuallyDrop` would hand out duplicate owners of the inner T,
+# which is the defect the attribute exists to prevent. Those four are the sites
+# that CANNOT honour it, and the reason is one sentence: they answer "who owns
+# this", not "who destroys it".
+# ⚠ THE THIRD FAMILY IS ALREADY HONOURED, DOWNSTREAM, AND WAS MEASURED RATHER
+# THAN READ. `sema_stmt.cpp` drop_old_referent (678) / drop_old (2972) /
+# drop_old_place (7943) and `sema_impl.hpp` the B8 uninit drop flag (2928) all
+# test `!drop_fn_for(t).empty() || has_droppable_fields(t)`, so the user-drop
+# half sets their flag for a suppressed type. They emit NOTHING anyway: the
+# lowering asks `value_needs_drop` again. CONTROL: `let mut y: Pay = mk(1); y =
+# mk(2);` prints `D1` before the store at all three sites (the mechanism is
+# live), and the identical program at `#[no_auto_drop] NADD` prints nothing —
+# under the FULL revert as well. Over-set upstream, refused downstream, no
+# observable effect; recorded, not "fixed" into a fourth arm.
+#
+# CONTROL REVERTS — three binaries, all built from THIS tree, build rc 0 each:
+#   ctl_both (both gates off): `pass/no_auto_drop_container` rc 1, program rc
+#     134 `free(): double free detected in tcache 2` at cell `vec`, valgrind six
+#     Invalid-free records. p1/p2/p3/p4 red exactly on the ten cells listed above.
+#   ctl_mlir (SDrop gate off, sema gate on): IDENTICAL rc 134 at the same cell —
+#     the mlir gate is the one that fires for every container cell.
+#   ctl_sema (sema gate off, SDrop gate on): ALL 34 probe cells and BOTH fixtures
+#     GREEN, and the emitted objects are BYTE-IDENTICAL on all six programs.
+# ⚠ SO THE SEMA ARM HAS NO FIXTURE THAT BITES IT, AND I COULD NOT BUILD ONE.
+# It is not a dead arm — its condition is true during a shipped compile (a
+# `#[no_auto_drop] impl Drop` local reaches `make_drop_stmt` and is refused
+# there) and under ctl_mlir it alone greens four cells (p3 ud_local, p4
+# clos_nadd / param / shadow). It is REDUNDANT with a downstream net, not
+# unreached. It is kept because it is the site that makes SEMA's own answer to
+# the question uniform, and because the two layers read DIFFERENT maps
+# (`structs_` vs `all_struct_defs_`), so neither subsumes the other
+# structurally. That is a judgement, and it is the one thing in this row a
+# reviewer should re-open first.
+# ⚠ ONE DRAFT DEFECT CAUGHT BEFORE IT SHIPPED: the first `type_is_no_auto_drop`
+# had a THIRD, bare-`struct_name()` fallback. `all_struct_defs_` carries a
+# first-registered-wins bare alias, so a user struct sharing a name with a
+# suppressed stdlib type would have inherited the suppression and LEAKED —
+# silent, and in the direction no fixture looks. Removed and re-measured: the
+# two qualified steps are sufficient for the generic instance
+# (`Vec<ManuallyDrop<Pay>>` clean without it).
+# ⚠ AND ONE GATE-BLINDING SIDE EFFECT, caught by `logos_00_key_identity_lint`:
+# placing `type_no_auto_drop` immediately ABOVE `has_droppable_fields` put its
+# qualified `structs_` probe inside the lint's ORDER_WINDOW, silently promoting
+# an UNRELATED bare `current_type_bounds_` lookup from cell D to cell O — a
+# grounded site reclassified as order-protected on the strength of a probe in
+# another function. The helper now sits BELOW `has_droppable_fields` and the
+# row is D again. Two of the three ledger rows the lint asked for were real.
+#
+# THE FIXTURE PAIR — 29 values, 25 storage sites, both directions on every cell:
+#   tests/logos/pass/no_auto_drop_container.logos      (+ .expected)
+#   tests/logos/pass/no_auto_drop_container_ctl.logos  (+ .expected)
+# The suppression side reclaims twenty values BY HAND (`R<n>`) — the other half
+# of the ManuallyDrop contract — and lets the compiler destroy nine (`D<n>`);
+# exactly one of R/D per M, and no `U`. The control twin is the same program
+# with the attribute removed and the hand reclaim removed with it: 29 `D`, four
+# `U`, no `R`. The pair is what stops a suppression fix being satisfied by a
+# compiler that emits no drop glue at all. `ManuallyDrop` itself cannot appear
+# on the control side (its attribute is stdlib's), so those three cells hold a
+# bare `Pay` in the same three containers and the genuine wrapper is exercised
+# by `md_inner`, correct on both sides.
+# TWO ORACLES, and the payload is `malloc`/`free` because the count oracle is
+# DEMONSTRATED BLIND (#133: a user-`Drop` value in a field never releases its
+# sub-fields, so a `Vec<i64>` payload loses the same 64 B whether the destructor
+# ran once, twice or never, and never reports an Invalid free). Both fixtures:
+# 42 allocs / 42 frees, 0 invalid accesses, 0 bytes lost. The two new gates
+# re-use the EXISTING script with a different fixture argument — no new `.sh`:
+#   logos_09_no_auto_drop_valgrind      pass/no_auto_drop_container.logos
+#   logos_09_no_auto_drop_ctl_valgrind  pass/no_auto_drop_container_ctl.logos
+#
+# #116 AND #119 RE-MEASURED UNDER BOTH ORACLES — NEITHER IS BROKEN TODAY, and
+# neither depends on this round. `ArrayIntoIter` (8 values, drained / partially
+# drained / never advanced) and `OnceCell` (set+into_inner / discarded /
+# unset / get_or_init, 7 values incl. the `T::default()` seed) were re-run with
+# a malloc/free payload and NO `println!` (the fmt path's own String allocations
+# swamp the leak report and were mistaken for a defect on the first pass):
+# p6 9 allocs / 9 frees, p7 8/8, "All heap blocks were freed", 0 errors — and
+# BYTE-FOR-BYTE the same transcript and the same valgrind verdict under
+# ctl_both. All 19 registered `dupown_*` + `array_into_iter` fixtures rc 0.
+# Their `#[no_auto_drop]` buffers survive the container hole only because
+# neither is ever stored in a generic container nor passed to a generic sink.
+#
+# COST, INTERLEAVED IN ONE PROCESS (ctl/fix/ctl/fix per fixture; the baseline
+# binary is `logosc_ctl_both`, this same tree with both gates reverted and saved
+# as a second compiler): the emitted code SHRANK.
+#   235 drop/move/cell/iter fixtures  199.114s -> 197.297s (-0.91%),
+#     object bytes 5 273 680 -> 5 273 256 (-0.0080%), ONE object changed
+#     (`no_auto_drop_container`, -424 B)
+#   60 unrelated fixtures             52.481s -> 52.262s (-0.42%),
+#     object bytes IDENTICAL to the byte, 0 objects changed
+# Suppressing drop glue removes code; it does not add any.
+#
+# STILL OPEN, MEASURED AND NOT CLOSED HERE:
+#   * `sema_impl.hpp:3234` refuses `let s = arr[i]` when `needs_drop(et)`. For a
+#     `#[no_auto_drop]` element that refusal is arguably an over-refusal (the
+#     element has no destructor to manage), but widening a REFUSAL is not a
+#     suppression fix and no cell demanded it.
+#   * `mono_clone.cpp` still MANUFACTURES `drop_fn`/`drop_fields` for a
+#     suppressed concrete struct; the LIR carries a drop the lowering then
+#     discards. Honest-IR cleanup, no observable effect, deliberately not
+#     shipped as a third arm that fires zero times.
+# +4 registered: 7567 -> 7571 / 3884 -> 3888 / tier_commit 46 -> 46.
+# PREDICTED BEFORE RECONFIGURE as 2 pass + 0 fail + 2 gate REGISTRATIONS = 7571,
+# tier_commit unmoved because both gates declare tier_full; `ctest -N` three ways
+# agreed exactly. Pins re-derived BY DIRECT FILE LISTING, not by arithmetic:
+# tests/logos/pass/*.logos 2353 -> 2355, tests/logos/fail/*.logos 802 -> 802,
+# tests/logos/*.sh 66 -> 66 (the gate SCRIPT is re-used, not copied).
+# The direct-door gate's corpus/nonglob moved with them (2353 -> 2355,
+# 2162 -> 2164), re-derived the same way; glob unmoved at 191 and doors unmoved
+# at 36 = 10 + 26 — neither fixture declares a container family or a `direct`
+# output form.
+REGISTRY-ALL         7571
+REGISTRY-NOIMPORTED  3888
 REGISTRY-TIERCOMMIT  46
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

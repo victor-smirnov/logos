@@ -663,6 +663,74 @@ static bool is_loop_break_slot_name(std::string_view n) {
     return n.rfind("__loop_val_", 0) == 0;
 }
 
+// #121 — CONDITIONAL-MOVE FIELD DROP GLUE. `emit_cond_move_field_drops`
+// (sema.cpp) destroys a conditionally-moved field path by moving it into a
+// `__cmfd_N` temp inside `if <flag> { … }` and dropping that. The read is by
+// construction a read of a place the static analysis has already recorded as
+// moved — that is the whole point: the FLAG says it was not moved on THIS
+// path. Walking it would report "use of moved field" on compiler-generated
+// drop glue for a program that is correct.
+//
+// ⚠ THE NAME IS NOT THE EVIDENCE, AND KEYING ON IT ALONE WAS A USER-REACHABLE
+// HOLE. `__cmfd_` is a spelling any user can write, and the exemption skips
+// BOTH `Code::Let` walkers entirely — so `let __cmfd_0: &i64 = &t; return
+// __cmfd_0;` compiled, rc 0, returning a dangling reference, while the same
+// program with the binding named `zz_0` was correctly refused. MEASURED on the
+// landing round's own tree before this predicate existed. The prose above
+// asserted "the RHS is always a pure field-read place (no call, no borrow, no
+// index), so skipping it hides no check" — true of the glue, and never checked,
+// which is exactly the "exemption not checked in the ABUSE direction" class.
+//
+// So the exemption is now granted on the STRUCTURE the claim is about: the
+// value must be a chain of field / tuple-index reads bottoming out in a plain
+// variable — what `emit_cond_move_field_drops` emits and nothing else. A
+// borrow, a call, a deref, an index, or a bare variable copy is not glue and
+// is walked like any other binding, whatever it is called.
+static bool is_cond_move_field_drop_place(lir_view::ExprRef e) {
+    using EK = lir_schema::expr::Code;
+    // At least one projection: a bare `VarRef` is a whole-value move, which the
+    // glue never emits and which the walkers must still see.
+    bool projected = false;
+    while (e) {
+        switch (e.kind()) {
+            case EK::FieldRead:
+                projected = true;
+                e = lir_view::EFieldReadView{e}.receiver();
+                continue;
+            case EK::TupleIndex:
+                projected = true;
+                e = lir_view::ETupleIndexView{e}.receiver();
+                continue;
+            case EK::VarRef:
+                return projected;
+            default:
+                return false;
+        }
+    }
+    return false;
+}
+
+// ⚠ AND THE STRUCTURE WAS NOT ENOUGH EITHER. The structural test above closed
+// the BORROW half — `let __cmfd_0: &i64 = &t; return __cmfd_0;` is refused
+// again — but a field-read chain bottoming out in a VarRef is EXACTLY what a
+// genuine partial move looks like, so the MOVE half stayed open: MEASURED,
+// `let __cmfd_9: Pay = h.p; return eatH(h);` compiled at rc 0 while the same
+// program with the binding named `zz_9` was refused with "use of partially
+// moved value 'h' (field 'p' moved on line 8)". Two abuse directions, two
+// rounds, one root: the exemption was being granted on evidence the ATTACKER
+// WRITES. Provenance is not derivable from the text of the binding, so it is
+// now carried by the producer — `emit_cond_move_field_drops` stamps
+// `stmt_keys::COMPILER_GLUE` on the `let` it synthesises, mono carries it
+// through cloning, and this predicate demands it. The name and the shape are
+// kept as corroborating conjuncts: they cost nothing and they keep the
+// exemption pinned to the ONE emitter that is allowed to use it, so a future
+// producer that stamps the bit on something else does not silently inherit it.
+static bool is_cond_move_field_drop_temp(lir_view::StmtRef st,
+                                         std::string_view n, lir_view::ExprRef v) {
+    return lir_view::SLetView{st}.compiler_glue() &&
+           n.rfind("__cmfd_", 0) == 0 && is_cond_move_field_drop_place(v);
+}
+
 static bool is_temporary_value_expr(lir_view::ExprRef e) {
     if (!e) return false;
     using EK = lir_schema::expr::Code;
@@ -7085,6 +7153,7 @@ private:
         switch (sr.kind()) {
             case Code::Let: {
                 SLetView lv{sr};
+                if (is_cond_move_field_drop_temp(sr, lv.name(), lv.value())) break;  // #121
                 prescan_reborrow(std::string(lv.name()), lv.type(prog_.type_pool.impl()),
                                  lv.value());                        // G0
                 prescan_fnptr(std::string(lv.name()), lv.type(prog_.type_pool.impl()),
@@ -8249,6 +8318,7 @@ private:
             // ── Let binding ──────────────────────────────────────────────
             case Code::Let: {
                 SLetView v{sr};
+                if (is_cond_move_field_drop_temp(sr, v.name(), v.value())) break;  // #121
                 auto val = v.value();
                 auto t   = v.type(pool);
                 std::string name(v.name());

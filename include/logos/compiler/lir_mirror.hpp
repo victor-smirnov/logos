@@ -241,7 +241,7 @@ const uint8_t* lir_mirror_emit_closure_box  (lir::LProgram& prog, TypeRef ty, co
 // Stage B.6 — LStmt direct mirror writers. Allocate a fresh mirror map for a
 // single stmt kind from primitive args, without reading LStmt::kind. Caller
 // assigns the returned offset to LStmt::mirror_ptr_.
-const uint8_t* lir_mirror_emit_let               (lir::LProgram& prog, uint32_t line, std::string_view name, TypeRef ty, lir_view::ExprRef value, bool is_mut, uint32_t slot = 0xFFFFFFFFu);
+const uint8_t* lir_mirror_emit_let               (lir::LProgram& prog, uint32_t line, std::string_view name, TypeRef ty, lir_view::ExprRef value, bool is_mut, uint32_t slot = 0xFFFFFFFFu, bool compiler_glue = false);
 const uint8_t* lir_mirror_emit_assign            (lir::LProgram& prog, uint32_t line, std::string_view name, lir_view::ExprRef value, bool drop_old = false);
 const uint8_t* lir_mirror_emit_return            (lir::LProgram& prog, uint32_t line, lir_view::ExprRef value);
 const uint8_t* lir_mirror_emit_if_stmt           (lir::LProgram& prog, uint32_t line, lir_view::ExprRef cond, lir_view::BlockRef then_blk, lir_view::BlockRef else_blk);

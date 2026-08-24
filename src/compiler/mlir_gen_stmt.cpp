@@ -518,6 +518,27 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      {
     restore_var_scope(block_scope);
 }
 
+// #123 — THE ONE PLACE MLIR-GEN ANSWERS "is this type's auto-drop suppressed".
+// Qualified-first, bare-last (the recorded find_struct_*_it order): the bare
+// alias in `all_struct_defs_` is FIRST-REGISTERED-WINS, so asking it first
+// would read another package's homonym's attribute set.
+bool MLIRGenImpl::type_is_no_auto_drop(TypeRef ty) {
+    if (!ty) return false;
+    auto k = TypeRef(ty).kind();
+    if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct) return false;
+    auto it = find_struct_def_it(ty);
+    if (it == all_struct_defs_.end())
+        it = all_struct_defs_.find(concrete_struct_name(ty));
+    // ⚠ NO BARE-`struct_name()` THIRD STEP. It was in the first draft of this
+    // helper and it is an OVER-SUPPRESSION hazard in the one direction that is
+    // silent: the bare alias in `all_struct_defs_` is first-registered-wins, so
+    // a user struct sharing a name with a `#[no_auto_drop]` stdlib type would
+    // inherit the suppression and LEAK. The two qualified steps are what
+    // `value_needs_drop` already used; measured sufficient for the generic
+    // instance (`Vec<ManuallyDrop<Pay>>` is clean without it).
+    return it != all_struct_defs_.end() && it->second.no_auto_drop();
+}
+
 bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     using K = LogosType::Kind;
     if (!ty) return false;
@@ -533,6 +554,21 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     if (k == K::DstRef) return TypeRef(ty).owning_dst();
     if (k == K::Struct || k == K::ZonedStruct) {
         std::string name = concrete_struct_name(ty);
+        // #123 — `#[no_auto_drop]` MEANS NO AUTO DROP AT ANY STORAGE SITE, and
+        // this walk is where a FIELD's fate is decided. Sema honoured the
+        // attribute in one place only — `has_droppable_fields`, which answers
+        // whether the CONTAINER drops at all — so the suppression held exactly
+        // as long as nothing ELSE made the container droppable. Add one
+        // ordinary droppable sibling (a `Pay`, an array of one, a generic
+        // struct whose TypeVar trips the drop-fn sentinel) and the container
+        // acquired a drop, this walk recursed its fields, and the suppressed
+        // field was destroyed after all. MEASURED: `struct IterBad { buf: Buf,
+        // idx: i64, tag: Pay }` — the `ArrayIntoIter` shape plus one field —
+        // 3 values in, 5 destructor calls out, a live double free reached by
+        // adding a field. The comment in stdlib/lang/cell/cell.logos blamed a
+        // GENERIC sibling; a plain `Pay` sibling defeats it identically, so
+        // the condition it certifies is narrower than the defect.
+        if (type_is_no_auto_drop(ty)) return false;
         if (!resolve_method_symbol(name, "drop", TypeRef(ty).pkg_name()).empty()) return true;
         if (auto sd = all_struct_defs_.find(name); sd != all_struct_defs_.end())
             for (auto& f : sd->second.fields())
@@ -1110,6 +1146,18 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     std::string var_name(v.var_name());
     auto it = scope_.find(var_name);
     if (it == scope_.end()) return;
+    // #123 — `#[no_auto_drop]`: EMIT NOTHING. THE LAST GATE, and the one the
+    // generic containers walk through. `value_needs_drop` gates the FIELD
+    // recursion (step 2) but is never asked about the var's OWN type, and step
+    // 1 calls `v.drop_fn()` on trust. mono_clone's `__typevar_pending__drop`
+    // arm MANUFACTURES both — `drop_fn = <concrete>+"__drop"`, `drop_fields =
+    // true` — for every substituted Struct, without asking. MEASURED on this
+    // tree before the fix: `Vec<NAD>` (2 elements) → `D1 D2`; `Box<NAD>` →
+    // `D3`; `fn sink<T>(t: T)` at T=NAD → `D4`; `Vec<Vec<NAD>>` → `D6`; and
+    // the lang-item itself, `Vec<ManuallyDrop<Pay>>` / `Box<ManuallyDrop<Pay>>`
+    // → destroyed. The concrete `fn eat(n: NAD)` was correct throughout, so
+    // the same attribute answered differently at two storage sites.
+    if (type_is_no_auto_drop(v.type(pool_impl()))) return;
     // The full drop body, captured so a B8 drop-flag var can run it conditionally.
     auto emit_body = [&]() {
     auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();

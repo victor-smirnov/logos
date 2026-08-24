@@ -1978,10 +1978,10 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                     } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR && lc != la::LET && lc != la::LET_DESTRUCT && lc != la::RETURN) {
                         result = lower_expr(s);
                     } else {
-                        block.push_back(lower_stmt(s));
+                        push_stmt_with_unwind(block, lower_stmt(s));  // #122
                     }
                 } else {
-                    block.push_back(lower_stmt(s));
+                    push_stmt_with_unwind(block, lower_stmt(s));  // #122
                 }
             }
         }
@@ -2124,9 +2124,24 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // and its end-of-statement drop is skipped by an early return in the taken
     // branch). Give it its own temporary scope: the temp binds + drops inside
     // the RHS expression itself.
+    // A MOVE IN A LAZY RHS IS A CONDITIONAL MOVE, and it had no merge either.
+    // `if c && eat(a) { … }` with `c == false` never evaluates `eat(a)`, but
+    // sema recorded `a` moved unconditionally, so the frame skipped its
+    // destructor and the value LEAKED (1 created, 0 dropped, rc 0). The `||`
+    // spelling leaks on the mirror direction (`c == true`). Both are the same
+    // two-path question `elaborate_cond_moves` already answers: give the local
+    // a flag and clear it inside the RHS, which runs exactly when the move does.
+    auto rhs_pre = moved_vars_;
     auto rhs = (op == "&&" || op == "||")
         ? lower_expr_temp_scoped(map_of(node.get(la::RHS.code)))
         : lower_expr(map_of(node.get(la::RHS.code)));
+    if ((op == "&&" || op == "||") && moved_vars_ != rhs_pre) {
+        size_t rm = flag_clear_log_.size();
+        std::vector<CondMoveBranch> rb;
+        rb.push_back({nullptr, &rhs, moved_vars_, rm, rm});   // RHS evaluated
+        rb.push_back({nullptr, nullptr, rhs_pre, rm, rm});    // short-circuited
+        elaborate_cond_moves(rhs_pre, rb);
+    }
     auto lt = expr_type(lhs);
     auto rt = expr_type(rhs);
 
@@ -15721,7 +15736,7 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
                 // via the shared `is_divergent_call_node` predicate —
                 // logos-core 1.1.)
                 if (is_divergent_call_node(val_node)) {
-                    block.push_back(lower_stmt(s));
+                    push_stmt_with_unwind(block, lower_stmt(s));  // #122
                     divergent_ret_t = never_t();
                     continue;
                 }
@@ -15743,7 +15758,7 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
                 if (val_expr) divergent_ret_t = expr_type(val_expr);
             }
         }
-        block.push_back(lower_stmt(s));
+        push_stmt_with_unwind(block, lower_stmt(s));  // #122
     }
     tail_as_return_ = saved_tail;
     pop_scope();
@@ -15878,10 +15893,10 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                                    lc != la::LET_DESTRUCT && lc != la::RETURN) {
                             result = lower_expr_temp_scoped(s);
                         } else {
-                            block.push_back(lower_stmt(s));
+                            push_stmt_with_unwind(block, lower_stmt(s));  // #122
                         }
                     } else {
-                        block.push_back(lower_stmt(s));
+                        push_stmt_with_unwind(block, lower_stmt(s));  // #122
                     }
                 }
                 tail_as_return_ = saved_tail;
@@ -15912,9 +15927,9 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                              lc != la::LET_DESTRUCT && lc != la::RETURN)
                         result = lower_expr_temp_scoped(s);
                     else
-                        block.push_back(lower_stmt(s));
+                        push_stmt_with_unwind(block, lower_stmt(s));  // #122
                 } else {
-                    block.push_back(lower_stmt(s));
+                    push_stmt_with_unwind(block, lower_stmt(s));  // #122
                 }
             }
             tail_as_return_ = saved_tail;
@@ -15994,7 +16009,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                     // non-divergent arm's type. Shared with the block-expr
                     // lowering above.
                     if (is_divergent_call_node(val_node)) {
-                        block.push_back(lower_stmt(s));
+                        push_stmt_with_unwind(block, lower_stmt(s));  // #122
                         divergent_t = never_t();
                     } else {
                         // Conditionally evaluated branch value — own temporary
@@ -16006,7 +16021,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                            lc != la::RETURN && lc != la::BREAK && lc != la::CONTINUE) {
                     result = lower_expr_temp_scoped(s);
                 } else {
-                    block.push_back(lower_stmt(s));
+                    push_stmt_with_unwind(block, lower_stmt(s));  // #122
                     // A branch whose last statement diverges (`return` / `break`
                     // / `continue`, with a trailing `;`) never yields a value —
                     // it is the never type `!`. Mark the branch Never so the
@@ -16020,7 +16035,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                         divergent_t = never_t();
                 }
             } else {
-                block.push_back(lower_stmt(s));
+                push_stmt_with_unwind(block, lower_stmt(s));  // #122
             }
         }
         tail_as_return_ = saved_tail;
@@ -16134,10 +16149,18 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     // the arm value (`append_stmt_to_value`); this must happen BEFORE the
     // result-type unification below reads `expr_type(then_val)`, and the
     // rebuild preserves that type exactly.
-    if (!ifx_then_div)
+    // #122 — a `break`/`continue` arm is DIVERGING but still REACHING: it
+    // leaves the if-expression without a value, yet control arrives at the
+    // enclosing frame's scope-exit drops through the loop edge. Excluding it
+    // left `reaching` with one entry, `elaborate_cond_moves` bailed, and the
+    // union merge statically suppressed the drop the break path still needed
+    // (`loop { let k = if c { x } else { break; }; … }` — 1 created, 0
+    // dropped). Only a `return` arm is genuinely non-reaching; its moves are
+    // settled at its own unwind. Mirrors lower_if's `branch_div_kind != 1`.
+    if (!ifx_then_div || expr_arm_div_kind(then_val) == 2)
         ifx_reaching.push_back({nullptr, &then_val, ifx_then_moves,
                                 ifx_then_mark, ifx_then_end});
-    if (!ifx_else_div)
+    if (!ifx_else_div || expr_arm_div_kind(else_val) == 2)
         ifx_reaching.push_back({nullptr, &else_val, ifx_else_moves,
                                 ifx_else_mark, ifx_else_end});
     elaborate_cond_moves(ifx_pre_moves, ifx_reaching);

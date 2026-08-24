@@ -1,0 +1,46 @@
+package cond_move_glue_name_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay { fn drop(self: Pay) { pr("D%ld ", self.n); } }
+fn mk(n: i64) -> Pay { let mut v: Vec<i64> = Vec::new(); v.push(n); pr("M%ld ", n); return Pay { n: n, v: v }; }
+fn consume(p: Pay) -> i64 { return p.n; }
+struct H { p: Pay, q: Pay }
+
+/// #121-A ADMIT HALF. The refuse pair (`fail/cond_move_glue_name_borrow_fail`,
+/// `fail/cond_move_glue_name_move_fail`) proves the `__cmfd_` NAME no longer
+/// buys a borrow-check exemption. This is the other direction: the name must
+/// not become a REFUSAL either. A user binding spelled `__cmfd_N` that does
+/// nothing wrong — a plain partial move out of a local that is not used again —
+/// compiles and destroys each value exactly once.
+fn user_named_glue() {
+    let mut h: H = H { p: mk(1), q: mk(2) };
+    let __cmfd_7: Pay = h.p;
+    consume(__cmfd_7);
+}
+/// And the COMPILER's own glue still gets its exemption: this is the shape
+/// `emit_cond_move_field_drops` lowers to a `__cmfd_N` move-and-drop, and it
+/// reads a place the static analysis has already recorded as moved.
+///
+/// ⚠ THE SPELLING IS A MATCH, NOT AN `if`, AND THAT IS THE POINT. Both lower to
+/// the same glue, but only the match form reaches the walker that refuses:
+/// under a control that stamps `compiler_glue = false`, `if c { consume(h.p); }`
+/// still COMPILED — so an `if` cell here would have asserted nothing about
+/// whether the provenance bit is read. The match form refuses with "use of
+/// moved field 'h.p'", which makes this cell the bite-proof that the new key is
+/// READ and not merely written. MEASURED: rc 1 under the control, rc 0 here.
+fn real_glue(c: bool) {
+    let mut h: H = H { p: mk(3), q: mk(4) };
+    match c { true => { consume(h.p); }, false => { ps("f "); } }
+}
+
+unsafe fn main() -> i32 {
+    ps("user  "); user_named_glue(); ps("\n");
+    ps("glue+ "); real_glue(true);   ps("\n");
+    ps("glue- "); real_glue(false);  ps("\n");
+    return 0;
+}

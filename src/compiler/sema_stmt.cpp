@@ -755,44 +755,10 @@ lir_view::BlockRef SemaChecker::lower_block(TinyMapView block) {
                     } else ++it;
                 }
             }
-            // Insert drops before return/break/continue.
-            // Return's value expression MUST be evaluated BEFORE the drops
-            // (it may borrow variables that the drops would release).
-            // Hoist the return value into a temporary, then drop, then return
-            // the temporary.
-            if (auto sref = stmt_ref_of(lowered);
-                sref && sref.kind() == lir_schema::stmt::Code::Return) {
-                auto drops = collect_all_drops();
-                auto val_ref = lir_view::SReturnView{sref}.value();
-                if (!drops.empty() && val_ref) {
-                    TypeRef rt = val_ref.type(cur_prog_->type_pool.impl());
-                    std::string tmp = "__ret_tmp_" +
-                        std::to_string(tmp_var_count_++);
-                    lir::SLet sl;
-                    sl.name = tmp; sl.type = rt; sl.is_mut = false;
-                    sl.value = val_ref;
-                    result.push_back(
-                        make_stmt_emit(node_line_, std::move(sl)));
-                    for (auto& d : drops)
-                        result.push_back(std::move(d));
-                    result.push_back(
-                        builder().stmt_return(builder().var_ref(tmp, rt), node_line_));
-                    continue;
-                }
-                for (auto& d : drops)
-                    result.push_back(std::move(d));
-            } else {
-                auto term_ref = stmt_ref_of(lowered);
-                if (term_ref && (term_ref.kind() == lir_schema::stmt::Code::Break ||
-                                 term_ref.kind() == lir_schema::stmt::Code::Continue)) {
-                    // G167-4: drop every frame down to AND INCLUDING the loop
-                    // body — a break/continue nested in an `if` exits via the
-                    // loop edge, bypassing the body block's normal end drops.
-                    for (auto& d : collect_drops_to_loop())
-                        result.push_back(std::move(d));
-                }
-            }
-            result.push_back(std::move(lowered));
+            // Insert drops before return/break/continue — the ONE unwind
+            // routine, shared with every block builder in expression position
+            // (#122).
+            push_stmt_with_unwind(result, std::move(lowered));
         }
     }
     // Insert drops for normal block exit (no return/break/continue)
@@ -821,6 +787,65 @@ lir_view::BlockRef SemaChecker::lower_block(TinyMapView block) {
 // boundary), then the terminator. Desugars that synthesize an early return in
 // EXPRESSION position (`?`) must route through this — lower_block's
 // statement-level drop insertion never sees their buried Return.
+// #122 — see the header comment on the declaration.
+// ⚠ Called ONLY for an arm its caller has already judged diverging — the
+// answer is 1 vs 2, never 0. A non-diverging arm's block can end in a Drop
+// (lower_block's fall-through glue), so this predicate is not a divergence
+// TEST and must not be used as one.
+int SemaChecker::expr_arm_div_kind(const lir::LExprPtr& v) const {
+    if (!v) return 1;
+    // The terminator sits in the arm's block-expr statement list (both
+    // spellings land there: `{ break; }` through lower_block_last_expr's stmt
+    // arm, a bare `break` through BREAK_EXPR's block+sentinel lowering).
+    if (v.kind() != lir_schema::expr::Code::BlockExpr) return 1;
+    auto b = lir_view::EBlockExprView{v}.block();
+    if (!b) return 1;
+    int kind = 1;
+    b.each_stmt([&](lir_view::StmtRef s) {
+        if (!s) return;
+        auto k = s.kind();
+        if (k == lir_schema::stmt::Code::Return) kind = 1;
+        else if (k == lir_schema::stmt::Code::Break ||
+                 k == lir_schema::stmt::Code::Continue) kind = 2;
+    });
+    return kind;
+}
+
+// #122 — see the header comment on the declaration. Return's value expression
+// MUST be evaluated BEFORE the drops (it may borrow variables that the drops
+// would release): hoist it into a temporary, then drop, then return the temp.
+void SemaChecker::push_stmt_with_unwind(std::vector<lir_view::StmtRef>& out,
+                                        lir_view::StmtRef lowered) {
+    auto sref = stmt_ref_of(lowered);
+    if (sref && sref.kind() == lir_schema::stmt::Code::Return) {
+        auto drops = collect_all_drops();
+        auto val_ref = lir_view::SReturnView{sref}.value();
+        if (!drops.empty() && val_ref) {
+            TypeRef rt = val_ref.type(cur_prog_->type_pool.impl());
+            std::string tmp = "__ret_tmp_" + std::to_string(tmp_var_count_++);
+            lir::SLet sl;
+            sl.name = tmp; sl.type = rt; sl.is_mut = false;
+            sl.value = val_ref;
+            out.push_back(make_stmt_emit(node_line_, std::move(sl)));
+            for (auto& d : drops)
+                out.push_back(std::move(d));
+            out.push_back(
+                builder().stmt_return(builder().var_ref(tmp, rt), node_line_));
+            return;
+        }
+        for (auto& d : drops)
+            out.push_back(std::move(d));
+    } else if (sref && (sref.kind() == lir_schema::stmt::Code::Break ||
+                        sref.kind() == lir_schema::stmt::Code::Continue)) {
+        // G167-4: drop every frame down to AND INCLUDING the loop body — a
+        // break/continue nested in an `if` exits via the loop edge, bypassing
+        // the body block's normal end drops.
+        for (auto& d : collect_drops_to_loop())
+            out.push_back(std::move(d));
+    }
+    out.push_back(std::move(lowered));
+}
+
 std::vector<lir_view::StmtRef> SemaChecker::make_return_with_drops(lir::LExprPtr val) {
     std::vector<lir_view::StmtRef> out;
     auto drops = collect_all_drops();
@@ -9304,11 +9329,31 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             // Optional guard: `pattern if expr =>`
             std::optional<lir::LExprPtr> guard;
             if (arm.has_key(la::GUARD)) {
+                // A MATCH GUARD IS A CONDITIONALLY EVALUATED EXPRESSION, and a
+                // move inside it had no merge at all. `x if eatF(a) => …` with
+                // a FAILING guard destroyed `a` inside the callee and then the
+                // frame destroyed it again at scope exit: 1 value, 2 destructor
+                // calls, `free(): double free detected in tcache 2`, rc 134 —
+                // the only ABORTING direction in this whole sweep, and nothing
+                // in the corpus could see it (every in-tree guard is Copy).
+                // The union merge cannot help: the arm was not taken, so the
+                // next arm restarts from `pre_moves` and the guard's move is
+                // forgotten. The two paths are "the guard RAN (and moved)" and
+                // "the guard never ran", which is exactly a conditional move —
+                // give it the #118 flag, cleared inside the guard's own value.
+                auto guard_pre = moved_vars_;
                 auto g = lower_expr(map_of(arm.get(la::GUARD.code)));
                 if (TypeRef(expr_type(g)).kind() != LogosType::Kind::Bool &&
                     TypeRef(expr_type(g)).kind() != LogosType::Kind::Error)
                     error("match guard must be bool");
                 guard = std::move(g);
+                if (moved_vars_ != guard_pre) {
+                    size_t gm = flag_clear_log_.size();
+                    std::vector<CondMoveBranch> gb;
+                    gb.push_back({nullptr, &*guard, moved_vars_, gm, gm});
+                    gb.push_back({nullptr, nullptr, guard_pre, gm, gm});
+                    elaborate_cond_moves(guard_pre, gb);
+                }
             }
             // G172-1: the string-literal arm's `str_eq(__smatch, "lit")` test
             // is its dispatch — AND it ahead of any user guard.
@@ -9373,7 +9418,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                 if (code_of(body_node) == la::BLOCK) {
                     lower_block(body_node).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
                 } else {
-                    body.push_back(lower_stmt(body_node));
+                    push_stmt_with_unwind(body, lower_stmt(body_node));  // #122
                 }
             } else if (arm.has_key(la::EXPR)) {
                 auto val = lower_expr(map_of(arm.get(la::EXPR.code)));
@@ -10042,11 +10087,31 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
 
             std::optional<lir::LExprPtr> guard;
             if (arm.has_key(la::GUARD)) {
+                // A MATCH GUARD IS A CONDITIONALLY EVALUATED EXPRESSION, and a
+                // move inside it had no merge at all. `x if eatF(a) => …` with
+                // a FAILING guard destroyed `a` inside the callee and then the
+                // frame destroyed it again at scope exit: 1 value, 2 destructor
+                // calls, `free(): double free detected in tcache 2`, rc 134 —
+                // the only ABORTING direction in this whole sweep, and nothing
+                // in the corpus could see it (every in-tree guard is Copy).
+                // The union merge cannot help: the arm was not taken, so the
+                // next arm restarts from `pre_moves` and the guard's move is
+                // forgotten. The two paths are "the guard RAN (and moved)" and
+                // "the guard never ran", which is exactly a conditional move —
+                // give it the #118 flag, cleared inside the guard's own value.
+                auto guard_pre = moved_vars_;
                 auto g = lower_expr(map_of(arm.get(la::GUARD.code)));
                 if (TypeRef(expr_type(g)).kind() != LogosType::Kind::Bool &&
                     TypeRef(expr_type(g)).kind() != LogosType::Kind::Error)
                     error("match guard must be bool");
                 guard = std::move(g);
+                if (moved_vars_ != guard_pre) {
+                    size_t gm = flag_clear_log_.size();
+                    std::vector<CondMoveBranch> gb;
+                    gb.push_back({nullptr, &*guard, moved_vars_, gm, gm});
+                    gb.push_back({nullptr, nullptr, guard_pre, gm, gm});
+                    elaborate_cond_moves(guard_pre, gb);
+                }
             }
             // G172-1: AND the string-literal arm's str_eq dispatch ahead of any
             // user guard.
@@ -10135,7 +10200,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                         blk_ref = lower_block(body_node);
                     } else {
                         std::vector<lir_view::StmtRef> blk;
-                        blk.push_back(lower_stmt(body_node));
+                        push_stmt_with_unwind(blk, lower_stmt(body_node));  // #122
                         blk_ref = lir_mirror_block(*cur_prog_, blk);
                     }
                     val = builder().block_expr(blk_ref, error_expr(), error_t());
@@ -10158,9 +10223,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                                      !is_stmt_only_code(sc))
                                 last_expr = lower_expr_temp_scoped(s);
                             else
-                                blk.push_back(lower_stmt(s));
+                                push_stmt_with_unwind(blk, lower_stmt(s));  // #122
                         } else {
-                            blk.push_back(lower_stmt(s));
+                            push_stmt_with_unwind(blk, lower_stmt(s));  // #122
                         }
                     }
                     if (!last_expr) {
@@ -10329,8 +10394,16 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 for (auto& m : moved_vars_) post_moves.insert(m);
                 for (auto& v : currently_uninit_vars_) post_uninit.insert(v);
                 post_uninit_initialized = true;
-                // #118 — only a value-yielding arm reaches the enclosing
-                // frame's drops; a diverging one already unwound.
+            }
+            // #118 — only a value-yielding arm reaches the enclosing frame's
+            // drops; a diverging one already unwound. #122 — EXCEPT a
+            // `break`/`continue` arm, which unwinds only to the loop body and
+            // then DOES arrive at the enclosing frame's drops via the loop
+            // edge. The statement form (lower_match's `arm_returns`) already
+            // drew the line there; the expression form excluded both kinds and
+            // leaked (`loop { let k = match c { true => x, false => { break; } }; … }`).
+            if (!arm_diverges ||
+                expr_arm_div_kind(me.arms.back().value) == 2) {
                 arm_branches.push_back({nullptr, nullptr, moved_vars_,
                                         arm_clear_mark, flag_clear_log_.size()});
                 arm_slot.push_back(me.arms.size() - 1);

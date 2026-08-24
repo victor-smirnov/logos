@@ -1,0 +1,11 @@
+local  M1 a1 D1 
+sole   M2 q2 D2 
+scalar M3 r7 D3 
+plain  M4 s7 D4 
+gen    M5 t7 D5 
+genfst M6 u7 D6 
+pay    M7 M8 w8 D8 D7 
+arr    M9 M10 x9 D10 D9 
+nested M11 M12 y12 D12 D11 
+iterok M13 M14 k0 i0 D14 D13 
+iterbadM15 M16 M17 l17 j0 D17 D16 D15 

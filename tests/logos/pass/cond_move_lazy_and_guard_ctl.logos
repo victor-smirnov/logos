@@ -1,0 +1,58 @@
+package cond_move_lazy_and_guard_ctl;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+/// CONTROL twin for `cond_move_lazy_and_guard` — THE FAST PATH, and the
+/// SHORT-CIRCUIT SEMANTICS.
+///
+/// The same lazy-RHS and match-guard shapes over a Copy payload with no
+/// destructor: no move exists, so no drop flag may be armed. The oracle is the
+/// printed trace, which also pins the thing the fix could most easily break —
+/// a flag clear spliced into a lazy RHS must not make that RHS EAGER. `e<n>`
+/// appears exactly on the paths where the operator's own rules say the RHS
+/// runs, and nowhere else.
+struct Copyable { n: i64 }
+fn mk(n: i64) -> Copyable { pr("m%ld ", n); return Copyable { n: n }; }
+fn useT(p: Copyable) -> bool { pr("e%ld ", p.n); return true; }
+fn useF(p: Copyable) -> bool { pr("e%ld ", p.n); return false; }
+
+fn and_rhs(c: bool) -> i64 { let a: Copyable = mk(1); if c && useT(a) { ps("t "); } return a.n; }
+fn or_rhs(c: bool)  -> i64 { let a: Copyable = mk(2); if c || useT(a) { ps("t "); } return a.n; }
+fn and_chain(c: bool, d: bool) -> i64 {
+    let a: Copyable = mk(3);
+    let b: Copyable = mk(4);
+    if c && useT(a) && d && useT(b) { ps("t "); }
+    return a.n + b.n;
+}
+fn guard_fail(n: i64) -> i64 {
+    let a: Copyable = mk(6);
+    match n { x if useF(a) => { pr("g%ld ", x); }, _ => { ps("o "); } }
+    return a.n;
+}
+fn guard_pass(n: i64) -> i64 {
+    let a: Copyable = mk(7);
+    match n { x if useT(a) => { pr("g%ld ", x); }, _ => { ps("o "); } }
+    return a.n;
+}
+fn guard_skipped(n: i64) -> i64 {
+    let a: Copyable = mk(8);
+    match n { 0 => { ps("z "); }, x if useT(a) => { pr("g%ld ", x); }, _ => { ps("o "); } }
+    return a.n;
+}
+
+unsafe fn main() -> i32 {
+    ps("and+   "); pr("r=%ld ", and_rhs(true));        ps("\n");
+    ps("and-   "); pr("r=%ld ", and_rhs(false));       ps("\n");
+    ps("or+    "); pr("r=%ld ", or_rhs(true));         ps("\n");
+    ps("or-    "); pr("r=%ld ", or_rhs(false));        ps("\n");
+    ps("chain++"); pr("r=%ld ", and_chain(true, true));  ps("\n");
+    ps("chain+-"); pr("r=%ld ", and_chain(true, false)); ps("\n");
+    ps("chain--"); pr("r=%ld ", and_chain(false, false));ps("\n");
+    ps("gfail  "); pr("r=%ld ", guard_fail(1));        ps("\n");
+    ps("gpass  "); pr("r=%ld ", guard_pass(1));        ps("\n");
+    ps("gskip  "); pr("r=%ld ", guard_skipped(0));     ps("\n");
+    ps("gskip2 "); pr("r=%ld ", guard_skipped(1));     ps("\n");
+    return 0;
+}

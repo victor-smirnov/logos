@@ -1,0 +1,14 @@
+and+   M1 e1 D1 t 
+and-   M1 D1 
+or+    M2 t D2 
+or-    M2 e2 D2 t 
+chain++M3 M4 e3 D3 e4 D4 t 
+chain+-M3 M4 e3 D3 D4 
+chain-- M3 M4 D4 D3 
+bor+   M5 b5 t D5 
+bor-   M5 D5 
+gfail  M6 e6 D6 o 
+gpass  M7 e7 D7 g1 
+gskip  M8 z D8 
+gskip2 M8 e8 D8 g1 
+gbor   M9 b9 g1 D9 

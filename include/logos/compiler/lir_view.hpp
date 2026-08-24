@@ -1016,6 +1016,9 @@ struct StructView {
     bool repr_transparent() const noexcept   { return detail::read_bool(self, lir_schema::struct_keys::REPR_TRANSPARENT.code); }
     bool is_annotation_type() const noexcept { return detail::read_bool(self, lir_schema::struct_keys::IS_ANNOTATION_TYPE.code); }
     bool is_specialization() const noexcept  { return detail::read_bool(self, lir_schema::struct_keys::IS_SPECIALIZATION.code); }
+    // #123 — `#[no_auto_drop]`: the compiler emits NO auto-drop for a value of
+    // this type, at ANY storage site (local, field, element).
+    bool no_auto_drop() const noexcept       { return detail::read_bool(self, lir_schema::struct_keys::NO_AUTO_DROP.code); }
 
     // ── fields ──
     template <class F>
@@ -2827,6 +2830,9 @@ struct SLetView {
     std::string_view name() const noexcept   { return detail::stmt_str(self, sk::NAME.code); }
     ExprRef          value() const noexcept  { return detail::stmt_sub_expr(self, sk::VALUE.code); }
     bool             is_mut() const noexcept { return detail::read_bool(self, sk::IS_MUT.code); }
+    // #121-A — synthesised by the compiler (drop glue), not written by a user.
+    // The borrow checker's `__cmfd_` exemption keys on THIS, never on the name.
+    bool compiler_glue() const noexcept { return detail::read_bool(self, sk::COMPILER_GLUE.code); }
     TypeRef          type(const TypePoolImpl* pool) const noexcept {
         return detail::stmt_type(self, sk::TYPE.code, pool);
     }

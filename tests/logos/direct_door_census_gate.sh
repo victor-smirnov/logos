@@ -526,9 +526,48 @@ PIN = {
     # of the 11 declares a container family or a `direct` output form; they are
     # destructor-count fixtures over `OnceCell`/`LazyCell` with a heap-owning
     # `struct Inner { n, Vec<i64> }`.
-    'corpus'            : 2343,
+    # ⚠ RE-DERIVED at the #121/#122/#123 conditional-move + suppression round:
+    # +8 / +0 / +8. Eight PASS fixtures, none matching the `wql_*` / `deem_*`
+    # glob, all destructor-count oracles over a heap-owning payload:
+    #   tests/logos/pass/cond_move_field_source{,_ctl}.logos
+    #   tests/logos/pass/divergent_arm_unwind{,_ctl}.logos
+    #   tests/logos/pass/no_auto_drop_sibling{,_ctl}.logos
+    #   tests/logos/pass/cond_move_lazy_and_guard{,_ctl}.logos
+    # BOTH halves RE-DERIVED BY DIRECT FILE LISTING (`ls tests/logos/pass/*.logos`
+    # = 2351, `ls tests/logos/pass/{wql_*,deem_*}.logos` = 191), never by adding
+    # 8 to the previous line. DOOR counts unmoved (36 = 10 + 26): none of the
+    # eight declares a container family or a `direct` output form.
+    # ⚠ RE-DERIVED AGAIN at the #121-A ancestor/descendant round: +2 / +0 / +2.
+    # Two PASS fixtures, neither matching the `wql_*` / `deem_*` glob:
+    #   tests/logos/pass/cond_move_field_overlap.logos    (overlapping pairs;
+    #     malloc/free payload so valgrind can see release, not just the call)
+    #   tests/logos/pass/cond_move_glue_name_admit.logos  (the ADMIT half of the
+    #     borrow-check provenance pair)
+    # The two new FAIL fixtures do not enter this gate's corpus (it reads
+    # `tests/logos/pass` only). Re-derived BY DIRECT FILE LISTING:
+    # `ls tests/logos/pass/*.logos` = 2353,
+    # `ls tests/logos/pass/{wql_*,deem_*}.logos` = 191, difference 2162 —
+    # never by adding 2 to the previous line. DOOR counts unmoved (36 = 10 + 26):
+    # neither fixture declares a container family or a `direct` output form.
+    # ⚠ RE-DERIVED AGAIN at the #123 `#[no_auto_drop]` storage-site round:
+    # +2 / +0 / +2. Two PASS fixtures, neither matching the `wql_*` / `deem_*`
+    # glob, a refuse/admit PAIR over the same twenty-nine values:
+    #   tests/logos/pass/no_auto_drop_container.logos      (suppression side:
+    #     twenty values reclaimed by hand, nine destroyed by the compiler)
+    #   tests/logos/pass/no_auto_drop_container_ctl.logos  (admit side: the
+    #     attribute removed, all twenty-nine destroyed by the compiler)
+    # Both carry a malloc/free payload so the valgrind gate can see RELEASE and
+    # not only the destructor call. Re-derived BY DIRECT FILE LISTING:
+    # `ls tests/logos/pass/*.logos` = 2355,
+    # `ls tests/logos/pass/{wql_*,deem_*}.logos` = 191, difference 2164 —
+    # never by adding 2 to the previous line. This round added NO new gate
+    # SCRIPT (both new ctest tests re-use `cond_move_field_valgrind_gate.sh`
+    # with a different fixture argument), so `ls tests/logos/*.sh` stays 66.
+    # DOOR counts unmoved (36 = 10 + 26): neither fixture declares a container
+    # family or a `direct` output form.
+    'corpus'            : 2355,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2152,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2164,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

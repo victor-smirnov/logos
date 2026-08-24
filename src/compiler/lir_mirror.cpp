@@ -734,7 +734,8 @@ public:
     }
     const uint8_t* emit_let_direct(uint32_t line, std::string_view name,
                                             TypeRef ty, lir_view::ExprRef value,
-                                            bool is_mut, uint32_t slot = 0xFFFFFFFFu) {
+                                            bool is_mut, uint32_t slot = 0xFFFFFFFFu,
+                                            bool compiler_glue = false) {
         auto name_av = put_string(name);
         auto val_av  = expr_av(value);
         auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::Let));
@@ -743,6 +744,7 @@ public:
         put(map_off, sk::VALUE,  val_av);
         put(map_off, sk::IS_MUT, put_bool(is_mut));
         if (slot != 0xFFFFFFFFu) put(map_off, sk::VAR_SLOT, put_i64((int64_t)slot));
+        if (compiler_glue) put(map_off, sk::COMPILER_GLUE, put_bool(true));
         put_line(map_off, line);
         return map_off;
     }
@@ -2246,10 +2248,10 @@ const uint8_t* lir_mirror_emit_closure_box(lir::LProgram& prog, TypeRef ty, cons
 }
 
 // ── Stage B.6 — LStmt direct mirror writers ──────────────────────────────
-const uint8_t* lir_mirror_emit_let(lir::LProgram& prog, uint32_t line, std::string_view name, TypeRef ty, lir_view::ExprRef value, bool is_mut, uint32_t slot) {
+const uint8_t* lir_mirror_emit_let(lir::LProgram& prog, uint32_t line, std::string_view name, TypeRef ty, lir_view::ExprRef value, bool is_mut, uint32_t slot, bool compiler_glue) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_let_direct(line, name, ty, value, is_mut, slot);
+    return em.emit_let_direct(line, name, ty, value, is_mut, slot, compiler_glue);
 }
 const uint8_t* lir_mirror_emit_assign(lir::LProgram& prog, uint32_t line, std::string_view name, lir_view::ExprRef value, bool drop_old) {
     auto& ctr = prog.type_pool.ctr_or_init();

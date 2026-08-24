@@ -490,6 +490,8 @@ struct SLet {
     // transient LExpr*→ExprRef bridge from a builder()-returned LExprPtr). Only
     // ever read in make_stmt_emit → lir_mirror_emit_let(ExprRef).
     lir_view::ExprRef value;
+    // #121-A — compiler-synthesised drop glue (see stmt_keys::COMPILER_GLUE).
+    bool             compiler_glue = false;
 };
 
 struct SAssign    { std::string name; lir_view::ExprRef value; };

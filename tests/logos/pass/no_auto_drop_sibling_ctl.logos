@@ -1,0 +1,108 @@
+package no_auto_drop_sibling_ctl;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+/// CONTROL twin for `no_auto_drop_sibling` — THE ADMIT SIDE.
+///
+/// Byte-for-byte the same eleven shapes with the `#[no_auto_drop]` attribute
+/// REMOVED. Every value must now be destroyed exactly ONCE. The suppression
+/// fix works by answering "this type needs no drop" inside mlir-gen's
+/// recursive walk; if that answer leaked to types that never asked for it,
+/// this fixture is where the missing destructors show up. A refusal twin
+/// without an admit twin cannot tell "correctly suppressed" from "silently
+/// dropped on the floor".
+
+trait Drop { fn drop(self: Self); }
+
+/// HEAP-OWNING payload — the oracle is a destructor COUNT. `#[no_auto_drop]`
+/// is a SUPPRESSION, so the two directions here are "0 for the suppressed
+/// value" and "exactly 1 for every value that is not suppressed". A
+/// printing-only payload would answer the first and be blind to the second.
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay { fn drop(self: Pay) { pr("D%ld ", self.n); } }
+fn mk(n: i64) -> Pay {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(n);
+    pr("M%ld ", n);
+    return Pay { n: n, v: v };
+}
+
+/// The suppressed wrapper. Its `Pay` must NEVER be auto-destroyed, wherever
+/// the wrapper is stored.
+// (no attribute — CONTROL)
+struct NAD { p: Pay }
+
+struct Gen<T> { t: T }
+struct Plain { s: i64 }
+
+/// #123 — THE SUPPRESSION WAS DEFEATED BY ANY DROPPABLE SIBLING. Sema honoured
+/// `#[no_auto_drop]` in ONE place, `has_droppable_fields`, which answers only
+/// whether the CONTAINER gets a drop at all; the flag never reached LIR, so
+/// mlir-gen's recursive field walk could not ask. The moment something else
+/// made the container droppable, that walk recursed into the suppressed field
+/// and destroyed it. Each `w`/`x`/`y` line below printed ONE EXTRA `D` — the
+/// suppressed value destroyed after all.
+struct OQ { n: NAD }                    // sole field   — held before the fix
+struct OR { n: NAD, s: i64 }            // scalar sib   — held before the fix
+struct OS { n: NAD, s: Plain }          // non-gen sib  — held before the fix
+struct OT { n: NAD, s: Gen<i64> }       // GENERIC sib  — DEFEATED before the fix
+struct OU { s: Gen<i64>, n: NAD }       // order-independent
+struct OW { n: NAD, real: Pay }         // NO GENERICS ANYWHERE — also defeated,
+                                        // which is why the filed condition
+                                        // ("a generic-struct sibling") is too
+                                        // narrow to describe the defect
+struct OX { n: NAD, real: [Pay; 1] }    // an array sibling does it too
+struct Mid { n: NAD, real: Pay }
+struct OY { m: Mid }                    // one level down
+
+fn c_local()  { let a: NAD = NAD { p: mk(1) };  pr("a%ld ", a.p.n); }
+fn c_sole()   { let q: OQ = OQ { n: NAD { p: mk(2) } }; pr("q%ld ", q.n.p.n); }
+fn c_scalar() { let r: OR = OR { n: NAD { p: mk(3) }, s: 7i64 }; pr("r%ld ", r.s); }
+fn c_plain()  { let s: OS = OS { n: NAD { p: mk(4) }, s: Plain { s: 7i64 } }; pr("s%ld ", s.s.s); }
+fn c_gen()    { let t: OT = OT { n: NAD { p: mk(5) }, s: Gen { t: 7i64 } }; pr("t%ld ", t.s.t); }
+fn c_genfst() { let u: OU = OU { s: Gen { t: 7i64 }, n: NAD { p: mk(6) } }; pr("u%ld ", u.s.t); }
+fn c_pay()    { let w: OW = OW { n: NAD { p: mk(7) }, real: mk(8) }; pr("w%ld ", w.real.n); }
+fn c_arr()    { let x: OX = OX { n: NAD { p: mk(9) }, real: [mk(10)] }; pr("x%ld ", x.n.p.n); }
+fn c_nested() { let y: OY = OY { m: Mid { n: NAD { p: mk(11) }, real: mk(12) } }; pr("y%ld ", y.m.real.n); }
+
+/// The `ArrayIntoIter` shape — a hand-written `Drop` on the wrapper, a
+/// `#[no_auto_drop]` buffer, and a third droppable field. #116 and #119 are
+/// standing on this suppression, and they survive today only because their
+/// siblings happen to be non-droppable. One extra field turned the ok case
+/// into a LIVE DOUBLE FREE: 3 values in, 5 destructor calls out.
+// (no attribute — CONTROL)
+struct Buf { a: Pay, b: Pay }
+struct IterOk  { buf: Buf, idx: i64 }
+struct IterBad { buf: Buf, idx: i64, tag: Pay }
+impl Drop for IterOk {
+    fn drop(self: IterOk) { pr("i%ld ", self.idx); }
+}
+impl Drop for IterBad {
+    fn drop(self: IterBad) { pr("j%ld ", self.idx); }
+}
+fn c_iter_ok()  {
+    let it: IterOk = IterOk { buf: Buf { a: mk(13), b: mk(14) }, idx: 0i64 };
+    pr("k%ld ", it.idx);
+}
+fn c_iter_bad() {
+    let it: IterBad = IterBad { buf: Buf { a: mk(15), b: mk(16) },
+                                idx: 0i64, tag: mk(17) };
+    pr("l%ld ", it.tag.n);
+}
+
+unsafe fn main() -> i32 {
+    ps("local  "); c_local();    ps("\n");
+    ps("sole   "); c_sole();     ps("\n");
+    ps("scalar "); c_scalar();   ps("\n");
+    ps("plain  "); c_plain();    ps("\n");
+    ps("gen    "); c_gen();      ps("\n");
+    ps("genfst "); c_genfst();   ps("\n");
+    ps("pay    "); c_pay();      ps("\n");
+    ps("arr    "); c_arr();      ps("\n");
+    ps("nested "); c_nested();   ps("\n");
+    ps("iterok "); c_iter_ok();  ps("\n");
+    ps("iterbad"); c_iter_bad(); ps("\n");
+    return 0;
+}

@@ -1,0 +1,40 @@
+d2+     M1 M2 D1 D2 
+d2-     M1 M2 D1 D2 
+sing+   M3 D3 
+sing-   M3 D3 
+d3far+  M4 M5 M6 D4 D6 D5 
+d3far-  M4 M5 M6 D6 D5 D4 
+d3near+ M7 M8 M9 D7 D8 D9 
+d3near- M7 M8 M9 D8 D7 D9 
+tupA+   M10 M11 D10 D11 
+tupA-   M10 M11 D10 D11 
+tupD+   M12 M13 D12 D13 
+tupD-   M12 M13 D12 D13 
+mixfd   M14 M15 D14 D15 
+mixdf   M16 M17 D16 D17 
+arm0    M18 M19 D19 D18 
+arm1    M18 M19 D18 D19 
+arm2    M18 M19 z D18 D19 
+2desc+  M20 M21 M22 D20 D21 D22 
+2desc-  M20 M21 M22 D22 D21 D20 
+lvl0    M23 M24 M25 D25 D24 D23 
+lvl1    M23 M24 M25 D24 D23 D25 
+lvl2    M23 M24 M25 D23 D24 D25 
+lvl3    M23 M24 M25 z D23 D24 D25 
+ifex+   M26 M27 D26 D27 r=26 
+ifex-   M26 M27 D27 D26 r=26 
+nest++  M28 M29 D28 D29 
+nest+-  M28 M29 D29 D28 
+nest--  M28 M29 D29 D28 
+loopf+  M30 M31 D30 D31 
+loopf-  M30 M31 f D30 D31 
+loopo+  M32 M33 D32 D33 
+loopo-  M32 M33 D33 D32 
+rein+   M34 M35 D34 M36 D35 D36 
+rein-   M34 M35 D35 D34 
+arr+    M37 M38 t D37 D38 
+arr-    M37 M38 D37 D38 
+udrop+  M39 M40 D39 Xdi D40 
+udrop-  M39 M40 Xdi D40 D39 
+ctl+    M41 M42 D41 D42 
+ctl-    M41 M42 D42 D41 

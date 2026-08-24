@@ -1,0 +1,99 @@
+package divergent_arm_unwind_ctl;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+/// CONTROL twin for `divergent_arm_unwind` — THE FAST PATH.
+///
+/// Same eight shapes, over a payload with NO destructor at all (a plain Copy
+/// struct and plain scalars). The unwind routine every expression-position
+/// block builder now calls must emit NOTHING here: no drop, no drop flag, no
+/// `__ret_tmp_` rebind that could reorder or duplicate an evaluation. The
+/// oracle is therefore the VALUES: any extra emission would have to change one
+/// of them (a re-bound return temp evaluated twice, a clear on the wrong
+/// path). A `_ctl` over a droppable payload could not tell "no drop emitted"
+/// from "drop emitted and balanced"; this one can.
+struct Copyable { n: i64 }
+fn mk(n: i64) -> Copyable { pr("m%ld ", n); return Copyable { n: n }; }
+
+fn ifexpr_return(c: bool) -> i64 {
+    let a: Copyable = mk(1);
+    let b: Copyable = mk(2);
+    let k: i64 = if c { 10i64 } else { return -1i64; };
+    return k + a.n + b.n;
+}
+fn blockexpr_return(c: bool) -> i64 {
+    let a: Copyable = mk(3);
+    let k: i64 = { let t: i64 = a.n; if !c { return -1i64; } t };
+    return k;
+}
+fn ifexpr_break(c: bool) -> i64 {
+    let mut r: i64 = 0i64;
+    loop {
+        let a: Copyable = mk(4);
+        let k: i64 = if c { a.n } else { break; };
+        r = k;
+        break;
+    }
+    return r;
+}
+fn ifexpr_continue(c: bool) -> i64 {
+    let mut r: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        i = i + 1i64;
+        let a: Copyable = mk(5);
+        let k: i64 = if c { a.n } else { continue; };
+        r = k;
+    }
+    return r;
+}
+/// A Copy source used on one arm only: a Copy type is never a MOVE, so no
+/// drop flag may be armed for it — the widened reaching set must not start
+/// flagging what it could not flag before.
+fn ifexpr_break_copysrc(c: bool) -> i64 {
+    let x: Copyable = mk(6);
+    let mut r: i64 = 0i64;
+    loop {
+        let k: Copyable = if c { x } else { break; };
+        r = k.n + x.n;
+        break;
+    }
+    return r;
+}
+fn matchexpr_break_copysrc(c: bool) -> i64 {
+    let x: Copyable = mk(7);
+    let mut r: i64 = 0i64;
+    loop {
+        let k: Copyable = match c { true => x, false => { break; } };
+        r = k.n;
+        break;
+    }
+    return r;
+}
+/// The return value is an expression with a SIDE EFFECT: it must be evaluated
+/// exactly once, and before any unwind the terminator handling inserts.
+fn ifexpr_return_sideeffect(c: bool) -> i64 {
+    let a: Copyable = mk(8);
+    let k: i64 = if c { 10i64 } else { return mk(9).n; };
+    return k + a.n;
+}
+
+unsafe fn main() -> i32 {
+    ps("ifret+  "); pr("r=%ld ", ifexpr_return(true));    ps("\n");
+    ps("ifret-  "); pr("r=%ld ", ifexpr_return(false));   ps("\n");
+    ps("blkret+ "); pr("r=%ld ", blockexpr_return(true));  ps("\n");
+    ps("blkret- "); pr("r=%ld ", blockexpr_return(false)); ps("\n");
+    ps("ifbrk+  "); pr("r=%ld ", ifexpr_break(true));      ps("\n");
+    ps("ifbrk-  "); pr("r=%ld ", ifexpr_break(false));     ps("\n");
+    ps("ifcnt+  "); pr("r=%ld ", ifexpr_continue(true));   ps("\n");
+    ps("ifcnt-  "); pr("r=%ld ", ifexpr_continue(false));  ps("\n");
+    ps("cpbrk+  "); pr("r=%ld ", ifexpr_break_copysrc(true));    ps("\n");
+    ps("cpbrk-  "); pr("r=%ld ", ifexpr_break_copysrc(false));   ps("\n");
+    ps("cpmbrk+ "); pr("r=%ld ", matchexpr_break_copysrc(true));  ps("\n");
+    ps("cpmbrk- "); pr("r=%ld ", matchexpr_break_copysrc(false)); ps("\n");
+    ps("side+   "); pr("r=%ld ", ifexpr_return_sideeffect(true));  ps("\n");
+    ps("side-   "); pr("r=%ld ", ifexpr_return_sideeffect(false)); ps("\n");
+    return 0;
+}

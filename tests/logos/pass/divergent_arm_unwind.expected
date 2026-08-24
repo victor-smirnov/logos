@@ -1,0 +1,16 @@
+ifret+  M1 M2 D2 D1 r=13 
+ifret-  M1 M2 D2 D1 r=-1 
+blkret+ M3 D3 r=3 
+blkret- M3 D3 r=-1 
+ifbrk+  M4 D4 r=4 
+ifbrk-  M4 D4 r=0 
+ifcnt+  M5 D5 M5 D5 r=5 
+ifcnt-  M5 D5 M5 D5 r=0 
+ifbmv+  M6 k6 D6 
+ifbmv-  M6 D6 
+mbmv+   M7 k7 D7 
+mbmv-   M7 D7 
+brkmv+  M8 k0 D8 
+brkmv-  M8 D8 c8 
+ifrmv+  M9 D9 r=9 
+ifrmv-  M9 D9 r=-1 

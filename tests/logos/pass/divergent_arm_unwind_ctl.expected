@@ -1,0 +1,14 @@
+ifret+  m1 m2 r=13 
+ifret-  m1 m2 r=-1 
+blkret+ m3 r=3 
+blkret- m3 r=-1 
+ifbrk+  m4 r=4 
+ifbrk-  m4 r=0 
+ifcnt+  m5 m5 r=5 
+ifcnt-  m5 m5 r=0 
+cpbrk+  m6 r=12 
+cpbrk-  m6 r=0 
+cpmbrk+ m7 r=7 
+cpmbrk- m7 r=0 
+side+   m8 r=18 
+side-   m8 m9 r=9 

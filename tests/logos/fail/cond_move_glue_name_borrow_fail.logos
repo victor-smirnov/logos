@@ -1,0 +1,11 @@
+package cond_move_glue_name_borrow_fail;
+// #121-A REFUSE HALF (1 of 2). `__cmfd_N` is the name `emit_cond_move_field_
+// drops` gives its move-and-drop temp, and the borrow checker exempts that
+// binding from BOTH `Code::Let` walkers. The exemption used to be granted on
+// the NAME PREFIX alone — a spelling any user can write — so this program
+// compiled at rc 0 and returned a dangling reference, while the byte-identical
+// program with the binding named `zz_0` was correctly refused. The exemption is
+// now granted on PROVENANCE (`stmt_keys::COMPILER_GLUE`, stamped by the
+// emitter), so the name buys nothing and this refuses like any other dangle.
+fn bad() -> &i64 { let t: i64 = 9; let __cmfd_0: &i64 = &t; return __cmfd_0; }
+fn main() -> i32 { let r: &i64 = bad(); return 0i32; }

@@ -4915,7 +4915,8 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         if (rhs) type_let_inits_[name] = rhs;
         auto value = subst_child_expr(rhs);
         ns.mirror_ptr_ = lir_mirror_emit_let(
-            out_, ns.line, name, ty, value, is_mut, v.var_slot());  // Phase-1: carry slot
+            out_, ns.line, name, ty, value, is_mut, v.var_slot(),
+            v.compiler_glue());  // Phase-1: carry slot; #121-A: carry provenance
         break;
     }
     case SCode::Assign: {
@@ -6188,6 +6189,7 @@ DeclBuilder Mono::clone_struct_def(lir_view::StructView tmpl,
     // divergence was invisible to a size comparison and would have surfaced the
     // first time transparency meant something other than size.
     if (tmpl.repr_transparent()) nd.flag(stk::REPR_TRANSPARENT, true);
+    if (tmpl.no_auto_drop())     nd.flag(stk::NO_AUTO_DROP, true);     // #123: drop suppression survives monomorphisation.
     // is_data_plain defaults true on the (now-deleted) Draft → ALWAYS emitted.
     nd.bool_always(stk::IS_DATA_PLAIN, true);
     // type_params cleared: result is monomorphic.

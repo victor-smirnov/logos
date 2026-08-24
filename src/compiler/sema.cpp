@@ -3310,12 +3310,40 @@ bool SemaChecker::has_droppable_fields(TypeRef t) const {
     // `#[no_auto_drop]` (ManuallyDrop<T> lang-item shape): the compiler must
     // not run the inner field's destructor at scope exit — the wrapper's
     // whole purpose is to suppress that. Treat as having no droppable fields.
+    // (Single-sourced with the user-drop half in `type_no_auto_drop`.)
     if (sit->second.no_auto_drop) return false;
     for (auto& f : sit->second.fields) {
         if (!drop_fn_for(f.type).empty()) return true;
         if (has_droppable_fields(f.type)) return true;
     }
     return false;
+}
+
+// #123 — THE ONE PLACE SEMA ANSWERS "is this type's auto-drop suppressed".
+// `item.struct.no-auto-drop` (docs/spec/items.md) says a `#[no_auto_drop]`
+// struct receives NO compiler-emitted automatic Drop — *neither* a user-drop
+// invocation *nor* field drop glue. The attribute previously reached exactly
+// one consult, `has_droppable_fields`, which answers only the FIELD-GLUE half;
+// the user-drop half went through `drop_fn_for`, which never asked. MEASURED:
+// `#[no_auto_drop] struct NADD { p: Pay }` + `impl Drop for NADD` — the local
+// `let a: NADD = …` ran NADD::drop at scope exit while the SAME value held in
+// a struct FIELD ran nothing (mlir-gen's `value_needs_drop` returns before its
+// own drop-impl probe). Two storage sites, two answers, one attribute.
+//
+// ⚠ NOT consulted from `drop_fn_for` / `is_move_type` / `compute_auto_copy_types`:
+// suppressing the destructor does not make the value COPY. A `ManuallyDrop<T>`
+// still moves; making it non-move would hand out duplicate owners of the inner
+// T, which is the defect this attribute exists to avoid.
+bool SemaChecker::type_no_auto_drop(TypeRef t) const {
+    if (!t) return false;
+    auto k = TypeRef(t).kind();
+    if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct) return false;
+    auto sit = structs_.end();
+    if (!TypeRef(t).pkg_name().empty())
+        sit = structs_.find(sema_key(TypeRef(t).pkg_name(),
+                                     TypeRef(t).struct_name()));
+    if (sit == structs_.end()) sit = structs_.find(std::string(TypeRef(t).struct_name()));
+    return sit != structs_.end() && sit->second.no_auto_drop;
 }
 
 // Auto-Copy: a struct with no `impl Drop` and whose every field is itself
@@ -3749,7 +3777,119 @@ void SemaChecker::check_trait_object_safe(const std::string& trait_name) {
     }
 }
 
-std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(const std::string& name, const VarInfo& info) const {
+// #121 — emit the guarded destructor for every conditionally-moved FIELD PATH
+// rooted at `root`, in declaration order of the map. A path's flag exists only
+// when `cond_move_flag_for` could name the place AND that place is droppable,
+// so this loop is empty for every program that has no conditional field move —
+// the cost is exactly one i8 + one branch per such path, and zero otherwise.
+//
+// The destructor is a MOVE-AND-DROP of the place (`let __cmfd_N: FT = h.p;`
+// then that temp's own SDrop), which is the idiom the stdlib element-drop path
+// already uses: it needs no new statement kind and no LIR schema change, and
+// it reaches exactly the same emitter as any other by-value drop.
+void SemaChecker::emit_cond_move_field_drops(
+        const Frame& frame, const std::string& root,
+        std::vector<lir_view::StmtRef>& drops) const {
+    if (frame.cond_move_flags.empty() || !cur_prog_) return;
+    auto vit = frame.vars.find(root);
+    if (vit == frame.vars.end()) return;
+    auto* self = const_cast<SemaChecker*>(this);
+    std::string prefix = root + ".";
+    for (auto& [path, flag] : frame.cond_move_flags) {
+        if (path.size() <= prefix.size()) continue;
+        if (path.compare(0, prefix.size(), prefix) != 0) continue;
+        // Rebuild the place and its type by walking the segments from the root.
+        TypeRef pt = vit->second.type;
+        lir::LExprPtr place = self->builder().var_ref(root, pt);
+        bool ok = true;
+        for (size_t p = root.size(); p < path.size(); ) {
+            size_t e = path.find('.', p + 1);
+            if (e == std::string::npos) e = path.size();
+            std::string seg = path.substr(p + 1, e - p - 1);
+            if (!pt) { ok = false; break; }
+            TypeRef ft = self->path_segment_type(pt, seg);
+            if (!ft) { ok = false; break; }
+            // A TUPLE element's path segment is its INDEX, and the reader for
+            // it is `tuple_index`, not `field_read` — moved_vars_ spells both
+            // the same way (`t.0`), so the place rebuild has to branch on the
+            // base type or it emits a field read against a nameless slot.
+            if (TypeRef(pt).kind() == LogosType::Kind::Tuple &&
+                !seg.empty() &&
+                seg.find_first_not_of("0123456789") == std::string::npos)
+                place = self->builder().tuple_index(
+                    std::move(place), (uint32_t)std::stoul(seg), ft);
+            else
+                place = self->builder().field_read(std::move(place), seg, ft);
+            pt = ft;
+            p = e;
+        }
+        if (!ok || !pt) continue;
+        // #121-A — A SUBTREE'S OWNERSHIP IS NOT ONE BIT. `path`'s flag answers
+        // for `path` AS A WHOLE, but a DESCENDANT of it can have been moved on
+        // the very path that leaves this flag set: `if c { consume(o.i.p); }
+        // else { let m: Inner = o.i; … }` makes `cand = {"o.i.p","o.i"}`, and
+        // `o.i.p` — moved on BOTH arms, the else arm by its prefix — correctly
+        // gets NO flag, while `o.i` keeps one that is SET on the then path.
+        // Dropping `o.i` as a unit there destroys `p` a second time (MEASURED:
+        // 1 value in, 2 destructor calls out, rc 0, silent; with a sibling `q`
+        // the discriminator is exact — `M1 M2 D1 D2 D1`, q once, p twice).
+        //
+        // The drop is emitted through a FRESH temp, a name `moved_vars_` has
+        // never heard of, so make_drop_stmt's own skip derivation is empty by
+        // construction. Supply the skip list explicitly, relative to `path`:
+        // every descendant that is statically moved, plus every descendant
+        // that carries its OWN flag in this map (its guarded drop is emitted
+        // by this same loop and owns that subtree). The prefix test is by
+        // SEGMENT — `o.iq` is not a descendant of `o.i`.
+        //
+        // Refusing to flag EITHER end of an overlapping pair was tried and
+        // reverted: it stops the double free but LEAKS the `whole+` cell of
+        // tests/logos/pass/cond_move_field_source.logos (`M7 M8 D7 D8` loses
+        // D8). Decomposition keeps both directions.
+        std::vector<std::string> skips;
+        {
+            std::string dpre = path + ".";
+            auto add = [&](const std::string& q) {
+                if (q.size() <= dpre.size()) return;
+                if (q.compare(0, dpre.size(), dpre) != 0) return;
+                std::string rel = q.substr(dpre.size());
+                for (auto& s : skips) if (s == rel) return;
+                skips.push_back(std::move(rel));
+            };
+            for (auto& mv : moved_vars_) add(mv);
+            for (auto& [q, _f] : frame.cond_move_flags) add(q);
+            for (auto& q : frame.cond_move_static_moves) add(q);
+        }
+        VarInfo tinfo;
+        tinfo.type = pt;
+        std::string tmp = std::format("__cmfd_{}", self->tmp_var_count_++);
+        auto d = self->make_drop_stmt(tmp, tinfo, &skips);
+        if (!d) continue;
+        std::vector<lir_view::StmtRef> body;
+        lir::SLet sl;
+        sl.name = tmp; sl.type = pt; sl.is_mut = false; sl.value = std::move(place);
+        // #121-A — STAMP THE PROVENANCE. The borrow checker exempts this binding
+        // from both `Code::Let` walkers; keying that exemption on the `__cmfd_`
+        // NAME made it user-reachable twice over (a dangling return, then a
+        // use-after-partial-move). The producer is the only party that knows.
+        sl.compiler_glue = true;
+        body.push_back(self->make_stmt_emit(node_line_, std::move(sl)));
+        body.push_back(std::move(*d));
+        lir::SIf sif;
+        sif.cond = self->builder().var_ref(flag, self->prim(LogosType::Kind::Bool));
+        sif.then_ = lir_mirror_block(*cur_prog_, body);
+        drops.push_back(self->make_stmt_emit(node_line_, std::move(sif)));
+    }
+}
+
+std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(
+        const std::string& name, const VarInfo& info,
+        const std::vector<std::string>* extra_moved) const {
+    // #123 — `#[no_auto_drop]`: EMIT NOTHING. This is the origin of every
+    // compiler-emitted scope drop; `has_droppable_fields` below already answers
+    // false for the field-glue half, so the only thing that reached here was
+    // the `drop_fn_for` (user-`impl Drop`) half — and it ran.
+    if (type_no_auto_drop(info.type)) return std::nullopt;
     // B8: a declared-uninit var's drop is gated at RUNTIME by mlir-gen's dynamic
     // drop flag (it only runs the destructor if the slot holds a live value), so
     // we EMIT the drop here regardless of static init-state — the flag handles
@@ -3806,6 +3946,7 @@ std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(const std::string& 
     // first-segment truncation skipped the whole field, leaking `o.i.t`
     // after `move o.i.s`).
     std::vector<std::string> moved_fields;
+    if (extra_moved) moved_fields = *extra_moved;
     {
         std::string prefix = name + ".";
         for (auto& mv : moved_vars_) {
@@ -3871,6 +4012,26 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
         // tests/logos/pass are unconditional, and the dedicated regression
         // fixture `move_closure_capture_drop_once.logos` puts its closure in a
         // plain block. One `if` away from red, and green.
+        // #121 — A FIELD PATH ROOTED AT THIS LOCAL CARRIES ITS OWN FLAG. The
+        // container's SDrop below already SKIPS the path statically (the union
+        // merge put `h.p` in moved_vars_, and make_drop_stmt turns that into a
+        // `moved_fields` entry), so the path that did NOT move it had no
+        // destructor at all — the #118 leak, one dot away. Emit that
+        // destructor here, guarded, as a move-and-drop of the place: `if
+        // <flag> { let __cmfd_N: FT = h.p; drop __cmfd_N; }`. Placed BEFORE the
+        // container's own drop because a by-value user `Drop` on the container
+        // consumes its fields, and the field's value must be out first.
+        emit_cond_move_field_drops(frame, n, drops);
+        // #121-A — WHOEVER HOLDS THE BIT OWNS THE PLACE. Every path under `n`
+        // that carries its own drop flag was just destroyed (guarded) by the
+        // call above, so the container's drop below must not recurse into it.
+        // `moved_vars_` is NOT a sufficient witness for that: a merge inside a
+        // LOOP BODY has its per-branch move set reverted, so `h.p` was flagged
+        // and simultaneously absent from the skip list — MEASURED as `M1 M2 D1
+        // D2 D1` on BOTH arms of `while true { if c { consume(h.p); break; }
+        // else { break; } }`, rc 0, a live double free with no ancestor/
+        // descendant overlap anywhere in the program.
+        std::vector<std::string> fd = flagged_descendants(frame, n);
         if (auto cf = frame.cond_move_flags.find(n);
             cf != frame.cond_move_flags.end() && !closure_owned_drop_.count(n)) {
             // ⚠ `extra_skip` is DELIBERATELY not consulted here. Its one
@@ -3881,10 +4042,10 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
             // about. A flagged local has an EXACT runtime answer, so the
             // conservative skip is superseded for it (and only for it).
             if (auto vit = frame.vars.find(n); vit != frame.vars.end())
-                if (auto d = make_drop_stmt(n, vit->second))
+                if (auto d = make_drop_stmt(n, vit->second, &fd))
                     drops.push_back(guard_with_flag(cf->second, std::move(*d)));
         } else if (auto* info = eligible(n)) {
-            if (auto d = make_drop_stmt(n, *info))
+            if (auto d = make_drop_stmt(n, *info, &fd))
                 drops.push_back(std::move(*d));
         }
         // A closure binding's drop group: its captures drop here, in
@@ -3918,16 +4079,32 @@ void SemaChecker::elaborate_cond_moves(const std::set<std::string>& pre,
     for (auto& b : reaching)
         for (auto& n : b.moves)
             if (!pre.count(n)) cand.insert(n);
+    // #121 — MOVING A PREFIX MOVES THE PATH. A branch that moved the whole
+    // container moved `h.p` with it, even though `h.p` never appears in that
+    // branch's move set. Without this the path's flag stayed SET on the arm
+    // that consumed the container, and the guarded field drop destroyed a
+    // value the callee had already destroyed — a double free (measured:
+    // `if c { consume(h.p); } else { eatH(h); }`, 2 values in, 3 destructor
+    // calls out). The prefix test is by SEGMENT, so `h.pq` is not a prefix
+    // of `h.p`.
+    auto branch_moved = [](const CondMoveBranch& b, const std::string& n) {
+        if (b.moves.count(n)) return true;
+        for (auto& m : b.moves)
+            if (m.size() < n.size() && n[m.size()] == '.' &&
+                n.compare(0, m.size(), m) == 0)
+                return true;
+        return false;
+    };
     for (auto& n : cand) {
         bool all = true;
-        for (auto& b : reaching) if (!b.moves.count(n)) { all = false; break; }
+        for (auto& b : reaching) if (!branch_moved(b, n)) { all = false; break; }
         // Moved on every reaching path AND not already flagged by an inner
         // merge: the union suppression is exact, leave it alone.
-        if (all && !has_cond_move_flag(n)) continue;
+        if (all && !has_cond_move_flag(n)) { note_static_move(n); continue; }
         std::string fl = cond_move_flag_for(n);
         if (fl.empty()) continue;
         for (auto& b : reaching) {
-            if (!b.moves.count(n)) continue;
+            if (!branch_moved(b, n)) continue;   // #121: a prefix move counts
             bool handled = false;
             for (size_t i = b.clear_mark; i < b.clear_end && i < flag_clear_log_.size(); ++i)
                 if (flag_clear_log_[i] == n) { handled = true; break; }
@@ -9545,6 +9722,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         if (f.rel_ptr)         sd.flag(lir_schema::struct_keys::REL_PTR, true);
         if (f.self_describing) sd.flag(lir_schema::struct_keys::SELF_DESCRIBING, true);
         if (f.borrow_carrying) sd.flag(lir_schema::struct_keys::BORROW_CARRYING, true);
+        if (f.no_auto_drop)    sd.flag(lir_schema::struct_keys::NO_AUTO_DROP, true);   // #123
     };
 
     // Stage E direct-build: writes annotation-derived fields straight into the

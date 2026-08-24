@@ -1,0 +1,137 @@
+package divergent_arm_unwind;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+/// HEAP-OWNING payload — the oracle is a DESTRUCTOR COUNT against values
+/// created, and a printing-only payload gives the opposite verdict on the same
+/// code. `M<n>` on creation, `D<n>` on destruction: every line below must show
+/// exactly one `D<n>` per `M<n>`. A missing one is a leak (rc still 0 — an
+/// exit-code gate cannot see it), a second one a genuine double free.
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay {
+    fn drop(self: Pay) { pr("D%ld ", self.n); }
+}
+fn mk(n: i64) -> Pay {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(n);
+    pr("M%ld ", n);
+    return Pay { n: n, v: v };
+}
+fn consume(p: Pay) -> i64 { return p.n; }
+
+// ── PART 1 — the unwind itself. NO MOVE ANYWHERE, two untouched locals. ──
+// A `return` / `break` / `continue` reached from inside a block lowered in
+// EXPRESSION position ran ZERO destructors: `lower_block` inserted the scope
+// unwind inline, so it was the only block builder that unwound at all, and an
+// if-expression branch / block-expression / match-expression arm appended the
+// terminator raw. Measured 2 created / 0 dropped before the fix.
+
+/// The filed shape: an if-EXPRESSION arm that `return`s.
+fn ifexpr_return(c: bool) -> i64 {
+    let a: Pay = mk(1);
+    let b: Pay = mk(2);
+    let k: i64 = if c { 10i64 } else { return -1i64; };
+    return k + a.n + b.n;
+}
+
+/// A bare BLOCK-EXPRESSION whose tail returns — same builder, same hole.
+fn blockexpr_return(c: bool) -> i64 {
+    let a: Pay = mk(3);
+    let k: i64 = { let t: i64 = a.n; if !c { return -1i64; } t };
+    return k;
+}
+
+/// The loop-edge spellings. `break` and `continue` leave through the loop
+/// edge, which bypasses the block's fall-through drops just as a `return`
+/// bypasses them — the unwind is `collect_drops_to_loop`, not the full one.
+fn ifexpr_break(c: bool) -> i64 {
+    let mut r: i64 = 0i64;
+    loop {
+        let a: Pay = mk(4);
+        let k: i64 = if c { a.n } else { break; };
+        r = k;
+        break;
+    }
+    return r;
+}
+fn ifexpr_continue(c: bool) -> i64 {
+    let mut r: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        i = i + 1i64;
+        let a: Pay = mk(5);
+        let k: i64 = if c { a.n } else { continue; };
+        r = k;
+    }
+    return r;
+}
+
+// ── PART 2 — a CONDITIONAL MOVE whose other arm leaves by the loop edge. ──
+// A `break`/`continue` arm is DIVERGING but still REACHING: control arrives at
+// the enclosing frame's scope-exit drops through the loop edge. Both
+// expression forms excluded it from the reaching set, leaving one path, and
+// drop-flag elaboration bailed — so the union merge suppressed the drop
+// statically and the break path leaked the value it never moved.
+
+/// if-EXPRESSION: `x` is moved on the reaching arm only.
+fn ifexpr_break_moves(c: bool) {
+    let x: Pay = mk(6);
+    loop {
+        let k: Pay = if c { x } else { break; };
+        pr("k%ld ", k.n);
+        break;
+    }
+}
+/// match-EXPRESSION: the same, through the other expression-form merge.
+fn matchexpr_break_moves(c: bool) {
+    let x: Pay = mk(7);
+    loop {
+        let k: Pay = match c { true => x, false => { break; } };
+        pr("k%ld ", k.n);
+        break;
+    }
+}
+/// The move sits on the arm that BREAKS — the flag clear must land BEFORE the
+/// terminator, not after it (appended after, it is dead code and the guarded
+/// drop then destroys a value already moved out: a double free, not a leak).
+fn break_arm_moves(c: bool) {
+    let x: Pay = mk(8);
+    loop {
+        let k: i64 = if c { 0i64 } else { pr("c%ld ", consume(x)); break; };
+        pr("k%ld ", k);
+        break;
+    }
+}
+
+/// CONTROL PAIR for the distinction the fix rests on: a `return` arm is NOT
+/// reaching (its moves are settled at its own unwind), a `break` arm is. Same
+/// source, same merge, opposite classification — and both must count 1/1.
+fn ifexpr_return_moves(c: bool) -> i64 {
+    let x: Pay = mk(9);
+    let k: Pay = if c { x } else { return -1i64; };
+    return k.n;
+}
+
+unsafe fn main() -> i32 {
+    ps("ifret+  "); pr("r=%ld ", ifexpr_return(true));    ps("\n");
+    ps("ifret-  "); pr("r=%ld ", ifexpr_return(false));   ps("\n");
+    ps("blkret+ "); pr("r=%ld ", blockexpr_return(true));  ps("\n");
+    ps("blkret- "); pr("r=%ld ", blockexpr_return(false)); ps("\n");
+    ps("ifbrk+  "); pr("r=%ld ", ifexpr_break(true));      ps("\n");
+    ps("ifbrk-  "); pr("r=%ld ", ifexpr_break(false));     ps("\n");
+    ps("ifcnt+  "); pr("r=%ld ", ifexpr_continue(true));   ps("\n");
+    ps("ifcnt-  "); pr("r=%ld ", ifexpr_continue(false));  ps("\n");
+    ps("ifbmv+  "); ifexpr_break_moves(true);    ps("\n");
+    ps("ifbmv-  "); ifexpr_break_moves(false);   ps("\n");
+    ps("mbmv+   "); matchexpr_break_moves(true);  ps("\n");
+    ps("mbmv-   "); matchexpr_break_moves(false); ps("\n");
+    ps("brkmv+  "); break_arm_moves(true);        ps("\n");
+    ps("brkmv-  "); break_arm_moves(false);       ps("\n");
+    ps("ifrmv+  "); pr("r=%ld ", ifexpr_return_moves(true));  ps("\n");
+    ps("ifrmv-  "); pr("r=%ld ", ifexpr_return_moves(false)); ps("\n");
+    return 0;
+}

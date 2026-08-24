@@ -1,0 +1,20 @@
+package cond_move_glue_name_move_fail;
+// #121-A REFUSE HALF (2 of 2), AND THE SECOND ABUSE DIRECTION. Closing the
+// borrow half with a STRUCTURAL test on the RHS — "the value must be a chain of
+// field / tuple-index reads bottoming out in a plain variable" — was not
+// enough: that shape is EXACTLY what a genuine partial move looks like. So
+// while `let __cmfd_0: &i64 = &t;` refused again, this program still compiled
+// at rc 0, and the same program with the binding named `zz_9` was refused with
+// the message below. Two abuse directions, one root: the exemption was granted
+// on evidence the attacker writes.
+trait Drop { fn drop(self: Self); }
+struct Pay { n: i64 }
+impl Drop for Pay { fn drop(self: Pay) { } }
+struct H { p: Pay }
+fn eatH(x: H) -> i64 { return x.p.n; }
+fn f() -> i64 {
+    let mut h: H = H { p: Pay { n: 1 } };
+    let __cmfd_9: Pay = h.p;
+    return eatH(h);
+}
+fn main() -> i32 { return 0i32; }

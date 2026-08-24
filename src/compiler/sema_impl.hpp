@@ -1313,7 +1313,8 @@ private:
                 // returns the just-assigned slot; NO_SLOT for un-define()'d
                 // synthetic temps (downstream name-keys those).
                 s.mirror_ptr_ = lir_mirror_emit_let(p, line, k.name, k.type, k.value,
-                                                       k.is_mut, lookup_slot(k.name));
+                                                       k.is_mut, lookup_slot(k.name),
+                                                       k.compiler_glue);
             } else if constexpr (std::is_same_v<KT, lir::SAssign>) {
                 s.mirror_ptr_ = lir_mirror_emit_assign(p, line, k.name, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SReturn>) {
@@ -2585,6 +2586,16 @@ private:
         // dies with that frame — a sibling block that reuses the name is not
         // confused by it, and the flag `let` is always in scope at the drop.
         logos::compiler::StrMap<std::string> cond_move_flags;
+        // #121-A — PATHS UNDER A LOCAL OF THIS FRAME THAT A BRANCH MERGE
+        // DETERMINED ARE MOVED ON *EVERY* REACHING PATH. Such a path gets no
+        // flag (the static suppression is exact) and `moved_vars_` normally
+        // carries it to the drop as a skip — but a merge inside a LOOP BODY
+        // has its per-branch move set reverted before the enclosing frame's
+        // drops are emitted, so the witness is gone and the container (or a
+        // flagged ANCESTOR of the path) destroys the place a second time.
+        // Recorded here instead, on the frame that owns the root, so it
+        // survives exactly as long as the local it describes.
+        std::set<std::string> cond_move_static_moves;
     };
     std::vector<Frame> scope_;
     // #118 — hidden `let mut __df_N: bool = true;` statements waiting to be
@@ -2828,11 +2839,50 @@ private:
     // inner merge that already armed the flag makes every enclosing merge a
     // no-op, which is what keeps `if c { if d { consume(a); } }` to ONE flag
     // and one clear.
+    // #121 — the type of ONE segment of a moved-path spelling. `moved_vars_`
+    // writes a tuple element the same way it writes a struct field (`t.0`),
+    // but `field_type_of_for_type` answers only for structs, so a tuple
+    // segment has to be resolved here or the whole path silently declines its
+    // flag (and the pre-#121 leak stands for exactly that spelling).
+    TypeRef path_segment_type(TypeRef base, const std::string& seg) {
+        if (!base) return nullptr;
+        if (TypeRef(base).kind() == LogosType::Kind::Tuple) {
+            if (seg.empty() ||
+                seg.find_first_not_of("0123456789") != std::string::npos)
+                return nullptr;
+            auto es = TypeRef(base).tuple_elems();
+            size_t i = std::stoul(seg);
+            return i < es.size() ? es[i] : TypeRef(nullptr);
+        }
+        return field_type_of_for_type(base, seg);
+    }
+
+    // #121-A — remember that `name` (a dotted path) is moved on every reaching
+    // path of a merge, on the frame that OWNS its root. See the field's comment.
+    void note_static_move(const std::string& name) {
+        auto dot = name.find('.');
+        if (dot == std::string::npos) return;   // a whole local needs no skip
+        std::string root = name.substr(0, dot);
+        for (size_t i = scope_.size(); i-- > 0; ) {
+            if (scope_[i].vars.count(root)) {
+                scope_[i].cond_move_static_moves.insert(name);
+                return;
+            }
+            if (scope_[i].closure_boundary) return;
+        }
+    }
+
     std::string cond_move_flag_for(const std::string& name) {
-        if (name.find('.') != std::string::npos) return {};
+        // #121 — A DOTTED PATH IS HALF THE KEYSPACE OF THE MAP THIS ELABORATES,
+        // and it used to be dropped on the floor here (`if (name.find('.') !=
+        // npos) return {}`), so `if c { consume(h.p); }` leaked `h.p` on the
+        // path that did not move it — exactly the plain-local shape #118 fixed,
+        // one dot away. The path's ROOT owns the frame; the path's own TYPE
+        // decides droppability.
+        std::string root = name.substr(0, name.find('.'));
         size_t fi = SIZE_MAX;
         for (size_t i = scope_.size(); i-- > 0; ) {
-            if (scope_[i].vars.count(name)) { fi = i; break; }
+            if (scope_[i].vars.count(root)) { fi = i; break; }
             if (scope_[i].closure_boundary) return {};
         }
         if (fi == SIZE_MAX) return {};
@@ -2850,14 +2900,32 @@ private:
         auto& fr = scope_[fi];
         if (auto it = fr.cond_move_flags.find(name); it != fr.cond_move_flags.end())
             return it->second;
-        auto vit = fr.vars.find(name);
+        auto vit = fr.vars.find(root);
         if (vit == fr.vars.end()) return {};
         const VarInfo& info = vit->second;
-        bool droppable = info.type &&
-            (TypeRef(info.type).owning_trait_object() ||
-             (info.owning_dyn &&
-              TypeRef(info.type).kind() == LogosType::Kind::TraitObject) ||
-             !drop_fn_for(info.type).empty() || has_droppable_fields(info.type));
+        // #121 — the droppability question is about the PATH, not the root: it
+        // is `h.p`'s destructor the flag guards, and `h` itself may well have
+        // none. Walk the segments; an unresolvable one (an array element, a
+        // deref, a projection this predicate cannot name) declines the flag,
+        // which leaves the pre-#121 behaviour for that shape rather than
+        // inventing a drop for a place the emitter cannot address.
+        TypeRef pt = info.type;
+        bool path_owning_dyn = info.owning_dyn;
+        for (size_t p = root.size(); p < name.size(); ) {
+            size_t e = name.find('.', p + 1);
+            if (e == std::string::npos) e = name.size();
+            std::string seg = name.substr(p + 1, e - p - 1);
+            if (!pt) return {};
+            pt = path_segment_type(pt, seg);
+            path_owning_dyn = false;
+            p = e;
+        }
+        if (!pt) return {};
+        bool droppable =
+            (TypeRef(pt).owning_trait_object() ||
+             (path_owning_dyn &&
+              TypeRef(pt).kind() == LogosType::Kind::TraitObject) ||
+             !drop_fn_for(pt).empty() || has_droppable_fields(pt));
         if (!droppable || !cur_prog_) return {};
         std::string fl = std::format("__df_{}", tmp_var_count_++);
         lir::SLet sl;
@@ -2878,9 +2946,14 @@ private:
     // would fire on the whole branch).
     std::vector<std::string> flag_clear_log_;
     bool has_cond_move_flag(const std::string& name) const {
+        // #121 — the flag for a dotted path is keyed by the FULL path but
+        // stored in the frame that owns its ROOT, so the walk must stop on the
+        // root's frame, not on a frame that happens to hold the whole name
+        // (none ever does).
+        std::string root = name.substr(0, name.find('.'));
         for (size_t i = scope_.size(); i-- > 0; ) {
             if (scope_[i].cond_move_flags.count(name)) return true;
-            if (scope_[i].vars.count(name)) return false;
+            if (scope_[i].vars.count(root)) return false;
             if (scope_[i].closure_boundary) return false;
         }
         return false;
@@ -2912,6 +2985,31 @@ private:
     // on an expression-form arm, where there is no statement list to splice
     // into. Same shape lower_match_expr already uses for its arm drops.
     lir::LExprPtr append_stmt_to_value(lir::LExprPtr v, lir_view::StmtRef st) {
+        // #122 — AN ARM THAT LEAVES BY THE LOOP EDGE ENDS IN A TERMINATOR, and
+        // a statement appended AFTER it is dead code: the flag would stay set
+        // on exactly the path that performed the move, and the enclosing
+        // frame's guarded drop would then destroy a value already moved out.
+        // Rebuild the block with the clear spliced BEFORE the terminator —
+        // the same placement `splice_flag_clear` gives the statement form.
+        if (v && v.kind() == lir_schema::expr::Code::BlockExpr) {
+            auto bv = lir_view::EBlockExprView{v};
+            std::vector<lir_view::StmtRef> stmts;
+            bool terminated = false;
+            if (auto b = bv.block())
+                b.each_stmt([&](lir_view::StmtRef s) {
+                    stmts.push_back(s);
+                    if (!s) return;
+                    auto k = s.kind();
+                    terminated = (k == lir_schema::stmt::Code::Return ||
+                                  k == lir_schema::stmt::Code::Break ||
+                                  k == lir_schema::stmt::Code::Continue);
+                });
+            if (terminated) {
+                splice_flag_clear(stmts, std::move(st));
+                return builder().block_expr(lir_mirror_block(*cur_prog_, stmts),
+                                            bv.result(), TypeRef(expr_type(v)));
+            }
+        }
         TypeRef vt = v ? TypeRef(expr_type(v)) : TypeRef(void_t());
         std::vector<lir_view::StmtRef> blk;
         if (!v || TypeRef(vt).kind() == LogosType::Kind::Void) {
@@ -3038,6 +3136,45 @@ private:
         return false;
     }
 
+    // #121-A — THE MOVE-PATH SPELLING, ENUMERATED BY THE PROPERTY INSTEAD OF
+    // BY THE NODE. A place is a projection CHAIN of segments rooted at a local;
+    // `moved_vars_` spells a struct field and a tuple element the SAME way
+    // (`o.i`, `t.0`), but the two readers are different nodes (FieldRead /
+    // TupleIndex) and the two walkers below used to be separate — each one
+    // bottoming out only at a VarRef. So a chain that MIXES them was recorded
+    // as moved by NEITHER: `consume(t.0.p)` (FieldRead over TupleIndex) and
+    // `consume(o.i.0)` (TupleIndex over FieldRead) left `moved_vars_` empty,
+    // the container's scope-exit drop had nothing to skip, and the value was
+    // destroyed a SECOND time. MEASURED with no conditional anywhere in the
+    // program: `M1 M2 D1 D2 D1`, rc 0, silent — a genuine double free of a
+    // heap-owning payload, pre-existing and independent of the drop flags.
+    // One walker over both segment kinds; returns "" when the chain does not
+    // bottom out in a VarRef (a deref, an index, a call result — not a stable
+    // l-value path this set can name).
+    std::string move_path_of(lir_view::ExprRef er) const {
+        using C = lir_schema::expr::Code;
+        std::vector<std::string> segs;
+        lir_view::ExprRef cur = er;
+        while (cur) {
+            if (cur.kind() == C::FieldRead) {
+                lir_view::EFieldReadView v{cur};
+                segs.emplace_back(std::string(v.field()));
+                cur = v.receiver();
+            } else if (cur.kind() == C::TupleIndex) {
+                lir_view::ETupleIndexView v{cur};
+                segs.emplace_back(std::to_string(v.index()));
+                cur = v.receiver();
+            } else break;
+        }
+        if (!cur || cur.kind() != C::VarRef) return {};
+        std::string path(lir_view::EVarRefView{cur}.name());
+        for (auto it = segs.rbegin(); it != segs.rend(); ++it) {
+            path.push_back('.');
+            path += *it;
+        }
+        return path;
+    }
+
     void mark_moved_expr(lir_view::ExprRef er) {
         if (!er) return;
         using C = lir_schema::expr::Code;
@@ -3066,38 +3203,15 @@ private:
                 mark_moved(nm);
             return;
         }
-        if (er.kind() == C::FieldRead) {
+        // G154-4: moving a struct field or a tuple element out by value
+        // (`consume(h.p)`, `consume(t.0)`) marks `<name>.<seg>` so the
+        // container's scope-end Drop (SDrop struct / tuple branch) skips it —
+        // else it is dropped twice (double-free). #121-A: ONE walker for both
+        // segment kinds, so a MIXED chain (`t.0.p`, `o.i.0`) is recorded too.
+        if (er.kind() == C::FieldRead || er.kind() == C::TupleIndex) {
             if (!is_move_type(er.type(cur_prog_->type_pool.impl()))) return;
-            // Walk down the FieldRead chain, prepending segments. Bottom must
-            // be a VarRef for this to be a stable l-value path.
-            std::vector<std::string> segs;
-            lir_view::ExprRef cur = er;
-            while (cur && cur.kind() == C::FieldRead) {
-                lir_view::EFieldReadView v{cur};
-                segs.emplace_back(std::string(v.field()));
-                cur = v.receiver();
-            }
-            if (!cur || cur.kind() != C::VarRef) return;
-            std::string path(lir_view::EVarRefView{cur}.name());
-            for (auto it = segs.rbegin(); it != segs.rend(); ++it) {
-                path.push_back('.');
-                path += *it;
-            }
-            mark_moved(path);
-        }
-        // G154-4: moving a tuple element out by value (`consume(t.0)`) marks
-        // `<name>.<index>` so the tuple's scope-end Drop (SDrop tuple branch)
-        // skips that element — else it is dropped twice (double-free).
-        if (er.kind() == C::TupleIndex) {
-            if (!is_move_type(er.type(cur_prog_->type_pool.impl()))) return;
-            lir_view::ETupleIndexView tv{er};
-            auto recv = tv.receiver();
-            if (recv && recv.kind() == C::VarRef) {
-                std::string path(lir_view::EVarRefView{recv}.name());
-                path.push_back('.');
-                path += std::to_string(tv.index());
-                mark_moved(path);
-            }
+            std::string path = move_path_of(er);
+            if (!path.empty()) mark_moved(path);
         }
         // Moving a Drop-bearing element OUT of a fixed-size array by index
         // (`let s = arr[i]`, `return arr[i]`, `f(arr[i])`) aliases the array's
@@ -3143,12 +3257,56 @@ private:
     }
 
     std::string drop_fn_for(TypeRef t) const;
+    // #123 — `#[no_auto_drop]` on the struct behind `t` (see sema.cpp).
+    bool type_no_auto_drop(TypeRef t) const;
     bool has_droppable_fields(TypeRef t) const;
     bool needs_drop(TypeRef t) const {
         return !drop_fn_for(t).empty() || has_droppable_fields(t);
     }
 
-    std::optional<lir_view::StmtRef> make_drop_stmt(const std::string& name, const VarInfo& info) const;
+    // `extra_moved` is UNIONED into the `moved_vars_`-derived skip list
+    // (relative paths). Two callers need it, for the same reason:
+    //   • #121-A, the ancestor's guarded drop — emitted through a fresh temp
+    //     (`__cmfd_N`), a name `moved_vars_` has never heard of, so the derived
+    //     list is empty by construction and the drop destroys the subtree AS A
+    //     UNIT, including a descendant the taken path already moved out;
+    //   • #121-A, the CONTAINER's own drop — a path that carries a drop FLAG is
+    //     owned by that flag's guarded drop, and the container must never
+    //     recurse into it. `moved_vars_` says so only when the merge happened
+    //     to leave the path in it, which a merge INSIDE A LOOP BODY does not
+    //     (the per-branch save/restore reverts it), so the field was destroyed
+    //     once unguarded by the container and once by its flag.
+    // The two rules are one rule: a subtree's ownership is not one bit, and
+    // whoever holds the bit for a sub-place owns it alone.
+    std::optional<lir_view::StmtRef> make_drop_stmt(
+        const std::string& name, const VarInfo& info,
+        const std::vector<std::string>* extra_moved = nullptr) const;
+
+    // #121-A — the paths under `root` that no ENCLOSING drop may recurse into,
+    // spelled RELATIVE to `root`: those carrying their OWN drop flag (destroyed
+    // by that flag's guarded drop in `emit_cond_move_field_drops`), and those a
+    // merge proved moved on every reaching path (destroyed by whoever took
+    // them). Both are witnesses `moved_vars_` cannot be trusted to still hold —
+    // it is reverted per branch, and a merge inside a loop body loses it.
+    std::vector<std::string> flagged_descendants(const Frame& frame,
+                                                 const std::string& root) const {
+        std::vector<std::string> out;
+        std::string pre = root + ".";
+        auto add = [&](const std::string& q) {
+            if (q.size() <= pre.size()) return;
+            if (q.compare(0, pre.size(), pre) != 0) return;
+            std::string rel = q.substr(pre.size());
+            for (auto& o : out) if (o == rel) return;
+            out.push_back(std::move(rel));
+        };
+        for (auto& [q, _f] : frame.cond_move_flags) add(q);
+        for (auto& q : frame.cond_move_static_moves) add(q);
+        return out;
+    }
+    // #121 — the guarded destructors for conditionally-moved FIELD PATHS
+    // rooted at `root`. See the definition in sema.cpp.
+    void emit_cond_move_field_drops(const Frame& frame, const std::string& root,
+                                    std::vector<lir_view::StmtRef>& drops) const;
     std::vector<lir_view::StmtRef> collect_drops() const;
     std::vector<lir_view::StmtRef> collect_all_drops() const;
     // G167-4: drops for a `break`/`continue` — every frame from the innermost
@@ -6130,6 +6288,37 @@ private:
     // by desugars that synthesize early returns in EXPRESSION position (`?`),
     // which lower_block's statement-level drop insertion never sees.
     std::vector<lir_view::StmtRef> make_return_with_drops(lir::LExprPtr val);
+    // #122 — APPEND A LOWERED STATEMENT WITH THE SCOPE UNWIND ITS TERMINATOR
+    // NEEDS. `lower_block` did this inline, so it was the ONLY block builder
+    // that unwound: every block lowered in EXPRESSION position (an if-expr /
+    // if-let-expr branch, a match-expr block arm, a bare block-expr, an
+    // `unsafe {}` at expression position) appended `lower_stmt(s)` raw, and a
+    // `return` / `break` / `continue` reached through one of them ran ZERO
+    // destructors — a leak of every live local, measured at
+    // `let k = if c { 10 } else { return -1; };` with two untouched droppable
+    // locals (2 created, 0 dropped). Every such site now routes here.
+    // Return  ⇒ bind the value FIRST (it may read locals the drops release),
+    //           then collect_all_drops (innermost frame outward, stopping at a
+    //           closure boundary), then the terminator.
+    // Break/  ⇒ collect_drops_to_loop: every frame down to AND INCLUDING the
+    // Continue   loop body, since the loop edge bypasses the body's end drops.
+    // Anything else is appended unchanged, so a block with no terminator is
+    // byte-identical to the pre-#122 shape.
+    void push_stmt_with_unwind(std::vector<lir_view::StmtRef>& out,
+                               lir_view::StmtRef lowered);
+    // #122 — HOW a lowered EXPRESSION arm diverges, mirroring the statement
+    // form's `branch_div_kind` in lower_if: 0 = reaches the merge, 1 = leaves
+    // the function by `return`, 2 = leaves by the LOOP EDGE (`break` /
+    // `continue`). The distinction is the whole point: a `return` arm's moves
+    // are settled at its own unwind and it never reaches the enclosing frame's
+    // scope-exit drops, but a `break`/`continue` arm DOES reach them — via the
+    // loop edge — so it is a reaching path for drop-flag elaboration.
+    // lower_if_expr / lower_match_expr classified BOTH as "diverging" (both
+    // type as Never) and dropped them from `reaching`; with one arm left,
+    // `elaborate_cond_moves` bailed at `reaching.size() < 2` and the union
+    // merge's static suppression LEAKED the value on the break path
+    // (`loop { let k = if c { x } else { break; }; … }`, 1 created 0 dropped).
+    int expr_arm_div_kind(const lir::LExprPtr& v) const;
     // Set by lower_return when its value lowering hoisted statement-temporaries:
     // the value must be pre-bound to this local so lower_stmt can emit
     // `let __t…; let __rv = <value>; drop __t…; return __rv;` — the temp drops

@@ -1,0 +1,21 @@
+fif+   M1 D1 
+fif-   M1 D1 
+fie+   M2 D2 
+fie-   M2 s D2 
+sib+   M3 M4 D3 D4 
+sib-   M3 M4 D3 D4 
+nest+  M5 D5 
+nest-  M5 D5 
+tup+   M6 D6 
+tup-   M6 D6 
+whole+ M7 M8 D7 D8 
+whole- M7 M8 h7 D8 D7 
+mat+   M9 D9 
+mat-   M9 f D9 
+and++  M10 M11 D10 D11 
+and+-  M10 M11 D10 D11 
+and--  M10 M11 D10 D11 
+fex+   M12 M13 D12 D13 r=12 
+fex-   M12 M13 D13 D12 r=13 
+rei+   M14 D14 
+rei-   M14 D14 M15 D15 

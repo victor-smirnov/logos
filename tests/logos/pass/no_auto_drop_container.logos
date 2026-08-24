@@ -1,0 +1,173 @@
+package no_auto_drop_container;
+use logos.mem.manually_drop;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+extern fn malloc(n: u64) -> *mut u8;
+extern fn free(p: *mut u8);
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+/// #123 — `#[no_auto_drop]` MEANS THE SAME THING AT EVERY STORAGE SITE.
+///
+/// The attribute reached ONE of the compiler's drop-glue deciders at a time.
+/// The 2026-08-23 landing added `MLIRGenImpl::value_needs_drop`, which decides
+/// a FIELD's fate; the LAST gate — the SDrop lowering, where mono's
+/// `__typevar_pending__drop` arm MANUFACTURES `drop_fn` and `drop_fields` for
+/// every substituted concrete struct without asking — still did not. MEASURED
+/// on the tree before this fixture: `Vec<NAD>` (2 elements) destroyed both,
+/// `Box<NAD>` destroyed, `fn sink<T>(t: T)` at T=NAD destroyed, `Vec<Vec<NAD>>`
+/// destroyed, `Rc<NAD>` destroyed — while the concrete `fn eat(n: NAD)` was
+/// correct throughout. One attribute, two answers, decided by whether the
+/// storage site went through a generic body.
+///
+/// The user-drop half was open at a THIRD site: spec `item.struct.no-auto-drop`
+/// says NEITHER user-drop invocation NOR field glue is compiler-emitted, and
+/// sema's `make_drop_stmt` asked only `has_droppable_fields` (which answers the
+/// field half) — so `#[no_auto_drop]` + `impl Drop` ran its destructor as a
+/// LOCAL and did not as a FIELD.
+///
+/// ⚠ TWO ORACLES. (1) the transcript: every value prints `M<n>` at birth and
+/// exactly one of `D<n>` (a destructor ran) or `R<n>` (this fixture reclaimed
+/// it by hand, which is the ManuallyDrop contract) — never both, never neither.
+/// (2) valgrind, via `logos_09_no_auto_drop_valgrind`: the payload is a raw
+/// `malloc` and the destructor `free`s it, so a suppression that FAILED is an
+/// `Invalid free` on the hand-reclaimed cells and a suppression that
+/// over-reached is `definitely lost`. The count oracle alone is blind here —
+/// task #133 — because a printing destructor proves a CALL, not a release.
+struct Pay { n: i64, b: *mut u8 }
+impl Drop for Pay { fn drop(self: Pay) { pr("D%ld ", self.n); unsafe { free(self.b); } } }
+fn mk(n: i64) -> Pay { pr("M%ld ", n); unsafe { return Pay { n: n, b: malloc(64u64) }; } }
+/// THE HAND RECLAIM. The half of the contract that makes the suppression legal:
+/// a `ManuallyDrop`-shaped value is the CALLER's to destroy.
+unsafe fn rel(b: *mut u8, n: i64) { pr("R%ld ", n); free(b); }
+
+#[no_auto_drop]
+struct NAD { p: Pay }
+
+/// A suppressed struct that ALSO carries a user `impl Drop`. Per
+/// `item.struct.no-auto-drop` this destructor must NOT be compiler-invoked
+/// either; it prints and releases nothing, so `U` in the transcript is a
+/// REFUSAL WITNESS, not a release.
+#[no_auto_drop]
+struct NADD { p: Pay }
+impl Drop for NADD { fn drop(self: NADD) { ps("U "); } }
+
+struct Sib  { n: NAD, real: Pay }     // suppressed field beside a droppable one
+struct Wrap { n: NAD }
+enum E { A(NAD), B }
+
+fn eat(n: NAD) { pr("e%ld ", n.p.n); }
+fn sink<T>(t: T) { ps("s "); }
+fn gen_ret<T>(t: T) -> T { return t; }
+fn eat_nadd(n: NADD) { pr("f%ld ", n.p.n); }
+
+// ── suppressed at every storage site ────────────────────────────────────────
+fn c_local()    { let a: Pay = mk(1i64); let b: *mut u8 = a.b;
+                  let x: NAD = NAD { p: a }; pr("a%ld ", x.p.n);
+                  unsafe { rel(b, 1i64); } }
+fn c_sibling()  { let a: Pay = mk(2i64); let b: *mut u8 = a.b;
+                  let s: Sib = Sib { n: NAD { p: a }, real: mk(3i64) };
+                  pr("b%ld ", s.real.n); unsafe { rel(b, 2i64); } }
+fn c_vec()      { let a: Pay = mk(4i64); let ba: *mut u8 = a.b;
+                  let c: Pay = mk(5i64); let bc: *mut u8 = c.b;
+                  let mut v: Vec<NAD> = Vec::new();
+                  v.push(NAD { p: a }); v.push(NAD { p: c });
+                  pr("c%ld ", v.len() as i64);
+                  unsafe { rel(ba, 4i64); rel(bc, 5i64); } }
+fn c_box()      { let a: Pay = mk(6i64); let b: *mut u8 = a.b;
+                  let x: Box<NAD> = Box::new(NAD { p: a }); pr("d%ld ", x.p.n);
+                  unsafe { rel(b, 6i64); } }
+fn c_generic()  { let a: Pay = mk(7i64); let b: *mut u8 = a.b;
+                  sink::<NAD>(NAD { p: a }); unsafe { rel(b, 7i64); } }
+fn c_genret()   { let a: Pay = mk(8i64); let b: *mut u8 = a.b;
+                  let x: NAD = gen_ret::<NAD>(NAD { p: a }); pr("g%ld ", x.p.n);
+                  unsafe { rel(b, 8i64); } }
+fn c_nestvec()  { let a: Pay = mk(9i64); let b: *mut u8 = a.b;
+                  let mut i: Vec<NAD> = Vec::new(); i.push(NAD { p: a });
+                  let mut o: Vec<Vec<NAD>> = Vec::new(); o.push(i);
+                  pr("h%ld ", o.len() as i64); unsafe { rel(b, 9i64); } }
+fn c_rc()       { let a: Pay = mk(10i64); let b: *mut u8 = a.b;
+                  let r: Rc<NAD> = rc_new::<NAD>(NAD { p: a }); pr("i%ld ", r.p.n);
+                  unsafe { rel(b, 10i64); } }
+fn c_enumvec()  { let a: Pay = mk(11i64); let b: *mut u8 = a.b;
+                  let mut v: Vec<E> = Vec::new(); v.push(E::A(NAD { p: a }));
+                  pr("j%ld ", v.len() as i64); unsafe { rel(b, 11i64); } }
+fn c_array()    { let a: Pay = mk(12i64); let ba: *mut u8 = a.b;
+                  let c: Pay = mk(13i64); let bc: *mut u8 = c.b;
+                  let x: [NAD; 2] = [NAD { p: a }, NAD { p: c }]; pr("k%ld ", x[0].p.n);
+                  unsafe { rel(ba, 12i64); rel(bc, 13i64); } }
+fn c_tuple()    { let a: Pay = mk(14i64); let b: *mut u8 = a.b;
+                  let t: (NAD, i64) = (NAD { p: a }, 1i64); pr("l%ld ", t.1);
+                  unsafe { rel(b, 14i64); } }
+fn c_wrapvec()  { let a: Pay = mk(15i64); let b: *mut u8 = a.b;
+                  let mut v: Vec<Wrap> = Vec::new(); v.push(Wrap { n: NAD { p: a } });
+                  pr("m%ld ", v.len() as i64); unsafe { rel(b, 15i64); } }
+fn c_param()    { let a: Pay = mk(16i64); let b: *mut u8 = a.b;
+                  eat(NAD { p: a }); unsafe { rel(b, 16i64); } }
+
+// ── the user-drop half: `U` must not print ──────────────────────────────────
+fn c_ud_local() { let a: Pay = mk(17i64); let b: *mut u8 = a.b;
+                  let x: NADD = NADD { p: a }; pr("n%ld ", x.p.n);
+                  unsafe { rel(b, 17i64); } }
+fn c_ud_vec()   { let a: Pay = mk(18i64); let b: *mut u8 = a.b;
+                  let mut v: Vec<NADD> = Vec::new(); v.push(NADD { p: a });
+                  pr("o%ld ", v.len() as i64); unsafe { rel(b, 18i64); } }
+fn c_ud_param() { let a: Pay = mk(19i64); let b: *mut u8 = a.b;
+                  eat_nadd(NADD { p: a }); unsafe { rel(b, 19i64); } }
+fn c_ud_clos()  { let a: Pay = mk(20i64); let b: *mut u8 = a.b;
+                  let x: NADD = NADD { p: a };
+                  let f = move || -> i64 { return x.p.n; }; pr("p%ld ", f());
+                  unsafe { rel(b, 20i64); } }
+
+// ── the lang item the attribute exists for ──────────────────────────────────
+fn c_md_local() { let a: Pay = mk(21i64); let b: *mut u8 = a.b;
+                  let m: ManuallyDrop<Pay> = manually_drop_new::<Pay>(a);
+                  pr("q%ld ", m.value.n); unsafe { rel(b, 21i64); } }
+fn c_md_vec()   { let a: Pay = mk(22i64); let b: *mut u8 = a.b;
+                  let mut v: Vec<ManuallyDrop<Pay>> = Vec::new();
+                  v.push(manually_drop_new::<Pay>(a)); pr("r%ld ", v.len() as i64);
+                  unsafe { rel(b, 22i64); } }
+fn c_md_box()   { let a: Pay = mk(23i64); let b: *mut u8 = a.b;
+                  let x: Box<ManuallyDrop<Pay>> = Box::new(manually_drop_new::<Pay>(a));
+                  pr("t%ld ", x.value.n); unsafe { rel(b, 23i64); } }
+
+// ── THE OTHER DIRECTION. Not suppressed: exactly one `D` each, and if the
+//    suppression over-reaches these turn into `definitely lost`.
+fn c_plain()    { let a: Pay = mk(24i64); pr("u%ld ", a.n); }
+fn c_plainvec() { let mut v: Vec<Pay> = Vec::new(); v.push(mk(25i64)); v.push(mk(26i64));
+                  pr("v%ld ", v.len() as i64); }
+fn c_plainbox() { let x: Box<Pay> = Box::new(mk(27i64)); pr("w%ld ", x.n); }
+fn c_md_inner() { let m: ManuallyDrop<Pay> = manually_drop_new::<Pay>(mk(28i64));
+                  let p: Pay = manually_drop_into_inner::<Pay>(m); pr("x%ld ", p.n); }
+fn c_plaingen() { sink::<Pay>(mk(29i64)); }
+
+unsafe fn main() -> i32 {
+    ps("local    "); c_local();    ps("\n");
+    ps("sibling  "); c_sibling();  ps("\n");
+    ps("vec      "); c_vec();      ps("\n");
+    ps("box      "); c_box();      ps("\n");
+    ps("generic  "); c_generic();  ps("\n");
+    ps("genret   "); c_genret();   ps("\n");
+    ps("nestvec  "); c_nestvec();  ps("\n");
+    ps("rc       "); c_rc();       ps("\n");
+    ps("enumvec  "); c_enumvec();  ps("\n");
+    ps("array    "); c_array();    ps("\n");
+    ps("tuple    "); c_tuple();    ps("\n");
+    ps("wrapvec  "); c_wrapvec();  ps("\n");
+    ps("param    "); c_param();    ps("\n");
+    ps("ud_local "); c_ud_local(); ps("\n");
+    ps("ud_vec   "); c_ud_vec();   ps("\n");
+    ps("ud_param "); c_ud_param(); ps("\n");
+    ps("ud_clos  "); c_ud_clos();  ps("\n");
+    ps("md_local "); c_md_local(); ps("\n");
+    ps("md_vec   "); c_md_vec();   ps("\n");
+    ps("md_box   "); c_md_box();   ps("\n");
+    ps("plain    "); c_plain();    ps("\n");
+    ps("plainvec "); c_plainvec(); ps("\n");
+    ps("plainbox "); c_plainbox(); ps("\n");
+    ps("md_inner "); c_md_inner(); ps("\n");
+    ps("plaingen "); c_plaingen(); ps("\n");
+    return 0;
+}

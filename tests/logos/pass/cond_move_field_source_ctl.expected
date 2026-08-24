@@ -1,0 +1,14 @@
+fif+   m1 r=2 
+fif-   m1 r=1 
+sib+   m3 m4 r=7 
+sib-   m3 m4 r=4 
+nest+  m5 r=5 
+nest-  m5 r=0 
+tup+   m6 r=7 
+tup-   m6 r=1 
+whole+ m7 m8 r=7 
+whole- m7 m8 r=7 
+mat+   m9 r=9 
+mat-   m9 f r=0 
+fex+   m12 m13 r=12 
+fex-   m12 m13 r=13 

@@ -2771,6 +2771,73 @@ set_tests_properties(logos_09_ctr_leaf_descent PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# #121-A — THE DROP-FLAG KEYSPACE, MEASURED BY AN INSTRUMENT THE PROGRAM DOES
+# NOT CONTROL. `pass/cond_move_field_overlap` already asserts one `D<n>` per
+# `M<n>` through run_test.sh; that oracle proves a destructor was CALLED, and
+# nothing about release. It is demonstrated blind: a user-`Drop` value in a
+# struct field never frees its own sub-fields (task #133), so an 18-program
+# suite measured "all pairs balanced" while 12 of them leaked. The fixture
+# therefore allocates with `malloc` and frees in its destructor, and this gate
+# re-runs the SAME program under valgrind: a missed destructor is "definitely
+# lost", a doubled one is "Invalid free", and the alloc/free counts must agree.
+# ⚠ An absent valgrind exits 2, never 0 — a gate that skips itself into green is
+# a gate that lies.
+add_test(
+    NAME logos_09_cond_move_field_valgrind
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/cond_move_field_valgrind_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/cond_move_field_overlap.logos
+            ${LOGOS_BUILD_LIB_DIR}
+)
+set_tests_properties(logos_09_cond_move_field_valgrind PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
+# #123 — THE SAME GATE SCRIPT over the `#[no_auto_drop]` storage-site sweep.
+# NOT a duplicate registration: `pass/no_auto_drop_container` asserts, through
+# run_test.sh, that twenty of twenty-nine values print NO destructor line and
+# that this fixture reclaimed each of them by hand instead. That oracle cannot
+# tell a suppression that WORKED from a suppression that over-reached onto the
+# nine values that must still be destroyed — both print the same transcript
+# only if the hand reclaim and the compiler never overlap, and "never overlap"
+# is exactly the claim under test. valgrind answers it directly: a suppression
+# that failed frees a block twice (Invalid free), one that over-reached leaves
+# a block unfreed (definitely lost). MEASURED under the control revert of the
+# SDrop gate: rc 134, "free(): double free detected in tcache 2", six
+# Invalid-free records.
+add_test(
+    NAME logos_09_no_auto_drop_valgrind
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/cond_move_field_valgrind_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/no_auto_drop_container.logos
+            ${LOGOS_BUILD_LIB_DIR}
+)
+set_tests_properties(logos_09_no_auto_drop_valgrind PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
+# The ADMIT half under the same instrument. The suppression fixture and its
+# control twin allocate and free the SAME 42 blocks by two completely different
+# routes — twenty hand reclaims vs twenty-nine compiler destructors — so a
+# regression that silences drop glue wholesale reds HERE while the suppression
+# fixture stays green.
+add_test(
+    NAME logos_09_no_auto_drop_ctl_valgrind
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/cond_move_field_valgrind_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/no_auto_drop_container_ctl.logos
+            ${LOGOS_BUILD_LIB_DIR}
+)
+set_tests_properties(logos_09_no_auto_drop_ctl_valgrind PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # The SAME gate over the POSITIONAL family (ADR 0025 S1b). Not a formality: S1b
 # deleted the vector arm's per-row walk on §5's argument, and that arm's producer
 # is built by a different branch of the emitter over a different leaf layout, and

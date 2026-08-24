@@ -386,6 +386,19 @@ inline constexpr Key EXPORT_ID         {"EXPORT_ID",       37};   // u32 (U24 An
 // Each must hold (after the pattern's bindings are bound) or the else block
 // runs; an empty/absent array means the disc/literal test is the whole check.
 inline constexpr Key LET_ELSE_GUARDS   {"LET_ELSE_GUARDS", 38};   // Array<RelPtr<LExpr>>
+// #121-A — THE BINDING WAS SYNTHESISED BY THE COMPILER, not written by a user.
+// Set only by `emit_cond_move_field_drops` on its `__cmfd_N` move-and-drop
+// temp. The borrow checker exempts that binding from both `Code::Let` walkers
+// (it reads a place the static analysis has already recorded as moved — that is
+// the point of the flag guarding it), and the exemption used to key on the NAME
+// PREFIX, which any user can write: `let __cmfd_0: &i64 = &t; return __cmfd_0;`
+// compiled at rc 0 and returned a dangling reference, and — after that half was
+// closed with a structural test on the RHS — `let __cmfd_9: Pay = h.p; eatH(h);`
+// still compiled, because a field-read chain is exactly what a real partial
+// move looks like. MEASURED both times against the same program with the
+// binding renamed `zz_0`/`zz_9`, which was correctly refused. Provenance is not
+// derivable from the text, so the producer states it.
+inline constexpr Key COMPILER_GLUE     {"COMPILER_GLUE",   42};   // bool (sparse) — SLet
 } // namespace stmt_keys
 
 // ── Declaration variant codes (Stage E: LProgram decl layer → Writ mirror) ─
@@ -618,6 +631,11 @@ inline constexpr Key IS_ANNOTATION_TYPE{"IS_ANNOTATION_TYPE",24}; // bool (spars
 inline constexpr Key ANNOTATIONS       {"ANNOTATIONS",       25}; // Array<RelPtr<annot sub-map>>
 inline constexpr Key IS_SPECIALIZATION {"IS_SPECIALIZATION", 26}; // bool (sparse)
 inline constexpr Key SPEC_PATTERNS     {"SPEC_PATTERNS",     27}; // Array<RelPtr<LogosType>>
+// #123 — `#[no_auto_drop]`. Sema honoured it in `has_droppable_fields` only,
+// which answers whether the CONTAINER drops at all; the flag never reached LIR,
+// so mlir-gen's recursive field walk had no way to ask and dropped a suppressed
+// field whenever ANY sibling made the container droppable.
+inline constexpr Key NO_AUTO_DROP      {"NO_AUTO_DROP",      28}; // bool (sparse)
 } // namespace struct_keys
 
 // LStructDef FIELD sub-map keys (own space — element schema of FIELDS).

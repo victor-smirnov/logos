@@ -1,0 +1,114 @@
+package cond_move_field_source;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+/// HEAP-OWNING payload. The oracle is a DESTRUCTOR COUNT against values
+/// created: every line below must print exactly one `D<n>` per `M<n>`. A
+/// missing one is a leak at rc 0 — invisible to any exit-code gate — and a
+/// second one is a genuine double free.
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay {
+    fn drop(self: Pay) { pr("D%ld ", self.n); }
+}
+fn mk(n: i64) -> Pay {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(n);
+    pr("M%ld ", n);
+    return Pay { n: n, v: v };
+}
+fn consume(p: Pay) -> i64 { return p.n; }
+
+struct H  { p: Pay }
+struct H2 { p: Pay, q: Pay }
+struct Inner { p: Pay }
+struct Outer { i: Inner }
+
+/// #121 — A FIELD AS THE MOVE SOURCE. `cond_move_flag_for` refused every
+/// dotted name outright, so `h.p` got no drop flag: the union merge recorded
+/// it moved, `make_drop_stmt` turned that into a static `moved_fields` skip,
+/// and the path that never moved it ran NO destructor. 1 created, 0 dropped —
+/// the #118 leak, one dot away from the shape #118 closed.
+fn field_if(c: bool) { let mut h: H = H { p: mk(1) }; if c { consume(h.p); } }
+fn field_if_else(c: bool) {
+    let mut h: H = H { p: mk(2) };
+    if c { consume(h.p); } else { ps("s "); }
+}
+/// A droppable SIBLING must be unaffected: the flag is per PATH, not per root.
+fn field_sibling(c: bool) {
+    let mut h: H2 = H2 { p: mk(3), q: mk(4) };
+    if c { consume(h.p); }
+}
+/// A DEEPER path — `moved_vars_` spells it `o.i.p`, and the guarded drop has
+/// to rebuild the whole projection, not just the first segment.
+fn field_nested(c: bool) {
+    let mut o: Outer = Outer { i: Inner { p: mk(5) } };
+    if c { consume(o.i.p); }
+}
+/// A TUPLE ELEMENT is spelled the same way (`t.0`) but read by a different
+/// node: `field_type_of_for_type` answers only for structs, so this spelling
+/// silently declined its flag until the resolver learned tuples.
+fn field_tuple(c: bool) {
+    let mut t: (Pay, i64) = (mk(6), 1i64);
+    if c { consume(t.0); }
+}
+/// The DOUBLE-FREE direction, and the reason a prefix move has to count as a
+/// move of the path: the else arm consumes the WHOLE container, so `h.p` is
+/// gone there too even though that arm's move set never names it. Without the
+/// prefix rule the flag stayed set and the guarded field drop destroyed a
+/// value the callee had already destroyed — 2 values in, 3 destructor calls
+/// out, silently (rc 0).
+fn eatH(h: H2) -> i64 { pr("h%ld ", h.p.n); return 0i64; }
+fn field_vs_whole(c: bool) {
+    let mut h: H2 = H2 { p: mk(7), q: mk(8) };
+    if c { consume(h.p); } else { eatH(h); }
+}
+/// The same keyspace through the other branch constructs.
+fn field_match(c: bool) {
+    let mut h: H = H { p: mk(9) };
+    match c { true => { consume(h.p); }, false => { ps("f "); } }
+}
+fn field_andand(c: bool, d: bool) {
+    let mut h: H2 = H2 { p: mk(10), q: mk(11) };
+    if c && d { consume(h.p); }
+}
+fn field_ifexpr(c: bool) -> i64 {
+    let mut h: H = H { p: mk(12) };
+    let o: Pay = mk(13);
+    let k: Pay = if c { h.p } else { o };
+    return k.n;
+}
+/// Moved on one arm and RE-INITIALISED on the other arm — the re-initialised
+/// value is a second live value and must be destroyed exactly once.
+fn field_reinit(c: bool) {
+    let mut h: H = H { p: mk(14) };
+    if c { consume(h.p); } else { consume(h.p); h.p = mk(15); }
+}
+
+unsafe fn main() -> i32 {
+    ps("fif+   "); field_if(true);        ps("\n");
+    ps("fif-   "); field_if(false);       ps("\n");
+    ps("fie+   "); field_if_else(true);   ps("\n");
+    ps("fie-   "); field_if_else(false);  ps("\n");
+    ps("sib+   "); field_sibling(true);   ps("\n");
+    ps("sib-   "); field_sibling(false);  ps("\n");
+    ps("nest+  "); field_nested(true);    ps("\n");
+    ps("nest-  "); field_nested(false);   ps("\n");
+    ps("tup+   "); field_tuple(true);     ps("\n");
+    ps("tup-   "); field_tuple(false);    ps("\n");
+    ps("whole+ "); field_vs_whole(true);  ps("\n");
+    ps("whole- "); field_vs_whole(false); ps("\n");
+    ps("mat+   "); field_match(true);     ps("\n");
+    ps("mat-   "); field_match(false);    ps("\n");
+    ps("and++  "); field_andand(true, true);   ps("\n");
+    ps("and+-  "); field_andand(true, false);  ps("\n");
+    ps("and--  "); field_andand(false, true);  ps("\n");
+    ps("fex+   "); pr("r=%ld ", field_ifexpr(true));  ps("\n");
+    ps("fex-   "); pr("r=%ld ", field_ifexpr(false)); ps("\n");
+    ps("rei+   "); field_reinit(true);    ps("\n");
+    ps("rei-   "); field_reinit(false);   ps("\n");
+    return 0;
+}

@@ -1934,6 +1934,8 @@ private:
     // sema's has_droppable_fields; gates gen_drop_value recursion to avoid empty
     // GEP/loop emission for non-droppable members.
     bool value_needs_drop(TypeRef ty);
+    // #123 — `#[no_auto_drop]` on the struct behind `ty` (see mlir_gen_stmt.cpp).
+    bool type_is_no_auto_drop(TypeRef ty);
     void gen_stmt_kind(lir_view::SDerefWriteView v);
     void gen_stmt_kind(lir_view::SLetElseView v);
     void gen_stmt_kind(lir_view::SChainFieldWriteView v);

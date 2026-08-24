@@ -1,0 +1,83 @@
+package cond_move_field_source_ctl;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+/// CONTROL twin for `cond_move_field_source` — THE FAST PATH.
+///
+/// The same field / nested-field / tuple-element / whole-container shapes over
+/// a payload with NO destructor. Widening the drop-flag keyspace to dotted
+/// paths must arm NOTHING here: a Copy field is never a move, so no `__df_N`
+/// may appear, no `__cmfd_N` move-and-drop temp may be emitted, and the values
+/// must be untouched. A `_ctl` over a droppable payload could not distinguish
+/// "nothing emitted" from "emitted and balanced" — this one can, because any
+/// spurious move-and-drop of a place would have to disturb a printed value.
+struct Copyable { n: i64 }
+struct H  { p: Copyable }
+struct H2 { p: Copyable, q: Copyable }
+struct Inner { p: Copyable }
+struct Outer { i: Inner }
+fn mk(n: i64) -> Copyable { pr("m%ld ", n); return Copyable { n: n }; }
+fn use1(p: Copyable) -> i64 { return p.n; }
+
+fn field_if(c: bool) -> i64 {
+    let mut h: H = H { p: mk(1) };
+    let mut r: i64 = 0i64;
+    if c { r = use1(h.p); }
+    return r + h.p.n;
+}
+fn field_sibling(c: bool) -> i64 {
+    let mut h: H2 = H2 { p: mk(3), q: mk(4) };
+    let mut r: i64 = 0i64;
+    if c { r = use1(h.p); }
+    return r + h.q.n;
+}
+fn field_nested(c: bool) -> i64 {
+    let mut o: Outer = Outer { i: Inner { p: mk(5) } };
+    let mut r: i64 = 0i64;
+    if c { r = use1(o.i.p); }
+    return r;
+}
+fn field_tuple(c: bool) -> i64 {
+    let mut t: (Copyable, i64) = (mk(6), 1i64);
+    let mut r: i64 = 0i64;
+    if c { r = use1(t.0); }
+    return r + t.1;
+}
+fn eatH(h: H2) -> i64 { return h.p.n; }
+fn field_vs_whole(c: bool) -> i64 {
+    let mut h: H2 = H2 { p: mk(7), q: mk(8) };
+    if c { return use1(h.p); }
+    return eatH(h);
+}
+fn field_match(c: bool) -> i64 {
+    let mut h: H = H { p: mk(9) };
+    let mut r: i64 = 0i64;
+    match c { true => { r = use1(h.p); }, false => { ps("f "); } }
+    return r;
+}
+fn field_ifexpr(c: bool) -> i64 {
+    let mut h: H = H { p: mk(12) };
+    let o: Copyable = mk(13);
+    let k: Copyable = if c { h.p } else { o };
+    return k.n;
+}
+
+unsafe fn main() -> i32 {
+    ps("fif+   "); pr("r=%ld ", field_if(true));        ps("\n");
+    ps("fif-   "); pr("r=%ld ", field_if(false));       ps("\n");
+    ps("sib+   "); pr("r=%ld ", field_sibling(true));   ps("\n");
+    ps("sib-   "); pr("r=%ld ", field_sibling(false));  ps("\n");
+    ps("nest+  "); pr("r=%ld ", field_nested(true));    ps("\n");
+    ps("nest-  "); pr("r=%ld ", field_nested(false));   ps("\n");
+    ps("tup+   "); pr("r=%ld ", field_tuple(true));     ps("\n");
+    ps("tup-   "); pr("r=%ld ", field_tuple(false));    ps("\n");
+    ps("whole+ "); pr("r=%ld ", field_vs_whole(true));  ps("\n");
+    ps("whole- "); pr("r=%ld ", field_vs_whole(false)); ps("\n");
+    ps("mat+   "); pr("r=%ld ", field_match(true));     ps("\n");
+    ps("mat-   "); pr("r=%ld ", field_match(false));    ps("\n");
+    ps("fex+   "); pr("r=%ld ", field_ifexpr(true));    ps("\n");
+    ps("fex-   "); pr("r=%ld ", field_ifexpr(false));   ps("\n");
+    return 0;
+}

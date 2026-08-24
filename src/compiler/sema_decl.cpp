@@ -1382,6 +1382,10 @@ DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
     // logos-core 1.5: propagate `#[repr(transparent)]` so mlir-gen's
     // `layout_of` Struct case can collapse to the field's layout.
     if (sinfo->repr_transparent) sd.flag(stk::REPR_TRANSPARENT, true);
+    // #123: propagate `#[no_auto_drop]` so mlir-gen's recursive drop walk can
+    // refuse to destroy a suppressed FIELD — sema's has_droppable_fields only
+    // ever answered for the CONTAINER.
+    if (sinfo->no_auto_drop) sd.flag(stk::NO_AUTO_DROP, true);
     // B65: outlives bounds from `struct Foo<'a, 'b: 'a>` + validate names.
     auto lifetime_outlives = read_lifetime_outlives(node);
     // B68.3: also pick up where-clause outlives + type-outlives bounds.

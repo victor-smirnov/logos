@@ -1,0 +1,85 @@
+package cond_move_lazy_and_guard;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+/// HEAP-OWNING payload — the oracle is a destructor COUNT. One of the cells
+/// below (`gfail`) was a LIVE ABORT (`free(): double free detected in tcache
+/// 2`, rc 134) and the rest were silent leaks at rc 0; a printing-only payload
+/// answers neither direction reliably.
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay { fn drop(self: Pay) { pr("D%ld ", self.n); } }
+fn mk(n: i64) -> Pay {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(n);
+    pr("M%ld ", n);
+    return Pay { n: n, v: v };
+}
+/// CONSUMES its argument (so the destructor runs inside the callee) and
+/// answers a bool, which is what lets it sit in a lazy RHS / a guard.
+fn eatT(p: Pay) -> bool { pr("e%ld ", p.n); return true; }
+fn eatF(p: Pay) -> bool { pr("e%ld ", p.n); return false; }
+fn borrows(p: &Pay) -> bool { pr("b%ld ", p.n); return true; }
+
+// ── A LAZY RHS. NOBODY FILED THESE. ──
+// `if c && eat(a)` records `a` moved unconditionally, but the RHS runs only
+// when `c` is true. On the short-circuited path nothing moved and nothing
+// dropped: 1 created, 0 destroyed, rc 0. `||` leaks on the mirror direction.
+// Neither is reachable by widening the drop-flag KEYSPACE — `a` is a plain
+// local; what was missing is the MERGE.
+fn and_rhs(c: bool) { let a: Pay = mk(1); if c && eatT(a) { ps("t "); } }
+fn or_rhs(c: bool)  { let a: Pay = mk(2); if c || eatT(a) { ps("t "); } }
+/// Two lazy operators over two different sources in one expression.
+fn and_chain(c: bool, d: bool) {
+    let a: Pay = mk(3);
+    let b: Pay = mk(4);
+    if c && eatT(a) && d && eatT(b) { ps("t "); }
+}
+/// CONTROL: the RHS only BORROWS. No move exists, so no flag may be armed.
+fn and_borrow(c: bool) { let a: Pay = mk(5); if c && borrows(&a) { ps("t "); } }
+
+// ── A MATCH GUARD. THE ONLY ABORTING DIRECTION IN THE SWEEP. ──
+// The guard's move is forgotten when the arm is not taken (the next arm
+// restarts from the pre-state), so the frame destroyed a value the guard's
+// callee had already destroyed.
+fn guard_fail(n: i64) {
+    let a: Pay = mk(6);
+    match n { x if eatF(a) => { pr("g%ld ", x); }, _ => { ps("o "); } }
+}
+fn guard_pass(n: i64) {
+    let a: Pay = mk(7);
+    match n { x if eatT(a) => { pr("g%ld ", x); }, _ => { ps("o "); } }
+}
+/// The guard NEVER RUNS: an earlier arm matches first. The value must still be
+/// destroyed exactly once — this is the direction a "mark it moved
+/// unconditionally" shortcut would turn into a leak.
+fn guard_skipped(n: i64) {
+    let a: Pay = mk(8);
+    match n { 0 => { ps("z "); }, x if eatT(a) => { pr("g%ld ", x); }, _ => { ps("o "); } }
+}
+/// CONTROL: a guard that only borrows.
+fn guard_borrow(n: i64) {
+    let a: Pay = mk(9);
+    match n { x if borrows(&a) => { pr("g%ld ", x); }, _ => { ps("o "); } }
+}
+
+unsafe fn main() -> i32 {
+    ps("and+   "); and_rhs(true);         ps("\n");
+    ps("and-   "); and_rhs(false);        ps("\n");
+    ps("or+    "); or_rhs(true);          ps("\n");
+    ps("or-    "); or_rhs(false);         ps("\n");
+    ps("chain++"); and_chain(true, true);   ps("\n");
+    ps("chain+-"); and_chain(true, false);  ps("\n");
+    ps("chain-- "); and_chain(false, false); ps("\n");
+    ps("bor+   "); and_borrow(true);      ps("\n");
+    ps("bor-   "); and_borrow(false);     ps("\n");
+    ps("gfail  "); guard_fail(1);         ps("\n");
+    ps("gpass  "); guard_pass(1);         ps("\n");
+    ps("gskip  "); guard_skipped(0);      ps("\n");
+    ps("gskip2 "); guard_skipped(1);      ps("\n");
+    ps("gbor   "); guard_borrow(1);       ps("\n");
+    return 0;
+}
