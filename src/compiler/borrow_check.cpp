@@ -4706,7 +4706,13 @@ private:
                                  lir_view::ExprRef val, uint32_t ln,
                                  const char* site) {
         if (name.empty() || !val) return;
-        if (param_names_.count(name)) return;          // #78, not #86
+        // #138 — same substitution as in `prov_of`: only a param whose referent
+        // OUTLIVES the call is exempt from the holder-escape deposit. A by-value
+        // owned param is frame-local storage, so a borrow stored into it escapes
+        // exactly as one stored into a local does (measured: `fn outer(h: &mut H)
+        // { { let mut v = 1i64; h.r = &mut v; } }` admitted; the same with `h` a
+        // local of the caller refused with E0597).
+        if (param_names_.count(name)) return;          // #78/#138, see task
         if (!holder_ty || !type_may_carry_borrow(holder_ty)) return;
         if (residency_exemption_holds(holder_ty, val)) return;
         RefProv vp = prov_of(val);
@@ -5281,7 +5287,17 @@ private:
             return carried_prov_of_recv(EAddrOfTempView{r}.inner());
         if (r.kind() == Code::VarRef) {
             std::string nm(EVarRefView{r}.name());
-            if (param_names_.count(nm)) return {{nm}, false};
+            // #138 — "is a PARAMETER" is not "OUTLIVES THE CALL". A `&T`/`&mut T`
+            // / borrow-carrying / raw-pointer param points at caller storage, so
+            // a borrow of it is safe to return; a BY-VALUE OWNED param dies with
+            // the frame exactly like a local. `outliving_params_` already draws
+            // that line at fn entry, with the reason written there — it was just
+            // consulted at ONE of the eleven sites that ask this question, and
+            // this was not one of them. Result: `fn f(x: i64) -> &i64 { return
+            // &x; }` compiled, while the same body over a LOCAL was refused.
+            if (param_names_.count(nm))
+                return outliving_params_.count(nm) ? RefProv{{nm}, false}
+                                                   : RefProv{{}, /*is_local=*/true};
             auto it = prov_.find(nm);
             return it != prov_.end() ? it->second : RefProv{};
         }
@@ -5312,7 +5328,15 @@ private:
                 std::string name(v.var_name());
                 if (is_materialized_temp_name(name))
                     return {{}, /*is_local=*/false, /*is_temp=*/true};
-                if (param_names_.count(name)) return {{name}, false};
+                // #138 — see the VarRef arm: a BY-VALUE OWNED param is frame
+                // storage, so `&param` is as local as `&local`. This is the arm
+                // `return &x;` actually reaches (an AddrOf, not a VarRef), which
+                // the `[retgate]` trace settled in one run after the VarRef edit
+                // alone left `prov{loc=0 np=1}` unchanged.
+                if (param_names_.count(name))
+                    return outliving_params_.count(name)
+                             ? RefProv{{name}, false}
+                             : RefProv{{}, /*is_local=*/true};
                 if (var_has(NO_SLOT, name))      return {{},     true};
                 return {};
             }

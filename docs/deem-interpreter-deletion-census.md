@@ -3775,8 +3775,8 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # 2162 -> 2164), re-derived the same way; glob unmoved at 191 and doors unmoved
 # at 36 = 10 + 26 — neither fixture declares a container family or a `direct`
 # output form.
-REGISTRY-ALL         7575
-REGISTRY-NOIMPORTED  3892
+REGISTRY-ALL         7577
+REGISTRY-NOIMPORTED  3894
 REGISTRY-TIERCOMMIT  46
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

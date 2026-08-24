@@ -1,0 +1,22 @@
+// A BY-VALUE parameter is frame storage, so `&param` returned from the function
+// dangles exactly as `&local` does. This admitted (rc 0) until 2026-08-24 in a
+// two-line program, while the identical body over a local was refused.
+//
+// The cause was not a missing rule but a set substitution: eleven sites ask
+// "does this outlive the call?" and answer it with `param_names_` — "is this a
+// parameter?". `outliving_params_` already draws the real line at fn entry (a
+// reference / borrow-carrying / raw-pointer param points at CALLER storage; a
+// by-value owned param does not) and was consulted at ONE of the eleven. The
+// arm that decides this program is `prov_of`'s AddrOf case — `return &x;` is an
+// AddrOf, not a VarRef, which is why editing the VarRef arm first changed
+// nothing and the `[retgate]` trace settled it in one run: `prov{loc=0 np=1}`
+// before, `loc=1` after.
+//
+// The admit twin is `pass/bc_param_ref_escape_ok`, and it is what stops this
+// from being bought with an over-refusal: a `&` parameter DOES outlive the call,
+// so returning a borrow derived from it must keep compiling.
+package bc_param_byvalue_escape_fail;
+
+fn arg_item(x: i64) -> &i64 { return &x; }
+
+fn main() -> i32 { let r: &i64 = arg_item(3i64); return *r as i32; }

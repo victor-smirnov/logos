@@ -1,0 +1,20 @@
+// THE ADMIT TWIN of `fail/bc_param_byvalue_escape_fail`. #138 made a by-value
+// parameter frame-local for the escape check; the whole point of using
+// `outliving_params_` rather than "is a parameter" is that a REFERENCE parameter
+// keeps pointing at caller storage, so a borrow derived from it is safe to
+// return and must still compile.
+//
+// If this ever reds, the fix has collapsed to "no parameter may be borrowed",
+// which would buy the refusal in the twin with an over-refusal here.
+package bc_param_ref_escape_ok;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+
+fn keep(p: &i64) -> &i64 { return p; }
+
+fn main() -> i32 {
+    let n: i64 = 7i64;
+    let r: &i64 = keep(&n);
+    pr("%ld\n", *r);
+    return 0i32;
+}

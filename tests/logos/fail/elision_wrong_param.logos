@@ -1,5 +1,15 @@
 package elision_wrong_param;
-// Elision: one ref param 'a' but returning address of non-param
+// Elision: one ref param 'a' but returning address of non-param.
+//
+// ⚠ THE DIAGNOSTIC MOVED 2026-08-24 (#138) AND THE VERDICT DID NOT. This used to
+// be refused by the ELISION rule ("return reference must derive from 'a'"); it is
+// now refused by the ESCAPE rule, because `b: Val` is a BY-VALUE parameter whose
+// storage dies with the frame, exactly like a local's. Before #138 every
+// parameter was classified caller-owned (`param_names_`) instead of consulting
+// `outliving_params_`, which already drew the line and was read at one site out
+// of eleven. Both messages are true; the new one names the reason the program is
+// wrong rather than the bookkeeping that noticed. Refusal in, refusal out — the
+// `.expected` is re-aimed, not relaxed.
 struct Val { x: i32, }
 fn wrong(a: &Val, b: Val) -> &Val { return &b; }
 fn main() -> i32 { return 0; }
