@@ -91,7 +91,7 @@ For each batch:
    strategy says "parser top-level" but parser/ is too big for
    one batch, pick a subset (e.g. "parser if-expression tests")
    and note it in the batch row.
-2. **Source paths**: rustc tests at `/home/victor/cxx/rust/tests/ui/`.
+2. **Source paths**: rustc tests at `/home/logos/cxx/rust/tests/ui/`.
    Pinned commit is in [RUSTC-PROVENANCE.md](RUSTC-PROVENANCE.md);
    each batch reuses that SHA unless a new pin is needed.
 3. **For each test**:
@@ -109,14 +109,23 @@ For each batch:
 
 ## Tools and references
 
-* `/home/victor/cxx/rust` — local clone of rust-lang/rust. Browse
-  `tests/ui/`, `library/{core,alloc,std}/src/` here.
-* `git -C /home/victor/cxx/rust rev-parse HEAD` — current upstream.
+* `/home/logos/cxx/rust` — local clone of rust-lang/rust. Browse
+  `tests/ui/` here. ⚠ It is a SPARSE clone (`--filter=blob:none --sparse`,
+  `sparse-checkout set tests/ui`, 189 MB instead of the whole repo), so
+  `library/{core,alloc,std}/src/` is NOT checked out; widen the sparse set
+  if a batch needs it. The path was `/home/victor/cxx/rust` until the
+  2026-08-01 box migration, which left this file pointing at a directory
+  that no longer exists — every import agent read it, found nothing, and
+  had to rediscover the corpus. Re-cloned 2026-08-24.
+* `git -C /home/logos/cxx/rust rev-parse HEAD` — current upstream.
   Pin a new SHA if the current commit drifts more than a few
   months from the manifest row.
-* `cd /home/victor/devel/logos/build && ctest -j12` — test
-  runner. Always green before commit.
-* `cd /home/victor/devel/logos/build && ninja` — rebuild after
+* `cd /home/logos/devel/logos/build && ctest -j$(nproc)` — test
+  runner. Always green before commit. ⚠ `ctest` DEFAULTS TO -j1, so the
+  flag is not optional; and it is `$(nproc)` rather than the `-j12` this
+  line carried until 2026-08-24, because 12 was the OLD box's core count
+  and this one has 32.
+* `cd /home/logos/devel/logos/build && ninja` — rebuild after
   compiler changes.
 * `tests/imported/STRATEGY.md` — what to import in what order.
 * `tests/imported/WHY-WE-SKIP.md` — what NOT to import and why.
