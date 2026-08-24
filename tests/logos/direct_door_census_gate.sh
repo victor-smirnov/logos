@@ -565,9 +565,9 @@ PIN = {
     # with a different fixture argument), so `ls tests/logos/*.sh` stays 66.
     # DOOR counts unmoved (36 = 10 + 26): neither fixture declares a container
     # family or a `direct` output form.
-    'corpus'            : 2355,
+    'corpus'            : 2357,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2164,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2166,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

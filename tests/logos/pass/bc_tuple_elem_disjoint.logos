@@ -1,0 +1,21 @@
+// THE ADMIT TWIN of `fail/bc_tuple_elem_exclusivity_fail`. The 2026-08-24 fix
+// gave `extract_borrow_place` its missing TupleIndex arm, so a tuple element now
+// records a loan at a dotted PATH. The point of a path rather than a root is
+// exactly this program: `x.0` and `x.1` are disjoint, so a shared borrow of one
+// and a mutable borrow of the other are both live and legal.
+//
+// If this ever reds, the fix has collapsed back to root granularity and the
+// refusal in the twin is being bought with an over-refusal here.
+package bc_tuple_elem_disjoint;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+
+fn main() -> i32 {
+    let mut x: (i64, i64) = (1i64, 2i64);
+    let a: &i64 = &x.0;
+    let b: &mut i64 = &mut x.1;
+    *b = 9i64;
+    pr("%ld ", *a);
+    pr("%ld\n", x.1);
+    return 0i32;
+}

@@ -895,6 +895,19 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             path_parts.push_back(std::string(fv.field()));
             cur = fv.receiver();
             if (cur && is_ref_kind(cur.type(pool))) bp.through_ref = true;
+        } else if (cur.kind() == Code::TupleIndex) {
+            // A tuple element is a FIELD whose name is its index — that is
+            // already the spelling everything else uses (`moved_vars_` writes
+            // `t.0`, and `emit_cond_move_field_drops` branches on tuple-vs-
+            // struct to rebuild the same path). Without this arm the walk fell
+            // through to `else break` with an empty root, so NO loan was
+            // recorded at all: `let a = &x.0; let b = &mut x.0; *b = 9;`
+            // admitted, while the byte-identical program over a named-field
+            // struct refused. One arm, not a tuple-shaped copy of the rules.
+            ETupleIndexView tv{cur};
+            path_parts.push_back(std::to_string(tv.index()));
+            cur = tv.receiver();
+            if (cur && is_ref_kind(cur.type(pool))) bp.through_ref = true;
         } else if (cur.kind() == Code::IndexRead) {
             auto recv = EIndexReadView{cur}.receiver();
             // Indexing through a RAW pointer (`p[i]`, p: *mut/*const T) is an
@@ -8484,6 +8497,16 @@ private:
                     if (it->mut_borrowed)
                         report(ln, std::format(
                             "cannot assign to '{}' while it is mutably borrowed", name));
+                    // A borrow of a FIELD of this variable is invalidated by the
+                    // assignment exactly as a borrow of the whole variable is —
+                    // the storage the reference names is overwritten either way.
+                    // The two counters above see only path "", so `&v.f` was
+                    // invisible here: `let i: &u64 = &v.f; v = Foo{…}; *i` was
+                    // rc 0 while the `&v` spelling refused. The prefix query and
+                    // the loan itself both already existed (`take_field_borrow`
+                    // records at the dotted path); nothing was asking.
+                    field_borrow_conflicts(*it, name, /*path=*/"",
+                                           /*need_exclusive=*/true, ln, "assign to");
                 }
                 bool val_is_agg_lit2 = val &&
                     (val.kind() == lir_schema::expr::Code::StructLit ||

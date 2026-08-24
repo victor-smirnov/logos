@@ -1090,6 +1090,43 @@ removal of BOTH clauses, which is what the header now says.
 
 ---
 
+## 8e. Class B closes at the two sites that were not asking — 2026-08-24
+
+CENSUS ROW for the #139 fix (`field_borrow_conflicts` from `case Code::Assign`;
+a `TupleIndex` arm in `extract_borrow_place`).
+
+    PREDICTED  ctest -N  7571 -> 7575  (+4: 2 pass + 2 fail)
+    MEASURED   ctest -N  7575          exact
+
+    pass/*.logos  2355 -> 2357     fail/*.logos  802 -> 804
+    direct-door pins RE-DERIVED BY DIRECT LISTING, not by addition:
+        corpus   2355 -> 2357
+        glob      191 unmoved  (`wql_*` + `deem_*`; neither new pass fixture is one)
+        nonglob  2164 -> 2166  (= corpus - glob, re-derived independently)
+    DOOR counts unmoved (36 = 10 + 26): no new fixture declares a container
+    family or a `direct` output form.
+    `ls tests/logos/*.sh` unmoved at 66 — this round registers no gate. The two
+    refuse fixtures are ordinary `fail` tests and the two admits ordinary `pass`
+    tests; the verdict is the compiler's, so there is nothing for a gate to add.
+
+FIXTURES, and the twins are the point:
+
+    fail/bc_field_borrow_vs_whole_assign_fail   `&v.f` then `v = Foo{..}`
+    pass/bc_field_borrow_disjoint_assign        `&v.f` then `v.g = ..`   MUST admit
+    fail/bc_tuple_elem_exclusivity_fail         `&x.0` and `&mut x.0`
+    pass/bc_tuple_elem_disjoint                 `&x.0` and `&mut x.1`    MUST admit
+
+A rule that refused every field borrow would satisfy both refuse fixtures and be
+wrong; the two admits are what separates "checks paths" from "refuses more".
+
+⚠ WHAT THIS ROUND DID NOT DO, measured rather than assumed. The same omission
+was expected at `IndexWrite` / `FieldIndexWrite` / the `DerefWrite` `saw_index`
+block, all of which read the same two root counters. A probe was written first:
+`let r: &[i64;2] = &v.arr; v.arr[0] = 9;` — and it ALREADY REFUSES, because the
+place-aware `AddrOfTemp` arm reaches it before those counters do. Three further
+calls were therefore NOT added. Adding them would have been three copies of a
+rule for a case nobody could show failing.
+
 ## 9. THE PIN — every claim in this file a machine can decide
 
 `tests/logos/census_pin_gate.sh` (`logos_00_census_pin`, label `tier_commit`) reads THIS section and
@@ -3738,8 +3775,8 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # 2162 -> 2164), re-derived the same way; glob unmoved at 191 and doors unmoved
 # at 36 = 10 + 26 — neither fixture declares a container family or a `direct`
 # output form.
-REGISTRY-ALL         7571
-REGISTRY-NOIMPORTED  3888
+REGISTRY-ALL         7575
+REGISTRY-NOIMPORTED  3892
 REGISTRY-TIERCOMMIT  46
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

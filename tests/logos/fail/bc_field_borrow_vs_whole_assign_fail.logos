@@ -1,0 +1,25 @@
+// A borrow of a FIELD is invalidated by an assignment to the WHOLE variable —
+// the storage `i` names is overwritten either way, so `*i` afterwards reads
+// what the assignment put there.
+//
+// This admitted (rc 0) until 2026-08-24 while the `&v` spelling of the same
+// program refused, and the reason is the shape of the bookkeeping rather than
+// a missing rule: `take_field_borrow` DID record the loan at path "f", and
+// `field_borrow_conflicts` — the prefix query, with path "" meaning the whole
+// value and colliding with every field path — already existed and was already
+// called from four other sites. `case Code::Assign` simply read the two ROOT
+// counters and never asked. One call closed it.
+//
+// The admit twin is `pass/bc_field_borrow_disjoint_assign` and it is what makes
+// this fixture evidence: a rule that refused every field borrow would satisfy
+// the line below and be wrong.
+package bc_field_borrow_vs_whole_assign_fail;
+
+struct Foo { f: u64, g: u64 }
+
+fn main() -> i32 {
+    let mut v: Foo = Foo { f: 22u64, g: 0u64 };
+    let i: &u64 = &v.f;
+    v = Foo { f: 23u64, g: 0u64 };
+    return *i as i32;
+}

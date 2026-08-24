@@ -1,0 +1,24 @@
+// A tuple element is a FIELD whose name is its index, and exclusivity applies to
+// it exactly as to a named field: `&x.0` and `&mut x.0` cannot both be live.
+//
+// This admitted (rc 0) until 2026-08-24 while the byte-identical program over a
+// named-field struct refused — one token of spelling, `.0` for `.f0`, and the
+// whole exclusivity plane went dark for tuples. The cause was not a missing
+// rule either: `extract_borrow_place` had arms for FieldRead, IndexRead,
+// SliceIndex and Deref and none for TupleIndex, so the walk fell out with an
+// empty root and NO LOAN WAS RECORDED AT ALL. The dotted spelling `t.0` was
+// already what `moved_vars_` writes and what `emit_cond_move_field_drops`
+// rebuilds; the arm was the only thing missing.
+//
+// The admit twin is `pass/bc_tuple_elem_disjoint` — DISJOINT elements must still
+// be borrowable at once, which is the whole point of tracking a path instead of
+// a root.
+package bc_tuple_elem_exclusivity_fail;
+
+fn main() -> i32 {
+    let mut x: (i64, i64) = (1i64, 2i64);
+    let a: &i64 = &x.0;
+    let b: &mut i64 = &mut x.0;
+    *b = 9i64;
+    return *a as i32;
+}

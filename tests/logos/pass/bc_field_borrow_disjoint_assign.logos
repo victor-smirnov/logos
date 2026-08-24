@@ -1,0 +1,22 @@
+// THE ADMIT TWIN of `fail/bc_field_borrow_vs_whole_assign_fail`, and it is what
+// makes that fixture mean something: the 2026-08-24 fix routes the whole-value
+// assignment through `field_borrow_conflicts` with path "", which collides with
+// EVERY field path by design. A rule that stopped there would refuse this
+// program too, and refusing everything is not checking.
+//
+// Here the borrow and the write name DISJOINT fields, so nothing is invalidated
+// and the program must compile and print 7 then 5.
+package bc_field_borrow_disjoint_assign;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+
+struct Foo { f: i64, g: i64 }
+
+fn main() -> i32 {
+    let mut v: Foo = Foo { f: 7i64, g: 5i64 };
+    let i: &i64 = &v.f;
+    v.g = 5i64;
+    pr("%ld ", *i);
+    pr("%ld\n", v.g);
+    return 0i32;
+}
