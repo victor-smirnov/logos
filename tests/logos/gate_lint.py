@@ -213,6 +213,19 @@ NOT_GATES = {
     # Reporters. They pronounce no verdict at all — this is also written down in
     # verdict.py's gate census.
     "ctest-summary.sh":        "reports a ctest run; asserts nothing",
+    # A HAND-RUN MEASURING TOOL, and the one thing it must not become is a gate.
+    # It reports the SIZE of a change (files / logic lines / new names / new
+    # branches) against a budget the author declared BEFORE writing it — the
+    # external half of "minimise the code you write" (Victor 2026-08-24). It has
+    # no fixed verdict of its own: with no `--declare` it only measures, and with
+    # one it answers a question about THAT change, so there is no population it
+    # could be registered over. Registering it would also invert its purpose: a
+    # budget that ctest re-checks every commit is a budget nobody had to predict.
+    "change-budget.sh":        "a hand-run measuring tool; its verdict is about "
+                               "ONE change against a budget declared before that "
+                               "change was written, so it has no fixed population "
+                               "and cannot be a standing gate",
+
     "perf-slow.sh":            "lists the slowest tests; asserts nothing",
     "test-levels.sh":          "DRIVES ctest (L0–L4); being a ctest test would "
                                "be a recursion",
