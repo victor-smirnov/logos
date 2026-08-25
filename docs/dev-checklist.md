@@ -65,9 +65,17 @@ ten intermediate `-L imported` runs found a red.
 RULES:
 
 * **Cheap list between cells, full sweep ONCE before handing over.**
-  `ctest -j$(nproc) -L pass -LE imported` is the between-cells list: it catches
-  the over-refusal direction, which is where rounds actually die. `-L imported`,
-  `-L fail` and the gates tier run ONCE, at the end.
+  `ctest -j$(nproc) -L pass -LE imported` is the between-cells list — and it
+  is the ONLY one. It catches the over-refusal direction, which is where
+  rounds actually die. **Everything else runs once, at handover:**
+  `-L imported`, `-L fail`, L1, L2, **and the gates tier / any `logos_00_` or
+  `logos_09_` census gate**.
+  ⚠ SPELL THE GATES OUT, because the first cut of this rule did not and the
+  next round ran them EIGHT times (~56 min) while cutting `-L imported` from
+  ten runs to one. The prohibition had named `-L imported`, `-L fail`, L1 and
+  L2 explicitly and left the gates tier only implied — so the agent obeyed
+  what was written. A rule that lists its exceptions by name will be read as
+  exhaustive.
 * **Never put a growing fold in `tier_commit`** unless it answers "did something
   break". `bc_admits.ledger` answers "what got FIXED", so an intermediate run of
   it is worthless — and it is 7 minutes single-threaded per run (see 8g).
