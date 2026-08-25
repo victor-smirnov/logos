@@ -1,0 +1,16 @@
+// rustc nll/enum-drop-access.rs — upstream E0713
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.E
+package enum_drop_access;
+// nll/enum-drop-access.rs (reshaped: no nested pattern) — E0713 borrow may still
+// be in use when destructor runs: the Drop impl can observe the &mut the value holds.
+struct DropOpt { r: &mut i64 }
+impl Drop for DropOpt { fn drop(self: &mut DropOpt) { *self.r = 9i64; } }
+fn drop_enum(opt: DropOpt) -> &mut i64 { return opt.r; }
+fn main() -> i32 {
+    let mut n: i64 = 1i64;
+    let d = DropOpt { r: &mut n };
+    let out = drop_enum(d);
+    *out = 5i64;
+    return 0i32;
+}

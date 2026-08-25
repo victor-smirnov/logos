@@ -1,0 +1,14 @@
+// rustc lifetimes/temporary-lifetime-extension-tuple-ctor.rs — upstream E0716 temporary value dropped while borrowed
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.D
+// port of rust tests/ui/lifetimes/temporary-lifetime-extension-tuple-ctor.rs — E0716 temporary dropped while borrowed
+package temporary_lifetime_extension_tuple_ctor;
+struct T { n: i64 }
+struct X<'a> { r: &'a T }
+fn temp() -> T { return T { n: 5i64 }; }
+fn mk(r: &T) -> X { return X { r: r }; }
+fn main() -> i32 {
+    let g = mk(&temp());
+    if g.r.n != 5i64 { return 1i32; }
+    return 0i32;
+}

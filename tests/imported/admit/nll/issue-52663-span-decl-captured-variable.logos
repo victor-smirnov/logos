@@ -1,0 +1,13 @@
+// rustc nll/issue-52663-span-decl-captured-variable.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.C
+package issue_52663_span_decl_captured_variable;
+struct D { x: i64 }
+impl Drop for D { fn drop(self: &mut Self) { } }
+fn main() -> i32 {
+  let x: (D, D) = (D { x: 1i64 }, D { x: 2i64 });
+  let c = || -> i64 { let m: D = x.0; return m.x; };
+  let a: i64 = c();
+  let b: i64 = c();
+  return 0i32;
+}

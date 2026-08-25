@@ -1,0 +1,15 @@
+// rustc nll/issue-52669.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_52669;
+struct B { n: i64 }
+impl Drop for B { fn drop(self: &mut B) {} }
+struct A { b: B }
+impl Drop for A { fn drop(self: &mut A) {} }
+fn foo(a: A) -> i64 { return a.b.n; }
+fn bar(mut a: A) -> i64 {
+    a.b = B { n: 1i64 };
+    let _ = foo(a);
+    return a.b.n;
+}
+fn main() -> i32 { return 0i32; }

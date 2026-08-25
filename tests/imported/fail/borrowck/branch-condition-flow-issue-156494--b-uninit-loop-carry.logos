@@ -1,0 +1,18 @@
+// rustc borrowck/branch-condition-flow-issue-156494.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: branch-condition-flow-issue-156494.rs (main loop)  E0381
+package branch_condition_flow_issue_156494_b_uninit_loop_carry;
+fn main() -> i32 {
+    let mut first: bool = true;
+    let mut token: i64;
+    let mut following: i64;
+    let mut n: i64 = 0i64;
+    loop {
+        if first { first = false; following = 7i64; }
+        else { token = following; n += token; }
+        n += 1i64;
+        if n > 20i64 { break; }
+    }
+    return 0i32;
+}

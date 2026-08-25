@@ -1,0 +1,12 @@
+// rustc moves/moves-based-on-type-no-recursive-stack-closure.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of tests/ui/moves/moves-based-on-type-no-recursive-stack-closure.rs
+// second error arm: `f` moved into R, then called -> E0382 borrow of moved value
+package moves_based_on_type_no_recursive_stack_closure;
+struct R { c: Box<dyn FnMut(i64) -> i64> }
+fn conspirator(f: Box<dyn FnMut(i64) -> i64>) -> i64 {
+    let r = R { c: f };
+    return f(1i64);
+}
+fn main() -> i32 { return 0i32; }

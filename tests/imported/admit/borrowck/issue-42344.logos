@@ -1,0 +1,10 @@
+// rustc borrowck/issue-42344.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+package issue_42344;
+static TAB: i64 = 5i64;
+fn test() {
+    let r: &mut i64 = &mut TAB;
+    *r = 1i64;
+}
+fn main() -> i32 { test(); return 0i32; }

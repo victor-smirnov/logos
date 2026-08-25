@@ -1,0 +1,13 @@
+// rustc borrowck/reassignment_immutable_fields.rs — upstream E0594/E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/reassignment_immutable_fields.rs (E0381 assign to field of uninit non-mut local)
+package reassignment_immutable_fields;
+fn assign_both_fields_and_use() {
+    let x: (u64, u64);
+    x.0 = 1u64;
+    x.1 = 22u64;
+    let _ = x.0;
+    let _ = x.1;
+}
+fn main() -> i32 { assign_both_fields_and_use(); return 0i32; }

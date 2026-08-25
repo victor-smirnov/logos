@@ -1,0 +1,13 @@
+// rustc drop/explicit-call-to-dtor.rs — upstream E0040 explicit use of destructor method
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-N6
+// port of rust tests/ui/drop/explicit-call-to-dtor.rs — E0040 explicit use of destructor method
+// (`let mut x` so the receiver mut-borrow noise is out of the way; see ctl/explicit-call-to-dtor-nonmut.logos)
+package explicit_call_to_dtor;
+struct Foo { x: i64 }
+static mut N: i64 = 0i64;
+impl Drop for Foo { fn drop(self: &mut Self) { unsafe { N = N + 1i64; } } }
+fn main() -> i32 {
+    { let mut x = Foo { x: 3i64 }; x.drop(); }
+    unsafe { return N as i32; }   // 2 == the destructor ran TWICE for one value
+}

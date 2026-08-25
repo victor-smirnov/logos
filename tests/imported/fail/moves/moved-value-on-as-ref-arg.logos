@@ -1,0 +1,14 @@
+// rustc moves/moved-value-on-as-ref-arg.rs — upstream use of moved value
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of moves/moved-value-on-as-ref-arg.rs: value moved into a GENERIC by-value param
+package moved_value_on_as_ref_arg;
+struct Bar { n: i64 }
+impl Drop for Bar { fn drop(self: &mut Bar) {} }
+fn foo<T>(_t: T) {}
+fn main() -> i32 {
+    let bar: Bar = Bar { n: 1i64 };
+    foo(bar);
+    let _baa: Bar = bar;   // use of moved value
+    return 0i32;
+}

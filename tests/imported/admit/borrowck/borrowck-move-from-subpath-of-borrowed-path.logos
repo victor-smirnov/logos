@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-move-from-subpath-of-borrowed-path.rs — upstream E0505 cannot move out of `*a`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package borrowck_move_from_subpath_of_borrowed_path;
+struct Inner { n: i64 }
+struct Outer { i: Inner }
+impl Drop for Inner { fn drop(self: &mut Inner) { } }
+fn main() -> i32 {
+    let a: Outer = Outer { i: Inner { n: 2i64 } };
+    let b: &Outer = &a;
+    let z: Inner = a.i;
+    let _u: i64 = b.i.n;
+    return 0i32;
+}

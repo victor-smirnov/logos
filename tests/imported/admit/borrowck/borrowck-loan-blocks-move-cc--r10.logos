@@ -1,0 +1,15 @@
+// rustc borrowck/borrowck-loan-blocks-move-cc.rs — upstream E0505
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+package borrowck_loan_blocks_move_cc_r10;
+static mut DROPS: i64 = 0i64;
+struct B { v: i64 }
+impl Drop for B { fn drop(self: &mut B) { unsafe { DROPS = DROPS + 1i64; } } }
+fn spawn<F>(f: F) -> F { return f; }
+fn main() -> i32 {
+    let v = B { v: 3i64 };
+    let w: &B = &v;
+    let c = spawn(move || { return v.v; });
+    let seen = w.v;
+    unsafe { return (DROPS * 10i64 + seen) as i32; }
+}

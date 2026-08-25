@@ -1,0 +1,15 @@
+// rustc nll/issue-52534-2.rs — upstream does not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of nll/issue-52534-2.rs
+package issue_52534_2;
+fn foo(x: &u32) -> &u32 {
+    let y: &u32;
+    {
+        let x2: u32 = 32u32;
+        y = &x2;            // x2 does not live long enough
+    }
+    let _z: u32 = *y;
+    return x;
+}
+fn main() -> i32 { let a: u32 = 1u32; let r: &u32 = foo(&a); return *r as i32; }

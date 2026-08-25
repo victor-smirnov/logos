@@ -1,0 +1,8 @@
+// rustc nll/ty-outlives/ty-param-fn-body.rs — upstream (T may not live long enough)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW
+package ty_param_fn_body;
+// nll/ty-outlives/ty-param-fn-body.rs — `T: 'a` outlives bound on a type parameter
+fn outlives<'a, T: 'a>(x: &'a u64, y: T) {}
+fn region_static<'a, T>(cell: &'a u64, t: T) { outlives(cell, t); }
+fn main() -> i32 { return 0i32; }

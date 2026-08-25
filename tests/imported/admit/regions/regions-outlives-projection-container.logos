@@ -1,0 +1,12 @@
+// rustc regions/regions-outlives-projection-container.rs — upstream lifetime may not live long enough (x4)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-N1
+package regions_outlives_projection_container;
+trait TheTrait { type TheAssocType; }
+struct TheType<'b> { m: &'b i64 }
+impl<'b> TheTrait for TheType<'b> { type TheAssocType = &'b i64; }
+struct WithAssoc<T: TheTrait> { m: T }
+struct WithoutAssoc<T> { m: T }
+fn without_assoc<'a, 'b>(v: &'a WithoutAssoc<TheType<'b>>) {}
+fn with_assoc<'a, 'b>(v: &'a WithAssoc<TheType<'b>>) {}
+fn main() -> i32 { return 0i32; }

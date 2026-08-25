@@ -1,0 +1,12 @@
+// rustc borrowck/regions-escape-unboxed-closure.rs — upstream E0521 borrowed data escapes closure
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package regions_escape_unboxed_closure;
+fn main() -> i32 {
+    let mut x: Option<&i64> = Option::None;
+    {
+        let t: i64 = 5i64;
+        x = Option::Some(&t);
+    }
+    return 0i32;
+}

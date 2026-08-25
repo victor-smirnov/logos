@@ -1,0 +1,10 @@
+// rustc borrowck/regions-bound-missing-bound-in-impl.rs — upstream E0195
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+// upstream: borrowck/regions-bound-missing-bound-in-impl.rs  E0195 (reshape: no
+// impl-header lifetime referenced, so the undeclared-name noise is gone)
+package regions_bound_missing_bound_in_impl;
+struct Inv<'a> { x: &'a i64 }
+pub trait Foo { fn no_bound<'b>(self: Self, b: Inv<'b>); }
+impl Foo for i64 { fn no_bound<'b: 'static>(self: Self, b: Inv<'b>) {} }
+fn main() -> i32 { return 0i32; }

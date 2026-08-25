@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-move-subcomponent.rs — upstream E0505
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_move_subcomponent;
+use logos.mem.boxed;
+struct S { x: Box<i64> }
+fn f(_v: &S) {}
+fn main() -> i32 {
+    let a: S = S { x: Box::new(1i64) };
+    let pb: &S = &a;
+    let S { x: ax } = a;
+    f(pb);
+    return *ax as i32;
+}

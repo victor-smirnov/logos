@@ -1,0 +1,14 @@
+// rustc borrowck/issue-82032.rs — upstream E0502 cannot borrow
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package issue_82032;
+struct Thing { v: Vec<i64> }
+impl Thing {
+    fn die_horribly(self: &mut Self) -> i32 {
+        let e: &i64 = &self.v[0u64];
+        self.v.push(*e);
+        let _q: i64 = *e;
+        return 0i32;
+    }
+}
+fn main() -> i32 { let mut t: Thing = Thing { v: Vec::<i64>::new() }; return t.die_horribly(); }

@@ -1,0 +1,10 @@
+// rustc borrowck/borrowck-return-variable-on-stack-via-clone.rs — upstream E0515
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck-return-variable-on-stack-via-clone.rs E0515
+package borrowck_return_variable_on_stack_via_clone;
+fn idc(r: &i64) -> &i64 { return r; }
+fn leak(x: i64) -> &i64 {
+    return idc(&x);   // E0515: returns value referencing function parameter `x`
+}
+fn main() -> i32 { return *leak(3i64) as i32; }

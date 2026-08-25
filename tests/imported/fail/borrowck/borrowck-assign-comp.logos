@@ -1,0 +1,12 @@
+// rustc borrowck/borrowck-assign-comp.rs — upstream E0506 (site c)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_assign_comp;
+struct Point { x: i64, y: i64 }
+fn main() -> i32 {
+    let mut p: Point = Point { x: 3i64, y: 4i64 };
+    let q: &i64 = &p.y;
+    p = Point { x: 5i64, y: 7i64 };
+    let _ = *q;
+    return 0i32;
+}

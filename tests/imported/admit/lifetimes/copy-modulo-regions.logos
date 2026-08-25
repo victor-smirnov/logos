@@ -1,0 +1,18 @@
+// rustc lifetimes/copy_modulo_regions.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-L5
+// port of rust ui/lifetimes/copy_modulo_regions.rs, without the lifetime turbofish
+package copy_modulo_regions;
+
+struct Foo<'a> { f: &'a i64 }
+
+impl Copy for Foo<'static> { }
+
+fn mk_foo<'a>(r: &'a i64) -> Foo<'a> { return Foo { f: r }; }
+
+fn foo<'a>(r: &'a i64) -> [Foo<'a>; 4] {
+    let x = mk_foo(r);
+    return [x; 4];
+}
+
+fn main() -> i32 { return 0i32; }

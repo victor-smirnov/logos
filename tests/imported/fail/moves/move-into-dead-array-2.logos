@@ -1,0 +1,18 @@
+// rustc moves/move-into-dead-array-2.rs — upstream E0382 use of moved value: `a`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of moves/move-into-dead-array-2.rs
+package move_into_dead_array_2;
+struct D { x: i64 }
+impl Drop for D { fn drop(self: &mut D) {} }
+fn d() -> D { return D { x: 0i64 }; }
+fn consume(a: [D; 4]) -> i64 { return a[0i64].x; }
+fn foo(mut a: [D; 4], i: i64) -> i64 {
+    let _k: i64 = consume(a);
+    a[i] = d();                     // use of moved value: a
+    return 0i64;
+}
+fn main() -> i32 {
+    let arr: [D; 4] = [d(), d(), d(), d()];
+    return foo(arr, 1i64) as i32;
+}

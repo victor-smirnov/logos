@@ -1,0 +1,11 @@
+// rustc lifetimes/E0106-trailing-comma-in-lifetime-suggestion.rs — upstream E0106
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-L1
+// port of rust tests/ui/lifetimes/E0106-trailing-comma-in-lifetime-suggestion.rs (E0106)
+package e0106_trailing_comma_in_lifetime_suggestion_missing_lifetime_spec;
+
+struct Foo<'a> { r: &'a i64 }
+
+type Alias6 = Foo;
+
+fn main() -> i32 { return 0i32; }

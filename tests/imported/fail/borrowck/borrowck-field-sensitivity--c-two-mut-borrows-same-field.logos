@@ -1,0 +1,12 @@
+// rustc borrowck/borrowck-field-sensitivity.rs — upstream E0382/E0505/E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck-field-sensitivity.rs mut_borrow_after_mut_borrow  E0499
+package borrowck_field_sensitivity_c_two_mut_borrows_same_field;
+struct A { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut x = A { a: 1i64, b: 2i64 };
+    let p = &mut x.a;
+    let q = &mut x.a;
+    return (*p + *q) as i32;
+}

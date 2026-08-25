@@ -1,0 +1,14 @@
+// rustc regions/regions-steal-closure.rs — upstream E0597 `i` does not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.D
+package regions_steal_closure;
+struct ClosureBox<'a> { cl: Box<dyn FnMut()> }
+fn box_it<'r>(x: Box<dyn FnMut()>) -> ClosureBox<'r> { return ClosureBox { cl: x }; }
+fn main() -> i32 {
+  let cb: ClosureBox;
+  {
+    let mut i: i64 = 3i64;
+    cb = box_it(Box::new(|| { i += 1i64; }));
+  }
+  return 0i32;
+}

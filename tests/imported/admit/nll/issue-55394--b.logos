@@ -1,0 +1,10 @@
+// rustc nll/issue-55394.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-3
+package issue_55394_b;
+struct Bar { v: i64 }
+struct Foo<'s> { bar: &'s mut Bar }
+impl Foo<'_> {
+    fn newf(bar: &mut Bar) -> Self { return Foo { bar: bar }; }
+}
+fn main() -> i32 { return 0i32; }

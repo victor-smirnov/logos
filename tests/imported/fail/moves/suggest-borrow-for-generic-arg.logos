@@ -1,0 +1,15 @@
+// rustc moves/suggest-borrow-for-generic-arg.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package suggest_borrow_for_generic_arg;
+struct W { n: i64 }
+impl Drop for W { fn drop(self: &mut W) {} }
+trait Writeish { fn go(self: &Self) -> i64; }
+impl Writeish for W { fn go(self: &Self) -> i64 { return self.n; } }
+fn write_stuff<T: Writeish>(w: T) -> i64 { return w.go(); }
+fn main() -> i32 {
+    let w = W { n: 1i64 };
+    let _ = write_stuff::<W>(w);
+    let _ = write_stuff::<W>(w);
+    return 0i32;
+}

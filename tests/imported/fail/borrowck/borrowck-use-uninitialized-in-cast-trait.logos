@@ -1,0 +1,11 @@
+// rustc borrowck/borrowck-use-uninitialized-in-cast-trait.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_use_uninitialized_in_cast_trait;
+trait Foo { fn dummy(self: &Self) {} }
+impl Foo for i64 { fn dummy(self: &Self) {} }
+fn main() -> i32 {
+    let x: &i64;
+    let y: &dyn Foo = x;
+    return 0i32;
+}

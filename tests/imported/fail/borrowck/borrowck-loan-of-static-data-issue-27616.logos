@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-loan-of-static-data-issue-27616.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-loan-of-static-data-issue-27616.rs  E0506
+package borrowck_loan_of_static_data_issue_27616;
+use logos.mem.string;
+fn evil(s: &mut String) -> i64 {
+    let alias: &mut String = s;
+    let inner: &String = alias;
+    *s = String::from("");
+    return inner.len();
+}
+fn main() -> i32 { let mut s = String::from("hello"); return evil(&mut s) as i32; }

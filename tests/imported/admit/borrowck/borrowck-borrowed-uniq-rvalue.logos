@@ -1,0 +1,11 @@
+// rustc borrowck/borrowck-borrowed-uniq-rvalue.rs — upstream E0716
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.D
+// upstream: borrowck/borrowck-borrowed-uniq-rvalue.rs  E0716
+package borrowck_borrowed_uniq_rvalue;
+struct B { v: i64 }
+fn mk() -> B { return B { v: 1i64 }; }
+fn main() -> i32 {
+    let r: &i64 = &mk().v;
+    return *r as i32;
+}

@@ -1,0 +1,11 @@
+// rustc lifetimes/issue-107988.rs — upstream E0261 undeclared lifetime `'tcx`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R17
+// port of rust tests/ui/lifetimes/issue-107988.rs — E0261 use of undeclared lifetime name 'tcx
+package issue_107988;
+trait TraitEngine<'tcx> { fn te(self: &Self) -> i64; }
+trait TraitEngineExt<'tcx> { fn reg(self: &mut Self); }
+struct W { n: i64 }
+impl<'tcx> TraitEngine<'tcx> for W { fn te(self: &Self) -> i64 { return self.n; } }
+impl TraitEngineExt<'tcx> for W { fn reg(self: &mut Self) { } }
+fn main() -> i32 { return 0i32; }

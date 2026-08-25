@@ -1,0 +1,14 @@
+// rustc borrowck/issue-82462.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.E
+// upstream: borrowck/issue-82462.rs (E0502: the `DroppingSlice` value has a `Drop` impl,
+// so its borrow of `v` stays live until its destructor runs)
+package issue_82462;
+struct DroppingSlice { r: &i64 }
+impl Drop for DroppingSlice { fn drop(self: &mut DroppingSlice) {} }
+fn main() -> i32 {
+    let mut v: i64 = 1i64;
+    let d = DroppingSlice { r: &v };
+    v = 2i64;
+    return 0i32;
+}

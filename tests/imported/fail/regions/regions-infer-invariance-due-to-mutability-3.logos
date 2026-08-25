@@ -1,0 +1,8 @@
+// rustc regions/regions-infer-invariance-due-to-mutability-3.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package regions_infer_invariance_due_to_mutability_3;
+// port of regions/regions-infer-invariance-due-to-mutability-3.rs
+struct Invariant<'a> { f: &'a mut i64 }
+fn to_longer_lifetime<'r>(b: Invariant<'r>) -> Invariant<'static> { return b; }
+fn main() -> i32 { return 0i32; }

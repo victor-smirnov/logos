@@ -1,0 +1,12 @@
+// rustc borrowck/move-in-static-initializer-issue-38520.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package move_in_static_initializer_issue_38520;
+struct Foo { n: String }
+fn get(x: Foo) -> i64 { return x.n.len(); }
+fn main() -> i32 {
+    let x: Foo = Foo { n: String::new() };
+    let r: &Foo = &x;
+    let _y: i64 = get(*r);
+    return 0i32;
+}

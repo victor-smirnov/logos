@@ -1,0 +1,17 @@
+// rustc nll/match-cfg-fake-edges.rs — upstream E0382,E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package match_cfg_fake_edges_a_move_in_unreachable_arm;
+struct X { n: i64 }
+impl Drop for X { fn drop(self: &mut X) {} }
+fn sink(x: X) -> i64 { return x.n; }
+fn main() -> i32 {
+    let x = X { n: 1i64 };
+    let b: bool = true;
+    match b {
+        _ => { }
+        _ => { let _ = sink(x); }
+    }
+    let _ = sink(x);
+    return 0i32;
+}

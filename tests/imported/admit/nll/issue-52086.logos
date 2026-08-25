@@ -1,0 +1,13 @@
+// rustc nll/issue-52086.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.B
+package issue_52086;
+use logos.lang.rc;
+use logos.mem.string;
+struct Bar { field: String }
+fn eat(s: String) { }
+fn main() -> i32 {
+    let x = rc_new(Bar{ field: String::from("q") });
+    eat(x.field);
+    return 0i32;
+}

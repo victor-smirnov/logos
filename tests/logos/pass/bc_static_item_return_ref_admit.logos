@@ -1,0 +1,53 @@
+// THE ADMIT TWIN of fail/bc_const_item_return_ref_fail. One property apart: a
+// `static` has REAL global storage (one llvm.mlir.global, stable address), so
+// returning a borrow of it is correct and MUST keep compiling — without this
+// half, the const refusal is indistinguishable from switching the rule off.
+//
+// The frame is clobbered between the borrow and its read (stomp), so a value
+// that lived in f's frame would be visible as garbage rather than as 5.
+package bc_static_item_return_ref_admit;
+
+static K: i64 = 5i64;
+
+fn f() -> &i64 { return &K; }
+
+// ⚠ THE PROJECTION FORMS, added 2026-08-25 with the fix that closed them for a
+// `const`. Without these the admit half only exercised the BARE spelling, which
+// is exactly how the const cell was first declared closed while `&K.a` and
+// `&A[0]` were still dangling — the fixture could not see what the rule did not
+// cover. A `static` projection must keep compiling AND keep reading correctly
+// after the frame that produced the reference is gone: sema rewrites a static
+// read to `Deref(VarRef "__static_addr:<sym>")`, so it never reaches the
+// value-local terminal the const rule fires at.
+struct SIn { a: i64 }
+struct SS  { a: i64, i: SIn }
+static T: SS      = SS { a: 5i64, i: SIn { a: 5i64 } };
+static A: [i64; 4] = [5i64, 6i64, 7i64, 8i64];
+
+fn f_field() -> &i64 { return &T.a; }
+fn f_nested() -> &i64 { return &T.i.a; }
+fn f_index() -> &i64 { return &A[0u64]; }
+
+fn stomp(v: i64) -> i64 {
+    let mut a: [i64; 32] = [v; 32];
+    let mut i: i64 = 0;
+    let mut s: i64 = 0;
+    while i < 32 { s = s + a[i]; i = i + 1; }
+    return s;
+}
+
+// In-scope borrows of a `const` are NOT refused and must stay that way: the
+// const is materialised into THIS frame, which outlives the borrow.
+const C: i64 = 7i64;
+fn local_const_borrow() -> i64 { let r: &i64 = &C; return *r; }
+
+fn main() -> i64 {
+    let r: &i64 = f();
+    let s: i64 = stomp(71);
+    if s != 71i64 * 32i64 { return 90; }
+    if local_const_borrow() != 7i64 { return 91; }
+    if *f_field()  != 5i64 { return 92; }
+    if *f_nested() != 5i64 { return 93; }
+    if *f_index()  != 5i64 { return 94; }
+    return *r - 5i64;
+}

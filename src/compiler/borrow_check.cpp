@@ -90,10 +90,44 @@ struct TypeSets {
     std::unordered_map<std::string, lir_view::StructView>  struct_by_name;
     std::unordered_map<std::string, lir_view::StructView>  spec_by_name;
     std::unordered_map<std::string, lir_view::EnumView>     enum_by_name;
+    // Names of `const` items — the ones WITHOUT static storage. Logos has no
+    // const-eval (project_no_const_eval): a const is name + type + lowered
+    // expression, and mlir_gen MATERIALISES that expression INTO THE FRAME at
+    // each use, so `&K` borrows frame storage exactly as `&local` does and
+    // dangles the moment it is returned (MEASURED: `const K: i64 = 5i64; fn f()
+    // -> &i64 { return &K; }` returned the clobber constant, 71 and 9 in two
+    // runs, where 5 is correct). A `static` is the ADMIT TWIN — one
+    // llvm.mlir.global, stable address — and is deliberately NOT in this set.
+    // The distinction is carried on the LIR const mirror as IS_STATIC
+    // (lir_view::ConstView::is_static), which is why this set can be built here
+    // at all: sema's module_consts_/module_statics_ are not visible to a pass
+    // that works on LIR.
+    std::unordered_set<std::string> frame_consts;
 };
 
 static TypeSets build_type_sets(const lir::LProgram& prog) {
     TypeSets ts;
+    // `prog.consts` holds BOTH kinds (sema pushes CONST_DEF and STATIC_DEF into
+    // the same vector); IS_STATIC is the one property that separates them.
+    // ⚠ THE `is_static` SKIP IS NOT WHAT KEEPS `static` COMPILING TODAY, AND
+    // SAYING SO IS THE POINT. Sema rewrites every static READ to
+    // `Deref(VarRef("__static_addr:<sym>"))` (sema_expr.cpp, §6.2 S25) and
+    // `&STATIC` collapses to that address through the `&*p ≡ p` peephole — so a
+    // static's borrow never arrives at the AddrOf arm below at all. MEASURED
+    // two ways: with this skip deleted, all 44 `static`-using pass fixtures stay
+    // green and pass/bc_static_item_return_ref_admit still passes; and a
+    // `LOGOS_DUMP_RETGATE` trace of the twin probes reads `prov{loc=1}` for the
+    // const and `prov{loc=0}` for the static. The skip stays because the set
+    // MEANS "materialised into the frame", which a static is not — but it is
+    // belt-and-braces, and the thing that would catch a lowering change putting
+    // statics back on the AddrOf path is the admit fixture, not this line.
+    // Bare name only: over all 2368 `tests/logos/pass` fixtures, every AddrOf
+    // that reached this set spelled the const BARE (`[consthit]` sweep); the
+    // pkg-qualified spelling never appeared, so it is not inserted.
+    for (auto& cv : prog.consts) {
+        if (cv.is_static()) continue;   // real global storage — borrow is sound
+        ts.frame_consts.insert(std::string(cv.name()));
+    }
     auto register_drop_symbol = [&](std::string_view sym) {
         // After unification, method names are pkg-qualified
         // (`pkg.Buf__drop__f__sig`). Strip pkg prefix before extracting
@@ -5154,6 +5188,20 @@ private:
             if (var_has(rn_slot, rn) && !param_names_.count(rn) &&
                 prov_.find(rn) == prov_.end())
                 return rn;
+            // A `const` ITEM is materialised into the FRAME at each use, so a
+            // borrow reaching it through a PROJECTION dangles exactly as one
+            // into a value local does. The bare spelling `&K` is caught by
+            // `prov_of`'s AddrOf arm with this same set; `&K.a` and `&A[0]`
+            // arrive HERE instead and fell through, because a const is not in
+            // `var_has`. Measured on the landed build with the clobber constant
+            // varied: `return &A[0];` gave exit 71 for stomp 71 where 5 is
+            // correct, and `&K.a` the same — the bare form was closed and its
+            // projections were not, which the admit twin could not see because
+            // it only exercised the bare form.
+            // ⚠ A `static` is NOT here and must not be: it has real static
+            // storage, and sema rewrites its read to `Deref(VarRef
+            // "__static_addr:<sym>")`, so it never reaches this terminal at all.
+            if (ts_.frame_consts.count(rn)) return rn;
             // A BY-VALUE OWNED param is call-local storage too — it is dropped at
             // return, so a borrow into it (`&h.v` where `h: Holder`) dangles.
             // Reference / raw-pointer / borrow-carrying params (outliving_params_)
@@ -5513,6 +5561,15 @@ private:
                              ? RefProv{{name}, false}
                              : RefProv{{}, /*is_local=*/true};
                 if (var_has(NO_SLOT, name))      return {{},     true};
+                // A `const` item is materialised into THIS frame at each use
+                // (no const-eval by design), so `&K` is frame-rooted and must
+                // answer is_local — the same verdict `&local` gets, which is
+                // what makes the RETURN gate refuse and the in-scope `let`
+                // keep admitting. Reached only after the param and local arms
+                // above, so a local or param SHADOWING a const still wins.
+                // A `static` is never in this set: its borrow stays admitted.
+                if (ts_.frame_consts.count(name))
+                    return {{}, /*is_local=*/true};
                 return {};
             }
             case Code::AddrOfTemp: {
@@ -6657,7 +6714,18 @@ private:
             // initializer is a constant expression must be marked promoted so it
             // never enters the dangling channel — and is a language feature with
             // its own design surface, not a patch to this report site.
-            if (is_temp)
+            // MESSAGE ONLY, and it is not cosmetic: `K` is a const ITEM, so
+            // "local variable 'K'" sends the reader looking for a `let` that
+            // is not in the function. Name what it is and name the fix — the
+            // admit twin `static` is a one-word edit away.
+            if (!is_temp && !src.empty() && ts_.frame_consts.count(src) &&
+                !var_has(NO_SLOT, src))
+                report(line, std::format(
+                    "cannot return reference to const item '{}': a const is "
+                    "materialised into the frame at each use and has no static "
+                    "storage (declare it `static` instead): dangling reference",
+                    src));
+            else if (is_temp)
                 report(line,
                     "cannot return reference to temporary value: dangling reference");
             else

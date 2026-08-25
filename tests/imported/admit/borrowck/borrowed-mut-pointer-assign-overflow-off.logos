@@ -1,0 +1,14 @@
+// rustc borrowck/borrowed-mut-pointer-assign-overflow-off.rs — upstream E0503 + E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package borrowed_mut_pointer_assign_overflow_off;
+struct S { pointer: &mut i64 }
+fn copy_borrowed_ptr(p: &mut S) -> S { return S { pointer: &mut *p.pointer }; }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let mut y: S = S { pointer: &mut x };
+    let z: S = copy_borrowed_ptr(&mut y);
+    *y.pointer = *y.pointer + 1i64;   // ERROR E0503/E0506: y.pointer still borrowed by z
+    *z.pointer = *z.pointer + 1i64;
+    return 0i32;
+}

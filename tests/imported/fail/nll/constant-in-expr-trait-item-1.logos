@@ -1,0 +1,10 @@
+// rustc nll/user-annotations/constant-in-expr-trait-item-1.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package constant_in_expr_trait_item_1;
+trait Foo<'a> { const C: &'a i64; }
+static TWENTYTWO: i64 = 22i64;
+struct U { }
+impl<'a> Foo<'a> for U { const C: &'a i64 = &TWENTYTWO; }
+fn foo<'a>(x: &'a i64) -> &'static i64 { return <U as Foo<'a>>::C; }
+fn main() -> i32 { return 0i32; }

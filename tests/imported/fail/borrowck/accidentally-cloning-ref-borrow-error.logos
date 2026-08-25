@@ -1,0 +1,12 @@
+// rustc borrowck/accidentally-cloning-ref-borrow-error.rs — upstream E0596 cannot borrow behind `&`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package accidentally_cloning_ref_borrow_error;
+struct Str { x: i64 }
+fn foo(s: &mut i64) { *s = 1i64; }
+fn main() -> i32 {
+    let s = Str { x: 0i64 };
+    let sr: &Str = &s;
+    foo(&mut sr.x);   // ERROR: cannot borrow `sr.x` as mutable, behind a `&` reference
+    return 0i32;
+}

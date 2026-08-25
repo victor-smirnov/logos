@@ -1,0 +1,7 @@
+// rustc regions/regions-ret-borrowed.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.C
+package regions_ret_borrowed;
+fn with<R, F>(f: F) -> R where F: FnOnce(&i64) -> R { return f(&3i64); }
+fn return_it<'a>() -> &'a i64 { return with(|o| o); }
+fn main() -> i32 { let x: &i64 = return_it(); return *x as i32; }

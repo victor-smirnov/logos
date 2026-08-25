@@ -1,0 +1,11 @@
+// rustc borrowck/borrowck-closures-mut-and-imm.rs — upstream E0502/E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+package borrowck_closures_mut_and_imm;
+fn main() -> i32 {
+    let mut x: i64 = 3i64;
+    let c2 = || -> i64 { return x * 5i64; };
+    x = 5i64;
+    let _z: i64 = c2();
+    return 0i32;
+}

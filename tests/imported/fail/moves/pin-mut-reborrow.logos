@@ -1,0 +1,14 @@
+// rustc moves/pin-mut-reborrow.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of tests/ui/moves/pin-mut-reborrow.rs (Pin absent; core = by-value self used twice)
+package pin_mut_reborrow;
+struct Foo { v: i64 }
+impl Drop for Foo { fn drop(self: &mut Foo) {} }
+impl Foo { fn foo(self: Self) -> i64 { return self.v; } }
+fn main() -> i32 {
+    let f = Foo { v: 1i64 };
+    let a = f.foo();
+    let b = f.foo();
+    return (a + b) as i32;
+}

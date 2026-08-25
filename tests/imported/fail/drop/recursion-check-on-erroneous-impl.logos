@@ -1,0 +1,8 @@
+// rustc drop/recursion-check-on-erroneous-impl.rs — upstream E0186
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package recursion_check_on_erroneous_impl;
+// port of drop/recursion-check-on-erroneous-impl.rs — Drop::drop declared without self
+struct PrintOnDrop { s: i64 }
+impl Drop for PrintOnDrop { fn drop() { } }
+fn main() -> i32 { return 0i32; }

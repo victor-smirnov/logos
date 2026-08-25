@@ -1,0 +1,9 @@
+// rustc regions/regions-bounded-method-type-parameters-trait-bound.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package regions_bounded_method_type_parameters_trait_bound;
+// port of regions/regions-bounded-method-type-parameters-trait-bound.rs
+// `method` requires 'y: 'x; caller2 supplies 'b for 'y and 'a for 'x with no 'b: 'a bound.
+fn method<'x, 'y: 'x>(x: &'x i64, y: &'y i64) { }
+fn caller2<'a, 'b>(a: &'a i64, b: &'b i64) { method(a, b); }
+fn main() -> i32 { return 0i32; }

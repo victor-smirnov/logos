@@ -1,0 +1,1 @@
+return type mismatch: variance mismatch — expected &'static u32, got &'a u32 — lifetime structure incompatible (check &mut invariance / contravariance rules)

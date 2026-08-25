@@ -1,0 +1,11 @@
+// rustc nll/issue-58053.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.C
+package issue_58053;
+// nll/issue-58053.rs — closure return lifetime may not live long enough
+fn main() -> i32 {
+    let i: &i64 = &3i64;
+    let f = |x: &i64| -> &'static i64 { return x; };
+    let j = f(i);
+    return *j as i32 - 3i32;
+}

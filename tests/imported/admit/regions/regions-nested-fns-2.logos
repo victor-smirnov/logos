@@ -1,0 +1,10 @@
+// rustc regions/regions-nested-fns-2.rs — upstream `y` does not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.C
+package regions_nested_fns_2;
+fn ignore<F>(f: F) -> i32 where F: FnOnce(&i64) -> &i64 { return 0i32; }
+fn nested() -> i32 {
+  let y: i64 = 3i64;
+  return ignore(|z| { if false { return &y; } else { return z; } });
+}
+fn main() -> i32 { return nested(); }

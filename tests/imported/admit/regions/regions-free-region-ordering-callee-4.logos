@@ -1,0 +1,9 @@
+// rustc regions/regions-free-region-ordering-callee-4.rs — upstream reference has a longer lifetime than the data it references / may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-N2
+package regions_free_region_ordering_callee_4;
+fn ordering4<'a, 'b>(a: &'a i64, b: &'b i64) -> i64 {
+  let z: Option<&'a &'b i64> = Option::None;
+  return 0i64;
+}
+fn main() -> i32 { return 0i32; }

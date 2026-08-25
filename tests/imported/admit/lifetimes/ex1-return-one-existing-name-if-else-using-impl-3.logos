@@ -1,0 +1,11 @@
+// rustc lifetimes/lifetime-errors/ex1-return-one-existing-name-if-else-using-impl-3.rs — upstream E0621
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-N1
+package ex1_return_one_existing_name_if_else_using_impl_3;
+struct Foo { field: i32 }
+impl Foo {
+    fn foo<'a>(self: &'a Foo, x: &i32) -> &i32 {
+        if true { return &self.field; } else { return x; }
+    }
+}
+fn main() -> i32 { return 0i32; }

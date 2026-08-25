@@ -1,0 +1,11 @@
+// rustc moves/moves-based-on-type-capture-clause-bad.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package moves_based_on_type_capture_clause_bad;
+use logos.mem.string;
+fn run<F>(f: F) where F: FnOnce() { f(); }
+fn main() -> i32 {
+    let x: String = String::from("Hello world!");
+    run(move || { let _y = x; });
+    return x.len() as i32;
+}

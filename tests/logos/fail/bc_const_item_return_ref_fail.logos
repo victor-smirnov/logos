@@ -1,0 +1,21 @@
+// A `const` item has NO static storage. Logos has no const-eval by design
+// (project_no_const_eval): a const is name + type + lowered expression, and
+// mlir_gen materialises that expression INTO THE FRAME at every use. So `&K`
+// borrows frame storage exactly as `&local` does, and returning it dangles.
+//
+// MEASURED before the refusal, with the clobber constant varied so a lucky
+// stable read could not pass for a correct one: this program returned 71 and 9
+// where 5 is correct. The `static` twin — one llvm.mlir.global, stable address
+// — is CORRECT and stays admitted: pass/bc_static_item_return_ref_admit.
+//
+// Not the operator-temporary case closed at 7518f318: `const K: i64 = 2i64 +
+// 3i64;` behaves identically, because the const's expression is not inlined at
+// the borrow site. The borrow arrives as an AddrOf naming "K", not an
+// AddrOfTemp, so no widening of is_temporary_value_expr reaches it.
+package bc_const_item_return_ref_fail;
+
+const K: i64 = 5i64;
+
+fn f() -> &i64 { return &K; }
+
+fn main() -> i64 { let r: &i64 = f(); return *r; }

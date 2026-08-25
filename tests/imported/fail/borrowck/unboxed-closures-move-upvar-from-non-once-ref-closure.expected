@@ -1,0 +1,1 @@
+closure does not implement `Fn`: its body moves out (consumes) a captured variable, so it is `FnOnce`

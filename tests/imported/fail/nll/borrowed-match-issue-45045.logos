@@ -1,0 +1,16 @@
+// rustc nll/borrowed-match-issue-45045.rs — upstream E0503
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowed_match_issue_45045;
+enum Xyz { A, B }
+fn main() -> i32 {
+    let mut e = Xyz::A;
+    let f = &mut e;
+    let g = f;
+    match e {
+        Xyz::A => { }
+        Xyz::B => { }
+    }
+    *g = Xyz::B;
+    return 0i32;
+}

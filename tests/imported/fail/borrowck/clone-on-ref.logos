@@ -1,0 +1,13 @@
+// rustc borrowck/clone-on-ref.rs — upstream E0505 cannot move because borrowed
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package clone_on_ref;
+use logos.mem.string;
+fn get(s: &String) -> i64 { return s.len() as i64; }
+fn main() -> i32 {
+    let x: String = String::from("hi");
+    let a: &String = &x;
+    let n: i64 = get(a);
+    let d: String = x;    // ERROR: cannot move out of `x` because it is borrowed
+    return (n + get(a)) as i32;
+}

@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-imm-ref-to-mut-rec-field-issue-3162-c.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-imm-ref-to-mut-rec-field-issue-3162-c.rs  E0506
+package borrowck_imm_ref_to_mut_rec_field_issue_3162_c;
+fn main() -> i32 {
+    let mut a = 3i64;
+    let b = &mut a;
+    let c = &*b;
+    a = 4i64;
+    let r = *c;
+    let s = *b;
+    return (r + s) as i32;
+}

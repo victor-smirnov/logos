@@ -1,0 +1,14 @@
+// rustc borrowck/mut-borrow-outside-loop.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package mut_borrow_outside_loop_b;
+fn use_mut(_r: &mut i64) {}
+fn main() -> i32 {
+    loop {
+        let mut inner: i64 = 0i64;
+        let a: &mut i64 = &mut inner;
+        let b: &mut i64 = &mut inner;
+        use_mut(b);
+        use_mut(a);
+    }
+}

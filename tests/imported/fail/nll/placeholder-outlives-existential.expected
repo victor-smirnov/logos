@@ -1,0 +1,1 @@
+return type mismatch: variance mismatch — expected fn(fn(fn(fn(Contra<'u>, Co<'u>) -> void) -> void) -> void) -> void, got fn(fn(fn(fn(Contra<'e>, Co<'p>) -> void) -> void) -> void) -> void — lifetime structure incompatible (check &mut invariance / contravariance rules)

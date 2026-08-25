@@ -1,0 +1,20 @@
+// rustc borrowck/issue-81365-2.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// upstream: issue-81365-2.rs E0506 (borrow through user Deref, then assign sibling)
+package issue_81365_2;
+struct DerefTarget { target_field: bool }
+struct Container { target: DerefTarget, container_field: bool }
+impl Deref for Container {
+    type Target = DerefTarget;
+    fn deref(self: &Container) -> &DerefTarget { return &self.target; }
+}
+struct Outer { container: Container }
+impl Outer {
+    fn bad_borrow(self: &mut Outer) -> bool {
+        let first: &bool = &self.container.target_field;
+        self.container.container_field = true;   // E0506
+        return *first;
+    }
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,1 @@
+'x2' does not live long enough: it is borrowed by 'y', which is used here after 'x2' goes out of scope (E0597)

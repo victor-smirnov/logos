@@ -1,0 +1,9 @@
+// rustc nll/user-annotations/constant-in-expr-inherent-1.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of nll/user-annotations/constant-in-expr-inherent-1.rs
+package constant_in_expr_inherent_1;
+struct Foo<'a> { x: &'a u32 }
+impl<'a> Foo<'a> { const C: &'a u32 = &22u32; }
+fn foo<'a>(_x: &'a u32) -> &'static u32 { return Foo::<'a>::C; }   // ERROR
+fn main() -> i32 { return 0i32; }

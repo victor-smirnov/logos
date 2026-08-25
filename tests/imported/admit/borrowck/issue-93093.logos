@@ -1,0 +1,7 @@
+// rustc borrowck/issue-93093.rs — upstream E0594
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package issue_93093;
+struct S { foo: i64 }
+impl S { fn bar(self: &S) { self.foo += 1i64; } }
+fn main() -> i32 { let s = S { foo: 1i64 }; s.bar(); return 0i32; }

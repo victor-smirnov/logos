@@ -1,0 +1,14 @@
+// rustc regions/regions-assoc-type-in-supertrait-outlives-container.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.L6
+package regions_assoc_type_in_supertrait_outlives_container;
+trait TheTrait { type TheAssocType; }
+trait TheSubTrait: TheTrait { }
+struct TheType<'b> { m: &'b i64 }
+impl<'b> TheTrait for TheType<'b> { type TheAssocType = &'b i64; }
+impl<'b> TheSubTrait for TheType<'b> { }
+struct WithAssoc<T: TheSubTrait> { m: T }
+fn with_assoc<'a, 'b>(p: &'a WithAssoc<TheType<'b>>) {
+  let z: &'a WithAssoc<TheType<'b>> = p;
+}
+fn main() -> i32 { return 0i32; }

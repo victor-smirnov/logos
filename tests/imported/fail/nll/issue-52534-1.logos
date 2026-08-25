@@ -1,0 +1,8 @@
+// rustc nll/issue-52534-1.rs — upstream E0515
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_52534_1;
+// nll/issue-52534-1.rs — E0515 return reference to local (method receiver form)
+struct Test { v: i64 }
+impl Test { fn bar(self: &Test, x: &u64) -> &u64 { let y: u64 = 22u64; return &y; } }
+fn main() -> i32 { let t = Test { v: 0i64 }; let a: u64 = 1u64; let _ = t.bar(&a); return 0i32; }

@@ -1,0 +1,14 @@
+// rustc moves/moves-based-on-type-access-to-field.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of tests/ui/moves/moves-based-on-type-access-to-field.rs
+// move out of x.f, then borrow x.f -> E0382 borrow of moved value
+package moves_based_on_type_access_to_field;
+struct Foo { f: String, y: i64 }
+fn consume(s: String) -> i64 { return s.len() as i64; }
+fn main() -> i32 {
+    let x = Foo { f: String::from("hi"), y: 1i64 };
+    let n = consume(x.f);
+    let r: &String = &x.f;
+    return (n + (r.len() as i64)) as i32;
+}

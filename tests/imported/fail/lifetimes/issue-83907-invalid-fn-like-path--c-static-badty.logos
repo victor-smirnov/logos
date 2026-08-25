@@ -1,0 +1,6 @@
+// rustc lifetimes/issue-83907-invalid-fn-like-path.rs — upstream cannot find type + free static without body
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_83907_invalid_fn_like_path_c_static_badty;
+pub static FIVE: &One = 0i64 as &One;
+fn main() -> i32 { return 0i32; }

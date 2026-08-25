@@ -1,0 +1,22 @@
+// rustc regions/regions-trait-variance.rs — upstream E0515 return value referencing local data
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust ui/regions/regions-trait-variance.rs (E0515 return referencing local data)
+package regions_trait_variance;
+
+trait X { fn get_i(self: &Self) -> i64; }
+struct B { i: i64 }
+impl X for B { fn get_i(self: &Self) -> i64 { return self.i; } }
+impl Drop for B { fn drop(self: &mut Self) { } }
+
+struct A<'r> { p: &'r dyn X }
+
+fn make_a<'r>(p: &'r dyn X) -> A<'r> { return A { p: p }; }
+
+fn make_make_a<'a>() -> A<'a> {
+    let b = B { i: 1i64 };
+    let bb: &B = &b;
+    return make_a(bb);
+}
+
+fn main() -> i32 { return 0i32; }

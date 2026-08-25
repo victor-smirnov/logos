@@ -1,0 +1,11 @@
+// rustc nll/issue-52113.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R13
+package issue_52113;
+trait Bazinga { fn go(self: &Self) -> i64; }
+struct Keep<'a> { v: &'a i64 }
+impl<'a> Bazinga for Keep<'a> { fn go(self: &Self) -> i64 { return *self.v; } }
+fn produce_err<'a, 'b>(value: &'a i64) -> Keep<'b> {
+    return Keep { v: value };
+}
+fn main() -> i32 { return 0i32; }

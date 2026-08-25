@@ -1,0 +1,11 @@
+// rustc nll/user-annotations/constant-in-expr-inherent-2.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-N1
+// port of tests/ui/nll/user-annotations/constant-in-expr-inherent-2.rs (E0597)
+// the const-item wrapper is incidental; the requirement is `&'static` at the call
+package constant_in_expr_inherent_2_static_param;
+fn eat(r: &'static u32) -> i32 { return *r as i32; }
+fn main() -> i32 {
+    let x: u32 = 1u32;
+    return eat(&x);
+}

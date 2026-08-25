@@ -1,0 +1,7 @@
+// rustc regions/issue-101280.rs — upstream mismatched types (`for<'r> fn` vs `fn`)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-N4
+package issue_101280;
+type Ty = for<'r> fn(&'r i64, &'r i64);
+fn f<'r>(g: fn(&'r i64, &i64)) -> Ty { return g; }
+fn main() -> i32 { return 0i32; }

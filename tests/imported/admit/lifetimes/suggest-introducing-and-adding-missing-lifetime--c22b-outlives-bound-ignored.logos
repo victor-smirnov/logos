@@ -1,0 +1,7 @@
+// rustc lifetimes/suggest-introducing-and-adding-missing-lifetime.rs — upstream E0310 the parameter type `T` may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.L2
+package suggest_introducing_and_adding_missing_lifetime_c22b_outlives_bound_ignored;
+struct W<T> { v: T }
+fn keep<'b, T: 'b>(x: &'b T) -> &'b T { return x; }
+fn main() -> i32 { return 0i32; }

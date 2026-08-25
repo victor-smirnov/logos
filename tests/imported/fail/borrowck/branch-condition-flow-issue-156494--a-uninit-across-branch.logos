@@ -1,0 +1,14 @@
+// rustc borrowck/branch-condition-flow-issue-156494.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/branch-condition-flow-issue-156494.rs (guarded_match)  E0381
+package branch_condition_flow_issue_156494_a_uninit_across_branch;
+fn guarded_match(value: i64, condition: bool) -> i64 {
+    let y: i64;
+    match value {
+        0i64 => { y = 1i64; }
+        _ => { if condition { } else { y = 2i64; } }
+    }
+    return y;
+}
+fn main() -> i32 { return guarded_match(0i64, true) as i32 - 1i32; }

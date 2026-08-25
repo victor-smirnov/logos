@@ -1,0 +1,8 @@
+// rustc dropck/issue-38868.rs — upstream E0366
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-1
+package issue_38868;
+// port of dropck/issue-38868.rs — Drop impl specialised to one instantiation (E0366)
+struct List<T> { head: T }
+impl Drop for List<i64> { fn drop(&mut self) { } }
+fn main() -> i32 { let l: List<i64> = List { head: 0i64 }; return 0i32; }

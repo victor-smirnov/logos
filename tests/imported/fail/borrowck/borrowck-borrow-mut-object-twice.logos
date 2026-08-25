@@ -1,0 +1,9 @@
+// rustc borrowck/borrowck-borrow-mut-object-twice.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_borrow_mut_object_twice;
+trait Foo { fn f1(self: &mut Self) -> &i64; fn f2(self: &mut Self); }
+struct S { a: i64 }
+impl Foo for S { fn f1(self: &mut S) -> &i64 { return &self.a; } fn f2(self: &mut S) {} }
+fn test(x: &mut dyn Foo) -> i64 { let y: &i64 = x.f1(); x.f2(); return *y; }
+fn main() -> i32 { let mut s = S { a: 1i64 }; return test(&mut s) as i32; }

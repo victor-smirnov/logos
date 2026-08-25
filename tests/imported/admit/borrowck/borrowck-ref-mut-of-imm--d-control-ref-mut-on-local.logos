@@ -1,0 +1,12 @@
+// rustc borrowck/borrowck-ref-mut-of-imm.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// CONTROL for t16: `ref mut` on a NON-mut LOCAL (not a parameter)
+package borrowck_ref_mut_of_imm_d_control_ref_mut_on_local;
+fn main() -> i32 {
+    let x: Option<i64> = Option::Some(22i64);
+    match x {
+        Option::None => { return 0i32; }
+        Option::Some(ref mut v) => { *v = 5i64; return 0i32; }
+    }
+}

@@ -1,0 +1,12 @@
+// rustc regions/regions-adjusted-lvalue-op.rs — upstream E0502 cannot borrow `v` as immutable
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R2
+package regions_adjusted_lvalue_op_c26;
+struct Data { v: i64 }
+trait OhNo { fn oh_no(self: &mut Self, other: &Vec<Data>) -> i64; }
+impl OhNo for Vec<Data> { fn oh_no(self: &mut Self, other: &Vec<Data>) -> i64 { return 1i64; } }
+fn main() -> i32 {
+  let mut v: Vec<Data> = Vec::new();
+  v.oh_no(&v);
+  return 0i32;
+}

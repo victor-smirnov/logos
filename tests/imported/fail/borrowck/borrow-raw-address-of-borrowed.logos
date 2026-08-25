@@ -1,0 +1,15 @@
+// rustc borrowck/borrow-raw-address-of-borrowed.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrow-raw-address-of-borrowed.rs  E0502 (`&raw mut x` while `&x` live)
+package borrow_raw_address_of_borrowed;
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    let y: &i64 = &x;
+    unsafe {
+        let q: *mut i64 = (&mut x) as *mut i64;
+        *q = 5i64;
+    }
+    let _ = *y;
+    return 0i32;
+}

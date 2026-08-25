@@ -1,0 +1,12 @@
+// rustc borrowck/copy-suggestion-region-vid.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package copy_suggestion_region_vid;
+struct NC { a: i64 }
+impl Drop for NC { fn drop(self: &mut NC) {} }
+struct Helper { helpers: [NC; 2], is_empty: bool }
+fn main() -> i32 {
+    let helpers: [NC; 2] = [NC { a: 1i64 }, NC { a: 2i64 }];
+    let h = Helper { helpers: helpers, is_empty: helpers[0].a == 0i64 };
+    return 0i32;
+}

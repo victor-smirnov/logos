@@ -1,0 +1,19 @@
+// rustc borrowck/borrowck-issue-2657-1.rs — upstream E0505 cannot move while `ref` binding live
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package borrowck_issue_2657_1;
+use logos.mem.string;
+use logos.lang.option;
+fn use_ref(s: &String) -> i64 { return s.len() as i64; }
+fn main() -> i32 {
+    let x: Option<String> = Option::Some(String::from("q"));
+    let mut n: i64 = 0i64;
+    match x {
+        Option::Some(ref y) => {
+            let a = x;              // ERROR: cannot move `x` while borrowed by `y`
+            n = use_ref(y);
+        }
+        Option::None => {}
+    }
+    return n as i32;
+}

@@ -1,0 +1,12 @@
+// rustc nll/issue-54556-stephaneyfx.rs — upstream E0597 (does not live long enough)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.E
+package issue_54556_stephaneyfx;
+struct A { r: &i64 }
+impl Drop for A { fn drop(self: &mut A) { let _ = *self.r; } }
+fn main() -> i32 {
+    let a: A;
+    let b: i64 = 5i64;
+    a = A { r: &b };
+    return *a.r as i32;
+}

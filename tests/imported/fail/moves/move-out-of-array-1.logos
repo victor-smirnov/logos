@@ -1,0 +1,12 @@
+// rustc moves/move-out-of-array-1.rs — upstream E0508
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package move_out_of_array_1;
+struct D { x: i64 }
+impl Drop for D { fn drop(self: &mut Self) { } }
+fn foo(a: [D; 4], i: u64) -> D { return a[i]; }
+fn main() -> i32 {
+  let arr: [D; 4] = [D{x:0i64}, D{x:1i64}, D{x:2i64}, D{x:3i64}];
+  let d: D = foo(arr, 1u64);
+  return 0i32;
+}

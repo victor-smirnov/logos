@@ -1,0 +1,12 @@
+// rustc borrowck/borrowck-init-in-fn-expr.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_init_in_fn_expr;
+fn main() -> i32 {
+    let f = || -> i64 {
+        let i: i64;
+        return i;
+    };
+    let _z: i64 = f();
+    return 0i32;
+}

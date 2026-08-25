@@ -1,0 +1,12 @@
+// rustc nll/borrowed-universal-error.rs — upstream E0515 return value referencing temporary
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of nll/borrowed-universal-error.rs: return a ref into a temporary
+package borrowed_universal_error;
+struct P { a: u32 }
+fn gimme(x: &P) -> &u32 { return &x.a; }
+fn foo() -> &u32 {
+    let v: u32 = 22u32;
+    return gimme(&P { a: v });   // cannot return value referencing temporary
+}
+fn main() -> i32 { let r: &u32 = foo(); return *r as i32; }

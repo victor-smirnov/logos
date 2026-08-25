@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-overloaded-index-and-overloaded-deref.rs — upstream E0506 cannot assign because borrowed
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package borrowck_overloaded_index_and_overloaded_deref_t15;
+struct Foo { f: u64 }
+struct MyVec { x: Foo }
+impl Index<u64> for MyVec { type Output = Foo; fn index(self: &MyVec, i: u64) -> &Foo { return &self.x; } }
+fn main() -> i32 {
+    let mut v: MyVec = MyVec { x: Foo { f: 22u64 } };
+    let i: &u64 = &v[0u64].f;
+    v = MyVec { x: Foo { f: 23u64 } };  // ERROR: cannot assign to `v` because it is borrowed
+    return *i as i32;
+}

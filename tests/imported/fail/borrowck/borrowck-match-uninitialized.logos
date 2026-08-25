@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-match-uninitialized.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_match_uninitialized;
+fn main() -> i32 {
+    let x: i64;
+    let c: bool = true;
+    match c {
+        true => { x = 42i64; }
+        false => { return x as i32; }   // ERROR E0381: x possibly uninitialised
+    }
+    return 0i32;
+}

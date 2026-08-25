@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-lend-flow.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-lend-flow.rs fn pre_freeze (E0502)
+package borrowck_lend_flow;
+fn borrow_mut(v: &mut i64) { *v += 1i64; }
+fn main() -> i32 {
+    let mut v: Box<i64> = Box::new(3i64);
+    let w: &Box<i64> = &v;
+    borrow_mut(&mut *v);
+    let _ = **w;
+    return 0i32;
+}

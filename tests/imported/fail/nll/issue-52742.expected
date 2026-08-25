@@ -1,0 +1,1 @@
+'tmp' does not live long enough: it is borrowed by 'f', which is used here after 'tmp' goes out of scope (E0597)

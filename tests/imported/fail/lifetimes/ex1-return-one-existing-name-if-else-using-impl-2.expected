@@ -1,0 +1,1 @@
+lifetime mismatch: return type has lifetime 'a but 'x' has lifetime (elided)

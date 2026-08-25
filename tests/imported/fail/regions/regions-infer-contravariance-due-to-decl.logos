@@ -1,0 +1,10 @@
+// rustc regions/regions-infer-contravariance-due-to-decl.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust tests/ui/regions/regions-infer-contravariance-due-to-decl.rs (PhantomData -> fn field)
+package regions_infer_contravariance_due_to_decl;
+struct Contravariant<'a> { m: fn(&'a i64) }
+fn use_<'short, 'long>(c: Contravariant<'short>, s: &'short i64, l: &'long i64) {
+    let z: Contravariant<'long> = c;
+}
+fn main() -> i32 { return 0i32; }

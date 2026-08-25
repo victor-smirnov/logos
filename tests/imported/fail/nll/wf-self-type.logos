@@ -1,0 +1,10 @@
+// rustc nll/user-annotations/wf-self-type.rs — upstream lifetime-may-not-live-long-enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package wf_self_type;
+struct Foo<'a, 'b> { r: &'a &'b i64 }
+impl<'a, 'b> Foo<'a, 'b> {
+  fn xmute(a: &'b i64) -> &'a i64 { return a; }
+}
+fn foo<'a, 'b>(u: &'b i64) -> &'a i64 { return Foo::<'a,'b>::xmute(u); }
+fn main() -> i32 { return 0i32; }

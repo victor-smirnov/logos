@@ -1,0 +1,12 @@
+// rustc nll/relate_tys/var-appears-twice.rs — upstream E0308
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-4
+package var_appears_twice;
+use logos.lang.cell;
+type DoubleCell<A> = Cell<(A, A)>;
+fn make_cell<'b>(x: &'b i64) -> Cell<(&'static i64, &'b i64)> { panic("no"); }
+fn main() -> i32 {
+    let b: i64 = 44i64;
+    let x: DoubleCell<_> = make_cell(&b);
+    return 0i32;
+}

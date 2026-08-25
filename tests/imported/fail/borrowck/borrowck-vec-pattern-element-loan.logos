@@ -1,0 +1,9 @@
+// rustc borrowck/borrowck-vec-pattern-element-loan.rs — upstream E0515 cannot return value referencing local
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_vec_pattern_element_loan;
+fn a() -> &[i64] {
+    let v: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    return &v;      // ADMITS: array -> slice coercion launders the local borrow
+}
+fn main() -> i32 { let t = a(); return t[0u64] as i32; }

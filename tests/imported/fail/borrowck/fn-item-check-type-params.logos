@@ -1,0 +1,11 @@
+// rustc borrowck/fn-item-check-type-params.rs — upstream E0521/E0716
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package fn_item_check_type_params;
+struct W { r: &i64 }
+fn extend_lt<T>(val: &i64) -> W { return W { r: val }; }
+fn test_call() -> W {
+    let s: i64 = 5i64;
+    return extend_lt::<i64>(&s);
+}
+fn main() -> i32 { let w: W = test_call(); return 0i32; }

@@ -1,0 +1,10 @@
+// rustc borrowck/let_underscore_temporary.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/let_underscore_temporary.rs  E0597
+package let_underscore_temporary;
+fn f(num: i64) -> i64 {
+    let r: &i64 = if num > 0i64 { &num } else { let a = 4242i64; &a };
+    return *r;
+}
+fn main() -> i32 { return f(0i64) as i32; }

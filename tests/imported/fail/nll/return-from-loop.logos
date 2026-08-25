@@ -1,0 +1,16 @@
+// rustc nll/return_from_loop.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package return_from_loop;
+struct MyStruct { field: i64 }
+fn bump(p: &mut i64) { *p = *p + 1i64; }
+fn nll_fail() -> i64 {
+    let mut my_struct: MyStruct = MyStruct { field: 1i64 };
+    let value: &mut i64 = &mut my_struct.field;
+    loop {
+        my_struct.field = my_struct.field + 1i64;
+        bump(value);
+        return 0i64;
+    }
+}
+fn main() -> i32 { return nll_fail() as i32; }

@@ -1,0 +1,13 @@
+// rustc regions/regions-infer-covariance-due-to-decl.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust ui/regions/regions-infer-covariance-due-to-decl.rs
+package regions_infer_covariance_due_to_decl;
+
+struct Covariant<'a> { f: fn(&'a i64) }
+
+fn use_<'short, 'long>(c: Covariant<'long>) where 'long: 'short {
+    let x: Covariant<'short> = c;
+}
+
+fn main() -> i32 { return 0i32; }

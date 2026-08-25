@@ -1,0 +1,10 @@
+// rustc borrowck/borrowck-init-op-equal.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+// upstream: borrowck/borrowck-init-op-equal.rs (E0381)
+package borrowck_init_op_equal;
+fn test() {
+    let mut v: i64;
+    v += 1i64;
+}
+fn main() -> i32 { test(); return 0i32; }

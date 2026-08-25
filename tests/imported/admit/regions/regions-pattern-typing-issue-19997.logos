@@ -1,0 +1,14 @@
+// rustc regions/regions-pattern-typing-issue-19997.rs — upstream E0506 cannot assign to `a1` because it is borrowed
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.B
+package regions_pattern_typing_issue_19997;
+struct W { r: i64 }
+fn main() -> i32 {
+    let a0: i64 = 0i64;
+    let f: i64 = 1i64;
+    let mut a1: &i64 = &a0;
+    match a1 {
+        ref b0 => { a1 = &f; let _u: i64 = **b0; }
+    }
+    return 0i32;
+}

@@ -1,0 +1,18 @@
+// rustc borrowck/moved-value-in-thread-loop-12041.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/moved-value-in-thread-loop-12041.rs (E0382 use of moved value in a loop)
+package moved_value_in_thread_loop_12041;
+struct Tx { s: str }
+impl Drop for Tx { fn drop(self: &mut Tx) {} }
+fn main() -> i32 {
+    let tx = Tx { s: "a" };
+    let mut i: i64 = 0i64;
+    loop {
+        let t2 = tx;
+        let _ = t2.s;
+        i += 1i64;
+        if i > 3i64 { break; }
+    }
+    return 0i32;
+}

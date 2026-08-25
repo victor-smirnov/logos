@@ -1,0 +1,15 @@
+// rustc borrowck/borrowck-fn-in-const-a.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-fn-in-const-a.rs  E0507 cannot move out of `*x`
+package borrowck_fn_in_const_a;
+struct S { n: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn broken(x: &S) -> S {
+    return *x;
+}
+fn main() -> i32 {
+    let s = S { n: 3i64 };
+    let t = broken(&s);
+    return t.n as i32 - 3i32;
+}

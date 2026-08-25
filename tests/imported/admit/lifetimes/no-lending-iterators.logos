@@ -1,0 +1,9 @@
+// rustc lifetimes/no_lending_iterators.rs — upstream E0195
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R18
+package no_lending_iterators;
+// port of lifetimes/no_lending_iterators.rs — assoc type with lifetime params not in the trait
+trait Bar { type Item; fn poke(&mut self, item: Self::Item); }
+struct U { v: i64 }
+impl Bar for U { type Item<'a> = &'a i64; fn poke(&mut self, item: Self::Item) { self.v += *item; } }
+fn main() -> i32 { return 0i32; }

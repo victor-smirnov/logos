@@ -1,0 +1,16 @@
+// rustc borrowck/borrowck-no-cycle-in-exchange-heap.rs — upstream E0505
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+// MINIMAL admitting reduction of t14 (upstream borrowck-no-cycle-in-exchange-heap.rs,
+// E0505): a MOVE of a value whose WHOLE-VAR MUTABLE loan is still live is admitted.
+package borrowck_no_cycle_in_exchange_heap_min_move_while_mut_borrowed;
+struct N { a: i64 }
+impl Drop for N { fn drop(self: &mut N) {} }
+fn main() -> i32 {
+    let mut x: N = N { a: 1i64 };
+    let y: &mut N = &mut x;
+    y.a = 2i64;
+    let z = x;
+    let _ = z.a;
+    return 0i32;
+}

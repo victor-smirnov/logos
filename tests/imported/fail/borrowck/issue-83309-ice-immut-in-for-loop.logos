@@ -1,0 +1,14 @@
+// rustc borrowck/issue-83309-ice-immut-in-for-loop.rs — upstream E0594
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_83309_ice_immut_in_for_loop;
+struct Q { n: i64 }
+struct QI { p: &i64 }
+impl Q { fn iter_mut(self: &mut Q) -> QI { return QI { p: &self.n }; } }
+fn main() -> i32 {
+    let mut q = Q { n: 1i64 };
+    let it = q.iter_mut();
+    let v: &i64 = it.p;
+    *v -= 1i64;
+    return 0i32;
+}

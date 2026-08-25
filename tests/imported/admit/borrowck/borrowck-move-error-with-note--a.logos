@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-move-error-with-note.rs — upstream E0507 + E0509
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package borrowck_move_error_with_note_a;
+struct A { a: Box<i64> }
+fn free(_t: Box<i64>) {}
+fn main() -> i32 {
+    let av: A = A { a: Box::new(1i64) };
+    let a: &A = &av;
+    match a.a {
+        n => { free(n); }
+    }
+    return 0i32;
+}

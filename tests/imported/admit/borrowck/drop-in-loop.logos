@@ -1,0 +1,16 @@
+// rustc borrowck/drop-in-loop.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.E
+// upstream: drop-in-loop.rs E0506 (Drop impl could observe the changed borrow)
+package drop_in_loop;
+struct WrapperWithDrop { r: &mut bool }
+impl Drop for WrapperWithDrop { fn drop(self: &mut WrapperWithDrop) {} }
+fn drop_in_loop() {
+    let mut base = true;
+    let mut wrapper = WrapperWithDrop { r: &mut base };
+    loop {
+        base = false;    // E0506: base is borrowed by `wrapper`, live across the drop
+        wrapper = WrapperWithDrop { r: &mut base };
+    }
+}
+fn main() -> i32 { return 0i32; }

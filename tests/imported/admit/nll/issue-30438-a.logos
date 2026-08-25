@@ -1,0 +1,11 @@
+// rustc nll/issue-30438-a.rs — upstream cannot return reference to temporary value
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.D
+package issue_30438_a;
+struct Test { s: i64 }
+impl Test { fn idx(self: &Test) -> &Test { return &Test { s: self.s }; } }
+fn main() -> i32 {
+    let t: Test = Test { s: 7i64 };
+    let r: &Test = t.idx();
+    return r.s as i32;
+}

@@ -1,0 +1,9 @@
+// rustc borrowck/return-ref-to-temporary.rs — upstream E0515
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/return-ref-to-temporary.rs (E0515 cannot return reference to temporary)
+package return_ref_to_temporary;
+fn bar() -> &mut u64 {
+    return &mut 4u64;
+}
+fn main() -> i32 { let r = bar(); *r = 1u64; return 0i32; }

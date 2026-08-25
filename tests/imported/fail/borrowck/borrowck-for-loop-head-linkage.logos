@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-for-loop-head-linkage.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck-for-loop-head-linkage.rs E0502 (mutate a Vec while iterating)
+package borrowck_for_loop_head_linkage;
+fn main() -> i32 {
+    let mut vector: Vec<i64> = Vec::new();
+    vector.push(1i64);
+    vector.push(2i64);
+    for x in vector.iter() {
+        vector.push(0i64);      // E0502: vector is borrowed by the loop head
+    }
+    return 0i32;
+}

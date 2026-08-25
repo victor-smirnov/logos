@@ -623,9 +623,33 @@ PIN = {
     # SCRIPT, so `ls tests/logos/*.sh` stays 66. The TWO new fail fixtures
     # (fail/bc_slice_index_return_local_fail, fail/bc_slice_range_return_local_fail)
     # do not enter any of these three counts — they are the pass corpus only.
-    'corpus'            : 2368,
+    # ⚠ RE-DERIVED at the `&<const item>` cell (Phase 1): +1 / +0 / +1. ONE new
+    # pass fixture — pass/bc_static_item_return_ref_admit, the ADMIT TWIN of
+    # fail/bc_const_item_return_ref_fail — and its name matches neither `wql_*`
+    # nor `deem_*`, so the whole delta lands in `nonglob`. Re-derived BY DIRECT
+    # LISTING, not by addition:
+    #   ls tests/logos/pass/*.logos                          -> 2369
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos             ->  191
+    #   the same listing minus the glob half                 -> 2178
+    # The fail fixture enters none of these three counts (pass corpus only).
+    # DOOR counts unmoved (36 = 10 + 26): the fixture declares no container
+    # family and no `direct` output form. No new gate SCRIPT.
+    # ⚠ RE-DERIVED at the rustc borrow-check import (B167): +0 / +0 / +0, and
+    # that zero is the point rather than a formality. The batch landed 412 FAIL
+    # fixtures under `tests/imported/fail/` and 463 admit programs under
+    # `tests/imported/admit/` — 875 new `.logos` files, the largest single
+    # addition this pin has seen — and THIS POPULATION IS `tests/logos/pass`
+    # ONLY, so none of them enters it. Re-derived BY DIRECT LISTING on the
+    # landed tree, not by asserting the delta is zero:
+    #   ls tests/logos/pass/*.logos                          -> 2369
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos             ->  191
+    #   the same listing minus the glob half                 -> 2178
+    # so the partition still closes: 2369 = 191 + 2178. DOOR counts unmoved
+    # (36 = 10 + 26) — no imported fixture declares a container family or a
+    # `direct` output form. ONE new gate SCRIPT: bc_admits_ledger_gate.sh.
+    'corpus'            : 2369,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2177,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2178,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

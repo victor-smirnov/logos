@@ -1,0 +1,6 @@
+// rustc lifetimes/issue-19707.rs — upstream E0106 missing lifetime specifier
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R17
+package issue_19707_fn_type_elision;
+type Foo = fn(&u8, &u8) -> &u8;
+fn main() -> i32 { return 0i32; }

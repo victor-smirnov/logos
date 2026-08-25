@@ -1,0 +1,10 @@
+// rustc moves/move-field-out-of-shared-self.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package move_field_out_of_shared_self;
+struct Tok { v: i64 }
+impl Drop for Tok { fn drop(self: &mut Self) { } }
+struct P { t: Tok }
+trait Parse { fn parse(self: &Self) -> Tok; }
+impl Parse for P { fn parse(self: &Self) -> Tok { return self.t; } }
+fn main() -> i32 { return 0i32; }

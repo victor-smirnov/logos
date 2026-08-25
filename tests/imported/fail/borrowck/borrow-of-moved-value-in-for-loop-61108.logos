@@ -1,0 +1,15 @@
+// rustc borrowck/borrow-of-moved-value-in-for-loop-61108.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrow-of-moved-value-in-for-loop-61108.rs  E0382
+package borrow_of_moved_value_in_for_loop_61108;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut bad: Vec<i64> = Vec::new();
+    bad.push(1i64);
+    for l in bad {
+        let _ = l;
+    }
+    bad.push(2i64);
+    return 0i32;
+}

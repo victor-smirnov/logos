@@ -1,0 +1,12 @@
+// rustc borrowck/closure-borrow-conflict-11192.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package closure_borrow_conflict_11192;
+struct Foo { x: i64 }
+impl Drop for Foo { fn drop(self: &mut Foo) {} }
+fn main() -> i32 {
+    let mut ptr: Box<Foo> = Box::new(Foo { x: 0i64 });
+    let mut test = |foo: &Foo| { ptr = Box::new(Foo { x: foo.x + 1i64 }); };
+    test(&*ptr);
+    return 0i32;
+}

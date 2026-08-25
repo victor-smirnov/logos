@@ -1,0 +1,1 @@
+deref-compound: left side must be a pointer or mutable reference

@@ -1,0 +1,7 @@
+// rustc nll/outlives-suggestion-simple.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of nll/outlives-suggestion-simple.rs foo1: &'a -> &'b, unrelated regions
+package outlives_suggestion_simple;
+fn foo1<'a, 'b>(x: &'a u64) -> &'b u64 { return x; }
+fn main() -> i32 { let a: u64 = 1u64; let r: &u64 = foo1(&a); return *r as i32; }

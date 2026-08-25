@@ -1,0 +1,15 @@
+// rustc borrowck/access-mode-in-closures.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package access_mode_in_closures;
+use logos.mem.boxed;
+struct S { v: Box<i64> }
+fn unpack<F>(f: F) -> Box<i64> where F: FnOnce(&S) -> Box<i64> {
+    let s: S = S { v: Box::new(7i64) };
+    return f(&s);
+}
+fn main() -> i32 {
+    let g = |s: &S| -> Box<i64> { let S { v: inner } = *s; return inner; };
+    let r = unpack(g);
+    return *r as i32;
+}

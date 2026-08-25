@@ -1,0 +1,12 @@
+// rustc borrowck/borrowck-match-already-borrowed.rs — upstream E0503
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_match_already_borrowed;
+enum Foo { A(i64), B }
+fn main() -> i32 {
+    let mut foo = Foo::B;
+    let p: &mut Foo = &mut foo;
+    let r: i64 = match foo { Foo::B => 1i64, Foo::A(x) => x };
+    let _ = p;
+    return r as i32;
+}

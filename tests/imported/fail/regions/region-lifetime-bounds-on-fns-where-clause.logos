@@ -1,0 +1,7 @@
+// rustc regions/region-lifetime-bounds-on-fns-where-clause.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package region_lifetime_bounds_on_fns_where_clause;
+fn a<'a, 'b>(x: &mut &'a i64, y: &mut &'b i64) where 'b: 'a { *x = *y; }
+fn b<'a, 'b>(x: &mut &'a i64, y: &mut &'b i64) { *x = *y; }
+fn main() -> i32 { return 0i32; }

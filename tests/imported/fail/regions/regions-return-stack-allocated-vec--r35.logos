@@ -1,0 +1,11 @@
+// rustc regions/regions-return-stack-allocated-vec.rs — upstream cannot return reference to temporary value
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package regions_return_stack_allocated_vec_r35;
+fn function(x: i64) -> &'static [i64] { return &[x]; }
+fn smash() -> i64 { let a: i64 = 111i64; let b: i64 = 222i64; return a + b; }
+fn main() -> i32 {
+  let s = function(1i64);
+  let junk = smash();
+  return s[0u64] as i32;
+}

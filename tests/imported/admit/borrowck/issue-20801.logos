@@ -1,0 +1,13 @@
+// rustc borrowck/issue-20801.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.D
+// upstream: borrowck/issue-20801.rs  E0507
+package issue_20801;
+use logos.mem.string;
+struct T { s: String }
+fn mut_ref(t: &mut T) -> &mut T { return t; }
+fn main() -> i32 {
+    let mut t = T { s: String::from("hi") };
+    let a = *mut_ref(&mut t);
+    return a.s.len() as i32;
+}

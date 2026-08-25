@@ -1,0 +1,12 @@
+// rustc lifetimes/borrowck-let-suggestion.rs — upstream E0716
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.D
+package borrowck_let_suggestion;
+// port of lifetimes/borrowck-let-suggestion.rs — temporary dropped while borrowed
+struct Holder { p: &i64 }
+fn mk() -> i64 { return 7i64; }
+fn main() -> i32 {
+  let h: Holder = Holder { p: &mk() };
+  if *h.p != 7i64 { return 1i32; }
+  return 0i32;
+}

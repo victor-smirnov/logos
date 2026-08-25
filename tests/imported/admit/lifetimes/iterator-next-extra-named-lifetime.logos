@@ -1,0 +1,9 @@
+// rustc lifetimes/lifetime-errors/iterator-next-extra-named-lifetime.rs — upstream method not compatible with trait
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R18
+package iterator_next_extra_named_lifetime;
+// port of lifetimes/lifetime-errors/iterator-next-extra-named-lifetime.rs
+trait Itr { fn next(self: &mut Self) -> i64; }
+struct RepeatMut<'a> { t: &'a i64 }
+impl<'a> Itr for RepeatMut<'a> { fn next(self: &'a mut Self) -> i64 { return *self.t; } }
+fn main() -> i32 { return 0i32; }

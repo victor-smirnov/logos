@@ -1,0 +1,14 @@
+// rustc nll/borrowed-temporary-error.rs — upstream E0716 temporary dropped while borrowed
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// control for t08: the borrow of the block-local escapes the block WITHOUT the
+// intervening call -- the only difference is that `gimme` is gone.
+package borrowed_temporary_error_ctl;
+struct W { a: u32 }
+fn main() -> i32 {
+    let x: &u32 = {
+        let w: W = W { a: 22u32 };
+        &w.a
+    };
+    return *x as i32;
+}

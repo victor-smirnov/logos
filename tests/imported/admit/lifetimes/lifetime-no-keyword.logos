@@ -1,0 +1,7 @@
+// rustc lifetimes/lifetime-no-keyword.rs — upstream lifetimes cannot use keyword names
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R17
+// port of rust tests/ui/lifetimes/lifetime-no-keyword.rs — lifetimes cannot use keyword names
+package lifetime_no_keyword;
+fn baz<'let>(a: &'let i64) -> i64 { return *a; }
+fn main() -> i32 { return 0i32; }

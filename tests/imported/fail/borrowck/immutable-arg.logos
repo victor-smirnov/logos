@@ -1,0 +1,10 @@
+// rustc borrowck/immutable-arg.rs — upstream E0384
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: immutable-arg.rs  E0384 cannot assign to immutable argument
+package immutable_arg;
+fn foo(_x: u32) -> u32 {
+    _x = 4u32;
+    return _x;
+}
+fn main() -> i32 { return foo(1u32) as i32; }

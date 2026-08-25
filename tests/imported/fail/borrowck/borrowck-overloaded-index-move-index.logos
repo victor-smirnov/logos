@@ -1,0 +1,18 @@
+// rustc borrowck/borrowck-overloaded-index-move-index.rs — upstream E0505
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_overloaded_index_move_index;
+struct Foo { x: i64, y: i64 }
+impl Index<String> for Foo {
+    type Output = i64;
+    fn index(self: &Foo, z: String) -> &i64 { return &self.x; }
+}
+fn use_mut(_r: &mut String) {}
+fn main() -> i32 {
+    let f: Foo = Foo { x: 1i64, y: 2i64 };
+    let mut s: String = String::new();
+    let rs: &mut String = &mut s;
+    let _v = f[s];
+    use_mut(rs);
+    return 0i32;
+}

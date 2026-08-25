@@ -1,0 +1,11 @@
+// rustc borrowck/borrowck-borrow-immut-deref-of-box-as-mut.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck-borrow-immut-deref-of-box-as-mut.rs E0596
+package borrowck_borrow_immut_deref_of_box_as_mut;
+struct A { v: i64 }
+impl A { fn foo(self: &mut A) -> i64 { self.v = 1i64; return self.v; } }
+fn main() -> i32 {
+    let a = A { v: 0i64 };
+    return a.foo() as i32;
+}

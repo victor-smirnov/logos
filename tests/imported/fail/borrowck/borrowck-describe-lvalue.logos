@@ -1,0 +1,15 @@
+// rustc borrowck/borrowck-describe-lvalue.rs — upstream E0503
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_describe_lvalue;
+struct Foo { x: i64 }
+struct F { x: i64, y: i64 }
+struct S { x: F, y: i64 }
+impl Foo { fn xm(self: &mut Foo) -> &mut i64 { return &mut self.x; } }
+fn main() -> i32 {
+    let mut f = Foo { x: 22i64 };
+    let x: &mut i64 = f.xm();
+    let _ = f.x;
+    *x = 1i64;
+    return 0i32;
+}

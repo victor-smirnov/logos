@@ -1,0 +1,30 @@
+// rustc nll/user-annotations/patterns.rs — upstream E0597 `x` does not live long enough (×4 ported)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R17
+// port of rust tests/ui/nll/user-annotations/patterns.rs
+// every marked line forces a borrow of a local into a `'static`-annotated slot.
+// rustc: E0597 `x` does not live long enough.
+package patterns;
+struct Single { value: &'static u32 }
+fn variable_no_initializer() {
+    let x: u32 = 22u32;
+    let y: &'static u32;
+    y = &x;                                   // rustc ERROR
+}
+fn variable_with_initializer() {
+    let x: u32 = 22u32;
+    let y: &'static u32 = &x;                 // rustc ERROR
+}
+fn tuple_with_initializer() {
+    let x: u32 = 22u32;
+    let p: (&'static u32, u32) = (&x, 44u32); // rustc ERROR
+}
+fn struct_field_with_initializer() {
+    let x: u32 = 22u32;
+    let s: Single = Single { value: &x };     // rustc ERROR
+}
+fn static_to_a_to_static_through_variable(x: &u32) -> &'static u32 {
+    let y: &u32 = &22u32;
+    return y;                                 // rustc ERROR
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,9 @@
+// rustc borrowck/promote-ref-mut-in-let-issue-46557.rs — upstream E0515
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: promote-ref-mut-in-let-issue-46557.rs (ampersand arm) E0515
+package promote_ref_mut_in_let_issue_46557_b;
+fn gimme_static_mut_ampersand() -> &mut u32 {
+    return &mut 1234543u32;
+}
+fn main() -> i32 { return *gimme_static_mut_ampersand() as i32; }

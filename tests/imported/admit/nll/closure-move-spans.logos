@@ -1,0 +1,13 @@
+// rustc nll/closure-move-spans.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.C
+// port of tests/ui/nll/closure-move-spans.rs (borrow_after_move arm)
+package closure_move_spans;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn main() -> i32 {
+    let x = S { v: 1i64 };
+    let c = || { let q = x; return q.v; };
+    let y: &S = &x;
+    return y.v as i32;
+}

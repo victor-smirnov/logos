@@ -1,0 +1,15 @@
+// rustc moves/issue-46099-move-in-macro.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_46099_move_in_macro;
+struct B { v: i64 }
+impl Drop for B { fn drop(self: &mut B) {} }
+fn take_ref(r: &B) -> i64 { return r.v; }
+fn sink(b: B) -> i64 { return b.v; }
+fn main() -> i32 {
+    let b = B { v: 1i64 };
+    let t1 = { b };
+    let _ = take_ref(&t1);
+    let _ = sink({ b });
+    return 0i32;
+}

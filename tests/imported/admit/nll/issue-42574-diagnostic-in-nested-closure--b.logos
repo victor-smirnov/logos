@@ -1,0 +1,11 @@
+// rustc nll/issue-42574-diagnostic-in-nested-closure.rs — upstream (region)+E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.C
+package issue_42574_diagnostic_in_nested_closure_b;
+fn eat(d: &mut i64) { }
+fn f(data: &mut i64) {
+    let c = || { eat(data); };
+    c();
+    eat(data);
+}
+fn main() -> i32 { let mut n: i64 = 1i64; f(&mut n); return 0i32; }

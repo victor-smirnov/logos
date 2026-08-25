@@ -1,0 +1,9 @@
+// rustc nll/relate_tys/fn-subtype.rs — upstream E0308
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package fn_subtype;
+fn main() -> i32 {
+    let x: fn(&'static i64) = |_a: &i64| { };
+    let y: for<'a> fn(&'a i64) = x;
+    return 0i32;
+}

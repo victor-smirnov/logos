@@ -1,0 +1,10 @@
+// rustc borrowck/reassignment_immutable_fields_twice.rs — upstream E0384
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package reassignment_immutable_fields_twice;
+fn var_then_field() {
+    let x: (i64, i64);
+    x = (22i64, 44i64);
+    x.0 = 1i64;
+}
+fn main() -> i32 { var_then_field(); return 0i32; }

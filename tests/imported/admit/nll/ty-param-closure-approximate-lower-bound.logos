@@ -1,0 +1,9 @@
+// rustc nll/ty-outlives/ty-param-closure-approximate-lower-bound.rs — upstream E0310
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-S7-2
+package ty_param_closure_approximate_lower_bound;
+fn invoke<'x, T>(y: &T) where T: 'x { }
+fn generic_fail<'a, T>(value: T) {
+    invoke(&value);
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-move-by-capture.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+// upstream: borrowck/borrowck-move-by-capture.rs  E0507
+package borrowck_move_by_capture;
+use logos.mem.string;
+fn main() -> i32 {
+    let bar = String::from("abc");
+    let g = || -> i64 {
+        let h = move || -> i64 { return bar.len(); };
+        return h() + h();
+    };
+    return g() as i32;
+}

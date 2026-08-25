@@ -1,0 +1,18 @@
+// rustc borrowck/assign-op-invariance-lifetime.rs — upstream E0597 does not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package assign_op_invariance_lifetime;
+use logos.mem.string;
+use logos.lang.str;
+struct Acc { r: &str }
+fn main() -> i32 {
+    let keep: &str = "";
+    let mut acc: Acc = Acc { r: keep };
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        let line: String = String::from("123456789");
+        acc = Acc { r: line.as_str() };   // ERROR: `line` does not live long enough
+        i = i + 1i64;
+    }
+    return acc.r.len() as i32;
+}

@@ -1,0 +1,17 @@
+// rustc regions/regions-addr-of-self.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.A
+package regions_addr_of_self;
+struct Dog { cats_chased: i64 }
+impl Dog {
+  fn chase_cat(&mut self) {
+    let p: &'static mut i64 = &mut self.cats_chased;
+    *p += 1i64;
+  }
+}
+fn main() -> i32 {
+  let mut d: Dog = Dog { cats_chased: 0i64 };
+  d.chase_cat();
+  if d.cats_chased != 1i64 { return 1i32; }
+  return 0i32;
+}

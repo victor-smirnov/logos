@@ -1,0 +1,9 @@
+// rustc nll/relate_tys/hr-fn-aaa-as-aba.rs — upstream E0308
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package hr_fn_aaa_as_aba;
+fn make_it() -> for<'a> fn(&'a i64, &'a i64) -> &'a i64 { panic("x"); }
+fn foo() {
+    let a: for<'a, 'b> fn(&'a i64, &'b i64) -> &'a i64 = make_it();
+}
+fn main() -> i32 { return 0i32; }

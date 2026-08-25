@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-borrow-from-stack-variable.rs — upstream E0499/E0502/E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_borrow_from_stack_variable_im;
+struct Bar { int1: i64, int2: i64 }
+struct Foo { bar1: Bar, bar2: Bar }
+fn main() -> i32 {
+    let mut foo: Foo = Foo { bar1: Bar { int1: 1i64, int2: 2i64 }, bar2: Bar { int1: 3i64, int2: 4i64 } };
+    let bar1: &Bar = &foo.bar1;
+    let _bar2: &mut Bar = &mut foo.bar1;
+    let _ = bar1.int1;
+    return 0i32;
+}

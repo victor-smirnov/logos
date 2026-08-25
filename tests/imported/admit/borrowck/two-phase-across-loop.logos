@@ -1,0 +1,15 @@
+// rustc borrowck/two-phase-across-loop.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW-L
+package two_phase_across_loop;
+struct Foo { x: String }
+impl Foo { fn get_string(self: &mut Foo) -> &String { return &self.x; } }
+fn main() -> i32 {
+    let mut foo: Foo = Foo { x: String::new() };
+    let mut strings: Vec<&String> = Vec::new();
+    loop {
+        strings.push(foo.get_string());
+        if strings.len() > 2i64 { break; }
+    }
+    return 0i32;
+}

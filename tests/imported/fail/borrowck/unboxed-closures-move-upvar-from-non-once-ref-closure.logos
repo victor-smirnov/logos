@@ -1,0 +1,11 @@
+// rustc borrowck/unboxed-closures-move-upvar-from-non-once-ref-closure.rs — upstream E0507 move out of `Fn` capture
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package unboxed_closures_move_upvar_from_non_once_ref_closure;
+use logos.mem.string;
+fn call<F: Fn()>(f: F) { f(); }
+fn main() -> i32 {
+    let y: String = String::from("World");
+    call(|| { let z: String = y; });   // ERROR: cannot move out of `y`, a captured variable in an `Fn` closure
+    return 0i32;
+}

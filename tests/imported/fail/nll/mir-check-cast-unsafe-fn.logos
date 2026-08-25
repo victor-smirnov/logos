@@ -1,0 +1,11 @@
+// rustc nll/mir_check_cast_unsafe_fn.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package mir_check_cast_unsafe_fn;
+// nll/mir_check_cast_unsafe_fn.rs — relating regions across an unsafe-fn-pointer cast
+fn idf(x: &u32) -> &u32 { return x; }
+fn bar(input: &u32, f: fn(&u32) -> &u32) -> &'static u32 {
+    let g: unsafe fn(&u32) -> &u32 = f;
+    unsafe { return g(input); }
+}
+fn main() -> i32 { let n: u32 = 1u32; let _ = bar(&n, idf); return 0i32; }

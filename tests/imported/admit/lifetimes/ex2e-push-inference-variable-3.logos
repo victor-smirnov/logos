@@ -1,0 +1,11 @@
+// rustc lifetimes/lifetime-errors/ex2e-push-inference-variable-3.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.A
+package ex2e_push_inference_variable_3;
+struct Ref<'a> { data: &'a i64 }
+fn foo<'a, 'b, 'c>(x: &'a mut Vec<Ref<'b>>, y: Ref<'c>) {
+  let a: &mut Vec<Ref<'b>> = x;
+  let b = Ref { data: y.data };
+  a.push(b);
+}
+fn main() -> i32 { return 0i32; }

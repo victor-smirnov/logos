@@ -1,0 +1,11 @@
+// rustc nll/issue-47470.rs — upstream E0515
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of tests/ui/nll/issue-47470.rs : return a reference to a local (E0515)
+package issue_47470;
+struct Foo { n: i64 }
+trait Bar { fn get(self: Self) -> &i64; }
+impl Bar for Foo {
+    fn get(self: Self) -> &i64 { let local = 42i64; return &local; }
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,12 @@
+// rustc borrowck/array-slice-coercion-mismatch-15783.rs — upstream mismatched types
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package array_slice_coercion_mismatch_15783;
+fn foo(params: Option<&[str]>) -> i64 { return 3i64; }
+fn main() -> i32 {
+    let name: str = "Foo";
+    let arr: [str; 1] = [name];
+    let x: Option<&[str; 1]> = Option::Some(&arr);
+    let msg: i64 = foo(x);
+    return 0i32;
+}

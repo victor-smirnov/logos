@@ -1,0 +1,15 @@
+// rustc borrowck/fnmut-borrow-error-in-closure-match.rs — upstream "no variant named `Baz`"
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package fnmut_borrow_error_in_closure_match;
+enum Foo { Bar(u8) }
+fn foo<F: FnMut()>(f: F) { f(); }
+fn main() -> i32 {
+    foo(|| {
+        match Foo::Bar(1u8) {
+            Foo::Baz(x) => {}   // ERROR: no variant named `Baz`
+            _ => {}
+        }
+    });
+    return 0i32;
+}

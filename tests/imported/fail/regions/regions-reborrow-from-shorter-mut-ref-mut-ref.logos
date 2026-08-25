@@ -1,0 +1,8 @@
+// rustc regions/regions-reborrow-from-shorter-mut-ref-mut-ref.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package regions_reborrow_from_shorter_mut_ref_mut_ref;
+fn copy_borrowed_ptr<'a, 'b, 'c>(p: &'a mut &'b mut &'c mut i64) -> &'b mut i64 {
+  return &mut ***p;
+}
+fn main() -> i32 { return 0i32; }

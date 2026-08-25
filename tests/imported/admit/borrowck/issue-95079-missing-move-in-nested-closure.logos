@@ -1,0 +1,15 @@
+// rustc borrowck/issue-95079-missing-move-in-nested-closure.rs — upstream captured variable cannot escape `FnMut` body
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+package issue_95079_missing_move_in_nested_closure;
+// nested closure: the inner closure captures `s`, which the OUTER closure only borrows,
+// and the inner closure escapes the outer body. rustc: captured variable cannot escape
+// `FnMut` closure body.
+fn foo(s: &i64) -> || -> i64 {
+    let mut h = || {
+        let g = || { return *s; };
+        return g;
+    };
+    return h();
+}
+fn main() -> i32 { let a: i64 = 3i64; let c = foo(&a); return c() as i32; }

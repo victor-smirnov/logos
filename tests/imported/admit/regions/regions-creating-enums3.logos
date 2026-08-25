@@ -1,0 +1,8 @@
+// rustc regions/regions-creating-enums3.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-N1
+// port of rust tests/ui/regions/regions-creating-enums3.rs
+package regions_creating_enums3;
+enum Ast<'a> { Num(u64), Add(&'a Ast<'a>, &'a Ast<'a>) }
+fn mk_add_bad1<'a, 'b>(x: &'a Ast<'a>, y: &'b Ast<'b>) -> Ast<'a> { return Ast::Add(x, y); }
+fn main() -> i32 { return 0i32; }

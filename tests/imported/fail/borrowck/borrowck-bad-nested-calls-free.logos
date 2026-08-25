@@ -1,0 +1,12 @@
+// rustc borrowck/borrowck-bad-nested-calls-free.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_bad_nested_calls_free;
+use logos.mem.boxed;
+fn rewrite(v: &mut Box<i64>) -> i64 { *v = Box::new(22i64); return **v; }
+fn add(v: &i64, w: i64) -> i64 { return *v + w; }
+fn main() -> i32 {
+    let mut a: Box<i64> = Box::new(1i64);
+    let r = add(&*a, rewrite(&mut a));
+    return r as i32;
+}

@@ -1,0 +1,13 @@
+// rustc nll/sugg-mut-for-binding-issue-137486.rs — upstream E0716
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.D
+package sugg_mut_for_binding_issue_137486;
+// nll/sugg-mut-for-binding-issue-137486.rs — E0716 temporary value dropped while borrowed
+struct S { n: i64 }
+fn mk() -> S { return S { n: 1i64 }; }
+fn main() -> i32 {
+    let mut s = S { n: 0i64 };
+    let mut ref_s: &mut S = &mut s;
+    ref_s = &mut mk();
+    return ref_s.n as i32 - 1i32;
+}

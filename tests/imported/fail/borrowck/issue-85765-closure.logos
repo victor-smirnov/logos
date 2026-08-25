@@ -1,0 +1,11 @@
+// rustc borrowck/issue-85765-closure.rs — upstream E0594
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/issue-85765-closure.rs  E0594
+package issue_85765_closure;
+fn main() -> i32 {
+    let mut mutvar = 42i64;
+    let r: &i64 = &mut mutvar;
+    *r = 0i64;
+    return *r as i32;
+}

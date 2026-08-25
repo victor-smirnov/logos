@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-move-out-of-overloaded-deref.rs — upstream E0507 cannot move out of an `Rc`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_move_out_of_overloaded_deref;
+struct Own { v: i64 }
+impl Drop for Own { fn drop(self: &mut Own) { } }
+struct Holder { inner: Own }
+impl Deref for Holder { type Target = Own; fn deref(self: &Self) -> &Own { return &self.inner; } }
+fn main() -> i32 {
+    let h: Holder = Holder { inner: Own { v: 1i64 } };
+    let x: Own = *h;
+    return x.v as i32;
+}

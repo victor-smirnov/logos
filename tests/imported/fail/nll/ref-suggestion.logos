@@ -1,0 +1,13 @@
+// rustc nll/ref-suggestion.rs — upstream use of moved value
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of nll/ref-suggestion.rs (first case)
+package ref_suggestion;
+struct V { n: i64 }
+impl Drop for V { fn drop(self: &mut V) {} }
+fn main() -> i32 {
+    let x: V = V { n: 1i64 };
+    let _y: V = x;
+    let _z: V = x;   // use of moved value
+    return 0i32;
+}

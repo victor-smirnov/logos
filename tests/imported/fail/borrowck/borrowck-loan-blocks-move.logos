@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-loan-blocks-move.rs — upstream E0505
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_loan_blocks_move;
+struct B { v: i64 }
+impl Drop for B { fn drop(self: &mut B) {} }
+fn take(v: B) {}
+fn main() -> i32 {
+    let v: B = B { v: 3i64 };
+    let w: &B = &v;
+    take(v);
+    let z: i64 = w.v;
+    return 0i32;
+}

@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-autoref-3261.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_autoref_3261;
+struct X { v: i64 }
+fn with(s: &mut X, blk: fn(&X)) { blk(s); }
+fn main() -> i32 {
+    let mut x: X = X { v: 1i64 };
+    let r: &mut X = &mut x;
+    let c = || { x = X { v: 2i64 }; };
+    c();
+    r.v = 3i64;
+    return 0i32;
+}

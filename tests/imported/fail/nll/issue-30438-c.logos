@@ -1,0 +1,8 @@
+// rustc nll/issue-30438-c.rs — upstream E0515
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_30438_c;
+// nll/issue-30438-c.rs — E0515 return reference to local variable
+struct Test { s: i64 }
+fn silly<'y>(_s: &'y Test) -> &'y Test { let x = Test { s: 1i64 }; return &x; }
+fn main() -> i32 { let o = Test { s: 2i64 }; let r = silly(&o); return r.s as i32 - 1i32; }

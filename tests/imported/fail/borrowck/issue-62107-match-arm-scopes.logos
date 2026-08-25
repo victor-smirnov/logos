@@ -1,0 +1,13 @@
+// rustc borrowck/issue-62107-match-arm-scopes.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/issue-62107-match-arm-scopes.rs (E0381 match on an uninitialised local)
+package issue_62107_match_arm_scopes;
+fn main() -> i32 {
+    let e: i32;
+    match e {
+        0i32 => {}
+        _ => {}
+    }
+    return 0i32;
+}

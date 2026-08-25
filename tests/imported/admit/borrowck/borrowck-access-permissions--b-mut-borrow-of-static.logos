@@ -1,0 +1,11 @@
+// rustc borrowck/borrowck-access-permissions.rs — upstream E0596 ×5
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// upstream: borrowck/borrowck-access-permissions.rs case 2 (E0596)
+package borrowck_access_permissions_b_mut_borrow_of_static;
+static SX: i64 = 1i64;
+fn main() -> i32 {
+    let y1: &mut i64 = &mut SX;
+    *y1 = 2i64;
+    return 0i32;
+}

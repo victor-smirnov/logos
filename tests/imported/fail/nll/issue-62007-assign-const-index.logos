@@ -1,0 +1,14 @@
+// rustc nll/issue-62007-assign-const-index.rs — upstream E0499/E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_62007_assign_const_index;
+struct L { value: i64 }
+fn main() -> i32 {
+  let mut a: L = L { value: 1i64 };
+  let mut b: L = L { value: 2i64 };
+  let mut list: [&mut L; 2] = [&mut a, &mut b];
+  let r: &mut i64 = &mut list[0i64].value;
+  list[0i64] = &mut b;
+  *r = 9i64;
+  return 0i32;
+}

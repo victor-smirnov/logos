@@ -1,0 +1,18 @@
+// rustc nll/capture-ref-in-struct.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.B
+package capture_ref_in_struct_t08;
+struct SomeStruct { p: &mut &i64, y: &i64 }
+impl SomeStruct { fn invoke(self: Self) { *self.p = self.y; } }
+fn deref(z: &i64) { }
+fn main() -> i32 {
+    let x: i64 = 44i64;
+    let mut p: &i64 = &x;
+    {
+        let y: i64 = 22i64;
+        let closure = SomeStruct { p: &mut p, y: &y };
+        closure.invoke();
+    }
+    deref(p);
+    return 0i32;
+}

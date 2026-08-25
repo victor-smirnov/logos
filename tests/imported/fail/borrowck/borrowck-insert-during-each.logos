@@ -1,0 +1,15 @@
+// rustc borrowck/borrowck-insert-during-each.rs — upstream E0499/E0500
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_insert_during_each;
+use logos.mem.collections.vec;
+struct Foo { n: Vec<i64> }
+impl Foo {
+    fn each(&mut self) { }
+}
+fn bar(f: &mut Foo) {
+    let g = || { f.n.push(1i64); };
+    f.each();
+    g();
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,8 @@
+// rustc regions/regions-implied-bounds-projection-gap-1.rs — upstream the parameter type `T` may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.N1
+package regions_implied_bounds_projection_gap_1;
+trait Trait1<'x> { type Foo; }
+fn wf<T>() -> i32 { return 0i32; }
+fn func<'x, T>(t: &'x <T as Trait1<'x>>::Foo) -> i32 where T: Trait1<'x> { return wf::<&'x T>(); }
+fn main() -> i32 { return 0i32; }

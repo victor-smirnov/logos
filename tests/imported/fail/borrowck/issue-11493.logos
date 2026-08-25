@@ -1,0 +1,13 @@
+// rustc borrowck/issue-11493.rs — upstream E0716
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/issue-11493.rs (E0716 temporary value dropped while borrowed:
+// `x.as_ref().unwrap_or(&id(5))` keeps a borrow of the `id(5)` temporary)
+package issue_11493;
+fn id(x: i64) -> i64 { return x; }
+fn keep(a: &i64) -> &i64 { return a; }
+fn main() -> i32 {
+    let y: &i64 = keep(&id(5i64));
+    let _ = *y;
+    return 0i32;
+}

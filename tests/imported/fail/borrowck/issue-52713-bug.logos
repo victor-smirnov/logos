@@ -1,0 +1,12 @@
+// rustc borrowck/issue-52713-bug.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_52713_bug;
+fn foo(cond: bool) -> i64 {
+    let mut x: i64 = 22i64;
+    let y: &i64 = &x;
+    if cond { return x; }
+    x += 1i64;
+    return *y;
+}
+fn main() -> i32 { return foo(false) as i32; }

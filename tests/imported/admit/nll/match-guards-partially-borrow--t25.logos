@@ -1,0 +1,14 @@
+// rustc nll/match-guards-partially-borrow.rs — upstream E0510
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R11
+package match_guards_partially_borrow_t25;
+// nll/match-guards-partially-borrow.rs (representative: bad_mutation_in_if_guard) —
+// E0510 mutation in a match guard invalidates the pattern already chosen.
+fn bad_mutation_in_if_guard(mut t: bool) {
+    match t {
+        true => {}
+        false if { t = true; false } => {}
+        _ => {}
+    }
+}
+fn main() -> i32 { bad_mutation_in_if_guard(false); return 0i32; }

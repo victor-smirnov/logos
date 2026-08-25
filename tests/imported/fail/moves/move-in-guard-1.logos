@@ -1,0 +1,17 @@
+// rustc moves/move-in-guard-1.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package move_in_guard_1;
+struct B { n: i64 }
+impl Drop for B { fn drop(self: &mut B) {} }
+fn take(b: B) -> bool { return b.n == 0i64; }
+fn main() -> i32 {
+    let x: B = B { n: 1i64 };
+    let v: i64 = 1i64;
+    match v {
+        1i64 if take(x) => { return 1i32; }
+        _ if take(x) => { return 2i32; }
+        _ => { return 3i32; }
+    }
+    return 0i32;
+}

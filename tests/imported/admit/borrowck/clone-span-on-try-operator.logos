@@ -1,0 +1,13 @@
+// rustc borrowck/clone-span-on-try-operator.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+// upstream: borrowck/clone-span-on-try-operator.rs  E0507
+package clone_span_on_try_operator;
+use logos.mem.string;
+struct Foo { s: String }
+impl Foo { fn eat(self: Self) -> i64 { return self.s.len(); } }
+fn main() -> i32 {
+    let f = Foo { s: String::from("hi") };
+    let r = &f;
+    return (*r).eat() as i32;
+}

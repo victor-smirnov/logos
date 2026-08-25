@@ -1,0 +1,10 @@
+// rustc borrowck/mutability-errors.rs — upstream E0594/E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.A
+package mutability_errors;
+fn use_mut<T>(x: &mut T) { }
+fn imm_local(x: (i64,)) -> i32 {
+    use_mut(&mut x.0);
+    return 0i32;
+}
+fn main() -> i32 { return imm_local((1i64,)); }

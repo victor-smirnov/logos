@@ -1,0 +1,11 @@
+// rustc nll/closure-access-spans.rs — upstream E0502/E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package closure_access_spans_ec_direct_use_moved;
+struct S { n: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn main() -> i32 {
+    let x: S = S { n: 1i64 };
+    let _r: S = x;
+    return x.n as i32;
+}

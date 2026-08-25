@@ -1,0 +1,12 @@
+// rustc nll/ty-outlives/impl-trait-captures.rs — upstream E0700
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-N1
+// port of tests/ui/nll/ty-outlives/impl-trait-captures.rs
+// the opaque return type captures the (elided) lifetime of `x`, which does not
+// appear in its bounds -> rustc E0700
+package impl_trait_captures;
+trait Foo<'a> { fn go(self: &Self) -> i64; }
+struct W { r: &i64 }
+impl<'a> Foo<'a> for W { fn go(self: &W) -> i64 { return *self.r; } }
+fn foo<'a>(x: &i64) -> impl Foo<'a> { return W { r: x }; }
+fn main() -> i32 { let v = 1i64; return foo(&v).go() as i32; }

@@ -1,0 +1,13 @@
+// rustc borrowck/issue-25793.rs — upstream E0503
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_25793;
+struct HasInfo { width: i64 }
+impl HasInfo {
+    fn get_size(self: &mut HasInfo, n: i64) -> i64 { return n; }
+    fn get_other(self: &mut HasInfo) -> i64 {
+        let r: &mut HasInfo = &mut *self;
+        return r.get_size(self.width);
+    }
+}
+fn main() -> i32 { let mut h: HasInfo = HasInfo { width: 1i64 }; let _ = h.get_other(); return 0i32; }

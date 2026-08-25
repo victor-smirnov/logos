@@ -1,0 +1,8 @@
+// rustc nll/relate_tys/placeholder-outlives-existential.rs — upstream E0308 mismatched types
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package placeholder_outlives_existential;
+struct Co<'a> { r: &'a i64 }
+struct Contra<'a> { f: fn(&'a i64) }
+fn p_outlives_e(x: for<'e> fn(for<'p> fn(fn(fn(Contra<'e>, Co<'p>))))) -> fn(fn(fn(for<'u> fn(Contra<'u>, Co<'u>)))) { return x; }
+fn main() -> i32 { return 0i32; }

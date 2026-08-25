@@ -1,0 +1,15 @@
+// rustc borrowck/borrowck-overloaded-index-autoderef.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-overloaded-index-autoderef.rs  E0499
+package borrowck_overloaded_index_autoderef;
+use logos.lang.ops;
+struct Foo { x: i64, y: i64 }
+impl Index<i64, i64> for Foo { fn index(&self, z: i64) -> &i64 { if z == 0i64 { return &self.x; } return &self.y; } }
+impl IndexMut<i64, i64> for Foo { fn index_mut(&mut self, z: i64) -> &mut i64 { if z == 0i64 { return &mut self.x; } return &mut self.y; } }
+fn main() -> i32 {
+    let mut f = Foo { x: 1i64, y: 2i64 };
+    let p = &mut f[0i64];
+    let q = &mut f[0i64];
+    return (*p + *q) as i32;
+}

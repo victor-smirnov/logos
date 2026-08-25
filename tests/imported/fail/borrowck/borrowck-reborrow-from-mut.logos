@@ -1,0 +1,10 @@
+// rustc borrowck/borrowck-reborrow-from-mut.rs — upstream E0499/E0502/E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_reborrow_from_mut;
+struct Bar { int1: i64, int2: i64 }
+struct Foo { bar1: Bar, bar2: Bar }
+fn use_mut_b(b: &mut Bar) {} fn use_imm_b(b: &Bar) {}
+fn use_mut_i(b: &mut i64) {} fn use_imm_i(b: &i64) {}
+fn same_field_mut_mut(foo: &mut Foo) { let b1 = &mut foo.bar1; let b2 = &mut foo.bar1; use_mut_b(b1); use_mut_b(b2); }
+fn main() -> i32 { return 0i32; }

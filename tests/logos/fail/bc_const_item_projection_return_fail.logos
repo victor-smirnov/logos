@@ -1,0 +1,29 @@
+// A PROJECTION of a `const` item dangles exactly as the bare borrow does, and
+// closing only the bare form left this open.
+//
+// A const is materialised into the FRAME at each use. `&K` is caught in
+// `prov_of`'s AddrOf arm; `&K.a`, `&A[0]` and `&K.i.a` never reach that arm —
+// they arrive at `value_local_root`'s VarRef terminal, which required
+// `var_has(...)` and so fell straight through, because a const is not a tracked
+// local. The same `frame_consts` set now answers at both places.
+//
+// MEASURED on the build that had only the bare form closed, with the clobber
+// constant VARIED so a lucky-stable read cannot pass for a correct one:
+// `return &A[0];` gave exit 71 for stomp 71 and exit 5 for stomp 5 — the second
+// row is the trap, since 5 is also the correct answer.
+//
+// ⚠ The admit twin `pass/bc_static_item_return_ref_admit` covers the STATIC
+// projection, and it is not symmetry: a `static` has real storage and sema
+// rewrites its read to `Deref(VarRef "__static_addr:<sym>")`, so it never
+// reaches this terminal at all. That is why the rule can refuse one and admit
+// the other without a special case for either.
+package bc_const_item_projection_return_fail;
+
+struct In { a: i64 }
+struct S  { a: i64, b: i64, i: In }
+
+const K: S = S { a: 5i64, b: 6i64, i: In { a: 5i64 } };
+
+fn f() -> &i64 { return &K.i.a; }
+
+fn main() -> i32 { let p: &i64 = f(); return *p as i32; }

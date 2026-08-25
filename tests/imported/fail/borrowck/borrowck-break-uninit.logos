@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-break-uninit.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_break_uninit;
+fn foo() -> i64 {
+    let x: i64;
+    loop {
+        break;
+        x = 0i64;
+    }
+    let _ = x;
+    return 17i64;
+}
+fn main() -> i32 { let _ = foo(); return 0i32; }

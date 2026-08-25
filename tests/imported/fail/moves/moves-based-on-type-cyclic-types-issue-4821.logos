@@ -1,0 +1,15 @@
+// rustc moves/moves-based-on-type-cyclic-types-issue-4821.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package moves_based_on_type_cyclic_types_issue_4821;
+struct Node { key: i64 }
+impl Drop for Node { fn drop(self: &mut Node) {} }
+struct List { key: i64, next: Node }
+impl Drop for List { fn drop(self: &mut List) {} }
+fn consume_node(n: Node) -> i64 { return n.key; }
+fn consume(l: List) -> i64 { return l.key; }
+fn foo(node: List) -> i64 {
+    let r = consume_node(node.next);
+    return consume(node) + r;
+}
+fn main() -> i32 { return 0i32; }

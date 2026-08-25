@@ -1,0 +1,13 @@
+// rustc nll/user-annotations/normalization.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-N1
+// port of tests/ui/nll/user-annotations/normalization.rs (E0597 after normalisation)
+package normalization;
+trait Foo { type Out; }
+struct Unit {}
+impl Foo for Unit { type Out = &'static u32; }
+fn main() -> i32 {
+    let a: u32 = 22u32;
+    let z: <Unit as Foo>::Out = &a;
+    return *z as i32;
+}

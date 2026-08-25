@@ -1,0 +1,9 @@
+// rustc regions/region-object-lifetime-4.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package region_object_lifetime_4;
+trait Foo { fn borrowed<'a>(self: &'a Self) -> &'a i64; }
+struct A { x: i64 }
+impl Foo for A { fn borrowed<'a>(self: &'a Self) -> &'a i64 { return &self.x; } }
+fn g<'a, 'b>(x: &'a dyn Foo) -> &'b i64 { return x.borrowed(); }
+fn main() -> i32 { let a: A = A { x: 3i64 }; let r = g(&a); return 0i32; }

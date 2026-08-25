@@ -1,0 +1,10 @@
+// rustc borrowck/issue-87456-point-to-closure.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_87456_point_to_closure;
+fn take_mut<F: FnMut()>(_f: F) {}
+fn main() -> i32 {
+    let val: String = String::new();
+    take_mut(|| { let _foo: String = val; });
+    return 0i32;
+}

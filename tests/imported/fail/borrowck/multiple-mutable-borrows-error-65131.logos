@@ -1,0 +1,10 @@
+// rustc borrowck/multiple-mutable-borrows-error-65131.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package multiple_mutable_borrows_error_65131;
+fn get_pair(a: &mut i64, b: &mut i64) {}
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    get_pair(&mut x, &mut x);
+    return 0i32;
+}

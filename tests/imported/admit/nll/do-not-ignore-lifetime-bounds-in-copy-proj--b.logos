@@ -1,0 +1,15 @@
+// rustc nll/do-not-ignore-lifetime-bounds-in-copy-proj.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-1
+package do_not_ignore_lifetime_bounds_in_copy_proj_b;
+struct Foo<'a> { r: &'a i64 }
+impl Copy for Foo<'static> { }
+struct T1 { f: Foo<'static> }
+fn drp(z: Foo<'static>) { }
+fn main() -> i32 {
+    let s: i64 = 2i64;
+    let a: T1 = T1 { f: Foo { r: &s } };
+    drp(a.f);
+    drp(a.f);
+    return 0i32;
+}

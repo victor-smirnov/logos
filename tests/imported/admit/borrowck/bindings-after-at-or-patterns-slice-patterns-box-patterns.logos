@@ -1,0 +1,18 @@
+// rustc borrowck/bindings-after-at-or-patterns-slice-patterns-box-patterns.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// upstream: borrowck/bindings-after-at-...rs, bindings_after_at_or_patterns_move
+// (E0382 borrow of moved value after an `@` binding moved it)
+package bindings_after_at_or_patterns_slice_patterns_box_patterns;
+struct P { s: str }
+impl Drop for P { fn drop(self: &mut P) {} }
+enum T { Foo(P), Bar }
+fn main() -> i32 {
+    let x: T = T::Foo(P { s: "a" });
+    match x {
+        a @ T::Foo(_) => { let _ = a; }
+        _ => {}
+    }
+    let r: &T = &x;
+    return 0i32;
+}

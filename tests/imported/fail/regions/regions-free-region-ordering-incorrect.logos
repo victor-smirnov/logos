@@ -1,0 +1,10 @@
+// rustc regions/regions-free-region-ordering-incorrect.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package regions_free_region_ordering_incorrect;
+// port of regions/regions-free-region-ordering-incorrect.rs
+struct Node<'b> { val: i64, next: &'b i64 }
+impl<'b> Node<'b> {
+  fn get<'a>(self: &'a Self) -> &'b i64 { return &self.val; }
+}
+fn main() -> i32 { return 0i32; }

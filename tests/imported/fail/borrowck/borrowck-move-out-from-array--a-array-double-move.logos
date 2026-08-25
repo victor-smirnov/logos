@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-move-out-from-array.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-move-out-from-array.rs  E0382
+package borrowck_move_out_from_array_a_array_double_move;
+struct S { n: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn main() -> i32 {
+    let a: [S; 3] = [S{n:1i64}, S{n:2i64}, S{n:3i64}];
+    let [_p, _q, _x] = a;
+    let [_r, _s, _y] = a;
+    return 0i32;
+}

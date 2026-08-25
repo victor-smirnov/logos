@@ -1,0 +1,11 @@
+// rustc borrowck/mutable-borrow-behind-reference-61623.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: mutable-borrow-behind-reference-61623.rs E0596 (&mut behind a & ref)
+package mutable_borrow_behind_reference_61623;
+struct P { a: i64, b: i64 }
+fn f1(_x: &mut i64) -> i64 { return *_x; }
+fn f3(x: &P) -> i64 {
+    return f1(&mut x.b);   // E0596: cannot borrow *x.b as mutable, behind a `&`
+}
+fn main() -> i32 { let p = P{a:1i64,b:2i64}; return f3(&p) as i32; }

@@ -1,0 +1,11 @@
+// rustc borrowck/issue-17718-static-move.rs — upstream E0507 cannot move out of static
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+package issue_17718_static_move;
+struct Foo { v: i64 }
+impl Drop for Foo { fn drop(self: &mut Foo) {} }
+pub static FOO: Foo = Foo { v: 1i64 };
+fn main() -> i32 {
+    let a: Foo = FOO;    // ERROR: cannot move out of static item
+    return (a.v + FOO.v) as i32;
+}

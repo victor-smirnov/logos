@@ -1,0 +1,15 @@
+// rustc nll/issue-54382-use-span-of-tail-of-block.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.D
+package issue_54382_use_span_of_tail_of_block;
+struct D { n: i64 }
+impl Drop for D { fn drop(self: &mut D) {} }
+struct Holder { r: &D }
+fn main() -> i32 {
+    let h: Holder = {
+        let thing2 = D { n: 2i64 };
+        Holder { r: &thing2 }
+    };
+    let _ = h.r.n;
+    return 0i32;
+}

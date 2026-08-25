@@ -1,0 +1,10 @@
+// rustc nll/borrowed-local-error.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowed_local_error;
+struct P { a: i64 }
+fn gimme(x: &P) -> &i64 { return &x.a; }
+fn main() -> i32 {
+    let x: &i64 = gimme({ let v = P{a:22i64}; &v });
+    return *x as i32;
+}

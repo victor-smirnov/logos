@@ -1,0 +1,6 @@
+// rustc lifetimes/raw/multiple-prefixes.rs — upstream expected type, found `#`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package multiple_prefixes;
+fn test(x: &'r#r#r i64) { }
+fn main() -> i32 { return 0i32; }

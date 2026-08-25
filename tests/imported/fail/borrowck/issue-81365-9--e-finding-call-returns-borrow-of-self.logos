@@ -1,0 +1,20 @@
+// rustc borrowck/issue-81365-9.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// REDUCED FINDING for t29: a CALL that returns a borrow of the whole receiver
+// deposits no loan, so a write to the receiver is admitted while it is live.
+package issue_81365_9_e_finding_call_returns_borrow_of_self;
+struct Container { target: bool, container_field: bool }
+fn getref(c: &Container) -> &bool { return &c.target; }
+impl Container {
+    fn bad_borrow(self: &mut Container) -> i32 {
+        let first = getref(self);
+        self.container_field = true;
+        let _ = *first;
+        return 0i32;
+    }
+}
+fn main() -> i32 {
+    let mut c = Container { target: false, container_field: false };
+    return c.bad_borrow();
+}

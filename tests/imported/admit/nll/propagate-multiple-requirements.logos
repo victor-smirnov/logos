@@ -1,0 +1,11 @@
+// rustc nll/closure-requirements/propagate-multiple-requirements.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.A
+package propagate_multiple_requirements;
+// nll/closure-requirements/propagate-multiple-requirements.rs (reshaped): a closure
+// deposits a borrow of a closure-local into a `&mut` out-parameter of the enclosing fn.
+fn dangle(out: &mut &i64) {
+    let c = || { let local: i64 = 4i64; *out = &local; };
+    c();
+}
+fn main() -> i32 { let z: i64 = 0i64; let mut p: &i64 = &z; dangle(&mut p); return *p as i32; }

@@ -1,0 +1,13 @@
+// rustc nll/match-cfg-fake-edges.rs — upstream E0382,E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package match_cfg_fake_edges_c_guard_may_be_skipped;
+fn main() -> i32 {
+    let y: i64 = 1i64;
+    let x: i64;
+    match y {
+        _ if { x = 2i64; true } => { }
+        _ => { let _ = x; }
+    }
+    return 0i32;
+}

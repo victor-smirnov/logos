@@ -1,0 +1,8 @@
+// rustc lifetimes/issue-97194.rs — upstream incorrect function inside `extern` block
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_97194;
+extern "C" {
+    fn bget(self: &Self, index: [u64; 2]) -> bool { return true; }
+}
+fn main() -> i32 { return 0i32; }

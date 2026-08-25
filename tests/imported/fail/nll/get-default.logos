@@ -1,0 +1,16 @@
+// rustc nll/get_default.rs — upstream E0502 borrowed as immutable
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of nll/get_default.rs (err fn): shared borrow live across a &mut call
+package get_default;
+struct Map { v: i64 }
+impl Map {
+    fn get(self: &Map) -> &i64 { return &self.v; }
+    fn set(self: &mut Map, x: i64) { self.v = x; }
+}
+fn err(map: &mut Map) -> &i64 {
+    let v: &i64 = map.get();
+    map.set(1i64);          // cannot borrow as mutable: also borrowed as immutable
+    return v;
+}
+fn main() -> i32 { let mut m: Map = Map { v: 0i64 }; let r: &i64 = err(&mut m); return *r as i32; }

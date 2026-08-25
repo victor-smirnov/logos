@@ -1,0 +1,11 @@
+// rustc borrowck/disallow-possibly-uninitialized.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package disallow_possibly_uninitialized_t22;
+fn main() -> i32 {
+    let mut t: (u64, u64);
+    t.0 = 1u64;
+    t.1 = 1u64;
+    let _ = t.0;
+    return 0i32;
+}

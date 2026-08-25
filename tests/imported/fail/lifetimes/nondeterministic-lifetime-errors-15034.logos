@@ -1,0 +1,10 @@
+// rustc lifetimes/nondeterministic-lifetime-errors-15034.rs — upstream E0621
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package nondeterministic_lifetime_errors_15034;
+struct Lexer<'a> { input: &'a str }
+struct Parser<'a> { lexer: &'a mut Lexer<'a> }
+impl<'a> Parser<'a> {
+  fn new(lexer: &'a mut Lexer) -> Parser<'a> { return Parser { lexer: lexer }; }
+}
+fn main() -> i32 { return 0i32; }

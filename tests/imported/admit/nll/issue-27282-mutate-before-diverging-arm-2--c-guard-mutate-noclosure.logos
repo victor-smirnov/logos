@@ -1,0 +1,14 @@
+// rustc nll/issue-27282-mutate-before-diverging-arm-2.rs — upstream E0510 cannot mutably borrow `x` in match guard
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R11
+// control for t14: the guard mutates the matched place DIRECTLY (no closure)
+package issue_27282_mutate_before_diverging_arm_2_c_guard_mutate_noclosure;
+enum E { A, B }
+fn main() -> i32 {
+    let mut x: E = E::B;
+    match x {
+        E::A => { return 1i32; }
+        E::B if { x = E::A; false } => { return 2i32; }
+        _ => { return 3i32; }
+    }
+}

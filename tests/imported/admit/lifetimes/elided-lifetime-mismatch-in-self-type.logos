@@ -1,0 +1,9 @@
+// rustc lifetimes/elided-lifetime-mismatch-in-self-type.rs — upstream E0308 mismatched `self` parameter type
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R18
+package elided_lifetime_mismatch_in_self_type;
+struct Pair<T, V> { a: T, b: V }
+impl Pair<i64, i64> {
+    fn say(self: &Pair<u8, i64>) -> i64 { return self.b; }
+}
+fn main() -> i32 { return 0i32; }

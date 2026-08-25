@@ -1,0 +1,17 @@
+// rustc borrowck/regions-escape-bound-fn-2.rs — upstream E0521
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+// upstream: borrowck/regions-escape-bound-fn-2.rs  E0521 borrowed data escapes outside of closure
+package regions_escape_bound_fn_2;
+fn main() -> i32 {
+    let mut out: Option<&i64> = Option::None;
+    {
+        let x: i64 = 3i64;
+        let mut c = |y: &i64| { out = Option::Some(y); };
+        c(&x);
+    }
+    match out {
+        Option::Some(p) => { return *p as i32; }
+        Option::None => { return 1i32; }
+    }
+}

@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-move-moved-value-into-closure.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_move_moved_value_into_closure;
+struct B { v: i64 }
+impl Drop for B { fn drop(self: &mut B) {} }
+fn call_f<F>(f: F) {}
+fn main() -> i32 {
+    let t = B { v: 3i64 };
+    call_f(move || { return t.v + 1i64; });
+    call_f(move || { return t.v + 1i64; });
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+// rustc nll/ty-outlives/projection-two-region-trait-bound-closure.rs — upstream may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-N2
+// port attempt of nll/ty-outlives/projection-two-region-trait-bound-closure.rs no_relationships_late
+package projection_two_region_trait_bound_closure;
+trait Anything<'a, 'b> { type AssocType; }
+fn require<'a, 'b, 'c, T>(_c: &'a i64, _t: T) where T: Anything<'b, 'c> {}
+fn with_signature<'a, T, F>(c: &'a i64, t: T, op: F) where F: FnOnce(&'a i64, T) { op(c, t); }
+fn no_relationships_late<'a, 'b, 'c, T>(c: &'a i64, t: T) where T: Anything<'b, 'c> {
+    with_signature(c, t, |c2, t2| { require(c2, t2); });   // ERROR may not live long enough
+}
+fn main() -> i32 { return 0i32; }

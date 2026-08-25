@@ -1,0 +1,7 @@
+// rustc lifetimes/lifetime-errors/e0621-mut-ref-aliases-pointee-lifetime.rs — upstream E0621 explicit lifetime required
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-R19
+package e0621_mut_ref_aliases_pointee_lifetime;
+struct Buffer<'a> { buf: &'a mut i64 }
+fn foo<'a>(buffer: &mut Buffer<'a>) { buffer.buf = &mut *buffer.buf; }
+fn main() -> i32 { return 0i32; }

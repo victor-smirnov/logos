@@ -1,0 +1,15 @@
+// rustc borrowck/borrowck-union-borrow.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-union-borrow.rs  E0502/E0506
+package borrowck_union_borrow;
+union U { a: i64, b: i64 }
+fn main() -> i32 {
+    unsafe {
+        let mut u = U { b: 0i64 };
+        let ra = &u.a;
+        let rma = &mut u.a;
+        *rma = 1i64;
+        return (*ra) as i32;
+    }
+}

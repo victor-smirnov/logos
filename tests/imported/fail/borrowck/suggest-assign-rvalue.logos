@@ -1,0 +1,11 @@
+// rustc borrowck/suggest-assign-rvalue.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/suggest-assign-rvalue.rs  E0381
+package suggest_assign_rvalue;
+fn apple(_v: u64) -> i64 { return 0i64; }
+fn banana() -> i64 {
+    let chaenomeles: u64;
+    return apple(chaenomeles);
+}
+fn main() -> i32 { return banana() as i32; }

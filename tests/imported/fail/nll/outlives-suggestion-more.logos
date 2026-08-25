@@ -1,0 +1,7 @@
+// rustc nll/outlives-suggestion-more.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package outlives_suggestion_more;
+// nll/outlives-suggestion-more.rs — "lifetime may not live long enough": unrelated region params
+fn foo1<'a, 'b>(x: &'a u64) -> &'b u64 { return x; }
+fn main() -> i32 { let a: u64 = 1u64; let _ = foo1(&a); return 0i32; }

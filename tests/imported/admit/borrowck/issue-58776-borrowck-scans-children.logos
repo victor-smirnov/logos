@@ -1,0 +1,11 @@
+// rustc borrowck/issue-58776-borrowck-scans-children.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+// upstream: issue-58776-borrowck-scans-children.rs E0506 (nested closures return &greeting)
+package issue_58776_borrowck_scans_children;
+fn main() -> i32 {
+    let mut greeting: i64 = 1i64;
+    let res: &i64 = (|| { return (|| { return &greeting; })(); })();
+    greeting = 2i64;    // E0506: assign while borrowed by `res`
+    return *res as i32;
+}

@@ -1,0 +1,10 @@
+// rustc borrowck/reassignment_immutable_fields_overlapping.rs — upstream E0381/E0594
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package reassignment_immutable_fields_overlapping;
+union Foo { a: u32, b: u32 }
+fn overlapping_fields() {
+    let x: Foo;
+    unsafe { x.a = 1u32; x.b = 22u32; }
+}
+fn main() -> i32 { overlapping_fields(); return 0i32; }

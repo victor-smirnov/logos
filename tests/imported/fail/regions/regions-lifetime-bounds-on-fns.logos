@@ -1,0 +1,8 @@
+// rustc regions/regions-lifetime-bounds-on-fns.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust tests/ui/regions/regions-lifetime-bounds-on-fns.rs — fn b and fn c
+package regions_lifetime_bounds_on_fns;
+fn a<'a, 'b: 'a>(x: &mut &'a i64, y: &mut &'b i64) { *x = *y; }
+fn b<'a, 'b>(x: &mut &'a i64, y: &mut &'b i64) { *x = *y; }
+fn main() -> i32 { return 0i32; }

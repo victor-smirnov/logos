@@ -1,0 +1,12 @@
+// rustc nll/ty-outlives/wf-unreachable.rs — upstream region WF
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-N1
+// port of tests/ui/nll/ty-outlives/wf-unreachable.rs
+// the annotation `&'static &'a ()` is not well-formed: it requires 'a: 'static
+package wf_unreachable;
+fn uninit<'a>(y: &'a i64) -> i64 {
+    return *y;
+    let x: &'static &'a i64;
+    return 0i64;
+}
+fn main() -> i32 { let v = 1i64; return uninit(&v) as i32; }

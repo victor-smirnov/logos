@@ -1,0 +1,18 @@
+// rustc borrowck/issue-85581.rs — upstream E0499 cannot borrow mutably twice
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package issue_85581;
+use logos.lang.option;
+struct Heap { v: i64 }
+impl Heap {
+    fn peek_mut(self: &mut Heap) -> Option<&mut i64> { return Option::Some(&mut self.v); }
+    fn pop(self: &mut Heap) -> i64 { return self.v; }
+}
+fn foo(heap: &mut Heap) -> i32 {
+    match heap.peek_mut() {
+        Option::Some(g) => { let _ = heap.pop(); }   // ERROR: cannot borrow `*heap` mutably twice
+        Option::None => {}
+    }
+    return 0i32;
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,10 @@
+// rustc borrowck/borrowck-mut-slice-of-imm-vec.rs — upstream E0596 cannot borrow
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_mut_slice_of_imm_vec;
+fn wr(v: &mut [i64]) { v[0u64] = v[0u64] + 1i64; }
+fn main() -> i32 {
+    let v: [i64; 3] = [1i64, 2i64, 3i64];
+    wr(&mut v);
+    return 0i32;
+}

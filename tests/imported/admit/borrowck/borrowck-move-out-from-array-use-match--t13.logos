@@ -1,0 +1,12 @@
+// rustc borrowck/borrowck-move-out-from-array-use-match.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package borrowck_move_out_from_array_use_match_t13;
+use logos.mem.string;
+fn arr() -> [String; 3] { return [String::from("a"), String::from("b"), String::from("c")]; }
+fn main() -> i32 {
+    let a: [String; 3] = arr();
+    match a { [_, _, x] => { let _n = x.len(); } }
+    match a { [_, _, ref y] => { let _m = y.len(); } }  // ERROR E0382: use of moved value
+    return 0i32;
+}

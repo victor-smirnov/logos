@@ -1,0 +1,16 @@
+// rustc borrowck/move-in-pattern.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: move-in-pattern.rs second site  E0382
+package move_in_pattern_b_partial_move_enum_struct_variant;
+struct S { n: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+enum E { V(S) }
+fn bar(v: E) -> i32 { return 0i32; }
+fn main() -> i32 {
+    let e = E::V(S { n: 1i64 });
+    match e {
+        E::V(x) => { let _ = x.n; }
+    }
+    return bar(e);
+}

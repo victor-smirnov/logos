@@ -1,0 +1,16 @@
+// rustc nll/closure-requirements/escape-argument.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.C
+package escape_argument_b;
+fn deref(z: &i64) { }
+fn main() -> i32 {
+    let x: i64 = 44i64;
+    let mut p: &i64 = &x;
+    {
+        let y: i64 = 22i64;
+        let mut c = || { p = &y; };
+        c();
+    }
+    deref(p);
+    return 0i32;
+}

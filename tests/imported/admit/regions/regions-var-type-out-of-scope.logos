@@ -1,0 +1,15 @@
+// rustc regions/regions-var-type-out-of-scope.rs — upstream E0716
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.D
+package regions_var_type_out_of_scope;
+fn id(x: i64) -> i64 { return x; }
+fn foo(cond: bool) -> i64 {
+  let mut x: &i64;
+  let mut r: i64 = 0i64;
+  if cond {
+    x = &id(3i64);
+    r = *x;
+  }
+  return r;
+}
+fn main() -> i32 { if foo(true) != 3i64 { return 1i32; } return 0i32; }

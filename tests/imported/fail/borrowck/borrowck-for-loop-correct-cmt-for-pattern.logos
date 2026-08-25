@@ -1,0 +1,16 @@
+// rustc borrowck/borrowck-for-loop-correct-cmt-for-pattern.rs — upstream E0507 cannot move out
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_for_loop_correct_cmt_for_pattern;
+struct B { v: i64 }
+impl Drop for B { fn drop(self: &mut B) { } }
+fn main() -> i32 {
+    let f: [B; 2] = [B { v: 3i64 }, B { v: 4i64 }];
+    let r: &[B; 2] = &f;
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        let a: B = r[i as u64];
+        i = i + 1i64;
+    }
+    return 0i32;
+}

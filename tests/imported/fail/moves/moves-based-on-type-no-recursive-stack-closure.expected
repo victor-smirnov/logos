@@ -1,0 +1,1 @@
+use of moved value 'f': the callable was already moved or consumed (an `FnOnce` is consumed by the call and cannot be called again)

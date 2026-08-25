@@ -1,0 +1,9 @@
+// rustc regions/regions-static-bound.rs — upstream E0521 borrowed data escapes outside of function
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.L2
+package regions_static_bound;
+fn static_id<'a>(t: &'a i64) -> &'static i64 where 'a: 'static { return t; }
+fn error(u: &i64) {
+  let r = static_id(u);
+}
+fn main() -> i32 { let n = 1i64; error(&n); return 0i32; }

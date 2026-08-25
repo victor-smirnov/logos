@@ -1,0 +1,19 @@
+// rustc borrowck/cannot-borrow-index-of-hashmap-in-for.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// upstream: cannot-borrow-index-of-hashmap-in-for.rs E0596
+// Semantic port: Logos's HashMap has no Index impl, so a user container with
+// `impl Index` (shared indexing only) stands in. Calling a `&mut self` method on
+// the indexed place must be refused (E0596: cannot borrow data in an index of ...).
+package cannot_borrow_index_of_hashmap_in_for;
+struct Elem { n: i64 }
+impl Elem { fn bump(self: &mut Elem) { self.n = self.n + 1i64; } }
+struct Table { e: Elem }
+impl Index<i64, Elem> for Table {
+    fn index(self: &Table, i: i64) -> &Elem { return &self.e; }
+}
+fn main() -> i32 {
+    let t = Table { e: Elem { n: 0i64 } };
+    t[0i64].bump();       // E0596
+    return 0i32;
+}

@@ -1,0 +1,8 @@
+// rustc borrowck/moved-value-suggest-reborrow-issue-127285.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+package moved_value_suggest_reborrow_issue_127285_t32;
+struct X { a: u32 }
+fn generic<T>(x: T) {}
+impl X { fn f(self: &mut X) { generic(self); self.a += 1u32; } }
+fn main() -> i32 { let mut x = X { a: 0u32 }; x.f(); return 0i32; }

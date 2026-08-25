@@ -1,0 +1,16 @@
+// rustc nll/match-cfg-fake-edges2.rs — upstream E0503
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package match_cfg_fake_edges2;
+struct P { a: bool, b: bool }
+fn drop_r(r: &mut bool) -> i64 { *r = true; return 1i64; }
+fn main() -> i32 {
+    let mut y: P = P { a: false, b: true };
+    let r: &mut bool = &mut y.b;
+    let mut k: i64 = 0i64;
+    match y {
+        P { a: true, b: _ } => { k = drop_r(r); }
+        _ => { k = 2i64; }
+    }
+    return k as i32;
+}

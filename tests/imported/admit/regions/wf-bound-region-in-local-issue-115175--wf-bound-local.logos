@@ -1,0 +1,7 @@
+// rustc regions/wf-bound-region-in-local-issue-115175.rs — upstream E0310 parameter type `T` may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-R20
+package wf_bound_region_in_local_issue_115175_wf_bound_local;
+struct Static<T: 'static> { v: T }
+fn test<T>() { let _x: Option<Static<T>> = Option::None; }
+fn main() -> i32 { return 0i32; }

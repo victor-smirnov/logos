@@ -1,0 +1,14 @@
+// rustc borrowck/return-local-binding-from-desugaring.rs — upstream E0515
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: return-local-binding-from-desugaring.rs E0515
+// Semantic port: return a value that references a TEMPORARY produced inside the fn.
+package return_local_binding_from_desugaring;
+struct Item { n: i64 }
+struct Holder { r: &i64 }
+fn mk() -> Item { return Item { n: 5i64 }; }
+fn group_by() -> Holder {
+    let x = mk();
+    return Holder { r: &x.n };   // E0515: returns a value referencing local data
+}
+fn main() -> i32 { let h = group_by(); return *h.r as i32; }

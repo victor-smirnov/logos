@@ -1,0 +1,45 @@
+// rustc moves/moves-based-on-type-exprs.rs — upstream E0382 borrow of moved value: `x` (×6)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust tests/ui/moves/moves-based-on-type-exprs.rs
+// each of f10/f20/f30/f40/f50/f70 moves `x` into an expression form and then
+// borrows it.  rustc: E0382 borrow of moved value: `x` at every marked line.
+package moves_based_on_type_exprs;
+extern fn noop(p: *const u8);
+struct S { n: i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { noop(0 as *const u8); } } }
+struct Foo { f: S }
+fn touch(a: &S) { }
+fn guard(s: S) -> bool { return true; }
+
+fn f10() {
+    let x: S = S { n: 1i64 };
+    let y: Foo = Foo { f: x };      // move into a STRUCT LITERAL field
+    touch(&x);                      // rustc ERROR
+}
+fn f20() {
+    let x: S = S { n: 1i64 };
+    let y: (S, i64) = (x, 3i64);    // move into a TUPLE literal
+    touch(&x);                      // rustc ERROR
+}
+fn f30(cond: bool) {
+    let x: S = S { n: 1i64 };
+    let y: S = if cond { x } else { S { n: 2i64 } };  // move in an IF branch
+    touch(&x);                      // rustc ERROR
+}
+fn f40(cond: i64) {
+    let x: S = S { n: 1i64 };
+    let y: S = match cond { 0i64 => x, _ => S { n: 2i64 } };  // move in a MATCH arm
+    touch(&x);                      // rustc ERROR
+}
+fn f50(cond: i64) {
+    let x: S = S { n: 1i64 };
+    let y: i64 = match cond { _ if guard(x) => 10i64, _ => 20i64 };  // move in a GUARD
+    touch(&x);                      // rustc ERROR
+}
+fn f70() {
+    let x: S = S { n: 1i64 };
+    let y: [S; 1] = [x];            // move into an ARRAY literal
+    touch(&x);                      // rustc ERROR
+}
+fn main() -> i32 { return 0i32; }

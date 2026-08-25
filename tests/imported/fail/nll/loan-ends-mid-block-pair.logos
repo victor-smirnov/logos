@@ -1,0 +1,14 @@
+// rustc nll/loan_ends_mid_block_pair.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package loan_ends_mid_block_pair;
+// nll/loan_ends_mid_block_pair.rs — E0506 assign to `data.0` while it is mutably borrowed
+fn capitalize(c: &mut i64) { *c = *c + 1i64; }
+fn main() -> i32 {
+    let mut data: (i64, i64, i64) = (1i64, 2i64, 3i64);
+    let c: &mut i64 = &mut data.0;
+    capitalize(c);
+    data.0 = 5i64;
+    capitalize(c);
+    return 0i32;
+}

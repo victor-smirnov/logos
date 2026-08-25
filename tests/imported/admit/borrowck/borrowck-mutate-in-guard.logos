@@ -1,0 +1,16 @@
+// rustc borrowck/borrowck-mutate-in-guard.rs — upstream E0510
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+// upstream: borrowck-mutate-in-guard.rs E0510 cannot assign in match guard
+package borrowck_mutate_in_guard;
+enum Enum { A(i64), B(bool) }
+fn if_guard() -> i64 {
+    let mut x = Enum::A(42i64);
+    let r = match x {
+        Enum::A(_) if { x = Enum::B(false); false } => 1i64,
+        Enum::A(p) => p,
+        Enum::B(_) => 2i64,
+    };
+    return r;
+}
+fn main() -> i32 { return if_guard() as i32; }

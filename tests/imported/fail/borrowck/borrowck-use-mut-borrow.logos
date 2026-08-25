@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-use-mut-borrow.rs — upstream E0503
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_use_mut_borrow;
+struct A { a: i64, b: i64 }
+fn eat(v: i64) {}
+fn eatA(v: A) {}
+fn var_copy_after_var_borrow() {
+    let mut x: i64 = 1i64;
+    let p: &mut i64 = &mut x;
+    eat(x);
+    *p = 2i64;
+}
+fn main() -> i32 { var_copy_after_var_borrow(); return 0i32; }

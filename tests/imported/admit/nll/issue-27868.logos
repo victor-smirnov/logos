@@ -1,0 +1,12 @@
+// rustc nll/issue-27868.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R11
+package issue_27868;
+struct MyVec { v: i64 }
+impl Drop for MyVec { fn drop(self: &mut MyVec) {} }
+fn add_assign(m: &mut MyVec, e: i64) { m.v = m.v + e; }
+fn main() -> i32 {
+    let mut vecvec: [MyVec; 1] = [MyVec { v: 0i64 }];
+    add_assign(&mut vecvec[0], { vecvec = [MyVec { v: 9i64 }]; 0i64 });
+    return 0i32;
+}

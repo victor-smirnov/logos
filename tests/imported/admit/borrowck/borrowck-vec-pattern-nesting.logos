@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-vec-pattern-nesting.rs — upstream E0506/E0508
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package borrowck_vec_pattern_nesting;
+fn main() -> i32 {
+    let mut v: [Box<i64>; 3] = [Box::new(1i64), Box::new(2i64), Box::new(3i64)];
+    match v {
+        [ref _a, _, _] => {
+            v[0] = Box::new(4i64);
+            let _ = **_a;
+        }
+    }
+    return 0i32;
+}

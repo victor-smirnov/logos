@@ -1,0 +1,10 @@
+// rustc lifetimes/unnamed-closure-doesnt-life-long-enough-issue-67634.rs — upstream closure may outlive the current function
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.C
+package unnamed_closure_doesnt_life_long_enough_issue_67634;
+fn outer() -> i32 {
+  let c = |a: i64| -> Box<dyn Fn() -> i64> { let b: Box<dyn Fn() -> i64> = Box::new(|| { return a; }); return b; };
+  let r = c(3i64);
+  return 0i32;
+}
+fn main() -> i32 { return outer(); }

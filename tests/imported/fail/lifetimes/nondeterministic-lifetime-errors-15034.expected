@@ -1,0 +1,1 @@
+struct literal 'Parser' field 'lexer': variance mismatch — expected &'a mut Lexer<'a>, got &'a mut Lexer — lifetime structure incompatible (check &mut invariance / contravariance rules)

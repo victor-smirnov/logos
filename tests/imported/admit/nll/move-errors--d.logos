@@ -1,0 +1,12 @@
+// rustc nll/move-errors.rs — upstream E0507/E0508
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.B
+package move_errors_d;
+struct A { s: i64 }
+impl Drop for A { fn drop(self: &mut Self) { } }
+fn main() -> i32 {
+  let a: A = A { s: 1i64 };
+  let r: &A = &a;
+  let A { s: v } = *r;
+  return 0i32;
+}

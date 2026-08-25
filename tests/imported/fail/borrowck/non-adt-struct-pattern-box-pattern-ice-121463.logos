@@ -1,0 +1,9 @@
+// rustc borrowck/non-ADT-struct-pattern-box-pattern-ice-121463.rs — upstream cannot find type `E`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package non_adt_struct_pattern_box_pattern_ice_121463;
+fn main() -> i32 {
+    let a: E = E::StructVar { boxed: Box::new(5i64) };
+    match a { E::StructVar { boxed } => { } }
+    return 0i32;
+}

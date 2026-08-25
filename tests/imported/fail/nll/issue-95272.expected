@@ -1,0 +1,1 @@
+call to 'check': caller does not satisfy callee's outlives bound `'a: 'b` (under arg-type substitution: `'a: 'b` required)

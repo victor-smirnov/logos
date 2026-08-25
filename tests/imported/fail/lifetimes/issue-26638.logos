@@ -1,0 +1,7 @@
+// rustc lifetimes/issue-26638.rs — upstream E0106
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_26638;
+// port of lifetimes/issue-26638.rs — missing lifetime specifier: elision cannot pick a source
+fn parse_type(a: &i64, b: &i64) -> &i64 { return a; }
+fn main() -> i32 { let x: i64 = 1i64; let y: i64 = 2i64; if *parse_type(&x, &y) != 1i64 { return 1i32; } return 0i32; }

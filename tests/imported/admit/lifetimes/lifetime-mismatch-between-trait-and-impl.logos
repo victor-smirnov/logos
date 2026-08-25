@@ -1,0 +1,8 @@
+// rustc lifetimes/lifetime-mismatch-between-trait-and-impl.rs — upstream `impl` item signature doesn't match `trait` item signature
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R18
+package lifetime_mismatch_between_trait_and_impl;
+trait Foo { fn foo<'a>(x: &i64, y: &'a i64) -> &'a i64; }
+struct U;
+impl Foo for U { fn foo<'a>(x: &'a i64, y: &'a i64) -> &'a i64 { if *x > *y { return x; } return y; } }
+fn main() -> i32 { return 0i32; }

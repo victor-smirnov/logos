@@ -1,0 +1,10 @@
+// rustc borrowck/many-mutable-borrows.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW-M
+package many_mutable_borrows;
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    v.push(0i64);
+    v.push(0i64);
+    return 0i32;
+}

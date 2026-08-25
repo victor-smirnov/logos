@@ -1,0 +1,13 @@
+// rustc moves/move-of-addr-of-mut.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R5
+// FINDING reduction from tests/ui/moves/move-of-addr-of-mut.rs
+// taking &mut of an UNINITIALISED binding is not a use (rustc: E0381)
+package move_of_addr_of_mut;
+struct S { v: i64 }
+fn main() -> i32 {
+    let mut x: S;
+    let p: *mut S = &mut x;
+    x = S { v: 7i64 };
+    return x.v as i32;
+}

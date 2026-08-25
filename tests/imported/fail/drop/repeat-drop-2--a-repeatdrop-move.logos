@@ -1,0 +1,12 @@
+// rustc drop/repeat-drop-2.rs — upstream E0382 + E0381 (+E0493 unportable)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package repeat_drop_2_a_repeatdrop_move;
+struct S { n: i64 }
+impl Drop for S { fn drop(self: &mut S) { } }
+fn main() -> i32 {
+    let foo: S = S{n:1i64};
+    let _bar: S = foo;
+    let _baz: [S; 0] = [foo; 0];
+    return 0i32;
+}

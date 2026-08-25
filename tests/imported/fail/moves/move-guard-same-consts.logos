@@ -1,0 +1,17 @@
+// rustc moves/move-guard-same-consts.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package move_guard_same_consts;
+struct X { v: i64 }
+impl Drop for X { fn drop(self: &mut X) {} }
+fn take(x: X) -> bool { return false; }
+fn main() -> i32 {
+    let x = X { v: 1i64 };
+    let v: i64 = 1i64;
+    match v {
+        1i64 if take(x) => { }
+        2i64 if take(x) => { }
+        _ => { }
+    }
+    return 0i32;
+}

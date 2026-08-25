@@ -1,0 +1,10 @@
+// rustc lifetimes/explicit-lifetime-required-14285.rs — upstream E0621 explicit lifetime required
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R13
+package explicit_lifetime_required_14285;
+trait Foo { fn dummy(&self) -> i64; }
+struct A { x: i64 }
+impl Foo for A { fn dummy(&self) -> i64 { return self.x; } }
+struct B<'a> { r: &'a dyn Foo }
+fn foo<'a>(a: &dyn Foo) -> B<'a> { return B { r: a }; }
+fn main() -> i32 { let a: A = A { x: 1i64 }; let b = foo(&a); return 0i32; }

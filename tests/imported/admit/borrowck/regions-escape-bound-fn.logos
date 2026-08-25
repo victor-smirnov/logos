@@ -1,0 +1,13 @@
+// rustc borrowck/regions-escape-bound-fn.rs — upstream E0521
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+package regions_escape_bound_fn;
+fn with_int<F: FnOnce(&i64)>(f: F) {
+    let x: i64 = 3i64;
+    f(&x);
+}
+fn main() -> i32 {
+    let mut x: Option<&i64> = Option::None;
+    with_int(|y: &i64| { x = Option::Some(y); });
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+// rustc lifetimes/suggest-introducing-and-adding-missing-lifetime.rs — upstream E0310 the parameter type `T` may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.L2
+package suggest_introducing_and_adding_missing_lifetime_param_may_not_live;
+fn with_restriction<'b, T: 'b>(x: &'b i64) -> &'b i64 { return x; }
+fn no_restriction<T>(x: &i64) -> &i64 {
+  return with_restriction::<T>(x);
+}
+fn main() -> i32 { return 0i32; }

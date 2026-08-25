@@ -1,0 +1,10 @@
+// rustc lifetimes/lifetime-errors/mut-slice-struct-lifetime-transmute.rs — upstream E0621 explicit lifetime required
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.B
+package mut_slice_struct_lifetime_transmute_t17;
+fn lifetime_transmute_slice<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+  let mut out: [&i64; 1] = [x];
+  { let s: &mut [&i64] = &mut out; s[0u64] = y; }
+  return out[0u64];
+}
+fn main() -> i32 { return 0i32; }

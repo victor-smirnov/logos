@@ -1,0 +1,13 @@
+// rustc borrowck/reborrow-sugg-move-then-borrow.rs — upstream E0382 borrow of moved value (`&mut` moved)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+package reborrow_sugg_move_then_borrow;
+struct State { v: i64 }
+fn consume(s: &mut State) {}
+fn fill(state: &mut State) {
+    let moved: &mut State = state;   // move the `&mut` itself
+    consume(moved);
+    fill_segment(state);             // ERROR: borrow of moved value `state`
+}
+fn fill_segment(state: &mut State) {}
+fn main() -> i32 { return 0i32; }

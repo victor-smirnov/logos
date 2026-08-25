@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-loan-vec-content.rs — upstream E0499 cannot borrow `v` as mutable
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package borrowck_loan_vec_content;
+fn takes_imm_elt2(v: &i64) -> i64 { return *v; }
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64); v.push(2i64); v.push(3i64);
+    let e: &i64 = &v[0u64];
+    v[1u64] = 4i64;
+    let _z: i64 = takes_imm_elt2(e);
+    return 0i32;
+}

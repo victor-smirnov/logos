@@ -1,0 +1,13 @@
+// rustc borrowck/assign_mutable_fields.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/assign_mutable_fields.rs  E0381
+package assign_mutable_fields;
+fn main() -> i32 {
+    let mut x: (u64, u64);
+    x.0 = 1u64;
+    x.1 = 22u64;
+    let a = x.0;
+    let b = x.1;
+    return (a + b) as i32;
+}

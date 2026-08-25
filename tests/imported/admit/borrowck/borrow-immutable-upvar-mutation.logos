@@ -1,0 +1,12 @@
+// rustc borrowck/borrow-immutable-upvar-mutation.rs — upstream E0596 cannot borrow (Fn upvar)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+package borrow_immutable_upvar_mutation;
+fn to_fn<F: Fn()>(f: F) -> F { return f; }
+fn set(x: &mut i64) { *x = 5i64; }
+fn main() -> i32 {
+    let mut y: i64 = 0i64;
+    let g = to_fn(|| { set(&mut y); });  // ERROR: cannot borrow y mutably in an `Fn` closure
+    g();
+    return 0i32;
+}

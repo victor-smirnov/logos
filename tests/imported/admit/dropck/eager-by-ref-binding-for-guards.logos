@@ -1,0 +1,12 @@
+// rustc dropck/eager-by-ref-binding-for-guards.rs — upstream `short1` does not live long enough (E0597)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.B
+package eager_by_ref_binding_for_guards;
+struct Struct<'a> { f: &'a i64 }
+impl<'a> Drop for Struct<'a> { fn drop(self: &mut Struct<'a>) {} }
+fn main() -> i32 {
+    let zero: i64 = 0i64;
+    let mut long1: Struct = Struct { f: &zero };
+    { let short1: i64 = 1i64; long1.f = &short1; }
+    return 0i32;
+}

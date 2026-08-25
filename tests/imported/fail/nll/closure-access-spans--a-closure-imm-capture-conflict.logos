@@ -1,0 +1,12 @@
+// rustc nll/closure-access-spans.rs — upstream E0502/E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package closure_access_spans_a_closure_imm_capture_conflict;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let r: &mut i64 = &mut x;
+    let f = || -> i64 { return x; };
+    let _ = f();
+    *r = 2i64;
+    return 0i32;
+}

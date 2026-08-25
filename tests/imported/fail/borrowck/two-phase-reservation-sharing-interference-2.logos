@@ -1,0 +1,12 @@
+// rustc borrowck/two-phase-reservation-sharing-interference-2.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package two_phase_reservation_sharing_interference_2;
+struct V { n: i64 }
+impl V { fn extend(self: &mut V, other: &V) { self.n = self.n + other.n; } }
+fn main() -> i32 {
+    let mut v = V { n: 1i64 };
+    let shared: &V = &v;
+    v.extend(shared);
+    return 0i32;
+}

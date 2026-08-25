@@ -1,0 +1,15 @@
+// rustc borrowck/deref-index-pattern-ref-suggestion.rs — upstream E0508
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/deref-index-pattern-ref-suggestion.rs  E0508
+package deref_index_pattern_ref_suggestion;
+use logos.lang.ops;
+use logos.mem.string;
+struct NonCopy { v: String }
+struct Wrap { inner: [NonCopy; 1] }
+impl Deref<[NonCopy; 1]> for Wrap { fn deref(&self) -> &[NonCopy; 1] { return &self.inner; } }
+fn main() -> i32 {
+    let w = Wrap { inner: [NonCopy { v: String::from("a") }] };
+    let val = w[0];
+    return val.v.len() as i32;
+}

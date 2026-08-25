@@ -1,0 +1,15 @@
+// rustc moves/do-not-suggest-removing-wrong-ref-pattern-issue-132806.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.B
+// port of tests/ui/moves/do-not-suggest-removing-wrong-ref-pattern-issue-132806.rs
+// core: a `&pat` binding moves a non-Copy value out of a shared reference (E0507)
+package do_not_suggest_removing_wrong_ref_pattern_issue_132806;
+struct NC { v: i64 }
+impl Drop for NC { fn drop(self: &mut NC) {} }
+fn main() -> i32 {
+    let n = NC { v: 3i64 };
+    let r: &NC = &n;
+    match r {
+        &q => { return q.v as i32; }
+    }
+}

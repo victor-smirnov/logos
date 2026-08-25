@@ -1,0 +1,8 @@
+// rustc borrowck/borrow-checker-lifetime-error-46471.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrow_checker_lifetime_error_46471_t02;
+fn main() -> i32 {
+    let y: &mut i64 = { let mut z: i64 = 0i64; &mut z };
+    return *y as i32;
+}

@@ -1116,6 +1116,33 @@ FIXTURES, and the twins are the point:
     fail/bc_tuple_elem_exclusivity_fail         `&x.0` and `&mut x.0`
     pass/bc_tuple_elem_disjoint                 `&x.0` and `&mut x.1`    MUST admit
 
+---
+
+## 8f. `&<const item>` dangles — the cell closes on the ONE property that separates a const from a static — 2026-08-25
+
+CENSUS ROW for the const-item escaping-borrow refusal (`TypeSets::frame_consts`,
+read by `prov_of`'s `AddrOf` arm; the message split at `check_return_value`).
+
+    PREDICTED  ctest -N  7598 -> 7600  (+2: 1 pass + 1 fail)
+    MEASURED   ctest -N  7600          exact
+               -LE imported  3915 -> 3917   exact
+               -L '^tier_commit$'  46 unmoved (a corpus fixture declares no tier)
+
+    direct-door pins RE-DERIVED BY DIRECT LISTING, not by addition:
+        corpus   2368 -> 2369   `ls tests/logos/pass/*.logos`
+        glob      191 unmoved   `ls tests/logos/pass/{wql_*,deem_*}.logos`
+        nonglob  2177 -> 2178   the same listing minus the glob half
+    DOORS unmoved (36 = 10 + 26): the new fixture declares no container family
+    and no `direct` output form. `ls tests/logos/*.sh` unmoved at 66 — this round
+    registers no gate; the verdict is the compiler's.
+
+FIXTURES, one property apart:
+
+    fail/bc_const_item_return_ref_fail       `const K` + `return &K;`   MUST refuse
+    pass/bc_static_item_return_ref_admit     `static K` + `return &K;`  MUST admit
+                                             (+ an in-scope `&C` of a const,
+                                              which stays admitted)
+
 A rule that refused every field borrow would satisfy both refuse fixtures and be
 wrong; the two admits are what separates "checks paths" from "refuses more".
 
@@ -4206,9 +4233,60 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # THE HONEST SMELL, stated: MISS 2 took FOUR attempts, and attempts 1-3 were
 # refuted only by the STDLIB BUILD. Every rejected rule is recorded at the site
 # rather than in this ledger, so the next reader pays once.
-REGISTRY-ALL         7598
-REGISTRY-NOIMPORTED  3915
-REGISTRY-TIERCOMMIT  46
+# 2026-08-25 (§8g — THE rustc BORROW-CHECK / NLL / LIFETIME IMPORT, batch B167).
+# 983 upstream compile-fail tests — the ui directories borrowck, nll, moves,
+# lifetimes, regions, dropck and drop — at rust-lang/rust
+# da5114692c9ebe46b869488c5f34f92eb10b98c1, rust 1.100.0, landed on THREE
+# shelves. THE SHELF IS THE FINDING:
+#   PIN        412 fail fixtures under tests/imported/fail — borrowck 219,
+#              nll +76, moves 44, lifetimes 27, regions +38, drop 6, dropck 2
+#   ADMIT      463 rows in tests/logos/bc_admits.ledger, programs under
+#              tests/imported/admit/ — programs rustc REJECTS and logosc
+#              COMPILES, i.e. borrow-check holes, each with its root
+#   named      167 UNPORTABLE + 39 NOISE + 26 not-confirmed + 3 A16 + 4 hangs,
+#              all in tests/imported/notes/B167-borrowck-import.md
+# ⚠ THE ADMIT SHELF IS A LEDGER, NOT A SKIP LIST. logos_00_bc_admits_ledger
+# (tier_commit, the EVERYDAY tier, even though the imported fixtures are
+# scheduled separately) reds when a listed program STOPS being admitted — a
+# class fix reds it BECAUSE IT IMPROVED and must DELETE the row — when a row's
+# source is gone, and when the row count drifts from the `# TOTAL` line. Five
+# control reverts, each with its rc: hole closes rc 1 · source removed rc 1 ·
+# row added without editing TOTAL rc 1 · TOTAL line removed rc 4 (GATE BROKEN) ·
+# reader replaced by a compiler that always exits 0 rc 4 (GATE BROKEN). Green
+# checkpoint restored between each.
+# ⚠ A PIN MUST REFUSE FOR THE UPSTREAM REASON, and the re-check moved 26 rows
+# off the pin shelf. Each landed program's diagnostic was matched against the
+# FAMILY its upstream error code belongs to; the largest demoted group is the
+# NINE E0596 (`&`-vs-`&mut`) tests whose Logos diagnostic is METHOD RESOLUTION
+# (`'T' has no method 'm'`), because a `&mut self` method is not resolvable at
+# all through a `&T` binding and the borrow rule is never reached.
+# ⚠ DEDUPE against the 138 hand-written refusals already in the imported fail
+# dirs closures, move, nll and regions: 0 identical basenames, 1 identical TOKEN
+# SKELETON (regions/regions-bounds.rs — already imported; the B167 copy was
+# DELETED, which is why the pin count is 412 and not 413), 20 near-duplicates at
+# trigram Jaccard >= 0.70, all read and all distinct upstream tests.
+# ⚠ R7 IS REFUTED AND THE CONTAMINATION IS CLEANED. Blocks 2 and 3 were briefed
+# with a root "move tracking is gated on `impl Drop`"; the flip is divergence
+# A16 (structural auto-Copy) — deleting `impl Drop` also makes the struct Copy.
+# 3 rows carry the R7 class tag and are recorded as EXPECTED TO ADMIT, not as
+# holes. MEASURED over the whole batch rather than argued: of the 75 landed move
+# pins that declare an `impl Drop`, 68 FLIP to admitted when exactly that block
+# is deleted, 7 hold. The brief's "8 in nllmoves, 1 in lifereg" is not what the
+# slice reports say and the discrepancy is written down rather than reconciled.
+# tests/logos/*.sh 66 -> 67 (bc_admits_ledger_gate.sh — one NEW gate script; the
+# mlir_gen_bug ledger idiom is REUSED, not copied: same both-directions hold,
+# same in-run canary, and a `# TOTAL` line because an admit row has no count to
+# hold instead).
+# DIRECT-DOOR pins re-derived BY DIRECT LISTING and UNMOVED (2369 / 191 / 2178,
+# doors 36 = 10 + 26): this batch adds 875 `.logos` files and that gate's
+# population is `tests/logos/pass` only, so none of them enters it.
+# CENSUS PREDICTED BEFORE EACH RECONFIGURE AND MEASURED AFTER, per block:
+#   block 1 borrowck  7600 -> 7820 (+219 pins +1 gate)   MEASURED 7820  exact
+#   block 2 nll+moves 7820 -> 7940 (+120 pins)           MEASURED 7940  exact
+#   block 3 life/reg  7940 -> 8013 (+73 pins)            MEASURED 8013  exact
+REGISTRY-ALL         8014
+REGISTRY-NOIMPORTED  3919
+REGISTRY-TIERCOMMIT  47
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

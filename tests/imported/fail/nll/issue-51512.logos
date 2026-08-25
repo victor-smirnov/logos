@@ -1,0 +1,13 @@
+// rustc nll/issue-51512.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of tests/ui/nll/issue-51512.rs : move a struct, then read its field (E0382)
+package issue_51512;
+struct Range { start: i64, end: i64 }
+impl Drop for Range { fn drop(self: &mut Range) {} }
+fn main() -> i32 {
+    let range = Range { start: 0i64, end: 1i64 };
+    let r = range;
+    let x = range.start;
+    return x as i32;
+}

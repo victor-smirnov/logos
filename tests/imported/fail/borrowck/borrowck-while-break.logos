@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-while-break.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck-while-break.rs E0381
+package borrowck_while_break;
+fn test(cond: bool) -> i64 {
+    let v: i64;
+    while cond {
+        v = 3i64;
+        break;
+    }
+    return v;
+}
+fn main() -> i32 { return test(true) as i32; }

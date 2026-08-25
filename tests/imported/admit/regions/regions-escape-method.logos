@@ -1,0 +1,11 @@
+// rustc regions/regions-escape-method.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.C
+package regions_escape_method;
+struct S { n: i64 }
+impl S { fn f<B, F: FnOnce(&i64) -> B>(self: &S, g: F) { } }
+fn main() -> i32 {
+  let s: S = S{n:0i64};
+  s.f(|p: &i64| -> &i64 { return p; });
+  return 0i32;
+}

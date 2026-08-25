@@ -1,0 +1,9 @@
+// rustc nll/user-annotations/issue-57731-ascibed-coupled-types.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_57731_ascibed_coupled_types;
+fn coupled_wilds_rhs<'a>(x: &'a i64, s: &'static i64) -> &'static i64 {
+    let p: (&'a i64, &'a i64) = (s, x);
+    return p.0;
+}
+fn main() -> i32 { return 0i32; }

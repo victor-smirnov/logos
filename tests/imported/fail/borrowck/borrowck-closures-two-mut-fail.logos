@@ -1,0 +1,11 @@
+// rustc borrowck/borrowck-closures-two-mut-fail.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_closures_two_mut_fail;
+fn main() -> i32 {
+    let mut x: i64 = 3i64;
+    let c1 = || { x = 4i64; };
+    let c2 = || { x = 5i64; };
+    c1();
+    return 0i32;
+}

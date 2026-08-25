@@ -1,0 +1,1 @@
+call to 'a': caller does not satisfy callee's outlives bound `'b: 'a` (under arg-type substitution: `'b: 'a` required)

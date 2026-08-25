@@ -1,0 +1,10 @@
+// rustc borrowck/mut-borrow-of-mut-ref.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.A
+// upstream: borrowck/mut-borrow-of-mut-ref.rs  E0596 cannot borrow `b` as mutable
+package mut_borrow_of_mut_ref;
+fn h2(x: &mut &mut i64) -> i32 { return 0i32; }
+fn f(b: &mut i64) -> i32 {
+    return h2(&mut b);
+}
+fn main() -> i32 { let mut v: i64 = 0i64; return f(&mut v); }

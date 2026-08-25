@@ -1,0 +1,14 @@
+// rustc moves/moves-based-on-type-move-out-of-closure-env-issue-1965.rs — upstream cannot move out
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of moves/moves-based-on-type-move-out-of-closure-env-issue-1965.rs
+package moves_based_on_type_move_out_of_closure_env_issue_1965;
+struct B { n: i64 }
+impl Drop for B { fn drop(self: &mut B) {} }
+fn test(_x: B) {}
+fn call<F>(f: F) where F: Fn() { f(); }
+fn main() -> i32 {
+    let i: B = B { n: 3i64 };
+    call(|| { test(i); });   // cannot move out of captured variable in Fn closure
+    return 0i32;
+}

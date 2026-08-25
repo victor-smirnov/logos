@@ -1,0 +1,16 @@
+// rustc nll/issue-57100.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_57100;
+// nll/issue-57100.rs — E0502 overlapping borrows of two fields of the same union
+union Second { s1: u8, s2: u8 }
+fn main() -> i32 {
+    let mut s = Second { s2: 4u8 };
+    unsafe {
+        let mref: &mut u8 = &mut s.s1;
+        *mref = 22u8;
+        let nref: &u8 = &s.s2;
+        let _ = *mref; let _ = *nref;
+    }
+    return 0i32;
+}

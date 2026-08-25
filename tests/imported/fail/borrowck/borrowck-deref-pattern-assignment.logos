@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-deref-pattern-assignment.rs — upstream E0384
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck-deref-pattern-assignment.rs E0384 assign to immutable binding
+// Reshaped: Logos `let` takes struct patterns only, so the `let &num = num_ref;`
+// deref pattern is spelled `let num = *num_ref;` — the point (assigning to an
+// immutable binding) is unchanged.
+package borrowck_deref_pattern_assignment;
+fn let_deref(num_ref: &u32) -> u32 {
+    let num = *num_ref;
+    num = num * 2u32;   // E0384
+    return num;
+}
+fn main() -> i32 { let n = 3u32; return let_deref(&n) as i32; }

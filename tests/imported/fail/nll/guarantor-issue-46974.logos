@@ -1,0 +1,13 @@
+// rustc nll/guarantor-issue-46974.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of tests/ui/nll/guarantor-issue-46974.rs (foo arm, E0506)
+package guarantor_issue_46974;
+struct T0 { a: i64 }
+fn foo(s: &mut T0) -> i64 {
+    let t: &mut T0 = &mut *s;
+    let x: &i64 = &t.a;
+    *s = T0 { a: 2i64 };
+    return *x;
+}
+fn main() -> i32 { let mut v = T0 { a: 0i64 }; return foo(&mut v) as i32; }

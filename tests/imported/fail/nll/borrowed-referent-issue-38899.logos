@@ -1,0 +1,18 @@
+// rustc nll/borrowed-referent-issue-38899.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowed_referent_issue_38899;
+struct Block { current: &i64, unrelated: &i64 }
+fn bump(block: &mut Block) -> i64 {
+    let x: &mut &mut Block = &mut block;
+    let a: i64 = *x.current;
+    let p: &i64 = &*block.current;
+    let b: i64 = *x.current;
+    return a + b + *p;
+}
+fn main() -> i32 {
+    let u: i64 = 1i64;
+    let v: i64 = 2i64;
+    let mut blk: Block = Block { current: &u, unrelated: &v };
+    return bump(&mut blk) as i32;
+}

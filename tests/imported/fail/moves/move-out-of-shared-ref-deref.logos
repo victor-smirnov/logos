@@ -1,0 +1,13 @@
+// rustc moves/move-out-of-shared-ref-deref.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package move_out_of_shared_ref_deref;
+struct Key { v: i64 }
+impl Drop for Key { fn drop(self: &mut Key) {} }
+fn consume(k: Key) -> i64 { return k.v; }
+fn f(r: &Key) -> i64 { return consume(*r); }
+fn main() -> i32 {
+    let k = Key { v: 3i64 };
+    let n = f(&k);
+    return 0i32;
+}

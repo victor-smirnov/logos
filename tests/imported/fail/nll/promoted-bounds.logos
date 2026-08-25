@@ -1,0 +1,19 @@
+// rustc nll/promoted-bounds.rs — upstream E0597 `l` does not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust tests/ui/nll/promoted-bounds.rs
+// `b` borrows the block-local `l`; the block's TAIL carries that borrow out to
+// `ptr`, which is read after the block.  rustc: E0597 `l` does not live long enough.
+package promoted_bounds;
+fn shorten_lifetime<'min>(a: &'min i64, b: &'min i64) -> &'min i64 { if *a < *b { return a; } return b; }
+fn main() -> i32 {
+    let five: i64 = 5i64;
+    let a: &i64 = &five;
+    let ptr: &i64 = {
+        let l: i64 = 3i64;
+        let b: &i64 = &l;
+        let c: &i64 = shorten_lifetime(a, b);
+        c
+    };
+    return *ptr as i32;
+}

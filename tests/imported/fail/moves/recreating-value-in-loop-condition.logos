@@ -1,0 +1,15 @@
+// rustc moves/recreating-value-in-loop-condition.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package recreating_value_in_loop_condition;
+struct D { x: i64 }
+impl Drop for D { fn drop(self: &mut Self) { } }
+fn take(v: D) -> i64 { return v.x; }
+fn main() -> i32 {
+  let v: D = D { x: 3i64 };
+  loop {
+    let item: i64 = take(v);
+    if item == 0i64 { break; }
+  }
+  return 0i32;
+}

@@ -1,0 +1,14 @@
+// rustc borrowck/two-phase-nonrecv-autoref.rs — upstream E0499 / E0502 ×3
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.D
+// upstream: borrowck/two-phase-nonrecv-autoref.rs coerce_index_op (E0502)
+// Reshape: the overloaded Index/IndexMut pair -> plain array indexing with a
+// mutable-borrowing helper, keeping the nested-use-of-the-same-place property.
+package two_phase_nonrecv_autoref_d_index_two_phase;
+fn put(a: &mut [i64; 4], i: i64, v: i64) { a[i] = v; }
+fn get(a: &[i64; 4], i: i64) -> i64 { return a[i]; }
+fn main() -> i32 {
+    let mut a: [i64; 4] = [0i64, 1i64, 2i64, 3i64];
+    put(&mut a, 0i64, get(&a, 3i64));
+    return 0i32;
+}

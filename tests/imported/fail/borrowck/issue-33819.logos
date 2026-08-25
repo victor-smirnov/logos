@@ -1,0 +1,14 @@
+// rustc borrowck/issue-33819.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: issue-33819.rs E0596 (&mut of a `ref v` binding, not declared mut)
+package issue_33819;
+enum Opt { None, Some(i64) }
+fn main() -> i32 {
+    let mut op = Opt::Some(2i64);
+    match op {
+        Opt::Some(ref v) => { let a: &mut &i64 = &mut v; }
+        Opt::None => {}
+    }
+    return 0i32;
+}

@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-issue-48962.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-issue-48962.rs fn b()  E0382
+package borrowck_issue_48962_b_move_of_mut_ref_tuple_field;
+fn main() -> i32 {
+    let mut t: (i64, i64) = (22i64, 44i64);
+    let src = &mut t;
+    let moved = src;
+    src.0 = 66i64;
+    moved.1 = 1i64;
+    return 0i32;
+}

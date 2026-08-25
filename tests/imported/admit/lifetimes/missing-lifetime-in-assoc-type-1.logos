@@ -1,0 +1,16 @@
+// rustc lifetimes/missing-lifetime-in-assoc-type-1.rs — upstream E0207 unconstrained lifetime parameter
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R17
+// port of rust ui/lifetimes/missing-lifetime-in-assoc-type-1.rs (E0207)
+package missing_lifetime_in_assoc_type_1;
+
+struct S { a: i64 }
+struct T { b: i64 }
+
+trait Give { fn give(self: &Self) -> i64; }
+
+impl<'a> Give for &S {
+    fn give(self: &Self) -> i64 { return 1i64; }
+}
+
+fn main() -> i32 { return 0i32; }

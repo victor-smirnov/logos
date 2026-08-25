@@ -1,0 +1,14 @@
+// rustc nll/polonius/polonius-smoke-test.rs — upstream E0505/E0515
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.A
+package polonius_smoke_test;
+fn foo<'b, 'a>(p: &'b &'a mut i64) -> &'b i64 { return *p; }
+fn well_formed_function_inputs() -> i64 {
+    let mut n: i64 = 1i64;
+    let s = &mut n;
+    let r = &mut *s;
+    let tmp = foo(&r);
+    let u = s;
+    return *tmp;
+}
+fn main() -> i32 { return 0i32; }

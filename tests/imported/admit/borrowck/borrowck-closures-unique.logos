@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-closures-unique.rs — upstream E0524
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+// upstream: borrowck/borrowck-closures-unique.rs  E0500/E0524
+package borrowck_closures_unique;
+fn get(x: &i64) -> i64 { return *x; }
+fn set(x: &mut i64) -> i64 { *x = 1i64; return *x; }
+fn d(x: &mut i64) -> i64 {
+    let c1 = || -> i64 { return set(x); };
+    let c2 = || -> i64 { return set(x); };
+    return c1() + c2();
+}
+fn main() -> i32 { let mut v = 0i64; return d(&mut v) as i32; }

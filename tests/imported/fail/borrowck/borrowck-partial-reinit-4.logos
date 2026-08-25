@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-partial-reinit-4.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_partial_reinit_4;
+struct Test { v: i64 }
+impl Drop for Test { fn drop(self: &mut Test) {} }
+struct Test2 { o: Option<Test> }
+impl Drop for Test2 { fn drop(self: &mut Test2) {} }
+fn stuff() {
+    let mut x: (Test2, Test2);
+    x.0.o = Option::Some(Test { v: 1i64 });
+}
+fn main() -> i32 { stuff(); return 0i32; }

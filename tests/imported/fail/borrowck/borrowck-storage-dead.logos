@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-storage-dead.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_storage_dead;
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    loop {
+        let x: i64;
+        let y = x + 1i64;
+        n = n + y;
+        if n > 3i64 { return 1i32; }
+    }
+}

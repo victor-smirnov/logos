@@ -1,0 +1,1 @@
+lifetime mismatch: return type has lifetime 'b but 'self' has lifetime 'a

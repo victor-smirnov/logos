@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-closures-use-after-free.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-closures-use-after-free.rs  E0502 cannot borrow `*ptr`
+package borrowck_closures_use_after_free;
+struct Foo { x: i64 }
+impl Drop for Foo { fn drop(self: &mut Foo) {} }
+fn main() -> i32 {
+    let mut ptr: Foo = Foo { x: 0i64 };
+    let mut test = |f: &Foo| { ptr = Foo { x: f.x + 1i64 }; };
+    test(&ptr);
+    return 0i32;
+}

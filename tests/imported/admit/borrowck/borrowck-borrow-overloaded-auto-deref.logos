@@ -1,0 +1,15 @@
+// rustc borrowck/borrowck-borrow-overloaded-auto-deref.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.A
+package borrowck_borrow_overloaded_auto_deref;
+use logos.lang.rc;
+struct Point { x: i64, y: i64 }
+fn deref_mut_field1(p: Rc<Point>) {
+    let r: &mut i64 = &mut p.y;
+    *r = 1i64;
+}
+fn main() -> i32 {
+    let p: Rc<Point> = rc_new(Point { x: 1i64, y: 2i64 });
+    deref_mut_field1(p);
+    return 0i32;
+}

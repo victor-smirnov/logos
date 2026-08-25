@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-object-lifetime.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_object_lifetime;
+trait Foo { fn borrowed(self: &Self) -> &i64; fn mut_borrowed(self: &mut Self) -> &i64; }
+struct S { a: i64 }
+impl Foo for S { fn borrowed(self: &S) -> &i64 { return &self.a; } fn mut_borrowed(self: &mut S) -> &i64 { return &self.a; } }
+fn mut_borrowed_receiver(x: &mut dyn Foo) -> i64 {
+    let y: &i64 = x.borrowed();
+    let z: &i64 = x.mut_borrowed();
+    return *y + *z;
+}
+fn main() -> i32 { let mut s = S { a: 1i64 }; return mut_borrowed_receiver(&mut s) as i32; }

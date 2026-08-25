@@ -1,0 +1,13 @@
+// rustc moves/moves-based-on-type-block-bad.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package moves_based_on_type_block_bad;
+struct Tok { v: i64 }
+impl Drop for Tok { fn drop(self: &mut Self) { } }
+struct S { x: Tok }
+fn main() -> i32 {
+  let s: S = S { x: Tok { v: 1i64 } };
+  let r: &S = &s;
+  let c = || -> i64 { let m: Tok = r.x; return m.v; };
+  return 0i32;
+}

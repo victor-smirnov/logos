@@ -1,0 +1,14 @@
+// rustc borrowck/derive-clone-implicit-bound.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/derive-clone-implicit-bound.rs  E0382 use of moved value: `offset`
+package derive_clone_implicit_bound_generic_param_moved_twice;
+struct S { n: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn consume(v: S) -> i64 { return v.n; }
+fn twice(offset: S) -> i64 {
+    let a = consume(offset);
+    let b = consume(offset);
+    return a + b;
+}
+fn main() -> i32 { return twice(S { n: 1i64 }) as i32 - 2i32; }

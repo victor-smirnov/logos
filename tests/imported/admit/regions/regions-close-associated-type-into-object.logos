@@ -1,0 +1,11 @@
+// rustc regions/regions-close-associated-type-into-object.rs — upstream E0310 assoc type may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.L5
+package regions_close_associated_type_into_object;
+trait X { fn n(self: &Self) -> i64; }
+trait Iter { type Item: X; fn into_item(self: Self) -> Self::Item; }
+fn bad1<T: Iter>(v: T) -> Box<dyn X> {
+  let item = v.into_item();
+  return Box::new(item);
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,12 @@
+// rustc borrowck/borrowck-move-error-with-note.rs — upstream E0507 + E0509
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package borrowck_move_error_with_note_b;
+struct S { f: String, g: String }
+impl Drop for S { fn drop(self: &mut S) { self.f.clear(); } }
+fn main() -> i32 {
+    match (S { f: String::new(), g: String::new() }) {
+        S { f: _s, g: _t } => {}
+    }
+    return 0i32;
+}

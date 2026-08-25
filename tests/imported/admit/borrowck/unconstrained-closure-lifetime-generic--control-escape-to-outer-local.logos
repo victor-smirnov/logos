@@ -1,0 +1,15 @@
+// rustc borrowck/unconstrained-closure-lifetime-generic.rs — upstream (param may not live long enough / `f` does not live long enough)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+// control for t38: the SAME closure over the SAME dying borrow, stored into a
+// plain outer LOCAL instead of a field behind `&mut self`. One difference.
+package unconstrained_closure_lifetime_generic_control_escape_to_outer_local;
+fn main() -> i32 {
+    let b: Box<dyn Fn() -> u64>;
+    {
+        let f: u64 = 7u64;
+        let r: &u64 = &f;
+        b = Box::new(|| -> u64 { return *r; });
+    }
+    return b() as i32;
+}

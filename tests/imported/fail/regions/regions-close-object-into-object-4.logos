@@ -1,0 +1,10 @@
+// rustc regions/regions-close-object-into-object-4.rs — upstream E0515 / E0310
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package regions_close_object_into_object_4;
+trait A<T> {}
+struct B<'a, T> { r: &'a dyn A<T> }
+trait X {}
+impl<'a, T> X for B<'a, T> {}
+fn i<'a, T, U>(v: &'a dyn A<U>) -> &'static dyn X { return &B { r: v }; }
+fn main() -> i32 { return 0i32; }

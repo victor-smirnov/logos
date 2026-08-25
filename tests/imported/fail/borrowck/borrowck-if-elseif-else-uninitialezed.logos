@@ -1,0 +1,21 @@
+// rustc borrowck/borrowck-if-elseif-else-uninitialezed.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_if_elseif_else_uninitialezed;
+fn main() -> i32 {
+    let internal_code: i64;
+    let is_admin: bool = true;
+    let access_level: i64 = 2i64;
+    if is_admin {
+        if access_level == 1i64 {
+            internal_code = 101i64;
+        } else if access_level == 2i64 {
+            let z: i64 = internal_code;
+        } else {
+            internal_code = 103i64;
+        }
+    } else {
+        internal_code = 404i64;
+    }
+    return 0i32;
+}

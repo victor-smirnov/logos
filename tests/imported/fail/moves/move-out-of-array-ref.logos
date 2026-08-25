@@ -1,0 +1,12 @@
+// rustc moves/move-out-of-array-ref.rs — upstream E0508
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package move_out_of_array_ref;
+use logos.mem.string;
+struct D { x: String }
+impl Drop for D { fn drop(self: &mut Self) { } }
+fn move_elem(a: &[D; 4]) -> D {
+    let [_p, e, _q, _r] = *a;
+    return e;
+}
+fn main() -> i32 { return 0i32; }

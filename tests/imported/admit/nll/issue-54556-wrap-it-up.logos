@@ -1,0 +1,15 @@
+// rustc nll/issue-54556-wrap-it-up.rs — upstream E0506 cannot assign to `x` because it is borrowed
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.E
+// port of nll/issue-54556-wrap-it-up.rs: assign to x while a Drop-bearing value holds &mut x
+package issue_54556_wrap_it_up;
+struct Wrap { p: &mut i64 }
+impl Drop for Wrap { fn drop(self: &mut Wrap) { *self.p = *self.p + 1i64; } }
+struct Foo { a: i64, b: Wrap }
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    let wrap: Wrap = Wrap { p: &mut x };
+    let _foo: Foo = Foo { a: 1i64, b: wrap };
+    x = 1i64;      // E0506: cannot assign to x because it is borrowed
+    return 0i32;
+}

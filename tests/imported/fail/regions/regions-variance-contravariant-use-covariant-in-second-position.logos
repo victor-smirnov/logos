@@ -1,0 +1,9 @@
+// rustc regions/regions-variance-contravariant-use-covariant-in-second-position.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package regions_variance_contravariant_use_covariant_in_second_position;
+struct S<'a, 'b> { f: &'a i64, g: &'b i64 }
+fn use_<'short, 'long>(c: S<'long, 'short>) where 'long: 'short {
+    let _z: S<'long, 'long> = c;
+}
+fn main() -> i32 { return 0i32; }

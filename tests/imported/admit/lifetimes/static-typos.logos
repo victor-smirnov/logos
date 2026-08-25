@@ -1,0 +1,7 @@
+// rustc lifetimes/static-typos.rs — upstream use of undeclared lifetime name `'stati`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R17
+package static_typos;
+fn stati<T: 'stati>(x: T) -> i32 { return 0i32; }
+fn statoc<T: 'statoc>(x: T) -> i32 { return 0i32; }
+fn main() -> i32 { return 0i32; }

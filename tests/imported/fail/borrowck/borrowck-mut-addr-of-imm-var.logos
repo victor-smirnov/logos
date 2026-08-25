@@ -1,0 +1,11 @@
+// rustc borrowck/borrowck-mut-addr-of-imm-var.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-mut-addr-of-imm-var.rs  E0596
+package borrowck_mut_addr_of_imm_var;
+fn main() -> i32 {
+    let x: i64 = 3i64;
+    let y: &mut i64 = &mut x;
+    *y = 5i64;
+    return *y as i32;
+}

@@ -1,0 +1,15 @@
+// rustc nll/match-on-borrowed.rs — upstream E0503 cannot use `t` because it was mutably borrowed
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of nll/match-on-borrowed.rs (match_on_borrowed): match on a mutably borrowed bool
+package match_on_borrowed;
+fn main() -> i32 {
+    let mut t: bool = true;
+    let x: &mut bool = &mut t;
+    match t {                 // ERROR: cannot use `t` because it was mutably borrowed
+        true => {}
+        false => {}
+    }
+    *x = false;
+    return 0i32;
+}

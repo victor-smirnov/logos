@@ -1,0 +1,13 @@
+// rustc regions/regions-bounded-by-trait-requiring-static.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-L4
+// t27 variant: T is USED, so the bound cannot be skipped as vacuous.
+package regions_bounded_by_trait_requiring_static_b_used;
+
+fn assert_send<T: 'static>(x: T) -> T { return x; }
+
+fn param_not_ok<'a>(x: &'a i64) -> &'a i64 {
+    return assert_send::<&'a i64>(x);
+}
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,15 @@
+// rustc borrowck/borrowck-issue-48962.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-issue-48962.rs fn a()  E0382 use of moved value
+package borrowck_issue_48962_a_move_of_mut_ref_then_use;
+struct Node { elem: i64 }
+fn take(n: &mut Node) -> i32 { return 0i32; }
+fn main() -> i32 {
+    let mut node = Node { elem: 5i64 };
+    let src = &mut node;
+    let moved = src;
+    src.elem = 1i64;
+    moved.elem = 2i64;
+    return 0i32;
+}

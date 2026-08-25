@@ -1,0 +1,12 @@
+// rustc borrowck/index-mut-help.rs — upstream E0594/E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+package index_mut_help;
+use logos.lang.ops;
+struct M { vals: [i64; 4] }
+impl Index<i64, i64> for M { fn index(self: &M, k: i64) -> &i64 { return &self.vals[k]; } }
+fn main() -> i32 {
+    let mut m: M = M { vals: [1i64,2i64,3i64,4i64] };
+    m[0i64] = 9i64;
+    return m[0i64] as i32;
+}

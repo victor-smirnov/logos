@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-loan-in-overloaded-op.rs — upstream E0382 borrow of moved value
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_loan_in_overloaded_op;
+use logos.mem.string;
+struct Foo { v: String }
+impl Foo { fn dup(self: &Foo) -> Foo { return Foo { v: String::from("d") }; } }
+impl Add for Foo { type Output = Foo; fn add(self: Foo, f: Foo) -> Foo { return Foo { v: String::from("s") }; } }
+fn main() -> i32 {
+    let x: Foo = Foo { v: String::from("3") };
+    let y: Foo = { x } + x.dup();   // ERROR: borrow of moved value `x`
+    return y.v.len() as i32;
+}

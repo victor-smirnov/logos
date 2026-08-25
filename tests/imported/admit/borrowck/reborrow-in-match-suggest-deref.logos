@@ -1,0 +1,11 @@
+// rustc borrowck/reborrow-in-match-suggest-deref.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.A
+package reborrow_in_match_suggest_deref;
+fn test(outer: &mut Option<i64>) {
+    match (&mut outer, 23i64) {
+        (Option::Some(inner), _) => { *inner = 17i64; }
+        _ => { *outer = Option::Some(2i64); }
+    }
+}
+fn main() -> i32 { return 0i32; }

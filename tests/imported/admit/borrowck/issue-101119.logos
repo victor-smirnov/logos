@@ -1,0 +1,17 @@
+// rustc borrowck/issue-101119.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+// upstream: borrowck/issue-101119.rs  E0382
+package issue_101119;
+struct State { n: i64 }
+fn fill_segment(s: &mut State) { s.n = s.n + 1i64; }
+fn once(f: fn()) { f(); }
+fn fill_mt(state: &mut State) {
+    let mut i = 0i64;
+    while i < 3i64 {
+        let c = move || { fill_segment(state); };
+        c();
+        i = i + 1i64;
+    }
+}
+fn main() -> i32 { let mut s = State { n: 0i64 }; fill_mt(&mut s); return s.n as i32; }

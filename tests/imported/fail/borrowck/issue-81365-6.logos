@@ -1,0 +1,13 @@
+// rustc borrowck/issue-81365-6.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_81365_6;
+use logos.lang.ops;
+struct Container { target: [i64; 4], flag: bool }
+impl Index<i64, i64> for Container { fn index(self: &Container, k: i64) -> &i64 { return &self.target[k]; } }
+fn main() -> i32 {
+    let mut c: Container = Container { target: [1i64,2i64,3i64,4i64], flag: false };
+    let first: &i64 = &c[0i64];
+    c.flag = true;
+    return *first as i32;
+}

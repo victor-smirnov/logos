@@ -1,0 +1,12 @@
+// rustc nll/lub-match.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.B
+package lub_match;
+fn opt_str2(maybe: &Option<i64>) -> &'static i64 {
+    match maybe {
+        Option::Some(s) => { let t: &i64 = s; return t; }
+        Option::None => { return &STATIC_ZERO; }
+    }
+}
+static STATIC_ZERO: i64 = 0i64;
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,12 @@
+// rustc moves/needs-clone-through-deref.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package needs_clone_through_deref;
+use logos.lang.ops;
+struct Inner { v: i64 }
+impl Drop for Inner { fn drop(self: &mut Inner) {} }
+struct S { inner: Inner }
+impl Deref<Inner> for S { fn deref(self: &S) -> &Inner { &self.inner } }
+fn consume(i: Inner) -> i64 { return i.v; }
+fn foo(s: &S) -> i64 { return consume(*s); }
+fn main() -> i32 { return 0i32; }

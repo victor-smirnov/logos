@@ -1,0 +1,11 @@
+// rustc nll/user-annotations/method-ufcs-inherent-3.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-1
+package method_ufcs_inherent_3;
+struct A<'a> { x: &'a i64 }
+impl<'a> A<'a> { fn newa<T>(x: &'a i64, y: T) -> A<'a> { return A { x: x }; } }
+fn foo<'a>() {
+    let v: i64 = 22i64;
+    let x: A<'a> = A::newa(&v, 22i64);
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,1 @@
+error [fn f]: cannot return reference to const item 'K': a const is materialised into the frame at each use and has no static storage (declare it `static` instead): dangling reference

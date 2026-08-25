@@ -1,0 +1,11 @@
+// rustc borrowck/assignment-to-immutable-ref.rs — upstream E0594
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/assignment-to-immutable-ref.rs  E0594
+package assignment_to_immutable_ref_assign_imm_ref;
+fn main() -> i32 {
+    let v: i64 = 16i64;
+    let foo: &i64 = &v;
+    *foo = 32i64;
+    return 0i32;
+}

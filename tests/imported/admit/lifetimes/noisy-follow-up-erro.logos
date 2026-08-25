@@ -1,0 +1,7 @@
+// rustc lifetimes/noisy-follow-up-erro.rs — upstream E0107 struct takes 2 lifetime args, 3 supplied
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R17
+package noisy_follow_up_erro;
+struct Foo<'c, 'd> { a: &'c i64, b: &'d i64 }
+fn boom<'a>(foo: &mut Foo<'a, 'a, 'a>) { }
+fn main() -> i32 { return 0i32; }

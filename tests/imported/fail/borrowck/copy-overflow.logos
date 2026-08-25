@@ -1,0 +1,9 @@
+// rustc borrowck/copy-overflow.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/copy-overflow.rs (E0507 cannot move out of `*self`, behind a shared reference)
+package copy_overflow;
+struct S { f: str }
+impl Drop for S { fn drop(self: &mut S) {} }
+impl S { fn dup(self: &S) -> S { return *self; } }
+fn main() -> i32 { let s = S{f:"a"}; let t = s.dup(); let _ = t.f; return 0i32; }

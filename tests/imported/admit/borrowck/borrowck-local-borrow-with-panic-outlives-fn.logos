@@ -1,0 +1,17 @@
+// rustc borrowck/borrowck-local-borrow-with-panic-outlives-fn.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.A
+// upstream: borrowck/borrowck-local-borrow-with-panic-outlives-fn.rs (E0597 `z.1` does not live long enough)
+// Reshape: `&mut Option<&'static mut isize>` -> a &mut out-parameter holding a &mut i64.
+package borrowck_local_borrow_with_panic_outlives_fn;
+fn cplusplus_mode(x: &mut &mut i64) {
+    let mut z: (i64, i64) = (0i64, 0i64);
+    *x = &mut z.1;
+}
+fn main() -> i32 {
+    let mut sink: i64 = 7i64;
+    let mut p: &mut i64 = &mut sink;
+    cplusplus_mode(&mut p);
+    *p = 99i64;
+    return 0i32;
+}

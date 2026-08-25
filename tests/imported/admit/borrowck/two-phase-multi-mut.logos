@@ -1,0 +1,14 @@
+// rustc borrowck/two-phase-multi-mut.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+// upstream: two-phase-multi-mut.rs E0499
+package two_phase_multi_mut;
+struct Foo { a: i64 }
+impl Foo {
+    fn method(self: &mut Foo, foo: &mut Foo) -> i64 { return self.a + foo.a; }
+}
+fn main() -> i32 {
+    let mut foo = Foo { a: 1i64 };
+    let r = foo.method(&mut foo);
+    return r as i32;
+}

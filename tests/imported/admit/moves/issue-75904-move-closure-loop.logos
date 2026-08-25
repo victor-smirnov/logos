@@ -1,0 +1,18 @@
+// rustc moves/issue-75904-move-closure-loop.rs — upstream E0382 use of moved value
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.C
+// port of rust tests/ui/moves/issue-75904-move-closure-loop.rs
+package issue_75904_move_closure_loop;
+struct NotCopy { x: i64 }
+fn main() -> i32 {
+    let mut a: NotCopy = NotCopy { x: 1i64 };
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        let f = || {
+            let r: &mut NotCopy = &mut a;
+            let m: NotCopy = a;
+        };
+        i = i + 1i64;
+    }
+    return 0i32;
+}

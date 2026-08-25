@@ -1,0 +1,10 @@
+// rustc lifetimes/iterator-trait-lifetime-error-13058.rs — upstream E0621
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.A
+package iterator_trait_lifetime_error_13058;
+// port of lifetimes/iterator-trait-lifetime-error-13058.rs — E0621 explicit lifetime required
+trait Itble<'r> { fn iter(self: &'r Self) -> &'r i64; }
+struct Pair { a: i64 }
+impl<'r> Itble<'r> for Pair { fn iter(self: &'r Self) -> &'r i64 { return &self.a; } }
+fn check<'r, T: Itble<'r>>(cont: &T) -> i64 { let c: &i64 = cont.iter(); return *c; }
+fn main() -> i32 { let p: Pair = Pair { a: 3i64 }; if check(&p) != 3i64 { return 1i32; } return 0i32; }

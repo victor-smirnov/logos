@@ -1,0 +1,16 @@
+// rustc borrowck/borrowck-uninit-field-access.rs — upstream E0381/E0382 ×3 (cases 1,2 pin)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// upstream: borrowck/borrowck-uninit-field-access.rs, third case (E0382 use of whole after partial moves)
+package borrowck_uninit_field_access;
+struct Point { s: str, x: i64 }
+impl Drop for Point { fn drop(self: &mut Point) {} }
+struct Line { origin: Point, middle: Point }
+impl Line { fn consume(self: Self) { } }
+fn main() -> i32 {
+    let line2 = Line { origin: Point{s:"a", x:1i64}, middle: Point{s:"b", x:2i64} };
+    let _a = line2.origin;
+    let _b = line2.middle;
+    line2.consume();
+    return 0i32;
+}

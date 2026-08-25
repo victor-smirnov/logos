@@ -1,0 +1,18 @@
+// rustc borrowck/borrowck-lend-flow-match.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// upstream: borrowck-lend-flow-match.rs E0506 assign to `x` while `ref r` borrow live
+package borrowck_lend_flow_match;
+enum Opt { None, Some(i64) }
+fn separate_arms() -> i64 {
+    let mut x = Opt::None;
+    match x {
+        Opt::None => { x = Opt::Some(0i64); }
+        Opt::Some(ref r) => {
+            x = Opt::Some(1i64);   // E0506: x is borrowed by r
+            let _ = *r;
+        }
+    }
+    return 0i64;
+}
+fn main() -> i32 { return separate_arms() as i32; }

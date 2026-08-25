@@ -1,0 +1,6 @@
+// rustc nll/type-check-pointer-comparisons.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R2
+package type_check_pointer_comparisons;
+fn compare_mut<'a, 'b>(x: *mut &'a i64, y: *mut &'b i64) -> bool { return x == y; }
+fn main() -> i32 { return 0i32; }

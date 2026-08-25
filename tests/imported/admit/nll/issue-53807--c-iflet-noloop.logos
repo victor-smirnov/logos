@@ -1,0 +1,13 @@
+// rustc nll/issue-53807.rs — upstream use of moved value
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-N1
+// control A for t19: same if-let move, NO loop, used twice
+package issue_53807_c_iflet_noloop;
+struct Pay { n: i64 }
+impl Drop for Pay { fn drop(self: &mut Pay) {} }
+fn main() -> i32 {
+    let maybe: Option<Pay> = Option::Some(Pay { n: 1i64 });
+    if let Option::Some(a) = maybe { let _ = a.n; }
+    if let Option::Some(b) = maybe { let _ = b.n; }
+    return 0i32;
+}

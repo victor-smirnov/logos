@@ -1,0 +1,12 @@
+// rustc borrowck/borrowck-borrow-overloaded-deref.rs — upstream E0596/E0594
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_borrow_overloaded_deref;
+use logos.lang.ops;
+struct MyBox { v: i64 }
+impl Deref<i64> for MyBox { fn deref(self: &MyBox) -> &i64 { &self.v } }
+fn main() -> i32 {
+    let x: MyBox = MyBox { v: 1i64 };
+    *x = 3i64;
+    return 0i32;
+}

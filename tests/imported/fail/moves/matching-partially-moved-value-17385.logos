@@ -1,0 +1,15 @@
+// rustc moves/matching-partially-moved-value-17385.rs — upstream use of moved value
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of moves/matching-partially-moved-value-17385.rs
+package matching_partially_moved_value_17385;
+struct X { v: i64 }
+impl Drop for X { fn drop(self: &mut X) {} }
+fn consume(x: X) -> i64 { return x.v; }
+fn main() -> i32 {
+    let foo: X = X { v: 1i64 };
+    let _d: i64 = consume(foo);
+    match foo {                    // use of moved value
+        X { v: n } => { return n as i32; }
+    }
+}

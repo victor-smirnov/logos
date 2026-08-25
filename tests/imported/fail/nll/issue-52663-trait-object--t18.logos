@@ -1,0 +1,12 @@
+// rustc nll/issue-52663-trait-object.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_52663_trait_object_t18;
+trait Foo { fn get(self: &Self); }
+struct A { v: i64 }
+impl Foo for A { fn get(self: &Self) { } }
+fn main() -> i32 {
+    let r: &dyn Foo = { let tmp0 = A{v:3i64}; let tmp1 = &tmp0; tmp1 as &dyn Foo };
+    r.get();
+    return 0i32;
+}

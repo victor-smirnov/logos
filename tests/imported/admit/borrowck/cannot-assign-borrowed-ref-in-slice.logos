@@ -1,0 +1,15 @@
+// rustc borrowck/cannot-assign-borrowed-ref-in-slice.rs — upstream E0506 cannot assign to `*refr`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.A
+package cannot_assign_borrowed_ref_in_slice;
+fn save_ref(refr: &i64, to: &mut [&i64]) {
+    to[0u64] = refr;
+}
+fn main() -> i32 {
+    let init: i64 = 0i64;
+    let mut refr: i64 = 1i64;
+    let mut out: [&i64; 1] = [&init];
+    save_ref(&refr, &mut out);
+    refr = 3i64;
+    return *out[0u64] as i32;
+}

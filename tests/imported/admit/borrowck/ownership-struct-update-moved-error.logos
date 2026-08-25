@@ -1,0 +1,12 @@
+// rustc borrowck/ownership-struct-update-moved-error.rs — upstream E0382 borrow of moved value
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW-4
+package ownership_struct_update_moved_error;
+struct Mine { test: i64, other_val: i64 }
+fn make_bar(s: Mine) -> Mine { return Mine { test: 9i64, other_val: s.other_val }; }
+fn main() -> i32 {
+    let start: Mine = Mine { test: 1i64, other_val: 0i64 };
+    let tmp: Mine = make_bar(start);
+    let end: Mine = Mine { test: tmp.test, other_val: 1i64 };
+    return start.test as i32;
+}

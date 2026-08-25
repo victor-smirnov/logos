@@ -1,0 +1,20 @@
+// rustc nll/issue-54556-temps-in-tail-diagnostic.rs — upstream E0597 does not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.D
+// port of rust tests/ui/nll/issue-54556-temps-in-tail-diagnostic.rs
+// `D(&_thing1).end()` in TAIL position: the temporary D borrows _thing1 but is
+// dropped after it.  rustc: E0597 `_thing1` does not live long enough.
+package issue_54556_temps_in_tail_diagnostic;
+extern fn noop(p: *const u8);
+struct Thing { n: i64 }
+impl Drop for Thing { fn drop(self: &mut Thing) { unsafe { noop(0 as *const u8); } } }
+struct D { r: &Thing }
+impl Drop for D { fn drop(self: &mut D) { unsafe { noop(0 as *const u8); } } }
+impl D { fn end(self: &D) { } }
+fn main() -> i32 {
+    {
+        let thing1: Thing = Thing { n: 1i64 };
+        D { r: &thing1 }.end()
+    }
+    return 0i32;
+}

@@ -1,0 +1,11 @@
+// rustc regions/issue-102392.rs — upstream E0308 mismatched types
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust ui/regions/issue-102392.rs (mismatched types)
+package issue_102392;
+
+fn g(f: fn(fn(&str, &str))) -> bool {
+    return f;
+}
+
+fn main() -> i32 { return 0i32; }

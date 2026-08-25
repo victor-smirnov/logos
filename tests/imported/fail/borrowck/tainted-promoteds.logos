@@ -1,0 +1,11 @@
+// rustc borrowck/tainted-promoteds.rs — upstream E0384
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/tainted-promoteds.rs  E0384
+package tainted_promoteds;
+fn f() -> i64 {
+    let a = 0i64;
+    a = 1i64;
+    return a;
+}
+fn main() -> i32 { return f() as i32; }

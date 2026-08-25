@@ -1,0 +1,9 @@
+// rustc borrowck/issue-45199.rs — upstream E0384/E0384
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_45199_assign_imm_arg;
+fn test_args(b: i64) -> i64 {
+    b = 2i64;
+    return b;
+}
+fn main() -> i32 { return test_args(1i64) as i32; }

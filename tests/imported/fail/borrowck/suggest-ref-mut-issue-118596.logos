@@ -1,0 +1,10 @@
+// rustc borrowck/suggest-ref-mut-issue-118596.rs — upstream E0384
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package suggest_ref_mut_issue_118596;
+enum Opt { Some(i64), None }
+fn main() -> i32 {
+    let y = Opt::Some(0i64);
+    match y { Opt::Some(x) => { x = 2i64; } Opt::None => {} }
+    return 0i32;
+}

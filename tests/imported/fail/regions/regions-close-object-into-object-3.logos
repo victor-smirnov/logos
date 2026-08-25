@@ -1,0 +1,23 @@
+// rustc regions/regions-close-object-into-object-3.rs — upstream E0515 cannot return value referencing local data
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust ui/regions/regions-close-object-into-object-3.rs (E0515)
+// reduced: a boxed trait object built over a borrow of a fn-LOCAL is returned.
+package regions_close_object_into_object_3;
+
+trait Av { fn a(self: &Self) -> i64; }
+trait Xv { fn x(self: &Self) -> i64; }
+
+struct C { n: i64 }
+impl Av for C { fn a(self: &Self) -> i64 { return self.n; } }
+
+struct Bv<'a> { r: &'a dyn Av }
+impl<'a> Xv for Bv<'a> { fn x(self: &Self) -> i64 { return self.r.a(); } }
+
+fn h() -> Box<dyn Xv> {
+    let c = C { n: 1i64 };
+    let inner: &dyn Av = &c;
+    return Box::new(Bv { r: inner });
+}
+
+fn main() -> i32 { return 0i32; }

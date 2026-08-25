@@ -1,0 +1,14 @@
+// rustc moves/use-correct-generic-args-in-borrow-suggest.rs — upstream use of moved value: `value`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of moves/use-correct-generic-args-in-borrow-suggest.rs
+package use_correct_generic_args_in_borrow_suggest;
+struct S { n: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn run<T>(_value: T, _f: i64) {}
+fn main() -> i32 {
+    let value: S = S { n: 0i64 };
+    run(value, 0i64);
+    run(value, 0i64);   // use of moved value: value
+    return 0i32;
+}

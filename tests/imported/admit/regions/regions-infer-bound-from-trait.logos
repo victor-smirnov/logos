@@ -1,0 +1,8 @@
+// rustc regions/regions-infer-bound-from-trait.rs — upstream E0311 parameter type `A` may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.L2
+package regions_infer_bound_from_trait;
+struct Inv<'a> { x: &'a mut i64 }
+fn check_bound<'a, A: 'a>(x: Inv<'a>, a: A) { }
+fn bar1<'a, A>(x: Inv<'a>, a: A) { check_bound(x, a); }
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,11 @@
+// rustc borrowck/borrowck_for_loop_pattern_assignment.rs — upstream E0384
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_for_loop_pattern_assignment;
+fn main() -> i32 {
+    let nums: [i64; 3] = [1i64, 2i64, 3i64];
+    for num in nums {
+        num = num * 2i64;
+    }
+    return 0i32;
+}

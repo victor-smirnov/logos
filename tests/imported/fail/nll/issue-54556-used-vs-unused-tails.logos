@@ -1,0 +1,12 @@
+// rustc nll/issue-54556-used-vs-unused-tails.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_54556_used_vs_unused_tails;
+// nll/issue-54556-used-vs-unused-tails.rs — E0597 tail-expression temporary does not live long enough
+struct D { n: i64 }
+impl Drop for D { fn drop(self: &mut D) {} }
+fn endr(d: &D) -> &i64 { return &d.n; }
+fn main() -> i32 {
+    let r: &i64 = { let t1 = D { n: 7i64 }; endr(&t1) };
+    return *r as i32 - 7i32;
+}

@@ -1,0 +1,11 @@
+// rustc dropck/drop-on-non-struct.rs — upstream E0120 + E0117
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-C1
+// port of rust tests/ui/dropck/drop-on-non-struct.rs (E0120/E0117)
+package drop_on_non_struct;
+
+impl Drop for &mut i64 {
+    fn drop(self: &mut Self) { }
+}
+
+fn main() -> i32 { return 0i32; }

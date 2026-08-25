@@ -1,0 +1,17 @@
+// rustc regions/regions-lifetime-of-struct-or-enum-variant.rs — upstream E0515 return value referencing temporary
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust ui/regions/regions-lifetime-of-struct-or-enum-variant.rs
+// E0515: cannot return value referencing temporary value
+package regions_lifetime_of_struct_or_enum_variant;
+
+struct Test { a: i64 }
+
+fn id(x: Test) -> Test { return x; }
+
+fn structLifetime<'a>() -> &'a Test {
+    let testValue = &id(Test { a: 1i64 });
+    return testValue;
+}
+
+fn main() -> i32 { return 0i32; }

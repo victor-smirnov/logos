@@ -1,0 +1,19 @@
+// rustc nll/drop-no-may-dangle.rs — upstream E0506 cannot assign to `v[_]` because borrowed
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.E
+// port of rust tests/ui/nll/drop-no-may-dangle.rs
+// `p` holds `&v[0]` and has a Drop impl, so the borrow of `v` must live until
+// `p` is dropped at end of scope.  rustc: E0506 cannot assign to `v[_]`
+// because it is borrowed (both marked lines).
+package drop_no_may_dangle;
+extern fn noop(p: *const u8);
+struct WrapMayNotDangle { value: &i64 }
+impl Drop for WrapMayNotDangle { fn drop(self: &mut WrapMayNotDangle) { unsafe { noop(0 as *const u8); } } }
+fn use_x(a: i64) -> bool { return true; }
+fn main() -> i32 {
+    let mut v: [i64; 3] = [1i64, 2i64, 3i64];
+    let p: WrapMayNotDangle = WrapMayNotDangle { value: &v[0] };
+    use_x(*p.value);
+    v[0] = v[0] + 1i64;      // rustc ERROR
+    return 0i32;
+}

@@ -1,0 +1,1 @@
+return type mismatch — expected Box<BarStruct>, got &mut BarStruct

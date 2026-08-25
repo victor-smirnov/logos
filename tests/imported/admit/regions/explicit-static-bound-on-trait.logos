@@ -1,0 +1,13 @@
+// rustc regions/explicit-static-bound-on-trait.rs — upstream E0478 / E0310
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-4
+package explicit_static_bound_on_trait;
+// port of regions/explicit-static-bound-on-trait.rs
+trait Anyish { fn k(&self) -> i64; }
+struct Hello<'a> { value: Box<dyn Anyish + 'a> }
+struct W { n: i64 }
+impl Anyish for W { fn k(&self) -> i64 { return self.n; } }
+impl<'a> Hello<'a> {
+  fn make(value: W) -> Hello<'a> { return Hello { value: Box::new(value) }; }
+}
+fn main() -> i32 { return 0i32; }

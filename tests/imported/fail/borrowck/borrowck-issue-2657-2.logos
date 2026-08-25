@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-issue-2657-2.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-issue-2657-2.rs  E0507
+package borrowck_issue_2657_2;
+use logos.mem.string;
+enum Opt { None, Some(String) }
+fn main() -> i32 {
+    let x = Opt::Some(String::from("hi"));
+    match x {
+        Opt::Some(ref y) => { let b = *y; return b.len() as i32; }
+        Opt::None => { return 1i32; }
+    }
+}

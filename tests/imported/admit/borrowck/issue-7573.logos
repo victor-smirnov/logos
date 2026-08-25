@@ -1,0 +1,17 @@
+// rustc borrowck/issue-7573.rs — upstream E0521
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+// upstream: borrowck/issue-7573.rs  E0521 -- generic-F reshape (fn-ptr coercion refused)
+package issue_7573;
+use logos.mem.collections.vec;
+struct CrateId { n: i64 }
+fn list_database<F>(f: F) where F: FnMut(&CrateId) {
+    let c = CrateId { n: 1i64 };
+    f(&c);
+}
+fn main() -> i32 {
+    let mut lines: Vec<&CrateId> = Vec::new();
+    let push_id = |installed: &CrateId| { lines.push(installed); };
+    list_database(push_id);
+    return lines.len() as i32;
+}

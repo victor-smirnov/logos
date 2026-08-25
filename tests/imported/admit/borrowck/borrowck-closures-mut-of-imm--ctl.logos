@@ -1,0 +1,12 @@
+// rustc borrowck/borrowck-closures-mut-of-imm.rs — upstream E0596/E0524
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// CONTROL for t06: the identical `&mut *x` through a `&i64`, written OUTSIDE a
+// closure body (one difference: the closure boundary).
+package borrowck_closures_mut_of_imm_ctl;
+fn set(x: &mut i64) { *x = 4i64; }
+fn a(x: &i64) -> i64 {
+    set(&mut *x);
+    return *x;
+}
+fn main() -> i32 { let mut n = 1i64; return a(&n) as i32; }

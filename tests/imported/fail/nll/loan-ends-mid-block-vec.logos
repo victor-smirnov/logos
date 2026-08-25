@@ -1,0 +1,15 @@
+// rustc nll/loan_ends_mid_block_vec.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of nll/loan_ends_mid_block_vec.rs (nll_fail)
+package loan_ends_mid_block_vec;
+fn capitalize(_s: &mut Vec<i64>) {}
+fn main() -> i32 {
+    let mut data: Vec<i64> = Vec::new();
+    data.push(1i64);
+    let slice: &mut Vec<i64> = &mut data;
+    capitalize(slice);
+    data.push(4i64);        // E0499
+    capitalize(slice);
+    return 0i32;
+}

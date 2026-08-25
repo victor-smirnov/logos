@@ -1,0 +1,15 @@
+// rustc borrowck/issue-54499-field-mutation-of-moved-out-with-mut.rs — upstream E0382 assign to part of moved value
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_54499_field_mutation_of_moved_out_with_mut;
+use logos.mem.string;
+struct S { v: String }
+struct Tpair { a: S, b: i64 }
+fn eat(t: Tpair) {}
+fn main() -> i32 {
+    let mut u: Tpair = Tpair { a: S { v: String::from("0") }, b: 0i64 };
+    eat(u);
+    u.a = S { v: String::from("1") };   // ERROR: assign to part of moved value
+    u.b = 2i64;
+    return 0i32;
+}

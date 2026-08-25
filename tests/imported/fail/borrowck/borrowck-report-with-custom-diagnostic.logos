@@ -1,0 +1,12 @@
+// rustc borrowck/borrowck-report-with-custom-diagnostic.rs — upstream E0502 cannot borrow
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_report_with_custom_diagnostic;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let y: &mut i64 = &mut x;
+    let z: &i64 = &x;
+    let _a: i64 = *z;
+    *y = 2i64;
+    return 0i32;
+}

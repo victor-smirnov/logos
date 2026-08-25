@@ -1,0 +1,11 @@
+// rustc borrowck/issue-24267-flow-exit.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/issue-24267-flow-exit.rs foo1()  E0381
+package issue_24267_flow_exit_a_break_assign_uninit;
+fn foo1() -> i64 {
+    let x: i64;
+    loop { x = break; }
+    return x;
+}
+fn main() -> i32 { return foo1() as i32; }

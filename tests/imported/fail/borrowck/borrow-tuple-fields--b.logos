@@ -1,0 +1,13 @@
+// rustc borrowck/borrow-tuple-fields.rs — upstream E0502/E0499/E0505
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrow-tuple-fields.rs  E0499 two &mut of the same tuple field
+package borrow_tuple_fields_b;
+fn main() -> i32 {
+    let mut x = (1i64, 2i64);
+    let a: &mut i64 = &mut x.0;
+    let b: &mut i64 = &mut x.0;   // E0499
+    *a = 3i64;
+    *b = 4i64;
+    return 0i32;
+}

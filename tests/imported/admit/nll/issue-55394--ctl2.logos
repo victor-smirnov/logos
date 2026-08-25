@@ -1,0 +1,8 @@
+// rustc nll/issue-55394.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-3
+package issue_55394_ctl2;
+struct S<T> { v: T }
+fn mk<'a>(x: &'a i64) -> S<&'a i64> { return S { v: x }; }
+fn f<'a,'b>(x: &'b i64) -> S<&'a i64> { return mk(x); }
+fn main() -> i32 { return 0i32; }

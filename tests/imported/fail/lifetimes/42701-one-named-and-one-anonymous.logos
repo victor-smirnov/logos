@@ -1,0 +1,14 @@
+// rustc lifetimes/lifetime-errors/42701_one_named_and_one_anonymous.rs — upstream E0621 explicit lifetime required
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package b167_42701_one_named_and_one_anonymous;
+struct Foo { field: i32 }
+fn foo2<'a>(a: &'a Foo, x: &i32) -> &'a i32 {
+    if true {
+        let p: &i32 = &a.field;
+        return p;
+    } else {
+        return x;
+    }
+}
+fn main() -> i32 { return 0i32; }

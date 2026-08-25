@@ -1,0 +1,9 @@
+// rustc nll/user-annotations/constant-in-expr-normalize.rs — upstream lifetime
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package constant_in_expr_normalize;
+trait Foo<'a> { fn c(self: &Self) -> &'a i64; }
+struct U { v: i64 }
+impl<'a> Foo<'a> for U { fn c(self: &Self) -> &'a i64 { return &self.v; } }
+fn foo<'a>(u: &'a U) -> &'static i64 { return u.c(); }
+fn main() -> i32 { return 0i32; }

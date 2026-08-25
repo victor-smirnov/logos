@@ -1,0 +1,8 @@
+// rustc dropck/unconstrained_const_param_on_drop.rs — upstream 3 errors, incl. "missing: `drop`"
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust tests/ui/dropck/unconstrained_const_param_on_drop.rs
+package unconstrained_const_param_on_drop;
+struct Foo { x: i64 }
+impl<const UNUSED: i64> Drop for Foo { }
+fn main() -> i32 { return 0i32; }

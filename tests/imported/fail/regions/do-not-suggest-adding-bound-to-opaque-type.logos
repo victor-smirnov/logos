@@ -1,0 +1,9 @@
+// rustc regions/do-not-suggest-adding-bound-to-opaque-type.rs — upstream E0597 `x` does not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package do_not_suggest_adding_bound_to_opaque_type;
+trait T { fn m(self: &Self) -> i32; }
+struct S<'a> { p: &'a i64 }
+impl<'a> T for S<'a> { fn m(self: &S<'a>) -> i32 { return 0i32; } }
+fn foo() -> impl T { let x: i64 = 1i64; return S { p: &x }; }
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,9 @@
+// rustc nll/issue-98170.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R13
+package issue_98170;
+struct MyStruct<'a> { field: &'a i64 }
+impl MyStruct<'_> {
+    fn make<'a>(field: &'a i64) -> MyStruct<'a> { return Self { field: field }; }
+}
+fn main() -> i32 { return 0i32; }

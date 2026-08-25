@@ -1,0 +1,7 @@
+// rustc regions/regions-infer-not-param.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package regions_infer_not_param;
+struct Direct<'a> { f: &'a i64 }
+fn take_direct<'a,'b>(p: Direct<'a>) -> Direct<'b> { return p; }
+fn main() -> i32 { return 0i32; }

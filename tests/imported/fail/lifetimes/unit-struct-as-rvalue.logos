@@ -1,0 +1,11 @@
+// rustc lifetimes/unit-struct-as-rvalue.rs — upstream E0515 cannot return value referencing temporary
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package unit_struct_as_rvalue;
+struct Test { n: i64 }
+impl Drop for Test { fn drop(self: &mut Test) { } }
+fn create_test<'a>() -> &'a Test {
+  let test_value: &Test = &Test{n:0i64};
+  return test_value;
+}
+fn main() -> i32 { create_test(); return 0i32; }

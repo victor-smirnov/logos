@@ -1,0 +1,8 @@
+// rustc regions/regions-addr-of-arg.rs — upstream E0597 + E0515 cannot return reference to function parameter
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package regions_addr_of_arg;
+fn foo(a: i64) -> i32 { let _p: &'static i64 = &a; return 0i32; }
+fn bar(a: i64) -> i32 { let _q: &i64 = &a; return 0i32; }
+fn zed<'a>(a: i64) -> &'a i64 { return &a; }
+fn main() -> i32 { return foo(1i64) + bar(2i64); }

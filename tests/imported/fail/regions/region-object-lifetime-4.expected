@@ -1,0 +1,1 @@
+return type mismatch: variance mismatch — expected &'b i64, got &'a i64 — lifetime structure incompatible (check &mut invariance / contravariance rules)

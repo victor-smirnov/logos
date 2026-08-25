@@ -1,0 +1,10 @@
+// rustc borrowck/assign-imm-local-twice.rs — upstream E0384
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package assign_imm_local_twice;
+fn main() -> i32 {
+    let v: i64;
+    v = 1i64;
+    v = 2i64;
+    return v as i32;
+}

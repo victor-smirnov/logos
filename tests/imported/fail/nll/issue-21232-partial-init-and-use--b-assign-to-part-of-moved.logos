@@ -1,0 +1,15 @@
+// rustc nll/issue-21232-partial-init-and-use.rs — upstream E0381,E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_21232_partial_init_and_use_b_assign_to_part_of_moved;
+struct B { n: i64 }
+impl Drop for B { fn drop(self: &mut B) {} }
+struct S { x: i64, y: B }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn sink(s: S) -> i64 { return s.x; }
+fn main() -> i32 {
+    let mut s = S { x: 0i64, y: B { n: 0i64 } };
+    let _ = sink(s);
+    s.x = 10i64;
+    return 0i32;
+}

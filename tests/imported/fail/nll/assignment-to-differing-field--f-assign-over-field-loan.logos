@@ -1,0 +1,14 @@
+// rustc nll/polonius/assignment-to-differing-field.rs — upstream E0499/E0503
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// FINDING reduction from tests/ui/nll/polonius/assignment-to-differing-field.rs
+// assigning to a whole place while a FIELD of it is mutably borrowed is unchecked
+package assignment_to_differing_field_f_assign_over_field_loan;
+struct L { value: i64 }
+fn f() -> i64 {
+    let mut m = L { value: 1i64 };
+    let r: &mut i64 = &mut m.value;
+    m = L { value: 2i64 };
+    return *r;
+}
+fn main() -> i32 { return f() as i32; }

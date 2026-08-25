@@ -1,0 +1,11 @@
+// rustc lifetimes/issue-97193.rs — upstream incorrect function inside `extern` block
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust ui/lifetimes/issue-97193.rs
+package issue_97193;
+
+extern "C" {
+    fn a(self: &mut Self) { }
+}
+
+fn main() -> i32 { return 0i32; }

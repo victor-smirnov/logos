@@ -1,0 +1,17 @@
+// rustc borrowck/borrowck-move-from-unsafe-ptr.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+// upstream: borrowck-move-from-unsafe-ptr.rs E0507 move out behind a raw pointer
+package borrowck_move_from_unsafe_ptr;
+struct Own { n: i64 }
+impl Drop for Own { fn drop(self: &mut Own) {} }
+unsafe fn foo(x: *const Own) -> Own {
+    let y = *x;   // E0507: cannot move out of `*x`, behind a raw pointer
+    return y;
+}
+fn main() -> i32 {
+    let o = Own { n: 1i64 };
+    let p: *const Own = &o;
+    let r = unsafe { foo(p) };
+    return r.n as i32;
+}

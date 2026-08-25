@@ -1,0 +1,10 @@
+// rustc borrowck/borrowck-borrowed-uniq-rvalue-2.rs — upstream E0716 temporary dropped while borrowed
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.D
+package borrowck_borrowed_uniq_rvalue_2;
+use logos.mem.string;
+fn mk() -> String { return String::from("Goodbye"); }
+fn main() -> i32 {
+    let d: &String = &mk();   // ONE difference: the borrow is bound directly, not put in a struct
+    return d.len() as i32;
+}

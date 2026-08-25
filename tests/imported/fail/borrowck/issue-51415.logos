@@ -1,0 +1,14 @@
+// rustc borrowck/issue-51415.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/issue-51415.rs (E0507 cannot move out of a shared reference bound
+// by a closure's pattern)
+package issue_51415;
+struct S { s: str }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn find<F: Fn(&S) -> bool>(v: &S, f: F) -> bool { return f(v); }
+fn main() -> i32 {
+    let a = S { s: "a" };
+    let r = find(&a, |s| { let t = *s; let _ = t.s; return true; });
+    return 0i32;
+}

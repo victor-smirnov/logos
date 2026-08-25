@@ -1,0 +1,10 @@
+// rustc borrowck/borrow-immutable-upvar-mutation-impl-trait.rs — upstream E0594
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+package borrow_immutable_upvar_mutation_impl_trait;
+use logos.mem.boxed;
+fn bar() -> Box<dyn Fn() -> i64> {
+    let mut x: i64 = 0i64;
+    return Box::new(move || -> i64 { x += 1i64; return x; });
+}
+fn main() -> i32 { let f = bar(); return f() as i32; }

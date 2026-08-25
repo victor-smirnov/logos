@@ -1,0 +1,12 @@
+// rustc regions/regions-nested-fns.rs — upstream E0597 / E0521
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.C
+package regions_nested_fns;
+fn nested<'x>(x: &'x i64) -> &'x i64 {
+  let y = 3i64;
+  let mut ay: &i64 = x;
+  let mut f = || { ay = &y; };
+  f();
+  return ay;
+}
+fn main() -> i32 { let q = 7i64; let r = nested(&q); if *r != 7i64 { return 1i32; } return 0i32; }

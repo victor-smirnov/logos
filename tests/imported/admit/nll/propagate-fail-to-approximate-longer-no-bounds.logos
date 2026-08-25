@@ -1,0 +1,9 @@
+// rustc nll/closure-requirements/propagate-fail-to-approximate-longer-no-bounds.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.A
+package propagate_fail_to_approximate_longer_no_bounds;
+fn demand_y<'x, 'y>(cell_x: &'x i64, cell_y: &'y i64, y: &'y i64) { }
+fn supply<'a, 'b>(a: &'a i64, b: &'b i64) {
+    demand_y(a, b, a);
+}
+fn main() -> i32 { return 0i32; }

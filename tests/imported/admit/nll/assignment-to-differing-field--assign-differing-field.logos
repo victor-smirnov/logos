@@ -1,0 +1,14 @@
+// rustc nll/polonius/assignment-to-differing-field.rs — upstream E0499/E0503
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.B
+// port of tests/ui/nll/polonius/assignment-to-differing-field.rs
+// an assignment to `.1` must not kill the loan on `.0`
+package assignment_to_differing_field_assign_differing_field;
+struct L { value: i64 }
+fn f(a: &mut L, b: &mut L) -> i64 {
+    let mut list: (&mut L, &mut L) = (a, b);
+    let r: &mut i64 = &mut list.0.value;
+    list.1 = list.0;
+    return *r;
+}
+fn main() -> i32 { let mut p = L { value: 1i64 }; let mut q = L { value: 2i64 }; return f(&mut p, &mut q) as i32; }

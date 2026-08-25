@@ -1,0 +1,30 @@
+// rustc nll/match-guards-always-borrow.rs — upstream E0507 cannot move out of `foo` in pattern guard
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.B
+// port of rust tests/ui/nll/match-guards-always-borrow.rs
+// should_reject_destructive_mutate_in_guard: rustc E0507 cannot move out of
+// `foo` in pattern guard.  The two allow_* fns must keep compiling.
+package match_guards_always_borrow;
+fn should_reject_destructive_mutate_in_guard() -> i32 {
+    let mut v: Option<i64> = Option::Some(4i64);
+    match v {
+        Option::None => { return 0i32; }
+        ref mut foo if { let f = || { let bar: &mut Option<i64> = foo; }; f(); false } => { return 1i32; }
+        _ => { return 2i32; }
+    }
+}
+fn allow_mutate_in_arm_body() -> i32 {
+    let mut v: Option<i64> = Option::Some(4i64);
+    match v {
+        Option::None => { return 0i32; }
+        ref mut foo => { return 1i32; }
+    }
+}
+fn allow_move_into_arm_body() -> i32 {
+    let v: Option<i64> = Option::Some(4i64);
+    match v {
+        Option::None => { return 0i32; }
+        mut foo => { return 1i32; }
+    }
+}
+fn main() -> i32 { return should_reject_destructive_mutate_in_guard() + allow_mutate_in_arm_body() + allow_move_into_arm_body(); }

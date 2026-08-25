@@ -1,0 +1,10 @@
+// rustc lifetimes/nested-binder-print.rs — upstream E0308 mismatched types
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package nested_binder_print;
+struct TwoLt<'a, 'b> { a: &'a i64, b: &'b i64 }
+fn foo() {
+    let y: fn(TwoLt);
+    let x: u32 = y;
+}
+fn main() -> i32 { return 0i32; }

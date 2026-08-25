@@ -1,0 +1,9 @@
+// rustc drop/explicit-drop-call-named-ref.rs — upstream E0040
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-2
+package explicit_drop_call_named_ref;
+// port of drop/explicit-drop-call-named-ref.rs — explicit call of the destructor method
+struct Foo { v: i64 }
+impl Drop for Foo { fn drop(&mut self) { } }
+fn foo(mut f: Foo) { Drop::drop(&mut f); }
+fn main() -> i32 { let f: Foo = Foo { v: 1i64 }; foo(f); return 0i32; }

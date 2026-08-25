@@ -1,0 +1,13 @@
+// rustc moves/move-fn-self-receiver.rs — upstream E0382/E0505
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package move_fn_self_receiver_b;
+use logos.mem.string;
+struct Foo { s: String }
+impl Foo { fn use_mut_self(self: &mut Self) -> &mut Foo { return self; } }
+fn main() -> i32 {
+    let mut mut_foo = Foo{s:String::from("a")};
+    let ret = mut_foo.use_mut_self();
+    let _z = mut_foo;
+    return ret.s.len() as i32;
+}

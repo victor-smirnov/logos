@@ -1,0 +1,15 @@
+// rustc borrowck/issue-103250.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_103250;
+fn main() -> i32 {
+    let last_error: i64;
+    let n: i64 = 3i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        if i == 1i64 { return 0i32; }
+        i = i + 1i64;
+    }
+    let _ = last_error;
+    return 0i32;
+}

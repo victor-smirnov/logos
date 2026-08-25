@@ -1,0 +1,15 @@
+// rustc borrowck/two-phase-surprise-no-conflict.rs — upstream E0503
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package two_phase_surprise_no_conflict;
+struct Map { n: i64 }
+struct SH { cx: &Map, k: i64 }
+impl SH {
+    fn demo(self: &mut SH) -> i64 {
+        let mb: &mut SH = self;
+        let acc: &Map = self.cx;
+        mb.k = 1i64;
+        return acc.n;
+    }
+}
+fn main() -> i32 { return 0i32; }

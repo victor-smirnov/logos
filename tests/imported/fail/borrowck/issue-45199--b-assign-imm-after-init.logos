@@ -1,0 +1,9 @@
+// rustc borrowck/issue-45199.rs — upstream E0384/E0384
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_45199_b_assign_imm_after_init;
+fn main() -> i32 {
+    let b = 1i64;
+    b = 2i64;
+    return b as i32;
+}

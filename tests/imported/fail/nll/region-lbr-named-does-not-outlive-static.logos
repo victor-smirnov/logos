@@ -1,0 +1,7 @@
+// rustc nll/closure-requirements/region-lbr-named-does-not-outlive-static.rs — upstream region
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of tests/ui/nll/closure-requirements/region-lbr-named-does-not-outlive-static.rs
+package region_lbr_named_does_not_outlive_static;
+fn foo(x: &u32) -> &'static u32 { return &*x; }
+fn main() -> i32 { let a = 1u32; let r = foo(&a); return *r as i32; }

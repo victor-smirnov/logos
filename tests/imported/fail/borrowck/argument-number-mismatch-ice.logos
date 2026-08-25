@@ -1,0 +1,7 @@
+// rustc borrowck/argument_number_mismatch_ice.rs — upstream E0594 (assign behind `&`)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package argument_number_mismatch_ice;
+struct Test1 { a: i64 }
+impl Test1 { fn example(self: &Test1, input: &i64) { *input = self.a; } }
+fn main() -> i32 { let t = Test1 { a: 1i64 }; let v: i64 = 0i64; t.example(&v); return 0i32; }

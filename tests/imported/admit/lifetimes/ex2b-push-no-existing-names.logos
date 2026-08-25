@@ -1,0 +1,8 @@
+// rustc lifetimes/lifetime-errors/ex2b-push-no-existing-names.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.A
+package ex2b_push_no_existing_names;
+// port of lifetimes/lifetime-errors/ex2b-push-no-existing-names.rs
+struct Ref<'a> { data: &'a i64 }
+fn foo(x: &mut Vec<Ref>, y: Ref) { x.push(y); }
+fn main() -> i32 { return 0i32; }

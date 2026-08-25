@@ -1,0 +1,18 @@
+// rustc borrowck/borrowck-move-error-many-places.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// runtime probe for t12: count destructor calls for the moved-out-of-borrow payload
+package borrowck_move_error_many_places_r_runtime;
+static mut DROPS: i64 = 0i64;
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) { unsafe { DROPS = DROPS + 1i64; } } }
+enum Foo { Foo1(P, P) }
+fn main() -> i32 {
+    {
+        let f = &Foo::Foo1(P { n: 1i64 }, P { n: 2i64 });
+        match *f {
+            Foo::Foo1(num1, num2) => { let _ = num1.n + num2.n; }
+        }
+    }
+    unsafe { return DROPS as i32; }
+}

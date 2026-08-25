@@ -1,0 +1,8 @@
+// rustc regions/regions-bounded-method-type-parameters.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-R20
+package regions_bounded_method_type_parameters;
+struct Foo { n: i64 }
+impl Foo { fn some_method<A: 'static>(self: Foo) { } }
+fn caller<'a>(x: &'a i64) { Foo{n:0i64}.some_method::<&'a i64>(); }
+fn main() -> i32 { return 0i32; }

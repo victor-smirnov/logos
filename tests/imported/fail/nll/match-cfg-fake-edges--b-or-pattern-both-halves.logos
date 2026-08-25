@@ -1,0 +1,17 @@
+// rustc nll/match-cfg-fake-edges.rs — upstream E0382,E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package match_cfg_fake_edges_b_or_pattern_both_halves;
+struct X { n: i64 }
+impl Drop for X { fn drop(self: &mut X) {} }
+struct P { a: X, b: X }
+impl Drop for P { fn drop(self: &mut P) {} }
+fn main() -> i32 {
+    let p = P { a: X { n: 1i64 }, b: X { n: 2i64 } };
+    match p {
+        P { a: y, b: _ } => { let _ = y.n; }
+    }
+    let _ = &p.a;
+    let _ = &p.b;
+    return 0i32;
+}

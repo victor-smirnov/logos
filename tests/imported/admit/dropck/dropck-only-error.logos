@@ -1,0 +1,10 @@
+// rustc dropck/dropck-only-error.rs — upstream E0277
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R18
+package dropck_only_error;
+trait AuthUser { type Id; }
+trait AuthnBackend { type User: AuthUser; }
+struct AuthSession<B: AuthnBackend> { data: i64 }
+trait Authz { type AB: AuthnBackend; }
+fn run_query<U: Authz>(auth: AuthSession<U::AB>) { }
+fn main() -> i32 { return 0i32; }

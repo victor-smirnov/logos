@@ -1,0 +1,11 @@
+// rustc nll/user-annotations/issue-55748-pat-types-constrain-bindings.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_55748_pat_types_constrain_bindings;
+type PairCoupledRegions<'a, T> = (&'a T, &'a T);
+fn coupled_regions_lhs<'a>(x: &'a i64, s: &'static i64) -> &'static i64 {
+    let p: (PairCoupledRegions<'a, i64>,) = ((s, x),);
+    let y: &'a i64 = p.0.0;
+    return y;
+}
+fn main() -> i32 { return 0i32; }

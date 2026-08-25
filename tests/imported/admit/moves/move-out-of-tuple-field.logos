@@ -1,0 +1,14 @@
+// rustc moves/move-out-of-tuple-field.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.B
+package move_out_of_tuple_field;
+// moves/move-out-of-tuple-field.rs — E0382 use of moved value x.0
+struct B { v: i64 }
+impl Drop for B { fn drop(self: &mut B) {} }
+fn main() -> i32 {
+    let x: (B,) = (B { v: 1i64 },);
+    let y = x.0;
+    let z = x.0;
+    let _ = y.v; let _ = z.v;
+    return 0i32;
+}

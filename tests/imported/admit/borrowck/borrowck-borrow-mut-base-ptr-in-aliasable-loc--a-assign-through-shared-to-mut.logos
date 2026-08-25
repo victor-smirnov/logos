@@ -1,0 +1,12 @@
+// rustc borrowck/borrowck-borrow-mut-base-ptr-in-aliasable-loc.rs — upstream E0594/E0596 (foo, foo4); foo3 E0502 pins
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// upstream: borrowck/borrowck-borrow-mut-base-ptr-in-aliasable-loc.rs fn foo (E0594)
+package borrowck_borrow_mut_base_ptr_in_aliasable_loc_a_assign_through_shared_to_mut;
+fn foo(t0: & &mut i64) {
+    let t1 = t0;
+    let p: &i64 = &**t0;
+    **t1 = 22i64;
+    let _ = *p;
+}
+fn main() -> i32 { let mut v: i64 = 1i64; let r: &mut i64 = &mut v; foo(&r); return 0i32; }

@@ -1,0 +1,10 @@
+// rustc nll/polonius/opaque-multiple-defining-uses-160669.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package opaque_multiple_defining_uses_160669;
+use logos.mem.string;
+fn two_uses(s: &String, flag: bool) -> &String {
+    if flag { let local: String = String::from("dangling"); return &local; }
+    return s;
+}
+fn main() -> i32 { return 0i32; }

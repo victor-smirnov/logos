@@ -1,0 +1,8 @@
+// rustc drop/drop-foreign-fundamental.rs — upstream E0120
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-1
+package drop_foreign_fundamental;
+// port of drop/drop-foreign-fundamental.rs — Drop impl for a NON-LOCAL (stdlib) type
+struct A { v: i64 }
+impl Drop for Vec<A> { fn drop(&mut self) { } }
+fn main() -> i32 { return 0i32; }

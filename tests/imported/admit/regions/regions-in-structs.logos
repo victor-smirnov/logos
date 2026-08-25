@@ -1,0 +1,7 @@
+// rustc regions/regions-in-structs.rs — upstream E0261 use of undeclared lifetime name `'a`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R17
+package regions_in_structs;
+struct Yes1<'a> { x: &'a u64 }
+struct StructDecl { a: &'a i64, b: &'a i64 }
+fn main() -> i32 { return 0i32; }

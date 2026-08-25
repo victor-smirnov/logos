@@ -1,0 +1,14 @@
+// rustc borrowck/move-error-snippets.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+package move_error_snippets_r31;
+static mut DROPS: i64 = 0i64;
+struct A { x: i64 }
+impl Drop for A { fn drop(self: &mut A) { unsafe { DROPS = DROPS + 1i64; } } }
+static D: A = A { x: 7i64 };
+fn aaa(a: A) -> i64 { return a.x; }
+fn main() -> i32 {
+    let s1 = aaa(D);
+    let s2 = aaa(D);
+    unsafe { return (DROPS * 100i64 + s1 + s2) as i32; }
+}

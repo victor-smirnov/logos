@@ -1,0 +1,12 @@
+// rustc lifetimes/missing-lifetime-in-assoc-type-2.rs — upstream missing lifetime in associated type (E0637) + E0261
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R17
+package missing_lifetime_in_assoc_type_2;
+struct T { v: i64 }
+struct S { t: T }
+trait Coll { type Item; fn get(self: &Self) -> Self::Item; }
+impl Coll for S {
+    type Item = &T;
+    fn get(self: &S) -> Self::Item { return &self.t; }
+}
+fn main() -> i32 { return 0i32; }

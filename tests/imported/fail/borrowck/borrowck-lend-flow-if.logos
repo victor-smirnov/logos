@@ -1,0 +1,15 @@
+// rustc borrowck/borrowck-lend-flow-if.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_lend_flow_if;
+fn cond() -> bool { return true; }
+fn borrow_mut(_v: &mut i64) {}
+fn main() -> i32 {
+    let u: i64 = 0i64;
+    let mut v: i64 = 3i64;
+    let mut _w: &i64 = &u;
+    if cond() { _w = &v; }
+    borrow_mut(&mut v);
+    let _ = *_w;
+    return 0i32;
+}

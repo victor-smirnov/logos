@@ -1,0 +1,11 @@
+// rustc borrowck/borrowck-move-out-of-vec-tail.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_move_out_of_vec_tail;
+struct Foo { s: Box<i64> }
+fn main() -> i32 {
+    let x: [Foo; 2] = [Foo { s: Box::new(1i64) }, Foo { s: Box::new(2i64) }];
+    let r: &[Foo; 2] = &x;
+    let a: Foo = r[0];
+    return 0i32;
+}

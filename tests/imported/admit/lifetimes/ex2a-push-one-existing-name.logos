@@ -1,0 +1,8 @@
+// rustc lifetimes/lifetime-errors/ex2a-push-one-existing-name.rs — upstream E0621
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-N1
+package ex2a_push_one_existing_name;
+struct Ref<'a> { data: &'a i64 }
+struct Holder<'a> { r: Ref<'a> }
+fn foo<'a>(x: &mut Holder<'a>, y: Ref) { x.r = y; }
+fn main() -> i32 { return 0i32; }

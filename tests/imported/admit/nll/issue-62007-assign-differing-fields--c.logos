@@ -1,0 +1,12 @@
+// rustc nll/issue-62007-assign-differing-fields.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R3
+package issue_62007_assign_differing_fields_c;
+struct L { value: i64 }
+fn main() -> i32 {
+    let mut a: L = L{value:1i64};
+    let mut result: Vec<&mut i64> = Vec::<&mut i64>::new();
+    let mut i: i64 = 0i64;
+    while i < 3i64 { result.push(&mut a.value); i = i + 1i64; }
+    return result.len() as i32;
+}

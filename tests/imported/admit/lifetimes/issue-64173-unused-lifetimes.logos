@@ -1,0 +1,6 @@
+// rustc lifetimes/issue-64173-unused-lifetimes.rs — upstream E0392 parameter `'s` is never used
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.L4
+package issue_64173_unused_lifetimes;
+struct Foo<'s> { n: i64 }
+fn main() -> i32 { let f = Foo { n: 1i64 }; if f.n != 1i64 { return 1i32; } return 0i32; }

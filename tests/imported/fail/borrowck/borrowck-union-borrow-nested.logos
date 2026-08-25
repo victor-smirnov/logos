@@ -1,0 +1,17 @@
+// rustc borrowck/borrowck-union-borrow-nested.rs — upstream E0503 cannot use `u.c`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_union_borrow_nested;
+struct S { a: u8, b: u16 }
+impl Copy for S {}
+union U { s: S, c: u32 }
+fn use_mut(p: &mut u8) {}
+fn main() -> i32 {
+    unsafe {
+        let mut u: U = U { s: S { a: 0u8, b: 1u16 } };
+        let ra: &mut u8 = &mut u.s.a;
+        let b: u32 = u.c;
+        use_mut(ra);
+    }
+    return 0i32;
+}

@@ -1,0 +1,14 @@
+// rustc nll/issue-48803.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.A
+package issue_48803;
+fn flatten<'a>(x: &'a &'a i64) -> &'a i64 { return *x; }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let y = &x;
+    let z = &y;
+    let w = flatten(z);
+    x = 2i64;
+    let _ = *w;
+    return 0i32;
+}

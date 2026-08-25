@@ -1,0 +1,9 @@
+// rustc lifetimes/trait-method-lifetime-suggestion.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-N1
+package trait_method_lifetime_suggestion;
+trait Foo<'a> {
+    fn foo(self: &'a Self);
+    fn bar(self: &Self) { self.foo(); }
+}
+fn main() -> i32 { return 0i32; }

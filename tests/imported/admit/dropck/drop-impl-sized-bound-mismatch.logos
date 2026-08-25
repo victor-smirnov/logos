@@ -1,0 +1,9 @@
+// rustc dropck/drop-impl-sized-bound-mismatch.rs — upstream `Drop` impl requires `T: Sized`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-N5
+// port of rust tests/ui/dropck/drop-impl-sized-bound-mismatch.rs — `Drop` impl requires `T: Sized`
+package drop_impl_sized_bound_mismatch;
+trait Bar { fn b(self: &Self) -> i64; }
+struct G<T: ?Sized> { p: *const T }
+impl<T> Drop for G<T> { fn drop(self: &mut Self) { } }
+fn main() -> i32 { let x: G<dyn Bar>; return 0i32; }

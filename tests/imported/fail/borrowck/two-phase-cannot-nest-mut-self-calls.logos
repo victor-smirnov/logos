@@ -1,0 +1,10 @@
+// rustc borrowck/two-phase-cannot-nest-mut-self-calls.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package two_phase_cannot_nest_mut_self_calls;
+fn get2(v: &Vec<i64>, i: i64) -> i64 { return 0i64; }
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    let _q: i64 = get2(&v, { v.push(2i64); 0i64 });
+    return 0i32;
+}

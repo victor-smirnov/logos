@@ -1,0 +1,14 @@
+// rustc lifetimes/lifetime-errors/liveness-assign-imm-local-notes.rs — upstream E0384
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package liveness_assign_imm_local_notes;
+fn test() {
+    let x: i64;
+    if true {
+        x = 1i64;
+    } else {
+        x = 2i64;
+        x = 3i64;
+    }
+}
+fn main() -> i32 { return 0i32; }

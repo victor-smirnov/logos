@@ -1,0 +1,14 @@
+// rustc moves/issue-34721.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_34721;
+use logos.mem.string;
+trait Foo { fn zero(self: Self) -> Self; }
+struct W { s: String }
+impl Drop for W { fn drop(self: &mut Self) { } }
+impl Foo for W { fn zero(self: Self) -> W { return self; } }
+fn baz<T: Foo>(x: T) -> T {
+    let _a = x.zero();
+    return x.zero();
+}
+fn main() -> i32 { let w = W{s:String::from("a")}; let _r = baz::<W>(w); return 0i32; }

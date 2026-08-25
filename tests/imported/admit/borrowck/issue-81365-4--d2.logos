@@ -1,0 +1,13 @@
+// rustc borrowck/issue-81365-4.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package issue_81365_4_d2;
+struct T { tf: bool }
+struct C { t: T, cf: bool }
+impl Deref for C { type Target = T; fn deref(self: &C) -> &T { return &self.t; } }
+fn main() -> i32 {
+    let mut c = C { t: T { tf: true }, cf: false };
+    let first: &bool = &c.tf;
+    c.cf = true;
+    return *first as i32;
+}

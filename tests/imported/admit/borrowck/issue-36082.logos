@@ -1,0 +1,12 @@
+// rustc borrowck/issue-36082.rs — upstream E0716
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.D
+// upstream: borrowck/issue-36082.rs (E0716 temporary value dropped while borrowed)
+package issue_36082;
+struct Cell { a: i64, b: i64 }
+fn mk() -> Cell { return Cell { a: 1i64, b: 2i64 }; }
+fn main() -> i32 {
+    let val: &i64 = &mk().a;
+    let _ = *val;
+    return 0i32;
+}

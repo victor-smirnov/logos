@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-move-out-from-array-match.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package borrowck_move_out_from_array_match;
+use logos.mem.string;
+struct P { a: String, b: String }
+fn mk() -> [P; 3] { return [P{a:String::from("x"),b:String::from("y")}, P{a:String::from("x"),b:String::from("y")}, P{a:String::from("x"),b:String::from("y")}]; }
+fn main() -> i32 {
+    let a: [P; 3] = mk();
+    match a { [_p, _q, _r] => {} }
+    match a { [_x, _y, _z] => {} }
+    return 0i32;
+}

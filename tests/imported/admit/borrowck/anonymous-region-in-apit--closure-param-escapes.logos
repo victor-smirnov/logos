@@ -1,0 +1,21 @@
+// rustc borrowck/anonymous-region-in-apit.rs — upstream escapes-closure
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+// upstream: borrowck/anonymous-region-in-apit.rs (borrowed data escapes outside of closure:
+// the closure's own `&` parameter is handed to a callee that keeps it for longer).
+// Reshape: `impl Foo<&str>` -> an explicit sink struct the callee stores into.
+package anonymous_region_in_apit_closure_param_escapes;
+struct Sink { r: &i64 }
+fn bar(s: &mut Sink, baz: &i64) { s.r = baz; }
+fn qux(s: &mut Sink) {
+    let c = |baz: &i64| { bar(s, baz); };
+    let local: i64 = 5i64;
+    c(&local);
+}
+fn main() -> i32 {
+    let anchor: i64 = 1i64;
+    let mut s = Sink { r: &anchor };
+    qux(&mut s);
+    let _ = *s.r;
+    return 0i32;
+}

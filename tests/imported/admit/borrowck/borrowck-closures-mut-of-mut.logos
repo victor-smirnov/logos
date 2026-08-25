@@ -1,0 +1,12 @@
+// rustc borrowck/borrowck-closures-mut-of-mut.rs — upstream E0524
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+// upstream: borrowck/borrowck-closures-mut-of-mut.rs (E0524 two closures require unique access)
+package borrowck_closures_mut_of_mut;
+fn set(x: &mut i64) { *x = 4i64; }
+fn a(x: &mut i64) {
+    let mut c1 = || { set(&mut *x); };
+    let mut c2 = || { set(&mut *x); };
+    c2(); c1();
+}
+fn main() -> i32 { let mut v: i64 = 1i64; a(&mut v); return 0i32; }

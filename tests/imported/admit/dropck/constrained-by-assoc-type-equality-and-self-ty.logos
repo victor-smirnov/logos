@@ -1,0 +1,10 @@
+// rustc dropck/constrained_by_assoc_type_equality_and_self_ty.rs — upstream E0367 (`Drop` impl requires `<T as Trait>::Assoc == U`)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.L3
+package constrained_by_assoc_type_equality_and_self_ty;
+trait Trait { type Assoc; }
+struct Foo<T: Trait, U> { a: T, b: U }
+impl<T: Trait<Assoc = U>, U> Drop for Foo<T, U> {
+  fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { return 0i32; }

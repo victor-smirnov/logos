@@ -1,0 +1,14 @@
+// rustc borrowck/issue-83760.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_83760;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn unwrap(o: Option<S>) -> S { match o { Option::Some(s) => { return s; } Option::None => { return S { v: 0i64 }; } } }
+fn test2() {
+    let mut foo: Option<S> = Option::Some(S { v: 1i64 });
+    let x: S = unwrap(foo);
+    if true { foo = Option::Some(S { v: 2i64 }); }
+    let y: Option<S> = foo;
+}
+fn main() -> i32 { test2(); return 0i32; }

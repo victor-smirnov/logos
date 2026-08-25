@@ -1,0 +1,13 @@
+// rustc lifetimes/lifetime-errors/ex1-return-one-existing-name-if-else-using-impl-2.rs — upstream E0621 explicit lifetime required
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust ui/lifetimes/lifetime-errors/ex1-return-one-existing-name-if-else-using-impl-2.rs
+// E0621: explicit lifetime required in the type of `x`
+package ex1_return_one_existing_name_if_else_using_impl_2;
+
+fn foo<'a>(x: &i64, y: &'a i64) -> &'a i64 {
+    if *x > *y { return x; }
+    return y;
+}
+
+fn main() -> i32 { return 0i32; }

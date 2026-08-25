@@ -1,0 +1,24 @@
+// rustc borrowck/issue-81365-9.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// upstream: borrowck/issue-81365-9.rs  E0506
+package issue_81365_9_explicit_deref_call_borrow_then_write;
+use logos.lang.ops;
+struct DerefTarget { target_field: bool }
+struct Container { target: DerefTarget, container_field: bool }
+impl Deref for Container {
+    type Target = DerefTarget;
+    fn deref(self: &Container) -> &DerefTarget { return &self.target; }
+}
+impl Container {
+    fn bad_borrow(self: &mut Container) -> i32 {
+        let first = &Deref::deref(self).target_field;
+        self.container_field = true;
+        let _ = *first;
+        return 0i32;
+    }
+}
+fn main() -> i32 {
+    let mut c = Container { target: DerefTarget { target_field: false }, container_field: false };
+    return c.bad_borrow();
+}

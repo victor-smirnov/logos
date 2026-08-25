@@ -1,0 +1,15 @@
+// rustc nll/move-subpaths-moves-root.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package move_subpaths_moves_root;
+use logos.mem.string;
+struct T2 { a: String }
+impl Drop for T2 { fn drop(self: &mut Self) { } }
+fn eat_s(s: String) { }
+fn eat_t(t: T2) { }
+fn main() -> i32 {
+    let x = T2{a:String::from("q")};
+    eat_s(x.a);
+    eat_t(x);
+    return 0i32;
+}

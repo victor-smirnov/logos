@@ -1,0 +1,20 @@
+// rustc nll/issue-45157.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_45157;
+struct SS { a: u8, b: u8 }
+impl Copy for SS {}
+struct ZZ { c: u8, d: u8 }
+impl Copy for ZZ {}
+union U { s: SS, z: ZZ }
+fn main() -> i32 {
+    unsafe {
+        let mut u = U { s: SS { a: 0u8, b: 0u8 } };
+        let mref = &mut u.s.a;
+        *mref = 22u8;
+        let nref = &u.z.c;
+        let _ = *mref;
+        let _ = *nref;
+    }
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+// rustc nll/issue-21232-partial-init-and-erroneous-use.rs — upstream E0381, E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_21232_partial_init_and_erroneous_use_c;
+struct S { y: u32, z: u32 }
+struct D { x: u32, s: S }
+impl Drop for D { fn drop(self: &mut Self) { } }
+fn f() { let d: D; d.s.y = 20u32; }
+fn main() -> i32 { return 0i32; }

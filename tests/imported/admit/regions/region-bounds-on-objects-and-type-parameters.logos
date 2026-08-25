@@ -1,0 +1,11 @@
+// rustc regions/region-bounds-on-objects-and-type-parameters.rs — upstream E0392 parameter `'c` is never used (+E0226, unportable half)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-N4
+package region_bounds_on_objects_and_type_parameters;
+trait Isx<'a> {}
+trait SomeTrait {}
+struct Foo<'a, 'b, 'c> {
+    c: &'a dyn Isx<'a>,
+    f: &'b dyn SomeTrait,
+}
+fn main() -> i32 { return 0i32; }

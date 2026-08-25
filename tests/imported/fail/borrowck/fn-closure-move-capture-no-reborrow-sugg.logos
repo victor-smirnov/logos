@@ -1,0 +1,14 @@
+// rustc borrowck/fn-closure-move-capture-no-reborrow-sugg.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/fn-closure-move-capture-no-reborrow-sugg.rs
+// (E0507 cannot move out of `foos`, a captured variable in an `Fn` closure)
+package fn_closure_move_capture_no_reborrow_sugg;
+struct Foo { s: str }
+impl Drop for Foo { fn drop(self: &mut Foo) {} }
+fn in_fn<F: Fn()>(f: F) { f(); f(); }
+fn main() -> i32 {
+    let foo = Foo { s: "a" };
+    in_fn(|| { let g = foo; let _ = g.s; });
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+// rustc moves/unconstrained-impl-param-clone-suggestion.rs — upstream E0507 (+E0207, not modelled)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package unconstrained_impl_param_clone_suggestion;
+// moves/unconstrained-impl-param-clone-suggestion.rs — E0507 cannot move out of `*self`
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+impl S { fn dup(self: &S) -> S { return *self; } }
+fn main() -> i32 { let s = S { v: 1i64 }; let t = s.dup(); let _ = t.v; return 0i32; }

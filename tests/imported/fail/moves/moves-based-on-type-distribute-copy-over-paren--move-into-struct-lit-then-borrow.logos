@@ -1,0 +1,13 @@
+// rustc moves/moves-based-on-type-distribute-copy-over-paren.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package moves_based_on_type_distribute_copy_over_paren_move_into_struct_lit_then_borrow;
+struct S { n: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+struct Foo { f: S }
+fn touch(a: &S) -> i64 { return a.n; }
+fn main() -> i32 {
+    let x: S = S { n: 1i64 };
+    let _y: Foo = Foo { f: x };
+    return touch(&x) as i32;
+}

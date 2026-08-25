@@ -1,0 +1,16 @@
+// rustc borrowck/issue-41962.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+package issue_41962_t25;
+struct V { a: i64 }
+impl Drop for V { fn drop(self: &mut V) {} }
+enum Opt { Some(V), None }
+fn main() -> i32 {
+    let maybe = Opt::Some(V { a: 1i64 });
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        match maybe { Opt::Some(thing) => { let _ = thing.a; } Opt::None => {} }
+        i = i + 1i64;
+    }
+    return 0i32;
+}

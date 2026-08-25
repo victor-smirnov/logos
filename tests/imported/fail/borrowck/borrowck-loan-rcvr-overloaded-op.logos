@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-loan-rcvr-overloaded-op.rs — upstream E0503/E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-loan-rcvr-overloaded-op.rs  E0503/E0502
+package borrowck_loan_rcvr_overloaded_op;
+struct Point { x: i64, y: i64 }
+impl Point { fn times(self: &Point, z: i64) -> i64 { return self.x * self.y * z; } }
+fn main() -> i32 {
+    let mut p = Point { x: 3i64, y: 4i64 };
+    let q = &mut p;
+    let a = p.times(3i64);
+    q.x += 1i64;
+    return a as i32;
+}

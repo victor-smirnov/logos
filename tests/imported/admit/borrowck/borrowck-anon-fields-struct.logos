@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-anon-fields-struct.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package borrowck_anon_fields_struct;
+struct Y { f0: i64, f1: i64 }
+fn main() -> i32 {
+    let mut y: Y = Y { f0: 1i64, f1: 2i64 };
+    let a: &mut i64 = match y { Y { f0: ref mut a, f1: _ } => a };
+    let b: &mut i64 = match y { Y { f0: ref mut b, f1: _ } => b };
+    *a = *a + 1i64;
+    *b = *b + 1i64;
+    return 0i32;
+}

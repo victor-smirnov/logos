@@ -1,0 +1,10 @@
+// rustc nll/issue-53773.rs — upstream E0713
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.E
+package issue_53773;
+// nll/issue-53773.rs — E0713 borrow may still be in use when destructor runs
+struct Child { n: i64 }
+struct C { raw: &mut Child }
+impl Drop for C { fn drop(self: &mut C) { self.raw.n = 99i64; } }
+fn error(c: C) -> &mut Child { return c.raw; }
+fn main() -> i32 { let mut ch = Child { n: 1i64 }; let c = C { raw: &mut ch }; let m = error(c); m.n = 2i64; return 0i32; }

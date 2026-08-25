@@ -1,0 +1,11 @@
+// rustc borrowck/borrowck-uninit-ref-chain.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_uninit_ref_chain;
+struct S { x: i64, y: i64 }
+fn main() -> i32 {
+    let mut a: S;
+    a.x = 0i64;
+    let b: &i64 = &a.x;
+    return 0i32;
+}

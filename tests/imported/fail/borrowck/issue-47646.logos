@@ -1,0 +1,14 @@
+// rustc borrowck/issue-47646.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_47646;
+struct Heap { top: i64 }
+impl Heap { fn peek_mut(self: &mut Heap) -> &mut i64 { return &mut self.top; } }
+fn main() -> i32 {
+    let mut heap: Heap = Heap { top: 1i64 };
+    let borrow: &mut i64 = heap.peek_mut();
+    match (borrow, 0i64) {
+        (b, _) => { let _ = heap.top; let _ = *b; }
+    }
+    return 0i32;
+}

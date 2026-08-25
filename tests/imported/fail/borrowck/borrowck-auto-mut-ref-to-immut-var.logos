@@ -1,0 +1,7 @@
+// rustc borrowck/borrowck-auto-mut-ref-to-immut-var.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_auto_mut_ref_to_immut_var;
+struct Foo { x: i64 }
+impl Foo { fn printme(self: &mut Foo) -> i64 { return self.x; } }
+fn main() -> i32 { let x = Foo { x: 3i64 }; return x.printme() as i32; }

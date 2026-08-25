@@ -1,0 +1,17 @@
+// rustc borrowck/move-in-pattern-mut.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/move-in-pattern-mut.rs  E0382
+package move_in_pattern_mut;
+use logos.mem.string;
+struct S { v: String }
+enum E { None, Some(S) }
+fn foo(_e: E) -> i64 { return 0i64; }
+fn main() -> i32 {
+    let s = E::Some(S { v: String::from("a") });
+    match s {
+        E::Some(mut x) => { x = S { v: String::from("b") }; let _ = x; }
+        E::None => {}
+    }
+    return foo(s) as i32;
+}

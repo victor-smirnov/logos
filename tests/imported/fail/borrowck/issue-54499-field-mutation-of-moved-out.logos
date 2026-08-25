@@ -1,0 +1,15 @@
+// rustc borrowck/issue-54499-field-mutation-of-moved-out.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/issue-54499-field-mutation-of-moved-out.rs  E0382
+package issue_54499_field_mutation_of_moved_out;
+use logos.mem.string;
+struct S { v: String }
+struct Tpair { a: S, b: i64 }
+fn eat(x: Tpair) -> i64 { return x.b; }
+fn main() -> i32 {
+    let mut u = Tpair { a: S { v: String::from("x") }, b: 0i64 };
+    let n = eat(u);
+    u.b = 2i64;
+    return (n + u.b) as i32;
+}

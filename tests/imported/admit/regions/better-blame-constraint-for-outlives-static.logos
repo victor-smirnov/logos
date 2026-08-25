@@ -1,0 +1,8 @@
+// rustc regions/better-blame-constraint-for-outlives-static.rs — upstream lifetime may not live long enough ('1 outlive 'static)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-N1
+// port of rust tests/ui/regions/better-blame-constraint-for-outlives-static.rs
+package better_blame_constraint_for_outlives_static;
+struct Bytes { b: &'static [u8] }
+fn deserialize_simple_string(buf: &[u8]) -> Bytes { return Bytes { b: buf }; }
+fn main() -> i32 { return 0i32; }

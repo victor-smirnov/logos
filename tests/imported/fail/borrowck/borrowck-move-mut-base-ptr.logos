@@ -1,0 +1,11 @@
+// rustc borrowck/borrowck-move-mut-base-ptr.rs — upstream E0505
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_move_mut_base_ptr;
+fn foo(t0: &mut i64) {
+    let p: &i64 = &*t0;
+    let t1: &mut i64 = t0;
+    *t1 = 22i64;
+    let z: i64 = *p;
+}
+fn main() -> i32 { let mut a: i64 = 1i64; foo(&mut a); return 0i32; }

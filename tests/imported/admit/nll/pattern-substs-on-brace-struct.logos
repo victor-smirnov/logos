@@ -1,0 +1,11 @@
+// rustc nll/user-annotations/pattern_substs_on_brace_struct.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-1
+package pattern_substs_on_brace_struct;
+struct Foo<'a> { field: &'a i64 }
+fn in_let() {
+    let y: i64 = 22i64;
+    let foo: Foo<'static> = Foo { field: &y };
+    let Foo { field: _z } = foo;
+}
+fn main() -> i32 { return 0i32; }

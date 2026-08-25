@@ -1,0 +1,17 @@
+// rustc borrowck/borrowck-closures-unique-imm.rs — upstream E0502 cannot borrow
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+package borrowck_closures_unique_imm;
+struct Foo { x: i64 }
+fn main() -> i32 {
+    let mut f = Foo { x: 1i64 };
+    let this: &mut Foo = &mut f;
+    let mut r = || {
+        let p: &i64 = &this.x;
+        let q: &mut i64 = &mut this.x;   // ERROR: cannot borrow, p is live
+        *q = 2i64;
+        let _ = *p;
+    };
+    r();
+    return 0i32;
+}

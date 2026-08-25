@@ -1,0 +1,11 @@
+// rustc lifetimes/lifetime-errors/ex2a-push-one-existing-name-early-bound.rs — upstream E0621
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.A
+// port of rust ui/lifetimes/lifetime-errors/ex2a-push-one-existing-name-early-bound.rs (E0621)
+package ex2a_push_one_existing_name_early_bound;
+
+fn baz<'a>(x: &mut Vec<&'a i64>, y: &i64) {
+    x.push(y);
+}
+
+fn main() -> i32 { return 0i32; }

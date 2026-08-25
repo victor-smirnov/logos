@@ -1,0 +1,15 @@
+// rustc borrowck/borrowck-union-uninitialized.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_union_uninitialized;
+struct S { a: u8 }
+union U { a: u8 }
+fn main() -> i32 {
+    let mut s: S;
+    let mut u: U;
+    s.a = 0u8;
+    u.a = 0u8;
+    let _sa: u8 = s.a;
+    let _ua: u8 = u.a;
+    return 0i32;
+}

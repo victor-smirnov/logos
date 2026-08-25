@@ -1,0 +1,11 @@
+// rustc borrowck/issue-54499-field-mutation-of-never-init.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/issue-54499-field-mutation-of-never-init.rs (Tuple)  E0381
+package issue_54499_field_mutation_of_never_init_a_field_assign_of_uninit_tuple;
+fn main() -> i32 {
+    let t: (i64, i64);
+    t.0 = 1i64;
+    t.1 = 2i64;
+    return t.0 as i32 - 1i32;
+}

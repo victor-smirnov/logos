@@ -1,0 +1,13 @@
+// rustc nll/decl-macro-illegal-copy.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package decl_macro_illegal_copy;
+struct NonCopy { s: i64 }
+impl Drop for NonCopy { fn drop(self: &mut Self) { } }
+struct Wrapper { inner: NonCopy }
+fn two(a: NonCopy, b: NonCopy) -> i64 { return a.s + b.s; }
+fn main() -> i32 {
+  let w: Wrapper = Wrapper { inner: NonCopy { s: 1i64 } };
+  let r: i64 = two(w.inner, w.inner);
+  return 0i32;
+}

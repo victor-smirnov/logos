@@ -1,0 +1,11 @@
+// rustc borrowck/promote-ref-mut-in-let-issue-46557.rs — upstream E0515
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: promote-ref-mut-in-let-issue-46557.rs E0515 (&mut to a local, returned)
+package promote_ref_mut_in_let_issue_46557_t34;
+fn gimme_static_mut_let() -> &mut u32 {
+    let mut v: u32 = 1234543u32;
+    let x: &mut u32 = &mut v;
+    return x;
+}
+fn main() -> i32 { return *gimme_static_mut_let() as i32; }

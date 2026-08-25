@@ -1,0 +1,7 @@
+// rustc lifetimes/lifetime-errors/e0621-mut-ref-aliases-pointee-lifetime-distinct.rs — upstream E0621
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.A
+package e0621_mut_ref_aliases_pointee_lifetime_distinct;
+// port of lifetimes/lifetime-errors/e0621-... — explicit lifetime required in the type of `y`
+fn push<'a>(x: &mut Vec<&'a i64>, y: &i64) { x.push(y); }
+fn main() -> i32 { return 0i32; }

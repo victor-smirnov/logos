@@ -1,0 +1,10 @@
+// rustc nll/issue-51244.rs — upstream E0594
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_51244;
+// nll/issue-51244.rs — E0594 assign to *my_ref which is behind a & reference
+fn main() -> i32 {
+    let r: &i64 = &0i64;
+    *r = 0i64;
+    return 0i32;
+}

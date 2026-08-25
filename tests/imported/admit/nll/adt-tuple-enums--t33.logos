@@ -1,0 +1,11 @@
+// rustc nll/user-annotations/adt-tuple-enums.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-L1
+package adt_tuple_enums_t33;
+enum SomeEnum<T> { SomeVariant(T), SomeOtherVariant }
+fn annot_static() -> i32 {
+  let c: i64 = 66i64;
+  let e: SomeEnum<&'static i64> = SomeEnum::SomeVariant::<&'static i64>(&c);
+  return 0i32;
+}
+fn main() -> i32 { return annot_static(); }

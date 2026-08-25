@@ -1,0 +1,7 @@
+// rustc regions/regions-free-region-ordering-callee.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust tests/ui/regions/regions-free-region-ordering-callee.rs — ordering2/ordering3
+package regions_free_region_ordering_callee;
+fn ordering2<'a, 'b>(x: &'a &'b u64, y: &'a u64) -> &'b u64 { return y; }
+fn main() -> i32 { return 0i32; }

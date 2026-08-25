@@ -1,0 +1,19 @@
+// rustc moves/move-in-guard-2.rs — upstream E0382 use of moved value: `x`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust tests/ui/moves/move-in-guard-2.rs
+// v = (1,2) matches BOTH alternates of the or-pattern, so the guard -- which
+// moves `x` -- really runs twice.  rustc: E0382 use of moved value: `x`.
+package move_in_guard_2;
+extern fn noop(p: *const u8);
+struct B { x: i64 }
+impl Drop for B { fn drop(self: &mut B) { unsafe { noop(0 as *const u8); } } }
+fn take(b: B) -> bool { return false; }
+fn main() -> i32 {
+    let x: B = B { x: 1i64 };
+    let v: (i64, i64) = (1i64, 2i64);
+    match v {
+        (1i64, _) | (_, 2i64) if take(x) => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

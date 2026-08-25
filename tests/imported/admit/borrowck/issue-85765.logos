@@ -1,0 +1,12 @@
+// rustc borrowck/issue-85765.rs — upstream E0596/E0594
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// upstream: borrowck/issue-85765.rs first site  E0596/E0594 write through a `&` reference
+package issue_85765;
+struct V { n: i64 }
+fn main() -> i32 {
+    let mut test = V { n: 0i64 };
+    let rofl: &V = &mut test;
+    rofl.n += 1i64;
+    return 0i32;
+}

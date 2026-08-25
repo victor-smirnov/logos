@@ -1,0 +1,12 @@
+// rustc nll/maybe-initialized-drop.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.E
+package maybe_initialized_drop;
+struct Wrap { p: &mut i64 }
+impl Drop for Wrap { fn drop(self: &mut Wrap) { *self.p = *self.p + 1i64; } }
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    let wrap = Wrap { p: &mut x };
+    x = 1i64;
+    return 0i32;
+}

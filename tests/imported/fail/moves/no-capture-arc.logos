@@ -1,0 +1,15 @@
+// rustc moves/no-capture-arc.rs — upstream E0382 `Arc` does not implement `Copy`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust tests/ui/moves/no-capture-arc.rs
+// `arc_v` is moved into a `move` closure (upstream: into thread::spawn's
+// closure) and then used afterwards.  rustc: E0382 use of moved value --
+// the type `Arc<Vec<i32>>` does not implement `Copy`.
+package no_capture_arc;
+use logos.mem.sync;
+fn main() -> i32 {
+    let arc_v: Arc<i64> = arc_new::<i64>(10i64);
+    let f = move || { let a: Arc<i64> = arc_v; };
+    let b: Arc<i64> = arc_v;
+    return 0i32;
+}

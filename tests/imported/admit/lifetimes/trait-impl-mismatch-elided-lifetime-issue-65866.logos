@@ -1,0 +1,19 @@
+// rustc lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866.rs — upstream impl item signature doesn't match trait item signature
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R18
+// port of rust ui/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866.rs
+// impl item signature doesn't match trait item signature (lifetimes)
+package trait_impl_mismatch_elided_lifetime_issue_65866;
+
+struct Foo { a: i64 }
+struct Re<'a> { d: &'a i64 }
+
+trait Bar {
+    fn bar(self: &Self, r: &mut Re);
+}
+
+impl Bar for Foo {
+    fn bar<'a, 'b>(self: &'a Self, r: &'b mut Re<'a>) { }
+}
+
+fn main() -> i32 { return 0i32; }

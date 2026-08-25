@@ -1,0 +1,16 @@
+// rustc borrowck/borrowck-partial-reinit-1.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck-partial-reinit-1.rs E0382 assign of moved value
+package borrowck_partial_reinit_1;
+struct Test { n: i64 }
+impl Drop for Test { fn drop(self: &mut Test) {} }
+struct Test2 { b: Test }
+impl Drop for Test2 { fn drop(self: &mut Test2) {} }
+fn consume(t: Test2) -> i64 { return t.b.n; }
+fn main() -> i32 {
+    let mut t = Test2 { b: Test { n: 0i64 } };
+    let _ = consume(t);
+    t.b = Test { n: 1i64 };   // E0382: assign of moved value `t`
+    return 0i32;
+}

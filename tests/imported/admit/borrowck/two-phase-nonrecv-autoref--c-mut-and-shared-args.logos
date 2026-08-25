@@ -1,0 +1,12 @@
+// rustc borrowck/two-phase-nonrecv-autoref.rs — upstream E0499 / E0502 ×3
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.D
+// upstream: borrowck/two-phase-nonrecv-autoref.rs coerce_unsized
+// (E0502 cannot borrow `a` as immutable because it is also borrowed as mutable)
+package two_phase_nonrecv_autoref_c_mut_and_shared_args;
+fn double_access(m: &mut [i64; 3], s: &[i64; 3]) { m[0] = s[1]; }
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    double_access(&mut a, &a);
+    return 0i32;
+}

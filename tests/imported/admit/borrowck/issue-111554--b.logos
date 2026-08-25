@@ -1,0 +1,14 @@
+// rustc borrowck/issue-111554.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.A
+// upstream: issue-111554.rs (quux arm) E0596: `&mut self` where `self: Foo` is not mut
+package issue_111554_b;
+struct Foo { n: i64 }
+fn bar(_x: &mut Foo) {}
+impl Foo {
+    fn quux(self: Foo) {
+        let c = || { bar(&mut self); };
+        c();
+    }
+}
+fn main() -> i32 { let f = Foo{n:1i64}; f.quux(); return 0i32; }

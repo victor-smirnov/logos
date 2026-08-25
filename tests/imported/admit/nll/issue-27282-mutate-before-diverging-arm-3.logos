@@ -1,0 +1,14 @@
+// rustc nll/issue-27282-mutate-before-diverging-arm-3.rs — upstream E0510
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R11
+// port of tests/ui/nll/issue-27282-mutate-before-diverging-arm-3.rs (E0510)
+// a match GUARD may not mutably borrow the matched place
+package issue_27282_mutate_before_diverging_arm_3;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    match x {
+        0i64 => { return 1i32; }
+        _ if { let g = || { x = 5i64; }; g(); false } => { return 2i32; }
+        _ => { return 0i32; }
+    }
+}

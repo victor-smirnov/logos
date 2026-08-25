@@ -1,0 +1,9 @@
+// rustc nll/user-annotations/issue-54124.rs — upstream lifetime-may-not-live-long-enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-L1
+package issue_54124;
+fn test<'a>(q: &'a i64) -> i32 {
+  let f: fn(&i64) -> i64 = |x: &'a i64| -> i64 { return *x; };
+  return 0i32;
+}
+fn main() -> i32 { return 0i32; }

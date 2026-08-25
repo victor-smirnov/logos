@@ -1,0 +1,12 @@
+// rustc regions/resolve-re-error-ice.rs — upstream E0495 cannot infer an appropriate lifetime
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R18
+package resolve_re_error_ice;
+struct Subject<'a, T, R> { p: &'a T, r: R }
+struct Keys<K, V> { k: K, v: V }
+trait MapAssertion<'a, K, V, R> { fn key_set(self: &Self) -> Subject<Keys<K, V>, R>; }
+struct MyMap<K, V> { k: K, v: V }
+impl<'a, K, V, R> MapAssertion<'a, K, V, R> for Subject<'a, MyMap<K, V>, R> {
+    fn key_set(self: &Subject<'a, MyMap<K, V>, R>) -> Subject<'a, Keys<K, V>, R> { return loop {}; }
+}
+fn main() -> i32 { return 0i32; }

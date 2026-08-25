@@ -1,0 +1,13 @@
+// rustc nll/issue-57989.rs — upstream E0594 assign to `*x` behind `&`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust tests/ui/nll/issue-57989.rs
+// rustc: E0594 cannot assign to `*x`, which is behind a `&` reference
+//        E0506 cannot assign to `*x` because it is borrowed
+package issue_57989;
+fn f(x: &i64) {
+    let g: &&i64 = &x;
+    *x = 0i64;
+    let h: &&i64 = g;
+}
+fn main() -> i32 { return 0i32; }

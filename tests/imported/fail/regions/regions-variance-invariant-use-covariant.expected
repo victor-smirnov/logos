@@ -1,0 +1,1 @@
+let 'z': variance mismatch — expected Invariant<'static>, got Invariant<'b> — lifetime structure incompatible (check &mut invariance / contravariance rules)

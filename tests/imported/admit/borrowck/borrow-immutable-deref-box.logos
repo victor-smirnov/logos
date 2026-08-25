@@ -1,0 +1,10 @@
+// rustc borrowck/borrow-immutable-deref-box.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package borrow_immutable_deref_box;
+fn f(x: &mut i64) { *x = 1i64; }
+fn main() -> i32 {
+    let x: Box<i64> = Box::new(3i64);
+    f(&mut *x);
+    return 0i32;
+}

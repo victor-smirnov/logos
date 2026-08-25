@@ -1,0 +1,12 @@
+// rustc borrowck/option-inspect-mutation.rs — upstream E0594
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/option-inspect-mutation.rs  E0594
+package option_inspect_mutation;
+struct S { field: i64 }
+fn inspect(s: &S, f: fn(&S)) { f(s); }
+fn main() -> i32 {
+    let s = S { field: 42i64 };
+    inspect(&s, |p: &S| { p.field = p.field * 10i64; });
+    return s.field as i32;
+}

@@ -1,0 +1,11 @@
+// rustc moves/moves-sru-moved-field.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package moves_sru_moved_field;
+use logos.mem.boxed;
+struct Foo { copied: i64, moved: Box<i64>, noncopyable: Box<i64> }
+fn test1(f: Foo, g: Box<i64>, h: Box<i64>) {
+    let _b = Foo { noncopyable: g, ..f };
+    let _c = Foo { noncopyable: h, ..f };
+}
+fn main() -> i32 { return 0i32; }

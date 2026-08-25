@@ -1,0 +1,1 @@
+cannot borrow 'foo' as mutable: field of 'foo' is already borrowed

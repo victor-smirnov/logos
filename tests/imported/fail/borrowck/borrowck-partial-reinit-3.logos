@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-partial-reinit-3.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_partial_reinit_3;
+struct Test { f: u64 }
+impl Drop for Test { fn drop(self: &mut Test) {} }
+struct Pair { a: Test, b: Test }
+fn eat(t: Test) {}
+fn main() -> i32 {
+    let mut x = Pair { a: Test { f: 2u64 }, b: Test { f: 4u64 } };
+    eat(x.a);
+    x.a.f = 3u64;
+    return 0i32;
+}

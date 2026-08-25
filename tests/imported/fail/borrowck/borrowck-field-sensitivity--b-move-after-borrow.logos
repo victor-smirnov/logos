@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-field-sensitivity.rs — upstream E0382/E0505/E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck-field-sensitivity.rs move_after_borrow  E0505
+package borrowck_field_sensitivity_b_move_after_borrow;
+use logos.mem.string;
+struct A { a: i64, b: String }
+fn take(s: String) -> i64 { return s.len(); }
+fn main() -> i32 {
+    let x = A { a: 1i64, b: String::from("hi") };
+    let p = &x.b;
+    let n = take(x.b);
+    return (n + p.len()) as i32;
+}

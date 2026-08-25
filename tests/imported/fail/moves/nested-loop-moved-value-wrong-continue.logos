@@ -1,0 +1,26 @@
+// rustc moves/nested-loop-moved-value-wrong-continue.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package nested_loop_moved_value_wrong_continue;
+struct S { n: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn eat(s: S) -> i64 { return s.n; }
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        let foo: S = S { n: 1i64 };
+        let mut j: i64 = 0i64;
+        while j < 2i64 {
+            if j == 0i64 {
+                acc = acc + eat(foo);
+                j = j + 1i64;
+                continue;
+            }
+            j = j + 1i64;
+        }
+        acc = acc + eat(foo);
+        i = i + 1i64;
+    }
+    return acc as i32;
+}

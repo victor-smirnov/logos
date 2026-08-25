@@ -1,0 +1,6 @@
+// rustc lifetimes/issue-107492-default-value-for-lifetime.rs — upstream unexpected default lifetime parameter
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_107492_default_value_for_lifetime;
+struct DefaultLifetime<'a, 'b = 'static> { a: &'a i64, b: &'b i64 }
+fn main() -> i32 { return 0i32; }

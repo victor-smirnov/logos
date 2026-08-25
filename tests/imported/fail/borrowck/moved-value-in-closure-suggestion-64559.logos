@@ -1,0 +1,14 @@
+// rustc borrowck/moved-value-in-closure-suggestion-64559.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: moved-value-in-closure-suggestion-64559.rs E0382 use of moved value in closure
+package moved_value_in_closure_suggestion_64559;
+struct Own { n: i64 }
+impl Drop for Own { fn drop(self: &mut Own) {} }
+fn eat(o: Own) -> i64 { return o.n; }
+fn main() -> i32 {
+    let orig = Own { n: 1i64 };
+    let _ = eat(orig);
+    let c = || { return eat(orig); };   // E0382: orig moved above
+    return c() as i32;
+}

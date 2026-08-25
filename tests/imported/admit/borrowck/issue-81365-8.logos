@@ -1,0 +1,20 @@
+// rustc borrowck/issue-81365-8.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// upstream: borrowck/issue-81365-8.rs  E0506
+package issue_81365_8;
+use logos.lang.ops;
+struct DerefTarget { target_field: i64 }
+struct Container { target: DerefTarget, container_field: i64 }
+impl Deref<DerefTarget> for Container { fn deref(&self) -> &DerefTarget { return &self.target; } }
+impl Container {
+    fn bad_borrow(&mut self) -> i64 {
+        let first = &(*self).target_field;
+        self.container_field = 1i64;
+        return *first;
+    }
+}
+fn main() -> i32 {
+    let mut c = Container { target: DerefTarget { target_field: 7i64 }, container_field: 0i64 };
+    return c.bad_borrow() as i32;
+}

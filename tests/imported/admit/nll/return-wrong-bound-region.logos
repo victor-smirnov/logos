@@ -1,0 +1,9 @@
+// rustc nll/closure-requirements/return-wrong-bound-region.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.C
+package return_wrong_bound_region;
+fn expect_sig<F>(f: F) -> F where F: for<'a> Fn(&'a i64, &i64) -> &'a i64 { return f; }
+fn main() -> i32 {
+    let _g = expect_sig(|a: &i64, b: &i64| -> &i64 { return b; });
+    return 0i32;
+}

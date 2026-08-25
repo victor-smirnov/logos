@@ -1,0 +1,9 @@
+// rustc lifetimes/lifetime-errors/ex1-return-one-existing-name-if-else.rs — upstream E0621 explicit lifetime
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package ex1_return_one_existing_name_if_else;
+fn foo<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+    if *x > *y { return x; }
+    return y;
+}
+fn main() -> i32 { return 0i32; }

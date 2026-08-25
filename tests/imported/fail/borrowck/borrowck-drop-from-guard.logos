@@ -1,0 +1,16 @@
+// rustc borrowck/borrowck-drop-from-guard.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_drop_from_guard;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn consume(s: S) {}
+fn guard(s: S) -> bool { consume(s); return false; }
+fn main() -> i32 {
+    let my: S = S { v: 1i64 };
+    match 42i64 {
+        n if guard(my) => { }
+        _ => { consume(my); }
+    }
+    return 0i32;
+}

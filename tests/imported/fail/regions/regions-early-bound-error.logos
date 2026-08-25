@@ -1,0 +1,10 @@
+// rustc regions/regions-early-bound-error.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package regions_early_bound_error;
+// port of regions/regions-early-bound-error.rs
+trait GetRef<'a> { fn get(self: &Self) -> &'a i64; }
+struct Bx<'a> { t: &'a i64 }
+impl<'a> GetRef<'a> for Bx<'a> { fn get(self: &Self) -> &'a i64 { return self.t; } }
+fn get<'a, 'b, G: GetRef<'a>>(g1: G, b: &'b i64) -> &'b i64 { return g1.get(); }
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,13 @@
+// rustc borrowck/mutate-vec-while-iterating.rs — upstream E0502 / E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.D
+// upstream: borrowck/mutate-vec-while-iterating.rs first fn (E0502)
+package mutate_vec_while_iterating_a_push_while_iterating;
+fn main() -> i32 {
+    let mut values: Vec<i64> = Vec::new();
+    values.push(1i64); values.push(2i64);
+    for value in &values {
+        if *value == 2i64 { values.push(4i64); }
+    }
+    return 0i32;
+}

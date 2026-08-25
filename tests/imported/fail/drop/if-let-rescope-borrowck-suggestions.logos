@@ -1,0 +1,12 @@
+// rustc drop/if-let-rescope-borrowck-suggestions.rs — upstream E0716 temporary dropped while borrowed
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package if_let_rescope_borrowck_suggestions;
+struct Droppy { n: i64 }
+impl Drop for Droppy { fn drop(self: &mut Droppy) { } }
+impl Droppy { fn get_ref<'a>(self: &'a Droppy) -> &'a i64 { return &self.n; } }
+fn main() -> i32 {
+    let v: &i64 = Droppy{n:1i64}.get_ref();
+    if *v != 1i64 { return 1i32; }
+    return 0i32;
+}

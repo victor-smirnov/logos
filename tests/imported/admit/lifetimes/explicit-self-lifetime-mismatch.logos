@@ -1,0 +1,10 @@
+// rustc lifetimes/explicit-self-lifetime-mismatch.rs — upstream mismatched `self` parameter type
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-N3
+// port of rust tests/ui/lifetimes/explicit-self-lifetime-mismatch.rs — mismatched `self` parameter type
+package explicit_self_lifetime_mismatch;
+struct Foo<'a, 'b> { x: &'a i64, y: &'b i64 }
+impl<'a, 'b> Foo<'a, 'b> {
+    fn bar(self: Foo<'b, 'a>) -> i64 { return 0i64; }
+}
+fn main() -> i32 { return 0i32; }

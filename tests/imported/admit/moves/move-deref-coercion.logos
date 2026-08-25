@@ -1,0 +1,22 @@
+// rustc moves/move-deref-coercion.rs — upstream E0382 borrow of moved
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.B
+// port of tests/ui/moves/move-deref-coercion.rs
+package move_deref_coercion;
+struct NotCopy { inner: bool }
+impl Drop for NotCopy { fn drop(self: &mut NotCopy) {} }
+struct Foo { first: NotCopy, second: NotCopy }
+impl Deref for Foo {
+    type Target = NotCopy;
+    fn deref(self: &Foo) -> &NotCopy { return &self.second; }
+}
+fn use_field(val: Foo) -> i32 {
+    let _val = val.first;
+    let b = val.inner;
+    if b { return 1i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let f = Foo { first: NotCopy { inner: true }, second: NotCopy { inner: false } };
+    return use_field(f);
+}

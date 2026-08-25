@@ -1,0 +1,9 @@
+// rustc borrowck/borrowck-uninit.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_uninit;
+fn foo(x: i64) -> i64 { return x; }
+fn main() -> i32 {
+    let x: i64;
+    return foo(x) as i32;
+}

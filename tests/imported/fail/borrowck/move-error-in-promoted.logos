@@ -1,0 +1,15 @@
+// rustc borrowck/move-error-in-promoted.rs — upstream E0508
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/move-error-in-promoted.rs (E0508 cannot move out of type `[S2; 1]`,
+// a non-copy array, by indexing)
+package move_error_in_promoted;
+struct S2 { s: str }
+impl Drop for S2 { fn drop(self: &mut S2) {} }
+fn main() -> i32 {
+    let c: [S2; 1] = [ S2 { s: "a" } ];
+    let m = c[0];
+    let _ = m.s;
+    let _ = c[0].s;
+    return 0i32;
+}

@@ -1,0 +1,10 @@
+// rustc regions/regions-variance-invariant-use-contravariant.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package regions_variance_invariant_use_contravariant;
+struct Invariant<'a> { f: &'a mut &'a i64 }
+fn use_<'short, 'long>(c: Invariant<'long>) -> i64 {
+  let d: Invariant<'short> = c;
+  return 0i64;
+}
+fn main() -> i32 { return 0i32; }

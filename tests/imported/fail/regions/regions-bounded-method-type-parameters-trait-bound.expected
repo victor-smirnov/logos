@@ -1,0 +1,1 @@
+call to 'method': caller does not satisfy callee's outlives bound `'y: 'x` (under arg-type substitution: `'b: 'a` required)

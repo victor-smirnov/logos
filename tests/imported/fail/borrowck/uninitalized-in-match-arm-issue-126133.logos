@@ -1,0 +1,16 @@
+// rustc borrowck/uninitalized-in-match-arm-issue-126133.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package uninitalized_in_match_arm_issue_126133;
+enum E { A, B, C }
+fn foo(e: E) -> i32 {
+    let bar: i64;
+    match e {
+        E::A => { return 0i32; }
+        E::B => {}
+        E::C => { bar = 5i64; }
+    }
+    let _baz = bar;
+    return 0i32;
+}
+fn main() -> i32 { return foo(E::B); }

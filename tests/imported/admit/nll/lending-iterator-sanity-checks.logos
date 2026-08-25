@@ -1,0 +1,15 @@
+// rustc nll/polonius/lending-iterator-sanity-checks.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R2
+package lending_iterator_sanity_checks;
+struct It { n: i64 }
+impl It {
+  fn next<'a>(self: &'a mut Self) -> &'a i64 { return &self.n; }
+}
+fn main() -> i32 {
+  let mut t: It = It { n: 1i64 };
+  let i: &i64 = t.next();
+  let j: &i64 = t.next();
+  let s: i64 = *i + *j;
+  return 0i32;
+}

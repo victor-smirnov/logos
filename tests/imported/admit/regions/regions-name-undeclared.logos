@@ -1,0 +1,9 @@
+// rustc regions/regions-name-undeclared.rs — upstream E0261 undeclared lifetime
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R17
+package regions_name_undeclared;
+struct Foo<'a> { x: &'a i64 }
+impl<'a> Foo<'a> {
+    fn m4(self: &Foo<'a>, arg: &'b i64) { }
+}
+fn main() -> i32 { return 0i32; }

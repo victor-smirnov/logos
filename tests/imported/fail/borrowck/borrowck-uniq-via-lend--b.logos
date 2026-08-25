@@ -1,0 +1,17 @@
+// rustc borrowck/borrowck-uniq-via-lend.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck-uniq-via-lend.rs (aliased_other_reassign) E0502
+package borrowck_uniq_via_lend_b;
+struct B { v: i64 }
+fn borrow(_v: &i64) -> i64 { return *_v; }
+fn f() -> i64 {
+    let mut v = B { v: 3i64 };
+    let mut w = B { v: 4i64 };
+    let mut x: &mut B = &mut w;
+    x = &mut v;
+    let r = borrow(&v.v);      // E0502
+    x.v = 5i64;
+    return r;
+}
+fn main() -> i32 { return f() as i32; }

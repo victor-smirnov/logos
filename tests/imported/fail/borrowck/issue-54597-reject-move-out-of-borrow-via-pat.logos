@@ -1,0 +1,9 @@
+// rustc borrowck/issue-54597-reject-move-out-of-borrow-via-pat.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_54597_reject_move_out_of_borrow_via_pat;
+struct Value { n: i64 }
+fn foo(arr: &Vec<Value>) -> Vec<Value> {
+    return *arr;
+}
+fn main() -> i32 { let v: Vec<Value> = Vec::new(); let _ = foo(&v); return 0i32; }

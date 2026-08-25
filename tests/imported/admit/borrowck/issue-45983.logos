@@ -1,0 +1,11 @@
+// rustc borrowck/issue-45983.rs — upstream borrowed data escapes outside of closure
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+package issue_45983;
+fn give_any<F: FnOnce(&i64)>(f: F) { let t: i64 = 7i64; f(&t); }
+fn main() -> i32 {
+    let z: i64 = 0i64;
+    let mut x: &i64 = &z;
+    give_any(|y| { x = y; });   // ADMITS: borrowed data escapes outside of the closure
+    return *x as i32;
+}

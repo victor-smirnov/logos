@@ -1,0 +1,12 @@
+// rustc nll/promoted-closure-pair.rs — upstream E0515
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.C
+package promoted_closure_pair;
+// nll/promoted-closure-pair.rs — returning a borrow produced by a promoted constant
+// holding closures.
+fn foo() -> &'static i64 {
+    let z: i64 = 0i64;
+    let p = (|y: &i64| -> &i64 { return y; },);
+    return p.0(&z);
+}
+fn main() -> i32 { return *foo() as i32; }

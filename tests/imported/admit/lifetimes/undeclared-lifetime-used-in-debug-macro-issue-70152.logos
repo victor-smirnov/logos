@@ -1,0 +1,7 @@
+// rustc lifetimes/undeclared-lifetime-used-in-debug-macro-issue-70152.rs — upstream E0261
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R17
+package undeclared_lifetime_used_in_debug_macro_issue_70152;
+// port of lifetimes/undeclared-lifetime-used-in-debug-macro-issue-70152.rs
+struct Test { a: &'b i64 }
+fn main() -> i32 { return 0i32; }

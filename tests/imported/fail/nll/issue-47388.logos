@@ -1,0 +1,13 @@
+// rustc nll/issue-47388.rs — upstream E0594 cannot assign
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of nll/issue-47388.rs: &(&mut fancy) -> write through a SHARED outer ref
+package issue_47388;
+struct FancyNum { num: u8 }
+fn main() -> i32 {
+    let mut fancy: FancyNum = FancyNum { num: 5u8 };
+    let inner: &mut FancyNum = &mut fancy;
+    let fancy_ref: &&mut FancyNum = &inner;
+    fancy_ref.num = 6u8;    // E0594: cannot assign through & reference
+    return 0i32;
+}

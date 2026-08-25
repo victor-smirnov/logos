@@ -1,0 +1,1 @@
+'a' does not live long enough: it is borrowed by 'r', which is used here after 'a' goes out of scope (E0597)

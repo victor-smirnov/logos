@@ -1,0 +1,16 @@
+// rustc moves/suggest-clone.rs — upstream E0507 cannot move out
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R2
+// port of rust tests/ui/moves/suggest-clone.rs
+// `foo` is a &Foo; `Foo::foo` takes `self` BY VALUE.  rustc: E0507 cannot move
+// out of `*foo` which is behind a shared reference.
+package suggest_clone;
+extern fn noop(p: *const u8);
+struct Foo { x: i64 }
+impl Drop for Foo { fn drop(self: &mut Foo) { unsafe { noop(0 as *const u8); } } }
+impl Foo { fn eat(self: Foo) -> i64 { return self.x; } }
+fn main() -> i32 {
+    let owner: Foo = Foo { x: 1i64 };
+    let foo: &Foo = &owner;
+    return foo.eat() as i32;
+}

@@ -1,0 +1,1 @@
+let 'a': variance mismatch — expected &mut Vec<Ref>, got &mut Vec<Ref<'b>> — lifetime structure incompatible (check &mut invariance / contravariance rules)

@@ -1,0 +1,9 @@
+// rustc borrowck/move-error-suggest-clone-panic-issue-127915.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package move_error_suggest_clone_panic_issue_127915;
+struct P { v: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+fn avg(a: P, b: P) -> i64 { return 0i64; }
+fn test(f: P) -> i64 { return avg(f, f); }
+fn main() -> i32 { let z: i64 = test(P { v: 1i64 }); return 0i32; }

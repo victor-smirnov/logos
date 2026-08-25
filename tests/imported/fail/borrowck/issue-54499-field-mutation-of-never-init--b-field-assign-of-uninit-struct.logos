@@ -1,0 +1,13 @@
+// rustc borrowck/issue-54499-field-mutation-of-never-init.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: issue-54499-field-mutation-of-never-init.rs (Spair)  E0381
+package issue_54499_field_mutation_of_never_init_b_field_assign_of_uninit_struct;
+struct S { n: i64 }
+struct Spair { x: S, y: i64 }
+fn main() -> i32 {
+    let v: Spair;
+    v.x = S { n: 1i64 };
+    v.y = 2i64;
+    return v.y as i32 - 2i32;
+}

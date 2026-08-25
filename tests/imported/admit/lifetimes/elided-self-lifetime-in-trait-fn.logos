@@ -1,0 +1,9 @@
+// rustc lifetimes/elided-self-lifetime-in-trait-fn.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.L1
+package elided_self_lifetime_in_trait_fn;
+trait T2<'a> {
+  fn a(self: &'a Self) -> &'a bool;
+  fn b(self: &Self) -> bool { let r = self.a(); return *r; }
+}
+fn main() -> i32 { return 0i32; }

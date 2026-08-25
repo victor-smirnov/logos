@@ -1,0 +1,9 @@
+// rustc nll/issue-68550.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_68550;
+fn run(x: i64) -> &i64 { return &x; }
+fn main() -> i32 {
+    let r: &i64 = run(7i64);
+    return *r as i32;
+}

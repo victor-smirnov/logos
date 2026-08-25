@@ -1,0 +1,10 @@
+// rustc borrowck/no-invalid-mut-suggestion-for-raw-pointer-issue-127562.rs — upstream E0594
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package no_invalid_mut_suggestion_for_raw_pointer_issue_127562;
+fn main() -> i32 {
+    let val: i64 = 2i64;
+    let ptr: *const i64 = &val as *const i64;
+    unsafe { *ptr = 3i64; }
+    return 0i32;
+}

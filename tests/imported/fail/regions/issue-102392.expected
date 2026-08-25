@@ -1,0 +1,1 @@
+return type mismatch — expected bool, got fn(fn(&[u8], &[u8]) -> void) -> void

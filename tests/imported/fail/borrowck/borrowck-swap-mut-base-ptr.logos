@@ -1,0 +1,15 @@
+// rustc borrowck/borrowck-swap-mut-base-ptr.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-swap-mut-base-ptr.rs  E0502
+package borrowck_swap_mut_base_ptr;
+use logos.lang.mem;
+fn foo(a: &mut i64, b: &mut i64) -> i64 {
+    let mut t0 = a;
+    let mut t1 = b;
+    let p: &i64 = &*t0;
+    swap_ref(&mut t0, &mut t1);
+    *t1 = 22i64;
+    return *p;
+}
+fn main() -> i32 { let mut x = 1i64; let mut y = 2i64; return foo(&mut x, &mut y) as i32; }

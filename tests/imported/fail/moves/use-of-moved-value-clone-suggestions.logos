@@ -1,0 +1,13 @@
+// rustc moves/use_of_moved_value_clone_suggestions.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of tests/ui/moves/use_of_moved_value_clone_suggestions.rs
+package use_of_moved_value_clone_suggestions;
+struct Rcish { v: i64 }
+impl Drop for Rcish { fn drop(self: &mut Rcish) {} }
+struct Pair { a: Rcish, b: Rcish }
+fn duplicate(t: Rcish) -> Pair { return Pair { a: t, b: t }; }
+fn main() -> i32 {
+    let p = duplicate(Rcish { v: 1i64 });
+    return p.a.v as i32;
+}

@@ -1,0 +1,6 @@
+// rustc lifetimes/lifetime-errors/ex1b-return-no-names-if-else.rs — upstream E0106 missing lifetime
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package ex1b_return_no_names_if_else;
+fn foo(x: &i64, y: &i64) -> &i64 { if *x > *y { return x; } return y; }
+fn main() -> i32 { let a: i64 = 1i64; let b: i64 = 2i64; let r = foo(&a, &b); return 0i32; }

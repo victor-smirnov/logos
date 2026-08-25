@@ -1,0 +1,1 @@
+'l' does not live long enough: it is borrowed by 'ptr', which is used here after 'l' goes out of scope (E0597)

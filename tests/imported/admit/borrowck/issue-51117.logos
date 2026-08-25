@@ -1,0 +1,18 @@
+// rustc borrowck/issue-51117.rs — upstream E0499 cannot borrow
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package issue_51117;
+struct Own { v: i64 }
+impl Drop for Own { fn drop(self: &mut Own) { } }
+fn main() -> i32 {
+    let mut foo: Option<Own> = Option::Some(Own { v: 1i64 });
+    let bar: &mut Option<Own> = &mut foo;
+    match bar {
+        Option::Some(baz) => {
+            let t: Option<Own> = bar.take();
+            let _q: i64 = baz.v;
+        }
+        Option::None => { }
+    }
+    return 0i32;
+}

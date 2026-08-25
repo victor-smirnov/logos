@@ -1,0 +1,11 @@
+// rustc nll/trait-associated-constant.rs — upstream const not compatible with trait
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R18
+// port of nll/trait-associated-constant.rs FailStruct
+package trait_associated_constant;
+trait Anything<'a, 'b> { const AC: Option<&'b str>; }
+struct FailStruct { }
+impl<'a, 'b, 'c> Anything<'a, 'b> for FailStruct {
+    const AC: Option<&'c str> = Option::None;   // ERROR const not compatible with trait
+}
+fn main() -> i32 { return 0i32; }

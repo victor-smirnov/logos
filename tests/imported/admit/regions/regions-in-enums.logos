@@ -1,0 +1,8 @@
+// rustc regions/regions-in-enums.rs — upstream E0261 undeclared lifetime `'foo`/`'a`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R17
+// port of rust tests/ui/regions/regions-in-enums.rs — E0261 use of undeclared lifetime name
+package regions_in_enums;
+enum No0 { X5(&'foo u64) }
+enum No1 { X6(&'a u64) }
+fn main() -> i32 { return 0i32; }

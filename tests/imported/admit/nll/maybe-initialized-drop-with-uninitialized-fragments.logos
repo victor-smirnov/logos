@@ -1,0 +1,19 @@
+// rustc nll/maybe-initialized-drop-with-uninitialized-fragments.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.E
+package maybe_initialized_drop_with_uninitialized_fragments;
+use logos.mem.string;
+struct Wrap { p: &mut i64 }
+impl Drop for Wrap { fn drop(self: &mut Self) { *self.p = *self.p + 1i64; } }
+struct FooS { a: String, b: Wrap }
+fn eat_s(s: String) { }
+fn eat_w(w: Wrap) { }
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    let wrap = Wrap { p: &mut x };
+    let foo = FooS { a: String::from("str"), b: wrap };
+    eat_s(foo.a);
+    eat_w(foo.b);
+    x = 1i64;
+    return 0i32;
+}

@@ -1,0 +1,13 @@
+// rustc borrowck/cannot-move-out-of-borrowed-ref-closure.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package cannot_move_out_of_borrowed_ref_closure;
+struct NC { a: i64 }
+impl Drop for NC { fn drop(self: &mut NC) {} }
+fn mk<F>(f: F) -> F { return f; }
+fn main() -> i32 {
+    let v = NC { a: 5i64 };
+    let r: &NC = &v;
+    let c = mk(|| { let taken: NC = *r; return taken.a; });
+    return 0i32;
+}

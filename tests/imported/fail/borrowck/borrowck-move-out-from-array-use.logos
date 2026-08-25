@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-move-out-from-array-use.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-move-out-from-array-use.rs  E0382
+package borrowck_move_out_from_array_use;
+use logos.mem.string;
+fn array() -> [String; 3] { return [String::from("a"), String::from("b"), String::from("c")]; }
+fn main() -> i32 {
+    let a = array();
+    let [_p, _q, _x] = a;
+    let [_r, _s, ref _y] = a;
+    return _y.len() as i32;
+}

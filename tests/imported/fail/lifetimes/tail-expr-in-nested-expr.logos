@@ -1,0 +1,6 @@
+// rustc lifetimes/tail-expr-in-nested-expr.rs — upstream E0716 temporary value dropped while borrowed
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package tail_expr_in_nested_expr;
+fn f() -> i64 { let r: &i64 = { let t: i64 = 5i64; &t }; return *r; }
+fn main() -> i32 { if f() != 5i64 { return 1i32; } return 0i32; }

@@ -1,0 +1,7 @@
+// rustc nll/borrowed-universal-error-2.rs — upstream E0515
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowed_universal_error_2;
+// nll/borrowed-universal-error-2.rs — E0515 cannot return reference to local variable
+fn foo<'a>(x: &'a u64) -> &'a u64 { let v: u64 = 22u64; return &v; }
+fn main() -> i32 { let a: u64 = 1u64; let _ = foo(&a); return 0i32; }

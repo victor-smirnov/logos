@@ -1,0 +1,7 @@
+// rustc nll/issue-95272.rs — upstream lifetime-may-not-live-long-enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_95272;
+fn check<'a, 'b>(x: &'a i64, y: &'b i64) -> i64 where 'a: 'b { return 1i64; }
+fn test<'a, 'b>(x: &'a i64, y: &'b i64) -> i64 { return check(x, y); }
+fn main() -> i32 { return 0i32; }

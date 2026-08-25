@@ -1,0 +1,9 @@
+// rustc borrowck/issue-111554.rs — upstream E0596
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.A
+// upstream: issue-111554.rs, generalized: `&mut p` on a non-`mut` by-value PARAMETER
+package issue_111554_c;
+struct Foo { n: i64 }
+fn bar(_x: &mut Foo) {}
+fn q(f: Foo) { bar(&mut f); }
+fn main() -> i32 { q(Foo{n:1i64}); return 0i32; }

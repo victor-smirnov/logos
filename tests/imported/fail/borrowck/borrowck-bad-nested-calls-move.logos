@@ -1,0 +1,10 @@
+// rustc borrowck/borrowck-bad-nested-calls-move.rs — upstream E0505 cannot move
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_bad_nested_calls_move;
+use logos.mem.string;
+fn add(v: &String, w: String) -> i64 { return (v.len() + w.len()) as i64; }
+fn main() -> i32 {
+    let a: String = String::from("x");
+    return add(&a, a) as i32;   // ERROR: cannot move `a` while borrowed by arg 1
+}

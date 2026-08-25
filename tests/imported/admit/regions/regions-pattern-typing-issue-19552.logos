@@ -1,0 +1,13 @@
+// rustc regions/regions-pattern-typing-issue-19552.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-4
+package regions_pattern_typing_issue_19552;
+// port of regions/regions-pattern-typing-issue-19552.rs
+fn assert_static<T: 'static>(t: T) { }
+fn main() -> i32 {
+  let line: i64 = 5i64;
+  let arr: [&i64; 1] = [&line];
+  let word: &i64 = arr[0];
+  assert_static(word);
+  return 0i32;
+}

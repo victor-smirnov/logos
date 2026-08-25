@@ -1,0 +1,11 @@
+// rustc borrowck/immutable-borrow-prevents-mut-method.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/immutable-borrow-prevents-mut-method.rs (E0502)
+package immutable_borrow_prevents_mut_method;
+fn do_something(collection: &mut Vec<i64>) {
+    let a: &&mut Vec<i64> = &collection;
+    collection.push(4i64);
+    let _ = (*a).len();
+}
+fn main() -> i32 { let mut v: Vec<i64> = Vec::new(); v.push(1i64); do_something(&mut v); return 0i32; }

@@ -1,0 +1,16 @@
+// rustc borrowck/use-moved-value-in-match-guard-drop.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW
+// upstream: use-moved-value-in-match-guard-drop.rs E0382
+package use_moved_value_in_match_guard_drop;
+struct Own { n: i64 }
+impl Drop for Own { fn drop(self: &mut Own) {} }
+fn eat(o: Own) -> i64 { return o.n; }
+fn main() -> i32 {
+    let s = Own { n: 1i64 };
+    let r = match 0i64 {
+        0i64 if { let _ = eat(s); false } => 5i64,
+        _ => eat(s),      // E0382: `s` could have been moved by the guard
+    };
+    return r as i32;
+}

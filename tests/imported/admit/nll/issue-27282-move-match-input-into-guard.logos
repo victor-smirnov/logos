@@ -1,0 +1,16 @@
+// rustc nll/issue-27282-move-match-input-into-guard.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R11
+package issue_27282_move_match_input_into_guard;
+struct B { n: i64 }
+impl Drop for B { fn drop(self: &mut B) {} }
+fn eat(b: B) -> bool { return false; }
+fn main() -> i32 {
+    let b: B = B { n: 1i64 };
+    match b {
+        B { n: 0i64 } => { return 1i32; }
+        _ if eat(b) => { return 2i32; }
+        _ => { return 3i32; }
+    }
+    return 0i32;
+}

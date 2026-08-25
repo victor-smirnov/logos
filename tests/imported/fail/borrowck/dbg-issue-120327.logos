@@ -1,0 +1,13 @@
+// rustc borrowck/dbg-issue-120327.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package dbg_issue_120327;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn eat(a: S) {}
+fn s() -> S {
+    let a: S = S { v: 1i64 };
+    eat(a);
+    return a;
+}
+fn main() -> i32 { let r: S = s(); return 0i32; }

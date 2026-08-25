@@ -1,0 +1,11 @@
+// rustc borrowck/issue-54499-field-mutation-marks-mut-as-used.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_54499_field_mutation_marks_mut_as_used_b_uninit_struct_field;
+struct Spair { x: i64, y: i64 }
+fn main() -> i32 {
+    let mut v: Spair;
+    v.x = 1i64;
+    v.y = 2i64;
+    return (v.x + v.y) as i32;
+}

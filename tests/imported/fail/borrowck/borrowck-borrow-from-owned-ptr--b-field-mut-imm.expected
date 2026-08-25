@@ -1,0 +1,1 @@
+cannot use 'foo.bar1' while 'foo.bar1' is mutably borrowed

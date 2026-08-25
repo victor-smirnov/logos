@@ -1,0 +1,12 @@
+// rustc borrowck/suggest-as-ref-on-mut-closure.rs — upstream E0507 cannot move out of `*cb`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package suggest_as_ref_on_mut_closure;
+use logos.lang.option;
+use logos.mem.string;
+struct Cb { v: String }
+fn take(o: Option<Cb>) -> i64 { return 1i64; }
+fn x(cb: &mut Option<Cb>) -> i64 {
+    return take(*cb);   // ERROR: cannot move out of `*cb` which is behind a mutable reference
+}
+fn main() -> i32 { return 0i32; }

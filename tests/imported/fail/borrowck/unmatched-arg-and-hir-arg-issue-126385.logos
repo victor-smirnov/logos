@@ -1,0 +1,7 @@
+// rustc borrowck/unmatched-arg-and-hir-arg-issue-126385.rs — upstream type args not allowed on self type
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package unmatched_arg_and_hir_arg_issue_126385;
+struct MyStruct { field: &[u32] }
+impl MyStruct { fn f(field: &[u32]) -> Self<u32> { return MyStruct { field: field }; } }
+fn main() -> i32 { return 0i32; }

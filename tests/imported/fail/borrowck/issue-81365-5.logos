@@ -1,0 +1,14 @@
+// rustc borrowck/issue-81365-5.rs — upstream E0506
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_81365_5;
+struct Container { target: i64, container_field: bool }
+impl Container {
+    fn get(&self) -> &i64 { return &self.target; }
+    fn bad_borrow(&mut self) {
+        let first: &i64 = self.get();
+        self.container_field = true;
+        let z: i64 = *first;
+    }
+}
+fn main() -> i32 { let mut c: Container = Container { target: 1i64, container_field: false }; c.bad_borrow(); return 0i32; }

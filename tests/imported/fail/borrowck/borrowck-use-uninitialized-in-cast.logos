@@ -1,0 +1,9 @@
+// rustc borrowck/borrowck-use-uninitialized-in-cast.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_use_uninitialized_in_cast;
+fn main() -> i32 {
+    let x: i64;
+    let y = x as i32;
+    return y;
+}

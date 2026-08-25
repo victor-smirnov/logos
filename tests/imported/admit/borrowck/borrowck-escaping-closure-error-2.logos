@@ -1,0 +1,9 @@
+// rustc borrowck/borrowck-escaping-closure-error-2.rs — upstream E0373 closure may outlive fn
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+package borrowck_escaping_closure_error_2;
+fn mk() -> || -> i64 {
+    let books: i64 = 3i64;
+    return || { return books + 1i64; };   // ERROR E0373: closure may outlive the fn, borrows `books`
+}
+fn main() -> i32 { let c = mk(); return c() as i32; }

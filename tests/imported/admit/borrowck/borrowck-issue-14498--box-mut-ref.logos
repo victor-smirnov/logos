@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-issue-14498.rs — upstream E0506/E0594
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package borrowck_issue_14498_box_mut_ref;
+use logos.mem.boxed;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let y: Box<&mut i64> = Box::new(&mut x);
+    let p: &Box<&mut i64> = &y;
+    let q: &i64 = &***p;
+    **y = 2i64;
+    let _ = *q;
+    return 0i32;
+}

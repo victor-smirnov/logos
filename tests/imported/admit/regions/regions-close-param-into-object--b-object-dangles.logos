@@ -1,0 +1,18 @@
+// rustc regions/regions-close-param-into-object.rs — upstream E0310 parameter type `T` may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.L5
+package regions_close_param_into_object_b_object_dangles;
+trait X { fn foo(self: &Self) -> i64; }
+struct Holder<'a> { r: &'a i64 }
+impl<'a> X for Holder<'a> { fn foo(self: &Self) -> i64 { return *self.r; } }
+fn erase<T: X>(v: T) -> Box<dyn X> { return Box::new(v); }
+fn make() -> Box<dyn X> {
+  let local = 99i64;
+  let h = Holder { r: &local };
+  return erase(h);
+}
+fn main() -> i32 {
+  let b = make();
+  if b.foo() != 99i64 { return 1i32; }
+  return 0i32;
+}

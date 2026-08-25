@@ -1,0 +1,11 @@
+// rustc borrowck/issue-55492-borrowck-migrate-scans-parents.rs — upstream E0596 not declared as mutable
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.A
+package issue_55492_borrowck_migrate_scans_parents;
+fn use_mut<T>(x: &mut T) { }
+fn capture_reborrow_whole(x: (i64,)) -> i32 {
+    let c = || { use_mut(&mut x); };
+    c();
+    return 0i32;
+}
+fn main() -> i32 { return capture_reborrow_whole((3000i64,)); }

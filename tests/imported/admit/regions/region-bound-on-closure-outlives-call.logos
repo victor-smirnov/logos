@@ -1,0 +1,18 @@
+// rustc regions/region-bound-on-closure-outlives-call.rs — upstream E0505 cannot move out of `f`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.C
+// R7 probe for t25: same shape, F replaced by a concrete type WITH impl Drop.
+package region_bound_on_closure_outlives_call;
+
+struct Fx { k: u64 }
+impl Drop for Fx { fn drop(self: &mut Self) { } }
+
+fn apply(f: &Fx, x: u64) -> u64 { return f.k + x; }
+fn consume(f: Fx) -> u64 { return f.k; }
+
+fn call_rec(f: Fx) -> u64 {
+    let g = |x: u64| -> u64 { return apply(&f, x); };
+    return g(consume(f));
+}
+
+fn main() -> i32 { return 0i32; }

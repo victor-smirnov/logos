@@ -1,0 +1,8 @@
+// rustc borrowck/move-from-union-field-issue-66500.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+package move_from_union_field_issue_66500;
+use logos.mem.string;
+union Pointers { a: &String, c: *const String }
+unsafe fn move_ref(u: Pointers) -> String { return *u.a; }
+fn main() -> i32 { return 0i32; }

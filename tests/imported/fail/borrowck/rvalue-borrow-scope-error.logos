@@ -1,0 +1,12 @@
+// rustc borrowck/rvalue-borrow-scope-error.rs — upstream E0716
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package rvalue_borrow_scope_error;
+struct AddFlags { bits: u64 }
+impl Drop for AddFlags { fn drop(self: &mut AddFlags) {} }
+fn mk(bits: u64) -> AddFlags { return AddFlags { bits: bits }; }
+fn arg(x: &AddFlags) -> &AddFlags { return x; }
+fn main() -> i32 {
+    let x1: &AddFlags = arg(&mk(1u64));
+    return x1.bits as i32;
+}

@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-loan-rcvr.rs — upstream E0502 (site a)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW-R
+package borrowck_loan_rcvr;
+struct Point { x: i64, y: i64 }
+impl Point {
+    fn blockm<F: Fn()>(self: &Point, f: F) { f(); }
+}
+fn main() -> i32 {
+    let mut p: Point = Point { x: 3i64, y: 4i64 };
+    p.blockm(|| { p.x = 10i64; });
+    return 0i32;
+}

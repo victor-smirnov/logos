@@ -1,0 +1,25 @@
+// rustc nll/closures-in-loops.rs — upstream E0382 / E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.C
+// port of rust tests/ui/nll/closures-in-loops.rs
+// each loop iteration re-creates a closure that moves / uniquely borrows the
+// same variable.  rustc: E0382 / E0499 use of moved value / two mutable borrows.
+package closures_in_loops;
+extern fn noop(p: *const u8);
+struct S { n: i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { noop(0 as *const u8); } } }
+fn repeated_move(x: S) {
+    let mut i: i64 = 0i64;
+    while i < 10i64 {
+        let f = || { let y: S = x; };   // rustc ERROR: use of moved value
+        i = i + 1i64;
+    }
+}
+fn repeated_unique_borrow(x: &mut i64) {
+    let mut i: i64 = 0i64;
+    while i < 10i64 {
+        let f = || { *x = 3i64; };      // rustc ERROR
+        i = i + 1i64;
+    }
+}
+fn main() -> i32 { return 0i32; }

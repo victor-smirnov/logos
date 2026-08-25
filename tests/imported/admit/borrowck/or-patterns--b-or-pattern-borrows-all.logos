@@ -1,0 +1,17 @@
+// rustc borrowck/or-patterns.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.B
+// upstream: borrowck/or-patterns.rs or_pattern_borrows_all  E0502
+package or_patterns_b_or_pattern_borrows_all;
+struct S { n: i64 }
+enum E { A(S), B(S) }
+fn main() -> i32 {
+    let mut e = E::A(S { n: 1i64 });
+    let r: &S = match e {
+        E::A(ref y) => { y }
+        E::B(ref y) => { y }
+    };
+    let m = &mut e;
+    let _ = r.n;
+    return 0i32;
+}

@@ -1,0 +1,13 @@
+// rustc nll/issue-40510-3.rs — upstream E0521
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.C
+package issue_40510_3;
+fn main() -> i32 {
+  let mut x: i64 = 0i64;
+  let c = || { let d = || { x = x + 1i64; }; return d; };
+  let e = c();
+  let f = c();
+  e();
+  f();
+  return 0i32;
+}

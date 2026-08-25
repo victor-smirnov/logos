@@ -1,0 +1,17 @@
+// rustc nll/borrowed-temporary-error.rs — upstream E0716 temporary dropped while borrowed
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.D
+// port of rust tests/ui/nll/borrowed-temporary-error.rs
+// the argument block's tail is `&tmp` where tmp is a block-local temporary;
+// the returned reference outlives it.  rustc: E0716 temporary value dropped
+// while borrowed.
+package borrowed_temporary_error_t08;
+struct W { a: u32 }
+fn gimme(x: &W) -> &u32 { return &x.a; }
+fn main() -> i32 {
+    let x: &u32 = gimme({
+        let v: u32 = 22u32;
+        &W { a: v }
+    });
+    return *x as i32;
+}

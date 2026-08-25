@@ -1,0 +1,7 @@
+// rustc lifetimes/lifetime-elision-return-type-requires-explicit-lifetime.rs — upstream E0106 missing lifetime specifier
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of rust tests/ui/lifetimes/lifetime-elision-return-type-requires-explicit-lifetime.rs
+package lifetime_elision_return_type_requires_explicit_lifetime;
+fn g(x: &i64, y: &i64) -> &i64 { return x; }
+fn main() -> i32 { let a = 1i64; let b = 2i64; if *g(&a,&b) != 1i64 { return 1i32; } return 0i32; }

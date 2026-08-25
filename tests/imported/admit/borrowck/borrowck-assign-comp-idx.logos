@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-assign-comp-idx.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+// upstream: borrowck/borrowck-assign-comp-idx.rs fn b()  E0502
+package borrowck_assign_comp_idx;
+fn main() -> i32 {
+    let mut p: [i64; 1] = [1i64];
+    let r: &[i64; 1] = &p;
+    let mut c = || { p[0i64] = 5i64; };
+    c();
+    let _ = r[0i64];
+    return 0i32;
+}

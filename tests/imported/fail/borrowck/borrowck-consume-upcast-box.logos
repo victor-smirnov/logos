@@ -1,0 +1,14 @@
+// rustc borrowck/borrowck-consume-upcast-box.rs — upstream E0382 use of moved value
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package borrowck_consume_upcast_box;
+trait Foo { fn dummy(self: &Self) -> i64; }
+struct A { v: i64 }
+impl Foo for A { fn dummy(self: &Self) -> i64 { return self.v; } }
+fn consume(b: Box<dyn Foo>) -> i64 { return b.dummy(); }
+fn foo(b: Box<dyn Foo>) -> i64 {
+    let _x: i64 = consume(b);
+    let _y: i64 = consume(b);
+    return 0i64;
+}
+fn main() -> i32 { let b: Box<dyn Foo> = Box::new(A { v: 1i64 }); return foo(b) as i32; }

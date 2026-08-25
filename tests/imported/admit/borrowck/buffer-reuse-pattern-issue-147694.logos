@@ -1,0 +1,15 @@
+// rustc borrowck/buffer-reuse-pattern-issue-147694.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW-L
+package buffer_reuse_pattern_issue_147694;
+fn main() -> i32 {
+    let mut buffer: Vec<&i64> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        let data: i64 = i;
+        buffer.push(&data);
+        i = i + 1i64;
+    }
+    let _ = buffer.len();
+    return 0i32;
+}

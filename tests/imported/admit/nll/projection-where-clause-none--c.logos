@@ -1,0 +1,8 @@
+// rustc nll/ty-outlives/projection-where-clause-none.rs — upstream E0309
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.NEW-2
+package projection_where_clause_none_c;
+static ZERO: i64 = 0i64;
+fn bar<'a, T>(x: &'a i64) -> &'a i64 where T: 'a { return x; }
+fn foo<'a, 'b, T>(x: &'a i64) -> &'a i64 where T: 'b { return bar::<T>(x); }
+fn main() -> i32 { return 0i32; }

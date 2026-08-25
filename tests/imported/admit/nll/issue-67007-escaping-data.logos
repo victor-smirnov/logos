@@ -1,0 +1,12 @@
+// rustc nll/issue-67007-escaping-data.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.A
+package issue_67007_escaping_data;
+struct FnCtxt<'a, 'tcx> { a: &'a i64, t: &'tcx i64 }
+fn use_it<'a, 'tcx>(f: &FnCtxt<'a, 'tcx>, x: &'tcx i64) {}
+fn use_fcx<'a, 'tcx>(f: &FnCtxt<'a, 'tcx>) -> &'a i64 { return f.a; }
+fn bad_method<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>) {
+    let other = use_fcx(fcx);
+    use_it(fcx, other);
+}
+fn main() -> i32 { return 0i32; }

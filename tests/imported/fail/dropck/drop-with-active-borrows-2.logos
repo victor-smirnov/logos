@@ -1,0 +1,13 @@
+// rustc dropck/drop-with-active-borrows-2.rs — upstream E0515
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package drop_with_active_borrows_2;
+// port of dropck/drop-with-active-borrows-2.rs — return value referencing local variable
+fn read_lines_borrowed() -> Vec<&i64> {
+  let raw: Vec<i64> = Vec::new();
+  let mut out: Vec<&i64> = Vec::new();
+  let mut i: i64 = 0i64;
+  while i < raw.len() { out.push(&raw[i]); i += 1i64; }
+  return out;
+}
+fn main() -> i32 { let v: Vec<&i64> = read_lines_borrowed(); return 0i32; }

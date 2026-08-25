@@ -1,0 +1,10 @@
+// rustc lifetimes/return-reference-local-variable-13497.rs — upstream E0515
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package return_reference_local_variable_13497;
+// port of lifetimes/return-reference-local-variable-13497.rs (same class as t03, direct spelling)
+fn read_lines_borrowed() -> &i64 {
+  let raw: Vec<i64> = Vec::new();
+  return &raw[0i64];
+}
+fn main() -> i32 { return 0i32; }

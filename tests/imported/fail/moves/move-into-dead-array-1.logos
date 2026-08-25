@@ -1,0 +1,9 @@
+// rustc moves/move-into-dead-array-1.rs — upstream E0381
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package move_into_dead_array_1;
+// moves/move-into-dead-array-1.rs — E0381 assign into uninitialised array
+struct D { x: u8 }
+fn d() -> D { return D { x: 0u8 }; }
+fn foo(i: u64) { let mut a: [D; 4]; a[i] = d(); }
+fn main() -> i32 { foo(1u64); return 0i32; }

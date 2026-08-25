@@ -1,0 +1,1 @@
+let 'z': variance mismatch — expected Contravariant<'long>, got Contravariant<'short> — lifetime structure incompatible (check &mut invariance / contravariance rules)

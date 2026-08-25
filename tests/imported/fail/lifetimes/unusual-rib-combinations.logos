@@ -1,0 +1,6 @@
+// rustc lifetimes/unusual-rib-combinations.rs — upstream parenthesized type parameters may only be used with a `Fn` trait
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package unusual_rib_combinations;
+fn b<const C: u8()>() { }
+fn main() -> i32 { return 0i32; }

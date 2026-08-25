@@ -1,0 +1,10 @@
+// rustc borrowck/bad-drop-side-effects.rs — upstream (name res) cannot find type `Missing`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: bad-drop-side-effects.rs — "cannot find type `Missing` in this scope"
+package bad_drop_side_effects;
+trait B { type C; }
+impl B for &Missing { type C = i64; }
+struct E<T> { g: i64 }
+fn h(i: E<i64>) -> i64 { return i.g; }
+fn main() -> i32 { return 0i32; }

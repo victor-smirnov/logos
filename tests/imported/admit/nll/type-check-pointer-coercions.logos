@@ -1,0 +1,8 @@
+// rustc nll/type-check-pointer-coercions.rs — upstream (region)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.R14
+package type_check_pointer_coercions;
+fn unique_to_const<'a,'b>(x: &mut &'a i64) -> *const &'b i64 { return x as *const &'b i64; }
+fn unique_to_mut<'a,'b>(x: &mut &'a i64) -> *mut &'b i64 { return x as *mut &'b i64; }
+fn mut_to_const<'a,'b>(x: *mut &'a i64) -> *const &'b i64 { return x as *const &'b i64; }
+fn main() -> i32 { return 0i32; }

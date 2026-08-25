@@ -1,0 +1,14 @@
+// rustc nll/reference-carried-through-struct-field.rs — upstream E0503
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// port of tests/ui/nll/reference-carried-through-struct-field.rs (E0503)
+package reference_carried_through_struct_field;
+struct Wrap { w: &mut u32 }
+fn foo() -> i32 {
+    let mut x: u32 = 22u32;
+    let wrapper = Wrap { w: &mut x };
+    x = x + 1u32;
+    *wrapper.w += 1u32;
+    return 0i32;
+}
+fn main() -> i32 { return foo(); }

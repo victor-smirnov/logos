@@ -1,0 +1,13 @@
+// rustc dropck/let-else-more-permissive.rs — upstream E0597 does not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.B
+package let_else_more_permissive;
+struct St<'a> { r: &'a i64 }
+impl<'a> Drop for St<'a> { fn drop(self: &mut St<'a>) { } }
+fn main() -> i32 {
+    let zero: i64 = 0i64;
+    let mut long1: St = St { r: &zero };
+    let short1: i64 = 1i64;
+    long1.r = &short1;
+    return 0i32;
+}

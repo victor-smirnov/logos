@@ -1344,6 +1344,36 @@ set_tests_properties(logos_00_mlir_gen_bug_ledger PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# ── THE BORROW-CHECK HOLES THE rustc IMPORT FOUND ARE A LEDGER ──────────────
+# Batch B167 ported 983 rustc compile-fail tests. The ports logosc REFUSES for
+# the upstream reason are ordinary fail fixtures under tests/imported/fail/ and
+# carry the `imported` label, so the everyday loop excludes them. The ports
+# logosc ADMITS are holes — hundreds of them — and they are one row each in
+# tests/logos/bc_admits.ledger, held in both directions by the gate below.
+#
+# ⚠ THIS GATE IS IN THE EVERYDAY TIER (`tier_commit`) EVEN THOUGH THE IMPORTED
+# FIXTURES ARE SCHEDULED SEPARATELY, and that asymmetry is deliberate. What must
+# not regress silently is not each of those hundreds of programs — it is the
+# COUNT and its COMPOSITION: a hole closing without its row being deleted, a row
+# whose program was moved or deleted, a row appearing without the total being
+# edited. That is one cheap test rather than a thousand, and it is the only
+# thing in the everyday loop that reads the admit shelf at all.
+# MEASURED cost when it landed: ~0.8 s per row, serial (ONE SCHEDULER — this
+# gate may not fan out its own), so the TIMEOUT below is sized for the row count
+# plus the shared-box margin, not for an exclusive run.
+add_test(
+    NAME logos_00_bc_admits_ledger
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/bc_admits_ledger_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/bc_admits.ledger
+            ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(logos_00_bc_admits_ledger PROPERTIES
+    TIMEOUT 2400
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ── `type_apply` — THE ONLY name→Type BRIDGE, AND IT ABORTS ─────────────────
 # A metaprog handler holds its target's name as a runtime `str` read off the
 # AST. `type_apply` takes a name only as a source literal and calls

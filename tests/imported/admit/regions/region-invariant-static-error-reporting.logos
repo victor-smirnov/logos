@@ -1,0 +1,12 @@
+// rustc regions/region-invariant-static-error-reporting.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.NEW-5
+package region_invariant_static_error_reporting;
+// port of regions/region-invariant-static-error-reporting.rs
+struct Invariant<'a> { p: Option<&'a mut i64> }
+fn mk_static() -> Invariant<'static> { return Invariant { p: Option::None }; }
+fn unify<'a>(x: Invariant<'a>, c: bool) -> Invariant<'a> {
+  let bad: Invariant<'a> = if c { x } else { mk_static() };
+  return bad;
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,19 @@
+// rustc borrowck/borrowck-mut-borrow-linear-errors.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+// upstream: borrowck/borrowck-mut-borrow-linear-errors.rs  E0499
+package borrowck_mut_borrow_linear_errors;
+struct Holder { p: &mut i64 }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let h1 = Holder { p: &mut x };
+    let mut i: i64 = 0i64;
+    loop {
+        let h2 = Holder { p: &mut x };
+        *h2.p = 3i64;
+        i += 1i64;
+        if i > 3i64 { break; }
+    }
+    *h1.p = 2i64;
+    return 0i32;
+}

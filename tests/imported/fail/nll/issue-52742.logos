@@ -1,0 +1,17 @@
+// rustc nll/issue-52742.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_52742;
+struct Foo { x: &i64, y: &i64 }
+struct Bar { z: &i64 }
+impl Foo { fn take_bar(self: &mut Foo, b: Bar) { self.y = b.z; } }
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let mut f: Foo = Foo { x: &a, y: &a };
+    {
+        let tmp: i64 = 99i64;
+        let b: Bar = Bar { z: &tmp };
+        f.take_bar(b);
+    }
+    return *f.y as i32;
+}

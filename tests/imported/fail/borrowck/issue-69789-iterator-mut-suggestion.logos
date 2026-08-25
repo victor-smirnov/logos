@@ -1,0 +1,10 @@
+// rustc borrowck/issue-69789-iterator-mut-suggestion.rs — upstream E0594 cannot assign
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package issue_69789_iterator_mut_suggestion;
+fn main() -> i32 {
+    let u: i64 = 0i64;
+    let item: &i64 = &u;
+    *item = 1i64;   // ERROR: cannot assign through a `&` reference
+    return 0i32;
+}

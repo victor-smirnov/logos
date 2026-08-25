@@ -1,0 +1,11 @@
+// rustc moves/region-var-in-moved-ty-issue-133118.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin
+package region_var_in_moved_ty_issue_133118;
+use logos.mem.string;
+struct G { s: String }
+fn a(x: G) -> i64 { return 1i64; }
+fn main() -> i32 {
+    let g1 = G{ s: String::from("z") };
+    return (a(g1) + a(g1)) as i32;
+}
