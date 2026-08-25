@@ -1154,6 +1154,71 @@ place-aware `AddrOfTemp` arm reaches it before those counters do. Three further
 calls were therefore NOT added. Adding them would have been three copies of a
 rule for a case nobody could show failing.
 
+## 8g. The CLOSURE BOUNDARY deposits a loan — four cells, twelve ledger rows — 2026-08-25
+
+CENSUS ROW for the closure-capture loan arc (R1 the shared whole-root loan +
+tuple capture paths; R3 a closure literal handed to a callee; R2 `&mut` written
+in the body; R4 the IMPLICIT `&mut` reborrow in the body).
+
+    PREDICTED  ctest -N  8014 -> 8034  (+20: 4 pass + 4 fail + 12 rustc-import
+                                        admit programs relanded as fail fixtures)
+    MEASURED   ctest -N  8034          exact
+               -L pass -LE imported  2547 -> 2551   exact
+               -L fail               1888 -> 1904   exact  (4 native + 12 imported)
+               -L imported           4095 -> 4107   exact
+
+    direct-door pins RE-DERIVED BY DIRECT LISTING at each cell, not by addition:
+        corpus   2369 -> 2373   `ls tests/logos/pass/*.logos`
+        glob      191 unmoved   `ls tests/logos/pass/{wql_*,deem_*}.logos`
+        nonglob  2178 -> 2182   the same listing minus the glob half
+    DOORS unmoved (36 = 10 + 26): no new fixture declares a container family or
+    a `direct` output form. `ls tests/logos/*.sh` unmoved at 67 — this round
+    registers no gate; the verdict is the compiler's.
+    bc_admits.ledger  463 -> 451 rows, `# TOTAL` edited in the same change.
+    tests/imported/admit  463 -> 451 programs; tests/imported/fail  581 -> 593.
+
+FIXTURES — one refuse and one admit twin per cell, and every twin carries the
+three shapes that MUST stay admitted (a disjoint RFC-2229 sibling, a `move`
+capture of a Copy value, a capture read after the closure is dead):
+
+    fail/closure_shared_capture_assign      `|| n` then `n = 5`        R1
+    pass/closure_shared_capture_ok          + a disjoint TUPLE sibling
+    fail/closure_arg_two_mut_captures       `id(|| x=4)` twice         R3
+    pass/closure_arg_captures_ok            the same through a call arg
+    fail/closure_addrof_mut_capture_twice   `|| set(&mut n)` twice     R2
+    pass/closure_addrof_captures_ok         `|| get(&n)` stays shared
+    fail/closure_mutref_capture_twice       `|| set(x)` twice, x:&mut  R4
+    pass/closure_mutref_capture_ok          `|| *r` and `|| get(x)` —
+                                            the two CONTROLS that refuted the
+                                            type-keyed variant of R4
+
+⚠ WHAT THE FIRST ATTEMPT GOT WRONG, and why the shape here is different. A prior
+attempt took a whole-variable borrow per capture inside `note_closure_caps` and
+red six tests. `note_closure_caps` is the wrong site: it builds a call-side NAME
+map. The loan site already existed — `case Code::ClosureBox` in
+`take_ref_borrows` — and it already read both the MODE (`capture_is_mut`,
+`is_move`) and the PLACE (`capture_path`, RFC 2229). Three of the four cells are
+therefore a widening of something that was already there, and the fourth (R4) is
+a Deref peel in an arm that already existed for the explicit spelling.
+
+⚠ THE TYPE IS THE WRONG ORACLE FOR R4, MEASURED, NOT ASSUMED. Keying "this
+capture is a reborrow" on the capture's TYPE being `&mut T` closes the headline
+defect and ALSO over-refuses two shapes rustc accepts: `let r = &mut n; let c =
+|| *r; let z = *r;` and `|| get(x)` where the formal is SHARED. Both were built
+and measured red under the type-keyed variant and green under the reborrow-node
+one; both are now in pass/closure_mutref_capture_ok, so the wrong rule cannot
+come back silently.
+
+⚠ #129 IS NOT CLOSED AND IS NOT REFUTED. A conditional move of a CAPTURED value
+gets no drop flag because `cond_move_flag_for` walks out at
+`scope_[i].closure_boundary` — drop elaboration, which none of this arc touches.
+The probe written for it does not reach its site: a `move`-captured droppable
+value counts ZERO destructor calls whether the move is conditional (DROPS 0,
+want 1) or absent entirely (the CONTROL, DROPS 0, want 1), while the
+unconditional-move twin counts 1. The baseline is broken one level BELOW #129 —
+the closure env never drops what it owns — and #129's framing is invisible until
+that is fixed.
+
 ## 9. THE PIN — every claim in this file a machine can decide
 
 `tests/logos/census_pin_gate.sh` (`logos_00_census_pin`, label `tier_commit`) reads THIS section and
@@ -4284,8 +4349,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   block 1 borrowck  7600 -> 7820 (+219 pins +1 gate)   MEASURED 7820  exact
 #   block 2 nll+moves 7820 -> 7940 (+120 pins)           MEASURED 7940  exact
 #   block 3 life/reg  7940 -> 8013 (+73 pins)            MEASURED 8013  exact
-REGISTRY-ALL         8014
-REGISTRY-NOIMPORTED  3919
+# 2026-08-25 (the CLOSURE BOUNDARY deposits a loan — §8g). PREDICTED BEFORE THE
+# RECONFIGURE, per cell, and MEASURED after each: 8014 -> 8020 (R1: +1 pass,
+# +1 fail, +4 imported programs relanded as fail fixtures) -> 8022 (R3: +1/+1)
+# -> 8025 (R2: +1/+1 and +1 relanded) -> 8031 (R4: +1/+1 and +4 relanded)
+# -> 8034 (+3 relanded). MEASURED 8034 exact at every step.
+# -LE imported 3919 -> 3927 (+8 = the 4 native pass + 4 native fail fixtures;
+# the 12 relanded rustc-import programs carry the `imported` label and are
+# excluded by construction). tier_commit 47 UNMOVED — this round registers no
+# gate, and the two ledgers it moves (bc_admits.ledger 463 -> 451 rows,
+# direct_door_census 2369/191/2178 -> 2373/191/2182) are existing tests.
+REGISTRY-ALL         8034
+REGISTRY-NOIMPORTED  3927
 REGISTRY-TIERCOMMIT  47
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
@@ -7509,3 +7584,33 @@ NOT-AFFECTED  tests/logos/pass/wql_source_trait_e2e.logos               comment-
 NOT-AFFECTED  tests/logos/shared_ref_ub.ledger                          ledger-row
 NOT-AFFECTED  tests/logos/wql_shadowed_column_gate.sh                   comment-only
 ```
+
+## 8g. THE ADMITS LEDGER IS A 451-COMPILE SERIAL FOLD IN ONE ctest SLOT — 2026-08-25
+
+RECORDED AS A DEBT AT BIRTH, because it will only get worse.
+
+`logos_00_bc_admits_ledger` is ONE registered ctest test whose gate compiles
+every row of `tests/logos/bc_admits.ledger` — 451 programs today — one after
+another inside a single slot. It correctly does NOT fan out (task #85: ctest is
+the only scheduler), so the cost is ~0.9 s/row, ~7 min of wall time with one
+core busy and thirty-one idle.
+
+⚠ THE FORM WAS RIGHT AND THE SCALE WAS NOT, AND THAT IS THE LESSON. The landing
+brief said "reuse `mlir_gen_bug_ledger_gate.sh`'s idiom, do not write a second
+gate", and the semantics ARE right: a row reds when its program stops being
+defective, so a class fix is proven by the ledger going red because it
+improved. But that idiom was built for a ledger of TENS of rows. The form was
+carried over verbatim without recomputing what it costs at 451, by the same
+person who had just grown the suite from 7139 to 8014 tests that morning.
+
+THE CONVERSION, which is #85's own pattern and #101's unfinished half:
+each admit program becomes its OWN registered ctest test, so ctest parallelises
+them (~20 s across 32 cores instead of ~7 min in one slot), and the gate
+becomes a cheap serial fold over their recorded verdicts.
+⚠ It is not mechanical: unlike the corpus fixtures the census gates fold over,
+these 451 programs are compiled by NOTHING ELSE, so there are no facts to fold.
+They need a per-row verdict emitter, in the shape of `facts_emit.sh`.
+
+⚠ PRIORITY IS DRIVEN BY GROWTH, NOT BY THE CURRENT 7 MINUTES: the ledger holds
+only the borrowck/nll/lifetimes blocks. Every further import block adds rows,
+and the fold is linear in them.
