@@ -45,6 +45,43 @@ The checklist exists because the [bag-hunt](baghunt/README.md) found ~122 bugs t
 - [ ] **Internals doc updated** if the change is implementation-relevant.
 - [ ] **Memory file added** if this is a multi-month arc or load-bearing decision (`feat_*.md` for done work, `project_*.md` for in-progress).
 
+## When budgeting a round's EVIDENCE (measured 2026-08-25)
+
+The proof burden is a cost, it scales with the suite, and it must be recomputed
+whenever the suite changes size. A class-C round spent **6.2 hours**, and 3.9 of
+them were accounted for by four lines of a brief:
+
+    ctest -L imported (4095 tests)      x10 = ~80 min
+    the gates tier (tier_commit)        x10 = ~70 min   <- carries a 463-row
+                                                           SERIAL ledger fold
+    cmake --build (borrow_check.cpp)    x12 = ~55 min
+    -L pass -LE imported, L1, L2         x5 = ~29 min
+
+The brief had said "red list per cell: `-L pass -LE imported`, `-L imported`,
+`-L fail`". That was written when the suite was 7139 tests and was carried over
+verbatim after the same author had grown it to 8014 that morning. Not one of the
+ten intermediate `-L imported` runs found a red.
+
+RULES:
+
+* **Cheap list between cells, full sweep ONCE before handing over.**
+  `ctest -j$(nproc) -L pass -LE imported` is the between-cells list: it catches
+  the over-refusal direction, which is where rounds actually die. `-L imported`,
+  `-L fail` and the gates tier run ONCE, at the end.
+* **Never put a growing fold in `tier_commit`** unless it answers "did something
+  break". `bc_admits.ledger` answers "what got FIXED", so an intermediate run of
+  it is worthless — and it is 7 minutes single-threaded per run (see 8g).
+* **Quote the unit costs in the brief** so the agent can compute its own bill
+  instead of running everything reflexively. On this box today: incremental
+  `borrow_check.cpp` build ~4.5 min · `-L imported` ~8 min · `-L pass -LE
+  imported` ~7 min · gates tier ~7 min · L2 ~11 min.
+* **One rebuild per cell is worth paying for.** The twelve builds are the
+  "one cell, one build, one control revert" discipline and they bought real
+  attributions. It is the *sweeps* that were reflexive, not the builds.
+* ⚠ **Recompute when the suite changes.** Two edits in one day — landing 875
+  imported tests, and a per-cell evidence rule — multiplied each other. Either
+  alone was reasonable.
+
 ## When fixing a bug
 
 - [ ] **Bag-hunt entry referenced.** If this fixes a `B-XX-NN` bug, reference it in the commit message.
