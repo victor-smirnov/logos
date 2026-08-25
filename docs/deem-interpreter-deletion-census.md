@@ -7614,3 +7614,61 @@ They need a per-row verdict emitter, in the shape of `facts_emit.sh`.
 ⚠ PRIORITY IS DRIVEN BY GROWTH, NOT BY THE CURRENT 7 MINUTES: the ledger holds
 only the borrowck/nll/lifetimes blocks. Every further import block adds rows,
 and the fold is linear in them.
+
+## 8h. CLASS C IS BLOCKED BY THREE PRE-EXISTING DEFECTS, NOT BY A MISSING MODEL — 2026-08-25
+
+The round (`w8vzif6gg`) was reverted on its own adversarial verify, and what it
+established is worth more than what it landed.
+
+⚠ THE BRIEF'S PREMISE WAS WRONG AND THE AGENT REFUTED IT. I wrote that the
+two-axis capture model (MODE × PLACE) had to be built. IT IS ALREADY BUILT — in
+`take_ref_borrows`, `case Code::ClosureBox`, which already reads `cb.is_move()`,
+`cb.capture_path(i)` and `cb.capture_is_mut(i)` and already calls
+`take_field_borrow`. The LIR closure schema already carries CAPTURE_PATHS,
+MUT_CAPTURES, IS_MOVE and CAPTURE_FIELD_TYPES. Nothing needed adding. The
+reverted first attempt had been looking at `note_closure_caps`, which is not
+where the loan lives, and I carried that location into the brief.
+
+Measured one-property matrix proving the place axis is live and disjoint-safe:
+field capture + same-field write -> refused; field capture + SIBLING write ->
+admitted; field capture + read -> admitted.
+
+THE HOLE IS ONE BRANCH: a SHARED whole-root capture calls `check_live(root)`
+where the mut arm calls `take_borrow`. The comment justifying it — "Logos
+captures a whole variable (not a precise field path), so a whole-var shared
+borrow would wrongly block RFC-2229 disjoint sibling mutation" — is STALE and
+was refuted by probe: a disjoint sibling capture has a non-empty relative path
+and never reaches that branch.
+
+⚠ BUT CLOSING IT MAKES THREE PRE-EXISTING DEFECTS REACHABLE, and six programs
+rustc accepts stopped compiling. Verified by me:
+
+    while i < 3 { let c = || -> i64 { return n; }; acc = acc + c(); n = n + 1; i = i + 1; }
+        -> "cannot assign to 'n' because it is borrowed"
+    the SAME body without the loop -> compiles
+
+  D1  A LOOP-CARRIED HOLDER IS NEVER RELEASED across the back edge. Pre-existing
+      in the mut arm (`o25m` refuses at HEAD); the shared arm merely makes it
+      reachable for the FAR COMMONER shape — any read-only closure in a loop body
+      over a variable written later in the same body.
+  D2  `take_field_borrow(root, NO_SLOT, rel, is_mut, line)` is called WITHOUT a
+      holder, so a field loan is never NLL-released. Pre-existing for struct
+      fields; the change routes tuple captures into the same unNLL'd path.
+      ⚠ The round's own admit twin could not see it: it writes the sibling
+      BEFORE the closure's last use, so it never exercises write-after-death.
+  D3  `closure_kind_` is keyed by SIGNATURE, not identity (task #90), so marking
+      one closure FnMut poisons an unrelated sibling closure of the same
+      signature — in a different function, even.
+
+SO CLASS C IS NOT A MODELLING PROBLEM. It is blocked on D1, D2 and #90, each of
+which is worth closing on its own merits and none of which is about closures.
+
+TWO SMALLER DISCLOSURES from the verify, kept because they generalise:
+  * One ledger row was closed through the Fn/FnMut CLASSIFICATION channel rather
+    than the loan channel, and the report did not say so — a row can go green for
+    a reason other than the one the round is claiming.
+  * Four new `.expected` were bare prefixes (`cannot borrow 'x' as mutable`) that
+    would still match if the diagnostic degraded to a DIFFERENT, wrong root. The
+    twelve imported ones pin the full sentence; the native ones should too.
+
+The work is in `git stash` with the roots in its message, not discarded.
