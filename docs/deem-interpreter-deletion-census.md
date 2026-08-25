@@ -4206,8 +4206,8 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # THE HONEST SMELL, stated: MISS 2 took FOUR attempts, and attempts 1-3 were
 # refuted only by the STDLIB BUILD. Every rejected rule is recorded at the site
 # rather than in this ledger, so the next reader pays once.
-REGISTRY-ALL         7596
-REGISTRY-NOIMPORTED  3913
+REGISTRY-ALL         7598
+REGISTRY-NOIMPORTED  3915
 REGISTRY-TIERCOMMIT  46
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

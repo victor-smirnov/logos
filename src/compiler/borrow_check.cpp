@@ -740,6 +740,21 @@ static bool is_temporary_value_expr(lir_view::ExprRef e) {
         case EK::StructLit: case EK::TupleLit: case EK::ArrLit:
         case EK::Call: case EK::MethodCall: case EK::ClosureCall:
         case EK::EnumLit: case EK::EnumLitData:
+        // An OPERATOR produces a fresh value with no place of its own, exactly
+        // as a literal or a call does — the omission was by spelling, not by
+        // property. `return &(2i64 + 3i64);` fell past this list to
+        // `value_local_root`, found no local root, and reached the
+        // "unknown — conservative-accept" tail: it compiled and returned a
+        // pointer into the dead frame, with the exit code tracking a clobber
+        // constant (9->9, 40->40, 71->71 where 5 is correct).
+        // ⚠ NOT promoted instead of refused, and that is deliberate: Logos has
+        // NO const-eval by design — a `const` is stored as an expression and
+        // read by name, and compile-time arithmetic goes through `metacall`
+        // (see project_no_const_eval). Folding `2+3` inside this predicate
+        // would be the mini-evaluator that stance exists to forbid. A caller
+        // who wants a promoted constant writes `metacall { 2 + 3 }`, which
+        // splices a LITERAL and is promoted by the arm above.
+        case EK::BinOp: case EK::Unary: case EK::Cast:
             return true;
         default:
             return false;

@@ -1,0 +1,27 @@
+// THE ADMIT TWIN of `fail/bc_return_borrow_of_operator_temp_fail`. Adding the
+// operator kinds to `is_temporary_value_expr` must not disturb CONST PROMOTION:
+// a borrow of a LITERAL has no frame storage at all — it is materialised in
+// read-only static storage — so it may be returned and read after the frame
+// that produced it is gone.
+//
+// The stomping call is the point: it overwrites six frame slots between the
+// borrow and the read. If this fixture ever returns the clobber constant
+// instead of 5, promotion has regressed to a frame lowering and the refusal in
+// the twin is being bought with a dangle here.
+package bc_return_borrow_of_literal_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+
+fn f() -> &i64 { return &5i64; }
+fn stomp(n: i64) -> i64 {
+    let a: i64 = n; let b: i64 = n; let c: i64 = n;
+    let d: i64 = n; let e: i64 = n; let g: i64 = n;
+    return a + b + c + d + e + g;
+}
+
+fn main() -> i32 {
+    let p: &i64 = f();
+    let _s: i64 = stomp(71i64);
+    pr("%ld\n", *p);
+    return 0i32;
+}

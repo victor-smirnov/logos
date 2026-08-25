@@ -1,0 +1,25 @@
+// `&(2i64 + 3i64)` returned from a function is a borrow of a value with no
+// place of its own — the operator result lives in the frame and dies with it.
+//
+// This ADMITTED until 2026-08-25 and dangled at runtime: with a clobbering call
+// between the borrow and the read, the exit code tracked the clobber constant
+// (9 -> 9, 40 -> 40, 71 -> 71) where 5 is correct.
+//
+// The omission was BY SPELLING. `is_temporary_value_expr` listed LitInt, the
+// aggregate literals and the call forms, and stopped — so a BinOp fell past it
+// to `value_local_root`, found no local root, and reached the tail comment
+// "unknown — conservative-accept". An operator produces a fresh value exactly
+// as a literal or a call does; the property was never in doubt, only the list.
+//
+// ⚠ REFUSED RATHER THAN PROMOTED, DELIBERATELY. Logos has NO const-eval: a
+// `const` is stored as an expression and read by name, and compile-time
+// arithmetic goes through `metacall` (project_no_const_eval, Victor
+// 2026-05-11). Folding `2+3` inside the promotion predicate would build the
+// mini-evaluator that stance exists to forbid. The supported way to get a
+// promoted constant here is `metacall { 2 + 3 }`, which splices a LITERAL —
+// and a literal IS promoted, which is what the admit twin pins.
+package bc_return_borrow_of_operator_temp_fail;
+
+fn f() -> &i64 { return &(2i64 + 3i64); }
+
+fn main() -> i32 { let p: &i64 = f(); return *p as i32; }
