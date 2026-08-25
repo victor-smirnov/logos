@@ -28,6 +28,7 @@
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/outlives.hpp>
+#include <logos/compiler/const_promote.hpp>
 #include <algorithm>
 #include <logos/compiler/region_infer.hpp>
 #include <logos/compiler/move_classify.hpp>
@@ -840,8 +841,29 @@ struct FieldBorrow {
     std::vector<uint32_t> co_holder_slots;            // parallel to co_holders
 };
 
+// ── §B6 SOURCE IDENTITY — F5, FOURTH INSTANCE ("a lookup KEY is not an
+//    IDENTITY"; see BorrowRecord::holder_slot for the third) ──────────────
+// A §B6 source was a bare NAME, and a name is re-used by shadowing. The D-b
+// tail check and pop_scope's dangling deposit both ask "is this source one of
+// the bindings dying here?" by comparing STRINGS, so an inner
+//     let p: &i64 = &o.n;  let o: i64 = 1i64;      // outer `o` is a Buf
+// made `p` dangle on the INNER `o` — a false E0597, one-property pair against
+// the same block with the inner local named `zz` (ADMITTED). The identity is
+// the dense per-function slot sema already assigns; it is captured HERE, at
+// the point the source is collected, because that is the only point at which
+// the name still denotes the binding the borrow was formed from. NO_SLOT
+// means "no identity available" → the old, conservative name-keyed match.
+struct RefSrc {
+    std::string name;
+    uint32_t    slot = 0xFFFFFFFFu;
+    bool operator==(const RefSrc& o) const {
+        return name == o.name && slot == o.slot;
+    }
+};
+
 struct ScopeFrame {
     std::vector<std::string>  declared;  // vars declared in this scope
+    std::vector<uint32_t>     declared_slots;  // F5 — parallel to `declared`
     std::vector<BorrowRecord> borrows;   // borrows held in this scope
     std::vector<FieldBorrow>  field_borrows;  // B83: tracked field-path borrows
 };
@@ -1782,7 +1804,7 @@ class BorrowChecker {
     // Keys are now dotted places ("w", "w.b", "w.b.p"); a write to a place
     // erases that place AND everything under it, and every consumer that wants
     // a binding's sources unions over the subtree (ref_sources_under).
-    std::unordered_map<std::string, std::vector<std::string>> ref_borrow_sources_;
+    std::unordered_map<std::string, std::vector<RefSrc>>      ref_borrow_sources_;
     std::unordered_map<std::string, uint32_t>                 ref_borrow_line_;
     // S5-D4: fire count of the through-a-reference provenance arm in
     // collect_ref_sources_paths' AddrOfTemp case. A rule whose branch never
@@ -2202,8 +2224,9 @@ private:
                 std::string binding = place_root(place);
                 if (dying.count(binding) || dangling_.count(binding)) continue;
                 for (auto& src : sources) {
-                    if (!dying.count(src)) continue;
-                    dangling_[binding] = DanglingRef{ src, ref_borrow_line_[place] };
+                    if (!dying_binding(frame, src)) continue;   // F5, not the name
+                    dangling_[binding] =
+                        DanglingRef{ src.name, ref_borrow_line_[place] };
                     break;
                 }
             }
@@ -2222,8 +2245,31 @@ private:
 
     void declare_var(const std::string& name, uint32_t slot = NO_SLOT) {
         var_at(slot, name) = VarState{};  // Phase-1: real slot → dense slot_
-        if (!scopes_.empty()) scopes_.back().declared.push_back(name);
+        if (!scopes_.empty()) {
+            scopes_.back().declared.push_back(name);
+            scopes_.back().declared_slots.push_back(slot);   // F5
+        }
         note_binding_slot(name, slot);    // F5
+    }
+
+    // F5: is `s` one of the bindings THIS frame is about to erase? The NAME
+    // comparison alone answers YES for a shadowing inner local that merely
+    // spells the same word, which is the false E0597 above. When BOTH sides
+    // carry a slot the slots decide; when either does not, fall back to the
+    // name — the pre-F5 behaviour, conservative in the refusing direction.
+    // ONE predicate for BOTH readers: pop_scope's `dangling_` deposit (the
+    // pre-existing sibling defect, same one-property pair) and D-b's tail
+    // check. They differ only in where they report, never in what dies.
+    static bool dying_binding(const ScopeFrame& fr, const RefSrc& s) {
+        for (size_t i = 0; i < fr.declared.size(); ++i) {
+            if (fr.declared[i] != s.name) continue;
+            if (s.slot != NO_SLOT && i < fr.declared_slots.size() &&
+                fr.declared_slots[i] != NO_SLOT &&
+                fr.declared_slots[i] != s.slot)
+                continue;   // same word, different binding
+            return true;
+        }
+        return false;
     }
 
     // F5: identity of the binding a name currently denotes. Loans capture it
@@ -2331,8 +2377,8 @@ private:
     // Every local a binding (or sub-place) may borrow from, unioned over the
     // whole place subtree. This is what the pre-F6 `ref_borrow_sources_[root]`
     // lookup meant; it now has to be computed rather than read.
-    std::vector<std::string> ref_sources_under(const std::string& root) const {
-        std::vector<std::string> out;
+    std::vector<RefSrc> ref_sources_under(const std::string& root) const {
+        std::vector<RefSrc> out;
         if (root.empty()) return out;
         for (auto& [pl, srcs] : ref_borrow_sources_) {
             if (!place_under(pl, root)) continue;
@@ -2352,10 +2398,10 @@ private:
             it = place_under(it->first, place) ? ref_borrow_line_.erase(it) : std::next(it);
     }
     void store_ref_sources(const std::string& place,
-                           std::vector<std::pair<std::string, std::string>> pairs,
+                           std::vector<std::pair<std::string, RefSrc>> pairs,
                            const std::string& self_name, uint32_t ln) {
         for (auto& [sub, src] : pairs) {
-            if (src == self_name) continue;   // a binding never borrows ITSELF
+            if (src.name == self_name) continue;  // a binding never borrows ITSELF
             auto& dst = ref_borrow_sources_[place_of(place, sub)];
             if (std::find(dst.begin(), dst.end(), src) == dst.end())
                 dst.push_back(src);
@@ -2368,7 +2414,7 @@ private:
         dangling_.erase(name);
         erase_ref_sources_under(name);
         if (!val) return;
-        std::vector<std::pair<std::string, std::string>> pairs;
+        std::vector<std::pair<std::string, RefSrc>> pairs;
         collect_ref_sources_paths(val, std::string{}, pairs);
         store_ref_sources(name, std::move(pairs), name, ln);
     }
@@ -2383,7 +2429,7 @@ private:
         if (name.empty() || !val) return;
         std::string place = place_of(name, path);
         erase_ref_sources_under(place);
-        std::vector<std::pair<std::string, std::string>> pairs;
+        std::vector<std::pair<std::string, RefSrc>> pairs;
         collect_ref_sources_paths(val, std::string{}, pairs);
         store_ref_sources(place, std::move(pairs), name, ln);
     }
@@ -2397,16 +2443,85 @@ private:
     // erase exactly the sources that write replaces. Only the aggregate
     // LITERAL cases extend the path (they are the only ones that know which
     // field a value lands in); every other case forwards it unchanged.
+    // ── D1 residuals / R1 — HOISTED OUT OF collect_ref_sources_paths ─────
+    // It was a LOCAL LAMBDA and therefore readable at exactly one site, while
+    // `prov_of`'s Call arm — the channel the RETURN gate consults — asked the
+    // TYPE filters only. That is why `fn f(x: i64) -> &[i64] { let a: [i64;3]
+    // = [x,x,x]; return &a[0..2]; }` COMPILED, LINKED and dangled: measured
+    // with an intervening frame-stomping call, the exit code IS the clobber
+    // constant (9 -> 9, 40 -> 40, 71 -> 71) where 1 is correct. `[retgate]`
+    // named the spread in one run — `prov{loc=0 tmp=0 np=0} srcs=[a,]`: the
+    // answer was ALREADY COMPUTED, one channel over. Hoisted rather than
+    // re-derived; the rule below is byte-identical to the lambda it replaces.
+    // ── D1 residuals / R1 store side: DOES THIS ARG NODE FORM THE BORROW
+    // AT THE CALL SITE? The per-arg filters below deliberately exclude fat
+    // forms via `is_plain_ref_kind` (a by-value slice COPY — `tv_build(h,
+    // name.as_str(), …)` — must not tie), but that exclusion also dropped
+    // the arg that CREATES the slice right here: `&arr[0..1]` lowers to
+    // `Call(slice_get_range, [SliceLit{AddrOfTemp(arr)}, lo, hi])`, and the
+    // SliceLit arg was filtered out by its TYPE before its NODE could
+    // speak. A borrow formed at the call site is a borrow of a local by
+    // construction — no copy ambiguity exists — so admit it by node kind:
+    // SliceLit, AddrOf, AddrOfTemp, through transparent Casts. A by-value
+    // fat COPY arrives as VarRef/MethodCall/FieldRead and stays excluded.
+    //
+    // ── #70(a): THE NESTED BORROW-FORMING CALL ─────────────────────────
+    // The residual this closes: `pick1(&arr[0..2])` passes the
+    // `slice_get_range` Call node itself (fat-typed `&[i64]`), which no
+    // rule above admits — not `is_plain_ref_kind` (fat), not
+    // `is_borrow_carrying_type` (a slice of i64 carries nothing by name),
+    // not the node-kind list. Nothing was deposited, so the dangle was
+    // admitted at rc=0 while the one-level twin `o = &arr[0..2]` refused
+    // at rc=1 (pinned by bc_d1res_r2_sliceform_dangle).
+    //
+    // The rule: a CALL whose result is a reference and one of whose
+    // arguments is ITSELF borrow-forming (recursively — the SliceLit /
+    // AddrOf / AddrOfTemp base above, or another such call) forms the
+    // borrow at this site, exactly like the one-level spelling it wraps.
+    // This is the same conservative signature-elision the Call arm below
+    // already applies to plain-ref args; the nesting is what was missing.
+    //
+    // `EC::MethodCall` STAYS EXCLUDED, and that is the load-bearing half.
+    // The by-value fat COPY this whole filter exists to keep out is
+    // `tv_build(h, name.as_str(), …)` (stdlib/mem/writ/parser.logos:324) —
+    // a MethodCall. Excluding the kind, rather than guessing on the
+    // fat/plain axis, is what keeps that exemption; it is pinned in the
+    // abuse direction by bc_argcomp_tvbuild_byvalue_fat_admit, which
+    // before this task NOTHING under tests/ pinned.
+    //
+    // MEASURED AND REJECTED, the provenance route the residual note asked
+    // for (`flow_of_call(callee)->to_result`): slice_get_range's mask is
+    // 0, because its body reaches the buffer through `s.as_ptr()`
+    // (a SlicePtr node taint_of has no arm for), an i64 address
+    // round-trip (no BinOp arm), and `slice_from_raw` (sema-rewritten to
+    // the bodyless `str_from_raw`, whose `*const T` argument the (a)-(d)
+    // fallback filter drops). Repairing all four DOES produce
+    // `to_result=1` and DOES refuse this fixture — and it also makes
+    // `string_as_str` correctly report that it retains its argument,
+    // which then reds the stdlib itself: `join_order.decide_over_set`
+    // stores `string_as_str(&szs[k])` into `rs.w.ssz[k]` and afterwards
+    // calls `szs[i4].clear()` while `rs` is live. That is a REAL aliasing
+    // hazard rustc would reject too, so the summary route is blocked on a
+    // stdlib repair, not on the checker. Recorded, not landed.
     void collect_ref_sources_paths(
             lir_view::ExprRef e, const std::string& path,
-            std::vector<std::pair<std::string, std::string>>& out) const {
+            std::vector<std::pair<std::string, RefSrc>>& out) const {
         if (!e) return;
         using EC = lir_schema::expr::Code;
         const auto* pool = prog_.type_pool.impl();
-        auto emit = [&](std::string src) {
+        // F5: a source collected HERE is named by a live binding, so its
+        // identity is `slot_of_binding` AT THIS POINT. A source forwarded out
+        // of `ref_sources_under` already carries the slot captured when IT was
+        // collected, and must keep it — re-resolving would read the shadowing
+        // binding's slot, which is exactly the identity loss being fixed.
+        auto emit_src = [&](RefSrc src) {
             for (auto& pr : out)
                 if (pr.first == path && pr.second == src) return;
             out.emplace_back(path, std::move(src));
+        };
+        auto emit = [&](std::string src) {
+            uint32_t sl = slot_of_binding(src);
+            emit_src(RefSrc{std::move(src), sl});
         };
         auto sub = [&](const std::string& p) {
             return path.empty() ? p : path + "." + p;
@@ -2586,7 +2701,7 @@ private:
                 // reborrow, a different question, and it is untouched.
                 if (bp.through_ref) {
                     ++thru_ref_prov_fired_;
-                    for (auto& s : ref_sources_under(bp.root)) emit(s);
+                    for (auto& s : ref_sources_under(bp.root)) emit_src(s);
                     return;
                 }
                 emit(bp.root);
@@ -3010,7 +3125,7 @@ private:
             // an aliased borrow can't escape a referent's scope via a copy.
             case EC::VarRef: {
                 std::string n(lir_view::EVarRefView{e}.name());
-                for (auto& s : ref_sources_under(n)) emit(s);
+                for (auto& s : ref_sources_under(n)) emit_src(s);
                 return;
             }
             default:
@@ -3022,11 +3137,11 @@ private:
     // only ask "does this expression borrow a local at all?".
     void collect_ref_sources(lir_view::ExprRef e,
                              std::vector<std::string>& out) const {
-        std::vector<std::pair<std::string, std::string>> pairs;
+        std::vector<std::pair<std::string, RefSrc>> pairs;
         collect_ref_sources_paths(e, std::string{}, pairs);
         for (auto& pr : pairs)
-            if (std::find(out.begin(), out.end(), pr.second) == out.end())
-                out.push_back(pr.second);
+            if (std::find(out.begin(), out.end(), pr.second.name) == out.end())
+                out.push_back(pr.second.name);
     }
 
     // ── Field-path borrow operations (B83) ───────────────────────────────
@@ -3545,8 +3660,10 @@ private:
                 {
                     std::vector<std::string> escs;
                     collect_ref_sources(src, escs);
-                    std::vector<std::pair<std::string, std::string>> pairs;
-                    for (auto& s2 : escs) pairs.emplace_back(std::string{}, s2);
+                    std::vector<std::pair<std::string, RefSrc>> pairs;
+                    for (auto& s2 : escs)
+                        pairs.emplace_back(std::string{},
+                                           RefSrc{s2, slot_of_binding(s2)});
                     if (!pairs.empty())
                         store_ref_sources(dst, std::move(pairs), dst, line);
                 }
@@ -3988,7 +4105,9 @@ private:
             if (t && !is_ref_kind(t) && !is_borrow_carrying_type(t)) return;
             std::string n(b);
             erase_ref_sources_under(n);
-            ref_borrow_sources_[n] = srcs;
+            auto& dst = ref_borrow_sources_[n];
+            dst.clear();
+            for (auto& s : srcs) dst.push_back(RefSrc{s, slot_of_binding(s)});
             ref_borrow_line_[n] = ln;
         });
     }
@@ -4752,8 +4871,9 @@ private:
         {
             std::vector<std::string> escs;
             collect_ref_sources(val, escs);
-            std::vector<std::pair<std::string, std::string>> pairs;
-            for (auto& s2 : escs) pairs.emplace_back(std::string{}, s2);
+            std::vector<std::pair<std::string, RefSrc>> pairs;
+            for (auto& s2 : escs)
+                pairs.emplace_back(std::string{}, RefSrc{s2, slot_of_binding(s2)});
             if (!pairs.empty()) store_ref_sources(name, std::move(pairs), name, ln);
         }
     }
@@ -4927,8 +5047,23 @@ private:
     // terminal must be a VALUE local: in states_, NOT a param, NOT a tracked ref-
     // binding (ref locals are in prov_) — which keeps `&param.x` / ref-locals safe.
     // A reference rooted at such a local dangles if it escapes the local's scope.
+    // temp_root — D-c's NEIGHBOURS dcv2/dcv3, and the same question the walk
+    // below already answers for a NAMED root: `&[x][0u64]` and `&S{n:x}.n`
+    // both returned a borrow into storage that dies at the semicolon, and both
+    // were admitted, because this walk terminates only on a `VarRef` and a
+    // temporary has no name. `is_temporary_value_expr` is the existing test for
+    // "this expression IS the temporary"; the projections are already peeled
+    // above, so the terminal is the only place it was missing.
+    // ⚠ `!is_ref_kind` is load-bearing and NARROW BY MEASUREMENT: that
+    // predicate answers YES for any `Call`, and `&foo(x).n` where `foo`
+    // returns a REFERENCE borrows the caller's storage, not a temporary. The
+    // value-returning call (`&mk().n`) is a genuine dangle and is caught; the
+    // param-rooted one is answered earlier by `inner_prov` in prov_of's
+    // AddrOfTemp arm, before this function is reached at all.
     std::string value_local_root(lir_view::ExprRef e,
-                                 const TypePoolImpl* pool) const {
+                                 const TypePoolImpl* pool,
+                                 bool* temp_root = nullptr,
+                                 lir_view::ExprRef* terminal = nullptr) const {
         using namespace lir_view;
         using Code = lir_schema::expr::Code;
         ExprRef cur = e;
@@ -4970,8 +5105,22 @@ private:
                     return {};   // raw-pointer deref — unchecked
                 cur = op; continue;
             }
+            // The SLICE family, transparent here for the same reason it is
+            // transparent in `prov_of` (SliceLit/SlicePtr/SliceIndex are
+            // projections of the underlying place, exactly like IndexRead).
+            // Without them this walk stopped ON the projection: `return &[x];`
+            // reached the report site with NO root name and NO temp root, and
+            // printed `local variable '?'`.
+            if (k == Code::SliceLit)  { cur = ESliceLitView{cur}.base();  continue; }
+            if (k == Code::SlicePtr)  { cur = ESlicePtrView{cur}.slice(); continue; }
+            if (k == Code::SliceIndex){ cur = ESliceIndexView{cur}.slice(); continue; }
+            if (k == Code::AddrOfTemp){ cur = EAddrOfTempView{cur}.inner(); continue; }
             break;
         }
+        if (terminal) *terminal = cur;
+        if (cur && temp_root && is_temporary_value_expr(cur) &&
+            !is_ref_kind(cur.type(pool)))
+            *temp_root = true;
         if (cur && cur.kind() == Code::VarRef) {
             std::string rn(EVarRefView{cur}.name());
             uint32_t rn_slot = EVarRefView{cur}.var_slot();  // Phase-1
@@ -5341,6 +5490,21 @@ private:
                 return {};
             }
             case Code::AddrOfTemp: {
+                // ── #92 CONST PROMOTION ────────────────────────────────────
+                // Rust promotes `&<const expr>` to `&'static`: the referent
+                // is materialised in READ-ONLY STATIC STORAGE, never in the
+                // frame, so there is nothing to dangle into and nothing may
+                // be refused. NOT a relaxation of this check — mlir_gen's
+                // EAddrOfTemp arm reads the SAME predicate and emits the
+                // global, and it fails closed if it cannot (see
+                // include/logos/compiler/const_promote.hpp for why the two
+                // halves must be one function). Answering `{}` here — no
+                // provenance at all, not "local but tolerated" — is what
+                // makes the LET, ASSIGN and RETURN gates all agree, because
+                // there is nothing for any of them to be about.
+                // Imported witnesses: pass/regions/regions-bot (`&0i64`),
+                // pass/array-slice-vec/empty-slice-return-b172 (`&[]`).
+                if (const_promote::is_promoted_borrow(e, pool)) return {};
                 // B74 gap: `&literal` / `&<temp_expr>` whose inner expr
                 // is rooted in a temporary (literal, fresh struct lit,
                 // call result, etc.) yields a dangling reference when
@@ -5372,7 +5536,8 @@ private:
                 // Front (c): a borrow rooted at a VALUE local (`&c.x`, `&c.a[i]`, or
                 // a deref of a value-local ref/smart-ptr like `&*h`) is dangling if
                 // returned. `value_local_root` does the walk + value-local check.
-                if (!value_local_root(e, pool).empty())
+                bool temp_root = false;
+                if (!value_local_root(e, pool, &temp_root).empty() || temp_root)
                     return {{}, /*is_local=*/true, /*is_temp=*/false};
                 return {};  // unknown — conservative-accept
             }
@@ -5404,6 +5569,38 @@ private:
                 return prov_of(ECastView{e}.operand());
             case Code::IndexRead:
                 return prov_of(EIndexReadView{e}.receiver());
+            // D-c: THE SLICE SPELLINGS WERE MISSING FROM *THIS* WALK ONLY.
+            // `fn f(x: i64) -> &[i64] { return &[x]; }` compiled, linked, and
+            // returned garbage (measured: 81 where 1 is correct) — and so did
+            // the NAMED-local twin `let a: [i64;2] = [x,x]; return &a;`, which
+            // is not a temporary at all. `[retgate]` says the gate is REACHED
+            // (`retkind=26 typed=1`) and answers `prov{loc=0 tmp=0 np=0}`,
+            // while the SAME trace line prints `srcs=[a,]` — because
+            // `collect_ref_sources_paths` has had the SliceLit/SliceIndex pair
+            // since D1 residuals R1/R2 and this switch never got them. The
+            // answer was already computed at the decision site, in the string
+            // the diagnostic would have printed.
+            // SlicePtr is the node an array→slice coercion actually returns
+            // (retkind 26, not 23); all three are transparent projections of
+            // the underlying place, exactly like IndexRead one arm up.
+            case Code::SliceLit:
+                return prov_of(ESliceLitView{e}.base());
+            case Code::SlicePtr:
+                return prov_of(ESlicePtrView{e}.slice());
+            // ⚠ THE FAMILY HAS THREE MEMBERS, NOT TWO. The comment above
+            // names the pair `collect_ref_sources_paths` has had since D1
+            // residuals R1/R2 — SliceLit/SLICE_INDEX — and then added
+            // SlicePtr as the second member instead. `fn f() -> &i64 { let
+            // a: [i64;2] = [1i64,2i64]; let s: &[i64] = &a; return
+            // &s[0u64]; }` therefore still compiled and still dangled:
+            // measured with an intervening frame-stomping call, the exit
+            // code IS the clobber constant (9 -> 9, 40 -> 40, 71 -> 71)
+            // where 1 is correct, and `[retgate]` printed `prov{loc=0 tmp=0
+            // np=0}` beside its own `srcs=[a,]`. An element borrow is a
+            // transparent projection of the slice's place, exactly like
+            // IndexRead two arms up.
+            case Code::SliceIndex:
+                return prov_of(ESliceIndexView{e}.slice());
             case Code::IfExpr: {
                 EIfExprView v{e};
                 return merge_prov(prov_of(v.then_val()), prov_of(v.else_val()));
@@ -5702,6 +5899,110 @@ private:
                 // hole) keep the plain-ref rule AND add the by-value bc args,
                 // which is the loan channel's rule.
                 ECallView cv{e};
+                // ── MISS 2 / RUST'S ONE-INPUT LIFETIME ELISION ─────────────
+                // `fn f(x: i64) -> &[i64] { let a: [i64;3] = [x,x,x]; return
+                // &a[0..2]; }` COMPILED, LINKED and DANGLED — measured with an
+                // intervening frame-stomping call, the exit code IS the
+                // clobber constant (9 -> 9, 40 -> 40, 71 -> 71) where 1 is
+                // correct. The spelling lowers to `Call(slice_get_range,
+                // [SliceLit{AddrOfTemp(a)}, lo, hi])` and BOTH halves of this
+                // arm said nothing: the fallback filters drop the SliceLit by
+                // its TYPE (`is_plain_ref_kind` is Ref/MutRef/TraitObject, not
+                // Slice), and the summary route answers mask 0 — for the four
+                // missing taint arms recorded on `forms_borrow_at_call`, NOT
+                // because the callee does not retain its argument. `[retgate]`
+                // printed the spread in one run: `prov{loc=0 tmp=0 np=0}`
+                // beside its own `srcs=[a,]`.
+                //
+                // ⚠ AND THE SUMMARY MAY NOT SIMPLY BE OVERRIDDEN — MEASURED
+                // TWICE, EACH TIME AS A RED STDLIB BUILD, WHICH IS THE ONLY
+                // ORACLE THAT SEES IT (`ctest` links PREBUILT archives):
+                //   • "any borrow-forming arg ties"  -> reds
+                //     `writ/parser.parse` (`&mut p as *mut P`),
+                //     `writ/wbs.wbs_read` (`&mut pos`, `&mut err`),
+                //     `wql/join_sel.decide_join_step` (`&st.tl`);
+                //   • "…and the result is ref-kind" -> still reds
+                //     `deem/tpl.eval_sexpr`: `intern(scratch, &u2)` returns a
+                //     `str` borrowed from SCRATCH while `&u2` is a local
+                //     String. The callee's summary says which; the call site
+                //     cannot.
+                // THE RULE THAT SURVIVES BOTH IS RUST'S OWN: elision assigns
+                // the output lifetime to an input ONLY when there is EXACTLY
+                // ONE reference input. `slice_get_range(s: &[T], lo: i64, hi:
+                // i64) -> &[T]` has one and elides; `intern(&Writ, &String)`,
+                // `parse(&Writ, str)` and `step_equi_key(&_, str, &_)` have
+                // two or three, so Rust would demand an annotation — and here
+                // the SUMMARY is that annotation, still deciding exactly as it
+                // did before this round. A RAW POINTER is not a reference
+                // input in Rust and is not counted, which is also what keeps
+                // the three out-param cursors above off this path.
+                // NOT a new deposit door: nothing is written, and this is the
+                // arm that already merged plain-ref args.
+                int elided_to = -1;
+                {
+                    int nref = 0, idx0 = 0;
+                    cv.each_arg([&](ExprRef a) {
+                        int k = idx0++;
+                        TypeRef at0 = a ? a.type(pool) : TypeRef(nullptr);
+                        if (at0 && at0.kind() != LogosType::Kind::Ptr &&
+                            is_ref_kind(at0)) { ++nref; elided_to = k; }
+                    });
+                    if (nref != 1 || !is_ref_kind(e.type(pool))) elided_to = -1;
+                    // ⚠ AN **EXACT** SUMMARY OUTRANKS ELISION — MEASURED, and
+                    // the corpus named the price in seven fixtures. `pub fn
+                    // stored_str(c: &Cfg) -> str { return c.name; }` has one
+                    // reference input and a ref-kind result, so elision would
+                    // tie its result to `&c` — and #77 round 2 already pinned
+                    // the opposite in pass/bc_esc_summary_seed_field_admit,
+                    // whose whole subject is that the `str` handed back is the
+                    // LITERAL's and its mask reads `result<-0  EXACT`. Six
+                    // memoria fixtures and `metaclass_str_generic`
+                    // (`bt_descend_get`) red the same way.
+                    // Elision is a rule about a SIGNATURE; an exact summary is
+                    // a measurement of the BODY, and the body wins. It is only
+                    // where the summary admits it is a guess (`over_approx`,
+                    // which is what `slice_get_range`'s mask-0 is) that Rust's
+                    // rule is the better guess.
+                    if (const FlowSummary* fs0 = flow_of_call(cv.callee());
+                        fs0 && fs0->available && !fs0->over_approx)
+                        elided_to = -1;
+                }
+                // ── D-a: AN ANONYMOUS RVALUE TEMPORARY, ONCE IT PASSES ─────
+                //          THROUGH A CALL
+                // `let x: It = iter(&mk());` admitted; `{ let t = mk(); x =
+                // iter(&t); }` refused. The isolating control had to be
+                // REBUILT because the filed one moved TWO properties at once
+                // (temporary->named AND let->assign): `da_iso_tmp_assign`
+                // (temporary + assign) admits and `da_iso_let_named` (named +
+                // let) refuses, so it is the temporary and not the `let`.
+                // MECHANISM: prov_of's AddrOfTemp arm answers
+                // `{is_local=true, is_temp=false}` for a direct `&<rvalue>` on
+                // the RVALUE-LIFETIME-EXTENSION rule — correct for
+                // `let r = &mk();`, which rustc extends — and this arm merged
+                // that answer through the call UNCHANGED. The Let/Assign gate
+                // reports on `is_temp` ALONE, so the whole shape walked past
+                // it. Extension is a property of the CONSUMING SITE, not of
+                // the expression: `let r = &mk();` extends, `let r =
+                // thru(&mk());` is E0716 in Rust, and the two were
+                // indistinguishable here.
+                // THE RULE IS NOT NEW — IT IS THE MethodCall ARM'S, ONE ARM
+                // UP: "a temporary receiver + a ref-self method => is_temp"
+                // (`recv_contributes && is_temporary_value_expr(v.receiver())
+                // && method_self_kind(v) != 0`). This is the same statement
+                // for a temporary ARGUMENT, applied where the argument is
+                // merged so it cannot fire for an argument the callee does not
+                // let reach the result. NOT a re-siting of prov_of's
+                // AddrOfTemp arm (the diagnosis's recommendation): that would
+                // change the answer for every consumer, including the direct
+                // `let` the extension rule exists for, and this does not touch
+                // it at all.
+                auto merge_arg_prov = [&](ExprRef a) {
+                    RefProv ap = prov_of(a);
+                    if (a.kind() == Code::AddrOfTemp &&
+                        is_temporary_value_expr(EAddrOfTempView{a}.inner()))
+                        ap.is_temp = true;
+                    merged = merge_prov(merged, ap);
+                };
                 if (const FlowSummary* fs = flow_of_call(cv.callee())) {
                     // ── #77 round 2: RE-MEASURED, AND THE DOOR STAYS SHUT ──
                     //
@@ -5737,11 +6038,49 @@ private:
                     //       let b: String = String::from("hello");
                     //       return f(a, &b); }      // rc 0; f is result<-0x3 OVER
                     // (`LOGOS_DUMP_FLOWS=f` prints the mask and the tag.)
-                    if (!bc_result && fs->over_approx) return {};
+                    // ⚠ `&& elided_to < 0` — MEASURED, AND IT IS THIS LINE
+                    // THAT ACTUALLY HELD MISS 2 OPEN. `slice_get_range`'s
+                    // result is `&[i64]`, which is ref-kind but NOT
+                    // `is_borrow_carrying_type` ("a slice of i64 carries
+                    // nothing BY NAME"), so `!bc_result && over_approx`
+                    // returned {} BEFORE the arg loop ran at all — proved with
+                    // a one-run trace, not inferred: the arm was entered
+                    // (`elided_to=0 fs=1 retref=1`) and the loop body printed
+                    // nothing. The bail is about an over-approximate MASK; an
+                    // elided lifetime is not a mask reading, so it is not what
+                    // this exit is about.
+                    if (!bc_result && fs->over_approx && elided_to < 0) return {};
                     size_t i = 0;
+                    // ⚠ MEASURED AND REVERTED: `|| forms_borrow_at_call(a)`
+                    // ALSO HERE. A summary is the callee's own measured fact
+                    // and OUTRANKS a call-site shape; overriding it red the
+                    // STDLIB BUILD at `wql/join_sel.decide_join_step` —
+                    // `step_equi_key(&st.tl, …)`, whose summary says the
+                    // argument does not reach the result, and whose `&st.tl`
+                    // is a plain ref this loop would then have tied. The
+                    // node-kind rule belongs where there is NO summary to
+                    // consult, and that is the fallback below.
+                    // ⚠ THE SUMMARY DOES NOT OUTRANK ELISION WHEN THE RESULT
+                    // IS ITSELF A REFERENCE. `slice_get_range`'s mask is 0 —
+                    // for the four reasons recorded on `forms_borrow_at_call`
+                    // above, none of which is "it does not retain its
+                    // argument" — so `&a[0..2]` over a LOCAL array was
+                    // admitted by this loop and dangled (exit code == the
+                    // clobber constant). `ret_is_ref` is Rust's own elision
+                    // rule and the predicate's OWN rule one level down (its
+                    // Call recursion already tests `is_ref_kind(a.type)`):
+                    // a fn returning a REFERENCE ties that reference to an
+                    // input, a fn returning a STRUCT elides nothing.
+                    // MEASURED — this conjunct is what keeps the summary
+                    // authoritative for the three stdlib functions the
+                    // un-gated version red: `writ/parser.parse` -> WAny,
+                    // `writ/wbs.wbs_read` -> WAny, `wql/join_sel.
+                    // decide_join_step` -> StepSel. None is ref-kind; all
+                    // three stay on their summaries.
                     cv.each_arg([&](ExprRef a) {
-                        if (a && i < fs->nparams && (fs->to_result & (1ull << i)))
-                            merged = merge_prov(merged, prov_of(a));
+                        if (a && ((i < fs->nparams && (fs->to_result & (1ull << i))) ||
+                                  (elided_to >= 0 && (size_t)elided_to == i)))
+                            merge_arg_prov(a);
                         ++i;
                     });
                     return merged;
@@ -5753,12 +6092,15 @@ private:
                 // Plain `&`/`&mut` args — a by-value slice arg
                 // (`tv_build(h, name.as_str(), …)`) is a copied borrow with the
                 // element's lifetime; it is not a capture channel for the result.
+                size_t fb_i = 0;
                 cv.each_arg([&](ExprRef a) {
+                    size_t fb_here = fb_i++;
                     if (!a) return;
                     TypeRef at = a.type(pool);
                     if (is_plain_ref_kind(at) ||
-                        (!is_ref_kind(at) && is_borrow_carrying_type(at)))
-                        merged = merge_prov(merged, prov_of(a));
+                        (!is_ref_kind(at) && is_borrow_carrying_type(at)) ||
+                        (elided_to >= 0 && (size_t)elided_to == fb_here))
+                        merge_arg_prov(a);
                 });
                 return merged;
             }
@@ -6191,8 +6533,8 @@ private:
                 // this strictly an improvement on the string.
                 if (is_return_temp_name(src)) {
                     for (auto& n : ref_sources_under(src))
-                        if (!is_return_temp_name(n) &&
-                            !is_materialized_temp_name(n)) { src = n; break; }
+                        if (!is_return_temp_name(n.name) &&
+                            !is_materialized_temp_name(n.name)) { src = n.name; break; }
                 }
                 // #86 MISS-E: §B6 has no arm for a chained call, and none for
                 // a Ref built out of an Rc-held arena — both measured, both
@@ -6205,6 +6547,56 @@ private:
                             if (!n.empty() && !is_return_temp_name(n) &&
                                 !is_materialized_temp_name(n)) { src = n; break; }
                 }
+                // ⚠ '?' IS NOT A MESSAGE, AND ITS `.expected` WAS WRITTEN TO
+                // ACCOMMODATE THAT. D-c's array-literal spelling (`return
+                // &[x];`) reaches here with `prov.is_local` set by
+                // `value_local_root`'s TEMP-ROOT arm — a root that has no
+                // NAME, because a temporary has none — and printed "local
+                // variable '?'". Its fixture was pinned on the prefix
+                // `cannot return reference to`, which matches all THREE
+                // messages this site can print, the two wrong ones included.
+                // Ask the same walk what it actually found: a temp root is a
+                // TEMPORARY, and that is the message the `&0i64` sibling
+                // already prints.
+                // MESSAGE ONLY — `prov` is untouched, so the `let`
+                // rvalue-EXTENSION rule (`let r: &[i64] = &[x];`, which Rust
+                // extends and which reports off `is_temp` alone) keeps
+                // admitting. That is precisely why the verdict could not
+                // carry this distinction and the report site must.
+                // ⚠ A **LITERAL** TERMINAL ONLY — MEASURED. `is_temporary_
+                // value_expr` also answers YES for a Call / MethodCall /
+                // ClosureBox, and taking those would have re-messaged two
+                // PINNED fail fixtures whose referent really is a named local:
+                // fail/bc_d1r3_f4_closure_local (`Box::new(move || *b)` over
+                // `&x`) and fail/bc_d1r4_n3_closure_struct_field_held. Both
+                // still refuse — only the STRING moved — which is exactly the
+                // kind of drift a prefix-only `.expected` cannot see, and the
+                // reason this one is now pinned in full. A retained borrow
+                // whose name this site cannot recover keeps its old message.
+                // `StructLit`/`TupleLit` are out for the same reason, measured
+                // on fail/bc_d1r4_n3_closure_struct_field_held: the returned
+                // `H { f: move || *b.p }` IS a struct literal, but what it
+                // dangles on is the local `c`, not the literal. The shape this
+                // repair is for is the ARRAY temporary reached through the
+                // slice family — `return &[x];` — and the aggregate spellings
+                // that really are temporaries arrive as `AddrOfTemp` and are
+                // answered before this block runs.
+                if (src.empty() && !is_temp) {
+                    bool temp_root_msg = false;
+                    lir_view::ExprRef term;
+                    const auto* pl = prog_.type_pool.impl();
+                    bool lit_term = false;
+                    if (value_local_root(er, pl, &temp_root_msg, &term).empty() &&
+                        temp_root_msg && term) {
+                        switch (term.kind()) {
+                            case Code::ArrLit:   case Code::LitInt:
+                            case Code::LitFloat: case Code::LitBool:
+                                lit_term = true; break;
+                            default: break;
+                        }
+                    }
+                    if (lit_term) is_temp = true;
+                }
             }
             // ⚠ MISSING LANGUAGE FEATURE, MEASURED, NOT A DEFECT OF THIS CHECK
             // (#69 class B — rvalue static promotion). Rust promotes `&<const
@@ -6214,7 +6606,25 @@ private:
             //     fn foo() -> &i64 { return &0i64; }
             //     fn foo() -> &'static i64 { let z: &'static i64 = &0i64; … }
             // are refused here — the annotated spelling included, so there is
-            // today no way to write the shape at all. Imported witness:
+            // today no way to write the shape at all.
+            // ⚠ #92 IS REFUTED AS WRITTEN, AND THE LIST ABOVE IS WHY. It
+            // enumerates BY SPELLING — `&0i64` under three ANNOTATIONS — and
+            // the property is "return a borrow of a temporary", whose FOUR
+            // spellings are `&<scalar lit>`, `&<tuple lit>`, `&<struct lit>`
+            // and `&<ARRAY lit>`. The first three were refused; the fourth,
+            // `fn foo() -> &[i64] { return &[0i64]; }`, COMPILED, LINKED and
+            // returned garbage (measured 81 where 1 is correct, and 55 where 3
+            // is correct for the NAMED-local twin `let a: [i64;2] = [x,x];
+            // return &a;`). It did not promote — it dangled. #92's stated
+            // repair site is wrong for it too: `&[0i64]` never reaches an
+            // `AddrOfTemp`, it is a `SliceLit`/`SlicePtr`, which is why the
+            // fix is two `case` labels in `prov_of` and not a change here.
+            // #92 should be re-filed as TWO things: a promotion feature for
+            // the three, and the dangling defect for the fourth — the latter
+            // CLOSED, pinned by fail/bc_slice_return_temp_array_fail +
+            // fail/bc_slice_return_local_array_fail with their admit twin
+            // pass/bc_slice_return_param_admit.
+            // Imported witness:
             // tests/imported/pass/regions/regions-bot (its sibling
             // regions/regions-bot-b147 is green and does not need promotion).
             // The repair belongs at the AddrOfTemp RECORDING path — a temp whose
@@ -7397,6 +7807,52 @@ private:
             // the lexical rule would and re-homes the escaping ones.
             if (esc_holder.empty()) release_dead_borrows(cursor);
         });
+        // ── D-b: THE TAIL EXPRESSION IS READ AFTER THE FRAME RETIRED ────────
+        // `let r: &i64 = { let t = mk(); &t.n };` admitted while the SAME
+        // borrow ASSIGNED to an outer variable inside the block refused — one
+        // property apart (`db_iso_tail_assign`, tail + assign, also admitted,
+        // so it is the tail POSITION and not the `let`). §B6's own record for
+        // the binding is made by `record_ref_sources` at the enclosing `let`,
+        // i.e. after this frame popped: `collect_ref_sources_paths`' AddrOf /
+        // AddrOfTemp arms are guarded by `var_has`, `t` is no longer a live
+        // variable, and NOTHING is recorded — proved, not inferred, by the n7
+        // pair (`[retgate] … srcs=[]` for the tail vs `srcs=[t,]` for the
+        // fn-scope twin, both channels flipping together on one property).
+        //
+        // THIS IS DOOR B'S OWN BUG IN A SECOND CHANNEL, and the comment above
+        // says so in the loan channel's words: "the hop ran AFTER visit_block
+        // returned, i.e. after pop_scope had already released the loan". The
+        // §B6 answer has to be taken at the same point, so it is taken here,
+        // beside the hop, over the frame this pop is about to erase. NOT a new
+        // deposit door: no map is written, the diagnostic is the one
+        // `check_live` already prints for E0597, and the population is
+        // `collect_ref_sources`, unchanged.
+        //
+        // Reported at the block rather than deferred to a later USE (which is
+        // what `dangling_` buys elsewhere): a value block's result escapes by
+        // construction, and rustc reports this shape whether or not the binding
+        // is ever read. Gated on a holder, so the plain statement-block arm of
+        // `visit` — which passes none — is untouched.
+        //
+        // ⚠ KEYED ON THE SLOT, NOT THE NAME (F5). The first cut of this check
+        // compared `tail_srcs` against `scopes_.back().declared` as STRINGS,
+        // and a shadowed name in the inner block produced a false E0597 —
+        // measured on a one-property pair whose only difference is the inner
+        // local's name (`o` vs `zz`). `dying_binding` is the shared predicate;
+        // pop_scope's `dangling_` deposit had the same defect and now reads it
+        // too, so there is one rule and not two.
+        if (esc_result && !esc_holder.empty()) {
+            std::vector<std::pair<std::string, RefSrc>> tail_srcs;
+            collect_ref_sources_paths(esc_result, std::string{}, tail_srcs);
+            for (auto& [sub, s] : tail_srcs)
+                if (dying_binding(scopes_.back(), s)) {
+                    report(cursor ? (uint32_t)cursor : 0, std::format(
+                        "'{}' does not live long enough: it is borrowed by '{}', "
+                        "which is used here after '{}' goes out of scope (E0597)",
+                        s.name, esc_holder, s.name));
+                    break;
+                }
+        }
         if (esc_result && !esc_holder.empty() &&
             is_borrow_carrying_type(esc_result.type(prog_.type_pool.impl()))) {
             std::vector<std::string> roots;
@@ -8300,9 +8756,10 @@ private:
             }
         }
         if (!through_ref) return;
-        std::vector<std::string> srcs = ref_sources_under(root);
-        if (srcs.empty()) return;
-        for (auto& src : srcs) {
+        std::vector<RefSrc> src_ids = ref_sources_under(root);
+        if (src_ids.empty()) return;
+        for (auto& src_id : src_ids) {
+            const std::string& src = src_id.name;
             if (src == root) continue;
             // NOT plain inherit_loans: a record whose TARGET is `src` itself is
             // the `&mut src` borrow that `root` was FORMED from. Making src a
@@ -9685,6 +10142,46 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                         report(line, std::format(
                             "cannot borrow '{}': '{}' is already mutably borrowed",
                             self_disp, root));
+                        break;
+                    }
+                    // ── D-d.2: THE RESERVATION COUNTER WAS NEVER READ HERE ──
+                    // `app(v.bm(0), v.pushret(2))` admitted while the SAME
+                    // mutation spelled as a free call — `app(v.bm(0),
+                    // vpush5(&mut v))` — refused, and so did every block form.
+                    // The filed property ("a nested call in argument position")
+                    // is WRONG and was refuted by probe: `d2j`, with no block at
+                    // all, admits; `d2i`/`d2f`/`d2m` all refuse. The property is
+                    // an AUTO-REF'D `&mut self` METHOD RECEIVER in argument
+                    // position, i.e. exactly the node this arm handles.
+                    // MECHANISM: `visit_args` routes a REF-KIND argument through
+                    // `take_ref_borrows`, so the first argument's `&mut self`
+                    // lands in `take_borrow`, which under `in_call_args_ > 0`
+                    // deposits a B82 mut RESERVATION rather than `mut_borrowed`.
+                    // `take_borrow` reads that counter back (its own B82 arm,
+                    // "another mut reservation in flight is still a conflict —
+                    // Rust rejects f(&mut x, &mut x) too") and refuses; this arm
+                    // read `mut_borrowed`, `shared_borrows` and both field
+                    // tables and never `mut_reservations`, so the second
+                    // argument's auto-ref walked straight past a live one. That
+                    // is the whole spread between the two spellings.
+                    // Sharpened, one property at a time: `p1`
+                    // `two(v.pushret(1), v.pushret(2))` admitted where rustc
+                    // says E0499, its explicit twin `p2` refused; `p3`/`p4`
+                    // admitted in BOTH orders, which is what says the receiver
+                    // neither takes a reservation nor consulted one — it takes
+                    // none by construction (this arm is check-only, B94), so
+                    // consulting is the whole of the missing half.
+                    // Spelling reused verbatim from take_borrow's B82 arm — not
+                    // minted. `is_mut` only: B82's reservation is deliberately
+                    // compatible with shared reads taken during the same
+                    // argument evaluation, which is what keeps `v.push(v.len())`
+                    // admitted (its own admit twin).
+                    // PAIR: fail/bc_recv_reservation_conflict_fail (refuse)
+                    //     + pass/bc_recv_reservation_disjoint_admit (admit).
+                    if (is_mut && sit->mut_reservations > 0) {
+                        report(line, std::format(
+                            "cannot borrow '{}' as mutable: already mutably borrowed",
+                            self_disp));
                         break;
                     }
                     if (is_mut && sit->shared_borrows > 0) {

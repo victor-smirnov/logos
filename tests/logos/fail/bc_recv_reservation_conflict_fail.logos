@@ -1,0 +1,24 @@
+// D-d.2 (class D) — AN AUTO-REF'D `&mut self` RECEIVER IN ARGUMENT POSITION
+// WALKED PAST A LIVE B82 MUT RESERVATION. `v.bm(0)` returns `&mut i64`, so its
+// receiver borrow is held ACROSS the call to `app`; `visit_args` routes that
+// ref-kind argument through `take_ref_borrows` -> `take_borrow`, which under
+// `in_call_args_ > 0` deposits a mut RESERVATION. The second argument's
+// auto-ref reaches the AddrOfTemp arm of `visit`, which read `mut_borrowed`,
+// `shared_borrows` and both field tables and never `mut_reservations` — while
+// `take_borrow` reads it back at its own B82 arm, which is why the same
+// mutation spelled as a free call (`vpush5(&mut v)`) refused all along.
+// ⚠ THE FILED PROPERTY WAS WRONG: not "a nested call in argument position" —
+// this fixture has no block and no nesting beyond the receiver.
+// TWIN: pass/bc_recv_reservation_disjoint_admit.
+package bc_recv_reservation_conflict_fail;
+struct V { a: [i64; 4], n: u64 }
+impl V {
+    fn bm(&mut self, i: u64) -> &mut i64 { return &mut self.a[i]; }
+    fn pushret(&mut self, x: i64) -> i64 { self.a[self.n] = x; self.n = self.n + 1u64; return 5i64; }
+}
+fn app(p: &mut i64, v: i64) -> i64 { *p = v; return v; }
+fn main() -> i32 {
+    let mut v: V = V { a: [0i64, 0i64, 0i64, 0i64], n: 0u64 };
+    let r: i64 = app(v.bm(0u64), v.pushret(2i64));
+    return r as i32;
+}

@@ -1,0 +1,23 @@
+// D-a (class D) — AN ANONYMOUS RVALUE TEMPORARY, ONCE IT PASSES THROUGH A CALL.
+// `let x: It = iter(&mk());` admitted while the named twin refused.
+// ⚠ THE FILED CONTROL MOVED TWO PROPERTIES (temporary->named AND let->assign)
+// and was REBUILT: `da_iso_tmp_assign` (temporary + assign) admits,
+// `da_iso_let_named` (named + let) refuses — so it is the temporary.
+// MECHANISM: prov_of's AddrOfTemp arm answers `{is_local, !is_temp}` for a
+// direct `&<rvalue>` on the RVALUE-LIFETIME-EXTENSION rule, and the Call arm
+// merged that through the call unchanged, while the `let` gate reports on
+// `is_temp` ALONE. Extension is a property of the CONSUMING SITE: `let r =
+// &mk();` extends (and still compiles — see the admit twin), `let r =
+// thru(&mk());` is E0716.
+// The rule is the MethodCall arm's, one arm up, for a temporary ARGUMENT.
+// TWIN: pass/bc_let_borrow_temp_extended_admit.
+package bc_let_borrow_temp_through_call_fail;
+struct Buf { n: i64 }
+#[borrow_carrying]
+struct It { p: &i64 }
+fn mk() -> Buf { return Buf { n: 7i64 }; }
+fn iter(b: &Buf) -> It { return It { p: &b.n }; }
+fn main() -> i32 {
+    let x: It = iter(&mk());
+    return *x.p as i32;
+}

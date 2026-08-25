@@ -764,6 +764,7 @@ private:
     std::vector<LoopBlocks> loop_stack_;
 
     int str_counter_ = 0;
+    int promoted_const_counter_ = 0;   // #92 const promotion
     int writ_lit_counter_ = 0;
 
     // Memoize EWritLit codegen by content. Identical blob bytes resolve to
@@ -1982,6 +1983,9 @@ private:
     mlir::Value gen_expr_kind(lir_view::EUnaryView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EAddrOfView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef);
+    // #92 const promotion — read-only static storage for `&<const expr>`.
+    // Null iff the shape is outside const_promote::is_const_value.
+    mlir::Value gen_promoted_const(lir_view::ExprRef e, TypeRef t);
     mlir::Value gen_expr_kind(lir_view::EDerefView v, TypeRef type);
     // True when `*operand` over a `*const/*mut dyn` is a genuine pointer-INTO-
     // storage (a container accessor return, e.g. `HashMap::get → *const Box<dyn>`)

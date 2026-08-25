@@ -2104,9 +2104,33 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     // A void/Never/error-typed rvalue has no temp to
                     // extend — keep the pre-existing inline spill shape
                     // (`&<unit call>` is degenerate; nothing to drop).
+                    //
+                    // ── #92 CONST PROMOTION TAKES PRECEDENCE OVER EXTENSION ──
+                    // In Rust `&<const literal>` is PROMOTED to `&'static`
+                    // before temporary-lifetime extension is even considered,
+                    // so there is no temporary to name and no drop to
+                    // schedule. The rewrite below would have put the literal
+                    // in a NAMED FRAME LOCAL (`__lit_temp_N`), which is
+                    // exactly what dangles when the reference is returned:
+                    // MEASURED on the imported witness
+                    // pass/regions/regions-bot — `let zero: &i64 = &0i64;
+                    // return zero;` refused with "cannot return reference to
+                    // local variable 'zero'" while the DIRECT `return &0i64;`
+                    // already promoted, `[retgate]` naming the spread in one
+                    // run (`srcs=[__lit_temp_0,]`). Keeping the anonymous
+                    // AddrOfTemp shape is what routes it to the promotion arm
+                    // that borrow_check and mlir_gen SHARE
+                    // (const_promote::is_const_value). `!ext_mut`: `&mut`
+                    // needs unique writable storage and is never promoted, in
+                    // Rust or here. A scalar literal has no destructor, so
+                    // dropping the extension costs nothing even when the
+                    // shared predicate later declines the shape (a char
+                    // literal): it then simply keeps today's frame lowering
+                    // AND today's refusal, which is what it had.
                     if (ltk == LogosType::Kind::Void ||
                         ltk == LogosType::Kind::Never ||
-                        ltk == LogosType::Kind::Error) {
+                        ltk == LogosType::Kind::Error ||
+                        (!ext_mut && is_scalar_lit)) {
                         auto rhs_e = builder().addr_of_temp(
                             std::move(lit_expr), ext_mut,
                             make_ref(ext_mut, lit_type));

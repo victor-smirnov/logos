@@ -1,0 +1,17 @@
+// D-c ADMIT TWIN. The new `prov_of` SliceLit/SlicePtr arms must not refuse the
+// shape the stdlib is built out of: a slice DERIVED FROM A PARAMETER (or from
+// `&self`) outlives the call and must still return. A rule that refused every
+// slice return would satisfy both refuse fixtures and be wrong.
+package bc_slice_return_param_admit;
+fn whole(a: &[i64; 3]) -> &[i64] { return a; }
+fn rng(a: &[i64]) -> &[i64] { return &a[0..2]; }
+struct H { v: [i64; 3] }
+impl H { fn as_slice(&self) -> &[i64] { return &self.v; } }
+fn main() -> i32 {
+    let arr: [i64; 3] = [7i64, 8i64, 9i64];
+    let w: &[i64] = whole(&arr);
+    let r: &[i64] = rng(w);
+    let h: H = H { v: [1i64, 2i64, 3i64] };
+    let s: &[i64] = h.as_slice();
+    return (w[0] + r[1] + s[2]) as i32;
+}

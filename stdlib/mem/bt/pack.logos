@@ -556,7 +556,9 @@ fn pk_private<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, cur: u64, is
         copy_bytes(P::pkd(n) as *mut u8, sa as *const u8, sa.block_size() as i64);
         P::set_child_slot(n, P::child_slot(node));
         if is_branch {
-            let cb: ColRef = pk_slot(&node_view_at(n), PKB_CHILD);
+            // E0716 — see btvec_node_total: bind the view the ColRef borrows.
+            let nv: NodeView = node_view_at(n);
+            let cb: ColRef = pk_slot(&nv, PKB_CHILD);
             let cc: u64 = cb.size();
             let mut i: u64 = 0u64;
             while i < cc {
@@ -633,7 +635,9 @@ fn pk_merged_val_span<P: NodeProfile>(m: &PkMerged, i: u64) -> &[u8] {
 // sources' live byte-offset prefix sums (segment-additive: the A1 axiom).
 fn pk_merged_payload<P: NodeProfile>(m: &PkMerged, i0: u64, r: u64) -> u64 {
     unsafe {
-        let lb: ColRef = pk_slot(&node_view_at(m.leaf), 1u32);
+        // E0716 — bind the view the ColRef borrows.
+        let lnv: NodeView = node_view_at(m.leaf);
+        let lb: ColRef = pk_slot(&lnv, 1u32);
         let bb: PdtBuf = pdtbuf_adopt(m.vbuf);
         let e: u64 = i0 + r;
         let mut total: u64 = 0u64;
@@ -1515,7 +1519,9 @@ pub fn btss_batch_insert<P: NodeProfile>(snap: &MemorySnapshot, root: *mut u8, l
             node = snap.resolve(pk_slot(&a, PKB_CHILD).get(0u32, ci)).ptr();
             lvl = lvl - 1u32;
         }
-        let kb: ColRef = pk_slot(&node_view_at(node), 0u32);
+        // E0716 — bind the view the ColRef borrows.
+        let knv: NodeView = node_view_at(node);
+        let kb: ColRef = pk_slot(&knv, 0u32);
         let pos: u64 = pk_lower_bound(&kb, first, signed);
         if pos < kb.size() {
             if !pk_lt(last, kb.get(0u32, pos), signed) {

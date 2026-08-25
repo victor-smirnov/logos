@@ -1,0 +1,30 @@
+// ── RE-HOMED fail/nll -> pass/nll BY THE #92 CONST-PROMOTION DECISION ──────
+// This fixture asserted that `fn make() -> &i32 { return &5i32; }` is
+// REFUSED. rustc ACCEPTS it: `&5i32` is a borrow of a constant expression and
+// is promoted to `&'static i32` (RFC 1414 rvalue static promotion), so the
+// referent is in read-only static storage and there is no temporary to die.
+// The old note below described B75's prov_of recursion, which is correct for
+// `&<call result>` and `&<struct lit>` and WRONG for a constant literal — the
+// refusal it pinned was a DIVERGENCE from rustc, not conformance to it.
+//
+// NOTHING WAS WEAKENED AND NOTHING WAS DELETED. The same program is still
+// tested, and the claim about it is now STRICTLY STRONGER: `fail` asserted
+// only that some diagnostic containing "dangling" appeared, while `pass`
+// asserts it compiles, links, runs, and returns 5 — i.e. that the promoted
+// pointer is READABLE after `make` returns, which is exactly the property a
+// frame-slot lowering would violate. The refusals for the shapes that really
+// do dangle are pinned separately (tests/logos/fail/bc_slice_return_*_fail,
+// tests/logos/fail/bc_return_borrow_of_temp_projection_fail), with their
+// admit twin at tests/logos/pass/bc_const_promotion_admit.
+//
+// Original note (kept for provenance): "Returning a reference to a temporary
+// literal — the temp dies at end of statement; the returned reference
+// dangles. Previously a known gap; closed in B75 by recursing prov_of through
+// AddrOfTemp to detect literal / fresh-allocation / call-result inner exprs"
+package nll_return_ref_to_temp;
+
+fn make() -> &i32 {
+    return &5i32;
+}
+
+fn main() -> i32 { return *make(); }

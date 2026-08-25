@@ -1,0 +1,22 @@
+// ── ADMIT TWIN for MISS 1 + MISS 2 ────────────────────────────────────────
+// The new `prov_of` SliceIndex arm and the `forms_borrow_at_call` read in its
+// Call arm must not refuse the shape the stdlib is built out of: an element or
+// sub-range borrow DERIVED FROM A PARAMETER outlives the call and must still
+// return. A rule that refused every slice element or sub-range would satisfy
+// both refuse fixtures and be wrong.
+package bc_slice_borrow_param_admit;
+fn first(a: &[i64]) -> &i64 { return &a[0u64]; }
+fn head2(a: &[i64]) -> &[i64] { return &a[0..2]; }
+fn nested(a: &[i64]) -> &[i64] { return &head2(a)[0..1]; }
+struct H { v: [i64; 3] }
+impl H { fn elem(self: &Self) -> &i64 { return &self.v[1u64]; } }
+fn main() -> i32 {
+    let arr: [i64; 3] = [4i64, 5i64, 6i64];
+    let s: &[i64] = &arr;
+    let f: &i64 = first(s);
+    let h: &[i64] = head2(s);
+    let n: &[i64] = nested(s);
+    let o: H = H { v: [1i64, 2i64, 3i64] };
+    let e: &i64 = o.elem();
+    return (*f + h[1] + n[0] + *e) as i32;
+}

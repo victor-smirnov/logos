@@ -1,0 +1,30 @@
+// D-d.2 ADMIT TWIN, and it is what separates "consults the reservation" from
+// "refuses `&mut self` receivers":
+//   * `v.push(v.len())` — TWO-PHASE BORROW. B82's reservation is deliberately
+//     compatible with shared reads taken during the SAME argument evaluation,
+//     which is why the new check is gated on `is_mut`.
+//   * `two(v.pushret(1), v.pushret(2))` — two `&mut self` receivers whose
+//     borrows each END at their own call: nothing is held across, no
+//     reservation survives, and Rust admits it. Refusing this would be the
+//     over-refusal the `is_mut && mut_reservations` gate is narrow to avoid.
+//   * `app(v.bm(0), w.pushret(2))` — a DISJOINT receiver. The reservation is on
+//     `v`; `w` is a different root and must be untouched.
+package bc_recv_reservation_disjoint_admit;
+struct V { a: [i64; 4], n: u64 }
+impl V {
+    fn len(&self) -> u64 { return self.n; }
+    fn get(&self, i: u64) -> i64 { return self.a[i]; }
+    fn bm(&mut self, i: u64) -> &mut i64 { return &mut self.a[i]; }
+    fn push(&mut self, x: i64) { self.a[self.n] = x; self.n = self.n + 1u64; }
+    fn pushret(&mut self, x: i64) -> i64 { self.a[self.n] = x; self.n = self.n + 1u64; return 5i64; }
+}
+fn app(p: &mut i64, x: i64) -> i64 { *p = x; return x; }
+fn two(a: i64, b: i64) -> i64 { return a + b; }
+fn main() -> i32 {
+    let mut v: V = V { a: [0i64, 0i64, 0i64, 0i64], n: 0u64 };
+    let mut w: V = V { a: [0i64, 0i64, 0i64, 0i64], n: 0u64 };
+    v.push(v.len() as i64);
+    let t: i64 = two(v.pushret(1i64), v.pushret(2i64));
+    let u: i64 = app(v.bm(0u64), w.pushret(3i64));
+    return (t + u + v.get(1u64) + w.get(0u64)) as i32;
+}

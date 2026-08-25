@@ -28,7 +28,13 @@ fn main() -> i32 {
     let inner: Inner = Inner { v: 0 };
     let outer: Outer = Outer { name: "o", inner: inner };
 
-    let d1: &dyn Speak = as_dyn(&Inner { v: 5 });
+    // `as_dyn(&Inner { v: 5 })` was E0716: the struct-literal temporary drops
+    // at the end of the statement while `d1` borrows into it past it (rustc
+    // rejects the same line). Bound to a local so the owner outlives the
+    // borrow. THE SUBJECT OF THIS FIXTURE IS UNCHANGED — a `&dyn Speak`
+    // returned from a `&T` parameter, dispatched below, exit 42.
+    let tmp: Inner = Inner { v: 5 };
+    let d1: &dyn Speak = as_dyn(&tmp);
     if d1.level() != 7 { return 1; }
 
     let d2: &dyn Speak = outer.child();

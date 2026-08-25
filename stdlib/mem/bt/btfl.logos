@@ -1264,7 +1264,11 @@ impl<const N: u32, P: NodeProfile> BtBranch<u64, N> for BtflBranchRef<N, P> {
     }
     fn set_child_addr(self: &mut BtflBranchRef<N, P>, i: u32, ptr: *mut u8) {
         unsafe {
-            let mut cb: ColRef = br_child(&node_view_at(self.mem));
+            // `let mut cb: ColRef = br_child(&node_view_at(self.mem));` was
+            // DEAD — declared, never read — and it was an E0716: `ColRef` is
+            // `#[borrow_carrying]` and the `&node_view_at(..)` it borrows is a
+            // temporary that drops at the end of the statement. Deleted with
+            // the round that made it visible.
             let mut row: Vec<u64> = vec_new::<u64>();
             row.push(ptr as u64);
             node_view_at(self.mem).col_mut(BR_CHILD).set_row(i as u64, &row);
@@ -1278,7 +1282,10 @@ impl<const N: u32, P: NodeProfile> BtBranch<u64, N> for BtflBranchRef<N, P> {
     }
     fn totals(self: &BtflBranchRef<N, P>, out: &mut [u64; N]) {
         unsafe {
-            let b: ColRef = br_pdt(&node_view_at(self.mem));
+            // E0716 — bind the view the ColRef borrows (the idiom `update_row`
+            // below already uses).
+            let nv: NodeView = node_view_at(self.mem);
+            let b: ColRef = br_pdt(&nv);
             let mut sym: u32 = 0u32;
             while sym < N {
                 out[sym as i64] = b.sum_all(BRC_CNT0 + sym);
@@ -1303,7 +1310,8 @@ impl<const N: u32, P: NodeProfile> BtBranch<u64, N> for BtflBranchRef<N, P> {
     }
     fn update_row(self: &mut BtflBranchRef<N, P>, i: u32, sep: u64, cnt: &[u64; N]) {
         unsafe {
-            let mut ub: ColRef = br_pdt(&node_view_at(self.mem));
+            // `let mut ub: ColRef = br_pdt(&node_view_at(self.mem));` was
+            // DEAD (the writes below go through `nv`) and was the same E0716.
             let mut row: Vec<u64> = vec_new::<u64>();
             row.push(sep);
             let mut sym: u32 = 0u32;
@@ -2589,7 +2597,9 @@ pub fn btfl_batch_insert<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, 
             node = snap.resolve(br_child(&a).get(0u32, btfl_find_child(&a, first) as u64)).ptr();
             lvl = lvl - 1u32;
         }
-        let kb: ColRef = lf_pdt(&node_view_at(node), 0u32);
+        // E0716 — bind the view the ColRef borrows (same shape as `a` above).
+        let knv: NodeView = node_view_at(node);
+        let kb: ColRef = lf_pdt(&knv, 0u32);
         let pos: u64 = pdt_lower_bound_max(&kb.as_buf(), first) as u64;
         if pos < kb.size() {
             if kb.get(0u32, pos) <= last {

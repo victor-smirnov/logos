@@ -1,0 +1,16 @@
+// ── MISS 2 (class D verify) — THE RANGE SPELLING OVER A LOCAL ─────────────
+// The round wrote the ADMIT half of this exact spelling
+// (pass/bc_slice_return_param_admit's `fn rng(a: &[i64]) -> &[i64] { return
+// &a[0..2]; }`) and never the refuse half. `&a[0..2]` lowers to
+// `Call(slice_get_range, [SliceLit{AddrOfTemp(a)}, lo, hi])`, and `prov_of`'s
+// Call arm filtered the SliceLit argument out by its TYPE — `is_plain_ref_kind`
+// is not Slice — while `collect_ref_sources_paths` admitted it by NODE through
+// `forms_borrow_at_call`, a predicate written for this exact lowering and
+// readable at exactly one site. `[retgate]` printed the spread in one run:
+// `prov{loc=0 tmp=0 np=0} srcs=[a,]`.
+// RUNTIME WITNESS: exit code IS the clobber constant (9 -> 9, 40 -> 40,
+// 71 -> 71) where 1 is correct.
+// TWIN: pass/bc_slice_borrow_param_admit (the same spelling over a PARAM).
+package bc_slice_range_return_local_fail;
+fn function(x: i64) -> &[i64] { let a: [i64; 3] = [x, x, x]; return &a[0..2]; }
+fn main() -> i32 { return function(1i64)[0] as i32; }

@@ -6,6 +6,7 @@
 #include "llvm_compat.hpp"
 
 #include <logos/compiler/sha256.hpp>
+#include <logos/compiler/const_promote.hpp>   // #92 const promotion (shared predicate)
 #include <logos/writ/compat.hpp>
 #include <logos/writ/compat.hpp>
 #include <logos/writ/compat.hpp>
@@ -1600,11 +1601,116 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
     return it->second;
 }
 
+// ── #92 CONST PROMOTION — the EMITTER half ─────────────────────────────────
+//
+// The tail of gen_expr_kind(EAddrOfTempView) is `create_entry_alloca` + store:
+// `&0i64` and `&[1i64,2i64]` take the address of a FRAME SLOT. That is what
+// makes `fn f() -> &i64 { return &0i64; }` a real dangle rather than merely a
+// refused one, so relaxing the borrow checker alone would have shipped a
+// permissive defect with a runtime witness. Promotion is therefore a pair:
+// borrow_check stops refusing exactly the shapes this function can put in
+// read-only static storage (const_promote::is_const_value is the SHARED
+// predicate — see include/logos/compiler/const_promote.hpp).
+//
+// The empty array is emitted as a one-byte aligned global rather than a
+// zero-length one: `&[]`'s data pointer is never dereferenced (its len is 0),
+// and a nonnull aligned address is what Rust's empty slice carries too.
+mlir::Value MLIRGenImpl::gen_promoted_const(lir_view::ExprRef e, TypeRef t) {
+    namespace ec = lir_schema::expr;
+    if (!e) return nullptr;
+    auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+    if (!parent_mod) return nullptr;
+    std::string gname = "__logos_promoted." + std::to_string(promoted_const_counter_++);
+    mlir::Type    gty;
+    mlir::Attribute init;
+    uint64_t align = 8;
+
+    if (e.kind() == ec::Code::ArrLit) {
+        std::vector<lir_view::ExprRef> elems;
+        lir_view::EArrLitView{e}.each_elem(
+            [&](lir_view::ExprRef el) { elems.push_back(el); });
+        if (elems.empty()) {
+            auto i8 = builder_.getIntegerType(8);
+            gty  = mlir::LLVM::LLVMArrayType::get(i8, 1);
+            init = builder_.getStringAttr(llvm::StringRef("\0", 1));
+        } else {
+            TypeRef et = t ? TypeRef(t).elem() : TypeRef(nullptr);
+            auto elem_ty = et ? logos_to_mlir(et) : mlir::Type{};
+            if (!elem_ty) return nullptr;
+            auto shaped = mlir::RankedTensorType::get(
+                {(int64_t)elems.size()}, elem_ty);
+            if (auto ity = mlir::dyn_cast<mlir::IntegerType>(elem_ty)) {
+                llvm::SmallVector<llvm::APInt> vals;
+                for (auto el : elems) {
+                    int64_t x = el.kind() == ec::Code::LitBool
+                        ? (lir_view::ELitBoolView{el}.value() ? 1 : 0)
+                        : lir_view::ELitIntView{el}.value();
+                    vals.emplace_back(ity.getWidth(), (uint64_t)x, /*isSigned=*/true);
+                }
+                init = mlir::DenseElementsAttr::get(shaped, vals);
+            } else if (auto fty = mlir::dyn_cast<mlir::FloatType>(elem_ty)) {
+                llvm::SmallVector<llvm::APFloat> vals;
+                for (auto el : elems) {
+                    if (el.kind() != ec::Code::LitFloat) return nullptr;
+                    double d = lir_view::ELitFloatView{el}.value();
+                    llvm::APFloat f(d);
+                    bool lost = false;
+                    f.convert(fty.getFloatSemantics(),
+                              llvm::APFloat::rmNearestTiesToEven, &lost);
+                    vals.push_back(f);
+                }
+                init = mlir::DenseElementsAttr::get(shaped, vals);
+            } else {
+                return nullptr;
+            }
+            gty = mlir::LLVM::LLVMArrayType::get(elem_ty, elems.size());
+        }
+    } else {
+        auto sty = t ? logos_to_mlir(t) : mlir::Type{};
+        if (!sty) return nullptr;
+        if (auto ity = mlir::dyn_cast<mlir::IntegerType>(sty)) {
+            int64_t x = e.kind() == ec::Code::LitBool
+                ? (lir_view::ELitBoolView{e}.value() ? 1 : 0)
+                : lir_view::ELitIntView{e}.value();
+            init = builder_.getIntegerAttr(ity, x);
+        } else if (auto fty = mlir::dyn_cast<mlir::FloatType>(sty)) {
+            if (e.kind() != ec::Code::LitFloat) return nullptr;
+            init = builder_.getFloatAttr(fty, lir_view::ELitFloatView{e}.value());
+        } else {
+            return nullptr;
+        }
+        gty = sty;
+    }
+
+    auto save_pt = builder_.saveInsertionPoint();
+    builder_.setInsertionPointToStart(parent_mod.getBody());
+    builder_.create<mlir::LLVM::GlobalOp>(
+        loc_, gty, /*isConstant=*/true, mlir::LLVM::Linkage::Internal,
+        gname, init, align);
+    builder_.restoreInsertionPoint(save_pt);
+    return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), gname);
+}
+
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef result_t) {
     namespace ec = lir_schema::expr;
     auto inner_ref = v.inner();
     if (!inner_ref) return nullptr;
     TypeRef inner_t = inner_ref.type(pool_impl());
+
+    // #92 CONST PROMOTION. Must run BEFORE every place-address special case
+    // below: none of them apply to a literal, and the tail they all fall
+    // through to is the frame alloca this replaces. Fails CLOSED — if the
+    // emitter cannot build the initializer the compile stops, because
+    // borrow_check has already stopped refusing this borrow on the strength
+    // of the SAME predicate and a silent fall-through to the alloca would be
+    // an admitted dangle.
+    if (!v.is_mut() && logos::compiler::const_promote::is_const_value(inner_ref, pool_impl())) {
+        if (auto g = gen_promoted_const(inner_ref, inner_t)) return g;
+        return bug_null("const promotion selected a shape the emitter cannot "
+                        "materialise in static storage — borrow_check has "
+                        "already admitted this borrow on the same predicate, "
+                        "so a frame alloca here would be an admitted dangle");
+    }
 
     // G163-2: `&mut <place>` over a chained index / deref-tuple-index place —
     // `&mut a[i][j]`, `&mut (*p).0`, deep field+index mixes. The recursive

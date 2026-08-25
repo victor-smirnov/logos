@@ -1,0 +1,17 @@
+// D-b (class D) — A BLOCK TAIL BORROW OF A BLOCK-LOCAL. The tail expression is
+// read AFTER the frame retired its locals: §B6's record for `r` is made by
+// `record_ref_sources` at the enclosing `let`, by which point `t` is gone and
+// `collect_ref_sources_paths`' `var_has` guard emits nothing.
+// ISOLATING CONTROL, one PROPERTY: the same borrow ASSIGNED to an outer
+// variable but STILL IN TAIL POSITION also admitted before the fix, so it is
+// the tail position and not the `let`.
+// TWIN: pass/bc_block_tail_borrow_outer_admit (a tail borrow of an OUTER local
+// must still admit — a rule that refused every value block would satisfy this
+// fixture and be wrong).
+package bc_block_tail_borrow_local_fail;
+struct Buf { n: i64 }
+fn mk() -> Buf { return Buf { n: 7i64 }; }
+fn main() -> i32 {
+    let r: &i64 = { let t: Buf = mk(); &t.n };
+    return *r as i32;
+}

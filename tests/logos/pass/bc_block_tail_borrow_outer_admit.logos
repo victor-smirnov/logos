@@ -1,0 +1,17 @@
+// D-b ADMIT TWIN. The check is on the SOURCE dying with the frame, not on the
+// tail position: a value block that declares locals of its own and whose tail
+// borrows an OUTER local must still admit, and so must a tail that hands on a
+// reference the block merely COPIED (the VarRef arm emits a binding's SOURCES,
+// never the binding). Without both, "tracks tail borrows" is indistinguishable
+// from "refuses value blocks".
+package bc_block_tail_borrow_outer_admit;
+struct Buf { n: i64 }
+fn mk() -> Buf { return Buf { n: 7i64 }; }
+fn main() -> i32 {
+    let outer: Buf = mk();
+    let r: &i64 = { let scratch: i64 = 1i64; let _u: i64 = scratch; &outer.n };
+    let q: &i64 = { let p: &i64 = &outer.n; p };
+    let c: bool = true;
+    let s: &i64 = if c { let scratch2: i64 = 2i64; let _v: i64 = scratch2; &outer.n } else { &outer.n };
+    return (*r + *q + *s) as i32;
+}

@@ -1,0 +1,7 @@
+// D-c, the half that is NOT a temporary at all: a NAMED local array returned as
+// a slice. Same missing `prov_of` arms; `[retgate]` printed
+// `prov{loc=0 tmp=0 np=0}` while its own `srcs=[a,]` named the local. Measured
+// before the fix: exit 55 where 3 is correct.
+package bc_slice_return_local_array_fail;
+fn function(x: i64) -> &[i64] { let a: [i64; 2] = [x, x]; return &a; }
+fn main() -> i32 { let s: &[i64] = function(3i64); return s[0u64] as i32; }

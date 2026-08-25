@@ -1,0 +1,37 @@
+// ── MISS 3 (class D verify) — THE ADMIT TWIN OF A NAME-KEYED OVER-REFUSAL ──
+// D-b's tail check compared §B6 SOURCE NAMES against `scopes_.back().declared`
+// as STRINGS, and pop_scope's `dangling_` deposit had the same defect, so a
+// SHADOWED NAME in an inner block produced a false E0597: the outer `Buf o`
+// outlives the borrow, the inner `o` is an `i64` nobody borrows, and only the
+// SPELLING coincided. One-property isolating pair — the same two programs with
+// the inner local named `zz` were already ADMITTED.
+// A lookup key is not an identity: the fix keys on the dense binding SLOT (F5,
+// which BorrowRecord::holder_slot already used for loan lifetimes), and ONE
+// predicate — `dying_binding` — now serves both readers.
+// CONTROL REVERT, stated: slot comparison removed from `dying_binding`,
+// REBUILT -> both halves below refuse (rc 1); restored and rebuilt -> rc 0,
+// while fail/bc_block_tail_borrow_local_fail (the genuine tail dangle) and its
+// scope-exit sibling stay at rc 1 throughout.
+// TWIN: fail/bc_block_tail_borrow_local_fail (refuse).
+package bc_block_tail_shadowed_name_admit;
+struct Buf { n: i64 }
+fn mk() -> Buf { return Buf { n: 7i64 }; }
+
+// (a) D-b's channel: the borrow is the BLOCK TAIL, and the block declares a
+//     shadowing `o` after the borrow was formed.
+fn tail_channel() -> i64 {
+    let o: Buf = mk();
+    let r: &i64 = { let p: &i64 = &o.n; let o: i64 = 1i64; let _u: i64 = o; p };
+    return *r;
+}
+
+// (b) pop_scope's `dangling_` channel: the borrow is formed OUTSIDE, and an
+//     inner block declares and retires a shadowing `o`.
+fn scope_channel() -> i64 {
+    let o: Buf = mk();
+    let r: &i64 = &o.n;
+    { let o: i64 = 1i64; let _u: i64 = o; }
+    return *r;
+}
+
+fn main() -> i32 { return (tail_channel() + scope_channel()) as i32; }

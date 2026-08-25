@@ -1,0 +1,20 @@
+// ── MISS 1 (class D verify) — THE THIRD MEMBER OF THE SLICE FAMILY ─────────
+// D-c added `SliceLit` and `SlicePtr` to `prov_of` and named the pair it was
+// mirroring as SliceLit/SLICE_INDEX — then added the wrong second member.
+// `SliceIndex` (expr code 24) was NAMED AND NOT ADDED, so an ELEMENT borrow of
+// a slice over a local array still compiled and still dangled.
+// RUNTIME WITNESS, not "it admits": with an intervening frame-stomping call
+// and the clobber constant varied to defeat a lucky-stable read, the exit code
+// IS the constant — 9 -> 9, 40 -> 40, 71 -> 71 — where 1 is correct.
+// ⚠ THE PINNED MESSAGE SAYS "temporary value" THOUGH THE REFERENT IS THE NAMED
+// LOCAL `a`, and that is PRE-EXISTING, not this fixture's doing: the report
+// site sets `is_temp` from `er.kind() == AddrOfTemp` before any walk runs, so
+// every `return &<place>;` reads that way. Pinned AS IT STANDS rather than
+// left on a prefix that matches three different messages; re-messaging it
+// would move `.expected` files this round did not measure.
+// TWIN: pass/bc_slice_borrow_param_admit (`&a[0u64]` over a PARAM slice must
+// still return — a rule that refused every element borrow would satisfy this
+// fixture and be wrong).
+package bc_slice_index_return_local_fail;
+fn function() -> &i64 { let a: [i64; 2] = [1i64, 2i64]; let s: &[i64] = &a; return &s[0u64]; }
+fn main() -> i32 { return *function() as i32; }

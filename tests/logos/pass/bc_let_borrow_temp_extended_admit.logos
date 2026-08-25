@@ -1,0 +1,17 @@
+// D-a ADMIT TWIN, and it is the whole reason the fix went into the Call arm
+// rather than into prov_of's AddrOfTemp arm. RVALUE LIFETIME EXTENSION IS REAL:
+// `let r = &mk();` and `let r = &mk().n;` keep the temporary alive as long as
+// the binding, in Rust and here, and must still compile. A rule that refused
+// every borrow of a temporary would satisfy the refuse fixture and be wrong.
+// The DIRECT forms never reach the Call arm at all, so they are untouched.
+package bc_let_borrow_temp_extended_admit;
+struct Buf { n: i64 }
+fn mk() -> Buf { return Buf { n: 7i64 }; }
+fn keep(b: &Buf) -> &i64 { return &b.n; }
+fn main() -> i32 {
+    let r: &Buf = &mk();
+    let f: &i64 = &mk().n;
+    let owned: Buf = mk();
+    let thru: &i64 = keep(&owned);
+    return (r.n + *f + *thru) as i32;
+}

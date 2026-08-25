@@ -1,0 +1,12 @@
+// D-b, the IF-ARM spelling of the same tail position — each arm lowers to a
+// block whose TAIL is the borrow, and both reach the same Door-B site. Filed
+// as UNATTRIBUTED in the diagnosis (only the plain block had its own control
+// pair); measured here, it moves with the plain block on the same one line.
+package bc_if_tail_borrow_local_fail;
+struct Buf { n: i64 }
+fn mk() -> Buf { return Buf { n: 7i64 }; }
+fn main() -> i32 {
+    let c: bool = true;
+    let r: &i64 = if c { let t: Buf = mk(); &t.n } else { &0i64 };
+    return *r as i32;
+}

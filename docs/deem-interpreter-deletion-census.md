@@ -3775,8 +3775,439 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # 2162 -> 2164), re-derived the same way; glob unmoved at 191 and doors unmoved
 # at 36 = 10 + 26 — neither fixture declares a container family or a `direct`
 # output form.
-REGISTRY-ALL         7577
-REGISTRY-NOIMPORTED  3894
+# 2026-08-24 (CLASS D, cell D-c — THE ARRAY-LITERAL SPELLING OF A RETURNED
+# TEMPORARY BORROW, and the NAMED-local twin that is not a temporary at all.
+# `fn f(x: i64) -> &[i64] { return &[x]; }` compiled, linked and returned 81
+# where 1 is correct; `let a: [i64;2] = [x,x]; return &a;` returned 55 where 3
+# is correct. `LOGOS_DUMP_RETGATE=1` proved the return gate is REACHED
+# (`retkind=26 typed=1`) and answers `prov{loc=0 tmp=0 np=0}` — while the SAME
+# trace line prints `srcs=[a,]`, because `collect_ref_sources_paths` has carried
+# the SliceLit/SliceIndex pair since D1 residuals R1/R2 and `prov_of` never got
+# them. NOT a new mechanism and NOT a new deposit door: two `case` labels in an
+# existing switch, mirroring the pair the sibling walk already has. SlicePtr is
+# the node the array->slice coercion actually returns (kind 26, not 23).
+#   src/compiler/borrow_check.cpp   prov_of: case SliceLit, case SlicePtr
+#   tests/logos/fail/bc_slice_return_temp_array_fail.logos   (+ .expected)
+#   tests/logos/fail/bc_slice_return_local_array_fail.logos  (+ .expected)
+#   tests/logos/pass/bc_slice_return_param_admit.logos       (+ .expected)
+# CONTROL REVERT, stated: with the two arms deleted and REBUILT, both refuse
+# fixtures rc 0 (admitted) and the admit twin rc 0; restored and rebuilt,
+# rc 1 / rc 1 / rc 0. The green checkpoint was re-proved between the two.
+# ⚠ AND IT REFUTES TASK #92 AS WRITTEN. #92's list lives verbatim at
+# src/compiler/borrow_check.cpp ("MISSING LANGUAGE FEATURE, MEASURED, NOT A
+# DEFECT") and enumerates `&0i64` under three ANNOTATIONS, concluding "there is
+# today no way to write the shape at all". Re-measured: the three still refuse,
+# but `fn foo() -> &[i64] { return &[0i64]; }` compiled — the enumeration was BY
+# SPELLING, and the property is "return a borrow of a temporary", whose four
+# spellings are `&<scalar lit>`, `&<tuple lit>`, `&<struct lit>` (all refused)
+# and `&<array lit>` (admitted, and DANGLING, not promoted). #92's stated repair
+# site is also wrong for the missing member: `&[0i64]` never reaches an
+# `AddrOfTemp` — it is a SliceLit. #92 should be re-filed as TWO things: a
+# promotion feature for the three, and this dangling defect for the fourth,
+# which this row closes.
+#   PREDICTED  ctest -N  7577 -> 7580  (+3: 1 pass + 2 fail; tier_commit 46
+#              unmoved — a fail fixture carries no tier_commit label and this
+#              pass fixture is not in the tier's population)
+#   MEASURED   ctest -N  7580 / 3897 / 46          exact
+# Pins re-derived BY DIRECT FILE LISTING, not by arithmetic:
+# tests/logos/pass/*.logos 2358 -> 2359, tests/logos/fail/*.logos 805 -> 807,
+# tests/logos/*.sh 66 -> 66. The direct-door gate's corpus/nonglob moved with
+# them (2358 -> 2359, 2167 -> 2168), re-derived the same way; glob unmoved at
+# 191 and doors unmoved at 36 = 10 + 26.
+# 2026-08-24 (CLASS D, cell D-b — A BLOCK TAIL BORROW OF A BLOCK-LOCAL, i.e.
+# DOOR B'S OWN BUG IN A SECOND CHANNEL. `let r: &i64 = { let t = mk(); &t.n };`
+# admitted. The isolating control differs in ONE PROPERTY, not one line: the
+# import's control moved TWO (temporary->named AND let->assign), so it was
+# rebuilt — `db_iso_tail_assign` (tail + ASSIGN) also admitted, which is what
+# proves it is the tail POSITION and not the `let`.
+# MECHANISM, proved not inferred: §B6's record for `r` is made by
+# `record_ref_sources` at the enclosing `let`, i.e. AFTER `visit_block` popped;
+# `collect_ref_sources_paths`' AddrOf/AddrOfTemp arms are guarded by `var_has`,
+# a LIVENESS filter, so a popped `t` emits nothing. The n7 pair settles it in
+# one run: `[retgate] … prov{loc=0 tmp=0 np=0} srcs=[]` for the tail against
+# `prov{loc=1 …} srcs=[t,]` for the fn-scope twin — both channels flipping on
+# one property. ⚠ THE FIRST HYPOTHESIS WAS WRONG AND WAS REFUTED BY PROBE, not
+# argued away: `db_stale_name` predicted a recorded-but-late entry tripping on a
+# later unrelated `t` and admitted (rc 0) — nothing is recorded at all.
+# `visit_block`'s own comment already states this bug in the LOAN channel's
+# words ("the hop ran AFTER visit_block returned, i.e. after pop_scope had
+# already released the loan"). The §B6 answer is now taken at the SAME point,
+# beside that hop, over the frame the pop is about to erase. No map is written
+# and no deposit door is added; the diagnostic is `check_live`'s existing E0597
+# string and the population is `collect_ref_sources`, unchanged.
+#   src/compiler/borrow_check.cpp   visit_block, before pop_scope
+#   tests/logos/fail/bc_block_tail_borrow_local_fail.logos   (+ .expected)
+#   tests/logos/fail/bc_if_tail_borrow_local_fail.logos      (+ .expected)
+#   tests/logos/pass/bc_block_tail_borrow_outer_admit.logos  (+ .expected)
+# CONTROL REVERT, stated: block removed and REBUILT -> db_probe rc 0,
+# n4_tail_if rc 0, n5_tail_match rc 0, and the correct twin db_iso_let_noblock
+# rc 0; restored and rebuilt -> rc 1 / 1 / 1 / 0.
+# ⚠ THE IF- AND MATCH-ARM TAILS CAME WITH IT and were measured, not assumed —
+# both lower to a block whose tail is the borrow and both reach this site. The
+# LOOP-BREAK tail (`break &t.n`) and the RETURN tail (`return { let t = …;
+# &t.n };`) DO NOT: they pass no escaping result here and STAY OPEN, with their
+# probes recorded (n6_loop_break, n7_return_tail, both rc 0).
+#   PREDICTED  ctest -N  7580 -> 7583  (+3: 1 pass + 2 fail)
+#   MEASURED   ctest -N  7583 / 3900 / 46          exact
+# Pins re-derived BY DIRECT FILE LISTING: tests/logos/pass/*.logos 2359 -> 2360,
+# tests/logos/fail/*.logos 807 -> 809, tests/logos/*.sh 66 -> 66. The
+# direct-door gate's corpus/nonglob moved with them (2359 -> 2360,
+# 2168 -> 2169); glob unmoved at 191, doors unmoved at 36 = 10 + 26.
+# 2026-08-24 (CLASS D, cell D-d.2 — AN AUTO-REF'D `&mut self` RECEIVER IN
+# ARGUMENT POSITION WALKED PAST A LIVE B82 MUT RESERVATION.
+# ⚠ THE FILED PROPERTY WAS WRONG AND WAS REFUTED BY PROBE, NOT ARGUED AWAY. The
+# import filed "a loan created by a NESTED CALL in argument or subscript
+# position". The block is irrelevant (`d2i`/`d2f`/`d2m` all refuse) and so is
+# the nesting (`d2j`, no block at all, admitted); and the SUBSCRIPT half,
+# `v[v.len()-1] = …`, DOES NOT REPRODUCE — it is a correct program that rustc
+# accepts under two-phase borrows, B82 already models the reservation, and
+# `dd_vec` admits as it should. What is left is the auto-ref'd `&mut self`
+# receiver.
+# MECHANISM: `v.bm(0)` returns `&mut i64`, so its receiver borrow is HELD
+# ACROSS the call; `visit_args` routes a ref-kind argument through
+# `take_ref_borrows` -> `take_borrow`, which under `in_call_args_ > 0` deposits
+# a mut RESERVATION instead of `mut_borrowed`. `take_borrow` reads that counter
+# back at its own B82 arm ("Rust rejects f(&mut x, &mut x) too"), which is why
+# the same mutation spelled as a free call always refused; the AddrOfTemp arm of
+# `visit` — the node an auto-ref'd receiver actually IS — read `mut_borrowed`,
+# `shared_borrows` and both field tables and never `mut_reservations`.
+# NOT a new deposit door and not a new counter: one `else if` on a counter that
+# is already written at one site and read at another, spelling reused verbatim.
+#   src/compiler/borrow_check.cpp   visit, case AddrOfTemp
+#   tests/logos/fail/bc_recv_reservation_conflict_fail.logos   (+ .expected)
+#   tests/logos/pass/bc_recv_reservation_disjoint_admit.logos  (+ .expected)
+# CONTROL REVERT, stated: branch removed and REBUILT -> refuse fixture rc 0,
+# admit twin rc 0; restored and rebuilt -> rc 1 / rc 0.
+# ⚠ THE ADMIT TWIN IS THE WHOLE ARGUMENT. `is_mut` only, because B82's
+# reservation is deliberately compatible with shared reads taken during the
+# same argument evaluation — `v.push(v.len())` is a two-phase borrow and must
+# stay admitted. So must `two(v.pushret(1), v.pushret(2))`, where each receiver
+# borrow ENDS at its own call and nothing is held across (`p1`, rc 0 — and the
+# diagnosis's claim that rustc gives E0499 there is WITHDRAWN: nothing holds
+# either borrow past its call, and the same reading makes `p3`/`p4` correct in
+# both orders). The distinction the reservation encodes is exactly "does the
+# borrow outlive the inner call", which is why `v.bm(0)` refuses and
+# `v.pushret(1)` does not.
+# ⚠ WHAT IS STILL OPEN, WITH ITS PROBE: the receiver TAKES no reservation of its
+# own (this arm is check-only by B94's policy). Giving it one would be deposit
+# door N+1 — the #87 disease — so it was NOT written; `p1` is the probe, and on
+# the reading above it is not a hole.
+#   PREDICTED  ctest -N  7583 -> 7585  (+2: 1 pass + 1 fail)
+#   MEASURED   ctest -N  7585 / 3902 / 46          exact
+# Pins re-derived BY DIRECT FILE LISTING: tests/logos/pass/*.logos 2360 -> 2361,
+# tests/logos/fail/*.logos 809 -> 810, tests/logos/*.sh 66 -> 66. The
+# direct-door gate's corpus/nonglob moved with them (2360 -> 2361,
+# 2169 -> 2170); glob unmoved at 191, doors unmoved at 36 = 10 + 26.
+# 2026-08-24 (CLASS D, D-c's NEIGHBOURS — A PROJECTION OF A TEMPORARY.
+# `&[x][0u64]` and `&S{n:x}.n` returned borrows into storage that dies at the
+# semicolon, and both compiled. `value_local_root` is ALREADY the walk for this
+# question — it peels FieldRead/TupleIndex/IndexRead/Deref with the raw-pointer
+# stop — and it terminates ONLY on a `VarRef`. A temporary has no name, so the
+# walk fell off the end and prov_of conservative-accepted. ONE terminal test,
+# using `is_temporary_value_expr`, the predicate that already exists for
+# "this expression IS the temporary" and is read three lines above.
+# ⚠ THE `!is_ref_kind` GUARD IS LOAD-BEARING, and its twin is what says so:
+# that predicate answers YES for ANY `Call`, and `&get(b).n` where `get`
+# returns a REFERENCE borrows the CALLER's storage. The value-returning call
+# (`&mk().n`) is a genuine dangle and is now caught; the param-rooted one is
+# answered earlier by `inner_prov` and never reaches this walk.
+#   src/compiler/borrow_check.cpp   value_local_root (terminal) + prov_of
+#   tests/logos/fail/bc_return_borrow_of_temp_projection_fail.logos (+ .expected)
+#   tests/logos/pass/bc_return_borrow_through_ref_call_admit.logos  (+ .expected)
+# CONTROL REVERT, stated: terminal test removed and REBUILT -> refuse fixture
+# rc 0, admit twin rc 0; restored and rebuilt -> rc 1 / rc 0.
+#   PREDICTED  ctest -N  7585 -> 7587  (+2: 1 pass + 1 fail)
+#   MEASURED   ctest -N  7587 / 3904 / 46          exact
+# Pins re-derived BY DIRECT FILE LISTING: tests/logos/pass/*.logos 2361 -> 2362,
+# tests/logos/fail/*.logos 810 -> 811, tests/logos/*.sh 66 -> 66. The
+# direct-door gate's corpus/nonglob moved with them (2361 -> 2362,
+# 2170 -> 2171); glob unmoved at 191, doors unmoved at 36 = 10 + 26.
+# 2026-08-24 (CLASS D, cell D-a — AN ANONYMOUS RVALUE TEMPORARY, ONCE IT
+# PASSES THROUGH A CALL. `let x: It = iter(&mk());` admitted.
+# ⚠ THE FILED CONTROL MOVED TWO PROPERTIES AT ONCE (temporary->named AND
+# let->assign) and was REBUILT before anything was concluded:
+# `da_iso_tmp_assign` (temporary + assign) admits, `da_iso_let_named` (named +
+# let) refuses -> it is the temporary, and the conclusion holds for the right
+# reason.
+# MECHANISM: prov_of's AddrOfTemp arm answers `{is_local=true, is_temp=false}`
+# for a direct `&<rvalue>` on the RVALUE-LIFETIME-EXTENSION rule — correct for
+# `let r = &mk();`, which rustc extends — and the Call arm merged that answer
+# through the call UNCHANGED, while the `let` gate reports on `is_temp` ALONE.
+# Extension is a property of the CONSUMING SITE, not of the expression.
+# ⚠ THE FIX IS NOT THE ONE THE DIAGNOSIS RECOMMENDED, and it is smaller. The
+# diagnosis proposed re-siting prov_of's AddrOfTemp arm and moving the
+# extension exemption to the `Let` site — which changes the answer for EVERY
+# consumer, including the direct `let` the exemption exists for. The rule
+# already exists ONE ARM UP, in the MethodCall arm: "a temporary receiver + a
+# ref-self method => is_temp" (`recv_contributes &&
+# is_temporary_value_expr(v.receiver()) && method_self_kind(v) != 0`). This is
+# the same statement for a temporary ARGUMENT, applied where the argument is
+# merged so it cannot fire for one the callee does not let reach the result.
+# The direct forms never reach the Call arm and are untouched — `e1`
+# (`let r = &mk2();`) and `e2` (`let r = &mk2().n;`) still admit, `e3`
+# (`let r = thru(&mk2());`) now refuses, which is exactly Rust.
+#   src/compiler/borrow_check.cpp   prov_of, case Call (merge_arg_prov)
+#   tests/logos/fail/bc_let_borrow_temp_through_call_fail.logos (+ .expected)
+#   tests/logos/pass/bc_let_borrow_temp_extended_admit.logos    (+ .expected)
+# CONTROL REVERT, stated: lambda removed and both merge loops restored to
+# `prov_of(a)`, REBUILT -> refuse fixture rc 0, admit twin rc 0; restored and
+# rebuilt -> rc 1 / rc 0.
+#
+# ⚠ THE RED LIST WAS NOT EMPTY, AND ITS NAMES WERE THE SPEC — the only cell in
+# this round with one. It came in two waves and BOTH were the SAME idiom, which
+# is what says the shape is right rather than merely patchable.
+#   WAVE 1, the stdlib build itself FAILED — five functions:
+#     btvec_node_total  pk_private  pk_merged_payload  btss_batch_insert
+#     btfl_batch_insert
+#   WAVE 2, ten ctest reds — and NINE of them are ONE source location set,
+#   `BtflBranchRef::{totals, update_row, set_child_addr}` (stdlib/mem/bt/
+#   btfl.logos), a generic impl instantiated across eight memoria fixtures:
+#     memoria_btfl_multimap  memoria_btfl_tristream  memoria_btfl_vle
+#     memoria_ctr_meta  memoria_dyn_boundary  memoria_example_multimap
+#     memoria_gen_multimap  memoria_showcase_deem
+#   TWO of the three were DEAD BINDINGS — `let mut cb: ColRef = …` in
+#   `set_child_addr` and `let mut ub: ColRef = …` in `update_row`, both
+#   declared and never read, both deleted with the round that made them
+#   visible; `totals` got the hoist.
+#   The TENTH is `pass/dyn_return_ref_strip`, and it is a CORPUS FIXTURE that
+#   carried the defect: `let d1: &dyn Speak = as_dyn(&Inner { v: 5 });` — the
+#   struct-literal temporary drops at the end of the statement while `d1`
+#   borrows into it past it, which rustc rejects on the same line. The fixture's
+#   SUBJECT is vtable-key stripping for a `&dyn Trait` returned from a `&T`
+#   parameter; that is untouched, still dispatched, still exit 42. NOTHING WAS
+#   WEAKENED — no `.expected`, no gate, no timeout, no attribute; one owner was
+#   bound to a variable so the borrow it already relied on is legal.
+# Every stdlib site is `let b: ColRef = <helper>(&node_view_at(p), …);`. `ColRef` is
+# DECLARED `#[borrow_carrying]` with the comment "Borrows its NodeView, so no
+# resize can happen while it lives" (stdlib/mem/bt/view.logos), and
+# `&node_view_at(p)` is a temporary that drops at the end of the statement — so
+# under the attribute's own contract these are E0716, and rustc rejects the
+# shape too. They were invisible because nothing asked. They are REPAIRED, not
+# excused, in the idiom the file already uses three lines away
+# (`let mut a: NodeView = node_view_at(node);`): the view is bound to a local so
+# the borrow the attribute claims is honest. AFTER the repairs the red list is
+# EMPTY: `ctest -L pass -LE imported` 2540/2540, `ctest -L fail` 1471/1471.
+# No behaviour changes — `NodeView`
+# and `ColRef` are both `{ *mut PkdAlloc, … }` and every column re-resolves per
+# call — which is precisely why the violation was harmless in fact and real in
+# contract. NOTHING WAS WEAKENED: no gate, no fixture, no attribute.
+#
+# ⚠ WHAT IS LEFT OPEN, WITH ITS PROBE, RATHER THAN CLOSED WITH A NEW DOOR: the
+# ASSIGN half. `da_iso_tmp_assign` (`let mut x: It = …; x = iter(&mk());`)
+# STILL ADMITS at rc 0. The Assign arm has no E0716 report at all: it records
+# through `note_holder_escape_prov`, which is ONE helper with FOUR call sites
+# (assign / declared / outparam / …) and no report anywhere. Giving it one is a
+# new refusal channel across four doors, not a one-line consult of a fact that
+# is already computed — deposit door N+1, the #87 disease — so it was NOT
+# written. Same call as the class-A round, and for the same reason.
+#   PREDICTED  ctest -N  7587 -> 7589  (+2: 1 pass + 1 fail)
+#   MEASURED   ctest -N  7589 / 3906 / 46          exact
+# Pins re-derived BY DIRECT FILE LISTING: tests/logos/pass/*.logos 2362 -> 2363,
+# tests/logos/fail/*.logos 811 -> 812, tests/logos/*.sh 66 -> 66. The
+# direct-door gate's corpus/nonglob moved with them (2362 -> 2363,
+# 2171 -> 2172); glob unmoved at 191, doors unmoved at 36 = 10 + 26.
+# ══ 2026-08-24 · CLASS D VERIFY — THE FIVE MISSES + #92 CONST PROMOTION ═════
+#
+# The class-D landing's own adversarial verify found five misses. This round is
+# exactly those, in the order they had to be taken, plus the promotion decision.
+#
+# ── MISS 3 (FIRST, because it was an OVER-REFUSAL LIVE IN THE TREE) ─────────
+# D-b's new tail check compared §B6 SOURCE NAMES against `scopes_.back().
+# declared` as STRINGS, so a SHADOWED NAME in an inner block produced a false
+# E0597. One-property pair, only the inner local's NAME differs:
+#   let o: Buf = mk2();
+#   let _r: &i64 = { let p: &i64 = &o.n; let o: i64 = 1i64; let _u: i64 = o; p };
+#                                              -> REFUSED
+#   ... with the inner local named `zz`         -> ADMITTED
+# THE SIBLING HAD IT TOO, and the brief asked whether one predicate can serve
+# both: IT CAN, AND IT DOES. pop_scope's `dangling_` deposit is the same
+# question one frame later — measured on its own one-property pair
+# (`let r = &o.n; { let o: i64 = …; }  return *r;` refused, `zz` admitted) —
+# and both now read `dying_binding`.
+# MECHANISM FOUND, NOT MINTED: F5 ("a lookup KEY is not an IDENTITY", third
+# instance in this file at BorrowRecord::holder_slot) already carries the dense
+# per-binding SLOT and already has `note_binding_slot`/`slot_of_binding`. §B6's
+# sources were the FOURTH instance and the only one still keyed on the bare
+# name; the slot is captured where the source is COLLECTED, which is the only
+# point at which the name still denotes the binding the borrow was formed from.
+#   src/compiler/borrow_check.cpp  struct RefSrc, ScopeFrame::declared_slots,
+#                                  dying_binding, visit_block's D-b arm,
+#                                  pop_scope's §B6 arm
+#   tests/logos/pass/bc_block_tail_shadowed_name_admit.logos (+ .expected)
+# CONTROL REVERT, stated: the slot comparison removed from `dying_binding`,
+# REBUILT -> both shadow probes rc 1 and both `zz` twins rc 0; restored and
+# rebuilt -> rc 0 / rc 0, with the two genuine dangles at rc 1 throughout.
+# RED LIST: EMPTY. `ctest -L fail` 1471/1471, `-L pass -LE imported` 2540/2540.
+#
+# ── #92 CONST PROMOTION (SECOND, because it is what makes MISS 4 CORRECT) ───
+# Victor's decision: Rust promotes `&<const expr>` to `&'static`, parity is the
+# default, nothing may be refused. IMPLEMENTED AS A PAIR, and the pair is the
+# whole point: the emitter's `AddrOfTemp` tail is `create_entry_alloca` + store,
+# i.e. a FRAME SLOT, so relaxing borrow_check alone would have turned a refused
+# shape into an ADMITTED DANGLE. One predicate, two consumers:
+#   include/logos/compiler/const_promote.hpp   is_const_value / is_promoted_borrow
+#   src/compiler/borrow_check.cpp   prov_of, AddrOfTemp arm -> {} (no provenance)
+#   src/compiler/mlir_gen_expr.cpp  gen_promoted_const — an Internal CONSTANT
+#                                   global; fails CLOSED via bug_null if the
+#                                   two halves ever disagree
+#   src/compiler/sema_stmt.cpp      promotion takes precedence over temporary
+#                                   lifetime EXTENSION: `let z: &i64 = &0i64;`
+#                                   was rewritten to a NAMED FRAME LOCAL
+#                                   (`__lit_temp_N`), which is what
+#                                   pass/regions/regions-bot dangled on;
+#                                   `[retgate]` named it (`srcs=[__lit_temp_0,]`)
+# ⚠ SCOPE, STATED: scalar literals and arrays of scalar literals, the EMPTY
+# array included. `&S{..}` / `&(a,b)` are NOT promoted — they keep today's
+# refusal, a KNOWN residual divergence from Rust, not a new hole, because the
+# emitter cannot yet materialise them and the shared predicate is exactly what
+# the emitter can do.
+#   tests/logos/pass/bc_const_promotion_admit.logos (+ .expected, exit 59)
+# ⚠ AND IT IS NOT "IT COMPILES": the fixture stomps the frame with 71 in eight
+# i64 slots between the borrow and the read, and the exit code is the VALUE.
+# ⚠ ONE FIXTURE ASSERTED THE OPPOSITE AND WAS RE-HOMED, NOT DELETED:
+# tests/imported/pass/nll/return-ref-to-temp.logos (`fn make() -> &i32 { return
+# &5i32; }`) pinned a refusal rustc does not make. It MOVED OUT OF
+# `tests/imported/fail/nll/` into the path named above, with `exit: 5` — a STRICTLY STRONGER claim about the
+# same program (it must now compile, link, run and hand back a READABLE
+# pointer, which a frame-slot lowering could not). Imported total unmoved at
+# 3683.
+#
+# ── MISS 4 — `-L imported` WAS NOT RUN BY THE LANDING. IT IS NOW ────────────
+#   BEFORE this round:  3679/3683  (4 red)
+#   AFTER  this round:  3681/3683  (2 red)  == THE PINNED COUNT
+# and the COMPOSITION is the finding, because the pin's two names changed:
+#   • `empty-slice-return-b172` (`return &[];`) — the landing's regression,
+#     CLOSED by promotion.
+#   • `regions-bot` (`let zero: &i64 = &0i64; return zero;`) — one of the two
+#     PINNED #111 over-refusals, ALSO CLOSED by promotion. #111 is down to one.
+#   • `if-generic` — NOT this landing and NOT a defect: "use of moved variable
+#     'expected'" on an unbounded generic `T`, i.e. DIVERGENCE A16 (structural
+#     auto-Copy became a decision, 31e4002e, the same day). rustc rejects the
+#     same program without a `Copy`/`Clone` bound; the IMPORT relied on the old
+#     accident. FOR VICTOR: the #111 pin line (census 3252) now names the wrong
+#     pair — it should read `call-through-ref-to-fn-bound-b158` (#111) and
+#     `if-generic` (A16 corpus revision), and the latter is a fixture repair,
+#     not a compiler task. NOTHING WAS WEAKENED to reach 3681.
+#
+# ── MISS 1 — `SliceIndex` (expr code 24) WAS NAMED AND NOT ADDED ────────────
+# The landing's own comment names the pair it mirrors as SliceLit/SLICE_INDEX
+# and then adds SlicePtr as the second member. One `case` label closes it.
+#   fn f() -> &i64 { let a: [i64;2] = [1i64,2i64]; let s: &[i64] = &a;
+#                    return &s[0u64]; }                      // was rc 0
+# ── MISS 2 — THE RANGE SPELLING OVER A LOCAL ────────────────────────────────
+#   fn f(x: i64) -> &[i64] { let a: [i64;3] = [x,x,x]; return &a[0..2]; }
+#                                                            // was rc 0
+# RUNTIME WITNESS FOR BOTH, and it is not "admits" — it DANGLES. With a
+# frame-stomping intervening call and the constant varied to defeat a
+# lucky-stable read, the exit code IS the clobber constant: 9 -> 9, 40 -> 40,
+# 71 -> 71, where 1 is correct, for both spellings. After the fix all six
+# refuse.
+# ⚠ MISS 2 TOOK FOUR MEASURED ATTEMPTS AND EVERY REJECTED ONE IS RECORDED AT
+# THE SITE, because each was refuted by the STDLIB BUILD — the only oracle that
+# sees it, since `ctest` links PREBUILT archives:
+#   1. "any borrow-forming arg ties"     -> reds writ/parser.parse,
+#      writ/wbs.wbs_read, wql/join_sel.decide_join_step
+#   2. "…and the result is ref-kind"     -> still reds deem/tpl.eval_sexpr
+#      (`intern(scratch,&u2)` borrows SCRATCH, not the local String)
+#   3. Rust's ONE-INPUT ELISION rule     -> reds 7 corpus fixtures, headed by
+#      pass/bc_esc_summary_seed_field_admit, whose SUBJECT is that
+#      `stored_str(c: &Cfg) -> str` hands back the LITERAL's `str` and whose
+#      mask reads `result<-0  EXACT`
+#   4. LANDED: one-input elision, but only where the summary ADMITS IT IS A
+#      GUESS (`over_approx`). An exact summary measures the BODY; elision is a
+#      rule about a SIGNATURE; the body wins.
+# AND THE LINE THAT ACTUALLY HELD MISS 2 OPEN was not a filter at all but an
+# EARLY EXIT — `if (!bc_result && fs->over_approx) return {};` — reached before
+# the arg loop ran. Proved with a trace, not inferred: the arm was entered
+# (`elided_to=0 fs=1 retref=1`) and the loop body printed nothing. That is the
+# census-a-checker's-own-early-exits lesson, in the permissive direction.
+#   src/compiler/borrow_check.cpp  prov_of: case SliceIndex; the Call arm's
+#                                  `elided_to`; value_local_root's slice peels
+#   tests/logos/fail/bc_slice_index_return_local_fail.logos (+ .expected)
+#   tests/logos/fail/bc_slice_range_return_local_fail.logos (+ .expected)
+#   tests/logos/pass/bc_slice_borrow_param_admit.logos      (+ .expected)
+# CONTROL REVERTS, stated, one property each, REBUILT between:
+#   `case SliceIndex` removed          -> MISS 1 probe rc 0, MISS 2 probe rc 1
+#   `elided_to` forced to -1           -> MISS 1 probe rc 1, MISS 2 probe rc 0
+#   both restored, rebuilt             -> rc 1 / rc 1, param twins rc 0
+#
+# ── THE `.expected` THAT MATCHED ANYTHING ──────────────────────────────────
+# fail/bc_slice_return_temp_array_fail.expected was `cannot return reference
+# to` — a prefix shared by ALL THREE messages that site can print, written weak
+# to accommodate one the round knew was wrong (`local variable '?'`). The
+# message is now RIGHT: `value_local_root` peels the slice family (the same
+# transparency `prov_of` states one function over), so the walk reaches the
+# ArrLit and the report says TEMPORARY VALUE, as its `&0i64` sibling does. Full
+# message pinned, as its sibling does.
+# ⚠ ONE IMPRECISION LEFT, STATED RATHER THAN PINNED AWAY: MISS 1's fixture also
+# reports "temporary value" though its referent is the named local `a`, because
+# `er.kind() == AddrOfTemp` sets `is_temp` at the report site before any walk
+# runs. PRE-EXISTING, shared with every `&<place>` return, and re-messaging it
+# would move `.expected` files this round did not measure. Full message pinned
+# as it stands; the fixture header says so.
+#
+# ── MISS 5 — THE ORACLE THAT WAS NOT RUN. IT IS NOW ────────────────────────
+# The landing's stdlib argument ("AFTER the repairs the red list is EMPTY")
+# rests on a measurement `ctest` cannot make: it links PREBUILT archives, so a
+# stdlib that no longer compiles is invisible to it. The oracle is
+# `cmake --build build`, which recompiles every stdlib archive with the freshly
+# built logosc. TAKEN, at the final tree: BUILD_RC 0, all four archives
+# relinked. It is also what refuted MISS 2's first three attempts, none of
+# which `ctest` would have caught.
+#
+#   PREDICTED  ctest -N  7589 -> 7594  (+5: 3 pass + 2 fail; the imported
+#              re-home is net-zero)
+#   MEASURED   ctest -N  7594 / 3911 / 46          exact
+# Pins re-derived BY DIRECT FILE LISTING: tests/logos/pass/*.logos 2363 -> 2366,
+# tests/logos/fail/*.logos 812 -> 814, tests/logos/*.sh 66 -> 66. The
+# direct-door gate's corpus/nonglob moved with them (2363 -> 2366,
+# 2172 -> 2175); glob unmoved at 191, doors unmoved at 36 = 10 + 26.
+# The mlir_gen report census moved in the ADDING direction, 15 -> 16
+# (mlir_gen_expr.cpp), and says what it reports: the promotion pair's
+# fail-closed.
+#
+# ⚠ AND THE MESSAGE REPAIR ITSELF DRIFTED TWO OTHER FIXTURES BEFORE IT WAS
+# NARROW ENOUGH, which is the prefix-`.expected` lesson arriving a second time
+# in the same round. `is_temporary_value_expr` answers YES for a Call /
+# MethodCall / ClosureBox and for a StructLit, so the first cut re-messaged
+# fail/bc_d1r3_f4_closure_local and fail/bc_d1r4_n3_closure_struct_field_held
+# from "local variable" to "temporary value". BOTH STILL REFUSED — only the
+# STRING moved — and both of those `.expected` files are prefixes too, so the
+# drift was visible only because `-L fail` was run and read. The terminal is
+# now required to be an ARRAY or SCALAR literal.
+#
+# ── FULL EVIDENCE, MEASURED ON THE FINAL TREE ──────────────────────────────
+#   cmake --build build -j$(nproc)          rc 0  (the stdlib oracle; MISS 5)
+#   ctest -j$(nproc) -L fail                1472/1472
+#   ctest -j$(nproc) -L pass -LE imported   2543/2543
+#   ctest -j$(nproc) -L imported            3681/3683  == the pinned count
+#   ctest -j$(nproc) -R '^logos_00_'          21/21   (all lints)
+#   ctest -j$(nproc) -R '^logos_09_'        2423/2423 (the three census gates)
+#   scripts/abi-check.sh   VERDICT: ABI-PRESERVING — additive only; closure OK
+#   ctest -N               7594 / 3911 / 46, as predicted
+# NOT COMMITTED.
+#
+# ── THE DIFF BUDGET, DECLARED BEFORE AND CHECKED AFTER ─────────────────────
+#   DECLARED  files=18 add=175 del=0 names=4 branch=32
+#   MEASURED  files=23 add=313 del=56 names=26 branch=56
+# OVER on every axis; 1.3x / 1.8x / — / — / 1.8x. NOT explained away:
+#   • `add` 1.8x. The declaration was made BEFORE the emitter was read, and it
+#     is the emitter that priced the round: `gen_promoted_const` is 80 logic
+#     lines because a constant must be MATERIALISED (DenseElementsAttr, APInt/
+#     APFloat, the empty-array case), not merely permitted. A promotion that
+#     only relaxed the checker would have been the 30 lines predicted and would
+#     have shipped an admitted dangle.
+#   • `del=0` was an undeclarable declaration and is scored as such. The 56
+#     deletions are §B6's source type moving from `std::string` to `RefSrc`
+#     (36 in borrow_check) plus the re-homed fixture (12).
+#   • `names=26` is 25 fixture `fn`s in four new `.logos` files plus ONE real
+#     new type (`struct RefSrc`); the tool says its name count is a regex and
+#     this is what that costs.
+# THE HONEST SMELL, stated: MISS 2 took FOUR attempts, and attempts 1-3 were
+# refuted only by the STDLIB BUILD. Every rejected rule is recorded at the site
+# rather than in this ledger, so the next reader pays once.
+REGISTRY-ALL         7594
+REGISTRY-NOIMPORTED  3911
 REGISTRY-TIERCOMMIT  46
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

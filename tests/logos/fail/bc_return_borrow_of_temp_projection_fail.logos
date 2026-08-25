@@ -1,0 +1,14 @@
+// D-c's NEIGHBOURS (dcv2 / dcv3) — A PROJECTION OF A TEMPORARY. `&[x][0u64]`
+// and `&S{n:x}.n` both return a borrow into storage that dies at the
+// semicolon, and both compiled. `value_local_root` already peels
+// FieldRead/TupleIndex/IndexRead/Deref to a root — it just terminates ONLY on a
+// `VarRef`, and a temporary has no name, so the walk fell off the end and
+// prov_of conservative-accepted. One terminal test in the walk that exists.
+// TWIN: pass/bc_return_borrow_through_ref_call_admit — a projection whose root
+// is a CALL RETURNING A REFERENCE borrows the caller's storage and must still
+// return, which is why the terminal test is gated on `!is_ref_kind`.
+package bc_return_borrow_of_temp_projection_fail;
+struct S { n: i64 }
+fn arr_elem(x: i64) -> &i64 { return &[x][0u64]; }
+fn lit_field(x: i64) -> &i64 { return &S { n: x }.n; }
+fn main() -> i32 { return (*arr_elem(1i64) + *lit_field(2i64)) as i32; }

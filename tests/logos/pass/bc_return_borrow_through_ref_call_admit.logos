@@ -1,0 +1,16 @@
+// ADMIT TWIN for the temporary-projection terminal test. `is_temporary_value_
+// expr` answers YES for ANY `Call`, so an unguarded terminal test would refuse
+// `&get(b).n` — where `get` returns a REFERENCE and the projection borrows the
+// CALLER's storage, which outlives the call. The `!is_ref_kind` guard is what
+// keeps this admitted, and this fixture is what says the guard is load-bearing:
+// without it a rule that "tracks temporaries" is a rule that refuses
+// projections.
+package bc_return_borrow_through_ref_call_admit;
+struct S { n: i64, a: [i64; 2] }
+fn get(b: &S) -> &S { return b; }
+fn thru_call(b: &S) -> &i64 { return &get(b).n; }
+fn thru_param(b: &S) -> &i64 { return &b.a[1u64]; }
+fn main() -> i32 {
+    let s: S = S { n: 4i64, a: [5i64, 6i64] };
+    return (*thru_call(&s) + *thru_param(&s)) as i32;
+}

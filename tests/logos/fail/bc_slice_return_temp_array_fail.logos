@@ -1,0 +1,11 @@
+// D-c (class D, task #92 refuted) — THE ARRAY-LITERAL SPELLING OF A RETURNED
+// TEMPORARY BORROW. `&0i64`, `&(0i64,0i64)` and `&S{..}` are all refused at the
+// return gate; `&[0i64]` was NOT, because it is a SliceLit/SlicePtr and
+// `prov_of` had no arm for either — while `collect_ref_sources_paths`, read by
+// the SAME diagnostic, has had the pair since D1 residuals R1/R2.
+// NOT a promotion candidate: it dangled. Measured before the fix, with an
+// intervening clobbering call, the returned slice read 81 where 1 is correct.
+// TWIN: pass/bc_slice_return_param_admit (a slice of a PARAM must still return).
+package bc_slice_return_temp_array_fail;
+fn function(x: i64) -> &[i64] { return &[x]; }
+fn main() -> i32 { let s: &[i64] = function(1i64); return s[0u64] as i32; }

@@ -565,9 +565,67 @@ PIN = {
     # with a different fixture argument), so `ls tests/logos/*.sh` stays 66.
     # DOOR counts unmoved (36 = 10 + 26): neither fixture declares a container
     # family or a `direct` output form.
-    'corpus'            : 2358,
+    # ── CLASS D / D-c (2026-08-24) ─────────────────────────────────────────
+    # ONE pass fixture — `pass/bc_slice_return_param_admit` — the admit twin of
+    # the two `fail/bc_slice_return_*` refuse fixtures the `prov_of`
+    # SliceLit/SlicePtr arms close. `bc_*` is not `wql_*`/`deem_*`, so the whole
+    # delta lands in `nonglob` and `glob` is unmoved. Re-derived BY DIRECT FILE
+    # LISTING, never by adding 1 to the previous line:
+    #   ls tests/logos/pass/*.logos              -> 2359
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos ->  191
+    # difference 2168. DOOR counts unmoved (36 = 10 + 26): the fixture declares
+    # no container family and no `direct` output form. No new gate SCRIPT, so
+    # `ls tests/logos/*.sh` stays 66.
+    # ── CLASS D / D-b (2026-08-24) ─────────────────────────────────────────
+    # ONE more pass fixture — `pass/bc_block_tail_borrow_outer_admit` — the
+    # admit twin of `fail/bc_block_tail_borrow_local_fail` and
+    # `fail/bc_if_tail_borrow_local_fail`. Again `bc_*`, so `glob` is unmoved.
+    # Re-derived BY DIRECT FILE LISTING:
+    #   ls tests/logos/pass/*.logos              -> 2360
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos ->  191
+    # difference 2169. DOORS unmoved (36 = 10 + 26); no new gate SCRIPT, so
+    # `ls tests/logos/*.sh` stays 66.
+    # ── CLASS D / D-d.2 (2026-08-24) ───────────────────────────────────────
+    # ONE more pass fixture — `pass/bc_recv_reservation_disjoint_admit`, the
+    # admit twin of `fail/bc_recv_reservation_conflict_fail`. `bc_*` again, so
+    # `glob` is unmoved. Re-derived BY DIRECT FILE LISTING:
+    #   ls tests/logos/pass/*.logos              -> 2361
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos ->  191
+    # difference 2170. DOORS unmoved (36 = 10 + 26); `ls tests/logos/*.sh` 66.
+    # ── CLASS D / the temporary-PROJECTION neighbours (2026-08-24) ─────────
+    # ONE more pass fixture — `pass/bc_return_borrow_through_ref_call_admit`,
+    # the admit twin of `fail/bc_return_borrow_of_temp_projection_fail`.
+    # `bc_*` again, so `glob` is unmoved. Re-derived BY DIRECT FILE LISTING:
+    #   ls tests/logos/pass/*.logos              -> 2362
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos ->  191
+    # difference 2171. DOORS unmoved (36 = 10 + 26); `ls tests/logos/*.sh` 66.
+    # ── CLASS D / D-a (2026-08-24) ─────────────────────────────────────────
+    # ONE more pass fixture — `pass/bc_let_borrow_temp_extended_admit`, the
+    # admit twin of `fail/bc_let_borrow_temp_through_call_fail`. `bc_*` again,
+    # so `glob` is unmoved. Re-derived BY DIRECT FILE LISTING:
+    #   ls tests/logos/pass/*.logos              -> 2363
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos ->  191
+    # difference 2172. DOORS unmoved (36 = 10 + 26); `ls tests/logos/*.sh` 66.
+    # ── CLASS D VERIFY / THE FIVE MISSES (2026-08-24) ──────────────────────
+    # THREE pass fixtures, all `bc_*`, so the whole delta lands in `nonglob`
+    # and `glob` is unmoved:
+    #   pass/bc_const_promotion_admit        — #92 const promotion, the admit
+    #        half, runtime-checked through a frame-stomping call
+    #   pass/bc_slice_borrow_param_admit     — admit twin of the MISS 1 / MISS 2
+    #        refuse fixtures (`&a[0u64]` / `&a[0..2]` over a PARAM)
+    #   pass/bc_block_tail_shadowed_name_admit — admit twin of MISS 3, both
+    #        channels (D-b's tail check and pop_scope's `dangling_` deposit)
+    # Re-derived BY DIRECT FILE LISTING, never by adding 3 to the line above:
+    #   ls tests/logos/pass/*.logos              -> 2366
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos ->  191
+    # difference 2175. DOOR counts unmoved (36 = 10 + 26): none of the three
+    # declares a container family or a `direct` output form. No new gate
+    # SCRIPT, so `ls tests/logos/*.sh` stays 66. The TWO new fail fixtures
+    # (fail/bc_slice_index_return_local_fail, fail/bc_slice_range_return_local_fail)
+    # do not enter any of these three counts — they are the pass corpus only.
+    'corpus'            : 2366,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2167,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2175,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

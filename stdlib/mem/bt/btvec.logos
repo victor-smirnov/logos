@@ -315,7 +315,11 @@ fn bv_ins_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, 
 
 // A branch node's own subtree total (sum of its count column).
 fn btvec_node_total<P: NodeProfile>(node: *mut u8) -> u64 {
-    let b: ColRef = bv_cnt(&node_view_at(node));
+    // E0716: `&node_view_at(node)` is a temporary that drops at the end of
+    // this statement, and `ColRef` is `#[borrow_carrying]` — it says it
+    // BORROWS its NodeView. Bind the view so the borrow is honest.
+    let nv: NodeView = node_view_at(node);
+    let b: ColRef = bv_cnt(&nv);
     let n: u64 = b.size();
     let mut s: u64 = 0u64;
     let mut i: u64 = 0u64;

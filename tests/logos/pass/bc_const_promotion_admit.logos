@@ -1,0 +1,52 @@
+// ── #92 CONST PROMOTION — THE ADMIT HALF, RUNTIME-CHECKED ──────────────────
+// Rust promotes a borrow of a CONSTANT expression to `&'static`: the referent
+// lives in read-only static storage, not in the frame, so nothing dangles and
+// nothing may be refused (Victor, 2026-08-24 — parity is the default here).
+//
+// ⚠ COMPILING IS NOT THE ASSERTION. Before promotion, `&0i64` was REFUSED and
+// the emitter's AddrOfTemp tail was `create_entry_alloca` + store — a FRAME
+// SLOT. Admitting the borrow without moving the referent out of the frame
+// would have turned a refused shape into an ADMITTED DANGLE, so this fixture
+// stomps the frame between the borrow and the read (`stomp` writes 71 into
+// eight i64 slots and its result is consumed, so it cannot be elided). The
+// exit code is the VALUE, which is what says the pointer survived the call.
+//
+// All four #92 spellings plus the array temporary its list missed:
+//   direct `return &<lit>` · `let`-bound · `'static`-annotated · bool · float
+//   `&[]` (empty array) · `&[<lits>]` (non-empty array)
+// REFUSE TWINS (a non-const element has nothing to promote and still dangles):
+//   fail/bc_slice_return_temp_array_fail  (`&[x]`, x a param)
+//   fail/bc_slice_return_local_array_fail (`&a` over a local array)
+//   fail/bc_slice_range_return_local_fail (`&a[0..2]` over a local array)
+package bc_const_promotion_admit;
+
+fn direct() -> &i64 { return &40i64; }
+fn let_bound() -> &i64 { let z: &i64 = &1i64; return z; }
+fn annotated() -> &'static i64 { let z: &'static i64 = &2i64; return z; }
+fn flag() -> &bool { return &true; }
+fn ratio() -> &f64 { return &0.5f64; }
+fn triple() -> &[i64] { return &[7i64, 8i64, 9i64]; }
+fn empty() -> &[u64] { return &[]; }
+
+fn stomp(n: i64) -> i64 {
+    let junk: [i64; 8] = [n, n, n, n, n, n, n, n];
+    let mut s: i64 = 0i64;
+    let mut i: u64 = 0u64;
+    while i < 8u64 { s = s + junk[i]; i = i + 1u64; }
+    return s;
+}
+
+fn main() -> i32 {
+    let a: &i64 = direct();
+    let b: &i64 = let_bound();
+    let c: &i64 = annotated();
+    let f: &bool = flag();
+    let r: &f64 = ratio();
+    let t: &[i64] = triple();
+    let e: &[u64] = empty();
+    let d: i64 = stomp(71i64);
+    if d != 568i64 { return 99i32; }
+    if !*f { return 98i32; }
+    if *r != 0.5f64 { return 97i32; }
+    return (*a + *b + *c + t[0] + t[2] + e.len()) as i32;
+}
