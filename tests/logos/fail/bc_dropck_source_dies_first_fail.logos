@@ -1,0 +1,18 @@
+// THE REFUSE TWIN of `pass/bc_dropck_shadowed_name_admit`. A `Drop`-carrying
+// lifetime-parameterised binding whose borrow source really does die first must
+// still be refused — the 2026-08-25 slot-keying fix narrows WHICH binding the
+// rule is about, and must not turn the rule off.
+//
+// If this ever admits, the dropck check has been bought away rather than
+// sharpened.
+package bc_dropck_source_dies_first_fail;
+
+trait Drop { fn drop(self: Self); }
+struct H<'a> { r: &'a i64 }
+impl<'a> Drop for H<'a> { fn drop(self: H<'a>) { } }
+
+fn main() -> i32 {
+    let g: H;
+    { let short: i64 = 2i64; g = H { r: &short }; }
+    return 0i32;
+}

@@ -1777,7 +1777,7 @@ class BorrowChecker {
     // construction. On scope-pop, if any source local was declared in the
     // exiting scope while the binding still lives, reject — the binding's
     // Drop will run after the source dies.
-    std::unordered_map<std::string, std::vector<std::string>>
+    std::unordered_map<std::string, std::vector<RefSrc>>
         dropck_borrow_sources_;
     // B87: line at which each dropck-relevant binding was last bound, for
     // diagnostic reporting.
@@ -2202,12 +2202,12 @@ private:
                 // its own death coincides with the source, no issue.
                 if (dying.count(binding)) continue;
                 for (auto& src : sources) {
-                    if (!dying.count(src)) continue;
+                    if (!dying_binding(frame, src)) continue;   // F5, not the name
                     uint32_t ln = dropck_binding_line_[binding];
                     report(ln, std::format(
                         "binding '{}' has a `Drop` impl and borrows local '{}', "
                         "but '{}' goes out of scope before '{}' is dropped",
-                        binding, src, src, binding));
+                        binding, src.name, src.name, binding));
                     break;
                 }
             }
@@ -2326,15 +2326,26 @@ private:
 
     // Walk a struct-lit (or nested aggregate) expression, collecting names
     // of LOCAL variables that are borrowed via AddrOf. Filters out params.
+    // ⚠ FILLS RefSrc, NOT std::string, AND THE SLOT IS WHY. The B87 dropck
+    // reader below compared these sources to the dying frame BY NAME, so a
+    // shadowed inner local produced a false report about an OUTER binding that
+    // outlives everything. One-property pair, differing only in the inner
+    // local's spelling: with it named `outer` the program is refused, with it
+    // named `zz` it compiles. `RefSrc` and `dying_binding` already exist — §B6
+    // was converted last round and this was the sibling twenty lines above it,
+    // written but not read. Resolving the slot HERE, where the name is still in
+    // scope, is the only point at which it is knowable.
     void collect_borrow_locals(lir_view::ExprRef e,
-                               std::vector<std::string>& out) const {
+                               std::vector<RefSrc>& out) const {
         if (!e) return;
         using EC = lir_schema::expr::Code;
         switch (e.kind()) {
             case EC::AddrOf: {
                 std::string n(lir_view::EAddrOfView{e}.var_name());
-                if (var_has(NO_SLOT, n) && !param_names_.count(n))
-                    out.push_back(std::move(n));
+                if (var_has(NO_SLOT, n) && !param_names_.count(n)) {
+                    uint32_t sl = slot_of_binding(n);
+                    out.push_back(RefSrc{std::move(n), sl});
+                }
                 return;
             }
             case EC::AddrOfTemp:
@@ -8933,7 +8944,7 @@ private:
                 }
                 // B87 dropck: record local borrow sources for Drop-lt bindings.
                 if (val && struct_is_dropck_relevant(t)) {
-                    std::vector<std::string> sources;
+                    std::vector<RefSrc> sources;
                     collect_borrow_locals(val, sources);
                     if (!sources.empty()) {
                         dropck_borrow_sources_[name] = std::move(sources);
@@ -9038,7 +9049,7 @@ private:
                 if (val) {
                     auto vt = val.type(pool);
                     if (struct_is_dropck_relevant(vt)) {
-                        std::vector<std::string> sources;
+                        std::vector<RefSrc> sources;
                         collect_borrow_locals(val, sources);
                         if (!sources.empty()) {
                             dropck_borrow_sources_[name] = std::move(sources);

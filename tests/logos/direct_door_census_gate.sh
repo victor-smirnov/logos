@@ -623,9 +623,9 @@ PIN = {
     # SCRIPT, so `ls tests/logos/*.sh` stays 66. The TWO new fail fixtures
     # (fail/bc_slice_index_return_local_fail, fail/bc_slice_range_return_local_fail)
     # do not enter any of these three counts — they are the pass corpus only.
-    'corpus'            : 2366,
+    'corpus'            : 2367,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2175,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2176,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

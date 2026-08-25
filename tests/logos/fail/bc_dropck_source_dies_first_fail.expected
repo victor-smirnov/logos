@@ -1,0 +1,1 @@
+binding 'g' has a `Drop` impl and borrows local 'short', but 'short' goes out of scope before 'g' is dropped

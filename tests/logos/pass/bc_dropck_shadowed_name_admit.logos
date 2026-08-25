@@ -1,0 +1,33 @@
+// A SHADOWED NAME must not make the B87 dropck rule fire about a DIFFERENT
+// binding that happens to share the word.
+//
+// `g` borrows the OUTER `outer`, which outlives it. The inner block declares
+// its own `outer`, an `i32` nobody borrows, and that block's exit used to be
+// reported as `g`'s source dying — because `pop_scope` compared the recorded
+// source to the dying frame BY NAME. Measured 2026-08-25 with a pair differing
+// in ONE property, the inner local's spelling: named `outer` the program was
+// refused, named `zz` it compiled.
+//
+// `RefSrc` and `dying_binding` already existed — §B6 was converted the round
+// before, and this was the sibling twenty lines above it, written but not read.
+// The slot is resolved where the name is collected, which is the only point at
+// which it is knowable.
+//
+// The refuse twin is `fail/bc_dropck_source_dies_first_fail`: this pair is what
+// separates "keys on identity" from "stopped checking".
+package bc_dropck_shadowed_name_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+
+trait Drop { fn drop(self: Self); }
+struct H<'a> { r: &'a i64 }
+impl<'a> Drop for H<'a> { fn drop(self: H<'a>) { } }
+
+fn main() -> i32 {
+    let outer: i64 = 7i64;
+    let g: H;
+    g = H { r: &outer };
+    { let outer: i32 = 2i32; let _u: i32 = outer; }
+    pr("%ld\n", *g.r);
+    return 0i32;
+}
