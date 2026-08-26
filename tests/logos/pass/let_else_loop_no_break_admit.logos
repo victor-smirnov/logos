@@ -1,0 +1,10 @@
+// ONE-TOKEN TWIN of fail/let_else_loop_with_break_fail.logos: no `break`, so
+// nothing targets the loop, it really does diverge and the let-else is legal.
+// Pins the divergence rule as TARGETING, not as a blanket refusal of `loop` in
+// an else-block.
+package loop_div_a;
+enum Opt { Some(i32), None, }
+fn main() -> i32 {
+    let Opt::Some(x) = Opt::Some(5i32) else { loop { } };
+    return x - 5i32;
+}

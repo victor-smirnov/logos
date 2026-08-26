@@ -1,0 +1,14 @@
+// ONE-PROPERTY TWIN of fail/loop_break_targets_outer_no_return_fail.logos: the
+// break targets the nested `while`, not the `loop`, so the `loop` still diverges
+// and `f`'s return reachability holds. This is bt_upper_bound's shape; a walk
+// that only asked whether a `break` TOKEN appears in the body reds liblogos-lang
+// right here.
+package loop_div_c;
+fn f(n: i32) -> i32 {
+    let mut i: i32 = 0i32;
+    loop {
+        while i < n { if i == 3i32 { break; } i = i + 1i32; }
+        return i;
+    }
+}
+fn main() -> i32 { return f(9i32) - 3i32; }

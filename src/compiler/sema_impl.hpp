@@ -5352,6 +5352,12 @@ private:
     // (Rust-2024 `!`-fallback rule, narrowed to: var unbound AND callee
     // body always diverges).
     bool body_always_diverges_simple(writ::TinyMapView body_node);
+    // "Does a `break` TARGET this loop?" — the single divergence question for
+    // a LOOP / LABELED_LOOP node. Label- and nesting-aware, does not descend
+    // into closures or nested fns. Every AST-phase divergence gate delegates
+    // here; the lowering-phase answer is last_loop_diverged_ (lower_loop) and
+    // the two must agree.
+    bool loop_has_targeting_break(writ::TinyMapView loop_node);
 
     // ── Lowering helpers ─────────────────────────────────────────
 

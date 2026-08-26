@@ -24,6 +24,90 @@ using writ::MemHolder;
 
 // Statement lowering methods
 
+// ── Does a `break` TARGET this loop? — the one predicate ──────────────────
+//
+// A `loop` diverges only when no `break` targets it (rustc types `loop` as `!`
+// on exactly this rule, and on syntactic targeting, not on reachability).
+// PRESENCE OF THE TOKEN IS NOT THE PROPERTY: in `bt_upper_bound`
+// (stdlib/lcm/deem/data/bt/descent.logos) the fn body's last statement is a
+// `loop` whose only `break` sits in a nested `while` — it targets the `while`,
+// the `loop` still diverges, and that fn's return-reachability depends on it.
+// Targeting mirrors lower_loop / the BREAK arm's frame search exactly:
+//   - unlabelled `break`  -> innermost enclosing loop: ours only at depth 0
+//   - `break 'a`          -> innermost enclosing loop labelled 'a
+//   - a nested loop carrying OUR label SHADOWS us — nothing inside it can
+//     reach us, so that whole subtree is skipped
+//   - CLOSURE_EXPR / NESTED_FN are FUNCTION BOUNDARIES: a break there targets
+//     no loop of ours
+// Every other node is walked GENERICALLY (each TinyMap under each key, each
+// array element, idiom copied from sema_expr.cpp's quote_item walker), so a new
+// AST node kind is traversed by default; only a node that introduces a new
+// break TARGET or a new FUNCTION BOUNDARY has to be added to the lists above.
+// (AST codes are `constexpr Code` constants, not an enum, so -Wswitch cannot
+// stand guard here; the generic-by-default walk is what replaces it.)
+bool SemaChecker::loop_has_targeting_break(TinyMapView loop_node) {
+    namespace lh = logos::writ;
+    std::string my_label;
+    TinyMapView owner = loop_node;
+    if (code_of(loop_node) == la::LABELED_LOOP) {
+        if (loop_node.has_key(la::LABEL))
+            my_label = std::string(str_of(loop_node.get(la::LABEL.code)));
+        // Two spellings: `labeled_loop_stmt` puts the loop STATEMENT under
+        // BODY, `loop_expr` puts the BLOCK there.
+        auto inner = map_of(loop_node.get(la::BODY.code));
+        int32_t ic = code_of(inner);
+        if (ic == la::LOOP || ic == la::WHILE || ic == la::FOR || ic == la::FOR_EACH)
+            owner = inner;
+    }
+    if (!owner.has_key(la::BODY)) return false;
+    bool found = false;
+    std::function<void(TinyMapView, int)> walk = [&](TinyMapView n, int depth) {
+        if (found || n.is_null()) return;
+        int32_t c = code_of(n);
+        if (c == la::CLOSURE_EXPR || c == la::NESTED_FN) return;   // fn boundary
+        if (c == la::BREAK || c == la::BREAK_EXPR) {
+            std::string lbl = n.has_key(la::LABEL)
+                ? std::string(str_of(n.get(la::LABEL.code))) : std::string();
+            if (lbl.empty() ? (depth == 0)
+                            : (!my_label.empty() && lbl == my_label)) {
+                found = true; return;
+            }
+            // fall through: `break <expr>` can carry further nodes in VALUE
+        }
+        int child_depth = depth;
+        if (c == la::LOOP || c == la::WHILE || c == la::FOR || c == la::FOR_EACH) {
+            child_depth = depth + 1;
+        } else if (c == la::LABELED_LOOP) {
+            if (!my_label.empty() && n.has_key(la::LABEL) &&
+                str_of(n.get(la::LABEL.code)) == my_label)
+                return;                                  // shadowed — skip subtree
+            auto ib = map_of(n.get(la::BODY.code));
+            int32_t ic = code_of(ib);
+            bool body_is_loop_stmt = (ic == la::LOOP || ic == la::WHILE ||
+                                      ic == la::FOR  || ic == la::FOR_EACH);
+            child_depth = body_is_loop_stmt ? depth : depth + 1;
+        }
+        uint64_t bm = n.bitmap();
+        for (uint8_t key = 0; key < writ::TinyObjectMap::MAX_KEYS; ++key) {
+            if (!(bm & (1ULL << key))) continue;
+            AnyVal av = n.get(key);
+            if (av.is_null() || !av.is_pointer()) continue;
+            const uint8_t* pv = av.resolve();
+            if (!pv) continue;
+            uint64_t tc = lh::TypeTag::read_before(pv).type_code();
+            if (tc == lh::type_hash::TinyObjectMap) {
+                walk(map_of(av), child_depth);
+            } else if (tc == lh::type_hash::Array) {
+                auto arr = arr_of(av);
+                for (uint64_t i = 0; i < arr.size() && !found; ++i)
+                    walk(map_of(arr.get(i)), child_depth);
+            }
+        }
+    };
+    walk(map_of(owner.get(la::BODY.code)), 0);
+    return found;
+}
+
 bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
     int32_t c = code_of(stmt);
     if (c == la::RETURN) return true;
@@ -94,8 +178,11 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
         if (ec == la::IF || ec == la::MATCH) return stmt_always_returns(e);
     }
     if (c == la::LOOP) {
-        // `loop {}` is an infinite loop — it never falls through to the next statement.
-        return true;
+        // `loop { … }` diverges only when NO `break` targets it — the same rule
+        // lower_loop applies via loop_break_frames_ (last_loop_diverged_).
+        // `loop { break; }` FALLS THROUGH, and calling it diverging is what let
+        // this gate lie to the let-else check and to match-arm typing.
+        return !loop_has_targeting_break(stmt);
     }
     if (c == la::IF) {
         if (!stmt.has_key(la::ELSE)) return false;
@@ -219,9 +306,9 @@ bool SemaChecker::body_always_diverges_simple(TinyMapView body_node) {
     if ((c == la::EXPR_STMT || c == la::TAIL_EXPR) && last.has_key(la::VALUE)) {
         auto e = map_of(last.get(la::VALUE.code));
         if (is_divergent_call(e)) return true;
-        if (code_of(e) == la::LOOP) return true;
+        if (code_of(e) == la::LOOP) return !loop_has_targeting_break(e);
     }
-    if (c == la::LOOP) return true;
+    if (c == la::LOOP) return !loop_has_targeting_break(last);
     return false;
 }
 

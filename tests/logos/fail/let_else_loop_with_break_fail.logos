@@ -1,0 +1,12 @@
+// sema classified a `loop` as DIVERGING from its node code alone, without ever
+// looking in its body for a `break` that targets it. `loop { break; }` FALLS
+// THROUGH, so this let-else's else-block does not diverge and `x` is not bound
+// on that path — admitted rc 0 until the divergence question was asked properly.
+// ONE-TOKEN TWIN: pass/let_else_loop_no_break_admit.logos, the same program
+// without the `break`.
+package loop_div_b;
+enum Opt { Some(i32), None, }
+fn main() -> i32 {
+    let Opt::Some(x) = Opt::Some(5i32) else { loop { break; } };
+    return x - 5i32;
+}
