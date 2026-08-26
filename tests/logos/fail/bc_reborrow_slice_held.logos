@@ -1,0 +1,25 @@
+// A REBORROW THROUGH A FAT REFERENCE STILL HOLDS THE LOAN.
+//
+// `is_reborrow_ref_kind` admitted only Kind::Ref and Kind::MutRef, so `&[T]`
+// (Kind::Slice, a fat {ptr,len} pair — not Ref-to-array) fell out of the
+// reborrow-alias channel: `w`'s NLL last use was never extended past the `&w`
+// line, the loan on `c` was released one line before `c.bump()`, and this
+// compiled. Its ARRAY twin — the same program with `&[B; 1]` on line 12, one
+// character apart — refused throughout. bc_reborrow_dyn_held.logos is the
+// other half of the same class; both needed a SECOND fix (the SliceLit arm in
+// ref_source_places), and opening only the type gate left this one open.
+package bc_reborrow_slice_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let w: [B; 1] = [c.mk()];
+    let r: &[B] = &w;
+    c.bump();
+    return *r[0].p as i32;
+}

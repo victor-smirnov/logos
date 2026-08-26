@@ -1509,6 +1509,20 @@ static void ref_source_places(lir_view::ExprRef val, const TypePoolImpl* pool,
         case Code::AddrOfTemp:
             ref_source_places(EAddrOfTempView{val}.inner(), pool, out, depth + 1);
             return;
+        // ⚠ THE ARRAY→SLICE COERCION IS TRANSPARENT TO PROVENANCE, and this was
+        // the ONE walker of four that did not say so. prov_of, taint_of and
+        // collect_ref_sources_paths all have the arm; here a SliceLit matched
+        // nothing, the projection loop below broke with `cur` still the
+        // SliceLit, the terminal-VarRef test failed, and the walk yielded no
+        // source place at all.
+        // MEASURED as the SECOND of two independent blockers: opening the type
+        // gate in is_reborrow_ref_kind closed the `&dyn Tr` twin (rc 0 ->
+        // refused) and left `let s: &[B] = &w;` still admitted, which is what
+        // separates the two. Only BASE_PTR can carry provenance; the length is
+        // a scalar.
+        case Code::SliceLit:
+            ref_source_places(ESliceLitView{val}.base(), pool, out, depth + 1);
+            return;
         case Code::Cast:
             ref_source_places(ECastView{val}.operand(), pool, out, depth + 1);
             return;
@@ -8525,10 +8539,23 @@ private:
     // exactly as load-bearing. Measured as its OWN rule (separate build, own
     // probe pair) because it touches the NLL live range of every `let r = &x;`
     // in the corpus, which the `&mut` rule does not.
-    static bool is_reborrow_ref_kind(TypeRef t) {
-        return t && (t.kind() == LogosType::Kind::MutRef ||
-                     t.kind() == LogosType::Kind::Ref);
-    }
+    // ⚠ A SECOND, NARROWER NOTION OF "IS A REFERENCE" — and the narrow one
+    // silently won. `is_ref_kind` (above) already admits Ref, MutRef, Slice,
+    // non-owning DstRef and non-owning TraitObject, and says why in its own
+    // comment: "Fat borrowed forms carry the same provenance duties as `&T`".
+    // This predicate never got that update, so every FAT borrowed form fell out
+    // of the reborrow-alias channel and its holder's NLL last use was never
+    // extended. MEASURED, strict one-variable pairs (one character apart, same
+    // binding, same final expression), with LOGOS_DUMP_BC_RELEASE reading out
+    // the holder's last use:
+    //   let r: &[B; 1] = &w;  -> Kind::Ref    lu(w)=14 (the return)  REFUSED
+    //   let r: &[B]    = &w;  -> Kind::Slice  lu(w)=12 (the `&w`)    rc 0
+    //   let d: &B      = &w; let d2 = d;  -> lu(w)=17  REFUSED
+    //   let d: &dyn Tr = &w; let d2 = d;  -> lu(w)=15  rc 0
+    // Two live admits, one class. Delegating removes the second enumeration
+    // rather than extending it — a `|| Kind::Slice` would have closed the slice
+    // half and left the `&dyn` half exactly as open as it was.
+    static bool is_reborrow_ref_kind(TypeRef t) { return is_ref_kind(t); }
     // D1 round 13 / P1: THE VALUE STORED IS AN ARRAY OF REFERENCES.
     //
     // The container-granular half of the array convention on the WRITE side.

@@ -1,0 +1,28 @@
+// THE `&dyn Trait` HALF OF THE SAME CLASS as bc_reborrow_slice_held.logos.
+//
+// `&dyn Tr` is Kind::TraitObject, a fat {data, vtable} pair, and was likewise
+// absent from `is_reborrow_ref_kind`. The ONE-HOP spelling (`let d: &dyn Tr =
+// &w;` then `d.g()`) still refused, because the initialiser is an AddrOf typed
+// Kind::Ref and the `|| is_reborrow_ref_kind(vt)` half of the gate rescued it —
+// which is exactly why this fixture takes TWO hops: `let d2: &dyn Tr = d;`
+// mints no loan of its own, so only the reborrow-alias chain d2 -> d -> w can
+// carry the last use forward, and that chain was the thing that was missing.
+// Unlike its slice twin, this one closed on the type gate ALONE.
+package bc_reborrow_dyn_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+trait Tr { fn g(&self) -> i64; }
+impl Tr for B { fn g(&self) -> i64 { return *self.p; } }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let w: B = c.mk();
+    let d: &dyn Tr = &w;
+    let d2: &dyn Tr = d;
+    c.bump();
+    return d2.g() as i32;
+}
