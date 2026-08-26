@@ -101,9 +101,14 @@ RULES:
   phase already answered and which a second run cannot answer better.
 * **L4 is run ONCE, by Land or by Verify — preferably Land.** Never both.
 * A narrow `ctest -R <the round's own fixtures>` is fine; a sweep is not.
-* **Keep it short.** The previous verify ran 80 commands including ten
+* **Short in COMMANDS, exhaustive in PROGRAMS.** This is the whole distinction:
+  thoroughness comes from enumerating the property space with hand-written
+  probes, not from re-running tests that are already green. Sweep every shape
+  the property can take — nesting, both directions, each spelling — and do it
+  with `logosc` and `run_test.sh`, which cost seconds, instead of with ctest,
+  which costs minutes. The previous verify ran 80 commands including ten
   `test-levels` invocations and two `-L imported`, and every finding it actually
-  produced came from hand-written probes, not from a sweep.
+  produced came from a probe.
 
 WHAT VERIFY IS FOR, and it is worth the whole phase: the last three rounds were
 each saved by it, and in every case by a PROBE — a fixture that could not
