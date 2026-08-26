@@ -7229,8 +7229,17 @@ private:
             case Code::IfExpr: {
                 EIfExprView v{e};
                 if (!record_only) visit(v.cond(), /*consuming=*/true, line);  // #70
+                // â  ARMS ARE ALTERNATIVES, AND THIS PASS DID NOT KNOW IT. The
+                // CHECK pass's IfExpr arm saves the state, walks each arm from
+                // the same baseline and joins with merge_loans; this one walked
+                // them in sequence, so `if c { &mut a } else { &mut a }` took a
+                // second mutable loan on top of the first and refused itself.
+                auto saved_s = states_;
                 take_ref_borrows(v.then_val(), line, holder, record_only);    // #70
+                auto then_s = states_;
+                states_ = saved_s;
                 take_ref_borrows(v.else_val(), line, holder, record_only);    // #70
+                merge_loans(states_, then_s);
                 break;
             }
             // Cross-fn provenance (conservative): when a function-call result is

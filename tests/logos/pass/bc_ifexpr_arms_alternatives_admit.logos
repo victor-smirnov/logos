@@ -1,0 +1,19 @@
+// ARMS ARE ALTERNATIVES. The CHECK pass's IfExpr arm has always snapshotted
+// states_, walked each arm from the same baseline and joined with merge_loans.
+// The RECORDING pass (take_ref_borrows) walked them in SEQUENCE, so both arms'
+// `&mut a` stacked and the expression refused itself with "cannot borrow 'a' as
+// mutable: already mutably borrowed" — two notions of "arm", the narrower one
+// in the pass that records.
+// The `&mut [i64]` annotation is what routes this through take_ref_borrows'
+// SliceLit arm at all; the `&mut [i64; 3]` spelling was over-refused too.
+// EXCLUSIVITY IS UNCHANGED: fail/bc_ifexpr_arms_alias_write_fail.
+package bc_ifexpr_arms_alternatives_admit;
+fn total(x: &mut [i64]) -> i64 { return x[0i64]; }
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let w: &mut [i64] = if true { &mut a } else { &mut a };
+    if total(w) != 1i64 { return 1i32; }
+    let v: &mut [i64; 3] = if true { &mut a } else { &mut a };
+    if v[0i64] != 1i64 { return 2i32; }
+    return 0i32;
+}
