@@ -1,0 +1,15 @@
+// The ARRAY-ELEMENT spelling of the same reborrow. This one was ALREADY
+// over-refused before the TupleIndex arc began (measured at 60407dc1d,
+// "cannot borrow 't' as mutable: not declared as mut") and no fixture watched
+// it — IndexRead was in try_implicit_reborrow_mut's list all along. Fixing the
+// PEEL rather than the spelling closes it too.
+package bc_reborrow_through_array_elem_admit;
+struct S { v: i64 }
+fn takes(r: &mut S) -> i64 { return r.v; }
+fn main() -> i32 {
+    let mut s: S = S { v: 1i64 };
+    let r: &mut S = &mut s;
+    let t: [&mut S; 1] = [r];
+    if takes(t[0]) != 1i64 { return 1i32; }
+    return 0i32;
+}

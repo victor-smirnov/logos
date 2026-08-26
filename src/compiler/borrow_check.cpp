@@ -7071,12 +7071,22 @@ private:
                 // RECOGNISER to serve one CONSUMER is how the narrow/wide pairs
                 // in this file were born in the first place.
                 ExprRef reborrow_root;
+                // â  A REBORROW THROUGH A PROJECTION IS STILL A REBORROW. The
+                // peel terminated at a bare VarRef and nothing else, so
+                // `&mut *t.0` / `&mut *h.r` / `&mut *arr[0]` â the shapes
+                // try_implicit_reborrow_mut PRODUCES for a ref-typed element â
+                // fell to the decomposition below, which records them as a
+                // FRESH borrow of the root local and then demands the root be
+                // declared `mut`. It is not the root that is mutated.
+                ExprRef reborrow_place;
                 if (inner) {
                     ExprRef cur = inner;
                     while (cur && cur.kind() == Code::Deref)
                         cur = EDerefView{cur}.operand();
-                    if (cur && cur.kind() == Code::VarRef && cur != inner)
-                        reborrow_root = cur;
+                    if (cur && cur != inner && lir_view::is_place_expr(cur)) {
+                        if (cur.kind() == Code::VarRef) reborrow_root = cur;
+                        else if (is_ref_kind(cur.type(pool))) reborrow_place = cur;
+                    }
                 }
                 if (ExprRef inner_var = reborrow_root;
                     inner_var && is_ref_kind(inner_var.type(pool))) {
@@ -7132,6 +7142,21 @@ private:
                 bool index_in_chain = bp.index_in_chain;
                 if (!root.empty()) {
                     auto sit = var_find(NO_SLOT, root);
+                    // The EXEMPTION half of the reborrow rule, and the same one
+                    // the VarRef branch above spells with `fake_param`: a
+                    // reborrow draws on the REFERENCE's capacity, not on the
+                    // binding's declared mutness.
+                    struct MutBindBypass {
+                        std::unordered_set<std::string>* set = nullptr;
+                        std::string name;
+                        ~MutBindBypass() { if (set) set->erase(name); }
+                    } bypass;
+                    if (reborrow_place && sit != nullptr &&
+                        !sit->is_mut_binding && !param_names_.count(root)) {
+                        param_names_.insert(root);
+                        bypass.set = &param_names_;
+                        bypass.name = root;
+                    }
                     if (sit != nullptr && !path.empty()) {
                         // T1-10/B78: full dotted-path overlap (equal /
                         // either-prefix) — disjoint siblings borrow fine.

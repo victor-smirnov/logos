@@ -1,0 +1,13 @@
+// The STRUCT-FIELD spelling of the same reborrow, likewise over-refused
+// before this arc ("cannot borrow 'h.r' as mutable: 'h' not declared as mut")
+// with no fixture watching. Three spellings, one peel.
+package bc_reborrow_through_field_admit;
+struct S { v: i64 }
+struct H { r: &mut S }
+fn takes(r: &mut S) -> i64 { return r.v; }
+fn main() -> i32 {
+    let mut s: S = S { v: 1i64 };
+    let h: H = H { r: &mut s };
+    if takes(h.r) != 1i64 { return 1i32; }
+    return 0i32;
+}

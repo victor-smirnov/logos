@@ -1,0 +1,12 @@
+// THE ABUSE DIRECTION of the reborrow exemption, one token from
+// pass/bc_reborrow_through_tuple_elem_admit: the element is a VALUE, not a
+// `&mut`, so `&mut t.0` really does mutate `t` and the is_mut_binding demand
+// on the ROOT is correct. The exemption fires only when the peel terminates on
+// a REF-TYPED place, which this is not.
+package bc_reborrow_tuple_value_elem_fail;
+fn takes_mut(r: &mut i64) -> i64 { return *r; }
+fn main() -> i32 {
+    let t: (i64, i64) = (1i64, 2i64);
+    if takes_mut(&mut t.0) != 1i64 { return 1i32; }
+    return 0i32;
+}
