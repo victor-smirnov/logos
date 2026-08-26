@@ -1,0 +1,22 @@
+// A REBORROW THROUGH MORE THAN ONE DEREF RECORDS NOTHING.
+//
+// `lir_view::is_reborrow_shape` matches `AddrOfTemp(Deref(VarRef))` — one deref
+// exactly. `&mut **p` is the same reborrow one level deeper, and nothing caught
+// it: extract_borrow_place CLEARS the path on every Deref, so the walk reached
+// the root with an empty path and no index, both of the decomposition's guards
+// missed, and NO borrow of any kind was recorded. The loan dump held no record
+// whose holder was `m` or `n`.
+// ONE-PROPERTY TWIN: the same file with `&mut *p` and `m`/`n` typed
+// `&mut &mut i64` — refused, "already mutably borrowed". Same `p`, same type,
+// same crime; only the depth under the outer `&mut` differs.
+package bc_reborrow_deref_chain;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let mut r: &mut i64 = &mut x;
+    let p: &mut &mut i64 = &mut r;
+    let m: &mut i64 = &mut **p;
+    let n: &mut i64 = &mut **p;
+    *m = 1i64;
+    *n = 2i64;
+    return 0i32;
+}

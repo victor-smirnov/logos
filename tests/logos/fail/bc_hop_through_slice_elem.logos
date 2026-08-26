@@ -1,0 +1,34 @@
+// THE LOAN-INHERITANCE HOP MUST PEEL A SLICE INDEX.
+//
+// bc_hop_roots's place-chain loop peeled FieldRead/TupleIndex/IndexRead/Deref
+// and NOT SliceIndex, so a hop whose receiver is a SLICE ELEMENT never reached
+// its terminal VarRef, the walk answered [], and the result inherited none of
+// the slice binding's loans — released one line before the mutation.
+// ONE-PROPERTY TWIN: `&[B; 1]` for `&[B]` in `all`'s return type and `hs`'s
+// annotation (the two places that one type is spelled) — refused.
+// ⚠ Two earlier attempts REFUTED this, both by building the slice as `&arr`,
+// whose own missing loan (see bc_slice_coercion_holds_loan) left nothing to
+// inherit and made the arm look inert. Taking the slice from a CALL exposes it.
+package bc_hop_through_slice_elem;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+}
+impl B {
+    fn thru(&self) -> B { return B { p: self.p }; }
+}
+struct Bx { items: [B; 1] }
+impl Bx {
+    fn all(&self) -> &[B] { return &self.items; }
+    fn touch(&mut self) { self.items = self.items; }
+}
+fn main() -> i64 {
+    let c: C = C { v: 1i64 };
+    let mut bx: Bx = Bx { items: [ c.mk() ] };
+    let hs: &[B] = bx.all();
+    let b: B = hs[0i64].thru();
+    bx.touch();
+    return *b.p;
+}

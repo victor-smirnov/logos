@@ -1,0 +1,24 @@
+// `&arr` COERCED TO `&[T]` RECORDED NO LOAN ON THE ARRAY.
+//
+// take_ref_borrows had no SliceLit arm, so `let hs: &[B] = &holders;` — which
+// lowers to SliceLit{BASE_PTR=AddrOfTemp(holders)} — left `holders` unborrowed
+// and it could be reassigned underneath a live view. The loan dump showed
+// `target=holders holder=hs` present for the array spelling and absent here.
+// ONE-PROPERTY TWIN: `&[B; 1]` instead of `&[B]` on the `hs` binding — refused.
+// ⚠ This defect MASKED bc_hop_roots' missing SliceIndex step: with no loan on
+// the binding there was nothing to inherit, so two attempts to demonstrate that
+// one via `&arr` slices concluded, wrongly, that it did not exist.
+package bc_slice_coercion_holds_loan;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C { fn mk(&self) -> B { return B { p: &self.v }; } }
+impl B { fn thru(&self) -> B { return B { p: self.p }; } }
+fn main() -> i64 {
+    let c: C = C { v: 1i64 };
+    let mut holders: [B; 1] = [ c.mk() ];
+    let hs: &[B] = &holders;
+    let b: B = hs[0i64].thru();
+    holders = holders;
+    return *b.p;
+}

@@ -5398,10 +5398,13 @@ private:
             // written at the top of this function (inherit_loans only ever ADDS
             // a co-holder to a record that already exists).
             using K = Code;
+            // SliceIndex added with the loop below, for the same reason and
+            // in the same commit: a guard that lists place kinds must not drift
+            // from the loop it guards.
             if (cur && cur.kind() != K::VarRef  && cur.kind() != K::AddrOf &&
                 cur.kind() != K::AddrOfTemp     && cur.kind() != K::FieldRead &&
                 cur.kind() != K::TupleIndex     && cur.kind() != K::IndexRead &&
-                cur.kind() != K::Deref) {
+                cur.kind() != K::SliceIndex     && cur.kind() != K::Deref) {
                 bc_hop_roots(cur, out);
                 return;
             }
@@ -5471,8 +5474,22 @@ private:
                 path_ok = false;
                 cur = r; continue;
             }
-            if (k == Code::IndexRead)  {
-                auto r = EIndexReadView{cur}.receiver();
+            // ⚠ ONE ARM FOR BOTH INDEXING STEPS. An array index is IndexRead,
+            // a slice index is SliceIndex; the same step, and this loop peeled
+            // only the first — so a hop whose receiver is a SLICE ELEMENT never
+            // reached its terminal VarRef, the walk answered [], and the result
+            // inherited none of the slice binding's loans.
+            // ⚠ TWO EARLIER ATTEMPTS "REFUTED" THIS, both by building the slice
+            // as `&arr`. That spelling loses the loan on the binding ENTIRELY
+            // (a separate defect in the `&arr -> &[T]` coercion), so there was
+            // nothing to inherit and the arm changed nothing observable — a
+            // mask, not an absence. Taking the slice from a CALL (`bx.all()`)
+            // makes the loan record identical on both sides and exposes it.
+            // MEASURED: `let hs: &[B] = bx.all(); let b = hs[0].thru();
+            // bx.touch(); *b.p` compiled rc 0 while its `&[B; 1]` twin refused.
+            if (k == Code::IndexRead || k == Code::SliceIndex) {
+                auto r = (k == Code::IndexRead) ? EIndexReadView{cur}.receiver()
+                                                : ESliceIndexView{cur}.slice();
                 if (recv_is_rawptr(r)) return;
                 path_ok = false;
                 cur = r; continue;
@@ -6957,6 +6974,24 @@ private:
                 if (!record_only) visit(e, /*consuming=*/true, line);
                 break;
             }
+            // ⚠ THE ARRAY→SLICE COERCION IS BORROW-FORMING, and this switch had
+            // no arm for it: `let hs: &[B] = &holders;` lowers to
+            // SliceLit{BASE_PTR=AddrOfTemp(holders)} and recorded NO loan on
+            // `holders` at all. MEASURED, one-variable pair (only the annotated
+            // type differs, `&[B]` vs `&[B; 1]`):
+            //     let hs: &[B; 1] = &holders; … holders = holders;  -> REFUSED
+            //     let hs: &[B]    = &holders; … holders = holders;  -> rc 0
+            // and the loan dump shows `target=holders holder=hs` present for the
+            // array spelling and absent for the slice.
+            // ⚠ THIS ARM WAS WRITTEN ONCE BEFORE AND REVERTED as "changed
+            // nothing". It changed nothing on THAT probe because the program
+            // was refused through the reborrow-alias channel instead; the arm
+            // was right and the oracle was wrong. Only BASE_PTR can carry
+            // provenance — the length is a scalar.
+            case Code::SliceLit: {
+                take_ref_borrows(ESliceLitView{e}.base(), line, holder, record_only);
+                break;
+            }
             case Code::AddrOf: {
                 EAddrOfView v{e};
                 take_borrow(std::string(v.var_name()), NO_SLOT, is_mut_ref(e.type(pool)),
@@ -6974,8 +7009,45 @@ private:
                 // to). NLL releases on the holder's last use, restoring r's
                 // usability — this is what makes implicit-reborrow at call
                 // args work: r is "frozen" only for the call's scope.
-                if (ExprRef inner_var; lir_view::is_reborrow_shape(e, &inner_var)
-                    && is_ref_kind(inner_var.type(pool))) {
+                // ⚠ is_reborrow_shape MATCHES `AddrOfTemp(Deref(VarRef))` AND
+                // NOTHING ELSE — one deref exactly. `&mut **p` is the same
+                // reborrow one level deeper, and it was rescued by nothing:
+                // extract_borrow_place below CLEARS the path on every Deref, so
+                // the walk reaches the root with an empty path and no index,
+                // both of that decomposition's guards miss, and NO borrow of any
+                // kind is recorded. MEASURED, one-property pair — same `p` of
+                // the same type `&mut &mut i64` on both sides, same aliasing
+                // crime, only the depth under the outer `&mut` differing:
+                //     let m = &mut *p;  let n = &mut *p;   -> REFUSED
+                //     let m = &mut **p; let n = &mut **p;  -> rc 0, and the loan
+                //       dump holds NO record whose holder is m or n.
+                // Two simultaneously live `&mut i64` onto one storage; E0499.
+                //
+                // ⚠ THE FIRST FIX WAS AT THE WRONG SITE AND THE STDLIB SAID SO.
+                // Recording a whole-root borrow whenever the path came back
+                // empty also fires for a plain `AddrOfTemp(VarRef)` — every
+                // method autoref — so `it.next()` in a loop conflicted with
+                // itself and liblogos-lang stopped building (iter_min, iter_max).
+                // The property is not "empty path", it is "the place is reached
+                // through derefs alone". Peel here, and the existing arm keeps
+                // its fake_param bypass, which the fallthrough did not have and
+                // which is why that attempt also produced the WRONG diagnostic
+                // ("not declared as mut") on the very program it fixed.
+                //
+                // is_reborrow_shape itself is left alone deliberately:
+                // mlir_gen_dyn also consumes it, and widening a shared
+                // RECOGNISER to serve one CONSUMER is how the narrow/wide pairs
+                // in this file were born in the first place.
+                ExprRef reborrow_root;
+                if (inner) {
+                    ExprRef cur = inner;
+                    while (cur && cur.kind() == Code::Deref)
+                        cur = EDerefView{cur}.operand();
+                    if (cur && cur.kind() == Code::VarRef && cur != inner)
+                        reborrow_root = cur;
+                }
+                if (ExprRef inner_var = reborrow_root;
+                    inner_var && is_ref_kind(inner_var.type(pool))) {
                     std::string rname(EVarRefView{inner_var}.name());
                     uint32_t rname_slot = EVarRefView{inner_var}.var_slot();  // Phase-1
                     if (auto sit = var_find(rname_slot, rname); sit != nullptr) {
