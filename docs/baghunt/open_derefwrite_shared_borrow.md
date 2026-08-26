@@ -1,7 +1,12 @@
-# OPEN — `*r = v` is admitted while a shared borrow through `r` is live
+# CLOSED 2026-08-26 (`438c8197c`) — `*r = v` was admitted while a shared borrow through `r` was live
 
-**Status**: confirmed live, repro proven, NOT fixed. Found 2026-08-26 by
-`tools/dlog/cluster_divergence.dl`.
+**Status**: FIXED. Found 2026-08-26 by `tools/dlog/cluster_divergence.dl`.
+The DerefWrite fall-through now delegates to `check_recv_conflict`, the
+whole-root mutable-use predicate that already carried the raw-ptr and
+non-empty-path exemptions. Pinned by `fail/bc_derefwrite_shared_borrow_fail`
++ `pass/bc_derefwrite_shared_dead_admit`. Still NOT fixed on this path, each its
+own finding: no `place_write_loans` call (the LOAN/provenance channel for
+`*r = v` stays empty), and no §B6 add_ref_sources/holder-escape deposits.
 
 ## The program
 
@@ -63,10 +68,21 @@ route. Do not re-attempt `check_live`.
 
 ---
 
-# OPEN — a RANGE projection records no loan: `let r: &[i64] = a[0..2];`
+# CLOSED 2026-08-26 (`6ede8b442`) — a RANGE projection recorded no loan: `let r: &[i64] = a[0..2];`
 
-**Status**: confirmed live, verified adversarially, mechanism located, NOT fixed.
-Found 2026-08-26 by `place_walkers` (`take_ref_borrows` 1/5).
+**Status**: FIXED for the view-base spelling. Found 2026-08-26 by
+`place_walkers` (`take_ref_borrows` 1/5). The SliceLit arm now marks
+`slice_view_base_` and the AddrOfTemp fall-through records a whole-root borrow
+when it is set — a method autoref is never wrapped in a SliceLit, which is what
+keeps the measured-wrong blanket "record on empty path" out of it. Pinned by
+`fail/bc_range_view_holds_loan` + `pass/bc_range_view_nll_admit`.
+
+⚠ THE CLASS IS NOT CLOSED, only this spelling. "Empty path" at that
+fall-through still covers at least five different situations (Call-lowered
+autoref receiver; deref chain, peeled in `262f066f`; view base — this fix;
+fake_param bypass; unknown root), and re-slicing an already-slice local builds
+no SliceLit and still records nothing. Closing the class needs an enumerator —
+an env-gated census at that fall-through — which does not exist yet.
 
 ```logos
 let mut a: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
@@ -118,10 +134,28 @@ recording on empty-path unconditionally.
 
 ---
 
-# OPEN — sema calls `loop { break; }` diverging, so a `let-else` drops its loans
+# CLOSED 2026-08-26 (`a3e95a42b`) — sema called `loop { break; }` diverging, so a `let-else` dropped its loans
 
-**Status**: confirmed live, mechanism located, root identified, NOT fixed.
-Found 2026-08-26 by `cluster_divergence` (LetElse / merge_loans, merge_provs).
+**Status**: the sema root is FIXED. Found 2026-08-26 by `cluster_divergence`
+(LetElse / merge_loans, merge_provs). `SemaChecker::loop_has_targeting_break`
+is the AST-phase predicate — label- and nesting-aware, mirroring lower_loop's
+frame search — and all three classification sites delegate to it. Pinned by
+`fail/let_else_loop_with_break_fail` + `pass/let_else_loop_no_break_admit`
+(the let-else consumer) and `fail/loop_break_targets_outer_no_return_fail` +
+`pass/loop_break_targets_inner_admit` (return reachability, bt_upper_bound's
+shape — a presence-of-token walk reds liblogos-lang there).
+
+⚠ STILL OPEN, two items. (1) `la::LABELED_LOOP` is handled by the predicate but
+line 96 is not extended to it, so `'a: loop { }` in a let-else else is still
+refused — the opposite direction, and its two BODY spellings need their own
+measurement. (2) borrow_check's LetElse arm still restores `states_`/`prov_`
+UNCONDITIONALLY where the If arm consults `cur_diverged_` and picks
+restore-vs-merge from it: the same two-notions shape one layer down. The repair
+is delegation to that join, NOT bolting `merge_loans` onto an unconditional
+restore (break/continue escapes already deposit via `break_states.push_back` /
+`continue_states.push_back`, and merging a diverged else would double-count
+them). Its control has to neuter the sema gate temporarily, because after this
+fix no program reaches that line.
 
 `sema_stmt.cpp:96` classifies a `loop` as DIVERGING without inspecting its body
 for a `break` that targets it. So:
