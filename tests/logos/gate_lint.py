@@ -227,11 +227,15 @@ NOT_GATES = {
     # it would assert something about the extraction that only the rules can
     # decide. See tools/dlog/README.md for why the extractor, not the rules, is
     # the risk in that design.
-    "extract.sh":              "emits Datalog facts for tools/dlog; asserts "
-                               "nothing — the Souffle program holds the verdict",
-    "selftest.sh":             "the known-answer test for tools/dlog: it checks "
-                               "out revision 28fc7c75 and needs souffle, so it "
-                               "grades a TOOL, not this tree — run it by hand",
+    "sweep.sh":                "runs tools/dlog over every compiler TU and prints "
+                               "a REPORT to read, not a verdict; minutes of clang "
+                               "and its rules are graded by selftest.sh",
+    "make.sh":                 "builds tools/dlog/lir_facts against system LLVM; "
+                               "a build script asserts nothing about this tree",
+    "selftest.sh":             "the known-answer test for tools/dlog: it builds a "
+                               "worktree of revision 28fc7c75 and needs souffle "
+                               "and libclang-20-dev, so it grades a TOOL, not "
+                               "this tree — run it by hand",
     "change-budget.sh":        "a hand-run measuring tool; its verdict is about "
                                "ONE change against a budget declared before that "
                                "change was written, so it has no fixed population "

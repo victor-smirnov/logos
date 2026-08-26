@@ -21,22 +21,57 @@
 .decl not_projection(k: symbol)
 .decl projection_kind(k: symbol)
 .decl place_root_kind(k: symbol)
-.decl walker(f: symbol)
+// tests(Context, Kind, Position) comes from the AST, not from a grep over the
+// text — see tools/dlog/lir_facts.cpp. Position is what makes HANDLING
+// decidable: a `case K:` with no body, and a `builder().make(K)` that merely
+// MENTIONS the code, are both things the old extractor counted as handled.
+.decl tests(f: symbol, k: symbol, pos: symbol)
 .decl handles(f: symbol, k: symbol)
+.input tests
 .input expr_code
 .input not_projection
+handles(F, K) :- tests(F, K, "case_live").
+handles(F, K) :- tests(F, K, "cond").
+
+// An arm that exists and does nothing is its own defect, and it is INVISIBLE to
+// spelling_keyed: the code IS named, so nothing is missing from the enumeration.
+.decl dead_arm(f: symbol, k: symbol)
+.output dead_arm
+dead_arm(F, K) :- tests(F, K, "case_empty").
 .output projection_kind
 projection_kind(K) :- expr_code(K), !not_projection(K).
 .input place_root_kind
-.input walker
-.input handles
+
+// ── WHO IS A WALKER: DERIVED, NOT NOMINATED ─────────────────────────────────
+// ⚠ walker.facts USED TO BE THREE NAMES I TYPED. A detector built against
+// premature closure of a search, itself asking only about the three functions
+// its author happened to think of. The tool cannot find a walker I forgot, and
+// forgetting one is the failure it exists to catch.
+//
+// A walker is one BY BEHAVIOUR: it takes at least one step DOWN a place (some
+// projection) and it reaches the ROOT. That is what walking a place means.
+//
+// ⚠ THE FIRST DERIVATION USED "handles >= 2 projections" AND LOST THE HEADLINE
+// FINDING. On the control revision try_path handled exactly one projection —
+// 1/5, the worst walker in the tree and the reason this tool exists — so a
+// two-projection threshold excluded precisely the most incomplete case. The
+// threshold had quietly redefined "is a walker" as "handles many", which is the
+// property under test, not the property that selects the subject. Never let the
+// selector and the predicate share a term.
+//
+// This is deliberately GENEROUS and will name functions that legitimately care
+// about a subset. That is the right error to make: the output is a ranked
+// REPORT to read, not a verdict, and a false name costs a glance while a
+// missing one costs a bug. It is also why this is not a gate.
+.decl walker(f: symbol)
+.output walker
+walker(F) :- handles(F, P), projection_kind(P), any_root(F).
 
 // A walker that handles SOME projections but not all of them is keyed on the
 // spelling its author enumerated, not on the property.
 .decl spelling_keyed(f: symbol, missing: symbol)
 .output spelling_keyed
-spelling_keyed(F, K) :- walker(F), projection_kind(K), !handles(F, K),
-                        projection_kind(K2), handles(F, K2).
+spelling_keyed(F, K) :- walker(F), projection_kind(K), !handles(F, K).
 
 // A walker that terminates on no root at all is not walking anything — that is
 // a different defect and must not be reported as the one above.

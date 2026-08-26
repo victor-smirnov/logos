@@ -27,47 +27,75 @@ find it; a rule over a finite domain can.
 
 ## Division of labour, and where the risk actually is
 
-**The extractor is the risk, not the rules.** Garbage facts give confidently
+**The extractor is the risk, not the rules.** Soufflé saturates or it does not;
+it has nothing to lie with. The extractor does: garbage facts give confidently
 wrong answers, which is worse than no tool because the form is authoritative.
 So:
 
-* **facts are mechanical** — derived from the source, keyed on the DOMAIN;
-* **the walker list is a CLAIM** — a human says "these functions walk places";
-* **the rule checks the claim against the domain.**
+* **facts are mechanical and GENERAL** — `lir_facts` reports every context that
+  tests any code of a named enum, and knows nothing about walkers;
+* **the walker list and the projection list are CLAIMS**, and they live in the
+  Datalog inputs where a rule can check them;
+* **the rule checks the claims against the domain.**
 
-That division earned itself on the first run, twice:
+Keeping the claim out of the extractor is not tidiness. The first extractor knew
+about walkers, so it could certify a function complete against a domain that
+shared its author's blind spot exactly.
 
-1. The extractor listed the qualifier spellings it had seen — `EC::`, `Code::`,
-   `ec::Code::` — and returned **zero** facts for a function that spells them
-   `EK::`. The tool built to catch enumeration-instead-of-property committed it
-   immediately. Fixed by keying on the domain: any qualifier, kind in the set.
-2. Two names in the claim list yielded zero projections. Not an extractor bug —
-   a wrong claim: `is_temporary_value_expr` classifies value-PRODUCING
-   expressions and `collect_borrow_locals` walks value constructors. Neither
-   decomposes a place. A wrong claim shows up as a wall of violations rather
-   than passing quietly, which is the behaviour you want from a claim.
+## The extractor is clang, and the grep version is why
+
+`lir_facts.cpp` is a LibTooling binary. The shell version it replaced worked, and
+was wrong in three ways that were measured rather than suspected:
+
+1. **`handles` meant "the body MENTIONS the code".** `case SliceIndex: break;`
+   counted as handled — the tool for finding a MISSING arm could not see an
+   EMPTY one. Positions are now `case_live | case_empty | cond | mention`.
+2. **The domain was unqualified.** `lir_schema.hpp` declares **five** enums named
+   `Code`: expr(42), stmt(22), writ_val(9), pat(13), decl(14). A `grep -oE
+   "::(TupleIndex|…)"` cannot say whose. Measured 2026-08-26: no projection name
+   currently appears in another `Code`, so the grep was **lucky, not correct** —
+   the day someone adds `pat::Code::Deref` it lies silently.
+3. **Bodies were cut by brace balance** from a grepped definition line, and
+   `try_path` is not a function: it is a `std::function` assigned a lambda on the
+   next line. The awk worked by accident.
+
+The rewrite made two errors of its own, both caught on the first run and both
+the same shape as everything else here:
+
+* fall-through case labels (`case EnumLit: case EnumLitData: <body>`) were
+  scored `case_empty`, producing **three confident false findings**. A shared arm
+  is still an arm; follow the chain to the body that runs.
+* the lambda→variable lookup checked only the immediate parent, but assigning a
+  lambda to a `std::function` inserts a `CXXConstructExpr` and a
+  `MaterializeTemporaryExpr`, so **`try_path` — the walker the tool exists to
+  check — emitted zero facts**. Climb the parents, with a bound.
 
 ## Acceptance: it must reproduce a KNOWN answer
 
-Not "does it run" — *does it say what we already know is true*, on two revisions:
+Not "does it run" — *does it say what we already know is true*. `selftest.sh`
+builds a worktree of **28fc7c75**, which predates the week's place-walker fixes,
+configures it (no compile), generates the headers the build makes, and requires
+the chain to name exactly the six defects that were then found, fixed and
+pinned — plus the coverage numbers and the derived domain size:
 
 ```
-HEAD~1   try_path 1/5   missing Deref, IndexRead, SliceIndex, TupleIndex
-HEAD     try_path 4/5   missing SliceIndex
+try_path              1/5   missing Deref, IndexRead, TupleIndex, SliceIndex
+extract_borrow_place  4/5   missing TupleIndex
+value_local_root      4/5   missing SliceIndex
+domain 42 codes / 5 projections
 ```
 
-The three that were fixed that day are named, and so is a fourth **that the
-author had missed while believing the class closed**. A probe confirmed it:
-two mut captures of `s[0]` for `s: &mut [i64]` did not conflict. That is the
-tool's first finding and it is why it exists.
+`SliceIndex` in that list is the tool's first real finding: the author believed
+the class closed, and a probe confirmed the hole — two mut captures of `s[0]`
+for `s: &mut [i64]` did not conflict.
 
-## Running it
-
-```
-tools/dlog/extract.sh <outdir> src/compiler/borrow_check.cpp src/compiler/sema_expr.cpp
-souffle -F <outdir> -D <outdir> tools/dlog/place_walkers.dl
-cat <outdir>/coverage.csv <outdir>/spelling_keyed.csv
-```
+**This is also what licensed replacing the grep extractor with the clang one.**
+The AST chain had to reproduce those six rows and those three ratios before it
+was allowed to be the only one. A rewrite with no known answer is not a
+replacement; it is a different tool wearing the same name. Bite-proved both
+ways: exempting a real projection, and disabling one position in the `handles`
+rule, each turn the selftest red — and the restore is proven by re-running it,
+not assumed.
 
 ## Soufflé now, Deem later — and the reason is not speed
 
