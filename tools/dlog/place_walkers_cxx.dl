@@ -1,0 +1,54 @@
+// place_walkers_cxx — the place-walker question, asked of the GENERAL schema.
+//
+// Nothing below required a change to the extractor. That is the whole point of
+// the exercise: lir_facts.cpp needed a C++ edit and a rebuild for each of
+// `tests`, `arm_call`, `callee_home` and the CFG, and each of its three
+// extraction bugs was an omission — a fact nobody had asked for. Here the facts
+// are already present and a new question is a new rule.
+//
+// ACCEPTANCE: this must reproduce lir_facts' answer exactly. Same handled sets
+// for the same walkers, same 19/24/1-of-5 on the control revision. A rewrite
+// with no known answer is a different tool wearing the same name.
+#include "cxx_schema.dl"
+
+.decl target_enum(e: symbol)
+target_enum(E) :- decl(E, "Enum", "logos::compiler::lir_schema::expr::Code").
+
+.decl expr_code(k: symbol)
+.output expr_code
+expr_code(K) :- target_enum(E), enum_member(E, _, K).
+
+// A node that NAMES one of the codes — resolved through `ref`, so two enums
+// that happen to share a member name can never be confused. lir_schema.hpp
+// declares FIVE enums called `Code`; the grep this replaces could only match
+// text after `::` and was correct by luck.
+.decl names_code(n: symbol, k: symbol)
+names_code(N, K) :- ref(N, D), target_enum(E), enum_member(E, D, K).
+
+// ── the three positions ─────────────────────────────────────────────────────
+// A case label: the CaseStmt's first child names a code. Its body is child 1
+// (or beyond, when the label falls through into another label).
+.decl case_of(casestmt: symbol, k: symbol)
+case_of(C, K) :- node(C, "CaseStmt", _, _), node(L, _, C, 0),
+                 through(L, I), names_code(I, K).
+
+// ⚠ FALLING THROUGH IS NOT NOTHING. `case A: case B: <body>` shares one arm
+// between two codes; scoring the first as empty produced three confident FALSE
+// findings the first time this was written in C++.
+.decl case_live(c: symbol)
+case_live(C) :- case_of(C, _), node(B, K, C, 1), K != "NullStmt", K != "CaseStmt".
+case_live(C) :- case_of(C, _), node(B, "CaseStmt", C, 1), case_live(B).
+
+.decl tests(f: symbol, k: symbol, pos: symbol)
+.output tests
+tests(F, K, "case_live") :- case_of(C, K), case_live(C), ctx_of(C, X), ctx_name(X, F).
+tests(F, K, "case_empty") :- case_of(C, K), !case_live(C), ctx_of(C, X), ctx_name(X, F).
+tests(F, K, "cond") :- node(B, "BinaryOperator", _, _), node(A, _, B, _),
+                       eq_operand(A, K), ctx_of(B, X), ctx_name(X, F).
+
+// An operand of a comparison. The extractor does not record the operator, so
+// this accepts any BinaryOperator whose operand names a code — `==` and `!=`
+// are the only ones an enum constant appears in, and a stray `|` would be a
+// FLAG enum, which this one is not.
+.decl eq_operand(n: symbol, k: symbol)
+eq_operand(A, K) :- through(A, I), names_code(I, K).

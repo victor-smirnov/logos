@@ -31,10 +31,14 @@ SO=$(ls -1 "$LLVM/lib"/libclang-cpp.so* 2>/dev/null | head -1)
 [ -n "$SO" ] || { echo "make.sh: no libclang-cpp.so* under $LLVM/lib"; exit 2; }
 
 mkdir -p "$OUT"
+set -e
 set -x
+build_one() {
 "$LLVM/bin/clang++" -std=c++20 -fno-rtti -O1 \
     $("$CFG" --cxxflags | sed 's/-fno-exceptions//') \
-    tools/dlog/lir_facts.cpp \
-    -o "$OUT/lir_facts" \
+    "tools/dlog/$1.cpp" \
+    -o "$OUT/$1" \
     "$SO" $("$CFG" --ldflags --libs support core --system-libs) \
     -Wl,-rpath,"$LLVM/lib"
+}
+build_one lir_facts && build_one cxx_facts

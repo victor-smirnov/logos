@@ -1,0 +1,95 @@
+// cxx_schema — the derived vocabulary every question is written against.
+//
+// Below this line nothing knows what a "place walker" is. These are the
+// general shapes: ancestry, the enclosing named context, and what a node
+// REFERS to. lir_facts.cpp had to be edited and rebuilt for each of them;
+// here they are rules, and a new question is a new rule.
+.decl node(id: symbol, kind: symbol, parent: symbol, index: number)
+.decl loc(id: symbol, file: symbol, line: number, col: number)
+.decl decl(did: symbol, kind: symbol, qname: symbol)
+.decl decl_node(id: symbol, did: symbol)
+.decl ref(use: symbol, did: symbol)
+.decl call(callid: symbol, callee: symbol)
+.decl enum_member(enumd: symbol, constd: symbol, name: symbol)
+.decl decl_name(did: symbol, name: symbol)
+.input node
+.input loc
+.input decl
+.input decl_node
+.input ref
+.input call
+.input enum_member
+.input decl_name
+
+// ── the enclosing named CONTEXT ─────────────────────────────────────────────
+// ⚠ COMPUTED LINEARLY, NOT AS A TRANSITIVE CLOSURE OF `parent`. Full ancestry
+// over 115610 nodes at a depth of tens is millions of tuples for a question
+// that only ever asks for the NEAREST such ancestor. `ctx_of` walks up one
+// level per rule application and stops at the first context, so it is O(nodes).
+.decl context(id: symbol)
+context(N) :- node(N, "Function", _, _).
+context(N) :- node(N, "CXXMethod", _, _).
+context(N) :- node(N, "LambdaExpr", _, _).
+
+.decl ctx_of(n: symbol, c: symbol)
+ctx_of(N, N)  :- context(N).
+ctx_of(N, C)  :- node(N, _, P, _), P != "-", !context(N), ctx_of(P, C).
+
+// A context's NAME. A function or method has a declaration and therefore a
+// qualified name; a lambda has neither, and the name a reader means is the
+// variable it is stored in — `try_path` is a std::function, not a function.
+.decl ctx_name(c: symbol, name: symbol)
+ctx_name(C, N) :- context(C), decl_node(C, D), decl_name(D, N).
+ctx_name(C, N) :- node(C, "LambdaExpr", P, _), lambda_named(P, N).
+
+// The lambda's variable, found by climbing past the implicit conversion nodes
+// that wrap it. ⚠ THE ASSIGNMENT IS NOT THE IMMEDIATE PARENT: storing a lambda
+// in a std::function inserts a CXXConstructExpr and a MaterializeTemporaryExpr,
+// which is why a one-level lookup found nothing and `try_path` — the walker the
+// whole tool exists to check — once contributed zero facts.
+.decl lambda_named(n: symbol, name: symbol)
+lambda_named(N, Name) :- node(N, "CXXOperatorCallExpr", _, _),
+                         node(A, _, N, 1), ref(A, D), decl(D, "Var", _), decl_name(D, Name).
+lambda_named(N, Name) :- node(N, "DeclRefExpr", _, _), ref(N, D),
+                         decl(D, "Var", _), decl_name(D, Name).
+// …and a lambda written straight into a VarDecl's INITIALISER, which is the
+// other half of the same idiom: `std::function<…> f = [&]{…};` versus
+// `std::function<…> f; f = [&]{…};`. Only the second is an assignment, and a
+// rule that knew only about assignments lost `forms_borrow_at_call` — eleven
+// rows, and the only rows the rewrite was missing.
+// ⚠ THE FIX WAS ONE RULE. No extractor change, no rebuild, no new fact: the
+// initialiser was already in the schema and the question had simply not asked.
+// That is the difference this layer buys.
+lambda_named(N, Name) :- node(N, "Var", _, _), decl_node(N, D), decl_name(D, Name).
+lambda_named(N, Name) :- node(N, K, P, _), P != "-",
+                         K != "CXXOperatorCallExpr", lambda_named(P, Name).
+
+// The last `::`-separated component, so `logos::SemaChecker::try_path` reads as
+// `try_path` and joins with everything else keyed on a bare name.
+
+
+// ── seeing through the wrappers clang inserts ───────────────────────────────
+// `case Code::X:` is CaseStmt -> ConstantExpr -> ImplicitCastExpr -> DeclRefExpr.
+// A question that looks at the immediate child finds a ConstantExpr and reports
+// nothing — which is exactly what happened on the first run of the rewrite:
+// `cond` matched 95 of 102 and `case_live` matched 0 of 325, a silent shape
+// mismatch that looks like a clean result.
+.decl through(outer: symbol, inner: symbol)
+through(N, N) :- node(N, _, _, _).
+through(N, I) :- node(N, K, _, _), wrapper(K), node(C, _, N, 0), through(C, I).
+
+// ⚠ THIS IS A CLAIM, AND IT IS AN ENUMERATION — the thing this whole directory
+// exists to catch, standing here in plain sight. It is a claim because the
+// derivable definition ("one child, and the same type as that child") needs a
+// `type_of` relation the extractor does not emit yet. When it does, this list
+// must be REPLACED, not extended. Listed here rather than hidden inside a
+// question so that it can be argued with.
+.decl wrapper(k: symbol)
+wrapper("ImplicitCastExpr").
+wrapper("ConstantExpr").
+wrapper("ParenExpr").
+wrapper("MaterializeTemporaryExpr").
+wrapper("CXXBindTemporaryExpr").
+wrapper("ExprWithCleanups").
+wrapper("CXXStaticCastExpr").
+wrapper("CXXFunctionalCastExpr").

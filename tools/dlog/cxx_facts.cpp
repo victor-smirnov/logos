@@ -1,0 +1,229 @@
+// cxx_facts — a GENERAL relational encoding of a C++ translation unit.
+//
+// ── WHY THIS REPLACES QUESTION-SHAPED EXTRACTION ────────────────────────────
+// lir_facts.cpp emits the facts one particular question needs, so every new
+// question is a C++ change and a rebuild. That is the small cost. The large one
+// is measured: ALL THREE of its extraction bugs were bugs of OMISSION — the
+// domain keyed on a grep of five names, callers left unfiltered, dispatch
+// attributed for `case` but not `if`, so `try_path` contributed zero edges. In
+// each case the fact was not wrong, it was ABSENT, because nobody asked for it.
+//
+// A complete, question-independent schema converts "I did not ask for that"
+// into "my query is wrong". A wrong query is visible; an absent fact is not.
+//
+// ⚠ COMPLETENESS IS AFFORDABLE — the earlier measurement said otherwise and was
+// misread. `-ast-dump=json` on one TU is 2.8 GB, but that is JSON verbosity, not
+// information: the same tree as relations with integer-ish ids and no repeated
+// key strings is two orders smaller. What must be cut is SYSTEM HEADERS, not
+// detail.
+//
+// ── IDENTITY, and it decides whether 40 TUs can be merged ───────────────────
+// DECLARATIONS are identified by the canonical declaration's SOURCE LOCATION —
+// stable across translation units, so a function declared in a header is ONE
+// entity no matter how many TUs see it. That is what makes `ref` and `call`
+// joinable across a sweep.
+// NODES (statements, expressions) are identified by a per-TU counter with the
+// TU's tag, because they are TU-local by construction and pointers are not
+// stable between runs.
+//
+// ⚠ AND IDENTITY IS THE POINT, not a detail. Keying on NAMES — which is what a
+// grep can do and all lir_facts could do — is already half broken here:
+// overloads, template instantiations, lambdas, and five separate enums named
+// `Code` in lir_schema.hpp. `ref(Use, Decl)` cannot confuse two of them,
+// because they are different nodes rather than equal strings.
+//
+//   node(Id, Kind, Parent, Index)   the tree, in order
+//   loc(Id, File, Line, Col)
+//   decl(DeclId, Kind, QualifiedName)
+//   decl_name(DeclId, BareName)     the last component, for joins
+//   decl_node(Id, DeclId)           this NODE is a declaration of that ENTITY
+//   ref(UseId, DeclId)              a name use resolved to what it names
+//   call(CallId, CalleeDeclId)      a call resolved to its callee
+//   enum_member(EnumDeclId, ConstDeclId, Name)
+#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/Frontend/CompilerInstance.h"
+#include "clang/Frontend/FrontendActions.h"
+#include "clang/Tooling/CommonOptionsParser.h"
+#include "clang/Tooling/Tooling.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Path.h"
+#include <fstream>
+#include <string>
+#include <unordered_map>
+#include <set>
+#include <vector>
+
+using namespace clang;
+
+static llvm::cl::OptionCategory Cat("cxx-facts");
+static llvm::cl::opt<std::string> OutDir("out", llvm::cl::desc("directory for .facts"),
+                                         llvm::cl::Required, llvm::cl::cat(Cat));
+
+namespace {
+
+struct Out {
+    std::ofstream node, loc, decl, decl_node, ref, call, enum_member, decl_name;
+    long nodes = 0, decls = 0, refs = 0, calls = 0;
+    void flush() {
+        node.flush(); loc.flush(); decl.flush(); decl_node.flush();
+        ref.flush(); call.flush(); enum_member.flush(); decl_name.flush();
+    }
+    void open(const std::string &d) {
+        auto p = [&](const char *n) { return d + "/" + n + ".facts"; };
+        node.open(p("node"));   loc.open(p("loc"));   decl.open(p("decl"));
+        decl_node.open(p("decl_node")); ref.open(p("ref"));
+        call.open(p("call"));   enum_member.open(p("enum_member"));
+        decl_name.open(p("decl_name"));
+    }
+};
+Out g_out;
+std::string g_tu;
+
+// ⚠ A TAB OR A NEWLINE IN A NAME WOULD SILENTLY SHIFT EVERY COLUMN AFTER IT,
+// and Souffle would load the misaligned row without complaint. Names reaching
+// here can contain anything a template argument can contain.
+std::string safe(std::string s) {
+    for (char &c : s) if (c == '\t' || c == '\n' || c == '\r') c = ' ';
+    return s;
+}
+
+class V : public RecursiveASTVisitor<V> {
+public:
+    explicit V(ASTContext &C) : ctx_(C), sm_(C.getSourceManager()) {}
+    bool shouldVisitTemplateInstantiations() const { return true; }
+    bool shouldVisitImplicitCode() const { return false; }
+
+    bool TraverseDecl(Decl *D) {
+        if (!D) return true;
+        // ⚠ SKIPPING MUST NOT SKIP THE TRAVERSAL. The first cut returned early
+        // for anything `skip()` rejected, and TranslationUnitDecl has an INVALID
+        // location — so the guard killed the walk at the root and the tool wrote
+        // seven empty files and exited 0. Emitting is one decision; descending
+        // is another.
+        if (skip(D->getLocation())) return RecursiveASTVisitor::TraverseDecl(D);
+        std::string id = fresh(D);
+        emit(id, D->getDeclKindName(), D->getLocation());
+        if (const auto *ND = dyn_cast<NamedDecl>(D)) {
+            std::string did = decl_id(ND);
+            if (!did.empty()) {
+                g_out.decl_node << id << '\t' << did << '\n';
+                if (seen_decl_.insert(did).second) {
+                    ++g_out.decls;
+                    g_out.decl << did << '\t' << D->getDeclKindName() << '\t'
+                               << safe(ND->getQualifiedNameAsString()) << '\n';
+                    // ⚠ THE BARE NAME IS EMITTED, NOT DERIVED IN DATALOG.
+                    // Souffle has no split, and peeling `::` there needs an
+                    // ungrounded variable — string surgery belongs where
+                    // strings live. The qualified name stays too: it is
+                    // strictly more informative and `decl` keeps it.
+                    g_out.decl_name << did << '\t' << safe(ND->getNameAsString()) << '\n';
+                }
+            }
+        }
+        if (const auto *ED = dyn_cast<EnumDecl>(D))
+            for (const auto *E : ED->enumerators())
+                g_out.enum_member << decl_id(ED) << '\t' << decl_id(E) << '\t'
+                                  << safe(E->getNameAsString()) << '\n';
+        Frame f(*this, id);
+        return RecursiveASTVisitor::TraverseDecl(D);
+    }
+
+    bool TraverseStmt(Stmt *S) {
+        if (!S) return true;
+        if (skip(S->getBeginLoc())) return RecursiveASTVisitor::TraverseStmt(S);
+        std::string id = fresh(S);
+        emit(id, S->getStmtClassName(), S->getBeginLoc());
+        if (const auto *DR = dyn_cast<DeclRefExpr>(S)) {
+            std::string did = decl_id(DR->getDecl());
+            if (!did.empty()) ++g_out.refs, g_out.ref << id << '\t' << did << '\n';
+        }
+        if (const auto *CE = dyn_cast<CallExpr>(S))
+            if (const FunctionDecl *F = CE->getDirectCallee()) {
+                std::string did = decl_id(F);
+                if (!did.empty()) ++g_out.calls, g_out.call << id << '\t' << did << '\n';
+            }
+        Frame f(*this, id);
+        return RecursiveASTVisitor::TraverseStmt(S);
+    }
+
+private:
+    struct Frame {
+        Frame(V &v, const std::string &id) : v_(v), p_(v.parent_), i_(v.index_) {
+            v_.parent_ = id; v_.index_ = 0;
+        }
+        ~Frame() { v_.parent_ = p_; v_.index_ = i_; }
+        V &v_; std::string p_; int i_;
+    };
+
+    // ⚠ SYSTEM HEADERS ARE THE WHOLE COST. This TU instantiates a great deal of
+    // libstdc++, and a CFG/AST is built for every body the parser sees — the
+    // same reason the first CFG run reported __stable_sort as a finding.
+    bool skip(SourceLocation L) const {
+        if (L.isInvalid()) return true;
+        return sm_.isInSystemHeader(L) || sm_.isInExternCSystemHeader(L);
+    }
+
+    std::string fresh(const void *) { return g_tu + "#" + std::to_string(next_++); }
+
+    // Location of the CANONICAL declaration: the same entity gets the same id in
+    // every TU that sees it, which is what makes a 40-TU sweep joinable.
+    std::string decl_id(const Decl *D) {
+        if (!D) return {};
+        const Decl *C = D->getCanonicalDecl();
+        auto P = sm_.getPresumedLoc(C->getLocation());
+        if (!P.isValid()) return {};
+        return llvm::sys::path::filename(P.getFilename()).str() + ":" +
+               std::to_string(P.getLine()) + ":" + std::to_string(P.getColumn());
+    }
+
+    void emit(const std::string &id, const char *kind, SourceLocation L) {
+        ++g_out.nodes;
+        g_out.node << id << '\t' << kind << '\t' << (parent_.empty() ? "-" : parent_)
+                   << '\t' << index_++ << '\n';
+        auto P = sm_.getPresumedLoc(L);
+        if (P.isValid())
+            g_out.loc << id << '\t' << llvm::sys::path::filename(P.getFilename()).str()
+                      << '\t' << P.getLine() << '\t' << P.getColumn() << '\n';
+    }
+
+    ASTContext &ctx_;
+    const SourceManager &sm_;
+    std::string parent_;
+    int index_ = 0;
+    long next_ = 0;
+    std::set<std::string> seen_decl_;
+};
+
+class Action : public ASTFrontendAction {
+public:
+    std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &, llvm::StringRef F) override {
+        g_tu = llvm::sys::path::stem(F).str();
+        struct C : ASTConsumer {
+            void HandleTranslationUnit(ASTContext &X) override {
+                V(X).TraverseDecl(X.getTranslationUnitDecl());
+            }
+        };
+        return std::make_unique<C>();
+    }
+};
+}  // namespace
+
+int main(int argc, const char **argv) {
+    auto Opt = tooling::CommonOptionsParser::create(argc, argv, Cat);
+    if (!Opt) { llvm::errs() << toString(Opt.takeError()); return 2; }
+    g_out.open(OutDir);
+    tooling::ClangTool T(Opt->getCompilations(), Opt->getSourcePathList());
+    int rc = T.run(tooling::newFrontendActionFactory<Action>().get());
+    g_out.flush();
+    // ⚠ AN EMPTY RESULT IS A REFUSAL, NOT A CLEAN RUN. The first version wrote
+    // seven empty files and exited 0, and every downstream rule would have
+    // reported a green tree over nothing. Silence is not an answer.
+    if (g_out.nodes < 1000) {
+        llvm::errs() << "cxx_facts: only " << g_out.nodes
+                     << " nodes emitted — refusing to write a TU that small\n";
+        return 3;
+    }
+    llvm::outs() << "cxx_facts: " << g_out.nodes << " nodes, " << g_out.decls
+                 << " decls, " << g_out.refs << " refs, " << g_out.calls << " calls\n";
+    return rc;
+}

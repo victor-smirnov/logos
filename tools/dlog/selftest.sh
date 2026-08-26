@@ -93,5 +93,33 @@ NF=$(wc -l < "$W/got"); NW=$(wc -l < "$W/f/walker.csv")
 TP=$(awk -F'\t' '$1=="try_path"{print $2"/"$3}' "$W/f/coverage.csv")
 [ "$TP" = "1/5" ] || { echo "FAIL: try_path coverage '$TP', want 1/5"; RC=1; }
 
-[ "$RC" = 0 ] && echo "ok  known answer reproduced on $CTL: 19 walkers, 24 findings incl. the 6 landed, try_path 1/5, domain 42/5"
+# ── THE SAME QUESTION, ASKED OF THE GENERAL SCHEMA ─────────────────────────
+# cxx_facts emits a fixed relational encoding of the TU and knows nothing about
+# place walkers; place_walkers_cxx.dl derives `tests` from it as a RULE. Both
+# chains must give the same answer, or the general one is not a replacement but
+# a different tool wearing the same name — the discipline that licensed the move
+# from grep to clang, applied to the move from question-shaped to general.
+mkdir -p "$W/g"
+(cd "$W/wt" && "$ROOT/build/dlog/cxx_facts" -p build --out="$W/g" \
+    src/compiler/sema_expr.cpp src/compiler/borrow_check.cpp) >> "$W/log" 2>&1 || {
+    echo "FAIL(2): cxx_facts failed on the control revision"; cat "$W/log"; exit 2; }
+cp "$ROOT/tools/dlog/cxx_schema.dl" "$W/g/"
+(cd "$W/g" && souffle -F. -D. -I. "$ROOT/tools/dlog/place_walkers_cxx.dl" >/dev/null 2>&1) || {
+    echo "FAIL(2): place_walkers_cxx.dl failed"; exit 2; }
+cp "$W/g/tests.csv" "$W/g/tests.facts"; cp "$W/g/expr_code.csv" "$W/g/expr_code.facts"
+cp "$W/f/not_projection.facts" "$W/f/place_root_kind.facts" "$W/g/"
+(cd "$W/g" && souffle -F. -D. "$ROOT/tools/dlog/place_walkers.dl" >/dev/null 2>&1) || exit 2
+
+# Not "does it also look plausible" — IDENTICAL, row for row, to the chain it
+# replaces. Anything less is a second answer, not the same one.
+for r in tests walker spelling_keyed coverage; do
+    src="$W/f/$r.csv"; [ "$r" = tests ] && src="$W/f/tests.facts"
+    if ! diff -q <(sort "$src") <(sort "$W/g/$r.csv") >/dev/null; then
+        echo "FAIL: the general schema and lir_facts disagree on '$r'"
+        diff <(sort "$src") <(sort "$W/g/$r.csv") | head -12
+        RC=1
+    fi
+done
+
+[ "$RC" = 0 ] && echo "ok  both chains agree, known answer reproduced on $CTL: 19 walkers, 24 findings incl. the 6 landed, try_path 1/5, domain 42/5"
 exit $RC  # lint:exit-ok — RC is set only from explicit checks above
