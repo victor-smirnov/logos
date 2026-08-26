@@ -11,9 +11,35 @@
 #                  one-variable control; gen_recv_struct_inner by a gdb
 #                  breakpoint proving the kinds arrive and are answered elsewhere
 #   NARROW     11  deliberate subsets, each with the reason stated at its site
-#   OPEN       23  confirmed live or confirmed incomplete, all with repros and
+#   OPEN       20  confirmed live or confirmed incomplete, all with repros and
 #                  located mechanisms in docs/baghunt/
+#   CLOSED      3  the DEFECT the row pointed at is fixed and pinned by a
+#                  fixture, while the row itself still stands because the fix
+#                  delegated to a DIFFERENT callee than the row named
 #   UNTRIAGED   0
+#
+# ⚠ THE GATE COULD NOT SEE THREE LANDED FIXES, AND THAT IS A PROPERTY OF THE
+# RULES, NOT AN ACCIDENT. 438c8197c, 6ede8b442 and a3e95a42b closed three OPEN
+# findings from this baseline. gate.sh afterwards: 62 findings, ZERO new, ZERO
+# vanished. Every question here asks about the SHAPE OF THE C++ — which callee
+# an arm names — and all three fixes were repairs by DELEGATION to a predicate
+# other than the one the row named:
+#
+#   DerefWrite   row said "missing check_live"; the fix calls check_recv_conflict
+#                (check_live tests dangling/moved/mut_borrowed and deliberately
+#                NOT shared_borrows — measured wrong three times, see the doc)
+#   take_ref_borrows/SliceIndex  row said "missing a SliceIndex arm"; there is
+#                no SliceIndex node on that path at all — the fix is a
+#                slice_view_base_ marker at SliceLit consumed at AddrOfTemp
+#   LetElse      row said "missing merge_loans/merge_provs"; the root was in
+#                SEMA's divergence gate, one phase up, and merging is explicitly
+#                NOT the repair for the arm that remains
+#
+# So: a vanished row is evidence of a fix, but a STANDING row is NOT evidence of
+# no fix. Nothing in this file ratchets a behavioural repair. Only the fixture
+# pairs named in docs/baghunt/ do, and this header is where the two are joined.
+# A rule that answered the behavioural question would have to run the COMPILER;
+# none here does.
 #
 # ⚠ THE DEBT IS PAID: 141 UNTRIAGED -> 0. The second half went to six agents,
 # one per CLUSTER rather than per row — thirteen rows naming thirteen different
@@ -42,8 +68,8 @@ FALSE	cluster_divergence	visit_stmt	Block	VarStore	visit_block	4
 FALSE	cluster_divergence	visit_stmt	Block	visit	visit_block	4
 OPEN	cluster_divergence	visit_stmt	DerefWrite	bc_hop_roots	is_ref_kind	3
 OPEN	cluster_divergence	visit_stmt	DerefWrite	bc_hop_roots	type_may_carry_borrow	4
-OPEN	cluster_divergence	visit_stmt	DerefWrite	check_live	add_ref_sources	4
-OPEN	cluster_divergence	visit_stmt	DerefWrite	check_live	place_write_loans	7
+CLOSED	cluster_divergence	visit_stmt	DerefWrite	check_live	add_ref_sources	4
+CLOSED	cluster_divergence	visit_stmt	DerefWrite	check_live	place_write_loans	7
 OPEN	cluster_divergence	visit_stmt	DerefWrite	collect_borrow_locals	is_ref_kind	3
 OPEN	cluster_divergence	visit_stmt	DerefWrite	inherit_loans	is_ref_kind	3
 OPEN	cluster_divergence	visit_stmt	DerefWrite	loan_carrying_type	is_ref_kind	3
@@ -71,7 +97,7 @@ OPEN	cluster_divergence	visit_stmt	LetElse	merge_provs	VarStore	3
 FALSE	cluster_divergence	visit_stmt	Let	note_holder_escape_prov	is_ref_kind	3
 FALSE	cluster_divergence	visit_stmt	Let	var_has	is_ref_kind	3
 FALSE	cluster_divergence	visit_stmt	Loop	visit	visit_loop_body	4
-OPEN	duty	visit_stmt	DerefWrite	check_live
+CLOSED	duty	visit_stmt	DerefWrite	check_live
 FALSE	place_walkers	gen_recv_struct_inner	Deref
 FALSE	place_walkers	gen_recv_struct_inner	SliceIndex
 NARROW	place_walkers	is_cond_move_field_drop_place	Deref

@@ -6,7 +6,11 @@ whole-root mutable-use predicate that already carried the raw-ptr and
 non-empty-path exemptions. Pinned by `fail/bc_derefwrite_shared_borrow_fail`
 + `pass/bc_derefwrite_shared_dead_admit`. Still NOT fixed on this path, each its
 own finding: no `place_write_loans` call (the LOAN/provenance channel for
-`*r = v` stays empty), and no §B6 add_ref_sources/holder-escape deposits.
+`*r = v` stays empty), no §B6 add_ref_sources/holder-escape deposits, and — new,
+measured by the verifier and written up below — the spelling where the `&mut`
+lives in a STRUCT FIELD (`*h.r = v`) is still admitted, because the predicate's
+`!bp.path.empty()` guard reads the POINTER's path as if it were the written
+place's.
 
 ## The program
 
@@ -65,6 +69,36 @@ and it belongs on the path that has the place, not in `check_live`.
 **Next round**: start from where `r.f = v` acquires its refusal (the AddrOfTemp
 decomposition and `take_borrow`), and give the bare-VarRef pointer the same
 route. Do not re-attempt `check_live`.
+
+## ⚠ STILL ADMITTED: the pointer held in a STRUCT FIELD — measured 2026-08-26 (verifier)
+
+The fix closed the spelling where the `&mut` lives in a LOCAL. Where it lives in
+a field, the write is still admitted under a live shared reborrow. One-variable
+twin, the differing property being where the reference is held:
+
+| program | verdict |
+|---|---|
+| `let r: &mut i64 = &mut x; let b: &i64 = &*r; *r = 7i64; return *b as i32;` | REFUSED — "cannot borrow 'r' as mutable: 'r' has shared borrows" |
+| `struct H { r: &mut i64 }` … `let b: &i64 = &*h.r; *h.r = 7i64; return *b as i32;` | **rc 0, admitted** — rustc: E0506 |
+
+Cause read out of the source, not guessed: the new call is
+`check_recv_conflict(extract_borrow_place(v.ptr(), pool), …)`
+(`borrow_check.cpp:9862`), and for `*h.r = v` the pointer expression is a field
+read, so the place comes back `root=h, path=".r"` and the predicate's first
+guard `!bp.path.empty()` returns.
+
+⚠ **TWO NOTIONS OF ONE PATH.** `check_recv_conflict`'s own comment justifies
+that guard with "field places are refused by visit()'s AddrOfTemp arm instead"
+— true of `r.f = v`, where the non-empty path describes the WRITTEN PLACE. Here
+the non-empty path describes where the POINTER LIVES; the written place is
+`*h.r`, whole-target, and no AddrOfTemp arm sees it. Same shape as the defect
+this section closed, one level of indirection over.
+
+**Do not repeat**: dropping or relaxing `!bp.path.empty()` at the predicate. It
+is load-bearing for the other two consumers and for `r.f = v` / `a[i] = v` /
+`t.0 = v`, which return from it and keep today's route and today's diagnostic.
+The distinction that has to be made is between the pointer's path and the
+written place's path, at the DerefWrite call site, not inside the predicate.
 
 ---
 
@@ -132,6 +166,14 @@ holder. Find it there. Two attempts that must not be repeated: adding a
 `SliceIndex` arm to `take_ref_borrows` (no such node exists on this path), and
 recording on empty-path unconditionally.
 
+**Re-measured 2026-08-26 (verifier), both directions on the fixed tree:**
+
+| program | verdict | reading |
+|---|---|---|
+| `let v: &[i64] = a[0..4]; let r: &[i64] = v[0..2]; a[0]=9; return r[0];` | **rc 0** | the open class, now MEASURED not asserted — re-slicing a slice local builds no SliceLit, so the marker is never set |
+| `let r = a[0..2]; let s = a[2..4]; return r[0]+s[0];` | rc 0 | the paired exemption direction: two shared views coexist, `v.is_mut()` false ⇒ a SHARED borrow, no over-refusal |
+| `let r = a[0..2]; let x: i64 = a[3]; …` | rc 0 | reading under a live shared view still admitted, as it must be |
+
 ---
 
 # CLOSED 2026-08-26 (`a3e95a42b`) — sema called `loop { break; }` diverging, so a `let-else` dropped its loans
@@ -183,3 +225,50 @@ borrow_check.cpp:10131, confirmed identical for `let-else` and `if`.
 **Next round**: fix the divergence classification in sema — test a `loop` body
 for a `break` targeting it, the way rustc's `!`-typing of `loop` does. Only then
 decide whether the merge is still wanted as a second line.
+
+**Item (1) re-measured 2026-08-26 (verifier)**, so it is a live over-refusal and
+not a prediction:
+
+```logos
+let Option::Some(v) = opt else { 'a: loop { } };
+```
+→ rc 1, `'let-else' else-block must diverge (end in 'return', 'break',
+'continue', 'panic', or 'loop {}')`. `loop_has_targeting_break` answers this
+node correctly; `sema_stmt.cpp` line 96 simply never asks it for
+`la::LABELED_LOOP`. Its two BODY spellings (loop STATEMENT under BODY vs BLOCK
+under BODY, already discriminated inside the predicate) still need their own
+pair before that line is widened.
+
+---
+
+# ADJUDICATION 2026-08-26 — what the dlog gate did and did NOT prove
+
+`tools/dlog/selftest.sh` → **rc 0**: `19 walkers / 24 findings / try_path 1-5 /
+domain 42-5; duty discriminates across 756aed65 (1 -> 0)`. The known-answer
+control still bites, so the extractor and the rules have not drifted under these
+three landings.
+
+`tools/dlog/gate.sh` → **rc 0**: 62 findings, **zero new, zero vanished**.
+
+⚠ **ZERO VANISHED IS NOT ZERO FIXES, AND THE GATE CANNOT TELL THE DIFFERENCE.**
+All three fixes were repairs by DELEGATION to a predicate other than the one the
+row named — `check_recv_conflict` where the row said `check_live`, a
+`slice_view_base_` marker where the row said "a `SliceIndex` arm", a SEMA
+divergence predicate one phase up where the row said `merge_loans`. Every
+question in `tools/dlog` asks about the shape of the C++, so a correct fix that
+calls a different callee leaves the row standing verbatim. Nothing in
+`findings.baseline` ratchets a behavioural repair; the fixture pairs do. Those
+three rows are now dispositioned `CLOSED` there, and the header says why.
+
+All eight new fixtures re-run green on this tree
+(`ctest -R 'bc_derefwrite_shared|bc_range_view|let_else_loop|loop_break_targets'`
+→ 8/8), so every behaviour that a vanished row would have stood for is pinned.
+
+**Genuinely closed**: the `*r = v` write-conflict for a LOCAL pointer; the
+range-view loan for the `a[lo..hi]` spelling; the `loop { break; }` divergence
+lie in sema. **Still open, with what is now known**: the field-held pointer
+spelling of the first (measured above, mechanism read out of the source); the
+empty-path class of the second (re-slice case measured rc 0 rather than
+asserted); and for the third, `'a: loop {}` measured still refused, plus
+borrow_check's LetElse unconditional restore, unreachable after the sema fix and
+therefore still un-controlled.
