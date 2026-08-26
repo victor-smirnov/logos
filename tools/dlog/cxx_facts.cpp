@@ -36,6 +36,7 @@
 //   loc(Id, File, Line, Col)
 //   decl(DeclId, Kind, QualifiedName)
 //   decl_name(DeclId, BareName)     the last component, for joins
+//   decl_loc(DeclId, File, Line)    where it is declared — for ANY decl seen
 //   decl_node(Id, DeclId)           this NODE is a declaration of that ENTITY
 //   ref(UseId, DeclId)              a name use resolved to what it names
 //   call(CallId, CalleeDeclId)      a call resolved to its callee
@@ -81,14 +82,14 @@ namespace {
 
 struct Out {
     std::ofstream node, loc, decl, decl_node, ref, call, enum_member, decl_name;
-    std::ofstream type_of, type, type_pointee, type_decl, cast_kind;
+    std::ofstream type_of, type, type_pointee, type_decl, cast_kind, decl_loc;
     std::ofstream cfg_block, cfg_entry, cfg_exit, cfg_edge, cfg_stmt;
     long nodes = 0, decls = 0, refs = 0, calls = 0, types = 0, edges = 0;
     void flush() {
         node.flush(); loc.flush(); decl.flush(); decl_node.flush();
         ref.flush(); call.flush(); enum_member.flush(); decl_name.flush();
         type_of.flush(); type.flush(); type_pointee.flush(); type_decl.flush();
-        cast_kind.flush(); cfg_block.flush(); cfg_entry.flush(); cfg_exit.flush();
+        cast_kind.flush(); decl_loc.flush(); cfg_block.flush(); cfg_entry.flush(); cfg_exit.flush();
         cfg_edge.flush(); cfg_stmt.flush();
     }
     void open(const std::string &d) {
@@ -99,7 +100,7 @@ struct Out {
         decl_name.open(p("decl_name"));
         type_of.open(p("type_of")); type.open(p("type"));
         type_pointee.open(p("type_pointee")); type_decl.open(p("type_decl"));
-        cast_kind.open(p("cast_kind"));
+        cast_kind.open(p("cast_kind")); decl_loc.open(p("decl_loc"));
         cfg_block.open(p("cfg_block")); cfg_entry.open(p("cfg_entry"));
         cfg_exit.open(p("cfg_exit"));   cfg_edge.open(p("cfg_edge"));
         cfg_stmt.open(p("cfg_stmt"));
@@ -225,6 +226,16 @@ private:
                 g_out.decl << id << '\t' << C->getDeclKindName() << '\t'
                            << safe(ND->getQualifiedNameAsString()) << '\n';
                 g_out.decl_name << id << '\t' << safe(ND->getNameAsString()) << '\n';
+                // ⚠ WHERE A DECLARATION LIVES, EMITTED DIRECTLY. Deriving it in
+                // Datalog needed `decl_node`, which only exists for decls the
+                // walk TRAVERSED — so every system-header entity was unlocatable
+                // and `structural` could not classify it. `std::move` and
+                // `operator[]` then came back as findings. The file is literally
+                // the first component of the id; deriving it there would be
+                // string surgery in the wrong language.
+                g_out.decl_loc << id << '\t'
+                               << llvm::sys::path::filename(P.getFilename()).str()
+                               << '\t' << P.getLine() << '\n';
             }
         return id;
     }

@@ -1,42 +1,61 @@
-# duty.claim — <statement-kind> <check that must be called in that arm>
+# duty.claim — <function> <statement-kind> <check that its arm must call>
 #
 # ⚠ THIS FILE EXISTS BECAUSE A CLAIM-FREE RULE PROVABLY CANNOT DO THIS, and the
-# proof is a measurement, not an opinion. Commit 756aed65 added the missing call
-# `field_borrow_conflicts` to visit_stmt's Assign arm. Asked on the revision
-# BEFORE it, over the statement domain:
+# proof is a measurement. Commit 756aed65 added the missing call
+# `field_borrow_conflicts` to visit_stmt's Assign arm. On the revision BEFORE it,
+# over the statement domain:
 #
 #     before:  NO statement arm calls field_borrow_conflicts anywhere.  Zero.
 #     after:   exactly one — visit_stmt / Assign.
 #
-# So "the siblings of one switch are their own specification" — the premise
-# arm_divergence was built on — cannot reach this defect: before the fix there
-# was no sibling doing the right thing to learn from. The knowledge that an
-# ASSIGNMENT is a write, and that a write owes the conflict check, lives nowhere
-# in the code until someone writes the call. It has to be asserted.
+# So "the siblings of one switch are their own specification" cannot reach this
+# defect: before the fix no sibling was doing the right thing to learn from. The
+# knowledge that an ASSIGNMENT is a write, and that a write owes the conflict
+# check, lives nowhere in the code until someone writes the call.
 #
-# ⚠ AND THE DOMINANCE RULE MISSED IT FOR A SECOND, DUMBER REASON, recorded here
-# so the next rule does not repeat it: dominance.dl selected candidate checks
-# with `sites >= 2` in the same function. visit_stmt called the check ZERO times
-# before the fix and ONE after — so the selector excluded exactly the case under
-# test, on both sides, and printed byte-identical output for a tree with the
-# defect and a tree without it. That is the SAME error as `walker(F) :- handles
-# >= 2 projections`, which lost try_path at 1/5. NEVER LET THE SELECTOR AND THE
-# PREDICATE SHARE A QUANTITY: a function that is missing the check is, by
-# definition, one that calls it seldom.
+# ⚠ THE FUNCTION IS PART OF THE CLAIM, and the first version left it out. Stating
+# only (kind, check) made the rule demand the borrow checker's duties of every
+# function that dispatches over statement kinds — gen_stmt (codegen), subst_stmt
+# (monomorphisation), scan_uses_stmt (a use scanner), nine of them, none of which
+# owes anything of the sort. 72 rows, 64 of them meaningless. A duty attaches to
+# a ROLE; naming the role is the claim.
 #
-# The claim is small, visible and reviewable — which is the point. An assertion
-# in a file can be argued with; the same assertion buried in a rule's threshold
-# cannot.
+# ⚠ AND ITS OWN CROSS-CHECK SAID SO. `duty_never_honoured` reported 7 of 8
+# claimed duties honoured NOWHERE — far likelier a bad claim than a defect at
+# every site. It was left firing rather than trimmed to look right, and this file
+# is the result of believing it.
+#
+#   FALSIFIABLE, BY CONSTRUCTION: every row below is honoured somewhere today
+#   except where a defect is named. If a row stops being honoured anywhere, the
+#   claim has drifted from the code and duty_never_honoured says so.
 
-# A WRITE to a place owes the field-borrow conflict check: writing through a
-# place must not be admitted while an overlapping path is borrowed. Every
-# spelling of a write, because the property is "this stores through a place"
-# and the property does not care how the store is spelled.
-Assign           field_borrow_conflicts
-FieldWrite       field_borrow_conflicts
-IndexWrite       field_borrow_conflicts
-FieldIndexWrite  field_borrow_conflicts
-DerefWrite       field_borrow_conflicts
-DerefFieldWrite  field_borrow_conflicts
-TupleWrite       field_borrow_conflicts
-ChainFieldWrite  field_borrow_conflicts
+# ── visit_stmt: the borrow checker's statement dispatcher ───────────────────
+# A WRITE THROUGH A PLACE records its loans. All seven place-write spellings do
+# this today, so these rows yield NOTHING — they are a RATCHET: the eighth
+# spelling somebody adds will fire here instead of being found a year later.
+visit_stmt  FieldWrite       place_write_loans
+visit_stmt  IndexWrite       place_write_loans
+visit_stmt  FieldIndexWrite  place_write_loans
+visit_stmt  DerefWrite       place_write_loans
+visit_stmt  DerefFieldWrite  place_write_loans
+visit_stmt  TupleWrite       place_write_loans
+visit_stmt  ChainFieldWrite  place_write_loans
+
+# A WRITE CHECKS ITS ROOT IS USABLE. Six of the seven do. DerefWrite does not,
+# and that is a CONFIRMED LIVE HOLE with a proven one-variable repro:
+# `*r = S{…}` compiles while `r.f = …` refuses, both with `&*r` live.
+# See docs/baghunt/open_derefwrite_shared_borrow.md — and note that
+# `check_live` is NOT the repair, only the symptom's neighbour.
+visit_stmt  FieldWrite       check_live
+visit_stmt  IndexWrite       check_live
+visit_stmt  FieldIndexWrite  check_live
+visit_stmt  DerefWrite       check_live
+visit_stmt  DerefFieldWrite  check_live
+visit_stmt  TupleWrite       check_live
+visit_stmt  ChainFieldWrite  check_live
+
+# THE ORIGINAL. `x = v` is a whole-binding assignment rather than a place write,
+# so it takes neither of the two above; what it owes is the conflict check, and
+# for four rounds it did not ask. This row is the known answer selftest.sh
+# checks in both directions across 756aed65.
+visit_stmt  Assign           field_borrow_conflicts

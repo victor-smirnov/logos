@@ -45,7 +45,7 @@ tests(F, K, "cond") :- node(B, "BinaryOperator", _, _), node(A, _, B, _),
 .decl sibling_case(parent: symbol, idx: number, c: symbol)
 // The `node(C0, …) , K <= I` guard makes the aggregate total: without a
 // preceding label there is no arm, and `max` over an empty set is not an answer.
-sibling_case(P, I, C) :- node(_, _, P, I), node(_C0, "CaseStmt", P, _K0), _K0 <= I,
+sibling_case(P, I, C) :- node(_, _, P, I), node(_C0, "CaseStmt", P, K0), K0 <= I,
                          J = max K : { node(_C2, "CaseStmt", P, K), K <= I },
                          node(C, "CaseStmt", P, J).
 

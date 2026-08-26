@@ -107,28 +107,40 @@ SV=$(for s in "${SRCS[@]}"; do echo "${HASH[$s]}"; done | sha256sum | cut -c1-16
 OUT="$CACHE/ans-$EXV-$QV-$SV"
 if [ ! -d "$OUT" ]; then
     mkdir -p "$OUT"
-    # ⚠ SORT ONLY WHAT CAN COLLIDE, and which those are follows from how
-    # identity was chosen. Node-keyed relations carry a TU tag and are unique
-    # across TUs BY CONSTRUCTION, so `sort -u` over them buys nothing and costs
-    # everything: node.facts alone is 144 MB across 40 TUs. Declaration- and
-    # type-keyed relations DO collide — that is the point of keying them by
-    # canonical location and canonical spelling — and those must be deduplicated.
-    for r in node loc decl_node ref call type_of cast_kind \
-             cfg_block cfg_entry cfg_exit cfg_edge cfg_stmt; do
-        for s in "${SRCS[@]}"; do
-            cat "$CACHE/$EXV-${HASH[$s]}/$r.facts" 2>/dev/null
-        done > "$OUT/$r.facts"
-    done
-    for r in decl decl_name enum_member type type_pointee type_decl; do
-        for s in "${SRCS[@]}"; do
-            cat "$CACHE/$EXV-${HASH[$s]}/$r.facts" 2>/dev/null
-        done | sort -u > "$OUT/$r.facts"
+    # ⚠ THE RELATION LIST IS DISCOVERED, NOT TYPED. It used to be two literal
+    # lists and adding `decl_loc` to the extractor broke every question with
+    # "Cannot open fact file" — an enumeration inside the tool built to catch
+    # enumerations, for the fourth time in this directory. Take whatever the
+    # extractor wrote.
+    #
+    # ⚠ AND WHETHER TO DEDUPLICATE FOLLOWS FROM THE IDENTITY SCHEME rather than
+    # from a second list: node ids carry a TU tag and a '#', so they are unique
+    # across TUs by construction and `sort -u` over them buys nothing while
+    # costing everything (node.facts is 144 MB across 40 TUs). Declaration- and
+    # type-keyed rows have no '#' — they are canonical precisely so that the same
+    # entity seen by forty TUs is ONE row — and those must be deduplicated.
+    first=$(ls -d "$CACHE/$EXV-${HASH[${SRCS[0]}]}")
+    for f in "$first"/*.facts; do
+        r=$(basename "$f" .facts)
+        # ⚠ NOT `… | grep -q` UNDER pipefail: grep exits at the first match, the
+        # writer takes SIGPIPE, and pipefail reports the MATCH as a failure — so
+        # this test was ALWAYS false and the fast path never ran. Caught by
+        # gate_lint's R2, which exists because this repo has been bitten before.
+        key=$(head -1 "$f" | cut -f1)
+        case "$key" in
+        *'#'*)
+            for s in "${SRCS[@]}"; do cat "$CACHE/$EXV-${HASH[$s]}/$r.facts" 2>/dev/null; done \
+                > "$OUT/$r.facts" ;;
+        *)
+            for s in "${SRCS[@]}"; do cat "$CACHE/$EXV-${HASH[$s]}/$r.facts" 2>/dev/null; done \
+                | sort -u > "$OUT/$r.facts" ;;
+        esac
     done
     NODES=$(wc -l < "$OUT/node.facts")
     [ "$NODES" -ge 1000 ] || { echo "ask: only $NODES nodes across ${#SRCS[@]} TUs — refusing"; exit 3; }
     cp "$ROOT"/tools/dlog/*.dl "$OUT/"
     grep -vE '^\s*(#|$)' "$ROOT/tools/dlog/not_projection.claim" > "$OUT/not_projection.facts"
-    grep -vE '^\s*(#|$)' "$ROOT/tools/dlog/duty.claim" | tr -s ' ' '\t' > "$OUT/duty.facts"
+        grep -vE '^\s*(#|$)' "$ROOT/tools/dlog/duty.claim" | tr -s ' ' '\t' > "$OUT/duty.facts"
     (cd "$OUT" && souffle -F. -D. -I. "$Q" >"$OUT/souffle.log" 2>&1) || {
         echo "ask: souffle failed"; sed 's/^/  /' "$OUT/souffle.log" | head -20
         rm -rf "$OUT"; exit 2; }

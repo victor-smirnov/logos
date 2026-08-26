@@ -4,8 +4,14 @@
 // cluster_divergence, each keyed on a FILE NAME because that is all lir_facts
 // could give. Here they are derived once, from `loc` on the declaration, and a
 // question that needs a different cut can write its own without copying these.
+// ⚠ FROM decl_loc, NOT FROM decl_node. Deriving the file through a NODE only
+// locates declarations the walk traversed, so every system-header entity was
+// unlocatable — and `structural`, which is defined by exclusion, then failed to
+// exclude them: `std::move` and `operator[]` came back as findings.
+.decl decl_loc(d: symbol, file: symbol, line: number)
+.input decl_loc
 .decl decl_file(d: symbol, file: symbol)
-decl_file(D, F) :- decl_node(N, D), loc(N, F, _, _).
+decl_file(D, F) :- decl_loc(D, F, _).
 
 .decl compiler_file(file: symbol)
 compiler_file(F) :- decl_file(_, F), contains(".cpp", F).

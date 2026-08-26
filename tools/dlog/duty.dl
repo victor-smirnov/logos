@@ -12,7 +12,7 @@
 // line changes. lir_facts needed a re-run with a different command-line flag.
 target_enum(E) :- decl(E, "Enum", "logos::compiler::lir_schema::stmt::Code").
 
-.decl duty(k: symbol, callee: symbol)
+.decl duty(f: symbol, k: symbol, callee: symbol)
 .input duty
 
 .decl arm(f: symbol, k: symbol)
@@ -27,13 +27,16 @@ arm(F, K) :- tests(F, K, "case_live").
 // correlated with the quantity under test.
 .decl neglects(f: symbol, k: symbol, callee: symbol)
 .output neglects
-neglects(F, K, P) :- duty(K, P), arm(F, K), ours(F), !arm_call(F, K, P).
+neglects(F, K, P) :- duty(F, K, P), arm(F, K), ours(F), !arm_call(F, K, P).
 
 // The claim's own cross-check: a duty nobody honours anywhere is far likelier a
 // wrong claim than a defect at every site. It currently fires for 7 of 8 rows,
 // and it is left firing rather than trimmed to look right.
-.decl duty_never_honoured(k: symbol, callee: symbol)
+// Sharper now that the function is named: does THIS function honour THIS check
+// for any kind at all? A duty nobody honours anywhere is a bad claim, and a
+// duty its own function honours nowhere is a claim aimed at the wrong function.
+.decl duty_never_honoured(f: symbol, k: symbol, callee: symbol)
 .output duty_never_honoured
-duty_never_honoured(K, P) :- duty(K, P), !any_honours(K, P).
-.decl any_honours(k: symbol, callee: symbol)
-any_honours(K, P) :- duty(K, P), arm_call(_F, K, P).
+duty_never_honoured(F, K, P) :- duty(F, K, P), !any_honours(F, P).
+.decl any_honours(f: symbol, callee: symbol)
+any_honours(F, P) :- duty(F, _K, P), arm_call(F, _K2, P).
