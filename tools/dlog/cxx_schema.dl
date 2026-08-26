@@ -5,6 +5,8 @@
 // REFERS to. lir_facts.cpp had to be edited and rebuilt for each of them;
 // here they are rules, and a new question is a new rule.
 .decl node(id: symbol, kind: symbol, parent: symbol, index: number)
+.decl type_of(id: symbol, tid: symbol)
+.decl cast_kind(id: symbol, kind: symbol)
 .decl loc(id: symbol, file: symbol, line: number, col: number)
 .decl decl(did: symbol, kind: symbol, qname: symbol)
 .decl decl_node(id: symbol, did: symbol)
@@ -13,6 +15,8 @@
 .decl enum_member(enumd: symbol, constd: symbol, name: symbol)
 .decl decl_name(did: symbol, name: symbol)
 .input node
+.input type_of
+.input cast_kind
 .input loc
 .input decl
 .input decl_node
@@ -76,20 +80,63 @@ lambda_named(N, Name) :- node(N, K, P, _), P != "-",
 // mismatch that looks like a clean result.
 .decl through(outer: symbol, inner: symbol)
 through(N, N) :- node(N, _, _, _).
-through(N, I) :- node(N, K, _, _), wrapper(K), node(C, _, N, 0), through(C, I).
+through(N, I) :- transparent(N), node(C, _, N, 0), through(C, I).
 
-// ⚠ THIS IS A CLAIM, AND IT IS AN ENUMERATION — the thing this whole directory
-// exists to catch, standing here in plain sight. It is a claim because the
-// derivable definition ("one child, and the same type as that child") needs a
-// `type_of` relation the extractor does not emit yet. When it does, this list
-// must be REPLACED, not extended. Listed here rather than hidden inside a
-// question so that it can be argued with.
-.decl wrapper(k: symbol)
-wrapper("ImplicitCastExpr").
-wrapper("ConstantExpr").
-wrapper("ParenExpr").
-wrapper("MaterializeTemporaryExpr").
-wrapper("CXXBindTemporaryExpr").
-wrapper("ExprWithCleanups").
-wrapper("CXXStaticCastExpr").
-wrapper("CXXFunctionalCastExpr").
+// ── TRANSPARENT: DERIVED PER NODE, not claimed per KIND ─────────────────────
+// The previous version listed eight node kinds to see through — an enumeration,
+// standing in the middle of the directory built to catch enumerations, and
+// labelled as such because the derivable definition needed a `type_of` relation
+// the extractor did not yet emit. It emits one now, so the list is REPLACED.
+//
+// A node is transparent when it has exactly ONE child and carries the SAME
+// canonical type as that child: it renames a value without changing what the
+// value is. That is a property of the NODE, which is strictly better than a
+// property of its kind — an ImplicitCastExpr that changes the type is no longer
+// swept in merely for being an ImplicitCastExpr.
+.decl only_child(parent: symbol, child: symbol)
+only_child(N, C) :- node(C, _, N, 0), !node(_, _, N, 1).
+
+.decl transparent(n: symbol)
+transparent(N) :- only_child(N, C), type_of(N, T), type_of(C, T).
+
+// ⚠ AN "IntegralCast IS ALSO TRANSPARENT" RULE WAS WRITTEN HERE AND REMOVED.
+// The reasoning was plausible — an enum constant in a `case` label could be
+// promoted, giving node and child different canonical types while naming the
+// same constant — and the bite test says it is worth nothing: removing it
+// changes NOTHING on the control revision, both chains still agree, all 427
+// rows stand. An unexercised rule with a good story is a comment pretending to
+// be code. Left as this note so that if a future gap appears at a promoted enum
+// comparison, the first place to look is written down.
+// (`cast_kind` is still emitted; it costs nothing and the next question may
+// have a use for it that this one did not.)
+
+// ── the CFG, joined to the AST rather than parallel to it ───────────────────
+// ⚠ lir_facts EMITTED cfg_call(fnName, block, calleeName) AS A FACT, and
+// nothing could be joined to it: the graph named functions by string while
+// every other relation named them by declaration. Here cfg_stmt points at the
+// very node ids `call`, `ref` and `type_of` already talk about, so per-block
+// ANYTHING is a join and needs no second extraction — calls today, and
+// whatever the next question asks for without touching the extractor.
+.decl cfg_block(fn: symbol, b: symbol)
+.decl cfg_entry(fn: symbol, b: symbol)
+.decl cfg_exit(fn: symbol, b: symbol)
+.decl cfg_edge(fn: symbol, from: symbol, to: symbol)
+.decl cfg_stmt(fn: symbol, b: symbol, n: symbol)
+.input cfg_block
+.input cfg_entry
+.input cfg_exit
+.input cfg_edge
+.input cfg_stmt
+
+.decl block_call(fn: symbol, b: symbol, callee: symbol)
+block_call(F, B, P) :- cfg_stmt(F, B, N), call(N, P).
+
+// Reachability that AVOIDS a given callee — the dominance question, and the one
+// operation this whole directory exists for: transitive closure is what I
+// approximate by sampling and stop early on.
+.decl block_clean(fn: symbol, b: symbol, p: symbol)
+block_clean(F, B, P) :- cfg_block(F, B), block_call(F, _, P), !block_call(F, B, P).
+
+.decl avoids(fn: symbol, b: symbol, p: symbol)
+avoids(F, B, P) :- cfg_entry(F, B), block_clean(F, B, P).
+avoids(F, C, P) :- avoids(F, B, P), cfg_edge(F, B, C), block_clean(F, C, P).

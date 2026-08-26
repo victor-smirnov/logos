@@ -40,7 +40,25 @@
 //   ref(UseId, DeclId)              a name use resolved to what it names
 //   call(CallId, CalleeDeclId)      a call resolved to its callee
 //   enum_member(EnumDeclId, ConstDeclId, Name)
+//   type_of(Id, TypeId)             an expression's canonical type
+//   type(TypeId, Class, Name)       Pointer / LValueReference / Record / Enum / …
+//   type_pointee(TypeId, TypeId)    what a pointer or reference points at
+//   type_decl(TypeId, DeclId)       a record/enum type's declaration
+//   cast_kind(Id, Kind)             LValueToRValue, IntegralCast, NoOp, …
+//   cfg_block(FnDeclId, B) / cfg_entry / cfg_exit / cfg_edge(FnDeclId, B, B2)
+//   cfg_stmt(FnDeclId, B, NodeId)
+//
+// ⚠ THE CFG IS KEYED ON THE SAME NODE IDS AS THE AST, which lir_facts' was not:
+// it emitted cfg_call(fnName, block, calleeName) and nothing could be joined to
+// it. Here `cfg_stmt` names the very node `call` and `type_of` already talk
+// about, so "which calls happen in this block" is a JOIN rather than a second
+// extraction — and per-block anything comes free, not just calls.
+//
+// ⚠ TYPE IDENTITY IS THE CANONICAL TYPE'S SPELLING. Types have no source
+// location to key on, and a pointer is not stable across TUs. The canonical
+// spelling is stable, joinable, and is what a query wants to match anyway.
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/Analysis/CFG.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendActions.h"
 #include "clang/Tooling/CommonOptionsParser.h"
@@ -63,10 +81,15 @@ namespace {
 
 struct Out {
     std::ofstream node, loc, decl, decl_node, ref, call, enum_member, decl_name;
-    long nodes = 0, decls = 0, refs = 0, calls = 0;
+    std::ofstream type_of, type, type_pointee, type_decl, cast_kind;
+    std::ofstream cfg_block, cfg_entry, cfg_exit, cfg_edge, cfg_stmt;
+    long nodes = 0, decls = 0, refs = 0, calls = 0, types = 0, edges = 0;
     void flush() {
         node.flush(); loc.flush(); decl.flush(); decl_node.flush();
         ref.flush(); call.flush(); enum_member.flush(); decl_name.flush();
+        type_of.flush(); type.flush(); type_pointee.flush(); type_decl.flush();
+        cast_kind.flush(); cfg_block.flush(); cfg_entry.flush(); cfg_exit.flush();
+        cfg_edge.flush(); cfg_stmt.flush();
     }
     void open(const std::string &d) {
         auto p = [&](const char *n) { return d + "/" + n + ".facts"; };
@@ -74,6 +97,12 @@ struct Out {
         decl_node.open(p("decl_node")); ref.open(p("ref"));
         call.open(p("call"));   enum_member.open(p("enum_member"));
         decl_name.open(p("decl_name"));
+        type_of.open(p("type_of")); type.open(p("type"));
+        type_pointee.open(p("type_pointee")); type_decl.open(p("type_decl"));
+        cast_kind.open(p("cast_kind"));
+        cfg_block.open(p("cfg_block")); cfg_entry.open(p("cfg_entry"));
+        cfg_exit.open(p("cfg_exit"));   cfg_edge.open(p("cfg_edge"));
+        cfg_stmt.open(p("cfg_stmt"));
     }
 };
 Out g_out;
@@ -120,6 +149,9 @@ public:
                 }
             }
         }
+        if (const auto *FD = dyn_cast<FunctionDecl>(D))
+            if (FD->doesThisDeclarationHaveABody() && !decl_id(FD).empty())
+                bodies_.emplace_back(FD, decl_id(FD));
         if (const auto *ED = dyn_cast<EnumDecl>(D))
             for (const auto *E : ED->enumerators())
                 g_out.enum_member << decl_id(ED) << '\t' << decl_id(E) << '\t'
@@ -133,6 +165,12 @@ public:
         if (skip(S->getBeginLoc())) return RecursiveASTVisitor::TraverseStmt(S);
         std::string id = fresh(S);
         emit(id, S->getStmtClassName(), S->getBeginLoc());
+        if (const auto *E = dyn_cast<Expr>(S)) {
+            std::string tid = type_id(E->getType());
+            if (!tid.empty()) g_out.type_of << id << '\t' << tid << '\n';
+        }
+        if (const auto *CE = dyn_cast<CastExpr>(S))
+            g_out.cast_kind << id << '\t' << CE->getCastKindName() << '\n';
         if (const auto *DR = dyn_cast<DeclRefExpr>(S)) {
             std::string did = decl_id(DR->getDecl());
             if (!did.empty()) ++g_out.refs, g_out.ref << id << '\t' << did << '\n';
@@ -163,7 +201,11 @@ private:
         return sm_.isInSystemHeader(L) || sm_.isInExternCSystemHeader(L);
     }
 
-    std::string fresh(const void *) { return g_tu + "#" + std::to_string(next_++); }
+    std::string fresh(const void *p) {
+        std::string id = g_tu + "#" + std::to_string(next_++);
+        node_of_[p] = id;          // the CFG pass needs to name the SAME nodes
+        return id;
+    }
 
     // Location of the CANONICAL declaration: the same entity gets the same id in
     // every TU that sees it, which is what makes a 40-TU sweep joinable.
@@ -176,6 +218,29 @@ private:
                std::to_string(P.getLine()) + ":" + std::to_string(P.getColumn());
     }
 
+    // Canonical spelling as identity: no source location exists for a type, a
+    // pointer is not stable across TUs, and the spelling is what a query
+    // matches on anyway.
+    std::string type_id(QualType Q) {
+        if (Q.isNull()) return {};
+        QualType C = Q.getCanonicalType();
+        std::string n = safe(C.getAsString());
+        if (n.empty()) return {};
+        if (seen_type_.insert(n).second) {
+            ++g_out.types;
+            g_out.type << n << '\t' << C->getTypeClassName() << '\t' << n << '\n';
+            if (const auto *PT = C->getAs<PointerType>())
+                g_out.type_pointee << n << '\t' << type_id(PT->getPointeeType()) << '\n';
+            else if (const auto *RT = C->getAs<ReferenceType>())
+                g_out.type_pointee << n << '\t' << type_id(RT->getPointeeType()) << '\n';
+            if (const auto *TD = C->getAsTagDecl()) {
+                std::string did = decl_id(TD);
+                if (!did.empty()) g_out.type_decl << n << '\t' << did << '\n';
+            }
+        }
+        return n;
+    }
+
     void emit(const std::string &id, const char *kind, SourceLocation L) {
         ++g_out.nodes;
         g_out.node << id << '\t' << kind << '\t' << (parent_.empty() ? "-" : parent_)
@@ -186,12 +251,47 @@ private:
                       << '\t' << P.getLine() << '\t' << P.getColumn() << '\n';
     }
 
+public:
+    // ⚠ THE CFG IS BUILT AFTER THE WALK, NOT DURING IT. A CFG names the
+    // statements of a body, and their node ids do not exist until the body has
+    // been traversed — emitting it from TraverseDecl would key the graph on
+    // nodes that had not been numbered yet.
+    void emit_cfgs() {
+        for (auto &[FD, did] : bodies_) {
+            CFG::BuildOptions opts;
+            auto cfg = CFG::buildCFG(nullptr, FD->getBody(), &ctx_, opts);
+            if (!cfg) continue;   // clang declines some bodies; a missing CFG is not a fact
+            auto id = [&](const CFGBlock *B) { return std::to_string(B->getBlockID()); };
+            g_out.cfg_entry << did << '\t' << id(&cfg->getEntry()) << '\n';
+            g_out.cfg_exit  << did << '\t' << id(&cfg->getExit())  << '\n';
+            for (const CFGBlock *B : *cfg) {
+                if (!B) continue;
+                g_out.cfg_block << did << '\t' << id(B) << '\n';
+                for (const CFGBlock::AdjacentBlock &s : B->succs())
+                    if (s.isReachable() && s.getReachableBlock()) {
+                        ++g_out.edges;
+                        g_out.cfg_edge << did << '\t' << id(B) << '\t'
+                                       << id(s.getReachableBlock()) << '\n';
+                    }
+                for (const CFGElement &E : *B)
+                    if (auto SE = E.getAs<CFGStmt>())
+                        if (auto it = node_of_.find(SE->getStmt()); it != node_of_.end())
+                            g_out.cfg_stmt << did << '\t' << id(B) << '\t'
+                                           << it->second << '\n';
+            }
+        }
+    }
+
+private:
     ASTContext &ctx_;
     const SourceManager &sm_;
+    std::unordered_map<const void *, std::string> node_of_;
+    std::vector<std::pair<const FunctionDecl *, std::string>> bodies_;
     std::string parent_;
     int index_ = 0;
     long next_ = 0;
     std::set<std::string> seen_decl_;
+    std::set<std::string> seen_type_;
 };
 
 class Action : public ASTFrontendAction {
@@ -200,7 +300,9 @@ public:
         g_tu = llvm::sys::path::stem(F).str();
         struct C : ASTConsumer {
             void HandleTranslationUnit(ASTContext &X) override {
-                V(X).TraverseDecl(X.getTranslationUnitDecl());
+                V v(X);
+                v.TraverseDecl(X.getTranslationUnitDecl());
+                v.emit_cfgs();
             }
         };
         return std::make_unique<C>();
@@ -224,6 +326,7 @@ int main(int argc, const char **argv) {
         return 3;
     }
     llvm::outs() << "cxx_facts: " << g_out.nodes << " nodes, " << g_out.decls
-                 << " decls, " << g_out.refs << " refs, " << g_out.calls << " calls\n";
+                 << " decls, " << g_out.refs << " refs, " << g_out.calls << " calls, " << g_out.types
+                 << " types, " << g_out.edges << " cfg edges\n";
     return rc;
 }
