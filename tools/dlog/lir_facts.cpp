@@ -31,6 +31,18 @@
 //                                                | cond | mention
 //   arm_call(Context, Kind, Callee)  — a call made INSIDE the arm for Kind
 //   callee_home(Callee, File)        — where the callee is DEFINED
+//   cfg_edge(Fn, From, To)           — control-flow edges, per function
+//   cfg_entry(Fn, B) / cfg_exit(Fn, B)
+//   cfg_call(Fn, B, Callee)          — a call made IN that basic block
+//   fn_home(Fn, File)                — where the FUNCTION is defined
+//
+// ⚠ THE CFG IS HERE BECAUSE arm_divergence FAILED. Asking "which sibling arms
+// call P" found nothing sharp: the arms of one switch are not peers, fifteen
+// expression kinds have fifteen jobs. The question that actually matches the
+// defects fixed this week is "does P DOMINATE every path to the exit" — a call
+// that was not made is a PATH that avoids it, and a path is not a syntax tree.
+// Reachability-avoiding-P is transitive closure, which is exactly the operation
+// I approximate by sampling and Souffle computes by construction.
 //
 // arm_call is what turns "handles k of 5" into "four arms ask the checker and
 // the fifth does not". Seven of eight borrow-check fixes in one week were a
@@ -43,6 +55,7 @@
 // Build with tools/dlog/make.sh; the whole chain is bite-proved by selftest.sh
 // against revision 28fc7c75, where six defects are already known.
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/Analysis/CFG.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendActions.h"
@@ -73,7 +86,53 @@ std::set<std::string> g_codes_seen;
 std::vector<std::string> g_codes_ordered;
 std::set<std::string> g_tests;      // "ctx\tkind\tpos"
 std::set<std::string> g_arm_calls;  // "ctx\tkind\tcallee" — a call INSIDE an arm
-std::set<std::string> g_callee_home;  // "callee\tdefining-file" 
+std::set<std::string> g_callee_home;  // "callee\tdefining-file"
+std::set<std::string> g_cfg_edge;     // "fn\tfrom\tto"
+std::set<std::string> g_cfg_entry;    // "fn\tblock"
+std::set<std::string> g_cfg_exit;     // "fn\tblock"
+std::set<std::string> g_cfg_call;     // "fn\tblock\tcallee"
+std::set<std::string> g_fn_home;      // "fn\tdefining-file" — is F ours at all?
+
+// ⚠ callee_home MUST BE FED FROM EVERY CALL, not just the ones inside a
+// dispatch arm. The first CFG run filtered nothing: `structural(P)` is derived
+// from callee_home, and callees seen only through the CFG had no row, so
+// `__platform_wait`, `__stable_sort` and `vprint_nonunicode` came back as
+// findings. A filter defined over a table only filters what the table covers.
+void note_home(ASTContext &C, const NamedDecl *D, std::set<std::string> &out) {
+    if (!D) return;
+    auto P = C.getSourceManager().getPresumedLoc(D->getLocation());
+    if (!P.isValid()) return;
+    out.insert(D->getNameAsString() + "\t" +
+               llvm::sys::path::filename(P.getFilename()).str());
+}
+
+// Built per function body, outside the visitor: clang's CFG is a separate
+// analysis over a Stmt, not something a RecursiveASTVisitor produces.
+void emit_cfg(ASTContext &C, const std::string &fn, Stmt *body) {
+    if (!body || fn.empty()) return;
+    CFG::BuildOptions opts;
+    auto cfg = CFG::buildCFG(nullptr, body, &C, opts);
+    if (!cfg) return;   // clang declines some bodies; a missing CFG is not a fact
+    auto id = [&](const CFGBlock *B) { return std::to_string(B->getBlockID()); };
+    g_cfg_entry.insert(fn + "\t" + id(&cfg->getEntry()));
+    g_cfg_exit.insert(fn + "\t" + id(&cfg->getExit()));
+    for (const CFGBlock *B : *cfg) {
+        if (!B) continue;
+        for (const CFGBlock::AdjacentBlock &succ : B->succs())
+            if (succ.isReachable() && succ.getReachableBlock())
+                g_cfg_edge.insert(fn + "\t" + id(B) + "\t" + id(succ.getReachableBlock()));
+        for (const CFGElement &E : *B) {
+            auto SE = E.getAs<CFGStmt>();
+            if (!SE) continue;
+            const auto *CE = dyn_cast_or_null<CallExpr>(SE->getStmt());
+            if (!CE) continue;
+            if (const FunctionDecl *D = CE->getDirectCallee()) {
+                g_cfg_call.insert(fn + "\t" + id(B) + "\t" + D->getNameAsString());
+                note_home(C, D, g_callee_home);
+            }
+        }
+    }
+}
 
 class V : public RecursiveASTVisitor<V> {
 public:
@@ -91,6 +150,10 @@ public:
     // ── contexts: named functions, and lambdas named for their variable ─────
     bool TraverseFunctionDecl(FunctionDecl *F) {
         Scope s(*this, F->getNameAsString());
+        if (F->doesThisDeclarationHaveABody() && !F->getNameAsString().empty()) {
+            note_home(ctx_, F, g_fn_home);
+            emit_cfg(ctx_, F->getNameAsString(), F->getBody());
+        }
         return RecursiveASTVisitor::TraverseFunctionDecl(F);
     }
     bool TraverseCXXMethodDecl(CXXMethodDecl *M) {
@@ -99,6 +162,10 @@ public:
         if (M->getParent() && M->getParent()->isLambda())
             return RecursiveASTVisitor::TraverseCXXMethodDecl(M);
         Scope s(*this, M->getNameAsString());
+        if (M->doesThisDeclarationHaveABody() && !M->getNameAsString().empty()) {
+            note_home(ctx_, M, g_fn_home);
+            emit_cfg(ctx_, M->getNameAsString(), M->getBody());
+        }
         return RecursiveASTVisitor::TraverseCXXMethodDecl(M);
     }
     bool TraverseLambdaExpr(LambdaExpr *L) {
@@ -325,8 +392,14 @@ int main(int argc, const char **argv) {
     write("tests.facts", {g_tests.begin(), g_tests.end()});
     write("arm_call.facts", {g_arm_calls.begin(), g_arm_calls.end()});
     write("callee_home.facts", {g_callee_home.begin(), g_callee_home.end()});
+    write("cfg_edge.facts",  {g_cfg_edge.begin(),  g_cfg_edge.end()});
+    write("cfg_entry.facts", {g_cfg_entry.begin(), g_cfg_entry.end()});
+    write("cfg_exit.facts",  {g_cfg_exit.begin(),  g_cfg_exit.end()});
+    write("cfg_call.facts",  {g_cfg_call.begin(),  g_cfg_call.end()});
+    write("fn_home.facts",   {g_fn_home.begin(),   g_fn_home.end()});
     llvm::outs() << "lir_facts: " << g_codes_ordered.size() << " codes, " << g_tests.size()
                  << " tests, "
-                 << g_arm_calls.size() << " arm calls\n";
+                 << g_arm_calls.size() << " arm calls, " << g_cfg_edge.size()
+                 << " cfg edges\n";
     return 0;
 }

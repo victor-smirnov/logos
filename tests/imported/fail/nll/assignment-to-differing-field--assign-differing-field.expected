@@ -1,0 +1,1 @@
+cannot borrow 'list.0': 'list.0.value' is already mutably borrowed
