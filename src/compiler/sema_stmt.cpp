@@ -8121,11 +8121,12 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
     // hole in that rule instead of being the one shape that double-frees. The
     // refusal is element-conditional (`needs_drop`), so `match a[0]` over a
     // Copy-element array still compiles — pinned as the admit half.
-    bool scrut_is_place = scrut &&
-        (expr_ref_of(scrut).kind() == ec::Code::VarRef ||
-         expr_ref_of(scrut).kind() == ec::Code::FieldRead ||
-         expr_ref_of(scrut).kind() == ec::Code::TupleIndex ||
-         expr_ref_of(scrut).kind() == ec::Code::IndexRead);
+    // ⚠ THE THIRD COPY, and the comment above already records this exact class
+    // once: "#110 R2 — INDEXREAD BELONGS IN THIS LIST". That repair added ONE
+    // spelling. SliceIndex was the next one down the same list, and Deref the
+    // one after. Adding spellings one at a time is what produced three drifting
+    // copies; the list is now the predicate.
+    bool scrut_is_place = lir_view::is_place_expr(expr_ref_of(scrut));
     auto mark_moved_target = [&]() {
         if (expr_ref_of(scrut).kind() == ec::Code::VarRef)
             mark_moved(std::string(lir_view::EVarRefView{expr_ref_of(scrut)}.name()));
@@ -8905,10 +8906,13 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     lir_view::StmtRef temp_scrut_let;
     if (scrut && scrut_type && is_move_type(scrut_type)) {
         namespace ec = lir_schema::expr;
-        auto sk = expr_ref_of(scrut).kind();
-        bool is_place = sk == ec::Code::VarRef || sk == ec::Code::FieldRead ||
-                        sk == ec::Code::TupleIndex || sk == ec::Code::Deref ||
-                        sk == ec::Code::IndexRead;
+        // ⚠ WAS A FIVE-TERM LIST, WRITTEN OUT TWICE IN THIS FILE, BOTH MISSING
+        // SliceIndex — so `match slice[0]` over a Drop-bearing element was
+        // treated as a TEMPORARY, hoisted into a synth local, and destructured
+        // out of a value the backing array still owns. Two destructor calls for
+        // one value; the `&[W; 1]` twin refuses E0508. The property is "is a
+        // place", so say that and let one foundation answer.
+        bool is_place = lir_view::is_place_expr(expr_ref_of(scrut));
         if (!is_place) {
             temp_scrut_var = "__match_scrut_" + std::to_string(tmp_var_count_++);
             // Push a scope and DEFINE the synth var so it is a real tracked
@@ -9631,10 +9635,13 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     lir_view::StmtRef temp_scrut_let;
     if (scrut && scrut_type && is_move_type(scrut_type)) {
         namespace ec = lir_schema::expr;
-        auto sk = expr_ref_of(scrut).kind();
-        bool is_place = sk == ec::Code::VarRef || sk == ec::Code::FieldRead ||
-                        sk == ec::Code::TupleIndex || sk == ec::Code::Deref ||
-                        sk == ec::Code::IndexRead;
+        // ⚠ WAS A FIVE-TERM LIST, WRITTEN OUT TWICE IN THIS FILE, BOTH MISSING
+        // SliceIndex — so `match slice[0]` over a Drop-bearing element was
+        // treated as a TEMPORARY, hoisted into a synth local, and destructured
+        // out of a value the backing array still owns. Two destructor calls for
+        // one value; the `&[W; 1]` twin refuses E0508. The property is "is a
+        // place", so say that and let one foundation answer.
+        bool is_place = lir_view::is_place_expr(expr_ref_of(scrut));
         if (!is_place) {
             // Scope-track the synth var so EVERY exit path drops it (fall-through
             // via collect_drops in finalize_expr; an arm body's early return via

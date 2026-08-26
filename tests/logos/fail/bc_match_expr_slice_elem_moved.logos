@@ -1,0 +1,21 @@
+// #110 R3 — ADMIT half (LIVE HOLE). A by-value match EXPRESSION over a SLICE
+// element whose binding carries drop glue compiles: `return match s[0] { W { i:
+// y } => … }` on `s: &[W]` moves `y` out of borrowed slice storage, so the arm
+// drops it and the owner's glue drops it again (one value, two destructor calls).
+//
+// lower_match_expr's place test (sema_stmt.cpp:9635-9637) lists VarRef /
+// FieldRead / TupleIndex / Deref / IndexRead and NOT SliceIndex, so a slice-index
+// scrutinee reaches neither the temp-hoist path nor the mark-moved path. Same
+// omission as lower_match (stmt form) and mark_match_scrutinee_moved.
+//
+// ONE-VARIABLE TWIN: the identical program with the parameter spelled `&[W; 1]`
+// (array, IndexRead) instead of `&[W]` (slice, SliceIndex) REFUSES today:
+//   error [fn f]: cannot move out of type `[W; 1]`, a non-copy array
+// Only the scrutinee's index KIND differs; the array half already refuses, the
+// slice half is the hole. Fix by DELEGATING to one place predicate, not by
+// appending SliceIndex here — the same list is wrong at three other sites.
+package bc_match_expr_slice_elem_moved;
+struct Inner { }
+impl Drop for Inner { fn drop(self: &mut Inner) { } }
+struct W { i: Inner }
+fn f(s: &[W]) -> i32 { return match s[0] { W { i: y } => 1i32 }; }

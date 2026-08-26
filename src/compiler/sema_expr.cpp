@@ -14528,9 +14528,23 @@ bool SemaChecker::try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,
     // already a FRESH borrow expression (AddrOf/AddrOfTemp) — wrapping it in
     // a reborrow shape would hide it from borrow_check's normal recording
     // path, silently dropping the borrow.
+    // ⚠ TupleIndex ADDED, AND THIS SITE IS DELIBERATELY *NOT* DELEGATED TO
+    // lir_view::is_place_expr, unlike the three match-scrutinee lists.
+    // The shape this produces — AddrOfTemp(Deref(<arg>)) — has exactly one
+    // recogniser: lir_view::is_reborrow_shape, which matches ONLY
+    // AddrOfTemp(Deref(VarRef)), and borrow_check's reborrow handler is keyed
+    // on the same. Widening the PRODUCER past what the RECOGNISER accepts
+    // manufactures expressions borrow_check does not see as reborrows — which
+    // is the failure this function's own comment above already names, and it is
+    // PERMISSIVE, so a green corpus cannot see it either.
+    // FieldRead is already here and already exercises the non-VarRef path, so
+    // TupleIndex rides a proven route: `t.0` is a field whose name is its
+    // index. Deref and SliceIndex wait for is_reborrow_shape to be widened
+    // first — that is its own arc, not a line in this one.
     auto k = expr_ref_of(arg).kind();
     if (k != lir_schema::expr::Code::VarRef &&
         k != lir_schema::expr::Code::FieldRead &&
+        k != lir_schema::expr::Code::TupleIndex &&
         k != lir_schema::expr::Code::IndexRead)
         return false;
     auto deref = builder().deref(std::move(arg), arg_pointee);

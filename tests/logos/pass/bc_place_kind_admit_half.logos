@@ -1,0 +1,40 @@
+// THE ADMIT HALF of the place-kind class fix — the direction that has no other
+// detector. Widening "is a place" from four hand-written lists to one predicate
+// added REFUSALS; each of these three must keep compiling, and each is a shape
+// the refusal would plausibly have swallowed:
+//
+//   f_owned    a partial move out of an OWNED tuple. `is_unowned_move_source`
+//              now has a TupleIndex arm; a bare `return true` there would have
+//              refused this, which is legal Rust. The arm's receiver-type gate
+//              is what keeps it legal, and it is why the gate was copied from
+//              FieldRead rather than reinvented.
+//   f_copy     `match sl[0]` where the element is COPY. The new non-copy-slice
+//              refusal is element-conditional (`needs_drop`), exactly as the
+//              array refusal of #110 R2 is — a Copy element still compiles.
+//
+// ⚠ NOT PINNED HERE, AND MEASURED WHILE TRYING TO: `fn f<T>(sl: &[T]) -> T
+// { return sl[0]; }` is REFUSED E0507 — but that is PRE-EXISTING, not this
+// change. is_unowned_move_source's SliceIndex arm predates it and refuses
+// without the concreteness triple its IndexRead sibling carries, so generic
+// slice-element moves have always been refused where generic ARRAY-element
+// moves are allowed. A candidate over-refusal of the same class, left open
+// deliberately rather than folded into a fix it is not part of.
+package bc_place_kind_admit_half;
+
+struct S { b: Box<i64> }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn f_owned(t: (S, i64)) -> S { return t.0; }
+
+struct P { n: i64 }
+fn f_copy(sl: &[P]) -> i64 {
+    match sl[0] { P { n: v } => { return v; } }
+}
+
+fn main() -> i32 {
+    let a: [P; 1] = [P { n: 7i64 }];
+    let s: &[P] = &a;
+    // The VALUE is not the point; reaching here at all is. Return 0 so the
+    // fixture asserts "compiles AND runs", not an arbitrary number.
+    if f_copy(s) == 7i64 { return 0i32; }
+    return 1i32;
+}

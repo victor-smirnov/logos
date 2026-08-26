@@ -1,0 +1,18 @@
+// try_implicit_reborrow_mut (sema_expr.cpp) admits a reborrow place only for
+// VarRef / FieldRead / IndexRead — TupleIndex is missing. A `&mut i64` read out
+// of a tuple element at a call site is therefore NOT reborrowed, so no borrow is
+// recorded on 't.0' and two simultaneously live `&mut i64` alias undetected.
+// One-variable twin: bc_tuple_reborrow_mut_alias_struct_twin.logos — the same
+// program with the tuple replaced by a one-field struct (t.0 -> t.f); that
+// spelling goes through the FieldRead arm and REFUSES with
+// "cannot use 't.f' while 't.f' is mutably borrowed".
+package bc_tuple_reborrow_mut_alias;
+fn id(x: &mut i64) -> &mut i64 { x }
+fn main() -> i32 {
+    let mut n = 1i64;
+    let mut t: (&mut i64,) = (&mut n,);
+    let a = id(t.0);
+    let b = id(t.0);   // second live &mut out of the same tuple element
+    *a += 1i64;
+    0i32
+}

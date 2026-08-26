@@ -1225,6 +1225,15 @@ private:
                 if (t && t.kind() == LogosType::Kind::Ptr) return true;
                 switch (x.kind()) {
                     case Code::FieldRead:  x = lir_view::EFieldReadView{x}.receiver(); break;
+                    // ⚠ THE EXEMPTION WALK MUST BE AT LEAST AS WIDE AS THE RULE
+                    // IT EXEMPTS. This is the SAME switch's omission in the
+                    // OVER-REFUSING direction: with TupleIndex now refusing on a
+                    // reference receiver, a chain hopping through `p.0.f[i]`
+                    // (p: *mut) would stop the walk here, miss the raw hop and
+                    // be refused — inside the mem/ptr/Vec idiom the stdlib is
+                    // built on. A gate's exemption has to be checked in the
+                    // ABUSE direction and in the STARVE direction both.
+                    case Code::TupleIndex: x = lir_view::ETupleIndexView{x}.receiver(); break;
                     case Code::IndexRead:  x = lir_view::EIndexReadView{x}.receiver(); break;
                     case Code::SliceIndex: x = lir_view::ESliceIndexView{x}.slice();   break;
                     case Code::Deref:      x = lir_view::EDerefView{x}.operand();       break;
@@ -1287,6 +1296,21 @@ private:
                 // self / locals) are partial moves (allowed) — their receiver
                 // type is a Struct, not a reference.
                 auto recv = lir_view::EFieldReadView{r}.receiver();
+                auto rt = recv ? recv.type(pool) : TypeRef(nullptr);
+                return rt && (rt.kind() == LogosType::Kind::Ref ||
+                              rt.kind() == LogosType::Kind::MutRef);
+            }
+            // ⚠ A TUPLE ELEMENT IS A FIELD WHOSE NAME IS ITS INDEX, and this
+            // switch said so for `s.f` and not for `t.0`, so `fn f(r:&(S,i64))
+            // -> S { return r.0; }` moved a Box owner out of a shared reference
+            // and duplicated it. The struct spelling of the identical program
+            // refused E0507.
+            // ⚠ THE RECEIVER GATE IS LOAD-BEARING, NOT COPIED FOR SYMMETRY. A
+            // bare `return true` here would refuse `fn f(t:(S,i64)) -> S
+            // { return t.0; }` — an OWNED tuple partial move, which is legal
+            // and compiles today. Measured both directions before and after.
+            case Code::TupleIndex: {
+                auto recv = lir_view::ETupleIndexView{r}.receiver();
                 auto rt = recv ? recv.type(pool) : TypeRef(nullptr);
                 return rt && (rt.kind() == LogosType::Kind::Ref ||
                               rt.kind() == LogosType::Kind::MutRef);
@@ -3221,6 +3245,32 @@ private:
         // needs a Drop — plain value structs / primitives (e.g. metaprog `Type`)
         // shallow-copy safely. Borrows / autoref (`&arr[i]`, `arr[i].m()`) do
         // not move and never reach mark_moved_expr, so they are unaffected.
+        // ⚠ SliceIndex IS THE SAME STEP, and its absence made `match sl[0]`
+        // over a Drop-bearing element the one shape that still double-freed
+        // after #110 R2 closed the array spelling. The gates below are NOT
+        // decorative and are copied unchanged: the concreteness triple exists
+        // because generic stdlib iterators legitimately move an element out
+        // while managing the container's drop, and slice iterators are that
+        // same family. `needs_drop` keeps a Copy element compiling — pinned as
+        // the admit half, exactly as #110 R2 pinned its own.
+        // The receiver test differs by one kind and one kind only: an array
+        // receiver is Kind::Array (possibly behind &/&mut/*), a slice receiver
+        // is Kind::Slice, which owns nothing — the backing storage does.
+        if (er.kind() == C::SliceIndex) {
+            auto et = er.type(cur_prog_->type_pool.impl());
+            if (et && TypeRef(et).kind() != LogosType::Kind::TypeVar &&
+                TypeRef(et).kind() != LogosType::Kind::AssocType &&
+                TypeRef(et).kind() != LogosType::Kind::ImplTrait &&
+                needs_drop(et)) {
+                lir_view::ESliceIndexView sv{er};
+                auto recv = sv.slice();
+                auto rt = recv ? recv.type(cur_prog_->type_pool.impl()) : TypeRef{};
+                if (rt && TypeRef(rt).kind() == LogosType::Kind::Slice)
+                    error(std::format(
+                        "cannot move out of type `{}`, a non-copy slice",
+                        type_str(rt)));
+            }
+        }
         if (er.kind() == C::IndexRead) {
             auto et = er.type(cur_prog_->type_pool.impl());
             // Only CONCRETE Drop-bearing elements. A generic `[T; N]` (TypeVar

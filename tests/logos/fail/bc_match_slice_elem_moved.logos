@@ -1,0 +1,19 @@
+// mark_match_scrutinee_moved (sema_stmt.cpp) scrut_is_place lists VarRef /
+// FieldRead / TupleIndex / IndexRead — NOT SliceIndex. A by-value
+// `match s[0]` over `s: &[W]` with a Drop-bearing element W therefore reaches
+// neither the temp-hoist path nor the mark-moved path: the element is bound
+// by value into `w`, dropped at arm end, and dropped AGAIN by the array's
+// scope-exit glue — two destructor calls for one value.
+// ADMITTED TODAY (rc=0). One-variable twin: the same file with the slice
+// spelling `&a[..]` replaced by the array-ref spelling `&[W; 1] = &a` (an
+// IndexRead scrutinee, which IS in the list) — REFUSED, rc=1:
+//   error [fn main]: cannot move out of type `[W; 1]`, a non-copy array
+// Expected once the hole is closed: the same E0508 refusal for the slice.
+package bc_match_slice_elem_moved;
+struct W {}
+impl Drop for W { fn drop(self: &mut W) {} }
+fn main() -> i32 {
+    let a: [W; 1] = [W {}];
+    let s = &a[..];
+    match s[0] { w => { return 0i32; } }
+}

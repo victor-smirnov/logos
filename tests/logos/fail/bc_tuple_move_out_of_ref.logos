@@ -1,0 +1,17 @@
+// E0507: by-value move of a move-type OUT OF A TUPLE ELEMENT behind a `&`.
+// `is_unowned_move_source` (sema_impl.hpp:1272-1295) arms for IndexRead,
+// SliceIndex, Deref and FieldRead but has NO TupleIndex arm, so `r.0` on
+// `r: &(String, i64)` moves the String out of a shared reference the callee
+// does not own — double free. Accepted rc=0 today; must become E0507.
+// One-variable twin (bc_tuple_move_out_of_ref_struct_twin.logos): the SAME
+// `r.0` projection with the parameter typed `&P`, the nominal tuple struct
+// declared here in both files. That spelling is a FieldRead and REFUSES today:
+//   error [fn f]: cannot move out of a value behind a reference / out of an
+//   index (E0507)
+// `struct P` is unused here on purpose: it holds the two files to a
+// one-line diff (the parameter type) so the tuple/struct spelling is the
+// only property that varies.
+package bc_tuple_move_out_of_ref;
+use logos.mem.string;
+struct P(String, i64);
+fn f(r: &(String, i64)) -> String { return r.0; }

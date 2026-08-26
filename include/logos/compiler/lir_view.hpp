@@ -3143,6 +3143,51 @@ inline bool is_irrefutable_pattern(PatRef p) noexcept {
     }
 }
 
+// ── IS A PLACE: the single foundation ───────────────────────────────────────
+//
+// A PROJECTION is a step from a place to a sub-place, and the step's SPELLING is
+// not the property: `s.f` is `t.0` is `v[i]` is `sl[i]` is `*p`. Nine sites in
+// this compiler needed that question and each wrote out the list its author had
+// in mind, as a function-local `bool is_place`. Two of them are byte-identical
+// five-term lists; a third records in its own comment that IndexRead had to be
+// added later, "one spelling at a time"; four of them are missing SliceIndex and
+// admit programs their array twins refuse. Same shape as `is_irrefutable_pattern`
+// above, whose comment says it replaced "three drifting lambdas".
+//
+// ⚠ NO `default:` — DELIBERATE. A new expr::Code must make this switch fail
+// -Wswitch rather than silently answer false. Silence is how every one of the
+// nine drifted; the compiler is the enumerator I do not have.
+inline bool is_place_projection(lir_schema::expr::Code k) noexcept {
+    using C = lir_schema::expr::Code;
+    switch (k) {
+        case C::FieldRead: case C::TupleIndex:
+        case C::IndexRead: case C::SliceIndex:
+        case C::Deref:
+            return true;
+        case C::LitInt: case C::LitFloat: case C::LitBool: case C::LitStr:
+        case C::VarRef: case C::EnumLit: case C::EnumLitData:
+        case C::Call: case C::MethodCall: case C::BinOp: case C::Unary:
+        case C::AddrOf: case C::AddrOfTemp: case C::StructLit: case C::ArrLit:
+        case C::Cast: case C::IfExpr: case C::TupleLit: case C::SliceLit:
+        case C::SliceLen: case C::SlicePtr: case C::ClosureBox:
+        case C::ClosureCall: case C::FnPtrCall: case C::FormatCall:
+        case C::PackExpand: case C::Try: case C::MatchExpr: case C::SizeOf:
+        case C::TypeCodeOf: case C::BlockExpr: case C::WritLit:
+        case C::PtrArith: case C::PtrDiff: case C::ReflectOf: case C::AlignOf:
+        case C::GenericRef:
+            return false;
+    }
+    return false;   // unreachable; keeps -Wreturn-type quiet
+}
+
+// A PLACE is the root or a projection of one. VarRef is the ROOT and is not a
+// projection — it is where a walk terminates, which is why the two are separate
+// and why tools/dlog keeps place_root_kind apart from projection_kind.
+inline bool is_place_expr(ExprRef e) noexcept {
+    return e && (e.kind() == lir_schema::expr::Code::VarRef ||
+                 is_place_projection(e.kind()));
+}
+
 inline bool is_reborrow_shape(ExprRef e, ExprRef* out_varref = nullptr) noexcept {
     if (!e || e.kind() != lir_schema::expr::Code::AddrOfTemp) return false;
     auto inner = EAddrOfTempView{e}.inner();

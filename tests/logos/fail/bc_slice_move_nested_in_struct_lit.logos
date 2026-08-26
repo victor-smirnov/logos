@@ -1,0 +1,15 @@
+// A SLICE-INDEX MOVE-OUT NESTED IN A STRUCT LITERAL, in return position.
+//
+// `mark_moved_in_expr_recursive` has no IndexRead/SliceIndex/Deref arm, and the
+// E0507 backstop (`is_unowned_move_source`) is applied only to the TOP-LEVEL
+// return value — so a move-out buried one struct literal deep reaches neither.
+// The array spelling was caught anyway, by mark_moved_expr's separate non-copy
+// -array refusal on the struct-literal field path; the slice spelling had no
+// such check anywhere and the element was dropped twice (the caller's backing
+// array owns it, and so does the returned H).
+// ONE-VARIABLE TWIN: the same file with `&[W; 1]` — refused, "a non-copy array".
+package bc_slice_move_nested_in_struct_lit;
+struct W { n: i64 }
+impl Drop for W { fn drop(self: &mut W) {} }
+struct H { w: W }
+fn prod(s: &[W]) -> H { return H { w: s[0] }; }
