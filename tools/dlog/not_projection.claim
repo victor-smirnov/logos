@@ -1,0 +1,72 @@
+# not_projection — THE CLAIM, checked against a DERIVED domain.
+#
+# `projection_kind` is NOT listed anywhere. It is every expr::Code in
+# include/logos/compiler/lir_schema.hpp MINUS this file. That inversion is the
+# whole point and it is deliberate:
+#
+#   listing the PROJECTIONS  -> a new code is silently not one   (blind, quiet)
+#   listing the EXEMPTIONS   -> a new code IS one until claimed   (loud)
+#
+# The first shape is the defect these rules exist to find; the detector must not
+# be built in it. A new expr code now flags every walker until someone writes a
+# line here and says why. That noise is the feature.
+#
+# A PROJECTION is a step from a place to a sub-place. Everything below is
+# exempt because it PRODUCES A VALUE rather than naming a sub-place of one.
+
+# literals — construct a value from nothing
+LitInt
+LitFloat
+LitBool
+LitStr
+EnumLit
+EnumLitData
+StructLit
+ArrLit
+TupleLit
+SliceLit
+WritLit
+
+# calls — the result is a new value, and the callee's places are not ours
+Call
+MethodCall
+ClosureBox
+ClosureCall
+FnPtrCall
+FormatCall
+
+# operators — compute over values
+BinOp
+Unary
+Cast
+PtrArith
+PtrDiff
+
+# reference FORMATION: `&x` is where a walk ENDS, not a step it takes.
+# The walker's caller decomposes the operand; the AddrOf node itself is a value.
+AddrOf
+AddrOfTemp
+
+# control flow yielding a value — a place cannot be projected through a branch
+IfExpr
+MatchExpr
+Try
+BlockExpr
+
+# compile-time / reflection — no runtime place at all
+SizeOf
+AlignOf
+TypeCodeOf
+ReflectOf
+GenericRef
+PackExpand
+
+# slice DECOMPOSITION accessors: these read a slice's fat-pointer halves and
+# yield a scalar (len, data ptr). `SliceIndex` is the projection; these are not.
+SliceLen
+SlicePtr
+
+# VarRef is the place ROOT, not a step: it is where a walk TERMINATES, and it
+# is claimed as such in place_root_kind. Exempt here so it is not demanded of
+# walkers as a projection they failed to handle.
+VarRef

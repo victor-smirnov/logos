@@ -229,6 +229,9 @@ NOT_GATES = {
     # the risk in that design.
     "extract.sh":              "emits Datalog facts for tools/dlog; asserts "
                                "nothing — the Souffle program holds the verdict",
+    "selftest.sh":             "the known-answer test for tools/dlog: it checks "
+                               "out revision 28fc7c75 and needs souffle, so it "
+                               "grades a TOOL, not this tree — run it by hand",
     "change-budget.sh":        "a hand-run measuring tool; its verdict is about "
                                "ONE change against a budget declared before that "
                                "change was written, so it has no fixed population "

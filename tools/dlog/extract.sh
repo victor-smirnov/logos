@@ -4,25 +4,30 @@
 # Emit Datalog facts about PLACE WALKERS: functions that decompose a place
 # expression (`a.b`, `t.0`, `v[i]`, `*p`) down to its root.
 #
-# ⚠ THE EXTRACTOR IS THE RISK, NOT THE RULES. Garbage facts give confidently
-# wrong answers, which is worse than no tool because the form is authoritative.
-# Every relation here is bite-proved in `selftest.sh` against a KNOWN answer.
+# ⚠ THE EXTRACTOR IS THE RISK, NOT THE RULES. Souffle saturates or it does not;
+# it has nothing to lie with. THIS FILE does: garbage facts give confidently wrong
+# answers, worse than no tool because the form is authoritative. selftest.sh runs
+# the whole chain against revision 28fc7c75, where six defects are already known,
+# and requires it to name exactly those six.
 set -uo pipefail
 OUT="${1:?usage: extract.sh <outdir> <src.cpp>...}"; shift
 SRCS=("$@")
 mkdir -p "$OUT"
 
-# ── THE DOMAIN ──────────────────────────────────────────────────────────────
-# A PROJECTION is a step from a place to a sub-place. The set is not a matter of
-# taste: it is every expression code that has a receiver whose value is a PLACE.
-# Read from the schema so it cannot drift from it silently.
-cat > "$OUT/projection_kind.facts" <<'EOF'
-FieldRead
-TupleIndex
-IndexRead
-SliceIndex
-Deref
-EOF
+# ── THE DOMAIN, DERIVED ─────────────────────────────────────────────────────
+# ⚠ THE FIRST CUT LISTED FIVE NAMES I HAD TYPED — the detector for
+# enumeration-instead-of-property, keyed on an enumeration. A walker was then
+# certified complete against a domain that shared my blind spot exactly.
+# The domain is now every expr::Code in the schema; what is NOT a projection is
+# claimed in not_projection.claim and SUBTRACTED. A new code is a projection
+# until someone says otherwise, so it arrives loud instead of absent.
+SCHEMA="${LOGOS_LIR_SCHEMA:-include/logos/compiler/lir_schema.hpp}"
+awk '/^namespace expr \{/ {inb=1} inb && /^inline constexpr/ {exit}
+     inb && match($0, /^ *[A-Za-z_][A-Za-z0-9_]* *=/) {sub(/ *=.*/,""); gsub(/ /,""); print}' \
+    "$SCHEMA" > "$OUT/expr_code.facts"
+N=$(wc -l < "$OUT/expr_code.facts")
+[ "$N" -ge 20 ] || { echo "EXTRACTOR: read $N expr codes from $SCHEMA — refusing" >&2; exit 3; }
+grep -vE '^\s*(#|$)' "$(dirname "$0")/not_projection.claim" > "$OUT/not_projection.facts"
 echo "VarRef" > "$OUT/place_root_kind.facts"
 
 # ── THE WALKERS ─────────────────────────────────────────────────────────────
@@ -71,7 +76,8 @@ while read -r fn; do
     # catch enumeration-instead-of-property committed it on its first run. Any
     # qualifier followed by a kind IN THE DOMAIN counts; the domain is the thing
     # we actually mean.
-    grep -oE "::(FieldRead|TupleIndex|IndexRead|SliceIndex|Deref|VarRef)\b" /tmp/.body.$$ | sed 's/^:://' | sort -u \
+    ALT=$(paste -sd'|' "$OUT/expr_code.facts")
+    grep -oE "::($ALT)\b" /tmp/.body.$$ | sed 's/^:://' | sort -u \
         | while read -r k; do echo -e "${fn}\t${k}"; done >> "$OUT/handles.facts"
     rm -f /tmp/.body.$$
 done < "$OUT/walker.facts"

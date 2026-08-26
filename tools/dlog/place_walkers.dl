@@ -13,11 +13,20 @@
 //                            -> `return &(2+3);` returned a dead frame
 // None of these is findable by grep, because the defect is an ABSENCE. It is
 // findable by a rule, because an absence over a finite domain is derivable.
+// THE DOMAIN IS DERIVED, NOT LISTED. expr_code comes from the schema enum;
+// not_projection is the claim. Subtracting means a NEW expr code is a
+// projection until someone exempts it — loud by default, because the opposite
+// default is exactly the blindness these rules exist to detect.
+.decl expr_code(k: symbol)
+.decl not_projection(k: symbol)
 .decl projection_kind(k: symbol)
 .decl place_root_kind(k: symbol)
 .decl walker(f: symbol)
 .decl handles(f: symbol, k: symbol)
-.input projection_kind
+.input expr_code
+.input not_projection
+.output projection_kind
+projection_kind(K) :- expr_code(K), !not_projection(K).
 .input place_root_kind
 .input walker
 .input handles
