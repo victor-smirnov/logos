@@ -1577,6 +1577,22 @@ private:
                             if (it->first == lbl) { slot = &it->second; break; }
                     if (!slot->empty()) add_taint(*slot, taint_of(v.value()));
                 }
+                // ⚠ THE OUT-PARAM DEPOSIT WAS SKIPPED HERE, AND ONLY HERE. Every
+                // other arm that taints from a value also runs `call_effects` on
+                // it — Let, LetElse, Assign, Return, ExprStmt — because a call
+                // in that value can deposit through a `&mut` OUT-PARAMETER, and
+                // the taint of the RESULT says nothing about what the call did
+                // to its arguments. `break <call>` did the first and not the
+                // second, unconditionally, on every path.
+                // MEASURED, one-property pair (the wrapper line, nothing else):
+                //     let n: i64 = stash(h, c);            -> REFUSED
+                //     let n: i64 = loop { break stash(h, c); };  -> rc 0
+                // where `stash` pushes `c.mk()` into `h.r`. The admitted form
+                // then mutates `c` while a reference into it is live in the
+                // vector, and reads it back — a real dangling read, and the
+                // exact shape of tests/logos/fail/bc_d1r13_p2_outparam_deposit
+                // put behind one `loop`/`break`.
+                if (v.value()) call_effects(v.value());
                 break;
             }
             case Code::For:
@@ -1592,6 +1608,19 @@ private:
             case Code::Match: {
                 SMatchView v{sr};
                 uint64_t scrut = taint_of(v.scrut());
+                // ⚠ THE SAME OMISSION AS Code::Break, AND THE RATCHET FOUND IT
+                // ONE COMMIT LATER. Tainting from the scrutinee says what the
+                // VALUE carries; it says nothing about what a call inside that
+                // scrutinee did to its `&mut` arguments. LetElse — the sibling
+                // that also binds a pattern from a scrutinee — runs
+                // call_effects on it (:1428); this arm did not.
+                // MEASURED, one-property pair:
+                //     let n: i64 = stash(h, c);        -> REFUSED
+                //     match stash(h, c) { _ => { } }   -> rc 0
+                // with `stash` pushing `c.mk()` into `h.r`. The STATEMENT form
+                // only: the match-EXPRESSION spelling goes through a different
+                // arm and refused all along, which is why this survived.
+                call_effects(v.scrut());
                 v.each_arm([&](EMatchArmRef arm){
                     bind_pat(arm.pat(), scrut);
                     if (auto b = arm.body()) walk_block(b);

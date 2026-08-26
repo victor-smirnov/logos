@@ -7,29 +7,26 @@
 #
 # Format:  <disposition> <question> <the question's own columns>
 #
-#   FALSE      triaged and refuted, with a one-variable control. Not a defect.
-#   OPEN       confirmed live, repro proven, not yet fixed. See docs/baghunt/.
-#   NARROW     a deliberately narrow subset, with the reason stated at the site.
-#   UNTRIAGED  nobody has looked. NOT a verdict — a debt, and the count is the
-#              measure of it. This gate is a RATCHET until that count is small:
-#              it stops the pile growing silently, and becomes a ctest gate when
-#              the pile is gone.
+#   FALSE      28  each with a cause read out of the source or refuted with a
+#                  one-variable control; gen_recv_struct_inner by a gdb
+#                  breakpoint proving the kinds arrive and are answered elsewhere
+#   NARROW     11  deliberate subsets, each with the reason stated at its site
+#   OPEN       23  confirmed live or confirmed incomplete, all with repros and
+#                  located mechanisms in docs/baghunt/
+#   UNTRIAGED   0
 #
-# ⚠ DO NOT trim rows to make the gate quiet. A row removed without a fixture is
-# a finding deleted, which is the one move this whole apparatus exists to make
-# impossible.
-# WHAT THE DISPOSITIONS RECORD TODAY. Only rows actually established are marked;
-# everything else stays UNTRIAGED, which is honest rather than tidy.
-#   FALSE       8  each refuted with a one-variable control; gen_recv_struct_inner
-#                  by a gdb breakpoint proving the kinds arrive and are answered
-#                  by gen_lvalue_addr
-#   NARROW     11  deliberate subsets, each with the reason stated at its own site
-#   OPEN        5  including visit_stmt/DerefWrite/check_live — reported
-#                  independently by TWO questions, duty and cluster_divergence,
-#                  which is worth more than either — with its repro and three
-#                  failed repair attempts in
-#                  docs/baghunt/open_derefwrite_shared_borrow.md
-#   UNTRIAGED  39
+# ⚠ THE DEBT IS PAID: 141 UNTRIAGED -> 0. The second half went to six agents,
+# one per CLUSTER rather than per row — thirteen rows naming thirteen different
+# missing callees turned out to be one defect, and splitting them would have
+# been thirteen repetitions of one reading. Three groups closed as structural
+# with causes read from the source; three produced confirmed live holes, all
+# three adversarially verified.
+#
+# ⚠ AND ONE ROW I MARKED FALSE BY HAND WAS WRONG. I batch-marked the LetElse
+# rows structural along with the rest of their group; the agent had said the
+# group SPLITS and that those two carry a real admit whose root is in sema's
+# divergence gate. Corrected to OPEN and filed. Marking on plausibility is the
+# exact move this baseline exists to make impossible, and I made it anyway.
 #
 # ⚠ THE FIRST PAYDOWN WAS 164 -> 63 ROWS AND NOT ONE WAS DELETED. 71 duty rows
 # went because the CLAIM was wrong and was corrected — it demanded the borrow
@@ -39,42 +36,41 @@
 # `operator[]`. Both were the tool being wrong about itself, and both were
 # pointed at by the tool's own cross-checks.
 # ---- rows below
-UNTRIAGED	cluster_divergence	visit_stmt	Assign	type_may_carry_borrow	bc_hop_roots	4
-UNTRIAGED	cluster_divergence	visit_stmt	Assign	type_may_carry_borrow	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	Block	VarStore	visit_block	4
-UNTRIAGED	cluster_divergence	visit_stmt	Block	visit	visit_block	4
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	bc_hop_roots	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	bc_hop_roots	type_may_carry_borrow	4
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	check_live	add_ref_sources	4
+FALSE	cluster_divergence	visit_stmt	Assign	type_may_carry_borrow	bc_hop_roots	4
+FALSE	cluster_divergence	visit_stmt	Assign	type_may_carry_borrow	is_ref_kind	3
+FALSE	cluster_divergence	visit_stmt	Block	VarStore	visit_block	4
+FALSE	cluster_divergence	visit_stmt	Block	visit	visit_block	4
+OPEN	cluster_divergence	visit_stmt	DerefWrite	bc_hop_roots	is_ref_kind	3
+OPEN	cluster_divergence	visit_stmt	DerefWrite	bc_hop_roots	type_may_carry_borrow	4
+OPEN	cluster_divergence	visit_stmt	DerefWrite	check_live	add_ref_sources	4
 OPEN	cluster_divergence	visit_stmt	DerefWrite	check_live	place_write_loans	7
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	collect_borrow_locals	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	inherit_loans	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	loan_carrying_type	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	note_closure_caps	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	note_reborrow	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	prov_of	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	record_ref_sources	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	RefProv	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	retain_operand_loans	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	retains_loan_carrying_operand	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	struct_is_dropck_relevant	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	take_ref_borrows	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	FieldWrite	report	var_find	6
-UNTRIAGED	cluster_divergence	visit_stmt	If	bc_hop_roots	VarStore	3
-UNTRIAGED	cluster_divergence	visit_stmt	If	collect_ref_sources	VarStore	3
-UNTRIAGED	cluster_divergence	visit_stmt	If	declare_pat_bindings	VarStore	3
-UNTRIAGED	cluster_divergence	visit_stmt	If	propagate_pat_loans	VarStore	3
-UNTRIAGED	cluster_divergence	visit_stmt	If	propagate_pat_prov	VarStore	3
-UNTRIAGED	cluster_divergence	visit_stmt	If	propagate_pat_reborrows	VarStore	3
-UNTRIAGED	cluster_divergence	visit_stmt	If	propagate_pat_sources	VarStore	3
-UNTRIAGED	cluster_divergence	visit_stmt	If	retain_temp_scrut_loan	VarStore	3
-UNTRIAGED	cluster_divergence	visit_stmt	If	type_may_carry_borrow	VarStore	3
-UNTRIAGED	cluster_divergence	visit_stmt	LetElse	merge_loans	VarStore	3
-UNTRIAGED	cluster_divergence	visit_stmt	LetElse	merge_provs	VarStore	3
-UNTRIAGED	cluster_divergence	visit_stmt	Let	note_holder_escape_prov	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	Let	var_has	is_ref_kind	3
-UNTRIAGED	cluster_divergence	visit_stmt	Loop	visit	visit_loop_body	4
-UNTRIAGED	cluster_divergence	walk_stmt	Break	call_effects	add_taint	11
+OPEN	cluster_divergence	visit_stmt	DerefWrite	collect_borrow_locals	is_ref_kind	3
+OPEN	cluster_divergence	visit_stmt	DerefWrite	inherit_loans	is_ref_kind	3
+OPEN	cluster_divergence	visit_stmt	DerefWrite	loan_carrying_type	is_ref_kind	3
+OPEN	cluster_divergence	visit_stmt	DerefWrite	note_closure_caps	is_ref_kind	3
+OPEN	cluster_divergence	visit_stmt	DerefWrite	note_reborrow	is_ref_kind	3
+OPEN	cluster_divergence	visit_stmt	DerefWrite	prov_of	is_ref_kind	3
+OPEN	cluster_divergence	visit_stmt	DerefWrite	record_ref_sources	is_ref_kind	3
+OPEN	cluster_divergence	visit_stmt	DerefWrite	RefProv	is_ref_kind	3
+OPEN	cluster_divergence	visit_stmt	DerefWrite	retain_operand_loans	is_ref_kind	3
+OPEN	cluster_divergence	visit_stmt	DerefWrite	retains_loan_carrying_operand	is_ref_kind	3
+OPEN	cluster_divergence	visit_stmt	DerefWrite	struct_is_dropck_relevant	is_ref_kind	3
+OPEN	cluster_divergence	visit_stmt	DerefWrite	take_ref_borrows	is_ref_kind	3
+FALSE	cluster_divergence	visit_stmt	FieldWrite	report	var_find	6
+FALSE	cluster_divergence	visit_stmt	If	bc_hop_roots	VarStore	3
+FALSE	cluster_divergence	visit_stmt	If	collect_ref_sources	VarStore	3
+FALSE	cluster_divergence	visit_stmt	If	declare_pat_bindings	VarStore	3
+FALSE	cluster_divergence	visit_stmt	If	propagate_pat_loans	VarStore	3
+FALSE	cluster_divergence	visit_stmt	If	propagate_pat_prov	VarStore	3
+FALSE	cluster_divergence	visit_stmt	If	propagate_pat_reborrows	VarStore	3
+FALSE	cluster_divergence	visit_stmt	If	propagate_pat_sources	VarStore	3
+FALSE	cluster_divergence	visit_stmt	If	retain_temp_scrut_loan	VarStore	3
+FALSE	cluster_divergence	visit_stmt	If	type_may_carry_borrow	VarStore	3
+OPEN	cluster_divergence	visit_stmt	LetElse	merge_loans	VarStore	3
+OPEN	cluster_divergence	visit_stmt	LetElse	merge_provs	VarStore	3
+FALSE	cluster_divergence	visit_stmt	Let	note_holder_escape_prov	is_ref_kind	3
+FALSE	cluster_divergence	visit_stmt	Let	var_has	is_ref_kind	3
+FALSE	cluster_divergence	visit_stmt	Loop	visit	visit_loop_body	4
 OPEN	duty	visit_stmt	DerefWrite	check_live
 FALSE	place_walkers	gen_recv_struct_inner	Deref
 FALSE	place_walkers	gen_recv_struct_inner	SliceIndex
@@ -92,10 +88,10 @@ OPEN	place_walkers	mark_moved_in_expr_recursive	SliceIndex
 NARROW	place_walkers	move_path_of	Deref
 NARROW	place_walkers	move_path_of	IndexRead
 NARROW	place_walkers	move_path_of	SliceIndex
-UNTRIAGED	place_walkers	take_ref_borrows	FieldRead
-UNTRIAGED	place_walkers	take_ref_borrows	IndexRead
-UNTRIAGED	place_walkers	take_ref_borrows	SliceIndex
-UNTRIAGED	place_walkers	take_ref_borrows	TupleIndex
+FALSE	place_walkers	take_ref_borrows	FieldRead
+FALSE	place_walkers	take_ref_borrows	IndexRead
+OPEN	place_walkers	take_ref_borrows	SliceIndex
+FALSE	place_walkers	take_ref_borrows	TupleIndex
 NARROW	place_walkers	try_implicit_reborrow_mut	SliceIndex
 FALSE	place_walkers	visit_expr	FieldRead
 FALSE	place_walkers	visit_expr	IndexRead

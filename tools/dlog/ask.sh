@@ -66,8 +66,31 @@ EXV=$(sha256sum "$ROOT/tools/dlog/cxx_facts.cpp" "$ROOT/build/dlog/cxx_facts" | 
 # loop — 18 relations x 40 TUs = 720 sha256sum passes over multi-megabyte files,
 # which made "2 of 40 TUs changed" cost 92 s, indistinguishable from a cold run.
 # The cache was working perfectly and the bookkeeping around it was the cost.
+# ⚠ THE KEY MUST COVER WHAT THE TU INCLUDES, NOT JUST THE TU. Hashing the .cpp
+# alone left the facts stale whenever a HEADER changed — and this compiler keeps
+# most of its logic in headers and .inc files. Measured: the Break/call_effects
+# fix landed in borrow_flow_summary.inc, which appears in no compile_commands
+# entry, so the cache served facts from before the fix and the findings gate
+# reported no change. Staleness was supposed to be unrepresentable; it was merely
+# unlikely for .cpp edits.
+#
+# ninja already knows the exact transitive set (357 files for borrow_check.cpp).
+# Only PROJECT files can change, so only those are hashed — a system header that
+# moves means a new toolchain, which changes the extractor's own hash anyway.
+declare -A DEPS
+while IFS= read -r line; do
+    case "$line" in
+        *": #deps "*) cur=${line%%:*}; cur=${cur##*/}; cur=${cur%.o} ;;
+        "    $ROOT/src/"*|"    $ROOT/include/"*) DEPS[$cur]="${DEPS[$cur]:-} ${line#    }" ;;
+    esac
+done < <(ninja -C build -t deps 2>/dev/null)
+
 declare -A HASH
-for s in "${SRCS[@]}"; do HASH[$s]=$(sha256sum "$s" | cut -c1-32); done
+for s in "${SRCS[@]}"; do
+    b=$(basename "$s")
+    HASH[$s]=$( { sha256sum "$s"; for d in ${DEPS[$b]:-}; do sha256sum "$d" 2>/dev/null; done; } |
+                sha256sum | cut -c1-32 )
+done
 
 stale=0
 for s in "${SRCS[@]}"; do

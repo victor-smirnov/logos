@@ -60,3 +60,92 @@ and it belongs on the path that has the place, not in `check_live`.
 **Next round**: start from where `r.f = v` acquires its refusal (the AddrOfTemp
 decomposition and `take_borrow`), and give the bare-VarRef pointer the same
 route. Do not re-attempt `check_live`.
+
+---
+
+# OPEN — a RANGE projection records no loan: `let r: &[i64] = a[0..2];`
+
+**Status**: confirmed live, verified adversarially, mechanism located, NOT fixed.
+Found 2026-08-26 by `place_walkers` (`take_ref_borrows` 1/5).
+
+```logos
+let mut a: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+let r: &[i64] = a[0u64..2u64];
+a[0u64] = 9i64;          // rc 0 — rustc: E0506
+return r[0u64];
+```
+
+**One-TOKEN twin**, built by the verifier after rejecting the first pair as two
+properties apart:
+
+| binding | verdict |
+|---|---|
+| `let r: &i64  = &a[0u64];` | REFUSED — "cannot assign through 'a[..]'" |
+| `let r: &[i64] = &a[0u64..2u64];` | **rc 0**, and the loan dump is EMPTY |
+
+## The mechanism, measured — and the report's attribution was wrong
+
+The row named `take_ref_borrows` as missing a `SliceIndex` arm. **There is no
+SliceIndex node.** An instrumented run shows the two spellings lower differently:
+
+```
+&a          ->  SliceLit(23) -> AddrOf(11)        loan recorded
+a[0..2]     ->  Call(7) -> SliceLit(23) -> AddrOfTemp(12)     nothing recorded
+```
+
+A range desugars to `slice_get_range` (sema_expr.cpp:11760), so the value is a
+**Call**. `take_ref_borrows` IS entered and DOES reach the argument — the arm
+chain works. The loss is at the end: `AddrOf` takes a borrow directly, while
+`AddrOfTemp` routes through `extract_borrow_place`, and for `AddrOfTemp(VarRef a)`
+the path comes back EMPTY with `index_in_chain` false, so both guards of that
+decomposition miss and control falls through recording nothing.
+
+⚠ **This is the same "empty path" gap as `&mut **p`**, fixed narrowly on
+2026-08-26 (`262f066f`) by peeling a deref chain — which does not cover a bare
+VarRef inner.
+
+⚠ **AND THE BROAD FIX IS KNOWN TO BREAK THE STDLIB.** "Record a whole-root borrow
+whenever the path is empty" was tried the same day and measured: it also fires
+for a plain `AddrOfTemp(VarRef)`, i.e. **every method autoref**, so `it.next()`
+in a loop conflicted with itself and `liblogos-lang` stopped building
+(`iter_min`, `iter_max`).
+
+**Next round**: the distinction that matters is between an autoref receiver,
+whose borrow the MethodCall arm already records, and an explicit argument with a
+holder. Find it there. Two attempts that must not be repeated: adding a
+`SliceIndex` arm to `take_ref_borrows` (no such node exists on this path), and
+recording on empty-path unconditionally.
+
+---
+
+# OPEN — sema calls `loop { break; }` diverging, so a `let-else` drops its loans
+
+**Status**: confirmed live, mechanism located, root identified, NOT fixed.
+Found 2026-08-26 by `cluster_divergence` (LetElse / merge_loans, merge_provs).
+
+`sema_stmt.cpp:96` classifies a `loop` as DIVERGING without inspecting its body
+for a `break` that targets it. So:
+
+```logos
+let Some(v) = opt else { loop { break; } };   // gate: "diverges"
+```
+
+passes, while control actually **falls through**. borrow_check's `LetElse` arm
+then restores the pre-else state — throwing away the loan the else branch
+raised — and `g3.logos` compiles with `r` aliasing `x` across
+`let y = x; *r = 7i32;`.
+
+⚠ **THE NAMED CALLEE IS NOT THE ROOT FIX.** The row says the arm skips
+`merge_loans`/`merge_provs`. Adding them would close this instance —
+`merge_loans` (borrow_check.cpp:1098-1111) ORs `mut_borrowed` and maxes the
+counters into base, which is exactly the bit the restore erases; the loan RECORD
+survives, the dump shows `target=x holder=r is_mut=1` live at function end, only
+the VarState bit the check reads is rolled back. But that is defence-in-depth
+**behind a lying gate**. For a genuinely diverging else there is no join to
+merge, and the escape route that does exist — a `break` out of an enclosing loop
+— is already handled by the Break arm's `break_states.push_back(...)` at
+borrow_check.cpp:10131, confirmed identical for `let-else` and `if`.
+
+**Next round**: fix the divergence classification in sema — test a `loop` body
+for a `break` targeting it, the way rustc's `!`-typing of `loop` does. Only then
+decide whether the merge is still wanted as a second line.

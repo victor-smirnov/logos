@@ -1,0 +1,32 @@
+// A CALL IN A STATEMENT `match` SCRUTINEE STILL DEPOSITS THROUGH ITS OUT-PARAMS.
+//
+// The SAME omission as bc_break_outparam_deposit, and the findings ratchet
+// surfaced it ONE COMMIT after that one was fixed: closing Break changed the
+// cluster, and Match became the arm that shares `taint_of` with fourteen others
+// and alone skips `call_effects`.
+// Tainting from the scrutinee says what the VALUE carries; it says nothing
+// about what a call inside that scrutinee did to its `&mut` arguments.
+// ONE-PROPERTY TWIN: `let n: i64 = stash(h, c);` in place of the match —
+// refused all along.
+// ⚠ THE STATEMENT SPELLING ONLY. `let n = match stash(h, c) { _ => 0 };` is a
+// match-EXPRESSION, goes through a different arm, and refused throughout —
+// which is exactly why this one survived four rounds of looking.
+package bc_match_stmt_outparam_deposit;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct H { r: &mut Vec<B> }
+fn stash(h: &mut H, c: &C) -> i64 { h.r.push(c.mk()); return 0i64; }
+fn wrap(h: &mut H, c: &C) -> i64 { match stash(h, c) { _ => { } } return 0i64; }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut h: H = H { r: &mut vs };
+    wrap(&mut h, &c);
+    c.bump();
+    return *vs.get(0u64).p as i32;
+}
