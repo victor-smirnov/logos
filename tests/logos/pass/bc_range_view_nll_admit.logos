@@ -1,0 +1,12 @@
+// ONE-PROPERTY TWIN of fail/bc_range_view_holds_loan.logos: the write moved
+// BELOW `r`'s last use. The whole-root borrow the view base now records is a
+// normal holder-scoped loan, so NLL retires it at that last use — this pins the
+// fix as a LOAN, not a blanket refusal on array writes.
+package bc_range_view_nll_admit;
+fn main() -> i64 {
+    let mut a: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    let r: &[i64] = a[0u64..2u64];
+    let v: i64 = r[0u64];
+    a[0u64] = 9i64;
+    return v;
+}

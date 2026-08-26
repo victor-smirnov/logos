@@ -1817,6 +1817,24 @@ class BorrowChecker {
     // the desugared index_mut (returns 0 ⇒ would record a SHARED borrow ⇒ two
     // `&mut v[i]` alias undetected). The MethodCall recorder ORs this in.
     bool                                 reborrow_force_mut_ = false;
+    // THE BASE OF A SLICE VIEW. The array→slice coercion is borrow-forming
+    // (take_ref_borrows' SliceLit arm says so and delegates to record it), but
+    // its base has two spellings: `&arr` -> AddrOf, which the AddrOf arm always
+    // records, and the range desugar `a[0..2]` -> Call(slice_get_range,
+    // [SliceLit{AddrOfTemp(VarRef a)}, lo, hi]), whose base is an AddrOfTemp
+    // over a WHOLE local — path "", no index — so both guards of the AddrOfTemp
+    // decomposition miss and the delegation records nothing. This flag carries
+    // the one fact the callee cannot see: the AddrOfTemp about to be walked is
+    // the base of a VIEW.
+    // ⚠ "RECORD A WHOLE-ROOT BORROW WHENEVER THE PATH IS EMPTY" WAS MEASURED
+    // AND RED THE STDLIB (iter_min, iter_max: `it.next()` in a loop conflicted
+    // with itself). A plain AddrOfTemp(VarRef) is ALSO every Call-lowered
+    // method autoref — sema's finish_generic_call/materialize_recv_ref passes
+    // the autoref'd receiver as arg 0 of a plain Call, and the Call arm below
+    // feeds every ref-kind arg back into this walker with the caller's holder.
+    // A method autoref is never wrapped in a SliceLit, which is exactly why the
+    // marker is set there and nowhere else.
+    bool                                 slice_view_base_ = false;
     // Escape-analysis callee lookups (`result_borrows_self` / `method_self_kind`)
     // go through the shared, program-global `fn_index_` (built once in
     // borrow_check()).
@@ -6994,7 +7012,10 @@ private:
             // was right and the oracle was wrong. Only BASE_PTR can carry
             // provenance — the length is a scalar.
             case Code::SliceLit: {
+                bool saved_view = slice_view_base_;
+                slice_view_base_ = true;
                 take_ref_borrows(ESliceLitView{e}.base(), line, holder, record_only);
+                slice_view_base_ = saved_view;
                 break;
             }
             case Code::AddrOf: {
@@ -7009,6 +7030,12 @@ private:
             case Code::AddrOfTemp: {
                 EAddrOfTempView v{e};
                 auto inner = v.inner();
+                // Consume the view-base marker; reset immediately so the nested
+                // walks below (index expressions, the reborrow/MethodCall
+                // routers) do not inherit it — same discipline as
+                // reborrow_force_mut_ at the MethodCall arm.
+                bool view_base = slice_view_base_;
+                slice_view_base_ = false;
                 // Reborrow shape `AddrOfTemp(Deref(VarRef r))` where r is
                 // ref-typed — register a borrow on r (NOT on what r points
                 // to). NLL releases on the holder's last use, restoring r's
@@ -7151,6 +7178,23 @@ private:
                         else
                             take_field_borrow(root, root_slot, std::move(path), is_mut, line,
                                               bp.root_type, holder);
+                        break;
+                    }
+                    // ── THE WHOLE-LOCAL VIEW BASE ────────────────────────────
+                    // path is empty and no index was crossed: this is
+                    // `&<whole local>`, the same borrow the AddrOf arm records
+                    // one arm up — and under a SliceLit it is the coercion's
+                    // own borrow, which the SliceLit arm delegated here to have
+                    // recorded. MEASURED, one token apart:
+                    //   let r: &i64   = &a[0u64];            -> REFUSED
+                    //   let r: &[i64] = a[0u64..2u64];       -> rc 0, no loan
+                    // Visit `inner` FIRST for the reason both sibling branches
+                    // do: the recursive VarRef visit would otherwise hit
+                    // check_live on the root just borrowed and report a
+                    // spurious self-conflict.
+                    if (view_base) {
+                        if (inner) visit(inner, /*consuming=*/false, line);
+                        take_borrow(root, root_slot, v.is_mut(), line, holder);
                         break;
                     }
                 }

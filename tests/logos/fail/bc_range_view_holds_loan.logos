@@ -1,0 +1,16 @@
+// A RANGE PROJECTION RECORDED NO LOAN ON THE ARRAY.
+// `a[0..2]` lowers to Call(slice_get_range, [SliceLit{AddrOfTemp(VarRef a)},
+// lo, hi]). The SliceLit arm delegates to take_ref_borrows to record the
+// coercion's borrow, but for a WHOLE-local base extract_borrow_place answers
+// path="" / index=false, both guards of the AddrOfTemp decomposition miss and
+// nothing was recorded — while the one-token twin `let r: &i64 = &a[0u64];`
+// refuses. rustc: E0506.
+// TWIN: pass/bc_range_view_nll_admit.logos, same program with the write moved
+// below r's last use.
+package bc_range_view_holds_loan;
+fn main() -> i64 {
+    let mut a: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    let r: &[i64] = a[0u64..2u64];
+    a[0u64] = 9i64;
+    return r[0u64];
+}
