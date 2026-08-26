@@ -1,0 +1,47 @@
+// duty — "this arm is a WRITE and it never asked the checker".
+//
+// The one rule in this directory that takes an explicit CLAIM about semantics,
+// and it does so because a measurement says nothing else can. See duty.claim
+// for the proof: on the revision before 756aed65, NO statement arm anywhere
+// called field_borrow_conflicts, so no sibling existed to derive the duty from.
+//
+// Everything else stays mechanical: which arms exist, which arms call what, and
+// which context is ours all come from the AST.
+.decl tests(f: symbol, k: symbol, pos: symbol)
+.decl arm_call(f: symbol, k: symbol, callee: symbol)
+.decl fn_home(f: symbol, file: symbol)
+.decl duty(k: symbol, callee: symbol)
+.input tests
+.input arm_call
+.input fn_home
+.input duty
+
+.decl compiler_file(file: symbol)
+compiler_file(F) :- fn_home(_, F), contains(".cpp", F).
+compiler_file(F) :- fn_home(_, F), contains(".inc", F).
+compiler_file(F) :- fn_home(_, F), contains("sema", F).
+compiler_file(F) :- fn_home(_, F), contains("borrow", F).
+.decl ours(f: symbol)
+ours(F) :- fn_home(F, File), compiler_file(File).
+
+// A LIVE arm only. An empty label runs nothing, so "it did not call the check"
+// is trivially true of it and says nothing about anybody.
+.decl arm(f: symbol, k: symbol)
+arm(F, K) :- tests(F, K, "case_live").
+
+// ⚠ NO MINIMUM CALL COUNT ANYWHERE IN THIS RULE. dominance.dl selected its
+// candidates with `sites >= 2` and thereby excluded every function that was
+// missing the check — which is the entire population of interest. The selector
+// here is the CLAIM and the arm's existence, neither of which is correlated
+// with the quantity being tested.
+.decl neglects(f: symbol, k: symbol, callee: symbol)
+.output neglects
+neglects(F, K, P) :- duty(K, P), arm(F, K), ours(F), !arm_call(F, K, P).
+
+// The other direction, so the claim itself is checkable: a duty nobody honours
+// anywhere is far more likely a wrong claim than a defect at every site.
+.decl duty_never_honoured(k: symbol, callee: symbol)
+.output duty_never_honoured
+duty_never_honoured(K, P) :- duty(K, P), !any_honours(K, P).
+.decl any_honours(k: symbol, callee: symbol)
+any_honours(K, P) :- duty(K, P), arm_call(_F, K, P).

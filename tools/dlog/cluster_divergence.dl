@@ -1,0 +1,67 @@
+// cluster_divergence — the repair of arm_divergence, and the repair is the
+// PEER GROUP, not the threshold.
+//
+// ⚠ WHY THE FIRST VERSION FOUND NOTHING. arm_divergence asked "which arms of
+// this switch call P" and ranked by the fraction of ALL arms. Max ratio 0.55
+// over the expression domain, nothing sharp. THE PREMISE WAS WRONG: the arms of
+// one switch are not peers — a switch over twenty statement kinds has twenty
+// different jobs, and nineteen of them owe P nothing. The denominator was the
+// mistake, not the cut-off.
+//
+// ⚠ AND TUNING WOULD NEVER HAVE FOUND IT. Over the statement domain `check_live`
+// is called by 6 of visit_stmt's ~22 live arms — a ratio of 0.27, far below any
+// noise floor a threshold could sit above. The signal is invisible at that
+// denominator no matter where the line is drawn.
+//
+// THE PEER GROUP IS WHAT THE ARMS HAVE IN COMMON. Arms that all call Q are
+// doing the same kind of work — Q is their shared shape. Within THAT group, an
+// arm that skips P while its cluster-mates call it is the odd one out. Measured
+// on borrow_check.cpp's visit_stmt: seven arms call `place_write_loans` (every
+// spelling of a write), and six of those seven also call `check_live` —
+// DerefWrite does not.
+//
+// No claim, no threshold on the whole switch: the cluster supplies its own
+// denominator, and it is derived.
+.decl arm_call(f: symbol, k: symbol, callee: symbol)
+.decl tests(f: symbol, k: symbol, pos: symbol)
+.decl fn_home(f: symbol, file: symbol)
+.decl callee_home(callee: symbol, file: symbol)
+.input arm_call
+.input tests
+.input fn_home
+.input callee_home
+
+.decl compiler_file(file: symbol)
+compiler_file(F) :- fn_home(_, F), contains(".cpp", F).
+compiler_file(F) :- fn_home(_, F), contains(".inc", F).
+compiler_file(F) :- fn_home(_, F), contains("sema", F).
+compiler_file(F) :- fn_home(_, F), contains("borrow", F).
+.decl ours(f: symbol)
+ours(F) :- fn_home(F, File), compiler_file(File).
+.decl structural(callee: symbol)
+structural(P) :- callee_home(P, "lir_view.hpp").
+structural(P) :- callee_home(P, "lir_schema.hpp").
+structural(P) :- callee_home(P, F), !compiler_file(F).
+
+.decl arm(f: symbol, k: symbol)
+arm(F, K) :- tests(F, K, "case_live").
+
+// A CLUSTER: the arms of F that all call Q. Q must be compiler logic, or every
+// arm clusters with every other through `operator==` and the groups mean
+// nothing — the same property-not-name filter the other rules use.
+.decl cluster_size(f: symbol, q: symbol, n: number)
+cluster_size(F, Q, N) :- arm_call(F, _, Q), ours(F), !structural(Q),
+                         N = count : { arm_call(F, _K, Q) }, N >= 3.
+
+// Within the cluster of Q, how many also call P.
+.decl both(f: symbol, q: symbol, p: symbol, n: number)
+both(F, Q, P, N) :- cluster_size(F, Q, _), arm_call(F, _, P), !structural(P), P != Q,
+                    N = count : { arm_call(F, K, Q), arm_call(F, K, P) }.
+
+// THE ODD ONE OUT: K is in Q's cluster, K does not call P, and every OTHER
+// member of the cluster does. `both = size - 1` is not a tuned threshold — it
+// is the definition of "everyone else".
+.decl odd_one_out(f: symbol, k: symbol, missing: symbol, cluster: symbol, size: number)
+.output odd_one_out
+odd_one_out(F, K, P, Q, N) :- cluster_size(F, Q, N), arm_call(F, K, Q),
+                              !arm_call(F, K, P), both(F, Q, P, M), M = N - 1.
