@@ -7339,7 +7339,15 @@ private:
                         else
                             check_live(root, line);
                     } else {
-                        take_field_borrow(root, NO_SLOT, rel, is_mut, line);
+                        // The FIELD arm must be keyed on the same holder as
+                        // the whole-root arm eleven lines above: without it
+                        // the record is `holder.empty()`, and
+                        // release_dead_borrows' field loop skips exactly
+                        // those, so a `|| s.a` capture was retired only
+                        // lexically by pop_scope and `s.a = 5` after the
+                        // closure's last use refused in the SAME frame.
+                        take_field_borrow(root, NO_SLOT, rel, is_mut, line,
+                                          nullptr, holder);
                         check_live(root, line);
                     }
                     // D1 round 2, Door D: the capture is a HOP. Registering a
@@ -7865,6 +7873,43 @@ private:
         }
     }
 
+    // ── THE NLL WALK ────────────────────────────────────────────────────────
+    // One statement walk with the release cursor, shared by every block-shaped
+    // site. A COMPOUND statement (while/if/block) spans past its start line — a
+    // holder whose last use sits INSIDE the body (`while … { o[k] = …; }` then
+    // `self.mutate()`) must count as expired once the whole statement has been
+    // visited. Release against the max line inside the just-visited statement's
+    // SUBTREE (tracked via max_line_seen_, reset per statement), folded
+    // monotonically across this block. NOT a global max: sema emits
+    // out-of-line-order shapes (`unsafe { …; return x; }` becomes a Return stmt
+    // whose line is the LAST line, wrapping a BlockExpr of the earlier ones) —
+    // a global max would pre-release every borrow inside such a block.
+    //
+    // defer_release — the caller wants NO per-statement release, only the fold:
+    // a value block with an escaping holder (see visit_block) and the
+    // transparent-destructuring wrapper both release once, at the end.
+    //
+    // ⚠ D1: visit_loop_body walked its body with a bare `each_stmt` and no
+    // cursor at all, so NO loop body in the language had intra-body NLL — a
+    // loan raised in the body survived to the body's `}` and was retired only
+    // lexically by pop_scope. `while … { let r = &mut n; *r = *r + 1; acc = acc
+    // + n; }` refused while THE IDENTICAL BODY under `if` compiled. Both passes
+    // walk through here now; pass 1 is the dry run, and releasing there too is
+    // what keeps post1_s/post2_s agreeing about which counters reach the back
+    // edge.
+    uint64_t walk_stmts_releasing(lir_view::BlockRef br, bool defer_release) {
+        uint64_t cursor = 0;
+        br.each_stmt([&](lir_view::StmtRef sr) {
+            uint64_t saved = max_line_seen_;
+            max_line_seen_ = stmt_point(sr);   // #75
+            visit_stmt(sr);
+            cursor = std::max(cursor, max_line_seen_);
+            max_line_seen_ = std::max(saved, max_line_seen_);
+            if (!defer_release) release_dead_borrows(cursor);
+        });
+        return cursor;
+    }
+
     // esc_result/esc_holder — Door B, the block-as-VALUE shape. `let b: B = {
     // let t: B = c.mk(); t };` records the loan with holder `t`, declared in
     // THIS frame; the result then escapes to `b` in the enclosing one. The
@@ -7875,32 +7920,14 @@ private:
     void visit_block(lir_view::BlockRef br, lir_view::ExprRef esc_result = {},
                      const std::string& esc_holder = {}) {
         push_scope();
-        // NLL release cursor: a COMPOUND statement (while/if/block) spans past
-        // its start line — a holder whose last use sits INSIDE the body
-        // (`while … { o[k] = …; }` then `self.mutate()`) must count as expired
-        // once the whole statement has been visited. Release against the max
-        // line inside the just-visited statement's SUBTREE (tracked via
-        // max_line_seen_, reset per statement), folded monotonically across
-        // this block. NOT a global max: sema emits out-of-line-order shapes
-        // (`unsafe { …; return x; }` becomes a Return stmt whose line is the
-        // LAST line, wrapping a BlockExpr of the earlier ones) — a global max
-        // would pre-release every borrow inside such a block.
-        uint64_t cursor = 0;
-        br.each_stmt([&](lir_view::StmtRef sr) {
-            uint64_t saved = max_line_seen_;
-            max_line_seen_ = stmt_point(sr);   // #75
-            visit_stmt(sr);
-            cursor = std::max(cursor, max_line_seen_);
-            max_line_seen_ = std::max(saved, max_line_seen_);
-            // Door B, value-block: with an escaping result the per-statement
-            // NLL release is what kills the loan first — `let b: B = { let t: B
-            // = c.mk(); t };` is ONE line, so `t`'s last use is not past the
-            // `let t` statement and the loan is released before the result can
-            // hand it on. Inside a value block with a holder, defer release to
-            // the pop; the pop then releases the frame-local loans exactly as
-            // the lexical rule would and re-homes the escaping ones.
-            if (esc_holder.empty()) release_dead_borrows(cursor);
-        });
+        // Door B, value-block: with an escaping result the per-statement NLL
+        // release is what kills the loan first — `let b: B = { let t: B =
+        // c.mk(); t };` is ONE line, so `t`'s last use is not past the `let t`
+        // statement and the loan is released before the result can hand it on.
+        // Inside a value block with a holder, defer release to the pop; the pop
+        // then releases the frame-local loans exactly as the lexical rule would
+        // and re-homes the escaping ones.
+        uint64_t cursor = walk_stmts_releasing(br, /*defer_release=*/!esc_holder.empty());
         // ── D-b: THE TAIL EXPRESSION IS READ AFTER THE FRAME RETIRED ────────
         // `let r: &i64 = { let t = mk(); &t.n };` admitted while the SAME
         // borrow ASSIGNED to an outer variable inside the block refused — one
@@ -7995,7 +8022,7 @@ private:
         seed_loop_var_loans();
         bool saved_div = cur_diverged_;
         cur_diverged_ = false;
-        body.each_stmt([&](lir_view::StmtRef sr) { visit_stmt(sr); });
+        walk_stmts_releasing(body, /*defer_release=*/false);
         bool bottom_reachable = !cur_diverged_;  // fall-through reaches the back edge?
         cur_diverged_ = saved_div;
         pop_scope();
@@ -8080,7 +8107,7 @@ private:
         push_scope();
         for (auto& v : loop_vars) declare_var(v);
         seed_loop_var_loans();
-        body.each_stmt([&](lir_view::StmtRef sr) { visit_stmt(sr); });
+        walk_stmts_releasing(body, /*defer_release=*/false);
         cur_diverged_ = saved_div;
         pop_scope();
         auto post2_s = states_;
@@ -9732,15 +9759,8 @@ private:
                         // recorded — before `b` could inherit it. Measured: the
                         // transparent branch fired on G1/G2/G3 and all three
                         // still compiled until the release moved out here.
-                        uint64_t cursor = 0;
-                        b.each_stmt([&](lir_view::StmtRef s2) {
-                            uint64_t saved = max_line_seen_;
-                            max_line_seen_ = stmt_point(s2);   // #75
-                            visit_stmt(s2);
-                            cursor = std::max(cursor, max_line_seen_);
-                            max_line_seen_ = std::max(saved, max_line_seen_);
-                        });
-                        release_dead_borrows(cursor);
+                        release_dead_borrows(
+                            walk_stmts_releasing(b, /*defer_release=*/true));
                     } else {
                         visit_block(b);
                     }

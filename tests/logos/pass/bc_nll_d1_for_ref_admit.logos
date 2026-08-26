@@ -1,0 +1,14 @@
+// D1, ADMIT twin — the `for` spelling. All four loop forms (While/For/Loop/
+// ForEach) route through visit_loop_body, so the fix is one walk for all of
+// them and the corpus pins two of the spellings.
+package bc_nll_d1_for_ref_admit;
+fn main() -> i64 {
+    let mut n: i64 = 0i64;
+    let mut acc: i64 = 0i64;
+    for k in 0i64..3i64 {
+        let r: &mut i64 = &mut n;
+        *r = *r + 1i64;
+        acc = acc + n;                // must be ADMITTED: `r` is dead
+    }
+    return acc;
+}

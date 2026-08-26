@@ -1,0 +1,15 @@
+// D1, OVER-REFUSAL guard — two mutable loans of `n` genuinely overlap inside a
+// single iteration. Refused at the RAISE by take_borrow, not by the release, so
+// no amount of intra-body releasing may admit it.
+package bc_nll_d1_loop_overlap_refuse;
+fn main() -> i64 {
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        let r: &mut i64 = &mut n;
+        let s: &mut i64 = &mut n;     // must be REFUSED: `r` is live
+        *r = *s + 1i64;
+        i = i + 1i64;
+    }
+    return n;
+}

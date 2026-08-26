@@ -1,0 +1,12 @@
+// D2 guard, RFC-2229 disjointness — passing a holder to take_field_borrow must
+// not disturb the PATH comparison: a capture of `s.a` never blocks `s.b`, even
+// while the closure is still live.
+package bc_nll_d2_field_sibling_admit;
+struct S { a: i64, b: i64 }
+fn main() -> i64 {
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    let c = || -> i64 { return s.a; };
+    s.b = 9i64;                       // disjoint path, `c` still live
+    let x: i64 = c();
+    return x + s.b;
+}

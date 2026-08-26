@@ -1,0 +1,11 @@
+// D2, ADMIT twin, MUT capture arm — same property, the other `is_mut` value of
+// the same call site.
+package bc_nll_d2_field_holder_mut_admit;
+struct S { a: i64, b: i64 }
+fn main() -> i64 {
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    let mut c = || { s.a = s.a + 1i64; };
+    c();                              // last use of the holder
+    s.a = 5i64;                       // must be ADMITTED: `c` is dead
+    return s.a + s.b;
+}

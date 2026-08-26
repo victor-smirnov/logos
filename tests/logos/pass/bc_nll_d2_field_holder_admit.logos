@@ -1,0 +1,15 @@
+// D2, ADMIT twin — a closure that captures the FIELD `s.a` is a holder like any
+// other binding, so its loan must be NLL-released at the closure's last use.
+// The write to `s.a` sits AFTER that last use and in the SAME frame (no branch,
+// no block: a nested scope would mask the defect via pop_scope), which is
+// exactly the shape the ClosureBox capture arm refused before it passed its
+// `holder` to take_field_borrow.
+package bc_nll_d2_field_holder_admit;
+struct S { a: i64, b: i64 }
+fn main() -> i64 {
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    let c = || -> i64 { return s.a; };
+    let x: i64 = c();                 // last use of the holder
+    s.a = 5i64;                       // must be ADMITTED: `c` is dead
+    return x + s.a + s.b;
+}

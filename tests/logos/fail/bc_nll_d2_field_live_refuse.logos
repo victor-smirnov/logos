@@ -1,0 +1,12 @@
+// D2, OVER-REFUSAL guard — the release must be keyed on the holder's LAST USE,
+// not on its declaration. Here the closure is still live below the write, so
+// the field loan is live and the write must stay REFUSED.
+package bc_nll_d2_field_live_refuse;
+struct S { a: i64, b: i64 }
+fn main() -> i64 {
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    let c = || -> i64 { return s.a; };
+    s.a = 5i64;                       // must be REFUSED: `c` is used below
+    let x: i64 = c();
+    return x;
+}

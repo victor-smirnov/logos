@@ -1,0 +1,19 @@
+// D1, ADMIT twin — a loan taken INSIDE a loop body is dead at the end of the
+// iteration that raised it. `visit_loop_body` walked its body with a bare
+// `each_stmt` and no NLL cursor, so no loop body in the language released
+// anything intra-body: the loan survived to the body's `}` and only pop_scope
+// retired it, which is why the use of `n` BELOW the dead `r` refused while THE
+// IDENTICAL BODY under `if` compiled. The isolating property is the loop.
+package bc_nll_d1_loop_ref_admit;
+fn main() -> i64 {
+    let mut n: i64 = 0i64;
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        let r: &mut i64 = &mut n;
+        *r = *r + 1i64;               // last use of the holder
+        acc = acc + n;                // must be ADMITTED: `r` is dead
+        i = i + 1i64;
+    }
+    return acc;
+}

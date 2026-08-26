@@ -647,9 +647,20 @@ PIN = {
     # so the partition still closes: 2369 = 191 + 2178. DOOR counts unmoved
     # (36 = 10 + 26) — no imported fixture declares a container family or a
     # `direct` output form. ONE new gate SCRIPT: bc_admits_ledger_gate.sh.
-    'corpus'            : 2369,
+    # ⚠ RE-DERIVED at the D1/D2 NLL-release round (2026-08-25): +6 / +0 / +6.
+    # Six new PASS fixtures, none matching the `wql_*` / `deem_*` glob, so the
+    # whole delta lands in `nonglob` and `glob` is unmoved. BY DIRECT LISTING on
+    # the landed tree, not by asserting the delta:
+    #   ls tests/logos/pass/*.logos                          -> 2375
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos             ->  191
+    #   the same listing minus the glob half                 -> 2184
+    # 2375 = 191 + 2184. The six are bc_nll_d1_{loop_ref,for_ref,loop_closure}_
+    # admit and bc_nll_d2_field_{holder,holder_mut,sibling}_admit — borrow-check
+    # programs with no container family and no `direct` output form, so the DOOR
+    # counts are unmoved (36 = 10 + 26), asserted independently below.
+    'corpus'            : 2375,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2178,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2184,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

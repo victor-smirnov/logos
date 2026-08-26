@@ -4359,8 +4359,31 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # excluded by construction). tier_commit 47 UNMOVED — this round registers no
 # gate, and the two ledgers it moves (bc_admits.ledger 463 -> 451 rows,
 # direct_door_census 2369/191/2178 -> 2373/191/2182) are existing tests.
-REGISTRY-ALL         8034
-REGISTRY-NOIMPORTED  3927
+# ⚠ THE BLOCK ABOVE DESCRIBES WORK THAT IS NOT IN THIS TREE. Its round ended
+# with the change in `git stash` (its own closing line says so), but the pin
+# went in at 8034 / 3927. MEASURED at HEAD d14894f4 with NOTHING of this round
+# applied: ALL 8014, -LE imported 3919 — so `logos_00_census_pin` was ALREADY
+# RED before this round touched anything, by -20 / -8. Controlled in both
+# directions: fixtures moved out + reconfigure -> 8014/3919, moved back in +
+# reconfigure -> 8024/3929. The numbers below are THIS tree's, which means
+# re-pinning here also absorbs that pre-existing -20/-8 — said out loud because
+# a gate that goes green for a reason other than the one the round is claiming
+# is exactly what this file exists to stop.
+#
+# 2026-08-25 (D1 + D2 — A LOAN OUTLIVES THE LIVENESS OF ITS HOLDER, two roots).
+# PREDICTED BEFORE THE RECONFIGURE and MEASURED after: ALL 8014 -> 8024 (+6
+# pass, +4 fail), -LE imported 3919 -> 3929 (+10 = all ten are native), one
+# reconfigure at handover rather than one per cell (the fixtures were verified
+# by direct `run_test.sh` between cells and staged outside the corpus, so no
+# intermediate sweep saw a half-registered fixture). Both predictions exact.
+# tier_commit 47 UNMOVED — this round registers no gate. The DIRECT-DOOR pins
+# were re-derived BY DIRECT LISTING in direct_door_census_gate.sh: corpus
+# 2369 -> 2375, glob 191 UNMOVED, nonglob 2178 -> 2184, doors 36 = 10 + 26
+# UNMOVED. bc_admits.ledger UNMOVED at 463 rows and its gate GREEN: both fixes
+# only ever RELEASE a loan, so no listed program can stop being admitted, and
+# no class-C row closes through them.
+REGISTRY-ALL         8024
+REGISTRY-NOIMPORTED  3929
 REGISTRY-TIERCOMMIT  47
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
@@ -7672,3 +7695,97 @@ TWO SMALLER DISCLOSURES from the verify, kept because they generalise:
     twelve imported ones pin the full sentence; the native ones should too.
 
 The work is in `git stash` with the roots in its message, not discarded.
+
+## D1 + D2 — A LOAN OUTLIVES THE LIVENESS OF ITS HOLDER (2026-08-25)
+
+The two spellings the class-C round left blocking, closed one cell at a time.
+Both are in `src/compiler/borrow_check.cpp`; neither touches the other's code.
+
+D1 — NO LOOP BODY IN THE LANGUAGE HAD INTRA-BODY NLL. `release_dead_borrows`
+had two call sites, both inside a statement walk that folds the release cursor;
+`visit_loop_body` walked its body with a bare `each_stmt` in BOTH passes and had
+neither. All four loop forms (While / For / Loop / ForEach) route through it, so
+a loan raised in any loop body survived to the body's `}` and was retired only
+lexically by `pop_scope`. Isolating pair, one property (THE LOOP), same body:
+
+    while i < 3 { let r = &mut n; *r = *r + 1; acc = acc + n; }   rc 1
+    if   i < 3 { let r = &mut n; *r = *r + 1; acc = acc + n; }    rc 0
+
+BOTH SUSPECTS NAMED IN THE BRIEF WERE REJECTED BY PROBE, not by reading. The
+back-edge `merge_loans` J0 rule is refuted by a use of `n` ABOVE the raise
+inside the body (rc 0 — no raised counter crosses into iteration 2 for this
+shape). `release_dead_borrows` sweeping only `scopes_.back()` is not D1's root
+either: the record is deposited into the loop-body frame, which IS `back()`.
+FIX: one walk, `walk_stmts_releasing(BlockRef, bool defer_release)`, called from
+`visit_block`, both `visit_loop_body` passes, and the transparent-destructuring
+block — which removes the duplicated fold that site was carrying.
+
+D2 — THE FIELD-CAPTURE ARM WAS THE ONE CALL OF SIX THAT PASSED NO HOLDER.
+`take_field_borrow` has six call sites; five pass `holder`, the `ClosureBox`
+capture arm did not. The missing argument is the closure binding — the same
+`holder` variable, in scope, already used sixteen lines below, and already
+passed by the whole-root arm eleven lines above (which is why a whole-var
+capture was fine). `release_dead_borrows`' field loop skips `holder.empty()`
+records, so a `|| s.a` capture was unreachable by NLL. FIX: one call, two words.
+This is the sixth time this month the fix was a call that was not made.
+
+D3 — REPORTED, NOT LANDED, AND WHY. `release_dead_borrows` sweeping only
+`scopes_.back()` is a real, separate defect: a loan whose holder dies inside a
+nested block is invisible to that block's releases, so `let r = &mut n; { *r =
+…; z = n; }` refuses while THE IDENTICAL STATEMENTS WITHOUT THE BLOCK compile.
+Three attempts to close it in this round, each rebuilt and measured, each
+producing an OVER-REFUSAL from a change that only ever releases: sweeping every
+frame stops `plan_walker.register_native_rels` compiling; adding a pass-1
+snapshot/restore of the surviving frames moves the failure to eight
+`btfl`/`bt` functions ("cannot borrow 'a' as mutable: 'a' has shared borrows");
+stating the boundary as a release FLOOR on the loop body instead leaves those
+same eight. The third variant was reverted and the revert rebuilt GREEN (rc 0,
+stdlib compiles), which is the control in both directions. D3 needs its own
+round with a guard corpus for the frame/counter interaction, and folding it in
+here would have made every attribution in the round ambiguous.
+
+TWO PERMISSIVE HOLES FOUND AND LEFT OPEN, each with its isolating pair, because
+each is larger than this round: a TUPLE-field capture registers no loan at all
+(`|| t.0` then `t.0 = 5` WHILE THE CLOSURE IS STILL LIVE, rc 0, against rc 1 for
+the struct twin) — the tuple path never reaches `take_field_borrow`, so closing
+it CREATES a D2 instance; and CLOSURE BODIES ARE NOT LOAN-CHECKED AT ALL (a flat
+`let r = &mut n; let s = &mut n; *r = *s + 1;` inside a closure body, rc 0,
+against rc 1 for the identical three statements in `fn main`). The second makes
+"a loop inside a closure" unmeasurable today, so that neighbour's rc 0 is not
+evidence of health.
+
+FIXTURES — FOUR refuse fixtures and SIX admit twins (the narrative said five and
+five; the census block above it says +6 pass / +4 fail, and direct listing
+agrees with the census block. Corrected here rather than in the block, because
+the block was right.) EVERY ADMIT TWIN
+EXERCISES THE WRITE AFTER THE HOLDER IS DEAD, which is the whole property the
+last round's twin could not see. The refuse half is the over-refusal guard set:
+the holder still live below the write (both roots), a genuinely overlapping
+mutable pair inside one iteration, and RFC-2229 sibling disjointness.
+
+## 8i. D6 — A `&mut` CLOSURE CAPTURE OF A FIELD REGISTERS A SHARED LOAN — 2026-08-25
+
+Found by the D1/D2 round's adversarial verify, CONFIRMED BY ME, and it is why
+that round's `_mut` fixture pair could not pin what its header claimed.
+
+    two mut-capturing closures of the SAME FIELD, both live   -> rc 0   ADMITTED
+    the byte-identical program over the WHOLE VARIABLE        -> rc 1
+        "cannot borrow 'n' as mutable: already mutably borrowed"
+
+One property apart: field versus whole. `capture_is_mut` never reaches the field
+record, so `|| { s.a = s.a + 1 }` does not block a concurrent read or a second
+mut capture of `s.a`, where both the whole-var capture and the direct
+`&mut s.a` spelling do.
+
+⚠ THE EVIDENCE THAT IT WAS INVISIBLE: `bc_nll_d2_field_live_refuse.expected` and
+`bc_nll_d2_field_live_mut_refuse.expected` pin the SAME string, and it is the
+SHARED-borrow wording. Perturbing the mutness reds neither. The mut fixture's
+header has been corrected to say so, and to state that when D6 closes, its
+`.expected` must move to the mutably-borrowed wording — that change IS the proof
+the fix landed.
+
+This is the third fixture this week that could not contradict its own claim (the
+const cell's admit twin exercised only the bare spelling; the class-C twin wrote
+its sibling before the holder's last use). The pattern is worth naming: a twin
+written from the FIX rather than from the PROPERTY tests the path the author
+just walked, and the untaken path is exactly where the next hole is.
