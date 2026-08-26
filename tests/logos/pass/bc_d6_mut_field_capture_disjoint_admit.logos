@@ -1,0 +1,25 @@
+// D6 ADMIT TWIN #1, written FROM THE PROPERTY — the loan a `&mut` field capture
+// registers must be MUT **and STILL PER-PATH**. RFC-2229 disjointness is the
+// thing a coarse fix would break: promoting the capture to a whole-root `&mut`
+// would make this program refuse, so this file is the over-refusal guard for
+// D6 and must stay GREEN.
+//
+// It also runs: both mutations must reach the OUTER `s` (2 + 4 = 6), so a fix
+// that flipped the borrow flag and thereby re-routed codegen to a by-value env
+// copy would print 3 here, not 6.
+//
+// PERTURB: point `c2` at `s.a` and it must go RED (see
+// fail/bc_d6_mut_field_capture_conflict_refuse).
+package bc_d6_mut_field_capture_disjoint_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct S { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    let mut c1 = || { s.a = s.a + 1i64; };
+    let mut c2 = || { s.b = s.b + 2i64; };
+    c1();
+    c2();
+    printi("sum=%ld\n", s.a + s.b);
+    return 0i32;
+}

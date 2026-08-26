@@ -1,3 +1,12 @@
+// RFC-2229 phase-1: a closure's precise FIELD capture is exclusive.
+//
+// ⚠ THIS FILE PINNED THE SHARED WORDING UNTIL D6 CLOSED (2026-08-25). Its own
+// comment below says "&mut p.x", but the capture registered a SHARED loan —
+// sema's AddrOfTemp mut-marking was keyed on the inner being a bare VarRef and
+// `p.x = v` lowers to SDerefWrite(AddrOfTemp(&mut p.x), v), a FieldRead inner —
+// so the refusal came out of the shared-borrow arm. The `.expected` moving to
+// the MUTABLY-borrowed wording is part of the proof D6 landed; the third file
+// that pinned the same shared string is fail/bc_nll_d2_field_live_mut_refuse.
 package test;
 struct P { x: i32, y: i32 }
 fn main() -> i32 {

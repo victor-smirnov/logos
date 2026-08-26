@@ -16586,6 +16586,16 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // var). Captures in this set are emitted by-reference so mutations
     // propagate to the outer alloca instead of staying local to the env.
     StrSet mut_captures_set;
+    // Roots whose capture PATH was LCA-widened because the body touched two
+    // different places under them. Such a capture is no longer about a precise
+    // place, and marking it MUT makes the loan cover the whole root — which
+    // refuses legitimate code: a closure that writes `s.a` and reads `s.b`,
+    // beside an outer read of `s.c`, was refused with "cannot use 's' while it
+    // is mutably borrowed" while the read-only twin compiled. Rust captures the
+    // two places separately and admits it. Until the captures are kept apart
+    // instead of widened, a widened root stays SHARED — which is exactly what
+    // it was before the mut mark reached field paths, so nothing regresses.
+    StrSet widened_roots;
     auto mark_mut_capture = [&](std::string_view target_name) {
         if (target_name.empty() || param_names.count(std::string(target_name)))
             return;
@@ -16677,6 +16687,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         if (auto it = seen.find(root); it != seen.end()) {
             for (size_t i = 0; i < captures.size(); ++i) if (captures[i] == root) {
                 std::string widened = path_lca(capture_paths[i], path);
+                if (widened != capture_paths[i] || widened != path)
+                    widened_roots.insert(root);   // see widened_roots
                 capture_paths[i] = widened;
                 // Path widened back to whole-root → drop the field-type marker.
                 capture_field_types[i] = field_type_for_path(
@@ -16783,10 +16795,24 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             case EC::AddrOfTemp: {
                 auto v = lir_view::EAddrOfTempView{e};
                 auto inner = v.inner();
-                if (v.is_mut() && inner &&
-                    inner.kind() == lir_schema::expr::Code::VarRef)
-                    mark_mut_capture(lir_view::EVarRefView{inner}.name());
                 scan_captures_v(inner);
+                // D6: mark by the PROPERTY — "a `&mut` auto-ref ROOTED at a
+                // capture" — not by the spelling. `s.a = v` inside a closure
+                // lowers to SDerefWrite(AddrOfTemp(&mut s.a), v): the inner is
+                // a FieldRead, NOT a VarRef, so keying the mark on VarRef left
+                // the FIELD capture recorded as SHARED. Two `&mut` field
+                // captures of the same field were then both admitted, where
+                // the byte-identical whole-variable program refuses.
+                // MEASURED at the borrow-check capture site (LOGOS_DUMP_BC_CAPTURE):
+                //   `|| { s.a = s.a + 1 }`  ->  rel=a is_mut=0
+                //   `|| { n = n + 1 }`      ->  rel=  is_mut=1
+                // The mark runs AFTER the recursion on purpose: add_capture_path
+                // has by then recorded the PRECISE path (`s.a`), so marking does
+                // not push a whole-root capture and RFC-2229 disjointness
+                // (`|| s.a = 1` beside a read of `s.b`) survives.
+                if (v.is_mut() && inner) {
+                    if (auto fp = try_path(inner)) mark_mut_capture(fp->first);
+                }
                 break;
             }
             case EC::Cast:         scan_captures_v(lir_view::ECastView{e}.operand()); break;
@@ -16995,7 +17021,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     ec->capture_field_types = std::move(capture_field_types);   // phase-2
     ec->mut_captures.resize(ec->captures.size(), false);
     for (size_t i = 0; i < ec->captures.size(); ++i)
-        ec->mut_captures[i] = mut_captures_set.count(ec->captures[i]) > 0;
+        ec->mut_captures[i] = mut_captures_set.count(ec->captures[i]) > 0 &&
+                              !widened_roots.count(ec->captures[i]);
 
     if (is_move) {
         for (size_t i = 0; i < ec->captures.size(); ++i) {

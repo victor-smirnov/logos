@@ -1,0 +1,36 @@
+// D3 — NLL RELEASE MUST NOT BE FRAME-LOCAL.
+//
+// Written FROM THE PROPERTY: a loan whose holder's LAST USE falls inside a
+// nested block must be released there. `release_dead_borrows` swept
+// `scopes_.back()` only, and the loan's frame is where it was RECORDED (the fn
+// frame), not where its holder dies — so every release inside the block missed
+// it and the read of `n` refused, while the byte-identical statements with NO
+// nested block compiled (that control is the `_no_block` sibling below, kept in
+// the same file so the two cannot drift apart).
+//
+// MEASURED with LOGOS_DUMP_BC_RELEASE on the pre-fix compiler:
+//   cur_line=…82 frames=3   frame=1 target=n holder=r is_mut=1 lu=…81
+// lu <= cur_line, and the record was one frame short of the sweep.
+//
+// PERTURB: use `r` again AFTER the block and it must go RED — see
+// fail/bc_d3_holder_used_after_block_refuse.
+package bc_d3_nested_block_release_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn with_block() -> i64 {
+    let mut n: i64 = 0i64;
+    let r = &mut n;
+    { *r = 1i64; let z: i64 = n; return z; }
+}
+fn no_block() -> i64 {
+    let mut n: i64 = 0i64;
+    let r = &mut n;
+    *r = 1i64;
+    let z: i64 = n;
+    return z;
+}
+fn main() -> i32 {
+    printi("with=%ld\n", with_block());
+    printi("no=%ld\n", no_block());
+    return 0i32;
+}

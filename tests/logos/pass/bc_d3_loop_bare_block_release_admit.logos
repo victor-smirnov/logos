@@ -1,0 +1,34 @@
+// D3 IN A LOOP — the bound, not just the fix. The outward NLL sweep crosses BARE
+// `{ … }` statement frames and stops ONE frame past the outermost of them, so
+// inside a loop body it reaches the loop body's own frame and no further. This
+// file is the ADMIT half: `r`'s last use and the read of `p[1]` are BOTH INSIDE
+// the bare block — exactly the D3 property, reached from inside a loop.
+//
+// ⚠ THE FIRST VERSION OF THIS FILE PUT THE READ AFTER THE BLOCK AND PASSED WITH
+// THE FIX REVERTED (rc 0), i.e. it could not contradict its own claim: the
+// loop body's own per-statement release already caught the loan there. The read
+// had to move INSIDE the block, which is where D3 lives.
+//
+// ⚠ ITS REFUSE HALF IS fail/bc_d3_loop_holder_used_after_block_refuse, and the
+// frames BEYOND the loop are guarded by the stdlib build itself: sweeping past
+// `outer_scope_count` retired the loans held by `prm` in
+// `stdlib/mem/wql/plan_walker.logos::register_native_rels` and liblogos-mem
+// stopped building — a holder's TEXTUAL last use says nothing about a BACK
+// EDGE. Sweeping `if`/`match`-arm frames broke `bf_leaf_absorb` and eight more
+// the same way. Both were measured; both are why the walk is bare-block-only.
+package bc_d3_loop_bare_block_release_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn f(p: &mut [i64; 4]) -> i64 {
+    let mut s: i64 = 0i64;
+    while s < 2i64 {
+        let r = &mut p[0];
+        { *r = 1i64; let z: i64 = p[1]; s = s + z; }
+    }
+    return p[0];
+}
+fn main() -> i32 {
+    let mut a: [i64; 4] = [0i64, 1i64, 0i64, 0i64];
+    printi("v=%ld\n", f(&mut a));
+    return 0i32;
+}

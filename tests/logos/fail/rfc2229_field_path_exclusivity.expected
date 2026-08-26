@@ -1,1 +1,1 @@
-cannot borrow 'p.x' as mutable: 'p.x' is already borrowed
+cannot borrow 'p.x': 'p.x' is already mutably borrowed

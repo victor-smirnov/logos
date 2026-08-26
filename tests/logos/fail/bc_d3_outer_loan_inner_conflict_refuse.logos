@@ -1,0 +1,14 @@
+// D3 OVER-RELEASE GUARD #3 — a loan raised in an OUTER frame and conflicted
+// with INSIDE the nested block while its holder is still live. This is the
+// direction the outward sweep could break silently: the conflicting statement is
+// in the inner frame, and the record it must see is in the outer one.
+//
+// PERTURB: move `*r = 1i64;` ABOVE the block and it must ADMIT.
+package bc_d3_outer_loan_inner_conflict_refuse;
+fn main() -> i64 {
+    let mut n: i64 = 0i64;
+    let r = &mut n;
+    { n = 5i64; }                    // REFUSED: `r`'s loan is live
+    *r = 1i64;
+    return n;
+}

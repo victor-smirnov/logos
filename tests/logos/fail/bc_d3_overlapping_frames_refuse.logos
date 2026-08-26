@@ -1,0 +1,14 @@
+// D3 OVER-RELEASE GUARD #2 — two overlapping loans on the same root recorded in
+// DIFFERENT frames. The outer loan (`r`, fn frame) is still live when the inner
+// frame asks for a second `&mut n`; sweeping outward must not retire it early.
+//
+// PERTURB: move `*r = 1i64;` ABOVE the block and it must ADMIT (r is then dead
+// at the inner borrow — which is exactly the D3 release this guard bounds).
+package bc_d3_overlapping_frames_refuse;
+fn main() -> i64 {
+    let mut n: i64 = 0i64;
+    let r = &mut n;
+    { let q = &mut n; *q = 2i64; }   // REFUSED: `r`'s loan is live
+    *r = 1i64;
+    return n;
+}

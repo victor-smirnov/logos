@@ -1,0 +1,16 @@
+// D6, second direction — a live `&mut` FIELD capture must block a READ of that
+// field (Rust E0503, `cannot use s.a because it was mutably borrowed`). Same
+// property as the conflict twin, reached through a plain read instead of a
+// second closure, so a fix that only made two closures conflict cannot pass it.
+//
+// PERTURB: read `s.b` instead and it must ADMIT (disjoint sibling); move the
+// read below `c1()` and it must ADMIT (the loan is dead by NLL).
+package bc_d6_mut_field_capture_read_refuse;
+struct S { a: i64, b: i64 }
+fn main() -> i64 {
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    let mut c1 = || { s.a = s.a + 1i64; };
+    let x: i64 = s.a;                        // REFUSED: c1's `&mut s.a` is live
+    c1();
+    return x;
+}

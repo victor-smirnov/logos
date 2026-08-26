@@ -658,9 +658,21 @@ PIN = {
     # admit and bc_nll_d2_field_{holder,holder_mut,sibling}_admit — borrow-check
     # programs with no container family and no `direct` output form, so the DOOR
     # counts are unmoved (36 = 10 + 26), asserted independently below.
-    'corpus'            : 2375,
+    # ⚠ RE-DERIVED at the D6/D3 round (2026-08-25): +5 / +0 / +5. Five new PASS
+    # fixtures, none matching the `wql_*` / `deem_*` glob, so the whole delta
+    # lands in `nonglob`. BY DIRECT LISTING on the landed tree, not by asserting
+    # the delta:
+    #   ls tests/logos/pass/*.logos                          -> 2380
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos             ->  191
+    #   the same listing minus the glob half                 -> 2189
+    # 2380 = 191 + 2189. The five are bc_d6_mut_field_capture_{disjoint,nll,
+    # through_mutref}_admit and bc_d3_{nested_block,loop_bare_block}_release_
+    # admit — borrow-check programs with no container family and no `direct`
+    # output form, so the DOOR counts are unmoved (36 = 10 + 26), asserted
+    # independently below.
+    'corpus'            : 2381,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2184,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2190,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

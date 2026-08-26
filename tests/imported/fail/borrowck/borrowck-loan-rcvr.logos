@@ -1,6 +1,18 @@
 // rustc borrowck/borrowck-loan-rcvr.rs — upstream E0502 (site a)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.NEW-R
+// shelf: pin · was `admit`, root bck.NEW-R — CLOSED 2026-08-25 by D6.
+// The `&mut` FIELD capture `|| { p.x = 10 }` registered a SHARED loan
+// (sema's AddrOfTemp mut-marking was keyed on the inner being a bare VarRef;
+// `p.x = v` lowers to SDerefWrite(AddrOfTemp(&mut p.x), v), a FieldRead inner).
+// With the capture now correctly MUT, the closure is FnMut and the `F: Fn()`
+// bound refuses.
+//
+// ⚠ THE REASON DIVERGES FROM UPSTREAM AND THAT IS RECORDED HERE, NOT HIDDEN:
+// rustc reports E0502 (`p` borrowed mutably by the closure while `p.blockm`
+// holds it borrowed immutably). logosc refuses one step earlier, on the Fn/FnMut
+// bound — which rustc ALSO enforces for this closure. The program is rejected
+// by both; the .expected pins logosc's reason, so a later change that moves the
+// refusal to the E0502 channel reds this file and must update it deliberately.
 package borrowck_loan_rcvr;
 struct Point { x: i64, y: i64 }
 impl Point {

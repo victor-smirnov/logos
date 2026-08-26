@@ -1,0 +1,25 @@
+// D6 ADMIT TWIN #3 — THE OVER-REFUSAL THE MUT FIELD LOAN OPENED. `this` is a
+// `&mut Foo` binding that is NOT declared `mut`; in Rust, mutability through it
+// comes from the reference TYPE, not from the binding, so `|| { this.x = … }`
+// is legal. take_field_borrow's mut-binding check is gated on `is_mut`, so
+// while every field capture was recorded SHARED the check could not fire and
+// the capture site's `root_type = nullptr` was invisible. The moment D6 made
+// the loan mut it refused with
+//     cannot borrow 'this.x' as mutable: 'this' not declared as mut
+// — measured as the imported ledger row `borrowck-closures-unique-imm`, which
+// is the only reason this hole was seen at all.
+//
+// PERTURB: retype `this` to `&Foo` and it must go RED ("behind a `&`
+// reference"); a shared ref can hand out no `&mut` at all.
+package bc_d6_mut_field_capture_through_mutref_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct Foo { x: i64, y: i64 }
+fn main() -> i32 {
+    let mut f: Foo = Foo { x: 1i64, y: 2i64 };
+    let this: &mut Foo = &mut f;
+    let mut r = || { this.x = this.x + 10i64; };
+    r();
+    printi("x=%ld\n", f.x);
+    return 0i32;
+}

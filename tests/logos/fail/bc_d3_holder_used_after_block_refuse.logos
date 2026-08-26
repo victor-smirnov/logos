@@ -1,0 +1,14 @@
+// D3 OVER-RELEASE GUARD #1 — the whole risk of sweeping outward. `r`'s last use
+// is BELOW the nested block, so its loan is still live inside it and the read of
+// `n` must stay REFUSED. Only one property differs from
+// pass/bc_d3_nested_block_release_admit: where the holder's last use sits.
+//
+// PERTURB: delete the `*r = 1i64;` below the block and it must ADMIT.
+package bc_d3_holder_used_after_block_refuse;
+fn main() -> i64 {
+    let mut n: i64 = 0i64;
+    let r = &mut n;
+    { let z: i64 = n; }          // REFUSED: `r` is used below
+    *r = 1i64;
+    return n;
+}

@@ -915,6 +915,10 @@ struct ScopeFrame {
     std::vector<uint32_t>     declared_slots;  // F5 — parallel to `declared`
     std::vector<BorrowRecord> borrows;   // borrows held in this scope
     std::vector<FieldBorrow>  field_borrows;  // B83: tracked field-path borrows
+    // D3: this frame was pushed by a BARE `{ … }` STATEMENT — not a loop body,
+    // not an `if`/`match` arm, not a call-site scope. It is the only frame kind
+    // the NLL sweep is allowed to look PAST (see release_dead_borrows).
+    bool bare_block = false;
 };
 
 // Single foundation for "what is being borrowed when we see an `AddrOfTemp`?".
@@ -2134,7 +2138,15 @@ private:
 
     // ── Scope management ───────────────────────────────────────────────────
 
-    void push_scope() { scopes_.push_back({}); }
+    // D3: the next push_scope() opens a BARE `{ … }` statement frame. Set at the
+    // ONE site that knows (the Block stmt arm) and consumed by push_scope, so
+    // no other frame kind can acquire the flag by accident.
+    bool next_scope_is_bare_block_ = false;
+    void push_scope() {
+        scopes_.push_back({});
+        scopes_.back().bare_block = next_scope_is_bare_block_;
+        next_scope_is_bare_block_ = false;
+    }
 
     void pop_scope() {
         if (scopes_.empty()) return;
@@ -7318,6 +7330,20 @@ private:
                 // a shared field-path borrow (NLL-released at the holder's last
                 // use); a `move` closure takes ownership — no borrow.
                 EClosureBoxView cb{e};
+                // D6 follow-on: the field arm needs the capture ROOT's TYPE.
+                // It passed `nullptr`, so take_field_borrow's mut-binding check
+                // could not see a `&mut`-REFERENCE root and refused
+                // `|| { this.x = … }` with "'this' not declared as mut" for
+                // `let this: &mut Foo` — legal in Rust, mutability comes from
+                // the reference TYPE, not the binding. Invisible while every
+                // field capture was recorded SHARED (the check is gated on
+                // is_mut); measured the moment D6 made it mut, as the imported
+                // ledger row borrowck-closures-unique-imm.
+                std::vector<TypeRef> cap_types;
+                cb.each_capture(prog_.type_pool.impl(),
+                                [&](std::string_view, TypeRef t) {
+                                    cap_types.push_back(t);
+                                });
                 uint64_t i = 0;
                 cb.each_capture_name([&](std::string_view cap) {
                     if (cb.is_move()) { ++i; return; }
@@ -7329,6 +7355,13 @@ private:
                         fpath[root.size()] == '.')
                         rel = std::string(fpath.substr(root.size() + 1));
                     bool is_mut = cb.capture_is_mut(i);
+                    if (std::getenv("LOGOS_DUMP_BC_CAPTURE"))
+                        std::fprintf(stderr,
+                            "[bc-capture] line=%u root=%s fpath=%s rel=%s "
+                            "is_mut=%d is_move=%d holder=%s\n",
+                            line, root.c_str(), std::string(fpath).c_str(),
+                            rel.c_str(), (int)is_mut, (int)cb.is_move(),
+                            holder.c_str());
                     if (rel.empty()) {
                         // Whole-root capture: use the original whole-value
                         // borrow so plain reads of the root still see the
@@ -7347,7 +7380,9 @@ private:
                         // lexically by pop_scope and `s.a = 5` after the
                         // closure's last use refused in the SAME frame.
                         take_field_borrow(root, NO_SLOT, rel, is_mut, line,
-                                          nullptr, holder);
+                                          i < cap_types.size() ? cap_types[i]
+                                                               : TypeRef(nullptr),
+                                          holder);
                         check_live(root, line);
                     }
                     // D1 round 2, Door D: the capture is a HOP. Registering a
@@ -7836,7 +7871,58 @@ private:
     // before the current statement, the borrow has expired textually.
     void release_dead_borrows(uint64_t cur_line) {
         if (scopes_.empty()) return;
-        auto& frame = scopes_.back();
+        if (std::getenv("LOGOS_DUMP_BC_RELEASE")) {
+            std::fprintf(stderr, "[bc-release] cur_line=%llu frames=%zu\n",
+                         (unsigned long long)cur_line, scopes_.size());
+            for (size_t fi = 0; fi < scopes_.size(); ++fi)
+                for (auto& b : scopes_[fi].borrows)
+                    std::fprintf(stderr,
+                        "[bc-release]   frame=%zu%s target=%s holder=%s "
+                        "is_mut=%d lu=%llu\n", fi,
+                        fi + 1 == scopes_.size() ? "(back)" : "",
+                        b.target.c_str(), b.holder.c_str(), (int)b.is_mut,
+                        (unsigned long long)holders_last_use(b));
+        }
+        // ⚠ D3: THIS SWEPT `scopes_.back()` ONLY, and a loan's frame is where it
+        // was RECORDED, not where it dies. `let r = &mut n; { *r = 1; let z = n; }`
+        // records on the fn frame, enters the block, and every release inside the
+        // block sweeps the INNER frame — so the loan survived its own holder's
+        // last use and the read refused, while the byte-identical statements with
+        // NO nested block compiled. MEASURED with LOGOS_DUMP_BC_RELEASE:
+        //     cur_line=…82 frames=3   frame=1 target=n holder=r is_mut=1 lu=…81
+        // lu <= cur_line and the record is one frame short of the sweep.
+        //
+        // Sweeping OUTWARD is sound because the release predicate is not
+        // frame-local: `holders_last_use` reads the SLOT-keyed last-use map, so a
+        // record answers the same question from any frame, and shadowing is
+        // carried by the record's own holder_slot. It releases strictly MORE, so
+        // the risk is all in the over-release direction; the guard set is
+        // bc_d3_*_refuse — a holder used after the block, two overlapping loans in
+        // different frames, and an outer loan conflicting inside the block.
+        // ⚠ BOUNDED BY THE LOOP, and the bound already had a name: a LoopFrame
+        // records `outer_scope_count` = "frames that survive the loop". Inside a
+        // loop body, a holder's TEXTUAL last use says nothing about the BACK
+        // EDGE — `prm` is used at line 3060 and the body ends at 3065, but
+        // iteration 2 uses it again. Sweeping past `outer_scope_count` retired
+        // the loans `srcb`/`dsrcb`/`ssrcb`/`szatb` held by `prm` at the body's
+        // last statement, and liblogos-mem then failed to build with five
+        // over-refusals in `register_native_rels` (MEASURED). Frames the loop
+        // survives are the loop's own business; frames the loop OWNS are swept.
+        // The outward walk crosses BARE `{ … }` STATEMENT frames ONLY, and stops
+        // one frame past the outermost of them. Two measurements bound it:
+        //   · loop bodies — `prm`'s TEXTUAL last use is line 3060 and the body
+        //     ends at 3065, but iteration 2 uses it again. Sweeping past the
+        //     loop retired the loans held by `prm` and liblogos-mem failed to
+        //     build with five over-refusals in `register_native_rels`.
+        //   · `if`/`match`-arm frames — same shape one level down; sweeping
+        //     those broke `bf_leaf_absorb` and eight more with "'a' has shared
+        //     borrows".
+        // Both were MEASURED, both are the over-refusal direction, and both are
+        // outside D3's property, which is a BARE nested block and nothing else.
+        size_t lo = scopes_.size() - 1;
+        while (lo > 0 && scopes_[lo].bare_block) --lo;
+        for (size_t _fi = lo; _fi < scopes_.size(); ++_fi) {
+        auto& frame = scopes_[_fi];
         auto it = frame.borrows.begin();
         while (it != frame.borrows.end()) {
             if (it->holder.empty()) { ++it; continue; }
@@ -7870,6 +7956,7 @@ private:
             } else {
                 ++fit2;
             }
+        }
         }
     }
 
@@ -9762,6 +9849,7 @@ private:
                         release_dead_borrows(
                             walk_stmts_releasing(b, /*defer_release=*/true));
                     } else {
+                        next_scope_is_bare_block_ = true;   // D3
                         visit_block(b);
                     }
                 }

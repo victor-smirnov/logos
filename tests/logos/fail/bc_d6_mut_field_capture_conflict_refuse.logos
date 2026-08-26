@@ -1,0 +1,26 @@
+// D6 — A `&mut` CLOSURE CAPTURE OF A FIELD MUST REGISTER A **MUT** LOAN.
+//
+// Written FROM THE PROPERTY: two closures that each MUTATE the SAME field of
+// the same root, both still live at the second one's creation. Exclusivity is
+// the property; the field spelling is only how it is reached.
+//
+// Before the fix this compiled (rc 0) while the byte-identical program over a
+// whole VARIABLE refused — `s.a = s.a + 1` lowers to
+// SDerefWrite(AddrOfTemp(&mut s.a), …), whose inner is a FieldRead, and
+// sema's AddrOfTemp mut-marking was keyed on the inner being a bare VarRef.
+// The capture was therefore recorded SHARED.
+//
+// PERTURB TO CHECK THIS FIXTURE CAN CONTRADICT ITSELF: change `c2`'s target to
+// `s.b` and it must ADMIT (disjoint siblings — see the pass twin
+// bc_d6_mut_field_capture_disjoint_admit); drop `c2()` and it must ADMIT
+// (NLL — see bc_d6_mut_field_capture_nll_admit).
+package bc_d6_mut_field_capture_conflict_refuse;
+struct S { a: i64, b: i64 }
+fn main() -> i64 {
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    let mut c1 = || { s.a = s.a + 1i64; };
+    let mut c2 = || { s.a = s.a + 2i64; };   // REFUSED: c1's `&mut s.a` is live
+    c1();
+    c2();
+    return s.a;
+}

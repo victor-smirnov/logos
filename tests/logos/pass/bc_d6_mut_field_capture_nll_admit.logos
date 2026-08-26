@@ -1,0 +1,22 @@
+// D6 ADMIT TWIN #2 — the mut FIELD loan must be NLL-released at the holder's
+// LAST USE. Same field, same mutation, two closures: the only property that
+// differs from fail/bc_d6_mut_field_capture_conflict_refuse is that `c1` is
+// already DEAD when `c2` is created. A fix that made the loan mut but forgot to
+// release it would refuse here.
+//
+// It also runs: 1 + 1 + 2 = 4 through the outer `s`.
+//
+// PERTURB: move `c1()` below `c2`'s declaration and it must go RED.
+package bc_d6_mut_field_capture_nll_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct S { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    let mut c1 = || { s.a = s.a + 1i64; };
+    c1();
+    let mut c2 = || { s.a = s.a + 2i64; };
+    c2();
+    printi("a=%ld\n", s.a);
+    return 0i32;
+}

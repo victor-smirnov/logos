@@ -1,0 +1,34 @@
+// A closure that touches TWO places under one root must not lock the whole root.
+//
+// `add_capture_path` LCA-widens two paths of one root back to the bare root. On
+// 2026-08-25 the mut mark reached field paths for the first time, and the two
+// together made this closure hold a whole-root MUTABLE loan — so an outer read
+// of a THIRD field was refused with "cannot use 's' while it is mutably
+// borrowed", while the byte-identical read-only closure compiled. Rust captures
+// the two places separately and admits it.
+//
+// ⚠ WHY THE SIBLING TWIN COULD NOT SEE THIS, and it is the lesson rather than
+// the bug: `bc_d6_mut_field_capture_disjoint_admit` gives each closure exactly
+// ONE field, so no widening ever happens there. Its disjointness claim is true
+// only for single-field closures, and the round's headers stated it without
+// that qualifier. A twin written from the FIX tests the path the author walked.
+//
+// The narrowing that fixes it: a root whose capture path was WIDENED stays
+// SHARED. That is what such a capture was before the mut mark reached field
+// paths, so nothing regresses — and the precise-path win is kept, which
+// `fail/bc_d6_mut_field_capture_conflict_refuse` pins.
+package bc_d6_multifield_closure_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+
+struct S { a: i64, b: i64, c: i64 }
+
+fn main() -> i32 {
+    let mut s: S = S { a: 1i64, b: 2i64, c: 3i64 };
+    let mut k = || { s.a = s.b + 1i64; };
+    let x: i64 = s.c;
+    k();
+    pr("%ld ", x);
+    pr("%ld\n", s.a);
+    return 0i32;
+}

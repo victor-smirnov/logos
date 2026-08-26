@@ -4382,8 +4382,27 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # UNMOVED. bc_admits.ledger UNMOVED at 463 rows and its gate GREEN: both fixes
 # only ever RELEASE a loan, so no listed program can stop being admitted, and
 # no class-C row closes through them.
-REGISTRY-ALL         8024
-REGISTRY-NOIMPORTED  3929
+# 2026-08-25 (D6 + D3 — A `&mut` FIELD CAPTURE REGISTERED A SHARED LOAN, and
+# NLL RELEASE WAS FRAME-LOCAL). PREDICTED BEFORE THE RECONFIGURE and MEASURED
+# after: ALL 8024 -> 8036 (+5 pass, +6 fail, +1 imported fail), -LE imported
+# 3929 -> 3940 (+11 = the twelfth is the imported fixture). tier_commit 47
+# UNMOVED — this round registers no gate. The +1 imported fail is
+# `borrowck-loan-rcvr`, MOVED from tests/imported/admit: D6 closed its hole, so
+# its bc_admits.ledger row was DELETED and the ledger went 463 -> 462 rows with
+# its gate GREEN. The DIRECT-DOOR pins were re-derived BY DIRECT LISTING in
+# direct_door_census_gate.sh: corpus 2375 -> 2380, glob 191 UNMOVED, nonglob
+# 2184 -> 2189, doors 36 = 10 + 26 UNMOVED (no new fixture declares a container
+# family or a `direct` output form).
+#
+# ⚠ ONE ROW CLOSED, NOT TWO. `borrowck-closures-unique-imm` (bck.C) also stopped
+# being admitted mid-round — with the WRONG REASON: the closure capture site
+# passed `root_type = nullptr` to take_field_borrow, so the mut-binding check
+# refused `|| { this.x = … }` for `let this: &mut Foo`, which is legal. That was
+# a false refusal D6 exposed, it is fixed in the same change (the capture's root
+# TYPE is now passed), the row STAYS, and the fix is pinned by
+# pass/bc_d6_mut_field_capture_through_mutref_admit.
+REGISTRY-ALL         8037
+REGISTRY-NOIMPORTED  3941
 REGISTRY-TIERCOMMIT  47
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

@@ -29,7 +29,7 @@
 # ⚠ A ROW IS NOT AN EXCUSE. It is a defect with a name, and the intended way for
 # this file to change is to SHRINK: a class fix reds this gate BECAUSE IT
 # IMPROVED, and the count is then edited down in the same change.
-# TOTAL 463
+# TOTAL 462
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -80,7 +80,6 @@ borrowck-lend-flow-match bck.B tests/imported/admit/borrowck/borrowck-lend-flow-
 borrowck-loan-blocks-move-cc--r10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10
 borrowck-loan-blocks-move-cc--t10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--t10
 borrowck-loan-blocks-mut-uniq bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-mut-uniq
-borrowck-loan-rcvr bck.NEW-R tests/imported/admit/borrowck/borrowck-loan-rcvr
 borrowck-loan-vec-content bck.B tests/imported/admit/borrowck/borrowck-loan-vec-content
 borrowck-local-borrow-with-panic-outlives-fn bck.A tests/imported/admit/borrowck/borrowck-local-borrow-with-panic-outlives-fn
 borrowck-move-by-capture bck.C tests/imported/admit/borrowck/borrowck-move-by-capture

@@ -1,0 +1,17 @@
+// D3 OVER-RELEASE GUARD #4 — the loop shape of guard #1. `r` is used BELOW the
+// bare block, so its loan is live inside it and the read of `p[1]` must stay
+// REFUSED. One property differs from
+// pass/bc_d3_loop_bare_block_release_admit: where the holder's last use sits.
+//
+// PERTURB: move `*r = 1i64;` INTO the block and it must ADMIT.
+package bc_d3_loop_holder_used_after_block_refuse;
+fn f(p: &mut [i64; 4]) -> i64 {
+    let mut s: i64 = 0i64;
+    while s < 2i64 {
+        let r = &mut p[0];
+        { let z: i64 = p[1]; s = s + z; }   // REFUSED: `r` is used below
+        *r = 1i64;
+    }
+    return p[0];
+}
+fn main() -> i32 { let mut a: [i64; 4] = [0i64,1i64,0i64,0i64]; let _ = f(&mut a); return 0i32; }

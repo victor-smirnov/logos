@@ -2,21 +2,19 @@
 // whose holder is still live blocks the write — the same property as the shared
 // twin, reached through the mut spelling.
 //
-// ⚠ IT DOES NOT PIN MUTNESS, AND THE HEADER USED TO SAY IT DID. Measured
-// 2026-08-25: a `&mut` closure capture of a FIELD registers a SHARED loan —
-// `capture_is_mut` never reaches the field record — so this file and its shared
-// twin `bc_nll_d2_field_live_refuse` pin the SAME string, and it is the
-// shared-borrow wording (`'s.a' is already borrowed`, not `is already mutably
-// borrowed`). Perturbing the mutness makes neither file red.
+// IT PINS MUTNESS — D6 CLOSED 2026-08-25, AND THIS FILE'S `.expected` MOVING IS
+// THE PROOF. Until then a `&mut` closure capture of a FIELD registered a SHARED
+// loan (`capture_is_mut` was false at the field record), so this file and its
+// shared twin `bc_nll_d2_field_live_refuse` pinned the SAME string — the
+// shared-borrow wording — and perturbing the mutness made neither red.
 //
-// The hole that hides behind it is live and filed as D6:
-//     two mut-capturing closures of the SAME field, both live      -> rc 0
-//     the byte-identical program over the WHOLE variable           -> rc 1
-//         "cannot borrow 'n' as mutable: already mutably borrowed"
-// So `|| { s.a = s.a + 1 }` does not block a concurrent read of `s.a`, where the
-// whole-var and the direct `&mut s.a` spellings both do. When D6 closes, this
-// file's `.expected` must move to the MUTABLY-borrowed wording, and that change
-// is the proof the fix landed.
+// The root: `s.a = s.a + 1` lowers to SDerefWrite(AddrOfTemp(&mut s.a), …), and
+// sema's AddrOfTemp mut-marking was keyed on the inner being a bare VarRef; a
+// FieldRead inner fell through. Now the two files pin DIFFERENT strings:
+//   this file (mut capture)    -> cannot borrow 's.a': 's.a' is already mutably borrowed
+//   the shared twin (`|| s.a`) -> cannot borrow 's.a' as mutable: 's.a' is already borrowed
+// Perturbing this file's closure to a READ (`|| -> i64 { return s.a; }`) makes
+// it red, which is the check that the mutness is what it pins.
 package bc_nll_d2_field_live_mut_refuse;
 struct S { a: i64, b: i64 }
 fn main() -> i64 {
