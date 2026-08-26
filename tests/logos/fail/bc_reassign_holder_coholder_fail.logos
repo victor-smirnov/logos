@@ -1,0 +1,19 @@
+// THE ABUSE DIRECTION of releasing a loan when its holder is overwritten. The
+// holder FIELD is not the set of bindings that name the loan: `let t: &mut
+// [i64] = sl;` copies the reference and records no co-holder, so a kill keyed
+// on the holder alone would release a loan `t` still relies on. Measured: with
+// the ref_borrow_sources_ guard removed this program is ADMITTED, and `a` is
+// written through while `t` is live.
+package bc_reassign_holder_coholder_fail;
+fn total(x: &mut [i64]) -> i64 { return x[0i64]; }
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let mut b: [i64; 3] = [4i64, 5i64, 6i64];
+    let mut sl: &mut [i64] = &mut a;
+    let t: &mut [i64] = sl;
+    sl = &mut b;
+    a[0i64] = 9i64;
+    if total(t) != 9i64 { return 1i32; }
+    if total(sl) != 4i64 { return 2i32; }
+    return 0i32;
+}

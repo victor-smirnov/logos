@@ -1,0 +1,29 @@
+// A LOAN IS RELEASED ONLY BY release_dead_borrows, KEYED ON THE HOLDER'S LAST
+// USE. An assignment to the holder is a DIFFERENT event — the reference is
+// destroyed, not merely dead — and nothing killed the loan there, so `sl` was
+// refused for conflicting with the loan `sl` itself was holding: "cannot borrow
+// 'a' as mutable: already mutably borrowed".
+// Both spellings are here because only the `&mut [i64]` one routes through
+// take_ref_borrows' SliceLit arm; the `&mut [i64; 3]` twin was over-refused
+// before that arm existed, unwatched. The fix is at the RELEASE, not at the
+// coercion, so both close together.
+// THE ALIASED CASE IS NOT RELEASED: fail/bc_reassign_holder_coholder_fail.
+package bc_reassign_holder_releases_loan_admit;
+fn sum(x: &mut [i64]) -> i64 { return x[0i64]; }
+fn slice_spelling() -> i64 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let mut sl: &mut [i64] = &mut a;
+    sl = &mut a;
+    return sum(sl);
+}
+fn array_spelling() -> i64 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let mut ar: &mut [i64; 3] = &mut a;
+    ar = &mut a;
+    return ar[0i64];
+}
+fn main() -> i32 {
+    if slice_spelling() != 1i64 { return 1i32; }
+    if array_spelling() != 1i64 { return 2i32; }
+    return 0i32;
+}

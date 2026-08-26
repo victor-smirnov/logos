@@ -8038,6 +8038,59 @@ private:
     // Phase 9 (NLL): release borrows whose holder is no longer live.
     // Called after each statement in a block: if holder's max-use line is at or
     // before the current statement, the borrow has expired textually.
+    // ⚠ A LOAN IS RELEASED ONLY BY release_dead_borrows, KEYED ON THE
+    // HOLDER'S LAST USE. An assignment to the holder is a DIFFERENT event: the
+    // reference is destroyed, not merely dead. Nothing killed the loan there,
+    // so `let mut sl: &mut [i64] = &mut a; sl = &mut a;` conflicted with the
+    // loan `sl` itself was holding.
+    //
+    // MUTABLE LOANS ONLY, and that bound is MEASURED, not chosen: a shared
+    // loan is a COUNTER, merge_loans raises counters across a loop back edge
+    // with no BorrowRecord that can release them (its own comment says so), so
+    // erasing the record while the merged counter survives strands the count
+    // — pass/memoria_ctr_cursor_nav went red on exactly that. Releasing
+    // strictly less is the safe half; the shared half is a separate arc.
+    void release_borrows_held_by(const std::string& holder_name) {
+        uint32_t hslot = slot_of_binding(holder_name);
+        auto same = [&](const std::string& h, uint32_t hs) {
+            if (h != holder_name) return false;
+            if (hslot != NO_SLOT && hs != NO_SLOT) return hs == hslot;
+            return true;
+        };
+        // ⚠ THE HOLDER FIELD IS NOT THE SET OF BINDINGS THAT NAME THE LOAN.
+        // `let t: &mut [i64] = sl;` copies the reference and records NO
+        // co-holder, so a kill keyed on the holder alone releases a loan `t`
+        // still relies on — a LEAK, measured and then closed by this guard.
+        // ref_borrow_sources_ is the map that DOES know.
+        auto named_elsewhere = [&](const std::string& target) {
+            for (auto& [pl, srcs] : ref_borrow_sources_) {
+                if (place_under(pl, holder_name)) continue;
+                for (auto& s : srcs) if (s.name == target) return true;
+            }
+            return false;
+        };
+        for (auto& frame : scopes_) {
+            auto it = frame.borrows.begin();
+            while (it != frame.borrows.end()) {
+                if (it->is_mut && same(it->holder, it->holder_slot) &&
+                    it->co_holders.empty() && !named_elsewhere(it->target)) {
+                    if (auto sit = var_find(it->target_slot, it->target); sit != nullptr)
+                        sit->mut_borrowed = false;
+                    it = frame.borrows.erase(it);
+                } else { ++it; }
+            }
+            auto fit = frame.field_borrows.begin();
+            while (fit != frame.field_borrows.end()) {
+                if (fit->is_mut && same(fit->holder, fit->holder_slot) &&
+                    fit->co_holders.empty() && !named_elsewhere(fit->target)) {
+                    if (auto sit = var_find(fit->target_slot, fit->target); sit != nullptr)
+                        sit->mut_field_borrows.erase(fit->path);
+                    fit = frame.field_borrows.erase(fit);
+                } else { ++fit; }
+            }
+        }
+    }
+
     void release_dead_borrows(uint64_t cur_line) {
         if (scopes_.empty()) return;
         if (std::getenv("LOGOS_DUMP_BC_RELEASE")) {
@@ -9387,6 +9440,7 @@ private:
                 bool is_ref_assign = val &&
                     (prov_.count(name) || is_ref_kind(val.type(pool)));
                 if (is_ref_assign || val_is_agg_lit2) {
+                    release_borrows_held_by(name);
                     take_ref_borrows(val, ln, name);
                 } else if (val) {
                     visit(val, /*consuming=*/true, ln);
