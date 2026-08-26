@@ -221,6 +221,14 @@ NOT_GATES = {
     # one it answers a question about THAT change, so there is no population it
     # could be registered over. Registering it would also invert its purpose: a
     # budget that ctest re-checks every commit is a budget nobody had to predict.
+    # A HAND-RUN FACT EXTRACTOR for the Datalog offloader (`tools/dlog`). It
+    # pronounces no verdict at all — it emits `.facts` files that a Soufflé
+    # program then reasons over, and the VERDICT is that program's. Registering
+    # it would assert something about the extraction that only the rules can
+    # decide. See tools/dlog/README.md for why the extractor, not the rules, is
+    # the risk in that design.
+    "extract.sh":              "emits Datalog facts for tools/dlog; asserts "
+                               "nothing — the Souffle program holds the verdict",
     "change-budget.sh":        "a hand-run measuring tool; its verdict is about "
                                "ONE change against a budget declared before that "
                                "change was written, so it has no fixed population "
@@ -496,10 +504,70 @@ def sh_exit_sites(line):
     return out
 
 
+def _mask_embedded(text):
+    """Blank out SINGLE-quoted regions, which span lines and hold ANOTHER
+    LANGUAGE — an embedded awk or python program.
+
+    ⚠ MEASURED 2026-08-26. R1 reddened `tools/dlog/extract.sh` for
+        if (started && depth <= 0) { print body; exit }
+    which is awk's `exit`, inside an awk program, eight lines into a
+    single-quoted argument. The rule keys on the WORD and cannot see which
+    language the word belongs to — the same shape as the one-scheduler lint
+    matching the word "parallel" inside an `echo`, fixed the day before.
+    Double-quoted strings were already stripped there; single quotes are what
+    embedded programs actually use, and they cross lines, so a per-line strip
+    cannot do it. Tracked as state instead.
+
+    Detection is not blunted: a real shell `exit` is never inside single
+    quotes, and `xargs -P '$N'` still leaves `xargs -P` once the argument is
+    blanked.
+
+    ⚠ AND THE FIRST CUT OF THIS FUNCTION WAS ITSELF WRONG, measured the same
+    hour: it toggled on every `'`, so an APOSTROPHE IN PROSE desynced it — eleven
+    of them (`r's`, `m's`, `e's`) in one gate's comments left the rest of the file
+    masked backwards, and the lint then reported THREE new violations that were
+    all awk. Comments and quotes cannot be resolved in two passes, because a `#`
+    inside a quoted string is not a comment and a quote inside a comment is not a
+    quote. One pass, both states.
+    """
+    out = []
+    in_sq = in_dq = False          # ⚠ ACROSS lines: an embedded awk or python
+                                   # program is one single-quoted region that
+                                   # spans many. Resetting per line was the
+                                   # SECOND wrong cut of this function and it
+                                   # let the awk `exit` through again.
+    for ln in text.splitlines():
+        buf, i = [], 0
+        while i < len(ln):
+            ch = ln[i]
+            if not in_sq and not in_dq and ch == "#":
+                buf.append(" " * (len(ln) - i))     # comment: blank to EOL
+                break
+            if ch == "'" and not in_dq:
+                in_sq = not in_sq; buf.append(" ")
+            elif ch == '"' and not in_sq:
+                in_dq = not in_dq; buf.append(ch)   # keep: R3/R4 read these
+            elif in_sq:
+                buf.append(" ")
+            else:
+                buf.append(ch)
+            i += 1
+        out.append("".join(buf))
+    return "\n".join(out)
+
+
 def r1_exit_ceiling(path, text):
     out = []
     is_py = path.endswith(".py")
-    for i, ln in enumerate(text.splitlines(), 1):
+    # ⚠ SCAN THE MASKED LINE, READ THE ANNOTATION OFF THE RAW ONE. Masking blanks
+    # comments — including the `# lint:*-ok` grounds the rules look for — so a
+    # rule fed only the masked text is blind to its own exemptions. The selftest
+    # caught exactly that: the canary `exit $RC  # lint:exit-ok — …` FIRED when
+    # it must not. Two views of one line, and each rule must say which it means.
+    raws   = text.splitlines()
+    masked = _mask_embedded(text).splitlines()
+    for i, ln in enumerate(masked, 1):
+        raw  = raws[i - 1] if i - 1 < len(raws) else ln
         code = ln.split("#", 1)[0] if is_py else ln
         if is_py:
             sites = [(m.start(), m.group(1)) for m in RE_PY_EXIT.finditer(code)]
@@ -516,7 +584,7 @@ def r1_exit_ceiling(path, text):
                         n = int(eval(am.group("e"), {"__builtins__": {}}, {}))
                     except Exception:
                         n = None
-                elif "lint:exit-ok" in ln:
+                elif "lint:exit-ok" in raw:
                     continue
                 else:
                     out.append(Finding(

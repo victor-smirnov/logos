@@ -16751,6 +16751,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             return try_path(lir_view::EDerefView{e}.operand());
         if (e.kind() == EC::IndexRead)
             return try_path(lir_view::EIndexReadView{e}.receiver());
+        // ⚠ FOUND BY `tools/dlog/place_walkers.dl`, hours after this walk was
+        // "completed": the rule said coverage 4/5 and named SliceIndex, and the
+        // probe agreed — two mut captures of `s[0]` for `s: &mut [i64]` did not
+        // conflict. A slice index is an index; it names no static sub-place.
+        if (e.kind() == EC::SliceIndex)
+            return try_path(lir_view::ESliceIndexView{e}.slice());
         return std::nullopt;
     };
 

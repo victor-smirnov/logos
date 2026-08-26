@@ -1,0 +1,45 @@
+// spelling_keyed — the recurring defect of this codebase, as a rule.
+//
+// A PLACE WALKER decomposes `a.b`, `t.0`, `v[i]`, `*p` down to a root. Such a
+// function must handle every PROJECTION, because the property is "a step from a
+// place to a sub-place" and the property does not care how the step is spelled.
+// Eight times in one week a walker enumerated the spellings its author had in
+// mind and silently declined the rest:
+//   `try_path`               VarRef|FieldRead, missing TupleIndex/Deref/IndexRead
+//                            -> two mut closures over `t.0` did not conflict, and
+//                               one aliased at runtime
+//   `extract_borrow_place`   no TupleIndex arm -> `&x.0` recorded NO loan at all
+//   `is_temporary_value_expr` listed literals and calls, missing operators
+//                            -> `return &(2+3);` returned a dead frame
+// None of these is findable by grep, because the defect is an ABSENCE. It is
+// findable by a rule, because an absence over a finite domain is derivable.
+.decl projection_kind(k: symbol)
+.decl place_root_kind(k: symbol)
+.decl walker(f: symbol)
+.decl handles(f: symbol, k: symbol)
+.input projection_kind
+.input place_root_kind
+.input walker
+.input handles
+
+// A walker that handles SOME projections but not all of them is keyed on the
+// spelling its author enumerated, not on the property.
+.decl spelling_keyed(f: symbol, missing: symbol)
+.output spelling_keyed
+spelling_keyed(F, K) :- walker(F), projection_kind(K), !handles(F, K),
+                        projection_kind(K2), handles(F, K2).
+
+// A walker that terminates on no root at all is not walking anything — that is
+// a different defect and must not be reported as the one above.
+.decl no_root(f: symbol)
+.output no_root
+no_root(F) :- walker(F), !any_root(F).
+.decl any_root(f: symbol)
+any_root(F) :- place_root_kind(K), handles(F, K).
+
+// How complete each walker is, so the report is a measurement and not a verdict.
+.decl coverage(f: symbol, have: number, want: number)
+.output coverage
+coverage(F, H, W) :- walker(F),
+    H = count : { projection_kind(K), handles(F, K) },
+    W = count : { projection_kind(_K2) }.
