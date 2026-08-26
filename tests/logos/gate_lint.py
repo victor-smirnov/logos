@@ -227,6 +227,11 @@ NOT_GATES = {
     # it would assert something about the extraction that only the rules can
     # decide. See tools/dlog/README.md for why the extractor, not the rules, is
     # the risk in that design.
+    "ask.sh":                  "the single entry point to tools/dlog: extracts "
+                               "facts (content-keyed cache) and runs one .dl "
+                               "question, printing where the answer landed. It "
+                               "asserts NOTHING — the question holds the verdict "
+                               "and none of them is a gate yet",
     "sweep.sh":                "runs tools/dlog over every compiler TU and prints "
                                "a REPORT to read, not a verdict; minutes of clang "
                                "and its rules are graded by selftest.sh",

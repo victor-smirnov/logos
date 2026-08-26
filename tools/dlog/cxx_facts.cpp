@@ -331,9 +331,14 @@ int main(int argc, const char **argv) {
     // ⚠ AN EMPTY RESULT IS A REFUSAL, NOT A CLEAN RUN. The first version wrote
     // seven empty files and exited 0, and every downstream rule would have
     // reported a green tree over nothing. Silence is not an answer.
-    if (g_out.nodes < 1000) {
-        llvm::errs() << "cxx_facts: only " << g_out.nodes
-                     << " nodes emitted — refusing to write a TU that small\n";
+    // ⚠ THE FLOOR CATCHES "THE WALK DID NOT HAPPEN", WHICH MEANS ZERO — NOT
+    // "SMALL". A threshold of 1000 rejected module_manifest.cpp, a genuinely
+    // small TU at 693 nodes, on every run: the guard put here to stop a silent
+    // lie (seven empty files, exit 0) started telling a different one, dropping
+    // part of the subject while the caller reported a clean answer. Whether a
+    // TOTAL is implausible is the aggregate's question, and ask.sh asks it.
+    if (g_out.nodes == 0) {
+        llvm::errs() << "cxx_facts: no nodes emitted — the walk did not happen\n";
         return 3;
     }
     llvm::outs() << "cxx_facts: " << g_out.nodes << " nodes, " << g_out.decls
