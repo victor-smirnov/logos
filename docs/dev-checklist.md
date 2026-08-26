@@ -45,6 +45,36 @@ The checklist exists because the [bag-hunt](baghunt/README.md) found ~122 bugs t
 - [ ] **Internals doc updated** if the change is implementation-relevant.
 - [ ] **Memory file added** if this is a multi-month arc or load-bearing decision (`feat_*.md` for done work, `project_*.md` for in-progress).
 
+## NEVER register a ctest test that does BULK work in one slot (Victor 2026-08-25)
+
+**A registered ctest test compiles or runs ONE thing. If a verdict needs N
+programs, register N tests and fold their verdicts — never loop inside one.**
+
+ctest is the only scheduler (#85): a registered test may not fan out its own
+workers. The corollary was left unwritten and it is the half that bites — a test
+that CANNOT fan out and still has N programs to get through simply runs them
+serially, occupying one core while the rest of the box idles, and there is no
+flag that fixes it.
+
+⚠ MEASURED, and I built the offender myself the same day I recorded the rule it
+breaks. `logos_00_bc_admits_ledger` compiles 462 programs in one slot: ~7 min,
+1 core busy, 31 idle. It landed because the import brief said "reuse
+`mlir_gen_bug_ledger_gate.sh`'s idiom, do not write a second gate" — right
+semantics, and an idiom built for TENS of rows applied to hundreds without
+recomputing. Three rounds then paid the bill; in one of them, eight runs of the
+lint tier were ~56 minutes of which nearly all was this.
+
+THE SHAPE THAT IS ALWAYS AVAILABLE:
+  * register one test PER PROGRAM — ctest parallelises them, and a failure then
+    NAMES the program instead of saying the fold disagreed;
+  * leave the gate as a cheap fold that checks the COUNT and the ROSTER against
+    what is on disk, compiling nothing;
+  * where the programs are already compiled by their own tests, emit facts from
+    that compile and fold the facts (`facts_emit.sh` / `facts_fold.sh`, task #85).
+
+⚠ THE SMELL, in one line: if a gate script contains a loop over a list of source
+files, it is the wrong shape — no matter how correct its verdict is.
+
 ## When budgeting a round's EVIDENCE (measured 2026-08-25)
 
 The proof burden is a cost, it scales with the suite, and it must be recomputed
