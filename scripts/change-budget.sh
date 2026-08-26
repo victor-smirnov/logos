@@ -98,7 +98,17 @@ read -r files add_all del <<<"$(printf '%s\n' "$DIFF" | awk '
 add=$(printf '%s\n' "$DIFF" | grep '^+' | grep -v '^+++' | sed 's/^+//' \
       | grep -cvE '^[[:space:]]*($|//|#|/\*|\*|///)' || true)
 
-names=$(printf '%s\n' "$DIFF" | grep '^+' | grep -v '^+++' | sed 's/^+//' \
+# ⚠ A FIXTURE IS A SPECIMEN, NOT AN INTERFACE. This counted `struct B` and
+# `fn main` inside tests/logos/fail/*.logos as new names a reader must learn,
+# and reported 11 names / x9.9 for a two-line compiler fix carrying two
+# fixtures. A budget that fires on every commit with a test trains its reader to
+# ignore it, which is worse than having no budget. What `names` means is the
+# INTERFACE the change adds; a program written to be compiled adds none.
+# Measured on the diff of the fix that prompted this: 11 -> 0.
+SRC_DIFF=$(printf '%s\n' "$DIFF" | awk '
+    /^\+\+\+ /  { skip = ($0 ~ /\.(logos|expected|snap|golden)$/) }
+    !skip')
+names=$(printf '%s\n' "$SRC_DIFF" | grep '^+' | grep -v '^+++' | sed 's/^+//' \
         | grep -cE '^[[:space:]]*(pub[[:space:]]+)?(static[[:space:]]+|inline[[:space:]]+|constexpr[[:space:]]+|extern[[:space:]]+)*([A-Za-z_][A-Za-z0-9_:<>,&*[:space:]]*[[:space:]]+)?(fn|struct|class|trait|enum|union)[[:space:]]+[A-Za-z_]' || true)
 
 branch=$(printf '%s\n' "$DIFF" | grep '^+' | grep -v '^+++' | sed 's/^+//' \

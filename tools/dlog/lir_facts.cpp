@@ -29,6 +29,16 @@
 //   enum_code(Kind)                 — every enumerator, in declaration order
 //   tests(Context, Kind, Position)  — Position: case_live | case_empty
 //                                                | cond | mention
+//   arm_call(Context, Kind, Callee)  — a call made INSIDE the arm for Kind
+//   callee_home(Callee, File)        — where the callee is DEFINED
+//
+// arm_call is what turns "handles k of 5" into "four arms ask the checker and
+// the fifth does not". Seven of eight borrow-check fixes in one week were a
+// CALL THAT WAS NOT MADE, not missing machinery — field_borrow_conflicts existed
+// and was reached from four mutating sites out of five. That defect has no
+// spelling to grep for; it is a hole in a relation, and a hole in a relation is
+// derivable. And unlike "which functions are walkers", it needs NO claim: the
+// siblings of one switch are their own domain.
 //
 // Build with tools/dlog/make.sh; the whole chain is bite-proved by selftest.sh
 // against revision 28fc7c75, where six defects are already known.
@@ -39,6 +49,7 @@
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Tooling.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Path.h"
 #include <fstream>
 #include <optional>
 #include <set>
@@ -60,7 +71,9 @@ namespace {
 // cannot truncate the first one's facts.
 std::set<std::string> g_codes_seen;
 std::vector<std::string> g_codes_ordered;
-std::set<std::string> g_tests;  // "ctx\tkind\tpos"
+std::set<std::string> g_tests;      // "ctx\tkind\tpos"
+std::set<std::string> g_arm_calls;  // "ctx\tkind\tcallee" — a call INSIDE an arm
+std::set<std::string> g_callee_home;  // "callee\tdefining-file" 
 
 class V : public RecursiveASTVisitor<V> {
 public:
@@ -93,7 +106,86 @@ public:
         return RecursiveASTVisitor::TraverseLambdaExpr(L);
     }
 
+    // ── which arm a call sits in ────────────────────────────────────────────
+    // ⚠ LEXICAL NESTING DOES NOT ANSWER THIS. In clang's AST an UNBRACED arm's
+    // statements are SIBLINGS of the CaseStmt inside the switch's CompoundStmt,
+    // not its children — `case A: f(); g(); break;` puts only `f()` under the
+    // CaseStmt. So walk the body in ORDER and carry the active labels forward,
+    // which also gives fall-through groups (`case A: case B: <body>`) the right
+    // answer: both kinds own the body.
+    bool TraverseSwitchStmt(SwitchStmt *S) {
+        if (!TraverseStmt(S->getCond())) return false;
+        auto *B = dyn_cast_or_null<CompoundStmt>(S->getBody());
+        if (!B) return RecursiveASTVisitor::TraverseSwitchStmt(S);
+        auto saved = arm_;
+        for (Stmt *child : B->body()) {
+            Stmt *cur = child;
+            if (isa<SwitchCase>(cur)) {
+                arm_.clear();
+                while (auto *SC = dyn_cast_or_null<SwitchCase>(cur)) {
+                    if (auto *CS = dyn_cast<CaseStmt>(SC))
+                        if (auto k = kind_of(CS->getLHS())) arm_.push_back(*k);
+                    VisitSwitchCaseLabel(SC);
+                    cur = SC->getSubStmt();
+                }
+            }
+            if (cur && !TraverseStmt(cur)) { arm_ = saved; return false; }
+        }
+        arm_ = saved;
+        return true;
+    }
+
+    // ⚠ AN `if` CHAIN IS A DISPATCHER TOO, AND THE FIRST CUT COULD NOT SEE ONE.
+    // Only switch arms were attributed, so 25 contexts had call edges and
+    // `try_path` — written as `if (e.kind() == EC::VarRef) … if (… FieldRead)` —
+    // contributed NOTHING. The detector for enumeration had enumerated the two
+    // spellings of dispatch and kept one. The THEN branch of a kind test is an
+    // arm of that kind, exactly as a case label's body is.
+    bool TraverseIfStmt(IfStmt *S) {
+        std::vector<std::string> ks;
+        if (const auto *B = dyn_cast_or_null<BinaryOperator>(
+                S->getCond() ? S->getCond()->IgnoreParenImpCasts() : nullptr))
+            if (B->getOpcode() == BO_EQ)
+                for (const Expr *E : {B->getLHS(), B->getRHS()})
+                    if (auto k = kind_of(E)) ks.push_back(*k);
+        if (S->getInit() && !TraverseStmt(S->getInit())) return false;
+        if (S->getCond() && !TraverseStmt(S->getCond())) return false;
+        bool ok = true;
+        {
+            auto saved = arm_;
+            if (!ks.empty()) arm_ = ks;
+            ok = !S->getThen() || TraverseStmt(S->getThen());
+            arm_ = saved;
+        }
+        // The ELSE branch is NOT an arm of K — it is where K is known false.
+        if (ok && S->getElse()) ok = TraverseStmt(S->getElse());
+        return ok;
+    }
+
+    bool VisitCallExpr(CallExpr *C) {
+        const FunctionDecl *D = C->getDirectCallee();
+        if (!D || arm_.empty() || cur_.empty()) return true;
+        std::string callee = D->getNameAsString();
+        for (const auto &k : arm_) g_arm_calls.insert(cur_ + "\t" + k + "\t" + callee);
+        // ⚠ WHERE A CALLEE LIVES IS THE ONLY MECHANICAL WAY TO TELL A CHECK
+        // FROM AN ACCESSOR. The first run of arm_divergence drowned: its seven
+        // sharpest rows were `push_back`, `operand`, `receiver`, `operator=` —
+        // structural readers from lir_view.hpp, whose absence from an arm means
+        // only that the arm has a different shape. Filtering them by NAME would
+        // be the enumeration disease again; filtering by defining file is a
+        // property, and it moves with the code.
+        auto &SM = ctx_.getSourceManager();
+        auto P = SM.getPresumedLoc(D->getLocation());
+        if (P.isValid())
+            g_callee_home.insert(callee + "\t" +
+                                 llvm::sys::path::filename(P.getFilename()).str());
+        return true;
+    }
+
     // ── the three positions ─────────────────────────────────────────────────
+    void VisitSwitchCaseLabel(SwitchCase *SC) {
+        if (auto *S = dyn_cast<CaseStmt>(SC)) VisitCaseStmt(S);
+    }
     bool VisitCaseStmt(CaseStmt *S) {
         if (auto k = kind_of(S->getLHS())) {
             // ⚠ THE DISTINCTION THE grep COULD NOT MAKE. A case label with no
@@ -191,6 +283,7 @@ private:
 
     ASTContext &ctx_;
     std::string cur_;
+    std::vector<std::string> arm_;   // the case kinds whose arm we are inside
     std::set<const Expr *> seen_;
 };
 
@@ -230,7 +323,10 @@ int main(int argc, const char **argv) {
     }
     write("expr_code.facts", g_codes_ordered);
     write("tests.facts", {g_tests.begin(), g_tests.end()});
+    write("arm_call.facts", {g_arm_calls.begin(), g_arm_calls.end()});
+    write("callee_home.facts", {g_callee_home.begin(), g_callee_home.end()});
     llvm::outs() << "lir_facts: " << g_codes_ordered.size() << " codes, " << g_tests.size()
-                 << " tests\n";
+                 << " tests, "
+                 << g_arm_calls.size() << " arm calls\n";
     return 0;
 }
