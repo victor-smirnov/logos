@@ -14541,10 +14541,28 @@ bool SemaChecker::try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,
     // TupleIndex rides a proven route: `t.0` is a field whose name is its
     // index. Deref and SliceIndex wait for is_reborrow_shape to be widened
     // first — that is its own arc, not a line in this one.
+    // ⚠ Deref ADDED, AND THE BLOCK THAT KEPT IT OUT IS NOW LIFTED. It was held
+    // back because the only recogniser of the shape this produces matched
+    // `AddrOfTemp(Deref(VarRef))` alone, so `f(*p)` would have been wrapped into
+    // `AddrOfTemp(Deref(Deref(p)))` and recognised by nothing. borrow_check's
+    // AddrOfTemp arm now PEELS A DEREF CHAIN instead of matching one deref, so
+    // the wrap is recorded. MEASURED: `f(*p, *p)` with `p: &mut &mut i64`
+    // compiled rc 0 — two live `&mut i64` onto one storage, E0499 — while its
+    // one-property twin `f(p, p)` refused.
+    // ⚠ THE REMAINING CONSUMER IS CODEGEN: mlir_gen_dyn's dyn_storage_ptr still
+    // unwraps exactly one deref, and a wrap it fails to recognise is read as a
+    // by-value fat pair — a SEGFAULT, not a refusal. That shape needs a
+    // `& &dyn Tr` receiver, which the type grammar does not parse today
+    // (measured: "syntax error near '&'"), so it is unreachable rather than
+    // handled. If reference-to-reference types ever parse, dyn_storage_ptr must
+    // peel the chain before this line is safe.
+    // SliceIndex still waits: it has no demonstrated live hole yet, and one
+    // spelling at a time is how each of these is measured.
     auto k = expr_ref_of(arg).kind();
     if (k != lir_schema::expr::Code::VarRef &&
         k != lir_schema::expr::Code::FieldRead &&
         k != lir_schema::expr::Code::TupleIndex &&
+        k != lir_schema::expr::Code::Deref &&
         k != lir_schema::expr::Code::IndexRead)
         return false;
     auto deref = builder().deref(std::move(arg), arg_pointee);

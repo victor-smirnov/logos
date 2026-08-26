@@ -1,0 +1,21 @@
+// A REBORROW PASSED AT A CALL SITE, THROUGH A DEREF.
+//
+// `try_implicit_reborrow_mut` declined Deref, so `f(*p, *p)` was never wrapped
+// as a reborrow at all and the bare `Deref(p)` argument recorded no borrow —
+// two live `&mut i64` onto one storage, which rustc rejects E0499.
+// The exclusion was written down as BLOCKED on the recogniser: widening the
+// producer alone would have emitted AddrOfTemp(Deref(Deref(p))), which
+// `is_reborrow_shape` — one deref, exactly — still would not have matched.
+// borrow_check's AddrOfTemp arm now peels the CHAIN, so both halves land.
+// ONE-PROPERTY TWIN: `f(p, p)` with the formals one `&mut` wider — refused all
+// along, which is what made this one visible as a divergence.
+package bc_reborrow_deref_call_arg;
+fn f(a: &mut i64, b: &mut i64) -> i64 { return *a + *b; }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let mut r: &mut i64 = &mut x;
+    let p: &mut &mut i64 = &mut r;
+    let s: i64 = f(*p, *p);
+    if s == 0i64 { return 1i32; }
+    return 0i32;
+}
