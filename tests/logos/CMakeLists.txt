@@ -1361,6 +1361,15 @@ set_tests_properties(logos_00_mlir_gen_bug_ledger PROPERTIES
 # MEASURED cost when it landed: ~0.8 s per row, serial (ONE SCHEDULER — this
 # gate may not fan out its own), so the TIMEOUT below is sized for the row count
 # plus the shared-box margin, not for an exclusive run.
+# ⚠ THE GATE NO LONGER COMPILES ANYTHING — 2026-08-26. It used to walk every row
+# and compile it, 462 programs in ONE ctest slot: ~7 min with one core busy and
+# thirty-one idle, in `tier_commit`, so every gates run paid it. That is the
+# shape #85 forbids seen from its other side: a registered test may not fan out,
+# so a test with N programs to get through runs them SERIALLY and no flag helps.
+# The per-program verdict is now one registered test each (below), which the
+# scheduler that owns the work parallelises, and a failure NAMES the program
+# instead of reporting that the fold disagreed. What is left here is the roster:
+# every row has a file, every file has a row, and `# TOTAL` matches — no compiles.
 add_test(
     NAME logos_00_bc_admits_ledger
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/bc_admits_ledger_gate.sh
@@ -1369,10 +1378,34 @@ add_test(
             ${CMAKE_SOURCE_DIR}
 )
 set_tests_properties(logos_00_bc_admits_ledger PROPERTIES
-    TIMEOUT 2400
+    TIMEOUT 300
     LABELS  "logos;pass;suite_semantic_core;tier_commit"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
+
+# ── ONE TEST PER ADMIT PROGRAM ──────────────────────────────────────────────
+# DERIVED FROM THE GLOB, NOT LISTED, exactly as the facts registration above:
+# a program added tomorrow gets its test automatically, and the roster gate is
+# what reds if its ledger row is missing. The assertion per program is that the
+# defect is STILL THERE — the compile is silent. Nothing is RUN: these programs
+# are defective by definition and their runtime behaviour is nobody's claim.
+file(GLOB _bc_admit_srcs CONFIGURE_DEPENDS
+    ${CMAKE_SOURCE_DIR}/tests/imported/admit/*/*.logos)
+foreach(_ba IN LISTS _bc_admit_srcs)
+    get_filename_component(_bb ${_ba} NAME_WE)
+    get_filename_component(_bd ${_ba} DIRECTORY)
+    get_filename_component(_bd ${_bd} NAME)
+    add_test(
+        NAME logos_00_bc_admit_${_bd}_${_bb}
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/bc_admit_one.sh
+                $<TARGET_FILE:logosc> ${_ba} ${_bd}
+    )
+    set_tests_properties(logos_00_bc_admit_${_bd}_${_bb} PROPERTIES
+        TIMEOUT 120
+        LABELS  "logos;pass;suite_semantic_core;tier_commit"
+        ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+    )
+endforeach()
 
 # ── `type_apply` — THE ONLY name→Type BRIDGE, AND IT ABORTS ─────────────────
 # A metaprog handler holds its target's name as a runtime `str` read off the

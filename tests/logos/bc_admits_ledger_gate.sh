@@ -56,15 +56,13 @@ trap 'rm -rf "$TMPD"' EXIT
 # Prints "0" when the program compiled with NO diagnostic, "1" otherwise.
 # ⚠ NOT `<compiler stderr> | grep -q`: under `pipefail` a `grep` that exits early
 # turns the producer's SIGPIPE into the pipeline's status. Materialise, then match.
+# ⚠ ONE READER, NOT TWO. The verdict logic lives in `bc_admit_one.sh`, which the
+# 462 per-program tests use; this gate only borrows it for the canary below. A
+# second copy here would be the drift this codebase has paid for twice — two
+# walkers of one fact that diverge.
 admitted() {
-    local src="$1" rc=0
-    "$LOGOSC" "$src" -o "$TMPD/out.o" >"$TMPD/out.txt" 2>"$TMPD/err.txt" || rc=$?
-    if [ "$rc" -ne 0 ]; then echo 1; return; fi
-    # `logosc` spells a diagnostic `<file>:<line>: error [<ctx>]: <msg>`; a
-    # WARNING is `warning [...]` and does not count. Matching the bare word
-    # "error" would count it inside a warning's own text.
-    if grep -q -E "error( \[|:)" "$TMPD/err.txt"; then echo 1; return; fi
-    echo 0
+    "$(dirname "$0")/bc_admit_one.sh" "$LOGOSC" "$1" canary >/dev/null 2>&1 \
+        && echo 0 || echo 1
 }
 
 # ── THE CANARY, BEFORE ANY VERDICT ──────────────────────────────────────────
@@ -101,6 +99,7 @@ echo "[bc-admits] canary: a refusal read as refused and a clean compile read as 
 want_total=""
 n_entries=0
 fail=0
+seen_rel=""
 
 while IFS= read -r line; do
     case "$line" in
@@ -125,16 +124,39 @@ while IFS= read -r line; do
         continue
     fi
 
-    if [ "$(admitted "$src")" != 0 ]; then
-        echo "FAIL: $name (root $root) is NO LONGER ADMITTED — the hole is CLOSED."
-        echo "      Delete its row from $LEDGER — that is the ONLY place the admitted"
-        echo "      set is named — and land the program as an ordinary fail fixture"
-        echo "      under tests/imported/fail/, so it is held to the rule with the"
-        echo "      rest of the corpus. Its diagnostic was:"
-        sed 's/^/        /' "$TMPD/err.txt" | head -5
-        fail=1
-    fi
+    # ⚠ THE VERDICT IS NOT TAKEN HERE ANY MORE — 2026-08-26. This gate used to
+    # compile every row, 462 programs in ONE ctest slot: ~7 min with one core
+    # busy and thirty-one idle, and it sits in `tier_commit`, so every gates run
+    # paid it. That is #85 seen from its other side — a registered test may not
+    # fan out, so a test with N programs to get through runs them SERIALLY and
+    # no flag fixes it. Each program is now its own registered test
+    # (`logos_00_bc_admit_<dir>_<name>`, run by `bc_admit_one.sh`), which the
+    # scheduler that owns the work parallelises: MEASURED 33.5 s wall for all
+    # 462, against ~7 min, and a closed hole now NAMES its program instead of
+    # reporting that the fold disagreed.
+    #
+    # What is left here is the ROSTER, which no per-program test can hold: every
+    # row has a file, every file has a row, and the count matches `# TOTAL`.
+    seen_rel="$seen_rel $rel"
 done < "$LEDGER"
+
+# ── THE OTHER DIRECTION: A PROGRAM WITH NO ROW ──────────────────────────────
+# The loop above checks every ROW has a file. Without this, a program could be
+# added to the admit shelf, get its own registered test (the glob picks it up),
+# and never appear in the ledger — so the COUNT would be honest about a set that
+# is not the set on disk. This is the half a per-program test cannot hold.
+for f in "$ROOT"/tests/imported/admit/*/*.logos; do
+    [ -e "$f" ] || continue
+    rel="${f#"$ROOT"/}"; rel="${rel%.logos}"
+    case " $seen_rel " in
+        *" $rel "*) ;;
+        *) echo "FAIL: $rel is on the admit shelf with NO ledger row."
+           echo "      It has a registered test by the glob, so it is being CHECKED —"
+           echo "      but the ledger is where the admitted set is NAMED, and a count"
+           echo "      that is honest about the wrong set is worse than no count."
+           fail=1 ;;
+    esac
+done
 
 if [ -z "$want_total" ]; then
     echo "GATE BROKEN: $LEDGER carries no '# TOTAL <n>' line, so the row count is"
@@ -151,6 +173,11 @@ fi
 if [ "$fail" -ne 0 ]; then
     exit 1
 fi
-echo "OK: borrow-check admit ledger holds — $n_entries entry/entries, each"
-echo "    re-compiled and still admitted, instrument proved live by two planted"
-echo "    programs in the same run."
+echo "OK: borrow-check admit ledger ROSTER holds — $n_entries row(s): every row"
+echo "    has a file, every file on the shelf has a row, and the count matches"
+echo "    the '# TOTAL' line."
+echo "    ⚠ THIS GATE COMPILES NOTHING. Whether each program is STILL ADMITTED"
+echo "    is asserted by its own registered test — logos_00_bc_admit_<dir>_<name>,"
+echo "    462 of them, MEASURED 33.5 s in parallel against the ~7 min this loop"
+echo "    used to cost in a single ctest slot. The two planted programs above"
+echo "    prove the shared reader can still tell a refusal from a clean compile."

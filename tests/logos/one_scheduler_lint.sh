@@ -89,7 +89,17 @@ found=0
 for s in "${REG[@]}"; do
     f="$T/$s"
     [ -f "$f" ] || continue
-    hits=$(sed 's/#.*//' "$f" | grep -nE "$FANOUT" | grep -v '^\s*$' || true)
+    # ⚠ STRIP DOUBLE-QUOTED STRINGS AS WELL AS COMMENTS. A fan-out primitive is
+    # CODE; the same word inside an `echo` is PROSE. Measured 2026-08-26: this
+    # lint reddened `bc_admits_ledger_gate.sh` for the line
+    #   echo "    462 of them, MEASURED 33.5 s in parallel against the ~7 min"
+    # — a message describing that the work had just been MOVED OUT of the gate
+    # and handed to ctest, i.e. the very thing this lint exists to obtain. It
+    # matched by SPELLING where the property is "does this script schedule".
+    # Stripping quotes does not blunt the detection: `xargs -P "$N"` still
+    # leaves `xargs -P`, and `parallel "$x"` still leaves `parallel` — the
+    # primitives survive their arguments being blanked, which is the point.
+    hits=$(sed 's/#.*//; s/"[^"]*"//g' "$f" | grep -nE "$FANOUT" | grep -v '^\s*$' || true)
     key="OPEN_$(echo "$s" | tr '.-' '__')"
     open="${!key:-}"
     if [ -n "$hits" ]; then
