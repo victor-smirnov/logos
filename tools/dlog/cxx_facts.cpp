@@ -133,21 +133,13 @@ public:
         std::string id = fresh(D);
         emit(id, D->getDeclKindName(), D->getLocation());
         if (const auto *ND = dyn_cast<NamedDecl>(D)) {
+            // decl_id() emits the decl and its bare name on first sight; here
+            // we only need the NODE-to-ENTITY link. ⚠ The bare name is emitted
+            // from C++ rather than derived in Datalog: Souffle has no split and
+            // peeling `::` there needs an ungrounded variable. The qualified
+            // name is kept too — it is strictly more informative.
             std::string did = decl_id(ND);
-            if (!did.empty()) {
-                g_out.decl_node << id << '\t' << did << '\n';
-                if (seen_decl_.insert(did).second) {
-                    ++g_out.decls;
-                    g_out.decl << did << '\t' << D->getDeclKindName() << '\t'
-                               << safe(ND->getQualifiedNameAsString()) << '\n';
-                    // ⚠ THE BARE NAME IS EMITTED, NOT DERIVED IN DATALOG.
-                    // Souffle has no split, and peeling `::` there needs an
-                    // ungrounded variable — string surgery belongs where
-                    // strings live. The qualified name stays too: it is
-                    // strictly more informative and `decl` keeps it.
-                    g_out.decl_name << did << '\t' << safe(ND->getNameAsString()) << '\n';
-                }
-            }
+            if (!did.empty()) g_out.decl_node << id << '\t' << did << '\n';
         }
         if (const auto *FD = dyn_cast<FunctionDecl>(D))
             if (FD->doesThisDeclarationHaveABody() && !decl_id(FD).empty())
@@ -214,8 +206,27 @@ private:
         const Decl *C = D->getCanonicalDecl();
         auto P = sm_.getPresumedLoc(C->getLocation());
         if (!P.isValid()) return {};
-        return llvm::sys::path::filename(P.getFilename()).str() + ":" +
-               std::to_string(P.getLine()) + ":" + std::to_string(P.getColumn());
+        std::string id = llvm::sys::path::filename(P.getFilename()).str() + ":" +
+                         std::to_string(P.getLine()) + ":" + std::to_string(P.getColumn());
+        // ⚠ A REFERENCED DECLARATION GETS A ROW EVEN IF IT LIVES IN A SYSTEM
+        // HEADER. The walk skips those bodies — that is the whole cost control —
+        // but skipping the body must not make the ENTITY nameless: `out.push_back(c)`
+        // resolves to a decl in <vector>, so `decl_name` had no row, and 268
+        // arm_call rows silently lost their callee. Completeness of the schema
+        // must not depend on where a thing is declared; filtering by that is the
+        // QUERY's job, which is exactly what `structural` already does.
+        // ⚠ AN EMPTY NAME IS NOT A NAME. Unnamed decls (anonymous structs,
+        // parameters without an identifier, some template machinery) produced
+        // 30 arm_call rows whose callee column was blank — rows that join with
+        // nothing and read as data.
+        if (const auto *ND = dyn_cast<NamedDecl>(C))
+            if (!ND->getNameAsString().empty() && seen_decl_.insert(id).second) {
+                ++g_out.decls;
+                g_out.decl << id << '\t' << C->getDeclKindName() << '\t'
+                           << safe(ND->getQualifiedNameAsString()) << '\n';
+                g_out.decl_name << id << '\t' << safe(ND->getNameAsString()) << '\n';
+            }
+        return id;
     }
 
     // Canonical spelling as identity: no source location exists for a type, a

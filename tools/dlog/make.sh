@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# make.sh — build tools/dlog/lir_facts against the system LLVM 20.
+# make.sh — build tools/dlog/cxx_facts against the system LLVM 20.
 #
 # ⚠ NAMED make.sh, NOT build.sh: .gitignore line 13 is a bare `build*`, which
 # matches at every depth, so tools/dlog/build.sh was invisible to `git add` and
 # would have been committed as a tool that cannot be built. `git status` did not
 # list it; `git check-ignore -v` did.
 #
-# ⚠ DELIBERATELY OUTSIDE THE PROJECT'S CMake. lir_facts links clang, which the
+# ⚠ DELIBERATELY OUTSIDE THE PROJECT'S CMake. cxx_facts links clang, which the
 # compiler itself does not; putting it in the main build would make every
 # contributor's configure depend on libclang-20-dev for a tool that is not a
 # gate and runs by hand. Built on demand into build/dlog/ instead.
@@ -41,4 +41,4 @@ build_one() {
     "$SO" $("$CFG" --ldflags --libs support core --system-libs) \
     -Wl,-rpath,"$LLVM/lib"
 }
-build_one lir_facts && build_one cxx_facts
+build_one cxx_facts

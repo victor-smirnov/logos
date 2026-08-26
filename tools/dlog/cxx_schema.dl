@@ -35,9 +35,18 @@ context(N) :- node(N, "Function", _, _).
 context(N) :- node(N, "CXXMethod", _, _).
 context(N) :- node(N, "LambdaExpr", _, _).
 
+// ⚠ AN ANONYMOUS LAMBDA MUST NOT BREAK THE CHAIN. `each_elem([&](e){ … })`
+// inside a switch arm is a LambdaExpr with no variable to be named for, and
+// stopping there attributes the arm's calls to nothing — 398 of 1231 arm_call
+// rows vanished that way on the first port. A context you cannot NAME is not a
+// context anyone can ask about, so walk past it to the enclosing one, which is
+// what the C++ version's scope stack did when the name came back empty.
+.decl named_context(id: symbol)
+named_context(N) :- context(N), ctx_name(N, _).
+
 .decl ctx_of(n: symbol, c: symbol)
-ctx_of(N, N)  :- context(N).
-ctx_of(N, C)  :- node(N, _, P, _), P != "-", !context(N), ctx_of(P, C).
+ctx_of(N, N)  :- named_context(N).
+ctx_of(N, C)  :- node(N, _, P, _), P != "-", !named_context(N), ctx_of(P, C).
 
 // A context's NAME. A function or method has a declaration and therefore a
 // qualified name; a lambda has neither, and the name a reader means is the

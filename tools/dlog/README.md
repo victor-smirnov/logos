@@ -42,33 +42,52 @@ Keeping the claim out of the extractor is not tidiness. The first extractor knew
 about walkers, so it could certify a function complete against a domain that
 shared its author's blind spot exactly.
 
-## The extractor is clang, and the grep version is why
+## The extractor stopped knowing what the question is
 
-`lir_facts.cpp` is a LibTooling binary. The shell version it replaced worked, and
-was wrong in three ways that were measured rather than suspected:
+`cxx_facts.cpp` (LibTooling) emits a FIXED relational encoding of a translation
+unit and knows nothing about place walkers:
 
-1. **`handles` meant "the body MENTIONS the code".** `case SliceIndex: break;`
-   counted as handled — the tool for finding a MISSING arm could not see an
-   EMPTY one. Positions are now `case_live | case_empty | cond | mention`.
-2. **The domain was unqualified.** `lir_schema.hpp` declares **five** enums named
-   `Code`: expr(42), stmt(22), writ_val(9), pat(13), decl(14). A `grep -oE
-   "::(TupleIndex|…)"` cannot say whose. Measured 2026-08-26: no projection name
-   currently appears in another `Code`, so the grep was **lucky, not correct** —
-   the day someone adds `pat::Code::Deref` it lies silently.
-3. **Bodies were cut by brace balance** from a grepped definition line, and
-   `try_path` is not a function: it is a `std::function` assigned a lambda on the
-   next line. The awk worked by accident.
+```
+node(Id, Kind, Parent, Index)     decl(DeclId, Kind, QualifiedName)
+loc(Id, File, Line, Col)          decl_name(DeclId, BareName)
+ref(UseId, DeclId)                decl_node(Id, DeclId)
+call(CallId, CalleeDeclId)        enum_member(EnumId, ConstId, Name)
+type_of(Id, TypeId)               type(TypeId, Class, Name)
+type_pointee / type_decl / cast_kind
+cfg_block / cfg_entry / cfg_exit / cfg_edge / cfg_stmt(Fn, B, NodeId)
+```
 
-The rewrite made two errors of its own, both caught on the first run and both
-the same shape as everything else here:
+115610 nodes, 22 MB, 2.7 s for `borrow_check.cpp`. It replaced a
+question-shaped extractor that needed a C++ edit and a rebuild per question —
+and whose three extraction bugs were ALL bugs of OMISSION: a domain keyed on a
+grep of five typed names, callers left unfiltered so `__stable_sort` came back
+as a finding, dispatch attributed for `case` but not `if` so `try_path`
+contributed zero edges. In none was a fact wrong; the fact was ABSENT because
+nobody had asked. **A complete schema turns "I did not ask for that" into "my
+query is wrong", and a wrong query is visible where an absent fact is not.**
 
-* fall-through case labels (`case EnumLit: case EnumLitData: <body>`) were
-  scored `case_empty`, producing **three confident false findings**. A shared arm
-  is still an arm; follow the chain to the body that runs.
-* the lambda→variable lookup checked only the immediate parent, but assigning a
-  lambda to a `std::function` inserts a `CXXConstructExpr` and a
-  `MaterializeTemporaryExpr`, so **`try_path` — the walker the tool exists to
-  check — emitted zero facts**. Climb the parents, with a bound.
+⚠ **Completeness is affordable.** `-ast-dump=json` on one TU is 2.8 GB, but that
+is JSON verbosity, not information. What had to be cut was system headers.
+
+⚠ **Identity is the point.** Declarations are keyed by the canonical
+declaration's source location — stable across TUs, so a 40-TU sweep is
+joinable. Nodes are keyed per-TU. Keying on NAMES, which is all a grep can do,
+is already half broken here: overloads, template instantiations, lambdas, and
+five separate enums named `Code` in `lir_schema.hpp`.
+
+⚠ **The CFG is joined, not parallel.** `cfg_stmt` names the same node ids as
+`call` and `type_of`, so per-block anything is a JOIN rather than a second
+extraction.
+
+### The layers
+
+| file | what it knows |
+|---|---|
+| `cxx_facts.cpp` | C++. Nothing about LIR. |
+| `cxx_schema.dl` | ancestry, nearest named context, `transparent`, CFG reachability |
+| `lir_dispatch.dl` | `expr_code` / `tests` / `arm_call` for a *parameterised* enum |
+| `lir_questions.dl` | `ours` / `structural`, by defining file |
+| `place_walkers.dl` `duty.dl` `cluster_divergence.dl` | the questions |
 
 ## Acceptance: it must reproduce a KNOWN answer
 

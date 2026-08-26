@@ -18,10 +18,9 @@ set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 2
 ROOT=$PWD
 OUT="${1:-build/dlog/sweep}"
-ENUM=::logos::compiler::lir_schema::expr::Code
 
 command -v souffle >/dev/null || { echo "sweep: souffle not installed"; exit 2; }
-bash tools/dlog/make.sh >/dev/null 2>&1 || { echo "sweep: lir_facts does not build"; exit 2; }
+bash tools/dlog/make.sh >/dev/null 2>&1 || { echo "sweep: cxx_facts does not build"; exit 2; }
 
 rm -rf "$OUT"; mkdir -p "$OUT/per"
 # Every compiler TU the build actually compiles — from the compilation database,
@@ -46,28 +45,39 @@ echo "sweep: $N translation units, -P$(nproc)"
 # floor below exists.
 xargs -P"$(nproc)" -I{} -a "$OUT/tus" sh -c '
     d="$2/per/$(basename "$3" | tr "/." "__")"; mkdir -p "$d"
-    "$1" -p build --enum="$4" --out="$d" "$3" >"$d/log" 2>&1
-' _ "$ROOT/build/dlog/lir_facts" "$ROOT/$OUT" {} "$ENUM" 2>/dev/null
+    "$1" -p build --out="$d" "$3" >"$d/log" 2>&1
+' _ "$ROOT/build/dlog/cxx_facts" "$ROOT/$OUT" {} 2>/dev/null
 
 OK=$(ls -d "$OUT"/per/*/ 2>/dev/null | wc -l)
-FAILED=$(grep -Lq . /dev/null 2>/dev/null; for d in "$OUT"/per/*/; do
-    [ -s "$d/tests.facts" ] || echo "$d"; done | wc -l)
-echo "sweep: $OK dirs, $FAILED with no facts (a TU with no dispatch is normal)"
+# ⚠ CHECK A RELATION THE EXTRACTOR ALWAYS WRITES. This tested `tests.facts`,
+# which the question-shaped extractor produced per TU and the general one does
+# not — so the line read "39 with no facts" while the sweep went on to report
+# 871 tests. A progress line that contradicts the result is worse than none.
+FAILED=$(for d in "$OUT"/per/*/; do [ -s "$d/node.facts" ] || echo "$d"; done | wc -l)
+echo "sweep: $OK dirs, $FAILED that produced no AST at all"
+[ "$FAILED" -lt "$((OK / 2))" ] || { echo "sweep: more than half the TUs failed to parse — refusing"; exit 3; }
 
-cat "$OUT"/per/*/expr_code.facts 2>/dev/null | sort -u > "$OUT/expr_code.facts"
-cat "$OUT"/per/*/tests.facts    2>/dev/null | sort -u > "$OUT/tests.facts"
+# ⚠ MERGING IS ONLY SOUND BECAUSE OF HOW IDENTITY IS KEYED: declarations by
+# their canonical source location (stable across TUs) and nodes by a TU-tagged
+# counter (TU-local by construction). Concatenating the relational facts of 40
+# TUs would be meaningless otherwise.
+for r in node loc decl decl_name decl_node ref call enum_member type type_of \
+         type_pointee type_decl cast_kind cfg_block cfg_entry cfg_exit \
+         cfg_edge cfg_stmt; do
+    cat "$OUT"/per/*/"$r".facts 2>/dev/null | sort -u > "$OUT/$r.facts"
+done
+cp "$ROOT"/tools/dlog/*.dl "$OUT/"
 grep -vE '^\s*(#|$)' tools/dlog/not_projection.claim > "$OUT/not_projection.facts"
 echo VarRef > "$OUT/place_root_kind.facts"
 
-NC=$(wc -l < "$OUT/expr_code.facts")
-[ "$NC" -ge 20 ] || { echo "sweep: domain is $NC codes — refusing to report on it"; exit 3; }
-
-(cd "$OUT" && souffle -F. -D. "$ROOT/tools/dlog/place_walkers.dl" >/dev/null 2>&1) || {
+(cd "$OUT" && souffle -F. -D. -I. "$ROOT/tools/dlog/place_walkers.dl" >/dev/null 2>&1) || {
     echo "sweep: souffle failed"; exit 2; }
+NC=$(wc -l < "$OUT/expr_code.csv")
+[ "$NC" -ge 20 ] || { echo "sweep: domain is $NC codes — refusing to report on it"; exit 3; }
 
 echo
 echo "── domain ──  $NC codes, $(wc -l < "$OUT/projection_kind.csv") projections,"\
-     "$(wc -l < "$OUT/tests.facts") tests, $(wc -l < "$OUT/walker.csv") derived walkers"
+     "$(wc -l < "$OUT/tests.csv") tests, $(wc -l < "$OUT/walker.csv") derived walkers"
 echo
 echo "── incomplete walkers, worst first ──"
 join -t'	' -1 1 -2 1 \

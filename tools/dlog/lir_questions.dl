@@ -1,0 +1,28 @@
+// lir_questions — the shared filters every question needs, over the schema.
+//
+// `ours` and `structural` were duplicated across arm_divergence, dominance and
+// cluster_divergence, each keyed on a FILE NAME because that is all lir_facts
+// could give. Here they are derived once, from `loc` on the declaration, and a
+// question that needs a different cut can write its own without copying these.
+.decl decl_file(d: symbol, file: symbol)
+decl_file(D, F) :- decl_node(N, D), loc(N, F, _, _).
+
+.decl compiler_file(file: symbol)
+compiler_file(F) :- decl_file(_, F), contains(".cpp", F).
+compiler_file(F) :- decl_file(_, F), contains(".inc", F).
+compiler_file(F) :- decl_file(_, F), contains("sema", F).
+compiler_file(F) :- decl_file(_, F), contains("borrow", F).
+
+// ⚠ FILTER BY WHERE A THING IS DEFINED, NOT BY WHAT IT IS CALLED. The first
+// ranked run of arm_divergence drowned: its seven sharpest rows were
+// `push_back`, `operand`, `receiver` and `operator=` — structural readers whose
+// absence from an arm says only that the arm has a different SHAPE. Excluding
+// them by NAME would be the enumeration disease inside the detector; the
+// defining file is a property and it moves on its own when a file is added.
+.decl structural(name: symbol)
+structural(N) :- decl_name(D, N), decl_file(D, "lir_view.hpp").
+structural(N) :- decl_name(D, N), decl_file(D, "lir_schema.hpp").
+structural(N) :- decl_name(D, N), decl_file(D, F), !compiler_file(F).
+
+.decl ours(f: symbol)
+ours(F) :- decl_name(D, F), decl_file(D, File), compiler_file(File).

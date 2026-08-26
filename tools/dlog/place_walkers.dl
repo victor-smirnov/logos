@@ -1,35 +1,23 @@
-// spelling_keyed — the recurring defect of this codebase, as a rule.
+// place_walkers — the place-walker question, asked of the general schema.
 //
-// A PLACE WALKER decomposes `a.b`, `t.0`, `v[i]`, `*p` down to a root. Such a
-// function must handle every PROJECTION, because the property is "a step from a
-// place to a sub-place" and the property does not care how the step is spelled.
-// Eight times in one week a walker enumerated the spellings its author had in
-// mind and silently declined the rest:
-//   `try_path`               VarRef|FieldRead, missing TupleIndex/Deref/IndexRead
-//                            -> two mut closures over `t.0` did not conflict, and
-//                               one aliased at runtime
-//   `extract_borrow_place`   no TupleIndex arm -> `&x.0` recorded NO loan at all
-//   `is_temporary_value_expr` listed literals and calls, missing operators
-//                            -> `return &(2+3);` returned a dead frame
-// None of these is findable by grep, because the defect is an ABSENCE. It is
-// findable by a rule, because an absence over a finite domain is derivable.
-// THE DOMAIN IS DERIVED, NOT LISTED. expr_code comes from the schema enum;
-// not_projection is the claim. Subtracting means a NEW expr code is a
-// projection until someone exempts it — loud by default, because the opposite
-// default is exactly the blindness these rules exist to detect.
-.decl expr_code(k: symbol)
+// ⚠ ONE CHAIN NOW. This used to be two files and two souffle passes: a
+// question-shaped extractor produced `tests`, and a second program reasoned
+// over it. `tests` is a RULE here, so the whole thing is one program and the
+// intermediate .facts round-trip is gone.
+//
+// ACCEPTANCE, unchanged and non-negotiable: 19 walkers / 24 findings /
+// try_path 1/5 / domain 42-5 on revision 28fc7c75, with the six landed fixes
+// named as a subset. See selftest.sh.
+#include "cxx_schema.dl"
+#include "lir_dispatch.dl"
+target_enum(E) :- decl(E, "Enum", "logos::compiler::lir_schema::expr::Code").
+
 .decl not_projection(k: symbol)
-.decl projection_kind(k: symbol)
-.decl place_root_kind(k: symbol)
-// tests(Context, Kind, Position) comes from the AST, not from a grep over the
-// text — see tools/dlog/lir_facts.cpp. Position is what makes HANDLING
-// decidable: a `case K:` with no body, and a `builder().make(K)` that merely
-// MENTIONS the code, are both things the old extractor counted as handled.
-.decl tests(f: symbol, k: symbol, pos: symbol)
-.decl handles(f: symbol, k: symbol)
-.input tests
-.input expr_code
 .input not_projection
+.decl place_root_kind(k: symbol)
+place_root_kind("VarRef").
+
+.decl handles(f: symbol, k: symbol)
 handles(F, K) :- tests(F, K, "case_live").
 handles(F, K) :- tests(F, K, "cond").
 
@@ -38,9 +26,10 @@ handles(F, K) :- tests(F, K, "cond").
 .decl dead_arm(f: symbol, k: symbol)
 .output dead_arm
 dead_arm(F, K) :- tests(F, K, "case_empty").
+
+.decl projection_kind(k: symbol)
 .output projection_kind
 projection_kind(K) :- expr_code(K), !not_projection(K).
-.input place_root_kind
 
 // ── WHO IS A WALKER: DERIVED, NOT NOMINATED ─────────────────────────────────
 // ⚠ walker.facts USED TO BE THREE NAMES I TYPED. A detector built against

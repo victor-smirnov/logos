@@ -1,0 +1,78 @@
+// lir_dispatch — dispatch over an LIR schema enum, derived from cxx_schema.
+//
+// The caller defines `target_enum` and includes this file; everything the four
+// questions share lives here and is written once.
+//
+// ⚠ THE ENUM IS A PARAMETER. lir_facts took it as a command-line flag and had to
+// be re-run per domain. Here the same rules answer over expr::Code, stmt::Code,
+// pat::Code or decl::Code by changing one rule in the caller.
+.decl target_enum(e: symbol)
+
+.decl expr_code(k: symbol)
+.output expr_code
+expr_code(K) :- target_enum(E), enum_member(E, _, K).
+
+// A node NAMING one of the codes, resolved through `ref`. lir_schema.hpp
+// declares FIVE enums called `Code`; the grep this ultimately replaces matched
+// text after `::` and was correct only by luck.
+.decl names_code(n: symbol, k: symbol)
+names_code(N, K) :- through(N, I), ref(I, D), target_enum(E), enum_member(E, D, K).
+
+.decl case_of(casestmt: symbol, k: symbol)
+case_of(C, K) :- node(C, "CaseStmt", _, _), node(L, _, C, 0), names_code(L, K).
+
+// ⚠ FALLING THROUGH IS NOT NOTHING. `case A: case B: <body>` shares one arm
+// between two codes; scoring the first as empty produced three confident FALSE
+// findings the first time this was written in C++.
+.decl case_live(c: symbol)
+case_live(C) :- case_of(C, _), node(_, K, C, 1), K != "NullStmt", K != "CaseStmt".
+case_live(C) :- case_of(C, _), node(B, "CaseStmt", C, 1), case_live(B).
+
+.decl tests(f: symbol, k: symbol, pos: symbol)
+.output tests
+tests(F, K, "case_live")  :- case_of(C, K), case_live(C),  ctx_of(C, X), ctx_name(X, F).
+tests(F, K, "case_empty") :- case_of(C, K), !case_live(C), ctx_of(C, X), ctx_name(X, F).
+tests(F, K, "cond") :- node(B, "BinaryOperator", _, _), node(A, _, B, _),
+                       names_code(A, K), ctx_of(B, X), ctx_name(X, F).
+
+// ── WHICH ARM A NODE SITS IN ───────────────────────────────────────────────
+// ⚠ LEXICAL NESTING DOES NOT ANSWER THIS, and it is the single hardest thing
+// this layer does. In clang's AST an UNBRACED arm's statements are SIBLINGS of
+// the CaseStmt inside the switch's CompoundStmt, not its children:
+// `case A: f(); g(); break;` puts only `f()` under the CaseStmt. So the arm a
+// statement belongs to is the NEAREST PRECEDING case label among its siblings —
+// a max over indices, which is why this is a rule and not a walk.
+.decl sibling_case(parent: symbol, idx: number, c: symbol)
+// The `node(C0, …) , K <= I` guard makes the aggregate total: without a
+// preceding label there is no arm, and `max` over an empty set is not an answer.
+sibling_case(P, I, C) :- node(_, _, P, I), node(_C0, "CaseStmt", P, _K0), _K0 <= I,
+                         J = max K : { node(_C2, "CaseStmt", P, K), K <= I },
+                         node(C, "CaseStmt", P, J).
+
+// The arm a node belongs to: through the case label's own subtree, or through
+// the nearest preceding label among its siblings, then inherited downward.
+.decl in_arm(n: symbol, k: symbol)
+in_arm(N, K) :- case_of(C, K), node(N, _, C, 1).
+in_arm(N, K) :- node(N, _, P, I), sibling_case(P, I, C), case_of(C, K).
+// ⚠ NO `!CaseStmt` EXCLUSION HERE. It looks like it stops one arm leaking into
+// the next, and it does not: a sibling label gets its own arm from the two rules
+// above, and `sibling_case` maps a CaseStmt to ITSELF (K <= I). What the
+// exclusion actually did was cut a FALL-THROUGH GROUP in half —
+// `case ClosureCall: case FnPtrCall: { … }` hangs its body under the SECOND
+// label, so propagation stopped at the nested CaseStmt and ClosureCall lost its
+// whole body. Measured: 268 arm_call rows missing, `push_back` and
+// `closure_caps_of` among them.
+in_arm(N, K) :- node(N, _, P, _), in_arm(P, K).
+
+// ⚠ AN `if` CHAIN IS A DISPATCHER TOO. Attributing only `case` arms left
+// `try_path` — written as `if (e.kind() == EC::VarRef) …` — contributing ZERO
+// call edges, in a tool built to catch exactly that kind of omission. The THEN
+// branch of a kind test is an arm of that kind; the ELSE branch is where the
+// kind is known false and is not.
+in_arm(N, K) :- node(F, "IfStmt", _, _), node(Cnd, "BinaryOperator", F, 0),
+                node(A, _, Cnd, _), names_code(A, K), node(N, _, F, 1).
+
+.decl arm_call(f: symbol, k: symbol, callee: symbol)
+.output arm_call
+arm_call(F, K, Name) :- in_arm(N, K), call(N, D), decl_name(D, Name),
+                        ctx_of(N, X), ctx_name(X, F).
