@@ -227,6 +227,13 @@ NOT_GATES = {
     # it would assert something about the extraction that only the rules can
     # decide. See tools/dlog/README.md for why the extractor, not the rules, is
     # the risk in that design.
+    "gate.sh":                 "the tools/dlog findings baseline. NOT a ctest "
+                               "test yet, and the baseline says why: 141 of 164 "
+                               "rows are UNTRIAGED, so registering it would "
+                               "assert that a pile of unexamined rows is the "
+                               "correct state of the world. A ratchet first — it "
+                               "stops the pile growing — a gate when the debt is "
+                               "paid",
     "ask.sh":                  "the single entry point to tools/dlog: extracts "
                                "facts (content-keyed cache) and runs one .dl "
                                "question, printing where the answer landed. It "

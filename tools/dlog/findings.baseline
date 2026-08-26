@@ -1,0 +1,194 @@
+# findings.baseline — every row the design space currently reports, named once.
+#
+# THE GATE FIRES ON THE DIFFERENCE, not on the rows. A new row is red because
+# nobody has looked at it; a vanished row is red because the baseline has
+# stopped being true and a fix deserves a fixture. Same shape as
+# tests/logos/bc_admits.ledger and logos_00_census_pin.
+#
+# Format:  <disposition> <question> <the question's own columns>
+#
+#   FALSE      triaged and refuted, with a one-variable control. Not a defect.
+#   OPEN       confirmed live, repro proven, not yet fixed. See docs/baghunt/.
+#   NARROW     a deliberately narrow subset, with the reason stated at the site.
+#   UNTRIAGED  nobody has looked. NOT a verdict — a debt, and the count is the
+#              measure of it. This gate is a RATCHET until that count is small:
+#              it stops the pile growing silently, and becomes a ctest gate when
+#              the pile is gone.
+#
+# ⚠ DO NOT trim rows to make the gate quiet. A row removed without a fixture is
+# a finding deleted, which is the one move this whole apparatus exists to make
+# impossible.
+# WHAT THE DISPOSITIONS RECORD TODAY. Only rows actually established are marked;
+# everything else stays UNTRIAGED, which is honest rather than tidy.
+#   FALSE   4  — each refuted with a one-variable control, one (gen_recv_struct_inner)
+#                by a gdb breakpoint proving the kinds arrive and are answered elsewhere
+#   NARROW  4  — deliberate subsets, each with the reason stated at its own site
+#   OPEN    2  — mark_moved_in_expr_recursive (walker incomplete, live hole closed
+#                elsewhere) and visit_stmt/DerefWrite/check_live, whose repro and
+#                three failed repair attempts are in
+#                docs/baghunt/open_derefwrite_shared_borrow.md
+# ---- rows below
+UNTRIAGED	cluster_divergence	visit_stmt	Assign	type_may_carry_borrow	bc_hop_roots	4
+UNTRIAGED	cluster_divergence	visit_stmt	Assign	type_may_carry_borrow	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	Assign	type_may_carry_borrow	move	4
+UNTRIAGED	cluster_divergence	visit_stmt	Assign	type_may_carry_borrow	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Block	VarStore	visit_block	4
+UNTRIAGED	cluster_divergence	visit_stmt	Block	visit	visit_block	4
+UNTRIAGED	cluster_divergence	visit_stmt	ChainFieldWrite	erase_reinit	operator+	3
+UNTRIAGED	cluster_divergence	visit_stmt	ChainFieldWrite	note_reborrow_place	operator+	3
+UNTRIAGED	cluster_divergence	visit_stmt	ChainFieldWrite	var_find	operator+	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	bc_hop_roots	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	bc_hop_roots	type_may_carry_borrow	4
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	check_live	add_ref_sources	4
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	check_live	operator+	3
+OPEN	cluster_divergence	visit_stmt	DerefWrite	check_live	place_write_loans	7
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	collect_borrow_locals	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	inherit_loans	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	loan_carrying_type	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	move	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	move	type_may_carry_borrow	4
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	note_closure_caps	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	note_reborrow	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	operator[]	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	prov_of	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	record_ref_sources	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	RefProv	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	retain_operand_loans	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	retains_loan_carrying_operand	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	struct_is_dropck_relevant	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	DerefWrite	take_ref_borrows	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	FieldWrite	operator+=	operator+	3
+UNTRIAGED	cluster_divergence	visit_stmt	FieldWrite	report	var_find	6
+UNTRIAGED	cluster_divergence	visit_stmt	If	bc_hop_roots	VarStore	3
+UNTRIAGED	cluster_divergence	visit_stmt	If	collect_ref_sources	VarStore	3
+UNTRIAGED	cluster_divergence	visit_stmt	If	declare_pat_bindings	VarStore	3
+UNTRIAGED	cluster_divergence	visit_stmt	If	move	VarStore	3
+UNTRIAGED	cluster_divergence	visit_stmt	If	propagate_pat_loans	VarStore	3
+UNTRIAGED	cluster_divergence	visit_stmt	If	propagate_pat_prov	VarStore	3
+UNTRIAGED	cluster_divergence	visit_stmt	If	propagate_pat_reborrows	VarStore	3
+UNTRIAGED	cluster_divergence	visit_stmt	If	propagate_pat_sources	VarStore	3
+UNTRIAGED	cluster_divergence	visit_stmt	If	retain_temp_scrut_loan	VarStore	3
+UNTRIAGED	cluster_divergence	visit_stmt	If	type_may_carry_borrow	VarStore	3
+UNTRIAGED	cluster_divergence	visit_stmt	LetElse	merge_loans	VarStore	3
+UNTRIAGED	cluster_divergence	visit_stmt	LetElse	merge_provs	VarStore	3
+UNTRIAGED	cluster_divergence	visit_stmt	LetElse	operator[]	bc_hop_roots	4
+UNTRIAGED	cluster_divergence	visit_stmt	LetElse	operator[]	move	4
+UNTRIAGED	cluster_divergence	visit_stmt	Let	note_holder_escape_prov	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	Let	var_has	is_ref_kind	3
+UNTRIAGED	cluster_divergence	visit_stmt	Let	VarState	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Loop	visit	visit_loop_body	4
+UNTRIAGED	cluster_divergence	visit_stmt	Match	collect_borrow_locals	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	inherit_loans	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	is_ref_kind	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	loan_carrying_type	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	note_closure_caps	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	note_reborrow	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	prov_of	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	record_ref_sources	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	RefProv	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	report	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	retain_operand_loans	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	retains_loan_carrying_operand	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	struct_is_dropck_relevant	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	take_ref_borrows	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	Match	var_find	operator[]	3
+UNTRIAGED	cluster_divergence	visit_stmt	TupleWrite	operator+	add_ref_sources	4
+UNTRIAGED	cluster_divergence	walk_stmt	Break	call_effects	add_taint	11
+UNTRIAGED	duty	collect_struct_needs_from_stmt	Assign	field_borrow_conflicts
+UNTRIAGED	duty	collect_struct_needs_from_stmt	ChainFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	collect_struct_needs_from_stmt	DerefFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	collect_struct_needs_from_stmt	DerefWrite	field_borrow_conflicts
+UNTRIAGED	duty	collect_struct_needs_from_stmt	FieldIndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	collect_struct_needs_from_stmt	FieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	collect_struct_needs_from_stmt	IndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	collect_struct_needs_from_stmt	TupleWrite	field_borrow_conflicts
+UNTRIAGED	duty	gen_stmt	Assign	field_borrow_conflicts
+UNTRIAGED	duty	gen_stmt	ChainFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	gen_stmt	DerefFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	gen_stmt	DerefWrite	field_borrow_conflicts
+UNTRIAGED	duty	gen_stmt	FieldIndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	gen_stmt	FieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	gen_stmt	IndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	gen_stmt	TupleWrite	field_borrow_conflicts
+UNTRIAGED	duty	prescan_uninit_flags	Assign	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt	Assign	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt	ChainFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt	DerefFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt	DerefWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt	FieldIndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt	FieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt	IndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt	TupleWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt_v	Assign	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt_v	ChainFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt_v	DerefFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt_v	DerefWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt_v	FieldIndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt_v	FieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt_v	IndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_stmt_v	TupleWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_uses_stmt	Assign	field_borrow_conflicts
+UNTRIAGED	duty	scan_uses_stmt	ChainFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_uses_stmt	DerefFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_uses_stmt	DerefWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_uses_stmt	FieldIndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_uses_stmt	FieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_uses_stmt	IndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	scan_uses_stmt	TupleWrite	field_borrow_conflicts
+UNTRIAGED	duty	subst_stmt	Assign	field_borrow_conflicts
+UNTRIAGED	duty	subst_stmt	ChainFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	subst_stmt	DerefFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	subst_stmt	DerefWrite	field_borrow_conflicts
+UNTRIAGED	duty	subst_stmt	FieldIndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	subst_stmt	FieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	subst_stmt	IndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	subst_stmt	TupleWrite	field_borrow_conflicts
+UNTRIAGED	duty	use_def_for_stmt	Assign	field_borrow_conflicts
+UNTRIAGED	duty	use_def_for_stmt	ChainFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	use_def_for_stmt	DerefFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	use_def_for_stmt	DerefWrite	field_borrow_conflicts
+UNTRIAGED	duty	use_def_for_stmt	FieldIndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	use_def_for_stmt	FieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	use_def_for_stmt	IndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	use_def_for_stmt	TupleWrite	field_borrow_conflicts
+UNTRIAGED	duty	visit_stmt	ChainFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	visit_stmt	DerefFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	visit_stmt	DerefWrite	field_borrow_conflicts
+UNTRIAGED	duty	visit_stmt	FieldIndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	visit_stmt	FieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	visit_stmt	IndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	visit_stmt	TupleWrite	field_borrow_conflicts
+UNTRIAGED	duty	walk_stmt	Assign	field_borrow_conflicts
+UNTRIAGED	duty	walk_stmt	ChainFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	walk_stmt	DerefFieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	walk_stmt	DerefWrite	field_borrow_conflicts
+UNTRIAGED	duty	walk_stmt	FieldIndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	walk_stmt	FieldWrite	field_borrow_conflicts
+UNTRIAGED	duty	walk_stmt	IndexWrite	field_borrow_conflicts
+UNTRIAGED	duty	walk_stmt	TupleWrite	field_borrow_conflicts
+FALSE	place_walkers	gen_recv_struct_inner	Deref
+FALSE	place_walkers	gen_recv_struct_inner	SliceIndex
+NARROW	place_walkers	is_cond_move_field_drop_place	Deref
+NARROW	place_walkers	is_cond_move_field_drop_place	IndexRead
+NARROW	place_walkers	is_cond_move_field_drop_place	SliceIndex
+NARROW	place_walkers	is_reborrow_shape	FieldRead
+NARROW	place_walkers	is_reborrow_shape	IndexRead
+NARROW	place_walkers	is_reborrow_shape	SliceIndex
+NARROW	place_walkers	is_reborrow_shape	TupleIndex
+FALSE	place_walkers	mark_moved_expr	Deref
+OPEN	place_walkers	mark_moved_in_expr_recursive	Deref
+OPEN	place_walkers	mark_moved_in_expr_recursive	IndexRead
+OPEN	place_walkers	mark_moved_in_expr_recursive	SliceIndex
+NARROW	place_walkers	move_path_of	Deref
+NARROW	place_walkers	move_path_of	IndexRead
+NARROW	place_walkers	move_path_of	SliceIndex
+UNTRIAGED	place_walkers	take_ref_borrows	FieldRead
+UNTRIAGED	place_walkers	take_ref_borrows	IndexRead
+UNTRIAGED	place_walkers	take_ref_borrows	SliceIndex
+UNTRIAGED	place_walkers	take_ref_borrows	TupleIndex
+NARROW	place_walkers	try_implicit_reborrow_mut	SliceIndex
+FALSE	place_walkers	visit_expr	FieldRead
+FALSE	place_walkers	visit_expr	IndexRead
+FALSE	place_walkers	visit_expr	SliceIndex
+FALSE	place_walkers	visit_expr	TupleIndex
+FALSE	place_walkers	visit_stmt	Deref
