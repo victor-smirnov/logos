@@ -1,0 +1,14 @@
+// ONE-PROPERTY TWIN of fail/bc_derefwrite_shared_borrow_fail.logos: `b` is
+// never used, so NLL retires r's shared borrow before the write and `*r = v`
+// must still be admitted. This pins the DerefWrite delegation to
+// check_recv_conflict as a CONFLICT check, not a blanket refusal on deref
+// writes through a `&mut`.
+package bc_derefwrite_shared_admit;
+struct S { f: i64 }
+fn main() -> i32 {
+    let mut s: S = S { f: 1i64 };
+    let r: &mut S = &mut s;
+    let b: &S = &*r;
+    *r = S { f: 2i64 };
+    return 0i32;
+}

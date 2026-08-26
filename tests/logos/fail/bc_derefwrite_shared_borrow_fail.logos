@@ -1,0 +1,15 @@
+// `*r = v` UNDER A LIVE SHARED REBORROW. The DerefWrite arm asked the write
+// question only for an AddrOfTemp ptr (`r.f = v`); `*r = v` has a VarRef ptr,
+// reached visit()'s VarRef arm (check_live + field_borrow_conflicts with
+// need_exclusive=FALSE — the READ form) and was admitted. rustc: E0506.
+// TWIN: pass/bc_derefwrite_shared_dead_admit.logos, same program with `b`
+// unused, where NLL retires the shared borrow before the write.
+package bc_derefwrite_shared_fail;
+struct S { f: i64 }
+fn main() -> i32 {
+    let mut s: S = S { f: 1i64 };
+    let r: &mut S = &mut s;
+    let b: &S = &*r;
+    *r = S { f: 2i64 };
+    return b.f as i32;
+}

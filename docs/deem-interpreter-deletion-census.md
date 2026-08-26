@@ -4401,8 +4401,8 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # a false refusal D6 exposed, it is fixed in the same change (the capture's root
 # TYPE is now passed), the row STAYS, and the fix is pinned by
 # pass/bc_d6_mut_field_capture_through_mutref_admit.
-REGISTRY-ALL         8513
-REGISTRY-NOIMPORTED  4410
+REGISTRY-ALL         8515
+REGISTRY-NOIMPORTED  4412
 REGISTRY-TIERCOMMIT  502
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

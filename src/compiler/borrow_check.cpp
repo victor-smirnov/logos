@@ -4599,11 +4599,16 @@ private:
         return 0;
     }
 
-    // Whole-root conflict check for a method call's bare-place receiver borrowing
-    // `self`. Only whole-var receivers (empty path) are checked (conservative —
-    // field receivers deferred). Raw-ptr roots are unchecked (Rust parity);
-    // reference roots ARE checked (a `&mut self` call through a `&mut` ref var
-    // still conflicts with a live borrow of it).
+    // Whole-root conflict check for a MUTABLE USE of a whole-var place. Three
+    // consumers: a method call's bare-place receiver borrowing `self`, the
+    // SD-DST Call arg0 site, and the DerefWrite arm's bare-pointer spelling
+    // (`*r = v`, whose place decomposes to root=r with an empty path). Only
+    // whole-var places (empty path) are checked (conservative — field places
+    // are refused by visit()'s AddrOfTemp arm instead). Raw-ptr roots are
+    // unchecked (Rust parity); reference roots ARE checked (a `&mut self` call,
+    // or a write, through a `&mut` ref var still conflicts with a live borrow
+    // of it). NOT a recorder: it takes no borrow, so widening its call set
+    // cannot manufacture a shape a later consumer must recognise.
     void check_recv_conflict(const BorrowPlace& bp, bool is_mut, uint32_t line) {
         if (bp.root.empty() || !bp.path.empty()) return;
         if (bp.root_type && bp.root_type.kind() == LogosType::Kind::Ptr) return;
@@ -9774,6 +9779,44 @@ private:
                                                     v.value(), ln, "derefwrite");
                     }
                 }
+                // ── `*r = v`: THE WRITE QUESTION WAS NEVER ASKED ──────
+                // The AddrOfTemp branch above is the ONLY place this arm asks
+                // whether the written place is writable; MEASURED, `ptr.kind`
+                // is AddrOfTemp for `r.f = v` and VarRef for `*r = v`, so the
+                // plainest deref write in the language reaches none of it.
+                // What refuses the field spelling is visit()'s own AddrOfTemp
+                // arm (its `is_mut && shared_borrows > 0` report), reached from
+                // the `visit(v.ptr(), …)` two lines down; the VarRef spelling
+                // reaches visit()'s VarRef arm instead, which runs check_live
+                // plus field_borrow_conflicts with need_exclusive=FALSE — the
+                // READ form. check_live is the wrong check by construction (it
+                // tests dangling/moved/mut_borrowed and deliberately NOT
+                // shared_borrows, because USING a value under a shared borrow
+                // is legal and only WRITING is not), and three attempts to
+                // route this through it were measured wrong. The missing half
+                // is the shared-borrow / exclusive-field conflict on the
+                // WRITTEN PLACE, and the predicate for it already exists:
+                // check_recv_conflict, the whole-root mutable-use check.
+                // Delegate; do not restate.
+                //
+                // The place written is `*ptr`, but extract_borrow_place(ptr)
+                // and extract_borrow_place(Deref(ptr)) agree on every field
+                // this consumer reads: the walker's Deref arm roots THROUGH a
+                // reference to the reference variable and clears the path, so
+                // root / root_slot / root_type / path are identical and only
+                // `through_ref` (unread here) differs. One walker, no drift.
+                //
+                // NARROWING IS BY THE PREDICATE'S OWN GUARDS, not by a kind
+                // test here — which is what keeps this from over-refusing:
+                //   • root_type Kind::Ptr  → returns (raw `*p = v` unchecked,
+                //     Rust parity; the stdlib's dominant spelling here),
+                //   • !bp.path.empty()     → returns, so `r.f = v` / `a[i] = v`
+                //     keep exactly today's route and today's diagnostics,
+                //   • root empty           → returns, so the index_mut
+                //     MethodCall ptr is untouched.
+                // is_mut is unconditionally true: a DerefWrite is a write.
+                check_recv_conflict(extract_borrow_place(v.ptr(), pool),
+                                    /*is_mut=*/true, ln);
                 visit(v.ptr(),   /*consuming=*/false, ln);
                 visit(v.value(), /*consuming=*/true,  ln);
                 break;
