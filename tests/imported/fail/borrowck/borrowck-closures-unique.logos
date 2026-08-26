@@ -1,3 +1,10 @@
+// ⚠ MOVED OFF THE ADMIT SHELF 2026-08-26 — this program is REFUSED now.
+// It sat in `bc_admits.ledger` as a hole we accepted and rustc did not, and
+// the round that widened `try_path` to walk THROUGH segments it cannot name
+// (a deref, an index) closed it: the mut mark now reaches the capture, so two
+// closures demanding unique access to one place conflict.
+// The ledger row leaving IS the proof — its own per-program test went red and
+// named this file, which is what that shelf is for.
 // rustc borrowck/borrowck-closures-unique.rs — upstream E0524
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root bck.C

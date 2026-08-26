@@ -29,7 +29,7 @@
 # ⚠ A ROW IS NOT AN EXCUSE. It is a defect with a name, and the intended way for
 # this file to change is to SHRINK: a class fix reds this gate BECAUSE IT
 # IMPROVED, and the count is then edited down in the same change.
-# TOTAL 462
+# TOTAL 458
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -52,7 +52,6 @@ borrowck-and-init--t03 bck.NEW tests/imported/admit/borrowck/borrowck-and-init--
 borrowck-anon-fields-struct bck.B tests/imported/admit/borrowck/borrowck-anon-fields-struct
 borrowck-anon-fields-variant bck.B tests/imported/admit/borrowck/borrowck-anon-fields-variant
 borrowck-argument bck.A tests/imported/admit/borrowck/borrowck-argument
-borrowck-assign-comp-idx bck.C tests/imported/admit/borrowck/borrowck-assign-comp-idx
 borrowck-assign-to-andmut-in-aliasable-loc bck.B tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-aliasable-loc
 borrowck-assign-to-andmut-in-borrowed-loc bck.NEW tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-borrowed-loc
 borrowck-borrow-mut-base-ptr-in-aliasable-loc--a-assign-through-shared-to-mut bck.B tests/imported/admit/borrowck/borrowck-borrow-mut-base-ptr-in-aliasable-loc--a-assign-through-shared-to-mut
@@ -62,11 +61,8 @@ borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-bor
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
 borrowck-closures-mut-and-imm bck.C tests/imported/admit/borrowck/borrowck-closures-mut-and-imm
 borrowck-closures-mut-of-imm--ctl bck.B tests/imported/admit/borrowck/borrowck-closures-mut-of-imm--ctl
-borrowck-closures-mut-of-imm--t06 bck.B tests/imported/admit/borrowck/borrowck-closures-mut-of-imm--t06
-borrowck-closures-mut-of-mut bck.C tests/imported/admit/borrowck/borrowck-closures-mut-of-mut
 borrowck-closures-two-mut bck.C tests/imported/admit/borrowck/borrowck-closures-two-mut
 borrowck-closures-unique-imm bck.C tests/imported/admit/borrowck/borrowck-closures-unique-imm
-borrowck-closures-unique bck.C tests/imported/admit/borrowck/borrowck-closures-unique
 borrowck-escaping-closure-error-1 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-1
 borrowck-escaping-closure-error-2 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-2
 borrowck-in-static--move-captured-out-of-fn-closure bck.C tests/imported/admit/borrowck/borrowck-in-static--move-captured-out-of-fn-closure

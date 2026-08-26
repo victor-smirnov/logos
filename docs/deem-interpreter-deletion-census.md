@@ -4402,8 +4402,8 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # TYPE is now passed), the row STAYS, and the fix is pinned by
 # pass/bc_d6_mut_field_capture_through_mutref_admit.
 REGISTRY-ALL         8499
-REGISTRY-NOIMPORTED  4403
-REGISTRY-TIERCOMMIT  509
+REGISTRY-NOIMPORTED  4399
+REGISTRY-TIERCOMMIT  505
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

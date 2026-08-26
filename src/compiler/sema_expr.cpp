@@ -16725,6 +16725,32 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             inner->second += '.'; inner->second += std::string(v.field());
             return inner;
         }
+        // A TUPLE element is a field whose name is its index — the spelling
+        // `t.0` is already what `moved_vars_`, `extract_borrow_place` and
+        // `emit_cond_move_field_drops` all use.
+        if (e.kind() == EC::TupleIndex) {
+            auto v = lir_view::ETupleIndexView{e};
+            auto inner = try_path(v.receiver());
+            if (!inner) return std::nullopt;
+            inner->second += '.'; inner->second += std::to_string(v.index());
+            return inner;
+        }
+        // ⚠ THE WALK CONTINUES THROUGH SEGMENTS IT CANNOT NAME, and that is the
+        // whole correction. A DEREF and an INDEX are not statically nameable —
+        // `a[i]` has no path below `a` — but returning nullopt for them made the
+        // CAPTURE fall back to whole-var (right) AND the MUT MARK never fire at
+        // all (wrong), because `mark_mut_capture` is only reached through a
+        // successful `try_path`. So `|| { a[0] = a[0]+1 }` and
+        // `|| { (*this).a = … }` registered SHARED loans and two of them did not
+        // conflict — measured, and one of them aliases at runtime.
+        // Recursing WITHOUT appending gives exactly the right granularity: the
+        // whole array for an index (RFC 2229 does not split dynamic indices
+        // either), and the reference variable for a deref, which is the place a
+        // closure mutating through `p` must hold uniquely.
+        if (e.kind() == EC::Deref)
+            return try_path(lir_view::EDerefView{e}.operand());
+        if (e.kind() == EC::IndexRead)
+            return try_path(lir_view::EIndexReadView{e}.receiver());
         return std::nullopt;
     };
 
