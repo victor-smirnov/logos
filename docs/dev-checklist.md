@@ -90,6 +90,27 @@ RULES:
   imported tests, and a per-cell evidence rule — multiplied each other. Either
   alone was reasonable.
 
+## When writing a VERIFY phase (Victor 2026-08-25)
+
+**Verify buys INDEPENDENCE, not coverage. Coverage is the landing phase's job.**
+
+* Its task is to check a SPECIFIC CLAIM, or a short list of them, **in a fresh
+  context** — someone who did not write the fix, trying to break it.
+* **It does NOT run the corpus.** No `-L pass`, no `-L imported`, no `-L fail`,
+  no gates tier, no L1/L2. Those answer "did anything break", which the landing
+  phase already answered and which a second run cannot answer better.
+* **L4 is run ONCE, by Land or by Verify — preferably Land.** Never both.
+* A narrow `ctest -R <the round's own fixtures>` is fine; a sweep is not.
+* **Keep it short.** The previous verify ran 80 commands including ten
+  `test-levels` invocations and two `-L imported`, and every finding it actually
+  produced came from hand-written probes, not from a sweep.
+
+WHAT VERIFY IS FOR, and it is worth the whole phase: the last three rounds were
+each saved by it, and in every case by a PROBE — a fixture that could not
+contradict its own claim (three times), an over-refusal the corpus did not
+contain (twice), a promoted i128 holding a different value from the same
+literal. None of that came from re-running tests that were already green.
+
 ## When fixing a bug
 
 - [ ] **Bag-hunt entry referenced.** If this fixes a `B-XX-NN` bug, reference it in the commit message.
