@@ -83,9 +83,26 @@ RULES:
   instead of running everything reflexively. On this box today: incremental
   `borrow_check.cpp` build ~4.5 min · `-L imported` ~8 min · `-L pass -LE
   imported` ~7 min · gates tier ~7 min · L2 ~11 min.
-* **One rebuild per cell is worth paying for.** The twelve builds are the
-  "one cell, one build, one control revert" discipline and they bought real
-  attributions. It is the *sweeps* that were reflexive, not the builds.
+* **Builds: ≤3 per cell, and that is a CEILING, not an encouragement.**
+  One for the fix, one for the control revert, one for the restore. A cell that
+  wants a fourth is not being implemented — it is being SEARCHED, and searching
+  by rebuild costs ~4.5 min a step.
+  ⚠ MEASURED, and it is why the number is here: the round after this rule was
+  first written ran **37 builds for two cells** (~2.8 h) while obeying the sweep
+  limits perfectly — `-L imported` zero times, gates five, `-L pass` six. The
+  rule had said "one rebuild per cell is worth paying for; economise on sweeps,
+  not on builds", which named a direction and set no bound, and was read as a
+  licence.
+* **If you are hunting for where a value is lost, INSTRUMENT — do not iterate.**
+  One debug build that prints the value at the producer and at the consumer
+  answers in a single step what a rebuild-per-guess loop does not answer at all.
+  Measured twice: three inferences about `&<const item>`'s LIR shape were all
+  wrong (one of them read a RETIRED schema code as live) and one instrumented
+  build settled it; the D1 diagnosis refuted BOTH named suspects the same way.
+* ⚠ **A rule that names a direction without a number is a wish.** Both breaches
+  of this section so far came from that: the sweep list enumerated its
+  exceptions by name and the gates tier — unnamed — ran eight times; the build
+  guidance praised builds without a ceiling and got 37. State the bound.
 * ⚠ **Recompute when the suite changes.** Two edits in one day — landing 875
   imported tests, and a per-cell evidence rule — multiplied each other. Either
   alone was reasonable.
