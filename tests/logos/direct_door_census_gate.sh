@@ -727,12 +727,13 @@ PIN = {
     # matches `wql_*` / `deem_*`, none declares a container family or a `direct`
     # output form: `glob` and the DOOR counts are unmoved (36 = 10 + 26).
     # RE-DERIVED BY DIRECT FILE LISTING, never by adding to the previous pin:
-    #   ls tests/logos/pass/*.logos | wc -l                       -> 2407
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2411
     #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
-    # partition closes: 2407 = 191 + 2216.
-    'corpus'            : 2407,
+    # partition closes: 2411 = 191 + 2220. (+4 2026-08-27: the
+    # bc_patloan_* admit twins for the written-`ref` pattern-binding loan.)
+    'corpus'            : 2411,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2216,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2220,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

@@ -1,0 +1,34 @@
+// ⚠ THE SECOND OVER-REFUSAL ORACLE for the pattern-binding loan, and it was
+// not a hypothesis: this shape RED-ed tests/spec/pass/{type_3,type_8} on the
+// run that first landed the rule with the ergonomic half included.
+//
+// `cur: &List`, so `List::Cons(v, rest)` binds by reference under RFC 2005
+// match ergonomics — but the place `rest` names is `(*cur).1`, one deref
+// beyond anything a place walk over the scrutinee EXPRESSION can spell.
+// Assigning the LOCAL `cur` cannot invalidate a borrow of its POINTEE, so
+// this list walk is legal and rustc accepts it. Keying the ergonomic loan on
+// `cur` refuses it with "cannot assign to 'cur' while 'cur.1' is borrowed".
+//
+// THE REFUSING TWIN IS A WRITTEN `ref`: tests/imported/fail/regions/
+// regions-pattern-typing-issue-19997 is `match a1 { ref b0 => { a1 = &f; …} }`
+// over `a1: &i64`, where `b0` binds `&&i64` — a borrow OF THE LOCAL — and the
+// assignment IS E0506. Same statement shape, opposite verdict, and the only
+// difference is whether the keyword was written.
+package bc_patloan_ergonomic_ref_local_reassign_admit;
+use logos.mem.boxed;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+enum List { Cons(i64, Box<List>), Nil }
+fn main() -> i32 {
+    let lst: List = List::Cons(1i64, box_new(List::Cons(2i64, box_new(List::Nil))));
+    let mut sum: i64 = 0i64;
+    let mut cur: &List = &lst;
+    loop {
+        match cur {
+            List::Cons(v, rest) => { sum = sum + *v; cur = &**rest; }
+            List::Nil => { break; }
+        }
+    }
+    pr("%ld\n", sum);
+    return 0i32;
+}

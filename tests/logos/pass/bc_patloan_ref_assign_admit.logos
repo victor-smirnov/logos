@@ -1,0 +1,23 @@
+// THE ADMIT TWIN of `fail/bc_patloan_ref_assign_fail`, ONE TOKEN apart: the
+// binding is `r`, not `ref r`. A by-value binding COPIES the payload out of
+// the scrutinee and holds no place inside it, so re-assigning `x` in the same
+// arm is legal — exactly as in Rust.
+//
+// If this ever reds, the pattern-binding loan has stopped asking for the
+// BINDING MODE and started asking the binding's type, and every by-value
+// payload extraction pays for the `ref` rule.
+package bc_patloan_ref_assign_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+enum Opt { None, Some(i64) }
+fn main() -> i32 {
+    let mut x: Opt = Opt::Some(7i64);
+    match x {
+        Opt::None => { x = Opt::Some(0i64); }
+        Opt::Some(r) => {
+            x = Opt::Some(1i64);
+            pr("%ld\n", r);
+        }
+    }
+    return 0i32;
+}

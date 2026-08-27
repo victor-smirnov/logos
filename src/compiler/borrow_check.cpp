@@ -4573,6 +4573,12 @@ private:
     // name one — a slice pattern, an `or`-alternative, a `ref`/`@` wrapper —
     // the place stays the container's, which is the whole-element convention
     // the array channel uses everywhere else: coarse, never invented.
+    // ⚠ THE FOURTH CALLBACK ARGUMENT IS THE BINDING MODE — 0 by value, 1
+    // `ref`, 2 `ref mut` — and it is a CARRIED FACT, read off
+    // pat_keys::BINDING_REF_MODES / PatRefBind::is_mut, never inferred from
+    // the binding's type. `Opt::Some(ref r)` and `E::V(p)` over `enum E {
+    // V(&i64) }` hand the binding the SAME type `&i64`; only sema knows which
+    // of the two names a place inside the scrutinee.
     template <class F>
     void each_pat_binding_place(lir_view::PatRef pr, const std::string& base,
                                 F&& f) const {
@@ -4581,31 +4587,42 @@ private:
         if (!pr || base.empty()) return;
         const auto* pool = prog_.type_pool.impl();
         auto sub = [&](const std::string& seg) { return base + "." + seg; };
-        auto zip = [&](auto&& each_name, auto&& each_type) {
+        auto zip = [&](auto&& each_name, auto&& each_type,
+                       const std::vector<uint32_t>& modes) {
             std::vector<std::string> ns;
             std::vector<TypeRef>     ts;
             each_name([&](std::string_view b){ ns.emplace_back(b); });
             each_type([&](TypeRef t){ ts.push_back(t); });
             for (size_t i = 0; i < ns.size(); ++i)
                 f(std::string_view(ns[i]), i < ts.size() ? ts[i] : TypeRef(nullptr),
-                  sub(std::to_string(i)));
+                  sub(std::to_string(i)),
+                  i < modes.size() ? static_cast<uint8_t>(modes[i]) : uint8_t(0));
         };
         switch (pr.kind()) {
             case PC::Variant: case PC::Int: case PC::Bool: case PC::Range:
                 return;
             case PC::Wild:
-                f(PatWildView{pr}.name(), TypeRef(nullptr), base);
+                f(PatWildView{pr}.name(), TypeRef(nullptr), base, uint8_t(0));
                 return;
             case PC::VariantData: {
                 PatVariantDataView v{pr};
                 zip([&](auto&& g){ v.each_binding(g); },
-                    [&](auto&& g){ v.each_binding_type(pool, g); });
+                    [&](auto&& g){ v.each_binding_type(pool, g); },
+                    v.bind_ref_modes());
                 return;
             }
             case PC::Tuple: {
                 PatTupleView v{pr};
+                // ⚠ ZERO, AND NOT BECAUSE A TUPLE ELEMENT CANNOT BE `ref`.
+                // build_pattern's PAT_WILD tuple-element arm pushes the bare
+                // NAME and a `make_pat_wild`, dropping IS_REF — so `(ref a, b)`
+                // reaches the LIR as a by-value binding and no mode survives
+                // for this walk to read. Recording 1/2 here would be inventing
+                // a fact the tree does not carry; the dropped keyword is a
+                // sema defect one door over, with its own paired fixture.
                 zip([&](auto&& g){ v.each_binding(g); },
-                    [&](auto&& g){ v.each_binding_type(pool, g); });
+                    [&](auto&& g){ v.each_binding_type(pool, g); },
+                    std::vector<uint32_t>{});
                 // The sub-patterns' positions are not zipped with the binding
                 // list, so they take the container's place (coarse).
                 v.each_sub([&](PatRef s){ each_pat_binding_place(s, base, f); });
@@ -4616,7 +4633,7 @@ private:
                     std::string fp = fb.field_name().empty()
                                        ? base : sub(std::string(fb.field_name()));
                     if (auto s = fb.sub()) each_pat_binding_place(s, fp, f);
-                    else f(fb.field_name(), TypeRef(nullptr), fp);
+                    else f(fb.field_name(), TypeRef(nullptr), fp, uint8_t(0));
                 });
                 return;
             case PC::Or:
@@ -4631,13 +4648,14 @@ private:
             }
             case PC::At: {
                 PatAtView v{pr};
-                f(v.name(), v.type(pool), base);
+                f(v.name(), v.type(pool), base, uint8_t(0));
                 if (auto s = v.sub()) each_pat_binding_place(s, base, f);
                 return;
             }
             case PC::RefBind: {
                 PatRefBindView v{pr};
-                f(v.name(), v.bind_type(pool), base);
+                f(v.name(), v.bind_type(pool), base,
+                  uint8_t(v.is_mut() ? 2 : 1));
                 return;
             }
             case PC::RefPat:
@@ -4645,6 +4663,76 @@ private:
                     each_pat_binding_place(in, base, f);
                 return;
         }
+    }
+
+    // ── A BY-REFERENCE PATTERN BINDING IS A LOAN ON THE SCRUTINEE ────────
+    //
+    // THE DEFECT (measured as a ceiling probe over the whole 447-row
+    // acceptance population: 36 rows moved): the four pattern propagators —
+    // sources, prov, loans, reborrows — all COPY facts the scrutinee already
+    // carries onto the binding. Not one of them RAISES a loan. So
+    // `match x { Opt::Some(ref r) => { x = Opt::Some(1); let _ = *r; } }`
+    // compiled: `r` names the place `x.0`, nothing recorded a borrow of it,
+    // and the assignment to `x` found no conflict (rustc E0506). The
+    // by-value twin `let r = &x;` refuses, one line over.
+    //
+    // THE RULE: a `ref` / `ref mut` binding borrows the SUB-PLACE of the
+    // scrutinee it names, shared or mutable as the keyword says, held by the
+    // binding — which is exactly what `&scrut.0` / `&mut scrut.0` records at
+    // every other site. `each_pat_binding_place` already computes the
+    // sub-place and now carries the MODE beside it, so this consumes existing
+    // machinery and mints no new key.
+    //
+    // ⚠ THE MODE IS THE GATE, NOT THE TYPE. Gating on "the binding's type is
+    // a reference" would refuse `match e { E::V(p) => { e = …; *p } }` over
+    // `enum E { V(&i64) }`, where `p` is a COPY of a stored reference and `e`
+    // is not borrowed at all — the two spellings produce the identical
+    // binding type `&i64`. The keyword is a carried fact; the type is not.
+    //
+    // ⚠ THREE SITES BIND A PATTERN AGAINST A SCRUTINEE AND ONLY TWO GET THIS.
+    // stmt::Match and stmt::LetElse both `declare_pat_bindings` into a scope,
+    // so a loan raised here has a holder that DIES — pop_scope releases it.
+    // The rvalue `MatchExpr` arm inside `take_ref_borrows` declares no
+    // bindings at all (its own comment says so), so a loan held by a name no
+    // scope owns would never be released and would refuse every later use of
+    // the scrutinee. That site needs the declaration first; it is a named
+    // omission, not an oversight.
+    //
+    // The base place comes from `extract_borrow_place`, so the E0596 gate
+    // (`ref mut` through a `&`), the root type and the Phase-1 slot are the
+    // SAME answers every other record site gets — a scrutinee that is a
+    // temporary (a call) yields an empty root and records nothing.
+    void propagate_pat_borrows(lir_view::PatRef pr, lir_view::ExprRef scrut,
+                               uint32_t ln) {
+        if (!pr || !scrut) return;
+        BorrowPlace base = extract_borrow_place(scrut, prog_.type_pool.impl());
+        if (base.root.empty()) return;
+        const std::string base_place = fmt_path(base.root, base.path);
+        each_pat_binding_place(pr, base_place,
+            [&](std::string_view b, TypeRef, const std::string& place,
+                uint8_t mode) {
+                // ⚠ MODES 1 AND 2 ONLY — the WRITTEN `ref` / `ref mut`.
+                // A default-binding-mode by-ref binding (3/4) names a place
+                // under the scrutinee's IMPLICIT DEREF, and there is no
+                // sub-place of the scrutinee EXPRESSION that spells it: over
+                // `cur: &List`, `List::Cons(v, rest)` gives `rest` a borrow of
+                // `(*cur).1`, not of `cur.1`. Recording it on `cur` made
+                // `cur = &**rest` — a legal list walk, since assigning the
+                // LOCAL cannot invalidate a borrow of its POINTEE — refuse,
+                // MEASURED as two reds in tests/spec/pass (type_3, type_8) on
+                // the run that first landed this rule. The ergonomic half
+                // needs the loan keyed on the pointee, which is a read-side
+                // change, not a wider gate here.
+                if (mode == 0 || mode > 2 ||
+                    b.empty() || b == "_" || place.empty()) return;
+                if (place.size() < base_place.size()) return;
+                BorrowPlace bp = base;
+                if (place.size() > base_place.size())
+                    bp.path = base.path.empty()
+                                ? place.substr(base_place.size() + 1)
+                                : base.path + place.substr(base_place.size());
+                record_borrow(bp, /*is_mut=*/mode == 2, ln, std::string(b));
+            });
     }
 
     // ── D1 round 13 / P0: THE REBORROW COUNTERPART OF THE THREE ───────────
@@ -4718,7 +4806,8 @@ private:
         };
         for (auto& base : bases)
             each_pat_binding_place(pr, base,
-                [&](std::string_view b, TypeRef, const std::string& place) {
+                [&](std::string_view b, TypeRef, const std::string& place,
+                    uint8_t) {
                     if (b.empty() || b == "_" || place.empty()) return;
                     std::string n(b);
                     if (n == place) return;
@@ -10427,6 +10516,7 @@ private:
                     propagate_pat_prov(v.pat(), v.scrut());   // D1 r3
                     propagate_pat_loans(v.pat(), roots, ln);   // D1
                     propagate_pat_reborrows(v.pat(), sc);      // D1 r13
+                    propagate_pat_borrows(v.pat(), sc, ln);
                 } else {
                     declare_pat_bindings(v.pat());
                 }
@@ -10622,32 +10712,7 @@ private:
                     propagate_pat_prov(arm.pat(), v.scrut());             // D1 r3
                     propagate_pat_loans(arm.pat(), scrut_hop_roots, ln);  // D1
                     propagate_pat_reborrows(arm.pat(), v.scrut());        // D1 r13
-                    // CEILING PROBE `patloan` — all four pattern propagators
-                    // run here and NOT ONE calls record_borrow, so a `ref` /
-                    // `ref mut` binding creates no loan on the scrutinee.
-                    // each_pat_binding_place already computes the exact
-                    // sub-place; record a mut loan on it.
-                    if (logos::probe::on("patloan")) {
-                        std::vector<std::string> pat_bases;
-                        ref_source_places(v.scrut(), prog_.type_pool.impl(),
-                                          pat_bases);
-                        for (auto& pbase : pat_bases)
-                            each_pat_binding_place(arm.pat(), pbase,
-                                [&](std::string_view b, TypeRef,
-                                    const std::string& place) {
-                                    if (b.empty() || b == "_" || place.empty())
-                                        return;
-                                    BorrowPlace pbp;
-                                    auto dot = place.find('.');
-                                    pbp.root = place.substr(0, dot);
-                                    pbp.path = dot == std::string::npos
-                                                 ? std::string()
-                                                 : place.substr(dot + 1);
-                                    pbp.root_slot = NO_SLOT;
-                                    record_borrow(pbp, /*is_mut=*/true, ln,
-                                                  std::string(b));
-                                });
-                    }
+                    propagate_pat_borrows(arm.pat(), v.scrut(), ln);
                     StateMap before_guard = states_;
                     if (auto g = arm.guard()) visit(g, /*consuming=*/true, ln);
                     // Fold this guard's NEW moves of outer bindings into the

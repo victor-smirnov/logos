@@ -1,6 +1,6 @@
 // rustc borrowck/borrowck-lend-flow-match.rs — upstream E0506
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: fail — REFUSED since 2026-08-27 (a by-ref pattern binding now raises a loan on the scrutinee sub-place)
 // upstream: borrowck-lend-flow-match.rs E0506 assign to `x` while `ref r` borrow live
 package borrowck_lend_flow_match;
 enum Opt { None, Some(i64) }

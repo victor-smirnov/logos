@@ -1,0 +1,14 @@
+// `ref mut` ON A NON-`mut` LOCAL — rustc E0596. The loan a `ref mut` binding
+// raises is a MUTABLE one, so it must reach the same binding-mutness gate
+// `&mut x` reaches. Before the pattern binding recorded any borrow at all
+// there was nothing to gate, and this compiled.
+//
+// ONE TOKEN from `pass/bc_patloan_refmut_of_imm_admit`: `let x` vs `let mut x`.
+package bc_patloan_refmut_of_imm_fail;
+fn main() -> i32 {
+    let x: Option<i64> = Option::Some(22i64);
+    match x {
+        Option::None => { return 0i32; }
+        Option::Some(ref mut v) => { *v = 5i64; return 0i32; }
+    }
+}

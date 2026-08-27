@@ -821,6 +821,30 @@ inline constexpr Key BIND_SLOT         {"BIND_SLOT",       24};   // u32 — Pha
 // test then covered the wrong range and the answer was silently wrong.
 inline constexpr Key LO_HI             {"LO_HI",           25};   // i64 (PatRange, high half)
 inline constexpr Key HI_HI             {"HI_HI",           26};   // i64 (PatRange, high half)
+
+// ── THE BINDING MODE IS A CARRIED FACT, NOT A TYPE-SHAPE GUESS ────────────
+// Parallel to BINDINGS on PatVariantData:
+//   0  by value
+//   1  `ref`                     2  `ref mut`             (the keyword, written)
+//   3  default-mode shared ref   4  default-mode mut ref  (RFC 2005 ergonomics)
+// Sema is the only place that KNOWS this — `Opt::Some(ref r)` and `enum E {
+// V(&i64) }` matched as `E::V(p)` produce the SAME binding type (`&i64` vs
+// `&i64`), so the type cannot tell a by-reference binding from a by-value copy
+// of a stored reference, and a borrow rule keyed on the type would refuse the
+// second. Absent ⇒ every binding is by value, which is the pre-existing
+// reading and the permissive one.
+//
+// ⚠ 1/2 AND 3/4 ARE NOT INTERCHANGEABLE, and they are kept apart HERE rather
+// than collapsed, because the PLACE they name differs. A written `ref` names
+// the scrutinee place exactly as spelled: over `a1: &i64`, `ref b0` binds
+// `&&i64` — a borrow OF THE LOCAL `a1`. A default-mode binding exists only
+// because the scrutinee was AUTO-DEREFERENCED, so it names a place under
+// `*cur`, one deref beyond anything a place walk over the scrutinee
+// expression can reach. Recording the second on the local is what refused
+// `match cur { List::Cons(v, rest) => { cur = &**rest; } }` (tests/spec/pass/
+// type_3, type_8) — a legal list walk, since assigning the LOCAL cannot
+// invalidate a borrow of its POINTEE.
+inline constexpr Key BINDING_REF_MODES {"BINDING_REF_MODES",27};   // Array<u32> parallel to BINDINGS
 } // namespace pat_keys
 
 } // namespace logos::compiler::lir_schema

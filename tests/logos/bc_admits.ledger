@@ -78,7 +78,45 @@
 # `skip_mut_binding_check`, which take_borrow's own comment says the stdlib's
 # `arc.deref_mut()` on a non-mut Arc binding relies on. That is its own round,
 # with the stdlib build as the oracle.
-# TOTAL 447
+# 2026-08-27 — 447 -> 438. NINE rows; the CEILING PROBE said 36 and the
+# prediction before the edit said 9. The four pattern propagators (sources /
+# prov / loans / reborrows) all COPY facts the scrutinee already carries onto
+# a binding; not one RAISES a loan. So `match x { Opt::Some(ref r) => { x =
+# …; *r } }` compiled while the by-value twin `let r = &x;` refuses one line
+# over. A `ref` / `ref mut` binding now records a borrow of the sub-place
+# `each_pat_binding_place` already computes, shared or mutable as the keyword
+# says, held by the binding and released when the arm's scope pops.
+#   borrowck-anon-fields-variant                        E0499/E0503
+#   borrowck-lend-flow-match                            E0506
+#   borrowck-pat-reassign-binding                       E0506
+#   borrowck-ref-mut-of-imm--d-control-ref-mut-on-local  E0596
+#   borrowck-slice-pattern-element-loan-slice           E0502
+#   borrowck-vec-pattern-nesting                        E0506
+#   issue-27282-move-ref-mut-into-guard                 E0507
+#   issue-27282-reborrow-ref-mut-in-guard               E0596
+#   regions-pattern-typing-issue-19997                  E0506
+# All nine moved to tests/imported/fail/ with the diagnostic pinned.
+# ⚠ A TENTH CLOSED AND WAS PUT BACK. `issue-51117` refuses only when the rule
+# also covers RFC-2005 DEFAULT-mode bindings, and that half over-refuses: the
+# place an ergonomic binding names sits under the scrutinee's IMPLICIT DEREF,
+# so keying its loan on the reference LOCAL made `match cur { List::Cons(v,
+# rest) => { cur = &**rest; } }` refuse — MEASURED as two reds in
+# tests/spec/pass (type_3, type_8), a legal list walk. The rule was narrowed to
+# the WRITTEN keyword, issue-51117 went back on this shelf with its row, and
+# pass/bc_patloan_ergonomic_ref_local_reassign_admit pins the shape that bought
+# it. The ergonomic half needs the loan keyed on the POINTEE — a read-side
+# change and its own round.
+# ⚠ THE GATE IS THE BINDING MODE, NOT THE BINDING'S TYPE, and that distinction
+# is a new CARRIED FACT (lir_schema::pat_keys::BINDING_REF_MODES). `E::V(p)`
+# over `enum E { V(&i64) }` and `Opt::Some(ref p)` over `Opt::Some(i64)` give
+# the binding the identical type `&i64`; only the first is a copy. A rule keyed
+# on the type refuses the copy, and pass/bc_patloan_byvalue_ref_payload_admit
+# is the fixture that says so.
+# ⚠ 27 of the probe's 36 did NOT close, and that gap is the probe being
+# deliberately wrong: it recorded a MUTABLE loan for EVERY binding, by-value
+# ones included. Those 27 are move-out-of-a-reference and closure-escape rows —
+# a different mechanism, not a weaker version of this one. Class B goes 82 -> 73.
+# TOTAL 438
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -97,7 +135,6 @@ borrowck-access-permissions--c-mut-borrow-deref-box bck.B tests/imported/admit/b
 borrowck-and-init--r03 bck.NEW tests/imported/admit/borrowck/borrowck-and-init--r03
 borrowck-and-init--t03 bck.NEW tests/imported/admit/borrowck/borrowck-and-init--t03
 borrowck-anon-fields-struct bck.B tests/imported/admit/borrowck/borrowck-anon-fields-struct
-borrowck-anon-fields-variant bck.B tests/imported/admit/borrowck/borrowck-anon-fields-variant
 borrowck-argument bck.A tests/imported/admit/borrowck/borrowck-argument
 borrowck-assign-to-andmut-in-aliasable-loc bck.B tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-aliasable-loc
 borrowck-assign-to-andmut-in-borrowed-loc bck.NEW tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-borrowed-loc
@@ -116,7 +153,6 @@ borrowck-issue-14498--b-write-through-shared bck.B tests/imported/admit/borrowck
 borrowck-issue-14498--box-mut-ref bck.B tests/imported/admit/borrowck/borrowck-issue-14498--box-mut-ref
 borrowck-issue-2657-1 bck.B tests/imported/admit/borrowck/borrowck-issue-2657-1
 borrowck-lend-flow-loop bck.NEW-2 tests/imported/admit/borrowck/borrowck-lend-flow-loop
-borrowck-lend-flow-match bck.B tests/imported/admit/borrowck/borrowck-lend-flow-match
 borrowck-loan-blocks-move-cc--r10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10
 borrowck-loan-blocks-move-cc--t10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--t10
 borrowck-loan-blocks-mut-uniq bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-mut-uniq
@@ -143,16 +179,12 @@ borrowck-no-cycle-in-exchange-heap--move-while-refmut-borrowed bck.NEW tests/imp
 borrowck-or-init bck.NEW tests/imported/admit/borrowck/borrowck-or-init
 borrowck-overloaded-index-and-overloaded-deref--t15 bck.B tests/imported/admit/borrowck/borrowck-overloaded-index-and-overloaded-deref--t15
 borrowck-overloaded-index-ref-index bck.NEW-3 tests/imported/admit/borrowck/borrowck-overloaded-index-ref-index
-borrowck-pat-reassign-binding bck.B tests/imported/admit/borrowck/borrowck-pat-reassign-binding
-borrowck-ref-mut-of-imm--d-control-ref-mut-on-local bck.B tests/imported/admit/borrowck/borrowck-ref-mut-of-imm--d-control-ref-mut-on-local
 borrowck-ref-mut-of-imm--ref-mut-of-imm bck.B tests/imported/admit/borrowck/borrowck-ref-mut-of-imm--ref-mut-of-imm
-borrowck-slice-pattern-element-loan-slice bck.B tests/imported/admit/borrowck/borrowck-slice-pattern-element-loan-slice
 borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--b
 borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--t17
 borrowck-unboxed-closures bck.A tests/imported/admit/borrowck/borrowck-unboxed-closures
 borrowck-uninit-field-access bck.B tests/imported/admit/borrowck/borrowck-uninit-field-access
 borrowck-vec-pattern-move-tail bck.B tests/imported/admit/borrowck/borrowck-vec-pattern-move-tail
-borrowck-vec-pattern-nesting bck.B tests/imported/admit/borrowck/borrowck-vec-pattern-nesting
 borrowed-data-escapes-closure-148392 bck.C tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392
 borrowed-mut-pointer-assign-overflow-off bck.B tests/imported/admit/borrowck/borrowed-mut-pointer-assign-overflow-off
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
@@ -383,13 +415,11 @@ escape-upvar-ref nllmoves.C tests/imported/admit/nll/escape-upvar-ref
 fns nllmoves.NEW-N2 tests/imported/admit/nll/fns
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
 issue-27282-move-match-input-into-guard nllmoves.R11 tests/imported/admit/nll/issue-27282-move-match-input-into-guard
-issue-27282-move-ref-mut-into-guard nllmoves.B tests/imported/admit/nll/issue-27282-move-ref-mut-into-guard
 issue-27282-mutate-before-diverging-arm-1 nllmoves.R11 tests/imported/admit/nll/issue-27282-mutate-before-diverging-arm-1
 issue-27282-mutate-before-diverging-arm-2--c-guard-mutate-noclosure nllmoves.R11 tests/imported/admit/nll/issue-27282-mutate-before-diverging-arm-2--c-guard-mutate-noclosure
 issue-27282-mutate-before-diverging-arm-2--guard-mutate nllmoves.R11 tests/imported/admit/nll/issue-27282-mutate-before-diverging-arm-2--guard-mutate
 issue-27282-mutate-before-diverging-arm-3 nllmoves.R11 tests/imported/admit/nll/issue-27282-mutate-before-diverging-arm-3
 issue-27282-mutation-in-guard nllmoves.B tests/imported/admit/nll/issue-27282-mutation-in-guard
-issue-27282-reborrow-ref-mut-in-guard nllmoves.B tests/imported/admit/nll/issue-27282-reborrow-ref-mut-in-guard
 issue-27868 nllmoves.R11 tests/imported/admit/nll/issue-27868
 issue-30438-a nllmoves.D tests/imported/admit/nll/issue-30438-a
 issue-30438-b nllmoves.D tests/imported/admit/nll/issue-30438-b
@@ -528,7 +558,6 @@ regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regio
 regions-outlives-projection-container-wc lifereg.NEW-L3 tests/imported/admit/regions/regions-outlives-projection-container-wc
 regions-outlives-projection-container lifereg.NEW-N1 tests/imported/admit/regions/regions-outlives-projection-container
 regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/regions-pattern-typing-issue-19552
-regions-pattern-typing-issue-19997 lifereg.B tests/imported/admit/regions/regions-pattern-typing-issue-19997
 regions-proc-bound-capture lifereg.N1 tests/imported/admit/regions/regions-proc-bound-capture
 regions-ret-borrowed-1 lifereg.C tests/imported/admit/regions/regions-ret-borrowed-1
 regions-ret-borrowed lifereg.C tests/imported/admit/regions/regions-ret-borrowed

@@ -1,0 +1,27 @@
+// ⚠ THE OVER-REFUSAL ORACLE FOR THE PATTERN-BINDING LOAN, and the reason the
+// rule asks for the BINDING MODE rather than the binding's TYPE.
+//
+// `Option::Some(p)` over an `Option<&i64>` gives `p` the type `&i64` — the
+// SAME type `Option::Some(ref p)` over an `Option<i64>` gives it. But this
+// `p` is a COPY of a reference stored in the option, not a place inside it,
+// so re-assigning `o` here is legal and rustc accepts it. A pattern-borrow
+// rule keyed on "the binding's type is a reference" refuses this program;
+// one keyed on the `ref` keyword, which sema carries into the LIR as
+// pat_keys::BINDING_REF_MODES, does not.
+//
+// The refusing half of the pair is `fail/bc_patloan_ref_assign_fail`.
+package bc_patloan_byvalue_ref_payload_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn main() -> i32 {
+    let a: i64 = 3i64;
+    let mut o: Option<&i64> = Option::Some(&a);
+    match o {
+        Option::None => { return 1i32; }
+        Option::Some(p) => {
+            o = Option::None;
+            pr("%ld\n", *p);
+        }
+    }
+    return 0i32;
+}

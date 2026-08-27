@@ -4299,11 +4299,20 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     bool default_ref = pat_scrut_by_ref;
     bool default_mut = pat_scrut_by_mut;
     int  default_depth = pat_scrut_ref_depth;
+    // THE BINDING MODE, carried into the LIR (pat_keys::BINDING_REF_MODES).
+    // borrow_check needs to know that `Opt::Some(ref r)` names a PLACE INSIDE
+    // the scrutinee rather than copying a value out of it, and the binding
+    // TYPE cannot say so: `enum E { V(&i64) }` matched as `E::V(p)` gives `p`
+    // the very same `&i64`. Recorded HERE, where the `ref` keyword and the
+    // default-binding-mode decision both already live, rather than
+    // reconstructed downstream from a type comparison.
+    std::vector<uint32_t> bind_ref_modes(binding_types.size(), 0u);
     for (size_t k = 0; k < binding_types.size(); ++k) {
         if (!binding_types[k]) continue;
         bool explicit_ref = k < binding_is_ref.size() && binding_is_ref[k];
         if (explicit_ref) {
             bool is_mut = k < binding_is_mut.size() && binding_is_mut[k];
+            bind_ref_modes[k] = is_mut ? 2u : 1u;
             binding_types[k] = make_ref(is_mut, binding_types[k]);
         } else if (default_ref &&
                    k < binding_from_wild.size() && binding_from_wild[k]) {
@@ -4330,6 +4339,10 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                 binding_types[k] = make_ref(
                     li == default_depth - 1 ? default_mut : false,
                     binding_types[k]);
+            // 3/4, NOT 1/2: see pat_keys::BINDING_REF_MODES. The place a
+            // default-mode binding names sits under the scrutinee's implicit
+            // deref, which is not where a written `ref` puts it.
+            bind_ref_modes[k] = default_mut ? 4u : 3u;
         }
     }
     // Phase-1: reserve a dense slot per binding (NO_SLOT for `_`), parallel to
@@ -4338,8 +4351,11 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     bind_slots.reserve(bindings.size());
     for (auto& b : bindings)
         bind_slots.push_back(b == "_" ? 0xFFFFFFFFu : reserve_pat_slot(b));
+    if (bind_ref_modes.size() < bindings.size())
+        bind_ref_modes.resize(bindings.size(), 0u);
     auto mo = lir_mirror_emit_pat_variant_data(
-        *cur_prog_, pename, pvname, disc, bindings, binding_types, bind_slots);
+        *cur_prog_, pename, pvname, disc, bindings, binding_types, bind_slots,
+        bind_ref_modes);
     lir::Pattern p_;
     p_.mirror_ptr_ = mo;
     return p_;

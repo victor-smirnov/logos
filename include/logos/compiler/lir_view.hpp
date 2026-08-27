@@ -2527,6 +2527,22 @@ struct PatVariantDataView {
         }
         return out;
     }
+    // Binding modes parallel to each_binding: 0 = by value, 1 = `ref`,
+    // 2 = `ref mut`. EMPTY when the key is absent — every consumer must read
+    // an out-of-range index as 0 (by value), the pre-existing reading.
+    std::vector<uint32_t> bind_ref_modes() const noexcept {
+        std::vector<uint32_t> out;
+        auto av = self.mirror()->get(pk::BINDING_REF_MODES.code);
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const writ::ObjectArray>();
+        uint64_t n = arr->size();
+        out.reserve(n);
+        for (uint64_t i = 0; i < n; ++i) {
+            auto el = arr->get(i);
+            out.push_back(el.is_null() ? 0u : el.as_value<uint32_t>());
+        }
+        return out;
+    }
 };
 
 // PatVariant { enum_name, variant, disc }

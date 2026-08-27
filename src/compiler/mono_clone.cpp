@@ -4788,7 +4788,8 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         v.each_binding_type(pool_, [&](TypeRef t) { n.binding_types.push_back(st_(t)); });
         auto off = lir_mirror_emit_pat_variant_data(
             *prog_, n.enum_name, n.variant, n.disc, n.bindings, n.binding_types,
-            v.bind_slots());  // Phase-1: carry slots
+            v.bind_slots(),        // Phase-1: carry slots
+            v.bind_ref_modes());   // and the binding modes
         lir::Pattern p_;
         p_.mirror_ptr_ = off;
         return p_;

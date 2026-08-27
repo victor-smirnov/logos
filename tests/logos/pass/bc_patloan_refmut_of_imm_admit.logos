@@ -1,0 +1,20 @@
+// THE ADMIT TWIN of `fail/bc_patloan_refmut_of_imm_fail`, ONE TOKEN apart:
+// `let mut x` here, `let x` there. A `ref mut` binding on a MUTABLE local is
+// the ordinary spelling of an in-place payload update and must keep working —
+// a rule that refused the `ref mut` loan outright, rather than gating it on
+// the binding's mutness, would buy the twin's refusal with this.
+package bc_patloan_refmut_of_imm_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn main() -> i32 {
+    let mut x: Option<i64> = Option::Some(22i64);
+    match x {
+        Option::None => { return 1i32; }
+        Option::Some(ref mut v) => { *v = 5i64; }
+    }
+    match x {
+        Option::None => { return 1i32; }
+        Option::Some(n) => { pr("%ld\n", n); }
+    }
+    return 0i32;
+}

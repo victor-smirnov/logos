@@ -1,6 +1,6 @@
 // rustc borrowck/borrowck-slice-pattern-element-loan-slice.rs — upstream E0502
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: fail — REFUSED since 2026-08-27 (a by-ref pattern binding now raises a loan on the scrutinee sub-place)
 package borrowck_slice_pattern_element_loan_slice;
 fn nop(a: &i64, b: &mut i64) {}
 fn const_index_err(s: &mut [i64]) {

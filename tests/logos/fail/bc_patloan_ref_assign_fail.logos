@@ -1,0 +1,21 @@
+// A `ref` PATTERN BINDING IS A LOAN ON THE SCRUTINEE, and until 2026-08-27
+// nothing recorded it. The four pattern propagators (sources / prov / loans /
+// reborrows) all COPY facts the scrutinee already carries onto the binding;
+// not one RAISES a borrow. So `r` named the place `x.0`, the assignment to
+// `x` found no conflict, and this compiled — while the by-value twin
+// `let r = &x;` one line over refuses. rustc: E0506.
+//
+// ONE TOKEN from `pass/bc_patloan_ref_assign_admit`: `ref r` vs `r`.
+package bc_patloan_ref_assign_fail;
+enum Opt { None, Some(i64) }
+fn main() -> i32 {
+    let mut x: Opt = Opt::None;
+    match x {
+        Opt::None => { x = Opt::Some(0i64); }
+        Opt::Some(ref r) => {
+            x = Opt::Some(1i64);
+            let _u: i64 = *r;
+        }
+    }
+    return 0i32;
+}
