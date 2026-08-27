@@ -108,6 +108,27 @@ bool SemaChecker::loop_has_targeting_break(TinyMapView loop_node) {
     return found;
 }
 
+// The two spellings of `'a: loop { ... }`, and ONLY those. `loop_expr`
+// (grammar `LIFETIME COLON KW_LOOP block_body`) puts the BLOCK under BODY;
+// `labeled_loop_stmt` (`LIFETIME COLON (for_stmt / while_stmt / loop_stmt)`)
+// puts the loop STATEMENT there and that statement may be a WHILE or a FOR.
+// PAIRED EXEMPTION, measured in the abuse direction: `'a: while c { }` and
+// `'a: for i in ... { }` are NOT infinite, and answering otherwise admits a fn
+// that falls off its end with no value. The three call sites below tested the
+// node CODE for `la::LOOP` and nothing else, so LABELED_LOOP reached none of
+// them and fell off the end to "does not diverge" — while the predicate they
+// delegate to, loop_has_targeting_break, has unwrapped both spellings all
+// along. Two notions of "is a loop that diverges", the narrow one written at
+// the call site.
+bool SemaChecker::is_infinite_loop_node(TinyMapView n) {
+    int32_t c = code_of(n);
+    if (c == la::LOOP) return true;
+    if (c != la::LABELED_LOOP) return false;
+    if (!n.has_key(la::BODY)) return false;
+    int32_t ic = code_of(map_of(n.get(la::BODY.code)));
+    return ic == la::LOOP || ic == la::BLOCK;
+}
+
 bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
     int32_t c = code_of(stmt);
     if (c == la::RETURN) return true;
@@ -177,7 +198,7 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
         if (ec == la::BLOCK) return block_always_returns(e);
         if (ec == la::IF || ec == la::MATCH) return stmt_always_returns(e);
     }
-    if (c == la::LOOP) {
+    if (is_infinite_loop_node(stmt)) {
         // `loop { … }` diverges only when NO `break` targets it — the same rule
         // lower_loop applies via loop_break_frames_ (last_loop_diverged_).
         // `loop { break; }` FALLS THROUGH, and calling it diverging is what let
@@ -306,9 +327,9 @@ bool SemaChecker::body_always_diverges_simple(TinyMapView body_node) {
     if ((c == la::EXPR_STMT || c == la::TAIL_EXPR) && last.has_key(la::VALUE)) {
         auto e = map_of(last.get(la::VALUE.code));
         if (is_divergent_call(e)) return true;
-        if (code_of(e) == la::LOOP) return !loop_has_targeting_break(e);
+        if (is_infinite_loop_node(e)) return !loop_has_targeting_break(e);
     }
-    if (c == la::LOOP) return !loop_has_targeting_break(last);
+    if (is_infinite_loop_node(last)) return !loop_has_targeting_break(last);
     return false;
 }
 

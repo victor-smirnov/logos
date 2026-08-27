@@ -1,0 +1,6 @@
+// The abuse direction on the return-reachability consumer: under the naive
+// widening this fn falls off its end with no value and compiles.
+package labeled_while_tail_no_return_fail;
+fn cond() -> bool { return false; }
+fn f() -> i32 { 'a: while cond() { } }
+fn main() -> i32 { return f(); }

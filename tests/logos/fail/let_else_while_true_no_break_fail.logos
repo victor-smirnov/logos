@@ -1,0 +1,11 @@
+// POLICY CONTROL, must not move in either direction: `while true` is NOT
+// special-cased as diverging anywhere in this tree (tests/imported/pass/loops/
+// issue-1962.logos documents that Logos has no `while true` lint), and
+// is_infinite_loop_node does not make it so — it answers on the loop's CODE,
+// never on its condition.
+package let_else_while_true_no_break_fail;
+enum Opt { Some(i32), None, }
+fn main() -> i32 {
+    let Opt::Some(x) = Opt::Some(5i32) else { while true { } };
+    return x - 5i32;
+}

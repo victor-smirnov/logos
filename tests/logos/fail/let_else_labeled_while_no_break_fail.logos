@@ -1,0 +1,13 @@
+// THE ABUSE DIRECTION, and the reason the fix is not the one-token widening
+// `c == la::LOOP || c == la::LABELED_LOOP`. `labeled_loop_stmt` puts the loop
+// STATEMENT under BODY and that statement may be a WHILE or a FOR;
+// loop_has_targeting_break accepts WHILE/FOR/FOR_EACH as `owner` on purpose,
+// so it answers FALSE here and `!false` at a divergence site would read
+// "this while loop diverges". A `while` exits on its own condition.
+package let_else_labeled_while_no_break_fail;
+enum Opt { Some(i32), None, }
+fn cond() -> bool { return false; }
+fn main() -> i32 {
+    let Opt::Some(x) = Opt::Some(5i32) else { 'a: while cond() { } };
+    return x - 5i32;
+}

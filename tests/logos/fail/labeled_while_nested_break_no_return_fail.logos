@@ -1,0 +1,7 @@
+// The break TOKEN is present and targets the INNER loop, so a token-presence
+// walk does not save the naive widening either. The labelled `while` still
+// exits on its condition and the fn still falls off its end.
+package labeled_while_nested_break_no_return_fail;
+fn cond() -> bool { return false; }
+fn f() -> i32 { 'a: while cond() { loop { break; } } }
+fn main() -> i32 { return f(); }

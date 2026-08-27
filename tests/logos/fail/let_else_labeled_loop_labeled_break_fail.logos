@@ -1,0 +1,8 @@
+// The label-matching arm of loop_has_targeting_break: `break 'a` names the
+// labelled loop explicitly. Same verdict as the bare `break` twin.
+package let_else_labeled_loop_labeled_break_fail;
+enum Opt { Some(i32), None, }
+fn main() -> i32 {
+    let Opt::Some(x) = Opt::Some(5i32) else { 'a: loop { break 'a; } };
+    return x - 5i32;
+}

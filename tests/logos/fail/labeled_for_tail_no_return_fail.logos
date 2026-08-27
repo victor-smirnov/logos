@@ -1,0 +1,5 @@
+// The FOR_EACH spelling of the same abuse. is_infinite_loop_node answers on
+// the BODY code, so a labelled `for` is not infinite whatever its body holds.
+package labeled_for_tail_no_return_fail;
+fn f() -> i32 { 'a: for i in 0i64..3i64 { } }
+fn main() -> i32 { return f(); }

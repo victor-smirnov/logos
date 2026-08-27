@@ -5358,6 +5358,15 @@ private:
     // here; the lowering-phase answer is last_loop_diverged_ (lower_loop) and
     // the two must agree.
     bool loop_has_targeting_break(writ::TinyMapView loop_node);
+    // "Is this node an infinite `loop { ... }`?" — the CODE test the three
+    // divergence sites need. LOOP, or a LABELED_LOOP that wraps one. A
+    // LABELED_LOOP over a `while`/`for` is NOT one: those exit on their own
+    // condition, and loop_has_targeting_break answers targeting for them too
+    // (it accepts WHILE/FOR/FOR_EACH as `owner`), so widening a divergence
+    // site to the LABELED_LOOP CODE alone would read `'a: while c { }` as
+    // diverging. Unknown BODY codes answer FALSE — a divergence gate must
+    // default to the refusing side.
+    bool is_infinite_loop_node(writ::TinyMapView n);
 
     // ── Lowering helpers ─────────────────────────────────────────
 

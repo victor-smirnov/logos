@@ -1,0 +1,9 @@
+// bt_upper_bound's shape under a label: the `break` targets the inner `while`
+// at depth 1, so the labelled outer `loop` still diverges. This is the case a
+// token-presence walk would get wrong; loop_has_targeting_break counts depth.
+package let_else_labeled_break_targets_inner_admit;
+enum Opt { Some(i32), None, }
+fn main() -> i32 {
+    let Opt::Some(x) = Opt::Some(5i32) else { 'a: loop { let mut i: i32 = 0i32; while i < 3i32 { if i == 1i32 { break; } i = i + 1i32; } } };
+    return x - 5i32;
+}

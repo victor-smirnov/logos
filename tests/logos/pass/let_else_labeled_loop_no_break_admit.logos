@@ -1,0 +1,18 @@
+// ONE-TOKEN TWIN of fail/let_else_labeled_loop_with_break_fail: a LABEL is all
+// that separates this from pass/let_else_loop_no_break_admit, which has been
+// green since a3e95a42b. The three AST-phase divergence sites tested the node
+// CODE for `la::LOOP` and nothing else, so `la::LABELED_LOOP` reached none of
+// them and fell off the end to "does not diverge" — while the predicate they
+// delegate to, loop_has_targeting_break, has unwrapped both labelled spellings
+// all along. Two notions of "is a loop that diverges", the narrow one written
+// at the call site.
+// ⚠ BEFORE THE FIX THIS PAIR WAS FLAT: this program and the `break` one were
+// BOTH rc 1, and the break one refused by the same fall-through, not by the
+// predicate. The pair separating is the only evidence that its refusal stopped
+// being an accident.
+package let_else_labeled_loop_no_break_admit;
+enum Opt { Some(i32), None, }
+fn main() -> i32 {
+    let Opt::Some(x) = Opt::Some(5i32) else { 'a: loop { } };
+    return x - 5i32;
+}

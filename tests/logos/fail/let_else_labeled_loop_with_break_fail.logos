@@ -1,0 +1,11 @@
+// The `break` half of the pair. A labelled `loop` with a break that targets it
+// FALLS THROUGH, so the else-block does not diverge and `x` would be bound
+// from a path that reaches the next statement. rc 1 before the fix too — but
+// by fall-through, with nothing asking loop_has_targeting_break. After the fix
+// the same rc comes from the predicate.
+package let_else_labeled_loop_with_break_fail;
+enum Opt { Some(i32), None, }
+fn main() -> i32 {
+    let Opt::Some(x) = Opt::Some(5i32) else { 'a: loop { break; } };
+    return x - 5i32;
+}

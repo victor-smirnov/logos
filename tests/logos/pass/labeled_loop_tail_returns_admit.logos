@@ -1,0 +1,7 @@
+// THE SECOND CONSUMER of the same site — fn return reachability, not let-else.
+// stmt_always_returns is reached from block_always_returns (sema_decl.cpp,
+// sema_collect.cpp), so a labelled infinite tail loop was reported as "not all
+// paths return a value" too. One predicate, four consumers.
+package labeled_loop_tail_returns_admit;
+fn f(n: i32) -> i32 { if n > 0i32 { return n; } 'a: loop { } }
+fn main() -> i32 { return f(1i32) - 1i32; }
