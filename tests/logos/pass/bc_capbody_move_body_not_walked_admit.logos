@@ -1,0 +1,18 @@
+// THE `move` BOUNDARY. A `move` closure OWNS its captures, so its body operates
+// on env COPIES and must NOT be read in the enclosing frame's namespace: `tick`
+// mutates its own copy of `counter`, and the OUTER `counter` is untouched (0).
+// MEASURED before landing: walking both arms and walking only the non-move arm
+// price IDENTICALLY — same 12 rows, same cost — so nothing is bought by walking
+// a `move` body, and the narrower rule is the one that landed. A body walk that
+// forgot the `move` check would report the outer `counter` as mutated here.
+package bc_capbody_move_body_not_walked_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let mut tick = move || -> i64 { counter = counter + 1i64; return counter; };
+    let v1: i64 = tick();
+    let v2: i64 = tick();
+    printi("v=%ld\n", v1 + v2 + counter);
+    return 0i32;
+}

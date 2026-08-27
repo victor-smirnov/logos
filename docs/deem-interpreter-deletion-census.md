@@ -4487,9 +4487,25 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # migrated, and the full-conformance run (L4 with `imp`) showed the refusal was
 # an over-refusal — see the ledger note. It is back on the admit shelf and its
 # core fail fixture was deleted; these are the numbers AFTER that reversal.
-REGISTRY-ALL         8580
-REGISTRY-NOIMPORTED  4434
-REGISTRY-TIERCOMMIT  460
+#
+# 2026-08-27 — THE CLOSURE BODY WALK. `EClosureBoxView::body()` went from ZERO
+# call sites in borrow_check.cpp to two, and 12 ledger rows closed and migrated
+# to tests/imported/fail/. Every delta below was PREDICTED before the gate was
+# read, and the gate agreeing is the reason to trust the count:
+#   ALL          8580 → 8585   +5  the six new bc_capbody fixtures register as
+#                                  5 ctest tests (3 pass + 2 fail).
+#   NOIMPORTED   4434 → 4427   -7  = +5 new, -12 `logos_00_bc_admit_*` rows.
+#                                  Those 412 registrations are NOT labelled
+#                                  `imported` even though their programs live
+#                                  under tests/imported/ — which is exactly why
+#                                  this column moves DOWN while ALL moves up.
+#   TIERCOMMIT    460 → 448   -12  the 12 retired rows; the new fixtures are
+#                                  not tier_commit.
+# Ledger `# TOTAL` 412 → 400, re-derived by direct listing, and
+# `ls tests/imported/admit/*/*.logos | wc -l` independently counts 400.
+REGISTRY-ALL         8585
+REGISTRY-NOIMPORTED  4427
+REGISTRY-TIERCOMMIT  448
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

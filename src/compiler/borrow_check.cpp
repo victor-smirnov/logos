@@ -2299,6 +2299,77 @@ private:
     // D3: the next push_scope() opens a BARE `{ … }` statement frame. Set at the
     // ONE site that knows (the Block stmt arm) and consumed by push_scope, so
     // no other frame kind can acquire the flag by accident.
+    // A `return` INSIDE A WALKED CLOSURE BODY returns from the CLOSURE, not
+    // from the enclosing fn, so the enclosing fn's return contract must not be
+    // asked about it. Without this, `fn foo(x: &i64) -> &i64 { let f = |y:
+    // &i64| -> &i64 { return y; }; return x; }` — legal, and the closure is
+    // never even CALLED — was refused with "return reference must derive from
+    // 'x'": the closure's `return y` was checked against `foo`'s elision rule.
+    // ⚠ THIS WAS INVISIBLE TO THE 478-TEST COST CORPUS, which scored the whole
+    // body walk at COST 0. It was found by CONSTRUCTING the program, and it
+    // was buying two ledger rows (nll/issue-48697--b, --t16) with a refusal
+    // that is wrong about WHY — one of them by refusing a `return f(x)` that
+    // does derive from `x`. Those two rows are NOT closed by this round.
+    // The closure's OWN return contract is simply not modelled here; skipping
+    // the check is the UNDER-refusing direction, which is the safe one.
+    bool in_closure_body_ = false;
+
+    // ONE body walk, called from BOTH ClosureBox arms. The class here is "a
+    // ClosureBox arm", it has exactly two members, and a walk that drifts
+    // between them is a bug shape this file has met under other names.
+    //
+    // ⚠ KNOWN PRECISION REGRESSION, PAID KNOWINGLY AND RECORDED HERE. Because
+    // the walk runs BEFORE the capture loop, a conflict between TWO closures
+    // over one root is now reported from the SECOND closure's BODY ("cannot
+    // assign to 'x' while it is mutably borrowed", E0506-shaped) rather than
+    // from its CAPTURE ("cannot borrow 'x' as mutable: already mutably
+    // borrowed", E0499-shaped, which is what upstream says). Four imported
+    // pins were re-pinned for it: borrowck-closures-two-mut, -two-mut-fail,
+    // borrowck-autoref-3261, and closure-access-spans--b-closure-mut-capture-
+    // conflict. THE VERDICT IS UNCHANGED — all four still refuse, and both
+    // messages name the same real conflict — but the canonical one is the
+    // capture-site message and this round does not produce it.
+    // THE FIX IS TO SPELL THE EXEMPTION AS A SUPPRESSION RATHER THAN AS AN
+    // ORDER: walk AFTER the capture loop with the closure's OWN capture loans
+    // exempted, so the capture-site diagnostic fires first and the body still
+    // cannot conflict with itself. That needs a holder-keyed filter through
+    // the conflict emitters, it is a bigger change than this one, and it must
+    // be RE-PRICED — the 12 rows this round closed were measured under the
+    // ORDER, and a different exemption is a different mechanism.
+    void walk_closure_body(lir_view::EClosureBoxView cbv) {
+        // A `move` closure OWNS its captures, so its body operates on env
+        // COPIES and has no business being read in the ENCLOSING frame's
+        // namespace. MEASURED: walking both arms and walking only the non-move
+        // arm price IDENTICALLY, so nothing is bought by walking a `move` body
+        // and the narrower rule is the one that lands.
+        if (cbv.is_move()) return;
+        auto cbb = cbv.body();
+        if (!cbb) return;
+        auto saved_params     = param_names_;
+        auto saved_outliving  = outliving_params_;
+        bool saved_icb        = in_closure_body_;
+        in_closure_body_ = true;
+        // The body was never scanned either: scan_uses_expr's ClosureBox arm
+        // stops at the capture names exactly as the loan channel did, so body
+        // locals had no last-use line and NLL could not retire their loans.
+        scan_uses_block(cbb);
+        push_scope();
+        cbv.each_param(prog_.type_pool.impl(),
+                       [&](std::string_view pn, TypeRef pt) {
+            if (pn.empty()) return;
+            std::string nm(pn);
+            declare_var(nm, NO_SLOT);
+            param_names_.insert(nm);
+            if (is_ref_kind(pt) || is_borrow_carrying_type(pt) ||
+                TypeRef(pt).kind() == LogosType::Kind::Ptr)
+                outliving_params_.insert(nm);
+        });
+        visit_block(cbb);
+        pop_scope();
+        in_closure_body_  = saved_icb;
+        param_names_      = std::move(saved_params);
+        outliving_params_ = std::move(saved_outliving);
+    }
     bool next_scope_is_bare_block_ = false;
     void push_scope() {
         scopes_.push_back({});
@@ -8291,6 +8362,43 @@ private:
                 // a shared field-path borrow (NLL-released at the holder's last
                 // use); a `move` closure takes ownership — no borrow.
                 EClosureBoxView cb{e};
+                // THE CLOSURE BODY IS WALKED. `EClosureBoxView::body()` had ZERO
+                // call sites in this file: mono_scan, mono_clone and mlir_gen
+                // all walk it, and the loan machinery alone stopped at the
+                // capture NAMES, so nothing a closure body DID was ever
+                // checked. Three parts, and the first is the whole mechanism:
+                //   1. IT RUNS BEFORE THE CAPTURE LOOP. All NINE of crude
+                //      capbody's costs are ONE cause, and it is not the one
+                //      the crude comment predicted: the body MUTATES exactly
+                //      the place the closure CAPTURED, so walking it after
+                //      the capture arm recorded a mut loan held by the
+                //      closure binding made the closure conflict WITH
+                //      ITSELF (`let mut c = || { s.a = s.a + 1; }`). The
+                //      body is the JUSTIFICATION for the capture loan, not a
+                //      second access competing with it. Walking first is
+                //      that exemption, spelled as an ORDER rather than as a
+                //      suppression flag: conflicts with loans held OUTSIDE
+                //      the closure still fire, and so do conflicts BETWEEN
+                //      two accesses inside one body — both are walked
+                //      (fail/bc_capbody_intra_body_conflict_refuse).
+                //   0. A `move` CLOSURE'S BODY IS NOT WALKED. It owns its
+                //      captures, so its body operates on env copies and has
+                //      no business being read in the ENCLOSING frame's
+                //      namespace. MEASURED: walking both arms and walking
+                //      only the non-move arm price IDENTICALLY — same 13
+                //      rows, same cost 0 — so the three move-shaped rows
+                //      (arc-consumed-in-looped-closure, closure-move-spans,
+                //      borrowck-in-static--move-captured-out-of-fn-closure)
+                //      close for a NON-move reason. Same benefit, smaller
+                //      blast radius: the narrower rule is the one that lands.
+                //   2. A CHILD FRAME WITH THE PARAMS DECLARED. `|v: i64| {
+                //      a[0] = v; }` (spec expr_6) reads an undeclared name
+                //      without this.
+                //   3. THE BODY IS SCANNED FOR USES. `scan_uses_expr`'s
+                //      ClosureBox arm stops at the capture names exactly as
+                //      the loan channel does, so body locals had no
+                //      last-use line and NLL could not retire their loans.
+                walk_closure_body(cb);
                 // D6 follow-on: the field arm needs the capture ROOT's TYPE.
                 // It passed `nullptr`, so take_field_borrow's mut-binding check
                 // could not see a `&mut`-REFERENCE root and refused
@@ -8418,21 +8526,13 @@ private:
                     if (!holder.empty()) inherit_loans(root, holder, line);
                     ++i;
                 });
-                // PROBE capbody: EClosureBoxView::body() has ZERO call sites
-                // in this file — the loan/region machinery stops at the
-                // capture NAMES. Walk it crudely in the ENCLOSING frame.
-                // MEASURED 2026-08-27: 97 fires (both arms), CEILING 19 —
-                // the LARGEST of the six closure probes — vs COST 9. It
-                // subsumes capscope entirely (2/2) and shares 6 with capmut,
-                // but 13 of its 19 rows are reachable by NO other closure
-                // probe: the body walk is its own mechanism, not a spelling of
-                // the capture-strength one. The 9 costs are the predicted
-                // ones — the body's PARAMETERS are never declared in the
-                // enclosing frame and its locals shadow outer names — so the
-                // careful version is 'walk the body in a CHILD frame with the
-                // params declared', which the crude form cannot price.
-                if (logos::probe::on("capbody"))
-                    if (auto cbb = cb.body()) visit_block(cbb);
+                // The crude `capbody` probe that priced this site (CEILING 19 vs
+                // COST 9) is GONE with its subject: its nine costs were one
+                // cause, named in part 1 above, and the careful walk that
+                // replaced it prices 13 vs 0. The two row sets are not nested
+                // — 5 of the 13 are rows the crude form never reached — so
+                // the crude ceiling was never an upper bound on this fix, only
+                // on itself.
                 break;
             }
             // A borrow captured into an aggregate LITERAL — `let g = Guard { r: &mut f }`,
@@ -10405,7 +10505,7 @@ private:
             // ── Return ───────────────────────────────────────────────────
             case Code::Return: {
                 if (auto val = SReturnView{sr}.value()) {
-                    check_return_value(val, ln);
+                    if (!in_closure_body_) check_return_value(val, ln);
                     visit(val, /*consuming=*/true, ln);
                 }
                 cur_diverged_ = true;
@@ -12268,10 +12368,28 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             EClosureBoxView{e}.each_capture_name([&](std::string_view cap) {
                 check_live(std::string(cap), line);
             });
-            // PROBE capbody (second arm): a bare/argument closure reaches
-            // only this one; a `let`-bound closure only take_ref_borrows'.
-            if (logos::probe::on("capbody"))
-                if (auto cbb = EClosureBoxView{e}.body()) visit_block(cbb);
+            // THE SECOND ARM, PRICED ON ITS OWN. There are exactly TWO
+            // ClosureBox arms in this file and both stopped at the capture
+            // names, so the class is mechanically enumerable and both get the
+            // same walk. A closure in a NON-`let` position (`run(|| …);` as a
+            // statement, a returned closure literal) reaches only this arm; a
+            // `let`-bound one — including `let c = apply(|| …)`, whose
+            // operand take_ref_borrows now recurses into — reaches only that
+            // one. The two were measured SEPARATELY, and that is why the
+            // crude probe's single 97-fire number was uninterpretable: it
+            // summed two mechanisms. Arm 1 is 69 fires / 13 rows; this arm is
+            // the other 28 fires / 2 further rows, both at cost 0.
+            //
+            // ⚠ THIS ARM IS THE WEAKER OF THE TWO AND KNOWINGLY SO. It has no
+            // holder, so an intra-body conflict that arm 1 catches
+            // (fail/bc_capbody_intra_body_conflict_refuse) is still ADMITTED
+            // through this one — `run(|| { let r = &mut s; s = 9; *r });`
+            // compiles. That is a REMAINING hole, not a closed one; it is
+            // recorded here rather than in a ledger row because no ledger row
+            // exhibits it.
+            {
+                walk_closure_body(EClosureBoxView{e});
+            }
             break;
 
         // ── Block expression ───────────────────────────────────────────

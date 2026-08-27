@@ -1,6 +1,6 @@
 // rustc borrowck/borrowck-closures-unique-imm.rs — upstream E0502 cannot borrow
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: pin
 package borrowck_closures_unique_imm;
 struct Foo { x: i64 }
 fn main() -> i32 {

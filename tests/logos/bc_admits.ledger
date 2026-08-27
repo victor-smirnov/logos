@@ -209,6 +209,53 @@
 # re-binding a dropck struct to a value that borrows nothing leaves the old
 # sources standing. Not widened here, not exercised by any of the 426 rows.
 # Class B unchanged at 63 — all three rows are lifereg.E.
+# 2026-08-27 — 412 -> 400. TWELVE rows; PREDICTED 15 and THREE WERE PUT BACK
+# before they were ever counted, because the refusal buying them was an
+# over-refusal on a LEGAL program that no corpus in the tree contains.
+# `EClosureBoxView::body()` had ZERO call sites in borrow_check.cpp. mono_scan,
+# mono_clone and mlir_gen all walk the closure body; the loan machinery alone
+# stopped at the capture NAMES, in BOTH of the file's two ClosureBox arms, so
+# nothing a closure body DID was ever borrow-checked. It is walked now:
+#   borrow-raw-address-of-mutability                 E0596 not declared as mut
+#   borrowck-closures-unique-imm                     E0502 already borrowed
+#   borrowck-in-static--move-captured-out-of-fn-closure E0507 use of moved value
+#   borrowck-in-static--r-runtime                    E0507 use of moved value
+#   borrowck-loan-blocks-mut-uniq                    E0506 cannot assign
+#   arc-consumed-in-looped-closure                   E0382 use of moved value
+#   closure-move-spans                               E0382 use of moved value
+#   closures-in-loops                                E0382 use of moved value
+#   escape-argument--b                               E0597 does not live long enough
+#   escape-upvar-nested                              E0597 does not live long enough
+#   escape-upvar-ref                                 E0597 does not live long enough
+#   regions-nested-fns                               E0597 dangling reference
+# All twelve moved to tests/imported/fail/ with the diagnostic pinned.
+#
+# ⚠ THE THREE THAT WENT BACK ON THE SHELF, AND HOW THEY WERE CAUGHT. The walk
+# made a `return` INSIDE a closure body answer to the ENCLOSING fn's return
+# contract, so this — legal, and the closure is never even CALLED —
+#     fn foo(x: &i64) -> &i64 { let f = |y: &i64| -> &i64 { return y; }; return x; }
+# was refused with "return reference must derive from 'x'". It was buying
+# nll/issue-48697--b, nll/issue-48697--t16 and
+# borrowck/var-matching-lifetime-but-unused-not-mentioned. THE 478-TEST COST
+# CORPUS SCORED THE WHOLE MECHANISM AT COST 0 AND NEVER SAW IT: a corpus
+# refuses only what it CONTAINS, and no fixture in it returns a parameter past
+# a closure that declares a reference return. It was found by CONSTRUCTING the
+# program, which is the third mechanism in three rounds caught that way and the
+# reason the exemption analysis is not optional. The guard is
+# pass/bc_capbody_closure_return_admit, paired with
+# fail/bc_capbody_enclosing_return_refuse so the suppression cannot widen from
+# the BODY to the FUNCTION without going red.
+#
+# ⚠ CEILING 15 (13 for the `let`-bound arm + 2 for the bare/argument arm,
+# priced SEPARATELY — the crude probe's single 97-fire number summed two
+# mechanisms and was uninterpretable) vs ACTUAL 12. Closing FEWER than the
+# ceiling is the correct direction; the three missing are the three above.
+# ⚠ A `move` CLOSURE'S BODY IS NOT WALKED. Measured: walking both arms and
+# walking only the non-move arm price IDENTICALLY, so nothing is bought by
+# walking a `move` body and the narrower rule is what landed.
+# ⚠ REMAINING HOLE, NAMED BECAUSE NO ROW EXHIBITS IT: the bare/argument arm has
+# no holder, so an intra-body conflict the `let`-bound arm catches is still
+# admitted through it — `run(|| { let r = &mut s; s = 9; *r });` compiles.
 # 2026-08-27 — 423 -> 412. ELEVEN rows; PREDICTED 12 and one of the twelve was
 # PUT BACK, on the full-conformance run, because closing it was an over-refusal.
 # E0507 was asked in sema from FIVE HAND-LISTED POSITIONS (let RHS, `return`,
@@ -285,7 +332,7 @@
 # 63 -> 61 and bck.NEW 36 -> 29; neither number is evidence about the mechanism.
 # bck.NEW is exactly the root the batch report called unexamined, and seven of
 # its 36 turn out to be one rule.
-# TOTAL 412
+# TOTAL 400
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -298,7 +345,6 @@ bindings-after-at-or-patterns-slice-patterns-box-patterns bck.B tests/imported/a
 borrow-immutable-deref-box bck.B tests/imported/admit/borrowck/borrow-immutable-deref-box
 borrow-immutable-upvar-mutation-impl-trait bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait
 borrow-immutable-upvar-mutation bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation
-borrow-raw-address-of-mutability bck.C tests/imported/admit/borrowck/borrow-raw-address-of-mutability
 borrowck-access-permissions--b-mut-borrow-of-static bck.B tests/imported/admit/borrowck/borrowck-access-permissions--b-mut-borrow-of-static
 borrowck-access-permissions--c-mut-borrow-deref-box bck.B tests/imported/admit/borrowck/borrowck-access-permissions--c-mut-borrow-deref-box
 borrowck-and-init--r03 bck.NEW tests/imported/admit/borrowck/borrowck-and-init--r03
@@ -310,17 +356,13 @@ borrowck-borrow-overloaded-auto-deref bck.A tests/imported/admit/borrowck/borrow
 borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
 borrowck-closures-mut-and-imm bck.C tests/imported/admit/borrowck/borrowck-closures-mut-and-imm
-borrowck-closures-unique-imm bck.C tests/imported/admit/borrowck/borrowck-closures-unique-imm
 borrowck-escaping-closure-error-1 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-1
 borrowck-escaping-closure-error-2 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-2
-borrowck-in-static--move-captured-out-of-fn-closure bck.C tests/imported/admit/borrowck/borrowck-in-static--move-captured-out-of-fn-closure
-borrowck-in-static--r-runtime bck.C tests/imported/admit/borrowck/borrowck-in-static--r-runtime
 borrowck-init-op-equal bck.NEW tests/imported/admit/borrowck/borrowck-init-op-equal
 borrowck-issue-2657-1 bck.B tests/imported/admit/borrowck/borrowck-issue-2657-1
 borrowck-lend-flow-loop bck.NEW-2 tests/imported/admit/borrowck/borrowck-lend-flow-loop
 borrowck-loan-blocks-move-cc--r10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10
 borrowck-loan-blocks-move-cc--t10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--t10
-borrowck-loan-blocks-mut-uniq bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-mut-uniq
 borrowck-loan-vec-content bck.B tests/imported/admit/borrowck/borrowck-loan-vec-content
 borrowck-local-borrow-with-panic-outlives-fn bck.A tests/imported/admit/borrowck/borrowck-local-borrow-with-panic-outlives-fn
 borrowck-move-by-capture bck.C tests/imported/admit/borrowck/borrowck-move-by-capture
@@ -525,7 +567,6 @@ undeclared-lifetime-used-in-debug-macro-issue-70152 lifereg.R17 tests/imported/a
 unnamed-closure-doesnt-life-long-enough-issue-67634 lifereg.C tests/imported/admit/lifetimes/unnamed-closure-doesnt-life-long-enough-issue-67634
 
 # ── tests/ui/moves ─────────────────────────────────────────
-arc-consumed-in-looped-closure nllmoves.C tests/imported/admit/moves/arc-consumed-in-looped-closure
 do-not-suggest-removing-wrong-ref-pattern-issue-132806 nllmoves.B tests/imported/admit/moves/do-not-suggest-removing-wrong-ref-pattern-issue-132806
 issue-75904-move-closure-loop nllmoves.C tests/imported/admit/moves/issue-75904-move-closure-loop
 issue-99470-move-out-of-some nllmoves.B tests/imported/admit/moves/issue-99470-move-out-of-some
@@ -549,18 +590,13 @@ cast-static-lifetime nllmoves.R17 tests/imported/admit/nll/cast-static-lifetime
 check-normalized-sig-for-wf nllmoves.A tests/imported/admit/nll/check-normalized-sig-for-wf
 closure-borrow-spans--a nllmoves.C tests/imported/admit/nll/closure-borrow-spans--a
 closure-borrow-spans--b nllmoves.C tests/imported/admit/nll/closure-borrow-spans--b
-closure-move-spans nllmoves.C tests/imported/admit/nll/closure-move-spans
 closure-substs nllmoves.C tests/imported/admit/nll/closure-substs
-closures-in-loops nllmoves.C tests/imported/admit/nll/closures-in-loops
 constant-in-expr-inherent-2--static-param nllmoves.NEW-N1 tests/imported/admit/nll/constant-in-expr-inherent-2--static-param
 do-not-ignore-lifetime-bounds-in-copy-proj--b nllmoves.NEW-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy-proj--b
 do-not-ignore-lifetime-bounds-in-copy-proj--ctl nllmoves.NEW-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy-proj--ctl
 do-not-ignore-lifetime-bounds-in-copy nllmoves.NEW-S7-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy
 enum-drop-access nllmoves.E tests/imported/admit/nll/enum-drop-access
-escape-argument--b nllmoves.C tests/imported/admit/nll/escape-argument--b
 escape-argument--t09 nllmoves.C tests/imported/admit/nll/escape-argument--t09
-escape-upvar-nested nllmoves.C tests/imported/admit/nll/escape-upvar-nested
-escape-upvar-ref nllmoves.C tests/imported/admit/nll/escape-upvar-ref
 fns nllmoves.NEW-N2 tests/imported/admit/nll/fns
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
 issue-27282-move-match-input-into-guard nllmoves.R11 tests/imported/admit/nll/issue-27282-move-match-input-into-guard
@@ -696,7 +732,6 @@ regions-infer-paramd-indirect lifereg.L1 tests/imported/admit/regions/regions-in
 regions-name-static lifereg.R17 tests/imported/admit/regions/regions-name-static
 regions-name-undeclared lifereg.R17 tests/imported/admit/regions/regions-name-undeclared
 regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
-regions-nested-fns lifereg.C tests/imported/admit/regions/regions-nested-fns
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
 regions-outlives-projection-container-wc lifereg.NEW-L3 tests/imported/admit/regions/regions-outlives-projection-container-wc
 regions-outlives-projection-container lifereg.NEW-N1 tests/imported/admit/regions/regions-outlives-projection-container

@@ -1,6 +1,6 @@
 // rustc nll/closures-in-loops.rs — upstream E0382 / E0499
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.C
+// shelf: pin
 // port of rust tests/ui/nll/closures-in-loops.rs
 // each loop iteration re-creates a closure that moves / uniquely borrows the
 // same variable.  rustc: E0382 / E0499 use of moved value / two mutable borrows.

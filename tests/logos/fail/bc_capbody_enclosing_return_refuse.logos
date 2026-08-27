@@ -1,0 +1,12 @@
+// THE ABUSE DIRECTION of pass/bc_capbody_closure_return_admit: suppressing the
+// return check inside a walked closure body must NOT suppress it for the
+// ENCLOSING function. Same shape, one property moved: `foo` itself returns a
+// reference to its own local (rustc E0515). A suppression keyed on the function
+// rather than on the body would admit this.
+package bc_capbody_enclosing_return_refuse;
+fn foo(x: &i64) -> &i64 {
+    let z: i64 = 4i64;
+    let f = |y: &i64| -> &i64 { return y; };
+    return &z;
+}
+fn main() -> i32 { let a: i64 = 1i64; let p = foo(&a); let _ = *p; return 0i32; }

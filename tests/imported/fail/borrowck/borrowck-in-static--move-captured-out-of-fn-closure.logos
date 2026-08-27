@@ -1,6 +1,6 @@
 // rustc borrowck/borrowck-in-static.rs — upstream E0507
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: pin
 // upstream: borrowck/borrowck-in-static.rs  E0507 cannot move out of `x`, a captured variable in an `Fn` closure
 package borrowck_in_static_move_captured_out_of_fn_closure;
 struct S { n: i64 }

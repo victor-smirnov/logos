@@ -1,6 +1,6 @@
 // rustc borrowck/borrowck-loan-blocks-mut-uniq.rs — upstream E0506
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: pin
 package borrowck_loan_blocks_mut_uniq;
 use logos.mem.boxed;
 fn borrow<F>(v: &i64, f: F) where F: FnOnce(&i64) { f(v); }

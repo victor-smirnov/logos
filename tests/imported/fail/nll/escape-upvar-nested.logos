@@ -1,6 +1,6 @@
 // rustc nll/closure-requirements/escape-upvar-nested.rs — upstream E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.C
+// shelf: pin
 package escape_upvar_nested;
 fn deref_p(p: &i64) -> i64 { return *p; }
 fn main() -> i32 {

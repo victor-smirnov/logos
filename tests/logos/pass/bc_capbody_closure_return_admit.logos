@@ -1,0 +1,24 @@
+// ⚠ THIS PROGRAM IS WHY THE ROUND CLOSED 12 ROWS AND NOT 15. The body walk made
+// a `return` INSIDE a closure body answer to the ENCLOSING fn's return
+// contract, so this — legal, and the closure is never even CALLED — was refused
+// with "lifetime elision: return reference must derive from 'x'". The 478-test
+// cost corpus scored the whole body walk at COST 0 and never saw it; it was
+// found by CONSTRUCTING the program. Three ledger rows were being bought by
+// that refusal (nll/issue-48697--b, --t16, borrowck/var-matching-lifetime-but-
+// unused-not-mentioned) and they are NOT closed — they went back on the shelf.
+// PERTURB: fail/bc_capbody_enclosing_return_refuse is the same shape with the
+// ENCLOSING fn's own return dangling, and must stay RED — the suppression is
+// scoped to the closure body, not to the function.
+package bc_capbody_closure_return_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn foo(x: &i64) -> &i64 {
+    let f = |y: &i64| -> &i64 { return y; };
+    return x;
+}
+fn main() -> i32 {
+    let a: i64 = 7i64;
+    let p: &i64 = foo(&a);
+    printi("v=%ld\n", *p);
+    return 0i32;
+}

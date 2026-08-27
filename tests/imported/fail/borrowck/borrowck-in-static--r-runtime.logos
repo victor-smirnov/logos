@@ -1,6 +1,6 @@
 // rustc borrowck/borrowck-in-static.rs — upstream E0507
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: pin
 // runtime probe for t09: count destructor calls for a captured value moved out twice
 package borrowck_in_static_r_runtime;
 static mut DROPS: i64 = 0i64;

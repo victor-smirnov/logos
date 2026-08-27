@@ -1,0 +1,14 @@
+// THE CLOSURE BODY IS WALKED — the refusing half. Before the body walk,
+// `EClosureBoxView::body()` had ZERO call sites in borrow_check.cpp, so NOTHING
+// a closure body did was ever checked and this program COMPILED: `r` is a live
+// `&mut s.a` when `s.a` is written, and `r` is read afterwards (rustc E0506).
+// PERTURB: point the write at `s.b` and it must be ADMITTED — see
+// pass/bc_capbody_intra_body_disjoint_admit, the legal twin one property away.
+package bc_capbody_intra_body_conflict_refuse;
+struct S { a: i64, b: i64 }
+fn main() -> i64 {
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    let mut f = || { let r: &mut i64 = &mut s.a; s.a = 9i64; let _q: i64 = *r; };
+    f();
+    return s.a;
+}

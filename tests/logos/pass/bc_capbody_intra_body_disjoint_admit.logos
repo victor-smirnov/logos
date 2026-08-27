@@ -1,0 +1,15 @@
+// THE LEGAL TWIN of fail/bc_capbody_intra_body_conflict_refuse, ONE PROPERTY
+// away: the body's write goes to the DISJOINT sibling field. RFC-2229
+// disjointness must survive the body walk — a rule that refused every body that
+// writes a captured root would satisfy the fail twin and RED here.
+package bc_capbody_intra_body_disjoint_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct S { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    let mut f = || { let r: &mut i64 = &mut s.a; s.b = 9i64; *r = *r + 1i64; };
+    f();
+    printi("sum=%ld\n", s.a + s.b);
+    return 0i32;
+}

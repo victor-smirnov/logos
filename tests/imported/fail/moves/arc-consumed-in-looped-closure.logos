@@ -1,6 +1,6 @@
 // rustc moves/arc-consumed-in-looped-closure.rs — upstream E0382
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.C
+// shelf: pin
 package arc_consumed_in_looped_closure;
 struct V { x: i64 }
 impl Drop for V { fn drop(self: &mut V) {} }

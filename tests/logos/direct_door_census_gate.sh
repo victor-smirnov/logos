@@ -748,10 +748,20 @@ PIN = {
     # pass/bc_dropck_loan_raw_field_admit, the two exemption pins for dropck
     # liveness in the loan channel — neither matches `wql_*`/`deem_*`, neither
     # declares a container family or a `direct` output form, so `glob` and the
-    # DOOR counts are unmoved.)
-    'corpus'            : 2416,
+    # DOOR counts are unmoved.) (+3 2026-08-27: the three admit twins of the
+    # CLOSURE BODY WALK — pass/bc_capbody_intra_body_disjoint_admit (RFC-2229
+    # disjointness survives the walk), pass/bc_capbody_closure_return_admit (a
+    # `return` inside a walked body does NOT answer to the enclosing fn's
+    # return contract — the program that caught the round's one over-refusal
+    # and sent three rows back to the shelf), and
+    # pass/bc_capbody_move_body_not_walked_admit (a `move` body is not walked
+    # at all). RE-DERIVED BY DIRECT LISTING: ls tests/logos/pass/*.logos -> 2419,
+    # glob unchanged at 191, so 2419 = 191 + 2228. None matches `wql_*`/`deem_*`,
+    # none declares a container family or a `direct` output form, so `glob` and
+    # the DOOR counts are unmoved.)
+    'corpus'            : 2419,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2225,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2228,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

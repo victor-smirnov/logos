@@ -1,6 +1,6 @@
 // rustc borrowck/borrow-raw-address-of-mutability.rs — upstream E0596 cannot borrow as mutable
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: pin
 package borrow_raw_address_of_mutability;
 fn main() -> i32 {
     let x: i64 = 0i64;
