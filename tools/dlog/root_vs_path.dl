@@ -1,0 +1,135 @@
+// root_vs_path — WHO ASKS THE ROOT WHEN A PATH IS IN HAND.
+//
+// THE QUESTION. `VarState` carries a concept twice: root-keyed bits
+// (`moved`, `shared_borrows`, `mut_borrowed`, `mut_reservations`) and
+// path-keyed tables (`moved_fields`, `shared_field_borrows`,
+// `mut_field_borrows`), whose relation the struct's own comment states —
+// "the whole-value borrows act as borrows on path ''". Class B of
+// bc_admits.ledger (82 rows) is glossed "bookkeeping is ROOT-keyed and does
+// not follow a projection". So the class is not a missing data structure.
+// It is READERS: a site that HAS a path and asks the root-keyed bit anyway
+// answers a narrower question than the one it is standing in front of.
+//
+// ⚠ THIS QUESTION NEEDED A FACT, NOT A RULE, AND THAT IS THE POINT. `ref`
+// was emitted for DeclRefExpr only, so `st.mut_borrowed` — a MemberExpr —
+// produced nothing and "who reads this member" was a grep question. The
+// extractor gained MemberExpr refs: general, question-blind, one relation.
+//
+// ⚠ AND THE DOMAIN IS INVERTED, as everywhere here. The root-keyed members
+// are DERIVED from the struct — every field of VarState that is not one of
+// the named path-keyed tables is root-keyed. A new bit added to VarState is
+// therefore root-keyed BY DEFAULT and shows up here until someone says why
+// not, rather than being silently outside a list I typed.
+
+#include "cxx_schema.dl"
+
+.decl root_member(did: symbol, name: symbol)
+.decl path_member(did: symbol, name: symbol)
+.decl varstate_field(did: symbol, name: symbol)
+
+// The path-keyed half is the CLAIM — three names, stated once.
+path_member(D, N) :- varstate_field(D, N),
+                     (N = "moved_fields" ; N = "shared_field_borrows" ; N = "mut_field_borrows").
+root_member(D, N) :- varstate_field(D, N), !path_member(D, N).
+
+// A field of VarState: a Field decl whose qualified name is VarState::<n>.
+varstate_field(D, N) :- decl(D, "Field", Q), decl_name(D, N),
+                        contains("VarState::", Q).
+
+// ── who reads what ──────────────────────────────────────────────────────────
+.decl reads_root(ctx: symbol, name: symbol, file: symbol, line: number)
+reads_root(C, N, F, L) :- ref(U, D), root_member(D, N), ctx_of(U, C), loc(U, F, L, _).
+
+.decl reads_path_member(ctx: symbol)
+reads_path_member(C) :- ref(U, D), path_member(D, _), ctx_of(U, C).
+
+// The path-aware QUERIES — the correct predicates that take a path argument.
+.decl asks_path_predicate(ctx: symbol)
+asks_path_predicate(C) :- call(X, D), decl_name(D, N), ctx_of(X, C),
+                          (N = "field_borrow_conflicts" ; N = "take_field_borrow" ;
+                           N = "check_whole_read_vs_field_loans").
+
+// ── DOES THIS CONTEXT HAVE A PATH IN HAND? ──────────────────────────────────
+// Two independent witnesses, deliberately not one: a `BorrowPlace` value in
+// scope, or a call to the walker that PRODUCES one. A context with neither is
+// asking a genuine whole-value question and is not a finding.
+.decl has_place_value(ctx: symbol)
+has_place_value(C) :- decl(D, "Var", _), decl_node(V, D), ctx_of(V, C),
+                      type_of(V, T), contains("BorrowPlace", T).
+
+.decl computes_place(ctx: symbol)
+computes_place(C) :- call(X, D), decl_name(D, N), ctx_of(X, C),
+                     (N = "extract_borrow_place" ; N = "place_write_root").
+
+.decl has_path(ctx: symbol)
+has_path(C) :- has_place_value(C).
+has_path(C) :- computes_place(C).
+has_path(C) :- reads_path_member(C).
+
+// ── THE FINDING ─────────────────────────────────────────────────────────────
+// A context that has a path available, reads a root-keyed bit, and never asks
+// a path-aware predicate. Ranked by how many distinct root bits it reads —
+// a context reading three of them is deciding more on the narrow answer.
+.decl finding(ctx: symbol, name: symbol, file: symbol, line: number)
+.output finding
+finding(C, N, F, L) :- reads_root(C, N, F, L), has_path(C), !asks_path_predicate(C).
+
+// The CONTROL half, printed so the finding set is readable against it: the
+// contexts that DO both. If this is empty the rule is not discriminating and
+// the finding set means nothing.
+.decl both(ctx: symbol) 
+.output both
+both(C) :- reads_root(C, _, _, _), asks_path_predicate(C).
+
+// The whole-value askers — no path anywhere near them. NOT findings, and
+// counted so that finding + whole + both accounts for every reader.
+.decl whole_only(ctx: symbol)
+.output whole_only
+whole_only(C) :- reads_root(C, _, _, _), !has_path(C), !asks_path_predicate(C).
+
+.decl finding_ctx(ctx: symbol, bits: number)
+.output finding_ctx
+finding_ctx(C, N) :- finding(C, _, _, _), N = count : { finding(C, M, _, _), M = M }.
+
+// Named output — a node id is not an answer a person can act on.
+.decl named_finding(fn: symbol, bits: number)
+.output named_finding
+named_finding(FN, N) :- finding_ctx(C, N), ctx_name(C, FN).
+
+.decl named_both(fn: symbol)
+.output named_both
+named_both(FN) :- both(C), ctx_name(C, FN).
+
+.decl named_whole(fn: symbol)
+.output named_whole
+named_whole(FN) :- whole_only(C), ctx_name(C, FN).
+
+.decl named_site(fn: symbol, member: symbol, line: number)
+.output named_site
+named_site(FN, M, L) :- finding(C, M, _, L), ctx_name(C, FN).
+
+// ── THE CHOICE, AND WHERE IT IS MADE ────────────────────────────────────────
+// `take_borrow(root, is_mut)` records a WHOLE-ROOT borrow; `take_field_borrow
+// (root, path, is_mut)` records a PATH borrow. Two entry points for one act,
+// so every caller must pick — and a caller that picks the narrow one while
+// holding a path is exactly a class-B row. Count the choosers, and count how
+// many pick BOTH (those already know the distinction) versus only the narrow
+// one (those decided it once, statically, at the call site).
+.decl calls_whole(ctx: symbol)
+.decl calls_path(ctx: symbol)
+calls_whole(C) :- call(X, D), decl_name(D, "take_borrow"), ctx_of(X, C).
+calls_path(C)  :- call(X, D), decl_name(D, "take_field_borrow"), ctx_of(X, C).
+
+.decl chooser(fn: symbol, whole: number, path: number)
+.output chooser
+chooser(FN, W, P) :- ctx_name(C, FN), (calls_whole(C) ; calls_path(C)),
+                     W = count : { call(X, D), decl_name(D, "take_borrow"), ctx_of(X, C) },
+                     P = count : { call(Y, E), decl_name(E, "take_field_borrow"), ctx_of(Y, C) }.
+
+// CONTROL for `chooser`: the raw call sites, unattributed. If the totals here
+// disagree with chooser's columns, the ctx attribution is losing sites and the
+// "one chooser" answer is an artefact of the walk, not a fact about the code.
+.decl recorder_site(callee: symbol, line: number)
+.output recorder_site
+recorder_site(N, L) :- call(X, D), decl_name(D, N),
+                       (N = "take_borrow" ; N = "take_field_borrow"), loc(X, _, L, _).

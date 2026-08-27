@@ -168,6 +168,17 @@ public:
             std::string did = decl_id(DR->getDecl());
             if (!did.empty()) ++g_out.refs, g_out.ref << id << '\t' << did << '\n';
         }
+        // ⚠ A FIELD ACCESS IS A NAME USE. `st.mut_borrowed` is a MemberExpr,
+        // not a DeclRefExpr, so `ref` saw NOTHING for it and any question of
+        // the form "who reads this member" was answerable only by grep — which
+        // is the tool this whole directory exists to replace. Same relation,
+        // same meaning ("a name use resolved to what it names"): the member's
+        // canonical FieldDecl location is stable across TUs exactly as a
+        // function's is, so the two kinds of use merge without ambiguity.
+        if (const auto *ME = dyn_cast<MemberExpr>(S)) {
+            std::string did = decl_id(ME->getMemberDecl());
+            if (!did.empty()) ++g_out.refs, g_out.ref << id << '\t' << did << '\n';
+        }
         if (const auto *CE = dyn_cast<CallExpr>(S))
             if (const FunctionDecl *F = CE->getDirectCallee()) {
                 std::string did = decl_id(F);
