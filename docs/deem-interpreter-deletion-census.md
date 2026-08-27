@@ -4401,9 +4401,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # a false refusal D6 exposed, it is fixed in the same change (the capture's root
 # TYPE is now passed), the row STAYS, and the fix is pinned by
 # pass/bc_d6_mut_field_capture_through_mutref_admit.
-REGISTRY-ALL         8546
-REGISTRY-NOIMPORTED  4443
-REGISTRY-TIERCOMMIT  502
+# 2026-08-26 — +1 EVERYWHERE, PREDICTED BEFORE IT WAS MEASURED: one test added,
+# `logos_00_population_pin_lint`, a tier_commit lint with no fixtures of its own.
+# 8546 -> 8547 / 4443 -> 4444 / 502 -> 503. It is the reader that connects THIS
+# pin to the OTHER statement of the same fact: the pass-corpus literals in
+# direct_door_census_gate.sh and plan_ground_census_gate.sh, which are tier_full
+# and were therefore stale for 23 consecutive commits while FACT 5 below was
+# re-derived at each of them.
+REGISTRY-ALL         8547
+REGISTRY-NOIMPORTED  4444
+REGISTRY-TIERCOMMIT  503
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

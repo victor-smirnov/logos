@@ -1607,6 +1607,52 @@ set_tests_properties(logos_00_census_pin PROPERTIES
     LABELS  "logos;lint;suite_lint;tier_commit"
 )
 
+# ── THE FOUR WIDEST-TRIGGER POPULATION PINS, ON THE PER-COMMIT PATH ──────────
+#
+# TWO PREDICATES FOR ONE CONCEPT, and the narrow one was the only one read per
+# commit. "How big is the pass corpus" is pinned in two places: the registry
+# counts in FACT 5 directly above, which go red whenever any test is added
+# anywhere — and the literals PIN['corpus'/'glob'/'nonglob'] in
+# direct_door_census_gate.sh plus EXPECT_FIXTURES in plan_ground_census_gate.sh,
+# which are `tier_full` and so have exactly ONE reader, `test-levels.sh L4`.
+#
+# MEASURED, not inferred: replaying a re-derivation of those literals against
+# `git ls-tree` at each of the 31 commits 3c3899703..72b16e0f5 puts the first
+# disagreement at d2c5a1e1d and the repair at 72b16e0f5 — 23 consecutive
+# commits red, 15 h 54 m, EVERY ONE OF THEM REPORTING ITSELF GREEN. Each of
+# those commits was told by FACT 5 that the registered population had moved,
+# re-derived that number, and did not re-derive this one, because nothing
+# connected the two statements of one fact. The aggregated sweep is committed
+# beside the program as population_pin_lint.known-answer.txt.
+#
+# WHAT THIS IS NOT: it is NOT the door census on the per-commit path. Four
+# numbers over two of the three exact-pin gates. The 36 door cross-pins,
+# pull_shape's 27 pins and plan_ground's ~30 EXPECT_* artefact counts still have
+# one reader, L4 — and the program's own OK line says so, because a reader who
+# hears "the door census is per-commit now" has been told something false.
+#
+# WHY NOT MOVE direct_door_census INTO tier_commit INSTEAD: MEASURED at 321 s
+# wall / 9375 sec*proc, because its FIXTURES_REQUIRED drags the whole pass
+# corpus in as fact producers, against this tier's 69.41 s / 1254 sec*proc. That
+# is a full corpus compile every commit to check four numbers `ls` answers in
+# 64 ms. This program costs +0.00 s wall on the tier (its wall is its slowest
+# test) and +0.06 sec*proc.
+#
+# IT HOLDS NO NUMBER OF ITS OWN. A third copy of the population would be a third
+# thing to go stale; it parses the literals out of the gate SOURCES and compares
+# them to a DIRECT LISTING. `--selftest` proves the comparator still bites in
+# both directions in the same run, including the could-not-look path: a renamed
+# PIN key exits 2, never 0.
+add_test(
+    NAME logos_00_population_pin_lint
+    COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/population_pin_lint.py --selftest
+            ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(logos_00_population_pin_lint PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;lint;suite_lint;tier_commit"
+)
+
 # ADR 0025 S4 — THE SHARED ACCUMULATOR FRAGMENTS HAVE ONE DEFINITION SITE.
 #
 # The batch and incremental aggregate emitters spelled 14 fragment arms twice,

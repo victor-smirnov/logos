@@ -1,0 +1,56 @@
+population_pin_lint.py — THE 23-COMMIT BLIND WINDOW, MEASURED
+
+Aggregated output of the program beside this file, run at every commit in
+3c3899703..72b16e0f5 (32 revisions) through its REV path — git ls-tree and
+git show only, no working tree, no build, no ctest. Produced 2026-08-26.
+
+THE KNOWN ANSWER IT REPRODUCES, which this repo wrote down independently:
+72b16e0f5's own commit message states "At dc4fdda52 the tree listed 2386
+pass fixtures against a pin of 2381". The dc4fdda52 row below is exactly
+that, and the +5 lands in nonglob (2190 pinned / 2195 listed) — the five
+are bc_/let_else/loop_break programs, none matching the wql_*/deem_* glob,
+so glob and EXPECT_FIXTURES stay at 191 and read OK in the same run. A
+program that always said DRIFT could not do that.
+
+  rc 0 = the four pins agree with a direct listing at that revision
+  rc 1 = a pin no longer describes the corpus
+
+IT GOES RED AT THE COMMIT THAT BROKE THE PIN AND GREEN AT THE COMMIT THAT
+REPAIRED IT — no earlier, no later. 8 green, then 23 consecutive red
+(d2c5a1e1d 2026-08-26 04:55 .. 5af86801f 20:50, 15 h 54 m), then green.
+Every one of those 23 commits reported itself green, because the only
+reader of these literals was test-levels.sh L4.
+
+REV          rc   corpus p/l       nonglob p/l
+3c3899703    0    2381/2381        2190/2190
+3587e28f2    0    2381/2381        2190/2190
+4ce2cdd28    0    2381/2381        2190/2190
+8834701da    0    2381/2381        2190/2190
+5ac0299ca    0    2381/2381        2190/2190
+60407dc1d    0    2381/2381        2190/2190
+f69511f09    0    2381/2381        2190/2190
+c5eb1bdd0    0    2381/2381        2190/2190
+d2c5a1e1d    1    2381/2382        2190/2191
+262f066f2    1    2381/2382        2190/2191
+b86706057    1    2381/2382        2190/2191
+f551a7d80    1    2381/2382        2190/2191
+3ff6eee0e    1    2381/2382        2190/2191
+cb4ecdce9    1    2381/2382        2190/2191
+905e28ba4    1    2381/2382        2190/2191
+97b53bc02    1    2381/2382        2190/2191
+094c28b4d    1    2381/2382        2190/2191
+8cad4a853    1    2381/2382        2190/2191
+42e478dc8    1    2381/2382        2190/2191
+7b20eb42c    1    2381/2382        2190/2191
+438c8197c    1    2381/2383        2190/2192
+6ede8b442    1    2381/2384        2190/2193
+a3e95a42b    1    2381/2386        2190/2195
+26d769709    1    2381/2386        2190/2195
+dc4fdda52    1    2381/2386        2190/2195
+114ea13b5    1    2381/2389        2190/2198
+f69ba3ddc    1    2381/2390        2190/2199
+90673ee0c    1    2381/2391        2190/2200
+3202d81e0    1    2381/2392        2190/2201
+c163488eb    1    2381/2395        2190/2204
+5af86801f    1    2381/2398        2190/2207
+72b16e0f5    0    2398/2398        2207/2207
