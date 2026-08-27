@@ -670,9 +670,30 @@ PIN = {
     # admit — borrow-check programs with no container family and no `direct`
     # output form, so the DOOR counts are unmoved (36 = 10 + 26), asserted
     # independently below.
-    'corpus'            : 2381,
+    # ⚠ RE-DERIVED at the over-refusal round (2026-08-26): +17 / +0 / +17, and
+    # FIVE OF THE SEVENTEEN WERE ALREADY UNACCOUNTED. This gate was ALREADY RED
+    # at dc4fdda52, before that round touched anything: the tree listed 2386
+    # pass fixtures against a pin of 2381, because five fixtures landed after
+    # 3c3899703 without re-deriving here — bc_derefwrite_shared_dead_admit,
+    # bc_place_kind_admit_half, bc_range_view_nll_admit,
+    # let_else_loop_no_break_admit, loop_break_targets_inner_admit. It is a
+    # tier_full gate, so L2 never ran it and the commits that added them
+    # reported themselves green over it. Named here rather than absorbed.
+    # BY DIRECT LISTING on the landed tree, never by adding a delta:
+    #   ls tests/logos/pass/*.logos                          -> 2398
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos             ->  191
+    #   the same listing minus the glob half                 -> 2207
+    # 2398 = 191 + 2207. The round's own twelve are the bc_reborrow_through_*,
+    # bc_reassign_holder_releases_loan_admit, bc_ifexpr_/bc_matchexpr_arms_
+    # alternatives_admit, the three bc_derefwrite_field_* admits and the three
+    # let_else_labeled_*/labeled_loop_tail_* admits — borrow-check and
+    # divergence programs with no container family and no `direct` output form,
+    # so the DOOR counts are unmoved (36 = 10 + 26), asserted independently
+    # below. The round's other twelve fixtures are FAIL fixtures and this
+    # population is the PASS corpus.
+    'corpus'            : 2398,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2190,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2207,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a
