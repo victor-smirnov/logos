@@ -7124,14 +7124,30 @@ private:
             case Code::ArrLit:      EArrLitView{e}.each_elem(one); break;
             case Code::EnumLitData: EEnumLitDataView{e}.each_payload(one); break;
             case Code::Cast:        one(ECastView{e}.operand()); break;
-            case Code::ClosureBox:
+            case Code::ClosureBox: {
                 // A closure that CAPTURES a borrow of a local carries it out.
+                // PROBE capescape: a capture of a plain OWNED local
+                // contributes no provenance, so the escape gate sees nothing.
+                // MEASURED 2026-08-27: 5 fires, CEILING 4 vs COST 3 —
+                // borrowck-escaping-closure-error-2,
+                // borrow-immutable-upvar-mutation-impl-trait,
+                // suggest-lt-on-ty-alias-w-generics, regions-proc-bound-capture.
+                // Its 4 rows are DISJOINT from all five other closure probes:
+                // the escape channel is a separate C mechanism, confirmed. The
+                // 3 costs are the predicted is_move exemption — a returned
+                // `move` closure OWNS its captures and this form does not
+                // consult cb.is_move(). Ceiling barely exceeds cost on a
+                // near-dead site; not the round to fund.
+                bool force_local = logos::probe::on("capescape");
                 EClosureBoxView{e}.each_capture_name([&](std::string_view cap) {
                     std::string n(cap);
                     if (auto it = prov_.find(n); it != prov_.end())
                         merged = merge_prov(merged, it->second);
+                    else if (force_local)
+                        merged.is_local = true;   // capture of a plain local
                 });
                 break;
+            }
             default: break;
         }
         return merged;
@@ -7393,7 +7409,21 @@ private:
                 if (src_lt.empty()) {
                     auto inner = param_inner_lifetimes_.find(src);
                     if (inner != param_inner_lifetimes_.end()) {
-                        bool found = inner->second.empty();  // aggregate w/o lt_args: trust
+                        // MEASURED 2026-08-27: 4 fires, CEILING 3 vs COST 0
+                        // (ex1-return-one-existing-name-self-is-anon and its
+                        // --c14b sibling, mir-check-cast-unsize). A near-dead
+                        // site whose ceiling is nearly its whole arrival
+                        // count. ⚠ COST 0 IS NOT A SAFETY CLAIM: the hatch's
+                        // stated justification (`self: &Self` -> &'a T where
+                        // Self<'a>, impl-level lt_args not carried forward)
+                        // names a REAL missing capability that this corpus
+                        // simply does not contain.
+                        // PROBE lifereg_aggtrust: a struct with NO lifetime
+                        // args carries no region and can justify nothing — the
+                        // hatch is checked only in the permissive direction.
+                        bool found = logos::probe::on("lifereg_aggtrust")
+                                         ? false
+                                         : inner->second.empty();
                         for (auto& ilt : inner->second)
                             if (ilt == ret_lt) { found = true; break; }
                         if (found) continue;
@@ -7829,22 +7859,78 @@ private:
                     it != fn_index_.by_name.end() && it->second &&
                     !it->second.params().empty() && is_self_borrowing(it->second)) {
                     TypeRef p0 = it->second.params()[0].type(pool);
-                    if (p0 && p0.kind() == LogosType::Kind::DstRef &&
-                        !p0.owning_dst()) {
+                    // PROBE genrecvtie: a method-generic call mono rewrote
+                    // into a plain Call has a Ref/MutRef first formal, so the
+                    // DstRef gate skips it and no receiver loan is recorded.
+                    // ⛔ REFUTED-AS-UNPRICEABLE 2026-08-27: ONE fire across all
+                    // 423 ledger compiles. Ceiling 0, but NOT a refutation of
+                    // the mechanism — a NEAR-DEAD SITE, and the fire count
+                    // NAMES ITS PRUNER. The twin probe genrecvconflict sits in
+                    // visit's Call arm under the same fn_index_ lookup WITHOUT
+                    // the enclosing `is_self_borrowing` requirement and fired
+                    // 176555 times. So the lookup is fine (genarg0blind's
+                    // insurance agrees) and `is_self_borrowing` prunes
+                    // 176555 -> 1. The generic-autoref hole measured at 2328
+                    // arrivals / 916 sites / 83 fixtures lives in the STDLIB
+                    // and pass corpus, NOT in the acceptance ledger: this
+                    // reader cannot price it, and any future round must bring
+                    // its own population rather than read a zero off this one.
+                    bool gtie = logos::probe::on("genrecvtie");
+                    bool p0_ref = p0 && (p0.kind() == LogosType::Kind::Ref ||
+                                         p0.kind() == LogosType::Kind::MutRef);
+                    if ((p0 && p0.kind() == LogosType::Kind::DstRef &&
+                        !p0.owning_dst()) || (gtie && p0_ref)) {
                         ExprRef a0; uint64_t ai0 = 0;
                         v.each_arg([&](ExprRef a){ if (ai0++ == 0) a0 = a; });
+                        // extract_borrow_place does NOT peel a top-level
+                        // AddrOfTemp: without this an autoref'd arg0
+                        // decomposes to an EMPTY root and record_borrow
+                        // returns on its first line — a FALSE ceiling 0.
+                        if (gtie && a0 && a0.kind() == Code::AddrOfTemp)
+                            a0 = EAddrOfTempView{a0}.inner();
                         if (a0) {
                             BorrowPlace bp = extract_borrow_place(a0, pool);
                             bool rawptr = bp.root_type &&
                                 bp.root_type.kind() == LogosType::Kind::Ptr;
                             if (!bp.root.empty() && !rawptr &&
                                 var_has(bp.root_slot, bp.root)) {
-                                bool m = p0.mut_ptr();
+                                bool m = p0.mut_ptr() ||
+                                    (gtie && p0.kind() == LogosType::Kind::MutRef);
                                 record_borrow(bp, m, line, holder,
                                               {/*skip_mut_binding=*/true});
                                 tied_recv = true;
                             }
                         }
+                    }
+                }
+                // MEASURED 2026-08-27: 27 fires — i.e. the ENTIRE Code::Call
+                // population reaching take_ref_borrows across all 423 ledger
+                // compiles is 27 arrivals, of which exactly 1 is resolved AND
+                // self-borrowing (see genrecvtie above). CEILING 0, COST 1
+                // (03_ownership_pass_borrow_trait). The insurance did its job:
+                // it says genrecvtie's zero is a DEAD SITE, not a broken
+                // callee lookup, and that no amount of widening at this site
+                // can reach the generic-autoref hole from this corpus.
+                // PROBE genarg0blind: INSURANCE AGAINST A FALSE ZERO on
+                // genrecvtie/genrecvconflict. Both depend on fn_index_
+                // resolving the MANGLED specialization name mono minted. This
+                // fires exactly when the lookup MISSED, so the fire count says
+                // how large the unresolved-callee population is.
+                bool blind = logos::probe::on("genarg0blind");
+                if (blind && !tied_recv && !holder.empty() &&
+                    fn_index_.by_name.find(std::string(v.callee())) ==
+                        fn_index_.by_name.end()) {
+                    ExprRef b0; uint64_t bi = 0;
+                    v.each_arg([&](ExprRef a){ if (bi++ == 0) b0 = a; });
+                    if (b0 && b0.kind() == Code::AddrOfTemp) {
+                        BorrowPlace bp = extract_borrow_place(
+                            EAddrOfTempView{b0}.inner(), pool);
+                        bool rawptr = bp.root_type &&
+                            bp.root_type.kind() == LogosType::Kind::Ptr;
+                        if (!bp.root.empty() && !rawptr &&
+                            var_has(bp.root_slot, bp.root))
+                            record_borrow(bp, /*is_mut=*/false, line, holder,
+                                          {/*skip_mut_binding=*/true});
                     }
                 }
                 uint64_t ai = 0;
@@ -8095,7 +8181,24 @@ private:
                                 });
                 uint64_t i = 0;
                 cb.each_capture_name([&](std::string_view cap) {
-                    if (cb.is_move()) { ++i; return; }
+                    if (cb.is_move()) {
+                        // PROBE capmove: a `move` closure deposits NOTHING —
+                        // no borrow, no move, no check_live, no inherit_loans.
+                        // MEASURED 2026-08-27, 423-row acceptance population:
+                        // 7 FIRES in the WHOLE corpus — a near-dead site, and
+                        // the fire count is itself the finding. CEILING 2
+                        // (borrowck-loan-blocks-move-cc--r10, issue-101119)
+                        // vs COST 3 (bc_clsC_b1_closure_arg_move_admit,
+                        // move_closure_copy_capture, spec borrow_1) — ⛔ STOP
+                        // SIGN. consume() does not ask about Copy-ness, and
+                        // `let n: i64 = 1; let f = move || n;` is legal. Its
+                        // 2 rows are DISJOINT from every other closure probe,
+                        // so `move`-capture is its own mechanism — just a
+                        // 2-row one. DECLINED: cost >= ceiling.
+                        if (logos::probe::on("capmove"))
+                            consume(std::string(cap), line);
+                        ++i; return;
+                    }
                     std::string root(cap);
                     std::string_view fpath = cb.capture_path(i);
                     std::string rel;
@@ -8104,6 +8207,17 @@ private:
                         fpath[root.size()] == '.')
                         rel = std::string(fpath.substr(root.size() + 1));
                     bool is_mut = cb.capture_is_mut(i);
+                    // PROBE capmut: deposit strength comes from sema's
+                    // per-capture mutability; nothing asks what the BODY does.
+                    // MEASURED 2026-08-27: 49 fires, CEILING 18 vs COST 17 —
+                    // ⛔ STOP SIGN, and the DELTA is what it was priced for.
+                    // capshared's 4 rows are a strict SUBSET of these 18
+                    // (overlap 4/4), so 'any use vs live capture' buys 14 rows
+                    // over 'mutation vs live shared capture' and pays 17 legal
+                    // refusals for them — `let f = || read(x); let n = x;` is
+                    // legal Rust. 'just make every capture exclusive' is
+                    // RETIRED for the price of one 70 s run; capshared stands.
+                    if (logos::probe::on("capmut")) is_mut = true;
                     if (std::getenv("LOGOS_DUMP_BC_CAPTURE"))
                         std::fprintf(stderr,
                             "[bc-capture] line=%u root=%s fpath=%s rel=%s "
@@ -8116,7 +8230,21 @@ private:
                     // beside `&mut p.y` is not falsely blocked. That is the
                     // only thing left in the caller; the whole/field decision
                     // moved to record_borrow with the other fifteen.
-                    if (rel.empty() && !is_mut) {
+                    bool shared_whole = rel.empty() && !is_mut;
+                    // PROBE capshared: turn the liveness-only branch into a
+                    // recorded shared loan held by the closure binding.
+                    // MEASURED 2026-08-27: 49 fires, CEILING 4 vs COST 0 —
+                    // borrowck-closures-mut-and-imm, closure-borrow-spans--a
+                    // and --b, region-bound-on-closure-outlives-call. ⚠ COST 0
+                    // IS NOT A SAFETY CLAIM: the RFC-2229 exemption named
+                    // above is REAL and this crude form ignores it, so a
+                    // careful version must still construct its own
+                    // counter-examples (`|| p.x` beside `&mut p.y`;
+                    // `let f=||x; let g=||x;` shared+shared). Its 4 rows are a
+                    // strict subset of capmut's 18 and DISJOINT from capbody.
+                    if (logos::probe::on("capshared") && shared_whole)
+                        shared_whole = false;   // fall to record_borrow
+                    if (shared_whole) {
                         check_live(root, line);
                     } else {
                         // The FIELD arm must be keyed on the same holder as
@@ -8132,7 +8260,21 @@ private:
                         cbp.path = rel;
                         cbp.root_type = i < cap_types.size() ? cap_types[i]
                                                              : TypeRef(nullptr);
-                        record_borrow(cbp, is_mut, line, holder);
+                        // PROBE capscope: an EMPTY holder is skipped by both
+                        // release_dead_borrows loops, so the loan becomes
+                        // LEXICAL and survives the loop back edge.
+                        // MEASURED 2026-08-27: 14 fires, CEILING 2 vs COST 9 —
+                        // ⛔ STOP SIGN, and worse: BOTH its rows
+                        // (issue-42574-…--b, regions-nested-fns) are already
+                        // in capbody's 19, so it contributes NOTHING capbody
+                        // does not. The pre-stated fork ("if capscope scores 0
+                        // while capmove scores on the same loop fixtures, the
+                        // loop rows are a MOVE story") resolved as NEITHER:
+                        // capmove's 2 rows are disjoint from capscope's, so
+                        // the loop rows are a BODY story. DECLINED.
+                        record_borrow(cbp, is_mut, line,
+                                      logos::probe::on("capscope")
+                                          ? std::string() : holder);
                         if (!rel.empty()) check_live(root, line);
                     }
                     // D1 round 2, Door D: the capture is a HOP. Registering a
@@ -8150,6 +8292,21 @@ private:
                     if (!holder.empty()) inherit_loans(root, holder, line);
                     ++i;
                 });
+                // PROBE capbody: EClosureBoxView::body() has ZERO call sites
+                // in this file — the loan/region machinery stops at the
+                // capture NAMES. Walk it crudely in the ENCLOSING frame.
+                // MEASURED 2026-08-27: 97 fires (both arms), CEILING 19 —
+                // the LARGEST of the six closure probes — vs COST 9. It
+                // subsumes capscope entirely (2/2) and shares 6 with capmut,
+                // but 13 of its 19 rows are reachable by NO other closure
+                // probe: the body walk is its own mechanism, not a spelling of
+                // the capture-strength one. The 9 costs are the predicted
+                // ones — the body's PARAMETERS are never declared in the
+                // enclosing frame and its locals shadow outer names — so the
+                // careful version is 'walk the body in a CHILD frame with the
+                // params declared', which the crude form cannot price.
+                if (logos::probe::on("capbody"))
+                    if (auto cbb = cb.body()) visit_block(cbb);
                 break;
             }
             // A borrow captured into an aggregate LITERAL — `let g = Guard { r: &mut f }`,
@@ -11337,6 +11494,25 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
 
         // ── Dereference: *ptr ──────────────────────────────────────────
         case Code::Deref:
+            // MEASURED 2026-08-27: 321 fires, CEILING 13 vs COST 1 — the
+            // best ratio of the seventeen, and its 13 rows are DISJOINT from
+            // every other probe in the batch. The single cost is
+            // spec/pass/coerce_3, minimised to
+            //   `struct Cell { v: i64 } impl Cell { fn get(&self) -> i64 {
+            //    return self.v; } }`
+            // i.e. the probe reads is_move_type off the DEREF'S OWN type
+            // (Cell, a move type) when the value actually moved is the Copy
+            // FIELD above it. The deref there is a PLACE BASE, and the tree
+            // already carries that signal: visit_place_base sets
+            // in_addr_source_ before visiting with consuming=false. One
+            // condition, already spelled, is what separates the 13 from the 1.
+            // PROBE derefmove: this arm DISCARDS `consuming`, so a move whose
+            // place is reached through a deref is never refused (E0507).
+            // sema rewrites every `static` READ to Deref(VarRef
+            // "__static_addr:<sym>"), so the static-move rows land here too.
+            if (logos::probe::on("derefmove") && consuming &&
+                is_move_type(e.type(pool), prog_, ts_, &copy_tvs_))
+                report(line, "cannot move out of a dereference");
             visit(EDerefView{e}.operand(), /*consuming=*/false, line);
             break;
 
@@ -11711,13 +11887,34 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 it != fn_index_.by_name.end() && it->second &&
                 !it->second.params().empty()) {
                 TypeRef p0 = it->second.params()[0].type(pool);
-                if (p0 && p0.kind() == LogosType::Kind::DstRef &&
-                    !p0.owning_dst()) {
+                // ⛔ REFUTED 2026-08-27 OVER A PROVEN-LIVE SITE: 176555 fires
+                // across the 423 ledger compiles — by far the hottest of the
+                // seventeen probes — CEILING 0 and COST 0. Widening
+                // check_recv_conflict from DstRef-only to Ref/MutRef arg0
+                // (with the AddrOfTemp peel, so it is not a false zero for the
+                // reason genrecvtie would have been) changes NOTHING in either
+                // direction. This is a real negative result, not a dead arm:
+                // the receiver-conflict check has nothing to say about a
+                // mono-lowered generic receiver, so the class-2 hole is NOT in
+                // the conflict channel. Do not re-propose this widening.
+                // PROBE genrecvconflict: the MethodCall twin runs this check
+                // for Ref/MutRef/DstRef alike with NO is_self_borrowing
+                // requirement; this arm gates on DstRef only, so a mono'd
+                // `&mut self` generic mutator escapes BOTH sides.
+                bool gcf = logos::probe::on("genrecvconflict");
+                bool p0_ref = p0 && (p0.kind() == LogosType::Kind::Ref ||
+                                     p0.kind() == LogosType::Kind::MutRef);
+                if ((p0 && p0.kind() == LogosType::Kind::DstRef &&
+                    !p0.owning_dst()) || (gcf && p0_ref)) {
                     ExprRef a0; uint64_t ai0 = 0;
                     cv.each_arg([&](ExprRef a){ if (ai0++ == 0) a0 = a; });
+                    if (gcf && a0 && a0.kind() == Code::AddrOfTemp)
+                        a0 = EAddrOfTempView{a0}.inner();
                     if (a0)
                         check_recv_conflict(extract_borrow_place(a0, pool),
-                                            /*is_mut=*/p0.mut_ptr(), line);
+                                            /*is_mut=*/p0.mut_ptr() ||
+                                              (gcf && p0.kind() == LogosType::Kind::MutRef),
+                                            line);
                 }
             }
             visit_args(cv);
@@ -11939,6 +12136,10 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             EClosureBoxView{e}.each_capture_name([&](std::string_view cap) {
                 check_live(std::string(cap), line);
             });
+            // PROBE capbody (second arm): a bare/argument closure reaches
+            // only this one; a `let`-bound closure only take_ref_borrows'.
+            if (logos::probe::on("capbody"))
+                if (auto cbb = EClosureBoxView{e}.body()) visit_block(cbb);
             break;
 
         // ── Block expression ───────────────────────────────────────────

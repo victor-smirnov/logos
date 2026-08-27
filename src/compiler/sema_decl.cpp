@@ -2,6 +2,8 @@
 
 #include "sema_impl.hpp"
 
+#include <logos/compiler/probe.hpp>
+
 #include <logos/writ/external_ref.hpp>   // global_arena_pool, lookup_export, ExternalRef
 
 #include <cstdio>
@@ -131,6 +133,52 @@ void SemaChecker::compute_fn_lifetime_outlives(
                 error(std::format("fn '{}': use of undeclared lifetime name '{}' in `{}: {}` bound",
                                   fn_name, lt, tp.name, lt));
         }
+    }
+    // MEASURED 2026-08-27: 1550851 fires, CEILING 17 vs COST 4 — the second
+    // best ratio of a seventeen-probe batch, and its 17 rows are DISJOINT from
+    // every other probe measured. The 4 costs are exactly what walk_implied's
+    // comment predicted, and THREE OF THE FOUR ARE ONE EXEMPTION: a lifetime
+    // declared at IMPL scope, not fn scope — `impl<'a> Foo<'a> for S<'a> { fn
+    // id(self: S<'a>) }` (lifetime_trait_bound_arg), plus the `'_` placeholder
+    // (lifetime_underscore) and spec region_2 / bc_dropck_shadowed_name.
+    // ⚠ The pre-stated SPLIT held: the closed rows are the fn-signature share
+    // (regions-undeclared, regions-name-undeclared, regions-infer-paramd-
+    // indirect, resolve-re-error-ice, …). R17 is ONE RULE AT FOUR SITES, and
+    // this probe reaches only one of them — a careful round must widen the
+    // SITE SET (struct fields, enum payloads, `static`), not the rule.
+    // PROBE ltundecl: `known()` is applied to the outlives clauses and the
+    // type-param bounds ONLY. The lifetimes in PARAMETER and RETURN types are
+    // walked by walk_implied above — which even calls fn_lifetime_known — but
+    // only to decide whether to emit an outlives pair, never to report. Its
+    // comment names the permissive exit as deliberate and unmeasured.
+    if (logos::probe::on("ltundecl")) {
+        std::vector<std::string> seen;
+        auto walk_lts = [&](TypeRef t, auto& rec) -> void {
+            if (!t) return;
+            auto k = t.kind();
+            if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) {
+                if (!t.lifetime().empty()) seen.emplace_back(t.lifetime());
+                rec(t.pointee(), rec); return;
+            }
+            if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct ||
+                k == LogosType::Kind::Enum) {
+                for (auto& lt : t.lifetime_args()) seen.emplace_back(lt);
+                for (auto a : t.type_args()) rec(a, rec); return;
+            }
+            if (k == LogosType::Kind::Tuple) {
+                for (auto e2 : t.tuple_elems()) rec(e2, rec); return;
+            }
+            if (k == LogosType::Kind::Slice || k == LogosType::Kind::Array) {
+                rec(t.elem(), rec); return;
+            }
+            if (k == LogosType::Kind::Ptr) { rec(t.pointee(), rec); return; }
+        };
+        for (auto& p : params) walk_lts(p.type, walk_lts);
+        walk_lts(ret_type, walk_lts);
+        for (auto& lt : seen)
+            if (!known(lt))
+                error(std::format("fn '{}': use of undeclared lifetime name '{}'",
+                                  fn_name, lt));
     }
 }
 

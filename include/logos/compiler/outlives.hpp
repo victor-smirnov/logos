@@ -13,6 +13,8 @@
 // The graph is a sequence of (longer, shorter) pairs as parsed from
 // `where 'long: 'short` / `'long: 'short + 'mid` / etc.
 
+#include <logos/compiler/probe.hpp>
+
 #include <queue>
 #include <string>
 #include <string_view>
@@ -98,6 +100,18 @@ inline bool outlives(
         }
         return false;
     };
+    // MEASURED 2026-08-27: 9 fires across the 423-row acceptance population,
+    // CEILING 7 vs COST 2 — and the ceiling is EXACTLY the disjoint union of
+    // its two downstream doors (lifereg_callargstrict 4 + lifereg_structlit-
+    // strict 3, intersection 0), which was the pre-stated test for "one
+    // mechanism, two spellings". It did NOT exceed the sum, so there are no
+    // consumers of this tail beyond those two that move any ledger row.
+    // 9 fires for 7 rows: nearly every arrival at this tail is a defect.
+    // PROBE lifereg_unmentioned: the single permissive default UPSTREAM of
+    // lifereg_callargstrict and lifereg_structlitstrict. MENTIONED-NESS, not
+    // the constraint, is what flips the answer — adding `where 'a: 'b` turns
+    // an admission into a refusal. Rust's rule is the opposite.
+    if (logos::probe::on("lifereg_unmentioned")) return false;
     if (mentioned(L) || mentioned(S)) return false;
     return true;
 }

@@ -3010,6 +3010,19 @@ lir_view::StmtRef SemaChecker::lower_assign(TinyMapView node) {
     }
     expect_type(rhs, var_type, CoercePos::PlaceWrite,
                 std::format("assignment to '{}': type mismatch —", name));
+    // ⛔ REFUTED 2026-08-27 OVER A LIVE SITE: 75 fires across the 423 ledger
+    // compiles, CEILING 0, COST 0. The site is live and the check is a no-op
+    // on it in BOTH directions. Predicted as a near-dead-in-effect site
+    // ("ceiling 1, and I expect the fire count to be the finding") and that
+    // held: the anon-region imports write through a PROJECTION (`x.b = y`,
+    // `x.push(y)`), never through a bare local. Do not re-propose.
+    // PROBE lifereg_varassign: the same missing consumer at the OTHER
+    // assignment path. check_variance IS called at let-init (permissive=false)
+    // and is not called one statement later at the re-assignment.
+    if (logos::probe::on("lifereg_varassign") && var_type && rhs)
+        check_variance(expr_type(rhs), var_type,
+                       std::format("assignment to '{}'", name),
+                       /*permissive=*/false);
     // Implicit safe integer widening on assignment.
     if (var_type && is_integer_kind(TypeRef(var_type).kind()) && is_integer_kind(TypeRef(expr_type(rhs)).kind()) &&
         TypeRef(expr_type(rhs)).kind() != LogosType::Kind::IntLit &&
@@ -8009,6 +8022,23 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
         expect_type(val, pt, CoercePos::PlaceWrite,
                     std::format("assignment to '{}': type mismatch —",
                                 render_place_node(place_node)));
+    // MEASURED 2026-08-27: 59 fires, CEILING 2 vs COST 0
+    // (apit-not-targeted-by-lifetime-suggestion--d-min,
+    // ex3-both-anon-regions-both-are-structs-3). The pre-stated ceiling was 6
+    // (upper bound 12) from a regex over the `x.f = y` shape: ACTUAL 2. A
+    // fixture CONTAINING the shape is not a fixture whose DEFECT is the shape
+    // — the regex over-counted by 3x. Rows are disjoint from every other
+    // probe. Priced separately from lifereg_varassign on purpose (the
+    // droporder lesson) and the split paid: that twin scored 0.
+    // PROBE lifereg_fieldassign: lower_place_assign type-checks with
+    // expect_type (lifetime-ERASED, TypeUID) and never calls check_variance.
+    // Its sibling lower_deref_assign DOES, with the comment "B68: variance
+    // check at *ptr = val". Same two regions, one spelling checked.
+    if (logos::probe::on("lifereg_fieldassign") && pt && val)
+        check_variance(expr_type(val), pt,
+                       std::format("assignment to '{}'",
+                                   render_place_node(place_node)),
+                       /*permissive=*/false);
     // Overflow: an int literal RHS must fit the place's integer type (closes the
     // gap where the general place-write path skipped the fit-check).
     if (pt && TypeRef(pt).kind() != LogosType::Kind::Error &&
