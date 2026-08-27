@@ -7373,8 +7373,19 @@ private:
                     ai++;
                     if (is_recv) return;   // receiver borrow recorded above
                     if (!a) return;
+                    // ⚠ TWO PREDICATES FOR "DOES THIS OPERAND NEED RECURSION".
+                    // The aggregate-literal arms (StructLit / TupleLit / ArrLit)
+                    // recurse UNCONDITIONALLY; these two Call arms filter by a
+                    // narrow TYPE test written later. A `Kind::Closure` argument
+                    // passes NEITHER disjunct, so the capture-deposit code at the
+                    // ClosureBox arm was never reached for a closure handed to a
+                    // call — MEASURED: `let c = ||{x=4;}; let n = x;` refuses,
+                    // and the same program with `id(||{x=4;})` for a generic
+                    // `fn id<F>(f:F)->F` admits. Delegated to the predicate this
+                    // file already owns for "what does this expression retain".
                     if (is_ref_kind(a.type(pool)) ||
-                        (res_bc && is_borrow_carrying_type(a.type(pool))))
+                        (res_bc && is_borrow_carrying_type(a.type(pool))) ||
+                        retains_borrowing_operand(a))
                         take_ref_borrows(a, line, holder, record_only);  // #70
                 });
                 break;
@@ -7477,8 +7488,10 @@ private:
                 bool res_bc_m = is_borrow_carrying_type(e.type(pool));
                 v.each_arg([&](ExprRef a) {
                     if (!a) return;
+                    // Same delegation as the free-call arm above, same reason.
                     if (is_ref_kind(a.type(pool)) ||
-                        (res_bc_m && is_borrow_carrying_type(a.type(pool))))
+                        (res_bc_m && is_borrow_carrying_type(a.type(pool))) ||
+                        retains_borrowing_operand(a))
                         take_ref_borrows(a, line, holder, record_only);  // #70
                 });
                 break;

@@ -709,9 +709,22 @@ PIN = {
     # `logos_00_population_pin_lint` (tier_commit, landed 2a3bc0594) reds on the
     # commit that moves the corpus. The 23-commit blind window that preceded it
     # is what that gate exists for.
-    'corpus'            : 2401,
+    # 2026-08-26 (class C / C-beta — the closure-as-argument arm): +3 pass
+    # fixtures, the legal twins of the new refusal —
+    #   pass/bc_clsC_b1_closure_arg_shared_admit    (shared capture, read after)
+    #   pass/bc_clsC_b1_closure_arg_disjoint_admit  (mutating capture, other local)
+    #   pass/bc_clsC_b1_closure_arg_move_admit      (`move` closure owns it)
+    # — plus one FAIL fixture (bc_clsC_b1_closure_arg_conflict), not this gate's
+    # population. None matches the `wql_*` / `deem_*` glob, none declares a
+    # container family or a `direct` output form: `glob` and the DOOR counts are
+    # unmoved (36 = 10 + 26).
+    # RE-DERIVED BY DIRECT FILE LISTING, never by adding to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2404
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2404 = 191 + 2213.
+    'corpus'            : 2404,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2210,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2213,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

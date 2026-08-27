@@ -4419,9 +4419,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # logos_00_population_pin_lint) = 500. VERIFIED BY DIRECT LISTING, not by
 # arithmetic on the previous line: `ctest -N -R '^logos_00_bc_admit_'` counts
 # 452, which is also the ledger's `# TOTAL`.
-REGISTRY-ALL         8551
-REGISTRY-NOIMPORTED  4445
-REGISTRY-TIERCOMMIT  500
+# 2026-08-26 — 8551 -> 8555 / 4445 -> 4448 / 500 -> 499. The class-C / C-beta
+# round added 3 pass + 1 fail fixture under tests/logos (+4 to both ALL and
+# NOIMPORTED) and moved ONE program off the borrow-check admit shelf onto
+# tests/imported/fail/borrowck (-1 non-imported `logos_00_bc_admit_*`, +1 test
+# carrying the `imported` label). ALL +4-1+1 = +4; NOIMPORTED +4-1 = +3;
+# TIERCOMMIT -1, since the admit tests are in that tier. VERIFIED BY DIRECT
+# LISTING: `ctest -N -R '^logos_00_bc_admit_'` counts 451, which is also the
+# ledger's `# TOTAL`.
+REGISTRY-ALL         8555
+REGISTRY-NOIMPORTED  4448
+REGISTRY-TIERCOMMIT  499
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

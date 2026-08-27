@@ -1,0 +1,14 @@
+// CLASS C / C-beta — the third legal twin: a `move` closure OWNS its capture,
+// so reading the original afterwards is legitimate for a Copy local. One
+// property away from fail/bc_clsC_b1_closure_arg_conflict: the `move` keyword.
+// The deposit arm returns before depositing anything for a `move` closure, and
+// widening the RECURSION into the argument must not change that.
+package bc_clsC_b1_closure_arg_move_admit;
+fn apply<F>(f: F) -> F { return f; }
+fn main() -> i32 {
+    let x: i64 = 3i64;
+    let c = apply(move || { let _u: i64 = x; });
+    let n: i64 = x;
+    c();
+    return n as i32;
+}

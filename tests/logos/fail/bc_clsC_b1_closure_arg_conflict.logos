@@ -1,0 +1,33 @@
+// CLASS C / C-beta — THE CLOSURE-AS-ARGUMENT ARM WAS NEVER REACHED.
+//
+// take_ref_borrows' ClosureBox arm deposits the capture borrows: whole-root +
+// mut takes a `&mut` loan, a field path takes a field borrow, and inherit_loans
+// ties them to the holder. It is reached by RECURSION from whatever arm holds
+// the closure. The aggregate-literal arms (StructLit / TupleLit / ArrLit)
+// recurse into their operands UNCONDITIONALLY; the Call and MethodCall arms
+// filtered arguments by `is_ref_kind(a.type) || (res_bc &&
+// is_borrow_carrying_type(a.type))`. A `Kind::Closure` argument passes NEITHER,
+// so the deposit never ran for a closure handed to a call — two predicates for
+// "does this operand need recursion", the narrow one written later.
+//
+// ONE PROPERTY apart from the refusing form, and that property is a GENERIC
+// WRAPPER, not the borrow:
+//     let c = || { x = 4i64; };      let n = x;   -> refused, always
+//     let c = id(|| { x = 4i64; });  let n = x;   -> was rc 0
+// Repaired by DELEGATION to `retains_borrowing_operand`, which this file
+// already owns for "what does this expression retain" and which answers true
+// for a ClosureBox. NOT by adding a `Kind::Closure` case, which would have been
+// a third predicate for the same question.
+//
+// This closed exactly ONE bc_admits.ledger row (borrowck-closures-two-mut,
+// upstream E0499). Nine other rows a survey grouped as this mechanism did NOT
+// retire: they are blocked by more than one thing.
+package bc_clsC_b1_closure_arg_conflict;
+fn id<F>(f: F) -> F { return f; }
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    let c1 = id(|| { x = 4i64; });
+    let n: i64 = x;
+    c1();
+    return n as i32;
+}

@@ -1,0 +1,17 @@
+// CLASS C / C-beta — THE ABUSE DIRECTION OF THE NEW REFUSAL, and the fixture
+// that would catch it. `retains_borrowing_operand` is WIDER than "is this a
+// closure": it recurses through nested calls and aggregates, and its consumer
+// is the exclusivity machinery, which REFUSES. So the failure mode of this
+// delegation is an over-refusal on ordinary callback code, not a permissive
+// hole. A SHARED capture passed as a call argument, with the captured local
+// read afterwards, must stay admitted. One property away from
+// fail/bc_clsC_b1_closure_arg_conflict: whether the body writes the capture.
+package bc_clsC_b1_closure_arg_shared_admit;
+fn apply<F>(f: F) -> F { return f; }
+fn main() -> i32 {
+    let out: i64 = 7i64;
+    let c = apply(|| { let _u: i64 = out; });
+    let n: i64 = out;
+    c();
+    return n as i32;
+}

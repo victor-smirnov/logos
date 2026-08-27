@@ -41,7 +41,18 @@
 #   polonius-smoke-test               E0505  "cannot move 's' while it is borrowed"
 # All three moved to tests/imported/fail/nll/ with those diagnostics pinned; the
 # rows are deleted here, not commented out.
-# TOTAL 452
+# 2026-08-26 — 452 -> 451. ONE row, not the ten a survey of class C predicted:
+# take_ref_borrows' Call and MethodCall arms filtered their arguments by a
+# narrow TYPE test while the StructLit/TupleLit/ArrLit arms recurse
+# unconditionally, so a `Kind::Closure` argument passed neither disjunct and the
+# capture-deposit code was never reached for a closure handed to a call.
+# Delegating both arms to `retains_borrowing_operand` closed exactly
+#   borrowck-closures-two-mut       E0499  cannot borrow 'x' as mutable: already mutably borrowed
+# and NONE of the other nine rows the survey grouped as C-beta. That is the
+# survey's own stated floor being right and its upper bound being wrong: those
+# rows are blocked by MORE THAN ONE mechanism, and a row retires only when all
+# of its blockers close. Recorded as measured, not as predicted.
+# TOTAL 451
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -73,7 +84,6 @@ borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-bor
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
 borrowck-closures-mut-and-imm bck.C tests/imported/admit/borrowck/borrowck-closures-mut-and-imm
 borrowck-closures-mut-of-imm--ctl bck.B tests/imported/admit/borrowck/borrowck-closures-mut-of-imm--ctl
-borrowck-closures-two-mut bck.C tests/imported/admit/borrowck/borrowck-closures-two-mut
 borrowck-closures-unique-imm bck.C tests/imported/admit/borrowck/borrowck-closures-unique-imm
 borrowck-escaping-closure-error-1 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-1
 borrowck-escaping-closure-error-2 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-2

@@ -1,0 +1,16 @@
+// CLASS C / C-beta — the second legal twin: a mutating closure passed as a call
+// argument conflicts with reads of ITS OWN capture and with nothing else. One
+// property away from fail/bc_clsC_b1_closure_arg_conflict: which local the
+// program reads and writes while the closure is live. A rule that refused every
+// closure-carrying argument would satisfy the fail fixture and red here.
+package bc_clsC_b1_closure_arg_disjoint_admit;
+fn apply<F>(f: F) -> F { return f; }
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    let mut y: i64 = 1i64;
+    let c = apply(|| { x = 4i64; });
+    let n: i64 = y;
+    y = 2i64;
+    c();
+    return (n + x + y) as i32;
+}
