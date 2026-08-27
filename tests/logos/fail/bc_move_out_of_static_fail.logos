@@ -1,0 +1,20 @@
+// A `static` READ IS A DEREF OF THE GLOBAL'S ADDRESS, and the address is a RAW
+// pointer: sema lowers it to `Deref(VarRef("__static_addr:<sym>", *T))`. So the
+// raw-pointer exemption — which exists for logos.mem's `let old = *p; *p = new`
+// idiom and is what keeps the stdlib compiling — swallowed the whole static
+// class by SPELLING. The programmer wrote no pointer here, and rustc's answer
+// is E0507 "cannot move out of static item": `X` is still there afterwards and
+// its `Drop` would run twice.
+// `deref_move_exempt` answers `false` for that name before it looks at the type.
+// Was tests/imported/admit/borrowck/issue-47215-ice-from-drop-elab--move-out-of-static
+// until 2026-08-27.
+// ADMIT TWIN: pass/bc_deref_move_exempt_admit — a Copy static read BY VALUE,
+// `&STATIC`, and `STATIC.field`, all of which stay legal.
+package bc_move_out_of_static_fail;
+struct S { n: i64 }
+impl Drop for S { fn drop(self: &mut S) { if self.n < 0i64 { return; } } }
+pub static X: S = S { n: 0i64 };
+fn main() -> i32 {
+    let a: S = X;
+    return a.n as i32;
+}

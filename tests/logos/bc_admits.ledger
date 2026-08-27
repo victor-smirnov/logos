@@ -209,7 +209,83 @@
 # re-binding a dropck struct to a value that borrows nothing leaves the old
 # sources standing. Not widened here, not exercised by any of the 426 rows.
 # Class B unchanged at 63 — all three rows are lifereg.E.
-# TOTAL 423
+# 2026-08-27 — 423 -> 412. ELEVEN rows; PREDICTED 12 and one of the twelve was
+# PUT BACK, on the full-conformance run, because closing it was an over-refusal.
+# E0507 was asked in sema from FIVE HAND-LISTED POSITIONS (let RHS, `return`,
+# tail-expr return, arg coercion, array destructure) through
+# `is_unowned_move_source`, whose `Deref` arm additionally requires the operand
+# to be SPELLED `VarRef`. Neither the position list nor the spelling is the
+# property. `consuming` — which borrow_check's `visit` already computes once and
+# propagates — IS the position-general answer, so the rule now lives at the
+# DEREF, in one place, and a position it has never seen cannot escape it:
+#   borrowck-move-out-of-static-item                       static item 'BAR'
+#   issue-17718-static-move                                static item 'FOO'
+#   issue-47215-ice-from-drop-elab--move-out-of-static     static item 'X'
+#   issue-47215-ice-from-drop-elab--b-move-out-of-static-twice  static item 'X'
+#   issue-47215-ice-from-drop-elab--r-runtime              static item 'X'
+#   move-error-snippets--r31                               static item 'D'
+#   move-error-snippets--t31                               static item 'D'
+#   move-from-union-field-issue-66500  `*u.a`      operand FieldRead, not VarRef
+#   move-errors--c                     `**r`       operand Deref,     not VarRef
+#   issue-20801                        `*mut_ref(&mut t)`  operand Call
+#   cannot-move-block-spans            `let x = { *r };`   position: block tail
+# All eleven moved to tests/imported/fail/ with the diagnostic pinned.
+# ⚠ THE SEVEN STATIC ROWS ARE ONE LINE, AND IT IS THE EXEMPTION, NOT THE RULE.
+# A `static` READ lowers to `Deref(VarRef("__static_addr:<sym>", *T))`, so its
+# operand is a RAW POINTER by spelling. `deref_move_exempt` answers `false` for
+# that name before it ever looks at the type — the programmer wrote no pointer,
+# and rustc's answer is E0507 "cannot move out of static item".
+# ⚠ THE 12th ROW WAS CLOSED, MEASURED, AND HANDED BACK. `move-errors--d` is
+# `let A { s: v } = *r;` and the crude probe, the prediction and the first build
+# all counted it. The full-conformance run (L4 with `imp`) then reddened
+# tests/imported/pass/structs/newtype-struct-with-dtor — `let Fd(s) = *self;`
+# over `pub struct Fd(u32)` with a `Drop` impl, a rustc UI PASS test, because
+# `u32` is Copy and the pattern therefore MOVES NOTHING. Its shape is
+# `move-errors--d`'s shape exactly, and our port of move-errors--d gave the
+# field type `i64` where upstream has `String`. A destructuring `let` lowers to
+# `let __dst_N: A = *r;` plus field reads, so the position no longer knows which
+# it is: the exemption is on the POSITION and the row goes back on the shelf.
+# Closing it means carrying the pattern's move-ness onto the temp's `let` — a
+# sema change and its own round. THIS IS WHY THE GATE INCLUDES `imp` FOR A
+# BORROW-CHECK ROUND: the 478-test cost corpus and plain L4 were both green.
+# ⚠ THE 13th ROW OF THE PROBE'S CEILING IS DELIBERATELY LEFT STANDING.
+# `borrowck-move-from-unsafe-ptr` is `let y = *x;` over a `*const Own`, and
+# refusing it means refusing the raw-pointer deref-move that logos.mem's ptr /
+# Vec / Cell primitives are built on (`let old = *p; *p = new;`).
+# `is_unowned_move_source` takes the same exemption for the same stated reason.
+# It is a DIVERGENCE with a name on this shelf, not an oversight: CEILING 13,
+# PREDICTED 12, CLOSED 11, and both rows left standing are rows a refusal could
+# only have been bought with an over-refusal.
+# ⚠ A FOURTH EXEMPTION, ALSO MEASURED ON THE CONFORMANCE RUN: a deref whose
+# POINTEE TYPE IS A BARE TYPEVAR. `copy_tvs_` is built from the FUNCTION's own
+# type params, so an IMPL- or TRAIT-level `T: Copy` is invisible and
+# `is_move_type` calls a bare `T` move by default (DIVERGENCES §B1) — sound for
+# the partial-move TRACKER it was written for, an over-refusal read as a rule.
+# `fn greater_than_one<T: NumExt>(n: &T) -> bool { return *n > one; }`
+# (imported/pass/traits/inheritance-num1-b150) is the program. Nothing is lost:
+# every instantiation is checked with a concrete type.
+# ⚠ THE COST THE PROBE MEASURED WAS THE MISSING RAW EXEMPTION, not the
+# place-base confusion the probe's own note guessed at. spec/pass/coerce_3's
+# single refusal minimises to a user `struct Cell` + `fn get`, whose mangled
+# name collides with the stdlib's `impl<T: Copy> Cell<T>` and drags that
+# PRE-MONO generic body into the check: `unsafe { return *self.inner.get(); }`,
+# whose operand is `*mut T`. Measured, not argued.
+# EXEMPTIONS CHECKED IN BOTH DIRECTIONS by constructed programs, not only by the
+# corpus (which refuses only what it contains): a Copy deref, a Copy field
+# through `(*r).f`, `&*r`, `**r` over `&&i64`, a raw-pointer move-out, a `Copy`
+# static read by value, `&STATIC` and `STATIC.field`, a `Box` field read and
+# `&*b`, `match *r { E::A(ref d) => … }`, a `T: Copy` impl-level generic body,
+# and a struct destructure `let P { a, b } = *r;` — all still compile.
+# The whole 53-target build (liblogos-lang / -mem / -std, memoria, lforge, the
+# examples) is the other oracle and it relinked green.
+# ⚠ THIS IS NOT A CLASS FIX AND THE ROOT COLUMN SAYS SO. The eleven carry FIVE
+# different roots (bck.NEW 7, nllmoves.B 1, bck.B 1, bck.D 1, nllmoves.D 1 — no
+# lifereg row at all), because the root column records what the IMPORTING slice
+# proposed, and E0507-at-a-deref was never one of the proposals. Class B goes
+# 63 -> 61 and bck.NEW 36 -> 29; neither number is evidence about the mechanism.
+# bck.NEW is exactly the root the batch report called unexamined, and seven of
+# its 36 turn out to be one rule.
+# TOTAL 412
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -257,7 +333,6 @@ borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-mov
 borrowck-move-out-from-array-match bck.B tests/imported/admit/borrowck/borrowck-move-out-from-array-match
 borrowck-move-out-from-array-use-match--b bck.B tests/imported/admit/borrowck/borrowck-move-out-from-array-use-match--b
 borrowck-move-out-from-array-use-match--t13 bck.B tests/imported/admit/borrowck/borrowck-move-out-from-array-use-match--t13
-borrowck-move-out-of-static-item bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-static-item
 borrowck-move-out-of-struct-with-dtor bck.E tests/imported/admit/borrowck/borrowck-move-out-of-struct-with-dtor
 borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13
 borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13
@@ -288,16 +363,11 @@ index-mut-help bck.NEW tests/imported/admit/borrowck/index-mut-help
 issue-101119 bck.C tests/imported/admit/borrowck/issue-101119
 issue-111554--b bck.A tests/imported/admit/borrowck/issue-111554--b
 issue-111554--c bck.A tests/imported/admit/borrowck/issue-111554--c
-issue-17718-static-move bck.NEW tests/imported/admit/borrowck/issue-17718-static-move
-issue-20801 bck.D tests/imported/admit/borrowck/issue-20801
 issue-36082 bck.D tests/imported/admit/borrowck/issue-36082
 issue-41962--r25 bck.NEW tests/imported/admit/borrowck/issue-41962--r25
 issue-41962--t25 bck.NEW tests/imported/admit/borrowck/issue-41962--t25
 issue-42344 bck.NEW tests/imported/admit/borrowck/issue-42344
 issue-45983 bck.C tests/imported/admit/borrowck/issue-45983
-issue-47215-ice-from-drop-elab--b-move-out-of-static-twice bck.NEW tests/imported/admit/borrowck/issue-47215-ice-from-drop-elab--b-move-out-of-static-twice
-issue-47215-ice-from-drop-elab--move-out-of-static bck.NEW tests/imported/admit/borrowck/issue-47215-ice-from-drop-elab--move-out-of-static
-issue-47215-ice-from-drop-elab--r-runtime bck.NEW tests/imported/admit/borrowck/issue-47215-ice-from-drop-elab--r-runtime
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
 issue-53432-nested-closure-outlives-borrowed-value bck.C tests/imported/admit/borrowck/issue-53432-nested-closure-outlives-borrowed-value
 issue-55492-borrowck-migrate-scans-parents bck.A tests/imported/admit/borrowck/issue-55492-borrowck-migrate-scans-parents
@@ -319,9 +389,6 @@ issue-85765 bck.B tests/imported/admit/borrowck/issue-85765
 issue-93093 bck.B tests/imported/admit/borrowck/issue-93093
 issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure
 many-mutable-borrows bck.NEW-M tests/imported/admit/borrowck/many-mutable-borrows
-move-error-snippets--r31 bck.NEW tests/imported/admit/borrowck/move-error-snippets--r31
-move-error-snippets--t31 bck.NEW tests/imported/admit/borrowck/move-error-snippets--t31
-move-from-union-field-issue-66500 bck.B tests/imported/admit/borrowck/move-from-union-field-issue-66500
 move-in-pattern-mut-in-loop bck.B tests/imported/admit/borrowck/move-in-pattern-mut-in-loop
 moved-value-suggest-reborrow-issue-127285--r32 bck.NEW tests/imported/admit/borrowck/moved-value-suggest-reborrow-issue-127285--r32
 moved-value-suggest-reborrow-issue-127285--t32 bck.NEW tests/imported/admit/borrowck/moved-value-suggest-reborrow-issue-127285--t32
@@ -476,7 +543,6 @@ adt-tuple-enums--t33 nllmoves.NEW-L1 tests/imported/admit/nll/adt-tuple-enums--t
 adt-tuple-struct-calls nllmoves.NEW-1 tests/imported/admit/nll/adt-tuple-struct-calls
 adt-tuple-struct nllmoves.NEW-S7-1 tests/imported/admit/nll/adt-tuple-struct
 borrowed-temporary-error--t08 nllmoves.D tests/imported/admit/nll/borrowed-temporary-error--t08
-cannot-move-block-spans nllmoves.D tests/imported/admit/nll/cannot-move-block-spans
 capture-ref-in-struct--ctl nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--ctl
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
 cast-static-lifetime nllmoves.R17 tests/imported/admit/nll/cast-static-lifetime
@@ -545,7 +611,6 @@ method-ufcs-3 nllmoves.NEW-N2 tests/imported/admit/nll/method-ufcs-3
 method-ufcs-inherent-3 nllmoves.NEW-1 tests/imported/admit/nll/method-ufcs-inherent-3
 method-ufcs-inherent-4 nllmoves.NEW-S7-1 tests/imported/admit/nll/method-ufcs-inherent-4
 mir-check-cast-unsize nllmoves.NEW-N3 tests/imported/admit/nll/mir-check-cast-unsize
-move-errors--c nllmoves.B tests/imported/admit/nll/move-errors--c
 move-errors--d nllmoves.B tests/imported/admit/nll/move-errors--d
 nested-bodies-in-dead-code nllmoves.C tests/imported/admit/nll/nested-bodies-in-dead-code
 normalization-self nllmoves.NEW-N2 tests/imported/admit/nll/normalization-self

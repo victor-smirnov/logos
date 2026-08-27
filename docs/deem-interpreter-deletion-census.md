@@ -4474,9 +4474,22 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # tier_commit). ALL -3+3+2 = +2; NOIMPORTED -3+2 = -1; TIERCOMMIT -3.
 # PREDICTED 8576 / 4441 / 471 and measured at exactly that; `ctest -N -R
 # '^logos_00_bc_admit_'` counts 423, the ledger's `# TOTAL`.
-REGISTRY-ALL         8576
-REGISTRY-NOIMPORTED  4441
-REGISTRY-TIERCOMMIT  471
+# 2026-08-27 (E0507 asked at the DEREF, where `consuming` is already computed).
+# ELEVEN programs moved off the borrow-check admit shelf onto
+# tests/imported/fail (-11 non-imported `logos_00_bc_admit_*`, all eleven in
+# tier_commit; +11 tests carrying the `imported` label), and FOUR core fixtures
+# landed in tests/logos/{pass,fail} — one admit carrying every exemption and
+# three refusals, one per position/spelling the old rule could not see (+4,
+# non-imported, not tier_commit). ALL -11+11+4 = +4; NOIMPORTED -11+4 = -7;
+# TIERCOMMIT -11. PREDICTED 8580 / 4434 / 460 and measured at exactly that;
+# `ctest -N -R '^logos_00_bc_admit_'` counts 412, the ledger's `# TOTAL`.
+# ⚠ A TWELFTH MOVED AND CAME BACK. `nll/move-errors--d` was closed, counted and
+# migrated, and the full-conformance run (L4 with `imp`) showed the refusal was
+# an over-refusal — see the ledger note. It is back on the admit shelf and its
+# core fail fixture was deleted; these are the numbers AFTER that reversal.
+REGISTRY-ALL         8580
+REGISTRY-NOIMPORTED  4434
+REGISTRY-TIERCOMMIT  460
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

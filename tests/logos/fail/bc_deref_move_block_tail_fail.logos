@@ -1,0 +1,15 @@
+// POSITION: A BLOCK TAIL. `let v: P = { *r };` moves a `Drop`-bearing `P` out
+// of a shared reference — E0507, and identical in every respect to `let v = *r;`
+// which has always refused. It was admitted because sema asks E0507 from five
+// HAND-LISTED positions (let RHS, `return`, tail-expr return, arg coercion,
+// array destructure) and a block tail is not one of them.
+// `consuming` is the property, and borrow_check's `visit` already carries it
+// into every position, so the rule is asked once at the DEREF.
+// Was tests/imported/admit/nll/cannot-move-block-spans until 2026-08-27.
+// ADMIT TWIN: pass/bc_deref_move_exempt_admit (`(*r).a` — a Copy FIELD through
+// the same deref, which is a place base and not a move).
+package bc_deref_move_block_tail_fail;
+struct P { a: i64 }
+impl Drop for P { fn drop(self: &mut P) { if self.a < 0i64 { return; } } }
+fn from_block(r: &P) -> i64 { let v: P = { *r }; return v.a; }
+fn main() -> i32 { let p: P = P { a: 1i64 }; return from_block(&p) as i32; }

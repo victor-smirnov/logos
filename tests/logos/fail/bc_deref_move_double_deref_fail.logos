@@ -1,0 +1,17 @@
+// SPELLING: THE OPERAND OF `*` IS ITSELF A `Deref`. `**r` over `&&mut P` is
+// E0507 exactly as `*m` over `&mut P` is; it was admitted because
+// `is_unowned_move_source`'s `Deref` arm requires the operand to be spelled
+// `VarRef`, and a `Deref`, a `FieldRead` (`*u.a`) and a `Call`
+// (`*mut_ref(&mut t)`) are none of them. The operand's TYPE is the property.
+// Was tests/imported/admit/nll/move-errors--c until 2026-08-27.
+// ADMIT TWIN: pass/bc_deref_move_exempt_admit (`**r` over `&&i64` — the same
+// two hops over a Copy pointee).
+package bc_deref_move_double_deref_fail;
+struct P { a: i64 }
+impl Drop for P { fn drop(self: &mut P) { if self.a < 0i64 { return; } } }
+fn from_double(r: &&mut P) -> i64 { let v: P = **r; return v.a; }
+fn main() -> i32 {
+    let mut p: P = P { a: 1i64 };
+    let m: &mut P = &mut p;
+    return from_double(&m) as i32;
+}

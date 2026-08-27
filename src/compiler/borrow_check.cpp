@@ -692,6 +692,15 @@ static bool is_return_temp_name(std::string_view n) {
     return n.rfind("__ret_tmp_", 0) == 0;
 }
 
+// The DESTRUCTURE temp sema mints in every `let <pattern> = rhs;` lowering
+// (sema_stmt.cpp: `"__dst_" + destruct_counter_++`, five sites): the scrutinee
+// is materialised WHOLE into this local and the pattern's bindings are read off
+// it as field/tuple projections. See deref_move_exempt for why that lowering
+// makes the E0507 question unanswerable at this position.
+static bool is_destructure_temp_name(std::string_view n) {
+    return n.rfind("__dst_", 0) == 0;
+}
+
 // D1 round 12 / A1. A loop's break slot, minted by sema as
 // `"__loop_val_" + tmp_var_count_++` (sema_stmt.cpp, lower_loop) whenever a
 // `break v` gives the loop a value. Both walkers key the deposit on this name;
@@ -1962,6 +1971,11 @@ class BorrowChecker {
     // already decided at the borrow/projection site (else double-report, or a
     // spurious whole-`w` conflict when walking `w.buf`'s base).
     bool                                 in_addr_source_ = false;
+    // Set while visiting the RHS of a `let __dst_N = rhs;` — the temp sema
+    // materialises for a pattern-destructuring `let`. Read by
+    // deref_move_exempt only; see the exemption there for why the position
+    // cannot answer E0507.
+    bool                                 in_destructure_temp_ = false;
     // param name → lifetime annotation of that param's type (e.g. "'a", "")
     std::unordered_map<std::string, std::string> param_lifetimes_;
     // B86: per-param inner-struct lifetime_args. Populated for ref-typed
@@ -4321,6 +4335,118 @@ private:
         in_addr_source_ = true;
         visit(e, /*consuming=*/false, line);
         in_addr_source_ = saved;
+    }
+
+    // ── E0507 AT THE DEREF: `let s = *r;` ──────────────────────────────
+    // Is a MOVE out of `*op` exempt? The rule itself lives in visit()'s
+    // Code::Deref arm and is POSITION-GENERAL: `consuming` is computed once by
+    // the caller and propagated, so every consuming position (let RHS, return,
+    // call arg, block tail, destructure scrutinee) asks the same question. That
+    // is deliberately NOT how sema asks it — `is_unowned_move_source`
+    // (sema_impl.hpp) is consulted from five HAND-LISTED positions and its
+    // Deref arm requires the operand to be spelled `VarRef`, so `**r`, `*u.a`
+    // and `{ *r }` were all admitted for want of a spelling. A position-general
+    // rule cannot miss a position.
+    //
+    // ⚠ TWO EXEMPTIONS, AND BOTH ARE DELIBERATE.
+    bool deref_move_exempt(lir_view::ExprRef op) const {
+        if (!op) return true;
+        using Code = lir_schema::expr::Code;
+        const auto* pool = prog_.type_pool.impl();
+        // (1) A `static` READ is `Deref(VarRef("__static_addr:<sym>", *T))`
+        // (sema_expr.cpp §6.2 S25) — a RAW-pointer operand BY SPELLING, but it
+        // is not the unsafe raw-pointer idiom exemption (2) exists for: the
+        // programmer never wrote a pointer, and rustc's answer is E0507
+        // "cannot move out of static item". Tested BOTH ways: SEVEN
+        // static-move ledger rows are this line (fail/bc_move_out_of_static_
+        // fail is the core pin), and pass/bc_deref_move_exempt_admit — a Copy
+        // static read by value, `&STATIC`, `STATIC.field` — is the control
+        // that it does not eat the legal shapes.
+        if (op.kind() == Code::VarRef &&
+            lir_view::EVarRefView{op}.name().starts_with("__static_addr:"))
+            return false;
+        auto ot = op.type(pool);
+        // (2) RAW-POINTER DEREF-MOVE IS A DOCUMENTED DIVERGENCE, NOT AN
+        // OVERSIGHT. rustc rejects `*p` on a `*const T`/`*mut T` (E0507,
+        // "behind a raw pointer"), and Logos deliberately admits it: it is how
+        // logos.mem's ptr / Vec / Cell primitives legitimately move a value out
+        // of memory they own the lifetime of (`let old = *p; *p = new;`).
+        // is_unowned_move_source takes the same exemption for the same reason
+        // and says so. Removing it here would refuse the stdlib, so the row it
+        // costs (borrowck-move-from-unsafe-ptr) stays on the ledger, named.
+        if (ot && ot.kind() == LogosType::Kind::Ptr) return true;
+        // (3) A PRE-MONO GENERIC BODY CANNOT ANSWER THE QUESTION, and the
+        // MONOMORPHISED copy can. `copy_tvs_` is built from the FUNCTION's own
+        // type params, so an IMPL- or TRAIT-level `T: Copy` is invisible here
+        // and `is_move_type` calls a bare `T` move by default (DIVERGENCES
+        // §B1) — which is the sound default for the partial-move TRACKER it
+        // was written for, and a refusal when read as a rule.
+        // MEASURED: without this, `fn greater_than_one<T: NumExt>(n: &T) -> bool
+        // { return *n > one; }` (tests/imported/pass/traits/inheritance-num1-b150)
+        // is refused, and it is legal. Every instantiation is checked with a
+        // CONCRETE type, so nothing is lost — `take<T>(r: &T) -> T { *r }` over
+        // a non-Copy T still refuses, at `take$Own`.
+        if (auto dt = deref_type_of_(op); dt && dt.kind() == LogosType::Kind::TypeVar)
+            return true;
+        // (4) A PATTERN-DESTRUCTURING `let`, WHOSE LOWERING DISCARDED THE
+        // ANSWER. `let A { s } = *r;` becomes `let __dst_N: A = *r;` plus field
+        // reads off the temp, so at this position the whole `A` is materialised
+        // whatever the pattern binds. rustc's answer depends on exactly what
+        // the lowering threw away: `let Fd(s) = *self;` over `struct Fd(u32)`
+        // with a `Drop` impl is a rustc UI PASS test (nothing MOVES — `u32` is
+        // Copy), while the same shape over a `String` field is E0507. Refusing
+        // here reds tests/imported/pass/structs/newtype-struct-with-dtor,
+        // MEASURED. So the position is left alone and the residual is named:
+        // a destructure that binds a NON-Copy field out of a reference stays
+        // admitted (tests/imported/admit/nll/move-errors--d keeps its row).
+        // Closing it means carrying the pattern's move-ness to the temp's
+        // `let`, which is a sema change and its own round.
+        if (in_destructure_temp_) return true;
+        return false;
+    }
+
+    // The type `*op` yields — asked off the Deref's own node by the caller, so
+    // this helper exists only to keep `deref_move_exempt` readable where the
+    // operand is all it was handed.
+    TypeRef deref_type_of_(lir_view::ExprRef op) const {
+        const auto* pool = prog_.type_pool.impl();
+        auto ot = op ? op.type(pool) : TypeRef(nullptr);
+        if (!ot) return TypeRef(nullptr);
+        if (ot.kind() == LogosType::Kind::Ref ||
+            ot.kind() == LogosType::Kind::MutRef ||
+            ot.kind() == LogosType::Kind::Ptr)
+            return ot.pointee();
+        return TypeRef(nullptr);
+    }
+
+    // The E0507 wording, taken from the SAME operand `deref_move_exempt`
+    // judged — so the diagnostic can never name a different thing than the
+    // rule refused. Mirrors rustc's four phrasings ("static item", "behind a
+    // shared reference", "behind a mutable reference"); the bare fallback is
+    // the user-`Deref`/`Index` call form, whose place has no name to print.
+    std::string deref_move_message(lir_view::ExprRef op) const {
+        using Code = lir_schema::expr::Code;
+        const auto* pool = prog_.type_pool.impl();
+        if (op && op.kind() == Code::VarRef) {
+            std::string_view n = lir_view::EVarRefView{op}.name();
+            constexpr std::string_view kPfx = "__static_addr:";
+            if (n.starts_with(kPfx)) {
+                // The VarRef carries the LINK symbol ("<pkg>$<NAME>"; an
+                // extern-block decl keeps the bare name) — print the half the
+                // programmer wrote.
+                std::string_view sym = n.substr(kPfx.size());
+                if (auto d = sym.rfind('$'); d != std::string_view::npos)
+                    sym = sym.substr(d + 1);
+                return std::format("cannot move out of static item '{}' (E0507)",
+                                   sym);
+            }
+        }
+        auto ot = op ? op.type(pool) : TypeRef(nullptr);
+        if (ot && ot.kind() == LogosType::Kind::Ref)
+            return "cannot move out of a value behind a shared reference (E0507)";
+        if (ot && ot.kind() == LogosType::Kind::MutRef)
+            return "cannot move out of a value behind a mutable reference (E0507)";
+        return "cannot move out of a dereference (E0507)";
     }
 
     void check_live(const std::string& name, uint32_t line, uint32_t slot = NO_SLOT) {
@@ -10075,7 +10201,10 @@ private:
                             is_borrow_carrying_type(t) || val_is_agg_lit)) {
                     take_ref_borrows(val, ln, name);
                 } else if (val) {
+                    bool saved_dst = in_destructure_temp_;
+                    in_destructure_temp_ = is_destructure_temp_name(name);
                     visit(val, /*consuming=*/true, ln);
+                    in_destructure_temp_ = saved_dst;
                     // Door E / EXEMPT — the HOP ONLY, deliberately not the
                     // routing. When the LOAN channel says the value carries a
                     // borrow but the ESCAPE classification does not (an erased
@@ -11493,28 +11622,31 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         }
 
         // ── Dereference: *ptr ──────────────────────────────────────────
-        case Code::Deref:
-            // MEASURED 2026-08-27: 321 fires, CEILING 13 vs COST 1 — the
-            // best ratio of the seventeen, and its 13 rows are DISJOINT from
-            // every other probe in the batch. The single cost is
-            // spec/pass/coerce_3, minimised to
-            //   `struct Cell { v: i64 } impl Cell { fn get(&self) -> i64 {
-            //    return self.v; } }`
-            // i.e. the probe reads is_move_type off the DEREF'S OWN type
-            // (Cell, a move type) when the value actually moved is the Copy
-            // FIELD above it. The deref there is a PLACE BASE, and the tree
-            // already carries that signal: visit_place_base sets
-            // in_addr_source_ before visiting with consuming=false. One
-            // condition, already spelled, is what separates the 13 from the 1.
-            // PROBE derefmove: this arm DISCARDS `consuming`, so a move whose
-            // place is reached through a deref is never refused (E0507).
-            // sema rewrites every `static` READ to Deref(VarRef
-            // "__static_addr:<sym>"), so the static-move rows land here too.
-            if (logos::probe::on("derefmove") && consuming &&
+        // E0507 — MOVING OUT OF A DEREF, ASKED WHERE `consuming` IS ALREADY
+        // COMPUTED. This arm used to DISCARD `consuming` entirely, so a move
+        // whose place is reached through a deref was never refused here at all.
+        // sema has its own E0507 (`is_unowned_move_source`, sema_impl.hpp) and
+        // that is the point: it is consulted from FIVE HAND-LISTED POSITIONS
+        // (let RHS, `return`, tail-expr return, arg coercion, array
+        // destructure) and its Deref arm requires the operand to be SPELLED
+        // `VarRef`. So `*u.a`, `**r`, `*mut_ref(&mut t)`, `{ *r }` and a
+        // struct-destructure `let A { s } = *r;` were each admitted for want of
+        // a position or a spelling. `consuming` is a POSITION-GENERAL answer
+        // the caller already carries; one question asked here covers every
+        // consuming position at once and cannot miss the next one.
+        // ⚠ NOT a place base: visit_place_base visits with consuming=false, so
+        // `(*r).copy_field` / `(*r).method()` never reach this report.
+        // MEASURED 2026-08-27 (probe `derefmove`): 321 fires, ceiling 13 rows,
+        // cost 1. The cost was the raw-pointer exemption's absence, not a
+        // place-base confusion — see deref_move_exempt.
+        case Code::Deref: {
+            auto dop = EDerefView{e}.operand();
+            if (consuming && !deref_move_exempt(dop) &&
                 is_move_type(e.type(pool), prog_, ts_, &copy_tvs_))
-                report(line, "cannot move out of a dereference");
-            visit(EDerefView{e}.operand(), /*consuming=*/false, line);
+                report(line, deref_move_message(dop));
+            visit(dop, /*consuming=*/false, line);
             break;
+        }
 
         // ── Field read: recv.field ─────────────────────────────────────
         case Code::FieldRead: {

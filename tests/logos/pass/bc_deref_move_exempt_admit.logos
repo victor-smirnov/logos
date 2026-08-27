@@ -1,0 +1,103 @@
+// EVERY EXEMPTION OF THE E0507-AT-THE-DEREF RULE, IN ONE PROGRAM. The cost side
+// of a ceiling probe reads only what the corpus CONTAINS, so these were written
+// rather than found — the twins of fail/bc_deref_move_{block_tail,destructure,
+// double_deref}_fail and fail/bc_move_out_of_static_fail, each differing from
+// its refusing twin in ONE thing.
+//
+//   copy_out       `*r` over `&i64`         — not a move type
+//   field_out      `(*r).n` over `&Own`     — a PLACE BASE (consuming=false),
+//                                             not a move of the `Own`
+//   borrow_again   `&*r`                    — a reborrow, never consumed
+//   double_copy    `**r` over `&&i64`       — twin of _double_deref_fail
+//   destr_nodrop   `let P { a } = *r;`      — twin of _destructure_fail: no
+//                                             `Drop`, so `P` is not a move type
+//   blk_nodrop     `let v = { *r };`        — twin of _block_tail_fail
+//   raw_move       `*p` over `*const Own`   — ⚠ THE DIVERGENCE THAT CARRIES THE
+//     STDLIB. rustc says E0507 "behind a raw pointer"; Logos admits it, because
+//     it is how logos.mem's ptr / Vec / Cell primitives move a value out of
+//     memory whose lifetime they own (`let old = *p; *p = new;`).
+//     `is_unowned_move_source` takes the same exemption for the same reason,
+//     and tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr is the
+//     ledger row that names it. If this line ever reds, that divergence has
+//     been closed and the row must go with it.
+//   NUM / &OWNED / OWNED.n  — a Copy `static` read BY VALUE, a borrow of a
+//     move-typed one, and a field read through one. Twin of
+//     fail/bc_move_out_of_static_fail: only the WHOLE-VALUE move is E0507.
+//   by_ref         `match *r { E::A(ref d) => … }` — `ref` bindings move
+//                                             nothing out of the scrutinee.
+//   greater_than_one  `*n` over `&T` in a PRE-MONO generic body — `copy_tvs_`
+//     is built from the FUNCTION's own type params, so an impl-/trait-level
+//     `T: Copy` is invisible and a bare `T` reads as move (DIVERGENCES §B1).
+//     Every instantiation is checked with a CONCRETE type, so the exemption
+//     loses nothing. Ported from imported/pass/traits/inheritance-num1-b150,
+//     which is where this over-refusal was MEASURED — and that fixture carries
+//     the `imported` label, i.e. it is outside the L4 gate, which is why the
+//     shape is pinned here too.
+//   Fd::drop       `let Fd { n: s } = *self;` — a destructuring `let` lowers
+//     to `let __dst_N = *self;` plus field reads, so this POSITION cannot tell
+//     "the pattern binds only Copy fields" (legal — and this is
+//     imported/pass/structs/newtype-struct-with-dtor, a rustc UI PASS test)
+//     from "it binds a String" (E0507). The position is exempt and the
+//     residual is on the ledger as nll/move-errors--d.
+package bc_deref_move_exempt_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+
+trait NumCast { fn from_i32(i: i32) -> Self; }
+trait NumExt: NumCast { }
+impl NumCast for i64 { fn from_i32(i: i32) -> i64 { return i as i64; } }
+impl NumExt for i64 { }
+fn greater_than_one<T: NumExt>(n: &T) -> bool {
+    let one: T = T::from_i32(1i32);
+    return *n > one;
+}
+
+struct Fd { n: u32 }
+impl Drop for Fd { fn drop(self: &mut Fd) { let Fd { n: s } = *self; if s > 100u32 { return; } } }
+
+struct Own { n: i64 }
+impl Drop for Own { fn drop(self: &mut Own) { if self.n < 0i64 { return; } } }
+struct P { a: i64 }
+enum E { A(Own), B }
+
+static NUM: i64 = 7i64;
+static OWNED: Own = Own { n: 9i64 };
+
+fn copy_out(r: &i64) -> i64 { return *r; }
+fn field_out(r: &Own) -> i64 { return (*r).n; }
+fn borrow_again(r: &Own) -> i64 { let q: &Own = &*r; return q.n; }
+fn double_copy(r: &&i64) -> i64 { return **r; }
+fn destr_nodrop(r: &P) -> i64 { let P { a: x } = *r; return x; }
+fn blk_nodrop(r: &P) -> i64 { let v: P = { *r }; return v.a; }
+unsafe fn raw_move(p: *const Own) -> Own { let y = *p; return y; }
+fn by_ref(r: &E) -> i64 {
+    match *r { E::A(ref d) => { return d.n; } E::B => { return 0i64; } }
+}
+
+fn main() -> i32 {
+    let o: Own = Own { n: 3i64 };
+    let x: i64 = 4i64;
+    let rx: &i64 = &x;
+    let p: P = P { a: 5i64 };
+    let e: E = E::A(Own { n: 6i64 });
+    let raw: *const Own = &o;
+    let sr: &Own = &OWNED;
+
+    let mut t: i64 = 0i64;
+    t = t + copy_out(&x);          // 4
+    t = t + field_out(&o);         // 3
+    t = t + borrow_again(&o);      // 3
+    t = t + double_copy(&rx);      // 4
+    t = t + destr_nodrop(&p);      // 5
+    t = t + blk_nodrop(&p);        // 5
+    t = t + by_ref(&e);            // 6
+    let _fd: Fd = Fd { n: 3u32 };  // its `drop` destructures `*self`
+    if !greater_than_one(&x) { return 1i32; }   // `*n` over a bare `&T`
+    t = t + NUM;                   // 7  — Copy static, by value
+    t = t + sr.n;                  // 9  — &STATIC
+    t = t + OWNED.n;               // 9  — STATIC.field
+    let moved: Own = unsafe { raw_move(raw) };
+    t = t + moved.n;               // 3  — raw-pointer move-out
+    pr("%ld\n", t);
+    return 0i32;
+}
