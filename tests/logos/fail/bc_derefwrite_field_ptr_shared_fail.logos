@@ -1,0 +1,18 @@
+// ONE-PROPERTY TWIN of fail/bc_derefwrite_shared_borrow_fail: the only thing
+// that differs is WHERE THE `&mut` IS HELD — a struct field instead of a local.
+// The local spelling has been refused since 438c8197c; this one was rc 0.
+// The DerefWrite arm asked check_recv_conflict, whose `!bp.path.empty()` guard
+// is TRUE of `r.f = v` (there the path is the WRITTEN place) and FALSE here
+// (the path is where the POINTER lives), so the question was never asked: the
+// AddrOfTemp branch is skipped for a FieldRead ptr, and the following
+// `visit(v.ptr(), ...)` asks the READ form, and reading `h.r` is legal.
+// rustc: E0506.
+package bc_derefwrite_field_ptr_fail;
+struct H { r: &mut i64 }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let h: H = H { r: &mut x };
+    let b: &i64 = &*h.r;
+    *h.r = 7i64;
+    return *b as i32;
+}

@@ -4686,6 +4686,56 @@ private:
                 bp.root, bp.root));
     }
 
+    // A MUTABLE USE of the place `bp` — the SAME question check_recv_conflict
+    // answers, asked for a place whose PATH is non-empty. `*P = v` requires
+    // exclusive use of P whatever P's spelling, because the borrow model has
+    // NO PLACE FOR THE POINTEE: extract_borrow_place's Deref arm roots THROUGH
+    // a reference to the reference's own place, and place_write_root's Deref
+    // arm calls that step "the identity on places". So P is all there is to
+    // ask about, and the only thing the DerefWrite site got wrong was asking
+    // the path-EMPTY instantiation of the question.
+    //
+    // Empty path DELEGATES to check_recv_conflict — verbatim behaviour for its
+    // three consumers, and `r.f = v` / `a[i] = v` / `t.0 = v` never arrive here
+    // at all (they are FieldWrite / IndexWrite / TupleWrite statements). The
+    // non-empty arm asks the field tables through field_borrow_conflicts, the
+    // check-only predicate four other consumers already use. No third notion.
+    //
+    // THE RAW-PTR EXEMPTION MOVES TO THE POINTER'S OWN TYPE, and that is the
+    // abuse direction of the widening. `bp.root_type` is the type of the ROOT,
+    // which for `*p = v` (p a local `*mut T`) IS the pointer — the coincidence
+    // that made check_recv_conflict's guard look right — but for `*h.p = v` it
+    // is the STRUCT, so the exemption would stop applying exactly where the
+    // path becomes non-empty. Census of the live stdlib spelling: 8 sites, 8
+    // of 8 raw (cell.logos `*g.value`, `*a.value`/`*b.value`, `*self.state`,
+    // `*orig.state`; handle.logos `*self.id_ctr_p`). Guard on the POINTER
+    // expression's type, which reduces to today's test for a bare-VarRef ptr.
+    void check_place_mut_use(const BorrowPlace& bp, TypeRef ptr_type,
+                             uint32_t line) {
+        if (ptr_type && ptr_type.kind() == LogosType::Kind::Ptr) return;
+        if (bp.path.empty()) {
+            check_recv_conflict(bp, /*is_mut=*/true, line);
+            return;
+        }
+        if (bp.root.empty()) return;
+        auto sit = var_find(bp.root_slot, bp.root);
+        if (sit == nullptr) return;
+        // mut_borrowed is DELIBERATELY not reported — check_recv_conflict's own
+        // reasoning, one level out: the `visit(v.ptr(), ...)` that follows this
+        // call reaches the same root through visit()'s place-base walk and
+        // check_live refuses it there ("cannot use '{}' while it is mutably
+        // borrowed"). Reporting here would be a guaranteed duplicate line.
+        if (sit->mut_borrowed) return;
+        if (sit->shared_borrows > 0) {
+            report(line, std::format(
+                "cannot borrow '{}' as mutable: '{}' has shared borrows",
+                fmt_path(bp.root, bp.path), bp.root));
+            return;
+        }
+        field_borrow_conflicts(*sit, bp.root, bp.path, /*need_exclusive=*/true,
+                               line, "assign through");
+    }
+
     // A `#[borrow_carrying]` type (WAny): a value that may hold a Ref into an arena.
     // Escape-tracked like a reference — see prov_of MethodCall/Call + Let/return gates.
     bool is_borrow_carrying_type(TypeRef t) const {
@@ -9962,8 +10012,25 @@ private:
                 //   • root empty           → returns, so the index_mut
                 //     MethodCall ptr is untouched.
                 // is_mut is unconditionally true: a DerefWrite is a write.
-                check_recv_conflict(extract_borrow_place(v.ptr(), pool),
-                                    /*is_mut=*/true, ln);
+                //
+                // ── THE POINTER'S PATH IS NOT THE WRITTEN PLACE'S PATH ──
+                // The paragraph above is right about `*r = v` and wrong about
+                // `*h.r = v` (r: &mut i64 in a FIELD). There the ptr is a
+                // FieldRead, so the place comes back root=h path="r" and
+                // check_recv_conflict returns at `!bp.path.empty()` — a guard
+                // whose stated reason ("field places are refused by visit()'s
+                // AddrOfTemp arm instead") is TRUE of `r.f = v`, where the
+                // non-empty path describes the WRITTEN place, and FALSE here,
+                // where it describes WHERE THE POINTER LIVES. Nothing else
+                // sees this write: ptr.kind is FieldRead so the AddrOfTemp
+                // branch above is skipped, and the `visit(v.ptr(), ...)` below
+                // reaches visit()'s FieldRead arm, whose field_borrow_conflicts
+                // runs with need_exclusive=FALSE — the READ form, and reading
+                // `h.r` IS legal. MEASURED rc 0 where the LOCAL twin is rc 1.
+                // The place was never wrong; the QUESTION was.
+                check_place_mut_use(extract_borrow_place(v.ptr(), pool),
+                                    v.ptr() ? v.ptr().type(pool) : TypeRef{},
+                                    ln);
                 visit(v.ptr(),   /*consuming=*/false, ln);
                 visit(v.value(), /*consuming=*/true,  ln);
                 break;

@@ -1,0 +1,14 @@
+// FIELD-PATH GRANULARITY IS PRESERVED: the borrow is on `h.q`, the write goes
+// through `h.r`. If the new arm had degraded into a whole-root refusal this
+// would red. field_borrow_conflicts is asked with the pointer's OWN path, and
+// paths_overlap says these are disjoint siblings.
+package bc_derefwrite_field_ptr_disjoint;
+struct H { r: &mut i64, q: &mut i64 }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let mut y: i64 = 2i64;
+    let h: H = H { r: &mut x, q: &mut y };
+    let b: &i64 = &*h.q;
+    *h.r = 7i64;
+    return *b as i32;
+}

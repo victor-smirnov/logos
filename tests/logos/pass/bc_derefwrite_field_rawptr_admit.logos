@@ -1,0 +1,40 @@
+// THE RAW-POINTER ABUSE DIRECTION. check_recv_conflict's raw exemption tests
+// the type of the ROOT, which for `*p = v` with a local `*mut T` IS the
+// pointer — the coincidence that made it look right. For `*pp.p = v` the root
+// is the STRUCT, so the exemption would stop applying exactly where the path
+// becomes non-empty. It now tests the POINTER EXPRESSION's own type.
+//
+// ⚠ THIS FIXTURE ALONE DOES NOT PROVE THE GUARD, and saying so is the point: a
+// raw field with no live borrow records nothing in the field tables, so this
+// program is rc 0 with the guard deleted too. The guard's value was measured
+// on the twin that DOES populate the table — `let b = &pp.p; *pp.p = 7;`,
+// which is rc 0 here and rc 1 ("cannot assign through 'pp.p' while 'pp.p' is
+// borrowed") with the guard's one line removed. That twin is the second half
+// of this fixture. The 8 live stdlib sites (cell.logos `*g.value`,
+// `*a.value`/`*b.value`, `*self.state`, `*orig.state`; handle.logos
+// `*self.id_ctr_p`) are all the first shape, which is why the full build stays
+// green either way.
+package bc_derefwrite_field_rawptr;
+struct P { p: *mut i64 }
+fn plain() -> i64 {
+    let mut x: i64 = 1i64;
+    unsafe {
+        let pp: P = P { p: &mut x as *mut i64 };
+        *pp.p = 7i64;
+        return *pp.p;
+    }
+}
+fn under_a_live_borrow() -> i64 {
+    let mut x: i64 = 1i64;
+    unsafe {
+        let pp: P = P { p: &mut x as *mut i64 };
+        let b = &pp.p;
+        *pp.p = 7i64;
+        return **b;
+    }
+}
+fn main() -> i32 {
+    if plain() != 7i64 { return 1i32; }
+    if under_a_live_borrow() != 7i64 { return 2i32; }
+    return 0i32;
+}

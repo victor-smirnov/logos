@@ -1,0 +1,13 @@
+// fail/bc_derefwrite_field_ptr_shared_fail verbatim except that `b` is never
+// used, so NLL retires the shared borrow before the write. This pins the new
+// arm as a CONFLICT check, not a blanket refusal on writes through a
+// field-held `&mut`.
+package bc_derefwrite_field_ptr_admit;
+struct H { r: &mut i64 }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let h: H = H { r: &mut x };
+    let b: &i64 = &*h.r;
+    *h.r = 7i64;
+    return 0i32;
+}

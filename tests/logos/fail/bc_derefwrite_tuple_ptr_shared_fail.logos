@@ -1,0 +1,13 @@
+// The TUPLE-ELEMENT spelling of fail/bc_derefwrite_field_ptr_shared_fail —
+// same mechanism, same path spelling on both the record and the check side
+// (extract_borrow_place's TupleIndex arm pushes "0"), closed by the same
+// delegation. Enumerated rather than spelled: the repair is one predicate, not
+// one arm per projection kind.
+package bc_derefwrite_tuple_ptr_fail;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let t: (&mut i64,) = (&mut x,);
+    let b: &i64 = &*t.0;
+    *t.0 = 7i64;
+    return *b as i32;
+}
