@@ -4433,9 +4433,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # no `imported` label and is not in `tier_commit`, so ALL +1, NOIMPORTED +1,
 # TIERCOMMIT +0 — PREDICTED BEFORE THE RECONFIGURE and reported by this gate as
 # 8556 / 4449 / 499, which is the prediction read back.
-REGISTRY-ALL         8556
-REGISTRY-NOIMPORTED  4449
-REGISTRY-TIERCOMMIT  499
+# 2026-08-27 (class-B arc, step B — the through-reference exemption rule).
+# FOUR programs moved off the borrow-check admit shelf onto
+# tests/imported/fail/borrowck (-4 non-imported `logos_00_bc_admit_*`, all four
+# in tier_commit; +4 tests carrying the `imported` label), and THREE one-token
+# fixture pairs landed in tests/logos/{pass,fail} (+6, non-imported, not
+# tier_commit). ALL -4+4+6 = +6; NOIMPORTED -4+6 = +2; TIERCOMMIT -4.
+# PREDICTED 8562 / 4451 / 495 BEFORE THE RECONFIGURE and measured at exactly
+# that; `ctest -N -R '^logos_00_bc_admit_'` counts 447, which is also the
+# ledger's `# TOTAL`.
+REGISTRY-ALL         8562
+REGISTRY-NOIMPORTED  4451
+REGISTRY-TIERCOMMIT  495
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

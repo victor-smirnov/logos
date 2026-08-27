@@ -1,0 +1,22 @@
+// THE ADMIT TWIN of `fail/bc_thru_ref_var_mut_reborrow_fail`, ONE TOKEN apart:
+// `rx: &mut i64` here, `rx: &i64` there. `&mut *rx` draws on the REFERENCE's
+// capacity, not on the binding's declared mutness — `rx` is a plain `let`, no
+// `mut`, on BOTH sides, and that is deliberate: a rule that keyed on the
+// BINDING would refuse this program too, and a rule that keyed on the ROOT
+// would refuse `&mut *h.r` in the sibling pair.
+//
+// If this ever reds, the through-reference exemption has collapsed onto the
+// binding or the root and the refusal in the twin is bought with an
+// over-refusal here.
+package bc_thru_ref_var_mut_reborrow_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let rx: &mut i64 = &mut x;
+    let y: &mut i64 = &mut *rx;
+    *y = 2i64;
+    pr("%ld\n", x);
+    return 0i32;
+}

@@ -52,7 +52,33 @@
 # survey's own stated floor being right and its upper bound being wrong: those
 # rows are blocked by MORE THAN ONE mechanism, and a row retires only when all
 # of its blockers close. Recorded as measured, not as predicted.
-# TOTAL 451
+# 2026-08-27 — 451 -> 447. FOUR rows, and the number was PREDICTED AS FOUR
+# before the edit — against all 451 rows, not against the 82 that share the
+# class-B label. take_ref_borrows deposited every borrow through one of two
+# recorders chosen by hand at sixteen call sites, with FOUR different spellings
+# of one exemption beside them: take_borrow's `skip_mut_binding_check`, the
+# reborrow arm's `fake_param`, `MutBindBypass`, and take_field_borrow's
+# `root_is_{mut,shared}_ref`. All four key on the ROOT or on the BINDING. The
+# question is about neither: a `&mut` is legal iff the REFERENCE the place is
+# reached THROUGH is a `&mut`. BorrowPlace now records that reference's type
+# and the single record site asks it once for both tails:
+#   borrowck-access-permissions--d-mut-borrow-deref-shared-ref             E0596
+#   borrowck-borrow-mut-base-ptr-in-aliasable-loc--c-mut-reborrow-from-shared E0596
+#   borrow-raw-address-of-deref-mutability                                 E0596
+#   borrowck-closures-mut-of-imm--ctl                                      E0596
+# All four moved to tests/imported/fail/borrowck/ with the diagnostic pinned.
+# ⚠ AND THE SHARED SYMPTOM IS AGAIN NOT THE SHARED DEFECT. Class B is 82 rows
+# glossed "bookkeeping is ROOT-keyed and does not follow a projection"; this
+# closed FOUR of them. 76 have no record-side mechanism at all — they are
+# pattern-binding sites that deposit nothing, places whose base is not a
+# variable, region/dropck rows, and read-side rows. The remaining two with this
+# spelling (borrowck-access-permissions--c-mut-borrow-deref-box,
+# borrow-immutable-deref-box) are NOT closed and were not attempted: a `Box`
+# deref crosses no reference, so closing them means deleting
+# `skip_mut_binding_check`, which take_borrow's own comment says the stdlib's
+# `arc.deref_mut()` on a non-mut Arc binding relies on. That is its own round,
+# with the stdlib build as the oracle.
+# TOTAL 447
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -65,11 +91,9 @@ bindings-after-at-or-patterns-slice-patterns-box-patterns bck.B tests/imported/a
 borrow-immutable-deref-box bck.B tests/imported/admit/borrowck/borrow-immutable-deref-box
 borrow-immutable-upvar-mutation-impl-trait bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait
 borrow-immutable-upvar-mutation bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation
-borrow-raw-address-of-deref-mutability bck.B tests/imported/admit/borrowck/borrow-raw-address-of-deref-mutability
 borrow-raw-address-of-mutability bck.C tests/imported/admit/borrowck/borrow-raw-address-of-mutability
 borrowck-access-permissions--b-mut-borrow-of-static bck.B tests/imported/admit/borrowck/borrowck-access-permissions--b-mut-borrow-of-static
 borrowck-access-permissions--c-mut-borrow-deref-box bck.B tests/imported/admit/borrowck/borrowck-access-permissions--c-mut-borrow-deref-box
-borrowck-access-permissions--d-mut-borrow-deref-shared-ref bck.B tests/imported/admit/borrowck/borrowck-access-permissions--d-mut-borrow-deref-shared-ref
 borrowck-and-init--r03 bck.NEW tests/imported/admit/borrowck/borrowck-and-init--r03
 borrowck-and-init--t03 bck.NEW tests/imported/admit/borrowck/borrowck-and-init--t03
 borrowck-anon-fields-struct bck.B tests/imported/admit/borrowck/borrowck-anon-fields-struct
@@ -78,12 +102,10 @@ borrowck-argument bck.A tests/imported/admit/borrowck/borrowck-argument
 borrowck-assign-to-andmut-in-aliasable-loc bck.B tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-aliasable-loc
 borrowck-assign-to-andmut-in-borrowed-loc bck.NEW tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-borrowed-loc
 borrowck-borrow-mut-base-ptr-in-aliasable-loc--a-assign-through-shared-to-mut bck.B tests/imported/admit/borrowck/borrowck-borrow-mut-base-ptr-in-aliasable-loc--a-assign-through-shared-to-mut
-borrowck-borrow-mut-base-ptr-in-aliasable-loc--c-mut-reborrow-from-shared bck.B tests/imported/admit/borrowck/borrowck-borrow-mut-base-ptr-in-aliasable-loc--c-mut-reborrow-from-shared
 borrowck-borrow-overloaded-auto-deref bck.A tests/imported/admit/borrowck/borrowck-borrow-overloaded-auto-deref
 borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
 borrowck-closures-mut-and-imm bck.C tests/imported/admit/borrowck/borrowck-closures-mut-and-imm
-borrowck-closures-mut-of-imm--ctl bck.B tests/imported/admit/borrowck/borrowck-closures-mut-of-imm--ctl
 borrowck-closures-unique-imm bck.C tests/imported/admit/borrowck/borrowck-closures-unique-imm
 borrowck-escaping-closure-error-1 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-1
 borrowck-escaping-closure-error-2 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-2

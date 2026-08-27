@@ -1,0 +1,14 @@
+// `&mut **t0` where `t0: & &mut i64` — rustc E0596 (upstream foo4 of
+// borrowck-borrow-mut-base-ptr-in-aliasable-loc.rs), admitted here until
+// 2026-08-27. The outer reference is SHARED, so no `&mut` can be reached
+// through it however many `&mut` sit below.
+//
+// ONE TOKEN from `pass/bc_thru_ref_param_double_deref_admit`.
+package bc_thru_ref_param_double_deref_fail;
+fn foo4(t0: & &mut i64) { let x: &mut i64 = &mut **t0; *x += 1i64; }
+fn main() -> i32 {
+    let mut v: i64 = 1i64;
+    let r: &mut i64 = &mut v;
+    foo4(&r);
+    return 0i32;
+}

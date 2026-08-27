@@ -980,6 +980,19 @@ struct BorrowPlace {
     // POINTEE, whose life is whatever `b` itself borrows, not `b`'s scope.
     // Recorded here so the two policies can differ without two walkers.
     bool        through_ref = false;
+    // ⚠ AND ITS TYPE, WHICH IS THE QUESTION FOUR SPELLINGS WERE ASKING BADLY.
+    // `through_ref` says a reference was crossed; the legality of a `&mut`
+    // through it is a property of WHICH reference — `&T` can never hand out
+    // `&mut` (E0596) and `&mut T` always can, regardless of how the ROOT
+    // BINDING was declared. The four exemption spellings this file grew
+    // (take_borrow's skip_mut_binding_check, the reborrow arm's fake_param,
+    // MutBindBypass, take_field_borrow's root_is_{mut,shared}_ref) all key on
+    // the ROOT or on the BINDING, so `&mut *rx` with `rx: &i64` and
+    // `&mut *h.r` with `h.r: &i64` were admitted. The innermost reference
+    // dereferenced on the way to the place is recorded here — the walk runs
+    // outer→inner, so the last assignment wins — and `record_borrow` asks it
+    // once for both tails. Null when no reference was crossed.
+    TypeRef     through_ref_type = nullptr;
 };
 
 static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
@@ -994,7 +1007,10 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             EFieldReadView fv{cur};
             path_parts.push_back(std::string(fv.field()));
             cur = fv.receiver();
-            if (cur && is_ref_kind(cur.type(pool))) bp.through_ref = true;
+            if (cur && is_ref_kind(cur.type(pool))) {
+                bp.through_ref = true;
+                bp.through_ref_type = cur.type(pool);
+            }
         } else if (cur.kind() == Code::TupleIndex) {
             // A tuple element is a FIELD whose name is its index — that is
             // already the spelling everything else uses (`moved_vars_` writes
@@ -1007,7 +1023,10 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             ETupleIndexView tv{cur};
             path_parts.push_back(std::to_string(tv.index()));
             cur = tv.receiver();
-            if (cur && is_ref_kind(cur.type(pool))) bp.through_ref = true;
+            if (cur && is_ref_kind(cur.type(pool))) {
+                bp.through_ref = true;
+                bp.through_ref_type = cur.type(pool);
+            }
         } else if (cur.kind() == Code::IndexRead) {
             auto recv = EIndexReadView{cur}.receiver();
             // Indexing through a RAW pointer (`p[i]`, p: *mut/*const T) is an
@@ -1023,7 +1042,10 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             }
             path_parts.clear();
             bp.index_in_chain = true;
-            if (recv && is_ref_kind(recv.type(pool))) bp.through_ref = true;
+            if (recv && is_ref_kind(recv.type(pool))) {
+                bp.through_ref = true;
+                bp.through_ref_type = recv.type(pool);
+            }
             cur = recv;
         } else if (cur.kind() == Code::SliceIndex) {
             auto sl = ESliceIndexView{cur}.slice();
@@ -1034,7 +1056,10 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             }
             path_parts.clear();
             bp.index_in_chain = true;
-            if (sl && is_ref_kind(sl.type(pool))) bp.through_ref = true;
+            if (sl && is_ref_kind(sl.type(pool))) {
+                bp.through_ref = true;
+                bp.through_ref_type = sl.type(pool);
+            }
             cur = sl;
         } else if (cur.kind() == Code::Deref) {
             // A borrow through a REFERENCE deref (`*r`, `(*r).f`, `(*r)[i]`) is a
@@ -1058,7 +1083,10 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
                     // provenance. A Box/Rc/user-Deref container OWNS its
                     // content, so the content dies with the container variable
                     // and the root stays the right source.
-                    if (is_ref_kind(ok)) bp.through_ref = true;
+                    if (is_ref_kind(ok)) {
+                        bp.through_ref = true;
+                        bp.through_ref_type = ok;
+                    }
                     // The deref'd CONTENT isn't a sibling-decomposable field
                     // of the container — treat like an index step (whole-
                     // container borrow), dropping any field path collected
@@ -3535,6 +3563,25 @@ private:
     void record_borrow(const BorrowPlace& bp, bool is_mut, uint32_t line,
                        const std::string& holder, RecordFlags fl = {}) {
         if (bp.root.empty()) return;
+        // ── ONE EXEMPTION QUESTION, ASKED ONCE, OF THE RIGHT THING ────────
+        // A `&mut` through a SHARED reference is E0596 and there is no
+        // binding, root type or escape hatch that makes it legal. Asked HERE,
+        // before the whole/field dispatch, so both tails answer the same —
+        // take_field_borrow already refused this for a REF-TYPED ROOT
+        // (`&mut s.a`, s: &S) and take_borrow never asked at all, which is
+        // why `&mut *rx` (rx: &i64) and `&mut *h.r` (h.r: &i64) were
+        // admitted: the reference crossed was not the root.
+        // ⚠ THE REFUSING HALF ONLY. The mirror widening — letting a `&mut T`
+        // hop EXEMPT the place from the binding-mutness check at every site —
+        // is a PERMISSIVE change and is deliberately not made here; the
+        // existing per-site exemptions keep their current reach.
+        if (is_mut && bp.through_ref_type &&
+            bp.through_ref_type.kind() == LogosType::Kind::Ref) {
+            report(line, std::format(
+                "cannot borrow '{}' as mutable: '{}' is behind a `&` reference",
+                fmt_path(bp.root, bp.path), bp.root));
+            return;
+        }
         // §6.1 `items.union.ref.borrow`: a field borrow on a UNION root is
         // morally whole-value — all sibling fields alias.
         bool whole = bp.path.empty() || is_union_root(bp.root_type);
@@ -7255,6 +7302,8 @@ private:
                         rbp.root = rname;
                         rbp.root_slot = rname_slot;
                         rbp.root_type = inner_var.type(pool);
+                        // `&mut *r` / `&mut **r`: the reference crossed IS r.
+                        rbp.through_ref_type = inner_var.type(pool);
                         record_borrow(rbp, v.is_mut(), line, holder,
                                       {/*skip_mut_binding=*/false,
                                        /*ref_capacity=*/true});

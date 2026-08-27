@@ -1,0 +1,17 @@
+// `&mut *h.r` where `h.r: &i64` — rustc E0596, admitted here until 2026-08-27.
+// NO ledger row had this spelling: the four rows that closed with it all
+// dereference a ref VARIABLE, and this one reaches the reference through a
+// field. It is here because the repair is at the ONE record site and therefore
+// covers both, and a rule that covers a shape no corpus member exercises is a
+// claim nobody can check.
+//
+// ONE TOKEN from `pass/bc_thru_ref_field_mut_reborrow_admit`: `&i64` vs
+// `&mut i64`. `h` is a non-mut binding on both sides.
+package bc_thru_ref_field_mut_reborrow_fail;
+struct H { r: &i64 }
+fn bump(h: H) { let y: &mut i64 = &mut *h.r; *y = 5i64; }
+fn main() -> i32 {
+    let n: i64 = 1i64;
+    bump(H { r: &n });
+    return 0i32;
+}

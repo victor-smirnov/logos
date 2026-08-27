@@ -1,0 +1,19 @@
+// `&mut *rx` where `rx: &i64` — rustc E0596, and admitted here until
+// 2026-08-27. The reborrow arm routed through take_borrow, which asks the
+// BINDING's mutness and the ROOT's type and never asks which reference was
+// dereferenced; the arm additionally suppressed the binding check outright
+// (`fake_param`), so nothing was left to refuse it.
+//
+// ONE TOKEN from `pass/bc_thru_ref_var_mut_reborrow_admit`: `&i64` vs
+// `&mut i64`. This is the shape three imported ledger rows had
+// (borrowck-access-permissions--d, borrow-raw-address-of-deref-mutability,
+// borrowck-closures-mut-of-imm--ctl), kept here as the core-corpus statement
+// of the rule.
+package bc_thru_ref_var_mut_reborrow_fail;
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let rx: &i64 = &x;
+    let y: &mut i64 = &mut *rx;
+    *y = 2i64;
+    return 0i32;
+}

@@ -1,6 +1,6 @@
 // rustc borrowck/borrowck-access-permissions.rs — upstream E0596 ×5
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: pin — CLOSED 2026-08-27 by the through-reference exemption rule
 // upstream: borrowck/borrowck-access-permissions.rs case 4 (E0596, &mut *ref_x where ref_x: &i64)
 package borrowck_access_permissions_d_mut_borrow_deref_shared_ref;
 fn main() -> i32 {

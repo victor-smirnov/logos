@@ -718,13 +718,21 @@ PIN = {
     # population. None matches the `wql_*` / `deem_*` glob, none declares a
     # container family or a `direct` output form: `glob` and the DOOR counts are
     # unmoved (36 = 10 + 26).
+    # 2026-08-27 (class B step B — the through-reference exemption rule): +3
+    # pass fixtures, the legal halves of three one-token pairs —
+    #   pass/bc_thru_ref_var_mut_reborrow_admit      (`&mut *rx`, rx: &mut i64)
+    #   pass/bc_thru_ref_field_mut_reborrow_admit    (`&mut *h.r`, h.r: &mut i64)
+    #   pass/bc_thru_ref_param_double_deref_admit    (`&mut **t0`, t0: &mut &mut)
+    # — plus their three FAIL twins, which are not this gate's population. None
+    # matches `wql_*` / `deem_*`, none declares a container family or a `direct`
+    # output form: `glob` and the DOOR counts are unmoved (36 = 10 + 26).
     # RE-DERIVED BY DIRECT FILE LISTING, never by adding to the previous pin:
-    #   ls tests/logos/pass/*.logos | wc -l                       -> 2404
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2407
     #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
-    # partition closes: 2404 = 191 + 2213.
-    'corpus'            : 2404,
+    # partition closes: 2407 = 191 + 2216.
+    'corpus'            : 2407,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2213,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2216,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

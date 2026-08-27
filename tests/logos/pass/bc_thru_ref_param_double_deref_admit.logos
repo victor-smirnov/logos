@@ -1,0 +1,17 @@
+// THE ADMIT TWIN of `fail/bc_thru_ref_param_double_deref_fail`, one token
+// apart: `t0: &mut &mut i64` here, `t0: & &mut i64` there. Two derefs, so the
+// place walk clears its path twice and arrives at `t0` — the reference that
+// decides is `t0`'s own type, which is what the rule reads.
+package bc_thru_ref_param_double_deref_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+
+fn foo4(t0: &mut &mut i64) { let x: &mut i64 = &mut **t0; *x += 1i64; }
+
+fn main() -> i32 {
+    let mut v: i64 = 1i64;
+    let mut r: &mut i64 = &mut v;
+    foo4(&mut r);
+    pr("%ld\n", v);
+    return 0i32;
+}

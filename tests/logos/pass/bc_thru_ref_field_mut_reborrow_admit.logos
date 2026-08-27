@@ -1,0 +1,23 @@
+// ⚠ THE CONTROL THAT PROVES THE RULE KEYS ON THE DEREFERENCED REFERENCE AND
+// NOT ON THE ROOT. `h` is a NON-mut binding on BOTH sides of this pair, and a
+// value struct — so a root-keyed rule ("is the root a `&`?") sees the same
+// thing here as in the twin and cannot tell them apart, while a
+// binding-keyed rule refuses BOTH. The only thing that differs is the type of
+// the reference actually dereferenced: `h.r: &mut i64` here, `&i64` there.
+//
+// This is the regression shape the "A REBORROW THROUGH A PROJECTION IS STILL A
+// REBORROW" arm was written to fix; if this reds, that fix has been undone.
+package bc_thru_ref_field_mut_reborrow_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+
+struct H { r: &mut i64 }
+
+fn bump(h: H) { let y: &mut i64 = &mut *h.r; *y = 5i64; }
+
+fn main() -> i32 {
+    let mut n: i64 = 1i64;
+    bump(H { r: &mut n });
+    pr("%ld\n", n);
+    return 0i32;
+}
