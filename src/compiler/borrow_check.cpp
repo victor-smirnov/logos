@@ -26,6 +26,7 @@
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/lir_view.hpp>
+#include <logos/compiler/probe.hpp>
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/outlives.hpp>
 #include <logos/compiler/const_promote.hpp>
@@ -1037,8 +1038,16 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             // wrong and would lock all of `self`. Bail with an empty root.
             if (recv && recv.type(pool) &&
                 recv.type(pool).kind() == LogosType::Kind::Ptr) {
-                bp.root.clear();
-                return bp;
+                // CEILING PROBE `rootkeep` — MEASURED 2026-08-27, and the
+                // answer is a NEGATIVE RESULT worth keeping: fired 427 times
+                // across the 447 ledger compiles and closed ZERO rows. An
+                // empty root makes record_borrow return on its first line, so
+                // this bail looked like the permissive half of the class-B
+                // gloss and was named "the real subject, upstream of every
+                // site". It holds open nothing. Do not re-open this hypothesis
+                // without a new mechanism; the site is live, so the zero is an
+                // answer and not a silence.
+                if (!logos::probe::on("rootkeep")) { bp.root.clear(); return bp; }
             }
             path_parts.clear();
             bp.index_in_chain = true;
@@ -1051,8 +1060,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             auto sl = ESliceIndexView{cur}.slice();
             if (sl && sl.type(pool) &&
                 sl.type(pool).kind() == LogosType::Kind::Ptr) {
-                bp.root.clear();
-                return bp;
+                if (!logos::probe::on("rootkeep")) { bp.root.clear(); return bp; }
             }
             path_parts.clear();
             bp.index_in_chain = true;
@@ -3562,6 +3570,17 @@ private:
     // cannot produce one; the assert is the proof, not the hope.
     void record_borrow(const BorrowPlace& bp, bool is_mut, uint32_t line,
                        const std::string& holder, RecordFlags fl = {}) {
+        // ⚠ THE CEILING HARNESS'S KNOWN ANSWER, and it lives here on purpose.
+        // scripts/ceiling-probe.sh reads closed rows off FAILING ledger tests;
+        // a harness that has never SEEN a row close cannot tell "the hypothesis
+        // is dead" from "my reader is broken". This probe refuses every borrow
+        // the pass records, so its ceiling must be LARGE — if it ever comes
+        // back small, the reader is what broke, not the tree.
+        if (logos::probe::on("selftest_refuse")) {
+            report(line, std::format("ceiling-probe: refusing borrow of '{}'",
+                                     fmt_path(bp.root, bp.path)));
+            return;
+        }
         if (bp.root.empty()) return;
         // ── ONE EXEMPTION QUESTION, ASKED ONCE, OF THE RIGHT THING ────────
         // A `&mut` through a SHARED reference is E0596 and there is no

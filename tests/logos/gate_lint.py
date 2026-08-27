@@ -213,6 +213,21 @@ NOT_GATES = {
     # Reporters. They pronounce no verdict at all — this is also written down in
     # verdict.py's gate census.
     "ctest-summary.sh":        "reports a ctest run; asserts nothing",
+    # A HAND-RUN CEILING PROBE, and it must not become a gate for the same
+    # reason change-budget.sh must not: it answers a question about ONE
+    # hypothesis, so there is no population to register it over. It reports how
+    # many `bc_admits.ledger` rows a DELIBERATELY WRONG edit could close — the
+    # edit ignores exemptions, over-refuses, and is never landed — so the number
+    # is an UPPER BOUND used to decide what to fund, not a verdict about the
+    # tree. Registering it would assert that some ceiling is the right one.
+    # It does carry `--selftest`, whose verdict IS fixed (the sabotage probe
+    # must close every row, which is what caught a broken reader on its first
+    # run); that is the instrument grading itself, exactly like
+    # tools/dlog/selftest.sh, and it is run by hand beside a probe session.
+    "ceiling-probe.sh":        "a hand-run CEILING PROBE for one hypothesis at "
+                               "a time; its number is an upper bound to spend "
+                               "against, not a verdict, and there is no "
+                               "population to register it over",
     # A HAND-RUN MEASURING TOOL, and the one thing it must not become is a gate.
     # It reports the SIZE of a change (files / logic lines / new names / new
     # branches) against a budget the author declared BEFORE writing it — the
