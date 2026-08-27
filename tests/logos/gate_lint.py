@@ -228,6 +228,25 @@ NOT_GATES = {
                                "a time; its number is an upper bound to spend "
                                "against, not a verdict, and there is no "
                                "population to register it over",
+    # THE SIBLING OF ceiling-probe.sh, exempt for the same ground and one more.
+    # ceiling-probe.sh reads closures off the acceptance ledger, where a
+    # probe-induced FAILURE is good news because every row asserts the defect is
+    # still there. Among programs that COMPILE there is no such assertion: an
+    # armed probe's failures MIX programs wrongly admitted (the finding) with
+    # legal programs wrongly refused (the cost), and NOTHING IN A COMPILE'S EXIT
+    # CODE SEPARATES THEM. This script ranks them by which population asserted
+    # the program legal — rustc's own verdict, the stdlib build, a fixture
+    # author's word — and hands back the residue UNSORTED, on purpose. So it has
+    # no fixed verdict about the tree and no population to be registered over,
+    # twice over: the sort is a ranking for a human, not a claim. Its
+    # `--selftest` verdict IS fixed and hand-run beside a probe session — two
+    # poles, `selftest_refuse` must change hundreds of programs and
+    # `selftest_inert` (a pure observer at the same site) must change none.
+    "pass-probe.sh":           "a hand-run PROBE READER over the pass corpus and "
+                               "the stdlib; it RANKS changed programs by whose "
+                               "assertion of legality they rest on and leaves "
+                               "the residue unsorted, so it pronounces no "
+                               "verdict and has no population to register over",
     # A HAND-RUN MEASURING TOOL, and the one thing it must not become is a gate.
     # It reports the SIZE of a change (files / logic lines / new names / new
     # branches) against a budget the author declared BEFORE writing it — the

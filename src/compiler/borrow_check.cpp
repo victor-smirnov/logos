@@ -3852,6 +3852,12 @@ private:
         // is dead" from "my reader is broken". This probe refuses every borrow
         // the pass records, so its ceiling must be LARGE — if it ever comes
         // back small, the reader is what broke, not the tree.
+        // ⚠ THE NULL POLE OF scripts/pass-probe.sh, and it sits at the SAME
+        // site as selftest_refuse on purpose: whatever selftest_refuse can
+        // break, selftest_inert is proven to reach — and it changes NOTHING.
+        // A reader that reports changes for this one is inventing them, the
+        // way a reader that reports none for selftest_refuse is blind.
+        (void)logos::probe::on("selftest_inert");
         if (logos::probe::on("selftest_refuse")) {
             report(line, std::format("ceiling-probe: refusing borrow of '{}'",
                                      fmt_path(bp.root, bp.path)));
@@ -8143,6 +8149,42 @@ private:
                     ai++;
                     if (is_recv) return;   // receiver borrow recorded above
                     if (!a) return;
+                    // PROBE genautoref: PURE OBSERVER, changes nothing.
+                    // The generic-autoref hole's census class twelve, spelled
+                    // as a predicate: a plain Call (mono rewrote the generic
+                    // method into one), slot arg0, the receiver autoref'd into
+                    // an AddrOfTemp, a holder to hang a loan on, a LIVE root —
+                    // and NOT rescued by the self-borrowing receiver tie above
+                    // (`tied_recv`). Existence only: it answers "is this site
+                    // reached at all outside the acceptance ledger", which
+                    // genrecvtie could not, having fired ONCE across 423
+                    // ledger compiles.
+                    if (ai == 1 && !tied_recv && !holder.empty() &&
+                        a.kind() == Code::AddrOfTemp) {
+                        BorrowPlace pbp = extract_borrow_place(
+                            EAddrOfTempView{a}.inner(), pool);
+                        if (!pbp.root.empty() && var_has(pbp.root_slot, pbp.root)) {
+                            (void)logos::probe::on("genautoref");
+                            // PROBE genautorefx: the SAME site, ARMED. The
+                            // observer above cannot be priced — it changes
+                            // nothing by construction — so this is the
+                            // hypothesis actually spelled out: tie the
+                            // autoref'd receiver's borrow to the holder, which
+                            // is what the branch above does for a DstRef
+                            // receiver and what `is_self_borrowing` prunes
+                            // 176555 -> 1 for a Ref/MutRef one. Deliberately
+                            // crude: no exemptions, no signature analysis, the
+                            // mutability read straight off the autoref.
+                            if (logos::probe::on("genautorefx")) {
+                                bool rawptr = pbp.root_type &&
+                                    pbp.root_type.kind() == LogosType::Kind::Ptr;
+                                if (!rawptr)
+                                    record_borrow(pbp,
+                                        EAddrOfTempView{a}.is_mut(), line,
+                                        holder, {/*skip_mut_binding=*/true});
+                            }
+                        }
+                    }
                     // ⚠ TWO PREDICATES FOR "DOES THIS OPERAND NEED RECURSION".
                     // The aggregate-literal arms (StructLit / TupleLit / ArrLit)
                     // recurse UNCONDITIONALLY; these two Call arms filter by a
