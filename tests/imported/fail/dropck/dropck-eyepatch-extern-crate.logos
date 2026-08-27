@@ -1,6 +1,6 @@
 // rustc dropck/dropck-eyepatch-extern-crate.rs — upstream `c_shortest` does not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.E
+// shelf: fail — REFUSED since 2026-08-27 (drop order inside one frame is REVERSE declaration order, so a Drop-bearing binding declared before its source outlives it)
 package dropck_eyepatch_extern_crate;
 struct Dt<'a> { s: &'a i64 }
 impl<'a> Drop for Dt<'a> { fn drop(self: &mut Self) -> () { let z = *self.s; } }

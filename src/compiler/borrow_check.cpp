@@ -2409,18 +2409,37 @@ private:
             }
         }
         // B87 dropck: before erasing this scope's declared locals, check
-        // whether any outer-scope dropck-relevant binding holds a borrow
-        // of one of them. If so, the binding's Drop runs after the local
-        // dies — reject.
+        // whether a dropck-relevant binding holds a borrow of one of them and
+        // is dropped AFTER it. If so, the binding's Drop reads a dead local —
+        // reject.
+        // ⚠ THE BINDING MAY DIE IN THIS SAME FRAME, AND THAT IS NOT AN
+        // EXEMPTION. The old spelling skipped it with the comment "its own
+        // death coincides with the source, no issue", which is FALSE: drop
+        // order inside one frame is REVERSE DECLARATION ORDER, so a binding
+        // declared BEFORE its source is dropped AFTER it and its `drop` reads
+        // a local that is already dead. `let h: H; let x = 7i64; h = H{r:&x};`
+        // — three imported dropck fixtures are exactly that program, and their
+        // own headers say so. The rule therefore only ever saw the cross-frame
+        // case and was blind to the whole same-frame population. What decides
+        // is the POSITION, so skip only the SOUND direction: the binding
+        // declared LATER drops FIRST. Cross-frame (bpos < 0) keeps today's
+        // behaviour exactly.
+        // ⚠ AND THE GATE IS `dropck_borrow_sources_`, NOT `ref_borrow_sources_`.
+        // That map is written only under `struct_is_dropck_relevant`, so the
+        // Drop requirement is already paid for. The un-gated version of this
+        // same position test — the crude `droporder` ceiling probe — refuses
+        // `let r: &i64; let x = 7i64; r = &x;`, deferred initialisation of an
+        // ordinary reference, which is legal and must stay legal. MEASURED as a
+        // one-variable pair; pass/bc_dropck_reverse_order_nodrop_admit pins it.
         if (!frame.declared.empty()) {
-            std::unordered_set<std::string> dying;
-            for (auto& n : frame.declared) dying.insert(n);
             for (auto& [binding, sources] : dropck_borrow_sources_) {
-                // Skip if the binding itself is being declared/erased here —
-                // its own death coincides with the source, no issue.
-                if (dying.count(binding)) continue;
+                // Name-keyed map, so no slot for the holder — the same name
+                // fallback the pre-F5 `dying.count(binding)` used.
+                long bpos = declared_pos(frame, RefSrc{binding, NO_SLOT});
                 for (auto& src : sources) {
-                    if (!dying_binding(frame, src)) continue;   // F5, not the name
+                    long spos = declared_pos(frame, src);   // F5, not the name
+                    if (spos < 0) continue;                 // not dying here
+                    if (bpos >= 0 && spos < bpos) continue; // binding drops first
                     uint32_t ln = dropck_binding_line_[binding];
                     report(ln, std::format(
                         "binding '{}' has a `Drop` impl and borrows local '{}', "
@@ -2503,19 +2522,28 @@ private:
     // spells the same word, which is the false E0597 above. When BOTH sides
     // carry a slot the slots decide; when either does not, fall back to the
     // name — the pre-F5 behaviour, conservative in the refusing direction.
-    // ONE predicate for BOTH readers: pop_scope's `dangling_` deposit (the
-    // pre-existing sibling defect, same one-property pair) and D-b's tail
-    // check. They differ only in where they report, never in what dies.
-    static bool dying_binding(const ScopeFrame& fr, const RefSrc& s) {
+    // ⚠ THE POSITION, NOT THE MEMBERSHIP, IS THE ANSWER ONE OF THE READERS
+    // NEEDS: drop order inside one frame is REVERSE declaration order, so
+    // "both die here" does not mean "they die together". `declared_pos`
+    // answers where; `dying_binding` keeps the boolean question for the
+    // readers that only ask that, and is now expressed in terms of it so the
+    // two can never drift.
+    static long declared_pos(const ScopeFrame& fr, const RefSrc& s) {
         for (size_t i = 0; i < fr.declared.size(); ++i) {
             if (fr.declared[i] != s.name) continue;
             if (s.slot != NO_SLOT && i < fr.declared_slots.size() &&
                 fr.declared_slots[i] != NO_SLOT &&
                 fr.declared_slots[i] != s.slot)
                 continue;   // same word, different binding
-            return true;
+            return (long)i;
         }
-        return false;
+        return -1;
+    }
+    // ONE predicate for BOTH readers: pop_scope's `dangling_` deposit (the
+    // pre-existing sibling defect, same one-property pair) and D-b's tail
+    // check. They differ only in where they report, never in what dies.
+    static bool dying_binding(const ScopeFrame& fr, const RefSrc& s) {
+        return declared_pos(fr, s) >= 0;
     }
 
     // F5: identity of the binding a name currently denotes. Loans capture it

@@ -1,0 +1,1 @@
+binding 'dt' has a `Drop` impl and borrows local 'c_shortest', but 'c_shortest' goes out of scope before 'dt' is dropped

@@ -1,0 +1,25 @@
+// THE ADMIT TWIN of `fail/bc_dropck_reverse_order_fail`, ONE LINE apart: `P`
+// has NO `Drop` impl, so nothing runs at scope end that could read `x` after it
+// dies, and reverse declaration order is nobody's business. Deferred
+// initialisation of a borrow-carrying binding is ordinary Logos.
+//
+// This is the pin that makes the same-frame position rule landable at all. The
+// un-gated version of it — the crude `droporder` ceiling probe, which asks
+// `ref_borrow_sources_` instead of `dropck_borrow_sources_` — REFUSES this
+// program, and refuses `let r: &i64; let x = 7i64; r = &x;` too. Six ledger
+// rows bought with that refusal is a net loss; three bought with the gated rule
+// is not. If this ever reds, the Drop gate has been dropped.
+package bc_dropck_reverse_order_nodrop_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct P<'a> { r: &'a i64 }
+fn main() -> i32 {
+    let p: P;
+    let x: i64 = 7i64;
+    p = P { r: &x };
+    let plain: &i64;
+    let y: i64 = 4i64;
+    plain = &y;
+    pr("%ld\n", *p.r + *plain);
+    return 0i32;
+}

@@ -170,7 +170,46 @@
 # ⚠ NOT A CLOSED CLASS. `cross()` is last-assignment-wins, so `s: &mut S,
 # s.r: &i64, *s.r = 5` is still admitted — priced at 0 rows by `sharedsticky`.
 # Class B 67 -> 63.
-# TOTAL 426
+# 2026-08-27 — 426 -> 423. ONE WRONG COMMENT IN pop_scope's B87 DROPCK BLOCK.
+# It read "skip if the binding itself is being declared/erased here — its own
+# death coincides with the source, no issue". FALSE: drop order inside ONE frame
+# is REVERSE DECLARATION ORDER, so a Drop-having binding declared BEFORE its
+# source is dropped AFTER it and its `drop` reads a local that is already dead.
+# The rule therefore only ever saw the CROSS-FRAME case and was blind to the
+# entire same-frame population. `let h: H; let x = 7i64; h = H{r:&x};` — the
+# three imported dropck fixtures are literally that program and their own
+# headers say so. Same shape as the previous round's landing: what decides is a
+# POSITION, not membership in a set. `dying_binding` is now expressed in terms
+# of `declared_pos` so the boolean and the position cannot drift.
+# Nothing new is tracked: `dropck_borrow_sources_`, `struct_is_dropck_relevant`,
+# `ScopeFrame::declared` and the F5 slot predicate all already shipped.
+# ⚠ THE CEILING PROBE `droporder` WAS TWO RULES WELDED INTO ONE and its 9 means
+# nothing until split. Split, the halves are DISJOINT and partition it exactly:
+# same-frame reverse order (6 crude) and report-at-the-deposit (3). The crude
+# reverse half is UNLANDABLE — un-gated it refuses `let r: &i64; let x = 7i64;
+# r = &x;`, deferred initialisation of an ordinary reference, and a struct with
+# a reference field but no `Drop` impl. Both MEASURED as one-variable pairs.
+# Gating on `dropck_borrow_sources_` (which is written only under
+# `struct_is_dropck_relevant`) buys 3 and breaks neither; the pair
+# pass/bc_dropck_reverse_order_nodrop_admit against
+# fail/bc_dropck_reverse_order_fail is what ratchets that.
+# CEILING 9 (whole probe, re-priced), PREDICTED 3, CLOSED 3.
+# THE OTHER 6 ARE NOT THIS MECHANISM, and the gated fix leaving them admitted is
+# the evidence: slice-index-bounds-check-invalidation--t35 is E0510 with no Drop
+# anywhere (the crude probe closed it by accident, on declaration order alone);
+# let-else-more-permissive and eager-by-ref-binding-for-guards are dropck via a
+# FIELD WRITE `long1.r = &short1`, which neither recording site fires on — a
+# MISSING PRODUCER, one clean 2-row mechanism for #142; issue-54556-stephaneyfx
+# has no declared lifetime parameter so `struct_is_dropck_relevant` is false,
+# blocked upstream by the elided-lifetime gate; ex3-both-anon-regions-2 is
+# out-param provenance; regions-escape-unboxed-closure is a stored borrow never
+# read after, which NLL admits by design (DIVERGENCES B6).
+# ⚠ RESIDUAL, PRE-EXISTING AND NOW REACHABLE FROM SAME-FRAME CODE: the re-assign
+# arm overwrites `dropck_borrow_sources_` only `if (!sources.empty())`, so
+# re-binding a dropck struct to a value that borrows nothing leaves the old
+# sources standing. Not widened here, not exercised by any of the 426 rows.
+# Class B unchanged at 63 — all three rows are lifereg.E.
+# TOTAL 423
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -330,10 +369,7 @@ constrained-by-assoc-type-equality-and-self-ty lifereg.L3 tests/imported/admit/d
 drop-impl-for-type-param-with-trait-bound lifereg.NEW-N1 tests/imported/admit/dropck/drop-impl-for-type-param-with-trait-bound
 drop-impl-sized-bound-mismatch lifereg.NEW-N5 tests/imported/admit/dropck/drop-impl-sized-bound-mismatch
 drop-on-non-struct lifereg.NEW-C1 tests/imported/admit/dropck/drop-on-non-struct
-dropck-eyepatch-extern-crate lifereg.E tests/imported/admit/dropck/dropck-eyepatch-extern-crate
-dropck-eyepatch-reorder lifereg.E tests/imported/admit/dropck/dropck-eyepatch-reorder
 dropck-only-error lifereg.R18 tests/imported/admit/dropck/dropck-only-error
-dropck-trait-cycle-checked lifereg.E tests/imported/admit/dropck/dropck-trait-cycle-checked
 eager-by-ref-binding-for-guards lifereg.B tests/imported/admit/dropck/eager-by-ref-binding-for-guards
 issue-38868 lifereg.NEW-1 tests/imported/admit/dropck/issue-38868
 let-else-more-permissive lifereg.B tests/imported/admit/dropck/let-else-more-permissive

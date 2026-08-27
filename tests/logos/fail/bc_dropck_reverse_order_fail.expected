@@ -1,0 +1,1 @@
+binding 'h' has a `Drop` impl and borrows local 'x', but 'x' goes out of scope before 'h' is dropped

@@ -1,0 +1,18 @@
+// DROP ORDER INSIDE ONE FRAME IS REVERSE DECLARATION ORDER, so `h` — declared
+// BEFORE `x` — is dropped AFTER it, and `H::drop` reads a local that is already
+// dead. pop_scope's B87 dropck block used to skip this case outright, on a
+// comment that said "its own death coincides with the source, no issue". It
+// does not: the two die in one frame, in opposite order. rustc: E0597.
+//
+// ONE LINE apart from `pass/bc_dropck_reverse_order_nodrop_admit`: the
+// `impl Drop`. Swap the two `let`s and it is legal again — that direction is
+// pinned by the same twin, which declares `x` first.
+package bc_dropck_reverse_order_fail;
+struct H<'a> { r: &'a i64 }
+impl<'a> Drop for H<'a> { fn drop(self: &mut Self) { let v: i64 = *self.r; if v < 0i64 { return; } } }
+fn main() -> i32 {
+    let h: H;
+    let x: i64 = 7i64;
+    h = H { r: &x };
+    return 0i32;
+}
