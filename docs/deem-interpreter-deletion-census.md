@@ -4408,9 +4408,20 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # direct_door_census_gate.sh and plan_ground_census_gate.sh, which are tier_full
 # and were therefore stale for 23 consecutive commits while FACT 5 below was
 # re-derived at each of them.
-REGISTRY-ALL         8547
-REGISTRY-NOIMPORTED  4444
-REGISTRY-TIERCOMMIT  503
+# 2026-08-26 — 8547 -> 8551 / 4444 -> 4445 / 503 UNMOVED, and the arithmetic is
+# not +4 everywhere. The D1 by-value-hop round added 3 pass + 1 fail fixture
+# under tests/logos (+4 to ALL and to NOIMPORTED) and MOVED three programs off
+# the borrow-check admit shelf onto tests/imported/fail/nll (-3 non-imported
+# `logos_00_bc_admit_*` tests, +3 tests carrying the `imported` label). So ALL
+# is +4 and NOIMPORTED is +4-3 = +1. TIER_COMMIT goes 503 -> 500 because the
+# `logos_00_bc_admit_*` per-program tests ARE in that tier: 455 - 3 = 452 admit
+# tests plus 48 other tier_commit gates (47 before 2a3bc0594 added
+# logos_00_population_pin_lint) = 500. VERIFIED BY DIRECT LISTING, not by
+# arithmetic on the previous line: `ctest -N -R '^logos_00_bc_admit_'` counts
+# 452, which is also the ledger's `# TOTAL`.
+REGISTRY-ALL         8551
+REGISTRY-NOIMPORTED  4445
+REGISTRY-TIERCOMMIT  500
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

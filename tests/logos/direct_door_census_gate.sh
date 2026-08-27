@@ -691,9 +691,27 @@ PIN = {
     # so the DOOR counts are unmoved (36 = 10 + 26), asserted independently
     # below. The round's other twelve fixtures are FAIL fixtures and this
     # population is the PASS corpus.
-    'corpus'            : 2398,
+    # 2026-08-26 (D1 by-value hop — the OUTER gate was the narrow predicate):
+    # +3 pass fixtures, the re-slice refusal's three legal twins —
+    #   pass/bc_d1hop_reslice_nll_admit       (write after `r`'s last use)
+    #   pass/bc_d1hop_reslice_disjoint_admit  (two shared re-slices, no write)
+    #   pass/bc_d1hop_reslice_onehop_admit    (the direct spelling, legal form)
+    # — plus one FAIL fixture (bc_d1hop_reslice_assign_conflict), which is not
+    # this gate's population. None matches the `wql_*` / `deem_*` glob, so the
+    # whole delta lands in `nonglob` and `glob` is unmoved; none declares a
+    # container family or a `direct` output form, so the DOOR counts are
+    # unmoved (36 = 10 + 26).
+    # RE-DERIVED BY DIRECT FILE LISTING, never by adding to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2401
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2401 = 191 + 2210.
+    # ⚠ THIS RE-DERIVATION WAS DEMANDED BY A GATE, not by memory:
+    # `logos_00_population_pin_lint` (tier_commit, landed 2a3bc0594) reds on the
+    # commit that moves the corpus. The 23-commit blind window that preceded it
+    # is what that gate exists for.
+    'corpus'            : 2401,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2207,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2210,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

@@ -29,7 +29,19 @@
 # ⚠ A ROW IS NOT AN EXCUSE. It is a defect with a name, and the intended way for
 # this file to change is to SHRINK: a class fix reds this gate BECAUSE IT
 # IMPROVED, and the count is then edited down in the same change.
-# TOTAL 455
+# 2026-08-26 — 455 -> 452. THE LEDGER SHRANK BECAUSE THE CHECKER IMPROVED, which
+# is the only direction this file is meant to move. The D1 by-value-hop gate in
+# take_ref_borrows asked `loan_carrying_type` — the NAMED-CARRIER closure, which
+# has no Ref/MutRef/Slice arm — while every other "should I look for hop roots"
+# site in that file asks `type_may_carry_borrow`. A value typed plain `&T` never
+# reached bc_hop_roots. Delegating the outer gate to the wide predicate closed
+# THREE rows that no round set out to close, each for its upstream reason:
+#   issue-48803                       E0506  "cannot assign to 'x' because it is borrowed"
+#   ...--f-nested-holder              E0506  "cannot assign to 'x' while it is mutably borrowed"
+#   polonius-smoke-test               E0505  "cannot move 's' while it is borrowed"
+# All three moved to tests/imported/fail/nll/ with those diagnostics pinned; the
+# rows are deleted here, not commented out.
+# TOTAL 452
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -357,7 +369,6 @@ issue-46036 nllmoves.B tests/imported/admit/nll/issue-46036
 issue-48238 nllmoves.C tests/imported/admit/nll/issue-48238
 issue-48697--b nllmoves.C tests/imported/admit/nll/issue-48697--b
 issue-48697--t16 nllmoves.C tests/imported/admit/nll/issue-48697--t16
-issue-48803 nllmoves.A tests/imported/admit/nll/issue-48803
 issue-51191 nllmoves.A tests/imported/admit/nll/issue-51191
 issue-51268 nllmoves.C tests/imported/admit/nll/issue-51268
 issue-52059-report-when-borrow-and-drop-conflict nllmoves.E tests/imported/admit/nll/issue-52059-report-when-borrow-and-drop-conflict
@@ -387,7 +398,6 @@ match-guards-always-borrow nllmoves.B tests/imported/admit/nll/match-guards-alwa
 match-guards-partially-borrow--b nllmoves.R11 tests/imported/admit/nll/match-guards-partially-borrow--b
 match-guards-partially-borrow--t25 nllmoves.R11 tests/imported/admit/nll/match-guards-partially-borrow--t25
 maybe-initialized-drop-implicit-fragment-drop--drop-holds-borrow nllmoves.B tests/imported/admit/nll/maybe-initialized-drop-implicit-fragment-drop--drop-holds-borrow
-maybe-initialized-drop-implicit-fragment-drop--f-nested-holder nllmoves.B tests/imported/admit/nll/maybe-initialized-drop-implicit-fragment-drop--f-nested-holder
 maybe-initialized-drop-with-fragment nllmoves.B tests/imported/admit/nll/maybe-initialized-drop-with-fragment
 maybe-initialized-drop-with-uninitialized-fragments nllmoves.E tests/imported/admit/nll/maybe-initialized-drop-with-uninitialized-fragments
 maybe-initialized-drop nllmoves.E tests/imported/admit/nll/maybe-initialized-drop
@@ -403,7 +413,6 @@ normalization nllmoves.NEW-N1 tests/imported/admit/nll/normalization
 pattern-substs-on-brace-enum-variant nllmoves.NEW-L1 tests/imported/admit/nll/pattern-substs-on-brace-enum-variant
 pattern-substs-on-brace-struct nllmoves.NEW-1 tests/imported/admit/nll/pattern-substs-on-brace-struct
 patterns nllmoves.R17 tests/imported/admit/nll/patterns
-polonius-smoke-test nllmoves.A tests/imported/admit/nll/polonius-smoke-test
 projection-implied-bounds nllmoves.NEW-2 tests/imported/admit/nll/projection-implied-bounds
 projection-no-regions-closure--c30-direct-call nllmoves.R13 tests/imported/admit/nll/projection-no-regions-closure--c30-direct-call
 projection-no-regions-closure--projection-no-regions-closure nllmoves.R13 tests/imported/admit/nll/projection-no-regions-closure--projection-no-regions-closure

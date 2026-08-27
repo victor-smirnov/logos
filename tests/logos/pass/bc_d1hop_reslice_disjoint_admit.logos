@@ -1,0 +1,13 @@
+// D1 by-value hop — THE SECOND LEGAL TWIN: two SHARED re-slices of the same
+// slice local are not in conflict with each other. One property away from
+// fail/bc_d1hop_reslice_assign_conflict: no write to the root at all. A rule
+// that refused every re-slice would satisfy the fail fixture and red here, so
+// this is the fixture that prices the new refusal in the abuse direction.
+package bc_d1hop_reslice_disjoint_admit;
+fn main() -> i64 {
+    let a: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    let v: &[i64] = &a[0..4];
+    let r: &[i64] = &v[0..2];
+    let s: &[i64] = &v[2..4];
+    return r[0i64] + s[0i64];
+}

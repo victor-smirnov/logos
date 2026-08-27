@@ -6986,12 +6986,35 @@ private:
         // carry borrows ties nothing (the consuming-fn control `fn eat(B) ->
         // i64` stays admitted), and inheriting from a binding that holds no
         // loan is a no-op, so the rule can only extend a REAL loan's life.
-        // Gate: loan_carrying_type, NOT is_borrow_carrying_type — the loan
-        // channel does not honour the residency exemption (see
-        // loan_carrying_type). The ERASURE case is caught one level up, at the
-        // Let/Assign routing gate, because the erased type only appears on the
-        // BINDING: `Box::new(c.mk())` still has type `Box<B>` here.
-        if (!holder.empty() && loan_carrying_type(e.type(pool))) {
+        // Gate: NOT is_borrow_carrying_type — the loan channel does not honour
+        // the residency exemption (see loan_carrying_type), and
+        // type_may_carry_borrow deliberately does not either (its own comment
+        // at type_is_residency_exempt says so). The ERASURE case is caught one
+        // level up, at the Let/Assign routing gate, because the erased type
+        // only appears on the BINDING: `Box::new(c.mk())` still has type
+        // `Box<B>` here.
+        //
+        // ⚠ TWO PREDICATES FOR ONE QUESTION, AND THE NARROW ONE WAS HERE. This
+        // gate asked `loan_carrying_type`, the NAMED-CARRIER closure, which has
+        // no Ref/MutRef/Slice arm — so a value whose type is a PLAIN `&T` /
+        // `&[T]` never reached bc_hop_roots at all. Every OTHER site in this
+        // file that asks "should I look for hop roots" asks
+        // `type_may_carry_borrow` (= `is_ref_kind(t) || loan_carrying_type(t)`
+        // plus the same structural recursion): the six bc_hop_roots ARGUMENT
+        // positions all use the wide one while this OUTER gate stayed narrow.
+        // Repaired by DELEGATION to the predicate that already owns the
+        // question; `loan_carrying_type` is untouched for its other consumers.
+        //
+        // MEASURED, one property apart — whether the borrow passes through an
+        // intermediate slice local:
+        //     let v = &a[0..4]; let r = &v[0..2]; a[0] = 9;  -> was rc 0
+        //     let r = &a[0..2];                   a[0] = 9;  -> rc 1, always
+        // The re-slice spelling produces NO fall-through arrival in the
+        // AddrOfTemp census at all: it builds no SliceLit and no AddrOfTemp,
+        // take_ref_borrows sees `Call(slice_get_range, [VarRef v, lo, hi])`,
+        // and the loss was here, one gate earlier than four landed fixes were
+        // looking.
+        if (!holder.empty() && type_may_carry_borrow(e.type(pool))) {
             std::vector<std::string> roots;
             bc_hop_roots(e, roots);
             for (auto& r : roots) inherit_loans(r, holder, line);

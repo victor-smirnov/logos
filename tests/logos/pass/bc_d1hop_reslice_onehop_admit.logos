@@ -1,0 +1,14 @@
+// D1 by-value hop — THE CONTROL THAT MAKES THE PAIR ONE-VARIABLE, in its legal
+// form: a single re-slice with no intervening write. The REFUSING form of this
+// program (`let r = &a[0..2]; a[0] = 9;`) was refused before this round and
+// after it; the defect was only ever the HOP through an intermediate slice
+// local. Kept as a pass fixture so the "direct spelling still admits when
+// nothing conflicts" half is pinned too.
+package bc_d1hop_reslice_onehop_admit;
+fn main() -> i64 {
+    let mut a: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    let r: &[i64] = &a[0..2];
+    let x: i64 = r[0i64];
+    a[0i64] = 9i64;
+    return x + a[0i64] - 9i64;
+}

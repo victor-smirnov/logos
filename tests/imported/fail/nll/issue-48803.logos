@@ -1,6 +1,6 @@
 // rustc nll/issue-48803.rs — upstream E0506
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.A
+// shelf: pin · WAS admit/nllmoves.A until the D1 by-value-hop gate delegated to type_may_carry_borrow
 package issue_48803;
 fn flatten<'a>(x: &'a &'a i64) -> &'a i64 { return *x; }
 fn main() -> i32 {

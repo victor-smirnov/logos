@@ -1,0 +1,28 @@
+// D1 by-value hop — THE OUTER GATE WAS THE NARROW PREDICATE.
+//
+// `take_ref_borrows`' hop gate asked `loan_carrying_type(e.type)`, the
+// NAMED-CARRIER closure, which has no Ref/MutRef/Slice arm — so a value whose
+// type is a plain `&[i64]` never reached `bc_hop_roots` and the loan on `a`
+// held by `v` was not inherited by `r`. Every other "should I look for hop
+// roots" site in borrow_check.cpp asks `type_may_carry_borrow`
+// (`is_ref_kind(t) || loan_carrying_type(t)` plus the same recursion); the six
+// bc_hop_roots ARGUMENT positions all used the wide one while the OUTER gate
+// stayed narrow. Repaired by DELEGATION, not by adding a Ref arm to
+// loan_carrying_type — which has three other consumers and is untouched.
+//
+// ONE PROPERTY apart from pass/bc_d1hop_reslice_onehop_admit's refusing form:
+// whether the borrow reaches `a` directly or through the intermediate slice
+// local `v`. The direct spelling ALWAYS refused; only the hop was lost.
+//
+// ⚠ The re-slice spelling produces NO arrival at the AddrOfTemp fall-through
+// that four earlier fixes all landed at: it builds no SliceLit and no
+// AddrOfTemp, and take_ref_borrows sees `Call(slice_get_range, [VarRef v, …])`.
+// The loss was one gate earlier than those four were looking.
+package bc_d1hop_reslice_assign_conflict;
+fn main() -> i64 {
+    let mut a: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    let v: &[i64] = &a[0..4];
+    let r: &[i64] = &v[0..2];
+    a[0i64] = 9i64;
+    return r[0i64];
+}

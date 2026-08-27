@@ -1,0 +1,15 @@
+// D1 by-value hop — THE LEGAL TWIN, and the more important half of the pair.
+// Byte-identical to fail/bc_d1hop_reslice_assign_conflict except that the write
+// to `a` happens AFTER `r`'s last use. One property: NLL liveness. Widening the
+// hop gate to `type_may_carry_borrow` makes 317 565 more inheritance attempts
+// across the corpus, and inheriting into a binding that is already dead must
+// still cost nothing — this fixture is what would red if it did.
+package bc_d1hop_reslice_nll_admit;
+fn main() -> i64 {
+    let mut a: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    let v: &[i64] = &a[0..4];
+    let r: &[i64] = &v[0..2];
+    let x: i64 = r[0i64];
+    a[0i64] = 9i64;
+    return x + a[0i64] - 9i64;
+}
