@@ -1,0 +1,16 @@
+// The MATCH spelling of pass/bc_ifexpr_arms_alternatives_admit — the same
+// omission, in the same pass, one arm-walker over. take_ref_borrows' MatchExpr
+// arm walked the arms in SEQUENCE, so two arms naming the same place stacked
+// their loans and the expression refused itself with "cannot borrow 'a' as
+// mutable: already mutably borrowed". Only the LOAN state is rebased per arm;
+// the pattern propagators and the section-B6 / prov_ deposits are accumulative
+// by design and are untouched.
+// EXCLUSIVITY IS UNCHANGED: fail/bc_matchexpr_arms_alias_write_fail.
+package bc_matchexpr_arms_alternatives_admit;
+fn total(x: &mut [i64]) -> i64 { return x[0i64]; }
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let w: &mut [i64] = match true { true => &mut a, false => &mut a };
+    if total(w) != 1i64 { return 1i32; }
+    return 0i32;
+}

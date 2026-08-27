@@ -7457,7 +7457,19 @@ private:
                 // a source: both copy from what the scrutinee already names.
                 std::vector<std::string> scrut_sources;
                 collect_ref_sources(v.scrut(), scrut_sources);
+                // ⚠ ARMS ARE ALTERNATIVES — the same omission the IfExpr arm
+                // above had, in the same pass. The CHECK pass's MatchExpr arm
+                // walks every arm from ONE baseline and joins with merge_loans;
+                // this one walked them in sequence, so
+                // `match c { true => &mut a, false => &mut a }` took a second
+                // mutable loan on top of the first and refused itself. Only the
+                // LOAN state is rebased here: the pattern propagators and the
+                // §B6 / prov_ deposits are accumulative by design and are left
+                // exactly as they were.
+                std::optional<StateMap> merged_arm_s;
+                auto saved_arm_s = states_;
                 v.each_arm([&](EMatchArmRef arm) {
+                    states_ = saved_arm_s;
                     if (auto g = arm.guard())
                         if (!record_only) visit(g, /*consuming=*/true, line);  // #70
                     propagate_pat_sources(arm.pat(), scrut_sources, line);  // §B6
@@ -7465,7 +7477,10 @@ private:
                     propagate_pat_loans(arm.pat(), scrut_roots, line);
                     propagate_pat_reborrows(arm.pat(), v.scrut());  // D1 r13
                     take_ref_borrows(arm.value(), line, holder, record_only);  // #70
+                    if (!merged_arm_s) merged_arm_s = states_;
+                    else merge_loans(*merged_arm_s, states_);
                 });
+                if (merged_arm_s) states_ = std::move(*merged_arm_s);
                 break;
             }
             case Code::BlockExpr: {
