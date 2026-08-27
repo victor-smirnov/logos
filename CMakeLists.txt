@@ -310,6 +310,12 @@ add_test(NAME lint_mismatch_monopoly
     COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/lint-mismatch-monopoly.sh)
 set_tests_properties(lint_mismatch_monopoly PROPERTIES LABELS "lint;tier_full")
 
+# Class-B arc: a borrow is deposited by exactly one function
+# (BorrowChecker::record_borrow). Mechanically enforced — see the script.
+add_test(NAME lint_record_borrow_monopoly
+    COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/lint-record-borrow-monopoly.sh)
+set_tests_properties(lint_record_borrow_monopoly PROPERTIES LABELS "lint;tier_full")
+
 # Modules
 add_subdirectory(src/verification)
 add_subdirectory(src/core)

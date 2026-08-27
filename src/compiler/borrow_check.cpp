@@ -30,6 +30,7 @@
 #include <logos/compiler/outlives.hpp>
 #include <logos/compiler/const_promote.hpp>
 #include <algorithm>
+#include <cassert>
 #include <logos/compiler/region_infer.hpp>
 #include <logos/compiler/move_classify.hpp>
 
@@ -941,6 +942,30 @@ struct ScopeFrame {
 // Both the RECORD pass (`take_ref_borrows::AddrOfTemp`) and the CHECK pass
 // (`visit::AddrOfTemp`) use this so the structural rule cannot drift between
 // them. Each call site applies its own POLICY (take vs check) to the result.
+// The EXEMPTION half of the reborrow rule, lifted here from the local struct
+// it used to be declared inside: a reborrow draws on the REFERENCE's capacity,
+// not on the binding's declared mutness, and that is expressed by a TEMPORARY
+// param_names_ insertion that must be undone on every exit path. One copy, one
+// owner — `record_borrow` arms it, the destructor disarms it.
+// The two escapes `record_borrow` still honours, named rather than spelled as
+// a pair of bare bools at a call. FILE SCOPE, not a member: a nested class
+// with NSDMIs cannot be used as a DEFAULT ARGUMENT of a member function of its
+// own enclosing class (the enclosing class is incomplete there) — the compiler
+// says so, and it is right.
+struct RecordFlags {
+    bool skip_mut_binding = false;  // the bare-receiver elision's own escape
+                                    // (the DstRef and bare-place method-
+                                    // receiver arms)
+    bool ref_capacity     = false;  // reborrow: draw on the REFERENCE's
+                                    // capacity, not the binding's mutness
+};
+
+struct MutBindBypass {
+    std::unordered_set<std::string>* set = nullptr;
+    std::string name;
+    ~MutBindBypass() { if (set) set->erase(name); }
+};
+
 struct BorrowPlace {
     std::string root;             // empty if walker did not reach a VarRef
     std::string path;             // dotted, outermost-inside-root first
@@ -3302,7 +3327,7 @@ private:
         }
         return false;
     }
-    void take_field_borrow(const std::string& target, uint32_t target_slot,
+    void take_field_borrow_path_(const std::string& target, uint32_t target_slot,
                            std::string path,
                            bool is_mut, uint32_t line,
                            TypeRef root_type = nullptr,
@@ -3376,7 +3401,7 @@ private:
     // ── Borrow operations ─────────────────────────────────────────────────
 
     // Take a borrow of 'target'. Registers it in the current scope for cleanup.
-    void take_borrow(const std::string& target, uint32_t target_slot,
+    void take_borrow_whole_(const std::string& target, uint32_t target_slot,
                      bool is_mut, uint32_t line,
                      const std::string& holder = "",
                      bool skip_mut_binding_check = false) {
@@ -3487,6 +3512,52 @@ private:
             scopes_.back().borrows.push_back(
                 {target, is_mut, holder, target_slot,
                  {}, slot_of_binding(holder), {}});
+    }
+
+    // ── THE ONE RECORD SITE ───────────────────────────────────────────────
+    //
+    // Every borrow this pass records goes through here. `take_borrow_whole_`
+    // and `take_field_borrow_path_` are its two TAILS — the trailing
+    // underscore says so, and `scripts/lint-record-borrow-monopoly.sh` makes
+    // it a build failure rather than a review hope. The whole/field decision
+    // and the §6.1 union widening are made HERE, once, from the BorrowPlace;
+    // the six call sites in `take_ref_borrows` that used to spell
+    // `if (!bp.path.empty()) field else whole` by hand no longer can, and the
+    // four exemption spellings that used to sit beside them are one flag.
+    //
+    // ⚠ THE FIELD TAIL MUST NEVER RECEIVE AN EMPTY PATH. `FieldBorrow::path`
+    // documents "empty for whole-value", but NO consumer honours it —
+    // `mut_field_borrows[""]` is not checked on a bare variable read (the
+    // ClosureBox arm's own comment says so verbatim). An empty-path field
+    // record is therefore a PERMISSIVE defect by construction, and a
+    // permissive defect is invisible to a green corpus. The dispatch below
+    // cannot produce one; the assert is the proof, not the hope.
+    void record_borrow(const BorrowPlace& bp, bool is_mut, uint32_t line,
+                       const std::string& holder, RecordFlags fl = {}) {
+        if (bp.root.empty()) return;
+        // §6.1 `items.union.ref.borrow`: a field borrow on a UNION root is
+        // morally whole-value — all sibling fields alias.
+        bool whole = bp.path.empty() || is_union_root(bp.root_type);
+        MutBindBypass bypass;
+        if (fl.ref_capacity) {
+            auto* sit = var_find(bp.root_slot, bp.root);
+            if (sit != nullptr && !sit->is_mut_binding &&
+                !param_names_.count(bp.root)) {
+                param_names_.insert(bp.root);
+                bypass.set  = &param_names_;
+                bypass.name = bp.root;
+            }
+        }
+        if (whole) {
+            take_borrow_whole_(bp.root, bp.root_slot, is_mut, line, holder,
+                               fl.skip_mut_binding);
+        } else {
+            assert(!bp.path.empty() &&
+                   "record_borrow: the field tail may never receive an empty "
+                   "path — no consumer checks mut_field_borrows[\"\"]");
+            take_field_borrow_path_(bp.root, bp.root_slot, bp.path, is_mut,
+                                    line, bp.root_type, holder);
+        }
     }
 
 
@@ -7038,8 +7109,12 @@ private:
                 if (is_ref_kind(rt) || is_borrow_carrying_type(rt))
                     if (caps)
                         for (auto& c : *caps)
-                            if (var_has(NO_SLOT, c) && !param_names_.count(c))
-                                take_borrow(c, NO_SLOT, /*is_mut=*/false, line, holder);
+                            if (var_has(NO_SLOT, c) && !param_names_.count(c)) {
+                                BorrowPlace cbp;
+                                cbp.root = c;
+                                cbp.root_slot = NO_SLOT;
+                                record_borrow(cbp, /*is_mut=*/false, line, holder);
+                            }
                 // G1 — the LOAN half. A genuine fn pointer (no captures) takes
                 // Code::Call's argument rule: an argument that can reach the
                 // result contributes its borrows to the holder. `vs.push(g(&c))`
@@ -7093,8 +7168,10 @@ private:
             }
             case Code::AddrOf: {
                 EAddrOfView v{e};
-                take_borrow(std::string(v.var_name()), NO_SLOT, is_mut_ref(e.type(pool)),
-                             line, holder);
+                BorrowPlace abp;
+                abp.root = std::string(v.var_name());
+                abp.root_slot = NO_SLOT;
+                record_borrow(abp, is_mut_ref(e.type(pool)), line, holder);
                 break;
             }
             // B81/B83: `&o.field.chain` lowers to AddrOfTemp(FieldRead*).
@@ -7173,11 +7250,14 @@ private:
                         // `&mut`-ness comes from r's type, which sema has
                         // already verified) via a temporary param_names_
                         // insertion.
-                        bool fake_param = !sit->is_mut_binding &&
-                                          !param_names_.count(rname);
-                        if (fake_param) param_names_.insert(rname);
-                        take_borrow(rname, rname_slot, v.is_mut(), line, holder);
-                        if (fake_param) param_names_.erase(rname);
+                        (void)sit;
+                        BorrowPlace rbp;
+                        rbp.root = rname;
+                        rbp.root_slot = rname_slot;
+                        rbp.root_type = inner_var.type(pool);
+                        record_borrow(rbp, v.is_mut(), line, holder,
+                                      {/*skip_mut_binding=*/false,
+                                       /*ref_capacity=*/true});
                         break;
                     }
                 }
@@ -7210,20 +7290,16 @@ private:
                 // borrow rule). See `extract_borrow_place`.
                 BorrowPlace bp = extract_borrow_place(inner, pool);
                 std::string root = bp.root;
-                uint32_t root_slot = bp.root_slot;  // Phase-1
                 std::string path = bp.path;
                 bool index_in_chain = bp.index_in_chain;
                 if (!root.empty()) {
                     auto sit = var_find(NO_SLOT, root);
                     // The EXEMPTION half of the reborrow rule, and the same one
-                    // the VarRef branch above spells with `fake_param`: a
-                    // reborrow draws on the REFERENCE's capacity, not on the
-                    // binding's declared mutness.
-                    struct MutBindBypass {
-                        std::unordered_set<std::string>* set = nullptr;
-                        std::string name;
-                        ~MutBindBypass() { if (set) set->erase(name); }
-                    } bypass;
+                    // record_borrow's `ref_capacity` flag spells for the bare
+                    // VarRef branch above: a reborrow draws on the REFERENCE's
+                    // capacity, not on the binding's declared mutness. One
+                    // type, declared at file scope, used by both.
+                    MutBindBypass bypass;
                     if (reborrow_place && sit != nullptr &&
                         !sit->is_mut_binding && !param_names_.count(root)) {
                         param_names_.insert(root);
@@ -7241,21 +7317,13 @@ private:
                             break;
                         }
                     }
-                    // §6.1 `items.union.ref.borrow`: a field-borrow on
-                    // a union root is morally a whole-value borrow —
-                    // all sibling fields alias.
-                    bool root_is_union = is_union_root(bp.root_type);
                     if (index_in_chain) {
                         // Visit inner FIRST (sub-checks on the index expr etc.)
                         // BEFORE registering the borrow, else the recursive
                         // VarRef visit hits check_live on the root we just
                         // borrowed → spurious self-conflict.
                         if (inner) visit(inner, /*consuming=*/false, line);
-                        if (!path.empty() && !root_is_union)
-                            take_field_borrow(root, root_slot, std::move(path), v.is_mut(), line,
-                                              bp.root_type, holder);
-                        else
-                            take_borrow(root, root_slot, v.is_mut(), line, holder);
+                        record_borrow(bp, v.is_mut(), line, holder);
                         break;
                     }
                     if (!path.empty()) {
@@ -7271,11 +7339,7 @@ private:
                         // it's order-insensitive. Mirror the index_in_chain
                         // shape: visit inner FIRST for both branches.
                         if (inner) visit(inner, /*consuming=*/false, line);
-                        if (root_is_union)
-                            take_borrow(root, root_slot, is_mut, line, holder);
-                        else
-                            take_field_borrow(root, root_slot, std::move(path), is_mut, line,
-                                              bp.root_type, holder);
+                        record_borrow(bp, is_mut, line, holder);
                         break;
                     }
                     // ── THE WHOLE-LOCAL VIEW BASE ────────────────────────────
@@ -7292,7 +7356,7 @@ private:
                     // spurious self-conflict.
                     if (view_base) {
                         if (inner) visit(inner, /*consuming=*/false, line);
-                        take_borrow(root, root_slot, v.is_mut(), line, holder);
+                        record_borrow(bp, v.is_mut(), line, holder);
                         break;
                     }
                 }
@@ -7349,12 +7413,8 @@ private:
                             if (!bp.root.empty() && !rawptr &&
                                 var_has(bp.root_slot, bp.root)) {
                                 bool m = p0.mut_ptr();
-                                if (!bp.path.empty())
-                                    take_field_borrow(bp.root, bp.root_slot, bp.path,
-                                                      m, line, bp.root_type, holder);
-                                else
-                                    take_borrow(bp.root, bp.root_slot, m, line, holder,
-                                                /*skip_mut_binding_check=*/true);
+                                record_borrow(bp, m, line, holder,
+                                              {/*skip_mut_binding=*/true});
                                 tied_recv = true;
                             }
                         }
@@ -7435,11 +7495,7 @@ private:
                         // the two siblings that already split on the path: the
                         // bare-place receiver arm below and the explicit
                         // `&mut place` AddrOf arm.
-                        if (!bp.path.empty())
-                            take_field_borrow(bp.root, bp.root_slot, bp.path, m, line,
-                                              bp.root_type, holder);
-                        else
-                            take_borrow(bp.root, bp.root_slot, m, line, holder);
+                        record_borrow(bp, m, line, holder);
                     }
                 } else if (recv && result_borrows_self(v)) {
                     // Bare VarRef / place receiver — sema didn't wrap it in
@@ -7474,12 +7530,8 @@ private:
                         // (`self.arc.deref_mut()` borrows self.arc, not all
                         // of self) — whole-root would falsely lock sibling
                         // field uses for the holder's lifetime.
-                        if (!bp.path.empty())
-                            take_field_borrow(bp.root, bp.root_slot, bp.path, m, line,
-                                              bp.root_type, holder);
-                        else
-                            take_borrow(bp.root, bp.root_slot, m, line, holder,
-                                        /*skip_mut_binding_check=*/true);
+                        record_borrow(bp, m, line, holder,
+                                      {/*skip_mut_binding=*/true});
                     }
                 } else if (recv && is_ref_kind(recv.type(pool))) {
                     take_ref_borrows(recv, line, holder, record_only);  // #70
@@ -7632,15 +7684,13 @@ private:
                             line, root.c_str(), std::string(fpath).c_str(),
                             rel.c_str(), (int)is_mut, (int)cb.is_move(),
                             holder.c_str());
-                    if (rel.empty()) {
-                        // Whole-root capture: use the original whole-value
-                        // borrow so plain reads of the root still see the
-                        // borrow (mut_field_borrows on path="" is not checked
-                        // on a bare variable read).
-                        if (is_mut)
-                            take_borrow(root, NO_SLOT, /*is_mut=*/true, line, holder);
-                        else
-                            check_live(root, line);
+                    // RFC-2229 POLICY, NOT A PLACE DECISION: a SHARED
+                    // whole-var capture stays liveness-only, so `|| p.x`
+                    // beside `&mut p.y` is not falsely blocked. That is the
+                    // only thing left in the caller; the whole/field decision
+                    // moved to record_borrow with the other fifteen.
+                    if (rel.empty() && !is_mut) {
+                        check_live(root, line);
                     } else {
                         // The FIELD arm must be keyed on the same holder as
                         // the whole-root arm eleven lines above: without it
@@ -7649,11 +7699,14 @@ private:
                         // those, so a `|| s.a` capture was retired only
                         // lexically by pop_scope and `s.a = 5` after the
                         // closure's last use refused in the SAME frame.
-                        take_field_borrow(root, NO_SLOT, rel, is_mut, line,
-                                          i < cap_types.size() ? cap_types[i]
-                                                               : TypeRef(nullptr),
-                                          holder);
-                        check_live(root, line);
+                        BorrowPlace cbp;
+                        cbp.root = root;
+                        cbp.root_slot = NO_SLOT;
+                        cbp.path = rel;
+                        cbp.root_type = i < cap_types.size() ? cap_types[i]
+                                                             : TypeRef(nullptr);
+                        record_borrow(cbp, is_mut, line, holder);
+                        if (!rel.empty()) check_live(root, line);
                     }
                     // D1 round 2, Door D: the capture is a HOP. Registering a
                     // borrow of the capture root says "the closure reads b";

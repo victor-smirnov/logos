@@ -4427,8 +4427,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # TIERCOMMIT -1, since the admit tests are in that tier. VERIFIED BY DIRECT
 # LISTING: `ctest -N -R '^logos_00_bc_admit_'` counts 451, which is also the
 # ledger's `# TOTAL`.
-REGISTRY-ALL         8555
-REGISTRY-NOIMPORTED  4448
+# 2026-08-27 (class-B arc, THE ONE RECORD SITE). One test added:
+# `lint_record_borrow_monopoly`, labelled `lint;tier_full`, which holds that a
+# borrow is deposited only through `BorrowChecker::record_borrow`. It carries
+# no `imported` label and is not in `tier_commit`, so ALL +1, NOIMPORTED +1,
+# TIERCOMMIT +0 — PREDICTED BEFORE THE RECONFIGURE and reported by this gate as
+# 8556 / 4449 / 499, which is the prediction read back.
+REGISTRY-ALL         8556
+REGISTRY-NOIMPORTED  4449
 REGISTRY-TIERCOMMIT  499
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
