@@ -1,6 +1,6 @@
 // rustc nll/maybe-initialized-drop.rs — upstream E0506
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.E
+// shelf: fail — REFUSED since 2026-08-27 (a loan whose holder has a `Drop` impl reaching a reference field is no longer retired by the NLL cursor; it dies at the drop point)
 package maybe_initialized_drop;
 struct Wrap { p: &mut i64 }
 impl Drop for Wrap { fn drop(self: &mut Wrap) { *self.p = *self.p + 1i64; } }

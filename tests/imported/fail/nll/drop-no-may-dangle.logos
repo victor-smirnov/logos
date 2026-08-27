@@ -1,6 +1,6 @@
 // rustc nll/drop-no-may-dangle.rs — upstream E0506 cannot assign to `v[_]` because borrowed
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.E
+// shelf: fail — REFUSED since 2026-08-27 (a loan whose holder has a `Drop` impl reaching a reference field is no longer retired by the NLL cursor; it dies at the drop point)
 // port of rust tests/ui/nll/drop-no-may-dangle.rs
 // `p` holds `&v[0]` and has a Drop impl, so the borrow of `v` must live until
 // `p` is dropped at end of scope.  rustc: E0506 cannot assign to `v[_]`

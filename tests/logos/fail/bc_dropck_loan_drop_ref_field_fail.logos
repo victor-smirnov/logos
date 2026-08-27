@@ -1,0 +1,17 @@
+// A LOAN WHOSE HOLDER HAS A `Drop` IMPL IS NOT DEAD AT ITS TEXTUAL LAST USE.
+// `wrap` is never named again after the `let`, so `release_dead_borrows`
+// retired its loan on `x` at the very statement that raised it (MEASURED with
+// LOGOS_DUMP_BC_RELEASE: `holder=wrap lu=0`) and `x = 1` compiled. But `Wrap`
+// has a `Drop` impl that can NAME the borrow through `self`, so the binding is
+// used once more — at its drop, at scope end. rustc: E0506.
+//
+// ONE LINE apart from `pass/bc_dropck_loan_nodrop_admit`: the `impl Drop`.
+package bc_dropck_loan_drop_ref_field_fail;
+struct Wrap { p: &mut i64 }
+impl Drop for Wrap { fn drop(self: &mut Wrap) { *self.p = *self.p + 1i64; } }
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    let wrap: Wrap = Wrap { p: &mut x };
+    x = 1i64;
+    return 0i32;
+}

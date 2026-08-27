@@ -116,7 +116,35 @@
 # deliberately wrong: it recorded a MUTABLE loan for EVERY binding, by-value
 # ones included. Those 27 are move-out-of-a-reference and closure-escape rows —
 # a different mechanism, not a weaker version of this one. Class B goes 82 -> 73.
-# TOTAL 438
+# 2026-08-27 — 438 -> 430. DROPCK LIVENESS ENTERS THE LOAN CHANNEL. The ceiling
+# probe `nll_lu_strict` said 12 and the one-character `'<=' -> '<'` it stood for
+# is REFUTED: re-measured on the pass corpus it breaks 14 legal programs
+# (tests/spec/pass/{borrow_1,borrow_2,coerce_4,coerce_5,expr_2,expr_6,expr_12,
+# mono_6} among them) to buy at most 12 rows — a net loss, and the cursor's `<=`
+# is CORRECT (a use is charged its enclosing statement's point and the release
+# sweep runs after that statement was visited).
+# The real mechanism under those 12: a binding whose type has a `Drop` impl is
+# used ONE MORE TIME after its textual last use — at its drop. `release_dead_
+# borrows` reads only `last_use_*`, which knows nothing about drops, so `let w =
+# Wrap { p: &mut x }; x = 1;` retired the loan at the `let`. MEASURED with
+# LOGOS_DUMP_BC_RELEASE: `holder=wrap lu=0`. `drop_can_observe_borrow` now holds
+# such a loan open; it dies at `pop_scope`, which IS the drop point, so no new
+# lifetime concept is minted.
+# ⚠ THE REACH TEST IS DIRECT DECLARED FIELDS ONLY, AND THAT IS THE `may_dangle`
+# STAND-IN. `Vec<B>`/`Box<&T>` reach their elements too but their drops are the
+# `#[may_dangle]` kind; `bc_loan_carrying_type`'s TYPE-ARG recursion is exactly
+# what would capture them and is deliberately not used. Residual, stated: a
+# Drop-bearing CONTAINER of borrows stays admitted.
+# EXEMPTIONS, MEASURED as pairs against the crude probes rather than argued:
+# a non-Drop holder (pass/bc_dropck_loan_nodrop_admit) and a Drop impl the
+# borrow does not reach — a RAW-POINTER field (pass/bc_dropck_loan_raw_field_
+# admit, the 12-line minimisation of tests/spec/pass/mono_6, which BOTH crude
+# probes reddened). Predicted 5, closed 8: the three move-out rows
+# (issue-54556-wrap-it-up, the two fragment-drop rows) followed their holder.
+# Class B (roots ending `.B`, counted by direct listing) 69 -> 67. ⚠ the previous
+# round's note said 73; a direct listing of HEAD said 69, so 69 is what is
+# recorded here — the number, re-measured, not carried forward.
+# TOTAL 430
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -194,7 +222,6 @@ cannot-return-ref-to-fn-param-in-filter-map bck.C tests/imported/admit/borrowck/
 clone-span-on-try-operator bck.NEW tests/imported/admit/borrowck/clone-span-on-try-operator
 deref-field-pattern-ref-suggestion-issue-146995 bck.B tests/imported/admit/borrowck/deref-field-pattern-ref-suggestion-issue-146995
 do-not-suggest-adding-move-move bck.C tests/imported/admit/borrowck/do-not-suggest-adding-move-move
-drop-in-loop bck.E tests/imported/admit/borrowck/drop-in-loop
 generic-const-early-param bck.NEW tests/imported/admit/borrowck/generic-const-early-param
 index-mut-help bck.NEW tests/imported/admit/borrowck/index-mut-help
 issue-101119 bck.C tests/imported/admit/borrowck/issue-101119
@@ -225,7 +252,6 @@ issue-81365-8 bck.B tests/imported/admit/borrowck/issue-81365-8
 issue-81365-9--explicit-deref-call-borrow-then-write bck.B tests/imported/admit/borrowck/issue-81365-9--explicit-deref-call-borrow-then-write
 issue-81365-9--g-method-call-deref bck.B tests/imported/admit/borrowck/issue-81365-9--g-method-call-deref
 issue-82032 bck.B tests/imported/admit/borrowck/issue-82032
-issue-82462 bck.E tests/imported/admit/borrowck/issue-82462
 issue-83924 bck.NEW tests/imported/admit/borrowck/issue-83924
 issue-85581 bck.B tests/imported/admit/borrowck/issue-85581
 issue-85765 bck.B tests/imported/admit/borrowck/issue-85765
@@ -406,7 +432,6 @@ constant-in-expr-inherent-2--static-param nllmoves.NEW-N1 tests/imported/admit/n
 do-not-ignore-lifetime-bounds-in-copy-proj--b nllmoves.NEW-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy-proj--b
 do-not-ignore-lifetime-bounds-in-copy-proj--ctl nllmoves.NEW-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy-proj--ctl
 do-not-ignore-lifetime-bounds-in-copy nllmoves.NEW-S7-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy
-drop-no-may-dangle nllmoves.E tests/imported/admit/nll/drop-no-may-dangle
 enum-drop-access nllmoves.E tests/imported/admit/nll/enum-drop-access
 escape-argument--b nllmoves.C tests/imported/admit/nll/escape-argument--b
 escape-argument--t09 nllmoves.C tests/imported/admit/nll/escape-argument--t09
@@ -445,7 +470,6 @@ issue-54124 nllmoves.NEW-L1 tests/imported/admit/nll/issue-54124
 issue-54382-use-span-of-tail-of-block nllmoves.D tests/imported/admit/nll/issue-54382-use-span-of-tail-of-block
 issue-54556-stephaneyfx nllmoves.E tests/imported/admit/nll/issue-54556-stephaneyfx
 issue-54556-temps-in-tail-diagnostic nllmoves.D tests/imported/admit/nll/issue-54556-temps-in-tail-diagnostic
-issue-54556-wrap-it-up nllmoves.E tests/imported/admit/nll/issue-54556-wrap-it-up
 issue-54943 nllmoves.NEW-L1 tests/imported/admit/nll/issue-54943
 issue-55394--b nllmoves.NEW-3 tests/imported/admit/nll/issue-55394--b
 issue-55394--ctl2 nllmoves.NEW-3 tests/imported/admit/nll/issue-55394--ctl2
@@ -459,10 +483,6 @@ lub-match nllmoves.B tests/imported/admit/nll/lub-match
 match-guards-always-borrow nllmoves.B tests/imported/admit/nll/match-guards-always-borrow
 match-guards-partially-borrow--b nllmoves.R11 tests/imported/admit/nll/match-guards-partially-borrow--b
 match-guards-partially-borrow--t25 nllmoves.R11 tests/imported/admit/nll/match-guards-partially-borrow--t25
-maybe-initialized-drop-implicit-fragment-drop--drop-holds-borrow nllmoves.B tests/imported/admit/nll/maybe-initialized-drop-implicit-fragment-drop--drop-holds-borrow
-maybe-initialized-drop-with-fragment nllmoves.B tests/imported/admit/nll/maybe-initialized-drop-with-fragment
-maybe-initialized-drop-with-uninitialized-fragments nllmoves.E tests/imported/admit/nll/maybe-initialized-drop-with-uninitialized-fragments
-maybe-initialized-drop nllmoves.E tests/imported/admit/nll/maybe-initialized-drop
 method-ufcs-3 nllmoves.NEW-N2 tests/imported/admit/nll/method-ufcs-3
 method-ufcs-inherent-3 nllmoves.NEW-1 tests/imported/admit/nll/method-ufcs-inherent-3
 method-ufcs-inherent-4 nllmoves.NEW-S7-1 tests/imported/admit/nll/method-ufcs-inherent-4

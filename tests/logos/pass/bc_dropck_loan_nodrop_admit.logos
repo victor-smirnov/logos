@@ -1,0 +1,19 @@
+// THE ADMIT TWIN of `fail/bc_dropck_loan_drop_ref_field_fail`, ONE LINE apart:
+// `Wrap` has NO `Drop` impl. Nothing observes the borrow after `wrap`'s last
+// use, so NLL kills the loan there and `x = 1` is legal — exactly as in Rust.
+//
+// If this ever reds, the dropck-liveness rule in the loan channel has stopped
+// asking `needs_drop` and started holding every reference-carrying holder's
+// loan to scope end, which is the crude `nll_lu_zero` ceiling probe's rule and
+// which breaks this program (MEASURED, both crude probes).
+package bc_dropck_loan_nodrop_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct Wrap { p: &mut i64 }
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    let wrap: Wrap = Wrap { p: &mut x };
+    x = 1i64;
+    pr("%ld\n", x);
+    return 0i32;
+}

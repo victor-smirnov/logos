@@ -1,6 +1,6 @@
 // rustc nll/maybe-initialized-drop-with-fragment.rs — upstream E0506
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.B
+// shelf: fail — REFUSED since 2026-08-27 (a loan whose holder has a `Drop` impl reaching a reference field is no longer retired by the NLL cursor; it dies at the drop point)
 package maybe_initialized_drop_with_fragment;
 struct Wrap { p: &mut i64 }
 impl Drop for Wrap { fn drop(self: &mut Self) { } }

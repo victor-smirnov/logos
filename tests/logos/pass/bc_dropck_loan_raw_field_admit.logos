@@ -1,0 +1,28 @@
+// THE EXEMPTION THE `nll_lu_zero` CEILING PROBE BROKE, AND IT IS THE ONE THAT
+// WOULD HAVE REDDENED L4. `C` has a `Drop` impl and is `needs_drop`, but its
+// only field is a RAW POINTER, so the Drop cannot be said to observe a BORROW:
+// `&mut hits` coerced into a `*mut i64` ends the borrow at the statement.
+// rustc accepts. This is `tests/spec/pass/mono_6` minimised to twelve lines —
+// the crude probe refused it with "cannot borrow 'hits' as mutable: already
+// mutably borrowed".
+//
+// `drop_can_observe_borrow`'s reach test is DECLARED FIELDS of kind Ref/MutRef
+// and nothing else; if this ever reds, that test has widened past the property
+// it names.
+//
+// ONE TOKEN apart from `fail/bc_dropck_loan_ref_field_fail`, modulo the
+// `unsafe` a raw write costs by Rust's own rule: `*mut i64` vs `&mut i64`.
+package bc_dropck_loan_raw_field_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct C { slot: *mut i64 }
+impl Drop for C { fn drop(self: &mut C) { unsafe { *self.slot = *self.slot + 1i64; } } }
+fn g() -> i64 {
+    let mut hits: i64 = 0i64;
+    {
+        let _a: C = C { slot: &mut hits };
+        let _b: C = C { slot: &mut hits };
+    }
+    return hits;
+}
+fn main() -> i32 { pr("%ld\n", g()); return 0i32; }

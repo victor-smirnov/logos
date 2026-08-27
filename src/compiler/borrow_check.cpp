@@ -2553,6 +2553,58 @@ private:
         // Also honor explicit lifetime_args on the TypeRef (paranoia).
         return !t.lifetime_args().empty();
     }
+
+    // ── DROPCK LIVENESS IN THE LOAN CHANNEL ──────────────────────────────
+    // A binding whose type has a `Drop` impl is USED once more after its
+    // textual last use: at its drop. `release_dead_borrows` reads only
+    // `last_use_*`, which knows nothing about drops, so `let w = Wrap { p:
+    // &mut x }; x = 1;` retired the loan at the `let` and admitted; rustc
+    // says E0506. MEASURED with LOGOS_DUMP_BC_RELEASE: `holder=wrap lu=0`.
+    //
+    // THE REACH TEST IS DIRECT FIELDS ONLY, AND THAT IS THE `may_dangle`
+    // STAND-IN. rustc lets a `Drop` impl observe a borrow it can NAME through
+    // `self`; `Vec<B>`/`Box<&T>` reach their elements too but their drops are
+    // the `#[may_dangle]` kind, and holding those loans to scope end would
+    // over-refuse every `let v: Vec<B> = …; v.push(c.mk()); <last use of v>;
+    // c.bump()` the D1 arc made legal. `bc_loan_carrying_type`'s TYPE-ARG
+    // recursion is exactly what would capture them, so it is deliberately NOT
+    // used here — the walk is over DECLARED FIELDS. Logos has no `may_dangle`
+    // spelling; when it gets one, this predicate is where it is consulted.
+    // Residual (accepted, stated): `struct W { v: Vec<&i64> } impl Drop for W`
+    // stays admitted. That is the status quo, not a regression.
+    bool drop_can_observe_borrow(TypeRef t, int depth = 0) const {
+        if (!t || depth > 4) return false;
+        if (t.kind() != LogosType::Kind::Struct) return false;
+        if (!needs_drop(t, prog_, ts_)) return false;
+        std::string want = concrete_struct_name(t);
+        auto reaches_ref = [&](lir_view::StructView sd) -> bool {
+            if (!sd) return false;
+            for (auto& f : sd.fields()) {
+                TypeRef ft = f.type(prog_.type_pool.impl());
+                if (!ft) continue;
+                auto fk = ft.kind();
+                if (fk == LogosType::Kind::Ref ||
+                    fk == LogosType::Kind::MutRef) return true;
+                if (drop_can_observe_borrow(ft, depth + 1)) return true;
+            }
+            return false;
+        };
+        auto sit = ts_.struct_by_name.find(want);
+        if (sit != ts_.struct_by_name.end() && reaches_ref(sit->second)) return true;
+        auto pit = ts_.spec_by_name.find(want);
+        if (pit != ts_.spec_by_name.end() && reaches_ref(pit->second)) return true;
+        return false;
+    }
+    // A loan held by such a binding is not retired by the NLL cursor. It dies
+    // at `pop_scope`, which IS the drop point — no new lifetime concept.
+    template <class Rec>
+    bool holder_drops_after_last_use(const Rec& r) const {
+        if (drop_can_observe_borrow(holder_ty_of(r.holder))) return true;
+        for (auto& co : r.co_holders)
+            if (drop_can_observe_borrow(holder_ty_of(co))) return true;
+        return false;
+    }
+
     // §6.1: `items.union.ref.borrow` — a borrow of one union field
     // implicitly borrows ALL fields (they share common storage). At
     // borrow-recording time we coerce union field-path borrows into
@@ -8630,6 +8682,8 @@ private:
             // synthesised temp), and `0 <= cur_line` retires the loan at the
             // very first sweep. Treat lu==0 as "never expires".
             if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++it; continue; }
+            // Dropck liveness: the holder is used once more, at its drop.
+            if (holder_drops_after_last_use(*it)) { ++it; continue; }
             // CEILING PROBE `nll_lu_strict` — `<=` retires a loan whose holder
             // died ON the statement just visited, before the rest of that same
             // statement (or line) can conflict with it.
@@ -8652,6 +8706,7 @@ private:
             if (fit2->holder.empty()) { ++fit2; continue; }
             uint64_t lu = holders_last_use(*fit2);
             if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++fit2; continue; }
+            if (holder_drops_after_last_use(*fit2)) { ++fit2; continue; }
             if (logos::probe::on("nll_lu_strict") ? (lu != 0 && lu < cur_line)
                                                   : (lu <= cur_line)) {
                 if (auto sit = var_find(fit2->target_slot, fit2->target); sit != nullptr) {

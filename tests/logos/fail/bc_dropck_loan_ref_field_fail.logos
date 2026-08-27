@@ -1,0 +1,19 @@
+// THE REFUSING TWIN of `pass/bc_dropck_loan_raw_field_admit`: the Drop-bearing
+// holder's field is a `&mut i64` rather than a `*mut i64`, so the destructor
+// CAN name the borrow and the loan lives to the binding's drop point at the end
+// of the block. Writing `hits` inside the block is E0506.
+//
+// The pair is the whole exemption: the rule keys on whether a DECLARED FIELD is
+// a reference, never on the mere presence of a `Drop` impl.
+package bc_dropck_loan_ref_field_fail;
+struct C { slot: &mut i64 }
+impl Drop for C { fn drop(self: &mut C) { *self.slot = *self.slot + 1i64; } }
+fn g() -> i64 {
+    let mut hits: i64 = 0i64;
+    {
+        let _a: C = C { slot: &mut hits };
+        hits = 5i64;
+    }
+    return hits;
+}
+fn main() -> i32 { return g() as i32 - 6i32; }
