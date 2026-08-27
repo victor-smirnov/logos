@@ -27,7 +27,9 @@ NAME="${1:?usage: ceiling-probe.sh <probe-name> | --selftest}"
 # had fired 193 times). `selftest_refuse` refuses every borrow the pass records,
 # so it must close ALL of them.
 if [ "$NAME" = "--selftest" ]; then
-    out=$("$0" selftest_refuse 2>&1) || { echo "$out"; exit 1; }
+    # CEILING_ONLY: the selftest asks whether the READER sees closures; the
+    # cost side would just re-measure that a total sabotage breaks everything.
+    out=$(CEILING_ONLY=1 "$0" selftest_refuse 2>&1) || { echo "$out"; exit 1; }
     got=$(printf '%s' "$out" | grep -oP 'CEILING = \K\d+')
     tot=$(ctest --test-dir build -N -R "^logos_00_bc_admit_" 2>/dev/null | grep -oP "Total Tests: \K[0-9]+")
     if [ "${got:-0}" = "$tot" ] && [ "$tot" -gt 0 ]; then
@@ -40,6 +42,24 @@ if [ "$NAME" = "--selftest" ]; then
 fi
 JOBS=$(nproc)
 LEDGER_RE='^logos_00_bc_admit_'
+# ⚠ THE PRICE HAS TWO SIDES. A ceiling alone is half a number: a probe can buy
+# rows with a refusal that is simply WRONG. Measured 2026-08-27 — `callroot`
+# priced at 4 and one of its rows closes only because the probe refuses
+# `match *x { Cycle::Node(ref mut y) => ... }` over a Box, which is legal Rust;
+# `refwhole` priced at 1 against FORTY legal-program refusals. Both were caught
+# by hand, by agents who thought to look. Nobody should have to think to look.
+# This corpus is programs that MUST COMPILE, so a failure here is the probe
+# refusing something legal. 1168 tests, 73 s.
+# ⚠ AND THE POPULATION MUST BE CHOSEN BY THE PROPERTY, NOT BY A SPELLING I HAD
+# TO HAND. The first version of this line named four DIRECTORIES and missed
+# `02_semantic_core`, which is where every `bc_*` fixture lives — i.e. the hole
+# was exactly where borrow legality is pinned. Measured: it scored `refwhole`
+# at COST 1 where an agent had counted 40 by hand. Selecting by the `pass`
+# LABEL instead is worse in a different way (3016 tests, 438 s, and it breaks
+# FIXTURES_REQUIRED so tests fail for not having run their producers). What is
+# below is the borrow-legality corpus plus the three directories whose spec
+# programs caught the last over-refusal that L1 could not see: 478 tests, 39 s.
+LEGAL_RE='_pass_(bc_|zone_|place_|branch_merge|borrow|reborrow|move_|drop_|nll)|^logos_(25_spec|03_ownership|04_advanced)_pass'
 BIN=build/bin/logosc
 WORK=build/probe
 mkdir -p "$WORK"
@@ -99,10 +119,50 @@ CLOSED=$(comm -13 "$BASE" "$RUN")
 N=$(printf '%s' "$CLOSED" | grep -c . || true)
 REOPEN=$(comm -23 "$BASE" "$RUN" | grep -c . || true)
 
-echo "probe: '$NAME' fired $FIRES times across 447 compiles"
+NROWS=$(ctest --test-dir build -N -R "$LEDGER_RE" 2>/dev/null | grep -oP "Total Tests: \K[0-9]+")
+echo "probe: '$NAME' fired $FIRES times across ${NROWS:-?} compiles"
 echo "probe: CEILING = $N rows"
 [ "$REOPEN" -ne 0 ] && echo "probe: ⚠ $REOPEN previously-failing rows now pass — the probe UN-refused something"
 [ "$N" -ne 0 ] && printf '%s\n' "$CLOSED" | sed 's/^/probe:   /'
-echo "probe: ⚠ a CEILING, not a result — exemptions and the over-refusal direction"
-echo "probe:   are untested here. It says what to fund, never what you will get."
+
+if [ "${CEILING_ONLY:-0}" = "1" ]; then
+    echo "probe: (cost side SKIPPED by CEILING_ONLY=1 — this is half a price)"
+    exit 0
+fi
+
+# ── THE OTHER HALF: what does the refusal COST in legal programs? ────────────
+LBASE="$WORK/legalbase-$KEY.txt"
+if [ ! -f "$LBASE" ]; then
+    ctest --test-dir build -j"$JOBS" -R "$LEGAL_RE" 2>/dev/null \
+        | grep -oP '^\s*\d+ - \K\S+(?= \(Failed\))' | sort > "$LBASE"
+fi
+LRUN=$WORK/legalrun-$NAME.txt
+LOGOS_PROBE="$NAME" ctest --test-dir build -j"$JOBS" -R "$LEGAL_RE" 2>/dev/null \
+    | grep -oP '^\s*\d+ - \K\S+(?= \(Failed\))' | sort > "$LRUN"
+BROKE=$(comm -13 "$LBASE" "$LRUN")
+C=$(printf '%s' "$BROKE" | grep -c . || true)
+
+echo "probe: COST    = $C legal programs refused (a LOWER bound — this corpus is"
+echo "probe:           borrow-legality plus three spec dirs, not the whole pass tree)"
+[ "$C" -ne 0 ] && printf '%s\n' "$BROKE" | head -12 | sed 's/^/probe:   /'
+
+# The verdict is the RATIO, and it is stated rather than left to be inferred —
+# a probe whose cost exceeds its ceiling is not a cheap fix waiting for
+# exemptions, it is the wrong mechanism.
+if [ "$C" -ge "$N" ]; then
+    echo "probe: ⛔ COST >= CEILING — this mechanism refuses at least as many legal"
+    echo "probe:    programs as it closes rows. Exemptions might rescue it, but the"
+    echo "probe:    burden is now on showing WHICH, not on finding one that fits."
+else
+    echo "probe: ✓ ceiling $N vs cost $C — worth an exemption analysis"
+    [ "$C" -eq 0 ] && cat <<'LIMIT'
+probe: ⚠ COST 0 IS NOT A SAFETY CLAIM. A corpus refuses only programs it
+probe:    CONTAINS. Measured 2026-08-27: `callroot` scores cost 0 here, and an
+probe:    agent refuted it by WRITING A NEW PROGRAM — `match *x { Node(ref mut
+probe:    y) => … }` over a Box, legal Rust, refused under the probe. The cost
+probe:    side removes bad candidates cheaply; it never certifies a good one.
+probe:    The exemption analysis still has to construct its own counter-examples.
+LIMIT
+fi
+echo "probe: ⚠ still an UPPER BOUND. It says what to fund, never what you will get."
 exit 0
