@@ -5130,16 +5130,55 @@ private:
     // expression's type, which reduces to today's test for a bare-VarRef ptr.
     void check_place_mut_use(const BorrowPlace& bp, TypeRef ptr_type,
                              uint32_t line) {
+        // THE RAW-PTR EXEMPTION, AND IT IS WHAT THE RULE BELOW RESTS ON.
+        // record_borrow gets this for free — the walker's Deref arm refuses to
+        // root through a `Ptr` operand, so `&mut *s.p` arrives with an empty
+        // root and returns on record_borrow's first line. The WRITE path walks
+        // the POINTER expression (`s.p`, a FieldRead), which roots fine, so it
+        // reaches the question on a place the borrow path never can and the
+        // exemption must be spelled. MEASURED, one variable (the field's type):
+        // `struct S { p: *mut i64 } fn a(s:&S){ unsafe{*s.p=7;} }` rc=0 and the
+        // site NEVER FIRES — zero arrivals over the whole compile, so the only
+        // statement between entry and the rule is this return; the byte-
+        // identical program with `p: &mut i64` is rc=1 with one arrival.
+        // Abuse direction: entering this hatch costs an `unsafe` block — the
+        // same price Rust charges — enforced independently ("write through raw
+        // pointer requires unsafe context", measured on the same program with
+        // the `unsafe` removed).
         if (ptr_type && ptr_type.kind() == LogosType::Kind::Ptr) return;
-        // CEILING PROBE `writethrushared` — the walker already computed WHICH
-        // reference the place was reached through; this consumer, the only
-        // checker of a `*place = v` write, never asks. A write to a place
-        // behind a shared `&` is E0594/E0596 regardless of loans.
-        if (logos::probe::on("writethrushared") && bp.through_ref_type &&
+        // ── THE QUESTION record_borrow ALREADY ASKS, INHERITED ────────────
+        // A `&mut` through a SHARED reference is E0596 and a WRITE through one
+        // is E0594; they are the same question about the same BorrowPlace,
+        // computed by the same walker (`cross()` records the reference
+        // crossed). record_borrow asks it at THE ONE RECORD SITE, before the
+        // whole/field dispatch, so both its tails answer alike; this consumer —
+        // the only checker of a `*place = v` write — never inherited it, and
+        // the spread was directly observable on ONE program in two spellings:
+        // `&mut *s.p` refused while `*s.p = 7` compiled. `is_mut` is
+        // record_borrow's guard and is constant TRUE here (a DerefWrite is a
+        // write), so no predicate is minted — one is delegated.
+        //
+        // ⚠ ASKED BEFORE THE ROOT-EMPTY RETURN, DELIBERATELY, and that is not
+        // a drift from record_borrow. "Behind a shared `&`" is a property of
+        // the PATH, not of the loan table: it needs no root to be TRUE, only a
+        // name to be PRINTED. `**y = 2` / `***p = 2` over a Box break the walk
+        // at the user-Deref call and lose the root while the crossing is
+        // already recorded — 2 of the 4 rows this closes. A root-empty guard
+        // here would drop them silently.
+        //
+        // ⚠ WHAT THIS DOES NOT COVER, so it is not mistaken for coverage:
+        // `cross()` is LAST-ASSIGNMENT-WINS (the walk runs outer->inner, so the
+        // crossing NEAREST THE ROOT survives), hence `s: &mut S, s.r: &i64,
+        // *s.r = 5` records MutRef and is still ADMITTED. That missed refusal
+        // is inherited from the borrow path along with the question; probe
+        // `sharedsticky` priced it at 0 rows over 61796 fires.
+        if (bp.through_ref_type &&
             bp.through_ref_type.kind() == LogosType::Kind::Ref) {
-            report(line, std::format(
-                "ceiling-probe writethrushared: cannot assign to '{}': behind "
-                "a `&` reference", fmt_path(bp.root, bp.path)));
+            std::string place = fmt_path(bp.root, bp.path);
+            report(line, place.empty()
+                ? std::string("cannot assign to a place behind a `&` reference")
+                : std::format("cannot assign to '{}': '{}' is behind a "
+                              "`&` reference", place, bp.root));
             return;
         }
         if (bp.path.empty()) {

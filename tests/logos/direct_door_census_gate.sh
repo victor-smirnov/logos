@@ -729,16 +729,20 @@ PIN = {
     # RE-DERIVED BY DIRECT FILE LISTING, never by adding to the previous pin:
     #   ls tests/logos/pass/*.logos | wc -l                       -> 2411
     #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
-    # partition closes: 2413 = 191 + 2222. (+4 2026-08-27: the
+    # partition closes: 2414 = 191 + 2223. (+1 2026-08-27:
+    # pass/bc_write_thru_shared_raw_ptr_admit, the raw-pointer exemption pin for
+    # the write-through-shared-`&` rule — no `wql_*`/`deem_*` match, no
+    # container family, no `direct` output form, so `glob` and the DOOR counts
+    # are unmoved.) (+4 2026-08-27: the
     # bc_patloan_* admit twins for the written-`ref` pattern-binding loan.
     # +2 2026-08-27: pass/bc_dropck_loan_nodrop_admit and
     # pass/bc_dropck_loan_raw_field_admit, the two exemption pins for dropck
     # liveness in the loan channel — neither matches `wql_*`/`deem_*`, neither
     # declares a container family or a `direct` output form, so `glob` and the
     # DOOR counts are unmoved.)
-    'corpus'            : 2413,
+    'corpus'            : 2414,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2222,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2223,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

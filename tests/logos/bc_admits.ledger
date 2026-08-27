@@ -144,7 +144,33 @@
 # Class B (roots ending `.B`, counted by direct listing) 69 -> 67. ⚠ the previous
 # round's note said 73; a direct listing of HEAD said 69, so 69 is what is
 # recorded here — the number, re-measured, not carried forward.
-# TOTAL 430
+# 2026-08-27 — 430 -> 426. THE WRITE PATH INHERITS THE QUESTION THE BORROW PATH
+# ALREADY ASKS. A `&mut` taken through a SHARED reference is E0596 and a WRITE
+# through one is E0594: the same question about the same BorrowPlace, computed
+# by the same walker (`cross()` records which reference was crossed).
+# record_borrow asks it at THE ONE RECORD SITE, before the whole/field dispatch;
+# `check_place_mut_use` — the only checker of a `*place = v` write — never
+# inherited it. The spread was directly observable on ONE program in two
+# spellings, unarmed: `&mut *s.p` refused, `*s.p = 7` compiled. No predicate is
+# minted here, one is delegated.
+# THE RAW-POINTER EXEMPTION IS WHAT THE RULE RESTS ON, and it was measured at
+# the guard boundary by FIRE COUNT, not argued: `struct S { p: *mut i64 }` with
+# `unsafe { *s.p = 7 }` has ZERO arrivals at the site (the guard one line above
+# returns first), while the byte-identical program with `p: &mut i64` has one
+# and refuses. Abuse direction: entering the hatch costs an `unsafe` block,
+# enforced independently. All four stdlib layers compile clean against a clean
+# unarmed control; the core pass corpus showed 0 over-refusals.
+# ⚠ ASKED BEFORE THE ROOT-EMPTY RETURN, deliberately: "behind a shared `&`" is a
+# property of the PATH, not of the loan table. `**y = 2` over a Box loses its
+# root at the user-Deref call while the crossing is already recorded — 2 of
+# these 4 rows, which a root-empty guard "for symmetry" would drop silently.
+# CEILING 4, PREDICTED 4, CLOSED 4. Equality is the boundary case and it is not
+# luck: the probe was placed UNDER this fix's only exemption, so the correct
+# version differs from it in the diagnostic text and nothing else.
+# ⚠ NOT A CLOSED CLASS. `cross()` is last-assignment-wins, so `s: &mut S,
+# s.r: &i64, *s.r = 5` is still admitted — priced at 0 rows by `sharedsticky`.
+# Class B 67 -> 63.
+# TOTAL 426
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -164,9 +190,7 @@ borrowck-and-init--r03 bck.NEW tests/imported/admit/borrowck/borrowck-and-init--
 borrowck-and-init--t03 bck.NEW tests/imported/admit/borrowck/borrowck-and-init--t03
 borrowck-anon-fields-struct bck.B tests/imported/admit/borrowck/borrowck-anon-fields-struct
 borrowck-argument bck.A tests/imported/admit/borrowck/borrowck-argument
-borrowck-assign-to-andmut-in-aliasable-loc bck.B tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-aliasable-loc
 borrowck-assign-to-andmut-in-borrowed-loc bck.NEW tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-borrowed-loc
-borrowck-borrow-mut-base-ptr-in-aliasable-loc--a-assign-through-shared-to-mut bck.B tests/imported/admit/borrowck/borrowck-borrow-mut-base-ptr-in-aliasable-loc--a-assign-through-shared-to-mut
 borrowck-borrow-overloaded-auto-deref bck.A tests/imported/admit/borrowck/borrowck-borrow-overloaded-auto-deref
 borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
@@ -177,8 +201,6 @@ borrowck-escaping-closure-error-2 bck.C tests/imported/admit/borrowck/borrowck-e
 borrowck-in-static--move-captured-out-of-fn-closure bck.C tests/imported/admit/borrowck/borrowck-in-static--move-captured-out-of-fn-closure
 borrowck-in-static--r-runtime bck.C tests/imported/admit/borrowck/borrowck-in-static--r-runtime
 borrowck-init-op-equal bck.NEW tests/imported/admit/borrowck/borrowck-init-op-equal
-borrowck-issue-14498--b-write-through-shared bck.B tests/imported/admit/borrowck/borrowck-issue-14498--b-write-through-shared
-borrowck-issue-14498--box-mut-ref bck.B tests/imported/admit/borrowck/borrowck-issue-14498--box-mut-ref
 borrowck-issue-2657-1 bck.B tests/imported/admit/borrowck/borrowck-issue-2657-1
 borrowck-lend-flow-loop bck.NEW-2 tests/imported/admit/borrowck/borrowck-lend-flow-loop
 borrowck-loan-blocks-move-cc--r10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10

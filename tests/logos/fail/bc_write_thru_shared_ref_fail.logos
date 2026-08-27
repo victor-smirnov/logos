@@ -1,0 +1,12 @@
+// A WRITE THROUGH A SHARED `&` IS E0594, AND THE BORROW CHANNEL ALREADY SAID SO.
+// `record_borrow` refuses `&mut *s.p` with "'s' is behind a `&` reference";
+// `check_place_mut_use` — the only checker of a `*place = v` write — never
+// inherited that question, so the byte-identical program spelled as a WRITE
+// compiled. One program, two spellings, two verdicts.
+//
+// ONE TOKEN apart from `pass/bc_write_thru_shared_raw_ptr_admit`, modulo the
+// `unsafe` a raw write costs by Rust's own rule: `&mut i64` vs `*mut i64`.
+package bc_write_thru_shared_ref_fail;
+struct S { p: &mut i64 }
+fn a(s: &S) -> i32 { *s.p = 7i64; return 0i32; }
+fn main() -> i32 { let mut n: i64 = 1i64; let s: S = S { p: &mut n }; return a(&s); }

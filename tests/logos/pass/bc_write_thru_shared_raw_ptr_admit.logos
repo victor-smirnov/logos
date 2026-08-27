@@ -1,0 +1,29 @@
+// THE EXEMPTION THAT CARRIES THE STDLIB. A write reached through a shared `&`
+// is E0594 — unless what is written through is a RAW POINTER, which is Rust's
+// interior-mutability hatch (UnsafeCell/RefCell/Cell) and every `&self` method
+// that writes through a stored `*mut`. The live stdlib spelling is 8 sites, 8
+// of 8 raw (cell.logos `*g.value`, `*a.value`/`*b.value`, `*self.state`,
+// `*orig.state`; bt/node.logos `*id_ctr_p`).
+//
+// MEASURED AT THE GUARD BOUNDARY BY FIRE COUNT, which is what makes it a
+// measurement and not an argument: with the ceiling probe armed this program
+// records ZERO arrivals at the rule's site — the `Ptr` guard one line above
+// returns first — while `fail/bc_write_thru_shared_ref_fail`, identical but
+// for the field's type, records one and refuses.
+//
+// The hatch is not free and not unchecked: reaching it requires naming a raw
+// pointer, which costs an `unsafe` block, enforced independently ("write
+// through raw pointer requires unsafe context"). If this ever reds, the raw
+// exemption has been narrowed and the stdlib does not build.
+package bc_write_thru_shared_raw_ptr_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct S { p: *mut i64 }
+fn a(s: &S) -> i32 { unsafe { *s.p = 7i64; } return 0i32; }
+fn main() -> i32 {
+    let mut n: i64 = 1i64;
+    let s: S = S { p: &mut n as *mut i64 };
+    let r: i32 = a(&s);
+    pr("%ld\n", n);
+    return r;
+}

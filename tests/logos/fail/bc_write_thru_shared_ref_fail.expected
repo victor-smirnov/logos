@@ -1,0 +1,1 @@
+cannot assign to 's.p': 's' is behind a `&` reference
