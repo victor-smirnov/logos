@@ -1,6 +1,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include "sema_impl.hpp"
+#include <logos/compiler/probe.hpp>
 #include "ctfe.hpp"
 #include "logos/compiler/subtype.hpp"
 
@@ -9440,6 +9441,15 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
 
             // Build body block — push pattern bindings into scope
             push_scope();
+            // CEILING PROBE `patmoveref` — `is_unowned_move_source` is the one
+            // predicate for "this place does not own what it yields", and it is
+            // consulted at four VALUE positions and at NONE of the four
+            // bind_pattern sites: bind_pattern gets the scrutinee's TYPE, never
+            // its EXPRESSION, so the question cannot be asked there.
+            if (logos::probe::on("patmoveref") && is_move_type(scrut_type) &&
+                is_unowned_move_source(smatch.scrut))
+                error("ceiling-probe patmoveref: cannot move out of a value "
+                      "behind a reference / out of an index (E0507)");
             bind_pattern(pat, scrut_type);
             current_pat_mut_names_ = saved_pat_muts;
             // Register Writ @-pattern bindings in scope (visible in body + guard).

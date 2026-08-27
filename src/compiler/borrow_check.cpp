@@ -1003,15 +1003,29 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
     BorrowPlace bp;
     auto cur = inner;
     std::vector<std::string> path_parts;
+    // CEILING PROBE `sharedsticky` — MEASURED 2026-08-27: fired 61 796 times
+    // across the 447 ledger compiles and closed ZERO rows. NEGATIVE RESULT:
+    // the last-assignment-wins policy below is not holding any ledger row
+    // open. Making a shared crossing STICKY over the whole chain changes no
+    // verdict in the acceptance population — do not re-open without a new
+    // mechanism; the site is live, so the zero is an answer and not a silence.
+    //
+    // The hypothesis was: a shared `&` crossed ANYWHERE in the
+    // chain should win over a later, nearer-the-root `&mut`; today the LAST
+    // assignment wins (the walk runs outer->inner) and that disarms
+    // record_borrow's E0596 gate whenever the root binding is itself `&mut`.
+    auto cross = [&](TypeRef t) {
+        bp.through_ref = true;
+        if (logos::probe::on("sharedsticky") && bp.through_ref_type &&
+            bp.through_ref_type.kind() == LogosType::Kind::Ref) return;
+        bp.through_ref_type = t;
+    };
     while (cur) {
         if (cur.kind() == Code::FieldRead) {
             EFieldReadView fv{cur};
             path_parts.push_back(std::string(fv.field()));
             cur = fv.receiver();
-            if (cur && is_ref_kind(cur.type(pool))) {
-                bp.through_ref = true;
-                bp.through_ref_type = cur.type(pool);
-            }
+            if (cur && is_ref_kind(cur.type(pool))) cross(cur.type(pool));
         } else if (cur.kind() == Code::TupleIndex) {
             // A tuple element is a FIELD whose name is its index — that is
             // already the spelling everything else uses (`moved_vars_` writes
@@ -1024,10 +1038,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             ETupleIndexView tv{cur};
             path_parts.push_back(std::to_string(tv.index()));
             cur = tv.receiver();
-            if (cur && is_ref_kind(cur.type(pool))) {
-                bp.through_ref = true;
-                bp.through_ref_type = cur.type(pool);
-            }
+            if (cur && is_ref_kind(cur.type(pool))) cross(cur.type(pool));
         } else if (cur.kind() == Code::IndexRead) {
             auto recv = EIndexReadView{cur}.receiver();
             // Indexing through a RAW pointer (`p[i]`, p: *mut/*const T) is an
@@ -1051,10 +1062,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             }
             path_parts.clear();
             bp.index_in_chain = true;
-            if (recv && is_ref_kind(recv.type(pool))) {
-                bp.through_ref = true;
-                bp.through_ref_type = recv.type(pool);
-            }
+            if (recv && is_ref_kind(recv.type(pool))) cross(recv.type(pool));
             cur = recv;
         } else if (cur.kind() == Code::SliceIndex) {
             auto sl = ESliceIndexView{cur}.slice();
@@ -1064,10 +1072,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             }
             path_parts.clear();
             bp.index_in_chain = true;
-            if (sl && is_ref_kind(sl.type(pool))) {
-                bp.through_ref = true;
-                bp.through_ref_type = sl.type(pool);
-            }
+            if (sl && is_ref_kind(sl.type(pool))) cross(sl.type(pool));
             cur = sl;
         } else if (cur.kind() == Code::Deref) {
             // A borrow through a REFERENCE deref (`*r`, `(*r).f`, `(*r)[i]`) is a
@@ -1091,10 +1096,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
                     // provenance. A Box/Rc/user-Deref container OWNS its
                     // content, so the content dies with the container variable
                     // and the root stays the right source.
-                    if (is_ref_kind(ok)) {
-                        bp.through_ref = true;
-                        bp.through_ref_type = ok;
-                    }
+                    if (is_ref_kind(ok)) cross(ok);
                     // The deref'd CONTENT isn't a sibling-decomposable field
                     // of the container — treat like an index step (whole-
                     // container borrow), dropping any field path collected
@@ -1103,8 +1105,51 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
                     cur = op;
                     continue;
                 }
+                // CEILING PROBE `ptrderef` — MEASURED 2026-08-27: fired 314
+                // times across the 447 ledger compiles and closed ZERO rows.
+                // NEGATIVE RESULT, and the SECOND half of a pair: `rootkeep`
+                // priced the sibling raw-ptr bails in IndexRead/SliceIndex at
+                // exactly 0 over 427 fires. Both spellings of raw-pointer root
+                // loss hold open NOTHING. Treat "the empty root is where class
+                // B lives" as refuted on the raw-pointer axis.
+                //
+                // The hypothesis was: the raw-pointer / non-through
+                // deref bail loses the ROOT, so `*p` records nothing and is
+                // checked by nothing. Root through it anyway (crude: Rust
+                // deliberately leaves raw derefs unchecked).
+                if (logos::probe::on("ptrderef")) {
+                    path_parts.clear();
+                    cur = op;
+                    continue;
+                }
             }
             break;
+        } else if (logos::probe::on("callroot") &&
+                   (cur.kind() == Code::MethodCall ||
+                    cur.kind() == Code::Call ||
+                    cur.kind() == Code::AddrOfTemp)) {
+            // CEILING PROBE `callroot` — the place is reached THROUGH A CALL:
+            // a user Deref/Index impl, or an autoref'd receiver sema lowered
+            // to a plain Call. The walk breaks here today, so bp.root stays
+            // EMPTY and record_borrow returns on its first line — no loan at
+            // all. Root it at the receiver / arg0 with a whole-container path.
+            ExprRef nxt;
+            if (cur.kind() == Code::AddrOfTemp)
+                nxt = EAddrOfTempView{cur}.inner();
+            else if (cur.kind() == Code::MethodCall)
+                nxt = EMethodCallView{cur}.receiver();
+            else
+                ECallView{cur}.each_arg([&](ExprRef a) { if (!nxt) nxt = a; });
+            while (nxt && (nxt.kind() == Code::AddrOfTemp ||
+                           nxt.kind() == Code::SliceLit)) {
+                nxt = nxt.kind() == Code::AddrOfTemp
+                        ? EAddrOfTempView{nxt}.inner()
+                        : ESliceLitView{nxt}.base();
+            }
+            if (!nxt) break;
+            path_parts.clear();
+            cur = nxt;
+            continue;
         } else {
             break;
         }
@@ -1113,6 +1158,12 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
         bp.root = std::string(EVarRefView{cur}.name());
         bp.root_slot = EVarRefView{cur}.var_slot();  // Phase-1
         bp.root_type = cur.type(pool);
+        // CEILING PROBE `refwhole` — a place reached THROUGH a reference is
+        // recorded as a FIELD borrow of the REFERENCE BINDING, so two
+        // projections of one ref never overlap and take_field_borrow_path_'s
+        // ref-root exemption skips the mut-binding check. Collapse to the
+        // whole root: crude, and in the refusing direction.
+        if (logos::probe::on("refwhole") && bp.through_ref) path_parts.clear();
         for (auto it = path_parts.rbegin(); it != path_parts.rend(); ++it) {
             if (!bp.path.empty()) bp.path.push_back('.');
             bp.path.append(*it);
@@ -2299,6 +2350,19 @@ private:
                 }
                 auto escapes = [&](const auto& rec) {
                     if (rec.holder.empty()) return false;   // lexical: unchanged
+                    // CEILING PROBE `rehome_all` — MEASURED 2026-08-27: fired
+                    // 4 times across the 447 ledger compiles, ceiling 0. The
+                    // fire count is the finding: this Door-B fork is reached
+                    // by FOUR held records in the entire acceptance
+                    // population. Whatever `escapes` decides wrongly, it
+                    // decides almost never. Not a place to spend a round.
+                    //
+                    // The hypothesis was: `escapes` decides by NAME
+                    // over `frame.declared`; a projection holder or an
+                    // un-deposited co-holder tests FALSE and the loan dies at
+                    // the inner `}`. Re-home everything held: strictly fewer
+                    // releases, strictly longer loan lifetimes.
+                    if (logos::probe::on("rehome_all")) return true;
                     if (outer.count(rec.holder)) return true;
                     for (auto& h : rec.co_holders)
                         if (outer.count(h)) return true;
@@ -2376,11 +2440,39 @@ private:
             for (auto& [place, sources] : ref_borrow_sources_) {
                 // F6: keys are PLACES; the binding that dangles is the root.
                 std::string binding = place_root(place);
+                // CEILING PROBE `droporder` — both halves of this deposit are
+                // deliberately permissive: a never-used dangling binding is
+                // never reported, and a same-frame death is skipped even
+                // though drop order inside ONE frame is REVERSE declaration
+                // order, so a binding declared BEFORE its source outlives it.
+                bool dorder = logos::probe::on("droporder");
+                if (dorder) {
+                    auto didx = [&](std::string_view n) -> long {
+                        for (size_t i = 0; i < frame.declared.size(); ++i)
+                            if (frame.declared[i] == n) return (long)i;
+                        return -1;
+                    };
+                    long bi = didx(binding);
+                    if (bi >= 0)
+                        for (auto& src : sources)
+                            if (didx(src.name) > bi) {
+                                report(ref_borrow_line_[place], std::format(
+                                    "ceiling-probe droporder: '{}' does not live "
+                                    "long enough: it is borrowed by '{}' (E0597)",
+                                    src.name, binding));
+                                break;
+                            }
+                }
                 if (dying.count(binding) || dangling_.count(binding)) continue;
                 for (auto& src : sources) {
                     if (!dying_binding(frame, src)) continue;   // F5, not the name
                     dangling_[binding] =
                         DanglingRef{ src.name, ref_borrow_line_[place] };
+                    if (dorder)
+                        report(ref_borrow_line_[place], std::format(
+                            "ceiling-probe droporder: '{}' does not live long "
+                            "enough: it is borrowed by '{}' (E0597)",
+                            src.name, binding));
                     break;
                 }
             }
@@ -3352,7 +3444,8 @@ private:
         }
         if (need_exclusive) {
             for (auto& [p, c] : st.shared_field_borrows) {
-                if (c <= 0) continue;
+                (void)logos::probe::on("sharedzero_site");
+                if (c <= 0 && !logos::probe::on("sharedzero_live")) continue;
                 if (path.empty() || paths_overlap(path, p)) {
                     report(line, std::format(
                         "cannot {} '{}' while '{}' is borrowed",
@@ -3408,8 +3501,25 @@ private:
             return;
         }
         // Check against tracked field borrows.
+        // ── CEILING PROBE `sharedzero_live` — UNMEASURABLE, AND THE REASON
+        // IS THE FINDING. MEASURED 2026-08-27 over the 447 ledger compiles:
+        //   sharedzero_reach (this function, VarState found)  36 fires
+        //   sharedzero_site  (one fire per map entry seen)     0 fires
+        //   sharedzero_prod  (the ONLY `shared_field_borrows[path]++`, :3524)
+        //                                                      1 fire
+        // So `shared_field_borrows` is empty at EVERY one of its three
+        // consumers in every acceptance program, and the whole map takes ONE
+        // entry across 447 compiles. The named asymmetry — release_dead_borrows
+        // decrements without erasing, while pop_scope / loop_exit_snapshot /
+        // place_write_loans all erase at zero — is REAL and MOOT: there is no
+        // population behind it. A `c <= 0` probe here could not fire because
+        // the loop never iterates, which is why this is reported as
+        // UNMEASURABLE and not as a ceiling of 0. Fix the producer before
+        // anyone prices the consumers again.
+        (void)logos::probe::on("sharedzero_reach");
         for (auto& [p, c] : it->shared_field_borrows) {
-            if (c <= 0) continue;
+            (void)logos::probe::on("sharedzero_site");
+            if (c <= 0 && !logos::probe::on("sharedzero_live")) continue;
             if (paths_overlap(path, p) && is_mut) {
                 report(line, std::format(
                     "cannot borrow '{}' as mutable: '{}' is already borrowed",
@@ -3427,7 +3537,8 @@ private:
         }
         // Record.
         if (is_mut) it->mut_field_borrows.insert(path);
-        else        it->shared_field_borrows[path]++;
+        else      { (void)logos::probe::on("sharedzero_prod");
+                    it->shared_field_borrows[path]++; }
         if (!scopes_.empty())
             scopes_.back().field_borrows.push_back(
                 {target, std::move(path), is_mut, holder, target_slot,
@@ -3582,6 +3693,35 @@ private:
             return;
         }
         if (bp.root.empty()) return;
+        // CEILING PROBE `movedborrow` — MEASURED 2026-08-27: fired 86 230
+        // times across the 447 ledger compiles and closed ZERO rows. NEGATIVE
+        // RESULT: the record side and the read side DO disagree about move
+        // state (measured by hand), but no ledger row's admit depends on that
+        // disagreement — every row whose conflict is a move-then-borrow is
+        // already refused by check_live on the later read. Do not re-open.
+        //
+        // The hypothesis was: record_borrow is the monopoly entry
+        // point and asks nothing about the MOVE state of what is borrowed,
+        // while the READ side does (check_live). Two channels, one concept.
+        if (logos::probe::on("movedborrow")) {
+            if (auto* mst = var_find(bp.root_slot, bp.root); mst != nullptr) {
+                if (mst->moved) {
+                    report(line, std::format(
+                        "ceiling-probe movedborrow: cannot borrow '{}': it is "
+                        "moved", bp.root));
+                    return;
+                }
+                if (!bp.path.empty())
+                    if (auto* hit = find_moved_overlap(mst->moved_fields,
+                                                       bp.path)) {
+                        report(line, std::format(
+                            "ceiling-probe movedborrow: cannot borrow '{}.{}': "
+                            "field '{}' moved on line {}",
+                            bp.root, bp.path, hit->first, hit->second));
+                        return;
+                    }
+            }
+        }
         // ── ONE EXEMPTION QUESTION, ASKED ONCE, OF THE RIGHT THING ────────
         // A `&mut` through a SHARED reference is E0596 and there is no
         // binding, root type or escape hatch that makes it legal. Asked HERE,
@@ -4850,6 +4990,17 @@ private:
     void check_place_mut_use(const BorrowPlace& bp, TypeRef ptr_type,
                              uint32_t line) {
         if (ptr_type && ptr_type.kind() == LogosType::Kind::Ptr) return;
+        // CEILING PROBE `writethrushared` — the walker already computed WHICH
+        // reference the place was reached through; this consumer, the only
+        // checker of a `*place = v` write, never asks. A write to a place
+        // behind a shared `&` is E0594/E0596 regardless of loans.
+        if (logos::probe::on("writethrushared") && bp.through_ref_type &&
+            bp.through_ref_type.kind() == LogosType::Kind::Ref) {
+            report(line, std::format(
+                "ceiling-probe writethrushared: cannot assign to '{}': behind "
+                "a `&` reference", fmt_path(bp.root, bp.path)));
+            return;
+        }
         if (bp.path.empty()) {
             check_recv_conflict(bp, /*is_mut=*/true, line);
             return;
@@ -8294,8 +8445,22 @@ private:
         for (auto& frame : scopes_) {
             auto it = frame.borrows.begin();
             while (it != frame.borrows.end()) {
+                // CEILING PROBE `holderkill_keep` — MEASURED 2026-08-27: the
+                // suppression fired 3 times across the 447 ledger compiles,
+                // ceiling 0. THE FIRE COUNT IS THE ANSWER, and nothing in the
+                // tree measured it before: this event-keyed releaser actually
+                // releases a loan THREE times in the whole acceptance
+                // population. Its name-equality guards cannot be class B's
+                // home — there is no population behind them.
+                //
+                // The hypothesis was: every guard above is a
+                // NAME test; a surviving user that reaches the target through
+                // a PROJECTION passes `named_elsewhere` and the loan is
+                // dropped while live. Last conjunct: a fire is one SUPPRESSED
+                // release, so the count is this releaser's whole population.
                 if (it->is_mut && same(it->holder, it->holder_slot) &&
-                    it->co_holders.empty() && !named_elsewhere(it->target)) {
+                    it->co_holders.empty() && !named_elsewhere(it->target) &&
+                    !logos::probe::on("holderkill_keep")) {
                     if (auto sit = var_find(it->target_slot, it->target); sit != nullptr)
                         sit->mut_borrowed = false;
                     it = frame.borrows.erase(it);
@@ -8371,7 +8536,16 @@ private:
         while (it != frame.borrows.end()) {
             if (it->holder.empty()) { ++it; continue; }
             uint64_t lu = holders_last_use(*it);
-            if (lu <= cur_line) {
+            // CEILING PROBE `nll_lu_zero` — one_holder_last_use returns 0 for
+            // a holder note_use_slot never recorded (a projection place, a
+            // synthesised temp), and `0 <= cur_line` retires the loan at the
+            // very first sweep. Treat lu==0 as "never expires".
+            if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++it; continue; }
+            // CEILING PROBE `nll_lu_strict` — `<=` retires a loan whose holder
+            // died ON the statement just visited, before the rest of that same
+            // statement (or line) can conflict with it.
+            if (logos::probe::on("nll_lu_strict") ? (lu != 0 && lu < cur_line)
+                                                  : (lu <= cur_line)) {
                 auto sit = var_find(it->target_slot, it->target);
                 if (sit != nullptr) {
                     if (it->is_mut) sit->mut_borrowed = false;
@@ -8388,7 +8562,9 @@ private:
         while (fit2 != frame.field_borrows.end()) {
             if (fit2->holder.empty()) { ++fit2; continue; }
             uint64_t lu = holders_last_use(*fit2);
-            if (lu <= cur_line) {
+            if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++fit2; continue; }
+            if (logos::probe::on("nll_lu_strict") ? (lu != 0 && lu < cur_line)
+                                                  : (lu <= cur_line)) {
                 if (auto sit = var_find(fit2->target_slot, fit2->target); sit != nullptr) {
                     if (fit2->is_mut)
                         sit->mut_field_borrows.erase(fit2->path);
@@ -9350,6 +9526,17 @@ private:
     void release_place_retarget(const std::string& place, const std::string& root) {
         const auto* old = reborrow_of_.find(place);
         if (!old || root.empty()) return;
+        // CEILING PROBE `retarget_keep` — MEASURED 2026-08-27: fired 2 times
+        // across the 447 ledger compiles, ceiling 0. The missing
+        // `frame.field_borrows` loop noted below is a REAL asymmetry and it
+        // holds no ledger row open: the F0 retraction is reached twice in the
+        // entire acceptance population. Priced and closed; do not re-open.
+        //
+        // The hypothesis was: this F0 retraction walks
+        // `frame.borrows` only, with NO `frame.field_borrows` loop, while its
+        // caller reaches it ONLY for a place with a non-empty path. Suppress
+        // the retraction entirely: strictly fewer releases.
+        if (logos::probe::on("retarget_keep")) return;
         std::vector<std::string> targets(*old);
         auto take_one = [&](const std::string& t) {
             auto it = std::find(targets.begin(), targets.end(), t);
@@ -10435,6 +10622,32 @@ private:
                     propagate_pat_prov(arm.pat(), v.scrut());             // D1 r3
                     propagate_pat_loans(arm.pat(), scrut_hop_roots, ln);  // D1
                     propagate_pat_reborrows(arm.pat(), v.scrut());        // D1 r13
+                    // CEILING PROBE `patloan` — all four pattern propagators
+                    // run here and NOT ONE calls record_borrow, so a `ref` /
+                    // `ref mut` binding creates no loan on the scrutinee.
+                    // each_pat_binding_place already computes the exact
+                    // sub-place; record a mut loan on it.
+                    if (logos::probe::on("patloan")) {
+                        std::vector<std::string> pat_bases;
+                        ref_source_places(v.scrut(), prog_.type_pool.impl(),
+                                          pat_bases);
+                        for (auto& pbase : pat_bases)
+                            each_pat_binding_place(arm.pat(), pbase,
+                                [&](std::string_view b, TypeRef,
+                                    const std::string& place) {
+                                    if (b.empty() || b == "_" || place.empty())
+                                        return;
+                                    BorrowPlace pbp;
+                                    auto dot = place.find('.');
+                                    pbp.root = place.substr(0, dot);
+                                    pbp.path = dot == std::string::npos
+                                                 ? std::string()
+                                                 : place.substr(dot + 1);
+                                    pbp.root_slot = NO_SLOT;
+                                    record_borrow(pbp, /*is_mut=*/true, ln,
+                                                  std::string(b));
+                                });
+                    }
                     StateMap before_guard = states_;
                     if (auto g = arm.guard()) visit(g, /*consuming=*/true, ln);
                     // Fold this guard's NEW moves of outer bindings into the
@@ -10906,7 +11119,8 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                         break;
                     }
                     for (auto& [p, c] : sit->shared_field_borrows) {
-                        if (c <= 0) continue;
+                        (void)logos::probe::on("sharedzero_site");
+                        if (c <= 0 && !logos::probe::on("sharedzero_live")) continue;
                         if (paths_overlap(path, p) && is_mut) {
                             report(line, std::format(
                                 "cannot borrow '{}' as mutable: '{}' is already borrowed",
