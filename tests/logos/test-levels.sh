@@ -21,7 +21,7 @@
 # IMPORTED TESTS: the Rust-derived conformance ports (tests/imported/, ~55% of
 # the suite, survivor-biased and largely duplicating the core coverage) are
 # EXCLUDED by default at every level — the everyday loop runs the core-logos +
-# spec net only. Add a trailing `imp` (or set LOGOS_IMPORTED=1) to include them
+# spec net only. Add a trailing `bc` for the borrow-check ports; `imported-unreviewed` for all
 # when you want the full conformance gate. Nothing is deleted; this is a
 # `ctest -LE imported` split (see tests/logos/CMakeLists.txt).
 #
@@ -50,7 +50,9 @@
 #   bash ../tests/logos/test-levels.sh L3 1
 #   bash ../tests/logos/test-levels.sh L4            # full core+spec
 #   bash ../tests/logos/test-levels.sh L4 bc         # core+spec + the borrow-check imported ports
-#   bash ../tests/logos/test-levels.sh L4 imp        # full incl. ALL imported ports (tier unreviewed)
+#   bash ../tests/logos/test-levels.sh L4 imported-unreviewed
+#                                                    # ALL imported ports. The tier is UNREVIEWED;
+#                                                    # `imp` is retired and errors with the reason.
 #   bash ../tests/logos/test-levels.sh L2 2 imp      # L2, imported groups too
 set -u
 
@@ -124,11 +126,39 @@ fi
 # ⚠ TWO ctest RUNS, NOT ONE, because ctest ANDs its filters and there is no
 # union operator: `-LE imported` for the core, then `-L imported -L bc`. The
 # summary prints both and the exit status is the worse of the two.
-WITH_IMPORTED=${LOGOS_IMPORTED:-0}
+# ⚠ `imp` AND `LOGOS_IMPORTED` ARE RETIRED, AND THEY FAIL LOUDLY RATHER THAN
+# QUIETLY DOING THE OLD THING. Victor 2026-08-28, on why a written rule was not
+# enough: agents will type the short token anyway, on the principle of "what
+# happens if I try". A rule that depends on nobody being curious is not a rule.
+# So the old spellings are not ignored and not silently redirected — they stop
+# the run and say what to use instead. The replacement is deliberately too long
+# to reach for absent-mindedly, and names the reason in the token itself.
+WITH_IMPORTED=${LOGOS_IMPORTED_UNREVIEWED:-0}
 WITH_BC_IMPORTED=${LOGOS_BC_IMPORTED:-0}
+if [ -n "${LOGOS_IMPORTED:-}" ]; then
+    echo "[test-levels] LOGOS_IMPORTED is retired." >&2
+    echo "  The imported tier is UNREVIEWED: nobody can currently say what is in" >&2
+    echo "  it, which is why it lives in its own group. Five of its tests were" >&2
+    echo "  disabled on 2026-08-27 because that review had never happened." >&2
+    echo "  Use:  test-levels.sh L4 bc                (the borrow-check ports)" >&2
+    echo "  Or, if you truly mean all ~4158 unreviewed ports:" >&2
+    echo "        LOGOS_IMPORTED_UNREVIEWED=1 test-levels.sh L4" >&2
+    exit 2
+fi
 _args=()
 for a in "$@"; do
-    if [ "$a" = "imp" ]; then WITH_IMPORTED=1;
+    if [ "$a" = "imp" ]; then
+        echo "[test-levels] 'imp' is retired." >&2
+        echo "  It ran all ~4158 imported ports. The tier is UNREVIEWED — nobody" >&2
+        echo "  can currently say what is in it, which is why it was split into" >&2
+        echo "  its own group, and five of its tests were disabled on 2026-08-27" >&2
+        echo "  because that review had never happened. A tier nobody can vouch" >&2
+        echo "  for is not an oracle; it is a number that goes red for reasons" >&2
+        echo "  that each need their own investigation." >&2
+        echo "  Use:  test-levels.sh L4 bc     — core+spec + the 1260 borrow-check ports" >&2
+        echo "  Or:   test-levels.sh L4 imported-unreviewed   — if you truly mean all of them" >&2
+        exit 2
+    elif [ "$a" = "imported-unreviewed" ]; then WITH_IMPORTED=1;
     elif [ "$a" = "bc" ]; then WITH_BC_IMPORTED=1; else _args+=("$a"); fi
 done
 set -- "${_args[@]:-}"
@@ -137,7 +167,7 @@ set -- "${_args[@]:-}"
 # ── L0 / L4: trivial ────────────────────────────────────────────────────────
 if [ "$LEVEL" = "L4" ]; then
     if [ "$WITH_IMPORTED" = "1" ]; then
-        echo "[test-levels] L4 — full suite (incl. ALL imported ports; the tier is unreviewed)"
+        echo "[test-levels] L4 — core+spec + ALL ~4158 imported ports. ⚠ THE TIER IS UNREVIEWED."
         bash "$SUMMARY"
         exit $?  # lint:exit-ok — the status of the `bash` just run
     fi
@@ -150,7 +180,7 @@ if [ "$LEVEL" = "L4" ]; then
         [ "$_rc_core" -ne 0 ] && exit "$_rc_core"  # lint:exit-ok
         exit "$_rc_bc"  # lint:exit-ok
     fi
-    echo "[test-levels] L4 — full suite (core+spec; imported excluded, add 'bc' for the borrow-check ports, 'imp' for all)"
+    echo "[test-levels] L4 — full suite (core+spec; imported excluded, add 'bc' for the borrow-check ports, 'imported-unreviewed' for all)"
     bash "$SUMMARY" -LE imported
     exit $?  # lint:exit-ok — the status of the `bash` just run: a real wait status
 fi
