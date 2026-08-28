@@ -1,0 +1,29 @@
+// THE THIRD CHECK OVER THE SAME MISSING LOAN: not borrow-vs-borrow (that is
+// fail/bc_genrecv_two_mut_conflict_fail) and not borrow-vs-assignment (that is
+// fail/bc_genrecv_field_write_while_held_fail), but SHARED-vs-MUTABLE. A live
+// `&i64` handed out by a generic `&self` method did not stop a generic
+// `&mut self` method being called on the same owner, so `*m = 2` wrote through a
+// reference `s` was still reading.
+//
+// It is here because it was NOT found by the corpus and NOT predicted by the
+// three fixtures it sits next to: it was CONSTRUCTED while measuring the
+// widened tie in the over-refusal direction, and it flipped. Its non-generic
+// twin (`peek(&self)` / `get(&mut self)`, no type parameter on either) refuses
+// at HEAD; adding a type parameter to both admitted it.
+package bc_genrecv_shared_then_mut_fail;
+
+struct C { v: i64 }
+
+impl C {
+    fn peek<T>(&self) -> &i64 { return &self.v; }
+    fn get<T>(&mut self) -> &mut i64 { return &mut self.v; }
+}
+
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let s: &i64 = c.peek::<i64>();
+    let m: &mut i64 = c.get::<i64>();
+    *m = 2i64;
+    if *s != 2i64 { return 1i32; }
+    return 0i32;
+}

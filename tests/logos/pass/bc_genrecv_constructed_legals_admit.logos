@@ -1,0 +1,128 @@
+// THE OVER-REFUSAL SIDE OF THE GENERIC-AUTOREF RECEIVER TIE, AND THE ONLY
+// REASON IT LANDED. Its cost was measured at ZERO over 8518 pass/fail tests
+// plus a real stdlib rebuild — and a corpus refuses only programs it CONTAINS,
+// so that zero is not a safety claim and never was. 18 legal programs were
+// written BY HAND against the widened tie; the shapes the corpus did not
+// already carry are collected here so they outlive the round that found them.
+// Every one is RUN, with its own return code, so a wrong verdict shows as a
+// wrong exit code and not merely as a wrong diagnostic.
+//
+// Its refusing twins are fail/bc_genrecv_two_mut_conflict_fail,
+// .../generic_then_plain_conflict_fail, .../field_write_while_held_fail and
+// .../shared_then_mut_fail; the NLL-scoping and signature exemptions have
+// their own admit halves next to each of those. What is here instead is the
+// PLACE and LIVENESS variety: field-path receivers, a receiver reached through
+// an existing `&mut`, loop bodies, both arms of an `if`, an inner block, a
+// shadowed holder, a discarded result, a nested call argument, and free
+// generic functions whose arg0 is a plain `&T`/`&mut T` and not a receiver at
+// all — `is_self_borrowing` cannot tell those apart from a mono'd method, so
+// they are exactly where a blanket tie would show.
+//
+// ⚠ THE ONE OVER-REFUSAL THIS ARM COULD HAVE IS CLOSED BY SEMA, NOT BY LUCK,
+// and it is not testable from here. `is_self_borrowing` returns true on a
+// plain-ref result WITHOUT asking whether another ref parameter could be the
+// real source, so `fn pick<T>(a: &mut i64, b: &i64) -> &i64` would hang a
+// MUTABLE loan of `a` on the holder. That signature does not compile: E0106,
+// missing lifetime specifier. Spell the lifetimes and `lifetime_params()` is
+// non-empty, so is_self_borrowing declines. There is no third spelling, which
+// is why no fixture here can carry that case.
+package bc_genrecv_constructed_legals_admit;
+
+struct C { v: i64 }
+struct S { a: C, b: C }
+
+impl C {
+    fn get<T>(&mut self) -> &mut i64 { return &mut self.v; }
+    fn peek<T>(&self) -> &i64 { return &self.v; }
+}
+
+fn idref<T>(x: &T) -> &T { return x; }
+fn bump<T>(x: &mut T) -> &mut T { return x; }
+fn twice<T>(x: &i64) -> i64 { return *x + *x; }
+
+fn main() -> i32 {
+    // 1. a FIELD-PATH receiver, one loan each on two sibling fields
+    let mut s: S = S { a: C { v: 1i64 }, b: C { v: 2i64 } };
+    let x: &mut i64 = s.a.get::<i64>();
+    let y: &mut i64 = s.b.get::<i64>();
+    *x = 10i64;
+    *y = 20i64;
+    if s.a.v + s.b.v != 30i64 { return 1i32; }
+
+    // 2. the receiver reached through an EXISTING `&mut` binding, sequentially
+    let mut c: C = C { v: 1i64 };
+    let r: &mut C = &mut c;
+    let a: &mut i64 = r.get::<i64>();
+    *a = 4i64;
+    let b: &mut i64 = r.get::<i64>();
+    *b = 5i64;
+    if c.v != 5i64 { return 2i32; }
+
+    // 3. the same generic method each iteration, the loan dead at loop end
+    let mut lc: C = C { v: 0i64 };
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        let t: &mut i64 = lc.get::<i64>();
+        *t = *t + 1i64;
+        i = i + 1i64;
+    }
+    if lc.v != 3i64 { return 3i32; }
+
+    // 4. the loan taken in BOTH arms of an `if`, each dying in its arm
+    let mut bc: C = C { v: 1i64 };
+    if bc.v == 1i64 { let t: &mut i64 = bc.get::<i64>(); *t = 2i64; }
+    else { let t: &mut i64 = bc.get::<i64>(); *t = 3i64; }
+    bc.v = bc.v + 1i64;
+    if bc.v != 3i64 { return 4i32; }
+
+    // 5. the loan confined to an inner BLOCK
+    let mut sc: C = C { v: 1i64 };
+    { let t: &mut i64 = sc.get::<i64>(); *t = 5i64; }
+    sc.v = sc.v + 1i64;
+    if sc.v != 6i64 { return 5i32; }
+
+    // 6. the holder SHADOWED, killing the first loan before the second
+    let mut hc: C = C { v: 1i64 };
+    let h: &mut i64 = hc.get::<i64>();
+    *h = 2i64;
+    let h: &mut i64 = hc.get::<i64>();
+    *h = 3i64;
+    if hc.v != 3i64 { return 6i32; }
+
+    // 7. the result DISCARDED — no holder, so no loan to outlive the call
+    let mut dc: C = C { v: 1i64 };
+    dc.get::<i64>();
+    dc.v = 8i64;
+    dc.get::<i64>();
+    if dc.v != 8i64 { return 7i32; }
+
+    // 8. the result consumed as another call's ARGUMENT, never bound
+    let mut nc: C = C { v: 6i64 };
+    let n: i64 = twice::<i64>(nc.get::<i64>());
+    nc.v = 1i64;
+    if n != 12i64 { return 8i32; }
+    if nc.v != 1i64 { return 9i32; }
+
+    // 9. a free generic fn on `&T` — arg0 is not a receiver; two live loans
+    let m: i64 = 5i64;
+    let f1: &i64 = idref::<i64>(&m);
+    let f2: &i64 = idref::<i64>(&m);
+    if *f1 + *f2 != 10i64 { return 10i32; }
+
+    // 10. a free generic fn on `&mut T`, two SEQUENTIAL loans of one owner
+    let mut g: i64 = 1i64;
+    let g1: &mut i64 = bump::<i64>(&mut g);
+    *g1 = 2i64;
+    let g2: &mut i64 = bump::<i64>(&mut g);
+    *g2 = 3i64;
+    if g != 3i64 { return 11i32; }
+
+    // 11. a shared loan read out, then the owner written after its last use
+    let mut pc: C = C { v: 3i64 };
+    let p: &i64 = pc.peek::<i64>();
+    if *p != 3i64 { return 12i32; }
+    pc.v = 4i64;
+    if pc.v != 4i64 { return 13i32; }
+
+    return 42i32;
+}

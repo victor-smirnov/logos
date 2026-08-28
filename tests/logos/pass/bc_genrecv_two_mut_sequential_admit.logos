@@ -1,0 +1,74 @@
+// The ADMIT half of fail/bc_genrecv_two_mut_conflict_fail. ONE VARIABLE: the
+// first loan is DEAD before the second is taken (`*a = 2` sits between the two
+// calls instead of after them). The receiver tie the fail half pins must be
+// NLL-scoped, not a blanket "a generic method mutably borrows its receiver
+// forever" — a blanket refusal would read identically from the failing side.
+//
+// It also carries the exemptions the tie must NOT fire on, each RUN so a wrong
+// answer shows as a wrong exit code, not merely as a wrong verdict:
+//   - a generic method whose result borrows NOTHING (`count<T>(&mut self) -> i64`):
+//     the owner stays writable straight after the call;
+//   - two live SHARED borrows through a generic `&self` method;
+//   - a free generic fn whose arg0 is not a receiver at all;
+//   - two DISTINCT receivers, one loan each;
+//   - a generic method that returns a borrow of its PARAMETER, not of self
+//     (`pick<T>(&self, other: &i64) -> &i64`) — is_self_borrowing declines to
+//     tie when self is not the sole borrow input, and that must hold here.
+package bc_genrecv_two_mut_sequential_admit;
+
+struct C { v: i64 }
+
+impl C {
+    fn get<T>(&mut self) -> &mut i64 { return &mut self.v; }
+    fn peek<T>(&self) -> &i64 { return &self.v; }
+    fn count<T>(&mut self) -> i64 { return self.v; }
+    fn pick<T>(&self, other: &i64) -> &i64 { return other; }
+}
+
+fn idref<T>(x: &T) -> &T { return x; }
+
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+
+    // 1. sequential mutable loans through the generic method — legal
+    let a: &mut i64 = c.get::<i64>();
+    *a = 2i64;
+    let b: &mut i64 = c.get::<i64>();
+    *b = 3i64;
+    if c.v != 3i64 { return 1i32; }
+
+    // 2. a generic method whose result borrows nothing ties no loan
+    let n: i64 = c.count::<i64>();
+    c.v = 9i64;
+    if n != 3i64 { return 2i32; }
+    if c.v != 9i64 { return 3i32; }
+
+    // 3. two live SHARED borrows through a generic &self method
+    let s1: &i64 = c.peek::<i64>();
+    let s2: &i64 = c.peek::<i64>();
+    if *s1 != 9i64 { return 4i32; }
+    if *s2 != 9i64 { return 5i32; }
+
+    // 4. a free generic fn — arg0 is not a receiver
+    let m: i64 = 5i64;
+    let f1: &i64 = idref::<i64>(&m);
+    let f2: &i64 = idref::<i64>(&m);
+    if *f1 + *f2 != 10i64 { return 6i32; }
+
+    // 5. two distinct receivers, one live loan each
+    let mut c1: C = C { v: 10i64 };
+    let mut c2: C = C { v: 20i64 };
+    let p1: &mut i64 = c1.get::<i64>();
+    let p2: &mut i64 = c2.get::<i64>();
+    *p1 = 11i64;
+    *p2 = 21i64;
+    if c1.v + c2.v != 32i64 { return 7i32; }
+
+    // 6. the result borrows the PARAMETER, not self — no tie to `c`
+    let k: i64 = 7i64;
+    let r1: &i64 = c.pick::<i64>(&k);
+    let r2: &i64 = c.pick::<i64>(&k);
+    if *r1 + *r2 != 14i64 { return 8i32; }
+
+    return 42i32;
+}

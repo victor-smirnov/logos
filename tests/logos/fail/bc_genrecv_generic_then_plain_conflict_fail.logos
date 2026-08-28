@@ -1,0 +1,27 @@
+// THE MIXED SPELLING, and it is the one that proves the defect is in the CALL
+// SHAPE and not in the method: the SAME struct offers a plain `&mut self`
+// method and a method-generic one, and the conflict is between them. The plain
+// call deposits its receiver loan (MethodCall arm), the generic one did not
+// (mono had rewritten it into a plain Call), so one live `&mut` was invisible
+// to the other and the pair was admitted.
+//
+// Order matters here: the GENERIC call comes first. Reversed, the plain call's
+// loan is deposited first and the conflict is found by the old path — which is
+// exactly the false-green a same-shape fixture in the other order would give.
+package bc_genrecv_generic_then_plain_conflict_fail;
+
+struct C { v: i64 }
+
+impl C {
+    fn plain(&mut self) -> &mut i64 { return &mut self.v; }
+    fn gen<T>(&mut self, _t: T) -> &mut i64 { return &mut self.v; }
+}
+
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let a: &mut i64 = c.gen::<i64>(0i64);
+    let b: &mut i64 = c.plain();
+    *a = 2i64;
+    *b = 3i64;
+    return 0i32;
+}

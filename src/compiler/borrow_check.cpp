@@ -8062,34 +8062,84 @@ private:
                     it != fn_index_.by_name.end() && it->second &&
                     !it->second.params().empty() && is_self_borrowing(it->second)) {
                     TypeRef p0 = it->second.params()[0].type(pool);
-                    // PROBE genrecvtie: a method-generic call mono rewrote
-                    // into a plain Call has a Ref/MutRef first formal, so the
-                    // DstRef gate skips it and no receiver loan is recorded.
-                    // ⛔ REFUTED-AS-UNPRICEABLE 2026-08-27: ONE fire across all
-                    // 423 ledger compiles. Ceiling 0, but NOT a refutation of
-                    // the mechanism — a NEAR-DEAD SITE, and the fire count
-                    // NAMES ITS PRUNER. The twin probe genrecvconflict sits in
-                    // visit's Call arm under the same fn_index_ lookup WITHOUT
-                    // the enclosing `is_self_borrowing` requirement and fired
-                    // 176555 times. So the lookup is fine (genarg0blind's
-                    // insurance agrees) and `is_self_borrowing` prunes
-                    // 176555 -> 1. The generic-autoref hole measured at 2328
-                    // arrivals / 916 sites / 83 fixtures lives in the STDLIB
-                    // and pass corpus, NOT in the acceptance ledger: this
-                    // reader cannot price it, and any future round must bring
-                    // its own population rather than read a zero off this one.
-                    bool gtie = logos::probe::on("genrecvtie");
+                    // ⚠ THE FIRST FORMAL IS `Ref`/`MutRef` HERE, NOT JUST
+                    // `DstRef`, AND THAT WIDENING IS THE POINT. mono rewrites a
+                    // METHOD-GENERIC call into a plain `Code::Call` with the
+                    // receiver autoref'd into arg0. Until 2026-08-27 this arm
+                    // tied arg0 only for a FAT (`DstRef`) receiver, so a
+                    // receiver typed plain `&mut C` deposited NOTHING and the
+                    // MethodCall arm — which does tie, via
+                    // method_result_borrows_self — no longer saw the node,
+                    // there being no MethodCall left after mono. CONSTRUCTED
+                    // demonstrator, one variable, byte-identical bodies:
+                    //     c.plain();      c.plain();        refused
+                    //     c.get::<i64>(); c.get::<i64>();   ADMITTED
+                    // pinned as fail/bc_genrecv_two_mut_conflict_fail and its
+                    // two siblings.
+                    //
+                    // `is_self_borrowing` (the enclosing condition) is what
+                    // keeps this precise rather than conservative: it is asked
+                    // whether the RESULT borrows the receiver at all, so a
+                    // generic method returning a scalar ties nothing, and one
+                    // whose result may slice a ref PARAMETER instead of self
+                    // ties nothing either. Both exemptions are RUN in
+                    // pass/bc_genrecv_two_mut_sequential_admit.
+                    //
+                    // ⚠ MEASURED BEFORE LANDING, and the two numbers are not
+                    // interchangeable. `scripts/ceiling-probe.sh genrecvtie`
+                    // over the 423-row acceptance ledger: ONE fire, ceiling 0 —
+                    // which is a NEAR-DEAD SITE for that population, not a
+                    // refutation. `scripts/pass-probe.sh genrecvtie` over 8518
+                    // pass/fail tests plus a real stdlib rebuild: 14075 fires
+                    // in 700 compiles, CHANGED = 0. Hot, and free. The crude
+                    // alternative at the same site (genautorefx below, no
+                    // callee resolution, no self-borrowing test) was priced on
+                    // the same population at CHANGED = 7, every one of them
+                    // COST. That difference is the whole argument for asking
+                    // the signature instead of the shape.
+                    //
+                    // ⚠ THE FINDING COLUMN WAS ZERO AND THE DEFECT IS REAL.
+                    // All 400 rustc-rejected `tests/imported/admit` rows were
+                    // in the priced population and none moved — a channel
+                    // proven live, since the sabotage pole moves all 400. The
+                    // corpus simply contains no program of this shape. Every
+                    // demonstrator here had to be CONSTRUCTED by hand.
+                    // ⚠ BOTH NUMBERS ABOVE ARE HISTORICAL AND NO LONGER
+                    // RE-RUNNABLE: the `genrecvtie` probe was RETIRED at this
+                    // landing (that is what "made unconditional" means), so
+                    // both scripts now report NEVER FIRED for that name. They
+                    // were re-run and reproduced to the digit on 2026-08-27
+                    // before the gate was removed; a future round must bring a
+                    // new probe rather than re-read these.
+                    //
+                    // ⚠ AND COST 0 WAS NOT WHY THIS LANDED. 18 legal programs
+                    // were written by hand against the widened tie — sequential
+                    // loans, shadowed holders, inner blocks, both if-arms, a
+                    // loop body, a field-path receiver, a receiver reached
+                    // through an existing `&mut`, distinct receivers, a
+                    // by-value result, a discarded result, a nested call
+                    // argument, free generic fns on both `&T` and `&mut T`.
+                    // ZERO flipped. The one over-refusal this arm could have
+                    // had is closed by SEMA, not by luck: `is_self_borrowing`
+                    // returns true on a plain-ref result WITHOUT asking whether
+                    // another ref parameter could be the real source, so
+                    // `fn pick<T>(a: &mut i64, b: &i64) -> &i64` would be tied
+                    // to `a` — and that signature does not compile, E0106
+                    // missing lifetime specifier. Spell the lifetimes and
+                    // `lifetime_params()` is non-empty, so is_self_borrowing
+                    // declines. There is no third spelling.
                     bool p0_ref = p0 && (p0.kind() == LogosType::Kind::Ref ||
                                          p0.kind() == LogosType::Kind::MutRef);
                     if ((p0 && p0.kind() == LogosType::Kind::DstRef &&
-                        !p0.owning_dst()) || (gtie && p0_ref)) {
+                        !p0.owning_dst()) || p0_ref) {
                         ExprRef a0; uint64_t ai0 = 0;
                         v.each_arg([&](ExprRef a){ if (ai0++ == 0) a0 = a; });
                         // extract_borrow_place does NOT peel a top-level
                         // AddrOfTemp: without this an autoref'd arg0
                         // decomposes to an EMPTY root and record_borrow
-                        // returns on its first line — a FALSE ceiling 0.
-                        if (gtie && a0 && a0.kind() == Code::AddrOfTemp)
+                        // returns on its first line — a silent no-tie that
+                        // reads exactly like a deliberate exemption.
+                        if (a0 && a0.kind() == Code::AddrOfTemp)
                             a0 = EAddrOfTempView{a0}.inner();
                         if (a0) {
                             BorrowPlace bp = extract_borrow_place(a0, pool);
@@ -8098,7 +8148,7 @@ private:
                             if (!bp.root.empty() && !rawptr &&
                                 var_has(bp.root_slot, bp.root)) {
                                 bool m = p0.mut_ptr() ||
-                                    (gtie && p0.kind() == LogosType::Kind::MutRef);
+                                    p0.kind() == LogosType::Kind::MutRef;
                                 record_borrow(bp, m, line, holder,
                                               {/*skip_mut_binding=*/true});
                                 tied_recv = true;
@@ -8109,13 +8159,16 @@ private:
                 // MEASURED 2026-08-27: 27 fires — i.e. the ENTIRE Code::Call
                 // population reaching take_ref_borrows across all 423 ledger
                 // compiles is 27 arrivals, of which exactly 1 is resolved AND
-                // self-borrowing (see genrecvtie above). CEILING 0, COST 1
-                // (03_ownership_pass_borrow_trait). The insurance did its job:
-                // it says genrecvtie's zero is a DEAD SITE, not a broken
-                // callee lookup, and that no amount of widening at this site
-                // can reach the generic-autoref hole from this corpus.
+                // self-borrowing. That reading was CORRECT AND MISLEADING, and
+                // it is why the tie above is now unconditional: 27 arrivals is
+                // what the ACCEPTANCE LEDGER contains, and the same site over
+                // the pass corpus plus the stdlib is 14075 fires in 700 of
+                // 8518 compiles. The insurance did its job — it said the zero
+                // was a near-dead SITE and not a broken callee lookup — but
+                // "no widening at this site can reach the hole" was a claim
+                // about a POPULATION, and the hole lives in another one.
                 // PROBE genarg0blind: INSURANCE AGAINST A FALSE ZERO on
-                // genrecvtie/genrecvconflict. Both depend on fn_index_
+                // the receiver tie and genrecvconflict. Both depend on fn_index_
                 // resolving the MANGLED specialization name mono minted. This
                 // fires exactly when the lookup MISSED, so the fire count says
                 // how large the unresolved-callee population is.
@@ -8155,10 +8208,19 @@ private:
                     // method into one), slot arg0, the receiver autoref'd into
                     // an AddrOfTemp, a holder to hang a loan on, a LIVE root —
                     // and NOT rescued by the self-borrowing receiver tie above
-                    // (`tied_recv`). Existence only: it answers "is this site
-                    // reached at all outside the acceptance ledger", which
-                    // genrecvtie could not, having fired ONCE across 423
-                    // ledger compiles.
+                    // (`tied_recv`). Existence only: it answered "is this site
+                    // reached at all outside the acceptance ledger", which the
+                    // ledger reader could not, the tie having fired ONCE across
+                    // 423 ledger compiles.
+                    // ⚠ ITS POPULATION SHRANK WHEN THE TIE ABOVE BECAME
+                    // UNCONDITIONAL: `!tied_recv` now excludes exactly the
+                    // calls the tie covers, so the 43-in-482 and 3463-in-8518
+                    // fire counts recorded for genautoref/genautorefx were
+                    // taken against the OLD, narrower `tied_recv` and are not
+                    // re-measurable as they stand. What remains under them is
+                    // the RESIDUE: arg0 autorefs whose callee does not resolve,
+                    // or resolves to a signature whose result does not borrow
+                    // the receiver.
                     if (ai == 1 && !tied_recv && !holder.empty() &&
                         a.kind() == Code::AddrOfTemp) {
                         BorrowPlace pbp = extract_borrow_place(
@@ -8170,11 +8232,20 @@ private:
                             // nothing by construction — so this is the
                             // hypothesis actually spelled out: tie the
                             // autoref'd receiver's borrow to the holder, which
-                            // is what the branch above does for a DstRef
-                            // receiver and what `is_self_borrowing` prunes
-                            // 176555 -> 1 for a Ref/MutRef one. Deliberately
-                            // crude: no exemptions, no signature analysis, the
-                            // mutability read straight off the autoref.
+                            // is what the branch above now does for any
+                            // Ref/MutRef/DstRef receiver. Deliberately crude:
+                            // no callee resolution, no signature analysis, the
+                            // mutability read straight off the autoref — and
+                            // that is what it cost. PRICED on 8518 pass/fail
+                            // tests plus the stdlib: CHANGED = 7, of which
+                            // FINDING 0 and COST 7 (borrow_trait,
+                            // bc_argcomp_replace_admit, core_6_10_derive_debug,
+                            // fmt_debug_builders, fmt_pretty_print,
+                            // writ_typed_placement,
+                            // zone_mut_thin_source_admits_generic). The
+                            // signature-asking version landed above changed 0
+                            // of the same 8518. Kept as the standing control
+                            // for "why ask the callee at all".
                             if (logos::probe::on("genautorefx")) {
                                 bool rawptr = pbp.root_type &&
                                     pbp.root_type.kind() == LogosType::Kind::Ptr;
@@ -12166,11 +12237,11 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 // seventeen probes — CEILING 0 and COST 0. Widening
                 // check_recv_conflict from DstRef-only to Ref/MutRef arg0
                 // (with the AddrOfTemp peel, so it is not a false zero for the
-                // reason genrecvtie would have been) changes NOTHING in either
-                // direction. This is a real negative result, not a dead arm:
-                // the receiver-conflict check has nothing to say about a
-                // mono-lowered generic receiver, so the class-2 hole is NOT in
-                // the conflict channel. Do not re-propose this widening.
+                // reason the retired `genrecvtie` would have been) changes
+                // NOTHING in either direction. A real negative result, not a
+                // dead arm: the receiver-conflict check has nothing to say
+                // about a mono-lowered generic receiver, so the class-2 hole
+                // is NOT in the conflict channel. Do not re-propose this widening.
                 // PROBE genrecvconflict: the MethodCall twin runs this check
                 // for Ref/MutRef/DstRef alike with NO is_self_borrowing
                 // requirement; this arm gates on DstRef only, so a mono'd

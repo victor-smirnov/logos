@@ -759,9 +759,18 @@ PIN = {
     # glob unchanged at 191, so 2419 = 191 + 2228. None matches `wql_*`/`deem_*`,
     # none declares a container family or a `direct` output form, so `glob` and
     # the DOOR counts are unmoved.)
-    'corpus'            : 2419,
+    # (+4 2026-08-27: the four legal twins of the GENERIC-AUTOREF RECEIVER TIE
+    # — pass/bc_genrecv_two_mut_sequential_admit, .../generic_then_plain_admit,
+    # .../field_write_after_admit, .../shared_then_mut_admit. RE-DERIVED BY
+    # DIRECT LISTING: ls tests/logos/pass/*.logos -> 2424, glob unchanged at
+    # 191, so 2424 = 191 + 2233. The fifth is
+    # pass/bc_genrecv_constructed_legals_admit, the eleven hand-written legal
+    # shapes that measured the same tie in the over-refusal direction. None matches `wql_*`/`deem_*`, none declares a
+    # container family or a `direct` output form, so `glob` and the DOOR counts
+    # are unmoved.)
+    'corpus'            : 2424,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2228,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2233,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

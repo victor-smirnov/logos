@@ -4503,8 +4503,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                  not tier_commit.
 # Ledger `# TOTAL` 412 → 400, re-derived by direct listing, and
 # `ls tests/imported/admit/*/*.logos | wc -l` independently counts 400.
-REGISTRY-ALL         8585
-REGISTRY-NOIMPORTED  4427
+# 2026-08-27 (the generic-autoref receiver tie — four fail fixtures and their
+# four legal twins, tests/logos/{fail,pass}/bc_genrecv_*):
+#   ALL          8585 → 8594   +9  4 pass + 4 fail + the constructed-legals
+#                                  admit, one ctest test each.
+#   NOIMPORTED   4427 → 4436   +9  same nine; none is `imported`.
+#   TIERCOMMIT    448 → 448     0  the new fixtures are not tier_commit.
+# PREDICTED +8/+8/0 for the four pairs and read as that, then +1/+1/0 for
+# pass/bc_genrecv_constructed_legals_admit and read as that.
+# No ledger row closed: this fix's finding column over the whole corpus was
+# ZERO and all four refusals had to be CONSTRUCTED, so `# TOTAL` stays 400,
+# re-derived by direct listing (`ls tests/imported/admit/*/*.logos | wc -l`).
+REGISTRY-ALL         8594
+REGISTRY-NOIMPORTED  4436
 REGISTRY-TIERCOMMIT  448
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

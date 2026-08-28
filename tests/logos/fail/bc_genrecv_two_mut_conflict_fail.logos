@@ -1,0 +1,50 @@
+// A METHOD-GENERIC RECEIVER LOST ITS LOAN, SO TWO LIVE `&mut` INTO THE SAME
+// FIELD WERE ADMITTED. The one variable against its twin — and against
+// pass/bc_genrecv_two_mut_sequential_admit — is the METHOD'S TYPE PARAMETER,
+// nothing else:
+//     fn plain(&mut self) -> &mut i64      c.plain(); c.plain();   refused
+//     fn get<T>(&mut self) -> &mut i64     c.get::<i64>(); x2      ADMITTED
+// Byte-identical bodies, byte-identical call sites, opposite verdicts.
+//
+// THE ROOT. mono rewrites a method-generic call into a plain `Code::Call` with
+// the receiver autoref'd into arg0. take_ref_borrows' Call arm ties arg0 to the
+// holder only when the first formal is a `DstRef` — the FAT receiver case — so
+// a receiver typed plain `&mut C` deposited nothing and record_borrow was never
+// reached. The MethodCall arm (which does tie, via method_result_borrows_self)
+// no longer sees the node: there is no MethodCall left after mono.
+//
+// ⚠ THE CORPUS COULD NOT PRICE THIS. Measured 2026-08-27 with
+// scripts/pass-probe.sh over 8518 pass/fail tests plus the stdlib: the FINDING
+// column (400 rustc-rejected `tests/imported/admit` rows, a channel proven live
+// — the sabotage pole moves all 400) came back ZERO. This program had to be
+// CONSTRUCTED. The census's 2328 arrivals at the fall-through are arrivals, not
+// defects, and the acceptance ledger contains no program of this shape.
+// ⚠ A SIBLING SUB-POPULATION IS STILL OPEN, AND IT IS NAMED HERE RATHER THAN
+// LEFT TO BE REDISCOVERED. The fix this file pins covers a METHOD-generic call.
+// A method on a GENERIC STRUCT is admitted still, with no type parameter on the
+// method at all:
+//     struct C<T> { v: T }
+//     impl<T> C<T> { fn get(&mut self) -> &mut T { return &mut self.v; } }
+//     let a = c.get(); let b = c.get(); *a = 2; *b = 3;   // ADMITTED
+// MEASURED, not assumed: that program reaches NEITHER the tie above NOR the
+// genautoref observer NOR the genarg0blind insurance — zero fires on all three
+// — so it is not this site under-firing, it is a different path, and widening
+// here cannot reach it. Its non-generic twin (`struct C { v: i64 }`, same
+// method) refuses. It gets its own round and its own measurement.
+
+package bc_genrecv_two_mut_conflict_fail;
+
+struct C { v: i64 }
+
+impl C {
+    fn get<T>(&mut self) -> &mut i64 { return &mut self.v; }
+}
+
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let a: &mut i64 = c.get::<i64>();
+    let b: &mut i64 = c.get::<i64>();
+    *a = 2i64;
+    *b = 3i64;
+    return 0i32;
+}

@@ -1,0 +1,29 @@
+// The ADMIT half of fail/bc_genrecv_generic_then_plain_conflict_fail. ONE
+// VARIABLE: the generic call's loan is dead before the plain call is made. Both
+// spellings are exercised, in both orders, so the fixture would red if the new
+// receiver tie were deposited for a LONGER region than the plain path's.
+package bc_genrecv_generic_then_plain_admit;
+
+struct C { v: i64 }
+
+impl C {
+    fn plain(&mut self) -> &mut i64 { return &mut self.v; }
+    fn gen<T>(&mut self, _t: T) -> &mut i64 { return &mut self.v; }
+}
+
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+
+    let a: &mut i64 = c.gen::<i64>(0i64);
+    *a = 2i64;
+    let b: &mut i64 = c.plain();
+    *b = 3i64;
+
+    let d: &mut i64 = c.plain();
+    *d = 4i64;
+    let e: &mut i64 = c.gen::<i64>(0i64);
+    *e = 5i64;
+
+    if c.v != 5i64 { return 1i32; }
+    return 42i32;
+}

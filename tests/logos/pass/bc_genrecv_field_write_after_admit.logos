@@ -1,0 +1,20 @@
+// The ADMIT half of fail/bc_genrecv_field_write_while_held_fail. ONE VARIABLE:
+// the write to `c.v` happens AFTER the last use of the loan instead of before
+// it. Pins that the deposited receiver loan expires at its last use — the
+// assignment check must not see a loan that NLL has already ended.
+package bc_genrecv_field_write_after_admit;
+
+struct C { v: i64 }
+
+impl C {
+    fn get<T>(&mut self) -> &mut i64 { return &mut self.v; }
+}
+
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let a: &mut i64 = c.get::<i64>();
+    *a = 2i64;
+    c.v = 9i64;
+    if c.v != 9i64 { return 1i32; }
+    return 42i32;
+}
