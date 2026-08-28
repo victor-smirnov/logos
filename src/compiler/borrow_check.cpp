@@ -1129,11 +1129,17 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
                 }
                 // CEILING PROBE `ptrderef` — MEASURED 2026-08-27: fired 314
                 // times across the 447 ledger compiles and closed ZERO rows.
-                // NEGATIVE RESULT, and the SECOND half of a pair: `rootkeep`
-                // priced the sibling raw-ptr bails in IndexRead/SliceIndex at
-                // exactly 0 over 427 fires. Both spellings of raw-pointer root
-                // loss hold open NOTHING. Treat "the empty root is where class
-                // B lives" as refuted on the raw-pointer axis.
+                // NEGATIVE RESULT over a proven-live site: the coverage map
+                // of 2026-08-27 counts 46,887 arrivals here across 8060 runs.
+                // ⚠ THE PAIRING CLAIM THIS COMMENT USED TO MAKE IS RETIRED.
+                // It said `rootkeep` priced "the sibling raw-ptr bails in
+                // IndexRead/SliceIndex" and that "both spellings" hold open
+                // nothing. `rootkeep` named TWO sites: the IndexRead bail
+                // (21,299 arrivals, genuinely priced at 0) and the SliceIndex
+                // bail (ZERO arrivals — never reached by anything we compile,
+                // therefore never measured). Only ONE spelling was priced.
+                // The raw-pointer axis is refuted for the Deref and IndexRead
+                // forms and UNMEASURED for SliceIndex.
                 //
                 // The hypothesis was: the raw-pointer / non-through
                 // deref bail loses the ROOT, so `*p` records nothing and is
@@ -2449,11 +2455,20 @@ private:
                 auto escapes = [&](const auto& rec) {
                     if (rec.holder.empty()) return false;   // lexical: unchanged
                     // CEILING PROBE `rehome_all` — MEASURED 2026-08-27: fired
-                    // 4 times across the 447 ledger compiles, ceiling 0. The
-                    // fire count is the finding: this Door-B fork is reached
-                    // by FOUR held records in the entire acceptance
-                    // population. Whatever `escapes` decides wrongly, it
-                    // decides almost never. Not a place to spend a round.
+                    // 4 times across the 447 ledger compiles, ceiling 0.
+                    // ⚠ CEILING 0 OVER A POPULATION OF FOUR IS NOT A
+                    // REFUTATION. What was NOT measured: this site outside the
+                    // ledger. The coverage map of 2026-08-27 counts 573,451
+                    // arrivals at this condition over 8060 runs — `escapes` is
+                    // one of the busiest probed sites in the file, and the 4
+                    // is a property of the acceptance corpus, not of the
+                    // compiler. The earlier reading ("it decides almost
+                    // never") generalised a ledger count into a claim about
+                    // everything we compile. The hypothesis below is UNPRICED
+                    // for any population but the ledger; the ledger says 0 and
+                    // can say nothing else. (docs/coverage §E lists 2,165,443
+                    // here — that is the enclosing `escapes` lambda, not this
+                    // condition.)
                     //
                     // The hypothesis was: `escapes` decides by NAME
                     // over `frame.declared`; a projection holder or an
@@ -3679,21 +3694,35 @@ private:
             return;
         }
         // Check against tracked field borrows.
-        // ── CEILING PROBE `sharedzero_live` — UNMEASURABLE, AND THE REASON
-        // IS THE FINDING. MEASURED 2026-08-27 over the 447 ledger compiles:
-        //   sharedzero_reach (this function, VarState found)  36 fires
-        //   sharedzero_site  (one fire per map entry seen)     0 fires
-        //   sharedzero_prod  (the ONLY `shared_field_borrows[path]++`, :3524)
-        //                                                      1 fire
-        // So `shared_field_borrows` is empty at EVERY one of its three
-        // consumers in every acceptance program, and the whole map takes ONE
-        // entry across 447 compiles. The named asymmetry — release_dead_borrows
-        // decrements without erasing, while pop_scope / loop_exit_snapshot /
-        // place_write_loans all erase at zero — is REAL and MOOT: there is no
-        // population behind it. A `c <= 0` probe here could not fire because
-        // the loop never iterates, which is why this is reported as
-        // UNMEASURABLE and not as a ceiling of 0. Fix the producer before
-        // anyone prices the consumers again.
+        // ── PROBE `sharedzero_*` — THE 2026-08-27 LEDGER MEASUREMENT WAS
+        // REAL AND THE VERDICT DRAWN FROM IT WAS WRONG. Over the 447 ledger
+        // compiles: sharedzero_reach 36 fires · sharedzero_site 0 ·
+        // sharedzero_prod 1. From that this comment concluded "the loop never
+        // iterates", "the whole map takes ONE entry", and "the asymmetry is
+        // REAL and MOOT: there is no population behind it". The coverage map
+        // of the same day, over 8060 compiler runs (the corpus plus
+        // lang/mem/lcm/std), says otherwise:
+        //   producer (the `shared_field_borrows[path]++` below) 576,021 runs
+        //   this loop                              325 iterations, `c<=0` 144x
+        //   field_borrow_conflicts                  13 iterations, `c<=0`   1x
+        //   visit/AddrOfTemp                        18 iterations, `c<=0`   7x
+        //   release_dead_borrows decrement-no-erase     368 runs
+        //   pop_scope erase-at-zero                 575,653 runs
+        //   place_write_loans erase-at-zero               0 runs
+        // The permissive skip below is taken 152 times across the population,
+        // and the decrement/erase asymmetry is live. WHAT WAS MEASURED: a
+        // ceiling of 0 over the acceptance ledger. WHAT WAS NOT: anything at
+        // all outside it, which is where every one of those 152 arrivals
+        // lives. A ceiling probe cannot reach them by construction — the
+        // ledger has no shared field borrows. Price this with
+        // scripts/pass-probe.sh (a COST measurement), not with the ledger, and
+        // give each of the three sites its OWN probe name: `sharedzero_site`
+        // and `sharedzero_live` each guard three locations and their fire
+        // counts cannot be separated.
+        // Also corrected: `shared_field_borrows` has FIVE read sites (this
+        // one, field_borrow_conflicts, the `!empty()` test in this file's
+        // place-write path, check_recv_conflict, and visit/AddrOfTemp), not
+        // three; only three are probed.
         (void)logos::probe::on("sharedzero_reach");
         for (auto& [p, c] : it->shared_field_borrows) {
             (void)logos::probe::on("sharedzero_site");
@@ -8234,6 +8263,10 @@ private:
                     // the RESIDUE: arg0 autorefs whose callee does not resolve,
                     // or resolves to a signature whose result does not borrow
                     // the receiver.
+                    // ⚠ CORRECTION 2026-08-27: the residue IS measurable after
+                    // all. The coverage map was taken on the
+                    // post-unconditional-tie source and counts 2,397 arrivals
+                    // at this guard across 8060 runs.
                     if (ai == 1 && !tied_recv && !holder.empty() &&
                         a.kind() == Code::AddrOfTemp) {
                         BorrowPlace pbp = extract_borrow_place(
@@ -9170,6 +9203,12 @@ private:
                 // population. Its name-equality guards cannot be class B's
                 // home — there is no population behind them.
                 //
+                // The 2026-08-27 coverage map agrees and sharpens: 1,138
+                // iterations of this loop, and the LAST conjunct below (the
+                // probe itself) is reached 5 times in 8060 runs.
+                // (docs/coverage §E prints 1,138 for this probe; that is the
+                // loop, not the site.)
+                //
                 // The hypothesis was: every guard above is a
                 // NAME test; a surviving user that reaches the target through
                 // a PROJECTION passes `named_elsewhere` and the loan is
@@ -9253,6 +9292,12 @@ private:
         while (it != frame.borrows.end()) {
             if (it->holder.empty()) { ++it; continue; }
             uint64_t lu = holders_last_use(*it);
+            // ⚠ TWO SITES, ONE NAME. `nll_lu_zero` guards this whole-borrow
+            // loop AND the field-borrow loop below; `nll_lu_strict` likewise.
+            // probe::on aggregates by NAME, so a fire count cannot separate
+            // them. Per the 2026-08-27 map over 8060 runs: nll_lu_zero 84,202
+            // here / 1,655 there (`lu == 0` true 1,414 / 12); nll_lu_strict
+            // 83,909 here / 1,655 there. Rename per site BEFORE pricing either.
             // CEILING PROBE `nll_lu_zero` — one_holder_last_use returns 0 for
             // a holder note_use_slot never recorded (a projection place, a
             // synthesised temp), and `0 <= cur_line` retires the loan at the
@@ -10247,10 +10292,16 @@ private:
         const auto* old = reborrow_of_.find(place);
         if (!old || root.empty()) return;
         // CEILING PROBE `retarget_keep` — MEASURED 2026-08-27: fired 2 times
-        // across the 447 ledger compiles, ceiling 0. The missing
-        // `frame.field_borrows` loop noted below is a REAL asymmetry and it
-        // holds no ledger row open: the F0 retraction is reached twice in the
-        // entire acceptance population. Priced and closed; do not re-open.
+        // across the 447 ledger compiles, ceiling 0.
+        // ⚠ CEILING 0 OVER A POPULATION OF TWO IS NOT A REFUTATION, AND
+        // "PRICED AND CLOSED" WAS THE WRONG WORD. The coverage map of
+        // 2026-08-27 counts, over 8060 runs, 194 entries to
+        // release_place_retarget and 30 arrivals at this condition
+        // (docs/coverage §E prints 194; that is the function, not the site).
+        // The missing `frame.field_borrows` loop noted below is a real
+        // asymmetry that the ledger has no program to exercise. Not refuted —
+        // unpopulated. Re-opening it needs a hand-written counter-example or a
+        // pass-corpus measurement, not another ledger run.
         //
         // The hypothesis was: this F0 retraction walks
         // `frame.borrows` only, with NO `frame.field_borrows` loop, while its

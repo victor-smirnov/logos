@@ -1444,9 +1444,21 @@ could show the effect at all.
 ## E. Where the probes are aimed
 
 Every `logos::probe::on(...)` site in the TU with the execution count
-of its ENCLOSING region — the number of times the probe's condition
-was evaluated in this population. The probe's own body is 0 by
-construction here: no probe was armed for the mapping run.
+of its ENCLOSING region. The probe's own body is 0 by construction
+here: no probe was armed for the mapping run.
+
+⚠ CORRECTION 2026-08-27: this column was originally labelled "the
+number of times the probe's condition was evaluated". IT IS NOT — it is
+the ENCLOSING region, and where the probe sits behind short-circuited
+conjuncts or after an early `return` the two differ, in BOTH
+directions. Five rows were re-read against the probe's OWN condition
+region and are corrected in place below (the enclosing figure is kept
+in parentheses):
+`retarget_keep` 194 → 30 · `holderkill_keep` 1138 → 5 ·
+`rehome_all` 2165443 → 573451 · `ptrderef` 1362221 → 46887 ·
+`callroot` 1362221 → 22933239 (§E UNDERSTATED this one by 17x: it
+printed the preceding Deref arm). Every other row is the enclosing
+region and has not been re-read per site.
 
 | arrivals | line | probe | enclosing function |
 |---:|---:|---|---|
@@ -1459,12 +1471,12 @@ construction here: no probe was armed for the mapping run.
 | 18 | 11809 | `sharedzero_live` | `logos::compiler::BorrowChecker::visit` |
 | 35 | 8545 | `capmove` | `logos::compiler::BorrowChecker::take_ref_borrows` |
 | 82 | 8623 | `capscope` | `logos::compiler::BorrowChecker::take_ref_borrows` |
-| 194 | 10246 | `retarget_keep` | `logos::compiler::BorrowChecker::release_place_retarget` |
+| 30 (encl. 194) | 10246 | `retarget_keep` | `logos::compiler::BorrowChecker::release_place_retarget` |
 | 259 | 8567 | `capmut` | `logos::compiler::BorrowChecker::take_ref_borrows` |
 | 259 | 8592 | `capshared` | `logos::compiler::BorrowChecker::take_ref_borrows` |
 | 325 | 3686 | `sharedzero_site` | `logos::compiler::BorrowChecker::take_field_borrow_path_` |
 | 325 | 3687 | `sharedzero_live` | `logos::compiler::BorrowChecker::take_field_borrow_path_` |
-| 1138 | 9167 | `holderkill_keep` | `logos::compiler::BorrowChecker::release_borrows_held_by` |
+| 5 (encl. 1138) | 9167 | `holderkill_keep` | `logos::compiler::BorrowChecker::release_borrows_held_by` |
 | 1655 | 9271 | `nll_lu_zero` | `logos::compiler::BorrowChecker::release_dead_borrows` |
 | 1655 | 9273 | `nll_lu_strict` | `logos::compiler::BorrowChecker::release_dead_borrows` |
 | 2397 | 8229 | `genautoref` | `logos::compiler::BorrowChecker::take_ref_borrows` |
@@ -1476,10 +1488,10 @@ construction here: no probe was armed for the mapping run.
 | 176974 | 2552 | `droporder` | `logos::compiler::BorrowChecker::pop_scope` |
 | 582848 | 3705 | `sharedzero_prod` | `logos::compiler::BorrowChecker::take_field_borrow_path_` |
 | 582885 | 3684 | `sharedzero_reach` | `logos::compiler::BorrowChecker::take_field_borrow_path_` |
-| 1362221 | 1129 | `ptrderef` | `borrow_check.cpp:logos::compiler::extract_borrow_place` |
-| 1362221 | 1136 | `callroot` | `borrow_check.cpp:logos::compiler::extract_borrow_place` |
+| 46887 (encl. 1362221) | 1129 | `ptrderef` | `borrow_check.cpp:logos::compiler::extract_borrow_place` |
+| 22933239 (encl. 1362221, the preceding Deref arm) | 1136 | `callroot` | `borrow_check.cpp:logos::compiler::extract_borrow_place` |
 | 1447676 | 1028 | `sharedsticky` | `borrow_check.cpp:logos::compiler::extract_borrow_place` |
-| 2165443 | 2450 | `rehome_all` | `auto logos::compiler::BorrowChecker::pop_scope` |
+| 573451 (encl. 2165443) | 2450 | `rehome_all` | `auto logos::compiler::BorrowChecker::pop_scope` |
 | 2213272 | 3860 | `selftest_inert` | `logos::compiler::BorrowChecker::record_borrow` |
 | 2213272 | 3861 | `selftest_refuse` | `logos::compiler::BorrowChecker::record_borrow` |
 | 2213272 | 3877 | `movedborrow` | `logos::compiler::BorrowChecker::record_borrow` |
