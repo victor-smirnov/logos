@@ -1243,8 +1243,25 @@ static void merge_loans(StateMap& base, StateMap& other) {
         if (st.mut_reservations > b.mut_reservations) b.mut_reservations = st.mut_reservations;
         if (st.mut_borrowed) b.mut_borrowed = true;
         for (auto& [p, n] : st.shared_field_borrows) {
+            // ── OBSERVATIONAL PROBES, THE `shared_field_borrows` ZERO CENSUS.
+            // Nothing here is gated on a probe: the counters change no
+            // behaviour, they only say WHO PUTS A ZERO IN THE MAP. This
+            // default-insert is the one writer that CAN leave a zero (it
+            // inserts 0 and then only raises it when `n > cur`), so it is the
+            // standing static explanation for the 144 `c <= 0` reads in
+            // take_field_borrow_path_. Coverage 2026-08-27: this loop body 785
+            // iterations, the `cur = n` assignment ZERO — so over 8060 runs
+            // the raise never once fired.
+            (void)logos::probe::on("szw_merge_iter");
+            if (n <= 0) (void)logos::probe::on("szw_merge_srczero");
+            if (logos::probe::on("szdump_merge") && n <= 0)
+                std::fprintf(stderr, "SZDUMP merge path=%s n=%d\n", p.c_str(), n);
+            const size_t szw_n0 = b.shared_field_borrows.size();
             auto& cur = b.shared_field_borrows[p];
+            if (b.shared_field_borrows.size() != szw_n0)
+                (void)logos::probe::on("szw_merge_fresh");
             if (n > cur) cur = n;
+            if (cur <= 0) (void)logos::probe::on("szw_merge_leftzero");
         }
         for (auto& p : st.mut_field_borrows) b.mut_field_borrows.insert(p);
     });
@@ -2301,10 +2318,17 @@ private:
                 if (it == nullptr) continue;
                 if (fb.is_mut) it->mut_field_borrows.erase(fb.path);
                 else {
+                    // Observational zero census, decrement site 1 of 3.
+                    // Coverage 2026-08-27: this else-branch ran 0 times in
+                    // 8060 runs, so these two are expected NEVER FIRED.
                     auto sit = it->shared_field_borrows.find(fb.path);
-                    if (sit != it->shared_field_borrows.end() &&
-                        --sit->second <= 0)
-                        it->shared_field_borrows.erase(sit);
+                    if (sit != it->shared_field_borrows.end()) {
+                        if (sit->second <= 0)
+                            (void)logos::probe::on("szw_snap_pre0");
+                        if (--sit->second <= 0)
+                            it->shared_field_borrows.erase(sit);
+                        else (void)logos::probe::on("szw_snap_keep");
+                    }
                 }
             }
         }
@@ -2538,9 +2562,19 @@ private:
             if (it == nullptr) continue;
             if (fb.is_mut) it->mut_field_borrows.erase(fb.path);
             else {
+                // Observational zero census, decrement site 2 of 3 — the
+                // hot one. Coverage 2026-08-27: else-branch 575,653 runs,
+                // `--second <= 0` evaluated 575,650 (3 misses), erase 575,649
+                // — so exactly ONE decrement in 8060 runs left a live count
+                // behind, and none left a zero.
                 auto sit = it->shared_field_borrows.find(fb.path);
-                if (sit != it->shared_field_borrows.end() && --sit->second <= 0)
-                    it->shared_field_borrows.erase(sit);
+                if (sit != it->shared_field_borrows.end()) {
+                    if (sit->second <= 0)
+                        (void)logos::probe::on("szw_pop_pre0");
+                    if (--sit->second <= 0)
+                        it->shared_field_borrows.erase(sit);
+                    else (void)logos::probe::on("szw_pop_keep");
+                }
             }
         }
         // B87 dropck: before erasing this scope's declared locals, check
@@ -3659,8 +3693,14 @@ private:
         }
         if (need_exclusive) {
             for (auto& [p, c] : st.shared_field_borrows) {
-                (void)logos::probe::on("sharedzero_site");
-                if (c <= 0 && !logos::probe::on("sharedzero_live")) continue;
+                // ONE NAME PER SITE. `sharedzero_site`/`sharedzero_live` used
+                // to name THIS loop, take_field_borrow_path_'s and
+                // visit/AddrOfTemp's all three at once, so their fire counts
+                // were one number over three places and could not be read.
+                // Coverage map 2026-08-27 (8060 runs), THIS region:
+                // 13 iterations, `c <= 0` true 1.
+                (void)logos::probe::on("sharedzero_site_conflict");
+                if (c <= 0 && !logos::probe::on("sharedzero_live_conflict")) continue;
                 if (path.empty() || paths_overlap(path, p)) {
                     report(line, std::format(
                         "cannot {} '{}' while '{}' is borrowed",
@@ -3716,39 +3756,87 @@ private:
             return;
         }
         // Check against tracked field borrows.
-        // ── PROBE `sharedzero_*` — THE 2026-08-27 LEDGER MEASUREMENT WAS
-        // REAL AND THE VERDICT DRAWN FROM IT WAS WRONG. Over the 447 ledger
-        // compiles: sharedzero_reach 36 fires · sharedzero_site 0 ·
-        // sharedzero_prod 1. From that this comment concluded "the loop never
-        // iterates", "the whole map takes ONE entry", and "the asymmetry is
-        // REAL and MOOT: there is no population behind it". The coverage map
-        // of the same day, over 8060 compiler runs (the corpus plus
-        // lang/mem/lcm/std), says otherwise:
-        //   producer (the `shared_field_borrows[path]++` below) 576,021 runs
-        //   this loop                              325 iterations, `c<=0` 144x
-        //   field_borrow_conflicts                  13 iterations, `c<=0`   1x
-        //   visit/AddrOfTemp                        18 iterations, `c<=0`   7x
-        //   release_dead_borrows decrement-no-erase     368 runs
-        //   pop_scope erase-at-zero                 575,653 runs
-        //   place_write_loans erase-at-zero               0 runs
-        // The permissive skip below is taken 152 times across the population,
-        // and the decrement/erase asymmetry is live. WHAT WAS MEASURED: a
-        // ceiling of 0 over the acceptance ledger. WHAT WAS NOT: anything at
-        // all outside it, which is where every one of those 152 arrivals
-        // lives. A ceiling probe cannot reach them by construction — the
-        // ledger has no shared field borrows. Price this with
-        // scripts/pass-probe.sh (a COST measurement), not with the ledger, and
-        // give each of the three sites its OWN probe name: `sharedzero_site`
-        // and `sharedzero_live` each guard three locations and their fire
-        // counts cannot be separated.
+        // ── THE 144 ZERO-READS, AND WHY THE `c <= 0` SKIP IS NOT A
+        // FUNDABLE DEFECT. History first, because both earlier verdicts here
+        // were wrong in opposite directions. (1) The 2026-08-27 ledger
+        // measurement (447 compiles: sharedzero_reach 36, sharedzero_site 0)
+        // concluded "the loop never iterates" — false; the ledger simply has
+        // no shared field borrows and cannot reach this population. (2) The
+        // correction then nominated merge_loans' default-insert as the writer
+        // that leaves the zeros. MEASURED 2026-08-28 — ALSO FALSE.
+        //
+        // Population = the coverage map's 8060 runs (corpus + lang/mem/lcm/std),
+        // re-run today; `sharedzero_prod` swept as an armed probe over the same
+        // population returned 576,021, the map's number to the unit, so the two
+        // instruments are reading one population.
+        //   THE READS, now one probe name per site:
+        //     take_field_borrow_path_ (here)  325 iters, `c<=0` 144  (skip)
+        //     field_borrow_conflicts           13 iters, `c<=0`   1  (skip)
+        //     visit/AddrOfTemp                 18 iters, `c<=0`   7  (skip)
+        //   Every one of the 144 is EXACTLY 0, never negative — dumped and
+        //   counted, 144/144, in 38 programs (mem/lcm + tests/logos/pass
+        //   data_*, adv_edge_trav_fuzz_vs, dview_*).
+        //   THE WRITERS, one probe name per site, observational:
+        //     producer `[path]++`                  576,021, always >= 1
+        //     pop_scope decrement          575,653 arrivals; found a <=0 entry
+        //                                  0 times; left a positive 1 time;
+        //                                  every other one ERASED at <= 0
+        //     loop_exit_snapshot decrement          0 arrivals
+        //     place_write_loans decrement           0 arrivals
+        //     merge_loans default-insert   785 iters; `cur = n` raise fires
+        //                                  0 times; 264 FRESH inserts; source
+        //                                  count `n <= 0` in 426 (all n == 0);
+        //                                  leaves a <=0 in 426
+        // So merge_loans NEVER raises: it only ever copies a zero that its
+        // SOURCE already had, 264 times into a key the destination lacked. It
+        // is a PROPAGATOR, not the origin. A single-compile write trace over
+        // token_stream_basic.logos confirms it: the first `n == 0` merge
+        // precedes every fresh insert and every decrement in the process, and
+        // its source map was never written by any of the five sites.
+        // ⚠ THE 144 ARE THEREFORE STILL NOT ACCOUNTED FOR. No writer in this
+        // file produces the first zero. What is left is untraced whole-STATE
+        // value flow (VarStore copy / copy-assign, which cannot CREATE a zero)
+        // or a write this census cannot see because it enumerated by the
+        // member's SPELLING. That is an open observation, narrowed, not a
+        // defect and not a non-defect.
+        //
+        // WHAT IS SETTLED IS THE FUNDING QUESTION. The skip's only
+        // implementable direction is to stop skipping, i.e. REFUSE MORE.
+        //   CEILING: 0 over the acceptance ledger, which is structurally
+        //     unable to reach it (no shared field borrows in any row).
+        //   COST:    scripts/pass-probe.sh sharedzero_live_take --fast,
+        //     2026-08-28 — fired 143 times in 38 of 4369 compiles, CHANGED 0
+        //     programs, stdlib built clean. Not skipping the zeros changes no
+        //     verdict anywhere we can measure: the entries carry 0, which
+        //     MEANS "no live shared borrow", which is what the skip already
+        //     implements.
+        // Nothing to buy on either side, and refusing on a 0-valued entry
+        // would be buying a row with a legal-program refusal. NOT FUNDABLE.
+        // ⚠ COST 0 IS NOT A SAFETY CLAIM (probe.hpp's own rule): it says no
+        // program IN THIS CORPUS moved, not that none could.
         // Also corrected: `shared_field_borrows` has FIVE read sites (this
         // one, field_borrow_conflicts, the `!empty()` test in this file's
         // place-write path, check_recv_conflict, and visit/AddrOfTemp), not
         // three; only three are probed.
         (void)logos::probe::on("sharedzero_reach");
         for (auto& [p, c] : it->shared_field_borrows) {
-            (void)logos::probe::on("sharedzero_site");
-            if (c <= 0 && !logos::probe::on("sharedzero_live")) continue;
+            // Coverage map 2026-08-27 (8060 runs), THIS region: 325
+            // iterations, `c <= 0` true 144 — the 144 zero-reads. The other
+            // two loops that used to share these two names are 13/1 and 18/7.
+            (void)logos::probe::on("sharedzero_site_take");
+            // OBSERVATIONAL, not behavioural: split the 144 by SIGN, and dump
+            // the entry. A zero and a negative have different writers, and no
+            // writer in this file can produce either (the producer is a `++`,
+            // and all three decrements erase at <= 0). ⚠ THESE MUST SIT ABOVE
+            // THE `continue` — placed below it they measured the 181
+            // iterations that were NOT skipped and read 0/0, which is a
+            // never-fired dressed as an answer.
+            if (c == 0) (void)logos::probe::on("szr_take_zero");
+            if (c <  0) (void)logos::probe::on("szr_take_neg");
+            if (logos::probe::on("szdump_take") && c <= 0)
+                std::fprintf(stderr, "SZDUMP take target=%s path=%s c=%d line=%u\n",
+                             target.c_str(), p.c_str(), c, line);
+            if (c <= 0 && !logos::probe::on("sharedzero_live_take")) continue;
             if (paths_overlap(path, p) && is_mut) {
                 report(line, std::format(
                     "cannot borrow '{}' as mutable: '{}' is already borrowed",
@@ -10452,10 +10540,17 @@ private:
                 auto& fb = fr.field_borrows[i - 1];
                 if (fb.target != root) continue;
                 if (auto it = var_find(fb.target_slot, fb.target); it != nullptr) {
+                    // Observational zero census, decrement site 3 of 3.
+                    // Coverage 2026-08-27: 0 runs in 8060.
                     if (fb.is_mut) it->mut_field_borrows.erase(fb.path);
                     else if (auto sb = it->shared_field_borrows.find(fb.path);
-                             sb != it->shared_field_borrows.end() && --sb->second <= 0)
-                        it->shared_field_borrows.erase(sb);
+                             sb != it->shared_field_borrows.end()) {
+                        if (sb->second <= 0)
+                            (void)logos::probe::on("szw_pwl_pre0");
+                        if (--sb->second <= 0)
+                            it->shared_field_borrows.erase(sb);
+                        else (void)logos::probe::on("szw_pwl_keep");
+                    }
                 }
                 fr.field_borrows.erase(fr.field_borrows.begin() + (i - 1));
             }
@@ -11970,8 +12065,10 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                         break;
                     }
                     for (auto& [p, c] : sit->shared_field_borrows) {
-                        (void)logos::probe::on("sharedzero_site");
-                        if (c <= 0 && !logos::probe::on("sharedzero_live")) continue;
+                        // Coverage map 2026-08-27 (8060 runs), THIS region:
+                        // 18 iterations, `c <= 0` true 7.
+                        (void)logos::probe::on("sharedzero_site_addrof");
+                        if (c <= 0 && !logos::probe::on("sharedzero_live_addrof")) continue;
                         if (paths_overlap(path, p) && is_mut) {
                             report(line, std::format(
                                 "cannot borrow '{}' as mutable: '{}' is already borrowed",
