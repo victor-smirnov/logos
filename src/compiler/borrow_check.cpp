@@ -1058,15 +1058,22 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             // wrong and would lock all of `self`. Bail with an empty root.
             if (recv && recv.type(pool) &&
                 recv.type(pool).kind() == LogosType::Kind::Ptr) {
-                // CEILING PROBE `rootkeep` — MEASURED 2026-08-27, and the
-                // answer is a NEGATIVE RESULT worth keeping: fired 427 times
-                // across the 447 ledger compiles and closed ZERO rows. An
-                // empty root makes record_borrow return on its first line, so
-                // this bail looked like the permissive half of the class-B
+                // CEILING PROBE `rootkeep` — MEASURED 2026-08-27: fired 427
+                // times across the 447 ledger compiles and closed ZERO rows.
+                // An empty root makes record_borrow return on its first line,
+                // so this bail looked like the permissive half of the class-B
                 // gloss and was named "the real subject, upstream of every
-                // site". It holds open nothing. Do not re-open this hypothesis
-                // without a new mechanism; the site is live, so the zero is an
-                // answer and not a silence.
+                // site". THIS site holds open nothing.
+                //
+                // ⚠ THE ORIGINAL NOTE OVERCLAIMED, AND THE COVERAGE MAP CAUGHT
+                // IT. One probe NAME guarded two bails, and the note read as
+                // if the measurement covered both. It does not: over 8060
+                // compiler runs (the whole corpus plus four stdlib layers) the
+                // map counts 21,299 arrivals HERE and ZERO at the SliceIndex
+                // twin below. The negative result is about this line only; the
+                // other was never measured, because nothing we compile reaches
+                // it. Two sites under one name is the same defect this file is
+                // full of, committed in a comment about measuring it.
                 if (!logos::probe::on("rootkeep")) { bp.root.clear(); return bp; }
             }
             path_parts.clear();
@@ -1077,6 +1084,12 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             auto sl = ESliceIndexView{cur}.slice();
             if (sl && sl.type(pool) &&
                 sl.type(pool).kind() == LogosType::Kind::Ptr) {
+                // ⚠ NOT MEASURED. The coverage map of 2026-08-27 counts ZERO
+                // arrivals here across 8060 compiler runs — the `*mut` bail
+                // under SliceIndex rather than under a method receiver. Sharing
+                // `rootkeep`'s name with the live site above made its 427 fires
+                // read as coverage of both. A ceiling read off this line would
+                // be a ceiling off a population of nothing.
                 if (!logos::probe::on("rootkeep")) { bp.root.clear(); return bp; }
             }
             path_parts.clear();
