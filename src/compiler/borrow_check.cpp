@@ -2505,6 +2505,97 @@ private:
         auto saved_params     = param_names_;
         auto saved_outliving  = outliving_params_;
         bool saved_icb        = in_closure_body_;
+        TypeRef saved_ret     = ret_type_;
+        // PROBE capretty: `ret_type_` IS SET EXACTLY ONCE, at the enclosing
+        // FUNCTION'S entry, and this walk never rebinds it — so every
+        // check_return_value reached from a closure body asks "does this
+        // escape the FUNCTION", using the FUNCTION'S return type. Inside
+        // `fn main() -> i32` the typed gate is `i32`: false. So
+        // `|| -> &i64 { let t: i64 = 1i64; return &t; }` returns a reference
+        // to a body local past a gate that was answering about `i32`. The
+        // closure's OWN return type is on the node (`EClosureBoxView::
+        // ret_type`) and nothing has ever read it here.
+        // MEASURED 2026-08-28, 371-row population: 66 FIRES, CEILING 0,
+        // COST 0. ⚠ THIS ZERO IS NOT A REFUTATION — IT IS A NULL RESULT
+        // THROUGH A BROKEN CHANNEL. The site is provably live (66 arrivals);
+        // the CONSUMER is switched off, one screen down, by
+        // `if (!in_closure_body_) check_return_value(val, ln);`. Handing the
+        // right type to a check that never runs buys nothing, and reads
+        // exactly like a dead hypothesis. Rule 2: proven live is necessary,
+        // not sufficient — the population may be elsewhere, and here it was
+        // behind a guard.
+        // PROBE capretchk — THE SECOND HALF OF THE SAME MECHANISM, and the
+        // only two-site probe in this batch. capretty measured the ret_type_
+        // site alone at CEILING 0 over 66 fires, and the reason is not that
+        // the hypothesis is dead: `check_return_value` is HARD-SUPPRESSED
+        // inside a closure body (`if (!in_closure_body_) check_return_value`),
+        // so handing it the right type changes nothing. A zero read off a
+        // channel that is switched off is not a refutation. capretchk arms
+        // BOTH sites; attribution survives because the other half is already
+        // measured at 0, so anything capretchk closes is the GATE's.
+        // PROBE capretcaps — capretchk PLUS the exemption its three costs
+        // asked for. Those costs are TWO causes, both read off the diagnostic
+        // rather than guessed:
+        //   A  "[fn foo] lifetime elision: return reference must derive from
+        //      'x'" — `param_lifetimes_` is the ENCLOSING fn's. This walk
+        //      already saves/restores param_names_ and outliving_params_ and
+        //      never touched the third set, so a closure's `return y` was
+        //      judged against `fn foo(x: &i64)`'s elision contract.
+        //   B  "cannot return reference to local variable 'x'" where `x` is a
+        //      CAPTURE. A non-move closure's capture lives in the ENCLOSING
+        //      frame and by construction outlives the closure — it is the
+        //      exact situation `outliving_params_` exists to describe (#138),
+        //      and captures were never put in it.
+        // Same shape as the params this walk already declares; the captures
+        // were simply the half nobody added.
+        //
+        // ── THE RESULT, AND IT IS THE ROUND'S MAIN FINDING ──────────────────
+        // MEASURED 2026-08-28, 371-row acceptance population:
+        //     capretty    66 fires   CEILING  0   COST 0   (channel off)
+        //     capretchk  (gate on)   CEILING 11   COST 3
+        //     capretcaps (+exempt)   CEILING  2   COST 0
+        // THE EXEMPTION COST NINE OF THE ELEVEN. Those nine were not closed by
+        // observing anything about closure returns; they were bought by
+        // refusing legal programs, and the three costs are the only three such
+        // programs the corpus happens to CONTAIN. Rule 7, sharpest form: a
+        // crude probe and a correct fix do not close the same programs.
+        // Named, because a ceiling bounds the COUNT and not the SET —
+        // capretchk closes and capretcaps does NOT:
+        //   borrowck/issue-58776-borrowck-scans-children
+        //   borrowck/var-matching-lifetime-but-unused-not-mentioned
+        //   nll/issue-40510-1  nll/issue-48697--b  nll/issue-48697--t16
+        //   nll/issue-53040
+        //   regions/regions-infer-call-3  regions/regions-nested-fns-2
+        //   regions/regions-return-ref-to-upvar-issue-17403
+        // THIS TREE ALREADY KNEW. pass/bc_capbody_closure_return_admit's own
+        // header records that the body-walk round put three of them
+        // (issue-48697--b, --t16, var-matching-…) BACK ON THE SHELF for
+        // exactly this reason. The measurement reproduces that verdict from
+        // the other direction and adds the six it had not enumerated.
+        // What survives is real and is in no corpus program at all: a closure
+        // returning a reference to a BODY LOCAL —
+        //   `let f = || -> &i64 { let t: i64 = 1i64; return &t; };`
+        // — compiles today and refuses under capretcaps, while the capture
+        // form (`return &x;`), the param form (`|y| return y`) and the nested
+        // form still admit, and the ENCLOSING fn's own dangling return and
+        // elision contract stay refused. Six hand-written programs, because
+        // COST 0 is not a safety claim.
+        TypeRef saved_ret_c = ret_type_;   (void)saved_ret_c;
+        auto saved_plt = param_lifetimes_;
+        if (logos::probe::on("capretty") || logos::probe::on("capretchk") ||
+            logos::probe::on("capretcaps")) {
+            TypeRef crt = cbv.ret_type(prog_.type_pool.impl());
+            if (crt) ret_type_ = crt;
+        }
+        if (logos::probe::on("capretcaps")) {
+            param_lifetimes_.clear();                       // cause A
+            cbv.each_capture_name([&](std::string_view cn) {
+                if (cn.empty()) return;
+                std::string nm(cn);
+                param_names_.insert(nm);
+                outliving_params_.insert(nm);               // cause B
+            });
+        }
         in_closure_body_ = true;
         // The body was never scanned either: scan_uses_expr's ClosureBox arm
         // stops at the capture names exactly as the loan channel did, so body
@@ -2524,8 +2615,21 @@ private:
         visit_block(cbb);
         pop_scope();
         in_closure_body_  = saved_icb;
+        ret_type_         = saved_ret;
+        param_lifetimes_  = std::move(saved_plt);
         param_names_      = std::move(saved_params);
         outliving_params_ = std::move(saved_outliving);
+    }
+
+    // PROBE capmoveloan's precondition. Deliberately name-keyed and
+    // deliberately over-wide: a ceiling probe may be wrong, and this one is
+    // asked only "is ANY loan outstanding on this root".
+    bool root_has_live_loan(const std::string& n) const {
+        for (const auto& f : scopes_) {
+            for (const auto& b : f.borrows)        if (b.target == n) return true;
+            for (const auto& fb : f.field_borrows) if (fb.target == n) return true;
+        }
+        return false;
     }
     bool next_scope_is_bare_block_ = false;
     void push_scope() {
@@ -8025,7 +8129,29 @@ private:
                 // `move` closure OWNS its captures and this form does not
                 // consult cb.is_move(). Ceiling barely exceeds cost on a
                 // near-dead site; not the round to fund.
-                bool force_local = logos::probe::on("capescape");
+                // PROBE capescmove: capescape was DECLINED at CEILING 4 vs
+                // COST 3, and its three costs are ONE predicted shape — a
+                // RETURNED `move` CLOSURE OWNS ITS CAPTURES, so a move-capture
+                // of a plain owned local carries nothing out. That exemption
+                // stated as a precondition. It also DROPS one of capescape's
+                // rows on purpose (borrow-immutable-upvar-mutation-impl-trait
+                // is `Box::new(move || x += 1)`, whose upstream reason is the
+                // Fn/FnMut kind, not escape) — rule 7: a crude probe and a
+                // correct rule do not close the same programs.
+                // ⚠ RULE 4: this arm is reached TEN times in 8060 runs. A
+                // number read here bounds a near-dead population.
+                // MEASURED 2026-08-28, 371-row population: 5 fires,
+                // CEILING 2 vs COST 0 — ✓, where capescape is ⛔ 4 vs 3:
+                //   borrowck/borrowck-escaping-closure-error-2
+                //   borrowck/suggest-lt-on-ty-alias-w-generics
+                // Predicted those two plus regions/regions-proc-bound-capture;
+                // the third did NOT close — it is a `move` closure too, so the
+                // precondition excludes it, and it had been predicted for the
+                // wrong reason. ⚠ FIVE FIRES: rule 4 governs anything read
+                // here, and 2 is not a number to fund a round on.
+                bool escmove = logos::probe::on("capescmove");
+                bool force_local = logos::probe::on("capescape") ||
+                                   (escmove && !EClosureBoxView{e}.is_move());
                 EClosureBoxView{e}.each_capture_name([&](std::string_view cap) {
                     std::string n(cap);
                     if (auto it = prov_.find(n); it != prov_.end())
@@ -9352,6 +9478,31 @@ private:
                         // 2-row one. DECLINED: cost >= ceiling.
                         if (logos::probe::on("capmove"))
                             consume(std::string(cap), line);
+                        // PROBE capmoveloan: capmove was DECLINED at CEILING 2
+                        // vs COST 3 — ⛔ — and all three of its costs are one
+                        // shape, `let n: i64 = 1i64; let f = move || n;`, a
+                        // move-capture of a value NOTHING has borrowed.
+                        // consume() does not ask about Copy-ness and cannot,
+                        // so the exemption is stated on the other side: refuse
+                        // only when the root ALREADY carries a live loan,
+                        // which is the upstream reason for
+                        // borrowck-loan-blocks-move-cc and
+                        // borrowck-multiple-captures both ("cannot move out of
+                        // X because it is borrowed").
+                        // MEASURED 2026-08-28, 371-row population: 8 fires,
+                        // CEILING 1 vs COST 0 — ✓, where capmove is ⛔ 2 vs 3.
+                        // The precondition removes all three costs and one of
+                        // the two rows; only
+                        //   borrowck/borrowck-loan-blocks-move-cc--r10
+                        // closes. Predicted FOUR (--r10, --t10,
+                        // borrowck-multiple-captures, issue-101119), got one:
+                        // the other three hold a loan this record does not see
+                        // at the capture point, so their blocker is a SECOND
+                        // mechanism and they retire only when both go. A
+                        // 1-row mechanism, honestly priced.
+                        else if (logos::probe::on("capmoveloan") &&
+                                 root_has_live_loan(std::string(cap)))
+                            consume(std::string(cap), line);
                         ++i; return;
                     }
                     std::string root(cap);
@@ -9397,6 +9548,23 @@ private:
                     // counter-examples (`|| p.x` beside `&mut p.y`;
                     // `let f=||x; let g=||x;` shared+shared). Its 4 rows are a
                     // strict subset of capmut's 18 and DISJOINT from capbody.
+                    // RE-PRICED 2026-08-28 (rule 8) on the 371-row ledger: 31
+                    // fires, CEILING 4 — the same four, named — but COST 1,
+                    // not 0. The corpus widened 487 -> 807 and the new cost is
+                    // tests/imported/pass/closures/
+                    // capture-disjoint-field-tuple-b156 — the very RFC-2229
+                    // shape this comment cites as the reason for the branch.
+                    // ⚠ AND THE JUSTIFICATION AS WRITTEN IS STALE. The
+                    // comment's own example — `|| p.x` beside `&mut p.y` — is
+                    // ADMITTED with this probe armed, MEASURED by hand: a
+                    // STRUCT-field capture gets `fpath=p.x rel=x`, never
+                    // reaches `shared_whole`, and so was never what this
+                    // branch protected. The single cost is a TUPLE, and it is
+                    // here for a different defect: the capture SCANNER's
+                    // TupleIndex arm never asks `try_path`, which WAS taught
+                    // tuple indices. See PROBE captuple in sema_expr.cpp. The
+                    // policy is real; this branch is not what implements it —
+                    // capture-path precision is.
                     if (logos::probe::on("capshared") && shared_whole)
                         shared_whole = false;   // fall to record_borrow
                     if (shared_whole) {
@@ -11471,7 +11639,13 @@ private:
             // ── Return ───────────────────────────────────────────────────
             case Code::Return: {
                 if (auto val = SReturnView{sr}.value()) {
-                    if (!in_closure_body_) check_return_value(val, ln);
+                    // PROBE capretchk, site 2 of 2 — see walk_closure_body.
+                    // `on()` is called UNCONDITIONALLY, never behind the `||`,
+                    // so the fire count records arrivals rather than the
+                    // short-circuit's leftovers (rule 1).
+                    bool retchk = logos::probe::on("capretchk") ||
+                                  logos::probe::on("capretcaps");
+                    if (!in_closure_body_ || retchk) check_return_value(val, ln);
                     visit(val, /*consuming=*/true, ln);
                 }
                 cur_diverged_ = true;

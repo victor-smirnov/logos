@@ -16915,7 +16915,38 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             // alloca — same as if it had been read directly.
             case EC::AddrOf: {
                 std::string n(lir_view::EAddrOfView{e}.var_name());
-                add_capture_path(n, n); break;   // `&p` borrows the whole root
+                add_capture_path(n, n);   // `&p` borrows the whole root
+                // PROBE capaddrmut: `EAddrOf` CARRIES NO MUTABILITY AT ALL —
+                // only `EAddrOfTemp` has an `is_mut` field, and the AddrOfTemp
+                // arm below is the only place `mark_mut_capture` is reached
+                // from. So `|| { return &mut x; }` lowers to AddrOf and the
+                // capture is recorded SHARED. MEASURED with
+                // LOGOS_DUMP_BC_CAPTURE, two ledger rows, same reading:
+                //   nll/issue-40510-1   `|| { return &mut x; }`   is_mut=0
+                //   nll/issue-53040     `|| -> &mut i64 { &mut v }` is_mut=0
+                // The mutability is not lost, it is on the EXPRESSION'S TYPE:
+                // sema typed this node `&mut i64`. Same defect family as
+                // captuple — a sibling arm knows what this one never asks.
+                // MEASURED 2026-08-28, 371-row population: 16 fires,
+                // CEILING 3 vs COST 0 — ✓.
+                //   borrowck/borrow-immutable-upvar-mutation
+                //   nll/issue-53040
+                //   regions/regions-return-ref-to-upvar-issue-17403
+                // ⚠ RULE 6, AND THE DIFF RAN BOTH WAYS. Predicted
+                // {issue-40510-1, issue-53040}; two of the three actual rows
+                // were NOT predicted, and issue-40510-1 was predicted and NOT
+                // closed. Its `let c = || { return &mut x; };` binds a closure
+                // that is never called and never used again, so NLL retires
+                // the (now correctly mut) loan at the `let` line and nothing
+                // conflicts with it. That row's upstream reason is the RETURN
+                // channel, not the capture's strength — it belongs to
+                // capretchk's population, where it also appears.
+                if (logos::probe::on("capaddrmut")) {
+                    TypeRef at = e.type(cur_prog_->type_pool.impl());
+                    if (at && at.kind() == LogosType::Kind::MutRef)
+                        mark_mut_capture(n);
+                }
+                break;
             }
             // A method receiver / `&mut <expr>` materialised as AddrOfTemp. When
             // it's `&mut` over a captured VarRef — e.g. a closure body calling a
@@ -16972,7 +17003,38 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             case EC::TupleLit:
                 lir_view::ETupleLitView{e}.each_elem([&](lir_view::ExprRef el){ scan_captures_v(el); });
                 break;
-            case EC::TupleIndex:   scan_captures_v(lir_view::ETupleIndexView{e}.receiver()); break;
+            // PROBE captuple: `try_path` WAS TAUGHT TupleIndex — it appends
+            // `.0` and returns `t.0` — but THIS arm, the scanner that decides
+            // what a closure captures, never asks it. So a tuple-element
+            // capture widens to the whole variable while the byte-identical
+            // STRUCT-field program keeps `p.x`. Two notions of one concept and
+            // the narrow one silently wins. MEASURED at the bc capture site:
+            //   `|| p.x` (struct)  ->  fpath=p.x rel=x
+            //   `|| t.0` (tuple)   ->  fpath=t   rel=
+            // which is why capshared — whose whole justification is the
+            // RFC-2229 disjointness the precise path already delivers — pays a
+            // legal refusal on tests/imported/pass/closures/
+            // capture-disjoint-field-tuple-b156 and none on the struct twin.
+            // MEASURED 2026-08-28, 371-row acceptance population: 1 FIRE,
+            // CEILING 0, COST 0, and 0 rows re-opened. ⚠ RULE 4 — A CEILING
+            // OFF A POPULATION OF ONE IS NOT A REFUTATION, and a ceiling was
+            // never what this is for: precision does not CLOSE rows, it stops
+            // a sound rule from paying for imprecision. Its whole value is on
+            // capshared's side of the ledger, and that is measured directly:
+            //   armed   `|| t.0` -> fpath=t.0 rel=0   (record_borrow, path "0")
+            //   unarmed `|| t.0` -> fpath=t   rel=    (shared_whole branch)
+            // `shared_whole = rel.empty() && !is_mut`, so a precise path takes
+            // b156 OFF the branch capshared edits — capshared's only measured
+            // cost cannot arise once this lands. Proven by the code and the
+            // dump, not by argument.
+            case EC::TupleIndex:
+                if (logos::probe::on("captuple")) {
+                    if (auto fp = try_path(e)) {
+                        add_capture_path(fp->first, fp->second);
+                        break;
+                    }
+                }
+                scan_captures_v(lir_view::ETupleIndexView{e}.receiver()); break;
             case EC::SliceLit: {
                 auto v = lir_view::ESliceLitView{e};
                 scan_captures_v(v.base()); scan_captures_v(v.len()); break;
