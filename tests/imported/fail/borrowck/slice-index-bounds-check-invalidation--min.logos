@@ -1,6 +1,7 @@
 // rustc borrowck/slice-index-bounds-check-invalidation.rs — upstream E0510
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.NEW
+// shelf: pin · WAS admit/bck.NEW until the IndexRead arm held a SHARED
+// loan on the index base while the index expression was evaluated (E0510).
 package slice_index_bounds_check_invalidation_min;
 fn main() -> i32 {
     let mut arr: [i64; 3] = [1i64, 2i64, 3i64];

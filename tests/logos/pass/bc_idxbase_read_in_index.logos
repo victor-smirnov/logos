@@ -1,0 +1,69 @@
+// THE LEGAL HALF of the E0510 index-base loan (borrow_check.cpp, IndexRead).
+// The loan taken over the index expression is SHARED, so every ordinary READ of
+// the base from inside its own index stays legal — this is the exemption
+// analysis, written as programs rather than as a sentence, and it is the half
+// that a cost measured on the corpus cannot certify.
+//
+// Each of these fired the mechanism 1-4 times under `scripts/ceiling-probe.sh
+// idxbaseloan` and compiled; the shapes are: a read of the base as its own
+// index, a nested index, a block index with its own bindings, a write to a
+// DIFFERENT root inside the index, a loop that reads and writes the base in
+// alternate statements, and a base reached through a reference.
+package bc_idxbase_read_in_index;
+
+fn self_read(a: [u64; 3]) -> u64 { return a[a[0u64]]; }
+
+fn nested(a: [[i64; 2]; 2]) -> i64 { return a[0u64][1u64]; }
+
+fn block_index(a: [i64; 3]) -> i64 { return a[{ let k: u64 = 1u64; k + 1u64 }]; }
+
+fn other_root_written(a: [i64; 3]) -> i64 {
+    let mut b: [i64; 3] = [0i64, 0i64, 0i64];
+    let z: i64 = a[{ b[0u64] = 1i64; 2u64 }];
+    return z + b[0u64];
+}
+
+fn read_then_write() -> i64 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let mut i: u64 = 0u64;
+    let mut s: i64 = 0i64;
+    while i < 3u64 {
+        s = s + a[i];
+        a[i] = s;
+        i = i + 1u64;
+    }
+    return s;
+}
+
+fn through_ref() -> i64 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let r: &[i64; 3] = &a;
+    return r[1u64];
+}
+
+fn assign_base_after() -> i64 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let z: i64 = a[1u64];
+    a = [4i64, 5i64, 6i64];
+    a[0u64] = 9i64;
+    return z + a[0u64];
+}
+
+fn main() -> i32 {
+    let a3: [u64; 3] = [0u64, 1u64, 2u64];
+    let n1: u64 = self_read(a3);
+    let n2: i64 = nested([[1i64, 2i64], [3i64, 4i64]]);
+    let n3: i64 = block_index([1i64, 2i64, 3i64]);
+    let n4: i64 = other_root_written([1i64, 2i64, 3i64]);
+    let n5: i64 = read_then_write();
+    let n6: i64 = through_ref();
+    let n7: i64 = assign_base_after();
+    if n1 != 0u64 { return 1i32; }
+    if n2 != 2i64 { return 2i32; }
+    if n3 != 3i64 { return 3i32; }
+    if n4 != 4i64 { return 4i32; }
+    if n5 != 6i64 { return 5i32; }
+    if n6 != 2i64 { return 6i32; }
+    if n7 != 11i64 { return 7i32; }
+    return 0i32;
+}

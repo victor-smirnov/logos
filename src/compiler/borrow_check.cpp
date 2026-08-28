@@ -12834,28 +12834,45 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         case Code::IndexRead: {
             EIndexReadView v{e};
             visit_place_base(v.receiver(), line);
-            // ── CEILING PROBE `idxbaseloan` — E0510. The index base is visited
-            // as a place and then abandoned; nothing borrows it while the INDEX
-            // expression is evaluated, so `arr[{ arr = [4,5,6]; 1u64 }]`
-            // compiles. A SHARED loan leaves ordinary reads of the base in the
-            // index (`a[a.len()-1]`) legal.
-            // ── MEASURED 2026-08-28: 210 fires over 393 ledger compiles (site
-            // population 24,453 arrivals in 8060 runs), CEILING 1, COST 0.
+            // ── E0510: THE INDEX BASE IS BORROWED WHILE THE INDEX RUNS.
+            // The base was visited as a place and then ABANDONED — nothing held
+            // it while the INDEX expression was evaluated, so
+            // `arr[{ arr = [4,5,6]; 1u64 }]` compiled and read an element of an
+            // array that no longer existed at bounds-check time.
+            //
+            // The loan is SHARED, and that is the whole exemption analysis: an
+            // ordinary READ of the base from inside the index (`a[a[0]]`,
+            // `a[a.len()-1]`, `s.arr[s.n]`) stays legal, only a WRITE to it
+            // conflicts. It is also PATH-KEYED through extract_borrow_place, so
+            // a write to a DISJOINT FIELD of the same root
+            // (`s.arr[{ s.k = 7u64; s.n }]`, `s.arr[bump(&mut s.n)]`) stays
+            // legal too — rustc accepts both.
+            //
+            // ── PRICED BEFORE IT WAS WRITTEN (scripts/ceiling-probe.sh
+            // idxbaseloan, 2026-08-28): 209 fires over 389 ledger compiles,
+            // CEILING 1, COST 0. Predicted ONE row and closed exactly that one:
             //   borrowck_slice-index-bounds-check-invalidation--min
-            // The second predicted row, `--t35` (`x[1u64][{ x = yr; 2u64 }]`),
-            // did NOT close: its write targets the ROOT of the OUTER base while
-            // the loan recorded here is on the inner IndexRead's own receiver,
-            // so the nested spelling needs the loan keyed on the outermost
-            // place root. Half the rule, cleanly.
-            bool ibl = logos::probe::on("idxbaseloan");
-            if (ibl) {
+            // ⚠ AND THE COST 0 IS NOT WHY IT LANDED. Seventeen hand-written
+            // counter-examples were run under the probe first (tests/logos/pass/
+            // bc_idxbase_* are the two kept); fifteen fired 1-4 times and stayed
+            // green. The one program the probe refused —
+            // `a[{ a[0u64] = 9i64; 2u64 }]` — is refused by rustc too (E0510),
+            // so it is the fixture pair's fail half, not a cost.
+            //
+            // ⚠ THE SECOND ROW WAS PREDICTED NOT TO CLOSE, AND DID NOT.
+            // `--t35` (`x[1u64][{ x = yr; 2u64 }]`) writes the ROOT of the
+            // OUTER base while the loan recorded here is on the inner
+            // IndexRead's own receiver. The nested spelling needs the loan keyed
+            // on the OUTERMOST place root; this is half the rule, cleanly, and
+            // the row stays in the ledger saying so.
+            {
                 push_scope();
                 BorrowPlace ibp = extract_borrow_place(v.receiver(), pool);
                 if (!ibp.root.empty())
                     record_borrow(ibp, /*is_mut=*/false, line, "__idx_base");
+                visit(v.index(), /*consuming=*/true, line);
+                pop_scope();
             }
-            visit(v.index(),    /*consuming=*/true,  line);
-            if (ibl) pop_scope();
             break;
         }
 

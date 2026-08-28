@@ -401,7 +401,23 @@
 # tests/imported/fail/borrowck/borrowck-anon-fields-variant.expected. The fix
 # is to read a match scrutinee at the sub-places its patterns touch — a
 # separate round, in the permissive direction, and not funded here.
-# TOTAL 389
+# 2026-08-28 — 389 -> 388. ONE row, and ONE was the number declared before the
+# edit, by name: the IndexRead arm visited the index base as a place and then
+# ABANDONED it, so nothing held the base while the INDEX expression ran and
+#   slice-index-bounds-check-invalidation--min   E0510  "cannot assign to 'arr'
+#                                                        because it is borrowed"
+# compiled. Holding a SHARED, PATH-KEYED loan across the index closes it.
+# Priced at CEILING 1 / COST 0 (scripts/ceiling-probe.sh idxbaseloan, 209 fires
+# over 389 compiles) and the closed set is that ceiling exactly — predicted set
+# and actual set differ in neither direction.
+# ⚠ THE SECOND ROW WAS PREDICTED NOT TO CLOSE AND DID NOT. `--t35`
+# (`x[1u64][{ x = yr; 2u64 }]`) writes the root of the OUTER base while the loan
+# is on the inner IndexRead's own receiver; it needs the loan keyed on the
+# OUTERMOST place root, and its row stays here saying so.
+# The row's program moved to tests/imported/fail/borrowck/ with the diagnostic
+# pinned; the native pair is tests/logos/{pass/bc_idxbase_read_in_index,
+# pass/bc_idxbase_disjoint_field, fail/bc_idxbase_elem_write_in_index_fail}.
+# TOTAL 388
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -512,7 +528,6 @@ regions-bound-missing-bound-in-impl bck.NEW tests/imported/admit/borrowck/region
 regions-escape-bound-fn-2 bck.C tests/imported/admit/borrowck/regions-escape-bound-fn-2
 regions-escape-bound-fn bck.C tests/imported/admit/borrowck/regions-escape-bound-fn
 regions-escape-unboxed-closure bck.B tests/imported/admit/borrowck/regions-escape-unboxed-closure
-slice-index-bounds-check-invalidation--min bck.NEW tests/imported/admit/borrowck/slice-index-bounds-check-invalidation--min
 slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck/slice-index-bounds-check-invalidation--t35
 suggest-local-var-double-mut--d-double-mut-on-local-receiver bck.NEW tests/imported/admit/borrowck/suggest-local-var-double-mut--d-double-mut-on-local-receiver
 suggest-local-var-double-mut--two-mut-borrows-in-call-args bck.NEW tests/imported/admit/borrowck/suggest-local-var-double-mut--two-mut-borrows-in-call-args

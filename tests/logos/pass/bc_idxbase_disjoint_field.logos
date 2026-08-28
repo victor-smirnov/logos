@@ -1,0 +1,32 @@
+// FIELD GRANULARITY of the E0510 index-base loan. The loan is taken through
+// extract_borrow_place, so it names `s.arr`, not `s` — a write to a DISJOINT
+// field of the same root from inside the index stays legal, which is rustc's
+// answer too. Without the path key this fixture would be refused and the rule
+// would have cost far more than the one row it bought.
+//
+// Both shapes fired the mechanism once each under `scripts/ceiling-probe.sh
+// idxbaseloan` and compiled: a direct write to a sibling field, and a `&mut` of
+// a sibling field handed to a call.
+package bc_idxbase_disjoint_field;
+
+struct S { arr: [i64; 3], n: u64, k: u64 }
+
+fn bump(p: &mut u64) -> u64 { *p = *p + 1u64; return *p - 1u64; }
+
+fn sibling_write() -> i64 {
+    let mut s: S = S { arr: [1i64, 2i64, 3i64], n: 1u64, k: 0u64 };
+    let z: i64 = s.arr[{ s.k = 7u64; s.n }];
+    return z + (s.k as i64);
+}
+
+fn sibling_mut_ref() -> i64 {
+    let mut s: S = S { arr: [1i64, 2i64, 3i64], n: 1u64, k: 0u64 };
+    let z: i64 = s.arr[bump(&mut s.n)];
+    return z + (s.n as i64);
+}
+
+fn main() -> i32 {
+    if sibling_write() != 9i64 { return 1i32; }
+    if sibling_mut_ref() != 4i64 { return 2i32; }
+    return 0i32;
+}

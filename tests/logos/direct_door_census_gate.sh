@@ -793,10 +793,14 @@ PIN = {
     # the hand-written counter-example that DECLINED the `recvmutbind`
     # mechanism after it priced CEILING 1 / COST 0 on the whole corpus. Same
     # reasoning as above: no `wql_*`/`deem_*` match, no container family, no
-    # `direct` output form, so `glob` and the DOOR counts are unmoved.)
-    'corpus'            : 2433,
+    # `direct` output form, so `glob` and the DOOR counts are unmoved.
+    # 2026-08-28: +2 → 2435 = 191 + 2244. bc_idxbase_read_in_index and
+    # bc_idxbase_disjoint_field — the legal half of the E0510 index-base loan
+    # (the reads that must stay legal, and the field granularity that keeps the
+    # rule cheap). Same reasoning again on all three counts.)
+    'corpus'            : 2435,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2242,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2244,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

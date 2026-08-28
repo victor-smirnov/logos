@@ -4547,9 +4547,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   NOIMPORTED   4437 → 4438   +1  it is native, so it is not `imported`
 #   TIERCOMMIT    437 →  437    0  a pass fixture declares no tier_commit label
 # PREDICTED +1/+1/0 before the pin was read, and read as that.
-REGISTRY-ALL         8607
-REGISTRY-NOIMPORTED  4438
-REGISTRY-TIERCOMMIT  437
+# 2026-08-28 (`idxbaseloan` LANDED — the IndexRead arm now holds a SHARED,
+# path-keyed loan on the index base across the index expression, closing ONE
+# ledger row, `slice-index-bounds-check-invalidation--min` (E0510):
+#   ALL          8607 → 8610   +3  +2 native pass +1 native fail; the moved
+#                                  program is −1 admit row test +1 imported
+#                                  fail fixture, net 0.
+#   NOIMPORTED   4438 → 4440   +2  the +3 native less the −1 row test.
+#   TIERCOMMIT    437 →  436   −1  a closed row's per-row test leaves with it.
+# ⚠ PREDICTED +3/+3/−1 AND MEASURED +3/+2/−1. The gate earned its keep on the
+# middle column: a `logos_00_bc_admit_*` row test carries no `imported` label,
+# so it lives in the NOIMPORTED half and leaving subtracts from it. Recorded as
+# measured, and the reasoning corrected rather than the number.
+# `# TOTAL` 389 → 388, re-derived by direct listing
+# (`ls tests/imported/admit/*/*.logos | wc -l`).
+REGISTRY-ALL         8610
+REGISTRY-NOIMPORTED  4440
+REGISTRY-TIERCOMMIT  436
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is
