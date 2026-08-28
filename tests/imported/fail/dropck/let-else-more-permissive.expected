@@ -1,0 +1,1 @@
+binding 'long1' has a `Drop` impl and borrows local 'short1', but 'short1' goes out of scope before 'long1' is dropped

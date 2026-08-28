@@ -199,7 +199,8 @@
 # anywhere (the crude probe closed it by accident, on declaration order alone);
 # let-else-more-permissive and eager-by-ref-binding-for-guards are dropck via a
 # FIELD WRITE `long1.r = &short1`, which neither recording site fires on — a
-# MISSING PRODUCER, one clean 2-row mechanism for #142; issue-54556-stephaneyfx
+# MISSING PRODUCER, one clean 2-row mechanism for #142 — CLOSED 2026-08-28, see
+# the 375 -> 373 entry below; issue-54556-stephaneyfx
 # has no declared lifetime parameter so `struct_is_dropck_relevant` is false,
 # blocked upstream by the elided-lifetime gate; ex3-both-anon-regions-2 is
 # out-param provenance; regions-escape-unboxed-closure is a stored borrow never
@@ -526,7 +527,34 @@
 # trait decls are checked by nobody. That is why R17 keeps rows here, and it is
 # the site-set widening the next round buys — now on a rule whose exemption is
 # measured rather than assumed.
-# TOTAL 375
+# 2026-08-28 — 375 -> 373. TWO rows, PREDICTED BY NAME BEFORE THE EDIT and the
+# diff is empty both ways:
+#   eager-by-ref-binding-for-guards   E0597  `short1` does not live long enough
+#   let-else-more-permissive          E0597  `short1` does not live long enough
+# Both are `long1.f = &short1` — a Drop-carrying holder written FIELD-WISE. The
+# B87 dropck rule has TWO recording sites, the `let` arm and the whole-value
+# re-assign arm, and the field/tuple write door goes through neither, so the
+# rule that already handled `long1 = St{r:&short1}` never saw the field
+# spelling. Re-priced on today's tree (rule 8, after ltundecl_wide): 16 fires,
+# CEILING 2, COST 0 over the 807-program legal corpus.
+# ⚠ THE PROBE'S RECORD WAS WRONG AND WAS NOT LANDED. It wrote
+# `dropck_borrow_sources_[root] = …` — a REPLACE — and its own author flagged
+# that as a rule-7 caveat. MEASURED rather than argued, on a one-variable pair
+# differing only in the ORDER of two field writes:
+#   w.a = &inner; w.b = &o;    replace rc 0 — the E0597 is LOST
+#   w.b = &o;     w.a = &inner; replace rc 1
+# identical fire counts (2 and 2), opposite verdicts, decided by write order
+# alone. So what landed is a PER-FIELD-PATH record: a write replaces its own
+# path and merges across paths. Priced beside the replace in one build and it
+# scored the SAME 16 fires / CEILING 2 / COST 0 — the correctness was free.
+# ⚠ AND AN APPENDING MERGE WOULD HAVE BEEN WORSE THAN THE REPLACE:
+# `w.a = &inner; w.a = &o;` rewrites ONE path, so appending keeps `inner` and
+# refuses a program the replace admits. Both directions are pinned, in PAIRS —
+# fail/bc_dropck_field_two_paths{,_swapped}_fail demand that DIFFERENT paths
+# merge, pass/bc_dropck_field_same_path_rewrite_admit demands that the SAME path
+# does not, and pass/bc_dropck_field_whole_reowns_admit demands that a
+# whole-value write CLEARS the per-path record instead of merging with it.
+# TOTAL 373
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -660,9 +688,7 @@ drop-impl-for-type-param-with-trait-bound lifereg.NEW-N1 tests/imported/admit/dr
 drop-impl-sized-bound-mismatch lifereg.NEW-N5 tests/imported/admit/dropck/drop-impl-sized-bound-mismatch
 drop-on-non-struct lifereg.NEW-C1 tests/imported/admit/dropck/drop-on-non-struct
 dropck-only-error lifereg.R18 tests/imported/admit/dropck/dropck-only-error
-eager-by-ref-binding-for-guards lifereg.B tests/imported/admit/dropck/eager-by-ref-binding-for-guards
 issue-38868 lifereg.NEW-1 tests/imported/admit/dropck/issue-38868
-let-else-more-permissive lifereg.B tests/imported/admit/dropck/let-else-more-permissive
 reject-specialized-drops-8142 lifereg.L3 tests/imported/admit/dropck/reject-specialized-drops-8142
 
 # ── tests/ui/lifetimes ─────────────────────────────────────────

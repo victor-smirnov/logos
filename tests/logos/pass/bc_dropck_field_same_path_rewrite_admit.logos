@@ -1,0 +1,26 @@
+// THE ADMIT TWIN that stops the per-path merge from becoming an APPENDING
+// merge. ONE field is written twice: `w.a = &inner` then `w.a = &o`. The second
+// write REPLACES the first on the SAME path, so `inner` is no longer among w's
+// sources and the program is legal.
+//
+// An appending merge — the obvious "just don't overwrite" repair, and strictly
+// worse than the replace it would have replaced — keeps `inner` and refuses
+// here. That is the direction a two-field fixture cannot see, so it is pinned
+// separately: `fail/bc_dropck_field_two_paths_fail` demands that DIFFERENT
+// paths merge, and this one demands that the SAME path does not.
+package bc_dropck_field_same_path_rewrite_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct W<'a> { a: &'a i64, b: &'a i64 }
+impl<'a> Drop for W<'a> { fn drop(self: &mut Self) { let v: i64 = *self.a; if v < 0i64 { return; } } }
+fn main() -> i32 {
+    let o: i64 = 5i64;
+    let mut w: W = W { a: &o, b: &o };
+    {
+        let inner: i64 = 7i64;
+        w.a = &inner;
+        w.a = &o;
+    }
+    pr("%ld\n", *w.a + *w.b);
+    return 0i32;
+}

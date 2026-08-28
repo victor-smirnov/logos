@@ -1,0 +1,18 @@
+// THE ORDER PAIR of `bc_dropck_field_two_paths_fail`: the identical program
+// with the two field writes SWAPPED, so the dying source is written LAST.
+// A root-keyed (replacing) deposit survives this order and refuses correctly —
+// which is exactly why the other half of the pair exists. Keep them together:
+// alone, either one certifies a rule the other refutes.
+package bc_dropck_field_two_paths_swapped_fail;
+struct W<'a> { a: &'a i64, b: &'a i64 }
+impl<'a> Drop for W<'a> { fn drop(self: &mut Self) { let v: i64 = *self.a; if v < 0i64 { return; } } }
+fn main() -> i32 {
+    let o: i64 = 5i64;
+    let mut w: W = W { a: &o, b: &o };
+    {
+        let inner: i64 = 7i64;
+        w.b = &o;
+        w.a = &inner;
+    }
+    return 0i32;
+}

@@ -1,0 +1,1 @@
+binding 'w' has a `Drop` impl and borrows local 'inner', but 'inner' goes out of scope before 'w' is dropped

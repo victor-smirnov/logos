@@ -1,0 +1,30 @@
+// THE MERGE-vs-REPLACE WITNESS. Two DIFFERENT fields of one Drop-carrying
+// holder are written in one frame; the FIRST source dies at the inner scope's
+// end, the second outlives it. The mechanism this pins is not "the field door
+// deposits" — the two imported dropck ports
+// this landing closed pin that — it is that
+// the deposit is keyed PER FIELD PATH.
+//
+// If `dropck_borrow_sources_[root]` is written whole (the form this landed
+// from), `w.b = &o` ERASES the record of `&inner` and this program compiles.
+// MEASURED at the landing: rc 0 under the replacing form, rc 1 under per-path,
+// with the probe firing twice in BOTH — the loss is silent, not a missed site.
+//
+// ⚠ ITS PAIR IS `bc_dropck_field_two_paths_swapped_fail`, WHICH IS THIS
+// PROGRAM WITH THE TWO WRITES SWAPPED. Under the replacing form the swapped
+// one REFUSES and this one ADMITS: same program, same fire count, opposite
+// verdict, decided by write order alone. Only running both catches that; a
+// single fixture here would have passed on the defective form 50% of the time.
+package bc_dropck_field_two_paths_fail;
+struct W<'a> { a: &'a i64, b: &'a i64 }
+impl<'a> Drop for W<'a> { fn drop(self: &mut Self) { let v: i64 = *self.a; if v < 0i64 { return; } } }
+fn main() -> i32 {
+    let o: i64 = 5i64;
+    let mut w: W = W { a: &o, b: &o };
+    {
+        let inner: i64 = 7i64;
+        w.a = &inner;
+        w.b = &o;
+    }
+    return 0i32;
+}

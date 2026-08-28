@@ -30,6 +30,7 @@
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/outlives.hpp>
 #include <logos/compiler/const_promote.hpp>
+#include <map>
 #include <algorithm>
 #include <cassert>
 #include <logos/compiler/region_infer.hpp>
@@ -2043,6 +2044,20 @@ class BorrowChecker {
     // B87: line at which each dropck-relevant binding was last bound, for
     // diagnostic reporting.
     std::unordered_map<std::string, uint32_t> dropck_binding_line_;
+    // B87 PER-PATH: `dropck_borrow_sources_` is keyed on the ROOT NAME, so a
+    // FIELD-wise deposit (`w.a = &x`) can only REPLACE the whole record — and
+    // MEASURED, a second write to a DIFFERENT field then erases the first
+    // field's source. Two field writes, one frame, opposite order: identical
+    // fire counts, opposite verdicts (sandbox mvr_replace_loses /
+    // mvr_order_swapped). This map restores the missing dimension — sources
+    // keyed by FIELD PATH under the root — so a write REPLACES its own path
+    // and MERGES across paths. `dropck_borrow_sources_[root]` stays the flat
+    // union that pop_scope reads, rebuilt from here on every field deposit.
+    // ⚠ A WHOLE-VALUE write re-owns the binding and must therefore CLEAR the
+    // per-path record; the Let and Assign arms do exactly that. Without it
+    // `w.a = &inner; w = W{a:&o};` would keep `inner` and refuse legally.
+    std::unordered_map<std::string, std::map<std::string, std::vector<RefSrc>>>
+        dropck_field_srcs_;
     // §B6 (NLL scope lifetime, rustc E0597): for EVERY reference / borrow-
     // carrying binding, the LOCAL variables it borrows from + the line of the
     // borrow. Generalises dropck_borrow_sources_ (which is gated on a Drop
@@ -2748,6 +2763,7 @@ private:
             prov_.erase(name);
             dropck_borrow_sources_.erase(name);
             dropck_binding_line_.erase(name);
+            dropck_field_srcs_.erase(name);
             erase_ref_sources_under(name);   // F6: the whole place subtree
             dangling_.erase(name);
         }
@@ -11332,6 +11348,7 @@ private:
                 if (val && struct_is_dropck_relevant(t)) {
                     std::vector<RefSrc> sources;
                     collect_borrow_locals(val, sources);
+                    dropck_field_srcs_.erase(name);  // whole-value write re-owns
                     if (!sources.empty()) {
                         dropck_borrow_sources_[name] = std::move(sources);
                         dropck_binding_line_[name] = ln;
@@ -11438,6 +11455,7 @@ private:
                     if (struct_is_dropck_relevant(vt)) {
                         std::vector<RefSrc> sources;
                         collect_borrow_locals(val, sources);
+                        dropck_field_srcs_.erase(name);  // whole-value write re-owns
                         if (!sources.empty()) {
                             dropck_borrow_sources_[name] = std::move(sources);
                             dropck_binding_line_[name] = ln;
@@ -11740,38 +11758,78 @@ private:
                         uint32_t root_slot = EVarRefView{c}.var_slot();  // Phase-1
                         if (var_has(root_slot, root) && !param_names_.count(root)) {
                             add_ref_sources(root, std::string{}, v.value(), ln);
-                            // MEASURED 2026-08-28, 379-row ledger: 16 fires,
-                            // CEILING 2 vs COST 0 — and the closed set is
-                            // EXACTLY the predicted pair, diffed both ways
-                            // (dropck_eager-by-ref-binding-for-guards,
-                            // dropck_let-else-more-permissive). The only exact
-                            // prediction of the round. ⚠ COST 0 IS NOT A
-                            // SAFETY CLAIM, so four hand-written programs were
-                            // run, each proven to FIRE: outer-scope source,
-                            // two-field write, fn-param source — all still
-                            // admitted; and the defect witness (`let o=5;
-                            // { let inner=7; w.r=&inner; }` on a Drop-carrying
-                            // `Wrap<'a>`) goes rc 0 -> rc 1 with the B87
-                            // diagnostic. Both its rows are INSIDE ltundecl's
-                            // 17 and OUTSIDE ltundecl_wide's 4 — i.e. ltundecl
-                            // was buying them with the same over-refusal that
-                            // cost it 65 legal programs; this door buys them
-                            // for nothing. ⚠ RULE 7 STILL STANDS: this
-                            // REPLACES the record, so a second field write
-                            // erases the first; the correct fix merges
-                            // per-path and is strictly more depositing.
-                            // PROBE lifereg_dropckfield: the Let and Assign
-                            // arms deposit into dropck_borrow_sources_; this
-                            // door — the one `s.f = &x` actually takes — does
-                            // not, so a Drop-carrying holder written FIELD-WISE
-                            // is invisible to the B87 rule that already fires
-                            // on the whole-value assign.
-                            if (logos::probe::on("lifereg_dropckfield") &&
-                                struct_is_dropck_relevant(TypeRef(c.type(pool)))) {
+                            // B87 AT THE FIELD DOOR. The Let and Assign arms
+                            // deposit into dropck_borrow_sources_; this door —
+                            // the one `s.f = &x` actually takes — did not, so a
+                            // Drop-carrying holder written FIELD-WISE was
+                            // invisible to the B87 rule that already fires on
+                            // the whole-value assign.
+                            //
+                            // ⚠ THE RECORD IS PER FIELD PATH, NOT PER ROOT, AND
+                            // THAT IS THE WHOLE DIFFERENCE. The probe this
+                            // landed from wrote `dropck_borrow_sources_[root] =
+                            // …`, and its own author flagged the replace as a
+                            // rule-7 caveat. MEASURED before landing, on a
+                            // one-variable pair that differs only in the ORDER
+                            // OF TWO FIELD WRITES:
+                            //   w.a = &inner; w.b = &o;   replace: rc 0 — LOST
+                            //   w.b = &o;     w.a = &inner; replace: rc 1
+                            // identical fire counts (2 and 2), opposite
+                            // verdicts, decided by which field was written
+                            // last. Both are the same E0597. Per-path keying
+                            // reports BOTH; the pair is pinned in
+                            // fail/bc_dropck_field_two_paths_fail and
+                            // fail/bc_dropck_field_two_paths_swapped_fail.
+                            //
+                            // ⚠ AND A NAIVE APPEND WOULD HAVE BEEN WORSE THAN
+                            // THE REPLACE. `w.a = &inner; w.a = &o;` rewrites
+                            // ONE path, so an appending merge keeps `inner` and
+                            // refuses a program the replace admits. A write
+                            // therefore REPLACES ITS OWN PATH and MERGES ACROSS
+                            // PATHS — measured in both directions, and pinned
+                            // in pass/bc_dropck_field_same_path_rewrite_admit.
+                            //
+                            // PRICED AS THE MERGE, NOT AS THE PROBE: CEILING 2,
+                            // COST 0, 16 fires over the 375-row ledger and the
+                            // 807-program legal corpus — the same numbers the
+                            // replace form scored, so the correctness came free.
+                            if (struct_is_dropck_relevant(TypeRef(c.type(pool)))) {
                                 std::vector<RefSrc> dsrcs;
                                 collect_borrow_locals(v.value(), dsrcs);
                                 if (!dsrcs.empty()) {
-                                    dropck_borrow_sources_[root] = std::move(dsrcs);
+                                    // The field path from `root` down to the
+                                    // place written. An INDEX step is not a
+                                    // static path component (this file's own
+                                    // convention, take_field_borrow), so it
+                                    // names the container whole — spelled here
+                                    // as a `[]` segment so `a[i].p` and `a.p`
+                                    // cannot collide.
+                                    std::vector<std::string> segs2;
+                                    for (ExprRef q = atv.inner(); q && q != c;) {
+                                        if (q.kind() == EC::FieldRead) {
+                                            segs2.emplace_back(EFieldReadView{q}.field());
+                                            q = EFieldReadView{q}.receiver();
+                                        } else if (q.kind() == EC::TupleIndex) {
+                                            segs2.emplace_back(
+                                                std::to_string(ETupleIndexView{q}.index()));
+                                            q = ETupleIndexView{q}.receiver();
+                                        } else if (q.kind() == EC::IndexRead) {
+                                            segs2.emplace_back("[]");
+                                            q = EIndexReadView{q}.receiver();
+                                        } else break;
+                                    }
+                                    std::string fp2;
+                                    for (auto it2 = segs2.rbegin(); it2 != segs2.rend(); ++it2) {
+                                        if (!fp2.empty()) fp2.push_back('.');
+                                        fp2 += *it2;
+                                    }
+                                    dropck_field_srcs_[root][fp2] = std::move(dsrcs);
+                                    std::vector<RefSrc> flat;
+                                    for (auto& [pk, pv] : dropck_field_srcs_[root])
+                                        for (auto& sc : pv)
+                                            if (std::find(flat.begin(), flat.end(), sc) == flat.end())
+                                                flat.push_back(sc);
+                                    dropck_borrow_sources_[root] = std::move(flat);
                                     dropck_binding_line_[root] = ln;
                                 }
                             }
@@ -12577,6 +12635,7 @@ public:
         dangling_.clear();
         dropck_borrow_sources_.clear();
         dropck_binding_line_.clear();
+        dropck_field_srcs_.clear();
         param_inner_lifetimes_.clear();
         // Type-params carrying an explicit `Copy` bound — a bare TypeVar is
         // move UNLESS it is Copy (Rust generic-body semantics). Drives

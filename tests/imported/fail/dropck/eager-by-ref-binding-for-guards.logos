@@ -1,6 +1,10 @@
 // rustc dropck/eager-by-ref-binding-for-guards.rs — upstream `short1` does not live long enough (E0597)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.B
+// shelf: fail — CLOSED 2026-08-28 by the B87 per-path FIELD-WRITE deposit.
+// The holder is written FIELD-WISE (`long1.f = &short1`), and neither the Let
+// nor the Assign recording site fires on that door, so the dropck rule that
+// already handled the whole-value assign never saw this program. Refuses now
+// for the upstream reason.
 package eager_by_ref_binding_for_guards;
 struct Struct<'a> { f: &'a i64 }
 impl<'a> Drop for Struct<'a> { fn drop(self: &mut Struct<'a>) {} }

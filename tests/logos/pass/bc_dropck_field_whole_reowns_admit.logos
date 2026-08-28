@@ -1,0 +1,23 @@
+// THE SECOND ADMIT TWIN: a WHOLE-VALUE write after a field write must CLEAR the
+// per-path record, not merge with it. `w.a = &inner` deposits on path "a";
+// `w = W{a:&o, b:&o}` re-owns the whole binding, so `inner` is gone.
+//
+// Without the clear at the Let/Assign arms, the per-path map outlives the value
+// it describes and this legal program is refused — the exact cost a per-path
+// record introduces and the reason the clear is not optional.
+package bc_dropck_field_whole_reowns_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct W<'a> { a: &'a i64, b: &'a i64 }
+impl<'a> Drop for W<'a> { fn drop(self: &mut Self) { let v: i64 = *self.a; if v < 0i64 { return; } } }
+fn main() -> i32 {
+    let o: i64 = 5i64;
+    let mut w: W = W { a: &o, b: &o };
+    {
+        let inner: i64 = 7i64;
+        w.a = &inner;
+        w = W { a: &o, b: &o };
+    }
+    pr("%ld\n", *w.a + *w.b);
+    return 0i32;
+}
