@@ -1,0 +1,11 @@
+// rustc lifetimes/apit-not-targeted-by-lifetime-suggestion.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — CLOSED 2026-08-28 by the B68 variance check at the FIELD-WRITE
+// door. `lower_place_assign` type-checked with expect_type, which is
+// lifetime-ERASED, and never called check_variance — so `s.p = v` compared the
+// two regions not at all, while its sibling `lower_deref_assign` has run that
+// check since B68. Refuses now for the upstream reason.
+package apit_not_targeted_by_lifetime_suggestion_d_min;
+struct Sink<'a> { p: &'a i64 }
+fn f(s: &mut Sink, v: &i32) { s.p = v; }
+fn main() -> i32 { return 0i32; }

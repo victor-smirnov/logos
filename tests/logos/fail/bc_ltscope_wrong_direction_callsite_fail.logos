@@ -1,0 +1,26 @@
+// THE PHASE PAIR of `bc_ltscope_wrong_direction_fail`, and the reason that one
+// was allowed to re-pin its diagnostic.
+//
+// Identical program with the outlives clause turned the SOUND way round
+// (`where 'b: 'a`). The assignment `self.r = o` is then well-formed, so the
+// 2026-08-28 variance check at the field-write door does NOT refuse it — and
+// the short-lived borrow is caught exactly where it used to be, at the CALL,
+// as E0597.
+//
+// This fixture exists so that check moving one phase earlier cannot silently
+// retire the later one. If this ever goes green, the call-site escape rule has
+// been lost and nobody would have noticed from the other half of the pair.
+package bc_ltscope_wrong_direction_callsite_fail;
+
+struct H<'a> { r: &'a i32 }
+
+impl<'a> H<'a> {
+    fn stash<'b>(self: &mut H<'a>, o: &'b i32) where 'b: 'a { self.r = o; }
+}
+
+fn main() -> i32 {
+    let v: i32 = 1i32;
+    let mut h: H = H { r: &v };
+    { let tmp: i32 = 2i32; h.stash(&tmp); }   // ERROR: 'tmp' does not live long enough
+    return *h.r - 1i32;
+}

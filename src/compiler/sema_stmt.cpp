@@ -8052,6 +8052,45 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
         expect_type(val, pt, CoercePos::PlaceWrite,
                     std::format("assignment to '{}': type mismatch —",
                                 render_place_node(place_node)));
+    // B68 AT THE FIELD DOOR. `lower_place_assign` type-checks with expect_type,
+    // which is lifetime-ERASED (TypeUID), and never called check_variance — so
+    // `o.p = s` compared the two regions not at all. Its sibling
+    // `lower_deref_assign` has done exactly this since B68, with the comment
+    // "variance check at *ptr = val". Same two regions, one spelling checked.
+    //
+    // PRICED, RE-PRICED AND LANDED: 56 fires over the 373-row ledger, CEILING
+    // 2, COST 0 over the 807-program legal corpus. PREDICTED TWO ROWS BY NAME
+    // before the edit and the diff is empty both ways —
+    // apit-not-targeted-by-lifetime-suggestion--d-min and
+    // ex3-both-anon-regions-both-are-structs-3, both `x.a = x.b` across two
+    // INDEPENDENT anonymous regions with no outlives bound between them.
+    //
+    // ⚠ COST 0 IS NOT A SAFETY CLAIM, so the refusal was attacked by hand in
+    // the ABUSE direction: EIGHTEEN legal programs, each proven to FIRE, all
+    // still admitted — same-lifetime, `where 'b: 'a`, a `&'static` source, a
+    // scalar field, a local holder, a tuple field, a nested `o.i.q`, a
+    // struct-typed RHS, a lifetime-free struct, an INVARIANT `&'a mut` field, a
+    // fn-pointer field (contravariance), a generic `T` field, an enum-typed
+    // field, an elided holder, a `'_` holder, a two-bound chain, a `self:
+    // &mut Self` method and an array-element field. Two more in the DEFECT
+    // direction go rc 0 -> rc 1: no bound at all, and the backwards
+    // `where 'a: 'b`.
+    //
+    // ⚠ A REMAINING HOLE, NAMED BECAUSE IT IS ADJACENT AND NOT CLOSED HERE:
+    // `fn set<'a>(o: &mut H, s: &'a i64) { o.p = s; }` — an ELIDED struct
+    // lifetime against a NAMED source — still admits, while the fully-elided
+    // `fn f(s: &mut Sink, v: &i32)` of the row above refuses. The elided
+    // holder's region is not instantiated to something this check can compare.
+    //
+    // ⚠ AND A SEPARATE FALSE REFUSAL STILL BLOCKS THE OBVIOUS CALLER, recorded
+    // here rather than lost: `let mut h: H<'_> = H{p:&v}; set(&mut h, &v)` is
+    // refused TODAY at the CALL, not at this site — "call to 'set' arg 1:
+    // variance mismatch — expected &mut H<'a>, got &mut H<'_>". That is
+    // check_call_outlives failing to instantiate an elided struct-lifetime
+    // argument, it is a different defect, and it is why every counter-example
+    // above had to be written as an uncalled fn.
+    //
+    // (prior pricing, kept for the decay record)
     // MEASURED 2026-08-27: 59 fires, CEILING 2 vs COST 0
     // (apit-not-targeted-by-lifetime-suggestion--d-min,
     // ex3-both-anon-regions-both-are-structs-3). The pre-stated ceiling was 6
@@ -8079,11 +8118,7 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     // &mut H<'_>". That is check_call_outlives failing to instantiate an
     // elided struct-lifetime argument, and it is why every counter-example
     // above had to be written as an uncalled fn.
-    // PROBE lifereg_fieldassign: lower_place_assign type-checks with
-    // expect_type (lifetime-ERASED, TypeUID) and never calls check_variance.
-    // Its sibling lower_deref_assign DOES, with the comment "B68: variance
-    // check at *ptr = val". Same two regions, one spelling checked.
-    if (logos::probe::on("lifereg_fieldassign") && pt && val)
+    if (pt && val)
         check_variance(expr_type(val), pt,
                        std::format("assignment to '{}'",
                                    render_place_node(place_node)),

@@ -554,7 +554,45 @@
 # merge, pass/bc_dropck_field_same_path_rewrite_admit demands that the SAME path
 # does not, and pass/bc_dropck_field_whole_reowns_admit demands that a
 # whole-value write CLEARS the per-path record instead of merging with it.
-# TOTAL 373
+# 2026-08-28 — 373 -> 371. TWO rows, PREDICTED BY NAME BEFORE THE EDIT, diff
+# empty both ways:
+#   apit-not-targeted-by-lifetime-suggestion--d-min  `s.p = v`,   two anon regions
+#   ex3-both-anon-regions-both-are-structs-3         `x.a = x.b`, two anon regions
+# `lower_place_assign` type-checked a field write with expect_type — which
+# compares TypeUIDs and is lifetime-ERASED — and never called check_variance.
+# Its sibling `lower_deref_assign` has run that check since B68, comment and
+# all. Same two regions, one spelling checked. Re-priced on the 373-row ledger
+# AFTER the dropck field-door landing (rule 8, a ceiling decays as the ledger
+# shrinks): 56 fires, CEILING 2, COST 0 over the 807-program legal corpus, the
+# same two rows as at 375 and at 379.
+# ⚠ COST 0 IS NOT A SAFETY CLAIM, so eighteen legal field writes were written
+# by hand and each proven to FIRE — including the three positions where
+# covariance is the WRONG answer (`&'a mut` invariance, a fn-pointer argument,
+# a generic `T`) — and all eighteen still admit. They are one fixture,
+# pass/bc_fieldassign_variance_legal_shapes, because the claim is about the SET;
+# a control that adds ONE unsound fn to that very file refuses, so the eighteen
+# admit on their merits and not because the file is unchecked. The refuse half
+# is the PAIR fail/bc_fieldassign_variance_{no_bound,wrong_bound}_fail — a
+# MISSING clause and a BACKWARDS clause are different programs, and a check that
+# only asked "is there a clause" would pass the second.
+# ⚠ ONE EXISTING FIXTURE RE-PINNED, AND THE GUARD IT HELD KEPT ALIVE.
+# fail/bc_ltscope_wrong_direction_fail was refused at the CALL with E0597; it is
+# now refused one phase earlier, at the assignment, naming the two regions
+# instead of the symptom — the reason its own header already gave. rc 1 before,
+# rc 1 after. Because a new sensor that takes over an old guard's only fixture
+# is how a guard dies, the call-site phase is kept by a new PAIR,
+# fail/bc_ltscope_wrong_direction_callsite_fail, which is that program with the
+# clause turned the sound way round so the escape is caught where it was.
+# ⚠ A REMAINING HOLE, NAMED: `fn set<'a>(o: &mut H, s: &'a i64) { o.p = s; }` —
+# an ELIDED holder against a NAMED source — still admits, while the
+# fully-elided form of the row above refuses. Pinned as shape 13/14 of the pass
+# fixture so the day it changes is visible.
+# ⚠ AND A SEPARATE FALSE REFUSAL IS STILL OPEN AT THE CALLER:
+# `let mut h: H = H{p:&a}; s_same(&mut h, &b)` is refused by
+# check_call_outlives as "expected &mut H<'a>, got &mut H". Not touched here.
+# It is why the eighteen shapes are uncalled fns, and it is written into the
+# fixture so the calls can be added when it is fixed.
+# TOTAL 371
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -693,7 +731,6 @@ reject-specialized-drops-8142 lifereg.L3 tests/imported/admit/dropck/reject-spec
 
 # ── tests/ui/lifetimes ─────────────────────────────────────────
 apit-not-targeted-by-lifetime-suggestion--apit lifereg.B tests/imported/admit/lifetimes/apit-not-targeted-by-lifetime-suggestion--apit
-apit-not-targeted-by-lifetime-suggestion--d-min lifereg.B tests/imported/admit/lifetimes/apit-not-targeted-by-lifetime-suggestion--d-min
 borrowck-let-suggestion lifereg.D tests/imported/admit/lifetimes/borrowck-let-suggestion
 constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error
 copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions
@@ -718,7 +755,6 @@ ex2e-push-inference-variable-3 lifereg.A tests/imported/admit/lifetimes/ex2e-pus
 ex3-both-anon-regions-2 lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions-2
 ex3-both-anon-regions-3 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex3-both-anon-regions-3
 ex3-both-anon-regions-both-are-structs-2 lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs-2
-ex3-both-anon-regions-both-are-structs-3 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs-3
 ex3-both-anon-regions-both-are-structs-earlybound-regions lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs-earlybound-regions
 ex3-both-anon-regions-both-are-structs-latebound-regions lifereg.NEW-R19 tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs-latebound-regions
 ex3-both-anon-regions-both-are-structs lifereg.N3 tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs

@@ -1,0 +1,101 @@
+// THE COST SIDE OF THE 2026-08-28 FIELD-WRITE VARIANCE CHECK, MADE RE-RUNNABLE.
+//
+// `lower_place_assign` now calls check_variance, which its sibling
+// `lower_deref_assign` has done since B68. The probe that priced that scored
+// COST 0 over the 807-program legal corpus — and COST 0 IS NOT A SAFETY CLAIM,
+// because a corpus only refuses programs it CONTAINS. So the refusal was
+// attacked by hand in the ABUSE direction, and these are those programs:
+// EIGHTEEN legal field writes, each one proven to reach the check (the probe
+// fired exactly once per fn, twice for the two that assign twice), all still
+// admitted.
+//
+// They are kept as ONE fixture on purpose. The measurement that funded the rule
+// was "eighteen shapes, zero refusals"; eighteen separate fixtures would let
+// seventeen of them stay green while the eighteenth is quietly deleted, and the
+// claim is about the SET.
+//
+// ⚠ THE REFUSE HALF IS `fail/bc_fieldassign_variance_no_bound_fail`. Without it
+// this file passes trivially on a compiler that never checks anything at all —
+// which is precisely the state this rule was landed to leave.
+package bc_fieldassign_variance_legal_shapes;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+struct H<'a> { p: &'a i64 }
+struct HN<'a> { p: &'a i64, n: i64 }
+struct M<'a> { p: &'a mut i64 }
+struct F<'a> { f: fn(&'a i64) -> i64 }
+struct G<T> { v: T }
+struct In<'a> { q: &'a i64 }
+struct Out<'a> { i: In<'a> }
+struct P { n: i64 }
+struct A<'a> { xs: [&'a i64; 2] }
+enum E<'a> { A(&'a i64), B }
+struct HE<'a> { e: E<'a> }
+
+// 1 — the source's region IS the holder's.
+fn s_same<'a>(o: &mut H<'a>, s: &'a i64) { o.p = s; }
+// 2 — distinct regions, related the SOUND way by an explicit clause.
+fn s_where<'a, 'b>(o: &mut H<'a>, s: &'b i64) where 'b: 'a { o.p = s; }
+// 3 — `'static` outlives every region, so it fits any holder.
+fn s_static<'a>(o: &mut H<'a>, s: &'static i64) { o.p = s; }
+// 4 — a field with no region at all must not be dragged into a region check.
+fn s_scalar<'a>(o: &mut HN<'a>, v: i64) { o.n = v; }
+// 5 — a tuple element is a field write through the same door.
+fn s_tuple<'a>(t: &mut (&'a i64, i64), s: &'a i64) { t.0 = s; }
+// 6 — a NESTED path, so the check must read the place's type and not the root's.
+fn s_nested<'a>(o: &mut Out<'a>, s: &'a i64) { o.i.q = s; }
+// 7 — a STRUCT-typed RHS, not a bare reference.
+fn s_struct<'a>(o: &mut Out<'a>, s: In<'a>) { o.i = s; }
+// 8 — a struct with no lifetime parameter whatsoever.
+fn s_nolt(o: &mut P, v: i64) { o.n = v; }
+// 9 — an INVARIANT `&'a mut` field. The one position where covariance is wrong.
+fn s_mut<'a>(o: &mut M<'a>, s: &'a mut i64) { o.p = s; }
+// 10 — a fn-pointer field: the region is in ARGUMENT position, contravariant.
+fn s_fnptr<'a>(o: &mut F<'a>, g: fn(&'a i64) -> i64) { o.f = g; }
+// 11 — a generic `T` field, where there is no region structure to compare.
+fn s_generic<T>(o: &mut G<T>, s: T) { o.v = s; }
+// 12 — an ENUM-typed field carrying the region in a payload.
+fn s_enum<'a>(o: &mut HE<'a>, s: E<'a>) { o.e = s; }
+// 13 — the holder's struct lifetime ELIDED. ⚠ THIS ONE IS A KNOWN HOLE, NOT A
+// SUCCESS: the elided region is not instantiated to anything this check can
+// compare, so an unsound source would pass here too. It is pinned as ADMITTED
+// so the day that stops being true is visible, not as evidence of correctness.
+fn s_elided<'a>(o: &mut H, s: &'a i64) { o.p = s; }
+// 14 — the same hole spelled `'_`.
+fn s_anon<'a>(o: &mut H<'_>, s: &'a i64) { o.p = s; }
+// 15 — a TWO-HOP bound chain, `'c: 'b: 'a`, and two writes.
+fn s_chain<'a, 'b, 'c>(o: &mut H<'a>, s: &'b i64, u: &'c i64)
+    where 'b: 'a, 'c: 'b { o.p = s; o.p = u; }
+// 16 — an ARRAY-ELEMENT field write.
+fn s_array<'a>(o: &mut A<'a>, s: &'a i64) { o.xs[0] = s; }
+
+impl<'a> H<'a> {
+    // 17 — through `self: &mut Self`, where the holder's region comes from the
+    // enclosing `impl<'a>` header rather than the fn's own generics.
+    fn m_self(self: &mut Self, s: &'a i64) { self.p = s; }
+    // 18 — the same, with the source related by a clause on the METHOD.
+    fn m_where<'b>(self: &mut Self, s: &'b i64) where 'b: 'a { self.p = s; }
+}
+
+// ⚠ THE LIFETIME-PARAMETERISED FNS ABOVE ARE DELIBERATELY NEVER CALLED, AND
+// THAT IS A RECORDED DEFECT, NOT A STYLE CHOICE. Calling any of them is refused
+// TODAY by a DIFFERENT rule, at the CALL and not at the field write:
+//   let mut h: H = H { p: &a }; s_same(&mut h, &b);
+//   -> call to 's_same' arg 1: variance mismatch — expected &mut H<'a>,
+//      got &mut H — lifetime structure incompatible
+// That is `check_call_outlives` failing to instantiate an ELIDED struct
+// lifetime in an argument position. It is out of scope here and is not being
+// bought away; it is written down so that when it is fixed, the calls can be
+// added to `main` and this fixture gets stronger. Until then the eighteen
+// bodies are still lowered and still reach the check — which is what the
+// measurement was about — and `main` exercises only the shapes the caller-side
+// defect does not block.
+fn main() -> i32 {
+    let mut pp: P = P { n: 0i64 };
+    s_nolt(&mut pp, 7i64);
+    let mut g: G<i64> = G { v: 1i64 };
+    s_generic(&mut g, 2i64);
+    unsafe { printf("%ld\n".as_ptr(), pp.n + g.v); }
+    return 0i32;
+}

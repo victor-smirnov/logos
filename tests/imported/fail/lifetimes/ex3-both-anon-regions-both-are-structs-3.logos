@@ -1,6 +1,8 @@
 // rustc lifetimes/lifetime-errors/ex3-both-anon-regions-both-are-structs-3.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-N1
+// shelf: fail — CLOSED 2026-08-28 by the B68 variance check at the FIELD-WRITE
+// door. `x.a = x.b` copies across two INDEPENDENT anonymous regions with no
+// outlives bound between them; expect_type is lifetime-erased and saw nothing.
 package ex3_both_anon_regions_both_are_structs_3;
 struct Ref<'a, 'b> { a: &'a u32, b: &'b u32 }
 fn foo(mut x: Ref) { x.a = x.b; }

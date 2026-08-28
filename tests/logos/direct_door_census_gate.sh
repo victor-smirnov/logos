@@ -823,7 +823,21 @@ PIN = {
     # -25`, so the rc that was read was TAIL's and not the gate's. The gate did
     # its job; the reader broke it. Never pipe a gate whose rc you intend to
     # quote.)
-    # 2026-08-28 (B87 field-door round): +2 → 2442 = 191 + 2251.
+    # 2026-08-28 (B68 field-write variance round): +1 → 2443 = 191 + 2252.
+    # RE-DERIVED BY DIRECT FILE LISTING:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2443
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2443 = 191 + 2252. The one is
+    # bc_fieldassign_variance_legal_shapes — the EIGHTEEN legal field writes
+    # that the variance check at `lower_place_assign` must keep admitting, kept
+    # as one fixture because the measurement that funded the rule was about the
+    # SET. The round's other three fixtures are FAIL fixtures and this
+    # population is the PASS corpus, so they move nothing here; the two imported
+    # ports it closed moved admit -> fail under tests/imported/ and are outside
+    # this population entirely. `glob` and the DOOR counts unmoved (36 = 10 +
+    # 26): no `wql_*`/`deem_*` match, no container family, no `direct` form.
+    #
+    # 2026-08-28 (earlier, B87 field-door round): +2 → 2442 = 191 + 2251.
     # RE-DERIVED BY DIRECT FILE LISTING:
     #   ls tests/logos/pass/*.logos | wc -l                       -> 2442
     #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
@@ -850,9 +864,9 @@ PIN = {
     # fixtures and this population is the PASS corpus, so they move nothing
     # here. `glob` and the DOOR counts unmoved (36 = 10 + 26): no `wql_*`/
     # `deem_*` match, no container family, no `direct` output form.
-    'corpus'            : 2442,
+    'corpus'            : 2443,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2251,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2252,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

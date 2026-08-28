@@ -1,0 +1,17 @@
+// THE REFUSE HALF of `pass/bc_fieldassign_variance_legal_shapes`, and the
+// minimal witness of the defect the 2026-08-28 field-write variance check
+// closed. Two INDEPENDENT regions and no clause relating them: storing `&'b`
+// into a `&'a` field needs `'b: 'a`, and nothing says so.
+//
+// `lower_place_assign` type-checked this with expect_type, which compares
+// TypeUIDs and is lifetime-ERASED — so the two regions were never compared at
+// all, while the same store through `*p = v` had been checked since B68.
+//
+// ⚠ ITS SECOND HALF IS `bc_fieldassign_variance_wrong_bound_fail`, which
+// declares the clause BACKWARDS. A missing bound and a reversed bound are
+// different programs and only one of them is exercised by a fixture that omits
+// the `where` entirely.
+package bc_fieldassign_variance_no_bound_fail;
+struct H<'a> { p: &'a i64 }
+fn set<'a, 'b>(o: &mut H<'a>, s: &'b i64) { o.p = s; }
+fn main() -> i32 { return 0i32; }

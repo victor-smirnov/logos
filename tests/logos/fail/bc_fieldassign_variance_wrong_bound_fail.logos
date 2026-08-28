@@ -1,0 +1,12 @@
+// THE BACKWARDS-CLAUSE half of `bc_fieldassign_variance_no_bound_fail`. Here a
+// clause IS declared and it points the wrong way: `where 'a: 'b` says the
+// HOLDER outlives the source, which is exactly the permission not needed and
+// not the one required (`'b: 'a`).
+//
+// It matters separately because a check that merely asked "is there any
+// outlives clause between these two names" would pass this and fail only the
+// other half. The rule has to read the DIRECTION.
+package bc_fieldassign_variance_wrong_bound_fail;
+struct H<'a> { p: &'a i64 }
+fn set<'a, 'b>(o: &mut H<'a>, s: &'b i64) where 'a: 'b { o.p = s; }
+fn main() -> i32 { return 0i32; }

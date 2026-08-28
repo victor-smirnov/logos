@@ -8,9 +8,22 @@
 //
 // This one must STAY refused, and for the real reason: `self.r` is `&'a i32`
 // and `o` is `&'b i32`, so storing `o` into it needs `'b: 'a`. The clause
-// declares the opposite. The diagnostic pinned below is E0597 raised at the
-// CALL, which is where the short-lived borrow is actually seen to escape —
-// i.e. the region rule, not the name rule, is what refuses it now.
+// declares the opposite.
+//
+// ⚠ THE PINNED DIAGNOSTIC MOVED ON 2026-08-28, AND IT MOVED TO THE SITE THIS
+// HEADER ALREADY NAMED. It used to be E0597 raised at the CALL — the first
+// place a short-lived borrow was seen to escape. `lower_place_assign` now runs
+// the same check_variance its sibling `lower_deref_assign` has run since B68,
+// so `self.r = o` is refused AT THE ASSIGNMENT, one phase earlier, naming the
+// two regions instead of the symptom. The program's verdict is unchanged: rc 1
+// before, rc 1 after. Only the reason got truer.
+//
+// ⚠ AND THE CALL-SITE E0597 IS NOT ORPHANED BY THAT. It is kept live by
+// `bc_ltscope_wrong_direction_callsite_fail`, which is THIS PROGRAM with the
+// bound turned the SOUND way round (`where 'b: 'a`): the assignment is then
+// legal, nothing refuses it in sema, and the escape is caught where it always
+// was. The two are a pair — one pins each phase — because a new sensor that
+// silently takes over an old guard's only fixture is how a guard dies.
 package bc_ltscope_wrong_direction_fail;
 
 struct H<'a> { r: &'a i32 }
