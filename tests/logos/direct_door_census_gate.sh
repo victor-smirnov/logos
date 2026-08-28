@@ -864,9 +864,24 @@ PIN = {
     # fixtures and this population is the PASS corpus, so they move nothing
     # here. `glob` and the DOOR counts unmoved (36 = 10 + 26): no `wql_*`/
     # `deem_*` match, no container family, no `direct` output form.
-    'corpus'            : 2443,
+    # 2026-08-28 (the AddrOf capture-mutability read + the TupleIndex capture
+    # path), +5/0/+5. RE-DERIVED BY DIRECT FILE LISTING, not by adding 5 to the
+    # previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2448
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2448 = 191 + 2257. The five are
+    # bc_capaddrmut_{call_and_use,two_sequential,fnmut_bound,shared_not_marked}
+    # and bc_captuple_elem_disjoint. Three of them assert a VALUE, not a
+    # diagnostic, because the defect was a silent wrong answer (x=1 -> x=2,
+    # x=1 -> x=3, y=0 -> y=5 on a control binary with the arm reverted). The
+    # round's other two fixtures are FAIL fixtures and this population is the
+    # PASS corpus, so they move nothing here; the three imported programs that
+    # left `admit` for `fail` are not in tests/logos/pass at all. `glob` and the
+    # DOOR counts unmoved (36 = 10 + 26): no `wql_*`/`deem_*` match, no
+    # container family, no `direct` output form.
+    'corpus'            : 2448,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2252,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2257,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

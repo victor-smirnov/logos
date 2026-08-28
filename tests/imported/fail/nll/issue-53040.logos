@@ -1,0 +1,22 @@
+// rustc nll/issue-53040.rs — upstream captured variable cannot escape `FnMut` body
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — CLOSED 2026-08-28 by the AddrOf capture-mutability read.
+// ⚠ RIGHT VERDICT, DIFFERENT REASON, AND THAT IS RECORDED RATHER THAN GLOSSED.
+// Upstream refuses this as E0521 "captured variable cannot escape `FnMut`
+// closure body". We refuse it because `&mut v` is now recorded as a MUT
+// capture loan held by `f`, and `let r = f()` deposits provenance on every
+// capture of the callee (collect_ref_sources_paths' ClosureCall arm — a
+// closure body is never summarised), which conflicts. The escape channel
+// itself is still unbuilt; see the round report for the constructed legal
+// program that same imprecision refuses, and its control.
+// port of rust tests/ui/nll/issue-53040.rs
+// the FnMut closure body yields a &mut of its own capture, which escapes.
+// rustc: E0507/E0521 captured variable cannot escape `FnMut` closure body.
+package issue_53040;
+fn main() -> i32 {
+    let mut v: i64 = 0i64;
+    let f = || -> &mut i64 { return &mut v; };
+    let r: &mut i64 = f();
+    *r = 1i64;
+    return 0i32;
+}

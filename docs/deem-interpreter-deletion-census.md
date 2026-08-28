@@ -4618,9 +4618,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                  `imported` label).
 #   TIERCOMMIT    427 →  423   −4  four closed rows' per-row tests leave.
 # PREDICTED +4/0/−4 before the pin was read, and read as that.
-REGISTRY-ALL         8630
-REGISTRY-NOIMPORTED  4443
-REGISTRY-TIERCOMMIT  419
+# 2026-08-28 (the AddrOf CAPTURE-MUTABILITY read LANDED, with the TupleIndex
+# capture path beside it. `EAddrOf` carries no `is_mut` field, so a closure
+# body's `set(&mut x)` recorded x as a SHARED capture — a wrong ANSWER first
+# (the capture went into the env BY VALUE and the write was lost) and three
+# ledger rows second: `borrow-immutable-upvar-mutation` for the UPSTREAM reason
+# E0596, `issue-53040` and `regions-return-ref-to-upvar-issue-17403` with the
+# right verdict through a different channel:
+#   ALL          8630 → 8637   +7  +5 native pass +2 native fail; the three
+#                                  moved programs are −3 admit row tests +3
+#                                  imported fail fixtures, net 0.
+#   NOIMPORTED   4443 → 4447   +4  the +7 native less the −3 row tests (an admit
+#                                  row test carries no `imported` label).
+#   TIERCOMMIT    419 →  416   −3  three closed rows' per-row tests leave.
+# PREDICTED +7/+4/−3 before the pin was read, and read as that.
+REGISTRY-ALL         8637
+REGISTRY-NOIMPORTED  4447
+REGISTRY-TIERCOMMIT  416
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

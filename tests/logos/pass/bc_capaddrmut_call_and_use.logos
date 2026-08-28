@@ -1,0 +1,20 @@
+// ⚠ THIS FIXTURE ASSERTS A VALUE, NOT A DIAGNOSTIC, BECAUSE THE DEFECT WAS A
+// SILENT WRONG ANSWER. `EAddrOf` carries no `is_mut` field, so the capture
+// scanner recorded `x` as a SHARED capture of `|| { bump(&mut x) }`; a capture
+// absent from `mut_captures_set` is emitted BY VALUE into the closure env, so
+// `bump` incremented the env's copy and the write never reached `x`.
+// MEASURED on the unpatched tree: this program printed `x=1`. The mutability
+// was on the EXPRESSION'S TYPE all along (`&mut i64`); the arm never asked.
+// PERTURB: pass/bc_capaddrmut_shared_not_marked is the same shape with `&x`,
+// which must stay SHARED — the mark keys on MutRef, not on AddrOf.
+package bc_capaddrmut_call_and_use;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn bump(p: &mut i64) { *p = *p + 1i64; }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let f = || { bump(&mut x); };
+    f();
+    printi("x=%ld\n", x);
+    return 0i32;
+}

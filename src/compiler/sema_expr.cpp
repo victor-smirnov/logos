@@ -16916,19 +16916,31 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             case EC::AddrOf: {
                 std::string n(lir_view::EAddrOfView{e}.var_name());
                 add_capture_path(n, n);   // `&p` borrows the whole root
-                // PROBE capaddrmut: `EAddrOf` CARRIES NO MUTABILITY AT ALL —
-                // only `EAddrOfTemp` has an `is_mut` field, and the AddrOfTemp
-                // arm below is the only place `mark_mut_capture` is reached
-                // from. So `|| { return &mut x; }` lowers to AddrOf and the
-                // capture is recorded SHARED. MEASURED with
-                // LOGOS_DUMP_BC_CAPTURE, two ledger rows, same reading:
-                //   nll/issue-40510-1   `|| { return &mut x; }`   is_mut=0
-                //   nll/issue-53040     `|| -> &mut i64 { &mut v }` is_mut=0
-                // The mutability is not lost, it is on the EXPRESSION'S TYPE:
-                // sema typed this node `&mut i64`. Same defect family as
-                // captuple — a sibling arm knows what this one never asks.
-                // MEASURED 2026-08-28, 371-row population: 16 fires,
-                // CEILING 3 vs COST 0 — ✓.
+                // ⚠ `EAddrOf` CARRIES NO MUTABILITY AT ALL — only
+                // `EAddrOfTemp` has an `is_mut` field, and the AddrOfTemp arm
+                // below WAS the only place `mark_mut_capture` was reached from.
+                // So `|| { set(&mut x) }` lowered to AddrOf and the capture was
+                // recorded SHARED. The mutability is not lost: it is on the
+                // EXPRESSION'S TYPE — sema typed this node `&mut i64` — and
+                // this arm never asked. Same defect family as the TupleIndex
+                // arm below: a sibling arm already knows what this one never
+                // asks for.
+                //
+                // ⚠ THIS IS A WRONG-ANSWER FIX, NOT A BORROW-CHECK TIGHTENING,
+                // and that is the finding. A capture not in `mut_captures_set`
+                // is emitted BY VALUE into the env, so the callee mutated the
+                // env's copy and the write never reached the outer alloca.
+                // MEASURED by running the programs (`tests/logos/pass/
+                // bc_capaddrmut_*`), before -> after:
+                //   `let f = || { bump(&mut x) }; f();`        x=1 -> x=2
+                //   ... twice, two closures                    x=1 -> x=3
+                //   `take_fnmut(|| { set(&mut y) })`           y=0 -> y=5
+                // Three silently wrong answers; the borrow-check rows below
+                // are the smaller half of the price.
+                //
+                // MEASURED 2026-08-28 as PROBE capaddrmut, 371-row acceptance
+                // population: 16 fires, CEILING 3 vs COST 0 — and the landed
+                // rule closes exactly the probe's three:
                 //   borrowck/borrow-immutable-upvar-mutation
                 //   nll/issue-53040
                 //   regions/regions-return-ref-to-upvar-issue-17403
@@ -16941,11 +16953,31 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 // conflicts with it. That row's upstream reason is the RETURN
                 // channel, not the capture's strength — it belongs to
                 // capretchk's population, where it also appears.
-                if (logos::probe::on("capaddrmut")) {
-                    TypeRef at = e.type(cur_prog_->type_pool.impl());
-                    if (at && at.kind() == LogosType::Kind::MutRef)
-                        mark_mut_capture(n);
-                }
+                //
+                // ⚠ COST 0 WAS NOT A SAFETY CLAIM (rule 5). TWO constructed
+                // legal programs are refused once this line is live, and each
+                // has a CONTROL — the same program with `x = 2;` in place of
+                // `set(&mut x)` — that is refused IDENTICALLY on the unpatched
+                // tree. Neither is a new class; this line widens the
+                // population of two defects that were already live for the
+                // three spellings `mark_mut_capture` already reached:
+                //   (a) #90, closure_kind_ keyed on the SIGNATURE: raising one
+                //       literal to FnMut refuses a same-signature `Fn` sibling.
+                //       ce9 / ce9_control_assign, both "closure does not
+                //       implement `Fn`".
+                //   (b) collect_ref_sources_paths' ClosureCall arm names EVERY
+                //       capture as provenance for the call's result, because a
+                //       closure body is never summarised. So
+                //       `|y: &mut i64| -> &mut i64 { set(&mut x); return y; }`
+                //       — whose result derives from the PARAM — is refused
+                //       "cannot borrow 'x' as shared: already mutably
+                //       borrowed". ce10 / ce10_control_assign, identical.
+                // Both are recorded in the round report, not fixed here: (a)
+                // needs a per-literal identity inside the Closure TypeRef and
+                // (b) needs a closure-body flow summary. Neither is this line.
+                TypeRef at = e.type(cur_prog_->type_pool.impl());
+                if (at && at.kind() == LogosType::Kind::MutRef)
+                    mark_mut_capture(n);
                 break;
             }
             // A method receiver / `&mut <expr>` materialised as AddrOfTemp. When
@@ -17003,36 +17035,44 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             case EC::TupleLit:
                 lir_view::ETupleLitView{e}.each_elem([&](lir_view::ExprRef el){ scan_captures_v(el); });
                 break;
-            // PROBE captuple: `try_path` WAS TAUGHT TupleIndex — it appends
-            // `.0` and returns `t.0` — but THIS arm, the scanner that decides
-            // what a closure captures, never asks it. So a tuple-element
-            // capture widens to the whole variable while the byte-identical
-            // STRUCT-field program keeps `p.x`. Two notions of one concept and
-            // the narrow one silently wins. MEASURED at the bc capture site:
-            //   `|| p.x` (struct)  ->  fpath=p.x rel=x
-            //   `|| t.0` (tuple)   ->  fpath=t   rel=
-            // which is why capshared — whose whole justification is the
-            // RFC-2229 disjointness the precise path already delivers — pays a
-            // legal refusal on tests/imported/pass/closures/
-            // capture-disjoint-field-tuple-b156 and none on the struct twin.
-            // MEASURED 2026-08-28, 371-row acceptance population: 1 FIRE,
-            // CEILING 0, COST 0, and 0 rows re-opened. ⚠ RULE 4 — A CEILING
-            // OFF A POPULATION OF ONE IS NOT A REFUTATION, and a ceiling was
-            // never what this is for: precision does not CLOSE rows, it stops
-            // a sound rule from paying for imprecision. Its whole value is on
-            // capshared's side of the ledger, and that is measured directly:
-            //   armed   `|| t.0` -> fpath=t.0 rel=0   (record_borrow, path "0")
-            //   unarmed `|| t.0` -> fpath=t   rel=    (shared_whole branch)
-            // `shared_whole = rel.empty() && !is_mut`, so a precise path takes
-            // b156 OFF the branch capshared edits — capshared's only measured
-            // cost cannot arise once this lands. Proven by the code and the
-            // dump, not by argument.
+            // `try_path` WAS TAUGHT TupleIndex — it appends `.0` and returns
+            // `t.0` — but THIS arm, the scanner that decides what a closure
+            // captures, never asked it. So a tuple-element capture widened to
+            // the whole variable while the byte-identical STRUCT-field program
+            // kept `p.x`. Two notions of one concept and the narrow one
+            // silently wins. MEASURED at the bc capture site:
+            //   before  `|| t.0` -> fpath=t   rel=      (shared_whole branch)
+            //   after   `|| t.0` -> fpath=t.0 rel=0     (record_borrow, "0")
+            //   struct  `|| p.x` -> fpath=p.x rel=x     (always did)
+            //
+            // ⚠ IT IS NOT A PERMISSIVE EDIT, WHICH IS WHY IT LANDS. A precise
+            // path is NARROWER, so the obvious reading is "this can only
+            // admit more" — and that reading is wrong. `shared_whole =
+            // rel.empty() && !is_mut` sends a whole-root shared capture to
+            // check_live and records NO loan at all, so widening `t.0` to `t`
+            // did not make the loan bigger, it deleted it. MEASURED, both
+            // directions pinned as a fixture PAIR:
+            //   fail/bc_captuple_elem_conflict   `let r = &mut t.0;` then
+            //       `|| -> i64 { t.0 }` — E0502, ADMITTED before this line,
+            //       refused after ("cannot borrow 't.0': 't.0' is already
+            //       mutably borrowed").
+            //   pass/bc_captuple_elem_disjoint   `|| -> i64 { t.0 }` beside
+            //       `t.1 = 5` — admitted before and after; the imported
+            //       closures/capture-disjoint-field-tuple-b156 is the same
+            //       shape with `&mut t.1`.
+            //
+            // MEASURED 2026-08-28 as PROBE captuple, 371-row acceptance
+            // population: 1 fire, CEILING 0, COST 0, 0 rows re-opened. ⚠ RULE
+            // 4 — a ceiling off a population of one is not a refutation, and a
+            // ceiling was never what this is for. Its other value is on
+            // capshared's side of the ledger: b156 is capshared's ONLY
+            // measured cost (4/1 re-priced under rule 8) and a precise path
+            // takes it off the branch capshared edits, so that mechanism can
+            // be priced 4/0 next round.
             case EC::TupleIndex:
-                if (logos::probe::on("captuple")) {
-                    if (auto fp = try_path(e)) {
-                        add_capture_path(fp->first, fp->second);
-                        break;
-                    }
+                if (auto fp = try_path(e)) {
+                    add_capture_path(fp->first, fp->second);
+                    break;
                 }
                 scan_captures_v(lir_view::ETupleIndexView{e}.receiver()); break;
             case EC::SliceLit: {

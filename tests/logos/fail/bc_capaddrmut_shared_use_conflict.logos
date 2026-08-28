@@ -1,0 +1,19 @@
+// THE REFUSE DIRECTION of the AddrOf capture-mutability read, and the pair of
+// pass/bc_capaddrmut_two_sequential — same closure, same `&mut x`, one property
+// moved: a SHARED borrow of `x` is live across the closure's call. rustc E0502.
+// MEASURED on a control binary with the AddrOf arm reverted: ADMITTED, because
+// the capture was recorded SHARED and shared-beside-shared does not conflict.
+// The pass twin is what stops this being bought by refusing every mut capture:
+// there the two loans do not overlap and must still admit.
+package bc_capaddrmut_shared_use_conflict;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn bump(p: &mut i64) { *p = *p + 1i64; }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let f = || { bump(&mut x); };
+    let r: &i64 = &x;
+    f();
+    printi("r=%ld\n", *r);
+    return 0i32;
+}

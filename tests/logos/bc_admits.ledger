@@ -592,7 +592,54 @@
 # check_call_outlives as "expected &mut H<'a>, got &mut H". Not touched here.
 # It is why the eighteen shapes are uncalled fns, and it is written into the
 # fixture so the calls can be added when it is fixed.
-# TOTAL 371
+# 2026-08-28 — 371 -> 368. THREE ROWS, AND THE LEDGER IS THE SMALLER HALF.
+# `EAddrOf` carries NO mutability field — only `EAddrOfTemp` has `is_mut`, and
+# that arm was the ONLY place `mark_mut_capture` was reached from. So a closure
+# body's `set(&mut x)` recorded x as a SHARED capture. The mutability was never
+# lost: it is on the EXPRESSION'S TYPE (sema typed the node `&mut i64`) and this
+# arm never asked. Priced as PROBE capaddrmut on this 371-row tree: 16 fires,
+# CEILING 3 vs COST 0 over the 807-program legal corpus. PREDICTED THREE BY NAME
+# before the edit and the diff is EMPTY BOTH WAYS:
+#   borrowck/borrow-immutable-upvar-mutation   E0596, the UPSTREAM reason
+#   nll/issue-53040                            right verdict, different reason
+#   regions/regions-return-ref-to-upvar-17403  right verdict, different reason
+# ⚠ THE ROWS ARE NOT WHY THIS LANDED. A capture absent from `mut_captures_set`
+# is emitted BY VALUE into the env, so the callee mutated the env's copy and the
+# write never reached the outer alloca. MEASURED by RUNNING the programs, before
+# -> after: `|| { bump(&mut x) }; f()` printed x=1 -> x=2; the two-closure form
+# x=1 -> x=3; `take_fnmut(|| set(&mut y))` y=0 -> y=5. Three silent wrong
+# answers, pinned as pass/bc_capaddrmut_{call_and_use,two_sequential,fnmut_bound}
+# — fixtures that assert the VALUE, so a regression is not a diagnostic drift.
+# ⚠ COST 0 WAS NOT A SAFETY CLAIM (rule 5), AND TWO CONSTRUCTED LEGAL PROGRAMS
+# ARE REFUSED — each with a CONTROL, the same program with `x = 2;` in place of
+# `set(&mut x)`, that is refused IDENTICALLY on the unpatched tree. Neither is a
+# new class; this line widens the population of two defects already live for the
+# three spellings mark_mut_capture already reached:
+#   (a) #90 — closure_kind_ is keyed on the SIGNATURE (2 rows in
+#       key_identity.ledger, cell B#90), so raising one literal to FnMut refuses
+#       a same-signature `Fn` sibling.
+#   (b) collect_ref_sources_paths' ClosureCall arm names EVERY capture as
+#       provenance for the call's result, because a closure body is never
+#       summarised. `|y: &mut i64| -> &mut i64 { set(&mut x); return y; }`,
+#       whose result derives from the PARAM, is refused. It is also the channel
+#       that buys rows 2 and 3 above — stated, not glossed.
+# Neither is repaired here: (a) needs a per-literal identity inside the Closure
+# TypeRef and (b) a closure-body flow summary. Both are their own rounds.
+# ⚠ AND THE TupleIndex ARM LANDED BESIDE IT, CEILING 0 BY MEASUREMENT, so the
+# row delta above stays attributable — none of the three programs contains a
+# tuple. `try_path` was taught TupleIndex; the capture SCANNER never asked it,
+# so `|| t.0` widened to whole-`t` while `|| p.x` kept its path. That widening
+# is NOT the conservative direction: `shared_whole = rel.empty() && !is_mut`
+# sends a whole-root shared capture to check_live and records NO loan, so the
+# widening DELETED the loan. Pinned as a pair —
+# fail/bc_captuple_elem_conflict (`let r = &mut t.0;` then `|| -> i64 { t.0 }`,
+# E0502, ADMITTED before and refused now) against
+# pass/bc_captuple_elem_disjoint. It also takes imported closures/
+# capture-disjoint-field-tuple-b156 off the branch `capshared` edits, which is
+# that mechanism's only measured cost (4/1 under rule 8) — so capshared can be
+# priced 4/0 next round.
+# Class C: 45 rows -> 42.
+# TOTAL 368
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -603,7 +650,6 @@ anonymous-region-in-apit--ctl-return-channel bck.C tests/imported/admit/borrowck
 augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments
 borrow-immutable-deref-box bck.B tests/imported/admit/borrowck/borrow-immutable-deref-box
 borrow-immutable-upvar-mutation-impl-trait bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait
-borrow-immutable-upvar-mutation bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation
 borrowck-access-permissions--b-mut-borrow-of-static bck.B tests/imported/admit/borrowck/borrowck-access-permissions--b-mut-borrow-of-static
 borrowck-access-permissions--c-mut-borrow-deref-box bck.B tests/imported/admit/borrowck/borrowck-access-permissions--c-mut-borrow-deref-box
 borrowck-and-init--r03 bck.NEW tests/imported/admit/borrowck/borrowck-and-init--r03
@@ -860,7 +906,6 @@ issue-52059-report-when-borrow-and-drop-conflict nllmoves.E tests/imported/admit
 issue-52086 nllmoves.B tests/imported/admit/nll/issue-52086
 issue-52113 nllmoves.R13 tests/imported/admit/nll/issue-52113
 issue-52663-span-decl-captured-variable nllmoves.C tests/imported/admit/nll/issue-52663-span-decl-captured-variable
-issue-53040 nllmoves.C tests/imported/admit/nll/issue-53040
 issue-53773 nllmoves.E tests/imported/admit/nll/issue-53773
 issue-54124 nllmoves.NEW-L1 tests/imported/admit/nll/issue-54124
 issue-54382-use-span-of-tail-of-block nllmoves.D tests/imported/admit/nll/issue-54382-use-span-of-tail-of-block
@@ -971,7 +1016,6 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 regions-proc-bound-capture lifereg.N1 tests/imported/admit/regions/regions-proc-bound-capture
 regions-ret-borrowed-1 lifereg.C tests/imported/admit/regions/regions-ret-borrowed-1
 regions-ret-borrowed lifereg.C tests/imported/admit/regions/regions-ret-borrowed
-regions-return-ref-to-upvar-issue-17403 lifereg.C tests/imported/admit/regions/regions-return-ref-to-upvar-issue-17403
 regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-bound
 regions-steal-closure lifereg.D tests/imported/admit/regions/regions-steal-closure
 regions-trait-object-subtyping lifereg.NEW-N2 tests/imported/admit/regions/regions-trait-object-subtyping

@@ -1,0 +1,18 @@
+// The Fn-family half. `closure_kind_` is written from `mut_captures`, so a
+// closure whose only mutation is `set(&mut y)` was classified `Fn` and its
+// capture was carried BY VALUE. MEASURED on the unpatched tree: `y=0` — the
+// write was lost even though the closure is passed to an `FnMut` bound that
+// should have made it by-reference. The refusing twin of this program is
+// imported borrowck/borrow-immutable-upvar-mutation, the same body under an
+// `Fn` bound (rustc E0596), which is a fail fixture as of this round.
+package bc_capaddrmut_fnmut_bound;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn take_fnmut<F: FnMut()>(mut f: F) { f(); }
+fn set(x: &mut i64) { *x = 5i64; }
+fn main() -> i32 {
+    let mut y: i64 = 0i64;
+    take_fnmut(|| { set(&mut y); });
+    printi("y=%ld\n", y);
+    return 0i32;
+}

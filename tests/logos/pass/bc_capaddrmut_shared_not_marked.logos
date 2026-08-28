@@ -1,0 +1,19 @@
+// THE ABUSE DIRECTION of the AddrOf capture-mutability read: the mark is
+// conditional on the EXPRESSION'S TYPE being `MutRef`, and this program is what
+// says the condition may not be dropped. Two closures each capture `x` through
+// `&x`; both loans are SHARED and coexist. An arm that marked every `EAddrOf`
+// mut — the one-line "simplification" — refuses this with E0499, and the value
+// below is what proves both closures really read the same `x`.
+package bc_capaddrmut_shared_not_marked;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn peek(p: &i64) -> i64 { return *p; }
+fn main() -> i32 {
+    let x: i64 = 3i64;
+    let f = || -> i64 { return peek(&x); };
+    let g = || -> i64 { return peek(&x); };
+    let a: i64 = f();
+    let b: i64 = g();
+    printi("s=%ld\n", a + b);
+    return 0i32;
+}

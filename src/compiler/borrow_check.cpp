@@ -3728,6 +3728,23 @@ private:
             // by the expression code). A genuine fn pointer takes `Call`'s
             // argument rule instead — its result can only borrow what was
             // passed in — which is G1's answer in the loan channel.
+            //
+            // ⚠ EVERY CAPTURE, NOT THE ONES THE RESULT DERIVES FROM, AND THAT
+            // IS AN OVER-REFUSAL WITH A MEASUREMENT. The Call arm two cases up
+            // asks a FlowSummary which operands reach the result; a closure
+            // body is never summarised, so this arm names them all. MEASURED
+            // 2026-08-28 as a one-variable pair, both refused "cannot borrow
+            // 'x' as shared: already mutably borrowed":
+            //   |y: &mut i64| -> &mut i64 { set(&mut x); return y; }
+            //   |y: &mut i64| -> &mut i64 { x = 2i64;   return y; }
+            // legal Rust — the result derives from the PARAM — and the second
+            // form is refused on the unpatched tree too, so the AddrOf
+            // capture-mutability read that landed the same day WIDENED this
+            // population rather than creating it. It is also the channel that
+            // buys imported nll/issue-53040 and regions/regions-return-ref-to-
+            // upvar-issue-17403, whose upstream reason is E0521 escape and not
+            // this. The repair is a flow summary for a closure BODY; it is its
+            // own round and it is not priced yet.
             case EC::ClosureCall:
             case EC::FnPtrCall: {
                 TypeRef rt = e.type(pool);
@@ -9562,9 +9579,17 @@ private:
                     // branch protected. The single cost is a TUPLE, and it is
                     // here for a different defect: the capture SCANNER's
                     // TupleIndex arm never asks `try_path`, which WAS taught
-                    // tuple indices. See PROBE captuple in sema_expr.cpp. The
-                    // policy is real; this branch is not what implements it —
-                    // capture-path precision is.
+                    // tuple indices. The policy is real; this branch is not
+                    // what implements it — capture-path precision is.
+                    // ⚠ THAT PRECISION LANDED 2026-08-28 (sema_expr.cpp's
+                    // TupleIndex arm now asks `try_path`), so b156 no longer
+                    // reaches `shared_whole` and capshared's only measured cost
+                    // is retired. RE-PRICED on the 368-row ledger after the
+                    // landing: 28 fires, CEILING 4 vs COST 0 — the same
+                    // four rows named above, and b156 no longer among the
+                    // costs, which is the prediction confirmed by measurement
+                    // rather than by argument. Rule 8 says re-price again before
+                    // funding it; this number is a measurement with a date.
                     if (logos::probe::on("capshared") && shared_whole)
                         shared_whole = false;   // fall to record_borrow
                     if (shared_whole) {

@@ -1,0 +1,19 @@
+// The twin of pass/bc_capaddrmut_call_and_use with TWO closures, each taking
+// `&mut x` and each called before the next is made. MEASURED on the unpatched
+// tree: `x=1` — BOTH writes were lost, not one, so the defect is per-capture
+// and not a one-off aliasing accident. It is also the legality half: two mut
+// captures whose loans do not overlap must still admit, which is what makes
+// this the pair of fail/bc_capaddrmut_shared_use_conflict.
+package bc_capaddrmut_two_sequential;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn bump(p: &mut i64) { *p = *p + 1i64; }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let f = || { bump(&mut x); };
+    f();
+    let g = || { bump(&mut x); };
+    g();
+    printi("x=%ld\n", x);
+    return 0i32;
+}

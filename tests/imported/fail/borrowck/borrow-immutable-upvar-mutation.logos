@@ -1,6 +1,11 @@
 // rustc borrowck/borrow-immutable-upvar-mutation.rs — upstream E0596 cannot borrow (Fn upvar)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: fail — CLOSED 2026-08-28 by the AddrOf capture-mutability read.
+// `set(&mut y)` lowers to EAddrOf, which carries no `is_mut` field, so the
+// capture scanner recorded y SHARED and `closure_kind_` stayed Fn. The
+// mutability was on the EXPRESSION'S TYPE all along. Refuses now for the
+// UPSTREAM REASON: rustc E0596, an `Fn` bound over a closure that mutates a
+// capture.
 package borrow_immutable_upvar_mutation;
 fn to_fn<F: Fn()>(f: F) -> F { return f; }
 fn set(x: &mut i64) { *x = 5i64; }

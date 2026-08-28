@@ -1,0 +1,19 @@
+// ⚠ THE WIDENING WAS NOT THE CONSERVATIVE DIRECTION, AND THIS IS THE PROGRAM
+// THAT SAYS SO. `shared_whole = rel.empty() && !is_mut` sends a whole-root
+// SHARED capture to check_live and records NO loan, so widening the capture of
+// `t.0` to whole-`t` did not make the loan bigger — it deleted it, and this
+// E0502 was ADMITTED. MEASURED on the unpatched tree: rc 0. Teaching the
+// scanner arm to ask `try_path` gives the capture the path "0", which
+// record_borrow compares against the live `&mut t.0`.
+// The pair is pass/bc_captuple_elem_disjoint: a capture of `t.0` beside a write
+// to `t.1` must still admit, so this is not bought by re-widening.
+package bc_captuple_elem_conflict;
+fn main() -> i32 {
+    let mut t: (i64, i64) = (1i64, 2i64);
+    let r: &mut i64 = &mut t.0;
+    let f = || -> i64 { return t.0; };
+    let n: i64 = f();
+    *r = 7i64;
+    if n != 1i64 { return 1i32; }
+    return 0i32;
+}
