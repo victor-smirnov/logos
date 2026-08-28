@@ -788,10 +788,15 @@ PIN = {
     # RE-DERIVED BY DIRECT LISTING: ls tests/logos/pass/*.logos -> 2432, glob
     # unchanged at 191, so 2432 = 191 + 2241. Neither matches `wql_*`/`deem_*`,
     # neither declares a container family or a `direct` output form, so `glob`
-    # and the DOOR counts are unmoved.)
-    'corpus'            : 2432,
+    # and the DOOR counts are unmoved.
+    # 2026-08-28: +1 → 2433 = 191 + 2242. bc_recvmutbind_pattern_mut_binding,
+    # the hand-written counter-example that DECLINED the `recvmutbind`
+    # mechanism after it priced CEILING 1 / COST 0 on the whole corpus. Same
+    # reasoning as above: no `wql_*`/`deem_*` match, no container family, no
+    # `direct` output form, so `glob` and the DOOR counts are unmoved.)
+    'corpus'            : 2433,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2241,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2242,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

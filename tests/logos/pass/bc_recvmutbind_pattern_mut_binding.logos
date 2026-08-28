@@ -1,0 +1,36 @@
+// WHY THIS FIXTURE EXISTS — it is the counter-example that DECLINED a priced
+// mechanism, and without it the decline is a sentence nobody can re-run.
+//
+// `recvmutbind` (borrow_check.cpp, check_recv_conflict) priced at CEILING 1 /
+// COST 0 on the whole acceptance corpus: one ledger row
+// (borrowck_many-mutable-borrows, E0596) for no refused legal program. COST 0
+// is not a safety claim — a corpus refuses only programs it CONTAINS — and
+// this program, written by hand, is the one it did not contain.
+//
+// `mut` written in a PATTERN is legal Rust and compiles here, but it never
+// reaches the borrow checker's `is_mut_binding`: declare_pat_bindings calls
+// declare_var, and the LIR pattern schema carries no by-value-`mut` key
+// (IS_MUT is PatRefBind/PatRefPat only; BIND_MODES 0 means "by value" whether
+// or not `mut` was written). Arming the probe refused this program with
+// "cannot borrow 'v' as mutable: not declared as mut".
+//
+// ⚠ THE SAME OVER-REFUSAL IS ALREADY LANDED AT THE OTHER RECEIVER SPELLING:
+// `match e { E::A(mut f) => { f.bump(); } }` over a STRUCT receiver, and
+// `... => { let r: &mut Foo = &mut f; }`, are refused TODAY by the
+// AddrOfTemp/AddrOf mut-binding arms. They are not landed as fail fixtures
+// here because those refusals are WRONG, not because they are absent. The
+// prerequisite for both — the row and the repair — is a per-binding
+// by-value-`mut` flag parallel to BINDINGS, set by sema.
+package bc_recvmutbind_pattern_mut_binding;
+use logos.mem.collections.vec;
+
+enum E { A(Vec<i64>), B }
+
+fn main() -> i32 {
+    let e: E = E::A(Vec::<i64>::new());
+    match e {
+        E::A(mut v) => { v.push(1i64); }
+        E::B => {}
+    }
+    return 0i32;
+}

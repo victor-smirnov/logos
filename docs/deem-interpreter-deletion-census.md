@@ -4538,8 +4538,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # PREDICTED +4/0/−4 from the row count before the pin was read, and read as
 # that. `# TOTAL` 393 → 389, re-derived by direct listing
 # (`ls tests/imported/admit/*/*.logos | wc -l`).
-REGISTRY-ALL         8606
-REGISTRY-NOIMPORTED  4437
+# 2026-08-28 (`recvmutbind` DECLINED — one new native pass fixture, no row
+# delta. The mechanism priced CEILING 1 / COST 0 on the whole acceptance
+# corpus and was refuted by a HAND-WRITTEN counter-example, which is landed as
+# tests/logos/pass/bc_recvmutbind_pattern_mut_binding.logos so the decline is
+# re-runnable rather than a sentence:
+#   ALL          8606 → 8607   +1  one pass fixture
+#   NOIMPORTED   4437 → 4438   +1  it is native, so it is not `imported`
+#   TIERCOMMIT    437 →  437    0  a pass fixture declares no tier_commit label
+# PREDICTED +1/+1/0 before the pin was read, and read as that.
+REGISTRY-ALL         8607
+REGISTRY-NOIMPORTED  4438
 REGISTRY-TIERCOMMIT  437
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

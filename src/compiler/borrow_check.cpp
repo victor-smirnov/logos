@@ -5759,16 +5759,40 @@ private:
         // refused by take_borrow_whole_'s binding-mut arm; the byte-equivalent
         // over a bare-place receiver (`let v: Vec<i64> = Vec::new(); v.push(1);`)
         // compiles. check_recv_conflict has no binding-mut arm at all.
-        // ── MEASURED 2026-08-28: 207 fires over 393 ledger compiles (site
-        // population 111,282 arrivals in 8060 runs), CEILING 1, COST 0 —
-        // exactly the predicted row, borrowck_many-mutable-borrows (E0596).
+        // ── MEASURED 2026-08-28 (re-priced on this tree): 205 fires over 389
+        // ledger compiles, CEILING 1, COST 0 — exactly the predicted row,
+        // borrowck_many-mutable-borrows (E0596).
         // ⚠ THE PREDICTED HAZARD DID NOT MATERIALISE. The aiming report
         // expected a LARGE cost, on the reading that `skip_mut_binding_check`'s
         // comment makes the bare-receiver permissiveness load-bearing for the
         // stdlib (`arc.deref_mut()` on a non-mut Arc binding). Over 807 bc/pass
-        // tests plus three spec dirs it costs nothing. That is a corpus
-        // reading, not a proof: the exemption analysis still owes hand-written
-        // stdlib-shaped counter-examples.
+        // tests plus three spec dirs it costs nothing.
+        //
+        // ⛔ DECLINED 2026-08-28, AND NOT BY THE CORPUS — BY A HAND-WRITTEN
+        // COUNTER-EXAMPLE, which is the only thing a COST 0 has ever been
+        // refuted by. `tests/logos/pass/bc_recvmutbind_pattern_mut_binding.logos`
+        //     match e { E::A(mut v) => { v.push(1i64); }, E::B => {} }
+        // is legal Rust, compiles today, and this arm REFUSES it — the probe
+        // fired once and reported "cannot borrow 'v' as mutable: not declared
+        // as mut". `mut` written in a PATTERN never reaches `is_mut_binding`:
+        // declare_pat_bindings calls declare_var and the LIR pattern schema has
+        // no by-value-`mut` key at all (IS_MUT is PatRefBind/PatRefPat only;
+        // BIND_MODES 0 means "by value" whether or not `mut` was written). So
+        // the binding-mut question cannot be asked correctly at ANY spelling
+        // until sema carries that bit.
+        //
+        // ⚠ AND THE SAME OVER-REFUSAL IS ALREADY LANDED AT THE OTHER SPELLING.
+        // Measured beside it: `match e { E::A(mut f) => { f.bump(); } }` over a
+        // struct receiver, and `... => { let r = &mut f; }`, are refused TODAY
+        // by the AddrOfTemp/AddrOf mut-binding arms. Arming this probe would
+        // not introduce a new class of wrongness; it would spread an existing
+        // one to the last receiver spelling where such programs still compile.
+        // That is still a legal-program refusal, so the row is not bought.
+        // THE PREREQUISITE, named so the next round does not re-derive it: a
+        // per-binding by-value-`mut` flag on PatVariantData/PatWild, parallel
+        // to BINDINGS, set by sema and read by declare_pat_bindings. With that
+        // bit this arm is a one-liner again AND the two AddrOf arms stop
+        // refusing legal programs — a strictly bigger prize than one row.
         if (logos::probe::on("recvmutbind") && is_mut &&
             !sit->is_mut_binding && !param_names_.count(bp.root) &&
             !(bp.root_type && is_ref_kind(bp.root_type))) {
