@@ -1,0 +1,17 @@
+// E0510 — THE GUARD'S LOAN DIES WITH THE GUARD.
+// The borrow exists only while the guard runs: the arm BODY may mutate the
+// matched place, and so may every statement after the match. A leaked
+// `__guard_scrut` loan would refuse all three writes below, which is how this
+// fixture reads a release bug — the failure mode a holder-keyed release has
+// had before in this file.
+package bc_guard_loan_released_admit;
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut p: P = P { a: 1i64, b: 2i64 };
+    let mut o: i64 = 0i64;
+    match p.a { 1i64 if p.a == 1i64 => { p.a = 3i64; o = 1i64; } _ => { o = 0i64; } }
+    p.a = 4i64;
+    let r: &mut P = &mut p;
+    r.b = 5i64;
+    return (o - 1i64 + p.a - 4i64 + p.b - 5i64) as i32;
+}

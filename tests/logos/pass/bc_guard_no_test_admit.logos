@@ -1,0 +1,16 @@
+// E0510 EXEMPTION 1 — A MATCH THAT COMPARES NOTHING BORROWS NOTHING.
+// A guard runs with the scrutinee borrowed, but what rustc borrows is the set
+// of places the patterns READ to choose an arm. Every arm here is a wildcard:
+// nothing is compared, no arm has been chosen on the strength of a value, and
+// assigning the scrutinee inside the guard invalidates no decision. Legal, and
+// the whole-place version of the rule (the `guardscrutloan` ceiling probe)
+// REFUSED it — this fixture is why `collect_tested_paths` exists.
+// PAIR: fail/bc_guard_assign_scrut_fail (the same assignment under a pattern
+// that DOES compare, which must refuse).
+package bc_guard_no_test_admit;
+fn main() -> i32 {
+    let mut x: i64 = 3i64;
+    let mut o: i64 = 0i64;
+    match x { _ if { x = 9i64; false } => { o = 1i64; } _ => { o = 2i64; } }
+    return (o - 2i64 + x - 9i64) as i32;
+}

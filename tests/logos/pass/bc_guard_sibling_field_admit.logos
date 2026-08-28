@@ -1,0 +1,17 @@
+// E0510 EXEMPTION 2 — THE BORROW IS PER-PLACE, NOT PER-SCRUTINEE.
+// The pattern compares `w.e`, so that is what the guard holds; `w.n` is a
+// sibling the match never read, and writing it decides nothing. rustc's fake
+// borrow is shallow for the same reason. A whole-place loan on `w` refuses
+// this (measured), which would have bought ledger rows with a legal-program
+// refusal.
+// PAIR: fail/bc_guard_tested_field_write_fail — the same program writing the
+// field the pattern DID compare.
+package bc_guard_sibling_field_admit;
+enum E { A, B }
+struct W { e: E, n: i64 }
+fn main() -> i32 {
+    let mut w: W = W { e: E::A, n: 1i64 };
+    let mut o: i64 = 0i64;
+    match w { W { e: E::A, n: _ } if { w.n = 5i64; true } => { o = 1i64; } _ => { o = 2i64; } }
+    return (o - 1i64 + w.n - 5i64) as i32;
+}

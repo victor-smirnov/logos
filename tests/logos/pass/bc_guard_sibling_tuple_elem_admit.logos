@@ -1,0 +1,12 @@
+// E0510 EXEMPTION 2, TUPLE SPELLING. The pattern compares element 0, so the
+// guard holds `t.0`; writing `t.1` decides nothing. The tuple pattern's `subs`
+// are arity-aligned (sema pads `..`), so the ordinal IS the index and the path
+// segment is the one `Code::TupleWrite` spells — this fixture is what proves
+// that alignment, since a wrong index would silently protect the wrong element.
+package bc_guard_sibling_tuple_elem_admit;
+fn main() -> i32 {
+    let mut t: (i64, i64) = (1i64, 2i64);
+    let mut o: i64 = 0i64;
+    match t { (1i64, _) if { t.1 = 7i64; true } => { o = 1i64; } _ => { o = 0i64; } }
+    return (o - 1i64 + t.1 - 7i64) as i32;
+}

@@ -1,0 +1,16 @@
+// E0510 — ASSIGNING THE MATCHED PLACE INSIDE A GUARD.
+// The first arm compared `x`, so an arm has been provisionally chosen on the
+// strength of that value; a guard that then writes `x` makes the choice a lie.
+// rustc raises a fake shared borrow of the compared places over every guard
+// for exactly this. logosc raised one only where a `ref`/`ref mut` binding
+// happened to exist, so this compiled — seven bc_admits.ledger rows were this
+// defect (2026-08-28, 400 -> 393).
+// PAIR: pass/bc_guard_no_test_admit — the same assignment under a match that
+// compares nothing, which must stay admitted.
+package bc_guard_assign_scrut_fail;
+fn main() -> i32 {
+    let mut x: i64 = 3i64;
+    let mut o: i64 = 0i64;
+    match x { 3i64 if { x = 9i64; false } => { o = 1i64; } _ => { o = 2i64; } }
+    return (o - 2i64) as i32;
+}

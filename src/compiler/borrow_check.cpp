@@ -968,6 +968,20 @@ struct RecordFlags {
                                     // receiver arms)
     bool ref_capacity     = false;  // reborrow: draw on the REFERENCE's
                                     // capacity, not the binding's mutness
+    // E0510 — the loan is COMPILER-RAISED, not written by the programmer: a
+    // match guard's implicit shared borrow of the scrutinee. It must be
+    // recordable over a place the user has ALREADY borrowed, because the two
+    // borrows are the same match: `match v { None => …, ref mut foo if k > 0
+    // => … }` is legal Rust, and a loan that REPORTS at its own record site
+    // refuses it ("cannot borrow 'v' as shared: already mutably borrowed" —
+    // measured, hand-written counter-example h19). So an implicit loan that
+    // conflicts at the record is dropped SILENTLY: nothing is recorded and
+    // nothing is said. The refusals it exists for all happen at a USE inside
+    // the guard, never here.
+    // ⚠ PERMISSIVE BY CONSTRUCTION, and that is the sound direction — the
+    // price is that `match-guards-always-borrow`, whose guard mutates through
+    // its own `ref mut` binding, stays admitted (see the guard site).
+    bool implicit         = false;
 };
 
 struct MutBindBypass {
@@ -3715,12 +3729,14 @@ private:
                            std::string path,
                            bool is_mut, uint32_t line,
                            TypeRef root_type = nullptr,
-                           const std::string& holder = "") {
+                           const std::string& holder = "",
+                           bool implicit = false) {
         auto it = var_find(target_slot, target);
         if (it == nullptr) return;
         std::string self_disp = fmt_path(target, path);
         // Whole-value borrows still block everything.
         if (it->mut_borrowed) {
+            if (implicit) return;   // RecordFlags::implicit — drop, do not say
             report(line, std::format(
                 "cannot borrow '{}': '{}' is already mutably borrowed",
                 self_disp, target));
@@ -3846,6 +3862,7 @@ private:
         }
         for (auto& p : it->mut_field_borrows) {
             if (paths_overlap(path, p)) {
+                if (implicit) return;   // RecordFlags::implicit — see above
                 report(line, std::format(
                     "cannot borrow '{}': '{}' is already mutably borrowed",
                     self_disp, fmt_path(target, p)));
@@ -3868,10 +3885,12 @@ private:
     void take_borrow_whole_(const std::string& target, uint32_t target_slot,
                      bool is_mut, uint32_t line,
                      const std::string& holder = "",
-                     bool skip_mut_binding_check = false) {
+                     bool skip_mut_binding_check = false,
+                     bool implicit = false) {
         auto it = var_find(target_slot, target);
         if (it == nullptr) return;  // unknown / extern
         if (it->moved) {
+            if (implicit) return;   // RecordFlags::implicit — drop, do not say
             report(line, std::format(
                 "cannot borrow moved value '{}'", target));
             return;
@@ -3959,12 +3978,14 @@ private:
             it->mut_borrowed = true;
         } else {
             if (it->mut_borrowed) {
+                if (implicit) return;   // RecordFlags::implicit — see its note
                 report(line, std::format(
                     "cannot borrow '{}' as shared: already mutably borrowed", target));
                 return;
             }
             // B83: a mut field borrow blocks whole-value shared borrows.
             if (!it->mut_field_borrows.empty()) {
+                if (implicit) return;   // RecordFlags::implicit — see its note
                 report(line, std::format(
                     "cannot borrow '{}' as shared: field of '{}' is mutably borrowed",
                     target, target));
@@ -4079,13 +4100,13 @@ private:
         }
         if (whole) {
             take_borrow_whole_(bp.root, bp.root_slot, is_mut, line, holder,
-                               fl.skip_mut_binding);
+                               fl.skip_mut_binding, fl.implicit);
         } else {
             assert(!bp.path.empty() &&
                    "record_borrow: the field tail may never receive an empty "
                    "path — no consumer checks mut_field_borrows[\"\"]");
             take_field_borrow_path_(bp.root, bp.root_slot, bp.path, is_mut,
-                                    line, bp.root_type, holder);
+                                    line, bp.root_type, holder, fl.implicit);
         }
     }
 
@@ -4902,6 +4923,115 @@ private:
             case PC::RefPat:
                 if (auto in = PatRefPatView{pr}.inner()) each_pat_binding(in, f);
                 return;
+        }
+    }
+
+    // ── E0510 — THE PLACES A MATCH ACTUALLY TESTS ─────────────────────────
+    //
+    // A match guard runs with the scrutinee borrowed, so a guard may not
+    // assign to it, take it by `&mut`, or move it (rustc E0510 / E0505). The
+    // borrow rustc raises is a FAKE borrow of the places the match READS to
+    // choose an arm — not of the scrutinee as a whole — and it is SHALLOW: a
+    // shallow borrow of `a.b` does not conflict with a mutable borrow of
+    // `a.b.c`. Both halves were bought with hand-written counter-examples that
+    // the crude `guardscrutloan` probe (a whole-place loan, unconditional)
+    // REFUSED although they are legal:
+    //   `match p { _ if { p.b = 5; true } => … }`            — nothing tested
+    //   `match p { P { a: 1, b: _ } if { p.b = 7; … } => … }` — sibling field
+    //   `match t { (1, _) if { t.1 = 7; … } => … }`           — sibling elem
+    // So this walk answers the narrow question rustc asks: WHICH PATHS under
+    // the scrutinee place does some pattern compare? `out` is that set, as
+    // root-relative dotted paths (the spelling `FieldWrite`/`TupleWrite` and
+    // `fmt_path` already use), and it is EMPTY for a match that tests nothing
+    // — which is the exemption the first counter-example above names.
+    //
+    // The union over ALL arms is what a guard holds, not the arm's own
+    // pattern: `match b { B { n: 0 } => …, _ if eat(b) => … }` is upstream
+    // E0382 precisely because the FIRST arm read `b.n`, and the guard that
+    // moves `b` is on the second.
+    //
+    // ⚠ A STRUCT PATTERN WITH A *LITERAL* FIELD NEVER REACHES THE `Struct`
+    // ARM AT ALL, and that is why `issue-27282-move-match-input-into-guard`
+    // (`match b { B { n: 0 } => …, _ if eat(b) => … }`) STAYS ADMITTED. sema
+    // rewrites `B { n: 0 }` into a `_`-binding to a synth name plus a
+    // synthesised `__sfld_n_N == 0` GUARD on the arm (sema_stmt.cpp, the
+    // `is_lit && current_pat_refutable_guards_` branch — the same idiom as a
+    // string tuple element), so by the time this walk runs the pattern
+    // compares nothing and the arm carries a guard nobody wrote. MEASURED, not
+    // inferred: four hand-written programs over that shape (`b.n = 5`,
+    // `&mut b.n`, whole-`b` assign, `eat(b)`) are all admitted, and the
+    // collector prints `tested=0` for each. The decision that guard makes is
+    // taken on a COPY the lowering made before the guard ran, so the hole is
+    // narrower than it looks — but it is a hole, and it belongs to whoever
+    // widens this to the places a SYNTHESISED guard reads.
+    // The arm is nonetheless LIVE and load-bearing for the sub-patterns that
+    // survive lowering (`W { e: E::A, n: _ }`): the loan lands on `w.e`, the
+    // guard's `w.e = E::B` is refused, and its sibling `w.n = 5` is ADMITTED
+    // under the same loan. Both directions measured by hand.
+    // ⚠ SLICE PATTERNS DELIBERATELY TEST NOTHING HERE. Their read is a LENGTH
+    // test on the whole array place, and the writes a guard could then make
+    // (`a[0] = …`) are deeper projections that our index algebra cannot tell
+    // apart from the borrowed place — refusing them would be exactly the
+    // legal-program refusal this walk exists to avoid. Under-refusing is the
+    // sound direction; no ledger row asks for it.
+    static void add_tested_path_(std::vector<std::string>& out,
+                                 const std::string& p) {
+        if (std::find(out.begin(), out.end(), p) == out.end()) out.push_back(p);
+    }
+    static std::string join_tested_path_(const std::string& base,
+                                         std::string_view seg) {
+        if (base.empty()) return std::string(seg);
+        return base + "." + std::string(seg);
+    }
+    void collect_tested_paths(lir_view::PatRef pr, const std::string& base,
+                              std::vector<std::string>& out) const {
+        using namespace lir_view;
+        using PC = lir_schema::pat::Code;
+        if (!pr) return;
+        switch (pr.kind()) {
+            // A binding (`x`, `_`, `ref mut x`) compares nothing.
+            case PC::Wild: case PC::RefBind:
+                return;
+            // A discriminant / literal / range comparison READS `base`.
+            case PC::Variant: case PC::VariantData: case PC::Int:
+            case PC::Bool:    case PC::Range:
+                add_tested_path_(out, base);
+                return;
+            case PC::Slice:   // see the note above — length test, not recorded
+                return;
+            case PC::RefPat:  // `&pat`: our place algebra roots at the
+                              // reference variable, so the base is unchanged
+                collect_tested_paths(PatRefPatView{pr}.inner(), base, out);
+                return;
+            case PC::At:
+                collect_tested_paths(PatAtView{pr}.sub(), base, out);
+                return;
+            case PC::Or:
+                PatOrView{pr}.each_alt([&](PatRef a) {
+                    collect_tested_paths(a, base, out);
+                });
+                return;
+            case PC::Struct:
+                PatStructView{pr}.each_field([&](PatFieldBindingView fb) {
+                    // A field with no sub-pattern is a plain binding.
+                    if (auto sub = fb.sub())
+                        collect_tested_paths(
+                            sub, join_tested_path_(base, fb.field_name()), out);
+                });
+                return;
+            case PC::Tuple: {
+                // `subs` is ARITY-ALIGNED (sema pads `..` with `_` entries to
+                // keep the fixed layout), so the ordinal IS the tuple index —
+                // the same segment `Code::TupleWrite` spells with
+                // `std::to_string(index)`.
+                size_t i = 0;
+                PatTupleView{pr}.each_sub([&](PatRef sub) {
+                    collect_tested_paths(
+                        sub, join_tested_path_(base, std::to_string(i)), out);
+                    ++i;
+                });
+                return;
+            }
         }
     }
 
@@ -11622,6 +11752,47 @@ private:
                 // only) into each subsequent arm's start state, so a second arm
                 // whose guard re-moves the value is caught (Rust E0382). Bodies
                 // stay mutually exclusive — only guard-caused moves accumulate.
+                // ── E0510 — A MATCH GUARD RUNS WITH THE SCRUTINEE BORROWED
+                // A guard is evaluated AFTER an arm has been provisionally
+                // chosen and BEFORE its body runs, so a guard that assigns to
+                // the matched place, takes it by `&mut`, or moves it makes the
+                // choice already taken a lie. rustc raises a fake shared borrow
+                // over the guard for exactly that; logosc raised one only where
+                // a `ref`/`ref mut` BINDING existed, so
+                // `match x { Some(_) if { x = None; false } => … }` compiled.
+                //
+                // What is borrowed is `collect_tested_paths` — the places the
+                // patterns COMPARE, not the scrutinee as a whole — because the
+                // whole-place version refuses legal programs; its note carries
+                // the three counter-examples. The union over all arms is taken
+                // ONCE here, not per arm: a guard holds the whole match's
+                // reads, including the arms above it.
+                //
+                // ⚠ AN INDEXED SCRUTINEE IS EXEMPT. `match a[i] { … }` borrows
+                // an ELEMENT, and our place algebra cannot tell `a[j]` from it:
+                // the whole-array loan our loan channel would raise refuses
+                // `match a[0] { 1 if { a[1] = 7; true } => … }`, which is legal.
+                // Measured by hand, not inferred.
+                BorrowPlace guard_bp{};
+                std::vector<std::string> guard_tested;
+                {
+                    bool any_guard = false;
+                    v.each_arm([&](EMatchArmRef arm) {
+                        if (arm.guard()) any_guard = true;
+                    });
+                    if (any_guard) {
+                        guard_bp = extract_borrow_place(v.scrut(), pool);
+                        if (guard_bp.root.empty() || guard_bp.index_in_chain) {
+                            guard_bp = BorrowPlace{};
+                        } else {
+                            v.each_arm([&](EMatchArmRef arm) {
+                                collect_tested_paths(arm.pat(), guard_bp.path,
+                                                     guard_tested);
+                            });
+                            if (guard_tested.empty()) guard_bp = BorrowPlace{};
+                        }
+                    }
+                }
                 StateMap guard_acc = saved_s;
                 v.each_arm([&](EMatchArmRef arm) {
                     any_arm = true;
@@ -11682,58 +11853,35 @@ private:
                     propagate_pat_reborrows(arm.pat(), v.scrut());        // D1 r13
                     propagate_pat_borrows(arm.pat(), v.scrut(), ln);
                     StateMap before_guard = states_;
-                    // ── CEILING PROBE `guardscrutloan` — in Rust a match guard
-                    // runs with the scrutinee implicitly SHARED-borrowed for
-                    // the whole match, so an assignment to it (or an `&mut` use
-                    // of it) inside a guard is E0510. logosc raises a loan on
-                    // the scrutinee only when a `ref`/`ref mut` BINDING exists:
-                    // `match x { Some(ref y) => { x = None; *y } … }` refuses,
-                    // `match x { Some(_) if { x = Option::None; false } => {} … }`
-                    // compiles. The guard itself deposits nothing. An arm WITH
-                    // a guard is reached 258 times in 8060 runs (the enclosing
-                    // arm loop is 21,178,908 — the wrong number for this
-                    // question). Synthetic holder so the release is
-                    // deterministic; a leaked loan would refuse every later use
-                    // of the scrutinee and read as a huge COST.
-                    // ── MEASURED 2026-08-28. 9 fires over 400 ledger
-                    // compiles, CEILING 8, COST 0:
-                    //   nll_issue-27282-move-match-input-into-guard
-                    //   nll_issue-27282-mutate-before-diverging-arm-1
-                    //   nll_issue-27282-mutate-before-diverging-arm-2--c-guard-mutate-noclosure
-                    //   nll_issue-27282-mutate-before-diverging-arm-2--guard-mutate
-                    //   nll_issue-27282-mutate-before-diverging-arm-3
-                    //   nll_match-guards-always-borrow
-                    //   nll_match-guards-partially-borrow--b
-                    //   nll_match-guards-partially-borrow--t25
-                    // ⚠ COST 0 IS NOT A SAFETY CLAIM, so the exemptions were
-                    // HAND-WRITTEN: 12 legal programs, each compiled with the
-                    // probe armed AND its fire log read so none of them is a
-                    // silence — a guard reading a sibling field of the
-                    // scrutinee's root, a guard WRITING a disjoint field
-                    // (`match p.x { 1 if { p.y = 5; true } => … }`), a guard
-                    // calling `&mut self` on an unrelated struct, a guard
-                    // calling `&self` on the scrutinee's own root, a
-                    // non-place scrutinee (`match f()`), a deref scrutinee
-                    // (`match *r`), a nested guarded match, a guarded match in
-                    // a loop, and a `&mut` of the scrutinee taken AFTER the
-                    // match (the release check — a leaked loan would have
-                    // shown here). All 12 admitted, 1-2 fires each. The abuse
-                    // direction confirmed too: `match x { 3 if { x = 9; false }
-                    // => … }` is admitted today and refused under the probe
-                    // with "cannot assign to 'x' because it is borrowed".
-                    // THE ONE MECHANISM IN THIS BATCH WORTH FUNDING.
                     if (auto g = arm.guard()) {
-                        bool gl = logos::probe::on("guardscrutloan");
-                        BorrowPlace gbp{};
-                        if (gl) {
-                            gbp = extract_borrow_place(v.scrut(), pool);
-                            if (!gbp.root.empty())
-                                record_borrow(gbp, /*is_mut=*/false, ln,
-                                              "__guard_scrut");
+                        // ⚠ THE LOAN LIVES IN ITS OWN SCOPE FRAME, AND THAT IS
+                        // THE ONLY RELEASE THAT WORKS. `release_borrows_held_by`
+                        // is MUT-ONLY by a measured decision recorded at its
+                        // definition (a shared loan is a COUNTER that
+                        // merge_loans raises across a loop back edge with no
+                        // record to release), so calling it here was a silent
+                        // no-op: the guard's loan survived into the arm BODY
+                        // and refused `1 if … => { p.a = 3; }` — the arm's own
+                        // legal write to the place it matched on. Caught by
+                        // pass/bc_guard_loan_released_admit, which exists for
+                        // exactly this failure. push/pop_scope releases a
+                        // SHARED count correctly; `__guard_scrut` is declared
+                        // in no frame, so pop_scope's re-homing cannot keep it
+                        // alive either.
+                        push_scope();
+                        // The loan is IMPLICIT (RecordFlags): it may sit over
+                        // a place the arm's own `ref mut` binding already
+                        // holds, and a report AT the record would refuse a
+                        // legal guard.
+                        for (const auto& tp : guard_tested) {
+                            BorrowPlace bp = guard_bp;
+                            bp.path = tp;
+                            record_borrow(bp, /*is_mut=*/false, ln,
+                                          "__guard_scrut",
+                                          RecordFlags{.implicit = true});
                         }
                         visit(g, /*consuming=*/true, ln);
-                        if (gl && !gbp.root.empty())
-                            release_borrows_held_by("__guard_scrut");
+                        pop_scope();
                     }
                     // Fold this guard's NEW moves of outer bindings into the
                     // accumulator for the following arms' guards.
@@ -12842,6 +12990,30 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             std::optional<StateMap> merged_s;
             std::optional<ProvMap>  merged_p;
             StateMap guard_acc = saved_s;
+            // ── E0510 — SPELLING 2 OF THE GUARD LOAN. The rule is a property
+            // of a match GUARD, not of the syntactic position the match is
+            // written in, so it is installed at both spellings; the statement
+            // form (visit_stmt's Code::Match) carries the full note.
+            BorrowPlace guard_bp{};
+            std::vector<std::string> guard_tested;
+            {
+                bool any_guard = false;
+                v.each_arm([&](EMatchArmRef arm) {
+                    if (arm.guard()) any_guard = true;
+                });
+                if (any_guard) {
+                    guard_bp = extract_borrow_place(v.scrut(), pool);
+                    if (guard_bp.root.empty() || guard_bp.index_in_chain) {
+                        guard_bp = BorrowPlace{};
+                    } else {
+                        v.each_arm([&](EMatchArmRef arm) {
+                            collect_tested_paths(arm.pat(), guard_bp.path,
+                                                 guard_tested);
+                        });
+                        if (guard_tested.empty()) guard_bp = BorrowPlace{};
+                    }
+                }
+            }
             // Hoisted OUT of the arm loop deliberately: armed once per
             // MatchExpr, so the fire count reads "expression matches seen",
             // not "arms seen".
@@ -12887,7 +13059,19 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     propagate_pat_borrows(arm.pat(), v.scrut(), line);
                 }
                 StateMap before_guard = states_;
-                if (auto g = arm.guard()) visit(g, /*consuming=*/true, line);
+                if (auto g = arm.guard()) {
+                    // Own scope frame — see the statement spelling's note.
+                    push_scope();
+                    for (const auto& tp : guard_tested) {
+                        BorrowPlace bp = guard_bp;
+                        bp.path = tp;
+                        record_borrow(bp, /*is_mut=*/false, line,
+                                      "__guard_scrut",
+                                      RecordFlags{.implicit = true});
+                    }
+                    visit(g, /*consuming=*/true, line);
+                    pop_scope();
+                }
                 // ── CEILING PROBE `mexprguardacc` — visit_stmt's Code::Match
                 // carries a `guard_acc` that folds each guard's NEW moves of
                 // outer bindings into the next arm's start state (guards run
@@ -12903,8 +13087,13 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 // does NOT close, because it is the OTHER guard defect (an
                 // E0510 assignment, not a move) and belongs to
                 // `guardscrutloan`. The two guard mechanisms are genuinely
-                // two. Not funded on its own — 1 row — but it rides free in
-                // any round that funds `guardscrutloan`.
+                // two. Not funded on its own — 1 row — and NOT bundled when
+                // `guardscrutloan` was funded on 2026-08-28 either, although
+                // that round's report said it would "ride free": a second
+                // mechanism in the same change makes the row delta
+                // unattributable, and this one's row (a MOVE in a guard, not
+                // an assignment) is none of the seven that closed. Still 1
+                // row, still priced, still unspent.
                 if (gacc && arm.guard())
                     states_.for_each([&](uint32_t slot, std::string_view name, VarState& st) {
                         if (!st.moved || !saved_s.has_id(slot, name)) return;

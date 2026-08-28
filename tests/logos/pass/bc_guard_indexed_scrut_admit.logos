@@ -1,0 +1,14 @@
+// E0510 EXEMPTION 4 — AN INDEXED SCRUTINEE IS OUT OF THE RULE'S REACH.
+// `match a[0]` compares an ELEMENT, and the loan channel roots an indexed
+// place at the whole array: the refusal it would raise cannot tell `a[1]` from
+// `a[0]`, so the guard's write to a different element is rejected (measured
+// under the crude probe). Under-refusing here is the sound direction — no
+// ledger row asks for the indexed case, and refusing a legal program to buy
+// one is the trade this project does not make.
+package bc_guard_indexed_scrut_admit;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    let mut o: i64 = 0i64;
+    match a[0] { 1i64 if { a[1] = 7i64; true } => { o = 1i64; } _ => { o = 0i64; } }
+    return (o - 1i64 + a[1] - 7i64) as i32;
+}

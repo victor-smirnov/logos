@@ -1,0 +1,15 @@
+// E0510 — WRITING THE FIELD THE PATTERN COMPARED.
+// The refusing twin of pass/bc_guard_sibling_field_admit: same struct, same
+// guard shape, but the write lands on `w.e` — the place the pattern read to
+// choose this arm — instead of its sibling `w.n`. The pair is the whole point:
+// the rule is keyed on WHICH place the match compared, and a mechanism that
+// cannot tell the two apart either misses this or refuses the twin.
+package bc_guard_tested_field_write_fail;
+enum E { A, B }
+struct W { e: E, n: i64 }
+fn main() -> i32 {
+    let mut w: W = W { e: E::A, n: 1i64 };
+    let mut o: i64 = 0i64;
+    match w { W { e: E::A, n: _ } if { w.e = E::B; false } => { o = 1i64; } _ => { o = 2i64; } }
+    return (o - 2i64) as i32;
+}

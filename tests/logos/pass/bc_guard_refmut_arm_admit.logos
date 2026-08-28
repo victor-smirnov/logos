@@ -1,0 +1,21 @@
+// E0510 EXEMPTION 3 — AN IMPLICIT LOAN MAY NOT REFUSE AT ITS OWN RECORD SITE.
+// The `Option::None` arm compares the discriminant, so the guard on the next
+// arm holds `v` — but that arm's `ref mut foo` binding ALREADY holds `v`
+// mutably, and the two are the same match, not two borrows in conflict. The
+// guard here does nothing to `v`, so the program is legal; a loan that
+// reported on the way in refuses it ("cannot borrow 'v' as shared: already
+// mutably borrowed" — measured). Hence RecordFlags::implicit: record, or drop
+// silently, but never speak. The price is stated at the guard site: a guard
+// that mutates THROUGH such a binding stays admitted.
+package bc_guard_refmut_arm_admit;
+fn main() -> i32 {
+    let mut v: Option<i64> = Option::Some(4i64);
+    let k: i64 = 1i64;
+    let mut o: i64 = 0i64;
+    match v {
+        Option::None => { o = 0i64; }
+        ref mut foo if k > 0i64 => { o = 1i64; }
+        _ => { o = 2i64; }
+    }
+    return (o - 1i64) as i32;
+}

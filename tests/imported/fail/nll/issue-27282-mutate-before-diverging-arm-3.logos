@@ -1,6 +1,8 @@
 // rustc nll/issue-27282-mutate-before-diverging-arm-3.rs — upstream E0510
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.R11
+// shelf: fail — the hole CLOSED 2026-08-28 (E0510: a match guard runs with
+// the tested places of the scrutinee shared-borrowed). Was a bc_admits.ledger
+// row; the row is deleted and this is now held to the rule with the corpus.
 // port of tests/ui/nll/issue-27282-mutate-before-diverging-arm-3.rs (E0510)
 // a match GUARD may not mutably borrow the matched place
 package issue_27282_mutate_before_diverging_arm_3;

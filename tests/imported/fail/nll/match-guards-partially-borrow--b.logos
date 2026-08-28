@@ -1,6 +1,8 @@
 // rustc nll/match-guards-partially-borrow.rs — upstream E0510
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.R11
+// shelf: fail — the hole CLOSED 2026-08-28 (E0510: a match guard runs with
+// the tested places of the scrutinee shared-borrowed). Was a bc_admits.ledger
+// row; the row is deleted and this is now held to the rule with the corpus.
 package match_guards_partially_borrow_b;
 // nll/match-guards-partially-borrow.rs (representative 2: bad_indirect_mutation_in_if_guard)
 fn bad_indirect(mut y: &bool) {

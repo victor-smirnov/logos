@@ -332,7 +332,38 @@
 # 63 -> 61 and bck.NEW 36 -> 29; neither number is evidence about the mechanism.
 # bck.NEW is exactly the root the batch report called unexamined, and seven of
 # its 36 turn out to be one rule.
-# TOTAL 400
+# 2026-08-28 — 400 -> 393. SEVEN rows, and the number was PREDICTED AS SEVEN
+# before the edit — though not the same seven. A match GUARD in Rust runs with
+# the scrutinee borrowed (E0510): the arm has been provisionally chosen and a
+# guard that assigns to the matched place, `&mut`s it or moves it makes that
+# choice a lie. logosc raised a loan over a guard only where a `ref`/`ref mut`
+# BINDING happened to exist, so the guard itself deposited nothing.
+#   issue-27282-mutate-before-diverging-arm-1                      E0510
+#   issue-27282-mutate-before-diverging-arm-2--c-guard-mutate-noclosure E0510
+#   issue-27282-mutate-before-diverging-arm-2--guard-mutate        E0510
+#   issue-27282-mutate-before-diverging-arm-3                      E0510
+#   match-guards-partially-borrow--b                               E0510
+#   match-guards-partially-borrow--t25                             E0510
+#   borrowck-mutate-in-guard                                       E0510
+# All seven now refuse with "cannot assign to '<x>' because it is borrowed" and
+# are fail fixtures under tests/imported/fail/{nll,borrowck}/.
+# ⚠ TWO CORRECTIONS TO THE PRICE, both measured, both worth more than the row
+# count. (1) The `guardscrutloan` ceiling probe was installed at ONE of the two
+# match spellings, and its 8 rows are NOT a superset of what a correct fix
+# closes: `borrowck-mutate-in-guard` is a match EXPRESSION (`let r = match x
+# {…}`) and closed only because the rule went in at BOTH spellings, while
+# `issue-27282-move-match-input-into-guard` was in the ceiling and did NOT
+# close. A ceiling is a bound on the probe's site, not on the mechanism.
+# (2) The probe's recorded COST 0 was FALSE, and the corpus could not see it:
+# seven hand-written legal programs are refused by the crude whole-place loan —
+# a guard writing a sibling field (`match p { P { a: 1, b: _ } if { p.b = 7 …`),
+# a sibling tuple element, a match that tests NOTHING (`match p { _ if { p.b =
+# 5 …`), a harmless guard on a `ref mut` arm, and an indexed scrutinee. What
+# landed borrows the places the patterns COMPARE, not the scrutinee, drops an
+# implicit loan silently where the user already holds one, and exempts an
+# indexed scrutinee. All seven are admitted, and five of them are now pass
+# fixtures (tests/logos/pass/bc_guard_*).
+# TOTAL 393
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -379,7 +410,6 @@ borrowck-move-out-of-struct-with-dtor bck.E tests/imported/admit/borrowck/borrow
 borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13
 borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13
 borrowck-multiple-captures bck.C tests/imported/admit/borrowck/borrowck-multiple-captures
-borrowck-mutate-in-guard bck.NEW tests/imported/admit/borrowck/borrowck-mutate-in-guard
 borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed
 borrowck-no-cycle-in-exchange-heap--move-while-refmut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--move-while-refmut-borrowed
 borrowck-or-init bck.NEW tests/imported/admit/borrowck/borrowck-or-init
@@ -600,10 +630,6 @@ escape-argument--t09 nllmoves.C tests/imported/admit/nll/escape-argument--t09
 fns nllmoves.NEW-N2 tests/imported/admit/nll/fns
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
 issue-27282-move-match-input-into-guard nllmoves.R11 tests/imported/admit/nll/issue-27282-move-match-input-into-guard
-issue-27282-mutate-before-diverging-arm-1 nllmoves.R11 tests/imported/admit/nll/issue-27282-mutate-before-diverging-arm-1
-issue-27282-mutate-before-diverging-arm-2--c-guard-mutate-noclosure nllmoves.R11 tests/imported/admit/nll/issue-27282-mutate-before-diverging-arm-2--c-guard-mutate-noclosure
-issue-27282-mutate-before-diverging-arm-2--guard-mutate nllmoves.R11 tests/imported/admit/nll/issue-27282-mutate-before-diverging-arm-2--guard-mutate
-issue-27282-mutate-before-diverging-arm-3 nllmoves.R11 tests/imported/admit/nll/issue-27282-mutate-before-diverging-arm-3
 issue-27282-mutation-in-guard nllmoves.B tests/imported/admit/nll/issue-27282-mutation-in-guard
 issue-27868 nllmoves.R11 tests/imported/admit/nll/issue-27868
 issue-30438-a nllmoves.D tests/imported/admit/nll/issue-30438-a
@@ -641,8 +667,6 @@ issue-98170 nllmoves.R13 tests/imported/admit/nll/issue-98170
 lending-iterator-sanity-checks nllmoves.R2 tests/imported/admit/nll/lending-iterator-sanity-checks
 lub-match nllmoves.B tests/imported/admit/nll/lub-match
 match-guards-always-borrow nllmoves.B tests/imported/admit/nll/match-guards-always-borrow
-match-guards-partially-borrow--b nllmoves.R11 tests/imported/admit/nll/match-guards-partially-borrow--b
-match-guards-partially-borrow--t25 nllmoves.R11 tests/imported/admit/nll/match-guards-partially-borrow--t25
 method-ufcs-3 nllmoves.NEW-N2 tests/imported/admit/nll/method-ufcs-3
 method-ufcs-inherent-3 nllmoves.NEW-1 tests/imported/admit/nll/method-ufcs-inherent-3
 method-ufcs-inherent-4 nllmoves.NEW-S7-1 tests/imported/admit/nll/method-ufcs-inherent-4

@@ -768,9 +768,19 @@ PIN = {
     # shapes that measured the same tie in the over-refusal direction. None matches `wql_*`/`deem_*`, none declares a
     # container family or a `direct` output form, so `glob` and the DOOR counts
     # are unmoved.)
-    'corpus'            : 2424,
+    # (+6 2026-08-28: the six legal twins of the MATCH-GUARD SCRUTINEE BORROW
+    # (E0510) — pass/bc_guard_{no_test,sibling_field,sibling_tuple_elem,
+    # refmut_arm,indexed_scrut,loan_released}_admit. Every one is a program the
+    # CRUDE form of the rule refused, so they are the round's cost measurement,
+    # not decoration; bc_guard_loan_released_admit caught a live leak of the
+    # guard's own loan into the arm body. RE-DERIVED BY DIRECT LISTING:
+    # ls tests/logos/pass/*.logos -> 2430, glob unchanged at 191, so
+    # 2430 = 191 + 2239. None matches `wql_*`/`deem_*`, none declares a
+    # container family or a `direct` output form, so `glob` and the DOOR counts
+    # are unmoved.)
+    'corpus'            : 2430,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2233,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2239,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a
