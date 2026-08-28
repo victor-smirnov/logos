@@ -1,0 +1,70 @@
+// THE EXEMPTION THE CORPUS COULD NOT SEE. The arm DECLARES a `ref mut`
+// binding, writes through it, and then hands out a reference to an UNRELATED
+// local. The loan on `y.f0` dies with the match, so the write below is legal —
+// and it is legal in Rust too.
+//
+// The rvalue MatchExpr site redirects the loan onto the enclosing `let`'s
+// binding (`r`), which outlives the match by a long way. Raising the loan for
+// every `ref`/`ref mut` binding regardless of what the arm returns therefore
+// kept `y.f0` borrowed for the whole life of `r`, and refused this program
+// with "cannot borrow 'y.f0'". MEASURED by hand on 2026-08-28: no program in
+// the 807-test legal corpus has this shape, so the ceiling probe's COST read
+// zero and this had to be written to find it. `arm_value_roots` is the gate,
+// and `fail/bc_mexprpat_binding_carried_fail` is the same program with the arm
+// value changed from `&mut z` to `a`.
+//
+// Sections 2-5 are the other shapes that reach the same site and must stay
+// admitted: a shared loan next to a shared read, a sibling-field loan, a fresh
+// loan per loop iteration, and a TEMPORARY scrutinee (a call names no place,
+// so nothing is recorded).
+package bc_mexprpat_binding_discarded_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct Y { f0: i64, f1: i64 }
+fn mk() -> Y { return Y { f0: 4i64, f1: 5i64 }; }
+fn main() -> i32 {
+    // 1. the binding is DISCARDED by the arm value
+    let mut y: Y = Y { f0: 1i64, f1: 2i64 };
+    let mut z: i64 = 3i64;
+    let r: &mut i64 = match y { Y { f0: ref mut a, f1: _ } => { *a = *a + 1i64; &mut z } };
+    y.f0 = 5i64;
+    *r = 9i64;
+    if y.f0 != 5i64 { return 1i32; }
+    if z != 9i64 { return 2i32; }
+
+    // 2. a shared loan that DOES escape, next to shared reads of the scrutinee
+    let w: Y = Y { f0: 6i64, f1: 7i64 };
+    let s: &i64 = match w { Y { f0: ref a, f1: _ } => { a } };
+    let t: i64 = w.f0 + w.f1;
+    if *s != 6i64 { return 3i32; }
+    if t != 13i64 { return 4i32; }
+
+    // 3. the loan is on f0; the write is to the SIBLING field f1
+    let mut q: Y = Y { f0: 1i64, f1: 2i64 };
+    let p: &mut i64 = match q { Y { f0: ref mut a, f1: _ } => { a } };
+    q.f1 = 7i64;
+    *p = 8i64;
+    if q.f0 != 8i64 { return 5i32; }
+    if q.f1 != 7i64 { return 6i32; }
+
+    // 4. a fresh loan per iteration — the back edge must not stack them
+    let mut c: Y = Y { f0: 0i64, f1: 0i64 };
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        let e: &mut i64 = match c { Y { f0: ref mut a, f1: _ } => { a } };
+        *e = *e + 1i64;
+        i = i + 1i64;
+    }
+    if c.f0 != 3i64 { return 7i32; }
+
+    // 5. a TEMPORARY scrutinee names no place: extract_borrow_place yields an
+    //    empty root and nothing is recorded.
+    let mut v: Y = Y { f0: 1i64, f1: 2i64 };
+    let n: i64 = match mk() { Y { f0: ref a, f1: _ } => { *a } };
+    v.f0 = 8i64;
+    if n != 4i64 { return 8i32; }
+    if v.f0 != 8i64 { return 9i32; }
+
+    pr("%ld\n", y.f0 + z + *s + t + q.f0 + q.f1 + c.f0 + n);
+    return 0i32;
+}

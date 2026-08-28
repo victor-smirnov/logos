@@ -5267,9 +5267,96 @@ private:
     // (`ref mut` through a `&`), the root type and the Phase-1 slot are the
     // SAME answers every other record site gets — a scrutinee that is a
     // temporary (a call) yields an empty root and records nothing.
+    // The names an arm's VALUE hands out of the arm. `extract_borrow_place`
+    // answers the place chain (`a`, `&mut a`, `a.f`, `*a`); the arms above it
+    // are the value-producing forms that have no place of their own, so the
+    // walk reaches the places INSIDE them. A form not listed yields no name —
+    // the conservative direction here, since a name absent from this list only
+    // means the loan is not extended past the match.
+    void arm_value_roots(lir_view::ExprRef e,
+                         std::vector<std::string>& out) const {
+        using Code = lir_schema::expr::Code;
+        using namespace lir_view;
+        if (!e) return;
+        switch (e.kind()) {
+            case Code::BlockExpr:
+                arm_value_roots(EBlockExprView{e}.result(), out);
+                return;
+            case Code::IfExpr: {
+                EIfExprView v{e};
+                arm_value_roots(v.then_val(), out);
+                arm_value_roots(v.else_val(), out);
+                return;
+            }
+            case Code::MatchExpr:
+                EMatchExprView{e}.each_arm([&](EMatchArmRef a) {
+                    arm_value_roots(a.value(), out);
+                });
+                return;
+            case Code::Cast:
+                arm_value_roots(ECastView{e}.operand(), out);
+                return;
+            // ⚠ A BARE ARM VALUE IS AN `AddrOfTemp`, AND THAT COST A ROW.
+            // `=> a` and `=> { a }` are the same program; the first arrives
+            // here as AddrOfTemp(VarRef a) and the second as
+            // BlockExpr(result=VarRef a). `extract_borrow_place` peels
+            // AddrOfTemp only as the entry node of its own place walk, so
+            // without this arm the bare spelling answered NO ROOT and the loan
+            // was never raised. MEASURED: with the two spellings as the ONLY
+            // variable, `borrowck-anon-fields-struct` stayed admitted bare and
+            // closed block-wrapped — the row the ceiling probe (which asked no
+            // such question) had predicted.
+            case Code::AddrOfTemp:
+                arm_value_roots(EAddrOfTempView{e}.inner(), out);
+                return;
+            case Code::StructLit:
+                EStructLitView{e}.each_field_value(
+                    [&](ExprRef f) { arm_value_roots(f, out); });
+                return;
+            case Code::TupleLit:
+                ETupleLitView{e}.each_elem(
+                    [&](ExprRef el) { arm_value_roots(el, out); });
+                return;
+            case Code::ArrLit:
+                EArrLitView{e}.each_elem(
+                    [&](ExprRef el) { arm_value_roots(el, out); });
+                return;
+            case Code::EnumLitData:
+                EEnumLitDataView{e}.each_payload(
+                    [&](ExprRef pl) { arm_value_roots(pl, out); });
+                return;
+            default:
+                break;
+        }
+        BorrowPlace bp = extract_borrow_place(e, prog_.type_pool.impl());
+        if (!bp.root.empty()) out.push_back(std::move(bp.root));
+    }
+
+    // ── `carried`: WHICH BINDINGS THE ARM VALUE ACTUALLY HANDS OUT ────────
+    //
+    // Only the rvalue-MatchExpr caller passes it, and only because it is the
+    // one caller that redirects the loan onto a holder the BINDING IS NOT.
+    // At the two statement sites the loan is held by the binding's own name,
+    // whose scope ends with the arm, so a binding the arm value discards
+    // releases itself. Redirect that loan to the enclosing `let`'s binding and
+    // the release moves with it — to a name that is still live long after the
+    // match — so a `ref mut` binding the arm merely READS would keep the
+    // scrutinee borrowed for the holder's whole life.
+    // MEASURED (hand-written, `sandbox/mepb/cx9_binding_discarded`): with the
+    // ungated probe,
+    //   let r: &mut i64 = match y { Y { f0: ref mut a, .. } => { *a = *a + 1; &mut z } };
+    //   y.f0 = 5; *r = 9;
+    // — legal, and admitted at HEAD — refused with "cannot borrow 'y.f0'".
+    // Its shared twin (cx10) refused too. Neither shape exists anywhere in the
+    // 807-program legal corpus, which is why the probe's COST read 0.
+    // The gate is the same question the loan HOP asks one line later
+    // (`take_ref_borrows(arm.value(), …)`): a loan needs to outlive the match
+    // exactly when the value carries the name out.
     void propagate_pat_borrows(lir_view::PatRef pr, lir_view::ExprRef scrut,
                                uint32_t ln,
-                               const std::string& holder_override = {}) {
+                               const std::string& holder_override = {},
+                               const std::vector<std::string>* carried =
+                                   nullptr) {
         if (!pr || !scrut) return;
         BorrowPlace base = extract_borrow_place(scrut, prog_.type_pool.impl());
         if (base.root.empty()) return;
@@ -5390,6 +5477,9 @@ private:
                 if (mode == 0 || mode > 2 ||
                     b.empty() || b == "_" || place.empty()) return;
                 if (place.size() < base_place.size()) return;
+                if (carried && std::find(carried->begin(), carried->end(),
+                                         std::string(b)) == carried->end())
+                    return;
                 BorrowPlace bp = base;
                 if (place.size() > base_place.size())
                     bp.path = base.path.empty()
@@ -8896,43 +8986,50 @@ private:
                     propagate_pat_prov(arm.pat(), v.scrut());               // r3
                     propagate_pat_loans(arm.pat(), scrut_roots, line);
                     propagate_pat_reborrows(arm.pat(), v.scrut());  // D1 r13
-                    // ── CEILING PROBE `mexprpatborrow` / `mexprpatborrowraw`
-                    // The FIFTH pattern propagator — the only one that RAISES a
-                    // loan rather than copying one — is called at stmt::Match
-                    // and stmt::LetElse and NOT here. Two spellings, two names:
-                    // the loan held by `holder` (the enclosing let's binding,
-                    // which HAS a scope and an NLL last use) versus by the
-                    // pattern binding name (no scope declares it here, so it is
-                    // never released). The COST difference is the price of the
-                    // holder.
-                    // ── MEASURED 2026-08-28, 8 fires over 393 ledger compiles
-                    // (the arm's whole population is 80 per-arm arrivals in
-                    // 8060 runs — small, so this is a FUNDING number, never a
-                    // refutation). BOTH spellings: CEILING 4, COST 0.
-                    //   borrowck-anon-fields-struct
-                    //   borrowck-vec-pattern-move-tail
-                    //   or-patterns--b-or-pattern-borrows-all
-                    //   or-patterns--c-or-pattern-true-orpat
-                    // Exactly the four rows `mexprpatloan` was aimed at and
-                    // fired zero on, INCLUDING vec-pattern-move-tail, which the
-                    // aiming report expected to miss (its slice-pattern binding
-                    // does collide with the later `a[2i64] = 0i64`).
-                    // ⚠ THE HOLDER QUESTION IS NOT PRICEABLE BY THIS CORPUS.
-                    // `mexprpatborrowraw` — the loan held by the pattern
-                    // binding name, which no scope here declares, so it is
-                    // NEVER RELEASED — scores the IDENTICAL ceiling 4 and the
-                    // IDENTICAL cost 0. The corpus contains no
-                    // `let x = match … { ref … }` followed by a later use of
-                    // the scrutinee, so the un-released loan has nothing to
-                    // refuse. The reading is NOT "release timing is free"; it
-                    // is "this corpus cannot see release timing at all". A ship
-                    // candidate still takes the `holder` spelling, because that
-                    // one has an NLL last use by construction rather than by
-                    // corpus silence.
-                    if (logos::probe::on("mexprpatborrow") && !holder.empty())
-                        propagate_pat_borrows(arm.pat(), v.scrut(), line, holder);
-                    if (logos::probe::on("mexprpatborrowraw"))
-                        propagate_pat_borrows(arm.pat(), v.scrut(), line);
+                    // ── THE FIFTH PATTERN PROPAGATOR, AT THE THIRD SITE ──
+                    //
+                    // `propagate_pat_borrows` is the only one of the five that
+                    // RAISES a loan rather than copying one, and it ran at
+                    // stmt::Match and stmt::LetElse and not here. So a match
+                    // used as a VALUE — `let r: &mut i64 = match y { Y { f0:
+                    // ref mut a, .. } => a };` — extracted a reference to the
+                    // scrutinee and recorded no borrow of it at all, and every
+                    // later conflicting use of `y` was admitted.
+                    //
+                    // THE BLOCKER ITS OWN COMMENT NAMED IS SIDESTEPPED, NOT
+                    // SOLVED: "a loan held by a name no scope owns would never
+                    // be released" is true of the pattern binding here, which
+                    // this arm does not declare. `holder` — the enclosing
+                    // `let`'s binding — has a scope and an NLL last use, so
+                    // the release comes by construction. `record_only` is not
+                    // consulted: this is a RECORD, which is what that flag
+                    // permits.
+                    //
+                    // MEASURED 2026-08-28. Ceiling probe `mexprpatborrow`: 8
+                    // fires over 393 ledger compiles, CEILING 4, corpus COST 0
+                    // — closing exactly the four rows `mexprpatloan` was aimed
+                    // at and fired zero on. The raw spelling (loan held by the
+                    // undeclared binding name, never released) priced
+                    // IDENTICALLY, 4 and 0: this corpus contains no
+                    // `let x = match … { ref … }` with a later scrutinee use,
+                    // so it cannot see release timing at all. The `holder`
+                    // spelling is shipped because its release is a property of
+                    // the code, not of corpus silence.
+                    //
+                    // ⚠ AND THE COST 0 WAS FALSE, broken by hand on the second
+                    // shape tried — see `carried` at propagate_pat_borrows.
+                    std::vector<std::string> arm_out;
+                    arm_value_roots(arm.value(), arm_out);
+                    if (std::getenv("LOGOS_MEPB_TRACE")) {
+                        std::string j;
+                        for (auto& r : arm_out) { j += r; j += ' '; }
+                        fprintf(stderr, "[mepb] ln=%u holder='%s' val_kind=%d roots=[%s]\n",
+                                line, holder.c_str(),
+                                arm.value() ? (int)arm.value().kind() : -1, j.c_str());
+                    }
+                    if (!holder.empty() && !arm_out.empty())
+                        propagate_pat_borrows(arm.pat(), v.scrut(), line,
+                                              holder, &arm_out);
                     take_ref_borrows(arm.value(), line, holder, record_only);  // #70
                     if (!merged_arm_s) merged_arm_s = states_;
                     else merge_loans(*merged_arm_s, states_);

@@ -363,7 +363,45 @@
 # implicit loan silently where the user already holds one, and exempts an
 # indexed scrutinee. All seven are admitted, and five of them are now pass
 # fixtures (tests/logos/pass/bc_guard_*).
-# TOTAL 393
+# 2026-08-28 — 393 -> 389. FOUR rows, PREDICTED AS FOUR AND THE SAME FOUR (the
+# ceiling probe `mexprpatborrow` named them before the fix was written).
+# `propagate_pat_borrows` is the only one of the five pattern propagators that
+# RAISES a loan rather than copying one, and it ran at stmt::Match and
+# stmt::LetElse and not at the rvalue MatchExpr arm of take_ref_borrows. So a
+# match used as a VALUE — `let r: &mut i64 = match y { Y { f0: ref mut a, .. }
+# => a };` — handed out a reference into the scrutinee and recorded no borrow
+# of it, and every later conflicting use of `y` was admitted.
+#   borrowck-anon-fields-struct                   E0499
+#   borrowck-vec-pattern-move-tail                E0506
+#   or-patterns--b-or-pattern-borrows-all         E0502
+#   or-patterns--c-or-pattern-true-orpat          E0502
+# The blocker the site's own comment named — "a loan held by a name no scope
+# owns would never be released" — is sidestepped, not solved: the loan is held
+# by the enclosing `let`'s binding, which HAS a scope and an NLL last use.
+# ⚠ THE PROBE'S COST 0 WAS FALSE AGAIN, and again the corpus could not see it.
+# Redirecting the loan onto the holder also moves its RELEASE onto a name that
+# outlives the match, so a `ref mut` binding the arm merely READS kept the
+# scrutinee borrowed for the holder's whole life: two hand-written legal
+# programs (arm value `&mut z`, binding discarded) were refused. What landed
+# raises the loan only for bindings the ARM VALUE actually carries out
+# (`arm_value_roots`); pass/bc_mexprpat_binding_discarded_admit is that
+# exemption and fail/bc_mexprpat_binding_carried_fail is the same program with
+# the arm value changed back.
+# ⚠ AND A CEILING NAMES ROWS, NOT SPELLINGS. The first build closed THREE of
+# the four: a bare arm value `=> a` reaches the checker as AddrOfTemp(VarRef)
+# and `=> { a }` as BlockExpr(result=VarRef), and only the second had a place
+# walk. borrowck-anon-fields-struct is spelled bare; with the two spellings as
+# the only variable it stayed admitted one way and closed the other.
+# ⚠ ONE LEGAL PROGRAM IS NEWLY REFUSED, and it is an OLD rule's coarseness, not
+# this one's: two rvalue matches over the same scrutinee taking loans on
+# DISJOINT fields (`match y {Y{f0: ref mut p, ..}}` then `match y {Y{f1: ref
+# mut q, ..}}`) refuses with "cannot use 'y' while 'y.f0' is mutably borrowed",
+# because a match scrutinee is read as a WHOLE place. The statement-level twin
+# refuses at HEAD without this change, and that refusal is already pinned by
+# tests/imported/fail/borrowck/borrowck-anon-fields-variant.expected. The fix
+# is to read a match scrutinee at the sub-places its patterns touch — a
+# separate round, in the permissive direction, and not funded here.
+# TOTAL 389
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -380,7 +418,6 @@ borrowck-access-permissions--b-mut-borrow-of-static bck.B tests/imported/admit/b
 borrowck-access-permissions--c-mut-borrow-deref-box bck.B tests/imported/admit/borrowck/borrowck-access-permissions--c-mut-borrow-deref-box
 borrowck-and-init--r03 bck.NEW tests/imported/admit/borrowck/borrowck-and-init--r03
 borrowck-and-init--t03 bck.NEW tests/imported/admit/borrowck/borrowck-and-init--t03
-borrowck-anon-fields-struct bck.B tests/imported/admit/borrowck/borrowck-anon-fields-struct
 borrowck-argument bck.A tests/imported/admit/borrowck/borrowck-argument
 borrowck-assign-to-andmut-in-borrowed-loc bck.NEW tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-borrowed-loc
 borrowck-borrow-overloaded-auto-deref bck.A tests/imported/admit/borrowck/borrowck-borrow-overloaded-auto-deref
@@ -420,7 +457,6 @@ borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck
 borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--t17
 borrowck-unboxed-closures bck.A tests/imported/admit/borrowck/borrowck-unboxed-closures
 borrowck-uninit-field-access bck.B tests/imported/admit/borrowck/borrowck-uninit-field-access
-borrowck-vec-pattern-move-tail bck.B tests/imported/admit/borrowck/borrowck-vec-pattern-move-tail
 borrowed-data-escapes-closure-148392 bck.C tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392
 borrowed-mut-pointer-assign-overflow-off bck.B tests/imported/admit/borrowck/borrowed-mut-pointer-assign-overflow-off
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
@@ -469,8 +505,6 @@ mut-borrow-of-mut-ref bck.A tests/imported/admit/borrowck/mut-borrow-of-mut-ref
 mutability-errors bck.A tests/imported/admit/borrowck/mutability-errors
 mutate-vec-while-iterating--a-push-while-iterating bck.D tests/imported/admit/borrowck/mutate-vec-while-iterating--a-push-while-iterating
 mutate-vec-while-iterating--b-push-while-iterating-mut bck.D tests/imported/admit/borrowck/mutate-vec-while-iterating--b-push-while-iterating-mut
-or-patterns--b-or-pattern-borrows-all bck.B tests/imported/admit/borrowck/or-patterns--b-or-pattern-borrows-all
-or-patterns--c-or-pattern-true-orpat bck.B tests/imported/admit/borrowck/or-patterns--c-or-pattern-true-orpat
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error
 reborrow-in-match-suggest-deref bck.A tests/imported/admit/borrowck/reborrow-in-match-suggest-deref
 reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow

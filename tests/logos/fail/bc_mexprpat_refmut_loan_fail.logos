@@ -1,0 +1,23 @@
+// A MATCH USED AS A VALUE EXTRACTS A REFERENCE TO ITS SCRUTINEE, and until
+// 2026-08-28 that extraction recorded no loan. `propagate_pat_borrows` — the
+// only one of the five pattern propagators that RAISES a loan instead of
+// copying one — ran at stmt::Match and stmt::LetElse and not at the rvalue
+// MatchExpr arm of take_ref_borrows, so `r` below named `y.f0` and the write
+// to `y.f0` one line later found nothing to conflict with. rustc: E0506.
+//
+// ONE TOKEN from `pass/bc_mexprpat_refmut_loan_admit`: there the write and the
+// last use of `r` are in the other order, so NLL has released the loan.
+// ⚠ THE ARM VALUE IS SPELLED BARE (`=> a`, not `=> { a }`) ON PURPOSE. The
+// two are the same program and arrive at the checker as different nodes:
+// AddrOfTemp(VarRef a) and BlockExpr(result = VarRef a). The first landing of
+// this rule read only the second, and this row stayed admitted while its
+// block-wrapped twin closed.
+package bc_mexprpat_refmut_loan_fail;
+struct Y { f0: i64, f1: i64 }
+fn main() -> i32 {
+    let mut y: Y = Y { f0: 1i64, f1: 2i64 };
+    let r: &mut i64 = match y { Y { f0: ref mut a, f1: _ } => a };
+    y.f0 = 5i64;      // ERROR: y.f0 is mutably borrowed, and r is used below
+    *r = 9i64;
+    return 0i32;
+}

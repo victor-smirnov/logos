@@ -4526,9 +4526,21 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # PREDICTED +8/+1/−7 from the row count before the pin was read, and read as
 # that. `# TOTAL` 400 → 393, re-derived by direct listing
 # (`ls tests/imported/admit/*/*.logos | wc -l`).
-REGISTRY-ALL         8602
+# 2026-08-28 (the RVALUE-MATCH PATTERN LOAN — four ledger rows closed, two
+# native pairs landed):
+#   ALL          8602 → 8606   +4  +2 pass +2 fail native, +4 imported fail
+#                                  fixtures, −4 bc_admit row tests (the four
+#                                  rows the fix closed).
+#   NOIMPORTED   4437 → 4437    0  the +4 native less the −4 row tests; the
+#                                  four new fail fixtures ARE `imported`.
+#   TIERCOMMIT    441 → 437    −4  a closed row's per-row test leaves
+#                                  tier_commit with the row.
+# PREDICTED +4/0/−4 from the row count before the pin was read, and read as
+# that. `# TOTAL` 393 → 389, re-derived by direct listing
+# (`ls tests/imported/admit/*/*.logos | wc -l`).
+REGISTRY-ALL         8606
 REGISTRY-NOIMPORTED  4437
-REGISTRY-TIERCOMMIT  441
+REGISTRY-TIERCOMMIT  437
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

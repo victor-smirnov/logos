@@ -778,9 +778,20 @@ PIN = {
     # 2430 = 191 + 2239. None matches `wql_*`/`deem_*`, none declares a
     # container family or a `direct` output form, so `glob` and the DOOR counts
     # are unmoved.)
-    'corpus'            : 2430,
+    # (+2 2026-08-28: the two legal twins of the RVALUE-MATCH PATTERN LOAN —
+    # pass/bc_mexprpat_refmut_loan_admit (the loan is NLL-released before the
+    # conflicting write) and pass/bc_mexprpat_binding_discarded_admit (the arm
+    # DECLARES a `ref mut` binding and hands out something else, plus the
+    # shared-loan, sibling-field, loop and temporary-scrutinee shapes). The
+    # second is the round's cost measurement: it is the program the ungated
+    # rule refused, and no program in the corpus had its shape.
+    # RE-DERIVED BY DIRECT LISTING: ls tests/logos/pass/*.logos -> 2432, glob
+    # unchanged at 191, so 2432 = 191 + 2241. Neither matches `wql_*`/`deem_*`,
+    # neither declares a container family or a `direct` output form, so `glob`
+    # and the DOOR counts are unmoved.)
+    'corpus'            : 2432,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2239,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2241,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

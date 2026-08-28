@@ -1,0 +1,19 @@
+// THE CARRIED HALF of the `carried` gate. The arm's value IS the `ref mut`
+// binding, so the loan it raises on `y.f0` has to outlive the match — it is
+// what `r` points at — and the write below is refused. rustc: E0506.
+//
+// ONE TOKEN from `pass/bc_mexprpat_binding_discarded_admit`: the arm value is
+// `a` here and `&mut z` there. That token is the entire difference between a
+// loan that must survive the match and one that must not, and the gate at the
+// rvalue MatchExpr site reads exactly it (`arm_value_roots`).
+package bc_mexprpat_binding_carried_fail;
+struct Y { f0: i64, f1: i64 }
+fn main() -> i32 {
+    let mut y: Y = Y { f0: 1i64, f1: 2i64 };
+    let mut z: i64 = 3i64;
+    let r: &mut i64 = match y { Y { f0: ref mut a, f1: _ } => { *a = *a + 1i64; a } };
+    y.f0 = 5i64;      // ERROR: r still points into y.f0 and is used below
+    *r = 9i64;
+    if z != 3i64 { return 1i32; }
+    return 0i32;
+}

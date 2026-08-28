@@ -1,6 +1,8 @@
 // rustc borrowck/borrowck-vec-pattern-move-tail.rs — upstream E0506
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: fail — REFUSED since 2026-08-28 (a match used as a VALUE now raises
+// the pattern binding's loan on the scrutinee sub-place, held by the enclosing
+// `let`'s binding, which has an NLL last use)
 // upstream: borrowck/borrowck-vec-pattern-move-tail.rs  E0506 — via a slice-pattern `ref` binding
 package borrowck_vec_pattern_move_tail;
 fn main() -> i32 {

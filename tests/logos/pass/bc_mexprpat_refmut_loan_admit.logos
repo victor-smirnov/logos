@@ -1,0 +1,23 @@
+// THE ADMIT TWIN of `fail/bc_mexprpat_refmut_loan_fail`, ONE VARIABLE apart:
+// the last use of `r` sits BEFORE the conflicting write, so NLL has released
+// the loan by the time `y.f0` is assigned.
+//
+// This is the fixture that says the new loan is NLL-scoped. The holder is the
+// enclosing `let`'s binding — a name that HAS a scope and a last use — which
+// is the whole reason the rvalue site can raise a loan at all: the pattern
+// binding it would otherwise be held by is never declared here, so that loan
+// would never be released and this program would red.
+// The arm value is spelled BARE here too — see the fail twin's note on
+// AddrOfTemp.
+package bc_mexprpat_refmut_loan_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct Y { f0: i64, f1: i64 }
+fn main() -> i32 {
+    let mut y: Y = Y { f0: 1i64, f1: 2i64 };
+    let r: &mut i64 = match y { Y { f0: ref mut a, f1: _ } => a };
+    *r = 9i64;
+    y.f0 = 5i64;
+    pr("%ld\n", y.f0);
+    return 0i32;
+}
