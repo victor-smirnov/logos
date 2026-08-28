@@ -166,23 +166,59 @@ set -- "${_args[@]:-}"
 
 # ── L0 / L4: trivial ────────────────────────────────────────────────────────
 if [ "$LEVEL" = "L4" ]; then
+    # ── BARRIER: L4 IS ~12 MINUTES AND A FOREGROUND TOOL CALL IS CAPPED AT 10 ──
+    # A foreground L4 cannot finish, so every foreground attempt becomes a poll
+    # loop; one round spent 52% of its command time in them. Run it detached and
+    # wait on the marker instead. LOGOS_L4_BG=1 is the acknowledgement.
+    if [ "${LOGOS_L4_BG:-0}" != "1" ]; then
+        echo "[test-levels] L4 takes ~708 s; a foreground tool call is capped at 600 s." >&2
+        echo "  It cannot complete in the foreground, and polling it with pgrep wastes" >&2
+        echo "  the whole wait. Run it detached and block on the marker:" >&2
+        echo "" >&2
+        _argsback="L4"; [ "$WITH_BC_IMPORTED" = "1" ] && _argsback="L4 bc"
+        [ "$WITH_IMPORTED" = "1" ] && _argsback="L4 imported-unreviewed"
+        echo "    nohup bash -c 'cd $PWD && LOGOS_L4_BG=1 bash ../tests/logos/test-levels.sh $_argsback > /tmp/l4.log 2>&1; echo RC=\$? >> /tmp/l4.log' >/dev/null 2>&1 &" >&2
+        echo "    until grep -q '^RC=' /tmp/l4.log; do sleep 30; done; tail -20 /tmp/l4.log" >&2
+        echo "" >&2
+        echo "  (or the Bash tool's own run_in_background, which notifies on exit)" >&2
+        exit 2
+    fi
+    # ── BARRIER: A REPEAT ON AN UNCHANGED TREE MEASURES NOTHING ────────────
+    _stamp_dir="${TMPDIR:-/tmp}/logos-l4-stamp"; mkdir -p "$_stamp_dir"
+    # lint:git-ok — the stamp asks WHICH TREE STATE this rc belongs to, which is
+    # hygiene and nothing else; it makes no claim about the artefact being right.
+    _head=$(git -C "$SCRIPT_DIR/../.." rev-parse HEAD 2>/dev/null || echo nogit)  # lint:git-ok — the stamp asks WHICH TREE STATE this rc belongs to; pure hygiene, no claim about the artefact
+    _dirty=$(git -C "$SCRIPT_DIR/../.." status --porcelain 2>/dev/null | sha256sum | cut -c1-16)  # lint:git-ok — same ground
+    _bin=$(stat -c %Y bin/logosc 2>/dev/null || echo 0)
+    _key="$LEVEL-${WITH_BC_IMPORTED}-${WITH_IMPORTED}-$_head-$_dirty-$_bin"
+    _stamp="$_stamp_dir/$(printf '%s' "$_key" | sha256sum | cut -c1-32)"
+    if [ -f "$_stamp" ]; then
+        echo "[test-levels] REFUSED: this exact L4 was already run." >&2
+        cat "$_stamp" >&2
+        echo "  Same HEAD, same worktree state, same logosc mtime — re-running it" >&2
+        echo "  measures nothing new; the rc above is still the answer. Change" >&2
+        echo "  something, or read the previous result." >&2
+        exit 2
+    fi
     if [ "$WITH_IMPORTED" = "1" ]; then
         echo "[test-levels] L4 — core+spec + ALL ~4158 imported ports. ⚠ THE TIER IS UNREVIEWED."
-        bash "$SUMMARY"
-        exit $?  # lint:exit-ok — the status of the `bash` just run
+        bash "$SUMMARY"; _rc=$?
+        echo "  previous: rc=$_rc at $(date +%H:%M:%S) on $_head" > "$_stamp"
+        exit $_rc  # lint:exit-ok
     fi
     if [ "$WITH_BC_IMPORTED" = "1" ]; then
         echo "[test-levels] L4 bc — core+spec, plus the borrow-check imported ports"
         bash "$SUMMARY" -LE imported; _rc_core=$?
         echo "[test-levels] L4 bc — imported, borrow-check suites only"
         bash "$SUMMARY" -L imported -L bc; _rc_bc=$?
-        # The worse of the two: a green core over a red bc half is not green.
-        [ "$_rc_core" -ne 0 ] && exit "$_rc_core"  # lint:exit-ok
-        exit "$_rc_bc"  # lint:exit-ok
+        _rc_worse=$_rc_bc; [ "$_rc_core" -ne 0 ] && _rc_worse=$_rc_core
+        echo "  previous: rc=$_rc_worse (core $_rc_core / bc $_rc_bc) at $(date +%H:%M:%S) on $_head" > "$_stamp"
+        exit "$_rc_worse"  # lint:exit-ok
     fi
     echo "[test-levels] L4 — full suite (core+spec; imported excluded, add 'bc' for the borrow-check ports, 'imported-unreviewed' for all)"
-    bash "$SUMMARY" -LE imported
-    exit $?  # lint:exit-ok — the status of the `bash` just run: a real wait status
+    bash "$SUMMARY" -LE imported; _rc=$?
+    echo "  previous: rc=$_rc at $(date +%H:%M:%S) on $_head" > "$_stamp"
+    exit $_rc  # lint:exit-ok
 fi
 if [ "$LEVEL" = "L0" ]; then
     NAME=${1:-}

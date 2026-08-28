@@ -213,6 +213,21 @@ NOT_GATES = {
     # Reporters. They pronounce no verdict at all — this is also written down in
     # verdict.py's gate census.
     "ctest-summary.sh":        "reports a ctest run; asserts nothing",
+    # TWO BARRIERS AND AN AUDITOR, added 2026-08-28 after Victor's point that an
+    # instruction agents can read is not an instruction they execute — measured,
+    # 6 builds for a batch of 9 probes where the protocol says ONE, and `L4 bc`
+    # run 3 and 2 times where the ladder says once. None of the three is a gate:
+    # `probe-batch.sh` prices ONE batch of hypotheses, so there is no population
+    # to register it over (same ground as change-budget.sh and ceiling-probe.sh);
+    # `workflow-audit.py` reads a workflow transcript, which is not a property of
+    # the tree at all — it grades a RUN, and a run has no committed state to
+    # assert against.
+    "probe-batch.sh":          "installs one batch of probes, builds ONCE and "
+                               "prices them; a hand-run tool for one hypothesis "
+                               "set, with no population to register it over",
+    "workflow-audit.py":       "grades a workflow RUN from its transcript "
+                               "(builds, poll loops, gate repeats) — it asserts "
+                               "nothing about the tree",
     # A HAND-RUN CEILING PROBE, and it must not become a gate for the same
     # reason change-budget.sh must not: it answers a question about ONE
     # hypothesis, so there is no population to register it over. It reports how
