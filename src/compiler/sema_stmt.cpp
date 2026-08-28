@@ -2690,6 +2690,21 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
     if (!lookup_is_mut(name))
         error(std::format("compound assignment to immutable variable '{}'", name));
 
+    // ── CEILING PROBE `opeqinitread` — `v += 1` READS `v`, but the
+    // definite-assignment tracker (`currently_uninit_vars_`) is only consulted
+    // at the VarRef USE site in sema_expr, and this form never lowers the place
+    // through it. The `scinitcond` comment (measured 2026-08-28, ceiling 3,
+    // cost 0) names this half verbatim as the remainder needing its own name.
+    // ── MEASURED 2026-08-28: 4 fires over 393 ledger compiles, CEILING 1,
+    // COST 0 — exactly the predicted row, borrowck_borrowck-init-op-equal
+    // (E0381). This completes the definite-init group the tree had already
+    // priced at 3 of 4 (`scinitcond`: ceiling 3, cost 0). ⚠ A one-row ceiling
+    // is the smallest population in its batch (rule 4): it funds this rule and
+    // refutes nothing.
+    if (logos::probe::on("opeqinitread") &&
+        currently_uninit_vars_.count(std::string(name)))
+        error(std::format("use of possibly uninitialised binding '{}'", name));
+
     // Desugar: `x op= expr` → `x = x op expr`
     auto lhs_ref = builder().var_ref(std::string(name), var_type);
     auto rhs = node.has_key(la::VALUE)

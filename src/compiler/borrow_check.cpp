@@ -5268,7 +5268,8 @@ private:
     // SAME answers every other record site gets — a scrutinee that is a
     // temporary (a call) yields an empty root and records nothing.
     void propagate_pat_borrows(lir_view::PatRef pr, lir_view::ExprRef scrut,
-                               uint32_t ln) {
+                               uint32_t ln,
+                               const std::string& holder_override = {}) {
         if (!pr || !scrut) return;
         BorrowPlace base = extract_borrow_place(scrut, prog_.type_pool.impl());
         if (base.root.empty()) return;
@@ -5328,10 +5329,63 @@ private:
                 // the move has to be recorded on the SUB-PLACE, with
                 // arm-exclusivity. That is a day of work, and this number says
                 // it is worth up to 8 rows.
-                if (mode == 0 && logos::probe::on("patbyvalmove") &&
+                // ── CEILING PROBE `patbyvalsubmove` — the SUB-PLACE
+                // re-spelling of `patbyvalmove` (whose whole-root consume was
+                // its single measured over-refusal). VarState::moved_fields is
+                // the existing dotted-path partial-move map; find_moved_overlap
+                // and erase_reinit are its existing reader and invalidator, and
+                // arm exclusivity is free because states_ is saved/restored per
+                // arm at both match sites.
+                // ── MEASURED 2026-08-28: 674,934 fires over 393 ledger
+                // compiles, CEILING 2, COST 0.
+                //   borrowck_bindings-after-at-or-patterns-slice-patterns-box-patterns
+                //   nll_issue-53807--c-iflet-noloop
+                // Against `patbyvalmove`'s recorded CEILING 8 over the same
+                // population. RULE 7, measured in the SHRINKING direction: the
+                // correct spelling closed a QUARTER of what the crude one did,
+                // and the two it kept are the two the crude one could reach
+                // honestly — an `a @ …` binding whose place IS the root (so it
+                // takes the same whole-root consume), and a statement-level
+                // `if let` pair where the sub-place record survives.
+                // THE GATING COUNTER-EXAMPLE PASSES, and this time the test was
+                // valid: `struct H { a: Foo, b: P }` / `match h.a { Foo::F1(p)
+                // => { o = p.n; } … }` / `o = o + h.b.n;` traces
+                // `place=h.a.0 root=h found=1` and is ADMITTED, where the
+                // whole-root consume refused it. ⚠ The FIRST attempt at that
+                // counter-example fired ZERO times and its silence was
+                // meaningless: its payload struct had no `Drop` impl, so
+                // `is_move_type` was false and the probe never ran. A
+                // counter-example that does not reach the site proves nothing
+                // — rule 1, pointed at the counter-example instead of the probe.
+                // ⚠ WHY THE OTHER SIX DID NOT CLOSE — THE RECORD DOES NOT
+                // SURVIVE CONTROL FLOW. `borrowck_issue-41962--r25` DOES fire
+                // (twice, `place=maybe.0 root=maybe found=1`) and still admits:
+                // both match sites restore `states_` per arm
+                // (`states_ = guard_acc` / `states_ = saved_s`) and
+                // `merge_loans` names `moved_fields` NOWHERE, so a partial move
+                // recorded inside an arm is discarded at the arm boundary and
+                // at the loop back edge. The root `moved` flag the crude
+                // spelling set is evidently carried; the dotted-path map is not.
+                // THE NEXT STEP IS merge_loans, not this site.
+                if (mode == 0 && logos::probe::on("patbyvalsubmove") &&
                     !b.empty() && b != "_" && !place.empty() &&
                     is_move_type(t, prog_, ts_, &copy_tvs_)) {
-                    (void)consume(place_root(place), ln);
+                    const std::string mroot = place_root(place);
+                    if (std::getenv("LOGOS_PBSM_TRACE"))
+                        fprintf(stderr, "[pbsm] ln=%u b=%.*s place=%s root=%s found=%d\n",
+                                ln, (int)b.size(), b.data(), place.c_str(),
+                                mroot.c_str(), var_find(NO_SLOT, mroot) != nullptr);
+                    if (mroot.size() == place.size()) {
+                        (void)consume(mroot, ln);
+                    } else if (auto* vs = var_find(NO_SLOT, mroot)) {
+                        const std::string mpath = place.substr(mroot.size() + 1);
+                        if (auto* hit = find_moved_overlap(vs->moved_fields, mpath))
+                            report(ln, std::format(
+                                "ceiling-probe patbyvalsubmove: use of moved field "
+                                "'{}.{}' (moved on line {})", mroot, hit->first,
+                                hit->second));
+                        vs->moved_fields[mpath] = ln;
+                    }
                 }
                 if (mode == 0 || mode > 2 ||
                     b.empty() || b == "_" || place.empty()) return;
@@ -5341,7 +5395,9 @@ private:
                     bp.path = base.path.empty()
                                 ? place.substr(base_place.size() + 1)
                                 : base.path + place.substr(base_place.size());
-                record_borrow(bp, /*is_mut=*/mode == 2, ln, std::string(b));
+                record_borrow(bp, /*is_mut=*/mode == 2, ln,
+                              holder_override.empty() ? std::string(b)
+                                                      : holder_override);
             });
     }
 
@@ -5608,6 +5664,28 @@ private:
         if (bp.root_type && bp.root_type.kind() == LogosType::Kind::Ptr) return;
         auto sit = var_find(bp.root_slot, bp.root);
         if (sit == nullptr) return;
+        // ── CEILING PROBE `recvmutbind` — ONE RULE AT TWO SPELLINGS, and only
+        // one has it. `let f: Foo = ...; f.bump();` (AddrOfTemp receiver) is
+        // refused by take_borrow_whole_'s binding-mut arm; the byte-equivalent
+        // over a bare-place receiver (`let v: Vec<i64> = Vec::new(); v.push(1);`)
+        // compiles. check_recv_conflict has no binding-mut arm at all.
+        // ── MEASURED 2026-08-28: 207 fires over 393 ledger compiles (site
+        // population 111,282 arrivals in 8060 runs), CEILING 1, COST 0 —
+        // exactly the predicted row, borrowck_many-mutable-borrows (E0596).
+        // ⚠ THE PREDICTED HAZARD DID NOT MATERIALISE. The aiming report
+        // expected a LARGE cost, on the reading that `skip_mut_binding_check`'s
+        // comment makes the bare-receiver permissiveness load-bearing for the
+        // stdlib (`arc.deref_mut()` on a non-mut Arc binding). Over 807 bc/pass
+        // tests plus three spec dirs it costs nothing. That is a corpus
+        // reading, not a proof: the exemption analysis still owes hand-written
+        // stdlib-shaped counter-examples.
+        if (logos::probe::on("recvmutbind") && is_mut &&
+            !sit->is_mut_binding && !param_names_.count(bp.root) &&
+            !(bp.root_type && is_ref_kind(bp.root_type))) {
+            report(line, std::format(
+                "cannot borrow '{}' as mutable: not declared as mut", bp.root));
+            return;
+        }
         if (sit->mut_borrowed) {
             // D1 residuals / P2 (task #51): DO NOT report here. Both callers
             // (the MethodCall bare-place-receiver check and the SD-DST Call
@@ -5623,6 +5701,14 @@ private:
             // below and mint a different spelling. Measured over the full
             // 710-fixture fail corpus: no fixture's error count rose or
             // reached zero after this deletion.
+        } else if (is_mut && sit->mut_reservations > 0 &&
+                   logos::probe::on("recvresvbare")) {
+            // ── CEILING PROBE `recvresvbare` (consumer half). Inert without
+            // the producer above. Spelling reused verbatim from
+            // take_borrow_whole_'s B82 arm — not minted.
+            report(line, std::format(
+                "cannot borrow '{}' as mutable: already mutably borrowed",
+                bp.root));
         } else if (is_mut && sit->shared_borrows > 0)
             report(line, std::format(
                 "cannot borrow '{}' as mutable: '{}' has shared borrows",
@@ -8810,6 +8896,43 @@ private:
                     propagate_pat_prov(arm.pat(), v.scrut());               // r3
                     propagate_pat_loans(arm.pat(), scrut_roots, line);
                     propagate_pat_reborrows(arm.pat(), v.scrut());  // D1 r13
+                    // ── CEILING PROBE `mexprpatborrow` / `mexprpatborrowraw`
+                    // The FIFTH pattern propagator — the only one that RAISES a
+                    // loan rather than copying one — is called at stmt::Match
+                    // and stmt::LetElse and NOT here. Two spellings, two names:
+                    // the loan held by `holder` (the enclosing let's binding,
+                    // which HAS a scope and an NLL last use) versus by the
+                    // pattern binding name (no scope declares it here, so it is
+                    // never released). The COST difference is the price of the
+                    // holder.
+                    // ── MEASURED 2026-08-28, 8 fires over 393 ledger compiles
+                    // (the arm's whole population is 80 per-arm arrivals in
+                    // 8060 runs — small, so this is a FUNDING number, never a
+                    // refutation). BOTH spellings: CEILING 4, COST 0.
+                    //   borrowck-anon-fields-struct
+                    //   borrowck-vec-pattern-move-tail
+                    //   or-patterns--b-or-pattern-borrows-all
+                    //   or-patterns--c-or-pattern-true-orpat
+                    // Exactly the four rows `mexprpatloan` was aimed at and
+                    // fired zero on, INCLUDING vec-pattern-move-tail, which the
+                    // aiming report expected to miss (its slice-pattern binding
+                    // does collide with the later `a[2i64] = 0i64`).
+                    // ⚠ THE HOLDER QUESTION IS NOT PRICEABLE BY THIS CORPUS.
+                    // `mexprpatborrowraw` — the loan held by the pattern
+                    // binding name, which no scope here declares, so it is
+                    // NEVER RELEASED — scores the IDENTICAL ceiling 4 and the
+                    // IDENTICAL cost 0. The corpus contains no
+                    // `let x = match … { ref … }` followed by a later use of
+                    // the scrutinee, so the un-released loan has nothing to
+                    // refuse. The reading is NOT "release timing is free"; it
+                    // is "this corpus cannot see release timing at all". A ship
+                    // candidate still takes the `holder` spelling, because that
+                    // one has an NLL last use by construction rather than by
+                    // corpus silence.
+                    if (logos::probe::on("mexprpatborrow") && !holder.empty())
+                        propagate_pat_borrows(arm.pat(), v.scrut(), line, holder);
+                    if (logos::probe::on("mexprpatborrowraw"))
+                        propagate_pat_borrows(arm.pat(), v.scrut(), line);
                     take_ref_borrows(arm.value(), line, holder, record_only);  // #70
                     if (!merged_arm_s) merged_arm_s = states_;
                     else merge_loans(*merged_arm_s, states_);
@@ -12188,6 +12311,40 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         push_scope();  // call-site borrow scope
         in_call_args_++;
         view.each_arg([&](ExprRef a) {
+            // ── CEILING PROBE `mutrefargmove` — `&mut T` is not Copy: handing
+            // one to a BY-VALUE param moves it. sema's
+            // try_implicit_reborrow_mut wraps a `&mut` into
+            // AddrOfTemp(Deref(VarRef)) at every ref-shaped formal and DECLINES
+            // when the formal is a by-value TypeVar — so a surviving bare
+            // VarRef of MutRef type in argument position MEANS "sema said this
+            // is not a reborrow".
+            // ── MEASURED 2026-08-28: CEILING 0, COST 0 — AND IT IS A SITE
+            // ARTEFACT, NOT A REFUTATION (the fourth in this family, after
+            // `recvargloan`, `mexprpatloan` and `patbyvalmove`). The 335,227
+            // "fires" are the `probe::on` count over EVERY argument, which is
+            // what rule 1 buys and is NOT the mechanism's population. The
+            // LOGOS_MRAM_TRACE below says the inner predicate matched TWICE per
+            // compile, both times inside prelude code, and NEVER ONCE in a user
+            // function: on the two target rows
+            // (moved-value-suggest-reborrow-issue-127285--r32 / --t32) and on
+            // hand-written twins, `generic(self)` and `generic(r)` produce no
+            // trace line at all, and even `generic(r); generic(r);` compiles
+            // clean under the probe. So the argument at a by-value generic
+            // formal is NOT a bare `VarRef` of `MutRef` kind at this site — the
+            // aiming report's reading of `try_implicit_reborrow_mut`'s decline
+            // is right about sema and wrong about the resulting LIR spelling.
+            // The mechanism (`&mut T` is not Copy) is UNTESTED by this number.
+            // Any re-aim must PRINT the argument's kind first.
+            if (a && logos::probe::on("mutrefargmove") &&
+                a.kind() == Code::VarRef && a.type(pool) &&
+                a.type(pool).kind() == LogosType::Kind::MutRef) {
+                EVarRefView mv{a};
+                if (std::getenv("LOGOS_MRAM_TRACE"))
+                    fprintf(stderr, "[mram] ln=%u name=%.*s\n", line,
+                            (int)mv.name().size(), mv.name().data());
+                consume(std::string(mv.name()), line, mv.var_slot());
+                return;
+            }
             if (a && is_ref_kind(a.type(pool))) take_ref_borrows(a, line);
             else                                visit(a, /*consuming=*/true, line);
         });
@@ -12485,6 +12642,64 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                                                moving ? "move" : "use"))
                         break;
                     if (moving) {
+                        // ── CEILING PROBE `fldmovedrop` — E0509. `moving`
+                        // already answers "this read moves a non-Copy field";
+                        // the missing conjunct is "and the RECEIVER's own type
+                        // impls Drop". Sema rewrites every `let S{f:x} = s;`
+                        // into `let __dst = s; let x = __dst.f;`, so this is
+                        // where all three spellings (destructuring let, `s.f`,
+                        // `..base` update) actually land.
+                        // ── MEASURED 2026-08-28: 11 fires over 393 ledger
+                        // compiles, CEILING 6, COST 1. The `if (moving)` branch
+                        // is REACHED 140,066 times and TRUE 551 times in 8060
+                        // runs, so the site is live and the population is the
+                        // whole E0509 domain.
+                        // CLOSED: borrowck-move-out-of-struct-with-dtor ·
+                        //   borrowck-struct-update-with-dtor--b · --t17 ·
+                        //   nll_enum-drop-access ·
+                        //   nll_issue-52059-report-when-borrow-and-drop-conflict ·
+                        //   nll_issue-53773
+                        // ⚠ THE SET IS NOT THE PREDICTED SET (rule 6: a count
+                        // near the prediction is not the prediction). THREE
+                        // rows nobody nominated closed, and all three are ONE
+                        // shape the aiming report never enumerated:
+                        // `fn f(x: DropStruct) -> &mut T { return x.field; }` —
+                        // a `&mut` field moved out of a Drop owner and returned.
+                        // TWO PREDICTED ROWS DID NOT CLOSE, and the trace says
+                        // why in one line: borrowck-move-out-of-tuple-struct-
+                        // with-dtor--t13/--r13 produce NO fldmovedrop line at
+                        // all, because their moved field is
+                        // `struct Inner { a: i64 }` and `is_move_type` calls an
+                        // all-scalar struct Copy. That is a Copy-inference
+                        // question (DIVERGENCES §B1), not a site question, and
+                        // no E0509 rule can reach those two until it is settled.
+                        // ⚠⚠ THE COST ROW IS A SPEC RULE, NOT AN EXEMPTION.
+                        // logos_25_spec_pass_intrinsic_1 line 227 is
+                        // `let moved: Noisy = h.inner;` under the heading
+                        // `@rule intrinsic.drop.skip-moved-out-paths` —
+                        // "Moving a field out of an owner suppresses that
+                        // field's drop; siblings still drop." The Logos spec
+                        // DELIBERATELY admits what rustc calls E0509. So this
+                        // mechanism is not one exemption away from shipping: it
+                        // contradicts a written language rule, and funding it
+                        // is a DESIGN decision (PAIR), not a checker round.
+                        // Recorded, not fixed.
+                        if (logos::probe::on("fldmovedrop")) {
+                            TypeRef rt = recv ? recv.type(pool) : TypeRef(nullptr);
+                            bool own_drop =
+                                rt && ((rt.kind() == LogosType::Kind::Struct &&
+                                        ts_.drop_types.count(std::string(rt.struct_name()))) ||
+                                       (rt.kind() == LogosType::Kind::Enum &&
+                                        ts_.drop_types.count(std::string(rt.enum_name()))));
+                            if (std::getenv("LOGOS_FLDMOVEDROP_TRACE"))
+                                fprintf(stderr, "[fldmovedrop] line=%u place=%s.%s "
+                                        "recv_kind=%d drop=%d\n", line,
+                                        root.c_str(), path.c_str(),
+                                        rt ? (int)rt.kind() : -1, (int)own_drop);
+                            if (own_drop)
+                                report(line, "ceiling-probe fldmovedrop: cannot move out of "
+                                             "a type which implements Drop (E0509)");
+                        }
                         it->moved_fields[path] = line;
                         break;
                     }
@@ -12498,7 +12713,28 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         case Code::IndexRead: {
             EIndexReadView v{e};
             visit_place_base(v.receiver(), line);
+            // ── CEILING PROBE `idxbaseloan` — E0510. The index base is visited
+            // as a place and then abandoned; nothing borrows it while the INDEX
+            // expression is evaluated, so `arr[{ arr = [4,5,6]; 1u64 }]`
+            // compiles. A SHARED loan leaves ordinary reads of the base in the
+            // index (`a[a.len()-1]`) legal.
+            // ── MEASURED 2026-08-28: 210 fires over 393 ledger compiles (site
+            // population 24,453 arrivals in 8060 runs), CEILING 1, COST 0.
+            //   borrowck_slice-index-bounds-check-invalidation--min
+            // The second predicted row, `--t35` (`x[1u64][{ x = yr; 2u64 }]`),
+            // did NOT close: its write targets the ROOT of the OUTER base while
+            // the loan recorded here is on the inner IndexRead's own receiver,
+            // so the nested spelling needs the loan keyed on the outermost
+            // place root. Half the rule, cleanly.
+            bool ibl = logos::probe::on("idxbaseloan");
+            if (ibl) {
+                push_scope();
+                BorrowPlace ibp = extract_borrow_place(v.receiver(), pool);
+                if (!ibp.root.empty())
+                    record_borrow(ibp, /*is_mut=*/false, line, "__idx_base");
+            }
             visit(v.index(),    /*consuming=*/true,  line);
+            if (ibl) pop_scope();
             break;
         }
 
@@ -12530,6 +12766,80 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             }
             push_scope();
             visit_place_base(v.receiver(), line);
+            // ── CEILING PROBE `recvresvamut` — the receiver of a `&mut self`
+            // method is CHECKED and never RECORDED (B94), so nothing holds it
+            // while visit_args evaluates the siblings. Deposit a B82 two-phase
+            // RESERVATION (in_call_args_ > 0), which is compatible with SHARED
+            // reads taken during the same argument evaluation — that is what
+            // keeps `v.push(v.len())` admitted. Whole-root only, so the D8
+            // field-split admits are untouched. `recvargloan` measured 0
+            // because extract_borrow_place has no AddrOfTemp arm; unwrap first.
+            // ── MEASURED 2026-08-28: 342 fires over 393 ledger compiles,
+            // CEILING 5, COST 11. ⛔ COST >= CEILING. The unwrap works — where
+            // `recvargloan` recorded nothing at all, this closes
+            // suggest-local-var-double-mut--d-double-mut-on-local-receiver,
+            // suggest-local-var-double-mut--two-mut-borrows-in-call-args,
+            // two-phase-multi-mut, lifetimes_ex2e-push-inference-variable-3 and
+            // nll_issue-51191. But eleven legal programs go red, and they are
+            // not a fringe: seven native bc_ admits (d1r5 alias/reborrow, d1r8
+            // field-rhs-read-before-mut, d1r10 rebind-alias-dead, three
+            // esc_holder rows), three zone_mut rows and spec layout_6. A
+            // whole-root reservation on EVERY `&mut self` receiver is too
+            // coarse — the corpus is full of legal calls whose arguments read
+            // the receiver. Declined at this spelling. `recvresvbare` shows the
+            // same rule at the OTHER receiver spelling costs ZERO, so if this
+            // mechanism is funded it is funded there and narrowed here.
+            if (logos::probe::on("recvresvamut")) {
+                if (auto recv = v.receiver();
+                    recv && recv.kind() == Code::AddrOfTemp) {
+                    int sk = method_self_kind(v);
+                    if (sk >= 1) {
+                        BorrowPlace rrp = extract_borrow_place(
+                            EAddrOfTempView{recv}.inner(), pool);
+                        if (!rrp.root.empty() && rrp.path.empty()) {
+                            in_call_args_++;   // B82 reservation, NOT activation
+                            record_borrow(rrp, /*is_mut=*/sk == 2, line,
+                                          "__recv_resv");
+                            in_call_args_--;
+                        }
+                    }
+                }
+            }
+            // ── CEILING PROBE `recvresvbare` — the same missing producer at
+            // the OTHER receiver spelling (`self` and stdlib bare places, which
+            // sema never wraps), plus the one consumer that spelling lacks (a
+            // mut_reservations arm in check_recv_conflict). Gated on the
+            // binding already being mut/param so the binding-mut question stays
+            // entirely inside `recvmutbind`.
+            // ── MEASURED 2026-08-28: 343 fires over 393 ledger compiles,
+            // CEILING 2, COST 0.
+            //   borrowck_suggest-local-var-imm-and-mut
+            //   borrowck_two-phase-sneaky
+            // ⚠ RULE 6, AND THE SPELLING SPLIT WENT THE OTHER WAY. One of the
+            // two predicted rows closed (imm-and-mut, through the EXISTING
+            // `is_mut && shared_borrows > 0` arm fed by the sk==1 deposit); the
+            // other — suggest-local-var-double-mut--two-mut-borrows-in-call-
+            // args, predicted HERE because its receiver is `self` — closed
+            // under `recvresvamut` instead, and `two-phase-sneaky`, predicted
+            // nowhere, closed here. The receiver-spelling partition the aiming
+            // report derived from the error text does NOT partition the rows.
+            // Read the two probes' SETS, never their counts.
+            if (logos::probe::on("recvresvbare")) {
+                if (auto recv = v.receiver();
+                    recv && recv.kind() != Code::AddrOfTemp) {
+                    int sk = method_self_kind(v);
+                    BorrowPlace rrp = extract_borrow_place(recv, pool);
+                    auto* sit = rrp.root.empty()
+                        ? nullptr : var_find(rrp.root_slot, rrp.root);
+                    if (sk >= 1 && rrp.path.empty() && sit != nullptr &&
+                        (sit->is_mut_binding || param_names_.count(rrp.root))) {
+                        in_call_args_++;
+                        record_borrow(rrp, /*is_mut=*/sk == 2, line,
+                                      "__recv_resv");
+                        in_call_args_--;
+                    }
+                }
+            }
             {
                 // ── CEILING PROBE `recvargloan` — the receiver's conflict
                 // check runs BEFORE visit_args and CHECKS without RECORDING, so
