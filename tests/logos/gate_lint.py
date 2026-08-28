@@ -228,6 +228,16 @@ NOT_GATES = {
     "workflow-audit.py":       "grades a workflow RUN from its transcript "
                                "(builds, poll loops, gate repeats) — it asserts "
                                "nothing about the tree",
+    # A READER, not a gate. It prints the verdict a previous L4 recorded for
+    # THIS tree state, so the next step does not re-run a 12-minute gate for an
+    # answer already written down. It asserts nothing itself: its three exits
+    # are "this record is current", "a record exists but is about a different
+    # tree", and "nobody has measured" — and it refuses to conflate the last two,
+    # because reporting a stale verdict as current is the failure this whole
+    # directory exists to prevent.
+    "gate-state.sh":           "reads the verdict a previous L4 recorded for "
+                               "this exact tree state; asserts nothing, and "
+                               "distinguishes STALE from ABSENT",
     # A HAND-RUN CEILING PROBE, and it must not become a gate for the same
     # reason change-budget.sh must not: it answers a question about ONE
     # hypothesis, so there is no population to register it over. It reports how
