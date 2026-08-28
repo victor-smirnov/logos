@@ -5144,7 +5144,7 @@ private:
         if (base.root.empty()) return;
         const std::string base_place = fmt_path(base.root, base.path);
         each_pat_binding_place(pr, base_place,
-            [&](std::string_view b, TypeRef, const std::string& place,
+            [&](std::string_view b, TypeRef t, const std::string& place,
                 uint8_t mode) {
                 // ⚠ MODES 1 AND 2 ONLY — the WRITTEN `ref` / `ref mut`.
                 // A default-binding-mode by-ref binding (3/4) names a place
@@ -5158,6 +5158,51 @@ private:
                 // the run that first landed this rule. The ergonomic half
                 // needs the loan keyed on the pointee, which is a read-side
                 // change, not a wider gate here.
+                // ── CEILING PROBE `patbyvalmove` — the largest permissive
+                // early exit in the pattern channel: `mode == 0`, the BY-VALUE
+                // binding, takes it 13,499,867 times in 8060 runs (this guard
+                // is entered 14,124,171 times and its `mode > 2` disjunct is
+                // evaluated only 624,304). The comment above explains why 3/4
+                // are excluded and says nothing about 0 — it is not the loan
+                // question. But nobody else asks it either: declare_pat_bindings
+                // only DECLARES and there is no propagate_pat_moves, so a
+                // by-value binding never consumes the sub-place it extracts.
+                // ⚠ `probe::on` sits AFTER the `mode == 0` test on purpose: put
+                // first it would count all 14.1M bindings and the fire count
+                // would stop being the by-value population. `mode == 0` is a
+                // side-effect-free integer compare, and a zero here cannot be a
+                // dead site — the 13.5M coverage count refutes that
+                // independently.
+                // ── MEASURED 2026-08-28. 686,954 fires over 400 ledger
+                // compiles, CEILING 8, corpus COST 0:
+                //   borrowck_bindings-after-at-or-patterns-slice-patterns-box-patterns
+                //   borrowck_borrowck-move-error-many-places--move-out-of-ref-in-match
+                //   borrowck_borrowck-move-error-many-places--r-runtime
+                //   borrowck_issue-41962--r25 · --t25
+                //   borrowck_move-in-pattern-mut-in-loop
+                //   nll_issue-53807--c-iflet-noloop · --move-in-loop
+                // ⚠ AND THE COST 0 IS FALSE. Corpus silence, broken by hand on
+                // the FIRST constructed try: a PARTIAL move, legal in Rust —
+                //   struct H { a: Foo, b: P }
+                //   match h.a { Foo::F1(p) => { o = p.n; } Foo::F2 => {} }
+                //   o = o + h.b.n;
+                // compiles today and is refused under the probe with "use of
+                // moved value 'h'". `place_root(place)` consumes the ROOT, and
+                // the pattern moved a SUB-PLACE. Six other hand-written legal
+                // shapes (match ergonomics through a `&E`, or-pattern with one
+                // binding, fresh value per loop iteration, reassign-then-reuse,
+                // tuple destructure, move out of a Box) all stayed admitted, so
+                // the over-refusal is precisely the whole-root consume and
+                // nothing else. THE READING: the mechanism is not dead and the
+                // ceiling is real, but the crude spelling cannot be shipped —
+                // the move has to be recorded on the SUB-PLACE, with
+                // arm-exclusivity. That is a day of work, and this number says
+                // it is worth up to 8 rows.
+                if (mode == 0 && logos::probe::on("patbyvalmove") &&
+                    !b.empty() && b != "_" && !place.empty() &&
+                    is_move_type(t, prog_, ts_, &copy_tvs_)) {
+                    (void)consume(place_root(place), ln);
+                }
                 if (mode == 0 || mode > 2 ||
                     b.empty() || b == "_" || place.empty()) return;
                 if (place.size() < base_place.size()) return;
@@ -11589,13 +11634,107 @@ private:
                     cur_diverged_ = false;
                     push_scope();
                     declare_pat_bindings(arm.pat());
+                    // ── CEILING PROBE `patdropdestr` — E0509. A by-value
+                    // pattern binding cannot move a field OUT of a value whose
+                    // own type impls Drop; the destructor still owes a call on
+                    // the whole value. `needs_drop` exists and is consulted for
+                    // dropck liveness, never for destructuring, so
+                    // `let S { v } = s;` over a Drop-impl S compiles today.
+                    // Gated on the SCRUTINEE'S OWN Drop impl (ts_.drop_types),
+                    // not has_droppable_fields: a struct that does not impl
+                    // Drop but whose FIELD does may be partially moved legally.
+                    if (logos::probe::on("patdropdestr")) {
+                        TypeRef sct = v.scrut().type(pool);
+                        bool own_drop =
+                            sct && ((sct.kind() == LogosType::Kind::Struct &&
+                                     ts_.drop_types.count(std::string(sct.struct_name()))) ||
+                                    (sct.kind() == LogosType::Kind::Enum &&
+                                     ts_.drop_types.count(std::string(sct.enum_name()))));
+                        if (own_drop) {
+                            bool byval = false;
+                            each_pat_binding(arm.pat(), [&](std::string_view b, TypeRef t) {
+                                if (!b.empty() && b != "_" &&
+                                    is_move_type(t, prog_, ts_, &copy_tvs_)) byval = true;
+                            });
+                            // ── MEASURED 2026-08-28: CEILING 0, COST 1
+                            // (logos_02_semantic_core_pass_drop-trait-enum-b154).
+                            // A stop sign — but READ WHY. All four target rows
+                            // were compiled with the probe armed and DO reach
+                            // this site (2692-2693 fires each, rc=0), yet none
+                            // closes: their destructuring is not in a match arm
+                            // at all. `let S { f: inner } = s;`
+                            // (borrowck-move-out-of-tuple-struct-with-dtor--t13)
+                            // and `let S { v: inner } = *s;`
+                            // (access-mode-in-closures) are LET PATTERNS. The
+                            // E0509 predicate is one type test and is probably
+                            // right; THE SITE IS WRONG. Whoever funds it next
+                            // installs it at the let-destructuring site, not
+                            // here, and prices the cost against
+                            // drop-trait-enum-b154 first.
+                            if (byval)
+                                report(ln, "ceiling-probe patdropdestr: cannot move out of "
+                                           "a type which implements Drop (E0509)");
+                        }
+                    }
                     propagate_pat_sources(arm.pat(), scrut_sources, ln);  // §B6
                     propagate_pat_prov(arm.pat(), v.scrut());             // D1 r3
                     propagate_pat_loans(arm.pat(), scrut_hop_roots, ln);  // D1
                     propagate_pat_reborrows(arm.pat(), v.scrut());        // D1 r13
                     propagate_pat_borrows(arm.pat(), v.scrut(), ln);
                     StateMap before_guard = states_;
-                    if (auto g = arm.guard()) visit(g, /*consuming=*/true, ln);
+                    // ── CEILING PROBE `guardscrutloan` — in Rust a match guard
+                    // runs with the scrutinee implicitly SHARED-borrowed for
+                    // the whole match, so an assignment to it (or an `&mut` use
+                    // of it) inside a guard is E0510. logosc raises a loan on
+                    // the scrutinee only when a `ref`/`ref mut` BINDING exists:
+                    // `match x { Some(ref y) => { x = None; *y } … }` refuses,
+                    // `match x { Some(_) if { x = Option::None; false } => {} … }`
+                    // compiles. The guard itself deposits nothing. An arm WITH
+                    // a guard is reached 258 times in 8060 runs (the enclosing
+                    // arm loop is 21,178,908 — the wrong number for this
+                    // question). Synthetic holder so the release is
+                    // deterministic; a leaked loan would refuse every later use
+                    // of the scrutinee and read as a huge COST.
+                    // ── MEASURED 2026-08-28. 9 fires over 400 ledger
+                    // compiles, CEILING 8, COST 0:
+                    //   nll_issue-27282-move-match-input-into-guard
+                    //   nll_issue-27282-mutate-before-diverging-arm-1
+                    //   nll_issue-27282-mutate-before-diverging-arm-2--c-guard-mutate-noclosure
+                    //   nll_issue-27282-mutate-before-diverging-arm-2--guard-mutate
+                    //   nll_issue-27282-mutate-before-diverging-arm-3
+                    //   nll_match-guards-always-borrow
+                    //   nll_match-guards-partially-borrow--b
+                    //   nll_match-guards-partially-borrow--t25
+                    // ⚠ COST 0 IS NOT A SAFETY CLAIM, so the exemptions were
+                    // HAND-WRITTEN: 12 legal programs, each compiled with the
+                    // probe armed AND its fire log read so none of them is a
+                    // silence — a guard reading a sibling field of the
+                    // scrutinee's root, a guard WRITING a disjoint field
+                    // (`match p.x { 1 if { p.y = 5; true } => … }`), a guard
+                    // calling `&mut self` on an unrelated struct, a guard
+                    // calling `&self` on the scrutinee's own root, a
+                    // non-place scrutinee (`match f()`), a deref scrutinee
+                    // (`match *r`), a nested guarded match, a guarded match in
+                    // a loop, and a `&mut` of the scrutinee taken AFTER the
+                    // match (the release check — a leaked loan would have
+                    // shown here). All 12 admitted, 1-2 fires each. The abuse
+                    // direction confirmed too: `match x { 3 if { x = 9; false }
+                    // => … }` is admitted today and refused under the probe
+                    // with "cannot assign to 'x' because it is borrowed".
+                    // THE ONE MECHANISM IN THIS BATCH WORTH FUNDING.
+                    if (auto g = arm.guard()) {
+                        bool gl = logos::probe::on("guardscrutloan");
+                        BorrowPlace gbp{};
+                        if (gl) {
+                            gbp = extract_borrow_place(v.scrut(), pool);
+                            if (!gbp.root.empty())
+                                record_borrow(gbp, /*is_mut=*/false, ln,
+                                              "__guard_scrut");
+                        }
+                        visit(g, /*consuming=*/true, ln);
+                        if (gl && !gbp.root.empty())
+                            release_borrows_held_by("__guard_scrut");
+                    }
                     // Fold this guard's NEW moves of outer bindings into the
                     // accumulator for the following arms' guards.
                     if (arm.guard())
@@ -12243,7 +12382,47 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             }
             push_scope();
             visit_place_base(v.receiver(), line);
-            visit_args(v);
+            {
+                // ── CEILING PROBE `recvargloan` — the receiver's conflict
+                // check runs BEFORE visit_args and CHECKS without RECORDING, so
+                // nothing holds the receiver while the arguments are evaluated
+                // and a second `&mut` of the same root inside an argument is
+                // admitted: `f.a(f.b())` with both `&mut self` compiles (E0499).
+                // ⚠ Holding the receiver's `&mut` across the args would refuse
+                // `v.push(v.len())`, which is legal Rust two-phase and compiles
+                // today — so the reservation must conflict only with a SECOND
+                // MUTABLE use. MethodCall arm 413,187 arrivals; the bare-place
+                // `sk >= 1` branch 174,460; check_recv_conflict 108,650.
+                // ── MEASURED 2026-08-28: CEILING 0, COST 1
+                // (logos_02_semantic_core_pass_two-phase-baseline), 342 fires
+                // over 400 ledger compiles. A stop sign, and the cost row is
+                // the one the comment above predicted: the crude
+                // `a.kind() == Code::MethodCall` half treats every nested call
+                // as a mutable argument, so `v.push(v.len())` — legal Rust
+                // two-phase — is refused. The three target rows DO reach this
+                // site (1-3 fires each) and none closes, so the reservation
+                // does not reproduce the conflict either. Both halves wrong at
+                // once; the correct predicate is
+                // `method_self_kind(EMethodCallView{a}) == 2`, and it needs its
+                // own round. Declined.
+                bool rl = logos::probe::on("recvargloan");
+                BorrowPlace rbp{};
+                bool mut_arg = false;
+                if (rl) {
+                    if (auto recv = v.receiver(); recv && method_self_kind(v) == 2)
+                        rbp = extract_borrow_place(recv, pool);
+                    v.each_arg([&](lir_view::ExprRef a) {
+                        if (!a) return;
+                        if (a.kind() == Code::AddrOfTemp ||
+                            a.kind() == Code::MethodCall) mut_arg = true;
+                    });
+                    if (mut_arg && !rbp.root.empty())
+                        record_borrow(rbp, /*is_mut=*/true, line, "__recv_resv");
+                }
+                visit_args(v);
+                if (rl && mut_arg && !rbp.root.empty())
+                    release_borrows_held_by("__recv_resv");
+            }
             pop_scope();
             // Capture-flow: a `&mut self` method (push / insert / set) may STORE a
             // by-value borrow-carrying argument INTO the receiver. If the receiver
@@ -12662,14 +12841,76 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             auto saved_p = prov_;
             std::optional<StateMap> merged_s;
             std::optional<ProvMap>  merged_p;
+            StateMap guard_acc = saved_s;
+            // Hoisted OUT of the arm loop deliberately: armed once per
+            // MatchExpr, so the fire count reads "expression matches seen",
+            // not "arms seen".
+            bool gacc = logos::probe::on("mexprguardacc");
             v.each_arm([&](EMatchArmRef arm) {
-                states_ = saved_s;
+                states_ = gacc ? guard_acc : saved_s;
                 prov_   = saved_p;
                 bool saved_div = cur_diverged_;
                 cur_diverged_ = false;
                 push_scope();
                 declare_pat_bindings(arm.pat());
+                // ── CEILING PROBE `mexprpatloan` — the un-swept half of
+                // `patloan`. The pattern-binding loan channel landed at
+                // visit_stmt's Code::Match (10,589,215 arrivals) and at
+                // NEITHER MatchExpr arm; this lambda (15,310 arrivals in 8060
+                // runs) declares bindings and stops, so a `ref`/`ref mut`
+                // binding produced by a match used as a VALUE raises no loan
+                // on the scrutinee. Differential: the statement spelling
+                // refuses `let m = &mut e;` after `E::A(ref y) => r = y`, the
+                // `let r = match e { … }` spelling compiles.
+                // ── MEASURED 2026-08-28. CEILING 0 over 400 ledger compiles,
+                // 5 fires — AND THAT IS NOT A REFUTATION. The four rows it was
+                // aimed at (or-patterns--b-or-pattern-borrows-all,
+                // or-patterns--c-or-pattern-true-orpat,
+                // borrowck-anon-fields-struct, borrowck-vec-pattern-move-tail)
+                // were each compiled with the probe armed and its fire log
+                // read: ZERO FIRES IN ALL FOUR, rc=0 in all four. Their match
+                // in expression position never reaches THIS arm. So the
+                // finding is UNMEASURABLE-HERE, not dead: the loan channel's
+                // un-swept half is somewhere else, and whoever widens
+                // `patloan` next must FIND THE ARM THOSE ROWS TAKE before
+                // spending a line here. ⚠ `case Code::MatchExpr:` appears five
+                // times in this file; this is one of them.
+                if (logos::probe::on("mexprpatloan")) {
+                    std::vector<std::string> hop;
+                    if (type_may_carry_borrow(v.scrut().type(pool)))
+                        bc_hop_roots(v.scrut(), hop);
+                    if (auto st = retain_temp_scrut_loan(v.scrut(), line); !st.empty())
+                        hop.push_back(std::move(st));
+                    propagate_pat_prov(arm.pat(), v.scrut());
+                    propagate_pat_loans(arm.pat(), hop, line);
+                    propagate_pat_reborrows(arm.pat(), v.scrut());
+                    propagate_pat_borrows(arm.pat(), v.scrut(), line);
+                }
+                StateMap before_guard = states_;
                 if (auto g = arm.guard()) visit(g, /*consuming=*/true, line);
+                // ── CEILING PROBE `mexprguardacc` — visit_stmt's Code::Match
+                // carries a `guard_acc` that folds each guard's NEW moves of
+                // outer bindings into the next arm's start state (guards run
+                // in source order until one matches). This lambda resets to
+                // `saved_s` at every arm, so a value a guard moves is un-moved
+                // for every later guard and arm. An arm WITH a guard is
+                // reached 106 times in 8060 runs.
+                // MEASURED 2026-08-28: 2 fires over 400 ledger compiles,
+                // CEILING 1 — logos_00_bc_admit_borrowck_
+                // use-moved-value-in-match-guard-drop, exactly the row
+                // predicted — COST 0. And the pre-stated fork held:
+                // `borrowck-mutate-in-guard` reaches this site (1 fire) and
+                // does NOT close, because it is the OTHER guard defect (an
+                // E0510 assignment, not a move) and belongs to
+                // `guardscrutloan`. The two guard mechanisms are genuinely
+                // two. Not funded on its own — 1 row — but it rides free in
+                // any round that funds `guardscrutloan`.
+                if (gacc && arm.guard())
+                    states_.for_each([&](uint32_t slot, std::string_view name, VarState& st) {
+                        if (!st.moved || !saved_s.has_id(slot, name)) return;
+                        const VarState* bg = before_guard.find(slot, name);
+                        if (!bg || !bg->moved) guard_acc.at_id(slot, name) = st;
+                    });
                 visit(arm.value(), consuming, line);
                 pop_scope();
                 bool arm_div = cur_diverged_;

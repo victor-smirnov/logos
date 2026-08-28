@@ -6,6 +6,7 @@
 #include "wql_surface_parser.hpp"        // the compiler parses deem! rule bodies itself
 #include <logos/compiler/rule_ir.hpp>    // ...and hands the RQProgram over as memory
 #include "sema_fmt.hpp"      // format-string parser (slice 4.4)
+#include <logos/compiler/probe.hpp>
 
 #include <logos/writ/compat.hpp>
 #include <logos/writ/compat.hpp>
@@ -2132,9 +2133,39 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // two-path question `elaborate_cond_moves` already answers: give the local
     // a flag and clear it inside the RHS, which runs exactly when the move does.
     auto rhs_pre = moved_vars_;
+    // ── CEILING PROBE `scinitcond` — TWO TRACKERS, THE SAME TWO-PATH
+    // QUESTION, ONE ANSWER. The lines just above already know the RHS of
+    // `&&`/`||` is a CONDITIONAL path: they snapshot `moved_vars_` and fork it
+    // through `elaborate_cond_moves`, because the unconditional treatment
+    // LEAKED a value. The definite-assignment tracker got no such fork — it is
+    // forked for `if` (sema_stmt), `match` and loops, and NOT for
+    // short-circuit — so `let i: i64; let b = false && { i = 5i64; true };
+    // return i;` clears `i` from the uninit set unconditionally and compiles.
+    // Restoring the pre-RHS names is strictly the conservative direction: it
+    // never REMOVES a name, so nothing that compiles today for an
+    // initialization reason other than the RHS can start compiling.
+    // ⚠ This site is in sema, not borrow_check, so the coverage map has no
+    // arrival count for it; the probe's own fire count IS the arrival
+    // measurement, and a NEVER FIRED run is void.
+    // ── MEASURED 2026-08-28: 95 fires over 400 ledger compiles, CEILING 3
+    // — borrowck-and-init--r03, borrowck-and-init--t03, borrowck-or-init,
+    // exactly the three predicted — COST 0. The direction is the strictly
+    // conservative one (names are only ever RESTORED to the uninit set, never
+    // removed), and it is the same fork `if`/`match`/loops already carry, so
+    // the cost side has little to find; the honest limit is that COST 0 is a
+    // corpus reading, not a proof. Second-largest ceiling in the batch and the
+    // smallest edit in it. ⚠ The `+=`-on-uninit half (borrowck-init-op-equal,
+    // augmented-assignments) is NOT covered here: `let mut v: i64; v += 1;`
+    // never READS `v` at statement level, which is the compound-assign
+    // lowering's site and needs its own name.
+    bool sc_probe = logos::probe::on("scinitcond") &&
+                    (op == "&&" || op == "||");
+    auto uninit_pre = currently_uninit_vars_;
     auto rhs = (op == "&&" || op == "||")
         ? lower_expr_temp_scoped(map_of(node.get(la::RHS.code)))
         : lower_expr(map_of(node.get(la::RHS.code)));
+    if (sc_probe)
+        for (auto& n : uninit_pre) currently_uninit_vars_.insert(n);
     if ((op == "&&" || op == "||") && moved_vars_ != rhs_pre) {
         size_t rm = flag_clear_log_.size();
         std::vector<CondMoveBranch> rb;
