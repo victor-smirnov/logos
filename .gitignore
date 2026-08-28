@@ -8,6 +8,8 @@ cmake_install.cmake
 install_manifest.txt
 compile_commands.json
 CTestTestfile.cmake
+# …except the SOURCE-ROOT one, which is a deliberate tripwire (see its header).
+!/CTestTestfile.cmake
 _deps
 CMakeUserPresets.json
 build*
