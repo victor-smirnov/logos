@@ -2253,10 +2253,32 @@ private:
                          scopes_[fi].declared.end());
         if (!pending_esc_holder_.empty()) outer.insert(pending_esc_holder_);
         auto escapes = [&](const auto& rec) {
+            // `loopexit_coholder` hoisted to the lambda ENTRY: inside the
+            // co_holders loop it reported NEVER FIRED, which does not
+            // distinguish "escapes() is never called in the ledger
+            // population" from "co_holders is always empty". Here the
+            // count IS the escapes() arrival count.
+            bool lec = logos::probe::on("loopexit_coholder");
             if (rec.holder.empty()) return false;   // lexical: dies at pop
             if (outer.count(rec.holder)) return true;
             for (auto& h : rec.co_holders)
-                if (outer.count(h)) return true;
+                // CEILING PROBE `loopexit_coholder` — the co-holder channel
+                // (what place_write_loans' and visit_stmt's reroot write) is
+                // consulted here and its `return true` has count 0 in 8060
+                // runs: no loan has ever escaped a loop through it. escapes()
+                // is called 194 times total, so 194 IS the population, not a
+                // sample. `escapes` true means the release is SKIPPED —
+                // strictly fewer releases.
+                // ⚠ UNMEASURABLE BY THE LEDGER — MEASURED 2026-08-28: with the
+                // probe hoisted to the lambda entry (inside the co_holders
+                // loop it reported NEVER FIRED, which cannot tell "escapes()
+                // is never called" from "co_holders is always empty"), it
+                // fired ONCE across the 400 ledger compiles. CEILING 0 over a
+                // population of ONE is not a result; COST 0 is not a safety
+                // claim. The ledger contains essentially no loop-exit escape
+                // decision at all. Funding this needs a hand-written
+                // loop-carried co-held borrow first — a program, then a price.
+                if (lec || outer.count(h)) return true;
             return false;
         };
         for (size_t fi = outer_scope_count; fi < scopes_.size(); ++fi) {
@@ -8335,6 +8357,30 @@ private:
                 // `default:` consuming visit would MOVE a `&mut`-typed
                 // receiver (`let t: str = v.get(i)` must not move `v`).
                 if (!result_borrows_self(v)) {
+                    // CEILING PROBE `mcallrefrecv` — the arm written to walk
+                    // INTO a reference receiver (`else if (recv &&
+                    // is_ref_kind(...)) take_ref_borrows(recv, …)  // #70`
+                    // below) is unreachable by construction: everything past
+                    // this exit has result_borrows_self true, so that arm
+                    // needs recv == null and then fails its own `recv &&`.
+                    // Purely additive: delegate here instead. Records only.
+                    // ⛔ DECLINED ON COST — MEASURED 2026-08-28: CEILING 0 vs
+                    // COST 9 legal programs refused (bc_argcomp_replace_admit,
+                    // bc_d1_match_scalar_admits, bc_d1r2_let_else_admits,
+                    // bc_d1r7_b1_destructure_deferred, bc_d1_unrelated_local,
+                    // bc_d8_disjoint_field_use/quote_field_split,
+                    // 03_ownership borrow_trait + drop_glue_struct_homonym).
+                    // ⚠ THE CEILING IS THE WEAK HALF: the probe fired only 3
+                    // times across the 400 ledger compiles, so 0 there is an
+                    // absence of population, not a refutation. The COST is the
+                    // measurement that decides: delegating on every
+                    // ref-receiver call locks the referent for the holder's
+                    // lifetime and `let n = r.len()` must not lock anything.
+                    // The unreachable #70 arm below stays unreachable; if it
+                    // is ever revived it needs an exemption analysis first.
+                    if (logos::probe::on("mcallrefrecv") && recv &&
+                        is_ref_kind(recv.type(pool)))
+                        take_ref_borrows(recv, line, holder, record_only);
                     if (!record_only) visit(e, /*consuming=*/false, line);
                     break;
                 }
@@ -8390,7 +8436,25 @@ private:
                             rn = rn.substr(d + 1);
                         if (auto g = rn.find("$G"); g != std::string::npos)
                             rn = rn.substr(0, g);
-                        root_is_rc = rn == "Rc" || rn == "Arc";
+                        // CEILING PROBE `rcexempt` — this exemption has never
+                        // been checked in the ABUSE direction. It is a STRING
+                        // match on the struct name after stripping the module
+                        // prefix and the `$G` suffix: a lookup key, not an
+                        // identity. Force it off — calls that recorded NO
+                        // borrow now record one; nothing is admitted.
+                        // MEASURED 2026-08-28 in the ABUSE direction, which is
+                        // what this slot bought: CEILING 0, COST 0, over 3
+                        // fires in the 400 ledger compiles (2,347 arrivals at
+                        // the enclosing struct-root test over the 8060-run
+                        // coverage population). The hatch holds open no ledger
+                        // row, so keeping it costs nothing THAT THE LEDGER CAN
+                        // SEE. ⚠ COST 0 IS NOT A SAFETY CLAIM and CEILING 0
+                        // over 3 fires is not a refutation: the string-keyed
+                        // identity (any user type named `Rc`/`Arc` inherits
+                        // the exemption) is still unpriced. Closing it needs a
+                        // hand-written counter-example, not another ledger run.
+                        root_is_rc = !logos::probe::on("rcexempt") &&
+                                     (rn == "Rc" || rn == "Arc");
                     }
                     if (!bp.root.empty() && !root_is_rawptr && !root_is_rc &&
                         var_has(bp.root_slot, bp.root)) {
@@ -9327,7 +9391,25 @@ private:
             if (fit2->holder.empty()) { ++fit2; continue; }
             uint64_t lu = holders_last_use(*fit2);
             if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++fit2; continue; }
-            if (holder_drops_after_last_use(*fit2)) { ++fit2; continue; }
+            // CEILING PROBE `fldnlldrop` — the byte-identical guard in the
+            // whole-borrow loop above fires 293 of 84,202; here it fires 0 of
+            // 1,655. No field borrow in the population is held by a
+            // drop-observing holder, so the field loop's dropck-liveness rule
+            // is untested. Force it: field loans survive to pop_scope instead
+            // of retiring at the holder's last use — strictly fewer releases.
+            // ⛔ STOP SIGN — MEASURED 2026-08-28: 19 fires across the 400
+            // ledger compiles, CEILING 0 vs COST 13 legal programs refused
+            // (bc_nll_d2_field_holder{,_mut}, nll-disjoint-fields,
+            // nll-borrow-of-field-disjoint, bc_d6_mut_field_capture_nll,
+            // bc_d8_match_scrutinee_disjoint, zone_mut_thin_source, spec
+            // borrow_2, …). The WHOLE "field NLL retires too early" axis is
+            // priced and declined in one run: field-precise loans that outlive
+            // their holder's last use break the disjoint-field corpus wholesale.
+            // What is still unexplained, and is NOT bought by this: why
+            // drop-observability is structurally unreachable for field holders
+            // (293 of 84,202 in the whole-borrow loop, 0 of 1,655 here).
+            if (logos::probe::on("fldnlldrop") ||
+                holder_drops_after_last_use(*fit2)) { ++fit2; continue; }
             if (logos::probe::on("nll_lu_strict") ? (lu != 0 && lu < cur_line)
                                                   : (lu <= cur_line)) {
                 if (auto sit = var_find(fit2->target_slot, fit2->target); sit != nullptr) {
@@ -10870,7 +10952,26 @@ private:
                         else if (cur.kind() == EC::TupleIndex){ cur = ETupleIndexView{cur}.receiver(); }
                         else break;
                     }
-                    if (saw_index && cur && cur.kind() == EC::VarRef) {
+                    // CEILING PROBE `dwnoidx` — the place-write exclusivity
+                    // refusal below is gated on the AddrOfTemp walk having
+                    // crossed an IndexRead/SliceIndex, so `s.f = v` / `t.0 = v`
+                    // reach the same VarRef root and are EXEMPT. The un-gated
+                    // copy of this rule lives on Code::FieldWrite /
+                    // FieldIndexWrite, which sema never emits (0 arrivals).
+                    // Drop the conjunct: strictly more statements reach the
+                    // two reports, nothing is released or recorded less.
+                    // ⛔ REFUTED OVER A PROVEN-LIVE SITE — MEASURED 2026-08-28:
+                    // fired 189 times across the 400 ledger compiles (19,193
+                    // arrivals over the 8060-run coverage population, of which
+                    // `saw_index` is true on only 6,518 — so ~12,675 rooted
+                    // place writes per pass really are exempt). CEILING 0,
+                    // COST 0. The exemption is real, it is reached, and it
+                    // holds open NOT ONE ledger row: the un-gated copy on the
+                    // dead FieldWrite arms is not a missing refusal anyone is
+                    // waiting for. A real negative result, not an absent
+                    // population. Do not re-propose without a NEW row class.
+                    bool dwnoidx = logos::probe::on("dwnoidx");
+                    if ((dwnoidx || saw_index) && cur && cur.kind() == EC::VarRef) {
                         std::string root(EVarRefView{cur}.name());
                         uint32_t root_slot = EVarRefView{cur}.var_slot();  // Phase-1
                         if (auto it = var_find(root_slot, root); it != nullptr) {
