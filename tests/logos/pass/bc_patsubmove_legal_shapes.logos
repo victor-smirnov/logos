@@ -1,0 +1,165 @@
+// THE LEGAL HALF of the by-value pattern sub-place move (borrow_check.cpp,
+// propagate_pat_borrows' `each_pat_binding_place` lambda). `Opt::Some(t)` moves
+// `m.0`, not `m` — the whole-root consume its predecessor `patbyvalmove` used
+// refused every program in this file, which is why that spelling was never
+// shipped and this one was.
+//
+// COST 0 on the 807-program legal corpus is NOT why it landed; these shapes
+// are. Each was written by hand, run under `scripts/ceiling-probe.sh
+// patbyvalsubmove`, and traced with LOGOS_PBSM_TRACE=1 to prove the mechanism
+// actually REACHED it (a counter-example that does not fire proves nothing).
+//
+// ⚠ TWO SHAPES ARE SILENCES, KEPT AS SUCH: `copy_payload` (an `i64` payload is
+// not a move type) and `ref_binding` (mode 1, not 0) emit NO record at all.
+// They pin the gate, not the rule.
+package bc_patsubmove_legal_shapes;
+
+struct Pay { n: i64 }
+impl Drop for Pay { fn drop(self: &mut Pay) {} }
+
+// The move record is on `m.0`; reassigning the WHOLE local resets VarState and
+// with it moved_fields, so the second match is a fresh value.
+fn reassign_whole() -> i64 {
+    let mut m: Option<Pay> = Option::Some(Pay { n: 1i64 });
+    let mut k: i64 = 0i64;
+    match m { Option::Some(t) => { k = k + t.n; } Option::None => {} }
+    m = Option::Some(Pay { n: 2i64 });
+    match m { Option::Some(t2) => { k = k + t2.n; } Option::None => {} }
+    return k;
+}
+
+// A binding declared INSIDE the loop body is a different value each iteration.
+fn fresh_each_iteration() -> i64 {
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while i < 3i64 {
+        let m: Option<Pay> = Option::Some(Pay { n: 1i64 });
+        match m { Option::Some(t) => { k = k + t.n; } Option::None => {} }
+        i = i + 1i64;
+    }
+    return k;
+}
+
+// Moved and re-initialised in the same iteration.
+fn reassigned_in_loop() -> i64 {
+    let mut m: Option<Pay> = Option::Some(Pay { n: 1i64 });
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while i < 3i64 {
+        match m { Option::Some(t) => { k = k + t.n; } Option::None => {} }
+        m = Option::Some(Pay { n: 1i64 });
+        i = i + 1i64;
+    }
+    return k;
+}
+
+// The arm that moves DIVERGES, so the move never reaches the join and the
+// second `if let` sees a live value.
+fn moving_arm_diverges(c: bool) -> i64 {
+    let m: Option<Pay> = Option::Some(Pay { n: 1i64 });
+    if c { if let Option::Some(t) = m { return t.n; } }
+    if let Option::Some(u) = m { return u.n + 10i64; }
+    return 0i64;
+}
+
+// SILENCE 1: an `i64` payload is Copy, `is_move_type` is false, no record.
+fn copy_payload() -> i64 {
+    let m: Option<i64> = Option::Some(7i64);
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while i < 3i64 {
+        match m { Option::Some(t) => { k = k + t; } Option::None => {} }
+        i = i + 1i64;
+    }
+    return k;
+}
+
+// SILENCE 2: `ref r` is mode 1, and the gate is the MODE, not the type.
+fn ref_binding_in_loop() -> i64 {
+    let m: Option<Pay> = Option::Some(Pay { n: 3i64 });
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while i < 3i64 {
+        match m { Option::Some(ref r) => { k = k + r.n; } Option::None => {} }
+        i = i + 1i64;
+    }
+    return k;
+}
+
+// Two arms name the SAME sub-place; arms are alternatives, and states_ is
+// restored per arm, so the second arm's record is not a second move.
+fn or_arms_same_place() -> i64 {
+    let e: Option<Pay> = Option::Some(Pay { n: 7i64 });
+    let mut k: i64 = 0i64;
+    match e { Option::Some(p) => { k = p.n; } Option::None => { k = 0i64; } }
+    return k;
+}
+
+// A by-value binding of a value the callee OWNS: the parameter is the root and
+// nothing outside the call can see the move.
+fn take(m: Option<Pay>) -> i64 {
+    match m { Option::Some(t) => { return t.n; } Option::None => { return 0i64; } }
+}
+fn param_moved_per_call() -> i64 {
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while i < 3i64 {
+        k = k + take(Option::Some(Pay { n: 2i64 }));
+        i = i + 1i64;
+    }
+    return k;
+}
+
+// A loop-local move next to an OUTER binding that is matched only once, after
+// the loop: the two roots are independent.
+fn outer_untouched_by_loop() -> i64 {
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    let outer: Option<Pay> = Option::Some(Pay { n: 9i64 });
+    while i < 3i64 {
+        let m: Option<Pay> = Option::Some(Pay { n: 1i64 });
+        match m { Option::Some(t) => { k = k + t.n; } Option::None => {} }
+        i = i + 1i64;
+    }
+    match outer { Option::Some(o) => { k = k + o.n; } Option::None => {} }
+    return k;
+}
+
+// The whole-place branch: `let Some(t) = m else`, one spelling of the three
+// that record.
+fn let_else_binding() -> i64 {
+    let m: Option<Pay> = Option::Some(Pay { n: 5i64 });
+    let Option::Some(t) = m else { return 0i64; };
+    return t.n;
+}
+
+// SILENCE 3, named at the site too: a match used as an RVALUE records NOTHING
+// on its scrutinee. Kept so the day that site starts recording, this file says
+// what the answer has to stay.
+fn match_as_rvalue_in_loop() -> i64 {
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while i < 3i64 {
+        let m: Option<Pay> = Option::Some(Pay { n: 5i64 });
+        let r: i64 = match m { Option::Some(t) => t.n, Option::None => 0i64 };
+        k = k + r;
+        i = i + 1i64;
+    }
+    return k;
+}
+
+fn main() -> i32 {
+    if reassign_whole()         != 3i64  { return 1i32; }
+    if fresh_each_iteration()   != 3i64  { return 2i32; }
+    if reassigned_in_loop()     != 3i64  { return 3i32; }
+    if moving_arm_diverges(true)  != 1i64  { return 4i32; }
+    if moving_arm_diverges(false) != 11i64 { return 5i32; }
+    if copy_payload()           != 21i64 { return 6i32; }
+    if ref_binding_in_loop()    != 9i64  { return 7i32; }
+    if or_arms_same_place()     != 7i64  { return 8i32; }
+    if param_moved_per_call()   != 6i64  { return 9i32; }
+    if outer_untouched_by_loop() != 12i64 { return 10i32; }
+    if let_else_binding()       != 5i64  { return 11i32; }
+    if match_as_rvalue_in_loop() != 15i64 { return 12i32; }
+    return 0i32;
+}

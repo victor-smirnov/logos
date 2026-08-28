@@ -4582,9 +4582,20 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   NOIMPORTED   4441 → 4441    0  the +2 native cancels the −2 row tests.
 #   TIERCOMMIT    435 →  433   −2  two closed rows' per-row tests leave.
 # PREDICTED +2/0/−2 before the pin was read and measured as that.
-REGISTRY-ALL         8614
+# 2026-08-28 (`patbyvalsubmove` LANDED — a by-value pattern binding moves the
+# SUB-PLACE it names, closing TWO ledger rows, `bindings-after-at-or-patterns-
+# slice-patterns-box-patterns` and `issue-53807--c-iflet-noloop`, both E0382:
+#   ALL          8614 → 8616   +2  +1 native pass +1 native fail; the two moved
+#                                  programs are −2 admit row tests +2 imported
+#                                  fail fixtures, net 0.
+#   NOIMPORTED   4441 → 4441    0  the +2 native cancels the −2 row tests (an
+#                                  admit row test carries no `imported` label).
+#   TIERCOMMIT    433 →  431   −2  two closed rows' per-row tests leave.
+# Same arithmetic as the `recvresvbare` entry directly above, same shape of
+# change; measured as +2/0/−2.
+REGISTRY-ALL         8616
 REGISTRY-NOIMPORTED  4441
-REGISTRY-TIERCOMMIT  433
+REGISTRY-TIERCOMMIT  431
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

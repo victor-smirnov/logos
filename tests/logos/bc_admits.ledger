@@ -460,7 +460,23 @@
 # Programs moved to tests/imported/fail/borrowck/ with diagnostics pinned;
 # native pair tests/logos/{pass/bc_recvresv_two_phase_legal,
 # fail/bc_recvresv_shared_recv_mut_arg_fail}.
-# TOTAL 385
+# 2026-08-28 — 385 -> 383. TWO rows, and TWO was the number declared by NAME
+# before the edit (scripts/ceiling-probe.sh patbyvalsubmove: 661,206 fires over
+# 385 ledger compiles, CEILING 2, COST 0). A by-value pattern binding named a
+# sub-place of the scrutinee and RECORDED NOTHING, so
+#   bindings-after-at-or-patterns-slice-patterns-box-patterns  E0382
+#   issue-53807--c-iflet-noloop                                E0382
+# compiled. The binding now moves the place it names: the whole local when the
+# pattern IS the local (`a @ T::Foo(_)`), and `moved_fields[path]` when it is a
+# projection (`Opt::Some(t)` names `m.0`). The predecessor spelling
+# `patbyvalmove` priced at 8 and consumed the whole ROOT for every binding; it
+# was never shipped because that refuses `match h.a { Foo::F1(p) => … }` and
+# then reading `h.b`. Rule 7, in the shrinking direction: the correct spelling
+# closed a quarter of what the crude one did.
+# ⚠ THE RVALUE-MATCH SPELLING RECORDS NOTHING and stays open, asserted by
+# nothing: `let r = match m { Opt::Some(t) => t.n, … };` produces zero records
+# on `m` (hand-traced). Named at the site and in pass/bc_patsubmove_legal_shapes.
+# TOTAL 383
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -469,7 +485,6 @@ already-borrowed-as-mutable-if-let-133941 bck.NEW tests/imported/admit/borrowck/
 anonymous-region-in-apit--closure-param-escapes bck.C tests/imported/admit/borrowck/anonymous-region-in-apit--closure-param-escapes
 anonymous-region-in-apit--ctl-return-channel bck.C tests/imported/admit/borrowck/anonymous-region-in-apit--ctl-return-channel
 augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments
-bindings-after-at-or-patterns-slice-patterns-box-patterns bck.B tests/imported/admit/borrowck/bindings-after-at-or-patterns-slice-patterns-box-patterns
 borrow-immutable-deref-box bck.B tests/imported/admit/borrowck/borrow-immutable-deref-box
 borrow-immutable-upvar-mutation-impl-trait bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait
 borrow-immutable-upvar-mutation bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation
@@ -739,7 +754,6 @@ issue-52113 nllmoves.R13 tests/imported/admit/nll/issue-52113
 issue-52663-span-decl-captured-variable nllmoves.C tests/imported/admit/nll/issue-52663-span-decl-captured-variable
 issue-53040 nllmoves.C tests/imported/admit/nll/issue-53040
 issue-53773 nllmoves.E tests/imported/admit/nll/issue-53773
-issue-53807--c-iflet-noloop nllmoves.NEW-N1 tests/imported/admit/nll/issue-53807--c-iflet-noloop
 issue-53807--move-in-loop nllmoves.NEW-N1 tests/imported/admit/nll/issue-53807--move-in-loop
 issue-54124 nllmoves.NEW-L1 tests/imported/admit/nll/issue-54124
 issue-54382-use-span-of-tail-of-block nllmoves.D tests/imported/admit/nll/issue-54382-use-span-of-tail-of-block

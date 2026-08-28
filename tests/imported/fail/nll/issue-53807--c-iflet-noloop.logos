@@ -1,6 +1,7 @@
 // rustc nll/issue-53807.rs — upstream use of moved value
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.NEW-N1
+// shelf: FAIL (was admit, root nllmoves.NEW-N1) — closed 2026-08-28: the first
+// `if let` records `maybe.0` in moved_fields, so the second one refuses.
 // control A for t19: same if-let move, NO loop, used twice
 package issue_53807_c_iflet_noloop;
 struct Pay { n: i64 }

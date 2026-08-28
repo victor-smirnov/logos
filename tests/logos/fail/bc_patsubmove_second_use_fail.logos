@@ -1,0 +1,15 @@
+// THE REFUSING HALF: a by-value pattern binding MOVES the sub-place it names,
+// so a second pattern that names the same place is a use of moved data
+// (upstream E0382). The whole-value read is refused too — `consume` reports
+// "use of partially moved value" once moved_fields is non-empty.
+package bc_patsubmove_second_use_fail;
+
+struct Pay { n: i64 }
+impl Drop for Pay { fn drop(self: &mut Pay) {} }
+
+fn main() -> i32 {
+    let m: Option<Pay> = Option::Some(Pay { n: 1i64 });
+    if let Option::Some(a) = m { let _ = a.n; }
+    if let Option::Some(b) = m { let _ = b.n; }   // ERROR: 'm.0' already moved
+    return 0i32;
+}

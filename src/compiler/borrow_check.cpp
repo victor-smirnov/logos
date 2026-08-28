@@ -5454,7 +5454,36 @@ private:
                 // at the loop back edge. The root `moved` flag the crude
                 // spelling set is evidently carried; the dotted-path map is not.
                 // THE NEXT STEP IS merge_loans, not this site.
-                if (mode == 0 && logos::probe::on("patbyvalsubmove") &&
+                // ── A BY-VALUE PATTERN BINDING MOVES THE SUB-PLACE IT NAMES
+                //
+                // LANDED 2026-08-28 from the probe above, with ONE change: the
+                // diagnostic wording. Every predicate, every branch and the
+                // unconditional re-record are BYTE-IDENTICAL to what was
+                // priced, because rule 7 says a crude probe and a correct fix
+                // do not close the same programs — so the only way the
+                // measurement transfers is if nothing but the message moves.
+                //
+                //   place == root  → the pattern binds the WHOLE local
+                //                    (`x @ …`, `match x { y => … }`): a plain
+                //                    whole-value consume, which is what
+                //                    `patbyvalmove` did for EVERY place and is
+                //                    why it over-refused.
+                //   place  > root  → the pattern binds a SUB-place
+                //                    (`Opt::Some(t)` names `m.0`): record it in
+                //                    `moved_fields`, the existing dotted-path
+                //                    partial-move map, and refuse a later
+                //                    OVERLAPPING read. A disjoint sibling stays
+                //                    usable, which is the whole point.
+                //
+                // ⚠ THE RVALUE-MATCH SPELLING IS UNCHECKED, and that is
+                // measured, not assumed. `let r = match m { Opt::Some(t) =>
+                // t.n, … };` produces NO record on `m` at all (hand-traced,
+                // e1_match_rvalue / e3_match_rvalue_in_loop: zero `[pbsm]`
+                // lines for the scrutinee, where the statement spelling one
+                // token away emits one). The statement, if-let and let-else
+                // spellings are the three that record. A silence, named here
+                // so the next round does not read it as coverage.
+                if (mode == 0 &&
                     !b.empty() && b != "_" && !place.empty() &&
                     is_move_type(t, prog_, ts_, &copy_tvs_)) {
                     const std::string mroot = place_root(place);
@@ -5468,9 +5497,8 @@ private:
                         const std::string mpath = place.substr(mroot.size() + 1);
                         if (auto* hit = find_moved_overlap(vs->moved_fields, mpath))
                             report(ln, std::format(
-                                "ceiling-probe patbyvalsubmove: use of moved field "
-                                "'{}.{}' (moved on line {})", mroot, hit->first,
-                                hit->second));
+                                "use of moved field '{}.{}' (moved on line {})",
+                                mroot, hit->first, hit->second));
                         vs->moved_fields[mpath] = ln;
                     }
                 }
