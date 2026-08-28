@@ -50,16 +50,31 @@ LEDGER_RE='^logos_00_bc_admit_'
 # by hand, by agents who thought to look. Nobody should have to think to look.
 # This corpus is programs that MUST COMPILE, so a failure here is the probe
 # refusing something legal. 1168 tests, 73 s.
-# ⚠ AND THE POPULATION MUST BE CHOSEN BY THE PROPERTY, NOT BY A SPELLING I HAD
-# TO HAND. The first version of this line named four DIRECTORIES and missed
-# `02_semantic_core`, which is where every `bc_*` fixture lives — i.e. the hole
-# was exactly where borrow legality is pinned. Measured: it scored `refwhole`
-# at COST 1 where an agent had counted 40 by hand. Selecting by the `pass`
-# LABEL instead is worse in a different way (3016 tests, 438 s, and it breaks
-# FIXTURES_REQUIRED so tests fail for not having run their producers). What is
-# below is the borrow-legality corpus plus the three directories whose spec
-# programs caught the last over-refusal that L1 could not see: 478 tests, 39 s.
-LEGAL_RE='_pass_(bc_|zone_|place_|branch_merge|borrow|reborrow|move_|drop_|nll)|^logos_(25_spec|03_ownership|04_advanced)_pass'
+# ⚠ THE POPULATION IS CHOSEN BY A LABEL, NOT BY A SPELLING I TYPED. The first
+# version of this line named four DIRECTORIES and missed `02_semantic_core`,
+# which is where every native `bc_*` fixture lives — the hole was exactly where
+# borrow legality is pinned, and it scored `refwhole` at COST 1 where an agent
+# had counted 40 by hand. The replacement regex was better and still a regex.
+#
+# `bc` is now stamped at REGISTRATION (tests/logos/CMakeLists.txt): for imported
+# ports from the upstream suite DIRECTORY (borrowck/nll/moves/regions/lifetimes/
+# dropck/drop/closures/variance — a property of the port, not of our naming),
+# and for native fixtures by the `bc_` prefix. Adding `-L pass` keeps only the
+# programs that MUST COMPILE, which is what a cost is.
+#
+# Measured 2026-08-28: 807 tests against the old regex's 487, and the 320 it
+# gains are the imported borrow-check ports the regex never named at all.
+# ⚠ The native half is still prefix-keyed, so a borrow-check fixture named
+# without `bc_` is outside this corpus. Stated at the label's definition too.
+# ⚠ TWO SELECTIONS, UNIONED, BECAUSE ctest ANDs ITS FILTERS. `-L bc -L pass`
+# alone LOSES the spec/ownership/advanced directories, which carry no `bc`
+# label — and those are what caught the over-refusal of 2026-08-27 that L1 could
+# not see (`tests/spec/pass/type_{3,8}`). MEASURED when this switch was made:
+# the label corpus is BIGGER (807 vs 487) and scored `refwhole` at COST 5 where
+# the old regex scored 7; the two missing costs were spec programs. A wider
+# population that drops the half with the evidence is not an improvement.
+LEGAL_SEL_A=(-L bc -L pass)
+LEGAL_SEL_B=(-R "^logos_(25_spec|03_ownership|04_advanced)_pass")
 BIN=build/bin/logosc
 WORK=build/probe
 mkdir -p "$WORK"
@@ -133,12 +148,14 @@ fi
 # ── THE OTHER HALF: what does the refusal COST in legal programs? ────────────
 LBASE="$WORK/legalbase-$KEY.txt"
 if [ ! -f "$LBASE" ]; then
-    ctest --test-dir build -j"$JOBS" -R "$LEGAL_RE" 2>/dev/null \
-        | grep -oP '^\s*\d+ - \K\S+(?= \(Failed\))' | sort > "$LBASE"
+    { ctest --test-dir build -j"$JOBS" "${LEGAL_SEL_A[@]}" 2>/dev/null
+      ctest --test-dir build -j"$JOBS" "${LEGAL_SEL_B[@]}" 2>/dev/null; } \
+        | grep -oP '^\s*\d+ - \K\S+(?= \(Failed\))' | sort -u > "$LBASE"
 fi
 LRUN=$WORK/legalrun-$NAME.txt
-LOGOS_PROBE="$NAME" ctest --test-dir build -j"$JOBS" -R "$LEGAL_RE" 2>/dev/null \
-    | grep -oP '^\s*\d+ - \K\S+(?= \(Failed\))' | sort > "$LRUN"
+{ LOGOS_PROBE="$NAME" ctest --test-dir build -j"$JOBS" "${LEGAL_SEL_A[@]}" 2>/dev/null
+  LOGOS_PROBE="$NAME" ctest --test-dir build -j"$JOBS" "${LEGAL_SEL_B[@]}" 2>/dev/null; } \
+    | grep -oP '^\s*\d+ - \K\S+(?= \(Failed\))' | sort -u > "$LRUN"
 BROKE=$(comm -13 "$LBASE" "$LRUN")
 C=$(printf '%s' "$BROKE" | grep -c . || true)
 

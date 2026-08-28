@@ -1024,6 +1024,44 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
         set(_labels "${_labels};imported")
     endif()
 
+    # ── THE BORROW-CHECK SUBSET, so `ctest -L bc` is a real selection ─────────
+    # Borrow-check work needs an over-refusal oracle narrower than the 4436-test
+    # L4 and wider than a handful of fixtures. Until now that corpus was a REGEX
+    # hand-written in scripts/ceiling-probe.sh, and it was wrong on its first
+    # outing: it named four directories and missed `02_semantic_core`, which is
+    # where every native `bc_*` fixture lives — so it scored a probe at COST 1
+    # where the real answer was 40. A label derived at registration cannot have
+    # that hole.
+    #
+    # ⚠ THE TWO HALVES ARE NOT THE SAME KIND OF CLAIM, and the asymmetry is
+    # deliberate rather than tidy:
+    #   · IMPORTED — keyed on the upstream SUITE DIRECTORY. rustc's own
+    #     tests/ui/{borrowck,nll,moves,regions,lifetimes,dropck,drop,closures,
+    #     variance} is a real property of the port, decided by whoever wrote the
+    #     test upstream, not by us. A new port lands in its directory and is
+    #     labelled without anyone remembering.
+    #   · NATIVE — keyed on filename PREFIXES, which is a SPELLING and therefore
+    #     exactly the kind of class definition that certifies what it cannot
+    #     see. There is no directory structure under tests/logos/{pass,fail} to
+    #     key on instead.
+    #     ⚠ THE HOLE IS NOT HYPOTHETICAL AND BIT WITHIN THE HOUR. The first
+    #     version of this line said `bc_` alone. Measured immediately after:
+    #     arming the `refwhole` probe refuses SEVEN pass fixtures, and this
+    #     label caught five — the two it missed were `zone_mut_thin_source_
+    #     admits_aggregate` and `zone_mut_tupleidx_fat_recv`, borrow-check
+    #     fixtures whose names do not begin with `bc_`. The prefix list below is
+    #     the MEASURED set, not a guessed one, and it will go stale the same way
+    #     the next time someone names a fixture freshly.
+    #     The derived replacement, not built here: key the label on the
+    #     DIAGNOSTIC in the `.expected` file — a property of what the fixture
+    #     asserts rather than of what someone typed. That works for `fail`
+    #     fixtures, which have a diagnostic, and not for `pass` fixtures, which
+    #     are exactly the half a cost corpus needs. Left open, named.
+    if (LOGOS_FILE MATCHES "/tests/imported/(pass|fail|admit)/(borrowck|nll|moves|move|regions|lifetimes|dropck|drop|closures|variance)/"
+        OR LOGOS_FILE MATCHES "/tests/logos/(pass|fail)/(bc_|zone_mut|place_write|branch_merge|reborrow|nll)")
+        set(_labels "${_labels};bc")
+    endif()
+
     # ── THE LAYOUT VERIFIER'S POPULATION IS THE CORPUS ────────────────────────
     # `verify_layout_engines()` compares five engines that size a value. Two of
     # them — sema's and mono's, the ones whose numbers become byte OFFSETS and
