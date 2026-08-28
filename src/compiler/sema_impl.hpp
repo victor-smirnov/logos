@@ -4300,6 +4300,12 @@ private:
     // itself isn't yet in impls_ when method signatures are being
     // type-checked during collect_impl).
     std::string current_impl_trait_name_;
+    // PROBE ltundecl_wide (2026-08-28): the lifetime params declared on the
+    // ENCLOSING impl header (`impl<'a> H<'a> { fn get(self: &H<'a>) ... }`).
+    // Set/restored in lower_impl_block. Read only under the probe, to widen
+    // compute_fn_lifetime_outlives' `known()` EXEMPTION from "the fn's own
+    // <'a>" to "the fn's own <'a> plus the impl's".
+    std::vector<std::string> current_impl_lifetime_params_;
     // G156-1: the impl's CONCRETE trait type-args (`impl Trait<u64> for X` → [u64]),
     // set during collect_impl. Two impls of the same trait NAME for one type at
     // distinct concrete args mangle their methods with these args so they coexist.

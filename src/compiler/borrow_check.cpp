@@ -3241,6 +3241,37 @@ private:
             return tied;
         };
         switch (e.kind()) {
+            // MEASURED 2026-08-28, 379-row ledger: 49 fires, CEILING 0,
+            // COST 0. NEGATIVE RESULT, and the COST 0 is itself informative:
+            // the named risk was that this crude form refuses
+            // tests/spec/pass/borrow_1 and the three scalar-capture rows that
+            // `expr.closure.env-capture-binding` makes legal. It refuses
+            // NONE of them — and it also closes none of regions-steal-closure,
+            // regions-return-ref-to-upvar-issue-17403 or region-bound-on-
+            // closure-outlives-call. A closure env carrying a borrow out of a
+            // dying scope is blocked by something upstream of the §B6 source
+            // walk, not by the missing arm. Population 1-3 rows: RULE 4.
+            // PROBE lifereg_closurestore: this function follows a borrow
+            // through StructLit/TupleLit/ArrLit and through borrow-returning
+            // calls, but has no ClosureBox arm, so a borrow carried by a
+            // closure ENV is invisible to the §B6 store-borrow record. ⚠ The
+            // capture must not be a plain scalar taken by value — spec rule
+            // `expr.closure.env-capture-binding` says a scalar is COPIED into
+            // the env, and three ledger rows are legal under it. This CRUDE
+            // form does NOT make that distinction; the cost side is what
+            // prices the omission.
+            case EC::ClosureBox: {
+                if (logos::probe::on("lifereg_closurestore")) {
+                    lir_view::EClosureBoxView cbv{e};
+                    cbv.each_capture_name([&](std::string_view cap) {
+                        std::string cn(cap);
+                        if (!var_has(NO_SLOT, cn)) return;
+                        if (param_names_.count(cn)) return;
+                        emit(std::move(cn));
+                    });
+                }
+                return;
+            }
             case EC::AddrOf: {
                 std::string n(lir_view::EAddrOfView{e}.var_name());
                 if (var_has(NO_SLOT, n) && !param_names_.count(n))
@@ -8227,7 +8258,41 @@ private:
                 // B66: equality OR src lt outlives ret lt (an explicit
                 // `where 'src: 'ret` covers the case, as does 'static src
                 // for any named ret).
-                if (src_lt == ret_lt) continue;
+                // MEASURED 2026-08-28, 379-row ledger: 22 fires, CEILING 0,
+                // COST 0. NEGATIVE RESULT, recorded with its population so it
+                // is not re-proposed. Predicted 4 rows BY NAME (regions-assoc-
+                // type-in-supertrait-outlives-container, regions-outlives-
+                // projection-container, -wc, regions-normalize-in-where-
+                // clause-list) — the only ledger programs in the block that
+                // spell an `'a: 'b` AND produce a nonzero Outlives constraint.
+                // None closed. ⚠ RULE 4: 22 arrivals over 379 compiles is a
+                // TINY population, so this kills the SPELLING, not the nesting
+                // rule: `param_inner_lifetimes_` is populated from the PARAM's
+                // declared type, and the obligation Rust wants is on the
+                // RETURNED EXPRESSION's type. A correct nesting rule needs the
+                // latter and would not read this site at all.
+                // PROBE lifereg_retinner: the outer param lifetime matching
+                // ret_lt ends the check, so an INNER lifetime carried by the
+                // same param (`&'a W<'b>` returning a `&'b` projection) is
+                // never asked to outlive ret_lt. `param_inner_lifetimes_`
+                // already holds the answer and is consulted only on the
+                // src_lt-EMPTY branch below. CRUDE: require every inner
+                // lifetime to equal ret_lt or outlive it; the correct rule
+                // needs the RETURNED expression's own type, not the param's.
+                if (src_lt == ret_lt) {
+                    if (!logos::probe::on("lifereg_retinner")) continue;
+                    auto pin = param_inner_lifetimes_.find(src);
+                    if (pin == param_inner_lifetimes_.end()) continue;
+                    bool inner_ok = true;
+                    for (auto& ilt : pin->second) {
+                        if (ilt.empty() || ilt == ret_lt) continue;
+                        bool o = ri_ ? ri_->outlives_named(ilt, ret_lt)
+                                     : outlives(ilt, ret_lt, outlives_adj_,
+                                                /*permissive_empty=*/false);
+                        if (!o) { inner_ok = false; break; }
+                    }
+                    if (inner_ok) continue;
+                }
                 // Strict mode (no permissive-empty) — an elided source
                 // lifetime cannot silently match a declared return lifetime.
                 // logos-core 2.1 (consumer): prefer region_infer's
@@ -11649,6 +11714,24 @@ private:
                     while (c) {
                         if (c.kind() == EC::FieldRead)       c = EFieldReadView{c}.receiver();
                         else if (c.kind() == EC::TupleIndex) c = ETupleIndexView{c}.receiver();
+                        // MEASURED 2026-08-28, 379-row ledger: 187 fires,
+                        // CEILING 0, COST 0. NEGATIVE RESULT. Predicted
+                        // mut-slice-struct-lifetime-transmute--c17 (and
+                        // predicted that --t17 would NOT close, since it
+                        // writes through a `&mut [&i64]` slice local). Neither
+                        // closed: the array half of `lifereg.B` is not blocked
+                        // HERE. Population is 2 rows, so RULE 4 applies — this
+                        // refutes the spelling, not the observation that an
+                        // array element is root's own storage.
+                        // PROBE lifereg_indexstore: the bail's own stated
+                        // reason is "writes through a pointer, not root's
+                        // storage". An element of a fixed-size ARRAY local IS
+                        // root's storage, so the exemption over-covers.
+                        else if (logos::probe::on("lifereg_indexstore") &&
+                                 c.kind() == EC::IndexRead &&
+                                 TypeRef(EIndexReadView{c}.receiver().type(pool)).kind()
+                                     == LogosType::Kind::Array)
+                            c = EIndexReadView{c}.receiver();
                         else break;
                     }
                     if (c && c.kind() == EC::VarRef &&
@@ -11657,6 +11740,41 @@ private:
                         uint32_t root_slot = EVarRefView{c}.var_slot();  // Phase-1
                         if (var_has(root_slot, root) && !param_names_.count(root)) {
                             add_ref_sources(root, std::string{}, v.value(), ln);
+                            // MEASURED 2026-08-28, 379-row ledger: 16 fires,
+                            // CEILING 2 vs COST 0 — and the closed set is
+                            // EXACTLY the predicted pair, diffed both ways
+                            // (dropck_eager-by-ref-binding-for-guards,
+                            // dropck_let-else-more-permissive). The only exact
+                            // prediction of the round. ⚠ COST 0 IS NOT A
+                            // SAFETY CLAIM, so four hand-written programs were
+                            // run, each proven to FIRE: outer-scope source,
+                            // two-field write, fn-param source — all still
+                            // admitted; and the defect witness (`let o=5;
+                            // { let inner=7; w.r=&inner; }` on a Drop-carrying
+                            // `Wrap<'a>`) goes rc 0 -> rc 1 with the B87
+                            // diagnostic. Both its rows are INSIDE ltundecl's
+                            // 17 and OUTSIDE ltundecl_wide's 4 — i.e. ltundecl
+                            // was buying them with the same over-refusal that
+                            // cost it 65 legal programs; this door buys them
+                            // for nothing. ⚠ RULE 7 STILL STANDS: this
+                            // REPLACES the record, so a second field write
+                            // erases the first; the correct fix merges
+                            // per-path and is strictly more depositing.
+                            // PROBE lifereg_dropckfield: the Let and Assign
+                            // arms deposit into dropck_borrow_sources_; this
+                            // door — the one `s.f = &x` actually takes — does
+                            // not, so a Drop-carrying holder written FIELD-WISE
+                            // is invisible to the B87 rule that already fires
+                            // on the whole-value assign.
+                            if (logos::probe::on("lifereg_dropckfield") &&
+                                struct_is_dropck_relevant(TypeRef(c.type(pool)))) {
+                                std::vector<RefSrc> dsrcs;
+                                collect_borrow_locals(v.value(), dsrcs);
+                                if (!dsrcs.empty()) {
+                                    dropck_borrow_sources_[root] = std::move(dsrcs);
+                                    dropck_binding_line_[root] = ln;
+                                }
+                            }
                             // #86 MISS 1 / SITE b — THE FIELD/TUPLE WRITE, and
                             // THIS is the door the spelling actually takes.
                             // `w.v = o.as_str()` and `t.0 = o.as_str()` both

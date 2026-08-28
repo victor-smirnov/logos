@@ -8060,6 +8060,25 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     // — the regex over-counted by 3x. Rows are disjoint from every other
     // probe. Priced separately from lifereg_varassign on purpose (the
     // droporder lesson) and the split paid: that twin scored 0.
+    // RE-PRICED 2026-08-28 (rule 8: the 2026-08-27 number was taken against a
+    // 423-row ledger AND the OLD 487-test cost corpus). 58 fires, CEILING 2,
+    // COST 0 — the SAME two rows, diffed both ways, and the zero HELD across
+    // the corpus widening 487 -> 807 that took ltundecl's cost from 4 to 65
+    // and lifereg_unmentioned's from 2 to 5. So this zero now means something
+    // it did not mean on 08-27.
+    // ⚠ AND IT WAS STILL ATTACKED BY HAND (rule 5), five programs, each proven
+    // to fire exactly once — `fn set<'a>(out:&mut H<'a>, src:&'a i64)`, the
+    // `where 'b: 'a` form, a `&'static i64` source, and the fully-elided form
+    // all still ADMIT; the one shape Rust refuses,
+    // `fn set<'a,'b>(out:&mut H<'a>, src:&'b i64)` with NO bound, goes
+    // rc 0 -> rc 1. Five in the abuse direction, one in the defect direction.
+    // ⚠ A SEPARATE FALSE REFUSAL BLOCKS THE OBVIOUS COUNTER-EXAMPLE and is
+    // recorded here rather than lost: `let mut h: H<'_> = H{p:&v};
+    // set(&mut h, &v)` is refused TODAY at the CALL, not at this site —
+    // "call to 'set' arg 1: variance mismatch — expected &mut H<'a>, got
+    // &mut H<'_>". That is check_call_outlives failing to instantiate an
+    // elided struct-lifetime argument, and it is why every counter-example
+    // above had to be written as an uncalled fn.
     // PROBE lifereg_fieldassign: lower_place_assign type-checks with
     // expect_type (lifetime-ERASED, TypeUID) and never calls check_variance.
     // Its sibling lower_deref_assign DOES, with the comment "B68: variance

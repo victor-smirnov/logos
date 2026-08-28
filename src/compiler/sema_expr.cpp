@@ -4952,6 +4952,42 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
 
     // Substitute return type
     TypeRef ret = subst_type_sema(fi.ret_type, subst);
+    // MEASURED 2026-08-28, 379-row ledger: 104 fires, CEILING 4 vs COST 0 —
+    // and BOTH halves of that price are misleading, which is the finding.
+    //   • RULE 6. The predicted closed set was 7 rows naming call-site region
+    //     discharge (regions-infer-call-3, multiple-sources-for-outlives-
+    //     requirement --t24/--c24b, account-for-lifetimes-in-closure-
+    //     suggestion, ex2c/ex2e-push-inference-variable). NONE closed. The 4
+    //     that did are all `nll_*` — method-ufcs-inherent-4, projection-no-
+    //     regions-closure, projection-where-clause-none--b and --c. Set
+    //     overlap with the prediction: ZERO. The count was in range; the set
+    //     was disjoint.
+    //   • RULE 5. COST 0 is a corpus artefact, refuted by the FIRST hand-
+    //     written legal program: `fn pick<'a,T>(x:&'a T)->&'a T` called from
+    //     `fn f<'a>(x:&'a i64)->&'a i64` compiles at baseline and is REFUSED
+    //     under the probe ("expected &'a i64, got &'#callee i64").
+    //   • RULE 2. THIS SITE IS `finish_generic_call` — the call path for a
+    //     callee with TYPE PARAMS. The three-way control that proposed it
+    //     (q9/q10/q12: `fn mk<'a>(x:&'a i64)->S<'a>`) has no type params and
+    //     therefore never reaches here: three hand-written non-generic
+    //     collision programs fired the probe ZERO times. Proven-live at 104
+    //     fires is proven live for a DIFFERENT population than the one the
+    //     mechanism describes. The free-fn/method lt_subst asymmetry is real;
+    //     this is not the door it goes through.
+    // PROBE lifereg_callretlt: the METHOD call path builds a callee->caller
+    // lifetime substitution and applies it to the return type (see lt_subst
+    // beside the `Self::Item<'a>` comment in this file). This free-fn path
+    // passes a TYPE substitution only, so the callee's `'a` reaches the caller
+    // as the literal string `'a`. CRUDE ON PURPOSE: instead of computing the
+    // caller mapping, rename every callee-declared lifetime to an unnameable
+    // token so the downstream name-equality cannot match by coincidence. This
+    // prices the population; it is NOT the fix (rule 7).
+    if (logos::probe::on("lifereg_callretlt") && ret) {
+        SemaLifetimeSubst probe_lt;
+        for (auto& lp : fi.lifetime_params) probe_lt[lp] = "'#callee";
+        if (!probe_lt.empty())
+            ret = subst_type_sema(fi.ret_type, subst, probe_lt);
+    }
 
     // A payload-less enum-literal arg (`Option::None`) lowered before type
     // inference carries a bare enum type (no type-args). The member fn
