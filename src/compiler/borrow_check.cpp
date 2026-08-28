@@ -12938,6 +12938,12 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             // the receiver. Declined at this spelling. `recvresvbare` shows the
             // same rule at the OTHER receiver spelling costs ZERO, so if this
             // mechanism is funded it is funded there and narrowed here.
+            // ⚠ 2026-08-28: THAT HALF IS NOW LANDED (see the bare-place deposit
+            // below), and this probe's ceiling is therefore STALE — the five
+            // rows it priced were counted against a ledger that still held
+            // suggest-local-var-imm-and-mut and two-phase-sneaky. RE-PRICE
+            // before funding it. The cost of 11 is the reason it is declined
+            // and that number is not affected by the rows leaving.
             if (logos::probe::on("recvresvamut")) {
                 if (auto recv = v.receiver();
                     recv && recv.kind() == Code::AddrOfTemp) {
