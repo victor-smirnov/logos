@@ -2690,19 +2690,34 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
     if (!lookup_is_mut(name))
         error(std::format("compound assignment to immutable variable '{}'", name));
 
-    // ── CEILING PROBE `opeqinitread` — `v += 1` READS `v`, but the
-    // definite-assignment tracker (`currently_uninit_vars_`) is only consulted
-    // at the VarRef USE site in sema_expr, and this form never lowers the place
-    // through it. The `scinitcond` comment (measured 2026-08-28, ceiling 3,
-    // cost 0) names this half verbatim as the remainder needing its own name.
-    // ── MEASURED 2026-08-28: 4 fires over 393 ledger compiles, CEILING 1,
-    // COST 0 — exactly the predicted row, borrowck_borrowck-init-op-equal
-    // (E0381). This completes the definite-init group the tree had already
-    // priced at 3 of 4 (`scinitcond`: ceiling 3, cost 0). ⚠ A one-row ceiling
-    // is the smallest population in its batch (rule 4): it funds this rule and
-    // refutes nothing.
-    if (logos::probe::on("opeqinitread") &&
-        currently_uninit_vars_.count(std::string(name)))
+    // ── E0381: `v += 1` READS `v`. The definite-assignment tracker
+    // (`currently_uninit_vars_`) was consulted only at the VarRef USE site in
+    // sema_expr, and this form never lowers its place through that site — the
+    // desugar below MINTS a fresh `var_ref` for the read half — so
+    // `let mut v: i64; v += 1i64;` compiled and read uninitialised storage.
+    // The check has to be here, at the place, before the desugar.
+    //
+    // ⚠ THE READ IS ALL THAT IS CHECKED. `v += 1` also WRITES `v`, and a write
+    // to an uninitialised binding is how a `let mut v: i64;` gets initialised
+    // in the first place — so this asks the uninit question and nothing else,
+    // and `currently_uninit_vars_` is left to the assignment path to clear.
+    //
+    // ── PRICED BEFORE IT WAS WRITTEN (scripts/ceiling-probe.sh opeqinitread,
+    // 2026-08-28): 4 fires over 389 ledger compiles, CEILING 1, COST 0.
+    // Predicted ONE row and closed exactly that one:
+    //   borrowck_borrowck-init-op-equal   E0381
+    // It completes the definite-init group the tree had already priced at 3 of
+    // 4 (`scinitcond`: ceiling 3, cost 0).
+    // ⚠ FOUR FIRES IS THE SMALLEST POPULATION IN ITS BATCH (rule 4), so the
+    // corpus reading is nearly worthless on its own and the counter-examples
+    // are the evidence: ten hand-written programs, nine of which fired once
+    // each and stayed green — assign-then-op=, both-branches-then-op=,
+    // diverging-else-then-op=, match-arms-then-op=, init-at-decl, loop-carried
+    // op=, and a shadowed rebind. The tenth (`s.n += 1`) never reaches here at
+    // all: a non-VarRef place routes through lower_place_compound_assign
+    // above. That is a silence, and it is recorded as one — the field spelling
+    // is UNCHECKED by this rule and would need its own.
+    if (currently_uninit_vars_.count(std::string(name)))
         error(std::format("use of possibly uninitialised binding '{}'", name));
 
     // Desugar: `x op= expr` → `x = x op expr`

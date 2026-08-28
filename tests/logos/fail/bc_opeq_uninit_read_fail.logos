@@ -1,0 +1,20 @@
+// THE REFUSING HALF of the E0381 compound-assign read (sema_stmt.cpp,
+// lower_compound_assign). Paired with
+// tests/logos/pass/bc_opeq_init_before_use.logos.
+//
+// `v op= e` READS `v`. The tracker was consulted only at the VarRef USE site in
+// sema_expr, and this form never lowered its place through that site — the
+// desugar mints a fresh `var_ref` for the read half — so this compiled and read
+// uninitialised storage. Upstream E0381, and the imported twin is
+// tests/imported/fail/borrowck/borrowck-init-op-equal.
+//
+// ⚠ THE FIELD SPELLING IS NOT CHECKED BY THIS RULE. `s.n += 1` over an
+// uninitialised `s` routes through lower_place_compound_assign instead and
+// never reaches the check; measured as a zero fire, recorded as a silence, and
+// deliberately not asserted here.
+package bc_opeq_uninit_read_fail;
+fn main() -> i32 {
+    let mut v: i64;
+    v += 1i64;
+    return v as i32;
+}

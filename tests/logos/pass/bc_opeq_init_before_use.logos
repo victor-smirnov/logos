@@ -1,0 +1,73 @@
+// THE LEGAL HALF of the E0381 compound-assign read (sema_stmt.cpp,
+// lower_compound_assign). `v op= e` READS `v`, so the definite-assignment
+// tracker is now asked about the place before the desugar mints its read.
+// Everything that DOES initialise the binding first must keep compiling, and
+// the corpus population for this rule is four fires in 389 programs — far too
+// small to be the evidence, so these shapes are the evidence.
+//
+// Each fired the mechanism once under `scripts/ceiling-probe.sh opeqinitread`
+// and compiled.
+package bc_opeq_init_before_use;
+
+
+fn straight_line() -> i64 {
+    let mut v: i64;
+    v = 1i64;
+    v += 1i64;
+    return v;
+}
+
+fn both_branches(c: bool) -> i64 {
+    let mut v: i64;
+    if c { v = 1i64; } else { v = 2i64; }
+    v += 1i64;
+    return v;
+}
+
+fn diverging_else(c: bool) -> i64 {
+    let mut v: i64;
+    if c { v = 1i64; } else { return 0i64; }
+    v += 1i64;
+    return v;
+}
+
+fn match_arms() -> i64 {
+    let mut v: i64;
+    let e: bool = true;
+    match e { true => { v = 1i64; } false => { v = 2i64; } }
+    v += 1i64;
+    return v;
+}
+
+fn init_at_decl() -> i64 {
+    let mut v: i64 = 0i64;
+    v += 1i64;
+    return v;
+}
+
+fn loop_carried() -> i64 {
+    let mut v: i64;
+    v = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 { v += i; i = i + 1i64; }
+    return v;
+}
+
+fn shadowed() -> i64 {
+    let mut v: i64;
+    v = 5i64;
+    let mut w: i64 = v;
+    w += 1i64;
+    return w;
+}
+
+fn main() -> i32 {
+    if straight_line()    != 2i64 { return 1i32; }
+    if both_branches(true) != 2i64 { return 2i32; }
+    if diverging_else(true) != 2i64 { return 3i32; }
+    if match_arms()       != 2i64 { return 4i32; }
+    if init_at_decl()     != 1i64 { return 5i32; }
+    if loop_carried()     != 3i64 { return 6i32; }
+    if shadowed()         != 6i64 { return 7i32; }
+    return 0i32;
+}

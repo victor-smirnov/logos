@@ -417,7 +417,21 @@
 # The row's program moved to tests/imported/fail/borrowck/ with the diagnostic
 # pinned; the native pair is tests/logos/{pass/bc_idxbase_read_in_index,
 # pass/bc_idxbase_disjoint_field, fail/bc_idxbase_elem_write_in_index_fail}.
-# TOTAL 388
+# 2026-08-28 — 388 -> 387. ONE row, declared as one and by name before the
+# edit: `v op= e` READS `v`, but the definite-assignment tracker was consulted
+# only at the VarRef USE site in sema_expr and lower_compound_assign's desugar
+# MINTS a fresh `var_ref` for the read half, so
+#   borrowck-init-op-equal   E0381  "use of possibly uninitialised binding 'v'"
+# compiled. Asking the tracker at the place, before the desugar, closes it.
+# Priced at CEILING 1 / COST 0 (scripts/ceiling-probe.sh opeqinitread) on FOUR
+# fires over 389 compiles — the smallest population in its batch, so the ten
+# hand-written counter-examples are the evidence and the corpus is not.
+# The field spelling (`s.n += 1`) routes through lower_place_compound_assign
+# and is still unchecked: measured zero fires, recorded as a silence.
+# Program moved to tests/imported/fail/borrowck/ with the diagnostic pinned;
+# native pair tests/logos/{pass/bc_opeq_init_before_use,
+# fail/bc_opeq_uninit_read_fail}.
+# TOTAL 387
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -442,7 +456,6 @@ borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borro
 borrowck-closures-mut-and-imm bck.C tests/imported/admit/borrowck/borrowck-closures-mut-and-imm
 borrowck-escaping-closure-error-1 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-1
 borrowck-escaping-closure-error-2 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-2
-borrowck-init-op-equal bck.NEW tests/imported/admit/borrowck/borrowck-init-op-equal
 borrowck-issue-2657-1 bck.B tests/imported/admit/borrowck/borrowck-issue-2657-1
 borrowck-lend-flow-loop bck.NEW-2 tests/imported/admit/borrowck/borrowck-lend-flow-loop
 borrowck-loan-blocks-move-cc--r10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10

@@ -4561,9 +4561,20 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # measured, and the reasoning corrected rather than the number.
 # `# TOTAL` 389 → 388, re-derived by direct listing
 # (`ls tests/imported/admit/*/*.logos | wc -l`).
-REGISTRY-ALL         8610
-REGISTRY-NOIMPORTED  4440
-REGISTRY-TIERCOMMIT  436
+# 2026-08-28 (`opeqinitread` LANDED — lower_compound_assign asks the
+# definite-assignment tracker about the place it READS, closing ONE ledger row,
+# `borrowck-init-op-equal` (E0381):
+#   ALL          8610 → 8612   +2  +1 native pass +1 native fail; the moved
+#                                  program is −1 admit row test +1 imported
+#                                  fail fixture, net 0.
+#   NOIMPORTED   4440 → 4441   +1  the +2 native less the −1 row test.
+#   TIERCOMMIT    436 →  435   −1  a closed row's per-row test leaves with it.
+# PREDICTED +2/+1/−1 before the pin was read, using the correction the previous
+# entry bought, and read as that. `# TOTAL` 388 → 387, re-derived by direct
+# listing.
+REGISTRY-ALL         8612
+REGISTRY-NOIMPORTED  4441
+REGISTRY-TIERCOMMIT  435
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

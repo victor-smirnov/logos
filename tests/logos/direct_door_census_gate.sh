@@ -797,10 +797,14 @@ PIN = {
     # 2026-08-28: +2 → 2435 = 191 + 2244. bc_idxbase_read_in_index and
     # bc_idxbase_disjoint_field — the legal half of the E0510 index-base loan
     # (the reads that must stay legal, and the field granularity that keeps the
-    # rule cheap). Same reasoning again on all three counts.)
-    'corpus'            : 2435,
+    # rule cheap). Same reasoning again on all three counts.
+    # 2026-08-28: +1 → 2436 = 191 + 2245. bc_opeq_init_before_use — the seven
+    # ways a binding IS initialised before `v op= e` reads it, which must keep
+    # compiling now that lower_compound_assign asks the tracker. Same reasoning
+    # again on all three counts.)
+    'corpus'            : 2436,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2244,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2245,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a
