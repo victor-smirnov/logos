@@ -287,6 +287,26 @@ NOT_GATES = {
                                "change was written, so it has no fixed population "
                                "and cannot be a standing gate",
 
+    # A HAND-RUN COVERAGE MAP, and the sibling of the two probe readers above —
+    # exempt for the same ground and one more of its own. It rebuilds ONE
+    # compiler TU with `-fprofile-instr-generate -fcoverage-mapping`, runs the
+    # ctest corpus and the four stdlib layers under it, and reports which
+    # regions never executed, which are near-dead and which are hot. It
+    # pronounces NO verdict: a count-0 region is dead code OR a case the corpus
+    # does not exercise OR a structurally unreachable guard, three situations
+    # with three different responses, and nothing in the profile separates them.
+    # There is therefore no population it could be registered over and no floor
+    # on coverage that is the right one — a floor here would be a number
+    # somebody guessed, which is the shape `verdict.py`'s census already refuses.
+    # It is also a MAP, not an assertion: it says where a probe would have a
+    # population behind it and never what the probe would find.
+    "coverage-map.sh":         "a hand-run REGION MAP for one compiler TU: it "
+                               "reports which regions the corpus executes and "
+                               "how often, and a zero is dead code OR an "
+                               "unexercised case OR an unreachable guard — three "
+                               "answers it cannot separate, so it pronounces no "
+                               "verdict and there is no floor on coverage it "
+                               "could be registered to hold",
     "perf-slow.sh":            "lists the slowest tests; asserts nothing",
     "test-levels.sh":          "DRIVES ctest (L0–L4); being a ctest test would "
                                "be a recursion",
