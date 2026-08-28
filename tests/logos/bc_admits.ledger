@@ -495,7 +495,38 @@
 # `st.moved` alone, so a partial move in arm 1 survives and the same program
 # with the arms swapped compiles — and it is worth ZERO rows, so it is named at
 # loop_propagate_moves and left for whoever can price it above zero.
-# TOTAL 379
+# 2026-08-28 — 379 -> 375. FOUR rows, and FOUR was the number declared by NAME
+# before the edit: {no-lending-iterators, region-error-ice-109072,
+# regions-name-undeclared, regions-undeclared}. The diff is empty both ways.
+# A fn signature's lifetime NAMES had two defects at one site
+# (compute_fn_lifetime_outlives), pulling opposite ways:
+#   the SITE SET was too narrow  only the outlives clauses and the type-param
+#                                bounds were read for undeclared names; the
+#                                names in PARAMETER and RETURN types were walked
+#                                by walk_implied — which even calls
+#                                fn_lifetime_known — but only to decide whether
+#                                to emit an outlives pair, never to report
+#   the SCOPE was too narrow     a name counted as declared only if it was the
+#                                FN's own `<'a>`, so every method inside
+#                                `impl<'a> H<'a> { ... }` naming `'a` was an
+#                                "undeclared lifetime name"
+# Widening the site set alone was PRICED AND REFUSED: CEILING 17 / COST 65 on
+# 2026-08-28. It closed thirteen more rows than what landed and bought every one
+# of them with a refusal of a legal program. Widening both gives 4 / 0.
+# ⚠ THE `for<'x>` BINDER EXEMPTION WAS MEASURED AND LEFT OUT. A third probe
+# exempting binder lifetimes was IDENTICAL TO THE CONTROL DOWN TO THE FIRE
+# COUNT over 379 + 807 programs — it never changed one decision — so it buys
+# nothing, and it would let `'x` escape its binder into a parameter type. That
+# divergence between the priced probe and the landed rule is pinned in
+# fail/bc_ltscope_hrtb_binder_escape_fail.
+# ⚠ R17 IS ONE RULE AT FOUR SITES AND THIS IS ONE OF THEM. `static c_x: &'blk
+# i64` and `enum EnumDecl { Foo(&'a i64) }` — two lines of the very fixture that
+# closed — are STILL ADMITTED, as is a TRAIT DECLARATION's method signature
+# (`trait Bad { fn f(o: &'z i32); }`). Struct fields, enum payloads, statics and
+# trait decls are checked by nobody. That is why R17 keeps rows here, and it is
+# the site-set widening the next round buys — now on a rule whose exemption is
+# measured rather than assumed.
+# TOTAL 375
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -703,7 +734,6 @@ missing-lifetime-specifier-13497 lifereg.NEW-N4 tests/imported/admit/lifetimes/m
 mut-ref-owned-suggestion lifereg.NEW-L1 tests/imported/admit/lifetimes/mut-ref-owned-suggestion
 mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17
 mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17
-no-lending-iterators lifereg.R18 tests/imported/admit/lifetimes/no-lending-iterators
 noisy-follow-up-erro lifereg.R17 tests/imported/admit/lifetimes/noisy-follow-up-erro
 shadow lifereg.R17 tests/imported/admit/lifetimes/shadow
 static-typos lifereg.R17 tests/imported/admit/lifetimes/static-typos
@@ -806,7 +836,6 @@ promoted-annotation nllmoves.A tests/imported/admit/nll/promoted-annotation
 promoted-closure-pair nllmoves.C tests/imported/admit/nll/promoted-closure-pair
 propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/nll/propagate-fail-to-approximate-longer-no-bounds
 propagate-multiple-requirements nllmoves.A tests/imported/admit/nll/propagate-multiple-requirements
-region-error-ice-109072 nllmoves.R17 tests/imported/admit/nll/region-error-ice-109072
 return-wrong-bound-region nllmoves.C tests/imported/admit/nll/return-wrong-bound-region
 sugg-mut-for-binding-issue-137486 nllmoves.D tests/imported/admit/nll/sugg-mut-for-binding-issue-137486
 trait-associated-constant nllmoves.R18 tests/imported/admit/nll/trait-associated-constant
@@ -872,7 +901,6 @@ regions-infer-bound-from-trait lifereg.L2 tests/imported/admit/regions/regions-i
 regions-infer-call-3 lifereg.C tests/imported/admit/regions/regions-infer-call-3
 regions-infer-paramd-indirect lifereg.L1 tests/imported/admit/regions/regions-infer-paramd-indirect
 regions-name-static lifereg.R17 tests/imported/admit/regions/regions-name-static
-regions-name-undeclared lifereg.R17 tests/imported/admit/regions/regions-name-undeclared
 regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
 regions-outlives-projection-container-wc lifereg.NEW-L3 tests/imported/admit/regions/regions-outlives-projection-container-wc
@@ -885,7 +913,6 @@ regions-return-ref-to-upvar-issue-17403 lifereg.C tests/imported/admit/regions/r
 regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-bound
 regions-steal-closure lifereg.D tests/imported/admit/regions/regions-steal-closure
 regions-trait-object-subtyping lifereg.NEW-N2 tests/imported/admit/regions/regions-trait-object-subtyping
-regions-undeclared lifereg.R17 tests/imported/admit/regions/regions-undeclared
 regions-var-type-out-of-scope lifereg.D tests/imported/admit/regions/regions-var-type-out-of-scope
 resolve-re-error-ice lifereg.R18 tests/imported/admit/regions/resolve-re-error-ice
 wf-bound-region-in-local-issue-115175--b-static-bound-call lifereg.NEW-R20 tests/imported/admit/regions/wf-bound-region-in-local-issue-115175--b-static-bound-call

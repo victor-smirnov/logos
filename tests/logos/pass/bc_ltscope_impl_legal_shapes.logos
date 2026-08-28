@@ -1,0 +1,75 @@
+// THE LEGAL HALF of the lifetime-NAME SCOPE rule (sema_decl.cpp,
+// compute_fn_lifetime_outlives). The rule has two halves that pull opposite
+// ways and only make sense together:
+//
+//   the RULE      parameter and return types are now walked for lifetime names
+//                 that are declared nowhere — the refuse-MORE direction
+//   the EXEMPTION a name is in scope if it is the fn's own, the enclosing
+//                 `impl<'a>` header's, `'static`, or `'_` — the admit-MORE one
+//
+// The narrow scope (the fn's own `<'a>` alone) was measured on 2026-08-28 at
+// CEILING 17 / COST 65: it closed thirteen more ledger rows than the version
+// that landed, and it bought every one of them by refusing programs on this
+// page. Everything here was written by hand BEFORE the rule landed and run
+// against the un-fixed compiler, so each one is a measurement and not a hope.
+//
+// `stash_sound` is the one that is REPAIRED rather than preserved: before this
+// change it was refused outright as "use of undeclared lifetime name ''a' in
+// outlives clause", with no probe armed and nothing asking for it. Its unsound
+// mirror — `where 'a: 'b`, storing a short reference into a long field — is in
+// fail/bc_ltscope_wrong_direction_fail and is still refused, now as E0597 at
+// the call, which is the upstream reason.
+package bc_ltscope_impl_legal_shapes;
+
+struct H<'a> { r: &'a i32 }
+struct Pair<'a, T> { r: &'a T, n: i64 }
+
+// impl-scope 'a in self, in the return, and in a plain parameter.
+impl<'a> H<'a> {
+    fn get(self: &H<'a>) -> &'a i32 { return self.r; }
+    fn swap(self: &mut H<'a>, o: &'a i32) -> i32 { self.r = o; return *self.r; }
+    // '_ in return position, inside an impl-scope method.
+    fn dup(self: &H<'a>) -> H<'_> { return H { r: self.r }; }
+    // impl-scope 'a reached only through a TUPLE element.
+    fn pick(self: &H<'a>, t: (&'a i32, i64)) -> &'a i32 { return t.0; }
+    // THE REPAIRED FALSE REFUSAL. 'a is the impl's, 'b is the fn's, and the
+    // clause relates them in the sound direction.
+    fn stash_sound<'b>(self: &mut H<'a>, o: &'b i32) where 'b: 'a { self.r = o; }
+}
+
+// impl header carrying BOTH a lifetime and a type param.
+impl<'a, T> Pair<'a, T> { fn get(self: &Pair<'a, T>) -> &'a T { return self.r; } }
+
+// trait-scope 'a, in a declared method and in a default body.
+trait Src<'a> {
+    fn raw(self: &Self) -> &'a i32;
+    fn take(self: &Self, o: &'a i32) -> &'a i32;
+    fn viadefault(self: &Self) -> &'a i32 { return self.raw(); }
+}
+impl<'a> Src<'a> for H<'a> {
+    fn raw(self: &H<'a>) -> &'a i32 { return self.r; }
+    fn take(self: &H<'a>, o: &'a i32) -> &'a i32 { return o; }
+}
+
+// fn-scope names only: the control. Both halves of the clause are declared.
+fn take2<'a, 'b>(x: &'a i64, y: &'b i64) -> &'b i64 where 'a: 'b { return y; }
+// a declared fn-scope name reached only as a struct TYPE ARG.
+fn peek<'a>(h: &H<'a>) -> &'a i32 { return h.r; }
+// 'static, which is in scope everywhere.
+static K: i32 = 9i32;
+fn konst() -> &'static i32 { return &K; }
+
+fn main() -> i32 {
+    let v: i32 = 7i32;
+    let w: i32 = 7i32;
+    let mut h: H = H { r: &v };
+    let acc: i32 = *h.get() + *peek(&h) + *h.dup().r + *h.pick((&v, 0i64))
+                 + *h.raw() + *h.take(&w) + *h.viadefault();
+    let s: i32 = h.swap(&w);
+    h.stash_sound(&w);
+    let n: i64 = 4i64;
+    let p: Pair<i64> = Pair { r: &n, n: 0i64 };
+    let q: i64 = 3i64;
+    let z: i64 = *take2(&n, &q) + *p.get();
+    return (acc - 49i32) + (s - 7i32) + (*h.r - 7i32) + (*konst() - 9i32) + ((z - 7i64) as i32);
+}

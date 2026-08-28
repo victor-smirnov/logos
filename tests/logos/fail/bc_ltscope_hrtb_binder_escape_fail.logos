@@ -1,0 +1,21 @@
+// A `for<'x>` BINDER DOES NOT PUT `'x` IN THE SIGNATURE'S SCOPE. This fixture
+// exists because the version of the rule that was PRICED admitted this program
+// and the version that LANDED refuses it — a crude probe and a correct fix do
+// not close the same programs, in either direction, and the difference has to
+// be written down where it can be re-run.
+//
+// The 2026-08-28 batch installed `ltundecl_hrtb`, which exempts binder
+// lifetimes, alongside the control. It came back IDENTICAL to the control down
+// to the fire count: over 379 acceptance programs and 807 legal ones, exempting
+// binder names never changed one decision. So the binder set buys nothing, and
+// in this direction it costs — it would let `'x` escape the binder into a
+// parameter type. It was left out of the landed rule, which is what refuses the
+// line below. Upstream E0261.
+package bc_ltscope_hrtb_binder_escape_fail;
+
+trait Tr<'x> { fn go(self: &Self, v: &'x i32) -> i32; }
+
+fn f<T>(t: &T, x: &'x i32) -> i32 where T: for<'x> Tr<'x> { return t.go(x); }
+//                    ^ ERROR: 'x is bound by T's bound, not by f
+
+fn main() -> i32 { return 0i32; }

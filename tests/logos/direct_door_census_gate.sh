@@ -823,9 +823,22 @@ PIN = {
     # -25`, so the rc that was read was TAIL's and not the gate's. The gate did
     # its job; the reader broke it. Never pipe a gate whose rc you intend to
     # quote.)
-    'corpus'            : 2439,
+    # 2026-08-28: +1 → 2440 = 191 + 2249.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 1 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2440
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2440 = 191 + 2249. The one is
+    # bc_ltscope_impl_legal_shapes — the fourteen signatures a lifetime NAME's
+    # scope must keep admitting once that scope is "the fn's own <'a> plus the
+    # enclosing impl's, 'static and '_". The narrow scope refused SIXTY-FIVE
+    # legal programs on the borrow-check corpus, so this half is the whole
+    # reason the round is fundable. The round's other four fixtures are FAIL
+    # fixtures and this population is the PASS corpus, so they move nothing
+    # here. `glob` and the DOOR counts unmoved (36 = 10 + 26): no `wql_*`/
+    # `deem_*` match, no container family, no `direct` output form.
+    'corpus'            : 2440,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2248,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2249,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

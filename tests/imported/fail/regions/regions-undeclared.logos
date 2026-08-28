@@ -1,0 +1,15 @@
+// rustc regions/regions-undeclared.rs — upstream E0261 x5 (static, enum variant, fn params)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: FAIL (was admit) — closed 2026-08-28, PARTIALLY. Upstream raises E0261
+// FIVE times here; we now raise it once, for `fn fnDecl(x: &'a i64, ...)`, and
+// one refusal is what the shelf asks. The `static c_x: &'blk i64` and the
+// `enum EnumDecl { Foo(&'a i64) }` on the two lines above are STILL ADMITTED:
+// `compute_fn_lifetime_outlives` is one of the four sites lifereg.R17 names and
+// statics / enum payloads / struct fields are checked by nobody. Deleting those
+// two lines must leave this fixture red — that is the remaining hole, and it is
+// why R17 keeps rows after this round.
+package regions_undeclared;
+static c_x: &'blk i64 = &22i64;
+enum EnumDecl { Foo(&'a i64), Bar(&'a i64) }
+fn fnDecl(x: &'a i64, y: &'a i64) {}
+fn main() -> i32 { return 0i32; }

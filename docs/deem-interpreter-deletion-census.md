@@ -4604,9 +4604,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                  row test carries no `imported` label).
 #   TIERCOMMIT    431 →  427   −4  four closed rows' per-row tests leave.
 # PREDICTED +2/−2/−4 before the pin was read, and read as that.
-REGISTRY-ALL         8618
+# 2026-08-28 (the LIFETIME-NAME SCOPE rule LANDED — a fn signature's parameter
+# and return types are now read for undeclared lifetime names, and a name is in
+# scope if it is the fn's own, the enclosing `impl<'a>`'s, `'static` or `'_`.
+# FOUR ledger rows close: `no-lending-iterators`, `region-error-ice-109072`,
+# `regions-name-undeclared`, `regions-undeclared`, all upstream E0261 except the
+# first, whose divergence is stated in its own header:
+#   ALL          8618 → 8622   +4  +1 native pass +3 native fail; the four moved
+#                                  programs are −4 admit row tests +4 imported
+#                                  fail fixtures, net 0.
+#   NOIMPORTED   4439 → 4439    0  the +4 native exactly cancels the −4 row
+#                                  tests (an admit row test carries no
+#                                  `imported` label).
+#   TIERCOMMIT    427 →  423   −4  four closed rows' per-row tests leave.
+# PREDICTED +4/0/−4 before the pin was read, and read as that.
+REGISTRY-ALL         8622
 REGISTRY-NOIMPORTED  4439
-REGISTRY-TIERCOMMIT  427
+REGISTRY-TIERCOMMIT  423
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

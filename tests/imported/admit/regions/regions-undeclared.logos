@@ -1,8 +1,0 @@
-// rustc regions/regions-undeclared.rs — upstream E0261 x5 (static, enum variant, fn params)
-// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.R17
-package regions_undeclared;
-static c_x: &'blk i64 = &22i64;
-enum EnumDecl { Foo(&'a i64), Bar(&'a i64) }
-fn fnDecl(x: &'a i64, y: &'a i64) {}
-fn main() -> i32 { return 0i32; }

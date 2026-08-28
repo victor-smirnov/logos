@@ -1,0 +1,27 @@
+// THE ABUSE DIRECTION of the same rule's EXEMPTION. Widening a name's scope to
+// the enclosing `impl<'a>` header is a PERMISSIVE change, so the question it
+// has to answer is what it stops refusing. Before 2026-08-28 this program was
+// refused as "use of undeclared lifetime name ''a' in outlives clause" — a
+// refusal for a reason that was not true: `'a` IS in scope here. Its sound
+// mirror (`where 'b: 'a`) was refused by the identical wrong reason and is now
+// admitted, in pass/bc_ltscope_impl_legal_shapes::stash_sound.
+//
+// This one must STAY refused, and for the real reason: `self.r` is `&'a i32`
+// and `o` is `&'b i32`, so storing `o` into it needs `'b: 'a`. The clause
+// declares the opposite. The diagnostic pinned below is E0597 raised at the
+// CALL, which is where the short-lived borrow is actually seen to escape —
+// i.e. the region rule, not the name rule, is what refuses it now.
+package bc_ltscope_wrong_direction_fail;
+
+struct H<'a> { r: &'a i32 }
+
+impl<'a> H<'a> {
+    fn stash<'b>(self: &mut H<'a>, o: &'b i32) where 'a: 'b { self.r = o; }
+}
+
+fn main() -> i32 {
+    let v: i32 = 1i32;
+    let mut h: H = H { r: &v };
+    { let tmp: i32 = 2i32; h.stash(&tmp); }   // ERROR: 'tmp' does not live long enough
+    return *h.r - 1i32;
+}

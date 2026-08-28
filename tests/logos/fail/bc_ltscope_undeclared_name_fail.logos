@@ -1,0 +1,22 @@
+// THE REFUSING HALF of the lifetime-NAME SCOPE rule (sema_decl.cpp,
+// compute_fn_lifetime_outlives). Until 2026-08-28 the undeclared-name check ran
+// over the outlives clauses and the type-param bounds ONLY; the lifetimes
+// written in PARAMETER and RETURN types were walked by `walk_implied`, which
+// even calls `fn_lifetime_known`, but only to decide whether to emit an
+// outlives pair — never to report. So `'z` here, declared on no fn and on no
+// impl header, compiled. Upstream E0261.
+//
+// `'z` is reached through a STRUCT TYPE ARG, not through a bare `&'z i32`,
+// because that is the position the imported ports use and the position the old
+// walk had no reader for at all.
+package bc_ltscope_undeclared_name_fail;
+
+struct H<'a> { r: &'a i32 }
+
+fn peek(h: &H<'z>) -> &i32 { return h.r; }   // ERROR: 'z is declared nowhere
+
+fn main() -> i32 {
+    let v: i32 = 2i32;
+    let h: H = H { r: &v };
+    return *peek(&h) - 2i32;
+}

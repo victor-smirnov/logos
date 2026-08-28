@@ -2,7 +2,6 @@
 
 #include "sema_impl.hpp"
 
-#include <logos/compiler/probe.hpp>
 
 #include <logos/writ/external_ref.hpp>   // global_arena_pool, lookup_export, ExternalRef
 
@@ -114,77 +113,51 @@ void SemaChecker::compute_fn_lifetime_outlives(
     // Validate declared names.
     std::unordered_set<std::string> declared(lifetime_params.begin(),
                                              lifetime_params.end());
-    // PROBE ltundecl_wide / ltundecl_hrtb: `declared` is the FN's own <'a>
-    // ONLY. Measured 2026-08-28 on the 379-row ledger, `ltundecl` scored
-    // CEILING 17 / COST 65. The 65 census by SPELLING as 27 hrtb-* + 10
-    // lt-struct-method-* + 12 region*/regions* + 8 dropck-* + a tail — but
-    // READ, every one of the 27 hrtb-* fixtures carries `impl<'a> Tr<&'a T>
-    // for S`, i.e. the offending name is an IMPL-scope lifetime in a method
-    // signature, not a `for<'x>` binder. The two names split that claim:
-    //   ltundecl_wide — exempt impl-scope lifetimes, `'_`, AND hrtb binders
-    //   ltundecl_hrtb — exempt hrtb binders ONLY
-    // so the binder set's own contribution is a measured number, not an
-    // attribution. Both widen the EXEMPTION; neither touches the rule.
+    // ── SCOPE OF A LIFETIME NAME ────────────────────────────────────────
+    // `declared` is the FN's own `<'a>`. That is not the whole scope: a method
+    // written inside `impl<'a> H<'a> { ... }` may name `'a` in its signature,
+    // its outlives clauses and its type-param bounds, and `'_` is a
+    // placeholder that is always in scope. Both are added below.
     //
-    // MEASURED 2026-08-28, all three in ONE build so it is one comparison:
-    //   ltundecl       1 389 551 fires  CEILING 17  COST 65  ⛔
-    //   ltundecl_hrtb  1 389 551 fires  CEILING 17  COST 65  ⛔
-    //   ltundecl_wide  1 389 582 fires  CEILING  4  COST  0  ✓
-    // ⚠ `ltundecl_hrtb` is IDENTICAL TO THE CONTROL DOWN TO THE FIRE COUNT.
-    // The binder exemption never changes a single decision, so the 2026-08-27
-    // census — "27 of the 65 costs are HRTB `for<'x>` binder lifetimes never
-    // entering known()" — is REFUTED. Read, every one of those 27 fixtures is
-    // `impl<'a> Tr<&'a T> for S`: the offending name is an IMPL-scope lifetime
-    // in a (often DEFAULT) method signature. The census grouped by the
-    // fixtures' NAMES and the names were not the mechanism.
-    // ⇒ THE ⛔ ON `ltundecl` WAS THE EXEMPTION, NOT THE RULE. One exemption
-    // (impl-scope lifetimes, plus the `'_` placeholder) takes COST 65 -> 0.
-    // It also REPAIRS a live false refusal that has nothing to do with any
-    // probe: `impl<'a> H<'a> { fn keep<'b>(self:&H<'a>, o:&'b i32) -> &'b i32
-    // where 'a: 'b }` is refused TODAY with "use of undeclared lifetime name
-    // ''a' in outlives clause" by the un-probed checker above, and admitted
-    // with the widening.
-    // ⚠ RULE 6, BOTH DIRECTIONS. Predicted set was "IDENTICAL 17". Actual 4:
-    // no-lending-iterators (lifereg.R18), regions-name-undeclared and
-    // regions-undeclared (lifereg.R17 — the root this rule is named for), and
-    // nll_region-error-ice-109072 (nllmoves.R17). The 13 that left were being
-    // closed BY the over-refusal, i.e. bought with the same illegality that
-    // cost 65 legal programs — including both dropck rows that
-    // `lifereg_dropckfield` closes honestly for COST 0.
-    // ⚠ RULE 5. COST 0 was attacked with seven hand-written programs, every
-    // one proven to fire (~3 666 fires each, stdlib included): trait-scope
-    // `'a` (declared method AND default body), impl-scope `'a`, `'_` in
-    // return position, and the where-clause case above all ADMIT; a
-    // genuinely undeclared `'z` in a fn param still goes rc 0 -> rc 1, so
-    // the rule still bites. `'q` in an impl method's return is refused by
-    // variance either way (a different rule, not this one).
-    bool probe_wide = logos::probe::on("ltundecl_wide");
-    bool probe_hrtb = probe_wide ? false : logos::probe::on("ltundecl_hrtb");
-    std::unordered_set<std::string> hrtb_lts;
-    if (probe_wide || probe_hrtb) {
-        auto add_binders = [&](const std::vector<TypeParam>& tps) {
-            for (auto& tp : tps)
-                for (auto& b : tp.bounds)
-                    for (auto& hb : b.hrtb_binders) {
-                        hrtb_lts.insert(hb);
-                        if (!hb.empty() && hb[0] != '\'')
-                            hrtb_lts.insert("'" + hb);
-                    }
-        };
-        add_binders(type_params);
-        add_binders(impl_type_params_);
-    }
+    // ⚠ THIS IS THE EXEMPTION, AND IT WAS THE WHOLE VERDICT. Measured
+    // 2026-08-28 with three probes in ONE build over the 379-row acceptance
+    // ledger and the 807-program legal corpus:
+    //   ltundecl       (fn scope only)          CEILING 17  COST 65  ⛔
+    //   ltundecl_hrtb  (+ for<'x> binders)      CEILING 17  COST 65  ⛔
+    //   ltundecl_wide  (+ impl scope, '_, hrtb) CEILING  4  COST  0  ✓
+    // The narrow spelling scores a bigger ceiling only because it buys rows
+    // with an ILLEGAL refusal: the 13 rows that leave between 17 and 4 were
+    // being closed by the same over-refusal that cost 65 legal programs. The
+    // 4 that remain are bought by the RULE.
+    //
+    // ⚠ AND THE `for<'x>` HALF IS DELIBERATELY NOT HERE. `ltundecl_hrtb` was
+    // identical to the control DOWN TO THE FIRE COUNT — exempting binder
+    // lifetimes never changed one decision on 379 + 807 programs — so it buys
+    // nothing, and in the abuse direction it is a hole: it would let a binder
+    // name escape its binder into a parameter type,
+    //     fn f<T>(t: &T, x: &'x i32) -> i32 where T: for<'x> Tr<'x>
+    // which this file refuses with the binder set left out. (That program is
+    // admitted TODAY as well; leaving the exemption out is what closes it.)
+    // The 2026-08-27 census that motivated the binder set — "27 of the 65
+    // costs are HRTB binder lifetimes never entering known()" — is REFUTED:
+    // read, all 27 hrtb-* fixtures carry `impl<'a> Tr<&'a T> for S` and the
+    // offending name is an IMPL-scope lifetime in a (usually default) method
+    // signature. The census grouped by fixture NAMES; the names were not the
+    // mechanism.
+    //
+    // The widening also removes a FALSE REFUSAL that no probe was needed to
+    // see. Before this change,
+    //   impl<'a> H<'a> { fn stash<'b>(self:&mut H<'a>, o:&'b i32) where 'b:'a }
+    // was refused as "use of undeclared lifetime name ''a' in outlives
+    // clause". Its unsound mirror (`where 'a: 'b`, storing a short reference
+    // into a long field) is still refused — now by the region rule, at the
+    // call, as E0597, which is the upstream reason.
+    for (auto& il : current_impl_lifetime_params_) declared.insert(il);
     auto known = [&](std::string_view lt) {
         if (lt.empty()) return true;
         if (lt == "'static" || lt == "static") return true;
-        if (declared.count(std::string(lt)) > 0) return true;
-        if (!(probe_wide || probe_hrtb)) return false;
-        if (hrtb_lts.count(std::string(lt)) > 0) return true;
-        if (!probe_wide) return false;
         if (lt == "'_" || lt == "_") return true;
-        for (auto& il : current_impl_lifetime_params_)
-            if (il == lt) return true;
-        return false;
+        return declared.count(std::string(lt)) > 0;
     };
     for (auto& [lng, sht] : lifetime_outlives) {
         if (!known(lng))
@@ -201,33 +174,30 @@ void SemaChecker::compute_fn_lifetime_outlives(
                                   fn_name, lt, tp.name, lt));
         }
     }
-    // MEASURED 2026-08-27: 1550851 fires, CEILING 17 vs COST 4 — the second
-    // best ratio of a seventeen-probe batch, and its 17 rows are DISJOINT from
-    // every other probe measured. The 4 costs are exactly what walk_implied's
-    // comment predicted, and THREE OF THE FOUR ARE ONE EXEMPTION: a lifetime
-    // declared at IMPL scope, not fn scope — `impl<'a> Foo<'a> for S<'a> { fn
-    // id(self: S<'a>) }` (lifetime_trait_bound_arg), plus the `'_` placeholder
-    // (lifetime_underscore) and spec region_2 / bc_dropck_shadowed_name.
-    // ⚠ The pre-stated SPLIT held: the closed rows are the fn-signature share
-    // (regions-undeclared, regions-name-undeclared, regions-infer-paramd-
-    // indirect, resolve-re-error-ice, …). R17 is ONE RULE AT FOUR SITES, and
-    // this probe reaches only one of them — a careful round must widen the
-    // SITE SET (struct fields, enum payloads, `static`), not the rule.
-    // PROBE ltundecl: `known()` is applied to the outlives clauses and the
-    // type-param bounds ONLY. The lifetimes in PARAMETER and RETURN types are
+    // ── THE SITE SET: PARAMETER AND RETURN TYPES ────────────────────────
+    // The two loops above check the outlives clauses and the type-param
+    // bounds ONLY. The lifetimes written in PARAMETER and RETURN types were
     // walked by walk_implied above — which even calls fn_lifetime_known — but
-    // only to decide whether to emit an outlives pair, never to report. Its
-    // comment names the permissive exit as deliberate and unmeasured.
-    // ⚠ 2026-08-28 UPDATE TO THE NOTE BELOW: "THREE OF THE FOUR COSTS ARE
-    // ONE EXEMPTION (impl-scope)" was right about the exemption and wrong
-    // about the fraction — on the widened 807-test legal corpus it is
-    // SIXTY-FIVE of the sixty-five. See the ltundecl_wide block above.
-    // ⚠ THREE NAMES AT ONE SITE, DELIBERATELY — the wide/hrtb forms are
-    // ltundecl's RULE under a wider EXEMPTION, so they must run the same walk
-    // or their ceiling would be measuring nothing. `probe_wide`/`probe_hrtb`
-    // were already resolved above, so `on()` is still first in the `&&`/`||`
-    // chain that decides this branch.
-    if (probe_wide || probe_hrtb || logos::probe::on("ltundecl")) {
+    // only to decide whether to emit an outlives pair, never to report; its
+    // comment named that permissive exit as deliberate and unmeasured. So
+    //     struct H<'a> { r: &'a i32 }
+    //     fn peek(h: &H<'z>) -> &i32 { return h.r; }
+    // compiled with `'z` declared nowhere, and `fn pick<'a>(x:&'a i64) -> &'z
+    // i64` was refused only by a downstream VARIANCE mismatch, naming `'z` as
+    // if it were a real lifetime. This walk reports them where they are
+    // written. It reaches nested positions — struct/enum lifetime args, tuple
+    // elements, slice and array elements, pointer and reference pointees —
+    // because that is where the imported ports put them.
+    //
+    // ⚠ NOT THE WHOLE SITE SET. `compute_fn_lifetime_outlives` is one of the
+    // four sites R17 names; struct FIELDS, enum PAYLOADS and `static`
+    // declarations are checked by nobody, and a TRAIT DECLARATION's method
+    // signature does not reach this function at all —
+    //     trait Bad { fn f(self: &Self, o: &'z i32) -> &'z i32; }
+    // is admitted with `'z` declared nowhere, before and after this change.
+    // Widening the SITE SET is the next round; the RULE and its exemption are
+    // now measured rather than assumed.
+    {
         std::vector<std::string> seen;
         auto walk_lts = [&](TypeRef t, auto& rec) -> void {
             if (!t) return;
@@ -2007,10 +1977,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     } _restore_ita{current_impl_trait_args_, std::move(saved_impl_trait_args)};
     // Push impl's own type params: either from IMPL_TYPE_PARAMS (new generic trait impl
     // form: impl<T> Trait for Struct<T>) or from TYPE_PARAMS (standalone: impl<T> Pair<T>).
-    // PROBE ltundecl_wide: capture the impl header's own lifetime params so
-    // `known()` in compute_fn_lifetime_outlives can exempt them. Read from
-    // BOTH slots — a trait impl puts its `<'a, T>` under IMPL_TYPE_PARAMS,
-    // an inherent impl under TYPE_PARAMS.
+    // Capture the impl header's own lifetime params so `known()` in
+    // compute_fn_lifetime_outlives counts them as DECLARED for every method
+    // written inside this block — `impl<'a> H<'a> { fn get(self:&H<'a>) }`.
+    // Read from BOTH slots — a trait impl puts its `<'a, T>` under
+    // IMPL_TYPE_PARAMS, an inherent impl under TYPE_PARAMS. Landed 2026-08-28;
+    // before it, that method's `'a` was an "undeclared lifetime name".
     std::vector<std::string> saved_impl_lts = current_impl_lifetime_params_;
     current_impl_lifetime_params_.clear();
     {
