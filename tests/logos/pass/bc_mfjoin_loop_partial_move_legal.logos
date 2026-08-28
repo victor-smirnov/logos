@@ -1,0 +1,172 @@
+// THE LEGAL HALF of the loop-edge `moved_fields` join (borrow_check.cpp,
+// loop_propagate_moves). A field moved on iteration 1 is moved on entry to
+// iteration 2 — the refuse-MORE direction — so everything a loop legally does
+// to put the field back has to keep compiling.
+//
+// Each function below was written by hand BEFORE the rule landed, run under
+// `scripts/ceiling-probe.sh mfjoinloop`, and traced with LOGOS_MFJ_TRACE=1 to
+// say whether the join actually CARRIED anything. Both answers are evidence,
+// and they are different evidence:
+//   CARRIED and still legal  → `whole_reassign_at_top`, `break_after_move`,
+//                              `move_then_break_in_arm`
+//   NOTHING TO CARRY         → the reinit/fresh-value shapes; the body arrives
+//                              at its bottom with an empty map, which is
+//                              `erase_reinit` and the VarState reset doing
+//                              their job one level down.
+package bc_mfjoin_loop_partial_move_legal;
+
+struct Pay { n: i64 }
+impl Drop for Pay { fn drop(self: &mut Pay) {} }
+struct H { a: Pay, b: Pay }
+
+// CARRIES. `h.a` reaches the back edge moved; the top of the body reassigns the
+// WHOLE local, which resets its VarState and with it moved_fields.
+fn whole_reassign_at_top() -> i64 {
+    let mut h: H = H { a: Pay { n: 1i64 }, b: Pay { n: 2i64 } };
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while i < 3i64 {
+        h = H { a: Pay { n: 1i64 }, b: Pay { n: 2i64 } };
+        let x: Pay = h.a;
+        k = k + x.n;
+        i = i + 1i64;
+    }
+    return k;
+}
+
+// NOTHING TO CARRY: `erase_reinit` clears `h.a` at the field write, so the
+// body's bottom state has an empty map.
+fn field_reinit_in_body() -> i64 {
+    let mut h: H = H { a: Pay { n: 1i64 }, b: Pay { n: 2i64 } };
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while i < 3i64 {
+        let x: Pay = h.a;
+        k = k + x.n;
+        h.a = Pay { n: 1i64 };
+        i = i + 1i64;
+    }
+    return k;
+}
+
+// Two DISJOINT fields, each moved and refilled: the paths do not overlap and
+// neither survives the iteration.
+fn disjoint_fields_each_refilled() -> i64 {
+    let mut h: H = H { a: Pay { n: 1i64 }, b: Pay { n: 2i64 } };
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while i < 2i64 {
+        let x: Pay = h.a;
+        h.a = Pay { n: 1i64 };
+        let y: Pay = h.b;
+        h.b = Pay { n: 2i64 };
+        k = k + x.n + y.n;
+        i = i + 1i64;
+    }
+    return k;
+}
+
+// The owner is LOOP-LOCAL: absent from the pre-loop state, so the residency
+// guard (`base.has_id`) drops it and nothing crosses.
+fn owner_is_loop_local() -> i64 {
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while i < 3i64 {
+        let h: H = H { a: Pay { n: 1i64 }, b: Pay { n: 2i64 } };
+        let x: Pay = h.a;
+        k = k + x.n;
+        i = i + 1i64;
+    }
+    return k;
+}
+
+// CARRIES, at the loop-EXIT collector rather than the back edge: the body
+// always breaks, so iteration 2 does not exist and the carried record only
+// reaches the state after the loop, where nothing reads it.
+fn break_after_move() -> i64 {
+    let m: Option<Pay> = Option::Some(Pay { n: 4i64 });
+    let mut k: i64 = 0i64;
+    loop {
+        if let Option::Some(t) = m { k = k + t.n; }
+        break;
+    }
+    return k;
+}
+
+// CARRIES on the break path only: the arm that moves also diverges, so the
+// move never reaches the body's bottom and never reaches the back edge.
+fn move_then_break_in_arm() -> i64 {
+    let m: Option<Pay> = Option::Some(Pay { n: 4i64 });
+    let mut k: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        if k > 100i64 { i = i + 1i64; } else {
+            if let Option::Some(t) = m { k = k + t.n; break; }
+        }
+        i = i + 1i64;
+    }
+    return k;
+}
+
+// A pattern binding's sub-place record, refilled by a whole-value reassign
+// before the bottom of the body.
+fn pattern_move_reassigned_before_continue() -> i64 {
+    let mut m: Option<Pay> = Option::Some(Pay { n: 1i64 });
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while i < 3i64 {
+        i = i + 1i64;
+        match m { Option::Some(t) => { k = k + t.n; } Option::None => {} }
+        m = Option::Some(Pay { n: 1i64 });
+        continue;
+    }
+    return k;
+}
+
+// Nested loops: the owner is local to the INNER body.
+fn nested_loop_fresh_inner() -> i64 {
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while i < 2i64 {
+        let mut j: i64 = 0i64;
+        while j < 2i64 {
+            let m: Option<Pay> = Option::Some(Pay { n: 1i64 });
+            match m { Option::Some(t) => { k = k + t.n; } Option::None => {} }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+    return k;
+}
+
+// A `for` loop over a range, with the owner minted per iteration.
+fn for_loop_fresh() -> i64 {
+    let mut k: i64 = 0i64;
+    for i in 0i64..3i64 {
+        let m: Option<Pay> = Option::Some(Pay { n: i });
+        match m { Option::Some(t) => { k = k + t.n; } Option::None => {} }
+    }
+    return k;
+}
+
+// No loop at all: two DISJOINT fields moved out of the same owner in sequence.
+fn disjoint_fields_no_loop() -> i64 {
+    let h: H = H { a: Pay { n: 1i64 }, b: Pay { n: 2i64 } };
+    let x: Pay = h.a;
+    let y: Pay = h.b;
+    return x.n + y.n;
+}
+
+fn main() -> i32 {
+    if whole_reassign_at_top()               != 3i64 { return 1i32; }
+    if field_reinit_in_body()                != 3i64 { return 2i32; }
+    if disjoint_fields_each_refilled()       != 6i64 { return 3i32; }
+    if owner_is_loop_local()                 != 3i64 { return 4i32; }
+    if break_after_move()                    != 4i64 { return 5i32; }
+    if move_then_break_in_arm()              != 4i64 { return 6i32; }
+    if pattern_move_reassigned_before_continue() != 3i64 { return 7i32; }
+    if nested_loop_fresh_inner()             != 4i64 { return 8i32; }
+    if for_loop_fresh()                      != 3i64 { return 9i32; }
+    if disjoint_fields_no_loop()             != 3i64 { return 10i32; }
+    return 0i32;
+}

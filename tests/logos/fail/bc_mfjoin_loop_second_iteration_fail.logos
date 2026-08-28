@@ -1,0 +1,20 @@
+// THE REFUSING HALF: the partial-move record now crosses the loop back edge,
+// so a field moved on iteration 1 is moved on entry to iteration 2 and the
+// second iteration's read of it is E0382 ("value moved here, in previous
+// iteration of loop"). Before the loop edge carried `moved_fields`, the record
+// was made inside the body and thrown away at the bottom, and this compiled.
+package bc_mfjoin_loop_second_iteration_fail;
+
+struct Pay { n: i64 }
+impl Drop for Pay { fn drop(self: &mut Pay) {} }
+
+fn main() -> i32 {
+    let m: Option<Pay> = Option::Some(Pay { n: 1i64 });
+    let mut i: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while i < 3i64 {
+        match m { Option::Some(t) => { k = k + t.n; } Option::None => {} }
+        i = i + 1i64;   // ERROR: 'm.0' is moved on entry to iteration 2
+    }
+    return 0i32;
+}

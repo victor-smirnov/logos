@@ -1,6 +1,7 @@
 // rustc borrowck/move-in-pattern-mut-in-loop.rs — upstream E0382 use of moved value
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: FAIL (was admit) — closed 2026-08-28: the partial-move record now
+// crosses the LOOP EDGE, so the field is moved on entry to iteration 2.
 package move_in_pattern_mut_in_loop;
 use logos.lang.option;
 fn main() -> i32 {

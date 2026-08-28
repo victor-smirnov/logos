@@ -476,7 +476,26 @@
 # ⚠ THE RVALUE-MATCH SPELLING RECORDS NOTHING and stays open, asserted by
 # nothing: `let r = match m { Opt::Some(t) => t.n, … };` produces zero records
 # on `m` (hand-traced). Named at the site and in pass/bc_patsubmove_legal_shapes.
-# TOTAL 383
+# 2026-08-28 — 383 -> 379. FOUR rows, and FOUR was the number declared by NAME
+# before the edit. A join in this checker carries THREE kinds of variable state
+# and until today carried two: `merge_moves` / the arms' `st.moved` fold carry
+# the WHOLE-value move, `merge_loans` carries the loan counters and field-borrow
+# maps, and the PARTIAL move (`VarState::moved_fields`) crossed nothing. So the
+# record the pattern site had just started making died at the loop bottom and
+#   issue-41962--r25 · issue-41962--t25 · move-in-pattern-mut-in-loop
+#   issue-53807--move-in-loop
+# still compiled — all four E0382 "value moved here, in previous iteration of
+# loop". `loop_propagate_moves` now unions `moved_fields` across the back edge
+# and the loop-exit collectors.
+# ⚠ THE ARM JOIN WAS MEASURED AND NOT FUNDED. Three probes, one population:
+# mfjoinbare (the join with NO producer) 25,096 fires / 0 rows; mfjoinarm
+# (record + if/match arm joins) 2 rows, i.e. exactly what the record alone
+# already closes; mfjoinloop (record + loop edges) 6. The arm asymmetry is real
+# — a match join seeds from arm 1's WHOLE VarState and folds arms 2..n by
+# `st.moved` alone, so a partial move in arm 1 survives and the same program
+# with the arms swapped compiles — and it is worth ZERO rows, so it is named at
+# loop_propagate_moves and left for whoever can price it above zero.
+# TOTAL 379
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -545,8 +564,6 @@ issue-101119 bck.C tests/imported/admit/borrowck/issue-101119
 issue-111554--b bck.A tests/imported/admit/borrowck/issue-111554--b
 issue-111554--c bck.A tests/imported/admit/borrowck/issue-111554--c
 issue-36082 bck.D tests/imported/admit/borrowck/issue-36082
-issue-41962--r25 bck.NEW tests/imported/admit/borrowck/issue-41962--r25
-issue-41962--t25 bck.NEW tests/imported/admit/borrowck/issue-41962--t25
 issue-42344 bck.NEW tests/imported/admit/borrowck/issue-42344
 issue-45983 bck.C tests/imported/admit/borrowck/issue-45983
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
@@ -570,7 +587,6 @@ issue-85765 bck.B tests/imported/admit/borrowck/issue-85765
 issue-93093 bck.B tests/imported/admit/borrowck/issue-93093
 issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure
 many-mutable-borrows bck.NEW-M tests/imported/admit/borrowck/many-mutable-borrows
-move-in-pattern-mut-in-loop bck.B tests/imported/admit/borrowck/move-in-pattern-mut-in-loop
 moved-value-suggest-reborrow-issue-127285--r32 bck.NEW tests/imported/admit/borrowck/moved-value-suggest-reborrow-issue-127285--r32
 moved-value-suggest-reborrow-issue-127285--t32 bck.NEW tests/imported/admit/borrowck/moved-value-suggest-reborrow-issue-127285--t32
 mut-borrow-conflict-in-closures-vec bck.C tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec
@@ -754,7 +770,6 @@ issue-52113 nllmoves.R13 tests/imported/admit/nll/issue-52113
 issue-52663-span-decl-captured-variable nllmoves.C tests/imported/admit/nll/issue-52663-span-decl-captured-variable
 issue-53040 nllmoves.C tests/imported/admit/nll/issue-53040
 issue-53773 nllmoves.E tests/imported/admit/nll/issue-53773
-issue-53807--move-in-loop nllmoves.NEW-N1 tests/imported/admit/nll/issue-53807--move-in-loop
 issue-54124 nllmoves.NEW-L1 tests/imported/admit/nll/issue-54124
 issue-54382-use-span-of-tail-of-block nllmoves.D tests/imported/admit/nll/issue-54382-use-span-of-tail-of-block
 issue-54556-stephaneyfx nllmoves.E tests/imported/admit/nll/issue-54556-stephaneyfx

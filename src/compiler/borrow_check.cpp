@@ -2247,9 +2247,72 @@ private:
     }
     // Mark in `dst` every outer binding (present in `base`) that is `moved` in
     // `src`, carrying its move line.
+    // ── THE THIRD KIND OF STATE AT A JOIN ────────────────────────────────
+    //
+    // A join in this checker carries THREE kinds of variable state, and until
+    // 2026-08-28 it carried two:
+    //
+    //   kind                     if-stmt / if-expr   match arms      loop edges
+    //   whole-value `moved`      merge_moves         st.moved fold   here
+    //   loans (counters, field   merge_loans         merge_loans     merge_loans
+    //     borrow maps)
+    //   PARTIAL move             NOT MERGED          arm 1 only,     HERE, NEW
+    //     (`moved_fields`)                           by accident
+    //
+    // "arm 1 only, by accident" is literal: the match join seeds `merged_s`
+    // with a WHOLE VarState copy of the first arm and then folds arms 2..n by
+    // `st.moved` alone, so a partial move in arm 1 survives and the same
+    // program with the arms swapped compiles — the J0 story, for a third kind
+    // of state. That asymmetry is NOT fixed here: priced at CEILING 2 (i.e.
+    // exactly what the pattern-site record alone already closes, probe
+    // `mfjoinarm`), it buys nothing measurable, and a second mechanism in this
+    // change would make the row delta unattributable.
+    //
+    // THE LOOP EDGE IS THE ONE THAT PAYS. Probe `mfjoinloop`: CEILING 6 / COST
+    // 0, against `mfjoinarm`'s 2 and `mfjoinbare`'s 0 — the last of those being
+    // the join with NO producer armed, 25,096 fires and not one row, which is
+    // how we know the four extra rows are bought by this edge and not by the
+    // existing FieldRead producer.
+    //
+    // ⚠ THE DIRECTION IS UNION, AND IT IS THE REFUSE-MORE DIRECTION. A field
+    // moved on iteration 1 is moved on entry to iteration 2 (rustc: "value
+    // moved here, in previous iteration of loop"). RE-INITIALISATION needs no
+    // subtraction on this path: `erase_reinit` runs at the two WRITE sites
+    // inside the body, so a body that refills the field arrives at the bottom
+    // with an already-empty map — measured, and the fixture
+    // tests/logos/pass/bc_mfjoin_loop_partial_move_legal says which of its ten
+    // functions CARRIED and which had nothing to carry, because both answers
+    // are evidence and they are different evidence. `field_reinit_in_body` and
+    // `disjoint_fields_each_refilled` carry NOTHING; `whole_reassign_at_top`
+    // DOES carry `h.a` onto the back edge and still compiles, because the top
+    // of the body reassigns `h` and a whole-value reassign resets the VarState
+    // outright. The union is `insert`, not `operator[]`: an entry already
+    // present keeps its ORIGINAL move line, which is the line a reader wants.
+    //
+    // ⚠ A LEGAL PROGRAM THAT CARRIES TO THE BACK EDGE AND IS THEN READ DOES
+    // NOT EXIST for the pattern producer, and that is a property of the rule
+    // rather than of the corpus: the pattern site is itself the reader, so a
+    // back-edge carry that reaches a second read IS the upstream error. The
+    // legal carries are therefore all loop-EXIT ones (`break_after_move`,
+    // `move_then_break_in_arm`) or back-edge carries the body clears before
+    // reading (`whole_reassign_at_top`). Stated so nobody reads the shape of
+    // the fixture file as a gap in it.
     void loop_propagate_moves(StateMap& dst, StateMap& src, const StateMap& base) {
         src.for_each([&](uint32_t slot, std::string_view name, VarState& st) {
+            std::unordered_map<std::string, uint32_t> keep;
+            if (dst.has_id(slot, name)) keep = dst.at_id(slot, name).moved_fields;
             if (st.moved && base.has_id(slot, name)) dst.at_id(slot, name) = st;
+            if (base.has_id(slot, name) && dst.has_id(slot, name)) {
+                auto& b = dst.at_id(slot, name);
+                for (auto& kv : keep) b.moved_fields.insert(kv);
+                for (auto& kv : st.moved_fields)
+                    if (b.moved_fields.insert(kv).second &&
+                        std::getenv("LOGOS_MFJ_TRACE"))
+                        fprintf(stderr,
+                                "[mfj] loop edge carried '%.*s.%s' (moved line %u)\n",
+                                (int)name.size(), name.data(),
+                                kv.first.c_str(), kv.second);
+            }
         });
     }
 
@@ -5453,7 +5516,15 @@ private:
                 // recorded inside an arm is discarded at the arm boundary and
                 // at the loop back edge. The root `moved` flag the crude
                 // spelling set is evidently carried; the dotted-path map is not.
-                // THE NEXT STEP IS merge_loans, not this site.
+                // ── FOLLOWED UP 2026-08-28, and it was the LOOP EDGE, not the
+                // arm boundary. Three probes over the same population:
+                //   mfjoinbare (join, NO record)          25,096 fires, 0 rows
+                //   mfjoinarm  (record + arm joins)      686,060 fires, 2 rows
+                //   mfjoinloop (record + loop edges)     661,448 fires, 6 rows
+                // The arm join buys NOTHING over the record alone; all four
+                // extra rows cross `loop_propagate_moves`, hand-traced one at a
+                // time with LOGOS_MFJ_TRACE=1. The loop half landed; the arm
+                // half did not — see loop_propagate_moves for the join table.
                 // ── A BY-VALUE PATTERN BINDING MOVES THE SUB-PLACE IT NAMES
                 //
                 // LANDED 2026-08-28 from the probe above, with ONE change: the

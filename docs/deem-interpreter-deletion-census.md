@@ -4593,9 +4593,20 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   TIERCOMMIT    433 →  431   −2  two closed rows' per-row tests leave.
 # Same arithmetic as the `recvresvbare` entry directly above, same shape of
 # change; measured as +2/0/−2.
-REGISTRY-ALL         8616
-REGISTRY-NOIMPORTED  4441
-REGISTRY-TIERCOMMIT  431
+# 2026-08-28 (the LOOP-EDGE `moved_fields` join LANDED — a field moved on one
+# iteration is moved on entry to the next, closing FOUR ledger rows,
+# `issue-41962--r25`, `--t25`, `move-in-pattern-mut-in-loop` and
+# `issue-53807--move-in-loop`, all E0382:
+#   ALL          8616 → 8618   +2  +1 native pass +1 native fail; the four moved
+#                                  programs are −4 admit row tests +4 imported
+#                                  fail fixtures, net 0.
+#   NOIMPORTED   4441 → 4439   −2  the +2 native less the −4 row tests (an admit
+#                                  row test carries no `imported` label).
+#   TIERCOMMIT    431 →  427   −4  four closed rows' per-row tests leave.
+# PREDICTED +2/−2/−4 before the pin was read, and read as that.
+REGISTRY-ALL         8618
+REGISTRY-NOIMPORTED  4439
+REGISTRY-TIERCOMMIT  427
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

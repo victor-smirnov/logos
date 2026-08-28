@@ -804,10 +804,28 @@ PIN = {
     # again on all three counts.
     # 2026-08-28: +1 → 2437 = 191 + 2246. bc_recvresv_two_phase_legal — the
     # two-phase shapes a bare-place receiver's reservation must keep admitting.
-    # Same reasoning again on all three counts.)
-    'corpus'            : 2437,
+    # Same reasoning again on all three counts.
+    # 2026-08-28: +2 → 2439 = 191 + 2248.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 2 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2439
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2439 = 191 + 2248. The two are
+    # bc_patsubmove_legal_shapes (the twelve shapes a by-value pattern binding's
+    # SUB-place move must keep admitting, three of them labelled SILENCES) and
+    # bc_mfjoin_loop_partial_move_legal (the ten a loop-edge partial-move join
+    # must keep admitting). The round's other two fixtures are FAIL fixtures and
+    # this population is the PASS corpus, so they move nothing here. `glob` and
+    # the DOOR counts unmoved (36 = 10 + 26): no `wql_*`/`deem_*` match, no
+    # container family, no `direct` output form in either.
+    # ⚠ AND THIS PIN WAS RED FOR ONE COMMIT BEFORE IT WAS READ, by exactly the
+    # 15th kind of gate lie this repo already records: the first of the two
+    # fixtures landed under an L4 run invoked as `test-levels.sh L4 bc | tail
+    # -25`, so the rc that was read was TAIL's and not the gate's. The gate did
+    # its job; the reader broke it. Never pipe a gate whose rc you intend to
+    # quote.)
+    'corpus'            : 2439,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2246,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2248,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a
