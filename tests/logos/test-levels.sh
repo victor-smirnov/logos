@@ -49,7 +49,8 @@
 #   bash ../tests/logos/test-levels.sh L2 2          # 2nd window of 10/group
 #   bash ../tests/logos/test-levels.sh L3 1
 #   bash ../tests/logos/test-levels.sh L4            # full core+spec
-#   bash ../tests/logos/test-levels.sh L4 imp        # full incl. imported ports
+#   bash ../tests/logos/test-levels.sh L4 bc         # core+spec + the borrow-check imported ports
+#   bash ../tests/logos/test-levels.sh L4 imp        # full incl. ALL imported ports (tier unreviewed)
 #   bash ../tests/logos/test-levels.sh L2 2 imp      # L2, imported groups too
 set -u
 
@@ -105,10 +106,30 @@ fi
 
 # Imported ports are off unless `imp` is passed anywhere in the args or
 # LOGOS_IMPORTED=1 is set. Strip the token so it doesn't disturb VARIANT/name.
+#
+# ── `bc`: THE IMPORTED HALF THAT IS WORTH RUNNING ────────────────────────────
+# `imp` runs all 4158 imported ports. Victor 2026-08-28: STOP DOING THAT — the
+# imported tier needs a revision and it is not currently known what is in it,
+# which is why it was split into its own group in the first place. A tier whose
+# contents nobody can vouch for is not an oracle; it is a number that goes red
+# for reasons that have to be investigated one at a time, and five of them were
+# just disabled precisely because that investigation had not happened.
+#
+# `bc` runs the imported ports that carry the `bc` label — the upstream
+# borrow-check suites (borrowck, nll, moves, regions, lifetimes, dropck, drop,
+# closures, variance), 1262 tests, whose subject matter is the one this arc
+# actually changes. Everything else in `tests/imported` is left alone until it
+# has been reviewed.
+#
+# ⚠ TWO ctest RUNS, NOT ONE, because ctest ANDs its filters and there is no
+# union operator: `-LE imported` for the core, then `-L imported -L bc`. The
+# summary prints both and the exit status is the worse of the two.
 WITH_IMPORTED=${LOGOS_IMPORTED:-0}
+WITH_BC_IMPORTED=${LOGOS_BC_IMPORTED:-0}
 _args=()
 for a in "$@"; do
-    if [ "$a" = "imp" ]; then WITH_IMPORTED=1; else _args+=("$a"); fi
+    if [ "$a" = "imp" ]; then WITH_IMPORTED=1;
+    elif [ "$a" = "bc" ]; then WITH_BC_IMPORTED=1; else _args+=("$a"); fi
 done
 set -- "${_args[@]:-}"
 [ "${1:-}" = "" ] && shift 2>/dev/null || true
@@ -116,12 +137,21 @@ set -- "${_args[@]:-}"
 # ── L0 / L4: trivial ────────────────────────────────────────────────────────
 if [ "$LEVEL" = "L4" ]; then
     if [ "$WITH_IMPORTED" = "1" ]; then
-        echo "[test-levels] L4 — full suite (incl. imported ports)"
+        echo "[test-levels] L4 — full suite (incl. ALL imported ports; the tier is unreviewed)"
         bash "$SUMMARY"
-    else
-        echo "[test-levels] L4 — full suite (core+spec; imported excluded, add 'imp' for full)"
-        bash "$SUMMARY" -LE imported
+        exit $?  # lint:exit-ok — the status of the `bash` just run
     fi
+    if [ "$WITH_BC_IMPORTED" = "1" ]; then
+        echo "[test-levels] L4 bc — core+spec, plus the borrow-check imported ports"
+        bash "$SUMMARY" -LE imported; _rc_core=$?
+        echo "[test-levels] L4 bc — imported, borrow-check suites only"
+        bash "$SUMMARY" -L imported -L bc; _rc_bc=$?
+        # The worse of the two: a green core over a red bc half is not green.
+        [ "$_rc_core" -ne 0 ] && exit "$_rc_core"  # lint:exit-ok
+        exit "$_rc_bc"  # lint:exit-ok
+    fi
+    echo "[test-levels] L4 — full suite (core+spec; imported excluded, add 'bc' for the borrow-check ports, 'imp' for all)"
+    bash "$SUMMARY" -LE imported
     exit $?  # lint:exit-ok — the status of the `bash` just run: a real wait status
 fi
 if [ "$LEVEL" = "L0" ]; then
