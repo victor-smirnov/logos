@@ -1,0 +1,40 @@
+// THE LEGAL HALF of the bare-place receiver loan (borrow_check.cpp, MethodCall).
+// The deposit is a B82 RESERVATION, not an activation, and that single choice
+// is the whole exemption analysis: a reservation is compatible with SHARED
+// reads taken during the same argument evaluation, which is exactly Rust's
+// two-phase rule. Every shape below is legal Rust, fired the mechanism 1-4
+// times under `scripts/ceiling-probe.sh`, and must keep compiling.
+//
+// It is also WHOLE-ROOT only, so a `&mut` of a DISJOINT FIELD handed to a
+// `&mut self` method of the same root stays legal too (`mut_recv_disjoint_field`).
+package bc_recvresv_two_phase_legal;
+
+struct S { a: i64, b: i64 }
+
+impl S {
+    fn get(self: &Self) -> i64 { return self.a; }
+    fn add(self: &Self, k: i64) -> i64 { return self.a + k; }
+    fn set(self: &mut Self, k: i64) -> i64 { self.a = k; return k; }
+    // The two-phase shape at the `self` spelling: a `&mut self` method whose
+    // argument READS the same receiver.
+    fn roll(self: &mut Self) -> i64 { return self.set(self.get() + 1i64); }
+    // Two shared reads inside a `&mut self` receiver's arguments.
+    fn chain(self: &mut Self) -> i64 { return self.set(self.get() + self.get()); }
+}
+
+fn bump(p: &mut i64) -> i64 { *p = *p + 1i64; return *p; }
+fn read(p: &i64) -> i64 { return *p; }
+
+fn mut_recv_disjoint_field(s: &mut S) -> i64 { return s.set(bump(&mut s.b)); }
+fn mut_recv_shared_field(s: &mut S) -> i64 { return s.set(read(&s.b)); }
+fn shared_recv_shared_field(s: &S) -> i64 { return s.add(read(&s.b)); }
+
+fn main() -> i32 {
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    if s.roll() != 2i64 { return 1i32; }
+    if s.chain() != 4i64 { return 2i32; }
+    if mut_recv_disjoint_field(&mut s) != 3i64 { return 3i32; }
+    if mut_recv_shared_field(&mut s) != 3i64 { return 4i32; }
+    if shared_recv_shared_field(&s) != 6i64 { return 5i32; }
+    return 0i32;
+}

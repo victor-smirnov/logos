@@ -431,7 +431,36 @@
 # Program moved to tests/imported/fail/borrowck/ with the diagnostic pinned;
 # native pair tests/logos/{pass/bc_opeq_init_before_use,
 # fail/bc_opeq_uninit_read_fail}.
-# TOTAL 387
+# 2026-08-28 — 387 -> 385. TWO rows, declared as two and BY NAME before the
+# edit, and the diff is empty in both directions:
+#   suggest-local-var-imm-and-mut   E0502  "cannot borrow 'self' as mutable:
+#                                           'self' has shared borrows"
+#   two-phase-sneaky                E0499  "cannot borrow 'v' as mutable:
+#                                           already mutably borrowed"
+# B94 CHECKED the bare-place receiver and never RECORDED it, so nothing held
+# the receiver while visit_args ran its siblings. The MethodCall arm now
+# deposits a B82 RESERVATION (in_call_args_ > 0) for a bare-place receiver
+# whose binding is already mut or a param — a reservation, so `v.push(v.len())`
+# stays legal; whole-root, so the D8 field-split admits are untouched.
+# Priced at CEILING 2 / COST 0 (scripts/ceiling-probe.sh recvresvbare_p, 342
+# fires over 387 compiles) and sixteen hand-written two-phase counter-examples
+# stayed green.
+# ⚠ WHAT IT KEYS ON WAS MEASURED, NOT READ OFF ITS NAME. The aiming report
+# partitioned these rows between `recvresvbare` and `recvresvamut` by RECEIVER
+# SPELLING and got both assignments wrong, so the halves were armed separately:
+# the PRODUCER alone closes both rows, producer+consumer closes the same two,
+# and the consumer arm is UNREACHABLE at this spelling (traced) — not landed.
+# ⚠ AND THE TWO ROWS CLOSE BY DIFFERENT ARMS. imm-and-mut through the existing
+# shared_borrows rule fed by one sk==1 deposit; two-phase-sneaky because the
+# SECOND deposit is itself refused by take_borrow_whole_'s B82 arm.
+# ⚠ THE `&mut self` × `&mut self` TWIN STAYS OPEN. `self.set(self.set(1i64))`
+# (E0499) never reaches check_recv_conflict at all — sema wraps a user-struct
+# method receiver in an AddrOfTemp — so it is a hole at THAT arm, named at both
+# sites and asserted by nothing.
+# Programs moved to tests/imported/fail/borrowck/ with diagnostics pinned;
+# native pair tests/logos/{pass/bc_recvresv_two_phase_legal,
+# fail/bc_recvresv_shared_recv_mut_arg_fail}.
+# TOTAL 385
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -545,7 +574,6 @@ slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck
 suggest-local-var-double-mut--d-double-mut-on-local-receiver bck.NEW tests/imported/admit/borrowck/suggest-local-var-double-mut--d-double-mut-on-local-receiver
 suggest-local-var-double-mut--two-mut-borrows-in-call-args bck.NEW tests/imported/admit/borrowck/suggest-local-var-double-mut--two-mut-borrows-in-call-args
 suggest-local-var-for-vector bck.D tests/imported/admit/borrowck/suggest-local-var-for-vector
-suggest-local-var-imm-and-mut bck.NEW-5 tests/imported/admit/borrowck/suggest-local-var-imm-and-mut
 suggest-lt-on-ty-alias-w-generics bck.A tests/imported/admit/borrowck/suggest-lt-on-ty-alias-w-generics
 suggest-storing-local-var-for-vector bck.D tests/imported/admit/borrowck/suggest-storing-local-var-for-vector
 two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-loop
@@ -553,7 +581,6 @@ two-phase-multi-mut bck.NEW tests/imported/admit/borrowck/two-phase-multi-mut
 two-phase-nonrecv-autoref--a-fnmut-twice bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--a-fnmut-twice
 two-phase-nonrecv-autoref--c-mut-and-shared-args bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--c-mut-and-shared-args
 two-phase-nonrecv-autoref--d-index-two-phase bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--d-index-two-phase
-two-phase-sneaky bck.D tests/imported/admit/borrowck/two-phase-sneaky
 unconstrained-closure-lifetime-generic--control-escape-to-outer-local bck.C tests/imported/admit/borrowck/unconstrained-closure-lifetime-generic--control-escape-to-outer-local
 unconstrained-closure-lifetime-generic--min-capture-escapes-to-field bck.C tests/imported/admit/borrowck/unconstrained-closure-lifetime-generic--min-capture-escapes-to-field
 use-moved-value-in-match-guard-drop bck.NEW tests/imported/admit/borrowck/use-moved-value-in-match-guard-drop

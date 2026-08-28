@@ -1,6 +1,7 @@
 // rustc borrowck/suggest-local-var-imm-and-mut.rs — upstream E0502
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.NEW-5
+// shelf: pin · WAS admit until the MethodCall arm RECORDED the bare-place
+// receiver's loan across argument evaluation (B94's missing producer).
 package suggest_local_var_imm_and_mut;
 struct Foo { n: i64 }
 impl Foo {

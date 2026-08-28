@@ -1,0 +1,32 @@
+// THE REFUSING HALF of the bare-place receiver loan (borrow_check.cpp,
+// MethodCall). Paired with tests/logos/pass/bc_recvresv_two_phase_legal.logos,
+// which pins the two-phase shapes that must stay legal.
+//
+// A `&self` method whose ARGUMENT calls a `&mut self` method on the same
+// receiver. rustc E0502. `self` is a reference param, so sema never wraps it in
+// an AddrOfTemp — this receiver spelling had NO producer at all: the conflict
+// was checked and the loan was never recorded, so nothing held `self` while the
+// arguments were evaluated. That it was admitted at HEAD is not an assertion
+// here, it is the deleted ledger row: this is the native twin of
+// tests/imported/fail/borrowck/suggest-local-var-imm-and-mut, which sat in
+// bc_admits.ledger until the deposit landed.
+//
+// ⚠ THE `&mut self` × `&mut self` TWIN IS *NOT* CLOSED. `self.set(self.set(1))`
+// — rustc E0499 — is still admitted: traced, its receivers arrive at visit()'s
+// AddrOfTemp arm instead of at check_recv_conflict, so neither the deposit here
+// nor a reservation arm at that function can see them. The hole is real, it is
+// named at both sites, and it is not asserted by any fixture.
+package bc_recvresv_shared_recv_mut_arg_fail;
+
+struct Foo { n: i64 }
+
+impl Foo {
+    fn foo(self: &Self, q: i64) -> i64 { return self.n + q; }
+    fn bar(self: &mut Self) -> i64 { self.n = self.n + 1i64; return self.n; }
+    fn baz(self: &mut Self) -> i64 { return self.foo(self.bar()); }
+}
+
+fn main() -> i32 {
+    let mut f: Foo = Foo { n: 0i64 };
+    return f.baz() as i32;
+}

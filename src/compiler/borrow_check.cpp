@@ -5815,14 +5815,25 @@ private:
             // below and mint a different spelling. Measured over the full
             // 710-fixture fail corpus: no fixture's error count rose or
             // reached zero after this deletion.
-        } else if (is_mut && sit->mut_reservations > 0 &&
-                   logos::probe::on("recvresvbare")) {
-            // ── CEILING PROBE `recvresvbare` (consumer half). Inert without
-            // the producer above. Spelling reused verbatim from
-            // take_borrow_whole_'s B82 arm — not minted.
-            report(line, std::format(
-                "cannot borrow '{}' as mutable: already mutably borrowed",
-                bp.root));
+        // ── THERE IS NO mut_reservations ARM HERE, AND ITS ABSENCE IS A
+        // MEASUREMENT, NOT AN OVERSIGHT. `recvresvbare` was priced as two
+        // halves: the receiver-loan producer in the MethodCall arm, and a
+        // consumer arm at this spot refusing a mutable use while a reservation
+        // of the same root is live. Split into two probe names and priced
+        // separately 2026-08-28: the PRODUCER ALONE closes BOTH rows (342
+        // fires, ceiling 2); producer+consumer closes the SAME TWO (343 fires,
+        // ceiling 2) — the consumer fired ONCE in 387 whole-program compiles
+        // and closed nothing.
+        //
+        // ⚠ AND IT IS NOT MERELY UNPROFITABLE, IT IS UNREACHABLE AT THIS
+        // SPELLING. Traced: `self.set(self.set(1i64))` and its param twin
+        // `s.set(s.set(1i64))` — two `&mut self` calls on one root, rustc
+        // E0499 — never arrive at this function at all; sema wraps a
+        // user-struct method receiver in an AddrOfTemp, so they are handled by
+        // visit()'s AddrOfTemp arm. Landing the arm would have been a branch
+        // no program executes, green for the reason a never-executed branch is
+        // always green. The E0499 hole those two programs name is REAL and
+        // stays OPEN; it lives at the AddrOfTemp arm, not here.
         } else if (is_mut && sit->shared_borrows > 0)
             report(line, std::format(
                 "cannot borrow '{}' as mutable: '{}' has shared borrows",
@@ -12943,39 +12954,67 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     }
                 }
             }
-            // ── CEILING PROBE `recvresvbare` — the same missing producer at
-            // the OTHER receiver spelling (`self` and stdlib bare places, which
-            // sema never wraps), plus the one consumer that spelling lacks (a
-            // mut_reservations arm in check_recv_conflict). Gated on the
-            // binding already being mut/param so the binding-mut question stays
-            // entirely inside `recvmutbind`.
-            // ── MEASURED 2026-08-28: 343 fires over 393 ledger compiles,
-            // CEILING 2, COST 0.
-            //   borrowck_suggest-local-var-imm-and-mut
-            //   borrowck_two-phase-sneaky
-            // ⚠ RULE 6, AND THE SPELLING SPLIT WENT THE OTHER WAY. One of the
-            // two predicted rows closed (imm-and-mut, through the EXISTING
-            // `is_mut && shared_borrows > 0` arm fed by the sk==1 deposit); the
-            // other — suggest-local-var-double-mut--two-mut-borrows-in-call-
-            // args, predicted HERE because its receiver is `self` — closed
-            // under `recvresvamut` instead, and `two-phase-sneaky`, predicted
-            // nowhere, closed here. The receiver-spelling partition the aiming
-            // report derived from the error text does NOT partition the rows.
-            // Read the two probes' SETS, never their counts.
-            if (logos::probe::on("recvresvbare")) {
-                if (auto recv = v.receiver();
-                    recv && recv.kind() != Code::AddrOfTemp) {
-                    int sk = method_self_kind(v);
-                    BorrowPlace rrp = extract_borrow_place(recv, pool);
-                    auto* sit = rrp.root.empty()
-                        ? nullptr : var_find(rrp.root_slot, rrp.root);
-                    if (sk >= 1 && rrp.path.empty() && sit != nullptr &&
-                        (sit->is_mut_binding || param_names_.count(rrp.root))) {
-                        in_call_args_++;
-                        record_borrow(rrp, /*is_mut=*/sk == 2, line,
-                                      "__recv_resv");
-                        in_call_args_--;
-                    }
+            // ── THE BARE-PLACE RECEIVER IS CHECKED AND NEVER RECORDED (B94).
+            // check_recv_conflict above asks the conflict question and takes no
+            // loan, so NOTHING held the receiver while visit_args ran its
+            // siblings, and a second use of the same root inside an argument
+            // was admitted. `self` is a reference param, and stdlib/generic
+            // methods lower their receiver as a bare place, so sema never wraps
+            // either in an AddrOfTemp — this spelling had no producer at all.
+            //
+            // The deposit is a B82 RESERVATION (in_call_args_ > 0), not an
+            // activation, which is what keeps `v.push(v.len())` — legal Rust
+            // two-phase — admitted: a reservation is compatible with SHARED
+            // reads taken during the same argument evaluation. Whole-root only
+            // (`rrp.path.empty()`), so the D8 field-split admits are untouched,
+            // and gated on the binding already being mut or a param so the
+            // binding-mut question stays out of this rule entirely — that
+            // question is `recvmutbind`, and it is declined for a reason
+            // recorded at check_recv_conflict.
+            //
+            // ── PRICED BEFORE IT WAS WRITTEN (scripts/ceiling-probe.sh,
+            // 2026-08-28): 342 fires over 387 ledger compiles, CEILING 2,
+            // COST 0. Closed exactly the two rows it priced:
+            //   borrowck_suggest-local-var-imm-and-mut   E0502
+            //   borrowck_two-phase-sneaky                E0499
+            //
+            // ⚠ WHAT IT KEYS ON WAS MEASURED, NOT INFERRED FROM ITS NAME. The
+            // aiming report partitioned these rows between this probe and
+            // `recvresvamut` by RECEIVER SPELLING and got both assignments
+            // wrong. So the halves were split into two probe names and priced
+            // separately: the producer alone closes BOTH rows, the
+            // producer+consumer pair closes the SAME TWO. The rule is the
+            // MISSING LOAN, and the consumer arm is not landed — see the
+            // paragraph in check_recv_conflict where it would have gone.
+            //
+            // ⚠ AND THE TWO ROWS CLOSE BY DIFFERENT ARMS, WHICH IS WHY THE
+            // SET WAS READ AND NOT THE COUNT. Traced at the deposit:
+            //   suggest-local-var-imm-and-mut — ONE arrival, the OUTER
+            //     `self.foo(...)` at sk==1, depositing shared_borrows=1; the
+            //     inner `&mut self` call is then refused elsewhere by the
+            //     existing "'self' has shared borrows" rule.
+            //   two-phase-sneaky — TWO arrivals, both `v.push`, and the row
+            //     closes because the SECOND deposit is itself refused by
+            //     take_borrow_whole_'s own B82 arm while `v.borrow_mut(0)`'s
+            //     loan is live. The producer is the consumer here.
+            //
+            // ⚠ `recvresvamut`, the same deposit at the AddrOfTemp spelling,
+            // prices CEILING 5 / COST 11 and stays declined. A whole-root
+            // reservation on EVERY `&mut self` receiver is too coarse; this
+            // spelling is cheap because sema wraps the receivers that a
+            // reservation would over-refuse.
+            if (auto recv = v.receiver();
+                recv && recv.kind() != Code::AddrOfTemp) {
+                int sk = method_self_kind(v);
+                BorrowPlace rrp = extract_borrow_place(recv, pool);
+                auto* sit = rrp.root.empty()
+                    ? nullptr : var_find(rrp.root_slot, rrp.root);
+                if (sk >= 1 && rrp.path.empty() && sit != nullptr &&
+                    (sit->is_mut_binding || param_names_.count(rrp.root))) {
+                    in_call_args_++;
+                    record_borrow(rrp, /*is_mut=*/sk == 2, line,
+                                  "__recv_resv");
+                    in_call_args_--;
                 }
             }
             {

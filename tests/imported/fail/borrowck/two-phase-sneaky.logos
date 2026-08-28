@@ -1,6 +1,7 @@
 // rustc borrowck/two-phase-sneaky.rs — upstream E0499
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.D
+// shelf: pin · WAS admit until the MethodCall arm RECORDED the bare-place
+// receiver's loan across argument evaluation (B94's missing producer).
 package two_phase_sneaky;
 use logos.mem.collections.vec;
 fn app(s: &mut i64, k: i64) { *s = *s + k; }
