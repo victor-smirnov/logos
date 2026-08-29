@@ -53,7 +53,10 @@ for r in recs:
         sys.exit(2)
     io.open(path, "w", encoding="utf-8").write(s.replace(old, new, 1))
     names.append(name)
-io.open("/tmp/probe-batch-names.txt", "w").write("\n".join(names))
+# ⚠ TRAILING NEWLINE. `while read` drops a final line that has none, so a
+# two-probe batch priced ONE and said nothing about the other — a silent
+# partial, which is the failure mode this whole harness exists to prevent.
+io.open("/tmp/probe-batch-names.txt", "w").write("\n".join(names) + "\n")
 print("probe-batch: applied", len(names), "edits:", " ".join(names))
 PY
 
@@ -76,7 +79,11 @@ echo
 printf '%-26s %10s %8s %7s  %s\n' probe fires ceiling cost verdict
 while read -r n; do
     [ -z "$n" ] && continue
-    out=$(bash scripts/ceiling-probe.sh "$n" 2>&1)
+    # `< /dev/null` so an inner command can never consume the loop's input.
+    # ⚠ NOT the bug that bit: that was a missing trailing newline in the
+    # names file. I diagnosed this first and was wrong; the guard is kept
+    # because it is cheap, not because it was the cause.
+    out=$(bash scripts/ceiling-probe.sh "$n" 2>&1 < /dev/null)
     f=$(printf '%s' "$out" | grep -oP "fired \K\S+" | head -1)
     c=$(printf '%s' "$out" | grep -oP 'CEILING = \K\d+' | head -1)
     co=$(printf '%s' "$out" | grep -oP 'COST    = \K\d+' | head -1)
