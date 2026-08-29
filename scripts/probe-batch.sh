@@ -24,6 +24,38 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
 SPEC="${1:?usage: probe-batch.sh <spec-file>}"
+
+# ── BARRIER: THIS RUNS LONGER THAN A FOREGROUND TOOL CALL CAN LAST ───────────
+# One build (~150 s) plus one pricing per probe (~110 s each): a six-probe batch
+# is about thirteen minutes against a 600 s cap. So a foreground invocation
+# CANNOT complete, and the agent that meets it invents a poll loop — measured on
+# the round of 2026-08-29, 58% of that phase's command time spent waiting, while
+# the phase that never hit this barrier spent 0%. The same arithmetic already
+# retired the foreground path for `test-levels.sh L4`; this tool needed it too
+# and I noticed only after watching a round pay for it.
+#
+# LOGOS_BATCH_BG=1 is the acknowledgement, and the line below is the invocation.
+_n=$(grep -c '^name:' "$SPEC" 2>/dev/null || echo 1)
+_est=$(( 150 + 110 * _n ))
+# ⚠ THE THRESHOLD IS REAL, NOT A ROUND NUMBER. Refusing a batch that WOULD fit
+# and telling it "this cannot finish" would be a barrier with a false reason —
+# and a false reason is the thing that teaches people to route around barriers.
+# 480 s is 80% of the cap: below it a foreground run finishes with margin.
+if [ "${LOGOS_BATCH_BG:-0}" != "1" ] && [ "$_est" -gt 480 ]; then
+    echo "probe-batch: $_n probes ≈ ${_est} s; a foreground tool call is capped at 600 s." >&2
+    echo "  It cannot finish in the foreground, and polling it wastes the whole wait." >&2
+    echo "  Run it detached and block on the RC marker:" >&2
+    echo "" >&2
+    echo "    nohup bash -c 'cd $PWD && LOGOS_BATCH_BG=1 bash scripts/probe-batch.sh $SPEC > /tmp/batch.log 2>&1; echo RC=\$? >> /tmp/batch.log' >/dev/null 2>&1 &" >&2
+    echo "    until grep -q '^RC=' /tmp/batch.log; do sleep 30; done; tail -30 /tmp/batch.log" >&2
+    echo "" >&2
+    echo "  (or the Bash tool's own run_in_background, which notifies on exit)" >&2
+    echo "" >&2
+    echo "  ⚠ AND IF IT IS INTERRUPTED between applying the edits and finishing, the" >&2
+    echo "  tree keeps them: 'git checkout' the touched files before retrying, or the" >&2
+    echo "  next call refuses on a dirty tree it caused itself." >&2
+    exit 2
+fi
 [ -f "$SPEC" ] || { echo "probe-batch: no such spec: $SPEC" >&2; exit 2; }
 
 # lint:git-ok — HYGIENE is exactly what git knows: whether someone else's
@@ -33,6 +65,21 @@ if ! git diff --quiet || ! git diff --cached --quiet; then  # lint:git-ok — hy
     echo "  taken over someone else's uncommitted edit measures both." >&2
     exit 2
 fi
+
+# ⚠ AN INTERRUPTED BATCH USED TO LEAVE ITS EDITS IN THE TREE, and the next call
+# then refused on a dirty tree it had caused itself. That happened three times
+# while testing this script alone. The trap reverts exactly the files the spec
+# touches — not `git checkout .`, which would take somebody else's work with it.
+_touched=$(grep '^file:' "$SPEC" | awk '{print $2}' | sort -u)
+_cleanup() {
+    st=$?
+    [ "${_APPLIED:-0}" = "1" ] || exit $st  # lint:exit-ok — nothing applied, nothing to undo
+    echo "probe-batch: interrupted after applying — reverting $(printf '%s' "$_touched" | wc -l) file(s)" >&2
+    # lint:git-ok — undoing THIS script's own edits, which is hygiene by definition
+    for f in $_touched; do git checkout -- "$f" 2>/dev/null; done
+    exit $st  # lint:exit-ok
+}
+trap _cleanup INT TERM HUP
 
 echo "probe-batch: applying edits"
 python3 - "$SPEC" <<'PY' || exit 2
@@ -60,6 +107,7 @@ io.open("/tmp/probe-batch-names.txt", "w").write("\n".join(names) + "\n")
 print("probe-batch: applied", len(names), "edits:", " ".join(names))
 PY
 
+_APPLIED=1
 echo "probe-batch: ONE build"
 if ! cmake --build build -j"$(nproc)" > /tmp/probe-batch-build.log 2>&1; then
     echo "probe-batch: BUILD FAILED — tail:" >&2; tail -20 /tmp/probe-batch-build.log >&2
