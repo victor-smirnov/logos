@@ -1,0 +1,73 @@
+// THE COST CONTROL for the whole-value method-call receiver's partial-move
+// check (visit()'s MethodCall arm, borrow_check.cpp). A receiver is asked about
+// `moved_fields` only when its place is the WHOLE root; every shape here keeps
+// a field of a partially-moved value legally reachable, and rustc accepts all
+// of them.
+//
+// Each function was written BY HAND under `scripts/ceiling-probe.sh
+// recvpartial` before the rule landed, and each one FIRED the site and stayed
+// green — COST 0 is not a safety claim, so the counter-examples are the claim.
+package bc_recvpartial_disjoint_admit;
+
+struct P { s: str, x: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+impl P { fn look(self: &P) -> i64 { return self.x; } }
+
+struct L { origin: P, middle: P }
+impl L { fn look(self: &L) -> i64 { return self.origin.x; } }
+
+struct Inner { s: str, t: str }
+impl Drop for Inner { fn drop(self: &mut Inner) {} }
+struct Mid { a: Inner, b: Inner }
+impl Mid { fn look(self: &Mid) -> i64 { return 4i64; } }
+struct Out { i: Mid, j: Mid }
+
+// A method call on a DISJOINT FIELD of a partially-moved root: the receiver
+// place is `l.middle`, the moved path is `origin`, and they do not overlap.
+fn disjoint_field_method() -> i64 {
+    let l = L { origin: P{s:"a", x:1i64}, middle: P{s:"b", x:2i64} };
+    let _a = l.origin;
+    return l.middle.look();
+}
+
+// The same disjointness through a plain FIELD READ, which never reaches the
+// receiver check at all — the control that the two channels agree.
+fn disjoint_field_read() -> i64 {
+    let l = L { origin: P{s:"a", x:1i64}, middle: P{s:"b", x:2i64} };
+    let _a = l.origin;
+    return l.middle.x;
+}
+
+// A NESTED disjoint parent: `o.i.a` is gone, `o.j` is untouched.
+fn nested_disjoint() -> i64 {
+    let o = Out { i: Mid{a: Inner{s:"1",t:"2"}, b: Inner{s:"3",t:"4"}},
+                  j: Mid{a: Inner{s:"5",t:"6"}, b: Inner{s:"7",t:"8"}} };
+    let _x = o.i.a;
+    return o.j.look();
+}
+
+// A partial move of ONE variable says nothing about ANOTHER of the same type.
+fn other_variable() -> i64 {
+    let l = L { origin: P{s:"a", x:1i64}, middle: P{s:"b", x:2i64} };
+    let k = L { origin: P{s:"c", x:7i64}, middle: P{s:"d", x:8i64} };
+    let _a = l.origin;
+    return k.look();
+}
+
+// ORDER MATTERS AND THE CHECK RESPECTS IT: the whole-value call runs BEFORE the
+// field goes anywhere.
+fn method_before_move() -> i64 {
+    let l = L { origin: P{s:"a", x:1i64}, middle: P{s:"b", x:2i64} };
+    let n = l.look();
+    let _a = l.origin;
+    return n;
+}
+
+fn main() -> i32 {
+    if disjoint_field_method() != 2i64 { return 1i32; }
+    if disjoint_field_read()   != 2i64 { return 2i32; }
+    if nested_disjoint()       != 4i64 { return 3i32; }
+    if other_variable()        != 7i64 { return 4i32; }
+    if method_before_move()    != 1i64 { return 5i32; }
+    return 0i32;
+}

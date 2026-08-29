@@ -4657,9 +4657,22 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # current. One test, native, `tier_commit`:
 #   ALL 8639 → 8640  ·  NOIMPORTED 4446 → 4447  ·  TIERCOMMIT 413 → 414
 # PREDICTED +1/+1/+1 before the pin was read, and read as exactly that.
-REGISTRY-ALL         8640
-REGISTRY-NOIMPORTED  4447
-REGISTRY-TIERCOMMIT  414
+# 2026-08-29 (the METHOD-CALL RECEIVER's PARTIAL-MOVE CHECK landed. A receiver
+# is a whole-value use of its place, and `moved_fields` was never asked about
+# it: `consume` reads that map, `check_live` does not, and a receiver in
+# place-base position reaches only `check_live`. TWO ledger rows close, both
+# upstream E0382 — `borrowck-uninit-field-access` (by-value `self`) and
+# `move-deref-coercion` (`val.inner` is a deref coercion, i.e. a `&self` call):
+#   ALL          8640 → 8644   +4  +2 native pass +2 native fail; the two moved
+#                                  programs are −2 admit row tests +2 imported
+#                                  fail fixtures, net 0.
+#   NOIMPORTED   4447 → 4449   +2  the +4 native less the −2 row tests (an admit
+#                                  row test carries no `imported` label).
+#   TIERCOMMIT    414 →  412   −2  two closed rows' per-row tests leave.
+# PREDICTED +4/+2/−2 before the pin was read, and read as exactly that.
+REGISTRY-ALL         8644
+REGISTRY-NOIMPORTED  4449
+REGISTRY-TIERCOMMIT  412
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

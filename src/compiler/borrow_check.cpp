@@ -4779,16 +4779,27 @@ private:
         }
     }
 
+    // ── THE PARTIAL-MOVE QUESTION, ASKED IN ONE PLACE ────────────────────
+    // A whole-value MOVE (`consume`, below) and a whole-value USE through a
+    // METHOD-CALL RECEIVER (visit()'s MethodCall arm) are the same fact reached
+    // by two routes, and only the first of them ever asked it. Hoisted out of
+    // `consume` rather than re-spelled at the second site: two walkers of one
+    // fact that drift apart is a cost this file has already paid twice.
+    // Returns true when it reported.
+    bool report_partial_move(const VarState& vs, const std::string& name,
+                             uint32_t line) {
+        if (vs.moved_fields.empty()) return false;
+        const auto& [fld, ln] = *vs.moved_fields.begin();
+        report(line, std::format(
+            "use of partially moved value '{}' (field '{}' moved on line {})",
+            name, fld, ln));
+        return true;
+    }
+
     bool consume(const std::string& name, uint32_t line, uint32_t slot = NO_SLOT) {
         auto it = var_find(slot, name);
         if (it == nullptr) return true;
-        if (!it->moved_fields.empty()) {
-            auto& [fld, ln] = *it->moved_fields.begin();
-            report(line, std::format(
-                "use of partially moved value '{}' (field '{}' moved on line {})",
-                name, fld, ln));
-            return false;
-        }
+        if (report_partial_move(*it, name, line)) return false;
         if (it->moved) {
             uint32_t prev = it->moved_line;
             if (prev)
@@ -13530,31 +13541,48 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     check_recv_conflict(extract_borrow_place(recv, pool),
                                         /*is_mut=*/sk == 2, line);
             }
-            // CEILING PROBE `recvpartial` — A METHOD-CALL RECEIVER IS NEVER
-            // ASKED ABOUT PARTIAL MOVES. Isolated on one variable:
-            // `let _a = l.origin; eat(l);` and `let _c = l;` both refuse with
-            // "use of partially moved value", and `l.consume()` — a BY-VALUE
-            // `self` method on the same partially-moved local — compiles.
-            // `consume()` reads moved_fields; check_live does not, and the
-            // receiver position reaches only check_live.
+            // ── A METHOD-CALL RECEIVER IS A WHOLE-VALUE USE OF ITS PLACE,
+            // AND THE PARTIAL-MOVE MAP WAS NEVER ASKED ABOUT IT (E0382) ────
+            // `consume` reads `moved_fields`; `check_live` does not, and a
+            // receiver in place-base position reaches only `check_live`. So on
+            // ONE partially-moved local, three uses one token apart:
+            //     eat(line2);        → REFUSED  "use of partially moved value"
+            //     let _c = line2;    → REFUSED  same
+            //     line2.consume();   → ADMITTED
+            // rustc refuses all three. A `self` / `&self` / `&mut self` call
+            // uses the WHOLE receiver, whichever field went missing — the self
+            // kind does not enter the question, which is why this asks at every
+            // spelling and not only where `method_self_kind` resolved.
+            //
+            // ⚠ ONLY THE WHOLE-VALUE RECEIVER (`path` empty), AND THAT IS THE
+            // WHOLE NARROWING. A PROJECTED receiver already gets the
+            // dotted-path answer from visit()'s FieldRead arm below — measured
+            // by hand: `o.i.look()` after `let _x = o.i.a;` refuses today with
+            // "use of moved field 'o.i.a' (moved on line 10)". Asking here too
+            // would emit a SECOND diagnostic for one fact. The empty path is
+            // the one spelling that never inherited the question.
+            //
+            // ── PRICED BEFORE IT WAS WRITTEN (scripts/ceiling-probe.sh
+            // recvpartial, 2026-08-29; the record is src/compiler/PROBES.md):
+            // 10,017 fires, CEILING 2, COST 0.
+            // ⚠ AND THE COST 0 IS NOT WHY IT LANDED — COST 0 IS NOT A SAFETY
+            // CLAIM. Eight legal programs were written by hand and compiled
+            // under the armed probe first (disjoint-field method call, disjoint
+            // field read, a Copy field that is no move at all, re-init before
+            // the call, another variable of the same type, the call BEFORE the
+            // move, a nested disjoint parent, a whole move into a fresh
+            // binding); seven fired the site and all eight stayed green. The
+            // two the probe DID refuse — a by-value `self` and a `&self` call
+            // on a partially-moved local — are refused by rustc too, so they
+            // are this change's fixture pair, not a cost.
             {
                 auto rp = v.receiver();
                 if (rp && rp.kind() == Code::AddrOfTemp)
                     rp = lir_view::EAddrOfTempView{rp}.inner();
-                auto rbp = extract_borrow_place(rp, pool);
-                if (!rbp.root.empty() && logos::probe::on("recvpartial"))
+                BorrowPlace rbp = extract_borrow_place(rp, pool);
+                if (!rbp.root.empty() && rbp.path.empty())
                     if (auto* rst = var_find(rbp.root_slot, rbp.root))
-                        if (!rst->moved_fields.empty()) {
-                            const std::pair<const std::string, uint32_t>* rhit =
-                                rbp.path.empty()
-                                  ? &*rst->moved_fields.begin()
-                                  : find_moved_overlap(rst->moved_fields, rbp.path);
-                            if (rhit)
-                                report(line, std::format(
-                                    "ceiling-probe recvpartial: use of partially "
-                                    "moved value '{}' (field '{}' moved on line {})",
-                                    rbp.root, rhit->first, rhit->second));
-                        }
+                        report_partial_move(*rst, rbp.root, line);
             }
             push_scope();
             visit_place_base(v.receiver(), line);

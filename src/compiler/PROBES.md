@@ -193,6 +193,52 @@ note: `consume()` reads `moved_fields` and refuses "use of partially moved
   0; a fix that keys on `sk == 0` would inherit that overload. The probe body
   sits in visit()'s MethodCall arm beside the `method_self_kind` call.
 
+  ── LANDED 2026-08-29. Ledger 365 -> 363; the probe is gone from the tree and
+  the rule stands in its place.
+  CLOSED SET = {borrowck-uninit-field-access, move-deref-coercion}, i.e. the
+  ceiling was REACHED. Predicted-by-name before the build; predicted∖closed = ∅
+  and closed∖predicted = ∅. COST measured again on the landed rule: ledger
+  363/363, `-L bc` 1794 passed / 0 failed / 2 disabled, and the
+  `25_spec|03_ownership|04_advanced` pass selection 190/190. Zero.
+  ⚠ RULE 7 — THE CORRECT FIX IS NARROWER THAN THE PROBE. The probe asked at
+  EVERY receiver path; the landed rule asks only where the path is EMPTY.
+  Measured by hand: `o.i.look()` after `let _x = o.i.a;` already refuses with
+  "use of moved field 'o.i.a'" from visit()'s FieldRead arm, so the probe's
+  non-empty-path branch bought a SECOND diagnostic for one fact and no row.
+  Same ceiling, fewer sentences.
+  DELEGATION, NOT A SECOND SPELLING: the partial-move report was HOISTED out of
+  `consume` into `report_partial_move(VarState&, name, line)` and called from
+  both routes, so the whole-value MOVE and the whole-value USE cannot drift.
+  FIXTURES: the two closed programs move to tests/imported/fail/{borrowck,moves}
+  with "partially moved" pinned; native pairs are
+  tests/logos/fail/bc_recvpartial_{byval,shared}_recv_fail (the two self kinds)
+  against tests/logos/pass/bc_recvpartial_{disjoint,reinit}_admit (the eight
+  hand-written counter-examples, seven of which fired the armed site).
+
+## recvaddrofpartial
+site: src/compiler/borrow_check.cpp::check_live
+build: —
+measured: 2026-08-29 (OBSERVED, NOT PRICED)
+fires: —
+ceiling: —
+cost: —
+verdict: OPEN — the SIBLING SPELLING that `recvpartial` does not reach
+note: found while writing `recvpartial`'s counter-examples, and it is the same
+  missing observation one spelling over. A whole-value use through an EXPLICIT
+  `&` handed to a call is still admitted after a partial move:
+    let l = L{origin: P{..}, middle: P{..}};
+    let _a = l.origin;
+    let n = ro(&l);        → ADMITTED (rc 0, no diagnostic)   ⚠ rustc: E0382
+  while `l.look()` — the same whole-value use, spelled as a method call — now
+  refuses. `&l` reaches visit()'s AddrOf arm, which asks `check_live`, which
+  reads the whole-variable `moved` flag and never `moved_fields`; the landed
+  rule sits in the MethodCall arm and does not see this door.
+  ⚠ NOT PRICED AND SO NOT CLAIMED: it has no `bc_admits.ledger` row of its own,
+  so a ceiling probe would read 0 and that 0 would be corpus silence, not a
+  refutation — rule 1 in its second form. The repro above is the evidence; a
+  round that funds it must bring its own population (the pass corpus, or a
+  hand-built one), not this file's.
+
 ## slicepatnull
 site: src/compiler/borrow_check.cpp::each_pat_binding_place
 build: armed gate build 26 (unarmed baseline 21; probe batch of 2026-08-29)

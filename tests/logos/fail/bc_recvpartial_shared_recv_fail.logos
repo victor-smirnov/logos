@@ -1,0 +1,25 @@
+// A `&self` METHOD CALL ON A PARTIALLY MOVED LOCAL IS E0382, and it was
+// admitted until 2026-08-29. `consume` (the whole-value MOVE reader) has asked
+// about `moved_fields` since B78; `check_live` — everything a receiver in
+// place-base position reaches — never did. So these three uses of one local,
+// one token apart, disagreed:
+//     eat(l);      → refused    let _c = l;  → refused    l.look();  → ADMITTED
+// The receiver is now asked the same question through the same reader
+// (`report_partial_move`), so all three refuse.
+//
+// THE `&self` HALF IS THE ONE THAT LOOKS LEGAL: nothing is moved by the call.
+// It is still E0382 — a shared borrow of the whole value needs the whole value
+// to be there, and `l.origin` is not.
+package bc_recvpartial_shared_recv_fail;
+
+struct P { s: str, x: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+struct L { origin: P, middle: P }
+impl L { fn look(self: &L) -> i64 { return self.middle.x; } }
+
+fn main() -> i32 {
+    let l = L { origin: P{s:"a", x:1i64}, middle: P{s:"b", x:2i64} };
+    let _a = l.origin;
+    let n = l.look();
+    return (n - 2i64) as i32;
+}

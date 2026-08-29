@@ -1,0 +1,54 @@
+// THE SECOND HALF OF THE COST CONTROL for the whole-value method-call
+// receiver's partial-move check. Here the receiver IS the whole root and the
+// call is still legal, because nothing is missing from it: the field came back,
+// the field was never a move in the first place, or the value being called on
+// is a fresh binding that owns everything.
+//
+// Written by hand under `scripts/ceiling-probe.sh recvpartial` before the rule
+// landed; each fired the site and stayed green.
+package bc_recvpartial_reinit_admit;
+
+struct P { s: str, x: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+impl P { fn look(self: &P) -> i64 { return self.x; } }
+
+struct L { origin: P, middle: P }
+impl L { fn look(self: &L) -> i64 { return self.origin.x; } }
+
+struct C { x: i64, y: i64 }
+impl C { fn sum(self: &C) -> i64 { return self.x + self.y; } }
+
+// RE-INITIALISATION PUTS THE FIELD BACK, and `erase_reinit` clears the entry —
+// a WHOLE-value call after it is legal again. This is the shape a check that
+// only asked "was anything ever moved" would refuse.
+fn reinit_then_whole_call() -> i64 {
+    let mut l = L { origin: P{s:"a", x:1i64}, middle: P{s:"b", x:2i64} };
+    let _a = l.origin;
+    l.origin = P{s:"c", x:5i64};
+    return l.look();
+}
+
+// A COPY FIELD IS NOT A MOVE, so nothing is recorded and the whole-value call
+// stays legal. The check inherits `is_move_type`'s answer rather than restating
+// it.
+fn copy_field_is_no_move() -> i64 {
+    let p = C { x: 1i64, y: 2i64 };
+    let _a = p.x;
+    return p.sum();
+}
+
+// A WHOLE move into a fresh binding leaves the DESTINATION complete: `q` has no
+// moved fields, so the call on it is legal. (`p` is gone, and using it is a
+// different diagnostic entirely — `use of moved value`.)
+fn whole_move_then_call() -> i64 {
+    let p = P { s: "a", x: 3i64 };
+    let q = p;
+    return q.look();
+}
+
+fn main() -> i32 {
+    if reinit_then_whole_call() != 5i64 { return 1i32; }
+    if copy_field_is_no_move()  != 3i64 { return 2i32; }
+    if whole_move_then_call()   != 3i64 { return 3i32; }
+    return 0i32;
+}

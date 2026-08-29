@@ -1,6 +1,8 @@
 // rustc moves/move-deref-coercion.rs — upstream E0382 borrow of moved
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.B
+// shelf: fail · was nllmoves.B, CLOSED 2026-08-29 — `val.inner` is a DEREF
+// COERCION, i.e. a `&self` method call on `val`, and the receiver was never
+// asked about `val.first` being gone.
 // port of tests/ui/moves/move-deref-coercion.rs
 package move_deref_coercion;
 struct NotCopy { inner: bool }

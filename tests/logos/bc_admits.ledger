@@ -668,7 +668,29 @@
 # hole closed. It stays on the ledger, admitted. A ceiling of 4 containing a cost
 # is worse than a ceiling of 3.
 # Class NEW (bck.NEW): eval-order/two-phase group 5 rows -> 2.
-# TOTAL 365
+# 2026-08-29 — 365 -> 363. TWO rows, PREDICTED BY NAME as exactly these two
+# before the edit and closed exactly these two, both diffs empty. A METHOD-CALL
+# RECEIVER IS A WHOLE-VALUE USE OF ITS PLACE and the partial-move map was never
+# asked about it: `consume` (the whole-value MOVE reader) has read
+# `moved_fields` since B78, `check_live` never has, and a receiver in place-base
+# position reaches only `check_live`. On one partially-moved local, one token
+# apart, `eat(l)` and `let _c = l` refused while `l.consume()` compiled.
+#   borrowck-uninit-field-access  E0382  by-value `self` on a partial move
+#   move-deref-coercion           E0382  `val.inner` = a DEREF COERCION, i.e. a
+#                                        `&self` call on a partially-moved `val`
+# Both move to tests/imported/fail/ with the diagnostic pinned. The reader was
+# HOISTED out of `consume` (`report_partial_move`) rather than re-spelled, so
+# the two routes to one fact cannot drift.
+# ⚠ THE FIX IS NARROWER THAN THE PROBE THAT PRICED IT (rule 7): the probe asked
+# at every receiver PATH, the landed rule only where the path is EMPTY. A
+# projected receiver already gets the dotted-path answer from visit()'s FieldRead
+# arm — `o.i.look()` after `let _x = o.i.a;` refuses today — so the wider form
+# only bought a SECOND diagnostic for one fact. Ceiling 2 both ways.
+# ⚠ AND THE SIBLING SPELLING IS STILL OPEN, MEASURED NOT ASSUMED: `ro(&l)` after
+# `let _a = l.origin;` — a whole-value use through an explicit `&` handed to a
+# call — is still ADMITTED. It has no row here, so closing it cannot be read off
+# this file; it is recorded in src/compiler/PROBES.md under `recvpartial`.
+# TOTAL 363
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -720,7 +742,6 @@ borrowck-ref-mut-of-imm--ref-mut-of-imm bck.B tests/imported/admit/borrowck/borr
 borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--b
 borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--t17
 borrowck-unboxed-closures bck.A tests/imported/admit/borrowck/borrowck-unboxed-closures
-borrowck-uninit-field-access bck.B tests/imported/admit/borrowck/borrowck-uninit-field-access
 borrowed-data-escapes-closure-148392 bck.C tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392
 borrowed-mut-pointer-assign-overflow-off bck.B tests/imported/admit/borrowck/borrowed-mut-pointer-assign-overflow-off
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
@@ -884,7 +905,6 @@ unnamed-closure-doesnt-life-long-enough-issue-67634 lifereg.C tests/imported/adm
 do-not-suggest-removing-wrong-ref-pattern-issue-132806 nllmoves.B tests/imported/admit/moves/do-not-suggest-removing-wrong-ref-pattern-issue-132806
 issue-75904-move-closure-loop nllmoves.C tests/imported/admit/moves/issue-75904-move-closure-loop
 issue-99470-move-out-of-some nllmoves.B tests/imported/admit/moves/issue-99470-move-out-of-some
-move-deref-coercion nllmoves.B tests/imported/admit/moves/move-deref-coercion
 move-of-addr-of-mut nllmoves.R5 tests/imported/admit/moves/move-of-addr-of-mut
 move-out-of-tuple-field nllmoves.B tests/imported/admit/moves/move-out-of-tuple-field
 moves-based-on-type-match-bindings nllmoves.B tests/imported/admit/moves/moves-based-on-type-match-bindings
