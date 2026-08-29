@@ -95,7 +95,16 @@ while read -r n; do
         printf '%-26s %10s %8s %7s  %s\n' "$n" 0 — — "NEVER FIRED — not a zero, an unreached site"
     else
         v="?"
-        [ -n "${c:-}" ] && [ -n "${co:-}" ] && { [ "$co" -ge "$c" ] && v="STOP cost>=ceiling" || v="ok"; }
+        # ⚠ 0/0 IS NOT A STOP SIGN. An observational probe has ceiling 0 by
+        # construction, and so does a live site whose mechanism changes nothing;
+        # calling either "STOP cost>=ceiling" reads as a refutation of something
+        # that was never claimed. Only a probe that BUYS something and costs at
+        # least as much is a stop sign.
+        if [ -n "${c:-}" ] && [ -n "${co:-}" ]; then
+            if [ "$c" -eq 0 ] && [ "$co" -eq 0 ]; then v="no effect (see rule 4: is the site populous?)"
+            elif [ "$co" -ge "$c" ];              then v="STOP cost>=ceiling"
+            else                                       v="ok"; fi
+        fi
         printf '%-26s %10s %8s %7s  %s\n' "$n" "${f:-?}" "${c:-?}" "${co:-?}" "$v"
     fi
 done < /tmp/probe-batch-names.txt
