@@ -238,6 +238,19 @@ NOT_GATES = {
     "gate-state.sh":           "reads the verdict a previous L4 recorded for "
                                "this exact tree state; asserts nothing, and "
                                "distinguishes STALE from ABSENT",
+    # THE RECORD AND ITS RUNNER, 2026-08-28. `gate-run.sh` runs a ctest filter
+    # ONCE per (test set × compiler) and records the result; `gate_db.py` is the
+    # SQLite store behind it. Neither asserts anything about the tree: the runner
+    # returns whatever ctest returned, and the store answers questions ("what
+    # failed", "when did this test last pass") that no fixed verdict could stand
+    # in for. The KEY is the enumerated test list plus a content hash of logosc,
+    # because an argument-keyed cache is wrong in both directions and an
+    # mtime-keyed one throws away identical rebuilds.
+    "gate-run.sh":             "runs a ctest filter once per (test set x "
+                               "compiler) and records it; its own verdict is "
+                               "ctest's, and it asserts nothing of its own",
+    "gate_db.py":              "the SQLite store behind gate-run.sh; a reader "
+                               "and a writer, with no verdict of its own",
     # A HAND-RUN CEILING PROBE, and it must not become a gate for the same
     # reason change-budget.sh must not: it answers a question about ONE
     # hypothesis, so there is no population to register it over. It reports how

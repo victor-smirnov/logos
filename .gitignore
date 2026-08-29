@@ -65,3 +65,4 @@ logos-mlir-verify-fail.mlir
 
 # Agent worktree scratch (TMPDIR routed inside the worktree by the workflow brief).
 .tmp/
+build/gate-state/
