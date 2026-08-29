@@ -2293,3 +2293,70 @@ NOT LANDED HERE. What a landing owes beyond this measurement: the four sites
 are still spelled by LINE, and a landing must spell them by ARM; and rule 7
 says a crude probe and a correct fix do not close the same programs — the three
 rows' diagnostics under the subset have not been read.
+
+### 9. LANDED 2026-08-29 — THE FOUR-SITE SUBSET, SPELLED BY ARM
+The two things §8 said a landing still owed are paid here, and both changed the
+result. Ledger **340 -> 337**, build hash READ not guessed.
+
+**(a) BY ARM, NOT BY LINE.** `LOGOS_PROBE_SITE` names call sites by
+`__builtin_LINE()`, which any edit above them invalidates — and the census
+instrument stays in the tree, so the numbers in §1-§7 are still readable. What
+LANDED is a second named entry beside the predicate:
+
+    bool type_may_carry_borrow_erased(TypeRef t) const { return tmcb_walk(t, true); }
+
+and exactly four arms call it. The mapping from §1's line census to the arm:
+
+    3578   collect_ref_sources_paths  EC::MethodCall, the `by_flow` entry gate
+    7908   prov_of                    EC::Call, the §B6 door
+    8525   check_return_value         `holds_gate`
+    11908  visit_stmt                 the #86 Let SUB-SITE 2
+
+The other 24 consumers keep the narrow predicate. `type_may_carry_borrow` is
+unchanged for them, `tmcbdyn` still arms all 28, and the two over-refusals of
+§5 are still reachable under it — deliberately, so the residue keeps a probe.
+Adding a FIFTH caller of the erased entry is a measurement, not an edit: it
+re-opens rule 5 at a site no counter-example has discharged.
+
+**(b) RULE 7 BIT, AND IT WAS THE THIRD ROW'S DIAGNOSTIC.**
+`regions-close-param-into-object--b-object-dangles` refused with
+
+    error [fn make]: cannot return reference to local variable '?': dangling reference
+
+'?' IS NOT A NAME. `return erase(h);` is an `EC::Call`, and §B6's
+`collect_ref_sources` has no answer for a Call whose result is erased — because
+the widening that WOULD supply it is `collect_ref_sources_paths`' Call ENTRY,
+i.e. site **3951**, the site that refuses `adv7894`. The name cannot be bought
+there. It is recovered at the REPORT site instead, mirroring the H4-e
+ClosureCall arm already three lines above it: ask the Call's ARGUMENTS for their
+sources, fall back to the argument's own name. MESSAGE ONLY — the verdict is
+already made when this runs, so the §5 cost cannot be re-incurred through it.
+The row now reads `local`, which is the `let` that actually dies.
+
+**PREDICTED vs ACTUAL, as SETS.** Predicted 3 BY NAME before the edit;
+closed exactly those three. predicted∖closed = ∅, closed∖predicted = ∅.
+
+    logos_00_bc_admit_borrowck_do-not-suggest-adding-move-move          bck.C
+    logos_00_bc_admit_lifetimes_issue-55796--r09b                       lifereg.N1
+    logos_00_bc_admit_regions_regions-close-param-into-object--b-object-dangles  lifereg.L5
+
+**COST, re-measured on the landed tree:** 0. `-L bc` 1840 passed / 0 failed,
+`-L bc -L pass` + the spec/ownership/advanced selection 190 passed / 0 failed,
+and ALL 36 hand programs in docs/probes/tmcbsite/ compile rc=0 — `adv7894` and
+`ce7827c`, the two the blanket widening refused, included. Those two are the
+whole reason the landing is four arms and not one predicate.
+
+**CONTROL REVERT**, all nine fixtures in place and only borrow_check.cpp back at
+`c4faa921e`: every one of the SIX fail fixtures compiled rc=0 with NO
+diagnostic, and all three pass twins compiled clean on both trees. Restored
+byte-identical before the final gates.
+
+**WHAT IS STILL OPEN.** 22 of the 28 consuming sites have a counter-example but
+no landing, because they buy nothing measurable; the two that are *known* to
+over-refuse (3951, 7841) are named above and stay narrow. `escape-argument--t09`
+still needs a call-site write summary, `anonymous-region-in-apit--closure-param-
+escapes` is task #78, `borrowed-data-escapes-closure-148392` is a `move` body,
+and `ce4b`'s inference-driven residue is unchanged. ⚠ RULE 8: `tmcbdyn`'s
+ceiling of 3 DECAYED to 0 the moment this landed — its rows are the tree's
+behaviour now, and re-arming it measures only the increment from the other 24
+sites, which is what the two known over-refusals sit in.

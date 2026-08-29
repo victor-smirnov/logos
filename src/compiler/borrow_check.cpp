@@ -3575,7 +3575,7 @@ private:
                 // borrow at all, and on the summary saying SOMETHING reaches
                 // it — so a summary of `result<-0` opens no gate.
                 bool by_flow = fs && fs->available && fs->to_result != 0 &&
-                               type_may_carry_borrow(rt);
+                               type_may_carry_borrow_erased(rt);
                 if (plain || bc || (fat && result_borrows_self(v)) || by_flow) {
                     // param 0 is the receiver, matching FlowSummary's order.
                     if (plain || bc || (fat && result_borrows_self(v)) ||
@@ -6919,6 +6919,15 @@ private:
         return false;
     }
 
+    // ── THE ERASED-PAYLOAD ENTRY, SPELLED BY ARM (see PROBES.md §tmcbsite) ──
+    // `Box<dyn Trait>` / `impl Trait` / a closure can HOLD a `&` that the type
+    // does not spell, exactly as `type_hides_borrow` (the return gate's sibling
+    // predicate) has always listed. `type_may_carry_borrow` has 28 consumers
+    // and the widening OVER-REFUSES legal programs at two of them, so it is not
+    // applied to the predicate; the four arms that discharge it call THIS name
+    // instead. Adding a fifth caller is a measurement, not an edit: price it.
+    bool type_may_carry_borrow_erased(TypeRef t) const { return tmcb_walk(t, true); }
+
     // The entry every gate in this file asks. `site` is the CALLER's line, so a
     // flip is attributed to the consuming site and never to the walk's recursion.
     bool type_may_carry_borrow(TypeRef t, int site = __builtin_LINE()) const {
@@ -7905,7 +7914,7 @@ private:
                 // Neither number is zero, so this is neither a dead arm nor a
                 // narrowing that closed the door it opened.
                 bool bc_result = is_borrow_carrying_type(e.type(pool));
-                if (!bc_result && !type_may_carry_borrow(e.type(pool))) return {};
+                if (!bc_result && !type_may_carry_borrow_erased(e.type(pool))) return {};
                 RefProv merged = {};
                 // D1 round 3 / F0 — this arm merged provenance only from
                 // `is_plain_ref_kind` args, so a by-VALUE borrow-carrying
@@ -8522,7 +8531,7 @@ private:
         // `return hold_any(&mut h, e);` — the hatch's whole purpose — reds.
         bool holds_gate = !typed_gate && !retention_gate &&
                           !residency_exemption_holds(ret_type_, er) &&
-                          type_may_carry_borrow(ret_type_);
+                          type_may_carry_borrow_erased(ret_type_);
         if (std::getenv("LOGOS_DUMP_RETGATE")) {
             RefProv p0 = prov_of(er);
             std::vector<std::string> srcs0;
@@ -8595,6 +8604,34 @@ private:
                                     !is_materialized_temp_name(n)) {
                                     src = n; break;
                                 }
+                        });
+                }
+                // ── RULE 7: THE THIRD ROW OWED A NAME (PROBES.md §tmcbsite) ─
+                // MESSAGE ONLY, same shape as the ClosureCall arm above.
+                // `return erase(h);` dangles on what `h` holds, but §B6's Call
+                // arm is gated on `type_may_carry_borrow`, which does not know
+                // an ERASED result carries a borrow — so it answered nothing
+                // and this printed '?'. The widening that WOULD answer it is
+                // the one that over-refuses (site 3951 / adv7894), so the name
+                // is recovered here, where only the string is read.
+                if (src.empty() && !is_temp && er &&
+                    er.kind() == lir_schema::expr::Code::Call) {
+                    lir_view::ECallView{er}.each_arg(
+                        [&](lir_view::ExprRef a) {
+                            if (!src.empty() || !a) return;
+                            std::vector<std::string> asrcs;
+                            collect_ref_sources(a, asrcs);
+                            for (auto& n : asrcs)
+                                if (!is_return_temp_name(n) &&
+                                    !is_materialized_temp_name(n)) {
+                                    src = n; break;
+                                }
+                            if (src.empty() &&
+                                a.kind() == lir_schema::expr::Code::VarRef) {
+                                std::string an(lir_view::EVarRefView{a}.name());
+                                if (!is_return_temp_name(an) &&
+                                    !is_materialized_temp_name(an)) src = an;
+                            }
                         });
                 }
                 // ── #77 round 2 / THE DIAGNOSTIC LEAKED A COMPILER TEMP ────
@@ -11905,7 +11942,7 @@ private:
                 // is_temp) is recorded. A param-rooted answer is NOT stored,
                 // so this cannot start the elision arm of check_return_value
                 // on bindings that never fed it before.
-                else if (val && type_may_carry_borrow(t) &&
+                else if (val && type_may_carry_borrow_erased(t) &&
                          !residency_exemption_holds(t, val) &&
                          prov_.count(name) == 0) {
                     RefProv vp2 = prov_of(val);

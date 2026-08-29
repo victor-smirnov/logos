@@ -1,0 +1,17 @@
+// PAIR 1 of 3, root bck.C — the LEGAL twin, one token from
+// fail/bc_tmcb_erased_closure_local: the closure borrows the PARAMETER `q`,
+// which outlives the call, instead of the local `v`.
+package bc_tmcb_erased_closure_param_twin;
+
+fn mk(q: &i64) -> || -> i64 {
+    let v: i64 = 7i64;
+    let r: &i64 = q;
+    let c = move || -> i64 { return *r; };
+    return c;
+}
+
+fn main() -> i32 {
+    let n: i64 = 3i64;
+    let f = mk(&n);
+    return (f() - 3i64) as i32;
+}

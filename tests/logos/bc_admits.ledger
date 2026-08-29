@@ -829,7 +829,56 @@
 # parameter's TYPE. That is, by accident, exactly rustc's bound-driven vs
 # inference-driven split — but it is an accident, not a proof, and it has no
 # imported row to sit on.
-# TOTAL 340
+# 2026-08-29 — 340 -> 337. THREE rows across THREE roots, and the mechanism was
+# priced as `tmcbdyn` in src/compiler/PROBES.md: CEILING 3, corpus COST 0.
+# THE MISSING OBSERVATION: AN ERASED PAYLOAD HIDES A BORROW. `Box<dyn Trait>`,
+# `impl Trait` and a closure can HOLD a `&` their type never spells.
+# `type_hides_borrow` — the return gate's sibling — has always listed those four
+# kinds verbatim; `type_may_carry_borrow` never knew them, so an erased result
+# opened no gate, tied to no receiver and merged no argument provenance.
+# ⚠ TWO OF THE THREE CONTAIN NO CLOSURE AT ALL — they are `Box<dyn Trait>`
+# holding a `&`. The closure rows are only the subset whose erased payload
+# happens to be a closure.
+# PREDICTED THREE BY NAME (do-not-suggest-adding-move-move, issue-55796--r09b,
+# regions-close-param-into-object--b-object-dangles); closed exactly those
+# three, both diffs empty.
+# ⚠ WHAT LANDED IS NARROWER THAN THE PROBE, AND THE NARROWING IS RULE 5 (a COST
+# of 0 is not a safety claim). `type_may_carry_borrow` has 28 consumers, counted
+# by tools/dlog/tmcb_sites.dl and not by grep, and 10.87 MILLION arrivals. One
+# hand-written counter-example PER CONSUMING SITE — 26 live sites, 26 programs,
+# each proven to reach its site by an armed fire log — found the widening
+# REFUSING TWO LEGAL PROGRAMS, at sites the corpus had priced COST 0:
+#   · collect_ref_sources_paths' Call ENTRY — `fn mkb(n:&i64) -> Box<dyn Give>
+#     { return Box::new(Sq{s:*n}); }` COPIES `*n`, and the widened entry gate
+#     deposits the argument as a §B6 source anyway: E0597 on a legal program.
+#   · prov_of's #86 sub-site C — a receiver of type `Cell<Box<dyn Give>>` whose
+#     method returns its ARGUMENT and says so exactly; the result adopted the
+#     RECEIVER's locality. That arm's own comment states this cannot happen —
+#     true of the predicate as written, false the moment it learns erasure.
+# So the knowledge is NOT applied to the predicate. It is applied at the FOUR
+# ARMS that discharge rule 5, through a separately-named entry
+# `type_may_carry_borrow_erased`: §B6's MethodCall by-flow gate, `prov_of`'s
+# Call door, `check_return_value`'s holds_gate, and visit_stmt's #86 Let
+# sub-site 2. Those four close the SAME THREE ROWS and admit all 36 hand
+# programs, the two refusals included. Adding a fifth caller is a measurement,
+# not an edit.
+# ⚠ A CEILING IS NOT ADDITIVE OVER SITES (rule 6). Armed one site at a time,
+# 3578 closes 1 and every other site closes 0 — sum 1, whole 3. Per row:
+# issue-55796--r09b needs {MethodCall by_flow}; do-not-suggest-adding-move-move
+# needs {holds_gate, Let sub-site 2}; regions-close-param-into-object needs
+# {prov_of Call door, holds_gate}. Two of the three are invisible to any single
+# site, and a per-site sweep reading only that column would have killed this
+# mechanism as ceiling 1.
+# RULE 7, AND IT BIT: regions-close-param-into-object printed "local variable
+# '?'" — §B6 has no Call answer, because the widening that WOULD supply the name
+# is the one that over-refuses. The name is recovered at the REPORT site, where
+# only the string is read and the verdict is already made; it now says `local`.
+# STILL ADMITTED, each for a reason that is not this one: escape-argument--t09
+# (needs a call-site write summary), anonymous-region-in-apit--closure-param-
+# escapes (task #78), borrowed-data-escapes-closure-148392 (a `move` body), and
+# the 22 consuming sites of `type_may_carry_borrow` that no counter-example has
+# yet discharged — `tmcbdyn` still arms all 28 and still refuses those two.
+# TOTAL 337
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -884,7 +933,6 @@ buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer
 cannot-assign-borrowed-ref-in-slice bck.A tests/imported/admit/borrowck/cannot-assign-borrowed-ref-in-slice
 clone-span-on-try-operator bck.NEW tests/imported/admit/borrowck/clone-span-on-try-operator
 deref-field-pattern-ref-suggestion-issue-146995 bck.B tests/imported/admit/borrowck/deref-field-pattern-ref-suggestion-issue-146995
-do-not-suggest-adding-move-move bck.C tests/imported/admit/borrowck/do-not-suggest-adding-move-move
 generic-const-early-param bck.NEW tests/imported/admit/borrowck/generic-const-early-param
 index-mut-help bck.NEW tests/imported/admit/borrowck/index-mut-help
 issue-101119 bck.C tests/imported/admit/borrowck/issue-101119
@@ -988,7 +1036,6 @@ issue-107988 lifereg.R17 tests/imported/admit/lifetimes/issue-107988
 issue-17728 lifereg.NEW-L2 tests/imported/admit/lifetimes/issue-17728
 issue-19707--b-bound lifereg.R17 tests/imported/admit/lifetimes/issue-19707--b-bound
 issue-19707--fn-type-elision lifereg.R17 tests/imported/admit/lifetimes/issue-19707--fn-type-elision
-issue-55796--r09b lifereg.N1 tests/imported/admit/lifetimes/issue-55796--r09b
 issue-55796--t09 lifereg.N1 tests/imported/admit/lifetimes/issue-55796--t09
 issue-64173-unused-lifetimes lifereg.L4 tests/imported/admit/lifetimes/issue-64173-unused-lifetimes
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
@@ -1148,7 +1195,6 @@ regions-close-associated-type-into-object lifereg.L5 tests/imported/admit/region
 regions-close-object-into-object-1 lifereg.A tests/imported/admit/regions/regions-close-object-into-object-1
 regions-close-over-type-parameter-1 lifereg.NEW-R20 tests/imported/admit/regions/regions-close-over-type-parameter-1
 regions-close-over-type-parameter-multiple lifereg.N1 tests/imported/admit/regions/regions-close-over-type-parameter-multiple
-regions-close-param-into-object--b-object-dangles lifereg.L5 tests/imported/admit/regions/regions-close-param-into-object--b-object-dangles
 regions-close-param-into-object--close-param-into-object lifereg.L5 tests/imported/admit/regions/regions-close-param-into-object--close-param-into-object
 regions-creating-enums3 lifereg.NEW-N1 tests/imported/admit/regions/regions-creating-enums3
 regions-escape-method lifereg.C tests/imported/admit/regions/regions-escape-method

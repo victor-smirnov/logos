@@ -1,0 +1,18 @@
+// PAIR 1 of 3, root bck.C — an ERASED payload hides a borrow.
+// The returned closure is neither ref-kind nor #[borrow_carrying], so before
+// 2026-08-29 the return gate never opened and the `let` recorded nothing.
+// ONE TOKEN from pass/bc_tmcb_erased_closure_param_twin: `&v` here, `q` there.
+package bc_tmcb_erased_closure_local;
+
+fn mk(q: &i64) -> || -> i64 {
+    let v: i64 = 7i64;
+    let r: &i64 = &v;
+    let c = move || -> i64 { return *r; };
+    return c;
+}
+
+fn main() -> i32 {
+    let n: i64 = 3i64;
+    let f = mk(&n);
+    return f() as i32;
+}

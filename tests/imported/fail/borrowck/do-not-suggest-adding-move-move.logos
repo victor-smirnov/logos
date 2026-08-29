@@ -1,6 +1,8 @@
 // rustc  — upstream E0521 captured var cannot escape FnMut body
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: fail — REFUSED since 2026-08-29 (was root bck.C: `type_may_carry_borrow`
+//   did not know an ERASED payload hides a borrow, so `-> || -> i64` opened no
+//   return gate and the `let` recorded no provenance for the closure)
 package do_not_suggest_adding_move_move;
 fn mk() -> || -> i64 {
     let v: i64 = 1i64;

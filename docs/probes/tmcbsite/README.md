@@ -18,3 +18,23 @@ The site column needs `LOGOS_TMCB_FLIP`; the per-site attribution needs
 inert when unset. ⚠ THE LINE NUMBERS ARE KEYED TO THE COMMIT THAT WROTE THE
 RECORD; re-derive them with `bash tools/dlog/ask.sh tmcb_sites.dl
 src/compiler/borrow_check.cpp` rather than trusting the ones written down.
+
+## OUTCOME — LANDED 2026-08-29, NARROWER THAN THE THING MEASURED
+Rule 5 is **NOT** met for `type_may_carry_borrow` as a whole: this corpus found
+the widening refusing two LEGAL programs, at sites the 1385-program cost
+population had priced COST 0 —
+
+    adv7894.logos    collect_ref_sources_paths' Call ENTRY  (census line 3951)
+    ce7827c.logos    prov_of's #86 sub-site C               (census line 7841)
+
+with `ce7827ctl.logos` the one-variable control for the second (same program,
+`Cell<i64>` instead of `Cell<Box<dyn Give>>`: site reached, no flip, admitted).
+
+So the knowledge landed at the FOUR arms that DO discharge rule 5, through a
+separately-named entry `type_may_carry_borrow_erased` — §B6's MethodCall
+by-flow gate, `prov_of`'s Call door, `check_return_value`'s holds_gate and
+visit_stmt's #86 Let sub-site 2. Those close the same three ledger rows
+(340 -> 337) and admit every program in this directory, both refusals included.
+`run.sh` still compares unarmed against `LOGOS_PROBE=tmcbdyn`; since the
+landing, "unarmed" IS the four-arm tree and the armed half measures only the
+increment from the other 24 sites — which is where the two refusals above live.

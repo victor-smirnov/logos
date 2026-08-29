@@ -1,6 +1,8 @@
 // rustc regions/regions-close-param-into-object.rs — upstream E0310 parameter type `T` may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.L5
+// shelf: fail — REFUSED since 2026-08-29 (was root lifereg.L5: `prov_of`'s Call
+//   door and the return gate both asked `type_may_carry_borrow`, which answered
+//   NO for `Box<dyn X>`, so `erase(h)` merged no provenance from `h`)
 package regions_close_param_into_object_b_object_dangles;
 trait X { fn foo(self: &Self) -> i64; }
 struct Holder<'a> { r: &'a i64 }

@@ -4697,9 +4697,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                  admit row test carries no `imported` label).
 #   TIERCOMMIT    410 →  398  −12  twelve closed rows' per-row tests leave.
 # PREDICTED +6/−6/−12 before the pin was read, and read as exactly that.
-REGISTRY-ALL         8661
-REGISTRY-NOIMPORTED  4443
-REGISTRY-TIERCOMMIT  389
+# 2026-08-29 (tmcbdyn — an ERASED payload hides a borrow; ledger 340 -> 337).
+#   ALL          8661 -> 8667   +6  three imported rows move admit -> fail (net
+#                                   0: the admit row test leaves, the fail
+#                                   fixture arrives) plus SIX native fixtures,
+#                                   three fail/pass PAIRS one token apart.
+#   NOIMPORTED   4443 -> 4446   +3  the +6 native less the -3 row tests (an
+#                                   admit row test carries no `imported` label).
+#   TIERCOMMIT    389 ->  386   -3  the three closed rows' per-row tests leave.
+# PREDICTED +6/+3/-3 before the pin was read, and read as exactly that.
+REGISTRY-ALL         8667
+REGISTRY-NOIMPORTED  4446
+REGISTRY-TIERCOMMIT  386
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

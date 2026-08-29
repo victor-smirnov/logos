@@ -1,0 +1,26 @@
+// PAIR 3 of 3, root lifereg.L5 — `prov_of`'s Call door plus the return gate.
+// `erase(h)` boxes its argument into `Box<dyn X>`; both sites asked
+// `type_may_carry_borrow` about that erased result and got NO, so the call
+// merged no provenance from `h`. ONE TOKEN from
+// pass/bc_tmcb_erased_call_param_twin: `&local` here, `q` there.
+// The NAME in the diagnostic is recovered at the report site, not by widening
+// §B6's Call entry — that widening refuses legal programs (PROBES.md).
+package bc_tmcb_erased_call_local;
+
+trait X { fn foo(self: &Self) -> i64; }
+struct Holder<'a> { r: &'a i64 }
+impl<'a> X for Holder<'a> { fn foo(self: &Self) -> i64 { return *self.r; } }
+
+fn erase<T: X>(v: T) -> Box<dyn X> { return Box::new(v); }
+
+fn make(q: &i64) -> Box<dyn X> {
+    let local = 8i64;
+    let h = Holder { r: &local };
+    return erase(h);
+}
+
+fn main() -> i32 {
+    let n: i64 = 8i64;
+    let b = make(&n);
+    return (b.foo() - 8i64) as i32;
+}
