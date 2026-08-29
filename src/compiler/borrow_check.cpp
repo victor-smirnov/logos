@@ -3409,7 +3409,8 @@ private:
             // form does NOT make that distinction; the cost side is what
             // prices the omission.
             case EC::ClosureBox: {
-                if (logos::probe::on("lifereg_closurestore")) {
+                if (logos::probe::on("lifereg_closurestore") ||
+                    logos::probe::on("bxsrc")) {
                     lir_view::EClosureBoxView cbv{e};
                     cbv.each_capture_name([&](std::string_view cap) {
                         std::string cn(cap);
@@ -3893,6 +3894,8 @@ private:
                         if (a && (is_plain_ref_kind(a.type(pool)) ||
                                   is_borrow_carrying_type(a.type(pool)) ||
                                   forms_borrow_at_call(a) ||
+                                  (logos::probe::on("bxsrc") &&
+                                   a.kind() == EC::ClosureBox) ||
                                   arg_retained_by_callee(fs, i)))
                             collect_ref_sources_paths(a, path, out);
                     });
@@ -3904,6 +3907,12 @@ private:
             // an aliased borrow can't escape a referent's scope via a copy.
             case EC::VarRef: {
                 std::string n(lir_view::EVarRefView{e}.name());
+                if ((logos::probe::on("fpsrc") || logos::probe::on("fpboth") ||
+                     logos::probe::on("fpwrite")) &&
+                    closure_param_names_.count(n) && is_ref_kind(e.type(pool))) {
+                    emit(std::move(n));
+                    return;
+                }
                 for (auto& s : ref_sources_under(n)) emit_src(s);
                 return;
             }
@@ -6594,7 +6603,10 @@ private:
         // { { let mut v = 1i64; h.r = &mut v; } }` admitted; the same with `h` a
         // local of the caller refused with E0597).
         if (param_names_.count(name)) return;          // #78/#138, see task
-        if (!holder_ty || !type_may_carry_borrow(holder_ty)) return;
+        if (!holder_ty ||
+            !(type_may_carry_borrow(holder_ty) ||
+              (logos::probe::on("bxhold") && type_hides_borrow(holder_ty))))
+            return;
         if (residency_exemption_holds(holder_ty, val)) return;
         RefProv vp = prov_of(val);
         if (!vp.is_local && !vp.is_temp && vp.params.empty())
@@ -6772,6 +6784,13 @@ private:
     bool type_may_carry_borrow(TypeRef t) const {
         if (!t) return false;
         if (is_ref_kind(t) || loan_carrying_type(t)) return true;
+        if (logos::probe::on("tmcbdyn") || logos::probe::on("bxsrc")) {
+            using KD = LogosType::Kind;
+            auto kd = t.kind();
+            if (kd == KD::Closure || kd == KD::TraitObject ||
+                kd == KD::UnsizedDyn || kd == KD::ImplTrait)
+                return true;
+        }
         {   // #71 SPIKE
             auto k = t.kind();
             std::string n;
@@ -7259,6 +7278,9 @@ private:
             case Code::VarRef: {
                 EVarRefView v{e};
                 std::string name(v.name());
+                if ((logos::probe::on("fpprov") || logos::probe::on("fpboth")) &&
+                    closure_param_names_.count(name) && is_ref_kind(e.type(pool)))
+                    return {{}, /*is_local=*/true};
                 if (param_names_.count(name) && is_ref_kind(e.type(pool)))
                     return {{name}, false};
                 auto it = prov_.find(name);
@@ -11906,6 +11928,19 @@ private:
                 // §B6 (E0597): (re-)record sources on assign — a rebind re-owns
                 // (clears any prior dangling), then tracks the new borrow.
                 record_ref_sources(name, val, ln);
+                if (logos::probe::on("fpwrite") && in_closure_body_ && val &&
+                    !closure_body_decls_.count(name)) {
+                    std::vector<std::string> fpw_srcs;
+                    collect_ref_sources(val, fpw_srcs);
+                    for (auto& fpw_s : fpw_srcs)
+                        if (closure_param_names_.count(fpw_s)) {
+                            report(ln, std::format(
+                                "ceiling-probe fpwrite: borrowed data escapes the "
+                                "closure: '{}' is stored into '{}', which outlives "
+                                "the closure call (E0521)", fpw_s, name));
+                            break;
+                        }
+                }
                 break;
             }
 

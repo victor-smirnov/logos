@@ -1660,3 +1660,269 @@ already fully measured in the store from the pricing round; gate-run correctly r
 nothing, so no logosc process existed to append to the fire log. A fire count of
 zero is only readable when tests actually RAN. The ceiling was re-read instead as
 `gate_db.py compare 69 71`, which is the same six rows.
+
+## fpsrc
+site: src/compiler/borrow_check.cpp::collect_ref_sources_paths
+build: 98f66c0aebc5cc5d (gate-db 75 unarmed -> 76 armed)
+measured: 2026-08-29
+fires: 2213384
+ceiling: 3
+cost: 0
+verdict: ✓ THE GROUP-F ANSWER, AND IT IS ONE LINE AT AN ARM THAT ALREADY EXISTS
+note: THE MISSING OBSERVATION, established by a ONE-VARIABLE CONTROL rather than
+  by reading code — the same store, once through a block and once through a
+  closure:
+      { let t: i64 = 7i64; let y: &i64 = &t; x = y; }   REFUSED, E0597
+      let c = |y: &i64| { x = y; }; c(&t);              rc 0
+  The refusing half names `t`; the closure half says nothing at all. §B6's
+  `case EC::VarRef` answers `ref_sources_under(n)` — a closure PARAMETER has no
+  recorded sources, so a store of one into a place in the ENCLOSING frame
+  deposits nothing and `pop_scope` has nothing to hang a dangle on. The rule:
+  inside a closure body a parameter of KNOWN reference type is its own §B6
+  source, because its referent is supplied at the call and does not outlive the
+  enclosing frame.
+  PREDICTED BY NAME BEFORE THE RUN, diffed BOTH ways:
+    predicted, closed:  borrowck/issue-45983
+                        borrowck/regions-escape-bound-fn-2
+    closed, NOT predicted:
+                        borrowck/issue-7573 — `|installed: &CrateId| {
+                        lines.push(installed); }`. Predicted to need `fpprov`
+                        because `note_holder_escape_prov` bails when the value's
+                        provenance is neither local nor temp; it does not — the
+                        §B6 MethodCall arm deposits the source on its own. The
+                        prediction was wrong about the CHANNEL, not the row.
+    predicted NOT to close, and did not: borrowck/regions-escape-bound-fn (the
+                        stored binding is never used again, and §B6 reports only
+                        at the first USE past the death — see `fpwrite`),
+                        borrowck/anonymous-region-in-apit--closure-param-escapes
+                        (the destination is `qux`'s own PARAM, which
+                        note_holder_escape_prov skips by #78/#138),
+                        nll/escape-argument--t09 (`*q = r`: both ends are
+                        closure params and die in the SAME frame, so pop_scope's
+                        `dying.count(binding)` skips it),
+                        borrowck/borrowed-data-escapes-closure-148392 (a `move`
+                        closure — `walk_closure_body` returns at its first line).
+  RULE 5 — COST 0 IS NOT A SAFETY CLAIM. Seven hand programs, each compiled
+  unarmed (0 fires) and armed (1572-1639 fires), so every one is PROVEN to have
+  reached the arm — five legal, two defective:
+    ce1 param stored into a body-local ref                       ADMITTED both
+    ce2 `acc = *y` — a deref COPY into an outer local            ADMITTED both
+    ce3 an outer place assigned a borrow of an outer local       ADMITTED both
+    ce4 `let c = |y| { x = y; }; c(&w);` — UNANNOTATED param,
+        legal Rust (the region is inferred, not higher-ranked)   ADMITTED both
+    ce4b the same UNANNOTATED shape with a genuinely dying
+        referent — rustc REFUSES, we admit                       ADMITTED both
+    f_clo_let    `let c = |y:&i64| { x = y; }; c(&t); *x`   admitted, REFUSED
+    f_clo_param  the same store reached through a generic
+                 `give_any<F: FnOnce(&i64)>` bound          admitted, REFUSED
+  ⚠ THE GATE IS `is_ref_kind(param type)` AND THAT IS THE RUST RULE BY ACCIDENT,
+  not by design. issue-45983's closure is written `|y| { x = y; }` — unannotated
+  — and still closes, because `give_any`'s `F: FnOnce(&i64)` bound RESOLVES the
+  parameter type; ce4's identical spelling has no bound and the type is not a
+  ref kind at this point, so it is admitted. Bound-driven ⇒ higher-ranked ⇒
+  refuse; inference-driven ⇒ one region ⇒ admit. That is exactly rustc's split
+  and this probe reproduces it through the type, not through the binder. ce4b is
+  the residue: an inference-driven closure that genuinely dangles stays admitted.
+  A landing owes the split as a STATED rule and the ce4/ce4b pair as its pin.
+
+## fpprov
+site: src/compiler/borrow_check.cpp::prov_of
+build: 98f66c0aebc5cc5d (gate-db 75 unarmed -> 77 armed)
+measured: 2026-08-29
+fires: 504476
+ceiling: 0
+cost: 0
+verdict: the ESCAPE-FACT half of group F buys NOTHING — 504 476 arrivals, and the site is the right one
+note: `prov_of`'s VarRef arm answers `{{name}, false}` — "a parameter, therefore
+  outliving" — for a CLOSURE parameter exactly as for a fn parameter. Making it
+  answer is_local instead is the same claim `fpsrc` makes, written in the escape
+  channel rather than in the §B6 source channel. It closes NOTHING, and `fpboth`
+  (both arms armed at once) closes `fpsrc`'s three rows and not one more — same
+  COUNT and same SET, so this is not two errors cancelling. The consumer of an
+  is_local provenance is the RETURN gate, and `check_return_value` is
+  hard-suppressed inside a closure body; the consumer of a §B6 source is
+  `pop_scope`, which runs at the closure body's own scope exit. Only one of the
+  two channels is even awake in there.
+  Same shape as `capprovcaps` last round: the decomposition, not the ceiling,
+  is the result.
+
+## fpboth
+site: src/compiler/borrow_check.cpp::closure_param_names_
+build: 98f66c0aebc5cc5d (gate-db 75 unarmed -> 80 armed)
+measured: 2026-08-29
+fires: 2717865
+ceiling: 3
+cost: 0
+verdict: fpsrc ∪ fpprov = fpsrc, in COUNT and in SET
+note: borrowck/issue-45983, borrowck/issue-7573,
+  borrowck/regions-escape-bound-fn-2 — byte-identical to `fpsrc`'s list. Run
+  because a ceiling bounds the count and not the set: two probes closing three
+  rows each could have been closing different threes.
+
+## fpwrite
+site: src/compiler/borrow_check.cpp::record_ref_sources
+build: 98f66c0aebc5cc5d (gate-db 75 unarmed -> 78 armed)
+measured: 2026-08-29
+fires: 2306063
+ceiling: 4
+cost: 0
+verdict: ✓ fpsrc's three PLUS regions-escape-bound-fn — and the fourth row costs a NEW REPORT SITE
+note: `fpsrc` deposits a source and lets §B6 report at the first USE past the
+  referent's death. rustc reports E0521 AT THE WRITE, and the difference is
+  exactly one ledger row: `regions-escape-bound-fn` is
+  `with_int(|y: &i64| { x = Option::Some(y); });` where `x` is NEVER READ again,
+  so there is no use for §B6 to report at. `fpwrite` adds the direct refusal —
+  in a closure body, an assign whose destination is not declared inside that
+  body and whose value's §B6 sources include a closure parameter.
+    predicted, closed:  borrowck/issue-45983
+                        borrowck/regions-escape-bound-fn
+                        borrowck/regions-escape-bound-fn-2
+    closed, NOT predicted: borrowck/issue-7573 — through the `fpsrc` arm this
+                        probe shares, not through the new report site.
+    predicted∖closed = ∅.
+  Same seven hand programs as `fpsrc`, same reach proof (1636-1639 fires armed,
+  0 unarmed), all seven unchanged — ce1-ce4b ADMITTED, both defect twins
+  REFUSED (with the E0521-shaped message instead of the E0597 one).
+  ⚠ THE +1 IS NOT FREE. The destination test is "not in `closure_body_decls_`",
+  a CONTEXT-level stand-in for "this place's region outlives the closure's
+  parameter region", and it needs a diagnostic site that does not exist today.
+  `fpsrc` routes the same fact through machinery that already knows drop order,
+  slots and shadowing (F5/F6) and already prints the right sentence. Three rows
+  at one line versus four rows at a new report site.
+
+## tmcbdyn
+site: src/compiler/borrow_check.cpp::type_may_carry_borrow
+build: 98f66c0aebc5cc5d (gate-db 75 unarmed -> 79 armed)
+measured: 2026-08-29
+fires: 10872879
+ceiling: 3
+cost: 0
+verdict: ✓ THE ROUND'S FINDING — group B is NOT a closure defect, it is TWO NOTIONS OF ONE CONCEPT
+note: `type_hides_borrow` (the RETURN gate's predicate) lists the erased-payload
+  kinds verbatim — TraitObject, UnsizedDyn, Closure, ImplTrait — with its own
+  note saying "a Ref or an erased dyn/closure sits inside an owned wrapper, and
+  is_borrow_carrying_type answers no". `type_may_carry_borrow`, the predicate
+  every OTHER gate in the file asks, has never had them. So the return gate
+  knows an erased payload can hide a borrow and no other gate does.
+  ⚠ AND THE THREE ROWS IT CLOSES ARE NOT THE ROWS THE HYPOTHESIS WAS ABOUT.
+  Predicted 0 (both downstream hops were expected shut); closed 3, and TWO
+  CARRY A DIFFERENT ROOT:
+    borrowck/do-not-suggest-adding-move-move                    bck.C
+    lifetimes/issue-55796--r09b                                 lifereg.N1
+    regions/regions-close-param-into-object--b-object-dangles   lifereg.L5
+  The last two contain no closure at all: `Box<dyn It>` holding `&self.v`
+  assigned to an outer binding and used after the owner dies, and
+  `Box::new(Holder{r:&local})` returned through a generic `erase<T: X>`.
+  predicted∖closed = ∅ only because the prediction was ZERO; closed∖predicted is
+  the whole set. Rule 6 in its sharpest form so far: the count was predicted
+  right by accident of being wrong about everything.
+  RULE 5, and this is the half it does NOT yet satisfy: ce6 (`keep(Box::new(move
+  || n))`) and ce7 (`fn mk() -> Box<dyn Fn() -> u64> { let k = 11u64; return
+  Box::new(move || k); }`) are both legal, both ADMITTED armed and unarmed, and
+  both proven reached (7711/7712 fires armed, 0 unarmed). TWO hand programs
+  against a predicate with 10 872 879 arrivals and ~20 read sites is not a
+  safety argument. The corpus says 0 across 1823 `-L bc`, 852 `-L bc -L pass`,
+  190 spec/ownership/advanced; the hand set does not yet reach the other read
+  sites, and a landing owes one counter-example per site that consumes it.
+
+## bxsrc
+site: src/compiler/borrow_check.cpp::collect_ref_sources_paths
+build: 98f66c0aebc5cc5d (gate-db 75 unarmed -> 81 armed)
+measured: 2026-08-29
+fires: 10873777
+ceiling: 4
+cost: 0
+verdict: tmcbdyn's three PLUS the row group B was named for — THREE HOPS, and hop 1 is now MEASURED
+note: RULE 11, WALKED BY HAND BEFORE ANYTHING WAS PRICED, with the existing
+  binary and the already-committed `lifereg_closurestore`:
+      let c: || -> u64;  c = || -> u64 { return *r; };
+                                     armed: 1 fire, REFUSED (E0597, names `r`)
+      let b: Box<dyn Fn() -> u64>;  b = Box::new(|| -> u64 { return *r; });
+                                     armed: 0 fires, admitted
+  One variable — the erasing wrapper. `lifereg_closurestore`'s CEILING 0 / 49
+  fires on the 379-row ledger was a NULL RESULT THROUGH A BROKEN HOP, and the
+  broken hop is §B6's `case EC::Call` entry gate,
+  `if (type_may_carry_borrow(e.type(pool)))` on `Box<dyn Fn…>` — the same
+  predicate answering the same "no" that `capclosarg` measured at the
+  ClosureCall per-arg filter yesterday. THREE SITES, ONE PREDICATE.
+  The three hops, each armed under this one name: (1) `tmcbdyn`'s kinds in
+  `type_may_carry_borrow`; (2) a ClosureBox NODE admitted by the Call per-arg
+  filter, which rejects it by TYPE (`is_plain_ref_kind` no,
+  `is_borrow_carrying_type` no, `forms_borrow_at_call` no); (3) the ClosureBox
+  arm of the §B6 walk, which exists but is `lifereg_closurestore`-gated.
+    predicted, closed:  borrowck/unconstrained-closure-lifetime-generic--control-escape-to-outer-local
+    closed, NOT predicted: the three `tmcbdyn` rows (see there).
+    predicted (hedged), NOT closed: borrowck/unconstrained-closure-lifetime-
+                        generic--min-capture-escapes-to-field — `self.bar =
+                        Box::new(…)`, whose root `self` and whose sources `f`/`r`
+                        all die in ONE frame, so pop_scope skips it exactly as
+                        escape-argument--t09 is skipped;
+                        borrowck/borrowck-escaping-closure-error-1 — a RETURN,
+                        read by `prov_of_retained`'s ClosureBox arm
+                        (`capescape` / `capescmove`), not by §B6 at all.
+  Counter-examples: ce6, ce7 ADMITTED armed; b3_boxlocal (the same
+  `Box::new(|| *r)` with holder and referent in ONE frame, legal) ADMITTED
+  armed; b1 (the ledger row's shape) REFUSED armed, admitted unarmed — a
+  one-scope twin, and it names `r`.
+
+## bxhold
+site: src/compiler/borrow_check.cpp::note_holder_escape_prov
+build: 98f66c0aebc5cc5d (gate-db 75 unarmed -> 82 armed)
+measured: 2026-08-29
+fires: 92520
+ceiling: 0
+cost: 0
+verdict: the SECOND site of the same asymmetry is NOT load-bearing — 92 520 arrivals, and a mechanism for the zero
+note: `note_holder_escape_prov`'s gate is
+  `!holder_ty || !type_may_carry_borrow(holder_ty)`; widening it with the
+  return gate's own `type_hides_borrow` closes nothing. The mechanism, not just
+  the number: what this deposit WRITES is `prov_[name]`, and the only consumer
+  of `prov_[name]`'s escape bits is `check_return_value`. A holder that is
+  ASSIGNED an erased closure and then merely USED — which is every group-B store
+  row — never reaches a return gate, so opening the deposit gate deposits into a
+  channel nobody reads for these programs. The store rows are §B6's, and §B6 is
+  where `bxsrc` closes them. ⚠ Two notions of one concept, and widening the
+  WRONG one of the two narrow sites buys nothing: the site matters as much as
+  the predicate.
+
+## GROUP F IS THREE MECHANISMS, NOT ONE — AND GROUP B IS NOT ABOUT CLOSURES
+note: the seven rows the 2026-08-29 re-grouping put in F were read as one
+  question ("a closure-body flow summary in the WRITE direction, handed back to
+  the call site"). Compiled by hand, multi-line, they are three:
+    F1  a closure PARAM stored into a place in the ENCLOSING frame
+        — issue-45983, regions-escape-bound-fn, regions-escape-bound-fn-2,
+          issue-7573 (through `Vec::push`'s out-param), and
+          anonymous-region-in-apit--closure-param-escapes (through `bar`'s).
+        MISSING OBSERVATION: a closure parameter is not a §B6 source.
+        ⚠ NO CALL-SITE SUMMARY IS NEEDED FOR ANY OF THEM. The whole fact is
+        visible inside the body, at the store. Four of the five close under
+        `fpwrite`; the fifth (anonymous-region-in-apit) does not, because its
+        destination is the enclosing fn's own `&mut` PARAM and
+        note_holder_escape_prov skips params by #78/#138 — task #78, still open,
+        and NOT a closure question.
+    F2  a closure param stored THROUGH another closure param — nll/escape-
+        argument--t09, `|q: &mut &i64, r: &i64| { *q = r; }`. ONE row. Both ends
+        are parameters of the same closure and die in the same frame, so no
+        scope-exit reader can see it; this one really does need the call-site
+        summary, and it is the only row in F that does.
+    F3  a `move` closure writing a borrow of its OWN ENV into a moved-in capture
+        — borrowck/borrowed-data-escapes-closure-148392. ONE row.
+        `walk_closure_body` returns at `if (cbv.is_move()) return;`, so no body
+        rule of any kind reaches it. Its two ends (`a` and `b`) are both main's
+        locals in one frame, so §B6 could not see it even if the body were
+        walked. Not priced; it is a third question.
+  And group B ("a closure VALUE does not carry its captures out of the fn"):
+  the defect is real but it is NOT closure-shaped. `type_may_carry_borrow` does
+  not know that an ERASED payload can hide a borrow, and two of the three rows
+  `tmcbdyn` closes contain no closure at all — they are `Box<dyn Trait>` holding
+  a `&`. The closure rows are the subset of the erasure rows whose payload
+  happens to be a closure.
+  ⇒ THE ONE MECHANISM TO FUND: `fpsrc`. Three rows, ONE line, at an arm that
+  already exists, with a diagnostic that is already correct and already names
+  the local; cost 0 by the corpus and by six hand programs that all reached it.
+  `tmcbdyn` is the more INTERESTING result and is the runner-up on purpose: 3
+  rows across 3 roots for one predicate line, but 10.87M arrivals across ~20
+  read sites and only two hand counter-examples — rule 5 is not met for it yet,
+  and the way to meet it is one counter-example per consuming site, not more
+  corpus. The two are DISJOINT (F1 rows vs erasure rows) and can land in either
+  order.
