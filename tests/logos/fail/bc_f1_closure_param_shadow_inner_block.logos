@@ -1,0 +1,23 @@
+// ONE TOKEN — a pair of braces — from
+// pass/bc_f1_closure_param_shadow_legal.logos. The shadow is confined to an
+// inner block; after it pops, `y` denotes the PARAMETER again and `x = y` is
+// the escape (rustc: E0521). A shadow-erases-the-name narrowing would admit
+// this; `names_live_closure_param` asks which FRAME declares the name, so it
+// does not. That is why the predicate is frame-keyed and not a set difference.
+package bc_f1_closure_param_shadow_inner_block;
+fn give<F: FnOnce(&i64)>(f: F) {
+    let t: i64 = 7i64;
+    f(&t);
+}
+fn main() -> i32 {
+    let z: i64 = 4i64;
+    let mut x: &i64 = &z;
+    give(|y| {
+        {
+            let y: &i64 = &z;
+            x = y;
+        }
+        x = y;
+    });
+    return *x as i32 - 4i32;
+}

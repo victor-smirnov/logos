@@ -961,9 +961,28 @@ PIN = {
     # left `admit` for `fail` are not in tests/logos/pass at all. `glob` and
     # the DOOR counts unmoved: no `wql_*`/`deem_*` match, no container family,
     # no `direct` output form.
-    'corpus'            : 2457,
+    # 2026-08-29 (F-1, THE CLOSURE PARAMETER AS A BORROW SOURCE), +3/0/+3.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 3 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2460
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2460 = 191 + 2269. The three that joined the PASS
+    # corpus are bc_f1_closure_param_escape_twin (the ADMIT half of the pair —
+    # one token from fail/bc_f1_closure_param_escape: the holder is declared
+    # INSIDE the body, which is how reach is proved for a landed rule with no
+    # fire log), bc_f1_closure_param_shadow_legal (the ABUSE direction of the
+    # narrowing — a body `let` SHADOWING the parameter, a legal program the
+    # ceiling probe refused) and bc_f1_closure_param_legal_shapes (the COST
+    # side: six shapes that all reach the arm with a parameter in hand). All
+    # three assert a VALUE (`exit: 0` gated on the computed sum), not a
+    # diagnostic. The round's other two native fixtures are FAIL fixtures —
+    # each the one-token twin of a pass fixture above — and this population is
+    # the PASS corpus, so they move nothing here; the three imported programs
+    # that left `admit` for `fail` are not in tests/logos/pass at all. `glob`
+    # and the DOOR counts unmoved: no `wql_*`/`deem_*` match, no container
+    # family, no `direct` output form.
+    'corpus'            : 2460,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2266,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2269,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

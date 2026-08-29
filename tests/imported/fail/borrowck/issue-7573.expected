@@ -1,0 +1,1 @@
+'installed' does not live long enough: it is borrowed by 'lines', which is used here after 'installed' goes out of scope (E0597)

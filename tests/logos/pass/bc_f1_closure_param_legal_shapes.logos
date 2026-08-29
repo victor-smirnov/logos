@@ -1,0 +1,72 @@
+// THE COST SIDE OF F-1. Six shapes that all REACH the VarRef arm with a
+// closure parameter in hand (proved by fire count against the `fpsrc` probe:
+// each contributes arrivals above the 1572-arrival stdlib floor) and must all
+// stay legal:
+//   · the holder is declared in the closure body           (`h` in `body_local`)
+//   · the parameter lands in an AGGREGATE held by the body (`Holder`)
+//   · the holder lives in an INNER BLOCK of the body       (`inner_block`)
+//   · a NESTED closure stores the outer parameter into a binding of the OUTER
+//     body                                                 (`nested`)
+//   · the closure RETURNS its parameter through a body-local hop (`returns`)
+//   · the body stores an OUTER borrow outward while a parameter is in scope —
+//     the source is main's `z`, not the parameter          (`outer_borrow`)
+package bc_f1_closure_param_legal_shapes;
+struct Holder { r: &i64 }
+fn give<F: FnOnce(&i64)>(f: F) {
+    let t: i64 = 7i64;
+    f(&t);
+}
+fn run<G: FnOnce()>(g: G) { g(); }
+fn main() -> i32 {
+    let mut total: i64 = 0i64;
+
+    let mut body_local: i64 = 0i64;
+    give(|y| {
+        let h: &i64 = y;
+        body_local = *h;
+    });
+    total = total + body_local;
+
+    let mut aggregate: i64 = 0i64;
+    give(|y| {
+        let h: Holder = Holder { r: y };
+        aggregate = *h.r;
+    });
+    total = total + aggregate;
+
+    let mut inner_block: i64 = 0i64;
+    give(|y| {
+        {
+            let h: &i64 = y;
+            inner_block = *h;
+        }
+        inner_block = inner_block + *y;
+    });
+    total = total + inner_block;
+
+    let mut nested: i64 = 0i64;
+    give(|y| {
+        let mut h: &i64 = y;
+        run(|| { h = y; });
+        nested = *h;
+    });
+    total = total + nested;
+
+    let l: i64 = 5i64;
+    let c = |x: &i64| -> &i64 {
+        let h: &i64 = x;
+        return h;
+    };
+    let returns: &i64 = c(&l);
+    total = total + *returns;
+
+    let z: i64 = 4i64;
+    let mut outer_borrow: &i64 = &z;
+    give(|y| {
+        total = total + *y;
+        outer_borrow = &z;
+    });
+    total = total + *outer_borrow;
+
+    return total as i32 - 51i32;
+}

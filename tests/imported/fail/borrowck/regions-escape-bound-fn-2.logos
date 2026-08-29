@@ -1,6 +1,8 @@
 // rustc borrowck/regions-escape-bound-fn-2.rs — upstream E0521
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: fail — REFUSED since 2026-08-29 (was root bck.C: a closure PARAMETER was
+//   not a borrow source, so `x = y` inside the body deposited nothing and
+//   pop_scope had nothing to find dying)
 // upstream: borrowck/regions-escape-bound-fn-2.rs  E0521 borrowed data escapes outside of closure
 package regions_escape_bound_fn_2;
 fn main() -> i32 {

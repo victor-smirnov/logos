@@ -1,0 +1,23 @@
+// THE COST SIDE OF F-1, AND THE NARROWING THE CEILING PROBE DID NOT HAVE.
+// `fpsrc` keyed the rule on `closure_param_names_`, a set of STRINGS, and
+// refused this program — which compiles on every tree before it and is legal in
+// rustc. The body `let y` SHADOWS the parameter `y`; what leaves the closure is
+// a borrow of main's own `z`, which outlives every use of `x`.
+// ONE TOKEN from fail/bc_f1_closure_param_shadow_inner_block.logos, where the
+// same shadow sits inside a `{ }` and the store below it names the PARAMETER
+// again. So this pins the narrowing in the ABUSE direction: a shadow must
+// disable the rule EXACTLY where it is the binding, and not one frame further.
+package bc_f1_closure_param_shadow_legal;
+fn give<F: FnOnce(&i64)>(f: F) {
+    let t: i64 = 7i64;
+    f(&t);
+}
+fn main() -> i32 {
+    let z: i64 = 4i64;
+    let mut x: &i64 = &z;
+    give(|y| {
+        let y: &i64 = &z;
+        x = y;
+    });
+    return *x as i32 - 4i32;
+}

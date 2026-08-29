@@ -1995,6 +1995,9 @@ class BorrowChecker {
     // Round F/B scaffolding — see src/compiler/PROBES.md.
     std::unordered_set<std::string>      closure_param_names_;
     std::unordered_set<std::string>      closure_body_decls_;
+    // F-1: the SCOPE FRAME each closure parameter was declared in. The name
+    // alone is not the binding — see names_live_closure_param.
+    std::unordered_map<std::string, size_t> closure_param_frame_;
     // Params whose referent OUTLIVES the call — reference params and
     // borrow-carrying value params (their borrow points at caller data). A
     // borrow of such a param is safe to return. A BY-VALUE owned param (not in
@@ -2526,6 +2529,7 @@ private:
         auto saved_params     = param_names_;
         auto saved_outliving  = outliving_params_;
         auto saved_cpn        = closure_param_names_;
+        auto saved_cpf        = closure_param_frame_;
         auto saved_cbd        = closure_body_decls_;
         bool saved_icb        = in_closure_body_;
         TypeRef saved_ret     = ret_type_;
@@ -2632,6 +2636,10 @@ private:
             declare_var(nm, NO_SLOT);
             param_names_.insert(nm);
             closure_param_names_.insert(nm);
+            // F-1: WHICH FRAME, not just which word. `visit_block` pushes its
+            // own scope for the body, so every body `let` — shadow included —
+            // lands strictly deeper than this one.
+            if (!scopes_.empty()) closure_param_frame_[nm] = scopes_.size() - 1;
             closure_body_decls_.insert(nm);
             if (is_ref_kind(pt) || is_borrow_carrying_type(pt) ||
                 TypeRef(pt).kind() == LogosType::Kind::Ptr)
@@ -2645,6 +2653,7 @@ private:
         param_names_      = std::move(saved_params);
         outliving_params_ = std::move(saved_outliving);
         closure_param_names_ = std::move(saved_cpn);
+        closure_param_frame_ = std::move(saved_cpf);
         closure_body_decls_  = std::move(saved_cbd);
     }
 
@@ -2951,6 +2960,24 @@ private:
         if (name.empty()) return NO_SLOT;
         auto it = cur_slot_of_.find(name);
         return it == cur_slot_of_.end() ? NO_SLOT : it->second;
+    }
+
+    // F-1: does this name, HERE, denote a CLOSURE PARAMETER — or a body local
+    // that merely spells the same word? `closure_param_names_` is a set of
+    // strings, and a set of strings cannot answer that; the probe that priced
+    // this rule asked it anyway and refused a legal program for it (ce5 in
+    // PROBES.md). The binding is the innermost frame that declares the name,
+    // so the question is whether that frame is the one the parameter was
+    // declared in. F5's `declared_slots` cannot decide it: a closure parameter
+    // is `declare_var(nm, NO_SLOT)` and NO_SLOT compares equal to everything.
+    bool names_live_closure_param(const std::string& n) const {
+        if (n.empty()) return false;
+        auto it = closure_param_frame_.find(n);
+        if (it == closure_param_frame_.end()) return false;
+        for (size_t i = scopes_.size(); i-- > 0; )
+            for (auto& d : scopes_[i].declared)
+                if (d == n) return i == it->second;
+        return false;
     }
 
     // ── B87 dropck helpers ───────────────────────────────────────────────
@@ -3907,13 +3934,47 @@ private:
             // an aliased borrow can't escape a referent's scope via a copy.
             case EC::VarRef: {
                 std::string n(lir_view::EVarRefView{e}.name());
-                if ((logos::probe::on("fpsrc") || logos::probe::on("fpboth") ||
-                     logos::probe::on("fpwrite")) &&
-                    closure_param_names_.count(n) && is_ref_kind(e.type(pool))) {
+                // ── F-1: A CLOSURE PARAMETER IS A BORROW SOURCE ────────────
+                // THE MISSING OBSERVATION. §B6 asks this walk "what does this
+                // value borrow?", and for a reference bound by a CLOSURE
+                // PARAMETER the answer was NOTHING — `ref_sources_under` finds
+                // no record because a parameter is not a `let` and never went
+                // through `record_ref_sources`. So `x = y` inside a closure
+                // body, with `x` in the enclosing frame, deposited no source,
+                // and `pop_scope` had nothing to find dying. That is E0521,
+                // "borrowed data escapes outside of closure", and it is the
+                // whole of what three ledger rows needed.
+                //
+                // The parameter's referent dies at the closure body's scope
+                // exit as far as this checker can see, which is exactly the
+                // fact F5/F6 already know how to spend: emit the parameter as
+                // a source named by its own binding and the existing
+                // `pop_scope` deposit reports at the first use past it, with
+                // the local already named in the sentence.
+                //
+                // PRICED as `fpsrc` before it was written (PROBES.md, build
+                // 98f66c0aebc5cc5d, gate-db 75 -> 76): 2 213 384 arrivals,
+                // CEILING 3, corpus COST 0 — and `fpboth` proved the escape
+                // channel (`prov_of`) adds neither a row nor a different row.
+                //
+                // ⚠ NARROWER THAN THE PROBE, TWICE, AND BOTH NARROWINGS ARE
+                // LEGAL PROGRAMS THE PROBE REFUSED:
+                //   · `names_live_closure_param`, not the name set — a body
+                //     `let y` that SHADOWS parameter `y` denotes the shadow,
+                //     and storing the shadow's own (outer) borrow outward is
+                //     legal. ce5 in PROBES.md compiles unarmed and is refused
+                //     by the probe.
+                //   · recorded sources WIN. A parameter reassigned in the body
+                //     (`y = &z;`) borrows what the assignment says, not
+                //     itself; reporting `y` there would name the wrong binding
+                //     and, when `z` outlives, refuse a legal program.
+                auto srcs = ref_sources_under(n);
+                if (srcs.empty() && is_ref_kind(e.type(pool)) &&
+                    names_live_closure_param(n)) {
                     emit(std::move(n));
                     return;
                 }
-                for (auto& s : ref_sources_under(n)) emit_src(s);
+                for (auto& s : srcs) emit_src(s);
                 return;
             }
             default:

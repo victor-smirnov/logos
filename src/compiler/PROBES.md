@@ -1926,3 +1926,138 @@ note: the seven rows the 2026-08-29 re-grouping put in F were read as one
   and the way to meet it is one counter-example per consuming site, not more
   corpus. The two are DISJOINT (F1 rows vs erasure rows) and can land in either
   order.
+
+## fpsrc-LANDED — F-1, and the TWO narrowings the probe bought
+site: src/compiler/borrow_check.cpp::collect_ref_sources_paths (VarRef arm)
+      + names_live_closure_param + closure_param_frame_
+build: 064f209b2e5760d6 (gate-db 83 first measure, 84 after the control round-trip)
+measured: 2026-08-29
+ceiling: 3   predicted: 3   closed: 3   cost: 0
+verdict: ✓ LANDED. CEILING = PREDICTED = ACTUAL, as a SET, both diffs empty.
+
+THE MISSING OBSERVATION, in one sentence: §B6 asks
+`collect_ref_sources_paths` what a value borrows, and for a reference bound by
+a CLOSURE PARAMETER the answer was NOTHING — a parameter is not a `let` and
+never went through `record_ref_sources`, so `ref_sources_under` had no record
+to find. `x = y` inside a closure body with `x` in the enclosing frame
+therefore deposited no source, and `pop_scope` had nothing to find dying. That
+is E0521, "borrowed data escapes outside of closure".
+
+    predicted, closed:  borrowck/issue-45983
+                        borrowck/issue-7573
+                        borrowck/regions-escape-bound-fn-2
+    predicted∖closed = ∅        closed∖predicted = ∅
+  Every one names its local in the sentence — `y`, `installed`, `y` — because
+  the fact is spent through F5/F6's existing scope arithmetic and the
+  diagnostic that already prints there. No `'?'`.
+
+⚠ WHAT LANDED IS NARROWER THAN THE PROBE, TWICE, AND BOTH NARROWINGS ARE
+LEGAL PROGRAMS THE PROBE REFUSED. This is the third round running in which
+COST 0 over the whole corpus was not a safety claim, and the second in which a
+hand program found the refusal the corpus could not contain.
+
+  (1) A SET OF STRINGS CANNOT SAY WHICH BINDING A NAME DENOTES. `fpsrc` keyed
+      on `closure_param_names_.count(n)`. ce5, multi-line, compiles on every
+      tree before this round and is refused by the probe:
+
+          give(|y| {
+              let y: &i64 = &z;     // SHADOWS the parameter
+              x = y;                // stores a borrow of main's own `z`
+          });
+
+      `z` outlives every use of `x`, so this is legal and rustc accepts it. The
+      probe emits `y` as a source at the SHADOW's slot, the shadow dies at the
+      body's scope exit, and `x` is refused with E0597 — measured, rc=0
+      unarmed and rc=1 armed, one build apart.
+      THE FIX asks which FRAME declares the name instead. `visit_block` pushes
+      its own scope for the body, so every body `let` lands strictly deeper
+      than the parameter frame, and `names_live_closure_param` compares the
+      innermost declaring frame against the frame recorded at parameter
+      declaration. F5's `declared_slots` cannot decide it: a closure parameter
+      is `declare_var(nm, NO_SLOT)` and NO_SLOT compares equal to everything.
+      ⚠ AND THE FRAME TEST IS NOT "ANY SHADOW DISABLES THE RULE". A
+      shadow-erases-the-name narrowing would have admitted ce15, where the
+      shadow is confined to an inner block and the store BELOW it names the
+      parameter again — a real E0521. The frame predicate refuses ce15 and
+      admits ce5, and the two are one pair of braces apart. Both are pinned:
+      pass/bc_f1_closure_param_shadow_legal and
+      fail/bc_f1_closure_param_shadow_inner_block.
+
+  (2) RECORDED SOURCES WIN. A parameter reassigned in the body (`y = &z;`)
+      borrows what the assignment says, not itself; emitting `y` there would
+      name the wrong binding and, when `z` outlives, refuse a legal program.
+      So the parameter identity is consulted only when `ref_sources_under` is
+      empty. This can only ADMIT more than the probe, never refuse more, and
+      the ceiling survived it unchanged.
+
+RULE 5 — TWELVE HAND PROGRAMS, ALL MULTI-LINE, EACH WITH ITS REACH PROVED.
+The `fpsrc` arm fires on every VarRef arrival, so the stdlib floor is 1572
+(measured with a four-line program that has no closure at all). A program is
+proved to have reached the arm WITH A CLOSURE PARAMETER IN HAND by its count
+above that floor:
+    reached (+1): ce1 body-local holder · ce3 outer borrow stored outward ·
+                  ce5 the shadow · ce6 the inference-driven closure ·
+                  ce10 parameter into a struct literal · ce12 closure returns
+                  its parameter through a body-local hop · ce13 holder in an
+                  inner block
+    reached (+2): ce11 nested closures, inner writes the OUTER parameter into
+                  an OUTER-body binding · ce15 the inner-block shadow
+    floor (+0):   ce2 `out = *y` · ce8 `*y = 11` through a `&mut` parameter ·
+                  ce9 `out = twice(y)` — these three never reach the walk at
+                  all, which is the right answer and a WEAK counter-example.
+                  Recorded as such: they prove nothing about the rule.
+Eleven of the twelve are ADMITTED by the landed rule; the twelfth is ce15,
+which is a defect. Six of the reached-legal shapes are folded into
+pass/bc_f1_closure_param_legal_shapes, asserting a VALUE (`exit: 0` gated on
+the computed sum), not a diagnostic.
+
+CONTROL REVERT, with all eight fixtures in place and ONLY
+src/compiler/borrow_check.cpp back at HEAD: every one of the five fail
+fixtures compiled at rc=0 with NO DIAGNOSTIC, and the three pass fixtures
+compiled clean on both trees. The fail/pass pairs are one token apart (the
+holder inside vs outside the body; the shadow inside vs outside a `{ }`),
+which is how reach is proved for a landed rule with no fire log.
+
+WHAT IS STILL OPEN, AND WHY EACH IS A DIFFERENT QUESTION (four F rows):
+  · regions-escape-bound-fn — the holder is NEVER READ again, so §B6 has no
+    use to report at. `fpwrite` (ceiling 4) buys it with a NEW report site
+    whose destination test, "not in `closure_body_decls_`", is a context-level
+    stand-in for a region question. Deliberately not bought.
+  · anonymous-region-in-apit--closure-param-escapes — destination is the
+    enclosing fn's own `&mut` PARAM; task #78, not a closure question.
+  · nll/escape-argument--t09 — `*q = r`, both ends parameters of ONE closure
+    in ONE frame. The only F row that needs a call-site write summary.
+  · borrowck/borrowed-data-escapes-closure-148392 — a `move` body;
+    `walk_closure_body` returns at its first line.
+AND THE INFERENCE-DRIVEN RESIDUE, ce6: `let mut c = |y| { x = y; }; c(&z);`
+with no trait bound anywhere stays ADMITTED, because the gate is the
+parameter's TYPE. That is, by accident, exactly rustc's bound-driven vs
+inference-driven split — an accident, not a proof. It has no imported row to
+sit on and is deliberately NOT pinned as a green pass fixture.
+
+⚠ `tmcbdyn` IS STILL THE RUNNER-UP AND IS STILL UNFUNDED, unchanged by this
+round: the two sets are disjoint (F-1 closes closure-parameter rows, `tmcbdyn`
+closes ERASED-PAYLOAD rows) and F-1 touched neither `type_may_carry_borrow`
+nor any gate that asks it. Its ceiling of 3 and cost of 0 stand as recorded;
+what it still lacks is one counter-example per consuming site, and 10.87M
+arrivals over ~20 read sites is why that is the price and more corpus is not.
+
+### ⚠ RULE 8 — THE THREE SURVIVING F PROBES DECAYED THE MOMENT F-1 LANDED
+`fpsrc`'s edit is now the tree's behaviour, so its arm is gone from the probe
+census (`grep 'probe::on("fp'` → `fpprov`/`fpboth` at prov_of, `fpwrite` at the
+assign). The numbers recorded above were measured against a baseline that no
+longer exists, and RE-PRICING THEM TODAY MEASURES THE INCREMENT, NOT THE ROW
+COUNT:
+  · `fpwrite` ceiling 4 → its `fpsrc` half landed, so what is left to buy is
+    ONE row (`regions-escape-bound-fn`) at the cost of a new report site.
+    Do not read "4" as four rows.
+  · `fpboth` ceiling 3 → its `fpsrc` half landed and `fpprov` was already
+    measured to add nothing, so armed today it should measure 0. If it does
+    not, that is a finding.
+  · `fpprov` ceiling 0 stands; nothing it touches moved.
+`tmcbdyn` / `bxsrc` / `bxhold` are untouched — F-1 changed neither
+`type_may_carry_borrow` nor any gate that asks it — but they were priced on
+build 98f66c0aebc5cc5d against a 343-row ledger and the ledger is now 340. The
+three rows that left are closure-parameter rows and none of them appears in
+`tmcbdyn`'s or `bxsrc`'s recorded sets, so those two ceilings are expected to
+hold at 3 and 4. EXPECTED, not measured — re-price before funding.

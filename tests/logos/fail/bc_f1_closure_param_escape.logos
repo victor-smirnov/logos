@@ -1,0 +1,22 @@
+// F-1: A CLOSURE PARAMETER IS A BORROW SOURCE.
+// ONE TOKEN from pass/bc_f1_closure_param_escape_twin.logos: `let mut x` sits
+// OUTSIDE the closure here and INSIDE the body there. The reference bound by
+// the parameter `y` outlives its referent as far as this frame can see, so the
+// store escapes the call — rustc: E0521, "borrowed data escapes outside of
+// closure". Before F-1, §B6 asked `collect_ref_sources_paths` what `y` borrows
+// and got NOTHING: a parameter is not a `let` and never went through
+// `record_ref_sources`, so `pop_scope` had no dying source to find.
+// That is the reach proof for the twin — a landed rule has no fire log.
+package bc_f1_closure_param_escape;
+fn give<F: FnOnce(&i64)>(f: F) {
+    let t: i64 = 7i64;
+    f(&t);
+}
+fn main() -> i32 {
+    let z: i64 = 4i64;
+    let mut x: &i64 = &z;
+    give(|y| {
+        x = y;
+    });
+    return *x as i32 - 7i32;
+}

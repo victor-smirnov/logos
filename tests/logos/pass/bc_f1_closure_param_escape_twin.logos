@@ -1,0 +1,16 @@
+// The ADMIT half of the pair. ONE TOKEN from
+// fail/bc_f1_closure_param_escape.logos: the holder `x` is declared INSIDE the
+// closure body, so it dies with the parameter it borrows and nothing escapes.
+package bc_f1_closure_param_escape_twin;
+fn give<F: FnOnce(&i64)>(f: F) {
+    let t: i64 = 7i64;
+    f(&t);
+}
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    give(|y| {
+        let mut x: &i64 = y;
+        acc = *x;
+    });
+    return acc as i32 - 7i32;
+}

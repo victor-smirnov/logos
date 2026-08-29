@@ -782,7 +782,54 @@
 # a PARAM and the ELISION gate refuses it, not the dangling gate. A closure-call
 # argument rule is a rule about calls, and it reaches outside the class that
 # motivated it.
-# TOTAL 343
+# 2026-08-29 — 343 -> 340. THREE rows, and the mechanism was priced as `fpsrc`
+# in src/compiler/PROBES.md before a line of it was written: CEILING 3, corpus
+# COST 0, over 2 213 384 arrivals at the site, and `fpboth` proved the ESCAPE
+# channel (`prov_of`) adds neither a row nor a different row.
+# THE MISSING OBSERVATION: A CLOSURE PARAMETER IS NOT A BORROW SOURCE. §B6 asks
+# `collect_ref_sources_paths` what a value borrows; for a reference bound by a
+# CLOSURE PARAMETER the answer was NOTHING, because a parameter is not a `let`
+# and never went through `record_ref_sources`. So `x = y` inside a closure body,
+# with `x` in the enclosing frame, deposited no source and `pop_scope` had
+# nothing to find dying. That is E0521, "borrowed data escapes outside of
+# closure", and it was three rows.
+# PREDICTED THREE BY NAME (issue-45983, issue-7573, regions-escape-bound-fn-2);
+# closed exactly those three, both diffs empty. All three name their local in
+# the sentence — `y`, `installed`, `y` — because F5/F6's existing scope
+# arithmetic is what spends the fact.
+# ⚠ WHAT LANDED IS NARROWER THAN THE PROBE, TWICE (rule 7), and BOTH narrowings
+# are legal programs the probe refused. `fpsrc` keyed on `closure_param_names_`,
+# a set of STRINGS, and a set of strings cannot say which BINDING a name
+# denotes:
+#     give(|y| { let y: &i64 = &z; x = y; });        // legal, probe REFUSED it
+# The shadow's borrow is of main's own `z`, which outlives every use of `x`.
+# `names_live_closure_param` asks which FRAME declares the name instead, so the
+# shadow disables the rule exactly where it IS the binding and not one frame
+# further — pinned in both directions by the one-token pair
+# pass/bc_f1_closure_param_shadow_legal and
+# fail/bc_f1_closure_param_shadow_inner_block. The second narrowing: RECORDED
+# SOURCES WIN, so a parameter reassigned in the body borrows what the assignment
+# says and not itself.
+# ⚠ FOUR OF THE SEVEN GROUP-F ROWS STAY ADMITTED, and each for a reason that is
+# NOT this one — the group was three questions, not one (PROBES.md):
+#   · regions-escape-bound-fn — the holder is NEVER READ again, so §B6 has no
+#     use to report at. Needs a report AT THE WRITE (`fpwrite`, ceiling 4,
+#     a whole new report site whose destination test is a context-level
+#     stand-in for a region question). Deliberately not bought here.
+#   · anonymous-region-in-apit--closure-param-escapes — the destination is the
+#     ENCLOSING fn's own `&mut` PARAM, which note_holder_escape_prov skips by
+#     #78/#138. Task #78, not a closure question.
+#   · nll/escape-argument--t09 — `*q = r`, both ends parameters of ONE closure
+#     dying in ONE frame. The only F row that genuinely needs a call-site write
+#     summary.
+#   · borrowck/borrowed-data-escapes-closure-148392 — a `move` body;
+#     `walk_closure_body` returns at its first line.
+# AND THE INFERENCE-DRIVEN RESIDUE IS NAMED: a closure with no trait bound
+# (`let mut c = |y| { x = y; }; c(&z);`) stays admitted, because the gate is the
+# parameter's TYPE. That is, by accident, exactly rustc's bound-driven vs
+# inference-driven split — but it is an accident, not a proof, and it has no
+# imported row to sit on.
+# TOTAL 340
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -845,12 +892,10 @@ issue-111554--b bck.A tests/imported/admit/borrowck/issue-111554--b
 issue-111554--c bck.A tests/imported/admit/borrowck/issue-111554--c
 issue-36082 bck.D tests/imported/admit/borrowck/issue-36082
 issue-42344 bck.NEW tests/imported/admit/borrowck/issue-42344
-issue-45983 bck.C tests/imported/admit/borrowck/issue-45983
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
 issue-53432-nested-closure-outlives-borrowed-value bck.C tests/imported/admit/borrowck/issue-53432-nested-closure-outlives-borrowed-value
 issue-55492-borrowck-migrate-scans-parents bck.A tests/imported/admit/borrowck/issue-55492-borrowck-migrate-scans-parents
 issue-58776-borrowck-scans-children bck.C tests/imported/admit/borrowck/issue-58776-borrowck-scans-children
-issue-7573 bck.C tests/imported/admit/borrowck/issue-7573
 issue-82032 bck.B tests/imported/admit/borrowck/issue-82032
 issue-83924 bck.NEW tests/imported/admit/borrowck/issue-83924
 issue-85581 bck.B tests/imported/admit/borrowck/issue-85581
@@ -867,7 +912,6 @@ ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/owne
 reborrow-in-match-suggest-deref bck.A tests/imported/admit/borrowck/reborrow-in-match-suggest-deref
 reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow
 regions-bound-missing-bound-in-impl bck.NEW tests/imported/admit/borrowck/regions-bound-missing-bound-in-impl
-regions-escape-bound-fn-2 bck.C tests/imported/admit/borrowck/regions-escape-bound-fn-2
 regions-escape-bound-fn bck.C tests/imported/admit/borrowck/regions-escape-bound-fn
 regions-escape-unboxed-closure bck.B tests/imported/admit/borrowck/regions-escape-unboxed-closure
 slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck/slice-index-bounds-check-invalidation--t35
