@@ -4685,9 +4685,21 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # PREDICTED +3/+1/−2 before the pin was read, and read as exactly that. The
 # ctest total was predicted as +3 and re-counted after the reconfigure as
 # 8644 → 8647 before any pin was touched.
-REGISTRY-ALL         8647
-REGISTRY-NOIMPORTED  4450
-REGISTRY-TIERCOMMIT  410
+# 2026-08-29 (the CALL-HOP DEPOSIT landed — `callidxcallonly`: a place reached
+# through a reference-returning CALL broke the borrow walk, so `bp.root` stayed
+# empty and no loan was recorded at all. TWELVE ledger rows close, all upstream
+# E0505/E0506/E0596; three sema over-refusals the hop would otherwise have
+# manufactured were repaired in the same change):
+#   ALL          8647 → 8653   +6  +3 native pass +3 native fail; the twelve
+#                                  moved programs are −12 admit row tests +12
+#                                  imported fail fixtures, net 0.
+#   NOIMPORTED   4450 → 4444   −6  the +6 native less the −12 row tests (an
+#                                  admit row test carries no `imported` label).
+#   TIERCOMMIT    410 →  398  −12  twelve closed rows' per-row tests leave.
+# PREDICTED +6/−6/−12 before the pin was read, and read as exactly that.
+REGISTRY-ALL         8653
+REGISTRY-NOIMPORTED  4444
+REGISTRY-TIERCOMMIT  398
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

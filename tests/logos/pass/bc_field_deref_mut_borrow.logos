@@ -1,0 +1,13 @@
+// `&mut b.f` where `b: Box<S>` — the FIELD auto-deref runs in a mutable-use
+// position, so the step must cross `Box::deref_mut`. Crossing the shared
+// `deref` instead makes the loan a borrow through a `&`, and every consumer
+// downstream of `cross()` then sees a `&` where the program wrote `&mut`.
+// TWIN: bc_field_deref_mut_not_mut.logos — the same program with `let b`.
+package bc_field_deref_mut_borrow;
+struct S { f: i64 }
+fn main() -> i32 {
+    let mut b: Box<S> = Box::new(S { f: 1i64 });
+    let r: &mut i64 = &mut b.f;
+    *r = 2i64;
+    return (b.f - 2i64) as i32;
+}

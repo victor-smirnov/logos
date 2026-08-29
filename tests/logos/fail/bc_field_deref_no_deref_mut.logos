@@ -1,0 +1,15 @@
+// `&mut c.tf` where `C: Deref` and NOT `DerefMut` — rustc E0596 ("trait
+// `DerefMut` is required"). The mutable step DEGRADES to the shared one
+// (`emit_generic_deref_call`): a TYPE fallback that still emitted a
+// `deref_mut` call resolved to nothing and mlir_gen dropped the statement.
+// TWIN: bc_field_deref_mut_borrow.logos, where the receiver DOES impl DerefMut.
+package bc_field_deref_no_deref_mut;
+struct T { tf: i64 }
+struct C { t: T, cf: i64 }
+impl Deref for C { type Target = T; fn deref(self: &C) -> &T { return &self.t; } }
+fn main() -> i32 {
+    let mut c: C = C { t: T { tf: 5i64 }, cf: 1i64 };
+    let r: &mut i64 = &mut c.tf;
+    *r = 2i64;
+    return 0i32;
+}

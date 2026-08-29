@@ -1,0 +1,14 @@
+// One token from bc_match_deref_mut_refmut_arm.logos: `let x`, not `let mut x`.
+// rustc refuses this too (E0596). The refusal is the reach proof for the pass
+// twin: the mutable step is what makes the mut-binding question reachable.
+package bc_match_deref_mut_not_mut;
+struct NodeD { a: Box<i64> }
+enum Cycle { Node(NodeD), Empty }
+fn main() -> i32 {
+    let x: Box<Cycle> = Box::new(Cycle::Node(NodeD { a: Box::new(1i64) }));
+    match *x {
+        Cycle::Node(ref mut y) => { y.a = Box::new(2i64); }
+        Cycle::Empty => {}
+    }
+    return 0i32;
+}

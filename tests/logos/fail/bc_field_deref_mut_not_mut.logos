@@ -1,0 +1,12 @@
+// One token from bc_field_deref_mut_borrow.logos: `let b`, not `let mut b`.
+// The mutable field auto-deref now names a ROOT through the call, so the
+// mut-binding question is asked at all — this is the reach proof for the pass
+// twin (E0596 in rustc).
+package bc_field_deref_mut_not_mut;
+struct S { f: i64 }
+fn main() -> i32 {
+    let b: Box<S> = Box::new(S { f: 1i64 });
+    let r: &mut i64 = &mut b.f;
+    *r = 2i64;
+    return 0i32;
+}

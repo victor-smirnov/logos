@@ -2566,6 +2566,38 @@ private:
         return str_of(p.get(ast::NAME.code)) == "_";  // explicit `_`
     }
 
+    // True iff ANY arm of this match binds by `ref mut`. That puts the
+    // SCRUTINEE PLACE in a mutable use position: `match *b { E::V(ref mut y) =>
+    // … }` over a `Box` must cross `deref_mut`, not `deref`, or the binding is
+    // a mutable borrow of a place reached through a `&`. The arms are already
+    // in hand where the scrutinee is lowered, so this is a QUESTION NOBODY
+    // ASKED, not a phase-ordering problem.
+    // It reuses `collect_ast_pat_bindings` — the tree's one pattern walker —
+    // rather than growing a second one that would have to be kept in agreement
+    // with it; the walker sets `pat_scan_saw_ref_mut_` as it goes.
+    bool arms_bind_ref_mut(writ::TinyMapView node) {
+        using namespace sema_detail;
+        if (!node.has_key(ast::ITEMS)) return false;
+        auto arms = arr_of(node.get(ast::ITEMS.code));
+        std::vector<std::string> names;
+        for (uint64_t i = 0; i < arms.size(); ++i) {
+            auto arm = map_of(arms.get(i));
+            if (code_of(arm) != ast::MATCH_ARM || !arm.has_key(ast::LHS)) continue;
+            names.clear();
+            pat_scan_saw_ref_mut_ = false;
+            collect_ast_pat_bindings(map_of(arm.get(ast::LHS.code)), names);
+            if (pat_scan_saw_ref_mut_) return true;
+        }
+        return false;
+    }
+
+    // Set by `collect_ast_pat_bindings` when the pattern it walked carries a
+    // `ref mut` binding. Valid only immediately after a call: reset it, call,
+    // read it. (A member instead of an out-parameter so the walker's twelve
+    // recursive call sites stay unchanged — the property is recorded at the
+    // single entry check every sub-pattern passes through.)
+    bool pat_scan_saw_ref_mut_ = false;
+
     // True iff the item AST node carries a non-empty TYPE_PARAMS list.
     bool item_has_type_params(writ::TinyMapView node) {
         using namespace sema_detail;
@@ -4218,6 +4250,23 @@ private:
     // `unsafe` (`items.union.fields.read-safety`). The flag is
     // RAII-restored at the end of each write-path lowering.
     bool in_place_write_lhs_ = false;
+
+    // The field auto-deref step in `lower_field_read` must cross a user
+    // `Deref` impl MUTABLY when the field is being borrowed mutably —
+    // `&mut b.f` on a `Box<S>` is `&mut (*b).f` and `*b` there is
+    // `b.deref_mut()`. The method sibling asks the same question with
+    // `target_method_wants_mut_self`; a field has no method to ask about, so
+    // the use context has to be carried in. The same channel answers the same
+    // question for an EXPLICIT deref: a `match *b { … ref mut y … }` scrutinee
+    // (see `arms_bind_ref_mut`).
+    // SET by the `&mut <field place>` arm of `lower_expr` and by the match
+    // scrutinee, both restoring what they saved; CONSUMED and cleared by
+    // `lower_field_read` (which re-arms it only for a receiver that is itself a
+    // field place, so `&mut a.b.f` steps mutably at both levels) and by
+    // `lower_deref`. Every other position lowers with it FALSE — an over-eager
+    // mutable step would refuse `&mut f(a.b)` for a non-`mut` `a`, and a
+    // `Deref`-only type has no `deref_mut` to call at all.
+    bool mut_place_ctx_ = false;
 
     // B-ts-01: synth tuple-struct field names "0", "1", … interned in
     // a long-lived list of unique_ptrs so SemaFieldInfo::name (a

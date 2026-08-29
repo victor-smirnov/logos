@@ -1170,27 +1170,28 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
         } else if (cur.kind() == Code::MethodCall ||
                    cur.kind() == Code::Call ||
                    cur.kind() == Code::AddrOfTemp) {
-            // CEILING PROBE `callroot` — the place is reached THROUGH A CALL:
-            // a user Deref/Index impl, or an autoref'd receiver sema lowered
-            // to a plain Call. The walk breaks here today, so bp.root stays
-            // EMPTY and record_borrow returns on its first line — no loan at
-            // all. Root it at the receiver / arg0 with a whole-container path.
-            // See PROBES.md for the family; every name here is asked AT MOST
-            // ONCE per arrival so no fire count is doubled.
+            // The place is reached THROUGH A CALL: a user Deref/Index impl, or
+            // an autoref'd receiver sema lowered to a plain Call. `callsite` is
+            // the observational outer half (rule 9) — the whole population of
+            // this arm, armed or not.
             (void)logos::probe::on("callsite");
-            bool p_hop = false, p_idx = false;
-            if (logos::probe::on("callroot")) {
-                p_hop = true;
-            } else if (is_ref_kind(cur.type(pool))) {
-                if (logos::probe::on("callrootref")) p_hop = true;
-                else if (logos::probe::on("callindexchain")) { p_hop = true; p_idx = true; }
-                else if (logos::probe::on("callidxdm"))      { p_hop = true; p_idx = true; }
-                else if (logos::probe::on("callidxfdm"))     { p_hop = true; p_idx = true; }
-                else if (logos::probe::on("callidxcallonly")) {
-                    p_hop = true;
-                    p_idx = (cur.kind() != Code::AddrOfTemp);
-                }
-            }
+            // LANDED 2026-08-29, priced as `callidxcallonly` (PROBES.md): the
+            // place is reached through a call that RETURNS A REFERENCE, so the
+            // reference names a place INSIDE the receiver / first argument.
+            // Hop to it and keep walking. `index_in_chain` is the DEPOSIT half
+            // — visit()'s AddrOfTemp arm records a whole-root borrow only for a
+            // path it already believes in, and a call is opaque exactly the way
+            // `[i]` is (the returned reference may name ANY part of the
+            // receiver), so the flag is the truth here, not a guess. It is NOT
+            // set for AddrOfTemp: that is an autoref of a place still in view,
+            // and widening it to the whole root broke liblogos-lang 2026-08-27.
+            bool p_hop = is_ref_kind(cur.type(pool));
+            bool p_idx = p_hop && cur.kind() != Code::AddrOfTemp;
+            // CEILING PROBE `callroot` — the widening that is still NOT landed:
+            // hop a call whose result is not a reference. A by-value result
+            // names no place in its receiver, so this over-refuses by
+            // construction; it is kept as the measured alternative.
+            if (!p_hop && logos::probe::on("callroot")) p_hop = true;
             if (!p_hop) break;
             ExprRef nxt;
             if (cur.kind() == Code::AddrOfTemp)
@@ -6282,10 +6283,13 @@ private:
         // ⚠ ASKED BEFORE THE ROOT-EMPTY RETURN, DELIBERATELY, and that is not
         // a drift from record_borrow. "Behind a shared `&`" is a property of
         // the PATH, not of the loan table: it needs no root to be TRUE, only a
-        // name to be PRINTED. `**y = 2` / `***p = 2` over a Box break the walk
-        // at the user-Deref call and lose the root while the crossing is
-        // already recorded — 2 of the 4 rows this closes. A root-empty guard
-        // here would drop them silently.
+        // name to be PRINTED. `**y = 2` / `***p = 2` over a Box used to break
+        // the walk at the user-Deref call and lose the root while the crossing
+        // was already recorded — 2 of the 4 rows this closes, and a root-empty
+        // guard here would have dropped them silently. Since 2026-08-29 the
+        // walk HOPS that call, so those two now print the named form and their
+        // `.expected` files were re-pinned to it; the anonymous branch stays
+        // for the crossings that still have no root.
         //
         // ⚠ WHAT THIS DOES NOT COVER, so it is not mistaken for coverage:
         // `cross()` is LAST-ASSIGNMENT-WINS (the walk runs outer->inner, so the

@@ -1,6 +1,8 @@
 // rustc borrowck/issue-81365-4.rs — upstream E0506
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: fail — REFUSED since 2026-08-29 (was root bck.B: a place reached
+//   through a reference-returning CALL recorded no loan, because the walker
+//   stopped at the call and `bp.root` stayed empty)
 package issue_81365_4_d2;
 struct T { tf: bool }
 struct C { t: T, cf: bool }

@@ -926,9 +926,27 @@ PIN = {
     # left `admit` for `fail` are not in tests/logos/pass at all. `glob` and the
     # DOOR counts unmoved: no `wql_*`/`deem_*` match, no container family, no
     # `direct` output form.
-    'corpus'            : 2452,
+    # 2026-08-29 (the CALL-HOP DEPOSIT, `callidxcallonly`), +3/0/+3.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 3 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2455
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2455 = 191 + 2264. The three are
+    # bc_field_deref_mut_borrow (`&mut b.f` on a `Box<S>` — the field auto-deref
+    # in a mutable-use position), bc_match_deref_mut_refmut_arm (a `ref mut` arm
+    # under `match *x`) and bc_call_hop_disjoint_ok (the COST side: a write
+    # through the field auto-deref, a shared field borrow across a disjoint
+    # read, two disjoint index borrows, a shared user-`Deref` borrow across a
+    # disjoint field read). All three assert a VALUE (`exit: 0` gated on the
+    # computed sum), not a diagnostic. The round's other three native fixtures
+    # are FAIL fixtures — each the ONE-TOKEN TWIN of a pass fixture above, which
+    # is how reach is proved for a landed rule with no fire log — and this
+    # population is the PASS corpus, so they move nothing here; the twelve
+    # imported programs that left `admit` for `fail` are not in tests/logos/pass
+    # at all. `glob` and the DOOR counts unmoved: no `wql_*`/`deem_*` match, no
+    # container family, no `direct` output form.
+    'corpus'            : 2455,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2261,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2264,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

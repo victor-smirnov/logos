@@ -348,7 +348,7 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
     // single-valued behavior for shapes the strict match can't decide.
     std::string base   = std::string(TypeRef(rt).struct_name());
     std::string cname  = concrete_struct_name(rt);
-    const char* tr     = want_mut ? "DerefMut" : "Deref";
+    const char* tr     = want_mut ? "DerefMut" : "Deref";  // may degrade below
     auto pick = [&](const char* trname) -> const SemaImplInfo* {
         const SemaImplInfo* loose = nullptr;
         for (const std::string& key : {std::string(trname) + "::" + cname,
@@ -370,9 +370,20 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
         return loose;
     };
     const SemaImplInfo* impl_p = pick(tr);
-    // DerefMut: a type may impl only Deref; fall back to Deref's Target (the
-    // DerefMut supertrait shares the same Target) for the mutable step.
-    if (!impl_p && want_mut) impl_p = pick("Deref");
+    // DerefMut: a type may impl only Deref. The Target is recoverable from the
+    // Deref impl (the supertrait shares it) — but there is NO `deref_mut` to
+    // dispatch to, so the STEP degrades to the shared one as well.
+    // ⚠ MEASURED 2026-08-29, and the comment this replaces was wrong in the
+    // dangerous direction: the old fallback recovered the Target TYPE and still
+    // emitted `mc.method = "deref_mut"` / `tag_trait = "DerefMut"`, which
+    // resolves to nothing — three legal hand-written programs over a
+    // `Deref`-without-`DerefMut` struct died in mlir_gen with "initializer
+    // produced no value ... statement DROPPED". A TYPE fallback is not a
+    // DISPATCH fallback. `lower_method_call`'s "an over-eager want_mut=true is
+    // safe" now says something true.
+    if (!impl_p && want_mut) {
+        if ((impl_p = pick("Deref"))) { want_mut = false; tr = "Deref"; }
+    }
     if (!impl_p) return std::nullopt;
     const SemaImplInfo& impl = *impl_p;
 
@@ -1422,8 +1433,15 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             if (auto place = lower_index_place(child, /*is_mut=*/true))
                 return place;
         }
-        // &mut <expr> — temporary materialization
+        // &mut <expr> — temporary materialization.
+        // A FIELD place borrowed mutably puts its auto-deref chain in a mutable
+        // use position: `&mut b.f` on a `Box<S>` is `&mut (*b).f`, and `*b` is
+        // `b.deref_mut()`. Only a field place — `&mut f(a.b)` borrows the CALL's
+        // temporary and leaves `a.b` an ordinary read.
+        bool saved_mut_place = mut_place_ctx_;
+        mut_place_ctx_ = (code_of(child) == la::FIELD_READ);
         auto inner = lower_expr(child);
+        mut_place_ctx_ = saved_mut_place;
         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
         auto __ty_inner = make_ref(true, expr_type(inner));
         // `&mut o.f` / `&mut a[i]` / `&mut <temp>` over a `#[zone_mut]` value:
@@ -3137,6 +3155,10 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
 }
 
 lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
+    // Consume the mutable-use context (see `mut_place_ctx_`): it belongs to
+    // THIS deref, not to whatever the operand contains.
+    bool mut_ctx = mut_place_ctx_;
+    mut_place_ctx_ = false;
     auto operand = lower_expr(map_of(node.get(la::VALUE.code)));
     auto vt = expr_type(operand);
     if (TypeRef(vt).kind() == LogosType::Kind::Error)
@@ -3145,7 +3167,7 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     // resolved through the generic-aware method machinery (method_call_v) so it
     // works for GENERIC impls too — the old find_func path saw only concrete
     // (non-generic) symbols, which is why Box needed a bespoke `.ptr` path.
-    if (auto d = emit_generic_deref_step(std::move(operand), /*want_mut=*/false))
+    if (auto d = emit_generic_deref_step(std::move(operand), /*want_mut=*/mut_ctx))
         return *d;
     if (TypeRef(vt).kind() != LogosType::Kind::Ptr &&
         TypeRef(vt).kind() != LogosType::Kind::Ref &&
@@ -10515,7 +10537,15 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     // NAME_VAR(idx)→NAME(string) rewrite); FIELD isn't set in that path.
     auto field_name = str_of(node.get(la::FIELD.code));
     if (field_name.empty()) field_name = str_of(node.get(la::NAME.code));
-    auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+    // Consume the mutable-use context (see `mut_place_ctx_`): it belongs to
+    // THIS field access. It stays armed only for a receiver that is itself a
+    // field place, so `&mut a.b.f` derefs mutably at both levels; everything
+    // else the receiver contains lowers as an ordinary read.
+    auto recv_node = map_of(node.get(la::RECEIVER.code));
+    bool mut_ctx = mut_place_ctx_;
+    mut_place_ctx_ = mut_ctx && code_of(recv_node) == la::FIELD_READ;
+    auto recv = lower_expr(recv_node);
+    mut_place_ctx_ = false;
     // A DROPPABLE fresh rvalue base (`make().x`) must live to the end of the
     // statement then drop — otherwise the temporary leaks (its Drop never runs).
     // Hoist it into the statement temp-scope as a named local and read the field
@@ -10537,15 +10567,16 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                (TypeRef(recv_base_t).kind() == LogosType::Kind::Struct ||
                 TypeRef(recv_base_t).kind() == LogosType::Kind::ZonedStruct) &&
                !field_type_of_for_type(recv_base_t, field_name)) {
-            // CEILING PROBE `fldderefmut` — see PROBES.md. The FIELD auto-deref
-            // step hardcodes want_mut=false. Its METHOD sibling asks
-            // (`target_method_wants_mut_self`) and that site's own comment
-            // records why an over-eager `true` is safe: emit_generic_deref_step
-            // falls back to Deref when the type has no DerefMut impl.
+            // The step is MUTABLE exactly when the field is in a mutable-use
+            // position (`mut_place_ctx_`) — the question `lower_method_call`
+            // answers with `target_method_wants_mut_self`. `fldderefsite` is
+            // the observational outer half; `fldderefmut` is the WIDER spelling
+            // still unlanded (mutable ALWAYS, use context ignored): it closes
+            // one more row, deref-field-pattern-…-146995, whose real defect is
+            // a move out of a deref and not a missing mutable step.
             (void)logos::probe::on("fldderefsite");
-            bool _fdm = logos::probe::on("fldderefmut") ||
-                        logos::probe::on("callidxfdm");
-            auto stepped = emit_generic_deref_step(recv, /*want_mut=*/_fdm);
+            bool step_mut = mut_ctx || logos::probe::on("fldderefmut");
+            auto stepped = emit_generic_deref_step(recv, /*want_mut=*/step_mut);
             if (!stepped) break;
             recv = *stepped;
             recv_base_t = expr_type(recv);

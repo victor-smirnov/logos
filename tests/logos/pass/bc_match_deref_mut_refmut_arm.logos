@@ -1,0 +1,16 @@
+// `match *x { … ref mut y … }` over a `Box` — a `ref mut` arm puts the
+// SCRUTINEE place in a mutable-use position, so `*x` must cross
+// `Box::deref_mut`. The arms are in hand where the scrutinee is lowered, so
+// this is a question, not a phase-ordering problem.
+// TWIN: bc_match_deref_mut_not_mut.logos — the same program with `let x`.
+package bc_match_deref_mut_refmut_arm;
+struct NodeD { a: Box<i64> }
+enum Cycle { Node(NodeD), Empty }
+fn main() -> i32 {
+    let mut x: Box<Cycle> = Box::new(Cycle::Node(NodeD { a: Box::new(1i64) }));
+    match *x {
+        Cycle::Node(ref mut y) => { y.a = Box::new(2i64); }
+        Cycle::Empty => {}
+    }
+    return 0i32;
+}

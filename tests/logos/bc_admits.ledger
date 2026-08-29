@@ -715,7 +715,37 @@
 # here would have left two notions of writability in the tree, which is exactly
 # how the gap opened. It costs a second correct refusal — `s.n += 1` on a
 # non-`mut` local `s` — which is upstream E0594 and was zero on the corpus.
-# TOTAL 361
+# 2026-08-29 — 361 -> 349. TWELVE rows, and the mechanism was priced as
+# `callidxcallonly` in src/compiler/PROBES.md before a line of it was written.
+# A place reached THROUGH A CALL THAT RETURNS A REFERENCE — a user `Deref` or
+# `Index` impl, an autoref'd receiver — broke `extract_borrow_place`'s walk at
+# the call, so `bp.root` stayed EMPTY and `record_borrow` returned on its first
+# line: no loan at all, and the reader that would have refused was never asked.
+# The fix hops to the receiver / arg0 and sets `index_in_chain`, which is the
+# DEPOSIT half — `visit()`'s AddrOfTemp arm already records a whole-root borrow
+# for an indexed chain, and a call is opaque exactly the way `[i]` is.
+# PREDICTED TWELVE BY NAME; closed exactly those twelve, both diffs empty.
+# ⚠ THE PROBE'S CEILING WAS THIRTEEN AND THE FIX CLOSES TWELVE, deliberately:
+# the thirteenth, `borrowck-borrow-overloaded-auto-deref`, is `&mut p.y` on an
+# `Rc<Point>` and rustc refuses it ONLY because Rust's `Rc` has no `DerefMut`.
+# Logos's does (stdlib/lang/rc/rc.logos, "Rust parity" — it is not). Closing it
+# through a borrow-check refusal would bank a row on a DIVERGENCE; its row
+# stays, and its real fix is a stdlib question. Recorded so the next round does
+# not re-derive it.
+# ⚠ THREE SEMA REPAIRS WERE THE PRICE, all of them over-refusals of LEGAL Rust
+# that the hop would otherwise have manufactured (a row may not be bought with a
+# legal-program refusal):
+#   · the FIELD auto-deref hardcoded `want_mut=false` — `&mut b.f` on a `Box`
+#     crossed the shared `deref`. It now asks the use context, the question its
+#     METHOD sibling already asks with `target_method_wants_mut_self`.
+#   · a `match *b { … ref mut y … }` scrutinee did the same. The arms are in
+#     hand where the scrutinee is lowered, so it was a question nobody asked.
+#   · `emit_generic_deref_call`'s DerefMut fallback recovered the Target TYPE
+#     and still emitted a `deref_mut` call that resolves to nothing — three
+#     legal programs over a `Deref`-without-`DerefMut` struct died in mlir_gen
+#     with "initializer produced no value ... statement DROPPED". A type
+#     fallback is not a dispatch fallback.
+# TOTAL 349
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -759,9 +789,7 @@ borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW tests/imported/admit/bo
 borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13
 borrowck-multiple-captures bck.C tests/imported/admit/borrowck/borrowck-multiple-captures
 borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed
-borrowck-no-cycle-in-exchange-heap--move-while-refmut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--move-while-refmut-borrowed
 borrowck-or-init bck.NEW tests/imported/admit/borrowck/borrowck-or-init
-borrowck-overloaded-index-and-overloaded-deref--t15 bck.B tests/imported/admit/borrowck/borrowck-overloaded-index-and-overloaded-deref--t15
 borrowck-overloaded-index-ref-index bck.NEW-3 tests/imported/admit/borrowck/borrowck-overloaded-index-ref-index
 borrowck-ref-mut-of-imm--ref-mut-of-imm bck.B tests/imported/admit/borrowck/borrowck-ref-mut-of-imm--ref-mut-of-imm
 borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--b
@@ -771,7 +799,6 @@ borrowed-data-escapes-closure-148392 bck.C tests/imported/admit/borrowck/borrowe
 borrowed-mut-pointer-assign-overflow-off bck.B tests/imported/admit/borrowck/borrowed-mut-pointer-assign-overflow-off
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
 cannot-assign-borrowed-ref-in-slice bck.A tests/imported/admit/borrowck/cannot-assign-borrowed-ref-in-slice
-cannot-borrow-index-of-hashmap-in-for bck.B tests/imported/admit/borrowck/cannot-borrow-index-of-hashmap-in-for
 cannot-return-ref-to-fn-param-in-filter-map bck.C tests/imported/admit/borrowck/cannot-return-ref-to-fn-param-in-filter-map
 clone-span-on-try-operator bck.NEW tests/imported/admit/borrowck/clone-span-on-try-operator
 deref-field-pattern-ref-suggestion-issue-146995 bck.B tests/imported/admit/borrowck/deref-field-pattern-ref-suggestion-issue-146995
@@ -789,15 +816,6 @@ issue-53432-nested-closure-outlives-borrowed-value bck.C tests/imported/admit/bo
 issue-55492-borrowck-migrate-scans-parents bck.A tests/imported/admit/borrowck/issue-55492-borrowck-migrate-scans-parents
 issue-58776-borrowck-scans-children bck.C tests/imported/admit/borrowck/issue-58776-borrowck-scans-children
 issue-7573 bck.C tests/imported/admit/borrowck/issue-7573
-issue-81365-10 bck.B tests/imported/admit/borrowck/issue-81365-10
-issue-81365-11 bck.B tests/imported/admit/borrowck/issue-81365-11
-issue-81365-2 bck.B tests/imported/admit/borrowck/issue-81365-2
-issue-81365-3 bck.B tests/imported/admit/borrowck/issue-81365-3
-issue-81365-4--d2 bck.B tests/imported/admit/borrowck/issue-81365-4--d2
-issue-81365-4--rd2 bck.B tests/imported/admit/borrowck/issue-81365-4--rd2
-issue-81365-8 bck.B tests/imported/admit/borrowck/issue-81365-8
-issue-81365-9--explicit-deref-call-borrow-then-write bck.B tests/imported/admit/borrowck/issue-81365-9--explicit-deref-call-borrow-then-write
-issue-81365-9--g-method-call-deref bck.B tests/imported/admit/borrowck/issue-81365-9--g-method-call-deref
 issue-82032 bck.B tests/imported/admit/borrowck/issue-82032
 issue-83924 bck.NEW tests/imported/admit/borrowck/issue-83924
 issue-85581 bck.B tests/imported/admit/borrowck/issue-85581

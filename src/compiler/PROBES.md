@@ -1231,3 +1231,99 @@ which is the difference between this round and the last two:
 Neither is a borrow-check change. Both are in sema, both are small, and (2) is a
 defect with no ledger row and no fixture that is worth its own round regardless
 of whether the 13 are ever bought.
+
+## callidxcallonly-LANDED — the funded mechanism, and the three sema repairs it cost
+site: src/compiler/borrow_check.cpp::extract_borrow_place
+build: 51ec320220e5e558 (fixed tree; probe baseline 56, fixed gate builds 61/62)
+measured: 2026-08-29
+fires: n/a — the mechanism is LANDED, not armed; `callsite` (1132) is its outer half
+ceiling: 13 measured as a probe
+cost: 0 by the corpus, and ⛔ NOT 0 by hand — three legal programs, all repaired
+verdict: FUNDED. PREDICTED TWELVE BY NAME, CLOSED TWELVE, both diffs ∅.
+note: THE PREDICTION AND THE RESULT, as sets. The probe's 13 were
+  `callindexchain`'s set; the fix was predicted to close 12 of them — all but
+  `borrowck-borrow-overloaded-auto-deref` — BEFORE the gate ran, on the reading
+  that that row is `&mut p.y` on an `Rc<Point>` and rustc refuses it ONLY
+  because Rust's `Rc` has no `DerefMut`, while `stdlib/lang/rc/rc.logos:232`
+  gives Logos's one under the comment "Rust parity". Closed set, measured:
+    borrowck-no-cycle-in-exchange-heap--move-while-refmut-borrowed
+    borrowck-overloaded-index-and-overloaded-deref--t15
+    cannot-borrow-index-of-hashmap-in-for
+    issue-81365-2 · -3 · -4--d2 · -4--rd2 · -8 · -10 · -11
+    issue-81365-9--explicit-deref-call-borrow-then-write
+    issue-81365-9--g-method-call-deref
+  predicted∖closed = ∅; closed∖predicted = ∅. Ledger 361 -> 349.
+  ⚠ A CEILING BOUNDS THE COUNT, NOT THE SET (rule 6), and here the count moved
+  too: 13 -> 12. The row the fix does NOT close is the one the probe closed for
+  a reason the fix removes — the E0596 over-refusal — which is exactly what the
+  part-2 report predicted for `callidxfdm` and why `callidxfdm` and
+  `callindexchain` had the same SIZE and different SETS.
+  ⚠ AND THE FIX IS NARROWER THAN THE PROBE IN A SECOND PLACE. `fldderefmut`'s
+  extra row, deref-field-pattern-ref-suggestion-issue-146995, is NOT closed:
+  it is `let val: NonCopy = w.field;`, a MOVE OUT OF A DEREF, and it closed
+  under the crude probe only because an always-mutable step changes what
+  `cross()` records. Its defect is a missing move-out-of-deref check and it
+  stays in the ledger under its own name. Rule 7, in the usual direction.
+
+  WHAT LANDED, three sites, one question:
+  (1) borrow_check `extract_borrow_place` — hop a Call/MethodCall/AddrOfTemp
+      whose type IS a reference to its receiver/arg0, and set `index_in_chain`
+      for the Call/MethodCall half (NOT AddrOfTemp: that autoref population
+      broke liblogos-lang on 2026-08-27 and is excluded for free, since the
+      narrow spelling was set-identical to the wide one).
+  (2) sema `lower_field_read` + `lower_deref` — the auto-deref step is MUTABLE
+      exactly in a mutable-use position, carried by `mut_place_ctx_`, set by
+      `&mut <field place>` and by a `match *x` scrutinee whose arms bind
+      `ref mut` (`arms_bind_ref_mut`, which reuses the tree's one pattern
+      walker rather than growing a second).
+  (3) sema `emit_generic_deref_call` — a `want_mut` step on a type with no
+      `DerefMut` impl DEGRADES to the shared step instead of emitting a
+      `deref_mut` call that resolves to nothing.
+
+  ⚠ (2) AND (3) ARE NOT OPTIONAL EXTRAS, THEY ARE THE PRICE. Without them the
+  hop refuses legal Rust: `let r: &mut i64 = &mut b.f;` on a `Box<S>` and
+  `match *x { Cycle::Node(ref mut y) => … }` on a `Box<Cycle>`, both measured
+  rc 1 with (1) alone and rc 0 with all three. Eleven mechanisms have been
+  declined on the legal-refusal rule; this is the first round that paid it off
+  instead of declining, because the report named the sites instead of the
+  symptom.
+
+  THE CONTROL, and it is the reason the cost claim is not rule-5 bait again:
+  the three new `fail` fixtures were compiled on a build with `src/compiler`
+  reverted and the fixtures in place — no diagnostic on any of them, i.e. all
+  three were ADMITTED before this change and are refused after. So each legal
+  twin's one-token sibling proves the new rule REACHES it:
+    bc_field_deref_mut_borrow (pass)      ⟷ bc_field_deref_mut_not_mut (`let b`)
+    bc_match_deref_mut_refmut_arm (pass)  ⟷ bc_match_deref_mut_not_mut (`let x`)
+    bc_field_deref_mut_borrow (pass)      ⟷ bc_field_deref_no_deref_mut (Deref,
+                                             no DerefMut — the (3) reach proof)
+  plus bc_call_hop_disjoint_ok, the cost side: a write through the field
+  auto-deref, a shared field borrow across a disjoint read, two disjoint index
+  borrows, and a shared user-`Deref` borrow across a disjoint field read.
+  ⚠ THE SHELL LIED IN THE CONTROL RUN and the number reported here is the one
+  that was actually measured: `printf '%s rc=%d' "$(basename $f)" "$?"` expands
+  the command substitution FIRST, so every `rc=` printed 0 whatever the
+  compiler did. The diagnostic column of that same run — a grep over the
+  captured stderr — is what says "admitted", and it is empty for all three.
+
+  TWO DIAGNOSTICS WERE RE-PINNED, and neither is a weakening. `borrowck-issue-
+  14498--box-mut-ref` and `--b-write-through-shared` asserted "cannot assign to
+  a place behind a `&` reference", the ANONYMOUS branch of the DerefWrite guard,
+  which is taken only when the place has no root. The hop supplies the root, so
+  they now print "cannot assign to 'y': 'y' is behind a `&` reference" — the
+  same refusal, naming the place. The guard's own comment predicted this ("the
+  walk breaks at the user-Deref call and loses the root") and has been corrected.
+
+  LEFT OPEN, NAMED:
+  · `borrowck-borrow-overloaded-auto-deref` — its row now says its real cause is
+    `impl DerefMut for Rc<T>`. Rust does not have it, deliberately: an `Rc` is a
+    SHARED owner and `&mut` through it aliases every other handle. That is a
+    stdlib/divergence question, not a borrow-check one.
+  · deref-field-pattern-ref-suggestion-issue-146995 — move out of a `Deref`.
+  · `fldderefmut` and `matchderefmut` remain armable as the WIDER spellings of
+    (2): mutable step whatever the use context. `callroot` remains armable as
+    the widening of (1): hop a call that does NOT return a reference.
+  · The mutable-use positions that (2) does NOT arm: a write LHS (`b.f = …`
+    still crosses the shared step and is admitted by other means), a compound
+    assignment, `&mut b.f[i]`. One notion, deliberately under-armed at the
+    edges, each edge named here rather than discovered later.

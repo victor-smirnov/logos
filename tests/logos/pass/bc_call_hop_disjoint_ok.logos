@@ -1,0 +1,25 @@
+// The COST side of the call hop: a place reached through a reference-returning
+// call is now rooted at the receiver with `index_in_chain` — a WHOLE-ROOT
+// borrow. These four shapes must stay legal.
+//   · a write through the field auto-deref            (`b.f = …`)
+//   · a shared field borrow live across a disjoint read
+//   · two disjoint index borrows of one array
+//   · a shared user-`Deref` borrow live across a disjoint field read
+package bc_call_hop_disjoint_ok;
+struct S { f: i64, g: i64 }
+struct T { tf: i64 }
+struct C { t: T, cf: i64 }
+impl Deref for C { type Target = T; fn deref(self: &C) -> &T { return &self.t; } }
+fn main() -> i32 {
+    let mut b: Box<S> = Box::new(S { f: 1i64, g: 2i64 });
+    b.f = 2i64;
+    let r: &i64 = &b.f;
+    let x: i64 = b.g;
+    let mut v: [i64; 2] = [1i64, 2i64];
+    let a0: &i64 = &v[0u64];
+    let a1: &i64 = &v[1u64];
+    let c: C = C { t: T { tf: 5i64 }, cf: 1i64 };
+    let first: &i64 = &c.tf;
+    let z: i64 = c.cf;
+    return (*r + x + *a0 + *a1 + *first + z - 13i64) as i32;
+}
