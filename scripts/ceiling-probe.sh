@@ -40,6 +40,15 @@ _measure() {   # $1 = log file; runs all three selections under the current env
       bash scripts/gate-run.sh "${LEGAL_B[@]}"; } > "$1" 2>&1
 }
 
+# ⚠ THE FIRE COUNT IS RULE 1 AND I DELETED IT BY ACCIDENT. Rewiring this script
+# onto the store dropped the fire log, so a batch of six probes reported five
+# zeros with the verdict "is the site populous?" — and nothing could answer it.
+# A zero without a fire count is not a refutation and not a measurement; it is
+# an unreadable result that looks like both.
+_fires() {   # $1 = fire log; sums the counts probe::on() appended
+    awk -F'\t' -v n="$NAME" '$1==n {s+=$2} END{print s+0}' "$1" 2>/dev/null
+}
+
 NAME="${1:?usage: ceiling-probe.sh <probe-name> | --selftest}"
 
 if [ "$NAME" = "--selftest" ]; then
@@ -63,7 +72,9 @@ B=$(mktemp); A=$(mktemp)
 echo "ceiling-probe: unarmed baseline (from the store where it is already there)"
 _measure "$B"; BID_BASE=$(_bid "$B")
 echo "ceiling-probe: armed run — LOGOS_PROBE=$NAME"
-LOGOS_PROBE="$NAME" _measure "$A"; BID_ARMED=$(_bid "$A")
+FIRELOG=$(mktemp); : > "$FIRELOG"
+LOGOS_PROBE="$NAME" LOGOS_PROBE_FIRE="$FIRELOG" _measure "$A"; BID_ARMED=$(_bid "$A")
+FIRES=$(_fires "$FIRELOG"); rm -f "$FIRELOG"
 [ -z "${BID_BASE:-}" ] || [ -z "${BID_ARMED:-}" ] && {
     echo "ceiling-probe: could not read a build id from gate-run — refusing to report a number" >&2
     exit 2; }
@@ -73,13 +84,20 @@ LOGOS_PROBE="$NAME" _measure "$A"; BID_ARMED=$(_bid "$A")
     echo "  below would be a comparison of a run with itself." >&2
     exit 2; }
 
-FIRES=$(grep -c . /dev/null; true)
 CLOSED=$(python3 scripts/gate_db.py delta "$DB" "$BID_BASE" "$BID_ARMED" logos_00_bc_admit_)
 N=$(printf '%s' "$CLOSED" | grep -c . || true)
 BROKE=$(python3 scripts/gate_db.py delta "$DB" "$BID_BASE" "$BID_ARMED" | grep -v '^logos_00_bc_admit_' || true)
 C=$(printf '%s' "$BROKE" | grep -c . || true)
 
 echo "ceiling-probe: '$NAME'  builds $BID_BASE (unarmed) -> $BID_ARMED (armed)"
+echo "probe: fired ${FIRES:-0} times"
+if [ "${FIRES:-0}" -eq 0 ]; then
+    echo "probe: ✗ NEVER FIRED — the site was not reached by any compile in this run." >&2
+    echo "  This is NOT ceiling 0. Either the name is mis-typed, the guard sits" >&2
+    echo "  upstream of the site, or the path is dead. Prove the site is live" >&2
+    echo "  before reading any zero off it." >&2
+    exit 3
+fi
 echo "probe: CEILING = $N rows"
 [ "$N" -ne 0 ] && printf '%s\n' "$CLOSED" | sed 's/^/probe:   /'
 echo "probe: COST    = $C legal programs refused (a LOWER bound — the corpus refuses"

@@ -1,6 +1,10 @@
 // rustc borrowck/suggest-local-var-double-mut.rs — upstream E0499
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.NEW
+// shelf: pin — WAS bc_admits.ledger root bck.NEW; the hole CLOSED 2026-08-29
+// when the AddrOfTemp `&mut self` receiver started taking a B82 RESERVATION
+// (borrow_check.cpp, MethodCall arm). The check half was landed (D-d.2);
+// what was missing was the DEPOSIT, so nothing held `f` while visit_args
+// evaluated `f.bar()`.
 // VARIANT of t36: the same nested double-&mut, receiver is a LOCAL instead of `self`
 package suggest_local_var_double_mut_d_double_mut_on_local_receiver;
 struct Foo { n: i64 }

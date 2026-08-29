@@ -1,0 +1,27 @@
+// THE `&mut self` RECEIVER SPELLED `AddrOfTemp` WAS CHECKED AND NEVER RECORDED
+// — the second half of B94, and the missing half was the DEPOSIT. `visit_place_
+// base` runs visit()'s AddrOfTemp arm, which checks the receiver against every
+// existing loan (including `mut_reservations`, D-d.2) and, per B94, records
+// nothing. So NOTHING held `s` while `visit_args` evaluated the sibling
+// operand, and `s.set(s.set(1))` — two `&mut self` on one root, upstream E0499
+// — compiled. The MethodCall arm now deposits a B82 RESERVATION on a whole-root
+// AddrOfTemp receiver, and the inner call's own auto-ref reaches the check arm
+// that already consults it.
+//
+// ⚠ THE DEPOSIT DELIBERATELY DOES NOT GO THROUGH `take_borrow`, and that is
+// what took three prices to learn. Routed through `record_borrow` the identical
+// rule was CEILING 5 / COST 11 (`recvresvamut`) and CEILING 4 / COST 9
+// (`recvamutarg`) and was declined twice; every one of those costs was
+// take_borrow's BINDING-MUT question asked a SECOND time about a receiver
+// reached through a `&mut` reference binding, which this arm has already asked
+// and exempted by `root_is_ref`. Record-only it is CEILING 3 / COST 0.
+// TWIN: pass/bc_recv_addroftemp_resv_admit — nineteen legal shapes, all proven
+// to reach the deposit, including the `&mut`-binding receiver (9-11) and the
+// field-path receiver the `rrp.path.empty()` guard keeps out (16-17).
+package bc_recv_addroftemp_resv_fail;
+struct S { a: i64 }
+impl S { fn set(self: &mut S, k: i64) -> i64 { self.a = k; return k; } }
+fn main() -> i32 {
+    let mut s: S = S { a: 0i64 };
+    return s.set(s.set(1i64)) as i32;   // E0499: two &mut self on one root
+}

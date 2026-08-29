@@ -47,7 +47,10 @@ HEAD=$(git rev-parse --short HEAD 2>/dev/null || echo nogit)  # lint:git-ok — 
 # was actually testing. Every LOGOS_* variable goes into the key — that
 # over-invalidates for a pure dump flag, which is the safe direction: a spurious
 # re-run costs minutes, a poisoned record costs a wrong answer.
-ENVK=$(env | grep -E '^LOGOS_(PROBE|DUMP|VERIFY|SZ|MRAM)' | sort | sha256sum | cut -c1-12)
+# ⚠ LOGOS_PROBE_FIRE IS EXCLUDED: it names an output file, it does not change
+# a single decision the compiler makes. Keying on it would put a fresh temp
+# path into the identity on every call and defeat the cache entirely.
+ENVK=$(env | grep -E '^LOGOS_(PROBE|DUMP|VERIFY|SZ|MRAM)' | grep -v '^LOGOS_PROBE_FIRE=' | sort | sha256sum | cut -c1-12)
 BID=$(python3 scripts/gate_db.py build "$DB" "$VER" "$LIBS-$ENVK" "$HEAD")
 # Printed on stderr so a caller can capture the identity without parsing the
 # report — `ceiling-probe.sh` needs it to ask the store what changed between an

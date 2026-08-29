@@ -879,9 +879,23 @@ PIN = {
     # left `admit` for `fail` are not in tests/logos/pass at all. `glob` and the
     # DOOR counts unmoved (36 = 10 + 26): no `wql_*`/`deem_*` match, no
     # container family, no `direct` output form.
-    'corpus'            : 2448,
+    # 2026-08-29 (the AddrOfTemp `&mut self` receiver reservation), +1/0/+1.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 1 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2449
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2449 = 191 + 2258. The one is
+    # bc_recv_addroftemp_resv_admit — nineteen legal receiver shapes, every one
+    # PROVEN to reach the new deposit, and it asserts a VALUE (`exit: 0` gated
+    # on nineteen inequalities) rather than a diagnostic, because the claim is
+    # that all nineteen still compile AND still compute what they computed. The
+    # round's other native fixture is a FAIL fixture and this population is the
+    # PASS corpus, so it moves nothing here; the three imported programs that
+    # left `admit` for `fail` are not in tests/logos/pass at all. `glob` and the
+    # DOOR counts unmoved: no `wql_*`/`deem_*` match, no container family, no
+    # `direct` output form.
+    'corpus'            : 2449,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2257,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2258,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

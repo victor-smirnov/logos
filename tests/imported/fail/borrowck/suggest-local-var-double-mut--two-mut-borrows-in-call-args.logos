@@ -1,6 +1,9 @@
 // rustc borrowck/suggest-local-var-double-mut.rs — upstream E0499
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.NEW
+// shelf: pin — WAS bc_admits.ledger root bck.NEW; closed 2026-08-29 by the
+// AddrOfTemp receiver reservation. Same rule as the -d- twin, receiver
+// spelled `self` (a `&mut Foo` PARAM) instead of a local — which is why the
+// deposit must not ask the binding-mut question.
 // upstream: borrowck/suggest-local-var-double-mut.rs  E0499
 package suggest_local_var_double_mut_two_mut_borrows_in_call_args;
 struct Foo { n: i64 }

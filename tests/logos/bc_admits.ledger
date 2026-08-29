@@ -639,7 +639,36 @@
 # that mechanism's only measured cost (4/1 under rule 8) — so capshared can be
 # priced 4/0 next round.
 # Class C: 45 rows -> 42.
-# TOTAL 368
+# 2026-08-29 — 368 -> 365. THREE rows, PREDICTED AS THREE BY NAME before the
+# edit and the closed set diffed BOTH ways (empty both directions, over the 2159
+# tests measured under build 13 AND build 14). The `&mut self` receiver spelled
+# `AddrOfTemp` was CHECKED and never RECORDED — B94's second half — so nothing
+# held it while `visit_args` evaluated the SIBLING operands, and `f.foo(f.bar())`
+# compiled. The consumer had been landed for a year of rounds (D-d.2, the
+# `is_mut && mut_reservations > 0` arm of visit()'s AddrOfTemp case); the
+# producer at this spelling did not exist.
+#   suggest-local-var-double-mut--d-double-mut-on-local-receiver  E0499
+#   suggest-local-var-double-mut--two-mut-borrows-in-call-args    E0499
+#   two-phase-multi-mut                                           E0499
+# All three moved to tests/imported/fail/borrowck/ with the diagnostic pinned,
+# plus a native PAIR fail/bc_recv_addroftemp_resv_fail +
+# pass/bc_recv_addroftemp_resv_admit (19 legal shapes, all proven to reach the
+# deposit).
+# ⚠ WHAT MADE IT LAND WAS NOT THE RULE BUT THE ROUTE. The same deposit through
+# `record_borrow` priced CEILING 5 / COST 11 (`recvresvamut`) and CEILING 4 /
+# COST 9 (`recvamutarg`) and was declined twice. Every one of those costs was
+# `take_borrow`'s BINDING-MUT question — "cannot borrow 'X' as mutable: not
+# declared as mut" — asked a second time about a receiver reached through a
+# `&mut` reference binding, which visit()'s AddrOfTemp arm had already asked and
+# exempted by `root_is_ref`. Record-only, the same rule is CEILING 3 / COST 0.
+# A cost is not always the rule's price; sometimes it is the delivery's.
+# ⚠ AND `recvamutarg`'s EXTRA row was a WRONG-REASON closure by that very check:
+# lifetimes/ex2e-push-inference-variable-3 went red with "not declared as mut" on
+# `let a: &mut Vec<Ref<'b>> = x; a.push(b);` — a legal program refused, not a
+# hole closed. It stays on the ledger, admitted. A ceiling of 4 containing a cost
+# is worse than a ceiling of 3.
+# Class NEW (bck.NEW): eval-order/two-phase group 5 rows -> 2.
+# TOTAL 365
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -745,13 +774,10 @@ regions-escape-bound-fn-2 bck.C tests/imported/admit/borrowck/regions-escape-bou
 regions-escape-bound-fn bck.C tests/imported/admit/borrowck/regions-escape-bound-fn
 regions-escape-unboxed-closure bck.B tests/imported/admit/borrowck/regions-escape-unboxed-closure
 slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck/slice-index-bounds-check-invalidation--t35
-suggest-local-var-double-mut--d-double-mut-on-local-receiver bck.NEW tests/imported/admit/borrowck/suggest-local-var-double-mut--d-double-mut-on-local-receiver
-suggest-local-var-double-mut--two-mut-borrows-in-call-args bck.NEW tests/imported/admit/borrowck/suggest-local-var-double-mut--two-mut-borrows-in-call-args
 suggest-local-var-for-vector bck.D tests/imported/admit/borrowck/suggest-local-var-for-vector
 suggest-lt-on-ty-alias-w-generics bck.A tests/imported/admit/borrowck/suggest-lt-on-ty-alias-w-generics
 suggest-storing-local-var-for-vector bck.D tests/imported/admit/borrowck/suggest-storing-local-var-for-vector
 two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-loop
-two-phase-multi-mut bck.NEW tests/imported/admit/borrowck/two-phase-multi-mut
 two-phase-nonrecv-autoref--a-fnmut-twice bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--a-fnmut-twice
 two-phase-nonrecv-autoref--c-mut-and-shared-args bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--c-mut-and-shared-args
 two-phase-nonrecv-autoref--d-index-two-phase bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--d-index-two-phase

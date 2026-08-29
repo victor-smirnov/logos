@@ -13471,88 +13471,28 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             }
             push_scope();
             visit_place_base(v.receiver(), line);
-            // ── CEILING PROBE `recvresvamut` — the receiver of a `&mut self`
-            // method is CHECKED and never RECORDED (B94), so nothing holds it
-            // while visit_args evaluates the siblings. Deposit a B82 two-phase
-            // RESERVATION (in_call_args_ > 0), which is compatible with SHARED
-            // reads taken during the same argument evaluation — that is what
-            // keeps `v.push(v.len())` admitted. Whole-root only, so the D8
-            // field-split admits are untouched. `recvargloan` measured 0
-            // because extract_borrow_place has no AddrOfTemp arm; unwrap first.
-            // ── MEASURED 2026-08-28: 342 fires over 393 ledger compiles,
-            // CEILING 5, COST 11. ⛔ COST >= CEILING. The unwrap works — where
-            // `recvargloan` recorded nothing at all, this closes
-            // suggest-local-var-double-mut--d-double-mut-on-local-receiver,
-            // suggest-local-var-double-mut--two-mut-borrows-in-call-args,
-            // two-phase-multi-mut, lifetimes_ex2e-push-inference-variable-3 and
-            // nll_issue-51191. But eleven legal programs go red, and they are
-            // not a fringe: seven native bc_ admits (d1r5 alias/reborrow, d1r8
-            // field-rhs-read-before-mut, d1r10 rebind-alias-dead, three
-            // esc_holder rows), three zone_mut rows and spec layout_6. A
-            // whole-root reservation on EVERY `&mut self` receiver is too
-            // coarse — the corpus is full of legal calls whose arguments read
-            // the receiver. Declined at this spelling. `recvresvbare` shows the
-            // same rule at the OTHER receiver spelling costs ZERO, so if this
-            // mechanism is funded it is funded there and narrowed here.
-            // ⚠ 2026-08-28: THAT HALF IS NOW LANDED (see the bare-place deposit
-            // below), and this probe's ceiling is therefore STALE — the five
-            // rows it priced were counted against a ledger that still held
-            // suggest-local-var-imm-and-mut and two-phase-sneaky. RE-PRICE
-            // before funding it. The cost of 11 is the reason it is declined
-            // and that number is not affected by the rows leaving.
-            if (logos::probe::on("recvresvamut")) {
-                if (auto recv = v.receiver();
-                    recv && recv.kind() == Code::AddrOfTemp) {
-                    int sk = method_self_kind(v);
-                    if (sk >= 1) {
-                        BorrowPlace rrp = extract_borrow_place(
-                            EAddrOfTempView{recv}.inner(), pool);
-                        if (!rrp.root.empty() && rrp.path.empty()) {
-                            in_call_args_++;   // B82 reservation, NOT activation
-                            record_borrow(rrp, /*is_mut=*/sk == 2, line,
-                                          "__recv_resv");
-                            in_call_args_--;
-                        }
-                    }
-                }
-            }
-            // ── CEILING PROBES `recvamutarg` / `recvamutraw` / `recvamuttouch`
-            // — THREE NARROWINGS OF ONE PRODUCER, at the spelling where the
-            // CONSUMER IS ALREADY LANDED. The AddrOfTemp arm below already
-            // refuses `is_mut && sit->mut_reservations > 0`; what is missing at
-            // this spelling is the DEPOSIT, so a `&mut self` receiver is never
-            // held while visit_args evaluates its siblings and `f.foo(f.bar())`
-            // compiles. The undifferentiated deposit is `recvresvamut`, priced
-            // 5/11 on this tree and DECLINED — eleven legal programs refused.
-            // The three names below price WHICH narrowing pays for it:
-            //   recvamutarg    deposit only when the call HAS arguments. A
-            //                  zero-arg `it.next()` has no sibling operand to
-            //                  conflict with, so its deposit can only ever
-            //                  refuse; this is the cheapest possible narrowing
-            //                  that keeps all three target rows.
-            //   recvamutraw    deposit RECORD-ONLY — bump the counter and push
-            //                  the scope entry directly, so the deposit itself
-            //                  never runs take_borrow's own conflict arms. The
-            //                  hypothesis is that the eleven costs are the
-            //                  DEPOSIT refusing (an outer shared borrow, a
-            //                  non-mut binding), not a sibling refusing.
-            //   recvamuttouch  deposit only when some ARGUMENT names the same
-            //                  root as the receiver — the narrowest rule that
-            //                  can still close the three rows.
-            // Population, coverage 2026-08-28: the MethodCall arm takes 413,203
-            // arrivals and its bare-place branch 174,476, so the AddrOfTemp
-            // receivers this block sees are ~238,727 arrivals. Not a small
-            // population (rule 4).
+            // ── THE `AddrOfTemp` RECEIVER IS CHECKED AND NEVER RECORDED, AND
+            // THAT IS THE SECOND HALF OF B94. `visit_place_base` above runs
+            // visit()'s AddrOfTemp arm, which CHECKS the receiver against every
+            // existing loan — including `mut_reservations` (D-d.2) — and, per
+            // B94, records nothing. So nothing held the receiver while
+            // `visit_args` evaluated its SIBLINGS, and `f.foo(f.bar())` with
+            // both `&mut self` compiled (E0499). The check half is landed; this
+            // is the DEPOSIT.
             //
-            // ── MEASURED 2026-08-29, one build, three armed runs ────────────
-            //   recvamutarg    CEILING 4 / COST 9   ⛔
-            //   recvamutraw    CEILING 3 / COST 0   ✓  THE DELIVERABLE
-            //   recvamuttouch  CEILING 2 / COST 0
-            //
-            // ⚠ AND THE NINE COSTS ARE ONE QUESTION, NOT NINE. Every one of
-            // `recvamutarg`'s refusals is the SAME diagnostic — "cannot borrow
-            // 'X' as mutable: not declared as mut" — read off by compiling each
-            // cost fixture under each probe by hand:
+            // ── IT IS A DEPOSIT, NOT A BORROW, AND THE DIFFERENCE IS THE WHOLE
+            // ROUND. It does NOT go through `take_borrow`, because take_borrow
+            // asks the BINDING-MUT question ("cannot borrow 'X' as mutable: not
+            // declared as mut") and the AddrOfTemp arm has ALREADY asked it,
+            // with the `root_is_ref` exemption this spelling needs. Asking it
+            // twice is what declined this mechanism twice before:
+            //   `recvresvamut`  (deposit via record_borrow, every AddrOfTemp
+            //                    `&mut self` receiver) CEILING 5 / COST 11 ⛔
+            //   `recvamutarg`   (same, only when the call has arguments)
+            //                    CEILING 4 / COST 9 ⛔
+            // Compiling each of those nine cost fixtures under each probe by
+            // hand, ALL NINE are the same diagnostic and all nine are rc 0
+            // under the record-only deposit:
             //   bc_d1r10_e0_rebind_alias_dead_admit          's'
             //   bc_d1r5_h0_alias_admits                      'r'
             //   bc_d1r5_h1_reborrow_admits                   'r'
@@ -13562,80 +13502,86 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             //   bc_esc_holder_residency_pershare_admit       'doc'
             //   zone_mut_fat_ref                             'r'
             //   zone_mut_thin_source_admits_wmap             'mp'
-            // All nine are rc 0 under `recvamutraw`. So the eleven costs that
-            // declined `recvresvamut` were never about RESERVATION semantics
-            // and never about a sibling operand: they are `take_borrow`'s own
-            // BINDING-MUT check, which the deposit has no business asking. The
-            // landed bare-place deposit already sidesteps exactly that question
-            // (`sit->is_mut_binding || param_names_`), and `skip_mut_binding_check`
-            // exists in take_borrow for the same reason at the same spelling.
-            // ⚠ AND THE FOURTH ROW `recvamutarg` CLOSED IS A WRONG-REASON
-            // CLOSURE BY THE SAME CHECK. lifetimes/ex2e-push-inference-variable-3
-            // closes with "cannot borrow 'a' as mutable: not declared as mut"
-            // — `let a: &mut Vec<Ref<'b>> = x; a.push(b);` — which is a legal
-            // program refused, not a hole closed. `recvamutraw` leaves it
-            // admitted (rc 0), which is the CORRECT verdict for this mechanism.
-            // A ceiling of 4 that contains a cost is worse than a ceiling of 3.
-            // ⚠ `recvamuttouch` MISSES two-phase-multi-mut for a reason that is
-            // this probe's spelling and not the rule's: `foo.method(&mut foo)`
-            // hands an `EAddrOf` argument, and the peel below knows MethodCall
-            // and AddrOfTemp only, so `touches` is false. Strictly dominated by
-            // `recvamutraw`; kept because the dominance is the measurement.
-            // ⚠ COST 0 IS NOT A SAFETY CLAIM (rule 5). Eight legal shapes were
-            // hand-written for `recvamutraw` and PROVEN TO FIRE — 16 arrivals in
-            // the one file — and all eight still admit: the argument reading the
+            // Every one is a receiver reached THROUGH a `&mut` reference
+            // binding, which is legal Rust and which the AddrOfTemp arm exempts
+            // by `root_is_ref`. `take_borrow`'s own `skip_mut_binding_check`
+            // exists for exactly this at exactly this spelling; the landed
+            // bare-place deposit below sidesteps it the other way
+            // (`is_mut_binding || param_names_`), which it can afford because
+            // sema never wraps a bare-place receiver.
+            //
+            // ── PRICED BEFORE IT WAS WRITTEN (scripts/ceiling-probe.sh, one
+            // build, three armed runs, 2026-08-29). Population: the MethodCall
+            // arm takes 413,203 arrivals and its bare-place branch 174,476, so
+            // ~238,727 arrivals reach this block — not a small population.
+            //   `recvamutraw`   record-only deposit    CEILING 3 / COST 0  ✓
+            //   `recvamutarg`   deposit when nargs>0   CEILING 4 / COST 9  ⛔
+            //   `recvamuttouch` deposit when an arg
+            //                   names the same root    CEILING 2 / COST 0
+            // The three rows are named, and the closed set was diffed BOTH ways
+            // — nothing predicted stayed open, nothing unpredicted closed:
+            //   suggest-local-var-double-mut--d-double-mut-on-local-receiver
+            //   suggest-local-var-double-mut--two-mut-borrows-in-call-args
+            //   two-phase-multi-mut
+            // ⚠ `recvamutarg`'s FOURTH row is a WRONG-REASON closure by the
+            // very check this deposit refuses to ask: lifetimes/ex2e-push-
+            // inference-variable-3 (`let a: &mut Vec<Ref<'b>> = x; a.push(b);`)
+            // closes with "not declared as mut" — a legal program refused, not
+            // a hole closed. A ceiling of 4 that contains a cost is worse than
+            // a ceiling of 3, and this rule leaves that row admitted.
+            // ⚠ `recvamuttouch` misses two-phase-multi-mut for a reason that is
+            // the probe's SPELLING and not the rule's — `foo.method(&mut foo)`
+            // hands an `EAddrOf` argument its peel did not know. Dominated.
+            //
+            // ── COST 0 IS NOT A SAFETY CLAIM. Nineteen legal shapes were
+            // hand-written and PROVEN TO FIRE (19 arrivals in one file, 16 in a
+            // second), and every one still admits: the argument reading the
             // receiver (`s.set(s.get()+1)`), two shared reads, a `&mut` of a
-            // DISJOINT FIELD in the argument, a shared read of a disjoint field,
-            // a zero-arg `&mut self` call, a `&self` receiver whose argument
-            // reads it, `v.push(v.len() as i64)`, and two SEQUENTIAL `&mut self`
-            // calls (the reservation must be released between them). The refuse
-            // half is `s.set(s.set(1i64))`: rc 0 unarmed, rc 1 armed with
-            // "cannot borrow 's' as mutable: already mutably borrowed".
-            bool p_ra = logos::probe::on("recvamutarg");
-            bool p_rr = logos::probe::on("recvamutraw");
-            bool p_rt = logos::probe::on("recvamuttouch");
-            if (p_ra || p_rr || p_rt) {
-                if (auto recv = v.receiver();
-                    recv && recv.kind() == Code::AddrOfTemp) {
-                    int sk = method_self_kind(v);
-                    if (sk >= 1) {
-                        BorrowPlace rrp = extract_borrow_place(
-                            EAddrOfTempView{recv}.inner(), pool);
-                        int  nargs   = 0;
-                        bool touches = false;
-                        v.each_arg([&](ExprRef a) {
-                            if (!a) return;
-                            ++nargs;
-                            ExprRef t = a;
-                            if (t.kind() == Code::MethodCall)
-                                t = EMethodCallView{t}.receiver();
-                            if (t && t.kind() == Code::AddrOfTemp)
-                                t = EAddrOfTempView{t}.inner();
-                            if (t && !rrp.root.empty() &&
-                                extract_borrow_place(t, pool).root == rrp.root)
-                                touches = true;
-                        });
-                        bool want = p_rr || (p_ra && nargs > 0) ||
-                                    (p_rt && touches);
-                        if (want && !rrp.root.empty() && rrp.path.empty()) {
-                            if (p_rr) {
-                                auto* rit = var_find(rrp.root_slot, rrp.root);
-                                if (rit != nullptr && !rit->moved) {
-                                    if (sk == 2) rit->mut_reservations++;
-                                    else         rit->shared_borrows++;
-                                    if (!scopes_.empty())
-                                        scopes_.back().borrows.push_back(
-                                            {rrp.root, sk == 2, "__recv_resv",
-                                             rrp.root_slot, {},
-                                             slot_of_binding("__recv_resv"),
-                                             {}});
-                                }
-                            } else {
-                                in_call_args_++;
-                                record_borrow(rrp, /*is_mut=*/sk == 2, line,
-                                              "__recv_resv");
-                                in_call_args_--;
-                            }
+            // DISJOINT FIELD in the argument, a shared read of a disjoint
+            // field, a zero-arg `&mut self` call, a `&self` receiver whose
+            // argument reads it, `v.push(v.len() as i64)`, two SEQUENTIAL
+            // `&mut self` calls (the deposit must be RELEASED between them),
+            // a receiver reached through a NON-mut `&mut` binding called twice
+            // and then two-phase, the same root as two sibling arguments of a
+            // free call, a `&mut self` call whose argument is a `&mut self`
+            // call on a DIFFERENT root, a `while` loop calling `s.bump()` three
+            // times, a nested `if` block, a FIELD-PATH receiver two ways
+            // (`rrp.path.empty()` keeps the D8 field-split admits untouched),
+            // and a `&mut` of a disjoint LOCAL in the argument. The refuse twin
+            // is `s.set(s.set(1i64))`: rc 0 before, rc 1 after, E0499.
+            // PAIR: fail/bc_recv_addroftemp_resv_fail (refuse)
+            //     + pass/bc_recv_addroftemp_resv_admit (admit, all 19 shapes).
+            //
+            // ── ONE DIVERGENCE FROM THE PRICED PROBE, AND IT IS ABOUT RELEASE
+            // (rule 7). The probe deposited whenever the root was not moved.
+            // `pop_scope` releases a mut entry as "clear `mut_borrowed` if set,
+            // ELSE decrement `mut_reservations`", so depositing a reservation
+            // on a root that is ALREADY `mut_borrowed` would release the OTHER
+            // borrow and strand ours at 1 for the rest of the function. That
+            // can only happen in a program the AddrOfTemp arm has already
+            // reported on, but a stranded counter is a permissive hole plus a
+            // spurious refusal, so the guard is here. Re-measured with it:
+            // ceiling 3, cost 0, same set both ways.
+            if (auto recv = v.receiver();
+                recv && recv.kind() == Code::AddrOfTemp) {
+                int sk = method_self_kind(v);
+                if (sk >= 1) {
+                    BorrowPlace rrp = extract_borrow_place(
+                        EAddrOfTempView{recv}.inner(), pool);
+                    if (!rrp.root.empty() && rrp.path.empty()) {
+                        auto* rit = var_find(rrp.root_slot, rrp.root);
+                        if (rit != nullptr && !rit->moved && !rit->mut_borrowed) {
+                            // B82 RESERVATION, not an activation: compatible
+                            // with SHARED reads taken during the same argument
+                            // evaluation, which is what keeps `v.push(v.len())`
+                            // and `s.set(s.get()+1)` admitted.
+                            if (sk == 2) rit->mut_reservations++;
+                            else         rit->shared_borrows++;
+                            if (!scopes_.empty())
+                                scopes_.back().borrows.push_back(
+                                    {rrp.root, sk == 2, "__recv_resv",
+                                     rrp.root_slot, {},
+                                     slot_of_binding("__recv_resv"), {}});
                         }
                     }
                 }
@@ -13684,11 +13630,16 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             //     take_borrow_whole_'s own B82 arm while `v.borrow_mut(0)`'s
             //     loan is live. The producer is the consumer here.
             //
-            // ⚠ `recvresvamut`, the same deposit at the AddrOfTemp spelling,
-            // prices CEILING 5 / COST 11 and stays declined. A whole-root
-            // reservation on EVERY `&mut self` receiver is too coarse; this
-            // spelling is cheap because sema wraps the receivers that a
-            // reservation would over-refuse.
+            // ⚠ THE SAME DEPOSIT AT THE AddrOfTemp SPELLING IS NOW LANDED TOO
+            // — see the block ABOVE. It got there by a different door: routed
+            // through `record_borrow` it priced CEILING 5 / COST 11
+            // (`recvresvamut`) and was declined twice, and all eleven costs
+            // were `take_borrow`'s BINDING-MUT check, not the reservation.
+            // Record-only, it is CEILING 3 / COST 0. This spelling can afford
+            // `record_borrow` because it gates on `is_mut_binding ||
+            // param_names_` first; that spelling cannot, because sema wraps
+            // exactly the receivers — `&mut` reference bindings — that the
+            // binding-mut question over-refuses.
             if (auto recv = v.receiver();
                 recv && recv.kind() != Code::AddrOfTemp) {
                 int sk = method_self_kind(v);

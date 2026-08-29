@@ -4632,9 +4632,25 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                  row test carries no `imported` label).
 #   TIERCOMMIT    419 →  416   −3  three closed rows' per-row tests leave.
 # PREDICTED +7/+4/−3 before the pin was read, and read as that.
-REGISTRY-ALL         8637
-REGISTRY-NOIMPORTED  4447
-REGISTRY-TIERCOMMIT  416
+# 2026-08-29 (the AddrOfTemp `&mut self` RECEIVER RESERVATION LANDED. visit()'s
+# AddrOfTemp arm CHECKED the receiver and, per B94, recorded nothing, so nothing
+# held it while `visit_args` evaluated the sibling operands and `f.foo(f.bar())`
+# compiled. The MethodCall arm now deposits a whole-root B82 reservation
+# RECORD-ONLY — not through `take_borrow`, whose binding-mut question is what
+# declined the identical rule at 5/11 and 4/9. THREE ledger rows close, all
+# upstream E0499: `suggest-local-var-double-mut--d-double-mut-on-local-receiver`,
+# `suggest-local-var-double-mut--two-mut-borrows-in-call-args`,
+# `two-phase-multi-mut`:
+#   ALL          8637 → 8639   +2  +1 native pass +1 native fail; the three
+#                                  moved programs are −3 admit row tests +3
+#                                  imported fail fixtures, net 0.
+#   NOIMPORTED   4447 → 4446   −1  the +2 native less the −3 row tests (an admit
+#                                  row test carries no `imported` label).
+#   TIERCOMMIT    416 →  413   −3  three closed rows' per-row tests leave.
+# PREDICTED +2/−1/−3 before the pin was read, and read as that.
+REGISTRY-ALL         8639
+REGISTRY-NOIMPORTED  4446
+REGISTRY-TIERCOMMIT  413
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

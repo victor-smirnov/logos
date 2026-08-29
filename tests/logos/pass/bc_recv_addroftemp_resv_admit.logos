@@ -1,0 +1,81 @@
+// ADMIT TWIN of fail/bc_recv_addroftemp_resv_fail, and the whole reason the
+// AddrOfTemp `&mut self` receiver deposit is a B82 RESERVATION and not a
+// borrow: nineteen legal shapes, every one of which REACHES the deposit (19
+// probe arrivals in this file when the rule was still `recvamutraw`), and every
+// one of which must still compile.
+//
+// ⚠ COST 0 OVER THE CORPUS IS NOT A SAFETY CLAIM — that is what this file is
+// for. The two spellings the corpus does NOT contain and that would have been
+// the over-refusals are 9-11 (a receiver reached through a NON-mut `&mut`
+// binding, which is the shape of all nine costs that declined the same rule
+// routed through `record_borrow`) and 16-17 (a FIELD-PATH receiver, which the
+// `rrp.path.empty()` guard keeps out so the D8 field-split admits are
+// untouched).
+package bc_recv_addroftemp_resv_admit;
+struct S { a: i64, b: i64 }
+struct Box2 { inner: S, k: i64 }
+impl S {
+    fn get(self: &S) -> i64 { return self.a; }
+    fn add(self: &S, k: i64) -> i64 { return self.a + k; }
+    fn set(self: &mut S, k: i64) -> i64 { self.a = k; return k; }
+    fn setb(self: &mut S, k: i64) -> i64 { self.b = k; return k; }
+    fn bump(self: &mut S) -> i64 { self.a = self.a + 1i64; return self.a; }
+}
+fn two(x: i64, y: i64) -> i64 { return x + y; }
+fn bump_i(p: &mut i64) -> i64 { *p = *p + 1i64; return *p; }
+fn read_i(p: &i64) -> i64 { return *p; }
+fn main() -> i32 {
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    // 1 two-phase: the ARGUMENT READS THE RECEIVER. A reservation is
+    //   compatible with shared reads taken during the same arg evaluation.
+    if s.set(s.get() + 1i64) != 2i64 { return 1i32; }
+    // 2 two shared reads inside one `&mut self` receiver's arguments
+    if s.set(s.get() + s.get()) != 4i64 { return 2i32; }
+    // 3 a `&mut` of a DISJOINT FIELD in the argument
+    if s.setb(bump_i(&mut s.b)) != 3i64 { return 3i32; }
+    // 4 a SHARED read of a disjoint field in the argument
+    if s.set(read_i(&s.b)) != 3i64 { return 4i32; }
+    // 5 a zero-arg `&mut self` call — no sibling to conflict with
+    if s.bump() != 4i64 { return 5i32; }
+    // 6 a `&self` receiver whose argument reads it (sk == 1: shared deposit)
+    if s.add(s.get()) != 8i64 { return 6i32; }
+    // 7 the stdlib two-phase `v.push(v.len())`
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(7i64);
+    v.push(v.len() as i64);
+    if (v.len() as i64) != 2i64 { return 7i32; }
+    // 8 two SEQUENTIAL `&mut self` calls — the deposit must be RELEASED
+    if s.set(1i64) != 1i64 { return 8i32; }
+    if s.set(2i64) != 2i64 { return 9i32; }
+    // 9-11 the receiver reached through a NON-mut `&mut` binding. This is the
+    //   shape of all nine costs that declined this rule routed through
+    //   take_borrow: the deposit must NOT re-ask the binding-mut question,
+    //   which visit()'s AddrOfTemp arm has already asked and exempted by
+    //   `root_is_ref`.
+    let r: &mut S = &mut s;
+    if r.set(1i64) != 1i64 { return 10i32; }
+    if r.set(2i64) != 2i64 { return 11i32; }
+    if r.set(r.get() + 1i64) != 3i64 { return 12i32; }
+    // 12 the same root as TWO sibling arguments of a free call
+    if two(s.get(), s.get()) != 6i64 { return 13i32; }
+    // 13 a `&mut self` call whose ARGUMENT is a `&mut self` call on a
+    //    DIFFERENT root — the reservation is per-root
+    let mut o: S = S { a: 10i64, b: 20i64 };
+    if s.set(o.bump()) != 11i64 { return 14i32; }
+    // 14 a loop: the deposit must be released on EVERY iteration
+    let mut i: i64 = 0i64;
+    while i < 3i64 { s.bump(); i = i + 1i64; }
+    if s.get() != 14i64 { return 15i32; }
+    // 15 nested inside a block
+    if true { if s.set(s.get() + 1i64) != 15i64 { return 16i32; } }
+    // 16-17 a FIELD-PATH receiver: `rrp.path.empty()` keeps the deposit off it
+    let mut k: Box2 = Box2 { inner: S { a: 0i64, b: 0i64 }, k: 0i64 };
+    if k.inner.set(k.inner.get() + 5i64) != 5i64 { return 17i32; }
+    if k.inner.bump() != 6i64 { return 18i32; }
+    // 18 a `&mut` of a DISJOINT LOCAL in the argument
+    let mut n: i64 = 0i64;
+    if s.setb(bump_i(&mut n)) != 1i64 { return 19i32; }
+    // 19 a `&self` receiver reading a different root in its argument
+    if s.add(o.get()) != 26i64 { return 20i32; }
+    return 0i32;
+}
