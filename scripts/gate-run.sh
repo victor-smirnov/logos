@@ -28,7 +28,17 @@ LIST=$(ctest --test-dir "$BUILD" -N "$@" 2>/dev/null | grep -oP '^\s+Test\s+#\d+
 N=$(printf '%s\n' "$LIST" | grep -c . || true)
 [ "$N" -eq 0 ] && { echo "gate-run: that filter selects NO tests — a filter is not a count" >&2; exit 2; }
 LH=$(printf '%s\n' "$LIST" | sha256sum | cut -c1-16)
-BH=$(sha256sum "$BIN" | cut -c1-16)
+# ⚠ THE COMPILER ALONE IS NOT THE BUILD. Victor 2026-08-28: "хэша бинарника тут
+# недостаточно, нужны еще библиотеки". A rebuild that changes only the stdlib
+# leaves logosc byte-identical and changes what every test does. The set below
+# is DERIVED, not guessed: `ctest -N -V` prints each test's real command line,
+# and the only build paths those commands name are `bin/logosc`, the `lib/logos`
+# search DIRECTORY (so its contents matter, not just its name), and the `.a`
+# archives under `tests/logos`. Measured cost of hashing all of it: 0.10 s.
+BH=$( { sha256sum "$BIN"
+        find "$BUILD/lib/logos" -type f 2>/dev/null | sort | xargs -r sha256sum
+        find "$BUILD/tests/logos" -maxdepth 1 -name '*.a' 2>/dev/null | sort | xargs -r sha256sum
+      } | sha256sum | cut -c1-16)
 # lint:git-ok — identity of the tree state; hygiene, no claim about the artefact
 HEAD=$(git rev-parse --short HEAD 2>/dev/null || echo nogit)  # lint:git-ok — identity of the tree state this verdict belongs to; hygiene, no claim about the artefact
 # ⚠ THE WORKTREE IS PART OF THE KEY, AND MY FIRST VERSION ARGUED IT SHOULD NOT BE.
