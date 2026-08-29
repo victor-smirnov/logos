@@ -3928,6 +3928,25 @@ private:
     bool field_borrow_conflicts(const VarState& st, const std::string& target,
                                 const std::string& path, bool need_exclusive,
                                 uint32_t line, const char* verb) {
+        // CEILING PROBE `fldrootbits` — the PATH-keyed reader that never asks
+        // the ROOT bits. The 2026-08-28 clang enumeration checked the OTHER
+        // direction (a root reader holding a path) and found 0 defects. This
+        // is the inverse: `let b = &a;` sets `shared_borrows` on the ROOT, and
+        // a later move of `a.i` asks only the two path maps.
+        if (logos::probe::on("fldrootbits")) {
+            if (st.mut_borrowed) {
+                report(line, std::format(
+                    "ceiling-probe fldrootbits: cannot {} '{}' while '{}' is "
+                    "mutably borrowed", verb, fmt_path(target, path), target));
+                return true;
+            }
+            if (need_exclusive && st.shared_borrows > 0) {
+                report(line, std::format(
+                    "ceiling-probe fldrootbits: cannot {} '{}' while '{}' is "
+                    "borrowed", verb, fmt_path(target, path), target));
+                return true;
+            }
+        }
         for (auto& p : st.mut_field_borrows) {
             if (path.empty() || paths_overlap(path, p)) {
                 report(line, std::format(
@@ -4882,7 +4901,13 @@ private:
         // admitted (tests/imported/admit/nll/move-errors--d keeps its row).
         // Closing it means carrying the pattern's move-ness to the temp's
         // `let`, which is a sema change and its own round.
-        if (in_destructure_temp_) return true;
+        // CEILING PROBE `destrmove` — exemption (4)'s own NAMED residual: "a
+        // destructure that binds a NON-Copy field out of a reference stays
+        // admitted (tests/imported/admit/nll/move-errors--d keeps its row)".
+        // ⚠ RULE 4 IN ADVANCE: the coverage map of 2026-08-28 reaches this
+        // guard 2944 times over 8060 runs and takes it THREE times. A zero
+        // here bounds almost nothing.
+        if (in_destructure_temp_ && !logos::probe::on("destrmove")) return true;
         return false;
     }
 
@@ -5722,9 +5747,19 @@ private:
                 // token away emits one). The statement, if-let and let-else
                 // spellings are the three that record. A silence, named here
                 // so the next round does not read it as coverage.
+                // CEILING PROBE `slicepatnull` — A SLICE/ARRAY PATTERN'S
+                // ELEMENT BINDING ARRIVES WITH A NULL TYPE. each_pat_binding_
+                // place's PC::Slice arm forwards `base` to each sub-pattern,
+                // and those sub-patterns are PC::Wild, whose arm passes
+                // `TypeRef(nullptr)` as the binding type — so `is_move_type`
+                // is false and the landed by-value sub-place move rule
+                // (`patbyvalsubmove`) skips every array-pattern binding.
+                // Coverage map 2026-08-28: PC::Slice 111 arrivals, PC::Wild
+                // 1512. Treat a null binding type as a move: crude, refusing.
                 if (mode == 0 &&
                     !b.empty() && b != "_" && !place.empty() &&
-                    is_move_type(t, prog_, ts_, &copy_tvs_)) {
+                    (!t ? logos::probe::on("slicepatnull")
+                        : is_move_type(t, prog_, ts_, &copy_tvs_))) {
                     const std::string mroot = place_root(place);
                     if (std::getenv("LOGOS_PBSM_TRACE"))
                         fprintf(stderr, "[pbsm] ln=%u b=%.*s place=%s root=%s found=%d\n",
@@ -6017,7 +6052,20 @@ private:
     // of it). NOT a recorder: it takes no borrow, so widening its call set
     // cannot manufacture a shape a later consumer must recognise.
     void check_recv_conflict(const BorrowPlace& bp, bool is_mut, uint32_t line) {
-        if (bp.root.empty() || !bp.path.empty()) return;
+        if (bp.root.empty()) return;
+        // CEILING PROBE `recvfieldpath` — THE ROOT-KEYED GATE THAT REFUSES TO
+        // ANSWER A PROJECTION. Isolated on one variable: `let v: Vec<i64>;
+        // let e = &v[0]; v.push(1);` is REFUSED, and the byte-equivalent over
+        // a FIELD (`let e = &t.v[0]; t.v.push(1);`) compiles — the bail below
+        // is the only difference. Route the field case to the path maps.
+        if (!bp.path.empty()) {
+            if (logos::probe::on("recvfieldpath"))
+                if (auto* fst = var_find(bp.root_slot, bp.root))
+                    field_borrow_conflicts(*fst, bp.root, bp.path,
+                                           /*need_exclusive=*/is_mut, line,
+                                           "call on");
+            return;
+        }
         if (bp.root_type && bp.root_type.kind() == LogosType::Kind::Ptr) return;
         auto sit = var_find(bp.root_slot, bp.root);
         if (sit == nullptr) return;
@@ -12281,9 +12329,22 @@ private:
                 // runs with need_exclusive=FALSE — the READ form, and reading
                 // `h.r` IS legal. MEASURED rc 0 where the LOCAL twin is rc 1.
                 // The place was never wrong; the QUESTION was.
-                check_place_mut_use(extract_borrow_place(v.ptr(), pool),
-                                    v.ptr() ? v.ptr().type(pool) : TypeRef{},
-                                    ln);
+                // CEILING PROBE `dwatunwrap` — the place handed to
+                // check_place_mut_use is computed from `v.ptr()`, and for the
+                // `s.f = v` spelling that is an AddrOfTemp, on which
+                // extract_borrow_place BREAKS: root empty, through_ref_type
+                // null, so the landed "behind a `&` reference" rule (E0594)
+                // cannot run for a plain field write. The `*h.r = v` spelling
+                // hands it a bare FieldRead and is checked. Unwrap one hop.
+                {
+                    auto cpm_ptr = v.ptr();
+                    if (logos::probe::on("dwatunwrap") && cpm_ptr &&
+                        cpm_ptr.kind() == EC::AddrOfTemp)
+                        cpm_ptr = lir_view::EAddrOfTempView{cpm_ptr}.inner();
+                    check_place_mut_use(extract_borrow_place(cpm_ptr, pool),
+                                        cpm_ptr ? cpm_ptr.type(pool) : TypeRef{},
+                                        ln);
+                }
                 visit(v.ptr(),   /*consuming=*/false, ln);
                 visit(v.value(), /*consuming=*/true,  ln);
                 break;
@@ -13468,6 +13529,32 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 if (sk >= 1)
                     check_recv_conflict(extract_borrow_place(recv, pool),
                                         /*is_mut=*/sk == 2, line);
+            }
+            // CEILING PROBE `recvpartial` — A METHOD-CALL RECEIVER IS NEVER
+            // ASKED ABOUT PARTIAL MOVES. Isolated on one variable:
+            // `let _a = l.origin; eat(l);` and `let _c = l;` both refuse with
+            // "use of partially moved value", and `l.consume()` — a BY-VALUE
+            // `self` method on the same partially-moved local — compiles.
+            // `consume()` reads moved_fields; check_live does not, and the
+            // receiver position reaches only check_live.
+            {
+                auto rp = v.receiver();
+                if (rp && rp.kind() == Code::AddrOfTemp)
+                    rp = lir_view::EAddrOfTempView{rp}.inner();
+                auto rbp = extract_borrow_place(rp, pool);
+                if (!rbp.root.empty() && logos::probe::on("recvpartial"))
+                    if (auto* rst = var_find(rbp.root_slot, rbp.root))
+                        if (!rst->moved_fields.empty()) {
+                            const std::pair<const std::string, uint32_t>* rhit =
+                                rbp.path.empty()
+                                  ? &*rst->moved_fields.begin()
+                                  : find_moved_overlap(rst->moved_fields, rbp.path);
+                            if (rhit)
+                                report(line, std::format(
+                                    "ceiling-probe recvpartial: use of partially "
+                                    "moved value '{}' (field '{}' moved on line {})",
+                                    rbp.root, rhit->first, rhit->second));
+                        }
             }
             push_scope();
             visit_place_base(v.receiver(), line);
