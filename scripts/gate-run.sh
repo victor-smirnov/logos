@@ -70,13 +70,55 @@ fi
 if [ "${FORCE:-0}" = "1" ]; then RUN=$ALL; M=$N; echo "gate-run: FORCE — re-measuring all $N";
 else echo "gate-run: $N in filter, $M not yet measured under build $BID — running those"; RUN=$MISS; fi
 
-# ⚠ ctest gets an EXACT NAME LIST, not the caller's filter. The DB decided what
-# to run; ctest is the runner. `-R` takes one regex, so the names are anchored
-# and joined — 8000 names is a long regex but ctest handles it, and the
-# alternative (one ctest per test) is the serial trap this arc has been about.
-RX=$(printf '%s\n' "$RUN" | sed 's/[][\.^$*+?(){}|]/\\&/g' | paste -sd'|' -)
+# ⚠ HOW THE MISSING SET REACHES ctest, and why it is not always a name list.
+# The obvious form — one anchored alternation of every missing name — DIED AT
+# SCALE: 1769 names is a 99,911-character regex and ctest answered "No tests
+# were found!!!", recorded ZERO, and exited 0. A silent partial, in the tool
+# built to stop silent partials. So:
+#   · nothing measured yet  → pass the caller's own filter through, which is
+#     what it was written for and has no length at all;
+#   · a partial top-up      → name list, CHUNKED, because the limit is real and
+#     a chunk that is small enough is the only form that provably works.
+# And in both cases the number of tests ctest actually ran is checked against
+# the number we asked for: a run that measured fewer than it was told to is a
+# failure, never a pass.
 JU=$(mktemp --suffix=.xml)
-ctest --test-dir "$BUILD" --output-junit "$JU" -R "^($RX)$"; RC=$?
-python3 scripts/gate_db.py ingest "$DB" "$BID" "$JU" "$*"
+RC=0
+if [ "$M" -eq "$N" ]; then
+    ctest --test-dir "$BUILD" --output-junit "$JU" "$@"; RC=$?
+    python3 scripts/gate_db.py ingest "$DB" "$BID" "$JU" "$*"
+else
+    CH=$(mktemp -d); printf '%s\n' "$RUN" | split -l 150 - "$CH/part."
+    for part in "$CH"/part.*; do
+        RX=$(sed 's/[][\.^$*+?(){}|]/\\&/g' "$part" | paste -sd'|' -)
+        J2=$(mktemp --suffix=.xml)
+        ctest --test-dir "$BUILD" --output-junit "$J2" -R "^($RX)$"; r=$?
+        [ "$r" -ne 0 ] && RC=$r
+        python3 scripts/gate_db.py ingest "$DB" "$BID" "$J2" "$*"
+        rm -f "$J2"
+    done
+    rm -rf "$CH"
+fi
 rm -f "$JU"
+
+# ⚠ A RUN THAT MEASURED NOTHING IS NOT A PASS. The scale failure above exited 0
+# with zero rows recorded; nothing in the pipeline objected. Count what actually
+# landed and refuse to call a shortfall success.
+GOT=$(python3 - "$DB" "$BID" <<'PYEOF'
+import sqlite3, sys
+c = sqlite3.connect(sys.argv[1])
+print(c.execute("SELECT count(*) FROM verdicts WHERE build_id=?", (sys.argv[2],)).fetchone()[0])
+PYEOF
+)
+WANT=$(( M + $(python3 - "$DB" "$BID" "$M" <<'PYEOF'
+import sqlite3, sys
+c = sqlite3.connect(sys.argv[1])
+print(c.execute("SELECT count(*) FROM verdicts WHERE build_id=?", (sys.argv[2],)).fetchone()[0] - int(sys.argv[3]))
+PYEOF
+) ))
+if [ "$GOT" -lt "$M" ]; then
+    echo "gate-run: ⚠ asked for $M tests and the store holds $GOT for this build." >&2
+    echo "  A run that measured fewer than it was told to is a FAILURE, not a pass." >&2
+    exit 3
+fi
 exit $RC  # lint:exit-ok — the runner's own status, which is the point of running it
