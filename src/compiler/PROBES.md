@@ -2360,3 +2360,371 @@ and `ce4b`'s inference-driven residue is unchanged. ⚠ RULE 8: `tmcbdyn`'s
 ceiling of 3 DECAYED to 0 the moment this landed — its rows are the tree's
 behaviour now, and re-arming it measures only the increment from the other 24
 sites, which is what the two known over-refusals sit in.
+
+---
+
+## GROUP B SURVEYED BY MISSING OBSERVATION — 34 ROWS, SEVENTEEN QUESTIONS
+
+`bck.B` 21 + `nllmoves.B` 13, compiled BY HAND, multi-line, each against a
+one-variable control. The block's own gloss is "bookkeeping is ROOT-keyed and
+does not follow a projection". **Eighteen of the 34 are that; sixteen are not.**
+The partition below is by what the checker would have to OBSERVE, and the
+control that isolates it is quoted for every group. Row counts sum to 34.
+
+**B-1 — MOVE OUT OF A REFERENCE AT A *PATTERN*. 5 rows.**
+  `bind_pattern` is handed the scrutinee's TYPE, never its EXPRESSION, so
+  `is_unowned_move_source` — the one predicate for "this place does not own what
+  it yields" — cannot be asked at any of the four pattern sites.
+  · scrutinee IS the unowned source (3): borrowck-move-error-many-places--move-
+    out-of-ref-in-match, --r-runtime, borrowck-move-error-with-note--a.
+    `patmoveref` (in the tree since 4bdbfe94e, never recorded here) — RE-PRICED
+    below: ceiling 3, **cost 2**, so STOP as spelled.
+  · the PATTERN does the deref, `match r { &q => … }` (2): do-not-suggest-
+    removing-wrong-ref-pattern-issue-132806, issue-99470-move-out-of-some.
+    MEASURED: `patmoveref` fires ZERO on these — the scrutinee is `r`, a `&NC`,
+    which is Copy, so `is_move_type(scrut_type)` is false before the source test
+    is reached. A `&`-pattern needs its own arm; not probed this round.
+  CONTROL (one variable, the deref moved from the `let` to the pattern):
+      let q = *r;                      → REFUSED E0507, always
+      match *f { Foo1(a, b) => … }     → ADMITTED, refused under patmoveref
+      match r  { &q => … }             → ADMITTED under patmoveref too
+
+**B-2 — THE DESTRUCTURE TEMP DISCARDED THE PATTERN'S MOVE-NESS. 2 rows.**
+  access-mode-in-closures, move-errors--d. `deref_move_exempt` exemption (4),
+  already priced as `destrmove` (ceiling 2, COST 1 — its own paired control).
+  Its comment already names the fix as a sema change. Unchanged this round.
+
+**B-3 — THE PLACE WALK BREAKS AT A USER `Deref` CALL. 2 rows.**
+  deref-field-pattern-ref-suggestion-issue-146995 (a user `impl Deref for Wrap`),
+  issue-52086 (`Rc<Bar>`). CONTROL, one variable — the wrapper:
+      let x: &Bar  = &b;  eat(x.field);   → REFUSED E0507
+      let x = rc_new(Bar{…}); eat(x.field); → ADMITTED
+  `rcexempt`, `callroot`, `callrootref`, `dwnoidx`, `dwatunwrap` all armed on
+  the second: NONE fires. This is `callroot`'s family (empty `bp.root` after a
+  Call hop) and its blocker is sema's deref-mode selection, recorded there.
+
+**B-4 — E0509, MOVE OUT OF A `Drop` TYPE. 1 row. RETIRED FROM THE QUEUE.**
+  borrowck-move-error-with-note--b. `fldmovedrop`'s note settles it: the Logos
+  spec DELIBERATELY admits this (`@rule intrinsic.drop.skip-moved-out-paths`,
+  25_spec_pass_intrinsic_1). Funding it is a DESIGN decision (PAIR), not a
+  checker round. It is not fundable by anyone this week.
+
+**B-5 — AN ARRAY-PATTERN BINDING RECORDS NO MOVE. 3 rows.**
+  borrowck-move-out-from-array-match, --use-match--b, --use-match--t13.
+  `slicepatnull` ceiling 3 / COST 6 (four are spec rules). STOP as spelled;
+  the correct spelling asks the SCRUTINEE for the element type and rule 7 says
+  it will not close the same three.
+
+**B-6 — A PARTIAL MOVE IS NEVER ASKED AT A BORROW. 1 row.**
+  moves-based-on-type-match-bindings. See `addrofpart` / `borrowpart` below:
+  the observation is REAL and CONFIRMED by hand, the site the previous round
+  named for it is WRONG, and the ledger row needs a SECOND mechanism as well.
+
+**B-7 — `visit()`'s `TupleIndex` ARM DOES NO BOOKKEEPING AT ALL. 1 row.**
+  move-out-of-tuple-field. Two lines against `FieldRead`'s ~140. See
+  `tupidxmove`: ceiling 1, COST 0.
+
+**B-8 — A `ref` / `ref mut` PATTERN BINDING IS NOT A TRACKED BORROW-HOLDER. 2 rows.**
+  borrowck-issue-2657-1, issue-27282-mutation-in-guard. CONTROL, one variable —
+  the binding spelling, everything else identical:
+      let y = &x;                 let a = x;   → REFUSED "cannot move 'x' while borrowed"
+      match x { Some(ref y) => { let a = x; } } → ADMITTED
+      let foo = &mut o; let a = foo; let b = foo; → REFUSED "already mutably borrowed"
+      match o { ref mut foo => { let a = foo; let b = foo; } } → ADMITTED
+  `propagate_pat_borrows` raises the loan at all three match sites already; what
+  is missing is that the MOVE/reborrow side does not see it. Not probed.
+
+**B-9 — A GUARD'S VIEW OF THE SCRUTINEE IS SHARED-ONLY. 1 row.**
+  match-guards-always-borrow. Nothing anywhere restricts a pattern binding
+  inside a guard. A new observation, 1 row; not probed.
+
+**B-10 — A CALL RESULT THAT CARRIES A BORROW INSIDE AN AGGREGATE
+INHERITS NO LOAN. 2 rows.** issue-85581, borrowed-mut-pointer-assign-overflow-
+off. THE SHARPEST CONTROL IN THE SURVEY — four programs, one variable, the
+RESULT TYPE, bodies otherwise identical:
+      fn mk(r:&mut i64) -> &mut i64          → REFUSED "cannot use 'x' while … borrowed"
+      let s = S { pointer: &mut x }          → REFUSED (the LITERAL, in-frame)
+      fn mk(r:&mut i64) -> S{pointer:r}      → ADMITTED
+      fn mk(r:&mut i64) -> Option<&mut i64>  → ADMITTED
+  MECHANISM, read not guessed: TWO gates ask `is_borrow_carrying_type`, which is
+  the `#[borrow_carrying]` ATTRIBUTE set plus a type-arg walk — a plain user
+  struct with a `&mut` field is NOT in it — where the question is the STRUCTURAL
+  "does this value hold a loan", i.e. `type_may_carry_borrow`. Two notions of
+  one concept, at two new sites. See `aggcallloan` / `aggletroute` / `aggboth`.
+
+**B-11 — A `&mut` OF AN IMMUTABLE ROOT REACHED THROUGH A HOP. 3 rows.**
+  · borrow-immutable-deref-box, --c-mut-borrow-deref-box: `nomutskip`,
+    COST 2 legal programs. STOP — recorded there.
+  · borrowck-access-permissions--b-mut-borrow-of-static: `mutstaticborrow`,
+    ceiling 2 COST **0**, and THE PROBE IS NO LONGER IN THE TREE while the row
+    is still open. RE-PRICED below; it holds, name for name.
+
+**B-12 — A PARAMETER CARRIES NO `mut` BIT. 1 row.**
+  borrowck-ref-mut-of-imm--ref-mut-of-imm. CONTROL, one variable, local vs param:
+      let x: Option<i64> = …;   match x { Some(ref mut v) … } → REFUSED "'x' not declared as mut"
+      fn f(x: Option<i64>)      { match x { Some(ref mut v) … } } → ADMITTED
+  This is G1b, already named at `nomutskip` (`param_names_` exempts 98.7% of
+  1,061,549 arrivals). It needs the sema bit `recvmutbind`, which does not exist.
+
+**B-13 — AN INDEX WRITE THROUGH A USER `Index` IS NOT A MUTABLE USE. 1 row.**
+  borrowck-loan-vec-content. CONTROL, one variable — the container:
+      let e = &a[0]; a[1] = 4;   (array) → REFUSED "cannot assign through 'a[..]'"
+      let e = &v[0]; v[1] = 4;   (Vec)   → ADMITTED
+      let e = &v[0]; v.push(9);  (Vec)   → REFUSED
+  Same family as B-3: the write's place is reached through a Call.
+
+**B-14 — PATH-KEYED vs ROOT-KEYED READERS — THE ONLY ROWS THAT ARE
+LITERALLY WHAT `B` SAYS AND ARE CHEAP. 2 rows.**
+  borrowck-move-from-subpath-of-borrowed-path (`fldrootbits`) and issue-82032
+  (`recvfieldpath`). Both RE-PRICED below on the 337-row ledger: ceiling 1,
+  COST 0, sets unchanged. Both probes are still in the tree, UNFUNDED.
+
+**THE SIXTEEN THAT DO NOT BELONG IN B**
+
+**X-1 — `'static` IN A TYPE ANNOTATION IS NOT A CONSTRAINT ANYWHERE. 3 rows.**
+  adt-brace-enums, issue-46036, lub-match. CONTROL — the annotation site does
+  not matter, which is the finding:
+      struct Foo { x: &'static i64 }  Foo { x: &a }    → ADMITTED
+      let f: &'static i64 = &a;                        → ADMITTED
+  These are region rows (`lifereg`-shaped), not bookkeeping rows.
+
+**X-2 — A WRITE THROUGH A `&mut &T` DOES NOT REACH THE POINTEE. 2 rows.**
+  capture-ref-in-struct--ctl, --t08. CONTROL, one variable — the indirection:
+      p = &y;                       → REFUSED E0597, names `y`
+      q = &mut p;  *q = &y;         → ADMITTED
+  This is `escape-argument--t09`'s question (a call-site write summary), which
+  is already named as the one F row that needs it. Two more rows sit on it.
+
+**X-3 — THE HOLDER IS NEVER READ AGAIN. 1 row.**
+  regions-escape-unboxed-closure. CONTROL, one token — a later use of `x`:
+      { let t = 5; x = Some(&t); }              → ADMITTED
+      { let t = 5; x = Some(&t); } let _q = x;  → REFUSED E0597, names `t`
+  §B6 has no use to report at. Identical to `regions-escape-bound-fn`, whose
+  new report site `fpwrite` was deliberately not bought. ⚠ RULE 8: that makes
+  `fpwrite`'s remaining prize TWO rows, not the one recorded at fpsrc-LANDED.
+
+**X-4 — plus B-4 (1, a spec DESIGN decision), B-5 (3, a pattern TYPE carrier),
+B-8 (2) and B-9 (1, the pattern LOAN channel), B-12 (1, a sema `mut` bit), and
+issue-51117 (1) — the ergonomic default-binding-mode loan, which
+`propagate_pat_borrows` excludes with a MEASURED reason in its own comment
+(modes 3/4 need the loan keyed on the POINTEE; recording it on the local red
+25_spec_pass type_3 and type_8). 10 rows.**
+
+**WHAT THIS SURVEY CHANGES.** Twelve of the 34 already had a priced mechanism
+from an earlier round and the label hid it; three of those price at COST 0 and
+were never funded (`fldrootbits`, `recvfieldpath`, `mutstaticborrow`). Sixteen
+rows are not bookkeeping-through-a-projection at all, and six of those (X-1,
+X-2, X-3) need machinery that does not exist and are RETIRED from the class-B
+queue and named for the block that owns them.
+
+---
+
+## patmoveref — RE-PRICED (rule 8), AND ITS COST HAD NEVER BEEN RECORDED
+site: src/compiler/sema_stmt.cpp::lower_match
+build: eca91795fcce2717 (READ; gate-db 116 unarmed -> 117 armed)
+measured: 2026-08-29
+fires: 549
+ceiling: 3
+cost: 2
+verdict: ⛔ STOP AS SPELLED — a ledger row may not be bought with a legal-program refusal
+note: recorded in 4bdbfe94e's commit message as "patmoveref 4" against the
+  447-row ledger and never entered here, so no reader could see that its COST
+  was UNMEASURED. On the 337-row ledger it closes THREE, and the set is exactly
+  the three B-1a rows this survey predicted BY NAME before the run:
+    borrowck_borrowck-move-error-many-places--move-out-of-ref-in-match
+    borrowck_borrowck-move-error-many-places--r-runtime
+    borrowck_borrowck-move-error-with-note--a
+  predicted∖closed = ∅   closed∖predicted = ∅.
+  ⚠ AND `borrowck-move-error-with-note--a` IS THE ROW `destrmove` PREDICTED AND
+  MISSED. destrmove's note says it "moves out of a user-`Deref` receiver, where
+  the walk breaks at the CALL"; it does not — it is a `match a.a` on `a: &A`,
+  and the pattern site is where the question lives. One survey, one row moved
+  from a wrong mechanism to a right one.
+  COST 2, both legal: 02_semantic_core_pass_bc_deref_move_exempt_admit and
+  02_semantic_core_pass_bc_match_deref_mut_refmut_arm. The first is
+  `deref_move_exempt`'s own paired control, i.e. the probe re-refuses the
+  exemption that arm exists for; the second is a `ref mut` arm over a deref
+  scrutinee, which is a BORROW, not a move. A correct rule asks what the ARM
+  BINDS, not what the scrutinee is — and rule 7 then says it will not close the
+  same three.
+
+## recvfieldpath / fldrootbits — RE-PRICED (rule 8), BOTH HOLD
+site: src/compiler/borrow_check.cpp::check_recv_conflict
+      src/compiler/borrow_check.cpp::field_borrow_conflicts
+build: eca91795fcce2717 (READ; gate-db 116 unarmed -> 118 / 119 armed)
+measured: 2026-08-29
+fires: 91 / 5302137
+ceiling: 1 / 1
+cost: 0 / 0
+verdict: ✓ UNCHANGED across the 365 -> 337 shrink, SET for SET
+note: `recvfieldpath` closes issue-82032, `fldrootbits` closes borrowck-move-
+  from-subpath-of-borrowed-path — the same single rows recorded on 2026-08-29
+  against a 365-row ledger, at the same cost. Both probes are STILL IN THE TREE
+  and neither has been funded. They are the only two rows of the 34 that are
+  literally what the `B` label claims AND cost nothing, and between them they
+  are the cheapest two rows on this file's whole board.
+
+## aggcallloan — the SOLO column, and it is a rule-13 zero
+site: src/compiler/borrow_check.cpp::is_self_borrowing
+build: c774ec282c7d2d64 (READ from the gate DB; 120 unarmed -> 121 armed)
+measured: 2026-08-29
+fires: 180
+ceiling: 0
+cost: 0
+verdict: 0 ALONE AND LOAD-BEARING FOR ONE ROW — predicted zero, and the reason was predicted too
+note: `is_self_borrowing`'s result test is `is_borrow_carrying_type(ret)`, the
+  ATTRIBUTE-keyed predicate; widened to `!is_ref_kind(ret) &&
+  type_may_carry_borrow(ret)` it buys NOTHING on its own, and the zero was
+  PREDICTED BEFORE THE RUN with its mechanism: the gate is only reached from
+  `take_ref_borrows`' Call arm, and `visit_stmt`'s Let routing gate — which asks
+  THE SAME NARROW PREDICATE — never routes `let s: S = mk(&mut x);` there at
+  all. 180 arrivals is the site's own population of aggregate-carrying,
+  non-reference results over 1385 legal programs plus the ledger, so this is a
+  LIVE site with a zero, not an unreached one. `aggboth` shows it is required
+  for one of the four rows.
+
+## aggletroute — the OTHER solo column
+site: src/compiler/borrow_check.cpp::visit_stmt (Let routing gate)
+build: c774ec282c7d2d64 (READ; 120 unarmed -> 122 armed)
+measured: 2026-08-29
+fires: 57680
+ceiling: 3
+cost: 40
+verdict: ⛔ STOP — and it carries the WHOLE cost of the pair
+note: routing a `let` whose annotated type structurally carries a borrow through
+  `take_ref_borrows` closes borrowck-assign-to-andmut-in-borrowed-loc,
+  borrowed-mut-pointer-assign-overflow-off, nll_issue-54382-use-span-of-tail-of-
+  block. PREDICTED ZERO for this half — wrong, and the three rows are the
+  finding. But 40 legal programs die, all in 02_semantic_core, and the routing
+  gate's own comment already said why: take_ref_borrows does not only hop, it
+  RECORDS a fresh borrow for every `&`/`&mut` ARGUMENT with this binding as
+  holder, which is exactly the `let res: GpRes = gp_build(…, &mut sa, …)`
+  over-refusal that comment names. Measured, not argued: the comment was right.
+
+## aggboth — THE WHOLE, PRICED FIRST-CLASS (rule 13)
+site: both of the above, one name
+build: c774ec282c7d2d64 (READ; 120 unarmed -> 126 armed)
+measured: 2026-08-29
+fires: 58458
+ceiling: 4
+cost: 40
+verdict: ⛔ NOT FUNDABLE AS SPELLED — and RULE 13 held again, in the smaller direction
+note: solo ceilings 0 + 3 = 3; the WHOLE is 4. The extra row is
+  borrowck_already-borrowed-as-mutable-if-let-133941, which needs BOTH sites and
+  is invisible to either. A per-site sweep reading only the solo column would
+  have killed `aggcallloan` as dead — its solo ceiling is 0 and its solo cost is
+  0 — while it is the half that makes one row close. Blame is per site, CREDIT
+  IS PER SET, for the second round running.
+    predicted, closed:      borrowck_borrowed-mut-pointer-assign-overflow-off
+    predicted (hedged), NOT closed:  borrowck_issue-85581 — the loan it needs is
+        deposited from a MATCH SCRUTINEE (`match heap.peek_mut() { Some(g) … }`),
+        not from a `let`, so neither of these two gates is on its path. A third
+        site, and this round did not find it.
+    closed, NOT predicted:  borrowck_already-borrowed-as-mutable-if-let-133941 ·
+        borrowck_borrowck-assign-to-andmut-in-borrowed-loc ·
+        nll_issue-54382-use-span-of-tail-of-block
+  COST 40 is the whole reason this is a stop sign, and it is entirely
+  `aggletroute`'s: `aggcallloan` prices 0/0 alone. So the cost is NOT paid for
+  the rows — three of the four need the guilty half, but the half that is FREE
+  is the one no ledger row can be bought with alone. The shape a landing would
+  need is a routing that HOPS without RECORDING, which is exactly the split the
+  Door E / EXEMPT block beside that gate already draws for a different reason.
+
+## tupidxmove — the cheapest true class-B row on the board
+site: src/compiler/borrow_check.cpp::visit (Code::TupleIndex arm)
+build: c774ec282c7d2d64 (READ; 120 unarmed -> 123 armed)
+measured: 2026-08-29
+fires: 8
+ceiling: 1
+cost: 0
+verdict: ✓ THE ARM IS TWO LINES AND `FieldRead`'s IS ~140 — predicted set closed EXACTLY
+note: `case Code::TupleIndex:` in visit() is `visit_place_base(receiver); break;`
+  and nothing else: no partial-move record, no `moved_fields` overlap check, no
+  field-borrow conflict. CONTROL, ONE VARIABLE — the projection spelling, with
+  byte-identical bodies otherwise:
+      struct W { a: B }   let y = x.a; let z = x.a;  → REFUSED "use of moved field 'x.a'"
+      (B,)                let y = x.0; let z = x.0;  → ADMITTED
+  PREDICTED move-out-of-tuple-field, and predicted it would be the ONLY one: an
+  enumeration of every admit program containing a real tuple-index projection
+  (not an integer literal suffix) finds FIVE rows in the whole 337, of which
+  this is the only move. CLOSED exactly that; both diffs ∅.
+  ⚠ RULE 4, DECLARED: 8 fires — the entire population of "a move-typed tuple
+  projection in a consuming position" over the ledger plus 1385 legal programs
+  is EIGHT. A ceiling off eight bounds the COUNT and nothing else, and COST 0
+  over that population is worth very little. What makes this fundable anyway is
+  not the number: it is that the arm is MISSING, and the correct fix is the
+  FieldRead arm's own bookkeeping reached through `extract_borrow_place`, which
+  already decomposes `TupleIndex` (it emits the index as a path segment).
+
+## mutstaticborrow — RE-PRICED (rule 8), AND IT IS STILL UNFUNDED
+site: src/compiler/sema_expr.cpp::lower_expr_inner (ADDR_OF_MUT static branch)
+build: c774ec282c7d2d64 (READ; 120 unarmed -> 125 armed)
+measured: 2026-08-29
+fires: 2
+ceiling: 2
+cost: 0
+verdict: ✓ HOLDS EXACTLY, and the survey is what found it again
+note: priced on 2026-08-29 at ceiling 2 / cost 0, then the probe left the tree
+  and BOTH ROWS ARE STILL IN THE LEDGER. Re-installed and re-priced against the
+  337-row ledger: the same two, name for name —
+    borrowck_borrowck-access-permissions--b-mut-borrow-of-static  (bck.B)
+    borrowck_issue-42344                                          (bck.NEW)
+  predicted∖closed = ∅   closed∖predicted = ∅.
+  ⚠ RULE 4 STILL IN FORCE, unchanged: 2 fires off an outer population of 3.
+  ⚠ AND THE ABUSE DIRECTION IS STILL UNMEASURED at this site: the branch hands
+  out `&mut SY` for a genuine `static mut` with no `unsafe`, while the WRITE
+  path demands one.
+
+## addrofpart — NEVER FIRED, AND THE ZERO IS A MIS-SITED PROBE
+site: src/compiler/borrow_check.cpp::visit (Code::AddrOf arm)
+build: c774ec282c7d2d64 (READ; 120 unarmed -> 124 armed)
+measured: 2026-08-29
+fires: 0 over 337 ledger rows + 1385 legal programs, AND 0 on three hand programs
+ceiling: — (the harness refuses a ceiling on a zero fire count, correctly)
+cost: —
+verdict: NEVER FIRED — and it names the site `recvaddrofpartial` got wrong
+note: `recvaddrofpartial` (above, OBSERVED 2026-08-29, deliberately not priced)
+  says: "`&l` reaches visit()'s AddrOf arm, which asks `check_live`, which reads
+  the whole-variable `moved` flag and never `moved_fields`". The observation is
+  right and THE SITE IS WRONG. A `report_partial_move` installed in that arm
+  fires ZERO times — not only over the corpus, which would be corpus silence,
+  but on THREE HAND-WRITTEN PROGRAMS of the exact shape the note describes
+  (`let g = x.f;` then `touch(&x)`, then the `let r: &Foo = &x;` spelling, then
+  the `let r = &x; r.f.v` spelling). An explicit `&x` in argument or `let`
+  position does not reach visit()'s AddrOf arm at all; it reaches
+  `take_ref_borrows`' AddrOf arm and lands in `take_borrow_whole_`. See
+  `borrowpart`. ⚠ Rule 1 has a second edge here: this zero could not have been
+  READ as a mis-siting from the fire count alone, because the probe sat inside
+  its own shape test — the hand programs are what separated "arm not reached"
+  from "reached without a partial move".
+
+## borrowpart — THE CORRECTED SITE: CONFIRMED BY HAND, UNPRICEABLE BY THE LEDGER
+site: src/compiler/borrow_check.cpp::take_borrow_whole_
+build: f84f58c3d6f7b5bf (READ; gate-db 127 unarmed -> 128 armed)
+measured: 2026-08-29
+fires: 0 over 337 ledger rows + 1385 legal programs; 1 on a hand-written program
+ceiling: — (refused on a zero fire count)
+cost: —
+verdict: THE OBSERVATION IS CONFIRMED AND THE POPULATION IS NOT HERE — rule 10, exactly
+note: `take_borrow_whole_`'s third line is `if (it->moved)` and it never asks
+  `moved_fields`. This is the SAME asymmetry `recvpartial` landed at the
+  method-call receiver, one route over, and `report_partial_move` is already
+  hoisted for exactly this reason. PROVED LIVE BY HAND, one token apart:
+      let g = x.f; let _ = g.v; let _ = touch(&x);
+      unarmed rc 0, no diagnostic
+      armed   "use of partially moved value 'x' (field 'f' moved on line 8)"
+  and the whole-value twin (`let a = x;` then `&x`) is already refused unarmed
+  by the `it->moved` line right below, which is what says the two are one
+  question asked at half strength.
+  ⚠ THE LEDGER ROW IT WAS AIMED AT DOES NOT CLOSE, AND THE REASON IS A PAIR.
+  moves-based-on-type-match-bindings partially moves through a MATCH ARM, and
+  MEASURED: after `match x { Foo { f } => … }` the bc partial-move map for `x`
+  is EMPTY — `patbyvalsubmove` records on the sub-place but both match sites
+  save/restore `states_` per arm, so the record dies with the arm (its own note
+  at propagate_pat_borrows says so for six other rows). So this row needs
+  {a partial-move record that survives the match} ∪ {borrowpart}, and neither
+  half closes it alone. Rule 13 in its third instance this round.
+  ⚠ AND THE ZERO OVER 1722 PROGRAMS IS RULE 10 IN ITS PUREST FORM: both halves
+  of this harness consist only of programs that COMPILE, and "a value partially
+  moved and then borrowed" is precisely what no green program contains. A round
+  that funds this brings its own population; this file's cannot price it.
