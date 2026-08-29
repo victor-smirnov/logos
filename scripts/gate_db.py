@@ -133,6 +133,21 @@ def history(db, name):
         print(f"build {bid:3}  {st:9} {at}  {head or '-':10} {ver}")
     return 0
 
+def delta(db, a, b, prefix=None):
+    """Rows that PASSED under build a and FAILED under build b — the direction a
+    probe buys in. Optionally restricted to names starting with `prefix`, which
+    is how the ledger half is told from the legal-corpus half: they live in one
+    store under one build, and the prefix is what separates them."""
+    c = conn(db)
+    rows = c.execute(
+        "SELECT x.name FROM verdicts x JOIN verdicts y"
+        " ON y.name=x.name AND y.build_id=?"
+        " WHERE x.build_id=? AND x.status='passed' AND y.status='failed'"
+        " ORDER BY x.name", (b, a)).fetchall()
+    names = [n for (n,) in rows if not prefix or n.startswith(prefix)]
+    for n in names: print(n)
+    return 0
+
 def compare(db, a, b):
     c = conn(db)
     A = dict(c.execute("SELECT name,status FROM verdicts WHERE build_id=?", (a,)).fetchall())
@@ -155,6 +170,6 @@ def compare(db, a, b):
 if __name__ == "__main__":
     cmd = sys.argv[1]; rest = sys.argv[2:]
     fn = {"build": build, "inventory": inventory, "missing": missing, "ingest": ingest,
-          "verdicts": verdicts, "history": history, "compare": compare}.get(cmd)
+          "verdicts": verdicts, "history": history, "compare": compare, "delta": delta}.get(cmd)
     if not fn: print(__doc__); sys.exit(2)
     sys.exit(fn(*rest) or 0)

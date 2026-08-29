@@ -1,185 +1,100 @@
 #!/usr/bin/env bash
-# ceiling-probe.sh <probe-name> — how many ledger rows COULD this mechanism close?
+# ceiling-probe.sh <probe-name> | --selftest
 #
-# Reads an UPPER BOUND off the whole acceptance population in ~32 s, so a
-# hypothesis is killed or funded before anyone writes a correct fix for it.
-# See include/logos/compiler/probe.hpp for what a ceiling probe is and why it is
-# allowed to be wrong.
+# What a hypothesis COULD close, and what it costs, WITHOUT making it correct.
 #
-# ⚠ THE READER IS THE CORPUS ITSELF, not a new instrument. Every ledger row is
-# a registered ctest test asserting THE DEFECT IS STILL THERE. So a row that the
-# probe closes shows up as a FAILING test, and `ctest` names it. Nothing had to
-# be built to read this; it had been sitting there since the per-row
-# registration landed.
+# CEILING = ledger rows the crude edit closes. An UPPER bound.
+# COST    = legal programs it refuses. A LOWER bound — a corpus refuses only
+#           what it CONTAINS, and four days running the counter-example had to
+#           be hand-written. COST 0 IS NOT A SAFETY CLAIM.
 #
-# ⚠ A ZERO IS NOT AN ANSWER UNTIL THE SITE IS PROVEN LIVE. A probe that never
-# executes reports ceiling 0 and reads exactly like a refuted hypothesis. This
-# script refuses such a run: no fires, no verdict.
+# ⚠ EVERY RUN GOES THROUGH `gate-run.sh` AND LANDS IN THE STORE. The previous
+# version drove `ctest` directly, four times per probe, so:
+#   · no probe run was ever recorded — the identity work (build hash, env in the
+#     key, per-test history, build-to-build compare) applied to everything EXCEPT
+#     the runs where the environment actually changes the verdicts;
+#   · re-pricing the same probe on an unchanged tree re-ran 368 ledger rows and
+#     837 legal programs from scratch, every time.
+# Now the unarmed baseline is whatever the store already holds for this build —
+# usually free — and the armed run is its own build identity (LOGOS_PROBE is in
+# the key), so the second pricing of a probe costs nothing either.
+#
+# The verdicts are then a QUERY, not a diff of two temp files: rows that PASSED
+# unarmed and FAILED armed. In the ledger half that is the ceiling; in the legal
+# half it is the cost.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
-ROOT=$PWD
+DB=${LOGOS_GATE_DB:-$PWD/build/gate-state/runs.db}
+LEDGER=(-R '^logos_00_bc_admit_')
+# ⚠ TWO SELECTIONS FOR THE LEGAL HALF, because ctest ANDs its filters and the
+# `bc` label does not reach the spec dirs — and those are what caught an
+# over-refusal on 2026-08-27 that L1 could not see.
+LEGAL_A=(-L bc -L pass)
+LEGAL_B=(-R '^logos_(25_spec|03_ownership|04_advanced)_pass')
+
+_bid() { grep -oP 'build_id=\K\d+' "$1" | head -1; }
+
+_measure() {   # $1 = log file; runs all three selections under the current env
+    { bash scripts/gate-run.sh "${LEDGER[@]}"
+      bash scripts/gate-run.sh "${LEGAL_A[@]}"
+      bash scripts/gate-run.sh "${LEGAL_B[@]}"; } > "$1" 2>&1
+}
+
 NAME="${1:?usage: ceiling-probe.sh <probe-name> | --selftest}"
 
-# ⚠ THE HARNESS'S OWN KNOWN ANSWER. A reader that has never SEEN a row close
-# cannot tell a dead hypothesis from a broken reader — and on the very first
-# run this reader WAS broken (a relative fire-log path, opened from ctest's
-# working directory instead of this one, reported NEVER FIRED for a probe that
-# had fired 193 times). `selftest_refuse` refuses every borrow the pass records,
-# so it must close ALL of them.
 if [ "$NAME" = "--selftest" ]; then
-    # CEILING_ONLY: the selftest asks whether the READER sees closures; the
-    # cost side would just re-measure that a total sabotage breaks everything.
-    out=$(CEILING_ONLY=1 "$0" selftest_refuse 2>&1) || { echo "$out"; exit 1; }
+    # ⚠ THE READER'S OWN KNOWN ANSWER. A reader that has never SEEN a row close
+    # cannot tell a dead hypothesis from a broken reader, and on the first run
+    # this one WAS broken. `selftest_refuse` refuses every recorded borrow, so
+    # it must close ALL the ledger rows.
+    out=$("$0" selftest_refuse 2>&1) || { echo "$out"; exit 1; }
     got=$(printf '%s' "$out" | grep -oP 'CEILING = \K\d+')
-    tot=$(ctest --test-dir build -N -R "^logos_00_bc_admit_" 2>/dev/null | grep -oP "Total Tests: \K[0-9]+")
-    if [ "${got:-0}" = "$tot" ] && [ "$tot" -gt 0 ]; then
+    tot=$(ctest --test-dir build -N "${LEDGER[@]}" 2>/dev/null | grep -oP 'Total Tests: \K\d+')
+    if [ "${got:-0}" = "$tot" ] && [ "${tot:-0}" -gt 0 ]; then
         echo "ok  ceiling-probe: selftest_refuse closes $got/$tot rows — the reader sees closures"
         exit 0
     fi
     echo "FAIL ceiling-probe: selftest_refuse closed ${got:-none} of $tot — the READER is broken, not the tree"
-    printf '%s\n' "$out" | head -5
+    printf '%s\n' "$out" | head -8
     exit 1
 fi
-JOBS=$(nproc)
-LEDGER_RE='^logos_00_bc_admit_'
-# ⚠ THE PRICE HAS TWO SIDES. A ceiling alone is half a number: a probe can buy
-# rows with a refusal that is simply WRONG. Measured 2026-08-27 — `callroot`
-# priced at 4 and one of its rows closes only because the probe refuses
-# `match *x { Cycle::Node(ref mut y) => ... }` over a Box, which is legal Rust;
-# `refwhole` priced at 1 against FORTY legal-program refusals. Both were caught
-# by hand, by agents who thought to look. Nobody should have to think to look.
-# This corpus is programs that MUST COMPILE, so a failure here is the probe
-# refusing something legal. 1168 tests, 73 s.
-# ⚠ THE POPULATION IS CHOSEN BY A LABEL, NOT BY A SPELLING I TYPED. The first
-# version of this line named four DIRECTORIES and missed `02_semantic_core`,
-# which is where every native `bc_*` fixture lives — the hole was exactly where
-# borrow legality is pinned, and it scored `refwhole` at COST 1 where an agent
-# had counted 40 by hand. The replacement regex was better and still a regex.
-#
-# `bc` is now stamped at REGISTRATION (tests/logos/CMakeLists.txt): for imported
-# ports from the upstream suite DIRECTORY (borrowck/nll/moves/regions/lifetimes/
-# dropck/drop/closures/variance — a property of the port, not of our naming),
-# and for native fixtures by the `bc_` prefix. Adding `-L pass` keeps only the
-# programs that MUST COMPILE, which is what a cost is.
-#
-# Measured 2026-08-28: 807 tests against the old regex's 487, and the 320 it
-# gains are the imported borrow-check ports the regex never named at all.
-# ⚠ The native half is still prefix-keyed, so a borrow-check fixture named
-# without `bc_` is outside this corpus. Stated at the label's definition too.
-# ⚠ TWO SELECTIONS, UNIONED, BECAUSE ctest ANDs ITS FILTERS. `-L bc -L pass`
-# alone LOSES the spec/ownership/advanced directories, which carry no `bc`
-# label — and those are what caught the over-refusal of 2026-08-27 that L1 could
-# not see (`tests/spec/pass/type_{3,8}`). MEASURED when this switch was made:
-# the label corpus is BIGGER (807 vs 487) and scored `refwhole` at COST 5 where
-# the old regex scored 7; the two missing costs were spec programs. A wider
-# population that drops the half with the evidence is not an improvement.
-LEGAL_SEL_A=(-L bc -L pass)
-LEGAL_SEL_B=(-R "^logos_(25_spec|03_ownership|04_advanced)_pass")
-BIN=build/bin/logosc
-WORK=build/probe
-mkdir -p "$WORK"
 
-[ -x "$BIN" ] || { echo "probe: no $BIN — build first"; exit 2; }
+B=$(mktemp); A=$(mktemp)
+echo "ceiling-probe: unarmed baseline (from the store where it is already there)"
+_measure "$B"; BID_BASE=$(_bid "$B")
+echo "ceiling-probe: armed run — LOGOS_PROBE=$NAME"
+LOGOS_PROBE="$NAME" _measure "$A"; BID_ARMED=$(_bid "$A")
+[ -z "${BID_BASE:-}" ] || [ -z "${BID_ARMED:-}" ] && {
+    echo "ceiling-probe: could not read a build id from gate-run — refusing to report a number" >&2
+    exit 2; }
+[ "$BID_BASE" = "$BID_ARMED" ] && {
+    echo "ceiling-probe: armed and unarmed resolved to the SAME build identity ($BID_BASE)." >&2
+    echo "  LOGOS_PROBE is supposed to be part of the key; if it is not, every number" >&2
+    echo "  below would be a comparison of a run with itself." >&2
+    exit 2; }
 
-# ⚠ FRESHNESS IS A PROPERTY OF THE BUILD, not of the checkout. Measuring a
-# stale binary is the failure this whole directory keeps re-learning: the
-# control and the non-control are indistinguishable when neither was compiled.
-NEWER=$(find src include -newer "$BIN" -name '*.cpp' -o -newer "$BIN" -name '*.hpp' 2>/dev/null | head -1)
-if [ -n "$NEWER" ]; then
-    echo "probe: $BIN is OLDER than $NEWER — rebuild, or you are measuring the previous edit"
-    exit 2
-fi
-
-# The baseline is a property of the BINARY, so key it on the binary and pay for
-# it once per build rather than once per probe — the point of batching N probes
-# into one build is lost if each re-measures the same baseline.
-KEY=$(sha256sum "$BIN" | cut -c1-16)
-BASE="$WORK/baseline-$KEY.txt"
-if [ ! -f "$BASE" ]; then
-    echo "probe: baseline for this binary not yet measured (${JOBS}-way, ~32 s)"
-    ctest --test-dir build -j"$JOBS" -R "$LEDGER_RE" 2>/dev/null \
-        | grep -oP '^\s*\d+ - \K\S+(?= \(Failed\))' | sort > "$BASE"
-fi
-NBASE=$(wc -l < "$BASE")
-if [ "$NBASE" -ne 0 ]; then
-    echo "probe: ⚠ BASELINE IS NOT CLEAN — $NBASE ledger rows already fail without any probe."
-    echo "probe:   every ceiling below is a delta against THAT, not against a green tree:"
-    sed 's/^/probe:     /' "$BASE"
-fi
-
-# ⚠ ABSOLUTE. Each ledger row is its own logosc process run by ctest from a
-# working directory that is NOT this script's, so a relative fire-log path is
-# opened somewhere else — or nowhere — and the harness then reports NEVER FIRED
-# for a probe that fired 193 times. Measured: that is exactly what happened on
-# the first run, and the known-answer probe is what exposed it.
-FIRE=$ROOT/$WORK/fire-$NAME.$$
-: > "$FIRE"
-RUN=$WORK/run-$NAME.txt
-LOGOS_PROBE="$NAME" LOGOS_PROBE_FIRE="$FIRE" \
-    ctest --test-dir build -j"$JOBS" -R "$LEDGER_RE" 2>/dev/null \
-    | grep -oP '^\s*\d+ - \K\S+(?= \(Failed\))' | sort > "$RUN"
-
-FIRES=$(awk -F'\t' -v n="$NAME" '$1==n {s+=$2} END{print s+0}' "$FIRE")
-rm -f "$FIRE"
-
-if [ "$FIRES" -eq 0 ]; then
-    echo "probe: ✗ '$NAME' NEVER FIRED — the site was not reached in any of the 447 compiles."
-    echo "probe:   This is NOT ceiling 0. Either the name is mis-typed, the guard is"
-    echo "probe:   upstream of the site, or the code path is dead. Prove the site is live"
-    echo "probe:   before reading any zero off it."
-    exit 3
-fi
-
-CLOSED=$(comm -13 "$BASE" "$RUN")
+FIRES=$(grep -c . /dev/null; true)
+CLOSED=$(python3 scripts/gate_db.py delta "$DB" "$BID_BASE" "$BID_ARMED" logos_00_bc_admit_)
 N=$(printf '%s' "$CLOSED" | grep -c . || true)
-REOPEN=$(comm -23 "$BASE" "$RUN" | grep -c . || true)
-
-NROWS=$(ctest --test-dir build -N -R "$LEDGER_RE" 2>/dev/null | grep -oP "Total Tests: \K[0-9]+")
-echo "probe: '$NAME' fired $FIRES times across ${NROWS:-?} compiles"
-echo "probe: CEILING = $N rows"
-[ "$REOPEN" -ne 0 ] && echo "probe: ⚠ $REOPEN previously-failing rows now pass — the probe UN-refused something"
-[ "$N" -ne 0 ] && printf '%s\n' "$CLOSED" | sed 's/^/probe:   /'
-
-if [ "${CEILING_ONLY:-0}" = "1" ]; then
-    echo "probe: (cost side SKIPPED by CEILING_ONLY=1 — this is half a price)"
-    exit 0
-fi
-
-# ── THE OTHER HALF: what does the refusal COST in legal programs? ────────────
-LBASE="$WORK/legalbase-$KEY.txt"
-if [ ! -f "$LBASE" ]; then
-    { ctest --test-dir build -j"$JOBS" "${LEGAL_SEL_A[@]}" 2>/dev/null
-      ctest --test-dir build -j"$JOBS" "${LEGAL_SEL_B[@]}" 2>/dev/null; } \
-        | grep -oP '^\s*\d+ - \K\S+(?= \(Failed\))' | sort -u > "$LBASE"
-fi
-LRUN=$WORK/legalrun-$NAME.txt
-{ LOGOS_PROBE="$NAME" ctest --test-dir build -j"$JOBS" "${LEGAL_SEL_A[@]}" 2>/dev/null
-  LOGOS_PROBE="$NAME" ctest --test-dir build -j"$JOBS" "${LEGAL_SEL_B[@]}" 2>/dev/null; } \
-    | grep -oP '^\s*\d+ - \K\S+(?= \(Failed\))' | sort -u > "$LRUN"
-BROKE=$(comm -13 "$LBASE" "$LRUN")
+BROKE=$(python3 scripts/gate_db.py delta "$DB" "$BID_BASE" "$BID_ARMED" | grep -v '^logos_00_bc_admit_' || true)
 C=$(printf '%s' "$BROKE" | grep -c . || true)
 
-echo "probe: COST    = $C legal programs refused (a LOWER bound — this corpus is"
-echo "probe:           borrow-legality plus three spec dirs, not the whole pass tree)"
+echo "ceiling-probe: '$NAME'  builds $BID_BASE (unarmed) -> $BID_ARMED (armed)"
+echo "probe: CEILING = $N rows"
+[ "$N" -ne 0 ] && printf '%s\n' "$CLOSED" | sed 's/^/probe:   /'
+echo "probe: COST    = $C legal programs refused (a LOWER bound — the corpus refuses"
+echo "probe:           only what it CONTAINS; write the counter-examples)"
 [ "$C" -ne 0 ] && printf '%s\n' "$BROKE" | head -12 | sed 's/^/probe:   /'
-
-# The verdict is the RATIO, and it is stated rather than left to be inferred —
-# a probe whose cost exceeds its ceiling is not a cheap fix waiting for
-# exemptions, it is the wrong mechanism.
-if [ "$C" -ge "$N" ]; then
-    echo "probe: ⛔ COST >= CEILING — this mechanism refuses at least as many legal"
-    echo "probe:    programs as it closes rows. Exemptions might rescue it, but the"
-    echo "probe:    burden is now on showing WHICH, not on finding one that fits."
+if [ "$N" -eq 0 ] && [ "$C" -eq 0 ]; then
+    echo "probe: no effect. ⚠ NOT a refutation until the site is proven live — check the"
+    echo "probe:   fire count and the region's arrival count before recording a zero."
+elif [ "$C" -ge "$N" ]; then
+    echo "probe: ⛔ COST >= CEILING — it refuses at least as many legal programs as it"
+    echo "probe:    closes rows. Exemptions might rescue it; the burden is showing WHICH."
 else
     echo "probe: ✓ ceiling $N vs cost $C — worth an exemption analysis"
-    [ "$C" -eq 0 ] && cat <<'LIMIT'
-probe: ⚠ COST 0 IS NOT A SAFETY CLAIM. A corpus refuses only programs it
-probe:    CONTAINS. Measured 2026-08-27: `callroot` scores cost 0 here, and an
-probe:    agent refuted it by WRITING A NEW PROGRAM — `match *x { Node(ref mut
-probe:    y) => … }` over a Box, legal Rust, refused under the probe. The cost
-probe:    side removes bad candidates cheaply; it never certifies a good one.
-probe:    The exemption analysis still has to construct its own counter-examples.
-LIMIT
 fi
-echo "probe: ⚠ still an UPPER BOUND. It says what to fund, never what you will get."
+echo "probe: ⚠ a CEILING bounds the COUNT, not the SET: diff these names against what"
+echo "probe:   you predicted BY NAME. A matching count can be two errors cancelling."
+rm -f "$A" "$B"
 exit 0

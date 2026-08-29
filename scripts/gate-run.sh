@@ -49,6 +49,10 @@ HEAD=$(git rev-parse --short HEAD 2>/dev/null || echo nogit)  # lint:git-ok — 
 # re-run costs minutes, a poisoned record costs a wrong answer.
 ENVK=$(env | grep -E '^LOGOS_(PROBE|DUMP|VERIFY|SZ|MRAM)' | sort | sha256sum | cut -c1-12)
 BID=$(python3 scripts/gate_db.py build "$DB" "$VER" "$LIBS-$ENVK" "$HEAD")
+# Printed on stderr so a caller can capture the identity without parsing the
+# report — `ceiling-probe.sh` needs it to ask the store what changed between an
+# unarmed and an armed run instead of diffing two temp files of its own.
+echo "gate-run: build_id=$BID" >&2
 
 ALL=$(ctest --test-dir "$BUILD" -N "$@" 2>/dev/null | grep -oP '^\s+Test\s+#\d+: \K\S+' | sort)
 N=$(printf '%s\n' "$ALL" | grep -c . || true)
