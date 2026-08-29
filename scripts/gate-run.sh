@@ -28,12 +28,27 @@ DB=${LOGOS_GATE_DB:-$BUILD/gate-state/runs.db}
 BIN=$BUILD/bin/logosc
 [ -x "$BIN" ] || { echo "gate-run: no $BIN — build first" >&2; exit 2; }
 
+# ⚠ THE IDENTITY IS `scripts/build_hash.py`, NOT THE VERSION STRING. Measured
+# 2026-08-29: `logosc --version` carries a timestamp from CMake's CONFIGURE step,
+# so it does not move when the compiler is rebuilt — and the first key here
+# hashed the LIBRARIES and forgot logosc, so a compiler-only rebuild produced a
+# FALSE CACHE HIT: "already measured" for a binary that had never run a test.
+# Both halves have now bitten, an hour apart, and both in the permissive
+# direction. The version string is kept only as a human-readable annotation.
 VER=$("$BIN" --version 2>/dev/null | head -1)
-LIBS=$( { find "$BUILD/lib/logos" -type f 2>/dev/null | sort | xargs -r sha256sum
-          find "$BUILD/tests/logos" -maxdepth 1 -name '*.a' 2>/dev/null | sort | xargs -r sha256sum
-        } | sha256sum | cut -c1-16)
+read -r LIBS NFILES < <(python3 scripts/build_hash.py "$BUILD") || {
+    echo "gate-run: build_hash failed — refusing to key a run on nothing" >&2; exit 2; }
+[ "${NFILES:-0}" -lt 5 ] && { echo "gate-run: build_hash saw only $NFILES files; that is not a build" >&2; exit 2; }
 HEAD=$(git rev-parse --short HEAD 2>/dev/null || echo nogit)  # lint:git-ok — recorded for the reader; the identity is the version string plus the libraries
-BID=$(python3 scripts/gate_db.py build "$DB" "$VER" "$LIBS" "$HEAD")
+# ⚠ THE ENVIRONMENT IS PART OF THE RUN. `LOGOS_PROBE` arms a probe and changes
+# what the compiler decides; `LOGOS_DUMP_*` and the rest may too. MEASURED: a
+# sabotage-probe run recorded three FAILED verdicts under the same identity an
+# unarmed run would have used, so the store held results from a compiler nobody
+# was actually testing. Every LOGOS_* variable goes into the key — that
+# over-invalidates for a pure dump flag, which is the safe direction: a spurious
+# re-run costs minutes, a poisoned record costs a wrong answer.
+ENVK=$(env | grep -E '^LOGOS_(PROBE|DUMP|VERIFY|SZ|MRAM)' | sort | sha256sum | cut -c1-12)
+BID=$(python3 scripts/gate_db.py build "$DB" "$VER" "$LIBS-$ENVK" "$HEAD")
 
 ALL=$(ctest --test-dir "$BUILD" -N "$@" 2>/dev/null | grep -oP '^\s+Test\s+#\d+: \K\S+' | sort)
 N=$(printf '%s\n' "$ALL" | grep -c . || true)
