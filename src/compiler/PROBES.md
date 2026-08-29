@@ -944,7 +944,8 @@ note: the probe named by 2026-08-29b's `callfldw` finding, and the finding was
   already-wrong `through_ref_type` visible. The blocker is in sema, and it is
   the FIELD auto-deref step, not the match scrutinee.
 
-  ── 2026-08-29c part 2, RE-PRICED under a SECOND build (rule 8, within the
+  ── 2026-08-29c part 2, RE-PRICED under a SECOND build (armed 60, unarmed
+  baseline 56) (rule 8, within the
   same day): 346 fires, CEILING 13, COST 0, SET-IDENTICAL. Two builds apart,
   same thirteen names — the measurement is stable, and that is what licenses
   reading `callidxfdm`'s set as a DIFFERENCE rather than as noise.
@@ -1137,7 +1138,7 @@ programs, one diagnostic. That is its own defect and its own round.
 
 ## fldderefsite
 site: src/compiler/sema_expr.cpp::lower_field_read
-build: armed gate build 61 (unarmed baseline 57; probe batch of 2026-08-29c part 2)
+build: armed gate build 59 (unarmed baseline 56; probe batch of 2026-08-29c part 2)
 measured: 2026-08-29
 fires: 16
 ceiling: 0
@@ -1154,7 +1155,7 @@ note: rule 9's outer half for `fldderefmut`. The field auto-deref loop is
 
 ## fldderefmut
 site: src/compiler/sema_expr.cpp::lower_field_read
-build: armed gate build 59 (unarmed baseline 57; probe batch of 2026-08-29c part 2)
+build: armed gate build 58 (unarmed baseline 56; probe batch of 2026-08-29c part 2)
 measured: 2026-08-29
 fires: 16
 ceiling: 6
@@ -1182,7 +1183,7 @@ note: THE SITE (B) ACTUALLY LIVES AT. The field auto-deref loop calls
 
 ## callidxfdm
 site: src/compiler/borrow_check.cpp::extract_borrow_place + src/compiler/sema_expr.cpp::lower_field_read
-build: armed gate build 58 (unarmed baseline 57; probe batch of 2026-08-29c part 2)
+build: armed gate build 57 (unarmed baseline 56; probe batch of 2026-08-29c part 2)
 measured: 2026-08-29
 fires: 363
 ceiling: 13
