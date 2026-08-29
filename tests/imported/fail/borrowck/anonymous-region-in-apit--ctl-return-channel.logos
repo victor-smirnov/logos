@@ -1,6 +1,7 @@
 // rustc borrowck/anonymous-region-in-apit.rs — upstream escapes-closure
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: fail — REFUSED since 2026-08-29 (was root bck.C: a capture-less closure's result was tied to nothing, so the
+//   argument's provenance never reached the return gate)
 // CONTROL for t01: differs in ONE thing — the closure parameter's borrow leaves by
 // RETURN instead of by store into the `&mut Sink` out-parameter. Refused.
 package anonymous_region_in_apit_ctl_return_channel;

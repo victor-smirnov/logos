@@ -1,6 +1,7 @@
 // rustc nll/promoted-closure-pair.rs — upstream E0515
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.C
+// shelf: fail — REFUSED since 2026-08-29 (was root nllmoves.C: the callee is a TUPLE FIELD, so `closure_caps_of` answers
+//   nullptr and the same capture-less exit is taken)
 package promoted_closure_pair;
 // nll/promoted-closure-pair.rs — returning a borrow produced by a promoted constant
 // holding closures.

@@ -1,6 +1,7 @@
 // rustc regions/regions-ret-borrowed-1.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.C
+// shelf: fail — REFUSED since 2026-08-29 (was root lifereg.C: `f` is a generic `Fn(&i64)->R` param; at the instantiation
+//   where R is `&i64` the sole reference argument `&three` is a local)
 // port of rust ui/regions/regions-ret-borrowed-1.rs
 package regions_ret_borrowed_1;
 

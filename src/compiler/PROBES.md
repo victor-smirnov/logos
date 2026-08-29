@@ -1563,3 +1563,100 @@ note: 52 rows carry a C root today (bck.C 25, nllmoves.C 18, lifereg.C 9), not
   block — they are group F, a WRITE-direction question wearing a signature's
   clothes. "Not fundable today because it needs region inference" would have
   been the honest answer to fifteen rows and is the honest answer to four.
+
+## capprovnocap-LANDED — the funded mechanism, and the narrowing the probe bought
+site: src/compiler/borrow_check.cpp::prov_of, the ClosureCall capture-less exit
+build: e0bbe6a8d4fb8328 (fixed tree; probe baseline 69, armed 71, fixed gate 73)
+measured: 2026-08-29
+fires: n/a — LANDED, not armed. Its reach is proved by a ONE-TOKEN TWIN
+  (pass/bc_h4e_closure_arg_tie_param `c(p)` ⟷ fail/bc_h4e_closure_arg_tie_dangle
+  `c(&l)`) and by a CONTROL REVERT, below.
+ceiling: 6 measured as a probe (11 420 arrivals at the site)
+cost: 0 by the corpus at build 73 — 1823 `-L bc`, 852 `-L bc -L pass`, 190
+  spec/ownership/advanced, 745 L1, 12 684 generated cases, all green — and
+  ⛔ NOT 0 for the PROBE by hand: ce7, one legal program, which is why what
+  landed is not what was armed.
+verdict: FUNDED. PREDICTED SIX BY NAME, CLOSED SIX, both diffs ∅. Ledger 349 -> 343.
+
+THE DEFECT. `prov_of`'s `case ClosureCall/FnPtrCall` has two permissive exits and
+the call's ARGUMENTS were read by neither. `if (!caps) return {}` answered
+NOTHING for a capture-less closure — `note_closure_caps` ERASES the entry when
+the capture list is empty, so such a closure is indistinguishable there from a
+callee the walker cannot name — and the caps loop that follows merges captures
+only. The FnPtrCall branch three lines up already walked its args. So the same
+program refused through a fn, refused through a fn POINTER, and was ADMITTED
+through a closure: the discriminator was a node kind, not a region.
+
+THE CLOSED SET, measured at build 73, and the prediction was made before it ran:
+    borrowck/anonymous-region-in-apit--ctl-return-channel   'local'
+    borrowck/cannot-return-ref-to-fn-param-in-filter-map    'line'
+    nll/check-normalized-sig-for-wf                         (elision, see below)
+    nll/issue-48697--b                                      'z'
+    nll/promoted-closure-pair                               'z'
+    regions/regions-ret-borrowed-1                          'three'
+  predicted∖closed = ∅; closed∖predicted = ∅. `regions/regions-ret-borrowed` was
+  predicted NOT to close and did not: its argument is the const-promoted `&3i64`,
+  for which `prov_of` answers `{}` by design (#92).
+  ⚠ ONE OF THE SIX IS NOT CLASS C. `check-normalized-sig-for-wf` is nllmoves.A —
+  `fn whoops<F>(s:&i64,f:F)->&'static i64 { return f(s); }` — where the tie lands
+  on a PARAM and the ELISION gate refuses it, not the dangling gate. A rule about
+  closure-call ARGUMENTS is a rule about calls, and it reaches outside the class
+  that motivated it. Rule 6 the other way round: the count held and the SET was
+  larger than the class.
+
+⚠ WHAT LANDED IS NARROWER THAN THE PROBE (rule 7), AND THE PROBE IS HOW THAT WAS
+FOUND. `capprovnocap` merged EVERY reference argument into the result. Nine hand
+programs were compiled against it before a line of the fix was written, each
+proved to have REACHED the arm by its fire count (8-10 armed, 0 unarmed), and
+one of them is refused by the probe and is LEGAL:
+    ce7  fn get(p:&i64)->&i64 { let l:i64=5;
+             let c=|x:&i64,y:&i64|->&i64{return y;}; return c(&l,p); }
+The result derives from `y` alone; the tie to `&l` is a legal-program refusal,
+and A LEDGER ROW MAY NOT BE BOUGHT WITH ONE. So what landed is the LANGUAGE'S OWN
+elision rule instead of "merge the arguments": with exactly ONE reference-typed
+argument the result can only borrow THAT one, and the answer is EXACT rather than
+conservative. All six rows pass exactly one reference, so the narrowing is free —
+ceiling 6 survived it intact.
+
+⚠ AND THE TWO-ARGUMENT CLOSURE IS A NAMED RESIDUE, NOT AN OVERSIGHT. With two or
+more reference arguments there is no elision rule to apply. The tree refuses to
+let a FN even be WRITTEN in that shape — measured, tw1/tw3: E0106, "more than one
+input lifetime and no `&self`" — and a closure has no syntax to annotate the tie:
+`|x:&i64,y:&'b i64|->&'b i64` parses and is read blanket-wise anyway (tw7, rc 0).
+The precisely-annotated FN twin is refused for an unrelated reason (tw5: "variance
+mismatch — expected &'b i64, got &'a i64"), which is the inert lifetime channel
+again. So ce7 STAYS ADMITTED. It is a hole; it is NOT pinned as a green pass
+fixture, because a green test asserting a defect is the thing this file exists to
+stop. Its repair is either an E0106 for closure signatures or a per-closure
+`to_result` mask — which is the same "flow summary for a closure BODY" that the
+loan channel's ClosureCall arm has been asking for since 2026-08-28, and it would
+buy group F as well. That is the next round's question and it now has two callers.
+
+RULE 7, THE NAME. The probe printed "cannot return reference to local variable
+'?'" — §B6's `collect_ref_sources` has no ClosureCall arm and answers nothing for
+the whole expression. A landing owes the name, so the report site now asks §B6
+about the ARGUMENTS. MESSAGE ONLY, and deliberately not a repair of §B6 itself:
+`capargtie` armed that idea INSIDE `collect_ref_sources_paths` and priced CEILING
+0 / COST 2, because that walk feeds verdicts other than this one. All five
+dangling rows now name their local, pinned in full in their `.expected`.
+
+THE CONTROL, because cost 0 was wrong twice in the round before this one: with
+`src/compiler/borrow_check.cpp` REVERTED and all nine fixtures in place, every one
+compiled with NO diagnostic — the six relanded imported programs and
+bc_h4e_closure_arg_tie_dangle were ADMITTED before and are refused after, and the
+two pass fixtures were legal on both trees. The two halves of the pair are one
+token apart (`c(p)` / `c(&l)`), which is how reach is proved for a landed rule
+with no fire log.
+
+⚠ THE CAPTURING EXIT WAS LEFT ALONE ON A MEASUREMENT, not by omission:
+`capprovcaps` priced that widening at CEILING 0 over the whole ledger, and it has
+a mechanism and not just a number — the caps loop already answers `is_local` for
+every captured local, so ce5 (a CAPTURING closure returning its own param) is
+refused on the unpatched tree today and no argument tie can move it.
+
+⚠ AND `capprovnocap` RE-PRICED ON AN UNCHANGED TREE READS "NEVER FIRED", which is
+not rule 1 firing. LOGOS_PROBE is in the build key, so the armed build id was
+already fully measured in the store from the pricing round; gate-run correctly ran
+nothing, so no logosc process existed to append to the fire log. A fire count of
+zero is only readable when tests actually RAN. The ceiling was re-read instead as
+`gate_db.py compare 69 71`, which is the same six rows.

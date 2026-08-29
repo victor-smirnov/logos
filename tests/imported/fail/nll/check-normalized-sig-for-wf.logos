@@ -1,6 +1,7 @@
 // rustc nll/check-normalized-sig-for-wf.rs — upstream E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.A
+// shelf: fail — REFUSED since 2026-08-29 (was root nllmoves.A: the tie now lands on the PARAM `s` and the elision gate
+//   refuses it against the `'static` return — a rule about calls, not class C)
 package check_normalized_sig_for_wf;
 fn whoops<F>(s: &i64, f: F) -> &'static i64 where F: Fn(&i64) -> &i64 {
     return f(s);

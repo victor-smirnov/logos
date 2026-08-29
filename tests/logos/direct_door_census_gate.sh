@@ -944,9 +944,26 @@ PIN = {
     # imported programs that left `admit` for `fail` are not in tests/logos/pass
     # at all. `glob` and the DOOR counts unmoved: no `wql_*`/`deem_*` match, no
     # container family, no `direct` output form.
-    'corpus'            : 2455,
+    # 2026-08-29 (the CLOSURE ARGUMENT TIE, `capprovnocap`), +2/0/+2.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 2 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2457
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2457 = 191 + 2266. The two that joined the PASS corpus
+    # are bc_h4e_closure_arg_tie_param (the ADMIT half of the pair — one token
+    # from fail/bc_h4e_closure_arg_tie_dangle: the argument is the param `p`,
+    # not `&l`, which is how reach is proved for a landed rule with no fire
+    # log) and bc_h4e_closure_arg_tie_legal_shapes (the COST side: a result
+    # used while its referent is alive, a closure returning a SCALAR, and a
+    # generic `Fn(&i64)->R` instantiated at a non-reference R). Both assert a
+    # VALUE (`exit: 0` gated on the computed sum), not a diagnostic. The
+    # round's other native fixture is a FAIL fixture and this population is the
+    # PASS corpus, so it moves nothing here; the six imported programs that
+    # left `admit` for `fail` are not in tests/logos/pass at all. `glob` and
+    # the DOOR counts unmoved: no `wql_*`/`deem_*` match, no container family,
+    # no `direct` output form.
+    'corpus'            : 2457,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2264,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2266,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

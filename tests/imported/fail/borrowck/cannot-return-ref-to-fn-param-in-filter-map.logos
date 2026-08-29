@@ -1,6 +1,7 @@
 // rustc borrowck/cannot-return-ref-to-fn-param-in-filter-map.rs — upstream E0515
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: fail — REFUSED since 2026-08-29 (was root bck.C: a capture-less closure's result was tied to nothing, so the
+//   argument's provenance never reached the return gate)
 package cannot_return_ref_to_fn_param_in_filter_map;
 fn apply(f: fn(&i64) -> &i64) {}
 fn make(s: &i64) -> &i64 { return s; }

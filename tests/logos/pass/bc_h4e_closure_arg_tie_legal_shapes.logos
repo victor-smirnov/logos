@@ -1,0 +1,21 @@
+// The COST side of the closure argument tie (H4-e). Three shapes reach the
+// same arm and must stay legal:
+//   · the result is used while the referent is STILL ALIVE
+//   · the closure returns a SCALAR — the arm exits on the result type before
+//     any argument is walked
+//   · a GENERIC callee `Fn(&i64) -> R` instantiated at a NON-reference R, so
+//     `with`'s own `return f(&three)` is not a dangle at that instantiation
+package bc_h4e_closure_arg_tie_legal_shapes;
+fn with<R, F>(f: F) -> R where F: Fn(&i64) -> R {
+    let three: i64 = 3i64;
+    return f(&three);
+}
+fn main() -> i32 {
+    let l: i64 = 5i64;
+    let c = |x: &i64| -> &i64 { return x; };
+    let r: &i64 = c(&l);
+    let s = |x: &i64| -> i64 { return *x; };
+    let v: i64 = s(&l);
+    let w: i64 = with(|o: &i64| -> i64 { return *o; });
+    return (*r + v + w - 13i64) as i32;
+}

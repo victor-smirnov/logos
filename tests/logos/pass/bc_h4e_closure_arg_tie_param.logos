@@ -1,0 +1,10 @@
+// The ADMIT half of the pair. One token from
+// fail/bc_h4e_closure_arg_tie_dangle.logos: the argument is the PARAM `p`, not
+// `&l`. The tie is exact — it follows the argument — so this stays legal.
+package bc_h4e_closure_arg_tie_param;
+fn get(p: &i64) -> &i64 {
+    let l: i64 = 5i64;
+    let c = |x: &i64| -> &i64 { return x; };
+    return c(p);
+}
+fn main() -> i32 { let a: i64 = 3i64; return *get(&a) as i32 - 3i32; }

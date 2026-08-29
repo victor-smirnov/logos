@@ -1,0 +1,15 @@
+// ONE TOKEN from pass/bc_h4e_closure_arg_tie_param.logos: `c(&l)`, not `c(p)`.
+// A capture-less closure's result now ties to its SOLE reference argument
+// (prov_of's ClosureCall arm, H4-e), so the local `l` reaches the return gate.
+// That is the reach proof for the pass twin — the rule has no fire log.
+// rustc: E0515.
+// ⚠ THE NAME IS PART OF THE ASSERTION. The ceiling probe printed "local
+// variable '?'" because §B6's `collect_ref_sources` has no ClosureCall arm; a
+// landing owes the name, and the report site now asks §B6 about the ARGUMENTS.
+package bc_h4e_closure_arg_tie_dangle;
+fn get(p: &i64) -> &i64 {
+    let l: i64 = 5i64;
+    let c = |x: &i64| -> &i64 { return x; };
+    return c(&l);
+}
+fn main() -> i32 { let a: i64 = 3i64; return *get(&a) as i32 - 3i32; }

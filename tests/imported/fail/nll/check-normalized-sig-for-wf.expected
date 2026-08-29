@@ -1,0 +1,1 @@
+lifetime mismatch: return type has lifetime 'static but 's' has lifetime (elided)

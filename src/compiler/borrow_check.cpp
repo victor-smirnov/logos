@@ -7411,11 +7411,12 @@ private:
                 TypeRef rt = e.type(pool);
                 if (!is_ref_kind(rt) && !is_borrow_carrying_type(rt)) return {};
                 const std::vector<std::string>* caps = closure_caps_of(call_callee(e));
-                // ── PROBES capprovarg / capprovnocap / capprovcaps ──────────
-                // THE ARGUMENTS OF A CLOSURE CALL ARE NEVER READ HERE. The
+                // ── H4-e: A CAPTURE-LESS CLOSURE'S RESULT TIES TO ITS SOLE
+                //          REFERENCE ARGUMENT, BY THE ELISION RULE ──────────
+                // THE ARGUMENTS OF A CLOSURE CALL WERE NEVER READ HERE. The
                 // FnPtrCall branch below walks them (summary first, then the
-                // plain-ref/by-value-bc fallback); the two ClosureCall exits
-                // do not — `if (!caps) return {}` answers NOTHING for a
+                // plain-ref/by-value-bc fallback); neither ClosureCall exit
+                // did — `if (!caps) return {}` answered NOTHING for a
                 // CAPTURE-LESS closure, and the caps loop that follows merges
                 // captures ONLY. MEASURED BY HAND on f41cb31ce, multi-line
                 // sources, one token apart:
@@ -7435,29 +7436,53 @@ private:
                 // RETURN gate reads `prov_of`, not the §B6 source walk, so the
                 // repair there could not reach the shape it was written for.
                 // See PROBES.md.
-                // capprovarg = both exits; capprovnocap = the capture-less
-                // exit only (the delegation to the FnPtrCall rule one screen
-                // down); capprovcaps = the caps loop only. 2 and 3 partition
-                // 1, so rule 6 gets a decomposition and not just a count.
-                // All three are asked ONCE PER ARRIVAL, before any branch, so
-                // each fire count is this arm's whole population.
-                bool p_pall  = logos::probe::on("capprovarg");
-                bool p_pnoc  = logos::probe::on("capprovnocap");
-                bool p_pcaps = logos::probe::on("capprovcaps");
-                auto arg_prov = [&]() {
-                    RefProv m = {};
-                    auto add = [&](ExprRef a) {
+                // PRICED as three probes over the whole 349-row ledger, one
+                // build (PROBES.md, gate-db 69 -> 70/71/72):
+                //   capprovarg   11420 fires  CEILING 6  COST 0  both exits
+                //   capprovnocap 11420 fires  CEILING 6  COST 0  this exit alone
+                //   capprovcaps  11428 fires  CEILING 0  COST 0  the caps loop
+                // 2 and 3 partition 1, so the narrow half is the whole of it
+                // and the caps loop buys nothing: it already answers is_local
+                // for every captured local, so a CAPTURING closure returning
+                // its own param is refused on the unpatched tree today and no
+                // argument tie can move it.
+                //
+                // ⚠ WHAT LANDED IS NARROWER THAN THE PROBE, AND THE PROBE IS
+                // WHY. `capprovnocap` merged EVERY reference argument into the
+                // result, and that refuses this, which nothing in the corpus
+                // contains (ce7, hand-written):
+                //   fn get(p:&i64)->&i64 {
+                //       let l:i64=5;
+                //       let c=|x:&i64,y:&i64|->&i64{return y;};
+                //       return c(&l,p); }
+                // The result derives from `y` alone; the tie to `&l` is a
+                // legal-program refusal, and a ledger row may not be bought
+                // with one. So the rule landed here is the LANGUAGE'S OWN
+                // elision rule and not "merge the arguments": with exactly ONE
+                // reference-typed argument the result can only borrow THAT
+                // one, and the answer is exact. With two or more there is no
+                // elision rule to apply — the tree refuses to let a FN even be
+                // WRITTEN in that shape (E0106, "more than one input lifetime
+                // and no `&self`"), and a closure has no syntax to annotate
+                // the tie: `|x:&i64,y:&'b i64|->&'b i64` parses and is still
+                // read blanket-wise. Those stay ADMITTED, i.e. still a hole,
+                // and it is the honest one — see PROBES.md, group A residue.
+                //
+                // The six rows this closes all pass exactly one reference.
+                auto sole_ref_arg = [&]() -> ExprRef {
+                    // Only a ClosureCall reaches here: the `!caps` FnPtrCall
+                    // branch above returns unconditionally.
+                    ExprRef sole{};
+                    unsigned n = 0;
+                    EClosureCallView{e}.each_arg([&](ExprRef a) {
                         if (!a) return;
                         TypeRef at = a.type(pool);
                         if (is_plain_ref_kind(at) ||
-                            (!is_ref_kind(at) && is_borrow_carrying_type(at)))
-                            m = merge_prov(m, prov_of(a));
-                    };
-                    if (e.kind() == Code::ClosureCall)
-                        EClosureCallView{e}.each_arg(add);
-                    else
-                        EFnPtrCallView{e}.each_arg(add);
-                    return m;
+                            (!is_ref_kind(at) && is_borrow_carrying_type(at))) {
+                            ++n; sole = a;
+                        }
+                    });
+                    return n == 1 ? sole : ExprRef{};
                 };
                 // G1: a GENUINE fn pointer has no captures — this is where the
                 // result half leaked. Consult the resolved callee's summary,
@@ -7484,11 +7509,16 @@ private:
                     });
                     return merged;
                 }
-                // PROBE capprovnocap — the CAPTURE-LESS exit. `note_closure_
-                // caps` ERASES the entry when the list is empty, so a closure
-                // that captures nothing is indistinguishable here from an
-                // unresolvable callee and takes the permissive answer.
-                if (!caps) return (p_pall || p_pnoc) ? arg_prov() : RefProv{};
+                // THE CAPTURE-LESS EXIT. `note_closure_caps` ERASES the
+                // entry when the list is empty, so a closure that captures
+                // nothing is indistinguishable here from an unresolvable
+                // callee, and both used to take the permissive answer. A
+                // capture-less closure has no provenance of its own, so its
+                // result's provenance is its argument's or it is nothing.
+                if (!caps) {
+                    ExprRef a = sole_ref_arg();
+                    return a ? prov_of(a) : RefProv{};
+                }
                 RefProv merged = {};
                 for (auto& cap : *caps) {
                     if (auto it = prov_.find(cap); it != prov_.end()) {
@@ -7503,10 +7533,11 @@ private:
                     if (var_has(NO_SLOT, cap) && !param_names_.count(cap))
                         merged.is_local = true;
                 }
-                // PROBE capprovcaps — the CAPTURING exit. A closure with
-                // captures still returns a reference that may name an
-                // ARGUMENT, and the loop above cannot say so.
-                if (p_pall || p_pcaps) merged = merge_prov(merged, arg_prov());
+                // THE CAPTURING EXIT IS LEFT ALONE, AND THAT IS MEASURED,
+                // not an omission: a closure with captures still returns a
+                // reference that may name an ARGUMENT and the loop above
+                // cannot say so, but `capprovcaps` priced that widening at
+                // CEILING 0 over the whole ledger.
                 return merged;
             }
             case Code::MethodCall: {
@@ -8394,6 +8425,33 @@ private:
                         if (!is_return_temp_name(n) &&
                             !is_materialized_temp_name(n)) { src = n; break; }
                     if (src.empty() && !srcs.empty()) src = srcs.front();
+                }
+                // ── H4-e / RULE 7: A LANDING OWES THE NAME ─────────────────
+                // MESSAGE ONLY. `prov_of`'s ClosureCall arm now ties a
+                // capture-less closure's result to its sole reference
+                // argument, so `return c(&l);` is refused — and printed
+                // "local variable '?'" under the probe, because §B6's
+                // `collect_ref_sources` has no ClosureCall arm and answers
+                // nothing for the whole expression. Ask it about the
+                // ARGUMENTS instead, which is where the tie was made.
+                // ⚠ NOT A REPAIR OF §B6 ITSELF. `capargtie` armed that idea
+                // inside `collect_ref_sources_paths` and priced CEILING 0 /
+                // COST 2 — two legal programs — because that walk feeds
+                // verdicts other than this one. Here nothing but the string
+                // is read, so the two costs cannot be re-incurred.
+                if (src.empty() && !is_temp && er &&
+                    er.kind() == lir_schema::expr::Code::ClosureCall) {
+                    lir_view::EClosureCallView{er}.each_arg(
+                        [&](lir_view::ExprRef a) {
+                            if (!src.empty() || !a) return;
+                            std::vector<std::string> asrcs;
+                            collect_ref_sources(a, asrcs);
+                            for (auto& n : asrcs)
+                                if (!is_return_temp_name(n) &&
+                                    !is_materialized_temp_name(n)) {
+                                    src = n; break;
+                                }
+                        });
                 }
                 // ── #77 round 2 / THE DIAGNOSTIC LEAKED A COMPILER TEMP ────
                 //
