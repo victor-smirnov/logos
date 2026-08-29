@@ -1992,6 +1992,9 @@ class BorrowChecker {
     // site cannot reach them without this. See closure_caps_of.
     std::unordered_map<std::string, std::vector<std::string>> closure_caps_;
     std::unordered_set<std::string>      param_names_;
+    // Round F/B scaffolding — see src/compiler/PROBES.md.
+    std::unordered_set<std::string>      closure_param_names_;
+    std::unordered_set<std::string>      closure_body_decls_;
     // Params whose referent OUTLIVES the call — reference params and
     // borrow-carrying value params (their borrow points at caller data). A
     // borrow of such a param is safe to return. A BY-VALUE owned param (not in
@@ -2522,6 +2525,8 @@ private:
         if (!cbb) return;
         auto saved_params     = param_names_;
         auto saved_outliving  = outliving_params_;
+        auto saved_cpn        = closure_param_names_;
+        auto saved_cbd        = closure_body_decls_;
         bool saved_icb        = in_closure_body_;
         TypeRef saved_ret     = ret_type_;
         // PROBE capretty: `ret_type_` IS SET EXACTLY ONCE, at the enclosing
@@ -2626,6 +2631,8 @@ private:
             std::string nm(pn);
             declare_var(nm, NO_SLOT);
             param_names_.insert(nm);
+            closure_param_names_.insert(nm);
+            closure_body_decls_.insert(nm);
             if (is_ref_kind(pt) || is_borrow_carrying_type(pt) ||
                 TypeRef(pt).kind() == LogosType::Kind::Ptr)
                 outliving_params_.insert(nm);
@@ -2637,6 +2644,8 @@ private:
         param_lifetimes_  = std::move(saved_plt);
         param_names_      = std::move(saved_params);
         outliving_params_ = std::move(saved_outliving);
+        closure_param_names_ = std::move(saved_cpn);
+        closure_body_decls_  = std::move(saved_cbd);
     }
 
     // PROBE capmoveloan's precondition. Deliberately name-keyed and
@@ -2894,6 +2903,7 @@ private:
 
     void declare_var(const std::string& name, uint32_t slot = NO_SLOT) {
         var_at(slot, name) = VarState{};  // Phase-1: real slot → dense slot_
+        if (in_closure_body_) closure_body_decls_.insert(name);
         if (!scopes_.empty()) {
             scopes_.back().declared.push_back(name);
             scopes_.back().declared_slots.push_back(slot);   // F5
