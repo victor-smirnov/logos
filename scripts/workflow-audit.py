@@ -9,7 +9,16 @@ The report is written by the agent; this reads the transcript.
 import json, re, sys, glob, os, datetime
 from collections import Counter
 
-WAIT = re.compile(r'pgrep|kill -0|seq 1 |until \[|while \[|sleep \d')
+# ⚠ TWO KINDS OF WAITING, AND ONLY ONE IS WASTE. This metric was written when a
+# poll loop was pathological — an agent spinning on `pgrep` because a foreground
+# gate could not finish. Then the barriers landed and MANDATED backgrounding, so
+# waiting on an `RC=` marker became the CORRECT form, and the metric started
+# reporting correct behaviour as 99% waste. A measure that condemns the practice
+# its own system requires is measuring the wrong thing.
+#   POLL  — pgrep / kill -0 / a bounded retry loop: the old pathology, still bad
+#   BLOCK — `until grep -q '^RC='` on a marker: the prescribed form, not waste
+POLL = re.compile(r'pgrep|kill -0|seq 1 \d')
+BLOCK = re.compile(r"until\s+grep\s+-q|until\s+\[\s*-f|RC_MARKER|grep -q '\^RC=")
 BUILD = re.compile(r'(?:^|[;&|]|\n)\s*(?:cd [^;]*; *)?(?:time )?cmake --build\b')
 PROBE = re.compile(r'ceiling-probe\.sh\s+(\w+)')
 PASSPR = re.compile(r'pass-probe\.sh\s+(\w+)')
@@ -37,14 +46,15 @@ def audit(path):
     gaps = [((ev[i][0]-ev[i-1][0]).total_seconds(), ev[i-1][1])
             for i in range(1, len(ev)) if ev[i-1][1]]
     incmd = sum(d for d, _ in gaps)
-    waited = sum(d for d, c in gaps if WAIT.search(c))
+    polled = sum(d for d, c in gaps if POLL.search(c) and not BLOCK.search(c))
+    blocked = sum(d for d, c in gaps if BLOCK.search(c))
     builds = [c for _, c in gaps if BUILD.search(c)]
     probes = [m for _, c in gaps for m in PROBE.findall(c)] + \
              [m for _, c in gaps for m in PASSPR.findall(c)]
     levels = [m.strip() for _, c in gaps for m in LEVEL.findall(c)]
     nojflag = [s.strip()[:60] for _, c in gaps for s in CTEST.findall(c)
                if '-N' not in s and '-j' not in s and 'test-dir' not in s]
-    return dict(span=span, n=len(ev), incmd=incmd, waited=waited,
+    return dict(span=span, n=len(ev), incmd=incmd, polled=polled, blocked=blocked,
                 builds=len(builds), probes=probes, levels=levels,
                 ctest_no_testdir=nojffix(nojflag))
 
@@ -60,8 +70,9 @@ def report(rundir):
         if not a: continue
         name = os.path.basename(f)[:20]
         print(f"\n=== {name}  {a['span']}  ({a['n']} events)")
-        print(f"    in commands {a['incmd']/60:.0f} min · WAITING {a['waited']/60:.0f} min"
-              f" ({100*a['waited']/max(a['incmd'],1):.0f}%)")
+        print(f"    in commands {a['incmd']/60:.0f} min · blocked-on-marker {a['blocked']/60:.0f} min"
+              f" · POLLING {a['polled']/60:.0f} min"
+              f" ({100*a['polled']/max(a['incmd'],1):.0f}%)")
         print(f"    builds {a['builds']} · probe runs {len(a['probes'])}"
               f" ({len(set(a['probes']))} distinct) · levels {Counter(a['levels'])}")
         # ── THE PROTOCOL, CHECKED ──────────────────────────────────────────
@@ -74,9 +85,9 @@ def report(rundir):
             print(f"    ⚠ VIOLATION: L4 run {heavy} times. The ladder says ONCE per batch,"
                   f" last, before the final commit.")
             bad += 1
-        if a['waited'] > 0.3 * a['incmd']:
-            print(f"    ⚠ WASTE: {100*a['waited']/max(a['incmd'],1):.0f}% of command time in"
-                  f" poll loops. Long gates belong in the background with an RC marker.")
+        if a['polled'] > 0.15 * a['incmd']:
+            print(f"    ⚠ WASTE: {100*a['polled']/max(a['incmd'],1):.0f}% of command time SPINNING"
+                  f" (pgrep / bounded retries). Block on an RC marker instead.")
             bad += 1
         if a['ctest_no_testdir']:
             print(f"    ⚠ {len(a['ctest_no_testdir'])} ctest calls without --test-dir")

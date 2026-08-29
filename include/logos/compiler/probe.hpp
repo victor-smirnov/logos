@@ -31,6 +31,23 @@
 // run whose fire count is zero, reporting NEVER FIRED rather than a ceiling.
 // A zero is only an answer once the site is proven live.
 //
+// ── ⚠ TWO RULES PULL AGAINST EACH OTHER, AND ONE PROBE IS NOT ENOUGH ────────
+// "Put probe::on() FIRST in any &&" exists so a zero means the site was never
+// reached rather than the redirect never matching. But putting it first makes
+// the count the population of the OUTER condition, not of the mechanism.
+// MEASURED 2026-08-29: `dwatunwrap` reported 467 fires — every `DerefWrite` —
+// while the subset it was actually about, the `AddrOfTemp` spelling, went
+// uncounted. Its ceiling of 0 was then read against the wrong denominator.
+//
+// So a mechanism with an inner predicate needs TWO names, not one:
+//     if (logos::probe::on("x_site") && inner_predicate(e)) {
+//         (void)logos::probe::on("x_match");   // the subset that matters
+//         ...
+//     }
+// `x_site` says the code path is live; `x_match` says how often the mechanism's
+// own condition held. A zero on the second over a large first is a refutation;
+// a zero on both is an unreached site; and only the pair can tell them apart.
+//
 // ── USE ─────────────────────────────────────────────────────────────────────
 //     if (logos::probe::on("pathclear")) path_parts.clear();   // suppress it
 //     if (logos::probe::on("pathkeep"))  { /* the aggressive alternative */ }
