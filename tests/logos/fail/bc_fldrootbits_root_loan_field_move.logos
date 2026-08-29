@@ -1,0 +1,27 @@
+// PAIR 1 of 3, root bck.B — `field_borrow_conflicts` reads the ROOT's shared
+// count. The VarState declaration has said in words since B83 that
+// "(mut_borrowed, shared_borrows) act as borrows on path "" — they conflict
+// with every field path"; this reader consulted only `mut_field_borrows` and
+// `shared_field_borrows`, so a whole-value `&a` was invisible to a partial MOVE
+// of `a.i` (upstream E0505).
+// ⚠ ONLY THE `need_exclusive && shared_borrows > 0` HALF LANDED. The
+// `mut_borrowed` half was MEASURED to buy zero rows — the whole-var reader
+// already refuses every field access under a live `&mut` root loan at every
+// site the corpus reaches, and arming it only reworded ten already-red
+// diagnostics. One question with two names is the defect, not the fix.
+// ONE TOKEN from pass/bc_fldrootbits_sibling_loan_field_move_twin: the loan
+// there names `a.j`, a DISJOINT field, instead of the whole root.
+package bc_fldrootbits_root_loan_field_move;
+
+struct Inner { n: i64 }
+struct Outer { i: Inner, j: Inner }
+impl Drop for Inner { fn drop(self: &mut Inner) { } }
+
+fn main() -> i32 {
+    let a: Outer = Outer { i: Inner { n: 2i64 }, j: Inner { n: 3i64 } };
+    let b: &Outer = &a;
+    let z: Inner = a.i;
+    let w: i64 = b.j.n;
+    if z.n + w != 5i64 { return 1i32; }
+    return 0i32;
+}

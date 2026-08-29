@@ -878,7 +878,76 @@
 # escapes (task #78), borrowed-data-escapes-closure-148392 (a `move` body), and
 # the 22 consuming sites of `type_may_carry_borrow` that no counter-example has
 # yet discharged — `tmcbdyn` still arms all 28 and still refuses those two.
-# TOTAL 337
+# 2026-08-29 — 337 -> 334. THREE rows, THREE ARMS, all priced at COST 0 and each
+# a MISSING QUESTION rather than a new rule. The round's subject was the survey
+# of GROUP B (`bck.B` 21 + `nllmoves.B` 13 = 34 rows, seventeen questions —
+# src/compiler/PROBES.md, "GROUP B SURVEYED BY MISSING OBSERVATION"), and these
+# are the three of the seventeen that are literally what the `B` label claims
+# AND cost nothing.
+#   · `fldrootbits` — `field_borrow_conflicts` read only the two PATH maps.
+#     The VarState declaration has said in words since B83 that "(mut_borrowed,
+#     shared_borrows) act as borrows on path "" — they conflict with every field
+#     path"; the reader never implemented it, so `let b = &a;` (root bits) was
+#     invisible to `let z = a.i;` (path question). 5 302 137 arrivals, CEILING 1.
+#     ⚠ THE 2026-08-28 CLANG ENUMERATION CHECKED THE OTHER DIRECTION — a root
+#     reader holding a path — and correctly found 0. Right answer, wrong way
+#     round, and that is why 5.3M arrivals sat under a 0 for a day.
+#     ⚠⚠ AND ONLY HALF OF IT LANDED — the fifth round running that the landing
+#     is NARROWER than the thing that was priced, and this time MEASURED, not
+#     argued. The probe had two branches; the `mut_borrowed` one buys ZERO rows
+#     (ledger 334/334 green without it) and its entire effect on 1860 `bc` tests
+#     was to REWORD TEN ALREADY-RED DIAGNOSTICS — the whole-var reader answers
+#     that question at every site the corpus reaches. One question with two names
+#     is the defect this file keeps recording, so only
+#     `need_exclusive && shared_borrows > 0` — the half that buys the row — is in
+#     the tree. The `mut_borrowed` half is a diagnostic-precision task, not a
+#     checker one, and it is left open with its price named: 10 pinned texts.
+#   · `recvfieldpath` — `check_recv_conflict` BAILED on any non-empty path, so a
+#     `&mut self` method call whose receiver is a FIELD place asked no conflict
+#     question at all, while the whole-var spelling was already refused. 91
+#     arrivals, CEILING 1. A delegation to the maps that already hold the loans.
+#   · `tupidxmove` — visit()'s `TupleIndex` arm was `visit_place_base(receiver);
+#     break;` and nothing else. A tuple element is a FIELD whose name is its
+#     index, already `extract_borrow_place`'s spelling, so `FieldRead`'s ~140
+#     lines of bookkeeping now serve both through ONE segment walk. 8 arrivals,
+#     CEILING 1. ⚠ RULE 4 DECLARED: eight fires is the ENTIRE population of
+#     "a move-typed tuple projection in a consuming position" over this ledger
+#     plus 1385 legal programs, so the ceiling bounds a count and nothing else.
+#     What funds it is that the arm was MISSING, not the number.
+# PREDICTED THREE BY NAME before the edit (borrowck-move-from-subpath-of-
+# borrowed-path, issue-82032, move-out-of-tuple-field); closed exactly those
+# three, both diffs empty over all 337.
+# ⚠ COST 0 IS NOT A SAFETY CLAIM (rule 5), AND THE CORPUS CANNOT MAKE ONE
+# (rule 10): both halves of the harness consist only of programs that COMPILE.
+# 23 HAND-WRITTEN MULTI-LINE COUNTER-EXAMPLES, each proven to reach its arm by
+# an armed fire log printing the place and the state it was asked about, all 23
+# admitted: the NLL direction at each arm (a root loan dead before the field
+# move / the field call), shared-vs-shared, disjoint siblings at all three
+# granularities (field, tuple element, method receiver), a Copy tuple element
+# read twice and read in a loop, `s.t.0` (a tuple inside a struct field), a
+# tuple element as a method-call PLACE BASE, a read through `&(B,B)`, and the
+# ARM1xARM2 COMPOSITE — `recvfieldpath` now delegates INTO `fldrootbits`, so a
+# whole-root `&mut` and a field-place call meet, and ce20 proves that path is
+# live and does not flip.
+# ⚠ NO PINNED DIAGNOSTIC MOVED, AND THAT IS A RESULT, NOT AN ABSENCE. The full
+# probe reddened TEN `fail/` fixtures — borrowck-describe-lvalue,
+# borrowck-union-borrow-nested, borrowck-uniq-via-lend--b / --t18, issue-25793,
+# issue-47646, two-phase-surprise-no-conflict, borrowed-referent-issue-38899,
+# issue-45157, issue-57100 — every one of them ALREADY REFUSING, for the same
+# rule, with the whole-var wording. That red was the `mut_borrowed` branch
+# announcing that it duplicates an existing reader, and dropping the branch is
+# what turned ten fixture edits into zero. A pinned text that moves for the same
+# verdict is a signal to READ, not a chore to discharge.
+# STILL OPEN IN GROUP B, and the survey says why: sixteen of the 34 rows are NOT
+# what the `B` label claims (X-1..X-4 need machinery that does not exist and are
+# RETIRED from the queue; B-4 is a spec DESIGN decision,
+# `@rule intrinsic.drop.skip-moved-out-paths`), and of the rest `aggboth` prices
+# CEILING 4 at COST 40 — 40 legal programs die, all at `aggletroute`, whose free
+# partner `aggcallloan` buys 0 alone. `patmoveref` is CEILING 3 at COST 2.
+# `mutstaticborrow` holds at CEILING 2 / COST 0 and is STILL unfunded, with its
+# abuse direction unmeasured. `borrowpart` is confirmed by hand and needs a PAIR
+# (a partial-move record that survives a match arm) that this round did not buy.
+# TOTAL 334
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -911,7 +980,6 @@ borrowck-move-error-many-places--move-out-of-ref-in-match bck.B tests/imported/a
 borrowck-move-error-many-places--r-runtime bck.B tests/imported/admit/borrowck/borrowck-move-error-many-places--r-runtime
 borrowck-move-error-with-note--a bck.B tests/imported/admit/borrowck/borrowck-move-error-with-note--a
 borrowck-move-error-with-note--b bck.B tests/imported/admit/borrowck/borrowck-move-error-with-note--b
-borrowck-move-from-subpath-of-borrowed-path bck.B tests/imported/admit/borrowck/borrowck-move-from-subpath-of-borrowed-path
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
 borrowck-move-out-from-array-match bck.B tests/imported/admit/borrowck/borrowck-move-out-from-array-match
 borrowck-move-out-from-array-use-match--b bck.B tests/imported/admit/borrowck/borrowck-move-out-from-array-use-match--b
@@ -944,7 +1012,6 @@ issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
 issue-53432-nested-closure-outlives-borrowed-value bck.C tests/imported/admit/borrowck/issue-53432-nested-closure-outlives-borrowed-value
 issue-55492-borrowck-migrate-scans-parents bck.A tests/imported/admit/borrowck/issue-55492-borrowck-migrate-scans-parents
 issue-58776-borrowck-scans-children bck.C tests/imported/admit/borrowck/issue-58776-borrowck-scans-children
-issue-82032 bck.B tests/imported/admit/borrowck/issue-82032
 issue-83924 bck.NEW tests/imported/admit/borrowck/issue-83924
 issue-85581 bck.B tests/imported/admit/borrowck/issue-85581
 issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure
@@ -1073,7 +1140,6 @@ do-not-suggest-removing-wrong-ref-pattern-issue-132806 nllmoves.B tests/imported
 issue-75904-move-closure-loop nllmoves.C tests/imported/admit/moves/issue-75904-move-closure-loop
 issue-99470-move-out-of-some nllmoves.B tests/imported/admit/moves/issue-99470-move-out-of-some
 move-of-addr-of-mut nllmoves.R5 tests/imported/admit/moves/move-of-addr-of-mut
-move-out-of-tuple-field nllmoves.B tests/imported/admit/moves/move-out-of-tuple-field
 moves-based-on-type-match-bindings nllmoves.B tests/imported/admit/moves/moves-based-on-type-match-bindings
 suggest-clone nllmoves.R2 tests/imported/admit/moves/suggest-clone
 

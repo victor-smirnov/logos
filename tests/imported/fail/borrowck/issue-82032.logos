@@ -1,6 +1,8 @@
 // rustc borrowck/issue-82032.rs — upstream E0502 cannot borrow
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: fail — REFUSED since 2026-08-29 (was root bck.B: `check_recv_conflict`
+//   BAILED on any non-empty path, so a `&mut self` method call whose receiver is
+//   a FIELD place asked no conflict question at all)
 package issue_82032;
 struct Thing { v: Vec<i64> }
 impl Thing {

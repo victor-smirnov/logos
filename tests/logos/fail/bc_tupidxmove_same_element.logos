@@ -1,0 +1,21 @@
+// PAIR 3 of 3, root nllmoves.B — visit()'s `TupleIndex` arm was
+// `visit_place_base(receiver); break;` and nothing else: no partial-move
+// record, no moved-overlap question, no field-borrow conflict. So a tuple
+// element moved twice never met itself, while the byte-identical program over a
+// named-field struct was refused. A tuple element is a FIELD whose name is its
+// index — the spelling `extract_borrow_place` has emitted since B83 — so the
+// two projections now share one arm.
+// ONE TOKEN from pass/bc_tupidxmove_sibling_element_twin: the second `x.0`
+// there is `x.1`, and disjoint elements stay independently movable.
+package bc_tupidxmove_same_element;
+
+struct B { v: i64 }
+impl Drop for B { fn drop(self: &mut B) {} }
+
+fn main() -> i32 {
+    let x: (B, B) = (B { v: 1i64 }, B { v: 2i64 });
+    let y: B = x.0;
+    let z: B = x.0;
+    if y.v + z.v != 2i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,17 @@
+// PAIR 3 of 3, root nllmoves.B — the LEGAL twin, ONE TOKEN from
+// fail/bc_tupidxmove_same_element: the second move is `x.1`, not `x.0`.
+// The record is keyed on the element index, so disjoint elements are moved out
+// independently — exactly as disjoint named fields already were.
+// Asserts a value, so the site is reached and the program still admits.
+package bc_tupidxmove_sibling_element_twin;
+
+struct B { v: i64 }
+impl Drop for B { fn drop(self: &mut B) {} }
+
+fn main() -> i32 {
+    let x: (B, B) = (B { v: 1i64 }, B { v: 2i64 });
+    let y: B = x.0;
+    let z: B = x.1;
+    if y.v + z.v != 3i64 { return 1i32; }
+    return 0i32;
+}

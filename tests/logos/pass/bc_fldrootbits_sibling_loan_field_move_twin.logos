@@ -1,0 +1,20 @@
+// PAIR 1 of 3, root bck.B — the LEGAL twin, ONE TOKEN from
+// fail/bc_fldrootbits_root_loan_field_move: the loan names `a.j`, a disjoint
+// FIELD, instead of the whole root `a`. The new question is only about the ROOT
+// bits, and a field loan does not raise them — so `paths_overlap("i","j")`
+// stays the only thing asked, and it is false. Asserts a value, so the site is
+// reached and the program still admits.
+package bc_fldrootbits_sibling_loan_field_move_twin;
+
+struct Inner { n: i64 }
+struct Outer { i: Inner, j: Inner }
+impl Drop for Inner { fn drop(self: &mut Inner) { } }
+
+fn main() -> i32 {
+    let a: Outer = Outer { i: Inner { n: 2i64 }, j: Inner { n: 3i64 } };
+    let b: &Inner = &a.j;
+    let z: Inner = a.i;
+    let w: i64 = b.n;
+    if z.n + w != 5i64 { return 1i32; }
+    return 0i32;
+}

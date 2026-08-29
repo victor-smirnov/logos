@@ -4062,24 +4062,34 @@ private:
     bool field_borrow_conflicts(const VarState& st, const std::string& target,
                                 const std::string& path, bool need_exclusive,
                                 uint32_t line, const char* verb) {
-        // CEILING PROBE `fldrootbits` — the PATH-keyed reader that never asks
-        // the ROOT bits. The 2026-08-28 clang enumeration checked the OTHER
-        // direction (a root reader holding a path) and found 0 defects. This
-        // is the inverse: `let b = &a;` sets `shared_borrows` on the ROOT, and
-        // a later move of `a.i` asks only the two path maps.
-        if (logos::probe::on("fldrootbits")) {
-            if (st.mut_borrowed) {
-                report(line, std::format(
-                    "ceiling-probe fldrootbits: cannot {} '{}' while '{}' is "
-                    "mutably borrowed", verb, fmt_path(target, path), target));
-                return true;
-            }
-            if (need_exclusive && st.shared_borrows > 0) {
-                report(line, std::format(
-                    "ceiling-probe fldrootbits: cannot {} '{}' while '{}' is "
-                    "borrowed", verb, fmt_path(target, path), target));
-                return true;
-            }
+        // THE WHOLE-VALUE BORROWS ARE BORROWS ON PATH "" — the invariant the
+        // VarState declaration above states in words and this reader did not
+        // implement. `let b = &a;` raises `shared_borrows` on the ROOT and
+        // records nothing in either path map, so `let z = a.i;` (E0505, a
+        // partial move under a live whole-value loan) answered "no conflict"
+        // by looking only at the two maps. The 2026-08-28 clang enumeration
+        // checked the OTHER direction — a root reader holding a path — and
+        // correctly found 0; this is the inverse and it was never asked.
+        // MEASURED as `fldrootbits` (PROBES.md): 5 302 137 arrivals, CEILING 1,
+        // COST 0, re-priced unchanged across the 365 -> 337 shrink.
+        // The empty borrowed path prints as the bare root, which is what
+        // `fmt_path` already does — same wording as the two loops below.
+        //
+        // ⚠ THE `mut_borrowed` HALF OF THE PROBE IS DELIBERATELY NOT HERE, AND
+        // THE GATE IS WHAT SAID SO. Armed, it buys ZERO ledger rows (334/334
+        // green without it) and its whole effect on 1860 `bc` tests was to
+        // REWORD TEN ALREADY-RED DIAGNOSTICS — check_live's whole-variable
+        // reader already refuses every field access under a live `&mut` root
+        // loan at every site the corpus reaches, and four of the ten kept
+        // emitting its line as a SECOND error. Two names for one question is
+        // the defect this file keeps recording. What is left open is a
+        // DIAGNOSTICS task with its price named: teach the whole-var reader to
+        // print the field path, in ONE reader, worth ten pinned texts.
+        if (need_exclusive && st.shared_borrows > 0) {
+            report(line, std::format(
+                "cannot {} '{}' while '{}' is borrowed",
+                verb, fmt_path(target, path), target));
+            return true;
         }
         for (auto& p : st.mut_field_borrows) {
             if (path.empty() || paths_overlap(path, p)) {
@@ -6207,17 +6217,20 @@ private:
     // cannot manufacture a shape a later consumer must recognise.
     void check_recv_conflict(const BorrowPlace& bp, bool is_mut, uint32_t line) {
         if (bp.root.empty()) return;
-        // CEILING PROBE `recvfieldpath` — THE ROOT-KEYED GATE THAT REFUSES TO
-        // ANSWER A PROJECTION. Isolated on one variable: `let v: Vec<i64>;
-        // let e = &v[0]; v.push(1);` is REFUSED, and the byte-equivalent over
-        // a FIELD (`let e = &t.v[0]; t.v.push(1);`) compiles — the bail below
-        // is the only difference. Route the field case to the path maps.
         if (!bp.path.empty()) {
-            if (logos::probe::on("recvfieldpath"))
-                if (auto* fst = var_find(bp.root_slot, bp.root))
-                    field_borrow_conflicts(*fst, bp.root, bp.path,
-                                           /*need_exclusive=*/is_mut, line,
-                                           "call on");
+            // THE ROOT-KEYED GATE NOW ANSWERS A PROJECTION instead of bailing.
+            // Isolated on one variable: `let v: Vec<i64>; let e = &v[0];
+            // v.push(1);` is refused, and the byte-equivalent over a FIELD
+            // (`let e = &t.v[0]; t.v.push(1);`) compiled — this bail was the
+            // only difference. The field maps are exactly where a field place's
+            // loans live, so the question is a delegation, not a new rule; the
+            // whole-var arm below is unchanged and still owns the empty path.
+            // MEASURED as `recvfieldpath` (PROBES.md): 91 arrivals, CEILING 1,
+            // COST 0, re-priced unchanged on the 337-row ledger.
+            if (auto* fst = var_find(bp.root_slot, bp.root))
+                field_borrow_conflicts(*fst, bp.root, bp.path,
+                                       /*need_exclusive=*/is_mut, line,
+                                       "call on");
             return;
         }
         if (bp.root_type && bp.root_type.kind() == LogosType::Kind::Ptr) return;
@@ -13666,9 +13679,37 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         }
 
         // ── Field read: recv.field ─────────────────────────────────────
-        case Code::FieldRead: {
-            EFieldReadView v{e};
-            auto recv = v.receiver();
+        // ── Tuple index: t.N — THE SAME ARM, and that is the whole fix.
+        // `case Code::TupleIndex:` used to be `visit_place_base(receiver);
+        // break;` and nothing else: no partial-move record, no moved-overlap
+        // question, no field-borrow conflict. CONTROL, ONE VARIABLE — the
+        // projection spelling, byte-identical bodies otherwise:
+        //     struct W { a: B }   let y = x.a; let z = x.a;  → REFUSED
+        //     (B,)                let y = x.0; let z = x.0;  → ADMITTED
+        // A tuple element is a FIELD whose name is its index — already the
+        // spelling `extract_borrow_place` emits (B83) and `moved_vars_` writes
+        // (`t.0`), so the two projections share one segment walk and one set of
+        // rules rather than growing a tuple-shaped copy of them.
+        // MEASURED as `tupidxmove` (PROBES.md): 8 arrivals, CEILING 1, COST 0.
+        // ⚠ RULE 4 IS DECLARED AGAINST IT: 8 fires is the ENTIRE population of
+        // "a move-typed tuple projection in a consuming position" over the
+        // ledger plus 1385 legal programs, and a ceiling off eight bounds the
+        // count and nothing else. What funds it is not the number — it is that
+        // the arm was MISSING while its named-field twin is ~140 lines.
+        case Code::FieldRead:
+        case Code::TupleIndex: {
+            // ONE segment reader for both spellings; the index is its name.
+            auto seg_of = [&](ExprRef n) {
+                return n.kind() == Code::TupleIndex
+                           ? std::to_string(ETupleIndexView{n}.index())
+                           : std::string(EFieldReadView{n}.field());
+            };
+            auto recv_of = [&](ExprRef n) {
+                return n.kind() == Code::TupleIndex
+                           ? ETupleIndexView{n}.receiver()
+                           : EFieldReadView{n}.receiver();
+            };
+            auto recv = recv_of(e);
             // Partial-move tracking (T1-10/B78: full dotted-path
             // granularity): when `o.f` / `o.a.b` is used in a consuming
             // position (moved into a fn arg or let RHS) and the place is a
@@ -13679,18 +13720,18 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             std::string root;
             std::string path;
             {
-                std::vector<std::string> segs{std::string(v.field())};
+                std::vector<std::string> segs{seg_of(e)};
                 ExprRef cur = recv;
                 bool raw_hop = false;
                 auto recv_is_raw = [&](ExprRef r) {
                     TypeRef rt = r ? r.type(pool) : TypeRef(nullptr);
                     return rt && rt.kind() == LogosType::Kind::Ptr;
                 };
-                while (cur && cur.kind() == Code::FieldRead) {
-                    EFieldReadView cv{cur};
-                    segs.emplace_back(std::string(cv.field()));
+                while (cur && (cur.kind() == Code::FieldRead ||
+                               cur.kind() == Code::TupleIndex)) {
+                    segs.emplace_back(seg_of(cur));
                     if (recv_is_raw(cur)) raw_hop = true;
-                    cur = cv.receiver();
+                    cur = recv_of(cur);
                 }
                 // Ownership doesn't flow through a RAW pointer: a move out
                 // of `(*p).field` (unsafe, `self.inner.val` in Rc::drop_rc)
@@ -13852,11 +13893,6 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             }
             break;
         }
-
-        // ── Tuple index: t.N ──────────────────────────────────────────
-        case Code::TupleIndex:
-            visit_place_base(ETupleIndexView{e}.receiver(), line);
-            break;
 
         // ── Method call: recv.method(args) ────────────────────────────
         // Receiver is typically &mut self — already wrapped in EAddrOf.

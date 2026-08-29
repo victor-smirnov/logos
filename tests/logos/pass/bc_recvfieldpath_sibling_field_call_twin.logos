@@ -1,0 +1,18 @@
+// PAIR 2 of 3, root bck.B — the LEGAL twin, ONE TOKEN from
+// fail/bc_recvfieldpath_same_field_call: the `&mut self` call is on `t.w`, not
+// `t.v`. The new question delegates to `field_borrow_conflicts`, which is
+// PATH-KEYED, so a disjoint sibling field never overlaps the live loan.
+// Asserts a value, so the site is reached and the program still admits.
+package bc_recvfieldpath_sibling_field_call_twin;
+
+struct Thing { v: Vec<i64>, w: Vec<i64> }
+
+fn main() -> i32 {
+    let mut t: Thing = Thing { v: Vec::<i64>::new(), w: Vec::<i64>::new() };
+    t.v.push(7i64);
+    let e: &i64 = &t.v[0u64];
+    t.w.push(1i64);
+    let q: i64 = *e;
+    if q != 7i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// PAIR 2 of 3, root bck.B — `check_recv_conflict` ANSWERS A PROJECTION.
+// Its first two lines were `if (bp.root.empty()) return;` and then a bail on
+// any non-empty path, so a `&mut self` method call whose receiver is a FIELD
+// place asked no conflict question at all. Isolated on one variable: the same
+// program over a whole-var receiver (`let e = &v[0]; v.push(1);`) was already
+// refused; only the field spelling escaped.
+// ONE TOKEN from pass/bc_recvfieldpath_sibling_field_call_twin: `t.v.push`
+// there is `t.w.push`, and the check is PATH-KEYED, so a call on a disjoint
+// sibling field of the same root stays legal.
+package bc_recvfieldpath_same_field_call;
+
+struct Thing { v: Vec<i64>, w: Vec<i64> }
+
+fn main() -> i32 {
+    let mut t: Thing = Thing { v: Vec::<i64>::new(), w: Vec::<i64>::new() };
+    t.v.push(7i64);
+    let e: &i64 = &t.v[0u64];
+    t.v.push(1i64);
+    let q: i64 = *e;
+    if q != 7i64 { return 1i32; }
+    return 0i32;
+}

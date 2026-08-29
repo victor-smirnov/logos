@@ -2728,3 +2728,100 @@ note: `take_borrow_whole_`'s third line is `if (it->moved)` and it never asks
   of this harness consist only of programs that COMPILE, and "a value partially
   moved and then borrowed" is precisely what no green program contains. A round
   that funds this brings its own population; this file's cannot price it.
+
+## THREE ARMS LANDED — fldrootbits · recvfieldpath · tupidxmove
+site: src/compiler/borrow_check.cpp::field_borrow_conflicts (root bits)
+      src/compiler/borrow_check.cpp::check_recv_conflict (non-empty path)
+      src/compiler/borrow_check.cpp::visit (Code::TupleIndex, merged into FieldRead)
+build: d77e1435df3d19a0 (READ, post-landing; the probe prices were read off
+      eca91795fcce2717 / c774ec282c7d2d64)
+measured: 2026-08-29
+ceiling: 1 / 1 / 1        cost: 0 / 0 / 0
+landed:  HALF of arm 1 (the shared-count branch; the `mut_borrowed` branch was
+      measured to buy 0 rows and is NOT in the tree), all of arms 2 and 3
+predicted: borrowck-move-from-subpath-of-borrowed-path (bck.B) ·
+      issue-82032 (bck.B) · move-out-of-tuple-field (nllmoves.B)
+closed:    the same three.  predicted∖closed = ∅   closed∖predicted = ∅
+verdict: ✓ LANDED — ledger 337 -> 334, re-derived FOUR ways (rows 334, `# TOTAL`
+      334, admit `.logos` on disk 334, registered admit ctest tests 334)
+
+### WHERE THE FIX DIFFERS FROM THE PROBE
+Nowhere in what it decides, and that is worth saying because four rounds running
+the landing was NARROWER than the probe. All three probes were already the
+correct rule rather than a crude over-approximation of one:
+  · `fldrootbits` IS THE EXCEPTION, and it was found by the gate rather than by
+    reading. The probe had TWO branches; only `need_exclusive && shared_borrows
+    > 0` landed. MEASURED: with the `mut_borrowed` branch removed the ledger is
+    334/334 green (so it buys zero rows) and `-L bc` is 1857/1858 green with all
+    ten pinned texts UNTOUCHED (so its entire effect was rewording ten already-
+    red diagnostics — the whole-var reader answers that question at every site
+    the corpus reaches). Diagnostic text is not nothing, but a second name for a
+    question that already has one is the defect this file keeps recording, so it
+    is left OUT with its price named. The landed diagnostic is reworded from
+    `ceiling-probe fldrootbits: cannot …` to the sibling loops' own wording
+    (`fmt_path(target, "")` prints the bare root, which is what the path loops
+    below already do for an empty borrowed path).
+  · `recvfieldpath` lost only its `probe::on` guard.
+  · `tupidxmove` is the one with an actual shape change: the probe measured "the
+    arm is missing", the fix is `case Code::FieldRead: case Code::TupleIndex:`
+    over ONE segment walk (`seg_of` / `recv_of`), so the tuple spelling inherits
+    the moved-overlap question, `field_borrow_conflicts`, the raw-pointer bail
+    and the `moved_fields` record rather than a copy of any of them. +36 lines
+    over the three arms, of which the tuple arm is 6 lines of code.
+
+### RULE 5, DISCHARGED BY HAND — 23 PROGRAMS, NOT BY THE CORPUS
+Every one multi-line, every one proven to reach its arm by an armed fire log
+that printed the place AND the state the arm was asked about, every one rc=0:
+  ce01 read under a live shared root borrow (`shared=1 excl=0 flip=0`) ·
+  ce02 NLL, the root loan dead before the field MOVE (`excl=1 shared=0`) ·
+  ce03 the same over `&mut` · ce04 the loan scoped away · ce05 shared+shared
+  live together · ce06 a disjoint FIELD loan vs a sibling move ·
+  ce07 NLL before a `&mut self` field call · ce08 shared loan vs `&self` call ·
+  ce09 a live `&mut` loan vs a call on the DISJOINT field · ce10 `n.t.v` two
+  hops deep · ce11 three sequential `&mut self` calls on one path ·
+  ce12 disjoint tuple elements moved · ce13 a Copy element read twice ·
+  ce14 a non-consuming read through a move-typed element · ce15 `s.t.0` (tuple
+  inside a struct field, sibling still read) · ce16 through `&(B,B)` ·
+  ce17 a Copy element read on every turn of a loop · ce18 an element as a
+  method-call PLACE BASE, twice · ce19 element moved, sibling borrowed ·
+  ce20 THE ARM1×ARM2 COMPOSITE — `recvfieldpath` delegates INTO the new root
+  bits, so a whole-root `&mut` and a field-place call now meet; the fire log
+  shows both arms on the path at each of three lines and `flip=0` at all three ·
+  ce21 a `&self` method call on the root, then a field move · ce22 the root as
+  a `&a` ARGUMENT, then a field move · ce23 a field read after a dead `&mut a.i`.
+⚠ RULE 10 IS WHY THESE EXIST: both halves of the harness consist only of
+programs that COMPILE, so it can measure how often a refusal site is AVOIDED
+and never how often it should fire. The three fail halves (the relanded rows)
+are the other direction, and each was run before the fixtures were written.
+
+### THE TEN PINNED DIAGNOSTICS — THE RED THAT SAID "YOU BUILT A SECOND READER"
+Armed in full, `fldrootbits` reddened ten `fail/` fixtures. None was a cost:
+every one already refused, on both trees, for the same rule. The new branch
+simply answered EARLIER — at the field read, before the whole-var reader — and
+named the place:
+    was:  cannot use 'f' while it is mutably borrowed
+    now:  cannot use 'f.x' while 'f' is mutably borrowed
+borrowck-describe-lvalue · borrowck-union-borrow-nested ·
+borrowck-uniq-via-lend--b · --t18 · issue-25793 · issue-47646 ·
+two-phase-surprise-no-conflict · borrowed-referent-issue-38899 (nll) ·
+issue-45157 (nll) · issue-57100 (nll).
+⚠ THE TEN ARE THE MEASUREMENT, AND THE ANSWER IS THAT THE BRANCH IS REDUNDANT.
+Ten fixtures reworded, ZERO rows bought, and four of the ten kept emitting the
+whole-var line as a SECOND error — two readers, one question. The branch is
+dropped and all ten `.expected` files are byte-unchanged from `0e62af0ce`.
+What remains open, with its price named: the whole-var reader's message could
+name the field path, and doing it THERE — one reader, not two — is worth ten
+pinned texts. That is a diagnostics task, and it is not this round's.
+⚠ AND THE FIXTURE THAT CAUGHT IT WAS MY OWN. Pair 1's first fail half
+(`&mut a` live across a read of `a.i.n`) REFUSED ON THE REVERTED TREE — the
+control revert, run before the fixtures were believed, is what said the
+mechanism was not the one being pinned. The pair now isolates the half that
+landed: a whole-root `&a` vs a sibling `&a.j`, both across a move of `a.i`.
+
+### WHAT THIS ROUND DID NOT BUY, restated so it is not re-derived
+`aggboth` (CEILING 4 / COST 40 — 40 legal programs, all at `aggletroute`, whose
+free partner `aggcallloan` buys 0 alone; the shape a landing needs is a routing
+that HOPS without RECORDING) · `patmoveref` (CEILING 3 / COST 2) ·
+`mutstaticborrow` (CEILING 2 / COST 0, still unfunded, abuse direction still
+unmeasured) · `borrowpart` (confirmed by hand, needs the PAIR with a partial-move
+record that survives a match arm) · `addrofpart` (a mis-sited zero, retired).
