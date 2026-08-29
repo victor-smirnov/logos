@@ -587,7 +587,77 @@ note: THE EXEMPTION IN THE ABUSE DIRECTION. `take_borrow_whole_`'s binding-mut
   arrivals `param_names_` exempts 1,047,220 — 98.7% — because a param carries no
   mut bit. That is G1b, and it needs the sema bit `recvmutbind` already named.
 
-## opeqwritable
+## opeqwritable — LANDED
+site: src/compiler/sema_stmt.cpp::lower_place_compound_assign
+build: 7f686966b0e62b67 (landed, gate build 43; priced under armed gate build 37)
+measured: 2026-08-29
+fires: 15
+ceiling: 2
+cost: 0
+verdict: ✓ LANDED — the probe's edit IS the fix, one call, unchanged
+note: FUNDED AND LANDED 2026-08-29. `check_place_writable(place_node)` now runs
+  in `lower_place_compound_assign` immediately before the read-twice desugar,
+  the same position the probe occupied, and it is the SAME unconditional call
+  the plain place-assign path (`lower_place_assign`) has always made.
+  CLOSED SET, DIFFED BOTH WAYS AGAINST A PREDICTION OF 2 MADE BY NAME BEFORE
+  THE EDIT: predicted {issue-85765, issue-93093}; `ctest -R '^logos_00_bc_admit'`
+  returned exactly those two as the only failures out of 364. predicted∖closed
+  = ∅, closed∖predicted = ∅. Ledger 363 → 361, re-derived by direct listing.
+  COST 0 RE-CONFIRMED ON THE LANDED RULE, not inherited from the probe:
+  `ctest -L bc` 1800/1800 passed, 0 failed, 2 pre-disabled (build 42, the fix
+  alone), and re-confirmed on the final tree under build 43 — the store holds
+  the whole `bc` label at 0 failed.
+  ⚠ REACH WITHOUT A FIRE LOG. A landed rule has no `probe::on()` counter, so
+  every legal counter-example was PAIRED with a one-token twin that the new call
+  must refuse; the twin's refusal is what proves the check reached that place
+  shape. Twelve legal shapes green, ten twins refused, each read:
+    &mut param / &param             → "assignment through a shared reference (variable 'v' is `&`)"
+    mut local / immutable local     → "assignment to immutable variable 't'"
+    mut array / immutable array     → "assignment to immutable variable 'a'"
+    mut tuple field / immutable     → "assignment to immutable variable 't'"
+    nested field / through `&O`     → "assignment through a shared reference (variable 'o' is `&`)"
+    `&mut [T]` / `&[T]`             → "cannot write through a shared `&[T]` slice"
+    `(*r)` over &mut / over &       → "assignment through a shared reference `&` (need `&mut`)"
+    `self: &mut S` / `self: &S`     → issue-93093 itself
+    `static mut` field / `static`   → "assignment to immutable static 'SV'"
+    `*mut` in unsafe / `*const`     → "assignment through a `*const` pointer (need `*mut`)"
+  Held as tests/logos/pass/bc_opeq_place_writable_ok.logos (twelve shapes, RUN,
+  `exit: 0` gated on twelve value inequalities) and two fail fixtures.
+  ⚠ RULE 7 — THE LANDED RULE AND THE PROBE ARE THE SAME EDIT, and that is the
+  finding this time: twice before, the correct fix was narrower than its probe.
+  Here the narrower fix was the WRONG one. Asking an `&`-only question in the
+  compound path would have left two notions of writability in the tree, which is
+  precisely how this gap opened; the unconditional call is the point. It buys
+  one extra fact, predicted in advance and now pinned:
+  `s.n += 1` on a non-`mut` local is refused (upstream E0594) —
+  tests/logos/fail/bc_opeq_immut_local_write_fail. That is an ILLEGAL program,
+  not a legal-program refusal.
+  ⚠ CEILING 2 IS BELOW THE ROUND'S OWN FUNDING BAR OF 3, AND IT WAS FUNDED.
+  Stated plainly so the next round can disagree: the two mechanisms that cleared
+  the bar numerically — `callrootref` and `callfldw`, both ceiling 4 / cost 0 —
+  each refuse a legal program (`match *x { Cycle::Node(ref mut y) => … }` over a
+  `Box`), and a row may not be bought with a legal-program refusal. The bar
+  prices a GUESS; this hole was found by construction, one token apart, and its
+  fix is one call that already existed on the sibling path. Holding an admitted
+  write-through-`&` open to satisfy a threshold meant for speculative work is
+  the wrong trade.
+  ⚠ AND `dwatunwrap` PRICED THESE SAME TWO ROWS AT 0 on 2026-08-29 at the
+  borrow-check DerefWrite door. Its own note left the residual open — "or the
+  compound `+=` spelling takes a door that is not DerefWrite at all" — and this
+  is the answer. The borrow checker was never the site.
+  ⚠ ONE INCIDENTAL LEGAL-PROGRAM REFUSAL FOUND WHILE WRITING THE COUNTER-
+  EXAMPLES, AND IT IS NOT THIS RULE'S. `static mut CNT: i64; unsafe { CNT += 1 }`
+  is refused — "compound assignment to immutable variable 'CNT'". That string is
+  emitted at exactly one place, the `!lookup_is_mut(name)` arm of
+  `lower_compound_assign`, i.e. the BARE-VarRef fast path, which a bare `CNT`
+  takes and which this change does not touch: the `static mut` FIELD spelling
+  (`SV.n += 1`, which does reach the new call) compiles and runs, and is held in
+  the pass fixture. So `lookup_is_mut` has no `static mut` arm where
+  `check_place_writable` does. PRE-EXISTING, unpriced, recorded not fixed — it
+  is a different mechanism in a different function and pricing it is its own
+  round.
+
+## opeqwritable-as-priced
 site: src/compiler/sema_stmt.cpp::lower_place_compound_assign
 build: armed gate build 37 (unarmed baseline 33; probe batch of 2026-08-29b)
 measured: 2026-08-29

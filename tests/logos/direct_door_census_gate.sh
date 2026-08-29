@@ -911,9 +911,24 @@ PIN = {
     # programs that left `admit` for `fail` are not in tests/logos/pass at all.
     # `glob` and the DOOR counts unmoved: no `wql_*`/`deem_*` match, no
     # container family, no `direct` output form.
-    'corpus'            : 2451,
+    # 2026-08-29 (the COMPOUND-ASSIGN writability call), +1/0/+1.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 1 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2452
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2452 = 191 + 2261. The one is
+    # bc_opeq_place_writable_ok — twelve legal `place op= e` shapes, each PAIRED
+    # with a one-token twin that the new call REFUSES, which is how reach is
+    # proved for a landed rule that has no fire log. It asserts a VALUE
+    # (`exit: 0` gated on twelve inequalities), not a diagnostic: the claim is
+    # that all twelve still compile AND still compute what they computed. The
+    # round's other two native fixtures are FAIL fixtures and this population is
+    # the PASS corpus, so they move nothing here; the two imported programs that
+    # left `admit` for `fail` are not in tests/logos/pass at all. `glob` and the
+    # DOOR counts unmoved: no `wql_*`/`deem_*` match, no container family, no
+    # `direct` output form.
+    'corpus'            : 2452,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2260,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2261,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

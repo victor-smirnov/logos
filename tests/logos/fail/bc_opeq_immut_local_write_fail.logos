@@ -1,0 +1,18 @@
+// THE SECOND FACT the writability call buys, pinned deliberately (rule 7: a
+// landed rule that closes more than its rows must say which more).
+// `check_place_writable` is asked UNCONDITIONALLY here, exactly as the plain
+// place-assign path asks it — not a narrower `&`-only variant — because a
+// second, weaker notion of writability beside the existing one is how the gap
+// this fixture's sibling records opened in the first place.
+//
+// So `s.n += 1` on a non-`mut` local is now refused too. That is upstream
+// E0594 ("cannot assign to `s.n`, as `s` is not declared as mutable"), it cost
+// ZERO on `ctest -L bc` (1800/1800), and it is a refusal of an ILLEGAL
+// program — not a ledger row bought with a legal one.
+package bc_opeq_immut_local_write_fail;
+struct V { n: i64 }
+fn main() -> i32 {
+    let t = V { n: 0i64 };
+    t.n += 1i64;
+    return 0i32;
+}

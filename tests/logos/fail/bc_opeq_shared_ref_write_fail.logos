@@ -1,0 +1,18 @@
+// THE REFUSING HALF of the compound-assign writability check (sema_stmt.cpp,
+// lower_place_compound_assign). Paired with
+// tests/logos/pass/bc_opeq_place_writable_ok.logos.
+//
+// `place op= e` asked `place_write_supported` — "can the address machinery
+// lower this place" — and never `check_place_writable`, the question its plain
+// place-assign sibling (`lower_place_assign`) has always asked. So a write
+// through a SHARED reference was refused when spelled `=` and admitted when
+// spelled `+=`, one token apart. Upstream E0594/E0596; the imported twins are
+// tests/imported/fail/borrowck/issue-85765 and .../issue-93093.
+package bc_opeq_shared_ref_write_fail;
+struct V { n: i64 }
+fn main() -> i32 {
+    let mut t = V { n: 0i64 };
+    let r: &V = &mut t;
+    r.n += 1i64;
+    return 0i32;
+}

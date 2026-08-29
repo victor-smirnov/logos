@@ -1,0 +1,128 @@
+// THE LEGAL HALF of the compound-assign writability check (sema_stmt.cpp,
+// lower_place_compound_assign now calls `check_place_writable`, the call its
+// plain place-assign sibling already made).
+//
+// COST 0 IS NOT A SAFETY CLAIM. The corpus population for this rule is 15
+// fires over a 363-row ledger — far too small to be the evidence (rule 4) — so
+// these shapes are the evidence, and each was RUN, not merely read.
+//
+// EVERY SHAPE HERE IS PAIRED. Its one-token twin (`&mut` -> `&`, or the `mut`
+// dropped) is REFUSED by the same call, which is how reach is proved without a
+// fire log: a green program that never reached the check would prove nothing,
+// and the twin's refusal shows the check ran on that exact place shape.
+//   mut_ref_param     <-> `fn bump(v: &V)`                 refused
+//   mut_local         <-> `let t`                          refused
+//   mut_array         <-> `let a`                          refused
+//   tuple_field       <-> `let t`                          refused
+//   nested_field      <-> `fn f(o: &O)`                    refused
+//   mut_slice         <-> `fn f(s: &[i64])`                refused
+//   deref_mut_ref     <-> `let r: &V = &t; (*r).n += 1`    refused
+//   self_mut_ref      <-> `fn bar(self: &S)` = issue-93093 refused
+//   static_mut_field  <-> a plain immutable `static`       refused
+//   raw_mut_ptr       <-> `*const V`                       refused
+// The IndexMut shape below is the exception and is here for the opposite
+// reason: `a[i] op= v` over a user `IndexMut` returns from its own branch
+// ABOVE the new call, so it must be unaffected, and this asserts that.
+package bc_opeq_place_writable_ok;
+
+struct V { n: i64 }
+struct I { c: i64 }
+struct O { b: I }
+struct S { foo: i64 }
+
+static mut SV: V = V { n: 0i64 };
+
+impl S { fn bar(self: &mut S) { self.foo += 1i64; } }
+
+fn bump(v: &mut V) { v.n += 1i64; }
+
+fn slice_bump(s: &mut [i64]) { s[0] += 1i64; }
+
+fn mut_ref_param() -> i64 {
+    let mut t = V { n: 10i64 };
+    bump(&mut t);
+    return t.n;
+}
+
+fn mut_local() -> i64 {
+    let mut t = V { n: 10i64 };
+    t.n += 1i64;
+    return t.n;
+}
+
+fn mut_array() -> i64 {
+    let mut a: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    a[0] += 5i64;
+    return a[0];
+}
+
+fn self_mut_ref() -> i64 {
+    let mut s = S { foo: 10i64 };
+    s.bar();
+    return s.foo;
+}
+
+fn tuple_field() -> i64 {
+    let mut t: (i64, i64) = (1i64, 2i64);
+    t.0 += 3i64;
+    return t.0;
+}
+
+fn nested_field() -> i64 {
+    let mut o = O { b: I { c: 10i64 } };
+    o.b.c += 1i64;
+    return o.b.c;
+}
+
+fn mut_slice() -> i64 {
+    let mut a: [i64; 3] = [10i64, 2i64, 3i64];
+    slice_bump(&mut a);
+    return a[0];
+}
+
+fn deref_mut_ref() -> i64 {
+    let mut t = V { n: 10i64 };
+    let r: &mut V = &mut t;
+    (*r).n += 1i64;
+    return t.n;
+}
+
+fn loop_carried() -> i64 {
+    let mut t = V { n: 0i64 };
+    let mut i: i64 = 0i64;
+    while i < 4i64 { t.n += i; i += 1i64; }
+    return t.n;
+}
+
+fn box_field() -> i64 {
+    let mut b: Box<V> = Box::new(V { n: 10i64 });
+    b.n += 1i64;
+    return b.n;
+}
+
+fn static_mut_field() -> i64 {
+    unsafe { SV.n += 11i64; return SV.n; }
+}
+
+fn raw_mut_ptr() -> i64 {
+    let mut t = V { n: 10i64 };
+    let p: *mut V = &mut t as *mut V;
+    unsafe { (*p).n += 1i64; }
+    return t.n;
+}
+
+fn main() -> i32 {
+    if mut_ref_param()    != 11i64 { return 1i32; }
+    if mut_local()        != 11i64 { return 2i32; }
+    if mut_array()        !=  6i64 { return 3i32; }
+    if self_mut_ref()     != 11i64 { return 4i32; }
+    if tuple_field()      !=  4i64 { return 5i32; }
+    if nested_field()     != 11i64 { return 6i32; }
+    if mut_slice()        != 11i64 { return 7i32; }
+    if deref_mut_ref()    != 11i64 { return 8i32; }
+    if loop_carried()     !=  6i64 { return 9i32; }
+    if box_field()        != 11i64 { return 10i32; }
+    if static_mut_field() != 11i64 { return 11i32; }
+    if raw_mut_ptr()      != 11i64 { return 12i32; }
+    return 0i32;
+}

@@ -690,7 +690,32 @@
 # `let _a = l.origin;` — a whole-value use through an explicit `&` handed to a
 # call — is still ADMITTED. It has no row here, so closing it cannot be read off
 # this file; it is recorded in src/compiler/PROBES.md under `recvpartial`.
-# TOTAL 363
+# 2026-08-29 — 363 -> 361. TWO rows, and the fix is ONE CALL that already
+# existed on the sibling path. A compound assignment `place op= e` asked
+# `place_write_supported` — "can the address machinery lower this" — and never
+# `check_place_writable`, which `lower_place_assign` calls on every plain
+# `place = e`. So the two spellings disagreed one token apart:
+#   let rofl: &V = &mut test;  rofl.n = 1i64;   -> REFUSED
+#   let rofl: &V = &mut test;  rofl.n += 1i64;  -> ADMITTED
+# i.e. the checker admitted a WRITE THROUGH A SHARED REFERENCE whenever the
+# write wore an `op=`. Closed, with the diagnostics pinned in fail fixtures:
+#   issue-85765  E0596/E0594  "assignment through a shared reference (variable 'rofl' is `&`)"
+#   issue-93093  E0594        "assignment through a shared reference (variable 'self' is `&`)"
+# PRICED BEFORE IT WAS WRITTEN (scripts/probe-batch.sh, probe `opeqwritable`,
+# 2026-08-29): 15 fires over the 363-row ledger, CEILING 2, COST 0. Predicted
+# those two rows BY NAME; closed exactly those two, diff empty both ways.
+# ⚠ CEILING 2 IS BELOW THIS ROUND'S OWN FUNDING BAR OF 3, and it was funded
+# anyway: the two mechanisms that cleared the bar numerically (`callrootref`,
+# `callfldw`, both ceiling 4 / cost 0) each refuse a legal program — `match *x
+# { Cycle::Node(ref mut y) => … }` over a `Box` — and a row may not be bought
+# with a legal-program refusal. Holding a demonstrated `&`-write hole open to
+# satisfy a threshold meant for speculative work is the wrong trade; the
+# threshold prices a GUESS, and this one was found by construction.
+# ⚠ THE UNCONDITIONAL CALL WAS THE POINT. Asking a narrower `&`-only question
+# here would have left two notions of writability in the tree, which is exactly
+# how the gap opened. It costs a second correct refusal — `s.n += 1` on a
+# non-`mut` local `s` — which is upstream E0594 and was zero on the corpus.
+# TOTAL 361
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -776,8 +801,6 @@ issue-81365-9--g-method-call-deref bck.B tests/imported/admit/borrowck/issue-813
 issue-82032 bck.B tests/imported/admit/borrowck/issue-82032
 issue-83924 bck.NEW tests/imported/admit/borrowck/issue-83924
 issue-85581 bck.B tests/imported/admit/borrowck/issue-85581
-issue-85765 bck.B tests/imported/admit/borrowck/issue-85765
-issue-93093 bck.B tests/imported/admit/borrowck/issue-93093
 issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure
 many-mutable-borrows bck.NEW-M tests/imported/admit/borrowck/many-mutable-borrows
 moved-value-suggest-reborrow-issue-127285--r32 bck.NEW tests/imported/admit/borrowck/moved-value-suggest-reborrow-issue-127285--r32

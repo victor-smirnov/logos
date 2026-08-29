@@ -4670,9 +4670,24 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                  row test carries no `imported` label).
 #   TIERCOMMIT    414 →  412   −2  two closed rows' per-row tests leave.
 # PREDICTED +4/+2/−2 before the pin was read, and read as exactly that.
-REGISTRY-ALL         8644
-REGISTRY-NOIMPORTED  4449
-REGISTRY-TIERCOMMIT  412
+# 2026-08-29 (the COMPOUND-ASSIGN WRITABILITY CALL landed. `place op= e` asked
+# `place_write_supported` — "can the address machinery lower this place" — and
+# never `check_place_writable`, the question its plain place-assign sibling has
+# always asked, so a write through a SHARED reference was refused spelled `=`
+# and admitted spelled `+=`. TWO ledger rows close, both upstream E0594/E0596:
+# `issue-85765` and `issue-93093`:
+#   ALL          8644 → 8647   +3  +1 native pass +2 native fail; the two moved
+#                                  programs are −2 admit row tests +2 imported
+#                                  fail fixtures, net 0.
+#   NOIMPORTED   4449 → 4450   +1  the +3 native less the −2 row tests (an admit
+#                                  row test carries no `imported` label).
+#   TIERCOMMIT    412 →  410   −2  two closed rows' per-row tests leave.
+# PREDICTED +3/+1/−2 before the pin was read, and read as exactly that. The
+# ctest total was predicted as +3 and re-counted after the reconfigure as
+# 8644 → 8647 before any pin was touched.
+REGISTRY-ALL         8647
+REGISTRY-NOIMPORTED  4450
+REGISTRY-TIERCOMMIT  410
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

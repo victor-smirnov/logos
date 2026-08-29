@@ -2914,6 +2914,14 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
         return builder().stmt_break(nullptr, "", node_line_);
     }
+    // Uniform place-subsystem writability check — the SAME call the plain
+    // place-assign path makes (`lower_place_assign`). Without it a compound
+    // assignment asked only `place_write_supported` ("can the address machinery
+    // lower this"), so `r.n = 1` was refused and `r.n += 1` admitted for
+    // `r: &V` — one token apart. Asking the identical question here rather than
+    // a narrower `&`-only one is deliberate: a second, weaker notion of
+    // writability beside this one is how the gap opened in the first place.
+    check_place_writable(place_node);
     auto place_read = lower_expr(place_node);    // eval #1 — current value
     TypeRef pt = expr_type(place_read);
     auto rhs = node.has_key(la::VALUE)
