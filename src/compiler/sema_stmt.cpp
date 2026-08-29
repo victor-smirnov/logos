@@ -2403,7 +2403,32 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
             (TypeRef(ann).kind() == LogosType::Kind::MutRef ||
              TypeRef(ann).kind() == LogosType::Kind::Ref ||
              TypeRef(ann).kind() == LogosType::Kind::Ptr)) {
-            if (try_implicit_reborrow_mut(rhs, ann))
+            // ── CEILING PROBE `mrletann` (producer half) — decline the
+            // ascription reborrow so the RHS reaches borrow_check as a bare
+            // MutRef VarRef, which its Let arm (armed under the same name)
+            // then consumes. See the consumer's note for why this is a
+            // divergence probe rather than a proposed rule.
+            // `mrlasema` arms the PRODUCER ALONE; `mrletann` arms both halves.
+            // ── MEASURED 2026-08-29: BOTH 0 / 0, SITE PROVEN LIVE AND THE
+            // DECLINE PROVEN TO TRIGGER. `mrlasema` fires exactly ONCE on a
+            // five-line repro holding exactly one annotated `&mut` let, so this
+            // site DID decline the reborrow for `let moved: &mut S = state;`.
+            // borrow_check's Let arm still never saw a bare MutRef VarRef —
+            // LOGOS_MRAM_TRACE matched only two prelude `__ret_tmp` bindings —
+            // so the wrap is re-inserted downstream of here. `expect_type` /
+            // `apply_place_coercions` call `try_implicit_reborrow_mut` too, and
+            // apply_place_coercions' own header says it is being folded into
+            // expect_type: TWO NOTIONS OF ONE COERCION SITE, and declining at
+            // the narrow one changes nothing. Any next round disables BOTH or
+            // neither.
+            // ⚠ AND THE ROW THIS AIMED AT MAY NOT BE A DEFECT. Rust treats an
+            // explicit type ascription as a coercion site and DOES reborrow
+            // there; upstream's reborrow-sugg-move-then-borrow.rs has no
+            // annotation and the port added one. Before this row is funded,
+            // the PORT should be checked against upstream.
+            if (!(logos::probe::on("mrletann") ||
+                  logos::probe::on("mrlasema")) &&
+                try_implicit_reborrow_mut(rhs, ann))
                 rhs_type = expr_type(rhs);
         }
         // impl Trait annotation: any concrete struct that was returned from an

@@ -11454,7 +11454,42 @@ private:
                 // use). Non-borrow shapes hit take_ref_borrows' default,
                 // which is the same consuming visit as before (move
                 // tracking for `let h2 = h` preserved).
-                if (val && (is_ref_kind(t) || is_closure_t ||
+                // ── CEILING PROBE `mrletann` (consumer half; the producer is
+                // the annotated-`let` coercion site in sema_stmt). `&mut T` IS
+                // a move type here — is_move_type's MutRef leaf says so — but a
+                // ref-kind `t` routes the RHS to take_ref_borrows, which
+                // records a loan instead of consuming, so
+                // `let moved: &mut S = state;` never moves `state`.
+                // ⚠ THIS HALF IS A DIVERGENCE PROBE ON PURPOSE. Rust treats an
+                // explicit type ascription as a COERCION SITE and does
+                // reborrow there; the ledger row this aims at
+                // (reborrow-sugg-move-then-borrow) was ported WITH an
+                // annotation the upstream program does not carry. What the
+                // price answers is what the divergence would cost, not whether
+                // it should be taken.
+                // ── MEASURED 2026-08-29: CEILING 0 / COST 0, SITE PROVEN LIVE.
+                // 420 fires on reborrow-sugg-move-then-borrow = 419 arrivals at
+                // THIS arm plus 1 at the sema producer, and the producer-only
+                // name `mrlasema` fires exactly ONCE on a five-line repro that
+                // contains exactly one annotated `&mut` let — so the ascription
+                // reborrow WAS declined at `let moved: &mut S = state;`. Yet
+                // LOGOS_MRAM_TRACE printed only `[mla] ln=75
+                // name=__ret_tmp_1514` twice, both prelude temporaries, and the
+                // user's binding never matched (t == MutRef && val == VarRef).
+                // The RHS therefore reaches borrow_check WRAPPED even with
+                // sema_stmt's ascription site declined — a SECOND producer
+                // downstream, `expect_type`/`apply_place_coercions` being the
+                // named candidate (its own comment says the fold is in
+                // progress). Repair by delegation, measured, not argued.
+                bool p_mla = logos::probe::on("mrletann") && val && t &&
+                             t.kind() == LogosType::Kind::MutRef &&
+                             val.kind() == lir_schema::expr::Code::VarRef;
+                if (p_mla) {
+                    if (std::getenv("LOGOS_MRAM_TRACE"))
+                        fprintf(stderr, "[mla] ln=%u name=%s\n", ln,
+                                name.c_str());
+                    visit(val, /*consuming=*/true, ln);
+                } else if (val && (is_ref_kind(t) || is_closure_t ||
                             is_borrow_carrying_type(t) || val_is_agg_lit)) {
                     take_ref_borrows(val, ln, name);
                 } else if (val) {
@@ -12434,7 +12469,30 @@ private:
             // ── For-each loop ─────────────────────────────────────────────
             case Code::ForEach: {
                 SForEachView v{sr};
-                visit(v.iter(), /*consuming=*/false, ln);
+                // ── CEILING PROBE `foreachitermove` — `for n in v` where
+                // `v: &mut Vec<T>` MOVES `v` in Rust: `IntoIterator for &mut
+                // Vec<T>` takes `self` BY VALUE, and `&mut T` is not Copy. This
+                // arm visits the iterable NON-consuming, so two consecutive
+                // `for n in v { … }` loops over one `&mut` compile (E0382).
+                // ⚠ SMALL POPULATION (rule 4): coverage 2026-08-28 gives this
+                // switch arm 104 arrivals over the whole instrumented run, so a
+                // zero here is NOT a refutation of the mechanism.
+                // ── MEASURED 2026-08-29: CEILING 0 / COST 0, SITE PROVEN LIVE
+                // AND THE PREDICATE TRUE. issue-83924 fires the probe TWICE —
+                // once per `for n in v` — so the arm is reached and the
+                // iterable IS `&mut Vec<i64>`, and the program still compiles
+                // rc 0. `visit` consumes a move type only at a bare VarRef, so
+                // the iterable is not one: sema has wrapped it, the same
+                // implicit-reborrow wrap that defeats `mrgenerictv` and
+                // `mrletann`. Confirmed on a 9-line repro with two loops over
+                // one `&mut Vec`: 2 fires, rc 0 armed and unarmed. All three
+                // `&mut T is not Copy` rows are blocked by ONE upstream fact,
+                // not three; the next round belongs at the WRAP, not here.
+                bool p_fim = logos::probe::on("foreachitermove") &&
+                             v.iter() && v.iter().type(pool) &&
+                             v.iter().type(pool).kind() ==
+                                 LogosType::Kind::MutRef;
+                visit(v.iter(), /*consuming=*/p_fim, ln);
                 if (auto b = v.body())
                     // SForEachView carries no label accessor; unlabeled
                     // break/continue (the common case) still target it as the
@@ -12942,7 +13000,30 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             // is right about sema and wrong about the resulting LIR spelling.
             // The mechanism (`&mut T` is not Copy) is UNTESTED by this number.
             // Any re-aim must PRINT the argument's kind first.
-            if (a && logos::probe::on("mutrefargmove") &&
+            // ⚠ `mrgenerictv` IS ARMED HERE TOO, AND IT IS ONE MECHANISM AT
+            // TWO SITES. Its producer half is in sema_expr: the substituted
+            // formal of `generic<T>(x: T)` is `&mut X`, so
+            // try_implicit_reborrow_mut wraps the argument and this arm never
+            // sees a bare VarRef. Declining that wrap when the DECLARED formal
+            // is a TypeVar is the producer; consuming here is the consumer.
+            // The fire count is the SUM over both sites — LOGOS_MRAM_TRACE
+            // below is what separates them.
+            // ── MEASURED 2026-08-29: CEILING 0 / COST 0, AND THE SITE IS
+            // PROVEN LIVE — 853 fires on moved-value-...--t32, of which 851 are
+            // arrivals at THIS arm and 2 at the sema producer. LOGOS_MRAM_TRACE
+            // printed exactly two lines, `[mram] ln=149 name=v`, BOTH in
+            // prelude code and NEITHER at the user's `generic(self)`. So the
+            // argument is STILL not a bare VarRef with the producer's decline
+            // armed. Re-run on a 5-line repro (`fn generic<T>(x: T){} fn f(s:
+            // &mut X){ generic(s); s.a = s.a + 1u32; }`): the sema site fires
+            // ONCE — that fire IS `generic(s)` — and this arm still traces only
+            // the two prelude lines. The decline never triggered, which says
+            // `fi.param_types[i]` at that call site is ALREADY SUBSTITUTED
+            // (`&mut X`, not `T`), so a TypeVar test there can never be true.
+            // The mechanism is still untested; the next probe must read the
+            // formal from the callee's DECLARATION, not from `fi`.
+            if (a && (logos::probe::on("mutrefargmove") ||
+                      logos::probe::on("mrgenerictv")) &&
                 a.kind() == Code::VarRef && a.type(pool) &&
                 a.type(pool).kind() == LogosType::Kind::MutRef) {
                 EVarRefView mv{a};
@@ -13431,6 +13512,130 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                             record_borrow(rrp, /*is_mut=*/sk == 2, line,
                                           "__recv_resv");
                             in_call_args_--;
+                        }
+                    }
+                }
+            }
+            // ── CEILING PROBES `recvamutarg` / `recvamutraw` / `recvamuttouch`
+            // — THREE NARROWINGS OF ONE PRODUCER, at the spelling where the
+            // CONSUMER IS ALREADY LANDED. The AddrOfTemp arm below already
+            // refuses `is_mut && sit->mut_reservations > 0`; what is missing at
+            // this spelling is the DEPOSIT, so a `&mut self` receiver is never
+            // held while visit_args evaluates its siblings and `f.foo(f.bar())`
+            // compiles. The undifferentiated deposit is `recvresvamut`, priced
+            // 5/11 on this tree and DECLINED — eleven legal programs refused.
+            // The three names below price WHICH narrowing pays for it:
+            //   recvamutarg    deposit only when the call HAS arguments. A
+            //                  zero-arg `it.next()` has no sibling operand to
+            //                  conflict with, so its deposit can only ever
+            //                  refuse; this is the cheapest possible narrowing
+            //                  that keeps all three target rows.
+            //   recvamutraw    deposit RECORD-ONLY — bump the counter and push
+            //                  the scope entry directly, so the deposit itself
+            //                  never runs take_borrow's own conflict arms. The
+            //                  hypothesis is that the eleven costs are the
+            //                  DEPOSIT refusing (an outer shared borrow, a
+            //                  non-mut binding), not a sibling refusing.
+            //   recvamuttouch  deposit only when some ARGUMENT names the same
+            //                  root as the receiver — the narrowest rule that
+            //                  can still close the three rows.
+            // Population, coverage 2026-08-28: the MethodCall arm takes 413,203
+            // arrivals and its bare-place branch 174,476, so the AddrOfTemp
+            // receivers this block sees are ~238,727 arrivals. Not a small
+            // population (rule 4).
+            //
+            // ── MEASURED 2026-08-29, one build, three armed runs ────────────
+            //   recvamutarg    CEILING 4 / COST 9   ⛔
+            //   recvamutraw    CEILING 3 / COST 0   ✓  THE DELIVERABLE
+            //   recvamuttouch  CEILING 2 / COST 0
+            //
+            // ⚠ AND THE NINE COSTS ARE ONE QUESTION, NOT NINE. Every one of
+            // `recvamutarg`'s refusals is the SAME diagnostic — "cannot borrow
+            // 'X' as mutable: not declared as mut" — read off by compiling each
+            // cost fixture under each probe by hand:
+            //   bc_d1r10_e0_rebind_alias_dead_admit          's'
+            //   bc_d1r5_h0_alias_admits                      'r'
+            //   bc_d1r5_h1_reborrow_admits                   'r'
+            //   bc_d1r8_u1_field_rhs_read_before_mut_admit   'r'
+            //   bc_esc_holder_reborrow_container_admit       'r'
+            //   bc_esc_holder_residency_backed_admit         'doc'
+            //   bc_esc_holder_residency_pershare_admit       'doc'
+            //   zone_mut_fat_ref                             'r'
+            //   zone_mut_thin_source_admits_wmap             'mp'
+            // All nine are rc 0 under `recvamutraw`. So the eleven costs that
+            // declined `recvresvamut` were never about RESERVATION semantics
+            // and never about a sibling operand: they are `take_borrow`'s own
+            // BINDING-MUT check, which the deposit has no business asking. The
+            // landed bare-place deposit already sidesteps exactly that question
+            // (`sit->is_mut_binding || param_names_`), and `skip_mut_binding_check`
+            // exists in take_borrow for the same reason at the same spelling.
+            // ⚠ AND THE FOURTH ROW `recvamutarg` CLOSED IS A WRONG-REASON
+            // CLOSURE BY THE SAME CHECK. lifetimes/ex2e-push-inference-variable-3
+            // closes with "cannot borrow 'a' as mutable: not declared as mut"
+            // — `let a: &mut Vec<Ref<'b>> = x; a.push(b);` — which is a legal
+            // program refused, not a hole closed. `recvamutraw` leaves it
+            // admitted (rc 0), which is the CORRECT verdict for this mechanism.
+            // A ceiling of 4 that contains a cost is worse than a ceiling of 3.
+            // ⚠ `recvamuttouch` MISSES two-phase-multi-mut for a reason that is
+            // this probe's spelling and not the rule's: `foo.method(&mut foo)`
+            // hands an `EAddrOf` argument, and the peel below knows MethodCall
+            // and AddrOfTemp only, so `touches` is false. Strictly dominated by
+            // `recvamutraw`; kept because the dominance is the measurement.
+            // ⚠ COST 0 IS NOT A SAFETY CLAIM (rule 5). Eight legal shapes were
+            // hand-written for `recvamutraw` and PROVEN TO FIRE — 16 arrivals in
+            // the one file — and all eight still admit: the argument reading the
+            // receiver (`s.set(s.get()+1)`), two shared reads, a `&mut` of a
+            // DISJOINT FIELD in the argument, a shared read of a disjoint field,
+            // a zero-arg `&mut self` call, a `&self` receiver whose argument
+            // reads it, `v.push(v.len() as i64)`, and two SEQUENTIAL `&mut self`
+            // calls (the reservation must be released between them). The refuse
+            // half is `s.set(s.set(1i64))`: rc 0 unarmed, rc 1 armed with
+            // "cannot borrow 's' as mutable: already mutably borrowed".
+            bool p_ra = logos::probe::on("recvamutarg");
+            bool p_rr = logos::probe::on("recvamutraw");
+            bool p_rt = logos::probe::on("recvamuttouch");
+            if (p_ra || p_rr || p_rt) {
+                if (auto recv = v.receiver();
+                    recv && recv.kind() == Code::AddrOfTemp) {
+                    int sk = method_self_kind(v);
+                    if (sk >= 1) {
+                        BorrowPlace rrp = extract_borrow_place(
+                            EAddrOfTempView{recv}.inner(), pool);
+                        int  nargs   = 0;
+                        bool touches = false;
+                        v.each_arg([&](ExprRef a) {
+                            if (!a) return;
+                            ++nargs;
+                            ExprRef t = a;
+                            if (t.kind() == Code::MethodCall)
+                                t = EMethodCallView{t}.receiver();
+                            if (t && t.kind() == Code::AddrOfTemp)
+                                t = EAddrOfTempView{t}.inner();
+                            if (t && !rrp.root.empty() &&
+                                extract_borrow_place(t, pool).root == rrp.root)
+                                touches = true;
+                        });
+                        bool want = p_rr || (p_ra && nargs > 0) ||
+                                    (p_rt && touches);
+                        if (want && !rrp.root.empty() && rrp.path.empty()) {
+                            if (p_rr) {
+                                auto* rit = var_find(rrp.root_slot, rrp.root);
+                                if (rit != nullptr && !rit->moved) {
+                                    if (sk == 2) rit->mut_reservations++;
+                                    else         rit->shared_borrows++;
+                                    if (!scopes_.empty())
+                                        scopes_.back().borrows.push_back(
+                                            {rrp.root, sk == 2, "__recv_resv",
+                                             rrp.root_slot, {},
+                                             slot_of_binding("__recv_resv"),
+                                             {}});
+                                }
+                            } else {
+                                in_call_args_++;
+                                record_borrow(rrp, /*is_mut=*/sk == 2, line,
+                                              "__recv_resv");
+                                in_call_args_--;
+                            }
                         }
                     }
                 }

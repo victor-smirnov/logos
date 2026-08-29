@@ -5065,7 +5065,39 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                 try_coerce_closure_to_fnptr(arg_exprs[i], pt);
                 try_coerce_array_ref_to_slice(arg_exprs[i], pt);
                 try_coerce_slice_to_array_ref(arg_exprs[i], pt);
-                try_implicit_reborrow_mut(arg_exprs[i], pt);
+                // ── CEILING PROBE `mrgenerictv` (producer half; the consumer
+                // is the `mutrefargmove` arm in borrow_check's visit_args).
+                // `pt` is the SUBSTITUTED formal, so `generic<T>(x: T)` called
+                // with a `&mut X` arrives here with pt = `&mut X` and
+                // try_implicit_reborrow_mut wraps the argument into
+                // AddrOfTemp(Deref(VarRef)). Rust reborrows at a formal that IS
+                // a reference; a BY-VALUE type parameter MOVES the `&mut`.
+                // That wrap is why `mutrefargmove` counted 335,227 arrivals and
+                // never matched inside a user function — by the time
+                // borrow_check looks, the argument is not a bare VarRef.
+                // `mrgtvsema` arms the PRODUCER ALONE (no consumer), so the
+                // two halves are priced separately the way `recvresvbare`'s
+                // were; `mrgenerictv` arms both.
+                // ── MEASURED 2026-08-29: BOTH 0 / 0, AND THIS SITE IS THE
+                // NEGATIVE RESULT. `mrgtvsema` fires TWICE over the whole
+                // compile of moved-value-...--t32 and ONCE over a five-line
+                // repro whose only call is `generic(s)` — so the arrival is
+                // this call and no other. The decline nevertheless changed
+                // nothing: with `mrgenerictv` armed, borrow_check's
+                // `mutrefargmove` arm traced only its two prelude matches and
+                // never `generic(s)`. The reading that survives is that
+                // `fi.param_types[i]` HERE IS ALREADY SUBSTITUTED — it is
+                // `&mut X`, not `T` — so `subst_type_sema` is a no-op at this
+                // position and a TypeVar test can never fire. That is a
+                // property of `fi`, not of Rust's rule, and it is why FOUR
+                // probes in this family have now priced zero. Whoever funds
+                // this next must read the formal off the callee's DECLARATION
+                // and prove the read differs from `pt` before spending a build.
+                if (!((logos::probe::on("mrgenerictv") ||
+                       logos::probe::on("mrgtvsema")) &&
+                      TypeRef(fi.param_types[i]).kind() ==
+                          LogosType::Kind::TypeVar))
+                    try_implicit_reborrow_mut(arg_exprs[i], pt);
                 try_struct_unsize_coerce(arg_exprs[i], pt);  // Rc<A> → Rc<dyn Tr>
                 widen_int_expr(arg_exprs[i], pt, builder());
                 auto at = expr_type(arg_exprs[i]);
