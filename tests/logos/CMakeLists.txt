@@ -1292,6 +1292,30 @@ set_tests_properties(logos_00_gate_lint PROPERTIES
     LABELS  "logos;pass;suite_semantic_core;tier_commit"
 )
 
+# ── THE PROBE LOG'S LINKS MUST STILL RESOLVE ─────────────────────────────────
+# `src/compiler/PROBES.md` records what each probe measured, beside the sources
+# and versioned with them, because writing those numbers into a `.cpp` comment
+# costs a rebuild — `probe-batch.sh` builds BEFORE it prices, so a round that
+# documents itself in the source pays ~150 s and a fresh build identity for a
+# change with no behaviour in it.
+#
+# ⚠ THIS IS A REAL GATE, unlike the hand-run probe tools in gate_lint's
+# NOT_GATES, because it asserts something CHECKABLE about the tree: every `site:`
+# in that file names a symbol that still exists. The link is a symbol and never
+# a line number — a stale line number is read as current, which is the whole
+# reason the record is dangerous when it rots. A rename now reds this in the
+# commit that caused it.
+# ⚠ It checks the LINK, not the NUMBERS. Whether a ceiling of 5 is still 5 is a
+# question only a re-run answers, and this makes no claim about it.
+add_test(
+    NAME logos_00_probe_log_lint
+    COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/probe-log-lint.py ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(logos_00_probe_log_lint PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;pass;suite_semantic_core;tier_commit;lint"
+)
+
 # ── THE OPEN LAYOUT DECLINES — A LEDGER THAT CAN ONLY SHRINK ─────────────────
 #
 # A `pass` test named here compiles WITHOUT `LOGOS_VERIFY_LAYOUT=1`, because

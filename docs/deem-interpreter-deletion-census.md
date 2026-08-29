@@ -4648,9 +4648,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                  row test carries no `imported` label).
 #   TIERCOMMIT    416 →  413   −3  three closed rows' per-row tests leave.
 # PREDICTED +2/−1/−3 before the pin was read, and read as that.
-REGISTRY-ALL         8639
-REGISTRY-NOIMPORTED  4446
-REGISTRY-TIERCOMMIT  413
+#
+# 2026-08-29 — `logos_00_probe_log_lint` registered. It checks that every `site:`
+# in `src/compiler/PROBES.md` still names a symbol that exists: the probe record
+# moved out of `.cpp` comments (where writing it costs a rebuild, because
+# probe-batch builds BEFORE it prices) into a versioned file beside the sources,
+# and a record whose link has rotted is worse than none, since it is read as
+# current. One test, native, `tier_commit`:
+#   ALL 8639 → 8640  ·  NOIMPORTED 4446 → 4447  ·  TIERCOMMIT 413 → 414
+# PREDICTED +1/+1/+1 before the pin was read, and read as exactly that.
+REGISTRY-ALL         8640
+REGISTRY-NOIMPORTED  4447
+REGISTRY-TIERCOMMIT  414
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is
