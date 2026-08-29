@@ -1,0 +1,27 @@
+package ce3791b;
+
+trait Give {
+    fn get(&self) -> i64;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+}
+
+
+fn main() -> i32 {
+    let n: i64 = 6i64;
+    let c = || -> i64 {
+        return n;
+    };
+    let rc = &c;
+    let d = *rc;
+    let v: i64 = d();
+    return v as i32;
+}

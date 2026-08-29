@@ -1,0 +1,38 @@
+package ce7827c;
+
+trait Give {
+    fn get(&self) -> i64;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+}
+
+struct Cell<T> {
+    t: T,
+}
+
+impl<T> Cell<T> {
+    fn thru(&self, r: &i64) -> &i64 {
+        return r;
+    }
+}
+
+fn pick(c: Cell<Box<dyn Give>>, r: &i64) -> &i64 {
+    return c.thru(r);
+}
+
+fn main() -> i32 {
+    let n: i64 = 6i64;
+    let bx: Box<dyn Give> = Box::new(Sq { s: 6i64 });
+    let c = Cell { t: bx };
+    let p: &i64 = pick(c, &n);
+    let v: i64 = *p;
+    return v as i32;
+}

@@ -1,0 +1,31 @@
+package ce3677;
+
+trait Give {
+    fn get(&self) -> i64;
+    fn twin(&self) -> Box<dyn Give>;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+    fn twin(&self) -> Box<dyn Give> {
+        return Box::new(Sq { s: self.s });
+    }
+}
+
+
+fn main() -> i32 {
+    let c = || -> i64 {
+        return 6i64;
+    };
+    let a = [c, c];
+    let sl = &a[0..2];
+    let d = sl[0];
+    let v: i64 = d();
+    return v as i32;
+}

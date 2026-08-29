@@ -2061,3 +2061,235 @@ build 98f66c0aebc5cc5d against a 343-row ledger and the ledger is now 340. The
 three rows that left are closure-parameter rows and none of them appears in
 `tmcbdyn`'s or `bxsrc`'s recorded sets, so those two ceilings are expected to
 hold at 3 and 4. EXPECTED, not measured — re-price before funding.
+
+## tmcbsite — RULE 5, DISCHARGED SITE BY SITE, AND IT FAILS AT TWO
+site: src/compiler/borrow_check.cpp::type_may_carry_borrow — all 28 consumers
+build: b440b13e2eccc1a1 (READ; gate-db 85 unarmed -> 113 armed)
+measured: 2026-08-29
+fires: 6818652   arrivals 6818512 / flips 948 over the 1385-program COST population
+ceiling: 3 (SET unchanged)   cost: 0 by corpus, **2 by hand**
+verdict: ⛔ RULE 5 IS **NOT** MET FOR THE PREDICATE. It IS met for a FOUR-SITE
+  subset that closes the SAME THREE ROWS, and the two guilty sites buy NOTHING.
+
+### 1. THE SITE CENSUS — 28 CALLS, DERIVED, NOT GREPPED
+`tools/dlog/tmcb_sites.dl` (new) asks the general C++ schema for every CallExpr
+whose callee decl is `type_may_carry_borrow`, with its enclosing named context.
+28 calls, `tmcb_unnamed` EMPTY (no call sits in a context the tool cannot name)
+and `tmcb_nocall_ref` EMPTY (the predicate's address is never taken, so there is
+no std::function hop a call-graph question would miss). Grep agreed on the
+count only AFTER the three self-recursive calls were split out into `tmcb_walk`;
+before that grep's 31 lines mixed calls with prose mentions. RE-DERIVE THE LINE
+NUMBERS WITH THAT QUESTION — they are keyed to this commit and nothing else.
+
+⚠ 20 WAS THE WRONG NUMBER. Yesterday's `tmcbdyn` note said "roughly 20 read
+sites" and that estimate is what the round was refused on. It is 28, and two of
+the 28 are not live at all (below), so the population that mattered was 26.
+
+### 2. DIRECTION, AND THE INSTRUMENT THAT ANSWERS IT MECHANICALLY
+A site is a RISK when a widened "yes" can newly reach a REFUSING branch. Rather
+than argue direction per site, `type_may_carry_borrow` now takes the CALLER's
+line as a default `__builtin_LINE()` argument and, under `LOGOS_TMCB_FLIP`,
+records per site {arrivals, FLIPS} — a flip being a type the erased-payload
+widening answers differently. The walk was split into `tmcb_walk(t, wide)` so
+one process answers the same type BOTH ways; the flip is attributed to the
+CONSUMER, never to the walk's own recursion. `LOGOS_PROBE_SITE=<line>[,…]`
+then restricts the widening to named sites, so a refusal is attributed to ONE
+consumer instead of to the predicate.
+INERT, and proven so at the verdict level, not by argument: gate-db compare
+84 -> 85 (pre-instrument vs instrumented, both unarmed) = 1387 tests measured
+under both, **0 changed**.
+
+### 3. THE CENSUS BY DIRECTION — arrivals/flips over 1385 LEGAL programs
+(ledger 340 + `-L bc -L pass` 855 + spec/ownership/advanced 190; every one
+COMPILES, which is why the flip column, not the cost column, is the evidence
+that a site was reached at all.)
+
+    line   consumer / arm                                arrivals  flips
+    3578   collect_ref_sources_paths  MethodCall by_flow       495      2
+    3633   collect_ref_sources_paths  FieldRead                658      3
+    3652   collect_ref_sources_paths  TupleIndex                65      0
+    3657   collect_ref_sources_paths  IndexRead                288     19
+    3691   collect_ref_sources_paths  SliceIndex                 6      0
+    3807   collect_ref_sources_paths  Deref                    161      0
+    3951   collect_ref_sources_paths  Call ENTRY              5027     32
+    4684   apply_flow_outparams       outparam escape           78      0
+    6704   note_holder_escape_prov    own gate               92 954      3
+    7090   bc_hop_roots               MethodCall arg           132      0
+    7098   bc_hop_roots               Call arg                 669      5
+    7114   bc_hop_roots               ClosureCall/FnPtrCall     75      0
+    7151   bc_hop_roots               EnumLitData payload   225 333     12
+    7157   bc_hop_roots               StructLit field         1417      0
+    7163   bc_hop_roots               TupleLit elem             32      0
+    7169   bc_hop_roots               ArrLit elem               95      0
+    7841   prov_of                    MethodCall recv-carried   83      0
+    7908   prov_of                    Call/MethodCall ENTRY 46 051     19
+    8525   check_return_value         holds_gate          3 579 149    180
+    8535   check_return_value         LOGOS_DUMP_RETGATE print   0      0
+    8954   take_ref_borrows           holder hop            380 601    273
+    9640   take_ref_borrows           MatchExpr scrut           12      0
+    11908  visit_stmt                 Let escape record     591 955    331
+    12580  visit_stmt                 derefwrite                 7      0
+    12688  visit_stmt                 LetElse scrut             15      0
+    12888  visit_stmt                 Match stmt scrut    1 892 772     67
+    14336  visit                      recvstore                382      2
+    14592  visit                      mexprpatloan-gated         0      0
+
+  NOT A RISK, and MEASURED rather than assumed — both at **0 arrivals**:
+    8535  is inside `if (std::getenv("LOGOS_DUMP_RETGATE"))`: a debug print, no
+          branch, and never executed in 1385 programs.
+    14592 is inside `if (logos::probe::on("mexprpatloan"))`: dead unless that
+          probe is armed, which the §14592 note already records as
+          UNMEASURABLE-HERE. Confirmed dead, not merely believed dead.
+  RISK SITES: 26. Corpus flips at 13; ZERO flips at 13, and those thirteen are
+  exactly what no amount of corpus could have spoken for.
+
+### 4. ONE HAND COUNTER-EXAMPLE PER RISK SITE — 26/26 REACHED
+All multi-line, all committed under `docs/probes/tmcbsite/` with `run.sh` (compiles
+unarmed then `LOGOS_PROBE=tmcbdyn`, prints rc for both and site:arrivals/flips
+from the ARMED run — a site downstream of a flipped gate is reachable ONLY
+armed, which the first cut of the runner got wrong and under-reported).
+
+    site   program        shape                                          verdict
+    3578   ce7072         `w.keep(b)`, method result Box<dyn Give>        ADMITTED
+    3633   ce3633         `h.b` FieldRead of a Box<dyn> field             ADMITTED
+    3652   ce3636         `t.0` of `(Box<dyn Give>, i64)`                 ADMITTED
+    3657   ce9622         IndexRead under Option<Box<dyn Give>>           ADMITTED
+    3691   ce3677         `sl[0]` on a slice of NON-CAPTURING CLOSURES    ADMITTED
+    3807   ce3791b        `*rc` where rc: &<closure>                      ADMITTED
+    3951   adv7894        ⛔ **REFUSED** — see §5                          COST
+    4684   ce4668         `v.push(b)`, Vec<Box<dyn Give>> out-param       ADMITTED
+    6704   ce9622         holder-escape gate under Option<Box<dyn>>       ADMITTED
+    7090   ce7076         method taking Box<dyn>, returning `&self.k`     ADMITTED
+    7098   ce7098         free fn `keep(b: Box<dyn Give>, r:&i64)->&i64`  ADMITTED
+    7114   ce7100         CLOSURE taking Box<dyn> and returning its &arg  ADMITTED
+    7151   ce9622         EnumLitData payload Box<dyn Give>               ADMITTED
+    7157   ce7143         `H { r: &n, b: bx }` (H is holds_any_ref)       ADMITTED
+    7163   ce7145         `(bx, 1i64)` TupleLit                           ADMITTED
+    7169   ce7151         `[bx]` ArrLit                                   ADMITTED
+    7841   ce7827c        ⛔ **REFUSED** — see §5                          COST
+    7908   adv8511        `fn mk() -> Box<dyn Give>` from a local         ADMITTED
+    8525   adv8511        the return gate on the same program             ADMITTED
+    8954   ce3636         take_ref_borrows holder hop                     ADMITTED
+    9640   ce9626         `let r:&i64 = match ob {…}` , ob:Option<Box<dyn>> ADMITTED
+    11908  smoke          `let b: Box<dyn Give> = Box::new(Hold{r:&n})`   ADMITTED
+    12580  ce12566        `*s.cell() = bx`, cell(&mut self)->&mut Box<dyn> ADMITTED
+    12688  ce12684        `let Some(bb) = ob else {…}`                     ADMITTED
+    12888  adv12874       `match ob { Some(bb) => return bb, … }`          ADMITTED
+    14336  ce4668         recvstore on `v.push(b)`                        ADMITTED
+
+  ⚠ TWO SITES NEEDED A NON-OBVIOUS SHAPE, and saying so is the point:
+  * 3691 (SliceIndex) is reachable ONLY through a slice of NON-CAPTURING
+    CLOSURES. A flip needs an ELEMENT type of erased kind; `Box<dyn T>` is a
+    Move type, and the only spelling that reaches this arm (`o = sl[0]`, a read
+    OUT of a slice) is then a move out of a borrow. A non-capturing closure is
+    the one erased kind that copies. Three Box-shaped attempts (ce3675/b/c) all
+    landed on the ArrLit arm instead — the site was NOT skipped, it was reached
+    by changing the erased kind, not the spelling.
+  * 7841 needs a GENERIC receiver: `Cell<Box<dyn Give>>`. `type_may_carry_borrow`
+    does not walk a named struct's FIELDS, so a plain `struct Cell { b: Box<dyn
+    Give> }` never flips; only a type ARGUMENT does. The arm's own entry gate
+    (`if (!plain && !fat && !m_bc) return {}`) also demands a REF-shaped result,
+    which is why three earlier `-> Box<dyn Give>` attempts got 0 arrivals.
+
+### 5. THE TWO REFUSALS — LEGAL PROGRAMS, ATTRIBUTED TO ONE SITE EACH
+Attribution is `LOGOS_PROBE_SITE=<one line>` over all 26: each program is
+refused by EXACTLY ONE site and admitted by the other 25.
+
+  (a) site 3951 — `collect_ref_sources_paths`, the §B6 Call ENTRY gate.
+      This is the site `bxsrc` was built on.
+
+        fn mkb(n: &i64) -> Box<dyn Give> {
+            return Box::new(Sq { s: *n });
+        }
+        fn main() -> i32 {
+            let h: Box<dyn Give>;
+            {
+                let x: i64 = 6i64;
+                h = mkb(&x);
+            }
+            let v: i64 = h.get();
+            return v as i32;
+        }
+
+      `mkb` COPIES `*n` into an owned `Sq`; the returned box holds no borrow.
+      Unarmed rc 0. Armed: E0597, "'x' does not live long enough: it is borrowed
+      by 'h'". The widened entry gate says the Call's RESULT may carry a borrow,
+      so the arm walks the arguments and deposits `x` as a §B6 source of `h`.
+      A `Box<dyn Trait>` result is exactly as opaque about its arguments as it
+      is about its payload — the widening makes the gate assume the one and it
+      silently assumes the other.
+
+  (b) site 7841 — `prov_of`, #86 SUB-SITE C, "the borrow the receiver CARRIES".
+
+        struct Cell<T> { t: T }
+        impl<T> Cell<T> {
+            fn thru(&self, r: &i64) -> &i64 {
+                return r;
+            }
+        }
+        fn pick(c: Cell<Box<dyn Give>>, r: &i64) -> &i64 {
+            return c.thru(r);
+        }
+
+      `thru` returns its ARGUMENT and its EXACT summary says so, so
+      `recv_contributes` is false and every earlier clause is (rightly) skipped.
+      The widening opens sub-site C anyway, `carried_prov_of_recv(c)` answers
+      is_local, and the result adopts the RECEIVER's locality:
+      "cannot return reference to local variable 'c'". Unarmed rc 0.
+      ONE-VARIABLE CONTROL, `ce7827ctl`: the same program with `Cell<i64>` —
+      site 7841 reached (1 arrival), NO flip, ADMITTED armed. The only
+      difference is the erased payload in the receiver's type ARGUMENT.
+      ⚠ This is the F2 over-refusal the arm's own comment says cannot happen
+      ("`Id{z:0}` carries no borrow at all, so type_may_carry_borrow is false
+      for it and this clause never opens"). That sentence is TRUE of the
+      predicate as it stands and FALSE the moment it learns about erasure. The
+      note is load-bearing and the widening invalidates it.
+
+### 6. THE CEILING AS A SET, RE-PRICED (rule 8) AND DECOMPOSED (rule 6)
+`tmcbdyn`, re-priced at ledger 340 (was 351 when 3 was first recorded):
+CEILING **3**, COST 0, and the SET IS UNCHANGED, name for name:
+    logos_00_bc_admit_borrowck_do-not-suggest-adding-move-move
+    logos_00_bc_admit_lifetimes_issue-55796--r09b
+    logos_00_bc_admit_regions_regions-close-param-into-object--b-object-dangles
+  predicted∖closed = ∅   closed∖predicted = ∅.
+  `fires` moved 10 872 879 -> 6 818 652 and NOTHING about the mechanism changed:
+  the count is now one per TOP-LEVEL call instead of one per recursion level,
+  because the widening moved from the recursive body into `tmcb_walk`'s `wide`
+  parameter. It now equals the arrival census (6 818 512 over the cost
+  population), which is the number that should have been quoted all along.
+
+⚠ **A CEILING IS NOT ADDITIVE OVER SITES.** Per-site ceiling, all 26 armed one
+at a time against the 340-row ledger: **3578 closes 1; every other site closes
+0.** Sum = 1, whole = 3. Delta-debugged to the minimal set PER ROW:
+    issue-55796--r09b                              {3578}
+    do-not-suggest-adding-move-move                {8525, 11908}
+    regions-close-param-into-object--b-object-dangles  {7908, 8525}
+Two of the three rows need a PAIR of sites and are invisible to any one of
+them. A per-site sweep that read only the single-site column would have
+reported this whole mechanism as ceiling 1 and killed it.
+
+### 7. THE FOUR-SITE SUBSET — SAME THREE ROWS, AND RULE 5 IS MET FOR IT
+    LOGOS_PROBE_SITE=3578,7908,8525,11908
+    CEILING = 3   the SAME THREE ROWS   COST = 0 over 1385 legal programs
+    and it ADMITS ALL 32 HAND PROGRAMS, ce7827c and adv7894 included.
+The two guilty sites are priced alone and buy NOTHING:
+    3951 alone: CEILING 0, COST 0 by corpus — and refuses adv7894.
+    7841 alone: CEILING 0, COST 0 by corpus — and refuses ce7827c.
+So the cost is not a price paid for the rows; it is paid at sites that
+contribute nothing to them. ⚠ AND BOTH GUILTY SITES PRICED **COST 0** ON 1385
+LEGAL PROGRAMS. That is the fourth round running in which COST 0 was not a
+safety claim, and the first in which the corpus said 0 at a site it had
+FLIPPED 32 TIMES (3951). A flip count is proof the site was REACHED; it is not
+proof the site was reached by the shape that breaks.
+
+### 8. VERDICT
+RULE 5 is **NOT met** for `type_may_carry_borrow`. It fails at
+`collect_ref_sources_paths`' Call ENTRY gate and at `prov_of`'s #86 sub-site C.
+It IS met, against 26 site-attributed hand programs and 1385 corpus programs,
+for the four-site subset {MethodCall by_flow, prov_of Call entry,
+check_return_value holds_gate, visit_stmt Let escape} — which closes the same
+three rows across the same three roots.
+NOT LANDED HERE. What a landing owes beyond this measurement: the four sites
+are still spelled by LINE, and a landing must spell them by ARM; and rule 7
+says a crude probe and a correct fix do not close the same programs — the three
+rows' diagnostics under the subset have not been read.

@@ -1,0 +1,32 @@
+package adv6690;
+
+trait Give {
+    fn get(&self) -> i64;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+}
+
+
+struct Hold {
+    b: Box<dyn Give>,
+}
+
+fn stash(h: &mut Hold, b: Box<dyn Give>) {
+    h.b = b;
+}
+
+fn main() -> i32 {
+    let mut h = Hold { b: Box::new(Sq { s: 1i64 }) };
+    let nb: Box<dyn Give> = Box::new(Sq { s: 6i64 });
+    stash(&mut h, nb);
+    let v: i64 = h.b.get();
+    return v as i32;
+}

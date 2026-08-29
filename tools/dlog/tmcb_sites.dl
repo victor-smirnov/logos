@@ -1,0 +1,34 @@
+// tmcb_sites — every call of type_may_carry_borrow, by enclosing context.
+// Asked of the general schema; a grep-defined class certifies what it cannot see.
+#include "cxx_schema.dl"
+
+.decl tmcb(did: symbol)
+tmcb(D) :- decl(D, _, Q), match(".*type_may_carry_borrow.*", Q).
+
+// every CallExpr node whose callee decl is the predicate
+.decl tmcb_call(callid: symbol)
+tmcb_call(N) :- call(N, D), tmcb(D).
+
+// the site: enclosing named context + file/line
+.decl tmcb_site(ctx: symbol, file: symbol, line: number, callid: symbol)
+.output tmcb_site
+tmcb_site(Name, F, L, N) :- tmcb_call(N), ctx_of(N, C), ctx_name(C, Name), loc(N, F, L, _).
+
+// a call whose enclosing context could not be named — a hole in the census
+.decl tmcb_unnamed(callid: symbol, file: symbol, line: number)
+.output tmcb_unnamed
+tmcb_unnamed(N, F, L) :- tmcb_call(N), loc(N, F, L, _), !named_site(N).
+.decl named_site(callid: symbol)
+named_site(N) :- tmcb_call(N), ctx_of(N, C), ctx_name(C, _).
+
+// ALSO: any non-call REFERENCE to the predicate (address taken, std::function)
+.decl tmcb_nocall_ref(use: symbol, file: symbol, line: number)
+.output tmcb_nocall_ref
+tmcb_nocall_ref(U, F, L) :- ref(U, D), tmcb(D), loc(U, F, L, _), !in_call(U).
+.decl in_call(use: symbol)
+in_call(U) :- ref(U, D), tmcb(D), node(U, _, P, _), call(P, D).
+in_call(U) :- ref(U, D), tmcb(D), node(U, _, P, _), node(P, _, G, _), call(G, D).
+
+.decl tmcb_count(n: number)
+.output tmcb_count
+tmcb_count(N) :- N = count : { tmcb_call(_) }.

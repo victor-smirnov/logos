@@ -1,0 +1,22 @@
+package smoke;
+
+trait Give {
+    fn get(&self) -> i64;
+}
+
+struct Hold {
+    r: &i64,
+}
+
+impl Give for Hold {
+    fn get(&self) -> i64 {
+        return *self.r;
+    }
+}
+
+fn main() -> i32 {
+    let n: i64 = 7i64;
+    let b: Box<dyn Give> = Box::new(Hold { r: &n });
+    let v: i64 = b.get();
+    return v as i32;
+}

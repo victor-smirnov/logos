@@ -49,6 +49,42 @@ namespace logos::compiler {
 
 using namespace lir;
 
+// ── PER-CALL-SITE CENSUS OF `type_may_carry_borrow` (see PROBES.md §tmcbsite) ─
+// Inert unless LOGOS_TMCB_FLIP names a file. Records the LINE of each caller
+// whose answer the erased-payload widening would FLIP.
+namespace {
+struct TmcbFlip {
+    const char* path = std::getenv("LOGOS_TMCB_FLIP");
+    std::map<int, std::pair<unsigned long, unsigned long>> hits;  // site -> {arrivals, flips}
+    ~TmcbFlip() {
+        if (!path || hits.empty()) return;
+        if (std::FILE* f = std::fopen(path, "a")) {
+            for (auto& kv : hits)
+                std::fprintf(f, "%d\t%lu\t%lu\n", kv.first, kv.second.first, kv.second.second);
+            std::fclose(f);
+        }
+    }
+};
+inline TmcbFlip& tmcb_flip() { static TmcbFlip s; return s; }
+inline bool tmcb_flip_armed() { return tmcb_flip().path != nullptr; }
+inline void tmcb_flip_seen(int line) { ++tmcb_flip().hits[line].first; }
+inline void tmcb_flip_note(int line) { ++tmcb_flip().hits[line].second; }
+// LOGOS_PROBE_SITE=<line>[,<line>…] restricts the widening to those CALL SITES,
+// so a refusal can be attributed to one consumer instead of to the predicate.
+inline bool tmcb_site_allowed(int line) {
+    static const char* sel = std::getenv("LOGOS_PROBE_SITE");
+    if (!sel || !*sel) return true;
+    char buf[16]; int n = std::snprintf(buf, sizeof buf, "%d", line);
+    for (const char* p = sel; *p;) {
+        if (std::strncmp(p, buf, (size_t)n) == 0 && (p[n] == 0 || p[n] == ','))
+            return true;
+        while (*p && *p != ',') ++p;
+        if (*p) ++p;
+    }
+    return false;
+}
+}  // namespace
+
 // ── Copy/Move classification ────────────────────────────────────────────────
 
 struct TypeSets {
@@ -6842,10 +6878,12 @@ private:
     // and inheriting from a binding that holds no loan is a no-op. Keeping it
     // separate is what stops `Option<&i64>` from becoming "borrow-carrying"
     // everywhere else (return gates, escape analysis, the residency exemption).
-    bool type_may_carry_borrow(TypeRef t) const {
+    // `wide` = the erased-payload widening, THREADED rather than read from the
+    // probe, so one process can answer the same type both ways (the site census).
+    bool tmcb_walk(TypeRef t, bool wide) const {
         if (!t) return false;
         if (is_ref_kind(t) || loan_carrying_type(t)) return true;
-        if (logos::probe::on("tmcbdyn") || logos::probe::on("bxsrc")) {
+        if (wide) {
             using KD = LogosType::Kind;
             auto kd = t.kind();
             if (kd == KD::Closure || kd == KD::TraitObject ||
@@ -6861,7 +6899,7 @@ private:
             if (!n.empty() && ts_.holds_any_ref.count(n) > 0) return true;
         }
         for (auto a : t.type_args())
-            if (type_may_carry_borrow(a)) return true;
+            if (tmcb_walk(a, wide)) return true;
         // #70 MISS-2: a TUPLE's elements are not type_args, so `(&i64, i64)`
         // answered false and the §B6 Call arm never inspected
         // `held = pick((&tmp, 1))` — the composition escaped at rc 0 while the
@@ -6874,11 +6912,24 @@ private:
         // class's remaining residual.
         if (t.kind() == LogosType::Kind::Tuple) {
             for (auto e : t.tuple_elems())
-                if (type_may_carry_borrow(TypeRef(e))) return true;
+                if (tmcb_walk(TypeRef(e), wide)) return true;
         }
         if (t.kind() == LogosType::Kind::Array || t.kind() == LogosType::Kind::Slice)
-            return type_may_carry_borrow(t.elem());
+            return tmcb_walk(t.elem(), wide);
         return false;
+    }
+
+    // The entry every gate in this file asks. `site` is the CALLER's line, so a
+    // flip is attributed to the consuming site and never to the walk's recursion.
+    bool type_may_carry_borrow(TypeRef t, int site = __builtin_LINE()) const {
+        bool armed = logos::probe::on("tmcbdyn") || logos::probe::on("bxsrc");
+        bool logging = tmcb_flip_armed();
+        if (logging) tmcb_flip_seen(site);
+        if (tmcb_walk(t, false)) return true;
+        if (!armed && !logging) return false;
+        bool wide = tmcb_walk(t, true);
+        if (wide) tmcb_flip_note(site);
+        return armed && wide && tmcb_site_allowed(site);
     }
 
     // If `e` (a borrow's inner place, or a method receiver) roots at a VALUE local,

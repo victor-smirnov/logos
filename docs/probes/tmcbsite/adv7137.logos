@@ -1,0 +1,31 @@
+package adv7137;
+
+trait Give {
+    fn get(&self) -> i64;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+}
+
+
+fn wrap(b: Box<dyn Give>) -> Option<Box<dyn Give>> {
+    let o: Option<Box<dyn Give>> = Some(b);
+    return o;
+}
+
+fn main() -> i32 {
+    let b: Box<dyn Give> = Box::new(Sq { s: 6i64 });
+    let o = wrap(b);
+    let v: i64 = match o {
+        Some(bb) => bb.get(),
+        None => 0i64,
+    };
+    return v as i32;
+}

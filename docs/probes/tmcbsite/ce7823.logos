@@ -1,0 +1,37 @@
+package ce7823;
+
+trait Give {
+    fn get(&self) -> i64;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+}
+
+
+struct Wrap {
+    k: i64,
+}
+
+impl Wrap {
+    fn dup(&self) -> Box<dyn Give> {
+        return Box::new(Sq { s: self.k });
+    }
+}
+
+fn take(w: Wrap) -> Box<dyn Give> {
+    return w.dup();
+}
+
+fn main() -> i32 {
+    let w = Wrap { k: 6i64 };
+    let h = take(w);
+    let v: i64 = h.get();
+    return v as i32;
+}

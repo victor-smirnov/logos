@@ -1,0 +1,27 @@
+package ce7100;
+
+trait Give {
+    fn get(&self) -> i64;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+}
+
+
+fn main() -> i32 {
+    let n: i64 = 6i64;
+    let f = |x: Box<dyn Give>, y: &i64| -> &i64 {
+        return y;
+    };
+    let b: Box<dyn Give> = Box::new(Sq { s: 6i64 });
+    let r: &i64 = f(b, &n);
+    let v: i64 = *r;
+    return v as i32;
+}

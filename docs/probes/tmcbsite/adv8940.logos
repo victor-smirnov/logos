@@ -1,0 +1,30 @@
+package adv8940;
+
+trait Give {
+    fn get(&self) -> i64;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+}
+
+
+fn main() -> i32 {
+    let mut a: i64 = 1i64;
+    {
+        let b: Box<dyn Give> = Box::new(Sq { s: 2i64 });
+        let t = (b, &a);
+        let v: i64 = t.0.get() + *t.1;
+        if v != 3i64 {
+            return 1i32;
+        }
+    }
+    a = 9i64;
+    return a as i32;
+}

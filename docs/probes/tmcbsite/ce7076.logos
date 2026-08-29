@@ -1,0 +1,34 @@
+package ce7076;
+
+trait Give {
+    fn get(&self) -> i64;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+}
+
+
+struct Wrap {
+    k: i64,
+}
+
+impl Wrap {
+    fn keep(&self, b: Box<dyn Give>) -> &i64 {
+        return &self.k;
+    }
+}
+
+fn main() -> i32 {
+    let w = Wrap { k: 6i64 };
+    let b: Box<dyn Give> = Box::new(Sq { s: 6i64 });
+    let r: &i64 = w.keep(b);
+    let v: i64 = *r;
+    return v as i32;
+}

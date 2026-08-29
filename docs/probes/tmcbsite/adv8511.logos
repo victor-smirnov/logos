@@ -1,0 +1,28 @@
+package adv8511;
+
+trait Give {
+    fn get(&self) -> i64;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+}
+
+
+fn mk() -> Box<dyn Give> {
+    let k: i64 = 11i64;
+    let b: Box<dyn Give> = Box::new(Sq { s: k });
+    return b;
+}
+
+fn main() -> i32 {
+    let h = mk();
+    let v: i64 = h.get();
+    return v as i32;
+}

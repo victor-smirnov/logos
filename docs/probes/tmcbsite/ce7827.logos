@@ -1,0 +1,31 @@
+package ce7827;
+
+trait Give {
+    fn get(&self) -> i64;
+    fn twin(&self) -> Box<dyn Give>;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+    fn twin(&self) -> Box<dyn Give> {
+        return Box::new(Sq { s: self.s });
+    }
+}
+
+
+fn relay(b: Box<dyn Give>) -> Box<dyn Give> {
+    return b.twin();
+}
+
+fn main() -> i32 {
+    let b: Box<dyn Give> = Box::new(Sq { s: 6i64 });
+    let h = relay(b);
+    let v: i64 = h.get();
+    return v as i32;
+}

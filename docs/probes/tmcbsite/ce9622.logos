@@ -1,0 +1,25 @@
+package ce9622;
+
+trait Give {
+    fn get(&self) -> i64;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+}
+
+
+fn main() -> i32 {
+    let ob: Option<Box<dyn Give>> = Some(Box::new(Sq { s: 6i64 }));
+    let v: i64 = match ob {
+        Some(bb) => bb.get(),
+        None => 0i64,
+    };
+    return v as i32;
+}

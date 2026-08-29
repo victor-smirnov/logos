@@ -1,0 +1,33 @@
+package ce12562;
+
+trait Give {
+    fn get(&self) -> i64;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+}
+
+
+struct Slot {
+    b: Box<dyn Give>,
+}
+
+impl Slot {
+    fn cell(&mut self) -> &mut Box<dyn Give> {
+        return &mut self.b;
+    }
+}
+
+fn main() -> i32 {
+    let mut s = Slot { b: Box::new(Sq { s: 1i64 }) };
+    *s.cell() = Box::new(Sq { s: 6i64 });
+    let v: i64 = s.b.get();
+    return v as i32;
+}

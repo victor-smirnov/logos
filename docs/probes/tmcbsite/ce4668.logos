@@ -1,0 +1,24 @@
+package ce4668;
+
+trait Give {
+    fn get(&self) -> i64;
+}
+
+struct Sq {
+    s: i64,
+}
+
+impl Give for Sq {
+    fn get(&self) -> i64 {
+        return self.s;
+    }
+}
+
+
+fn main() -> i32 {
+    let b: Box<dyn Give> = Box::new(Sq { s: 6i64 });
+    let mut v: Vec<Box<dyn Give>> = Vec::new();
+    v.push(b);
+    let n: i64 = v.len() as i64;
+    return n as i32;
+}
