@@ -165,30 +165,6 @@ set -- "${_args[@]:-}"
 [ "${1:-}" = "" ] && shift 2>/dev/null || true
 
 # ── L0 / L4: trivial ────────────────────────────────────────────────────────
-# ── _write_state: the gate's verdict, as a file the NEXT step reads ─────────
-# Fields are one per line so `grep` is enough and nothing needs a JSON parser.
-# The KEY fields are what make a stale record detectable: a reader that finds a
-# different HEAD / worktree hash / logosc mtime knows the answer is about some
-# other tree and must say so rather than hand it over.
-_write_state() {
-    local rc="$1" shape="$2"; shift 2
-    local failing
-    failing=$(cat "$@" 2>/dev/null | grep -E '^\s+[0-9]+ - ' | sed 's/^ *//' | sort -u)
-    {
-        echo "rc=$rc"
-        echo "shape=$shape"
-        echo "level=$LEVEL bc=${WITH_BC_IMPORTED} imported=${WITH_IMPORTED}"
-        echo "head=$_head"
-        echo "worktree=$_dirty"
-        echo "logosc_mtime=$_bin"
-        echo "at=$(date -Is)"
-        echo "counts=$(cat "$@" 2>/dev/null | grep -oE '[0-9]+ tests? (passed|failed)' | tr '\n' ' ')"
-        echo "failing_count=$(printf '%s' "$failing" | grep -c . || true)"
-        echo "--- failing set (empty means none) ---"
-        printf '%s\n' "$failing"
-    } > "$_stamp"
-}
-
 if [ "$LEVEL" = "L4" ]; then
     # ── BARRIER: L4 IS ~12 MINUTES AND A FOREGROUND TOOL CALL IS CAPPED AT 10 ──
     # A foreground L4 cannot finish, so every foreground attempt becomes a poll
@@ -207,60 +183,35 @@ if [ "$LEVEL" = "L4" ]; then
         echo "  (or the Bash tool's own run_in_background, which notifies on exit)" >&2
         exit 2
     fi
-    # ── THE VERDICT IS AN ARTEFACT, NOT A REFUSAL ──────────────────────────
-    # Victor 2026-08-28: *"прогон теста должен просто писать в файл состояние, и
-    # следующий шаг его читает вместо полного прогона"*. So every L4 records what
-    # it found, keyed on the tree state it found it in, and anyone can READ that
-    # instead of invoking a 12-minute gate — `scripts/gate-state.sh`. Measured
-    # before this existed: 21 L4 runs across the session's workflow phases, 5 of
-    # them opening baselines over a tree the previous phase had just certified
-    # green. The refusal below is now a fallback for a caller who ran the gate
-    # anyway; the intended path is that nobody needs to.
-    _stamp_dir="${LOGOS_GATE_STATE:-$PWD/gate-state}"; mkdir -p "$_stamp_dir"
-    # lint:git-ok — the stamp asks WHICH TREE STATE this rc belongs to, which is
-    # hygiene and nothing else; it makes no claim about the artefact being right.
-    _head=$(git -C "$SCRIPT_DIR/../.." rev-parse HEAD 2>/dev/null || echo nogit)  # lint:git-ok — the stamp asks WHICH TREE STATE this rc belongs to; pure hygiene, no claim about the artefact
-    _dirty=$(git -C "$SCRIPT_DIR/../.." status --porcelain 2>/dev/null | sha256sum | cut -c1-16)  # lint:git-ok — same ground
-    _bin=$(stat -c %Y bin/logosc 2>/dev/null || echo 0)
-    _key="$LEVEL-${WITH_BC_IMPORTED}-${WITH_IMPORTED}-$_head-$_dirty-$_bin"
-    _stamp="$_stamp_dir/$(printf '%s' "$_key" | sha256sum | cut -c1-32)"
-    if [ -f "$_stamp" ]; then
-        echo "[test-levels] REFUSED — and the line below IS YOUR BASELINE." >&2
-        cat "$_stamp" >&2
-        echo "  Same HEAD, same worktree state, same logosc mtime as that run, so" >&2
-        echo "  re-running measures nothing new and the rc above is still the answer." >&2
-        echo "" >&2
-        echo "  ⚠ IF YOU CAME HERE FOR AN OPENING BASELINE: you have it. Quote that" >&2
-        echo "  rc, do not treat this exit 2 as breakage, and get on with the work." >&2
-        echo "  Measured 2026-08-28: five workflow phases opened with a fresh L4 over" >&2
-        echo "  a tree the previous phase had just certified green — an hour of the" >&2
-        echo "  session spent re-reading an answer that was already written down." >&2
-        echo "" >&2
-        echo "  To get a NEW answer, change something: land an edit, rebuild, then ask." >&2
-        exit 2
-    fi
+    # ── ONE STORE, NOT TWO ─────────────────────────────────────────────────
+    # This branch used to keep its own state file with its own parser, beside
+    # `build/gate-state/runs.db`. Two records of one fact diverged IMMEDIATELY:
+    # the hand-rolled parser counted ctest's "The following tests did not run"
+    # section as FAILURES, so the five deliberately-disabled ports were written
+    # down as failing, and its counts regex missed "100% tests passed" because
+    # no digit precedes the word "tests". The DB reads ctest's own
+    # `--output-junit` and had already been fixed for exactly that conflation.
+    # So L4 now runs through `gate-run.sh`, which keys on (test list x compiler
+    # and libraries x worktree), records every per-test verdict, and PRINTS AN
+    # EXISTING RECORD instead of re-running — which is the whole point: a
+    # baseline is a read, not a twelve-minute re-earning.
+    _gr="$SCRIPT_DIR/../../scripts/gate-run.sh"
     if [ "$WITH_IMPORTED" = "1" ]; then
         echo "[test-levels] L4 — core+spec + ALL ~4158 imported ports. ⚠ THE TIER IS UNREVIEWED."
-        _log=$(mktemp); bash "$SUMMARY" 2>&1 | tee "$_log"; _rc=${PIPESTATUS[0]}
-        _write_state "$_rc" "core+spec+ALL imported (tier unreviewed)" "$_log"
-        rm -f "$_log"
-        exit $_rc  # lint:exit-ok
+        bash "$_gr"; exit $?  # lint:exit-ok
     fi
     if [ "$WITH_BC_IMPORTED" = "1" ]; then
-        echo "[test-levels] L4 bc — core+spec, plus the borrow-check imported ports"
-        _log=$(mktemp); bash "$SUMMARY" -LE imported 2>&1 | tee "$_log"; _rc_core=${PIPESTATUS[0]}
+        echo "[test-levels] L4 bc — core+spec"
+        bash "$_gr" -LE imported; _rc_core=$?
         echo "[test-levels] L4 bc — imported, borrow-check suites only"
-        _log2=$(mktemp); bash "$SUMMARY" -L imported -L bc 2>&1 | tee "$_log2"; _rc_bc=${PIPESTATUS[0]}
-        _rc_worse=$_rc_bc; [ "$_rc_core" -ne 0 ] && _rc_worse=$_rc_core
-        _write_state "$_rc_worse" "core rc=$_rc_core / bc rc=$_rc_bc" "$_log" "$_log2"
-        rm -f "$_log" "$_log2"
-        exit "$_rc_worse"  # lint:exit-ok
+        bash "$_gr" -L imported -L bc; _rc_bc=$?
+        # The worse of the two: a green core over a red bc half is not green.
+        [ "$_rc_core" -ne 0 ] && exit "$_rc_core"  # lint:exit-ok
+        exit "$_rc_bc"  # lint:exit-ok
     fi
-    echo "[test-levels] L4 — full suite (core+spec; imported excluded, add 'bc' for the borrow-check ports, 'imported-unreviewed' for all)"
-    _log=$(mktemp); bash "$SUMMARY" -LE imported 2>&1 | tee "$_log"; _rc=${PIPESTATUS[0]}
-    _write_state "$_rc" "core only (imported excluded)" "$_log"
-    rm -f "$_log"
-    exit $_rc  # lint:exit-ok
+    echo "[test-levels] L4 — core+spec (imported excluded; add 'bc' for the borrow-check ports)"
+    bash "$_gr" -LE imported
+    exit $?  # lint:exit-ok
 fi
 if [ "$LEVEL" = "L0" ]; then
     NAME=${1:-}
