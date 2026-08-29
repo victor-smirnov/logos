@@ -457,6 +457,12 @@ note: RULE 9's missing half. `callroot`'s condition is
   kinds together with every other unhandled expression kind. Only a name at the
   arm separates them.
 
+  ── 2026-08-29c, RE-PRICED (rule 8) under armed gate build 51 against the
+  361-row ledger: 1132 fires, ceiling 0, cost 0. 1131 on 363 rows, 1132 here —
+  the arm's traffic is stable. The reference-returning subset is 346-356
+  depending on which name is armed (a hop that refuses earlier reaches the arm
+  slightly less often), so read `callindexchain`'s numbers against ~350, not
+  against 1132.
 ## callrootref
 site: src/compiler/borrow_check.cpp::extract_borrow_place
 build: armed gate build 34 (unarmed baseline 33; probe batch of 2026-08-29b)
@@ -490,6 +496,15 @@ note: `callroot` hops to the receiver/arg0 of ANY Call/MethodCall/AddrOfTemp.
   is `ref mut`). Ten counter-examples were run under each name; the other nine
   stayed rc 0, seven of them with the probe firing (7, 7, 1, 1, 1, 1, 1).
 
+  ── 2026-08-29c, RE-PRICED (rule 8) under armed gate build 49 against the
+  361-row ledger: 356 fires, CEILING 4, COST 0, THE SAME FOUR ROWS. Predicted by
+  name again before the run; both diffs ∅. Its value this round is as the
+  CONTROL for `callindexchain`: one property differs between them — does the hop
+  set `index_in_chain` — and the ceiling goes 4 → 13.
+  ⚠ AND THE CONTROL IS WHAT EXPOSED THE COST. `let r: &mut i64 = &mut b.f;` on a
+  `Box<S>` is legal Rust, is rc 0 HERE with the hop running (6 fires, so the site
+  is reached), and is rc 1 under `callindexchain`. Without a control that hops
+  and deposits nothing, that E0596 refusal would have been blamed on the hop.
 ## callfldw
 site: src/compiler/borrow_check.cpp::extract_borrow_place
 build: armed gate build 39 (unarmed baseline 33; probe batch of 2026-08-29b)
@@ -751,3 +766,314 @@ note: last priced 2026-08-27 at 314 fires against the 447-row ledger. The
   pointer deref (measured: `*x = 5` says "write through raw pointer requires
   unsafe context"), which made the raw-ptr bail a candidate for G1d's two rows.
   It is not: those two close under `nomutskip` and not here.
+
+---
+
+# ROUND 2026-08-29c — THE DEPOSIT SIDE, AND THE BLOCKER RE-LOCATED
+
+Four source edits, ONE build (`scripts/probe-batch.sh`), L1 rc=0 with nothing
+armed so the batch was inert. Eleven names priced (four in the batch, seven by
+hand against the same build, because several names share one edit and
+`probe-batch.sh` prices one name per record).
+
+    probe            fires  ceiling cost  predicted vs closed
+    callsite          1132        0    0  observational (outer population of the call arm)
+    callrootref        356        4    0  EXACT 4/4 — re-priced (rule 8), unmoved on 361 rows
+    callindexchain     346       13    0  predicted 11, closed 13 — all 11 PLUS 2 nobody nominated
+    callidxcallonly    347       13    0  the SAME 13 — the AddrOfTemp hop contributes nothing
+    callidxdm          347       13    0  the same 13, AND the legal program that declined the family compiles
+    matchderefsite      14        0    0  observational (every `match *x`)
+    matchderefmut        1        0    0  ONE arrival in the whole population
+    mbsite          183912        0    0  observational (guard arrivals with the mut bit absent)
+    mbhatch         183912        0    0  observational — the hatch is taken 183912 / 183912
+    mbrefuse             0        —    —  NEVER FIRED here; proven live BY HAND (see below)
+    mbnoparam       177798      361 1037  ⛔ closing the hatch closes the ENTIRE ledger by breaking the build
+
+## THE DEPOSIT WAS THE HOLE, AND IT IS WORTH NINE MORE ROWS THAN THE HOP
+
+`callrootref` (hop through reference-returning calls only) closes 4.
+`callindexchain` (the same hop, plus `index_in_chain` on the hopped step)
+closes 13. The difference is NINE rows and it is entirely the DEPOSIT: the
+walker already produced the right root, and `visit()`'s AddrOfTemp arm threw it
+away because the place came back with an empty path and no index step.
+
+CLOSED SET (13), diffed both ways against a prediction of 11 made BY NAME
+before the build:
+    borrowck-borrow-overloaded-auto-deref                     ← not predicted
+    borrowck-no-cycle-in-exchange-heap--move-while-refmut-borrowed
+    borrowck-overloaded-index-and-overloaded-deref--t15       ← not predicted
+    cannot-borrow-index-of-hashmap-in-for
+    issue-81365-2 · -3 · -4--d2 · -4--rd2 · -8
+    issue-81365-9--explicit-deref-call-borrow-then-write
+    issue-81365-9--g-method-call-deref · -10 · -11
+predicted∖closed = ∅.  closed∖predicted = {borrowck-borrow-overloaded-auto-deref,
+borrowck-overloaded-index-and-overloaded-deref--t15}.
+⚠ ALL NINE `issue-81365-*` ROWS CLOSE TOGETHER. The 2026-08-29b note warned that
+the `bck.B` gloss invites reading them as one mechanism and that `callroot`
+closed only two of nine — "a shared symptom is not a shared defect". They ARE
+one defect; `callroot` was only half of it (walker without deposit), and half a
+mechanism closes a subset that looks like a refutation of the whole.
+
+## READ THE ARTEFACT: THIRTEEN ROWS, FOUR DIAGNOSTICS
+
+Each closed row was compiled by hand under `callidxdm` and its diagnostic read.
+Ten refuse for the mechanism's own reason (the E0506 write-after-borrow family):
+`'c' has shared borrows` (5), `'self.container' is already borrowed` (2),
+`already mutably borrowed` (1), `cannot assign to 'v' because it is borrowed` (1),
+plus `borrowck-borrow-overloaded-auto-deref`'s E0596. TWO refuse for a reason
+that is NOT this mechanism's and was inherited from `callrootref`:
+    cannot-borrow-index-of-hashmap-in-for            "not declared as mut"
+    borrowck-no-cycle-in-exchange-heap--move-while-… "'x' not declared as mut"
+Upstream those are E0502 and E0505. The rows close; the SENTENCES are wrong.
+Whoever lands this must predict that, not discover it in a fixture.
+
+## ⛔ AND COST 0 IS WRONG — RULE 5, AND IT DECIDED THE ROUND
+
+The corpus says 0 for `callindexchain`, `callidxcallonly` and `callidxdm`.
+A five-line hand-written program says otherwise:
+    let mut b: Box<S> = Box::new(S { f: 1i64 });
+    let r: &mut i64 = &mut b.f;   *r = 2i64;      // legal Rust
+    unarmed        rc 0        callrootref    rc 0 (6 fires)
+    callindexchain rc 1        callidxdm      rc 1
+    → "cannot borrow 'b' as mutable: 'b' is behind a `&` reference"
+`callrootref` admits it because it deposits nothing; the moment the deposit
+lands, `record_borrow`'s E0596 gate reads a `through_ref_type` that `cross()`
+took from `Box::deref`'s SHARED `&S` result. The plain-write twin `b.f = 2i64`
+stays rc 0 under every name, so the defect is the `&mut` BORROW spelling.
+Four other legal shapes stay rc 0 with the armed site PROVEN REACHED (6, 6, 12,
+8 fires): a shared borrow through the `Deref` plus a disjoint field READ; the
+same borrow scoped to end before the write; two shared borrows through the
+`Deref`; and `&v[0]` / `&v[1]`. Two more (a direct `&c.t.tf` field path, and
+`it.next()` in a loop — the shape whose earlier widening broke liblogos-lang)
+do not reach the arm at all, 0 fires, which is the narrowness this flag needed.
+
+## (B) IS NOT A MATCH-SCRUTINEE DEFECT AND IT IS NOT PHASE ORDERING
+
+The 2026-08-29b note said the blocker was sema lowering a `match *box`
+scrutinee through the shared `Deref::deref`. That is one SPELLING of it. The
+answer to "where does sema choose, and can it see the context":
+
+  · METHOD receivers ASK. `lower_method_call`'s auto-deref loop computes
+    `bool want_mut = target_method_wants_mut_self(probe_target, m)` and its own
+    comment records that an over-eager `true` is safe, "emit_generic_deref_step
+    falls back to Deref if there's no DerefMut impl".
+  · FIELD access does NOT. The auto-deref loop in the field lowering calls
+    `emit_generic_deref_step(recv, /*want_mut=*/false)` — hardcoded, no
+    parameter, no channel from the use context. THIS is what refuses `&mut b.f`.
+  · `*x` does NOT. `lower_deref` calls the same step with `/*want_mut=*/false`.
+  · A MATCH SCRUTINEE is lowered by `lower_match`'s first statement, before any
+    arm is inspected — but the arms are in the SAME `node` (`la::ITEMS`), which
+    the same function reads a few lines later for the catchall lint. So the
+    information IS available where the choice is made. This is a MISSING
+    PARAMETER, not a phase-ordering answer.
+
+MEASURED, so the scrutinee spelling is not where the population is:
+`matchderefsite` counts every `match *x` in the whole population — 14 — and
+`matchderefmut`, which fires only when a mutable step was actually BUILT, fires
+ONCE. The scrutinee fix is free and closes nothing by itself (ceiling 0, cost 0);
+it makes the declining program of 2026-08-29b compile (verified by hand: rc 1
+under `callroot`/`callrootref`/`callindexchain`/`callidxcallonly`, rc 0 under
+`callidxdm` and `matchderefmut`). But `callidxdm` still refuses `&mut b.f`,
+because that goes through the FIELD site, not the scrutinee site.
+
+## (C) THE HATCH IS NOT A HATCH — IT IS THE GUARD'S ONLY EXIT
+
+Three names at `take_borrow_whole_`'s binding-mut arm, all inside
+`!skip_mut_binding_check && !it->is_mut_binding`:
+    mbsite   183912   every arrival with the mut bit absent
+    mbhatch  183912   the subset `param_names_` exempts
+    mbrefuse      0   what the guard actually refuses
+100.0%, not 98.7%. Over the acceptance ledger and the whole legal corpus the
+guard refuses NOTHING.
+⚠ AND THAT ZERO IS A PROPERTY OF THE POPULATION, NOT OF THE GUARD — rule 2, in
+its sharpest form yet. Both selections consist ENTIRELY of programs that
+compile, so no refusing branch anywhere in the compiler can fire in them; a
+`cost`/`ceiling` harness can never see a refusal site's own traffic. Proven live
+BY HAND, six lines:
+    fn f(p: &mut i64) -> i64 { return *p; }
+    let x: i64 = 3i64;  let _ = f(&mut x);
+    → "cannot borrow 'x' as mutable: not declared as mut",
+      mbrefuse 1 fire, mbsite 129 fires IN THE SAME COMPILE.
+So the guard decides exactly one thing — is a NON-param, non-`mut` local being
+`&mut`-borrowed — and that decision is invisible to every corpus this harness
+measures. The earlier reading ("the guard runs a million times and declines to
+decide in all but 14,329") counted arrivals in a population that cannot contain
+its decisions.
+⚠ AND THE HATCH IS STRUCTURAL. `mbnoparam` (refuse anyway when `param_names_`
+would have exempted) fires 177,798 times, refuses 1037 legal programs and
+"closes" all 361 ledger rows — the degenerate pole, i.e. the stdlib stops
+compiling. `param_names_` is not an escape hatch that occasionally lets
+something through; it is the arm's only exit for every program that builds.
+⚠ THE SECOND COPY. The same `!it->is_mut_binding && !param_names_.count(target)`
+test exists a second time in `take_field_borrow_path_`, with a different
+sentence ("'{}' not declared as mut"). Two notions of one question; unmeasured.
+⚠ `nomutskip`'s TWO LEGAL COSTS COME FROM THE GUARD, NOT THE HATCH, and the
+argument is structural rather than measured: `skip_mut_binding_check` and
+`param_names_` are two independent exits, and the report is only reachable when
+`param_names_` does NOT hold the target. A fixture that emits the diagnostic
+under `nomutskip` therefore declined the hatch. Not re-measured — that would
+need `nomutskip` back in a build.
+
+
+
+## callindexchain
+site: src/compiler/borrow_check.cpp::extract_borrow_place
+build: armed gate build 45 (unarmed baseline 44; probe batch of 2026-08-29c)
+measured: 2026-08-29
+fires: 346
+ceiling: 13
+cost: 0 by the corpus, ⛔ NOT 0 — one hand-written legal program is refused
+verdict: ⛔ NOT FUNDABLE AS SPELLED — the largest ceiling this file has recorded, and it refuses `&mut b.f` on a `Box`
+note: the probe named by 2026-08-29b's `callfldw` finding, and the finding was
+  right: the hole is the DEPOSIT. `visit()`'s AddrOfTemp arm records a whole-root
+  borrow only for a place reached through derefs alone, or `index_in_chain`, or a
+  non-empty path, or `slice_view_base_`; a place reached through a user `Deref`
+  CALL satisfies none of them, so the hop produced a correct root and nothing
+  wrote it down. Setting `index_in_chain` on the hop routes it to the arm that
+  already records unconditionally — the whole-container semantics of a
+  reference-returning call hop IS the index step's.
+  CLOSED 13, PREDICTED 11 BY NAME BEFORE THE BUILD; predicted∖closed = ∅ and
+  closed∖predicted = {borrowck-borrow-overloaded-auto-deref,
+  borrowck-overloaded-index-and-overloaded-deref--t15}, i.e. an overloaded-Index
+  place and an `Rc<Point>` auto-deref — the same mechanism at two more spellings.
+  ⚠ THE COST. See the round header: `let r: &mut i64 = &mut b.f;` on a
+  `Box<S>` is legal Rust, compiles today, compiles under `callrootref`, and is
+  REFUSED here. The deposit is not what is wrong — the deposit is what makes an
+  already-wrong `through_ref_type` visible. The blocker is in sema, and it is
+  the FIELD auto-deref step, not the match scrutinee.
+
+## callidxcallonly
+site: src/compiler/borrow_check.cpp::extract_borrow_place
+build: armed gate build 50 (unarmed baseline 44; probe batch of 2026-08-29c)
+measured: 2026-08-29
+fires: 347
+ceiling: 13
+cost: 0 by the corpus (same hand-written refusal as `callindexchain`)
+verdict: the NARROWER spelling closes the SAME SET — rule 7, measured rather than assumed
+note: identical to `callindexchain` except that the flag is set only when the
+  hopped node is a `Call`/`MethodCall`, never a bare `AddrOfTemp`. Same 13 rows,
+  set-identical. So the AddrOfTemp arm of the hop buys nothing and can be
+  excluded for free — worth knowing, because AddrOfTemp is every autoref and is
+  where the 2026-08-27 widening broke liblogos-lang.
+
+## callidxdm
+site: src/compiler/borrow_check.cpp::extract_borrow_place + src/compiler/sema_stmt.cpp::lower_match
+build: armed gate build 47 (unarmed baseline 44; probe batch of 2026-08-29c)
+measured: 2026-08-29
+fires: 347
+ceiling: 13
+cost: 0 by the corpus (same hand-written refusal as `callindexchain`)
+verdict: the joint probe — deposit + the match-scrutinee deref mode
+note: TWO SITES, ONE NAME, DECLARED IN ADVANCE, and the sum decomposes exactly:
+  347 = 346 (`callindexchain`'s site) + 1 (`matchderefmut`'s), both measured
+  separately in the same build.
+  It buys `callindexchain`'s 13 rows AND makes the program that declined the
+  whole call-hop family on 2026-08-28 compile again (verified by hand under six
+  names). It does NOT rescue `&mut b.f`, because the scrutinee is the wrong
+  spelling of the deref-mode defect.
+
+## matchderefsite
+site: src/compiler/sema_stmt.cpp::lower_match
+build: armed gate build 53 (unarmed baseline 44; probe batch of 2026-08-29c)
+measured: 2026-08-29
+fires: 14
+ceiling: 0
+cost: 0
+verdict: OBSERVATIONAL — every `match *x` in the whole population is fourteen
+note: rule 9's outer half for `matchderefmut`. Fourteen arrivals; the inner name
+  fires once, so THIRTEEN of the fourteen are `match *r` over a plain reference,
+  which `emit_generic_deref_step` declines (non-struct operand) and `lower_deref`
+  handles with the ordinary pointee path. The Deref-struct scrutinee is a
+  population of ONE.
+
+## matchderefmut
+site: src/compiler/sema_stmt.cpp::lower_match
+build: armed gate build 48 (unarmed baseline 44; probe batch of 2026-08-29c)
+measured: 2026-08-29
+fires: 1
+ceiling: 0
+cost: 0
+verdict: the 2026-08-29b BLOCKER, REPAIRED AND PRICED — and it is not where the population is
+note: `lower_deref` lowers `*x` over a Deref-impl struct with `want_mut`
+  HARDCODED false, so a `match *box` scrutinee crosses the SHARED `Deref::deref`
+  and `cross()` records a `&` crossing that `record_borrow`'s E0596 gate then
+  refuses. This probe takes the DerefMut step for a match scrutinee instead, in
+  both the statement (`lower_match`) and expression (`lower_match_expr`) forms.
+  ⚠ THE FIRE COUNT IS THE MECHANISM'S OWN, NOT THE ARM'S. `probe::on` is called
+  only where a mutable step was actually BUILT; the armed name is resolved from
+  the environment once, by hand, so the decision does not itself count. That is a
+  second armed-detection path and it is recorded here rather than hidden.
+  MEASURED BY HAND on the program that declined `callroot`/`callrootref`/
+  `callfldw` (2026-08-28, re-verified 2026-08-29b):
+      match *x { Cycle::Node(ref mut y) => { y.a = Box::new(2i64); } … }
+    unarmed rc 0 · callroot rc 1 · callrootref rc 1 · callindexchain rc 1 ·
+    callidxcallonly rc 1 · matchderefmut rc 0 · callidxdm rc 0
+  ⚠ AND THE PROMPT'S FRAMING OF IT WAS WRONG, WHICH IS WORTH RECORDING: this is
+  NOT "a live over-refusal on legal Rust independent of any probe". The tree
+  ADMITS that program today (rc 0 unarmed, measured). It is a refusal the
+  call-hop probes MANUFACTURE, i.e. a blocker for the hop, not a standing defect.
+  ⚠ ceiling 0 / cost 0 is what a repaired OVER-refusal must look like: the
+  harness measures rows CLOSED and legal programs BROKEN, and an over-refusal
+  repair does neither. Its evidence is the hand-run above, not this table.
+
+## mbsite
+site: src/compiler/borrow_check.cpp::take_borrow_whole_
+build: armed gate build 54 (unarmed baseline 44; probe batch of 2026-08-29c)
+measured: 2026-08-29
+fires: 183912
+ceiling: 0
+cost: 0
+verdict: OBSERVATIONAL — the denominator for (C)
+note: arrivals at the binding-mut arm with `skip_mut_binding_check` false and
+  `is_mut_binding` false, i.e. every borrow whose legality the guard is actually
+  asked about.
+
+## mbhatch
+site: src/compiler/borrow_check.cpp::take_borrow_whole_
+build: armed gate build 55 (unarmed baseline 44; probe batch of 2026-08-29c)
+measured: 2026-08-29
+fires: 183912
+ceiling: 0
+cost: 0
+verdict: OBSERVATIONAL — 183912 / 183912. The exemption is total, not 98.7%
+note: the coverage map's 1,047,220-of-1,061,549 reading was over a different
+  population (8060 runs including four stdlib layers). On the ledger plus the
+  whole legal corpus the ratio is 1.000: `param_names_` exempts every arrival.
+
+## mbrefuse
+site: src/compiler/borrow_check.cpp::take_borrow_whole_
+build: armed gate build 56 (unarmed baseline 44; probe batch of 2026-08-29c)
+measured: 2026-08-29
+fires: 0 over the harness population; 1 on a hand-written program
+ceiling: — (the harness refuses a ceiling on a zero fire count, correctly)
+cost: —
+verdict: NEVER FIRED — and the reason is the POPULATION, which is rule 2's sharpest instance in this file
+note: the branch that actually emits "cannot borrow 'X' as mutable: not declared
+  as mut". Zero arrivals across 361 ledger rows and the whole legal corpus,
+  while its enclosing `if` (`mbsite`) took 183,912. A zero on the inner name
+  over a large outer is normally a REFUTATION (rule 9). It is not one here:
+  BOTH harness selections consist only of programs that COMPILE, so no refusing
+  branch in the compiler can fire in either. Proven live by hand — six lines,
+  one fire, with `mbsite` at 129 in the same compile (see the round header).
+  ⚠ THE GENERAL LESSON, and it applies to every `cost` in this file: the ceiling
+  harness can measure how often a REFUSAL SITE IS AVOIDED and never how often it
+  fires, because its populations are defined by success. A refusal site's own
+  traffic needs the fail corpus, which nothing here selects.
+
+## mbnoparam
+site: src/compiler/borrow_check.cpp::take_borrow_whole_
+build: armed gate build 46 (unarmed baseline 44; probe batch of 2026-08-29c)
+measured: 2026-08-29
+fires: 177798
+ceiling: 361
+cost: 1037
+verdict: ⛔ THE DEGENERATE POLE — it closes the WHOLE ledger, which means it broke the build
+note: closing the `param_names_` hatch refuses 177,798 borrows, 1037 legal
+  programs, and "closes" all 361 rows the way `selftest_refuse` does: by making
+  nothing compile. This is the priced answer to "is the hatch load-bearing" —
+  it is not a hatch, it is the arm's only exit. G1b's row
+  (borrowck-ref-mut-of-imm--ref-mut-of-imm) was predicted and is inside the 361,
+  which tells us nothing: a ceiling equal to the whole ledger names no set.
+  ⚠ RULE 6 IN THE OTHER DIRECTION — a ceiling that equals the population is not
+  a big win, it is a broken run, and the harness's own `selftest_refuse` is the
+  calibration that says so.

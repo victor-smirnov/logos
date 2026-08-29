@@ -1167,15 +1167,30 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
                 }
             }
             break;
-        } else if (logos::probe::on("callroot") &&
-                   (cur.kind() == Code::MethodCall ||
-                    cur.kind() == Code::Call ||
-                    cur.kind() == Code::AddrOfTemp)) {
+        } else if (cur.kind() == Code::MethodCall ||
+                   cur.kind() == Code::Call ||
+                   cur.kind() == Code::AddrOfTemp) {
             // CEILING PROBE `callroot` — the place is reached THROUGH A CALL:
             // a user Deref/Index impl, or an autoref'd receiver sema lowered
             // to a plain Call. The walk breaks here today, so bp.root stays
             // EMPTY and record_borrow returns on its first line — no loan at
             // all. Root it at the receiver / arg0 with a whole-container path.
+            // See PROBES.md for the family; every name here is asked AT MOST
+            // ONCE per arrival so no fire count is doubled.
+            (void)logos::probe::on("callsite");
+            bool p_hop = false, p_idx = false;
+            if (logos::probe::on("callroot")) {
+                p_hop = true;
+            } else if (is_ref_kind(cur.type(pool))) {
+                if (logos::probe::on("callrootref")) p_hop = true;
+                else if (logos::probe::on("callindexchain")) { p_hop = true; p_idx = true; }
+                else if (logos::probe::on("callidxdm"))      { p_hop = true; p_idx = true; }
+                else if (logos::probe::on("callidxcallonly")) {
+                    p_hop = true;
+                    p_idx = (cur.kind() != Code::AddrOfTemp);
+                }
+            }
+            if (!p_hop) break;
             ExprRef nxt;
             if (cur.kind() == Code::AddrOfTemp)
                 nxt = EAddrOfTempView{cur}.inner();
@@ -1191,6 +1206,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             }
             if (!nxt) break;
             path_parts.clear();
+            if (p_idx) bp.index_in_chain = true;
             cur = nxt;
             continue;
         } else {
@@ -4154,11 +4170,20 @@ private:
             // tracks EXCLUSIVITY only — binding-mut legality for bare
             // receivers stays the (permissive) status quo, the stdlib's
             // `arc.deref_mut()` on a non-mut Arc binding relies on it.
-            if (!skip_mut_binding_check &&
-                !it->is_mut_binding && !param_names_.count(target)) {
-                report(line, std::format(
-                    "cannot borrow '{}' as mutable: not declared as mut", target));
-                return;
+            if (!skip_mut_binding_check && !it->is_mut_binding) {
+                // CEILING PROBES (C) — see PROBES.md. `mbsite` is the arrival
+                // population with the mut bit absent; `mbhatch` is the subset
+                // the param hatch exempts; `mbrefuse` is what the guard
+                // actually refuses today; `mbnoparam` CLOSES the hatch.
+                (void)logos::probe::on("mbsite");
+                const bool hatched = param_names_.count(target) > 0;
+                if (hatched) (void)logos::probe::on("mbhatch");
+                if (!hatched || logos::probe::on("mbnoparam")) {
+                    if (!hatched) (void)logos::probe::on("mbrefuse");
+                    report(line, std::format(
+                        "cannot borrow '{}' as mutable: not declared as mut", target));
+                    return;
+                }
             }
             // B83: any tracked field-path borrow blocks a whole-value mut.
             if (!it->mut_field_borrows.empty() ||

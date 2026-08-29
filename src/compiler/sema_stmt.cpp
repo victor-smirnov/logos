@@ -9145,7 +9145,28 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     lir::LExprPtr scrut = nullptr;
     TypeRef scrut_type = error_t();
     if (node.has_key(la::VALUE)) {
-        scrut = lower_expr(map_of(node.get(la::VALUE.code)));
+        // CEILING PROBE (B) `matchderefmut` — see PROBES.md. `*x` over a
+        // Deref-impl struct is lowered by lower_deref with want_mut HARDCODED
+        // false; take the DerefMut step instead for a match scrutinee. The
+        // name is resolved from the env ONCE so probe::on is called only on
+        // the arrivals where a mutable step was actually built.
+        auto _snode = map_of(node.get(la::VALUE.code));
+        const char* _dmname = nullptr;
+        if (code_of(_snode) == la::DEREF && _snode.has_key(la::VALUE)) {
+            (void)logos::probe::on("matchderefsite");
+            if (const char* _p = std::getenv("LOGOS_PROBE")) {
+                if (!std::strcmp(_p, "matchderefmut")) _dmname = "matchderefmut";
+                else if (!std::strcmp(_p, "callidxdm")) _dmname = "callidxdm";
+            }
+        }
+        if (_dmname) {
+            auto _op = lower_expr(map_of(_snode.get(la::VALUE.code)));
+            if (auto _d = emit_generic_deref_step(std::move(_op), /*want_mut=*/true)) {
+                (void)logos::probe::on(_dmname);
+                scrut = std::move(*_d);
+            }
+        }
+        if (!scrut) scrut = lower_expr(_snode);
         scrut_type = expr_type(scrut);
     } else { scrut = error_expr(); }
 
@@ -9902,7 +9923,25 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     lir::LExprPtr scrut = nullptr;
     TypeRef scrut_type = error_t();
     if (node.has_key(la::VALUE)) {
-        scrut = lower_expr(map_of(node.get(la::VALUE.code)));
+        // CEILING PROBE (B), the EXPRESSION form of the same scrutinee — the
+        // statement form is in lower_match. Same names, same discipline.
+        auto _snode = map_of(node.get(la::VALUE.code));
+        const char* _dmname = nullptr;
+        if (code_of(_snode) == la::DEREF && _snode.has_key(la::VALUE)) {
+            (void)logos::probe::on("matchderefsite");
+            if (const char* _p = std::getenv("LOGOS_PROBE")) {
+                if (!std::strcmp(_p, "matchderefmut")) _dmname = "matchderefmut";
+                else if (!std::strcmp(_p, "callidxdm")) _dmname = "callidxdm";
+            }
+        }
+        if (_dmname) {
+            auto _op = lower_expr(map_of(_snode.get(la::VALUE.code)));
+            if (auto _d = emit_generic_deref_step(std::move(_op), /*want_mut=*/true)) {
+                (void)logos::probe::on(_dmname);
+                scrut = std::move(*_d);
+            }
+        }
+        if (!scrut) scrut = lower_expr(_snode);
         scrut_type = expr_type(scrut);
     } else { scrut = error_expr(); }
     // Drop a droppable TEMPORARY scrutinee (rvalue, not a place) of a match
