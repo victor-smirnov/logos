@@ -332,3 +332,35 @@ note: a place reached THROUGH a reference is recorded as a FIELD borrow of the
   02_semantic_core, the bc pass corpus and the spec dirs. `recvfieldpath`
   closes the same single row at COST 0 by asking the path maps instead of
   destroying the paths. Recorded so the collapse is not re-proposed.
+
+---
+
+## ⚠ TWO PROBE RULES PULL AGAINST EACH OTHER
+
+── ⚠ TWO RULES PULL AGAINST EACH OTHER, AND ONE PROBE IS NOT ENOUGH ────────
+"Put probe::on() FIRST in any &&" exists so a zero means the site was never
+reached rather than the redirect never matching. But putting it first makes
+the count the population of the OUTER condition, not of the mechanism.
+MEASURED 2026-08-29: `dwatunwrap` reported 467 fires — every `DerefWrite` —
+while the subset it was actually about, the `AddrOfTemp` spelling, went
+uncounted. Its ceiling of 0 was then read against the wrong denominator.
+
+So a mechanism with an inner predicate needs TWO names, not one:
+    if (logos::probe::on("x_site") && inner_predicate(e)) {
+        (void)logos::probe::on("x_match");   // the subset that matters
+        ...
+    }
+`x_site` says the code path is live; `x_match` says how often the mechanism's
+own condition held. A zero on the second over a large first is a refutation;
+a zero on both is an unreached site; and only the pair can tell them apart.
+
+
+⚠ THIS NOTE LIVES HERE AND NOT IN `probe.hpp`, AND THAT IS THE SECOND LESSON.
+I wrote it into the header first — "put the rule beside the thing it qualifies"
+— and `probe.hpp` is COMPILED. Twelve lines of prose, no code, shifted the line
+tables of a RelWithDebInfo build, changed the binary hash, and invalidated all
+58,703 verdicts in the measurement store: a green `L4 bc` from minutes earlier
+suddenly described a compiler that no longer existed. This file was created an
+hour before, for exactly this, and I did not use it.
+
+**Prose about probes goes here. `probe.hpp` carries only what the compiler needs.**
