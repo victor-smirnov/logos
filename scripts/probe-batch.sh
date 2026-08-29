@@ -77,6 +77,25 @@ _cleanup() {
     echo "probe-batch: interrupted after applying — reverting $(printf '%s' "$_touched" | wc -l) file(s)" >&2
     # lint:git-ok — undoing THIS script's own edits, which is hygiene by definition
     for f in $_touched; do git checkout -- "$f" 2>/dev/null; done
+    # ⚠ REVERTING THE SOURCE IS HALF THE JOB. Bash defers a trap until the
+    # foreground child returns, so an interrupt during the build lets the build
+    # FINISH — and then the source is reverted while `build/bin/logosc` still
+    # contains the probes. MEASURED 2026-08-29: the binary held `bt_obs_record`
+    # and `bt_obs_walk`, the sources held neither, and a ledger baseline of 365
+    # verdicts was recorded against a compiler no source in the tree produces.
+    # It was harmless only because those two probes were observational.
+    # So: rebuild from the restored source, and if that cannot be done, POISON
+    # the binary rather than leave a plausible-looking phantom behind.
+    echo "probe-batch: rebuilding from the restored source — the binary still has the probes" >&2
+    if cmake --build build -j"$(nproc)" >/dev/null 2>&1; then
+        echo "probe-batch: rebuilt; the binary matches the tree again" >&2
+    else
+        echo "probe-batch: ⚠ REBUILD FAILED. build/bin/logosc contains probes that are" >&2
+        echo "  in NO source file. Any measurement taken with it is about a compiler" >&2
+        echo "  nothing in this tree produces. Rebuild before trusting a single number." >&2
+        rm -f build/bin/logosc
+        echo "  The binary has been REMOVED so the next run cannot silently use it." >&2
+    fi
     exit $st  # lint:exit-ok
 }
 trap _cleanup INT TERM HUP
