@@ -7411,6 +7411,54 @@ private:
                 TypeRef rt = e.type(pool);
                 if (!is_ref_kind(rt) && !is_borrow_carrying_type(rt)) return {};
                 const std::vector<std::string>* caps = closure_caps_of(call_callee(e));
+                // ── PROBES capprovarg / capprovnocap / capprovcaps ──────────
+                // THE ARGUMENTS OF A CLOSURE CALL ARE NEVER READ HERE. The
+                // FnPtrCall branch below walks them (summary first, then the
+                // plain-ref/by-value-bc fallback); the two ClosureCall exits
+                // do not — `if (!caps) return {}` answers NOTHING for a
+                // CAPTURE-LESS closure, and the caps loop that follows merges
+                // captures ONLY. MEASURED BY HAND on f41cb31ce, multi-line
+                // sources, one token apart:
+                //   fn id(x:&i64)->&i64{return x;}
+                //   fn get()->&i64{let l:i64=5; return id(&l);}      REFUSED
+                //   fn get()->&i64{let l:i64=5;
+                //       let c=|x:&i64|->&i64{return x;}; return c(&l);}  ADMITTED
+                //   let r=id(&l); l=6;                               REFUSED
+                //   let c=|x:&i64|->&i64{...}; let r=c(&l); l=6;     ADMITTED
+                //   let p=(|x:&i64|->&i64{...},); return p.0(&z);    ADMITTED
+                // and a fn-POINTER local in the same slot is REFUSED, so the
+                // discriminator is neither indirection nor a region: it is
+                // this arm's two ClosureCall exits.
+                // ⚠ THE FIRST SITE PRICED FOR THIS WAS THE WRONG ONE.
+                // `capargtie` armed the same idea in collect_ref_sources_paths
+                // and measured 21 fires / CEILING 0 / COST 2: the dangling-
+                // RETURN gate reads `prov_of`, not the §B6 source walk, so the
+                // repair there could not reach the shape it was written for.
+                // See PROBES.md.
+                // capprovarg = both exits; capprovnocap = the capture-less
+                // exit only (the delegation to the FnPtrCall rule one screen
+                // down); capprovcaps = the caps loop only. 2 and 3 partition
+                // 1, so rule 6 gets a decomposition and not just a count.
+                // All three are asked ONCE PER ARRIVAL, before any branch, so
+                // each fire count is this arm's whole population.
+                bool p_pall  = logos::probe::on("capprovarg");
+                bool p_pnoc  = logos::probe::on("capprovnocap");
+                bool p_pcaps = logos::probe::on("capprovcaps");
+                auto arg_prov = [&]() {
+                    RefProv m = {};
+                    auto add = [&](ExprRef a) {
+                        if (!a) return;
+                        TypeRef at = a.type(pool);
+                        if (is_plain_ref_kind(at) ||
+                            (!is_ref_kind(at) && is_borrow_carrying_type(at)))
+                            m = merge_prov(m, prov_of(a));
+                    };
+                    if (e.kind() == Code::ClosureCall)
+                        EClosureCallView{e}.each_arg(add);
+                    else
+                        EFnPtrCallView{e}.each_arg(add);
+                    return m;
+                };
                 // G1: a GENUINE fn pointer has no captures — this is where the
                 // result half leaked. Consult the resolved callee's summary,
                 // and fall back to Call's summary-less rule (plain-ref args +
@@ -7436,7 +7484,11 @@ private:
                     });
                     return merged;
                 }
-                if (!caps) return {};
+                // PROBE capprovnocap — the CAPTURE-LESS exit. `note_closure_
+                // caps` ERASES the entry when the list is empty, so a closure
+                // that captures nothing is indistinguishable here from an
+                // unresolvable callee and takes the permissive answer.
+                if (!caps) return (p_pall || p_pnoc) ? arg_prov() : RefProv{};
                 RefProv merged = {};
                 for (auto& cap : *caps) {
                     if (auto it = prov_.find(cap); it != prov_.end()) {
@@ -7451,6 +7503,10 @@ private:
                     if (var_has(NO_SLOT, cap) && !param_names_.count(cap))
                         merged.is_local = true;
                 }
+                // PROBE capprovcaps — the CAPTURING exit. A closure with
+                // captures still returns a reference that may name an
+                // ARGUMENT, and the loop above cannot say so.
+                if (p_pall || p_pcaps) merged = merge_prov(merged, arg_prov());
                 return merged;
             }
             case Code::MethodCall: {

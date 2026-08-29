@@ -1327,3 +1327,239 @@ note: THE PREDICTION AND THE RESULT, as sets. The probe's 13 were
     still crosses the shared step and is admitted by other means), a compound
     assignment, `&mut b.f[i]`. One notion, deliberately under-armed at the
     edges, each edge named here rather than discovered later.
+
+---
+
+# CLASS C, 2026-08-29 — THE 15 "SIGNATURE-REGION" ROWS ARE NOT REGION ROWS
+
+The survey that grouped class C called its largest unclaimed block "closure
+SIGNATURE REGIONS, 15 rows — the error is at the CALL, not in the body", and the
+standing advice was that if they need region inference they are not fundable
+(measured: over 162 `lifereg` programs, 0 of 91 named lifetime regions ever gets
+a CFG point, and 46.7M RegionInferer analyses produced 57 conflicts and ONE
+pinned refusal). SETTLED BY HAND FIRST, before a probe was written, on
+f41cb31ce. Six programs, one token apart:
+
+    fn id(x: &i64) -> &i64 { return x; }
+    fn get() -> &i64 { let l: i64 = 5i64; return id(&l); }             REFUSED
+    fn get() -> &i64 { let l: i64 = 5i64;
+        let c = |x: &i64| -> &i64 { return x; }; return c(&l); }       ADMITTED
+    let r = id(&l);                       l = 6i64;                    REFUSED
+    let c = |x:&i64|->&i64{return x;};  let r = c(&l);  l = 6i64;      ADMITTED
+    let p = (|x:&i64|->&i64{return x;},);  return p.0(&z);             ADMITTED
+    let fp: fn(&i64)->&i64 = id;           return fp(&l);              REFUSED
+
+The fn spelling refuses, the fn-POINTER spelling refuses, the closure spelling
+admits. Nothing about a region separates them and nothing about indirection
+does either — a fn pointer is as indirect as a closure. The discriminator is a
+NODE KIND: a closure call is `Code::ClosureCall`, and the arms that answer
+"what does this reference name" enumerate call kinds BY SPELLING.
+
+⚠ AND THE FIRST SITE PRICED FOR IT WAS THE WRONG ONE. See `capargtie` below.
+The §B6 source walk (`collect_ref_sources_paths`) has the same hole in the same
+words, it fires, arming it changes verdicts — and it closes NOTHING, because the
+dangling-RETURN gate reads `prov_of`, a different walker. A hypothesis can be
+right about the defect and wrong about the site, and the fire count cannot tell
+you: `capargtie` fired 21 times and cost 2 legal programs while buying 0 rows.
+
+⚠ MEASUREMENT HYGIENE, PAID FOR TWICE BEFORE THIS FILE SAID IT: THE HAND
+PROGRAMS MUST BE MULTI-LINE. The NLL last-use scan is LINE-KEYED, so a whole fn
+body written on one line collapses every last-use to one point and the answers
+invert. Two of the six above read the opposite way in their single-line form and
+were believed for twenty minutes.
+
+## capargtie
+site: src/compiler/borrow_check.cpp::collect_ref_sources_paths
+build: e7259149c5f64564 (gate-db 64 unarmed -> 65 armed)
+measured: 2026-08-29
+fires: 21
+ceiling: 0
+cost: 2
+verdict: ⛔ RIGHT DEFECT, WRONG WALKER — the §B6 channel is not what the return gate reads
+note: the `case EC::ClosureCall/FnPtrCall` arm leaves by its capture list
+  (`if (caps) { …; return; }`) and never looks at the ARGUMENTS; the FnPtrCall
+  tail walks them only when `caps` is null and a ClosureCall has no arg walk at
+  all. Arming the missing walk closed ZERO ledger rows and refused two legal
+  programs (`bc_esc_fnptr_admit`, `bc_esc_fnptr_param_admit`) — and BOTH costs
+  are the FnPtrCall half, which already has a summary-aware walk that this crude
+  one duplicated without the summary. PROVEN LIVE AND STILL SILENT: armed by
+  hand on the closure twin of the dangling-return program the fire count was
+  **0** — the arm is not on that path — and on the loan-conflict twin it fired
+  once and the verdict did not move, because the consumer of a §B6 source is not
+  the loan reader. Rule 1 gives you "the site was reached"; it does not give you
+  "the site is on the path from THIS defect to THIS diagnostic", and only
+  arming the probe on the hand program answers that. 21 fires over the whole
+  ledger + legal corpus is also a rule-4 population.
+
+## caphopclo
+site: src/compiler/borrow_check.cpp::extract_borrow_place
+build: e7259149c5f64564 (gate-db 64 unarmed -> 66 armed)
+measured: 2026-08-29
+fires: 6
+ceiling: 0
+cost: 0
+verdict: the LOAN-channel twin of the same hole — real, and rule 4 says 6 is not a population
+note: the call hop that landed on 2026-08-29 enumerates `MethodCall | Call |
+  AddrOfTemp`, so `&c(&v).f` and `*c(&v) = 1` still lose the root the way
+  `&v[0]` did before it. The shape exists; the corpus has SIX arrivals of it.
+  Not refuted, not fundable: a ceiling off a population of 6 is rule 4.
+
+## capclosbox
+site: src/compiler/borrow_check.cpp::collect_ref_sources_paths
+build: e7259149c5f64564 (gate-db 64 unarmed -> 67 armed)
+measured: 2026-08-29
+fires: 194
+ceiling: 0
+cost: 0
+verdict: A NULL RESULT THROUGH A BROKEN CHANNEL — and this time the break is MEASURED
+note: `lifereg_closurestore` measured this arm at CEILING 0 / 49 fires on the
+  379-row ledger. That zero was suspect for a structural reason: the arm makes a
+  closure binding a §B6 source of its captures, and the next hop — `return
+  Box::new(f)` / `self.bar = Box::new(f)` passing `f`, a value of
+  `Kind::Closure`, to a Call whose per-arg filter asks is_plain_ref_kind /
+  is_borrow_carrying_type / forms_borrow_at_call / the summary — answers NO to
+  all four. So `capclosbox` armed the deposit AND its consumer under one name.
+  Still 0. THE PROOF THAT THE CHANNEL IS BROKEN A THIRD TIME IS `capclosarg`,
+  which arms the consumer ALONE: **NEVER FIRED, 0 arrivals**. The Call arm's
+  ENTRY gate — `type_may_carry_borrow(e.type(pool))` on a result of type
+  `Box<dyn Fn…>` — answers NO, so no closure-typed argument in the entire
+  corpus ever reaches the per-arg filter. Three hops, three breaks. The E0373
+  block ("a closure value outlives a borrow it captured", ~8 rows) is NOT bought
+  by supplying the source; it needs the closure TYPE to be borrow-carrying, and
+  that is a type-predicate change with its own blast radius, not a probe.
+  ⚠ ONE NAME, TWO SITES: `capclosbox`'s 194 is the SUM of ClosureBox arrivals
+  and (zero) Call arrivals, which is exactly `rootkeep`'s defect. Only
+  `capclosarg`'s separate name separated them.
+
+## capclosarg
+site: src/compiler/borrow_check.cpp::collect_ref_sources_paths
+build: e7259149c5f64564 (gate-db 64 unarmed -> 68 armed)
+measured: 2026-08-29
+fires: 0
+ceiling: —
+cost: —
+verdict: NEVER FIRED — and that is the round's most useful zero
+note: see `capclosbox`. A never-fired probe is normally an unreadable result;
+  here it is the MEASUREMENT, because the question it was written to answer was
+  "is the consumer reachable at all". It is not.
+
+## capretcaps (RE-PRICED, rule 8)
+site: src/compiler/borrow_check.cpp::walk_closure_body
+build: 51ec320220e5e558 (gate-db 62 unarmed -> 63 armed)
+measured: 2026-08-29
+fires: 3674149
+ceiling: 2
+cost: 0
+verdict: the 2026-08-28 claim of 2 SURVIVES the ledger's 371 -> 349 shrink, and now its SET is named
+note: measured at 371 rows as ceiling 2 with no row list recorded. Re-priced
+  against 349: still 2, still cost 0, and the two are
+  `borrowck/issue-53432-nested-closure-outlives-borrowed-value` and
+  `nll/nested-bodies-in-dead-code`. A ceiling decays; this one did not.
+
+## capprovarg / capprovnocap / capprovcaps
+site: src/compiler/borrow_check.cpp::prov_of
+build: 91952ac05596d7d8 (gate-db 69 unarmed -> 70 / 71 / 72 armed)
+measured: 2026-08-29
+fires: 11420 / 11420 / 11428
+ceiling: 6 / 6 / 0
+cost: 0 / 0 / 0
+verdict: ✓ THE MECHANISM, AND THE NARROW HALF IS THE WHOLE OF IT — ONE LINE, SIX ROWS, COST 0
+note: `prov_of`'s `case Code::ClosureCall/FnPtrCall` has TWO permissive exits
+  and the arguments are read by NEITHER:
+
+      if (!caps && e.kind() == Code::FnPtrCall) { …walks the args… }
+      if (!caps) return {};                     // ← capture-less closure: SILENT
+      RefProv merged = {};
+      for (auto& cap : *caps) { … }             // ← captures only, args never merged
+      return merged;
+
+  `note_closure_caps` ERASES the entry when the capture list is empty, so a
+  closure that captures nothing is indistinguishable here from a callee this
+  walker cannot name, and takes the permissive answer. The repair is DELEGATION:
+  give the capture-less ClosureCall the rule the FnPtrCall branch three lines up
+  already applies.
+  DECOMPOSED ON PURPOSE (rule 6 — a ceiling bounds the count, not the set):
+  `capprovnocap` (the capture-less exit alone) closes THE SAME SIX ROWS as
+  `capprovarg` (both exits), and `capprovcaps` (the caps loop alone) closes
+  ZERO at 11428 arrivals. The widening buys nothing at a larger blast radius —
+  the same verdict the closure BODY walk reached about `move` arms.
+  ⚠ AND THE ZERO HAS A MECHANISM, not just a number: the caps exit is ALREADY
+  maximally conservative. `ce5` below — a CAPTURING closure whose body returns
+  its own parameter, legal Rust — is refused on the UNPATCHED tree with "cannot
+  return reference to local variable 'k'", `k` being the capture. Adding an arg
+  tie to an exit that already answers is_local for every captured local cannot
+  move a verdict. That over-refusal is the tree's today and is not this round's.
+
+  PREDICTED BY NAME BEFORE THE RUN, and diffed BOTH ways:
+    predicted, closed:  borrowck/anonymous-region-in-apit--ctl-return-channel
+                        borrowck/cannot-return-ref-to-fn-param-in-filter-map
+                        nll/issue-48697--b
+                        nll/promoted-closure-pair
+                        regions/regions-ret-borrowed-1
+    predicted (hedged), NOT closed:
+                        regions/regions-ret-borrowed — `return f(&3i64)`; the
+                        argument is a const-promoted temp, so `prov_of` answers
+                        {} by design (#92) and there is nothing to tie.
+    closed, NOT predicted:
+                        nll/check-normalized-sig-for-wf — root `nllmoves.A`,
+                        not a class-C row at all: `fn whoops<F>(s:&i64, f:F) ->
+                        &'static i64 { return f(s); }`. The tie lands on a
+                        PARAM and the elision gate refuses. A closure-call arg
+                        rule is not a class-C rule; it is a rule about calls.
+
+  RULE 5 — COST 0 IS NOT A SAFETY CLAIM. Six hand programs, each compiled
+  unarmed and under `LOGOS_PROBE=capprovnocap` with `LOGOS_PROBE_FIRE` read, so
+  every one is PROVEN TO HAVE REACHED the arm (0 fires unarmed, 8-9 armed):
+    ce1 a param passed through a capture-less closure and returned  ADMITTED both
+    ce2 the result used while the referent is alive                 ADMITTED both
+    ce3 a const-promoted `&0i64` argument                           ADMITTED both
+    ce4 a closure returning a SCALAR                                ADMITTED both
+    ce5 a CAPTURING closure returning its own param   REFUSED BOTH (see above)
+    ce6 the defect itself: `let c=|x:&i64|->&i64{…}; return c(&l);`
+                                                     admitted unarmed, REFUSED armed
+  RULE 7 — a crude probe and a correct fix do not close the same programs. ce6's
+  diagnostic under the probe is "cannot return reference to local variable '?'":
+  the tie reaches the ARGUMENT but the report site cannot recover the NAME `l`.
+  A correct landing owes that name, and the six `.expected` files will pin it.
+
+## THE RE-GROUPING, AND WHAT IS NOW UNCLAIMED
+note: 52 rows carry a C root today (bck.C 25, nllmoves.C 18, lifereg.C 9), not
+  43. Re-grouped by MISSING OBSERVATION rather than by the year-old survey's
+  nine:
+    A  the result of a call to a CLOSURE VALUE is tied to nothing
+       → `capprovnocap`, CEILING 6 / COST 0, ONE LINE. FUND THIS.
+    B  a closure VALUE does not carry its captures' provenance out of the fn
+       (E0373 / E0521-escape, ~8 rows) → `capclosbox`: 0, and the reason is a
+       THIRD broken hop that is now measured (`capclosarg` never fired).
+    C  a closure BODY returning a ref to a BODY LOCAL → `capretcaps`, 2 / 0,
+       re-priced today, set named.
+    D  a capture-by-ref is not a loan in the ENCLOSING frame (closure-borrow-
+       spans a/b, borrowck-closures-mut-and-imm, mut-borrow-conflict-in-
+       closures-vec, issue-42574 b/t15, issue-51268, issue-40510-3,
+       issue-101119) → `capshared` 3 claimed, `capmut` ⛔ 18/17. ~9 rows.
+    E  move-vs-loan at the capture (borrowck-loan-blocks-move-cc r10/t10,
+       borrowck-multiple-captures, issue-52663, issue-75904, borrowck-move-by-
+       capture, region-bound-on-closure-outlives-call) → `capmoveloan` 1,
+       `capescmove` 1. ~7 rows.
+    F  ⚠ THE LARGEST UNCLAIMED BLOCK IS NOT THE SIGNATURE ONE. The closure BODY
+       WRITES its own `&` parameter into a place that outlives the call:
+         borrowck/issue-45983            `give_any(|y| { x = y; })`
+         borrowck/regions-escape-bound-fn, -2
+         nll/escape-argument--t09        `|q: &mut &i64, r: &i64| { *q = r; }`
+         borrowck/borrowed-data-escapes-closure-148392
+         borrowck/anonymous-region-in-apit--closure-param-escapes
+         borrowck/issue-7573             `|installed| { lines.push(installed); }`
+       SEVEN ROWS, no probe, and it is NOT region inference either: the missing
+       observation is a closure-body flow summary in the WRITE direction, the
+       thing the ClosureCall arm's own comment has been asking for since
+       2026-08-28 ("the repair is a flow summary for a closure BODY; it is its
+       own round and it is not priced yet"). That is the next round's question.
+    G  GENUINELY REGION, and therefore not fundable today: closure-substs and
+       nll/issue-58053 (`-> &'static` from a param), return-wrong-bound-region
+       (`for<'a>`), regions/regions-escape-method. FOUR rows — not fifteen.
+  So of the survey's "15 signature-region rows": FIVE are bought by one line of
+  argument tying (the sixth row `capprovnocap` closes is `nllmoves.A`, outside
+  class C entirely), FOUR are genuinely region, and the rest were never one
+  block — they are group F, a WRITE-direction question wearing a signature's
+  clothes. "Not fundable today because it needs region inference" would have
+  been the honest answer to fifteen rows and is the honest answer to four.
