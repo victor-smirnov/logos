@@ -10537,7 +10537,15 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                (TypeRef(recv_base_t).kind() == LogosType::Kind::Struct ||
                 TypeRef(recv_base_t).kind() == LogosType::Kind::ZonedStruct) &&
                !field_type_of_for_type(recv_base_t, field_name)) {
-            auto stepped = emit_generic_deref_step(recv, /*want_mut=*/false);
+            // CEILING PROBE `fldderefmut` — see PROBES.md. The FIELD auto-deref
+            // step hardcodes want_mut=false. Its METHOD sibling asks
+            // (`target_method_wants_mut_self`) and that site's own comment
+            // records why an over-eager `true` is safe: emit_generic_deref_step
+            // falls back to Deref when the type has no DerefMut impl.
+            (void)logos::probe::on("fldderefsite");
+            bool _fdm = logos::probe::on("fldderefmut") ||
+                        logos::probe::on("callidxfdm");
+            auto stepped = emit_generic_deref_step(recv, /*want_mut=*/_fdm);
             if (!stepped) break;
             recv = *stepped;
             recv_base_t = expr_type(recv);

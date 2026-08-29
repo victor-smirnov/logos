@@ -856,8 +856,10 @@ answer to "where does sema choose, and can it see the context":
   · METHOD receivers ASK. `lower_method_call`'s auto-deref loop computes
     `bool want_mut = target_method_wants_mut_self(probe_target, m)` and its own
     comment records that an over-eager `true` is safe, "emit_generic_deref_step
-    falls back to Deref if there's no DerefMut impl".
-  · FIELD access does NOT. The auto-deref loop in the field lowering calls
+    falls back to Deref if there's no DerefMut impl". ⚠ THAT CLAIM IS FALSE —
+    measured in part 2 below; the fallback recovers the TARGET TYPE and still
+    emits a `deref_mut` call that resolves to nothing.
+  · FIELD access does NOT. `lower_field_read`'s auto-deref loop calls
     `emit_generic_deref_step(recv, /*want_mut=*/false)` — hardcoded, no
     parameter, no channel from the use context. THIS is what refuses `&mut b.f`.
   · `*x` does NOT. `lower_deref` calls the same step with `/*want_mut=*/false`.
@@ -942,6 +944,10 @@ note: the probe named by 2026-08-29b's `callfldw` finding, and the finding was
   already-wrong `through_ref_type` visible. The blocker is in sema, and it is
   the FIELD auto-deref step, not the match scrutinee.
 
+  ── 2026-08-29c part 2, RE-PRICED under a SECOND build (rule 8, within the
+  same day): 346 fires, CEILING 13, COST 0, SET-IDENTICAL. Two builds apart,
+  same thirteen names — the measurement is stable, and that is what licenses
+  reading `callidxfdm`'s set as a DIFFERENCE rather than as noise.
 ## callidxcallonly
 site: src/compiler/borrow_check.cpp::extract_borrow_place
 build: armed gate build 50 (unarmed baseline 44; probe batch of 2026-08-29c)
@@ -1077,3 +1083,150 @@ note: closing the `param_names_` hatch refuses 177,798 borrows, 1037 legal
   ⚠ RULE 6 IN THE OTHER DIRECTION — a ceiling that equals the population is not
   a big win, it is a broken run, and the harness's own `selftest_refuse` is the
   calibration that says so.
+
+---
+
+# ROUND 2026-08-29c PART 2 — THE BLOCKER, PRICED AT ITS REAL SITE
+
+Four more edits, ONE build, L1 rc=0 unarmed. Part 1 ended with a legal program
+(`let r: &mut i64 = &mut b.f;` on a `Box<S>`) refused by the deposit and with
+the blocker located at the FIELD auto-deref step. This part prices that site.
+
+    probe            fires  ceiling cost  predicted vs closed
+    fldderefsite        16        0    0  observational — the field auto-deref loop is a population of SIXTEEN
+    fldderefmut         16        6    0  predicted 0, closed 6 — and cost 0 is WRONG (three hand-written programs)
+    callidxfdm         363       13    0  predicted 12, closed 13 — one predicted swap, one row nobody nominated
+    callindexchain     346       13    0  re-priced on a second build, SET-IDENTICAL
+
+## THE SET DIFFERENCE IS THE WHOLE RESULT
+
+callindexchain (deposit only)   ∖ callidxfdm = {borrowck-borrow-overloaded-auto-deref}
+callidxfdm (deposit + deref mode) ∖ callindexchain = {deref-field-pattern-ref-suggestion-issue-146995}
+
+Both halves were worth predicting and one was predicted:
+  · borrowck-borrow-overloaded-auto-deref RE-OPENS, exactly as declared before
+    the build. It closed under `callindexchain` only because `&mut p.y` on an
+    `Rc<Point>` crossed `Rc::deref`'s shared `&Point` and hit the E0596 gate.
+    rustc rejects it because Rust's `Rc<T>` has NO `DerefMut`; Logos's Rc HAS
+    one. So that row is a DIVERGENCE about the stdlib's trait set, not a
+    borrow-check hole, and a mechanism that closes it is closing it by accident.
+  · deref-field-pattern-ref-suggestion-issue-146995 is new and nobody nominated
+    it — and it is already NAMED in this file, as one of `destrmove`'s two
+    unpredicted misses ("they move out of a user-`Deref` receiver, where the
+    walk breaks at the CALL before any deref arm is reached"). It closes here.
+
+## ⛔ COST 0 IS WRONG A SECOND TIME, AT A SECOND SITE, AND IT IS THE SAME RULE 5
+
+`fldderefmut` prices at cost 0 against the whole corpus. Three hand-written
+legal programs over a struct `C` that impls `Deref` and NOT `DerefMut` fail:
+a shared borrow through the Deref plus a disjoint field read; the same borrow
+scoped; two shared borrows. All three were rc 0 under every part-1 name with the
+armed site REACHED (6, 6, 12 fires), and all three now die — not with a
+borrow-check diagnostic but with
+    mlir_gen: internal: `let first` initializer produced no value (expr kind 12)
+        — statement DROPPED (dependents will vanish too)
+
+⚠ AND THAT FALSIFIES A SAFETY CLAIM WRITTEN IN THE TREE. The method-call
+sibling's own comment says an over-eager `want_mut=true` is safe because
+"emit_generic_deref_step falls back to Deref if there's no DerefMut impl". The
+fallback picks the `Deref` IMPL to recover the Target TYPE and still emits
+`mc.method = "deref_mut"` with `tag_trait = "DerefMut"`, which resolves to
+nothing. So the fallback is a TYPE fallback, not a DISPATCH fallback, and the
+comment describes a safety property the code does not have. Measured, three
+programs, one diagnostic. That is its own defect and its own round.
+
+## fldderefsite
+site: src/compiler/sema_expr.cpp::lower_field_read
+build: armed gate build 61 (unarmed baseline 57; probe batch of 2026-08-29c part 2)
+measured: 2026-08-29
+fires: 16
+ceiling: 0
+cost: 0
+verdict: OBSERVATIONAL — and the number is the surprise: SIXTEEN
+note: rule 9's outer half for `fldderefmut`. The field auto-deref loop is
+  entered only when the receiver's own type LACKS the field, so its whole
+  population across 361 ledger rows and the entire legal corpus is sixteen
+  arrivals. `fldderefmut` fires on all sixteen.
+  ⚠ RULE 4, AND IT CUTS BOTH WAYS HERE. A ceiling of 6 off a population of 16 is
+  a weak bound on the SET — but it is also six rows for sixteen decisions, which
+  is the densest ratio in this file. Read it as "this site is tiny and load-
+  bearing", not as "six is the number".
+
+## fldderefmut
+site: src/compiler/sema_expr.cpp::lower_field_read
+build: armed gate build 59 (unarmed baseline 57; probe batch of 2026-08-29c part 2)
+measured: 2026-08-29
+fires: 16
+ceiling: 6
+cost: 0 by the corpus, ⛔ NOT 0 — three hand-written legal programs die in mlir_gen
+verdict: ⛔ NOT FUNDABLE AS SPELLED — the observation is right and "always mutable" is not the question to ask
+note: THE SITE (B) ACTUALLY LIVES AT. The field auto-deref loop calls
+  `emit_generic_deref_step(recv, /*want_mut=*/false)` — hardcoded, no parameter,
+  no channel from the use context — while its METHOD sibling forty lines up
+  computes `target_method_wants_mut_self(probe_target, m)` and asks. So `&mut
+  b.f` on a `Box<S>` crosses `Box::deref`'s SHARED `&S`, and every consumer
+  downstream of `cross()` sees a `&` where the program wrote `&mut`.
+  PREDICTED ceiling 0 (an over-refusal repair closes no admit row). CLOSED SIX:
+  deref-field-pattern-ref-suggestion-issue-146995, issue-81365-2, -3, -4--d2,
+  -4--rd2, -8. predicted∖closed = ∅ trivially; closed∖predicted = all six.
+  ⚠ THE PREDICTION WAS WRONG IN AN INSTRUCTIVE DIRECTION. Choosing `deref_mut`
+  does not only stop refusing — it changes what `cross()` records from `Ref` to
+  `MutRef`, which lets EXCLUSIVITY questions downstream be asked at all. Five of
+  the six also close under the deposit mechanism; one (146995) does not.
+  ⚠ COST 0 IS FALSE — see the part-2 header. `C: Deref` without `DerefMut`
+  produces a `deref_mut` call that resolves to nothing and mlir_gen drops the
+  statement. THE CORRECT SPELLING must ask TWO questions the crude one skips:
+  is the field access in a mutable-use position (the method sibling's question),
+  and does the receiver type actually impl `DerefMut` (the question the tree's
+  own comment wrongly assumes `emit_generic_deref_step` already answers).
+
+## callidxfdm
+site: src/compiler/borrow_check.cpp::extract_borrow_place + src/compiler/sema_expr.cpp::lower_field_read
+build: armed gate build 58 (unarmed baseline 57; probe batch of 2026-08-29c part 2)
+measured: 2026-08-29
+fires: 363
+ceiling: 13
+cost: 0 by the corpus; inherits `fldderefmut`'s three hand-written refusals
+verdict: THE COMPOSITION — 13 rows, the blocker GONE, and a new blocker one layer down
+note: hop (reference-returning calls) + `index_in_chain` deposit + DerefMut for a
+  match scrutinee + DerefMut for a field auto-deref, all in one process.
+  THREE SITES, ONE NAME, declared: 363 = 346 (`callindexchain`) + 1
+  (`matchderefmut`) + 16 (`fldderefmut`), each measured separately in this same
+  build. The sum decomposes exactly.
+  PREDICTED 12 BY NAME (callindexchain's 13 minus borrowck-borrow-overloaded-
+  auto-deref, on the reasoning that that row closes only through the E0596
+  over-refusal this probe removes). CLOSED 13. predicted∖closed = ∅;
+  closed∖predicted = {deref-field-pattern-ref-suggestion-issue-146995}. The
+  re-opening was predicted and happened; the replacement was not.
+  ⚠ THE BLOCKER OF 2026-08-28 IS GONE, MEASURED BY HAND on both programs:
+      match *x { Cycle::Node(ref mut y) => … }   rc 1 under callroot/callrootref/
+        callindexchain/callidxcallonly · rc 0 under callidxdm and callidxfdm
+      let r: &mut i64 = &mut b.f;  (Box<S>)      rc 1 under callindexchain and
+        callidxdm · rc 0 under callidxfdm (6 fires — the site is reached)
+  and `b.f = 2i64`, `&v[0]`/`&v[1]`, a direct `&c.t.tf` field path and
+  `it.next()` in a loop all stay rc 0.
+  ⚠ AND THE NEW BLOCKER IS ONE LAYER DOWN, not in this mechanism: the three
+  `Deref`-without-`DerefMut` programs that `fldderefmut` kills in mlir_gen.
+
+## ⇒ THE ONE MECHANISM TO FUND, AND WHAT IT COSTS TO MAKE CORRECT
+
+`callidxcallonly` — the hop through a REFERENCE-RETURNING `Call`/`MethodCall`
+setting `index_in_chain`, which routes the place to the AddrOfTemp arm that
+already records unconditionally. 13 rows, corpus cost 0, and the narrow spelling
+(no AddrOfTemp) is set-identical to the wide one so the autoref population is
+excluded for free. It is the DEPOSIT, it is one flag, and the reader it feeds
+already refuses the same shape when no deref is involved.
+
+IT MAY NOT BE LANDED ALONE. On its own it refuses `&mut b.f` on a `Box`, and
+that is a legal-program refusal. Its PREREQUISITE is now located and priced,
+which is the difference between this round and the last two:
+  (1) the field auto-deref step must take the mutable step in a mutable-use
+      position — the question `target_method_wants_mut_self` already asks for
+      methods, asked for fields;
+  (2) `emit_generic_deref_step` must not emit a `deref_mut` call for a type with
+      no `DerefMut` impl. Its call site's comment claims it already falls back;
+      it falls back on the TARGET TYPE only, and three hand-written programs die
+      in mlir_gen because of it.
+Neither is a borrow-check change. Both are in sema, both are small, and (2) is a
+defect with no ledger row and no fixture that is worth its own round regardless
+of whether the 13 are ever bought.

@@ -9157,6 +9157,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             if (const char* _p = std::getenv("LOGOS_PROBE")) {
                 if (!std::strcmp(_p, "matchderefmut")) _dmname = "matchderefmut";
                 else if (!std::strcmp(_p, "callidxdm")) _dmname = "callidxdm";
+                else if (!std::strcmp(_p, "callidxfdm")) _dmname = "callidxfdm";
             }
         }
         if (_dmname) {
@@ -9932,6 +9933,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             if (const char* _p = std::getenv("LOGOS_PROBE")) {
                 if (!std::strcmp(_p, "matchderefmut")) _dmname = "matchderefmut";
                 else if (!std::strcmp(_p, "callidxdm")) _dmname = "callidxdm";
+                else if (!std::strcmp(_p, "callidxfdm")) _dmname = "callidxfdm";
             }
         }
         if (_dmname) {

@@ -1185,6 +1185,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
                 if (logos::probe::on("callrootref")) p_hop = true;
                 else if (logos::probe::on("callindexchain")) { p_hop = true; p_idx = true; }
                 else if (logos::probe::on("callidxdm"))      { p_hop = true; p_idx = true; }
+                else if (logos::probe::on("callidxfdm"))     { p_hop = true; p_idx = true; }
                 else if (logos::probe::on("callidxcallonly")) {
                     p_hop = true;
                     p_idx = (cur.kind() != Code::AddrOfTemp);
