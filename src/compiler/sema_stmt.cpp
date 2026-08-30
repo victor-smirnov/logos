@@ -9635,6 +9635,80 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                 is_unowned_move_source(smatch.scrut))
                 error("ceiling-probe patmoveref: cannot move out of a value "
                       "behind a reference / out of an index (E0507)");
+            // CEILING PROBE `patmovebind` — the NARROWING of `patmoveref`.
+            // patmoveref asks only what the SCRUTINEE is; this one also asks
+            // what the ARM BINDS. A `ref` / `ref mut` / default-binding-mode
+            // binding moves nothing out of the scrutinee, and both of
+            // patmoveref's two legal casualties are exactly that spelling.
+            // The binding MODE is a carried fact (pat_keys::BINDING_REF_MODES),
+            // not a type comparison. See src/compiler/PROBES.md.
+            if (is_move_type(scrut_type) &&
+                is_unowned_move_source(smatch.scrut) &&
+                logos::probe::on("patmovebind")) {
+                namespace ps2 = lir_schema::pat;
+                const auto* tpool = cur_prog_->type_pool.impl();
+                auto byval = [&](auto&& self, lir_view::PatRef pr) -> bool {
+                    if (!pr) return false;
+                    switch (pr.kind()) {
+                        case ps2::Code::Wild: {
+                            auto n = lir_view::PatWildView{pr}.name();
+                            return !n.empty() && n != "_";
+                        }
+                        case ps2::Code::VariantData: {
+                            lir_view::PatVariantDataView v{pr};
+                            std::vector<std::string> ns;
+                            std::vector<TypeRef> tys;
+                            v.each_binding([&](std::string_view n){ ns.emplace_back(n); });
+                            v.each_binding_type(tpool, [&](TypeRef ty){ tys.push_back(ty); });
+                            auto ms = v.bind_ref_modes();
+                            for (size_t i = 0; i < ns.size(); ++i) {
+                                uint32_t m = i < ms.size() ? ms[i] : 0u;
+                                TypeRef bt = i < tys.size() ? tys[i] : TypeRef(nullptr);
+                                if (m == 0 && ns[i] != "_" && bt && is_move_type(bt))
+                                    return true;
+                            }
+                            return false;
+                        }
+                        case ps2::Code::Tuple: {
+                            lir_view::PatTupleView v{pr};
+                            std::vector<std::string> ns;
+                            std::vector<TypeRef> tys;
+                            v.each_binding([&](std::string_view n){ ns.emplace_back(n); });
+                            v.each_binding_type(tpool, [&](TypeRef ty){ tys.push_back(ty); });
+                            for (size_t i = 0; i < ns.size(); ++i) {
+                                TypeRef bt = i < tys.size() ? tys[i] : TypeRef(nullptr);
+                                if (ns[i] != "_" && bt && is_move_type(bt)) return true;
+                            }
+                            bool any = false;
+                            v.each_sub([&](lir_view::PatRef s){
+                                if (self(self, s)) any = true; });
+                            return any;
+                        }
+                        case ps2::Code::Or: {
+                            bool any = false;
+                            lir_view::PatOrView{pr}.each_alt([&](lir_view::PatRef a){
+                                if (self(self, a)) any = true; });
+                            return any;
+                        }
+                        case ps2::Code::At: {
+                            lir_view::PatAtView v{pr};
+                            TypeRef bt = v.type(tpool);
+                            auto n = v.name();
+                            if (!n.empty() && n != "_" && bt && is_move_type(bt))
+                                return true;
+                            return self(self, v.sub());
+                        }
+                        default:
+                            // RefBind / RefPat / Struct / Slice: no by-value
+                            // MOVE claim this probe is willing to make.
+                            return false;
+                    }
+                };
+                if (byval(byval, pat_ref_of(pat)))
+                    error("ceiling-probe patmovebind: cannot move out of a "
+                          "value behind a reference (E0507) — the arm binds "
+                          "by value");
+            }
             bind_pattern(pat, scrut_type);
             current_pat_mut_names_ = saved_pat_muts;
             // Register Writ @-pattern bindings in scope (visible in body + guard).

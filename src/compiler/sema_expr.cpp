@@ -1386,6 +1386,16 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             // address. Same routing as the shared-`&` path (see there).
             if (is_module_static_unshadowed(var_name) &&
                 TypeRef(vt).kind() != LogosType::Kind::Array) {
+                // CEILING PROBES `mutstaticsite` / `mutstaticborrow` — rule 9.
+                // The outer name counts every arrival at this branch; the inner
+                // one sits AFTER the `!static mut` predicate so its own count is
+                // the non-`mut` SUBSET. See src/compiler/PROBES.md.
+                (void)logos::probe::on("mutstaticsite");
+                if (module_static_muts_.count(std::string(var_name)) == 0 &&
+                    logos::probe::on("mutstaticborrow"))
+                    error(std::format(
+                        "ceiling-probe mutstaticborrow: cannot borrow immutable "
+                        "static '{}' as mutable (E0596)", var_name));
                 return builder().var_ref(static_addr_name(var_name),
                                          make_ref(true, vt));
             }

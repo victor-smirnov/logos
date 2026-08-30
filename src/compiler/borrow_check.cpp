@@ -4289,6 +4289,14 @@ private:
                 "cannot borrow moved value '{}'", target));
             return;
         }
+        // CEILING PROBE `borrowpart` (armed alone, or as half of `partpair`) —
+        // the line above asks the WHOLE-variable `moved` flag and never
+        // `moved_fields`. `recvpartial` landed the same asymmetry one route
+        // over, at the method-call receiver. See src/compiler/PROBES.md.
+        if (!implicit && !it->moved_fields.empty() &&
+            (logos::probe::on("borrowpart") || logos::probe::on("partpair")) &&
+            report_partial_move(*it, target, line))
+            return;
         if (is_mut) {
             // Reject &mut on a binding declared without `mut`.
             // Function params don't currently carry a mut bit in LParam,
@@ -5613,14 +5621,37 @@ private:
                 v.each_sub([&](PatRef s){ each_pat_binding_place(s, base, f); });
                 return;
             }
-            case PC::Struct:
-                PatStructView{pr}.each_field([&](PatFieldBindingView fb) {
+            case PC::Struct: {
+                PatStructView sv{pr};
+                // CEILING PROBE `structpatty` (armed alone, or as half of
+                // `partpair`) — A STRUCT-PATTERN SHORTHAND FIELD ARRIVES WITH A
+                // NULL BINDING TYPE, exactly the shape `slicepatnull` records
+                // for array patterns, so the landed by-value sub-place move
+                // rule (`patbyvalsubmove`, whose gate is `is_move_type(t)`)
+                // skips every `match x { Foo { f } => … }`. The type is
+                // recoverable HERE: the pattern carries the struct's NAME and
+                // ts_ already indexes every def by it. See PROBES.md.
+                std::optional<lir_view::StructView> sdef;
+                if (logos::probe::on("structpatty") ||
+                    logos::probe::on("partpair")) {
+                    std::string sn(sv.struct_name());
+                    auto sit = ts_.struct_by_name.find(sn);
+                    if (sit != ts_.struct_by_name.end()) sdef = sit->second;
+                    else if (auto pit = ts_.spec_by_name.find(sn);
+                             pit != ts_.spec_by_name.end()) sdef = pit->second;
+                }
+                sv.each_field([&](PatFieldBindingView fb) {
                     std::string fp = fb.field_name().empty()
                                        ? base : sub(std::string(fb.field_name()));
-                    if (auto s = fb.sub()) each_pat_binding_place(s, fp, f);
-                    else f(fb.field_name(), TypeRef(nullptr), fp, uint8_t(0));
+                    if (auto s = fb.sub()) { each_pat_binding_place(s, fp, f); return; }
+                    TypeRef ft{};
+                    if (sdef)
+                        for (auto fd : sdef->fields())
+                            if (fd.name() == fb.field_name()) { ft = fd.type(pool); break; }
+                    f(fb.field_name(), ft, fp, uint8_t(0));
                 });
                 return;
+            }
             case PC::Or:
                 PatOrView{pr}.each_alt([&](PatRef a){ each_pat_binding_place(a, base, f); });
                 return;
@@ -6106,7 +6137,17 @@ private:
     std::string retain_temp_scrut_loan(lir_view::ExprRef scrut, uint32_t ln) {
         if (!scrut || !is_temporary_value_expr(scrut)) return {};
         const auto* pool = prog_.type_pool.impl();
-        if (!loan_carrying_type(scrut.type(pool))) return {};
+        // CEILING PROBE `aggscrutpair` — THE THIRD SITE. issue-85581's loan
+        // comes from a MATCH SCRUTINEE (`match heap.peek_mut() { … }`), not
+        // from a `let`, so neither B-10 gate is on its path. Same two notions
+        // of one concept: this gate is the ATTRIBUTE-keyed carrier closure
+        // where the question is the structural one. Paired with the
+        // `is_self_borrowing` half below, which is what turns the temporary's
+        // own evaluation into a receiver loan at all.
+        if (!loan_carrying_type(scrut.type(pool)) &&
+            !(type_may_carry_borrow(scrut.type(pool)) &&
+              logos::probe::on("aggscrutpair")))
+            return {};
         std::string tmp = "__scrut_tmp_" + std::to_string(++scrut_tmp_seq_);
         take_ref_borrows(scrut, ln, tmp, /*record_only=*/true);
         ++scrut_retain_fired_;
@@ -6133,6 +6174,16 @@ private:
             return false;
         TypeRef ret = f.ret_type(pool);
         if (is_borrow_carrying_type(ret)) return true;
+        // CEILING PROBE half — the RESULT test is ATTRIBUTE-keyed where the
+        // question is structural ("does the returned VALUE hold a loan"). This
+        // is `aggcallloan`, which prices 0/0 ALONE and is load-bearing for one
+        // row; it is armed under whichever of the three agg names is running,
+        // because rule 13 says credit is per SET. See src/compiler/PROBES.md.
+        if (!is_ref_kind(ret) && type_may_carry_borrow(ret) &&
+            (logos::probe::on("aggwhole") || logos::probe::on("aggnarrow") ||
+             logos::probe::on("aggscrutpair") ||
+             logos::probe::on("aggcallloan")))
+            return true;
         if (is_plain_ref_kind(ret)) return true;
         if (!is_ref_kind(ret)) return false;
         // FAT result (str/&[T]/borrowed DST) with no lifetime syntax to
@@ -11886,8 +11937,15 @@ private:
                         fprintf(stderr, "[mla] ln=%u name=%s\n", ln,
                                 name.c_str());
                     visit(val, /*consuming=*/true, ln);
+                // CEILING PROBE `aggwhole` — B-10, the BLUNT half: route a
+                // `let` whose type STRUCTURALLY carries a borrow through
+                // take_ref_borrows, which both hops and RECORDS. `probe::on`
+                // is last so the fire count is the NEW routings only, not the
+                // arm's whole population. See src/compiler/PROBES.md.
                 } else if (val && (is_ref_kind(t) || is_closure_t ||
-                            is_borrow_carrying_type(t) || val_is_agg_lit)) {
+                            is_borrow_carrying_type(t) || val_is_agg_lit ||
+                            (type_may_carry_borrow(t) &&
+                             logos::probe::on("aggwhole")))) {
                     take_ref_borrows(val, ln, name);
                 } else if (val) {
                     bool saved_dst = in_destructure_temp_;
@@ -11908,9 +11966,19 @@ private:
                     // rest of the function ("cannot borrow 'sa': 'sa' is
                     // already mutably borrowed"). Inheritance can only extend
                     // an EXISTING loan, so the hop alone cannot do that.
+                    // CEILING PROBE `aggnarrow` — "a routing that HOPS WITHOUT
+                    // RECORDING", spelled at the place that already draws that
+                    // split. Same widening as `aggwhole` (structural carry) but
+                    // applied to Door E's inherit-only hop instead of to the
+                    // routing gate, so take_ref_borrows' fresh-borrow-per-
+                    // argument effect — the whole of aggletroute's COST 40 —
+                    // is not taken. See src/compiler/PROBES.md.
                     if (loan_carrying_type(t) ||
                         loan_carrying_type(val.type(pool)) ||
-                        retains_loan_carrying_operand(val)) {
+                        retains_loan_carrying_operand(val) ||
+                        ((type_may_carry_borrow(t) ||
+                          type_may_carry_borrow(val.type(pool))) &&
+                         logos::probe::on("aggnarrow"))) {
                         std::vector<std::string> roots;
                         bc_hop_roots(val, roots);
                         for (auto& r : roots) inherit_loans(r, name, ln);

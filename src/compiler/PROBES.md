@@ -2825,3 +2825,358 @@ that HOPS without RECORDING) · `patmoveref` (CEILING 3 / COST 2) ·
 `mutstaticborrow` (CEILING 2 / COST 0, still unfunded, abuse direction still
 unmeasured) · `borrowpart` (confirmed by hand, needs the PAIR with a partial-move
 record that survives a match arm) · `addrofpart` (a mis-sited zero, retired).
+
+---
+
+# ROUND 2026-08-29d — THE THREE RE-SHAPINGS, AND WHAT EACH ONE ANSWERED
+
+Subject: the four mechanisms the group-B survey PRICED AND DID NOT FUND.
+Eight probes, ONE build (`e1c01cd58d49e571`, READ), L1 rc=0 with nothing armed.
+Two more were priced free on the same build afterwards (`structpatty`,
+`patmoveref`, `mutstaticsite` — no rebuild, the store already held the unarmed
+baseline).
+
+    probe             fires   ceiling  cost  verdict
+    mutstaticborrow       2         2     0  ✓ HOLDS, third pricing, set for set
+    patmovebind           8         3     0  ✓ THE NARROWING WORKS — same 3 rows, cost 2 -> 0
+    aggwhole          58458         4    40  ⛔ STOP — reproduces `aggboth` to the digit
+    aggnarrow         58024         0     0  ✗ THE HOP ALONE BUYS NOTHING — site LIVE
+    aggscrutpair        258         2     0  ✓ THE THIRD SITE EXISTS, and it is free
+    partpair             73         1     0  ✓ the PAIR closes it; neither half does
+    borrowpart            0         —     —  NEVER MATCHED — its population is MADE by its partner
+    aggcallloan         180         0     0  = re-priced (rule 8), unchanged from yesterday
+    structpatty          72         0     0  = the other solo column of `partpair`
+    patmoveref          549         3     2  = re-priced (rule 8), unchanged — the control for the narrowing
+    mutstaticsite         3         0     0  = observational, rule 9's outer population
+
+## (1) `patmoveref`: THE DISCRIMINATOR IS A CARRIED FACT, NOT A RELATION
+
+The round's question was what separates the two legal casualties from the three
+rows. It is the ARM'S BINDING MODE, and the mode is a fact the LIR already
+carries (`pat_keys::BINDING_REF_MODES`, minted where the `ref` keyword and the
+default-binding-mode decision both live). Both casualties are `ref` / `ref mut`
+arms; all three rows bind BY VALUE:
+
+    borrowck-move-error-many-places--move-out-of-ref-in-match
+        match *f { Foo::Foo1(num1, num2) => … }      modes 0,0   move-typed  ⇒ FIRE
+    borrowck-move-error-many-places--r-runtime       same shape              ⇒ FIRE
+    borrowck-move-error-with-note--a
+        match a.a { n => … }                          a named Wild binding   ⇒ FIRE
+    02_semantic_core_pass_bc_deref_move_exempt_admit
+        match *r { E::A(ref d) => … }                 mode 1                 ⇒ no
+    02_semantic_core_pass_bc_match_deref_mut_refmut_arm
+        match *x { Cycle::Node(ref mut y) => … }      mode 2                 ⇒ no
+
+This is a NODE KIND, not a relation, and it was as cheap as the survey guessed
+— the same shape as the fifteen "signature region" rows collapsing to four.
+
+## (2) `aggboth`: "HOPS WITHOUT RECORDING" IS REFUTED, AND THE THIRD SITE IS REAL
+
+The round's own words for what a landing needed were *"a routing that HOPS
+without RECORDING"*. Spelled at the place that already draws that split — Door
+E / EXEMPT's inherit-only hop, one `else` branch below the routing gate — it
+buys ZERO ROWS off 58,024 arrivals. The mechanism the four rows need IS the
+recording: `inherit_loans` can only EXTEND an existing loan, and at
+`let z = copy_borrowed_ptr(&mut y);` there is no loan on `y` to extend — the
+call-site borrow of the argument is transient. So the shape that was nominated
+as the way out is not one; the cost and the rows come from the same effect.
+
+But the SCRUTINEE site is real and it is FREE. See `aggscrutpair`.
+
+## (3) `borrowpart`: THE PARTNER IS NOT THE ARM JOIN — IT IS A NULL TYPE
+
+Yesterday's note said `moves-based-on-type-match-bindings` needs "a partial-move
+record that survives the match", because "the bc partial-move map for `x` is
+EMPTY" after `match x { Foo { f } => … }`. The map is empty for a DIFFERENT
+reason, measured with `LOGOS_PBSM_TRACE=1` on the row itself: no record is ever
+MADE. `each_pat_binding_place`'s `PC::Struct` arm passes `TypeRef(nullptr)` for
+a shorthand field, and `patbyvalsubmove`'s gate is `is_move_type(t)` — so a
+struct pattern is skipped exactly as an array pattern is (`slicepatnull`, B-5).
+The variant spelling of the same program DOES record and DOES survive the arm:
+
+    match x { Foo::F1(p) => { let _ = p.v; } }   →  [pbsm] place=x.0 root=x
+    match x { Foo  { f } => { let _ = f.v; } }   →  no [pbsm] line at all
+
+One token apart. The arm join was never the blocker.
+
+---
+
+## mutstaticborrow — RE-PRICED A THIRD TIME (rule 8), AND THE ABUSE DIRECTION IS NOW MEASURED
+site: src/compiler/sema_expr.cpp::lower_expr_inner (ADDR_OF_MUT static branch)
+build: e1c01cd58d49e571 (READ; gate-db unarmed baseline -> armed run)
+measured: 2026-08-29
+fires: 2 (of `mutstaticsite`'s 3 arrivals)
+ceiling: 2
+cost: 0
+verdict: ✓ UNCHANGED across 365 -> 337 -> 334, name for name, three pricings
+note: PREDICTED both rows by name before the run —
+    borrowck_borrowck-access-permissions--b-mut-borrow-of-static  (bck.B)
+    borrowck_issue-42344                                          (bck.NEW)
+  predicted∖closed = ∅   closed∖predicted = ∅.
+  ⚠ RULE 4 DECLARED AND UNCHANGED: 2 fires off an outer population of 3
+  (`mutstaticsite`, re-priced this round at 3). A ceiling of 2 off 3 bounds
+  almost nothing about the SET. What argues for it is the ARM, as with
+  `tupidxmove`: the branch's own comment asserts "`&mut STATIC` (a `static mut`)
+  IS the global's address" and NOTHING anywhere checks the `mut`.
+  ⚠ RULE 5, DISCHARGED BY HAND — four programs, all rc 0, each proven to reach
+  or to MISS the branch by an armed fire log under BOTH rule-9 names:
+    ce_ms1 `static mut SY` borrowed inside `unsafe`   site=1 borrow=0  rc 0
+    ce_ms4 `static mut CS: C` struct, `&mut CS`       site=1 borrow=0  rc 0
+    ce_ms2 a `let mut` LOCAL, `&mut x`                site=0           rc 0
+    ce_ms3 the SHARED `&SX` of an immutable static    site=0           rc 0
+  The first two are the exemption HOLDING with the site proven reached; the
+  last two never arrive at all, so they measure the branch's narrowness and not
+  this probe — recorded as such, not as safety.
+  ⚠ AND THE ABUSE DIRECTION IS NO LONGER UNMEASURED. IT IS A HOLE, and its two
+  controls are one token away. `static mut SY: i64 = 1;` at module scope:
+      let y: &mut i64 = &mut SY;   OUTSIDE unsafe   → rc 0, ADMITTED
+      let v: i64 = SY;             OUTSIDE unsafe   → rc 1, "read of mutable
+                                     static `SY` requires `unsafe` block"
+      SY = 2;                      OUTSIDE unsafe   → rc 1, "write to mutable
+                                     static `SY` requires `unsafe` block"
+  Three paths to the same global, two ask for `unsafe` and the BORROW path asks
+  nothing — and a `&mut` is strictly stronger than either. This is a second,
+  independent defect at the same branch, with no ledger row and no fixture;
+  `abuse_ms5/6/7` are the demonstrator and its controls.
+
+## patmovebind — THE NARROWING, AND IT IS FREE
+site: src/compiler/sema_stmt.cpp::lower_match
+build: e1c01cd58d49e571 (READ)
+measured: 2026-08-29
+fires: 8
+ceiling: 3
+cost: 0
+verdict: ✓ SAME THREE ROWS AS `patmoveref`, COST 2 -> 0 — rule 7 did NOT bite
+note: `patmoveref` asks only what the SCRUTINEE is; this asks additionally what
+  the ARM BINDS. Fires 549 -> 8: the population is no longer "every arm under a
+  move-typed unowned scrutinee" but "an arm that binds a move-typed sub-place BY
+  VALUE", which is 8 over the ledger plus 1385 legal programs.
+    PREDICTED, closed:  borrowck_borrowck-move-error-many-places--move-out-of-ref-in-match
+                        borrowck_borrowck-move-error-many-places--r-runtime
+                        borrowck_borrowck-move-error-with-note--a
+    predicted∖closed = ∅   closed∖predicted = ∅
+    `patmoveref` re-priced on the SAME build as the control: 549 / 3 / 2, and
+    the 2 are the same two names. So the narrowing is exactly the two casualties
+    and nothing else moved.
+  ⚠ RULE 7 SAYS A CRUDE PROBE AND A CORRECT FIX DO NOT CLOSE THE SAME PROGRAMS,
+  and here they DO. That is a measurement, not a refutation of the rule: the
+  crude form was already the right question asked at half strength (the
+  scrutinee half), and the missing half was a fact the LIR carries rather than
+  one that had to be recomputed. `tupidxmove` was the same shape a round ago.
+  ⚠ THE PROBE IS DELIBERATELY SILENT ON FOUR PATTERN KINDS. `PC::Struct`,
+  `PC::Slice`, `PC::RefBind` and `PC::RefPat` take the `default:` arm and make
+  NO by-value move claim. Struct and Slice are silent because their binding
+  types are not reachable here (that is `structpatty` / `slicepatnull`, one
+  door over); the other two are by-reference by construction. A correct landing
+  would have to decide Struct and Slice, and each is a row of its own.
+  ⚠ MODES 3/4 CANNOT CO-OCCUR WITH THIS PROBE, by construction and not by luck:
+  a default-binding-mode binding exists only under a REFERENCE scrutinee, and
+  the outer gate requires `is_move_type(scrut_type)`, which a reference is not.
+  ⚠ RULE 5, DISCHARGED BY HAND — ten programs, all rc 0, eight PROVEN to reach
+  the site by an armed fire log (fires in brackets):
+    ce_pb1 `E::A(ref d)` over `*r`                       [2] · ce_pb2 `ref mut`
+    arm over a `Box` deref [2] · ce_pb3 a by-value COPY payload beside a `ref`
+    arm [2] · ce_pb4 arms that bind nothing (`E::A(_)`, `E::B`) [2] ·
+    ce_pb7 a STRUCT pattern, Copy shorthand + `ref` field [1] · ce_pb8 an `@`
+    pattern with a `ref` sub [2] · ce_pb9 an OR pattern, every alt `ref` [2] ·
+    ce_pb10 the INDEX scrutinee shape (`match a[0] { E::A(ref d) … }`) [2].
+    ce_pb5 (an OWNED scrutinee) and ce_pb6 (a Copy scrutinee) fire ZERO — the
+    OUTER gate excludes them, so they measure `patmoveref`'s half and not this
+    one. Recorded as such; a counter-example that does not reach the site
+    proves nothing (rule 1).
+
+## aggwhole — THE BLUNT WHOLE, RE-SPELLED AND RE-PRICED (rule 8)
+site: src/compiler/borrow_check.cpp::visit_stmt (Let routing gate)
+      src/compiler/borrow_check.cpp::is_self_borrowing (result test)
+build: e1c01cd58d49e571 (READ)
+measured: 2026-08-29
+fires: 58458
+ceiling: 4
+cost: 40
+verdict: ⛔ STOP — and it reproduces `aggboth` TO THE DIGIT on a ledger 3 rows smaller
+note: written from scratch this round (the previous round's probes had left the
+  tree) as `type_may_carry_borrow` at the Let routing gate plus the same
+  predicate at `is_self_borrowing`'s result test. Fires 58458, ceiling 4, cost
+  40 — `aggboth`'s recorded 58458 / 4 / 40. The same four rows, the same forty
+  legal programs. That agreement is worth stating because it is the only
+  evidence that two independently-written spellings of "the structural notion of
+  carrying a borrow" are the SAME mechanism.
+    predicted, closed (all four, by name):
+      borrowck_already-borrowed-as-mutable-if-let-133941 ·
+      borrowck_borrowck-assign-to-andmut-in-borrowed-loc ·
+      borrowck_borrowed-mut-pointer-assign-overflow-off ·
+      nll_issue-54382-use-span-of-tail-of-block
+    predicted∖closed = ∅   closed∖predicted = ∅
+  COST 40, all in 02_semantic_core / 03_ownership / 25_spec, unchanged name for
+  name from the 120 -> 122 delta the store still holds.
+
+## aggnarrow — "A ROUTING THAT HOPS WITHOUT RECORDING": REFUTED, SITE LIVE
+site: src/compiler/borrow_check.cpp::visit_stmt (Door E / EXEMPT hop)
+      src/compiler/borrow_check.cpp::is_self_borrowing (result test)
+build: e1c01cd58d49e571 (READ)
+measured: 2026-08-29
+fires: 58024
+ceiling: 0
+cost: 0
+verdict: ✗ THE HOP IS FREE AND WORTH NOTHING — the recording IS the mechanism
+note: the previous round named the landing shape as "a routing that HOPS without
+  RECORDING, which is exactly the split the Door E / EXEMPT block beside that
+  gate already draws". Spelled there — the same structural widening, applied to
+  the inherit-only hop instead of to the routing gate — it moves NOT ONE ROW
+  over 58,024 arrivals. The site is live by that count and by construction (it
+  is the `else` branch the four rows' `let`s actually take today).
+  THE MECHANISM, read not guessed: `inherit_loans` can only EXTEND a loan that
+  already exists, and Door E's own comment says so. At
+  `let z = copy_borrowed_ptr(&mut y);` nothing holds a loan on `y` — the
+  argument's call-site borrow is transient and released at the call — so there
+  is nothing for `z` to inherit. What closes the row is take_ref_borrows
+  RECORDING a fresh borrow of `&mut y` with `z` as holder, and that is the very
+  effect whose over-reach is the whole of the COST 40. The cost and the rows are
+  ONE effect, so the split that was nominated does not exist at this site.
+  ⇒ B-10 stays a STOP at the `let`. A landing would have to gate the ARGUMENT
+  recording on the RESULT structurally carrying a borrow — a second question, at
+  a third place (take_ref_borrows' Call/MethodCall `each_arg`), and it is not
+  what "hops without recording" meant.
+
+## aggscrutpair — THE THIRD SITE, AND IT IS THE ONE THAT IS FREE
+site: src/compiler/borrow_check.cpp::retain_temp_scrut_loan
+      src/compiler/borrow_check.cpp::is_self_borrowing (result test)
+build: e1c01cd58d49e571 (READ)
+measured: 2026-08-29
+fires: 258
+ceiling: 2
+cost: 0
+verdict: ✓ IT EXISTS, it closes TWO, and it costs nothing the corpus can see
+note: `aggboth` hedged issue-85581 and missed it, correctly diagnosing why: its
+  loan comes from a MATCH SCRUTINEE (`match heap.peek_mut() { Some(g) … }`), so
+  neither B-10 gate is on its path. `retain_temp_scrut_loan` is that path, and
+  its gate is `loan_carrying_type` — the NAMED-carrier closure — where the
+  question is the structural one. Exactly the same two-notions-of-one-concept
+  defect, at a third site.
+    PREDICTED, closed:  borrowck_issue-85581
+    closed, NOT predicted:  borrowck_reborrow-in-match-suggest-deref  (bck.A)
+    predicted∖closed = ∅
+  The unpredicted row is `match (&mut outer, 23i64) { … }` — a TUPLE-LITERAL
+  temporary scrutinee. `tmcb_walk` recurses into tuple elements and
+  `loan_carrying_type` does not, so the whole shape was invisible. It is a
+  bck.A row: this mechanism reaches OUT of group B.
+  ⚠ IT IS A PAIR, not one gate. `peek_mut`'s result is `Option<&mut i64>`, which
+  `is_borrow_carrying_type` denies, so `is_self_borrowing` says no and
+  take_ref_borrows' MethodCall arm ties no receiver — the scrutinee gate would
+  fire and record nothing. Both halves are armed under this name.
+  ⚠ RULE 5, DISCHARGED BY HAND — four programs, all rc 0, three PROVEN to reach
+  the site armed: ce_as1 a temp scrutinee carrying a SHARED borrow, source read
+  again inside the arm [3] · ce_as2 the ledger row's own shape with the second
+  use moved AFTER the match, i.e. NLL must retire the loan [3] · ce_as3 a
+  tuple-literal scrutinee holding `&x`, then a read of `x` [1] · ce_as4 a
+  scalar-returning temp scrutinee, which fires ZERO — the gate declines it,
+  which is the answer and not a silence.
+  ⚠ COST 0 OVER THE CORPUS IS STILL NOT A SAFETY CLAIM: the loan's LIFETIME is
+  decided by the synthetic holder's inheritors, and ce_as2 is the only NLL
+  release this round tested.
+
+## partpair — THE PAIR CLOSES ONE ROW AND NEITHER HALF CLOSES ANYTHING
+site: src/compiler/borrow_check.cpp::each_pat_binding_place (PC::Struct arm)
+      src/compiler/borrow_check.cpp::take_borrow_whole_
+build: e1c01cd58d49e571 (READ)
+measured: 2026-08-29
+fires: 73   (solo: structpatty 72, borrowpart 0)
+ceiling: 1  (solo: 0 and 0)
+cost: 0
+verdict: ✓ RULE 13's FOURTH INSTANCE, and the cleanest — the READER'S POPULATION IS MADE BY THE PRODUCER
+note: PREDICTED moves_moves-based-on-type-match-bindings and closed exactly
+  that; predicted∖closed = ∅, closed∖predicted = ∅.
+  THE TWO HALVES:
+   · `structpatty` — a struct-pattern SHORTHAND field reaches every consumer
+     with a NULL binding type, so the landed `patbyvalsubmove` rule (gated on
+     `is_move_type(t)`) skips every `match x { Foo { f } => … }`. The type is
+     recoverable where the loss happens: the pattern carries the struct's NAME
+     and `ts_.struct_by_name` / `spec_by_name` already index every def by it.
+     SOLO: 72 fires, ceiling 0, cost 0 — it produces a record nobody reads.
+   · `borrowpart` — `take_borrow_whole_`'s third line is `if (it->moved)` and it
+     never asks `moved_fields`, the same asymmetry `recvpartial` landed at the
+     method-call receiver one route over.
+     SOLO: **0 fires**. Not an unreached site and not a refutation: the probe
+     sits after `!it->moved_fields.empty()`, so its fire count IS its match
+     population, and that population is EMPTY until `structpatty` creates it.
+  ⚠ THE ARITHMETIC IS THE RESULT. 0 + 0 = 0, the whole is 1, and 72 + 0 = 72
+  against the pair's 73 — the ONE extra arrival is `borrowpart`'s, and it exists
+  only because the producer ran. A per-site sweep would have killed both halves
+  as dead. Blame is per site, CREDIT IS PER SET, for the fourth round running.
+  ⚠ AND IT CORRECTS YESTERDAY'S ATTRIBUTION. `borrowpart`'s note said this row
+  needs "a partial-move record that survives the match", because the arm sites
+  save/restore `states_`. MEASURED with LOGOS_PBSM_TRACE on the row and on its
+  one-token twin: the VARIANT spelling records (`place=x.0 root=x`) and the
+  record DOES survive the arm; the STRUCT spelling emits no trace line at all.
+  The arm join was never the blocker for this row.
+  DEMONSTRATION, three runs of the ledger row on one binary:
+      unarmed                     rc 0, no diagnostic
+      LOGOS_PROBE=structpatty     rc 0, `[pbsm] ln=12 b=f place=x.f root=x`
+      LOGOS_PROBE=partpair        "use of partially moved value 'x'
+                                   (field 'f' moved on line 12)"
+  ⚠ RULE 5, DISCHARGED BY HAND — four programs, all rc 0, ALL proven live [2,2,2,2]:
+    ce_pp1 one field moved, a DISJOINT sibling borrowed by `ref` in the same arm ·
+    ce_pp2 Copy shorthand fields, whole-value borrow after the match ·
+    ce_pp3 a `ref` shorthand field, whole-value borrow after the match ·
+    ce_pp4 a GENERIC struct pattern (`W<i64>`), where the pattern carries the
+    BASE name and the def is stored mono-mangled — a lookup MISS must leave the
+    old null-type behaviour, and it does.
+
+## aggcallloan / structpatty / patmoveref / mutstaticsite — THE SOLO COLUMNS
+build: e1c01cd58d49e571 (READ) — all four priced FREE on the batch build
+measured: 2026-08-29
+fires:   180 / 72 / 549 / 3
+ceiling: 0 / 0 / 3 / 0
+cost:    0 / 0 / 2 / 0
+verdict: three zeros that are each a LOAD-BEARING HALF or a CONTROL, and one
+         re-price that reproduces yesterday exactly
+note: `aggcallloan` re-priced under rule 8 on a ledger three rows smaller: 180
+  fires, 0/0, unchanged. It is still the half that makes
+  already-borrowed-as-mutable-if-let-133941 close and still worth nothing alone.
+  `structpatty` and `borrowpart` are `partpair`'s two solo columns (above).
+  `patmoveref` is the CONTROL for `patmovebind` and it is why the narrowing can
+  be believed: same build, same population, 3 rows and the same 2 casualties.
+  `mutstaticsite` is rule 9's outer half, unchanged at 3 arrivals.
+
+## ⇒ WHAT DESERVES FUNDING, AND WHAT IS NOW CLOSED AS A QUESTION
+
+FUNDABLE, in order of rows per unit of doubt:
+
+ 1. **`aggscrutpair` — 2 rows, cost 0, and it reaches OUT of group B.**
+    Two gates, both a delegation from an ATTRIBUTE-keyed predicate to the
+    structural one this file already owns. Closes issue-85581 (bck.B, the row
+    `aggboth` explicitly could not reach) and reborrow-in-match-suggest-deref
+    (bck.A, unpredicted). The largest free result on the board.
+ 2. **`patmovebind` — 3 rows, cost 0.** A narrowing whose whole content is a
+    fact the LIR already carries. Its residual is named: `PC::Struct` and
+    `PC::Slice` are deliberately silent.
+ 3. **`partpair` — 1 row, cost 0, and it repairs a NULL TYPE.** `structpatty`
+    is worth landing on its own terms even at ceiling 0: a shorthand struct
+    field arriving with no type is a hole in every consumer of
+    `each_pat_binding_place`, not only in this one. `slicepatnull` (B-5, 3 rows)
+    is the same defect at the array arm and still costs six spec rules.
+ 4. **`mutstaticborrow` — 2 rows, cost 0, third pricing, set for set.** Rule 4
+    is in force (2 fires of 3) and the case is the ARM, not the number. It now
+    carries a SECOND, independent finding at the same branch — the `unsafe`
+    hole in the abuse direction, with its two one-token controls.
+
+NOT FUNDABLE, and now for a MEASURED reason rather than a nominated one:
+
+ · **`aggboth` / `aggwhole` at the `let`.** 4 rows / 40 legal programs,
+   reproduced to the digit by an independent spelling. The escape hatch the
+   previous round named — "a routing that hops without recording" — was built
+   and priced this round and buys ZERO off 58,024 arrivals, because
+   `inherit_loans` cannot create the loan the rows need. The cost and the rows
+   are one effect. A landing would have to gate take_ref_borrows' ARGUMENT
+   recording on the RESULT's structural carry: a different question, at a site
+   nobody has priced.
+ · **`borrowpart` alone** and **`aggcallloan` alone** — both 0, both
+   load-bearing halves of a pair. Do not re-price either solo.
+
+STILL OPEN AND UNCLAIMED, carried forward unchanged: `escape-argument--t09`
+(call-site write summary, TWO rows) · anonymous-region-in-apit (#78) ·
+borrowed-data-escapes-closure-148392 · the bare closure arm has no holder ·
+22 of `type_may_carry_borrow`'s 28 consumers · four class-C region rows ·
+`slicepatnull` (B-5, 3 rows, six spec rules) · `emit_generic_deref_step`'s
+fallback on the TARGET TYPE (a sema defect with no row and no fixture) ·
+and NEW this round: the `&mut <static mut>` `unsafe` hole (no row, no fixture).
