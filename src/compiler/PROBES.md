@@ -3490,3 +3490,340 @@ note: PREDICTED moves-based-on-type-match-bindings and closed exactly that.
   name while the def is stored mono-mangled, so the field type stays null and the
   answer stays permissive. Pinned by
   `pass/bc_partpair_generic_lookup_miss_twin`.
+
+# ROUND 2026-08-30a — ONE PRODUCER, ONE READER, AND THE SIX SPEC RULES WERE THE SPELLING
+
+Subject: `each_pat_binding_place` hands a binding `TypeRef(nullptr)` and every
+consumer that needs the type skips it. The struct-shorthand half LANDED yesterday
+(`structpatty`, inside `partpair`); the ARRAY half — `slicepatnull`, B-5, three
+rows — stood open at a recorded price of SIX SPEC RULES.
+
+**THE ROUND'S NUMBER: the six were the CRUDE SPELLING, not the mechanism.** The
+careful form — ask the SCRUTINEE for the element type instead of reading a null
+as a move — refuses **ZERO** legal programs where the crude form refuses eight,
+and every one of the eight is admitted again. What the careful form costs
+instead is TWO REWORDED DIAGNOSTICS, in the half nobody priced separately.
+
+Build `6a75e28d5731a885` (READ, `scripts/build_hash.py build`). Store builds:
+149 unarmed baseline → 150 `slicepatnull`, 151 `slicesite`, 152 `slicewhole`,
+153 `slicearr`, 154 `slicetype`, 155 `sliceplace`. L1 rc=0 with nothing armed.
+Ledger 326, unchanged — this round PRICES, it does not fix, and the probes were
+REVERTED. Their spelling is `/home/logos/sandbox/slicepat/slice.spec`, a
+`probe-batch.sh` spec that re-applies all six in one build.
+
+## (1) THE CONSUMER CENSUS — SATURATED, AND THERE IS EXACTLY ONE READER
+
+`tools/dlog` over `borrow_check.cpp` (question kept at
+`/home/logos/sandbox/slicepat/`): `each_pat_binding_place` has **two**
+non-recursive call sites; every other row is its own recursion, at eight sites
+across four instantiations.
+
+    consumer                      line   params READ        DIRECTION
+    propagate_pat_borrows         5825   b, t, place, mode
+      · patbyvalsubmove           5964   b, T, place, mode  RISK — the ONLY type reader
+      · the ref/ref mut loan      5984   b, place, mode     zero for the TYPE
+    propagate_pat_reborrows       6071   b, place           zero — its TypeRef and
+                                                            mode parameters are UNNAMED
+
+⚠ AND THE CONTEXT-LEVEL ANSWER WAS NOT ENOUGH — the per-context row says
+`propagate_pat_borrows` "uses t", which is true of a lambda holding two
+independent rules. Asked PER SITE, `t` is referenced at exactly **two lines,
+5966 and 5967**, both inside one condition. So a null becoming non-null can
+newly reach exactly one refusing branch in the whole tree.
+
+⚠ THE SECOND HALF OF THE DIRECTION IS NOT THE TYPE. `propagate_pat_borrows`'s
+loan record and `propagate_pat_reborrows` both read the PLACE, so a producer
+that refines the place changes them even though neither reads a type. That is
+where this round's whole measured cost turned out to live.
+
+## (2) THE PER-KIND MINT TABLE — RULE 16, SCHEMA READ AND THEN MEASURED
+
+Where the type is minted, per kind, from `include/logos/compiler/lir_view.hpp`
+and `lir.hpp`; and the null RATE measured over 1419 programs (the 326 admit
+ledger, `tests/spec`, `tests/imported/fail/{borrowck,nll}`) with an env-gated
+per-kind tally at the callback.
+
+    kind          minted at                                  a null means            arrivals   null
+    Wild          NOWHERE — PatWild carries NAME + BIND_SLOT  ABSENT BY CONSTRUCTION       333    333
+                  and NO TYPE KEY AT ALL                      (context, never the node)
+    VariantData   BINDING_TYPES, sema_stmt.cpp 4242-4433,     sema wrote a null       2903714      0
+                  arity asserted at 4347
+    Tuple         BINDING_TYPES, sema_stmt.cpp 5153           sema wrote a null             14      0
+    Struct        NOWHERE on the node (PatFieldBinding is     nobody filled it in —        18      8
+                  field_name + sub + slot); recovered IN      REPAIRED by `partpair`;
+                  THE WALK from ts_.struct_by_name /          a mono-mangled generic
+                  spec_by_name since `partpair`               lookup MISS stays null
+    At            TYPE key                                    sema wrote a null             6      0
+    RefBind       BIND_TYPE key                               sema wrote a null            42      0
+    Slice/Or/     no bindings of their own; PatSlice has      pass-through; the element    —       —
+    RefPat        prefix/rest/suffix and NO type key          type lives in the SCRUTINEE
+
+⇒ **After `structpatty`, exactly one kind is 100% null, and its null is the
+kind that cannot be repaired at the node.** `PC::Wild` has no type slot in the
+mirror, so "give the binding its type" is not a fill-in — it is a change to what
+the WALK CARRIES. That is why the crude spelling was crude: it read an
+unrepresentable fact as a decision.
+Struct's 8 of 18 are the generic lookup MISS, already pinned by
+`pass/bc_partpair_generic_lookup_miss_twin`, and they stay permissive.
+
+## (3) THE PROBE TABLE
+
+    probe          fires  ceiling  cost(-L bc)  cost(FULL 8690)  verdict
+    slicepatnull      61     3          8            —           ⛔ the CRUDE form, RE-PRICED
+    slicesite         13     0          0            —           = rule 9's outer population
+    slicewhole        13     2          0            —           peeling elem type + index place
+    slicearr           6     2          0            2           ✓ THE CAREFUL FORM
+    slicetype         13     3          0            —           type only, coarse place
+    sliceplace        13     0          0            —           = place only, its reader is blind
+
+`slicesite` fires on every `PC::Slice` arrival whose container type yields an
+element type; `slicearr`'s 6 against that 13 IS the narrowing — seven of the
+thirteen are reference scrutinees the careful form declines.
+
+## (4) THE SETS, DIFFED BOTH WAYS — AND MY MECHANISM STORY WAS INVERTED
+
+    slicepatnull  PREDICTED ceiling 3 by name; CLOSED exactly those three.
+                  predicted∖closed = ∅   closed∖predicted = ∅
+                  PREDICTED cost 4..6.  MEASURED 8 — rule 8 in the GROWING
+                  direction. The eight, named:
+                    25_spec_pass pat_3 · pat_4 · pat_6 · pat_7 · stmt_2
+                      (FIVE spec rules; the recorded "four" was already stale)
+                    02_semantic_core_pass bc_d3_thin_ref_binding_class
+                    02_semantic_core_pass bc_patmovebind_tuple_ref_element_twin
+                    02_semantic_core_pass regions-infer-borrow-scope-addr-of
+
+    slicewhole    PREDICTED {array-match, --use-match--t13}
+                  CLOSED    {array-match, --use-match--b}
+                  predicted∖closed = {--t13}   closed∖predicted = {--b}
+                  BOTH DIRECTIONS NON-EMPTY, and the count matched at 2 — the
+                  "two errors cancelling" the reader warns about, in the wild.
+                  I predicted `--b` would NOT close because its refusal is an
+                  INDEX ASSIGN and the dotted-path partial-move tracking at
+                  borrow_check.cpp:13880 handles FieldRead/TupleIndex only. It
+                  closes anyway. And I predicted `--t13` WOULD close through
+                  `take_borrow_whole_`; it does not, because under an index
+                  place the second match's `ref y` borrows the SUB-place and
+                  never reaches the whole-value reader.
+
+    slicearr      the same two, same both-ways diff.
+    slicetype     PREDICTED all three; CLOSED all three. ∅ / ∅.
+    sliceplace    PREDICTED 0 for the stated reason (the only type reader skips
+                  on `!t`, and propagate_pat_reborrows was left UNSEEDED so the
+                  place change reaches nothing). MEASURED 0.
+    slicesite     PREDICTED 0/0 observational. MEASURED 0/0, 13 arrivals.
+
+## (5) RULE 13'S FIFTH INSTANCE, AND THE FIRST ONE THAT SUBTRACTS
+
+    the TYPE alone, container's place   3 rows
+    the PLACE alone, null type          0 rows
+    both                                2 rows
+
+Adding the half that looks more correct REMOVES a row. The coarse place is what
+makes an element binding a WHOLE-VALUE use of the array, and the whole-value
+readers — `consume`'s `report_partial_move`, `take_borrow_whole_`'s delegation
+landed by `partpair` yesterday — are the ones that see `--use-match--t13`. Refine
+the place and the binding stops being a whole-value use, so the row re-opens.
+Blame is per site; CREDIT IS PER SET; and this round adds that an increment can
+be NEGATIVE, which no per-site sweep would ever report.
+
+## (6) RULE 10 AND RULE 5 — THIRTEEN HAND-WRITTEN PROGRAMS, ALL MULTI-LINE
+
+Sources under `/home/logos/sandbox/slicepat/`. Every fire count below is from an
+armed `LOGOS_PROBE_FIRE` log, so "reached the site" is measured, not assumed.
+
+REACHING THE REFUSAL (the corpus cannot do this — rule 10):
+    hp_move    two matches binding the SAME element of `[String; 3]`
+               unarmed rc 0 · slicearr rc 1 "use of moved field 'a.2'"  [2 fires]
+    hp_suffix  `[.., z]` twice — proves the SUFFIX index arithmetic (N-sc+j)
+               unarmed rc 0 · slicearr rc 1 "use of moved field 'a.2'"  [2 fires]
+
+LEGAL AND MUST STAY ADMITTED — all rc 0 under `slicearr`:
+    ce_s1   `[i64; 3]`, three bindings, array used after
+            ⚠ THE CRUDE FORM REFUSES IT: "use of moved value 'a'" [3 fires].
+            One line, and it is four of the five spec-rule costs in miniature.
+    ce_s9   `[String; 3]`, ALL THREE elements bound BY VALUE in ONE pattern
+            ⚠ `slicetype` REFUSES IT [1 fire] — the coarse place consumes the
+            root on the first binding and the second is "use of moved value".
+            Legal in Rust. THIS IS WHY THE 3-ROW ARM IS NOT THE ANSWER, and the
+            corpus said cost 0 for it: rule 5, first constructed try.
+    ce_s11  `&[String]` scrutinee, element bound, `s` used afterwards
+            ⚠ `slicewhole` REFUSES IT [1 fire] — the peel hands a by-REFERENCE
+            ergonomic binding a move-typed element. `slicearr` fires ZERO here:
+            the site DECLINES because the container is not an owned Array, and
+            that decline IS the narrowing.
+    ce_s2 `ref` element then whole-value use · ce_s3 `&[String]` element ·
+    ce_s6 all-`_` · ce_s7 a fresh array per loop iteration · ce_s8 a move with
+    no later use · ce_s10 a two-element array with one element bound
+
+MEASURING THE LANGUAGE AND NOT THIS PROBE, recorded as such:
+    ce_s4   `&[String; 3]` — sema refuses first, "slice pattern requires array
+            or slice scrutinee", so it never reaches the site. Not safety.
+
+THE PERMISSIVE RESIDUAL, HAND-WRITTEN AND NOT CLAIMED:
+    hp_disjoint  move `a.0` in one match, `a.2` in the next. rustc E0382 (the
+            second `match a` reads `a` whole); `slicearr` ADMITS. Identical to
+            `--use-match--t13`, and it needs a partial-move-aware read at a
+            match SCRUTINEE — `take_borrow_whole_`'s question, one door over.
+
+## (7) RULE 15 AGAIN, AND THE FULL SUITE FOUND WHAT `-L bc` COULD NOT
+
+`ceiling-probe`'s legal selections (`-L bc -L pass`, plus the spec/ownership/
+advanced pass dirs) reported COST 0 for `slicearr`. The FULL 8690-test suite
+reports **2**:
+
+    logos_06_diagnostics_fail_borrowck-vec-pattern-move-tail
+    logos_06_diagnostics_fail_borrowck-vec-pattern-nesting
+
+⚠ NEITHER IS A LOST REFUSAL, AND THE CHANGE IS IN THE RIGHT DIRECTION. Both
+still refuse (rc 1), and both went from TWO diagnostics to ONE:
+
+    was   error: cannot assign through 'a[..]' because 'a' is borrowed
+          error: cannot borrow 'a' as mutable: 'a' has shared borrows
+    now   error: cannot borrow 'a' as mutable: 'a.2' is already borrowed
+
+A `ref` binding in a slice pattern used to raise its loan on the CONTAINER, and
+TWO readers answered the same question about it — the duplicated-diagnostic shape
+rule 14 exists for, sitting green in the corpus because a `.expected` matches as a
+SUBSTRING. Under an index place the loan sits on the element, one reader answers,
+and it names the element. So the cost is re-pinning two `.expected` files against
+output that is strictly better. It belongs to the PLACE half alone: `slicetype`
+reproduces both old diagnostics byte for byte, and `sliceplace` armed alone
+produces the change at ceiling 0.
+
+⚠ AND THE TEXT ORACLE WAS RUN OVER EVERYTHING, NOT OVER THE SUITE. All 8642
+`tests/**/*.logos` compiled twice, rc AND stderr captured and diffed:
+**exactly four programs change, and they are the same four names the store's
+149->153 delta reports.** predicted∖measured = ∅ both ways, on the widest oracle
+available.
+
+    rc CHANGES (2) — the ledger rows, and both close through readers `partpair`
+      landed yesterday:
+        borrowck-move-out-from-array-match
+          "use of moved field 'a.0' / 'a.1' / 'a.2' (moved on line 10)"
+        borrowck-move-out-from-array-use-match--b
+          "use of partially moved value 'a' (field '2' moved on line 9)"
+      — the second is `report_partial_move`, which is why my prediction that an
+      INDEX ASSIGN could not see the sub-place record was wrong: it does not need
+      to, the whole-value reader in `consume` asks first.
+    TEXT-ONLY (2) — the two above, and both DELETE a duplicate rather than add one.
+
+⚠ THE INSTRUMENT WAS BROKEN ON ITS FIRST READING AND SAID 6433. `logosc` prints
+`logosc: wrote <path>` to stderr and the harness gave every compile a fresh
+mktemp directory, so the oracle was reading its own scaffolding. Normalising the
+temp path is what turns 6433 into 4. A text oracle has to be controlled like any
+other channel.
+
+## (8) WHAT DESERVES FUNDING
+
+**`slicearr` — 2 rows, 0 legal programs refused over the corpus AND over eleven
+hand-written legal shapes, 2 diagnostics to re-pin.** The producer carries the
+scrutinee type down the walk; `PC::Slice` computes the element type only when
+the container is an OWNED `[T; N]` (no ref peel, no `Kind::Slice`), gives prefix
+elements index 0.. and suffix elements N-sc+j, and hands that type to the
+`PC::Wild` sub-pattern that is the element binding. `PC::Wild` consumes a
+SEPARATE carried parameter from the one `elem_ty` reads, because the walk is
+seeded at its caller for every pattern and consuming the seed at `Wild` would
+give a top-level `match x { n => … }` a non-null type with no probe armed — a
+behaviour change in the BASELINE, attributed to nothing. That spelling was
+written, and `probe-batch`'s L1 inertness check is what would have caught it.
+
+NOT FUNDABLE, and now for a measured reason:
+ · **`slicepatnull` as spelled** — cost 8, ceiling 3, and its cost is entirely
+   "a null type is a move". RETIRE THE SPELLING, KEEP THE OBSERVATION.
+ · **`slicetype`** — the only arm that reaches all three rows, and it buys the
+   third with a first-try legal casualty (ce_s9) the corpus does not contain.
+ · **`sliceplace` alone** — 0, and load-bearing for `slicearr`. Do not re-price
+   it solo.
+
+STILL OPEN after this round: `borrowck-move-out-from-array-use-match--t13`
+(and its hand twin `hp_disjoint`) — a whole-value use of a partially-moved array
+at a match SCRUTINEE. One row, one named mechanism, at a site `partpair` already
+touched.
+
+## slicepatnull — RE-PRICED (rule 8), AND THE PRICE GREW
+site: src/compiler/borrow_check.cpp::each_pat_binding_place
+build: 6a75e28d5731a885 (READ; store 149 unarmed -> 150 armed)
+measured: 2026-08-30
+fires: 61
+ceiling: 3
+cost: 8
+verdict: ⛔ RETIRE THE SPELLING, KEEP THE OBSERVATION — every one of the eight is
+         the "a null type is a move" over-reach, and the careful form pays none
+note: recorded 2026-08-29 as 66 / 3 / 6 with "four are spec rules". Re-priced on
+  a tree where `structpatty` has LANDED: fires 66 -> 61 (the struct-shorthand
+  nulls have left its population), ceiling unchanged set for set, COST 6 -> 8
+  and FIVE of the eight are spec rules. A cost GROWS, and this one grew because
+  the arms landed around it, not because anything about it changed.
+  ce_s1 is the whole of it in one legal program: `[i64; 3]`, three element
+  bindings, the array used afterwards — refused with "use of moved value 'a'".
+
+## slicearr — THE CAREFUL FORM
+site: src/compiler/borrow_check.cpp::each_pat_binding_place (PC::Slice arm)
+      src/compiler/borrow_check.cpp::propagate_pat_borrows (the scrutinee seed)
+build: 6a75e28d5731a885 (READ; store 149 unarmed -> 153 armed)
+measured: 2026-08-30
+fires: 6   (of `slicesite`'s 13 arrivals — the other 7 are reference scrutinees)
+ceiling: 2
+cost: 2 over the FULL 8690-test suite (0 over `-L bc`, which does not contain
+      either program); BOTH are REWORDED diagnostics, not lost refusals
+verdict: ✓ 2 rows, no legal program refused, two `.expected` files to re-pin
+note: PREDICTED borrowck-move-out-from-array-match and
+  borrowck-move-out-from-array-use-match--t13. CLOSED array-match and
+  --use-match--b. predicted∖closed = {--t13}, closed∖predicted = {--b}: BOTH
+  directions non-empty with a MATCHING COUNT, which is the reader's own warning
+  made concrete.
+  ⚠ RULE 5, DISCHARGED BY HAND — eleven legal programs, all rc 0, and the two
+  that decide the shape are ce_s9 (which `slicetype` refuses) and ce_s11 (which
+  `slicewhole` refuses). ce_s4 measures the LANGUAGE, not this arm.
+  ⚠ RULE 10, DISCHARGED — hp_move and hp_suffix reach the refusal with a fire
+  log, and hp_suffix is what proves the suffix index arithmetic.
+  ⚠ THE PERMISSIVE RESIDUAL IS NAMED: hp_disjoint / --t13.
+
+## slicetype — THREE ROWS, AND A LEGAL PROGRAM ON THE FIRST TRY
+site: src/compiler/borrow_check.cpp::each_pat_binding_place (PC::Slice arm)
+build: 6a75e28d5731a885 (READ; store 149 unarmed -> 154 armed)
+measured: 2026-08-30
+fires: 13
+ceiling: 3
+cost: 0 over `-L bc` — AND THE 0 IS FALSE, broken by hand on the first
+      constructed counter-example (ce_s9)
+verdict: ⛔ the only arm that reaches all three rows, and it over-refuses the
+         plain destructure of an owned array
+note: the element type with the CONTAINER's place, so `mroot.size() ==
+  place.size()` and the reader CONSUMES THE WHOLE ARRAY. That whole-value
+  consume is exactly what `--use-match--t13` needs and exactly what kills
+  `match a { [p, q, r] => … }` over `[String; 3]` — legal in Rust, admitted at
+  HEAD, refused here with "use of moved value 'a'".
+
+## slicewhole — THE PEEL, AND ERGONOMICS PAYS FOR IT
+site: src/compiler/borrow_check.cpp::each_pat_binding_place (PC::Slice arm)
+build: 6a75e28d5731a885 (READ; store 149 unarmed -> 152 armed)
+measured: 2026-08-30
+fires: 13
+ceiling: 2
+cost: 0 over `-L bc` — AND THE 0 IS FALSE (ce_s11)
+verdict: = `slicearr` with the ref peel left in; the peel buys no row and costs
+         a legal program
+note: `elem_ty` peels one reference hop and accepts `Kind::Slice`, so a
+  `&[T]` scrutinee — whose element bindings are BY REFERENCE under match
+  ergonomics — hands the by-value move rule a move-typed element. ce_s11:
+  `let s: &[String] = &a[..]; match s { [x, _, _] => … } use_s(s);` refuses with
+  "use of moved value 's'". `slicearr` fires ZERO on it. Same two rows, one
+  extra casualty: the peel is the whole difference and it is worth nothing.
+
+## slicesite / sliceplace — THE OUTER POPULATION AND THE BLIND HALF
+build: 6a75e28d5731a885 (READ; store 149 -> 151 / 155)
+measured: 2026-08-30
+fires: 13 / 13
+ceiling: 0 / 0
+cost: 0 / 0
+verdict: rule 9's outer name, and a producer half whose reader cannot see it
+note: `slicesite` is the `x_site` half — every `PC::Slice` arrival with a
+  recoverable element type, 13 over the ledger plus the legal corpus. It is what
+  makes `slicearr`'s 6 readable as a narrowing rather than as a small number.
+  `sliceplace` gives elements their index segments and leaves the type null: the
+  only type reader skips on `!t` and `propagate_pat_reborrows` was deliberately
+  left UNSEEDED, so nothing downstream can see it — 0 rows, and it is
+  load-bearing for `slicearr`. `borrowpart`'s shape a second time.
+  ⚠ IT IS NOT INERT THOUGH: armed alone it produces both of the round's reworded
+  diagnostics, at ceiling 0. A half that buys nothing can still cost something.
