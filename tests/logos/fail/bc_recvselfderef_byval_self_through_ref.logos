@@ -1,0 +1,22 @@
+// bck.NEW / P6 — A BY-VALUE `self` RECEIVER IS A CONSUMING POSITION (E0507).
+// `deref_move_exempt`'s own arm names the residual: "NOT a place base:
+// visit_place_base visits with consuming=false, so `(*r).method()` never
+// reaches this report." So the position-general deref-move rule was asked at
+// `eat(*r)` and never at `(*r).eat()`, one token apart on the same value.
+// PAIR with pass/bc_recvselfderef_ref_self_twin, ONE TOKEN apart: there `eat`
+// takes `self: &F` and borrows instead of consuming.
+package bc_recvselfderef_byval_self_through_ref;
+use logos.mem.string;
+
+struct F { s: String }
+
+impl F {
+    fn eat(self: Self) -> i64 { return self.s.len(); }
+}
+
+fn main() -> i32 {
+    let f = F { s: String::from("hi") };
+    let r = &f;
+    let n = (*r).eat();
+    return n as i32;
+}

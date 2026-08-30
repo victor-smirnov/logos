@@ -1,0 +1,20 @@
+// THE LEGAL TWIN of fail/bc_guardmovearm_expr_guard_moved, ONE TOKEN apart:
+// the guard calls `peek(&s)` instead of `eat(s)`, so it moves NOTHING and the
+// `_` arm's move is the value's first and only one. The union is of the
+// guard's MOVES, so a borrowing guard must leave the later arms untouched.
+package bc_guardmovearm_expr_guard_borrows_twin;
+
+struct Own { n: i64 }
+impl Drop for Own { fn drop(self: &mut Own) {} }
+
+fn eat(o: Own) -> i64 { return o.n; }
+fn peek(o: &Own) -> bool { return o.n == 0i64; }
+
+fn main() -> i32 {
+    let s = Own { n: 1i64 };
+    let r = match 0i64 {
+        0i64 if peek(&s) => 5i64,
+        _ => eat(s),
+    };
+    return (r - 1i64) as i32;
+}

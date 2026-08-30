@@ -647,6 +647,21 @@ PIN = {
     # so the partition still closes: 2369 = 191 + 2178. DOOR counts unmoved
     # (36 = 10 + 26) — no imported fixture declares a container family or a
     # `direct` output form. ONE new gate SCRIPT: bc_admits_ledger_gate.sh.
+    # ⚠ RE-DERIVED at the bck.NEW landing round (2026-08-30): +5 / +0 / +5.
+    # FIVE new PASS fixtures, the legal twins of the four mechanisms that
+    # landed out of the `bck.NEW` survey; none matches `wql_*` / `deem_*`, so
+    # the whole delta lands in `nonglob`. BY DIRECT LISTING on the landed tree:
+    #   ls tests/logos/pass/*.logos                          -> 2485
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos             ->  191
+    #   the same listing minus the glob half                 -> 2294
+    # 2485 = 191 + 2294. The five are pass/bc_scinitcond_lhs_init_twin,
+    # pass/bc_indexnomut_indexmut_twin, pass/bc_recvselfderef_ref_self_twin,
+    # pass/bc_recvselfderef_unresolved_callee_twin and
+    # pass/bc_guardmovearm_expr_guard_borrows_twin — borrow-check / definite-
+    # init programs with no container family and no `direct` output form, so
+    # the DOOR counts are unmoved (36 = 10 + 26). The FOUR new fail fixtures
+    # and the EIGHT imported programs that moved admit -> fail enter none of
+    # these three counts: this population is `tests/logos/pass` only.
     # ⚠ RE-DERIVED at the D1/D2 NLL-release round (2026-08-25): +6 / +0 / +6.
     # Six new PASS fixtures, none matching the `wql_*` / `deem_*` glob, so the
     # whole delta lands in `nonglob` and `glob` is unmoved. BY DIRECT LISTING on
@@ -1034,9 +1049,9 @@ PIN = {
     # move nothing here; the two imported programs that left `admit` for `fail`
     # are not in tests/logos/pass at all. `glob` and the DOOR counts unmoved: no
     # `wql_*`/`deem_*` match, no container family, no `direct` output form.
-    'corpus'            : 2480,
+    'corpus'            : 2485,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2289,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2294,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

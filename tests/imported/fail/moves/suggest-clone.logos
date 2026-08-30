@@ -1,6 +1,8 @@
 // rustc moves/suggest-clone.rs — upstream E0507 cannot move out
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.R2
+// shelf: fail — REFUSED since 2026-08-30: a by-value `self` receiver is a CONSUMING position, so the
+// deref-move rule is asked at an autoderef receiver too (borrow_check.cpp,
+// the MethodCall arm). Was nllmoves.R2 — reached from the bck.NEW round.
 // port of rust tests/ui/moves/suggest-clone.rs
 // `foo` is a &Foo; `Foo::foo` takes `self` BY VALUE.  rustc: E0507 cannot move
 // out of `*foo` which is behind a shared reference.

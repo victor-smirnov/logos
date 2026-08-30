@@ -1,0 +1,23 @@
+// THE LEGAL TWIN of fail/bc_indexnomut_index_only_write, ONE TOKEN apart: the
+// `IndexMut` impl is present, so `try_index_mut_assign` produces the place and
+// the new refusal is never reached. This is the fixture that says the refusal
+// is keyed on the MISSING impl and not on "an overloaded index in write
+// position".
+package bc_indexnomut_indexmut_twin;
+use logos.lang.ops;
+
+struct M { vals: [i64; 4] }
+
+impl Index<i64, i64> for M {
+    fn index(self: &M, k: i64) -> &i64 { return &self.vals[k]; }
+}
+
+impl IndexMut<i64, i64> for M {
+    fn index_mut(self: &mut M, k: i64) -> &mut i64 { return &mut self.vals[k]; }
+}
+
+fn main() -> i32 {
+    let mut m: M = M { vals: [1i64, 2i64, 3i64, 4i64] };
+    m[0i64] = 9i64;
+    return (m[0i64] - 9i64) as i32;
+}

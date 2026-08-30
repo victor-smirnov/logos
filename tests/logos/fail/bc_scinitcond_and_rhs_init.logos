@@ -1,0 +1,14 @@
+// bck.NEW / P1 — THE RHS OF `&&` IS A CONDITIONAL PATH FOR DEFINITE-INIT.
+// `false && { i = 5; true }` never evaluates its RHS, so `i` is not initialised
+// on the path that reaches the use; the definite-assignment tracker cleared it
+// unconditionally and this compiled, reading uninitialised stack. rustc: E0381.
+// PAIR with pass/bc_scinitcond_lhs_init_twin, ONE TOKEN apart: there the
+// initialising block is the LHS of the same operator, which ALWAYS runs.
+package bc_scinitcond_and_rhs_init;
+
+fn main() -> i32 {
+    let i: i64;
+    let b: bool = false && { i = 5i64; true };
+    let _ = b;
+    return i as i32;
+}

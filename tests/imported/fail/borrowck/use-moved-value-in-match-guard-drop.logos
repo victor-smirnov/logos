@@ -1,6 +1,8 @@
 // rustc borrowck/use-moved-value-in-match-guard-drop.rs — upstream E0382
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.NEW
+// shelf: fail — REFUSED since 2026-08-30: a guard that ran and FAILED still moved: the guard's moves are
+// unioned into the `pre_moves` each later arm restarts from
+// (sema_stmt.cpp, lower_match_expr). Was bck.NEW.
 // upstream: use-moved-value-in-match-guard-drop.rs E0382
 package use_moved_value_in_match_guard_drop;
 struct Own { n: i64 }

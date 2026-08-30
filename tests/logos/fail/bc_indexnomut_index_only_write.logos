@@ -1,0 +1,21 @@
+// bck.NEW / P8 — AN `Index` IMPL IS NOT A WRITABLE PLACE (rustc E0594).
+// `try_index_mut_assign` returns nullopt when the type has no `IndexMut`, and
+// the fall-through reached the RAW address machinery, which wrote the struct's
+// FIRST FIELD by accident: this program compiled and `m[0] = 9` stored into
+// `vals` at offset 0 through a path nobody had checked.
+// PAIR with pass/bc_indexnomut_indexmut_twin, ONE TOKEN apart: the twin adds
+// the `IndexMut` impl and nothing else.
+package bc_indexnomut_index_only_write;
+use logos.lang.ops;
+
+struct M { vals: [i64; 4] }
+
+impl Index<i64, i64> for M {
+    fn index(self: &M, k: i64) -> &i64 { return &self.vals[k]; }
+}
+
+fn main() -> i32 {
+    let mut m: M = M { vals: [1i64, 2i64, 3i64, 4i64] };
+    m[0i64] = 9i64;
+    return 0i32;
+}

@@ -1,0 +1,30 @@
+// ⚠ THE NARROWING FIXTURE, AND IT IS THE ONE THE CORPUS COULD NOT SUPPLY.
+// `method_self_kind` returns 0 for FOUR different facts — a genuine by-value
+// `self`, an UNRESOLVED callee, an AMBIGUOUS overload set, and "no params" —
+// and a CONSUMING-position rule reads that 0 in the direction where the
+// conflation refuses legal code. Reading the bare 0 as "by value" refused NINE
+// `logos.mem` functions and broke the stdlib build, at ZERO cost over
+// `-L bc -L pass`: `target.set(...)` on a `&mut Vec<u16>` param is a Deref
+// receiver whose callee this index does not resolve. `method_self_by_value`
+// answers false unless the callee was actually FOUND — rule 16, "no fact
+// recorded" and "the fact is absent" are different facts.
+package bc_recvselfderef_unresolved_callee_twin;
+use logos.mem.collections.vec;
+
+fn fill(target: &mut Vec<i64>, n: i64) {
+    let mut c: i64 = 0i64;
+    while c < n {
+        target.set(c, c * 2i64);
+        c = c + 1i64;
+    }
+}
+
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    v.push(0i64);
+    v.push(0i64);
+    v.push(0i64);
+    v.push(0i64);
+    fill(&mut v, 4i64);
+    return (v.get(3i64) - 6i64) as i32;
+}

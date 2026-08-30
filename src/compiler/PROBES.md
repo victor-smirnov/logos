@@ -4222,3 +4222,248 @@ and never written back to the ledger.
  5. **the `&mut`-is-affine partition — 4 rows, UNPRICED, site now known.**
     The largest single group in `bck.NEW`, with a written precedent for the
     exact correction at one consumer. Needs a probe per caller gate.
+
+# ROUND 2026-08-30b — FOUR ARMS LANDED, AND THE TWO ZEROS THAT WERE FALSE
+
+The `bck.NEW` survey (§ 2026-08-30, above) priced five things and recommended
+four. All four landed. Ledger **324 -> 316**, predicted by name before the edit
+and closed exactly: predicted∖closed = ∅, closed∖predicted = ∅.
+
+⚠ **AND BOTH OF THE ROUND'S SURPRISES WERE MEASURED COSTS THAT PRICED ZERO.**
+`ceiling-probe.sh`'s legal selections are `-L bc -L pass` plus three `pass`
+directories. That population contains no `fail` fixtures and does not build the
+stdlib, so it cannot see a cost that lands in either — and this round's two
+real costs landed in exactly those two places. Rule 5 has never been this
+literal: two probes, both priced COST 0, both zeros false, and neither
+counter-example was reachable by writing more small programs — one needed
+`cmake --build` and the other needed `ctest`'s fail half.
+
+## WHAT LANDED, AND THE ONE ARM THAT DID NOT
+
+    mechanism        site                              rows  predicted  closed
+    scinitcond       sema_expr.cpp lower_binop            3      3         3
+    indexnomut       sema_stmt.cpp lower_place_assign     2      2         2
+    recvselfderef    borrow_check.cpp MethodCall arm      2      2         2
+    guardmovearm     sema_stmt.cpp lower_match_expr       1      1         1
+    guardmovearm     sema_stmt.cpp lower_match (stmt)     0      —      DECLINED
+                                                        ---
+                                                          8      8         8
+
+## scinitcond — LANDED, AND IT WAS EXACTLY WHAT THE RECORD SAID
+
+    borrowck-and-init--r03   "use of possibly uninitialised binding 'i'"
+    borrowck-and-init--t03   the same, and BYTE-IDENTICAL to --r03
+    borrowck-or-init         the same
+
+Two lines: snapshot `currently_uninit_vars_` before the `&&`/`||` RHS and
+re-insert after it. Strictly conservative — a name is only ever RESTORED. The
+pass twin `bc_scinitcond_lhs_init_twin` puts the initialising block on the LHS,
+one token away, and stays green: the restore is of the PRE-RHS set only.
+Cost on the full 8648-program oracle: **0**, rc and text.
+
+## indexnomut — LANDED, AND THE ZERO WAS STRUCTURAL AND STAYED TRUE
+
+    index-mut-help                       "cannot assign to index of 'm': type
+    borrowck-overloaded-index-ref-index   'M' implements `Index` but not
+                                          `IndexMut`"  (the second is bck.NEW-3)
+
+The only arm whose measured zero survived every widening this round. The site's
+entire live arrival population is "a Struct VarRef base, in write position, with
+`Index` and no `IndexMut`" — every legal spelling leaves earlier (eleven hand
+programs, arrival counts in § 2026-08-30). The landing adds an early return so
+the raw address machinery is not reached after the diagnostic; the probe only
+reported. Cost on the full oracle: **0**.
+
+## recvselfderef — LANDED NARROW, AND ITS COST 0 DIED ON THE STDLIB BUILD
+
+    clone-span-on-try-operator   "cannot move out of a value behind a shared
+    suggest-clone (nllmoves.R2)   reference (E0507)"
+
+⚠ **THE FIRST BUILD AFTER THE EDIT REFUSED NINE `logos.mem` FUNCTIONS.**
+`ssrle_encode_run`, `ssrle_finish_segment`, `ssrle_compactify` (twice),
+`SsrleRun__pattern_ranks_up_to`, `SsrleRun__full_ranks`,
+`SsrleRun__ranks_up_to`, `index_push_block`, `pack_runs_push` — every one of
+them `target.set(...)` on a `&mut Vec<u16>` parameter. `emit_module` failed and
+`liblogos-mem.a` did not build. Measured COST over `-L bc -L pass` and three
+`pass` directories: **0**. The corpus does not compile the stdlib.
+
+**THE CAUSE IS RULE 16, AT A PREDICATE THIS FILE ALREADY QUOTED.**
+`tests/logos/fail/bc_recvpartial_byval_recv_fail.logos` says it in the tree:
+"`method_self_kind` returns 0 for a by-value `self` AND for 'unresolved' AND
+for 'ambiguous' AND for 'no params' — four facts under one number". Every
+existing consumer reads that 0 as "not a borrow", where the conflation is
+CONSERVATIVE. A consuming-position rule reads it in the opposite direction,
+where the same conflation refuses legal code. `method_self_by_value` splits it:
+the callee must actually be FOUND (`by_name`, or a `by_base` set of size one)
+before its self kind is a fact about self at all.
+
+Under the split the two rows still close — so the narrowing cost the mechanism
+nothing — and `pass/bc_recvselfderef_unresolved_callee_twin` pins the shape the
+stdlib supplied, since the corpus never did.
+
+⚠ AND THE WIDE FORM (`recvselfmv`, visit the receiver with consuming=true) was
+already declined at cost 1 for the same underlying reason: `m.get(&k)` over a
+`HashMap` resolves `method_self_kind` 0 for an autoref. Two spellings, one
+confusion, and only the second one made it to a build.
+
+## guardmovearm — LANDED AT THE EXPRESSION SPELLING, DECLINED AT THE STATEMENT
+
+    use-moved-value-in-match-guard-drop   "use of moved variable 's'"
+
+⚠ **RULE 14, AND THE STATEMENT HALF IS THE HALF TO DROP.** The survey
+recommended landing at BOTH match spellings, on the precedent that "a rule at
+one match spelling is a rule at half of them". Measured: the statement spelling
+buys **0** rows and costs **5** regressed diagnostics.
+
+    logos_06_diagnostics_fail_borrowck-drop-from-guard
+    logos_06_diagnostics_fail_move-guard-same-consts
+    logos_06_diagnostics_fail_move-in-guard-1
+    logos_06_diagnostics_fail_move-in-guard-2
+    logos_06_diagnostics_fail_match-cfg-fake-edges--d-guard-may-be-taken
+
+All five still REFUSE. What changes is WHO refuses: the borrow checker already
+answers every statement-`match` guard move in the corpus, and answers BETTER —
+`borrow_check.cpp:4973` reports "use of moved value 'x' (moved on line 11)"
+where sema (`sema_expr.cpp:824`) reports "use of moved variable 'x'". Sema runs
+first, so arming the statement half REPLACES a located diagnostic with an
+unlocated one at five programs and buys nothing. At the EXPRESSION spelling the
+borrow checker answers NOTHING, which is why that row was in the ledger.
+
+⚠ AND `-L bc -L pass` PRICED THIS 0 TOO. ctest ANDs its filters, so the legal
+selection holds no `fail` fixture; a change that only re-words a REFUSAL is
+invisible to it by construction. Only the `-L bc` gate (which does include
+`06_diagnostics_fail`) and the full-suite text oracle can see it.
+
+## THE FIXTURE PAIRS — FOUR FAIL, FIVE PASS, EVERY FAIL HALF CONTROL-REVERTED
+
+    tests/logos/fail/bc_scinitcond_and_rhs_init          `false && { i = 5; true }`
+    tests/logos/pass/bc_scinitcond_lhs_init_twin         the block on the LHS
+    tests/logos/fail/bc_indexnomut_index_only_write      `Index`, no `IndexMut`
+    tests/logos/pass/bc_indexnomut_indexmut_twin         the `IndexMut` impl added
+    tests/logos/fail/bc_recvselfderef_byval_self_through_ref  `(*r).eat()`, `self: Self`
+    tests/logos/pass/bc_recvselfderef_ref_self_twin      `self: &F`, one token
+    tests/logos/pass/bc_recvselfderef_unresolved_callee_twin  THE NARROWING FIXTURE
+    tests/logos/fail/bc_guardmovearm_expr_guard_moved    a guard that moves, `match` expr
+    tests/logos/pass/bc_guardmovearm_expr_guard_borrows_twin  the guard BORROWS
+
+CONTROL REVERT, run before any of them was believed: the stashed tree rebuilt to
+`b817d199044cfb03` BYTE FOR BYTE (`scripts/build_hash.py build`), and under that
+binary all four fail fixtures compile rc=0 (ADMITTED) and all five pass twins
+compile rc=0. So each fail half is closed by THIS round and not by something
+already in the tree.
+
+The five statement-`match` guard fixtures listed above are the DECLINED half's
+pins: they are already in the corpus, already red under the arm, and they stay
+green only because the arm is not there.
+
+## THE RE-PRICED CEILINGS, RULE 8
+
+`scinitcond`'s record was written on 2026-08-28 against a 400-row ledger and
+re-priced by the survey against 324: same three rows, same zero. It landed
+today against 324 and closed the same three. Three readings, two ledger sizes,
+no decay — the only mechanism in this file with that history.
+
+`indexnomut`, `recvselfderef` and `guardmovearm` were priced yesterday and
+landed today on the same build read, so no decay window existed for them.
+
+## WHAT IS STILL OPEN OUT OF `bck.NEW`, NAMED
+
+ * **the `&mut`-is-affine partition, 4 rows** — the largest group, UNPRICED.
+   `mark_moved_expr`'s VarRef arm is the WRONG site (fires 9854, its MutRef
+   subset 0; every caller pre-gates on `is_move_type`). The site is the eight
+   caller gates at sema_stmt.cpp 1001, 1049, 1082, 1798, 2661, 7409, 8869,
+   8899, and pricing it means a probe per gate with the WHOLE priced first
+   (rule 13). The correction itself is already written once, at
+   `SemaChecker::struct_type_is_copy`. The probe was REMOVED from
+   `sema_impl.hpp` this round and replaced by the measurement, as a comment.
+ * **P9, one row, the cheapest thing left** — `generic-const-early-param`.
+   `ltundecl_wide`'s undeclared-lifetime rule is landed and exempt-checked; its
+   site is FN DECLARATIONS ONLY. `struct W<'b> { data: &'a i64 }` compiles. A
+   MISSING SITE for a landed rule, unpriced only because `sema_collect.cpp`
+   does not include `probe.hpp`.
+ * **the statement-`match` guard-move union** — declined at 0 rows / 5
+   regressed diagnostics, above. It becomes fundable the day sema's
+   "use of moved variable" carries the move LINE, at which point the two
+   readers are one reader and rule 14 resolves the other way.
+ * **P11, one row** — `borrowck-no-cycle-in-exchange-heap--min-move-while-mut-
+   borrowed` is legal under NLL as reduced; four one-token controls all refuse.
+   No mechanism is missing. Not funded, and it must not be.
+ * **P4 (2 rows) / P5 (1 row) / P3 (2 rows)** — retired by the survey with the
+   verdicts the tree had already reached; unchanged.
+
+## A DIAGNOSTIC RESIDUAL WITH NO ROW, MET WHILE PINNING THE FIXTURES
+
+The `Code::MethodCall` receiver block in `borrow_check.cpp` is reached with
+`line == 0` at every spelling measured (`let n = (*r).eat();`, a bare
+`(*r).eat();` statement, and a `return (*r).eat()`), so BOTH E0507 diagnostics
+this round lands print without a source line, and so does the LANDED
+`recvpartial` rule beside them (`tests/logos/fail/bc_recvpartial_shared_recv_
+fail.expected` pins an unlocated line too). The neighbouring `eat(*r)` spelling
+prints `…logos:13:` correctly. Not this round's mechanism, not a new defect, and
+it is why the two `.expected` files here pin a message with no location.
+
+## RULE 15 — THE FULL-SUITE TEXT ORACLE, AND IT IS THE ROUND'S PRIMARY NUMBER
+
+All **8648** `tests/**/*.logos` compiled twice, rc AND stderr captured and
+diffed, driven from the CURRENT file list (never a directory diff) with
+`logosc: wrote <path>` and the mktemp path normalised out.
+
+    rc CHANGES     8   — exactly the eight ledger rows, and nothing else
+    TEXT-ONLY      0   — no diagnostic anywhere else is re-worded
+
+    tests/imported/admit/borrowck/borrowck-and-init--r03            RC 0 -> 1
+    tests/imported/admit/borrowck/borrowck-and-init--t03            RC 0 -> 1
+    tests/imported/admit/borrowck/borrowck-or-init                  RC 0 -> 1
+    tests/imported/admit/borrowck/borrowck-overloaded-index-ref-index RC 0 -> 1
+    tests/imported/admit/borrowck/clone-span-on-try-operator        RC 0 -> 1
+    tests/imported/admit/borrowck/index-mut-help                    RC 0 -> 1
+    tests/imported/admit/borrowck/use-moved-value-in-match-guard-drop RC 0 -> 1
+    tests/imported/admit/moves/suggest-clone                        RC 0 -> 1
+
+predicted∖measured = ∅ and measured∖predicted = ∅, on the widest oracle
+available. **FINAL COST: 0** — and that zero is worth exactly as much as the
+two false zeros above, which is why it is stated with the population (8648
+programs, the stdlib build, and the `fail` half of `-L bc`) rather than alone.
+
+⚠ THE COST WAS NOT ZERO WHILE THE ROUND WAS RUNNING. It reached zero because
+two things were REMOVED after being measured: the statement-`match` guard union
+(5 diagnostics) and the bare `method_self_kind(v) == 0` test (9 stdlib
+functions). A final zero over the corpus is the OUTPUT of the pricing, never a
+substitute for it.
+
+## THE PINS, RE-DERIVED
+
+`logos_00_census_pin` and `logos_00_population_pin_lint` both went red, and both
+reconcile term for term (⚠ read BEFORE they were predicted, which is the wrong
+order and is recorded as such):
+
+    REGISTRY-ALL        8696 -> 8705   -8 admit tests, +8 imported fail, +9 new
+    REGISTRY-NOIMPORTED 4462 -> 4463   -8 admit tests, +9 new (the imported fail
+                                        tests carry the `imported` label)
+    REGISTRY-TIERCOMMIT  373 -> 365    -8; the ledger rows are the tier_commit
+                                        half that moved
+    direct_door corpus  2480 -> 2485   +5 = the five PASS twins; the four new
+    direct_door nonglob 2289 -> 2294    fail fixtures and the eight moved
+    direct_door glob     191 -> 191     imported programs are not in this
+                                        population (pass corpus only)
+
+Ledger re-derived FOUR ways: rows 316, `# TOTAL` 316, admit `.logos` on disk
+316, registered `logos_00_bc_admit_*` ctest tests 316.
+
+## THE GATES, ON THE COMMITTED TREE
+
+    L1                        rc 0   745/745 + 12 684 enumerator cases
+                                     + 365 tier_commit gates
+    L4 bc  (detached)         rc 0   4463/4463, then 1344/1344
+    full `cmake --build`      rc 0   build read 63678a4d6a5f87d9
+    ledger  (store build 171) rc 0   316 passed / 0 failed / 316 recorded
+    `-L bc` (store build 171) rc 0   1908 passed / 0 failed / 2 disabled
+                                     (1893 -> 1910: +9 new fixtures,
+                                      +8 imported programs that moved to fail)
+
+⚠ THE LIBS HASH MOVED BETWEEN THE `L4 bc` RUN (84807cd183a12186) AND THE FINAL
+FULL BUILD (63678a4d6a5f87d9) WITH NO COMPILED SOURCE CHANGED — the cmake
+reconfigure that registers the nine new fixtures rebuilds the stdlib archives,
+whose version string carries a timestamp. So both ledger selections were
+RE-RUN on the final hash rather than read from the store, and the numbers above
+are that re-run. A gate's rc is a measurement with a timestamp.

@@ -6330,6 +6330,29 @@ private:
         return 0;
     }
 
+    // ⚠ `method_self_kind` RETURNS 0 FOR THREE DIFFERENT FACTS, and only one
+    // of them is "the receiver is consumed": a genuine by-value `self`, a
+    // callee it could NOT RESOLVE, and an AMBIGUOUS overload set. Every other
+    // consumer of the 0 uses it as "not a borrow", where conflating them is
+    // conservative; a CONSUMING-position rule reads it in the opposite
+    // direction, where the conflation refuses legal code. Measured 2026-08-30:
+    // reading the bare 0 as by-value refused NINE `logos.mem` functions
+    // (`target.set(...)` on a `&mut Vec<u16>`, whose callee this index does
+    // not resolve) and broke the stdlib build. Rule 16 — "no fact recorded"
+    // and "the fact is absent" are different, and only the minting site tells
+    // them apart.
+    bool method_self_by_value(lir_view::EMethodCallView v) const {
+        lir_view::FunctionView f;
+        if (auto it = fn_index_.by_name.find(std::string(v.resolved_symbol()));
+            it != fn_index_.by_name.end())
+            f = it->second;
+        else if (auto it = fn_index_.by_base.find(std::string(v.method()));
+                 it != fn_index_.by_base.end() && it->second.size() == 1)
+            f = it->second.front();
+        if (!f || f.params().empty()) return false;   // UNRESOLVED / ambiguous
+        return method_self_kind(v) == 0;              // resolved, and by value
+    }
+
     // Whole-root conflict check for a MUTABLE USE of a whole-var place. Three
     // consumers: a method call's bare-place receiver borrowing `self`, the
     // SD-DST Call arg0 site, and the DerefWrite arm's bare-pointer spelling
@@ -14099,21 +14122,28 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 if (!rbp.root.empty() && rbp.path.empty())
                     if (auto* rst = var_find(rbp.root_slot, rbp.root))
                         report_partial_move(*rst, rbp.root, line);
-                if (rp && rp.kind() == Code::Deref && method_self_kind(v) == 0) {
-                    (void)logos::probe::on("recvselfderefsite");
+                // ── A BY-VALUE `self` RECEIVER IS A CONSUMING POSITION,
+                // AND THE DEREF-MOVE RULE WAS NEVER ASKED THERE (E0507).
+                // LANDED 2026-08-30 (was `recvselfderef`). The residual is
+                // named at `deref_move_exempt`'s own arm: "NOT a place base:
+                // visit_place_base visits with consuming=false, so `(*r).…`
+                // never reaches this report." One token apart, measured:
+                //     fn eat(f: F) -> i64        eat(*r)      → REFUSED E0507
+                //     fn eat(self: Self) -> i64  (*r).eat()   → ADMITTED
+                // Asked NARROWLY — the existing exemptions plus `is_move_type`
+                // on the deref result — because the WIDE spelling (visit the
+                // receiver with consuming=true) buys the SAME two rows and
+                // refuses `m.get(&k)` over a HashMap, where `method_self_kind`
+                // resolves 0 for what is really an autoref.
+                if (rp && rp.kind() == Code::Deref && method_self_by_value(v)) {
                     auto dop_ = EDerefView{rp}.operand();
                     if (!deref_move_exempt(dop_) &&
-                        is_move_type(rp.type(pool), prog_, ts_, &copy_tvs_) &&
-                        logos::probe::on("recvselfderef"))
-                        report(line, "ceiling-probe recvselfderef: " +
-                                     deref_move_message(dop_));
+                        is_move_type(rp.type(pool), prog_, ts_, &copy_tvs_))
+                        report(line, deref_move_message(dop_));
                 }
             }
             push_scope();
-            if (method_self_kind(v) == 0 && logos::probe::on("recvselfmv"))
-                visit(v.receiver(), /*consuming=*/true, line);
-            else
-                visit_place_base(v.receiver(), line);
+            visit_place_base(v.receiver(), line);
             // ── THE `AddrOfTemp` RECEIVER IS CHECKED AND NEVER RECORDED, AND
             // THAT IS THE SECOND HALF OF B94. `visit_place_base` above runs
             // visit()'s AddrOfTemp arm, which CHECKS the receiver against every

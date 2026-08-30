@@ -7952,19 +7952,33 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
                     map_of(place_node.get(la::VALUE.code)),
                     map_of(node.get(la::VALUE.code))))
                 return std::move(*s);
+            // AN `Index` IMPL IS NOT A WRITABLE PLACE (E0594). LANDED
+            // 2026-08-30 (was `indexnomut`). `try_index_mut_assign` returns
+            // nullopt when the receiver's type has no `IndexMut` impl, and the
+            // fall-through below reaches the RAW address machinery, which
+            // writes the struct's FIRST FIELD by accident: `m[0i64] = 9i64`
+            // over an `Index`-only type compiled and stored the wrong thing.
+            // The whole live arrival population of this site is that shape —
+            // every legal spelling measured (both impls, a native array, an
+            // element field write, a FieldRead base, a Vec, a READ through
+            // `Index`) leaves before here or is not a Struct VarRef — so the
+            // refusal is structural, not a corpus reading.
             TypeRef at_ = lookup(an);
             if (at_ && TypeRef(at_).kind() == LogosType::Kind::Struct) {
-                (void)logos::probe::on("indexnomutsite");
                 auto tn_ = concrete_struct_name(at_);
                 auto bn_ = std::string(TypeRef(at_).struct_name());
                 bool hix_ = impls_.count("Index::" + tn_) ||
                             (!bn_.empty() && impls_.count("Index::" + bn_));
                 bool him_ = impls_.count("IndexMut::" + tn_) ||
                             (!bn_.empty() && impls_.count("IndexMut::" + bn_));
-                if (hix_ && !him_ && logos::probe::on("indexnomut"))
-                    error(std::format("ceiling-probe indexnomut: cannot assign to "
-                                      "index of '{}': the type implements `Index` "
-                                      "but not `IndexMut` (E0594)", an));
+                if (hix_ && !him_) {
+                    error(std::format("cannot assign to index of '{}': type "
+                                      "'{}' implements `Index` but not "
+                                      "`IndexMut`", an,
+                                      tn_.empty() ? bn_ : tn_));
+                    lir::SExprStmt es_; es_.expr = error_expr();
+                    return make_stmt_emit(node_line_, std::move(es_));
+                }
             }
         }
     }
@@ -9851,10 +9865,24 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                     gb.push_back({nullptr, &*guard, moved_vars_, gm, gm});
                     gb.push_back({nullptr, nullptr, guard_pre, gm, gm});
                     elaborate_cond_moves(guard_pre, gb);
-                    if (logos::probe::on("guardmovearmstmt"))
-                        for (auto& gmv_ : moved_vars_) pre_moves.insert(gmv_);
                 }
-                (void)logos::probe::on("guardmovearmstmtsite");
+                // ⚠ THE STATEMENT `match` DOES NOT GET THE GUARD-MOVE UNION
+                // THE EXPRESSION SPELLING GETS, AND THAT IS RULE 14, MEASURED.
+                // Unioning the guard's moves into `pre_moves` here makes SEMA
+                // answer a question the BORROW CHECKER already answers at
+                // every statement-`match` spelling in the corpus, and answers
+                // BETTER: borrow_check.cpp reports "use of moved value 'x'
+                // (moved on line 11)" where sema_expr.cpp:824 reports only
+                // "use of moved variable 'x'". Armed, sema fires first and the
+                // move line is lost. Priced 2026-08-30: ZERO ledger rows
+                // bought (the probe fired once over 324 and closed nothing),
+                // FIVE diagnostics regressed — borrowck-drop-from-guard,
+                // move-guard-same-consts, move-in-guard-1, move-in-guard-2,
+                // match-cfg-fake-edges--d-guard-may-be-taken. The expression
+                // spelling lands because there the borrow checker answers
+                // NOTHING (use-moved-value-in-match-guard-drop).
+                // ⚠ `-L bc -L pass` COULD NOT SEE THIS COST: fail fixtures are
+                // not in the legal selection, so ceiling-probe priced it 0.
             }
             // G172-1: the string-literal arm's `str_eq(__smatch, "lit")` test
             // is its dispatch — AND it ahead of any user guard.
@@ -10624,10 +10652,11 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     gb.push_back({nullptr, &*guard, moved_vars_, gm, gm});
                     gb.push_back({nullptr, nullptr, guard_pre, gm, gm});
                     elaborate_cond_moves(guard_pre, gb);
-                    if (logos::probe::on("guardmovearm"))
-                        for (auto& gmv_ : moved_vars_) pre_moves.insert(gmv_);
+                    // A GUARD THAT RAN AND FAILED STILL MOVED — the same
+                    // rule as the statement `match` spelling above; a rule at
+                    // one match spelling is a rule at half of them.
+                    for (auto& gmv_ : moved_vars_) pre_moves.insert(gmv_);
                 }
-                (void)logos::probe::on("guardmovearmsite");
             }
             // G172-1: AND the string-literal arm's str_eq dispatch ahead of any
             // user guard.

@@ -1,6 +1,8 @@
 // rustc borrowck/borrowck-overloaded-index-ref-index.rs — upstream E0594 assign to data in an index of `Bar`
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.NEW-3
+// shelf: fail — REFUSED since 2026-08-30: an `Index` impl is not a writable place (E0594):
+// lower_place_assign refuses an index write on a type with no `IndexMut`
+// instead of falling through to the raw address machinery. Was bck.NEW-3.
 package borrowck_overloaded_index_ref_index;
 struct Bar { x: i64 }
 impl Index<i64> for Bar { type Output = i64; fn index(self: &Self, z: i64) -> &i64 { return &self.x; } }

@@ -1,0 +1,19 @@
+// THE LEGAL TWIN of fail/bc_recvselfderef_byval_self_through_ref, ONE TOKEN
+// apart: `self: &F` instead of `self: Self`. The receiver is borrowed, not
+// consumed, so the deref-move rule must not fire — `method_self_by_value`
+// resolves the callee and answers 1, not "by value".
+package bc_recvselfderef_ref_self_twin;
+use logos.mem.string;
+
+struct F { s: String }
+
+impl F {
+    fn eat(self: &F) -> i64 { return self.s.len(); }
+}
+
+fn main() -> i32 {
+    let f = F { s: String::from("hi") };
+    let r = &f;
+    let n = (*r).eat();
+    return (n - 2i64) as i32;
+}

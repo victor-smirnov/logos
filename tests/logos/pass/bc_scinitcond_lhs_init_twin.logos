@@ -1,0 +1,13 @@
+// THE LEGAL TWIN of fail/bc_scinitcond_and_rhs_init, ONE TOKEN apart: the
+// initialising block is the LHS of `&&`, which is evaluated UNCONDITIONALLY.
+// The restore is of the PRE-RHS uninit set only, so an LHS initialisation must
+// survive it — this fixture is what says the fix did not simply re-mark
+// everything.
+package bc_scinitcond_lhs_init_twin;
+
+fn main() -> i32 {
+    let i: i64;
+    let b: bool = { i = 5i64; true } && false;
+    let _ = b;
+    return (i - 5i64) as i32;
+}

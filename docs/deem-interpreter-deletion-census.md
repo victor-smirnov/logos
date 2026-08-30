@@ -4746,9 +4746,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                   admit row test carries no `imported` label).
 #   TIERCOMMIT    375 ->  373   -2  the two closed rows' per-row tests leave.
 # PREDICTED +6/+4/-2 before the pin was read, and read as exactly that.
-REGISTRY-ALL         8696
-REGISTRY-NOIMPORTED  4462
-REGISTRY-TIERCOMMIT  373
+REGISTRY-ALL         8705
+REGISTRY-NOIMPORTED  4463
+REGISTRY-TIERCOMMIT  365
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

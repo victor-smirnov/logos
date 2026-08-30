@@ -1,6 +1,8 @@
 // rustc borrowck/borrowck-and-init.rs — upstream E0381
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.NEW
+// shelf: fail — REFUSED since 2026-08-30: the RHS of `&&`/`||` is a CONDITIONAL path for definite-init: the
+// names uninitialised before it are RESTORED after it (sema_expr.cpp,
+// lower_binop). Was bck.NEW.
 package borrowck_and_init_r03;
 fn main() -> i32 {
     let i: i64;

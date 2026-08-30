@@ -1,0 +1,27 @@
+// bck.NEW / P7 — A GUARD THAT RAN AND FAILED STILL MOVED (rustc E0382).
+// The DROP side of this was closed with the #118 conditional-move flag and the
+// block still carries the sentence that names the rest: "the arm was not taken,
+// so the next arm restarts from `pre_moves` and the guard's move is forgotten."
+// So the DIAGNOSTIC side stayed open at the match-EXPRESSION spelling: the
+// guard moves `s`, returns false, and the `_` arm moves it again.
+// ⚠ ONLY THE EXPRESSION SPELLING. At the statement `match` the borrow checker
+// already answers, and better ("use of moved value 'x' (moved on line 11)"),
+// so unioning there would be a second name for one question — RULE 14, and the
+// five fixtures it would re-word are named in src/compiler/PROBES.md.
+// PAIR with pass/bc_guardmovearm_expr_guard_borrows_twin, ONE TOKEN apart:
+// there the guard BORROWS instead of moving.
+package bc_guardmovearm_expr_guard_moved;
+
+struct Own { n: i64 }
+impl Drop for Own { fn drop(self: &mut Own) {} }
+
+fn eat(o: Own) -> i64 { return o.n; }
+
+fn main() -> i32 {
+    let s = Own { n: 1i64 };
+    let r = match 0i64 {
+        0i64 if { let _ = eat(s); false } => 5i64,
+        _ => eat(s),
+    };
+    return (r - 1i64) as i32;
+}

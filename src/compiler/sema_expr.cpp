@@ -2200,13 +2200,17 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // augmented-assignments) is NOT covered here: `let mut v: i64; v += 1;`
     // never READS `v` at statement level, which is the compound-assign
     // lowering's site and needs its own name.
-    bool sc_probe = logos::probe::on("scinitcond") &&
-                    (op == "&&" || op == "||");
+    bool sc_fork = (op == "&&" || op == "||");
     auto uninit_pre = currently_uninit_vars_;
-    auto rhs = (op == "&&" || op == "||")
+    auto rhs = sc_fork
         ? lower_expr_temp_scoped(map_of(node.get(la::RHS.code)))
         : lower_expr(map_of(node.get(la::RHS.code)));
-    if (sc_probe)
+    // LANDED 2026-08-30 (was `scinitcond`): an initialization performed in the
+    // RHS is CONDITIONAL, so the names uninitialised before the RHS are
+    // RESTORED after it. Strictly conservative — a name is only ever put BACK
+    // into the uninit set, never taken out — and it is the same fork
+    // `if` / `match` / loops already carry for this tracker.
+    if (sc_fork)
         for (auto& n : uninit_pre) currently_uninit_vars_.insert(n);
     if ((op == "&&" || op == "||") && moved_vars_ != rhs_pre) {
         size_t rm = flag_clear_log_.size();

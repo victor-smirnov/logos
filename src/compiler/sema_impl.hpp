@@ -3256,12 +3256,16 @@ private:
         if (er.kind() == C::VarRef) {
             std::string nm(lir_view::EVarRefView{er}.name());
             auto vt_ = er.type(cur_prog_->type_pool.impl());
-            (void)logos::probe::on("mutrefmvsite");
-            if (vt_ && TypeRef(vt_).kind() == LogosType::Kind::MutRef &&
-                logos::probe::on("mutrefmv")) {
-                mark_moved(nm);
-                return;
-            }
+            // ⚠ NOT THE SITE FOR "`&mut T` IS AFFINE, NOT Copy". A probe on
+            // exactly this arm fired ZERO times over 324 ledger programs while
+            // the arm itself fired 9854 — every caller pre-gates on
+            // `is_move_type` (sema_stmt.cpp 1001, 1049, 1082, 1798, 2661, 7409,
+            // 8869, 8899), so a `&mut` operand never arrives. The four rows
+            // that need it (reborrow-sugg-move-then-borrow,
+            // moved-value-suggest-reborrow-issue-127285--r32 / --t32,
+            // issue-83924) have to be priced at those CALLER GATES; the
+            // correction itself is already written once, at
+            // `SemaChecker::struct_type_is_copy`. Recorded 2026-08-30.
             if (is_move_type(vt_) || lookup_owning_dyn(nm))
                 mark_moved(nm);
             return;

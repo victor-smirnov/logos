@@ -1,0 +1,1 @@
+cannot assign to index of 's': type 'Bar' implements `Index` but not `IndexMut`
