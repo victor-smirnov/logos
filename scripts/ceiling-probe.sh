@@ -141,7 +141,7 @@ if [ "$SKIP_FAIL" != "1" ]; then
             # invents 1028 differences is what pole 2 exists to catch.
             {rcb=$2; shb=$3; mb=$4; rca=$6; sha=$7; ma=$8;
              if (rcb!=rca)      print "RC   " $1 "  " rcb " -> " rca;
-             else if (mb!=ma)   print "MATCH" $1 "  .expected " (ma?"regained":"LOST");
+             else if (mb!=ma)   print "MATCH " $1 "  .expected " (ma?"regained":"LOST");
              else if (shb!=sha) print "TEXT " $1 "  stderr changed, .expected still matches"}')
         FAIL_RC=$(printf '%s\n' "$FAIL_LINES" | grep -c '^RC   ' || true)
         FAIL_MATCH=$(printf '%s\n' "$FAIL_LINES" | grep -c '^MATCH' || true)

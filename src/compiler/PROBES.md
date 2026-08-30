@@ -4046,6 +4046,9 @@ note: `try_index_mut_assign` returns nullopt when the receiver's type has no
   unrelated reasons and are not costs; recorded so they are not re-counted.)
 
 ## guardmovearm — A GUARD THAT RAN AND FAILED STILL MOVED
+⚠ THE `cost:` BELOW WAS MEASURED OVER PASS FIXTURES ALONE, and the STATEMENT
+spelling this note declines re-prices at 0 pass / **5 fail** with the repaired
+oracle — see `## guardmovearmstmt`, § 2026-08-30c.
 site: src/compiler/sema_stmt.cpp::lower_match_expr (the arm-guard block)
 build: b817d199044cfb03 (READ; 158 unarmed -> 162 armed)
 measured: 2026-08-30
@@ -4082,6 +4085,11 @@ note: the block already carries, in the tree, the sentence that names this:
   spelling is a rule at half of them.
 
 ## recvselfderef / recvselfmv — THE NARROW FORM DOMINATES, MEASURED
+⚠ THE `cost: 0 / 1` BELOW WAS MEASURED OVER PASS FIXTURES ALONE. The crude
+predicate both halves used — a bare `method_self_kind(v) == 0` — re-prices with
+the repaired oracle as 1 pass, 0 fail, **STDLIB REFUSED: nine `logos.mem`
+functions**; see `## recvselfderefwide`, § 2026-08-30c. The narrowing this
+record recommended is what makes the LANDED form build.
 site: src/compiler/borrow_check.cpp::visit (Code::MethodCall arm)
 build: b817d199044cfb03 (READ; 158 unarmed -> 163 / 164 armed)
 measured: 2026-08-30
@@ -4467,3 +4475,206 @@ reconfigure that registers the nine new fixtures rebuilds the stdlib archives,
 whose version string carries a timestamp. So both ledger selections were
 RE-RUN on the final hash rather than read from the store, and the numbers above
 are that re-run. A gate's rc is a measurement with a timestamp.
+
+---
+
+# ROUND 2026-08-30c — THE INSTRUMENT, NOT THE TREE: WHAT THE COST ORACLE COULD NOT SEE
+
+No compiler defect was touched this round. The subject is `ceiling-probe.sh`,
+which yesterday priced two probes at COST 0 and was wrong both times.
+
+## THE POPULATION BEFORE, AND WHY ITS BLINDNESS WAS STRUCTURAL
+
+    LEDGER   -R '^logos_00_bc_admit_'                              316 rows
+    LEGAL_A  -L bc -L pass                                         882 tests
+    LEGAL_B  -R '^logos_(25_spec|03_ownership|04_advanced)_pass'   190 tests
+
+Every member of the legal half is a PASSING TEST. The selection therefore
+encodes one assumption — **damage looks like a passing test that fails** — and
+an instrument's selection is exactly where its assumptions are unfalsifiable
+from inside. Two of the three damage shapes were outside it by construction:
+
+    shape                                     old oracle   why
+    a legal program starts being refused       SEEN        that is the selection
+    a `fail` fixture is refused DIFFERENTLY    BLIND       ctest ANDs its `-L`
+                                                           filters: `-L bc -L
+                                                           pass` can never name
+                                                           a `fail` fixture
+    the STDLIB stops compiling                 BLIND       the corpus does not
+                                                           build the stdlib
+
+And adding `-L bc -L fail` to ctest would have closed only part of the second:
+`tests/logos/run_test.sh` in fail mode is `grep -qF -- "$(cat .expected)"`, a
+SUBSTRING test. A probe that appends a note or re-words a hint leaves the ctest
+verdict GREEN while changing what the compiler says (rule 15).
+
+## THE POPULATION AFTER — THREE, EACH NAMED WHERE THE NUMBER IS PRINTED
+
+    pass    unchanged: ledger 316 + legal 1072, through the store
+    fail    scripts/fail_text_oracle.py — 1028 `-L bc -L fail` fixtures, each
+            recorded as a TRIPLE: rc, sha256 of the NORMALISED stderr, and
+            whether its `.expected` still matches. Three shapes counted apart:
+            rc flip / `.expected`-match lost (what ctest would say) / TEXT-ONLY
+            (what ctest CANNOT say).
+    stdlib  scripts/stdlib-cost.sh — all four layers compiled from source under
+            the probe. It asserts legality by BEING BUILT; no fixture author's
+            opinion is involved, which makes it the hardest oracle in the tree.
+
+⚠ `match` REPRODUCES `grep -F`'s ALTERNATION, and getting that wrong invents
+differences. A multi-line `.expected` is an OR of its lines to `grep -F`; a
+strict whole-string `in` test called all seven `nll_*_outlives_scope` fixtures
+changed on an UNARMED baseline, before any probe existed.
+
+⚠ AND THE READER'S OWN NULL POLE CAUGHT THE FIRST REAL BUG. `join` emits KEY,
+then every remaining field of the left record, then the right's: with five
+columns a side the armed rc is `$6`. The first version read `$5` — the
+baseline's PATH column — and reported all 1028 fixtures changed under
+`selftest_inert`, a probe that changes nothing.
+
+## WHY NOT `ninja lib/logos/liblogos-*.a`, WHICH `pass-probe.sh` DOES
+
+    -O2, ninja, chained, archives replaced   141 s   AND it moves build_hash.py
+    -O0, scratch output, four in parallel     49 s   hash untouched
+
+The second half is the one that matters. A stdlib rebuild changes the archive
+bytes with NO source changed — the module's version string carries a timestamp,
+measured `63678a4d6a5f87d9 -> e3eed1c6515e4486` — and that hash is the STORE'S
+BUILD IDENTITY. Rebuilding the stdlib inside a price would invalidate every
+verdict the store holds for the build and make the next gate re-run 1388 tests
+it had already measured. Compiling each layer to a scratch output against the
+archives already in the tree makes the four layers INDEPENDENT (they are no
+longer a chain), so they run in parallel.
+
+⚠ `-O0` IS A NAMED NARROWING, not a free lunch: the shape priced is a FRONT-END
+refusal, which no `-O` level reaches. An LLVM-level failure that appears only at
+`-O2` stays with the per-batch `cmake --build`.
+
+## THE LADDER, IN SECONDS, MEASURED BOTH WAYS
+
+    per mechanism        before   after
+    pass half (store)     128 s    128 s   (ceiling-probe selftest_inert, fresh
+                                            armed identity, 1388 tests)
+    fail text oracle        —       54 s   (1028 compiles, 32-way)
+    stdlib, four layers     —       49 s
+                          -----    -----
+                          128 s    231 s
+
+    per BUILD, once      fail baseline 55 s — keyed on `build_hash.py` and
+                         shared by every probe in the batch, because the
+                         baseline is a property of the BINARY, not of the probe.
+
+END-TO-END CONFIRMATION off this round's own two-probe batch (file mtimes):
+build+L1 169 s, first probe 346 s (it pays the 55 s baseline and its stdlib
+FAILS, which costs full time), second probe **215 s**. The component sum
+predicted 231; the measured steady-state figure is 215.
+
+⚠ THE STDLIB BELONGS IN THE PER-MECHANISM LADDER, and the honest ground is that
+it is the CHEAPEST of the three additions (49 s against the fail half's 54 and
+the pass half's 128) while being the only oracle for the one shape that
+invalidates everything downstream of it. The per-batch `cmake --build` is not a
+substitute: it builds the tree UNARMED, and a probe is env-gated by design, so
+that build says nothing whatever about the armed compiler. `LOGOS_PROBE_SKIP_
+STDLIB=1` exists for a deliberate choice — and when it is used the printed line
+says `⚠NO-STDLIB` and the table prints `—`, never a digit.
+
+## THE PROOF IS BY KNOWN ANSWER, NOT BY INSPECTION
+
+Both misses were RE-CREATED as env-gated probes in one batch build, and the
+repaired oracle was asked to report them. A widening that does not catch a known
+miss is not a widening.
+
+    probe                        fires ceiling   cost  cfail  std  verdict
+    recvselfderefwide            17272       0      1      0  ⛔  STOP — THE STDLIB DID NOT COMPILE
+    guardmovearmstmt                 6       0      0      5   ok  STOP re-words more diagnostics than it closes rows
+
+## recvselfderefwide
+site: src/compiler/borrow_check.cpp::method_self_by_value
+build: 63678a4d6a5f87d9 (restored; measured under the batch build, 173 -> 174)
+measured: 2026-08-30
+fires: 17272
+ceiling: 0
+cost: 1 pass · 0 fail · STDLIB REFUSED (mem, 9 functions)
+verdict: KNOWN-ANSWER — the repaired oracle names all nine, by name, and the
+  old one printed COST 0 for the same edit
+note: the edit is the bare `method_self_kind(v) == 0` predicate that yesterday's
+  narrowing replaced with `method_self_by_value`. Predicted by yesterday's
+  record, measured today, set-for-set:
+    ssrle_encode_run · ssrle_finish_segment · ssrle_compactify (x2) ·
+    SsrleRun__pattern_ranks_up_to · SsrleRun__full_ranks · SsrleRun__ranks_up_to
+    · index_push_block · pack_runs_push
+    predicted∖measured = ∅   measured∖predicted = ∅   (9 of 9, `logos.mem`)
+  All nine are the same diagnostic, "cannot move out of a value behind a mutable
+  reference (E0507)", on `target.set(...)` over a `&mut Vec<u16>` whose callee
+  the index does not resolve — rule 16 at `method_self_kind`, which returns 0
+  for four different facts.
+  ⚠ THE PASS HALF NOW SHOWS 1 WHERE IT SHOWED 0, and that is not the widening:
+  `bc_recvselfderef_unresolved_callee_twin` is the fixture yesterday's landing
+  ADDED to pin this exact narrowing. The corpus grew a member because the miss
+  was found; it could not have reported it at the time.
+
+## guardmovearmstmt
+site: src/compiler/sema_stmt.cpp::lower_match
+build: 63678a4d6a5f87d9 (restored; measured under the batch build, 173 -> 175)
+measured: 2026-08-30
+fires: 6
+ceiling: 0
+cost: 0 pass · 5 fail (.expected-match LOST) · stdlib clean
+verdict: KNOWN-ANSWER — the pass half still prints 0, exactly as it did
+  yesterday; the fail column is what makes the zero readable
+note: the statement-`match` guard-move union, declined yesterday at 0 rows and 5
+  regressed diagnostics. Named by the record before the re-run, closed exactly:
+    logos_06_diagnostics_fail_borrowck-drop-from-guard
+    logos_06_diagnostics_fail_match-cfg-fake-edges--d-guard-may-be-taken
+    logos_06_diagnostics_fail_move-guard-same-consts
+    logos_06_diagnostics_fail_move-in-guard-1
+    logos_06_diagnostics_fail_move-in-guard-2
+    predicted∖measured = ∅   measured∖predicted = ∅   (5 of 5)
+  All five are `.expected`-match LOST, not text-only: sema's "use of moved
+  variable 'x'" does not contain borrowck's "use of moved value 'x' (moved on
+  line 11)". So this shape WOULD also have been caught by putting `-L bc -L
+  fail` into ctest. The TEXT-ONLY column caught nothing this round and is
+  recorded as UNEXERCISED BY A KNOWN ANSWER — it is there for rule 15, which
+  has bitten in the tree before, but it has not yet been proven live by a
+  positive. That is a gap in this round's proof and it is stated, not hidden.
+
+## THE RESTORE, PROVEN
+
+    before the batch   scripts/build_hash.py build -> 63678a4d6a5f87d9 43
+    after `git checkout` of the two sources + `cmake --build` rc 0
+                       scripts/build_hash.py build -> 63678a4d6a5f87d9 43
+
+Byte for byte, and `git status` clean of both compiled files.
+
+## WHAT THE PRINTED LINE NOW SAYS
+
+    probe: COST    = 0 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+    probe: COST-fail = 5 of 1028 `-L bc -L fail` fixtures changed
+                       (rc 0, .expected-match 5, text-only 0)
+    probe: stdlib: ⛔ REFUSED: mem — the hardest COST there is.
+    probe: COST-stdlib = REFUSED — this outranks every number above.
+
+and when a population is skipped, in place of a digit:
+
+    probe: COST    = 0 legal programs refused   [saw: pass(ledger+legal) ⚠NO-FAIL ⚠NO-STDLIB]
+    probe: COST-stdlib = NOT MEASURED — recvselfderef priced 0 here and then
+    probe:               refused nine logos.mem functions.
+
+The batch table gained `cfail` and `std` columns, and a `—` in either means NOT
+MEASURED — never "nothing happened". Rule 4 of this round: a caveat in a
+document is left behind with the document; this one travels with the digit.
+
+## THE TWO RECORDS THIS CORRECTS
+
+⚠ Both `## guardmovearm` and `## recvselfderef / recvselfmv` (§ 2026-08-30,
+above) carry a `cost:` measured over the blind population. The numbers are not
+withdrawn — they are correct ABOUT THE PASS CORPUS — but they are incomplete,
+and re-priced today they read:
+
+    record                       as written    with the repaired oracle
+    recvselfderef (crude, wide)  cost: 0 / 1   1 pass, 0 fail, STDLIB REFUSED (9)
+    guardmovearm (statement)     "closes 0"    0 pass, 5 fail, stdlib clean
+
+⚠ AND THE SAME CAVEAT APPLIES TO EVERY `cost:` IN THIS FILE DATED BEFORE TODAY.
+Each was measured over pass fixtures alone. That is not a reason to distrust
+them uniformly — it is a reason to re-price before funding anything, which rule
+8 already says for the ceiling and now says for the cost as well.
