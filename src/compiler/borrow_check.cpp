@@ -14099,9 +14099,21 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 if (!rbp.root.empty() && rbp.path.empty())
                     if (auto* rst = var_find(rbp.root_slot, rbp.root))
                         report_partial_move(*rst, rbp.root, line);
+                if (rp && rp.kind() == Code::Deref && method_self_kind(v) == 0) {
+                    (void)logos::probe::on("recvselfderefsite");
+                    auto dop_ = EDerefView{rp}.operand();
+                    if (!deref_move_exempt(dop_) &&
+                        is_move_type(rp.type(pool), prog_, ts_, &copy_tvs_) &&
+                        logos::probe::on("recvselfderef"))
+                        report(line, "ceiling-probe recvselfderef: " +
+                                     deref_move_message(dop_));
+                }
             }
             push_scope();
-            visit_place_base(v.receiver(), line);
+            if (method_self_kind(v) == 0 && logos::probe::on("recvselfmv"))
+                visit(v.receiver(), /*consuming=*/true, line);
+            else
+                visit_place_base(v.receiver(), line);
             // ── THE `AddrOfTemp` RECEIVER IS CHECKED AND NEVER RECORDED, AND
             // THAT IS THE SECOND HALF OF B94. `visit_place_base` above runs
             // visit()'s AddrOfTemp arm, which CHECKS the receiver against every

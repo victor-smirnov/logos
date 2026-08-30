@@ -3929,3 +3929,296 @@ fixture had changed and the key could not see it. `FORCE=1 gate-run.sh -L bc`
 then measured 1891 passed / 0 failed. A run whose identity omits the corpus is
 a cache that answers questions about a tree that no longer exists — the same
 shape as the version-string key that bit on 08-29, one layer out.
+
+---
+
+# 2026-08-30 — THE `bck.NEW` SURVEY BY MISSING OBSERVATION
+
+## THE ROOT LABEL WAS WRONG ABOUT SIXTEEN OF ITS NINETEEN MEMBERS
+
+`bck.NEW` holds **19** rows, not 20 — the prompt's count is one round stale
+(`git log` on tests/logos/bc_admits.ledger: the suffixed roots `bck.NEW-1..-4`,
+`-L`, `-M` are seven SEPARATE rows and were not counted here). Each of the 19
+was compiled BY HAND, multi-line, against a one-variable control, and asked one
+question: WHAT WOULD THE CHECKER HAVE TO OBSERVE THAT IT DOES NOT. The answer
+partitions them into **ELEVEN** groups, and only three of the eleven are new
+names. `NEW` names WHEN a row was filed, and nothing else.
+
+    partition                                  rows  status
+    P1  a `&&`/`||` RHS is a CONDITIONAL path      3  ALREADY PRICED — scinitcond
+    P2  a `&mut` binding is AFFINE, not Copy       4  new name, site MIS-AIMED
+    P3  an aggregate result carries a borrow       2  ALREADY REFUTED — aggwhole
+    P4  E0509 — moving out of a Drop type          2  RETIRE (spec + §B1)
+    P5  raw-pointer deref-move                     1  RETIRE (documented divergence)
+    P6  a by-value `self` receiver is a MOVE       1  new name — recvselfderef
+    P7  a guard's MOVES must outlive its arm       1  new name — guardmovearm
+    P8  an overloaded index in WRITE position      1  new name — indexnomut
+    P9  a STRUCT decl's lifetime names             1  existing rule, MISSING SITE
+    P10 the index loan on the OUTERMOST root       1  ALREADY NAMED — idxbaseloan
+    P11 nothing — the mechanism is already live    1  MIS-REDUCED ROW
+                                                 ---
+                                                  19
+
+SIX of the nineteen (P1, P3, P10 and both P4 rows' analysis) belong to
+partitions this file ALREADY carries; three more (P4, P5) are retirements the
+tree had already argued for in its own comments and nobody had read back to the
+ledger. THREE new names came out of it, and all three priced.
+
+### P11 — THE ROW THAT NAMES A MECHANISM THAT IS ALREADY THERE
+
+`borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed` is a hand
+"MINIMAL admitting reduction", and the reduction lost the property. MEASURED,
+one token at a time on this build:
+
+    let y: &mut N = &mut x;  y.a = 2i64;  let z = x;                → ADMITTED
+    let y: &mut N = &mut x;  y.a = 2i64;  let z = x;  let _ = y.a;  → REFUSED
+    let y: &mut N = &mut x;  let z = x;   y.a = 2i64;               → REFUSED
+    let y: &mut N = &mut x;  y.a = 2i64;  let q = eat(x);           → REFUSED
+    let y: &N     = &x;      let z = x;   let _ = y.a;              → REFUSED
+
+`consume()` asks `mut_borrowed || shared_borrows || mut_reservations` and gets
+it right at every spelling. The row survives ONLY because `y` is NLL-dead at the
+move — which is what makes the reduction legal Rust, not a hole. No rustc in
+this tree to adjudicate, so it is recorded, not deleted: the row is either
+mis-reduced or needs a fact its own program does not carry. Either way NO
+mechanism is missing, and it must not be funded as if one were.
+
+## scinitcond — RE-PRICED UNDER RULE 8, AND THE CEILING DID NOT DECAY
+site: src/compiler/sema_expr.cpp::lower_binop
+build: b817d199044cfb03 (READ; 158 unarmed -> 165 armed)
+measured: 2026-08-30
+fires: 12361
+ceiling: 3
+cost: 0
+verdict: ✓ THE BEST THING ON THIS BOARD — 3 rows, cost 0, and it is ALREADY WRITTEN
+note: recorded 2026-08-28 at ceiling 3 / cost 0 against a 400-row ledger and
+  never landed. Re-priced here against 324 rows: SAME THREE ROWS, same zero.
+    predicted, closed:  borrowck-and-init--r03 · borrowck-and-init--t03 ·
+                        borrowck-or-init
+    predicted∖closed = ∅   closed∖predicted = ∅
+  ⚠ AND --r03 AND --t03 ARE BYTE-IDENTICAL PROGRAMS modulo the package name.
+  Three rows, ONE question, TWO of them the same file twice. The honest count
+  of DEFECTS this closes is two, and the ledger will still fall by three.
+  The edit is `auto uninit_pre = currently_uninit_vars_;` before the RHS and a
+  re-insert after — strictly conservative (names are only ever RESTORED to the
+  uninit set), and the same fork `if`/`match`/loops already carry. The lines
+  ABOVE it in the same function already snapshot `moved_vars_` across the same
+  RHS for the same two-path reason; this is the definite-assignment tracker
+  getting the fork the move tracker got.
+
+## indexnomut — AN `Index` IMPL IS NOT A WRITABLE PLACE
+site: src/compiler/sema_stmt.cpp::lower_place_assign
+build: b817d199044cfb03 (READ; 158 unarmed -> 160 armed)
+measured: 2026-08-30
+fires: 2
+ceiling: 2
+cost: 0
+verdict: ✓ FUND — and it closes a row from a SECOND root
+note: `try_index_mut_assign` returns nullopt when the receiver's type has no
+  `IndexMut` impl, and `lower_place_assign` then falls through to the RAW
+  address machinery, which writes the struct's first field by accident. So
+  `m[0i64] = 9i64` over a type with `Index` and no `IndexMut` compiles and
+  silently writes the wrong thing. rustc: E0594.
+    predicted, closed:      borrowck_index-mut-help
+    closed, NOT predicted:  borrowck_borrowck-overloaded-index-ref-index
+        — root `bck.NEW-3`, i.e. OUTSIDE the 19 surveyed. Predicted 1, closed 2,
+        and the extra is the same question under a different root letter.
+    predicted∖closed = ∅
+  ⚠ RULE 5, AND THE ANSWER IS STRUCTURAL RATHER THAN EMPIRICAL. Eleven
+  hand-written legal programs, and the `indexnomutsite` ARRIVAL count is what
+  they measure, not their greenness:
+    ce_ix1  Index + IndexMut, `m[0]=9`                  arrivals 0 (early return)
+    ce_ix5  GENERIC `G<T>` with both impls              arrivals 0 (early return)
+    ce_ix11 both impls, two writes                      arrivals 0 (early return)
+    ce_ix2  native array `a[0]=9`                       arrivals 0 (not a Struct)
+    ce_ix7  `arr[0].a = 9` element field write          arrivals 0 (not a Struct)
+    ce_ix8  `m.vals[0]=9` — a FieldRead base            arrivals 0 (not a VarRef)
+    ce_ix4  `Vec<i64>` `v[0]=9`                         arrivals 0 (another path)
+    ce_ix3  a READ `m[0]` through Index only            arrivals 0 (not an assign)
+    ce_ix10 a struct with NO index overload at all      arrivals 1, REFUSED
+            ALREADY, armed and unarmed — the `has Index` conjunct is what keeps
+            this arm off it, and it is the only OTHER thing that reaches here.
+  So the site's ENTIRE live arrival population is "a struct with `Index`, no
+  `IndexMut`, in write position", which is E0594 without exception. COST 0 here
+  is a property of the arrival set, not a corpus reading — the strongest form
+  of the claim this harness can make. (ce_ix6, `IndexMut` with no `Index`, and
+  ce_ix9, `m[1]` read through a `&mut M` param, are refused UNARMED for
+  unrelated reasons and are not costs; recorded so they are not re-counted.)
+
+## guardmovearm — A GUARD THAT RAN AND FAILED STILL MOVED
+site: src/compiler/sema_stmt.cpp::lower_match_expr (the arm-guard block)
+build: b817d199044cfb03 (READ; 158 unarmed -> 162 armed)
+measured: 2026-08-30
+fires: 1
+ceiling: 1
+cost: 0
+verdict: ✓ FUND — predicted set closed EXACTLY, and the comment beside it said why
+note: the block already carries, in the tree, the sentence that names this:
+  "the arm was not taken, so the next arm restarts from `pre_moves` and the
+  guard's move is forgotten." That was written for the DROP side and closed
+  with a #118 conditional-move flag; the DIAGNOSTIC side was left open. So a
+  guard that moves `s` and returns false is invisible to every LATER arm:
+    match 0 { 0 if { let _ = eat(s); false } => 5, _ => eat(s) }   → ADMITTED
+    ... same guard, then `eat(s)` AFTER the match                  → REFUSED
+  One token of position apart. The probe unions the guard's `moved_vars_` into
+  `pre_moves`, which is exactly the set each subsequent arm restarts from.
+    predicted, closed:  borrowck_use-moved-value-in-match-guard-drop
+    predicted∖closed = ∅   closed∖predicted = ∅
+    diagnostic: "use of moved variable 's'" at the arm, line 13.
+  ⚠ RULE 5, DISCHARGED — five hand-written legal programs, and ALL FIVE REACH
+  THE SITE (`guardmovearmsite` arrivals = 1 each), green armed and unarmed:
+    ce_g1 a guard that BORROWS (`peek(&s)`) and an arm that moves ·
+    ce_g2 the guard moves in the LAST arm ·
+    ce_g3 a Copy scrutinee-adjacent local moved in a guard ·
+    ce_g4 an EARLIER arm moves and a later guard exists (order direction) ·
+    ce_g5 the guard moves a local it declared ITSELF.
+  ⚠ AND THE STATEMENT SPELLING IS A SEPARATE SITE, PRICED SEPARATELY.
+  `lower_match` (statement `match`) carries the byte-identical block;
+  `guardmovearmstmt` fires ONE time over 324 rows and closes NOTHING. RULE 4
+  APPLIES AND IS STATED: a population of one refutes nothing. It is not
+  evidence the statement site is right — it is evidence the ledger contains no
+  statement-`match` guard that moves. A landing goes in at BOTH spellings, for
+  the reason `guardscrutloan` recorded on 2026-08-28: a rule at one match
+  spelling is a rule at half of them.
+
+## recvselfderef / recvselfmv — THE NARROW FORM DOMINATES, MEASURED
+site: src/compiler/borrow_check.cpp::visit (Code::MethodCall arm)
+build: b817d199044cfb03 (READ; 158 unarmed -> 163 / 164 armed)
+measured: 2026-08-30
+fires: 2 (narrow) / 478 (wide) — outer population `recvselfderefsite` = 174
+ceiling: 2 / 2
+cost: 0 / 1
+verdict: ✓ FUND THE NARROW ONE — same ceiling, and the wide one's extra is a LEGAL program
+note: the tree already names this residual, at `deref_move_exempt`'s own arm:
+  "⚠ NOT a place base: visit_place_base visits with consuming=false, so
+  `(*r).copy_field` / `(*r).method()` never reach this report." One token apart,
+  on this build:
+    fn eat(f: F) -> i64        eat(*r)        → REFUSED  E0507
+    fn eat(self: Self) -> i64  (*r).eat()     → ADMITTED
+  A by-value `self` IS a consuming position; `visit_place_base` hands the
+  receiver to visit() with `consuming=false`, so the position-general Deref rule
+  is never asked. NARROW = ask `deref_move_exempt` + `is_move_type` at a Deref
+  receiver whose `method_self_kind` is 0. WIDE = visit that receiver with
+  `consuming=true`.
+    predicted, closed (BOTH probes, identical sets):
+        borrowck_clone-span-on-try-operator   (predicted)
+        moves_suggest-clone                   (NOT predicted — root nllmoves.R2,
+                                               a THIRD block, reached from here)
+    predicted∖closed = ∅
+  ⚠ RULE 13, AND IT RESOLVED AGAINST THE BIGGER EDIT. The wide form buys the
+  SAME TWO ROWS and refuses `logos_25_spec_pass_expr_4`: "use of moved value
+  'm'" on `m.get(&k)` over a `HashMap`, where `method_self_kind` resolves 0 for
+  a call that is really an autoref. More machinery, identical ceiling, one legal
+  program dead. This is rule 7 in its cleanest form yet — the crude probe and
+  the careful one close the SAME programs and only the crude one has a price.
+  ⚠ RULE 9, both halves priced. `recvselfderefsite` (by-value self × Deref
+  receiver, before the exemption test) fires 174 and closes 0: the exemptions —
+  Copy pointee, raw pointer, TypeVar, destructure temp — hold on 172 of 174.
+  ⚠ RULE 5. ce_rs4 (`(*r).eat()` TWICE on a Copy struct) reaches the site TWICE
+  and stays green under both probes: `is_move_type` on the deref result is the
+  load-bearing conjunct. The other five (`&self` through `*r`, `&self` autoref,
+  by-value self on an OWNED local, by-value self on a temp, two `&self` calls)
+  are green and DO NOT ARRIVE — recorded as such, because a counter-example
+  that misses the site proves the OUTER guard and nothing about this one.
+
+## mutrefmv / mutrefmvsite — A HOT, PROVEN-LIVE SITE WITH AN EMPTY INNER POPULATION
+site: src/compiler/sema_impl.hpp::mark_moved_expr (the VarRef arm)
+build: b817d199044cfb03 (READ; 158 unarmed -> 159 / 167 armed)
+measured: 2026-08-30
+fires: 0 (mutrefmv) / 9854 (mutrefmvsite)
+ceiling: — / 0
+cost: — / 0
+verdict: ✗ NEVER FIRED, AND THE SITE IS THE WRONG ONE — rule 11, cleanly
+note: FOUR rows share one missing observation, and it is a notion this file
+  ALREADY carries a correction for at a DIFFERENT consumer.
+  `moveclass::is_move_type` sends `MutRef` to `default: return false`, so a
+  `&mut` binding is treated as Copy. MEASURED, one variable at a time:
+    let q: &mut S = r;  q.v=2;  r.v=3;                  → ADMITTED
+    gen(r) with `fn gen<T>(t: T)`, then `r.v = 2`       → ADMITTED
+    for n in v { }  twice, `v: &mut Vec<i64>`           → ADMITTED
+    the same `for` twice over an OWNED `Vec<i64>`       → REFUSED
+  The rows: reborrow-sugg-move-then-borrow (`let`),
+  moved-value-suggest-reborrow-issue-127285--r32 and --t32 (a generic by-value
+  param), issue-83924 (the `for` head). ISSUE-83924 IS THE ONE THAT JOINS: the
+  `for` head already moves its operand — for an OWNED operand it refuses — so
+  its row is not a for-loop question at all, it is this one.
+  ⚠ AND THE FIX IS ALREADY WRITTEN, ONCE, AT ONE CONSUMER.
+  `SemaChecker::struct_type_is_copy` says, in the tree: "`!is_move_type` is the
+  Copy proxy used elsewhere, but it misclassifies `&mut T`: a mutable reference
+  owns nothing (not a move type in the drop-glue sense) yet is NOT Copy — it is
+  affine". It repairs that at ITS OWN call and nowhere else. Two notions of one
+  concept, and the narrow one wins everywhere it was not corrected.
+  ⚠ RULE 11 — WHY THIS PROBE MEASURED NOTHING. `mark_moved_expr`'s VarRef arm
+  is HOT: `mutrefmvsite`, placed unconditionally at that arm, fires 9854 times
+  over the 324 rows. The MutRef subset fires ZERO. Proven live, and the inner
+  population is genuinely empty — because EVERY caller pre-gates:
+    sema_stmt.cpp:1001, 1798, 2661  `if (is_move_type(rhs_type)) mark_moved_expr`
+    sema_stmt.cpp:7409              the `for` head, same gate
+    sema_stmt.cpp:1049, 1082, 8869, 8899   destructure / element moves, same gate
+  Hand-checked on this binary: the m4 control (a Drop struct moved twice)
+  reaches the arm TWICE; m1 / m2 / m3 (the three `&mut` shapes above) reach it
+  ZERO times. `track_args_moved` calls it UNGATED, which is why the arm looked
+  like the right site from a read — and the three shapes still never arrive.
+  THE MECHANISM IS NOT REFUTED. Its site is the eight caller gates, not this
+  arm, and pricing it means a probe per gate (rule 13: the whole first). NOT
+  MEASURED THIS ROUND, and the four rows stay where they are, named.
+
+## THE FOUR RETIREMENTS, AND EACH IS ARGUED IN THE TREE ALREADY
+
+Retiring a row honestly is worth as much as closing one, and NONE of these four
+needed a new measurement — each is a verdict this codebase had already reached
+and never written back to the ledger.
+
+ * **borrowck-move-from-unsafe-ptr** — `deref_move_exempt` exemption (2), in
+   full: "RAW-POINTER DEREF-MOVE IS A DOCUMENTED DIVERGENCE, NOT AN OVERSIGHT
+   … Removing it here would refuse the stdlib, so the row it costs
+   (borrowck-move-from-unsafe-ptr) stays on the ledger, named." Narrowing it by
+   a Copy test does not help: logos.mem's ptr / Vec / Cell primitives move
+   NON-Copy values out of memory they own. RETIRED, not deferred.
+ * **borrowck-move-out-of-tuple-struct-with-dtor--r13 / --t13** — blocked
+   TWICE, independently. (a) `fldmovedrop`'s own record: the E0509 rule
+   "contradicts a written language rule" — `@rule intrinsic.drop.skip-moved-out
+   -paths`, logos_25_spec_pass_intrinsic_1 — so funding it is a PAIR design
+   decision, not a checker round. (b) `patdropdestr`'s record: these two rows
+   specifically "produce NO fldmovedrop line at all, because their moved field
+   is `struct Inner { a: i64 }` and `is_move_type` calls an all-scalar struct
+   Copy. That is a Copy-inference question (DIVERGENCES §B1)". Two blockers,
+   neither a checker site. RETIRED.
+ * **already-borrowed-as-mutable-if-let-133941 / borrowck-assign-to-andmut-in-
+   borrowed-loc** — both are `aggwhole`'s named closed set: CEILING 4 / COST 40,
+   reproduced to the digit by two independently-written spellings, and
+   `aggnarrow` refuted the "hop without recording" shape at the same site.
+   ALREADY REFUTED; they are not `bck.NEW` rows in any useful sense.
+
+## TWO CHEAP THINGS THIS ROUND DID NOT PRICE, NAMED SO THEY ARE NOT RE-FOUND
+
+ * **generic-const-early-param** — the undeclared-lifetime rule EXISTS and is
+   landed (`ltundecl_wide`, CEILING 4 / COST 0), and its site is FN
+   DECLARATIONS ONLY. MEASURED on this build: `fn f<'a>(x: &'b i64)` is
+   REFUSED; `struct W<'b> { data: &'a i64 }` COMPILES. The `known()` predicate
+   is written, proven and exempt-checked; what is missing is a walk of a
+   STRUCT declaration's field types against its own `lifetime_params`. A
+   MISSING SITE for a landed rule, one row — the cheapest shape there is. Not
+   priced here only because `sema_collect.cpp` does not yet include probe.hpp.
+ * **slice-index-bounds-check-invalidation--t35** — already diagnosed in the
+   ledger's own 388->387 entry: "it needs the loan keyed on the OUTERMOST place
+   root", and `idxbaseloan` PREDICTED it would not close and it did not. A
+   named residual of a landed mechanism, not a new question.
+
+## ⇒ WHAT DESERVES FUNDING OUT OF `bck.NEW`
+
+ 1. **`scinitcond` — 3 rows, cost 0, and the edit already exists.** Two lines,
+    the strictly conservative direction, re-priced today at exactly its
+    2026-08-28 numbers on a ledger 76 rows smaller. Nothing else on this board
+    is this cheap. (Honest note: two of the three rows are the same program.)
+ 2. **`indexnomut` — 2 rows, cost 0, and the zero is structural.** Reaches a
+    second root (`bck.NEW-3`). The arrival population IS the defect population.
+ 3. **`recvselfderef` — 2 rows, cost 0, and it reaches a third block**
+    (`nllmoves.R2`). Fund the NARROW form; the wide one is measured to buy
+    nothing extra and cost a legal program.
+ 4. **`guardmovearm` — 1 row, cost 0, five counter-examples all reaching the
+    site.** Land it at BOTH match spellings; the statement twin prices 0 off a
+    population of ONE and that is not a reason to leave it out.
+ 5. **the `&mut`-is-affine partition — 4 rows, UNPRICED, site now known.**
+    The largest single group in `bck.NEW`, with a written precedent for the
+    exact correction at one consumer. Needs a probe per caller gate.

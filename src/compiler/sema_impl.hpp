@@ -3255,8 +3255,14 @@ private:
         }
         if (er.kind() == C::VarRef) {
             std::string nm(lir_view::EVarRefView{er}.name());
-            if (is_move_type(er.type(cur_prog_->type_pool.impl())) ||
-                lookup_owning_dyn(nm))
+            auto vt_ = er.type(cur_prog_->type_pool.impl());
+            (void)logos::probe::on("mutrefmvsite");
+            if (vt_ && TypeRef(vt_).kind() == LogosType::Kind::MutRef &&
+                logos::probe::on("mutrefmv")) {
+                mark_moved(nm);
+                return;
+            }
+            if (is_move_type(vt_) || lookup_owning_dyn(nm))
                 mark_moved(nm);
             return;
         }

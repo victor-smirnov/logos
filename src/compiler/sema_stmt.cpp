@@ -7952,6 +7952,20 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
                     map_of(place_node.get(la::VALUE.code)),
                     map_of(node.get(la::VALUE.code))))
                 return std::move(*s);
+            TypeRef at_ = lookup(an);
+            if (at_ && TypeRef(at_).kind() == LogosType::Kind::Struct) {
+                (void)logos::probe::on("indexnomutsite");
+                auto tn_ = concrete_struct_name(at_);
+                auto bn_ = std::string(TypeRef(at_).struct_name());
+                bool hix_ = impls_.count("Index::" + tn_) ||
+                            (!bn_.empty() && impls_.count("Index::" + bn_));
+                bool him_ = impls_.count("IndexMut::" + tn_) ||
+                            (!bn_.empty() && impls_.count("IndexMut::" + bn_));
+                if (hix_ && !him_ && logos::probe::on("indexnomut"))
+                    error(std::format("ceiling-probe indexnomut: cannot assign to "
+                                      "index of '{}': the type implements `Index` "
+                                      "but not `IndexMut` (E0594)", an));
+            }
         }
     }
     // T1-10 (B78) + T1.5 field-level drop-before-replace: assigning to a
@@ -9837,7 +9851,10 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                     gb.push_back({nullptr, &*guard, moved_vars_, gm, gm});
                     gb.push_back({nullptr, nullptr, guard_pre, gm, gm});
                     elaborate_cond_moves(guard_pre, gb);
+                    if (logos::probe::on("guardmovearmstmt"))
+                        for (auto& gmv_ : moved_vars_) pre_moves.insert(gmv_);
                 }
+                (void)logos::probe::on("guardmovearmstmtsite");
             }
             // G172-1: the string-literal arm's `str_eq(__smatch, "lit")` test
             // is its dispatch — AND it ahead of any user guard.
@@ -10607,7 +10624,10 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     gb.push_back({nullptr, &*guard, moved_vars_, gm, gm});
                     gb.push_back({nullptr, nullptr, guard_pre, gm, gm});
                     elaborate_cond_moves(guard_pre, gb);
+                    if (logos::probe::on("guardmovearm"))
+                        for (auto& gmv_ : moved_vars_) pre_moves.insert(gmv_);
                 }
+                (void)logos::probe::on("guardmovearmsite");
             }
             // G172-1: AND the string-literal arm's str_eq dispatch ahead of any
             // user guard.
