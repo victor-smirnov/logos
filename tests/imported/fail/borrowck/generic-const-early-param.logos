@@ -1,6 +1,8 @@
 // rustc borrowck/generic_const_early_param.rs — upstream E0262 + E0261
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.NEW
+// shelf: fail — REFUSED since 2026-08-30: a struct's FIELD TYPES are now walked
+// against its own lifetime params, the same rule `compute_fn_lifetime_outlives`
+// applies to parameter and return types. Was bck.NEW.
 package generic_const_early_param;
 struct DataWrapper<'static> { data: &'a i64 }
 fn main() -> i32 { return 0i32; }

@@ -1,6 +1,9 @@
 // rustc borrowck/moved-value-suggest-reborrow-issue-127285.rs — upstream E0382
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.NEW
+// shelf: fail — REFUSED since 2026-08-30: a `&mut` place passed to a BY-VALUE
+// formal (`fn generic<T>(x: T)`) is a MOVE of the reference, not a reborrow.
+// track_args_moved now reads the FORMAL: a `&mut` formal stays a reborrow.
+// Was bck.NEW.
 package moved_value_suggest_reborrow_issue_127285_r32;
 struct X { a: u32 }
 fn generic<T>(x: T) {}

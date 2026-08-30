@@ -3916,7 +3916,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         check_call_outlives(std::string(callee), exact_fi->param_types,
                             arg_exprs, exact_fi->lifetime_outlives);
 
-        track_args_moved(arg_exprs);
+        track_args_moved(arg_exprs, &exact_fi->param_types);
         return builder().call(exact_fi->symbol_name.empty() ? std::string(callee) : exact_fi->symbol_name, {}, std::move(arg_exprs), exact_fi->ret_type);
     }
 
@@ -4175,7 +4175,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     }
 
     // Move semantics: mark by-value move-type args (and owning Box<dyn>) moved
-    track_args_moved(arg_exprs);
+    track_args_moved(arg_exprs, &fi.param_types);
 
     // Inside generic context (inference deferred): preserve generic call shape
     // so mono can instantiate and rewrite callee names correctly.
@@ -5246,7 +5246,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     // the analogous loops in lower_call / lower_method_call / lower_static_call.
     // Without this, e.g. `arc_new::<S>(s)` left `s`'s scope-exit Drop active,
     // freeing storage that arc_new now owns.
-    track_args_moved(arg_exprs);
+    track_args_moved(arg_exprs, &fi.param_types);
     return builder().call(callee, std::move(type_args), std::move(arg_exprs), ret);
 }
 
@@ -7369,7 +7369,42 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
 // is constructed (or finish_generic_call is invoked) — otherwise pushing a
 // freshly-built struct value via `vec.push(local)` leaves `local`'s Drop
 // registered, double-freeing the buffer that the Vec slot now owns.
-void SemaChecker::track_args_moved(const std::vector<lir::LExprPtr>& args) {
+void SemaChecker::track_args_moved(const std::vector<lir::LExprPtr>& args,
+                                   const std::vector<TypeRef>* formals,
+                                   size_t formal_off) {
+    // Passing a `&mut` PLACE to a BY-VALUE formal is a MOVE of the reference
+    // (E0382: `generic(self)` then `self.a += 1`); passing it to a `&mut`
+    // formal is an implicit reborrow and is legal. MEASURED: both arrive here
+    // as the SAME expression shape — an `AddrOfTemp` of MutRef type — so the
+    // only discriminator is the FORMAL, which this function did not have.
+    for (size_t i = 0; formals && i < args.size(); ++i) {
+        if (!args[i]) continue;
+        size_t fi_ = i + formal_off;                 // `self` occupies slot 0
+        if (fi_ >= formals->size()) break;
+        TypeRef f = (*formals)[fi_];
+        if (!f) continue;
+        auto fk = TypeRef(f).kind();
+        if (fk == LogosType::Kind::Ref || fk == LogosType::Kind::MutRef ||
+            fk == LogosType::Kind::Ptr) continue;    // by-ref formal: a reborrow
+        auto at = expr_type(args[i]);
+        if (!at || TypeRef(at).kind() != LogosType::Kind::MutRef) continue;
+        // Peel the implicit reborrow to the place it borrows FROM. ⚠ Only
+        // `AddrOfTemp`: an `AddrOf` carries a NAME, and it is `&mut owned`, a
+        // fresh borrow of an owned local and not a move of any `&mut`.
+        auto er = expr_ref_of(args[i]);
+        using C2 = lir_schema::expr::Code;
+        while (er && er.kind() == C2::AddrOfTemp) {
+            auto inner = lir_view::EAddrOfTempView{er}.inner();
+            if (!inner) break;
+            er = inner;
+        }
+        if (er && er.kind() == C2::Deref) {
+            auto d = lir_view::EDerefView{er}.operand();
+            if (d) er = d;
+        }
+        if (er && er.kind() == C2::VarRef)
+            mark_moved(std::string(lir_view::EVarRefView{er}.name()));
+    }
     for (auto& a : args) {
         if (!a) continue;
         // mark_moved_expr is self-gating: it marks move-type l-values AND
@@ -7677,7 +7712,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_tagged(
         if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::TypeVar &&
             TypeRef(ret_type).type_var_name() == "Self")
             ret_type = expr_type(recv);
-        track_args_moved(arg_exprs);
+        track_args_moved(arg_exprs, &m.param_types, /*formal_off=*/1);
         lir::EMethodCall mc;
         mc.receiver    = std::move(recv);
         mc.method      = std::string(method_name);
@@ -8014,7 +8049,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                         trait_subst[tparams[ti].name] = trait_args[ti];
                 }
                 auto ret_type = subst_type_sema(m.ret_type, trait_subst);
-                track_args_moved(arg_exprs);
+                track_args_moved(arg_exprs, &m.param_types, /*formal_off=*/1);
                 lir::EMethodCall mc;
                 mc.receiver     = std::move(recv);
                 mc.method       = std::string(method_name);
@@ -8786,7 +8821,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     mc.type_args.push_back(it != bindings.end() ? it->second : nullptr);
                 }
             }
-            track_args_moved(arg_exprs);
+            track_args_moved(arg_exprs, chosen_method ? &chosen_method->param_types : nullptr,
+                             /*formal_off=*/1);
             if (chosen_method && !chosen_method->param_types.empty())
                 bind_method_receiver(mc.receiver, chosen_method->param_types[0]);
             mc.args     = std::move(arg_exprs);
@@ -10181,7 +10217,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     recv = materialize_recv_ref(std::move(recv), is_mut, formal0);
                 }
             }
-            track_args_moved(arg_exprs);
+            track_args_moved(arg_exprs, &fi.param_types, /*formal_off=*/1);
             if (!fi.param_types.empty()) {
                 auto pt0 = struct_subst.empty()
                          ? fi.param_types[0]
@@ -10320,7 +10356,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             recv = hoist_stmt_temp(std::move(recv), is_mut);
         }
     }
-    track_args_moved(arg_exprs);
+    track_args_moved(arg_exprs, &fi.param_types, /*formal_off=*/1);
     if (!fi.param_types.empty())
         bind_method_receiver(recv, fi.param_types[0]);
     lir::EMethodCall mc;
@@ -15874,7 +15910,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
 
     // Move semantics: mark by-value move-type args (and owning Box<dyn>) moved
     // so that scope-end drops do not fire on transferred-ownership locals.
-    track_args_moved(arg_exprs);
+    track_args_moved(arg_exprs, &fi.param_types);
 
     return builder().call(fi.symbol_name.empty() ? mangled : fi.symbol_name, {}, std::move(arg_exprs), fi.ret_type);
 }

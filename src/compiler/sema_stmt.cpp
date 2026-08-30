@@ -7119,6 +7119,21 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
                                  ? TypeRef(vec_ty).type_args()[0] : i32_t();
             TypeRef slice_ty = make_slice_type(elem_t);
             std::vector<lir::LExprPtr> pargs;
+            // `for n in v` with `v: &mut Vec<T>` MOVES `v` in Rust —
+            // `IntoIterator for &mut Vec` takes self by value — while this
+            // desugar makes it a non-consuming `as_slice()` borrow, so a SECOND
+            // loop over the same binding was admitted (issue-83924, E0382).
+            // Marked here, at the PLACE: `&mut vals` written inline is an
+            // rvalue (AddrOf, no name) and is untouched, so the fresh-reborrow
+            // spelling stays legal, and a shared `&Vec` is Copy and stays legal.
+            // ⚠ NOT through mark_moved_expr: its VarRef arm gates on
+            // `is_move_type`, which calls `&mut T` Copy, and widening THAT arm
+            // costs two pinned diagnostics for zero rows (PROBES.md §mraff).
+            if (TypeRef(iter_type).kind() == LogosType::Kind::MutRef) {
+                auto ier = expr_ref_of(iter);
+                if (ier && ier.kind() == lir_schema::expr::Code::VarRef)
+                    mark_moved(std::string(lir_view::EVarRefView{ier}.name()));
+            }
             pargs.push_back(std::move(iter));
             lir::LExprPtr slice_call = nullptr;
             if (!as_slice_fn->type_params.empty())

@@ -1,0 +1,20 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the callee's formal is `&mut S`, not a
+// by-value `T`. Passing a `&mut` place to a `&mut` formal is an implicit
+// REBORROW, not a move, so the binding is still live after the call — this
+// fixture is what says the move rule reads the formal rather than the argument.
+package bc_byvalmutref_mutref_to_ref_formal;
+
+struct S { v: i64 }
+
+fn sink(x: &mut S) {}
+
+fn f(s: &mut S) {
+    sink(s);
+    s.v = 1i64;
+}
+
+fn main() -> i32 {
+    let mut a = S { v: 0i64 };
+    f(&mut a);
+    return a.v as i32;
+}

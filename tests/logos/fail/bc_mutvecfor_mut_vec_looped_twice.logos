@@ -1,0 +1,20 @@
+// THE `&mut Vec` FOR-HEAD IS A MOVE. `IntoIterator for &mut Vec` takes self by
+// value in Rust, so the binding `v` is consumed by the FIRST loop and the
+// second is E0382. Logos desugars `for n in v` to `v.as_slice()`, a borrow;
+// the head now marks the &mut PLACE moved so the second loop is refused.
+// ONE TOKEN from pass/bc_mutvecfor_shared_vec_looped_twice: `&mut` vs `&`.
+package bc_mutvecfor_mut_vec_looped_twice;
+
+fn main() -> i32 {
+    let mut vals: Vec<i64> = Vec::<i64>::new();
+    vals.push(3i64);
+    let v: &mut Vec<i64> = &mut vals;
+    let mut t: i64 = 0i64;
+    for n in v {
+        t = t + *n;
+    }
+    for n in v {
+        t = t + *n;
+    }
+    return t as i32;
+}

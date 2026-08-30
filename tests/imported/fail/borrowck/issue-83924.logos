@@ -1,6 +1,9 @@
 // rustc borrowck/issue-83924.rs — upstream E0382
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.NEW
+// shelf: fail — REFUSED since 2026-08-30: `for n in v` with `v: &mut Vec<T>` MOVES
+// `v` (Rust's `IntoIterator for &mut Vec` takes self by value); the `&Vec ->
+// as_slice()` desugar made it a borrow, so the SECOND loop was admitted.
+// The for-head now marks the &mut PLACE moved. Was bck.NEW.
 package issue_83924;
 fn main() -> i32 {
     let mut values: Vec<i64> = Vec::<i64>::new();

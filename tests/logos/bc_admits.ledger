@@ -970,7 +970,43 @@
 # STILL OPEN, NAMED: borrowck-move-out-from-array-use-match--t13, a whole-value
 # use of a partially-moved array at a match SCRUTINEE. One row, one mechanism, at
 # a site `take_borrow_whole_` already touches.
-# TOTAL 316
+# 2026-08-30 — 316 -> 310. THREE arms, and the partition they came from was
+# WRONG ABOUT ITS OWN MECHANISM. `bck.NEW`'s four-row "`&mut` is affine" group
+# was to be bought by widening `is_move_type`'s eight caller gates; MEASURED,
+# those gates close NOTHING (mraffall = 3 rows = mraffvecfor + mraffbyval
+# exactly) and cost TWO pinned diagnostics, and the four rows were two unrelated
+# mechanisms plus one row that is neither.
+#   the &mut Vec for-head   1  issue-83924  "use of moved variable 'v'"
+#     `for n in v` with `v: &mut Vec<T>` MOVES `v` in Rust; the
+#     `&Vec -> as_slice()` desugar made it a borrow, so a SECOND loop over the
+#     same binding was admitted. The head marks the &mut PLACE moved.
+#   the by-value formal     2  moved-value-suggest-reborrow-issue-127285--r32
+#                              / --t32   "use of moved variable 'self'"
+#     A `&mut` place passed to a BY-VALUE formal is a move; to a `&mut` formal
+#     it is a reborrow. MEASURED: both reach sema as the SAME expression, an
+#     `AddrOfTemp` of MutRef type — which is why a probe on mark_moved_expr's
+#     VarRef arm fired ZERO — so the discriminator is the FORMAL, and
+#     `track_args_moved` never had it. It does now, at all nine call sites.
+#   struct FIELD lifetimes  3  generic-const-early-param,
+#     undeclared-lifetime-used-in-debug-macro-issue-70152, regions-in-structs
+#     "struct 'W': use of undeclared lifetime name ''a'"  (E0261)
+#     A LANDED RULE WITH A MISSING SITE: `compute_fn_lifetime_outlives` has
+#     walked a fn's parameter and return types since ltundecl_wide, and its own
+#     comment named struct FIELDS as reached by nobody. Same rule, same
+#     exemptions, same nested walk. Two of the three rows are lifereg.R17 and
+#     were not predicted — the ceiling named them before the edit.
+# ⚠ THE `'_` EXEMPTION IS LIVE AND UNEXERCISED, MEASURED BOTH WAYS. The strict
+# spelling (no `'_`) has the SAME ceiling, cost, fail-text and stdlib result as
+# the wide one, and refuses `struct W { data: &'_ i64 }`, which compiles today.
+# An exemption with a price and no purchase stays; it is pinned as
+# tests/logos/pass/bc_structfldlt_placeholder_field_lifetime.
+# STILL OPEN, NAMED: reborrow-sugg-move-then-borrow — `let moved: &mut S = s;`
+# is a move in Rust and a REBORROW in Logos (the RHS arrives as AddrOfTemp, so
+# nothing is marked). Its site is the `let` coercion, not a move-tracking gate;
+# widening the gate closes 0 rows and costs the two borrowck-issue-48962
+# diagnostics. Enum PAYLOADS, `static` declarations and TRAIT method signatures
+# are the field walk's own named remainder.
+# TOTAL 310
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1013,7 +1049,6 @@ borrowed-mut-pointer-assign-overflow-off bck.B tests/imported/admit/borrowck/bor
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
 cannot-assign-borrowed-ref-in-slice bck.A tests/imported/admit/borrowck/cannot-assign-borrowed-ref-in-slice
 deref-field-pattern-ref-suggestion-issue-146995 bck.B tests/imported/admit/borrowck/deref-field-pattern-ref-suggestion-issue-146995
-generic-const-early-param bck.NEW tests/imported/admit/borrowck/generic-const-early-param
 issue-101119 bck.C tests/imported/admit/borrowck/issue-101119
 issue-111554--b bck.A tests/imported/admit/borrowck/issue-111554--b
 issue-111554--c bck.A tests/imported/admit/borrowck/issue-111554--c
@@ -1022,11 +1057,8 @@ issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
 issue-53432-nested-closure-outlives-borrowed-value bck.C tests/imported/admit/borrowck/issue-53432-nested-closure-outlives-borrowed-value
 issue-55492-borrowck-migrate-scans-parents bck.A tests/imported/admit/borrowck/issue-55492-borrowck-migrate-scans-parents
 issue-58776-borrowck-scans-children bck.C tests/imported/admit/borrowck/issue-58776-borrowck-scans-children
-issue-83924 bck.NEW tests/imported/admit/borrowck/issue-83924
 issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure
 many-mutable-borrows bck.NEW-M tests/imported/admit/borrowck/many-mutable-borrows
-moved-value-suggest-reborrow-issue-127285--r32 bck.NEW tests/imported/admit/borrowck/moved-value-suggest-reborrow-issue-127285--r32
-moved-value-suggest-reborrow-issue-127285--t32 bck.NEW tests/imported/admit/borrowck/moved-value-suggest-reborrow-issue-127285--t32
 mut-borrow-conflict-in-closures-vec bck.C tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec
 mut-borrow-of-mut-ref bck.A tests/imported/admit/borrowck/mut-borrow-of-mut-ref
 mutability-errors bck.A tests/imported/admit/borrowck/mutability-errors
@@ -1139,7 +1171,6 @@ temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes
 trait-impl-mismatch-elided-lifetime-issue-65866 lifereg.R18 tests/imported/admit/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866
 trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion
 trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch
-undeclared-lifetime-used-in-debug-macro-issue-70152 lifereg.R17 tests/imported/admit/lifetimes/undeclared-lifetime-used-in-debug-macro-issue-70152
 unnamed-closure-doesnt-life-long-enough-issue-67634 lifereg.C tests/imported/admit/lifetimes/unnamed-closure-doesnt-life-long-enough-issue-67634
 
 # ── tests/ui/moves ─────────────────────────────────────────
@@ -1281,7 +1312,6 @@ regions-implied-bounds-projection-gap-1 lifereg.N1 tests/imported/admit/regions/
 regions-in-enums-anon lifereg.R17 tests/imported/admit/regions/regions-in-enums-anon
 regions-in-enums lifereg.R17 tests/imported/admit/regions/regions-in-enums
 regions-in-structs-anon lifereg.NEW-L1 tests/imported/admit/regions/regions-in-structs-anon
-regions-in-structs lifereg.R17 tests/imported/admit/regions/regions-in-structs
 regions-infer-at-fn-not-param lifereg.A tests/imported/admit/regions/regions-infer-at-fn-not-param
 regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self
 regions-infer-bound-from-trait lifereg.L2 tests/imported/admit/regions/regions-infer-bound-from-trait

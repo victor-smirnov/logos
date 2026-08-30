@@ -1,0 +1,22 @@
+// A `&mut` PLACE PASSED TO A BY-VALUE FORMAL IS A MOVE (E0382). `fn sink<T>(x: T)`
+// takes its argument by value, so `sink(s)` moves the reference `s` itself and
+// the write after it is a use of a moved value. Both spellings reach sema as
+// the SAME expression — an AddrOfTemp of `&mut S` — so the discriminator is the
+// FORMAL, which track_args_moved now reads.
+// ONE TOKEN from pass/bc_byvalmutref_mutref_to_ref_formal: the callee's formal.
+package bc_byvalmutref_mutref_to_byval_formal;
+
+struct S { v: i64 }
+
+fn sink<T>(x: T) {}
+
+fn f(s: &mut S) {
+    sink(s);
+    s.v = 1i64;
+}
+
+fn main() -> i32 {
+    let mut a = S { v: 0i64 };
+    f(&mut a);
+    return a.v as i32;
+}

@@ -1,0 +1,14 @@
+// A STRUCT'S FIELD TYPES ARE CHECKED AGAINST ITS OWN LIFETIME PARAMS (E0261).
+// `compute_fn_lifetime_outlives` has walked a fn's parameter and return types
+// since ltundecl_wide landed; the struct declaration had the same rule for its
+// OUTLIVES CLAUSE only, so a field naming an undeclared lifetime compiled.
+// ONE TOKEN from pass/bc_structfldlt_declared_field_lifetime: 'b vs 'a.
+package bc_structfldlt_undeclared_field_lifetime;
+
+struct W<'b> {
+    data: &'a i64,
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

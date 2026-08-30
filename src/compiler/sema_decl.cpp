@@ -190,9 +190,10 @@ void SemaChecker::compute_fn_lifetime_outlives(
     // because that is where the imported ports put them.
     //
     // ⚠ NOT THE WHOLE SITE SET. `compute_fn_lifetime_outlives` is one of the
-    // four sites R17 names; struct FIELDS, enum PAYLOADS and `static`
-    // declarations are checked by nobody, and a TRAIT DECLARATION's method
-    // signature does not reach this function at all —
+    // four sites R17 names; struct FIELDS gained this same walk on 2026-08-30
+    // (see lower_struct_def, 3 rows), while enum PAYLOADS and `static`
+    // declarations are still checked by nobody, and a TRAIT DECLARATION's
+    // method signature does not reach this function at all —
     //     trait Bad { fn f(self: &Self, o: &'z i32) -> &'z i32; }
     // is admitted with `'z` declared nowhere, before and after this change.
     // Widening the SITE SET is the next round; the RULE and its exemption are
@@ -1567,6 +1568,58 @@ DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
     check_unique_names(fields,
                        [](auto& f) -> std::string_view { return f.name; },
                        "field", "struct " + sname);
+
+    // ── FIELD TYPES vs THE STRUCT'S OWN `<'a>` (E0261) ──────────────────────
+    // The outlives-clause walk above checks `struct W<'a, 'b: 'z>`; the
+    // lifetimes written in the FIELD TYPES were checked by nobody, so
+    // `struct W<'b> { data: &'a i64 }` compiled with `'a` declared nowhere.
+    // The rule and its exemptions are `compute_fn_lifetime_outlives`' — ONE
+    // notion of "a lifetime name that is in scope", not a second spelling of
+    // it — and the nesting is the same walk: struct/enum lifetime args, tuple
+    // elements, slice and array elements, pointer and reference pointees.
+    // ⚠ STILL NOT THE WHOLE SITE SET: enum PAYLOADS, `static` declarations and
+    // a TRAIT declaration's method signatures remain unchecked.
+    {
+        std::unordered_set<std::string> declared_(lifetime_params.begin(),
+                                                  lifetime_params.end());
+        auto known_ = [&](std::string_view lt) {
+            if (lt.empty()) return true;
+            if (lt == "'static" || lt == "static") return true;
+            // `'_` is the placeholder and is always in scope, exactly as at the
+            // fn site. MEASURED 2026-08-30: removing this exemption refuses
+            // `struct W { data: &'_ i64 }` — which compiles today — and buys
+            // ZERO ledger rows, on the ledger, the legal corpus, the 1028
+            // `-L bc -L fail` fixtures and all four stdlib layers alike.
+            if (lt == "'_" || lt == "_") return true;
+            return declared_.count(std::string(lt)) > 0;
+        };
+        std::vector<std::string> seen_;
+        auto walk_lts_ = [&](TypeRef t, auto& rec) -> void {
+            if (!t) return;
+            auto k = t.kind();
+            if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) {
+                if (!t.lifetime().empty()) seen_.emplace_back(t.lifetime());
+                rec(t.pointee(), rec); return;
+            }
+            if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct ||
+                k == LogosType::Kind::Enum) {
+                for (auto& lt : t.lifetime_args()) seen_.emplace_back(lt);
+                for (auto a : t.type_args()) rec(a, rec); return;
+            }
+            if (k == LogosType::Kind::Tuple) {
+                for (auto e2 : t.tuple_elems()) rec(e2, rec); return;
+            }
+            if (k == LogosType::Kind::Slice || k == LogosType::Kind::Array) {
+                rec(t.elem(), rec); return;
+            }
+            if (k == LogosType::Kind::Ptr) { rec(t.pointee(), rec); return; }
+        };
+        for (auto& f : fields) walk_lts_(f.type, walk_lts_);
+        for (auto& lt : seen_)
+            if (!known_(lt))
+                error(std::format("struct '{}': use of undeclared lifetime name '{}'",
+                                  sname, lt));
+    }
     if (!fields.empty()) {
         auto fa = sd.array(stk::FIELDS);
         for (auto& f : fields) fa.push_field(f);

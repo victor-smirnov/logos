@@ -4678,3 +4678,182 @@ and re-priced today they read:
 Each was measured over pass fixtures alone. That is not a reason to distrust
 them uniformly — it is a reason to re-price before funding anything, which rule
 8 already says for the ceiling and now says for the cost as well.
+
+# ROUND 2026-08-30d — THE PARTITION WAS WRONG ABOUT ITS OWN MECHANISM
+
+Two subjects were handed to this round on the repaired cost oracle: the
+`&mut`-is-affine partition (4 rows, "a probe per caller gate") and P9, the
+missing struct-lifetime site (1 row). Ledger **316 -> 310**, three arms, and the
+four-row partition turned out to be **two unrelated mechanisms plus one row that
+is neither** — with the eight caller gates it was supposed to be priced at
+closing NOTHING.
+
+## THE SETS, DIFFED BOTH WAYS
+
+    probe               fires  ceiling  cost  cfail  std  verdict
+    mraffall             1938        3     0      2   ok  the WHOLE (all 8 gates + arm + both real sites)
+    mraffvecfor            18        1     0      0   ok  ✓ landed
+    mraffbyval             35        2     0      0   ok  ✓ landed
+    ltstructfld        358069        3     0      0   ok  ✓ landed
+    ltstructfldstrict  358069        3     0      0   ok  the exemption walk — identical, term for term
+
+**mraffall = mraffvecfor ∪ mraffbyval, exactly.** Rule 13's sixth instance and
+the first where the whole is exactly the sum of two parts and the OTHER nine
+sites contribute zero: the eight `is_move_type` caller gates named in the
+2026-08-30 record (sema_stmt.cpp 1001, 1049, 1082, 1798, 2660, 7409, 8883, 8913
+— the last two had drifted from the 8869/8899 the record names) plus the
+`mark_moved_expr` VarRef arm close **0 rows** and lose **2** pinned diagnostics:
+`borrowck-issue-48962--a-move-of-mut-ref-then-use` and `--b-move-of-mut-ref-
+tuple-field`, both of which ALREADY refuse, with the borrow checker's located
+wording ("use of moved value 'src' (moved on line 11)"), and would be replaced
+by sema's unlocated one. **RULE 14 again, and it is the same shape as
+`guardmovearm`'s statement half a round ago.** DECLINED.
+
+    predicted (mraffall)  {issue-83924, 127285--r32, --t32, reborrow-sugg-move-then-borrow}
+    measured  (mraffall)  {issue-83924, 127285--r32, --t32}
+    predicted∖measured = {reborrow-sugg-move-then-borrow}   measured∖predicted = ∅
+
+    predicted (ltstructfld) {generic-const-early-param}
+    measured                {generic-const-early-param,
+                             undeclared-lifetime-used-in-debug-macro-issue-70152,
+                             regions-in-structs}
+    measured∖predicted = the two lifereg.R17 rows — named by the ceiling BEFORE
+    the edit, and both close for the upstream reason (E0261).
+
+## WHY THE HANDED-DOWN SITE SET WAS WRONG — THE CENSUS, NOT A READ
+
+`LOGOS_MRAFF=<file>` recorded per site `{arrivals, MutRef arrivals}` in ONE
+compile, unarmed, for all nine candidate sites at once — the site-census
+instrument rather than nine 230 s pricings. It cost one build and answered rule
+1 and rule 9 for every site simultaneously:
+
+  * **`for n in v` never reaches gate 7409.** With `v: &mut Vec<i64>` the head
+    takes the `&Vec -> vec.as_slice()` desugar and returns before the
+    `is_move_type` gate — 0 arrivals there, 2 at the desugar.
+  * **`generic(self)` never reaches the `mark_moved_expr` VarRef arm.** It
+    arrives as `AddrOfTemp` (expr code 12) of MutRef type, not `VarRef` (4).
+    **THAT is why `mutrefmv` fired zero while the arm fired 9854** — the
+    2026-08-30 record's explanation (every caller pre-gates on `is_move_type`)
+    is TRUE of the gates and NOT the reason: `track_args_moved` is ungated and
+    the operand still never arrives as a VarRef. Rule 12's cousin: a set of
+    expression KINDS cannot say which one a name will be spelled as.
+  * And the same `AddrOfTemp` of MutRef type is what a LEGAL reborrow
+    (`bump(s)` into a `&mut S` formal) presents. **The two are identical at the
+    argument; only the FORMAL separates them.**
+
+## mraffvecfor — THE `&mut Vec` FOR-HEAD (1 row)
+
+site: src/compiler/sema_stmt.cpp::lower_for_each   (the `&Vec -> as_slice()` desugar)
+build: 7c488f42de25e539 (READ) armed; landed on 42036f427872e528
+measured: 2026-08-30
+fires: 18 · ceiling 1 · cost 0 · cfail 0/1028 · stdlib all four layers
+row: issue-83924 — "use of moved variable 'v'"
+
+`IntoIterator for &mut Vec` takes self BY VALUE in Rust, so `for n in v`
+consumes the binding and a second loop is E0382. Logos desugars to a
+non-consuming `as_slice()` borrow, so both loops were admitted.
+
+⚠ **WHERE THE FIX DIFFERS FROM THE PROBE.** The probe called `mark_moved_expr`
+and relied on the arm being widened under any `mraff*` name; the landed form
+marks the place DIRECTLY (`VarRef` -> `mark_moved`) and does not touch the arm
+at all — which is what keeps the two `borrowck-issue-48962` diagnostics. It is
+also narrower by one shape: a FieldRead iter (`for n in self.v`) is not marked.
+No row and no fixture asks for it; named here rather than guessed at.
+
+## mraffbyval — A `&mut` PLACE INTO A BY-VALUE FORMAL (2 rows)
+
+site: src/compiler/sema_expr.cpp::track_args_moved   (and its NINE call sites)
+build: 7c488f42de25e539 (READ) armed; landed on 42036f427872e528
+measured: 2026-08-30
+fires: 35 · ceiling 2 · cost 0 · cfail 0/1028 · stdlib all four layers
+rows: moved-value-suggest-reborrow-issue-127285--r32 / --t32 —
+      "use of moved variable 'self'"
+
+`track_args_moved` marked "by-value move-type args" moved and had no way to ask
+what the argument was BOUND TO. It now takes the callee's `param_types` and a
+`formal_off` (1 where slot 0 is `self`), and a MutRef argument against a
+non-reference formal marks the place the reborrow peels back to. `AddrOfTemp` is
+peeled; **`AddrOf` deliberately is not** — it carries a NAME and is `&mut owned`,
+a fresh borrow of an owned local, not a move of any `&mut`.
+
+All nine call sites pass formals (the probe wired two). The three extra pass-half
+call sites and the two method sites were wired for the CLASS, not for a row, and
+the full ladder is what says they cost nothing.
+
+## ltstructfld — P9, A LANDED RULE WITH A MISSING SITE (3 rows)
+
+site: src/compiler/sema_decl.cpp::lower_struct_def   (after the field collection)
+build: 7c488f42de25e539 (READ) armed; landed on 42036f427872e528
+measured: 2026-08-30
+fires: 358069 · ceiling 3 · cost 0 · cfail 0/1028 · stdlib all four layers
+rows: generic-const-early-param, undeclared-lifetime-used-in-debug-macro-issue-70152,
+      regions-in-structs — "struct 'W': use of undeclared lifetime name ''a'"
+
+`compute_fn_lifetime_outlives` walks a fn's parameter and return types against
+the names in scope; its own comment names "struct FIELDS, enum PAYLOADS and
+`static` declarations" as reached by nobody. The struct declaration checked its
+OUTLIVES CLAUSE only. The field walk is the same rule, the same exemptions and
+the same nested recursion (struct/enum lifetime args, tuple elements, slice and
+array elements, pointer and reference pointees) — ONE notion of "in scope", not
+a second spelling of it (rule 14 in the constructive direction).
+
+The record said this was unpriced "for want of probe.hpp in sema_collect.cpp".
+The site is **sema_decl.cpp**, which already includes it through sema_impl.hpp;
+nothing was blocking it.
+
+### THE EXEMPTION, WALKED IN THE ABUSE DIRECTION
+
+`ltstructfldstrict` — the same walk with the `'_` exemption REMOVED — priced
+**identically at every one of the four populations**: ceiling 3, cost 0,
+cfail 0/1028, stdlib clean, and the same fire count to the digit. So the corpus
+never exercises it and the zero is not an argument (rule 4). By hand:
+`struct W { data: &'_ i64 }` COMPILES today and the strict form REFUSES it, for
+zero rows. An exemption with a price and no purchase stays, and it is now pinned
+as `tests/logos/pass/bc_structfldlt_placeholder_field_lifetime`, so the next
+round meets a fixture instead of a blank.
+
+## RULE 5 AND RULE 10 — THE COUNTER-EXAMPLES, EACH MULTI-LINE AND EACH RUN
+
+Written BEFORE the costs were believed, and every one of them reaches the code
+(the census records the arrival; the positive control refuses):
+
+    h1  generic(s) then s.v = 1            positive control  REFUSED, "moved variable 's'"
+    h2  bump(s); bump(s)  (&mut formal)    legal             rc 0 under every probe and landed
+    h3  let q: &mut S = s; q.v = 1         legal             rc 0
+    h4  for n in &mut vals  twice          legal (rvalue)    rc 0
+    h5  for n in v  once, v not reused     legal             rc 0
+    h6  s.v = 1; generic(s)  (move last)   legal             rc 0
+    s2  struct W { data: &'_ i64 }         legal today       rc 0 wide / REFUSED strict
+    s3  struct W<'a> { data:&'a i64, pair:(&'a i64,i64) }    rc 0
+
+## WHAT THE REPAIRED ORACLE ACTUALLY BOUGHT THIS ROUND
+
+`cfail` earned its place at `mraffall`: 2 lost `.expected` matches against 0
+rows, which is the whole verdict on the eight caller gates, and the old
+instrument would have printed `cost 0` and `✓ worth an exemption analysis`. The
+STDLIB column found nothing this round (all five probes clean) and the TEXT-ONLY
+column is still UNEXERCISED BY A KNOWN ANSWER — two rounds now.
+
+## A DIAGNOSTIC RESIDUAL WITH NO ROW, MET WHILE PINNING
+
+Every diagnostic raised at a STRUCT DECLARATION carries a wrong location and a
+wrong context: `logos:557: error [fn iter_partition_vec]: struct 'W': …`. It is
+PRE-EXISTING — the landed `struct 'W': … in outlives clause` check prints the
+same 557 and the same unrelated stdlib fn — because `ctx_`, `file_` and
+`node_line_` are never set for a declaration. Not introduced here and not fixed
+here; the `.expected` files pin the message, which names the struct and the
+lifetime correctly. One site, no row.
+
+## WHAT IS LEFT OPEN, NAMED
+
+ * **reborrow-sugg-move-then-borrow** — the fourth row of the partition, and it
+   is neither of this round's mechanisms. `let moved: &mut State = state;` is a
+   MOVE in Rust and a REBORROW in Logos: the RHS reaches gate 2660 as an
+   `AddrOfTemp`, so marking anything there marks nothing. Its site is the `let`
+   coercion that inserts the reborrow, not a move-tracking gate.
+ * **enum PAYLOADS, `static` declarations, TRAIT method signatures** — the field
+   walk's own named remainder, and the fn site's comment has named them since
+   ltundecl_wide.
+ * the declared-but-unfunded list from 2026-08-30b is untouched: escape-argument
+   --t09 + fpwrite, #78, the bare closure arm, 22 of `type_may_carry_borrow`'s
+   28 consumers, four region-blocked class-C rows.

@@ -5700,7 +5700,12 @@ private:
     // Move-tracking shared by the method-dispatch handlers: mark by-value
     // move-type args / receiver as moved so scope-end auto-Drop doesn't fire
     // on ownership the call has transferred. (Promoted from local lambdas.)
-    void track_args_moved(const std::vector<lir::LExprPtr>& args);
+    // `formals` / `formal_off` let this see the PARAMETER a by-value `&mut`
+    // argument is bound to; without them a move and a reborrow are the same
+    // expression (see the body).
+    void track_args_moved(const std::vector<lir::LExprPtr>& args,
+                          const std::vector<TypeRef>* formals = nullptr,
+                          size_t formal_off = 0);
     void track_recv_moved(const lir::LExprPtr& recv, TypeRef self_formal);
     // Blanket-impl method dispatch: `impl<T: Bound> Trait for T { fn m … }`.
     // Tries every registered blanket against receiver type `type_name`;

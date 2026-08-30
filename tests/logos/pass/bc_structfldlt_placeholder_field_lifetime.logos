@@ -1,0 +1,14 @@
+// THE EXEMPTION, PINNED. `'_` is the placeholder and is in scope everywhere,
+// exactly as at the fn site. MEASURED 2026-08-30: removing this exemption
+// refuses this program — which compiles today — and buys ZERO ledger rows on
+// the ledger, the legal corpus, the 1028 `-L bc -L fail` fixtures and all four
+// stdlib layers. It is an exemption with a price and no purchase, so it stays.
+package bc_structfldlt_placeholder_field_lifetime;
+
+struct W {
+    data: &'_ i64,
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

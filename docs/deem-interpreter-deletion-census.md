@@ -4746,9 +4746,24 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                   admit row test carries no `imported` label).
 #   TIERCOMMIT    375 ->  373   -2  the two closed rows' per-row tests leave.
 # PREDICTED +6/+4/-2 before the pin was read, and read as exactly that.
-REGISTRY-ALL         8705
-REGISTRY-NOIMPORTED  4463
-REGISTRY-TIERCOMMIT  365
+# 2026-08-30d (the `&mut`-affine partition re-mechanised + P9's missing struct
+# field site; ledger 316 -> 310).
+#   ALL          8705 -> 8712  +7  SIX imported rows move admit -> fail (net 0
+#                                  each: the admit row test leaves, the fail
+#                                  fixture arrives) plus SEVEN native fixtures —
+#                                  three fail/pass PAIRS one token apart, and
+#                                  one extra pass fixture pinning the `'_`
+#                                  exemption the strict spelling would refuse.
+#   NOIMPORTED   4463 -> 4464  +1  the +7 native less the -6 admit row tests (an
+#                                  admit row test carries no `imported` label).
+#   TIERCOMMIT    365 ->  359  -6  the six closed rows' per-row tests leave, and
+#                                  nothing joins: the new fixtures come in
+#                                  through the `corpus` path.
+# DERIVED +7/+1/-6 from the round's own file moves, and the gate measured
+# exactly that.
+REGISTRY-ALL         8712
+REGISTRY-NOIMPORTED  4464
+REGISTRY-TIERCOMMIT  359
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

@@ -1,0 +1,20 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the struct declares the very lifetime its
+// field names. The nested positions are here too — a tuple element and a
+// struct lifetime argument — because that is where the walk recurses.
+package bc_structfldlt_declared_field_lifetime;
+
+struct W<'a> {
+    data: &'a i64,
+    pair: (&'a i64, i64),
+}
+
+struct Holder<'a> {
+    inner: W<'a>,
+}
+
+fn main() -> i32 {
+    let x: i64 = 7i64;
+    let w = W { data: &x, pair: (&x, 1i64) };
+    let h = Holder { inner: w };
+    return *h.inner.data as i32;
+}
