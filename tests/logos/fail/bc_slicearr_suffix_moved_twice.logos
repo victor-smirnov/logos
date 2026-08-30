@@ -1,0 +1,28 @@
+// PAIR 2 of 3, root bck.B — THE SUFFIX INDEX ARITHMETIC, which no imported row
+// exercises. A suffix element of `[.., z]` over `[T; N]` names index N-sc+j, not
+// the container: get that wrong and the two moves below land on DIFFERENT places
+// and the program is admitted. `rest` itself names no single index, so it keeps
+// the container's place and no type — coarse, never invented.
+// ONE TOKEN from pass/bc_slicearr_suffix_prefix_twin: `[.., w]` there is
+// `[w, ..]`, which names index 0 and does not overlap the moved `a.2`.
+package bc_slicearr_suffix_moved_twice;
+use logos.mem.string;
+
+fn arr() -> [String; 3] {
+    return [String::from("a"), String::from("b"), String::from("c")];
+}
+
+fn main() -> i32 {
+    let a: [String; 3] = arr();
+    match a {
+        [.., z] => {
+            let _n = z.len();
+        }
+    }
+    match a {
+        [.., w] => {
+            let _m = w.len();
+        }
+    }
+    return 0i32;
+}

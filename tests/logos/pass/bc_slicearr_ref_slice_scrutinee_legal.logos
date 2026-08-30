@@ -1,0 +1,39 @@
+// PAIR 3 of 3, root bck.B — THE OTHER HALF OF THE NARROWING. Under match
+// ergonomics a `&[P]` scrutinee binds its elements BY REFERENCE; handing those a
+// move-typed element makes the by-value rule consume the POINTEE, and `s` is
+// dead at `use_s(s)`. `slicewhole` — this arm with one reference peel and
+// `Kind::Slice` accepted — refuses this with "use of moved value 's'" and buys
+// no row for it. So the landed arm requires an OWNED `[T; N]` container: it
+// fires ZERO times here, and that decline IS the narrowing.
+package bc_slicearr_ref_slice_scrutinee_legal;
+
+// ⚠ THE PAYLOAD IS A `Drop` STRUCT WITH AN i64 FIELD AND THE BINDING IS NEVER
+// READ, for a reason that is not this arm's: on this tree, READING a field of
+// an array-pattern element binding is a CODEGEN defect. `[_, _, x] => x.n`
+// SEGFAULTS and `[ref x, _, _] => x.n` returns garbage, while `a[2u64].n`
+// returns 3 — measured 2026-08-30, unrelated to borrow checking, no ledger row.
+// A `[String; 3]` with an element moved out ABORTS at runtime for a second
+// reason: drop elaboration drops both the moved-out element and the array. The
+// measured counter-examples for the two declined spellings are the `[String; 3]`
+// twins in the round record; these fixtures pin the SHAPE as legal, admitted,
+// and running.
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+
+fn arr() -> [P; 3] {
+    return [P { n: 1i64 }, P { n: 2i64 }, P { n: 3i64 }];
+}
+
+fn use_s(v: &[P]) -> i64 {
+    return v.len();
+}
+
+fn main() -> i32 {
+    let a: [P; 3] = arr();
+    let s: &[P] = &a[..];
+    match s {
+        [x, _, _] => { }
+    }
+    if use_s(s) != 3i64 { return 1i32; }
+    return 0i32;
+}

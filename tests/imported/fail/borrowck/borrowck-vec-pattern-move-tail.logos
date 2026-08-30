@@ -3,6 +3,13 @@
 // shelf: fail — REFUSED since 2026-08-28 (a match used as a VALUE now raises
 // the pattern binding's loan on the scrutinee sub-place, held by the enclosing
 // `let`'s binding, which has an NLL last use)
+// ⚠ RE-PINNED 2026-08-30 (`slicearr`), and the diagnostic got SHORTER. A slice
+// `ref` binding used to raise its loan on the CONTAINER, and TWO readers then
+// answered the same question about it — "cannot assign through 'a[..]' because
+// 'a' is borrowed" and "cannot borrow 'a' as mutable: 'a' has shared borrows",
+// a duplicate sitting green because a `.expected` matches as a SUBSTRING. Under
+// an INDEX place the loan sits on the element, ONE reader answers, and it names
+// `a.2`. Still rc 1; the change is text-only and it DELETES a line.
 // upstream: borrowck/borrowck-vec-pattern-move-tail.rs  E0506 — via a slice-pattern `ref` binding
 package borrowck_vec_pattern_move_tail;
 fn main() -> i32 {

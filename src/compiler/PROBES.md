@@ -3827,3 +3827,105 @@ note: `slicesite` is the `x_site` half — every `PC::Slice` arrival with a
   load-bearing for `slicearr`. `borrowpart`'s shape a second time.
   ⚠ IT IS NOT INERT THOUGH: armed alone it produces both of the round's reworded
   diagnostics, at ceiling 0. A half that buys nothing can still cost something.
+
+# ── ROUND 2026-08-30 · ONE PRODUCER DEFECT, MANY READERS · THE LANDING ───────
+
+## slicearr — LANDED. Ledger 326 -> 324.
+site: src/compiler/borrow_check.cpp::each_pat_binding_place — the `cty`/`wty`
+      parameters, the PC::Wild arm, the PC::Slice arm — and
+      ::propagate_pat_borrows, which seeds `cty` with the scrutinee type.
+      ⚠ ONE OF THE TWO NON-RECURSIVE CALL SITES IS SEEDED. `propagate_pat_
+      reborrows` is left UNSEEDED, exactly as priced: its TypeRef and mode
+      parameters are UNNAMED, so it cannot read the fact and seeding it would be
+      a change nothing measured.
+build: a0d40357aaede068 (baseline, READ) -> cbba590b1a119ffe (source only)
+measured: 2026-08-30
+fires: 6     on the pricing build 6a75e28d5731a885, of `slicesite`'s 13
+             arrivals — the other 7 are REFERENCE scrutinees the arm declines.
+             The landed arm carries no probe gate, so this count is the priced
+             probe's; the landed form is held by its fixtures instead.
+ceiling: 2   PREDICTED BY NAME BEFORE THE EDIT, closed exactly:
+             borrowck-move-out-from-array-match
+             borrowck-move-out-from-array-use-match--b
+             predicted∖closed = ∅, closed∖predicted = ∅ over all 326 rows.
+cost: 2 over the FULL suite, PREDICTED BY NAME, and BOTH TEXT-ONLY:
+             logos_06_diagnostics_fail_borrowck-vec-pattern-move-tail
+             logos_06_diagnostics_fail_borrowck-vec-pattern-nesting
+      Both still refuse (rc 1). Both went from TWO diagnostics to ONE:
+        was  cannot assign through 'a[..]' because 'a' is borrowed
+             cannot borrow 'a' as mutable: 'a' has shared borrows
+        now  cannot borrow 'a' as mutable: 'a.2' is already borrowed
+      RULE 14, AND IT RESOLVES IN THE OTHER DIRECTION: a slice `ref` binding
+      used to raise its loan on the CONTAINER and TWO readers answered the same
+      question about it. Under an index place ONE answers, and it names the
+      element. The branch to drop was the DUPLICATE, and the fix deletes it —
+      nothing new was added that another reader already emits.
+verdict: ✓ LANDED, with three fixture pairs and both `.expected` files re-pinned.
+
+### RULE 15, RUN AS THE ROUND'S PRIMARY ORACLE — AND IT BIT AGAIN
+All 8642 `tests/**/*.logos` compiled twice, rc AND stderr captured and diffed:
+**exactly four programs change**, and they are exactly the four names above.
+    rc CHANGES (2)   the two ledger rows
+    TEXT-ONLY (2)    the two diagnostics fixtures, each DELETING a duplicate
+    fifth name       none, in either direction
+⚠ THE INSTRUMENT'S SECOND SCAFFOLDING FAULT, ONE DAY AFTER THE FIRST. Yesterday
+the oracle read `logosc: wrote <mktemp path>` and reported 6433 changed programs;
+that is normalised now. TODAY the raw `diff -rq before after` reported TWELVE,
+and eight of them were STALE FILES left in a REUSED output directory by
+yesterday's sweep — the eight rows yesterday closed, whose `.logos` files no
+longer exist on disk. Both dirs held 8651 entries against a tree of 8642. The
+comparison must be driven by the CURRENT file list, not by the directory
+listing: a text oracle needs its population pinned exactly like any other.
+
+### RULE 5 AND RULE 10, RE-DISCHARGED ON THE LANDED FORM
+The probe was gated on `logos::probe::on("slicearr")`; the landed arm is not.
+Rule 7 says a crude probe and a correct fix do not close the same programs, so
+the thirteen hand-written programs were re-run against the LANDED compiler:
+    hp_move, hp_suffix   rc 1, "use of moved field 'a.2'" — the refusal is
+                         reached, and hp_suffix is what proves N-sc+j
+    ce_s1 ce_s2 ce_s3 ce_s6 ce_s7 ce_s8 ce_s9 ce_s10 ce_s11   all rc 0
+    ce_s4                measures the LANGUAGE (sema refuses the `&[T; N]`
+                         scrutinee first), recorded as such, not as safety
+    hp_disjoint          ADMITTED — the named permissive residual, = --t13
+CONTROL REVERT: `git checkout` of the one file rebuilt to a0d40357aaede068 BYTE
+FOR BYTE, and under it hp_move and hp_suffix are rc 0 again.
+
+### A CODEGEN DEFECT MET WHILE WRITING THE PASS TWINS — NO ROW, NOT THIS ARM
+Reading a FIELD through an array-pattern element binding is broken on this tree,
+and it is not borrow checking: `match a { [_, _, x] => x.n }` over `[P; 3]`
+SEGFAULTS, `[ref x, _, _] => x.n` returns garbage (96, then 224), while
+`a[2u64].n` returns 3. Separately, a `[String; 3]` with an element moved out
+ABORTS at runtime — drop elaboration drops both the moved-out element and the
+array. Neither can be reached by a change to borrow_check.cpp, and both are why
+the three legal twins bind without reading and carry an i64 `Drop` payload
+rather than a `String`. Named here so the next round does not read the fixture
+shape as taste.
+
+## THE FIVE DECLINES, EACH WITH THE NUMBER THAT CONDEMNS IT
+    slicepatnull  ceiling 3, COST 8 (five spec rules + three fixtures). Its
+                  whole cost is "a null type is a move"; ce_s1 — `[i64; 3]`,
+                  three bindings, the array used after — is legal and refused.
+                  RETIRE THE SPELLING, KEEP THE OBSERVATION. It is kept in the
+                  tree as an ARMED-ONLY probe branch and buys nothing unarmed.
+    slicetype     ceiling 3 — the ONLY arm that reaches --t13 — and cost 0 over
+                  `-L bc` WHERE THE 0 IS FALSE: ce_s9, one fire, legal in Rust,
+                  admitted at HEAD. Pinned as pass/bc_slicearr_owned_destructure_legal.
+    slicewhole    ceiling 2, THE SAME TWO ROWS as slicearr, plus one casualty:
+                  ce_s11, one fire. The reference peel buys ZERO rows and costs
+                  a legal program. Pinned as
+                  pass/bc_slicearr_ref_slice_scrutinee_legal.
+    sliceplace    ceiling 0 — and NOT inert: armed alone it produces both of the
+                  round's reworded diagnostics. Load-bearing for slicearr, never
+                  landed alone.
+    slicesite     ceiling 0, observational — rule 9's outer `x_site` name.
+
+### ⚠ A 16th WAY A GATE CAN LIE, MET IN THIS ROUND'S OWN LADDER
+`gate-run.sh` keys a recorded verdict on `scripts/build_hash.py` — logosc plus
+the stdlib archives. A `.expected` file is in NEITHER. So after re-pinning the
+two reworded diagnostics, `test-levels.sh L4 bc` answered **RC=0 while still
+holding the two FAILED verdicts** recorded minutes earlier against the OLD
+expectation, and printed "Nothing has changed that a test run could see." The
+fixture had changed and the key could not see it. `FORCE=1 gate-run.sh -L bc`
+then measured 1891 passed / 0 failed. A run whose identity omits the corpus is
+a cache that answers questions about a tree that no longer exists — the same
+shape as the version-string key that bit on 08-29, one layer out.

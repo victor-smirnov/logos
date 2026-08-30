@@ -1,0 +1,29 @@
+// PAIR 1 of 3, root bck.B — AN ARRAY PATTERN'S ELEMENT BINDING ARRIVED WITH A
+// NULL TYPE. `each_pat_binding_place`'s PC::Slice arm forwarded the container's
+// `base` to each sub-pattern, and those sub-patterns are PC::Wild, whose arm
+// passed `TypeRef(nullptr)` — so `is_move_type` was false and the by-value
+// sub-place move rule skipped EVERY array-pattern binding. The element type is
+// recoverable only from the SCRUTINEE type, which the caller now seeds.
+// ONE TOKEN from pass/bc_slicearr_elem_ref_twin: `[_, _, z]` there is
+// `[_, _, ref z]`, and a `ref` element binding moves nothing.
+package bc_slicearr_elem_moved_twice;
+use logos.mem.string;
+
+fn arr() -> [String; 3] {
+    return [String::from("a"), String::from("b"), String::from("c")];
+}
+
+fn main() -> i32 {
+    let a: [String; 3] = arr();
+    match a {
+        [_, _, x] => {
+            let _n = x.len();
+        }
+    }
+    match a {
+        [_, _, z] => {
+            let _m = z.len();
+        }
+    }
+    return 0i32;
+}

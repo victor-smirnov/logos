@@ -1,6 +1,8 @@
 // rustc borrowck/borrowck-move-out-from-array-match.rs — upstream E0382
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: fail — REFUSED since 2026-08-30 (an array pattern's element binding
+// now carries the element TYPE and an INDEX place, so the by-value sub-place
+// move rule sees it; `slicearr`)
 package borrowck_move_out_from_array_match;
 use logos.mem.string;
 struct P { a: String, b: String }

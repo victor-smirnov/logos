@@ -5579,12 +5579,33 @@ private:
     // of the two names a place inside the scrutinee.
     template <class F>
     void each_pat_binding_place(lir_view::PatRef pr, const std::string& base,
-                                F&& f) const {
+                                F&& f, TypeRef cty = TypeRef{},
+                                TypeRef wty = TypeRef{}) const {
         using namespace lir_view;
         using PC = lir_schema::pat::Code;
         if (!pr || base.empty()) return;
         const auto* pool = prog_.type_pool.impl();
         auto sub = [&](const std::string& seg) { return base + "." + seg; };
+        // `cty` is the CONTAINER type the walk was seeded with, `wty` the type
+        // a PC::Wild sub-pattern is to be handed. They are two parameters and
+        // not one on purpose: the walk is seeded at its caller for EVERY
+        // pattern, so consuming the seed at PC::Wild would give a top-level
+        // `match x { n => ... }` binding a non-null type with nothing asking
+        // for it -- a behaviour change in the baseline attributed to nothing.
+        // Only the PC::Slice arm below sets `wty`, for the sub-patterns whose
+        // element type it has just computed.
+        auto elem_arr = [&](TypeRef t) -> TypeRef {
+            if (t && t.kind() == LogosType::Kind::Array) return t.elem();
+            return TypeRef{};
+        };
+        auto arr_n = [&](TypeRef t) -> uint64_t {
+            for (int i = 0; i < 2 && t; ++i) {
+                if (t.kind() == LogosType::Kind::Array) return t.arr_size();
+                if (is_ref_kind(t)) { t = t.pointee(); continue; }
+                break;
+            }
+            return 0;
+        };
         auto zip = [&](auto&& each_name, auto&& each_type,
                        const std::vector<uint32_t>& modes) {
             std::vector<std::string> ns;
@@ -5600,7 +5621,7 @@ private:
             case PC::Variant: case PC::Int: case PC::Bool: case PC::Range:
                 return;
             case PC::Wild:
-                f(PatWildView{pr}.name(), TypeRef(nullptr), base, uint8_t(0));
+                f(PatWildView{pr}.name(), wty, base, uint8_t(0));
                 return;
             case PC::VariantData: {
                 PatVariantDataView v{pr};
@@ -5667,6 +5688,43 @@ private:
                 return;
             case PC::Slice: {
                 PatSliceView v{pr};
+                // ── AN ARRAY PATTERN'S ELEMENT BINDING USED TO ARRIVE WITH A
+                // NULL TYPE AND THE CONTAINER'S PLACE ────────────────────────
+                // The sub-patterns are PC::Wild, whose arm passed
+                // `TypeRef(nullptr)`, so `is_move_type` was false and the
+                // by-value sub-place move rule skipped every element binding.
+                // The element type is recoverable HERE and nowhere downstream:
+                // it lives in the SCRUTINEE type, which the caller seeds.
+                // ⚠ OWNED `[T; N]` ONLY -- no reference peel, no Kind::Slice.
+                // Under match ergonomics a `&[T]` scrutinee binds its elements
+                // BY REFERENCE, and handing those a move-typed element makes
+                // the by-value rule consume the pointee: measured, and it
+                // refuses `let s: &[String] = &a[..]; match s { [x,_,_] => ...
+                // } use_s(s);`, which is legal. The decline IS the narrowing.
+                // ⚠ AND THE PLACE MUST BE REFINED TOO, THOUGH IT SUBTRACTS.
+                // With the element type but the CONTAINER's place a binding is
+                // a WHOLE-VALUE use of the array, which refuses the plain
+                // `match a { [p, q, r] => ... }` over `[String; 3]`. Index
+                // segments make it a sub-place: prefix elements 0.., suffix
+                // elements N-sc+j. `rest` names no single index, so it keeps
+                // the container's place and no type -- coarse, never invented.
+                const TypeRef aty = elem_arr(cty);
+                if (aty) {
+                    uint64_t i = 0;
+                    v.each_prefix([&](PatRef s){
+                        each_pat_binding_place(s, sub(std::to_string(i)), f, aty, aty);
+                        ++i; });
+                    v.each_rest  ([&](PatRef s){ each_pat_binding_place(s, base, f); });
+                    const uint64_t n = arr_n(cty); const uint64_t sc = v.suffix_count();
+                    uint64_t j = 0;
+                    v.each_suffix([&](PatRef s){
+                        if (n >= sc)
+                            each_pat_binding_place(s, sub(std::to_string(n - sc + j)), f, aty, aty);
+                        else
+                            each_pat_binding_place(s, base, f, aty, aty);
+                        ++j; });
+                    return;
+                }
                 v.each_prefix([&](PatRef s){ each_pat_binding_place(s, base, f); });
                 v.each_rest  ([&](PatRef s){ each_pat_binding_place(s, base, f); });
                 v.each_suffix([&](PatRef s){ each_pat_binding_place(s, base, f); });
@@ -5995,7 +6053,7 @@ private:
                 record_borrow(bp, /*is_mut=*/mode == 2, ln,
                               holder_override.empty() ? std::string(b)
                                                       : holder_override);
-            });
+            }, scrut.type(prog_.type_pool.impl()));
     }
 
     // ── D1 round 13 / P0: THE REBORROW COUNTERPART OF THE THREE ───────────

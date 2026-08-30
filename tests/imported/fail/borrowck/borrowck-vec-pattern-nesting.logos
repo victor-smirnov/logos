@@ -1,6 +1,9 @@
 // rustc borrowck/borrowck-vec-pattern-nesting.rs — upstream E0506/E0508
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: fail — REFUSED since 2026-08-27 (a by-ref pattern binding now raises a loan on the scrutinee sub-place)
+// ⚠ RE-PINNED 2026-08-30 (`slicearr`): the loan now sits on the ELEMENT `v.0`
+// rather than on the container, so the two readers that both answered about `v`
+// collapse to one that names `v.0`. Still rc 1; text-only, and a line fewer.
 package borrowck_vec_pattern_nesting;
 fn main() -> i32 {
     let mut v: [Box<i64>; 3] = [Box::new(1i64), Box::new(2i64), Box::new(3i64)];

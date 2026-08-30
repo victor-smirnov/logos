@@ -947,7 +947,30 @@
 # `mutstaticborrow` holds at CEILING 2 / COST 0 and is STILL unfunded, with its
 # abuse direction unmeasured. `borrowpart` is confirmed by hand and needs a PAIR
 # (a partial-move record that survives a match arm) that this round did not buy.
-# TOTAL 326
+# 2026-08-30 — 326 -> 324. TWO rows, and the arm that closes them is the CAREFUL
+# form of an observation that had been priced twice and declined twice.
+# `each_pat_binding_place`'s PC::Slice arm forwarded the CONTAINER's place to
+# each sub-pattern, and those sub-patterns are PC::Wild, whose arm passed
+# `TypeRef(nullptr)` as the binding type — so `is_move_type` was false and the
+# by-value sub-place move rule skipped EVERY array-pattern element binding. The
+# crude repair ("a null type is a move") cost 8 at ceiling 3 and is retired. The
+# careful one carries the SCRUTINEE type down the walk, computes an element type
+# only for an OWNED `[T; N]`, and gives prefix elements index 0.. and suffix
+# elements N-sc+j:
+#   borrowck-move-out-from-array-match        E0382  "use of moved field 'a.2'"
+#   borrowck-move-out-from-array-use-match--b E0382  "use of partially moved value 'a'"
+# Both moved to tests/imported/fail/borrowck/ with those diagnostics pinned; the
+# rows are deleted here, not commented out.
+# ⚠ BOTH HALVES ARE NEEDED AND THE INCREMENT IS NEGATIVE. The element TYPE alone
+# with the container's place closes THREE rows and refuses `match a { [p,q,r] =>
+# … }` over `[String; 3]`, which is legal; the index PLACE alone closes none.
+# Together they close two — refining the place is what stops an element binding
+# from being a whole-value use, and the whole-value readers are the ones that saw
+# the third row. Blame is per site, credit is per set.
+# STILL OPEN, NAMED: borrowck-move-out-from-array-use-match--t13, a whole-value
+# use of a partially-moved array at a match SCRUTINEE. One row, one mechanism, at
+# a site `take_borrow_whole_` already touches.
+# TOTAL 324
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -977,8 +1000,6 @@ borrowck-local-borrow-with-panic-outlives-fn bck.A tests/imported/admit/borrowck
 borrowck-move-by-capture bck.C tests/imported/admit/borrowck/borrowck-move-by-capture
 borrowck-move-error-with-note--b bck.B tests/imported/admit/borrowck/borrowck-move-error-with-note--b
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
-borrowck-move-out-from-array-match bck.B tests/imported/admit/borrowck/borrowck-move-out-from-array-match
-borrowck-move-out-from-array-use-match--b bck.B tests/imported/admit/borrowck/borrowck-move-out-from-array-use-match--b
 borrowck-move-out-from-array-use-match--t13 bck.B tests/imported/admit/borrowck/borrowck-move-out-from-array-use-match--t13
 borrowck-move-out-of-struct-with-dtor bck.E tests/imported/admit/borrowck/borrowck-move-out-of-struct-with-dtor
 borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13

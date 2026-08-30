@@ -1,0 +1,37 @@
+// PAIR 3 of 3, root bck.B — THE NARROWING, PINNED. Both halves of this pair are
+// LEGAL and neither has a fail partner: they are the two programs that decide
+// the SHAPE of the arm, and each is refused by one of the two spellings this
+// round declined. `slicetype` — the element type with the CONTAINER's place —
+// refuses this one with "use of moved value 'a'", because a coarse place makes
+// the FIRST element binding a whole-value consume of the array and the second
+// binding a use of it. Legal in Rust, admitted at HEAD, and the borrow corpus
+// does not contain the shape: it said COST 0 for `slicetype`, and that 0 was
+// false on the first constructed counter-example.
+// ONE TOKEN from pass/bc_slicearr_ref_slice_scrutinee_legal: the scrutinee there
+// is a `&[P]` instead of this owned `[P; 3]`.
+package bc_slicearr_owned_destructure_legal;
+
+// ⚠ THE PAYLOAD IS A `Drop` STRUCT WITH AN i64 FIELD AND THE BINDING IS NEVER
+// READ, for a reason that is not this arm's: on this tree, READING a field of
+// an array-pattern element binding is a CODEGEN defect. `[_, _, x] => x.n`
+// SEGFAULTS and `[ref x, _, _] => x.n` returns garbage, while `a[2u64].n`
+// returns 3 — measured 2026-08-30, unrelated to borrow checking, no ledger row.
+// A `[String; 3]` with an element moved out ABORTS at runtime for a second
+// reason: drop elaboration drops both the moved-out element and the array. The
+// measured counter-examples for the two declined spellings are the `[String; 3]`
+// twins in the round record; these fixtures pin the SHAPE as legal, admitted,
+// and running.
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+
+fn arr() -> [P; 3] {
+    return [P { n: 1i64 }, P { n: 2i64 }, P { n: 3i64 }];
+}
+
+fn main() -> i32 {
+    let a: [P; 3] = arr();
+    match a {
+        [p, q, r] => { }
+    }
+    return 0i32;
+}

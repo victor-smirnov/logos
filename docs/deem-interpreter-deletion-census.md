@@ -4732,9 +4732,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # TIERCOMMIT column going DOWN while tests are added is the shape to check: it
 # is the only one of the three that can, and it does so exactly when a round
 # succeeds.
-REGISTRY-ALL         8690
-REGISTRY-NOIMPORTED  4458
-REGISTRY-TIERCOMMIT  375
+# 2026-08-30 (slicearr — an array pattern's element binding had a NULL type and
+# the container's place; ledger 326 -> 324).
+#   ALL          8690 -> 8696   +6  two imported rows move admit -> fail (net 0:
+#                                   the admit row test leaves, the fail fixture
+#                                   arrives) plus SIX native fixtures — two
+#                                   fail/pass PAIRS one token apart, and one
+#                                   pass/pass pair pinning the two narrowings
+#                                   (each half is the counter-example that
+#                                   condemns one of the two declined spellings,
+#                                   so neither has a fail partner).
+#   NOIMPORTED   4458 -> 4462   +4  the +6 native less the -2 row tests (an
+#                                   admit row test carries no `imported` label).
+#   TIERCOMMIT    375 ->  373   -2  the two closed rows' per-row tests leave.
+# PREDICTED +6/+4/-2 before the pin was read, and read as exactly that.
+REGISTRY-ALL         8696
+REGISTRY-NOIMPORTED  4462
+REGISTRY-TIERCOMMIT  373
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

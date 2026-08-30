@@ -1018,9 +1018,25 @@ PIN = {
     # `admit` for `fail` are not in tests/logos/pass at all. `glob` and the DOOR
     # counts unmoved: no `wql_*`/`deem_*` match, no container family, no
     # `direct` output form.
-    'corpus'            : 2476,
+    # ⚠ RE-DERIVED 2026-08-30 (`slicearr`): +4 / +0 / +4, BY DIRECT LISTING and
+    # not by adding 4 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2480
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2480 = 191 + 2289. The four that joined the PASS corpus:
+    # bc_slicearr_elem_ref_twin and bc_slicearr_suffix_prefix_twin are the ADMIT
+    # halves of this round's two one-token pairs (a `ref` element binding moves
+    # nothing; index 0 and index N-sc+j are DISJOINT sub-places of one array),
+    # and bc_slicearr_owned_destructure_legal / bc_slicearr_ref_slice_scrutinee_
+    # legal are a pass/pass pair with no fail partner — each is the legal program
+    # that condemns one of the two spellings this round DECLINED (`slicetype`
+    # refuses the first, `slicewhole` the second). The round's two other native
+    # fixtures are FAIL fixtures and this population is the PASS corpus, so they
+    # move nothing here; the two imported programs that left `admit` for `fail`
+    # are not in tests/logos/pass at all. `glob` and the DOOR counts unmoved: no
+    # `wql_*`/`deem_*` match, no container family, no `direct` output form.
+    'corpus'            : 2480,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2285,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2289,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

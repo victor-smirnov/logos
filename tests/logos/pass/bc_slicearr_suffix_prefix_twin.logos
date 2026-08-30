@@ -1,0 +1,35 @@
+// PAIR 2 of 3, root bck.B — the LEGAL twin, ONE TOKEN from
+// fail/bc_slicearr_suffix_moved_twice: the second arm is `[w, ..]`, index 0,
+// where the first moved index N-sc+j = 2. Disjoint sub-places of one array stay
+// usable, which is the whole point of refining the place at all — and it is what
+// separates the landed arm from the coarse `slicetype` spelling, which consumes
+// the whole array on the first element binding and refuses this too.
+package bc_slicearr_suffix_prefix_twin;
+
+// ⚠ THE PAYLOAD IS A `Drop` STRUCT WITH AN i64 FIELD AND THE BINDING IS NEVER
+// READ, for a reason that is not this arm's: on this tree, READING a field of
+// an array-pattern element binding is a CODEGEN defect. `[_, _, x] => x.n`
+// SEGFAULTS and `[ref x, _, _] => x.n` returns garbage, while `a[2u64].n`
+// returns 3 — measured 2026-08-30, unrelated to borrow checking, no ledger row.
+// A `[String; 3]` with an element moved out ABORTS at runtime for a second
+// reason: drop elaboration drops both the moved-out element and the array. The
+// measured counter-examples for the two declined spellings are the `[String; 3]`
+// twins in the round record; these fixtures pin the SHAPE as legal, admitted,
+// and running.
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+
+fn arr() -> [P; 3] {
+    return [P { n: 1i64 }, P { n: 2i64 }, P { n: 3i64 }];
+}
+
+fn main() -> i32 {
+    let a: [P; 3] = arr();
+    match a {
+        [.., z] => { }
+    }
+    match a {
+        [w, ..] => { }
+    }
+    return 0i32;
+}

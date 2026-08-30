@@ -1,0 +1,35 @@
+// PAIR 1 of 3, root bck.B — the LEGAL twin, ONE TOKEN from
+// fail/bc_slicearr_elem_moved_twice: the second arm is `[_, _, ref z]`. Mode 1
+// binds by reference and moves nothing out of `a`, so no move diagnostic may
+// fire — the loan and the move name the SAME index place, and only the by-value
+// one is a move. The mode is a carried fact off pat_keys::BINDING_REF_MODES,
+// never inferred from the binding's type.
+package bc_slicearr_elem_ref_twin;
+
+// ⚠ THE PAYLOAD IS A `Drop` STRUCT WITH AN i64 FIELD AND THE BINDING IS NEVER
+// READ, for a reason that is not this arm's: on this tree, READING a field of
+// an array-pattern element binding is a CODEGEN defect. `[_, _, x] => x.n`
+// SEGFAULTS and `[ref x, _, _] => x.n` returns garbage, while `a[2u64].n`
+// returns 3 — measured 2026-08-30, unrelated to borrow checking, no ledger row.
+// A `[String; 3]` with an element moved out ABORTS at runtime for a second
+// reason: drop elaboration drops both the moved-out element and the array. The
+// measured counter-examples for the two declined spellings are the `[String; 3]`
+// twins in the round record; these fixtures pin the SHAPE as legal, admitted,
+// and running.
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+
+fn arr() -> [P; 3] {
+    return [P { n: 1i64 }, P { n: 2i64 }, P { n: 3i64 }];
+}
+
+fn main() -> i32 {
+    let a: [P; 3] = arr();
+    match a {
+        [_, _, ref x] => { }
+    }
+    match a {
+        [_, _, ref z] => { }
+    }
+    return 0i32;
+}
