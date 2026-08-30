@@ -8,6 +8,31 @@
 #           what it CONTAINS, and four days running the counter-example had to
 #           be hand-written. COST 0 IS NOT A SAFETY CLAIM.
 #
+# ── ⚠ THE COST POPULATION WAS BLIND TO TWO OF THE THREE DAMAGE SHAPES ───────
+# Until 2026-08-30 COST was measured over `-L bc -L pass` plus three `pass`
+# directories, and that is a population of PASSING TESTS. It encodes the
+# assumption that damage looks like a passing test that fails. Damage that
+# looks like a REWORDED REFUSAL or a STDLIB COMPILE FAILURE was outside its
+# universe by construction — and both of that round's false zeros landed there:
+#
+#   recvselfderef  COST 0, then refused nine `logos.mem` functions on its first
+#                  real build; `liblogos-mem.a` did not link.
+#   guardmovearm   COST 0 at the statement spelling, then changed five pinned
+#                  `fail` diagnostics.
+#
+# THREE POPULATIONS NOW, EACH NAMED WHERE THE NUMBER IS PRINTED:
+#   pass    the old one — ledger rows and legal programs, through the store
+#   fail    `scripts/fail_text_oracle.py`: every `-L bc -L fail` fixture's rc,
+#           its stderr SHA and whether its `.expected` still matches. The SHA
+#           column is the one ctest cannot produce: `run_test.sh` compares
+#           `.expected` as a grep -F SUBSTRING, so a probe that appends a note
+#           or re-words a hint leaves the ctest verdict green (rule 15).
+#   stdlib  `scripts/stdlib-cost.sh`: all four layers compiled from source
+#           under the probe. It asserts legality by BEING BUILT.
+#
+# A number that could not see one of the three is LABELLED at the point of
+# printing. A document is not where that belongs.
+#
 # ⚠ EVERY RUN GOES THROUGH `gate-run.sh` AND LANDS IN THE STORE. The previous
 # version drove `ctest` directly, four times per probe, so:
 #   · no probe run was ever recorded — the identity work (build hash, env in the
@@ -31,6 +56,13 @@ LEDGER=(-R '^logos_00_bc_admit_')
 # over-refusal on 2026-08-27 that L1 could not see.
 LEGAL_A=(-L bc -L pass)
 LEGAL_B=(-R '^logos_(25_spec|03_ownership|04_advanced)_pass')
+# ⚠ THE FAIL HALF IS NOT REACHABLE BY ADDING A LABEL TO EITHER OF THOSE: ctest
+# ANDs its `-L` filters, so `-L bc -L pass` can never name a `fail` fixture. It
+# is a THIRD selection, and it is read by TEXT rather than by ctest verdict.
+WORK=build/probe
+mkdir -p "$WORK"
+SKIP_FAIL=${LOGOS_PROBE_SKIP_FAIL:-0}
+SKIP_STDLIB=${LOGOS_PROBE_SKIP_STDLIB:-0}
 
 _bid() { grep -oP 'build_id=\K\d+' "$1" | head -1; }
 
@@ -74,6 +106,56 @@ _measure "$B"; BID_BASE=$(_bid "$B")
 echo "ceiling-probe: armed run — LOGOS_PROBE=$NAME"
 FIRELOG=$(mktemp); : > "$FIRELOG"
 LOGOS_PROBE="$NAME" LOGOS_PROBE_FIRE="$FIRELOG" _measure "$A"; BID_ARMED=$(_bid "$A")
+
+# ── POPULATION 2: THE `fail` HALF, READ BY TEXT ──────────────────────────────
+# ⚠ THE BASELINE IS A PROPERTY OF THE BINARY, NOT OF THE PROBE, so it is keyed
+# on `build_hash.py` and paid ONCE PER BUILD. Batching N probes into one build
+# is the whole point of `probe-batch.sh`; re-measuring the same 1028 unarmed
+# compiles N times would throw that away.
+FAIL_RC=0; FAIL_TXT=0; FAIL_MATCH=0; FAIL_LINES=""
+if [ "$SKIP_FAIL" != "1" ]; then
+    read -r BH _ < <(python3 scripts/build_hash.py build) || BH=unknown
+    FB="$WORK/failtext-$BH.tsv"
+    if [ ! -s "$FB" ]; then
+        echo "ceiling-probe: fail-text baseline for build $BH not yet measured"
+        python3 scripts/fail_text_oracle.py "$FB" || { rm -f "$FB"; SKIP_FAIL=2; }
+    fi
+    if [ "$SKIP_FAIL" != "2" ]; then
+        FA="$WORK/failtext-$BH-$NAME.tsv"
+        LOGOS_PROBE="$NAME" LOGOS_PROBE_FIRE="$FIRELOG" \
+            python3 scripts/fail_text_oracle.py "$FA" || SKIP_FAIL=2
+    fi
+    if [ "$SKIP_FAIL" != "2" ]; then
+        # THREE SHAPES, COUNTED SEPARATELY, because they are three different
+        # claims: an rc flip is a fixture that stopped being refused, a lost
+        # match is what ctest would have said, and a text-only change is the
+        # one ctest CANNOT say — the `.expected` still matches as a substring
+        # while the compiler says something else.
+        FAIL_LINES=$(join -t$'\t' -j1 "$FB" "$FA" | awk -F'\t' '
+            # ⚠ FIELD OFFSETS, AND THE NULL POLE CAUGHT THEM. `join` emits
+            # KEY, then every remaining field of the LEFT record, then every
+            # remaining field of the right: with five columns a side the armed
+            # rc is $6, not $5. The first version read $5 — the baseline PATH
+            # column — and reported all 1028 fixtures changed under
+            # `selftest_inert`, a probe that changes nothing. A reader that
+            # invents 1028 differences is what pole 2 exists to catch.
+            {rcb=$2; shb=$3; mb=$4; rca=$6; sha=$7; ma=$8;
+             if (rcb!=rca)      print "RC   " $1 "  " rcb " -> " rca;
+             else if (mb!=ma)   print "MATCH" $1 "  .expected " (ma?"regained":"LOST");
+             else if (shb!=sha) print "TEXT " $1 "  stderr changed, .expected still matches"}')
+        FAIL_RC=$(printf '%s\n' "$FAIL_LINES" | grep -c '^RC   ' || true)
+        FAIL_MATCH=$(printf '%s\n' "$FAIL_LINES" | grep -c '^MATCH' || true)
+        FAIL_TXT=$(printf '%s\n' "$FAIL_LINES" | grep -c '^TEXT ' || true)
+    fi
+fi
+
+# ── POPULATION 3: THE STDLIB, WHICH ASSERTS LEGALITY BY BEING BUILT ──────────
+STDLIB_RC=0; STDLIB_OUT=""
+if [ "$SKIP_STDLIB" != "1" ]; then
+    STDLIB_OUT=$(LOGOS_PROBE_FIRE="$FIRELOG" bash scripts/stdlib-cost.sh "$NAME" 2>&1)
+    STDLIB_RC=$?
+fi
+
 FIRES=$(_fires "$FIRELOG"); rm -f "$FIRELOG"
 [ -z "${BID_BASE:-}" ] || [ -z "${BID_ARMED:-}" ] && {
     echo "ceiling-probe: could not read a build id from gate-run — refusing to report a number" >&2
@@ -100,12 +182,55 @@ if [ "${FIRES:-0}" -eq 0 ]; then
 fi
 echo "probe: CEILING = $N rows"
 [ "$N" -ne 0 ] && printf '%s\n' "$CLOSED" | sed 's/^/probe:   /'
-echo "probe: COST    = $C legal programs refused (a LOWER bound — the corpus refuses"
-echo "probe:           only what it CONTAINS; write the counter-examples)"
+
+# ── THE COST LINE NAMES ITS OWN POPULATION ───────────────────────────────────
+# ⚠ RULE 4 OF THIS ROUND: a number that cannot see the stdlib must be LABELLED
+# AS SUCH AT THE POINT OF PRINTING, not in a document. A reader takes the digit
+# and leaves the caveat behind; this makes the caveat part of the digit.
+SEEN="pass(ledger+legal)"
+[ "$SKIP_FAIL" = 0 ] && SEEN="$SEEN fail(text)" || SEEN="$SEEN ⚠NO-FAIL"
+[ "$SKIP_STDLIB" = 0 ] && SEEN="$SEEN stdlib" || SEEN="$SEEN ⚠NO-STDLIB"
+echo "probe: COST    = $C legal programs refused   [saw: $SEEN]"
+echo "probe:           a LOWER bound — the corpus refuses only what it CONTAINS;"
+echo "probe:           write the counter-examples)"
 [ "$C" -ne 0 ] && printf '%s\n' "$BROKE" | head -12 | sed 's/^/probe:   /'
-if [ "$N" -eq 0 ] && [ "$C" -eq 0 ]; then
+
+if [ "$SKIP_FAIL" = 0 ]; then
+    FTOT=$(( FAIL_RC + FAIL_MATCH + FAIL_TXT ))
+    echo "probe: COST-fail = $FTOT of $(grep -c . "$FB") \`-L bc -L fail\` fixtures changed" \
+         "(rc $FAIL_RC, .expected-match $FAIL_MATCH, text-only $FAIL_TXT)"
+    [ "$FTOT" -ne 0 ] && printf '%s\n' "$FAIL_LINES" | head -12 | sed 's/^/probe:   /'
+    [ "$FAIL_TXT" -ne 0 ] && {
+        echo "probe:   ⚠ the text-only rows are INVISIBLE TO ctest: run_test.sh matches"
+        echo "probe:     .expected as a grep -F SUBSTRING, so those fixtures stay GREEN."; }
+else
+    echo "probe: COST-fail = NOT MEASURED — a reworded refusal would not appear anywhere"
+    echo "probe:             in this report. (LOGOS_PROBE_SKIP_FAIL was set, or the"
+    echo "probe:             oracle refused to run.)"
+fi
+
+if [ "$SKIP_STDLIB" != 1 ]; then
+    printf '%s\n' "$STDLIB_OUT" | sed 's/^/probe: /'
+    [ "$STDLIB_RC" -ne 0 ] && echo "probe: COST-stdlib = REFUSED — this outranks every number above."
+else
+    echo "probe: COST-stdlib = NOT MEASURED — recvselfderef priced 0 here and then"
+    echo "probe:               refused nine logos.mem functions. (SKIP_STDLIB was set.)"
+fi
+
+if [ "$N" -eq 0 ] && [ "$C" -eq 0 ] && [ "$SKIP_FAIL" = 0 ] && [ "$((FAIL_RC+FAIL_MATCH+FAIL_TXT))" -eq 0 ] && [ "$STDLIB_RC" -eq 0 ]; then
     echo "probe: no effect. ⚠ NOT a refutation until the site is proven live — check the"
     echo "probe:   fire count and the region's arrival count before recording a zero."
+elif [ "$STDLIB_RC" -ne 0 ]; then
+    # ⚠ THE STDLIB OUTRANKS THE ARITHMETIC. `recvselfderef` scored ceiling 2 /
+    # cost 0 and would have printed "✓ worth an exemption analysis" while
+    # `liblogos-mem.a` did not build. A verdict line that reads the pass
+    # population alone is exactly the instrument this round is repairing.
+    echo "probe: ⛔ THE STDLIB DID NOT COMPILE — whatever ceiling $N says, nothing"
+    echo "probe:    downstream of a stdlib that does not build is meaningful."
+elif [ "$SKIP_FAIL" = 0 ] && [ "$((FAIL_RC+FAIL_MATCH+FAIL_TXT))" -gt "$N" ]; then
+    echo "probe: ⛔ it changes MORE pinned diagnostics ($((FAIL_RC+FAIL_MATCH+FAIL_TXT)))"
+    echo "probe:    than it closes rows ($N). Read every one before funding it — a"
+    echo "probe:    branch that only re-words an already-red diagnostic buys nothing."
 elif [ "$C" -ge "$N" ]; then
     echo "probe: ⛔ COST >= CEILING — it refuses at least as many legal programs as it"
     echo "probe:    closes rows. Exemptions might rescue it; the burden is showing WHICH."

@@ -225,6 +225,20 @@ NOT_GATES = {
     "probe-batch.sh":          "installs one batch of probes, builds ONCE and "
                                "prices them; a hand-run tool for one hypothesis "
                                "set, with no population to register it over",
+    # THE TWO POPULATIONS `ceiling-probe.sh` COULD NOT SEE, added 2026-08-30.
+    # Same ground as ceiling-probe.sh itself: each prices ONE hypothesis over a
+    # population that exists only while a probe is armed, so there is nothing
+    # committed for a registered test to assert. `stdlib-cost.sh` compiles the
+    # four stdlib layers under a probe; `fail_text_oracle.py` records every
+    # `-L bc -L fail` fixture's rc, stderr SHA and `.expected` match. Neither
+    # pronounces a verdict about the tree — they hand two columns to the
+    # pricing report, and the unarmed run of each is a BASELINE, not a claim.
+    "stdlib-cost.sh":          "compiles the four stdlib layers under one armed "
+                               "probe; a cost oracle for a hypothesis, not a "
+                               "property of the committed tree",
+    "fail_text_oracle.py":     "records rc/stderr-SHA/.expected-match for the "
+                               "`-L bc -L fail` fixtures under one armed probe; "
+                               "the unarmed run is a baseline, not a verdict",
     "workflow-audit.py":       "grades a workflow RUN from its transcript "
                                "(builds, poll loops, gate repeats) — it asserts "
                                "nothing about the tree",

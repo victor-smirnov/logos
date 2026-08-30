@@ -36,7 +36,13 @@ SPEC="${1:?usage: probe-batch.sh <spec-file>}"
 #
 # LOGOS_BATCH_BG=1 is the acknowledgement, and the line below is the invocation.
 _n=$(grep -c '^name:' "$SPEC" 2>/dev/null || echo 1)
-_est=$(( 150 + 110 * _n ))
+# ⚠ THE PER-PROBE ESTIMATE MOVED 110 -> 230 ON 2026-08-30, and it is not a
+# guess: the pass half through the store is 128 s (measured on a fresh armed
+# identity), the `-L bc -L fail` text oracle adds 54 s armed, and the four
+# stdlib layers add 49 s. Plus 55 s once per build for the fail baseline, which
+# is keyed on `build_hash.py` and shared by every probe in the batch. That
+# buys the two damage shapes the old price could not see at all.
+_est=$(( 150 + 55 + 230 * _n ))
 # ⚠ THE THRESHOLD IS REAL, NOT A ROUND NUMBER. Refusing a batch that WOULD fit
 # and telling it "this cannot finish" would be a barrier with a false reason —
 # and a false reason is the thing that teaches people to route around barriers.
@@ -143,7 +149,14 @@ fi
 echo "probe-batch: L1 rc=0, batch inert"
 
 echo
-printf '%-26s %10s %8s %7s  %s\n' probe fires ceiling cost verdict
+# ⚠ THREE COST COLUMNS, BECAUSE ONE NUMBER HID TWO DAMAGE SHAPES. Until
+# 2026-08-30 this table printed a single `cost` read off the pass corpus, and
+# on that round TWO probes printed `cost 0` while one broke the stdlib build
+# and the other regressed five pinned diagnostics. `cfail` is the `-L bc -L
+# fail` half read by TEXT (rc / .expected-match / text-only, summed), and
+# `std` is whether all four stdlib layers still compile. A dash in either
+# column means NOT MEASURED — never "nothing happened".
+printf '%-24s %9s %7s %6s %6s %4s  %s\n' probe fires ceiling cost cfail std verdict
 while read -r n; do
     [ -z "$n" ] && continue
     # `< /dev/null` so an inner command can never consume the loop's input.
@@ -154,12 +167,18 @@ while read -r n; do
     f=$(printf '%s' "$out" | grep -oP "fired \K\S+" | head -1)
     c=$(printf '%s' "$out" | grep -oP 'CEILING = \K\d+' | head -1)
     co=$(printf '%s' "$out" | grep -oP 'COST    = \K\d+' | head -1)
+    cf=$(printf '%s' "$out" | grep -oP 'COST-fail = \K\d+' | head -1)
     # ⚠ NOT `| grep -q`: under `set -o pipefail` grep exits at the first match,
     # the writer takes SIGPIPE 141, and pipefail reports the MATCH as a failed
     # pipeline. Write to a file first, match second.
     printf '%s\n' "$out" > "/tmp/probe-$n.out"
+    grep -q 'COST-fail = NOT MEASURED' "/tmp/probe-$n.out" && cf="—"
+    if   grep -q 'stdlib: ⛔ REFUSED' "/tmp/probe-$n.out"; then st="⛔"
+    elif grep -q 'COST-stdlib = NOT MEASURED' "/tmp/probe-$n.out"; then st="—"
+    elif grep -q 'stdlib: all four layers' "/tmp/probe-$n.out"; then st="ok"
+    else st="?"; fi
     if grep -q 'NEVER FIRED' "/tmp/probe-$n.out"; then
-        printf '%-26s %10s %8s %7s  %s\n' "$n" 0 — — "NEVER FIRED — not a zero, an unreached site"
+        printf '%-24s %9s %7s %6s %6s %4s  %s\n' "$n" 0 — — — — "NEVER FIRED — not a zero, an unreached site"
     else
         v="?"
         # ⚠ 0/0 IS NOT A STOP SIGN. An observational probe has ceiling 0 by
@@ -167,12 +186,17 @@ while read -r n; do
         # calling either "STOP cost>=ceiling" reads as a refutation of something
         # that was never claimed. Only a probe that BUYS something and costs at
         # least as much is a stop sign.
-        if [ -n "${c:-}" ] && [ -n "${co:-}" ]; then
-            if [ "$c" -eq 0 ] && [ "$co" -eq 0 ]; then v="no effect (see rule 4: is the site populous?)"
+        # ⚠ THE VERDICT READS ALL THREE COLUMNS. A probe that prints cost 0
+        # and breaks the stdlib is not "ok", and the old table said it was.
+        if [ "$st" = "⛔" ]; then v="STOP — THE STDLIB DID NOT COMPILE"
+        elif [ -n "${c:-}" ] && [ -n "${co:-}" ]; then
+            cfn=0; case "${cf:-0}" in ''|*[!0-9]*) cfn=0;; *) cfn=$cf;; esac
+            if [ "$c" -eq 0 ] && [ "$co" -eq 0 ] && [ "$cfn" -eq 0 ]; then v="no effect (see rule 4: is the site populous?)"
+            elif [ "$cfn" -gt "$c" ];             then v="STOP re-words more diagnostics than it closes rows"
             elif [ "$co" -ge "$c" ];              then v="STOP cost>=ceiling"
             else                                       v="ok"; fi
         fi
-        printf '%-26s %10s %8s %7s  %s\n' "$n" "${f:-?}" "${c:-?}" "${co:-?}" "$v"
+        printf '%-24s %9s %7s %6s %6s %4s  %s\n' "$n" "${f:-?}" "${c:-?}" "${co:-?}" "${cf:-?}" "$st" "$v"
     fi
 done < /tmp/probe-batch-names.txt
 echo
@@ -180,3 +204,5 @@ echo "probe-batch: full output per probe in /tmp/probe-<name>.out"
 echo "⚠ a CEILING bounds the COUNT, not the SET — diff each closed row list"
 echo "  against what you predicted BY NAME before believing any of these."
 echo "⚠ COST 0 is not a safety claim. Write the counter-examples."
+echo "⚠ cfail/std of '—' means NOT MEASURED. On 2026-08-30 the two probes whose"
+echo "  costs were false both printed cost 0 with those two columns absent."
