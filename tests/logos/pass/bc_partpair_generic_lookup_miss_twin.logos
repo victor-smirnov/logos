@@ -1,0 +1,16 @@
+// PAIR 6 of 6, LOOKUP-MISS GUARD — a generic struct pattern carries the BASE
+// name (`W`) while the def is stored mono-mangled, so `struct_by_name` /
+// `spec_by_name` MISS and the field type stays null. A miss must leave the OLD
+// permissive behaviour and never a wrong one; this pins that direction.
+package bc_partpair_generic_lookup_miss_twin;
+struct A { v: i64 }
+impl Drop for A { fn drop(self: &mut A) {} }
+struct W<T> { w: T }
+fn main() -> i32 {
+    let x: W<i64> = W { w: 5i64 };
+    match x {
+        W { w } => {
+            return (w - 5i64) as i32;
+        }
+    }
+}

@@ -1,0 +1,25 @@
+// PAIR 1 of 6, root bck.B / bck.NEW — the LEGAL twin, ONE TOKEN from
+// fail/bc_mutstaticborrow_immutable_static: `static SX` there is `static mut SX`
+// here. A genuine `static mut` may be borrowed mutably inside `unsafe`, so the
+// new E0596 must NOT fire — the exemption holding with the site proven reached.
+// The original note follows.
+// `&mut S` on a MODULE STATIC lowers to the
+// global's address, and until this landed NOTHING anywhere checked the `mut`.
+// The branch's own comment asserted "`&mut STATIC` (a `static mut`) IS the
+// global's address" while accepting the very same expression on an IMMUTABLE
+// static; `module_static_muts_` is the only place the keyword survives to.
+// ONE TOKEN from pass/bc_mutstaticborrow_mut_static_twin: `static SX` there is
+// `static mut SX`. The borrow is inside `unsafe` in BOTH files, so the missing
+// `mut` is the only difference and the E0596 cannot be confused with the
+// `unsafe` requirement its own pair (bc_mutstaticunsafe_*) tests.
+package bc_mutstaticborrow_mut_static_twin;
+
+static mut SX: i64 = 1i64;
+
+fn main() -> i32 {
+    unsafe {
+        let y: &mut i64 = &mut SX;
+        *y = 2i64;
+    }
+    return 0i32;
+}

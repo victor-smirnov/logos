@@ -1,0 +1,36 @@
+// PAIR 6 of 6, root nllmoves.B — A PAIR IN WHICH NEITHER HALF CLOSES ANYTHING,
+// and the reader's whole population is MADE by the producer:
+//  · `each_pat_binding_place`'s PC::Struct arm handed a SHORTHAND field
+//    `TypeRef(nullptr)`, so every consumer that gates on the binding type — the
+//    by-value sub-place move rule among them — skipped `match x { Foo { f } =>
+//    … }` exactly as it skips an array pattern. Traced one token apart on this
+//    very program: `Foo::F1(p)` recorded `place=x.0`, `Foo { f }` recorded
+//    NOTHING. A missing line has no spelling, which is why no grep-defined
+//    class contained it. Measured alone: 72 arrivals, 0 rows, 0 legal programs
+//    — it produces a record nobody reads.
+//  · `take_borrow_whole_`'s third line is `if (it->moved)` and it never asked
+//    `moved_fields`, the asymmetry `recvpartial` closed at the method-call
+//    receiver one route over. Measured alone: ZERO matches — not an unreached
+//    site, but an EMPTY population, because until a shorthand field got a type
+//    nothing put a struct pattern's field into `moved_fields` at all.
+// 0 + 0 = 0 and the whole is 1. Blame is per site, CREDIT IS PER SET.
+// ONE TOKEN from pass/bc_partpair_struct_ref_field_twin: `Foo { f }` there is
+// `Foo { ref f }`, which moves nothing and leaves `x` whole.
+package bc_partpair_struct_shorthand_field_moved;
+
+struct A { v: i64 }
+impl Drop for A { fn drop(self: &mut A) {} }
+struct Foo { f: A }
+
+fn touch(a: &Foo) -> i64 { return a.f.v; }
+
+fn main() -> i32 {
+    let x = Foo { f: A { v: 1i64 } };
+    match x {
+        Foo { f } => {
+            let _ = f.v;
+        }
+    }
+    let _ = touch(&x);
+    return 0i32;
+}

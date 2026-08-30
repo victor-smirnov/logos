@@ -1,0 +1,21 @@
+// PAIR 2 of 6, NO LEDGER ROW — a defect found at the same branch as arm 1 and
+// measured in the ABUSE direction. FOUR paths reach a `static mut`; only two
+// asked for `unsafe`:
+//     let v: i64 = SY;      → refused, "read of mutable static"
+//     SY = 2i64;            → refused, "write to mutable static"
+//     let y = &SY;          → ADMITTED
+//     let y = &mut SY;      → ADMITTED
+// The two that asked go through `lower_var_ref`; both BORROW paths route around
+// it to the global's address and so asked nowhere — and a `&mut` is strictly
+// stronger than either a read or a write. The question now has ONE name
+// (`static_access_needs_unsafe`) that all four paths consult.
+// ONE `unsafe` BLOCK from pass/bc_mutstaticunsafe_mut_borrow_twin.
+package bc_mutstaticunsafe_mut_borrow;
+
+static mut SY: i64 = 1i64;
+
+fn main() -> i32 {
+    let y: &mut i64 = &mut SY;
+    *y = 2i64;
+    return 0i32;
+}

@@ -1565,7 +1565,8 @@ note: 52 rows carry a C root today (bck.C 25, nllmoves.C 18, lifereg.C 9), not
   been the honest answer to fifteen rows and is the honest answer to four.
 
 ## capprovnocap-LANDED — the funded mechanism, and the narrowing the probe bought
-site: src/compiler/borrow_check.cpp::prov_of, the ClosureCall capture-less exit
+site: src/compiler/borrow_check.cpp::prov_of
+      (the ClosureCall capture-less exit inside it)
 build: e0bbe6a8d4fb8328 (fixed tree; probe baseline 69, armed 71, fixed gate 73)
 measured: 2026-08-29
 fires: n/a — LANDED, not armed. Its reach is proved by a ONE-TOKEN TWIN
@@ -1932,6 +1933,10 @@ site: src/compiler/borrow_check.cpp::collect_ref_sources_paths (VarRef arm)
       + names_live_closure_param + closure_param_frame_
 build: 064f209b2e5760d6 (gate-db 83 first measure, 84 after the control round-trip)
 measured: 2026-08-29
+fires: n/a — LANDED, not armed. (Field added 2026-08-29e: the record asserted a
+  landing in its verdict but carried no `fires:` line, and the log lint could not
+  see the omission because its heading carries a title. No number is invented
+  here — "not armed" is what the record already says.)
 ceiling: 3   predicted: 3   closed: 3   cost: 0
 verdict: ✓ LANDED. CEILING = PREDICTED = ACTUAL, as a SET, both diffs empty.
 
@@ -2736,6 +2741,9 @@ site: src/compiler/borrow_check.cpp::field_borrow_conflicts (root bits)
 build: d77e1435df3d19a0 (READ, post-landing; the probe prices were read off
       eca91795fcce2717 / c774ec282c7d2d64)
 measured: 2026-08-29
+fires: n/a — LANDED, not armed; priced as probes at 5302137 / 91 / 8 arrivals
+  respectively (that round's own numbers, quoted here so the record can be read
+  without them). Field added 2026-08-29e for the same reason as fpsrc-LANDED.
 ceiling: 1 / 1 / 1        cost: 0 / 0 / 0
 landed:  HALF of arm 1 (the shared-count branch; the `mut_borrowed` branch was
       measured to buy 0 rows and is NOT in the tree), all of arms 2 and 3
@@ -3180,3 +3188,305 @@ borrowed-data-escapes-closure-148392 · the bare closure arm has no holder ·
 `slicepatnull` (B-5, 3 rows, six spec rules) · `emit_generic_deref_step`'s
 fallback on the TARGET TYPE (a sema defect with no row and no fixture) ·
 and NEW this round: the `&mut <static mut>` `unsafe` hole (no row, no fixture).
+
+# ROUND 2026-08-29e — FIVE ARMS LANDED, AND THE CORRECT FIX HAD TWO CASUALTIES THE PROBE DID NOT
+
+Subject: the four mechanisms the previous round PRICED at cost 0 and did not fund.
+All four landed, plus a fifth that had no ledger row. Ledger **334 → 326**,
+re-derived by direct listing (rows 326 · `# TOTAL` 326 · admit `.logos` on disk 326).
+Build `dce7383673e4964b` (READ). Baseline READ from the store before any edit:
+build 134, 334 ledger rows / 1860 `-L bc` / 5777 recorded / 0 failed.
+
+    arm                 rows  predicted  closed  cost   verdict
+    mutstaticborrow        2      2         2      0    ✓ landed (E0596)
+    patmovebind            3      3         3      1    ✓ landed, NARROWED TWICE (see §4b)
+    aggscrutpair           2      2         2      0    ✓ landed (a PAIR of gates)
+    partpair               1      1         1      0    ✓ landed (a PAIR of sites)
+    mutstaticunsafe        0      0         0      0    ✓ landed, no row, 2 fixtures
+    ------------------------------------------------------------------
+    TOTAL                  8      8         8      1    predicted∖closed = ∅
+                                                        closed∖predicted = ∅
+
+## (1) THE COST-0 THAT WAS NOT FREE — `patmovebind` LOST TWO LEGAL PROGRAMS
+
+The corpus said COST 0 and it was right about the corpus. Two HAND-WRITTEN legal
+programs died anyway, for a sixth round running, and both were in the CORRECT
+fix rather than in the probe — rule 7 from the other side. Neither shape exists
+anywhere in 2195 borrow-corpus programs.
+
+    match *r { (ref a, b) => … }        REFUSED   — the Tuple arm
+    match *r { … ref b @ E::B => … }    REFUSED   — the At arm
+
+INSTRUMENTED ONCE rather than guessed at (the walk printed node kind, binding
+count and mode-vector length), and the two causes are DIFFERENT:
+
+  · `PatAt` carries {name, sub, type, bind_slot} and NO MODE FIELD AT ALL, so
+    `ref b @ E::B` and `b @ E::B` are the same node. The arm now makes no claim
+    about its own binding and walks only the SUB. Residual, stated: `b @ E::B`
+    by value is missed. A missing refusal is a row; a wrong refusal is a legal
+    program killed.
+  · A TUPLE's `ref a` never reaches the walk as a mode at all —
+    build_pattern's PAT_WILD tuple-element arm rebuilds it as a bare named
+    Wild (MEASURED: Tuple → Wild name='a'). So the named-Wild claim is trusted
+    only at the arm's ROOT, never under a Tuple.
+
+⚠ AND THE FIRST REPAIR OF THIS WAS ITSELF WRONG, which is why the instrument
+was worth its build. Reading "no mode recorded" as "no claim" silenced ALL
+THREE ROWS. `bind_ref_modes()` is minted ONLY where a mode is spelled —
+`E::A(d)` walks with modes=0, `E::A(ref d)` with modes=1 — so an EMPTY vector
+means "all by value". For THIS node absence IS a zero; for `PatAt` and for a
+tuple's elements the fact is genuinely absent. The two look identical from
+outside and only the minting site distinguishes them.
+
+Only TWO node kinds now make a by-value claim: `VariantData` (which carries
+BINDING_REF_MODES) and a named `Wild` AT THE ROOT. Strictly narrower than what
+was priced, a SIXTH round running.
+
+## (2) RULE 14, DISCHARGED BY MEASUREMENT AND IT CAUGHT ONE
+
+A fail fixture matches its `.expected` as a SUBSTRING, so a second diagnostic on
+an already-red program is invisible to `ctest` — cost 0 over `-L bc` does NOT
+discharge rule 14. Instrument: compile all 2195 bc-labelled programs before and
+after, diff rc AND stderr. A program whose rc did not move but whose stderr did
+is a rewording; that is what `fldrootbits` did to ten diagnostics last round.
+
+    first measurement:   9 programs changed — 8 rc changes, 1 TEXT-ONLY
+    after the narrowing: 8 programs changed — 8 rc changes, 0 TEXT-ONLY
+
+The one catch: `bc_match_slice_elem_moved`, already red with "cannot move out of
+type `&[W]`, a non-copy slice", gained a SECOND line at the SAME line number.
+`is_unowned_move_source` answers "deref OR index", and for the INDEX half an
+array/slice reader already owns the question everywhere the corpus reaches. The
+index half is now excluded from this gate — it costs nothing (none of the three
+rows is an index scrutinee; they are `match *f` and `match a.a`) and it removes
+the only overlap in the tree.
+
+⚠ THE NARROW PREDICATE WAS NOT TOUCHED. `is_unowned_move_source` has four other
+consumers; the exclusion lives in THIS gate, where the duplication is.
+
+## (3) A FOURTH PATH TO A `static mut`, AND ONLY TWO ASKED
+
+The previous round recorded three paths with two asking. There are FOUR:
+
+    let v: i64 = SY;    read    → refused
+    SY = 2i64;          write   → refused
+    let y = &mut SY;    &mut    → ADMITTED   ← strictly stronger than either
+    let y = &SY;        &       → ADMITTED   ← not previously measured
+
+Both BORROW paths route around `lower_var_ref` to the global's address, so
+neither ever asked. Repaired by DELEGATION, not by a third copy: the three
+exemptions the read path spelled inline — local shadowing, const-generic name
+pollution, extern-vs-`mut` — now live once in
+`sema_impl.hpp::static_access_needs_unsafe`, and all four paths consult it.
+Two names for one question is the defect this file keeps recording.
+
+## (4) RULE 5, DISCHARGED BY HAND — 25 LEGAL PROGRAMS, 13 REFUSALS
+
+Every counter-example is MULTI-LINE. The probes left the tree with the fix, so
+liveness is proven by ONE-TOKEN TWINS rather than by a fire log: a twin that
+refuses proves the site was reached AND that the discriminator is what declined
+— strictly more than a fire count.
+
+    25 legal programs   all rc 0   (6 static · 11 pattern · 4 scrutinee · 4 partial-move)
+    13 must-refuse      all rc 1   (4 abuse · 9 one-token twins)
+
+Recorded as exemptions and NOT as safety, because they never reach the site:
+`ce_pb5` (an OWNED scrutinee) and `ce_pb6` (a Copy scrutinee) are excluded by the
+outer gate, so they measure the scrutinee half and not the binding half.
+
+## (4b) THE COST ORACLE WAS TOO NARROW — `-L bc` SAID 0, THE FULL SUITE SAID 1
+
+`-L bc` is 1858 tests and it reported COST 0 for all five arms. The FULL suite
+is 8685, and it found ONE program the bc corpus does not contain:
+
+    tests/logos/ir/param_attrs_freeze.logos:49   (label `ir_snapshot`, not `bc`)
+        fn interior_payload(h: &HasOpt) -> i64 {
+            match h.o { Option::Some(c) => { return c.get(); } … } }
+
+RULE 2, VERBATIM: proven live is necessary, not sufficient — the population may
+be elsewhere. The `bc` label is keyed on an upstream directory for imports and on
+FILENAME PREFIXES for natives; a borrow-check-relevant program under
+`tests/logos/ir/` is in neither half, and the label's own comment already warned
+that the prefix half "will go stale the same way the next time someone names a
+fixture freshly". It did.
+
+⚠ AND THE HIT IS NOT A CASUALTY — IT IS A SECOND INSTANCE OF THE DEFECT.
+`h: &HasOpt`, `o: Option<Cell<i64>>`, and `Cell<i64>` is not Copy, so binding the
+payload BY VALUE moves a non-Copy value out of `*h`: E0507, the same shape as the
+ledger row borrowck-move-error-with-note--a (`match a.a { n => … }` on `a: &A`).
+It sat green in the corpus only because no site asked the question. A permissive
+defect is invisible to a green corpus BY CONSTRUCTION, and this is the third form
+of that: not a missing test, but a test whose PROGRAM relies on the hole.
+
+Repaired by one token (`Option::Some(ref c)`), and that is NOT weakening a test:
+what this fixture asserts is the LLVM PARAMETER attribute bundle for `&HasOpt`,
+pinned literally in `param_attrs_freeze.check` line 43 and derived by
+`apply_param_attrs` from the pointee TYPE. The snapshot re-matched byte for byte
+after the edit, which is the proof that the binding mode was never part of the
+claim.
+
+⇒ THE COST NUMBER FOR THIS ROUND IS 1, NOT 0, and the arm that paid it is
+`patmovebind`. Reported as 1.
+
+## (4c) THE PROBE-LOG LINT WAS CHECKING 46 OF 73 RECORDS
+
+`probe-log-lint.py` matched records with `^## (\S+)\n` — a BARE `## name`
+heading. Every record whose heading carries a title (`## mutstaticborrow —
+RE-PRICED A THIRD TIME`) was silently skipped, which is every record the last
+several rounds wrote, including all five of this one. MEASURED: 47 bare headings
+seen, 54 titled ones never looked at. The "46 records" the gate kept reporting was
+a count that had quietly stopped growing.
+
+A record is now defined by CONTAINING a `site:` line rather than by how its
+heading is spelt, and the name is the heading's first token. Three genuine
+defects were sitting behind that blindness and are repaired here, none by
+relaxing a check:
+
+  · `capprovnocap-LANDED` — its `site:` line ran prose on after the symbol, so
+    the parsed symbol was `prov_of,` and pointed at nothing. Prose moved to its
+    own line.
+  · `fpsrc-LANDED` and the three-arm landing record — NO `fires:` line at all.
+    Both assert a landing in their verdicts, so both now say `fires: n/a —
+    LANDED, not armed`, which is what they already claimed. No number invented.
+
+⚠ AND ONE RULE HAD TO CHANGE FOR A REASON, not for convenience. Identity was the
+NAME alone, so "two measurements under one name cannot be told apart" would have
+forbidden re-pricing — which rule 8 REQUIRES. It only ever looked satisfied
+because the repeats were invisible. Identity is now (name, build), and `build:`
+is mandatory for every record: the field that distinguishes two pricings is the
+one the format already carried.
+
+## (5) CONTROL REVERT — THE FIXTURES WERE NOT BELIEVED UNTIL IT RAN
+
+Sources reverted, rebuilt, all 25 fixtures re-measured, sources restored, rebuilt:
+
+    15/15 new FAIL fixtures ADMITTED under the control  → each measures the change
+    10/10 PASS twins green under the control            → each is legal either way
+
+## (6) MEASURED RESIDUALS, RECORDED AND NOT CLAIMED
+
+  · `&mut ARR` on an IMMUTABLE STATIC ARRAY still compiles. The branch's guard is
+    `kind() != Array`, so a static array routes to `addr_of(name)` — a different
+    path this landing does not touch. Demonstrator `ab_arr` run, rc 0.
+  · `b @ E::B` by value under a deref scrutinee is missed (see §1).
+  · A tuple's dropped `ref` keyword is a SEMA defect one door over
+    (build_pattern's PAT_WILD tuple-element arm); `each_pat_binding_place`'s
+    tuple arm records the identical silence for the identical reason.
+  · `slicepatnull` (B-5) is the SAME null-type hole as `structpatty` at the ARRAY
+    arm, still open, still six spec rules.
+
+## (7) PROBES RETIRED WITH THEIR ROWS — AND ONE RE-PRICING NOW OWED
+
+`mutstaticborrow`, `mutstaticsite`, `patmoveref`, `patmovebind`, `aggscrutpair`,
+`aggcallloan`, `structpatty` and `borrowpart` have left the tree AS FIXES. Their
+rows are closed, so they are not the rule-8 hazard (a probe leaving with its rows
+still open).
+
+⚠ `aggwhole` AND `aggnarrow` MUST BE RE-PRICED BEFORE ANYONE READS THEIR
+NUMBERS. Both were measured with the `is_self_borrowing` result-test widening
+armed as part of them; that half is now UNCONDITIONAL, so their recorded
+58458/4/40 and 58024/0/0 are about a compiler that no longer exists. The `let`
+routing gate is what is left of `aggwhole`, and it is the only thing its next
+number will be about.
+
+---
+
+## mutstaticborrow — LANDED
+site: src/compiler/sema_expr.cpp::lower_expr_inner (ADDR_OF_MUT static branch)
+build: dce7383673e4964b (READ)
+measured: 2026-08-29
+fires: n/a (landed; was 2 of `mutstaticsite`'s 3 arrivals)
+ceiling: 2
+cost: 0
+verdict: ✓ LANDED — E0596, set for set across four pricings (365→337→334→326)
+note: PREDICTED both by name: borrowck-access-permissions--b-mut-borrow-of-static
+  (bck.B), issue-42344 (bck.NEW). predicted∖closed = ∅, closed∖predicted = ∅.
+  ⚠ RULE 4 WAS IN FORCE AND STAYS THE RECORD: 2 fires off an outer population of
+  3 bounds almost nothing about the SET. What funded it is the ARM — the branch's
+  own comment asserted "`&mut STATIC` (a `static mut`) IS the global's address"
+  and nothing anywhere checked the `mut` — exactly as `tupidxmove`'s case was the
+  missing arm and not its eight fires.
+  Counter-examples, all rc 0 on the landed build: a `static mut` borrowed inside
+  `unsafe` · a `static mut` STRUCT · a `let mut` local · a shared `&` of an
+  immutable static · a LOCAL SHADOWING the static (rule 12 — the guard is a name
+  SET, and the shadowing walk is what keeps it from being one).
+
+## mutstaticunsafe — LANDED, NO LEDGER ROW
+site: src/compiler/sema_expr.cpp::lower_expr_inner (ADDR_OF_MUT static branch)
+      src/compiler/sema_expr.cpp::lower_unary (`&` static branch)
+      src/compiler/sema_impl.hpp::static_access_needs_unsafe
+build: dce7383673e4964b (READ)
+measured: 2026-08-29
+fires: n/a (landed)
+ceiling: 0
+cost: 0
+verdict: ✓ LANDED — a PERMISSIVE defect with no row, invisible to a green corpus
+note: see §3. Closed at the one place the question can be asked once rather than
+  at two more call sites. THREE fixtures: the `&mut` half, the `&` half, and the
+  SHADOWING guard. No ledger row because no import exercises it — the population
+  is 87 corpus files using `static mut` and not one of them borrows a static
+  outside `unsafe`, which is exactly why a green corpus could never have found it.
+
+## patmovebind — LANDED, NARROWED TWICE
+site: src/compiler/sema_stmt.cpp::lower_match
+build: dce7383673e4964b (READ)
+measured: 2026-08-29
+fires: n/a (landed; the probe fired 8)
+ceiling: 3
+cost: 1 over the FULL 8685-test suite (0 over the 1858-test `-L bc` corpus,
+      which does not contain the program — see §4b). The one hit is itself an
+      instance of the defect, repaired by one token with its IR snapshot
+      re-matching unchanged.
+verdict: ✓ LANDED — and the CORRECT fix cost two legal programs the probe did not
+note: PREDICTED three by name: borrowck-move-error-many-places--move-out-of-ref-in-match,
+  --r-runtime, borrowck-move-error-with-note--a. predicted∖closed = ∅,
+  closed∖predicted = ∅. The sibling `borrowck-move-error-with-note--b` was named
+  in advance as the one that must NOT close, and it did not (still admitted).
+  See §1 for the two casualties and §2 for the index exclusion. The landed rule
+  is narrower than the probe in THREE independent ways — At silent, Wild
+  untrusted under a Tuple, index scrutinees excluded — and closes the same three.
+
+## aggscrutpair — LANDED (A PAIR OF GATES)
+site: src/compiler/borrow_check.cpp::retain_temp_scrut_loan
+      src/compiler/borrow_check.cpp::is_self_borrowing (result test)
+build: dce7383673e4964b (READ)
+measured: 2026-08-29
+fires: n/a (landed; the probe fired 258)
+ceiling: 2
+cost: 0
+verdict: ✓ LANDED — reaches OUT of group B, and adds NO new reader
+note: PREDICTED issue-85581 (bck.B); ALSO closed reborrow-in-match-suggest-deref
+  (bck.A), which the previous round had already named as the unpredicted one, so
+  both were predicted this time. predicted∖closed = ∅, closed∖predicted = ∅.
+  ⚠ NEITHER HALF CLOSES ANYTHING ALONE — `aggcallloan` prices 0/0 off 180
+  arrivals and is load-bearing for this set. Blame is per site, CREDIT IS PER SET,
+  for the fifth round running.
+  ⚠ THIS ARM EMITS NO DIAGNOSTIC OF ITS OWN. It RECORDS a loan; the refusal comes
+  from the conflict readers that already exist ("already mutably borrowed",
+  "cannot use … while it is mutably borrowed"). That is why it is rule-14-clean
+  by construction rather than by measurement.
+  ⚠ COST 0 IS STILL NOT A SAFETY CLAIM: the loan's LIFETIME is decided by the
+  synthetic holder's inheritors. `bc_aggscrutpair_use_after_match_twin` is the
+  one NLL RELEASE this arm pins, and it is one program.
+
+## partpair — LANDED (A PAIR OF SITES)
+site: src/compiler/borrow_check.cpp::each_pat_binding_place (PC::Struct arm)
+      src/compiler/borrow_check.cpp::take_borrow_whole_
+build: dce7383673e4964b (READ)
+measured: 2026-08-29
+fires: n/a (landed; the pair fired 73, the halves 72 and 0)
+ceiling: 1
+cost: 0
+verdict: ✓ LANDED — rule 13's fourth instance, and the producer MAKES the reader's
+         population
+note: PREDICTED moves-based-on-type-match-bindings and closed exactly that.
+  0 + 0 = 0, the whole is 1, and 72 + 0 = 72 against the pair's 73 — the ONE
+  extra arrival is the reader's and exists only because the producer ran. A
+  per-site sweep would have killed both halves as dead.
+  ⚠ THE REPAIR IS BY DELEGATION: `take_borrow_whole_` now calls
+  `report_partial_move`, the reader that already owns this question and its
+  wording at the method-call receiver. No second name was added.
+  ⚠ A LOOKUP MISS LEAVES THE OLD BEHAVIOUR — a generic pattern carries the BASE
+  name while the def is stored mono-mangled, so the field type stays null and the
+  answer stays permissive. Pinned by
+  `pass/bc_partpair_generic_lookup_miss_twin`.

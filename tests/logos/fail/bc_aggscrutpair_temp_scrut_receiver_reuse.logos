@@ -1,0 +1,32 @@
+// PAIR 5 of 6, root bck.B — A TEMPORARY MATCH SCRUTINEE'S LOAN WAS NOT RETAINED.
+// Neither of B-10's two `let` routing gates is on this path, so nothing held the
+// receiver borrow that `heap.peek_mut()` hands out and `heap.pop()` inside the
+// arm met no conflict.
+// IT IS A PAIR OF GATES, not one, and neither closes anything alone:
+//  · `retain_temp_scrut_loan` asked `loan_carrying_type` — the ATTRIBUTE-keyed
+//    carrier closure — where the question is structural. `Option<&mut i64>`
+//    carries a loan and no attribute names it.
+//  · `is_self_borrowing`'s RESULT test asked the same attribute-keyed predicate,
+//    so the MethodCall arm tied no receiver at all — the gate above would have
+//    fired and recorded NOTHING. Measured alone that half moves 0 rows and 0
+//    legal programs off 180 arrivals; it is load-bearing only as half of a set.
+// ONE LINE'S POSITION from pass/bc_aggscrutpair_use_after_match_twin, where
+// `heap.pop()` sits AFTER the match and NLL has retired the loan.
+package bc_aggscrutpair_temp_scrut_receiver_reuse;
+use logos.lang.option;
+struct Heap { v: i64 }
+impl Heap {
+    fn peek_mut(self: &mut Heap) -> Option<&mut i64> { return Option::Some(&mut self.v); }
+    fn pop(self: &mut Heap) -> i64 { return self.v; }
+}
+fn foo(heap: &mut Heap) -> i64 {
+    match heap.peek_mut() {
+        Option::Some(g) => { let k: i64 = heap.pop(); return k; }
+        Option::None => {}
+    }
+    return 0i64;
+}
+fn main() -> i32 {
+    let mut h = Heap { v: 1i64 };
+    return (foo(&mut h) - 5i64) as i32;
+}

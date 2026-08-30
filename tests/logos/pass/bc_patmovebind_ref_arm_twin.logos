@@ -1,0 +1,21 @@
+// PAIR 4 of 6, root bck.B — the LEGAL twin, ONE TOKEN from
+// fail/bc_patmovebind_byvalue_arm: the arm is `E::A(ref d)`. Mode 1 binds by
+// reference and moves nothing out of `*r`, so the E0507 must not fire. This is
+// one of the two legal programs the scrutinee-only spelling refused.
+package bc_patmovebind_ref_arm_twin;
+
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+enum E { A(P), B }
+
+fn main() -> i32 {
+    let e = E::A(P { n: 1i64 });
+    let r: &E = &e;
+    match *r {
+        E::A(ref d) => {
+            let v: i64 = d.n;
+            return (v - 1i64) as i32;
+        }
+        E::B => { return 1i32; }
+    }
+}

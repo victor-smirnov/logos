@@ -1,0 +1,1 @@
+mutable borrow of mutable static `SY` requires `unsafe` block (Rust `items.static.mut.safety`)

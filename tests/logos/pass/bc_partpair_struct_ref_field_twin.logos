@@ -1,0 +1,23 @@
+// PAIR 6 of 6, root nllmoves.B — the LEGAL twin, ONE TOKEN from
+// fail/bc_partpair_struct_shorthand_field_moved: the arm is `Foo { ref f }`.
+// Nothing is moved out, so `moved_fields` stays empty and the later `&x` is
+// fine. This is what makes the new refusal a partial-MOVE question rather than
+// a ban on struct patterns.
+package bc_partpair_struct_ref_field_twin;
+
+struct A { v: i64 }
+impl Drop for A { fn drop(self: &mut A) {} }
+struct Foo { f: A }
+
+fn touch(a: &Foo) -> i64 { return a.f.v; }
+
+fn main() -> i32 {
+    let x = Foo { f: A { v: 1i64 } };
+    match x {
+        Foo { ref f } => {
+            let _ = f.v;
+        }
+    }
+    let _ = touch(&x);
+    return 0i32;
+}

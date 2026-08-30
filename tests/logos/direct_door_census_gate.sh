@@ -1018,9 +1018,9 @@ PIN = {
     # `admit` for `fail` are not in tests/logos/pass at all. `glob` and the DOOR
     # counts unmoved: no `wql_*`/`deem_*` match, no container family, no
     # `direct` output form.
-    'corpus'            : 2466,
+    'corpus'            : 2476,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2275,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2285,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

@@ -4226,6 +4226,31 @@ private:
 
     // True iff `name` is a module static NOT shadowed by a local binding or
     // a type/const-generic param (mirrors the module_static_muts_ S18 rule).
+    // ── ONE NAME FOR "DOES NAMING THIS STATIC HERE REQUIRE `unsafe`" ────────
+    // `lower_var_ref` (a READ) and `lower_place_assign` (a WRITE) each asked
+    // this and each carried its own copy of the three exemptions — module-scope
+    // shadowing, const-generic name pollution (§6.2 S18), and extern-vs-`mut`.
+    // The two BORROW paths (`&S` / `&mut S`) route around `lower_var_ref`
+    // entirely, so they asked it NOWHERE and a `&mut` of a mutable static —
+    // strictly stronger than either a read or a write — was admitted outside
+    // `unsafe` while both weaker forms refused. This predicate is that question
+    // asked once; the callers supply only the NOUN for the diagnostic.
+    // `is_extern` distinguishes the two upstream rules
+    // (items.extern.static vs items.static.mut.safety).
+    bool static_access_needs_unsafe(std::string_view name, bool& is_extern) const {
+        std::string n(name);
+        const bool ext = module_extern_statics_.count(n) != 0;
+        if (!ext && module_static_muts_.count(n) == 0) return false;
+        // Shadowed by a LOCAL in any frame: the name denotes the binding, not
+        // the global. A SET OF STRINGS CANNOT SAY WHICH BINDING A NAME DENOTES.
+        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it)
+            if (it->vars.count(n)) return false;
+        // Const-generic parameters share the name namespace with statics.
+        if (current_type_params_.count(n)) return false;
+        is_extern = ext;
+        return true;
+    }
+
     bool is_module_static_unshadowed(std::string_view name) const {
         if (module_statics_.find(std::string(name)) == module_statics_.end())
             return false;

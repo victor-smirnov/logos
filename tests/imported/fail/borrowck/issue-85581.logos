@@ -1,6 +1,6 @@
 // rustc borrowck/issue-85581.rs — upstream E0499 cannot borrow mutably twice
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: fail · root bck.B
 package issue_85581;
 use logos.lang.option;
 struct Heap { v: i64 }

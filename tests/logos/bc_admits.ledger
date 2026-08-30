@@ -947,7 +947,7 @@
 # `mutstaticborrow` holds at CEILING 2 / COST 0 and is STILL unfunded, with its
 # abuse direction unmeasured. `borrowpart` is confirmed by hand and needs a PAIR
 # (a partial-move record that survives a match arm) that this round did not buy.
-# TOTAL 334
+# TOTAL 326
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -957,7 +957,6 @@ anonymous-region-in-apit--closure-param-escapes bck.C tests/imported/admit/borro
 augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments
 borrow-immutable-deref-box bck.B tests/imported/admit/borrowck/borrow-immutable-deref-box
 borrow-immutable-upvar-mutation-impl-trait bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait
-borrowck-access-permissions--b-mut-borrow-of-static bck.B tests/imported/admit/borrowck/borrowck-access-permissions--b-mut-borrow-of-static
 borrowck-access-permissions--c-mut-borrow-deref-box bck.B tests/imported/admit/borrowck/borrowck-access-permissions--c-mut-borrow-deref-box
 borrowck-and-init--r03 bck.NEW tests/imported/admit/borrowck/borrowck-and-init--r03
 borrowck-and-init--t03 bck.NEW tests/imported/admit/borrowck/borrowck-and-init--t03
@@ -976,9 +975,6 @@ borrowck-loan-blocks-move-cc--t10 bck.C tests/imported/admit/borrowck/borrowck-l
 borrowck-loan-vec-content bck.B tests/imported/admit/borrowck/borrowck-loan-vec-content
 borrowck-local-borrow-with-panic-outlives-fn bck.A tests/imported/admit/borrowck/borrowck-local-borrow-with-panic-outlives-fn
 borrowck-move-by-capture bck.C tests/imported/admit/borrowck/borrowck-move-by-capture
-borrowck-move-error-many-places--move-out-of-ref-in-match bck.B tests/imported/admit/borrowck/borrowck-move-error-many-places--move-out-of-ref-in-match
-borrowck-move-error-many-places--r-runtime bck.B tests/imported/admit/borrowck/borrowck-move-error-many-places--r-runtime
-borrowck-move-error-with-note--a bck.B tests/imported/admit/borrowck/borrowck-move-error-with-note--a
 borrowck-move-error-with-note--b bck.B tests/imported/admit/borrowck/borrowck-move-error-with-note--b
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
 borrowck-move-out-from-array-match bck.B tests/imported/admit/borrowck/borrowck-move-out-from-array-match
@@ -1007,13 +1003,11 @@ issue-101119 bck.C tests/imported/admit/borrowck/issue-101119
 issue-111554--b bck.A tests/imported/admit/borrowck/issue-111554--b
 issue-111554--c bck.A tests/imported/admit/borrowck/issue-111554--c
 issue-36082 bck.D tests/imported/admit/borrowck/issue-36082
-issue-42344 bck.NEW tests/imported/admit/borrowck/issue-42344
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
 issue-53432-nested-closure-outlives-borrowed-value bck.C tests/imported/admit/borrowck/issue-53432-nested-closure-outlives-borrowed-value
 issue-55492-borrowck-migrate-scans-parents bck.A tests/imported/admit/borrowck/issue-55492-borrowck-migrate-scans-parents
 issue-58776-borrowck-scans-children bck.C tests/imported/admit/borrowck/issue-58776-borrowck-scans-children
 issue-83924 bck.NEW tests/imported/admit/borrowck/issue-83924
-issue-85581 bck.B tests/imported/admit/borrowck/issue-85581
 issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure
 many-mutable-borrows bck.NEW-M tests/imported/admit/borrowck/many-mutable-borrows
 moved-value-suggest-reborrow-issue-127285--r32 bck.NEW tests/imported/admit/borrowck/moved-value-suggest-reborrow-issue-127285--r32
@@ -1024,7 +1018,6 @@ mutability-errors bck.A tests/imported/admit/borrowck/mutability-errors
 mutate-vec-while-iterating--a-push-while-iterating bck.D tests/imported/admit/borrowck/mutate-vec-while-iterating--a-push-while-iterating
 mutate-vec-while-iterating--b-push-while-iterating-mut bck.D tests/imported/admit/borrowck/mutate-vec-while-iterating--b-push-while-iterating-mut
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error
-reborrow-in-match-suggest-deref bck.A tests/imported/admit/borrowck/reborrow-in-match-suggest-deref
 reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow
 regions-bound-missing-bound-in-impl bck.NEW tests/imported/admit/borrowck/regions-bound-missing-bound-in-impl
 regions-escape-bound-fn bck.C tests/imported/admit/borrowck/regions-escape-bound-fn
@@ -1140,7 +1133,6 @@ do-not-suggest-removing-wrong-ref-pattern-issue-132806 nllmoves.B tests/imported
 issue-75904-move-closure-loop nllmoves.C tests/imported/admit/moves/issue-75904-move-closure-loop
 issue-99470-move-out-of-some nllmoves.B tests/imported/admit/moves/issue-99470-move-out-of-some
 move-of-addr-of-mut nllmoves.R5 tests/imported/admit/moves/move-of-addr-of-mut
-moves-based-on-type-match-bindings nllmoves.B tests/imported/admit/moves/moves-based-on-type-match-bindings
 suggest-clone nllmoves.R2 tests/imported/admit/moves/suggest-clone
 
 # ── tests/ui/nll ─────────────────────────────────────────

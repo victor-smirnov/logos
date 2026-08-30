@@ -1,0 +1,26 @@
+// PAIR 4 of 6, root bck.B — `is_unowned_move_source` is the one predicate for
+// "this place does not own what it yields", and it was consulted at four VALUE
+// positions and at NONE of the four `bind_pattern` sites: `bind_pattern`
+// receives the scrutinee's TYPE and never its EXPRESSION, so `match *r { E::A(d)
+// => … }` moved a payload out from behind a shared reference and nothing asked.
+// ⚠ THE SCRUTINEE HALF ALONE OVER-REFUSES — it kills `E::A(ref d)` too. The
+// discriminator is the ARM'S BINDING MODE, which the LIR already carries.
+// ONE TOKEN from pass/bc_patmovebind_ref_arm_twin: `E::A(d)` there is
+// `E::A(ref d)`, and a `ref` arm moves nothing.
+package bc_patmovebind_byvalue_arm;
+
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+enum E { A(P), B }
+
+fn main() -> i32 {
+    let e = E::A(P { n: 1i64 });
+    let r: &E = &e;
+    match *r {
+        E::A(d) => {
+            let v: i64 = d.n;
+            return (v - 1i64) as i32;
+        }
+        E::B => { return 1i32; }
+    }
+}

@@ -837,24 +837,16 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
     // module_static_muts_ set is globally keyed by name and would
     // otherwise spuriously fire for stdlib fns whose param happens
     // to share the static's name (the §6.2 S18 namespace pollution).
-    if (!in_place_write_lhs_ &&
-        (module_static_muts_.count(std::string(name)) ||
-         // T1-13: ANY extern-static access is unsafe (the foreign side may
-         // mutate it at will; Rust items.extern.static).
-         module_extern_statics_.count(std::string(name))) &&
-        !inside_unsafe_) {
-        bool shadowed = false;
-        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it)
-            if (it->vars.count(std::string(name))) { shadowed = true; break; }
-        // Const-generic parameters (`fn f<const N: usize>(…)`) live in
-        // current_type_params_ as ConstVar TypeRefs — they share the
-        // name namespace with module-level statics. The user's
-        // `static mut N: …` must NOT misfire on stdlib fns whose
-        // const-generic parameter happens to be `N` (S18 pollution).
-        if (!shadowed && current_type_params_.count(std::string(name)))
-            shadowed = true;
-        if (!shadowed) {
-            if (module_extern_statics_.count(std::string(name)))
+    // T1-13: ANY extern-static access is unsafe (the foreign side may mutate it
+    // at will; Rust items.extern.static). The three exemptions this used to
+    // spell inline — local shadowing, const-generic name pollution (§6.2 S18),
+    // extern-vs-`mut` — now live once, in `static_access_needs_unsafe`, because
+    // the two BORROW paths need the SAME question and asking it twice is how
+    // the copies drift apart.
+    if (!in_place_write_lhs_ && !inside_unsafe_) {
+        bool is_extern = false;
+        if (static_access_needs_unsafe(name, is_extern)) {
+            if (is_extern)
                 error(std::format(
                     "access to extern static `{}` requires `unsafe` block "
                     "(Rust `items.extern.static`)", name));
@@ -1386,16 +1378,38 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             // address. Same routing as the shared-`&` path (see there).
             if (is_module_static_unshadowed(var_name) &&
                 TypeRef(vt).kind() != LogosType::Kind::Array) {
-                // CEILING PROBES `mutstaticsite` / `mutstaticborrow` — rule 9.
-                // The outer name counts every arrival at this branch; the inner
-                // one sits AFTER the `!static mut` predicate so its own count is
-                // the non-`mut` SUBSET. See src/compiler/PROBES.md.
-                (void)logos::probe::on("mutstaticsite");
-                if (module_static_muts_.count(std::string(var_name)) == 0 &&
-                    logos::probe::on("mutstaticborrow"))
+                // E0596 — `&mut S` IS the global's address, and until this
+                // landed NOTHING anywhere checked the `mut`: the branch's own
+                // comment asserted "`&mut STATIC` (a `static mut`) IS the
+                // global's address" while accepting the same expression on an
+                // IMMUTABLE static. `module_static_muts_` is the only place the
+                // `mut` keyword survives to.
+                if (module_static_muts_.count(std::string(var_name)) == 0) {
                     error(std::format(
-                        "ceiling-probe mutstaticborrow: cannot borrow immutable "
-                        "static '{}' as mutable (E0596)", var_name));
+                        "cannot borrow immutable static `{}` as mutable (E0596)",
+                        var_name));
+                    return builder().var_ref(static_addr_name(var_name),
+                                             make_ref(true, vt));
+                }
+                // A `&mut` of a mutable static is STRICTLY STRONGER than either
+                // a read or a write of it, and both of those refuse outside
+                // `unsafe`. This path routes around `lower_var_ref`, so it
+                // asked nowhere. Same predicate, borrow's noun.
+                if (!inside_unsafe_) {
+                    bool is_extern = false;
+                    if (static_access_needs_unsafe(var_name, is_extern)) {
+                        if (is_extern)
+                            error(std::format(
+                                "mutable borrow of extern static `{}` requires "
+                                "`unsafe` block (Rust `items.extern.static`)",
+                                var_name));
+                        else
+                            error(std::format(
+                                "mutable borrow of mutable static `{}` requires "
+                                "`unsafe` block (Rust `items.static.mut.safety`)",
+                                var_name));
+                    }
+                }
                 return builder().var_ref(static_addr_name(var_name),
                                          make_ref(true, vt));
             }
@@ -3000,6 +3014,21 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             if (is_module_static_unshadowed(var_name) &&
                 TypeRef(vt).kind() != LogosType::Kind::Array) {
                 bool smut = module_static_muts_.count(std::string(var_name)) != 0;
+                // The SHARED half of the same hole: `&S` on a mutable static
+                // also routes around `lower_var_ref`, so it too never asked.
+                if (!inside_unsafe_) {
+                    bool is_extern = false;
+                    if (static_access_needs_unsafe(var_name, is_extern)) {
+                        if (is_extern)
+                            error(std::format(
+                                "borrow of extern static `{}` requires `unsafe` "
+                                "block (Rust `items.extern.static`)", var_name));
+                        else
+                            error(std::format(
+                                "borrow of mutable static `{}` requires `unsafe` "
+                                "block (Rust `items.static.mut.safety`)", var_name));
+                    }
+                }
                 return builder().var_ref(static_addr_name(var_name),
                                          make_ref(smut, vt));
             }

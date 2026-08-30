@@ -1,0 +1,23 @@
+// PAIR 4 of 6, CASUALTY GUARD — `ref b @ E::B` is LEGAL and the first correct
+// spelling of arm 4 refused it (MEASURED rc=1). `PatAt` carries
+// {name, sub, type, bind_slot} and NO mode field at all, so `ref b @ E::B` and
+// `b @ E::B` are indistinguishable at that node; the arm therefore makes no
+// claim about its own binding and walks only the SUB-pattern, whose node may
+// carry a mode. The cost of that silence is that `b @ E::B` by value is missed
+// — a HOLE, which is the right way round: a missing refusal is a row, a wrong
+// refusal is a legal program killed.
+package bc_patmovebind_at_ref_binding_twin;
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+enum E { A(P), B }
+fn main() -> i32 {
+    let e = E::A(P { n: 1i64 });
+    let r: &E = &e;
+    match *r {
+        E::A(ref d) => {
+            let v: i64 = d.n;
+            return (v - 1i64) as i32;
+        }
+        ref b @ E::B => { return 1i32; }
+    }
+}

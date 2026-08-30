@@ -4289,12 +4289,17 @@ private:
                 "cannot borrow moved value '{}'", target));
             return;
         }
-        // CEILING PROBE `borrowpart` (armed alone, or as half of `partpair`) —
-        // the line above asks the WHOLE-variable `moved` flag and never
-        // `moved_fields`. `recvpartial` landed the same asymmetry one route
-        // over, at the method-call receiver. See src/compiler/PROBES.md.
+        // The branch above asks the WHOLE-variable `moved` flag and never
+        // `moved_fields`, so borrowing a value one of whose fields has been
+        // moved out was silent here while `recvpartial` refuses the identical
+        // shape one route over, at the method-call receiver. Repair by
+        // DELEGATION to `report_partial_move` — the reader that already owns
+        // this question and its wording — rather than by a second name for it.
+        // ⚠ ITS POPULATION IS MADE BY THE STRUCT-PATTERN REPAIR ABOVE. Measured
+        // alone this site matched ZERO times, because until a shorthand field
+        // got a type nothing ever put a struct pattern's field into
+        // `moved_fields`. Neither half closes a row; the pair does.
         if (!implicit && !it->moved_fields.empty() &&
-            (logos::probe::on("borrowpart") || logos::probe::on("partpair")) &&
             report_partial_move(*it, target, line))
             return;
         if (is_mut) {
@@ -5623,17 +5628,22 @@ private:
             }
             case PC::Struct: {
                 PatStructView sv{pr};
-                // CEILING PROBE `structpatty` (armed alone, or as half of
-                // `partpair`) — A STRUCT-PATTERN SHORTHAND FIELD ARRIVES WITH A
-                // NULL BINDING TYPE, exactly the shape `slicepatnull` records
-                // for array patterns, so the landed by-value sub-place move
-                // rule (`patbyvalsubmove`, whose gate is `is_move_type(t)`)
-                // skips every `match x { Foo { f } => … }`. The type is
-                // recoverable HERE: the pattern carries the struct's NAME and
-                // ts_ already indexes every def by it. See PROBES.md.
+                // ── A SHORTHAND FIELD USED TO ARRIVE WITH A NULL TYPE ────────
+                // `f(name, TypeRef(nullptr), …)` reaches EVERY consumer of this
+                // walk, and every one of them gates on the type: the by-value
+                // sub-place move rule asks `is_move_type(t)`, so it skipped
+                // `match x { Foo { f } => … }` exactly as it skips an array
+                // pattern (`slicepatnull`, still open). A missing line has no
+                // spelling, which is why no grep-defined class contained this.
+                // The type is recoverable HERE and nowhere downstream: the
+                // pattern carries the struct's NAME, and `ts_` already indexes
+                // every def by it.
+                // ⚠ A LOOKUP MISS MUST LEAVE THE OLD BEHAVIOUR. A generic
+                // pattern carries the BASE name (`W`) while the def is stored
+                // mono-mangled, so `sdef` stays empty and the field type stays
+                // null — the same permissive answer as before, never a wrong one.
                 std::optional<lir_view::StructView> sdef;
-                if (logos::probe::on("structpatty") ||
-                    logos::probe::on("partpair")) {
+                {
                     std::string sn(sv.struct_name());
                     auto sit = ts_.struct_by_name.find(sn);
                     if (sit != ts_.struct_by_name.end()) sdef = sit->second;
@@ -6137,16 +6147,22 @@ private:
     std::string retain_temp_scrut_loan(lir_view::ExprRef scrut, uint32_t ln) {
         if (!scrut || !is_temporary_value_expr(scrut)) return {};
         const auto* pool = prog_.type_pool.impl();
-        // CEILING PROBE `aggscrutpair` — THE THIRD SITE. issue-85581's loan
-        // comes from a MATCH SCRUTINEE (`match heap.peek_mut() { … }`), not
-        // from a `let`, so neither B-10 gate is on its path. Same two notions
-        // of one concept: this gate is the ATTRIBUTE-keyed carrier closure
-        // where the question is the structural one. Paired with the
-        // `is_self_borrowing` half below, which is what turns the temporary's
-        // own evaluation into a receiver loan at all.
+        // ── THE THIRD SITE, AND THE STRUCTURAL NOTION ────────────────────────
+        // A temporary scrutinee's loan (`match heap.peek_mut() { Some(g) … }`)
+        // comes from neither of B-10's two `let` gates, so nothing on that
+        // path retained it. This gate asked `loan_carrying_type` — the
+        // ATTRIBUTE-keyed carrier closure — where the question is structural
+        // ("does this VALUE hold a loan"), the same two-notions-of-one-concept
+        // split repaired at the other consumers: the narrow notion silently
+        // won, and `Option<&mut i64>` is invisible to it because no
+        // `#[borrow_carrying]` attribute names it.
+        // ⚠ IT IS A PAIR, not one gate. `peek_mut()` returns `Option<&mut i64>`,
+        // which `is_borrow_carrying_type` denies, so `is_self_borrowing` said no
+        // and take_ref_borrows' MethodCall arm tied no receiver — this gate
+        // would fire and record NOTHING. The `is_self_borrowing` result test is
+        // the other half; neither closes a row alone.
         if (!loan_carrying_type(scrut.type(pool)) &&
-            !(type_may_carry_borrow(scrut.type(pool)) &&
-              logos::probe::on("aggscrutpair")))
+            !type_may_carry_borrow(scrut.type(pool)))
             return {};
         std::string tmp = "__scrut_tmp_" + std::to_string(++scrut_tmp_seq_);
         take_ref_borrows(scrut, ln, tmp, /*record_only=*/true);
@@ -6174,15 +6190,15 @@ private:
             return false;
         TypeRef ret = f.ret_type(pool);
         if (is_borrow_carrying_type(ret)) return true;
-        // CEILING PROBE half — the RESULT test is ATTRIBUTE-keyed where the
-        // question is structural ("does the returned VALUE hold a loan"). This
-        // is `aggcallloan`, which prices 0/0 ALONE and is load-bearing for one
-        // row; it is armed under whichever of the three agg names is running,
-        // because rule 13 says credit is per SET. See src/compiler/PROBES.md.
-        if (!is_ref_kind(ret) && type_may_carry_borrow(ret) &&
-            (logos::probe::on("aggwhole") || logos::probe::on("aggnarrow") ||
-             logos::probe::on("aggscrutpair") ||
-             logos::probe::on("aggcallloan")))
+        // The RESULT test was ATTRIBUTE-keyed where the question is structural
+        // ("does the returned VALUE hold a loan"). `is_borrow_carrying_type`
+        // answers only for types an attribute names; a `&self` method returning
+        // `Option<&mut T>` or a tuple holding a `&mut` ties the receiver just as
+        // surely. Measured ALONE this widening moves NOTHING in either
+        // direction (180 arrivals, 0 rows, 0 legal programs) — it is the half
+        // that makes the scrutinee gate above and the `if let` route have
+        // anything to retain. BLAME IS PER SITE, CREDIT IS PER SET.
+        if (!is_ref_kind(ret) && type_may_carry_borrow(ret))
             return true;
         if (is_plain_ref_kind(ret)) return true;
         if (!is_ref_kind(ret)) return false;

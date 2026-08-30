@@ -1,0 +1,24 @@
+// PAIR 5 of 6, the LEGAL twin — `heap.pop()` moved OUT of the arm to after the
+// match. The retained loan must be RELEASED at the end of the match, so this
+// still admits. Cost 0 over the corpus is not a safety claim: the loan's
+// lifetime is decided by the synthetic holder's inheritors, and this is the
+// fixture that pins that release.
+package bc_aggscrutpair_use_after_match_twin;
+use logos.lang.option;
+struct Heap { v: i64 }
+impl Heap {
+    fn peek_mut(self: &mut Heap) -> Option<&mut i64> { return Option::Some(&mut self.v); }
+    fn pop(self: &mut Heap) -> i64 { return self.v; }
+}
+fn foo(heap: &mut Heap) -> i64 {
+    match heap.peek_mut() {
+        Option::Some(g) => { *g = 5i64; }
+        Option::None => {}
+    }
+    let k: i64 = heap.pop();
+    return k;
+}
+fn main() -> i32 {
+    let mut h = Heap { v: 1i64 };
+    return (foo(&mut h) - 5i64) as i32;
+}

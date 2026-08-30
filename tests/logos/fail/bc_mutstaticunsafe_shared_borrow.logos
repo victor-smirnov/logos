@@ -1,0 +1,14 @@
+// PAIR 3 of 6, NO LEDGER ROW — the SHARED half of pair 2. `&S` on a mutable
+// static takes the same route around `lower_var_ref` as `&mut S`, so it too
+// never asked. Recorded separately because the two borrow forms are two
+// branches (`lower_unary`'s `&` arm and `lower_expr_inner`'s ADDR_OF_MUT), and
+// closing one says nothing about the other.
+package bc_mutstaticunsafe_shared_borrow;
+
+static mut SY: i64 = 1i64;
+
+fn main() -> i32 {
+    let y: &i64 = &SY;
+    let v: i64 = *y;
+    return (v - 1i64) as i32;
+}

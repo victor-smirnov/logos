@@ -1,6 +1,6 @@
 // rustc moves/moves-based-on-type-match-bindings.rs — upstream E0382
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.B
+// shelf: fail · root nllmoves.B
 package moves_based_on_type_match_bindings;
 // moves/moves-based-on-type-match-bindings.rs — E0382 borrow of partially moved value
 struct A { v: i64 }

@@ -1,0 +1,21 @@
+// PAIR 5 of 6 — THE SHAPE NOBODY PREDICTED. A TUPLE-LITERAL temporary scrutinee
+// `match (&mut x, 2i64) { … }` holds the loan in an ELEMENT. `tmcb_walk` (the
+// structural predicate) recurses into tuple elements and `loan_carrying_type`
+// (the attribute-keyed one) does not, so the whole shape was invisible to the
+// old gate — which is why closing this reached a bck.A row out of group B
+// rather than only the bck.B row that was aimed at.
+// ONE TOKEN from pass/bc_aggscrutpair_tuple_literal_scrut_twin: `&mut x` there
+// is `&x`, and a shared element does not conflict with the read.
+package bc_aggscrutpair_tuple_literal_scrut;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let mut s: i64 = 0i64;
+    match (&mut x, 2i64) {
+        (a, b) => {
+            x = 9i64;
+            s = *a + b;
+        }
+    }
+    let y: i64 = x;
+    return (s - 3i64 + y - 1i64) as i32;
+}

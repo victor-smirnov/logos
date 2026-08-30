@@ -9626,33 +9626,71 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
 
             // Build body block — push pattern bindings into scope
             push_scope();
-            // CEILING PROBE `patmoveref` — `is_unowned_move_source` is the one
-            // predicate for "this place does not own what it yields", and it is
-            // consulted at four VALUE positions and at NONE of the four
-            // bind_pattern sites: bind_pattern gets the scrutinee's TYPE, never
-            // its EXPRESSION, so the question cannot be asked there.
-            if (logos::probe::on("patmoveref") && is_move_type(scrut_type) &&
-                is_unowned_move_source(smatch.scrut))
-                error("ceiling-probe patmoveref: cannot move out of a value "
-                      "behind a reference / out of an index (E0507)");
-            // CEILING PROBE `patmovebind` — the NARROWING of `patmoveref`.
-            // patmoveref asks only what the SCRUTINEE is; this one also asks
-            // what the ARM BINDS. A `ref` / `ref mut` / default-binding-mode
-            // binding moves nothing out of the scrutinee, and both of
-            // patmoveref's two legal casualties are exactly that spelling.
-            // The binding MODE is a carried fact (pat_keys::BINDING_REF_MODES),
-            // not a type comparison. See src/compiler/PROBES.md.
+            // ── E0507 AT THE MATCH ARM ──────────────────────────────────
+            // `is_unowned_move_source` is the one predicate for "this place
+            // does not own what it yields". It was consulted at four VALUE
+            // positions and at NONE of the four `bind_pattern` sites, because
+            // `bind_pattern` receives the scrutinee's TYPE and never its
+            // EXPRESSION — so `match *r { E::A(d) => … }` moved a payload out
+            // from behind a reference and nothing asked.
+            //
+            // THE SCRUTINEE HALF ALONE OVER-REFUSES. Asking only "is the
+            // scrutinee an unowned move source" refuses `E::A(ref d)` and
+            // `E::A(ref mut y)`, which move nothing; measured, that half costs
+            // two legal programs for the same three rows. The discriminator is
+            // the ARM'S BINDING MODE, a fact the LIR already carries
+            // (`pat_keys::BINDING_REF_MODES`, minted where the `ref` keyword
+            // and the default-binding-mode decision both live), so the question
+            // is answered by reading rather than by recomputing.
+            //
+            // ⚠ DELIBERATELY SILENT ON FOUR PATTERN KINDS — see the `default:`
+            // arm below. Modes 3/4 (default binding mode) cannot co-occur here
+            // by construction: such a binding exists only under a REFERENCE
+            // scrutinee, and the outer gate requires `is_move_type(scrut_type)`,
+            // which a reference is not.
+            // ⚠ AN INDEX SCRUTINEE IS SOMEBODY ELSE'S QUESTION ALREADY.
+            // `is_unowned_move_source` answers "deref OR index"; for the index
+            // half a reader already emits "cannot move out of type `[W; 1]`, a
+            // non-copy array" / "… `&[W]`, a non-copy slice" AT THE SAME LINE,
+            // so claiming it here adds a SECOND diagnostic for one defect and no
+            // verdict. MEASURED over the whole 2195-program borrow corpus: with
+            // the index half in, exactly one already-red program
+            // (`bc_match_slice_elem_moved`) gained a duplicate line and nothing
+            // else moved. None of the rows this closes is an index scrutinee —
+            // they are `match *f {…}` and `match a.a {…}` — so the exclusion
+            // costs nothing and removes the only overlap.
+            auto scrut_is_index = [&]() {
+                auto r = expr_ref_of(smatch.scrut);
+                if (!r) return false;
+                using SC = lir_schema::expr::Code;
+                return r.kind() == SC::IndexRead || r.kind() == SC::SliceIndex;
+            };
             if (is_move_type(scrut_type) &&
-                is_unowned_move_source(smatch.scrut) &&
-                logos::probe::on("patmovebind")) {
+                is_unowned_move_source(smatch.scrut) && !scrut_is_index()) {
                 namespace ps2 = lir_schema::pat;
                 const auto* tpool = cur_prog_->type_pool.impl();
-                auto byval = [&](auto&& self, lir_view::PatRef pr) -> bool {
+                // Returns TRUE and fills `out` with the BINDING'S OWN NAME —
+                // a diagnostic that says '?' where a name belongs is not
+                // finished, and the name is the only part of this the reader
+                // can act on.
+                // `wild_trusted` — MAY a named Wild at this position be read as
+                // a by-value binding? At the arm's ROOT, yes: `match a.a { ref n
+                // => … }` lowers to PatRefBind, so a Wild there really did carry
+                // no `ref`. UNDER A TUPLE, no: build_pattern's PAT_WILD
+                // tuple-element arm rebuilds `ref a` as a bare named Wild and
+                // the keyword is gone (MEASURED: `(ref a, b)` walks Tuple → Wild
+                // name='a', with nothing to distinguish it from `(a, b)`).
+                auto byval_name = [&](auto&& self, lir_view::PatRef pr,
+                                      std::string& out,
+                                      bool wild_trusted) -> bool {
                     if (!pr) return false;
                     switch (pr.kind()) {
                         case ps2::Code::Wild: {
+                            if (!wild_trusted) return false;
                             auto n = lir_view::PatWildView{pr}.name();
-                            return !n.empty() && n != "_";
+                            if (n.empty() || n == "_") return false;
+                            out = std::string(n);
+                            return true;
                         }
                         case ps2::Code::VariantData: {
                             lir_view::PatVariantDataView v{pr};
@@ -9660,54 +9698,95 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                             std::vector<TypeRef> tys;
                             v.each_binding([&](std::string_view n){ ns.emplace_back(n); });
                             v.each_binding_type(tpool, [&](TypeRef ty){ tys.push_back(ty); });
+                            // Mode 0 = by value; 1/2 = `ref` / `ref mut`, which
+                            // move nothing and are the two legal casualties the
+                            // scrutinee-only form refused.
+                            // ⚠ AN EMPTY MODE VECTOR MEANS "ALL BY VALUE", NOT
+                            // "UNKNOWN", and that is MEASURED rather than
+                            // assumed: `E::A(d)` walks here with modes=0 and
+                            // `E::A(ref d)` with modes=1, so the vector is
+                            // minted only where a mode is actually spelled.
+                            // Reading absence as no-claim silenced all three
+                            // rows; reading it as mode 0 is what the minting
+                            // site means.
                             auto ms = v.bind_ref_modes();
                             for (size_t i = 0; i < ns.size(); ++i) {
                                 uint32_t m = i < ms.size() ? ms[i] : 0u;
                                 TypeRef bt = i < tys.size() ? tys[i] : TypeRef(nullptr);
-                                if (m == 0 && ns[i] != "_" && bt && is_move_type(bt))
+                                if (m == 0 && ns[i] != "_" && bt && is_move_type(bt)) {
+                                    out = ns[i];
                                     return true;
+                                }
                             }
                             return false;
                         }
                         case ps2::Code::Tuple: {
-                            lir_view::PatTupleView v{pr};
-                            std::vector<std::string> ns;
-                            std::vector<TypeRef> tys;
-                            v.each_binding([&](std::string_view n){ ns.emplace_back(n); });
-                            v.each_binding_type(tpool, [&](TypeRef ty){ tys.push_back(ty); });
-                            for (size_t i = 0; i < ns.size(); ++i) {
-                                TypeRef bt = i < tys.size() ? tys[i] : TypeRef(nullptr);
-                                if (ns[i] != "_" && bt && is_move_type(bt)) return true;
-                            }
+                            // ⚠ NO CLAIM ABOUT THIS NODE'S OWN BINDINGS, and it
+                            // is the tree that forbids it rather than caution:
+                            // build_pattern's PAT_WILD tuple-element arm pushes
+                            // the bare NAME and a `make_pat_wild`, DROPPING
+                            // IS_REF — so `(ref a, b)` arrives here spelled
+                            // exactly like `(a, b)` and no mode survives to
+                            // read. Claiming by-value from the name alone
+                            // refuses `match *r { (ref a, b) => … }`, a legal
+                            // program, MEASURED as rc=1 before this arm went
+                            // silent. `each_pat_binding_place`'s tuple arm
+                            // records the identical silence for the same reason.
+                            // Recovering it is a sema repair one door over (the
+                            // dropped keyword), with a row of its own.
                             bool any = false;
-                            v.each_sub([&](lir_view::PatRef s){
-                                if (self(self, s)) any = true; });
+                            lir_view::PatTupleView{pr}.each_sub(
+                                [&](lir_view::PatRef sp){
+                                    if (!any && self(self, sp, out, false))
+                                        any = true; });
                             return any;
                         }
                         case ps2::Code::Or: {
                             bool any = false;
                             lir_view::PatOrView{pr}.each_alt([&](lir_view::PatRef a){
-                                if (self(self, a)) any = true; });
+                                if (!any && self(self, a, out, wild_trusted))
+                                    any = true; });
                             return any;
                         }
                         case ps2::Code::At: {
-                            lir_view::PatAtView v{pr};
-                            TypeRef bt = v.type(tpool);
-                            auto n = v.name();
-                            if (!n.empty() && n != "_" && bt && is_move_type(bt))
-                                return true;
-                            return self(self, v.sub());
+                            // ⚠ SAME SILENCE, SAME REASON. `PatAt` carries
+                            // {name, sub, type, bind_slot} and NO mode field at
+                            // all, so `ref b @ E::B` and `b @ E::B` are the same
+                            // node here. Claiming by-value refuses the first,
+                            // which is legal — MEASURED as rc=1 before this arm
+                            // went silent. Only the SUB-pattern, whose own node
+                            // may carry a mode, is walked.
+                            return self(self, lir_view::PatAtView{pr}.sub(), out,
+                                        wild_trusted);
                         }
                         default:
-                            // RefBind / RefPat / Struct / Slice: no by-value
-                            // MOVE claim this probe is willing to make.
+                            // RefBind / RefPat / Struct / Slice: NO by-value
+                            // move claim is made here. RefBind/RefPat are
+                            // by-reference by construction (`match a.a { ref n
+                            // => … }` lowers to RefBind, not to a named Wild,
+                            // and is admitted). Struct and Slice are silent
+                            // because their binding TYPES are not reachable at
+                            // this position at all — that is the null-type hole
+                            // `each_pat_binding_place`'s struct arm repairs one
+                            // door over, and its array arm still has open (B-5).
+                            // Each is a row of its own; claiming them from here
+                            // would be inventing a fact.
+                            //
+                            // ⚠ ONLY TWO NODE KINDS MAKE A CLAIM AT ALL —
+                            // VariantData (which carries BINDING_REF_MODES) and
+                            // a named Wild (by value by construction). That is
+                            // strictly narrower than the probe this landed from,
+                            // and the narrowing was bought with two legal
+                            // programs the corpus does not contain.
                             return false;
                     }
                 };
-                if (byval(byval, pat_ref_of(pat)))
-                    error("ceiling-probe patmovebind: cannot move out of a "
-                          "value behind a reference (E0507) — the arm binds "
-                          "by value");
+                if (std::string bn;
+                    byval_name(byval_name, pat_ref_of(pat), bn, /*wild_trusted=*/true))
+                    error(std::format(
+                        "cannot move out of a value behind a reference / out of "
+                        "an index (E0507): the match arm binds '{}' by value",
+                        bn));
             }
             bind_pattern(pat, scrut_type);
             current_pat_mut_names_ = saved_pat_muts;

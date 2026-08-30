@@ -1,6 +1,6 @@
 // rustc borrowck/borrowck-move-error-many-places.rs — upstream E0507
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: fail · root bck.B
 // upstream: borrowck/borrowck-move-error-many-places.rs  E0507
 package borrowck_move_error_many_places_move_out_of_ref_in_match;
 struct P { n: i64 }

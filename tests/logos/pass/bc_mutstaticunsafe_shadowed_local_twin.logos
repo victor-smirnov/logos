@@ -1,0 +1,16 @@
+// PAIR 3 of 6, the SHADOWING guard — `module_static_muts_` is keyed by NAME, and
+// a set of strings cannot say which binding a name denotes. A LOCAL called `SY`
+// shadows the static, so `&mut SY` here borrows the local and must NOT ask for
+// `unsafe`, nor trip arm 1's E0596. The exemption is inside the one predicate
+// (`static_access_needs_unsafe`), so all four access paths inherit it rather
+// than each carrying its own copy to drift.
+package bc_mutstaticunsafe_shadowed_local_twin;
+
+static mut SY: i64 = 1i64;
+
+fn main() -> i32 {
+    let mut SY: i64 = 7i64;
+    let y: &mut i64 = &mut SY;
+    *y = 2i64;
+    return (*y - 2i64) as i32;
+}

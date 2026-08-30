@@ -1,0 +1,25 @@
+// PAIR 4 of 6, CASUALTY GUARD — `(ref a, b)` under a deref scrutinee is LEGAL,
+// and the first correct spelling of arm 4 refused it (MEASURED rc=1). Two
+// separate reasons, both measured with the walk instrumented rather than read:
+//  · build_pattern's PAT_WILD tuple-element arm rebuilds `ref a` as a bare named
+//    Wild, so the keyword is GONE by the time the walk sees it — `(ref a, b)`
+//    and `(a, b)` are the same nodes. The Wild claim is therefore trusted only
+//    at the arm's ROOT, never under a Tuple.
+//  · `bind_ref_modes()` is minted ONLY where a mode is spelled: `E::A(d)` walks
+//    with modes=0 and `E::A(ref d)` with modes=1. An EMPTY vector means "all by
+//    value", not "unknown" — reading it as unknown silenced all three rows.
+// If this file ever reddens, the walk has started claiming a fact the tree does
+// not carry.
+package bc_patmovebind_tuple_ref_element_twin;
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+fn main() -> i32 {
+    let t: (P, i64) = (P { n: 1i64 }, 2i64);
+    let r: &(P, i64) = &t;
+    match *r {
+        (ref a, b) => {
+            let v: i64 = a.n + b;
+            return (v - 3i64) as i32;
+        }
+    }
+}

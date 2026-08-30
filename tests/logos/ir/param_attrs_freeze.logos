@@ -45,9 +45,19 @@ fn exclusive_mut(p: &mut Point) -> i64 { p.x = p.x + 1i64; return p.x; }
 //    the bundle — noundef/align/dereferenceable — is unaffected and stays) ──
 fn interior_direct(c: &Cell<i64>) -> i64 { return c.get(); }
 fn interior_field(w: &Wrap) -> i64 { return w.inner.get() + w.tag; }
+// ⚠ THE ARM BINDS BY REFERENCE, AND IT MUST. `h.o` is behind a shared `&`, and
+// `Cell<i64>` is not Copy, so `Option::Some(c)` binding BY VALUE moves a
+// non-Copy payload out of `*h` — E0507, the same shape as the ledger row
+// borrowck-move-error-with-note--a (`match a.a { n => … }` on `a: &A`). It read
+// as legal here only because no site asked: `bind_pattern` receives the
+// scrutinee's TYPE and never its EXPRESSION, so the question could not be put.
+// Corrected 2026-08-29e when that site started asking. NOTHING THIS FILE
+// ASSERTS DEPENDS ON THE BINDING MODE — the pinned bundle is the PARAMETER
+// attribute list for `&HasOpt`, derived from the pointee TYPE by
+// `apply_param_attrs`, and `.check` line 43 pins exactly that.
 fn interior_payload(h: &HasOpt) -> i64 {
     match h.o {
-        Option::Some(c) => { return c.get(); }
+        Option::Some(ref c) => { return c.get(); }
         Option::None => { return 0i64; }
     }
 }

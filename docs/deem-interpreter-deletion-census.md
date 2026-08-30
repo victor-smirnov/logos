@@ -4716,9 +4716,25 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                   admit row test carries no `imported` label).
 #   TIERCOMMIT    386 ->  383   -3  the three closed rows' per-row tests leave.
 # PREDICTED +6/+3/-3 before the pin was read, and read as exactly that.
-REGISTRY-ALL         8673
-REGISTRY-NOIMPORTED  4449
-REGISTRY-TIERCOMMIT  383
+# 2026-08-29e — FIVE ARMS LANDED, EIGHT LEDGER ROWS CLOSED (334 -> 326).
+#   ALL          8673 -> 8690  +17  25 new fixture tests (8 imported rows relanded
+#                                   as fail fixtures + 7 native fail + 10 native
+#                                   pass) less the 8 per-row admit tests that
+#                                   leave with their rows.
+#   NOIMPORTED   4449 -> 4458   +9  the 17 NATIVE new less the 8 admit row tests
+#                                   (an admit row test carries no `imported`
+#                                   label; the 8 relanded rows do).
+#   TIERCOMMIT    383 ->  375   -8  the eight closed rows' per-row tests leave,
+#                                   and nothing joins: every new fixture is
+#                                   registered through the `corpus` path, which
+#                                   is the tier canary's derived exemption.
+# PREDICTED +17/+9/-8 before the pin was read, and read as exactly that. The
+# TIERCOMMIT column going DOWN while tests are added is the shape to check: it
+# is the only one of the three that can, and it does so exactly when a round
+# succeeds.
+REGISTRY-ALL         8690
+REGISTRY-NOIMPORTED  4458
+REGISTRY-TIERCOMMIT  375
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

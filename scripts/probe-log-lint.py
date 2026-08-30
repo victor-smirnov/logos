@@ -22,21 +22,44 @@ def main(root="."):
     if not os.path.exists(log):
         print(f"probe-log-lint: {log} is missing", file=sys.stderr); return 1
     text = open(log, encoding="utf-8").read()
-    recs = re.findall(r'^## (\S+)\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+    # ⚠ A RECORD IS DEFINED BY WHAT IT CONTAINS, NOT BY HOW ITS HEADING IS SPELT.
+    # This was `^## (\S+)\n`, which matches only a BARE `## name` heading. Every
+    # record whose heading carries a title — `## mutstaticborrow — RE-PRICED A
+    # THIRD TIME` — was silently skipped, and that is the whole of what the last
+    # several rounds wrote. MEASURED 2026-08-29: 47 bare headings checked, 54
+    # titled ones never looked at. A gate that certifies what it cannot see is
+    # worse than no gate, and this one was reporting a record count that had
+    # quietly stopped growing.
+    # The heading NAME is its first whitespace-delimited token; whether the
+    # block is a record at all is decided by the `site:` line below.
+    recs = re.findall(r'^## (\S+)[^\n]*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
     bad, checked = [], 0
     seen = set()
     for name, body in recs:
         if name in ("Format",):  # the format section is prose, not a record
             continue
-        if name in seen:
-            bad.append(f"{name}: duplicate record — two measurements under one name "
-                       f"cannot be told apart, which is the defect this file records")
-        seen.add(name)
         m = re.search(r'^site:\s*(\S+)::(\S+)', body, re.M)
         if not m:
-            bad.append(f"{name}: no `site:` line — a measurement with no link to the "
-                       f"code is a number nobody can act on")
+            # No `site:` line ⇒ this heading is narrative, not a record. Only a
+            # block that claims a site is held to a site's obligations.
             continue
+        # ⚠ IDENTITY IS (name, build), NOT name. Rule 8 REQUIRES re-pricing — a
+        # ceiling decays and a cost grows — so the same probe legitimately has a
+        # record per round. What must never happen is two measurements that
+        # cannot be told apart, and the `build:` line is exactly what tells them
+        # apart. Keyed on the name alone this rule would have forbidden the
+        # re-pricings the method depends on; it only ever looked satisfied
+        # because the titled headings above were invisible to it.
+        b = re.search(r'^build:\s*(\S+)', body, re.M)
+        key = (name, b.group(1) if b else None)
+        if b is None:
+            bad.append(f"{name}: no `build:` line — a measurement with no build "
+                       f"identity cannot be re-priced or told from its own repeats")
+        elif key in seen:
+            bad.append(f"{name} @ {b.group(1)}: duplicate record — two measurements "
+                       f"under one name AND one build cannot be told apart, which is "
+                       f"the defect this file records")
+        seen.add(key)
         path, sym = m.group(1), m.group(2)
         full = os.path.join(root, path)
         if not os.path.exists(full):

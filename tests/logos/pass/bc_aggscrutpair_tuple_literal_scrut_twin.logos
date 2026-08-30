@@ -1,0 +1,14 @@
+// PAIR 5 of 6, the LEGAL twin — a SHARED borrow in the tuple element and a read
+// of `x` after the match. The retained loan is shared, so nothing conflicts.
+package bc_aggscrutpair_tuple_literal_scrut_twin;
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let mut s: i64 = 0i64;
+    match (&x, 2i64) {
+        (a, b) => {
+            s = *a + b;
+        }
+    }
+    let y: i64 = x;
+    return (s - 3i64 + y - 1i64) as i32;
+}

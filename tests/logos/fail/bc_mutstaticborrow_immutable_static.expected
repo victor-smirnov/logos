@@ -1,0 +1,1 @@
+cannot borrow immutable static `SX` as mutable (E0596)

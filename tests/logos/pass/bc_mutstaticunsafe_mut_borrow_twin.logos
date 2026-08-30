@@ -1,0 +1,14 @@
+// PAIR 2 of 6, the LEGAL twin — the identical borrow inside `unsafe`, which is
+// how a `static mut` is meant to be reached. Proves the new gate is the
+// `unsafe` question and not a ban on the borrow.
+package bc_mutstaticunsafe_mut_borrow_twin;
+
+static mut SY: i64 = 1i64;
+
+fn main() -> i32 {
+    unsafe {
+        let y: &mut i64 = &mut SY;
+        *y = 2i64;
+    }
+    return 0i32;
+}
