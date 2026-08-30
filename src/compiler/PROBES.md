@@ -4857,3 +4857,297 @@ lifetime correctly. One site, no row.
  * the declared-but-unfunded list from 2026-08-30b is untouched: escape-argument
    --t09 + fpwrite, #78, the bare closure arm, 22 of `type_may_carry_borrow`'s
    28 consumers, four region-blocked class-C rows.
+
+# ROUND 2026-08-30e — `lifereg.A` + `lifereg.R17`: 32 ROWS, AND NOT ONE OF THEM NEEDS REGION INFERENCE
+
+Subject: the two never-surveyed `lifereg` roots, `lifereg.A` (17) and
+`lifereg.R17` (15). The standing advice was that if they need region inference
+they are not fundable (0 of 91 named regions ever gets a CFG point; 46.7M
+RegionInferer analyses → 57 conflicts and ONE pinned refusal). **The survey
+answers the central question with a number: ZERO of the 32 need it.** Every one
+is settled by a NAME or a comparison SITE, and the tree already owns machinery
+for both.
+
+## THE DISCRIMINATOR — SIXTEEN HAND PROGRAMS, ONE TOKEN APART, ALL MULTI-LINE
+
+Not a relation. Two facts, each provable by flipping one token:
+
+    u1  fn f<'a>(x: &'b i64)                REFUSED  "use of undeclared lifetime name ''b'"
+    u2  struct W<'a> { data: &'b i64 }      REFUSED  (landed 2026-08-30d)
+    u3  enum E { V(&'b u64) }               rc 0     ← the same rule, a missing site
+    u5  impl Tr<'tcx> for W                 rc 0     ← ditto
+    u6  trait Tr { fn m(&self, y:&'q i64) } rc 0     ← ditto
+    H3  fn g<'a,T>(x:T) where T: 'b         REFUSED  "in `T: 'b` bound"
+    H2  fn g<'a, T: 'b>(x: T)               rc 0     ← ONE bound, TWO spellings
+
+    e6  fn f(a:&u8, b:&u8) -> &u8           REFUSED  E0106, elision has no source
+    e1  enum E { V(&i64) }                  rc 0     ← same rule, missing site
+    e4  type Foo = fn(&u8,&u8) -> &u8       rc 0     ← ditto
+    e7  fn bar<F: Fn(&u8,&u8)->&u8>(f:&F)   rc 0     ← ditto
+    e3  impl Coll for S { type Item = &T; } rc 0     ← ditto
+
+    a4  struct Foo<T>; foo: &mut Foo<i64,i64>   REFUSED "expected 1 type arg(s), got 2"
+    a2  struct Foo<'c,'d>; &mut Foo<'a,'a,'a>   rc 0   ← the arity check counts TYPE args only
+    w3  fn f(x: &T)   (no T in scope)           REFUSED "unknown type 'T'"
+    w1  fn set(..) where T: HF   (no T)         rc 0   ← same rule, missing site
+    k1..k4  struct Foo<'static> / 'self / 'let  rc 0   ← no reserved-name rule at a binder
+    s1  impl<'s> Foo<&'s u8> { fn bar<'s>(..) } rc 0   ← no shadow rule at a binder
+    n1  impl<'a> Give for &S                    rc 0   ← no E0207 rule
+
+**AND THE `lifereg.A` HALF, WHICH LOOKED THE MOST LIKE REGION INFERENCE AND IS
+NOT.** The comparison mechanism (`check_variance` → `subtype` → `outlives`) is
+LANDED and LIVE at five sites. It compares NAMES:
+
+    B1  return y  ('a vs 'b, both named)        REFUSED  "variance mismatch"
+    A9  -> &'static from &'v                    REFUSED
+    B6  let p: &'a i64 = y   ('b)               REFUSED
+    C4  x.p = y   (&mut Box2<'a>, y: &'b)       REFUSED  "assignment to 'x.p'"
+    E5  p.0 = x   (tuple, named)                REFUSED
+    C2  put(x, y) free fn, named                rc 0 → REFUSED under lifereg_callargstrict
+    C3  x.put(y)  METHOD, same types            rc 0 under EVERY probe  ← site absent
+    D5  Box2::put(x, y) UFCS, same types        rc 0 under EVERY probe  ← site absent
+
+**THE NAMING EXPERIMENT — THE ROUND'S STRONGEST RESULT.** Four ledger rows
+rewritten with a fresh name in each ELIDED slot and nothing else changed:
+
+    N1  ex3-both-anon-regions-one-is-struct  → REFUSED today, unarmed
+    N3  ex3-both-anon-regions-2              → REFUSED today, unarmed
+    N4  regions-infer-at-fn-not-param        → REFUSED today, unarmed
+    N2  ex3-...-both-are-structs-2           → still rc 0 (source is a FIELD READ)
+
+Three rows are held open by a MISSING NAME, not a missing analysis. Rule 16
+exactly: the empty lifetime string means BOTH "elided here" and "the same region
+as the other elided slot", and only the minting site can tell them apart.
+
+## THE SPLIT, EVERY ROW NAMED
+
+**NEEDS CFG REGION INFERENCE: 0 of 32.**
+**NEEDS A NAME OR A SITE THE TREE ALREADY HAS A RULE FOR: 32 of 32.**
+
+    R17-a  E0261 undeclared lifetime, LANDED rule at a MISSING SITE      3
+           regions-in-enums (enum payload) · issue-107988 (impl header)
+           · static-typos (inline `<T: 'b>` bound; the where-clause
+             spelling of the same bound already REFUSES — H2/H3)
+    R17-b  E0106 elision, LANDED rule at a MISSING SITE                  4
+           regions-in-enums-anon (enum payload) ·
+           missing-lifetime-in-assoc-type-2 (assoc type) ·
+           issue-19707--fn-type-elision (fn-ptr alias) ·
+           issue-19707--b-bound (Fn-trait bound)
+    R17-c  LIFETIME-ARG ARITY — the landed check counts TYPE args only   2
+           noisy-follow-up-erro · constructor-lifetime-early-binding-error
+    R17-d  RESERVED / KEYWORD NAME AT A BINDER — no rule anywhere        3
+           regions-name-static ('static) · lifetime-no-keyword ('let) ·
+           keyword-self-lifetime-error-10412 ('self)
+    R17-e  SHADOWED BINDER (E0496) — no rule anywhere                    1
+           shadow
+    R17-f  UNCONSTRAINED IMPL PARAMETER (E0207) — no rule anywhere       1
+           missing-lifetime-in-assoc-type-1
+    R17-g  NOT A LIFETIME QUESTION AT ALL — "unknown type" at a
+           MISSING SITE (a where-clause bound's subject; w1/w3)          1
+           outlives-with-missing
+
+    A-1    THE ELIDED REGION HAS NO NAME — landed comparison, no fact    7
+           ex3-both-anon-regions-one-is-struct ·
+           ex3-both-anon-regions-one-is-struct-4 ·
+           ex3-both-anon-regions-2 · regions-infer-at-fn-not-param ·
+           ex3-both-anon-regions-both-are-structs-2 ·
+           e0621-mut-ref-aliases-pointee-lifetime-distinct · ex2b-push-no-existing-names
+    A-2    THE METHOD-CALL ARGUMENT IS NOT A COMPARISON SITE             6
+           ex2a-push-one-existing-name-early-bound · ex2e-push-inference-variable-3 ·
+           ex3-both-anon-regions · ex3-...-earlybound-regions ·
+           ex3-...-latebound-regions · iterator-trait-lifetime-error-13058
+           (the last four carry NAMED lifetimes and still admit: A-2 alone
+            holds them, C3/D5 prove the site is absent, not the name)
+    A-3    A TRAIT OBJECT'S LIFETIME BOUND IS DROPPED ENTIRELY           3
+           region-object-lifetime-in-coercion (`+ 'static` written, never
+           compared — G1/G2) · regions-close-object-into-object-1 ·
+           issue-103582-hint-type-alias (the DEFAULT object bound)
+    A-4    A BORROW EXPRESSION CARRIES NO REGION                         1
+           regions-addr-of-self — `let p:&'static mut i64 = &mut self.n`.
+           F1 (`= x`, x: &'a) REFUSES; F2/F3 (`= &mut place`) do not.
+
+None of A-1..A-4 is a CFG question. A-1 and A-4 are MINTING; A-2 and A-3 are
+SITES. That is the defensible sentence this round was asked for, and it points
+the other way from the standing advice: **these 32 rows are fundable, and the
+lifetime channel's inertness is a consequence of missing NAMES, not evidence
+that inference is required.**
+
+## JOINS TO EXISTING PARTITIONS, RATHER THAN NEW NAMES
+
+R17-a/R17-b are `ltstructfld`'s OWN NAMED REMAINDER from 2026-08-30d — "enum
+PAYLOADS, `static` declarations, TRAIT method signatures" — plus two sites that
+comment does not list (impl headers, fn-pointer/Fn-bound elision). R17-g joins
+nothing lifetime-shaped: it is a name-resolution site. A-2 is the same shape as
+`mraffbyval`'s finding that nine call sites had to be wired for the CLASS.
+
+## THE PROBE TABLE, ALL THREE COST COLUMNS
+
+    probe               fires  ceiling  cost  cfail  std  verdict
+    ltelideboth            14        0     8      0   ok  ⛔ WRONG DOOR (below)
+    ltelidesub              7        0     5      0   ok  ⛔ ditto
+    ltelidesup              7        0     4      0   ok  ⛔ ditto
+    ltenumpld           29629        1     0      1   ok  ✓ FUND
+    ltbindresv              3        2     0      1   ok  ✓ FUND (re-pin one .expected)
+    ltargarity             14        2     5      1   ok  ⛔ needs the prepass carve-out
+    ltargarity_site      1388        0     0      0   ok  the arrival census (rule 9's outer name)
+
+build: b5d34332f8de7107 (READ, `scripts/build_hash.py build`) · L1 rc=0, inert.
+
+## THE SETS, DIFFED BOTH WAYS
+
+    predicted (ltenumpld)  {regions-in-enums}
+    measured               {regions-in-enums}
+    both differences ∅.
+
+    predicted (ltbindresv) {regions-name-static, lifetime-no-keyword,
+                            keyword-self-lifetime-error-10412}
+    measured               {regions-name-static, lifetime-no-keyword}
+    predicted∖measured = {keyword-self-lifetime-error-10412}; measured∖predicted = ∅.
+    `'self` is NOT rejected: it is a TRAIT's binder (`trait Serializable<'self,T>`)
+    and a trait declaration's lifetime params do not come through
+    `read_lifetime_params` at all. Rule 17's shape a third time — the one site
+    that covers every OTHER declaration kind does not cover traits.
+
+    predicted (ltargarity) {noisy-follow-up-erro,
+                            constructor-lifetime-early-binding-error}
+    measured               {noisy-follow-up-erro, regions-creating-enums3}
+    predicted∖measured = {constructor-lifetime-early-binding-error} — the
+      turbofish `S::<'static> { .. }` at a struct LITERAL does not route through
+      `resolve_generic_named_type`; a second site, unfound.
+    measured∖predicted = {regions-creating-enums3} — and it is an ACCIDENT, not
+      a purchase: see below.
+
+## WHY `ltelide*` PRICED ZERO — A LIVE SITE, THE WRONG DOOR (RULES 1 AND 11)
+
+All three fired (14 / 7 / 7), so rule 1 is satisfied and the zero is an answer:
+`outlives()`'s two empty-side exits are NOT where the elision rows are decided.
+They are decided one frame up, in `include/logos/compiler/subtype.hpp`, at two
+places that never call `outlives()` at all:
+
+  * `types_equal_with_lifetimes`' `lt_eq`, line 66: `if (x.empty() || y.empty())
+    return true;`
+  * `detail::lifetime_at`'s `Variance::Inv` arm: `outlives_norm(sub_lt) ==
+    outlives_norm(sup_lt)` — a STRING EQUALITY. `&mut` is invariant, so every
+    `x.b = y` / `p.0 = x` row goes through here and `"" == ""` is true.
+
+**A crude probe at the wrong door reports a true zero about a live site.** This
+is rule 11 without a multi-hop channel: one hop, and the hop that matters is
+above the one carrying the probe. The next round's edit is in `subtype.hpp`,
+and the naming experiment (N1/N3/N4 above) already says what it will buy.
+The eight legal programs the crude probe refused are all `regions-*` /
+`enum-ref-*` shapes and are the reason a NAME must be MINTED rather than the
+empty case simply refused.
+
+## `ltenumpld` — 1 ROW, COST 0, AND THE TEXT COLUMN EARNED ITS PLACE
+
+site: src/compiler/sema_decl.cpp::lower_enum_def (beside the outlives-clause check)
+build: b5d34332f8de7107 (READ, `scripts/build_hash.py build`)
+measured: 2026-08-30
+fires: 29629 · ceiling 1 · cost 0 · cfail 1 (TEXT-ONLY) · stdlib all four layers
+row: regions-in-enums — E0261, "enum 'No0': use of undeclared lifetime name ''foo'"
+
+The struct field walk verbatim, over `einfo.variants[].payload_types`, with the
+same `known()` and the same `'_` exemption. `cfail 1` is the FIRST time the
+TEXT-ONLY column has been exercised by a known answer — two rounds of "still
+unexercised" in this file: `logos_06_diagnostics_fail_regions-undeclared` gains
+a second diagnostic, its `.expected` still matches, and ctest stays green
+because `run_test.sh` greps `.expected` as a substring. Not a loss; recorded
+because an invisible text change is exactly what that column was built for.
+
+## `ltbindresv` — 2 ROWS, COST 0, AND ONE `.expected` TO RE-PIN
+
+site: src/compiler/sema.cpp::read_lifetime_params (ONE site, every decl kind)
+build: b5d34332f8de7107 (READ, `scripts/build_hash.py build`)
+measured: 2026-08-30
+fires: 3 · ceiling 2 · cost 0 · cfail 1 (`.expected` MATCH LOST) · stdlib clean
+rows: regions-name-static (`struct Foo<'static>`, E0262) ·
+      lifetime-no-keyword (`fn baz<'let>`)
+
+The lost match is `logos_06_diagnostics_fail_generic-const-early-param`, whose
+program is `struct DataWrapper<'static> { data: &'a i64 }` — upstream E0262 +
+E0261. It became a fail fixture YESTERDAY on the E0261 half; `ltbindresv`
+refuses it first for E0262, which is upstream's PRIMARY error. So this is a
+diagnostic getting more correct, not rule 14: the fixture's `.expected` must be
+re-pinned in the same change that lands the rule. Naming it here so the next
+round meets a stated obligation rather than a red gate.
+
+⚠ Only 3 fires across the whole acceptance population + legal corpus. Rule 4:
+the cost-0 is off a TINY population and is not an argument. The reserved list
+is written wide (39 names) precisely so that the abuse direction is cheap to
+walk later; nothing in the corpus exercises it.
+
+## `ltargarity` — THE CEILING IS 2 AND ONE OF THE TWO IS AN ACCIDENT
+
+site: src/compiler/sema.cpp, before the `check_type_arg_arity` calls
+fires: 14 · ceiling 2 · cost 5 · cfail 1 (`.expected` LOST) · stdlib clean
+
+The five legal refusals and the lost diagnostic are ONE shape:
+
+    enum Ast<'a> { Num(u64), Add(&'a Ast<'a>, &'a Ast<'a>) }
+
+a self-referential enum naming itself inside its own payload, where
+`esi->lifetime_params` is still EMPTY at the reference. `check_type_arg_arity`
+documents that exact hazard for TYPE args and carves it out ("prepass /
+forward-decl lookups may legitimately see an empty type_params list"); the
+lifetime half of my probe has no such carve-out. `regions-creating-enums3`
+(root `lifereg.NEW-N1`, not one of this round's 32) closes for that reason and
+not for the arity rule — measured∖predicted is an ARTEFACT, and calling it a
+purchase would have been the mistake rule 6 exists to catch.
+
+So the honest reading is CEILING 1 (`noisy-follow-up-erro`) for the rule as
+stated, plus a second site (the struct-literal turbofish) still to be found.
+`ltargarity_site` says the outer arrival is populous — 1388 references to a
+lifetime-declaring type, 14 reaching the inner test — so rule 4 is satisfied in
+the direction that matters and the mechanism is worth a careful round with the
+phase guard. NOT funded as written.
+
+## COUNTER-EXAMPLES, WRITTEN BEFORE THE COSTS WERE BELIEVED (RULES 5 AND 10)
+
+Each multi-line, each run; the refusals are POSITIVE controls that prove the
+branch is reached, not merely that the file compiles.
+
+    u3 enum E { V(&'b u64) }                 ltenumpld  REFUSED   (positive control)
+    H6 enum Ok0<'a> { X5(&'a u64) }          ltenumpld  rc 0      legal
+    e1 enum E { V(&i64) }                    ltenumpld  rc 0      elided ⇒ exempt, by design
+    k1 struct Foo<'static>                   ltbindresv REFUSED   (positive control)
+    k4 fn baz<'let>(a: &'let i64)            ltbindresv REFUSED   (positive control)
+    k3 trait Ser<'self,T>                    ltbindresv rc 0      ← the trait hole, measured
+    a2 &mut Foo<'a,'a,'a> (2 declared)       ltargarity REFUSED   (positive control)
+    a3 &mut Foo<'a>       (2 declared)       ltargarity REFUSED   (positive control)
+    N5 fn foo<'p,'q>(x:&mut Vec<Ref<'p>>, y:Ref<'q>) { x.push(y) }  rc 0 — A-2, method site
+
+## WHAT DESERVES FUNDING OUT OF THESE 32
+
+ 1. **`ltenumpld` — 1 row, cost 0, cfail text-only.** Land it; re-run the text
+    oracle and note the `regions-undeclared` addition in the same change.
+ 2. **`ltbindresv` — 2 rows, cost 0**, with the `generic-const-early-param`
+    `.expected` re-pinned in the same change, and the TRAIT binder hole (k3)
+    left named rather than guessed at — `keyword-self-lifetime-error-10412`
+    does NOT close until a trait declaration's binders reach this function.
+ 3. **the `subtype.hpp` minting change — 3 rows measured by hand (N1/N3/N4),
+    UNPRICED.** The single highest-value thing this survey found, and the
+    probe that was supposed to price it measured the wrong door. Its door is
+    `lt_eq` line 66 and `lifetime_at`'s `Inv` arm.
+ 4. **`ltargarity` with the prepass carve-out — 1 row honestly**, plus the
+    struct-literal turbofish site, unfound.
+
+## STILL OPEN, NAMED, NOT SPENT ON
+
+ * **A-2, six rows** — the METHOD-CALL argument is not a `check_variance` site,
+   and neither is UFCS `T::m(x, y)` (D5). Four of the six carry NAMED lifetimes
+   and would close on the site alone.
+ * **A-3, three rows** — a trait object's lifetime bound is dropped at the
+   coercion; `Box<dyn Foo + 'static>` built from `&'v` admits under every probe
+   in the tree (G1/G2). No site exists.
+ * **A-4, one row** — a borrow expression carries no region.
+ * **R17-e / R17-f, two rows** — no shadow rule and no E0207 rule anywhere;
+   these are the only two of the 32 needing a rule that has no landed twin.
+ * **the trait-declaration binder hole** (k3, `keyword-self-lifetime-error-10412`)
+   and the **impl-header trait-ref lifetime args** (u5, `issue-107988`) — two
+   sites, one row each, both unpriced because their arrival was uncertain and
+   rule 17 says census before editing.
+ * `lifereg_callargstrict` / `lifereg_structlitstrict` / `lifereg_unmentioned`
+   were measured on 2026-08-27 (CEILING 4 / 3 / 7 against a 423-row ledger) and
+   that measurement lives ONLY in a code comment — it was never in this file.
+   Rule 8: the ledger is 310 now and those costs predate the repaired oracle.
+   RE-MEASURE BEFORE FUNDING. Recorded here so the next round meets the numbers.

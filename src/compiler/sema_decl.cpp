@@ -1799,6 +1799,43 @@ lir_view::EnumView SemaChecker::lower_enum_def(TinyMapView node) {
                                       ename, lt, tp.name, lt));
             }
         }
+        // PROBE ltenumpld — the enum-PAYLOAD half of the site set that
+        // lower_struct_def's field walk named as its own remainder.
+        if (logos::probe::on("ltenumpld")) {
+            auto known_p = [&](std::string_view lt) {
+                if (lt.empty()) return true;
+                if (lt == "'static" || lt == "static") return true;
+                if (lt == "'_" || lt == "_") return true;
+                return declared.count(std::string(lt)) > 0;
+            };
+            std::vector<std::string> seen_p;
+            auto walk_p = [&](TypeRef t, auto& rec) -> void {
+                if (!t) return;
+                auto k = t.kind();
+                if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) {
+                    if (!t.lifetime().empty()) seen_p.emplace_back(t.lifetime());
+                    rec(t.pointee(), rec); return;
+                }
+                if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct ||
+                    k == LogosType::Kind::Enum) {
+                    for (auto& lt : t.lifetime_args()) seen_p.emplace_back(lt);
+                    for (auto a : t.type_args()) rec(a, rec); return;
+                }
+                if (k == LogosType::Kind::Tuple) {
+                    for (auto e2 : t.tuple_elems()) rec(e2, rec); return;
+                }
+                if (k == LogosType::Kind::Slice || k == LogosType::Kind::Array) {
+                    rec(t.elem(), rec); return;
+                }
+                if (k == LogosType::Kind::Ptr) { rec(t.pointee(), rec); return; }
+            };
+            for (auto& v : einfo.variants)
+                for (auto t : v.payload_types) walk_p(t, walk_p);
+            for (auto& lt : seen_p)
+                if (!known_p(lt))
+                    error(std::format("enum '{}': use of undeclared lifetime name '{}'",
+                                      ename, lt));
+        }
     }
     // Type-param uniqueness on enum (B-gn-01 family)
     check_unique_names(tparams,

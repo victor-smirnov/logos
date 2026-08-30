@@ -66,8 +66,20 @@ inline bool outlives(
 {
     auto L = outlives_norm(longer);
     auto S = outlives_norm(shorter);
-    if (S.empty()) return true;             // unconstrained short side
-    if (permissive_empty && L.empty()) return true;  // see comment above
+    // PROBES ltelidesup / ltelidesub / ltelideboth — AN ELIDED REGION HAS NO
+    // NAME, so `outlives()` treats it as compatible with everything. That, not
+    // region inference, is what admits the lifereg.A elision rows: naming the
+    // slots by hand makes three of them REFUSE today, unarmed.
+    if (S.empty()) {
+        if (logos::probe::on("ltelidesup") ||
+            logos::probe::on("ltelideboth")) return false;
+        return true;                        // unconstrained short side
+    }
+    if (permissive_empty && L.empty()) {
+        if (logos::probe::on("ltelidesub") ||
+            logos::probe::on("ltelideboth")) return false;
+        return true;                        // see comment above
+    }
     if (outlives_is_static(L)) return true; // 'static outlives all
     if (L == S) return true;                // reflexive
 
