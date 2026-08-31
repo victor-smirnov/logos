@@ -1,0 +1,27 @@
+// TWO NAMED REGIONS OF ONE BINDER, MENTIONED IN NO `where` CLAUSE, ARE
+// UNRELATED — the refuse half of the 2026-08-31h narrowing in
+// include/logos/compiler/outlives.hpp (`current_lt_binders()`).
+//
+// `mk` declares BOTH 'b and 'a and relates them nowhere, so storing a `&'b i64`
+// in a `Holder<'a>` is E0621 upstream. `outlives()` used to answer TRUE for two
+// named regions that appear nowhere in the outlives graph, on the theory that
+// the caller's region inference would unify them — but a BINDER of the callee
+// is not the caller's to choose.
+//
+// ⚠ ITS ADMITTED TWIN IS ONE TOKEN AWAY:
+// tests/logos/pass/bc_ltunmentbind_renamed_binder_hole — rename the STRUCT's
+// binder from 'a to 'h and this program is missed, because the rule works by
+// NAME COLLISION and not by substitution. That file pins the hole; this one
+// pins what the rule does buy. If a later round makes the twin refuse, the twin
+// must be retired here, not silently deleted.
+package bc_ltunmentbind_two_unrelated_binders;
+
+struct Holder<'a> { v: &'a i64 }
+
+fn mk<'b, 'a>(y: &'b i64) -> Holder<'a> {
+    return Holder { v: y };
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

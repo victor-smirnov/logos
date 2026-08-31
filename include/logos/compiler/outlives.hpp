@@ -34,6 +34,25 @@ inline std::string outlives_norm(std::string_view s) {
     return std::string("'") + std::string(s);
 }
 
+// THE BINDERS OF THE SCOPE BEING CHECKED. `outlives()` is handed two STRINGS
+// and cannot say which BINDER each one denotes; two names that collide by
+// spelling are not two names of one scope. This set is that missing fact — the
+// lifetime parameters declared by the generic scope whose body is under check
+// (the fn's own, plus its `impl` block's) — refilled at each fn in
+// sema_decl.cpp beside `current_outlives_`. Empty outside a fn body, which is
+// exactly when the rule below must not fire.
+//
+// ⚠ IT IS NOT SOUND BY CONSTRUCTION AND IT DOES NOT CLAIM TO BE: it works by
+// name collision, so a callee's `'a` that happens to be spelled like the
+// caller's is caught and the same program with the callee's binder renamed is
+// missed. The measured pair is in src/compiler/PROBES.md (u7 / u8) and is
+// pinned as a fixture pair. What removes the caveat is SUBSTITUTION, which is
+// its own round.
+inline std::unordered_set<std::string>& current_lt_binders() {
+    static std::unordered_set<std::string> s;
+    return s;
+}
+
 inline bool outlives_is_static(std::string_view lt) {
     return lt == "'static" || lt == "static";
 }
@@ -122,15 +141,19 @@ inline bool outlives(
     // the 310-row ledger; the 2026-08-27 pair that used to sit here was a
     // 423-row measurement and was never recorded outside this comment).
     if (logos::probe::on("lifereg_unmentioned")) return false;
-    // PROBE lifereg_unmentbind — THE NARROWING. `lifereg_unmentioned` (ceiling
-    // 7, COST 5) refuses whenever two named regions are unrelated. All FIVE of
-    // its legal casualties compare a name from ONE binder against a name from
-    // ANOTHER — a callee's or a struct's own lifetime parameter that reached
-    // here UNSUBSTITUTED. Refuse only when BOTH names are binders of the scope
-    // actually being checked.
-    if (logos::probe::on("lifereg_unmentbind") &&
-        logos::probe::lt_binders().count(L) &&
-        logos::probe::lt_binders().count(S)) return false;
+    // LANDED 2026-08-31. MENTIONED-NESS is not a relation: two named generic
+    // regions that appear in no `where` clause are UNRELATED, and Rust refuses
+    // the coercion between them. The permissive default below admitted them.
+    //
+    // It is narrowed to the case where BOTH names are binders of the scope
+    // actually being checked — see `current_lt_binders()`. The wider rule (the
+    // `lifereg_unmentioned` probe directly above) closes two more rows and
+    // refuses FIVE legal programs to do it, every one of them comparing a name
+    // from ONE binder against a name from ANOTHER: a callee's or a struct's own
+    // lifetime parameter that reached here UNSUBSTITUTED. Numbers, the two rows
+    // given up and the counter-examples: src/compiler/PROBES.md 2026-08-31h.
+    if (current_lt_binders().count(L) && current_lt_binders().count(S))
+        return false;
     if (mentioned(L) || mentioned(S)) return false;
     return true;
 }

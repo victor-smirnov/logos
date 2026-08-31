@@ -1,6 +1,9 @@
 // rustc nll/nested-bodies-in-dead-code.rs — upstream E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.C
+// shelf: fail — REFUSED since 2026-08-31: a closure body's RETURN is now
+// checked against the CLOSURE'S OWN return type, so a reference to a
+// closure-body LOCAL is refused. Was nllmoves.C (and NOT about dead code:
+// the same closure before the `return` refuses identically).
 package nested_bodies_in_dead_code;
 fn main() -> i32 {
     return 0i32;

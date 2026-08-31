@@ -1,0 +1,25 @@
+// THE ADMIT HALF of fail/bc_capretsc_closure_static_contract, ONE TOKEN AWAY
+// (`-> &i64` for `-> &'static i64`). Rebinding `param_lifetimes_` from the
+// closure's own ref params must give the closure the SAME rule a fn gets — not
+// a stricter one — so the elided form stays legal, and so does an enclosing fn
+// whose own elision contract is satisfied while a closure sits in its body.
+package bc_capretsc_closure_elided_contract;
+
+fn foo(x: &i64) -> &i64 {
+    let c = |y: &i64| -> &i64 {
+        return y;
+    };
+    return x;
+}
+
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    let c = |x: &i64| -> &i64 {
+        return x;
+    };
+    let r: &i64 = c(&v);
+    let s: &i64 = foo(&v);
+    if *r != 7i64 { return 1i32; }
+    if *s != 7i64 { return 2i32; }
+    return 0i32;
+}

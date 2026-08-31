@@ -1,6 +1,8 @@
 // rustc borrowck/issue-53432-nested-closure-outlives-borrowed-value.rs — upstream lifetime-may-not-live
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: fail — REFUSED since 2026-08-31: a closure body's RETURN is now
+// checked against the CLOSURE'S OWN return type, so a reference to a
+// closure-body LOCAL is refused. Was bck.C.
 package issue_53432_nested_closure_outlives_borrowed_value;
 fn main() -> i32 {
     let outer = || -> &i64 {

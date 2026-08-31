@@ -2040,6 +2040,15 @@ class BorrowChecker {
     // this set) is dropped at return exactly like a local, so a borrow of it
     // must NOT escape (else use-after-free).
     std::unordered_set<std::string>      outliving_params_;
+    // PROBE capretsc's CARRIER. The capture names of the closure body being
+    // walked. `outliving_params_` answers "does this name outlive the CALL",
+    // and three channels read it (escape/dangling, retained-provenance, the
+    // return check); depositing captures there — cause B — un-refuses four
+    // pinned `-L bc -L fail` fixtures. The fact the RETURN check needs is
+    // narrower: "this name is a capture of the closure whose body we are in".
+    // Written unconditionally (a few strings per closure), read only under
+    // the probe, and at ONE site.
+    std::unordered_set<std::string>      closure_capture_names_;
     // Type-param names with an explicit `Copy` bound (per current fn) — a bare
     // TypeVar not in this set is move-classified (Rust generic-body semantics).
     std::unordered_set<std::string>      copy_tvs_;
@@ -2571,120 +2580,56 @@ private:
         if (!cbb) return;
         auto saved_params     = param_names_;
         auto saved_outliving  = outliving_params_;
+        auto saved_capnames_  = closure_capture_names_;
         auto saved_cpn        = closure_param_names_;
         auto saved_cpf        = closure_param_frame_;
         auto saved_cbd        = closure_body_decls_;
         bool saved_icb        = in_closure_body_;
         TypeRef saved_ret     = ret_type_;
-        // PROBE capretty: `ret_type_` IS SET EXACTLY ONCE, at the enclosing
-        // FUNCTION'S entry, and this walk never rebinds it — so every
-        // check_return_value reached from a closure body asks "does this
-        // escape the FUNCTION", using the FUNCTION'S return type. Inside
-        // `fn main() -> i32` the typed gate is `i32`: false. So
-        // `|| -> &i64 { let t: i64 = 1i64; return &t; }` returns a reference
-        // to a body local past a gate that was answering about `i32`. The
-        // closure's OWN return type is on the node (`EClosureBoxView::
-        // ret_type`) and nothing has ever read it here.
-        // MEASURED 2026-08-28, 371-row population: 66 FIRES, CEILING 0,
-        // COST 0. ⚠ THIS ZERO IS NOT A REFUTATION — IT IS A NULL RESULT
-        // THROUGH A BROKEN CHANNEL. The site is provably live (66 arrivals);
-        // the CONSUMER is switched off, one screen down, by
-        // `if (!in_closure_body_) check_return_value(val, ln);`. Handing the
-        // right type to a check that never runs buys nothing, and reads
-        // exactly like a dead hypothesis. Rule 2: proven live is necessary,
-        // not sufficient — the population may be elsewhere, and here it was
-        // behind a guard.
-        // PROBE capretchk — THE SECOND HALF OF THE SAME MECHANISM, and the
-        // only two-site probe in this batch. capretty measured the ret_type_
-        // site alone at CEILING 0 over 66 fires, and the reason is not that
-        // the hypothesis is dead: `check_return_value` is HARD-SUPPRESSED
-        // inside a closure body (`if (!in_closure_body_) check_return_value`),
-        // so handing it the right type changes nothing. A zero read off a
-        // channel that is switched off is not a refutation. capretchk arms
-        // BOTH sites; attribution survives because the other half is already
-        // measured at 0, so anything capretchk closes is the GATE's.
-        // PROBE capretcaps — capretchk PLUS the exemption its three costs
-        // asked for. Those costs are TWO causes, both read off the diagnostic
-        // rather than guessed:
-        //   A  "[fn foo] lifetime elision: return reference must derive from
-        //      'x'" — `param_lifetimes_` is the ENCLOSING fn's. This walk
-        //      already saves/restores param_names_ and outliving_params_ and
-        //      never touched the third set, so a closure's `return y` was
-        //      judged against `fn foo(x: &i64)`'s elision contract.
-        //   B  "cannot return reference to local variable 'x'" where `x` is a
-        //      CAPTURE. A non-move closure's capture lives in the ENCLOSING
-        //      frame and by construction outlives the closure — it is the
-        //      exact situation `outliving_params_` exists to describe (#138),
-        //      and captures were never put in it.
-        // Same shape as the params this walk already declares; the captures
-        // were simply the half nobody added.
-        //
-        // ── THE RESULT, AND IT IS THE ROUND'S MAIN FINDING ──────────────────
-        // MEASURED 2026-08-28, 371-row acceptance population:
-        //     capretty    66 fires   CEILING  0   COST 0   (channel off)
-        //     capretchk  (gate on)   CEILING 11   COST 3
-        //     capretcaps (+exempt)   CEILING  2   COST 0
-        // THE EXEMPTION COST NINE OF THE ELEVEN. Those nine were not closed by
-        // observing anything about closure returns; they were bought by
-        // refusing legal programs, and the three costs are the only three such
-        // programs the corpus happens to CONTAIN. Rule 7, sharpest form: a
-        // crude probe and a correct fix do not close the same programs.
-        // Named, because a ceiling bounds the COUNT and not the SET —
-        // capretchk closes and capretcaps does NOT:
-        //   borrowck/issue-58776-borrowck-scans-children
-        //   borrowck/var-matching-lifetime-but-unused-not-mentioned
-        //   nll/issue-40510-1  nll/issue-48697--b  nll/issue-48697--t16
-        //   nll/issue-53040
-        //   regions/regions-infer-call-3  regions/regions-nested-fns-2
-        //   regions/regions-return-ref-to-upvar-issue-17403
-        // THIS TREE ALREADY KNEW. pass/bc_capbody_closure_return_admit's own
-        // header records that the body-walk round put three of them
-        // (issue-48697--b, --t16, var-matching-…) BACK ON THE SHELF for
-        // exactly this reason. The measurement reproduces that verdict from
-        // the other direction and adds the six it had not enumerated.
-        // What survives is real and is in no corpus program at all: a closure
-        // returning a reference to a BODY LOCAL —
-        //   `let f = || -> &i64 { let t: i64 = 1i64; return &t; };`
-        // — compiles today and refuses under capretcaps, while the capture
-        // form (`return &x;`), the param form (`|y| return y`) and the nested
-        // form still admit, and the ENCLOSING fn's own dangling return and
-        // elision contract stay refused. Six hand-written programs, because
-        // COST 0 is not a safety claim.
+        // ── LANDED 2026-08-31, and the exemption is SCOPED ─────────────────
+        // What lands is `capretsc`: the gate on, `ret_type_` and
+        // `param_lifetimes_` rebound from the CLOSURE'S OWN signature, and
+        // cause B put where ONLY the return check can read it. Measured on
+        // build 571876f6ef48a1ed: ceiling 4, cost 0, COST-fail 0 of 1044,
+        // stdlib all four layers. `capretcaps` / `capretplt` closed a fifth
+        // row (regions-nested-fns-2) and bought it by depositing captures in
+        // `outliving_params_`, which un-refused FOUR pinned fail fixtures
+        // (escape-argument--b, escape-upvar-nested, escape-upvar-ref,
+        // regions-nested-fns). Numbers and the retirements in
+        // src/compiler/PROBES.md, round 2026-08-31h.
         TypeRef saved_ret_c = ret_type_;   (void)saved_ret_c;
         auto saved_plt = param_lifetimes_;
-        if (logos::probe::on("capretty") || logos::probe::on("capretchk") ||
-            logos::probe::on("capretcaps") || logos::probe::on("capretplt") ||
-            logos::probe::on("capmovewalk")) {
-            TypeRef crt = cbv.ret_type(prog_.type_pool.impl());
-            if (crt) ret_type_ = crt;
-        }
-        bool probe_plt_ = logos::probe::on("capretplt");
-        bool probe_mvw_ = logos::probe::on("capmovewalk");
-        if (logos::probe::on("capretcaps") || probe_plt_ || probe_mvw_) {
-            param_lifetimes_.clear();                       // cause A
-            // PROBE capretplt: cause A only CLEARS the enclosing fn's param
-            // lifetimes and never REBINDS the closure's OWN, so a closure
-            // signature's contract is checked against an empty map. MEASURED
-            // BY HAND on the unarmed binary, one node kind apart:
-            //   fn  g(x:&i64) -> &'static i64 { return x; }   REFUSED
-            //   let c = |x:&i64| -> &'static i64 { return x; }  rc 0
-            // The rule EXISTS and lands on fns; the closure never reaches it.
-            if (probe_plt_)
-                cbv.each_param(prog_.type_pool.impl(),
-                               [&](std::string_view pn, TypeRef pt) {
-                    if (pn.empty() || !is_ref_kind(pt)) return;
-                    param_lifetimes_[std::string(pn)] =
-                        std::string(TypeRef(pt).lifetime());
-                });
-            // cause B, and it is INVERTED for a `move` closure (see the
-            // is_move gate above): a moved capture is the closure's own local.
-            if (!probe_mv_)
-                cbv.each_capture_name([&](std::string_view cn) {
-                    if (cn.empty()) return;
-                    std::string nm(cn);
-                    param_names_.insert(nm);
-                    outliving_params_.insert(nm);           // cause B
-                });
+        // The closure's OWN return type. `ret_type_` used to be set exactly
+        // once, at the enclosing FUNCTION'S entry, so every return inside a
+        // closure body was judged against the function's return type.
+        if (TypeRef crt = cbv.ret_type(prog_.type_pool.impl())) ret_type_ = crt;
+        // CAUSE B, SCOPED. A non-move closure's capture lives in the
+        // ENCLOSING frame and outlives the closure by construction — which is
+        // what `outliving_params_` describes (#138). But three channels read
+        // that set (escape/dangling, retained provenance, the return check),
+        // and only the third asked the question. So the fact goes in a set of
+        // its own. INVERTED for a `move` closure: a moved capture is the
+        // closure's own local (and a move body is not walked at all today —
+        // see the `probe_mv_` gate above).
+        if (!probe_mv_)
+            cbv.each_capture_name([&](std::string_view cn) {
+                if (!cn.empty()) closure_capture_names_.insert(std::string(cn));
+            });
+        {
+            // CAUSE A. Clearing the enclosing fn's param lifetimes is only
+            // half of it: without the REBIND a closure signature's own
+            // contract is checked against an empty map, so
+            //   fn  g(x:&i64) -> &'static i64 { return x; }     REFUSED
+            //   let c = |x:&i64| -> &'static i64 { return x; }  admitted
+            // one node kind apart. The rule exists and lands on fns; the
+            // closure never reached it.
+            param_lifetimes_.clear();
+            cbv.each_param(prog_.type_pool.impl(),
+                           [&](std::string_view pn, TypeRef pt) {
+                if (pn.empty() || !is_ref_kind(pt)) return;
+                param_lifetimes_[std::string(pn)] =
+                    std::string(TypeRef(pt).lifetime());
+            });
         }
         in_closure_body_ = true;
         // The body was never scanned either: scan_uses_expr's ClosureBox arm
@@ -2715,6 +2660,7 @@ private:
         param_lifetimes_  = std::move(saved_plt);
         param_names_      = std::move(saved_params);
         outliving_params_ = std::move(saved_outliving);
+        closure_capture_names_ = std::move(saved_capnames_);
         closure_param_names_ = std::move(saved_cpn);
         closure_param_frame_ = std::move(saved_cpf);
         closure_body_decls_  = std::move(saved_cbd);
@@ -8948,6 +8894,14 @@ private:
             // "local variable 'K'" sends the reader looking for a `let` that
             // is not in the function. Name what it is and name the fix — the
             // admit twin `static` is a one-word edit away.
+            // CAUSE B, AND THIS IS THE ONLY SITE THAT READS IT. A non-move
+            // closure's capture lives in the enclosing frame and outlives the
+            // closure, so returning a reference to it out of the closure body
+            // is not dangling. Read HERE and nowhere else — the escape /
+            // dangling channel keeps its verdict, which is the whole
+            // difference between this and `capretcaps`.
+            if (!is_temp && !src.empty() && closure_capture_names_.count(src))
+                return;
             if (!is_temp && !src.empty() && ts_.frame_consts.count(src) &&
                 !var_has(NO_SLOT, src))
                 report(line, std::format(
@@ -12324,11 +12278,14 @@ private:
                     // `on()` is called UNCONDITIONALLY, never behind the `||`,
                     // so the fire count records arrivals rather than the
                     // short-circuit's leftovers (rule 1).
-                    bool retchk = logos::probe::on("capretchk") ||
-                                  logos::probe::on("capretcaps") ||
-                                  logos::probe::on("capretplt") ||
-                                  logos::probe::on("capmovewalk");
-                    if (!in_closure_body_ || retchk) check_return_value(val, ln);
+                    // LANDED 2026-08-31: `check_return_value` used to be
+                    // hard-suppressed inside a closure body, so a closure
+                    // returning a reference to a BODY LOCAL compiled. The
+                    // suppression was the whole of the miss; the exemptions it
+                    // was standing in for now live at their own sites (the
+                    // closure's own ret type / param lifetimes above, and
+                    // `closure_capture_names_` at the report gate).
+                    check_return_value(val, ln);
                     visit(val, /*consuming=*/true, ln);
                 }
                 cur_diverged_ = true;

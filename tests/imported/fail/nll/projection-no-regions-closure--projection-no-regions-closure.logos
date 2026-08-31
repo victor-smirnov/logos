@@ -1,6 +1,8 @@
 // rustc nll/ty-outlives/projection-no-regions-closure.rs — upstream E0309
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.R13
+// shelf: fail — REFUSED since 2026-08-31: two named generic regions that
+// appear in no `where` clause are UNRELATED, and both are binders of the
+// scope being checked. Was nllmoves.R13.
 package projection_no_regions_closure_projection_no_regions_closure;
 trait Anything { fn a(self: &Self) -> i64; }
 struct Holder<'a> { v: &'a i64 }

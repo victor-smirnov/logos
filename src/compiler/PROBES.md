@@ -5834,8 +5834,10 @@ rode in the same build as the gate it checked and cost nothing.
 
 ## lifereg_unmentbind — ✓ THE NARROWING: 5 ROWS FOR COST 0, cfail 0
 site: include/logos/compiler/outlives.hpp (the single `return true` tail)
-      carrier: include/logos/compiler/probe.hpp::lt_binders(), filled in
-      src/compiler/sema_decl.cpp beside `current_outlives_`
+      carrier: include/logos/compiler/outlives.hpp::current_lt_binders(),
+      filled in src/compiler/sema_decl.cpp beside `current_outlives_`
+      ⚠ IT WAS probe.hpp::lt_binders() WHEN THIS RECORD WAS WRITTEN. The arm
+      LANDED 2026-08-31h and the carrier moved with it.
 build: c4dedf97e7aee29a (READ) · measured 2026-08-31
 fires: 4 · ceiling 5 · cost 0 · cfail 0 · stdlib all four layers
 
@@ -5923,3 +5925,277 @@ legal refusals and the one text regression.
    is disjoint-field; `let c=||eat(data); c(); eat(data);` releases at `c`'s last
    use). rustc is not installed here, so this is a SUSPICION with a reason, not
    a retirement. Adjudicate against upstream before spending a round on either.
+
+---
+
+# ROUND 2026-08-31h — TWO ARMS LANDED, NINE ROWS, 306 -> 297
+
+Baseline READ from the store, not re-run: build 218 (libs c4dedf97e7aee29a),
+2432 recorded / 0 failed; the admit filter's 306 and `-L bc`'s 1935 were both
+"ALREADY MEASURED under this build".
+
+    mechanism            ceiling  cost  cfail  stdlib  predicted vs measured
+    lifereg_unmentbind      5       0     0      ok    ∅ / ∅   LANDED
+    capretsc                4       0     0      ok    ∅ / ∅   LANDED
+    ── and the three it replaces, all DECLINED, unchanged from 2026-08-31g ──
+    capretplt               5       0     4      ok    the 4 are rc FLIPS
+    capretcaps              2       0     4      ok    the same four
+    capmovewalk             4       0     4      ok    the same four
+    capshared               4       0     6      ok    4 `.expected` LOST
+    capargclos              0       0     0      ok    8 arrivals, 0 on subject
+
+## capretsc — THE SCOPING WAS THE WHOLE PRICE
+site: src/compiler/borrow_check.cpp::walk_closure_body (+ the Return gate,
+      + check_return_value's report site)
+carrier: src/compiler/borrow_check.cpp::closure_capture_names_
+build: 571876f6ef48a1ed (READ) · measured 2026-08-31
+fires: 5492473 · ceiling 4 · cost 0 · cfail 0 of 1044 (rc 0, .expected 0,
+       text-only 0) · stdlib all four layers
+verdict: LANDED. It is capretplt's mechanism with cause B moved off
+    `outliving_params_`.
+
+`capretplt` / `capretcaps` / `capmovewalk` deposit every capture into
+`param_names_` + `outliving_params_`. THREE channels read that set — the
+escape/dangling walk (`carried_prov_of_recv`, `prov_of`), the retained-
+provenance walk, and the return check — and only the third had asked the
+question. Cost: four pinned `-L bc -L fail` fixtures rc 1 -> rc 0.
+`capretsc` puts the same fact in a set of its own, read at ONE site (the
+"cannot return reference to local variable" report gate), and the four stay
+refused. Measured on the landed tree, both directions.
+
+    capretplt  {issue-53432, closure-substs, issue-58053,
+                nested-bodies-in-dead-code, regions-nested-fns-2}   cfail 4
+    capretsc   the same four MINUS regions-nested-fns-2             cfail 0
+    capretplt ∖ capretsc = {regions-nested-fns-2}   capretsc ∖ capretplt = ∅
+
+⚠ **regions-nested-fns-2 WAS BOUGHT BY THE LEAK, AND IS NOT BOUGHT HERE.** It
+is the one row the wider exemption closes, and the four un-refusals are what
+paid for it. It stays open, named, on purpose.
+
+HAND PROGRAMS (rules 5, 7, 10), each multi-line, each run on the PROBE binary
+and again on the LANDED one, identical answers:
+
+    h1  let c = || -> &i64 { let t: i64 = 1i64; return &t; };
+        unarmed rc 0 · landed REFUSED "cannot return reference to local
+        variable 't'"                                    (the mechanism)
+    h2  let u: i64 = 9; let c = || -> &i64 { return &u; };
+        rc 0 both                                        (the exemption)
+    h3  let c = |x:&i64| -> &i64 { return x; };           rc 0 both  (legal)
+    h4  let c = |x:&i64| -> &'static i64 { return x; };
+        unarmed rc 0 · landed REFUSED, and with the SAME diagnostic the fn
+        twin already got unarmed                         (cause A rebind)
+    h5  escape-upvar-ref's own body: `{ let y; let c = || { p = &y; }; c(); }`
+        REFUSED under control, under the probe and after landing (E0597)
+        ← THIS IS THE ONE capretcaps BROKE
+    h6  fn foo<'a>(x:&'a i64)->&'a i64 { let c=|y:&i64|->&i64{return y;}; return x; }
+        rc 0 both — the rebind does not resurrect cause A
+    h7  fn bad() -> &i64 { let t: i64 = 1i64; return &t; }   REFUSED both
+
+⚠ THE ONE-VARIABLE CONTROL FOR EACH EXEMPTION IS IN-TREE AND WAS RUN. Under
+`capretchk` (the gate on, NO exemptions) h2 is refused ("local variable
+'orig'") and h6 is refused ("lifetime elision: return reference must derive
+from 'x'"). Both exemptions are load-bearing and each was shown so alone.
+
+## lifereg_unmentbind — LANDED AS `current_lt_binders()`
+site: include/logos/compiler/outlives.hpp::outlives (the permissive tail)
+carrier: include/logos/compiler/outlives.hpp::current_lt_binders(), filled in
+      src/compiler/sema_decl.cpp beside `current_outlives_`
+build: c4dedf97e7aee29a (READ) · measured 2026-08-31g, NOT re-priced: the
+      record's build is this tree's libs hash, so it is current.
+fires: 4 · ceiling 5 · cost 0 · cfail 0 · stdlib ok
+verdict: LANDED. The carrier moved out of probe.hpp — it is no longer a probe
+    fact — and `lifereg_unmentioned`, the wider door directly above it, is KEPT
+    as a probe: it now measures the INCREMENT (2 rows for 5 legal refusals).
+
+    predicted, and closed: issue-55394--ctl2, issue-67007-escaping-data,
+        projection-no-regions-closure--c30-direct-call,
+        projection-no-regions-closure--projection-no-regions-closure,
+        account-for-lifetimes-in-closure-suggestion
+    predicted NOT to close, and did not: propagate-fail-to-approximate-longer-
+        no-bounds ('y is demand_y's binder), regions-infer-call-3 ('r is
+        select's binder)
+
+⚠ NOT SOUND BY CONSTRUCTION — IT WORKS BY NAME COLLISION, and that is now
+PINNED rather than written in a comment:
+    tests/logos/fail/bc_ltunmentbind_two_unrelated_binders   (u7) REFUSED
+    tests/logos/pass/bc_ltunmentbind_renamed_binder_hole     (u8) MISSED
+one token apart, both equally illegal. The pass fixture's header says out loud
+that it pins a HOLE and must move to fail/ when substitution lands. The legal
+side (u2, u5, plus the elision shape) is one fixture,
+tests/logos/pass/bc_ltunmentbind_legal_shapes, for the reason the field-write
+variance round gives: the claim is about the SET.
+
+## RETIRED THIS ROUND, WITH THE REASON
+
+ * **capretty · capretchk · capretcaps · capretplt — RETIRED, SUBSUMED.** Their
+   mechanism is the landed behaviour, so re-arming them would measure nothing.
+   Their measurement history is preserved verbatim below, because it is the
+   record of what the exemption cost and it was the only copy.
+ * **capretsc — RETIRED, LANDED.** Same reason, one round later.
+ * **capargclos — RETIRED, WRONG FRAME** (2026-08-31g): 8 arrivals in the whole
+   population and ZERO fires on its own subject (issue-51268, e3, e6). The
+   decision is at the LET/statement gate one frame above. Rule 17, fifth
+   instance. The question survives; the site does not.
+ * **return-wrong-bound-region — RETIRED**, no HRTB machinery in the tree.
+
+## THE VERBATIM HISTORY OF THE RETIRED capret* FAMILY
+(moved out of src/compiler/borrow_check.cpp, where 74 lines of it sat in a
+compiled file — prose there costs a build and invalidates recorded verdicts)
+
+// PROBE capretty: `ret_type_` IS SET EXACTLY ONCE, at the enclosing
+// FUNCTION'S entry, and this walk never rebinds it — so every
+// check_return_value reached from a closure body asks "does this
+// escape the FUNCTION", using the FUNCTION'S return type. Inside
+// `fn main() -> i32` the typed gate is `i32`: false. So
+// `|| -> &i64 { let t: i64 = 1i64; return &t; }` returns a reference
+// to a body local past a gate that was answering about `i32`. The
+// closure's OWN return type is on the node (`EClosureBoxView::
+// ret_type`) and nothing has ever read it here.
+// MEASURED 2026-08-28, 371-row population: 66 FIRES, CEILING 0,
+// COST 0. ⚠ THIS ZERO IS NOT A REFUTATION — IT IS A NULL RESULT
+// THROUGH A BROKEN CHANNEL. The site is provably live (66 arrivals);
+// the CONSUMER is switched off, one screen down, by
+// `if (!in_closure_body_) check_return_value(val, ln);`. Handing the
+// right type to a check that never runs buys nothing, and reads
+// exactly like a dead hypothesis. Rule 2: proven live is necessary,
+// not sufficient — the population may be elsewhere, and here it was
+// behind a guard.
+// PROBE capretchk — THE SECOND HALF OF THE SAME MECHANISM, and the
+// only two-site probe in this batch. capretty measured the ret_type_
+// site alone at CEILING 0 over 66 fires, and the reason is not that
+// the hypothesis is dead: `check_return_value` is HARD-SUPPRESSED
+// inside a closure body (`if (!in_closure_body_) check_return_value`),
+// so handing it the right type changes nothing. A zero read off a
+// channel that is switched off is not a refutation. capretchk arms
+// BOTH sites; attribution survives because the other half is already
+// measured at 0, so anything capretchk closes is the GATE's.
+// PROBE capretcaps — capretchk PLUS the exemption its three costs
+// asked for. Those costs are TWO causes, both read off the diagnostic
+// rather than guessed:
+//   A  "[fn foo] lifetime elision: return reference must derive from
+//      'x'" — `param_lifetimes_` is the ENCLOSING fn's. This walk
+//      already saves/restores param_names_ and outliving_params_ and
+//      never touched the third set, so a closure's `return y` was
+//      judged against `fn foo(x: &i64)`'s elision contract.
+//   B  "cannot return reference to local variable 'x'" where `x` is a
+//      CAPTURE. A non-move closure's capture lives in the ENCLOSING
+//      frame and by construction outlives the closure — it is the
+//      exact situation `outliving_params_` exists to describe (#138),
+//      and captures were never put in it.
+// Same shape as the params this walk already declares; the captures
+// were simply the half nobody added.
+//
+// ── THE RESULT, AND IT IS THE ROUND'S MAIN FINDING ──────────────────
+// MEASURED 2026-08-28, 371-row acceptance population:
+//     capretty    66 fires   CEILING  0   COST 0   (channel off)
+//     capretchk  (gate on)   CEILING 11   COST 3
+//     capretcaps (+exempt)   CEILING  2   COST 0
+// THE EXEMPTION COST NINE OF THE ELEVEN. Those nine were not closed by
+// observing anything about closure returns; they were bought by
+// refusing legal programs, and the three costs are the only three such
+// programs the corpus happens to CONTAIN. Rule 7, sharpest form: a
+// crude probe and a correct fix do not close the same programs.
+// Named, because a ceiling bounds the COUNT and not the SET —
+// capretchk closes and capretcaps does NOT:
+//   borrowck/issue-58776-borrowck-scans-children
+//   borrowck/var-matching-lifetime-but-unused-not-mentioned
+//   nll/issue-40510-1  nll/issue-48697--b  nll/issue-48697--t16
+//   nll/issue-53040
+//   regions/regions-infer-call-3  regions/regions-nested-fns-2
+//   regions/regions-return-ref-to-upvar-issue-17403
+// THIS TREE ALREADY KNEW. pass/bc_capbody_closure_return_admit's own
+// header records that the body-walk round put three of them
+// (issue-48697--b, --t16, var-matching-…) BACK ON THE SHELF for
+// exactly this reason. The measurement reproduces that verdict from
+// the other direction and adds the six it had not enumerated.
+// What survives is real and is in no corpus program at all: a closure
+// returning a reference to a BODY LOCAL —
+//   `let f = || -> &i64 { let t: i64 = 1i64; return &t; };`
+// — compiles today and refuses under capretcaps, while the capture
+// form (`return &x;`), the param form (`|y| return y`) and the nested
+// form still admit, and the ENCLOSING fn's own dangling return and
+// elision contract stay refused. Six hand-written programs, because
+// COST 0 is not a safety claim.
+
+## THE PREDICTIONS, VERBATIM, AS WRITTEN BEFORE EITHER GATE WAS EDITED
+
+    ROUND 2026-08-31h — PREDICTIONS, WRITTEN BEFORE THE GATES WERE EDITED
+    baseline: build 218 (libs c4dedf97e7aee29a), 2432 recorded / 0 failed,
+              admit filter 306 rows, `-L bc` 1935 tests, ledger # TOTAL 306.
+    
+    ARM 1 — lifereg_unmentbind (include/logos/compiler/outlives.hpp)
+      measured 2026-08-31 on build c4dedf97e7aee29a: fires 4, ceiling 5, cost 0,
+      cfail 0, stdlib all four layers.
+      PREDICT 5 ledger rows close, BY NAME:
+        logos_00_bc_admit_borrowck_issue-55394--ctl2
+        logos_00_bc_admit_nll_issue-67007-escaping-data
+        logos_00_bc_admit_nll_projection-no-regions-closure--c30-direct-call
+        logos_00_bc_admit_nll_projection-no-regions-closure--projection-no-regions-closure
+        logos_00_bc_admit_nll_account-for-lifetimes-in-closure-suggestion
+      PREDICT NOT to close (they are the two rows the narrowing gives up vs
+      lifereg_unmentioned, and the reason is rule 12 in the other direction):
+        propagate-fail-to-approximate-longer-no-bounds
+        regions-infer-call-3
+      PREDICT cost 0 / cfail 0 / stdlib ok on the LANDED tree.
+    
+    ARM 2 — capretsc (src/compiler/borrow_check.cpp), THE SCOPED CAUSE B
+      measured 2026-08-31 on build 571876f6ef48a1ed: fires 5492473, ceiling 4,
+      cost 0, cfail 0 of 1044 (rc 0, .expected-match 0, text-only 0), stdlib ok.
+      PREDICT 4 ledger rows close, BY NAME:
+        logos_00_bc_admit_borrowck_issue-53432-nested-closure-outlives-borrowed-value
+        logos_00_bc_admit_nll_closure-substs
+        logos_00_bc_admit_nll_issue-58053
+        logos_00_bc_admit_nll_nested-bodies-in-dead-code
+      PREDICT NOT to close, and NAMED because a ceiling bounds the count not the set:
+        regions-nested-fns-2   (capretplt closed it; capretplt bought it with the
+                                cause-B leak that also un-refused four fail fixtures)
+        issue-40510-1, issue-48697--t16  (capretchk-minus-capretcaps: a legal refusal
+                                buys them and nothing else does)
+      PREDICT the four `-L bc -L fail` fixtures capretcaps/capretplt/capmovewalk
+      un-refuse STAY REFUSED, since the escape/dangling channel no longer sees the
+      captures:  escape-argument--b · escape-upvar-nested · escape-upvar-ref
+                 · regions-nested-fns
+    
+    JOINT: PREDICT 9 rows close, ledger # TOTAL 306 -> 297.
+    The two arms are disjoint by site (outlives.hpp vs borrow_check.cpp) and by
+    name; each is measured alone and each gets its own fixture pair.
+
+MEASURED: the nine names above and no others. predicted∖measured = ∅,
+measured∖predicted = ∅, on the ledger half AND on all three cost populations.
+The three named as NOT closing did not close.
+
+## ORACLES, ALL ON THE LANDED TREE
+
+ * `stdlib-cost.sh`: all four layers compile.
+ * `fail_text_oracle.py`, landed vs CONTROL REVERT over **1056** fixtures
+   (1044 + the 9 relanded + 3 native): **12 rc changes, 12 stderr-sha changes,
+   12 `.expected`-match changes — the same 12, and all 12 are this round's own
+   new fail fixtures.** Nothing else moved. escape-argument--b,
+   escape-upvar-nested, escape-upvar-ref and regions-nested-fns are rc 1 in
+   BOTH columns, which is the whole difference between capretsc and capretcaps.
+ * CONTROL REVERT: with the four compiler sources at HEAD, all 12 new fail
+   fixtures compile rc 0 (i.e. go red) and all 4 pass twins stay green.
+
+## STILL OPEN, NAMED, WITH ITS EVIDENCE
+
+ * **regions-nested-fns-2** — closable only by the capture exemption the
+   escape channel also reads. Not bought.
+ * **C-II, a `move` closure's body is never walked** — `capmovewalk`'s clean
+   increment is TWO (borrowck-multiple-captures, issue-48238), and it must be
+   RE-PRICED: it was measured on a tree where it also turned the retchk gate
+   on, and that gate is now unconditional. Its cfail 4 was inherited from
+   cause B and should now be 0. **A ONE-VARIABLE PROBE FOR IT EXISTS TODAY** —
+   the `probe_mv_` gate at the top of walk_closure_body is all that is left of
+   it. First thing to price next round.
+ * **C-I-c issue-40510-1 / issue-48697--t16 — DECLINED**, a legal refusal buys
+   them and nothing else does.
+ * **`capshared`** — still 4 `.expected` LOST, unread. Rule 14 may rescue them.
+ * **the LET/statement gate for a closure-literal call argument** (C-VII).
+ * **the SUBSTITUTION engine** — now named by THREE measurements: `ltmintfresh`
+   157, this round's two un-bought `lifereg_unmentioned` rows, and the u7/u8
+   pair now pinned as fixtures.
+ * ⚠ NEITHER issue-51268 NOR issue-42574--b HAS AN ORACLE ON THIS BOX.
+ * A diagnostic-context defect, unpriced: a refusal raised inside a closure
+   body is reported as `[fn <enclosing>]` — closure-substs prints `[fn foo]`.
+   The `.expected` files pinned this round are message-only, so they do not
+   depend on it, but the string is wrong.

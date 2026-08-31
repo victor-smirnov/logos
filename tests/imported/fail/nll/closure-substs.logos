@@ -1,6 +1,9 @@
 // rustc nll/user-annotations/closure-substs.rs — upstream (region)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.C
+// shelf: fail — REFUSED since 2026-08-31: a closure's OWN signature contract
+// is now checked — `param_lifetimes_` is rebound from the closure's ref
+// params instead of the enclosing fn's, so `|x:&i64| -> &'static i64 {
+// return x; }` gets the rule its fn twin already got. Was nllmoves.C.
 package closure_substs;
 // nll/user-annotations/closure-substs.rs — a closure signature annotated `-> &'static i64`
 // returning a borrow with a shorter region.

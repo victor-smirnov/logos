@@ -1,6 +1,8 @@
 // rustc regions/account-for-lifetimes-in-closure-suggestion.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-N3
+// shelf: fail — REFUSED since 2026-08-31: two named generic regions that
+// appear in no `where` clause are UNRELATED, and both are binders of the
+// scope being checked. Was lifereg.NEW-N3.
 package account_for_lifetimes_in_closure_suggestion;
 struct TwoThings<'a, 'b> { a: &'a mut &'a i64, b: &'b i64 }
 struct SameLifetime<'a> { t: TwoThings<'a, 'a> }

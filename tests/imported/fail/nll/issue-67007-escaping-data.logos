@@ -1,6 +1,8 @@
 // rustc nll/issue-67007-escaping-data.rs — upstream (region)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.A
+// shelf: fail — REFUSED since 2026-08-31: two named generic regions that
+// appear in no `where` clause are UNRELATED, and both are binders of the
+// scope being checked. Was nllmoves.A.
 package issue_67007_escaping_data;
 struct FnCtxt<'a, 'tcx> { a: &'a i64, t: &'tcx i64 }
 fn use_it<'a, 'tcx>(f: &FnCtxt<'a, 'tcx>, x: &'tcx i64) {}

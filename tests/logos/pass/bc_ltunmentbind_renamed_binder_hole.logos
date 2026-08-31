@@ -1,0 +1,28 @@
+// ⚠ THIS FIXTURE PINS A HOLE, NOT A CORRECT VERDICT. The program below is as
+// illegal as tests/logos/fail/bc_ltunmentbind_two_unrelated_binders — the same
+// program with the STRUCT's binder renamed from 'a to 'h, one token — and
+// logosc compiles it.
+//
+// It is green ON PURPOSE and it is not a claim that the answer is right. The
+// 2026-08-31h narrowing refuses only when BOTH names are binders of the scope
+// being checked, and it recognises them BY SPELLING; a callee's or a struct's
+// own binder that arrives unsubstituted and happens to collide with the
+// caller's is caught, and the same program with it renamed is not. That is the
+// exact residue, written down where the next round trips over it instead of
+// re-deriving it: what removes it is SUBSTITUTION — the mint-and-unify engine
+// the subtype.hpp minting round (ceiling 157, 650 legal refusals) was declined
+// for, and which two independent measurements have now named.
+//
+// WHEN THE SUBSTITUTION ENGINE LANDS THIS FILE MUST MOVE TO fail/. A green run
+// here after that is a regression, not a pass.
+package bc_ltunmentbind_renamed_binder_hole;
+
+struct Holder<'h> { v: &'h i64 }
+
+fn mk<'b, 'a>(y: &'b i64) -> Holder<'a> {
+    return Holder { v: y };
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

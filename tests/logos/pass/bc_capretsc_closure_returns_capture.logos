@@ -1,0 +1,27 @@
+// THE EXEMPTION, AND IT IS SCOPED — the admit half of
+// fail/bc_capretsc_closure_returns_body_local, ONE TOKEN AWAY (`&u` for `&t`).
+//
+// A non-move closure's CAPTURE lives in the ENCLOSING frame and outlives the
+// closure by construction, so returning a reference to it out of the closure
+// body is not dangling. The fact is carried by `closure_capture_names_`, which
+// the return-report site reads AND NOTHING ELSE DOES.
+//
+// ⚠ THAT SCOPING IS THE WHOLE POINT AND IT IS LOAD-BEARING, MEASURED. The
+// earlier spelling of this exemption (`capretcaps` / `capretplt`) deposited the
+// captures in `outliving_params_`, which the ESCAPE/DANGLING channel and the
+// retained-provenance walk also read — and four PINNED fail fixtures went from
+// rc 1 to rc 0 for it: imported/fail/nll/escape-argument--b, escape-upvar-nested,
+// escape-upvar-ref and regions/regions-nested-fns. Those four are the abuse
+// direction of this file and they are pinned where they live.
+package bc_capretsc_closure_returns_capture;
+
+fn main() -> i32 {
+    let u: i64 = 9i64;
+    let c = || -> &i64 {
+        let t: i64 = 1i64;
+        return &u;
+    };
+    let r: &i64 = c();
+    if *r != 9i64 { return 1i32; }
+    return 0i32;
+}

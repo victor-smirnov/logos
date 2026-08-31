@@ -1,0 +1,1 @@
+struct literal 'SameLifetime' field 't': variance mismatch — expected TwoThings<'a, 'a>, got TwoThings<'a, 'b> — lifetime structure incompatible (check &mut invariance / contravariance rules)

@@ -1,6 +1,8 @@
 // rustc nll/issue-58053.rs — upstream (region)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.C
+// shelf: fail — REFUSED since 2026-08-31: a closure's OWN signature contract
+// is now checked — `param_lifetimes_` is rebound from the closure's ref
+// params instead of the enclosing fn's. Was nllmoves.C.
 package issue_58053;
 // nll/issue-58053.rs — closure return lifetime may not live long enough
 fn main() -> i32 {

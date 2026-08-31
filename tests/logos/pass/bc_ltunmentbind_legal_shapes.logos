@@ -1,0 +1,51 @@
+// THE COST SIDE OF THE 2026-08-31h `current_lt_binders()` NARROWING, MADE
+// RE-RUNNABLE. COST 0 IS NOT A SAFETY CLAIM: a corpus refuses only what it
+// CONTAINS, so the refusal was attacked by hand in the ABUSE direction.
+//
+// The WIDER rule this narrows (`lifereg_unmentioned`: refuse whenever two named
+// regions are unrelated) closes two more ledger rows and REFUSES ALL THREE
+// SHAPES BELOW, measured. Every one of them compares a name from ONE binder
+// against a name from ANOTHER — a callee's or a struct's own lifetime parameter
+// arriving unsubstituted — which is why the landed rule asks whether both names
+// are binders of THE SCOPE BEING CHECKED before it refuses.
+//
+// They are kept as ONE fixture on purpose: the measurement that funded the
+// narrowing was "these shapes, zero refusals", and the claim is about the SET.
+//
+// ⚠ THE REFUSE HALF IS fail/bc_ltunmentbind_two_unrelated_binders. Without it
+// this file passes trivially on a compiler that never checks anything.
+package bc_ltunmentbind_legal_shapes;
+
+struct H<'a> { v: &'a i64 }
+
+// u2 — one binder, used for both the argument and the result.
+fn g<'b>(x: &'b i64) -> H<'b> {
+    return H { v: x };
+}
+
+// u5 — the CALLEE's two binders are its own; the caller's two are unrelated to
+// them and to each other, and nothing needs to relate them.
+fn take<'a, 'b>(x: &'a i64, y: &'b i64) -> i64 {
+    return *x + *y;
+}
+
+fn caller<'c, 'd>(p: &'c i64, q: &'d i64) -> i64 {
+    return take(p, q);
+}
+
+// the elision shape: no binder is named at all, so neither side is in the set.
+fn idr(x: &i64) -> &i64 {
+    return x;
+}
+
+fn main() -> i32 {
+    let a: i64 = 3i64;
+    let b: i64 = 4i64;
+    let h: H = g(&a);
+    let s: i64 = caller(&a, &b);
+    let r: &i64 = idr(&a);
+    if s != 7i64 { return 1i32; }
+    if *r != 3i64 { return 2i32; }
+    if *h.v != 3i64 { return 3i32; }
+    return 0i32;
+}

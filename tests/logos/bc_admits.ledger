@@ -1024,7 +1024,29 @@
 # `lt_eq`'s empty early return in subtype.hpp, NOT by `outlives()`; the crude
 # minting proxy closes 157 rows and refuses 650 legal programs including
 # `fn id(x:&i64)->&i64`. Declined this round on that cost. See PROBES.md.
-# TOTAL 306
+# 2026-08-31h — 306 -> 297, TWO ARMS, NINE ROWS, and each was measured alone:
+#   · THE CLOSURE'S OWN SIGNATURE (4 rows, nllmoves.C + bck.C) — check_return_value
+#     was HARD-SUPPRESSED inside a closure body, and `ret_type_` / `param_lifetimes_`
+#     were the enclosing FUNCTION'S. All three are now the closure's own. The
+#     capture exemption is SCOPED: captures go into `closure_capture_names_`, read
+#     at the return-report site and nowhere else. `capretcaps`/`capretplt` put them
+#     in `outliving_params_` instead, which the ESCAPE/DANGLING channel also reads,
+#     and un-refused four pinned fail fixtures for one extra row
+#     (regions-nested-fns-2) — that row is NOT in this shrink and is not bought.
+#   · TWO UNRELATED NAMED REGIONS (5 rows) — `outlives()`'s permissive default for
+#     two named regions mentioned in no `where` clause, narrowed to the case where
+#     BOTH names are binders of the scope being checked (`current_lt_binders()`).
+#     The WIDER rule (`lifereg_unmentioned`) closes two more rows —
+#     propagate-fail-to-approximate-longer-no-bounds and regions-infer-call-3 — and
+#     refuses FIVE legal programs to do it, every one comparing a name from ONE
+#     binder against a name from ANOTHER. Those two rows stay open ON PURPOSE.
+# ⚠ THE NARROWING IS NOT SOUND BY CONSTRUCTION — IT WORKS BY NAME COLLISION. The
+#   pinned pair is tests/logos/fail/bc_ltunmentbind_two_unrelated_binders (refused)
+#   and tests/logos/pass/bc_ltunmentbind_renamed_struct_binder (MISSED, and equally
+#   illegal). What closes it is SUBSTITUTION — the same mint-and-unify engine the
+#   subtype.hpp minting round (ceiling 157, 650 legal refusals) was declined for.
+#   Two independent measurements now name it. See PROBES.md 2026-08-31h.
+# TOTAL 297
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1072,7 +1094,6 @@ issue-111554--b bck.A tests/imported/admit/borrowck/issue-111554--b
 issue-111554--c bck.A tests/imported/admit/borrowck/issue-111554--c
 issue-36082 bck.D tests/imported/admit/borrowck/issue-36082
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
-issue-53432-nested-closure-outlives-borrowed-value bck.C tests/imported/admit/borrowck/issue-53432-nested-closure-outlives-borrowed-value
 issue-55492-borrowck-migrate-scans-parents bck.A tests/imported/admit/borrowck/issue-55492-borrowck-migrate-scans-parents
 issue-58776-borrowck-scans-children bck.C tests/imported/admit/borrowck/issue-58776-borrowck-scans-children
 issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure
@@ -1208,7 +1229,6 @@ capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-st
 cast-static-lifetime nllmoves.R17 tests/imported/admit/nll/cast-static-lifetime
 closure-borrow-spans--a nllmoves.C tests/imported/admit/nll/closure-borrow-spans--a
 closure-borrow-spans--b nllmoves.C tests/imported/admit/nll/closure-borrow-spans--b
-closure-substs nllmoves.C tests/imported/admit/nll/closure-substs
 constant-in-expr-inherent-2--static-param nllmoves.NEW-N1 tests/imported/admit/nll/constant-in-expr-inherent-2--static-param
 do-not-ignore-lifetime-bounds-in-copy-proj--b nllmoves.NEW-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy-proj--b
 do-not-ignore-lifetime-bounds-in-copy-proj--ctl nllmoves.NEW-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy-proj--ctl
@@ -1242,10 +1262,7 @@ issue-54556-stephaneyfx nllmoves.E tests/imported/admit/nll/issue-54556-stephane
 issue-54556-temps-in-tail-diagnostic nllmoves.D tests/imported/admit/nll/issue-54556-temps-in-tail-diagnostic
 issue-54943 nllmoves.NEW-L1 tests/imported/admit/nll/issue-54943
 issue-55394--b nllmoves.NEW-3 tests/imported/admit/nll/issue-55394--b
-issue-55394--ctl2 nllmoves.NEW-3 tests/imported/admit/nll/issue-55394--ctl2
-issue-58053 nllmoves.C tests/imported/admit/nll/issue-58053
 issue-62007-assign-differing-fields--c nllmoves.R3 tests/imported/admit/nll/issue-62007-assign-differing-fields--c
-issue-67007-escaping-data nllmoves.A tests/imported/admit/nll/issue-67007-escaping-data
 issue-69114-static-mut-ty nllmoves.R1 tests/imported/admit/nll/issue-69114-static-mut-ty
 issue-98170 nllmoves.R13 tests/imported/admit/nll/issue-98170
 lending-iterator-sanity-checks nllmoves.R2 tests/imported/admit/nll/lending-iterator-sanity-checks
@@ -1256,15 +1273,12 @@ method-ufcs-inherent-3 nllmoves.NEW-1 tests/imported/admit/nll/method-ufcs-inher
 method-ufcs-inherent-4 nllmoves.NEW-S7-1 tests/imported/admit/nll/method-ufcs-inherent-4
 mir-check-cast-unsize nllmoves.NEW-N3 tests/imported/admit/nll/mir-check-cast-unsize
 move-errors--d nllmoves.B tests/imported/admit/nll/move-errors--d
-nested-bodies-in-dead-code nllmoves.C tests/imported/admit/nll/nested-bodies-in-dead-code
 normalization-self nllmoves.NEW-N2 tests/imported/admit/nll/normalization-self
 normalization nllmoves.NEW-N1 tests/imported/admit/nll/normalization
 pattern-substs-on-brace-enum-variant nllmoves.NEW-L1 tests/imported/admit/nll/pattern-substs-on-brace-enum-variant
 pattern-substs-on-brace-struct nllmoves.NEW-1 tests/imported/admit/nll/pattern-substs-on-brace-struct
 patterns nllmoves.R17 tests/imported/admit/nll/patterns
 projection-implied-bounds nllmoves.NEW-2 tests/imported/admit/nll/projection-implied-bounds
-projection-no-regions-closure--c30-direct-call nllmoves.R13 tests/imported/admit/nll/projection-no-regions-closure--c30-direct-call
-projection-no-regions-closure--projection-no-regions-closure nllmoves.R13 tests/imported/admit/nll/projection-no-regions-closure--projection-no-regions-closure
 projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/nll/projection-two-region-trait-bound-closure
 projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
 projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c
@@ -1285,7 +1299,6 @@ var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
 wf-unreachable nllmoves.NEW-N1 tests/imported/admit/nll/wf-unreachable
 
 # ── tests/ui/regions ─────────────────────────────────────────
-account-for-lifetimes-in-closure-suggestion lifereg.NEW-N3 tests/imported/admit/regions/account-for-lifetimes-in-closure-suggestion
 better-blame-constraint-for-outlives-static lifereg.NEW-N1 tests/imported/admit/regions/better-blame-constraint-for-outlives-static
 explicit-static-bound-on-trait lifereg.NEW-4 tests/imported/admit/regions/explicit-static-bound-on-trait
 impl-trait-lifetime-conflict-hashmap-keys lifereg.R18 tests/imported/admit/regions/impl-trait-lifetime-conflict-hashmap-keys

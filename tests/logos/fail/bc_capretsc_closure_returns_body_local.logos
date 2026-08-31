@@ -1,0 +1,26 @@
+// A CLOSURE BODY'S RETURN IS CHECKED AGAINST THE CLOSURE'S OWN RETURN TYPE —
+// the refuse half of the 2026-08-31h landing in
+// src/compiler/borrow_check.cpp::walk_closure_body.
+//
+// Until this round `check_return_value` was HARD-SUPPRESSED inside a closure
+// body (`if (!in_closure_body_) check_return_value(...)`), and `ret_type_` was
+// the enclosing FUNCTION'S — inside `fn main() -> i32` the typed gate asked
+// about `i32`, so a closure returning a reference to a body local compiled and
+// dangled.
+//
+// ⚠ ITS ADMITTED TWIN IS ONE TOKEN AWAY:
+// tests/logos/pass/bc_capretsc_closure_returns_capture — `return &u;` instead
+// of `return &t;`. A non-move closure's CAPTURE lives in the enclosing frame
+// and outlives the closure, so that one is legal and must stay green. Both
+// programs are otherwise identical, and both declare both names.
+package bc_capretsc_closure_returns_body_local;
+
+fn main() -> i32 {
+    let u: i64 = 9i64;
+    let c = || -> &i64 {
+        let t: i64 = 1i64;
+        return &t;
+    };
+    let r: &i64 = c();
+    return 0i32;
+}

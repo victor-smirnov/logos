@@ -1,0 +1,23 @@
+// A CLOSURE'S OWN SIGNATURE CONTRACT — the second half of the 2026-08-31h
+// landing: `param_lifetimes_` is rebound from the CLOSURE'S ref params instead
+// of merely cleared, so the elision/lifetime rule that has always landed on a
+// fn now lands on the closure too.
+//
+// Measured one node kind apart on the unarmed binary before the fix:
+//     fn  g(x: &i64) -> &'static i64 { return x; }     REFUSED
+//     let c = |x: &i64| -> &'static i64 { return x; }  admitted
+// The rule existed; the closure never reached it.
+//
+// ⚠ ITS ADMITTED TWIN IS ONE TOKEN AWAY:
+// tests/logos/pass/bc_capretsc_closure_elided_contract — drop `'static` from
+// the closure's return type and the program is legal.
+package bc_capretsc_closure_static_contract;
+
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    let c = |x: &i64| -> &'static i64 {
+        return x;
+    };
+    let r: &i64 = c(&v);
+    return 0i32;
+}
