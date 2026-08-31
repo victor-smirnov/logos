@@ -1,0 +1,46 @@
+// COST SENSOR for the REGION SLOT (src/compiler/PROBES.md 2026-08-31m).
+//
+// THE TWIN OF AN `.expected` LOSS, and the instrument that found it.
+// `tests/imported/fail/regions/regions-trait-variance` is the ILLEGAL program:
+// it returns `A<'r>` built from a borrow of a LOCAL. `ltregslot` moves its
+// refusal from "cannot return reference to local variable" (borrow_check) to
+// "return type mismatch: variance mismatch — expected A<'a>, got A<'r>" (the
+// type checker), rc 1 in both columns — rule 14's exemption on its face.
+//
+// THIS is that program with the two lines that make it illegal DELETED, so the
+// remainder is an ordinary legal program. MEASURED, one variable apart on build
+// ce3eb5cc50e53b5d:
+//     unarmed        rc 0
+//     ltregslot      rc 1   ⇐ A LEGAL-PROGRAM REFUSAL
+//     ltregmeet      rc 0   (the slot WITH the elision engine)
+//     ltmintmeetamb  rc 0
+// The pass corpus, the 1056-row `-L bc -L fail` text oracle and all four stdlib
+// layers all reported COST 0 for `ltregslot`. Only this twin saw it.
+//
+// THE MECHANISM. `A<'r> { p: &'r dyn X }` records `'r` on a `Kind::TraitObject`
+// once the slot exists, so `A`'s binder is Co instead of BiVar and the return
+// type is actually compared. The VALUE side does not record a region: the
+// unsize coercion `&'a B` -> `&'a dyn X` (sema_expr.cpp) builds its TraitObject
+// with an empty one. Declaration side recorded, value side not — so `'r` binds
+// to nothing and `A<'r>` is not `A<'a>`. That asymmetry is the slot's whole
+// cost, and it is why the slot does not land alone.
+package bc_ltregslot_dyn_field_coerced_arg;
+
+trait X { fn get_i(self: &Self) -> i64; }
+struct B { i: i64 }
+impl X for B { fn get_i(self: &Self) -> i64 { return self.i; } }
+
+struct A<'r> { p: &'r dyn X }
+
+fn make_a<'r>(p: &'r dyn X) -> A<'r> { return A { p: p }; }
+
+fn make_make_a<'a>(bb: &'a B) -> A<'a> {
+    return make_a(bb);
+}
+
+fn main() -> i32 {
+    let b: B = B { i: 7i64 };
+    let a: A = make_make_a(&b);
+    if a.p.get_i() != 7i64 { return 1i32; }
+    return 0i32;
+}

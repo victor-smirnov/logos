@@ -4801,8 +4801,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8727 -> 8728  +1
 #   NOIMPORTED   4466 -> 4467  +1
 #   TIERCOMMIT    346 ->  346  +0
-REGISTRY-ALL         8728
-REGISTRY-NOIMPORTED  4467
+# 2026-08-31m (ONE native pass fixture, the REGION SLOT's cost sensor —
+# bc_ltregslot_dyn_field_coerced_arg, the legal twin of the one `.expected` loss
+# `ltregslot` produces. PREDICTED +1 / +1 / +0 before the gate was read: a
+# `tests/logos/pass` fixture joins ALL and NOIMPORTED and arrives through the
+# `corpus` path, not `tier_commit`. The ledger is UNTOUCHED at 297 — nothing
+# landed this round.)
+#   ALL          8728 -> 8729  +1
+#   NOIMPORTED   4467 -> 4468  +1
+#   TIERCOMMIT    346 ->  346  +0
+REGISTRY-ALL         8729
+REGISTRY-NOIMPORTED  4468
 REGISTRY-TIERCOMMIT  346
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

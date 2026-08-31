@@ -7039,3 +7039,355 @@ the gate was read.
     them (2026-08-31k §1).
  5. The `expected Option, got Option` wording was written and reverted with the
     landing; it is prerequisite work whenever the engine goes back in.
+
+# ROUND 2026-08-31m — THE REGION SLOT: `&'a [T]`, `&'a str`, `&'a dyn`, `&'a Dst` RECORD THEIR REGION
+
+Ledger UNTOUCHED at **297**. NOTHING LANDED to the ledger. Build
+**ce3eb5cc50e53b5d** (READ, `scripts/build_hash.py build`); L1 rc=0 with nothing
+armed — 745/745, 346 gates, 12 684 smoke — so every arm below is inert unarmed.
+Opening baselines READ FROM THE STORE (build 252, unarmed): `-L bc` 1056/1056;
+`-R '^logos_00_bc_admit_'` unchanged.
+
+## 1. THE VERDICT
+
+    arm             fires      ceiling  cost(pass)   cost(fail)              stdlib
+    ltmintmeetamb  24395096      22         3        14 chg, rc 0, 13 .exp   green  ← control
+    ltregslot      21555290       2         0         1 chg, rc 0,  1 .exp   green  ← THE SLOT ALONE
+    ltregmeet      46049528      24         3        14 chg, rc 0, 13 .exp   green  ← SLOT + ENGINE
+
+All three re-priced ON ONE BINARY (unarmed build 252 → armed 253/254/255), so
+`ltmintmeetamb` is a CONTROL REVERT, not a memory of 2026-08-31l's numbers — and
+it reproduces that round to the digit (22 / 3; the 3rd cost is the sensor 31l
+itself landed). Diffed BOTH WAYS, mechanically, over the printed name sets:
+
+    ceiling   regmeet ∖ amb = { regions-glb-free-free--f-control-whole,
+                                regions-trait-object-subtyping }   ← EXACTLY the slot's two
+              amb ∖ regmeet = ∅
+              regslot ∖ regmeet = ∅      regslot ∩ amb = ∅
+    cost      regmeet ∖ amb = ∅          amb ∖ regmeet = ∅
+              regslot ∖ regmeet = ∅      (the slot's cost set is EMPTY here)
+    fail      failtext-…-ltregmeet.tsv is BYTE-IDENTICAL to
+              failtext-…-ltmintmeetamb.tsv — sha 9b3deb66eef559b6, all 1056 rows,
+              every rc, every stderr sha, every `.expected` match.
+
+⇒ **THE SLOT AND THE ENGINE ARE DISJOINT AND EXACTLY ADDITIVE: 22 ⊎ 2 = 24, cost
+UNCHANGED at 3, and the fail half is not touched at all by the slot's presence.**
+Rule 13 measured in both directions; here the increment is neither negative nor
+overlapping, and that is a fact about these two mechanisms, not a default.
+
+**The three costs are the three already named as NOT costs**:
+`bc_ltunmentbind_renamed_binder_hole` (its own header asks it to flip),
+`bc_genrecv_two_mut_sequential_admit` (illegal Rust by elision rule 3), and
+`bc_ltmintgen_two_minted_regions_one_typaram` (2026-08-31l's own cost sensor —
+the generic-binder unification question, untouched by this round).
+
+## 2. ⚠ THE CENSUS FIRST (RULE 17) — AND ITS FIRST DRIVER WAS WRONG
+
+`census()` counts every arrival at the sites where `resolve_type` /
+`subst_type_sema` throw a region away, split by whether a lifetime was WRITTEN
+there. Over the `tests/` tree — 8680 files listed, **4700 contributing** (the
+rest need module/stdlib context and exit before type resolution; the
+contributing count is PRINTED next to the totals so an under-walked population
+cannot read as a zero):
+
+    site (resolve_type / subst_type_sema)   kind produced   elided    written
+    ────────────────────────────────────────────────────────────────────────
+    SLICE_TYPE            `&[T]` `&'a [T]`  Slice          200 320         32
+    DYN_TYPE              `&dyn` `&'a dyn`  TraitObject     57 793         78
+    REF_TYPE → &Unsized   `&str` `&'a str`  Slice           23 519         23
+    REF_TYPE → &Dst                         DstRef           4 216        732
+    MUT_REF_TYPE → &mut Dst                 DstRef             220          0
+    REF/MUT_REF → &dyn (via UnsizedDyn)     TraitObject          0          0
+    TAGGED_TYPE          `&tagged<TS> Tr`   TaggedPtr            0          0
+    ────────────────────────────────────────────────────────────────────────
+    TOTAL                                                  286 068        865
+
+⚠ **THE FIRST RUN OF THIS CENSUS WAS WRONG, AND ONLY THE CONTRIBUTOR COUNT
+SHOWED IT.** Its driver reported 8 buckets over 8680 files with NO `*.written`
+bucket at all — a table that reads as the substantive claim "nobody in this
+corpus writes a lifetime on a slice". 183 of 8680 processes had actually
+contributed. `nondeterministic-lifetime-errors-15034` — the fixture the whole
+arc pins — contributes `regslot.ref.slice.written 1` on its own. Eighth instance
+this week of a population that excludes its own subject, and the FIRST caught by
+an instrument rather than by the answer looking implausible: the repair was to
+print how many processes contributed, beside the totals. A census with no
+denominator is not a measurement.
+
+`TAGGED_TYPE`'s two zeros are also a measurement: the grammar has no
+lifetime-carrying `tagged_type` alt, so that slot has a writer and no source
+that can reach it. Recorded rather than assumed.
+
+## 3. THE CONSUMERS, CLASSIFIED BY DIRECTION
+
+Every `.lifetime()` reader in the tree, and whether a region present on a
+`Slice` / `TraitObject` / `DstRef` / `TaggedPtr` can REACH it:
+
+    consumer                                  site               keyed on             reachable?
+    ─────────────────────────────────────────────────────────────────────────────────────────────
+    variance_in_type · Ref/MutRef arm         sema.cpp           Ref/MutRef           no
+    variance_in_type · TraitObject arm        sema.cpp           TraitObject +        ⚠ YES — AND THE
+                                                                 .lifetime()             READER PREDATES
+                                                                                         ANY WRITER
+    variance_in_type · Slice/DstRef/Tagged    sema.cpp           elem only / BiVar    only after this
+                                                                                      round's arms
+    ⇒ compute_variances → variance_table_     sema.cpp                                C1
+    ⇒ subtype() · Struct/Enum lt-arg arm      subtype.hpp        variance_table_      ⚠ REFUSING
+    borrow_check param_lifetimes_ / ret_lt    borrow_check.cpp   is_ref_kind(), which ⚠ REFUSING — AND
+                                                                 ALREADY counts Slice/   THE READER
+                                                                 TraitObject/non-owning  PREDATES ANY
+                                                                 DstRef                  WRITER
+    types_equal_with_lifetimes · Slice arm    subtype.hpp        elem only            no
+    subtype() · Slice arm                     subtype.hpp        (equal ⇒ true)       no
+    structlit_lt_subst_ walk                  sema_impl.hpp      Ref/MutRef, Struct/  no
+    build_call_lt_subst_ walk                 sema_impl.hpp       Enum/Tuple          no
+    collect_param_regions_                    sema_impl.hpp      Ref/MutRef           no
+    mint_type_lts_                            sema_impl.hpp      Ref/MutRef           no
+    undeclared-lifetime walks (×3)            sema_decl.cpp      Ref/MutRef, Struct   no — would REFUSE
+                                                                 lt_args              if extended; NOT
+                                                                                      extended
+    walk_implied / has_elided_ref             sema_decl.cpp      Ref/MutRef           no
+    impl-match unify (×2)                     sema_collect,      Ref/MutRef both      no
+                                              mono_clone          sides
+    type_str                                  sema.cpp           Ref/MutRef           no — DIAGNOSTIC
+                                                                                      TEXT UNCHANGED
+    mangle_type                               mono_impl.hpp      never reads it       no
+    compute_type_uid                          sema.cpp           OMITS it for these   no
+                                                                 four kinds
+
+**EXACTLY TWO CHANNELS CAN NEWLY REACH A REFUSING BRANCH.** Both were named
+before the run, and both are `.lifetime()` READERS THAT ALREADY EXISTED with no
+writer anywhere in the compiler — rule 16 twice over, at two sites, in one kind.
+
+## 4. ⚠ THE SLOT CLOSES LIVE UN-REFUSALS THE CORPUS HAD NO INSTRUMENT FOR
+
+`is_ref_kind()` in borrow_check has counted `Kind::Slice`, `TraitObject` and
+non-owning `DstRef` as ref kinds since logos-core 2.1 — its own comment says why
+(`fn bad() -> &dyn T { return &local; }`). It then reads
+`param_lifetimes_[p] = TypeRef(pt).lifetime()` and
+`ret_lt = TypeRef(ret_type_).lifetime()` off a slot that has been EMPTY since
+the kind existed. So `check_return_value`'s explicit-return-lifetime contract has
+NEVER ONCE RUN for a fat-pointer return type. MEASURED, one variable apart, on
+this binary:
+
+    ILLEGAL, admitted unarmed, refused under ltregslot:
+      fn mix<'a>(x:&'a [i64], y:&[i64]) -> &'a [i64]      { return y; }   rc 0 → 1
+      fn pickstr<'a>(x:&'a str, y:&str) -> &'a str        { return y; }   rc 0 → 1
+      fn pickdyn<'a>(x:&'a dyn Sp, y:&dyn Sp) -> &'a dyn Sp { … }         rc 0 → 1
+    LEGAL, admitted BOTH ways (the refusal is not a blanket one):
+      the same three with both params at `'a`, plus a fully elided
+      `fn(&str) -> &str`                                                  rc 0 / rc 0
+
+And the ledger agrees, by name: **`ltregslot`'s two ceiling rows are BOTH
+known-wrong ADMISSIONS, and both are upstream rejections:**
+
+    regions-trait-object-subtyping   fn foo3<'a,'b>(x:&'a mut dyn Dummy) -> &'b mut dyn Dummy
+                                     header: "upstream lifetime may not live long enough"
+    regions-glb-free-free--f-control-whole
+                                     struct Flag<'a>{name:&'a str, desc:&'a str}
+                                     fn h<'a,'b>(f: Flag<'b>) -> Flag<'a> { return f; }
+                                     header: "upstream E0621 explicit lifetime required"
+
+One is the `&mut dyn` region; the other is a struct whose BOTH fields are
+`&'a str`, so its binder was BiVar — "recorded nowhere" — and `lifetime_at`
+returns TRUE unconditionally for BiVar. That is the un-refusal the fixpoint's
+own confusion was producing, closed at the site that produced it.
+
+## 5. THE ACCEPTANCE TEST, BEFORE ANY LEDGER ROW (step 5)
+
+`compute_variances` now emits its own answer under `LOGOS_CENSUS`
+(`var.<pkg.Def>.@<i>=<Variance>`), so the h1/h3/h4 verdicts 2026-08-31k read
+INDIRECTLY off the meet's behaviour are a DIRECT measurement here.
+
+    program                                        unarmed → ltregslot
+    h1  L<'a>{i:&'a i64}   P<'a>{l:&'a mut L<'a>}  L @0 Co    → Co     P @0 Inv → Inv  (CONTROL)
+    h3  L<'a>{i:&'a str}   the SAME P              L @0 BiVar → Co     P @0 Co  → Inv  ⇐ SUBJECT
+    h4  L<'a>{i:&'a [i64]} the SAME P              L @0 BiVar → Co     P @0 Co  → Inv  ⇐ SUBJECT
+    q1  Wrap<'w>{s:&'w str}; Q<'a>{x:&'a i32,y:&'a mut Wrap<'a>}
+                                                Wrap @0 BiVar → Co     Q @0 Co  → Inv
+    m1  S<'a>{a:&'a i32,b:Option<&'a i32>,s:&'a str}
+                                                   S @0 Co    → Co     (unchanged — and that is
+                                                                        the point: S IS covariant)
+
+**h1, h3 AND h4 ALL READ Inv.** The table no longer confuses "this binder appears
+nowhere" with "this binder appears only where the type cannot record it".
+
+    fixture / program                        unarmed  inst  amb  regslot  regmeet
+    m1  (LEGAL)                                 0       1    0      0        0    ✓ ADMITTED
+    q1  (ILLEGAL)                               1       1    1      1        1    ✓
+    q2  (ILLEGAL, q1 with the slice removed)    1       1    1      1        1    ✓
+    nondeterministic-lifetime-errors-15034      1       1    1      1        1    ✓ PIN
+    account-for-lifetimes-in-closure-suggest.   1       1    1      1        1    ✓ PIN
+    variance-option-ref-intersection-rg         0       1    0      0        0    ✓ SUBJECT
+    bc_ltmintgen_two_minted_regions_one_typaram 0       1    1      0        1    (31l's sensor,
+                                                                                   unchanged)
+
+**`ltregmeet` REPRODUCES `ltmintmeetamb` PROGRAM FOR PROGRAM WITH NO STAND-IN
+PREDICATE AT ALL.** Its guard is `binder_is_covariant_` and nothing else, because
+`probe_meet_opaque_guard_()` and `probe_meet_amb_guard_()` are both false under
+it. m1 — the legal program that refuted 2026-08-31k's first stand-in — is
+admitted, and both pins hold, on the plain lattice condition.
+
+## 6. WHAT THE SLOT REPLACES, AND WHY ITS OWN ARGUMENT SAYS SO
+
+    2026-08-31k  type_region_opaque_ / decl_fields_region_opaque_ — withhold the
+                 meet whenever a region-losing slot is reachable AT ALL. Priced
+                 its own counter-example (m1) the same round.
+    2026-08-31l  region_loss_noncov_ / def_lt_var_ /
+                 decl_fields_region_evidence_bad_ — "…unless it is reached at a
+                 COVARIANT ambient, because the contribution the fixpoint OMITTED
+                 IS THE AMBIENT AT THAT POSITION."
+
+That second argument is the proof that the slot is the right repair rather than a
+third stand-in: it says the missing contribution is exactly the ambient — which
+is precisely what `variance_in_type`'s new Slice / DstRef / TaggedPtr arms now
+record DIRECTLY, with no reachability walk, no depth cap, and no conservative
+fallback at an unreadable def. ~150 lines of reasoning ABOUT a discarded slot,
+replaced by not discarding it.
+
+⚠ BOTH ARE KEPT IN THE TREE under their own probe names. They are this round's
+CONTROLS; deleting them here would delete the revert.
+
+## 7. THE REPRESENTATION QUESTION (step 4), ANSWERED: NO WIDER REWRITE
+
+`LogosTypeBuilder` has carried a `lifetime` string for every kind all along, and
+`TypeRef::lifetime()` reads it back. The four fat-pointer kinds simply never had
+it written. Two facts already in the tree — both put there FOR `Ref` — are what
+make writing it cheap:
+
+ 1. **`compute_type_uid` OMITS the lifetime** ("matches types_equal semantics").
+    `&'a [T]` and `&[T]` therefore have the SAME TypeUID: `types_equal`,
+    `mangle_type`, every mono spec key, every layout decision are byte-unchanged.
+ 2. **`builder_equals_typeref` DISTINGUISHES it** ("borrow_check reads
+    .lifetime() off the ptr"). The two get distinct POOL ENTRIES and the region
+    survives — exactly how `&'a T` vs `&T` has always worked.
+
+⇒ the edit: three constructors take an optional `lt`; four `builder_equals`
+cases compare it; `variance_in_type` grows Slice / DstRef / TaggedPtr arms
+(TraitObject's has read `t.lifetime()` since logos-core 2.3 and had no writer);
+eight `resolve_type` / `subst_type_sema` sites pass `lt` instead of dropping it.
+**+209/−26 over three files**, and all four stdlib layers compile under both arms.
+
+**AND THE AST ALREADY CARRIED IT.** `logos.peg`'s `slice_type` has captured the
+lifetime into a LIFETIME slot since L2, with the comment "downstream sema
+currently doesn't enforce slice-with-lifetime distinctly from plain &[T]";
+`dyn_type`'s `&'a dyn` alts likewise, "downstream sema is currently elision-based
+so the slot is informational". Two grammar comments, a `variance_in_type` arm and
+an `is_ref_kind()` list all describing the same missing eight lines.
+
+This was flagged as the most invasive change of the arc. It is not. Making these
+kinds fully region-GENERIC would be, and was not attempted; the measured need
+(2026-08-31k §3) was that the region be RECORDED where variance and the meet can
+read it, and that is a data-flow repair.
+
+## 8. ⚠ THE COST THE THREE POPULATIONS COULD NOT SEE — AND THE INSTRUMENT THAT SAW IT
+
+`ltregslot` printed **COST 0 on the pass corpus, 0 rc-changes across 1056 fail
+fixtures, and all four stdlib layers green**. It refuses a legal program.
+
+2026-08-31l §4's instrument: a `.expected` LOSS is a HYPOTHESIS — a refusal whose
+REASON moved says a program one construct away is now refused FOR THE NEW REASON,
+and that program may be legal. `ltregslot` produced exactly ONE such loss, so the
+instrument cost one program to apply:
+
+    tests/imported/fail/regions/regions-trait-variance   (upstream E0515)
+    reason MOVED: "cannot return reference to local variable 'b'" (borrow_check)
+                → "return type mismatch: variance mismatch — expected A<'a>, got
+                   A<'r>" (the type checker)
+
+Delete the two lines that make it illegal — the local `b` and the borrow of it —
+and the remainder is an ordinary legal program. CONTROL REVERT, ONE BINARY:
+
+    unarmed rc 0 · ltregslot rc 1 · ltregmeet rc 0 · ltmintmeetamb rc 0
+
+**THE MECHANISM, READ OFF THE PROGRAM.** `A<'r> { p: &'r dyn X }` records `'r`
+on a `Kind::TraitObject`, so `A`'s binder is Co instead of BiVar and the return
+type is genuinely compared. The VALUE side records nothing: the unsize coercion
+`&'a B` → `&'a dyn X` (sema_expr.cpp) builds its TraitObject with an empty
+region. **DECLARATION SIDE RECORDED, VALUE SIDE NOT** — so `'r` binds to nothing
+and `A<'r>` is not `A<'a>`. The engine's mint and substitution close it, which is
+why `ltregmeet` admits the same program.
+
+⇒ Second round running in which this instrument reversed a reading that three
+populations called clean. It is still not exhausted: the ENGINE's 13 `.expected`
+losses have had **two** of thirteen twins written (borrowck-swap-mut-base-ptr on
+2026-08-31l, and now this one, which is the slot's own).
+
+Landed as `tests/logos/pass/bc_ltregslot_dyn_field_coerced_arg.logos` with its
+illegal twin named in the header — a hand program dies with its round.
+
+## 9. PREDICTED vs MEASURED, BOTH DIRECTIONS (RULE 6)
+
+`predictions-regslot.txt`, written before the first pricing run.
+
+    ltregslot ceiling: PREDICTED 0 ("nothing in the ledger is closed by recording
+      a region only the variance fixpoint reads"). MEASURED **2**, and the
+      prediction named the reason it was wrong in its own text: it listed C1 and
+      C2 as REFUSING channels and then forgot that the ledger's rows ARE
+      refusals owed. Both rows are un-refusals C2 and C1 close. Direction
+      right, sign wrong.
+    ltregslot cost:    PREDICTED 1-5 "and I cannot name them"; MEASURED 0 in
+      every population the harness owns — and then 1, by an instrument outside
+      all three (§8). The prediction's honest "I cannot name them" was the
+      accurate half.
+    ltregslot fail:    PREDICTED rc-changes 0 with some `.expected` movement.
+      MEASURED exactly that: 1 `.expected` loss, 0 rc changes.
+    ltregmeet:         PREDICTED ceiling 22 same set as amb; MEASURED **24** —
+      22 ⊎ the slot's 2, which the prediction did not compose. Cost PREDICTED
+      "2 + slot, floor 3 by the sensor"; MEASURED 3, the same three by name.
+      Stdlib PREDICTED at risk; MEASURED green for both arms.
+    MONOTONICITY:      PREDICTED "an un-refusal under this arm would be a DEFECT",
+      derived from `lifetime_at`'s BiVar-returns-true. MEASURED: 0 rc 1→0
+      transitions in 1056 fail fixtures under either arm. The claim survives —
+      but §8 shows it was never the whole safety question, because the cost that
+      appeared is a legal program the corpus does not contain.
+
+## ⇒ 10. WHAT THIS ROUND SETTLES
+
+ 1. **THE FOUR FAT-POINTER KINDS CAN CARRY A REGION, AND IT DID NOT NEED A WIDER
+    REWRITE.** Step 4's stop condition was not met; the wall was not there.
+ 2. **THE VARIANCE FIXPOINT NO LONGER LIES ABOUT A SLICE** — h3/h4 read Inv,
+    measured directly off `compute_variances` rather than inferred from a refusal.
+ 3. **THE MEET RUNS ON THE PLAIN LATTICE CONDITION.** Both stand-in predicates
+    are dead under `ltregmeet`; m1 is admitted and both pins hold.
+ 4. **THE SLOT IS A SOUNDNESS REPAIR IN ITS OWN RIGHT** — two ledger rows and
+    three hand programs, all upstream rejections this compiler admitted, in a
+    branch that has never executed for a fat-pointer return type.
+ 5. **IT DOES NOT LAND, AND THE REASON IS NAMED AND SMALL.** `ltregmeet` is
+    ceiling 24 / cost 3-all-named / fail-table-identical-to-its-control /
+    stdlib green — and `ltregslot` alone refuses one legal program because the
+    unsize-coercion site does not record a region. That is one deposit site, not
+    a design problem, and it is the next round: **carry the region across the
+    unsize coercion and the other value-side Slice/TraitObject constructors**,
+    then re-price the slot ALONE and see whether its cost is still 0 when an
+    instrument outside the three populations is pointed at it.
+
+## 11. OPEN, WITH ITS EVIDENCE
+
+ 1. **THE VALUE SIDE RECORDS NO REGION** — §8. `resolve_type` and
+    `subst_type_sema` write the slot; every other Slice/TraitObject/DstRef
+    constructor in the tree (sema_expr's unsize coercion, sema_stmt, mono_clone,
+    mono_subst — dozens) writes an empty one. Correct for the fixpoint, which
+    reads DECLARED field types; the measured cost of the asymmetry is §8's one
+    program.
+ 2. **`subst_type_sema`'s DstRef arm returns early on `type_args().empty()`**, so
+    a `&'a Dst` with no type args carries its region through unchanged but does
+    NOT map it through `ls`. Asymmetric with the Slice and TraitObject arms,
+    which do. 732 `ref.dst.written` arrivals in the census; not measured
+    separately, named here rather than assumed harmless.
+ 3. **MINTING INTO AN ELIDED SLICE SLOT** — not attempted. `fn id(x:&[i64]) ->
+    &[i64]` is still related by elision alone.
+ 4. **UNIFICATION OF MINTED REGIONS AT A GENERIC BINDER** (2026-08-31l §5) —
+    untouched; `bc_ltmintgen_two_minted_regions_one_typaram` is still a cost.
+ 5. **ELEVEN OF THIRTEEN `.expected` TWINS ARE STILL UNWRITTEN.** Two of two
+    written have been costs.
+ 6. The free-fn call's 4 multi-candidate binders still have no variance to guard
+    them (2026-08-31k §1).
+ 7. The `expected Option, got Option` wording remains prerequisite work.
+
+Files: `include/logos/compiler/probe.hpp` (`arm_regslot`),
+`src/compiler/sema_impl.hpp` (`make_slice_type` / `make_dst_ref` /
+`make_trait_object` take an optional region; `probe_meet_` learns `ltregmeet`),
+`src/compiler/sema.cpp` (`builder_equals_typeref` ×4 kinds; `variance_in_type`
+Slice / DstRef / TaggedPtr arms; `compute_variances`' census; the six
+`resolve_type` sites and two `subst_type_sema` ones),
+`tests/logos/pass/bc_ltregslot_dyn_field_coerced_arg.logos` (+ `.expected`).
