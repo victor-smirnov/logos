@@ -6199,3 +6199,276 @@ The three named as NOT closing did not close.
    body is reported as `[fn <enclosing>]` — closure-substs prints `[fn foo]`.
    The `.expected` files pinned this round are message-only, so they do not
    depend on it, but the string is wrong.
+
+# ═══ ROUND 2026-08-31i — THE ELISION ENGINE BUILT, PRICED, AND ITS WALL ═════
+
+Subject: the mechanism two independent rounds converged on — `outlives()` is
+handed two STRINGS and cannot say which BINDER each denotes. Built behind flags,
+in separable pieces, and priced. NOT LANDED.
+
+build: e0c4dfbe62e140c8 (READ, `scripts/build_hash.py build`) · ledger # TOTAL
+297 · L1 rc=0 at every commit of the round (745/745, 346 gates, 12 684 smoke),
+so every arm is inert unarmed.
+
+## THE MINT CENSUS, TAKEN BEFORE THE GATE WAS BELIEVED (RULE 17)
+
+`probe.hpp` gained `census()` — the site-census instrument, gated on
+LOGOS_CENSUS, riding in the same build as the gate it checks. Over
+`tests/imported/admit` + `tests/logos/pass` (1 file = 1 logosc process, summed):
+
+    bucket                     arrivals   what it says
+    mint.fn.signature        13 841 071   fn signatures walked
+    mint.ref.elided           4 794 309   `&T` slots with NO name
+    mint.ref.written             20 966   `&'a T` slots WITH one
+    mint.ret.unified          3 431 013   returns elision rule 1/3 could source
+    mint.ret.no-source       10 410 058   returns it could NOT — left elided
+    mint.slice.noslot         1 296 116   ⚠ Kind::Slice CANNOT CARRY A REGION
+    mint.dstref.noslot           38 611   ⚠ nor DstRef
+    mint.traitobject.noslot      23 437   ⚠ nor TraitObject
+    mint.structarg.written          160   struct lifetime args as written
+    mint.structarg.elided            84   present but empty
+    mint.structarg.absent            84   ⚠ DOOR 3's whole population
+    subst.structlit.site             56   struct literals with a lifetime param
+    subst.structlit.differs          13   …where the FIELD's region differs from
+                                          the HINT the literal actually used
+    subst.call.site                   5   free-fn calls whose callee declares a
+    subst.call.mapped                 3   lifetime param (over 200 admit files);
+    subst.call.unmapped               3   rule 4 applies before these are read
+
+**THREE THINGS THE CENSUS SETTLED AND NO REASONING WOULD HAVE.**
+
+ 1. **99.6% OF REFERENCE SLOTS IN THIS TREE ARE ELIDED** — 4 794 309 against
+    20 966 written. The elided slot is not a corner of the language; it is the
+    language as this corpus writes it.
+ 2. **`&[T]`, `&dyn` AND `&DstStruct` HAVE NO LIFETIME SLOT AT ALL.**
+    `resolve_type` canonicalises `&[T]` to `Kind::Slice` and the region of the
+    borrow is DROPPED there, 1 296 116 times. No mint can name what the type
+    cannot carry. This is a STRUCTURAL hole the engine does not close and it is
+    the largest single number in the table after the refs themselves.
+ 3. **DOOR 3 IS TINY** — 84 arrivals. It is real (it closes
+    `regions-infer-at-fn-not-param`, predicted and measured) but it is not a
+    population.
+
+⚠ AND THE CENSUS CAUGHT THIS ROUND'S OWN SITE LIST BEING WRONG — the sixth such
+instance this week and the first where the list was mine. `subst.call.site`
+fired ZERO times on the stdlib program that broke the mint: an unambiguous free
+fn takes neither the overload-resolved nor the generic call path but the
+EXACT-MATCH path, which the first build did not instrument.
+
+## THE ARMS, NAMED SO EACH CAN BE PRICED ALONE (RULES 3, 9, 13)
+
+    ltmintunify  sema_decl.cpp — mint a fresh region into every elided slot of a
+                 fn signature, then UNIFY by Rust's elision rules (one input
+                 region ⇒ the output takes it; `&self` ⇒ the output takes self's;
+                 neither ⇒ the output is LEFT ELIDED, i.e. today's behaviour).
+                 Minted names are added to `current_lt_binders()`, so the landed
+                 2026-08-31h rule refuses two UNRELATED elided slots while a
+                 unified pair stays reflexive.
+    ltsubstlit   sema_expr.cpp — a struct literal's lifetime args come from the
+                 HINT, never from the values stored. Read them off the FIELD
+                 VALUES instead.
+    ltsubstcall  sema_expr.cpp — the free-fn call passes a TYPE substitution
+                 only, so a callee's `'a` reaches the caller as the string `'a`.
+                 A callee region seen at an argument becomes the caller's actual
+                 region; one seen nowhere becomes a fresh rigid region.
+    ltsubstfree  the same, with the OTHER policy for a callee region seen
+                 nowhere: `'static`, its upper bound.
+    ltmintsubst  = ltmintunify + ltsubstlit + ltsubstcall
+    ltmintfree   = ltmintunify + ltsubstlit + ltsubstfree
+    ltmintimpl   = ltmintfree + three repairs read off its own diagnostics
+
+A minted name carries the unspellable prefix `'%` and `lt_is_minted`
+(outlives.hpp) makes it invisible to every consumer that treats an elided slot
+as ABSENT — `type_str` (including the struct-name key `concrete_struct_name` is
+built from), the undeclared-lifetime walk, `param_lifetimes_`, the return-type
+elision contract and B86's inner-lifetime hatch. Only the comparators see it.
+
+## THE TABLE, ALL THREE COST COLUMNS
+
+    probe          fires      ceiling  cost  cfail                stdlib
+    ltmintunify    9038830      18       9   10 (.expected LOST)  ⛔ lang REFUSED
+    ltsubstlit        8516       2       4    3 (text-only)       ok
+    ltsubstcall       9787       2       0    1 (text-only)       ok
+    ltsubstfree      54728       0       1    1 (text-only)       ok
+    ltmintsubst    9056575      21      12   13 (10 LOST, 3 text) ⛔ lang REFUSED
+    ltmintfree     9105738      19      12   13 ( 9 LOST, 4 text) ok
+    ltmintimpl    20506175      19       7   13 ( 9 LOST, 4 text) ok   ← THE ENGINE
+
+**`fn id(x:&i64)->&i64` SURVIVES EVERY ARM.** It is the counter-example that
+priced `ltmintfresh` at 650 legal refusals, and it is admitted here because the
+engine UNIFIES: rule 1 gives the output the single input's region and the
+comparison is reflexive. Rule 7's prediction is confirmed with a number — the
+crude proxy costs 650, the correct engine costs 7, and the mechanism they share
+closes an overlapping but different set.
+
+## THE WALL, AND THE ONE VARIABLE THAT WALKS THROUGH IT
+
+`ltmintunify` REFUSED THE STDLIB — `lang`, two functions, and they are the same
+shape:
+
+    stdlib/lang/writ/objdata.logos:288
+      pub unsafe fn wod_view_array<'a>(p:*const u8, tag:u64) -> &'a WArray<WAny>
+      impl WritObjectData { pub fn as_array(self:&WritObjectData) -> &WArray<WAny>
+                            { return unsafe { wod_view_array(self.as_ptr(), self.tag) }; } }
+      error: return type mismatch — expected &WArray<WAny>, got &'a WArray<WAny>
+
+**A CALLEE LIFETIME THAT APPEARS IN NO PARAMETER IS FREE: THE CALLER
+INSTANTIATES IT.** `'a` here is the `&*(p as *const T)` view idiom's "any region
+you like". The mint names the method's own return slot, the callee's `'a` stays
+rigid, and nothing can relate the two — there is no region INFERENCE in this
+tree to discharge it. Measured one variable apart on the same binary:
+
+    ltmintsubst  (a free callee region ⇒ a fresh RIGID region)  stdlib REFUSED
+    ltmintfree   (a free callee region ⇒ `'static`, its bound)  all four layers
+
+That is the wall and its door. It cost two rows to walk through it: `ltsubstcall`
+(rigid) closes `method-ufcs-inherent-4` and `projection-where-clause-none--b`,
+`ltsubstfree` closes NEITHER — ceiling 2 → 0. The policy that saves the stdlib
+gives up the only two rows its own arm could buy.
+
+## RULE 13, MEASURED IN BOTH DIRECTIONS
+
+    ltmintunify ∪ ltsubstlit ∪ ltsubstcall   =  22 rows (18 ⊎ 2 ⊎ 2, disjoint)
+    ltmintsubst (all three at once)           =  21 rows
+
+**THE INCREMENT IS NEGATIVE FOR ONE ROW.**
+`ltmintunify ∖ ltmintsubst = {suggest-introducing-and-adding-missing-lifetime
+--param-may-not-live}` — a row the mint closes ALONE and the mint-plus-
+substitution does not. Per-site measurements are not additive and the increment
+can be negative; here is the case, by name.
+
+## THE COST, READ ONE FIXTURE AT A TIME — 12 → 7
+
+`ltmintfree`'s twelve legal refusals were not one defect. Each was read off its
+own diagnostic, and three narrow repairs (`ltmintimpl`) closed five:
+
+ 1. **`'_` IS AN ELIDED SLOT THAT WAS SPELLED.** `fn make<'a>(r:&'a i32) ->
+    H<'_>` compared `'_` against `'a` by spelling. (anon-lt-return-type)
+ 2. **THE IMPLIED BOUND `&'x S<'a>` ⇒ `'a: 'x` IS EMITTED ONLY FOR A FN-DECLARED
+    `'a`.** `walk_implied`'s struct arm is already correct; `fn_lts` holds the
+    fn's own binders and NOT the enclosing `impl<'a>`'s, so an `impl<'a> H<'a>`
+    method's minted self region was related to nothing.
+    (regions-impl-elided-lt, region_2)
+ 3. **A MINTED ARG ORPHANED THE B86 HATCH** in borrow_check: it reads "no inner
+    lifetime recorded" as "trust the type checker", and the mint FILLS a
+    struct's absent lifetime args, so `&Self` stopped being empty and the hatch
+    stopped firing. A new sensor orphaning an old guard, silently.
+    (self-lt-impl-method, self-method-chain)
+
+**THE SEVEN THAT REMAIN, AND THE ONE MECHANISM UNDER FOUR OF THEM:**
+
+    bc_ltunmentbind_renamed_binder_hole  ← NOT A COST. This fixture's own header
+        says it pins a HOLE and must move to fail/ when substitution lands. It
+        was PREDICTED to flip and it flipped. u7 (its fail twin) stays refused,
+        now at the struct literal for the right reason instead of by spelling.
+    region-two-refs-same-region-pick-rg · regions-infer-contravariance-due-to-ret
+    · borrowck-unused-mut-locals · regions-mock-codegen
+        ⇒ **THE CALLEE-SIGNATURE ASYMMETRY.** The mint is LOCAL to the fn being
+        lowered and is never written back to `SemaFuncInfo`, so at a call the
+        CALLER's argument carries minted struct args and the CALLEE's parameter
+        carries none: `expected &'r BoxedInt, got &BoxedInt<'%3>`. The fix is
+        not another exemption — it is to mint at signature COLLECTION so both
+        sides of every call see the same signature. That is the next round.
+    bc_genrecv_two_mut_sequential_admit · bc_ltscope_impl_legal_shapes
+        unread; both are `&mut` / impl-scope shapes.
+
+## THE `.expected` COLUMN — 9 PINS, ALL STILL RED, ALL MOVED UPSTREAM (RULE 14)
+
+Every one of the nine is the SAME substitution, e.g.
+ex1-return-one-existing-name-if-else:
+
+    unarmed  lifetime mismatch: return type has lifetime 'a but 'y' has lifetime (elided)
+    armed    return type mismatch: variance mismatch — expected &'a i64, got &i64
+
+rc is 1 in BOTH columns. The refusal moves from borrow_check's elision message
+to the type checker's variance message — upstream's primary error, arriving
+first. These are pins to RE-BASELINE at landing, not damage; rule 14's exemption
+("delivers upstream's PRIMARY error first") is the case here, and it is stated
+because the alternative reading — nine lost diagnostics — is the one a table
+alone would give.
+
+## PREDICTED vs MEASURED, BOTH DIRECTIONS (RULE 6)
+
+Written to /tmp/predictions.txt before any pricing run.
+
+    ltmintunify  predicted 6 by name; MEASURED 18.
+                 predicted ∩ measured = {ex3-both-anon-regions-2,
+                   ex3-both-anon-regions-one-is-struct,
+                   ex3-both-anon-regions-one-is-struct-4,
+                   regions-infer-at-fn-not-param}   ← DOOR 3 CONFIRMED BY NAME
+                 predicted ∖ measured = {ex3-both-anon-regions-latebound-regions,
+                   regions-addr-of-self}
+                 measured ∖ predicted = 14 rows, and they are a FAMILY the
+                   prediction had no name for: ex1-return-one-existing-name-* (5),
+                   ex3-both-anon-regions-{one-is-struct-3,self-is-anon},
+                   ex2a-push-one-existing-name, apit-not-targeted…, issue-17728,
+                   normalization-self, regions-infer-paramd-indirect,
+                   cannot-assign-borrowed-ref-in-slice, suggest-introducing….
+                 PREDICTED NOT TO CLOSE and did not: ex3-both-anon-regions (a
+                   METHOD-call argument, still not a comparison site), and both
+                   `lifereg.R17` declaration-site rows.
+    ltsubstlit   predicted 0-1; MEASURED 2 {issue-52113,
+                   region-invariant-static-error-reporting}, neither predicted.
+                 The predicted u8 flip HAPPENED, u7 stayed refused,
+                 bc_ltunmentbind_legal_shapes stayed green — all three by hand.
+    ltsubstcall  predicted 0; MEASURED 2 {method-ufcs-inherent-4,
+                   projection-where-clause-none--b} — two of the four
+                   `lifereg_callretlt` closed on 2026-08-28 with the CRUDE
+                   rename, at cost 0, and the hand program that refuted that
+                   crude cost 0 (`fn pick<'a,T>(x:&'a T)->&'a T` called from
+                   `fn f<'a>`) is ADMITTED here. Rule 7 from the other side.
+
+## THE HAND PROGRAMS (RULES 5, 7, 10) — EACH MULTI-LINE, EACH ON THE ARMED BINARY
+
+    c2  fn id(x:&i64)->&i64 { return x; }                  rc 0 under EVERY arm
+        (`ltmintfresh` REFUSED it — the 650)
+    c1  fn foo<'a>(x:&mut Ref2<'a,'a>, y:&'a i64){ x.a=y; }  rc 0 every arm
+    s1  impl Dog { fn get(&self)->&i64 { return &self.n; } } rc 0 every arm
+        (elision rule 3)
+    v2  fn pick<'a>(x:&'a i64)->&'a i64 called from fn f<'a>  rc 0 every arm
+    p1  struct Ref2<'a,'b>; fn foo(y:&mut Ref2, x:&i64){ y.b=x; }
+        unarmed rc 0 · ltmintunify REFUSED "assignment to 'y.b': variance
+        mismatch" — and NOTE the diagnostic names no minted region, because
+        `lt_is_minted` keeps them out of `type_str`.
+    p2  fn foo(p:&mut (&i64,&i64), x:&i64){ p.0 = x; }      same, both arms
+    w1  the stdlib shape, minimised:
+        unsafe fn view<'a>(p:*const u8)->&'a WA; impl WD { fn as_arr(&self)->&WA }
+        ltmintunify REFUSED · ltmintfree rc 0 · ltmintsubst REFUSED
+        ← THE WALL AND ITS DOOR, one policy apart, on one program.
+    u7/u8 the pinned pair: u8 (renamed binder) REFUSED under ltsubstlit, u7 still
+        refused, bc_ltunmentbind_legal_shapes still green.
+
+## ⇒ THE VERDICT
+
+ 1. **THE ENGINE IS FUNDABLE, AS `ltmintimpl`: CEILING 19 of 297, COST 7 (one of
+    which is a fixture that ASKS to flip), ALL FOUR STDLIB LAYERS COMPILE.**
+    That is the first form of this mechanism to build `logos.mem`, and it is
+    the same mechanism `ltmintfresh` priced at 157/650 — the ceiling is smaller
+    because the engine unifies where the proxy minted blindly, and the cost is
+    two orders of magnitude smaller for the same reason.
+ 2. **IT MUST NOT LAND AS MEASURED.** Four of the seven costs are ONE mechanism
+    — the callee-signature asymmetry — and the fix is structural: mint at
+    signature COLLECTION (`SemaFuncInfo::param_types`), not at lowering, so
+    caller and callee see the same signature. Pricing THAT is the next round,
+    and it is the first time this arc has a named next step that is not another
+    exemption.
+ 3. **THE FREE-REGION POLICY IS NOT A DETAIL.** `'static` for a callee region no
+    argument mentions is what makes the stdlib compile, and it costs the two
+    rows the rigid policy buys. State both when it lands.
+ 4. `ltsubstcall` and `ltsubstfree` are NOT independently fundable: 2 rows at
+    cost 0 and 0 rows at cost 1 respectively, and they are two policies for one
+    line, not two mechanisms.
+ 5. **THE 1 296 116 SLICE ARRIVALS ARE A SEPARATE, LARGER QUESTION.** `&[T]`
+    loses its region at `resolve_type`. No amount of minting reaches it, and
+    nothing in this arc has ever measured what that costs.
+
+## STILL OPEN, NAMED, WITH ITS EVIDENCE
+
+ * the CALLEE-SIGNATURE ASYMMETRY (4 legal refusals, above) — next round.
+ * `Kind::Slice` / `TraitObject` / `DstRef` carry no region: 1 358 164 arrivals.
+ * `bc_genrecv_two_mut_sequential_admit` and `bc_ltscope_impl_legal_shapes` —
+   the two costs nobody read this round.
+ * the 9 `.expected` re-baselines, all still red, all upstream-primary.
+ * the METHOD-call argument is still not a comparison site (6 `lifereg.A` rows,
+   `ex3-both-anon-regions` among them — predicted not to close, and did not).
+ * everything carried forward from 2026-08-31h is untouched.
