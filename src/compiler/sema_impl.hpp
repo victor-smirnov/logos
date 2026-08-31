@@ -609,7 +609,20 @@ private:
             // It is not the caller's same-spelled binder, and it is not related
             // to anything the caller can name.
             logos::probe::census("subst.call.unmapped");
-            ls[lp] = mint_lt_();
+            // ⚠ THE TWO POLICIES, AND THE STDLIB PICKS BETWEEN THEM. A callee
+            // region no argument mentions is FREE — the caller instantiates it,
+            // so it is not a rigid region of anyone's scope. Treating it as a
+            // fresh rigid one (`ltsubstcall`) is what refuses
+            // `stdlib/lang/writ/objdata.logos`'s `wod_view_array<'a>(p) -> &'a
+            // WArray`, the `&*(ptr as *const T)` view idiom: the method's own
+            // return slot is minted, the callee's `'a` is rigid, and the two
+            // cannot be related. Its upper bound is `'static` (a free region may
+            // be instantiated at any region, `'static` included), and that is
+            // the policy `ltsubstfree` / `ltmintfree` take.
+            if (logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree"))
+                ls[lp] = "'static";
+            else
+                ls[lp] = mint_lt_();
         }
         return ls.empty() ? ret : subst_type_sema(ret, {}, ls);
     }

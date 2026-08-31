@@ -3917,7 +3917,19 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                             arg_exprs, exact_fi->lifetime_outlives);
 
         track_args_moved(arg_exprs, &exact_fi->param_types);
-        return builder().call(exact_fi->symbol_name.empty() ? std::string(callee) : exact_fi->symbol_name, {}, std::move(arg_exprs), exact_fi->ret_type);
+        // ⚠ THE EXACT-MATCH OVERLOAD PATH IS A THIRD CALL SITE, and the census
+        // found it: `subst.call.site` fired ZERO times on the stdlib shape that
+        // broke the mint (`wod_view_array<'a>(p) -> &'a WArray`) because the
+        // two sites this round first instrumented are the OVERLOAD-RESOLVED and
+        // the GENERIC paths, and an unambiguous free fn takes neither. Rule 17,
+        // on this round's own site list.
+        TypeRef exact_ret = exact_fi->ret_type;
+        if (logos::probe::on("ltsubstcall") || logos::probe::on("ltmintsubst") ||
+        logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree"))
+            exact_ret = subst_call_ret_lts_(exact_fi->param_types,
+                                            exact_fi->lifetime_params,
+                                            arg_exprs, exact_ret);
+        return builder().call(exact_fi->symbol_name.empty() ? std::string(callee) : exact_fi->symbol_name, {}, std::move(arg_exprs), exact_ret);
     }
 
     auto fit  = funcs_.find(std::string(callee));
@@ -4195,7 +4207,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     }
 
     TypeRef plain_ret = fi.ret_type;
-    if (logos::probe::on("ltsubstcall") || logos::probe::on("ltmintsubst"))
+    if (logos::probe::on("ltsubstcall") || logos::probe::on("ltmintsubst") ||
+        logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree"))
         plain_ret = subst_call_ret_lts_(fi.param_types, fi.lifetime_params,
                                         arg_exprs, plain_ret);
     return builder().call(fi.symbol_name.empty() ? std::string(callee) : fi.symbol_name, {}, std::move(arg_exprs), plain_ret);
@@ -5021,7 +5034,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
 
     // Substitute return type
     TypeRef ret = subst_type_sema(fi.ret_type, subst);
-    if (logos::probe::on("ltsubstcall") || logos::probe::on("ltmintsubst"))
+    if (logos::probe::on("ltsubstcall") || logos::probe::on("ltmintsubst") ||
+        logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree"))
         ret = subst_call_ret_lts_(fi.param_types, fi.lifetime_params, arg_exprs, ret);
     // MEASURED 2026-08-28, 379-row ledger: 104 fires, CEILING 4 vs COST 0 —
     // and BOTH halves of that price are misleading, which is the finding.
@@ -11837,7 +11851,8 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     // the u7/u8 pair, pinned as fixtures). The fix is substitution: pair each
     // declared field type against the actual field VALUE's type and read the
     // struct's binder off the value's region.
-    if ((logos::probe::on("ltsubstlit") || logos::probe::on("ltmintsubst")) &&
+    if ((logos::probe::on("ltsubstlit") || logos::probe::on("ltmintsubst") ||
+         logos::probe::on("ltmintfree")) &&
         !sinfo.lifetime_params.empty()) {
         logos::probe::census("subst.structlit.site");
         std::unordered_map<std::string, std::string> flt;

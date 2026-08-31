@@ -640,7 +640,8 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     TypeRef mint_ret_ = nullptr;
     minted_lts_.clear();
     const bool mint_on_ = logos::probe::on("ltmintunify") ||
-                          logos::probe::on("ltmintsubst");
+                          logos::probe::on("ltmintsubst") ||
+                          logos::probe::on("ltmintfree");
     if (mint_on_) {
         logos::probe::census("mint.fn.signature");
         // `self` is known from the AST, not from is_method (which is only "in
