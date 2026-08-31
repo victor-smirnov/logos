@@ -7526,7 +7526,8 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
         if (decl_lts && !decl_lts->empty())
             (void)logos::probe::on("ltargarity_site");
         if (decl_lts && !lt_args.empty() && lt_args.size() != decl_lts->size() &&
-            logos::probe::on("ltargarity"))
+            (logos::probe::on("ltargarity") ||
+             (!decl_lts->empty() && logos::probe::on("ltargdecl"))))
             error(std::format("'{}': expected {} lifetime arg(s), got {}",
                               name, decl_lts->size(), lt_args.size()));
     }

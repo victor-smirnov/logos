@@ -5171,17 +5171,11 @@ private:
         if (!from || !to) return;
         if (TypeRef(from).kind() == LogosType::Kind::Error ||
             TypeRef(to).kind() == LogosType::Kind::Error) return;
-        // MEASURED 2026-08-27, and the PRE-STATED ADJUDICATION RESOLVED.
-        // Both probes fired 1798 times. callargstrict: CEILING 4 / COST 2.
-        // structlitstrict: CEILING 3 / COST 0. lifereg_unmentioned (the single
-        // `return true` in outlives.hpp that both of these route through):
-        // CEILING 7 / COST 2. The prediction was "if unmentioned's ceiling
-        // equals the SUM of the other two, they are one mechanism and only
-        // that one should be funded" — 4 + 3 = 7 EXACTLY, and the two halves
-        // are DISJOINT (intersection 0), each a strict subset of unmentioned.
-        // So these two `permissive` flags are not two mechanisms: they are two
-        // doors onto ONE line, and a careful round belongs at that line, not
-        // here. See include/logos/compiler/outlives.hpp.
+        // These two `permissive` flags are not two mechanisms: they are two
+        // doors onto ONE line in include/logos/compiler/outlives.hpp, and a
+        // careful round belongs at that line, not here. The adjudication and
+        // every number are in src/compiler/PROBES.md (measured 2026-08-27 on
+        // a 423-row ledger, RE-MEASURED 2026-08-31 on the 310-row one).
         // PROBE lifereg_callargstrict: every call-argument site passes the
         // default permissive=true, whose tail declares two named lifetimes
         // that appear in NO outlives clause compatible.

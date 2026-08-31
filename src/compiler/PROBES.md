@@ -5151,3 +5151,265 @@ branch is reached, not merely that the file compiles.
    that measurement lives ONLY in a code comment — it was never in this file.
    Rule 8: the ledger is 310 now and those costs predate the repaired oracle.
    RE-MEASURE BEFORE FUNDING. Recorded here so the next round meets the numbers.
+
+# ROUND 2026-08-31 — THE MINTING QUESTION, PRICED: THE DOORS ARE IN SERIES
+
+Subject: the ONE thing 2026-08-30e left unpriced — the `subtype.hpp` minting
+change. Rule 16 in its purest form. Also: `ltargarity` with the prepass
+carve-out, and the three comment-only measurements from 2026-08-27 (rule 8).
+
+build: 0dccf860bfd3373b (READ, `scripts/build_hash.py build`) · probe-batch
+L1 rc=0, batch inert · the three re-measurements were taken on the UNCHANGED
+build b5d34332f8de7107 before the batch touched a line.
+
+## THE ARRIVAL CENSUS, BEFORE ANY GATE WAS EDITED (RULE 17)
+
+    door                                        arrivals   empty-side
+    lt_eq's empty early return (subtype.hpp:66)    28844        28844
+      · both sides empty                                        13401
+      · exactly one side empty                                    682
+    lifetime_at's Variance::Inv arm                    9            0
+
+**THE HANDED-DOWN DESCRIPTION OF DOOR 2 WAS WRONG, AND THE CENSUS SAYS SO IN
+ONE LINE.** The round's brief said `lifetime_at`'s `Inv` arm "is on the path of
+every `&mut` assignment". It is not: `MutRef` takes `Variance::Co` for its
+lifetime and routes its POINTEE through `types_equal_with_lifetimes`, so the
+`Inv` arm of `lifetime_at` is reachable only from a struct/enum lifetime ARG
+whose variance-table entry is `Inv`. Nine arrivals in the whole acceptance
+population + legal corpus, and **not one of them with an empty side**:
+`ltinvempty_site` and `ltinvempty` are NEVER FIRED, which is not a zero. Rule
+17's fourth instance, and the first where the census cost nothing to take
+because it rode in the same build as the gate it was checking.
+
+Door 1 is the opposite: 28844 arrivals, every one of them by definition with an
+empty side. `lteqempty_site` is the outer name (rule 9), `lteqbothempty` and
+`lteqoneempty` the two disjoint inner matches.
+
+## THE PROBE TABLE, ALL THREE COST COLUMNS
+
+    probe            fires  ceiling  cost  cfail  std  verdict
+    lteqempty_site   28844        0     0      0   ok  the arrival census, door 1
+    lteqbothempty    13401       13     2     14   ⛔  stdlib REFUSED (lang mem)
+    lteqoneempty       682       34    26     35   ⛔  stdlib REFUSED
+    ltinvarm_site        9        0     0      0   ok  the arrival census, door 2
+    ltinvempty_site      0        —     —      —   —   NEVER FIRED
+    ltinvempty           0        —     —      —   —   NEVER FIRED
+    ltmintfresh      18497      157   650    574   ⛔  stdlib REFUSED
+    ltargdecl            1        1     0      0   ok  ✓ FUND
+
+`ltmintfresh` is the faithful crude proxy for "mint a fresh name in every
+elided slot": an empty lifetime is related to NOTHING, including another empty
+one — door 1 (any-empty), door 2 (any-empty) and BOTH of `outlives()`'s
+empty-side exits at once.
+
+## THE ROUND'S ANSWER: THE DOORS ARE IN SERIES, NOT IN PARALLEL
+
+    ltelideboth (outlives alone, 2026-08-30)                 ceiling   0
+    lteqbothempty ∪ lteqoneempty (lt_eq alone)               ceiling  45
+    ltmintfresh (lt_eq AND outlives)                         ceiling 157
+
+    ltmintfresh ∖ (lteqbothempty ∪ lteqoneempty)   =  112 rows
+    (lteqbothempty ∪ lteqoneempty) ∖ ltmintfresh   =    0 rows
+
+**112 rows are gated by the CONJUNCTION and by neither door alone.** That is
+the mechanism behind yesterday's most useful negative: `ltelideboth` fired 14
+times and closed 0 rows not because `outlives()`'s empty exits are dead, but
+because `lt_eq` answers "equal" one frame ABOVE them and `outlives()` is never
+consulted. Kill only `lt_eq` and the comparison falls through to
+`lifetime_at(Co, "", "")` → `outlives()` → the same permissive exit. Both, and
+the row refuses. Rule 11 without a multi-hop channel: two hops in SERIES, and a
+probe at either one alone reports a true zero about a live mechanism.
+
+⚠ `lteqbothempty ∩ lteqoneempty = 2` rows, though the two site predicates are
+disjoint BY CONSTRUCTION. A ledger row is many comparisons; per-site counts are
+not additive and a row can arrive in both shapes (rule 13).
+
+## THE HAND PROGRAMS — POSITIVE CONTROLS AND THE COUNTER-EXAMPLE (RULES 5, 7, 10)
+
+Each multi-line, each run against the armed binary, each with its unarmed
+control on the same file.
+
+    P1  struct Ref<'a,'b>; fn foo(x:&mut Ref, y:&i64){ x.b = y; }
+        unarmed rc 0 · lteqbothempty rc 0 · ltmintfresh REFUSED
+        "assignment to 'x.b': variance mismatch — expected &'b i64, …"
+    P2  fn foo(p:&mut (&i64,&i64), x:&i64){ p.0 = x; }
+        unarmed rc 0 · lteqbothempty rc 0 · ltmintfresh REFUSED
+    C1  fn foo<'a>(x:&mut Ref2<'a>, y:&'a i64){ x.a = y; }   (NAMED, legal)
+        ltmintfresh rc 0 — the probe does not simply refuse everything
+    C2  fn id(x:&i64)->&i64 { return x; }                    (legal, elided)
+        ltmintfresh REFUSED — **the counter-example that prices the fix.**
+
+C2 is the whole of cost 650 in one program. Rust's elision rule 1 UNIFIES the
+single input region with the output region; "an empty lifetime relates to
+nothing" mints a fresh name at each slot and never unifies them. **A crude
+probe and a correct fix do not close the same programs (rule 7): the correct
+change MINTS AND UNIFIES by the elision rules, and its cost is not 650.** The
+157 is therefore a ceiling on the MINTING MECHANISM, not a forecast of the fix.
+
+P1/P2 are the positive controls: `lteqbothempty` alone leaves them at rc 0 and
+`ltmintfresh` refuses them with the right diagnostic at the right site. That is
+the series result reproduced on two hand programs one probe apart.
+
+## THE SETS, DIFFED BOTH WAYS
+
+Predicted BY NAME before the batch (written to /tmp/predictions.txt first):
+
+    lteqbothempty  predicted {ex3-both-anon-regions-one-is-struct,
+                              ex3-both-anon-regions-2, regions-infer-at-fn-not-param}
+                   measured  13 rows, of which 2 are subject rows:
+                             {ex3-both-anon-regions-2,
+                              ex3-both-anon-regions-latebound-regions}
+                   predicted∖measured {ex3-both-anon-regions-one-is-struct,
+                                       regions-infer-at-fn-not-param}
+                   measured∖predicted 11 rows, ALL of them borrowck/nll roots
+                   outside the 32 — the probe closes them for a reason that has
+                   nothing to do with elision, and 14 pinned `.expected`s LOST
+                   against 13 rows closed. Not a mechanism; a blunt instrument.
+
+    ltmintfresh    predicted {ex3-both-anon-regions-one-is-struct,
+                              ex3-both-anon-regions-2,
+                              regions-infer-at-fn-not-param, regions-addr-of-self}
+                   measured  157 rows, of which 11 are subject rows:
+                     constructor-lifetime-early-binding-error · ex2e-push-inference-variable-3
+                     · ex3-both-anon-regions-2 · ex3-both-anon-regions-latebound-regions
+                     · ex3-both-anon-regions-one-is-struct
+                     · ex3-both-anon-regions-one-is-struct-4
+                     · issue-103582-hint-type-alias · iterator-trait-lifetime-error-13058
+                     · missing-lifetime-in-assoc-type-2 · regions-addr-of-self
+                     · regions-close-object-into-object-1
+                   predicted∖measured {regions-infer-at-fn-not-param} — and it
+                   names a THIRD DOOR, below.
+                   measured∖predicted 8 subject rows + 146 others. Two of the
+                   eight are `lifereg.R17` DECLARATION-site rows
+                   (constructor-lifetime-early-binding-error,
+                   missing-lifetime-in-assoc-type-2) that this mechanism has no
+                   business closing: rule 6/rule 7 artefacts, counted here and
+                   claimed as nothing.
+
+    ltargdecl      predicted {noisy-follow-up-erro}
+                   measured  {noisy-follow-up-erro}
+                   both differences ∅, and `regions-creating-enums3` — the
+                   2026-08-30 ARTEFACT — is GONE.
+
+## THE THIRD DOOR, FOUND BY A PREDICTION THAT MISSED
+
+`regions-infer-at-fn-not-param` was refused BY HAND yesterday once its elided
+slot was named (N4), and it is closed by NO probe in this batch. Re-run today,
+one token apart:
+
+    fn take1<'a,'b>(p: Parameterized1<'b>) -> Parameterized1<'a> { return p; }
+      unarmed REFUSED  "return type mismatch: variance mismatch"
+    fn take1<'a>(p: Parameterized1) -> Parameterized1<'a> { return p; }
+      unarmed rc 0, and rc 0 under lteqbothempty / lteqoneempty / ltmintfresh
+
+The elided reference carries ZERO lifetime args, the annotation carries one, and
+BOTH comparators bail on the arity mismatch before any lifetime is compared:
+
+  * `types_equal_with_lifetimes`, Struct/Enum case: `if (alts.size() !=
+    blts.size()) return false;` — "not equal", which is correct;
+  * `subtype`, Struct case: `if (sl.size() != pl.size()) return true;` —
+    "compatible", a SHAPE guard that admits.
+
+So door 3 is a lifetime-arg ARITY guard, not a lifetime comparison at all, and
+minting fixes it by construction (an elided `Parameterized1` would carry one
+fresh region and the sizes would match). Named, unpriced, and it is where the
+next round's edit goes together with door 1.
+
+## `ltargdecl` — THE CARVE-OUT, AND THE ARTEFACT IS GONE
+
+site: src/compiler/sema.cpp::resolve_type_generic_inst (beside the `ltargarity` probe)
+build: 0dccf860bfd3373b (READ) · measured 2026-08-31
+fires: 1 · ceiling 1 · cost 0 · cfail 0 · stdlib all four layers
+row: noisy-follow-up-erro
+
+One variable against `ltargarity`: `!decl_lts->empty()`, the lifetime half of
+the carve-out `check_type_arg_arity` already documents for TYPE args. Controls,
+one token apart on the same binary:
+
+    A1  struct Foo<'c,'d>; fn take<'a>(x:&mut Foo<'a>)
+        ltargarity REFUSED · ltargdecl REFUSED   (positive control)
+    A2  enum Ast<'a> { Num(u64), Add(&'a Ast<'a>, &'a Ast<'a>) }
+        ltargarity REFUSED  ← the 2026-08-30 artefact, `lifetime_params` still
+                              empty during the enum's own prepass
+        ltargdecl  rc 0     ← the carve-out, exactly and only
+
+`ltargarity`'s 5 legal refusals and its lost `.expected` are all that shape, and
+they are all gone: cost 5 → 0, cfail 1 → 0, ceiling 2 → 1. The honest reading of
+2026-08-30 ("CEILING 1 for the rule as stated") is now the MEASURED reading.
+
+⚠ RULE 4, LOUDLY: **1 fire.** A ceiling off a one-fire population is not a
+refutation and not an argument. `ltargarity_site` measured the outer arrival at
+1388 on 2026-08-30, so the site is populous; it is the INNER match that is rare.
+Say both numbers when this lands.
+
+The second `lifereg.R17-c` row, `constructor-lifetime-early-binding-error`, is
+still not closed here: the turbofish `S::<'static> { .. }` at a struct LITERAL
+does not route through `resolve_type_generic_inst`. Still a second site, still
+unfound. (It appears in `ltmintfresh`'s 157 — for an unrelated reason.)
+
+## THE THREE RE-MEASURED NUMBERS (RULE 8) — 114 LEDGER ROWS STALE, COMMENT-ONLY
+
+Measured 2026-08-27 against a 423-row ledger, recorded ONLY in a code comment
+in `sema_impl.hpp` and `outlives.hpp`, never in this file. Re-measured
+2026-08-31 on build b5d34332f8de7107 against the 310-row ledger, with the
+repaired three-population oracle:
+
+    probe                     fires   ceiling        cost      cfail  std
+    lifereg_callargstrict    245664   4  (was 4)   7 (was 2)     1    ok
+    lifereg_structlitstrict  245664   3  (was 3)   3 (was 0)     0    ok
+    lifereg_unmentioned          18   7  (was 7)   5 (was 2)     1    ok
+
+**THE CEILINGS DID NOT DECAY** across 114 deleted ledger rows — all seven rows
+survive, and they are the same seven names. The COSTS all grew, and that growth
+is the ORACLE, not the tree: the 2026-08-27 numbers were pass-only (rule 5), and
+two of the three now show a `cfail` the old population could not see.
+
+The 2026-08-27 adjudication still holds exactly: unmentioned's 7 =
+callargstrict's 4 ⊎ structlitstrict's 3, intersection 0, same names.
+
+    unmentioned  issue-55394--ctl2 · issue-67007-escaping-data
+                 · propagate-fail-to-approximate-longer-no-bounds
+                 · regions-infer-call-3                          (= callargstrict)
+                 · projection-no-regions-closure--c30-direct-call
+                 · projection-no-regions-closure--projection-no-regions-closure
+                 · account-for-lifetimes-in-closure-suggestion   (= structlitstrict)
+
+**AND THE COST IS NOT ADDITIVE IN THE OTHER DIRECTION**: 7 + 3 = 10 legal
+refusals for the two doors, but only 5 for the single line upstream of both.
+Forcing `permissive=false` at a call site disables MORE than this tail — it also
+turns off the `L.empty()` exit and the `!permissive_empty` early return. So the
+upstream line is the STRICTLY MILDER mechanism with the STRICTLY LARGER ceiling:
+7 rows for 5 legal refusals versus 4 for 7 and 3 for 3. That reverses which of
+the three is fundable, and only the re-measurement could show it.
+
+None of these seven rows is in `lifereg.A` or `lifereg.R17`.
+
+## ⇒ WHAT DESERVES FUNDING
+
+ 1. **THE MINTING CHANGE — FUND IT, AT DOORS 1 AND 3, AND NOT AS THIS PROBE
+    SPELLS IT.** Ceiling 157 rows (11 of the 32 subject rows) against 310, and
+    the two doors are in SERIES so both must move in one change. The crude
+    proxy's cost 650 is C2 — `fn id(x:&i64)->&i64` — repeated: the fix MINTS
+    AND UNIFIES by Rust's elision rules rather than declaring `""` unrelated to
+    everything. The measurement that justifies the round is the series result
+    (0 → 45 → 157), not the 157 alone.
+ 2. **`ltargdecl` — 1 row, cost 0, cfail 0, stdlib ok, artefact gone.** Land it
+    with both numbers stated (1 inner fire, 1388 outer arrivals).
+ 3. **`lifereg_unmentioned` — 7 rows for 5 legal refusals**, and its two
+    downstream doors should NOT be funded: they cost more and buy less. This is
+    a re-measurement REVERSING a standing recommendation, not confirming it.
+ 4. `ltenumpld` and `ltbindresv` from 2026-08-30e are unchanged and still
+    fundable; nothing this round touched them.
+
+## STILL OPEN, NAMED
+
+ * **DOOR 2 IS NEARLY DEAD** — 9 arrivals, 0 with an empty side. Do not spend a
+   round on `lifetime_at`'s `Inv` arm; the census is the argument.
+ * **DOOR 3**, the lifetime-arg arity SHAPE guard in `subtype`'s Struct case
+   (`if (sl.size() != pl.size()) return true;`) — unpriced, and it is the only
+   door that can close `regions-infer-at-fn-not-param`.
+ * the struct-literal turbofish site for `lifereg.R17-c` — still unfound.
+ * A-2 (6 rows, the method-call/UFCS comparison site), A-3 (3 rows, trait-object
+   bound dropped), R17-e / R17-f (no landed twin), the trait-declaration binder
+   hole (k3) and the impl-header trait-ref lifetime args (u5) — all carried
+   forward from 2026-08-30e, none spent on.

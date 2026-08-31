@@ -62,8 +62,20 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
     if (a.kind() == LogosType::Kind::InferredType ||
         b.kind() == LogosType::Kind::InferredType) return true;
     if (a.kind() != b.kind()) return false;
+    // PROBES lteqempty_site / lteqbothempty / lteqoneempty / ltmintfresh —
+    // DOOR 1 of the elided-region minting question. `""` means both "elided
+    // here" and "the same region as that other elided slot"; only the minting
+    // site can tell them apart. Numbers in src/compiler/PROBES.md 2026-08-31.
     auto lt_eq = [&](std::string_view x, std::string_view y) {
-        if (x.empty() || y.empty()) return true;
+        if (x.empty() || y.empty()) {
+            (void)logos::probe::on("lteqempty_site");
+            if (x.empty() && y.empty() && logos::probe::on("lteqbothempty"))
+                return false;
+            if (!(x.empty() && y.empty()) && logos::probe::on("lteqoneempty"))
+                return false;
+            if (logos::probe::on("ltmintfresh")) return false;
+            return true;
+        }
         if (x == y) return true;
         if (!adj) return false;
         // Mutual outlives → treated as equal.
@@ -176,8 +188,18 @@ inline bool lifetime_at(Variance v,
         case Variance::BiVar: return true;
         case Variance::Co:    return outlives(sub_lt, sup_lt, adj, permissive_empty);
         case Variance::Contra: return outlives(sup_lt, sub_lt, adj, permissive_empty);
-        case Variance::Inv:
+        // PROBES ltinvarm_site / ltinvempty_site / ltinvempty — DOOR 2, and
+        // the census says it is nearly dead: 9 arrivals, 0 with an empty side.
+        // src/compiler/PROBES.md 2026-08-31.
+        case Variance::Inv: {
+            (void)logos::probe::on("ltinvarm_site");
+            if (sub_lt.empty() || sup_lt.empty()) {
+                (void)logos::probe::on("ltinvempty_site");
+                if (logos::probe::on("ltmintfresh")) return false;
+                if (logos::probe::on("ltinvempty")) return false;
+            }
             return outlives_norm(sub_lt) == outlives_norm(sup_lt);
+        }
     }
     return false;
 }

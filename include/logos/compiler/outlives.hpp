@@ -72,12 +72,14 @@ inline bool outlives(
     // slots by hand makes three of them REFUSE today, unarmed.
     if (S.empty()) {
         if (logos::probe::on("ltelidesup") ||
-            logos::probe::on("ltelideboth")) return false;
+            logos::probe::on("ltelideboth") ||
+            logos::probe::on("ltmintfresh")) return false;
         return true;                        // unconstrained short side
     }
     if (permissive_empty && L.empty()) {
         if (logos::probe::on("ltelidesub") ||
-            logos::probe::on("ltelideboth")) return false;
+            logos::probe::on("ltelideboth") ||
+            logos::probe::on("ltmintfresh")) return false;
         return true;                        // see comment above
     }
     if (outlives_is_static(L)) return true; // 'static outlives all
@@ -112,17 +114,13 @@ inline bool outlives(
         }
         return false;
     };
-    // MEASURED 2026-08-27: 9 fires across the 423-row acceptance population,
-    // CEILING 7 vs COST 2 — and the ceiling is EXACTLY the disjoint union of
-    // its two downstream doors (lifereg_callargstrict 4 + lifereg_structlit-
-    // strict 3, intersection 0), which was the pre-stated test for "one
-    // mechanism, two spellings". It did NOT exceed the sum, so there are no
-    // consumers of this tail beyond those two that move any ledger row.
-    // 9 fires for 7 rows: nearly every arrival at this tail is a defect.
     // PROBE lifereg_unmentioned: the single permissive default UPSTREAM of
     // lifereg_callargstrict and lifereg_structlitstrict. MENTIONED-NESS, not
     // the constraint, is what flips the answer — adding `where 'a: 'b` turns
     // an admission into a refusal. Rust's rule is the opposite.
+    // Numbers live in src/compiler/PROBES.md (re-measured 2026-08-31 against
+    // the 310-row ledger; the 2026-08-27 pair that used to sit here was a
+    // 423-row measurement and was never recorded outside this comment).
     if (logos::probe::on("lifereg_unmentioned")) return false;
     if (mentioned(L) || mentioned(S)) return false;
     return true;
