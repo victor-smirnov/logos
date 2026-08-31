@@ -7770,3 +7770,389 @@ sites), `src/compiler/sema.cpp` (`fn_binder_variance_`),
 `build_call_lt_subst_` / `inst_call_params_`), `src/compiler/sema_collect.cpp`
 (`self_lt_args_`), `src/compiler/sema_expr.cpp` (the two `inst_call_params_`
 call sites pass the return type). +212/−37 over six files.
+
+# ═══ ROUND 2026-08-31o — THE SHELF RE-PRICED, AND bck.A IS ONE MECHANISM ════
+
+PRICING ROUND — nothing was fixed, no ledger row was deleted, **# TOTAL stays
+276**. ⚠ WHICH BUILD EACH NUMBER RODE (rule 8, and the stdlib archives carry a
+timestamp so a relink moves the hash):
+
+    a744fc7ba8f7805e   the CENSUS build — the four-site census only
+    b8dbdb689af27a8b   EVERY number in the tables below, gate-db builds 267-272
+    05db938cfcda88fe   `mbparamvalnbc` alone (§4), reverted afterwards; the
+                       rebuild from the restored source returns b8dbdb689af27a8b
+                       EXACTLY, which is this round's control on its own binary
+
+L1 rc=0 at every commit: 746/746, gates tier 325, the enumerator's 12 684 smoke
+cases. Opening ledger baseline READ from the store, not re-run.
+
+## 0. ⚠ THE CENSUS FIRST (RULE 17), AND IT KILLED ONE PROBE BEFORE IT WAS WRITTEN
+
+`param_names_` at the four `not declared as mut` sites is ONE set answering TWO
+questions. `param_byval_` splits it. Whole `tests/` tree, **8687 files walked,
+8577 CONTRIBUTED at least one census row**, `LOGOS_CENSUS` riding in the gate's
+own build:
+
+    site                              arrive    hatch  hatch.ref  hatch.byval  refuse
+    w   take_borrow_whole_         1 950 012 1 949 977  1 949 957      20        35
+    f   take_field_borrow_path_           32       17         11       6        15
+    aot AddrOfTemp in visit()             16        6          0       6        10
+    ao  AddrOf in visit()                  2        2          2       0         0
+
+Three readings, none of which a single number could give:
+
+ 1. **99.998% OF THE HATCH IS A REBORROW THROUGH A REFERENCE.** That is why
+    `mbnoparam` — closing the hatch for every param — priced at the degenerate
+    pole in 2026-08-29 and prices there again today (§3). The hatch is not an
+    escape hatch; it is `&mut self` and `&mut` out-parameters.
+ 2. **THE SUBJECT IS 32 ARRIVALS IN THE WHOLE TREE.** A by-VALUE parameter
+    reaching a mut-binding gate is rare, and a ceiling off it is small by
+    construction. It is not a refutation (rule 4) — it is a small population.
+ 3. **SITE `ao` HAS NO BY-VALUE ARRIVAL AT ALL.** No probe was written there:
+    it would have read NEVER FIRED, which is not a zero. Rule 17's sixth
+    instance in this file, and the first where it saved the work rather than
+    explaining it afterwards.
+
+⚠ `param_byval_` deliberately EXCLUDES closure parameters. A fn's `mut x: T` is
+DESUGARED in `sema_decl.cpp` — the LParam takes a synth name and the body sees a
+prologue `let mut x = synth;` — so a fn param that is in `param_names_` under the
+user's own name was NOT written `mut`. A closure's `|mut x: S|` gets no such
+desugar, so classifying closure params by value would refuse a legal program.
+They stay hatched, which is the permissive direction. The census's `hatch.byval`
+is therefore a LOWER bound.
+
+## 1. THE ROOT CAUSE, WITH A ONE-VARIABLE CONTROL
+
+    let x: i64 = 1i64;  use_mut(&mut x);      REFUSED  "not declared as mut"
+    fn q(f: i64) { use_mut(&mut f); }         rc 0     ← one binding kind apart
+
+The mechanism EXISTS and lands on LOCALS; a by-VALUE PARAMETER is outside it.
+That is the `bck.A` root label, and it is correct. `mut f` is in the grammar
+(`param <- KW_MUT IDENT COLON type_ref => IS_MUT`) and compiles.
+
+## 2. THE PROBE TABLE — build b8dbdb689af27a8b (READ), gate-db 267 → 272
+
+    probe               fires  ceil  cost  cfail  std  verdict
+    mbparamvalw            10     7     0      0   ok  ✓
+    mbparamvalf           107     2     1      0   ok  ⚠ one legal program
+    mbparamvalaot        1114     1     0      1   ok  ⚠ one text-only, the SAME shape
+    mbparamvalall        1231    10     1      1   ok  ✓ EXACTLY the sum, and the same cost
+    mbparamvalnbc     3450062    10     1      1   ok  ⛔ REFUTED — byte-identical to `all`
+    mbnoparam          260148   276  1088    661   ⛔  ⛔ the degenerate pole, again
+    ltbindersoff            3     0     0      1   ok  ALIVE, and it buys ONE fixture
+    lifereg_unmentioned     4     1     0      0   ok  ✓ THE FIVE LEGAL REFUSALS ARE GONE
+    capmovewalk            47     2     0      0   ok  ✓ FUNDABLE — cfail 4 → 0
+    capshared             164     4     0      6   ok  ⛔ still 4 `.expected` LOST — but READ
+
+## 3. PREDICTED vs MEASURED, AS SETS, BOTH WAYS (rule 6)
+
+Predictions written before the build; the file is reproduced in §8.
+
+**CEILING(mbparamvalall)** PREDICTED 5 by name. MEASURED **10**.
+
+    predicted ∩ measured   issue-111554--b · issue-111554--c ·
+                           issue-55492-borrowck-migrate-scans-parents ·
+                           mutability-errors · borrowck-argument      (5/5)
+    measured ∖ predicted   borrowck-borrow-overloaded-auto-deref ·
+                           borrowck-ref-mut-of-imm--ref-mut-of-imm ·
+                           lifetimes/ex3-both-anon-regions-using-fn-items ·
+                           lifetimes/ex3-both-anon-regions-using-trait-objects ·
+                           nll/issue-51191                            (5)
+    predicted ∖ measured   ∅
+
+**AND THE FIVE I DID NOT PREDICT ARE THE SURVEY'S RESULT.** Four of them are
+NOT IN `bck.A` — they are filed under `lifereg.R2` (×2), `nllmoves.A` and
+`bck.B`. Every one refuses with the E0596 message naming the right binding, and
+every one's upstream error IS E0596:
+
+    ex3-both-anon-regions-using-fn-items   lifereg.R2   fn foo(y: Vec<&i64>, z:&i64){ y.push(z); }
+    ex3-both-anon-regions-using-trait-objects lifereg.R2  the same, one type apart
+    issue-51191                            nllmoves.A   fn imm(me: Struct){ let r = &mut me; }
+    borrowck-ref-mut-of-imm--ref-mut-of-imm bck.B       match x { Some(ref mut v) => … }, x by value
+    borrowck-borrow-overloaded-auto-deref  bck.A        &mut p.y on a non-mut `p: Rc<Point>`
+
+The four mis-rooted rows were filed by the block that IMPORTED them, and each
+block named the root it could see. ⚠ `borrowck-borrow-overloaded-auto-deref` is
+listed with a caveat: rustc's E0596 there is "cannot borrow data in an `Rc` as
+mutable" (no `DerefMut`), and ours is "not declared as mut". Both refuse the
+same program for a reason rustc gives, but not for THE reason. A row closed for
+a reason upstream also holds is closed; a row closed by a message naming a thing
+the program does not contain is not. This is the first kind, and it is labelled.
+
+**THE PER-SITE CEILINGS ARE ADDITIVE HERE, AND THAT WAS NOT PREDICTED.** 7+2+1
+= 10 and the union is 10; the three sites partition the ten rows exactly. Rule
+13 says that is not guaranteed and it was checked, not assumed.
+
+**COST** PREDICTED 0/0/ok on all four arms. MEASURED cost 1 and cfail 1, and
+they are ONE DEFECT at TWO sites (§5).
+
+**CEILING(ltbindersoff)** PREDICTED cfail ≥ 5 by name. MEASURED **1**. §6.
+
+**capmovewalk** PREDICTED ceiling 2 by name and cfail 0. MEASURED exactly that.
+**capshared** PREDICTED ceiling 4 by name and cfail 6. MEASURED exactly that.
+
+## 4. THE NARROWING THAT WAS REFUTED BEFORE IT WAS FUNDED
+
+The one cost (§5) is a by-value param that CARRIES a borrow, so the obvious
+repair is to drop those from `param_byval_`. `mbparamvalnbc` is that edit, and
+it is **BYTE-IDENTICAL to `mbparamvalall`** — same ten rows, the same one cost,
+the same one text-only row. `bc_is_borrow_carrying_type` is a lookup in
+`TypeSets::borrow_carrying`, a NAME SET filled at registration with
+`residency_exempt` applied, and neither `H { r: &mut i64 }` nor `Vec<&i64>`
+is in it. A predicate that answers an ESCAPE question cannot answer a
+STRUCTURAL one. Its sibling `loan_carrying_type` — the same closure computed
+without the residency skip — is the next thing to ask, and is UNMEASURED.
+One build, one price, and the hypothesis died: that is what the harness is for.
+
+## 5. THE COST, READ — AND IT IS ONE DEFECT WEARING TWO CLOTHES
+
+    tests/logos/pass/bc_thru_ref_field_mut_reborrow_admit      cost, site f
+        struct H { r: &mut i64 }
+        fn bump(h: H) { let y: &mut i64 = &mut *h.r; *y = 5i64; }
+        armed: "cannot borrow 'h.r' as mutable: 'h' not declared as mut"
+    tests/logos/fail/bc_d1r13_p3_byvalue_outparam              cfail, site aot
+        struct H { r: &mut Vec<B> }
+        fn stashv(h: H, c: &C) { h.r.push(c.mk()); }
+        armed: the same message, PREPENDED to the three the fixture pins
+
+Both are **A REBORROW THROUGH A REFERENCE HELD IN A FIELD** of a by-value
+parameter. Sites `f` and `aot` exempt a reborrow by asking the ROOT's type
+(`root_is_mut_ref` / `root_is_ref`), and the root here is a struct. The
+fixture's own header already says what the rule must key on: "THE RULE KEYS ON
+THE DEREFERENCED REFERENCE AND NOT ON THE ROOT … the only thing that differs is
+the type of the reference actually dereferenced". ⇒ **THE EXEMPTION IS SPELLED
+AT THE WRONG PLACE, and the by-value hatch is currently what hides it.**
+
+⚠ AND THE SECOND ONE IS INVISIBLE TO ctest. `bc_d1r13_p3_byvalue_outparam`'s
+`.expected` is a grep -F SUBSTRING and the extra error is PREPENDED, so the
+fixture stays GREEN with a legal-program refusal inside it. Rule 15, and only
+`fail_text_oracle.py` sees it.
+
+⚠ SITE `w` COSTS NOTHING (cost 0, cfail 0) — the whole-variable arm never meets
+this shape. So `mbparamvalw` alone is 7 rows at zero measured cost, and rule 13
+says that increment is real: the cost belongs to `f` and `aot`, not to the
+mechanism.
+
+## 6. THE VERDICT ON `current_lt_binders()` — ALIVE, AND WORTH DELETING ANYWAY
+
+Round 2026-08-31n named the experiment and did not run it. Both halves ran here.
+
+    ltbindersoff          the CONTROL REVERT of that predicate ALONE: skip its
+                          refusal, change nothing else.
+      fires 3 · ceiling 0 (it is PERMISSIVE, it can close no row) · cost 0
+      **cfail 1**: `account-for-lifetimes-in-closure-suggestion` rc 1 → 0.
+    ⇒ IT IS NOT DEAD. It still refuses something the engine does not — but the
+      five fixtures it landed for in 2026-08-31h are now FOUR-FIFTHS the
+      engine's: issue-55394--ctl2, issue-67007-escaping-data and both
+      projection-no-regions-closure ports stay rc 1 without it. The
+      substitution, the mint and the callee-binder meet answer for them now.
+
+    lifereg_unmentioned   the WIDER rule the narrowing replaced.
+      fires 4 · **ceiling 1** (suggest-introducing-and-adding-missing-lifetime--
+      param-may-not-live) · **cost 0** · **cfail 0** · stdlib all four layers.
+    ⇒ **ITS FIVE LEGAL REFUSALS ARE GONE.** In 2026-08-31h the wider rule bought
+      two more rows and refused FIVE legal programs, "every one of them
+      comparing a name from ONE binder against a name from ANOTHER: a callee's
+      or a struct's own lifetime parameter that reached here UNSUBSTITUTED".
+      That sentence describes exactly what round n landed, and the corpus now
+      prices the wider rule at zero.
+
+⇒ **THE RECOMMENDATION IS TO DELETE `current_lt_binders()` AND LET THE WIDER
+RULE STAND.** The wider rule is a SUPERSET of the narrower one, so the one
+fixture `ltbindersoff` loses is kept, one more ledger row comes with it, and the
+deliberately-unsound name-collision approximation — with its two pinned
+fixtures u7/u8 saying so — leaves the tree. Rule 14's other direction: two names
+for one question, and the narrow one is now the one that buys less.
+
+⚠ RULE 5. COST 0 IS NOT A SAFETY CLAIM, so the counter-examples were written and
+run under `lifereg_unmentioned` on this binary, each multi-line:
+
+    u1  struct Holder<'h>; fn take<'c>(h: Holder<'c>); fn give<'g>(x:&'g i64)
+        — the CALLEE's binder against the CALLER's                    rc 0
+    u2  struct Pair<'a>; fn mk<'m>(…) -> Pair<'m>; fn use_it<'u>(…)
+        — a STRUCT's own parameter, unsubstituted                     rc 0
+    u3  impl<'s> H<'s> { fn get<'m>(self:&'m H<'s>) -> &'m i64 }
+        — a METHOD's binder against the impl's                        rc 0
+    tests/logos/pass/bc_ltunmentbind_legal_shapes    armed rc 0   ← IN-TREE, and
+        it is round h's OWN pin for these shapes: it was the wider rule's cost
+        then and it is not now. A pinned artifact, not only a hand program.
+    tests/logos/fail/bc_ltunmentbind_two_unrelated_binders  armed rc 1 (the
+        illegal twin still refuses)
+
+## 7. THE SHELF, RE-PRICED — AND TWO OF ITS FOUR ENTRIES DO NOT EXIST
+
+    mechanism    shelved as              MEASURED HERE (b8dbdb689af27a8b)
+    capmovewalk  4 rows / 4 cfail        ceiling 2 · cost 0 · **cfail 0** · ok
+    capshared    4 rows / 6 cfail        ceiling 4 · cost 0 · cfail 6 · ok
+    capretplt    5 rows / 4 cfail        NOT IN THE TREE
+    capretcaps   2 rows / 4 cfail        NOT IN THE TREE
+
+**`capmovewalk` IS NOW FUNDABLE AND HAS BEEN FOR THREE ROUNDS.** Its cfail 4
+was never its own: it was inherited from the cause-B deposit into
+`outliving_params_`, and 2026-08-31h moved that deposit into
+`closure_capture_names_` when `capretsc` landed. Round h wrote "its cfail 4
+should now be 0. First thing to price next round" and three lifetime rounds went
+by. MEASURED: cfail 0, cost 0, stdlib ok, ceiling 2 — `borrowck-multiple-captures`
+and `nll/issue-48238` — the exact two round h named as its clean increment.
+A `move` closure's body is never walked (`probe_mv_` returns before the walk),
+so those two are ZERO ARRIVALS, not permissive verdicts (rule 16).
+
+**`capretplt` AND `capretcaps` ARE NOT ON A SHELF; THEY WERE RETIRED AS
+SUBSUMED ON 2026-08-31h**, and the repair this round was told had "never been
+attempted" — *scope the deposit to the return check* — **IS `capretsc`, and it
+LANDED that round for 4 rows.** The scoping is in the tree today:
+`closure_capture_names_` is read at exactly one site, the "cannot return
+reference to local variable" report gate in `check_return_value`, and the four
+fail fixtures the wider deposit un-refused (escape-argument--b,
+escape-upvar-nested, escape-upvar-ref, regions-nested-fns) are rc 1. Re-installing
+either arm would measure the leak, not a mechanism. The only thing the wider
+deposit still buys over the landed tree is `regions-nested-fns-2`, and it buys it
+with four un-refusals. **A HANDED-DOWN SHELF IS A HYPOTHESIS, NOT DATA** — rule
+17 applied to a recommendation instead of to a site.
+
+**`capshared`'s FOUR `.expected` LOSSES, READ — the first time in four rounds.**
+All four are ONE defect and it is nameable:
+
+    arc-consumed-in-looped-closure                   .expected: "use of moved
+    borrowck-in-static--move-captured-out-of-fn-closure   value 'x' (moved on
+    borrowck-in-static--r-runtime                        line N)"
+    closure-move-spans
+      unarmed   error: use of moved value 'x' (moved on line 10)
+      capshared error: cannot borrow moved value 'x'          ← the LINE IS GONE
+
+Routing the shared whole-var capture through `record_borrow` reaches
+`take_borrow_whole_`'s `if (it->moved)` arm, which reports "cannot borrow moved
+value" and RETURNS — ahead of the `use of moved value … (moved on line N)`
+reader whose text these four pin. The verdict is unchanged (rc 1 both columns);
+what is lost is the MOVE LINE, which is the informative half. And
+`closure-move-spans` shows the second half of it: unarmed it prints BOTH
+messages, armed it prints the borrow one TWICE — a DUPLICATE.
+
+⇒ Rule 14 says a branch that only re-words an already-red diagnostic buys
+nothing UNLESS it deletes a duplicate or delivers upstream's PRIMARY error
+first. This does the OPPOSITE on both counts. **THE UNBLOCKING IS NAMED AND IT
+IS NOT capshared's**: `take_borrow_whole_`'s moved-value arm should DELEGATE to
+the moved-value reader that owns the wording and the line — the same repair by
+delegation the arm eleven lines below it already uses for `report_partial_move`.
+With that landed, capshared's cfail is 2 text-only and its four rows are
+buyable. Until then capshared stays DECLINED, but it is no longer declined for
+an unread reason.
+
+## 8. THE SURVEY — `bck.A` + `bck.D`, 20 ROWS, COMPILED BY HAND
+
+### `bck.A` — 10 rows, and SEVEN of them are ONE mechanism
+
+    A-1  A BY-VALUE PARAMETER NOT DECLARED `mut` MAY NOT BE MUTABLY BORROWED
+         borrowck-argument · issue-111554--b · issue-111554--c ·
+         issue-55492-borrowck-migrate-scans-parents · mutability-errors ·
+         borrowck-borrow-overloaded-auto-deref (with §3's caveat) ·
+         borrowck-unboxed-closures
+         MEASURED: six of the seven close under `mbparamvalall`. The seventh,
+         **borrowck-unboxed-closures**, does NOT — `fn b<F: FnMut(i64)->i64>(f: F)
+         { f(1i64) }` takes no `&mut` at all, because calling an `FnMut` through
+         a binding is not modelled as a borrow of that binding. Same PARTITION,
+         different missing observation, and it needs the call site, not the gate.
+         ⊕ FOUR MORE ROWS JOIN FROM OTHER ROOTS (§3): lifereg.R2 ×2, nllmoves.A,
+         bck.B. **The partition is 11 rows, not 7, and 10 are priced.**
+    A-2  `&mut b` WHERE `b` IS A REFERENCE-TYPED BINDING — mut-borrow-of-mut-ref.
+         `fn f(b:&mut i64) -> i32 { return h2(&mut b); }` is E0596 upstream, and
+         `b` is hatched HERE BY DESIGN: 1 949 957 of the hatch's arrivals are
+         reborrows (`&mut *b`) and the tree cannot tell `&mut b` from `&mut *b`
+         once auto-reborrow has run. NEW NAME, and it is the same question §5
+         asks from the other side: WHICH REFERENCE IS BEING DEREFERENCED.
+    A-3  A CLOSURE ESCAPING IN `Box<dyn Fn>` CAPTURES A `&` PARAMETER —
+         suggest-lt-on-ty-alias-w-generics. `Box<dyn Trait>` implies a `'static`
+         bound; nothing in the tree defaults a trait object's region. NEW NAME,
+         MACHINERY DOES NOT EXIST.
+    A-4  A WRITE THROUGH A `&mut` OUT-PARAMETER ESCAPES TO THE CALLER —
+         borrowck-local-borrow-with-panic-outlives-fn: `fn cplusplus_mode(x: &mut
+         &mut i64) { let mut z=(0,0); *x = &mut z.1; }`. No closure, so it is NOT
+         `escape-argument--t09`'s partition; it is its fn-body twin. NEW NAME.
+
+### `bck.D` — 10 rows, and the root label is right about 3 and backwards about 7
+
+The label says "a TEMPORARY has no owner to key a loan on". SEVEN rows are about
+the loan's **HOLDER**; THREE are about its **REFERENT**.
+
+    D-H  A LOAN WHOSE HOLDER IS A COMPILER-MADE TEMPORARY IS RELEASED AT ONCE
+         two-phase-nonrecv-autoref--{a-fnmut-twice, c-mut-and-shared-args,
+         d-index-two-phase} · mutate-vec-while-iterating--{a,b} ·
+         suggest-local-var-for-vector · suggest-storing-local-var-for-vector
+         **PROVEN LIVE BY TWO CONTROLS THAT REFUSE THE SAME CONFLICT** — the
+         machinery exists, only the holder is missing:
+           double_access(&mut a, &a)                    rc 0   (the ledger row)
+           let m = &mut a; let s = &a; double_access(m,s)  rc 1
+               "cannot borrow 'a' as shared: already mutably borrowed"
+           for v in &values { values.push(4i64); }      rc 0   (the ledger row)
+           let it = &values; values.push(4i64); touch(it) rc 1
+               "cannot borrow 'values' as mutable: 'values' has shared borrows"
+         The three surfaces are one question — an ARGUMENT-position autoref, the
+         `for`-desugar's iterator temp, and an INDEX autoref are all loans with
+         no `let` to hold them. ⚠ AND `v[v.len()-1] = 123` vs the hoisted
+         `let n = v.len(); v[n] = 123` (rc 0, legal) is the pair that says the
+         rule must not simply refuse indexes. ONE NEW NAME for seven rows.
+    D-R  A BORROW OF A CALL TEMPORARY OUTLIVES THE TEMPORARY (E0716)
+         borrowck-borrowed-uniq-rvalue (`&mk().v`) ·
+         borrowck-borrowed-uniq-rvalue-2 (`&mk()`) · issue-36082 (`&mk().a`)
+         The control is `let b = mk(); let r = &b.v;` — rc 0, correctly. ⚠ **NO
+         ORACLE ON THIS BOX.** Rust's temporary-lifetime EXTENSION rules make
+         `let x = &temp();` legal in some spellings, and whether it extends
+         through a field of a CALL result is exactly what these three turn on.
+         rustc is not installed here. The three stay listed, and the honest
+         statement is that their illegality is INHERITED FROM THE IMPORT, not
+         verified. Adjudicate upstream before spending a round.
+
+## 9. THE HAND PROGRAMS (rules 5, 7, 10), EACH MULTI-LINE, EACH ON THIS BINARY
+
+    unarmed / mbparamvalall
+    a2  let x: i64 = 1i64; use_mut(&mut x);                    1 / 1  mechanism exists
+    a3  fn q(f: i64) { use_mut(&mut f); }                      0 / 1  THE DEFECT
+    b5  fn func(arg: S) -> i64 { arg.mutate(); … }             0 / 1  THE DEFECT
+    a4  fn q(mut f: i64) { use_mut(&mut f); }                  0 / 0  LEGAL
+    a6  let c = |mut s: S| -> i64 { s.bump(); … };             0 / 0  LEGAL (why
+                                                       closure params stay hatched)
+    a7  fn imm_local(mut x:(i64,)) { use_mut(&mut x.0); }      0 / 0  LEGAL, site f
+    b1  fn f(p:&mut S) { take(p); }                            0 / 0  LEGAL reborrow
+    b2  fn f(p:&mut i64) { take(&mut *p); }                    0 / 0  LEGAL reborrow
+    b3  fn twice(self:&mut S) { self.bump(); self.bump(); }    0 / 0  LEGAL
+    b4  b5 WITH `mut` — one token apart                        0 / 0  LEGAL
+
+Ten programs, six of them legal, none refused. b4/b5 are the pair: one token
+apart, one refused and one not, which is the claim in its smallest form.
+
+## ⇒ 10. WHAT DESERVES FUNDING, IN ORDER
+
+ 1. **DELETE `current_lt_binders()`, KEEP THE WIDER RULE** (§6). One row, cost
+    0/0/ok on three populations plus four hand programs and an in-tree pin that
+    was the wider rule's OWN cost one round ago. It also removes an
+    admittedly-unsound name-collision approximation and its two hole fixtures.
+    Smallest change, largest cleanup.
+ 2. **`capmovewalk`** (§7). Two rows, cost 0, cfail 0, stdlib ok, a one-variable
+    probe already in the tree, and round h's prediction confirmed exactly.
+ 3. **THE BY-VALUE PARAMETER GATE AT SITE `w` ALONE** (§2, §5). Seven rows at
+    cost 0 and cfail 0. Sites `f` and `aot` add three more rows and both of
+    their costs are the SAME defect — a reborrow through a reference held in a
+    FIELD — so they land after (4).
+ 4. **KEY THE REBORROW EXEMPTION ON THE DEREFERENCED REFERENCE, NOT THE ROOT**
+    (§5). It is a defect in its own right today, hidden by the hatch; it
+    unblocks three rows in (3) and it is `bck.A-2`'s mechanism too.
+ 5. **DELEGATE `take_borrow_whole_`'s MOVED-VALUE ARM** to the reader that owns
+    "use of moved value … (moved on line N)" (§7). Unblocks capshared's four.
+ 6. **bck.D-H, THE LOAN WITH NO HOLDER** (§8). Seven rows on one mechanism,
+    proven live by two controls that already refuse the identical conflict. The
+    biggest single prize surveyed this round, and the most work.
+
+## 11. OPEN, WITH ITS EVIDENCE
+
+ 1. **`loan_carrying_type` vs `is_borrow_carrying_type`** at the by-value set
+    (§4) — the sibling predicate, UNMEASURED. Two notions of one concept.
+ 2. **`borrowck-unboxed-closures`** — calling an `FnMut` through a binding takes
+    no borrow. Same partition, different site (§8 A-1).
+ 3. **THE THREE E0716 ROWS HAVE NO ORACLE HERE** (§8 D-R), like issue-51268 and
+    issue-42574--b before them.
+ 4. **`borrowck-borrow-overloaded-auto-deref` closes for a reason upstream also
+    holds, but not for THE reason** (§3). Listed, labelled, not counted as clean.
+ 5. **`bc_d1r13_p3_byvalue_outparam` STAYS GREEN under a legal-program refusal**
+    because `.expected` is a substring grep (§5). Rule 15, second instance.
+ 6. The census's `hatch.byval` is a LOWER bound: closure params are out of
+    `param_byval_` on purpose (§0).
