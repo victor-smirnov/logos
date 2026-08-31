@@ -2028,6 +2028,7 @@ class BorrowChecker {
     // site cannot reach them without this. See closure_caps_of.
     std::unordered_map<std::string, std::vector<std::string>> closure_caps_;
     std::unordered_set<std::string>      param_names_;
+    std::unordered_set<std::string>      param_byval_;   // census: by-VALUE params (not &/&mut/*)
     // Round F/B scaffolding — see src/compiler/PROBES.md.
     std::unordered_set<std::string>      closure_param_names_;
     std::unordered_set<std::string>      closure_body_decls_;
@@ -4133,6 +4134,15 @@ private:
         }
         // Mut binding check — N/A for reference-typed roots.
         if (is_mut && !root_is_mut_ref && !root_is_shared_ref &&
+            !it->is_mut_binding) {
+            logos::probe::census("mb.f.arrive");
+            if (param_names_.count(target)) {
+                logos::probe::census("mb.f.hatch");
+                logos::probe::census(param_byval_.count(target)
+                    ? "mb.f.hatch.byval" : "mb.f.hatch.ref");
+            } else logos::probe::census("mb.f.refuse");
+        }
+        if (is_mut && !root_is_mut_ref && !root_is_shared_ref &&
             !it->is_mut_binding && !param_names_.count(target)) {
             report(line, std::format(
                 "cannot borrow '{}' as mutable: '{}' not declared as mut",
@@ -4286,6 +4296,12 @@ private:
             // receivers stays the (permissive) status quo, the stdlib's
             // `arc.deref_mut()` on a non-mut Arc binding relies on it.
             if (!skip_mut_binding_check && !it->is_mut_binding) {
+                logos::probe::census("mb.w.arrive");
+                if (param_names_.count(target)) {
+                    logos::probe::census("mb.w.hatch");
+                    logos::probe::census(param_byval_.count(target)
+                        ? "mb.w.hatch.byval" : "mb.w.hatch.ref");
+                } else logos::probe::census("mb.w.refuse");
                 // CEILING PROBES (C) — see PROBES.md. `mbsite` is the arrival
                 // population with the mut bit absent; `mbhatch` is the subset
                 // the param hatch exempts; `mbrefuse` is what the guard
@@ -13467,6 +13483,7 @@ public:
         fnptr_multi_.clear();        // G1
         closure_caps_.clear();
         param_names_.clear();
+        param_byval_.clear();
         param_lifetimes_.clear();
         last_use_line_.clear();
         last_use_slot_.clear();        // F5 — slots are per-FUNCTION dense ids
@@ -13526,6 +13543,9 @@ public:
             TypeRef ptype = p.type(fn_pool);
             declare_var(pname, p.slot());  // Phase-1
             param_names_.insert(pname);
+            if (!(is_ref_kind(ptype) ||
+                  TypeRef(ptype).kind() == LogosType::Kind::Ptr))
+                param_byval_.insert(pname);
             // A reference, borrow-carrying, or RAW-POINTER param points at data
             // that lives outside this call (a raw pointer is unbounded / caller-
             // managed), so borrows derived from it are safe to return. Only a
@@ -13680,6 +13700,14 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             check_live(vname, line);
             if (is_mut_ref(e.type(pool))) {
                 if (auto it = var_find(NO_SLOT, vname); it != nullptr) {
+                    if (!it->is_mut_binding) {
+                        logos::probe::census("mb.ao.arrive");
+                        if (param_names_.count(vname)) {
+                            logos::probe::census("mb.ao.hatch");
+                            logos::probe::census(param_byval_.count(vname)
+                                ? "mb.ao.hatch.byval" : "mb.ao.hatch.ref");
+                        } else logos::probe::census("mb.ao.refuse");
+                    }
                     if (!it->is_mut_binding && !param_names_.count(vname))
                         report(line, std::format(
                             "cannot borrow '{}' as mutable: not declared as mut",
@@ -13724,6 +13752,14 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             if (!root.empty() && !root_is_rawptr && var_has(NO_SLOT, root)) {
                 auto sit = var_find(NO_SLOT, root);
                 // Mut-binding check (root-level) — skipped for reference roots.
+                if (is_mut && !root_is_ref && !sit->is_mut_binding) {
+                    logos::probe::census("mb.aot.arrive");
+                    if (param_names_.count(root)) {
+                        logos::probe::census("mb.aot.hatch");
+                        logos::probe::census(param_byval_.count(root)
+                            ? "mb.aot.hatch.byval" : "mb.aot.hatch.ref");
+                    } else logos::probe::census("mb.aot.refuse");
+                }
                 if (is_mut && !root_is_ref && !sit->is_mut_binding
                     && !param_names_.count(root))
                     report(line, std::format(
