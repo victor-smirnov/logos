@@ -1,0 +1,14 @@
+// THE LEGAL HALF OF A ONE-TOKEN PAIR — tests/logos/fail/
+// bc_mbparamval_byvalue_param_fail with `mut` on the parameter and nothing
+// else changed. Without this half the fail fixture passes on a compiler that
+// refuses every by-value parameter.
+package bc_mbparamval_mut_param_admit;
+fn use_mut(p: &mut i64) { *p = *p + 1i64; }
+fn q(mut f: i64) -> i64 {
+    use_mut(&mut f);
+    return f;
+}
+fn main() -> i32 {
+    if q(1i64) != 2i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,13 @@
+// THE LEGAL HALF OF A ONE-TOKEN PAIR — tests/logos/fail/
+// bc_capmovewalk_move_body_ret_capture_fail with the `move` keyword removed.
+// A non-`move` closure borrows `orig` from the enclosing frame, which outlives
+// the closure, so the returned reference is fine. Without this half the fail
+// fixture passes on a compiler that refuses every closure body.
+package bc_capmovewalk_nonmove_body_admit;
+fn use_val(v: &i64) -> &i64 { return v; }
+fn main() -> i32 {
+    let orig: i64 = 5i64;
+    let c = || -> &i64 { return use_val(&orig); };
+    if *c() != 5i64 { return 1i32; }
+    return 0i32;
+}

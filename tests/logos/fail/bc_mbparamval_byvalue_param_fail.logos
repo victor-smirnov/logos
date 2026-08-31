@@ -1,0 +1,20 @@
+// THE DEFECT HALF OF A ONE-TOKEN PAIR. `f` is a BY-VALUE parameter that is not
+// declared `mut` and is mutably borrowed. rustc: E0596. Its pass twin
+// tests/logos/pass/bc_mbparamval_mut_param_admit is this program with `mut`
+// added to the parameter and nothing else.
+//
+// The `not declared as mut` gate whitelisted EVERY parameter, because a fn
+// param does not carry a mut bit in LParam. The hatch is there for REFERENCE
+// params — `&mut *p` through one is a reborrow, and 1 949 957 of the hatch's
+// 1 950 012 arrivals over the whole tests/ tree are exactly that (census
+// 2026-08-31o) — and a by-value param is not a reborrow.
+package bc_mbparamval_byvalue_param_fail;
+fn use_mut(p: &mut i64) { *p = *p + 1i64; }
+fn q(f: i64) -> i64 {
+    use_mut(&mut f);
+    return f;
+}
+fn main() -> i32 {
+    if q(1i64) != 2i64 { return 1i32; }
+    return 0i32;
+}

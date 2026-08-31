@@ -1,0 +1,43 @@
+// COST 0 IS NOT A SAFETY CLAIM (rule 5). Walking a `move` closure's body is a
+// behaviour change over a body that was never read at all, so the abuse
+// direction is: does the walk resolve the body's names in the CLOSURE's frame,
+// or does it leak them into the enclosing one? Every shape below is legal and
+// every one of them reaches the walk (`capmovewalk` fired once per program on
+// the pre-landing binary b8dbdb689af27a8b).
+//
+// ⚠ THE REFUSE HALF IS tests/logos/fail/
+// bc_capmovewalk_move_body_ret_capture_fail.
+package bc_capmovewalk_move_body_legal_shapes;
+fn bump(p: &mut i64) { *p = *p + 1i64; }
+struct S { v: i64 }
+fn read(p: &S) -> i64 { return p.v; }
+
+// (1) the `move` body takes a `&mut` of a MOVED capture and of a body local.
+// Both are the closure's own bindings.
+fn own_local_and_capture() -> i64 {
+    let mut owned: i64 = 1i64;
+    let c = move || -> i64 {
+        let mut local: i64 = 10i64;
+        bump(&mut local);
+        bump(&mut owned);
+        return owned + local;
+    };
+    return c();
+}
+
+// (2) the enclosing frame mutably borrows a DIFFERENT root while the `move`
+// closure owns its own. Two disjoint roots, no conflict in either direction.
+fn disjoint_roots() -> i64 {
+    let a: S = S { v: 1i64 };
+    let mut b: S = S { v: 2i64 };
+    let c = move || -> i64 { return read(&a); };
+    let r: &mut S = &mut b;
+    r.v = 5i64;
+    return c() + b.v;
+}
+
+fn main() -> i32 {
+    if own_local_and_capture() != 13i64 { return 1i32; }
+    if disjoint_roots() != 6i64 { return 2i32; }
+    return 0i32;
+}

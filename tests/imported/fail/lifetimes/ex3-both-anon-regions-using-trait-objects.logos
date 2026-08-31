@@ -1,6 +1,7 @@
 // rustc lifetimes/lifetime-errors/ex3-both-anon-regions-using-trait-objects.rs — upstream lifetime may not live long enough + E0596 cannot borrow
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.R2
+// shelf: fail · was lifereg.R2 — filed there by its import block, it is bck.A-1's partition, CLOSED 2026-08-31p — the `not declared as mut` param hatch is for
+// REFERENCE params; a BY-VALUE param is not a reborrow and is E0596.
 // port of rust tests/ui/lifetimes/lifetime-errors/ex3-both-anon-regions-using-trait-objects.rs
 package ex3_both_anon_regions_using_trait_objects;
 fn foo(y: Vec<&u8>, z: &u8) { y.push(z); }

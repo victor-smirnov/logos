@@ -1,0 +1,81 @@
+// COST 0 IS NOT A SAFETY CLAIM (rule 5), so the by-value parameter gate was
+// attacked BY HAND in the abuse direction before it landed, and the programs
+// that attacked it are here rather than in a scratch directory that dies with
+// its round. Every shape below is LEGAL and every one of them either arrives at
+// the `not declared as mut` gate or is one token from a shape that does.
+//
+// ⚠ THE REFUSE HALF IS tests/logos/fail/bc_mbparamval_byvalue_param_fail.
+// Without it this file passes trivially on a compiler that checks nothing.
+package bc_mbparamval_legal_shapes;
+
+fn use_mut(p: &mut i64) { *p = *p + 1i64; }
+
+struct S { v: i64 }
+impl S {
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+    fn twice(&mut self) { self.bump(); self.bump(); }
+    // a BY-VALUE `self` declared `mut`, mutated through a &mut-self method.
+    fn consume(mut self: S) -> i64 { self.bump(); return self.v; }
+}
+
+// (1) RULE 12, THE ABUSE DIRECTION. The name `f` denotes TWO bindings: this
+// fn's by-value parameter (which is in `param_byval_`) and a `let mut` that
+// shadows it. A gate that asked the NAME SET would refuse the second.
+fn shadow_let_mut(f: i64) -> i64 {
+    let mut f: i64 = f;
+    use_mut(&mut f);
+    return f;
+}
+
+// (2) THE SAME COLLISION ACROSS A CLOSURE BOUNDARY. A closure's `|mut f|` gets
+// no `mut`-param desugar, and closure params are deliberately out of
+// `param_byval_` for that reason.
+fn closure_shadows_param(f: i64) -> i64 {
+    let c = |mut f: i64| -> i64 { use_mut(&mut f); return f; };
+    return c(f);
+}
+
+// (3) THE HATCH'S REAL POPULATION — three reference-param shapes. These are
+// 99.998% of the arrivals and none of them may move.
+fn take(p: &mut S) { p.bump(); }
+fn thru(p: &mut S) { take(p); }
+fn reborrow(p: &mut i64) { let q: &mut i64 = &mut *p; *q = *q + 1i64; }
+
+// (4) A `&mut` PARAMETER SPELLED THROUGH A TYPE ALIAS. `param_byval_` is filled
+// by asking `is_ref_kind` on the declared type; an unresolved alias here would
+// classify a reference by value and refuse its reborrow.
+type MutI = &mut i64;
+fn thru_alias(p: MutI) { let y: &mut i64 = &mut *p; *y = *y + 1i64; }
+
+// (5) A GENERIC by-value parameter declared `mut`. `is_ref_kind` is false for a
+// type parameter, so `T` lands in `param_byval_` and only the binding's own mut
+// bit exempts it.
+trait Bump { fn bmp(&mut self); fn get(&self) -> i64; }
+impl Bump for S {
+    fn bmp(&mut self) { self.v = self.v + 1i64; }
+    fn get(&self) -> i64 { return self.v; }
+}
+fn twice_generic<T: Bump>(mut t: T) -> i64 { t.bmp(); t.bmp(); return t.get(); }
+
+// (6) A by-value parameter not declared `mut`, SHARED-borrowed. The gate keys
+// on `is_mut`, so exactly the population it now refuses must stay admitted here.
+fn read(p: &S) -> i64 { return p.v; }
+fn shared_of_byvalue(s: S) -> i64 { let r: &S = &s; return read(r) + read(&s); }
+
+fn main() -> i32 {
+    if shadow_let_mut(1i64) != 2i64 { return 1i32; }
+    if closure_shadows_param(1i64) != 2i64 { return 2i32; }
+    let mut s: S = S { v: 0i64 };
+    thru(&mut s);
+    s.twice();
+    if s.v != 3i64 { return 3i32; }
+    let mut n: i64 = 0i64;
+    reborrow(&mut n);
+    thru_alias(&mut n);
+    if n != 2i64 { return 4i32; }
+    let c0: S = S { v: 1i64 };
+    if c0.consume() != 2i64 { return 5i32; }
+    if twice_generic(S { v: 0i64 }) != 2i64 { return 6i32; }
+    if shared_of_byvalue(S { v: 3i64 }) != 6i64 { return 7i32; }
+    return 0i32;
+}

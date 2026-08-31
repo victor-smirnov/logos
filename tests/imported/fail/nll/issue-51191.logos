@@ -1,6 +1,7 @@
 // rustc nll/issue-51191.rs — upstream E0596 cannot borrow `self` as mutable
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.A
+// shelf: fail · was nllmoves.A — filed there by its import block, it is bck.A-1's partition, CLOSED 2026-08-31p — the `not declared as mut` param hatch is for
+// REFERENCE params; a BY-VALUE param is not a reborrow and is E0596.
 // control for t17: the same &mut of a non-mut by-value binding, but an ordinary
 // parameter instead of `self`.
 package issue_51191;

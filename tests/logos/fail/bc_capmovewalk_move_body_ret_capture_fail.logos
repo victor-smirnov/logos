@@ -1,0 +1,17 @@
+// THE DEFECT HALF OF A ONE-TOKEN PAIR. A `move` closure OWNS its captures, so
+// `orig` inside the body is the CLOSURE's binding and returning a reference to
+// it from the closure is a dangling reference. Its pass twin
+// tests/logos/pass/bc_capmovewalk_nonmove_body_admit is this program with the
+// `move` keyword removed and nothing else: without `move`, `orig` still lives
+// in the enclosing frame and the same reference is fine.
+//
+// It was not an under-refusal by a permissive verdict — `walk_closure_body`
+// RETURNED on `is_move()`, so every question about a move body was ZERO
+// ARRIVALS (rule 16). LANDED 2026-08-31p.
+package bc_capmovewalk_move_body_ret_capture_fail;
+fn use_val(v: &i64) -> &i64 { return v; }
+fn main() -> i32 {
+    let orig: i64 = 5i64;
+    let c = move || -> &i64 { return use_val(&orig); };
+    return 0i32;
+}

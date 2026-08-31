@@ -2569,14 +2569,11 @@ private:
         // namespace. MEASURED: walking both arms and walking only the non-move
         // arm price IDENTICALLY, so nothing is bought by walking a `move` body
         // and the narrower rule is the one that lands.
-        // PROBE capmovewalk: a `move` closure's body is NEVER WALKED at all,
-        // so issue-48238 (`move || -> &i64 { return use_val(&orig); }`) is not
-        // an under-refusal by a permissive verdict — it is ZERO ARRIVALS
-        // (rule 16). And the cause-B exemption below is INVERTED for a move
-        // closure: a MOVED capture is a LOCAL of the closure, not of the
-        // enclosing frame. Numbers in src/compiler/PROBES.md.
-        bool probe_mv_ = cbv.is_move();
-        if (probe_mv_ && !logos::probe::on("capmovewalk")) return;
+        // LANDED 2026-08-31p (`capmovewalk`): a `move` closure's body IS
+        // walked. Its captures are the closure's own bindings, which is what
+        // `is_move_` still says below; skipping the walk made every question
+        // about a move body ZERO ARRIVALS rather than a permissive verdict.
+        bool is_move_ = cbv.is_move();
         auto cbb = cbv.body();
         if (!cbb) return;
         auto saved_params     = param_names_;
@@ -2610,9 +2607,8 @@ private:
         // that set (escape/dangling, retained provenance, the return check),
         // and only the third asked the question. So the fact goes in a set of
         // its own. INVERTED for a `move` closure: a moved capture is the
-        // closure's own local (and a move body is not walked at all today —
-        // see the `probe_mv_` gate above).
-        if (!probe_mv_)
+        // closure's own local.
+        if (!is_move_)
             cbv.each_capture_name([&](std::string_view cn) {
                 if (!cn.empty()) closure_capture_names_.insert(std::string(cn));
             });
@@ -4145,8 +4141,7 @@ private:
         // PROBE mbparamvalf — the by-VALUE half of the hatch, field path.
         const bool byval_f_ = param_names_.count(target) &&
             param_byval_.count(target) &&
-            (logos::probe::on("mbparamvalf") ||
-             logos::probe::on("mbparamvalall"));
+            logos::probe::on("mbparamvalf");
         if (is_mut && !root_is_mut_ref && !root_is_shared_ref &&
             !it->is_mut_binding && (!param_names_.count(target) || byval_f_)) {
             report(line, std::format(
@@ -4294,8 +4289,11 @@ private:
         if (is_mut) {
             // Reject &mut on a binding declared without `mut`.
             // Function params don't currently carry a mut bit in LParam,
-            // so they're declared with is_mut_binding=false; we whitelist
-            // them by checking known_params_ to avoid spurious diagnostics.
+            // so they're declared with is_mut_binding=false; the hatch below
+            // whitelists them. LANDED 2026-08-31p: the hatch is for REFERENCE
+            // params — a `&mut` through one is a reborrow, and 1 949 957 of
+            // the hatch's 1 950 012 arrivals are exactly that. A BY-VALUE
+            // param is not a reborrow and is E0596 upstream.
             // skip_mut_binding_check: the bare-receiver elision recorder
             // tracks EXCLUSIVITY only — binding-mut legality for bare
             // receivers stays the (permissive) status quo, the stdlib's
@@ -4314,11 +4312,8 @@ private:
                 (void)logos::probe::on("mbsite");
                 const bool hatched = param_names_.count(target) > 0;
                 if (hatched) (void)logos::probe::on("mbhatch");
-                // PROBE mbparamvalw — the by-VALUE half of the hatch.
-                const bool byval_w_ = hatched && param_byval_.count(target) &&
-                    (logos::probe::on("mbparamvalw") ||
-                     logos::probe::on("mbparamvalall"));
-                if (!hatched || byval_w_ || logos::probe::on("mbnoparam")) {
+                const bool byval_w = hatched && param_byval_.count(target) > 0;
+                if (!hatched || byval_w || logos::probe::on("mbnoparam")) {
                     if (!hatched) (void)logos::probe::on("mbrefuse");
                     report(line, std::format(
                         "cannot borrow '{}' as mutable: not declared as mut", target));
@@ -13772,8 +13767,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 // PROBE mbparamvalaot — the by-VALUE half of the hatch, AddrOfTemp.
                 const bool byval_aot_ = param_names_.count(root) &&
                     param_byval_.count(root) &&
-                    (logos::probe::on("mbparamvalaot") ||
-                     logos::probe::on("mbparamvalall"));
+                    logos::probe::on("mbparamvalaot");
                 if (is_mut && !root_is_ref && !sit->is_mut_binding
                     && (!param_names_.count(root) || byval_aot_))
                     report(line, std::format(

@@ -1148,9 +1148,27 @@ PIN = {
     # tests/logos/fail/variance_arg_mut_inv, which L1 (not the `-L bc -L fail`
     # oracle, which does not select it) caught as an OVER-REFUSAL: its region at
     # the invariant position is the CALLEE's own binder and Rust instantiates it.
-    'corpus'            : 2504,
+    # ⚠ RE-DERIVED 2026-08-31p (`capmovewalk` + the by-value param gate, two
+    # mechanisms landed one at a time): +4 / +0 / +4. FOUR new PASS fixtures,
+    # none matching `wql_*` or `deem_*`, so the whole delta lands in `nonglob`:
+    #   + bc_mbparamval_mut_param_admit           the one-token twin of
+    #                                             fail/bc_mbparamval_byvalue_param_fail
+    #   + bc_mbparamval_legal_shapes              the six hand-written abuse
+    #                                             shapes of the by-value gate
+    #   + bc_capmovewalk_nonmove_body_admit       the one-token twin of
+    #                                             fail/bc_capmovewalk_move_body_ret_capture_fail
+    #   + bc_capmovewalk_move_body_legal_shapes   the two legal move-body shapes
+    # The 9 closed ledger rows are IMPORTED fixtures moving admit -> fail and
+    # touch no count here; the two new native FAIL fixtures are outside this
+    # gate's population, which sweeps the pass corpus only. BY DIRECT LISTING:
+    #   ls tests/logos/pass/*.logos                      -> 2508
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
+    #   the same listing minus the glob half             -> 2317
+    # 2508 = 191 + 2317. DOOR counts unmoved: none of the four declares a
+    # container family — they are `i64` / struct / closure borrow-check shapes.
+    'corpus'            : 2508,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2313,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2317,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a
