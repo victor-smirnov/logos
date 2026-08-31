@@ -1,0 +1,1 @@
+return type mismatch: variance mismatch — expected &Foo, got &Foo — lifetime structure incompatible (check &mut invariance / contravariance rules)

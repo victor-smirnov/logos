@@ -1,0 +1,15 @@
+// rustc lifetimes/lifetime-errors/ex3-both-anon-regions-one-is-struct-4.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-08-31n, when the ELISION ENGINE + THE
+// REGION SLOT landed (src/compiler/PROBES.md). The row this file used to
+// carry in tests/logos/bc_admits.ledger is deleted in the same change.
+// port of rust ui/lifetimes/lifetime-errors/ex3-both-anon-regions-one-is-struct-4.rs
+package ex3_both_anon_regions_one_is_struct_4;
+
+struct Ref<'a, 'b> { a: &'a i64, b: &'b i64 }
+
+fn foo(y: &mut Ref, x: &i64) {
+    y.b = x;
+}
+
+fn main() -> i32 { return 0i32; }

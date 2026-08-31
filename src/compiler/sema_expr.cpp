@@ -3816,7 +3816,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // instantiate it from the arguments before comparing (probe ltmintinst /
         // ltsubstinst; empty when unarmed or when nothing changes).
         auto ipts_ = inst_call_params_(exact_fi->param_types,
-                                       exact_fi->lifetime_params, arg_exprs);
+                                       exact_fi->lifetime_params, arg_exprs,
+                                       exact_fi->ret_type);
         if (exact_fi->is_unsafe && !inside_unsafe_)
             error(std::format("call to unsafe function '{}' requires unsafe context", callee));
         if (exact_fi->is_vararg) {
@@ -4091,7 +4092,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         if (expr_ref_of(a).kind() == lir_schema::expr::Code::PackExpand)
             has_pack_expand = true;
 
-    auto ipts_ = inst_call_params_(fi.param_types, fi.lifetime_params, arg_exprs);
+    auto ipts_ = inst_call_params_(fi.param_types, fi.lifetime_params, arg_exprs,
+                                   fi.ret_type);
     if (has_pack_expand) {
         // Pass through — mono will expand and validate
     } else if (fi.is_vararg) {

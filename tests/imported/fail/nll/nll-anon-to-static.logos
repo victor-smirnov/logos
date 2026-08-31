@@ -2,6 +2,15 @@
 // (regression for issue #46983). Returning a `&u32` (elided source
 // lifetime) as `&'static u32` is rejected: caller picks the input's
 // region, which may not be 'static.
+// ⚠ `.expected` RE-PINNED 2026-08-31n (rule 14 EXEMPTION, stated). rc is 1
+// before and after; the refusal MOVED to the type checker's return-type
+// variance comparison, where the elision engine and the region slot make the
+// callee's binder and the caller's actually comparable. The text it replaces
+// is kept here so the move is readable rather than lost:
+//     lifetime mismatch
+// A `.expected` LOSS IS A HYPOTHESIS, and its LEGAL TWIN is the instrument
+// that tests it: tests/logos/pass/bc_ltcallmeet_expected_loss_twins.logos
+// carries this row's twin, one construct apart. PROBES.md 2026-08-31n.
 package nll_anon_to_static;
 
 fn foo(x: &u32) -> &'static u32 {

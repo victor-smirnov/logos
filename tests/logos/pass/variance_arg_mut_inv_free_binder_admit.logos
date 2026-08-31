@@ -1,0 +1,19 @@
+// THE ADMIT HALF of tests/logos/fail/variance_arg_mut_inv, one construct apart:
+// the region at the invariant position is the CALLEE'S OWN BINDER, so the caller
+// instantiates it — at 'static here — and the program is legal Rust. This is
+// the exact text that fail fixture carried until 2026-08-31n, when it was
+// measured as an over-refusal rather than a check.
+//
+// ⚠ THE PAIR IS THE POINT: `&mut` invariance must still refuse when the region
+// is FIXED BY THE CALLER (the fail half), and must NOT refuse when it is a free
+// callee binder (here). A round that makes this file red has widened the
+// invariance check into universally quantified regions.
+package variance_arg_mut_inv_free_binder_admit;
+
+fn takes<'a>(p: &mut &'a i32) -> i32 { return **p; }
+
+fn main() -> i32 {
+    let mut s: &'static i32 = &42i32;
+    if takes(&mut s) != 42i32 { return 1i32; }
+    return 0i32;
+}

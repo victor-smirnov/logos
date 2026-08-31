@@ -1,9 +1,0 @@
-// rustc lifetimes/lifetime-errors/ex1-return-one-existing-name-self-is-anon.rs — upstream lifetime may not live long enough
-// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.L1
-package ex1_return_one_existing_name_self_is_anon_c14b_elided_plain_param;
-struct Foo { field: i64 }
-fn pick<'a>(s: &Foo, x: &'a Foo) -> &'a Foo {
-  if true { return x; } else { return s; }
-}
-fn main() -> i32 { return 0i32; }

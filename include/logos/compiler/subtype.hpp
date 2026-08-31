@@ -52,7 +52,8 @@ namespace detail {
 // `'a == 'static` for Inv comparison purposes, so `&'static T` and
 // `&'a T` are equal at an Inv position when both directions hold.
 inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
-                                       const OutlivesAdj* adj = nullptr) {
+                                       const OutlivesAdj* adj = nullptr,
+                                       bool permissive_minted = false) {
     if (!a || !b) return a == b;
     // logos-core 1.3 (nested): `_` placeholder acts as a wildcard at any
     // position — variance/subtype walks through Vec<_> ≡ Vec<i32> by
@@ -67,6 +68,15 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
     // here" and "the same region as that other elided slot"; only the minting
     // site can tell them apart. Numbers in src/compiler/PROBES.md 2026-08-31.
     auto lt_eq = [&](std::string_view x, std::string_view y) {
+        // A MINTED REGION IS AN INFERENCE VARIABLE (probe ltregall /
+        // ltregallany — see probe.hpp). Unarmed both sides here are "" and
+        // this lambda returns TRUE; the mint replaced "" with two distinct
+        // fresh names and the equality became a refusal of the legal program
+        // `swap_ref(&mut t0, &mut t1)`. Equating two minted names restores
+        // exactly the unarmed answer for slots nobody wrote.
+        if (logos::probe::arm_mintiv() && lt_is_minted(x) && lt_is_minted(y) &&
+            (permissive_minted || logos::probe::mintiv_any()))
+            return true;
         if (x.empty() || y.empty()) {
             (void)logos::probe::on("lteqempty_site");
             if (x.empty() && y.empty() && logos::probe::on("lteqbothempty"))
@@ -87,21 +97,21 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
         case K::Ref:
         case K::MutRef: {
             if (!lt_eq(a.lifetime(), b.lifetime())) return false;
-            return types_equal_with_lifetimes(a.pointee(), b.pointee(), adj);
+            return types_equal_with_lifetimes(a.pointee(), b.pointee(), adj, permissive_minted);
         }
         case K::Ptr:
-            return types_equal_with_lifetimes(a.pointee(), b.pointee(), adj);
+            return types_equal_with_lifetimes(a.pointee(), b.pointee(), adj, permissive_minted);
         case K::Tuple: {
             auto ae = a.tuple_elems();
             auto be = b.tuple_elems();
             if (ae.size() != be.size()) return false;
             for (size_t i = 0; i < ae.size(); ++i)
-                if (!types_equal_with_lifetimes(ae[i], be[i], adj)) return false;
+                if (!types_equal_with_lifetimes(ae[i], be[i], adj, permissive_minted)) return false;
             return true;
         }
         case K::Array:
         case K::Slice:
-            return types_equal_with_lifetimes(a.elem(), b.elem(), adj);
+            return types_equal_with_lifetimes(a.elem(), b.elem(), adj, permissive_minted);
         case K::AssocType: {
             // B88: AssocType (e.g. T::Item<'a>) — compare trait/name/base
             // plus GAT lifetime_args. Two `T::Item<'a>` and `T::Item<'b>`
@@ -109,13 +119,13 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
             // them.
             if (a.trait_name() != b.trait_name()) return false;
             if (a.assoc_type_name() != b.assoc_type_name()) return false;
-            if (!types_equal_with_lifetimes(a.assoc_base(), b.assoc_base(), adj))
+            if (!types_equal_with_lifetimes(a.assoc_base(), b.assoc_base(), adj, permissive_minted))
                 return false;
             auto ag = a.gat_args();
             auto bg = b.gat_args();
             if (ag.size() != bg.size()) return false;
             for (size_t i = 0; i < ag.size(); ++i)
-                if (!types_equal_with_lifetimes(ag[i], bg[i], adj)) return false;
+                if (!types_equal_with_lifetimes(ag[i], bg[i], adj, permissive_minted)) return false;
             auto alts = a.lifetime_args();
             auto blts = b.lifetime_args();
             if (alts.size() != blts.size()) return false;
@@ -134,8 +144,8 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
             auto bp = b.closure_params();
             if (ap.size() != bp.size()) return false;
             for (size_t i = 0; i < ap.size(); ++i)
-                if (!types_equal_with_lifetimes(ap[i], bp[i], adj)) return false;
-            return types_equal_with_lifetimes(a.closure_ret(), b.closure_ret(), adj);
+                if (!types_equal_with_lifetimes(ap[i], bp[i], adj, permissive_minted)) return false;
+            return types_equal_with_lifetimes(a.closure_ret(), b.closure_ret(), adj, permissive_minted);
         }
         case K::Struct:
         case K::ZonedStruct:
@@ -147,7 +157,7 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
             auto bta = b.type_args();
             if (ata.size() != bta.size()) return false;
             for (size_t i = 0; i < ata.size(); ++i)
-                if (!types_equal_with_lifetimes(ata[i], bta[i], adj)) return false;
+                if (!types_equal_with_lifetimes(ata[i], bta[i], adj, permissive_minted)) return false;
             auto alts = a.lifetime_args();
             auto blts = b.lifetime_args();
             if (alts.size() != blts.size()) return false;
@@ -173,7 +183,8 @@ inline bool subtype_at(Variance v, TypeRef sub, TypeRef sup,
         case Variance::BiVar:  return true;
         case Variance::Co:     return subtype(sub, sup, adj, vars, depth + 1, permissive_empty);
         case Variance::Contra: return subtype(sup, sub, adj, vars, depth + 1, permissive_empty);
-        case Variance::Inv:    return types_equal_with_lifetimes(sub, sup, &adj);
+        case Variance::Inv:    return types_equal_with_lifetimes(sub, sup, &adj,
+                                                                 permissive_empty);
     }
     return false;
 }
@@ -193,6 +204,13 @@ inline bool lifetime_at(Variance v,
         // src/compiler/PROBES.md 2026-08-31.
         case Variance::Inv: {
             (void)logos::probe::on("ltinvarm_site");
+            // A MINTED REGION IS AN INFERENCE VARIABLE — the same fact as in
+            // `lt_eq` above, at the OTHER equality site (rule 3: one name, and
+            // both sites it is asked at).
+            if (logos::probe::arm_mintiv() &&
+                lt_is_minted(sub_lt) && lt_is_minted(sup_lt) &&
+                (permissive_empty || logos::probe::mintiv_any()))
+                return true;
             if (sub_lt.empty() || sup_lt.empty()) {
                 (void)logos::probe::on("ltinvempty_site");
                 if (logos::probe::on("ltmintfresh")) return false;
@@ -225,7 +243,7 @@ inline bool subtype(TypeRef sub, TypeRef sup,
     if (depth > 64) return true;  // give up gracefully — caller has compat
     if (!sub || !sup) return true;
     using K = LogosType::Kind;
-    if (detail::types_equal_with_lifetimes(sub, sup, &adj)) return true;
+    if (detail::types_equal_with_lifetimes(sub, sup, &adj, permissive_empty)) return true;
 
     // Different kinds: caller's compat check handles legitimate cross-kind
     // coercions (e.g. IntLit → i32, &mut → &, Vec → slice). Don't impose a
@@ -243,7 +261,8 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             // Co in lifetime, Inv in pointee.
             if (!detail::lifetime_at(Variance::Co, sub.lifetime(), sup.lifetime(), adj, permissive_empty))
                 return false;
-            return detail::types_equal_with_lifetimes(sub.pointee(), sup.pointee(), &adj);
+            return detail::types_equal_with_lifetimes(sub.pointee(), sup.pointee(), &adj,
+                                                      permissive_empty);
         }
         case K::Ptr: {
             // B84: raw pointer variance:
@@ -252,7 +271,8 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             // Both: no lifetime tracking on Ptr itself.
             if (sub.mut_ptr() != sup.mut_ptr()) return true;  // shape diff
             if (sub.mut_ptr())
-                return detail::types_equal_with_lifetimes(sub.pointee(), sup.pointee(), &adj);
+                return detail::types_equal_with_lifetimes(sub.pointee(), sup.pointee(), &adj,
+                                                          permissive_empty);
             return subtype(sub.pointee(), sup.pointee(), adj, vars, depth + 1, permissive_empty);
         }
         case K::Tuple: {

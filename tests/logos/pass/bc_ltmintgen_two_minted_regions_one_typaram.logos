@@ -1,3 +1,13 @@
+// ✅ RESOLVED 2026-08-31n — the question this sensor was minted for is answered:
+// A MINTED REGION IS AN INFERENCE VARIABLE, and two of them are equated where
+// `permissive_empty` already holds (a call-site coercion). This file compiles on
+// the landed tree. Its header below stands as written — including "what remains
+// after the meet is UNIFICATION of minted regions, not a lattice meet and NOT
+// CFG points", which is exactly what landed. The pair it names,
+// tests/imported/fail/borrowck/borrowck-swap-mut-base-ptr, is still REFUSED and
+// now for its own upstream E0502 reason rather than by a spurious variance
+// error that was masking it.
+//
 // ⚠ THIS FIXTURE IS A COST SENSOR FOR THE ELISION ENGINE, and it exists
 // because no population the engine was priced over could see the program it
 // pins. Measured 2026-08-31l on ONE binary, one variable apart: this compiles

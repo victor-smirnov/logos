@@ -1,0 +1,55 @@
+// THE MEET AT THE CALL — the mechanism landed 2026-08-31n, and the three legal
+// programs that paid for it. A CALLEE's lifetime binder is UNIVERSALLY
+// QUANTIFIED: offered two different caller regions at positions where every
+// occurrence of that binder is COVARIANT, it is instantiated at the region both
+// outlive. Before this landed, `build_call_lt_subst_` kept first-occurrence-
+// wins at a call because `binder_variance_` is asked with an EMPTY key —
+// nothing computed a variance for a fn's own binder — and every one of these
+// was refused with "variance mismatch — expected &'p i64, got &'q i64".
+//
+// ⚠ ITS REFUSE HALF IS ONE FIELD AWAY:
+// tests/logos/fail/bc_ltcallmeet_invariant_binder_no_meet — the same shape with
+// the binder occurring under a `&mut`'s POINTEE, where the demand is EQUALITY
+// and no meet discharges it. That pair is the whole content of the guard, and
+// NO population in this harness can tell the two apart (measured: ltcallmeet
+// and ltcallmeetany price identically, ceiling 23 / cost 3, row for row).
+package bc_ltcallmeet_callee_binder_meet;
+
+fn pick<'a>(x: &'a i64, y: &'a i64) -> &'a i64 {
+    if *x > *y { return x; }
+    return y;
+}
+
+fn use2<'p, 'q>(p: &'p i64, q: &'q i64) -> i64 {
+    let r: &i64 = pick(p, q);
+    return *r;
+}
+
+struct Pair<'a> { x: &'a i64, y: &'a i64 }
+fn mk<'a>(x: &'a i64, y: &'a i64) -> Pair<'a> { return Pair { x: x, y: y }; }
+fn use_pair<'p, 'q>(p: &'p i64, q: &'q i64) -> i64 {
+    let pr: Pair = mk(p, q);
+    return *pr.x + *pr.y;
+}
+
+// THE COVARIANT PORT of tests/imported/fail/nll/issue-67007-escaping-data: every
+// field of FnCtxt is a SHARED reference, so `FnCtxt.@1` is Co and `use_it`'s own
+// 'tcx may be shrunk to the meet of 'a and 'tcx. The re-pinned fail fixture is
+// this program with `t` moved behind a `&mut`.
+struct FnCtxt<'a, 'tcx> { a: &'a i64, t: &'tcx i64 }
+fn use_it<'a, 'tcx>(f: &FnCtxt<'a, 'tcx>, x: &'tcx i64) {}
+fn use_fcx<'a, 'tcx>(f: &FnCtxt<'a, 'tcx>) -> &'a i64 { return f.a; }
+fn ok_method<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>) {
+    let other = use_fcx(fcx);
+    use_it(fcx, other);
+}
+
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let b: i64 = 2i64;
+    if use2(&a, &b) != 2i64 { return 1i32; }
+    if use_pair(&a, &b) != 3i64 { return 2i32; }
+    let f: FnCtxt = FnCtxt { a: &a, t: &b };
+    ok_method(&f);
+    return 0i32;
+}

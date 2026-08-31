@@ -4810,9 +4810,27 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8728 -> 8729  +1
 #   NOIMPORTED   4467 -> 4468  +1
 #   TIERCOMMIT    346 ->  346  +0
-REGISTRY-ALL         8729
-REGISTRY-NOIMPORTED  4468
-REGISTRY-TIERCOMMIT  346
+# 2026-08-31n (THE ELISION ENGINE AND THE REGION SLOT LANDED — ledger 297 -> 276.
+# FOUR new native pass fixtures and ONE new native fail fixture; ONE pass fixture
+# MOVED to fail (bc_ltunmentbind_renamed_binder_hole, as its own header
+# demanded); TWENTY-ONE imported ports moved admit -> fail. PREDICTED +5 / -16 /
+# -21 before the gate was read, and the arithmetic is the prediction:
+#   ALL         +5, the five NEW native fixtures. An admit -> fail MOVE is 1:1
+#               and adds nothing.
+#   NOIMPORTED  the 21 admit ports are registered NATIVELY (the `bc_admit` tier)
+#               and their fail homes carry the `imported` label, so they LEAVE
+#               this count: -21 + 5 = -16.
+#   TIERCOMMIT  -21: `logos_00_bc_admit_*` is the tier_commit-labelled ledger,
+#               and 21 of its rows are closed.)
+# ⚠ AND ONE MORE, FOUND BY L1 AFTER THE FIRST RE-DERIVATION: the ADMIT half of
+# tests/logos/fail/variance_arg_mut_inv.logos, whose ported program Rust accepts (the
+# region at the invariant position is the CALLEE's own binder). +1 / +1 / +0.
+#   ALL          8729 -> 8735   +6
+#   NOIMPORTED   4468 -> 4453  -15
+#   TIERCOMMIT    346 ->  325  -21
+REGISTRY-ALL         8735
+REGISTRY-NOIMPORTED  4453
+REGISTRY-TIERCOMMIT  325
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

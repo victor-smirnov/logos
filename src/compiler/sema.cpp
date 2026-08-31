@@ -10863,6 +10863,40 @@ Variance variance_in_type(TypeRef t,
 
 } // anonymous namespace
 
+// ── A VARIANCE FOR A FN'S OWN BINDER (2026-08-31n) ──────────────────────────
+// `compute_variances` computes a variance per TYPE DEFINITION, keyed "pkg.Name"
+// / "@i". A FN's own lifetime binder has no entry anywhere, so the meet at a
+// call could not be guarded and `build_call_lt_subst_` kept first-occurrence-
+// wins. MEASURED at that site (`meet.call.multi.novariance`), the cost was an
+// ordinary legal program:
+//     fn pick<'a>(x:&'a i64, y:&'a i64) -> &'a i64
+//     fn use2<'p,'q>(p:&'p i64, q:&'q i64) -> i64 { let r = pick(p,q); ... }
+//
+// The obligation is the struct binder's obligation: at a COVARIANT occurrence
+// "the offered region outlives the binder" is discharged by shrinking, so a
+// binder all of whose occurrences are covariant may be instantiated at the meet
+// of the offered regions. An occurrence under `&mut`'s pointee, a `*mut`, or an
+// invariant def position composes to Inv and demands EQUALITY, which no meet
+// discharges — those keep first-wins.
+//
+// ⚠ THE RETURN TYPE IS PART OF THE ANSWER, not an optimisation. `-> Inv<'a>`
+// pins 'a at the type the caller already named, and a meet there would shrink a
+// region that is not ours to shrink. Both consumers of the map are handed the
+// same return type for exactly this reason.
+std::optional<Variance> SemaChecker::fn_binder_variance_(
+        const std::vector<TypeRef>& param_types, TypeRef ret,
+        const std::string& lt) {
+    if (lt.empty()) return std::nullopt;
+    Variance v = Variance::BiVar;
+    for (auto pt : param_types)
+        v = variance_meet(v, variance_in_type(pt, lt, /*target_is_lifetime=*/true,
+                                              variance_table_, Variance::Co));
+    if (ret)
+        v = variance_meet(v, variance_in_type(ret, lt, /*target_is_lifetime=*/true,
+                                              variance_table_, Variance::Co));
+    return v;
+}
+
 void SemaChecker::compute_variances() {
     variance_table_.clear();
     auto seed = [&](const std::string& key,

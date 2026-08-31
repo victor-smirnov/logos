@@ -1,0 +1,1 @@
+call to 'use_it' arg 2: variance mismatch — expected &'tcx i64, got &'a i64 — lifetime structure incompatible (check &mut invariance / contravariance rules)

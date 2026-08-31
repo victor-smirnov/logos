@@ -1,8 +1,0 @@
-// rustc regions/regions-infer-at-fn-not-param.rs — upstream E0621
-// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.A
-package regions_infer_at_fn_not_param;
-// port of regions/regions-infer-at-fn-not-param.rs — E0621 explicit lifetime required in type of p
-struct Parameterized1<'a> { g: &'a i64 }
-fn take1<'a>(p: Parameterized1) -> Parameterized1<'a> { return p; }
-fn main() -> i32 { return 0i32; }

@@ -1,0 +1,1 @@
+let '_s': variance mismatch — expected MyStruct<&'static Unit>, got MyStruct<&Unit> — lifetime structure incompatible (check &mut invariance / contravariance rules)

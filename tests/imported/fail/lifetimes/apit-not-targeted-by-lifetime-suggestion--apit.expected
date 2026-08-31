@@ -1,0 +1,1 @@
+assignment to 'sink.p': variance mismatch — expected &'a i64, got &i64 — lifetime structure incompatible (check &mut invariance / contravariance rules)

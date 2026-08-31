@@ -3,6 +3,15 @@
 // shelf: fail — REFUSED since 2026-08-31: two named generic regions that
 // appear in no `where` clause are UNRELATED, and both are binders of the
 // scope being checked. Was nllmoves.NEW-3.
+// ⚠ `.expected` RE-PINNED 2026-08-31n (rule 14 EXEMPTION, stated). rc is 1
+// before and after; the refusal MOVED to the type checker's return-type
+// variance comparison, where the elision engine and the region slot make the
+// callee's binder and the caller's actually comparable. The text it replaces
+// is kept here so the move is readable rather than lost:
+//     call to 'mk' arg 1: variance mismatch — expected &'a i64, got &'b i64 — lifetime structure incompatible (check &mut invariance / contravariance rules)
+// A `.expected` LOSS IS A HYPOTHESIS, and its LEGAL TWIN is the instrument
+// that tests it: tests/logos/pass/bc_ltcallmeet_expected_loss_twins.logos
+// carries this row's twin, one construct apart. PROBES.md 2026-08-31n.
 package issue_55394_ctl2;
 struct S<T> { v: T }
 fn mk<'a>(x: &'a i64) -> S<&'a i64> { return S { v: x }; }

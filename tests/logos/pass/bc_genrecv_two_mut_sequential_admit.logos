@@ -12,8 +12,20 @@
 //   - a free generic fn whose arg0 is not a receiver at all;
 //   - two DISTINCT receivers, one loan each;
 //   - a generic method that returns a borrow of its PARAMETER, not of self
-//     (`pick<T>(&self, other: &i64) -> &i64`) — is_self_borrowing declines to
-//     tie when self is not the sole borrow input, and that must hold here.
+//     (`pick<'o,T>(&self, other: &'o i64) -> &'o i64`) — is_self_borrowing
+//     declines to tie when self is not the sole borrow input, and that must
+//     hold here.
+//
+// ⚠ RE-PINNED 2026-08-31n, AND THE FIXTURE WAS THE THING THAT WAS WRONG. `pick`
+// was written `fn pick<T>(&self, other: &i64) -> &i64`, which rustc REJECTS by
+// elision rule 3 — with a `&self` parameter the elided return region is SELF's,
+// so returning `other` is E0621 — and this file therefore encoded a DIVERGENCE
+// from Rust in a line whose subject is not elision at all. The landed elision
+// engine refuses it ("return type mismatch: variance mismatch — expected &i64,
+// got &i64"), correctly. The parameter's region is now NAMED, which is how the
+// program was always meant to read, and the exemption it exists to test —
+// is_self_borrowing must not tie the receiver here — is unchanged and still
+// RUN. Do not un-name it to make some future arm green.
 package bc_genrecv_two_mut_sequential_admit;
 
 struct C { v: i64 }
@@ -22,7 +34,7 @@ impl C {
     fn get<T>(&mut self) -> &mut i64 { return &mut self.v; }
     fn peek<T>(&self) -> &i64 { return &self.v; }
     fn count<T>(&mut self) -> i64 { return self.v; }
-    fn pick<T>(&self, other: &i64) -> &i64 { return other; }
+    fn pick<'o, T>(&self, other: &'o i64) -> &'o i64 { return other; }
 }
 
 fn idref<T>(x: &T) -> &T { return x; }

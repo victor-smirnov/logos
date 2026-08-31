@@ -1,0 +1,10 @@
+// rustc lifetimes/apit-not-targeted-by-lifetime-suggestion.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-08-31n, when the ELISION ENGINE + THE
+// REGION SLOT landed (src/compiler/PROBES.md). The row this file used to
+// carry in tests/logos/bc_admits.ledger is deleted in the same change.
+package apit_not_targeted_by_lifetime_suggestion_apit;
+struct Sink<'a> { p: &'a i64 }
+fn push_apit<C: Clone>(sink: &mut Sink, s: &i64, _fun: C) { sink.p = s; }
+fn push_real_generic<T>(sink: &mut Sink, s: &i64, _fun: T) { sink.p = s; }
+fn main() -> i32 { return 0i32; }

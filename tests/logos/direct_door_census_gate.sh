@@ -1125,9 +1125,32 @@ PIN = {
     #   the same listing minus the glob half             -> 2309
     # 2500 = 191 + 2309. The ledger is UNTOUCHED at 297 and no fail fixture
     # moved, so nothing else in this gate changes.
-    'corpus'            : 2500,
+    # ⚠ RE-DERIVED at the 2026-08-31n round (THE ELISION ENGINE AND THE REGION
+    # SLOT LANDED, ledger 297 -> 276; PROBES.md 2026-08-31n): +3 / +0 / +3.
+    # FOUR new PASS fixtures and ONE that LEFT the pass corpus:
+    #   + bc_ltcallmeet_expected_loss_twins      the twelve legal twins of this
+    #                                            round's `.expected` losses
+    #   + bc_ltcallmeet_callee_binder_meet       the meet at the call, admit half
+    #   + bc_ltmintiv_minted_regions_unify_at_a_call
+    #   + bc_ltimplhdr_self_lifetime_args_from_the_header
+    #   - bc_ltunmentbind_renamed_binder_hole    MOVED to tests/logos/fail/ as
+    #                                            its own header demanded once the
+    #                                            substitution engine landed
+    # The 21 closed ledger rows are IMPORTED fixtures moving admit -> fail and
+    # touch no count here; bc_ltcallmeet_invariant_binder_no_meet is a FAIL
+    # fixture. None of the four matches `wql_*` or `deem_*`, so the whole delta
+    # lands in `nonglob`. BY DIRECT LISTING:
+    #   ls tests/logos/pass/*.logos                      -> 2504
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
+    #   the same listing minus the glob half             -> 2313
+    # 2504 = 191 + 2313. The fifth new pass fixture is
+    # variance_arg_mut_inv_free_binder_admit — the ADMIT half of
+    # tests/logos/fail/variance_arg_mut_inv, which L1 (not the `-L bc -L fail`
+    # oracle, which does not select it) caught as an OVER-REFUSAL: its region at
+    # the invariant position is the CALLEE's own binder and Rust instantiates it.
+    'corpus'            : 2504,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2309,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2313,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

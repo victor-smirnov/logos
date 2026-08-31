@@ -108,10 +108,15 @@ inline bool on(const char* name) {
 //   arm_inst   — the mint + the substitution + the four repairs (ltmintinst),
 //                and every arm built on top of it.
 //   arm_subst  — the substitution half alone, and every arm built on it.
-inline bool arm_inst() {
-    return on("ltmintinst") || on("ltmintmeet") || on("ltmeetany") ||
-           on("ltmintmeetrg") || on("ltmintmeetamb") || on("ltregmeet");
-}
+// ⚠ LANDED 2026-08-31n — `arm_inst()` IS NO LONGER A PROBE. The mint, the
+// substitution and the four repairs are the compiler's behaviour; the name is
+// kept because it is what every one of its ~20 sites reads as, and because the
+// CONTROL REVERT of this round is `git revert` of the landing commit, not the
+// removal of an env var. The arms it used to answer for — ltmintinst,
+// ltmintmeet, ltregmeet, ltcallmeet, ltregall — are retired with it. The arms
+// that still WIDEN something (ltmeetany, ltmintmeetrg, ltmintmeetamb,
+// ltcallmeetany, ltregallany) stay probes and are asked separately below.
+inline bool arm_inst() { return true; }
 inline bool arm_subst() {
     return on("ltsubstinst") || on("ltmeetco");
 }
@@ -130,8 +135,55 @@ inline bool arm_subst() {
 //   ltregmeet  — the slot + the engine (ltmintinst) + the meet under the
 //                COVARIANCE GUARD ALONE: with the region recorded the variance
 //                fixpoint no longer needs the ambient stand-in of 2026-08-31l.
-inline bool arm_regslot() {
-    return on("ltregslot") || on("ltregmeet");
-}
+// ⚠ LANDED 2026-08-31n. `&'a [T]` / `&'a str` / `&'a dyn` / `&'a Dst` RECORD
+// their region. ltregslot is retired.
+inline bool arm_regslot() { return true; }
+
+// ── THE CALL'S OWN BINDER (2026-08-31n) ─────────────────────────────────────
+// The meet exists only at the STRUCT LITERAL: `build_call_lt_subst_` censuses
+// its multi-candidate binders and then keeps first-occurrence-wins, because
+// `binder_variance_` is asked with an EMPTY key — nothing in this tree computes
+// a variance for a fn's own binder. MEASURED at that site, one hand program:
+//     fn pick<'a>(x:&'a i64, y:&'a i64) -> &'a i64
+//     fn use2<'p,'q>(p:&'p i64, q:&'q i64) -> i64 { let r = pick(p,q); ... }
+// `meet.call.multi.novariance 2`, and the program — ordinary legal Rust — is
+// REFUSED by every arm built on the engine. `arm_callmeet()` gates the meet at
+// the CALL under a variance computed for the callee's binder over its parameter
+// types AND its return type; `ltcallmeetany` is the same site with the guard
+// removed (rule 9's second name for the inner predicate, the abuse direction).
+// ⚠ LANDED 2026-08-31n. `ltcallmeetany` — the SAME site with the variance
+// guard removed — stays a probe: it is the only thing that separates the guard
+// from its absence, and NO population in the harness can (measured: ceiling 23
+// and cost 3 for both, identical row for row; only the hand program
+// tests/logos/fail/bc_ltcallmeet_invariant_binder_no_meet refuses under one
+// and compiles under the other).
+inline bool arm_callmeet() { return true; }
+inline bool callmeet_unguarded() { return on("ltcallmeetany"); }
+
+// ── A MINTED REGION IS AN INFERENCE VARIABLE (2026-08-31n) ──────────────────
+// The mint gave every elided slot a name, and the comparators' ONLY permissive
+// spelling is the empty one — so `swap_ref<T>(&mut t0, &mut t1)` binds T from
+// argument 1 with `'%1` in it and refuses argument 2's `'%2` at the invariant
+// position, printing "expected &mut &mut i64, got &mut &mut i64" because
+// neither name was written by anyone. `lt_is_minted` already carries this fact
+// for borrow_check ("a minted name reads as elided here", borrow_check.cpp);
+// the comparators never asked. Two names for the inner predicate (rule 9):
+//   ltregall     — both sides minted, AND ONLY WHERE `permissive_empty` IS
+//                  ALREADY TRUE: a CALL-SITE coercion, where the caller's
+//                  region inference is the thing that fills unresolved
+//                  lifetimes in. That is exactly where the unarmed comparator
+//                  saw "" on both sides and answered true.
+//   ltregallany  — the SAME predicate with the scope removed (and either side
+//                  minted enough), the ABUSE DIRECTION: it then also erases
+//                  the comparison inside a fn BODY — an assignment through a
+//                  `&mut`, a return type — where two elided slots are two
+//                  different regions and the mint's whole point is to say so.
+//                  MEASURED: four ledger rows are the price of the scope.
+// ⚠ LANDED 2026-08-31n, SCOPED. `ltregallany` — the same predicate with the
+// `permissive_empty` scope removed — stays a probe, and the scope is worth 4
+// ledger rows plus one CORRECT refusal (bc_genrecv's `pick<T>(&self, other:
+// &i64) -> &i64`, which rustc rejects by elision rule 3).
+inline bool arm_mintiv() { return true; }
+inline bool mintiv_any() { return on("ltregallany"); }
 
 }  // namespace logos::probe

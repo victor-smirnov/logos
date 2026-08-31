@@ -8,12 +8,22 @@
 // the caller's region inference would unify them — but a BINDER of the callee
 // is not the caller's to choose.
 //
-// ⚠ ITS ADMITTED TWIN IS ONE TOKEN AWAY:
-// tests/logos/pass/bc_ltunmentbind_renamed_binder_hole — rename the STRUCT's
-// binder from 'a to 'h and this program is missed, because the rule works by
-// NAME COLLISION and not by substitution. That file pins the hole; this one
-// pins what the rule does buy. If a later round makes the twin refuse, the twin
-// must be retired here, not silently deleted.
+// ⚠ ITS TWIN IS ONE TOKEN AWAY, AND IT NO LONGER GETS AWAY WITH IT. Renaming
+// the STRUCT's binder from 'a to 'h used to MISS this program, because the
+// 2026-08-31h rule worked by NAME COLLISION and not by substitution. The
+// elision engine landed on 2026-08-31n and the twin moved with it:
+// tests/logos/fail/bc_ltunmentbind_renamed_binder_hole is now REFUSED, with the
+// same diagnostic this file pins. Retired here rather than silently deleted, as
+// that file's own header asked.
+// ⚠ `.expected` RE-PINNED 2026-08-31n (rule 14 EXEMPTION, stated). rc is 1
+// before and after; the refusal MOVED to the type checker's return-type
+// variance comparison, where the elision engine and the region slot make the
+// callee's binder and the caller's actually comparable. The text it replaces
+// is kept here so the move is readable rather than lost:
+//     struct literal 'Holder' field 'v': variance mismatch — expected &'a i64, got &'b i64 — lifetime structure incompatible (check &mut invariance / contravariance rules)
+// A `.expected` LOSS IS A HYPOTHESIS, and its LEGAL TWIN is the instrument
+// that tests it: tests/logos/pass/bc_ltcallmeet_expected_loss_twins.logos
+// carries this row's twin, one construct apart. PROBES.md 2026-08-31n.
 package bc_ltunmentbind_two_unrelated_binders;
 
 struct Holder<'a> { v: &'a i64 }

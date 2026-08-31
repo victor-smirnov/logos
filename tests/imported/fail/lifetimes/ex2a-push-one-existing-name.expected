@@ -1,0 +1,1 @@
+assignment to 'x.r': variance mismatch — expected Ref<'a>, got Ref — lifetime structure incompatible (check &mut invariance / contravariance rules)

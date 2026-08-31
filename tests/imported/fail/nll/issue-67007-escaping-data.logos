@@ -1,10 +1,29 @@
 // rustc nll/issue-67007-escaping-data.rs — upstream (region)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: fail — REFUSED since 2026-08-31: two named generic regions that
-// appear in no `where` clause are UNRELATED, and both are binders of the
-// scope being checked. Was nllmoves.A.
+// shelf: fail — RE-PINNED 2026-08-31n, AND THE PORT WAS THE THING THAT WAS
+// WRONG. The version shelved here on 2026-08-31 had `t: &'tcx i64`, so every
+// field of FnCtxt was a SHARED reference and the compiler's own variance table
+// reads `FnCtxt.@1 = Co` (measured, `LOGOS_CENSUS`). With both binders
+// covariant, `use_it<'a,'tcx>` — whose 'tcx occurs ONLY covariantly — may be
+// instantiated at the region both arguments outlive, and the program is one
+// rustc accepts. It was refused only because a callee's universally quantified
+// binder was being compared against the caller's by FIRST-OCCURRENCE-WINS.
+//
+// Upstream's illegality is INVARIANCE, and the port had dropped it. `t` now
+// holds the `&'tcx i64` BEHIND a `&mut`, so 'tcx occurs under MutRef's pointee
+// and composes to Inv (`FnCtxt.@1 = Inv`, same instrument, one field apart) —
+// and the meet's guard refuses, with the diagnostic below UNCHANGED from what
+// this file pinned before.
+//
+// ⚠ `&'tcx mut i64` DOES NOT DO THIS: the REGION of a `&mut` is itself
+// covariant and only its POINTEE is invariant. Measured — that spelling is
+// still admitted, and it is why the twin is written this way.
+//
+// ITS LEGAL TWIN, ONE FIELD APART:
+// tests/logos/pass/bc_ltcallmeet_callee_binder_covariant_meet.logos is this
+// program with the original covariant `t: &'tcx i64`, and it must COMPILE.
 package issue_67007_escaping_data;
-struct FnCtxt<'a, 'tcx> { a: &'a i64, t: &'tcx i64 }
+struct FnCtxt<'a, 'tcx> { a: &'a i64, t: &'a mut &'tcx i64 }
 fn use_it<'a, 'tcx>(f: &FnCtxt<'a, 'tcx>, x: &'tcx i64) {}
 fn use_fcx<'a, 'tcx>(f: &FnCtxt<'a, 'tcx>) -> &'a i64 { return f.a; }
 fn bad_method<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>) {

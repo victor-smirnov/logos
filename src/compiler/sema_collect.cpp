@@ -3245,6 +3245,30 @@ void SemaChecker::collect_impl(TinyMapView node) {
         extract_impl_lt(la::TYPE_PARAMS.code);
         impl_lt_outlives = read_lifetime_outlives(node);
     }
+    // ── THE IMPL HEADER'S OWN BINDERS, NOT THE STRUCT'S SPELLING (2026-08-31n) ──
+    // Restoring Self's lifetime args from `ssi->lifetime_params` uses the
+    // STRUCT DECLARATION's binder names, which are the impl's names only by
+    // COINCIDENCE OF SPELLING. Three legal shapes are refused when they differ,
+    // each with "use of undeclared lifetime name" naming a binder the program
+    // never wrote (measured, landed tree, one construct apart):
+    //     impl<'x> Foo<'x>            → ''a'   (the struct's binder leaks in)
+    //     impl Foo<'_>                → ''s'
+    //     impl Trait for Foo<'_>      → ''a'
+    // and `impl<'a> Foo<'a>` compiles only because the two spellings collide.
+    // The impl's OWN binders are `impl_lt_params`, positionally; a slot the
+    // impl did not declare (`'_`, or nothing) is an ELIDED one and gets the
+    // empty name — which the mint fills with a fresh fn-scope region, exactly
+    // as it does for every other elided slot.
+    // ⚠ POSITIONAL, and that is a choice: `impl<'a,'b> Pair<'b,'a>` maps by
+    // ORDER OF DECLARATION, not by where each name appears in the target. Not
+    // worse than the spelling this replaces (which ignored the header
+    // entirely), and named in PROBES.md rather than assumed harmless.
+    auto self_lt_args_ = [&](const std::vector<std::string>& decl_lts) {
+        std::vector<std::string> out(decl_lts.size());
+        for (size_t i = 0; i < out.size(); ++i)
+            out[i] = (i < impl_lt_params.size()) ? impl_lt_params[i] : std::string{};
+        return out;
+    };
     // CP-cm-16 follow-up: capture impl-target pattern (set later, after target_resolved
     // is computed). RAII-style restore handled by impl_type_params_.clear() at end of
     // collect_impl — we reset impl_target_typeref_ in the same teardown block.
@@ -3514,7 +3538,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // region, `self.raw()` reads `'a` off it, and
                 // bc_ltscope_impl_legal_shapes is refused with "expected
                 // &'a i32, got &i32". Measured on t1 (PROBES.md 2026-08-31j).
-                std::vector<std::string> lt_args = ssi_found->lifetime_params;
+                std::vector<std::string> lt_args = self_lt_args_(ssi_found->lifetime_params);
                 if (!impl_tps.empty()) {
                     std::vector<TypeRef> tv_args;
                     for (auto& tp : impl_tps)
@@ -4333,19 +4357,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                     tv_args.push_back(make_typevar(tp.name));
                                 self_type = make_generic_struct(
                                     target, std::move(tv_args),
-                                    (logos::probe::arm_inst() ||
-                                     logos::probe::arm_subst())
-                                        ? ssi_def->lifetime_params
-                                        : std::vector<std::string>{},
+                                    self_lt_args_(ssi_def->lifetime_params),
                                     spkg_def);
-                            } else if (!ssi_def->lifetime_params.empty() &&
-                                       (logos::probe::arm_inst() ||
-                                        logos::probe::arm_subst())) {
+                            } else if (!ssi_def->lifetime_params.empty()) {
                                 // The SAME defect as at the impl header above,
                                 // in the synthesis of an inherited default.
                                 logos::probe::census("self.lts-restored.default");
                                 self_type = make_generic_struct(target, {},
-                                                                ssi_def->lifetime_params, spkg_def);
+                                                                self_lt_args_(ssi_def->lifetime_params),
+                                                                spkg_def);
                             } else {
                                 self_type = make_struct_type(target, spkg_def);
                             }

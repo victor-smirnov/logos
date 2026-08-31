@@ -1,8 +1,0 @@
-// rustc regions/regions-trait-object-subtyping.rs — upstream lifetime may not live long enough
-// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-N2
-// port of rust tests/ui/regions/regions-trait-object-subtyping.rs — foo3
-package regions_trait_object_subtyping;
-trait Dummy { fn dummy(self: &Self) -> i64; }
-fn foo3<'a, 'b>(x: &'a mut dyn Dummy) -> &'b mut dyn Dummy { return x; }
-fn main() -> i32 { return 0i32; }

@@ -619,7 +619,8 @@ private:
     }
     logos::compiler::StrMap<std::string> build_call_lt_subst_(const std::vector<TypeRef>& param_types,
                                            const std::vector<std::string>& lifetime_params,
-                                           const std::vector<lir::LExprPtr>& args) {
+                                           const std::vector<lir::LExprPtr>& args,
+                                           TypeRef ret = {}) {
         SemaLifetimeSubst ls;
         LtCands cands;
         std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef pt, TypeRef at) {
@@ -661,6 +662,30 @@ private:
         for (size_t i = 0; i < param_types.size() && i < args.size(); ++i)
             if (args[i]) walk(param_types[i], expr_type(args[i]));
         census_meet_("call", lifetime_params, cands, {});
+        // ── THE MEET AT THE CALL (probe ltcallmeet / ltcallmeetany) ────────
+        // A callee binder offered TWO DIFFERENT caller regions is instantiated
+        // at the region both outlive when every occurrence of that binder in
+        // the callee's signature is COVARIANT — the same obligation, and the
+        // same discharge, as the struct literal's meet above. The difference is
+        // where the variance comes from: `binder_variance_` reads the
+        // per-DEFINITION table and a fn has no entry there, so the guard is
+        // `fn_binder_variance_`, computed over the parameter types AND the
+        // return type. Without it this walk keeps first-occurrence-wins and
+        // refuses `pick(p, q)` for two distinct caller regions.
+        if (logos::probe::arm_callmeet()) {
+            for (auto& lp : lifetime_params) {
+                auto it = cands.find(lp);
+                if (it == cands.end()) continue;
+                std::unordered_set<std::string> d(it->second.begin(), it->second.end());
+                if (d.size() < 2) continue;
+                auto v = fn_binder_variance_(param_types, ret, lp);
+                const bool co = v && (*v == Variance::Co || *v == Variance::BiVar);
+                logos::probe::census(co ? "meet.call.fnvar.co" : "meet.call.fnvar.inv");
+                if (!logos::probe::callmeet_unguarded() && !co) continue;
+                logos::probe::census("meet.call.applied");
+                ls[lp] = "";     // the meet: unnamed, exactly as the literal's
+            }
+        }
         std::unordered_set<std::string> mentioned;
         const bool three_way_ = logos::probe::arm_inst() || logos::probe::arm_subst();
         if (three_way_)
@@ -698,12 +723,16 @@ private:
     // nothing to instantiate, so the caller keeps its own `param_types`.
     std::vector<TypeRef> inst_call_params_(const std::vector<TypeRef>& param_types,
                                            const std::vector<std::string>& lifetime_params,
-                                           const std::vector<lir::LExprPtr>& args) {
+                                           const std::vector<lir::LExprPtr>& args,
+                                           TypeRef ret = {}) {
         if (!(logos::probe::arm_inst() || logos::probe::arm_subst()))
             return {};
         if (param_types.empty() || lifetime_params.empty()) return {};
         logos::probe::census("inst.call.site");
-        auto ls = build_call_lt_subst_(param_types, lifetime_params, args);
+        // ⚠ ONE MAP, TWO CONSUMERS (see build_call_lt_subst_): the ARGUMENT
+        // comparison and the RETURN substitution must instantiate the callee's
+        // binders IDENTICALLY, so the return type is handed to both.
+        auto ls = build_call_lt_subst_(param_types, lifetime_params, args, ret);
         if (ls.empty()) return {};
         std::vector<TypeRef> out;
         out.reserve(param_types.size());
@@ -789,7 +818,15 @@ private:
     // and on the substitution half respectively) and ltmeetany (the SAME meet
     // with the guard removed — rule 9's second name for the inner predicate,
     // and the abuse direction of the exemption).
+    // ⚠ LANDED 2026-08-31n — the MEET is the compiler's behaviour. `ltmeetany`
+    // (no covariance guard), `ltmintmeetrg` (the region-opaque stand-in) and
+    // `ltmintmeetamb` (the ambient stand-in) stay probes: the first is the
+    // guard's abuse direction, the other two are 2026-08-31k/l's stand-ins
+    // kept as this round's controls.
     static bool probe_meet_() {
+        return true;
+    }
+    static bool probe_meet_retired_() {
         return logos::probe::on("ltmintmeet") || logos::probe::on("ltmeetco") ||
                logos::probe::on("ltmeetany") || logos::probe::on("ltmintmeetrg") ||
                logos::probe::on("ltmintmeetamb") ||
@@ -798,7 +835,9 @@ private:
                // region slot the variance fixpoint reads `&'a str` / `&'a [T]`
                // in a recorded position, so its answer IS the evidence those
                // two stand-ins were substituting for.
-               logos::probe::on("ltregmeet");
+               logos::probe::on("ltregmeet") ||
+               logos::probe::on("ltcallmeet") || logos::probe::on("ltcallmeetany") ||
+               logos::probe::on("ltregall") || logos::probe::on("ltregallany");
     }
     static bool probe_meet_unguarded_() { return logos::probe::on("ltmeetany"); }
     // PROBE ltmintmeetrg — THE SECOND INNER PREDICATE (rule 9). Measured on
@@ -1106,7 +1145,7 @@ private:
                                 TypeRef ret) {
         if (!ret || lifetime_params.empty()) return ret;
         logos::probe::census("subst.call.site");
-        auto ls = build_call_lt_subst_(param_types, lifetime_params, args);
+        auto ls = build_call_lt_subst_(param_types, lifetime_params, args, ret);
         return ls.empty() ? ret : subst_type_sema(ret, {}, ls);
     }
 
@@ -5546,6 +5585,14 @@ private:
     // Populates variance_table_ keyed by "pkg.Name" with VarianceMap entries
     // using `#i` (type param i) and `@i` (lifetime param i) as keys.
     void compute_variances();
+
+    // THE CALL'S OWN BINDER (2026-08-31n). `compute_variances` answers per TYPE
+    // DEFINITION; a fn's binder has no entry, which is why the meet at the call
+    // could not be guarded. Composes `variance_in_type` over the parameter
+    // types and the return type at ambient Co. Defined beside compute_variances
+    // in sema.cpp — `variance_in_type` is file-local there.
+    std::optional<Variance> fn_binder_variance_(const std::vector<TypeRef>& param_types,
+                                                TypeRef ret, const std::string& lt);
 
     std::vector<std::string> read_lifetime_params(writ::TinyMapView node);
     // B65: read declared outlives bounds. Returns (long, short) pairs from

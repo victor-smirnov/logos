@@ -1,3 +1,16 @@
+// ✅ RESOLVED 2026-08-31n — THIS FILE COMPILES ON THE LANDED TREE, and the
+// reason is not the deposit its header predicts. The slot's "cost" was NOT a
+// defect the slot introduced: the THIN twin, one token apart —
+//     struct A<'r>{p:&'r i64}  fn make_a<'r>(p:&'r i64)->A<'r>
+//     fn make_make_a<'a>(bb:&'a i64)->A<'a>{ return make_a(bb); }
+// — is refused by the compiler that predates the slot, with the identical
+// message. The slot only removed the accident that hid it for `&dyn`: with the
+// region dropped, `A`'s binder read BiVar and `lifetime_at` returns true
+// unconditionally for BiVar. The repair is the ELISION ENGINE's substitution of
+// the callee's binder, which fixes BOTH shapes, and it landed with the slot.
+// The value-side deposit (the unsize coercion recording a region) was NOT
+// needed and was NOT made. PROBES.md 2026-08-31n §"THE WALL THAT WASN'T".
+//
 // COST SENSOR for the REGION SLOT (src/compiler/PROBES.md 2026-08-31m).
 //
 // THE TWIN OF AN `.expected` LOSS, and the instrument that found it.

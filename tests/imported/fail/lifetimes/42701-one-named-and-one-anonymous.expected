@@ -1,1 +1,1 @@
-lifetime mismatch: return type has lifetime 'a but 'x' has lifetime (elided)
+return type mismatch: variance mismatch — expected &'a i32, got &i32 — lifetime structure incompatible (check &mut invariance / contravariance rules)

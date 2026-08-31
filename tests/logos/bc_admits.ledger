@@ -1046,7 +1046,29 @@
 #   illegal). What closes it is SUBSTITUTION — the same mint-and-unify engine the
 #   subtype.hpp minting round (ceiling 157, 650 legal refusals) was declined for.
 #   Two independent measurements now name it. See PROBES.md 2026-08-31h.
-# TOTAL 297
+# 2026-08-31n — 297 -> 276, TWENTY-ONE ROWS. THE ELISION ENGINE AND THE REGION
+#   SLOT LANDED TOGETHER, plus two mechanisms this round measured and built:
+#   the MEET AT THE CALL under a variance computed for the CALLEE'S OWN BINDER
+#   (`fn_binder_variance_`), and A MINTED REGION IS AN INFERENCE VARIABLE at the
+#   two equality sites, scoped to `permissive_empty` (call-site coercions only).
+#   Every one of the 21 is refused for a LIFETIME reason and every header names
+#   an upstream lifetime rejection; the diagnostics are pinned in full under
+#   tests/imported/fail/.
+# ⚠ TWO ROWS THE ARM CLOSED ARE **NOT** COUNTED HERE, ON PURPOSE. issue-103582-
+#   hint-type-alias and issue-55394--b were refused with "use of undeclared
+#   lifetime name ''a'" — a binder neither program writes, leaked out of the
+#   STRUCT's declaration by the Self-type restore. Three legal programs
+#   (`impl<'x> Foo<'x>`, `impl Foo<'_>`, `impl Trait for Foo<'_>`) were refused
+#   by the same message, so the restore was repaired to use the IMPL HEADER's
+#   own binders and those two rows stay OPEN. A row closed by a wrong
+#   diagnostic is not closed.
+# ⚠ AND ONE MORE STAYS OPEN BY MEASUREMENT, NOT BY OVERSIGHT:
+#   propagate-fail-to-approximate-longer-no-bounds is `demand_y<'x,'y>(cell_x,
+#   cell_y, y)` called as `demand_y(a, b, a)` — 'y is the CALLEE's binder, every
+#   occurrence of it is covariant, and the meet instantiates it at the region
+#   both arguments outlive. The port dropped upstream's closure `where` bound,
+#   so what is left is a program rustc accepts. It is listed, not closed.
+# TOTAL 276
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1087,7 +1109,6 @@ borrowck-unboxed-closures bck.A tests/imported/admit/borrowck/borrowck-unboxed-c
 borrowed-data-escapes-closure-148392 bck.C tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392
 borrowed-mut-pointer-assign-overflow-off bck.B tests/imported/admit/borrowck/borrowed-mut-pointer-assign-overflow-off
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
-cannot-assign-borrowed-ref-in-slice bck.A tests/imported/admit/borrowck/cannot-assign-borrowed-ref-in-slice
 deref-field-pattern-ref-suggestion-issue-146995 bck.B tests/imported/admit/borrowck/deref-field-pattern-ref-suggestion-issue-146995
 issue-101119 bck.C tests/imported/admit/borrowck/issue-101119
 issue-111554--b bck.A tests/imported/admit/borrowck/issue-111554--b
@@ -1136,7 +1157,6 @@ issue-38868 lifereg.NEW-1 tests/imported/admit/dropck/issue-38868
 reject-specialized-drops-8142 lifereg.L3 tests/imported/admit/dropck/reject-specialized-drops-8142
 
 # ── tests/ui/lifetimes ─────────────────────────────────────────
-apit-not-targeted-by-lifetime-suggestion--apit lifereg.B tests/imported/admit/lifetimes/apit-not-targeted-by-lifetime-suggestion--apit
 borrowck-let-suggestion lifereg.D tests/imported/admit/lifetimes/borrowck-let-suggestion
 constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error
 copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions
@@ -1147,29 +1167,18 @@ e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/life
 elided-lifetime-mismatch-in-self-type lifereg.R18 tests/imported/admit/lifetimes/elided-lifetime-mismatch-in-self-type
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn
 elision-error-omits-lifetimeless-params lifereg.N3 tests/imported/admit/lifetimes/elision-error-omits-lifetimeless-params
-ex1-return-one-existing-name-early-bound-in-struct lifereg.L1 tests/imported/admit/lifetimes/ex1-return-one-existing-name-early-bound-in-struct
-ex1-return-one-existing-name-if-else-using-impl-3 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex1-return-one-existing-name-if-else-using-impl-3
-ex1-return-one-existing-name-return-type-is-anon lifereg.N3 tests/imported/admit/lifetimes/ex1-return-one-existing-name-return-type-is-anon
-ex1-return-one-existing-name-self-is-anon--c14b-elided-plain-param lifereg.L1 tests/imported/admit/lifetimes/ex1-return-one-existing-name-self-is-anon--c14b-elided-plain-param
-ex1-return-one-existing-name-self-is-anon--self-is-anon lifereg.L1 tests/imported/admit/lifetimes/ex1-return-one-existing-name-self-is-anon--self-is-anon
 ex2a-push-one-existing-name-2 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex2a-push-one-existing-name-2
 ex2a-push-one-existing-name-early-bound lifereg.A tests/imported/admit/lifetimes/ex2a-push-one-existing-name-early-bound
-ex2a-push-one-existing-name lifereg.NEW-N1 tests/imported/admit/lifetimes/ex2a-push-one-existing-name
 ex2b-push-no-existing-names lifereg.A tests/imported/admit/lifetimes/ex2b-push-no-existing-names
 ex2c-push-inference-variable lifereg.NEW-R19 tests/imported/admit/lifetimes/ex2c-push-inference-variable
 ex2e-push-inference-variable-3 lifereg.A tests/imported/admit/lifetimes/ex2e-push-inference-variable-3
-ex3-both-anon-regions-2 lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions-2
 ex3-both-anon-regions-3 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex3-both-anon-regions-3
 ex3-both-anon-regions-both-are-structs-2 lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs-2
 ex3-both-anon-regions-both-are-structs-earlybound-regions lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs-earlybound-regions
 ex3-both-anon-regions-both-are-structs-latebound-regions lifereg.NEW-R19 tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs-latebound-regions
 ex3-both-anon-regions-both-are-structs lifereg.N3 tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs
 ex3-both-anon-regions-latebound-regions lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions-latebound-regions
-ex3-both-anon-regions-one-is-struct-3 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex3-both-anon-regions-one-is-struct-3
-ex3-both-anon-regions-one-is-struct-4 lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions-one-is-struct-4
 ex3-both-anon-regions-one-is-struct-5 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex3-both-anon-regions-one-is-struct-5
-ex3-both-anon-regions-one-is-struct lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions-one-is-struct
-ex3-both-anon-regions-self-is-anon lifereg.N3 tests/imported/admit/lifetimes/ex3-both-anon-regions-self-is-anon
 ex3-both-anon-regions-using-fn-items lifereg.R2 tests/imported/admit/lifetimes/ex3-both-anon-regions-using-fn-items
 ex3-both-anon-regions-using-impl-items lifereg.R18 tests/imported/admit/lifetimes/ex3-both-anon-regions-using-impl-items
 ex3-both-anon-regions-using-trait-objects lifereg.R2 tests/imported/admit/lifetimes/ex3-both-anon-regions-using-trait-objects
@@ -1178,7 +1187,6 @@ explicit-lifetime-required-14285 lifereg.R13 tests/imported/admit/lifetimes/expl
 explicit-self-lifetime-mismatch lifereg.NEW-N3 tests/imported/admit/lifetimes/explicit-self-lifetime-mismatch
 issue-103582-hint-type-alias lifereg.A tests/imported/admit/lifetimes/issue-103582-hint-type-alias
 issue-107988 lifereg.R17 tests/imported/admit/lifetimes/issue-107988
-issue-17728 lifereg.NEW-L2 tests/imported/admit/lifetimes/issue-17728
 issue-19707--b-bound lifereg.R17 tests/imported/admit/lifetimes/issue-19707--b-bound
 issue-19707--fn-type-elision lifereg.R17 tests/imported/admit/lifetimes/issue-19707--fn-type-elision
 issue-55796--t09 lifereg.N1 tests/imported/admit/lifetimes/issue-55796--t09
@@ -1253,7 +1261,6 @@ issue-51191 nllmoves.A tests/imported/admit/nll/issue-51191
 issue-51268 nllmoves.C tests/imported/admit/nll/issue-51268
 issue-52059-report-when-borrow-and-drop-conflict nllmoves.E tests/imported/admit/nll/issue-52059-report-when-borrow-and-drop-conflict
 issue-52086 nllmoves.B tests/imported/admit/nll/issue-52086
-issue-52113 nllmoves.R13 tests/imported/admit/nll/issue-52113
 issue-52663-span-decl-captured-variable nllmoves.C tests/imported/admit/nll/issue-52663-span-decl-captured-variable
 issue-53773 nllmoves.E tests/imported/admit/nll/issue-53773
 issue-54124 nllmoves.NEW-L1 tests/imported/admit/nll/issue-54124
@@ -1273,7 +1280,6 @@ method-ufcs-inherent-3 nllmoves.NEW-1 tests/imported/admit/nll/method-ufcs-inher
 method-ufcs-inherent-4 nllmoves.NEW-S7-1 tests/imported/admit/nll/method-ufcs-inherent-4
 mir-check-cast-unsize nllmoves.NEW-N3 tests/imported/admit/nll/mir-check-cast-unsize
 move-errors--d nllmoves.B tests/imported/admit/nll/move-errors--d
-normalization-self nllmoves.NEW-N2 tests/imported/admit/nll/normalization-self
 normalization nllmoves.NEW-N1 tests/imported/admit/nll/normalization
 pattern-substs-on-brace-enum-variant nllmoves.NEW-L1 tests/imported/admit/nll/pattern-substs-on-brace-enum-variant
 pattern-substs-on-brace-struct nllmoves.NEW-1 tests/imported/admit/nll/pattern-substs-on-brace-struct
@@ -1310,7 +1316,6 @@ region-borrow-params-issue-29793-big lifereg.C tests/imported/admit/regions/regi
 region-borrow-params-issue-29793-small lifereg.C tests/imported/admit/regions/region-borrow-params-issue-29793-small
 region-bound-on-closure-outlives-call lifereg.C tests/imported/admit/regions/region-bound-on-closure-outlives-call
 region-bounds-on-objects-and-type-parameters lifereg.NEW-N4 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
-region-invariant-static-error-reporting lifereg.NEW-5 tests/imported/admit/regions/region-invariant-static-error-reporting
 region-object-lifetime-in-coercion lifereg.A tests/imported/admit/regions/region-object-lifetime-in-coercion
 regions-addr-of-self lifereg.A tests/imported/admit/regions/regions-addr-of-self
 regions-addr-of-upvar-self--c-control-noclosure lifereg.NEW-R20 tests/imported/admit/regions/regions-addr-of-upvar-self--c-control-noclosure
@@ -1335,16 +1340,13 @@ regions-free-region-ordering-callee-4 lifereg.NEW-N2 tests/imported/admit/region
 regions-free-region-ordering-caller lifereg.NEW-L3 tests/imported/admit/regions/regions-free-region-ordering-caller
 regions-free-region-ordering-caller1 lifereg.D tests/imported/admit/regions/regions-free-region-ordering-caller1
 regions-glb-free-free--e-field-lifetime lifereg.NEW-R19 tests/imported/admit/regions/regions-glb-free-free--e-field-lifetime
-regions-glb-free-free--f-control-whole lifereg.NEW-R19 tests/imported/admit/regions/regions-glb-free-free--f-control-whole
 regions-glb-free-free--glb-free-free lifereg.NEW-R19 tests/imported/admit/regions/regions-glb-free-free--glb-free-free
 regions-implied-bounds-projection-gap-1 lifereg.N1 tests/imported/admit/regions/regions-implied-bounds-projection-gap-1
 regions-in-enums-anon lifereg.R17 tests/imported/admit/regions/regions-in-enums-anon
 regions-in-structs-anon lifereg.NEW-L1 tests/imported/admit/regions/regions-in-structs-anon
-regions-infer-at-fn-not-param lifereg.A tests/imported/admit/regions/regions-infer-at-fn-not-param
 regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self
 regions-infer-bound-from-trait lifereg.L2 tests/imported/admit/regions/regions-infer-bound-from-trait
 regions-infer-call-3 lifereg.C tests/imported/admit/regions/regions-infer-call-3
-regions-infer-paramd-indirect lifereg.L1 tests/imported/admit/regions/regions-infer-paramd-indirect
 regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
 regions-outlives-projection-container-wc lifereg.NEW-L3 tests/imported/admit/regions/regions-outlives-projection-container-wc
@@ -1354,7 +1356,6 @@ regions-proc-bound-capture lifereg.N1 tests/imported/admit/regions/regions-proc-
 regions-ret-borrowed lifereg.C tests/imported/admit/regions/regions-ret-borrowed
 regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-bound
 regions-steal-closure lifereg.D tests/imported/admit/regions/regions-steal-closure
-regions-trait-object-subtyping lifereg.NEW-N2 tests/imported/admit/regions/regions-trait-object-subtyping
 regions-var-type-out-of-scope lifereg.D tests/imported/admit/regions/regions-var-type-out-of-scope
 resolve-re-error-ice lifereg.R18 tests/imported/admit/regions/resolve-re-error-ice
 wf-bound-region-in-local-issue-115175--b-static-bound-call lifereg.NEW-R20 tests/imported/admit/regions/wf-bound-region-in-local-issue-115175--b-static-bound-call

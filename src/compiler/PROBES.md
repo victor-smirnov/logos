@@ -7391,3 +7391,382 @@ Files: `include/logos/compiler/probe.hpp` (`arm_regslot`),
 Slice / DstRef / TaggedPtr arms; `compute_variances`' census; the six
 `resolve_type` sites and two `subst_type_sema` ones),
 `tests/logos/pass/bc_ltregslot_dyn_field_coerced_arg.logos` (+ `.expected`).
+
+# ═══ ROUND 2026-08-31n — THE ELISION ENGINE AND THE REGION SLOT LAND ════════
+
+**LEDGER 297 → 276. TWENTY-ONE ROWS.** ⚠ WHICH BUILD EACH NUMBER RODE: every
+gate below is `logosc 0.42.0-preview+main-gb204fe82-dirty.20260831T165634Z (libs
+0b6d8ebdae50d23d)`, gate-db build 266, READ via `scripts/build_hash.py build`.
+The final `cmake --build` before the commit reports `1991911e2daa5230` with NO
+source changed — logosc and the stdlib archives both carry a build TIMESTAMP, so
+a relink moves the hash. Not chased; named. L1 **746/746**, gates tier 325, the
+enumerator's 12 684 smoke cases green; **the full L4 sweep, `FORCE=1`,
+4453/4453** and **`L4 bc`, `FORCE=1`, 1384/1384** (2 disabled, gate-db build
+266). All four stdlib layers compile.
+Opening baselines, READ from the store on the unarmed pre-round tree
+(gate-db build 256): `-R '^logos_00_bc_admit_'` 297/297, `-L bc` 1951 passed /
+0 failed / 2 disabled.
+
+## 0. THE WALL THAT WASN'T — AND THE CONTROL THAT DISSOLVED IT
+
+2026-08-31m stopped at ONE legal program: `ltregslot` refuses
+`bc_ltregslot_dyn_field_coerced_arg`, and the named cause was the VALUE SIDE —
+the unsize coercion `&'a B → &'a dyn X` recording no region. This round's first
+measurement was the THIN TWIN of that program, one token apart:
+
+    struct A<'r>{ p: &'r dyn X }   … refused under ltregslot, admitted unarmed
+    struct A<'r>{ p: &'r i64   }   … REFUSED UNARMED, on the pre-round binary,
+                                     with the IDENTICAL message
+        "return type mismatch: variance mismatch — expected A<'a>, got A<'r>"
+
+⇒ **THE SLOT INTRODUCED NOTHING. It removed an accident that was hiding a
+pre-existing refusal for one more shape**: with the region thrown away, `A`'s
+binder read BiVar and `lifetime_at` returns TRUE unconditionally for BiVar. The
+repair is the callee-binder SUBSTITUTION the engine already had, which fixes
+BOTH shapes — and it is why `ltregmeet` admitted the program all along. No
+value-side deposit was needed and none was made.
+
+⚠ **A TWIN INSTRUMENT NEEDS ITS OWN CONTROL TWIN.** 2026-08-31m's twin varied
+ONE variable (delete the illegality) and read the result as a cost of the slot.
+Varying the OTHER variable — the field's type, `&'r dyn X` → `&'r i64` — says
+the cost is not the slot's. Same rule as the harness's own: an instrument's
+reading is a hypothesis until the second variable is moved.
+
+## 1. WHAT LANDED, AND THE TWO MECHANISMS THIS ROUND HAD TO BUILD
+
+    THE REGION SLOT (2026-08-31m)      `&'a [T]`/`&'a str`/`&'a dyn`/`&'a Dst`
+                                       record their region at resolve_type
+    THE ELISION ENGINE (31i/j/k/l)     mint · substitute · the four repairs ·
+                                       the meet at the STRUCT LITERAL
+    ── built here, because the engine as priced refuses legal programs ──
+    THE MEET AT THE CALL               a callee binder offered TWO caller
+                                       regions is instantiated at their meet
+                                       when every occurrence of it in the
+                                       callee's signature is COVARIANT
+    A MINTED REGION IS AN INFERENCE     two minted names are equal where
+    VARIABLE, SCOPED                    `permissive_empty` already holds
+    THE IMPL HEADER'S OWN BINDERS       Self's lifetime args come from the
+                                       IMPL, not from the STRUCT's spelling
+
+`arm_inst()`, `arm_regslot()`, `arm_callmeet()`, `arm_mintiv()` and
+`probe_meet_()` now `return true`. ⚠ `probe_meet_retired_()` beside the last of
+them is UNCALLED ON PURPOSE and is not dead code by accident: it is the written
+record of exactly which arm names the landed meet used to answer for, kept where
+the predicate lives rather than only in this file, and it is named so that
+nothing mistakes it for a live gate. The arms they answered for — ltmintinst,
+ltmintmeet, ltregslot, ltregmeet, ltcallmeet, ltregall — are RETIRED. The arms
+that still WIDEN something are kept as probes and are this round's controls:
+`ltmeetany`, `ltmintmeetrg`, `ltmintmeetamb`, **`ltcallmeetany`**,
+**`ltregallany`**. The control revert is `git revert` of the landing commit.
+
+## 2. ⚠ THE ENGINE AS PRICED REFUSED ORDINARY RUST — AND NO POPULATION SAW IT
+
+    fn pick<'a>(x:&'a i64, y:&'a i64) -> &'a i64 { … }
+    fn use2<'p,'q>(p:&'p i64, q:&'q i64) -> i64 { let r = pick(p,q); return *r; }
+
+`ltmintinst`, `ltmintmeetamb`, `ltregmeet` — every arm ever priced in this arc —
+REFUSE this, "call to 'pick' arg 2: variance mismatch — expected &'p i64, got
+&'q i64". Unarmed rc 0. It is bread-and-butter Rust: 'a is instantiated at the
+intersection. PROVEN LIVE AT THE SITE before a line was written, by the census
+that was already there:
+
+    meet.call.binder 2 · meet.call.multi 2 · meet.call.multi.novariance 2
+
+**`binder_variance_` is asked with an EMPTY KEY at a call**, because
+`compute_variances` answers per TYPE DEFINITION and a fn's own binder has no
+entry anywhere — 2026-08-31k named that as a coverage gap ("no variance exists
+for a fn's own binder"). Measured here, it is not a gap: it is a LEGAL-PROGRAM
+REFUSAL, and the three populations price it 0 because the corpus contains no
+such program.
+
+`fn_binder_variance_` (src/compiler/sema.cpp, beside `compute_variances`)
+composes `variance_in_type` over the parameter types AND the return type at
+ambient Co. The return type is part of the answer, not an optimisation: `->
+Inv<'a>` pins 'a at the type the caller already named. Both consumers of the map
+(`inst_call_params_`, `subst_call_ret_lts_`) are handed the same return type, or
+the arguments and the result would be instantiated differently.
+
+**THE GUARD'S ABUSE DIRECTION, AND WHAT MEASURED IT.** `ltcallmeetany` is the
+same site with the guard removed. Over all three populations it is
+INDISTINGUISHABLE from the guarded arm — ceiling 23, cost 3, the same rows, a
+byte-identical 1056-row fail table. One hand program separates them:
+
+    struct FnCtxt<'a,'tcx>{ a:&'a i64, t:&'a mut &'tcx i64 }   'tcx under a
+    fn use_it<'a,'tcx>(f:&FnCtxt<'a,'tcx>, x:&'tcx i64) {}     `&mut` POINTEE
+    fn bad<'a,'tcx>(fcx:&FnCtxt<'a,'tcx>){ use_it(fcx, use_fcx(fcx)); }
+
+    guarded (landed)  REFUSED   `var.…FnCtxt.@1=Inv`, meet.call.fnvar.inv 2
+    ltcallmeetany     COMPILED
+
+It is in the tree as `tests/logos/fail/bc_ltcallmeet_invariant_binder_no_meet`
+with its admit half beside it. ⚠ AND `&'tcx mut i64` IS NOT THE INVARIANT
+SPELLING — the REGION of a `&mut` is itself covariant, only its POINTEE is
+invariant. That was measured the wrong way round first: the "invariant twin"
+compiled under both arms and read as a refutation of the guard until the
+variance table was asked directly.
+
+## 3. A MINTED REGION IS AN INFERENCE VARIABLE — AND THE SCOPE IS THE MECHANISM
+
+2026-08-31l's own cost sensor, `bc_ltmintgen_two_minted_regions_one_typaram`,
+was still a cost. `swap_ref<T>(&mut t0, &mut t1)` binds T from argument 1 —
+minted regions and all — and refuses argument 2 for carrying a different minted
+name: "expected &mut &mut i64, got &mut &mut i64", both sides spelled alike
+because nobody wrote either. `lt_is_minted` has carried this fact for
+borrow_check since the minting round ("a minted name reads as elided here"); the
+comparators never asked.
+
+    ltregall     both sides minted, ONLY where `permissive_empty` is true
+                 (a CALL-SITE coercion — where the caller's region inference is
+                 the thing that fills unresolved lifetimes in, and where the
+                 unarmed comparator saw "" on both sides and said true)
+    ltregallany  the same predicate with the scope removed — THE ABUSE DIRECTION
+
+    THE SCOPE IS WORTH, MEASURED, ceiling 23 → 19 and one CORRECT refusal:
+      cannot-assign-borrowed-ref-in-slice   assignment through a `&mut`, E0506
+      ex3-both-anon-regions-2               assignment to `p.0`
+      ex3-both-anon-regions-self-is-anon    return type
+      issue-17728                           return type of a default method
+      + bc_genrecv's `pick<T>(&self, other:&i64) -> &i64`, which rustc REJECTS
+
+Every one of the five is a FN-BODY coercion; the swap is a CALL-SITE one. The
+axis was already in the tree — `permissive_empty` is documented as "true at
+call-site coercions where the caller's region inference fills in unresolved
+lifetimes; false at fn-body coercions" — and had simply never been threaded into
+`types_equal_with_lifetimes`.
+
+## 4. PREDICTED vs MEASURED, AS SETS, BOTH WAYS (rule 6)
+
+`predictions-regall.txt`, written before the first pricing run.
+
+    CEILING(ltregall)  PREDICTED 24, "the same set as ltregmeet's, and the
+      direction of the risk is named: both new mechanisms are PERMISSIVE and can
+      only LOSE rows". MEASURED **23** on build 1f52c82aeaec1458.
+        ltregmeet ∖ ltregall = { propagate-fail-to-approximate-longer-no-bounds }
+        ltregall ∖ ltregmeet = ∅
+      That row is `demand_y<'x,'y>(cell_x,cell_y,y)` called `demand_y(a,b,a)` —
+      the CALLEE's binder, covariant everywhere, meet-instantiable. The port
+      dropped upstream's closure `where` bound; what is left is a program rustc
+      accepts. It stays LISTED and OPEN, named in the ledger.
+    COST(pass)         PREDICTED 2 by name and PREDICTED the sensor would
+      vanish. MEASURED exactly 2 — bc_genrecv_two_mut_sequential_admit and
+      bc_ltunmentbind_renamed_binder_hole — and
+      bc_ltmintgen_two_minted_regions_one_typaram COMPILES. Both survivors are
+      FIXTURES THAT ASKED TO CHANGE, and both changed (§6).
+    COST(fail)         PREDICTED 12 `.expected` losses, 0 rc changes, and "ANY
+      rc 1→0 IS AN UN-REFUSAL AND REFUTES THE ARM". MEASURED 12 losses, 1
+      text-only — and ONE rc 1→0, `issue-67007-escaping-data` (§5).
+    STDLIB             PREDICTED green. MEASURED green, all four layers.
+    ABUSE ARMS         PREDICTED "both cost something, and if either costs
+      NOTHING its guard is not load-bearing and I must say so". MEASURED:
+      `ltregallany` costs 4 ledger rows + 1 correct refusal — load-bearing.
+      **`ltcallmeetany` COSTS NOTHING IN ANY POPULATION** — and its guard is
+      still load-bearing, which only a hand program could show (§2). The
+      prediction's own disjunct is what made that reportable instead of
+      comfortable.
+    THE TWIN BATTERY   PREDICTED and MEASURED 18/18, then 25/25 as it grew.
+
+## 5. ⚠ THE UN-REFUSAL, AND WHY THE FIXTURE WAS THE THING THAT WAS WRONG
+
+`tests/imported/fail/nll/issue-67007-escaping-data`, rc 1 → 0. Its port:
+
+    struct FnCtxt<'a,'tcx>{ a:&'a i64, t:&'tcx i64 }      BOTH fields SHARED refs
+    fn use_it<'a,'tcx>(f:&FnCtxt<'a,'tcx>, x:&'tcx i64) {}
+
+Read DIRECTLY off the compiler's own variance table (`LOGOS_CENSUS`,
+`var.<pkg.Def>.@i`), one field apart:
+
+    t: &'tcx i64          FnCtxt.@1 = Co    ⇒ the meet applies, admitted
+    t: &'a mut &'tcx i64  FnCtxt.@1 = Inv   ⇒ the meet is refused, rc 1
+
+`use_it`'s 'tcx is UNIVERSALLY QUANTIFIED and occurs only covariantly, so it is
+instantiable at the region both arguments outlive: rustc accepts the ported
+program. Upstream's illegality is INVARIANCE (a `TyCtxt<'tcx>`), and the port
+had dropped it. The fixture was shelved `fail` on 2026-08-31 by the
+`current_lt_binders()` narrowing, whose stated reason — "two named generic
+regions that appear in no `where` clause are UNRELATED, and both are binders of
+the scope being checked" — is FALSE here: 'tcx at that call is a binder of
+`use_it`, not of `bad_method`. **A rule that cannot tell a callee's binder from
+the caller's shelved a legal program as illegal.**
+
+RE-PINNED, not weakened: the port now carries upstream's invariance, the
+`.expected` is UNCHANGED (the same diagnostic, byte for byte, refuses it), and
+the covariant original is in `tests/logos/pass/bc_ltcallmeet_callee_binder_meet`
+as its legal twin. ⚠ There is no rustc on this box; the argument is structural
+and is carried by the compiler's own lattice plus a one-field control, and it is
+labelled as such.
+
+## 6. THE FIXTURES THAT ASKED TO CHANGE, AND THE ONE L1 CAUGHT
+
+ 1. `bc_ltunmentbind_renamed_binder_hole` — its own header: "WHEN THE
+    SUBSTITUTION ENGINE LANDS THIS FILE MUST MOVE TO fail/." MOVED, with the
+    original text kept verbatim above the new note, and its one-token pair
+    `bc_ltunmentbind_two_unrelated_binders` updated to say the hole is closed.
+ 2. `bc_genrecv_two_mut_sequential_admit` — `fn pick<T>(&self, other:&i64) ->
+    &i64` is E0621 upstream (with `&self`, the elided return region is SELF's).
+    The fixture encoded a DIVERGENCE in a line whose subject is not elision at
+    all. The parameter's region is NAMED (`pick<'o,T>`) and the exemption the
+    file exists to test is unchanged and still RUN.
+ 3. **`tests/logos/fail/variance_arg_mut_inv` — AN OVER-REFUSAL, AND THE
+    `-L bc -L fail` ORACLE NEVER SELECTED IT.** It pinned
+    `takes<'a>(&mut &'a i32)` fed a `&mut &'static i32` and claimed Rust rejects
+    it. Rust accepts: 'a is `takes`'s OWN binder, instantiated at the call. The
+    invariance check is real and still bites when the region is FIXED BY THE
+    CALLER, which is what the fixture now pins:
+        fn wants_static(p:&mut &'static i32)->i32
+        fn f<'a>(p:&mut &'a i32)->i32 { return wants_static(p); }   REFUSED
+    Its admit half is `tests/logos/pass/variance_arg_mut_inv_free_binder_admit`.
+    ⚠ **A FOURTH POPULATION HOLE, NAMED**: `fail_text_oracle.py` selects
+    `-L bc -L fail`, and a NATIVE fail fixture without the `bc` label is outside
+    it by construction. L1 is what caught this. The oracle's own header warns
+    that a selection can exclude a shape; this is that, one label over.
+ 4. **AND ITS SPEC-TIER DUPLICATE, WHICH ONLY THE 4453-TEST L4 SWEEP SAW.**
+    `tests/spec/fail/coerce_diag_1__variance-gate-on-compatible` is the same
+    program under `// @rule coerce.variance.gate-on-compatible`, and neither L1,
+    nor `L4 bc`, nor any of the three pricing populations selects it — `L4 bc`
+    was 1384/1384 green with this fixture red one filter away. Re-pinned to the
+    caller-fixed shape, which is what the rule's own text describes:
+    "`permissive=true` (call-site arg-passing) forwards unresolved lifetime
+    relations to the caller's region inference". ⇒ **ONE WRONG FIXTURE HAD TWO
+    HOMES AND FOUR SELECTIONS MISSED BOTH.**
+
+## 7. THE TWO ROWS GIVEN BACK ON PURPOSE — A ROW CLOSED BY A WRONG DIAGNOSTIC
+
+The arm closed 23; the landed tree closes 21. `issue-103582-hint-type-alias` and
+`issue-55394--b` were being refused with **"use of undeclared lifetime name
+''a'"** — a binder neither program writes. Both use `'_` in an impl header, and
+the Self-type restore built Self's lifetime args from `ssi->lifetime_params`,
+the STRUCT DECLARATION's spelling. Three legal programs die on that message:
+
+    impl<'x> Foo<'x>              → "undeclared lifetime name ''a'"
+    impl Keep<'_>                 → "…''s'"
+    impl Greeter0 for FixedGreeter<'_>  → "…''a'"
+
+and `impl<'a> Foo<'a>` compiles only because the two spellings COLLIDE. The
+restore now takes the IMPL HEADER's own binders positionally; a slot the impl did
+not declare is elided and the mint gives it a fn-scope region.
+`tests/logos/pass/bc_ltimplhdr_self_lifetime_args_from_the_header` holds all
+three. ⚠ Positional is a CHOICE — `impl<'a,'b> Pair<'b,'a>` maps by order of
+declaration, not by position in the target. Not worse than the spelling it
+replaces, and named rather than assumed harmless.
+
+**A ROW CLOSED BY A DIAGNOSTIC THAT NAMES A BINDER THE PROGRAM NEVER WROTE IS
+NOT CLOSED.** Both go back to the ledger.
+
+## 8. THE CLOSED SET, 21 ROWS, EACH REFUSED FOR A LIFETIME REASON
+
+Every one moved `tests/imported/admit/` → `tests/imported/fail/` with its
+diagnostic pinned in full, and its ledger row DELETED (not commented out).
+
+    borrowck  cannot-assign-borrowed-ref-in-slice          E0506
+    lifetimes apit-not-targeted-by-lifetime-suggestion--apit
+              ex1-return-one-existing-name-early-bound-in-struct
+              ex1-return-one-existing-name-if-else-using-impl-3
+              ex1-return-one-existing-name-return-type-is-anon
+              ex1-return-one-existing-name-self-is-anon--c14b-elided-plain-param
+              ex1-return-one-existing-name-self-is-anon--self-is-anon
+              ex2a-push-one-existing-name
+              ex3-both-anon-regions-2
+              ex3-both-anon-regions-one-is-struct{,-3,-4}
+              ex3-both-anon-regions-self-is-anon
+              issue-17728
+    nll       issue-52113 · normalization-self
+    regions   region-invariant-static-error-reporting
+              regions-glb-free-free--f-control-whole
+              regions-infer-at-fn-not-param
+              regions-infer-paramd-indirect
+              regions-trait-object-subtyping
+
+## 9. THE `.expected` RE-PINS (rule 5 / rule 14's stated exemption)
+
+TWELVE rows, rc **1 before and 1 after**, zero un-refusals. The refusal moves to
+the type checker's return-type variance comparison, which is the site where the
+engine and the slot make the callee's binder and the caller's comparable at all.
+Each `.logos` header keeps the OLD text verbatim so the move is readable, and
+each names its legal twin. THE TWINS ARE IN THE TREE, not in a scratch
+directory: `tests/logos/pass/bc_ltcallmeet_expected_loss_twins` carries all
+twelve, each program with its illegality removed and nothing else changed, and
+it RUNS (`exit: 0`) rather than merely compiling.
+
+    42701-one-named-and-one-anonymous · bc_ltunmentbind_two_unrelated_binders
+    ex1-return-one-existing-name-if-else{,-2,-3,-using-impl,-using-impl-2}
+    ex3-both-anon-regions-return-type-is-anon · issue-55394--ctl2
+    nll-anon-to-static · projection-no-regions-closure--{c30-direct-call,…}
+    + the native tests/logos/fail/lifetime_mismatch
+
+**RESTORED, and it is the round's own evidence**: `borrowck-swap-mut-base-ptr`
+was one of 2026-08-31m's thirteen losses and is NOT one now. Its E0502 borrow
+error had been MASKED by the spurious `swap_ref` variance refusal; the
+minted-region repair removes the mask and upstream's primary error comes back.
+
+## 9b. ⚠ THE 16th KIND OF GATE LIE, AGAIN — AND IT IS NOT A NEW KIND, IT IS A
+##      SECOND INSTANCE OF ONE ALREADY WRITTEN DOWN IN THIS FILE
+
+Re-running the full 4453-test L4 after re-pinning the spec fixture returned, in
+0 seconds:
+
+    gate-run: all 4453 tests in this filter are ALREADY MEASURED under this build
+    build 266: 5839 recorded, 1 failed
+      failed  logos_25_spec_fail_coerce_diag_1__variance-gate-on-compatible
+    RC=0
+
+**RC 0 WITH A FAILING ROW IN THE ANSWER.** The store's key is the COMPILER BUILD
+(`logosc --version` + a libs hash), and a FIXTURE edit moves neither. So a tree
+whose corpus changed reads as "nothing has changed that a test run could see",
+and the verdict it hands back is the one from before the edit. `FORCE=1`
+re-measures, and that is what this round's final L4 number is from. The message
+itself says to say why the record was not enough; this is why: **the record is
+per (build, test) and a test is not only its NAME.**
+
+⚠ THIS FILE ALREADY CARRIES THE KIND — see "A GATE LIE, 16th KIND: THE STORE
+ANSWERED FOR A TEST SOURCE IT NEVER READ" earlier, where the same mechanism
+served three stale FAILING verdicts and then, with the sign flipped, an RC=0 over
+three fixed pins. Knowing the kind did not stop it: the reflex "the source did
+not change, so the gate is still valid" is exactly the reflex that is wrong, and
+it took a printed FAILED row inside an RC=0 answer to notice, for the second
+time. Every gate run in this round's final block is `FORCE=1`.
+
+## 10. OPEN
+
+ 1. **`propagate-fail-to-approximate-longer-no-bounds`** — listed, not closed;
+    the port is a program rustc accepts (§4).
+ 2. **`issue-103582-hint-type-alias` / `issue-55394--b`** — back in the ledger,
+    and now waiting on something other than a wrong diagnostic.
+ 3. **THE IMPL HEADER'S BINDERS ARE MAPPED POSITIONALLY** (§7).
+ 4. **THE MINTED-IV PREDICATE IS ASKED AT TWO EQUALITY SITES AND NOT AT A
+    THIRD**: `types_equal_with_lifetimes`' Struct/Enum `lifetime_args` loop
+    compares those strings directly and never calls `lt_eq`, so a minted region
+    reaching a struct's lifetime ARGUMENT is out of scope. Named, unmeasured.
+ 5. **`subst_type_sema`'s DstRef arm still returns early on
+    `type_args().empty()`** — carried from 2026-08-31m §11.2, unmeasured.
+ 6. **MINTING INTO AN ELIDED SLICE SLOT** — `fn id(x:&[i64]) -> &[i64]` is still
+    related by elision alone (31m §11.3).
+ 7. **THE VALUE SIDE STILL RECORDS NO REGION** for Slice/TraitObject/DstRef
+    constructors outside `resolve_type`/`subst_type_sema` — and §0 says the one
+    program that was blamed on it was never its fault. Its real cost is now
+    UNMEASURED, not zero.
+ 8. **`fail_text_oracle.py` cannot see a native fail fixture without the `bc`
+    label** (§6.3). Four populations, four holes found in four rounds.
+ 9. **`current_lt_binders()` IS NOT GONE, AND THIS ROUND DID NOT MEASURE
+    WHETHER IT STILL EARNS ITS KEEP.** It is the 2026-08-31h NARROWING of
+    `outlives()`'s permissive tail — two named regions that are both binders of
+    the scope being checked do not outlive each other — and its stated price was
+    that the WIDER rule (`lifereg_unmentioned`, still a probe directly above it)
+    closes two more rows and REFUSES FIVE LEGAL PROGRAMS, "every one of them
+    comparing a name from ONE binder against a name from ANOTHER: a callee's or
+    a struct's own lifetime parameter that reached here UNSUBSTITUTED". That
+    sentence names exactly what landed this round. **THE EXPERIMENT IS ONE
+    EXISTING PROBE AND ONE BUILD**: price `lifereg_unmentioned` on the landed
+    binary; if its five legal refusals are gone the narrowing is dead weight and
+    the wider rule is free, and `current_lt_binders()` goes with it. Not run
+    here — the box was committed to this round's gates, and a number I did not
+    take is not a number I get to report.
+10. The `expected Option, got Option` wording is still prerequisite work.
+
+Files: `include/logos/compiler/probe.hpp` (five predicates landed, two abuse
+arms kept), `include/logos/compiler/subtype.hpp` (`permissive_minted` threaded
+through `types_equal_with_lifetimes`; the minted-iv predicate at both equality
+sites), `src/compiler/sema.cpp` (`fn_binder_variance_`),
+`src/compiler/sema_impl.hpp` (the meet at the call; `ret` into
+`build_call_lt_subst_` / `inst_call_params_`), `src/compiler/sema_collect.cpp`
+(`self_lt_args_`), `src/compiler/sema_expr.cpp` (the two `inst_call_params_`
+call sites pass the return type). +212/−37 over six files.

@@ -1,0 +1,19 @@
+// rustc lifetimes/lifetime-errors/ex1-return-one-existing-name-self-is-anon.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-08-31n, when the ELISION ENGINE + THE
+// REGION SLOT landed (src/compiler/PROBES.md). The row this file used to
+// carry in tests/logos/bc_admits.ledger is deleted in the same change.
+package ex1_return_one_existing_name_self_is_anon_self_is_anon;
+struct Foo { field: i64 }
+impl Foo {
+  fn foo<'a>(self: &Self, x: &'a Foo) -> &'a Foo {
+    if true { return x; } else { return self; }
+  }
+}
+fn main() -> i32 {
+  let a = Foo { field: 1i64 };
+  let b = Foo { field: 2i64 };
+  let r = a.foo(&b);
+  if r.field != 2i64 { return 1i32; }
+  return 0i32;
+}

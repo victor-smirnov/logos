@@ -1,0 +1,1 @@
+return type mismatch: variance mismatch — expected &Room, got &Room — lifetime structure incompatible (check &mut invariance / contravariance rules)

@@ -1,0 +1,15 @@
+// rustc nll/user-annotations/normalization-self.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-08-31n, when the ELISION ENGINE + THE
+// REGION SLOT landed (src/compiler/PROBES.md). The row this file used to
+// carry in tests/logos/bc_admits.ledger is deleted in the same change.
+// port attempt of nll/user-annotations/normalization-self.rs
+package normalization_self;
+trait Tr { type Assoc; }
+struct Unit { n: i64 }
+impl Tr for &'static Unit { type Assoc = &'static Unit; }
+struct MyStruct<T> { val: T }
+impl MyStruct<<&'static Unit as Tr>::Assoc> {
+    fn test(x: &Unit) { let _s: MyStruct<&'static Unit> = MyStruct { val: x }; }   // ERROR
+}
+fn main() -> i32 { return 0i32; }

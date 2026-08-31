@@ -1,11 +1,27 @@
-// B64.2: variance check at arg-pass site. Passing `&mut &'static T` where
-// `&mut &'a T` is expected violates &mut invariance — Rust rejects, Logos
+// B64.2: variance check at arg-pass site. Passing `&mut &'a T` where
+// `&mut &'static T` is expected violates &mut invariance — Rust rejects, Logos
 // must reject.
+//
+// ⚠ RE-PINNED 2026-08-31n, AND THE FIXTURE WAS THE THING THAT WAS WRONG. It
+// used to read
+//     fn takes<'a>(_p: &mut &'a i32) -> i32 { return 0i32; }
+//     fn main() -> i32 { let mut s: &'static i32 = &42i32; return takes(&mut s); }
+// and its comment claimed Rust rejects that. Rust ACCEPTS it: 'a there is
+// `takes`'s OWN binder, universally quantified at the call, and the caller
+// instantiates it at 'static. The invariance is real and the check is real —
+// what was missing is that invariance only BITES when the region is FIXED by
+// the caller, which is the program below. Its legal twin, one construct apart,
+// is tests/logos/pass/bc_ltcallmeet_callee_binder_meet's free-binder case and
+// tests/logos/pass/variance_arg_mut_inv_free_binder_admit.
+//
+// MEASURED on the landed tree, one variable apart: this file rc 1 (below),
+// the old spelling rc 0. PROBES.md 2026-08-31n.
 package variance_arg_mut_inv;
 
-fn takes<'a>(_p: &mut &'a i32) -> i32 { return 0i32; }
+fn wants_static(p: &mut &'static i32) -> i32 { return **p; }
 
-fn main() -> i32 {
-    let mut s: &'static i32 = &42i32;
-    return takes(&mut s);  // &mut &'static → expected &mut &'a — Inv rejects
+fn f<'a>(p: &mut &'a i32) -> i32 {
+    return wants_static(p);   // &mut &'a → expected &mut &'static — Inv rejects
 }
+
+fn main() -> i32 { return 0i32; }

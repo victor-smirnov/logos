@@ -1,0 +1,10 @@
+// rustc regions/regions-trait-object-subtyping.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-08-31n, when the ELISION ENGINE + THE
+// REGION SLOT landed (src/compiler/PROBES.md). The row this file used to
+// carry in tests/logos/bc_admits.ledger is deleted in the same change.
+// port of rust tests/ui/regions/regions-trait-object-subtyping.rs — foo3
+package regions_trait_object_subtyping;
+trait Dummy { fn dummy(self: &Self) -> i64; }
+fn foo3<'a, 'b>(x: &'a mut dyn Dummy) -> &'b mut dyn Dummy { return x; }
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,31 @@
+// THE REFUSE HALF OF THE MEET AT THE CALL (PROBES.md 2026-08-31n), one field
+// from tests/logos/pass/bc_ltcallmeet_callee_binder_meet: `t` holds its
+// `&'tcx i64` BEHIND a `&mut`, so 'tcx occurs under MutRef's POINTEE and the
+// variance fixpoint reads `FnCtxt.@1 = Inv` (measured directly, LOGOS_CENSUS
+// `var.…@1=Inv`). An invariant occurrence demands EQUALITY of the two offered
+// regions and no meet discharges that, so the binder keeps first-occurrence-
+// wins and the second argument is refused.
+//
+// ⚠ THIS FILE IS THE ONLY THING IN THE TREE THAT SEPARATES THE GUARD FROM ITS
+// ABSENCE. `ltcallmeetany` — the same site with the covariance guard removed —
+// prices IDENTICALLY to the guarded arm on all three populations (ceiling 23,
+// cost 3, the same rows, the same 1056-row fail table). It compiles this
+// program. If a later round widens the guard, this fixture is what goes green.
+//
+// ⚠ `&'tcx mut i64` IS NOT THE INVARIANT SPELLING: the REGION of a `&mut` is
+// itself covariant and only its POINTEE is invariant. That spelling is
+// admitted, measured, and it is why this one is written with the nesting.
+package bc_ltcallmeet_invariant_binder_no_meet;
+
+struct FnCtxt<'a, 'tcx> { a: &'a i64, t: &'a mut &'tcx i64 }
+
+fn use_it<'a, 'tcx>(f: &FnCtxt<'a, 'tcx>, x: &'tcx i64) {}
+
+fn use_fcx<'a, 'tcx>(f: &FnCtxt<'a, 'tcx>) -> &'a i64 { return f.a; }
+
+fn bad_method<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>) {
+    let other = use_fcx(fcx);
+    use_it(fcx, other);
+}
+
+fn main() -> i32 { return 0i32; }

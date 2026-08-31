@@ -1,0 +1,48 @@
+// THE IMPL HEADER'S OWN BINDERS, NOT THE STRUCT'S SPELLING (PROBES.md
+// 2026-08-31n). Restoring Self's lifetime args from `ssi->lifetime_params` used
+// the STRUCT DECLARATION's binder names, which are the impl's names only by
+// COINCIDENCE OF SPELLING. All three shapes below were refused on the landed
+// tree with "use of undeclared lifetime name" naming a binder the program never
+// writes, and NONE of the three populations the harness prices over contains
+// one — the pass corpus, the 1056-row fail text oracle and all four stdlib
+// layers read COST 0 while these were refused.
+//
+// ⚠ AND IT COST TWO LEDGER ROWS TO REPAIR, DELIBERATELY. issue-103582-hint-type-
+// alias and issue-55394--b were being CLOSED by that same wrong message; both
+// go back to tests/logos/bc_admits.ledger. A row closed by a diagnostic that
+// names a binder the program never wrote is not closed.
+package bc_ltimplhdr_self_lifetime_args_from_the_header;
+
+struct Foo<'a> { s: &'a i64 }
+
+// 1. the impl header RENAMES the binder — legal, and refused before the repair
+impl<'x> Foo<'x> {
+    fn get(self: &Self) -> i64 { return *self.s; }
+}
+
+// 2. an ANONYMOUS impl binder over a struct with a named one
+struct Bar { v: i64 }
+struct Keep<'s> { bar: &'s mut Bar }
+impl Keep<'_> {
+    fn newk<'a>(bar: &'a mut Bar) -> Keep<'a> { return Keep { bar: bar }; }
+    fn val(self: &Self) -> i64 { return self.bar.v; }
+}
+
+// 3. the same, through a TRAIT impl
+trait Greeter0 { fn greet(self: &Self) -> i64; }
+struct FixedGreeter<'a> { s: &'a i64 }
+impl Greeter0 for FixedGreeter<'_> { fn greet(self: &Self) -> i64 { return *self.s; } }
+
+fn main() -> i32 {
+    let n: i64 = 5i64;
+    let f: Foo = Foo { s: &n };
+    if f.get() != 5i64 { return 1i32; }
+
+    let mut b: Bar = Bar { v: 6i64 };
+    let k: Keep = Keep::newk(&mut b);
+    if k.val() != 6i64 { return 2i32; }
+
+    let g: FixedGreeter = FixedGreeter { s: &n };
+    if g.greet() != 5i64 { return 3i32; }
+    return 0i32;
+}

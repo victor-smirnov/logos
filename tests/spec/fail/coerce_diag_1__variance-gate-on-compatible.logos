@@ -1,9 +1,25 @@
 // @rule coerce.variance.gate-on-compatible
+//
+// ⚠ RE-PINNED 2026-08-31n. This fixture used to read
+//     fn takes<'a>(_p: &mut &'a i32) -> i32 { return 0i32; }
+//     fn main() -> i32 { let mut s: &'static i32 = &42i32; return takes(&mut s); }
+// and Rust ACCEPTS that: 'a is `takes`'s OWN binder, universally quantified at
+// the call, so the caller instantiates it at 'static and the invariant position
+// is satisfied by EQUALITY, not by a coercion. The rule above says so in its own
+// words — "`permissive=true` (call-site arg-passing) forwards unresolved
+// lifetime relations to the caller's region inference".
+//
+// The rule BITES when the region at the invariant position is FIXED BY THE
+// CALLER, which is the program below: `f`'s own 'a cannot be 'static, and no
+// coercion crosses `&mut`'s invariant pointee. Its admit half is
+// tests/logos/pass/variance_arg_mut_inv_free_binder_admit.logos, and the native
+// pair is tests/logos/fail/variance_arg_mut_inv.logos.
 package coerce_diag_1_variance_gate_on_compatible;
 
-fn takes<'a>(_p: &mut &'a i32) -> i32 { return 0i32; }
+fn wants_static(p: &mut &'static i32) -> i32 { return **p; }
 
-fn main() -> i32 {
-    let mut s: &'static i32 = &42i32;
-    return takes(&mut s);
+fn f<'a>(p: &mut &'a i32) -> i32 {
+    return wants_static(p);
 }
+
+fn main() -> i32 { return 0i32; }

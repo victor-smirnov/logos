@@ -1,3 +1,8 @@
+// ⚠ `.expected` RE-PINNED 2026-08-31n (rule 14 EXEMPTION, stated): rc 1 before
+// and after, the refusal moved from "lifetime mismatch: return type has
+// lifetime 'a but 'y' has lifetime (elided)" to the type checker's return-type
+// variance comparison. Its legal twin — both params at 'a — is t02 in
+// tests/logos/pass/bc_ltcallmeet_expected_loss_twins.
 package lifetime_mismatch;
 // Named lifetime: return must come from param with matching lifetime
 fn first<'a>(x: &'a i32, y: &i32) -> &'a i32 {

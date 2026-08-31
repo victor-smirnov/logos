@@ -1,0 +1,48 @@
+// A MINTED REGION IS AN INFERENCE VARIABLE (PROBES.md 2026-08-31n), and this
+// is the pair of legal programs that paid for it.
+//
+// The elision engine gives every ELIDED slot a fresh name `'%n`. The
+// comparators' only permissive spelling was the EMPTY one, so a generic call
+// that binds a type parameter from argument 1 — minted regions and all — then
+// refused argument 2 for carrying a DIFFERENT minted name, printing
+//     call to 'swap_ref' arg 2: variance mismatch
+//     — expected &mut &mut i64, got &mut &mut i64
+// with both sides spelled identically because nobody wrote either region.
+// `lt_is_minted` already carried this fact for borrow_check ("a minted name
+// reads as elided here"); the comparators never asked.
+//
+// ⚠ THE SCOPE IS THE MECHANISM. Two minted regions are equated ONLY where
+// `permissive_empty` is already true — a CALL-SITE coercion, where the
+// caller's region inference is the thing that fills unresolved lifetimes in.
+// Inside a fn BODY (an assignment through a `&mut`, a return type) two elided
+// slots are two different regions and saying so is the mint's whole point.
+// MEASURED: removing the scope (`ltregallany`) re-admits four ledger rows —
+// cannot-assign-borrowed-ref-in-slice, ex3-both-anon-regions-2,
+// ex3-both-anon-regions-self-is-anon, issue-17728 — and also erases the CORRECT
+// refusal of `pick<T>(&self, other:&i64) -> &i64` in
+// tests/logos/pass/bc_genrecv_two_mut_sequential_admit.
+//
+// THE ILLEGAL TWIN IS IN TREE AND MUST STAY REFUSED:
+// tests/imported/fail/borrowck/borrowck-swap-mut-base-ptr is this program plus
+// a live `&*t0` held across the swap (upstream E0502). Its `.expected` — the
+// borrow-check message, not a variance one — is the proof that this repair
+// removed a SPURIOUS refusal and not a real one.
+package bc_ltmintiv_minted_regions_unify_at_a_call;
+
+use logos.lang.mem;
+
+fn foo(a: &mut i64, b: &mut i64) -> i64 {
+    let mut t0 = a;
+    let mut t1 = b;
+    swap_ref(&mut t0, &mut t1);
+    *t1 = 22i64;
+    let p: &i64 = &*t0;
+    return *p;
+}
+
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let mut y: i64 = 2i64;
+    if foo(&mut x, &mut y) != 2i64 { return 1i32; }
+    return 0i32;
+}

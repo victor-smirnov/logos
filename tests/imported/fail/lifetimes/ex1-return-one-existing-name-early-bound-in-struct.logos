@@ -1,0 +1,13 @@
+// rustc lifetimes/lifetime-errors/ex1-return-one-existing-name-early-bound-in-struct.rs — upstream E0621 explicit lifetime required
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-08-31n, when the ELISION ENGINE + THE
+// REGION SLOT landed (src/compiler/PROBES.md). The row this file used to
+// carry in tests/logos/bc_admits.ledger is deleted in the same change.
+package ex1_return_one_existing_name_early_bound_in_struct;
+struct Foo<'a> { s: &'a i64 }
+impl<'a> Foo<'a> {
+  fn bar(self: &Self, other: Foo) -> Foo<'a> {
+    return other;
+  }
+}
+fn main() -> i32 { return 0i32; }

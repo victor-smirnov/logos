@@ -1,0 +1,10 @@
+// rustc regions/regions-infer-at-fn-not-param.rs — upstream E0621
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-08-31n, when the ELISION ENGINE + THE
+// REGION SLOT landed (src/compiler/PROBES.md). The row this file used to
+// carry in tests/logos/bc_admits.ledger is deleted in the same change.
+package regions_infer_at_fn_not_param;
+// port of regions/regions-infer-at-fn-not-param.rs — E0621 explicit lifetime required in type of p
+struct Parameterized1<'a> { g: &'a i64 }
+fn take1<'a>(p: Parameterized1) -> Parameterized1<'a> { return p; }
+fn main() -> i32 { return 0i32; }

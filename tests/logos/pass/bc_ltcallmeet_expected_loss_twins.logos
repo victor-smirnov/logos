@@ -1,0 +1,93 @@
+// THE TWELVE LEGAL TWINS OF THIS ROUND'S `.expected` LOSSES (PROBES.md
+// 2026-08-31n). Each `fail` fixture whose refusal MOVED under the landed
+// elision engine has its ILLEGALITY REMOVED here, one construct apart, and the
+// remainder must compile. This is the instrument that has now reversed a
+// three-population "cost 0" reading three rounds running, so the twins live in
+// the tree rather than in a round's scratch directory.
+//
+//   t01  42701-one-named-and-one-anonymous          the anon param given 'a
+//   t02  ex1-return-one-existing-name-if-else{,-2,-3}   both params at 'a
+//   t03  ...-if-else-using-impl{,-2}                 the trait-method shape
+//   t04  ex3-both-anon-regions-return-type-is-anon   `&'a self`, same binder
+//   t05  nll-anon-to-static                          a genuinely 'static source
+//   t06  issue-55394--ctl2                           the caller's OWN binder
+//   t07  projection-no-regions-closure--c30-direct-call
+//        + bc_ltunmentbind_two_unrelated_binders     ONE binder, not two
+//   t08  projection-no-regions-closure--projection-...  the where-clause shape
+package bc_ltcallmeet_expected_loss_twins;
+
+struct Foo42701 { field: i32 }
+fn t01_foo2<'a>(a: &'a Foo42701, x: &'a i32) -> &'a i32 {
+    if true {
+        let p: &i32 = &a.field;
+        return p;
+    } else {
+        return x;
+    }
+}
+
+fn t02_foo<'a>(x: &'a i64, y: &'a i64) -> &'a i64 {
+    if *x > *y { return x; }
+    return y;
+}
+
+trait T03 { fn foo<'a>(x: &'a i64, y: &'a i64) -> &'a i64; }
+struct T03Unit { z: i64 }
+impl T03 for T03Unit {
+    fn foo<'a>(x: &'a i64, y: &'a i64) -> &'a i64 {
+        if *x > *y { return x; } else { return y; }
+    }
+}
+
+struct T04Foo { field: i64 }
+impl T04Foo {
+    fn foo<'a>(self: &'a T04Foo, x: &'a i64) -> &'a i64 { return x; }
+}
+
+static T05G: u32 = 7u32;
+fn t05_foo(x: &'static u32) -> &'static u32 { return x; }
+
+struct T06S<T> { v: T }
+fn t06_mk<'a>(x: &'a i64) -> T06S<&'a i64> { return T06S { v: x }; }
+fn t06_f<'a>(x: &'a i64) -> T06S<&'a i64> { return t06_mk(x); }
+
+struct Holder<'a> { v: &'a i64 }
+fn t07_mk<'a>(y: &'a i64) -> Holder<'a> { return Holder { v: y }; }
+
+trait Anything { fn a(self: &Self) -> i64; }
+impl<'a> Anything for Holder<'a> { fn a(self: &Self) -> i64 { return *self.v; } }
+fn t08_with_signature<'a, T, F>(x: T, op: F) -> Holder<'a> where F: Fn(T) -> Holder<'a> {
+    return op(x);
+}
+fn t08_no_region<'b>(x: &'b i64) -> Holder<'b> {
+    return t08_with_signature::<&'b i64, fn(&'b i64) -> Holder<'b>>(x, t07_mk);
+}
+
+fn main() -> i32 {
+    let f: Foo42701 = Foo42701 { field: 1i32 };
+    let n: i32 = 2i32;
+    if *t01_foo2(&f, &n) != 1i32 { return 1i32; }
+
+    let a: i64 = 1i64;
+    let b: i64 = 2i64;
+    if *t02_foo(&a, &b) != 2i64 { return 2i32; }
+    if *T03Unit::foo(&a, &b) != 2i64 { return 3i32; }
+
+    let t4: T04Foo = T04Foo { field: 3i64 };
+    let v4: i64 = 9i64;
+    if *t4.foo(&v4) != 9i64 { return 4i32; }
+
+    if *t05_foo(&T05G) != 7u32 { return 5i32; }
+
+    let s6 = t06_f(&a);
+    if *s6.v != 1i64 { return 6i32; }
+
+    let h7 = t07_mk(&b);
+    if *h7.v != 2i64 { return 7i32; }
+    if h7.a() != 2i64 { return 8i32; }
+
+    let h8 = t08_no_region(&a);
+    if *h8.v != 1i64 { return 9i32; }
+
+    return 0i32;
+}

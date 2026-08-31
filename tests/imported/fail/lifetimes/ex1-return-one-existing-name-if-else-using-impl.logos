@@ -1,6 +1,15 @@
 // rustc lifetimes/lifetime-errors/ex1-return-one-existing-name-if-else-using-impl.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
+// ⚠ `.expected` RE-PINNED 2026-08-31n (rule 14 EXEMPTION, stated). rc is 1
+// before and after; the refusal MOVED to the type checker's return-type
+// variance comparison, where the elision engine and the region slot make the
+// callee's binder and the caller's actually comparable. The text it replaces
+// is kept here so the move is readable rather than lost:
+//     lifetime mismatch: return type has lifetime 'a but 'x' has lifetime (elided)
+// A `.expected` LOSS IS A HYPOTHESIS, and its LEGAL TWIN is the instrument
+// that tests it: tests/logos/pass/bc_ltcallmeet_expected_loss_twins.logos
+// carries this row's twin, one construct apart. PROBES.md 2026-08-31n.
 package ex1_return_one_existing_name_if_else_using_impl;
 trait Foo { fn foo<'a>(x: &i64, y: &'a i64) -> &'a i64; }
 struct Unit { z: i64 }
