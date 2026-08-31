@@ -80,9 +80,16 @@ struct CensusTable {
     }
 };
 inline CensusTable& census_table() { static CensusTable t; return t; }
-inline void census(const char* bucket, unsigned long n = 1) {
+inline bool census_armed() {
     static const bool armed = std::getenv("LOGOS_CENSUS") != nullptr;
-    if (!armed) return;
+    return armed;
+}
+inline void census(const char* bucket, unsigned long n = 1) {
+    if (!census_armed()) return;
+    census_table().c[bucket] += n;
+}
+inline void census(const std::string& bucket, unsigned long n = 1) {
+    if (!census_armed()) return;
     census_table().c[bucket] += n;
 }
 
@@ -92,6 +99,21 @@ inline bool on(const char* name) {
     static Counter c{name, 0};
     ++c.hits;
     return true;
+}
+
+// ── THE ELISION ENGINE'S ARMS, NAMED ONCE ───────────────────────────────────
+// One process arms ONE name (`on()` compares against a single LOGOS_PROBE), so
+// a compound arm must answer at every gate its component arms use. See
+// src/compiler/PROBES.md 2026-08-31i/j/k.
+//   arm_inst   — the mint + the substitution + the four repairs (ltmintinst),
+//                and every arm built on top of it.
+//   arm_subst  — the substitution half alone, and every arm built on it.
+inline bool arm_inst() {
+    return on("ltmintinst") || on("ltmintmeet") || on("ltmeetany") ||
+           on("ltmintmeetrg");
+}
+inline bool arm_subst() {
+    return on("ltsubstinst") || on("ltmeetco");
 }
 
 }  // namespace logos::probe

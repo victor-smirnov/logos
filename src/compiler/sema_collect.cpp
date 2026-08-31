@@ -3521,7 +3521,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         tv_args.push_back(make_typevar(tp.name));
                     self_type = make_generic_struct(sname, std::move(tv_args), std::move(lt_args), spkg);
                 } else if (!lt_args.empty() &&
-                           (logos::probe::on("ltmintinst") || logos::probe::on("ltsubstinst"))) {
+                           (logos::probe::arm_inst() || logos::probe::arm_subst())) {
                     logos::probe::census("self.lts-restored.implheader");
                     self_type = make_generic_struct(sname, {}, std::move(lt_args), spkg);
                 } else {
@@ -4333,14 +4333,14 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                     tv_args.push_back(make_typevar(tp.name));
                                 self_type = make_generic_struct(
                                     target, std::move(tv_args),
-                                    (logos::probe::on("ltmintinst") ||
-                                     logos::probe::on("ltsubstinst"))
+                                    (logos::probe::arm_inst() ||
+                                     logos::probe::arm_subst())
                                         ? ssi_def->lifetime_params
                                         : std::vector<std::string>{},
                                     spkg_def);
                             } else if (!ssi_def->lifetime_params.empty() &&
-                                       (logos::probe::on("ltmintinst") ||
-                                        logos::probe::on("ltsubstinst"))) {
+                                       (logos::probe::arm_inst() ||
+                                        logos::probe::arm_subst())) {
                                 // The SAME defect as at the impl header above,
                                 // in the synthesis of an inherited default.
                                 logos::probe::census("self.lts-restored.default");

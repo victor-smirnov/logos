@@ -487,7 +487,7 @@ private:
             // mint must give it a region like any other elided slot, or the
             // comparison is `'_` against `'a` by spelling (measured: 2 of
             // `ltmintfree`'s legal refusals).
-            if ((logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst")) && (lt == "'_" || lt == "_")) lt.clear();
+            if ((logos::probe::on("ltmintimpl") || logos::probe::arm_inst()) && (lt == "'_" || lt == "_")) lt.clear();
             if (lt.empty()) { lt = fresh(); logos::probe::census("mint.ref.elided"); }
             else            { logos::probe::census("mint.ref.written"); }
             out.push_back(lt);
@@ -519,7 +519,7 @@ private:
                 lts.resize(arity);
             }
             for (auto& l : lts)
-                if ((logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst")) && (l == "'_" || l == "_")) l = fresh();
+                if ((logos::probe::on("ltmintimpl") || logos::probe::arm_inst()) && (l == "'_" || l == "_")) l = fresh();
                 else if (l.empty()) { l = fresh(); logos::probe::census("mint.structarg.elided"); }
                 else           { logos::probe::census("mint.structarg.written"); }
             for (auto& l : lts) out.push_back(l);
@@ -621,6 +621,7 @@ private:
                                            const std::vector<std::string>& lifetime_params,
                                            const std::vector<lir::LExprPtr>& args) {
         SemaLifetimeSubst ls;
+        LtCands cands;
         std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef pt, TypeRef at) {
             if (!pt || !at) return;
             using K = LogosType::Kind;
@@ -628,7 +629,10 @@ private:
             if ((pk == K::Ref || pk == K::MutRef) &&
                 (at.kind() == K::Ref || at.kind() == K::MutRef)) {
                 std::string p(pt.lifetime()), a(at.lifetime());
-                if (!p.empty() && !a.empty() && !ls.count(p)) ls.emplace(p, a);
+                if (!p.empty() && !a.empty()) {
+                    cands[p].push_back(a);
+                    if (!ls.count(p)) ls.emplace(p, a);
+                }
                 walk(pt.pointee(), at.pointee());
                 return;
             }
@@ -636,8 +640,10 @@ private:
                 at.kind() == pk) {
                 auto pl = pt.lifetime_args(); auto al = at.lifetime_args();
                 for (size_t i = 0; i < pl.size() && i < al.size(); ++i)
-                    if (!pl[i].empty() && !al[i].empty() && !ls.count(pl[i]))
-                        ls.emplace(pl[i], al[i]);
+                    if (!pl[i].empty() && !al[i].empty()) {
+                        cands[pl[i]].push_back(al[i]);
+                        if (!ls.count(pl[i])) ls.emplace(pl[i], al[i]);
+                    }
                 auto pa = pt.type_args(); auto aa = at.type_args();
                 for (size_t i = 0; i < pa.size() && i < aa.size(); ++i) walk(pa[i], aa[i]);
                 return;
@@ -654,9 +660,9 @@ private:
         };
         for (size_t i = 0; i < param_types.size() && i < args.size(); ++i)
             if (args[i]) walk(param_types[i], expr_type(args[i]));
+        census_meet_("call", lifetime_params, cands, {});
         std::unordered_set<std::string> mentioned;
-        const bool three_way_ = logos::probe::on("ltmintinst") ||
-                                logos::probe::on("ltsubstinst");
+        const bool three_way_ = logos::probe::arm_inst() || logos::probe::arm_subst();
         if (three_way_)
             for (auto pt : param_types) collect_param_regions_(pt, mentioned);
         for (auto& lp : lifetime_params) {
@@ -681,7 +687,7 @@ private:
             // be instantiated at any region, `'static` included), and that is
             // the policy `ltsubstfree` / `ltmintfree` take.
             if (logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
-                logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst") || three_way_)
+                logos::probe::on("ltmintimpl") || three_way_)
                 ls[lp] = "'static";
             else
                 ls[lp] = mint_lt_();
@@ -693,7 +699,7 @@ private:
     std::vector<TypeRef> inst_call_params_(const std::vector<TypeRef>& param_types,
                                            const std::vector<std::string>& lifetime_params,
                                            const std::vector<lir::LExprPtr>& args) {
-        if (!(logos::probe::on("ltmintinst") || logos::probe::on("ltsubstinst")))
+        if (!(logos::probe::arm_inst() || logos::probe::arm_subst()))
             return {};
         if (param_types.empty() || lifetime_params.empty()) return {};
         logos::probe::census("inst.call.site");
@@ -729,12 +735,150 @@ private:
     // un-refusal in the `fail` half). So the binder is INSTANTIATED from the
     // values — first occurrence wins, and a second occurrence that disagrees is
     // the refusal those two fixtures pin.
+    // ── TWO OR MORE REGIONS INTO ONE BINDER: THE CENSUS, THEN THE MEET ─────
+    // Every binder-binding walk in this compiler is FIRST-OCCURRENCE-WINS, so
+    // a binder offered two different regions silently keeps one and refuses
+    // the other's field. `LtCands` keeps them all; `census_meet_` counts the
+    // arrivals per site and splits the multi-candidate ones by the binder's
+    // DECLARED VARIANCE. Prose in src/compiler/PROBES.md 2026-08-31k.
+    using LtCands = logos::compiler::StrMap<std::vector<std::string>>;
+    // `vkey` is the variance-table key ("pkg.Name") when the binders belong to
+    // a TYPE DEFINITION; empty when they are a fn's own — nothing in this tree
+    // computes a variance for a fn's binder, so the guard cannot be asked
+    // there and the census says so in its own bucket.
+    std::optional<Variance> binder_variance_(const std::string& vkey, size_t i) {
+        if (vkey.empty()) return std::nullopt;
+        auto it = variance_table_.find(vkey);
+        if (it == variance_table_.end()) return std::nullopt;
+        auto vit = it->second.find("@" + std::to_string(i));
+        if (vit == it->second.end()) return std::nullopt;
+        return vit->second;
+    }
+    // A binder EVERY one of whose occurrences is covariant may be instantiated
+    // at the MEET of the regions offered for it: the meet's only obligation is
+    // that each offered region outlive it, and for a covariant occurrence that
+    // is discharged by construction — no region inference, no CFG point. An
+    // INVARIANT occurrence demands EQUALITY instead and no meet discharges
+    // that, which is exactly what account-for-lifetimes-in-closure-suggestion
+    // (`&'a mut &'a i64`) and nondeterministic-lifetime-errors-15034
+    // (`&'a mut Lexer<'a>`) pin.
+    bool binder_is_covariant_(const std::string& vkey, size_t i) {
+        auto v = binder_variance_(vkey, i);
+        return v && (*v == Variance::Co || *v == Variance::BiVar);
+    }
+    void census_meet_(const char* site,
+                      const std::vector<std::string>& binders,
+                      const LtCands& cands,
+                      const std::string& vkey) {
+        if (!logos::probe::census_armed()) return;
+        const std::string p = std::string("meet.") + site;
+        for (size_t i = 0; i < binders.size(); ++i) {
+            auto it = cands.find(binders[i]);
+            if (it == cands.end() || it->second.empty()) continue;
+            logos::probe::census(p + ".binder");
+            std::unordered_set<std::string> d(it->second.begin(), it->second.end());
+            if (d.size() < 2) continue;
+            logos::probe::census(p + ".multi");
+            auto v = binder_variance_(vkey, i);
+            if (!v) { logos::probe::census(p + ".multi.novariance"); continue; }
+            logos::probe::census(p + ((*v == Variance::Co || *v == Variance::BiVar)
+                                      ? ".multi.co" : ".multi.inv"));
+        }
+    }
+    // PROBES ltmintmeet / ltmeetco (the covariance-GUARDED meet, on the mint
+    // and on the substitution half respectively) and ltmeetany (the SAME meet
+    // with the guard removed — rule 9's second name for the inner predicate,
+    // and the abuse direction of the exemption).
+    static bool probe_meet_() {
+        return logos::probe::on("ltmintmeet") || logos::probe::on("ltmeetco") ||
+               logos::probe::on("ltmeetany") || logos::probe::on("ltmintmeetrg");
+    }
+    static bool probe_meet_unguarded_() { return logos::probe::on("ltmeetany"); }
+    // PROBE ltmintmeetrg — THE SECOND INNER PREDICATE (rule 9). Measured on
+    // this binary, one variable apart (h1/h3/h4 in PROBES.md 2026-08-31k):
+    //   struct L<'a> { i: &'a i64 }  struct P<'a> { l: &'a mut L<'a> }  → Inv
+    //   struct L<'a> { i: &'a str }  (or `&'a [i64]`) → the SAME P is **Co**
+    // because `&'a str` canonicalises to `Kind::Slice` and the region is
+    // dropped at resolve_type, so `'a` appears in NO recorded position of `L`
+    // and the fixpoint calls it BiVar — which composes to Co under the `&mut`.
+    // The variance table cannot tell "this binder appears nowhere" from "this
+    // binder appears only where the type cannot record it" (rule 16), and that
+    // is what un-refuses the pinned `nondeterministic-lifetime-errors-15034`
+    // under a guard that is otherwise exactly right. A def with a region-losing
+    // slot anywhere in its reachable field types is REGION-OPAQUE and its
+    // declared variance is not evidence.
+    static bool probe_meet_opaque_guard_() {
+        return logos::probe::on("ltmintmeetrg");
+    }
+    bool type_region_opaque_(TypeRef t, std::unordered_set<std::string>& seen,
+                             int depth = 0) {
+        if (!t || depth > 12) return false;
+        using K = LogosType::Kind;
+        switch (t.kind()) {
+        case K::Slice: case K::TraitObject: case K::TaggedPtr:
+            return true;
+        case K::Ref: case K::MutRef: case K::Ptr:
+            return type_region_opaque_(t.pointee(), seen, depth + 1);
+        case K::Array:
+            return type_region_opaque_(t.elem(), seen, depth + 1);
+        case K::Tuple:
+            for (auto e : t.tuple_elems())
+                if (type_region_opaque_(e, seen, depth + 1)) return true;
+            return false;
+        case K::FnPtr: case K::Closure:
+            for (auto p : t.closure_params())
+                if (type_region_opaque_(p, seen, depth + 1)) return true;
+            return type_region_opaque_(t.closure_ret(), seen, depth + 1);
+        case K::Struct: case K::ZonedStruct: case K::Enum: {
+            for (auto a : t.type_args())
+                if (type_region_opaque_(a, seen, depth + 1)) return true;
+            std::string nm(t.kind() == K::Enum ? t.enum_name() : t.struct_name());
+            if (nm.empty() || !seen.insert(nm).second) return false;
+            if (t.kind() == K::Enum) {
+                auto [ep, ei] = find_enum_by_name(nm);
+                (void)ep;
+                if (!ei) return true;   // cannot read it ⇒ cannot vouch for it
+                for (auto& v : ei->variants)
+                    for (auto pt : v.payload_types)
+                        if (type_region_opaque_(pt, seen, depth + 1)) return true;
+                return false;
+            }
+            auto [sp, si] = find_struct_by_name(nm);
+            (void)sp;
+            if (si) {
+                for (auto& fl : si->fields)
+                    if (type_region_opaque_(fl.type, seen, depth + 1)) return true;
+                return false;
+            }
+            auto [dp, di] = find_datatype_by_name(nm);
+            (void)dp;
+            if (di) {
+                for (auto& fl : di->fields)
+                    if (type_region_opaque_(fl.type, seen, depth + 1)) return true;
+                return false;
+            }
+            return true;                // unknown def ⇒ cannot vouch for it
+        }
+        default:
+            return false;
+        }
+    }
+    template <class DeclFields>
+    bool decl_fields_region_opaque_(const DeclFields& decl_fields) {
+        std::unordered_set<std::string> seen;
+        for (auto& f : decl_fields)
+            if (type_region_opaque_(f.type, seen)) return true;
+        return false;
+    }
+
     template <class DeclFields>
     logos::compiler::StrMap<std::string> structlit_lt_subst_(
             const std::vector<std::string>& lifetime_params,
             const DeclFields& decl_fields,
-            const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
+            const std::vector<std::pair<std::string, lir::LExprPtr>>& fields,
+            const std::string& vkey = {}) {
         logos::compiler::StrMap<std::string> flt;
+        LtCands cands;
         if (lifetime_params.empty()) return flt;
         std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef dt, TypeRef at) {
             if (!dt || !at) return;
@@ -743,7 +887,10 @@ private:
             if ((dk2 == K::Ref || dk2 == K::MutRef) &&
                 (at.kind() == K::Ref || at.kind() == K::MutRef)) {
                 std::string d(dt.lifetime()), a(at.lifetime());
-                if (!d.empty() && !a.empty() && !flt.count(d)) flt.emplace(d, a);
+                if (!d.empty() && !a.empty()) {
+                    cands[d].push_back(a);
+                    if (!flt.count(d)) flt.emplace(d, a);
+                }
                 walk(dt.pointee(), at.pointee());
                 return;
             }
@@ -751,8 +898,10 @@ private:
                 at.kind() == dk2) {
                 auto dl = dt.lifetime_args(); auto al = at.lifetime_args();
                 for (size_t i = 0; i < dl.size() && i < al.size(); ++i)
-                    if (!dl[i].empty() && !al[i].empty() && !flt.count(dl[i]))
-                        flt.emplace(dl[i], al[i]);
+                    if (!dl[i].empty() && !al[i].empty()) {
+                        cands[dl[i]].push_back(al[i]);
+                        if (!flt.count(dl[i])) flt.emplace(dl[i], al[i]);
+                    }
                 auto da = dt.type_args(); auto aa = at.type_args();
                 for (size_t i = 0; i < da.size() && i < aa.size(); ++i) walk(da[i], aa[i]);
                 return;
@@ -766,12 +915,32 @@ private:
         for (auto& f : decl_fields)
             for (auto& [fname, fval] : fields)
                 if (fval && fname == f.name) { walk(f.type, expr_type(fval)); break; }
+        census_meet_("structlit", lifetime_params, cands, vkey);
         // Only the struct's OWN binders are instantiated here; anything else in
         // a declared field type is a name from an enclosing scope.
         logos::compiler::StrMap<std::string> out;
-        for (auto& lp : lifetime_params) {
-            auto it = flt.find(lp);
-            if (it != flt.end()) out[lp] = it->second;
+        for (size_t i = 0; i < lifetime_params.size(); ++i) {
+            const std::string& lp = lifetime_params[i];
+            auto it = cands.find(lp);
+            if (it == cands.end() || it->second.empty()) continue;
+            std::unordered_set<std::string> d(it->second.begin(), it->second.end());
+            // THE MEET. Two DIFFERENT regions were offered for one binder and
+            // the binder is covariant: it is instantiated at the region both
+            // outlive. Nobody wrote that region down and it needs no name —
+            // an elided slot is the comparators' existing spelling for "a
+            // region whose only obligation is discharged here". Without the
+            // guard this is R3's erasure, which un-refuses two pinned illegal
+            // programs; with it, those two are Inv and keep first-wins.
+            if (d.size() >= 2 && probe_meet_() &&
+                (probe_meet_unguarded_() ||
+                 (binder_is_covariant_(vkey, i) &&
+                  !(probe_meet_opaque_guard_() &&
+                    decl_fields_region_opaque_(decl_fields))))) {
+                logos::probe::census("meet.structlit.applied");
+                out[lp] = "";
+                continue;
+            }
+            out[lp] = it->second.front();
         }
         return out;
     }

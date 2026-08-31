@@ -6700,3 +6700,192 @@ behind it), `src/compiler/sema_impl.hpp` (`build_call_lt_subst_`,
 `inst_call_params_`, `structlit_lt_subst_`, `collect_param_regions_`),
 `src/compiler/sema_expr.cpp` (four argument sites, two struct-literal field
 sites), `src/compiler/sema_collect.cpp` (R4, two sites), `src/compiler/sema_decl.cpp`.
+
+# ROUND 2026-08-31k — THE MEET, AND THE VARIANCE TABLE THAT LIED ABOUT IT
+
+Ledger UNTOUCHED at 297. NOTHING LANDED. build **d1147552dc64f5cf** (READ,
+`scripts/build_hash.py build`), L1 rc=0 with nothing armed — 745/745, 346 gates,
+12 684 smoke — so every arm below is inert unarmed.
+
+## THE VERDICT FIRST
+
+    arm            fires      ceiling  cost  cost-fail (rc)         stdlib
+    ltmintinst   24385266       22       3   14 changed, rc 0       green  ← control
+    ltmintmeetrg 24385275       22       2   14 changed, rc 0       green  ← THE MEET
+    ltmintmeet   24385281       22       2   15 changed, rc **1**   green
+    ltmeetany    24385287       22       2   16 changed, rc **2**   green
+    ltmeetco      3933773        3       0    5 changed, rc **3**   green
+
+`ltmintmeetrg`'s `-L bc -L fail` table is **BYTE-IDENTICAL** to `ltmintinst`'s —
+every rc, every stderr sha, every `.expected` match, all 1056 rows. The meet
+closes ONE legal program and changes nothing else anywhere in the fail half.
+
+    ceiling  ltmintmeetrg ∖ ltmintinst = ∅ ,  ltmintinst ∖ ltmintmeetrg = ∅
+    cost     ltmintinst ∖ ltmintmeetrg = { variance-option-ref-intersection-rg }
+
+**COST 2, AND BOTH ARE THE NON-COSTS 2026-08-31j NAMED:**
+`bc_ltunmentbind_renamed_binder_hole` (its own header asks it to flip) and
+`bc_genrecv_two_mut_sequential_admit` (illegal Rust by elision rule 3). The one
+real legal-program refusal that held 22 rows is CLOSED.
+
+## THE MEET IS EXPRESSIBLE WITHOUT CFG POINTS — HERE IS WHY, AND WHAT IT COST
+
+A binder offered two different regions needs the region both outlive. The
+lattice fact that makes this cheap: **at a COVARIANT occurrence, the meet's only
+obligation — each offered region outlives it — is discharged by construction.**
+So the meet needs no NAME and no solver: an elided slot is already the
+comparators' spelling for "a region whose obligation is discharged here". At an
+INVARIANT occurrence the demand is EQUALITY instead, and no meet discharges
+that — which is exactly what the two pins pin.
+
+The variance is not new work: `compute_variances()` (sema.cpp) has computed a
+per-def, per-LIFETIME-param variance by fixpoint since B64, keyed `@i`. The meet
+reads it. No CFG point is consulted, no program point exists in this arm, and no
+constraint is ever propagated.
+
+## ⚠ THE CENSUS FIRST (RULE 17) — AND IT MOVED THE SUBJECT TWICE
+
+`census_meet_` counts, at EVERY first-occurrence-wins binder-binding walk in the
+compiler, how many binders arrive and how many arrive with two or more DIFFERENT
+incoming regions. It rides the gate's own build. Over **the whole `tests/` tree,
+8679 files, 1 file = 1 logosc process**:
+
+    site        binders   multi   co   inv   novariance
+    structlit       125       5    4     1        0
+    call             80       4    0     0        4     (a fn's binders have
+    method           16       0    0     0        0      NO declared variance)
+    enumlit           8       1    1     0        0
+
+ 1. **THE FIRST POPULATION I CHOSE WAS WRONG.** 2026-08-31i's census ran over
+    `tests/imported/admit` + `tests/logos/pass`; I reused it, and it reports
+    `meet.structlit.multi` = **0** — the subject fixture lives in
+    `tests/imported/pass/variance/`, outside it. A census over the population
+    that does not contain the subject reads exactly like a refuted hypothesis.
+    Seventh instance this week of a handed-down site list being wrong, and the
+    second where the list was mine.
+ 2. **THE WHOLE MULTI-CANDIDATE STRUCT-LITERAL POPULATION IS THREE PROGRAMS.**
+    variance-option-ref-intersection-rg (2 binders, Co),
+    nondeterministic-lifetime-errors-15034 (2, Co ⚠),
+    account-for-lifetimes-in-closure-suggestion (1, Inv).
+ 3. **THE FREE-FN CALL HAS THE SAME DEFECT AND NO GUARD AVAILABLE** — 4
+    multi-candidate binders, and nothing in this tree computes a variance for a
+    fn's own binder, so the meet CANNOT be asked there. Named, not fixed.
+ 4. Under the substitution half alone the structlit multi count is **1** (the
+    Inv one). The meet is a MINT-dependent question by construction: without
+    minted names the elided slots offer no candidates to disagree.
+
+## ⚠ THE SECOND INNER PREDICATE, AND THE MEASUREMENT THAT FORCED IT (RULE 9)
+
+The covariance guard is exactly right as a lattice condition and it **still
+un-refused a pinned illegal program**. `ltmintmeet` (variance guard only):
+
+    nondeterministic-lifetime-errors-15034     rc 1 -> 0
+    struct Lexer<'a> { input: &'a str }
+    struct Parser<'a> { lexer: &'a mut Lexer<'a> }
+
+`Parser`'s `'a` should be INVARIANT — `Lexer<'a>` sits under a `&mut`. The
+fixpoint says **Co**. Three hand programs, one variable apart, on this binary:
+
+    h1  struct L<'a> { i: &'a i64 }   struct P<'a> { l: &'a mut L<'a> }   Inv ✓
+    h3  struct L<'a> { i: &'a str }   the SAME P                          Co ⚠
+    h4  struct L<'a> { i: &'a [i64] } the SAME P                          Co ⚠
+
+**`&'a str` AND `&'a [T]` CANONICALISE TO `Kind::Slice` AND THE REGION IS
+DROPPED AT `resolve_type`** — 2026-08-31i's 1 296 116-arrival structural hole,
+arriving somewhere nobody had looked. `'a` then appears in NO recorded position
+of `L`, the fixpoint calls it **BiVar**, and BiVar composes to Co under the
+`&mut`. **The variance table cannot tell "this binder appears nowhere" from
+"this binder appears only where the type cannot record it"** — rule 16 at a new
+site, and BiVar is the spelling of that confusion.
+
+`ltmintmeetrg` adds the second predicate: a def with a region-losing slot
+(`Slice` / `TraitObject` / `TaggedPtr`, or an unreadable def) anywhere in its
+REACHABLE field types is **REGION-OPAQUE** and its declared variance is not
+evidence. Both pins hold, h1/h3/h4 all refused, the subject still compiles.
+
+## THE ABUSE DIRECTION, PRICED (the exemption checked where it is a hatch)
+
+    ltmeetany  — the meet with NO guard at all.  ceiling 22, cost 2 in the PASS
+    column, IDENTICAL to ltmintmeetrg — and **rc 2**: it un-refuses BOTH
+    nondeterministic-lifetime-errors-15034 and
+    account-for-lifetimes-in-closure-suggestion.
+
+**THE PASS COLUMN CANNOT TELL THE THREE GUARDS APART.** 22/2 for all of them.
+Only the `-L bc -L fail` rc column separates none from one from two un-refusals.
+Third time this week that oracle has reversed a recommendation.
+
+## RULE 13, AND RULE 5 — EACH WITH ITS HAND PROGRAM
+
+`ltmeetco` is the meet on the SUBSTITUTION HALF with no mint: ceiling 3, cost 0,
+and the SAME three un-refusals `ltsubstinst` has. **The meet's increment without
+the mint is exactly zero**, predicted from the census before it was priced.
+
+**COST 0 IS NOT A SAFETY CLAIM, and here is the counter-example, one field from
+the subject:**
+
+    m1  struct S<'a> { a: &'a i32, b: Option<&'a i32>, s: &'a str }
+        fn build(a:&i32, b:Option<&i32>, s:&str) -> i32 {
+            let v: S = S { a: a, b: b, s: s }; ... }
+        LEGAL, and ltmintmeetrg REFUSES IT — `&'a str` makes S region-opaque, so
+        the guard withholds a meet the program needs. The price of not trusting
+        the variance table is paid by every def that touches a slice.
+    m2  struct T<'a> { a: &'a i32, b: &'a mut i32 }  built from two regions
+        unarmed rc 0 · ltmintinst rc 1 · ltmintmeetrg rc 0 — a SECOND legal
+        program the meet closes (`&'a mut i32` is covariant IN `'a`).
+
+    c2  fn id(x:&i64)->&i64                    rc 0 unarmed and every arm
+    s1  impl Dog { fn get(&self)->&i64 }       rc 0 every arm (elision rule 3)
+    v2  pick<'a> called from f<'a>             rc 0 every arm
+    bc_ltunmentbind_legal_shapes               rc 0 both arms
+    bc_ltscope_impl_legal_shapes               rc 0 both arms
+    bc_ltunmentbind_two_unrelated_binders      rc 1 under EVERY meet arm,
+                                               ltmeetany included
+
+## THE CONTROL REVERT — ONE BINARY, TWO ARMS, ONE VARIABLE
+
+`ltmintinst` re-priced on THIS build (d1147552dc64f5cf, builds 241→246):
+ceiling 22, cost 3, cost-fail 14 changed with rc 0, stdlib green — last round's
+price to the digit. The only difference between it and `ltmintmeetrg` is
+`variance-option-ref-intersection-rg`, and the fail tables are byte-identical.
+
+## PREDICTED vs MEASURED, BOTH DIRECTIONS (RULE 6)
+
+Written to `predictions-meet.txt` before the first pricing run. **All four arms
+matched, by name, in both directions** — the 22-row ceiling set, the 2-row cost
+set, the one closed row, and the un-refusal counts 0 / 1 / 2 / 3 with the exact
+fixture names. The census was what made the predictions cheap: the population
+was three programs and they were all read before anything was priced.
+
+## ⇒ WHAT THIS ROUND SETTLES, AND WHAT IT DOES NOT
+
+ 1. **THE MEET IS EXPRESSIBLE WITHOUT CFG POINTS.** No program point, no
+    liveness, no constraint propagation — a lattice condition read off a
+    fixpoint that has been in the tree since B64. The arc does NOT need region
+    inference to reach cost 0.
+ 2. **`ltmintmeetrg` IS CEILING 22 / COST 0-REAL**, both remaining refusals
+    being the two 2026-08-31j named as not costs. That is 297 → 275 with a
+    corpus repair (`bc_genrecv_two_mut_sequential_admit` gets its `<'p>`) and a
+    shelf move (`bc_ltunmentbind_renamed_binder_hole` → fail/).
+ 3. **IT MUST NOT LAND ON THIS GUARD.** The region-opaque predicate is a
+    conservative stand-in for a variance table that is WRONG whenever a binder
+    lives only in a `Kind::Slice`, and m1 measures what that stand-in costs:
+    a legal program, refused, one field from the subject. The real repair is
+    to give `&[T]` / `&str` / `&dyn` / `&Dst` a region slot — the 1 358 164
+    arrivals named on 2026-08-31i, now with a second consumer.
+ 4. **THE FREE-FN CALL SITE HAS THE SAME MULTI-CANDIDATE DEFECT AND NO
+    VARIANCE TO GUARD IT** (4 arrivals). Nothing computes a variance for a fn's
+    own binder. Named here; not attempted.
+ 5. The diagnostic still prints `expected Option, got Option` — both regions
+    minted, both hidden by `type_str`. Elision-aware wording remains
+    prerequisite work for landing (2026-08-31j item 3), and m1's message is a
+    fresh instance.
+
+Files: `include/logos/compiler/probe.hpp` (`census_armed`, the `std::string`
+census overload, `arm_inst` / `arm_subst` — one process arms ONE name, so a
+compound arm has to answer at every gate its components use),
+`src/compiler/sema_impl.hpp` (`LtCands`, `census_meet_`, `binder_variance_`,
+`binder_is_covariant_`, `type_region_opaque_`, `decl_fields_region_opaque_`,
+`structlit_lt_subst_`, `build_call_lt_subst_`), `src/compiler/sema_expr.cpp`
+(the two struct-literal sites now pass a variance key; the method and the two
+enum-literal sites are censused only), `src/compiler/sema_decl.cpp`,
+`src/compiler/sema_collect.cpp` (arm renames only).

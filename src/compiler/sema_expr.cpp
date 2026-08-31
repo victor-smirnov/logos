@@ -3929,9 +3929,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // the GENERIC paths, and an unambiguous free fn takes neither. Rule 17,
         // on this round's own site list.
         TypeRef exact_ret = exact_fi->ret_type;
-        if (logos::probe::on("ltsubstcall") || logos::probe::on("ltsubstinst") || logos::probe::on("ltmintsubst") ||
+        if (logos::probe::on("ltsubstcall") || logos::probe::arm_subst() || logos::probe::on("ltmintsubst") ||
         logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
-        logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst"))
+        logos::probe::on("ltmintimpl") || logos::probe::arm_inst())
             exact_ret = subst_call_ret_lts_(exact_fi->param_types,
                                             exact_fi->lifetime_params,
                                             arg_exprs, exact_ret);
@@ -4214,9 +4214,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     }
 
     TypeRef plain_ret = fi.ret_type;
-    if (logos::probe::on("ltsubstcall") || logos::probe::on("ltsubstinst") || logos::probe::on("ltmintsubst") ||
+    if (logos::probe::on("ltsubstcall") || logos::probe::arm_subst() || logos::probe::on("ltmintsubst") ||
         logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
-        logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst"))
+        logos::probe::on("ltmintimpl") || logos::probe::arm_inst())
         plain_ret = subst_call_ret_lts_(fi.param_types, fi.lifetime_params,
                                         arg_exprs, plain_ret);
     return builder().call(fi.symbol_name.empty() ? std::string(callee) : fi.symbol_name, {}, std::move(arg_exprs), plain_ret);
@@ -5042,9 +5042,9 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
 
     // Substitute return type
     TypeRef ret = subst_type_sema(fi.ret_type, subst);
-    if (logos::probe::on("ltsubstcall") || logos::probe::on("ltsubstinst") || logos::probe::on("ltmintsubst") ||
+    if (logos::probe::on("ltsubstcall") || logos::probe::arm_subst() || logos::probe::on("ltmintsubst") ||
         logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
-        logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst"))
+        logos::probe::on("ltmintimpl") || logos::probe::arm_inst())
         ret = subst_call_ret_lts_(fi.param_types, fi.lifetime_params, arg_exprs, ret);
     // MEASURED 2026-08-28, 379-row ledger: 104 fires, CEILING 4 vs COST 0 —
     // and BOTH halves of that price are misleading, which is the finding.
@@ -10270,10 +10270,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // literal `Self::Item<'a>` that would name-collide with the caller's
     // own 'a).
     SemaLifetimeSubst lt_subst;
+    LtCands lt_cands;
     {
         auto record = [&](std::string_view ml, std::string_view cl) {
             if (ml.empty() || cl.empty()) return;
             std::string mk(ml), ck(cl);
+            lt_cands[mk].push_back(ck);
             auto it = lt_subst.find(mk);
             if (it == lt_subst.end()) lt_subst.emplace(mk, ck);
         };
@@ -10308,6 +10310,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if (!fi.param_types.empty() && recv) walk(fi.param_types[0], expr_type(recv));
         for (size_t i = 0; i + 1 < fi.param_types.size() && i < arg_exprs.size(); ++i)
             if (arg_exprs[i]) walk(fi.param_types[i + 1], expr_type(arg_exprs[i]));
+        census_meet_("method", fi.lifetime_params, lt_cands, {});
     }
 
     // Substitute TypeVars + lifetimes in return type.
@@ -11593,10 +11596,13 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 // them, and we cannot name the instantiation.
                 TypeRef ft_cmp = ft;
                 if (ft && !ft_has_typevar &&
-                    (logos::probe::on("ltmintinst") || logos::probe::on("ltsubstinst")) &&
+                    (logos::probe::arm_inst() || logos::probe::arm_subst()) &&
                     !sinfo.lifetime_params.empty()) {
                     auto blift = structlit_lt_subst_(sinfo.lifetime_params,
-                                                     effective->fields, fields);
+                                                     effective->fields, fields,
+                                                     sinfo.package.empty()
+                                                       ? std::string(sname)
+                                                       : sinfo.package + "." + std::string(sname));
                     if (!blift.empty()) {
                         ft_cmp = subst_type_sema(ft, {}, blift);
                         if (ft_cmp != ft) logos::probe::census("structlit.field.instantiated");
@@ -11739,12 +11745,15 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             // (regions-mock-codegen). THIS is the site a struct with lifetime
             // params but no TYPE params takes.
             TypeRef ft_cmp2 = ft;
-            if (ft && (logos::probe::on("ltmintinst") || logos::probe::on("ltsubstinst"))) {
+            if (ft && (logos::probe::arm_inst() || logos::probe::arm_subst())) {
                 auto [_slp_pkg, _slp] = find_struct_by_name(std::string(sname));
                 (void)_slp_pkg;
                 if (_slp && !_slp->lifetime_params.empty()) {
                     auto blift2 = structlit_lt_subst_(_slp->lifetime_params,
-                                                      _slp->fields, fields);
+                                                      _slp->fields, fields,
+                                                      _slp->package.empty()
+                                                        ? std::string(sname)
+                                                        : _slp->package + "." + std::string(sname));
                     if (!blift2.empty()) {
                         ft_cmp2 = subst_type_sema(ft, {}, blift2);
                         if (ft_cmp2 != ft) logos::probe::census("structlit.field.instantiated");
@@ -11901,7 +11910,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     // declared field type against the actual field VALUE's type and read the
     // struct's binder off the value's region.
     if ((logos::probe::on("ltsubstlit") || logos::probe::on("ltmintsubst") ||
-         logos::probe::on("ltmintfree") || logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst")) &&
+         logos::probe::on("ltmintfree") || logos::probe::on("ltmintimpl") || logos::probe::arm_inst()) &&
         !sinfo.lifetime_params.empty()) {
         logos::probe::census("subst.structlit.site");
         std::unordered_map<std::string, std::string> flt;
@@ -13736,6 +13745,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
     // lifetime_args on the constructed enum type so the variance check at
     // return-site / let-init can compare lifetimes.
     std::unordered_map<std::string, std::string> lt_subst;
+    LtCands lt_cands;
     {
         std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef pt, TypeRef at) {
             if (!pt || !at) return;
@@ -13743,7 +13753,10 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             auto pk = pt.kind();
             if ((pk == K::Ref || pk == K::MutRef) && (at.kind() == K::Ref || at.kind() == K::MutRef)) {
                 std::string pl(pt.lifetime()), al(at.lifetime());
-                if (!pl.empty() && !al.empty() && !lt_subst.count(pl)) lt_subst[pl] = al;
+                if (!pl.empty() && !al.empty()) {
+                    lt_cands[pl].push_back(al);
+                    if (!lt_subst.count(pl)) lt_subst[pl] = al;
+                }
                 walk(pt.pointee(), at.pointee());
                 return;
             }
@@ -13765,6 +13778,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         };
         for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i)
             if (payload[i]) walk(vinfo->payload_types[i], expr_type(payload[i]));
+        census_meet_("enumlit", einfo.lifetime_params, lt_cands, eit->first);
     }
 
     // Build the enum type (may be generic, e.g. Option<i32>)
@@ -14075,6 +14089,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
 
     // B81: lifetime-arg inference (mirror of lower_enum_lit_data path).
     std::unordered_map<std::string, std::string> lt_subst;
+    LtCands lt_cands;
     {
         std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef pt, TypeRef at) {
             if (!pt || !at) return;
@@ -14082,7 +14097,10 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             auto pk = pt.kind();
             if ((pk == K::Ref || pk == K::MutRef) && (at.kind() == K::Ref || at.kind() == K::MutRef)) {
                 std::string pl(pt.lifetime()), al(at.lifetime());
-                if (!pl.empty() && !al.empty() && !lt_subst.count(pl)) lt_subst[pl] = al;
+                if (!pl.empty() && !al.empty()) {
+                    lt_cands[pl].push_back(al);
+                    if (!lt_subst.count(pl)) lt_subst[pl] = al;
+                }
                 walk(pt.pointee(), at.pointee());
                 return;
             }
@@ -14103,6 +14121,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
         };
         for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i)
             if (payload[i]) walk(vinfo->payload_types[i], expr_type(payload[i]));
+        census_meet_("enumlit", einfo.lifetime_params, lt_cands, eit->first);
     }
 
     TypeRef result_type = make_enum_type(ename);
