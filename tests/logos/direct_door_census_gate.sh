@@ -1166,9 +1166,22 @@ PIN = {
     #   the same listing minus the glob half             -> 2317
     # 2508 = 191 + 2317. DOOR counts unmoved: none of the four declares a
     # container family — they are `i64` / struct / closure borrow-check shapes.
-    'corpus'            : 2508,
+    # ⚠ RE-DERIVED AGAIN in the same round, at the M4 stage (the reborrow
+    # exemption re-keyed on the DEREFERENCED reference, then the by-value gate
+    # at the field / AddrOfTemp sites): +1 / +0 / +1. ONE new PASS fixture,
+    # outside the `wql_*` / `deem_*` glob:
+    #   + bc_thrumutref_legal_shapes   the three legal reborrow-through-a-field
+    #                                  shapes the exemption must keep admitting
+    # Its refuse half (bc_thrumutref_borrow_of_the_field_fail) is a FAIL fixture
+    # and the 3 further closed ledger rows are IMPORTED, so neither touches this
+    # count. BY DIRECT LISTING:
+    #   ls tests/logos/pass/*.logos                      -> 2509
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
+    #   the same listing minus the glob half             -> 2318
+    # 2509 = 191 + 2318. DOOR counts unmoved: no container family is declared.
+    'corpus'            : 2509,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2317,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2318,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

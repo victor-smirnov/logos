@@ -1,0 +1,20 @@
+// THE DEFECT HALF OF A ONE-TOKEN PAIR — one `*` from
+// tests/logos/pass/bc_thru_ref_field_mut_reborrow_admit. `&mut *h.r`
+// dereferences `h.r` and is legal; `&mut h.r` borrows the FIELD ITSELF, a
+// place inside `h`, and `h` is a by-value parameter not declared `mut`.
+// rustc: E0596.
+//
+// The pair is the whole claim of the 2026-08-31p exemption: a root-keyed rule
+// ("is the root a reference?") sees the SAME thing in both programs — `h` is a
+// non-mut by-value struct on both sides — and cannot tell them apart. Only the
+// type of the reference ACTUALLY DEREFERENCED separates them, and in this half
+// no reference is dereferenced at all.
+package bc_thrumutref_borrow_of_the_field_fail;
+struct H { r: &mut i64 }
+fn use_ref(y: &mut &mut i64) { }
+fn bump(h: H) { use_ref(&mut h.r); }
+fn main() -> i32 {
+    let mut n: i64 = 1i64;
+    bump(H { r: &mut n });
+    return 0i32;
+}

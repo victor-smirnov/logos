@@ -1,6 +1,9 @@
 // rustc borrowck/borrowck-ref-mut-of-imm.rs — upstream E0596
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: fail · was bck.B — filed there by its import block, it is bck.A-1's partition, CLOSED 2026-08-31p — the `not declared as mut`
+// param hatch is for REFERENCE params, and the reborrow exemption at the
+// field / AddrOfTemp sites now keys on the reference actually DEREFERENCED
+// rather than on the root binding.
 // upstream: borrowck/borrowck-ref-mut-of-imm.rs  E0596
 package borrowck_ref_mut_of_imm_ref_mut_of_imm;
 fn destructure(x: Option<i64>) -> i64 {

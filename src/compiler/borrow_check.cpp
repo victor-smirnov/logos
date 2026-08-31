@@ -1054,7 +1054,27 @@ struct BorrowPlace {
     // outer→inner, so the last assignment wins — and `record_borrow` asks it
     // once for both tails. Null when no reference was crossed.
     TypeRef     through_ref_type = nullptr;
+    // ⚠ AND WHETHER THAT REFERENCE IS ONE THE PROGRAM HOLDS. A `*b` on a
+    // `Box<T>` is lowered to a deref of a CALL RESULT, so the walk crosses a
+    // manufactured `&mut T` that was itself made out of `&mut b` — exempting
+    // the root on the strength of it would say `let b: Box<i64>; &mut *b`
+    // needs no `mut b`, which is E0596. MEASURED 2026-08-31p with a control
+    // revert: without this bit the widening un-refuses
+    // tests/logos/fail/bc_match_deref_mut_not_mut. True only when the crossed
+    // reference is a PLACE the source names.
+    bool        through_ref_is_place = false;
 };
+
+// THE MIRROR OF record_borrow's E0596 GATE. That gate asks whether the
+// reference DEREFERENCED on the way to the place was SHARED, and refuses. This
+// asks whether it was `&mut`, and EXEMPTS: a reborrow through a `&mut` is legal
+// however the root binding was declared. LANDED 2026-08-31p — the widening
+// record_borrow's own comment had deliberately left unmade, because until the
+// by-value half of the param hatch closed nothing depended on it.
+static bool place_thru_mut_ref(const BorrowPlace& bp) {
+    return bp.through_ref_is_place && bp.through_ref_type &&
+           bp.through_ref_type.kind() == LogosType::Kind::MutRef;
+}
 
 static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
                                          const TypePoolImpl* pool) {
@@ -1074,18 +1094,19 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
     // chain should win over a later, nearer-the-root `&mut`; today the LAST
     // assignment wins (the walk runs outer->inner) and that disarms
     // record_borrow's E0596 gate whenever the root binding is itself `&mut`.
-    auto cross = [&](TypeRef t) {
+    auto cross = [&](TypeRef t, lir_view::ExprRef src) {
         bp.through_ref = true;
         if (logos::probe::on("sharedsticky") && bp.through_ref_type &&
             bp.through_ref_type.kind() == LogosType::Kind::Ref) return;
         bp.through_ref_type = t;
+        bp.through_ref_is_place = src && lir_view::is_place_expr(src);
     };
     while (cur) {
         if (cur.kind() == Code::FieldRead) {
             EFieldReadView fv{cur};
             path_parts.push_back(std::string(fv.field()));
             cur = fv.receiver();
-            if (cur && is_ref_kind(cur.type(pool))) cross(cur.type(pool));
+            if (cur && is_ref_kind(cur.type(pool))) cross(cur.type(pool), cur);
         } else if (cur.kind() == Code::TupleIndex) {
             // A tuple element is a FIELD whose name is its index — that is
             // already the spelling everything else uses (`moved_vars_` writes
@@ -1098,7 +1119,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             ETupleIndexView tv{cur};
             path_parts.push_back(std::to_string(tv.index()));
             cur = tv.receiver();
-            if (cur && is_ref_kind(cur.type(pool))) cross(cur.type(pool));
+            if (cur && is_ref_kind(cur.type(pool))) cross(cur.type(pool), cur);
         } else if (cur.kind() == Code::IndexRead) {
             auto recv = EIndexReadView{cur}.receiver();
             // Indexing through a RAW pointer (`p[i]`, p: *mut/*const T) is an
@@ -1129,7 +1150,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             }
             path_parts.clear();
             bp.index_in_chain = true;
-            if (recv && is_ref_kind(recv.type(pool))) cross(recv.type(pool));
+            if (recv && is_ref_kind(recv.type(pool))) cross(recv.type(pool), recv);
             cur = recv;
         } else if (cur.kind() == Code::SliceIndex) {
             auto sl = ESliceIndexView{cur}.slice();
@@ -1145,7 +1166,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             }
             path_parts.clear();
             bp.index_in_chain = true;
-            if (sl && is_ref_kind(sl.type(pool))) cross(sl.type(pool));
+            if (sl && is_ref_kind(sl.type(pool))) cross(sl.type(pool), sl);
             cur = sl;
         } else if (cur.kind() == Code::Deref) {
             // A borrow through a REFERENCE deref (`*r`, `(*r).f`, `(*r)[i]`) is a
@@ -1169,7 +1190,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
                     // provenance. A Box/Rc/user-Deref container OWNS its
                     // content, so the content dies with the container variable
                     // and the root stays the right source.
-                    if (is_ref_kind(ok)) cross(ok);
+                    if (is_ref_kind(ok)) cross(ok, op);
                     // The deref'd CONTENT isn't a sibling-decomposable field
                     // of the container — treat like an index step (whole-
                     // container borrow), dropping any field path collected
@@ -4095,7 +4116,8 @@ private:
                            bool is_mut, uint32_t line,
                            TypeRef root_type = nullptr,
                            const std::string& holder = "",
-                           bool implicit = false) {
+                           bool implicit = false,
+                           bool thru_mut_ref = false) {
         auto it = var_find(target_slot, target);
         if (it == nullptr) return;
         std::string self_disp = fmt_path(target, path);
@@ -4128,9 +4150,13 @@ private:
                 self_disp, target));
             return;
         }
-        // Mut binding check — N/A for reference-typed roots.
+        // Mut binding check — N/A for reference-typed roots, and N/A when the
+        // reference actually DEREFERENCED on the way to the place is a `&mut`,
+        // whatever the root is: `&mut *h.r` with `h: H` by value and
+        // `h.r: &mut i64` is a reborrow through `h.r`, not a borrow of `h`, and
+        // needs no `mut h` (Rust parity). See place_thru_mut_ref.
         if (is_mut && !root_is_mut_ref && !root_is_shared_ref &&
-            !it->is_mut_binding) {
+            !thru_mut_ref && !it->is_mut_binding) {
             logos::probe::census("mb.f.arrive");
             if (param_names_.count(target)) {
                 logos::probe::census("mb.f.hatch");
@@ -4138,12 +4164,15 @@ private:
                     ? "mb.f.hatch.byval" : "mb.f.hatch.ref");
             } else logos::probe::census("mb.f.refuse");
         }
-        // PROBE mbparamvalf — the by-VALUE half of the hatch, field path.
+        // LANDED 2026-08-31p — the same rule the whole-variable tail took: the
+        // param hatch is for REFERENCE params, and a reborrow through one is
+        // exempted above by `thru_mut_ref`, at the reference actually
+        // dereferenced. A BY-VALUE param has nothing left to hatch.
         const bool byval_f_ = param_names_.count(target) &&
-            param_byval_.count(target) &&
-            logos::probe::on("mbparamvalf");
+            param_byval_.count(target) > 0;
         if (is_mut && !root_is_mut_ref && !root_is_shared_ref &&
-            !it->is_mut_binding && (!param_names_.count(target) || byval_f_)) {
+            !thru_mut_ref && !it->is_mut_binding &&
+            (!param_names_.count(target) || byval_f_)) {
             report(line, std::format(
                 "cannot borrow '{}' as mutable: '{}' not declared as mut",
                 self_disp, target));
@@ -4516,7 +4545,8 @@ private:
                    "record_borrow: the field tail may never receive an empty "
                    "path — no consumer checks mut_field_borrows[\"\"]");
             take_field_borrow_path_(bp.root, bp.root_slot, bp.path, is_mut,
-                                    line, bp.root_type, holder, fl.implicit);
+                                    line, bp.root_type, holder, fl.implicit,
+                                    place_thru_mut_ref(bp));
         }
     }
 
@@ -9327,6 +9357,7 @@ private:
                         rbp.root_type = inner_var.type(pool);
                         // `&mut *r` / `&mut **r`: the reference crossed IS r.
                         rbp.through_ref_type = inner_var.type(pool);
+                        rbp.through_ref_is_place = true;
                         record_borrow(rbp, v.is_mut(), line, holder,
                                       {/*skip_mut_binding=*/false,
                                        /*ref_capacity=*/true});
@@ -13753,10 +13784,16 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             // `let c: &mut [u32] = …; c[0] = n;` is legal); only reassigning
             // the binding itself would.
             bool root_is_ref = bp.root_type && is_ref_kind(bp.root_type);
+            // …and skipped when the reference actually DEREFERENCED on the way
+            // to the place is a `&mut`, whatever the root is — the same
+            // question the field tail asks, asked of the same thing. See
+            // place_thru_mut_ref.
+            bool aot_thru_mut_ref = place_thru_mut_ref(bp);
             if (!root.empty() && !root_is_rawptr && var_has(NO_SLOT, root)) {
                 auto sit = var_find(NO_SLOT, root);
                 // Mut-binding check (root-level) — skipped for reference roots.
-                if (is_mut && !root_is_ref && !sit->is_mut_binding) {
+                if (is_mut && !root_is_ref && !aot_thru_mut_ref
+                    && !sit->is_mut_binding) {
                     logos::probe::census("mb.aot.arrive");
                     if (param_names_.count(root)) {
                         logos::probe::census("mb.aot.hatch");
@@ -13764,11 +13801,11 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                             ? "mb.aot.hatch.byval" : "mb.aot.hatch.ref");
                     } else logos::probe::census("mb.aot.refuse");
                 }
-                // PROBE mbparamvalaot — the by-VALUE half of the hatch, AddrOfTemp.
+                // LANDED 2026-08-31p — see take_field_borrow_path_.
                 const bool byval_aot_ = param_names_.count(root) &&
-                    param_byval_.count(root) &&
-                    logos::probe::on("mbparamvalaot");
-                if (is_mut && !root_is_ref && !sit->is_mut_binding
+                    param_byval_.count(root) > 0;
+                if (is_mut && !root_is_ref && !aot_thru_mut_ref
+                    && !sit->is_mut_binding
                     && (!param_names_.count(root) || byval_aot_))
                     report(line, std::format(
                         "cannot borrow '{}' as mutable: not declared as mut",

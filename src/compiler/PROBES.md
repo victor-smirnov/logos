@@ -8156,3 +8156,223 @@ apart, one refused and one not, which is the claim in its smallest form.
     because `.expected` is a substring grep (§5). Rule 15, second instance.
  6. The census's `hatch.byval` is a LOWER bound: closure params are out of
     `param_byval_` on purpose (§0).
+
+# ═══ ROUND 2026-08-31p — FOUR ARMS LANDED, 12 ROWS, AND THE SHELF'S OWN TOP
+# RECOMMENDATION DIED ON READING ITS DIAGNOSTIC ═══════════════════════════════
+
+**LEDGER 276 → 264. TWELVE ROWS.** ⚠ WHICH BUILD EACH NUMBER RODE (rule 8, and
+the stdlib archives carry a TIMESTAMP so a relink moves the hash with no source
+changed — three of the six below are that):
+
+    b8dbdb689af27a8b   the OPENING tree (45555cee1). The 2026-08-31o shelf was
+                       measured on it and this round opens on the same binary,
+                       so for once nothing on the shelf was stale.
+    3397a2dc7ba8d280   M2 + M3 landed (`capmovewalk`, the by-value gate at `w`)
+    e044b32a1b411792   THE CONTROL REVERT of M4a, git-stash + rebuild — same
+                       source as 3397…, different hash, identical behaviour
+    6f4db489f4eb66e5   M4a, FIRST SPELLING — REFUTED, see §3
+    e6b440c004a4c6b0   M4a narrowed by `through_ref_is_place`
+    a260551f8f0c04eb   M4b (the by-value gate at `f` and `aot`)
+    df6585c06bbd0d8b   the final relink; no source changed
+
+## 0. THE ARMS, AND WHAT EACH ONE COST
+
+    arm                        ceiling  cost  cfail  stdlib  ledger
+    M2 capmovewalk                   2     0      0      ok  276 -> 274
+    M3 by-value gate at `w`          7     0      0      ok  274 -> 267
+    M4a exemption re-keyed           0     0   1 TEXT     ok  267 (permissive)
+    M4b by-value gate at `f`+`aot`   3     0      0      ok  267 -> 264
+    M1 delete current_lt_binders()   1     0      0      ok  ⛔ WITHDRAWN, §1
+
+Every `cost` is the two legal populations `-L bc -L pass` (902) and
+`25_spec|03_ownership|04_advanced` pass (190); every `cfail` is
+`scripts/fail_text_oracle.py` over 1090 fail fixtures, rc + normalised stderr
+sha + `.expected`-match, counted in the three shapes separately.
+
+## 1. ⛔ M1 IS WITHDRAWN, AND THE REASON IS THE DIAGNOSTIC
+
+2026-08-31o's first recommendation was "delete `current_lt_binders()`, keep the
+wider rule — one row, cost 0/0/ok on three populations". Both halves of that
+re-price were correct. **The row is not.**
+
+`lifereg_unmentioned`'s ceiling of 1 is
+`lifetimes/suggest-introducing-and-adding-missing-lifetime--param-may-not-live`:
+
+    fn with_restriction<'b, T: 'b>(x: &'b i64) -> &'b i64 { return x; }
+    fn no_restriction<T>(x: &i64) -> &i64 { return with_restriction::<T>(x); }
+
+Upstream is **E0310, "the parameter type `T` may not live long enough"** — the
+missing `T: 'b` bound. The wider rule's message is
+
+    call to 'with_restriction' arg 1: variance mismatch — expected &'b i64,
+    got &i64 — lifetime structure incompatible
+
+i.e. it refuses the REGION relation between the caller's elided argument region
+and the callee's `'b`. rustc's inference satisfies that relation; the program's
+only fault is the type-outlives bound, which this rule does not mention and does
+not compute. ⇒ **A ROW CLOSED BY A WRONG DIAGNOSTIC IS NOT CLOSED**, so the
+wider rule's legitimate ceiling is **0** and its refusal is over-strict on a
+satisfiable constraint. Deleting the narrowing would buy nothing and pay for it.
+
+⚠ `current_lt_binders()` is therefore KEPT, and it is NOT DEAD: `ltbindersoff`,
+the control revert of that predicate alone, still costs cfail 1
+(`account-for-lifetimes-in-closure-suggestion` rc 1 → 0) on the opening binary.
+It stays an admittedly-unsound name-collision approximation buying one fixture;
+what retires it is the E0310 machinery, not this rule.
+
+⚠ AND THE TAIL IT GUARDS IS NEARLY UNREACHABLE. Four multi-line hand programs
+written for this arm — the callee's binder against the caller's, a struct's own
+parameter unsubstituted, a method's binder against its impl's, two unrelated
+caller binders — plus the in-tree pins u1/u2/u5/u7/u8 all fired
+`lifereg_unmentioned` **ZERO** times on the opening binary. The engine's mint
+and substitution answer before the permissive tail is reached. A cost of 0 over
+programs that never arrive is rule 1, and it is why the ceiling had to be read.
+
+## 2. M2 AND M3 — THE TWO CLEAN ONES
+
+**M2 `capmovewalk`.** `walk_closure_body` RETURNED on `cbv.is_move()`. The
+`is_move_` bit stays: it still scopes the cause-B capture deposit, which is
+genuinely inverted for a move closure. CEILING 2, PREDICTED BY NAME, closed
+set = predicted set, both directions empty:
+
+    borrowck/borrowck-multiple-captures  "cannot move 'x1' while it is
+                                          borrowed"        upstream E0505
+    nll/issue-48238                      "cannot return reference to local
+                                          variable 'orig'" upstream
+                                          closure-borrow-escape
+
+**M3 the by-value parameter gate at `take_borrow_whole_`.** CEILING 7,
+PREDICTED BY NAME off 2026-08-31o's store deltas, closed set = predicted set,
+both directions empty; all seven upstream errors are E0596 and all seven of our
+messages are E0596-shaped and name the right binding:
+
+    borrowck/borrowck-borrow-overloaded-auto-deref   bck.A     ⚠ labelled below
+    borrowck/issue-111554--b                         bck.A
+    borrowck/issue-111554--c                         bck.A
+    borrowck/issue-55492-borrowck-migrate-scans-parents bck.A
+    lifetimes/ex3-both-anon-regions-using-fn-items   lifereg.R2  ← mis-rooted
+    lifetimes/ex3-both-anon-regions-using-trait-objects lifereg.R2 ← mis-rooted
+    nll/issue-51191                                  nllmoves.A  ← mis-rooted
+
+⚠ `borrowck-borrow-overloaded-auto-deref` is the LABELLED kind, carried forward
+from 2026-08-31o §3: upstream's E0596 there is "cannot borrow data in an `Rc` as
+mutable" (no `DerefMut`) and ours is "not declared as mut". Both refuse the same
+program for a reason rustc gives; it is not THE reason. Counted, and labelled.
+
+M2 + M3 measured together on 3397a2dc7ba8d280: ledger 267/267, `-L bc -L pass`
+898/898, the spec selection 190/190, all four stdlib layers, and the fail-text
+oracle **byte-identical** to the opening build over all 1079 fixtures the two
+builds share — 0 rc flips, 0 `.expected` losses, 0 text-only changes.
+
+## 3. ⚠ M4a WAS REFUTED AT ITS FIRST SPELLING, BY A CONTROL REVERT
+
+The named repair — "key the reborrow exemption on the DEREFERENCED reference,
+not the root" — is the mirror of a gate `record_borrow` already has, and that
+gate's own comment says the mirror is "deliberately not made here". Made as
+spelled (`through_ref_type` is a `MutRef` ⇒ exempt), the 1090-fixture oracle
+read THREE changes, one of them an **UN-REFUSAL**:
+
+    RC    bc_match_deref_mut_not_mut   1 -> 0     ← a pinned illegal program
+    MATCH borrowck-no-cycle-in-exchange-heap--move-while-refmut-borrowed  LOST
+    TEXT  bc_d1r10_sp1_aggregate_copied_out
+
+**THE CONTROL WAS RUN BEFORE THE CAUSE WAS GUESSED** (rule 18, the other
+direction): `git stash` of the borrow_check hunk, rebuild to
+e044b32a1b411792, three hand programs one variable apart:
+
+    let b: Box<i64>; &mut *b            ADMITTED on BOTH binaries  ← PRE-EXISTING
+    match *x { Node(ref mut y) => … }   REFUSED control, ADMITTED armed ← MINE
+      x: Box<Cycle>
+    the same match with x: Cycle        REFUSED on both            ← control
+
+So the Box shape is TWO defects, and only the second is this change's. `*b` on a
+`Box<T>` is lowered to a deref of a **CALL RESULT**, and the walk crosses the
+`&mut T` that `deref_mut` returned — a reference manufactured out of `&mut b`,
+which cannot exempt `b` from being `mut`.
+
+⇒ **`BorrowPlace::through_ref_is_place`**: the crossing exempts only when the
+reference crossed is a PLACE the source names (`lir_view::is_place_expr` at each
+`cross()` call site). With it, e6b440c004a4c6b0 reads **1 of 1090 changed, and
+it is TEXT-ONLY**: `bc_d1r10_sp1_aggregate_copied_out` loses a spurious
+"cannot borrow 'inn.r' as mutable: 'inn' not declared as mut" that was printed
+AHEAD of its pinned line. The edit is purely subtractive on the report path
+(`&& !thru_mut_ref` added to four refusal conditions and nothing else), so a
+text change can only be a DELETED diagnostic — rule 14's good direction, and the
+only one of this round's four arms that deletes anything.
+
+Ledger 267/267 under M4a alone, as predicted: it is permissive and closes no row.
+
+## 4. M4b — THE SAME RULE AT THE OTHER TWO SITES
+
+With the exemption asked of the right thing, the by-value gate moves to `f` and
+`aot` unchanged. CEILING 3, PREDICTED BY NAME, both directions empty:
+
+    borrowck/mutability-errors                       site f   upstream E0594/E0596
+    borrowck/borrowck-ref-mut-of-imm--ref-mut-of-imm site f   upstream E0596
+                                                     (bck.B — mis-rooted)
+    borrowck/borrowck-argument                       site aot upstream E0596
+
+COST 0 on both legal populations, stdlib ok, and the fail oracle **0 of 1090
+changed against M4a** — i.e. the two costs 2026-08-31o measured for
+`mbparamvalf` (bc_thru_ref_field_mut_reborrow_admit) and `mbparamvalaot`
+(bc_d1r13_p3_byvalue_outparam, text-only and invisible to ctest) are BOTH gone,
+which is the prediction that funded M4a.
+
+⚠ THE PER-SITE CEILINGS WERE RE-PRICED ON THE POST-M3 BINARY, not inherited:
+`mbparamvalf` 107 fires / ceiling 2 / cost 1 / cfail 0 and `mbparamvalaot` 1114
+fires / ceiling 1 / cost 0 / cfail 1-text-only, on 3397a2dc7ba8d280. Rule 8 was
+applied inside the round, not only at its start.
+
+## 5. RULE 5 — THE HAND PROGRAMS, ALL MULTI-LINE, ALL ON THE FINAL BINARY
+
+Nineteen programs. The nine that attack M3 and the four that attack M4 are in
+the tree as `pass/bc_mbparamval_legal_shapes`,
+`pass/bc_capmovewalk_move_body_legal_shapes` and
+`pass/bc_thrumutref_legal_shapes`, each with its refuse half named in its own
+header — a hand program dies with its round otherwise.
+
+    M3, the abuse direction (rule 12): a `let mut` and a closure `|mut f|` each
+      shadowing the parameter's NAME; a `&mut` param spelled through a TYPE
+      ALIAS (`param_byval_` is filled by asking `is_ref_kind` on the declared
+      type); a generic `mut t: T` (`is_ref_kind` is false for a type parameter,
+      so `T` lands in `param_byval_`); a by-value `mut self`; a SHARED borrow of
+      exactly the population the rule now refuses; the three reference-param
+      reborrow shapes that are 99.998% of the hatch.        ALL rc 0
+    M3, the defect: `fn q(f: i64) { use_mut(&mut f); }`      rc 1, and its
+      one-token twin `fn q(mut f: i64)`                      rc 0
+    M2: a move body mutating its own capture while the enclosing frame keeps
+      using the original; a move body taking `&mut` of both a moved capture and
+      a body local; a move closure and the enclosing frame on disjoint roots.
+      Each fired `capmovewalk` exactly once on b8dbdb689af27a8b.   ALL rc 0
+    M4: `&mut *h.r` and `&mut *o.i.r` out of by-value params, and `*h.r = v`
+      (the AddrOfTemp door).                                  ALL rc 0
+    M4, the defect, ONE `*` away: `&mut h.r` — the field ITSELF, a place inside
+      a by-value `h`.                                         rc 1
+    M4, the refusing half unmoved: `h.r: &i64`, `&mut *h.r`   rc 1
+
+## 6. OPEN, WITH ITS EVIDENCE
+
+ 1. **`let b: Box<i64>; let r: &mut i64 = &mut *b;` IS ADMITTED, AND WAS BEFORE
+    THIS ROUND** — proven by control revert (§3), rustc E0596. A `Box` deref is
+    a call and the mut-binding question never reaches the binding. Not this
+    round's; named because the round's first spelling was blamed for it.
+ 2. **`borrowck-unboxed-closures`** — the eleventh row of the `bck.A-1`
+    partition. Calling an `FnMut` through a binding takes no borrow at all, so
+    the gate has nothing to refuse. Same partition, different site.
+ 3. **`bck.A-2` IS CLOSED BY M4's MECHANISM AND ITS ROW IS NOT.**
+    `mut-borrow-of-mut-ref` (`fn f(b:&mut i64) { h2(&mut b) }`) is `&mut` of a
+    REFERENCE-TYPED PARAMETER, which the hatch still exempts — the by-value
+    split does not reach it. The exemption now knows which reference was
+    dereferenced; what it still cannot do is tell `&mut b` from `&mut *b` after
+    auto-reborrow has run.
+ 4. **`capshared`'s four rows** stay blocked on the same unblocking
+    2026-08-31o named: delegate `take_borrow_whole_`'s moved-value arm to the
+    reader that owns "use of moved value … (moved on line N)". Not attempted.
+ 5. **`bck.D-H`, seven rows, one mechanism** — a loan whose HOLDER is a
+    compiler-made temporary, proven live by two controls in 2026-08-31o §8.
+    The biggest surveyed prize and untouched.
+ 6. **`bck.D-R`, three rows, NO ORACLE on this box** (E0716 temporary-lifetime
+    extension; rustc absent).
+ 7. `loan_carrying_type` vs `is_borrow_carrying_type` — still unmeasured.
+ 8. `m4_defect_2`'s message says "'h' is behind a `&` reference" when it is
+    `h.r` that is. Pre-existing wording, not moved by this round.

@@ -1,0 +1,41 @@
+// COST 0 IS NOT A SAFETY CLAIM (rule 5). The 2026-08-31p exemption is a
+// PERMISSIVE change — it removes a refusal — so the corpus can only ever
+// under-report its damage, and its first spelling WAS refuted by a control
+// revert: keyed on `through_ref_type` alone it un-refused
+// tests/logos/fail/bc_match_deref_mut_not_mut, because `*b` on a `Box<T>` is a
+// deref of a CALL RESULT and the `&mut T` the walk crosses there was itself
+// manufactured out of `&mut b`. `through_ref_is_place` is the narrowing.
+//
+// ⚠ THE REFUSE HALVES ARE tests/logos/fail/
+// bc_thrumutref_borrow_of_the_field_fail (the field itself, one `*` away) and
+// tests/logos/fail/bc_match_deref_mut_not_mut (the Box the first spelling
+// un-refused).
+package bc_thrumutref_legal_shapes;
+
+// (1) a reborrow through a `&mut` held in a FIELD of a by-value parameter that
+// is not declared `mut`. It is `h.r` that is dereferenced, not `h` borrowed.
+struct H { r: &mut i64 }
+fn bump(h: H) { let y: &mut i64 = &mut *h.r; *y = *y + 1i64; }
+
+// (2) the same, TWO field hops down: the exemption keys on the reference
+// dereferenced at whatever depth, not on the root.
+struct Inner { r: &mut i64 }
+struct Outer { i: Inner }
+fn bump2(o: Outer) { let y: &mut i64 = &mut *o.i.r; *y = *y + 1i64; }
+
+// (3) a WRITE through the same field reference, which reaches the same gate by
+// the AddrOfTemp door rather than the field one.
+fn set(h: H, v: i64) { *h.r = v; }
+
+fn main() -> i32 {
+    let mut n: i64 = 1i64;
+    bump(H { r: &mut n });
+    if n != 2i64 { return 1i32; }
+    let mut m: i64 = 1i64;
+    bump2(Outer { i: Inner { r: &mut m } });
+    if m != 2i64 { return 2i32; }
+    let mut k: i64 = 0i64;
+    set(H { r: &mut k }, 7i64);
+    if k != 7i64 { return 3i32; }
+    return 0i32;
+}

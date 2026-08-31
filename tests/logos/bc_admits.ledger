@@ -1068,7 +1068,7 @@
 #   occurrence of it is covariant, and the meet instantiates it at the region
 #   both arguments outlive. The port dropped upstream's closure `where` bound,
 #   so what is left is a program rustc accepts. It is listed, not closed.
-# TOTAL 267
+# TOTAL 264
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1079,7 +1079,6 @@ augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignme
 borrow-immutable-deref-box bck.B tests/imported/admit/borrowck/borrow-immutable-deref-box
 borrow-immutable-upvar-mutation-impl-trait bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait
 borrowck-access-permissions--c-mut-borrow-deref-box bck.B tests/imported/admit/borrowck/borrowck-access-permissions--c-mut-borrow-deref-box
-borrowck-argument bck.A tests/imported/admit/borrowck/borrowck-argument
 borrowck-assign-to-andmut-in-borrowed-loc bck.NEW tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-borrowed-loc
 borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
@@ -1100,7 +1099,6 @@ borrowck-move-out-of-struct-with-dtor bck.E tests/imported/admit/borrowck/borrow
 borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13
 borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13
 borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed
-borrowck-ref-mut-of-imm--ref-mut-of-imm bck.B tests/imported/admit/borrowck/borrowck-ref-mut-of-imm--ref-mut-of-imm
 borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--b
 borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--t17
 borrowck-unboxed-closures bck.A tests/imported/admit/borrowck/borrowck-unboxed-closures
@@ -1116,7 +1114,6 @@ issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/i
 many-mutable-borrows bck.NEW-M tests/imported/admit/borrowck/many-mutable-borrows
 mut-borrow-conflict-in-closures-vec bck.C tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec
 mut-borrow-of-mut-ref bck.A tests/imported/admit/borrowck/mut-borrow-of-mut-ref
-mutability-errors bck.A tests/imported/admit/borrowck/mutability-errors
 mutate-vec-while-iterating--a-push-while-iterating bck.D tests/imported/admit/borrowck/mutate-vec-while-iterating--a-push-while-iterating
 mutate-vec-while-iterating--b-push-while-iterating-mut bck.D tests/imported/admit/borrowck/mutate-vec-while-iterating--b-push-while-iterating-mut
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error

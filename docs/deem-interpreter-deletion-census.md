@@ -4842,9 +4842,20 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8735 -> 8741   +6
 #   NOIMPORTED   4453 -> 4450   -3
 #   TIERCOMMIT    325 ->  316   -9
-REGISTRY-ALL         8741
-REGISTRY-NOIMPORTED  4450
-REGISTRY-TIERCOMMIT  316
+# 2026-08-31p, M4 STAGE — the reborrow exemption re-keyed on the DEREFERENCED
+# reference (permissive, 0 rows on its own) and then the by-value parameter gate
+# at the field / AddrOfTemp sites: 3 more ledger rows, and TWO new native
+# fixtures (1 pass, 1 fail).
+#   ALL          +2 (the two native fixtures); the three moved rows are
+#                registered either way — as an admit row or as a fail port.
+#   NOIMPORTED   +2 - 3 = -1.
+#   TIERCOMMIT   -3.
+#   ALL          8741 -> 8743   +2
+#   NOIMPORTED   4450 -> 4449   -1
+#   TIERCOMMIT    316 ->  313   -3
+REGISTRY-ALL         8743
+REGISTRY-NOIMPORTED  4449
+REGISTRY-TIERCOMMIT  313
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is
