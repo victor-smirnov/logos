@@ -163,8 +163,10 @@ inline bool outlives(
     // from ONE binder against a name from ANOTHER: a callee's or a struct's own
     // lifetime parameter that reached here UNSUBSTITUTED. Numbers, the two rows
     // given up and the counter-examples: src/compiler/PROBES.md 2026-08-31h.
-    if (current_lt_binders().count(L) && current_lt_binders().count(S))
-        return false;
+    // PROBE ltbindersoff — the CONTROL REVERT of this predicate alone.
+    if (current_lt_binders().count(L) && current_lt_binders().count(S)) {
+        if (!logos::probe::on("ltbindersoff")) return false;
+    }
     if (mentioned(L) || mentioned(S)) return false;
     return true;
 }

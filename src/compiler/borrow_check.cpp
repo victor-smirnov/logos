@@ -4142,8 +4142,13 @@ private:
                     ? "mb.f.hatch.byval" : "mb.f.hatch.ref");
             } else logos::probe::census("mb.f.refuse");
         }
+        // PROBE mbparamvalf — the by-VALUE half of the hatch, field path.
+        const bool byval_f_ = param_names_.count(target) &&
+            param_byval_.count(target) &&
+            (logos::probe::on("mbparamvalf") ||
+             logos::probe::on("mbparamvalall"));
         if (is_mut && !root_is_mut_ref && !root_is_shared_ref &&
-            !it->is_mut_binding && !param_names_.count(target)) {
+            !it->is_mut_binding && (!param_names_.count(target) || byval_f_)) {
             report(line, std::format(
                 "cannot borrow '{}' as mutable: '{}' not declared as mut",
                 self_disp, target));
@@ -4309,7 +4314,11 @@ private:
                 (void)logos::probe::on("mbsite");
                 const bool hatched = param_names_.count(target) > 0;
                 if (hatched) (void)logos::probe::on("mbhatch");
-                if (!hatched || logos::probe::on("mbnoparam")) {
+                // PROBE mbparamvalw — the by-VALUE half of the hatch.
+                const bool byval_w_ = hatched && param_byval_.count(target) &&
+                    (logos::probe::on("mbparamvalw") ||
+                     logos::probe::on("mbparamvalall"));
+                if (!hatched || byval_w_ || logos::probe::on("mbnoparam")) {
                     if (!hatched) (void)logos::probe::on("mbrefuse");
                     report(line, std::format(
                         "cannot borrow '{}' as mutable: not declared as mut", target));
@@ -13760,8 +13769,13 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                             ? "mb.aot.hatch.byval" : "mb.aot.hatch.ref");
                     } else logos::probe::census("mb.aot.refuse");
                 }
+                // PROBE mbparamvalaot — the by-VALUE half of the hatch, AddrOfTemp.
+                const bool byval_aot_ = param_names_.count(root) &&
+                    param_byval_.count(root) &&
+                    (logos::probe::on("mbparamvalaot") ||
+                     logos::probe::on("mbparamvalall"));
                 if (is_mut && !root_is_ref && !sit->is_mut_binding
-                    && !param_names_.count(root))
+                    && (!param_names_.count(root) || byval_aot_))
                     report(line, std::format(
                         "cannot borrow '{}' as mutable: not declared as mut",
                         root));
