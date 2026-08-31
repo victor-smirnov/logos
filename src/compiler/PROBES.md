@@ -8376,3 +8376,269 @@ header — a hand program dies with its round otherwise.
  7. `loan_carrying_type` vs `is_borrow_carrying_type` — still unmeasured.
  8. `m4_defect_2`'s message says "'h' is behind a `&` reference" when it is
     `h.r` that is. Pre-existing wording, not moved by this round.
+
+# ═══ ROUND 2026-08-31q — bck.D-H IS NOT ONE MECHANISM, AND THE ONE THAT
+# SURVIVES IS THE `for` LOOP'S ITERABLE ══════════════════════════════════════
+
+## 0. ⚠ THE CENSUS FIRST (RULE 17), AND THE BRIEF WAS WRONG ABOUT TWO NAMES
+
+Every name this round's brief handed down, grepped against the tree:
+
+    name                    installed?   what it actually is
+    capshared               YES          one `probe::on` site, sema_expr.cpp
+    current_lt_binders()    YES          outlives.hpp:51, sema_decl.cpp:1121
+    loan_carrying_type      YES          borrow_check.cpp:6658, still unmeasured
+    is_borrow_carrying_type YES          borrow_check.cpp:6635
+    lifereg_unmentioned     NO           not a `probe::on` name anywhere
+    ltbindersoff            NO           not a `probe::on` name anywhere
+    capmovewalk             NO           ⚠ NOT A PROBE — IT LANDED
+
+⚠ **`capmovewalk` COULD NOT BE RE-PRICED AS A CONTROL, BECAUSE IT IS NOT A
+PROBE ANY MORE.** The brief said "still a probe in borrow_check.cpp, fundable
+as measured". It landed LAST ROUND as 2026-08-31p's M2 (ledger 276 → 274); what
+is at borrow_check.cpp:2593 today is the LANDED rule with a one-line marker.
+Its two rows are already bought. Recommendation 1 of the brief was a
+recommendation to re-buy them.
+
+⚠ **RECOMMENDATION 2 (delete `current_lt_binders()`) IS THE ONE 2026-08-31p §1
+ALREADY WITHDREW**, by reading the diagnostic: `lifereg_unmentioned`'s single
+ceiling row is E0310 upstream and the wider rule refuses a REGION relation
+rustc's inference satisfies. A row closed by a wrong diagnostic is not closed.
+Re-proposed verbatim by this round's brief; still withdrawn.
+
+Recommendation 3 (`capshared` blocked on delegating `take_borrow_whole_`'s
+moved-value arm) is the only one of the three that survives its own grep.
+
+## 1. THE FOUR CONTROLS, RE-RUN ON TODAY'S BINARY (rule 18)
+
+Opening build **df6585c06bbd0d8b**, tree clean at 4fa422e31. All four reproduce:
+
+    A1  double_access(&mut a, &a)                     rc 0   the defect
+    A2  let m = &mut a; let s = &a; double_access(m,s) rc 1
+          "cannot borrow 'a' as shared: already mutably borrowed"
+    B1  for value in &values { values.push(4i64); }    rc 0   the defect
+    B2  let it = &values; values.push(4i64); touch(it) rc 1
+          "cannot borrow 'values' as mutable: 'values' has shared borrows"
+
+## 2. ⚠ THE HOLDER IS NOT WHERE A1 IS DECIDED — IT IS A TWO-PHASE RESERVATION
+
+The brief's subject was "a loan whose HOLDER is a compiler-made temporary is
+released immediately". For the two-phase rows that is the wrong reading, and
+five one-variable hand programs on the opening binary say so:
+
+    c1  two_mut(&mut a, &mut a)                       rc 1  "already mutably borrowed"
+    c2  let s = &a;      double_access(&mut a, s)     rc 1  "1 shared borrow(s) active"
+    c3  let m = &mut a;  double_access(m,  &a)        rc 1  "already mutably borrowed"
+    d1  rev(&a, &mut a)                               rc 0  ← admitted, order reversed
+    d3  the struct-typed twin of A1                   rc 0  ← admitted
+
+c1 refuses, so the FIRST argument's loan IS alive when the second is taken —
+it is not released, and no holder is missing. What A1 walks into is
+`take_borrow_whole_`'s **B82 arm at borrow_check.cpp:4377**:
+
+    if (in_call_args_ > 0) { … it->mut_reservations++; … return; }
+
+Inside call-argument evaluation a `&mut` is deposited as a *reservation*, which
+by construction "is compatible with SHARED reads taken during the same
+argument evaluation" — its own comment says so. That is Rust's two-phase borrow,
+and Rust applies it to the **receiver autoref of a method call** only. Ours
+applies it to every argument. The upstream file is literally named
+`two-phase-NONRECV-autoref`.
+
+**THE SITE AND THE INNER PREDICATE, NAMED SEPARATELY (rule 9).**
+`argresvall` deletes the reservation arm; `argresvnonrecv` keeps it only when
+`holder == "__recv_resv"` — the synthetic holder the bare-place receiver
+deposit at borrow_check.cpp:14415 already uses, so the receiver keeps two-phase
+and an explicit `&mut` argument does not.
+
+## 3. THE PROBE TABLE — TWO BATCHES, BOTH BUILD HASHES READ
+
+Batch 1, build **f27993b723005df7**, L1 rc 0 with nothing armed:
+
+    probe             fires  ceiling  cost  cfail  stdlib  verdict
+    argresvall       279234        4    12      2      ⛔  DEAD
+    argresvnonrecv   279225        4     8      2      ⛔  DEAD
+    foreachiterloan      26        2     1      0      ok  cost is the HOLDER
+    idxwbase              0        —     —      —      —   NEVER FIRED
+
+Batch 2, build **48ffda773402a6cf**, L1 rc 0 with nothing armed:
+
+    probe             fires  ceiling  cost  cfail  stdlib  verdict
+    foreachitertmp       26        2     0      0      ok  ✓ FUNDABLE
+    dwbaseloan         4372        4    25     17      ⛔  DEAD, AND ITS FOUR
+                                                          ROWS CLOSE ON THE
+                                                          WRONG DIAGNOSTIC
+
+Ledger 264 throughout; final build **7d81159883f30270**, L1 rc 0,
+`gate-run.sh -L bc` 1997 passed / 0 failed / 2 disabled.
+
+## 4. THE TWO RESERVATION PROBES ARE DEAD, AND THE INNER PREDICATE DID NOT SAVE THEM
+
+Both refuse `logos.mem`:
+
+    error [fn btvec_append]: cannot borrow 't' as shared: already mutably borrowed
+
+⚠ **RULE 9, THE OTHER OUTCOME.** The inner predicate is NOT priced identically
+to the site: cost 12 → 8, and the four fixtures it saves are exactly the
+receiver ones (`bc_recv_addroftemp_resv_admit`, `tpb-vec-extend-from-self`,
+`tpb-vec-push-len`, `two-phase-baseline`). It separates cleanly on the pass
+corpus and still dies, because eight legal programs and the stdlib refuse for
+a reason the receiver split does not reach — a non-receiver `&mut` argument
+beside a shared read of the same root is a shape our own corpus is FULL of.
+CEILING 4 vs COST 8, cfail 2 (one `.expected` LOST:
+`bc_recv_reservation_conflict_fail`), stdlib ⛔. Declined at both spellings.
+
+⚠ The four ceiling rows' DIAGNOSTICS WERE NOT READ. The stdlib refusal outranks
+every number above it, the tree was reverted, and a row under a probe that does
+not build the stdlib is not a row. The set is recorded as a set, not as rows:
+
+    borrowck_augmented-assignments                       bck.NEW-1  ← not predicted
+    borrowck_two-phase-nonrecv-autoref--c-mut-and-shared-args  bck.D
+    borrowck_two-phase-nonrecv-autoref--d-index-two-phase      bck.D
+    nll_issue-27868                                      nllmoves.R11 ← not predicted
+
+**PREDICTED vs MEASURED, BOTH WAYS (rule 6):** predicted 2 by name, both hit;
+2 more arrived, BOTH FILED UNDER OTHER ROOTS. The brief warned this would
+happen and it happened at the same ratio as last round.
+
+## 5. `idxwbase` NEVER FIRED, AND THAT IS RULE 1 IN ITS PLAIN FORM
+
+The probe was written at `Code::IndexWrite` in `visit_stmt`. Fires: **0** over
+the whole ledger population. `arr[i] = v` lowers to `SDerefWrite(AddrOfTemp(
+IndexRead(...)), val)` — the `Code::DerefWrite` arm's own comment says so, ten
+lines above where the probe sat. A zero over an unreached site is not a
+measurement of anything, and the harness printed exactly that.
+
+Re-aimed as `dwbaseloan` at the live site (`visit(v.ptr(), …)` at
+borrow_check.cpp:12820, holding a mut loan of the indexed root across the
+index's own evaluation): 4372 fires, so the site is live.
+
+## 6. ⚠ `dwbaseloan`'s CEILING OF 4 IS FOUR WRONG DIAGNOSTICS
+
+    row                                          our message
+    two-phase-nonrecv-autoref--c-mut-and-shared-args
+        error [fn double_access]: cannot borrow 'm': 'm' is already mutably borrowed
+    two-phase-nonrecv-autoref--d-index-two-phase
+        error [fn put]: cannot borrow 'a': 'a' is already mutably borrowed
+    mut-slice-struct-lifetime-transmute--c17
+        error [fn lifetime_transmute_direct]: cannot borrow 'out': 'out' is …
+    mut-slice-struct-lifetime-transmute--t17                (same shape)
+
+Every one names the CALLEE's own parameter and fires inside the CALLEE's body
+(`m[0] = s[1]`, `a[i] = v`), not at the caller's `double_access(&mut a, &a)`.
+The probe refuses the helper functions themselves. Upstream's error is E0502 at
+the CALL. **A ROW CLOSED BY A WRONG DIAGNOSTIC IS NOT CLOSED** — the honest
+ceiling is 0, and the cost is 25 legal programs + 17 text-only fail changes +
+a stdlib that does not build.
+
+⚠ AND IT DID NOT REACH THE ROWS IT WAS AIMED AT. `suggest-local-var-for-vector`
+and `suggest-storing-local-var-for-vector` (`v[v.len() - 1] = 123`) — the two
+rows this probe exists for — score **0 fires** on their own files: a `Vec`
+index is not a `DerefWrite(AddrOfTemp(IndexRead))` either. The index-self-borrow
+partition is STILL UNREACHED BY ANY SITE PROBED THIS ROUND.
+
+## 7. ⇒ `foreachitertmp` — CEILING 2, COST 0, cfail 0, STDLIB ok
+
+The `Code::ForEach` arm (borrow_check.cpp:13119) visits its iterable with a
+plain `visit(v.iter(), …)` and **records no loan at all**: under
+`LOGOS_DUMP_BC_RELEASE`, B1 prints not one `target=values` line while its named
+control B2 prints `frame=1(back) target=values holder=it is_mut=0`. So this
+half of bck.D-H IS the brief's subject — a loan with no holder — and the
+machinery to fix it already exists under another name: `retain_temp_scrut_loan`
+(borrow_check.cpp:6229) does exactly this for a temporary match scrutinee,
+under a synthetic holder no source binding can spell.
+
+CEILING 2, PREDICTED BY NAME, closed set = predicted set, both directions
+empty, and both refuse for a reason rustc gives:
+
+    borrowck_mutate-vec-while-iterating--a-push-while-iterating   bck.D
+        "cannot borrow 'values' as mutable: 'values' has shared borrows"  E0502
+    borrowck_mutate-vec-while-iterating--b-push-while-iterating-mut  bck.D
+        "cannot use 'values' while it is mutably borrowed"                E0499
+
+## 8. ⚠ AND THE HOLDER CHOICE WAS THE WHOLE COST — MEASURED, ONE TOKEN APART
+
+`foreachiterloan`, the SAME rule with the loop VARIABLE as the holder, priced
+CEILING 2 / COST 1. The cost is `logos_25_spec_pass_stmt_2`, and it took three
+repros to find because the shape is not local:
+
+    g1  the whole stmt_2 for-block, verbatim                      rc 0
+    f1  for x in &mut m { *x = *x + 100 }  then  m[0]             rc 0
+    g2  f1 PLUS an unrelated `let x: i64 = 99;` AFTER the loop    rc 1
+          "cannot use 'm' while it is mutably borrowed"
+
+The only difference between f1 and g2 is a later binding that happens to be
+SPELLED `x`. `last_use_unslotted_` is charged to EVERY binding of a name (its
+own comment says so), so the loop variable's name collides with any later `x`
+and the iterable's loan outlives the loop. **RULE 12, in its plain form: a set
+of strings cannot say which binding a name denotes.**
+
+⇒ **THE ANSWER TO THIS ROUND'S QUESTION.** When a loan's holder is a
+compiler-made temporary the holder must be *the enclosing statement*, spelled
+as a fresh synthetic name (`__foreach_it_N`, `scrut_tmp_seq_`), NOT any source
+binding that happens to be in scope. A synthetic holder has no recorded use, so
+its life is decided by the frame it was recorded in — which is precisely the
+`for` statement — and the cost goes 1 → 0 with the ceiling unmoved.
+
+## 9. RULE 5 — THE HAND PROGRAMS, ALL MULTI-LINE, ALL ON THE ARMED BINARY
+
+Eight legal programs, all rc 0 armed and unarmed, plus the defect pair:
+
+    f1  for x in &mut m { *x = *x + 100 }; read m after            rc 0
+    f2  for x in &arr  { n = n + *x };     read n after            rc 0
+    f3  the mutating loop with no later read                       rc 0
+    g1  stmt_2's whole for-block: `for x in sl` over `&[i64]`,
+        `&arr[i]` INSIDE the body, then `for x in &mut m`          rc 0
+    g2  f1 + a later unrelated `let x` — foreachiterloan's ONLY
+        cost, and foreachitertmp's discriminator                   rc 0
+    h1  for value in &vs { … }  then  vs.push(2)  AFTER the loop   rc 0
+    h2  for value in &vs { … total(&vs) … }  — shared read INSIDE  rc 0
+    h3  `for (a, b) in &v` (tuple pattern) + a later `let a`       rc 0
+    h4  two nested loops over ONE iterable + a later `let x`       rc 0
+    b1  for value in &values { values.push(4) }   THE DEFECT       rc 1
+    b2  its named control, unmoved                                 rc 1
+
+⚠ **THE POPULATION, WALKED (rule 4).** The ForEach arrival was censused over
+the WHOLE `tests/` tree — 8695 `.logos` files compiled under
+`LOGOS_PROBE_FIRE`: **70 files CONTRIBUTED, 109 arrivals**. That is small, and
+it bounds the COST, not the ceiling: cost 0 over 70 files is weak, which is why
+the eight hand programs above are the actual safety argument. The ceiling of 2
+is a positive measurement and needs no population argument.
+
+## ⇒ 10. WHAT DESERVES FUNDING, IN ORDER
+
+ 1. **`foreachitertmp` — RECORD THE `for`-ITERABLE'S LOAN UNDER A STATEMENT-
+    SCOPED SYNTHETIC HOLDER.** Two rows, cost 0 / cfail 0 / stdlib ok, closed
+    set = predicted set both ways, both diagnostics read and both E0502/E0499
+    shaped. The one clean arm this round produced.
+ 2. **DELEGATE `take_borrow_whole_`'s MOVED-VALUE ARM** to the reader that owns
+    "use of moved value … (moved on line N)" — unblocks `capshared`'s four
+    rows. Unchanged from 2026-08-31o §7 and 2026-08-31p §6.4; still the only
+    handed-down recommendation that survived its own grep.
+ 3. **THE NON-RECEIVER TWO-PHASE QUESTION, RE-AIMED.** Both spellings priced
+    and both dead (§4), but the OBSERVATION is correct — we two-phase every
+    argument and Rust two-phases only the receiver. What the corpus says is
+    that the reservation must be activated at the CALL, not deleted at the
+    ARGUMENT: `f(&mut a, &a)` is illegal while `f(&mut a, a.len())` is legal,
+    and both are "a shared read during argument evaluation". A round that
+    cannot tell those apart cannot have this.
+
+## 11. OPEN, WITH ITS EVIDENCE
+
+ 1. **bck.D-H IS AT LEAST THREE MECHANISMS, NOT ONE.** The survey grouped seven
+    rows by a symptom. Measured: two are the `for`-iterable (closed by 1
+    above), three are the two-phase reservation (§2, §4), two — the
+    `v[v.len()-1]` pair — are reached by NEITHER, and `a-fnmut-twice` was
+    touched by nothing. A SHARED SYMPTOM IS NOT A SHARED DEFECT.
+ 2. **THE INDEX-SELF-BORROW PAIR HAS NO PROVEN-LIVE SITE YET** (§6). Both
+    `Code::IndexWrite` (0 fires) and `Code::DerefWrite` (0 fires ON THOSE TWO
+    FILES) miss it. A `Vec` index goes somewhere else; find it before pricing.
+ 3. **`two-phase-nonrecv-autoref--a-fnmut-twice`** — `f(f(10))` with
+    `f: &mut F`. Untouched by all six probes. Same shape as
+    `borrowck-unboxed-closures`: calling through a binding takes no borrow.
+ 4. **`bck.D-R`, three rows, NO ORACLE on this box** (E0716). Unchanged.
+ 5. `loan_carrying_type` vs `is_borrow_carrying_type` — still unmeasured, third
+    round running.
+ 6. **`argresvnonrecv`'s `.expected` LOSS** on
+    `bc_recv_reservation_conflict_fail` was read as a count, not as text. If
+    the reservation arc is ever re-opened, read that fixture first.

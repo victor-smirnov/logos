@@ -12817,7 +12817,21 @@ private:
                             note_reborrow_place(wplace, v.value());
                         }
                     }
-                    visit(v.ptr(),   /*consuming=*/false, ln);
+                    // CEILING PROBE `dwbaseloan` — ⛔ see PROBES.md 2026-08-31q.
+                    if (logos::probe::on("dwbaseloan")) {
+                        BorrowPlace dwp = extract_borrow_place(atv.inner(), pool);
+                        push_scope();
+                        if (!dwp.root.empty() && dwp.index_in_chain) {
+                            BorrowPlace dwr{};
+                            dwr.root = dwp.root;
+                            dwr.root_slot = dwp.root_slot;
+                            record_borrow(dwr, /*is_mut=*/true, ln, "__dwbase");
+                        }
+                        visit(v.ptr(), /*consuming=*/false, ln);
+                        pop_scope();
+                    } else {
+                        visit(v.ptr(),   /*consuming=*/false, ln);
+                    }
                     visit(v.value(), /*consuming=*/true,  ln);
                     if (!wroot.empty())
                         place_write_loans(wroot, v.value(), ln,
@@ -13142,6 +13156,13 @@ private:
                              v.iter().type(pool).kind() ==
                                  LogosType::Kind::MutRef;
                 visit(v.iter(), /*consuming=*/p_fim, ln);
+                // CEILING PROBE `foreachitertmp` — see PROBES.md 2026-08-31q.
+                if (logos::probe::on("foreachitertmp") && v.iter() &&
+                    is_ref_kind(v.iter().type(pool)))
+                    take_ref_borrows(v.iter(), ln,
+                                     "__foreach_it_" +
+                                         std::to_string(++scrut_tmp_seq_),
+                                     /*record_only=*/true);
                 if (auto b = v.body())
                     // SForEachView carries no label accessor; unlabeled
                     // break/continue (the common case) still target it as the
