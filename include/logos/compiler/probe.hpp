@@ -40,8 +40,20 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include <unordered_set>
 
 namespace logos::probe {
+
+// PROBE lifereg_unmentbind's CARRIER. `outlives()` is handed two STRINGS and
+// cannot say which BINDER each one denotes (rule 12) — the set below is that
+// missing fact: the lifetime names declared by the generic scope whose body is
+// being checked. Populated UNCONDITIONALLY (a few strings per fn, so the batch
+// stays inert with nothing armed) and READ only under the probe.
+inline std::unordered_set<std::string>& lt_binders() {
+    static std::unordered_set<std::string> s;
+    return s;
+}
 
 // One armed probe per process, named by LOGOS_PROBE. Counting is per name so a
 // mis-typed name reads as NEVER FIRED instead of silently arming nothing.

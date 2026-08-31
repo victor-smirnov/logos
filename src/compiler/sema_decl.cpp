@@ -1040,6 +1040,14 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
         for (auto& pr : lifetime_outlives) { a.push_str(pr.first); a.push_str(pr.second); }
     }
     current_outlives_ = lifetime_outlives;  // B64/B65: visible to coercion sites
+    {   // PROBE lifereg_unmentbind's carrier — see probe.hpp::lt_binders().
+        // Written always, read only when the probe is armed.
+        auto& lb_ = logos::probe::lt_binders();
+        lb_.clear();
+        for (auto& lt_ : lifetime_params) lb_.insert(outlives_norm(lt_));
+        for (auto& lt_ : current_impl_lifetime_params_)
+            lb_.insert(outlives_norm(lt_));
+    }
 
     // unsafe fn body is implicitly an unsafe context
     bool was_unsafe = inside_unsafe_;

@@ -122,6 +122,15 @@ inline bool outlives(
     // the 310-row ledger; the 2026-08-27 pair that used to sit here was a
     // 423-row measurement and was never recorded outside this comment).
     if (logos::probe::on("lifereg_unmentioned")) return false;
+    // PROBE lifereg_unmentbind — THE NARROWING. `lifereg_unmentioned` (ceiling
+    // 7, COST 5) refuses whenever two named regions are unrelated. All FIVE of
+    // its legal casualties compare a name from ONE binder against a name from
+    // ANOTHER — a callee's or a struct's own lifetime parameter that reached
+    // here UNSUBSTITUTED. Refuse only when BOTH names are binders of the scope
+    // actually being checked.
+    if (logos::probe::on("lifereg_unmentbind") &&
+        logos::probe::lt_binders().count(L) &&
+        logos::probe::lt_binders().count(S)) return false;
     if (mentioned(L) || mentioned(S)) return false;
     return true;
 }

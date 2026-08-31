@@ -5610,3 +5610,316 @@ an unforced L4 after a TEST-SOURCE edit is not evidence at all.
    iter_partition_vec]`). Pre-existing, shared with the landed struct walk and
    the outlives check, one site, no row — and it is now in FOUR pinned
    fixtures' output rather than one.
+
+
+# ═══ 2026-08-31g — 27 `nllmoves` ROWS SURVEYED; THREE COST-0 RECOMMENDATIONS REVERSED ═══
+
+Subject 1: the `nllmoves.C` 16 + `nllmoves.B` 11 survey. Subject 2: the
+narrowing of `lifereg_unmentioned`. No fix landed — this round PRICES.
+
+build: c4dedf97e7aee29a (READ, `scripts/build_hash.py build`; the two rule-8
+re-prices below were taken FIRST, on the unchanged 8f9af403df86f891) ·
+probe-batch: 9 edits, ONE build, **L1 rc=0, batch inert** · ledger TOTAL 306.
+
+## ⚠ THE BRIEF SAID "NEVER SURVEYED". ELEVEN OF THE 27 HAD BEEN.
+
+All ELEVEN `nllmoves.B` rows are already partitioned by the 2026-08-29
+`bck.B` 21 + `nllmoves.B` 13 survey, above. Not one needs a new name. Re-verified
+today on the unarmed binary with four one-token controls, each multi-line:
+
+    b1  let q = *r;                     REFUSED E0507   ⟂ match r { &q => } admitted   (B-1b)
+    x1  let f: &'static i64 = &a;       rc 0            (X-1)
+    x1b struct Foo{x:&'static i64}; Foo{x:&a}  rc 0     (X-1, the OTHER annotation site)
+    x2  p = &y;                         REFUSED E0597   ⟂ q=&mut p; *q=&y admitted     (X-2)
+    b8  let foo=&mut o; a=foo; b=foo;   REFUSED         ⟂ ref mut foo => admitted      (B-8)
+
+    B-1b the `&`-PATTERN does the deref                       2  do-not-suggest-…-132806, issue-99470-move-out-of-some
+    B-2  the destructure temp discards the pattern's move-ness 1  move-errors--d          (`destrmove` 2/1)
+    B-3  the place walk breaks at a `Deref` CALL               1  issue-52086
+    B-8  a `ref`/`ref mut` binding is not a borrow-HOLDER      1  issue-27282-mutation-in-guard
+    B-9  a guard's view of the scrutinee is shared-only        1  match-guards-always-borrow
+    X-1  `'static` in an ANNOTATION constrains nothing         3  adt-brace-enums, issue-46036, lub-match
+    X-2  a write through `&mut &T` misses the pointee          2  capture-ref-in-struct--ctl, --t08
+
+X-1 is not a bookkeeping question at all: BOTH annotation sites admit, so these
+three belong to the **DECLINED minting round** (`ltmintfresh`, ceiling 157) and
+not to `nllmoves`. X-2 joins `escape-argument--t09`'s partition (the call-site
+write summary), which now has THREE rows on it, not one.
+
+## THE `nllmoves.C` PARTITION — 16 ROWS BY MISSING OBSERVATION
+
+**C-I. THE CLOSURE'S OWN SIGNATURE CONTRACT IS NEVER CHECKED (5).**
+`ret_type_`, `param_lifetimes_` and `param_names_` are all the ENCLOSING fn's,
+and `check_return_value` is hard-suppressed by `if (!in_closure_body_)`.
+ · I-a a dangling BODY LOCAL (1) — nested-bodies-in-dead-code.
+   ⚠ **AND ITS ROOT LABEL IS WRONG.** Measured, one statement apart:
+
+       n1  let c = || -> &i64 { let temp:i64=1; return &temp; }; let _=c();   rc 0
+       n2  return 0i32;  <the same three lines>                               rc 0
+       n3  fn mkref() -> &i64 { let z:i64=3; return &z; }                     REFUSED
+
+   Dead code is NOT the observation — the live twin admits identically, and the
+   FN twin is refused today. The discriminator is a NODE KIND.
+ · I-b `-> &'static` from an elided `&` param (2) — closure-substs, issue-58053.
+   **NEW, and it CORRECTS the 2026-08-29 grouping**, which put both in group G
+   ("genuinely region, not fundable today"). One token apart, unarmed:
+
+       s1  fn  g(x:&i64) -> &'static i64 { return x; }
+           REFUSED "lifetime mismatch: return type has lifetime 'static but 'x' has lifetime (elided)"
+       s2  let c = |x:&i64| -> &'static i64 { return x; };            rc 0
+
+   The rule EXISTS and lands on fns. The closure never reaches it.
+ · I-c bought ONLY by a legal-program refusal (2) — issue-40510-1,
+   issue-48697--t16. Both sit in `capretchk`'s 11 and NOT in `capretcaps`'s 2,
+   measured 2026-08-28. **DECLINED with the number**; not re-opened.
+
+**C-II. A `move` CLOSURE'S BODY IS NEVER WALKED (1).** issue-48238.
+`walk_closure_body` returns at `if (cbv.is_move()) return;`. Rule 16: this is
+ZERO ARRIVALS, not a permissive verdict. And `capretcaps`'s cause-B exemption
+(every capture into `outliving_params_`) is INVERTED for a move closure — a
+moved capture is the CLOSURE's local, not the enclosing frame's.
+
+**C-III. A CAPTURE-BY-REF IS NOT A LOAN IN THE ENCLOSING FRAME (5).**
+closure-borrow-spans--a, --b, issue-42574--b, issue-51268, issue-40510-3.
+Control, one token — the closure:
+
+    d4  let g=&x; let y=&mut x;              REFUSED "1 shared borrow(s) active"
+    d3  let f=||{let n=x;}; let y=&mut x;    rc 0
+
+--a and --b are `capshared`'s (re-priced below). issue-51268 is NOT in this
+partition after the census — see C-VII.
+
+**C-IV. MOVE-vs-LOAN AT THE CAPTURE (3).** issue-75904-move-closure-loop,
+issue-52663-span-decl-captured-variable, issue-42574--t15. Existing probes
+`capmoveloan` 1 row, `capescmove` 1 row.
+
+**C-V. THE CLOSURE-BODY WRITE SUMMARY (1).** escape-argument--t09 — group F,
+and it now shares its partition with `nllmoves.B`'s X-2 (2 rows) and
+`regions-escape-bound-fn`. FOUR rows on one unbuilt mechanism.
+
+**C-VI. HRTB (1).** return-wrong-bound-region — `for<'a> Fn(&'a i64,&i64)->&'a i64`.
+No HRTB machinery exists. **HONEST RETIREMENT**: not fundable by anyone this week.
+
+**C-VII. THE CLOSURE ARGUMENT DEPOSITS NOTHING (issue-51268, moved out of C-III).**
+Census by hand with `LOGOS_DUMP_BC_CAPTURE`, one token apart:
+
+    e3  b.bar(|| { let n: i64 = x; });               NO [bc-capture] LINE AT ALL
+    e4  let c = || { let n: i64 = x; }; b.bar(c);    [bc-capture] root=x holder=c
+    e6  call(|| { return x + 1i64; })                NO LINE
+    issue-51268                                      NO LINE
+
+Rule 16 again: "no fact recorded" and "the fact is absent" are different. See
+`capargclos` below — and its census REFUTES the site this survey nominated.
+
+## THE PROBE TABLE, ALL THREE COST COLUMNS
+
+    probe               fires  ceiling  cost  cfail  std  verdict
+    capretplt         1828682        5     0      4   ok  ⛔ the 4 are rc FLIPS — see below
+    capmovewalk       1828706        4     0      4   ok  ⛔ same four, same cause
+    capargclos              8        0     0      0   ok  ✗ NEVER FIRED ON ITS OWN SUBJECT
+    lifereg_unmentbind      4        5     0      0   ok  ✓ FUND — 5 rows for cost 0
+    ── rule-8 re-prices, taken FIRST on build 8f9af403df86f891, nothing armed ──
+    capshared             163        4     0      6   ok  ⛔ 4 `.expected` LOST + 2 text-only
+    capretcaps        5492361        2     0      4   ok  ⛔ 4 fail fixtures rc 1 → 0
+
+⚠ **EVERY ROW ABOVE WAS PRICED TWICE** (nine spec records, four names). The two
+pricings agreed on ceiling, cost, cfail and stdlib for every name — a free
+reproducibility pole. They did NOT agree on `fires`: capretplt read 5492361 on
+its first pricing and 1828682 on its second. **A FIRE COUNT FROM A RE-PRICED RUN
+IS NOT COMPARABLE TO THE FIRST**: the pass half comes from the store the second
+time, so fewer compiles ran. Only the first pricing's fire count is a population.
+
+## ⚠ THE ROUND'S HEADLINE: THREE COST-0 RECOMMENDATIONS REVERSED BY POPULATION 2
+
+`capretcaps` has stood since 2026-08-28 as "CEILING 2, COST 0, fundable", and
+`capshared` since 2026-08-27 as "CEILING 4, COST 0". Both numbers were measured
+over PASSING TESTS ALONE (rule 5). Re-priced today with the three-population
+oracle, ceilings UNCHANGED (2 and 4, same names, across a 349→306 and a 368→306
+ledger shrink — **the ceilings did not decay**), and:
+
+    capretcaps   4 `-L bc -L fail` fixtures go rc 1 → rc 0
+                   escape-argument--b · escape-upvar-nested · escape-upvar-ref
+                   · regions-nested-fns
+    capshared    4 `.expected` matches LOST + 2 text-only rewordings
+                   arc-consumed-in-looped-closure · borrowck-in-static--move-
+                   captured-out-of-fn-closure · --r-runtime · closure-move-spans
+                   (TEXT: closure-access-spans--a-…, closures-in-loops)
+
+An rc flip is not a rewording. **`capretcaps` UN-REFUSES four programs that are
+refused today**, and the pass corpus cannot see that by construction. Diagnosed
+by hand on the landed-probe binary:
+
+    tests/imported/fail/nll/escape-upvar-ref.logos
+      let mut p:&i64 = &x; { let y:i64=22; let c = || { p = &y; }; c(); } deref(p);
+      unarmed     REFUSED "'y' does not live long enough … (E0597)"
+      capretcaps  rc 0
+      capretplt   rc 0
+
+CAUSE, read not guessed: cause B puts EVERY capture into `outliving_params_`,
+and `outliving_params_` is read by the ESCAPE/DANGLING channel as well as by the
+return check it was written for. Two notions of one concept, and the exemption
+was only ever checked in the direction that helps. The repair is named and is
+NOT an edit to the exemption's condition: the capture exemption must be scoped
+to the RETURN check, not deposited in a set three other readers consult.
+**`capretcaps`, `capretplt` and `capmovewalk` are all DECLINED until it is.**
+
+## capretplt — 5 ROWS, AND THE PREDICTION WAS EXACT ON ITS OWN CLAIM
+site: src/compiler/borrow_check.cpp::walk_closure_body (+ the Return gate)
+build: c4dedf97e7aee29a (READ) · measured 2026-08-31
+fires: 1828682 (first pricing 5492361 — see the re-pricing note above)
+ceiling: 5 · cost: 0 · cfail: 4 (rc flips, inherited) · stdlib: all four layers
+
+One variable against `capretcaps`: cause A only CLEARS the enclosing fn's
+`param_lifetimes_`; capretplt REBINDS them from the closure's OWN ref params.
+
+    predicted {issue-53432-nested-closure-outlives-borrowed-value, closure-substs,
+               issue-58053, nested-bodies-in-dead-code}
+    measured  the same four PLUS regions/regions-nested-fns-2
+    predicted∖measured  ∅
+    measured∖predicted  {regions-nested-fns-2}
+    predicted NOT to close, and did not:  issue-40510-1 · issue-48697--t16
+                (both are capretchk-minus-capretcaps rows — a legal refusal)
+
+DECOMPOSED, because a per-site count is not additive (rule 13):
+
+    capretcaps            2   issue-53432 · nested-bodies-in-dead-code
+    capretplt ∖ capretcaps 3  closure-substs · issue-58053 · regions-nested-fns-2
+    capmovewalk ∖ capretcaps 2  borrowck-multiple-captures · issue-48238
+    union                 6
+
+⚠ `capmovewalk` IS NOT A ONE-VARIABLE PROBE and its 4 must not be read as four
+move-body rows: it also turns the `retchk` gate on for every closure, so two of
+its four are `capretcaps`'s own. Its clean increment is TWO.
+
+## THE HAND PROGRAMS (rules 5, 7, 10) — each multi-line, each run
+
+    s2  let c = |x:&i64| -> &'static i64 { return x; };
+        unarmed rc 0 · capretplt REFUSED, and with the SAME diagnostic s1's fn
+        twin already gets unarmed. capmovewalk rc 0.
+    s3  let c = |x:&i64| -> &i64 { return x; };            rc 0 under both  (legal)
+    s4  fn foo<'a>(x:&'a i64)->&'a i64 { let c=|y:&i64|->&i64{return y;}; return x; }
+        rc 0 under both — the rebind does NOT resurrect cause A, which is the
+        over-refusal that cost `capretchk` three legal programs.
+    n1  let c = || -> &i64 { let temp:i64=1; return &temp; };
+        REFUSED under capretplt AND capmovewalk, "cannot return reference to
+        local variable 'temp'"                                  (positive control)
+    m1  let orig:i64=5; let c = move || -> &i64 { return &orig; };
+        capretplt rc 0 (the move body is not walked) · capmovewalk REFUSED,
+        "cannot return reference to local variable 'orig'"       (C-II, isolated)
+    m3  let c = move || -> i64 { return orig; }; let v = c();
+        rc 0 under both                                          (legal)
+
+## capargclos — ✗ THE SITE WAS A HYPOTHESIS AND THE CENSUS KILLED IT (RULE 17)
+site: src/compiler/borrow_check.cpp, the Call and MethodCall per-arg recursion guards
+build: c4dedf97e7aee29a (READ) · measured 2026-08-31
+fires: 8 · ceiling 0 · cost 0 · cfail 0 · stdlib ok
+
+The guard reads `is_ref_kind(a.type) || (res_bc && is_borrow_carrying_type(a.type))
+|| retains_borrowing_operand(a)`, and a bare `Kind::Closure` argument passes
+none of the three. Adding `a.kind() == Code::ClosureBox` as a fourth disjunct
+closes NOTHING — and the fire count says why twice over:
+
+ * **8 arrivals in the whole acceptance + legal population.** Rule 4.
+ * **ZERO of them are the defect.** Armed by hand with `LOGOS_PROBE_FIRE` on
+   issue-51268, on e3 (`b.bar(||{…x…})`) and on e6 (`call(||{…x…})`), the fire
+   count is **0** on all three, and no `[bc-capture]` line appears either.
+
+RULE 2 IN ITS PUREST FORM: the site is provably live and the decision is taken
+in a frame ABOVE it. A closure literal in a call argument never reaches this
+per-arg loop at all, because the STATEMENT that owns the call (`let r: i64 =
+call(…)`, result type not borrow-carrying) never routes the initialiser into
+`take_ref_borrows`. **The next question is the LET/statement gate, not these two
+arms.** Fifth instance this week of a nominated site set being wrong; the census
+rode in the same build as the gate it checked and cost nothing.
+
+## lifereg_unmentbind — ✓ THE NARROWING: 5 ROWS FOR COST 0, cfail 0
+site: include/logos/compiler/outlives.hpp (the single `return true` tail)
+      carrier: include/logos/compiler/probe.hpp::lt_binders(), filled in
+      src/compiler/sema_decl.cpp beside `current_outlives_`
+build: c4dedf97e7aee29a (READ) · measured 2026-08-31
+fires: 4 · ceiling 5 · cost 0 · cfail 0 · stdlib all four layers
+
+    lifereg_unmentioned   fires 18 · ceiling 7 · cost 5 · cfail 1 · stdlib ok
+    lifereg_unmentbind    fires  4 · ceiling 5 · cost 0 · cfail 0 · stdlib ok
+
+    predicted {issue-55394--ctl2, issue-67007-escaping-data,
+               projection-no-regions-closure--c30-direct-call,
+               projection-no-regions-closure--projection-no-regions-closure,
+               account-for-lifetimes-in-closure-suggestion}
+    measured  the same five
+    predicted∖measured ∅   ·   measured∖predicted ∅
+    predicted NOT to close, and did not:
+        propagate-fail-to-approximate-longer-no-bounds  ('y is demand_y's binder)
+        regions-infer-call-3                            ('r is select's binder)
+
+**THE DISCRIMINATOR IS RULE 12: A SET OF STRINGS CANNOT SAY WHICH BINDING A NAME
+DENOTES.** All FIVE of `lifereg_unmentioned`'s legal casualties compare a name
+from ONE binder against a name from ANOTHER — a callee's or a struct's own
+lifetime parameter that arrived UNSUBSTITUTED. The fact `outlives()` does not
+carry is not a relation; it is which generic scope each name belongs to.
+Counter-examples, written before the costs were believed, each multi-line:
+
+    u1  fn mk<'a>(x:&'a i64)->S<&'a i64>;  fn f<'a,'b>(x:&'b i64)->S<&'a i64> { return mk(x); }
+        unmentioned REFUSED · unmentbind REFUSED        (the ledger row's shape)
+    u2  struct H<'a>{v:&'a i64};  fn g<'b>(x:&'b i64)->H<'b> { return H{v:x}; }
+        unmentioned REFUSED  ← a LEGAL program · unmentbind rc 0
+    u5  fn take<'a,'b>(x:&'a,y:&'b);  fn caller<'c,'d>(p:&'c,q:&'d) { return take(p,q); }
+        unmentioned REFUSED (twice) ← LEGAL · unmentbind rc 0
+
+⚠ **AND THE NARROWING IS NOT SOUND-BY-CONSTRUCTION. IT WORKS BY NAME COLLISION**,
+which is the same defect wearing the other hat. ONE TOKEN APART, both equally
+illegal in Rust:
+
+    u7  struct Holder<'a>{v:&'a i64};  fn mk<'b,'a>(y:&'b i64)->Holder<'a> { return Holder{v:y}; }
+        unarmed rc 0 · unmentbind REFUSED         ← the struct's binder is spelled 'a, so is mk's
+    u8  struct Holder<'h>{v:&'h i64};  fn mk<'b,'a>(y:&'b i64)->Holder<'a> { return Holder{v:y}; }
+        unarmed rc 0 · unmentbind rc 0            ← rename ONE token and it is missed
+
+The two rows the narrowing loses say the same thing the u7/u8 pair says: the
+correct mechanism SUBSTITUTES the callee's (or the struct's) binder against the
+caller's actual regions and then compares two names of ONE binder. That is the
+**same MINT-AND-UNIFY engine** the `subtype.hpp` minting round was declined for
+on 2026-08-31. Two independent measurements now converge on it.
+
+⚠ RULE 4, SAID OUT LOUD: `lifereg_unmentbind` fired **4 times** in the whole
+acceptance population plus legal corpus (`lifereg_unmentioned`, the site
+directly above it, fires 18). A ceiling off a four-fire population is not an
+argument. What funds this arm is that it is STRICTLY MILDER than a line already
+recommended — same site, five of the same seven rows, and it deletes all five
+legal refusals and the one text regression.
+
+## ⇒ WHAT DESERVES FUNDING
+
+ 1. **`lifereg_unmentbind` — 5 rows, cost 0, cfail 0, stdlib ok.** It SUPERSEDES
+    the standing recommendation of `lifereg_unmentioned` (7 rows / cost 5 /
+    cfail 1): two fewer rows, five fewer legal refusals, one fewer pin lost.
+    Land it with both numbers and with the u7/u8 pair pinned as fixtures — the
+    exemption must not be only a sentence in a comment.
+ 2. **The closure SIGNATURE contract (C-I), AFTER cause B is repaired.** Six
+    rows are available at that site (capretcaps 2 ⊎ capretplt 3 ⊎ capmovewalk 2,
+    minus the shared 1), and none of them may be bought while the exemption
+    un-refuses four pinned fail fixtures. The repair is scoped, not conditional:
+    the capture exemption belongs to the RETURN check alone.
+ 3. The **SUBSTITUTION engine** — named by two independent rounds now
+    (`ltmintfresh`'s 157 and this round's two lost rows plus u7/u8). Still its
+    own round.
+
+## STILL OPEN, NAMED, WITH ITS EVIDENCE
+
+ * **`capshared` is no longer a cost-0 arm** — 4 `.expected` LOST. Rule 14 says
+   read all four before funding: they may be the capture-site diagnostic
+   arriving ahead of the move-site one, which is upstream's canonical order and
+   would be a repair, not a regression. NOT read this round.
+ * **the LET/statement gate for a closure-literal call argument** (C-VII) —
+   `capargclos` proved the two per-arg guards are the wrong frame. Census the
+   statement gate before editing it.
+ * **C-VI return-wrong-bound-region — RETIRED**, no HRTB machinery.
+ * **C-I-c issue-40510-1 / issue-48697--t16 — DECLINED**, a legal refusal buys
+   them and nothing else does.
+ * `escape-argument--t09`'s partition now holds FOUR rows (X-2's two,
+   escape-argument--t09, regions-escape-bound-fn) on ONE unbuilt mechanism.
+ * ⚠ NEITHER `issue-51268` NOR `issue-42574--b` HAS AN ORACLE ON THIS BOX.
+   Both look legal under RFC-2229 / NLL as ported (`self.thing.bar(||self.number)`
+   is disjoint-field; `let c=||eat(data); c(); eat(data);` releases at `c`'s last
+   use). rustc is not installed here, so this is a SUSPICION with a reason, not
+   a retirement. Adjudicate against upstream before spending a round on either.

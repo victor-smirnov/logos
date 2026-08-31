@@ -2559,7 +2559,14 @@ private:
         // namespace. MEASURED: walking both arms and walking only the non-move
         // arm price IDENTICALLY, so nothing is bought by walking a `move` body
         // and the narrower rule is the one that lands.
-        if (cbv.is_move()) return;
+        // PROBE capmovewalk: a `move` closure's body is NEVER WALKED at all,
+        // so issue-48238 (`move || -> &i64 { return use_val(&orig); }`) is not
+        // an under-refusal by a permissive verdict — it is ZERO ARRIVALS
+        // (rule 16). And the cause-B exemption below is INVERTED for a move
+        // closure: a MOVED capture is a LOCAL of the closure, not of the
+        // enclosing frame. Numbers in src/compiler/PROBES.md.
+        bool probe_mv_ = cbv.is_move();
+        if (probe_mv_ && !logos::probe::on("capmovewalk")) return;
         auto cbb = cbv.body();
         if (!cbb) return;
         auto saved_params     = param_names_;
@@ -2646,18 +2653,38 @@ private:
         TypeRef saved_ret_c = ret_type_;   (void)saved_ret_c;
         auto saved_plt = param_lifetimes_;
         if (logos::probe::on("capretty") || logos::probe::on("capretchk") ||
-            logos::probe::on("capretcaps")) {
+            logos::probe::on("capretcaps") || logos::probe::on("capretplt") ||
+            logos::probe::on("capmovewalk")) {
             TypeRef crt = cbv.ret_type(prog_.type_pool.impl());
             if (crt) ret_type_ = crt;
         }
-        if (logos::probe::on("capretcaps")) {
+        bool probe_plt_ = logos::probe::on("capretplt");
+        bool probe_mvw_ = logos::probe::on("capmovewalk");
+        if (logos::probe::on("capretcaps") || probe_plt_ || probe_mvw_) {
             param_lifetimes_.clear();                       // cause A
-            cbv.each_capture_name([&](std::string_view cn) {
-                if (cn.empty()) return;
-                std::string nm(cn);
-                param_names_.insert(nm);
-                outliving_params_.insert(nm);               // cause B
-            });
+            // PROBE capretplt: cause A only CLEARS the enclosing fn's param
+            // lifetimes and never REBINDS the closure's OWN, so a closure
+            // signature's contract is checked against an empty map. MEASURED
+            // BY HAND on the unarmed binary, one node kind apart:
+            //   fn  g(x:&i64) -> &'static i64 { return x; }   REFUSED
+            //   let c = |x:&i64| -> &'static i64 { return x; }  rc 0
+            // The rule EXISTS and lands on fns; the closure never reaches it.
+            if (probe_plt_)
+                cbv.each_param(prog_.type_pool.impl(),
+                               [&](std::string_view pn, TypeRef pt) {
+                    if (pn.empty() || !is_ref_kind(pt)) return;
+                    param_lifetimes_[std::string(pn)] =
+                        std::string(TypeRef(pt).lifetime());
+                });
+            // cause B, and it is INVERTED for a `move` closure (see the
+            // is_move gate above): a moved capture is the closure's own local.
+            if (!probe_mv_)
+                cbv.each_capture_name([&](std::string_view cn) {
+                    if (cn.empty()) return;
+                    std::string nm(cn);
+                    param_names_.insert(nm);
+                    outliving_params_.insert(nm);           // cause B
+                });
         }
         in_closure_body_ = true;
         // The body was never scanned either: scan_uses_expr's ClosureBox arm
@@ -9676,9 +9703,21 @@ private:
                     // and the same program with `id(||{x=4;})` for a generic
                     // `fn id<F>(f:F)->F` admits. Delegated to the predicate this
                     // file already owns for "what does this expression retain".
+                    // PROBE capargclos, site 1 of 2 (the free-call arm). A
+                    // closure LITERAL handed to a call passes NEITHER disjunct
+                    // unless the call's RESULT is borrow-carrying, so the
+                    // ClosureBox arm never runs and NO capture is deposited.
+                    // MEASURED BY HAND with LOGOS_DUMP_BC_CAPTURE, one token
+                    // apart: `b.bar(|| { let n: i64 = x; });` deposits NOTHING;
+                    // `let c = || { let n: i64 = x; }; b.bar(c);` deposits
+                    // root=x holder=c. Rule 16: "no fact recorded" and "the
+                    // fact is absent" are different, and only the MINTING SITE
+                    // distinguishes them. The fire count IS the arrival census.
+                    bool closarg = a.kind() == Code::ClosureBox &&
+                                   logos::probe::on("capargclos");
                     if (is_ref_kind(a.type(pool)) ||
                         (res_bc && is_borrow_carrying_type(a.type(pool))) ||
-                        retains_borrowing_operand(a))
+                        retains_borrowing_operand(a) || closarg)
                         take_ref_borrows(a, line, holder, record_only);  // #70
                 });
                 break;
@@ -9816,9 +9855,16 @@ private:
                 v.each_arg([&](ExprRef a) {
                     if (!a) return;
                     // Same delegation as the free-call arm above, same reason.
+                    // PROBE capargclos, site 2 of 2 (the METHOD-call arm) —
+                    // and this is the site issue-51268 arrives at
+                    // (`self.thing.bar(|| { let _n = self.number; })`). ONE
+                    // name, TWO sites, and they are named here because the
+                    // fire count is their SUM (the `rootkeep` defect).
+                    bool closarg_m = a.kind() == Code::ClosureBox &&
+                                     logos::probe::on("capargclos");
                     if (is_ref_kind(a.type(pool)) ||
                         (res_bc_m && is_borrow_carrying_type(a.type(pool))) ||
-                        retains_borrowing_operand(a))
+                        retains_borrowing_operand(a) || closarg_m)
                         take_ref_borrows(a, line, holder, record_only);  // #70
                 });
                 break;
@@ -12279,7 +12325,9 @@ private:
                     // so the fire count records arrivals rather than the
                     // short-circuit's leftovers (rule 1).
                     bool retchk = logos::probe::on("capretchk") ||
-                                  logos::probe::on("capretcaps");
+                                  logos::probe::on("capretcaps") ||
+                                  logos::probe::on("capretplt") ||
+                                  logos::probe::on("capmovewalk");
                     if (!in_closure_body_ || retchk) check_return_value(val, ln);
                     visit(val, /*consuming=*/true, ln);
                 }
