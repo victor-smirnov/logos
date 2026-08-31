@@ -1,0 +1,17 @@
+// THE LIFETIME ARGS AT A TYPE REFERENCE ARE COUNTED AGAINST THE DECLARATION'S
+// BINDERS (E0107). `check_type_arg_arity` counted TYPE args only.
+// ONE TOKEN from pass/bc_ltargdecl_lifetime_arg_arity_match: one 'a vs two.
+package bc_ltargdecl_lifetime_arg_arity;
+
+struct Foo<'c, 'd> {
+    a: &'c i64,
+    b: &'d i64,
+}
+
+fn take<'a>(x: &Foo<'a>) -> i64 {
+    return *x.a;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

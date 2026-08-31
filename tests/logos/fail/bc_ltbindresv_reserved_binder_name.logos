@@ -1,0 +1,14 @@
+// A LIFETIME BINDER MAY NOT BE SPELLED WITH A RESERVED NAME (E0262/E0263).
+// `read_lifetime_params` is the one site every declaration kind that has
+// binders reads them through — except a TRAIT declaration, whose binders never
+// arrive there ('self stays admitted; see PROBES.md ltbindresv).
+// ONE TOKEN from pass/bc_ltbindresv_ordinary_binder_name: 'static vs 'a.
+package bc_ltbindresv_reserved_binder_name;
+
+struct Foo<'static> {
+    x: &'static i64,
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

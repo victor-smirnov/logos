@@ -1,0 +1,13 @@
+// AN ENUM'S VARIANT PAYLOAD TYPES ARE CHECKED AGAINST ITS OWN LIFETIME PARAMS
+// (E0261). The struct field walk landed 2026-08-30 and named "enum PAYLOADS"
+// as its own remainder; this is that half, same rule, same exemptions.
+// ONE TOKEN from pass/bc_enumpldlt_declared_payload_lifetime: 'b vs 'a.
+package bc_enumpldlt_undeclared_payload_lifetime;
+
+enum E<'b> {
+    V(&'a i64),
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

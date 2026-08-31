@@ -4207,9 +4207,11 @@ std::vector<std::string> SemaChecker::read_lifetime_params(TinyMapView node) {
     for (uint64_t i = 0; i < tpitems.size(); ++i) {
         auto tpnode = map_of(tpitems.get(i));
         if (code_of(tpnode) != la::LIFETIME_PARAM) continue;
-        // PROBE ltbindresv — a lifetime BINDER may not be spelled 'static
-        // (E0262) nor with a keyword (`'self`, `'let`). ONE site for every
-        // declaration kind, because every one of them reads its binders here.
+        // ── RESERVED LIFETIME BINDER NAMES (E0262 / E0263) ──────────────
+        // A lifetime BINDER may not be spelled 'static (E0262) nor with a
+        // keyword (`'self`, `'let`). ONE site for every declaration kind that
+        // routes its binders through here — NOT trait declarations, whose
+        // binders never arrive: see PROBES.md `ltbindresv` (2026-08-31).
         {
             std::string nm(str_of(tpnode.get(la::NAME.code)));
             std::string_view bare(nm);
@@ -4222,7 +4224,7 @@ std::vector<std::string> SemaChecker::read_lifetime_params(TinyMapView node) {
                 "package","mod","dyn","box","unsafe","extern","yield","await"};
             bool resv = false;
             for (const char* k : kResv) if (bare == k) { resv = true; break; }
-            if (resv && logos::probe::on("ltbindresv"))
+            if (resv)
                 error(std::format("lifetime parameter '{}': reserved name — "
                                   "a lifetime binder may not be spelled '{}'",
                                   nm, bare));
@@ -7514,20 +7516,21 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
             }
         }
     }
-    // PROBES ltargarity_site / ltargarity — the landed arity check counts TYPE
-    // args only; the LIFETIME args written at the same reference are dropped.
-    // Rule 9: `_site` is the outer arrival (a reference to a type that declares
-    // lifetime params), `ltargarity` the inner match (a count mismatch). The
-    // empty-lt_args case is EXEMPT and must stay so: `Vec<Ref>` elides them.
+    // ── LIFETIME-ARG ARITY AT A TYPE REFERENCE ──────────────────────────────
+    // `check_type_arg_arity` counts TYPE args only; the LIFETIME args written at
+    // the same reference were dropped. Two exemptions, both load-bearing:
+    //   · empty `lt_args` — `Vec<Ref>` elides them;
+    //   · empty `decl_lts` — the prepass/forward-decl carve-out that
+    //     check_type_arg_arity already documents for TYPE args. Without it a
+    //     self-referential `enum Ast<'a> { Add(&'a Ast<'a>, ..) }` is refused,
+    //     because `lifetime_params` is still empty during the enum's own
+    //     prepass. Measurement in PROBES.md under `ltargdecl` (2026-08-31).
     {
         const std::vector<std::string>* decl_lts = nullptr;
         if (ssi) decl_lts = &ssi->lifetime_params;
         else if (esi) decl_lts = &esi->lifetime_params;
-        if (decl_lts && !decl_lts->empty())
-            (void)logos::probe::on("ltargarity_site");
-        if (decl_lts && !lt_args.empty() && lt_args.size() != decl_lts->size() &&
-            (logos::probe::on("ltargarity") ||
-             (!decl_lts->empty() && logos::probe::on("ltargdecl"))))
+        if (decl_lts && !decl_lts->empty() && !lt_args.empty() &&
+            lt_args.size() != decl_lts->size())
             error(std::format("'{}': expected {} lifetime arg(s), got {}",
                               name, decl_lts->size(), lt_args.size()));
     }

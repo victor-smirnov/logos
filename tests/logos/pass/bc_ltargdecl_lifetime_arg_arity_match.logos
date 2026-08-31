@@ -1,0 +1,25 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the reference supplies both lifetime args.
+// The ELIDED reference is here too, because `Vec<Ref>` writes none and the
+// empty-lt_args exemption must stay.
+package bc_ltargdecl_lifetime_arg_arity_match;
+
+struct Foo<'c, 'd> {
+    a: &'c i64,
+    b: &'d i64,
+}
+
+fn take<'a, 'b>(x: &Foo<'a, 'b>) -> i64 {
+    return *x.a;
+}
+
+fn elided(x: &Foo) -> i64 {
+    return *x.b;
+}
+
+fn main() -> i32 {
+    let p: i64 = 1i64;
+    let q: i64 = 2i64;
+    let f = Foo { a: &p, b: &q };
+    if take(&f) + elided(&f) == 3i64 { return 0i32; }
+    return 1i32;
+}

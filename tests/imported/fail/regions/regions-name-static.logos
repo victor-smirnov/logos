@@ -1,6 +1,7 @@
 // rustc regions/regions-name-static.rs — upstream E0262
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.R17
+// shelf: fail — REFUSED since 2026-08-31: a lifetime BINDER may not be spelled
+// with a reserved name (E0262 for 'static). Was lifereg.R17.
 package regions_name_static;
 // port of regions/regions-name-static.rs — 'static used as a lifetime PARAMETER name
 struct Foo<'static> { x: &'static i64 }

@@ -5413,3 +5413,200 @@ None of these seven rows is in `lifereg.A` or `lifereg.R17`.
    bound dropped), R17-e / R17-f (no landed twin), the trait-declaration binder
    hole (k3) and the impl-header trait-ref lifetime args (u5) — all carried
    forward from 2026-08-30e, none spent on.
+
+
+# ═══ 2026-08-31f — THREE DECLARATION-SITE RULES LANDED, LEDGER 310 → 306 ═════
+
+The FUND phase for the three arms the surveys of 2026-08-30e and 2026-08-31
+had already earned, and the DECLINE, by name and with the number, of everything
+else in the `lifereg.A` / `lifereg.R17` partition. No new probe was armed this
+round: every number below was measured on the LANDED tree, which is the only
+tree whose cost is the fix's cost (rule 7).
+
+## PREDICTED vs MEASURED, AS SETS, BOTH WAYS
+
+Declared before the first edit, in the round's prediction file:
+
+    mechanism      predicted ceiling            measured           diff
+    ltenumpld      {regions-in-enums}           same               ∅ / ∅
+    ltbindresv     {regions-name-static,        same               ∅ / ∅
+                    lifetime-no-keyword}
+    ltargdecl      {noisy-follow-up-erro}       same               ∅ / ∅
+
+Union 4 rows, and the ledger gate agrees by direct listing: 310 → 306.
+`regions-in-enums-anon` was named in advance as NOT closing (`'_`, exempt by
+design) and did not close. `regions-creating-enums3` — the 2026-08-30 prepass
+ARTEFACT — was named in advance as MUST NOT close under the carve-out, and did
+not. `constructor-lifetime-early-binding-error` was named in advance as NOT
+closing (struct-literal turbofish, a second site) and did not.
+
+Every predicted∖measured and measured∖predicted difference is empty, on the
+ledger half AND on the three cost populations. That is the first round in this
+file where the prediction was exact in both directions on all three arms; it is
+also the round with the least mechanism per arm, which is the honest reading.
+
+## COST, ALL THREE POPULATIONS, ON THE LANDED TREE (rule 5)
+
+    population                       result
+    ledger  -R '^logos_00_bc_admit_' 306 passed / 0 failed  (store build 213)
+    legal   -L bc -L pass            884 passed / 0 failed / 2 disabled
+    legal   25_spec|03_ownership|04_advanced_pass  190 passed / 0 failed
+    stdlib  scripts/stdlib-cost.sh   all four layers compile
+    fail    fail_text_oracle.py      1044 fixtures, diffed against the CONTROL
+                                     REVERT baseline — see the two columns below
+
+COST(pass) = 0 · COST(stdlib) = 0. The fail-text oracle, rc column and text
+column reported SEPARATELY (rule 15):
+
+    rc changes                 7 — all seven are this round's OWN new fail
+                                   fixtures going 0 → 1. No pre-existing
+                                   fixture's rc moved.
+    stderr-sha changes         9 — the seven above, plus TWO:
+      · regions-undeclared          TEXT ONLY, `.expected` still matches. The
+                                    enum `EnumDecl` in that program was
+                                    previously unchecked and now raises E0261
+                                    ahead of the fn diagnostic the pin names.
+                                    A diagnostic getting MORE correct, and the
+                                    first time this column has been exercised
+                                    by a KNOWN answer (predicted, 2026-08-30e).
+      · generic-const-early-param   `.expected` MATCH LOST (1 → 0), predicted,
+                                    and RE-PINNED in this same change: the
+                                    program is `struct DataWrapper<'static> {
+                                    data: &'a i64 }` and the reserved-binder
+                                    rule refuses the E0262 FIRST, which is
+                                    upstream's PRIMARY error. Rule 14 resolving
+                                    the good way, not a weakened pin.
+    .expected-match changes    8 — the seven new fixtures (0 → 1) and the one
+                                   re-pin above (1 → 0). Nothing else moved.
+
+## THE HAND PROGRAMS, RE-RUN ON THE LANDED BINARY (rules 10 and 2)
+
+Each multi-line, each compiled by hand, refusals are POSITIVE controls that the
+branch is REACHED and not merely that the file builds:
+
+    u3  enum E { V(&'b u64) }                 REFUSED  "enum 'E': use of
+                                                        undeclared lifetime ''b'"
+    h6  enum Ok0<'a> { X5(&'a u64) }          rc 0     the named twin
+    e1  enum E1 { V(&i64) }                   rc 0     elided ⇒ exempt, by design
+    k1  struct Foo<'static>                   REFUSED  E0262
+    k4  fn baz<'let>(a: &'let i64)            REFUSED  keyword binder
+    k3  trait Ser<'self, T> { .. }            rc 0     ← THE TRAIT HOLE, STILL OPEN
+    a1  fn take<'a>(x:&mut Foo<'a>), 2 declared  REFUSED  "expected 2, got 1"
+    a2  enum Ast<'a> { Add(&'a Ast<'a>, ..) } rc 0     ← THE PREPASS CARVE-OUT
+    h7  fn take2<'a,'b>(x:&Bar<'a,'b>)        rc 0     the arity-matching twin
+
+k3 and a2 are the two measurements that matter most here, and both are NEGATIVE:
+the rule stops exactly where the survey said it would.
+
+## WHERE EACH FIX DIFFERS FROM ITS PROBE
+
+ * `ltenumpld` — identical. The probe body was the struct field walk verbatim
+   over `einfo.variants[].payload_types`; landing it removed the `probe::on`
+   guard and nothing else. Ceiling 1, cost 0, cfail 1 TEXT-ONLY: all three
+   reproduced exactly.
+ * `ltbindresv` — identical, guard removed. ⚠ RULE 4, SAID OUT LOUD AS
+   PROMISED: this arm fired **3 times** in the whole acceptance population plus
+   legal corpus. Its cost 0 is off a TINY population and is not an argument for
+   anything. It is landed on the ARM BEING MISSING — a lifetime binder spelled
+   `'static` is E0262 in every Rust edition — and not on the number.
+ * `ltargdecl` — the probe was `ltargarity && !decl_lts->empty()`; the landed
+   rule folds the carve-out into the condition itself and DELETES the
+   `ltargarity` spelling with its 5 legal refusals. ⚠ 1 inner fire against
+   **1388 outer arrivals** (the `ltargarity_site` census of 2026-08-30, now
+   removed from the tree and recorded here instead). Both numbers, as promised.
+
+## WHAT WAS DECLINED, BY NAME, WITH THE NUMBER THAT CONDEMNS IT
+
+ * **the `subtype.hpp` minting change (doors 1 + 3)** — ceiling 157/310, and
+   DECLINED THIS ROUND on cost: the crude proxy `ltmintfresh` refuses **650**
+   legal programs, loses **574** pinned diagnostics and fails to build the
+   stdlib. The counter-example is one line — `fn id(x:&i64)->&i64 { return x; }`
+   — and it is not a probe artefact that a guard removes: it says the mechanism
+   must MINT AND UNIFY by Rust's elision rules, which is an elision engine, not
+   an edit. It stays the highest-value finding in this file and it is a ROUND OF
+   ITS OWN, not a rider on three declaration-site rules. The series measurement
+   (0 → 45 → 157) is what justifies funding it; nothing this round changes it.
+ * `lteqbothempty` — 13 rows, cost 2, **cfail 14**, stdlib REFUSED. More pinned
+   diagnostics lost than rows bought.
+ * `lteqoneempty` — 34 rows, cost 26, cfail 35, stdlib REFUSED.
+ * `ltargarity` as written — superseded and DELETED; ltargdecl is the same row
+   for cost 0 instead of 5.
+ * **door 2** (`lifetime_at`'s `Variance::Inv` arm) — 9 arrivals, 0 with an
+   empty side, `ltinvempty` NEVER FIRED. Not a zero; an absence. Do not spend a
+   round there.
+ * `lifereg_callargstrict` (4 rows / cost 7) and `lifereg_structlitstrict`
+   (3 / 3) — still declined in favour of `lifereg_unmentioned` (7 rows / cost 5),
+   which remains FUNDABLE and unspent: it is the milder mechanism with the
+   larger ceiling, re-measured 2026-08-31 and unchanged across 114 deleted rows.
+
+## THE FIXTURES, IN PAIRS, ONE TOKEN APART
+
+Relanded in their own root's home, diagnostics pinned in full (no `'?'`):
+
+    tests/imported/fail/regions/regions-in-enums          (+ .expected)
+    tests/imported/fail/regions/regions-name-static       (+ .expected)
+    tests/imported/fail/lifetimes/lifetime-no-keyword     (+ .expected)
+    tests/imported/fail/lifetimes/noisy-follow-up-erro    (+ .expected)
+
+Native pairs, each fail fixture ONE TOKEN from its pass twin:
+
+    fail/bc_enumpldlt_undeclared_payload_lifetime  ⟂ pass/bc_enumpldlt_declared_payload_lifetime
+                                                     pass/bc_enumpldlt_placeholder_payload_lifetime
+    fail/bc_ltbindresv_reserved_binder_name        ⟂ pass/bc_ltbindresv_ordinary_binder_name
+    fail/bc_ltargdecl_lifetime_arg_arity           ⟂ pass/bc_ltargdecl_lifetime_arg_arity_match
+                                                     pass/bc_ltargdecl_selfref_enum_prepass
+
+The two extra PASS fixtures are exemptions pinned rather than argued: `'_` and
+elision in an enum payload, and the prepass carve-out. An exemption that is only
+a sentence in a comment is the thing rule 8 was bought with.
+
+## CONTROL REVERT
+
+With `src/compiler/sema.cpp` and `src/compiler/sema_decl.cpp` at HEAD and the
+fixtures in place, ALL SEVEN new fail fixtures go RED and all six new pass
+fixtures stay green. That is also where the unarmed fail-text baseline was
+taken, so the revert paid for itself twice.
+
+## ⚠ A GATE LIE, 16th KIND: THE STORE ANSWERED FOR A TEST SOURCE IT NEVER READ
+
+`gate-run.sh` keys its verdicts on `build_hash.py`, which hashes the COMPILER.
+Three new pass fixtures failed (their `main` returned the value it computed, so
+the runner saw exit 7); the fixtures were edited; the re-run reported *"Nothing
+has changed that a test run could see"* and re-served the FAILING verdicts. The
+compiler had not moved, so the key had not moved — and a FIXTURE edit is
+invisible to it. `FORCE=1` is the documented escape and it was used. Recording
+it because a stale green would be the same mechanism with the sign flipped.
+
+**AND THE SIGN DID FLIP, ON THE FINAL GATE, IN THIS SAME ROUND.** The first
+`test-levels.sh L4 bc` after the three census pins were re-derived exited
+**RC=0** while printing three FAILED rows from the store — census_pin,
+population_pin_lint and direct_door_census, all three fixed minutes earlier. The
+pins live in `docs/` and `tests/`, so `build_hash.py` had not moved, so nothing
+was re-run, so the level had nothing to report and reported success. A gate's rc
+is a measurement WITH A TIMESTAMP: the honest L4 is the `FORCE=1` one below, and
+an unforced L4 after a TEST-SOURCE edit is not evidence at all.
+
+    L4 bc, unforced   RC=0, 5824 recorded, 3 failed  ← the lie
+    L4 bc, FORCE=1    RC=0, 4468 + 1354 passed, 0 failed, 2 disabled  ← the gate
+
+## STILL OPEN, NAMED, WITH ITS EVIDENCE
+
+ * **the TRAIT-declaration binder hole** — `keyword-self-lifetime-error-10412`
+   stays admitted. `'self` is a TRAIT's binder and a trait declaration's
+   lifetime params never reach `read_lifetime_params`, the one site every other
+   declaration kind uses. MEASURED on the landed binary (k3 above), not
+   inferred. Rule 17: census the arrival before editing a gate for it.
+ * the struct-literal turbofish site (`S::<'static> { .. }`) for
+   `constructor-lifetime-early-binding-error` — a second arity site, unfound.
+ * `static` declarations and TRAIT METHOD SIGNATURES — the remaining halves of
+   the E0261 site set the struct field walk named. The enum payload half is
+   closed as of today; those two are not.
+ * A-2 (6 rows, the method-call / UFCS comparison site), A-3 (3 rows, a trait
+   object's `+ 'static` bound dropped entirely), A-4, R17-e (E0496 shadowed
+   binder), R17-f (E0207 unconstrained impl param), R17-g (a name-resolution
+   site, not a lifetime question) — carried forward, unspent.
+ * every diagnostic raised at a DECLARATION still carries a wrong line and a
+   wrong `[fn ...]` context (`regions-in-enums` reports `:557: [fn
+   iter_partition_vec]`). Pre-existing, shared with the landed struct walk and
+   the outlives check, one site, no row — and it is now in FOUR pinned
+   fixtures' output rather than one.

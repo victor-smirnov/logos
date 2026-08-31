@@ -1,0 +1,23 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the enum declares the lifetime its payload
+// names. The nested positions are here too — a tuple payload and a struct
+// lifetime argument — because that is where the walk recurses.
+package bc_enumpldlt_declared_payload_lifetime;
+
+struct W<'a> {
+    data: &'a i64,
+}
+
+enum E<'a> {
+    V(&'a i64),
+    P((&'a i64, i64)),
+    S(W<'a>),
+}
+
+fn main() -> i32 {
+    let x: i64 = 7i64;
+    let e = E::V(&x);
+    match e {
+        E::V(r) => { if *r == 7i64 { return 0i32; } return 1i32; }
+        _ => { return 0i32; }
+    }
+}

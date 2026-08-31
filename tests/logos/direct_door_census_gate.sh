@@ -647,6 +647,25 @@ PIN = {
     # so the partition still closes: 2369 = 191 + 2178. DOOR counts unmoved
     # (36 = 10 + 26) — no imported fixture declares a container family or a
     # `direct` output form. ONE new gate SCRIPT: bc_admits_ledger_gate.sh.
+    # ⚠ RE-DERIVED at the 2026-08-31f round (three declaration-site lifetime
+    # rules landed; ledger 310 -> 306): +5 / +0 / +5. FIVE new PASS fixtures —
+    # the legal twins of the three mechanisms that landed, plus TWO that pin
+    # exemptions with a price and no purchase (the `'_`/elided enum payload
+    # lifetimes, and the enum PREPASS carve-out without which five legal
+    # programs are refused). None matches `wql_*` / `deem_*`, so the whole
+    # delta lands in `nonglob`. BY DIRECT LISTING on the landed tree:
+    #   ls tests/logos/pass/*.logos                          -> 2494
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos             ->  191
+    #   the same listing minus the glob half                 -> 2303
+    # 2494 = 191 + 2303. The five are pass/bc_enumpldlt_declared_payload_lifetime,
+    # pass/bc_enumpldlt_placeholder_payload_lifetime,
+    # pass/bc_ltargdecl_lifetime_arg_arity_match,
+    # pass/bc_ltargdecl_selfref_enum_prepass and
+    # pass/bc_ltbindresv_ordinary_binder_name — declaration-site lifetime
+    # programs with no container family and no `direct` output form, so the DOOR
+    # counts are unmoved (36 = 10 + 26). The THREE new fail fixtures and the FOUR
+    # imported programs that moved admit -> fail enter none of these three
+    # counts: this population is `tests/logos/pass` only.
     # ⚠ RE-DERIVED at the 2026-08-30d round (the `&mut`-affine partition
     # re-mechanised + P9's missing struct field site): +4 / +0 / +4. FOUR new
     # PASS fixtures — the legal twins of the three mechanisms that landed, plus
@@ -1066,9 +1085,9 @@ PIN = {
     # move nothing here; the two imported programs that left `admit` for `fail`
     # are not in tests/logos/pass at all. `glob` and the DOOR counts unmoved: no
     # `wql_*`/`deem_*` match, no container family, no `direct` output form.
-    'corpus'            : 2489,
+    'corpus'            : 2494,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2298,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2303,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

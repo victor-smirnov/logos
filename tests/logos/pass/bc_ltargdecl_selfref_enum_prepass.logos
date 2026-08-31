@@ -1,0 +1,16 @@
+// THE PREPASS CARVE-OUT, PINNED RATHER THAN ARGUED. A self-referential enum
+// names itself inside its own payload while `lifetime_params` is still EMPTY
+// (the enum's own prepass), so the arity rule must exempt an empty DECLARED
+// list exactly as `check_type_arg_arity` already does for TYPE args. Without
+// the carve-out this program is refused and five more legal ones with it —
+// measured 2026-08-31, ltargarity cost 5 vs ltargdecl cost 0.
+package bc_ltargdecl_selfref_enum_prepass;
+
+enum Ast<'a> {
+    Num(u64),
+    Add(&'a Ast<'a>, &'a Ast<'a>),
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

@@ -1799,9 +1799,12 @@ lir_view::EnumView SemaChecker::lower_enum_def(TinyMapView node) {
                                       ename, lt, tp.name, lt));
             }
         }
-        // PROBE ltenumpld — the enum-PAYLOAD half of the site set that
-        // lower_struct_def's field walk named as its own remainder.
-        if (logos::probe::on("ltenumpld")) {
+        // ── VARIANT PAYLOAD TYPES vs THE ENUM'S OWN `<'a>` (E0261) ──────────
+        // The enum-PAYLOAD half of the site set that lower_struct_def's field
+        // walk named as its own remainder. Same rule, same exemptions, same
+        // walk as the struct twin above; measurement in src/compiler/PROBES.md
+        // under `ltenumpld` (2026-08-31).
+        {
             auto known_p = [&](std::string_view lt) {
                 if (lt.empty()) return true;
                 if (lt == "'static" || lt == "static") return true;

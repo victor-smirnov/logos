@@ -3,6 +3,10 @@
 // shelf: fail — REFUSED since 2026-08-30: a struct's FIELD TYPES are now walked
 // against its own lifetime params, the same rule `compute_fn_lifetime_outlives`
 // applies to parameter and return types. Was bck.NEW.
+// ⚠ .expected RE-PINNED 2026-08-31: the reserved-binder rule refuses `<'static>`
+// FIRST, which is upstream's PRIMARY error (E0262) for this program; the E0261
+// on the field is the follow-up. The diagnostic got more correct, so the pin
+// moved with it rather than the rule being weakened.
 package generic_const_early_param;
 struct DataWrapper<'static> { data: &'a i64 }
 fn main() -> i32 { return 0i32; }

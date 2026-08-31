@@ -1006,7 +1006,25 @@
 # widening the gate closes 0 rows and costs the two borrowck-issue-48962
 # diagnostics. Enum PAYLOADS, `static` declarations and TRAIT method signatures
 # are the field walk's own named remainder.
-# TOTAL 310
+# 2026-08-31 — 310 -> 306, THREE DECLARATION-SITE RULES, all four rows lifereg.R17:
+#   · the enum VARIANT PAYLOAD walk (E0261) — regions-in-enums. The struct field
+#     walk's own named remainder, one half of it now closed; `static` declarations
+#     and TRAIT method signatures remain.
+#   · RESERVED LIFETIME BINDER NAMES (E0262/E0263) — regions-name-static,
+#     lifetime-no-keyword. ONE site, `read_lifetime_params`, which every
+#     declaration kind reads its binders through EXCEPT a trait declaration:
+#     `trait Ser<'self, T>` (keyword-self-lifetime-error-10412) is still admitted
+#     and is NOT in this shrink. Measured, not assumed.
+#   · LIFETIME-ARG ARITY at a type reference (E0107) — noisy-follow-up-erro, with
+#     the prepass carve-out (`decl_lts` empty ⇒ exempt) without which a
+#     self-referential `enum Ast<'a> { Add(&'a Ast<'a>, ..) }` and five more legal
+#     programs are refused. The carve-out is pinned as
+#     tests/logos/pass/bc_ltargdecl_selfref_enum_prepass.
+# STILL OPEN, NAMED, AND PRICED: the elided-region rows (lifereg.A) are decided by
+# `lt_eq`'s empty early return in subtype.hpp, NOT by `outlives()`; the crude
+# minting proxy closes 157 rows and refuses 650 legal programs including
+# `fn id(x:&i64)->&i64`. Declined this round on that cost. See PROBES.md.
+# TOTAL 306
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1151,7 +1169,6 @@ iterator-trait-lifetime-error-13058 lifereg.A tests/imported/admit/lifetimes/ite
 keyword-self-lifetime-error-10412 lifereg.R17 tests/imported/admit/lifetimes/keyword-self-lifetime-error-10412
 lifetime-doesnt-live-long-enough lifereg.NEW-N2 tests/imported/admit/lifetimes/lifetime-doesnt-live-long-enough
 lifetime-mismatch-between-trait-and-impl lifereg.R18 tests/imported/admit/lifetimes/lifetime-mismatch-between-trait-and-impl
-lifetime-no-keyword lifereg.R17 tests/imported/admit/lifetimes/lifetime-no-keyword
 missing-lifetime-in-assoc-type-1 lifereg.R17 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-1
 missing-lifetime-in-assoc-type-2 lifereg.R17 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-2
 missing-lifetime-in-assoc-type-3 lifereg.NEW-3 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-3
@@ -1162,7 +1179,6 @@ missing-lifetime-specifier-13497 lifereg.NEW-N4 tests/imported/admit/lifetimes/m
 mut-ref-owned-suggestion lifereg.NEW-L1 tests/imported/admit/lifetimes/mut-ref-owned-suggestion
 mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17
 mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17
-noisy-follow-up-erro lifereg.R17 tests/imported/admit/lifetimes/noisy-follow-up-erro
 shadow lifereg.R17 tests/imported/admit/lifetimes/shadow
 static-typos lifereg.R17 tests/imported/admit/lifetimes/static-typos
 suggest-introducing-and-adding-missing-lifetime--c22b-outlives-bound-ignored lifereg.L2 tests/imported/admit/lifetimes/suggest-introducing-and-adding-missing-lifetime--c22b-outlives-bound-ignored
@@ -1310,14 +1326,12 @@ regions-glb-free-free--f-control-whole lifereg.NEW-R19 tests/imported/admit/regi
 regions-glb-free-free--glb-free-free lifereg.NEW-R19 tests/imported/admit/regions/regions-glb-free-free--glb-free-free
 regions-implied-bounds-projection-gap-1 lifereg.N1 tests/imported/admit/regions/regions-implied-bounds-projection-gap-1
 regions-in-enums-anon lifereg.R17 tests/imported/admit/regions/regions-in-enums-anon
-regions-in-enums lifereg.R17 tests/imported/admit/regions/regions-in-enums
 regions-in-structs-anon lifereg.NEW-L1 tests/imported/admit/regions/regions-in-structs-anon
 regions-infer-at-fn-not-param lifereg.A tests/imported/admit/regions/regions-infer-at-fn-not-param
 regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self
 regions-infer-bound-from-trait lifereg.L2 tests/imported/admit/regions/regions-infer-bound-from-trait
 regions-infer-call-3 lifereg.C tests/imported/admit/regions/regions-infer-call-3
 regions-infer-paramd-indirect lifereg.L1 tests/imported/admit/regions/regions-infer-paramd-indirect
-regions-name-static lifereg.R17 tests/imported/admit/regions/regions-name-static
 regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
 regions-outlives-projection-container-wc lifereg.NEW-L3 tests/imported/admit/regions/regions-outlives-projection-container-wc

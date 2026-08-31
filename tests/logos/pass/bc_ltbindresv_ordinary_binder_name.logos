@@ -1,0 +1,18 @@
+// THE LEGAL TWIN, ONE TOKEN APART: an ordinary binder name. `'static` USED as a
+// lifetime ARGUMENT is untouched — only the BINDER position is refused.
+package bc_ltbindresv_ordinary_binder_name;
+
+struct Foo<'a> {
+    x: &'a i64,
+}
+
+struct Bar {
+    y: &'static i64,
+}
+
+fn main() -> i32 {
+    let v: i64 = 3i64;
+    let f = Foo { x: &v };
+    if *f.x == 3i64 { return 0i32; }
+    return 1i32;
+}

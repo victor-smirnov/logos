@@ -1,0 +1,16 @@
+// THE `'_` AND ELIDED EXEMPTIONS, PINNED RATHER THAN ARGUED. Both compile
+// today and the enum payload walk keeps them exactly as the struct field walk
+// does: an empty lifetime and `'_` are always in scope.
+package bc_enumpldlt_placeholder_payload_lifetime;
+
+enum E1 {
+    V(&i64),
+}
+
+enum E2 {
+    W(&'_ i64),
+}
+
+fn main() -> i32 {
+    return 0i32;
+}
