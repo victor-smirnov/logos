@@ -2,6 +2,7 @@
 
 #include "sema_impl.hpp"
 #include "ctfe.hpp"
+#include <logos/compiler/probe.hpp>
 
 #include <cctype>
 #include <cstdio>
@@ -3501,13 +3502,28 @@ void SemaChecker::collect_impl(TinyMapView node) {
             std::string sname = ssi_t ? target : (ssi_b ? base_target : "");
             std::string spkg  = ssi_t ? spkg_t : spkg_b;
             if (ssi_found) {
+                // PROBE ltmintinst — BUG 2'S REPAIR WAS GATED ON THE WRONG
+                // QUESTION. "Include the struct's lifetime params so Self
+                // carries lifetime_args" sits inside `!impl_tps.empty()`, which
+                // asks whether the impl has TYPE parameters; whether Self needs
+                // lifetime args is a property of the STRUCT. `impl<'a> Src<'a>
+                // for H<'a>` has no type params, so Self was built as plain `H`
+                // with the lifetime slot ABSENT — and rule 16 says an absent
+                // fact and a recorded-empty one are different only at the
+                // MINTING site: door 3 fills the absent slot with a FRESH
+                // region, `self.raw()` reads `'a` off it, and
+                // bc_ltscope_impl_legal_shapes is refused with "expected
+                // &'a i32, got &i32". Measured on t1 (PROBES.md 2026-08-31j).
+                std::vector<std::string> lt_args = ssi_found->lifetime_params;
                 if (!impl_tps.empty()) {
                     std::vector<TypeRef> tv_args;
                     for (auto& tp : impl_tps)
                         tv_args.push_back(make_typevar(tp.name));
-                    // Bug 2: include struct's lifetime params so Self carries lifetime_args.
-                    std::vector<std::string> lt_args = ssi_found->lifetime_params;
                     self_type = make_generic_struct(sname, std::move(tv_args), std::move(lt_args), spkg);
+                } else if (!lt_args.empty() &&
+                           (logos::probe::on("ltmintinst") || logos::probe::on("ltsubstinst"))) {
+                    logos::probe::census("self.lts-restored.implheader");
+                    self_type = make_generic_struct(sname, {}, std::move(lt_args), spkg);
                 } else {
                     self_type = make_struct_type(sname, spkg);
                 }
@@ -4315,7 +4331,21 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                 std::vector<TypeRef> tv_args;
                                 for (auto& tp : impl_tps)
                                     tv_args.push_back(make_typevar(tp.name));
-                                self_type = make_generic_struct(target, std::move(tv_args), {}, spkg_def);
+                                self_type = make_generic_struct(
+                                    target, std::move(tv_args),
+                                    (logos::probe::on("ltmintinst") ||
+                                     logos::probe::on("ltsubstinst"))
+                                        ? ssi_def->lifetime_params
+                                        : std::vector<std::string>{},
+                                    spkg_def);
+                            } else if (!ssi_def->lifetime_params.empty() &&
+                                       (logos::probe::on("ltmintinst") ||
+                                        logos::probe::on("ltsubstinst"))) {
+                                // The SAME defect as at the impl header above,
+                                // in the synthesis of an inherited default.
+                                logos::probe::census("self.lts-restored.default");
+                                self_type = make_generic_struct(target, {},
+                                                                ssi_def->lifetime_params, spkg_def);
                             } else {
                                 self_type = make_struct_type(target, spkg_def);
                             }

@@ -3812,6 +3812,11 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     if (const SemaFuncInfo* exact_fi = resolve_function_call(callee, arg_exprs, false, false);
         exact_fi && exact_fi->type_params.empty() && !call_has_pack_expand) {
         check_pub_access(exact_fi->is_pub, exact_fi->package, callee, exact_fi->is_module_only, exact_fi->module_id);
+        // A callee binder at an ARGUMENT position is universally quantified —
+        // instantiate it from the arguments before comparing (probe ltmintinst /
+        // ltsubstinst; empty when unarmed or when nothing changes).
+        auto ipts_ = inst_call_params_(exact_fi->param_types,
+                                       exact_fi->lifetime_params, arg_exprs);
         if (exact_fi->is_unsafe && !inside_unsafe_)
             error(std::format("call to unsafe function '{}' requires unsafe context", callee));
         if (exact_fi->is_vararg) {
@@ -3825,7 +3830,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     auto pt = exact_fi->param_types[i];
                     expect_type(arg_exprs[i], pt, CoercePos::CallArg,
                                 std::format("call to '{}' arg {}:", callee, i + 1));
-                    check_variance(at, pt, std::format("call to '{}' arg {}", callee, i + 1));
+                    check_variance(at, ipts_.empty() ? pt : ipts_[i], std::format("call to '{}' arg {}", callee, i + 1));
                     if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                         if (auto v = get_intlit_value(arg_exprs[i]))
                             if (!intlit_fits(*v, TypeRef(pt).kind()))
@@ -3843,7 +3848,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 auto pt = exact_fi->param_types[i];
                 expect_type(arg_exprs[i], pt, CoercePos::CallArg,
                             std::format("call to '{}' arg {}:", callee, i + 1));
-                check_variance(at, pt, std::format("call to '{}' arg {}", callee, i + 1));
+                check_variance(at, ipts_.empty() ? pt : ipts_[i], std::format("call to '{}' arg {}", callee, i + 1));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i]))
                         if (!intlit_fits(*v, TypeRef(pt).kind()))
@@ -3924,9 +3929,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // the GENERIC paths, and an unambiguous free fn takes neither. Rule 17,
         // on this round's own site list.
         TypeRef exact_ret = exact_fi->ret_type;
-        if (logos::probe::on("ltsubstcall") || logos::probe::on("ltmintsubst") ||
+        if (logos::probe::on("ltsubstcall") || logos::probe::on("ltsubstinst") || logos::probe::on("ltmintsubst") ||
         logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
-        logos::probe::on("ltmintimpl"))
+        logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst"))
             exact_ret = subst_call_ret_lts_(exact_fi->param_types,
                                             exact_fi->lifetime_params,
                                             arg_exprs, exact_ret);
@@ -4086,6 +4091,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         if (expr_ref_of(a).kind() == lir_schema::expr::Code::PackExpand)
             has_pack_expand = true;
 
+    auto ipts_ = inst_call_params_(fi.param_types, fi.lifetime_params, arg_exprs);
     if (has_pack_expand) {
         // Pass through — mono will expand and validate
     } else if (fi.is_vararg) {
@@ -4100,7 +4106,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 auto pt = fi.param_types[i];
                 expect_type(arg_exprs[i], pt, CoercePos::CallArg,
                             std::format("call to '{}' arg {}:", callee, i + 1));
-                check_variance(at, pt, std::format("call to '{}' arg {}", callee, i + 1));
+                check_variance(at, ipts_.empty() ? pt : ipts_[i], std::format("call to '{}' arg {}", callee, i + 1));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i]))
                         if (!intlit_fits(*v, TypeRef(pt).kind()))
@@ -4118,7 +4124,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             auto pt = fi.param_types[i];
             expect_type(arg_exprs[i], pt, CoercePos::CallArg,
                         std::format("call to '{}' arg {}:", callee, i + 1));
-            check_variance(at, pt, std::format("call to '{}' arg {}", callee, i + 1));
+            check_variance(at, ipts_.empty() ? pt : ipts_[i], std::format("call to '{}' arg {}", callee, i + 1));
             if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                 if (auto v = get_intlit_value(arg_exprs[i]))
                     if (!intlit_fits(*v, TypeRef(pt).kind()))
@@ -4208,9 +4214,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     }
 
     TypeRef plain_ret = fi.ret_type;
-    if (logos::probe::on("ltsubstcall") || logos::probe::on("ltmintsubst") ||
+    if (logos::probe::on("ltsubstcall") || logos::probe::on("ltsubstinst") || logos::probe::on("ltmintsubst") ||
         logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
-        logos::probe::on("ltmintimpl"))
+        logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst"))
         plain_ret = subst_call_ret_lts_(fi.param_types, fi.lifetime_params,
                                         arg_exprs, plain_ret);
     return builder().call(fi.symbol_name.empty() ? std::string(callee) : fi.symbol_name, {}, std::move(arg_exprs), plain_ret);
@@ -5036,9 +5042,9 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
 
     // Substitute return type
     TypeRef ret = subst_type_sema(fi.ret_type, subst);
-    if (logos::probe::on("ltsubstcall") || logos::probe::on("ltmintsubst") ||
+    if (logos::probe::on("ltsubstcall") || logos::probe::on("ltsubstinst") || logos::probe::on("ltmintsubst") ||
         logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
-        logos::probe::on("ltmintimpl"))
+        logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst"))
         ret = subst_call_ret_lts_(fi.param_types, fi.lifetime_params, arg_exprs, ret);
     // MEASURED 2026-08-28, 379-row ledger: 104 fires, CEILING 4 vs COST 0 —
     // and BOTH halves of that price are misleading, which is the finding.
@@ -11574,8 +11580,30 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 // mode — the struct's lifetime args are bound at this
                 // construction site (struct-scope), not fn-scope, so caller's
                 // region inference fills in elided source regions.
+                // PROBE ltmintinst — THE STRUCT'S OWN BINDERS ARE BOUND HERE,
+                // SO THEY ARE NOT REGIONS TO COMPARE AGAINST. The comment two
+                // lines up already says it ("bound at this construction site,
+                // not fn-scope"), and permissive=true was the whole of the
+                // implementation — which is enough only while the VALUE's
+                // regions are elided. Once every elided slot has a name, the
+                // declared field type `&'a Fcx<'a>` is compared name-against-
+                // name with `&'%1 Fcx<'%2>` and `regions-mock-codegen` is
+                // refused. Substituting the struct's binders to the elided
+                // region says what the comment says: this site instantiates
+                // them, and we cannot name the instantiation.
+                TypeRef ft_cmp = ft;
+                if (ft && !ft_has_typevar &&
+                    (logos::probe::on("ltmintinst") || logos::probe::on("ltsubstinst")) &&
+                    !sinfo.lifetime_params.empty()) {
+                    auto blift = structlit_lt_subst_(sinfo.lifetime_params,
+                                                     effective->fields, fields);
+                    if (!blift.empty()) {
+                        ft_cmp = subst_type_sema(ft, {}, blift);
+                        if (ft_cmp != ft) logos::probe::census("structlit.field.instantiated");
+                    }
+                }
                 if (ft && !ft_has_typevar)
-                    check_variance(expr_type(fval), ft,
+                    check_variance(expr_type(fval), ft_cmp,
                                    std::format("struct literal '{}' field '{}'", sname, fname),
                                    /*permissive=*/true);
                 // Check IntLit field value fits in the declared field type.
@@ -11705,8 +11733,26 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                                         sname, fname));
             // B68.2: variance check at struct-lit field-init coercion.
             // Permissive — struct's lifetime args are inferred at this site.
+            // PROBE ltmintinst: and "inferred at this site" is exactly why the
+            // struct's OWN binders are not regions to compare against here —
+            // see the generic path above for the measurement
+            // (regions-mock-codegen). THIS is the site a struct with lifetime
+            // params but no TYPE params takes.
+            TypeRef ft_cmp2 = ft;
+            if (ft && (logos::probe::on("ltmintinst") || logos::probe::on("ltsubstinst"))) {
+                auto [_slp_pkg, _slp] = find_struct_by_name(std::string(sname));
+                (void)_slp_pkg;
+                if (_slp && !_slp->lifetime_params.empty()) {
+                    auto blift2 = structlit_lt_subst_(_slp->lifetime_params,
+                                                      _slp->fields, fields);
+                    if (!blift2.empty()) {
+                        ft_cmp2 = subst_type_sema(ft, {}, blift2);
+                        if (ft_cmp2 != ft) logos::probe::census("structlit.field.instantiated");
+                    }
+                }
+            }
             if (ft)
-                check_variance(expr_type(fval), ft,
+                check_variance(expr_type(fval), ft_cmp2,
                                std::format("struct literal '{}' field '{}'", sname, fname),
                                /*permissive=*/true);
             // T1-12 (audit-v2): dyn+auto bound at field-init coercion
@@ -11855,7 +11901,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     // declared field type against the actual field VALUE's type and read the
     // struct's binder off the value's region.
     if ((logos::probe::on("ltsubstlit") || logos::probe::on("ltmintsubst") ||
-         logos::probe::on("ltmintfree") || logos::probe::on("ltmintimpl")) &&
+         logos::probe::on("ltmintfree") || logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst")) &&
         !sinfo.lifetime_params.empty()) {
         logos::probe::census("subst.structlit.site");
         std::unordered_map<std::string, std::string> flt;

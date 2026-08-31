@@ -38,7 +38,7 @@ void SemaChecker::compute_fn_lifetime_outlives(
     // `ltmintfree`'s twelve legal refusals are this missing edge
     // (regions-impl-elided-lt, self-lt-impl-method, self-method-chain,
     // region_2, regions-mock-codegen).
-    if (logos::probe::on("ltmintimpl"))
+    if (logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst"))
         for (auto& il_ : current_impl_lifetime_params_) fn_lts.insert(il_);
     auto fn_lifetime_known = [&](std::string_view lt) {
         if (lt.empty()) return false;
@@ -651,7 +651,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     const bool mint_on_ = logos::probe::on("ltmintunify") ||
                           logos::probe::on("ltmintsubst") ||
                           logos::probe::on("ltmintfree") ||
-                          logos::probe::on("ltmintimpl");
+                          logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst");
     if (mint_on_) {
         logos::probe::census("mint.fn.signature");
         // `self` is known from the AST, not from is_method (which is only "in

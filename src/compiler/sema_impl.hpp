@@ -487,7 +487,7 @@ private:
             // mint must give it a region like any other elided slot, or the
             // comparison is `'_` against `'a` by spelling (measured: 2 of
             // `ltmintfree`'s legal refusals).
-            if (logos::probe::on("ltmintimpl") && (lt == "'_" || lt == "_")) lt.clear();
+            if ((logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst")) && (lt == "'_" || lt == "_")) lt.clear();
             if (lt.empty()) { lt = fresh(); logos::probe::census("mint.ref.elided"); }
             else            { logos::probe::census("mint.ref.written"); }
             out.push_back(lt);
@@ -519,7 +519,7 @@ private:
                 lts.resize(arity);
             }
             for (auto& l : lts)
-                if (logos::probe::on("ltmintimpl") && (l == "'_" || l == "_")) l = fresh();
+                if ((logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst")) && (l == "'_" || l == "_")) l = fresh();
                 else if (l.empty()) { l = fresh(); logos::probe::census("mint.structarg.elided"); }
                 else           { logos::probe::census("mint.structarg.written"); }
             for (auto& l : lts) out.push_back(l);
@@ -570,12 +570,56 @@ private:
     // crude form skipped: a callee region SEEN at an argument becomes the
     // caller's actual region, and only a callee region seen NOWHERE becomes a
     // fresh unspellable one.
-    TypeRef subst_call_ret_lts_(const std::vector<TypeRef>& param_types,
-                                const std::vector<std::string>& lifetime_params,
-                                const std::vector<lir::LExprPtr>& args,
-                                TypeRef ret) {
-        if (!ret || lifetime_params.empty()) return ret;
-        logos::probe::census("subst.call.site");
+    // ── ONE MAP, TWO CONSUMERS: THE CALLEE'S BINDERS, INSTANTIATED ─────────
+    // `build_call_lt_subst_` pairs each declared PARAMETER type against the
+    // actual ARGUMENT type and reads the callee's own regions off the caller's.
+    // The return type consumes it (`subst_call_ret_lts_`) and so does the
+    // ARGUMENT COMPARISON (`inst_call_params_`) — a callee binder at an
+    // argument position is UNIVERSALLY QUANTIFIED, so comparing the caller's
+    // region against the literal name `'r` is comparing a region against a
+    // BINDER (rule 12). Measured: `region-two-refs-same-region-pick-rg` and
+    // `regions-infer-contravariance-due-to-ret` are refused with
+    // "expected &'r BoxedInt, got &BoxedInt" for exactly that reason.
+    //
+    // ⚠ THREE OUTCOMES, NOT TWO. A callee region is
+    //   MAPPED    — some argument gave it a region: use it.
+    //   MENTIONED — it appears in a parameter type but that argument's own
+    //               region is unnamed. It is NOT free: the caller does
+    //               constrain it, we merely cannot name the constraint. It
+    //               becomes ELIDED, which is the permissive answer the
+    //               comparators already have for "no name".
+    //   FREE      — it appears in NO parameter type at all. The caller
+    //               instantiates it at any region it likes, `'static`
+    //               included, and `'static` is what
+    //               `stdlib/lang/writ/objdata.logos`'s `wod_view_array<'a>(p)
+    //               -> &'a WArray` needs to compile.
+    // Conflating MENTIONED with FREE is what put `B<'static>` into
+    // `borrowck-unused-mut-locals` and refused it.
+    void collect_param_regions_(TypeRef t, std::unordered_set<std::string>& out,
+                                int depth = 0) {
+        if (!t || depth > 24) return;
+        using K = LogosType::Kind;
+        switch (t.kind()) {
+        case K::Ref: case K::MutRef:
+            if (!t.lifetime().empty()) out.insert(std::string(t.lifetime()));
+            collect_param_regions_(t.pointee(), out, depth + 1);
+            return;
+        case K::Struct: case K::ZonedStruct: case K::Enum:
+            for (auto& l : t.lifetime_args()) if (!l.empty()) out.insert(l);
+            for (auto a : t.type_args()) collect_param_regions_(a, out, depth + 1);
+            return;
+        case K::Tuple:
+            for (auto e : t.tuple_elems()) collect_param_regions_(e, out, depth + 1);
+            return;
+        case K::Slice: case K::Array:
+            collect_param_regions_(t.elem(), out, depth + 1);
+            return;
+        default: return;
+        }
+    }
+    logos::compiler::StrMap<std::string> build_call_lt_subst_(const std::vector<TypeRef>& param_types,
+                                           const std::vector<std::string>& lifetime_params,
+                                           const std::vector<lir::LExprPtr>& args) {
         SemaLifetimeSubst ls;
         std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef pt, TypeRef at) {
             if (!pt || !at) return;
@@ -610,8 +654,18 @@ private:
         };
         for (size_t i = 0; i < param_types.size() && i < args.size(); ++i)
             if (args[i]) walk(param_types[i], expr_type(args[i]));
+        std::unordered_set<std::string> mentioned;
+        const bool three_way_ = logos::probe::on("ltmintinst") ||
+                                logos::probe::on("ltsubstinst");
+        if (three_way_)
+            for (auto pt : param_types) collect_param_regions_(pt, mentioned);
         for (auto& lp : lifetime_params) {
             if (ls.count(lp)) { logos::probe::census("subst.call.mapped"); continue; }
+            if (three_way_ && mentioned.count(lp)) {
+                logos::probe::census("subst.call.mentioned");
+                ls[lp] = "";                       // constrained, but unnameable
+                continue;
+            }
             // A callee region no argument mentions is INTERNAL to the callee.
             // It is not the caller's same-spelled binder, and it is not related
             // to anything the caller can name.
@@ -627,11 +681,107 @@ private:
             // be instantiated at any region, `'static` included), and that is
             // the policy `ltsubstfree` / `ltmintfree` take.
             if (logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
-                logos::probe::on("ltmintimpl"))
+                logos::probe::on("ltmintimpl") || logos::probe::on("ltmintinst") || three_way_)
                 ls[lp] = "'static";
             else
                 ls[lp] = mint_lt_();
         }
+        return ls;
+    }
+    // The ARGUMENT side of the same map. Returns an empty vector when there is
+    // nothing to instantiate, so the caller keeps its own `param_types`.
+    std::vector<TypeRef> inst_call_params_(const std::vector<TypeRef>& param_types,
+                                           const std::vector<std::string>& lifetime_params,
+                                           const std::vector<lir::LExprPtr>& args) {
+        if (!(logos::probe::on("ltmintinst") || logos::probe::on("ltsubstinst")))
+            return {};
+        if (param_types.empty() || lifetime_params.empty()) return {};
+        logos::probe::census("inst.call.site");
+        auto ls = build_call_lt_subst_(param_types, lifetime_params, args);
+        if (ls.empty()) return {};
+        std::vector<TypeRef> out;
+        out.reserve(param_types.size());
+        bool any = false;
+        for (auto pt : param_types) {
+            auto np = subst_type_sema(pt, {}, ls);
+            any |= (np != pt);
+            out.push_back(np);
+        }
+        if (any) logos::probe::census("inst.call.differs");
+        return any ? out : std::vector<TypeRef>{};
+    }
+    // ── THE STRUCT'S BINDERS, INSTANTIATED AT THE LITERAL ──────────────────
+    // The field-init `check_variance` already carries "permissive — struct's
+    // lifetime args are inferred at this site", and permissive=true is enough
+    // only while the VALUE's regions are elided. Once every elided slot has a
+    // name, `Bcx<'a>{fcx: &'a Fcx<'a>}` compares the DECLARED `'a` against a
+    // minted `'%1` by spelling.
+    //
+    // ⚠ AND ERASING THE BINDER IS NOT THE FIX — MEASURED, TWICE, BY THE `fail`
+    // ORACLE. Substituting `'a` to the elided region makes the comparison
+    // vacuous and un-refuses two PINNED illegal programs whose whole subject is
+    // that one binder appears TWICE:
+    //     account-for-lifetimes-in-closure-suggestion   SameLifetime<'a>{ t:
+    //         TwoThings<'a,'a> } from a TwoThings<'a,'b>
+    //     nondeterministic-lifetime-errors-15034        Parser<'a>{ lexer:
+    //         &'a mut Lexer<'a> } from a `&'a mut Lexer` (E0621)
+    // Neither is visible to a pass-only oracle (rule 15's neighbour: an
+    // un-refusal in the `fail` half). So the binder is INSTANTIATED from the
+    // values — first occurrence wins, and a second occurrence that disagrees is
+    // the refusal those two fixtures pin.
+    template <class DeclFields>
+    logos::compiler::StrMap<std::string> structlit_lt_subst_(
+            const std::vector<std::string>& lifetime_params,
+            const DeclFields& decl_fields,
+            const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
+        logos::compiler::StrMap<std::string> flt;
+        if (lifetime_params.empty()) return flt;
+        std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef dt, TypeRef at) {
+            if (!dt || !at) return;
+            using K = LogosType::Kind;
+            auto dk2 = dt.kind();
+            if ((dk2 == K::Ref || dk2 == K::MutRef) &&
+                (at.kind() == K::Ref || at.kind() == K::MutRef)) {
+                std::string d(dt.lifetime()), a(at.lifetime());
+                if (!d.empty() && !a.empty() && !flt.count(d)) flt.emplace(d, a);
+                walk(dt.pointee(), at.pointee());
+                return;
+            }
+            if ((dk2 == K::Struct || dk2 == K::ZonedStruct || dk2 == K::Enum) &&
+                at.kind() == dk2) {
+                auto dl = dt.lifetime_args(); auto al = at.lifetime_args();
+                for (size_t i = 0; i < dl.size() && i < al.size(); ++i)
+                    if (!dl[i].empty() && !al[i].empty() && !flt.count(dl[i]))
+                        flt.emplace(dl[i], al[i]);
+                auto da = dt.type_args(); auto aa = at.type_args();
+                for (size_t i = 0; i < da.size() && i < aa.size(); ++i) walk(da[i], aa[i]);
+                return;
+            }
+            if (dk2 == K::Tuple && at.kind() == K::Tuple) {
+                auto de = dt.tuple_elems(); auto ae = at.tuple_elems();
+                for (size_t i = 0; i < de.size() && i < ae.size(); ++i) walk(de[i], ae[i]);
+                return;
+            }
+        };
+        for (auto& f : decl_fields)
+            for (auto& [fname, fval] : fields)
+                if (fval && fname == f.name) { walk(f.type, expr_type(fval)); break; }
+        // Only the struct's OWN binders are instantiated here; anything else in
+        // a declared field type is a name from an enclosing scope.
+        logos::compiler::StrMap<std::string> out;
+        for (auto& lp : lifetime_params) {
+            auto it = flt.find(lp);
+            if (it != flt.end()) out[lp] = it->second;
+        }
+        return out;
+    }
+    TypeRef subst_call_ret_lts_(const std::vector<TypeRef>& param_types,
+                                const std::vector<std::string>& lifetime_params,
+                                const std::vector<lir::LExprPtr>& args,
+                                TypeRef ret) {
+        if (!ret || lifetime_params.empty()) return ret;
+        logos::probe::census("subst.call.site");
+        auto ls = build_call_lt_subst_(param_types, lifetime_params, args);
         return ls.empty() ? ret : subst_type_sema(ret, {}, ls);
     }
 
