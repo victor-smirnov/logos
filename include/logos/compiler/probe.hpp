@@ -110,10 +110,28 @@ inline bool on(const char* name) {
 //   arm_subst  — the substitution half alone, and every arm built on it.
 inline bool arm_inst() {
     return on("ltmintinst") || on("ltmintmeet") || on("ltmeetany") ||
-           on("ltmintmeetrg") || on("ltmintmeetamb");
+           on("ltmintmeetrg") || on("ltmintmeetamb") || on("ltregmeet");
 }
 inline bool arm_subst() {
     return on("ltsubstinst") || on("ltmeetco");
+}
+
+// ── THE REGION SLOT (2026-08-31m) ───────────────────────────────────────────
+// `&'a [T]` / `&'a str` / `&'a dyn` / `&'a Dst` canonicalise to Kind::Slice /
+// TraitObject / TaggedPtr / DstRef and the region is DROPPED at resolve_type —
+// 1 358 164 arrivals (PROBES.md 2026-08-31i). The AST already CARRIES the
+// lifetime (logos.peg `slice_type` / `dyn_type` capture it into a LIFETIME
+// slot); only the type it resolves to has nowhere to put it. `arm_regslot()`
+// gates the WRITE side: every canonicalisation that today throws the region
+// away instead records it. The READ side (variance_in_type, the pool's
+// byte-strict equality) needs no gate — it reads a field that is empty unless
+// this arm wrote it, so unarmed behaviour is unchanged by construction.
+//   ltregslot  — the slot ALONE (rule 13: price the increment separately).
+//   ltregmeet  — the slot + the engine (ltmintinst) + the meet under the
+//                COVARIANCE GUARD ALONE: with the region recorded the variance
+//                fixpoint no longer needs the ambient stand-in of 2026-08-31l.
+inline bool arm_regslot() {
+    return on("ltregslot") || on("ltregmeet");
 }
 
 }  // namespace logos::probe

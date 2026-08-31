@@ -792,7 +792,13 @@ private:
     static bool probe_meet_() {
         return logos::probe::on("ltmintmeet") || logos::probe::on("ltmeetco") ||
                logos::probe::on("ltmeetany") || logos::probe::on("ltmintmeetrg") ||
-               logos::probe::on("ltmintmeetamb");
+               logos::probe::on("ltmintmeetamb") ||
+               // ltregmeet (2026-08-31m) — the meet under the COVARIANCE GUARD
+               // ALONE. No opaque predicate, no ambient stand-in: with the
+               // region slot the variance fixpoint reads `&'a str` / `&'a [T]`
+               // in a recorded position, so its answer IS the evidence those
+               // two stand-ins were substituting for.
+               logos::probe::on("ltregmeet");
     }
     static bool probe_meet_unguarded_() { return logos::probe::on("ltmeetany"); }
     // PROBE ltmintmeetrg — THE SECOND INNER PREDICATE (rule 9). Measured on
@@ -1507,11 +1513,19 @@ private:
         arg = builder().closure_to_fnptr(arg, fp_ty);
         return true;
     }
+    // `lt` — THE REGION SLOT (PROBE ltregslot, PROBES.md 2026-08-31m). Empty
+    // for every caller that does not write it, which is every caller unarmed;
+    // the field is ignored by compute_type_uid (so `&'a [T]` and `&[T]` stay
+    // types_equal, exactly as `&'a T` and `&T` already are) and DISTINGUISHED
+    // by builder_equals_typeref (so the two get distinct pool entries and the
+    // region survives, exactly as Ref's already does).
     TypeRef make_slice_type(TypeRef elem, bool is_mut = false,
-                            TypeRef::OwningKind owning = TypeRef::OwningKind::Borrow) {
+                            TypeRef::OwningKind owning = TypeRef::OwningKind::Borrow,
+                            std::string lt = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Slice;
         t.elem = elem;
         t.mut_ptr = is_mut;
+        t.lifetime = std::move(lt);
         // Owning `Box<[T]>` slice — same 16-byte {data,len} layout as a borrowed
         // `&[T]`, but move-only and droppable (frees the buffer + drops elements).
         // Rides in const_val, exactly like TraitObject's owning kind.
@@ -1556,12 +1570,14 @@ private:
                          std::string_view pkg_name,
                          bool is_mut,
                          std::vector<TypeRef> type_args = {},
-                         TypeRef::OwningKind owning = TypeRef::OwningKind::Borrow) {
+                         TypeRef::OwningKind owning = TypeRef::OwningKind::Borrow,
+                         std::string lt = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::DstRef;
         t.struct_name = std::string(struct_name);
         t.pkg_name = std::string(pkg_name);
         t.mut_ptr = is_mut;
         t.type_args = std::move(type_args);
+        t.lifetime = std::move(lt);   // THE REGION SLOT — see make_slice_type
         // Owning `Box<Foo>` custom-DST — same fat {data,len} layout + field/tail
         // access as a borrowed `&Foo`, but move-only + droppable (drop the tail
         // elements + prefix fields, then free the heap block). Rides in const_val
@@ -1814,10 +1830,12 @@ private:
                               std::vector<TypeRef> args = {},
                               TraitOwningKind owning = TraitOwningKind::Borrow,
                               bool req_send = false,
-                              bool req_sync = false) {
+                              bool req_sync = false,
+                              std::string lt = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::TraitObject;
         t.trait_name = std::string(tname);
         t.type_args = std::move(args);
+        t.lifetime = std::move(lt);   // THE REGION SLOT — see make_slice_type
         uint64_t packed = uint8_t(owning);
         if (req_send) packed |= TRAIT_BOUND_SEND_BIT;
         if (req_sync) packed |= TRAIT_BOUND_SYNC_BIT;

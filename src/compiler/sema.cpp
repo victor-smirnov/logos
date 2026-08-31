@@ -1034,8 +1034,12 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
         // without this the type-pool dedups a fresh `&mut [T]` into an existing
         // `&[T]` and the mut bit is silently lost. const_val = owning kind so an
         // owning `Box<[T]>` slice is distinct from a borrowed `&[T]`.
+        // THE REGION SLOT (PROBE ltregslot, 2026-08-31m): `&'a [T]` and `&[T]`
+        // stay types_equal (compute_type_uid omits the lifetime, as it does for
+        // Ref) but get DISTINCT pool entries, which is what lets the region
+        // survive to compute_variances. Empty unless the arm wrote it.
         return t.elem == r.elem() && t.mut_ptr == r.mut_ptr() &&
-               t.const_val == r.const_val();
+               t.const_val == r.const_val() && t.lifetime == r.lifetime();
     case K::UnsizedSlice:
         return t.elem == r.elem();
     case K::UnsizedDyn:
@@ -1046,6 +1050,7 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
                t.pkg_name == r.pkg_name() &&
                t.mut_ptr == r.mut_ptr() &&
                t.const_val == r.const_val() &&   // owning kind (Borrow/Box)
+               t.lifetime == r.lifetime() &&     // THE REGION SLOT (2026-08-31m)
                vec_ptr_eq(t.type_args, r.type_args());
     case K::FnPtr:
         // T2-23: extern-ABI tag participates in FnPtr identity.
@@ -1067,9 +1072,11 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     case K::TraitObject:
         return t.const_val == r.const_val() &&  // owning kind (Borrow/Box/Rc/Arc)
                t.trait_name == r.trait_name() &&
+               t.lifetime == r.lifetime() &&   // THE REGION SLOT (2026-08-31m)
                vec_ptr_eq(t.type_args, r.type_args());
     case K::TaggedPtr:
-        return t.trait_name == r.trait_name();
+        return t.trait_name == r.trait_name() &&
+               t.lifetime == r.lifetime();     // THE REGION SLOT (2026-08-31m)
     case K::ImplTrait:
         return t.struct_name == r.struct_name();
     case K::TypeVar:
@@ -6293,12 +6300,17 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         // same kind produced by the `&[T]` grammar route. Lifetime info
         // is dropped here because Kind::Slice does not carry per-instance
         // lifetimes (Logos lifetime model is elision-based at this layer).
+        const bool regslot_s_ = logos::probe::arm_regslot();
         if (inner && inner.kind() == LogosType::Kind::UnsizedSlice)
-            return make_slice_type(inner.elem(), t.kind() == LogosType::Kind::MutRef);
+            return make_slice_type(inner.elem(), t.kind() == LogosType::Kind::MutRef,
+                                   TypeRef::OwningKind::Borrow,
+                                   regslot_s_ ? lt : std::string{});
         // Phase 1B-4: same canonicalisation for UnsizedDyn → TraitObject.
         if (inner && inner.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = inner.type_args();
-            return make_trait_object(inner.trait_name(), std::move(args_vec));
+            return make_trait_object(inner.trait_name(), std::move(args_vec),
+                                     TraitOwningKind::Borrow, false, false,
+                                     regslot_s_ ? lt : std::string{});
         }
         // Phase 1B-14/15: `&DstStruct` / `&mut DstStruct` → DstRef.
         if (inner && is_effective_dst(inner)) {
@@ -6310,7 +6322,9 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 else { auto [pd, dsi] = find_datatype_by_name(sn); if (dsi) spkg = pd; }
             }
             std::vector<TypeRef> targs = inner.type_args();
-            return make_dst_ref(sn, spkg, t.kind() == LogosType::Kind::MutRef, std::move(targs));
+            return make_dst_ref(sn, spkg, t.kind() == LogosType::Kind::MutRef,
+                                std::move(targs), TypeRef::OwningKind::Borrow,
+                                regslot_s_ ? lt : std::string{});
         }
         if (inner == t.pointee() && lt == t.lifetime()) return t;
         return make_ref(t.kind() == LogosType::Kind::MutRef, inner, lt);
@@ -6399,8 +6413,12 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
     }
     case LogosType::Kind::Slice: {
         auto elem = subst_type_sema(t.elem(), s, ls);
-        if (elem == t.elem()) return t;
-        return make_slice_type(elem, t.mut_ptr());
+        // THE REGION SLOT (2026-08-31m): carry it through, mapped by `ls` like
+        // Ref's. Empty unless PROBE ltregslot wrote it at resolve_type.
+        std::string slt{t.lifetime()};
+        if (!slt.empty()) { auto it = ls.find(slt); if (it != ls.end()) slt = it->second; }
+        if (elem == t.elem() && slt == t.lifetime()) return t;
+        return make_slice_type(elem, t.mut_ptr(), t.slice_owning_kind(), slt);
     }
     case LogosType::Kind::UnsizedSlice: {
         auto elem = subst_type_sema(t.elem(), s, ls);
@@ -6430,12 +6448,15 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             changed |= (na != a);
             new_args.push_back(na);
         }
+        std::string dlt{t.lifetime()};   // THE REGION SLOT (2026-08-31m)
+        if (!dlt.empty()) { auto it = ls.find(dlt); if (it != ls.end()) dlt = it->second; }
+        changed |= (dlt != t.lifetime());
         if (!changed) return t;
         return make_dst_ref(t.struct_name(), t.pkg_name(), t.mut_ptr(),
-                            std::move(new_args));
+                            std::move(new_args), t.dst_owning_kind(), dlt);
     }
     case LogosType::Kind::TraitObject: {
-        if (t.type_args().empty()) return t;
+        if (t.type_args().empty() && t.lifetime().empty()) return t;
         std::vector<TypeRef> new_args;
         bool changed = false;
         for (auto a : t.type_args()) {
@@ -6443,11 +6464,15 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             changed |= (na != a);
             new_args.push_back(na);
         }
+        std::string olt{t.lifetime()};   // THE REGION SLOT (2026-08-31m)
+        if (!olt.empty()) { auto it = ls.find(olt); if (it != ls.end()) olt = it->second; }
+        changed |= (olt != t.lifetime());
         if (!changed) return t;
         return make_trait_object(t.trait_name(), std::move(new_args),
                                  /*owning=*/t.trait_owning_kind(),
                                  /*req_send=*/t.trait_requires_send(),
-                                 /*req_sync=*/t.trait_requires_sync());
+                                 /*req_sync=*/t.trait_requires_sync(),
+                                 olt);
     }
     case LogosType::Kind::Closure:
     case LogosType::Kind::FnItem:
@@ -7868,11 +7893,27 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // impl-on-unsized method body refers to `&Self` literally — the
         // resolved type must be the canonical fat-pointer form, not a
         // nested Ref<Unsized>.
-        if (inner && inner.kind() == LogosType::Kind::UnsizedSlice)
-            return make_slice_type(inner.elem());
+        // ⚠ THE REGION SLOT (PROBE ltregslot, PROBES.md 2026-08-31m). These
+        // three canonicalisations are three of the six sites where the region
+        // of a reference is THROWN AWAY: `&'a str` / `&'a [T]` become
+        // Kind::Slice, `&'a dyn` becomes TraitObject, `&'a Dst` becomes DstRef,
+        // and none of the three carried a region until this arm. 1 358 164
+        // arrivals (2026-08-31i). `lt` is right here and was simply not passed.
+        const bool regslot_ = logos::probe::arm_regslot();
+        if (inner && inner.kind() == LogosType::Kind::UnsizedSlice) {
+            logos::probe::census(lt.empty() ? "regslot.ref.slice.elided"
+                                            : "regslot.ref.slice.written");
+            return make_slice_type(inner.elem(), false,
+                                   TypeRef::OwningKind::Borrow,
+                                   regslot_ ? lt : std::string{});
+        }
         if (inner && inner.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = inner.type_args();
-            return make_trait_object(inner.trait_name(), std::move(args_vec));
+            logos::probe::census(lt.empty() ? "regslot.ref.dyn.elided"
+                                            : "regslot.ref.dyn.written");
+            return make_trait_object(inner.trait_name(), std::move(args_vec),
+                                     TraitOwningKind::Borrow, false, false,
+                                     regslot_ ? lt : std::string{});
         }
         // Phase 1B-14: `&DstStruct` → Kind::DstRef (fat pointer to the
         // custom-DST struct). is_dst is on SemaStructInfo, looked up
@@ -7886,7 +7927,11 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                 else { auto [pd, dsi] = find_datatype_by_name(sn); if (dsi) spkg = pd; }
             }
             std::vector<TypeRef> targs = inner.type_args();
-            return make_dst_ref(sn, spkg, /*is_mut=*/false, std::move(targs));
+            logos::probe::census(lt.empty() ? "regslot.ref.dst.elided"
+                                            : "regslot.ref.dst.written");
+            return make_dst_ref(sn, spkg, /*is_mut=*/false, std::move(targs),
+                                TypeRef::OwningKind::Borrow,
+                                regslot_ ? lt : std::string{});
         }
         return make_ref(false, inner, std::move(lt));
     }
@@ -7908,11 +7953,22 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         if (node.has_key(la::LIFETIME))
             lt = std::string(str_of(node.get(la::LIFETIME.code)));
         // Phase 1B-11: same canonicalisation for `&mut`.
-        if (inner && inner.kind() == LogosType::Kind::UnsizedSlice)
-            return make_slice_type(inner.elem(), /*is_mut=*/true);
+        // THE REGION SLOT — the `&mut` half of the same three sites.
+        const bool regslot_m_ = logos::probe::arm_regslot();
+        if (inner && inner.kind() == LogosType::Kind::UnsizedSlice) {
+            logos::probe::census(lt.empty() ? "regslot.mutref.slice.elided"
+                                            : "regslot.mutref.slice.written");
+            return make_slice_type(inner.elem(), /*is_mut=*/true,
+                                   TypeRef::OwningKind::Borrow,
+                                   regslot_m_ ? lt : std::string{});
+        }
         if (inner && inner.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = inner.type_args();
-            return make_trait_object(inner.trait_name(), std::move(args_vec));
+            logos::probe::census(lt.empty() ? "regslot.mutref.dyn.elided"
+                                            : "regslot.mutref.dyn.written");
+            return make_trait_object(inner.trait_name(), std::move(args_vec),
+                                     TraitOwningKind::Borrow, false, false,
+                                     regslot_m_ ? lt : std::string{});
         }
         // Phase 1B-14/15: `&mut DstStruct` → Kind::DstRef. Includes
         // post-substitution DST (generic `?Sized` instantiation).
@@ -7925,7 +7981,11 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                 else { auto [pd, dsi] = find_datatype_by_name(sn); if (dsi) spkg = pd; }
             }
             std::vector<TypeRef> targs = inner.type_args();
-            return make_dst_ref(sn, spkg, /*is_mut=*/true, std::move(targs));
+            logos::probe::census(lt.empty() ? "regslot.mutref.dst.elided"
+                                            : "regslot.mutref.dst.written");
+            return make_dst_ref(sn, spkg, /*is_mut=*/true, std::move(targs),
+                                TypeRef::OwningKind::Borrow,
+                                regslot_m_ ? lt : std::string{});
         }
         return make_ref(true, inner, std::move(lt));
     }
@@ -7948,7 +8008,17 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         auto elem = node.has_key(la::TYPE) ? resolve_type(map_of(node.get(la::TYPE.code))) : error_t();
         bool is_mut = false;
         if (node.has_key(la::MUTPTR)) { AnyVal mv = node.get(la::MUTPTR.code); is_mut = !mv.is_null() && mv.is_value() && mv.as_value<uint8_t>() != 0; }
-        return make_slice_type(elem, is_mut);
+        // THE REGION SLOT. `slice_type` in logos.peg has captured the lifetime
+        // into a LIFETIME slot since L2 — its own comment says "downstream sema
+        // currently doesn't enforce slice-with-lifetime distinctly from plain
+        // &[T]". The AST always carried it; only the TYPE had nowhere to put it.
+        std::string slt;
+        if (node.has_key(la::LIFETIME))
+            slt = std::string(str_of(node.get(la::LIFETIME.code)));
+        logos::probe::census(slt.empty() ? "regslot.slicetype.elided"
+                                         : "regslot.slicetype.written");
+        return make_slice_type(elem, is_mut, TypeRef::OwningKind::Borrow,
+                               logos::probe::arm_regslot() ? slt : std::string{});
     }
 
     if (tc == la::UNSIZED_SLICE_TYPE) {
@@ -8109,9 +8179,20 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // logos-core 2.4(c): pass the auto-trait bounds we extracted from
         // ITEMS so the TraitObject carries `+ Send` / `+ Sync` in its
         // const_val bits, enabling the unsize-coercion check downstream.
+        // THE REGION SLOT. `dyn_type`'s `&'a dyn Trait` alts capture LIFETIME
+        // ("downstream sema is currently elision-based so the slot is
+        // informational" — logos.peg). variance_in_type's TraitObject arm has
+        // read `t.lifetime()` since logos-core 2.3: the READER was already
+        // there and nothing ever wrote it. Rule 16, at its sharpest.
+        std::string dlt;
+        if (node.has_key(la::LIFETIME))
+            dlt = std::string(str_of(node.get(la::LIFETIME.code)));
+        logos::probe::census(dlt.empty() ? "regslot.dyntype.elided"
+                                         : "regslot.dyntype.written");
         return make_trait_object(tname, std::move(args),
                                  TraitOwningKind::Borrow,
-                                 req_send, req_sync);
+                                 req_send, req_sync,
+                                 logos::probe::arm_regslot() ? dlt : std::string{});
     }
 
     if (tc == la::TAGGED_TYPE) {
@@ -8131,6 +8212,16 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         t.kind       = LogosType::Kind::TaggedPtr;
         t.struct_name = ts_name;   // tag system type name
         t.trait_name  = tname;     // dispatched trait name
+        // THE REGION SLOT — `&'a tagged<TS> Trait`. The grammar's tagged_type
+        // has no LIFETIME alt today, so this site records nothing and its
+        // census bucket is the measurement saying so.
+        if (node.has_key(la::LIFETIME)) {
+            std::string tlt(str_of(node.get(la::LIFETIME.code)));
+            logos::probe::census("regslot.taggedtype.written");
+            if (logos::probe::arm_regslot()) t.lifetime = std::move(tlt);
+        } else {
+            logos::probe::census("regslot.taggedtype.elided");
+        }
         return pool_->alloc(std::move(t));
     }
 
@@ -10650,8 +10741,44 @@ Variance variance_in_type(TypeRef t,
             return v;
         }
         case K::Array:
-        case K::Slice:
             return variance_in_type(t.elem(), target, target_is_lifetime, table, ambient);
+        case K::Slice: {
+            // THE REGION SLOT (2026-08-31m). `&'a [T]` / `&'a str` canonicalise
+            // to Kind::Slice; the region a `Ref` would record in `.lifetime()`
+            // is recorded HERE when PROBE ltregslot armed resolve_type to write
+            // it, and is empty otherwise. A slice's own region occurs
+            // COVARIANTLY in its own position, exactly like Ref's.
+            Variance v = Variance::BiVar;
+            if (target_is_lifetime && !std::string(t.lifetime()).empty() &&
+                std::string(t.lifetime()) == target)
+                v = variance_meet(v, ambient);
+            v = variance_meet(v, variance_in_type(t.elem(), target,
+                                                  target_is_lifetime, table, ambient));
+            return v;
+        }
+        case K::DstRef: {
+            // THE REGION SLOT (2026-08-31m) — `&'a DstStruct`. Co in its own
+            // region; the DST struct's type arguments are read at the def's
+            // declared variance, which this walk does not have here, so they
+            // are left alone (the fixpoint reaches them through the def).
+            Variance v = Variance::BiVar;
+            if (target_is_lifetime && !std::string(t.lifetime()).empty() &&
+                std::string(t.lifetime()) == target)
+                v = variance_meet(v, ambient);
+            for (auto a : t.type_args())
+                v = variance_meet(v, variance_in_type(a, target,
+                                                      target_is_lifetime, table,
+                                                      variance_compose(ambient, Variance::Inv)));
+            return v;
+        }
+        case K::TaggedPtr: {
+            // THE REGION SLOT (2026-08-31m) — `&'a tagged<TS> Trait`.
+            Variance v = Variance::BiVar;
+            if (target_is_lifetime && !std::string(t.lifetime()).empty() &&
+                std::string(t.lifetime()) == target)
+                v = variance_meet(v, ambient);
+            return v;
+        }
         case K::Struct:
         case K::ZonedStruct:
         case K::Enum: {
@@ -10825,6 +10952,26 @@ void SemaChecker::compute_variances() {
                            return ts;
                        });
         }
+    }
+    // ── THE FIXPOINT'S OWN ANSWER, READABLE (LOGOS_CENSUS) ────────────────
+    // The variance of a LIFETIME binder is what PROBES.md 2026-08-31k read
+    // indirectly off the meet's behaviour (h1 Inv / h3 Co / h4 Co). Emitting
+    // it here makes it a direct measurement instead of an inference from a
+    // refusal, which is what the region-slot round needs to check itself.
+    if (logos::probe::census_armed()) {
+        auto vname = [](Variance v) {
+            switch (v) {
+                case Variance::Co:    return "Co";
+                case Variance::Contra:return "Contra";
+                case Variance::Inv:   return "Inv";
+                default:              return "BiVar";
+            }
+        };
+        for (auto& [key, vm] : variance_table_)
+            for (auto& [ik, v] : vm)
+                if (!ik.empty() && ik[0] == '@')
+                    logos::probe::census(std::string("var.") + key + "." + ik +
+                                         "=" + vname(v));
     }
 }
 
