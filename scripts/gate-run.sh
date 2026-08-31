@@ -90,11 +90,36 @@ else echo "gate-run: $N in filter, $M not yet measured under build $BID — runn
 # And in both cases the number of tests ctest actually ran is checked against
 # the number we asked for: a run that measured fewer than it was told to is a
 # failure, never a pass.
+# ⚠ R2: NOT `ctest --help | grep -q`. Under `set -o pipefail` grep exits at the
+# first match, ctest takes SIGPIPE 141, and pipefail reports the MATCH as a
+# failed pipeline. The lint caught exactly this line. Read into a file, then match.
+HLP=$(mktemp); ctest --help >"$HLP" 2>/dev/null || true
+HAS_TFF=0; grep -q -- '--tests-from-file' "$HLP" && HAS_TFF=1; rm -f "$HLP"
 JU=$(mktemp --suffix=.xml)
 RC=0
 if [ "$M" -eq "$N" ]; then
     ctest --test-dir "$BUILD" --output-junit "$JU" "$@"; RC=$?
     python3 scripts/gate_db.py ingest "$DB" "$BID" "$JU" "$*"
+elif [ "$HAS_TFF" = 1 ]; then
+    # ONE run instead of ~39. The chunked path below is correct but SERIALISES at
+    # its own boundaries: each chunk waits for its slowest test before the next
+    # starts, and every chunk pays a full test-discovery plus a DB ingest. An L4
+    # top-up of 5719 missing tests was 39 chunks and took 1080 s against a 708 s
+    # budget. `--tests-from-file` (ctest >= 3.29) takes NAMES, one per line, so
+    # the 99,911-character regex that made ctest answer "No tests were found!!!"
+    # stops being a hazard to work around and stops existing.
+    #
+    # ⚠ ITS FAILURE MODES ARE ALL UNDERCOUNTS, measured on 3.29.9: an unknown
+    # name is skipped silently, an empty file selects 0 and exits 0, a missing
+    # file exits 1. The shortfall guard below already refuses an undercount, so
+    # it covers every one of them. This is why `-I <file>` was REJECTED: fed a
+    # newline-separated file it selects the ENTIRE suite and exits 0 — an
+    # OVERCOUNT, which no guard here would ever catch.
+    NAMES=$(mktemp); printf '%s\n' "$RUN" > "$NAMES"
+    ctest --test-dir "$BUILD" --output-junit "$JU" \
+        -j"$(nproc)" --output-on-failure --tests-from-file "$NAMES"; RC=$?
+    python3 scripts/gate_db.py ingest "$DB" "$BID" "$JU" "$*"
+    rm -f "$NAMES"
 else
     CH=$(mktemp -d); printf '%s\n' "$RUN" | split -l 150 - "$CH/part."
     for part in "$CH"/part.*; do
