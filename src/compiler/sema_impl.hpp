@@ -791,7 +791,8 @@ private:
     // and the abuse direction of the exemption).
     static bool probe_meet_() {
         return logos::probe::on("ltmintmeet") || logos::probe::on("ltmeetco") ||
-               logos::probe::on("ltmeetany") || logos::probe::on("ltmintmeetrg");
+               logos::probe::on("ltmeetany") || logos::probe::on("ltmintmeetrg") ||
+               logos::probe::on("ltmintmeetamb");
     }
     static bool probe_meet_unguarded_() { return logos::probe::on("ltmeetany"); }
     // PROBE ltmintmeetrg — THE SECOND INNER PREDICATE (rule 9). Measured on
@@ -871,6 +872,153 @@ private:
         return false;
     }
 
+    // PROBE ltmintmeetamb — THE SECOND INNER PREDICATE, SHARPENED (rule 9).
+    //
+    // `ltmintmeetrg` withholds the meet whenever a region-losing slot is
+    // reachable AT ALL, and PROBES.md 2026-08-31k measured what that costs:
+    //   m1  struct S<'a> { a: &'a i32, b: Option<&'a i32>, s: &'a str }
+    // is LEGAL and rg refuses it — one field away from the subject fixture.
+    //
+    // THE SHARPENING. A region `resolve_type` drops is ALWAYS the region OF A
+    // REFERENCE (`&'a [T]` / `&'a str` / `&'a dyn` / `&'a Dst` all canonicalise
+    // to a kind with no region slot), and a reference's own region occurs
+    // COVARIANTLY in its own position — so the contribution the variance
+    // fixpoint OMITTED is exactly the AMBIENT at that position. Omitting a Co
+    // contribution cannot move a def's variance in the PERMISSIVE direction:
+    // variance_meet(V, Co) differs from V only by BiVar→Co, and
+    // binder_is_covariant_ already reads BiVar as covariant. Omitting a NON-Co
+    // one can, and does — that is the 15034 pin, where the lost slot sits
+    // under a `&mut`:
+    //   struct L<'a> { i: &'a str }   struct P<'a> { l: &'a mut L<'a> }
+    // `'a` is recorded NOWHERE in L, the fixpoint calls it BiVar, BiVar
+    // composes to Co under the `&mut`, and P's declared Co is not evidence.
+    // Reached from P's own fields the lost slot's ambient is Inv, so this
+    // predicate withholds the meet and the pin holds (measured: under
+    // `ltmintmeet`, the covariance guard ALONE, 15034 goes rc 1 -> 0).
+    //
+    // ⚠ CONSERVATIVE WHEREVER THE AMBIENT IS NOT KNOWABLE: an unreadable def,
+    // the depth cap, and a nested def's TYPE ARGUMENT whose declared variance
+    // is missing or BiVar all compose as Inv. Withholding a meet REFUSES; it
+    // never accepts. The losing kinds are the FULL set here (DstRef and the
+    // two Unsized kinds included), which rg's list did not carry.
+    static bool probe_meet_amb_guard_() {
+        return logos::probe::on("ltmintmeetamb");
+    }
+    Variance def_lt_var_(TypeRef t, size_t i, bool is_lt) {
+        using K = LogosType::Kind;
+        std::string key = std::string(t.pkg_name()) +
+                          (t.pkg_name().empty() ? "" : ".") +
+                          std::string(t.kind() == K::Enum ? t.enum_name()
+                                                          : t.struct_name());
+        auto it = variance_table_.find(key);
+        if (it == variance_table_.end()) return Variance::Inv;
+        auto vit = it->second.find((is_lt ? "@" : "#") + std::to_string(i));
+        if (vit == it->second.end()) return Variance::Inv;
+        // BiVar here means "recorded nowhere" — which is the very confusion
+        // this predicate exists to police (rule 16). It is not evidence.
+        return vit->second == Variance::BiVar ? Variance::Inv : vit->second;
+    }
+    bool region_loss_noncov_(TypeRef t, Variance amb,
+                             std::unordered_set<std::string>& seen,
+                             int depth = 0) {
+        if (!t) return false;
+        if (depth > 12) return true;            // cannot know the ambient
+        using K = LogosType::Kind;
+        auto noncov = [&] { return amb != Variance::Co; };
+        switch (t.kind()) {
+        case K::Slice:
+            if (noncov()) return true;
+            return region_loss_noncov_(t.elem(), amb, seen, depth + 1);
+        case K::TraitObject:
+            if (noncov()) return true;
+            for (auto a : t.type_args())
+                if (region_loss_noncov_(a, Variance::Inv, seen, depth + 1))
+                    return true;
+            return false;
+        case K::TaggedPtr:
+        case K::UnsizedSlice:
+        case K::UnsizedDyn:
+            return noncov();
+        case K::DstRef:
+            if (noncov()) return true;
+            for (auto a : t.type_args())
+                if (region_loss_noncov_(a, Variance::Inv, seen, depth + 1))
+                    return true;
+            return false;
+        case K::Ref:
+            return region_loss_noncov_(t.pointee(), amb, seen, depth + 1);
+        case K::MutRef:
+            return region_loss_noncov_(t.pointee(),
+                                       variance_compose(amb, Variance::Inv),
+                                       seen, depth + 1);
+        case K::Ptr:
+            return region_loss_noncov_(
+                t.pointee(),
+                variance_compose(amb, t.mut_ptr() ? Variance::Inv : Variance::Co),
+                seen, depth + 1);
+        case K::Array:
+            return region_loss_noncov_(t.elem(), amb, seen, depth + 1);
+        case K::Tuple:
+            for (auto e : t.tuple_elems())
+                if (region_loss_noncov_(e, amb, seen, depth + 1)) return true;
+            return false;
+        case K::FnPtr: case K::Closure: case K::FnItem:
+            for (auto p : t.closure_params())
+                if (region_loss_noncov_(p, variance_compose(amb, Variance::Contra),
+                                        seen, depth + 1)) return true;
+            return region_loss_noncov_(t.closure_ret(), amb, seen, depth + 1);
+        case K::Struct: case K::ZonedStruct: case K::Enum: {
+            size_t i = 0;
+            for (auto a : t.type_args()) {
+                Variance inner = variance_compose(amb, def_lt_var_(t, i++, false));
+                if (region_loss_noncov_(a, inner, seen, depth + 1)) return true;
+            }
+            std::string nm(t.kind() == K::Enum ? t.enum_name() : t.struct_name());
+            if (nm.empty()) return true;
+            // Keyed by name AND ambient: the same def reached covariantly and
+            // under a `&mut` is two different questions.
+            std::string mk = nm + "#" + std::to_string((int)amb);
+            if (!seen.insert(mk).second) return false;
+            if (t.kind() == K::Enum) {
+                auto [ep, ei] = find_enum_by_name(nm);
+                (void)ep;
+                if (!ei) return true;      // cannot read it ⇒ cannot vouch
+                for (auto& v : ei->variants)
+                    for (auto pt : v.payload_types)
+                        if (region_loss_noncov_(pt, amb, seen, depth + 1))
+                            return true;
+                return false;
+            }
+            auto [sp, si] = find_struct_by_name(nm);
+            (void)sp;
+            if (si) {
+                for (auto& fl : si->fields)
+                    if (region_loss_noncov_(fl.type, amb, seen, depth + 1))
+                        return true;
+                return false;
+            }
+            auto [dp, di] = find_datatype_by_name(nm);
+            (void)dp;
+            if (di) {
+                for (auto& fl : di->fields)
+                    if (region_loss_noncov_(fl.type, amb, seen, depth + 1))
+                        return true;
+                return false;
+            }
+            return true;                   // unknown def ⇒ cannot vouch
+        }
+        default:
+            return false;
+        }
+    }
+    template <class DeclFields>
+    bool decl_fields_region_evidence_bad_(const DeclFields& decl_fields) {
+        std::unordered_set<std::string> seen;
+        for (auto& f : decl_fields)
+            if (region_loss_noncov_(f.type, Variance::Co, seen)) return true;
+        return false;
+    }
+
     template <class DeclFields>
     logos::compiler::StrMap<std::string> structlit_lt_subst_(
             const std::vector<std::string>& lifetime_params,
@@ -935,7 +1083,9 @@ private:
                 (probe_meet_unguarded_() ||
                  (binder_is_covariant_(vkey, i) &&
                   !(probe_meet_opaque_guard_() &&
-                    decl_fields_region_opaque_(decl_fields))))) {
+                    decl_fields_region_opaque_(decl_fields)) &&
+                  !(probe_meet_amb_guard_() &&
+                    decl_fields_region_evidence_bad_(decl_fields))))) {
                 logos::probe::census("meet.structlit.applied");
                 out[lp] = "";
                 continue;

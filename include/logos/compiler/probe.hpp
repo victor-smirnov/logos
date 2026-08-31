@@ -110,7 +110,7 @@ inline bool on(const char* name) {
 //   arm_subst  — the substitution half alone, and every arm built on it.
 inline bool arm_inst() {
     return on("ltmintinst") || on("ltmintmeet") || on("ltmeetany") ||
-           on("ltmintmeetrg");
+           on("ltmintmeetrg") || on("ltmintmeetamb");
 }
 inline bool arm_subst() {
     return on("ltsubstinst") || on("ltmeetco");

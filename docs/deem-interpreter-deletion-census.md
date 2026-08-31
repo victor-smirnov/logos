@@ -4793,8 +4793,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   TIERCOMMIT    355 ->  346  -9  the nine closed rows' per-row tests leave and
 #                                  nothing joins: the new fixtures come in
 #                                  through the `corpus` path.
-REGISTRY-ALL         8727
-REGISTRY-NOIMPORTED  4466
+# 2026-08-31l (ONE native pass fixture, the elision engine's COST SENSOR —
+# bc_ltmintgen_two_minted_regions_one_typaram. PREDICTED +1 / +1 / +0 before the
+# gate was read: a `tests/logos/pass` fixture joins ALL and NOIMPORTED and comes
+# in through the `corpus` path, not `tier_commit`. The ledger is UNTOUCHED at
+# 297 — nothing landed this round.)
+#   ALL          8727 -> 8728  +1
+#   NOIMPORTED   4466 -> 4467  +1
+#   TIERCOMMIT    346 ->  346  +0
+REGISTRY-ALL         8728
+REGISTRY-NOIMPORTED  4467
 REGISTRY-TIERCOMMIT  346
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

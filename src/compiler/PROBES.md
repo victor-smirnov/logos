@@ -6889,3 +6889,153 @@ compound arm has to answer at every gate its components use),
 (the two struct-literal sites now pass a variance key; the method and the two
 enum-literal sites are censused only), `src/compiler/sema_decl.cpp`,
 `src/compiler/sema_collect.cpp` (arm renames only).
+
+# ROUND 2026-08-31l — THE MEET'S GUARD REACHES COST 0, AND THE ENGINE STILL DOES NOT LAND
+
+Ledger UNTOUCHED at **297**. NOTHING LANDED to the ledger, and the engine was
+un-landed AFTER it had been landed in the working tree — see §5, which is the
+round's finding. Build **366d6784e4813abf** (READ, `scripts/build_hash.py
+build`); the pricing rode `c1153ededa69456b`. One new native fixture, a COST
+SENSOR, and the census pin moved 8727 → 8728 with the delta predicted first.
+
+Opening baselines, READ FROM THE STORE (build 241, `d1147552dc64f5cf`):
+`-R '^logos_00_bc_admit_'` — 297 in the filter, 1382 recorded, 0 failed;
+`-L bc` — 1056 / 1056 passed.
+
+## 1. THE VERDICT
+
+    arm            ceiling  cost(pass)  cost(fail)            stdlib
+    ltmintinst        22         3      14 chg, rc 0, 13 .exp  green   ← control
+    ltmintmeetrg      22         2      14 chg, rc 0, 13 .exp  green   ← control
+    ltmintmeetamb     22         2      14 chg, rc 0, 13 .exp  green   ← THIS ROUND
+
+All three re-priced ON ONE BINARY (builds 247 unarmed → 248/249/250 armed), so
+the two controls are a revert, not a memory of last round's numbers. Diffed
+BOTH WAYS, mechanically:
+
+    ceiling   amb ∖ rg = ∅   rg ∖ amb = ∅   amb ∖ inst = ∅   inst ∖ amb = ∅
+    cost      amb ∖ rg = ∅   rg ∖ amb = ∅
+              inst ∖ amb = { variance-option-ref-intersection-rg }  ← the subject
+    fail      failtext-*-ltmintmeetamb.tsv is BYTE-IDENTICAL to both
+              -ltmintinst.tsv and -ltmintmeetrg.tsv, all 1056 rows
+
+`cost(amb)` is the two 2026-08-31j named as NOT costs. **In every population
+this harness owns, the sharpened meet is ceiling 22 at cost 0-real.**
+
+## 2. THE SECOND INNER PREDICATE, SHARPENED — AND WHY IT IS SOUND
+
+2026-08-31k withheld the meet whenever a region-losing slot was reachable AT
+ALL, and priced its own counter-example: `struct S<'a> { a: &'a i32, b:
+Option<&'a i32>, s: &'a str }` is LEGAL and rg refuses it, one field from the
+subject. The sharpening is one observation:
+
+**A region `resolve_type` drops is always the region OF A REFERENCE, and a
+reference's own region occurs COVARIANTLY in its own position. So the
+contribution the variance fixpoint omitted is exactly the AMBIENT there.**
+Omitting a Co contribution cannot move a variance in the PERMISSIVE direction
+(`variance_meet(V,Co)` differs from V only by BiVar→Co, and BiVar already reads
+as covariant). Omitting a NON-Co one can — that is the `&mut` in the 15034 pin.
+⇒ the declared variance is evidence unless a region-losing slot is reachable
+from the def's fields **at a non-covariant ambient**. Conservative (Inv) at an
+unreadable def, at the depth cap, and at a nested def's type argument whose
+declared variance is missing or BiVar.
+
+MEASURED, one variable apart, on the landing binary:
+
+    m1  S<'a>{a:&'a i32, b:Option<&'a i32>, s:&'a str}   rg rc 1 → amb rc 0 ✓
+    m2  T<'a>{a:&'a i32, b:&'a mut i32}                  rc 0 both
+    p1  SliceHold<'a>{a:&'a i32, b:&'a [i64]}            rc 0 both
+    q1  Wrap<'w>{s:&'w str}; Q<'a>{x:&'a i32, y:&'a mut Wrap<'a>}
+        THE ABUSE DIRECTION: rc 0 under `ltmintmeet` (covariance guard ALONE —
+        it ACCEPTS an illegal program), rc 1 under amb, rc 1 unarmed ✓
+    q2  the same with the slice removed                  rc 1 every arm
+    nondeterministic-lifetime-errors-15034               rc 0 under ltmintmeet,
+                                                         rc 1 under amb ✓ PIN
+    account-for-lifetimes-in-closure-suggestion          rc 1 under amb ✓ PIN
+    variance-option-ref-intersection-rg                  rc 0 ✓ THE SUBJECT
+
+q1 and 15034 are the proof the predicate is LIVE (rule 1): with only the
+covariance guard both compile.
+
+## 3. PREDICTED vs MEASURED (rule 6)
+
+`predictions-meetamb.txt`, written before the first edit: ceiling 22 same set,
+cost 2 by name, fail table byte-identical with 0 un-refusals, stdlib green, and
+m1 rc 1→0 with both pins held. **Every line matched, in both directions.**
+
+## 4. ⚠ THE FINDING: THE `.expected`-LOSS COLUMN IS A LIST OF HYPOTHESES, NOT A RE-BASELINE
+
+Rule 14 exempts the engine's 13 `.expected` losses: rc stays 1, and upstream's
+primary error arrives first. Both halves of that are TRUE and it is still not
+the whole reading. **A refusal whose REASON moved says a program one construct
+away is now refused FOR THE NEW REASON — and that program may be legal.** The
+13 losses are 13 such hypotheses. I wrote the twin of exactly one:
+
+    tests/imported/fail/borrowck/borrowck-swap-mut-base-ptr  (upstream E0502)
+    reason MOVED: "cannot borrow 't0' as mutable" → "call to 'swap_ref' arg 2:
+    variance mismatch — expected &mut &mut i64, got &mut &mut i64"
+
+Delete the two lines that make it illegal (the live `&*t0` across the swap) and
+the remainder is an ordinary legal program:
+
+    fn foo(a: &mut i64, b: &mut i64) -> i64 {
+        let mut t0 = a;  let mut t1 = b;
+        swap_ref(&mut t0, &mut t1);
+        *t1 = 22i64;  return *t0; }
+
+**CONTROL REVERT, ONE BINARY, ONE VARIABLE: rc 0 unarmed; rc 1 under
+`ltmintinst`, under `ltmintmeetrg` and under `ltmintmeetamb`.** It is a
+legal-program refusal that the pass corpus, the 1056-row fail oracle and all
+four stdlib layers could not see, because the only near-by program in the
+corpus was its ILLEGAL twin, already red.
+
+## 5. SO THE ENGINE WAS UN-LANDED, AND WHAT REMAINS IS NAMED
+
+The engine WAS landed in the working tree — every probe gate made
+unconditional, the arms deleted from `probe.hpp`, an elision-aware wording for
+the "both sides print alike" diagnostic (2026-08-31j item 3), the 13 `.expected`
+re-pins computed. The whole of it was reverted when the control above came in.
+ONE LEGAL REFUSAL IS ONE.
+
+**THE MECHANISM, READ OFF THE PROGRAM.** `swap_ref<T>(a:&mut T, b:&mut T)`
+binds `T` from ARGUMENT 1 — minted regions and all — and argument 2 is then
+compared against the BOUND `T`. That is first-occurrence-wins at a TYPE
+parameter: the same defect the struct-literal meet closed for lifetime binders,
+one binder-kind over. And the meet CANNOT be asked here — `T` occurs under
+`&mut`, so the demand is EQUALITY, not "a region both outlive".
+
+    MEASURED, and it narrows the class: the NON-GENERIC form of the same swap
+    (`fn both(a:&mut &mut i64, b:&mut &mut i64)`, two locals) is rc 0 under
+    every arm. The site is the GENERIC BINDING, not `&mut`.
+
+Rust accepts the program because both regions are inference VARIABLES and get
+equated; ours are two fixed minted names. **What is left after the meet is
+UNIFICATION OF MINTED REGIONS** — union-find over minted names, no program
+point, no liveness, no constraint over CFG points. It is not region inference
+and it is not this round's work: a unification that may equate a minted region
+with a NAMED one un-refuses the 15034 pin by construction, so the arm has to be
+priced with the pins in the population, not reasoned about.
+
+## 6. THE SENSOR, SO THE NEXT ROUND'S COST COLUMN CAN SEE IT
+
+`tests/logos/pass/bc_ltmintgen_two_minted_regions_one_typaram.logos` — the legal
+program above, landed as a PASS fixture with its illegal twin named in the
+header. A hand program dies with the round that wrote it; a fixture is what
+ratchets. Census pin 8727 → 8728 / 4466 → 4467 / 346, delta predicted before
+the gate was read.
+
+## 7. OPEN, WITH ITS EVIDENCE
+
+ 1. **UNIFICATION OF MINTED REGIONS AT A GENERIC BINDER** — §5. One legal
+    program measured; the class is unenumerated (rule: I can find a class and
+    cannot close it).
+ 2. **THE OTHER 12 `.expected` LOSSES HAVE NOT HAD THEIR TWINS WRITTEN.** One of
+    thirteen was a cost. That is the cheapest instrument this round found and it
+    is not exhausted.
+ 3. `&[T]` / `&str` / `&dyn` / `&Dst` still cannot carry a region (1 358 164
+    arrivals). §2 is a workaround for the consequence, not a repair: it reasons
+    about the ambient of a slot whose region was thrown away.
+ 4. The free-fn call's 4 multi-candidate binders still have no variance to guard
+    them (2026-08-31k §1).
+ 5. The `expected Option, got Option` wording was written and reverted with the
+    landing; it is prerequisite work whenever the engine goes back in.

@@ -1,0 +1,44 @@
+// ⚠ THIS FIXTURE IS A COST SENSOR FOR THE ELISION ENGINE, and it exists
+// because no population the engine was priced over could see the program it
+// pins. Measured 2026-08-31l on ONE binary, one variable apart: this compiles
+// unarmed (rc 0) and is REFUSED by `ltmintinst`, `ltmintmeetrg` and
+// `ltmintmeetamb` alike —
+//   call to 'swap_ref' arg 2: variance mismatch — expected &mut &mut i64,
+//   got &mut &mut i64
+// — two regions the compiler minted, printed alike because nobody wrote them.
+//
+// WHY IT ESCAPED. `swap_ref<T>(a:&mut T, b:&mut T)` binds T from argument 1,
+// minted regions and all, and argument 2 is then compared against the BOUND T.
+// That is first-occurrence-wins at a TYPE parameter — the same defect the
+// struct-literal MEET closed for lifetime binders, one binder-kind over — and
+// the meet cannot be asked here: T occurs under `&mut`, so the demand is
+// EQUALITY, not "a region both outlive". Rust accepts it because both regions
+// are inference VARIABLES and get equated; ours are two fixed minted names.
+// ⇒ what remains after the meet is UNIFICATION of minted regions, not a
+// lattice meet and NOT CFG points. PROBES.md 2026-08-31l.
+//
+// THE PAIR, one construct apart: tests/imported/fail/borrowck/
+// borrowck-swap-mut-base-ptr.logos is this program plus a live `&*t0` across
+// the swap. It is ILLEGAL (upstream E0502) and must stay refused. This one is
+// legal and must stay compiled. The non-generic form of the same swap
+// (`fn both(a:&mut &mut i64, b:&mut &mut i64)`) is NOT refused by any arm —
+// measured — so the class is the GENERIC binding site, not `&mut` itself.
+package bc_ltmintgen_two_minted_regions_one_typaram;
+
+use logos.lang.mem;
+
+fn foo(a: &mut i64, b: &mut i64) -> i64 {
+    let mut t0 = a;
+    let mut t1 = b;
+    swap_ref(&mut t0, &mut t1);
+    *t1 = 22i64;
+    return *t0;
+}
+
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let mut y: i64 = 2i64;
+    if foo(&mut x, &mut y) != 2i64 { return 1i32; }
+    if x != 22i64 { return 2i32; }
+    return 0i32;
+}

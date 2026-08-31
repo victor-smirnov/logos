@@ -1101,9 +1101,21 @@ PIN = {
     # move nothing here; the two imported programs that left `admit` for `fail`
     # are not in tests/logos/pass at all. `glob` and the DOOR counts unmoved: no
     # `wql_*`/`deem_*` match, no container family, no `direct` output form.
-    'corpus'            : 2498,
+    # ⚠ RE-DERIVED at the 2026-08-31l round (the meet's guard reached cost 0 in
+    # every population this harness owns and the engine STILL did not land —
+    # PROBES.md 2026-08-31l): +1 / +0 / +1. ONE new PASS fixture,
+    # bc_ltmintgen_two_minted_regions_one_typaram, a COST SENSOR: a legal
+    # program every engine arm refuses, found by writing the LEGAL TWIN of a
+    # fail fixture whose refusal reason had moved. It matches neither `wql_*`
+    # nor `deem_*`, so the delta lands wholly in `nonglob`. BY DIRECT LISTING:
+    #   ls tests/logos/pass/*.logos                      -> 2499
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
+    #   the same listing minus the glob half             -> 2308
+    # 2499 = 191 + 2308. The ledger is UNTOUCHED at 297 and no fail fixture
+    # moved, so nothing else in this gate changes.
+    'corpus'            : 2499,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2307,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2308,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a
