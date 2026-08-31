@@ -3925,7 +3925,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // on this round's own site list.
         TypeRef exact_ret = exact_fi->ret_type;
         if (logos::probe::on("ltsubstcall") || logos::probe::on("ltmintsubst") ||
-        logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree"))
+        logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
+        logos::probe::on("ltmintimpl"))
             exact_ret = subst_call_ret_lts_(exact_fi->param_types,
                                             exact_fi->lifetime_params,
                                             arg_exprs, exact_ret);
@@ -4208,7 +4209,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 
     TypeRef plain_ret = fi.ret_type;
     if (logos::probe::on("ltsubstcall") || logos::probe::on("ltmintsubst") ||
-        logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree"))
+        logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
+        logos::probe::on("ltmintimpl"))
         plain_ret = subst_call_ret_lts_(fi.param_types, fi.lifetime_params,
                                         arg_exprs, plain_ret);
     return builder().call(fi.symbol_name.empty() ? std::string(callee) : fi.symbol_name, {}, std::move(arg_exprs), plain_ret);
@@ -5035,7 +5037,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     // Substitute return type
     TypeRef ret = subst_type_sema(fi.ret_type, subst);
     if (logos::probe::on("ltsubstcall") || logos::probe::on("ltmintsubst") ||
-        logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree"))
+        logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
+        logos::probe::on("ltmintimpl"))
         ret = subst_call_ret_lts_(fi.param_types, fi.lifetime_params, arg_exprs, ret);
     // MEASURED 2026-08-28, 379-row ledger: 104 fires, CEILING 4 vs COST 0 —
     // and BOTH halves of that price are misleading, which is the finding.
@@ -11852,7 +11855,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     // declared field type against the actual field VALUE's type and read the
     // struct's binder off the value's region.
     if ((logos::probe::on("ltsubstlit") || logos::probe::on("ltmintsubst") ||
-         logos::probe::on("ltmintfree")) &&
+         logos::probe::on("ltmintfree") || logos::probe::on("ltmintimpl")) &&
         !sinfo.lifetime_params.empty()) {
         logos::probe::census("subst.structlit.site");
         std::unordered_map<std::string, std::string> flt;

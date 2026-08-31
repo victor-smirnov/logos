@@ -482,6 +482,12 @@ private:
         case K::Ref:
         case K::MutRef: {
             std::string lt(t.lifetime());
+            // `'_` IS AN ELIDED SLOT THAT WAS SPELLED. It is the placeholder,
+            // not a name — `fn make<'a>(r:&'a i32) -> H<'_>` is legal and the
+            // mint must give it a region like any other elided slot, or the
+            // comparison is `'_` against `'a` by spelling (measured: 2 of
+            // `ltmintfree`'s legal refusals).
+            if (logos::probe::on("ltmintimpl") && (lt == "'_" || lt == "_")) lt.clear();
             if (lt.empty()) { lt = fresh(); logos::probe::census("mint.ref.elided"); }
             else            { logos::probe::census("mint.ref.written"); }
             out.push_back(lt);
@@ -513,7 +519,8 @@ private:
                 lts.resize(arity);
             }
             for (auto& l : lts)
-                if (l.empty()) { l = fresh(); logos::probe::census("mint.structarg.elided"); }
+                if (logos::probe::on("ltmintimpl") && (l == "'_" || l == "_")) l = fresh();
+                else if (l.empty()) { l = fresh(); logos::probe::census("mint.structarg.elided"); }
                 else           { logos::probe::census("mint.structarg.written"); }
             for (auto& l : lts) out.push_back(l);
             std::vector<TypeRef> as;
@@ -619,7 +626,8 @@ private:
             // cannot be related. Its upper bound is `'static` (a free region may
             // be instantiated at any region, `'static` included), and that is
             // the policy `ltsubstfree` / `ltmintfree` take.
-            if (logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree"))
+            if (logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
+                logos::probe::on("ltmintimpl"))
                 ls[lp] = "'static";
             else
                 ls[lp] = mint_lt_();

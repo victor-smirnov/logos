@@ -13549,8 +13549,14 @@ public:
                     // vector — its presence signals "param points to an
                     // aggregate; trust type-checker for inner lifetime
                     // structure" in check_return_value.
+                    // ⚠ A MINTED ARG WOULD ORPHAN THIS GUARD. The hatch below
+                    // reads "no inner lifetime recorded" as "trust the type
+                    // checker"; the mint fills a struct's absent lifetime args,
+                    // so `&Self` stops being empty and the hatch stops firing.
+                    // Minted names are not WRITTEN ones — see lt_is_minted.
                     std::vector<std::string> lts;
-                    for (auto& lt : pointee.lifetime_args()) lts.push_back(lt);
+                    for (auto& lt : pointee.lifetime_args())
+                        if (!lt_is_minted(lt)) lts.push_back(lt);
                     param_inner_lifetimes_[pname] = std::move(lts);
                 }
             }
