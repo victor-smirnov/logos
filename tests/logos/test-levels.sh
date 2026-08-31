@@ -242,7 +242,7 @@ if [ "${LOGOS_NO_EXHAUSTIVE:-0}" != "1" ]; then
     # so the smoke tier can declare the truth about when it runs instead of
     # claiming a tier it does not belong to. MEASURED identical to the
     # `-R '^logos_26_exhaustive_smoke$'` it replaces: one test, the same one.
-    if ! ctest --no-tests=error --output-on-failure -L '^tier_explicit$'; then
+    if ! ctest --no-tests=error -j"$(nproc)" --output-on-failure -L '^tier_explicit$'; then
         EXH_FAIL=1
     fi
 fi
@@ -446,7 +446,7 @@ for ((i = 0; i < n; i += CHUNK)); do
     batch=("${NAMES[@]:i:CHUNK}")
     rx=$(printf '%s\n' "${batch[@]}" | sed 's/[].[^$*+?(){}|\\]/\\&/g' | paste -sd '|' -)
     rx="_(${rx})\$"
-    out=$(ctest --no-tests=error -j12 --output-on-failure -R "$rx" 2>&1)
+    out=$(ctest --no-tests=error -j"$(nproc)" --output-on-failure -R "$rx" 2>&1)
     line=$(printf '%s\n' "$out" | grep -E "tests passed" | tail -1)
     # "X% tests passed, Y tests failed out of Z"
     z=$(printf '%s' "$line" | sed -nE 's/.*out of ([0-9]+).*/\1/p')

@@ -21,6 +21,7 @@
 #   gate-run.sh -R '^logos_00_bc_admit_'
 #   FORCE=1 gate-run.sh -L bc      # re-measure regardless; say why in your report
 set -uo pipefail
+CTEST_PARALLEL_LEVEL="${CTEST_PARALLEL_LEVEL:-$(nproc)}"; export CTEST_PARALLEL_LEVEL
 cd "$(dirname "$0")/.." || exit 2
 ROOT=$PWD
 BUILD=${LOGOS_BUILD:-$ROOT/build}
@@ -99,7 +100,8 @@ else
     for part in "$CH"/part.*; do
         RX=$(sed 's/[][\.^$*+?(){}|]/\\&/g' "$part" | paste -sd'|' -)
         J2=$(mktemp --suffix=.xml)
-        ctest --test-dir "$BUILD" --output-junit "$J2" -R "^($RX)$"; r=$?
+        ctest --test-dir "$BUILD" --output-junit "$J2" \
+            -j"$(nproc)" --output-on-failure -R "^($RX)$"; r=$?
         [ "$r" -ne 0 ] && RC=$r
         python3 scripts/gate_db.py ingest "$DB" "$BID" "$J2" "$*"
         rm -f "$J2"
