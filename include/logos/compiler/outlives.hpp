@@ -53,6 +53,17 @@ inline std::unordered_set<std::string>& current_lt_binders() {
     return s;
 }
 
+// A MINTED REGION — the name an elided slot did not have. `""` means both
+// "elided here" and "the same region as that other elided slot"; a minted name
+// means exactly the first. The prefix is unspellable in the grammar, so a
+// minted name can never collide with a user's binder, and every consumer that
+// treats an elided slot as ABSENT (diagnostics, the undeclared-lifetime walk,
+// borrow_check's elision contract) asks `lt_is_minted` and keeps its old
+// answer. Only the comparators (subtype/outlives) see the name.
+inline bool lt_is_minted(std::string_view lt) {
+    return lt.size() > 1 && lt[0] == '\'' && lt[1] == '%';
+}
+
 inline bool outlives_is_static(std::string_view lt) {
     return lt == "'static" || lt == "static";
 }

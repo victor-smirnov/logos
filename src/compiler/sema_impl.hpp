@@ -441,6 +441,179 @@ private:
         t.tuple_elems = std::move(elems);
         return pool_->alloc(std::move(t));
     }
+    // ── THE ELISION ENGINE — MINT AND UNIFY (probes ltmintunify/ltmintsubst) ──
+    // See src/compiler/PROBES.md 2026-08-31 (the minting round) and the
+    // `lt_is_minted` comment in outlives.hpp. Minted names are LOCAL to the fn
+    // being lowered; they are never written back into SemaFuncInfo, so a callee
+    // signature read at a call site is unchanged by this.
+    unsigned lt_mint_n_ = 0;
+    std::vector<std::string> minted_lts_;   // this signature's minted regions
+    std::string mint_lt_() {
+        return std::string("'%") + std::to_string(++lt_mint_n_);
+    }
+    size_t decl_lt_arity_(TypeRef t) {
+        using K = LogosType::Kind;
+        if (t.kind() == K::Enum) {
+            auto [p, ei] = find_enum_by_name(t.enum_name());
+            (void)p; return ei ? ei->lifetime_params.size() : 0;
+        }
+        auto [sp, si] = find_struct_by_name(t.struct_name());
+        (void)sp;
+        if (si) return si->lifetime_params.size();
+        auto [dp, di] = find_datatype_by_name(t.struct_name());
+        (void)dp;
+        return di ? di->lifetime_params.size() : 0;
+    }
+    // Give every ELIDED lifetime slot in `t` a fresh name; `out` collects every
+    // region met, minted or written, in signature order (the elision rules
+    // count those). When `fixed` is non-empty every elided slot takes THAT name
+    // instead — elision rule 1/3's unification, the half `ltmintfresh` lacked.
+    TypeRef mint_type_lts_(TypeRef t, std::vector<std::string>& out,
+                           const std::string& fixed = {}, int depth = 0) {
+        if (!t || depth > 24) return t;
+        using K = LogosType::Kind;
+        auto fresh = [&]() {
+            if (!fixed.empty()) return fixed;
+            std::string n = mint_lt_();
+            minted_lts_.push_back(n);
+            return n;
+        };
+        switch (t.kind()) {
+        case K::Ref:
+        case K::MutRef: {
+            std::string lt(t.lifetime());
+            if (lt.empty()) { lt = fresh(); logos::probe::census("mint.ref.elided"); }
+            else            { logos::probe::census("mint.ref.written"); }
+            out.push_back(lt);
+            TypeRef inner = mint_type_lts_(t.pointee(), out, fixed, depth + 1);
+            return make_ref(t.kind() == K::MutRef, inner, lt);
+        }
+        case K::Tuple: {
+            std::vector<TypeRef> es;
+            bool changed = false;
+            for (auto e : t.tuple_elems()) {
+                auto ne = mint_type_lts_(e, out, fixed, depth + 1);
+                changed |= (ne != e);
+                es.push_back(ne);
+            }
+            return changed ? make_tuple_type(std::move(es)) : t;
+        }
+        case K::Struct:
+        case K::ZonedStruct:
+        case K::Enum: {
+            std::vector<std::string> lts = t.lifetime_args();
+            size_t arity = decl_lt_arity_(t);
+            // DOOR 3: an elided `Ref` carries ZERO lifetime args while the
+            // declaration has two, and BOTH comparators bail on the arity
+            // mismatch (`if (sl.size() != pl.size()) return true;`) before any
+            // lifetime is compared. Filling to the declared arity is what makes
+            // the shape guard a comparison.
+            if (lts.size() < arity) {
+                logos::probe::census("mint.structarg.absent", arity - lts.size());
+                lts.resize(arity);
+            }
+            for (auto& l : lts)
+                if (l.empty()) { l = fresh(); logos::probe::census("mint.structarg.elided"); }
+                else           { logos::probe::census("mint.structarg.written"); }
+            for (auto& l : lts) out.push_back(l);
+            std::vector<TypeRef> as;
+            for (auto a : t.type_args()) as.push_back(mint_type_lts_(a, out, fixed, depth + 1));
+            if (t.kind() == K::Enum)
+                return make_generic_enum(t.enum_name(), std::move(as), std::move(lts),
+                                         t.pkg_name());
+            if (t.kind() == K::ZonedStruct)
+                return make_generic_datatype(t.struct_name(), std::move(as), std::move(lts),
+                                             t.pkg_name());
+            return make_generic_struct(t.struct_name(), std::move(as), std::move(lts),
+                                       t.pkg_name());
+        }
+        case K::Slice: {
+            // ⚠ Kind::Slice HAS NO LIFETIME SLOT. `&[T]` canonicalises to Slice
+            // at resolve_type and the region of the borrow is DROPPED there, so
+            // no mint can give this parameter a name. Counted, not fixed.
+            logos::probe::census("mint.slice.noslot");
+            auto ne = mint_type_lts_(t.elem(), out, fixed, depth + 1);
+            return ne == t.elem() ? t : make_slice_type(ne, t.mut_ptr());
+        }
+        case K::Array: {
+            auto ne = mint_type_lts_(t.elem(), out, fixed, depth + 1);
+            return ne == t.elem() ? t
+                                  : make_array(ne, t.arr_size(), t.arr_size_var());
+        }
+        case K::DstRef:
+            logos::probe::census("mint.dstref.noslot");
+            return t;
+        case K::TraitObject:
+            logos::probe::census("mint.traitobject.noslot");
+            return t;
+        default:
+            return t;
+        }
+    }
+
+    // ── SUBSTITUTE AT THE CALL (probes ltsubstcall / ltmintsubst) ───────────
+    // The METHOD path already builds a callee->caller lifetime map and applies
+    // it to the return type (see `lt_subst` in sema_expr.cpp); the FREE-FN path
+    // passes a TYPE substitution only, so a callee's `'a` reaches the caller as
+    // the literal string `'a` and is compared against the caller's own `'a` by
+    // SPELLING. `lifereg_callretlt` priced the crude form — rename every callee
+    // lifetime to an unnameable token — and its cost 0 was refuted by the first
+    // hand-written legal program (PROBES.md 2026-08-28: `fn pick<'a,T>(x:&'a T)
+    // -> &'a T` called from `fn f<'a>(x:&'a i64)`). This is the substitution the
+    // crude form skipped: a callee region SEEN at an argument becomes the
+    // caller's actual region, and only a callee region seen NOWHERE becomes a
+    // fresh unspellable one.
+    TypeRef subst_call_ret_lts_(const std::vector<TypeRef>& param_types,
+                                const std::vector<std::string>& lifetime_params,
+                                const std::vector<lir::LExprPtr>& args,
+                                TypeRef ret) {
+        if (!ret || lifetime_params.empty()) return ret;
+        logos::probe::census("subst.call.site");
+        SemaLifetimeSubst ls;
+        std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef pt, TypeRef at) {
+            if (!pt || !at) return;
+            using K = LogosType::Kind;
+            auto pk = pt.kind();
+            if ((pk == K::Ref || pk == K::MutRef) &&
+                (at.kind() == K::Ref || at.kind() == K::MutRef)) {
+                std::string p(pt.lifetime()), a(at.lifetime());
+                if (!p.empty() && !a.empty() && !ls.count(p)) ls.emplace(p, a);
+                walk(pt.pointee(), at.pointee());
+                return;
+            }
+            if ((pk == K::Struct || pk == K::ZonedStruct || pk == K::Enum) &&
+                at.kind() == pk) {
+                auto pl = pt.lifetime_args(); auto al = at.lifetime_args();
+                for (size_t i = 0; i < pl.size() && i < al.size(); ++i)
+                    if (!pl[i].empty() && !al[i].empty() && !ls.count(pl[i]))
+                        ls.emplace(pl[i], al[i]);
+                auto pa = pt.type_args(); auto aa = at.type_args();
+                for (size_t i = 0; i < pa.size() && i < aa.size(); ++i) walk(pa[i], aa[i]);
+                return;
+            }
+            if (pk == K::Tuple && at.kind() == K::Tuple) {
+                auto pe = pt.tuple_elems(); auto ae = at.tuple_elems();
+                for (size_t i = 0; i < pe.size() && i < ae.size(); ++i) walk(pe[i], ae[i]);
+                return;
+            }
+            if ((pk == K::Slice || pk == K::Array) && at.kind() == pk) {
+                walk(pt.elem(), at.elem());
+                return;
+            }
+        };
+        for (size_t i = 0; i < param_types.size() && i < args.size(); ++i)
+            if (args[i]) walk(param_types[i], expr_type(args[i]));
+        for (auto& lp : lifetime_params) {
+            if (ls.count(lp)) { logos::probe::census("subst.call.mapped"); continue; }
+            // A callee region no argument mentions is INTERNAL to the callee.
+            // It is not the caller's same-spelled binder, and it is not related
+            // to anything the caller can name.
+            logos::probe::census("subst.call.unmapped");
+            ls[lp] = mint_lt_();
+        }
+        return ls.empty() ? ret : subst_type_sema(ret, {}, ls);
+    }
+
     TypeRef make_closure_type(std::vector<TypeRef> params, TypeRef ret) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Closure;
         t.closure_params = std::move(params);

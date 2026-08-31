@@ -4194,7 +4194,11 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         return builder().call(fi.symbol_name.empty() ? std::string(callee) : fi.symbol_name, std::move(type_var_args), std::move(arg_exprs), ret);
     }
 
-    return builder().call(fi.symbol_name.empty() ? std::string(callee) : fi.symbol_name, {}, std::move(arg_exprs), fi.ret_type);
+    TypeRef plain_ret = fi.ret_type;
+    if (logos::probe::on("ltsubstcall") || logos::probe::on("ltmintsubst"))
+        plain_ret = subst_call_ret_lts_(fi.param_types, fi.lifetime_params,
+                                        arg_exprs, plain_ret);
+    return builder().call(fi.symbol_name.empty() ? std::string(callee) : fi.symbol_name, {}, std::move(arg_exprs), plain_ret);
 }
 
 void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
@@ -5017,6 +5021,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
 
     // Substitute return type
     TypeRef ret = subst_type_sema(fi.ret_type, subst);
+    if (logos::probe::on("ltsubstcall") || logos::probe::on("ltmintsubst"))
+        ret = subst_call_ret_lts_(fi.param_types, fi.lifetime_params, arg_exprs, ret);
     // MEASURED 2026-08-28, 379-row ledger: 104 fires, CEILING 4 vs COST 0 —
     // and BOTH halves of that price are misleading, which is the finding.
     //   • RULE 6. The predicted closed set was 7 rows naming call-site region
@@ -11820,6 +11826,62 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     std::vector<std::string> ng_lt_args;
     if (hint_struct_type_ && TypeRef(hint_struct_type_).struct_name() == std::string(sname))
         ng_lt_args = TypeRef(hint_struct_type_).lifetime_args();
+    // ── SUBSTITUTE AT THE LITERAL (probes ltsubstlit / ltmintsubst) ─────────
+    // A struct's own lifetime parameter arrives here UNSUBSTITUTED, and the
+    // literal's lifetime args are taken from the HINT — i.e. from the type the
+    // context EXPECTS, never from the values actually stored. So
+    // `fn mk<'b,'a>(y:&'b i64) -> Holder<'a> { return Holder{v:y}; }` builds
+    // `Holder<'a>` out of a `&'b` field and the return comparison is 'a vs 'a.
+    // That is why `lifereg_unmentbind` catches this program only when the
+    // struct's binder happens to be SPELLED like the fn's (PROBES.md 2026-08-31g,
+    // the u7/u8 pair, pinned as fixtures). The fix is substitution: pair each
+    // declared field type against the actual field VALUE's type and read the
+    // struct's binder off the value's region.
+    if ((logos::probe::on("ltsubstlit") || logos::probe::on("ltmintsubst")) &&
+        !sinfo.lifetime_params.empty()) {
+        logos::probe::census("subst.structlit.site");
+        std::unordered_map<std::string, std::string> flt;
+        std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef dt, TypeRef at) {
+            if (!dt || !at) return;
+            using K = LogosType::Kind;
+            auto dk2 = dt.kind();
+            if ((dk2 == K::Ref || dk2 == K::MutRef) &&
+                (at.kind() == K::Ref || at.kind() == K::MutRef)) {
+                std::string d(dt.lifetime()), a(at.lifetime());
+                if (!d.empty() && !a.empty() && !flt.count(d)) flt.emplace(d, a);
+                walk(dt.pointee(), at.pointee());
+                return;
+            }
+            if ((dk2 == K::Struct || dk2 == K::ZonedStruct || dk2 == K::Enum) &&
+                at.kind() == dk2) {
+                auto dl = dt.lifetime_args(); auto al = at.lifetime_args();
+                for (size_t i = 0; i < dl.size() && i < al.size(); ++i)
+                    if (!dl[i].empty() && !al[i].empty() && !flt.count(dl[i]))
+                        flt.emplace(dl[i], al[i]);
+                auto da = dt.type_args(); auto aa = at.type_args();
+                for (size_t i = 0; i < da.size() && i < aa.size(); ++i) walk(da[i], aa[i]);
+                return;
+            }
+            if (dk2 == K::Tuple && at.kind() == K::Tuple) {
+                auto de = dt.tuple_elems(); auto ae = at.tuple_elems();
+                for (size_t i = 0; i < de.size() && i < ae.size(); ++i) walk(de[i], ae[i]);
+                return;
+            }
+        };
+        for (auto& f : sinfo.fields)
+            for (auto& [fname, fval] : fields)
+                if (fval && fname == f.name) { walk(f.type, expr_type(fval)); break; }
+        if (!flt.empty()) {
+            ng_lt_args.resize(sinfo.lifetime_params.size());
+            for (size_t i = 0; i < sinfo.lifetime_params.size(); ++i) {
+                auto it = flt.find(sinfo.lifetime_params[i]);
+                if (it != flt.end()) {
+                    if (ng_lt_args[i] != it->second) logos::probe::census("subst.structlit.differs");
+                    ng_lt_args[i] = it->second;
+                }
+            }
+        }
+    }
     // B77: verify struct's `where 'a: 'b` against caller's outlives graph.
     check_struct_lit_outlives(std::string(sname),
                               sinfo.lifetime_params,

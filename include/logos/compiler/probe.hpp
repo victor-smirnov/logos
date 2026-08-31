@@ -41,6 +41,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace logos::probe {
@@ -62,6 +63,28 @@ struct Counter {
         }
     }
 };
+
+// SITE CENSUS. `on()` answers a hypothesis; `census()` answers WHERE. Gated on
+// LOGOS_CENSUS, one `bucket<TAB>count` line per bucket appended to
+// $LOGOS_CENSUS at exit — every logosc process appends, the run's total is the
+// sum. Rides in the same build as the gate it checks (PROBES.md, rule 17).
+struct CensusTable {
+    std::unordered_map<std::string, unsigned long> c;
+    ~CensusTable() {
+        const char* log = std::getenv("LOGOS_CENSUS");
+        if (!log || c.empty()) return;
+        if (std::FILE* f = std::fopen(log, "a")) {
+            for (auto& [k, v] : c) std::fprintf(f, "%s\t%lu\n", k.c_str(), v);
+            std::fclose(f);
+        }
+    }
+};
+inline CensusTable& census_table() { static CensusTable t; return t; }
+inline void census(const char* bucket, unsigned long n = 1) {
+    static const bool armed = std::getenv("LOGOS_CENSUS") != nullptr;
+    if (!armed) return;
+    census_table().c[bucket] += n;
+}
 
 inline bool on(const char* name) {
     static const char* armed = std::getenv("LOGOS_PROBE");

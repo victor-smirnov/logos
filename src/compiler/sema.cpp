@@ -2394,12 +2394,17 @@ std::string type_str(TypeRef t, bool source_form) {
              + type_str(TypeRef(t).pointee(), source_form);
     case LogosType::Kind::Ref: {
         std::string s = "&";
-        if (!TypeRef(t).lifetime().empty()) { s.append(TypeRef(t).lifetime()); s += " "; }
+        // A MINTED region prints as ELIDED: the user wrote no name there, and a
+        // diagnostic that invents one describes a type nobody wrote (and moves
+        // every pinned `.expected`). See outlives.hpp::lt_is_minted.
+        if (!TypeRef(t).lifetime().empty() && !lt_is_minted(TypeRef(t).lifetime()))
+            { s.append(TypeRef(t).lifetime()); s += " "; }
         return s + type_str(TypeRef(t).pointee(), source_form);
     }
     case LogosType::Kind::MutRef: {
         std::string s = "&";
-        if (!TypeRef(t).lifetime().empty()) { s.append(TypeRef(t).lifetime()); s += " "; }
+        if (!TypeRef(t).lifetime().empty() && !lt_is_minted(TypeRef(t).lifetime()))
+            { s.append(TypeRef(t).lifetime()); s += " "; }
         return s + "mut " + type_str(TypeRef(t).pointee(), source_form);
     }
     case LogosType::Kind::Array: {
@@ -2415,11 +2420,18 @@ std::string type_str(TypeRef t, bool source_form) {
         return std::format("[{}; {}]", type_str(TypeRef(t).elem(), source_form), TypeRef(t).arr_size());
     }
     case LogosType::Kind::Struct:
-    case LogosType::Kind::ZonedStruct:
-        if (TypeRef(t).type_args().empty() && TypeRef(t).lifetime_args().empty()) return std::string(TypeRef(t).struct_name());
+    case LogosType::Kind::ZonedStruct: {
+        // MINTED regions are invisible here — see the Ref arm above. This name
+        // is also the specialization key (`concrete_struct_name`), so a minted
+        // arg leaking in would re-key every instantiation of a struct whose
+        // lifetime args were elided at the use site.
+        std::vector<std::string> vis_lts;
+        for (auto& lt : TypeRef(t).lifetime_args())
+            if (!lt_is_minted(lt)) vis_lts.push_back(lt);
+        if (TypeRef(t).type_args().empty() && vis_lts.empty()) return std::string(TypeRef(t).struct_name());
         { std::string r = std::string(TypeRef(t).struct_name()) + "<";
           bool first = true;
-          for (auto& lt : TypeRef(t).lifetime_args()) {
+          for (auto& lt : vis_lts) {
               if (!first) r += ", "; first = false;
               r += lt;
           }
@@ -2427,7 +2439,7 @@ std::string type_str(TypeRef t, bool source_form) {
               if (!first) r += ", "; first = false;
               r += type_str(TypeRef(t).type_args()[i], source_form);
           }
-          return r + ">"; }
+          return r + ">"; } }
     case LogosType::Kind::Tuple: {
         std::string r = "(";
         for (size_t i = 0; i < TypeRef(t).tuple_elems().size(); ++i) {
@@ -2516,12 +2528,15 @@ std::string type_str(TypeRef t, bool source_form) {
     // (The struct case above has no such split: a struct's methods are keyed
     // by `concrete_struct_name`, not by this function.)
     case LogosType::Kind::Enum: {
+        std::vector<std::string> vis_lts;
+        for (auto& lt : TypeRef(t).lifetime_args())
+            if (!lt_is_minted(lt)) vis_lts.push_back(lt);
         if (!source_form ||
-            (TypeRef(t).type_args().empty() && TypeRef(t).lifetime_args().empty()))
+            (TypeRef(t).type_args().empty() && vis_lts.empty()))
             return std::string(TypeRef(t).enum_name());
         std::string r = std::string(TypeRef(t).enum_name()) + "<";
         bool first = true;
-        for (auto& lt : TypeRef(t).lifetime_args()) {
+        for (auto& lt : vis_lts) {
             if (!first) r += ", "; first = false;
             r += lt;
         }

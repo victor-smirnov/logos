@@ -2628,7 +2628,8 @@ private:
                            [&](std::string_view pn, TypeRef pt) {
                 if (pn.empty() || !is_ref_kind(pt)) return;
                 param_lifetimes_[std::string(pn)] =
-                    std::string(TypeRef(pt).lifetime());
+                    lt_is_minted(TypeRef(pt).lifetime())
+                        ? std::string{} : std::string(TypeRef(pt).lifetime());
             });
         }
         in_closure_body_ = true;
@@ -8920,7 +8921,11 @@ private:
         }
 
         // 2. Explicit lifetime on return type — check sources match.
-        const std::string ret_lt(TypeRef(ret_type_).lifetime());
+        // A MINTED return region is not a WRITTEN one: this check is about the
+        // contract the user spelled ("return reference must derive from 'x'"),
+        // so a minted name reads as elided here. outlives.hpp::lt_is_minted.
+        std::string ret_lt(TypeRef(ret_type_).lifetime());
+        if (lt_is_minted(ret_lt)) ret_lt.clear();
         if (!ret_lt.empty() && ret_lt != "'_") {
             // L4: When provenance traces to a param that's NOT a ref
             // (e.g. a struct param `x: Foo<'a, 'b>` whose field is
@@ -13530,7 +13535,9 @@ public:
                 TypeRef(ptype).kind() == LogosType::Kind::Ptr)
                 outliving_params_.insert(pname);
             if (is_ref_kind(ptype)) {
-                param_lifetimes_[pname] = std::string(TypeRef(ptype).lifetime());
+                param_lifetimes_[pname] =
+                    lt_is_minted(TypeRef(ptype).lifetime())
+                        ? std::string{} : std::string(TypeRef(ptype).lifetime());
                 // B86: capture inner-struct lifetime_args.
                 auto pointee = TypeRef(ptype).pointee();
                 if (pointee && (pointee.kind() == LogosType::Kind::Struct ||

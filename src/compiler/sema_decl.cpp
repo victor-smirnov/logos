@@ -34,6 +34,7 @@ void SemaChecker::compute_fn_lifetime_outlives(
     auto fn_lifetime_known = [&](std::string_view lt) {
         if (lt.empty()) return false;
         if (lt == "'static" || lt == "static") return true;
+        if (lt_is_minted(lt)) return true;   // a minted slot IS fn-scope
         return fn_lts.count(std::string(lt)) > 0;
     };
     auto walk_implied = [&](TypeRef t, std::string outer,
@@ -157,6 +158,9 @@ void SemaChecker::compute_fn_lifetime_outlives(
         if (lt.empty()) return true;
         if (lt == "'static" || lt == "static") return true;
         if (lt == "'_" || lt == "_") return true;
+        // A MINTED region was never WRITTEN, so the undeclared-lifetime rule
+        // (which reports what the user spelled) must not see it.
+        if (lt_is_minted(lt)) return true;
         return declared.count(std::string(lt)) > 0;
     };
     for (auto& [lng, sht] : lifetime_outlives) {
@@ -619,9 +623,70 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
         auto a = fn.array(dk::LIFETIME_PARAMS);
         for (auto& s : lifetime_params) a.push_str(s);
     }
+    // ── MINT AND UNIFY: THE SIGNATURE'S ELIDED REGIONS GET NAMES ────────────
+    // PROBE ltmintunify (and the joint ltmintsubst). An elided slot has no
+    // name, so `""` means BOTH "elided here" and "the same region as that other
+    // elided slot" — and every comparator reads the second. This gives each
+    // elided slot a name of its OWN (mint) and then applies Rust's elision
+    // rules to say which slots share one (unify): rule 1 — a single input
+    // region is the source for every elided output slot; rule 3 — a `&self`
+    // receiver's region is. Where neither rule picks a source the output is
+    // LEFT ELIDED, which is exactly today's permissive behaviour.
+    //
+    // ⚠ THE UNIFY HALF IS THE WHOLE DIFFERENCE FROM `ltmintfresh`, which minted
+    // and never unified and so refused `fn id(x:&i64)->&i64` — 650 legal
+    // programs, PROBES.md 2026-08-31 counter-example C2.
+    std::vector<TypeRef> mint_ptypes_;      // parallel to fi_ptr->param_types
+    TypeRef mint_ret_ = nullptr;
+    minted_lts_.clear();
+    const bool mint_on_ = logos::probe::on("ltmintunify") ||
+                          logos::probe::on("ltmintsubst");
+    if (mint_on_) {
+        logos::probe::census("mint.fn.signature");
+        // `self` is known from the AST, not from is_method (which is only "in
+        // an impl block" — an associated fn with a `&T` first parameter would
+        // otherwise be read as a receiver).
+        bool first_is_self_ = false;
+        if (node.has_key(la::PARAMS)) {
+            auto pav_ = node.get(la::PARAMS.code);
+            if (pav_.is_pointer()) {
+                auto pn_ = map_of(pav_);
+                if (pn_.has_key(la::ITEMS)) {
+                    auto arr_ = arr_of(pn_.get(la::ITEMS.code));
+                    if (arr_.size() > 0) {
+                        auto p0_ = map_of(arr_.get(0));
+                        if (code_of(p0_) == la::PARAM && p0_.has_key(la::NAME) &&
+                            str_of(p0_.get(la::NAME.code)) == "self")
+                            first_is_self_ = true;
+                    }
+                }
+            }
+        }
+        std::vector<std::string> in_regions_;
+        std::string self_region_;
+        for (size_t pi_ = 0; pi_ < fi_ptr->param_types.size(); ++pi_) {
+            std::vector<std::string> regs_;
+            TypeRef mt_ = mint_type_lts_(subst_type_sema(fi_ptr->param_types[pi_], {}), regs_);
+            mint_ptypes_.push_back(mt_);
+            if (pi_ == 0 && first_is_self_ && !regs_.empty()) self_region_ = regs_.front();
+            for (auto& r_ : regs_) in_regions_.push_back(r_);
+        }
+        TypeRef rt0_ = subst_type_sema(fi_ptr->ret_type, {});
+        std::string src_ = !self_region_.empty()
+                             ? self_region_
+                             : (in_regions_.size() == 1 ? in_regions_.front() : std::string{});
+        if (rt0_ && !src_.empty()) {
+            std::vector<std::string> rregs_;
+            mint_ret_ = mint_type_lts_(rt0_, rregs_, src_);
+            logos::probe::census("mint.ret.unified");
+        } else if (rt0_) {
+            logos::probe::census("mint.ret.no-source");
+        }
+    }
+
     // Robust associated type resolution: call subst_type_sema even if subst is empty
     // to simplify concrete AssocType nodes (e.g. i32::Item -> bool).
-    TypeRef ret_type = subst_type_sema(fi_ptr->ret_type, {});
+    TypeRef ret_type = mint_ret_ ? mint_ret_ : subst_type_sema(fi_ptr->ret_type, {});
     ret_type_      = ret_type;
     // Working param list: built incrementally (self detection, variadic, tuple/
     // pattern/mut desugar) then emitted to PARAMS at the end.
@@ -773,7 +838,8 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                     if (code_of(p) != la::PARAM) continue;
                     auto ptype = (i < fi_ptr->param_types.size())
                         ? fi_ptr->param_types[i] : error_t();
-                    TypeRef pt = subst_type_sema(ptype, {});
+                    TypeRef pt = (mint_on_ && i < mint_ptypes_.size())
+                        ? mint_ptypes_[i] : subst_type_sema(ptype, {});
                     // The never type `!` has no values, so a `!`-typed parameter
                     // is uninhabited — the fn can never be called. Reject it
                     // with a diagnostic (it has no MLIR representation, so
@@ -1046,6 +1112,11 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
         for (auto& lt_ : lifetime_params) lb_.insert(outlives_norm(lt_));
         for (auto& lt_ : current_impl_lifetime_params_)
             lb_.insert(outlives_norm(lt_));
+        // A MINTED REGION IS A BINDER OF THIS SCOPE — a fresh universal region
+        // of this signature, exactly like a written `'a`. Registering them here
+        // is what makes the landed unmentioned-binder rule (outlives.hpp) refuse
+        // two UNRELATED elided slots while leaving one unified slot reflexive.
+        if (mint_on_) for (auto& lt_ : minted_lts_) lb_.insert(lt_);
     }
 
     // unsafe fn body is implicitly an unsafe context
