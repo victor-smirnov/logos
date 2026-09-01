@@ -13353,3 +13353,300 @@ Not spent, each with the number that prices it:
      NAMED IT, so the ledger under-counts this class by an unknown amount.
  45. NEW: the ledger gate's header claims a direction the gate does not check
      (§7), and its closing echo carries a stale count (§6c).
+
+# ═══ ROUND 2026-09-01j — `declare_pat_bindings` HANDLES 2 OF THE 13 PATTERN
+# KINDS. THE THREE PROPAGATION CHANNELS BESIDE IT WERE WIDENED TO ALL 13 AND
+# THE DECLARATION CHANNEL WAS NOT. CEILING 1, COST 0, cfail 0 — AND THE FIRST
+# SPELLING OF THE SAME ARM BOUGHT A SECOND ROW WITH A WRONG DIAGNOSTIC AND A
+# FALSE REFUSAL, WHICH WERE THE SAME EVENT ══════════════════════════════════
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE)
+
+    live probes   145 at open  (grep -rhoP 'probe::on\("\K[a-z_0-9]+' src include)
+    # TOTAL       242
+    roots         bck.C 16 · lifereg.A 13 · nllmoves.B 11 · nllmoves.C 10 ·
+                  lifereg.R17 10 · bck.B 10 · bck.NEW 9 · lifereg.R18 8 · …
+    build at open 206007820f57d94b (READ), builds 43
+
+CORRECTIONS TO THE BRIEF — it quoted no composition figures, and the two it
+did carry forward from 09-01i §8 are both refined here, not contradicted:
+ · "the `ref mut` remainder is 2 rows" — the ROWS are 2, but the POPULATION
+   derived by the property is 5 (§1). The extra three are a DIFFERENT channel.
+ · "one census away: is the missing half sema's `try_implicit_reborrow_mut` or
+   borrow_check's pattern channel?" — ANSWERED, and it is borrow_check's (§2).
+
+## 1. THE SUBJECT, NAMED BEFORE THE COMPILER WAS TOUCHED
+
+`/tmp/.../scratchpad/TARGET_ROWS.txt`, written before any edit. Target rows,
+derived BY THE PROPERTY (a binding under a non-VariantData/Wild pattern, read
+on NON-COMMENT lines) and NOT by the root label — the five cut across three
+roots, which is open item 27 again:
+
+    1. issue-27282-mutation-in-guard           nllmoves.B    bare `ref mut foo`
+    2. match-guards-always-borrow              nllmoves.B    `ref mut` + guard closure
+    3. issue-27282-move-match-input-into-guard nllmoves.R11  struct pattern
+    4. borrowck-move-error-with-note--b        bck.B         struct pattern
+    5. borrowck-move-out-from-array-use-match--t13 bck.B     slice pattern + `ref`
+
+⚠ AND THE FIRST DERIVATION OF THIS POPULATION WAS WRONG, IN THE PERMISSIVE
+DIRECTION. The grep carried `\w+\s*@\s*` for `@`-patterns and matched the
+import header `B167 @ da51146…` in EVERY file: 242 of 242 rows "had the
+property". A property census that returns the whole population is a broken
+grep, not a finding — the same shape as "a refusal count is a first failure".
+Re-run on non-comment lines it gives 5, and `at_bind` / `tuple_pat` / `or_pat`
+give ZERO.
+
+WHY THIS BLOCK OVER THE BIGGER ONES, so the next round inherits the reasoning:
+ · THE OBJECT-LIFETIME BLOCK (18 rows) is the biggest, and its door is shut and
+   NAMED: 09-01g §4, the source type is erased in RETURN position before any
+   coercion gate runs, and 09-01f measured that site reached ZERO times by all
+   243 admit programs.
+ · bck.C (16 rows, the closure boundary) is heavily mined: `capshared` DECLINED
+   on four PINNED diagnostics that only a corpus owner can move, `capargclos`
+   RETIRED wrong-frame, the `capret*` family RETIRED subsumed/landed.
+ · This block is the shape the brief says has paid every time — AN ARM THAT
+   EXISTS, reached through A FACT THE CODE DOES NOT CARRY — and here the fact
+   is carried already, one door over, by `each_pat_binding_place`.
+
+## 2. THE SITE, AND THE ARM PROVEN LIVE BY A ONE-TOKEN PAIR (rule 17, rule 1)
+
+`borrow_check.cpp::declare_pat_bindings` switches on `lir_schema::pat::Code`
+(Count == 13) and calls `declare_var` for TWO: VariantData and Wild. The D1
+round-5 comment 300 lines below it documents widening the three §B6
+PROPAGATION channels to all 13 kinds — "EVERY PATTERN KIND THAT BINDS". THE
+DECLARATION CHANNEL WAS NEVER WIDENED. A name bound by Struct, Slice, RefBind,
+RefPat, Tuple, At or Or is not in the tracked set, so every arm keyed on it is
+unreachable at those spellings.
+
+PROVEN LIVE, not inferred — `/home/logos/sandbox/patloan2/`, one token apart:
+
+    n09  E1::V(ref mut foo)    VariantData  REFUSES "already mutably borrowed"
+    m2   ref mut foo           RefBind      ADMITS
+    n10  S { a: ref mut foo }  Struct       ADMITS
+    n08  if let ref mut foo    RefBind      ADMITS
+
+AND THE MISSING HALF IS NOT SEMA'S, WHICH IS THE OPEN CENSUS OF 09-01i §8.
+t01/t02/t03 ask for the binding as a value under all three kinds and all three
+error `expected i64, got &mut i64` — sema types the binding `&mut i64`
+EVERYWHERE. The verdict differs by PATTERN KIND ALONE.
+
+⚠ THE PATTERN CHANNEL IS NOT INERT, AND THE HANDED-DOWN GLOSS ("the pattern
+spelling never reaches the arm") IS TOO WIDE. n02/n04 show a `ref mut` / `ref`
+pattern DOES deposit a loan on the SCRUTINEE ("cannot use 'o' while it is
+mutably borrowed", "cannot assign to 'o' because it is borrowed"). What is
+missing is the BINDING as a borrowable place, not the loan on the matched value.
+
+ARRIVAL CENSUS, over all 242 admit programs, committed as `patdecl.arrive.*`
+(bad8b8448) BEFORE any arm was written:
+
+    VariantData  434426        RefPat     3
+    Variant      217609        RefBind    3
+    Wild             16        Struct     2
+                                Slice     2
+    Tuple / At / Or   0  ← UNPRICED, NOT REFUTED (rule 4)
+
+`Variant` binds nothing, so its 217 609 are dropped correctly.
+
+## 3. THE PROBE TABLE — ALL THREE COST COLUMNS ON EVERY ROW
+
+Batch 1, build read from `probe-batch` (builds 419 unarmed -> 421 armed):
+
+    probe            fires   ceiling  cost  cfail  stdlib  verdict
+    patdeclall     1900661       2      0     1     ok     ⛔ §4
+    patdeclrefb         21       2      0     1     ok     ⛔ §4
+    patdeclstruct       58       0      0     0     ok     0, site POPULOUS
+    patdeclslice        38       0      0     0     ok     0, site POPULOUS
+
+Batch 2, the correct spelling, build **e6b1af187dccdd09** (READ), and RE-PRICED
+after the source prose was trimmed on build **7210713986999d78** (READ) —
+IDENTICAL in every column, so the trim is behaviour-free:
+
+    patdeclrefbmut      21       1      0     0     ok     ✓ FUND (§5)
+
+RULE 13, ADDITIVITY CHECKED RATHER THAN ASSUMED, AND IT HOLDS EXACTLY:
+patdeclrefb 2 + patdeclstruct 0 + patdeclslice 0 == patdeclall 2. The whole is
+the RefBind/RefPat half and nothing else; 21 fires of the 1 900 661 the
+all-kinds arm takes carry the entire ceiling.
+
+RULE 4 DISCHARGED FOR THE TWO ZEROS: `patdeclstruct` fires 58 times and
+`patdeclslice` 38, so both are PROVEN LIVE and their 0 is a measurement, not a
+silence. They are the right zeros for the right reason — see §6.
+
+## 4. ⛔ `patdeclall` / `patdeclrefb` DECLINED, AND THE SECOND ROW AND THE FALSE
+##    REFUSAL ARE THE SAME EVENT
+
+Both price ceiling 2, and the set is EXACTLY what was predicted by name:
+`issue-27282-mutation-in-guard` and `match-guards-always-borrow`. The count and
+the set agree. THE DIAGNOSTICS DO NOT:
+
+    issue-27282-mutation-in-guard  "cannot borrow 'foo' as mutable: already
+                                    mutably borrowed"   ← RIGHT (the E0499
+                                    analogue, and the exact text the accepted
+                                    `let`-bound control m1 already prints)
+    match-guards-always-borrow     "cannot borrow 'foo' as mutable: NOT
+                                    DECLARED AS MUT"    ← WRONG. Upstream is
+                                    E0507 "cannot move out of `foo` in pattern
+                                    guard", and `foo` IS declared `ref mut`.
+
+A row closed by a wrong diagnostic is not closed, so the honest ceiling of
+these two spellings is 1, not 2.
+
+AND THE WRONG MESSAGE IS NOT COSMETIC — IT IS A REFUSAL MECHANISM. Rule 5, and
+it took the SHAPE the first twelve programs did not have. Twelve hand programs
+(g01-g12: shared/`ref` pairs, sequential scopes, disjoint struct fields, slice
+elements, shadowing, a loop, `if let`, a nested enum-of-struct) were ALL
+unmoved under `patdeclrefb` — twelve correct verdicts. The thirteenth moved:
+
+    g13  match o { ref mut foo => { let f = || { let bar: &mut i64 = foo;
+                                                *bar = 5i64; }; f(); } }
+         unarmed ACCEPT  ·  patdeclrefb REFUSE
+         "cannot borrow 'foo' as mutable: not declared as mut"
+
+That is the CLOSURE route, which is the route `match-guards-always-borrow`
+itself takes, and no g01-g12 program had it. The twelve were all drawn from the
+DIRECT-reborrow syntax; the counter-example came from asking what OTHER route
+reaches the binding, not from writing more of the same.
+
+⚠ HONEST ABOUT g13's STATUS: **rustc is absent on this box** (`which rustc`
+empty), so no oracle here can certify g13 legal — its closure is not `let mut
+f`, which rustc may fault on its own account. THE ARGUMENT DOES NOT REST ON
+THAT. It rests on the MESSAGE: `foo` is declared `ref mut` and the checker says
+it is not declared as mut. That is the trap PROBES.md:6451 already named —
+`mut` written in a PATTERN never reaches `is_mut_binding` — and it fires here
+because `declare_var` defaults the bit to false.
+
+    cfail 1, TEXT-ONLY, and INVISIBLE TO ctest:
+      logos_06_diagnostics_fail_issue-27282-reborrow-ref-mut-in-guard
+      stderr changed, `.expected` still matches as a grep -F SUBSTRING.
+    Rule 15 exactly: an rc-based cost of 0 cannot see this. The correct
+    spelling's cfail is 0, so this column is a live discriminator between two
+    arms that are otherwise identical in the ceiling column.
+
+## 5. ⇒ `patdeclrefbmut` — THE CORRECT SPELLING, AND IT IS FUNDABLE
+
+The bit was never missing FOR THIS KIND. `lir_schema::pat_keys::IS_MUT` is
+recorded on PatRefBind/PatRefPat and nothing else, and `BIND_SLOT` on
+Wild/At/RefBind — so the arm can carry both facts instead of defaulting them:
+declare under the REAL Phase-1 slot, and set `is_mut_binding` from the
+pattern's own `is_mut()`. That is repair by carrying the fact, not by widening
+an exemption.
+
+    build 7210713986999d78 (READ) · fires 21 · CEILING 1 · cost 0 ·
+    cfail 0 of 1136 · stdlib all four layers ok
+
+    CLOSES: issue-27282-mutation-in-guard (nllmoves.B)
+      "cannot borrow 'foo' as mutable: already mutably borrowed" — READ on the
+      armed binary, and it is the same text the accepted control m1 prints.
+
+    DOES NOT CLOSE: match-guards-always-borrow — CORRECTLY. Its upstream reason
+      is E0507 in a pattern GUARD, and the only thing that "closed" it before
+      was the false mut-binding refusal. It admits again here, which is the
+      right answer for this arm.
+
+RULE 5 ON THE CORRECT ARM: all SIXTEEN hand programs (g01-g16, multi-line, in
+`/home/logos/sandbox/patdecl/`) are UNMOVED against the unarmed binary,
+g13 included — the counter-example that condemned the first spelling is
+restored to ACCEPT. Shapes covered: two shared `ref` reborrows · a single
+`*foo` write · one reborrow · sequential disjoint scopes · two disjoint struct
+fields · `if let` · struct `ref` beside a Copy shorthand · slice elements ·
+nested enum-of-struct · a shadowed outer name · a `while` loop · a closure READ
+· a closure MUT reborrow · the `let`-bound closure control · a read-only guard ·
+a guard closure.
+
+⚠ THE PREREQUISITE FOR ROW 2 IS UNCHANGED AND IS NOT THIS ARM. It is the one
+PROBES.md:6471 already names — a per-binding BY-VALUE `mut` flag on
+PatVariantData/PatWild — plus a guard-move channel. Two doors, in SERIES
+(rule 2). This arm buys neither and does not pretend to.
+
+## 6. THE TWO ZEROS ARE THE RIGHT ZEROS, AND THEY BELONG TO AN ALREADY-PRICED
+##    CHANNEL (rule 6: a partition is not a root)
+
+`patdeclstruct` (58 fires) and `patdeclslice` (38 fires) close NOTHING, and
+rows 3-5 are why: they are not DECLARATION rows at all.
+
+    borrowck-move-error-with-note--b        `S { f: _s, g: _t }` moves fields
+                                            out of a type with Drop (E0509)
+    borrowck-move-out-from-array-use-match--t13  `[_, _, x]` moves out of the
+                                            array, then `a` is used again (E0382)
+    issue-27282-move-match-input-into-guard `B { n: 0i64 }` binds NOTHING; the
+                                            scrutinee is moved in a GUARD
+
+The first two need the scrutinee marked MOVED, which is the null-binding-TYPE
+hole ALREADY PRICED — `slicepatnull` (ceiling 3, cost 6, ⛔ declined as
+spelled, PROBES.md:242) and `structpatty`, whose recorded correct spelling
+("ask the SCRUTINEE for the element type") is STILL NOT BOUGHT. The third is
+the guard channel and no binding is involved.
+
+So this round predicted 0 for both by name and got 0 for both, and the reason
+the prediction was right is that DECLARING a name and MOVING a scrutinee are
+two channels that happen to share a switch statement.
+
+## 7. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+
+ (a) A LEGAL-LOOKING PROGRAM REFUSED TODAY, UNARMED, WITH THE SAME WRONG
+     MESSAGE THE DECLINED ARM PRODUCED. g14, `/home/logos/sandbox/patdecl/`:
+         let foo: &mut i64 = &mut o;
+         let f = || { let bar: &mut i64 = foo; *bar = 5i64; };  f();
+     → "cannot borrow 'foo' as mutable: not declared as mut", on BOTH columns.
+     `foo` is a `let`-bound `&mut`, and the message names the wrong property.
+     Same wording defect as §4, reached without any probe. NO LEDGER ROW.
+     ⚠ rustc absent, so whether the program is legal is not adjudicable here;
+     the MESSAGE is wrong either way.
+ (b) A `*x = …` THROUGH A `ref mut` BINDING NESTED UNDER AN ENUM VARIANT IS
+     "A RAW POINTER". g09: `match o { E1::V(S { a: ref mut x }) => { *x = 9i64; } }`
+     → "write through raw pointer requires unsafe context" AND "deref-write:
+     '=' left side must be a pointer or mutable reference", unarmed. The
+     one-level spellings (n09, g05) are fine; only enum-over-struct breaks.
+     A sema/type defect off borrow-check. NO LEDGER ROW. NOT PURSUED.
+ (c) `let ref mut foo = o;` IS A SYNTAX ERROR — "syntax error near 'foo'"
+     (n07). The `let`-bound spelling of a `ref` pattern does not parse, so the
+     legal counterpart of every program in this block can only be written with
+     `match`. A grammar gap of the same kind as `T: Tr + 'static` in 09-01g §1.
+     NO LEDGER ROW. NOT PURSUED.
+
+## 8. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+
+    # TOTAL 242 -> 242. NO ROW BOUGHT, NO ROW RETIRED, NO BEHAVIOUR CHANGED.
+    Five probes priced; four declined by name with the number that condemns
+    each; one recommended for funding.
+
+Not spent, each with the number that prices it:
+  · THE OBJECT-LIFETIME BLOCK, 18 rows — unchanged, blocker named at 09-01g §4.
+  · bck.C, 16 rows — unchanged, see §1.
+  · lifereg.A 13 + lifereg.R17 10 — surveyed, still unpriced.
+  · `structpatty` / `slicepatnull`'s CORRECT spelling — rows 4 and 5 of this
+    round's population, and §6 says exactly what it has to ask for.
+  · THE EIGHT BARE-`enum_name()` LOOKUPS (09-01i §9.2) — still not measured.
+
+## 9. ⇒ WHAT DESERVES FUNDING, IN ORDER
+
+ 1. **LAND `patdeclrefbmut`.** Ceiling 1, cost 0, cfail 0, stdlib ok, 16 hand
+    programs unmoved, and the row's diagnostic READ on the armed binary and
+    matching the accepted control's text. Rule 7 still applies: re-price the
+    landed form, do not inherit this number.
+ 2. **THE CORRECT SPELLING OF `structpatty` / `slicepatnull`** — ask the
+    SCRUTINEE for the element/field type instead of treating a null binding
+    type as a move. 2 rows here (borrowck-move-error-with-note--b,
+    borrowck-move-out-from-array-use-match--t13), and the crude form's six
+    spec-rule refusals are what the correct one has to avoid.
+ 3. **THE PER-BINDING BY-VALUE `mut` FLAG** (PROBES.md:6471) — the prerequisite
+    for `match-guards-always-borrow` AND the thing that would let the whole
+    13-kind declaration widening land without the §4 wording defect. It is a
+    SEMA change, and it is the door in series behind two separate declined arms
+    now, which is the strongest case any unbought prerequisite in this file has.
+
+## 10. OPEN (carried, plus this round's)
+
+ 1-43. UNCHANGED. 44, 45 STAND.
+ 46. NEW: `declare_pat_bindings` covers 2 of 13 pattern kinds while the three
+     propagation channels beside it cover 13. Tuple / At / Or bind names in
+     principle and arrive ZERO times in the admit population — unpriced, and a
+     hole with no fixture that can see it.
+ 47. NEW, AND IT IS A METHOD RESULT: a property census that returned 242 of 242
+     rows was a BROKEN GREP matching the import header, not a discovery (§1).
+     A property population that equals the whole population is a defect in the
+     instrument. Same family as "a refusal count is a first failure".
+ 48. NEW: twelve hand programs of one syntactic route gave twelve correct
+     verdicts and hid a false refusal on the thirteenth, which used the CLOSURE
+     route (§4). Rule 5's "vary the shape" is specifically about the ROUTE TO
+     THE SITE, not the shape of the program text.

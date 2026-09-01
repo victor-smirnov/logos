@@ -5310,6 +5310,25 @@ private:
                 if (!n.empty() && n != "_") declare_var(n, wv.bind_slot());  // Phase-1
                 break;
             }
+            // PROBE patdeclrefbmut — PROBES.md 2026-09-01j. Carries IS_MUT
+            // and BIND_SLOT; defaulting either refuses a legal program.
+            case Code::RefBind: {
+                lir_view::PatRefBindView rv{pr};
+                std::string n(rv.name());
+                if (!n.empty() && n != "_") {
+                    if (logos::probe::on("patdeclrefbmut")) {
+                        declare_var(n, rv.bind_slot());
+                        if (rv.is_mut())
+                            var_at(rv.bind_slot(), n).is_mut_binding = true;
+                    }
+                }
+                break;
+            }
+            case Code::RefPat: {
+                if (logos::probe::on("patdeclrefbmut"))
+                    declare_pat_bindings(lir_view::PatRefPatView{pr}.inner());
+                break;
+            }
             default: break;
         }
     }
