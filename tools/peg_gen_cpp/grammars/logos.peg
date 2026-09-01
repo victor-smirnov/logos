@@ -3638,6 +3638,22 @@
                  / IDENT
                 => { CODE: TRAIT_BOUND, NAME: $1 }
 
+    // ONE ELEMENT of a TYPE-PARAMETER bound list. Rust's bound lists are
+    // MIXED — `T: Tr + 'a`, `T: 'a + Tr` — and this rule is the mixed element:
+    // a lifetime bound if the token is a LIFETIME, a trait bound otherwise.
+    // Before it, `type_param` offered an all-lifetime alternative and an
+    // all-trait alternative and NO mixed one, so `T: Tr + 'static` was a
+    // SYNTAX ERROR in both the inline and the `where` spelling (the `where`
+    // form funnels through `type_param` too). The ordering is the same one the
+    // old all-lifetime alternative documented: lifetime first, so the `'`
+    // lookahead resolves before `trait_bound`'s bare-IDENT alternative is
+    // tried. Sema needs no change — the TYPE_PARAM bound walker already
+    // dispatches PER ELEMENT on the node code (TRAIT_BOUND -> bounds,
+    // LIFETIME_PARAM -> lifetime_outlives), so a mixed ITEMS array splits
+    // correctly the day the parser can produce one.
+    tp_bound <- lifetime_param
+              / trait_bound
+
     // Inside a trait bound's `<...>` either positional type args or
     // associated-type equality clauses (Name = Type) may appear, mixed.
     bound_arg_list <- bound_arg (COMMA bound_arg)*
@@ -3662,14 +3678,6 @@
     type_param <- HASH LPAREN type_param RPAREN COMMA STAR
                => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
                 / lifetime_param
-                // Type outlives bound: T: 'a (+ 'b)*  — must come before
-                // the trait-bound form below so the `'` lookahead resolves.
-                // Stored as TYPE_PARAM where every ITEMS element is a
-                // LIFETIME_PARAM (vs trait_bound for the regular trait-
-                // bound case). Sema's bound-walker distinguishes the two
-                // shapes via the ITEMS element code.
-                / IDENT COLON lifetime_param (PLUS lifetime_param)*
-               => { CODE: TYPE_PARAM, NAME: $1, ITEMS: $... }
                 / ptr_type
                 / arr_type
                 / KW_CONST IDENT DOTDOTDOT COLON type_ref
@@ -3678,19 +3686,19 @@
                => { CODE: CONST_PARAM, NAME_VAR: $3, TYPE: $5 }
                 / KW_CONST IDENT COLON type_ref
                => { CODE: CONST_PARAM, NAME: $2, TYPE: $4 }
-                / IDENT DOTDOTDOT COLON trait_bound (PLUS trait_bound)*
+                / IDENT DOTDOTDOT COLON tp_bound (PLUS tp_bound)*
                => { CODE: TYPE_PARAM, NAME: $1, IS_VARIADIC: true, ITEMS: $... }
                 / IDENT DOTDOTDOT
                => { CODE: TYPE_PARAM, NAME: $1, IS_VARIADIC: true }
-                / HASH IDENT COLON trait_bound (PLUS trait_bound)*
+                / HASH IDENT COLON tp_bound (PLUS tp_bound)*
                => { CODE: TYPE_PARAM, NAME_VAR: $2, ITEMS: $... }
                 / HASH IDENT
                => { CODE: TYPE_PARAM, NAME_VAR: $2 }
-                / IDENT COLON trait_bound (PLUS trait_bound)* ASSIGN type_ref
+                / IDENT COLON tp_bound (PLUS tp_bound)* ASSIGN type_ref
                => { CODE: TYPE_PARAM, NAME: $1, ITEMS: $..., TYPE: $6 }
                 / IDENT ASSIGN type_ref
                => { CODE: TYPE_PARAM, NAME: $1, TYPE: $3 }
-                / IDENT COLON trait_bound (PLUS trait_bound)*
+                / IDENT COLON tp_bound (PLUS tp_bound)*
                => { CODE: TYPE_PARAM, NAME: $1, ITEMS: $... }
                 / IDENT
                => { CODE: TYPE_PARAM, NAME: $1 }

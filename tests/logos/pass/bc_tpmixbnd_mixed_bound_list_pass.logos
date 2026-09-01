@@ -1,0 +1,42 @@
+// A TYPE-PARAMETER BOUND LIST MAY MIX TRAIT AND LIFETIME BOUNDS.
+// Rust writes `T: Tr + 'a` freely, in either order and in either spelling;
+// `tools/peg_gen_cpp/grammars/logos.peg`'s `type_param` offered an
+// ALL-LIFETIME alternative and an ALL-TRAIT alternative and NO mixed one, so
+// every line below was a SYNTAX ERROR ("syntax error near 'fn'") — including
+// the `where` spelling, which funnels through `type_param` too.
+//
+// The four shapes here are the ones the alternative has to cover: trait-first
+// inline, lifetime-first inline, the `where` spelling, and a list whose mixed
+// element sits beside an unmixed sibling parameter.
+//
+// BOTH HALVES MUST STILL ARRIVE, not merely parse. The trait half is proven
+// by the `v.get()` calls (an unbounded `A` refuses them); the lifetime half is
+// proven by the REFUSE TWIN, tests/logos/fail/bc_tpmixbnd_mixed_bound_
+// undeclared_fail, where the same list's lifetime element is undeclared and
+// the R17 walk names it. Sema needed no change: the TYPE_PARAM bound walker
+// already dispatched per element on the node code.
+package bc_tpmixbnd_mixed_bound_list_pass;
+
+trait SomeTrait {
+    fn get(self: &Self) -> i64;
+}
+
+fn trait_first<A: SomeTrait + 'static>(v: A) -> i64 {
+    return v.get();
+}
+
+fn lifetime_first<A: 'static + SomeTrait>(v: A) -> i64 {
+    return v.get();
+}
+
+fn where_spelling<A>(v: A) -> i64 where A: SomeTrait + 'static {
+    return v.get();
+}
+
+fn mixed_beside_plain<A: SomeTrait + 'static, B: SomeTrait>(v: A, w: B) -> i64 {
+    return v.get() + w.get();
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

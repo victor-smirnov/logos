@@ -1,0 +1,23 @@
+// THE REFUSE HALF of tests/logos/pass/bc_tpmixbnd_mixed_bound_list_pass, ONE
+// TOKEN apart: there the mixed list's lifetime element is `'static`, here it
+// is `'z`, which is declared nowhere.
+//
+// THIS IS THE ABUSE DIRECTION OF THE NEW ALTERNATIVE, and it is the point of
+// the pair. A new grammar alternative that merely PARSED the lifetime element
+// and dropped it would leave the pass twin green and open a silent hole in the
+// R17 undeclared-lifetime walk; the only thing that can tell the two apart is
+// a program whose lifetime half MUST be refused. The diagnostic names the
+// bound as `A: 'z`, which is the walk reading the element out of a MIXED list.
+package bc_tpmixbnd_mixed_bound_undeclared_fail;
+
+trait SomeTrait {
+    fn get(self: &Self) -> i64;
+}
+
+fn trait_first<A: SomeTrait + 'z>(v: A) -> i64 {
+    return v.get();
+}
+
+fn main() -> i32 {
+    return 0i32;
+}
