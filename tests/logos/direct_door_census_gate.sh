@@ -1238,13 +1238,21 @@ PIN = {
     # programs no population in the harness contains). Its two refuse halves
     # are FAIL fixtures and the six closed ledger rows are IMPORTED admit ->
     # fail, so neither touches this count.
+    # 2026-09-01g: +1 native pass fixture, bc_tpmixbnd_mixed_bound_list_pass
+    # — the four spellings of a MIXED type-parameter bound list (`T: Tr + 'a`
+    # trait-first, lifetime-first, the `where` form, and one beside a plain
+    # sibling), which `type_param` had no alternative for and which were a
+    # SYNTAX ERROR before the grammar carried a mixed bound-list element. Its
+    # refuse twin, bc_tpmixbnd_mixed_bound_undeclared_fail, is a FAIL fixture
+    # and does not touch this count. NAMED, and the half it joined: the
+    # nonglob half, since `bc_*` matches neither `wql_*` nor `deem_*`.
     # BY DIRECT LISTING:
-    #   ls tests/logos/pass/*.logos                      -> 2524
+    #   ls tests/logos/pass/*.logos                      -> 2525
     #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
-    #   the same listing minus the glob half             -> 2333
-    'corpus'            : 2524,
+    #   the same listing minus the glob half             -> 2334
+    'corpus'            : 2525,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2333,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2334,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

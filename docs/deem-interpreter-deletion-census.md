@@ -4973,8 +4973,25 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8776 -> 8776    0
 #   NOIMPORTED   4462 -> 4461   -1
 #   TIERCOMMIT    293 ->  292   -1
-REGISTRY-ALL         8776
-REGISTRY-NOIMPORTED  4461
+# 2026-09-01g (NO LEDGER ROW MOVED — a GRAMMAR fix and its fixture pair.
+#             `type_param` offered an all-lifetime bound-list alternative and
+#             an all-trait one and no MIXED one, so `T: Tr + 'static` was a
+#             syntax error in both the inline and the `where` spelling. Two
+#             NATIVE fixtures arrive, one pass and one fail, one token apart
+#             ('static vs an undeclared 'z, which is the abuse direction of the
+#             new alternative).
+#             ⚠ THE THREE COLUMNS MOVE BY TWO AMOUNTS, PREDICTED THEN MEASURED:
+#             ALL sees +2 and NOIMPORTED sees +2 — the same +2, because BOTH
+#             arrivals are native and so neither is filtered by `-LE imported`;
+#             TIERCOMMIT sees 0, because a native pass/fail corpus fixture
+#             declares no `tier_commit` label. That is the first entry in this
+#             block where two columns agree, and they agree for a reason that
+#             is checkable rather than a coincidence: nothing imported moved.
+#   ALL          8776 -> 8778   +2
+#   NOIMPORTED   4461 -> 4463   +2
+#   TIERCOMMIT    292 ->  292    0
+REGISTRY-ALL         8778
+REGISTRY-NOIMPORTED  4463
 REGISTRY-TIERCOMMIT  292
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
