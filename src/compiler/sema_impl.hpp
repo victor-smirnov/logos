@@ -5640,8 +5640,70 @@ private:
         // a frame whose param had relaxed-Sized would leave the outer
         // binding (if any) clobbered.
         bool was_relaxed_sized = false;
+        std::vector<std::string> old_lt_outlives;
+        bool had_lt_outlives = false;
     };
     std::vector<std::vector<ShadowFrame>> type_param_shadow_stack_;
+    // The in-scope type params' LIFETIME bounds (`T: 'a`), keyed by param name.
+    // The trait half of a bound has ridden `current_type_bounds_` since Phase 1B;
+    // the lifetime half was read by nobody, so a callee's `T: 'a` obligation at a
+    // bare-TypeVar type argument — which is the CALLER's to discharge — had no
+    // caller env to consult. Read by check_type_bounds' caller-env arm.
+    logos::compiler::StrMap<std::vector<std::string>> current_type_lt_outlives_;
+
+    // ── THE IMPLIED TYPE-OUTLIVES BOUND: `x: &'a T` MEANS `T: 'a` ───────
+    // Rust does not make a caller write `where T: 'a` when its own signature
+    // already forces it: a parameter of type `&'a T` is well-formed only if
+    // `T: 'a`, so the bound is IMPLIED, and it discharges a callee's `T: 'x`
+    // exactly like a written one. `compute_fn_lifetime_outlives`' walk_implied
+    // reads this same shape but emits only REGION pairs (`'a: 'b`) and drops
+    // the type-param half, so a type param bounded solely by a reference in
+    // the signature looked to every consumer like a param with no bound.
+    // Without this,
+    //     fn caller<'a, T>(v: &'a T) { callee(v); }   // callee wants `T: 'x`
+    // is refused, and it is legal Rust.
+    //
+    // ⚠ MUST RUN BEFORE `push_type_params`, which is what captures the env.
+    // An ELIDED lifetime deposits `'_`: the bound EXISTS — which is what the
+    // consumer asks — but names no region, which is exactly the state of
+    // knowledge here. The direction is permissive by construction: an implied
+    // bound can only discharge an obligation, never create one.
+    void deposit_implied_type_outlives(const std::vector<TypeRef>& ptypes,
+                                       TypeRef ret,
+                                       std::vector<TypeParam>& tps) {
+        if (tps.empty()) return;
+        std::function<void(TypeRef, const std::string&)> walk =
+            [&](TypeRef t, const std::string& under) {
+            if (!t) return;
+            auto kind = t.kind();
+            if (kind == LogosType::Kind::TypeVar) {
+                if (under.empty()) return;
+                std::string tvn(t.type_var_name());
+                for (auto& tp : tps) {
+                    if (tp.name != tvn) continue;
+                    for (auto& e : tp.lifetime_outlives) if (e == under) return;
+                    tp.lifetime_outlives.push_back(under);
+                    return;
+                }
+                return;
+            }
+            if (kind == LogosType::Kind::Ref || kind == LogosType::Kind::MutRef) {
+                std::string my_lt(t.lifetime());
+                std::string next = my_lt.empty() ? std::string("'_") : my_lt;
+                if (next == "'_" && !under.empty()) next = under;
+                walk(t.pointee(), next);
+                return;
+            }
+            if (t.pointee()) walk(t.pointee(), under);
+            if (t.elem())    walk(t.elem(), under);
+            for (auto a : t.type_args())      walk(a, under);
+            for (auto e : t.tuple_elems())    walk(e, under);
+            for (auto c : t.closure_params()) walk(c, under);
+            if (t.closure_ret()) walk(t.closure_ret(), under);
+        };
+        for (auto& pt : ptypes) walk(pt, "");
+        walk(ret, "");
+    }
 
     void push_type_params(const std::vector<TypeParam>& tps) {
         type_param_shadow_stack_.emplace_back();
@@ -5655,6 +5717,12 @@ private:
             auto bit = current_type_bounds_.find(tp.name);
             if (bit != current_type_bounds_.end()) { f.had_bounds = true; f.old_bounds = bit->second; }
             f.was_relaxed_sized = current_type_relaxed_sized_.count(tp.name) != 0;
+            {
+                auto lit = current_type_lt_outlives_.find(tp.name);
+                if (lit != current_type_lt_outlives_.end()) {
+                    f.had_lt_outlives = true; f.old_lt_outlives = lit->second;
+                }
+            }
             frames.push_back(std::move(f));
             if (tp.is_const) {
                 LogosTypeBuilder c; c.kind = LogosType::Kind::ConstVar;
@@ -5676,6 +5744,10 @@ private:
                 current_type_relaxed_sized_.insert(tp.name);
             else
                 current_type_relaxed_sized_.erase(tp.name);
+            if (!tp.lifetime_outlives.empty())
+                current_type_lt_outlives_[tp.name] = tp.lifetime_outlives;
+            else
+                current_type_lt_outlives_.erase(tp.name);
         }
     }
     void pop_type_params(const std::vector<TypeParam>& /*tps*/) {
@@ -5688,6 +5760,8 @@ private:
             else                 current_type_bounds_.erase(rit->name);
             if (rit->was_relaxed_sized) current_type_relaxed_sized_.insert(rit->name);
             else                        current_type_relaxed_sized_.erase(rit->name);
+            if (rit->had_lt_outlives) current_type_lt_outlives_[rit->name] = rit->old_lt_outlives;
+            else                      current_type_lt_outlives_.erase(rit->name);
         }
         type_param_shadow_stack_.pop_back();
     }

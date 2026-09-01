@@ -1,6 +1,10 @@
 // rustc regions/wf-bound-region-in-local-issue-115175.rs — upstream E0310 parameter type `T` may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-R20
+// shelf: fail · was lifereg.NEW-R20, CLOSED 2026-09-02 — the callee's `T: 'a` at a
+// bare-TypeVar type argument is the CALLER's obligation, and the caller's
+// own type-outlives bounds were carried by `push_type_params` for nobody
+// to read; plus `in_generic_context` deferred the whole call so the bound
+// was checked nowhere at all.
 package wf_bound_region_in_local_issue_115175_wf_bound_local;
 struct Static<T: 'static> { v: T }
 fn test<T>() { let _x: Option<Static<T>> = Option::None; }

@@ -1,0 +1,1 @@
+call to 'with_restriction': the parameter type 'T' may not live long enough — 'T' requires `T: 'b` and the caller does not declare it

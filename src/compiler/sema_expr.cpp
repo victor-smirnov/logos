@@ -4077,6 +4077,24 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             error(std::format("call to '{}': could not infer all type arguments — use explicit f::<T>(...) syntax", callee));
             return builder().call(std::string(callee), {}, std::move(arg_exprs), error_t());
         }
+        // ⚠ THE DEFERRAL IS PER-CALL AND THE QUESTION IS PER-PARAM. The guard
+        // above sets `in_generic_context` when ANY ONE argument's type is a
+        // bare TypeVar, and then the WHOLE call defers to mono — where only
+        // the SUBSTITUTED form is re-checked, which for a body that is never
+        // instantiated does not exist. So the callee's `T: 'a` was checked
+        // nowhere at all, and the two programs
+        //     callee(c, t)      // deferred, unchecked
+        //     callee(c, &t)     // checked
+        // one token apart, got different verdicts for no reason in the rule.
+        // Everything the deferral protects is TRAIT-bound checking, which
+        // `check_type_bounds` defers on its own (`mentions_tv` → continue);
+        // running it here therefore adds exactly the lifetime half.
+        {
+            std::vector<TypeRef> deferred_args;
+            if (infer_type_args(*infer_fi, arg_exprs, deferred_args))
+                check_type_bounds(std::string(callee), infer_fi->type_params,
+                                  deferred_args);
+        }
         // In generic/pack context inference is deferred to mono, but we still must
         // route to the generic overload (if available) rather than pinning a concrete one.
         fi_sel = infer_fi;

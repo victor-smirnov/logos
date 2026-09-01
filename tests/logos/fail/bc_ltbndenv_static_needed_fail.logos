@@ -1,0 +1,15 @@
+// THE REFUSE HALF of tests/logos/pass/bc_ltbndenv_legal_shapes (8), ONE TOKEN
+// apart: there the caller declares `T: 'static`, here it declares nothing, and
+// `Static<T>` requires it. This is the TYPE-instantiation site, not a call
+// site — `check_type_bounds` is shared by both, which is why one arm closed a
+// row in each. Upstream E0310. LANDED 2026-09-02.
+package bc_ltbndenv_static_needed_fail;
+
+struct Static<T: 'static> { v: T }
+
+fn c8<T>() -> i64 {
+  let _x: Option<Static<T>> = Option::None;
+  return 8i64;
+}
+
+fn main() -> i32 { return 0i32; }

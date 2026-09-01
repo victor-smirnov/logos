@@ -4944,9 +4944,21 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8768 -> 8773   +5
 #   NOIMPORTED   4466 -> 4465   -1
 #   TIERCOMMIT    305 ->  299   -6
-REGISTRY-ALL         8773
-REGISTRY-NOIMPORTED  4465
-REGISTRY-TIERCOMMIT  299
+# 2026-09-02 (six more ledger rows closed by the caller-env half of the `T: 'a`
+#             bound check — the callee's bound at a bare-TypeVar type argument
+#             is the CALLER's obligation. Six IMPORTED admit tests -> six
+#             imported fail ports, plus THREE native fixtures (one pass, eight
+#             legal caller-env shapes; two fail, one token from (4) and (8)).
+#             ⚠ THE SAME THREE-DIFFERENT-AMOUNTS SHAPE, re-derived not adjusted:
+#             ALL sees -6+6+3, NOIMPORTED sees -6+3 because the arriving fail
+#             ports ARE imported and the leaving admit tests never were,
+#             TIERCOMMIT sees -6 alone (the natives declare no tier_commit).
+#   ALL          8773 -> 8776   +3
+#   NOIMPORTED   4465 -> 4462   -3
+#   TIERCOMMIT    299 ->  293   -6
+REGISTRY-ALL         8776
+REGISTRY-NOIMPORTED  4462
+REGISTRY-TIERCOMMIT  293
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

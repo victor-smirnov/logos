@@ -1230,19 +1230,21 @@ PIN = {
     #   ls tests/logos/pass/*.logos                      -> 2521
     #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
     #   the same listing minus the glob half             -> 2330
-    # 2026-09-01: +2 native pass fixtures, bc_ltbndstat_legal_shapes (nine legal
-    # `T: 'a` / `T: 'static` shapes the new bound check must keep admitting,
-    # (6) among them the elided-lifetime separator that condemned the strict
-    # twin) and bc_ltbndread_declared_lifetime_pass (the control for the reader
-    # repair). Their three refuse halves are FAIL fixtures and the six closed
-    # ledger rows are IMPORTED admit -> fail, so neither touches this count.
+    # 2026-09-02: +1 native pass fixture, bc_ltbndenv_legal_shapes (eight legal
+    # caller-env shapes the new `T: 'a` caller-obligation arm must keep
+    # admitting: (1)/(2) the rename and the transitive chain that condemn the
+    # strict name-compare, and (4)-(7) the IMPLIED bound from a `&'a T`
+    # parameter, which the probe this arm grew from refused — four legal
+    # programs no population in the harness contains). Its two refuse halves
+    # are FAIL fixtures and the six closed ledger rows are IMPORTED admit ->
+    # fail, so neither touches this count.
     # BY DIRECT LISTING:
-    #   ls tests/logos/pass/*.logos                      -> 2523
+    #   ls tests/logos/pass/*.logos                      -> 2524
     #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
-    #   the same listing minus the glob half             -> 2332
-    'corpus'            : 2523,
+    #   the same listing minus the glob half             -> 2333
+    'corpus'            : 2524,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2332,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2333,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

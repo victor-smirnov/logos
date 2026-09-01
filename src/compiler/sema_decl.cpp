@@ -742,7 +742,11 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::ImplTrait)
         impl_ret_type_inferred_ = nullptr;
 
-    // Put type params in scope for the duration of the function body
+    // Put type params in scope for the duration of the function body.
+    // ⚠ The implied `T: 'a` from a `&'a T` parameter must be deposited FIRST —
+    // this push is what captures the caller env `check_type_bounds` reads.
+    deposit_implied_type_outlives(fi_ptr->param_types, fi_ptr->ret_type,
+                                  type_params);
     push_type_params(type_params);
     // Per-method `where T: Trait` TRAIT bounds → the body scope. The subject
     // may be an IMPL-level param (not in this fn's own type_params), so they

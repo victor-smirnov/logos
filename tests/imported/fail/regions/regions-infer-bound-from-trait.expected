@@ -1,0 +1,1 @@
+call to 'check_bound': the parameter type 'A' may not live long enough — 'A' requires `A: 'a` and the caller does not declare it

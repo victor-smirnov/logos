@@ -1,0 +1,12 @@
+// THE REFUSE HALF of tests/logos/pass/bc_ltbndenv_legal_shapes (4), ONE TOKEN
+// apart: there the parameter is `v: &'a T`, whose well-formedness IMPLIES
+// `T: 'a`; here it is `v: T`, taken by value, which implies nothing. The
+// callee's `T: 'x` is then the caller's obligation and the caller declares no
+// bound at all to discharge it. Upstream E0310. LANDED 2026-09-02.
+package bc_ltbndenv_byval_no_bound_fail;
+
+fn callee<'x, T>(y: &T) where T: 'x { }
+
+fn c4<'a, T>(v: T) -> i64 { callee(&v); return 4i64; }
+
+fn main() -> i32 { return 0i32; }

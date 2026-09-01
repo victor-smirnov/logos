@@ -1,0 +1,77 @@
+// COST 0 IS NOT A SAFETY CLAIM (rule 5). The caller-env half of
+// `check_type_bounds` priced CEILING 6 / COST 0 pass / 0 of 1124 cfail in all
+// THREE shapes (rc, `.expected` match, stderr text) / stdlib 4 layers ok — and
+// so did TWO arms that refuse legal programs. So the programs here are the
+// safety argument, not the corpus.
+//
+// THE MECHANISM. A callee's `T: 'a` at a type argument that is a BARE TypeVar
+// is not the callee's obligation, it is the CALLER's. Until this landed the
+// caller's own type-outlives bounds were deposited by `push_type_params` for
+// nobody to read, so the bound was checked by no one. Upstream E0310/E0311.
+//
+// ⚠ THE TEST IS "THE CALLER DECLARES SOME BOUND", NOT "THE CALLER'S SET
+// CONTAINS THE REQUIRED NAME". (1) and (2) are what condemn the strict
+// spelling: the callee's lifetime is INSTANTIATED at the call, so a rename is
+// legal and a transitive chain is legal, and a comparator that matches the two
+// names across two functions refuses both. That is the `sig_match` defect
+// (2026-09-01, `948af9cab`) rebuilt one layer down.
+//
+// ⚠ (4)-(7) ARE WHAT CONDEMN THE PROBE THIS ARM GREW FROM. The probe asked
+// only for a DECLARED bound and refused all four — every one legal Rust, all
+// four by the same mechanism: a parameter of type `&'a T` is well-formed only
+// if `T: 'a`, so the bound is IMPLIED and needs no `where`. The reader now
+// deposits it (`deposit_implied_type_outlives`).
+//
+// ⚠ THE REFUSE HALVES ARE ONE TOKEN AWAY:
+//   tests/logos/fail/bc_ltbndenv_byval_no_bound_fail  — (3) with `t: T` for `t: &'a T`
+//   tests/logos/fail/bc_ltbndenv_static_needed_fail   — (8) with `T` for `T: 'static`
+package bc_ltbndenv_legal_shapes;
+
+fn callee<'x, T>(y: &T) where T: 'x { }
+
+// (1) A RENAME. The callee spells its lifetime 'x, the caller 'a; 'x is
+// instantiated to 'a at the call and `T: 'a` discharges it.
+fn c1<'a, T>(v: &T) -> i64 where T: 'a { callee(v); return 1i64; }
+
+// (2) TRANSITIVITY. `'b: 'a` and `T: 'b` give `T: 'a`.
+fn c2<'a, 'b, T>(v: &T) -> i64 where 'b: 'a, T: 'b { callee(v); return 2i64; }
+
+// (3) The same name on both sides — the shape the imported corpus happens to
+// contain, and the reason its columns are clean either way.
+fn c3<'a, T>(v: &T) -> i64 where T: 'a { callee(v); return 3i64; }
+
+// (4) THE IMPLIED BOUND. `v: &'a T` is well-formed only if `T: 'a`, so the
+// caller needs no `where` at all.
+fn c4<'a, T>(v: &'a T) -> i64 { callee(v); return 4i64; }
+
+// (5) The implied bound with the lifetime ELIDED.
+fn c5<T>(v: &T) -> i64 { callee(v); return 5i64; }
+
+// (6) The implied bound arriving THROUGH a struct: `&'a Wrap<T>` gives
+// `Wrap<T>: 'a` and hence `T: 'a`.
+struct Wrap<T> { v: T }
+fn c6<'a, T>(w: &'a Wrap<T>) -> i64 { callee(&w.v); return 6i64; }
+
+// (7) The bound declared on the IMPL's type parameter, not the method's.
+struct Holder<T> { v: T }
+impl<T: 'static> Holder<T> {
+  fn go(self: &Holder<T>) -> i64 { callee(&self.v); return 7i64; }
+}
+
+// (8) `T: 'static` in the caller discharges any `T: 'x`.
+fn c8<T: 'static>(v: &T) -> i64 { callee(v); return 8i64; }
+
+fn main() -> i32 {
+  let a: i64 = 7i64;
+  let x1: i64 = c1::<i64>(&a);
+  let x2: i64 = c2::<i64>(&a);
+  let x3: i64 = c3::<i64>(&a);
+  let x4: i64 = c4::<i64>(&a);
+  let x5: i64 = c5::<i64>(&a);
+  let w: Wrap<i64> = Wrap { v: 9i64 };
+  let x6: i64 = c6::<i64>(&w);
+  let h: Holder<i64> = Holder { v: 11i64 };
+  let x7: i64 = h.go();
+  let x8: i64 = c8::<i64>(&a);
+  return 0i32;
+}

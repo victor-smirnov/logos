@@ -11720,6 +11720,295 @@ nonglob 2330→2332, glob 191 unmoved.
      known (`regions-pattern-typing-issue-19552`), and it needs the region the
      elision resolves to.
 
+# ═══ ROUND 2026-09-02e — THE CALLER-ENV HALF LANDED. LEDGER 250 → 244, AND THE
+# PROBE'S OWN SEPARATOR TURNED OUT TO BE A LEGAL PROGRAM: `&'a T` IMPLIES
+# `T: 'a`, SO THE ARM THAT WAS RECOMMENDED FOR FUNDING WOULD HAVE REFUSED FOUR
+# LEGAL SHAPES THE CORPUS DOES NOT CONTAIN ═════════════════════════════════
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE) AND THE BASELINE, QUOTED
+
+    live probes  145   (unchanged — this round installed NO probe; it landed)
+    ledger       250 at open, `# TOTAL 250` and 250 by direct listing
+    channels     lifereg 118 (47%) · nllmoves 77 (31%) · bck 55 (22%)
+
+BASELINE, READ FROM THE STORE (not re-run):
+    gate-run.sh -R '^logos_00_bc_admit_'  → build 382, all 250 ALREADY MEASURED
+      "build 382: 5877 recorded, 0 failed"  (libs 95a2042b9b99034e)
+    gate-run.sh -L bc                     → 2041 passed / 0 failed of 2043
+
+⚠ THE BRIEF WAS WRONG IN THE SAME THREE PLACES 2026-09-01d NAMED, verbatim
+("256 rows", "lifereg 123 / nllmoves 78", "only two of twelve"). Measured
+250 / 118-77-55 / the two most recent commits are both ledger work. The
+predecessor's §0 was right and the brief had not been updated. Rule 17 twice.
+
+## 1. WHAT LANDED — FOUR EDITS, ALL UNCONDITIONAL, NO PROBE GATE
+
+ E1 `sema_impl.hpp` push_type_params/pop_type_params carry `tp.lifetime_outlives`
+    into a new `current_type_lt_outlives_`, shadowed exactly like the trait
+    bounds and `?Sized`. (Open item 19, standing since 2026-09-07b.)
+ E2 `sema_collect.cpp` check_type_bounds gains the CALLER-ENV arm: a callee's
+    `T: 'a` at a type argument that is a BARE TypeVar is the CALLER's
+    obligation, discharged when the caller declares SOME type-outlives bound
+    on that param. LAX, never the name-compare.
+ E3 `sema_expr.cpp` the `in_generic_context` deferral runs the bound check
+    before it defers. (Open item 24.)
+ E4 `sema_impl.hpp` + `sema_decl.cpp` `deposit_implied_type_outlives` — ⚠ NOT
+    IN THE PROBE, and the round's main result. See §2.
+
+## 2. ⚠ THE RECOMMENDED ARM WOULD HAVE REFUSED FOUR LEGAL PROGRAMS, AND THE
+##    PROBE'S OWN ILLEGAL SEPARATOR IS ONE OF THEM
+
+2026-09-01d priced `ltbndboth` at 6 rows / 0 / 0 of 1124 / stdlib ok, gave it
+seven correct hand verdicts, and recommended it for funding. Measured here by
+writing the counter-examples FIRST (rule 5, step 2), the arm as priced refuses:
+
+    h4  fn caller<'a, T>(v: &'a T)     { callee(v); }   REFUSED — LEGAL
+    h5  fn caller<T>(v: &T)            { callee(v); }   REFUSED — LEGAL
+    h7  fn caller<'a, T>(w: &'a Wrap<T>) { callee(&w.v); }  REFUSED — LEGAL
+    h8  impl<T: 'static> Holder<T> { fn go(self: &Holder<T>) … }  (accepted)
+
+all four by ONE mechanism: a parameter of type `&'a T` is well-formed only if
+`T: 'a`, so **Rust IMPLIES the bound and the caller writes no `where`**.
+`compute_fn_lifetime_outlives`' `walk_implied` already reads exactly this shape
+— and emits only the REGION pairs (`'a: 'b`), dropping the type-param half on
+the floor. So a type param bounded solely by a reference in the signature looked
+to every consumer like a param with no bound at all.
+
+⚠ AND THE PROBE'S OWN SEPARATOR WAS ONE OF THEM. `i1_nobound_illegal`,
+recorded 2026-09-01d as `illegal` and the only program separating the lax arm
+from the unarmed compiler:
+
+    fn callee<'a, T>(y: &T) where T: 'a { }
+    fn caller<'a, T>(v: &T) { callee(v); }
+
+`v: &T` gives the implied `T: '1`, and the callee's `'a` — which appears ONLY
+in the where clause and is therefore unconstrained by the arguments — is
+instantiated to `'1`. **The program is legal Rust and the fix now accepts it.**
+The record's verdict column was wrong, and the columns could not see it: rule
+10, the harness measures how often a refusal site is AVOIDED.
+
+E4 deposits the implied bound before `push_type_params` captures the env (⚠ the
+first spelling put it in `compute_fn_lifetime_outlives`, which runs at
+`sema_decl.cpp:1164` — 418 lines AFTER the push at 746, so the env was already
+taken and h4/h5/h7 stayed refused). It costs NONE of the six rows: in every one
+the bounded type param is passed BY VALUE or sits under no reference in the
+caller's signature, so no implied bound exists to find.
+
+⇒ RULE 7, MEASURED AND NOT ARGUED: the crude probe and the correct fix do not
+close the same programs. Here they close the same SIX and differ on FOUR legal
+ones the probe would have refused — a cost invisible in all three columns.
+
+## 3. THE CLOSED SET, DIFFED BOTH WAYS OVER THE WHOLE ADMIT POPULATION
+
+Predicted by name in `build/predictions-2026-09-02e.txt` BEFORE the compiler was
+touched; measured by compiling all 250 admit programs, not by reading a ceiling.
+
+    predicted 6, measured 6.  predicted∖measured = {}.  measured∖predicted = {}.
+
+    ty-param-fn-body                                  nllmoves.NEW
+    ty-param-closure-approximate-lower-bound          nllmoves.NEW-S7-2
+    projection-implied-bounds                         nllmoves.NEW-2
+    suggest-…--param-may-not-live                     lifereg.L2
+    regions-infer-bound-from-trait                    lifereg.L2
+    wf-bound-region-in-local-issue-115175--wf-bound-local  lifereg.NEW-R20
+
+⚠ THE CEILING DID NOT DECAY (rule 8): `ltbndboth` priced 6 on build
+ad771b7ee3ae0b61 and the landed arm closes those exact 6 on cfd0210d3abc9440,
+with E4 added on top. Re-measured, not inherited.
+
+## 4. THE DIAGNOSTIC OF EVERY ROW, READ ON THE LANDED BINARY (rule: a row
+##    closed by a wrong message is not closed)
+
+    ty-param-fn-body   [fn region_static]: call to 'outlives': the parameter
+        type 'T' may not live long enough — 'T' requires `T: 'a` and the caller
+        does not declare it
+    ty-param-closure-…  [fn generic_fail]: call to 'invoke': … `T: 'x` …
+    projection-implied-bounds [fn generic2]: call to 'invoke2': … `T: 'a` …
+    param-may-not-live  [fn no_restriction]: call to 'with_restriction': … `T: 'b` …
+    regions-infer-bound-from-trait [fn bar1]: call to 'check_bound': the
+        parameter type 'A' … `A: 'a` …
+    wf-bound-local      [fn test]: call to 'Static': … `T: 'static` …
+        ← a TYPE-instantiation site, not a call: `check_type_bounds` is shared.
+
+Each names the right function, the right parameter and the right bound, and the
+sentence is upstream's E0310/E0311 "the parameter type `T` may not live long
+enough". All six `.expected` files pin the sentence in full.
+
+## 5. COST — THREE POPULATIONS, RE-MEASURED, AND THE FAIL HALF READ BY TEXT
+
+    pass    `gate-run.sh -L bc`   2041 passed / 0 failed of 2043   COST 0
+    cfail   fail_text_oracle.py   1124 fixtures, THREE shapes:
+                RC 0   ·   MATCH 0   ·   TEXT 0                    COST 0/1124
+    stdlib  stdlib-cost.sh        "all four layers compile"        ok
+    build   full `cmake --build`  stdlib, lforge, peg_gen_logos,
+                                  memoria fixtures, examples — clean
+
+⚠ THE cfail BASELINE IS A READ OF THE PRE-CHANGE BINARY, NOT A RECORD. The
+control revert (§7) produced build 95a2042b9b99034e and the oracle ran on it;
+the landed build is cfd0210d3abc9440. Rule 15's blind spot — a text-only change
+under a still-matching `.expected` — is therefore covered, and it is 0.
+
+## 6. RULE 5 DISCHARGED — 13 HAND PROGRAMS, MULTI-LINE, IN
+##    `build/hand-2026-09-02e/` (all 13 ACCEPTED on the unarmed binary)
+
+```
+                          unarmed  LANDED   truth   why
+h1_rename_legal            accept  accept   legal   'x instantiated to 'a
+h2_transitive_legal        accept  accept   legal   'b: 'a, T: 'b
+h3_same_name_legal         accept  accept   legal   the corpus' own shape
+h4_implied_ref_legal       accept  accept   legal   IMPLIED by `v: &'a T`   ⚠E4
+h5_implied_elided_legal    accept  accept   legal   implied, lifetime elided ⚠E4
+h6_static_param_legal      accept  accept   legal   T: 'static
+h7_implied_nested_legal    accept  accept   legal   implied THROUGH a struct ⚠E4
+h8_impl_method_legal       accept  accept   legal   bound on the IMPL's param
+i1_nobound_illegal         accept  accept   LEGAL   ⚠ §2 — the record was wrong
+i2_static_needed_illegal   accept  REFUSE   illegal wf-bound-local's shape
+a_byval_notf               accept  REFUSE   illegal 'a tied to `cell: &'a u64`
+b_byref_notf               accept  REFUSE   illegal
+c_byval_tf                 accept  REFUSE   illegal
+i3_unrelated_region_miss   accept  accept   illegal ⚠ KNOWN MISS, §8
+```
+Nine legal programs accepted, four illegal refused, one illegal MISSED and
+named. No legal program is refused by the landed arm.
+
+## 7. CONTROL REVERT — RUN BEFORE THE FIXTURES WERE BELIEVED
+
+`git stash` of the four sources, full rebuild → build 95a2042b9b99034e (the
+libs hash `gate-run` reported for the baseline build 382, so the revert is the
+baseline binary and not merely a green one). All six rows ADMITTED AGAIN, one
+by one. Restored and rebuilt → cfd0210d3abc9440, byte-identical to the landed
+build measured before the stash. The revert and the restore are both proven.
+
+## 8. ⚠ WHERE THE ARM IS INCOMPLETE, NAMED AND PINNED
+
+`i3_unrelated_region_miss` — the caller's implied bound is `T: 'b`, the callee's
+`'a` is tied to another argument, `'a` and `'b` are unrelated: upstream E0311,
+and the lax arm accepts it because it asks only whether SOME bound is declared.
+INCOMPLETE, never over-strict, which is the only direction a borrow-check
+refusal may be wrong in. Deciding it needs the lifetime SUBSTITUTION at the call
+plus the caller's region graph — `check_call_outlives`' machinery — and that is
+the same thing `projection-where-clause-none--c` needs (§10 item 3).
+
+## 9. ⛔ DECLINED BY NAME, WITH THE NUMBER THAT CONDEMNS THEM
+
+`ltbndenvname` (ceiling 5) and `ltbndstrictboth` (ceiling 7) — the strict
+spelling, which asks that the caller's set CONTAIN the required lifetime name.
+Identical to the lax arms in every column the harness owns (0 / 0 of 1124 /
+stdlib ok, digit for digit) and they refuse h1 and h2, both legal. The one extra
+row they buy — `projection-where-clause-none--c` — would be bought with a
+legal-program refusal, which is forbidden. This is `948af9cab`'s "`sig_match`
+compares lifetime NAMES" defect rebuilt one layer down. STAYS DECLINED, and the
+programs that condemn it are now fixtures (1) and (2) of
+`tests/logos/pass/bc_ltbndenv_legal_shapes`, so it cannot be re-bought silently.
+
+## 10. THE FIXTURES, IN THEIR ROOT'S HOME, IN PAIRS ONE TOKEN APART
+
+```
+tests/imported/fail/{nll/ty-param-fn-body,
+  nll/ty-param-closure-approximate-lower-bound, nll/projection-implied-bounds,
+  lifetimes/suggest-…--param-may-not-live, regions/regions-infer-bound-from-trait,
+  regions/wf-bound-region-in-local-issue-115175--wf-bound-local}
+  — moved from admit/, `.expected` pinning the full sentence, header rewritten
+    to `shelf: fail · was <root>, CLOSED 2026-09-02`.
+tests/logos/pass/bc_ltbndenv_legal_shapes   eight legal caller-env shapes; (1)
+    and (2) condemn the strict twin, (4)-(7) condemn the probe itself
+tests/logos/fail/bc_ltbndenv_byval_no_bound_fail  ONE TOKEN from (4):
+                                                  `v: T` for `v: &'a T`
+tests/logos/fail/bc_ltbndenv_static_needed_fail   ONE TOKEN from (8):
+                                                  `T` for `T: 'static`
+```
+
+## 11. LEDGER ARITHMETIC, RE-DERIVED BY DIRECT LISTING
+
+```
+# TOTAL                                      250 → 244
+awk '!/^#/ && NF' | wc -l                    244
+ls tests/imported/admit/*/*.logos | wc -l    244
+ctest -N -R '^logos_00_bc_admit_'            244
+channels   lifereg 118 → 115 · nllmoves 77 → 74 · bck 55 unmoved
+```
+Census pins re-derived, not adjusted, and the three columns moved by three
+different amounts exactly as the shape predicts:
+REGISTRY-ALL 8773→8776 (+3: -6 admit, +6 imported fail, +3 native),
+NOIMPORTED 4465→4462 (−3: the arriving fail ports ARE imported, the leaving
+admit tests never were), TIERCOMMIT 299→293 (−6, the natives declare none).
+direct_door corpus 2523→2524, nonglob 2332→2333, glob 191 unmoved.
+
+## 12. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+
+ (a) `walk_implied` (sema_decl.cpp) emits only REGION pairs and drops the
+     type-param half of an implied bound. E4 deposits it at the ONE consumer
+     that needed it (`current_type_lt_outlives_`); the pairs `walk_implied`
+     itself emits are untouched. Whether any OTHER consumer of a type param's
+     bounds is also reading a short list is unmeasured — it was in scope here
+     only because it BLOCKED the block (four legal refusals).
+ (b) `unify_types` never binds `Self` (`sema_expr.cpp:4261`,
+     `if (formal.type_var_name() == "Self") return;`), so
+     `regions-infer-bound-from-trait-self` is unreachable through THREE doors,
+     not two. Carried from 2026-09-01d §7. One ledger row. NOT pursued.
+
+## 13. ⚠ CORPUS DECISION WITH AN OWNER — CARRIED, STILL NOT EDITED
+
+`lifetimes/suggest-…--c22b-outlives-bound-ignored` (lifereg.L2) is
+`fn keep<'b, T: 'b>(x: &'b T) -> &'b T { return x; }` — LEGAL RUST, the bound is
+declared. It should be RETIRED from the ledger, not closed. Reported by
+2026-09-01d §10 and again here; not edited. Owner's call.
+
+## 14. ⇒ WHAT I DID NOT SPEND, EACH WITH THE NUMBER
+
+ 1. **The `Self` binding** — 1 row (`regions-infer-bound-from-trait-self`),
+    and it is one question, not one line: whether `Self` at an argument
+    position may bind to the impl's own type parameter. The cheapest remaining
+    ledger row in this mechanism, and the only one left in it.
+ 2. **`projection-where-clause-none--c`** — 1 row. Needs the lifetime
+    SUBSTITUTION at the call plus the caller's `'b: 'a` graph. ⚠ It is the SAME
+    machinery `i3` (§8) needs, so the two are one job worth 1 row plus a named
+    soundness hole — the best-value item on this list, and the only one that
+    makes the arm complete rather than wider.
+ 3. **M4, `regions-close-over-type-parameter-multiple`** — 1 row,
+    `dyn SomeTrait + 'c` coercion. Unpriced; a different door entirely.
+ 4. **M5, `regions-pattern-typing-issue-19552`** — 1 row, the ELIDED lifetime
+    (open item 23). Blocked on the region an elision resolves to, which no
+    predicate at the bound site has; the same wall the `'static` half named in
+    2026-09-01c and it has not moved.
+ 5. **M3** — 2 rows (`multiple-sources-for-outlives-requirement--t24`,
+    `projection-where-clause-none--b`): concrete or projection argument, so
+    the caller-env arm never fires. Needs the region graph.
+ 6. ⛔ `ltbndenvname` / `ltbndstrictboth` — 1 row, DECLINED (§9).
+ 7. **RETIRE `…--c22b-outlives-bound-ignored`** — 1 row, owner's call (§13).
+ ⇒ The `T: 'a` population is now 13 rows named, 6 closed, 1 legal-and-retirable,
+   6 open across four distinct doors. The mechanism that carried this block is
+   SPENT: every remaining row needs machinery this arm does not have.
+
+## 15. OPEN (carried, plus this round's)
+
+ 1-17. UNCHANGED from 2026-09-06a §9.
+ 18. CLOSED 2026-09-01c.
+ 19. **CLOSED** — `push_type_params` now carries `lifetime_outlives` (E1).
+ 20. CORRECTED 2026-09-01d; three of its four rows are now CLOSED, the fourth
+     (`regions-close-over-type-parameter-multiple`) is M4 and still unpriced.
+ 21. UNCHANGED.
+ 22. CLOSED as a cost 2026-09-01d.
+ 23. STANDS (the elided half, `regions-pattern-typing-issue-19552`).
+ 24. **CLOSED** — the `in_generic_context` deferral now runs the check (E3).
+ 25. STANDS: `unify_types` never binds `Self`. One row (§12b).
+ 26. STANDS: `…--c22b-outlives-bound-ignored` is LEGAL RUST (§13).
+ 27. STANDS, and this round is its second confirmation: the six closed rows
+     carry FIVE different root labels across BOTH big channels. A root is not
+     a mechanism.
+ 28. NEW: the implied type-outlives bound had no consumer (§12a). Closed at the
+     one site that needed it; the general question is unmeasured.
+ 29. NEW: the lax arm MISSES the unrelated-region case, `i3` (§8). Same
+     machinery as item 2 of §14.
+ 30. NEW, AND IT IS A METHOD RESULT: a probe recommended for funding on seven
+     correct hand verdicts and three zero columns refused FOUR legal programs,
+     one of them its own recorded illegal separator. The columns cannot see a
+     false refusal of a program the corpus does not contain (rule 10), and
+     seven hand verdicts were not enough because they were all drawn from ONE
+     shape — a `where` clause. The counter-examples that found it were written
+     by asking what OTHER syntax puts a bound in scope, not by varying the
+     programs already in hand.
+
 # ═══ ROUND 2026-09-01d — THE `T: 'a` OBLIGATION AT A BARE-TypeVar TYPE ARGUMENT
 # IS THE CALLER'S, AND THE CALLER'S OWN BOUND IS IN SCOPE NOWHERE. PLUS: A
 # SECOND DOOR IN SERIES — `in_generic_context` DEFERS THE WHOLE CALL TO MONO

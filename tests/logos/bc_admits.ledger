@@ -1084,7 +1084,7 @@
 #   note suggests) and `v[0] = v.len();` (Rust evaluates the RHS first). The
 #   region a top-level mint takes lives as long as the statement's HOLDER, which
 #   for a `let` is the bound name — an `i64` carrying no borrow. It stays a probe.
-# TOTAL 250
+# TOTAL 244
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1211,7 +1211,6 @@ mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetime
 mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17
 shadow lifereg.R17 tests/imported/admit/lifetimes/shadow
 suggest-introducing-and-adding-missing-lifetime--c22b-outlives-bound-ignored lifereg.L2 tests/imported/admit/lifetimes/suggest-introducing-and-adding-missing-lifetime--c22b-outlives-bound-ignored
-suggest-introducing-and-adding-missing-lifetime--param-may-not-live lifereg.L2 tests/imported/admit/lifetimes/suggest-introducing-and-adding-missing-lifetime--param-may-not-live
 temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor
 trait-impl-mismatch-elided-lifetime-issue-65866 lifereg.R18 tests/imported/admit/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866
 trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion
@@ -1279,7 +1278,6 @@ normalization nllmoves.NEW-N1 tests/imported/admit/nll/normalization
 pattern-substs-on-brace-enum-variant nllmoves.NEW-L1 tests/imported/admit/nll/pattern-substs-on-brace-enum-variant
 pattern-substs-on-brace-struct nllmoves.NEW-1 tests/imported/admit/nll/pattern-substs-on-brace-struct
 patterns nllmoves.R17 tests/imported/admit/nll/patterns
-projection-implied-bounds nllmoves.NEW-2 tests/imported/admit/nll/projection-implied-bounds
 projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/nll/projection-two-region-trait-bound-closure
 projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
 projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c
@@ -1289,8 +1287,6 @@ propagate-multiple-requirements nllmoves.A tests/imported/admit/nll/propagate-mu
 return-wrong-bound-region nllmoves.C tests/imported/admit/nll/return-wrong-bound-region
 sugg-mut-for-binding-issue-137486 nllmoves.D tests/imported/admit/nll/sugg-mut-for-binding-issue-137486
 trait-associated-constant nllmoves.R18 tests/imported/admit/nll/trait-associated-constant
-ty-param-closure-approximate-lower-bound nllmoves.NEW-S7-2 tests/imported/admit/nll/ty-param-closure-approximate-lower-bound
-ty-param-fn-body nllmoves.NEW tests/imported/admit/nll/ty-param-fn-body
 ty-param-fn nllmoves.NEW-N2 tests/imported/admit/nll/ty-param-fn
 type-ascription-static-lifetime nllmoves.NEW-N1 tests/imported/admit/nll/type-ascription-static-lifetime
 type-check-pointer-coercions nllmoves.R14 tests/imported/admit/nll/type-check-pointer-coercions
@@ -1336,7 +1332,6 @@ regions-implied-bounds-projection-gap-1 lifereg.N1 tests/imported/admit/regions/
 regions-in-enums-anon lifereg.R17 tests/imported/admit/regions/regions-in-enums-anon
 regions-in-structs-anon lifereg.NEW-L1 tests/imported/admit/regions/regions-in-structs-anon
 regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self
-regions-infer-bound-from-trait lifereg.L2 tests/imported/admit/regions/regions-infer-bound-from-trait
 regions-infer-call-3 lifereg.C tests/imported/admit/regions/regions-infer-call-3
 regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
@@ -1349,4 +1344,3 @@ regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-boun
 regions-steal-closure lifereg.D tests/imported/admit/regions/regions-steal-closure
 regions-var-type-out-of-scope lifereg.D tests/imported/admit/regions/regions-var-type-out-of-scope
 resolve-re-error-ice lifereg.R18 tests/imported/admit/regions/resolve-re-error-ice
-wf-bound-region-in-local-issue-115175--wf-bound-local lifereg.NEW-R20 tests/imported/admit/regions/wf-bound-region-in-local-issue-115175--wf-bound-local

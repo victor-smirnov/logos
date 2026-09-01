@@ -1,0 +1,1 @@
+call to 'invoke': the parameter type 'T' may not live long enough — 'T' requires `T: 'x` and the caller does not declare it

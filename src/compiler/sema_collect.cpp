@@ -973,6 +973,42 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         // the obligation is then the CALLER's, and the caller's own
         // `lifetime_outlives` is not in scope here.
         if (!tp.lifetime_outlives.empty()) {
+            // ── THE CALLER-ENV HALF (upstream E0310/E0311) ──────────────
+            // The type argument is a BARE TypeVar: the callee's `T: 'x` is
+            // not this function's obligation, it is the CALLER's, and until
+            // `current_type_lt_outlives_` existed the caller's own env was in
+            // scope nowhere, so the bound was checked by nobody.
+            //
+            // ⚠ THE TEST IS "THE CALLER DECLARES SOME TYPE-OUTLIVES BOUND",
+            // NOT "THE CALLER'S SET CONTAINS THE REQUIRED NAME". The strict
+            // spelling is measurably wrong: the callee's `'x` is INSTANTIATED
+            // at the call, so `callee<'x,T> where T:'x` called from
+            // `caller<'a,T> where T:'a` is a legal alpha-renaming, and a
+            // caller with `'b: 'a, T: 'b` discharges by a transitivity no
+            // comparator here computes. Comparing the two names across two
+            // functions is the defect fixed in `sig_match`; it buys one more
+            // ledger row and pays for it with those two legal programs.
+            // Deciding them needs the lifetime SUBSTITUTION at the call plus
+            // the caller's region graph — `check_call_outlives`' machinery.
+            //
+            // So this arm is INCOMPLETE and never over-strict, which is the
+            // only direction a borrow-check refusal may be wrong in.
+            if (cv.kind() == LogosType::Kind::TypeVar) {
+                std::string tvn(cv.type_var_name());
+                auto eit = current_type_lt_outlives_.find(tvn);
+                bool declared = eit != current_type_lt_outlives_.end() &&
+                                !eit->second.empty();
+                if (!declared) {
+                    if (bounds_probe_) bounds_probe_ok_ = false;
+                    else error(std::format(
+                        "call to '{}': the parameter type '{}' may not live "
+                        "long enough — '{}' requires `{}: {}` and the caller "
+                        "does not declare it",
+                        target_name, tvn, tp.name, tp.name,
+                        tp.lifetime_outlives.front()));
+                    continue;
+                }
+            }
             auto lt_norm = [](std::string_view s) {
                 std::string r{s};
                 if (!r.empty() && r[0] == '\'') r.erase(0, 1);
