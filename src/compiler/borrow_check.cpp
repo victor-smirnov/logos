@@ -8021,7 +8021,16 @@ private:
                 if (recv_contributes &&
                     (is_temporary_value_expr(v.receiver()) ||
                      (logos::probe::on("e716recvtmp") &&
-                      is_temporary_value_expr(peel_recv_base(v.receiver())))) &&
+                      is_temporary_value_expr(peel_recv_base(v.receiver()))) ||
+                     (logos::probe::on("e716recvdirect") &&
+                      is_temporary_value_expr([&]{
+                          ExprRef b = v.receiver();
+                          for (int i = 0; b && i < 8; ++i) {
+                              if (b.kind() == Code::AddrOfTemp)
+                                  { b = EAddrOfTempView{b}.inner(); continue; }
+                              break;
+                          }
+                          return b; }()))) &&
                     method_self_kind(v) != 0)
                     rp.is_temp = true;
                 // The receiver may be a BARE VarRef value-local (e.g. `Rc::deref`'s
@@ -8256,12 +8265,19 @@ private:
                 };
                 auto merge_arg_prov = [&](ExprRef a) {
                     RefProv ap = prov_of(a);
-                    if (a.kind() == Code::AddrOfTemp &&
-                        (is_temporary_value_expr(EAddrOfTempView{a}.inner()) ||
-                         (logos::probe::on("e716fldarg") &&
-                          is_temporary_value_expr(
-                              peel_temp_base(EAddrOfTempView{a}.inner())))))
-                        ap.is_temp = true;
+                    // LANDED 2026-08-31u (was `e716fldarg` + `e716rtmparg`):
+                    // the temporary may be under a field / tuple-index hop, and
+                    // it may be the `__rtmp_N` local sema materialises for a
+                    // droppable rvalue. Both are statement-scoped.
+                    if (a.kind() == Code::AddrOfTemp) {
+                        ExprRef inner = EAddrOfTempView{a}.inner();
+                        ExprRef base  = peel_temp_base(inner);
+                        if (is_temporary_value_expr(inner) ||
+                            is_temporary_value_expr(base) ||
+                            (base && base.kind() == Code::VarRef &&
+                             is_materialized_temp_name(EVarRefView{base}.name())))
+                            ap.is_temp = true;
+                    }
                     merged = merge_prov(merged, ap);
                 };
                 if (const FlowSummary* fs = flow_of_call(cv.callee())) {

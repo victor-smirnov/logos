@@ -1068,7 +1068,23 @@
 #   occurrence of it is covariant, and the meet instantiates it at the region
 #   both arguments outlive. The port dropped upstream's closure `where` bound,
 #   so what is left is a program rustc accepts. It is listed, not closed.
-# TOTAL 258
+# 2026-08-31u — 258 -> 256, TWO ROWS, ONE MECHANISM. `v[v.len()-1] = x` takes a
+#   MUT borrow of `v` for the `index_mut` receiver and a SHARED one for the
+#   `len()` receiver written inside that index. `RegionInferer` already minted
+#   the mut half at the right point and already found the conflict whenever a
+#   shared half existed; what did not exist was the shared half — a `&self`
+#   method receiver minted NO BorrowSite at all. It now mints one when the
+#   receiver is a plain VarRef in ARGUMENT position (in_call_args_depth > 0).
+#   Both rows are refused with "cannot borrow 'v' as shared: mutable borrow
+#   still in scope here", upstream's E0502 in upstream's direction, and both are
+#   relanded under tests/imported/fail/borrowck/ with the diagnostic pinned.
+# ⚠ THE WIDER RULE — the same mint at depth 0 (`rgrecvshared`) — IS NOT LANDED
+#   AND IS NOT A LARGER CEILING: it closes the same two rows and refuses two
+#   legal programs, `let n = v.len(); v[n-1] = 123;` (the rewrite upstream's own
+#   note suggests) and `v[0] = v.len();` (Rust evaluates the RHS first). The
+#   region a top-level mint takes lives as long as the statement's HOLDER, which
+#   for a `let` is the bound name — an `i64` carrying no borrow. It stays a probe.
+# TOTAL 256
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1119,9 +1135,7 @@ regions-bound-missing-bound-in-impl bck.NEW tests/imported/admit/borrowck/region
 regions-escape-bound-fn bck.C tests/imported/admit/borrowck/regions-escape-bound-fn
 regions-escape-unboxed-closure bck.B tests/imported/admit/borrowck/regions-escape-unboxed-closure
 slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck/slice-index-bounds-check-invalidation--t35
-suggest-local-var-for-vector bck.D tests/imported/admit/borrowck/suggest-local-var-for-vector
 suggest-lt-on-ty-alias-w-generics bck.A tests/imported/admit/borrowck/suggest-lt-on-ty-alias-w-generics
-suggest-storing-local-var-for-vector bck.D tests/imported/admit/borrowck/suggest-storing-local-var-for-vector
 two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-loop
 two-phase-nonrecv-autoref--a-fnmut-twice bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--a-fnmut-twice
 two-phase-nonrecv-autoref--c-mut-and-shared-args bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--c-mut-and-shared-args

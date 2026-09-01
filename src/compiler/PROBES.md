@@ -9596,3 +9596,175 @@ in a module compile.
  5. `d-index-two-phase` unbuyable while `btvec_append` keeps `f(&mut t, g(&t))`.
  6. `a-fnmut-twice` is still touched by nothing.
  7. Still no sensor asserting the ABSENCE of a duplicate line (2026-08-31t §7.5).
+
+---
+
+# ROUND 2026-08-31u — THE SHARED HALF OF A `&self` RECEIVER LANDS (2 ROWS), AND BOTH E0716 ARGUMENT DOORS CLOSE AT ZERO COST
+
+Opening gate build 311 (logosc 0.42.0-preview+main-gf262954b, libs
+905fb1a7bbc0ded7): `-R '^logos_00_bc_admit_'` 258/258 and `-L bc` 2011/2011
+ALREADY MEASURED, 5853 recorded / 0 failed / 2 disabled — the store, not a
+re-run. Probe build 065cb63432ca02df (batch of two, L1 rc 0, batch inert).
+Landed build 81e822c31f58e580.
+
+## 0. CENSUS, AND WHAT THE BRIEF GOT WRONG
+
+    live probes  134 (opening)  = 134 (landed: two added, two consumed)
+    ledger       # TOTAL 258 -> 256, re-derived by direct listing (256 rows)
+    top roots    bck.C 16 · lifereg.A 13 · nllmoves.B 11 · lifereg.R17 11 ·
+                 bck.B 11 · nllmoves.C 10 · bck.NEW 9 · lifereg.R18 8 ·
+                 lifereg.NEW-N1 8 · bck.D 8 -> 6
+
+**CORRECTION 1 — the brief's subject 3 ("two diagnostic defects the last landing
+owes") IS ALREADY DISCHARGED, and the handed report says so too.** Verified
+DIRECTLY on the pre-round binary, not inferred: `let mut x = 5; let r = &x;
+x = 7;` prints ONE line; `borrowck-closures-mut-and-imm` and
+`closure-borrow-spans--b` print one E0506 each;
+`closure-access-spans--a-closure-imm-capture-conflict` prints one line. The
+duplicate was PRE-EXISTING and unconditional (2026-08-31t §2 measured it on the
+UNARMED pre-round binary — INHERITED, not created by `capsharedlive`) and M2
+deleted it; the added line was M3's. Nothing was owed and nothing was repaired.
+
+**CORRECTION 2 — the brief's `rgrecvshared` three-program table is wrong in its
+first row**, as the handed report already said: `let n = v.len(); v[n-1] = 123;`
+is 1 region / 1 borrow / is_mut=1, identical to the illegal row. Re-measured
+here only as a legality question, and the answer is what matters: it is one of
+the two programs `rgrecvshared` REFUSES.
+
+## 1. M1 — `rgrecvnest`, LANDED. 2 ROWS. 258 -> 256
+
+`RegionInferer::walk_expr`'s MethodCall arm mints a SHARED BorrowSite for a
+plain-VarRef receiver when `in_call_args_depth > 0`. The mut half was already
+minted at the right point and already found the conflict whenever a shared half
+existed; the shared half did not exist.
+
+    site: src/compiler/region_infer.cpp::walk_expr (MethodCall arm)
+    build 065cb63432ca02df: fires 1298 · CEILING 2 · COST 0 pass · cfail 0 · stdlib ok
+
+PREDICTED BY NAME in `build/predictions-2026-08-31u.txt`, written before the
+edit. MEASURED after the landing (gate build 319, 256 passed / 2 failed):
+**closed set = predicted set, BOTH DIRECTIONS EMPTY** —
+
+    logos_00_bc_admit_borrowck_suggest-local-var-for-vector          bck.D
+    logos_00_bc_admit_borrowck_suggest-storing-local-var-for-vector  bck.D
+
+Diagnostic READ on both, upstream E0502's own direction:
+`cannot borrow 'v' as shared: mutable borrow still in scope here`.
+
+⚠ **RULE 9 — THE TWO NAMES, AND THE WIDER ONE IS NOT THE BIGGER BUY.**
+`rgrecvshared` (the same mint at depth 0) closes THE SAME TWO ROWS and refuses
+two legal programs the corpus does not contain:
+
+    let n: i64 = v.len();  v[n - 1i64] = 123i64;   the rewrite upstream SUGGESTS
+    v[0i64] = v.len();                             Rust evaluates the RHS first
+
+The mechanism is the HOLDER: a top-level mint takes the statement's holder — for
+a `let` the bound name, an `i64` carrying no borrow — so the shared region
+outlives the statement. At depth > 0 the holder is `""` and the region is
+point-scoped. It stays a probe, and the reason is now in the ledger note.
+
+## 2. M2 + M3 — `e716fldarg` + `e716rtmparg`, LANDED. 0 ROWS, TWO HOLES
+
+`merge_arg_prov` asked `is_temporary_value_expr` of the `AddrOfTemp`'s inner
+expression only. It now peels FieldRead / TupleIndex / AddrOfTemp hops, and
+accepts a peeled base that is a materialized `__rtmp_N` local — the predicate
+the `AddrOf` arm has always asked.
+
+    site: src/compiler/borrow_check.cpp::merge_arg_prov
+    e716fldarg   build 905fb1a7bbc0ded7: fires 1001 · CEILING 0 · COST 0 · cfail 0 · stdlib ok
+    e716rtmparg  build 065cb63432ca02df: fires 1001 · CEILING 0 · COST 0 · cfail 0 · stdlib ok
+
+⚠ **RULE 2, PAID: THE DOORS WERE IN SERIES AND THE SECOND WAS THE DANGEROUS
+ONE.** `keep(&mk().v)` was admitted; the SAME program with `impl Drop` was also
+admitted, and the peel alone does not reach it — sema materialises `__rtmp_N`,
+so the argument is a borrow of a NAMED LOCAL and `is_temporary_value_expr` is
+false by construction. Both halves are now landed and both are pinned, one token
+apart (`tests/logos/fail/bc_e716argtemp_field_hop_fail` and
+`.../bc_e716argtemp_rtmp_drop_fail`, differing in the `impl Drop` line).
+
+    e716_d  keep(&mk().v)                rc 0 -> 1   E0716
+    e716_i  keep(&mk().v) with impl Drop rc 0 -> 1   E0716
+
+## 3. RULE 5 — THE HAND PROGRAMS, MULTI-LINE, PROVEN LIVE BEFORE THEY WERE TRUSTED
+
+Eleven legal programs for M1, each compiled under `LOGOS_PROBE_FIRE` on the
+armed binary and each recording ≥1 fire at the new mint, all rc 0 armed and
+landed: `v.push(v.len())`, `v.set(v.len()-1,7)`, `v.swap(0,v.len()-1)`,
+`sum2(v.len(),v.len())`, `v.push(w.len())`, `v.get(v.len()-1)`,
+`v.remove(v.len()-1)`, `let x = v[v.len()-1]` (the SHARED read — one token from
+the row), `v[w.len()-1]=42`, `while n < take2(v.len(),0)`,
+`v.borrow(v.len()-1)`. THREE more fire ZERO and are recorded as boundaries, not
+counter-examples: `let n = v.len(); v[n-1]=123`, `v[0]=v.len()`,
+`p.setx(p.getx()+1)` — all at depth 0.
+
+Seven legal programs for M2/M3, all rc 0 on the landed binary, each sharing the
+`&<temp>.<field>` argument spelling with a refuse half so the arm is reached:
+`let r = &mk().v` (extension), `*keep(&mk().v)` (consumed IN the statement),
+`take(&mk().v)` (callee returns a value), `take(&mkt().v.0)` (tuple hop),
+`keep(&b.v)` / `keep(&d.v)` (named base, droppable named base),
+`take(&mkd().v)` (a materialized temp consumed in its own statement).
+
+## 4. RULE 13 — ADDITIVITY MEASURED, AND HERE IT HOLDS AT ZERO
+
+`scripts/fail_text_oracle.py`, 1103 `-L bc -L fail` fixtures, landed
+(81e822c31f58e580) against the pre-round unarmed binary (065cb63432ca02df):
+
+    rc flips 0 · .expected losses 0 · TEXT-ONLY 0 · population identical
+
+Each mechanism priced cfail 0 alone and the union is 0. That was PREDICTED in
+`build/predictions-2026-08-31u.txt` rather than assumed, which is the only form
+of the claim rule 13 allows. `-L bc` 2009 passed / 0 failed / 2 disabled.
+`stdlib-cost.sh` unarmed: all four layers. Full `cmake --build`: green.
+
+⚠ CONTROL REVERT, run BEFORE the fixtures were believed: both `.cpp` files
+reverted to HEAD, full rebuild, the seven new tests re-run. **All five
+refuse-half fixtures RED** (they compile rc 0 without the landing) and both pass
+fixtures GREEN — so the pass halves are legality pins that hold in both
+directions, and every fail half is ratcheted by the mechanism it names.
+
+## 5. ⛔ DECLINED BY NAME, WITH THE NUMBER THAT CONDEMNS IT
+
+**`rgrecvshared`** — 2 legal programs refused (§1). Ceiling is the SAME 2 rows,
+so the wider rule buys nothing and costs two.
+
+**`e716recvtmp`** (peel Field/TupleIndex/AddrOfTemp at the MethodCall receiver)
+— `logos.mem`, 1 refusal. **`e716recvdirect`**, installed this round to test
+whether the FIELD HOP was to blame (peel AddrOfTemp ONLY): fires 1306, CEILING 0,
+COST 0 pass, cfail 0, **stdlib ⛔ mem, THE SAME 1 refusal**. So the hop is NOT
+the cause and narrowing along that axis is refuted.
+
+**THE WALL, NAMED SO THE NEXT ROUND DOES NOT RE-DISCOVER IT.** The refusing
+statement is `let segs_any: WAny = prog.segs.any();` in
+`stdlib/mem/wql/srcloc.logos::resolve`. Localised by ONE-VARIABLE REBIND, not by
+reading: rebinding `segs.seg_at(i-1).end` (the other candidate in the same fn)
+left the count at 1; rebinding `prog.segs` took it to 0. `prog` is a Writ SCHEMA
+view, so `prog.segs` is a generated ACCESSOR returning a `WRef<RQSrcSegArr>` BY
+VALUE — a temporary — and `.any()` is a `&self` method on it. **The reference
+does not dangle, because the temporary is a HANDLE into arena storage, not the
+storage.** Any E0716 rule keyed on "the receiver is a temporary" alone refuses
+`logos.mem`; the rule that could land needs the temporary to OWN its referent.
+That is a TYPE question, and nothing at that site asks one today.
+
+⚠ AND A SECOND FINDING, SEEN WHILE LOCALISING AND NOT INVESTIGATED: the rebind
+`let sref: WRef<RQSrcSegArr> = prog.segs; sref.any()` does not COMPILE —
+`mlir_gen` self-diagnoses "`let segs_any` initializer produced no value (method
+call 'any' resolved to '') — statement DROPPED". A `WRef<T>` in a local binding
+loses method resolution that the same expression keeps inline.
+
+## 6. OPEN
+
+ 1. The three E0716 ledger rows (`borrowck-borrowed-uniq-rvalue`, `-2`,
+    `issue-36082`) — legal Rust, ports into the one position Rust extends. A
+    CORPUS DECISION WITH AN OWNER: they should be RETIRED, not bought. Unchanged
+    from 2026-09-01 §1; still not acted on.
+ 2. `mk().view()` (`e716_g`) — a real dangling-reference hole with no ledger row,
+    blocked by the wall in §5.
+ 3. The E0716 report carries NO FILE OR LINE in an `--emit-module` build; `fn
+    resolve` was all four `resolve`s in `logos.mem` at once, which is why §5 cost
+    two stdlib compiles instead of a glance.
+ 4. `WRef<T>` local binding loses method resolution (§5).
+ 5. `two-phase-nonrecv-autoref--c` vs the pass fixture `tpb-mut-with-shared-ref-arg`
+    — one program booked twice. Unchanged.
+ 6. `d-index-two-phase` unbuyable while `btvec_append` keeps `f(&mut t, g(&t))`.
+ 7. `a-fnmut-twice` is still touched by nothing.
+ 8. Still no sensor asserting the ABSENCE of a duplicate line.

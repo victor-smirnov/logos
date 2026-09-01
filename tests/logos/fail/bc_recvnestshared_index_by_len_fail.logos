@@ -1,0 +1,14 @@
+// THE REFUSE HALF of tests/logos/pass/bc_recvnestshared_legal_shapes (1), ONE
+// TOKEN apart: there the length is read into `n` on its own statement, here
+// `v.len()` is written inside the index of the very assignment that mut-borrows
+// `v` for `index_mut`. A `&self` method receiver in ARGUMENT position now mints
+// its shared BorrowSite, so the two halves conflict. Upstream E0502.
+// LANDED 2026-08-31u.
+package bc_recvnestshared_index_by_len_fail;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(0i64);
+    v[v.len() - 1i64] = 123i64;
+    return 0i32;
+}

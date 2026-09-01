@@ -1,0 +1,126 @@
+// COST 0 IS NOT A SAFETY CLAIM (rule 5). `rgrecvnest` priced CEILING 2 / COST 0
+// pass / cfail 0 / stdlib 4/4, and a `&self` method call inside another call's
+// arguments is one of the commonest shapes in the language — so the programs
+// below ARE the safety argument, not the corpus. Every one was compiled under
+// LOGOS_PROBE_FIRE on the armed binary and reached the new mint at least once,
+// except (1), (7) and (8), whose receiver is at in_call_args_depth 0 and which
+// are here to state that boundary rather than to test inside it.
+//
+// The mechanism: in `RegionInferer`'s MethodCall arm a plain-VarRef receiver in
+// ARGUMENT position (in_call_args_depth > 0) mints a SHARED BorrowSite, which
+// is the half that was missing — the `index_mut` receiver's MUT BorrowSite was
+// already minted at the right point and found no conflict because nothing shared
+// existed. The WIDER rule that mints at depth 0 too (`rgrecvshared`) stays a
+// PROBE: it refuses (1) and (7), which are legal in Rust and are the very
+// rewrite upstream's E0502 note suggests.
+//
+// ⚠ THE REFUSE HALF IS tests/logos/fail/bc_recvnestshared_index_by_len_fail —
+// ONE TOKEN apart from (1): there the length is read into `n` first, in the
+// refuse half it is spelled inside the index of the mutating assignment.
+package bc_recvnestshared_legal_shapes;
+use logos.mem.collections.vec;
+
+// (1) the SPLIT the upstream diagnostic suggests: the shared read is its own
+//     statement. depth 0 — and this is one of the two programs `rgrecvshared`
+//     wrongly refuses.
+fn f1() -> i64 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(7i64);
+    let n: i64 = v.len();
+    v[n - 1i64] = 123i64;
+    return v[0i64];
+}
+
+// (2) two-phase: a mut-self receiver whose ARGUMENT reads the same vector.
+fn f2() -> i64 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    v.push(v.len());
+    return v[1i64];
+}
+
+// (3) the same through a two-argument mut-self method.
+fn f3() -> i64 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    v.set(v.len() - 1i64, 9i64);
+    return v[0i64];
+}
+
+// (4) both arguments of a free function read the same vector, shared + shared.
+fn sum2(a: i64, b: i64) -> i64 { return a + b; }
+fn f4() -> i64 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    return sum2(v.len(), v.len());
+}
+
+// (5) a SHARED index read whose index is a shared receiver call — one token
+//     from the refuse half, and legal because neither half is mutable.
+fn f5() -> i64 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(4i64);
+    return v[v.len() - 1i64];
+}
+
+// (6) the receiver in the argument is a DIFFERENT vector.
+fn f6() -> i64 {
+    let mut v: Vec<i64> = Vec::new();
+    let mut w: Vec<i64> = Vec::new();
+    w.push(3i64);
+    v.push(w.len());
+    return v[0i64];
+}
+
+// (7) the RHS of an index assignment: depth 0, and Rust evaluates it before the
+//     place, so it is legal. The second program `rgrecvshared` wrongly refuses.
+fn f7() -> i64 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(0i64);
+    v[0i64] = v.len();
+    return v[0i64];
+}
+
+// (8) a `&self` getter feeding a `&mut self` setter on the same struct.
+struct P { x: i64 }
+impl P {
+    fn getx(&self) -> i64 { return self.x; }
+    fn setx(&mut self, n: i64) { self.x = n; }
+}
+fn f8() -> i64 {
+    let mut p: P = P { x: 1i64 };
+    p.setx(p.getx() + 1i64);
+    return p.x;
+}
+
+// (9) the shared receiver call is the loop CONDITION's argument.
+fn f9() -> i64 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    let mut n: i64 = 0i64;
+    while n < sum2(v.len(), 0i64) { n = n + 1i64; }
+    v.push(n);
+    return v[1i64];
+}
+
+// (10) a `&self` method returning a REFERENCE, called in argument position.
+fn f10() -> i64 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(5i64);
+    let r: &i64 = v.borrow(v.len() - 1i64);
+    return *r;
+}
+
+fn main() -> i32 {
+    if f1()  != 123i64 { return 1i32; }
+    if f2()  != 1i64   { return 2i32; }
+    if f3()  != 9i64   { return 3i32; }
+    if f4()  != 2i64   { return 4i32; }
+    if f5()  != 4i64   { return 5i32; }
+    if f6()  != 1i64   { return 6i32; }
+    if f7()  != 1i64   { return 7i32; }
+    if f8()  != 2i64   { return 8i32; }
+    if f9()  != 1i64   { return 9i32; }
+    if f10() != 5i64   { return 10i32; }
+    return 0i32;
+}

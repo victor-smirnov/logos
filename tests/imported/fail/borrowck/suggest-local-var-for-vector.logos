@@ -1,6 +1,9 @@
 // rustc borrowck/suggest-local-var-for-vector.rs — upstream E0502
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.D
+// shelf: pin — WAS root bck.D, CLOSED 2026-08-31u. `v[v.len()-1] = x`
+// takes a MUT borrow of `v` for `index_mut` and a SHARED one for the
+// `len()` receiver inside its own index argument; the shared half had no
+// BorrowSite, so nothing conflicted. RegionInferer now mints it.
 package suggest_local_var_for_vector;
 fn main() -> i32 {
     let mut v: Vec<u32> = Vec::new();

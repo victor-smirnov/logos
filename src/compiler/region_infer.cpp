@@ -470,10 +470,13 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
                         logos::probe::census(in_call_args_depth > 0
                                              ? "mcrecv.nested" : "mcrecv.top");
                     }
+                    // LANDED 2026-08-31u (was `rgrecvnest`): a `&self`
+                    // receiver in ARGUMENT position mints its shared half.
+                    // `rgrecvshared` — the same mint at depth 0 — stays a
+                    // probe: it refuses legal programs (PROBES.md).
                     if (rcv.kind() == ECode::VarRef &&
-                        (logos::probe::on("rgrecvshared") ||
-                         (in_call_args_depth > 0 &&
-                          logos::probe::on("rgrecvnest")))) {
+                        (in_call_args_depth > 0 ||
+                         logos::probe::on("rgrecvshared"))) {
                         BorrowSite bs;
                         bs.region = fresh_region();
                         bs.origin = origin;

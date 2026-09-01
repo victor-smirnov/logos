@@ -1,0 +1,17 @@
+// THE SECOND DOOR IN SERIES (rule 2), ONE TOKEN from
+// tests/logos/fail/bc_e716argtemp_field_hop_fail: the `impl Drop` line. With a
+// destructor, sema MATERIALISES the rvalue into a `__rtmp_N` local, so the
+// argument is no longer a borrow of a temporary EXPRESSION but a borrow of a
+// named local — and the peel that closes the no-Drop program walks straight
+// past it. The base is now also accepted when it is a materialized temp name,
+// which is the predicate the AddrOf arm has always asked. Upstream E0716.
+// LANDED 2026-08-31u.
+package bc_e716argtemp_rtmp_drop_fail;
+struct B { v: i64 }
+impl Drop for B { fn drop(self: &mut B) { self.v = 0i64; } }
+fn mk() -> B { return B { v: 1i64 }; }
+fn keep(a: &i64) -> &i64 { return a; }
+fn main() -> i32 {
+    let r: &i64 = keep(&mk().v);
+    return *r as i32;
+}

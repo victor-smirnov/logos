@@ -1,0 +1,15 @@
+// THE REFUSE HALF of tests/logos/pass/bc_e716argtemp_legal_shapes (1), ONE
+// TOKEN apart: there `&mk().v` is bound DIRECTLY by a `let`, which is the one
+// position Rust extends a temporary's lifetime into; here the same borrow is
+// passed THROUGH a function that returns it, and extension does not apply.
+// `merge_arg_prov` asked `is_temporary_value_expr` of the AddrOfTemp's inner
+// expression only, so a FIELD hop (`&mk().v`, `&mk().0`) hid the temporary and
+// the returned reference dangled. Upstream E0716. LANDED 2026-08-31u.
+package bc_e716argtemp_field_hop_fail;
+struct B { v: i64 }
+fn mk() -> B { return B { v: 1i64 }; }
+fn keep(a: &i64) -> &i64 { return a; }
+fn main() -> i32 {
+    let r: &i64 = keep(&mk().v);
+    return *r as i32;
+}

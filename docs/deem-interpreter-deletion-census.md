@@ -4887,9 +4887,26 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8747 -> 8749   +2
 #   NOIMPORTED   4451 -> 4449   -2
 #   TIERCOMMIT    311 ->  307   -4
-REGISTRY-ALL         8749
-REGISTRY-NOIMPORTED  4449
-REGISTRY-TIERCOMMIT  307
+# 2026-08-31u — ONE MECHANISM WITH ROWS AND TWO WITHOUT. M1: a `&self` method
+# receiver in ARGUMENT position mints its shared BorrowSite in `RegionInferer`,
+# 2 ledger rows. M2/M3: `merge_arg_prov` peels field / tuple-index / addr-of-temp
+# hops and also accepts a materialized `__rtmp_N` base, 0 rows and two
+# dangling-reference holes closed. FIVE new native fixtures (2 pass, 3 fail) and
+# two `logos_00_bc_admit_*` rows deleted, their programs relanded as imported
+# fail fixtures in their own root's home (tests/imported/fail/borrowck/).
+#   ALL          +5 (the five native fixtures); the two moved rows are
+#                registered either way — as an admit row or as a fail port.
+#   NOIMPORTED   +5 - 2 = +3: the two admit rows are registered NATIVELY
+#                (`logos_00_bc_admit_*`) and their fail homes carry the
+#                `imported` label, so they LEAVE this count.
+#   TIERCOMMIT   -2: `logos_00_bc_admit_*` is the tier_commit-labelled ledger,
+#                and none of the five new native fixtures is tier_commit.
+#   ALL          8749 -> 8754   +5
+#   NOIMPORTED   4449 -> 4452   +3
+#   TIERCOMMIT    307 ->  305   -2
+REGISTRY-ALL         8754
+REGISTRY-NOIMPORTED  4452
+REGISTRY-TIERCOMMIT  305
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

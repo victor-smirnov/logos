@@ -1204,9 +1204,17 @@ PIN = {
     #   ls tests/logos/pass/*.logos                      -> 2512
     #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
     #   the same listing minus the glob half             -> 2321
-    'corpus'            : 2512,
+    # 2026-08-31u: +2 native pass fixtures, bc_recvnestshared_legal_shapes (ten
+    # legal `&self`-receiver-in-argument shapes) and bc_e716argtemp_legal_shapes
+    # (seven legal borrows of a temporary's field). Their three refuse halves are
+    # FAIL fixtures and the 2 closed ledger rows are IMPORTED admit -> fail, so
+    # neither touches this count. BY DIRECT LISTING:
+    #   ls tests/logos/pass/*.logos                      -> 2514
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
+    #   the same listing minus the glob half             -> 2323
+    'corpus'            : 2514,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2321,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2323,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

@@ -1,0 +1,88 @@
+// COST 0 IS NOT A SAFETY CLAIM (rule 5). `e716fldarg` and `e716rtmparg` each
+// priced CEILING 0 / COST 0 pass / cfail 0 / stdlib 4/4 — 0 ROWS, so the whole
+// case for landing them is two dangling-reference holes and the programs below,
+// which say where the new refusal STOPS. Every one of them shares the argument
+// spelling `&<temp>.<field>` with the refuse halves and therefore reaches the
+// same arm; what differs is what the STATEMENT then does with the result.
+//
+// The mechanism: in `merge_arg_prov` an `AddrOfTemp` argument is a borrow of a
+// temporary when the base under any run of FieldRead / TupleIndex / AddrOfTemp
+// hops is a temporary VALUE, or is the `__rtmp_N` local sema materialises for a
+// droppable rvalue. Extension is a property of the CONSUMING SITE, not of the
+// expression — `let r = &mk().v;` extends and stays legal, `keep(&mk().v)` does
+// not — and that is exactly the line (1) and (2) draw against the refuse halves.
+//
+// ⚠ THE REFUSE HALVES ARE tests/logos/fail/bc_e716argtemp_field_hop_fail and
+// .../bc_e716argtemp_rtmp_drop_fail — ONE TOKEN from (2) and (3) below (there
+// the borrow goes through `keep`, which returns it; here it is bound directly,
+// or the callee returns a VALUE).
+package bc_e716argtemp_legal_shapes;
+
+struct B { v: i64 }
+struct T { v: (i64, i64) }
+struct D { v: i64 }
+impl Drop for D { fn drop(self: &mut D) { self.v = 0i64; } }
+
+fn mk()  -> B { return B { v: 1i64 }; }
+fn mkt() -> T { return T { v: (1i64, 2i64) }; }
+fn mkd() -> D { return D { v: 1i64 }; }
+
+fn keep(a: &i64) -> &i64 { return a; }
+fn take(a: &i64) -> i64  { return *a; }
+
+// (1) TEMPORARY LIFETIME EXTENSION: a DIRECT `&<rvalue>.<field>` bound by a
+//     `let` outlives the statement in Rust, and must keep doing so here. This
+//     is the position the three E0716 ledger rows were ported into.
+fn f1() -> i64 {
+    let r: &i64 = &mk().v;
+    return *r;
+}
+
+// (2) the borrow of a temporary goes through a function, but the result is
+//     CONSUMED INSIDE THE STATEMENT — the temporary is still alive there.
+fn f2() -> i64 {
+    return *keep(&mk().v);
+}
+
+// (3) the callee returns a VALUE, so nothing points into the temporary at all.
+fn f3() -> i64 {
+    return take(&mk().v);
+}
+
+// (4) a TUPLE-INDEX hop, same rule as the field hop.
+fn f4() -> i64 {
+    return take(&mkt().v.0);
+}
+
+// (5) the base is a NAMED local, not a temporary: the reference outlives the
+//     statement and the call may return it.
+fn f5() -> i64 {
+    let b: B = B { v: 1i64 };
+    let r: &i64 = keep(&b.v);
+    return *r;
+}
+
+// (6) the same with a DROPPABLE named local — no `__rtmp_N` is materialised
+//     for a value that already has storage.
+fn f6() -> i64 {
+    let d: D = D { v: 1i64 };
+    let r: &i64 = keep(&d.v);
+    return *r;
+}
+
+// (7) the droppable rvalue IS materialised into `__rtmp_N`, and the borrow is
+//     consumed inside the statement.
+fn f7() -> i64 {
+    return take(&mkd().v);
+}
+
+fn main() -> i32 {
+    if f1() != 1i64 { return 1i32; }
+    if f2() != 1i64 { return 2i32; }
+    if f3() != 1i64 { return 3i32; }
+    if f4() != 1i64 { return 4i32; }
+    if f5() != 1i64 { return 5i32; }
+    if f6() != 1i64 { return 6i32; }
+    if f7() != 1i64 { return 7i32; }
+    return 0i32;
+}
