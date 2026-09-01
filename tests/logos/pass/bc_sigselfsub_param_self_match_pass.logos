@@ -1,0 +1,27 @@
+// The twin of tests/logos/fail/bc_sigselfsub_param_self_mismatch_fail, one
+// token apart: `other: &R` instead of `other: &i64`. It must still compile —
+// the conformance check substitutes Self, it does not refuse the slot.
+package bc_sigselfsub_param_self_match_pass;
+
+struct R {
+    v: i64,
+}
+
+trait Same {
+    fn same(self: &Self, other: &Self) -> bool;
+}
+
+impl Same for R {
+    fn same(self: &R, other: &R) -> bool {
+        return self.v == other.v;
+    }
+}
+
+fn main() -> i32 {
+    let a: R = R { v: 7i64 };
+    let b: R = R { v: 7i64 };
+    if a.same(&b) {
+        return 0;
+    }
+    return 1;
+}

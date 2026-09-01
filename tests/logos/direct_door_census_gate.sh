@@ -1212,16 +1212,17 @@ PIN = {
     #   ls tests/logos/pass/*.logos                      -> 2514
     #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
     #   the same listing minus the glob half             -> 2323
-    # 2026-09-02w: +1 native pass fixture, bc_e716recvtemp_legal_shapes (six
-    # legal method-receiver shapes over a temporary). Its refuse half
-    # (bc_e716recvtemp_nodrop_fail) is a FAIL fixture and the mechanism closes
-    # NO ledger row, so nothing else here moves. BY DIRECT LISTING:
-    #   ls tests/logos/pass/*.logos                      -> 2515
+    # 2026-09-04y: +2 native pass fixtures, bc_sigselfsub_param_self_match_pass
+    # and bc_sigselfsub_param_self_byvalue_pass — the two legal twins, one token
+    # apart, of the two new `bc_sigselfsub_*_fail` fixtures. Both refuse halves
+    # are FAIL fixtures and the mechanism closes NO ledger row, so only the two
+    # pass halves move this census. BY DIRECT LISTING:
+    #   ls tests/logos/pass/*.logos                      -> 2517
     #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
-    #   the same listing minus the glob half             -> 2324
-    'corpus'            : 2515,
+    #   the same listing minus the glob half             -> 2326
+    'corpus'            : 2517,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2324,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2326,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

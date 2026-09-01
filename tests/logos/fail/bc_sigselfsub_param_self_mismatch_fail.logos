@@ -1,0 +1,29 @@
+// A trait method parameter declared `&Self` is NOT a wildcard: the impl must
+// declare the impl's own type there. Before 2026-09-04y `Self` was an
+// unsubstituted TypeVar at the conformance check, `is_generic_param` skipped the
+// slot WHOLE, and this program compiled. PROBES.md 2026-09-04y.
+// Its twin one token apart is tests/logos/pass/bc_sigselfsub_param_self_match_pass.
+package bc_sigselfsub_param_self_mismatch_fail;
+
+struct R {
+    v: i64,
+}
+
+trait Same {
+    fn same(self: &Self, other: &Self) -> bool;
+}
+
+impl Same for R {
+    fn same(self: &R, other: &i64) -> bool {
+        return self.v == *other;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 7i64 };
+    let n: i64 = 7i64;
+    if r.same(&n) {
+        return 0;
+    }
+    return 1;
+}

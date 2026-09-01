@@ -3510,8 +3510,13 @@ void SemaChecker::collect_impl(TinyMapView node) {
         ctx_ = std::format("{}impl {} for {}", impl_is_unsafe ? "unsafe " : "", trait_name, target);
     // Set Self → the concrete target type so method signatures resolve *const Self, etc.
     // For generic impl<T> Foo<T>: Self = Foo<T> (TypeVars); for impl Foo<i32>: Self = Foo<i32>.
+    // ⚠ `target_resolved` IS NULL FOR A PLAIN NOMINAL TARGET — the last `else`
+    // of the switch above spells the target's NAME and drops the type. `Self` is
+    // recovered by the fallback chain below; carry it so the trait-conformance
+    // check further down can substitute it. PROBES.md 2026-09-04y.
+    TypeRef impl_self_ty = nullptr;
     {
-        TypeRef self_type = nullptr;
+        TypeRef& self_type = impl_self_ty;
         if (target_resolved) {
             // Concrete specialization: use the fully resolved type (preserves type_args).
             self_type = target_resolved;
@@ -4249,6 +4254,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             trait_arg_subst[tps[ti].name] = trait_type_args[ti];
                     }
                 }
+                // `Self` too: without it every `&Self` parameter is skipped
+                // WHOLE by is_generic_param below and the impl may declare any
+                // type in that slot. PROBES.md 2026-09-04y.
+                if (impl_self_ty) trait_arg_subst["Self"] = impl_self_ty;
+                std::string self_mismatch_note;
                 const SemaFuncInfo* matching = nullptr;
                 for (auto* c : cands) {
                     int variadic_pos = -1;
@@ -4383,7 +4393,16 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         if (logos::probe::on("sigparamlt") &&
                             !detail::types_equal_with_lifetimes(tp, cp))
                             { sig_match = false; break; }
-                        if (!types_equal(tp, cp)) { sig_match = false; break; }
+                        if (!types_equal(tp, cp)) {
+                            // Only reachable for a `Self`-shaped trait slot
+                            // because of the substitution above.
+                            if (self_mismatch_note.empty() &&
+                                is_generic_param(m.param_types[k]))
+                                self_mismatch_note = std::format(
+                                    "parameter {} is declared '{}' and the impl "
+                                    "declares '{}'", k, type_str(tp), type_str(cp));
+                            sig_match = false; break;
+                        }
                         if (_apar && !_alpha_ok(tp, cp)) { sig_match = false; break; }
                     }
                     // Per-element check past the pack position: each
@@ -4571,6 +4590,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     for (auto* df : find_func_candidates(dmangled))
                         const_cast<SemaFuncInfo*>(df)->is_pub = true;
                     current_type_params_.erase("Self");
+                } else if (!self_mismatch_note.empty()) {
+                    error(std::format("impl {} for {}: method '{}' does not match "
+                          "the trait declaration: {}",
+                          trait_name, target, m.name, self_mismatch_note));
                 } else if (logos::probe::on("sigdiagmm") && !cands.empty()) {
                     // PROBE sigdiagmm — M-SIG step 1: the mismatch has no diagnostic.
                     error(std::format("impl {} for {}: method '{}' does not match the trait declaration's signature",

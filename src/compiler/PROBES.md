@@ -10608,3 +10608,229 @@ measured, not edited.
 10. NEW: the `-L bc -L fail` population contains 1 of the 9 fixtures that pin a
     "missing method" diagnostic. No cost column this harness owns can price a
     change to the other 8.
+
+# ═══ ROUND 2026-09-04y — M-SIG §6.1 LANDS: `Self` IS SUBSTITUTED AT THE
+# CONFORMANCE SITE, TWO PERMISSIVE HOLES CLOSE AT ZERO ON ALL THREE COLUMNS,
+# AND THE ARM THAT MEASURED 0/0/ok FIRST WAS READING A NULL ══════════════════
+
+Opening HEAD `1e56696b0`. Opening probe build **0e33c50d88ec96d7** (READ),
+gate build 342. Landing build **e9367f770ef669b7**.
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE)
+
+    live probes  145 (opening)
+    ledger       # TOTAL 256   (256 by direct listing: awk '!/^#/ && NF')
+    top roots    bck.C 16 · lifereg.A 13 · nllmoves.B 11 · lifereg.R17 11 ·
+                 bck.B 11 · nllmoves.C 10 · bck.NEW 10 · lifereg.R18 8 ·
+                 lifereg.NEW-N1 8 · lifereg.NEW-R20 7 · lifereg.N1 7 · lifereg.C 7
+    baseline     ledger 256/256 and `-L bc` 1110/1110, both READ from the store
+                 (build 342), 0 failed.
+
+**THE BRIEF IS STALE FOR THE FOURTH ROUND RUNNING, and this time it names as
+"unfunded" a goal that has now been priced TWICE.** M-SIG was priced by name in
+2026-09-02w §6 (three name-compare arms, all declined) and again in 2026-09-03x
+(five alpha arms, all declined). Its stated secondary — the `o.get().view()`
+false refusal — landed as `e716recvrefbase` two rounds ago. What was actually
+open was 2026-09-03x §6.1, the named PREREQUISITE: substitute `Self` into the
+trait signature at the `sig_match` site. **That is what this round bought, and
+it lands.**
+
+## 1. COUNTER-EXAMPLES FIRST — THREE PERMISSIVE HOLES, BY HAND, ON THE UNARMED
+##      BINARY, WITH A CONTROL THAT PROVES THE SITE LIVE
+
+    build/hand-msigself/, MULTI-LINE, unarmed 0e33c50d88ec96d7:
+      h_paramself   trait `fn same(&Self, other: &Self)` / impl `other: &i64`
+                                                            rc 0  ADMITTED
+      h_ret         trait `fn get(&Self) -> i64`     / impl `-> bool`
+                                                            rc 0  ADMITTED
+      h_self0       trait `fn get(self: &Self)`      / impl `fn get(self: &Q)`
+                                                            rc 0  ADMITTED
+      h_ctl_param   trait `fn take(&Self, other: i64)` / impl `other: bool`
+                                                            rc 1  REFUSED  ⇐ CONTROL
+
+The control is the whole reason the three zeros above are readable: the
+comparison loop RUNS and refuses a concrete param mismatch. It refuses with
+`missing method 'take'`, which is 2026-09-03x §5's wrong-diagnostic defect,
+still the owner's.
+
+None of the three is a ledger row and none can become one — `bc_admits.ledger`
+is a BORROW-CHECK admission ledger and these are TRAIT CONFORMANCE.
+
+## 2. ⚠ THE FIRST BATCH'S 0/0/ok WAS A BROKEN HOP (RULES 1 AND 11)
+
+Batch 1 (build ae83f86e5d0688ba) read `Self` from `target_resolved`:
+
+    probe        fires    ceiling  cost  cfail  stdlib
+    sigselfsub  4289761      0       0      0     ok      ← LOOKS LANDABLE
+    sigself0    5529594      6       5      0     ok
+    sigretty    1159383    256    1099   1103     ⛔
+
+**AND THE HAND PROGRAMS REFUSED IT: `sigselfsub` did not close `h_paramself`
+and `sigself0` did not close `h_self0`.** Diagnosed with a temporary `sigdbg`
+print at the param walk — `tp=&Self cp=&i64 gen_tp=1 substsz=0` — the
+substitution map was EMPTY.
+
+    ⇒ `target_resolved` IS NULL FOR A PLAIN NOMINAL IMPL TARGET.
+
+`collect_impl`'s target switch binds `target_resolved` in the PTR_TYPE,
+UNSIZED_SLICE, DYN, GENERIC_INST, TUPLE and FN_PTR branches and NOT in the
+final `else` — the branch that handles `impl Trait for R`, which is almost
+every impl in the tree. The ⚠ comment on the PTR_TYPE branch says "Every
+sibling branch below binds `target_resolved`"; **that sentence is false, and it
+is the same defect it was written to warn about.**
+
+So batch 1's `sigselfsub` 0/0/ok measured a substitution that never happened,
+and `sigself0`'s 6/5 measured the same arm restricted to the six target shapes
+that DO bind the field — a real number for a much narrower predicate than its
+name claims. A CEILING AND A COST CAN BOTH BE HONEST AND BOTH BE ABOUT
+SOMETHING ELSE.
+
+Also measured and worth keeping: **`logos_00_key_identity_lint` refused batch 0
+before any number was read**, because the first cut said
+`current_type_params_.find("Self")` — a new FACT-5 bare entity-name argument,
+13 against 12 pinned. The gate was right; the arm was re-cut to carry the type
+instead of looking it up by name.
+
+## 3. THE RE-CUT, AND THE FOUR ARMS PRICED — build 0b9a8025eb05343a
+
+`impl_self_ty` hoists the impl-level `self_type` (the same fallback chain that
+binds `Self` for every method body) out of its block and carries it to the
+conformance check. `sigselfhoist` is the hoist ALONE and is NOT a probe:
+
+    probe          fires    ceiling  cost  cfail  stdlib  verdict
+    sigselfhoist         0     —      —      —      —     NEVER FIRED (asserted inert)
+    sigselfsub     6322441     0       0      0     ok    ✅ LANDS
+    sigself0       7486541   256    1099   1103     ⛔    ⛔ DECLINED
+    sigretty       1159383   256    1099   1103     ⛔    ⛔ DECLINED
+    sigrettyself   7412921     0      71      6     ⛔    ⛔ DECLINED
+
+    hand programs, same binary:
+                     unarmed  sigselfsub  sigself0  sigretty  sigrettyself
+      h_paramself       0         1          ⛔        ⛔          1
+      h_ret             0         0          ⛔        ⛔          1
+      h_self0           0         0          ⛔        ⛔          0
+      h_ctl_param       1         1          ⛔        ⛔          1
+      (⛔ = refused on a PRELUDE impl, so the program was never reached)
+
+## 4. ✅ LANDED — `Self` SUBSTITUTED INTO THE TRAIT SIGNATURE'S PARAMETERS
+
+CEILING 0 rows · COST 0 pass · 0 of 1110 cfail · stdlib 4-of-4 ok · fires 6.3M.
+PREDICTED 0 rows and "must close h_paramself, must not close h_ret or h_self0":
+**exact, both directions.**
+
+SIX LEGAL HAND PROGRAMS, written before the landing and all rc 0 under it —
+`l1_same_spelling` (impl spells `&R`), `l2_generic_impl` (`impl<T> Tr for
+Foo<T>` against `&Self`), `l3_self_spelled` (impl spells `&Self` too),
+`l4_prim_target` (`impl Tr for i64`), `l5_traitparam_and_self` (a trait TYPE
+param and `Self` in one signature), `l6_self_by_value` (`other: Self`).
+COST 0 IS NOT A SAFETY CLAIM — these are why the zero is believed.
+
+**AND IT REPAIRS THE DIAGNOSTIC, FOR THE PROGRAMS IT NEWLY REFUSES ONLY.** A
+rejection at a slot whose UNSUBSTITUTED trait type was generic — the slot that
+was skipped before this landing — records which slot and both spellings, and
+the error names it:
+
+    impl Same for R: method 'same' does not match the trait declaration:
+      parameter 1 is declared '&R' and the impl declares '&i64'
+
+The pre-existing `missing method` path is untouched (`h_ctl_param` still prints
+it), which is why the three `.expected` files 2026-09-03x §5 identified as a
+CORPUS DECISION are not disturbed. `fail_text_oracle.py`: **0 of 1110 changed
+against the round-opening build 0e33c50d88ec96d7** — no rc change, no
+`.expected` lost, no text-only change, no un-refusal.
+
+CONTROL REVERT, on the reverted source rebuilt: both new fail fixtures compile
+rc 0 and print nothing. They are red without the landing and green with it.
+
+    tests/logos/fail/bc_sigselfsub_param_self_mismatch_fail   `other: &i64`
+    tests/logos/pass/bc_sigselfsub_param_self_match_pass      `other: &R`
+    tests/logos/fail/bc_sigselfsub_param_self_byvalue_fail    `other: Q`
+    tests/logos/pass/bc_sigselfsub_param_self_byvalue_pass    `other: R`
+
+Two PAIRS, one token apart, diagnostics pinned in full.
+
+## 5. ⛔ DECLINED BY NAME, WITH THE NUMBER THAT CONDEMNS EACH
+
+**`sigself0` — slot 0 compared. ⛔ STDLIB.** 256 / 1099 / 1103 / ⛔, and the
+first refusal is `impl Pattern for str: missing method 'find_in'`. `Self` for a
+`str` target is an UnsizedSlice built by a special case; the impl writes its
+receiver in a spelling `types_equal` does not accept against it. THE SLOT-0
+HOLE IS REAL (`h_self0` is still admitted after this round) AND IT IS NOT
+CLOSED. 2026-09-01v §7 shelved 3 ledger rows under M-SELF; this is the
+plain-type half of the same site and it needs a receiver-aware comparison, not
+`types_equal`.
+
+**`sigretty` — the return type compared, WITHOUT the Self substitution.**
+256 / 1099 / 1103 / ⛔, 15 stdlib refusals, first `impl TryFrom for i8: missing
+method 'try_from'`. TryFrom's declared return MENTIONS `Self`.
+
+**`sigrettyself` — the SAME predicate WITH the substitution. RULE 9's TWO NAMES,
+AND THEY SEPARATE.** 0 / 71 / 6 / ⛔ — one stdlib refusal, `impl WritField for
+str: missing method 'from_wany'`. **15 → 1: the substitution repaired fourteen
+of the fifteen shapes and the residue is the same `str` Self as `sigself0`'s.**
+That is the cleanest available evidence that the substitution is real, and it
+is still a ⛔ plus 71 legal programs and 6 pinned diagnostics. DECLINED.
+⚠ AND "A STDLIB REFUSAL IS A FIRST FAILURE, NOT A COUNT" cuts BOTH ways here:
+1 is not "one shape", it is "the first shape", and clearing `str` will move it.
+
+**`sigselfall`** (all three) — ⛔ through `sigself0`. Not separately priced.
+
+## 6. RULE 13 — ADDITIVITY, MEASURED, AND NEGATIVE AGAIN
+
+    sigselfsub   ceiling 0   cost 0     stdlib ok
+    + slot 0     ceiling 256 cost 1099  stdlib ⛔     (sigself0)
+    + return     ceiling 0   cost 71    stdlib ⛔     (sigrettyself)
+
+The increment of BOTH additions is destructive, and `sigrettyself`'s ceiling of
+0 is EQUAL to the part it is built on while its cost is 71 higher. A ceiling
+bounds the count, not the set: here the union buys nothing and pays 71.
+
+## 7. ⚠ THE `-L bc` POPULATION GREW 1110 → 2025 WHEN CMAKE RECONFIGURED
+
+The round-opening `gate-run.sh -L bc` selected **1110** tests, all
+`logos_06_diagnostics_fail_*`. After the four new fixtures forced a reconfigure
+the same selection is **2025** — 1112 fail (the +2 are mine) and 913 pass, of
+which only 2 are mine. So ~911 already-registered `bc`-labelled PASS fixtures
+were absent from the label set the build directory was holding: `ctest -L`
+reports whatever the last `cmake` configure wrote, and a stale configure had
+been silently shrinking this gate's population by 45%. The landing is green
+over the LARGER population (2023 passed / 0 failed / 2 disabled), so nothing
+here is retracted — but a baseline read from the store is only as wide as the
+configure behind it, and no column says so. This is the third round in a row in
+which THE POPULATION WAS THE DEFECT.
+
+## 8. LEDGER ARITHMETIC
+
+    # TOTAL 256 at the open, 256 at the close. NOTHING BOUGHT, BY CONSTRUCTION:
+    the mechanism is trait conformance and the ledger holds borrow-check
+    admissions. Two permissive holes closed and pinned in pairs; +4 fixtures.
+    census_pin REGISTRY-ALL 8757 → 8761, NOIMPORTED 4455 → 4459, TIERCOMMIT 305
+    unchanged; direct_door corpus 2515 → 2517, nonglob 2324 → 2326 (2 pass
+    halves), re-derived BY DIRECT LISTING.
+
+## 9. OPEN (carried, plus this round's)
+
+ 1-6. UNCHANGED from 2026-09-03x §9.
+ 7. The trait-impl signature mismatch diagnostic is now RIGHT for the slots this
+    round newly compares and still WRONG (`missing method`) for every slot the
+    check already compared. `sigdiagmm` is still the fix and still blocked on
+    three `.expected` files. THIS ROUND MADE THAT SPLIT VISIBLE IN ONE FILE:
+    `h_ctl_param` and `h_paramself` are one token apart and print two different
+    kinds of message.
+ 8. Still no alpha-equivalence comparator; §6.1's prerequisite is now DONE, so
+    the next attempt at one starts from a signature where `Self` is concrete.
+ 9. `mk().slice_view() -> &[u32]` on a temporary receiver — untouched.
+10. `-L bc -L fail` holds 1 of the 9 "missing method" fixtures — untouched.
+11. NEW: `target_resolved` is null for a plain nominal impl target, and the
+    comment claiming otherwise sits on the PTR_TYPE branch. `impl_self_ty` now
+    carries the value the conformance check needs; every OTHER reader of
+    `target_resolved` in `collect_impl` (including `impl_target_typeref_`,
+    which is PUBLISHED to `collect_fn`) still sees the null. NOT AUDITED.
+ 12. NEW: `Self` for a `str` target is an UnsizedSlice that `types_equal` does
+    not match against the impl's own receiver spelling. It is the single
+    remaining stdlib refusal under `sigrettyself` and the first one under
+    `sigself0`. Both the slot-0 hole (`h_self0`) and the return-type hole
+    (`h_ret`) are blocked on it and on nothing else that has been measured.
+ 13. NEW: a mis-signed impl of a method that HAS A DEFAULT is not refused at
+    all — the `m.has_default` branch registers the default and no comparison
+    result is consulted. Not probed this round.

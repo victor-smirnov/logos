@@ -1,0 +1,1 @@
+impl Same for R: method 'same' does not match the trait declaration: parameter 1 is declared '&R' and the impl declares '&i64'

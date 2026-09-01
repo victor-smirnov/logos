@@ -1,0 +1,32 @@
+// The by-value form of the same hole: `other: Self` with no reference around
+// it. The impl declares a DIFFERENT struct in that slot. PROBES.md 2026-09-04y.
+// Its twin one token apart is
+// tests/logos/pass/bc_sigselfsub_param_self_byvalue_pass.
+package bc_sigselfsub_param_self_byvalue_fail;
+
+struct R {
+    v: i64,
+}
+
+struct Q {
+    w: i64,
+}
+
+trait Take {
+    fn take(self: &Self, other: Self) -> i64;
+}
+
+impl Take for R {
+    fn take(self: &R, other: Q) -> i64 {
+        return other.w;
+    }
+}
+
+fn main() -> i32 {
+    let a: R = R { v: 6i64 };
+    let b: Q = Q { w: 7i64 };
+    if a.take(b) == 7i64 {
+        return 0;
+    }
+    return 1;
+}
