@@ -12934,3 +12934,235 @@ object-lifetime rule does not condemn it. Owner's call. Not touched.
  39. NEW, METHOD: a log is not a measurement until `stat` says its mtime is
      after the run started. Vigilance did not catch this last round and did not
      catch it this round either; `stat -c %y` did (§0).
+
+# ═══ ROUND 2026-09-01h — A GENERIC ENUM IS NOT A MOVE TYPE IN BORROW-CHECK.
+# `Option<String>` MOVES WHILE BORROWED AND NOTHING REFUSES IT. THE INSTANCE
+# DEF IS IN THE TABLE UNDER `Option__String`; `enum_is_move` ASKS FOR `Option`
+# ══════════════════════════════════════════════════════════════════════════
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE), AND WHAT THE BRIEF GOT RIGHT
+
+    live probes   145      grep -rhoP 'probe::on\("\K[a-z_0-9]+' src include | sort -u | wc -l
+    # TOTAL       243      and 243 by direct listing (243 admit .logos on disk)
+    channel       lifereg 114 · nllmoves 74 · bck 55
+    top roots     bck.C 16 · lifereg.A 13 · nllmoves.B 11 · bck.B 11 ·
+                  nllmoves.C 10 · lifereg.R17 10
+    admit dirs    nll 70 · borrowck 55 · lifetimes 55 · regions 48 ·
+                  dropck 7 · drop 4 · moves 4
+
+The brief quoted no composition figures and was right not to: the split it
+called durable ("the cheap `bck` residue is spent, the lifetime channel is the
+bulk") holds — lifereg is 47% of the ledger. NOTHING IN THE BRIEF NEEDED
+CORRECTING. Its one dateline oddity ("measured once, 2026-09-06") is ahead of
+the tree's own clock (2026-09-01); harmless, recorded so the next round does
+not chase it.
+
+## 1. THE SUBJECT, NAMED BEFORE THE COMPILER WAS TOUCHED
+
+`build/target-rows-2026-09-01h.txt`, written before any edit. The block chosen
+was the PATTERN-LOAN block (B-8/B-9 of the 2026-08-29 group-B survey:
+`borrowck-issue-2657-1`, `issue-27282-mutation-in-guard`,
+`match-guards-always-borrow`), whose recorded gloss is "propagate_pat_borrows
+raises the loan already; the MOVE side does not see it".
+
+⚠ AND THE FIRST HAND PAIR REFUTED THAT GLOSS. Nine multi-line programs in
+`/home/logos/sandbox/patloan/`, each one token from its twin:
+
+    h2  let y = &s.f;  let a = s;      struct       REFUSED "s.f is borrowed"
+    h4  match s { S{f: ref y} => let a = s; }       REFUSED "s.f is borrowed"
+    h7  match w { W(ref y)   => let a = w; }        REFUSED "w.0 is borrowed"
+    h8  match e { E::A(ref y)=> let a = e; }  enum  REFUSED "e.0 is borrowed"
+    h9  match e { G::A(ref y)=> let a = e; }  G<T>  ADMITTED  ⟵
+    h5  match x { Option::Some(ref y) => let a = x; } ADMITTED  ⟵ the row
+
+The move side DOES see the pattern loan, at every spelling but one. The
+separator is not the pattern; it is GENERICITY.
+
+## 2. THE 2×2 THAT LOCATES IT — AND THE LOAN IS RAISED IN ALL FOUR CELLS
+
+                          concrete enum E        generic enum G<String>
+    assign  `e = E::B;`   REFUSED (h13)          REFUSED (h12)   ← loan live
+    move    `let a = e;`  REFUSED (h18)          ADMITTED (h17)  ← the hole
+
+One cell of four. The assign twin refuses under the generic spelling, so the
+loan on `e.0` IS in the table — this is not a missing loan, it is a missing
+CONSUME. And it is not the pattern either: with no pattern at all,
+
+    k5  let y = &e; let a = e;   enum E            REFUSED
+    k4  let y = &e; let a = e;   enum G<String>    ADMITTED
+    k8  let y = &e; let a = e;   Option<String>    ADMITTED
+    k9  let y = &p; let a = p;   struct P<String>  REFUSED   ← generic STRUCT is fine
+
+So: `let y = &o; let a = o;` — the plainest E0505 in the language — compiles
+for `Option<String>` and `Result<T,E>`, the two most-used types in the tree.
+
+## 3. THE MINTING SITE, READ NOT GUESSED
+
+`is_move_type`'s `enum_is_move` (borrow_check.cpp:559) asks
+`ts.enum_by_name.find(TypeRef(x).enum_name())` — the BARE base name. The STRUCT
+half of the same function was repaired for exactly this defect and says so in
+its own comment (`has_droppable_fields`: "a generic instantiation `Wrap<i64>`
+has struct_name()=='Wrap' but its def is stored as 'Wrap$G1$i64' … the value was
+mis-classified as non-move"). The ENUM half never got it. Without the def the
+payload walk cannot run and the lambda falls through to `return false`.
+
+⚠ THE DROP HALF IS NOT AFFECTED, MEASURED: `impl<T> Drop for G<T>` makes k10
+refuse. `ts.drop_types` holds the bare name; only `enum_by_name` does not.
+
+## 4. THE PROBE TABLE — build `c628805d036ac66c` / `4bb612fae96eafd6` (READ),
+##    ALL THREE COST COLUMNS ON EVERY ROW
+
+    probe            fires   ceiling  cost  cfail  std  verdict
+    enumdefmangle   825917         0     0      0   ok  ⛔ BROKEN HOP — §5
+    enumdefany      825917         1     0      1   ok  ⛔ DECLINED — §6
+    enumdefinst     824298         1     4      1   ok  ⛔ DECLINED — §7
+
+## 5. ⚠ `enumdefmangle`'s ZERO IS A BROKEN HOP, NOT A REFUTATION (rule 11)
+
+It built the STRUCT spelling — `concrete_struct_name_raw` ⇒ `G$G1$String`,
+`Option$G1$i64` — and its own gated trace printed `hit=0` on every one of ~40
+candidates over `keys=59`. A second build dumped the key set, and the answer is
+that the def IS THERE under a THIRD spelling:
+
+    [enumkey] G__String   Option__i64   Option__refmut_i32   Result__i64__ParseIntError …
+
+`Mono::enum_instance_name` (mono_impl.hpp:942) composes `Base + "__" +
+mangle_type(arg)…`; `concrete_struct_name_raw` composes `Base$G<n>$arg…`.
+mono_impl.hpp's own `mangle_type` Enum arm already records that TWO spellings of
+one instance exist by construction and that unifying them is ABI-gated. THIS
+ROUND ADDS A THIRD CONSUMER ASKING UNDER A FOURTH SPELLING — the bare base,
+which matches neither. Rule 16 discharged at the minting site: the fact is
+RECORDED, not absent, and only reading `mono.cpp:577` (templates go to
+`enum_templates_`, never `out_.enums`) plus `mono_clone.cpp:7119`
+(`out_.enums.push_back(inst)` under `cname`) separates the two.
+
+## 6. ⛔ `enumdefany` DECLINED — COST 0 ON ALL THREE POPULATIONS, FIVE LEGAL
+##    REFUSALS BY HAND (rule 5, and the corpus saw none of them)
+
+Spelling: bare lookup misses AND the type has type args ⇒ MOVE. Ceiling 1, and
+the row it closes is the predicted one with the upstream diagnostic:
+
+    logos_00_bc_admit_borrowck_borrowck-issue-2657-1
+        "cannot move 'x' while 'x.0' is borrowed"   (upstream E0505)
+
+Six multi-line hand programs in `build/hand-2026-09-01h/`, all ACCEPTED unarmed:
+
+    c1_optcopy_twice          Option<i64> passed by value twice    rc1 ✗ LEGAL
+    c2_optcopy_borrow_then_use `&o` then `take(o)`                 rc1 ✗ LEGAL
+    c3_genenum_copy_payload_twice  G<i64> twice                    rc1 ✗ LEGAL
+    c4_optcopy_in_loop        Option<i64> in a while body          rc1 ✗ LEGAL
+    c5_optcopy_struct_field   `take(h.o)` twice                    rc1 ✗ LEGAL
+    c6_optmove_control        Option<String> moved once  CONTROL   rc0 ✓
+
+`Option<i64>` is Copy; a rule that makes it a move type refuses five legal
+programs the whole corpus does not contain. AND the one `cfail` is the same
+error in the diagnostics half: `logos_06_diagnostics_fail_issue-27282-move-ref-
+mut-into-guard` loses its `.expected` because "cannot use 'v' while it is
+mutably borrowed" (correct — `Option<i64>` is a USE) becomes "cannot move 'v'
+while it is borrowed" (wrong). A ROW CLOSED BESIDE A DIAGNOSTIC MADE WRONG.
+
+## 7. ⛔ `enumdefinst` DECLINED — AND ITS FOUR COSTS ARE ONE PAYLOAD, TRACED
+
+Spelling: disjunction over every key with prefix `Base__`. Ceiling 1 (the same
+row), COST 4 + the same cfail:
+
+    logos_02_semantic_core_pass_bc_d1r6_d2_generic_param_admit
+    logos_25_spec_pass_layout_1 · layout_4 · mono_7
+
+⚠ AND IT SEPARATES FROM `enumdefany` ON A HAND PROGRAM, WHICH IS RULE 9's
+POINT: c3 (`G<i64>`, the only `G` instance in the program) is ADMITTED under
+`enumdefinst` and REFUSED under `enumdefany`. c1/c2/c4/c5 still refuse, and the
+trace names the reason without guessing:
+
+    [enuminst] Option -> Option__refmut_i32     ← `&mut i32` payload, is_move_type TRUE
+
+One stdlib instantiation condemns every `Option<i64>` in the program. So the
+four corpus costs and the four hand refusals are ALL "wrong instance selected",
+not "the rule is wrong" — the disjunction is the defect, not the payload walk.
+
+⚠ THE TWO COST NUMBERS DISAGREE ABOUT THE SAME CORPUS AND BOTH ARE RIGHT.
+`enumdefany` priced 0 over `-L bc -L pass` + the spec dirs; `enumdefinst`
+priced 4 over the identical population. The harness could see the disjunction's
+damage and could not see the any-instance one, whose witnesses had to be
+written by hand. A cost column bounds what the corpus CONTAINS (rule 5), and
+here two spellings of one hypothesis differ by four in it.
+
+## 8. THE SETS, PREDICTED BY NAME FIRST, DIFFED BOTH WAYS
+
+Predicted (target-rows file, before the edit): `borrowck-issue-2657-1` CERTAIN,
+`issue-51117` UNCERTAIN. Measured over all 243 admits, three probes:
+
+    predicted∖measured = { issue-51117 }   — the flagged-uncertain one. Its move
+        is `bar.take()` through a `&mut Option<Own>` RECEIVER: a second door,
+        and `enum_is_move` is not the one that stops it (armed rc 0).
+    measured∖predicted = { }               — exact, all three probes.
+
+The thirteen rows predicted NOT to close (all carrying `Option<&T>`, whose
+payload is a reference and therefore not a move type under ANY spelling) did
+not close: borrowed-data-escapes-closure-148392, regions-escape-unboxed-closure,
+adt-tuple-enums--t33, trait-associated-constant, regions-creating-enums3,
+borrowck-local-borrow-with-panic-outlives-fn, regions-escape-bound-fn,
+match-guards-always-borrow, lub-match, adt-brace-enums,
+pattern-substs-on-brace-enum-variant, regions-free-region-ordering-callee-4,
+regions-free-region-ordering-caller.
+
+## 9. ⇒ WHAT DESERVES FUNDING, IN ORDER
+
+ 1. **GIVE `enum_is_move` THE NAME MONO ALREADY COMPUTED.** Not a fourth
+    re-derivation — `mangle_type`'s own comment forbids that, and this round is
+    a measurement of what re-deriving costs. Either index every instance in
+    `enum_by_name` under BOTH spellings at `mono_clone.cpp:7119`, or export
+    `enum_instance_name` for borrow_check. Ceiling 1 row measured; cost
+    predicted 0, because §7 traced every refusal of the crude spellings to
+    instance SELECTION and nothing else. It also closes a soundness hole on
+    `Option`/`Result` that no ledger row happens to name.
+    ⚠ RULE 7 APPLIES AND IS THE REASON TO RE-PRICE: a crude probe and a
+    correct fix do not close the same programs, and the correct one must be
+    re-measured, not inherited from `enumdefany`'s ceiling.
+ 2. **THE OTHER EIGHT BARE-`enum_name()` LOOKUPS in borrow_check** (lines 243,
+    1372, 1455, 1478, 1519, 6685, 6735, 6851, 7095) ask `loan_carrying`,
+    `holds_mut_ref`, `holds_any_ref`, `residency_exempt` under the same bare
+    base. NOT MEASURED this round — recorded because the same key is wrong at
+    all of them, and `residency_exempt` is an EXEMPTION, i.e. the abuse
+    direction. A survey, not a probe.
+ 3. `issue-51117` — the `&mut Option<Own>` receiver door (§8). One row, unpriced.
+
+## 10. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+
+ (a) **A `ref mut` PATTERN BINDING IS NOT A REBORROW HOLDER.** One-token pair,
+     `/home/logos/sandbox/patloan/`:
+        m1  let foo = &mut o;      let a = foo; let b = foo;  REFUSED
+            "cannot borrow 'foo' as mutable: already mutably borrowed"
+        m2  match o { ref mut foo => { let a = foo; let b = foo; } }  ADMITTED
+     The arm EXISTS and the pattern spelling never reaches it. ⚠ IT BLOCKS
+     LEDGER ROW `issue-27282-mutation-in-guard` (nllmoves.B), which is exactly
+     m2. Whether the missing half is sema's `try_implicit_reborrow_mut` or
+     borrow_check's pattern channel is NOT DETERMINED and is one census away.
+ (b) **A GENERIC AGGREGATE'S PATTERN BINDING KEEPS THE UNSUBSTITUTED TYPE.**
+     `struct GS<T>{f:T}` / `match s { GS{f: ref y} => use_ref(y) }` over
+     `GS<String>` is refused with "expected &String, got &T" (h10), and the
+     tuple-struct spelling the same (h11); the CONCRETE twin compiles. A sema
+     substitution defect, off borrow-check, no ledger row named for it.
+
+## 11. LEDGER ARITHMETIC
+
+    # TOTAL 243 -> 243, re-derived BY DIRECT LISTING. No row bought, no row
+    retired, NO COMPILER CHANGE LANDED. Three probes priced and all three
+    declined by name with the number that condemns each.
+
+## 12. OPEN (carried, plus this round's)
+
+ 1-34. UNCHANGED. 35-39 STAND (2026-09-01g).
+ 40. NEW: a generic enum instantiation is not a move type in borrow-check
+     (§2, §3). `Option<String>`/`Result<T,E>` move while borrowed, silently.
+ 41. NEW: FOUR spellings of one enum instance identity now exist —
+     `enum_instance_name` (`Base__arg`), `mangle_type`'s Enum arm (same plus a
+     module suffix, divergence already recorded there), `concrete_struct_name_raw`
+     (`Base$G<n>$arg`), and borrow_check's bare base. Only the first is what the
+     table is keyed by (§5).
+ 42. NEW: `Option__refmut_i32` exists in the stdlib's instance set and its
+     payload is `&mut i32`, so ANY rule that answers a question about "Option"
+     rather than about one instantiation inherits a move type (§7).
+ 43. NEW, METHOD: two spellings of one hypothesis priced 0 and 4 on the SAME
+     corpus. A cost column is a property of the spelling as much as of the
+     rule, and rule 5's "write the counter-examples" is what caught the 0.
