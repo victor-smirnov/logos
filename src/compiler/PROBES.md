@@ -12694,3 +12694,243 @@ attributed to this mechanism.
  34. NEW, METHOD: I read a gate log while the process writing it was still
      running and nearly reported a previous round's numbers as this round's
      (§0). A log is not a measurement until its writer has exited.
+
+# ROUND 2026-09-01g — THE OBJECT-LIFETIME BLOCK: ONE BLOCKER BOUGHT, THE ARM DECLINED ON TWO INDEPENDENT COUNTS
+
+## 0. STEP 1, MEASURED, AND WHAT THE HAND-OFF GOT RIGHT
+
+    live probes   145      grep -rhoP 'probe::on\("\K[a-z_0-9]+' src include | sort -u | wc -l
+    # TOTAL       243      and 243 by direct listing
+    channel       lifereg 114 · nllmoves 74 · bck 55
+    top roots     bck.C 16 · lifereg.A 13 · nllmoves.B 11 · bck.B 11 · nllmoves.C 10
+
+The 2026-09-01f hand-off's own corrections were all correct and are confirmed
+here digit for digit. Nothing in it needed correcting a second time.
+
+⚠ AND ITS §0 WARNING EARNED ITS KEEP WITHIN THE HOUR. probe-batch printed
+`747/747, tier_commit 292` off /tmp/probe-batch-l1.log while its build was
+still running. `stat -c %y` said the file was 14:37 and the batch had started
+at 15:25 — a PREVIOUS round's file, exactly the trap 09-01f recorded. THE FIX
+IS NOT VIGILANCE, IT IS `stat`: a log's mtime is checkable and its content is
+not. Every log read in this round was mtime-checked first.
+
+## 1. LANDED — THE GRAMMAR BLOCKER (`8816eb180`)
+
+`type_param` had an all-lifetime bound-list alternative and an all-trait one
+and NO MIXED one, so `T: Tr + 'static` was a syntax error in the inline AND the
+`where` spelling (`where_pred`'s third alternative IS `type_param`). Fixed with
+one new rule, `tp_bound <- lifetime_param / trait_bound`, used by the four
+type_param bound-list alternatives, with the all-lifetime alternative DELETED
+as subsumed — deleting rather than adding a third alternative is what also
+fixes `T: 'a + Tr`, which the old alternative matched half of and then choked
+on. Sema needed no change: its TYPE_PARAM bound walker already dispatched per
+element on the node code.
+
+PARSED IS NOT RECORDED, so both halves got their own oracle with a control:
+  trait half     `v.get()` compiles under `<A: SomeTrait + 'static>` in all
+                 three spellings; `<A: 'static>` alone REFUSES it (rc 1).
+  lifetime half  THE ABUSE DIRECTION — `<A: SomeTrait + 'z>`, `'z` declared
+                 nowhere, is refused "in `A: 'z` bound". A new alternative that
+                 parsed the element and dropped it would have left the pass
+                 fixture green and opened a silent hole in the R17 walk.
+CONTROL REVERT: both fixtures RED on the reverted grammar (0% of 2), green on
+restore. Gates: L1 rc 0 (747/747, gates tier 292) · admits 243/243 (gate-db
+build 406) · `-L bc` 2051 passed / 0 failed.
+
+⚠ IT WAS COMMITTED WITH TWO PINS RED, and that is recorded in `6414fdc9a` as
+its own commit rather than amended away. `logos_00_population_pin_lint` and
+`logos_00_census_pin` live in `tier_commit`, which NEITHER the admit filter nor
+`-L bc` selects. A round that adds a FIXTURE — not a compiler change — owes L1
+BEFORE the commit. The reds were found by probe-batch's own inertness L1, i.e.
+by a gate run for an unrelated reason.
+
+## 2. THE ARM: `check_dyn_auto_bounds_at_coercion` IS THE MINTING SITE, AND WHY
+
+09-01f priced `try_struct_unsize_coerce` and measured its census ABSENT. READ
+this round, `apply_place_coercions` (sema_stmt.cpp:4650) opens
+
+    if (types_compatible(expr_type(rhs), target)) return changed;
+    if (try_struct_unsize_coerce(rhs, target))      return true;
+
+so that site is only ENTERED when types_compatible says NO. It was not a dead
+site; it was a site behind the predicate that admits the pair. The site that
+DOES run is `check_dyn_auto_bounds_at_coercion` (sema_expr.cpp:14801), which
+exists — its own comment says so — BECAUSE types_compatible's Struct→TraitObject
+branch is a blanket-accept. Six coercion positions, peels Box/Rc/Arc and refs
+on both sides, then asks only `+ Send`/`+ Sync`.
+
+## 3. ⛔ DECLINED — `objltvany` / `objltvnostatic` / `objltvowned`, AND THE NUMBERS
+
+    probe            fires  ceiling  cost  cfail  std  verdict
+    objltvany            0        —     —      —   —   NEVER FIRED over the ledger
+    objltvnostatic       —        —     —      —   —   not priced: see §5, DEAD PREDICATE
+    objltvowned          0        —     —      —   —   0 on EVERY program incl. hand
+
+⚠ NEVER FIRED ON THE LEDGER, YET PROVEN LIVE ON HAND PROGRAMS. Both are true and
+only the per-hop census separates them (rule 11). The first pass put every
+bucket INSIDE the TypeVar branch, so its zero could not say which hop was
+empty; the second pass bucketed EVERY hop ahead of EVERY early exit.
+
+CENSUS, the five O3 rows, per program (not aggregated — the aggregate hides
+that the shape is uniform):
+
+    objlt.fn.entry        11    the function IS entered.  RULE 1 DISCHARGED.
+    objlt.dstkind.28       6    destination is a dyn — TraitObject
+    objlt.dyn.reached      6    the destination hop is LIVE
+    objlt.srckind.28       6    ← THE SOURCE IS ALREADY A TRAIT OBJECT
+    objlt.tv.arrival    ABSENT  zero TypeVar sources, all five programs
+
+## 4. ⇒ THE FINDING: THE SOURCE TYPE IS ERASED IN *RETURN* POSITION, BEFORE ANY GATE
+
+Not "the site is unreached". The site is reached 11 times, 6 of them with a dyn
+destination, and in every one of those six THE SOURCE HAS ALREADY BECOME THE
+DESTINATION TYPE. `Box::new(v)` in return position is typed `Box<dyn SomeTrait>`,
+not `Box<A>`: the expected type flows into the call's return type during
+inference, so the concrete/parametric source is GONE before any coercion gate
+runs. That is also why 09-01f's census was zero, from the other side —
+types_compatible is never consulted because `types_equal` already holds.
+
+CARRIER CONTROL (rule: vary the carrier, prove the mechanism is live). Same
+program, the coercion moved position:
+
+    shape                                       srckind    arm fires
+    return Box::new(v)                          28 dyn        no
+    let b = Box::new(v); return b               28 dyn        no
+    let b: Box<dyn T> = Box::new(v); return b   29 TypeVar    YES
+    take(Box::new(v))          (call arg)       29 TypeVar    YES
+    return Box::new(w)         (CONCRETE src)   28 dyn        no
+
+TWO THINGS THIS PINS THAT AN AGGREGATE COULD NOT:
+ 1. The erasure is POSITIONAL, not generic — the concrete-source row erases too,
+    so it is not about type parameters or mono.
+ 2. The arm is NOT dead. It reaches TypeVar sources at two of the six positions
+    the gate serves. It is dead FOR THE CORPUS because ALL FIVE O3 rows write
+    the coercion in RETURN position. A live arm and an unreachable population.
+
+⚠ AND `objltvowned` PRICED 0 EVERYWHERE FOR A SECOND, INDEPENDENT REASON: it
+keyed on `UnsizedDyn` (kind 44) as "the owned Box<dyn> form", and the census
+says the destination is `TraitObject` (kind 28) in 6 of 6 — `Box<dyn T>`'s
+payload is canonicalised to TraitObject and the owned/borrow distinction has no
+representation to key on. Priced without the kind census, that 0 would have read
+as a refutation of the owned/borrow split. It refutes nothing; it is a broken
+hop (rule 11), and the twin control (rule 18) is what exposed it.
+
+## 5. ⚠ RULE 5, AND IT LANDED — THE EXEMPTION IS DEAD, MEASURED ON FIVE LEGAL PROGRAMS
+
+The prediction filed before the edit (build/predictions-2026-09-01g.txt) said
+`objltvany` and `objltvnostatic` would be digit-for-digit identical in every
+harness column and separable ONLY by hand programs. They were identical — and
+the hand programs say the reason is NOT the one predicted:
+
+    program                            unarmed  objltvany  objltvnostatic
+    g_letann_static   A: Tr + 'static    rc 0     rc 1 ✗     rc 1 ✗ LEGAL
+    g_letann_ltfirst  A: 'static + Tr    rc 0     rc 1 ✗     rc 1 ✗ LEGAL
+    g_arg_static      call-arg, 'static  rc 0     rc 1 ✗     rc 1 ✗ LEGAL
+    g_arg_where_static where A: Tr+'static rc 0   rc 1 ✗     rc 1 ✗ LEGAL
+    g_letann_region   'a, A: Tr+'a -> +'a rc 0    rc 1 ✗     rc 1 ✗ LEGAL
+    x_letann_nostatic A: Tr (illegal)    rc 0     rc 1       rc 1
+
+FIVE LEGAL PROGRAMS REFUSED BY THE ARM THAT WAS SUPPOSED TO EXEMPT THEM. The
+inner predicate — "this TypeVar declares `'static`" — never answers true, so
+`nostatic` IS `any`. Rule 9 exactly: an inner predicate needs two names, and
+the two agreeing everywhere is the SYMPTOM OF A DEAD PREDICATE, not of a
+corpus without the case.
+
+⚠ AND MY OWN §2 PREMISE WAS HALF WRONG. I claimed rule 16's shape — "the fact
+is carried, only the obligation is missing" — on the strength of
+`current_type_lt_outlives_` existing. The map IS populated: read with ZERO
+REBUILDS through its EXISTING consumer (sema_collect.cpp:998), whose caller-env
+diagnostic accepts `A: SomeTrait + 'static` in all three spellings and refuses
+`A: SomeTrait` — a five-program read with a control. But that consumer tests
+`!eit->second.empty()` — "declares SOME bound" — and NEVER READS THE CONTENT,
+and its own comment says the strict name-compare is deliberately not done.
+So the fact that is carried is "A has some outlives bound"; the fact an
+object-lifetime rule needs is "A outlives 'static", and NOTHING IN THE TREE HAS
+EVER READ IT. Two notions of one concept, and the narrow one silently won.
+
+NOT DETERMINED, and it is one census away: whether the content-lookup fails
+because the stored string is not `'static`, because `type_var_name()` differs at
+the coercion site, or because the frame is not live in the LOWERING pass (the
+existing consumer runs in COLLECT). All three are consistent with every number
+above and I did not pay for the build that separates them. Recorded as unknown
+rather than guessed.
+
+## 6. ⇒ WHAT THE BLOCK NEEDS, AND HOW MUCH OF IT EXISTS
+
+ 1. THE ERASURE MUST BECOME AN EVENT. `Box::new(v)` must keep type `Box<A>` to
+    the coercion gate, or the obligation must be minted where the return-type
+    unification overwrites it. Until then NO sema gate can mint `Src: 'r` for a
+    return-position coercion, and 18 of 18 rows in this block write one.
+    EXISTS: nothing. This is the whole job and it is bigger than a gate.
+ 2. THE `'static` CONTENT-READ. One census to say why the lookup fails, then a
+    predicate that reads the CONTENT of current_type_lt_outlives_ rather than
+    its emptiness. EXISTS: the map, the push/pop, and one consumer that reads
+    the wrong half of it.
+ 3. CARRY `+ 'a` (09-01f §6, unchanged and still true): AUTO_LIFE_BOUND is
+    `continue`d in resolve_type and `make_unsized_dyn_type` has no lifetime
+    parameter. A one-BIT version — "an object-lifetime bound was WRITTEN",
+    parallel to the Send/Sync const_val bits — was written this round and NOT
+    APPLIED, because (1) makes it unreachable for the corpus. Kept at
+    /tmp/objlt-fix.py; it is the cheap half and it buys nothing alone (rule 2).
+ 4. ⛔ ALL THREE ARMS DECLINED. `objltvany` and `objltvnostatic`: ceiling 0 over
+    243 admits, and 5 legal refusals. `objltvowned`: 0 on every population
+    including the hand programs, through a hop that does not exist.
+
+## 7. OFF-LEDGER, RECORDED AND NOT PURSUED
+
+**MONOMORPHISING A GENERIC FN THAT RETURNS `Box<dyn Trait>` SIGSEGVs THE
+COMPILER.** Isolated by a one-token pair and TWO controls that each kill one
+half of the conjunction:
+
+    generic fn -> Box<dyn Tr>, NEVER CALLED      rc 0    ← the corpus shape
+    generic fn -> Box<dyn Tr>, called once       rc 139  ← one token apart
+    generic fn -> i64,          called once      rc 0    ← control: not the call
+    CONCRETE fn -> Box<dyn Tr>, called once      rc 0    ← control: not the dyn
+
+So it is the conjunction, and neither half alone. The crash is preceded by a
+CORRECT report — "mlir_gen: internal: no vtable for 'T' as '&dyn SomeTrait' —
+the fat pointer's vtable half would be left uninitialised" — and then SIGSEGVs
+instead of exiting nonzero. That is the inverse of the closed 14th kind (which
+printed, wrote the object and exited 0): here the diagnostic is right and the
+exit is a crash.
+
+⚠ IT BEARS ON THE BLOCK. All five O3 rows are `fn ... -> Box<dyn Tr>` that
+NOTHING CALLS. They are admitted, and they would also crash the compiler if
+anything called them. Off borrow-check (mlir_gen), so RECORDED, NOT PURSUED.
+
+## 8. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+
+    # TOTAL 243 -> 243, re-derived BY DIRECT LISTING (243 rows, 243 admit
+    .logos on disk). No row bought, no row retired.
+
+NOT SPENT, each with its number: O1 closure-source 9 rows · O2 lifetime-struct
+4 rows · O3 type-parameter 5 rows. All 18 are blocked behind §6.1, which was
+NOT KNOWN when the block was chosen and is the round's actual result.
+
+## 9. REPORTED, NOT EDITED — CARRIED UNCHANGED FROM 09-01f §7
+
+`regions/explicit-static-bound-on-trait` (lifereg.NEW-4): the port's source type
+`W` has no lifetime parameter, so `W: 'a` holds for every `'a` and the
+object-lifetime rule does not condemn it. Owner's call. Not touched.
+
+## 10. OPEN (carried, plus this round's)
+
+ 1-30. UNCHANGED.
+ 31. AMENDED. 09-01f recorded `try_struct_unsize_coerce` as "live gate-wide,
+     entered zero times by the admit corpus". Read this round: it is entered
+     zero times because `apply_place_coercions` early-outs on types_compatible,
+     which blanket-accepts the pair. Not a population fact — a guard fact.
+ 32-34. STAND. 33 (the grammar) is CLOSED by `8816eb180`.
+ 35. NEW: the source type is ERASED IN RETURN POSITION before any coercion gate
+     runs, for CONCRETE sources as well as type parameters (§4). This is the
+     one fact that blocks all 18 rows of the object-lifetime block.
+ 36. NEW: `current_type_lt_outlives_` has exactly one consumer and it reads
+     NON-EMPTINESS, never content (§5). "T declares some outlives bound" and
+     "T outlives 'static" are two notions and only the first has ever been read.
+ 37. NEW: `Box<dyn T>`'s payload is `TraitObject` (28), never `UnsizedDyn` (44),
+     in 6 of 6 measured coercions — an owned/borrow distinction keyed on the
+     kind matches nothing (§4).
+ 38. NEW, OFF-LEDGER: the monomorphised-`Box<dyn>` SIGSEGV (§7).
+ 39. NEW, METHOD: a log is not a measurement until `stat` says its mtime is
+     after the run started. Vigilance did not catch this last round and did not
+     catch it this round either; `stat -c %y` did (§0).
