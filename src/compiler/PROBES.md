@@ -10366,3 +10366,245 @@ against the control-revert baseline · all eleven hand programs unmoved
 on a temporary receiver is still admitted. Separating it from `as_str` needs to
 know whether the returned fat value's provenance IS the receiver, which no
 predicate at this site can answer today. It is not closed and it is not claimed.
+
+# ═══ ROUND 2026-09-03x — M-SIG STEP 2 PRICED WITH THE RIGHT COMPARATOR: THE
+# PARAM SIDE'S 1099 IS ONE PRELUDE IMPL, AND THE RETURN'S CEILING IS AN
+# ELISION-ARITY ACCIDENT. FIVE ARMS, FIVE DECLINED, TWO REAL FINDINGS ═════════
+
+Opening HEAD `425093eb6`. Probe build **0e33c50d88ec96d7** (READ, `build_hash.py`)
+— one batch of five, ONE build, L1 rc 0 with nothing armed (batch inert).
+gate-db 342 (unarmed) → 343/344/345/346/347. Predictions filed BEFORE the build
+in `build/predictions-2026-09-03x.txt`, with a by-name addendum for `sigdiagmm`
+filed while the build was still running and before any result was read.
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE)
+
+    live probes  140  (opening; 145 after this batch)
+    ledger       # TOTAL 256
+    top roots    bck.C 16 · lifereg.A 13 · nllmoves.B 11 · lifereg.R17 11 ·
+                 bck.B 11 · nllmoves.C 10 · bck.NEW 10 · lifereg.R18 8 ·
+                 lifereg.NEW-N1 8 · lifereg.NEW-R20 7 · lifereg.N1 7 · lifereg.C 7
+    L1 (from build/)  746/746, gates tier 305/305, rc 0
+
+**CORRECTION 1 — THE BRIEF IS STALE BY A FULL ROUND, FOR THE THIRD ROUND
+RUNNING, AND THIS TIME IT IS THE GOAL ITSELF.** The brief says M-SIG was "found
+and left unfunded" and asks to price it. It was priced IN FULL last round
+(2026-09-02w §6): `sigparamlt` / `sigselflt` / `sigretlt` were built, measured
+on all three populations and **ALL THREE DECLINED BY NAME**, with the ordered
+remedy written down — (1) a mismatch DIAGNOSTIC, (2) an ALPHA-EQUIVALENCE
+comparator, (3) only then the slots. Two of the three arms are still installed
+at the site with `DECLINED 2026-09-02w` on them; `git log -S sig_match` shows
+the landing commit `948af9cab`. **This round therefore priced (1) and (2), not
+the declined arms.**
+
+**CORRECTION 2 — the brief's SECONDARY subject is also spent.** It names "a
+FALSE REFUSAL … a legal program refused on the unarmed binary" and asks for a
+pass fixture. That is `o.get().view()`, and it was diagnosed, fixed and pinned
+last round as `e716recvrefbase` (2026-09-02w §4), with the boundary twin
+`tests/logos/fail/bc_e716recvrefbase_dangle_fail`.
+
+**CORRECTION 3 TO PROBES.md ITSELF — 2026-09-02w §6 read `sigretlt`'s
+`COST 1099 / cfail 1103 / stdlib ⛔` as "the arm refuses everything". Right
+verdict, wrong picture, and the difference matters.** MEASURED this round on
+the same binary: `LOGOS_PROBE=sigretlt` on a nine-line hand program prints ONE
+error and it is a PRELUDE impl —
+
+    error [fn i8__try_from]: impl TryFrom for i8: missing method 'try_from'
+
+Every one of those 1099 "legal programs refused" is the SAME refusal, in
+`stdlib/lang`, propagated to every program that uses the prelude. **1099 is not
+1099 damage events; it is one, counted 1099 times.** The memory rule "A STDLIB
+REFUSAL IS A FIRST FAILURE, NOT A COUNT" is recorded for the stdlib column; it
+bites the `pass` and `cfail` columns exactly as hard, and nothing in the harness
+labels it. Rule 11 in its cost-side form.
+
+## 1. THE FIVE ARMS, ALL THREE COST COLUMNS
+
+    probe          fires    ceiling  cost  cfail  stdlib  verdict
+    sigalphaw    2318762      256    1099   1103    ⛔    ⛔ prelude artefact
+    sigalphapar  1159381      256    1099   1103    ⛔    ⛔ prelude artefact
+    sigalphas    3478143      256    1099   1103    ⛔    ⛔ prelude artefact
+    sigalpharet  1164391        1       0      0    ok    ⛔ wrong reason, §4
+    sigdiagmm          4        0       0      1    ok    ⛔ owner's call, §5
+
+    site (all five): src/compiler/sema_collect.cpp, the `sig_match` loop
+    build 0e33c50d88ec96d7 · L1 rc 0 unarmed · batch inert
+
+`_alpha_ok` walks both types in the same order `types_equal_with_lifetimes`
+does, collects one lifetime slot per Ref/MutRef/Slice/Array/TraitObject/DstRef
+and per `lifetime_args` entry, and requires a BIJECTION between the two lists,
+accumulated across the whole signature (per candidate — a trait binder and an
+impl binder are different binders, so the map is per-signature, which is the
+thing a name compare cannot express). `sigalphas` is `sigalphaw`'s inner-
+predicate twin (rule 9): elided must pair with elided instead of acting as a
+wildcard. `sigalphapar` (slot 0 + params) and `sigalpharet` (return) are the
+same comparator applied to disjoint slots, for the additivity question.
+
+## 2. ⚠ THE PARAM ARMS' 256/1099/1103 IS ONE PRELUDE IMPL, AND THE SHAPE IS NAMED
+
+Nine hand programs, MULTI-LINE, unarmed then under each arm. **All nine are
+rc 1 under `sigalphapar`, `sigalphaw` and `sigalphas`, and all nine print the
+SAME single error**, including `s_plain_elided`, which has no lifetime written
+anywhere in it:
+
+    error [fn $ref_&i32__cmp]: impl Ord for $ref_&i32: missing method 'cmp'
+
+    stdlib/lang/cmp/ord.logos:119
+      impl Ord for &i32 { fn cmp(&self, other: &&i32) -> Ordering { … } }
+
+    trait  Ord::cmp   param 1 = `&Self`   = Ref → TypeVar      → 1 slot  [""]
+    impl   &i32::cmp  param 1 = `&&i32`   = Ref → Ref → i32    → 2 slots ["",""]
+
+**THE WALL, STATED AS A REQUIREMENT AND NOT AS A NUMBER: on the trait side
+`Self` is an UNSUBSTITUTED TypeVar, so every lifetime slot inside the Self type
+is invisible there and present on the impl side.** Any comparator that flattens
+a type to a lifetime-slot LIST therefore refuses every impl whose `Self`
+contains a reference — and the prelude has two. The existing loop survives this
+only because `is_generic_param(tp) continue` skips such a parameter WHOLE; a
+flat slot list cannot express "skip this subtree", which is precisely the
+granularity the alpha map needs.
+
+⇒ **step 2 needs `Self := <impl target>` substituted into the trait signature
+BEFORE the walk, or a subtree-opaque comparator.** Neither exists at this site
+today; `trait_arg_subst` substitutes the trait's TYPE PARAMS and not `Self`.
+That is a NEW, NAMED prerequisite the 2026-09-02w plan did not know about.
+
+RULE 6 AND RULE 11 TOGETHER: the ceiling of 256 is not "256 rows closed". Every
+ledger program fails to compile for the prelude reason, so the row list is the
+whole corpus and carries no information about the mechanism. **A CEILING
+MEASURED THROUGH A DEAD PRELUDE IS NOT A CEILING.**
+
+## 3. ADDITIVITY (RULE 13): NOT ADDITIVE, AND THE INCREMENT IS THE WHOLE ANSWER
+
+    sigalphapar  ceiling 256 (artefact)   sigalpharet ceiling 1
+    sigalphaw = both slots                ceiling 256 (artefact)
+
+`sigalphapar` saturates, so `sigalphaw` learns nothing from adding the return —
+and `sigalpharet`'s single row is INVISIBLE inside `sigalphaw` because the
+program never reaches the return check. A per-site measurement is not additive
+and here the union is strictly LESS informative than one of its parts.
+
+## 4. ⚠ `sigalpharet` IS NOT HALF A MECHANISM — IT IS A MECHANISM WITH ITS INPUT
+##   REMOVED, AND ITS ONE ROW IS AN ELISION-ARITY ACCIDENT (RULES 2 AND 7)
+
+    CEILING 1: logos_00_bc_admit_regions_resolve-re-error-ice   (lifereg.R18 ✓)
+    COST 0 pass · 0 of 1110 cfail · stdlib 4-of-4 ok
+
+Three separate reasons it is declined, each measured:
+
+**(a) THE MAP IS EMPTY WHEN IT RUNS.** With `sigalpharet` alone the param slots
+are never visited, so `_amap` is empty at the return and every lifetime pair
+binds fresh and consistently. It cannot answer an alpha question. MEASURED on
+the two programs written for exactly this:
+
+    s_retie          trait `<'a,'b>(&'a Self, &'b i64) -> &'b i64`
+                     impl  `<'a,'b>(&'a R,    &'b i64) -> &'a i64`   ILLEGAL
+                     unarmed rc 0 · sigalpharet rc 0   ← NOT CAUGHT
+    s_retie_renamed  the same retie under `<'p,'q>`                  ILLEGAL
+                     unarmed rc 0 · sigalpharet rc 0   ← NOT CAUGHT
+
+  The doors are in SERIES: the return check consumes what the parameter walk
+  deposits, and the parameter walk is the half that hits §2's wall.
+
+**(b) THE ONE ROW IS CLOSED FOR A REASON THAT IS NOT THE MECHANISM'S.**
+
+    trait fn key_set(self: &Self) -> Subject<Keys<K, V>, R>       0 lt args
+    impl  fn key_set(…)           -> Subject<'a, Keys<K, V>, R>   1 lt arg
+
+  `Subject<'a, T, R>` takes a region; the trait side ELIDES it. The arm refuses
+  on a LENGTH difference between two `lifetime_args` lists, which is an artefact
+  of elision not being expanded, not an alpha-equivalence failure. A correct
+  comparator that expanded elision would NOT close this row.
+
+**(c) THE DIAGNOSTIC IS WRONG, SO THE ROW IS NOT CLOSED.** Read on the armed
+binary: `impl MapAssertion for Subject: missing method 'key_set'`. The method is
+present. Upstream is E0495.
+
+## 5. `sigdiagmm` — THE PREDICTION WAS EXACT IN BOTH DIRECTIONS, AND THE COST
+##   POPULATION CONTAINED ONE NINTH OF THE ANSWER
+
+The arm: at the completeness failure, when `cands` is NON-EMPTY (a same-named
+method exists and no candidate matched its signature), print a mismatch instead
+of `missing method`. Ceiling 0 and it CANNOT be otherwise — a text change cannot
+make a compiling program refuse; the whole value is in the fail-text column.
+
+Nine `.expected` files in the tree contain "missing method". All nine were
+predicted BY NAME before the run, split by reading the `.logos` beside each, and
+**all nine came out exactly as predicted, run one at a time by hand:**
+
+    FLIPS — the method is PRESENT and mis-signed (`cands` non-empty):
+      tests/logos/fail/fn_trait_impl_arg_type_mismatch          `fn call(&self,u8,bool)` vs pack [i32,i32]
+      tests/spec/fail/trait_diag_1__impl-variadic-pack          the same program, spec copy
+      tests/imported/fail/drop/recursion-check-on-erroneous-impl `fn drop()` — no self, arity 0 vs 1
+    UNCHANGED — the method is genuinely ABSENT (`cands` empty):
+      tests/spec/fail/trait_diag_1__impl-missing-method
+      tests/logos/fail/trait_missing_method
+      tests/imported/fail/drop/nonsense-drop-impl-issue-139278
+      tests/imported/fail/drop/missing-drop-method
+      tests/imported/fail/dropck/unconstrained-const-param-on-drop
+      tests/spec/fail/type_diag_1__self-describing-dst-len-required
+
+⚠ **AND THE HARNESS SAW ONE OF THE THREE.** `cfail` reported `1 of 1110`, the
+single `logos_06_diagnostics_fail_recursion-check-on-erroneous-impl`. The other
+two are not in the `-L bc -L fail` population at all — grepped in the oracle's
+own tsv, `build/probe/failtext-0e33c50d88ec96d7-sigdiagmm.tsv`, and absent.
+**THIS IS 2026-09-02w §10's "THE POPULATION IS THE DEFECT", ONE COLUMN OVER.**
+That round found it with the once-per-batch expensive gate; this round found it
+because the set was predicted BY NAME and the non-members were run by hand.
+A by-name prediction is a cheaper instrument than `L4 bc` for exactly this.
+
+**⇒ THE ARM IS CORRECT AND IT IS NOT MINE TO LAND.** All three flips replace a
+FALSE statement with a true one — in each the method is present and its
+signature is wrong, and each of the three `.expected` files pins the false
+statement. `fn_trait_impl_arg_type_mismatch.logos`'s own header calls
+`missing method 'call'` *"a clear … error"*, and
+`recursion-check-on-erroneous-impl.logos`'s header records the upstream verdict
+as **E0186** — "method has a `&mut self` declaration in the trait, but not in
+the impl", i.e. upstream calls it a SIGNATURE MISMATCH, not a missing item.
+**THREE FIXTURES ASSERT THE DEFECT. CORPUS DECISION WITH AN OWNER.** Priced,
+measured, not edited.
+
+## 6. WHAT M-SIG ACTUALLY NEEDS NOW, REVISED BY MEASUREMENT
+
+ 1. **`Self` substitution into the trait signature at the `sig_match` site.**
+    §2 — without it every comparator that reads lifetimes refuses the prelude.
+    This is the blocker and it was not in 2026-09-02w's list.
+ 2. **Elision expansion before any arity compare of `lifetime_args`.** §4(b) —
+    otherwise the comparator closes rows for accidents.
+ 3. **The mismatch diagnostic** (§5) — ready, exact, and gated on three
+    `.expected` files the owner must release.
+ 4. Only then the alpha comparator over slot 0 / params / return, which cannot
+    be measured in halves (§4(a): the doors are in series).
+
+## 7. WHAT DESERVES FUNDING
+
+ 1. ⛔ **NOTHING FROM THIS BATCH LANDS.** Three arms are prelude artefacts, one
+    closes its row with a wrong diagnostic for an accidental reason, and the
+    fifth is a corpus decision.
+ 2. **`sigdiagmm` — the owner's smallest, highest-value release.** 8 lines,
+    stdlib ok, ceiling 0 by construction, and it turns three false diagnostics
+    true. It needs three `.expected` edits and nothing else.
+ 3. **The `Self`-substitution prerequisite (§6.1)** is the next thing worth a
+    round; it is a precondition for M-SIG and for every future lifetime-aware
+    comparison at this site, and it is measurable on its own (does the prelude
+    still compile under a comparator that reads lifetimes at all?).
+
+## 8. LEDGER ARITHMETIC
+
+    # TOTAL 256 at the open, 256 at the close — nothing landed, nothing bought.
+
+## 9. OPEN (carried, plus this round's)
+
+ 1-6. UNCHANGED from 2026-09-02w §9 (the three E0716 rows; `two-phase-nonrecv-
+    autoref--c` vs `tpb-mut-with-shared-ref-arg`; `d-index-two-phase`;
+    `a-fnmut-twice`; `type_str` and Slice/TraitObject/DstRef regions; E0716 has
+    no file/line under `--emit-module`).
+ 7. The trait-impl signature mismatch still has no diagnostic — PRICED, exact,
+    blocked on three `.expected` files (§5).
+ 8. Still no alpha-equivalence comparator — and now the reason is named: `Self`
+    is unsubstituted at the site (§2).
+ 9. NEW: `mk().slice_view() -> &[u32]` on a temporary receiver is still admitted
+    (2026-09-02w §10's named remainder). Untouched.
+10. NEW: the `-L bc -L fail` population contains 1 of the 9 fixtures that pin a
+    "missing method" diagnostic. No cost column this harness owns can price a
+    change to the other 8.

@@ -4270,6 +4270,73 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         if (c->param_types.size() != m.param_types.size()) continue;
                     }
                     bool sig_match = true;
+                    // PROBE sigalphaw/sigalphas/sigalphapar/sigalpharet — M-SIG step 2. PROBES.md.
+                    std::vector<std::pair<std::string,std::string>> _amap;
+                    bool _astrict = logos::probe::on("sigalphas");
+                    bool _apar = logos::probe::on("sigalphaw") ||
+                                 logos::probe::on("sigalphas") ||
+                                 logos::probe::on("sigalphapar");
+                    bool _aret = logos::probe::on("sigalphaw") ||
+                                 logos::probe::on("sigalphas") ||
+                                 logos::probe::on("sigalpharet");
+                    auto _acollect = [](TypeRef t, std::vector<std::string>& o,
+                                        auto& self) -> void {
+                        if (!t) return;
+                        using K2 = LogosType::Kind;
+                        switch (TypeRef(t).kind()) {
+                            case K2::Ref: case K2::MutRef:
+                                o.push_back(std::string(std::string_view(TypeRef(t).lifetime())));
+                                self(TypeRef(t).pointee(), o, self); break;
+                            case K2::Ptr:
+                                self(TypeRef(t).pointee(), o, self); break;
+                            case K2::Slice: case K2::Array:
+                                o.push_back(std::string(std::string_view(TypeRef(t).lifetime())));
+                                self(TypeRef(t).elem(), o, self); break;
+                            case K2::TraitObject: case K2::DstRef:
+                                o.push_back(std::string(std::string_view(TypeRef(t).lifetime())));
+                                break;
+                            case K2::Tuple:
+                                for (auto e : TypeRef(t).tuple_elems()) self(e, o, self);
+                                break;
+                            case K2::FnPtr: case K2::Closure:
+                                for (auto p : TypeRef(t).closure_params()) self(p, o, self);
+                                self(TypeRef(t).closure_ret(), o, self); break;
+                            case K2::AssocType:
+                                self(TypeRef(t).assoc_base(), o, self);
+                                for (auto g : TypeRef(t).gat_args()) self(g, o, self);
+                                for (auto& l : TypeRef(t).lifetime_args()) o.push_back(l);
+                                break;
+                            default:
+                                for (auto a : TypeRef(t).type_args()) self(a, o, self);
+                                for (auto& l : TypeRef(t).lifetime_args()) o.push_back(l);
+                                break;
+                        }
+                    };
+                    auto _alpha_ok = [&](TypeRef ta, TypeRef tb) -> bool {
+                        std::vector<std::string> la, lb;
+                        _acollect(ta, la, _acollect);
+                        _acollect(tb, lb, _acollect);
+                        if (la.size() != lb.size()) return false;
+                        for (size_t i = 0; i < la.size(); ++i) {
+                            const std::string& x = la[i];
+                            const std::string& y = lb[i];
+                            if (x.empty() || y.empty()) {
+                                if (_astrict && !(x.empty() && y.empty())) return false;
+                                continue;
+                            }
+                            if (x == "static" || y == "static") {
+                                if (x != y) return false;
+                                continue;
+                            }
+                            bool bound = false;
+                            for (auto& pr : _amap) {
+                                if (pr.first == x) { if (pr.second != y) return false; bound = true; }
+                                else if (pr.second == y) { return false; }
+                            }
+                            if (!bound) _amap.emplace_back(x, y);
+                        }
+                        return true;
+                    };
                     size_t check_end = has_pack
                         ? (size_t)variadic_pos
                         : m.param_types.size();
@@ -4296,7 +4363,12 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             !std::string_view(TypeRef(cs).lifetime()).empty())
                             sig_match = false;
                     }
-                    for (size_t k = 1; k < check_end; ++k) {
+                    if (_apar && sig_match && !m.param_types.empty() &&
+                        !c->param_types.empty() && m.param_types[0] &&
+                        c->param_types[0] &&
+                        !_alpha_ok(m.param_types[0], c->param_types[0]))
+                        sig_match = false;
+                    for (size_t k = 1; sig_match && k < check_end; ++k) {
                         auto tp = m.param_types[k];
                         auto cp = c->param_types[k];
                         if (!tp || !cp) { sig_match = false; break; }
@@ -4312,6 +4384,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             !detail::types_equal_with_lifetimes(tp, cp))
                             { sig_match = false; break; }
                         if (!types_equal(tp, cp)) { sig_match = false; break; }
+                        if (_apar && !_alpha_ok(tp, cp)) { sig_match = false; break; }
                     }
                     // Per-element check past the pack position: each
                     // impl-method param at index k (where k >=
@@ -4356,6 +4429,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         if (!is_generic_param(tr) &&
                             !is_generic_param(c->ret_type) &&
                             !detail::types_equal_with_lifetimes(tr, c->ret_type))
+                            sig_match = false;
+                    }
+                    if (sig_match && _aret && m.ret_type && c->ret_type) {
+                        TypeRef tra = m.ret_type;
+                        if (!trait_arg_subst.empty())
+                            tra = subst_type_sema(tra, trait_arg_subst);
+                        if (!is_generic_param(tra) &&
+                            !is_generic_param(c->ret_type) &&
+                            !_alpha_ok(tra, c->ret_type))
                             sig_match = false;
                     }
                     if (sig_match) { matching = c; break; }
@@ -4489,6 +4571,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     for (auto* df : find_func_candidates(dmangled))
                         const_cast<SemaFuncInfo*>(df)->is_pub = true;
                     current_type_params_.erase("Self");
+                } else if (logos::probe::on("sigdiagmm") && !cands.empty()) {
+                    // PROBE sigdiagmm — M-SIG step 1: the mismatch has no diagnostic.
+                    error(std::format("impl {} for {}: method '{}' does not match the trait declaration's signature",
+                          trait_name, target, m.name));
                 } else {
                     error(std::format("impl {} for {}: missing method '{}'",
                           trait_name, target, m.name));
