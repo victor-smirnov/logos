@@ -8020,46 +8020,43 @@ private:
                 };
                 if (recv_contributes &&
                     (is_temporary_value_expr(v.receiver()) ||
-                     (logos::probe::on("e716recvtmp") &&
-                      is_temporary_value_expr(peel_recv_base(v.receiver()))) ||
-                     // PROBE e716recvref — THE WALL'S SHAPE, NAMED. The one
-                     // stdlib refusal `e716recvtmp` buys is `prog.segs.any()`,
-                     // and `WRef<S>::any(self: &WRef<S>) -> WAny` returns BY
-                     // VALUE: no reference exists to dangle. So the peel is
-                     // gated on the METHOD'S OWN RESULT being a reference kind,
-                     // which `mk().view() -> &i64` is and `any() -> WAny` is not.
-                     (logos::probe::on("e716recvref") && is_ref_kind(m_rt) &&
-                      is_temporary_value_expr(peel_recv_base(v.receiver()))) ||
-                     // PROBES e716recvown / e716recvownbc — THE SECOND WALL,
-                     // MEASURED. `e716recvref` cleared `fn resolve` and then
-                     // refused `fn store_save`:
-                     //   g.branches.borrow(i).name.as_str()
-                     // The peeled base is a CALL RETURNING A REFERENCE, whose
-                     // referent lives in `g` and outlives the statement — it is
-                     // not an owning temporary at all. `is_temporary_value_expr`
-                     // answers on the NODE KIND and cannot see that. The hand
-                     // twin is scratch `w_reffield`; its no-field-hop sibling
-                     // `w_refbase` is refused by this arm's UNARMED sibling
-                     // already, which is a pre-existing FALSE REFUSAL.
-                     ((logos::probe::on("e716recvown") ||
-                       logos::probe::on("e716recvownbc")) &&
-                      is_ref_kind(m_rt) &&
+                     // ── THE FIELD/TUPLE HOP AT A METHOD RECEIVER (LANDED
+                     // 2026-09-02w, priced as `e716recvown`: ceiling 0, cost 0
+                     // on pass/cfail, stdlib 4-of-4, fail-text oracle clean).
+                     // `mk().view()` with no `impl Drop` compiled while the
+                     // same program WITH a `Drop` was refused by
+                     // tests/spec/fail/borrow_diag_2__ref-from-temp — one token
+                     // apart. The peel is gated twice, and both gates were
+                     // bought by a stdlib refusal:
+                     //   is_ref_kind(m_rt) — `WRef<S>::any(&self) -> WAny`
+                     //     returns BY VALUE, so nothing can dangle
+                     //     (stdlib/mem/wql/srcloc.logos, `fn resolve`);
+                     //   the peeled base's own type is not a reference —
+                     //     `g.branches.borrow(i).name.as_str()`'s base is a
+                     //     CALL RETURNING A REFERENCE whose referent lives in
+                     //     `g` (stdlib/mem/bt/memstore.logos, `fn store_save`).
+                     // `is_temporary_value_expr` answers on the NODE KIND and
+                     // can see neither.
+                     (is_ref_kind(m_rt) &&
                       [&]{ ExprRef b = peel_recv_base(v.receiver());
                            if (!b || !is_temporary_value_expr(b)) return false;
-                           TypeRef bt = b.type(pool);
-                           if (is_ref_kind(bt)) return false;
-                           if (logos::probe::on("e716recvownbc") &&
-                               is_borrow_carrying_type(bt)) return false;
-                           return true; }()) ||
-                     (logos::probe::on("e716recvdirect") &&
-                      is_temporary_value_expr([&]{
-                          ExprRef b = v.receiver();
-                          for (int i = 0; b && i < 8; ++i) {
-                              if (b.kind() == Code::AddrOfTemp)
-                                  { b = EAddrOfTempView{b}.inner(); continue; }
-                              break;
-                          }
-                          return b; }()))) &&
+                           return !is_ref_kind(b.type(pool)); }())) &&
+                    // PROBE e716recvrefbase — THE OTHER DIRECTION, and it is a
+                    // FALSE REFUSAL, not a hole: the unarmed clause at the top
+                    // calls a CALL RETURNING A REFERENCE an owning temporary,
+                    // so `o.get().view()` is refused although `r` borrows `o`,
+                    // which outlives it. Priced 2026-09-02w; see PROBES.md.
+                    // ⚠ THE AUTOREF IS IN THE WAY: `mk().view()`'s receiver
+                    // node is `&mk()` (AddrOfTemp), whose TYPE is `&H` — asking
+                    // `is_ref_kind` of the node itself suppressed the E0716 the
+                    // clause above buys. Measured, first spelling, r_refuse
+                    // rc 1 -> 0. The question is about the expression UNDER the
+                    // autoref.
+                    !(logos::probe::on("e716recvrefbase") &&
+                      [&]{ ExprRef b = v.receiver();
+                           while (b && b.kind() == Code::AddrOfTemp)
+                               b = EAddrOfTempView{b}.inner();
+                           return b && is_ref_kind(b.type(pool)); }()) &&
                     method_self_kind(v) != 0)
                     rp.is_temp = true;
                 // The receiver may be a BARE VarRef value-local (e.g. `Rc::deref`'s

@@ -4904,8 +4904,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8749 -> 8754   +5
 #   NOIMPORTED   4449 -> 4452   +3
 #   TIERCOMMIT    307 ->  305   -2
-REGISTRY-ALL         8754
-REGISTRY-NOIMPORTED  4452
+# 2026-09-02w: +2 native fixtures, the pinned twins of the E0716 method-receiver
+#              hole — tests/logos/fail/bc_e716recvtemp_nodrop_fail.logos
+#              tests/logos/pass/bc_e716recvtemp_legal_shapes.logos. NO ledger row
+#              moved (the mechanism buys none), so ALL and NOIMPORTED move by
+#              the same +2 and TIERCOMMIT does not move at all.
+#   ALL          8754 -> 8756   +2
+#   NOIMPORTED   4452 -> 4454   +2
+#   TIERCOMMIT    305 ->  305    0
+REGISTRY-ALL         8756
+REGISTRY-NOIMPORTED  4454
 REGISTRY-TIERCOMMIT  305
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

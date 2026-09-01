@@ -10047,3 +10047,115 @@ from the pinned `tests/spec/fail/borrow_diag_2__ref-from-temp`, which has the
 walls that stopped its two predecessors. It buys no ledger row and cannot: the
 ledger holds only programs that compile and should not, which is what this hole
 is.
+
+# ═══ ROUND 2026-09-02w — THE E0716 METHOD-RECEIVER HOLE LANDS AT ZERO ON ALL
+# THREE COLUMNS AND BUYS NO ROW; `lifereg.R18`'s ONE MECHANISM IS PRICED ═══════
+
+Opening HEAD `499f16dce`, binary/libs d0d36da4c844e00a (READ). Predictions filed
+BEFORE any edit in `build/predictions-2026-09-02w.txt`.
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE), AND WHAT THE BRIEF GOT WRONG
+
+    live probes  142   (the brief says 141 — it counted the round's own report,
+                        which listed `e716recvown/e716recvownbc` as one line)
+    ledger       # TOTAL 256, re-derived by DIRECT LISTING: 256 rows
+    top roots    bck.C 16 · lifereg.A 13 · nllmoves.B 11 · lifereg.R17 11 ·
+                 bck.B 11 · nllmoves.C 10 · bck.NEW 10 · lifereg.R18 8 ·
+                 lifereg.NEW-N1 8 · lifereg.NEW-R20 7 · lifereg.N1 7 · lifereg.C 7
+    baseline     gate-run build_id=329 — `-R '^logos_00_bc_admit_'` 256/256
+                 already measured, 0 failed; `-L bc` 0 failed
+
+**CORRECTION 1 TO THE BRIEF (and it repeats 2026-09-01v §0's correction 1).**
+The brief's SUBJECT 1 presents `e716fldarg` as unlanded and its `impl Drop` half
+as "the dangerous half still open". Both landed in 2026-08-31u §2. Verified
+again this round on the opening binary, not inferred: the fixtures
+`tests/logos/fail/bc_e716argtemp_field_hop_fail` and `bc_e716argtemp_rtmp_drop_fail`
+are both rc 1 with the E0716 text, and neither name is a probe. **THE SAME
+STALE PARAGRAPH HAS NOW BEEN HANDED DOWN TWICE.**
+
+**CORRECTION 2.** The brief says `e716recvtmp` "⛔ refuses `logos.mem` (1 refusal
+in `fn resolve`)" and asks for the wall's shape. Both walls were already found
+and named — `fn resolve` (2026-08-31u §5) and `fn store_save` (2026-09-01v §5) —
+and the second exists only because the first was cleared. **"1 refusal" is a
+FIRST FAILURE, NOT A COUNT.**
+
+## 1. M1 — THE E0716 METHOD-RECEIVER PEEL, LANDED UNCONDITIONALLY. 0 ROWS.
+
+    site: src/compiler/borrow_check.cpp, the MethodCall arm's `rp.is_temp` gate
+
+The predicate priced as `e716recvown` in 2026-09-01v §10, landed verbatim:
+peel FieldRead / TupleIndex / AddrOfTemp under the receiver, and call the result
+a borrow of a temporary when
+
+  (i)  the METHOD'S OWN RESULT is a reference kind — nothing can dangle out of
+       a by-value result; and
+  (ii) the peeled base's OWN TYPE is not a reference kind — a call returning
+       `&T` is not an owning temporary.
+
+⚠ **NEITHER GATE IS TASTE; EACH WAS BOUGHT BY A NAMED STDLIB REFUSAL.** Without
+(i), `stdlib/mem/wql/srcloc.logos`'s `fn resolve` fails on `prog.segs.any()`
+(`WRef<S>::any(self: &WRef<S>) -> WAny` returns BY VALUE). Without (ii),
+`stdlib/mem/bt/memstore.logos`'s `fn store_save` fails on
+`g.branches.borrow(i).name.as_str()`.
+
+    CEILING 0 · COST pass 0 · cfail 0 · stdlib 4-of-4 · fail-text oracle 0
+    PREDICTED 0 rows and eight hand programs BY NAME; ACTUAL exactly that.
+    Ledger # TOTAL 256 -> 256, re-derived by direct listing.
+
+**THE THREE DAMAGE SHAPES, SEPARATED (rule 15).** `fail_text_oracle.py` over
+`-L bc -L fail`, landed vs the CONTROL-REVERT binary, 1108 shared fixtures:
+**0 rc-changes, 0 text-only changes, 0 un-refusals.** The only line in the diff
+is the round's own new fixture, which the reverted build had globbed and the
+landed run predated. `-L bc` through the store: 2016 passed / 0 failed / 2
+disabled. `stdlib-cost.sh`: all four layers.
+
+**RULE 5 — THE HAND PROGRAMS, MULTI-LINE, MEASURED ON THE UNARMED BINARY FIRST
+AND UNDER THE ARM SECOND, BEFORE ANY EDIT.**
+
+    r_refuse    mk().view()                rc 0 -> 1   ← THE HOLE, CLOSED
+    r_named     b.view()                   rc 0, 0
+    r_scalar    mk().val()   -> i64        rc 0, 0
+    r_handle    mk().any()   -> W by value rc 0, 0     ← `fn resolve`'s shape
+    r_inline    take(mk().view())          rc 0, 0
+    r_byval     mk().into_v() (self: H)    rc 0, 0
+    w_reffield  o.get().leaf.view()        rc 0, 0     ← `store_save`'s shape
+    w_refbase   o.get().view()             rc 1, 1     ← §3, UNARMED TOO
+
+Fire log under `LOGOS_PROBE_FIRE`: 4 fires across the eight, so the site is
+PROVEN LIVE and the zeros are answers, not silence (rule 1).
+
+## 2. THE FIXTURES, AND THE CONTROL REVERT THAT MADE THEM BELIEVABLE
+
+    tests/logos/fail/bc_e716recvtemp_nodrop_fail     the hole, diagnostic pinned
+                                                     IN FULL (one line, 173 ch)
+    tests/logos/pass/bc_e716recvtemp_legal_shapes    six legal receiver shapes,
+                                                     (3) and (6) the hand twins
+                                                     of the two stdlib walls
+
+ONE TOKEN APART: the fail fixture is `tests/spec/fail/borrow_diag_2__ref-from-temp`
+with the `impl Drop for H` REMOVED. With the `Drop`, sema materialises `__rtmp_N`
+and the old arm already refused; without it the receiver stayed an rvalue under
+the autoref and `is_temporary_value_expr` — which answers on the NODE KIND —
+never saw it.
+
+CONTROL REVERT (`git stash` of borrow_check.cpp alone, full rebuild):
+ · the fail fixture COMPILES (`logosc: wrote /dev/null`) and its runner call is
+   rc 1 — the fixture RATCHETS, it is not green on the old compiler;
+ · the legal twin is rc 0 on BOTH binaries — it asserts nothing the mechanism
+   invented;
+ · restored + rebuilt, green checkpoint taken before anything else was measured.
+
+## 3. THE FALSE REFUSAL IS STILL THERE, AND IT IS NOT THIS MECHANISM'S
+
+`w_refbase` — `o.get().view()`, legal Rust — is rc 1 on the UNARMED binary, on
+the reverted binary and on the landed one. The clause responsible is the OLD
+one at the top of the same gate: `is_temporary_value_expr(v.receiver())` calls a
+CALL RETURNING A REFERENCE an owning temporary. It is priced this round as
+`e716recvrefbase` (§5). It is deliberately NOT in the pass fixture: a pass
+fixture holding a program the compiler refuses would be red.
+
+⚠ AND THE FIRST SPELLING OF THAT PROBE WAS WRONG IN THE EXPENSIVE DIRECTION.
+`is_ref_kind(v.receiver().type(pool))` suppressed the E0716 that M1 had just
+bought — `mk().view()`'s receiver NODE is `&mk()` (AddrOfTemp), whose type is
+`&H`. MEASURED, first build: r_refuse rc 1 -> 0. The question is about the
+expression UNDER the autoref, and the probe now peels it.

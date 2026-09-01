@@ -1,0 +1,23 @@
+// THE REFUSE HALF of tests/logos/pass/bc_e716recvtemp_legal_shapes, and ONE
+// TOKEN from tests/spec/fail/borrow_diag_2__ref-from-temp: that fixture is this
+// program WITH an `impl Drop for H`, and it was already refused. Without the
+// `Drop` no `__rtmp_N` is materialised, the receiver stays an rvalue under the
+// autoref, and `is_temporary_value_expr` — which answers on the NODE KIND —
+// never saw the temporary under the field/tuple/autoref hops. The returned
+// `&Inner` pointed into a value dropped at the end of the statement. Upstream
+// E0716. LANDED 2026-09-02w, priced as `e716recvown`: ceiling 0, cost 0 pass,
+// cfail 0, stdlib 4/4, fail-text oracle clean — it buys NO ledger row and
+// cannot, because the ledger holds only programs that COMPILE and should not.
+package bc_e716recvtemp_nodrop_fail;
+struct Inner { x: i64 }
+struct H { inner: Inner }
+impl H {
+    fn view(self: &H) -> &Inner { return &self.inner; }
+}
+fn mk() -> H {
+    return H { inner: Inner { x: 7i64 } };
+}
+fn main() -> i32 {
+    let v: &Inner = mk().view();
+    return v.x as i32;
+}

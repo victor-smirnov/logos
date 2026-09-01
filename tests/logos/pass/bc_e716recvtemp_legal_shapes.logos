@@ -1,0 +1,100 @@
+// COST 0 IS NOT A SAFETY CLAIM (rule 5). `e716recvown` priced CEILING 0 / COST
+// 0 pass / cfail 0 / stdlib 4-of-4 and buys NO ledger row; the whole case for
+// landing it is one dangling-reference hole
+// (tests/logos/fail/bc_e716recvtemp_nodrop_fail) and the programs below, which
+// say where the new refusal STOPS. Every one of them puts a temporary, or a
+// hop over one, in METHOD-RECEIVER position and therefore reaches the same arm.
+//
+// The mechanism: at a MethodCall the receiver is a borrow of a temporary when
+// the base under any run of FieldRead / TupleIndex / AddrOfTemp hops is a
+// temporary VALUE — but only if (i) the METHOD'S OWN RESULT is a reference
+// (nothing can dangle out of a by-value result) and (ii) that peeled base is
+// not ITSELF of reference kind (a call returning `&T` is not an owning
+// temporary; its referent outlives the statement).
+//
+// ⚠ BOTH GATES WERE BOUGHT BY A STDLIB REFUSAL, not by taste. Without (i),
+// `stdlib/mem/wql/srcloc.logos`'s `fn resolve` fails on `prog.segs.any()`,
+// where `WRef<S>::any(self: &WRef<S>) -> WAny` returns BY VALUE. Without (ii),
+// `stdlib/mem/bt/memstore.logos`'s `fn store_save` fails on
+// `g.branches.borrow(i).name.as_str()`, whose peeled base is a CALL RETURNING A
+// REFERENCE. (5) and (7) below are the hand twins of those two functions.
+package bc_e716recvtemp_legal_shapes;
+
+struct Inner { x: i64 }
+struct H { inner: Inner }
+struct W { y: i64 }
+struct Leaf { v: i64 }
+struct Mid { leaf: Leaf }
+struct Outer { inner: Mid }
+
+impl H {
+    fn view(self: &H) -> &Inner { return &self.inner; }
+    fn val(self: &H) -> i64 { return self.inner.x; }
+    fn any(self: &H) -> W { return W { y: self.inner.x }; }
+    fn into_v(self: H) -> Inner { return self.inner; }
+}
+impl Outer {
+    fn get(self: &Outer) -> &Mid { return &self.inner; }
+}
+impl Leaf {
+    fn view(self: &Leaf) -> &i64 { return &self.v; }
+}
+
+fn mk() -> H {
+    return H { inner: Inner { x: 7i64 } };
+}
+fn take(p: &Inner) -> i64 {
+    return p.x;
+}
+
+// (1) the receiver is a NAMED local, which outlives the statement.
+fn f1() -> i64 {
+    let b: H = H { inner: Inner { x: 7i64 } };
+    let v: &Inner = b.view();
+    return v.x;
+}
+
+// (2) the method returns a SCALAR — no reference exists to dangle.
+fn f2() -> i64 {
+    return mk().val();
+}
+
+// (3) the method returns a STRUCT BY VALUE — gate (i), and the shape of
+//     `WRef<S>::any(&self) -> WAny` in stdlib/mem/wql/ir.logos.
+fn f3() -> i64 {
+    let w: W = mk().any();
+    return w.y;
+}
+
+// (4) the borrow of the temporary is CONSUMED INSIDE the statement: the
+//     temporary is still alive at the point of use.
+fn f4() -> i64 {
+    return take(mk().view());
+}
+
+// (5) a BY-VALUE self CONSUMES the receiver: the temporary is moved into the
+//     callee, not dropped at the end of the statement.
+fn f5() -> i64 {
+    let i: Inner = mk().into_v();
+    return i.x;
+}
+
+// (6) the peeled base is a CALL RETURNING A REFERENCE — gate (ii), and the
+//     shape of `g.branches.borrow(i).name.as_str()` in
+//     stdlib/mem/bt/memstore.logos's `fn store_save`. `o` owns the referent
+//     and outlives `r`.
+fn f6() -> i64 {
+    let o: Outer = Outer { inner: Mid { leaf: Leaf { v: 3i64 } } };
+    let r: &i64 = o.get().leaf.view();
+    return *r;
+}
+
+fn main() -> i32 {
+    if f1() != 7i64 { return 1i32; }
+    if f2() != 7i64 { return 2i32; }
+    if f3() != 7i64 { return 3i32; }
+    if f4() != 7i64 { return 4i32; }
+    if f5() != 7i64 { return 5i32; }
+    if f6() != 3i64 { return 6i32; }
+    return 0i32;
+}
