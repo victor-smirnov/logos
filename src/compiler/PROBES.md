@@ -11064,3 +11064,202 @@ ONE; read the marker.
  16. NEW: `d5_inherent_bool_i64lit` is refused with `'R' has no method 'f'` —
      the method EXISTS and its argument type is wrong. Another instance of the
      "wrong diagnostic names the wrong thing" class §9.7 owns; no fixture.
+
+# ROUND 2026-09-06a — A DEFAULT BODY EXEMPTED AN OVERRIDE FROM CONFORMANCE, AND
+#                     THE CALL WAS DISPATCHED TO IT WITH THE TRAIT'S TYPES
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE)
+
+```
+live probes  147 at open → 145 at close (sigdefarity and sigdefany DELETED with
+             their subject; the landed arm carries no probe name)
+ledger       # TOTAL 256 at open, 256 at close, and 256 by direct listing
+             (awk '!/^#/ && NF' tests/logos/bc_admits.ledger | wc -l)
+top roots    bck.C 16 · lifereg.A 13 · nllmoves.B 11 · lifereg.R17 11 ·
+             bck.B 11 · nllmoves.C 10 · bck.NEW 10 · lifereg.R18 8
+opening build 01d30ff9d33768aa (READ) = 2026-09-05z's build; tree did not move
+baseline     gate build 359, 2471 recorded / 0 failed. `-R ^logos_00_bc_admit_`
+             256/256 and `-L bc` 2025/2025 ALREADY MEASURED green under 359 —
+             ⚠ CORRECTION to 2026-09-05z §8: the `-L bc` filter's unmeasured
+             remainder is now ZERO, not 1112. 1112 was never the population and
+             is not the population now; it is the FAIL-fixture count the
+             fail-text oracle records, which is a different set.
+```
+
+## 1. THE BRIEF'S OWN RECOMMENDATION IS THE THING THIS ROUND REFUTED
+
+2026-09-05z §10.1 recommended landing `sigdefarity` (0/0/0/ok, six legal hand
+programs, correct diagnostic). It was re-priced today on the INSTALLED arm
+before any edit — CEILING 0, COST 0, COST-fail 0 of 1112, stdlib 4-of-4, fired
+2 333 758 times — and then refuted by ONE new hand program:
+
+```
+d10_sep_overload_sametypearity      trait Tag {
+  unarmed      rc 0                     fn tag(&Self, x: i64) -> i64 { 100 }
+  sigdefarity  rc 1  ⛔ FALSE REFUSAL    fn tag(&Self, x: bool) -> i64;
+  sigdefany    rc 1  ⛔                }
+                                      impl Tag for R { fn tag(&R, x: bool) … }
+```
+
+Unarmed the program is compiled CORRECTLY —
+`%4 = call i64 @d10….R__tag__f__ref_R__bool(ptr %2, i1 true)` — and the i64
+default is simply never reached. `sigdefarity` refuses it because, for the
+trait's `x: i64` member, the impl's `tag(&R, bool)` is a same-named candidate of
+the SAME ARITY that matches no signature. That is the identical false refusal
+that condemned `sigdefany` on `d8` last round, one arity apart. **d8 separates
+the two declined arms from each other; d10 separates NEITHER.** Rule 9 again,
+and this time the instrument that found it was a hand program written against
+last round's own recommendation.
+
+⚠ THE NUMBER THAT CONDEMNS `sigdefarity` IS NOT IN ANY COLUMN: 0 / 0 / 0 of
+1112 / stdlib ok, unchanged, on the same build that false-refuses d10.
+
+## 2. `sigdefuniq` — THE ARM THAT LANDED
+
+`m.has_default && _sigdef_arity_seen && _sigdef_name_unique`, and the precise
+`self_mismatch_note` sentence consulted BEFORE the generic one.
+
+`_sigdef_name_unique` counts the trait's own methods carrying `m.name` and is
+true at 1. It declines to speak wherever the name is overloaded in the trait,
+which is exactly where d8 and d10 live. Priced armed, build **dc7f7dc22a21598d**
+(READ), gate builds 363 → 364:
+
+| column | value |
+|---|---|
+| fires | 5 166 351 |
+| CEILING | 0 rows |
+| COST | 0 legal programs refused [saw: pass(ledger+legal) fail(text) stdlib] |
+| COST-fail | 0 of 1112 (rc 0, .expected-match 0, text-only 0) |
+| stdlib | all four layers compile |
+
+CEILING 0 was predicted and is the only possible value: `bc_admits.ledger` holds
+borrow-check admissions (roots `bck.` / `lifereg.` / `nllmoves.`) and this is
+trait conformance — no program in it can become a row in either direction.
+COST-fail 0 is by construction: the arm sits on a path that TODAY COMPILES, so
+no already-refusing fixture can change text. Re-run on the LANDED binary
+(unconditional, no probe env) the fail-text oracle reads 1115 rows, the three
+new fail fixtures are the only additions, and **0 of the 1112 pre-existing rows
+changed in rc, `.expected`-match or stderr SHA.**
+
+## 3. WHAT IT CLOSES IS A MISCOMPILATION, NOT A PERMISSIVE HOLE
+
+`d1`: trait `fn tag(&Self, x: i64) -> i64 {…}`, impl `fn tag(&R, x: bool)`.
+rc 0 unarmed. The default is not "registered instead" — it is never emitted; the
+call resolves against the TRAIT declaration (`i64`) and dispatch lands on the
+IMPL symbol (`bool`):
+
+```llvm
+%4 = call i64 @d1….R__tag__f__ref_R__bool(ptr %2, i1 true)     ; r.tag(5i64)
+%6 = trunc i64 %5 to i1                                        ; d6, variable arg
+%7 = call i64 @d6….R__tag__f__ref_R__bool(ptr %3, i1 %6)
+```
+
+`d2_ctl_nodefault` — the same file with the default body replaced by `;` — is
+rc 1 unarmed and rc 1 after, so the site is live and the zeros are readable.
+
+## 4. THE SETS — PREDICTED BEFORE THE EDIT (build/predictions-2026-09-06a.txt),
+##    THEN MEASURED, EXACT IN BOTH DIRECTIONS, 17 OF 17
+
+```
+program                          unarmed  sigdefuniq  LANDED   predicted
+d1_default_wrongparam              0         1          1      1  ⇐ closed
+d6_default_wrongparam_nonlit       0         1          1      1  ⇐ closed
+d9_note_shape                      0         1          1      1  ⇐ closed
+d2_ctl_nodefault                   1         1          1      1  ⇐ CONTROL
+d3_legal_notprovided               0         0          0      0
+d4_legal_provided_ok               0         0          0      0
+d8_sep_overload_nocall             0         0          0      0  ⇐ SEPARATOR
+d10_sep_overload_sametypearity     0         0          0      0  ⇐ SEPARATOR
+d5_inherent_bool_i64lit            1         1          1      1  (open 16)
+d7_sep_overload_arity              1         1          1      1  (open 15)
+d9ctl_note_nodefault               1         1          1      1
+l1..l6 (ident Self · generic impl · trait param · prim target ·
+        no param · Self by value)  0         0          0      0
+```
+
+Diffed BOTH WAYS: predicted-closed = {d1, d6, d9}; actually-closed = {d1, d6,
+d9}; predicted-untouched = the other 14; actually-untouched = the other 14.
+
+## 5. 2026-09-05z OPEN 14 IS FIXED IN THE SAME LINE, AND MEASURED
+
+`d9_note_shape` is `bc_sigselfsub_param_self_mismatch_fail` plus a default body.
+Its one-token twin `d9ctl_note_nodefault` prints, on the SAME binary:
+
+```
+impl Same for R: method 'same' does not match the trait declaration:
+parameter 1 is declared '&R' and the impl declares '&i64'
+```
+
+Under `sigdefarity` d9 printed the GENERIC sentence — the new arm shadowed the
+`self_mismatch_note` branch. The landed arm consults the note first and d9 now
+prints the same sentence as its twin, character for character. It cannot move
+COST-fail off 0 because it can only improve text on programs that were
+previously SILENT, and the oracle confirms 0 text-only changes.
+
+## 6. THE FIXTURES, AND THE CONTROL REVERT
+
+Seven, in the home root of `bc_sigselfsub_*` (`tests/logos/{fail,pass}`), each
+with its one-token twin, diagnostics in full:
+
+```
+fail bc_sigdefuniq_default_wrongparam_fail       "…does not match the trait
+     twin → pass bc_sigdefuniq_default_rightparam_pass   declaration's signature"
+fail bc_sigdefuniq_default_wrongparam_var_fail   same sentence, non-literal arg
+     twin → pass bc_sigdefuniq_default_rightparam_pass
+fail bc_sigdefuniq_default_selfparam_fail        "…does not match the trait
+     twin → pass bc_sigdefuniq_default_selfparam_pass    declaration: parameter 1
+                                                 is declared '&R' and the impl
+                                                 declares '&i64'"
+pass bc_sigdefuniq_default_notprovided_pass      the register-the-default path
+                                                 the new arm sits on
+pass bc_sigdefuniq_overload_sametypearity_pass   d10 — THE PROGRAM THAT
+                                                 CONDEMNED THE TWO WIDER ARMS
+```
+
+CONTROL REVERT: the landed condition disabled at its one site and the tree
+rebuilt. `ctest -R bc_sigdefuniq`: the three FAIL fixtures FAIL (their programs
+compile again) and the four PASS fixtures still pass. Restored and rebuilt, all
+seven green. The fixtures are therefore believable in both directions.
+
+## 7. LEDGER ARITHMETIC
+
+```
+# TOTAL 256 at open, 256 at close, 256 by direct listing. Nothing bought and
+nothing could be — the mechanism is trait conformance, not borrow check.
+census pin  REGISTRY-ALL 8761 → 8768 (+7), NOIMPORTED 4459 → 4466 (+7),
+            TIERCOMMIT 305 → 305 (0); re-derived by `ctest -N` three ways.
+direct_door corpus 2517 → 2521, glob 191, nonglob 2326 → 2330, by direct listing.
+```
+
+## 8. WHAT I DID NOT SPEND, WITH THE NUMBER
+
+ 1. **§9.12, the `str`-target `Self`** — still the single named blocker under
+    `sigself0` and `sigrettyself`, i.e. under BOTH remaining M-SIG holes.
+    2026-09-04y priced them at 256/1099 and 0/71 stdlib refusals. A whole round.
+ 2. **§9.11, `target_resolved` is NULL for a plain nominal impl target** — an
+    unsurveyed root with nothing priceable until its readers are enumerated.
+    A SURVEY, not a probe round.
+ 3. **§9.7 `sigdiagmm`** — 9 `.expected` files predicted exactly, 6 flips and 3
+    holds, blocked on three of them. A CORPUS DECISION WITH AN OWNER, unchanged.
+ 4. **`d2_ctl_nodefault` prints `missing method 'tag'`** for a method that is
+    PRESENT and mis-signed. Same wrong-diagnostic class as §9.7 owns, and it is
+    §9.7's population — not fixable without touching those three `.expected`.
+ 5. **The residue this round's guard buys** — a mis-signed override of a
+    defaulted trait method whose NAME IS OVERLOADED IN THE TRAIT is still
+    unchecked. The correct predicate ("every impl candidate must match SOME
+    trait declaration of its name") needs the ~200-line inline signature
+    comparison extracted into a callable; that is a refactor round, and it
+    would subsume `sigdiagmm` too.
+
+## 9. OPEN (carried, plus this round's)
+
+ 1-12. UNCHANGED from 2026-09-04y §9.
+ 13. CLOSED 2026-09-06a: `m.has_default` no longer short-circuits the verdict.
+ 14. CLOSED 2026-09-06a: the arm consults `self_mismatch_note` first (§5).
+ 15. Overloaded trait methods (same name, different arity) pass sema and fail
+     MLIR verification — `d7_sep_overload_arity` dies at `'func.call' op
+     incorrect number of operands for callee`, a compiler-internal message for
+     a user program. Unchanged; no fixture pins it.
+ 16. `d5_inherent_bool_i64lit` is refused with `'R' has no method 'f'` — the
+     method EXISTS and its argument type is wrong. Unchanged; no fixture.
+ 17. NEW: the overloaded-name residue of §8.5.

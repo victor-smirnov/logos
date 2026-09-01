@@ -1220,9 +1220,19 @@ PIN = {
     #   ls tests/logos/pass/*.logos                      -> 2517
     #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
     #   the same listing minus the glob half             -> 2326
-    'corpus'            : 2517,
+    # 2026-09-06a: +4 native pass fixtures, bc_sigdefuniq_default_rightparam_pass,
+    # bc_sigdefuniq_default_selfparam_pass, bc_sigdefuniq_default_notprovided_pass
+    # and bc_sigdefuniq_overload_sametypearity_pass — the legal twins of the
+    # three new `bc_sigdefuniq_*_fail` fixtures, plus the default-registration
+    # path the new arm sits on and the legal same-arity trait overload that
+    # condemned the two wider arms. The three refuse halves are FAIL fixtures and
+    # the mechanism closes NO ledger row. BY DIRECT LISTING:
+    #   ls tests/logos/pass/*.logos                      -> 2521
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
+    #   the same listing minus the glob half             -> 2330
+    'corpus'            : 2521,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2326,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2330,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

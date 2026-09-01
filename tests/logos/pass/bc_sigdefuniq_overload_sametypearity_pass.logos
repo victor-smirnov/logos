@@ -1,0 +1,40 @@
+// THE PROGRAM THAT CONDEMNED THE TWO WIDER ARMS. The trait declares `tag`
+// TWICE — `x: i64` with a default body, `x: bool` without — and the impl
+// provides only the `bool` one. It is legal and it is compiled correctly
+// (`call i64 @…R__tag__f__ref_R__bool(ptr, i1 true)`), but for the trait's
+// `x: i64` member there IS a same-named, same-ARITY impl candidate that does
+// not match its signature. `sigdefany` (any same-named candidate) and
+// `sigdefarity` (a candidate that reached the signature compare) both refuse
+// it; both were declined for that. The landed arm speaks only where the trait
+// declares exactly ONE method of the name, which is why this compiles.
+// PROBES.md 2026-09-06a §RULE 9.
+// Its twin one token apart is
+// tests/logos/fail/bc_sigdefuniq_default_wrongparam_fail — the same impl
+// method against a trait that does NOT overload the name.
+package bc_sigdefuniq_overload_sametypearity_pass;
+
+struct R {
+    v: i64,
+}
+
+trait Tag {
+    fn tag(self: &Self, x: i64) -> i64 {
+        return 100i64;
+    }
+    fn tag(self: &Self, x: bool) -> i64;
+}
+
+impl Tag for R {
+    fn tag(self: &R, x: bool) -> i64 {
+        return 200i64;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 1i64 };
+    let a: i64 = r.tag(true);
+    if a == 200i64 {
+        return 0;
+    }
+    return 1;
+}

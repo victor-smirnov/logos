@@ -4919,8 +4919,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8756 -> 8757   +1
 #   NOIMPORTED   4454 -> 4455   +1
 #   TIERCOMMIT    305 ->  305    0
-REGISTRY-ALL         8761
-REGISTRY-NOIMPORTED  4459
+# 2026-09-06a: +7 native fixtures for the defaulted-trait-method conformance
+#              hole — 3 fail (bc_sigdefuniq_default_wrongparam_fail,
+#              _wrongparam_var_fail, _selfparam_fail) and 4 pass
+#              (bc_sigdefuniq_default_rightparam_pass, _selfparam_pass,
+#              _notprovided_pass, bc_sigdefuniq_overload_sametypearity_pass).
+#              All seven are NATIVE and none is tier_commit, so ALL and
+#              NOIMPORTED move by the same +7 and TIERCOMMIT does not move.
+#              The ledger buys no row: the mechanism is trait conformance.
+#   ALL          8761 -> 8768   +7
+#   NOIMPORTED   4459 -> 4466   +7
+#   TIERCOMMIT    305 ->  305    0
+REGISTRY-ALL         8768
+REGISTRY-NOIMPORTED  4466
 REGISTRY-TIERCOMMIT  305
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

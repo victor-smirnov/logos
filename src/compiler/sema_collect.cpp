@@ -4262,6 +4262,16 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 const SemaFuncInfo* matching = nullptr;
                 // PROBES.md 2026-09-05z: a candidate reached the signature compare.
                 bool _sigdef_arity_seen = false;
+                // PROBES.md 2026-09-06a: the trait declares exactly one method
+                // of this name, so no other declaration can be the impl's real
+                // subject. Without it a legal same-name overload is refused.
+                bool _sigdef_name_unique = true;
+                {
+                    int _nsame = 0;
+                    for (auto& _mm : tit->second.methods)
+                        if (_mm.name == m.name) ++_nsame;
+                    _sigdef_name_unique = (_nsame == 1);
+                }
                 for (auto* c : cands) {
                     int variadic_pos = -1;
                     if (!variadic_tp_name.empty()) {
@@ -4471,16 +4481,17 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             m.is_unsafe ? "unsafe" : "safe",
                             matching->is_unsafe ? "unsafe" : "safe"));
                     }
-                } else if (m.has_default && logos::probe::on("sigdefarity") &&
-                           _sigdef_arity_seen) {
-                    // PROBE sigdefarity — 0/0/0/ok 2026-09-05z, NOT LANDED: unfunded. PROBES.md.
-                    error(std::format("impl {} for {}: method '{}' does not match the trait declaration's signature",
-                          trait_name, target, m.name));
-                } else if (m.has_default && logos::probe::on("sigdefany") &&
-                           !cands.empty()) {
-                    // PROBE sigdefany — DECLINED 2026-09-05z: false-refuses a legal overload. PROBES.md.
-                    error(std::format("impl {} for {}: method '{}' does not match the trait declaration's signature",
-                          trait_name, target, m.name));
+                } else if (m.has_default && _sigdef_arity_seen &&
+                           _sigdef_name_unique) {
+                    // A default body does NOT exempt an override from the
+                    // conformance check. PROBES.md 2026-09-06a.
+                    if (!self_mismatch_note.empty())
+                        error(std::format("impl {} for {}: method '{}' does not match "
+                              "the trait declaration: {}",
+                              trait_name, target, m.name, self_mismatch_note));
+                    else
+                        error(std::format("impl {} for {}: method '{}' does not match the trait declaration's signature",
+                              trait_name, target, m.name));
                 } else if (m.has_default) {
                     // This overload not explicitly provided; register the default.
                     // Build Self type; for generic impls include the type params as TypeVars.

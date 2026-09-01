@@ -1,0 +1,38 @@
+// A trait method WITH A DEFAULT BODY was exempt from the conformance check
+// whole: `m.has_default` short-circuited to "register the default" no matter
+// what the impl declared. This impl writes `x: bool` where the trait declares
+// `x: i64`; before 2026-09-06a it compiled, the call resolved against the
+// TRAIT declaration and dispatched to the IMPL symbol, and the emitted IR was
+//     call i64 @…R__tag__f__ref_R__bool(ptr %2, i1 true)
+// — the `5i64` argument TRUNCATED to `i1`. A miscompilation, not a diagnostic
+// gap. PROBES.md 2026-09-06a.
+// Its twin one token apart is tests/logos/pass/bc_sigdefuniq_default_rightparam_pass.
+package bc_sigdefuniq_default_wrongparam_fail;
+
+struct R {
+    v: i64,
+}
+
+trait Tag {
+    fn tag(self: &Self, x: i64) -> i64 {
+        return 100i64;
+    }
+}
+
+impl Tag for R {
+    fn tag(self: &R, x: bool) -> i64 {
+        return 200i64;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 1i64 };
+    let n: i64 = r.tag(5i64);
+    if n == 100i64 {
+        return 3;
+    }
+    if n == 200i64 {
+        return 4;
+    }
+    return 5;
+}

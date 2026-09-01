@@ -1,0 +1,26 @@
+// The arm added in 2026-09-06a sits on the path that REGISTERS a default body,
+// so this is the program it must not disturb: the impl provides nothing and the
+// trait's default has to be registered and called. PROBES.md 2026-09-06a.
+package bc_sigdefuniq_default_notprovided_pass;
+
+struct R {
+    v: i64,
+}
+
+trait Tag {
+    fn tag(self: &Self, x: i64) -> i64 {
+        return 100i64;
+    }
+}
+
+impl Tag for R {
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 1i64 };
+    let n: i64 = r.tag(5i64);
+    if n == 100i64 {
+        return 0;
+    }
+    return 1;
+}

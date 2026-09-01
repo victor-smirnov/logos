@@ -1,0 +1,31 @@
+// The twin of tests/logos/fail/bc_sigdefuniq_default_wrongparam_fail and of
+// tests/logos/fail/bc_sigdefuniq_default_wrongparam_var_fail, one token apart:
+// the impl declares `x: i64`, matching the trait's defaulted declaration. It
+// must still compile, the override must win over the default body, and the
+// argument must arrive untruncated. PROBES.md 2026-09-06a.
+package bc_sigdefuniq_default_rightparam_pass;
+
+struct R {
+    v: i64,
+}
+
+trait Tag {
+    fn tag(self: &Self, x: i64) -> i64 {
+        return 100i64;
+    }
+}
+
+impl Tag for R {
+    fn tag(self: &R, x: i64) -> i64 {
+        return x + 195i64;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 1i64 };
+    let n: i64 = r.tag(5i64);
+    if n == 200i64 {
+        return 0;
+    }
+    return 1;
+}

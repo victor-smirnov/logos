@@ -1,0 +1,29 @@
+// The twin of tests/logos/fail/bc_sigdefuniq_default_selfparam_fail, one token
+// apart: `other: &R` is what `other: &Self` means for `impl Same for R`.
+// PROBES.md 2026-09-06a.
+package bc_sigdefuniq_default_selfparam_pass;
+
+struct R {
+    v: i64,
+}
+
+trait Same {
+    fn same(self: &Self, other: &Self) -> bool {
+        return false;
+    }
+}
+
+impl Same for R {
+    fn same(self: &R, other: &R) -> bool {
+        return self.v == other.v;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 7i64 };
+    let q: R = R { v: 7i64 };
+    if r.same(&q) {
+        return 0;
+    }
+    return 1;
+}

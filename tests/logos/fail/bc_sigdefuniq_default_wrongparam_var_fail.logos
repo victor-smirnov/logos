@@ -1,0 +1,30 @@
+// The same hole with a NON-LITERAL argument, so the truncation cannot be read
+// as a literal-coercion artefact: the emitted IR was
+//     %6 = trunc i64 %5 to i1
+//     %7 = call i64 @…R__tag__f__ref_R__bool(ptr %3, i1 %6)
+// PROBES.md 2026-09-06a. Its twin one token apart is
+// tests/logos/pass/bc_sigdefuniq_default_rightparam_pass.
+package bc_sigdefuniq_default_wrongparam_var_fail;
+
+struct R {
+    v: i64,
+}
+
+trait Tag {
+    fn tag(self: &Self, x: i64) -> i64 {
+        return 100i64;
+    }
+}
+
+impl Tag for R {
+    fn tag(self: &R, x: bool) -> i64 {
+        return 200i64;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 1i64 };
+    let k: i64 = 5i64;
+    let n: i64 = r.tag(k);
+    return 0;
+}
