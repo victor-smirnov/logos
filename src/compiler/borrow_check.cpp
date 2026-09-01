@@ -5283,6 +5283,16 @@ private:
     void declare_pat_bindings(lir_view::PatRef pr) {
         if (!pr) return;
         using Code = lir_schema::pat::Code;
+        // CENSUS (2026-09-01j): arrival by pattern kind at the DECLARATION
+        // channel. See PROBES.md `patdecl*`.
+        {
+            static const char* kn[13] = {"Variant","Int","Bool","Wild",
+                "VariantData","Or","Tuple","Range","Struct","Slice","At",
+                "RefBind","RefPat"};
+            const int k = (int)pr.kind();
+            if (k >= 0 && k < 13)
+                logos::probe::census(std::string("patdecl.arrive.") + kn[k]);
+        }
         switch (pr.kind()) {
             case Code::VariantData: {
                 lir_view::PatVariantDataView v{pr};
