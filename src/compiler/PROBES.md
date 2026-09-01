@@ -10159,3 +10159,51 @@ fixture holding a program the compiler refuses would be red.
 bought — `mk().view()`'s receiver NODE is `&mk()` (AddrOfTemp), whose type is
 `&H`. MEASURED, first build: r_refuse rc 1 -> 0. The question is about the
 expression UNDER the autoref, and the probe now peels it.
+
+## 4. M2 — `e716recvrefbase`, LANDED. 0 ROWS, AND IT REPAIRS A FALSE REFUSAL
+##      OF LEGAL RUST — THE DIRECTION THE LEDGER CANNOT HOLD AT ALL
+
+    site: src/compiler/borrow_check.cpp, the SAME MethodCall `rp.is_temp` gate
+    e716recvrefbase  fires 33 · CEILING 0 · COST 0 pass · cfail 0 ·
+                     0 of 1109 `-L bc -L fail` fixtures changed in rc,
+                     stderr TEXT or `.expected`-match · stdlib 4-of-4
+
+2026-09-01v §6 recorded `o.get().view()` as refused on the unarmed binary and
+had nowhere to put it. The clause responsible is the OLDEST one in the gate:
+`is_temporary_value_expr(v.receiver())` answers on the NODE KIND, so a CALL
+RETURNING A REFERENCE is an "owning temporary" whatever its referent is.
+
+**IT CANNOT UN-REFUSE A REAL DANGLE, AND THAT IS MEASURED, NOT ARGUED.** The
+clause suppresses one assignment of `true`; `rp = prov_of(v.receiver())` above
+it has already carried the temp provenance of a reference DERIVED from a
+temporary. Hand programs, MULTI-LINE, unarmed then armed — and the two twins
+are ONE TOKEN apart (`&b` vs `&mk()`):
+
+    x_legal_named  pick(&b).view()      LEGAL    rc 1 -> 0   ← repaired
+    w_refbase      o.get().view()       LEGAL    rc 1 -> 0   ← repaired
+    x_dangle_call  pick(&mk()).view()   DANGLES  rc 1 -> 1   ← still refused
+    x_dangle_meth  mk().peek().view()   DANGLES  rc 1 -> 1   ← still refused
+    r_refuse       mk().view()          DANGLES  rc 1 -> 1   ← M1's buy, kept
+
+⚠ **THE PASS FIXTURE'S FIRST SPELLING PROVED NOTHING AND THE CONTROL CAUGHT
+IT.** (7) and (8) were first written as `let r = pick(&b);` and as a REPEAT of
+(6)'s field-hop shape — neither is a reference-returning call in RECEIVER
+position, and the whole fixture passed on the CONTROL-REVERT binary. A pass
+fixture that is green without the mechanism asserts nothing about it. Rewritten
+as `pick(&b).look()` and `o.get().peek()`, the fixture is RED on the reverted
+binary with both functions named in the diagnostic, and green with it.
+
+    tests/logos/fail/bc_e716recvrefbase_dangle_fail   the BOUNDARY twin
+        `pick(&mk()).view()` — red before AND after. It pins the direction a
+        wider spelling of this clause would break, not a refusal this round
+        bought.
+
+## 5. WHAT THIS PAIR OF MECHANISMS COSTS THE LEDGER: NOTHING, BY CONSTRUCTION
+
+Ledger `# TOTAL 256` before and after, re-derived by direct listing (256 rows).
+Neither mechanism can buy a row and both close a real defect. M1 closes a
+PERMISSIVE hole — a program that compiles and must not, which is what a ledger
+row IS, except that this one was never ported and so has no row. M2 closes a
+REFUSAL of a legal program, which the ledger cannot represent in principle.
+**ROWS ARE NOT THE ONLY CURRENCY, and this round the currency was two fixtures
+and one control revert each.**

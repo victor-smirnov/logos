@@ -1,0 +1,28 @@
+// THE REFUSE HALF of tests/logos/pass/bc_e716recvtemp_legal_shapes (7), ONE
+// TOKEN apart: there the argument is `&b`, a named local that outlives the
+// borrow; here it is `&mk()`, a temporary dropped at the end of the statement.
+// `pick` returns a reference DERIVED FROM its argument, so the receiver of
+// `.view()` is a reference into a dead temporary.
+//
+// ⚠ THIS FIXTURE PINS A BOUNDARY, NOT A NEW REFUSAL. It was already red before
+// `e716recvrefbase` landed and it is red after, and that is the point: the
+// landed clause suppresses ONE assignment of `rp.is_temp = true` for a
+// reference-typed receiver, and the provenance walk above it must keep
+// carrying the temp for a reference DERIVED from a temporary. If a later,
+// wider spelling of that clause ever un-refuses a real dangle, this goes red.
+package bc_e716recvrefbase_dangle_fail;
+struct Inner { x: i64 }
+struct B { inner: Inner }
+impl Inner {
+    fn view(self: &Inner) -> &i64 { return &self.x; }
+}
+fn mk() -> B {
+    return B { inner: Inner { x: 7i64 } };
+}
+fn pick(p: &B) -> &Inner {
+    return &p.inner;
+}
+fn main() -> i32 {
+    let r: &i64 = pick(&mk()).view();
+    return *r as i32;
+}

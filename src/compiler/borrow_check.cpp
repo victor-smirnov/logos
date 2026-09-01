@@ -8041,22 +8041,33 @@ private:
                       [&]{ ExprRef b = peel_recv_base(v.receiver());
                            if (!b || !is_temporary_value_expr(b)) return false;
                            return !is_ref_kind(b.type(pool)); }())) &&
-                    // PROBE e716recvrefbase — THE OTHER DIRECTION, and it is a
-                    // FALSE REFUSAL, not a hole: the unarmed clause at the top
-                    // calls a CALL RETURNING A REFERENCE an owning temporary,
-                    // so `o.get().view()` is refused although `r` borrows `o`,
-                    // which outlives it. Priced 2026-09-02w; see PROBES.md.
-                    // ⚠ THE AUTOREF IS IN THE WAY: `mk().view()`'s receiver
-                    // node is `&mk()` (AddrOfTemp), whose TYPE is `&H` — asking
+                    // ── THE SAME GATE IN THE OTHER DIRECTION (LANDED
+                    // 2026-09-02w, priced as `e716recvrefbase`: fires 33,
+                    // ceiling 0, cost 0 pass, 0 of 1109 `-L bc -L fail`
+                    // fixtures changed in rc, text OR .expected-match, stdlib
+                    // 4-of-4). A FALSE REFUSAL, not a hole: the clause at the
+                    // top of this gate calls a CALL RETURNING A REFERENCE an
+                    // owning temporary, so `o.get().view()` and `pick(&b).view()`
+                    // were refused although the referent lives in `o` / `b`,
+                    // which outlive the borrow. Both are legal Rust.
+                    // ⚠ IT CANNOT UN-REFUSE A REAL DANGLE, and that is measured,
+                    // not argued: this clause only suppresses an assignment of
+                    // `true`, while `rp = prov_of(v.receiver())` above has
+                    // already carried the temp provenance of a reference DERIVED
+                    // from a temporary. Hand twins, one token apart:
+                    //   pick(&b).view()    legal   rc 1 -> 0 (repaired)
+                    //   pick(&mk()).view() dangles rc 1 -> 1 (still refused)
+                    //   mk().peek().view() dangles rc 1 -> 1 (still refused)
+                    // ⚠ AND THE AUTOREF IS IN THE WAY: `mk().view()`'s receiver
+                    // NODE is `&mk()` (AddrOfTemp), whose TYPE is `&H` — asking
                     // `is_ref_kind` of the node itself suppressed the E0716 the
-                    // clause above buys. Measured, first spelling, r_refuse
-                    // rc 1 -> 0. The question is about the expression UNDER the
-                    // autoref.
-                    !(logos::probe::on("e716recvrefbase") &&
-                      [&]{ ExprRef b = v.receiver();
-                           while (b && b.kind() == Code::AddrOfTemp)
-                               b = EAddrOfTempView{b}.inner();
-                           return b && is_ref_kind(b.type(pool)); }()) &&
+                    // clause above buys. MEASURED on the first spelling:
+                    // r_refuse rc 1 -> 0. The question is about the expression
+                    // UNDER the autoref.
+                    ![&]{ ExprRef b = v.receiver();
+                          while (b && b.kind() == Code::AddrOfTemp)
+                              b = EAddrOfTempView{b}.inner();
+                          return b && is_ref_kind(b.type(pool)); }() &&
                     method_self_kind(v) != 0)
                     rp.is_temp = true;
                 // The receiver may be a BARE VarRef value-local (e.g. `Rc::deref`'s

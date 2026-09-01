@@ -39,12 +39,21 @@ impl Outer {
 impl Leaf {
     fn view(self: &Leaf) -> &i64 { return &self.v; }
 }
+impl Mid {
+    fn peek(self: &Mid) -> &Leaf { return &self.leaf; }
+}
+impl Inner {
+    fn look(self: &Inner) -> &i64 { return &self.x; }
+}
 
 fn mk() -> H {
     return H { inner: Inner { x: 7i64 } };
 }
 fn take(p: &Inner) -> i64 {
     return p.x;
+}
+fn pick(p: &H) -> &Inner {
+    return &p.inner;
 }
 
 // (1) the receiver is a NAMED local, which outlives the statement.
@@ -89,6 +98,27 @@ fn f6() -> i64 {
     return *r;
 }
 
+// (7) the receiver is a CALL RETURNING A REFERENCE into a NAMED local — the
+//     referent lives in `b` and outlives `r`. Refused before 2026-09-02w by
+//     the OTHER half of this gate (`e716recvrefbase`): the top clause called
+//     any reference-returning call an owning temporary. ONE TOKEN from
+//     tests/logos/fail/bc_e716recvrefbase_dangle_fail, where the argument is
+//     `&mk()` instead of `&b`.
+fn f7() -> i64 {
+    let b: H = H { inner: Inner { x: 7i64 } };
+    let r: &i64 = pick(&b).look();
+    return *r;
+}
+
+// (8) the same with a METHOD, and with NO field hop between the two calls:
+//     the receiver of `.peek()` IS the reference `o.get()` returns, and `o`
+//     owns the referent. Also refused before 2026-09-02w.
+fn f8() -> i64 {
+    let o: Outer = Outer { inner: Mid { leaf: Leaf { v: 3i64 } } };
+    let r: &Leaf = o.get().peek();
+    return r.v;
+}
+
 fn main() -> i32 {
     if f1() != 7i64 { return 1i32; }
     if f2() != 7i64 { return 2i32; }
@@ -96,5 +126,7 @@ fn main() -> i32 {
     if f4() != 7i64 { return 4i32; }
     if f5() != 7i64 { return 5i32; }
     if f6() != 3i64 { return 6i32; }
+    if f7() != 7i64 { return 7i32; }
+    if f8() != 3i64 { return 8i32; }
     return 0i32;
 }
