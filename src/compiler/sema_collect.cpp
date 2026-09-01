@@ -957,6 +957,75 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         if (!concrete) continue;
         TypeRef cv{concrete};
         if (cv.kind() == LogosType::Kind::Error) continue;
+        // PROBE 2026-09-07 ltbnd*: the LIFETIME half of a type-param bound.
+        {
+            bool p_any    = logos::probe::on("ltbndany");
+            bool p_stat   = logos::probe::on("ltbndstat");
+            bool p_statem = logos::probe::on("ltbndstatem");
+            bool p_tv     = logos::probe::on("ltbndtv");
+            logos::probe::census("bndlt.arg");
+            if (!tp.lifetime_outlives.empty()) logos::probe::census("bndlt.tp_bounded");
+            if (bounds_probe_) logos::probe::census("bndlt.quiet");
+            if ((p_any || p_stat || p_statem || p_tv) && !bounds_probe_ &&
+                !tp.lifetime_outlives.empty()) {
+                auto _lnorm = [](std::string_view s) {
+                    std::string r{s};
+                    if (!r.empty() && r[0] == '\'') r.erase(0, 1);
+                    return r;
+                };
+                std::function<bool(TypeRef)> _tv_in = [&](TypeRef t) -> bool {
+                    if (!t) return false;
+                    if (t.kind() == LogosType::Kind::TypeVar) return true;
+                    if (t.pointee() && _tv_in(t.pointee())) return true;
+                    if (t.elem() && _tv_in(t.elem())) return true;
+                    for (auto a : t.type_args())   if (_tv_in(a)) return true;
+                    for (auto e : t.tuple_elems()) if (_tv_in(e)) return true;
+                    return false;
+                };
+                std::vector<std::string> _got;
+                std::function<void(TypeRef)> _collect = [&](TypeRef t) {
+                    if (!t) return;
+                    auto k = t.kind();
+                    if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef)
+                        _got.push_back(_lnorm(t.lifetime()));
+                    for (auto& la : t.lifetime_args()) _got.push_back(_lnorm(la));
+                    if (t.pointee()) _collect(t.pointee());
+                    if (t.elem())    _collect(t.elem());
+                    for (auto a : t.type_args())   _collect(a);
+                    for (auto e : t.tuple_elems()) _collect(e);
+                };
+                _collect(cv);
+                bool _arg_tv = _tv_in(cv);
+                for (auto& _lb : tp.lifetime_outlives) {
+                    std::string _b = _lnorm(_lb);
+                    if (p_any) {
+                        error(std::format("call to '{}': type argument '{}' does not "
+                              "satisfy the outlives bound `{}: {}`",
+                              target_name, type_str(concrete), tp.name, _lb));
+                        continue;
+                    }
+                    if (_arg_tv) {
+                        if (p_tv)
+                            error(std::format("call to '{}': type argument '{}' does not "
+                                  "satisfy the outlives bound `{}: {}`",
+                                  target_name, type_str(concrete), tp.name, _lb));
+                        continue;
+                    }
+                    if (_b != "static") continue;
+                    for (auto& _g : _got) {
+                        if (_g == "static") continue;
+                        bool _elided = _g.empty();
+                        if ((p_stat && !_elided) || p_statem)
+                            error(std::format("call to '{}': type argument '{}' has "
+                                  "lifetime '{}' but the type parameter '{}' requires "
+                                  "`{}: 'static`",
+                                  target_name, type_str(concrete),
+                                  _elided ? std::string("<elided>") : _g,
+                                  tp.name, tp.name));
+                    }
+                }
+            }
+        }
         // A type-expression that still MENTIONS a TypeVar anywhere (`&T`,
         // `[T;0]`, `&[T]`, `EnumPair<T>`, `(T,U)`, …) is not decidable here:
         // its trait-satisfaction depends on what the TypeVar becomes after

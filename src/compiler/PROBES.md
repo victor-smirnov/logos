@@ -11263,3 +11263,257 @@ direct_door corpus 2517 → 2521, glob 191, nonglob 2326 → 2330, by direct lis
  16. `d5_inherent_bool_i64lit` is refused with `'R' has no method 'f'` — the
      method EXISTS and its argument type is wrong. Unchanged; no fixture.
  17. NEW: the overloaded-name residue of §8.5.
+
+# ═══ ROUND 2026-09-07b — `T: 'a` IS PARSED, CARRIED IN THE AST AND DROPPED BY
+# THE READER EVERY DECLARATION USES. THE BOUND CHECKER'S LIFETIME HALF HAS BEEN
+# READING A NULL, AND CARRYING THE FACT MOVES ITS CEILING 0 → 14 ══════════════
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE), AND THE BRIEF
+
+```
+live probes  145 at open (grep probe::on over src include | sort -u | wc -l)
+ledger       # TOTAL 256, and 256 by direct listing (awk '!/^#/ && NF' | wc -l)
+top roots    bck.C 16 · lifereg.A 13 · nllmoves.B 11 · lifereg.R17 11 · bck.B 11 ·
+             nllmoves.C 10 · bck.NEW 9 · lifereg.R18 8 · lifereg.NEW-N1 8 ·
+             lifereg.NEW-R20 7 · lifereg.N1 7 · lifereg.C 7
+opening build 2026-09-06a's tree, clean at 995db8952
+priced build **33372b73986506cb** (READ), gate builds 375 (unarmed) → 376..380
+```
+
+CORRECTIONS TO THE BRIEF: only one, and it is small — the brief's composition
+line reads `bck` 55 (21%), but the `bck.*` rows total 55 only if `bck.NEW-1..-4`
+and `bck.NEW-L` are counted with `bck.NEW`; the single largest `bck` root today
+is `bck.C` at 16. The brief's three headline numbers (123/78/55) and its "all
+256 rows still reproduce" both HOLD — every one of the 24 rows this round
+touched was re-compiled by hand on the opening binary and every one was rc 0.
+
+## 1. THE SUBJECT, NAMED BEFORE THE COMPILER WAS TOUCHED
+
+`build/targets-2026-09-07.txt`, written first: 24 ledger rows over TWELVE roots
+whose program declares a TYPE-PARAMETER outlives bound (`T: 'a`, `T: 'static`)
+or an equivalent `'a: 'b` clause. The block was chosen because its mechanism is
+AN ARM THAT EXISTS reached through a fact the code does not carry:
+`check_type_bounds` (`sema_collect.cpp:930`) is called from ELEVEN sites —
+generic fn call, method call, struct literal, enum literal, struct/enum TYPE
+instantiation, assoc-type projection — and it already receives the
+`std::vector<TypeParam>` whose `lifetime_outlives` field it never reads.
+
+REJECTED, with the reason: M-SIG (four rounds, 09-02w…09-06a) — its six R18 rows
+cannot be BOUGHT even by a correct comparator, because every closure prints
+`missing method` and the diagnostic fix is blocked on three `.expected` files
+that are a corpus decision with an owner. `bck.C/B/NEW`, `nllmoves.B/C`,
+`lifereg.A/R17/R18/NEW-N1` — all already surveyed by missing observation.
+`lifereg.N1 / L2 / NEW-R20 / NEW-4 / NEW-L4 / NEW-N2` and the `nllmoves.NEW-*`
+roots had never been surveyed, and 20 of this round's 24 rows come from them.
+
+## 2. ⚠ THE FIRST BATCH PRICED A NULL — CEILING 0 AT 12 321 015 FIRES
+
+`ltbndany` (refuse EVERY instantiation whose type param carries any lifetime
+bound) on the first build: **fires 12 321 015 · ceiling 0 · cost 0 · cfail 0 ·
+stdlib ok.** A zero with the site proven live eight million times over.
+
+THE CENSUS SAID WHY, AND ONLY THE CENSUS COULD (rule 16). One `census()` bucket
+per bound-check argument, run over all 24 target programs:
+
+```
+bndlt.arg          4901–4919 per program      the loop runs
+bndlt.tp_bounded   0         per program      tp.lifetime_outlives is EMPTY
+                                              — on all 24, including
+                                              `fn assert_send<T: 'static>()`
+```
+
+⇒ **THE INPUT IS A NULL, NOT AN ANSWER.** Rule 11's shape (a zero through a
+broken hop) and 2026-09-04y §2's, one subsystem over.
+
+## 3. THE HOP THAT DROPS IT — TWO READERS OF ONE CONCEPT, THE NARROW ONE WINS
+
+The grammar HAS the production (`logos.peg`, `type_param <- IDENT COLON
+lifetime_param (PLUS lifetime_param)*` → `TYPE_PARAM{ITEMS:[LIFETIME_PARAM…]}`)
+and its comment says "Sema's bound-walker distinguishes the two shapes via the
+ITEMS element code". There are TWO bound-walkers in `sema.cpp`, with the same
+body:
+
+    read_type_params_from (5732)  TRAIT_BOUND → tp.bounds
+                                  LIFETIME_PARAM → tp.lifetime_outlives   ✓
+    read_type_params      (5817)  TRAIT_BOUND → tp.bounds
+                                  LIFETIME_PARAM → (no branch)            ✗
+                                  its comment: "ITEMS contains TRAIT_BOUND nodes"
+
+`read_type_params_from` is called for IMPL type params only. `read_type_params`
+is what `collect_fn`, `collect_struct`, `collect_trait`, `collect_enum`,
+`collect_datatype`, `collect_schema`… every declaration collector calls — and
+the `where`-clause merge inside it drops LIFETIME_PARAM a SECOND time, so
+`where T: 'static` is lost as well as `<T: 'static>`.
+
+Both downstream consumers therefore see an empty list: `check_type_bounds`, and
+the undeclared-lifetime-name check at `sema_decl.cpp:184` whose message
+`use of undeclared lifetime name '{}' in `{}: {}` bound` had never once been
+printed. That is why `lifetimes/static-typos` (`fn stati<T: 'stati>`) is a
+ledger row.
+
+## 4. THE PROBE TABLE — build **33372b73986506cb** (READ), all three cost columns
+
+    probe        fires      ceiling  cost  cfail    stdlib  verdict
+    ltbndany   32 960 352      14      6   0/1115     ok    crude ceiling, not landable
+    ltbndread  20 649 527       1      0   0/1115     ok    ✅ the reader alone buys a row
+    ltbndstat  32 970 542       6      0   0/1115     ok    ✅ FUND
+    ltbndstatem 32 970 542      7      0   0/1115     ok    ⛔ rule 9 — refuses legal h6
+    ltbndtv    32 960 352       6      2   0/1115     ok    ⛔ needs the caller's env
+
+    site: src/compiler/sema.cpp read_type_params (the dropped branch, ×2)
+          src/compiler/sema_collect.cpp check_type_bounds (the arms)
+    L1 rc 0 with nothing armed, batch inert; ONE build for all five.
+
+⚠ THE INCREMENT IS THE FINDING (rule 13). `ltbndany` is the SAME crude arm in
+both batches; the only difference is whether the reader carries the fact:
+**ceiling 0 → 14 rows.**
+
+## 5. THE SETS, PREDICTED BY NAME FIRST (build/predictions-2026-09-07.txt),
+##    DIFFED BOTH WAYS
+
+`ltbndany` predicted 17 {S1..S7, P8..P17}, measured 14.
+  predicted∖measured = {ty-param-fn-body, regions-infer-bound-from-trait,
+                        regions-infer-bound-from-trait-self,
+                        regions-close-over-type-parameter-multiple}
+  measured∖predicted = {lifetimes/static-typos}
+
+THE FOUR MISSES ARE ONE DOOR, MEASURED, NOT GUESSED: census under the armed
+reader gives `bndlt.tp_bounded = 0` for all four, and the reason each is 0 is
+that the bounded call sits in a generic fn that NOTHING CALLS. **A call inside an
+uninstantiated generic body never reaches `check_type_bounds` at all** — the
+obligation has to be discharged against the CALLER'S OWN where-clause env at the
+declaration, which is a second site this arm does not have. Rule 2: the doors
+are in series.
+
+`static-typos` closes through the OTHER consumer — the reader repair alone makes
+`sema_decl.cpp:184` live, which is `ltbndread`'s ceiling of exactly 1.
+
+`ltbndstat` predicted {S1,S2,S3,S4,S6}; measured exactly those five plus
+`static-typos` (which is `ltbndread`'s row, contained in it). Both directions
+empty otherwise. `ltbndstatem` = `ltbndstat` ∪ {regions-pattern-typing-19552}.
+`ltbndtv` = {static-typos, param-may-not-live, projection-implied-bounds,
+projection-where-clause-none--c, ty-param-closure-approximate-lower-bound,
+wf-bound-local}.
+
+ADDITIVITY: `ltbndany` (14) ⊋ `ltbndstatem` ∪ `ltbndtv` (12) by exactly two rows
+— `projection-where-clause-none--b` (the type argument is an ASSOC-TYPE
+projection `T::Output`) and `multiple-sources-for-outlives-requirement--t24` (a
+NON-static bound `T: 'a` with a CONCRETE type argument). Neither rule covers a
+non-'static bound whose argument is concrete or a projection; that is the third
+sub-mechanism and it needs the caller's region graph, i.e. `check_call_outlives`'
+substitution applied to a TYPE-param bound.
+
+## 6. THE DIAGNOSTICS — READ, NOT INFERRED (a row closed by a wrong message is
+##    not closed)
+
+```
+static-typos        fn 'stati': use of undeclared lifetime name ''stati' in
+                    `T: 'stati` bound                        (upstream: E0261)
+issue-54943         call to 'foo': type argument '&'a i64' has lifetime 'a' but
+                    the type parameter 'T' requires `T: 'static`
+requiring-static    …same sentence, `assert_send`            (upstream: E0310)
+b-used              …same sentence
+bounded-method-…    call to 'Foo__some_method': …'A' requires `A: 'static`
+wf-bound--b-…       call to 'Stat': …'T' requires `T: 'static`   ← STRUCT LITERAL
+```
+
+⚠ THIS IS THE MACHINERY 2026-08-31p §1 NAMED WHEN IT WITHDREW M1. That round
+refused to buy `param-may-not-live` with a variance message because "the
+program's only fault is the type-outlives bound, which this rule does not
+mention and does not compute", and recorded: "what retires it is the E0310
+machinery, not this rule." This is that machinery, and it prints that sentence.
+
+⚠ ONE DUPLICATE: `regions-bounded-method-type-parameters` prints the message
+TWICE, once as `Foo__some_method` and once as `pkg.Foo__some_method` — the
+method path checks the same bounds at two call sites. Recorded, not fixed.
+
+## 7. ⛔ `ltbndstatem` DECLINED BY NAME — RULE 9, AND THE SEPARATOR IS A
+##    LEGAL PROGRAM THE CORPUS DOES NOT CONTAIN
+
+The two arms differ in ONE clause: whether an ELIDED lifetime on the type
+argument counts as a violation of `T: 'static`. They are identical on all three
+cost columns (0/0/ok) and differ by one ledger row. Seven multi-line hand
+programs, unarmed then armed:
+
+```
+                        unarmed  read  any  stat  statem  tv
+h1 keep<'b,T:'b>(&n)        0      0    1     0      0     0   legal
+h2 assert_send(5i64)        0      0    1     0      0     0   legal
+h3 assert_send::<&'static>  0      0    1     0      0     0   legal
+h4 caller has `T: 'a`       0      0    1     0      0     0   legal
+h5 Stat<T:'static>{v:9}     0      0    1     0      0     0   legal
+h6 assert_send(&ZERO)       0      0    1     0      1     0   ⛔ LEGAL, REFUSED
+i1 assert_send::<&'a i64>   0      0    1     1      1     0   ILLEGAL, caught
+i2 assert_send(&local)      0      0    1     0      1     0   ILLEGAL, missed by stat
+```
+
+`h6` passes `&ZERO` where `ZERO` is a `static` — the reference IS `'static`, the
+lifetime is merely ELIDED. `statem` refuses it. So the strict twin is UNSOUND
+and the permissive one is INCOMPLETE by exactly `i2`/`pattern-typing-19552`;
+separating them needs the region the elision RESOLVES TO, which no predicate at
+this site has. **COST 0 ON THREE POPULATIONS, REFUTED BY THE SEVENTH HAND
+PROGRAM.**
+
+## 8. ⛔ `ltbndtv` DECLINED — THE CALLER'S OWN BOUNDS ARE NOT IN SCOPE EITHER
+
+Cost 2, both named: `logos_02_semantic_core_pass_multi-type-outlives` and
+`…_type-outlives-bound` — in-tree PASS fixtures that ASSERT `T: 'a` is accepted.
+The arm refuses a bounded callee whenever the type argument mentions a TypeVar,
+which is right only when the caller cannot prove the bound. The caller's own
+`T: 'a` is not consultable: `push_type_params` copies `tp.bounds` into
+`current_type_bounds_` and drops `tp.lifetime_outlives` — a THIRD site where
+this fact is discarded. The entailment predicate needs it.
+
+## ⇒ 9. WHAT DESERVES FUNDING, IN ORDER
+
+ 1. **`ltbndread` — the reader repair, on its own.** One line ×2 in
+    `sema.cpp::read_type_params` (inline ITEMS and the `where` merge), delegating
+    to what `read_type_params_from` already does. ceiling 1 · cost 0 · cfail
+    0/1115 · stdlib ok, and it is the precondition for everything below. It buys
+    `lifetimes/static-typos` through a consumer that already exists and prints
+    the upstream sentence.
+ 2. **`ltbndstat` — the `'static` half of the bound check.** 6 rows (5 of its
+    own), 0/0/0/ok, seven correct hand verdicts, six correct diagnostics, and it
+    covers the STRUCT-literal site as well as calls because `check_type_bounds`
+    is shared. Needs fixture PAIRS (i1/h3, i2 pending, h6 as the pass twin).
+ 3. **The declaration-site obligation** — a bounded call inside an
+    uninstantiated generic body (§5). Four named rows, and it also removes
+    `ltbndtv`'s two costs, since the caller's env is what discharges them.
+    Blocked on `push_type_params` carrying `lifetime_outlives` (§8).
+ 4. **The non-'static bound with a concrete/projection argument** (§5's residue,
+    2 rows) — `check_call_outlives`' substitution, applied to a type-param bound.
+ 5. ⛔ **`ltbndstatem` — DO NOT LAND** (§7), and ⛔ **`ltbndtv` as it stands** (§8).
+
+## 9b. THE EXPENSIVE GATE, ONCE, ON THE ARM RECOMMENDED FOR FUNDING
+
+`test-levels.sh L4 bc` from `build/` with `LOGOS_PROBE=ltbndstat` armed:
+**4096/4096 and 788/788, rc 0.** 2026-09-02w §10 found a third wall exactly here
+after three green columns; this time the ladder agrees with them. ⚠ AND THE
+POPULATION IS STILL NOT THE LEDGER: the `bc_admit` rows carry no `bc` label, so
+a 100% pass under an armed probe says nothing about the ceiling — that is
+`ceiling-probe.sh`'s half, and the two must not be read as one number.
+
+L1 from `build/` on the priced tree: 746/746 + 305 gates, rc 0.
+
+## 10. LEDGER ARITHMETIC
+
+    # TOTAL 256 at the open, 256 at the close — this round PRICED, it did not
+    fix. Nothing landed; the tree is restored to 995db8952 plus this record.
+    Rows priced: 24 named, 14 reachable through this site today, 6 buyable at
+    zero measured cost.
+
+## 11. OPEN (carried, plus this round's)
+
+ 1-17. UNCHANGED from 2026-09-06a §9.
+ 18. NEW: `read_type_params` drops `T: 'a` twice (inline + where); its twin
+     `read_type_params_from` does not. THE ROOT of this round.
+ 19. NEW: `push_type_params` drops `lifetime_outlives`, so a caller's own
+     type-outlives bound is not in scope at any call site.
+ 20. NEW: a bounded call inside an uninstantiated generic body reaches no bound
+     check at all (§5) — four ledger rows.
+ 21. NEW: `regions-bounded-method-type-parameters` gets the same diagnostic
+     TWICE from the method path (§6).
+ 22. NEW: `tests/imported/pass/regions/{multi-type-outlives,type-outlives-bound,
+     type-outlives-static,type-outlives-elided,type-outlives-impl}` are the
+     corpus's own LEGAL population for `T: 'a` (their headers say "B65"). They
+     survive `ltbndread` and `ltbndstat` and they are what `ltbndtv` costs.

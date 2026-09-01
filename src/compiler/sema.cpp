@@ -5816,6 +5816,14 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
 
 std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
     std::vector<TypeParam> result;
+    // PROBE 2026-09-07 ltbnd*: this reader DROPS `T: 'a` bounds; its twin
+    // read_type_params_from keeps them. Arms the two branches below.
+    const bool _ltbnd_read = logos::probe::on("ltbndread") ||
+                             logos::probe::on("ltbndany")  ||
+                             logos::probe::on("ltbndstat") ||
+                             logos::probe::on("ltbndstatem") ||
+                             logos::probe::on("ltbndtv");
+    (void)_ltbnd_read;
     if (!node.has_key(la::TYPE_PARAMS)) return result;
     AnyVal tpav = node.get(la::TYPE_PARAMS.code);
     if (tpav.is_null()) return result;
@@ -5880,6 +5888,9 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
                     tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
                     read_trait_bound_args(bnode, tb);
                     tp.bounds.push_back(std::move(tb));
+                } else if (code_of(bnode) == la::LIFETIME_PARAM && _ltbnd_read) {
+                    tp.lifetime_outlives.push_back(
+                        std::string(str_of(bnode.get(la::NAME.code))));
                 }
             }
         }
@@ -5992,6 +6003,10 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
                                 tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
                                 read_trait_bound_args(bnode, tb);
                                 tp_ptr->bounds.push_back(std::move(tb));
+                            } else if (code_of(bnode) == la::LIFETIME_PARAM &&
+                                       _ltbnd_read) {
+                                tp_ptr->lifetime_outlives.push_back(
+                                    std::string(str_of(bnode.get(la::NAME.code))));
                             }
                         }
                     }
