@@ -4260,6 +4260,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 if (impl_self_ty) trait_arg_subst["Self"] = impl_self_ty;
                 std::string self_mismatch_note;
                 const SemaFuncInfo* matching = nullptr;
+                // PROBES.md 2026-09-05z: a candidate reached the signature compare.
+                bool _sigdef_arity_seen = false;
                 for (auto* c : cands) {
                     int variadic_pos = -1;
                     if (!variadic_tp_name.empty()) {
@@ -4279,6 +4281,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     } else {
                         if (c->param_types.size() != m.param_types.size()) continue;
                     }
+                    _sigdef_arity_seen = true;
                     bool sig_match = true;
                     // PROBE sigalphaw/sigalphas/sigalphapar/sigalpharet — M-SIG step 2. PROBES.md.
                     std::vector<std::pair<std::string,std::string>> _amap;
@@ -4468,6 +4471,16 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             m.is_unsafe ? "unsafe" : "safe",
                             matching->is_unsafe ? "unsafe" : "safe"));
                     }
+                } else if (m.has_default && logos::probe::on("sigdefarity") &&
+                           _sigdef_arity_seen) {
+                    // PROBE sigdefarity — 0/0/0/ok 2026-09-05z, NOT LANDED: unfunded. PROBES.md.
+                    error(std::format("impl {} for {}: method '{}' does not match the trait declaration's signature",
+                          trait_name, target, m.name));
+                } else if (m.has_default && logos::probe::on("sigdefany") &&
+                           !cands.empty()) {
+                    // PROBE sigdefany — DECLINED 2026-09-05z: false-refuses a legal overload. PROBES.md.
+                    error(std::format("impl {} for {}: method '{}' does not match the trait declaration's signature",
+                          trait_name, target, m.name));
                 } else if (m.has_default) {
                     // This overload not explicitly provided; register the default.
                     // Build Self type; for generic impls include the type params as TypeVars.

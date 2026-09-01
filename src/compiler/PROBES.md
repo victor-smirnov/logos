@@ -10834,3 +10834,233 @@ which THE POPULATION WAS THE DEFECT.
  13. NEW: a mis-signed impl of a method that HAS A DEFAULT is not refused at
     all — the `m.has_default` branch registers the default and no comparison
     result is consulted. Not probed this round.
+
+# ═══ ROUND 2026-09-05z — THE `has_default` BRANCH OF THE CONFORMANCE CHECK:
+# A MIS-SIGNED OVERRIDE IS NOT REFUSED, IT IS *DISPATCHED TO* WITH THE TRAIT'S
+# ARGUMENT TYPES — `i64` REACHES A `bool` PARAMETER AS `trunc i64 to i1`.
+# TWO NAMES, IDENTICAL IN ALL THREE COLUMNS, SEPARATED BY ONE HAND PROGRAM ═══
+
+Opening HEAD `5d0b0eee0`. Opening probe build **e9367f770ef669b7** (READ) —
+which is 2026-09-04y's landing build, so the tree did not move under it.
+Priced build **01d30ff9d33768aa** (READ), gate-db build 359 → 362.
+Closing build **01d30ff9d33768aa** — UNCHANGED by the two marker comments
+(§8). NOTHING LANDED THIS ROUND: the brief said price, not fix.
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE)
+
+    live probes  145 at the open, 147 at the close (+sigdefany +sigdefarity;
+                 `sigdefhoist` is a plain bool and is NOT a probe)
+    ledger       # TOTAL 256, and 256 by direct listing (awk '!/^#/ && NF')
+    top roots    bck.C 16 · lifereg.A 13 · nllmoves.B 11 · lifereg.R17 11 ·
+                 bck.B 11 · nllmoves.C 10 · bck.NEW 10 · lifereg.R18 8 ·
+                 lifereg.NEW-N1 8 · lifereg.NEW-R20 7 · lifereg.N1 7 ·
+                 lifereg.C 7
+    gate         `gate-run.sh -L bc`: **2025 in filter**, 1112 not yet measured
+                 under build 359, 1112 run, 1112 passed / 0 failed. The other
+                 913 were already recorded green for 359 by the batch's own
+                 pricing runs. **2026-09-04y §7's 1110→2025 growth HOLDS; the
+                 population is 2025 and it did not shrink back.** `ctest -N -L
+                 bc` = 2025 · `-L bc -L fail` = 1112 · pass half = 913.
+
+## 1. WHAT I CHOSE, AND WHAT I REJECTED
+
+2026-09-04y §9 left thirteen open items. I took **item 13** — *"a mis-signed
+impl of a method that HAS A DEFAULT is not refused at all; not probed this
+round."* Rejected, by name and for a stated reason:
+
+  * **§9.7 `sigdiagmm`** — blocked on three `.expected` files. A CORPUS
+    DECISION WITH AN OWNER. Not mine to spend.
+  * **§9.12 `str`-target `Self` is an UnsizedSlice `types_equal` will not
+    match** — the named blocker under `sigself0`/`sigrettyself`. Highest
+    ceiling of anything open, and the two arms it blocks were **declined by
+    name last round at 1099 cost / 15 stdlib refusals**. Fixing `types_equal`
+    for `str` is a comparison-semantics change under a ⛔ stdlib column; that
+    is a round of its own with a real chance of buying nothing. Deferred by
+    RISK, not by value — it is still the biggest thing open.
+  * **§9.11 `target_resolved` is null for a plain nominal impl target, and
+    `impl_target_typeref_` (PUBLISHED to `collect_fn`) still reads the null**
+    — a genuine "root never surveyed" item. Rejected because it is an AUDIT
+    with no mechanism yet: there is nothing to price until a reader is shown
+    to consume the null wrongly. It should be a survey round, not a probe
+    round.
+  * **§9.9 `mk().slice_view() -> &[u32]`** — carried untouched for three
+    rounds; a real permissive hole. Rejected because 2026-09-02w §10 already
+    named a THIRD wall behind it (`str` built from a raw pointer field is not
+    a borrow of its receiver) and the next attempt walks into it.
+  * **§9.10** — explicitly unpriceable: no cost column this harness owns.
+
+**Why 13 wins on value per unit of risk:** it was named as unprobed, it is at
+the site this tree has spent two rounds learning, its arrival is censusable in
+one build, and — measured below — it is not a permissive hole at all. It is a
+**miscompilation**. That was not knowable from the record; it took the IR.
+
+## 2. COUNTER-EXAMPLES FIRST, ON THE UNARMED BINARY e9367f770ef669b7, WITH A
+##      CONTROL THAT PROVES THE SITE LIVE — build/hand-sigdef/, MULTI-LINE
+
+    d1_default_wrongparam        trait `fn tag(&Self, x: i64) -> i64 {…}`
+                                 impl  `fn tag(&R,    x: bool)`   rc 0 ADMITTED
+    d6_default_wrongparam_nonlit same, argument is a variable not a literal
+                                                                  rc 0 ADMITTED
+    d2_ctl_nodefault             THE SAME FILE with the default body deleted
+                                                                  rc 1 REFUSED ⇐ CONTROL
+    d3_legal_notprovided         impl provides nothing             rc 0  legal
+    d4_legal_provided_ok         impl provides a matching `tag`    rc 0  legal
+
+`d2` differs from `d1` by `{ return 100i64; }` versus `;`. It refuses with
+`impl Tag for R: missing method 'tag'`, which is 2026-09-03x §5's
+wrong-diagnostic defect and still the owner's — but it REFUSES, so the
+comparison loop runs and the zeros above are readable.
+
+## 3. ⚠ THIS IS NOT A PERMISSIVE HOLE. THE COMPILER EMITS A TRUNCATION.
+
+`--emit-llvm` on the ADMITTED d1, unarmed:
+
+    define noundef i64 @d1….R__tag__f__ref_R__bool(ptr …, i1 %1) { ret i64 200 }
+    define noundef i32 @main() {
+      %4 = call i64 @d1….R__tag__f__ref_R__bool(ptr %2, i1 true)
+
+and on d6, where the argument is `let k: i64 = 5i64;`:
+
+      %5 = load i64, ptr %2
+      %6 = trunc i64 %5 to i1
+      %7 = call i64 @d6….R__tag__f__ref_R__bool(ptr %3, i1 %6)
+
+**The default is not "registered instead"; it is not emitted at all.** The call
+resolves against the TRAIT declaration (`x: i64`), dispatch lands on the impl
+symbol (`x: bool`), and the argument is truncated. THE PROGRAM COMPILES CLEAN
+AND RUNS THE WRONG CODE.
+
+The truncation is NOT a general call-site defect — the inherent twin is refused:
+
+    d5_inherent_bool_i64lit   `impl R { fn f(&R, x: bool) }`, called `r.f(5i64)`
+                              rc 1  `method call: 'R' has no method 'f'`
+
+So the conformance check is the ROOT and there is ONE site, not two.
+
+## 4. THE PROBE TABLE — priced build **01d30ff9d33768aa** (READ), builds 359→362
+
+    probe            fires    ceiling  cost  cfail          stdlib  verdict
+    sigdefhoist          0      —       —     —              —      NEVER FIRED (a bool, asserted inert)
+    sigdefany      5166351      0       0     0 of 1112      ok     ⛔ DECLINED — §6
+    sigdefarity    5166351      0       0     0 of 1112      ok     0/0/0/ok, RECOMMENDED — §7
+
+    site: src/compiler/sema_collect.cpp, the `} else if (m.has_default)` arm of
+          the trait-completeness loop, inserted BEFORE it so nothing that
+          already errors changes text (cfail 0 is by construction, not luck).
+    full cost line, both arms: `COST = 0 legal programs refused [saw:
+          pass(ledger+legal) fail(text) stdlib]`, `COST-fail = 0 of 1112
+          (rc 0, .expected-match 0, text-only 0)`, `stdlib: all four layers`.
+
+CEILING 0 WAS PREDICTED BY NAME AND FOR A REASON, NOT MEASURED AND EXPLAINED
+AFTERWARDS: `bc_admits.ledger` holds BORROW-CHECK admissions (roots `bck.`,
+`lifereg.`, `nllmoves.`) and this is TRAIT CONFORMANCE. No program in it can
+become a row here, in either direction. **THE LEDGER IS NOT THE MEASURE.**
+
+## 5. PROVEN LIVE — THE ZEROS ARE READ AGAINST A MOVING SITE
+
+    program                       unarmed  sigdefany  sigdefarity
+    d1_default_wrongparam            0        1          1
+    d6_default_wrongparam_nonlit     0        1          1
+    d2_ctl_nodefault                 1        1          1
+    d3_legal_notprovided             0        0          0
+    d4_legal_provided_ok             0        0          0
+    d8_sep_overload_nocall           0        1          0   ⇐ RULE 9
+    l1_ident_self  (impl spells `&Self`)          0  0  0
+    l2_generic_impl (`impl<T> Tag for Foo<T>`)    0  0  0
+    l3_traitparam  (`trait Tag<T>` / `Tag<i64>`)  0  0  0
+    l4_prim_target (`impl Tag for i64`)           0  0  0
+    l5_noparam     (receiver only)                0  0  0
+    l6_self_byvalue(`other: Self` / `other: R`)   0  0  0
+
+PREDICTED BEFORE THE RUN in `build/predictions-2026-09-05z.txt`, row by row:
+**exact, in both directions, including d8.** COST 0 IS NOT A SAFETY CLAIM —
+l1…l6 are why the zero is believed, and they were written before the price.
+
+## 6. ⛔ `sigdefany` DECLINED BY NAME — A FALSE REFUSAL OF A LEGAL PROGRAM THAT
+##      NO COLUMN THIS HARNESS OWNS CAN SEE
+
+`d8_sep_overload_nocall`: `trait Tag { fn tag(&Self) -> i64 {…}  fn tag(&Self,
+x: i64) -> i64; }`, `impl Tag for R` provides only `tag/1`, and only `tag/1` is
+called. rc 0 unarmed, rc 0 under `sigdefarity`, **rc 1 under `sigdefany`** —
+`cands` is non-empty for the defaulted `tag/0` because the lookup is BY NAME
+and the arity filter has not run yet.
+
+⚠ AND ITS THREE COLUMNS ARE IDENTICAL TO `sigdefarity`'s, DOWN TO THE FIRE
+COUNT (5 166 351 both). Ceiling 0, cost 0, cfail 0 of 1112, stdlib ok — the
+whole instrument says the two predicates are the same, and they are not.
+**RULE 9 IN ITS EXACT FORM: THE TWO NAMES SEPARATE ONLY ON A PROGRAM THE
+CORPUS DOES NOT CONTAIN, AND ONLY BECAUSE ONE WAS WRITTEN.**
+
+RULE 13, MEASURED: `sigdefany` = `sigdefarity` ∪ (name-matched, arity-mismatched).
+The increment is **0 / 0 / 0 / ok in every column and strictly destructive in
+fact.** A union can be less informative than one of its parts.
+
+## 7. `sigdefarity` — WHAT IT WOULD BUY, AND THE ONE DEFECT IN IT
+
+Refuses only when a candidate REACHED the signature comparison (same arity,
+or past a variadic pack position) and none matched. 0 rows, 0 legal programs
+in the corpus, 0 of 1112 fail fixtures changed in rc, `.expected`-match or
+text, all four stdlib layers compile. It closes d1 and d6 — i.e. it closes a
+MISCOMPILATION — and it names the real error:
+
+    impl Tag for R: method 'tag' does not match the trait declaration's signature
+
+⚠ ONE DEFECT, MEASURED, NOT FIXED (the brief says price, not fix):
+`d9_note_shape` is `h_paramself` (2026-09-04y) with a default body added. The
+non-default file prints last round's precise message —
+`… does not match the trait declaration: parameter 1 is declared '&R' and the
+impl declares '&i64'` — and `d9`, one token away, prints the generic sentence,
+because the new arm sits ahead of the `self_mismatch_note` branch. **A LANDING
+MUST CONSULT `self_mismatch_note` FIRST**; that is one line, it can only
+improve text on programs that were previously SILENT, and it therefore cannot
+move `COST-fail` off 0. It has not been measured and must not be assumed.
+
+## 8. TWO ONE-LINE MARKERS LEFT THE BUILD HASH BYTE-IDENTICAL
+
+Both arms stay INSTALLED and env-gated, each carrying its verdict on one
+comment line (`DECLINED 2026-09-05z` / `NOT LANDED: unfunded`). Rebuilt after
+the markers: `build_hash.py` reads **01d30ff9d33768aa**, the same value as
+before them. `build_hash.py` hashes `bin/logosc` + `lib/logos/**` + the fixture
+archives — the BINARY, not the source — so a comment that changes no emitted
+byte does not invalidate the verdict store. AN INSTALLED ARM IS NOT AN OPEN
+ONE; read the marker.
+
+## 9. LEDGER ARITHMETIC
+
+    # TOTAL 256 at the open, 256 at the close. Nothing bought and nothing
+    could be: the mechanism is trait conformance. No fixtures added (nothing
+    landed), so census_pin, direct_door and TIERCOMMIT are all unchanged.
+    L1 rc=0 (746/746, 12 684 generated cases, 305 tier_commit gates).
+    `gate-run.sh -L bc` rc=0, 1112/1112 run green over a 2025 filter.
+
+## 10. WHAT DESERVES FUNDING, IN ORDER
+
+ 1. **`sigdefarity`, with the `self_mismatch_note` line first.** 0/0/0/ok on
+    every column, six legal hand programs green, a correct diagnostic, and the
+    thing it closes is a silent `trunc i64 to i1` — not a permissive hole, a
+    wrong answer. Cheapest real defect open. It needs two PAIRS of fixtures
+    (d1/d4 and d6/l1) and a control revert.
+ 2. **§9.12, the `str`-target `Self`.** Still the single named blocker under
+    `sigself0` and `sigrettyself` and therefore under BOTH remaining M-SIG
+    holes. Highest value, highest risk, and it wants a whole round.
+ 3. **§9.11, the `target_resolved` null**, as a SURVEY and not a probe round:
+    enumerate its readers, show whether `impl_target_typeref_`'s consumers in
+    `collect_fn` are hurt by the null. Nothing can be priced until that lands.
+ 4. **NEW: overloaded trait methods reach MLIR and fail verification.**
+    `d7_sep_overload_arity` (d8 plus a call to the defaulted `tag/0`) passes
+    sema and dies at `'func.call' op incorrect number of operands for callee`
+    — a compiler-internal message for a user program. Sema resolves `r.tag()`
+    to the `tag/1` symbol. Not this round's site; no fixture pins it.
+
+## 11. OPEN (carried, plus this round's)
+
+ 1-12. UNCHANGED from 2026-09-04y §9. §9.13 is now MEASURED, not fixed: see §3.
+ 13. `m.has_default` short-circuits the whole conformance verdict. PRICED at
+     0/0/0/ok under `sigdefarity`; INSTALLED, GATED, NOT LANDED.
+ 14. NEW: `sigdefarity` shadows `self_mismatch_note`, so a defaulted method
+     gets a worse message than its non-defaulted twin (§7). One line.
+ 15. NEW: overloaded trait methods (same name, different arity) pass sema and
+     fail MLIR verification with an internal message (§10.4).
+ 16. NEW: `d5_inherent_bool_i64lit` is refused with `'R' has no method 'f'` —
+     the method EXISTS and its argument type is wrong. Another instance of the
+     "wrong diagnostic names the wrong thing" class §9.7 owns; no fixture.
