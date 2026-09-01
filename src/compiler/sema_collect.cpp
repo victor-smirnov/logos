@@ -4273,6 +4273,29 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     size_t check_end = has_pack
                         ? (size_t)variadic_pos
                         : m.param_types.size();
+                    // PROBE sigselflt — M-SIG(a), the k=0 slot the loop below
+                    // skips. DECLINED 2026-09-02w: it refuses a legal
+                    // ALPHA-RENAMING of a method binder. See PROBES.md.
+                    if (logos::probe::on("sigselflt") && sig_match &&
+                        !m.param_types.empty() && !c->param_types.empty() &&
+                        m.param_types[0] && c->param_types[0]) {
+                        TypeRef ts = m.param_types[0], cs = c->param_types[0];
+                        using K = LogosType::Kind;
+                        if ((TypeRef(ts).kind() == K::Ref ||
+                             TypeRef(ts).kind() == K::MutRef) &&
+                            TypeRef(cs).kind() == TypeRef(ts).kind() &&
+                            std::string_view(TypeRef(ts).lifetime()) !=
+                            std::string_view(TypeRef(cs).lifetime()) &&
+                            !std::string_view(TypeRef(ts).lifetime()).empty())
+                            sig_match = false;
+                        if (sig_match &&
+                            (TypeRef(ts).kind() == K::Ref ||
+                             TypeRef(ts).kind() == K::MutRef) &&
+                            TypeRef(cs).kind() == TypeRef(ts).kind() &&
+                            std::string_view(TypeRef(ts).lifetime()).empty() &&
+                            !std::string_view(TypeRef(cs).lifetime()).empty())
+                            sig_match = false;
+                    }
                     for (size_t k = 1; k < check_end; ++k) {
                         auto tp = m.param_types[k];
                         auto cp = c->param_types[k];
@@ -4283,6 +4306,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         // it matches any concrete impl type.
                         if (is_generic_param(tp)) continue;
                         if (is_generic_param(cp)) continue;
+                        // PROBE sigparamlt — M-SIG(c), DECLINED 2026-09-02w:
+                        // it refuses a legal ALPHA-RENAMING. See PROBES.md.
+                        if (logos::probe::on("sigparamlt") &&
+                            !detail::types_equal_with_lifetimes(tp, cp))
+                            { sig_match = false; break; }
                         if (!types_equal(tp, cp)) { sig_match = false; break; }
                     }
                     // Per-element check past the pack position: each
@@ -4316,6 +4344,18 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         if (sig_match &&
                             (c->param_types.size() - (size_t)variadic_pos)
                                 != trait_type_args.size())
+                            sig_match = false;
+                    }
+                    // PROBE sigretlt — M-SIG(b), the return type nothing
+                    // compares. DECLINED 2026-09-02w at cost 1099. See PROBES.md.
+                    if (sig_match && logos::probe::on("sigretlt") &&
+                        m.ret_type && c->ret_type) {
+                        TypeRef tr = m.ret_type;
+                        if (!trait_arg_subst.empty())
+                            tr = subst_type_sema(tr, trait_arg_subst);
+                        if (!is_generic_param(tr) &&
+                            !is_generic_param(c->ret_type) &&
+                            !detail::types_equal_with_lifetimes(tr, c->ret_type))
                             sig_match = false;
                     }
                     if (sig_match) { matching = c; break; }

@@ -10207,3 +10207,120 @@ row IS, except that this one was never ported and so has no row. M2 closes a
 REFUSAL of a legal program, which the ledger cannot represent in principle.
 **ROWS ARE NOT THE ONLY CURRENCY, and this round the currency was two fixtures
 and one control revert each.**
+
+## 6. M3 — M-SIG PRICED, AND ⛔ ALL THREE ARMS DECLINED BY NAME
+
+Batch build **48a1a56d2249a9e5** (READ), three probes, ONE build, L1 rc 0 with
+nothing armed (batch inert). gate-db 336 (unarmed) → 337/338/339.
+
+    probe        fires    ceiling  cost  cfail  std   verdict
+    sigparamlt    127640        1     0      0   ok   ⛔ see the hand program
+    sigselflt    1164389        3     0      0   ok   ⛔ see the hand program
+    sigretlt     1159383      256  1099   1103    ⛔  ⛔ COST 1099
+
+**PREDICTED vs ACTUAL, AS SETS, BOTH DIRECTIONS** (filed BY NAME in
+`build/predictions-2026-09-02w.txt` before the edits):
+
+    sigretlt   predicted {impl-trait-lifetime-conflict-hashmap-keys,
+                          resolve-re-error-ice}
+               actual    ALL 256 ledger rows — the whole corpus. Neither
+               predicted row is a member for the predicted reason; the arm
+               refuses everything. COST 1099 legal programs, 1103 of 1110
+               `-L bc -L fail` fixtures changed, and the stdlib does not
+               compile. ⛔ DECLINED at 1099.
+    sigparamlt predicted {lifetime-mismatch-between-trait-and-impl,
+                          trait-impl-mismatch-elided-lifetime-issue-65866,
+                          ex3-both-anon-regions-using-impl-items}
+               actual    {trait-impl-mismatch-elided-lifetime-issue-65866}
+               MISSING both others: `lt_eq` treats an EMPTY lifetime as a
+               wildcard, and in both of those the TRAIT side is elided.
+    sigselflt  predicted {iterator-next-extra-named-lifetime}
+               actual    {iterator-next-extra-named-lifetime,
+                          lifetime-mismatch-between-trait-and-impl,
+                          trait-impl-mismatch-elided-lifetime-issue-65866}
+               ⚠ THE NAME IS WRONG AND THE EXTRA TWO SAY SO: slot 0 is only
+               `self` when the method HAS a receiver. `Foo::foo<'a>(x: &i64,
+               y: &'a i64)` is a trait method with NO self, so slot 0 is `x` —
+               the arm is "parameter 0", not "self". sigparamlt's set is a
+               SUBSET of sigselflt's, which is why both name 65866.
+
+⚠ **RULE 5, AND IT CONDEMNS BOTH ZERO-COST ARMS.** Four hand programs,
+MULTI-LINE, unarmed then under each arm:
+
+    s_alpha_self    trait fn get<'a>(self: &'a Self) -> &'a i64
+                    impl  fn get<'b>(self: &'b R)    -> &'b i64
+                    LEGAL RUST (alpha-renaming of a method binder)
+                    unarmed 0 · sigselflt ⛔ 1 · sigparamlt 0
+    s_alpha_param   trait fn pick<'a>(self: &Self, x: &'a i64) -> &'a i64
+                    impl  fn pick<'b>(self: &R,    x: &'b i64) -> &'b i64
+                    LEGAL RUST, the same rename at a NON-self parameter
+                    unarmed 0 · sigselflt 0 · sigparamlt ⛔ 1
+    s_same_names    the same names on both sides          0 · 0 · 0
+    s_plain_elided  elided on both sides                  0 · 0 · 0
+
+Both arms compare lifetime NAMES. A trait binder and an impl binder are
+DIFFERENT BINDERS, so the comparison a conformance check needs is
+ALPHA-EQUIVALENCE over binder POSITIONS — the same isomorphism question rustc
+asks — and neither `types_equal_with_lifetimes` nor a name compare can answer
+it: the first is a structural equality that treats `""` as a wildcard, the
+second cannot tell a rename from a retie. **COST 0 ON THREE POPULATIONS AND A
+LEGAL PROGRAM THE CORPUS DOES NOT CONTAIN, for the second round running.**
+
+⚠ **AND EVERY CLOSURE PRINTS A WRONG DIAGNOSTIC, SO NOT ONE OF THOSE ROWS IS
+CLOSED.** Read on the armed binary:
+
+    error [fn Foo__bar]:        impl Bar for Foo: missing method 'bar'
+    error [fn RepeatMut__next]: impl Itr for RepeatMut: missing method 'next'
+    error [fn R__get]:          impl Itr for R: missing method 'get'
+
+The method is PRESENT; its signature is wrong. `sig_match` failing does not
+report a mismatch, it falls through to the completeness check's "missing
+method" at `sema_collect.cpp` — so a landing here needs the DIAGNOSTIC first,
+and the diagnostic is worth having on its own: an impl method whose PARAMETER
+TYPE differs from the trait's already prints it today, with no lifetimes
+involved at all.
+
+**⇒ M-SIG IS REAL, ITS SITE IS PROVEN LIVE (127 640 / 1 164 389 / 1 159 383
+fires), AND NOTHING HERE IS LANDABLE THIS ROUND.** What it needs, in order:
+ 1. the mismatch DIAGNOSTIC at the `sig_match` failure, naming the method and
+    the differing position — independently useful, and a text-only change to an
+    already-red path (rule 14: measure it with `fail_text_oracle.py`, not ctest);
+ 2. an ALPHA-EQUIVALENCE comparator over the two binders, not a name compare;
+ 3. only then the three slots — parameter 0 included, return included.
+
+## 7. CORRECTIONS TO 2026-09-01v §7's OWN SURVEY
+
+ 1. **`elided-lifetime-mismatch-in-self-type` is shelved under M-SELF at the
+    `sig_match` site and CANNOT be there.** `impl Pair<i64, i64> { fn say(self:
+    &Pair<u8, i64>) }` is an INHERENT impl — `trait_name` is empty, so the
+    completeness loop that owns `sig_match` never runs for it. The row is real;
+    the site named for it is not. (§7 already noticed it is "not even a lifetime
+    question" and shelved it there anyway.)
+ 2. **M-SIG's "(a) the loop starts at k = 1 — the SELF parameter is never
+    compared" is half right.** Slot 0 is the self parameter only for methods
+    WITH a receiver; for a trait's static methods it is the first ordinary
+    parameter, and two of the three rows the k=0 arm closes are of that shape.
+    The missing observation is "parameter 0 is never compared", which is wider.
+
+## 8. THE ROUND'S LEDGER ARITHMETIC
+
+    # TOTAL 256 at the open, 256 at the close, re-derived by DIRECT LISTING
+    (`awk`/`grep -c` over the file, not the header).
+
+Two mechanisms landed and NEITHER buys a row, by construction: one closes a
+permissive hole that was never ported, the other repairs a false refusal, which
+the ledger cannot represent at all. Three probes priced and all three declined.
+
+## 9. OPEN (carried, plus this round's)
+
+ 1. The three E0716 rows — still a corpus decision with an owner. UNCHANGED.
+ 2. `two-phase-nonrecv-autoref--c` vs `tpb-mut-with-shared-ref-arg` — UNCHANGED.
+ 3. `d-index-two-phase` unbuyable while `btvec_append` keeps `f(&mut t, g(&t))`.
+ 4. `a-fnmut-twice` is still touched by nothing.
+ 5. `type_str` does not print the region of Slice / TraitObject / DstRef.
+ 6. The E0716 report still carries no file/line in an `--emit-module` build.
+ 7. NEW: the trait-impl signature MISMATCH has no diagnostic — it is reported as
+    "missing method", for lifetimes and for plain type mismatches alike (§6).
+ 8. NEW: there is no alpha-equivalence comparator for two lifetime binders (§6).
+ 9. `ltslicelt` + the minted-region exemption, and the printer before it —
+    UNCHANGED, not touched this round.
