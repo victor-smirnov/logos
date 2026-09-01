@@ -1,6 +1,8 @@
 // rustc regions/regions-bounded-by-trait-requiring-static.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-L4
+// shelf: fail · was lifereg.NEW-L4, CLOSED 2026-09-01 — the 'static half of
+// check_type_bounds, reached now that read_type_params carries the bound.
+// The FIRST call in this file (`&'static i64`) is still accepted.
 // port of rust ui/regions/regions-bounded-by-trait-requiring-static.rs
 package regions_bounded_by_trait_requiring_static_requiring_static;
 

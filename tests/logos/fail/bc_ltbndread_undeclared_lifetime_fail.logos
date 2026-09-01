@@ -1,0 +1,10 @@
+// THE REFUSE HALF of tests/logos/pass/bc_ltbndread_declared_lifetime_pass, ONE
+// TOKEN apart: there the bound names the fn's own `'a`, here `'stati`, which
+// is declared nowhere. The check that says so lives at sema_decl.cpp and had
+// NEVER printed, because the reader every declaration uses dropped the bound
+// before it got there. Upstream E0261. LANDED 2026-09-01.
+package bc_ltbndread_undeclared_lifetime_fail;
+
+fn stati<'a, T: 'stati>(x: T, y: &'a i64) -> i64 { return 0i64; }
+
+fn main() -> i32 { return 0i32; }

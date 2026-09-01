@@ -1,0 +1,1 @@
+call to 'take_send': type argument '&'a i64' has lifetime 'a' but the type parameter 'T' requires `T: 'static`

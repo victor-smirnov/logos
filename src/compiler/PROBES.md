@@ -11517,3 +11517,205 @@ L1 from `build/` on the priced tree: 746/746 + 305 gates, rc 0.
      type-outlives-static,type-outlives-elided,type-outlives-impl}` are the
      corpus's own LEGAL population for `T: 'a` (their headers say "B65"). They
      survive `ltbndread` and `ltbndstat` and they are what `ltbndtv` costs.
+
+# ═══ ROUND 2026-09-01c — THE `T: 'a` ARM LANDED. LEDGER 256 → 250, AND THE
+# STRICT TWIN STAYS DECLINED BY THE HAND PROGRAM THAT CONDEMNS IT ════════════
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE) AND THE BASELINE, QUOTED
+
+```
+live probes  150 at open → 145 at close (the five `ltbnd*` names are RETIRED;
+             their code is now unconditional, so the names would be a lie)
+ledger       # TOTAL 256 at open, 256 by direct listing, 256 admit files
+gate store   build 375, hash 33372b73986506cb (READ, = 2026-09-07b's priced build)
+             -R '^logos_00_bc_admit_'  256 recorded, 0 failed  (ALREADY MEASURED,
+                                       quoted from the store, nothing re-run)
+             -L bc                     1115 / 1115 passed, 0 failed
+top roots    bck.C 16 · lifereg.A 13 · nllmoves.B 11 · lifereg.R17 11 · bck.B 11
+```
+
+The handed-down report is CORRECT on every number this round could check, which
+is the first time in five rounds. The five probes it priced were re-run on the
+opening binary before anything was funded (rule 8) and all five reproduced their
+recorded hand verdicts DIGIT FOR DIGIT, including `ltbndstatem`'s refusal of h6.
+
+## 1. WHAT LANDED — TWO EDITS, ONE MECHANISM, BOTH UNCONDITIONAL
+
+ 1. `sema.cpp::read_type_params` — the LIFETIME_PARAM branch its twin
+    `read_type_params_from` always had, at BOTH discard sites (the inline
+    `ITEMS` walk and the `where` merge). `tp.lifetime_outlives` is now non-empty
+    for a fn/struct/trait/enum that declares `T: 'a`.
+ 2. `sema_collect.cpp::check_type_bounds` — the `'static` half. Under a bound
+    spelled `T: 'static`, a type argument carrying a NAMED non-'static lifetime
+    anywhere inside it (ref, mut-ref, lifetime arg, nested type arg, tuple
+    element, closure param or return) is refused, at every one of the arm's
+    ELEVEN instantiation sites. One error per bound, not per lifetime.
+
+DIFFERENCE FROM THE PROBE (rule 7 — a crude probe and a correct fix do not close
+the same programs, so it is stated rather than assumed):
+  · the probe SKIPPED under `bounds_probe_`; the landed arm sets
+    `bounds_probe_ok_ = false` instead, which is the convention every other
+    bound failure in this function already follows. MEASURED: it changes no
+    column — pass 0, cfail 0/1115, stdlib ok, and the closed set is unchanged.
+  · the probe printed one error per violating lifetime; the landed arm breaks
+    after the first. `regions-bounded-method-type-parameters` still prints TWICE
+    — see §5, that duplication is INHERITED and not this arm's.
+
+## 2. PREDICTION, DECLARED BEFORE THE EDIT — `build/predictions-2026-09-01-land.txt`
+
+Predicted 6 rows BY NAME, cost 0/0/ok, new `# TOTAL` 250.
+
+## 3. THE CLOSED SET, DIFFED BOTH WAYS — PREDICTED = ACTUAL, BOTH EMPTY
+
+```
+static-typos                                                lifereg.R17
+issue-54943                                                 nllmoves.NEW-L1
+regions-bounded-by-trait-requiring-static--requiring-static lifereg.NEW-L4
+regions-bounded-by-trait-requiring-static--b-used           lifereg.NEW-L4
+regions-bounded-method-type-parameters                      lifereg.NEW-R20
+wf-bound-region-in-local-issue-115175--b-static-bound-call  lifereg.NEW-R20
+```
+predicted ∖ actual = ∅ · actual ∖ predicted = ∅. Six roots' worth of labels for
+one mechanism, which is what 2026-09-01v predicted labels would do.
+
+⚠ THE CEILING DID NOT DECAY (rule 8): `ltbndread` 1 + `ltbndstat` 6 was priced
+as 6 rows because static-typos is in both, and 6 is what landed.
+
+## 4. THE DIAGNOSTIC OF EVERY ROW, READ ON THE LANDED BINARY
+
+```
+static-typos      fn 'stati': use of undeclared lifetime name ''stati' in
+                  `T: 'stati` bound                              (upstream E0261)
+issue-54943       call to 'foo': type argument '&'a i64' has lifetime 'a' but
+                  the type parameter 'T' requires `T: 'static`   (upstream E0310)
+requiring-static  …same sentence, call to 'assert_send'
+b-used            …same sentence, call to 'assert_send'
+bounded-method-…  …same sentence, call to 'Foo__some_method'     (METHOD site)
+wf-bound--b-…     …same sentence, call to 'Stat'                 (STRUCT-LIT site)
+```
+All six name the upstream reason. All six are pinned in full in an `.expected`.
+
+## 5. COST — THREE POPULATIONS, AND THE FAIL HALF READ BY TEXT
+
+```
+pass    -L bc   2030 passed / 0 failed / 2 disabled     (build 381)
+        ⚠ the selection returned 2032 tests, not 1115: FIXTURES_REQUIRED pulls
+        the producers in. A superset, and it is green.
+cfail   fail_text_oracle.py, 1115 fixtures, build 33372b73986506cb (pre-fix) vs
+        6040e4c60111bc7d (post-fix, pre-fixture-move): rc, normalised-stderr
+        SHA and `.expected` match compared per fixture — NOT ONE ROW DIFFERS in
+        any of the three columns. 0/1115.
+stdlib  all four layers compile.  Plus the FULL `cmake --build` is green, which
+        compiles the stdlib, the tools and the examples under the arm.
+```
+
+## 6. RULE 5 DISCHARGED — TEN LEGAL HAND PROGRAMS, FOUR ILLEGAL, ONE KNOWN MISS
+
+Multi-line, each read on the landed binary (not on the probe):
+
+```
+                                    landed   ltbndstatem (the declined twin)
+h1 keep<'b,T:'b>(&'b i64)            accept   accept    legal
+h2 assert_send::<i64>(5i64)          accept   accept    legal
+h3 take_send::<&'static i64>()       accept   accept    legal
+h4 caller carries the same T:'static accept   accept    legal
+h5 Stat::<i64>{v:9}                  accept   accept    legal
+h6 assert_send::<&i64>(&ZERO)        accept   REFUSE ⛔ legal — static ZERO
+k7 where T:'static, owned arg        accept   —         legal (the where merge)
+k8 Stat::<&'static i64>{v:&ONE}      accept   —         legal
+k9 Foo{…}.some_method::<i64>()       accept   —         legal (method site)
+k10 hold::<Wrap<&'static i64>>(w)    accept   —         legal (nested arg)
+i1 take_send::<&'a i64>()            REFUSE   REFUSE    illegal, caught
+j3 Stat::<&'a i64>{v:r}              REFUSE   —         illegal, caught (struct)
+j4 hold::<Wrap<&'a i64>>(w)          REFUSE   —         illegal, caught (nested)
+j5 Foo{…}.some_method::<&'a i64>()   REFUSE   —         illegal, caught (method)
+i2 assert_send::<&i64>(&local)       accept   REFUSE    ILLEGAL, MISSED — the
+                                                        known incompleteness
+```
+
+⛔ `ltbndstatem` STAYS DECLINED, and the number that condemns it is not a
+column: it is 0/0/ok on all three and it refuses h6. The two arms differ in ONE
+clause — whether an ELIDED lifetime violates `T: 'static` — and separating h6
+from i2 needs the region the elision RESOLVES TO, which no predicate at this
+site has. The landed arm is therefore INCOMPLETE (by exactly i2 and
+`regions-pattern-typing-issue-19552`) and never over-strict, which is the only
+direction a borrow-check arm may be wrong in.
+
+⛔ `ltbndtv` STAYS DECLINED, cost 2, both named:
+`logos_02_semantic_core_pass_multi-type-outlives` and `…_type-outlives-bound`
+— in-tree PASS fixtures that ASSERT `T: 'a` is accepted. Unblocking it needs
+`push_type_params` to carry `lifetime_outlives` (open item 19).
+
+## 7. CONTROL REVERT — RUN BEFORE THE FIXTURES WERE BELIEVED
+
+`git stash push src/compiler/sema.cpp src/compiler/sema_collect.cpp`, full
+rebuild, same ctest selection: ALL NINE refuse-half fixtures RED (the six
+imported ports plus the three native ones), both pass fixtures still green.
+Restored, rebuilt, re-run: 11/11 green. The fixtures ratchet the behaviour and
+not the weather.
+
+## 8. THE FIXTURES, IN THEIR ROOT'S HOME, IN PAIRS ONE TOKEN APART
+
+```
+tests/imported/fail/{lifetimes/static-typos, nll/issue-54943,
+  regions/regions-bounded-by-trait-requiring-static--{requiring-static,b-used},
+  regions/regions-bounded-method-type-parameters,
+  regions/wf-bound-region-in-local-issue-115175--b-static-bound-call}
+  — moved from admit/, `.expected` pinning the full sentence, header rewritten
+    to `shelf: fail · was <root>, CLOSED 2026-09-01`.
+tests/logos/pass/bc_ltbndstat_legal_shapes        nine legal shapes, (6) the
+                                                  elided separator, runs rc 0
+tests/logos/fail/bc_ltbndstat_named_lifetime_arg_fail   ONE TOKEN from (3)
+tests/logos/fail/bc_ltbndstat_struct_lit_arg_fail       ONE TOKEN from (5)
+tests/logos/pass/bc_ltbndread_declared_lifetime_pass    `T: 'a`, 'a declared
+tests/logos/fail/bc_ltbndread_undeclared_lifetime_fail  ONE TOKEN: `T: 'stati`
+```
+
+## 9. LEDGER ARITHMETIC, RE-DERIVED BY DIRECT LISTING
+
+```
+# TOTAL          256 → 250
+awk '!/^#/ && NF' | wc -l                  250
+ls tests/imported/admit/*/*.logos | wc -l  250
+```
+Census pins moved in three different amounts and each was re-derived, not
+adjusted: REGISTRY-ALL 8768→8773 (+5), NOIMPORTED 4466→4465 (−1, because the
+six ARRIVING fail ports carry the `imported` label and the six LEAVING admit
+tests never did), TIERCOMMIT 305→299 (−6). direct_door corpus 2521→2523,
+nonglob 2330→2332, glob 191 unmoved.
+
+## 10. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+
+ (a) THE DOUBLE DIAGNOSTIC ON THE METHOD PATH IS INHERITED, NOT BOUGHT (rule
+     14). `regions-bounded-method-type-parameters` prints its E0310 twice, once
+     as `Foo__some_method` and once as `pkg.Foo__some_method`. MEASURED on the
+     PRE-ROUND binary with a trait bound instead of a lifetime one: the trait
+     half of `check_type_bounds` prints its message twice in exactly the same
+     two spellings. So the method path checks the same bounds at two names and
+     it has always done so; this arm only inherited it. Was open item 21,
+     now with its cause narrowed to "not lifetime-specific".
+ (b) The undeclared-lifetime message names the INTERNAL generic key:
+     `fn 'static_typos$stati__g__T': use of undeclared lifetime name …`, inside
+     a diagnostic already prefixed `[fn stati]`. The name is mangled and
+     doubled. Diagnostic quality, outside borrow-check, not pursued.
+
+## 11. OPEN (carried, plus this round's)
+
+ 1-17. UNCHANGED from 2026-09-06a §9.
+ 18. CLOSED 2026-09-01c — `read_type_params` now carries `T: 'a`.
+ 19. STANDS: `push_type_params` drops `lifetime_outlives`, so a caller's own
+     type-outlives bound is in scope at no call site. It BLOCKS both remaining
+     sub-mechanisms (items 20 and the non-'static residue), and it is what
+     `ltbndtv`'s two costs are.
+ 20. STANDS: a bounded call inside an UNINSTANTIATED generic body reaches no
+     bound check at all — four ledger rows (ty-param-fn-body,
+     regions-infer-bound-from-trait, -self, close-over-type-parameter-multiple).
+ 21. NARROWED (§10a): the duplicate is the METHOD PATH's, not the lifetime
+     arm's, and it is on the trait half too.
+ 22. STANDS: `tests/imported/pass/regions/{multi-type-outlives,
+     type-outlives-bound,type-outlives-static,type-outlives-elided,
+     type-outlives-impl}` are the corpus's own LEGAL population for `T: 'a`.
+     They survive the landed arm; they are what `ltbndtv` costs.
+ 23. NEW: the ELIDED-lifetime half of `T: 'static` (h6 vs i2). One ledger row
+     known (`regions-pattern-typing-issue-19552`), and it needs the region the
+     elision resolves to.

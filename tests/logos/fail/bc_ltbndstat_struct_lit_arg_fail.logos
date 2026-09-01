@@ -1,0 +1,19 @@
+// THE REFUSE HALF of tests/logos/pass/bc_ltbndstat_legal_shapes (5), ONE TOKEN
+// apart: there the struct literal is built at `&'static i64`, here at
+// `&'a i64`. The STRUCT-LITERAL instantiation site shares check_type_bounds
+// with the call site, which is why one arm covers both. Upstream E0310.
+// LANDED 2026-09-01.
+package bc_ltbndstat_struct_lit_arg_fail;
+
+struct Stat<T: 'static> { v: T }
+
+fn f5<'a>(r: &'a i64) -> i64 {
+    let s: Stat<&'a i64> = Stat::<&'a i64> { v: r };
+    return 5i64;
+}
+
+fn main() -> i32 {
+    let n: i64 = 0i64;
+    if f5(&n) != 5i64 { return 5i32; }
+    return 0i32;
+}

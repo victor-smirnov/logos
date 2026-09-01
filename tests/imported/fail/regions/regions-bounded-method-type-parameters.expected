@@ -1,0 +1,1 @@
+call to 'Foo__some_method': type argument '&'a i64' has lifetime 'a' but the type parameter 'A' requires `A: 'static`

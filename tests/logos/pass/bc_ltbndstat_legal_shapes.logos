@@ -1,0 +1,83 @@
+// COST 0 IS NOT A SAFETY CLAIM (rule 5). The `'static` half of
+// `check_type_bounds` priced CEILING 6 / COST 0 pass / cfail 0 of 1115 /
+// stdlib 4 layers ok, and its strict twin `ltbndstatem` priced the SAME three
+// zeros and refused (6) below — a legal program no population in the harness
+// contains. So the programs here ARE the safety argument, not the corpus.
+//
+// The mechanism: `read_type_params` now carries a type parameter's outlives
+// bound (`T: 'a`, `where T: 'static`) into `tp.lifetime_outlives`, as its twin
+// `read_type_params_from` always did, and the bound check refuses a type
+// argument that carries a NAMED non-'static lifetime under a `'static` bound.
+//
+// ⚠ WHAT IT DELIBERATELY DOES NOT REFUSE, AND WHY (6) IS HERE: an ELIDED
+// lifetime. `&ZERO` for a `static ZERO` IS 'static and its spelling carries no
+// name. Refusing the elided case refuses (6); accepting it misses an illegal
+// program whose reference is to a local. Separating the two needs the region
+// the elision resolves to, which no predicate at this site has, so this arm is
+// INCOMPLETE and never over-strict.
+//
+// ⚠ THE REFUSE HALVES ARE ONE TOKEN AWAY:
+//   tests/logos/fail/bc_ltbndstat_named_lifetime_arg_fail   — (3) with 'a for 'static
+//   tests/logos/fail/bc_ltbndstat_struct_lit_arg_fail       — (5) with 'a for 'static
+package bc_ltbndstat_legal_shapes;
+
+static ZERO: i64 = 0i64;
+
+// (1) a NON-'static bound, discharged by the very lifetime it names.
+fn keep<'b, T: 'b>(x: T) -> i64 { return 1i64; }
+fn f1<'b>(r: &'b i64) -> i64 { return keep::<&'b i64>(r); }
+
+// (2) `T: 'static` with an OWNED argument.
+fn assert_send<T: 'static>(x: T) -> i64 { return 2i64; }
+fn f2() -> i64 { return assert_send::<i64>(5i64); }
+
+// (3) `T: 'static` with an EXPLICITLY 'static reference. ⚠ ONE TOKEN from
+//     bc_ltbndstat_named_lifetime_arg_fail.
+fn take_send<T: 'static>() -> i64 { return 3i64; }
+fn f3<'a>(x: &'a i64) -> i64 { return take_send::<&'static i64>(); }
+
+// (4) the CALLER carries the same bound it must discharge.
+fn f4outer<T: 'static>(x: T) -> i64 { return assert_send::<T>(x); }
+fn f4() -> i64 { return f4outer::<i64>(7i64); }
+
+// (5) the STRUCT-LITERAL instantiation site, satisfied. ⚠ ONE TOKEN from
+//     bc_ltbndstat_struct_lit_arg_fail.
+struct Stat<T: 'static> { v: T }
+fn f5() -> i64 {
+    let s: Stat<&'static i64> = Stat::<&'static i64> { v: &ZERO };
+    return 5i64;
+}
+
+// (6) ⚠ THE SEPARATOR. The argument is a reference to a `static`, so it IS
+//     'static — the lifetime is merely ELIDED. The strict twin refused this.
+fn f6() -> i64 { return assert_send::<&i64>(&ZERO); }
+
+// (7) the WHERE-CLAUSE spelling — the reader's SECOND discard site.
+fn boxed<T>(x: T) -> i64 where T: 'static { return 7i64; }
+fn f7() -> i64 { return boxed::<i64>(11i64); }
+
+// (8) the METHOD instantiation site, satisfied.
+struct Foo { n: i64 }
+impl Foo { fn some_method<A: 'static>(self: Foo) -> i64 { return 8i64; } }
+fn f8<'a>(x: &'a i64) -> i64 { return Foo{n:0i64}.some_method::<i64>(); }
+
+// (9) a NESTED 'static reference inside the type argument.
+struct Wrap<T> { v: T }
+fn f9() -> i64 {
+    let w: Wrap<&'static i64> = Wrap::<&'static i64> { v: &ZERO };
+    return assert_send::<Wrap<&'static i64>>(w);
+}
+
+fn main() -> i32 {
+    let n: i64 = 0i64;
+    if f1(&n) != 1i64 { return 1i32; }
+    if f2() != 2i64 { return 2i32; }
+    if f3(&n) != 3i64 { return 3i32; }
+    if f4() != 2i64 { return 4i32; }
+    if f5() != 5i64 { return 5i32; }
+    if f6() != 2i64 { return 6i32; }
+    if f7() != 7i64 { return 7i32; }
+    if f8(&n) != 8i64 { return 8i32; }
+    if f9() != 2i64 { return 9i32; }
+    return 0i32;
+}

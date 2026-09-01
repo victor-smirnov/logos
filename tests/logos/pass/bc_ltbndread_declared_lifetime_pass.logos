@@ -1,0 +1,14 @@
+// THE ACCEPT HALF of tests/logos/fail/bc_ltbndread_undeclared_lifetime_fail,
+// ONE TOKEN apart: the outlives bound names the fn's OWN lifetime parameter,
+// so the undeclared-name check must stay silent. It is the control for the
+// reader repair — before it, this check saw an empty list and could not have
+// spoken either way. LANDED 2026-09-01.
+package bc_ltbndread_declared_lifetime_pass;
+
+fn stati<'a, T: 'a>(x: T, y: &'a i64) -> i64 { return 0i64; }
+
+fn main() -> i32 {
+    let n: i64 = 0i64;
+    if stati::<i64>(1i64, &n) != 0i64 { return 1i32; }
+    return 0i32;
+}

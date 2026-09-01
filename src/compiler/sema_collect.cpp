@@ -957,71 +957,65 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         if (!concrete) continue;
         TypeRef cv{concrete};
         if (cv.kind() == LogosType::Kind::Error) continue;
-        // PROBE 2026-09-07 ltbnd*: the LIFETIME half of a type-param bound.
-        {
-            bool p_any    = logos::probe::on("ltbndany");
-            bool p_stat   = logos::probe::on("ltbndstat");
-            bool p_statem = logos::probe::on("ltbndstatem");
-            bool p_tv     = logos::probe::on("ltbndtv");
-            logos::probe::census("bndlt.arg");
-            if (!tp.lifetime_outlives.empty()) logos::probe::census("bndlt.tp_bounded");
-            if (bounds_probe_) logos::probe::census("bndlt.quiet");
-            if ((p_any || p_stat || p_statem || p_tv) && !bounds_probe_ &&
-                !tp.lifetime_outlives.empty()) {
-                auto _lnorm = [](std::string_view s) {
-                    std::string r{s};
-                    if (!r.empty() && r[0] == '\'') r.erase(0, 1);
-                    return r;
-                };
-                std::function<bool(TypeRef)> _tv_in = [&](TypeRef t) -> bool {
-                    if (!t) return false;
-                    if (t.kind() == LogosType::Kind::TypeVar) return true;
-                    if (t.pointee() && _tv_in(t.pointee())) return true;
-                    if (t.elem() && _tv_in(t.elem())) return true;
-                    for (auto a : t.type_args())   if (_tv_in(a)) return true;
-                    for (auto e : t.tuple_elems()) if (_tv_in(e)) return true;
-                    return false;
-                };
-                std::vector<std::string> _got;
-                std::function<void(TypeRef)> _collect = [&](TypeRef t) {
-                    if (!t) return;
-                    auto k = t.kind();
-                    if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef)
-                        _got.push_back(_lnorm(t.lifetime()));
-                    for (auto& la : t.lifetime_args()) _got.push_back(_lnorm(la));
-                    if (t.pointee()) _collect(t.pointee());
-                    if (t.elem())    _collect(t.elem());
-                    for (auto a : t.type_args())   _collect(a);
-                    for (auto e : t.tuple_elems()) _collect(e);
-                };
-                _collect(cv);
-                bool _arg_tv = _tv_in(cv);
-                for (auto& _lb : tp.lifetime_outlives) {
-                    std::string _b = _lnorm(_lb);
-                    if (p_any) {
-                        error(std::format("call to '{}': type argument '{}' does not "
-                              "satisfy the outlives bound `{}: {}`",
-                              target_name, type_str(concrete), tp.name, _lb));
-                        continue;
-                    }
-                    if (_arg_tv) {
-                        if (p_tv)
-                            error(std::format("call to '{}': type argument '{}' does not "
-                                  "satisfy the outlives bound `{}: {}`",
-                                  target_name, type_str(concrete), tp.name, _lb));
-                        continue;
-                    }
-                    if (_b != "static") continue;
-                    for (auto& _g : _got) {
-                        if (_g == "static") continue;
-                        bool _elided = _g.empty();
-                        if ((p_stat && !_elided) || p_statem)
-                            error(std::format("call to '{}': type argument '{}' has "
-                                  "lifetime '{}' but the type parameter '{}' requires "
-                                  "`{}: 'static`",
-                                  target_name, type_str(concrete),
-                                  _elided ? std::string("<elided>") : _g,
-                                  tp.name, tp.name));
+        // ── THE LIFETIME HALF OF A TYPE-PARAMETER BOUND (upstream E0310) ──
+        // `T: 'static` instantiated with a type that carries a NAMED
+        // non-'static lifetime anywhere inside it is refused, at every one of
+        // this arm's instantiation sites (generic call, method call, struct
+        // and enum literal, struct/enum type instantiation).
+        //
+        // ⚠ SOUNDNESS CAVEAT — this arm is INCOMPLETE, never over-strict. An
+        // ELIDED lifetime is NOT a violation: `&ZERO` for a `static ZERO` is
+        // `'static` and its spelling carries no name. Refusing the elided case
+        // refuses that legal program; accepting it misses an illegal one whose
+        // reference is to a local. Separating the two needs the region the
+        // elision RESOLVES TO, which no predicate at this site has.
+        // A type argument that still mentions a TypeVar is left alone as well:
+        // the obligation is then the CALLER's, and the caller's own
+        // `lifetime_outlives` is not in scope here.
+        if (!tp.lifetime_outlives.empty()) {
+            auto lt_norm = [](std::string_view s) {
+                std::string r{s};
+                if (!r.empty() && r[0] == '\'') r.erase(0, 1);
+                return r;
+            };
+            std::function<bool(TypeRef)> mentions_tv_lt = [&](TypeRef t) -> bool {
+                if (!t) return false;
+                if (t.kind() == LogosType::Kind::TypeVar) return true;
+                if (t.pointee() && mentions_tv_lt(t.pointee())) return true;
+                if (t.elem()    && mentions_tv_lt(t.elem()))    return true;
+                for (auto a : t.type_args())      if (mentions_tv_lt(a)) return true;
+                for (auto e : t.tuple_elems())    if (mentions_tv_lt(e)) return true;
+                for (auto c : t.closure_params()) if (mentions_tv_lt(c)) return true;
+                if (t.closure_ret() && mentions_tv_lt(t.closure_ret())) return true;
+                return false;
+            };
+            std::vector<std::string> named_lts;
+            std::function<void(TypeRef)> collect_lts = [&](TypeRef t) {
+                if (!t) return;
+                auto k = t.kind();
+                if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef)
+                    named_lts.push_back(lt_norm(t.lifetime()));
+                for (auto& la : t.lifetime_args()) named_lts.push_back(lt_norm(la));
+                if (t.pointee()) collect_lts(t.pointee());
+                if (t.elem())    collect_lts(t.elem());
+                for (auto a : t.type_args())      collect_lts(a);
+                for (auto e : t.tuple_elems())    collect_lts(e);
+                for (auto c : t.closure_params()) collect_lts(c);
+                if (t.closure_ret()) collect_lts(t.closure_ret());
+            };
+            if (!mentions_tv_lt(cv)) {
+                collect_lts(cv);
+                for (auto& lb : tp.lifetime_outlives) {
+                    if (lt_norm(lb) != "static") continue;
+                    for (auto& got : named_lts) {
+                        if (got.empty() || got == "static") continue;
+                        if (bounds_probe_) { bounds_probe_ok_ = false; break; }
+                        error(std::format("call to '{}': type argument '{}' has "
+                              "lifetime '{}' but the type parameter '{}' requires "
+                              "`{}: 'static`",
+                              target_name, type_str(concrete), got,
+                              tp.name, tp.name));
+                        break;
                     }
                 }
             }

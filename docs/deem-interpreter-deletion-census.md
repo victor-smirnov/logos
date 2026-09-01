@@ -4930,9 +4930,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8761 -> 8768   +7
 #   NOIMPORTED   4459 -> 4466   +7
 #   TIERCOMMIT    305 ->  305    0
-REGISTRY-ALL         8768
-REGISTRY-NOIMPORTED  4466
-REGISTRY-TIERCOMMIT  305
+# 2026-09-01: the `T: 'a` outlives-bound arm. SIX ledger rows closed, so six
+#              `logos_00_bc_admit_*` tests (tier_commit, NOT labelled imported)
+#              disappear and six `logos_06_diagnostics_fail_*` appear in their
+#              place with the `imported` label; plus 5 NATIVE fixtures (3 fail:
+#              bc_ltbndread_undeclared_lifetime_fail, bc_ltbndstat_named_
+#              lifetime_arg_fail, bc_ltbndstat_struct_lit_arg_fail; 2 pass:
+#              bc_ltbndread_declared_lifetime_pass, bc_ltbndstat_legal_shapes).
+#              ⚠ THE THREE COLUMNS MOVE BY THREE DIFFERENT AMOUNTS, and that is
+#              the whole reason they are three: ALL sees -6+6+5, NOIMPORTED sees
+#              -6+5 because the arriving fail ports ARE imported and the leaving
+#              admit tests were never labelled so, TIERCOMMIT sees -6 alone.
+#   ALL          8768 -> 8773   +5
+#   NOIMPORTED   4466 -> 4465   -1
+#   TIERCOMMIT    305 ->  299   -6
+REGISTRY-ALL         8773
+REGISTRY-NOIMPORTED  4465
+REGISTRY-TIERCOMMIT  299
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

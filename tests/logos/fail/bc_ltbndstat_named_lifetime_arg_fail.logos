@@ -1,0 +1,17 @@
+// THE REFUSE HALF of tests/logos/pass/bc_ltbndstat_legal_shapes (3), ONE TOKEN
+// apart: there the turbofish reads `&'static i64`, here `&'a i64` — a named
+// lifetime that is not 'static under a `T: 'static` bound. Upstream E0310.
+// LANDED 2026-09-01.
+package bc_ltbndstat_named_lifetime_arg_fail;
+
+fn take_send<T: 'static>() -> i64 { return 3i64; }
+
+fn f3<'a>(x: &'a i64) -> i64 {
+    return take_send::<&'a i64>();
+}
+
+fn main() -> i32 {
+    let n: i64 = 0i64;
+    if f3(&n) != 3i64 { return 3i32; }
+    return 0i32;
+}

@@ -1084,7 +1084,7 @@
 #   note suggests) and `v[0] = v.len();` (Rust evaluates the RHS first). The
 #   region a top-level mint takes lives as long as the statement's HOLDER, which
 #   for a `let` is the bound name — an `i64` carrying no borrow. It stays a probe.
-# TOTAL 256
+# TOTAL 250
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1210,7 +1210,6 @@ mut-ref-owned-suggestion lifereg.NEW-L1 tests/imported/admit/lifetimes/mut-ref-o
 mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17
 mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17
 shadow lifereg.R17 tests/imported/admit/lifetimes/shadow
-static-typos lifereg.R17 tests/imported/admit/lifetimes/static-typos
 suggest-introducing-and-adding-missing-lifetime--c22b-outlives-bound-ignored lifereg.L2 tests/imported/admit/lifetimes/suggest-introducing-and-adding-missing-lifetime--c22b-outlives-bound-ignored
 suggest-introducing-and-adding-missing-lifetime--param-may-not-live lifereg.L2 tests/imported/admit/lifetimes/suggest-introducing-and-adding-missing-lifetime--param-may-not-live
 temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor
@@ -1264,7 +1263,6 @@ issue-54124 nllmoves.NEW-L1 tests/imported/admit/nll/issue-54124
 issue-54382-use-span-of-tail-of-block nllmoves.D tests/imported/admit/nll/issue-54382-use-span-of-tail-of-block
 issue-54556-stephaneyfx nllmoves.E tests/imported/admit/nll/issue-54556-stephaneyfx
 issue-54556-temps-in-tail-diagnostic nllmoves.D tests/imported/admit/nll/issue-54556-temps-in-tail-diagnostic
-issue-54943 nllmoves.NEW-L1 tests/imported/admit/nll/issue-54943
 issue-55394--b nllmoves.NEW-3 tests/imported/admit/nll/issue-55394--b
 issue-62007-assign-differing-fields--c nllmoves.R3 tests/imported/admit/nll/issue-62007-assign-differing-fields--c
 issue-69114-static-mut-ty nllmoves.R1 tests/imported/admit/nll/issue-69114-static-mut-ty
@@ -1320,9 +1318,6 @@ regions-addr-of-upvar-self--upvar-self lifereg.NEW-R20 tests/imported/admit/regi
 regions-adjusted-lvalue-op--c26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--c26
 regions-adjusted-lvalue-op--t26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26
 regions-assoc-type-in-supertrait-outlives-container lifereg.L6 tests/imported/admit/regions/regions-assoc-type-in-supertrait-outlives-container
-regions-bounded-by-trait-requiring-static--b-used lifereg.NEW-L4 tests/imported/admit/regions/regions-bounded-by-trait-requiring-static--b-used
-regions-bounded-by-trait-requiring-static--requiring-static lifereg.NEW-L4 tests/imported/admit/regions/regions-bounded-by-trait-requiring-static--requiring-static
-regions-bounded-method-type-parameters lifereg.NEW-R20 tests/imported/admit/regions/regions-bounded-method-type-parameters
 regions-close-associated-type-into-object lifereg.L5 tests/imported/admit/regions/regions-close-associated-type-into-object
 regions-close-object-into-object-1 lifereg.A tests/imported/admit/regions/regions-close-object-into-object-1
 regions-close-over-type-parameter-1 lifereg.NEW-R20 tests/imported/admit/regions/regions-close-over-type-parameter-1
@@ -1354,5 +1349,4 @@ regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-boun
 regions-steal-closure lifereg.D tests/imported/admit/regions/regions-steal-closure
 regions-var-type-out-of-scope lifereg.D tests/imported/admit/regions/regions-var-type-out-of-scope
 resolve-re-error-ice lifereg.R18 tests/imported/admit/regions/resolve-re-error-ice
-wf-bound-region-in-local-issue-115175--b-static-bound-call lifereg.NEW-R20 tests/imported/admit/regions/wf-bound-region-in-local-issue-115175--b-static-bound-call
 wf-bound-region-in-local-issue-115175--wf-bound-local lifereg.NEW-R20 tests/imported/admit/regions/wf-bound-region-in-local-issue-115175--wf-bound-local

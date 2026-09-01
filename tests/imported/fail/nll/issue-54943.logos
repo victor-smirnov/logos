@@ -1,6 +1,8 @@
 // rustc nll/issue-54943.rs — upstream T:'static
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.NEW-L1
+// shelf: fail · was nllmoves.NEW-L1, CLOSED 2026-09-01 — `where T: 'static`
+// now reaches check_type_bounds, whose 'static half refuses a type argument
+// carrying a named non-static lifetime (upstream E0310).
 package issue_54943;
 fn foo<T>(v: T) -> i64 where T: 'static { return 1i64; }
 fn boo<'a>(r: &'a i64) -> i64 { return foo::<&'a i64>(r); }

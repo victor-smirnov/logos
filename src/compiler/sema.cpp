@@ -5816,14 +5816,6 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
 
 std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
     std::vector<TypeParam> result;
-    // PROBE 2026-09-07 ltbnd*: this reader DROPS `T: 'a` bounds; its twin
-    // read_type_params_from keeps them. Arms the two branches below.
-    const bool _ltbnd_read = logos::probe::on("ltbndread") ||
-                             logos::probe::on("ltbndany")  ||
-                             logos::probe::on("ltbndstat") ||
-                             logos::probe::on("ltbndstatem") ||
-                             logos::probe::on("ltbndtv");
-    (void)_ltbnd_read;
     if (!node.has_key(la::TYPE_PARAMS)) return result;
     AnyVal tpav = node.get(la::TYPE_PARAMS.code);
     if (tpav.is_null()) return result;
@@ -5878,7 +5870,7 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
             AnyVal av = tpnode.get(la::IS_VARIADIC.code);
             tp.is_variadic = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
         }
-        // Optional bounds: ITEMS contains TRAIT_BOUND nodes
+        // Optional bounds: ITEMS holds TRAIT_BOUND and LIFETIME_PARAM nodes
         if (tpnode.has_key(la::ITEMS)) {
             auto bounds = arr_of(tpnode.get(la::ITEMS.code));
             for (uint64_t b = 0; b < bounds.size(); ++b) {
@@ -5888,7 +5880,11 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
                     tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
                     read_trait_bound_args(bnode, tb);
                     tp.bounds.push_back(std::move(tb));
-                } else if (code_of(bnode) == la::LIFETIME_PARAM && _ltbnd_read) {
+                } else if (code_of(bnode) == la::LIFETIME_PARAM) {
+                    // `T: 'a` — the OUTLIVES half. Dropped here until
+                    // 2026-09-01 while the twin reader `read_type_params_from`
+                    // kept it, so every fn/struct/trait/enum saw an empty
+                    // `lifetime_outlives` and both consumers read a null.
                     tp.lifetime_outlives.push_back(
                         std::string(str_of(bnode.get(la::NAME.code))));
                 }
@@ -6003,8 +5999,8 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
                                 tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
                                 read_trait_bound_args(bnode, tb);
                                 tp_ptr->bounds.push_back(std::move(tb));
-                            } else if (code_of(bnode) == la::LIFETIME_PARAM &&
-                                       _ltbnd_read) {
+                            } else if (code_of(bnode) == la::LIFETIME_PARAM) {
+                                // `where T: 'a` — the SECOND discard site.
                                 tp_ptr->lifetime_outlives.push_back(
                                     std::string(str_of(bnode.get(la::NAME.code))));
                             }
