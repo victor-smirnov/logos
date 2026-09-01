@@ -4956,9 +4956,26 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8773 -> 8776   +3
 #   NOIMPORTED   4465 -> 4462   -3
 #   TIERCOMMIT    299 ->  293   -6
+# 2026-09-01 (ONE LEDGER ROW RETIRED, NOT CLOSED — no compiler change at all.
+#             `suggest-…--c22b-outlives-bound-ignored` writes its `T: 'b` bound,
+#             so it is legal Rust; the admit row asserted a defect that is not
+#             there. The program MOVED from tests/imported/admit/lifetimes/ to
+#             tests/imported/pass/lifetimes/ (+ a `.expected`), so one admit
+#             test leaves and one imported pass test arrives.
+#             ⚠ THE THREE COLUMNS AGAIN MOVE BY THREE DIFFERENT AMOUNTS, and
+#             here two of them are not even the same sign of change: ALL sees
+#             -1+1 = 0, NOIMPORTED sees -1 alone because the ARRIVING pass test
+#             is labelled `imported` and the LEAVING admit test never was,
+#             TIERCOMMIT sees -1 alone because the admit tests carry
+#             `tier_commit` and the imported pass corpus does not.
+#             PREDICTED before the re-configure, then measured three ways;
+#             the new name verified with `ctest -N -R c22b` = 1.
+#   ALL          8776 -> 8776    0
+#   NOIMPORTED   4462 -> 4461   -1
+#   TIERCOMMIT    293 ->  292   -1
 REGISTRY-ALL         8776
-REGISTRY-NOIMPORTED  4462
-REGISTRY-TIERCOMMIT  293
+REGISTRY-NOIMPORTED  4461
+REGISTRY-TIERCOMMIT  292
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

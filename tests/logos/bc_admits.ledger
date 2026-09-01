@@ -1084,7 +1084,21 @@
 #   note suggests) and `v[0] = v.len();` (Rust evaluates the RHS first). The
 #   region a top-level mint takes lives as long as the statement's HOLDER, which
 #   for a `let` is the bound name — an `i64` carrying no borrow. It stays a probe.
-# TOTAL 244
+# 2026-09-01 RETIRED, NOT CLOSED — one row removed, owner's call.
+#   `suggest-introducing-and-adding-missing-lifetime--c22b-outlives-bound-ignored`
+#   (root lifereg.L2) was `fn keep<'b, T: 'b>(x: &'b T) -> &'b T { return x; }`.
+#   The bound IS WRITTEN, so the program is LEGAL RUST and must compile: the
+#   upstream E0310 is about a different function in the same file and this
+#   reduction kept the version carrying the bound. The row asserted a defect
+#   that does not exist. The program is not deleted — it moved to
+#   tests/imported/pass/lifetimes/ with its provenance, where it now pins the
+#   correct ACCEPTANCE of a written type-outlives bound (verified rc 0 with the
+#   bound, under alpha-rename, and at a call site; and the site is live —
+#   perturbing the body of an uninstantiated generic fn still refuses).
+#   RE-DERIVED BY DIRECT LISTING, not decremented:
+#     awk '!/^#/ && NF' tests/logos/bc_admits.ledger | wc -l  -> 243
+#     ls tests/imported/admit/*/*.logos | wc -l               -> 243
+# TOTAL 243
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1210,7 +1224,6 @@ mut-ref-owned-suggestion lifereg.NEW-L1 tests/imported/admit/lifetimes/mut-ref-o
 mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17
 mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17
 shadow lifereg.R17 tests/imported/admit/lifetimes/shadow
-suggest-introducing-and-adding-missing-lifetime--c22b-outlives-bound-ignored lifereg.L2 tests/imported/admit/lifetimes/suggest-introducing-and-adding-missing-lifetime--c22b-outlives-bound-ignored
 temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor
 trait-impl-mismatch-elided-lifetime-issue-65866 lifereg.R18 tests/imported/admit/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866
 trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion

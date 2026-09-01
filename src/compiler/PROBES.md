@@ -12290,3 +12290,120 @@ RETIRED, not closed. Not edited by this round.
      spans five of them across BOTH the lifereg and nllmoves channels. A root
      is not a mechanism; surveying by MISSING OBSERVATION found the block that
      surveying by label had split three ways.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2026-09-01e — ONE ROW RETIRED, NOT CLOSED. NO COMPILER CHANGE AT ALL.
+# ─────────────────────────────────────────────────────────────────────────────
+
+build: no rebuild — logosc untouched this round. Every verdict below was read
+off the binary already in `build/bin/logosc` at HEAD `3dc3f4b95`.
+
+## 1. THE SUBJECT, NAMED BEFORE STARTING
+
+ONE ledger row, and only this one:
+
+    suggest-introducing-and-adding-missing-lifetime--c22b-outlives-bound-ignored
+    root lifereg.L2
+    tests/imported/admit/lifetimes/…--c22b-outlives-bound-ignored.logos
+
+Carried as a CORPUS DECISION WITH AN OWNER by 2026-09-01d §10 and by
+2026-09-06a §13 (open item 26), not edited in either round. The owner has now
+authorised the retirement, so it is taken here as its own step, with no other
+subject.
+
+## 2. THE CENSUS (STEP 1), MEASURED
+
+    live probes  (probe::on registrations, src+include, sort -u)      159
+    ledger       # TOTAL                                              244
+    roots        bck.C 16 · lifereg.A 13 · nllmoves.B 11 · bck.B 11 ·
+                 nllmoves.C 10 · lifereg.R17 10 · bck.NEW 9 · lifereg.R18 8 ·
+                 lifereg.NEW-N1 8 · … · lifereg.L2 2 (the row's own root, of
+                 which this is one of two)
+    ⇒ CHANNEL SPLIT, derived not quoted: lifereg 111 · nllmoves 78 · bck 55.
+      The cheap `bck` residue is 55 of 244 (22.5%); the lifetime channel
+      (lifereg + the lifetime half of nllmoves) is the bulk, as recorded.
+
+## 3. I DID NOT TAKE THE PROMPT ON TRUST (rule 17) — FOUR READINGS
+
+    (a) the row's own program, with the bound              rc 0   ACCEPTED
+    (b) the same with the bound DELETED (`<'b, T>`)        rc 0   ACCEPTED
+    (c) ALPHA-RENAMED, `fn keep<'q, U: 'q>(x: &'q U)`      rc 0   ACCEPTED
+    (d) the bound program with a REAL CALL SITE
+        (`let r: &i64 = keep::<i64>(&n);`)                 rc 0   ACCEPTED
+
+(a) is the row's claim of a defect, and there is no defect: the bound `T: 'b`
+IS WRITTEN, so the program is legal Rust and rc 0 is CORRECT. The upstream
+E0310 belongs to a different function in the same rustc file; this reduction
+kept the version that carries the bound. (c) is there because rule 12 — a rule
+comparing lifetime NAMES would pass (a) by coincidence; it passes the rename
+too. (d) is there because acceptance of an UNCALLED generic is a weaker claim
+than acceptance of an instantiated one.
+
+⚠ (b) IS NOT A FINDING AND IS NOT BOUGHT AS ONE: `&'b T` is well-formed only
+if `T: 'b`, so Rust INFERS the implied bound and also accepts (b). Recorded
+here so the next round does not read it as an admit.
+
+## 4. THE SITE IS LIVE — the fixture is not vacuous
+
+An uncalled generic could have been skipped wholesale, which would make the
+new pass fixture assert nothing. It is not:
+
+    fn bad<'b, T: 'b>(x: &'b T) -> &'b T { return y; }   (never instantiated)
+      -> "error [fn bad]: undefined variable 'y'"   rc 1
+
+The body of an uninstantiated generic IS walked, so the acceptance the fixture
+now pins is a real verdict at the site the ledger row named.
+
+## 5. WHAT MOVED
+
+    tests/imported/admit/lifetimes/…--c22b-outlives-bound-ignored.logos
+      -> tests/imported/pass/lifetimes/…--c22b-outlives-bound-ignored.logos
+    + tests/imported/pass/lifetimes/…--c22b-outlives-bound-ignored.expected
+      (`exit: 0`)
+
+NOT DELETED, and that is the point: a legal program deleted is a verdict lost.
+The upstream provenance comment is kept verbatim; the `shelf: admit · root
+lifereg.L2` line is replaced by the retirement note (why the row was wrong,
+what the fixture now pins, and the four readings above).
+
+The ledger row is deleted and `# TOTAL` RE-DERIVED BY DIRECT LISTING, not
+decremented:
+
+    awk '!/^#/ && NF' tests/logos/bc_admits.ledger | wc -l  -> 243
+    ls tests/imported/admit/*/*.logos | wc -l               -> 243
+    # TOTAL 243
+
+## 6. THE PINS — PREDICTED BEFORE READ, ALL EXACT
+
+The admit test that leaves is labelled `logos;pass;suite_semantic_core;
+tier_commit` and NOT `imported`; the imported pass test that arrives is
+labelled `bc;corpus;imported;logos;pass;suite_semantic_core` and NOT
+`tier_commit`. So the three columns move by three different amounts, and two of
+them are not even the same count:
+
+                  PREDICTED            MEASURED (after re-configure)
+    ALL           8776 ->  8776   0        8776   exact
+    NOIMPORTED    4462 ->  4461  -1        4461   exact
+    TIERCOMMIT     293 ->   292  -1         292   exact
+
+plus `ctest -N -R c22b` = 1, the new name
+`logos_02_semantic_core_pass_suggest-…--c22b-outlives-bound-ignored`.
+`docs/deem-interpreter-deletion-census.md` REGISTRY-* re-pinned to the measured
+triple with the reasoning above written next to it.
+
+## 7. OPEN ITEMS TOUCHED
+
+ 26. **CLOSED** — `…--c22b-outlives-bound-ignored` is retired. It was never a
+     defect to fix; the ledger is one row more honest about the set on disk.
+ ⇒ The `T: 'a` population is now 12 rows named, 6 closed, 6 open across four
+   distinct doors (the 13th was this one, and it was never a defect). The
+   arithmetic in 2026-09-06a §14 ("13 rows named, 6 closed, 1 legal-and-
+   retirable, 6 open") is unchanged in substance; only the legal-and-retirable
+   line is now spent.
+
+## 8. WHAT THIS ROUND DID NOT BUY
+
+Nothing was measured about the compiler. No probe was installed, no build ran,
+no ceiling was priced. A retirement is a CORPUS correction: it moves no
+mechanism and it must not be reported as a closed row. The ledger fell 244 ->
+243 and the compiler is byte-identical.
