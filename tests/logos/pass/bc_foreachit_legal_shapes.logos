@@ -1,0 +1,132 @@
+// COST 0 IS NOT A SAFETY CLAIM (rule 5). `foreachitertmp` priced CEILING 2 /
+// COST 0 / cfail 0 / stdlib ok, but its cost population is 70 contributing
+// files over the whole tests/ tree — small enough that the nine programs below
+// ARE the safety argument, not the corpus. Each was run on the armed binary
+// with LOGOS_PROBE_FIRE and each reached the site at least once (g1 twice, h4
+// three times): a zero over a site nothing arrives at is not a measurement.
+//
+// ⚠ THE SIBLING SPELLING `foreachiterloan` — the SAME loan with the LOOP
+// VARIABLE as its holder — priced CEILING 2 / COST 1, and its single cost is
+// (5) below: `last_use_unslotted_` charges a name to EVERY binding that spells
+// it, so a loop variable `x` collides with any later `let x` and the iterable's
+// loan outlives the loop. The holder must be a fresh synthetic name no source
+// binding can spell. (5) is that discriminator and it is why it is here.
+//
+// ⚠ THE REFUSE HALF IS tests/logos/fail/bc_foreachit_mutate_while_iterating_fail
+// — ONE TOKEN apart from (6) below: the pushed-to vector is the ITERATED one.
+package bc_foreachit_legal_shapes;
+
+// (1) mutate through `&mut` in the loop, then read the iterable AFTER it.
+fn f1() -> i64 {
+    let mut m: [i64; 3] = [1i64, 2i64, 3i64];
+    for x in &mut m {
+        *x = *x + 100i64;
+    }
+    return m[0usize];
+}
+
+// (2) shared iteration, the accumulator read after the loop.
+fn f2(arr: &Vec<i64>) -> i64 {
+    let mut n: i64 = 0i64;
+    for x in arr {
+        n = n + *x;
+    }
+    return n;
+}
+
+// (3) the mutating loop with no later use of the iterable at all.
+fn f3() -> i64 {
+    let mut m: [i64; 2] = [7i64, 8i64];
+    for x in &mut m {
+        *x = *x + 1i64;
+    }
+    return 0i64;
+}
+
+// (4) a `&[T]` iterable, a shared borrow of an ELEMENT taken outside, and a
+// second mutating loop in the same frame — the shape of spec/pass/stmt_2.
+fn g1() -> i64 {
+    let arr: [i64; 3] = [1i64, 2i64, 3i64];
+    let r: &i64 = &arr[1usize];
+    let a: i64 = f2_slice(&arr) + *r;
+    let mut m: [i64; 2] = [1i64, 2i64];
+    for x in &mut m {
+        *x = *x + 1i64;
+    }
+    return a + m[0usize];
+}
+fn f2_slice(sl: &[i64]) -> i64 {
+    let mut t: i64 = 0i64;
+    for x in sl {
+        t = t + *x;
+    }
+    return t;
+}
+
+// (5) THE DISCRIMINATOR: (1) plus one unrelated later binding SPELLED like the
+// loop variable. Under the loop-variable holder this is rc 1
+// ("cannot use 'm' while it is mutably borrowed"); under the synthetic holder
+// it is legal, which it is.
+fn g2() -> i64 {
+    let mut m: [i64; 3] = [1i64, 2i64, 3i64];
+    for x in &mut m {
+        *x = *x + 100i64;
+    }
+    let x: i64 = 99i64;
+    return m[0usize] + x;
+}
+
+// (6) a push INSIDE the loop body, to a DIFFERENT vector. One token from the
+// refuse half, which pushes to `vs` — the vector being iterated.
+fn h1(vs: &mut Vec<i64>, ws: &mut Vec<i64>) -> i64 {
+    let mut t: i64 = 0i64;
+    for value in &*vs {
+        t = t + *value;
+        ws.push(2i64);
+    }
+    return t + ws.len() as i64;
+}
+
+// (7) a SHARED read of the iterable from INSIDE its own loop.
+fn h2(vs: &Vec<i64>) -> i64 {
+    let mut t: i64 = 0i64;
+    for value in vs {
+        t = t + *value + total(vs);
+    }
+    return t;
+}
+fn total(v: &Vec<i64>) -> i64 { return v.len() as i64; }
+
+// (8) a tuple pattern loop variable, plus a later binding spelled `a`.
+fn h3(v: &Vec<(i64, i64)>) -> i64 {
+    let mut t: i64 = 0i64;
+    for (a, b) in v {
+        t = t + *a + *b;
+    }
+    let a: i64 = 3i64;
+    return t + a;
+}
+
+// (9) two NESTED loops over ONE iterable — two live shared loans of the same
+// root at once — plus a later binding spelled like the outer loop variable.
+fn h4(vs: &Vec<i64>) -> i64 {
+    let mut t: i64 = 0i64;
+    for a in vs {
+        for b in vs {
+            t = t + *a + *b;
+        }
+    }
+    let x: i64 = 5i64;
+    return t + x;
+}
+
+fn main() -> i32 {
+    let mut w: Vec<i64> = Vec::new();
+    w.push(1i64);
+    let mut w2: Vec<i64> = Vec::new();
+    let e: Vec<(i64, i64)> = Vec::new();
+    let s: i64 = f1() + f2(&w) + f3() + g1() + g2() + h1(&mut w, &mut w2) +
+                 h2(&w) + h3(&e) + h4(&w);
+    if s == 0i64 { return 1i32; }
+    return 0i32;
+}

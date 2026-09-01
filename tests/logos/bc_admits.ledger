@@ -1068,7 +1068,7 @@
 #   occurrence of it is covariant, and the meet instantiates it at the region
 #   both arguments outlive. The port dropped upstream's closure `where` bound,
 #   so what is left is a program rustc accepts. It is listed, not closed.
-# TOTAL 264
+# TOTAL 262
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1114,8 +1114,6 @@ issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/i
 many-mutable-borrows bck.NEW-M tests/imported/admit/borrowck/many-mutable-borrows
 mut-borrow-conflict-in-closures-vec bck.C tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec
 mut-borrow-of-mut-ref bck.A tests/imported/admit/borrowck/mut-borrow-of-mut-ref
-mutate-vec-while-iterating--a-push-while-iterating bck.D tests/imported/admit/borrowck/mutate-vec-while-iterating--a-push-while-iterating
-mutate-vec-while-iterating--b-push-while-iterating-mut bck.D tests/imported/admit/borrowck/mutate-vec-while-iterating--b-push-while-iterating-mut
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error
 reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow
 regions-bound-missing-bound-in-impl bck.NEW tests/imported/admit/borrowck/regions-bound-missing-bound-in-impl

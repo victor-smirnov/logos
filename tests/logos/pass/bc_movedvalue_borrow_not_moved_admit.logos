@@ -1,0 +1,12 @@
+// THE ADMIT TWIN of tests/logos/fail/
+// bc_movedvalue_borrow_carries_move_line_fail, ONE TOKEN apart: `&a` instead of
+// `a` on the `let b` line, so `a` is never moved and the borrow below is legal.
+package bc_movedvalue_borrow_not_moved_admit;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn main() -> i32 {
+    let a: S = S { v: 1i64 };
+    let b: &S = &a;
+    let r: &S = &a;
+    return (b.v + r.v) as i32 - 2i32;
+}

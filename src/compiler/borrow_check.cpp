@@ -4298,8 +4298,8 @@ private:
         if (it == nullptr) return;  // unknown / extern
         if (it->moved) {
             if (implicit) return;   // RecordFlags::implicit — drop, do not say
-            report(line, std::format(
-                "cannot borrow moved value '{}'", target));
+            // LANDED 2026-08-31r — delegated; see report_moved_value.
+            report_moved_value(*it, target, line, "cannot borrow");
             return;
         }
         // The branch above asks the WHOLE-variable `moved` flag and never
@@ -4986,19 +4986,31 @@ private:
         return true;
     }
 
+    // ── THE WHOLE-VALUE MOVED FACT, ASKED IN ONE PLACE ───────────────────
+    // Three routes reached it and each spelled it for itself: `consume`,
+    // `check_live` and `take_borrow_whole_`. The first two carry the move LINE;
+    // the third did not, so the same defect reported through a borrow lost the
+    // one piece of information the reader needs. Delegation, not a fourth
+    // spelling — the same repair `report_partial_move` above already is.
+    // The VERB stays with the route (a borrow of a moved value is upstream's
+    // "borrow of moved value", a plain use is "use of moved value"); the FACT
+    // and its line live here. Returns true when it reported.
+    bool report_moved_value(const VarState& vs, const std::string& name,
+                            uint32_t line, const char* verb) {
+        if (!vs.moved) return false;
+        if (vs.moved_line)
+            report(line, std::format("{} moved value '{}' (moved on line {})",
+                                     verb, name, vs.moved_line));
+        else
+            report(line, std::format("{} moved value '{}'", verb, name));
+        return true;
+    }
+
     bool consume(const std::string& name, uint32_t line, uint32_t slot = NO_SLOT) {
         auto it = var_find(slot, name);
         if (it == nullptr) return true;
         if (report_partial_move(*it, name, line)) return false;
-        if (it->moved) {
-            uint32_t prev = it->moved_line;
-            if (prev)
-                report(line, std::format(
-                    "use of moved value '{}' (moved on line {})", name, prev));
-            else
-                report(line, std::format("use of moved value '{}'", name));
-            return false;
-        }
+        if (report_moved_value(*it, name, line, "use of")) return false;
         if (it->mut_borrowed || it->shared_borrows > 0 ||
             it->mut_reservations > 0) {
             report(line, std::format("cannot move '{}' while it is borrowed", name));
@@ -5167,14 +5179,7 @@ private:
         }
         auto it = var_find(slot, name);
         if (it == nullptr) return;
-        if (it->moved) {
-            uint32_t prev = it->moved_line;
-            if (prev)
-                report(line, std::format(
-                    "use of moved value '{}' (moved on line {})", name, prev));
-            else
-                report(line, std::format("use of moved value '{}'", name));
-        }
+        report_moved_value(*it, name, line, "use of");
         if (it->mut_borrowed) {
             report(line, std::format(
                 "cannot use '{}' while it is mutably borrowed", name));
@@ -13156,9 +13161,8 @@ private:
                              v.iter().type(pool).kind() ==
                                  LogosType::Kind::MutRef;
                 visit(v.iter(), /*consuming=*/p_fim, ln);
-                // CEILING PROBE `foreachitertmp` — see PROBES.md 2026-08-31q.
-                if (logos::probe::on("foreachitertmp") && v.iter() &&
-                    is_ref_kind(v.iter().type(pool)))
+                // LANDED 2026-08-31r (`foreachitertmp`) — see PROBES.md.
+                if (v.iter() && is_ref_kind(v.iter().type(pool)))
                     take_ref_borrows(v.iter(), ln,
                                      "__foreach_it_" +
                                          std::to_string(++scrut_tmp_seq_),

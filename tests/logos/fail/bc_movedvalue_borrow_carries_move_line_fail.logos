@@ -1,0 +1,18 @@
+// THE MOVED-VALUE FACT REACHED THROUGH A BORROW. Until 2026-08-31r
+// `take_borrow_whole_` spelled this fact for itself as "cannot borrow moved
+// value 'a'" — no line — while `consume` and `check_live` both carried
+// "(moved on line N)". One reader (`report_moved_value`) now owns the fact and
+// its line; the VERB stays with the route, because a borrow of a moved value is
+// upstream's "borrow of moved value" and a plain use is "use of moved value".
+//
+// ⚠ THE ADMIT TWIN IS tests/logos/pass/bc_movedvalue_borrow_not_moved_admit,
+// ONE TOKEN apart: there line 12 reads `let b: &S = &a;` and nothing is moved.
+package bc_movedvalue_borrow_carries_move_line_fail;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn main() -> i32 {
+    let a: S = S { v: 1i64 };
+    let b: S = a;
+    let r: &S = &a;
+    return (b.v + r.v) as i32;
+}

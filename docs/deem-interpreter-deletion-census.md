@@ -4853,9 +4853,25 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8741 -> 8743   +2
 #   NOIMPORTED   4450 -> 4449   -1
 #   TIERCOMMIT    316 ->  313   -3
-REGISTRY-ALL         8743
-REGISTRY-NOIMPORTED  4449
-REGISTRY-TIERCOMMIT  313
+# 2026-08-31r — TWO MECHANISMS. M1: the `for` iterable's loan, recorded under a
+# statement-scoped synthetic holder (`__foreach_it_N`), 2 ledger rows. M2: one
+# reader for the whole-value moved fact (`report_moved_value`), 0 rows — a
+# diagnostic delegation that restores the move LINE on the borrow route. FOUR
+# new native fixtures (2 pass, 2 fail) and two `logos_00_bc_admit_*` rows
+# deleted, their programs relanded as imported fail fixtures in their own home.
+#   ALL          +4 (the four native fixtures) and +0 for the two, which are
+#                registered either way — as an admit row or as a fail port.
+#   NOIMPORTED   +4 - 2 = +2: the two admit rows are registered NATIVELY
+#                (`logos_00_bc_admit_*`), and their fail homes carry the
+#                `imported` label, so they LEAVE this count.
+#   TIERCOMMIT   -2: `logos_00_bc_admit_*` is the tier_commit-labelled ledger,
+#                and none of the four new native fixtures is tier_commit.
+#   ALL          8743 -> 8747   +4
+#   NOIMPORTED   4449 -> 4451   +2
+#   TIERCOMMIT    313 ->  311   -2
+REGISTRY-ALL         8747
+REGISTRY-NOIMPORTED  4451
+REGISTRY-TIERCOMMIT  311
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

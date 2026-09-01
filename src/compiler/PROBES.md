@@ -8642,3 +8642,244 @@ is a positive measurement and needs no population argument.
  6. **`argresvnonrecv`'s `.expected` LOSS** on
     `bc_recv_reservation_conflict_fail` was read as a count, not as text. If
     the reservation arc is ever re-opened, read that fixture first.
+
+# ═══ ROUND 2026-08-31r — THE `for`-ITERABLE LOAN LANDS; THE MOVED-VALUE FACT
+# GETS ONE READER; AND capshared'S BLOCKER IS NOT THE ONE THE BRIEF NAMED ═════
+
+## 0. THE CENSUS FIRST (RULE 17) — AND THE PREVIOUS ROUND'S CENSUS WAS STALE
+
+Every name in this round's brief, grepped against the tree at d2b662bd8:
+
+    name                    installed?   what it actually is
+    foreachitertmp          YES          probe, borrow_check.cpp:13160
+    capshared               YES          probe, borrow_check.cpp:10194
+    current_lt_binders()    YES          outlives.hpp:167, sema_decl.cpp:1121
+    lifereg_unmentioned     YES  ⚠       probe, outlives.hpp:154
+    ltbindersoff            YES  ⚠       probe, outlives.hpp:168
+    loan_carrying_type      YES          borrow_check.cpp:6658, still unmeasured
+    capmovewalk             NO           LANDED 2026-08-31p, marker at :2593
+
+⚠ **2026-08-31q's OWN CENSUS SAID `lifereg_unmentioned` AND `ltbindersoff` WERE
+"NOT A `probe::on` NAME ANYWHERE". BOTH ARE.** They sit in
+`include/logos/compiler/outlives.hpp`, and that round's grep did not reach it —
+a census over `src/compiler/*.cpp` alone cannot see a header. Rule 17 applies to
+the round's own census as hard as to the brief: **the population a census walked
+must be printed with its answer.** Priced here, both of them (§4).
+
+Only `capmovewalk` is what the previous round said it was: already bought.
+
+## 1. THE FOUR SUBJECT-1 CONTROLS, RE-RUN ON THE FINAL BINARY (rule 18)
+
+    A1  double_access(&mut a, &a)                      rc 0  ← STILL ADMITTED
+    A2  the same two loans, each in its own let        rc 1  "cannot borrow 'a'
+                                                             as shared: already
+                                                             mutably borrowed"
+    B1  for value in &values { values.push(4) }        rc 1  ← CLOSED BY M1
+    B2  let it = &values; values.push(4); touch(it)    rc 1  unmoved
+
+A1/A2 are the two-phase partition, untouched and declined again (§5). B1 was the
+defect and is now refused; B2, its named control, refuses for the same reason it
+always did.
+
+## 2. M1 — THE `for` ITERABLE'S LOAN, UNDER A STATEMENT-SCOPED SYNTHETIC HOLDER
+
+`Code::ForEach` visited its iterable with a plain `visit()` and recorded no loan
+at all. It now takes one through `take_ref_borrows(..., record_only=true)` held
+by `__foreach_it_N` — a fresh synthetic name, the same machinery
+`retain_temp_scrut_loan` uses for a temporary match scrutinee, and NOT the loop
+variable (the sibling spelling `foreachiterloan` priced COST 1 for exactly that:
+`last_use_unslotted_` charges a name to every binding that spells it, so a loop
+variable `x` collides with any later `let x`).
+
+**RE-PRICED ON TODAY'S BINARY BEFORE FUNDING (rule 8).** Builds 294 -> 295 on
+libs `7d81159883f30270`:
+
+    fires 26 · CEILING 2 · COST 0 (pass) · COST-fail 0 of 1094 · stdlib 4/4
+
+**CEILING vs PREDICTED vs ACTUAL, DIFFED BOTH WAYS (rule 6):** predicted 2 by
+name in the pre-edit prediction file, closed exactly 2, both directions empty.
+Both diagnostics READ, both E0502/E0499-shaped, both naming `values`:
+
+    borrowck/mutate-vec-while-iterating--a-push-while-iterating   bck.D  E0502
+        "cannot borrow 'values' as mutable: 'values' has shared borrows"
+    borrowck/mutate-vec-while-iterating--b-push-while-iterating-mut bck.D E0499
+        "cannot use 'values' while it is mutably borrowed"
+
+**CONTROL REVERT, RUN BEFORE THE BUILD.** All three programs this arm is
+supposed to refuse — the two rows and the new native fail fixture — compile
+rc 0 on the pre-fix binary with the probe OFF. The fixtures are held by the
+change and by nothing else.
+
+MEASURED on the landed build `09f102389cdb5e77`: ledger **262/262**,
+`gate-run.sh -L bc` 2001 passed / 0 failed / 2 disabled, stdlib all four layers,
+and the fail oracle **0 rc flips / 0 `.expected` losses / 0 text-only** over all
+1094 fixtures the two builds share (the 3 rows that appear only on the new side
+are the two relanded ports and the new native fixture).
+
+### 2.1 RULE 5 — THE NINE HAND PROGRAMS, EACH PROVEN TO REACH THE SITE
+
+`tests/logos/pass/bc_foreachit_legal_shapes` carries all nine; each was run with
+`LOGOS_PROBE_FIRE` on the armed binary and each fired at least once (g1 twice,
+h4 three times, the fixture as a whole **12 fires**). A zero over a site nothing
+arrives at is not a measurement, and the cost population here is small: the
+ForEach arrival census walked the whole `tests/` tree at 8695 `.logos` files and
+only **70 files contributed, 109 arrivals**. That bounds the COST, not the
+ceiling. The nine programs are the safety argument; the corpus is not.
+
+    (1) mutate through `&mut` in the loop, read the iterable after
+    (2) shared iteration, accumulator read after
+    (3) the mutating loop with no later use at all
+    (4) a `&[T]` iterable + a shared borrow of an ELEMENT + a second loop
+    (5) (1) plus a later `let x` spelled like the loop variable  ← THE
+        DISCRIMINATOR between this holder and `foreachiterloan`'s
+    (6) a push INSIDE the body, to a DIFFERENT vector
+    (7) a shared read of the iterable from INSIDE its own loop
+    (8) a tuple-pattern loop variable plus a later binding spelled `a`
+    (9) two NESTED loops over ONE iterable plus a later `let x`
+
+Refuse half, ONE TOKEN from (6):
+`tests/logos/fail/bc_foreachit_mutate_while_iterating_fail` pushes to `vs`, the
+vector being iterated, where (6) pushes to `ws`.
+
+⚠ **OPEN, CREATED BY THIS ARM:** both closed rows now print TWO error lines for
+one conflict — the primary plus a second phrasing from the loop's second
+(back-edge) visit of the body. `.expected` pins the primary. Not a duplicate of
+an existing message (the two texts differ), but it is noise, and rule 14's
+reverse direction says to say so.
+
+## 3. M2 — ONE READER FOR THE WHOLE-VALUE MOVED FACT. ZERO ROWS, AND IT DOES
+##      NOT UNBLOCK capshared
+
+`take_borrow_whole_`'s moved arm spelled the fact for itself and dropped the
+LINE: `"cannot borrow moved value 'x'"` against `consume`'s and `check_live`'s
+`"use of moved value 'x' (moved on line N)"`. Three spellings, one fact.
+`report_moved_value` now owns the fact and its line; the VERB stays with the
+route, because upstream E0382 has both headlines and a borrow of a moved value
+is "borrow of moved value".
+
+**THE CHANGED SET WAS ENUMERATED, NOT GUESSED.** All 2218 `*/fail/*.logos`
+compiled on the pre-edit binary and grepped for the message: **exactly 8 files**
+reach the arm, named in the prediction file before the edit. Measured after:
+7 of the 8 changed in the `-L bc -L fail` oracle and the 8th
+(`spec/fail/borrow_diag_1__take-moved-cannot-borrow`) is outside that selection,
+changed as predicted and green under its own ctest name. Both directions empty.
+
+    rc flips 0 · `.expected` losses 0 · text-only 7 (+1 outside the selection)
+
+All eight pins survive because five pin the borrow phrase (a `.expected` is a
+grep -F SUBSTRING and the line is APPENDED), two pin the other route's line, and
+one pins `moved`. Ledger **262/262** unmoved — **this arm closes NO row**, which
+is what rule 14 predicts for a rewording, and it is landed for the information
+it restores plus its own pinned pair, not as a row claim.
+
+Pins: `tests/logos/fail/bc_movedvalue_borrow_carries_move_line_fail` (pinned in
+full, WITH the line number) and its admit twin ONE TOKEN apart,
+`tests/logos/pass/bc_movedvalue_borrow_not_moved_admit` (`&a` instead of `a`).
+
+## 4. ⛔ THE THREE STANDING RECOMMENDATIONS — ALL THREE DECLINED, BY NAME AND
+##      BY NUMBER
+
+**(1) `capmovewalk` — DECLINED: ALREADY BOUGHT.** Not a probe; it landed as
+2026-08-31p's M2 and `borrow_check.cpp:2593` carries its marker. Re-priced as a
+control it cannot be. This is the SECOND round in a row the brief has proposed
+re-buying it.
+
+**(2) DELETE `current_lt_binders()` — DECLINED TWICE OVER, and both halves are
+measured on THIS binary (`6f7abce049716a19`), not inherited:**
+
+    lifereg_unmentioned   4 fires  CEILING 1  cost 0  cfail 0  stdlib ok
+    ltbindersoff          3 fires  CEILING 0  cost 0  cfail 1  stdlib ok
+
+  · the WIDER rule's single ceiling row is
+    `lifetimes/suggest-introducing-and-adding-missing-lifetime--param-may-not-live`,
+    and its diagnostic was READ on this binary:
+
+        upstream  E0310  the parameter type `T` may not live long enough
+        ours      call to 'with_restriction' arg 1: variance mismatch —
+                  expected &'b i64, got &i64 — lifetime structure incompatible
+
+    A row closed by a wrong diagnostic is not closed. Honest ceiling **0**.
+  · and the deletion is not free: `ltbindersoff`, the CONTROL REVERT of the
+    predicate alone, closes 0 rows and costs one **UN-REFUSAL** —
+    `fail/account-for-lifetimes-in-closure-suggestion` rc 1 -> 0. The
+    deliberately-unsound name-collision approximation is LOAD-BEARING.
+
+  ⇒ **THE UNSOUND APPROXIMATION IS STILL THERE, DELIBERATELY.** Deleting it
+  trades one pinned refusal for one row closed by the wrong error.
+
+**(3) `capshared` — DECLINED, AND ITS BLOCKER IS NOW NAMED CORRECTLY.** The
+brief said the unblocking was M2: route the shared whole-var capture through
+`record_borrow`, hit `take_borrow_whole_`'s moved arm, lose the move LINE.
+M2 LANDED, and capshared was re-priced on top of it (builds 298 -> 299):
+
+    166 fires · CEILING 4 · cost 0 · **cfail 6, UNMOVED** (4 `.expected` LOST,
+    2 text-only) · stdlib ok
+
+**THE LINE WAS NEVER THE PROBLEM. THE VERB IS.** Read on the post-M2 binary:
+
+    fixture                              pin                       armed
+    moves/arc-consumed-in-looped-closure "use of moved value 'v'    "cannot borrow
+    borrowck-in-static--move-captured-…   (moved on line N)"         moved value
+    borrowck-in-static--r-runtime                                    'x' (moved on
+    nll/closure-move-spans                                           line N)"
+
+All four now carry the line and all four still lose, because the pin says
+*use* and the capshared route reports through a *borrow*. Three of the four are
+a value moved INTO a closure and used again, where rustc's headline is "use of
+moved value"; one (`closure-move-spans`, upstream's own `borrow_after_move` arm)
+is a `&x` after the move, where rustc's headline is "borrow of moved value" —
+so on that one it is arguably the PIN that is wrong, and **rustc is absent on
+this box, so there is no oracle that can say.** Changing four pinned diagnostics
+on an argument is weakening four tests to make a mechanism green.
+
+⚠ AND capshared now prints `closure-move-spans`'s message **TWICE** (rule 14 in
+reverse): both the capture deposit and the `&x` reach the same arm at the same
+line. That is a defect capshared creates, not one it inherits.
+
+## 5. DECLINED AGAIN, WITH THE NUMBER THAT CONDEMNS IT
+
+  · **the two-phase reservation** (`argresvall` 4 vs 12/2/⛔;
+    `argresvnonrecv` 4 vs 8/2/⛔) — A1 still admitted, both spellings still
+    dead, and the observation still correct: the reservation must be ACTIVATED
+    AT THE CALL, not deleted at the argument. Not re-priced this round; the
+    stdlib refusal (`btvec_append`) is not a number that decays toward funding.
+  · **`dwbaseloan`** (4 vs 25/17/⛔) and its four WRONG diagnostics, all naming
+    the CALLEE's parameter from inside the callee's body. Honest ceiling 0.
+  · **the index-self-borrow pair** — still no proven-live site.
+
+## 6. OPEN
+
+ 1. **bck.D is now 8 rows and still at least three mechanisms.** M1 took the two
+    `for`-iterable rows. Three are the two-phase reservation, two
+    (`v[v.len()-1]`) are reached by no proven-live site, `a-fnmut-twice` by
+    nothing.
+ 2. **`capshared`'s four rows are blocked on a VERB, and the verb needs rustc.**
+    The next round should not re-propose it without an oracle. If one appears,
+    the question is per-fixture, not per-mechanism.
+ 3. **capshared creates a duplicate on `closure-move-spans`** (§4).
+ 4. **M1's two closed rows each print two error lines** (§2.1).
+ 5. **`current_lt_binders()` stays** and is load-bearing at cfail 1 (§4).
+ 6. `loan_carrying_type` vs `is_borrow_carrying_type` — unmeasured, FOURTH round.
+ 7. **A CENSUS'S POPULATION MUST BE PRINTED WITH ITS ANSWER.** 2026-08-31q's
+    census missed two live probes because it walked `src/compiler/` only (§0).
+
+## 7. ⚠ THE 16th GATE LIE, MET IN THIS ROUND: `RC_MARKER=0` OVER THREE
+##      STANDING REDS
+
+`test-levels.sh L4 bc` was run once, found the three census/population pins RED
+(they red on ANY new test BY DESIGN — this round adds four), the pins were
+re-derived BY DIRECT LISTING and fixed, and the SECOND L4 run printed
+`RC_MARKER=0` **while still listing all three as failed**. Neither run measured
+anything the second time: `gate-run.sh` keys the store on `build_hash.py`, a
+`.sh`/`.md` edit does not move the compiler or the libraries, so the store
+answered "already measured under this build" and replayed the STALE reds — and
+the level's own exit status was 0 over them.
+
+    FORCE=1 gate-run.sh -R '^logos_00_census_pin$|^logos_00_population_pin_lint$|
+                            ^logos_09_direct_door_census$'
+      -> 2514 passed / 0 failed (FIXTURES_REQUIRED pulls the producers)
+
+after which the store for build 298 reads **5851 recorded, 0 failed**. A gate
+whose subject is a SHELL SCRIPT or a PINNED DOCUMENT is invisible to a build
+hash, and its record must be forced. Recorded so the next round does not read
+that rc 0 as a green tree.

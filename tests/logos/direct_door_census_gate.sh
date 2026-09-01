@@ -1179,9 +1179,26 @@ PIN = {
     #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
     #   the same listing minus the glob half             -> 2318
     # 2509 = 191 + 2318. DOOR counts unmoved: no container family is declared.
-    'corpus'            : 2509,
+    # ⚠ RE-DERIVED AGAIN 2026-08-31r (the `for`-iterable loan under a
+    # statement-scoped synthetic holder, and one reader for the whole-value
+    # moved fact): +2 / +0 / +2. TWO new PASS fixtures, neither matching the
+    # `wql_*` / `deem_*` glob:
+    #   + bc_foreachit_legal_shapes              the nine legal `for` shapes the
+    #                                            new loan must keep admitting
+    #   + bc_movedvalue_borrow_not_moved_admit   the admit twin of the
+    #                                            moved-value borrow pin
+    # Their two refuse halves (bc_foreachit_mutate_while_iterating_fail,
+    # bc_movedvalue_borrow_carries_move_line_fail) are FAIL fixtures and the 2
+    # closed ledger rows are IMPORTED admit -> fail, so neither touches this
+    # count. BY DIRECT LISTING:
+    #   ls tests/logos/pass/*.logos                      -> 2511
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
+    #   the same listing minus the glob half             -> 2320
+    # 2511 = 191 + 2320. DOOR counts unmoved: no container family is declared;
+    # they are Vec / array / struct borrow-check shapes.
+    'corpus'            : 2511,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2318,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2320,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

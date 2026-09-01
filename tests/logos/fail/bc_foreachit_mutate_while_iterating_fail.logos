@@ -1,0 +1,20 @@
+// THE REFUSE HALF of tests/logos/pass/bc_foreachit_legal_shapes (6), ONE TOKEN
+// apart: there the pushed-to vector is `ws`, here it is `vs` — the vector the
+// loop is iterating. The `for` iterable's shared loan is held under
+// `__foreach_it_N` for the whole statement, so the push inside the body is
+// E0502. LANDED 2026-08-31r.
+package bc_foreachit_mutate_while_iterating_fail;
+fn go(vs: &mut Vec<i64>, ws: &mut Vec<i64>) -> i64 {
+    let mut t: i64 = 0i64;
+    for value in &*vs {
+        t = t + *value;
+        vs.push(2i64);
+    }
+    return t + ws.len() as i64;
+}
+fn main() -> i32 {
+    let mut a: Vec<i64> = Vec::new();
+    let mut b: Vec<i64> = Vec::new();
+    a.push(1i64);
+    return go(&mut a, &mut b) as i32;
+}
