@@ -9768,3 +9768,242 @@ loses method resolution that the same expression keeps inline.
  6. `d-index-two-phase` unbuyable while `btvec_append` keeps `f(&mut t, g(&t))`.
  7. `a-fnmut-twice` is still touched by nothing.
  8. Still no sensor asserting the ABSENCE of a duplicate line.
+
+---
+
+# ROUND 2026-09-01v — THE REGION SLOT LANDED AND NO COMPARATOR READS IT; AND THE E0716 RECEIVER WALL HAS TWO SITES, NOT ONE
+
+Opening binary 52e163dd45fa5788 (HEAD `27703d904`). Probe build
+**8b5e784d12776013** (batch of five, L1 rc 0 with nothing armed — tier_commit
+305/305 — batch inert). gate-db builds 321 (unarmed) → 327/328 (armed pairs).
+Predictions filed BEFORE any number was read in
+`build/predictions-2026-09-01v.txt`.
+
+## 0. CENSUS, AND FOUR CORRECTIONS TO THE BRIEF
+
+    live probes  133 (opening)
+    ledger       # TOTAL 256, re-derived by direct listing (256 rows)
+    top roots    bck.C 16 · lifereg.A 13 · nllmoves.B 11 · lifereg.R17 11 ·
+                 bck.B 11 · nllmoves.C 10 · bck.NEW 10 · lifereg.R18 8 ·
+                 lifereg.NEW-N1 8 · lifereg.NEW-R20 7 · lifereg.N1 7 ·
+                 lifereg.C 7
+
+**CORRECTION 1 — THE BRIEF'S SUBJECT 1 IS STALE BY ONE ROUND.** It says
+`e716fldarg` "closes the first" hole and that "the dangerous half [the `impl
+Drop` / `__rtmp_N` path] is the one still open". BOTH halves landed in
+2026-08-31u §2 and neither name is a probe any more —
+`grep -rhoP 'probe::on\("\K[a-z_0-9]+'` finds neither. VERIFIED on the opening
+binary, not inferred: `tests/logos/fail/bc_e716argtemp_field_hop_fail` and
+`bc_e716argtemp_rtmp_drop_fail` both rc 1 with the E0716 text. There was no
+half to fund.
+
+**CORRECTION 2 — the brief asks to "find `e716recvtmp`'s wall shape" as if it
+were unknown.** It is in 2026-08-31u §5, localised by one-variable rebind to
+`let segs_any: WAny = prog.segs.any();` in `stdlib/mem/wql/srcloc.logos`.
+
+**CORRECTION 3 — AND THAT RECORD'S OWN CHARACTERISATION IS WRONG.** §5 says the
+rule needs "the temporary to OWN its referent … a TYPE question, and nothing at
+that site asks one". Read the callee:
+`pub fn any(self: &WRef<S>) -> WAny` in `stdlib/mem/wql/ir.logos` **returns BY
+VALUE**. No reference is produced, so no ownership question arises — the site
+already has the cheaper predicate (`is_ref_kind(m_rt)`, one line above the arm).
+Measured below: it does clear `fn resolve`.
+
+**CORRECTION 4 — "mem: 1 refusal" IS A FIRST-FAILURE, NOT A COUNT.** Clearing
+`resolve` moved the refusal to `fn store_save` in `stdlib/mem/bt/memstore.logos`,
+a different function with a different shape. The stdlib column reports the first
+failing compile; a wall behind it is invisible until the first one is removed.
+
+## 1. THE PROBE TABLE — build **8b5e784d12776013** (READ)
+
+    probe        fires  ceiling  cost  cfail   std  verdict
+    ltsliceeq    35702        0     0      0    ok  broken hop (PREDICTED)
+    ltslicevar      39        0     0      0    ok  broken hop (PREDICTED)
+    ltslicelt    35746        1     1      0    ok  ⛔ COST >= CEILING
+    ltdyneq        243        0     0      0    ok  broken hop (PREDICTED)
+    ltdynvar         0        —     —      —     —  NEVER FIRED (PREDICTED)
+    ltdynlt        244        0     0      1    ok  ⛔ 1 pinned diagnostic LOST
+    e716recvref   1334        0     0      0    ⛔  STOP — stdlib mem, store_save
+
+## 2. THE MECHANISM — A NEW SENSOR ORPHANED TWO GUARDS, SILENTLY
+
+`ltregslot` landed the region on the four kinds that used to throw it away
+(`&[T]`/`&str` → `Kind::Slice`, `&dyn` → `TraitObject`, `&Dst` → `DstRef`;
+`resolve_type`'s own comment names them). **No comparator was taught to read
+it.** Both lifetime comparators are blind in exactly those kinds:
+
+    site: include/logos/compiler/subtype.hpp::types_equal_with_lifetimes
+          the Array/Slice arm compares the ELEMENT only; TraitObject and
+          DstRef fall to `default:` → lifetime-ERASED TypeUID identity
+    site: include/logos/compiler/subtype.hpp::subtype
+          same Slice arm, same two kinds at `default: return true`
+
+⚠ **RULE 18 PAID BEFORE IT COST ANYTHING: THE TWIN WAS FOUND BY READING, AND
+EACH HALF ALONE PRICES ZERO THROUGH A BROKEN HOP (RULE 11).** `subtype`'s own
+head calls `types_equal_with_lifetimes`, so an arm added in `subtype` alone is
+never reached — `ltdynvar` NEVER FIRED, and `ltslicevar` fired 39 times against
+`ltsliceeq`'s 35 702. Splitting the mechanism into three names was the whole
+point; a single name would have printed one number and hidden the series.
+
+## 3. ⛔ `ltslicelt` — CEILING 1, COST 1, AND THE PREDICTED ROW IS NOT THE ONE
+
+PREDICTED: `better-blame-constraint-for-outlives-static`. MEASURED, diffed BOTH
+ways — neither set contains the other's member:
+
+    CLOSED  logos_00_bc_admit_regions_regions-glb-free-free--e-field-lifetime
+            struct Flag<'a>{name:&'a str,desc:&'a str}
+            fn h<'a,'b>(s:&'b str)->Flag<'a>{Flag{name:s,desc:s}}   ← 'b:'a, real
+    COST    logos_02_semantic_core_pass_regions-dependent-autoslice-b142
+            fn both<'r>(v:&'r [u64])->&'r [u64]{subslice1(subslice1(v))}
+
+`better-blame` survives because its argument region is EMPTY (`buf: &[u8]`) and
+`lt_eq` treats an empty side as a wildcard — the elision door, not this one.
+The COST is the SAME door from the other side: the inner call's Slice result
+carries a region the substitution does not map onto `'r`, so the arm refuses a
+legal program at `check_variance(permissive=true)`. **THE COST IS A MISSING
+EXEMPTION, NOT A WRONG RULE**, and the exemption is the one `lifetime_at`
+already has for minted regions. That is the fundable next step, and it is one
+variable.
+
+⚠ AND THE DIAGNOSTIC IS UNREADABLE IN BOTH DIRECTIONS: `expected &[u8], got
+&[u8]`. `type_str` does not print the region of a Slice/TraitObject/DstRef, so
+every message this class of rule can emit names the same type twice. A rule that
+lands here needs the printer first.
+
+## 4. ⛔ `ltdynlt` — 0 ROWS, AND IT DESTROYS A CORRECT DIAGNOSTIC (RULE 14/15)
+
+ceiling 0, cost 0 on the pass corpus, stdlib green — and the ONLY oracle that
+sees it is `fail_text_oracle.py`: `.expected` LOST on
+`logos_06_diagnostics_fail_regions-trait-object-subtyping`. Read on both
+binaries, same fixture, `fn foo3<'a,'b>(x:&'a mut dyn Dummy)->&'b mut dyn Dummy`:
+
+    unarmed  lifetime mismatch: return type has lifetime 'b but 'x' has lifetime 'a
+    armed    return type mismatch: variance mismatch — expected &dyn Dummy, got
+             &dyn Dummy — lifetime structure incompatible
+
+The program is ALREADY refused, correctly, in upstream's own words. The arm
+fires ahead of that check and replaces it with a message that prints the same
+type on both sides. **DECLINE**, and the reason is not the ceiling: it is that
+the arm re-words an already-red diagnostic into a worse one.
+
+## 5. `e716recvref` — THE NARROWING WORKS AND THERE IS A SECOND WALL BEHIND IT
+
+    site: src/compiler/borrow_check.cpp, the MethodCall arm's `rp.is_temp` gate
+    e716recvref  build 8b5e784d12776013: fires 1334 · ceiling 0 · cost 0 ·
+                 cfail 0 · stdlib ⛔ mem — `fn store_save`, NOT `fn resolve`
+
+RULE 9, MEASURED AT ITS SHARPEST: `e716recvtmp` and `e716recvref` are
+**IDENTICAL on every program the harness owns and on all six hand programs** —
+both close `mk().view()` (rc 0 → 1) and both leave `b.view()`, `mk().val()`,
+`mk().any()` (a struct BY VALUE), `take(mk().view())` and `mk().into_v()` at
+rc 0. They separate on ONE column and ONE function name.
+
+**THE SECOND WALL, NAMED AND REPRODUCED BY HAND.** `store_save` contains
+
+    g.branches.borrow(i).name.as_str()
+
+whose peeled base is `borrow(i)` — a CALL RETURNING A REFERENCE. Its referent
+lives in `g` and outlives the statement; it is not an owning temporary at all.
+`is_temporary_value_expr` answers on the NODE KIND and cannot see that. The hand
+twins, scratch `w/w_reffield` and `w/w_refbase`:
+
+    w_reffield  o.get().leaf.view()   unarmed rc 0 · both arms rc 1  ← the wall
+    w_refbase   o.get().view()        unarmed rc 1  ← ⚠ SEE §6
+
+## 6. ⚠ A DEFECT THE LEDGER CANNOT REPRESENT — IN THE OTHER DIRECTION
+
+`w_refbase` is refused on the UNARMED binary, with no probe of this round or any
+other:
+
+    struct Inner{v:i64}  struct Outer{inner:Inner}
+    impl Outer{ fn get(self:&Outer)->&Inner{ return &self.inner; } }
+    impl Inner{ fn view(self:&Inner)->&i64{ return &self.v; } }
+    let o: Outer = …;  let r: &i64 = o.get().view();   ← rc 1, E0716
+
+That is legal Rust — `r` borrows `o`, which outlives it. The existing
+`is_temporary_value_expr(v.receiver())` already treats a reference-returning
+call as a temporary, one hop shallower than the peel. **The ledger holds only
+programs that COMPILE and should not; a FALSE REFUSAL is invisible to it by
+construction**, exactly as a permissive hole is. Recorded here because there is
+nowhere else to put it.
+
+## 7. SURVEY — `lifereg.R18` (8) + `lifereg.NEW-N1` (8), BY MISSING OBSERVATION
+
+All 16 compiled MULTI-LINE on 52e163dd45fa5788: **rc 0, all sixteen.** The
+lifetime channel's recent changes closed none of them, so nothing here is
+credited on a diagnostic it does not print. NEITHER LABEL NAMES A MECHANISM AND
+THE MECHANISMS CROSS BOTH LABELS.
+
+**M-SIG — no trait-impl signature conformance check exists for lifetimes. 6.**
+site: `src/compiler/sema_collect.cpp`, the `sig_match` loop. THREE missing
+observations at ONE site, each independently fatal:
+ (a) the loop starts at `k = 1` — the SELF parameter is never compared;
+ (b) the RETURN type is never compared at all;
+ (c) the comparator is `types_equal`, whose own definition comment in
+     `src/compiler/sema.cpp` names the fields it ignores: "lifetime, pkg_name,
+     lifetime_args, const_val".
+Rows (all R18): iterator-next-extra-named-lifetime ·
+lifetime-mismatch-between-trait-and-impl ·
+trait-impl-mismatch-elided-lifetime-issue-65866 ·
+impl-trait-lifetime-conflict-hashmap-keys · resolve-re-error-ice ·
+ex3-both-anon-regions-using-impl-items.
+⚠ AND THE DIAGNOSTIC IS WRONG EVEN WITHOUT LIFETIMES: an impl method whose
+PARAMETER TYPE differs from the trait's prints `impl Foo for U: missing method
+'foo'`. The method is present; its type is wrong.
+
+**M-AGG — an aggregate/call instantiates a region binder and emits no outlives
+constraint. 3.** site: `sema_impl.hpp::structlit_lt_subst_` (and the `"call"`
+twin): candidates are collected per binder and resolved by first-wins or the
+meet; the losing candidate's region is dropped in silence. Rows (NEW-N1):
+ex2a-push-one-existing-name-2 · ex3-both-anon-regions-3 · regions-creating-enums3.
+
+**M-SELF — the `self:` parameter's declared type is never checked. 3.**
+R18: elided-lifetime-mismatch-in-self-type (`impl Pair<i64,i64> { fn say(self:
+&Pair<u8,i64>) }` — an INHERENT impl, and not even a lifetime question).
+NEW-N1: ex3-both-anon-regions-one-is-struct-5 (`self: &'a mut Foo<'a>`) ·
+trait-method-lifetime-suggestion (a default body calling `&'a Self`).
+
+**M-SLICE — §2's orphaned guards. 1.** NEW-N1: better-blame-constraint-for-
+outlives-static. PRICED THIS ROUND and NOT bought: the arm that would close it
+closes a different row instead (§3).
+
+**M-WF — declaration-site WF / implied bounds `'b: 'a` on `&'a S<T<'b>>`. 1.**
+NEW-N1: regions-outlives-projection-container.
+
+**NOT A LIFETIME OR BORROW ROW AT ALL — MIS-SHELVED. 2.**
+R18: dropck-only-error — upstream E0277, a trait BOUND on an associated-type
+projection at a generic-argument position.
+NEW-N1: drop-impl-for-type-param-with-trait-bound — upstream E0120, COHERENCE:
+`impl<T> Drop for T where T: A`.
+
+⇒ **R18 IS ESSENTIALLY ONE MECHANISM (6 of 8) AND IT IS NOT A BORROW-CHECK
+MECHANISM AT ALL** — a declaration-conformance check that does not exist.
+NEW-N1 is genuinely heterogeneous: five mechanisms over eight rows.
+
+## 8. WHAT DESERVES FUNDING, IN ORDER
+
+ 1. **M-SIG.** Six ledger rows at one site, no region inference required, and
+    it repairs a WRONG diagnostic ("missing method") on the non-lifetime case
+    as well. The three sub-observations are independent and can be measured one
+    at a time; (b) the return type is the cheapest.
+ 2. **`e716recvown`** — `e716recvref` plus "the peeled base's type is not itself
+    a reference". §5 says exactly which stdlib statement demands it and §6
+    gives the hand twin. Priced separately below.
+ 3. **`ltslicelt` with the minted-region exemption.** The rule closes a real row
+    for the right reason; the one cost is a legal program the exemption
+    `lifetime_at` already carries would rescue. But the PRINTER comes first —
+    `expected &[u8], got &[u8]` is not a diagnostic.
+ 4. **The false refusal of §6.** No ledger row can hold it; a pass fixture can.
+ 5. ⛔ **`ltdynlt` — DO NOT LAND.** 0 rows, and it replaces a correct
+    upstream-shaped message with a worse one.
+
+## 9. OPEN
+
+ 1. The three E0716 rows — unchanged, still a corpus decision with an owner.
+ 2. `two-phase-nonrecv-autoref--c` vs `tpb-mut-with-shared-ref-arg` — unchanged.
+ 3. `d-index-two-phase` unbuyable while `btvec_append` keeps `f(&mut t, g(&t))`.
+ 4. `a-fnmut-twice` is still touched by nothing.
+ 5. `WRef<T>` in a local binding loses method resolution (2026-08-31u §5).
+ 6. The E0716 report still carries no file/line in an `--emit-module` build.
+ 7. `type_str` does not print the region of Slice / TraitObject / DstRef (§3).
+ 8. Still no sensor asserting the ABSENCE of a duplicate line.

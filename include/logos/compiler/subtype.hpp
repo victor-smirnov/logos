@@ -111,6 +111,14 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
         }
         case K::Array:
         case K::Slice:
+            // PROBES ltsliceeq / ltslicelt — `&[T]` is its OWN KIND carrying
+            // its own region, and this arm has only ever compared the ELEMENT
+            // type. TWIN of the Slice arm in `subtype` (rule 18) and it runs
+            // FIRST: subtype's head calls this, so an arm added there alone is
+            // never reached.
+            if ((logos::probe::on("ltsliceeq") || logos::probe::on("ltslicelt")) &&
+                a.kind() == K::Slice && !lt_eq(a.lifetime(), b.lifetime()))
+                return false;
             return types_equal_with_lifetimes(a.elem(), b.elem(), adj, permissive_minted);
         case K::AssocType: {
             // B88: AssocType (e.g. T::Item<'a>) — compare trait/name/base
@@ -165,6 +173,16 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
                 if (!lt_eq(alts[i], blts[i])) return false;
             return true;
         }
+        case K::TraitObject:
+        case K::DstRef:
+            // PROBES ltdyneq / ltdynlt — `&dyn Tr` and `&DstStruct` are their
+            // own KINDS carrying their own region and have never had an arm
+            // here: they fall to lifetime-ERASED TypeUID identity. TWIN of the
+            // arm added in `subtype`, and it runs first.
+            if ((logos::probe::on("ltdyneq") || logos::probe::on("ltdynlt")) &&
+                !lt_eq(a.lifetime(), b.lifetime()))
+                return false;
+            [[fallthrough]];
         default:
             // Primitives + TypeVar + closures + etc.: identity via TypeUID
             // is sufficient (no lifetime fragments to disagree on).
@@ -285,6 +303,13 @@ inline bool subtype(TypeRef sub, TypeRef sup,
         }
         case K::Array:
         case K::Slice:
+            // PROBES ltslicevar / ltslicelt — the variance half of the same
+            // missing observation: the Slice's own region is never compared.
+            if ((logos::probe::on("ltslicevar") || logos::probe::on("ltslicelt")) &&
+                sub.kind() == K::Slice &&
+                !detail::lifetime_at(Variance::Co, sub.lifetime(), sup.lifetime(),
+                                     adj, permissive_empty))
+                return false;
             return subtype(sub.elem(), sup.elem(), adj, vars, depth + 1, permissive_empty);
         case K::Struct:
         case K::ZonedStruct: {
@@ -367,6 +392,16 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             for (size_t i = 0; i < sl.size(); ++i)
                 if (!detail::lifetime_at(Variance::Inv, sl[i], pl[i], adj, permissive_empty))
                     return false;
+            return true;
+        }
+        case K::TraitObject:
+        case K::DstRef: {
+            // PROBES ltdynvar / ltdynlt — variance half; both kinds fall to
+            // `default: true` today, so `&'static dyn Tr` accepts any region.
+            if ((logos::probe::on("ltdynvar") || logos::probe::on("ltdynlt")) &&
+                !detail::lifetime_at(Variance::Co, sub.lifetime(), sup.lifetime(),
+                                     adj, permissive_empty))
+                return false;
             return true;
         }
         default:

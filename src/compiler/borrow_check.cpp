@@ -8022,6 +8022,14 @@ private:
                     (is_temporary_value_expr(v.receiver()) ||
                      (logos::probe::on("e716recvtmp") &&
                       is_temporary_value_expr(peel_recv_base(v.receiver()))) ||
+                     // PROBE e716recvref — THE WALL'S SHAPE, NAMED. The one
+                     // stdlib refusal `e716recvtmp` buys is `prog.segs.any()`,
+                     // and `WRef<S>::any(self: &WRef<S>) -> WAny` returns BY
+                     // VALUE: no reference exists to dangle. So the peel is
+                     // gated on the METHOD'S OWN RESULT being a reference kind,
+                     // which `mk().view() -> &i64` is and `any() -> WAny` is not.
+                     (logos::probe::on("e716recvref") && is_ref_kind(m_rt) &&
+                      is_temporary_value_expr(peel_recv_base(v.receiver()))) ||
                      (logos::probe::on("e716recvdirect") &&
                       is_temporary_value_expr([&]{
                           ExprRef b = v.receiver();
