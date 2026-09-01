@@ -1098,7 +1098,32 @@
 #   RE-DERIVED BY DIRECT LISTING, not decremented:
 #     awk '!/^#/ && NF' tests/logos/bc_admits.ledger | wc -l  -> 243
 #     ls tests/imported/admit/*/*.logos | wc -l               -> 243
-# TOTAL 243
+# 2026-09-01i — 243 -> 242, ONE ROW, AND A SOUNDNESS HOLE NO ROW NAMED.
+#   `enum_is_move` (borrow_check.cpp::is_move_type) asked `ts.enum_by_name`
+#   under the BARE `enum_name()`. That table is built from `prog.enums` keyed by
+#   `ed.name()`, and mono names a generic enum INSTANCE's def with
+#   `Mono::enum_instance_name` — `Option__String`. The bare key never matched, so
+#   the payload walk never ran and EVERY generic enum was classified non-move:
+#   `let y = &o; let a = o;` — the plainest E0505 in the language — compiled for
+#   `Option<String>` and `Result<T,E>`, and a plain use-after-move of one did too.
+#   It now asks under `Mono::enum_instance_name(x)` when the type has type args
+#   and falls back to the base. The STRUCT half of the same function had been
+#   repaired for exactly this and says so in its own comment; the enum half had not.
+#   The row is refused with "cannot move 'x' while 'x.0' is borrowed" — upstream
+#   E0505 in upstream's direction — and is relanded under
+#   tests/imported/fail/borrowck/ with the diagnostic pinned.
+# ⚠ THE TWO CRUDE SPELLINGS ARE NOT A BIGGER CEILING AND ARE NOT LANDED. Both
+#   close THIS SAME ROW and nothing else (measured 2026-09-01h). `enumdefany`
+#   ("bare lookup missed AND the type has args ⇒ move") refuses five legal
+#   `Option<i64>` programs and rewords a correct pinned diagnostic into a wrong
+#   one; `enumdefinst` (a disjunction over every `Base__` key) costs 4, all four
+#   traced to one stdlib instance `Option__refmut_i32` whose `&mut i32` payload
+#   condemned every `Option<i64>` in the program. The mechanism is the EXACT
+#   instance, not the base and not any instance.
+#   RE-DERIVED BY DIRECT LISTING, not decremented:
+#     awk '!/^#/ && NF' tests/logos/bc_admits.ledger | wc -l  -> 242
+#     ls tests/imported/admit/*/*.logos | wc -l               -> 242
+# TOTAL 242
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1114,7 +1139,6 @@ borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-bor
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
 borrowck-escaping-closure-error-1 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-1
 borrowck-escaping-closure-error-2 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-2
-borrowck-issue-2657-1 bck.B tests/imported/admit/borrowck/borrowck-issue-2657-1
 borrowck-lend-flow-loop bck.NEW-2 tests/imported/admit/borrowck/borrowck-lend-flow-loop
 borrowck-loan-blocks-move-cc--r10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10
 borrowck-loan-blocks-move-cc--t10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--t10

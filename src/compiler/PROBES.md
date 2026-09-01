@@ -13166,3 +13166,190 @@ regions-free-region-ordering-caller.
  43. NEW, METHOD: two spellings of one hypothesis priced 0 and 4 on the SAME
      corpus. A cost column is a property of the spelling as much as of the
      rule, and rule 5's "write the counter-examples" is what caught the 0.
+
+# ═══ ROUND 2026-09-01i — LANDED. `enum_is_move` NOW ASKS UNDER THE NAME MONO
+# COMPOSED. LEDGER 243 -> 242, AND `Option<String>` / `Result<T,E>` STOP MOVING
+# WHILE BORROWED ═══════════════════════════════════════════════════════════
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE)
+
+    live probes   145      (unchanged; this round installed NO probe)
+    # TOTAL       243  ->  242, re-derived BY DIRECT LISTING both times
+    channel       lifereg 114 · nllmoves 74 · bck 55   ->  bck 54
+    top roots     bck.C 16 · lifereg.A 13 · nllmoves.B 11 · bck.B 11 -> 10 ·
+                  nllmoves.C 10 · lifereg.R17 10
+
+The hand-off's report of round 09-01h needed NO correction: its three declined
+probes, its ceiling of 1, its named row and its traced costs all reproduced.
+
+## enumdefkey
+site: src/compiler/borrow_check.cpp::is_move_type
+build: 206007820f57d94b   (cost columns: 8bf60fd427be2c31, same code,
+  one comment shorter — re-checked under the landed hash, see §2)
+measured: 2026-09-01
+fires: n/a — LANDED, not a probe
+ceiling: 1
+cost: 0
+verdict: ✅ LANDED — the one arm 09-01h recommended, re-priced not inherited
+note: `enum_is_move` asked `ts.enum_by_name` under the bare `enum_name()`.
+  `ts.enum_by_name` is built (borrow_check.cpp:486) from `prog.enums` keyed by
+  `ed.name()`, and mono names a generic enum instance's def with
+  `Mono::enum_instance_name` — `Option__String`. The bare key never matched, the
+  payload walk never ran, and every generic enum was classified NON-MOVE. It now
+  asks under `Mono::enum_instance_name(x)` when the type has type args, and
+  falls back to the bare base (which is what a non-generic enum composes to, and
+  what an ABSENT instance key must leave untouched).
+  ⚠ THE ONE COMPOSER IS CALLED, NOT COPIED. `mono_impl.hpp`'s own comment on
+  `enum_instance_name` forbids hand-rolling `base + "__" + mangle_type(arg)`,
+  and 09-01h MEASURED what re-deriving costs: `enumdefmangle` built the STRUCT
+  spelling (`Option$G1$i64`) and priced a ceiling of 0 — a broken hop, not a
+  refutation (rule 11). borrow_check.cpp now `#include`s mono_impl.hpp for it.
+
+## 1. RULE 7 PAID: THE CORRECT FIX WAS RE-PRICED, NOT INHERITED
+
+Predicted in `build/target-rows-2026-09-01i.txt` BEFORE the edit: N = 1,
+`borrowck-issue-2657-1` by name, with the subset argument that makes 1 a
+CEILING rather than a hope — `enumdefany` answered MOVE whenever the bare
+lookup missed and the type had args, UNCONDITIONALLY; the landed rule answers
+MOVE only when the instance def is FOUND and its payload walk says so, so its
+true-set is a subset of `enumdefany`'s and its closed set is a subset of
+`enumdefany`'s measured ceiling.
+
+    CEILING  1
+    closed   { borrowck-issue-2657-1 }
+    predicted∖measured = { }        measured∖predicted = { }
+
+Diagnostic, READ on the landed binary, not inferred:
+
+    error [fn main]: cannot move 'x' while 'x.0' is borrowed
+
+upstream E0505 in upstream's direction, and the same message the two declined
+crude probes produced — the row is closed for the right reason.
+
+## 2. COST, ALL FOUR COLUMNS, ON THE LANDED BINARY (build 417)
+
+    pass  -L bc -L pass                        920 passed / 0 failed  →  0
+    pass  ^logos_(25_spec|03_ownership|04_advanced)_pass
+                                               190 passed / 0 failed  →  0
+    cfail scripts/fail_text_oracle.py          0 of 1133 — no rc flip, no sha change, no lost match
+    std   scripts/stdlib-cost.sh               all four layers compile (rc 0)
+
+⚠ AND THE FOUR STDLIB ARCHIVES WERE REBUILT BY THE ORDINARY BUILD BEFORE ANY
+OF THAT — `cmake --build` RC=0, 50/50, lang → lcm → mem → std → examples. The
+stdlib asserts legality by BEING BUILT and no fixture author's opinion is
+involved; it is the column `recvselfderef` was outside of on 2026-08-30.
+
+## 3. WHERE THE FIX DIFFERS FROM ITS PROBE (rule 7, both directions)
+
+`enumdefinst` (disjunction over every `Base__` key) priced COST 4 and refused
+four hand programs; the landed rule prices 0 on the same populations. The four
+were traced in 09-01h to instance SELECTION — `Option -> Option__refmut_i32`,
+one stdlib instance whose `&mut i32` payload condemned every `Option<i64>` in
+the program. An EXACT-instance lookup cannot make that selection, and this
+round measures that it does not: `c3_genenum_copy_payload_twice`,
+`c1/c2/c4/c5` (all `Option<i64>`) and `k11_genenum_i64_move` are all ACCEPTED.
+
+`enumdefany` priced COST 0 on the SAME corpus and refused FIVE legal hand
+programs plus one pinned diagnostic. The landed rule refuses none of the six.
+
+## 4. RULE 5 — 14 HAND PROGRAMS, MULTI-LINE, RE-RUN ON THE LANDED BINARY
+
+`build/hand-2026-09-01i/` (new) and `build/hand-2026-09-01h/` (09-01h's), plus
+the k-series in `/home/logos/sandbox/patloan/`:
+
+    n1_optstring_move_once            Option<String> moved once        rc0 ✓
+    n2_resstring_move_once            Result<String,i64> moved once    rc0 ✓
+    n3_optstring_borrow_then_move     loan dead before the move (NLL)  rc0 ✓
+    n4_optstring_move_control         THE ROW's shape       rc1 ✓ "cannot move
+                                      'x' while 'x.0' is borrowed"
+    c1..c5  (09-01h's five legal refusals of `enumdefany`)             rc0 ✓
+    c6      control                                                    rc0 ✓
+    k7_genenum_move_only   G<String> moved twice, in sequence          rc0 ✓
+    k11_genenum_i64_move   G<Box2> Copy-ish payload, borrow + move     rc0 ✓
+
+And the shapes that MUST now refuse, and do:
+
+    k4_genenum_wholeborrow_move   G<String>       "cannot move 'e' while it is borrowed"
+    k8_option_wholeborrow_move    Option<String>  same
+    h5_patref_enumpayload         Option<String>  "cannot move 'x' while 'x.0' is borrowed"
+    h9_userenum_generic_patref    G<String>       "cannot move 'e' while 'e.0' is borrowed"
+    h16_option_useafter           Option<String>  "use of moved variable 'e'"  ← E0382, NEW
+
+⚠ h16 IS A SECOND DEFECT CLOSED BY THE SAME KEY AND NO ROW NAMES IT: a plain
+use-after-move of an `Option<String>` was admitted, because a value that is not
+a move type is never consumed. The ledger names move-WHILE-BORROWED; the same
+lookup was silencing move-THEN-USE.
+
+## 5. THE FIXTURES
+
+    tests/imported/fail/borrowck/borrowck-issue-2657-1.{logos,expected}
+        the closed row, in its own root's home (bck.B / borrowck), diagnostic
+        pinned in full.
+    tests/logos/fail/bc_enumdefkey_gen_enum_move_borrowed_fail.{logos,expected}
+    tests/logos/fail/bc_enumdefkey_option_move_borrowed_fail.{logos,expected}
+    tests/logos/pass/bc_enumdefkey_legal_shapes.{logos,expected}
+
+⚠ THE PAIR IS ONE TOKEN APART ACROSS THE LEGALITY BOUNDARY, which is where this
+mechanism's abuse direction lives. `G<String>` refuses and `G<i64>` compiles;
+`Option<String>` refuses and `Option<i64>` compiles. The token is the PAYLOAD,
+and it is the whole rule — both declined crude spellings died precisely by
+answering the same for both halves of that pair.
+
+## 6. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+
+ (a) CARRIED FROM 09-01h §10(a), UNCHANGED AND RE-MEASURED ON THIS BINARY: a
+     `ref mut` PATTERN BINDING IS NOT A REBORROW HOLDER. `m1_letmut_twice_ctl`
+     refuses ("cannot borrow 'foo' as mutable: already mutably borrowed");
+     `m2_patrefmut_twice`, its `match o { ref mut foo => … }` twin, still
+     compiles. ⚠ IT BLOCKS LEDGER ROW `issue-27282-mutation-in-guard`.
+ (b) CARRIED FROM 09-01h §10(b): a generic aggregate's pattern binding keeps the
+     UNSUBSTITUTED type — `match s { GS{f: ref y} => use_ref(y) }` over
+     `GS<String>` is refused with "expected &String, got &T" (h10/h11). Sema, no
+     row named. RE-MEASURED on this binary: unchanged.
+ (c) NEW, and it is a gate reading its own prose: `bc_admits_ledger_gate.sh`'s
+     closing message says "462 of them" for the per-row tests. There are 243.
+     The gate's CHECKED facts are all correct; the stale number is in an `echo`.
+
+## 7. ⚠ A GATE THAT DOES NOT ASSERT WHAT ITS HEADER CLAIMS — READ, NOT EDITED
+
+`logos_00_bc_admits_ledger` PASSED on the armed binary while a listed row had
+stopped being admitted. That is not a lie: the header's four-direction claim is
+answered by the 243 per-row `logos_00_bc_admit_*` tests, and the gate says so
+itself further down ("⚠ THIS GATE COMPILES NOTHING"). But the header is read
+first and states the direction as the GATE's. Recorded so a future round does
+not take a green ledger gate for a green ledger.
+
+## 8. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+
+    # TOTAL 243 -> 242, re-derived BY DIRECT LISTING on both sides.
+    bck.B 11 -> 10.
+
+Not spent, each with the number that prices it:
+  · THE OBJECT-LIFETIME BLOCK, 18 rows — still blocked behind 09-01g §4: the
+    source type is ERASED in RETURN position before any coercion gate runs, and
+    09-01f measured that site reached ZERO times by all 243 admit programs. The
+    biggest block in the ledger and the only one whose blocker is named.
+  · bck.C, 16 rows (the closure boundary deposits nothing) — surveyed 08-29,
+    unpriced since.
+  · lifereg.A 13 + lifereg.R17 10 — surveyed, unpriced.
+  · THE PATTERN-LOAN REMAINDER, 2 rows (`issue-27282-mutation-in-guard`,
+    `match-guards-always-borrow`) — both are the `ref mut` binding of §6(a) and
+    BOTH ARE ONE CENSUS FROM BEING PRICED. That census (is the missing half
+    sema's `try_implicit_reborrow_mut` or borrow_check's pattern channel?) is
+    the cheapest ledger work left that this round could name.
+  · `issue-51117`, 1 row — the `&mut Option<Own>` RECEIVER door. Measured again
+    on the landed binary: still admitted, so `enum_is_move` was never the door.
+  · THE OTHER EIGHT BARE-`enum_name()` LOOKUPS in borrow_check (`loan_carrying`,
+    `holds_mut_ref`, `holds_any_ref`, `residency_exempt`) still ask the base.
+    NOT measured. `residency_exempt` is an EXEMPTION — the abuse direction, and
+    a wrong key there is a hole, not an over-refusal. A survey, ~0 rows expected
+    and that is exactly why it has not been bought.
+
+## 9. OPEN (carried, plus this round's)
+
+ 1-39. UNCHANGED. 40 CLOSED (this round). 41, 42, 43 STAND.
+ 44. NEW: a use-after-move of a generic enum was admitted too, not only a
+     move-while-borrowed (§4, h16). Closed by the same key; NO LEDGER ROW EVER
+     NAMED IT, so the ledger under-counts this class by an unknown amount.
+ 45. NEW: the ledger gate's header claims a direction the gate does not check
+     (§7), and its closing echo carries a stale count (§6c).

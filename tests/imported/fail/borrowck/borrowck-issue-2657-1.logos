@@ -1,6 +1,9 @@
 // rustc borrowck/borrowck-issue-2657-1.rs — upstream E0505 cannot move while `ref` binding live
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: fail — REFUSED since 2026-09-01 (was admit, root bck.B). `enum_is_move`
+// asked `enum_by_name` under the bare base `Option`; the instance def is keyed
+// `Option__String`, the name `Mono::enum_instance_name` composes, so the payload
+// walk never ran and a generic enum was not a move type.
 package borrowck_issue_2657_1;
 use logos.mem.string;
 use logos.lang.option;

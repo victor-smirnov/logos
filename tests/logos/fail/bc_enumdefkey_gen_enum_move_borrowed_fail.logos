@@ -1,0 +1,23 @@
+// bc_enumdefkey — a GENERIC ENUM INSTANCE is a move type when its payload is.
+//
+// The def of `G<String>` is keyed by the name mono composed (`G__String`);
+// borrow_check asked `enum_by_name` under the bare base `G`, found nothing,
+// never walked the payload, and classified the value non-move — so this move
+// out of a borrowed generic enum was admitted.
+//
+// PAIR: one token from tests/logos/pass/bc_enumdefkey_legal_shapes.logos's
+// `G<i64>` shape, which MUST still compile. `String` is the token.
+package bc_enumdefkey_gen_enum_move_borrowed_fail;
+use logos.mem.string;
+
+enum G<T> { A(T), B }
+
+fn use_ref(g: &G<String>) -> i64 { return 1i64; }
+
+fn main() -> i32 {
+    let e: G<String> = G::A(String::from("q"));
+    let y: &G<String> = &e;
+    let a: G<String> = e;
+    let n: i64 = use_ref(y);
+    return n as i32;
+}

@@ -1250,9 +1250,26 @@ PIN = {
     #   ls tests/logos/pass/*.logos                      -> 2525
     #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
     #   the same listing minus the glob half             -> 2334
-    'corpus'            : 2525,
+    # 2026-09-01i (`enum_is_move` asks under the mono-composed instance name),
+    # +1/0/+1. RE-DERIVED BY DIRECT FILE LISTING, not by adding 1:
+    #   ls tests/logos/pass/*.logos                      -> 2526
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
+    #   the same listing minus the glob half             -> 2335
+    # partition closes: 2526 = 191 + 2335. The one is
+    # bc_enumdefkey_legal_shapes — ten legal shapes over generic enums, two of
+    # them ONE TOKEN from a fail fixture beside it (`G<i64>` vs `G<String>`,
+    # `Option<i64>` vs `Option<String>`), asserting a VALUE (`exit: 0` gated on
+    # ten inequalities) rather than a diagnostic: the claim is that widening a
+    # payload walk that had never run does not start refusing the Copy half.
+    # NAMED, and the half it joined: the nonglob half, since `bc_*` matches
+    # neither `wql_*` nor `deem_*`. The round's other two native fixtures are
+    # FAIL fixtures and this population is the PASS corpus, so they move nothing
+    # here; the one imported program that left `admit` for `fail` is not in
+    # tests/logos/pass at all. `glob` and the DOOR counts unmoved: no
+    # `wql_*`/`deem_*` match, no container family, no `direct` output form.
+    'corpus'            : 2526,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2334,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2335,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

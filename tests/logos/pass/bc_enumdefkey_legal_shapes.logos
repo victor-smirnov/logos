@@ -1,0 +1,129 @@
+// bc_enumdefkey — THE LEGAL SIDE OF "a generic enum instance is a move type".
+//
+// borrow_check now asks `enum_by_name` under the name mono composed
+// (`Option__String`) instead of the bare base, so a generic enum's payload walk
+// finally runs.  A payload walk that runs is a payload walk that can be WRONG in
+// the permissive direction's mirror: every shape below is legal Rust and MUST
+// still compile.  Two of them are one token from a fail fixture beside this file:
+//
+//   `G<i64>`      vs  fail/bc_enumdefkey_gen_enum_move_borrowed_fail.logos `G<String>`
+//   `Option<i64>` vs  fail/bc_enumdefkey_option_move_borrowed_fail.logos `Option<String>`
+//
+// The token is the PAYLOAD, which is the whole mechanism: a Copy payload leaves
+// the instance non-move and the move-while-borrowed check must stay silent.
+// Two crude spellings of this rule were declined for refusing exactly these
+// (PROBES.md, round 2026-09-01h §6/§7) — one of them because a single stdlib
+// instance `Option__refmut_i32` condemned every `Option<i64>` in the program.
+package bc_enumdefkey_legal_shapes;
+
+use logos.mem.string;
+use logos.lang.option;
+use logos.lang.result;
+
+enum G<T> { A(T), B }
+
+struct Holder { o: Option<i64> }
+
+fn use_g(g: &G<i64>) -> i64 { return 1i64; }
+fn use_opt(o: &Option<i64>) -> i64 { return 1i64; }
+fn take_opt(o: Option<i64>) -> i64 { return 1i64; }
+fn take_ostr(o: Option<String>) -> i64 { return 1i64; }
+fn take_res(r: Result<String, i64>) -> i64 { return 1i64; }
+fn take_gstr(g: G<String>) -> i64 { return 1i64; }
+fn peek_ostr(o: &Option<String>) -> i64 { return 1i64; }
+
+// ONE TOKEN from the `G<String>` fail fixture: a Copy payload, so the borrow and
+// the "move" (a copy) coexist.
+fn gen_enum_copy_payload_while_borrowed() -> i64 {
+    let e: G<i64> = G::A(7i64);
+    let y: &G<i64> = &e;
+    let a: G<i64> = e;
+    return use_g(y);
+}
+
+// ONE TOKEN from the `Option<String>` fail fixture.
+fn option_copy_payload_while_borrowed() -> i64 {
+    let e: Option<i64> = Option::Some(7i64);
+    let y: &Option<i64> = &e;
+    let a: Option<i64> = e;
+    return use_opt(y);
+}
+
+// A `ref` PATTERN binding over a Copy payload — the shape of the closed ledger
+// row with its payload swapped.
+fn option_copy_payload_pattern_borrow() -> i64 {
+    let x: Option<i64> = Option::Some(4i64);
+    let mut n: i64 = 0i64;
+    match x {
+        Option::Some(ref y) => { let a: Option<i64> = x; n = 1i64; }
+        Option::None => {}
+    }
+    return n;
+}
+
+fn option_copy_passed_twice() -> i64 {
+    let o: Option<i64> = Option::Some(1i64);
+    let a: i64 = take_opt(o);
+    let b: i64 = take_opt(o);
+    return a + b - 1i64;
+}
+
+fn option_copy_in_loop() -> i64 {
+    let o: Option<i64> = Option::Some(1i64);
+    let mut i: i64 = 0i64;
+    let mut n: i64 = 0i64;
+    while i < 3i64 {
+        n = n + take_opt(o);
+        i = i + 1i64;
+    }
+    return n - 2i64;
+}
+
+fn option_copy_struct_field() -> i64 {
+    let h: Holder = Holder { o: Option::Some(2i64) };
+    let a: i64 = take_opt(h.o);
+    let b: i64 = take_opt(h.o);
+    return a + b - 1i64;
+}
+
+// A MOVE payload moved exactly once is still legal.
+fn option_move_payload_once() -> i64 {
+    let x: Option<String> = Option::Some(String::from("ab"));
+    return take_ostr(x);
+}
+
+fn result_move_payload_once() -> i64 {
+    let r: Result<String, i64> = Result::Ok(String::from("abc"));
+    return take_res(r);
+}
+
+// Move payload, moved twice IN SEQUENCE — each move is out of a different name.
+fn gen_enum_move_payload_chain() -> i64 {
+    let e: G<String> = G::A(String::from("q"));
+    let a: G<String> = e;
+    let b: G<String> = a;
+    return take_gstr(b);
+}
+
+// The loan is DEAD before the move (NLL).
+fn option_move_payload_after_loan_ends() -> i64 {
+    let x: Option<String> = Option::Some(String::from("z"));
+    let a: i64 = peek_ostr(&x);
+    let b: i64 = take_ostr(x);
+    return a + b - 1i64;
+}
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    n = n + gen_enum_copy_payload_while_borrowed();
+    n = n + option_copy_payload_while_borrowed();
+    n = n + option_copy_payload_pattern_borrow();
+    n = n + option_copy_passed_twice();
+    n = n + option_copy_in_loop();
+    n = n + option_copy_struct_field();
+    n = n + option_move_payload_once();
+    n = n + result_move_payload_once();
+    n = n + gen_enum_move_payload_chain();
+    n = n + option_move_payload_after_loan_ends();
+    return (n - 10i64) as i32;
+}

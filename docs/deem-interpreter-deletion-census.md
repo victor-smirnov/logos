@@ -4990,9 +4990,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8776 -> 8778   +2
 #   NOIMPORTED   4461 -> 4463   +2
 #   TIERCOMMIT    292 ->  292    0
-REGISTRY-ALL         8778
-REGISTRY-NOIMPORTED  4463
-REGISTRY-TIERCOMMIT  292
+# 2026-09-01i (`enum_is_move` asks `enum_by_name` under the name mono composed,
+#   so a generic enum instance is a move type). Three native fixtures added
+#   (pass/bc_enumdefkey_legal_shapes, fail/bc_enumdefkey_gen_enum_move_borrowed_fail,
+#   fail/bc_enumdefkey_option_move_borrowed_fail), one imported program moved
+#   admit -> fail (borrowck/borrowck-issue-2657-1: +1 imported fail fixture,
+#   -1 logos_00_bc_admit_* test, which is where TIERCOMMIT loses its one).
+#   ALL          8778 -> 8781   +3
+#   NOIMPORTED   4463 -> 4465   +2
+#   TIERCOMMIT    292 ->  291   -1
+REGISTRY-ALL         8781
+REGISTRY-NOIMPORTED  4465
+REGISTRY-TIERCOMMIT  291
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

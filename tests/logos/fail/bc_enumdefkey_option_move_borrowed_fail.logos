@@ -1,0 +1,17 @@
+// bc_enumdefkey — the same hole at the STDLIB spelling `Option<String>`, whose
+// instance def is keyed `Option__String`.  Distinct from the user-enum fixture
+// beside it: the composer folds a package into the key, so `Option` exercises
+// the path a user enum does not.
+package bc_enumdefkey_option_move_borrowed_fail;
+use logos.mem.string;
+use logos.lang.option;
+
+fn use_ref(o: &Option<String>) -> i64 { return 1i64; }
+
+fn main() -> i32 {
+    let e: Option<String> = Option::Some(String::from("q"));
+    let y: &Option<String> = &e;
+    let a: Option<String> = e;
+    let n: i64 = use_ref(y);
+    return n as i32;
+}

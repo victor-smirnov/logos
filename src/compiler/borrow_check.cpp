@@ -35,6 +35,7 @@
 #include <cassert>
 #include <logos/compiler/region_infer.hpp>
 #include <logos/compiler/move_classify.hpp>
+#include "mono_impl.hpp"        // Mono::enum_instance_name — THE ONE composer
 
 #include <format>
 #include <optional>
@@ -560,7 +561,16 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
         std::string en(TypeRef(x).enum_name());
         if (ts.copy_types.count(en)) return false;     // explicitly Copy enum
         if (ts.drop_types.count(en)) return true;       // has a Drop impl
-        auto eit = ts.enum_by_name.find(en);            // any move-typed payload
+        // A generic enum INSTANCE's def is keyed by the name mono composed
+        // (`Option__String`), not by the base, so the bare key missed and the
+        // payload walk never ran — the same defect has_droppable_fields was
+        // repaired for above. SOUNDNESS: an ANY-instance search here inherits a
+        // foreign payload's move-ness (PROBES.md, round 2026-09-01i).
+        auto eit = ts.enum_by_name.end();               // any move-typed payload
+        if (!TypeRef(x).type_args().empty()) {
+            eit = ts.enum_by_name.find(Mono::enum_instance_name(x));
+        }
+        if (eit == ts.enum_by_name.end()) eit = ts.enum_by_name.find(en);
         if (eit != ts.enum_by_name.end()) {
             bool moved = false;
             eit->second.each_variant([&](lir_view::EnumVariantView v) {
