@@ -12407,3 +12407,290 @@ Nothing was measured about the compiler. No probe was installed, no build ran,
 no ceiling was priced. A retirement is a CORPUS correction: it moves no
 mechanism and it must not be reported as a closed row. The ledger fell 244 ->
 243 and the compiler is byte-identical.
+
+# ═══ ROUND 2026-09-01f — THE OBJECT-LIFETIME BLOCK. THE COERCION SITE IS LIVE
+# GATE-WIDE AND REACHED **ZERO TIMES** BY ALL 243 ADMIT PROGRAMS; THE `+ 'a`
+# FACT ARRIVES 10 TIMES AND IS `continue`d; AND `T: Tr + 'static` — THE SYNTAX
+# EVERY LEGAL COUNTERPART OF THIS BLOCK NEEDS — DOES NOT PARSE ════════════════
+
+Opening HEAD `ee538de0f`, clean. Opening binary md5 99b9adf3f03d3377d1e8af94fe204c56.
+Closing binary hash **21dd57b9bd9d3f24** (READ from `scripts/build_hash.py`
+after the revert-and-rebuild). Priced build **2551c02ac80103ea** (READ),
+gate builds 401 (unarmed) → 402/403/404 (armed).
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE), AND THE BRIEF'S ERRORS NAMED
+
+```
+live probes  145   (grep -rhoP 'probe::on\("\K[a-z_0-9]+' src include | sort -u | wc -l)
+ledger       # TOTAL 243, and 243 by direct listing, and 243 admit .logos on disk
+channel      lifereg 114 (46.9%) · nllmoves 74 (30.5%) · bck 55 (22.6%)
+top roots    bck.C 16 · lifereg.A 13 · nllmoves.B 11 · bck.B 11 · nllmoves.C 10 ·
+             lifereg.R17 10 · bck.NEW 9 · lifereg.R18 8 · lifereg.NEW-N1 8
+```
+
+⚠ THE HANDED-DOWN REPORT IS WRONG IN THREE PLACES (rule 17 — it says so itself,
+and it is right to):
+ 1. `live probes 159`. MEASURED **145**. The five `ltbnd*` names were retired
+    in 2026-09-01c and 145 has been the count since.
+ 2. `lifereg 111 · nllmoves 78 · bck 55`. MEASURED **114 · 74 · 55**. Only the
+    `bck` column survives. The composition line has now been wrong in three
+    consecutive hand-offs; it should be DERIVED, never quoted.
+ 3. Its `# TOTAL 244 (before)` and root table are the PRE-retirement tree; the
+    tree it handed over is 243. That half is self-consistent, not an error.
+ ⚠ AND ONE OF MY OWN, RECORDED BECAUSE IT NEARLY BECAME A REPORTED NUMBER:
+ mid-round I read `/tmp/probe-batch-l1.log` while the build was still running
+ and reported "747/747, tier_commit 293" off it. That file was a PREVIOUS
+ round's. A log file is not a measurement until the process that writes it has
+ exited — the same defect as reading a ledger baseline off a stale binary.
+
+## 1. THE SUBJECT, NAMED BEFORE THE COMPILER WAS TOUCHED
+
+`build/target-rows-2026-09-01f.txt`, written first. **18 ledger rows over TEN
+roots and ALL THREE CHANNELS**, derived BY THE PROPERTY, not by a root label:
+
+> a value is coerced into a trait object `Box<dyn Tr [+ 'r]>`. Rust requires the
+> SOURCE type to outlive `'r`, and an unannotated `dyn Tr` defaults `'r` to
+> `'static`. Nothing in this tree mints that obligation.
+
+Enumeration: grep all 243 admit programs for `Box *< *dyn` → 21; read each; drop
+2 whose defect is something else (`borrow-immutable-upvar-mutation-impl-trait`
+E0594, `mut-borrow-conflict-in-closures-vec` E0499 — they share the SPELLING,
+not the defect); one more is report-only (§7). 18 remain, in three sub-blocks:
+
+    O1 source is a CLOSURE capturing a borrow                          9 rows
+       bck.A suggest-lt-on-ty-alias-w-generics · bck.C
+       borrowck-escaping-closure-error-1 · bck.C unconstrained-closure-
+       lifetime-generic--control-escape-to-outer-local · bck.C …--min-capture-
+       escapes-to-field · lifereg.C region-borrow-params-issue-29793-big ·
+       lifereg.C …-small · lifereg.C unnamed-closure-doesnt-life-long-enough-
+       issue-67634 · lifereg.D regions-steal-closure · lifereg.N1
+       regions-proc-bound-capture
+    O2 source is a STRUCT carrying a lifetime parameter                4 rows
+       lifereg.A issue-103582-hint-type-alias · lifereg.A region-object-
+       lifetime-in-coercion · lifereg.A regions-close-object-into-object-1 ·
+       lifereg.N1 issue-55796--t09
+    O3 source is a TYPE PARAMETER, obligation `T: 'r`                  5 rows
+       lifereg.L5 regions-close-param-into-object--close-param-into-object ·
+       lifereg.L5 regions-close-associated-type-into-object · lifereg.N1
+       regions-close-over-type-parameter-multiple (PROBES M4) ·
+       lifereg.NEW-R20 regions-close-over-type-parameter-1 ·
+       nllmoves.NEW-N2 ty-param-fn
+
+WHY THIS BLOCK. The `T: 'a` mechanism that carried three rounds is SPENT by its
+own report (2026-09-02e §14). O3 is the SAME OBLIGATION at a DIFFERENT MINTING
+SITE — the discharging arm already landed; what is absent is the obligation
+(rule 16). It was found by a MISSING-OBSERVATION survey, not a label: 19 of the
+92 generic-bearing admit programs never get a `[regions]` line at all
+(LOGOS_DUMP_REGIONS over all 243), and five of those 19 are O3. `regions-close-
+over-type-parameter-multiple` is PROBES' own M4, recorded "unpriced, a different
+door entirely" — so nothing here re-buys a refuted arm.
+
+## 2. THE ARRIVAL, CENSUSED BEFORE ANY VERDICT WAS BELIEVED (rule 17)
+
+`LOGOS_CENSUS` over ALL 243 admit programs, on the armed build:
+
+    objlt.plusbound.seen          10     ← the `+ 'a` node ARRIVES and is dropped
+    regslot.dyntype.written        6     (the `&'a dyn` PREFIX slot, landed 08-31n)
+    regslot.dyntype.elided      2920
+    mint.traitobject.noslot     1707
+    objlt.unsize.site         **ABSENT** ← try_struct_unsize_coerce: ZERO arrivals
+    objlt.refunsize.site      **ABSENT**
+    objlt.dst.region.*        **ABSENT** (never reached, so never asked)
+
+## 3. THE PROBE TABLE — build **2551c02ac80103ea** (READ), all three cost columns
+
+    probe            fires  ceiling  cost  cfail  std  verdict
+    dynobjany           21        0     6      0   ⛔  STOP — THE STDLIB DID NOT COMPILE
+    dynobjplusbnd        7        4     2      0   ok  ✓ ceiling 4 vs cost 2
+    dynrefany            0        —     —      —   —   NEVER FIRED — an unreached site
+
+    sites, ONE NAME PER SITE (rule 3):
+      dynobjany     sema_expr.cpp  try_struct_unsize_coerce, after `is_unsize`
+      dynobjplusbnd sema.cpp       resolve_type's DYN_TYPE arm, the
+                                   `AUTO_LIFE_BOUND` `continue`
+      dynrefany     sema_expr.cpp  coerce_arg_to_dyn, after ref_arg_satisfies_dyn
+
+    Four further arms were installed at the `dynobjany` site under their own
+    names (`dynobjclos`, `dynobjtv`, `dynobjltstruct`, `dynobjnoreg`) and were
+    NOT priced, for a reason that is an argument and not a saving: each is a
+    strict SUBSET of `dynobjany`'s refusal, and a subset of a rule that closes
+    0 rows closes 0 rows. Their census buckets are all absent (§2), which says
+    the same thing from the other side.
+
+## 4. ⛔ THE COERCION SITE IS LIVE AND MY POPULATION DOES NOT GO THROUGH IT
+
+`dynobjany` fired **21 times** gate-wide, so rule 1 is discharged: the site is
+proven live, and its ceiling 0 is a real zero. But `objlt.unsize.site` is ABSENT
+from a census over all 243 admit programs — the site is reached **zero times**
+by the population it was built for. Three independent readings agree:
+
+    ceiling 0            no ledger row closes
+    census ABSENT        the site is never entered by an admit program
+    hand programs        `dynobjany` changes the verdict of NONE of my 11 hand
+                         programs, including all three ILLEGAL ones
+
+⇒ `Box::new(v)` reaching a `Box<dyn Tr>` position does NOT pass through
+`try_struct_unsize_coerce` in these programs, and `dynrefany` NEVER FIRED, so it
+does not pass through `coerce_arg_to_dyn`'s dyn tail either. Rule 11's control
+did exactly its job: two hops named, both measured, both empty. The remaining
+candidate is mlir_gen's `coerce_to_dyn` (mlir_gen.cpp:1356/1638) — i.e. the
+unsize may be performed at CODEGEN with no sema-level event at all, which would
+mean **there is no site in sema where this obligation could be minted today**.
+That is the next round's first question and it is one grep plus one census.
+
+## 5. THE ONE ARM THAT BOUGHT ANYTHING, AND ITS SET DIFFED BOTH WAYS
+
+`dynobjplusbnd` — ceiling 4, cost 2, cfail 0 of 1132, stdlib all four layers.
+
+    PREDICTED (build/predictions-2026-09-01f.txt, filed before the build):
+      ty-param-fn · regions-close-over-type-parameter-multiple ·
+      regions-proc-bound-capture · region-object-lifetime-in-coercion ·
+      explicit-static-bound-on-trait
+    MEASURED CLOSED:
+      logos_00_bc_admit_nll_ty-param-fn
+      logos_00_bc_admit_regions_regions-close-over-type-parameter-multiple
+      logos_00_bc_admit_regions_region-object-lifetime-in-coercion
+      logos_00_bc_admit_regions_explicit-static-bound-on-trait
+    predicted ∖ measured = { regions-proc-bound-capture }   ← named, 4 of 5
+    measured ∖ predicted = ∅
+
+⚠ AND IT BUYS NONE OF THEM. The arm's "diagnostic" is the string `dyn `+ 'a`
+object-lifetime bound is not enforced` — a probe marker, not a message about the
+program. A CEILING IS NOT A PURCHASE (rule: a row closed by a wrong diagnostic
+is not closed). What the 4 measures is an ARRIVAL: these four rows write a
+`+ 'a`/`+ 'static` on a dyn, reach the resolve node, and the fact is thrown away
+there. That is the fact this block needs, and it is the first time it has been
+counted.
+
+Its COST is 2 in the harness and **4 in truth**: `dyn-lt-mixed-bound` and
+`dyn-trait-lt-plus-bound` (both pass fixtures) plus two of my legal hand
+programs, `L2_matching_region` and `L8_static_annot_static_src`, which the
+corpus does not contain. Rule 5 again, and in the predicted direction.
+
+## 6. TWO DOORS IN SERIES, AND THE SECOND HAS NO SLOT AT ALL (rule 2)
+
+Read, not inferred, on the reverted tree:
+
+    door 1  sema.cpp resolve_type, DYN_TYPE arm:
+              `if (ic == la::AUTO_LIFE_BOUND.code) continue;`
+            the `+ 'a` node is discarded. 10 arrivals over the admit corpus.
+    door 2  sema_impl.hpp:1585 `make_unsized_dyn_type(tname, args, req_send,
+            req_sync)` — **NO LIFETIME PARAMETER**. `Box<dyn Tr + 'a>` resolves
+            through the `unsized_ok_` branch to `Kind::UnsizedDyn`, and that
+            constructor has nowhere to put a region even if door 1 passed it.
+
+`arm_regslot` (landed 2026-08-31n) records the `&'a dyn` PREFIX region on
+`Kind::TraitObject`. That is a DIFFERENT SLOT ON THE SAME NODE, and it is why
+`ltdyneq`/`ltdynlt` (2026-08-31, ceiling 0 / declined) could never have reached
+this block: they read a region that the OWNED `Box<dyn>` form does not have.
+Carrying `+ 'a` is a two-edit job and neither edit alone can be priced —
+half a mechanism is not one.
+
+## 7. ⚠ CORPUS DECISION WITH AN OWNER — REPORTED, NOT EDITED
+
+`regions/explicit-static-bound-on-trait` (lifereg.NEW-4). The port is
+`struct W { n: i64 }` — no lifetime parameter — coerced into
+`Box<dyn Anyish + 'a>`. `W: 'a` HOLDS for every `'a`, so the object-lifetime
+rule does not condemn it. Upstream's E0478/E0310 is about the unconstrained `'a`
+on `Hello<'a>`, which the port did not carry over. It is one of the four rows
+`dynobjplusbnd` "closes", which is exactly why the ceiling is not a purchase.
+Not edited. Owner's call.
+
+## 8. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED — EXCEPT THAT IT IS A BLOCKER
+
+**`T: Tr + 'static` IS A SYNTAX ERROR.** Found by a legal hand program written
+to vary the SHAPE (rule 5), isolated by a one-token pair, reproduced on the
+REVERTED binary `21dd57b9bd9d3f24` so it is not a probe artifact:
+
+    fn wrap<T: Tr + 'static>(v: T) -> i64 { … }   rc 4  syntax error near 'fn'
+    fn wrap<T: Tr>(v: T)          -> i64 { … }   rc 0
+    fn wrap<T: 'static>(v: T)     -> i64 { … }   rc 0
+    fn wrap<T>(v: T) -> i64 where T: Tr + 'static rc 4  (the `where` spelling too)
+
+ROOT, read in `tools/peg_gen_cpp/grammars/logos.peg:3662`, rule `type_param`:
+two disjoint alternatives, `IDENT COLON lifetime_param (PLUS lifetime_param)*`
+and `IDENT COLON trait_bound (PLUS trait_bound)*`. **Neither admits a MIXED
+list.** `Tr` matches the trait alt, `PLUS trait_bound` then fails on `'static`,
+and the alternative fails whole. The rule's own comment explains the ordering
+that fixes `T: 'a`-first and does not mention that it leaves `T: Tr + 'a`
+unreachable.
+
+IT IS A BLOCKER FOR O3, and that is why it is in scope rather than merely
+recorded: the legal Rust counterpart of `regions-close-over-type-parameter-1` is
+`fn make_object1<A: SomeTrait + 'static>(v: A) -> Box<dyn SomeTrait>`. A rule
+that refuses the admit row must leave the legal form standing — and the legal
+form CANNOT BE WRITTEN IN LOGOS. Any arm landed for O3 before this is fixed
+would refuse a program with no legal spelling, which is rule 5's failure in its
+worst form. The grammar comes first. It unblocks the 5 O3 rows.
+
+## 9. RULE 5 — 11 HAND PROGRAMS, MULTI-LINE, VARIED BY SHAPE NOT BY COUNT
+
+`build/hand-2026-09-01f/`. Eight legal, three illegal; the legal ones span a
+plain 'static struct, a matching `+ 'a`, a `&dyn` argument, a `move` closure
+over owned data, a `T: Tr + 'static` bound, a `Vec<Box<dyn>>`, a struct FIELD of
+`Box<dyn>`, and an explicit `+ 'static`.
+
+    program                      unarmed  dynobjplusbnd  dynobjany
+    L1_plain_static                rc 0       rc 0          rc 0
+    L2_matching_region             rc 0       rc 1 ✗LEGAL   rc 0
+    L3_ref_dyn_local               rc 0       rc 0          rc 0
+    L4_move_closure_owned          rc 0       rc 0          rc 0
+    L5_static_bound_typaram        rc 4 ⚠     rc 4          rc 4   ← §8, UNARMED
+    L6_vec_of_dyn                  rc 0       rc 0          rc 0
+    L7_struct_field_dyn            rc 0       rc 0          rc 0
+    L8_static_annot_static_src     rc 0       rc 1 ✗LEGAL   rc 0
+    X1_struct_borrow_escapes       rc 0       rc 0          rc 0   ← ILLEGAL, admitted
+    X2_typaram_no_bound            rc 0       rc 0          rc 0   ← ILLEGAL, admitted
+    X3_closure_borrow_escapes      rc 0       rc 0          rc 0   ← ILLEGAL, admitted
+
+The three X rows are the ones that matter: NEITHER ARM CLOSES ANY OF THEM.
+Neither is on the path to a correct rule for O1/O2/O3. And `L5` is refused with
+NOTHING ARMED — the unarmed column is the only thing that stops that being
+attributed to this mechanism.
+
+## 10. LEDGER ARITHMETIC
+
+    # TOTAL 243 → 243. No row bought, no row retired, no compiler change.
+    `git diff` is empty; the binary was rebuilt from the restored source and
+    its hash was READ (§0) rather than assumed.
+
+## 11. ⇒ WHAT DESERVES FUNDING, IN ORDER
+
+ 1. **THE GRAMMAR: mixed bound lists, `T: Tr + 'a`** (§8). One rule in
+    `logos.peg`. It is off-borrow-check and it is the BLOCKER for the 5 O3 rows;
+    until it lands, no O3 arm can be given a legal counter-example, so no O3 arm
+    can be honestly priced for cost. Cheapest item here and the only one that
+    unblocks others.
+ 2. **WHERE THE UNSIZE ACTUALLY HAPPENS** (§4). One census, one grep: if the
+    coercion is performed in mlir_gen with no sema event, then this block has NO
+    minting site and the whole 18 rows need one built — which is a different and
+    much larger job than this round assumed, and knowing that is worth the hour.
+ 3. **CARRY `+ 'a`: the two edits of §6 together.** `AUTO_LIFE_BOUND` into a
+    region, and a lifetime parameter on `make_unsized_dyn_type`. Ceiling
+    unmeasurable until (2) says there is a consumer; do not price the halves
+    separately (rule 13 — the second half of a series prices 0).
+ 4. ⛔ `dynobjany` and its four subset arms — DECLINED, and the number that
+    condemns them is not the ceiling: the stdlib did not compile, and the site
+    is entered zero times by the population they were written for.
+ 5. `regions-proc-bound-capture` — the one predicted row `dynobjplusbnd` did not
+    reach. Its `+ 'a` is on a `dyn FnMut`, which resolves to `Kind::Closure`
+    BEFORE the AUTO_LIFE_BOUND loop is reached (sema.cpp, the `fn_family_name`
+    intercept). A third door, named, unpriced.
+
+## 12. OPEN (carried, plus this round's)
+
+ 1-25. UNCHANGED from 2026-09-02e §15.
+ 26. CLOSED 2026-09-01e.
+ 27-30. STAND.
+ 31. NEW: `try_struct_unsize_coerce` is live gate-wide (21 fires) and entered
+     ZERO times by the 243-program admit corpus. A live site is not a reachable
+     site FOR A GIVEN POPULATION, and only the census separates them.
+ 32. NEW: `make_unsized_dyn_type` has no lifetime parameter, so the owned
+     `Box<dyn Tr + 'a>` form cannot carry a region at all — the second door of
+     §6, and the reason the 2026-08-31 `ltdyn*` comparator arms were structurally
+     unable to reach this block.
+ 33. NEW, GRAMMAR: `T: Tr + 'a` does not parse (§8). Off-borrow-check, recorded,
+     and named as the blocker for five O3 rows.
+ 34. NEW, METHOD: I read a gate log while the process writing it was still
+     running and nearly reported a previous round's numbers as this round's
+     (§0). A log is not a measurement until its writer has exited.
