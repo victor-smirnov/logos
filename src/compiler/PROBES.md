@@ -11719,3 +11719,285 @@ nonglob 2330→2332, glob 191 unmoved.
  23. NEW: the ELIDED-lifetime half of `T: 'static` (h6 vs i2). One ledger row
      known (`regions-pattern-typing-issue-19552`), and it needs the region the
      elision resolves to.
+
+# ═══ ROUND 2026-09-01d — THE `T: 'a` OBLIGATION AT A BARE-TypeVar TYPE ARGUMENT
+# IS THE CALLER'S, AND THE CALLER'S OWN BOUND IS IN SCOPE NOWHERE. PLUS: A
+# SECOND DOOR IN SERIES — `in_generic_context` DEFERS THE WHOLE CALL TO MONO
+# WHENEVER ANY ARGUMENT'S TYPE IS A BARE TypeVar, SO THE BOUND IS CHECKED
+# NOWHERE AT ALL ═════════════════════════════════════════════════════════════
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE), WITH THE BRIEF'S ERRORS NAMED
+
+    live probes   145   grep -rhoP 'probe::on\("\K[a-z_0-9]+' src include | sort -u | wc -l
+    ledger        250   `# TOTAL 250`, and 250 by direct listing
+    channels      lifereg 118 (47%) · nllmoves 77 (31%) · bck 55 (22%)
+
+⚠ THE BRIEF WAS WRONG IN THREE PLACES, ALL MEASURED:
+ (a) "All 256 rows" — the ledger is **250**. 2026-09-01c closed six and edited
+     the TOTAL down in the same change, which is the documented protocol.
+ (b) "lifereg 123 (48%), nllmoves 78 (30%), bck 55 (21%)" — measured
+     118/77/55. The six closed rows were five lifereg and one nllmoves.
+ (c) "of the last twelve commits only TWO touched ledger territory" — true of
+     the window it was written in, but the two most RECENT commits
+     (232dc7e73 priced, eb9d99497 landed) are both ledger work, and eb9d99497
+     is the largest single-round ledger movement in the log.
+
+## 1. THE SUBJECT, NAMED BEFORE THE COMPILER WAS TOUCHED
+   (build/targets-2026-09-01d.txt, written first; predictions in
+    build/predictions-2026-09-01d.txt, written before the batch ran)
+
+THE POPULATION WAS DERIVED, NOT INHERITED. Every admit program carrying a
+type-param outlives bound, by grep on the PROPERTY not the label:
+
+    grep -lP "(<[^>]*\b[A-Z][A-Za-z0-9_]*\s*:\s*'|where[^{]*\b[A-Z][A-Za-z0-9_]*\s*:\s*')" \
+         tests/imported/admit/*/*.logos            → 13 rows
+
+and it partitions by MISSING OBSERVATION into five mechanisms, which cut
+ACROSS the ledger's own root labels (the 13 rows carry nine different roots):
+
+  M1 the type argument is a BARE TypeVar; the obligation is the CALLER's  7
+  M2 same fact, TYPE-instantiation site (a local's annotation) not a call 1
+  M3 concrete or projection argument, non-'static bound                   2
+  M4 coercion to `dyn SomeTrait + 'c`                                     1
+  M5 the ELIDED lifetime (carried open item 23)                           1
+  ?? c22b-outlives-bound-ignored — ⚠ SUSPECTED LEGAL RUST (§9)            1
+
+## 2. THE ARRIVAL, CENSUSED BEFORE ANY ARM WAS WRITTEN (rule 17)
+
+A census was installed at check_type_bounds' loop and at its entry, built,
+read, and REVERTED before the probe batch. It found the block is not one door
+but TWO IN SERIES (rule 2), and it re-partitioned the block:
+
+  bl.entry_lt   the callee's type_params carry a lifetime bound at this call
+  bl.tpbound    that bound is on the param this argument fills
+  bl.a_baretv   and the argument is a BARE TypeVar   ← the M1 shape
+
+    ARRIVES (5)   ty-param-closure-approximate-lower-bound   tpbound 1
+                  projection-implied-bounds                  tpbound 1
+                  projection-where-clause-none--c            tpbound 1
+                  param-may-not-live                         tpbound 1
+                  wf-bound-local                             tpbound 1  (M2)
+    NEVER ARRIVES ty-param-fn-body                  entry_lt 0
+      (3)         regions-infer-bound-from-trait     entry_lt 0
+                  regions-infer-bound-from-trait-self entry_lt 0
+
+## 3. THE SECOND DOOR, FOUND BY A ONE-TOKEN HAND PAIR — `in_generic_context`
+
+`src/compiler/sema_expr.cpp:4059-4071`:
+
+    // Don't infer inside generic bodies: pack expansions or TypeVar/AssocType
+    // args indicate we're in a partially-substituted context — defer to mono.
+    bool in_generic_context = false;
+    for (auto& a : arg_exprs) { ... if (kind == TypeVar || kind == AssocType)
+                                     { in_generic_context = true; break; } }
+    if (!in_generic_context) { ...infer...; return finish_generic_call(...); }
+
+`check_type_bounds` is reached only from `finish_generic_call`. So if ANY ONE
+argument's type is a bare TypeVar, the WHOLE call defers and the callee's
+`T: 'a` is checked NOWHERE — not here, and mono re-checks only the SUBSTITUTED
+form, which for an uninstantiated body never exists.
+
+⚠ THE GUARD IS PER-CALL AND THE QUESTION IS PER-PARAM. It is also not
+recursive: the kind test is on the TOP LEVEL only, so `&T` is not a TypeVar and
+does not trip it. That is the whole discriminator, measured, one token apart,
+in build/hand-2026-09-01d/ on the UNARMED binary:
+
+    a_byval_notf   callee(c, t)      y: T    entry_lt 0   ← deferred, unchecked
+    b_byref_notf   callee(c, &t)     y: &T   entry_lt 1   ← checked
+    c_byval_tf     callee::<T>(c, t) y: T    entry_lt 1   ← checked
+
+This is a PERMISSIVE early exit, and it is what makes the three rows above
+unreachable: each passes the bounded type param BY VALUE.
+
+## 4. THE PROBE TABLE — build **ad771b7ee3ae0b61** (READ), builds 383 → 387,
+##    ALL THREE COST COLUMNS PRESENT ON EVERY ROW
+
+```
+probe             fires ceiling cost cfail(1124) stdlib  verdict
+ltbndenvany          52     4      0      0        ok    ✅ RECOMMENDED half
+ltbndenvname         52     5      0      0        ok    ⛔ DECLINED — §6
+ltbndgctx            26     0      0      0        ok    0, SITE PROVEN LIVE
+ltbndboth            80     6      0      0        ok    ✅ RECOMMENDED
+ltbndstrictboth      80     7      0      0        ok    ⛔ DECLINED — §6
+```
+
+L1 with the whole batch installed and NOTHING armed: rc 0, batch inert.
+
+  ltbndenvany     lax entailment: the caller declares SOME `T: 'l`. Collect site.
+  ltbndenvname    strict: the caller's set contains the REQUIRED lifetime name.
+  ltbndgctx       the `in_generic_context` repair ALONE (expr site).
+  ltbndboth       ltbndenvany + ltbndgctx.
+  ltbndstrictboth ltbndenvname + ltbndgctx.
+
+## 5. THE SETS, PREDICTED BY NAME FIRST, DIFFED BOTH WAYS — 4 OF 5 EXACT
+
+`ltbndenvany`  predicted {param-may-not-live, projection-implied-bounds,
+   ty-param-closure-approximate-lower-bound, wf-bound-local} — MEASURED EXACTLY
+   THOSE FOUR. Both directions empty.
+`ltbndenvname` = that ∪ {projection-where-clause-none--c} — EXACT, both empty.
+`ltbndgctx`    predicted {} — measured {}, AND IT FIRED 26 TIMES (rule 1: the
+   zero is an answer about the mechanism, not about reachability).
+`ltbndboth`    predicted 7, MEASURED 6.
+   predicted∖measured = {regions-infer-bound-from-trait-self}   ← §7
+   measured∖predicted = {}
+`ltbndstrictboth` predicted 8, measured 7 — the same single miss.
+
+⚠ RULE 13, MEASURED, AND NON-ADDITIVE UPWARD THIS TIME: ltbndenvany = 4 and
+ltbndgctx = 0, but their union is 6, not 4. A part that prices 0 is not a part
+worth 0 — it was the second half of a door in SERIES. The increment from
+adding a 0-ceiling arm was +2.
+
+## 6. ⛔ `ltbndenvname` AND `ltbndstrictboth` DECLINED BY NAME — THE NUMBER THAT
+##    CONDEMNS THEM IS NOT IN ANY COLUMN (rules 5 and 9)
+
+The two names are IDENTICAL on every population this harness owns — 0 / 0 of
+1124 / stdlib ok, digit for digit — and they separate on a hand program:
+
+```
+build/hand-2026-09-01d/     unarmed  envany  envname  both  strictboth  truth
+h1_rename_legal             accept   accept  REFUSE   accept  REFUSE    LEGAL ⛔
+h2_transitive_legal         accept   accept  REFUSE   accept  REFUSE    LEGAL ⛔
+h3_same_name_legal          accept   accept  accept   accept  accept    legal
+i1_nobound_illegal          accept   REFUSE  REFUSE   REFUSE  REFUSE    illegal
+a_byval_notf                accept   accept  accept   REFUSE  REFUSE    illegal
+b_byref_notf                accept   REFUSE  REFUSE   REFUSE  REFUSE    illegal
+c_byval_tf                  accept   REFUSE  REFUSE   REFUSE  REFUSE    illegal
+```
+
+h1: callee `<'x,T> where T:'x`, caller `<'a,T> where T:'a`. The callee's `'x` is
+INSTANTIATED to the caller's `'a` at the call; `T: 'a` discharges it. The strict
+arm compares the two lifetime NAMES across two functions and refuses — which is
+`948af9cab`'s defect exactly ("`sig_match` compares lifetime NAMES"), rebuilt.
+h2: caller has `'b: 'a, T: 'b`, so `T: 'a` follows by transitivity the arm does
+not compute.
+⚠ h3 is why the columns are clean: `multi-type-outlives` and
+`type-outlives-bound` both spell the caller's and the callee's lifetime `'a`, so
+they pass BY NAME COINCIDENCE. The corpus contains no rename. Rule 12.
+
+The extra row those two arms buy — `projection-where-clause-none--c` — is
+therefore bought with a false refusal of legal programs. NEVER BUY A LEDGER ROW
+WITH A LEGAL-PROGRAM REFUSAL.
+
+`ltbndboth` is INCOMPLETE (by `projection-where-clause-none--c`, where the
+caller declares `T: 'b` for an unrelated `'b`) and NEVER over-strict — the only
+direction a borrow-check arm may be wrong in.
+
+## 7. THE THIRD DOOR, AND IT IS THE ONE MISS
+
+`regions-infer-bound-from-trait-self` did not close under either union arm.
+Its argument is `self`, of type `Self`, and `sema_expr.cpp:4261` reads
+
+    if (formal.type_var_name() == "Self") return;
+
+inside `unify_types` — `Self` is never bound, so `infer_type_args` returns
+"param not inferrable" and the bound check is not reached even with the
+`in_generic_context` door open. THREE doors in series for that one row, not two.
+Rule 2 again, one level deeper than this round predicted.
+
+## 8. OPEN ITEM 22 IS ANSWERED, AND `ltbndtv`'s COST IS GONE
+
+2026-09-07b §8 declined `ltbndtv` at cost 2 and named the cause correctly:
+"`push_type_params` copies `tp.bounds` into `current_type_bounds_` and drops
+`tp.lifetime_outlives`". MEASURED under all four env arms:
+
+    tests/imported/pass/regions/{multi-type-outlives, type-outlives-bound,
+      type-outlives-static, type-outlives-elided, type-outlives-impl}   5/5 ok
+
+Carrying the fact removes `ltbndtv`'s ENTIRE cost. Open item 19 is a correct
+fact and open item 22 is closed as a cost.
+
+## 9. THE DIAGNOSTICS — READ ON THE ARMED BINARY, NOT INFERRED
+
+```
+ty-param-fn-body     [fn region_static]: call to 'outlives': the parameter type
+                     'T' may not live long enough — 'T' requires `T: 'a` and
+                     the caller does not declare it          (upstream E0311)
+wf-bound-local       [fn test]: call to 'Static': …`T: 'static`…  ← TYPE site,
+                     not a call site: `check_type_bounds` is shared (upstream E0310)
+projection-implied-bounds  [fn generic2]: call to 'invoke2': …
+ty-param-closure-…         [fn generic_fail]: call to 'invoke': …
+regions-infer-bound-from-trait [fn bar1]: call to 'check_bound': …
+param-may-not-live         [fn no_restriction]: call to 'with_restriction': …
+```
+All six name the right function, the right parameter and the right bound, and
+the sentence is upstream's "the parameter type `T` may not live long enough".
+
+## 10. ⚠ CORPUS DECISION WITH AN OWNER — DO NOT EDIT, REPORT
+
+`lifetimes/suggest-introducing-and-adding-missing-lifetime--c22b-outlives-bound-ignored`
+(lifereg.L2) is, after the port, exactly
+
+    fn keep<'b, T: 'b>(x: &'b T) -> &'b T { return x; }
+
+which is LEGAL RUST — the bound `&'b T` needs is DECLARED. It is verbatim
+2026-09-01c §6's hand program h1, whose recorded verdict is "accept, legal". The
+port dropped whatever made the upstream file E0310 (upstream is about
+SUGGESTING the bound, which this port already has). A ledger row that is legal
+Rust is a corpus decision with an owner. It cannot be bought and should be
+RETIRED, not closed. Not edited by this round.
+
+## 11. OFF-LEDGER, RECORDED AND NOT PURSUED
+
+ (a) `in_generic_context` (sema_expr.cpp:4059) is a PERMISSIVE early exit that
+     defers the WHOLE call to mono when ANY ONE argument's type is a bare
+     TypeVar, and its kind test is top-level only. It is in sema, not
+     borrow-check, and it is IN SCOPE here only because it BLOCKS three named
+     ledger rows: ty-param-fn-body, regions-infer-bound-from-trait,
+     regions-infer-bound-from-trait-self. Everything the deferral was protecting
+     is TRAIT-bound checking; the lifetime half has no reason to defer, and
+     `ltbndgctx` proves at 26 fires and 0/0/0/ok that routing the check through
+     it changes NOTHING except what the env arm can then see.
+ (b) `unify_types` never binds `Self` (§7). Blocks exactly one ledger row.
+
+## 12. LEDGER ARITHMETIC
+
+    # TOTAL 250 at open, 250 at close. THIS ROUND PRICED; IT DID NOT FIX.
+    Rows named: 13 (the whole `T: 'a` admit population, derived not inherited).
+    Reachable through the arm today: 5.  Reachable with the second door: 7.
+    Buyable at zero measured cost AND zero hand counter-examples: 6.
+
+## 13. ⇒ WHAT DESERVES FUNDING, IN ORDER
+
+ 1. **`ltbndboth`** — 6 rows, 0/0 of 1124/stdlib ok, seven correct hand
+    verdicts, six correct diagnostics, and it also removes `ltbndtv`'s two
+    costs. TWO edits: `push_type_params`/`pop_type_params` carry
+    `lifetime_outlives` (open item 19), and the lifetime half of
+    `check_type_bounds` runs at a deferred call. Needs fixture PAIRS
+    (i1/h3 are already one token apart; h1 and h2 are the pass twins that
+    condemn the strict spelling and MUST be in the pass fixture).
+ 2. **The `Self` binding** (§7) — one more row, and it is one line's worth of
+    question: whether `Self` at an argument position may bind to the impl's
+    own type parameter. Not attempted here.
+ 3. **`projection-where-clause-none--c`** — needs the lifetime SUBSTITUTION at
+    the call plus the caller's `'b: 'a` graph, i.e. `check_call_outlives`'
+    machinery applied to a type-param bound. NOT the strict name-compare (§6).
+ 4. ⛔ **`ltbndenvname` / `ltbndstrictboth` — DO NOT LAND** (§6).
+ 5. **RETIRE `…--c22b-outlives-bound-ignored` from the ledger** (§10) — owner's
+    call, not mine.
+
+## 14. OPEN (carried, plus this round's)
+
+ 1-17. UNCHANGED from 2026-09-06a §9.
+ 18. CLOSED 2026-09-01c.
+ 19. STANDS AND IS NOW PRICED: `push_type_params` drops `lifetime_outlives`.
+     Carrying it = `ltbndenvany`, 4 rows on its own, 6 with item 24.
+ 20. ⚠ CORRECTED. It named four rows for one mechanism; MEASURED, three of the
+     four are the mechanism (ty-param-fn-body, regions-infer-bound-from-trait,
+     regions-infer-bound-from-trait-self) and the fourth,
+     `regions-close-over-type-parameter-multiple`, is a `dyn SomeTrait + 'c`
+     COERCION — a different door, still unpriced. And the mechanism's real
+     population is SEVEN rows, not four (§1).
+ 21. UNCHANGED.
+ 22. ANSWERED AND CLOSED AS A COST (§8): all five `type-outlives*` pass
+     fixtures compile under every env arm.
+ 23. STANDS (the elided half, `regions-pattern-typing-issue-19552`).
+ 24. NEW: `in_generic_context` defers the whole call and the bound is checked
+     nowhere (§3, §11a). Ceiling 0 alone, +2 in series with item 19.
+ 25. NEW: `unify_types` never binds `Self` (§7, §11b). One row.
+ 26. NEW: `…--c22b-outlives-bound-ignored` is a ledger row that is LEGAL RUST
+     (§10). Owner's decision.
+ 27. NEW: the ledger's ROOT LABELS do not name this mechanism — the 13 rows of
+     the `T: 'a` population carry nine different roots, and the 7-row M1 block
+     spans five of them across BOTH the lifereg and nllmoves channels. A root
+     is not a mechanism; surveying by MISSING OBSERVATION found the block that
+     surveying by label had split three ways.
