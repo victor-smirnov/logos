@@ -1,0 +1,17 @@
+// THE REFUSE HALF of tests/logos/pass/bc_capsharedloan_legal_shapes (2), ONE
+// TOKEN apart: there the assignment under the live shared capture writes `y`,
+// here it writes `x` — the captured root itself. The whole-value shared
+// capture now records a shared LOAN held by the closure binding, so the write
+// is E0506. LANDED 2026-08-31t.
+package bc_capsharedloan_assign_under_capture_fail;
+fn f2() -> i64 {
+    let mut x: i64 = 5i64;
+    let mut y: i64 = 1i64;
+    let f = || -> i64 { return x; };
+    x = 20i64;
+    return f() + y;
+}
+fn main() -> i32 {
+    if f2() != 25i64 { return 1i32; }
+    return 0i32;
+}

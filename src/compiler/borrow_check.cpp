@@ -10169,51 +10169,22 @@ private:
                     // only thing left in the caller; the whole/field decision
                     // moved to record_borrow with the other fifteen.
                     bool shared_whole = rel.empty() && !is_mut;
-                    // PROBE capshared: turn the liveness-only branch into a
-                    // recorded shared loan held by the closure binding.
-                    // MEASURED 2026-08-27: 49 fires, CEILING 4 vs COST 0 —
-                    // borrowck-closures-mut-and-imm, closure-borrow-spans--a
-                    // and --b, region-bound-on-closure-outlives-call. ⚠ COST 0
-                    // IS NOT A SAFETY CLAIM: the RFC-2229 exemption named
-                    // above is REAL and this crude form ignores it, so a
-                    // careful version must still construct its own
-                    // counter-examples (`|| p.x` beside `&mut p.y`;
-                    // `let f=||x; let g=||x;` shared+shared). Its 4 rows are a
-                    // strict subset of capmut's 18 and DISJOINT from capbody.
-                    // RE-PRICED 2026-08-28 (rule 8) on the 371-row ledger: 31
-                    // fires, CEILING 4 — the same four, named — but COST 1,
-                    // not 0. The corpus widened 487 -> 807 and the new cost is
-                    // tests/imported/pass/closures/
-                    // capture-disjoint-field-tuple-b156 — the very RFC-2229
-                    // shape this comment cites as the reason for the branch.
-                    // ⚠ AND THE JUSTIFICATION AS WRITTEN IS STALE. The
-                    // comment's own example — `|| p.x` beside `&mut p.y` — is
-                    // ADMITTED with this probe armed, MEASURED by hand: a
-                    // STRUCT-field capture gets `fpath=p.x rel=x`, never
-                    // reaches `shared_whole`, and so was never what this
-                    // branch protected. The single cost is a TUPLE, and it is
-                    // here for a different defect: the capture SCANNER's
-                    // TupleIndex arm never asks `try_path`, which WAS taught
-                    // tuple indices. The policy is real; this branch is not
-                    // what implements it — capture-path precision is.
-                    // ⚠ THAT PRECISION LANDED 2026-08-28 (sema_expr.cpp's
-                    // TupleIndex arm now asks `try_path`), so b156 no longer
-                    // reaches `shared_whole` and capshared's only measured cost
-                    // is retired. RE-PRICED on the 368-row ledger after the
-                    // landing: 28 fires, CEILING 4 vs COST 0 — the same
-                    // four rows named above, and b156 no longer among the
-                    // costs, which is the prediction confirmed by measurement
-                    // rather than by argument. Rule 8 says re-price again before
-                    // funding it; this number is a measurement with a date.
-                    if (logos::probe::on("capshared") && shared_whole)
-                        shared_whole = false;   // fall to record_borrow
-                    // ⚠ PROBE capsharedlive — capshared, MINUS the moved root.
-                    if (logos::probe::on("capsharedlive") && shared_whole) {
+                    bool cap_shared_loan = false;
+                    // LANDED 2026-08-31t (probe `capsharedlive`, ceiling 4 /
+                    // cost 0 / stdlib ok): a WHOLE shared capture is a LOAN
+                    // held by the closure binding, not a liveness question —
+                    // unless the root is MOVED, which is a liveness question
+                    // and must keep its own verb. Rationale, sets and the
+                    // superseded `capshared` spelling: PROBES.md 2026-08-31t.
+                    if (shared_whole) {
                         const VarState* lv = var_find(NO_SLOT, root);
-                        if (lv != nullptr && lv->moved)
-                            logos::probe::census("capsharedlive/moved_root");
-                        else
-                            shared_whole = false;
+                        bool moved_root = lv != nullptr && lv->moved;
+                        logos::probe::census(moved_root
+                            ? "capshared/moved_root" : "capshared/live_root");
+                        if (!moved_root) {
+                            shared_whole = false;   // fall to record_borrow
+                            cap_shared_loan = true;
+                        }
                     }
                     if (shared_whole) {
                         check_live(root, line);
@@ -10243,9 +10214,17 @@ private:
                         // loop rows are a MOVE story") resolved as NEITHER:
                         // capmove's 2 rows are disjoint from capscope's, so
                         // the loop rows are a BODY story. DECLINED.
+                        // LANDED 2026-08-31t (probe `capsharedimp`): the
+                        // whole-value shared capture loan is dropped SILENTLY
+                        // when it CONFLICTS at the record, so the capture does
+                        // not restate a conflict the body walk or the later use
+                        // already reports. Bounded to the loan this round adds:
+                        // the moved root never reaches here.
+                        RecordFlags cfl;
+                        if (cap_shared_loan) cfl.implicit = true;
                         record_borrow(cbp, is_mut, line,
                                       logos::probe::on("capscope")
-                                          ? std::string() : holder);
+                                          ? std::string() : holder, cfl);
                         if (!rel.empty()) check_live(root, line);
                     }
                     // D1 round 2, Door D: the capture is a HOP. Registering a
@@ -12254,9 +12233,20 @@ private:
                 // via check_live elsewhere; the missing case was shared
                 // borrows. Catch them here.
                 if (auto it = var_find(NO_SLOT, name); it != nullptr) {
-                    if (it->shared_borrows > 0)
+                    // LANDED 2026-08-31t (probe `assigndupdel`): this reader
+                    // and field_borrow_conflicts' whole-value shared arm below
+                    // answered the SAME question and both reported, so every
+                    // `let r = &x; x = 5;` printed the E0506 twice in two
+                    // wordings. Keep the first, skip the second; the field arm
+                    // returns true on shared_borrows before it looks at either
+                    // path map, so nothing else is reachable through it in that
+                    // state. 22 fixtures, one duplicate line each.
+                    bool said_shared = false;
+                    if (it->shared_borrows > 0) {
                         report(ln, std::format(
                             "cannot assign to '{}' because it is borrowed", name));
+                        said_shared = true;
+                    }
                     if (it->mut_borrowed)
                         report(ln, std::format(
                             "cannot assign to '{}' while it is mutably borrowed", name));
@@ -12268,8 +12258,10 @@ private:
                     // rc 0 while the `&v` spelling refused. The prefix query and
                     // the loan itself both already existed (`take_field_borrow`
                     // records at the dotted path); nothing was asking.
-                    field_borrow_conflicts(*it, name, /*path=*/"",
-                                           /*need_exclusive=*/true, ln, "assign to");
+                    if (!said_shared)
+                        field_borrow_conflicts(*it, name, /*path=*/"",
+                                               /*need_exclusive=*/true, ln,
+                                               "assign to");
                 }
                 bool val_is_agg_lit2 = val &&
                     (val.kind() == lir_schema::expr::Code::StructLit ||

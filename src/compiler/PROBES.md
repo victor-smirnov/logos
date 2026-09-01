@@ -9172,3 +9172,183 @@ and there is none — the copy is the last statement of the bc fixpoint.
     tier and then `0/0 tests passed … PLUS: the gates tier FAILED` — a red
     summary that means "wrong cwd", not a red tree. Met this round; run it
     from `build/`.
+
+# ═══ ROUND 2026-08-31t — THE WHOLE-VALUE SHARED CAPTURE BECOMES A LOAN (4 ROWS),
+# AND TWO DUPLICATE DIAGNOSTICS DIE WITH IT ══════════════════════════════════
+
+## 0. THE CENSUS FIRST (RULE 17), AND THE BRIEF WAS WRONG ABOUT ONE THING
+
+    grep -rhoP 'probe::on\("\K[a-z_0-9]+' src include | sort -u | wc -l   → 132
+    grep '^# TOTAL' tests/logos/bc_admits.ledger                          → 262
+    non-blank non-# rows                                                  → 262
+    tests/imported/admit/*/*.logos                                        → 262
+    distinct roots                                                        → 71
+    top: bck.C 17 · lifereg.A 13 · nllmoves.C 12 · nllmoves.B 11 ·
+         lifereg.R17 11 · bck.B 11 · bck.NEW 10 · lifereg.R18 8 ·
+         lifereg.NEW-N1 8 · lifereg.C 8 · bck.D 8
+
+Opening gate build 302 (logosc 0.42.0-preview+main-gd2b662bd-dirty.20260831T232430Z,
+libs dc6cb11cbed9f192): `-R '^logos_00_bc_admit_'` 262/262 already measured,
+`-L bc` 2005/2005 already measured, 2457 recorded / 0 failed / 2 disabled.
+
+⚠ **CORRECTION TO THE BRIEF (and to 2026-08-31s §3(a)): the two-wording E0506
+DUPLICATE IS NOT capsharedlive's.** It is pre-existing and unconditional —
+`let mut x = 5; let r = &x; x = 7;` prints BOTH lines on the UNARMED
+2026-08-31s binary. Measured before any edit. The brief booked it as a debit
+the landing owes; it is a defect the landing is merely the first program to
+reach through a closure. It is deleted below, as its own priced mechanism.
+
+## 1. M1 — capsharedlive, LANDED. 4 ROWS.
+
+A whole-value SHARED closure capture was a LIVENESS question only
+(`check_live(root)`); it now records a shared LOAN on the root held by the
+closure binding — **unless the root is MOVED**, which IS a liveness question
+and keeps its own verb. That guard is the whole difference from `capshared`,
+whose four `.expected` losses were all a liveness answer coming back out of
+the loan arm.
+
+Re-priced on today's binary BEFORE funding (rule 8), build dc6cb11cbed9f192:
+
+    fires 64 · CEILING 4 · COST 0 pass · cfail 1 TEXT-ONLY · stdlib 4/4
+
+PREDICTED BY NAME in `build/predictions-2026-08-31t.txt`, written before the
+edit. MEASURED after the landing (gate build 306): **closed set = predicted
+set, both directions empty** —
+
+    logos_00_bc_admit_borrowck_borrowck-closures-mut-and-imm        bck.C
+    logos_00_bc_admit_nll_closure-borrow-spans--a                   nllmoves.C
+    logos_00_bc_admit_nll_closure-borrow-spans--b                   nllmoves.C
+    logos_00_bc_admit_regions_region-bound-on-closure-outlives-call lifereg.C
+
+Every diagnostic READ on the landed binary, against the fixture's own recorded
+upstream error, and each names the CALLER's own variable in the CALLER's fn:
+
+    borrowck-closures-mut-and-imm   E0506  error [fn main]: cannot assign to
+                                           'x' because it is borrowed
+    closure-borrow-spans--a         E0502  error [fn main]: cannot borrow 'x'
+                                           as mutable: 1 shared borrow(s) active
+    closure-borrow-spans--b         E0506  error [fn main]: cannot assign to
+                                           'x' because it is borrowed
+    region-bound-on-closure-…       E0505  error [fn call_rec]: cannot move 'f'
+                                           while it is borrowed
+
+⚠ WHERE THE FIX DIFFERS FROM ITS PROBE: nowhere in the arm — the landed
+predicate is the probe's, verbatim minus the env gate — but the two E0506 rows
+print ONE line where the probe printed two, because M2 landed with it.
+
+## 2. M2 — assigndupdel, LANDED. 0 ROWS, 22 DUPLICATE LINES DELETED.
+
+`Code::Assign` asked `shared_borrows > 0` and reported, then called
+`field_borrow_conflicts(need_exclusive=true)`, whose FIRST arm asks
+`shared_borrows > 0` and reports again. Two readers, one question, two
+wordings. The second is skipped when the first spoke; nothing else in
+`field_borrow_conflicts` is reachable in that state, because that arm returns
+true before it looks at either path map.
+
+    build 0b9b6d1db8253980: fires 25 · CEILING 0 · COST 0 pass · stdlib 4/4
+    COST-fail 22 of 1098 — rc 0, .expected-match 0, TEXT-ONLY 22
+
+**All 22 diffs READ, by re-running each fixture armed and unarmed and diffing
+the lines** (not by trusting the sha): every one is a single deletion of
+`cannot assign to 'X' while 'X' is borrowed`, with
+`cannot assign to 'X' because it is borrowed` still standing above it. Nothing
+was added anywhere. This is rule 14's named exception — a branch that DELETES
+a duplicate — and it is the only reason a 0-row / 22-text change is funded.
+
+## 3. M3 — capsharedimp, LANDED. 0 ROWS, THE ONE ADDED LINE REMOVED.
+
+M1's single cfail debit was an ADDED second line on
+`fail/closure-access-spans--a-closure-imm-capture-conflict`: the capture's new
+loan CONFLICTS at the record (the root is already `&mut`-borrowed) and
+`record_borrow` restated a conflict the body walk had already reported.
+`RecordFlags::implicit` — which exists for exactly this, a compiler-raised loan
+that must not report at its own record site — drops it silently.
+
+    build 0b9b6d1db8253980: fires 71 · COST 0 pass · stdlib 4/4
+    COST-fail 1 of 1098, TEXT-ONLY, and it is the DELETION of M1's added line
+
+CEILING 0 is the expected reading here and NOT a refutation: the four rows were
+already closed by M1 in the binary it was priced on. What had to be checked
+instead is that it does not RE-OPEN them, and that was checked directly — all
+four still refuse, with the same four diagnostics, under `LOGOS_PROBE=capsharedimp`.
+The silencing is bounded to the loan M1 adds (`cap_shared_loan`), and the moved
+root never reaches it.
+
+## 4. RULE 13 — ADDITIVITY CHECKED, AND IT IS NOT ADDITIVE
+
+Fail-text oracle, 1098 fixtures, all four states measured:
+
+    M1 alone       vs pre-round binary   1 changed  (0 rc, 0 match, 1 text)
+    M2 alone       on top of M1         22 changed
+    M3 alone       on top of M1          1 changed
+    ALL THREE      vs pre-round binary  22 changed  (0 rc, 0 match, 22 text)
+    union of the parts                  23
+    ALL − union = ∅ · union − ALL = {closure-access-spans--a-…}
+
+M1's only debit is CANCELLED by M3, so the round's whole text footprint against
+the pre-round compiler is 22 duplicate-line deletions and nothing else. The
+increment is NEGATIVE, exactly as rule 13 warns, and the set — not the count —
+is what says so.
+
+## 5. RULE 5 — THE HAND PROGRAMS, MULTI-LINE, ON THE ARMED THEN THE LANDED BINARY
+
+Legal, must compile (each proven to reach the arm by `LOGOS_PROBE_FIRE`):
+
+    ce2  capture dead before the write (NLL)                    fires 1  rc 0
+    ce3  two closures sharing one root, both live               fires 2  rc 0
+    ce4  `&x` taken while the capture is live                   fires 1  rc 0
+    ce5  the capture remade each loop iteration                 fires 2  rc 0
+    ce6  `move` capture                                    fires 0, DELIBERATELY
+         — the `move` arm returns BEFORE this branch; a zero here is the
+         mechanism's boundary, and it is why (6) is in the pass fixture.
+
+Illegal, must refuse (all THREE compiled rc 0 on the pre-fix binary — that is
+the control revert, run before the fixtures were believed):
+
+    p1   assign to x under a live shared capture   E0506, one line
+    p2   `&mut x` under a live shared capture      E0502
+    u2   capture under a live `&mut`, closure called later — the check_live line
+         survives, the capture's duplicate is gone (M3)
+
+⚠ AND ONE PERMISSIVE SHAPE MEASURED, NOT ARGUED: `u1`, whose closure body takes
+`&x` rather than reading `x`, still refuses under M3 — the body's own AddrOf
+records the loan, so M3's silence at the capture is not an un-refusal there.
+What M3 CANNOT promise is that some shape exists where the capture record is
+the only reader; the 1098-fixture oracle shows 0 rc flips and 0 `.expected`
+losses, and that is the bound, not a proof.
+
+## 6. THE FIXTURES, AND WHAT RATCHETS THE MOVED-ROOT GUARD
+
+The four rows move to `fail` IN THEIR OWN ROOT'S HOME
+(`tests/imported/fail/{borrowck,nll,nll,regions}/`), each with its full
+diagnostic pinned. The native pair, ONE TOKEN apart:
+
+    tests/logos/pass/bc_capsharedloan_legal_shapes.logos   (7 programs)
+    tests/logos/fail/bc_capsharedloan_assign_under_capture_fail.logos
+
+— case (2) writes `y` in the pass half and `x` in the fail half, and that token
+is the whole mechanism.
+
+⚠ THE MOVED-ROOT GUARD NEEDS NO NEW FIXTURE, AND HERE IS WHY: it is already
+ratcheted by FOUR existing pins. `capshared` without the guard LOSES the
+`.expected` of arc-consumed-in-looped-closure, borrowck-in-static--r-runtime,
+borrowck-in-static--move-captured-out-of-fn-closure and nll/closure-move-spans
+(measured, 2026-08-31s §3). Deleting the guard turns those four RED by
+`.expected` mismatch, not by rc — so the ratchet is real and it is on the text.
+
+## 7. WHAT IS LEFT OPEN
+
+ 1. `bck.D`'s **three E0716 temporary-lifetime rows** (borrowck-borrowed-uniq-rvalue,
+    -2, issue-36082) — that root's largest group, still never priced, still not
+    named anywhere but the previous round's census.
+ 2. The `&self` receiver's missing `BorrowSite` in `RegionInferer` (2026-08-31s §4)
+    — proven-live, unpriced. Nothing in this round touched it.
+ 3. `d-index-two-phase` stays unbuyable while `btvec_append` keeps the
+    `f(&mut t, g(&t))` shape; `argresvact` still needs a corpus decision about
+    `tpb-mut-with-shared-ref-arg`, not another spelling.
+ 4. `a-fnmut-twice` is still touched by nothing.
+ 5. ⚠ NOTHING IN THE HARNESS ASSERTS THE ABSENCE OF A DUPLICATE LINE. A
+    `.expected` is a `grep -F` SUBSTRING, so M2's 22 deletions are invisible to
+    ctest in BOTH directions — if the second reader comes back, every one of
+    those fixtures stays green. The text oracle is the only witness, and it has
+    no stored baseline gate. That is a missing sensor, not a missing test.

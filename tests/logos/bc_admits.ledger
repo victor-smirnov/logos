@@ -1068,7 +1068,7 @@
 #   occurrence of it is covariant, and the meet instantiates it at the region
 #   both arguments outlive. The port dropped upstream's closure `where` bound,
 #   so what is left is a program rustc accepts. It is listed, not closed.
-# TOTAL 262
+# TOTAL 258
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1082,7 +1082,6 @@ borrowck-access-permissions--c-mut-borrow-deref-box bck.B tests/imported/admit/b
 borrowck-assign-to-andmut-in-borrowed-loc bck.NEW tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-borrowed-loc
 borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
-borrowck-closures-mut-and-imm bck.C tests/imported/admit/borrowck/borrowck-closures-mut-and-imm
 borrowck-escaping-closure-error-1 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-1
 borrowck-escaping-closure-error-2 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-2
 borrowck-issue-2657-1 bck.B tests/imported/admit/borrowck/borrowck-issue-2657-1
@@ -1223,8 +1222,6 @@ borrowed-temporary-error--t08 nllmoves.D tests/imported/admit/nll/borrowed-tempo
 capture-ref-in-struct--ctl nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--ctl
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
 cast-static-lifetime nllmoves.R17 tests/imported/admit/nll/cast-static-lifetime
-closure-borrow-spans--a nllmoves.C tests/imported/admit/nll/closure-borrow-spans--a
-closure-borrow-spans--b nllmoves.C tests/imported/admit/nll/closure-borrow-spans--b
 constant-in-expr-inherent-2--static-param nllmoves.NEW-N1 tests/imported/admit/nll/constant-in-expr-inherent-2--static-param
 do-not-ignore-lifetime-bounds-in-copy-proj--b nllmoves.NEW-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy-proj--b
 do-not-ignore-lifetime-bounds-in-copy-proj--ctl nllmoves.NEW-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy-proj--ctl
@@ -1300,7 +1297,6 @@ multiple-sources-for-outlives-requirement--t24 lifereg.N1 tests/imported/admit/r
 outlives-with-missing lifereg.R17 tests/imported/admit/regions/outlives-with-missing
 region-borrow-params-issue-29793-big lifereg.C tests/imported/admit/regions/region-borrow-params-issue-29793-big
 region-borrow-params-issue-29793-small lifereg.C tests/imported/admit/regions/region-borrow-params-issue-29793-small
-region-bound-on-closure-outlives-call lifereg.C tests/imported/admit/regions/region-bound-on-closure-outlives-call
 region-bounds-on-objects-and-type-parameters lifereg.NEW-N4 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
 region-object-lifetime-in-coercion lifereg.A tests/imported/admit/regions/region-object-lifetime-in-coercion
 regions-addr-of-self lifereg.A tests/imported/admit/regions/regions-addr-of-self

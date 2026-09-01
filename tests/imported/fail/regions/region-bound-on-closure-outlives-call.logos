@@ -1,6 +1,9 @@
 // rustc regions/region-bound-on-closure-outlives-call.rs — upstream E0505 cannot move out of `f`
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.C
+// shelf: fail · was lifereg.C, CLOSED 2026-08-31t — a WHOLE-VALUE SHARED
+// closure capture was a LIVENESS question only; it now records a shared
+// LOAN on the root held by the closure binding, unless the root is MOVED,
+// which stays a liveness question and keeps its own verb.
 // R7 probe for t25: same shape, F replaced by a concrete type WITH impl Drop.
 package region_bound_on_closure_outlives_call;
 

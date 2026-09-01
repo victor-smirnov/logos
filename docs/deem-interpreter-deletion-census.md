@@ -4869,9 +4869,27 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8743 -> 8747   +4
 #   NOIMPORTED   4449 -> 4451   +2
 #   TIERCOMMIT    313 ->  311   -2
-REGISTRY-ALL         8747
-REGISTRY-NOIMPORTED  4451
-REGISTRY-TIERCOMMIT  311
+# 2026-08-31t — THREE MECHANISMS. M1: the whole-value SHARED closure capture
+# records a shared LOAN on the root (moved root excepted), 4 ledger rows. M2:
+# `Code::Assign`'s shared-borrow reader and `field_borrow_conflicts`' first arm
+# both reported the same E0506, 22 duplicate lines deleted, 0 rows. M3: that
+# capture loan is dropped SILENTLY when it conflicts at the record
+# (`RecordFlags::implicit`), removing M1's one added line, 0 rows. TWO new
+# native fixtures (1 pass, 1 fail) and four `logos_00_bc_admit_*` rows deleted,
+# their programs relanded as imported fail fixtures in their own root's home.
+#   ALL          +2 (the two native fixtures); the four moved rows are
+#                registered either way — as an admit row or as a fail port.
+#   NOIMPORTED   +2 - 4 = -2: the four admit rows are registered NATIVELY
+#                (`logos_00_bc_admit_*`) and their fail homes carry the
+#                `imported` label, so they LEAVE this count.
+#   TIERCOMMIT   -4: `logos_00_bc_admit_*` is the tier_commit-labelled ledger,
+#                and neither new native fixture is tier_commit.
+#   ALL          8747 -> 8749   +2
+#   NOIMPORTED   4451 -> 4449   -2
+#   TIERCOMMIT    311 ->  307   -4
+REGISTRY-ALL         8749
+REGISTRY-NOIMPORTED  4449
+REGISTRY-TIERCOMMIT  307
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

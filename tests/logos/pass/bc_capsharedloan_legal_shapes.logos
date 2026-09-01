@@ -1,0 +1,95 @@
+// COST 0 IS NOT A SAFETY CLAIM (rule 5). `capsharedlive` priced CEILING 4 /
+// COST 0 pass / cfail 1 text-only / stdlib ok, and a whole-value shared
+// closure capture is one of the commonest shapes in the language — so the
+// seven programs below ARE the safety argument, not the corpus. Every one was
+// run on the armed binary under LOGOS_PROBE_FIRE and reached the capture arm
+// at least once, except (6), which proves the `move` arm returns BEFORE it
+// (0 fires, deliberately: an owning capture is the by-value rule).
+//
+// The mechanism: a whole-value SHARED capture records a shared LOAN on the
+// root, held by the closure binding, instead of only asking whether the root
+// is live. A MOVED root keeps the liveness answer and its own verb — that
+// guard is what separates this from `capshared`, which lost four pinned
+// "use of moved value" diagnostics to the loan arm's wording.
+//
+// ⚠ THE REFUSE HALF IS tests/logos/fail/bc_capsharedloan_assign_under_capture_fail
+// — ONE TOKEN apart from (2) below: there the assignment under the live
+// capture writes `y`, here it writes `x`, the captured root.
+package bc_capsharedloan_legal_shapes;
+
+// (1) the capture is DEAD before the write: NLL, not lexical scope.
+fn f1() -> i64 {
+    let mut x: i64 = 5i64;
+    let f = || -> i64 { return x; };
+    let a: i64 = f();
+    x = 20i64;
+    return x + a;
+}
+
+// (2) a write to a DIFFERENT variable while the capture is live.
+fn f2() -> i64 {
+    let x: i64 = 5i64;
+    let mut y: i64 = 1i64;
+    let f = || -> i64 { return x; };
+    y = 20i64;
+    return f() + y;
+}
+
+// (3) two closures sharing one root, both live at once.
+fn f3() -> i64 {
+    let x: i64 = 7i64;
+    let f = || -> i64 { return x; };
+    let g = || -> i64 { return x; };
+    return f() + g();
+}
+
+// (4) a shared reference to the root taken while the capture is live.
+fn f4() -> i64 {
+    let x: i64 = 3i64;
+    let f = || -> i64 { return x; };
+    let r: &i64 = &x;
+    return f() + *r;
+}
+
+// (5) the capture is remade each iteration; the loan must die with the frame.
+fn f5() -> i64 {
+    let mut total: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        let x: i64 = i;
+        let f = || -> i64 { return x; };
+        total = total + f();
+        i = i + 1i64;
+    }
+    return total;
+}
+
+// (6) a `move` capture OWNS the value: the arm above returns before the
+// shared-capture branch, and this program records no loan at all.
+fn call<F: FnOnce() -> i64>(f: F) -> i64 { return f(); }
+fn f6() -> i64 {
+    let x: i64 = 9i64;
+    return call(move || -> i64 { return x; });
+}
+
+// (7) a FIELD capture is not a whole-value capture: `|| p.a` beside a write to
+// `p.b` stays legal, which is the RFC-2229 policy this arm must not disturb.
+struct P { a: i64, b: i64 }
+fn f7() -> i64 {
+    let mut p: P = P { a: 1i64, b: 2i64 };
+    let f = || -> i64 { return p.a; };
+    let n: i64 = f();
+    p.b = 40i64;
+    return n + p.b;
+}
+
+fn main() -> i32 {
+    if f1() != 25i64 { return 1i32; }
+    if f2() != 25i64 { return 2i32; }
+    if f3() != 14i64 { return 3i32; }
+    if f4() != 6i64  { return 4i32; }
+    if f5() != 3i64  { return 5i32; }
+    if f6() != 9i64  { return 6i32; }
+    if f7() != 41i64 { return 7i32; }
+    return 0i32;
+}

@@ -1,6 +1,9 @@
 // rustc nll/closure-borrow-spans.rs — upstream E0502 / E0506 (2 of 7 cases missed)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.C
+// shelf: fail · was nllmoves.C, CLOSED 2026-08-31t — a WHOLE-VALUE SHARED
+// closure capture was a LIVENESS question only; it now records a shared
+// LOAN on the root held by the closure binding, unless the root is MOVED,
+// which stays a liveness question and keeps its own verb.
 // FINDING (from closure-borrow-spans.rs::assign_while_borrowed)
 // rustc: E0506 cannot assign to `x` because it is borrowed.
 package closure_borrow_spans_b;

@@ -1196,9 +1196,17 @@ PIN = {
     #   the same listing minus the glob half             -> 2320
     # 2511 = 191 + 2320. DOOR counts unmoved: no container family is declared;
     # they are Vec / array / struct borrow-check shapes.
-    'corpus'            : 2511,
+    # 2026-08-31t: +1 native pass fixture, bc_capsharedloan_legal_shapes — the
+    # seven legal whole-value-shared-capture shapes the new loan must keep
+    # admitting. Its refuse half (bc_capsharedloan_assign_under_capture_fail) is
+    # a FAIL fixture and the 4 closed ledger rows are IMPORTED admit -> fail, so
+    # neither touches this count. BY DIRECT LISTING:
+    #   ls tests/logos/pass/*.logos                      -> 2512
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
+    #   the same listing minus the glob half             -> 2321
+    'corpus'            : 2512,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2320,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2321,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a
