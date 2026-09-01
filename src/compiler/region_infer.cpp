@@ -10,6 +10,8 @@
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/sema.hpp>
+#include <logos/compiler/probe.hpp>
+#include <string>
 
 #include <cstdio>
 #include <cstdlib>
@@ -459,6 +461,36 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
                 return;
             case ECode::MethodCall: {
                 EMethodCallView v{e};
+                // probe: the SHARED half of a `&self` receiver (no mint today).
+                if (auto rcv = v.receiver(); rcv) {
+                    if (logos::probe::census_armed()) {
+                        logos::probe::census(
+                            std::string("mcrecv.kind.") +
+                            std::to_string((int)rcv.kind()));
+                        logos::probe::census(in_call_args_depth > 0
+                                             ? "mcrecv.nested" : "mcrecv.top");
+                    }
+                    if (rcv.kind() == ECode::VarRef &&
+                        (logos::probe::on("rgrecvshared") ||
+                         (in_call_args_depth > 0 &&
+                          logos::probe::on("rgrecvnest")))) {
+                        BorrowSite bs;
+                        bs.region = fresh_region();
+                        bs.origin = origin;
+                        bs.holder = holder;
+                        bs.target = std::string(EVarRefView{rcv}.name());
+                        bs.is_mut = false;
+                        bs.is_tpb_reservation = false;
+                        bs.origin_line = lir_view::stmt_line(sr);
+                        borrows_.push_back(std::move(bs));
+                        RegionConstraint c;
+                        c.kind    = RegionConstraint::Kind::Contains;
+                        c.longer  = borrows_.back().region;
+                        c.shorter = NO_REGION;
+                        c.point   = origin;
+                        constraints_.push_back(c);
+                    }
+                }
                 walk_expr(v.receiver(), "");
                 in_call_args_depth++;
                 v.each_arg([&](ExprRef a){ walk_expr(a, ""); });

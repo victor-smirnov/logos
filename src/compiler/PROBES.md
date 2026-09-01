@@ -9352,3 +9352,247 @@ borrowck-in-static--move-captured-out-of-fn-closure and nll/closure-move-spans
     ctest in BOTH directions — if the second reader comes back, every one of
     those fixtures stays green. The text oracle is the only witness, and it has
     no stored baseline gate. That is a missing sensor, not a missing test.
+
+# ═══ ROUND 2026-09-01 — THE E0716 PARTITION IS THREE MIS-PORTS AND THE ENGINE
+# IS ALREADY RIGHT ON ALL THREE; THE SHARED `&self` MINT BUYS ITS TWO ROWS, AND
+# THE TWO NAMES SEPARATE ON A LEGAL PROGRAM THE CORPUS DOES NOT CONTAIN ════════
+
+## 0. THE CENSUS FIRST (RULE 17), AND THE BRIEF WAS WRONG ABOUT FIVE THINGS
+
+    grep -rhoP 'probe::on\("\K[a-z_0-9]+' src include | sort -u | wc -l   → 130
+    grep '^# TOTAL' tests/logos/bc_admits.ledger                          → 258
+    non-blank non-# rows                                                  → 258
+    tests/imported/admit/*/*.logos                                        → 258
+    distinct roots                                                        → 71
+    top: bck.C 16 · lifereg.A 13 · nllmoves.B 11 · lifereg.R17 11 ·
+         bck.B 11 · nllmoves.C 10 · bck.NEW 9 · lifereg.R18 8 ·
+         lifereg.NEW-N1 8 · bck.D 8
+
+Opening build **9027a90a26766078**, tree clean at `2965dd9fc`. (262 → 258 and
+132 → 130 are last round's four landings; bck.C 17→16, nllmoves.C 12→10,
+bck.NEW 10→9 are where they came from.)
+
+**CORRECTION 1 — THE BRIEF'S THIRD SUBJECT IS ALREADY CLOSED.** It asks a
+landing round to pay two diagnostic debits: the two-wording E0506 duplicate and
+the added `.expected`-invisible line. Both died last round (M2 `assigndupdel`,
+M3 `capsharedimp`). READ on today's binary, one line each:
+
+    borrowck-closures-mut-and-imm                     1 line
+    nll/closure-borrow-spans--b                       1 line
+    nll/closure-access-spans--a-closure-imm-capture…  1 line
+    let mut x=5; let r=&x; x=7;                       1 line
+
+**CORRECTION 2 — THE E0716 ROW-TO-SHAPE MAP IS SWAPPED**, here and in
+2026-08-31s §0. Read from the files:
+
+    borrowck-borrowed-uniq-rvalue     `let r: &i64 = &mk().v;`   (FIELD of a call)
+    borrowck-borrowed-uniq-rvalue-2   `let d: &String = &mk();`  (the call ITSELF)
+    issue-36082                       `let val: &i64 = &mk().a;` (FIELD of a call)
+
+**CORRECTION 3 — "no PROBES.md line" is false.** They are named in 2026-08-31s
+§0 (CORRECTION 1), §7.3 and §8.5, and in 2026-08-31t §7.1. NEVER PRICED is
+true; never named is not.
+
+**CORRECTION 4 — the `&self` three-program table's first row.** The brief prints
+`let n = v.len(); v[n-1] = 123;  →  0 regions`. MEASURED, `LOGOS_DUMP_REGIONS`:
+
+    let n = v.len(); v[n-1] = 123;   1 region, borrow #1 from 'v' to '' is_mut=1
+    v[v.len()-1] = 123;              1 region, borrow #1 from 'v' to '' is_mut=1
+    let r=&v; v[0]=5; r.len();       2 regions → REFUSES
+
+The 0-region program is the BARE `let n = v.len();` with no index write (that
+is what 2026-08-31s §4 measured). The legal split and the illegal row mint the
+SAME single mut borrow — the two differ only in WHICH STATEMENT it sits in, and
+that is the whole reason NLL liveness can separate them.
+
+**CORRECTION 5 — root `bck.D` is "a TEMPORARY has no owner to key a loan on",
+and TWO of its eight rows are not about temporaries at all.** The two index
+rows are a `RegionInferer` mint gap (§2 below, and 2026-08-31s §4); they are
+filed under D by symptom, not by cause.
+
+## 1. THE E0716 PARTITION — THE MACHINERY EXISTS, IT IS CORRECT, AND THE THREE
+##      ROWS ARE MIS-PORTS. NO PROBE WAS SPENT AND NONE SHOULD BE.
+
+**WHERE THE TEMPORARY'S LIFETIME IS DECIDED**: `prov_of`'s `AddrOfTemp` arm
+(borrow_check.cpp), which answers `{is_local=true, is_temp=false}` for a direct
+`&<rvalue>` and says why in its own comment — Rust EXTENDS a temporary borrowed
+directly in a `let` initializer. **WHO RECORDS IT**: `RefProv::is_temp`, and the
+`let` gate reports on `is_temp` ALONE:
+
+    borrow_check.cpp, the Let arm:  if (vp.is_temp) report(… "temporary value
+    dropped while borrowed: … bind the owning value to a variable first …")
+
+So the channel is not missing; it is DELIBERATELY SILENT on the extended shape.
+Rust's rule (the Reference, temporary lifetime extension): *if a borrow,
+dereference, field, or tuple-indexing expression has an extended temporary scope
+then so does its operand* — which extends `&mk()` AND `&mk().v` AND `&mk().a`.
+**All three rows are legal Rust.** Closing them is a legal-program refusal.
+
+THE CORPUS ITSELF SAYS SO, in a fixture nobody had connected to these rows:
+`tests/imported/fail/borrowck/borrowck-borrow-from-temporary` is PINNED with
+`let r: &Foo = &id(Foo{v:3}); return &r.v;` and its `.expected` is the RETURN
+error. It only reaches the return because the `let` extended. A fix that made
+the `let` refuse would change that pin's text.
+
+MEASURED, on 9027a90a26766078, hand programs multi-line, one variable apart:
+
+    e716_a  let r = &mk().v;                        rc 0   ← the row, legal
+    e716_b  fn esc() -> &i64 { return &mk().v; }    rc 1   "reference to temporary value"
+    e716_c  fn esc() -> &B   { return &mk(); }      rc 1   "reference to temporary value"
+
+so the escape fact IS recorded for both shapes; only the LET consumer, correctly,
+does not report on it.
+
+⚠ **AND THE SAME THREE PROGRAMS FOUND TWO REAL E0716 HOLES WITH NO LEDGER ROW,
+one token from fixtures that are already pinned red:**
+
+    e716_d  keep(&mk().v)          rc 0  ADMITTED   ← HOLE, the FIELD hop
+    e716_e  keep(&id(5))           rc 1  (= the pinned issue-11493)
+    e716_f  keep(&mk())            rc 1  (= the pinned rvalue-borrow-scope-error)
+    e716_g  mk().view()            rc 0  ADMITTED   ← HOLE, no `impl Drop`
+    e716_h  mk().view() + Drop     rc 1  (= the pinned spec borrow_diag_2)
+
+`e716_g`/`e716_h` differ ONLY in `impl Drop for B`: the temp fact rides on
+`materialize_recv_ref`'s `__rtmp_N`, which sema hoists only for a DROPPABLE
+rvalue receiver. A non-droppable temporary receiver dangles silently.
+
+## 2. THE PROBE TABLE — build **905fb1a7bbc0ded7** (READ), gate-db 311 → 315
+
+L1 rc 0 with nothing armed (`probe-batch` proved the batch inert before pricing).
+
+    probe          fires  ceiling  cost  cfail       stdlib  verdict
+    rgrecvshared   13355        2     0    1 (text)      ok  ⛔ see §3
+    rgrecvnest      1298        2     0        0        ok  ✓ FUNDABLE
+    e716fldarg      1001        0     0        0        ok  0 rows, 0 cost, 1 hole
+    e716recvtmp     1306        0     0        0        ⛔  STOP — stdlib mem
+
+PREDICTED BY NAME in `build/predictions-2026-09-01.txt`, written before the
+edits. MEASURED: for BOTH region probes the closed set EQUALS the predicted set,
+**both directions empty** —
+
+    logos_00_bc_admit_borrowck_suggest-local-var-for-vector          bck.D
+    logos_00_bc_admit_borrowck_suggest-storing-local-var-for-vector  bck.D
+
+and the two E0716 probes' predicted CEILING 0 was measured, at fires 1001 / 1306
+— live sites, not unreached ones. First round in four where nothing arrived from
+another root; the reason is that the mechanism is keyed on a SYNTACTIC nesting
+that only these two rows have.
+
+DIAGNOSTIC READ on the armed binary, both rows, against upstream's E0502
+("cannot borrow `v` as immutable because it is also borrowed as mutable"):
+
+    error [fn main]: cannot borrow 'v' as shared: mutable borrow still in
+    scope here (first borrowed at line 8, conflicting use at line 8)
+
+## 3. ⚠ RULE 9 AGAIN, AND THIS TIME THE TWO NAMES SEPARATE ON A PROGRAM THE
+##      CORPUS DOES NOT CONTAIN — COST 0 IS NOT A SAFETY CLAIM
+
+`RegionInferer::walk_stmt`'s `MethodCall` arm walks the receiver and mints
+NOTHING; `AddrOf`/`AddrOfTemp` are the only mints. The SITE is "mint the shared
+half of a `&self` receiver"; the INNER PREDICATE is *which* receivers.
+
+    rgrecvshared  every plain-VarRef receiver
+    rgrecvnest    only when `in_call_args_depth > 0`
+
+Both price CEILING 2 / COST 0 / stdlib ok, and on the corpus alone
+`rgrecvshared` looks like the better buy (it is strictly wider). **IT REFUSES
+TWO LEGAL PROGRAMS, BOTH HAND-WRITTEN, NEITHER IN ANY POPULATION THIS HARNESS
+OWNS:**
+
+    n1  let n: i64 = v.len();  v[n - 1] = 123;   base 0 · nest 0 · shared 1
+        error: cannot borrow 'v' as mutable: shared borrow still in scope here
+    n7  v[0] = v.len();                          base 0 · nest 0 · shared 1
+        error: cannot borrow 'v' as shared: mutable borrow still in scope here
+
+MECHANISM, and it is the whole difference between the two names: a top-level
+mint takes the statement's `holder` — the LET's bound name — so the shared
+region lives as long as `n` does, and `n` is an `i64` that carries no borrow at
+all. At `in_call_args_depth > 0` the holder is always `""`, the region is
+point-scoped, and NLL liveness does the rest. The corpus never noticed because
+the split-into-a-local spelling is what the ledger rows are the SUGGESTED FIX
+FOR — nobody wrote it down as a pass fixture.
+
+`rgrecvshared`'s one cfail is the same defect seen from the fail side: a THIRD
+line added to `nll/loan-ends-mid-block-vec` on `data.push(4)`, `.expected` still
+matching (rule 15's shape). ⚠ That fixture ALREADY prints TWO lines unarmed —
+inherited, not created (rule 14's new clause, checked on the unarmed binary).
+
+RULE 5 — the legal shapes tried against `rgrecvnest`, all multi-line, all rc 0
+under it and under base:
+
+    n2  v.push(v.len())                     n3  let x = v[v.len()-1];
+    n4  take(&mut v, v.len())               n5  p.b = p.geta();
+    n6  while i < v.len() { v[i] = v[i]+1 } n7  v[0] = v.len();
+    n1  let n = v.len(); v[n-1] = 123;
+
+Ten programs, no counter-example found for `rgrecvnest`. That is a bound, not a
+proof: what it cannot promise is a legal shape where a `&self` receiver is
+NESTED in a call/index argument whose target is mutably borrowed at the same
+point and the program is still legal. Two-phase covers the argument case
+(`n4` survives via `is_tpb_reservation`); the index case is exactly the row.
+
+## 4. e716fldarg — 0 ROWS, 0 COST, AND IT CLOSES ONE OF THE TWO HOLES. HALF.
+
+`merge_arg_prov`'s `is_temporary_value_expr(EAddrOfTempView{a}.inner())` asks
+the question of the PROJECTION, not of its base, so `keep(&mk().v)` walks past a
+door `keep(&mk())` is refused at. Peeling FieldRead/TupleIndex/AddrOfTemp first:
+
+    fires 1001 · CEILING 0 · COST 0 pass · cfail 0 of 1103 · stdlib 4/4
+    e716_d  keep(&mk().v)            base rc 0 → armed rc 1   ✓ closed
+    e716_i  keep(&mk().v) + Drop     base rc 0 → armed rc 0   ✗ STILL OPEN
+
+⚠ **RULE 2 — DOORS IN SERIES, AND THE PROBE ONLY OPENED THE FIRST.** The
+droppable half is the DANGEROUS one (a destructor runs on the storage the
+reference points into) and it is the half that survives: with `impl Drop`, sema
+materialises `__rtmp_N`, the argument becomes a borrow of a NAMED local, and
+`is_temporary_value_expr` is the wrong question about it — the right one is
+`is_materialized_temp_name`, which the `AddrOf` arm asks and this path never
+reaches. A landing needs BOTH, and only the first is priced.
+
+## 5. e716recvtmp — ⛔ THE STDLIB, AND THE WALL HAS A NUMBER
+
+Same peel at the MethodCall arm's `is_temporary_value_expr(v.receiver())`
+(the receiver of `mk().view()` is `AddrOfTemp(Call)`, so the existing rule
+never sees the call):
+
+    fires 1306 · CEILING 0 · COST 0 pass · cfail 0 · stdlib ⛔ mem, 1 refusal
+    error [fn resolve]: temporary value dropped while borrowed: …
+
+It closes `e716_g` and it also REPAIRS a diagnostic: `return mk().view();`
+printed `cannot return reference to local variable '?'` — a name in no source
+file — and prints `cannot return reference to temporary value` under the arm.
+Two legal receiver spellings were checked and survive (`b.view()` on a named
+local; `s.len()` / `s.as_bytes()` on a `str`), so the mem refusal is narrower
+than "every autoref'd receiver". ⚠ AND THE DIAGNOSTIC CARRIES NO FILE OR LINE
+in a `--emit-module` build — `fn resolve` is all there is, and the mem layer has
+six of them. That is a second finding: the E0716 report site has no location
+in a module compile.
+
+## ⇒ 6. WHAT DESERVES FUNDING, IN ORDER
+
+ 1. **`rgrecvnest` — LAND IT.** ceiling 2 / cost 0 / cfail 0 / stdlib ok,
+    predicted set = measured set both ways, both diagnostics correct and in
+    upstream's direction, ten legal programs unmoved. It is the FIRST thing in
+    four rounds to reach the two index rows, and it reaches them in the channel
+    2026-08-31s §4 proved was the only one that can see them.
+ 2. **`e716fldarg` + the `__rtmp` half** — 0 rows but 0 cost, and together they
+    close a real dangling-reference hole one token from two pinned fixtures.
+    Rows are not the only currency; this one is a soundness fix with a price of
+    zero and a fixture that must be authored, not harvested.
+ 3. **`rgrecvshared` — DO NOT LAND**, and record why: the holder. A top-level
+    receiver mint needs the region to die at the end of its statement unless the
+    holder is itself borrow-carrying, and nothing in `RegionInferer` knows that.
+ 4. **THE THREE E0716 ROWS SHOULD BE RETIRED FROM THE LEDGER, not bought.** They
+    are ports of E0716 tests into the one syntactic position where Rust extends.
+    That is a CORPUS DECISION WITH AN OWNER — recorded here, not acted on.
+
+## 7. OPEN
+
+ 1. The three E0716 rows (§1) — a corpus decision, not a probe result.
+ 2. `e716_i`: `keep(&mk().v)` with a Drop impl, still admitted (§4).
+ 3. `e716recvtmp`'s mem refusal has no file/line (§5).
+ 4. `two-phase-nonrecv-autoref--c` vs the pass fixture `tpb-mut-with-shared-ref-arg`
+    — unchanged, still one program booked twice (2026-08-31s §2).
+ 5. `d-index-two-phase` unbuyable while `btvec_append` keeps `f(&mut t, g(&t))`.
+ 6. `a-fnmut-twice` is still touched by nothing.
+ 7. Still no sensor asserting the ABSENCE of a duplicate line (2026-08-31t §7.5).

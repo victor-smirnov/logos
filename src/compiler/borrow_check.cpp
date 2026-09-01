@@ -8006,7 +8006,22 @@ private:
                 // carried borrow (v.iter()'s borrow of v) flows through via
                 // the recursive prov, but no E0716 temp applies. Only a
                 // ref-self method's result points INTO the temporary.
-                if (recv_contributes && is_temporary_value_expr(v.receiver()) &&
+                auto peel_recv_base = [](ExprRef b) {
+                    for (int i = 0; b && i < 8; ++i) {
+                        if (b.kind() == Code::FieldRead)
+                            { b = EFieldReadView{b}.receiver(); continue; }
+                        if (b.kind() == Code::TupleIndex)
+                            { b = ETupleIndexView{b}.receiver(); continue; }
+                        if (b.kind() == Code::AddrOfTemp)
+                            { b = EAddrOfTempView{b}.inner(); continue; }
+                        break;
+                    }
+                    return b;
+                };
+                if (recv_contributes &&
+                    (is_temporary_value_expr(v.receiver()) ||
+                     (logos::probe::on("e716recvtmp") &&
+                      is_temporary_value_expr(peel_recv_base(v.receiver())))) &&
                     method_self_kind(v) != 0)
                     rp.is_temp = true;
                 // The receiver may be a BARE VarRef value-local (e.g. `Rc::deref`'s
@@ -8227,10 +8242,25 @@ private:
                 // change the answer for every consumer, including the direct
                 // `let` the extension rule exists for, and this does not touch
                 // it at all.
+                auto peel_temp_base = [](ExprRef b) {
+                    for (int i = 0; b && i < 8; ++i) {
+                        if (b.kind() == Code::FieldRead)
+                            { b = EFieldReadView{b}.receiver(); continue; }
+                        if (b.kind() == Code::TupleIndex)
+                            { b = ETupleIndexView{b}.receiver(); continue; }
+                        if (b.kind() == Code::AddrOfTemp)
+                            { b = EAddrOfTempView{b}.inner(); continue; }
+                        break;
+                    }
+                    return b;
+                };
                 auto merge_arg_prov = [&](ExprRef a) {
                     RefProv ap = prov_of(a);
                     if (a.kind() == Code::AddrOfTemp &&
-                        is_temporary_value_expr(EAddrOfTempView{a}.inner()))
+                        (is_temporary_value_expr(EAddrOfTempView{a}.inner()) ||
+                         (logos::probe::on("e716fldarg") &&
+                          is_temporary_value_expr(
+                              peel_temp_base(EAddrOfTempView{a}.inner())))))
                         ap.is_temp = true;
                     merged = merge_prov(merged, ap);
                 };
