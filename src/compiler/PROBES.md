@@ -10007,3 +10007,43 @@ NEW-N1 is genuinely heterogeneous: five mechanisms over eight rows.
  6. The E0716 report still carries no file/line in an `--emit-module` build.
  7. `type_str` does not print the region of Slice / TraitObject / DstRef (§3).
  8. Still no sensor asserting the ABSENCE of a duplicate line.
+
+## 10. `e716recvown` — THE SECOND WALL CLEARS, AND THE HOLE STAYS CLOSED
+
+Second batch, one edit, one build **d0d36da4c844e00a** (READ), L1 rc 0 with
+nothing armed.
+
+    site: src/compiler/borrow_check.cpp, the MethodCall arm's `rp.is_temp` gate
+    e716recvown    fires 1471 · ceiling 0 · cost 0 · cfail 0 · stdlib ok
+    e716recvownbc  fires 1471 · ceiling 0 · cost 0 · cfail 0 · stdlib ok
+
+The predicate is `e716recvref` plus one clause: **the peeled base's own TYPE
+must not be a reference kind.** `e716recvownbc` adds `!is_borrow_carrying_type`
+on top and is IDENTICAL on all three populations and on all eight hand
+programs — the wider exemption buys nothing, so the narrow one is the one to
+fund.
+
+THE SUCCESS CRITERION IS THE HAND PROGRAM, AND IT IS MET IN BOTH DIRECTIONS.
+Eight programs, all MULTI-LINE, run unarmed and under both arms:
+
+    r_refuse    mk().view()                     rc 0 -> 1   ← THE HOLE, CLOSED
+    w_reffield  o.get().leaf.view()             rc 0, rc 0  ← store_save's shape
+    r_named     b.view()                        rc 0, rc 0
+    r_scalar    mk().val()   -> i64             rc 0, rc 0
+    r_handle    mk().any()   -> W by value      rc 0, rc 0  ← resolve's shape
+    r_inline    take(mk().view())               rc 0, rc 0
+    r_byval     mk().into_v()  (self: B)        rc 0, rc 0
+    w_refbase   o.get().view()                  rc 1, rc 1  ← §6, UNARMED too
+
+⚠ `w_refbase` is refused with NOTHING ARMED and is refused under the arms; the
+arm neither causes it nor repairs it. Attributing it to this mechanism would
+have been the easy mistake, and the unarmed column is the only thing that
+prevents it.
+
+⇒ **THIS IS THE ROUND'S ONE FUNDABLE MECHANISM AT ZERO PRICE.** It closes a
+real dangling-reference hole (`mk().view()` with no `impl Drop` — one token
+from the pinned `tests/spec/fail/borrow_diag_2__ref-from-temp`, which has the
+`impl Drop`), on all three cost columns at zero, having cleared BOTH stdlib
+walls that stopped its two predecessors. It buys no ledger row and cannot: the
+ledger holds only programs that compile and should not, which is what this hole
+is.

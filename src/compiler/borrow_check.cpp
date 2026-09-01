@@ -8030,6 +8030,27 @@ private:
                      // which `mk().view() -> &i64` is and `any() -> WAny` is not.
                      (logos::probe::on("e716recvref") && is_ref_kind(m_rt) &&
                       is_temporary_value_expr(peel_recv_base(v.receiver()))) ||
+                     // PROBES e716recvown / e716recvownbc — THE SECOND WALL,
+                     // MEASURED. `e716recvref` cleared `fn resolve` and then
+                     // refused `fn store_save`:
+                     //   g.branches.borrow(i).name.as_str()
+                     // The peeled base is a CALL RETURNING A REFERENCE, whose
+                     // referent lives in `g` and outlives the statement — it is
+                     // not an owning temporary at all. `is_temporary_value_expr`
+                     // answers on the NODE KIND and cannot see that. The hand
+                     // twin is scratch `w_reffield`; its no-field-hop sibling
+                     // `w_refbase` is refused by this arm's UNARMED sibling
+                     // already, which is a pre-existing FALSE REFUSAL.
+                     ((logos::probe::on("e716recvown") ||
+                       logos::probe::on("e716recvownbc")) &&
+                      is_ref_kind(m_rt) &&
+                      [&]{ ExprRef b = peel_recv_base(v.receiver());
+                           if (!b || !is_temporary_value_expr(b)) return false;
+                           TypeRef bt = b.type(pool);
+                           if (is_ref_kind(bt)) return false;
+                           if (logos::probe::on("e716recvownbc") &&
+                               is_borrow_carrying_type(bt)) return false;
+                           return true; }()) ||
                      (logos::probe::on("e716recvdirect") &&
                       is_temporary_value_expr([&]{
                           ExprRef b = v.receiver();
