@@ -4416,6 +4416,15 @@ private:
             }
             it->mut_borrowed = true;
         } else {
+            // ⚠ PROBE argresvsibshared — the ABUSE direction of argresvact.
+            if (it->mut_reservations > 0) {
+                logos::probe::census("argresvsib/shared_over_reservation");
+                if (logos::probe::on("argresvsibshared")) {
+                    report(line, std::format(
+                        "cannot borrow '{}' as shared: mutably reserved", target));
+                    return;
+                }
+            }
             if (it->mut_borrowed) {
                 if (implicit) return;   // RecordFlags::implicit — see its note
                 report(line, std::format(
@@ -10198,6 +10207,14 @@ private:
                     // funding it; this number is a measurement with a date.
                     if (logos::probe::on("capshared") && shared_whole)
                         shared_whole = false;   // fall to record_borrow
+                    // ⚠ PROBE capsharedlive — capshared, MINUS the moved root.
+                    if (logos::probe::on("capsharedlive") && shared_whole) {
+                        const VarState* lv = var_find(NO_SLOT, root);
+                        if (lv != nullptr && lv->moved)
+                            logos::probe::census("capsharedlive/moved_root");
+                        else
+                            shared_whole = false;
+                    }
                     if (shared_whole) {
                         check_live(root, line);
                     } else {
@@ -13722,6 +13739,24 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             if (a && is_ref_kind(a.type(pool))) take_ref_borrows(a, line);
             else                                visit(a, /*consuming=*/true, line);
         });
+        // ⚠ PROBE argresvact — ACTIVATION AT THE CALL. See PROBES.md 2026-08-31s.
+        if (!scopes_.empty()) {
+            for (auto& br : scopes_.back().borrows) {
+                if (!br.is_mut) continue;
+                logos::probe::census("argresvact/frame_mut");
+                auto* ait = var_find(br.target_slot, br.target);
+                if (ait == nullptr || ait->mut_reservations == 0) continue;
+                logos::probe::census("argresvact/reserved");
+                if (ait->shared_borrows == 0) continue;
+                logos::probe::census("argresvact/shared_live_at_call");
+                if (logos::probe::on("argresvact")) {
+                    report(line, std::format(
+                        "cannot borrow '{}' as mutable: {} shared borrow(s) active",
+                        br.target, ait->shared_borrows));
+                    break;
+                }
+            }
+        }
         in_call_args_--;
         pop_scope();
     };

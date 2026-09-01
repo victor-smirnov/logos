@@ -8883,3 +8883,292 @@ after which the store for build 298 reads **5851 recorded, 0 failed**. A gate
 whose subject is a SHELL SCRIPT or a PINNED DOCUMENT is invisible to a build
 hash, and its record must be forced. Recorded so the next round does not read
 that rc 0 as a green tree.
+
+# ═══ ROUND 2026-08-31s — capshared'S BLOCKER IS THE MOVED ROOT, NOT THE VERB;
+# THE TWO-PHASE ROW AND ITS COST ARE THE SAME PROGRAM; AND THE INDEX SHAPE HAS
+# A SITE AT LAST — IN A CHANNEL NO PROBE HAD LOOKED AT ═════════════════════════
+
+## 0. THE CENSUS FIRST (RULE 17), AND THE BRIEF WAS WRONG ABOUT THREE THINGS
+
+Walked over `src` AND `include`, whole tree, not `src/compiler/` only:
+
+    grep -rhoP 'probe::on\("\K[a-z_0-9]+' src include | sort -u | wc -l   → 129
+    grep '^# TOTAL' tests/logos/bc_admits.ledger                          → 262
+    rows with 3 fields, non-blank, non-comment                            → 262
+    tests/imported/admit/*.logos                                          → 262
+    distinct roots                                                        → 71
+    top roots: bck.C 17 · lifereg.A 13 · nllmoves.C 12 · nllmoves.B 11
+               lifereg.R17 11 · bck.B 11 · bck.NEW 10 · lifereg.R18 8
+               lifereg.NEW-N1 8 · lifereg.C 8 · bck.D 8
+
+Opening build **6f7abce049716a19**, tree clean, `git status` empty.
+
+**CORRECTION 1 — `bck.D`'s partition. The brief says "three are the two-phase
+partition"; they are TWO, and the LARGEST sub-partition is one the brief does
+not name at all.** All eight rows read:
+
+    &mk()      E0716 temporary dropped while borrowed   borrowck-borrowed-uniq-rvalue
+    &mk().v    E0716                                     borrowck-borrowed-uniq-rvalue-2
+    &mk().a    E0716                                     issue-36082
+    v[v.len()-1] = x   E0502                             suggest-local-var-for-vector
+    v[v.len()-1] = x   E0502                             suggest-storing-local-var-for-vector
+    f(&mut a, &a)      E0502                             two-phase-…--c-mut-and-shared-args
+    f(&mut a, i, g(&a)) E0502                            two-phase-…--d-index-two-phase
+    f(f(10))           E0499                             two-phase-…--a-fnmut-twice
+
+So bck.D is **FOUR** mechanisms, not three: a THREE-ROW E0716
+temporary-lifetime partition that no round has ever mentioned, the two-row
+index-self-borrow shape, two two-phase rows, and `a-fnmut-twice` (the known
+FnMut-through-a-binding wall). The E0716 three are now the root's biggest
+group and nothing in this file has ever priced them.
+
+**CORRECTION 2 — `capshared`'s cause was NOT unknown.** The brief says "the
+diagnosis was wrong and the real cause is unknown". 2026-08-31r §4 names it
+(the VERB) and this round proves the layer under it (§3). Not unknown; just
+not yet actionable in the form it was written down.
+
+**CORRECTION 3 — capshared does NOT create the `closure-move-spans`
+duplicate.** 2026-08-31r §4 records it as "a defect capshared creates". Read
+on 6f7abce049716a19, UNARMED, that fixture already prints TWO lines:
+
+    error [fn main]: use of moved value 'x' (moved on line 10)
+    error [fn main]: cannot borrow moved value 'x' (moved on line 10)
+
+capshared only makes the first line's verb equal the second's. The duplicate
+is inherited, not created.
+
+## 1. THE PROBE TABLE — build **dc6cb11cbed9f192** (READ), gate-db 302 → 305
+
+L1 rc 0 with nothing armed (`probe-batch` proved the batch inert before pricing).
+
+    probe             fires  ceiling  cost  cfail        stdlib  verdict
+    argresvact            2        1     1      0            ok  see §2
+    argresvsibshared     26        4     7      1 (text)      ⛔  DEAD
+    capsharedlive       166        4     0      1 (text)      ok  ✓ FUNDABLE
+
+`fires` is the INNER MATCH, not the arrival: all three probes call `probe::on`
+only after the predicate is true, so 2 is the whole population of
+`f(&mut x, …&x…)`-at-activation in the ledger corpus. The ARRIVALS are the
+census, run separately under `LOGOS_CENSUS` on the same build (§2, §4).
+
+## 2. ⚠ ACTIVATION AT THE CALL WORKS, AND ITS "COST" IS THE ROW IT CLOSES
+
+`argresvact` is the spelling the corpus asked for and no round had priced:
+`take_borrow_whole_` keeps depositing a RESERVATION at a `&mut` argument, and
+at the END of `visit_args` — the call — any reservation whose root still has a
+live shared borrow is refused. It is NOT the deletion of the reservation
+(`argresvall`, ⛔) and NOT the receiver split (`argresvnonrecv`, ⛔).
+
+    CEILING 1  borrowck_two-phase-nonrecv-autoref--c-mut-and-shared-args  bck.D
+    COST    1  logos_02_semantic_core_pass_tpb-mut-with-shared-ref-arg
+    cfail 0 of 1098 · **stdlib: all four layers compile** ← the first two-phase
+                       spelling that survives the column that killed the others
+
+DIAGNOSTIC READ, on the armed binary, at the CALLER and naming the caller's
+root — not the callee's parameter:
+
+    error [fn main]: cannot borrow 'a' as mutable: 1 shared borrow(s) active
+
+⚠ **AND THE COST IS THE SAME PROGRAM AS THE ROW.** `tpb-mut-with-shared-ref-arg`
+is, in full:
+
+    fn write_then_read(m: &mut i32, r: &i32) -> i32 { *m = *r; return *m; }
+    fn main() -> i32 { let mut x: i32 = 7i32;
+                       return write_then_read(&mut x, &x) - 7i32; }
+
+and the ledger row is the same program with `[i64; 3]` for `i32`. rustc rejects
+both with E0502 (two-phase borrows are an AUTOREF adjustment — a method
+receiver or an overloaded operator — never an explicit `&mut` argument; the
+upstream file is named `two-phase-NONRECV-autoref` for that reason). The
+fixture's own header says what it pins: "B82: `f(&mut x, &x)` — &mut
+reservation + shared ref to same target."
+
+**So the corpus books one program as a HOLE and pins its twin as PARITY.** That
+is why every two-phase spelling has priced cost ≥ ceiling: the cost has been
+this fixture every time. `argresvall`'s cost included it; `argresvnonrecv`'s
+did too. Not a coincidence and not an exemption problem.
+
+⚠ THIS IS NOT A LICENCE TO DELETE THE FIXTURE. A pass fixture that asserts a
+DIVERGENCE is a claim about intended behaviour, and re-classifying it is a
+corpus decision with an owner, not a probe result. Recorded, not acted on.
+With it set aside the arm is CEILING 1 / COST 0 / cfail 0 / stdlib ok.
+
+## 3. ⇒ capshared: THE BLOCKER IS THE MOVED ROOT, AND THE FIX IS A GUARD
+
+Read on 6f7abce049716a19, all four `.expected` losses, base vs `capshared`:
+
+    fixture                          .expected pins       capshared prints
+    arc-consumed-in-looped-closure   use of moved value   cannot borrow moved
+    borrowck-in-static--move-captu…  'v'/'x' (moved on    value 'v'/'x'
+    borrowck-in-static--r-runtime    line N)              (moved on line N)
+    nll/closure-move-spans
+
+All four have a **MOVED** root. The base path answers the LIVENESS question
+first (`check_live` → "use of moved value"); capshared replaces that branch
+wholesale with `record_borrow`, so the moved fact comes back out of
+`take_borrow_whole_`'s LOAN arm wearing the loan arm's verb. The line was never
+the problem (2026-08-31r) and the verb is a SYMPTOM, not the cause: the cause is
+that a liveness question is being routed through a loan channel.
+
+`capsharedlive` = capshared, with the fall-through **guarded on the root being
+LIVE**; a moved root keeps `check_live`:
+
+    fires 166 · CEILING 4 · COST 0 · cfail 1 (TEXT-ONLY) · stdlib ok
+
+    logos_00_bc_admit_borrowck_borrowck-closures-mut-and-imm            bck.C
+    logos_00_bc_admit_nll_closure-borrow-spans--a                       nllmoves.*
+    logos_00_bc_admit_nll_closure-borrow-spans--b                       nllmoves.*
+    logos_00_bc_admit_regions_region-bound-on-closure-outlives-call     lifereg.*
+
+**PREDICTED vs MEASURED, BOTH WAYS (rule 6): predicted these four BY NAME,
+measured exactly these four, no arrivals and no departures.**
+
+DIAGNOSTICS READ, against each fixture's own recorded upstream error:
+
+    borrowck-closures-mut-and-imm   E0506  → "cannot assign to 'x' because it
+                                             is borrowed"                 ✓
+    closure-borrow-spans--a         E0502  → "cannot borrow 'x' as mutable:
+                                             1 shared borrow(s) active"   ✓
+    closure-borrow-spans--b         E0506  → "cannot assign to 'x' because it
+                                             is borrowed"                 ✓
+    region-bound-on-closure-…       E0505  → "cannot move 'f' while it is
+                                             borrowed"                    ✓
+
+⚠ **TWO BLEMISHES A LANDING ROUND MUST CLOSE, BOTH RULE 14 IN REVERSE.**
+(a) `borrowck-closures-mut-and-imm` and `closure-borrow-spans--b` each print
+the E0506 TWICE, in two wordings ("…because it is borrowed" / "…while 'x' is
+borrowed"). (b) the one cfail,
+`fail/closure-access-spans--a-closure-imm-capture-conflict`, is an ADDED second
+line on an already-red fixture (`.expected` still matches, so ctest stays green
+— rule 15's shape, caught only by the text oracle).
+
+capshared's cfail 6 (4 `.expected` LOST) → capsharedlive's cfail 1, text-only.
+**The four rows are no longer blocked, and no pinned diagnostic is weakened.**
+
+## 4. ⚠ THE INDEX SHAPE: NOT IN THIS CHANNEL AT ALL — AND THE SITE IS IN THE
+##      REGION INFERENCER, WHERE NOTHING HAD LOOKED
+
+`argresvsibshared` is the ABUSE direction of §2 (refuse a SHARED borrow taken
+while a reservation is live) and it is dead: `stdlib mem` REFUSED, 10 errors,
+first `error [fn alt_expr_0]: cannot borrow 'lex' as shared: mutably reserved`;
+cost 7, including `tpb-vec-push-len` and `two-phase-baseline` — i.e. it kills
+`v.push(v.len())`, which is legal Rust. Its ceiling of 4 is real but unbuyable:
+c-mut-and-shared-args, **d-index-two-phase**, and two rows NOT PREDICTED AND
+UNDER ANOTHER ROOT (`regions_regions-adjusted-lvalue-op--c26` / `--t26`).
+Third round running that most of a probe's surprise rows land under other
+roots.
+
+⚠ **RULE 9's OTHER OUTCOME, AND IT SEPARATES ON THE STDLIB COLUMN.** The site
+(activation at the call) and the inner predicate (conflict at the shared side)
+are NOT priced identically: 1 vs 4 rows, cost 1 vs 7, and stdlib **ok vs ⛔**.
+The census says why, per fixture, on this build:
+
+    fixture                     frame_mut  reserved  shared_live_at_call  sib
+    c-mut-and-shared-args           129       129            1             1
+    d-index-two-phase               129       129            0             1
+    suggest-local-var-for-vector    128       128            0             0
+
+`d`'s shared read lives inside a NESTED call frame that pops before the outer
+call, so activation cannot see it; only the reservation-side check can, and
+that check is what refuses the stdlib. **`d-index-two-phase` and
+`btvec_append` are the same program shape** — `f(&mut t, g(&t))` — so any rule
+that closes `d` refuses `logos.mem`. That is the wall, with a number.
+
+⚠ **AND `suggest-local-var-for-vector` SCORES ZERO IN BOTH DIRECTIONS.** 128
+is the prelude's constant; the user statement contributes NOTHING. So the
+index-self-borrow shape does not reach `take_borrow_whole_`'s reservation
+channel at all — no probe in this channel can ever see it, which is the third
+round of probes aimed at it and the first measurement that says why.
+
+**THE SITE, FOUND — `RegionInferer`, and its borrow table is ONE-SIDED.**
+`LOGOS_DUMP_REGIONS` on three programs one variable apart, same build:
+
+    let n = v.len();                    fn main — 0 regions, 0 borrows
+    v[n - 1] = 123;   (split)           fn main — 1 region,  1 borrow
+                                          borrow #1 from 'v' to '' is_mut=1
+    v[v.len() - 1] = 123;  (the row)    fn main — 1 region,  1 borrow
+                                          borrow #1 from 'v' to '' is_mut=1
+    let r = &v; v[0] = 5; r.len();      fn main — 2 regions, 2 borrows  → REFUSES
+                                          #1 'v'→'r#1' is_mut=0, #2 'v'→'' is_mut=1
+
+The MUT half is already minted: the `index_mut` receiver IS a recorded
+`BorrowSite`, at the right point, and when the shared half exists the
+inferencer finds the conflict and reports it
+("cannot borrow 'v' as mutable: shared borrow still in scope here"). What is
+missing is the SHARED half: **a `&self` METHOD RECEIVER mints no BorrowSite at
+all** — `let n = v.len();` produces zero borrows. Rule 16's shape exactly, and
+only the minting site can tell "no fact recorded" from "the fact is absent".
+
+That is a PROVEN-LIVE SITE for the index-self-borrow rows, on a channel every
+previous probe (all of them in `take_borrow_whole_`'s loan tables) was blind
+to. It is not priced — a shared BorrowSite per `&self` receiver is a large
+population and its cost is the whole question — but it is a site, which is
+what four rounds asked for.
+
+## 5. RULE 5 — THE HAND PROGRAMS, ALL MULTI-LINE, ALL ON THE ARMED BINARY
+
+    a1  double_access(&mut a, &a)            argresvact rc 1  ✓ (the row's twin)
+    a2  take(&mut a, len3(&a))               argresvact rc 0  ✓ (the stdlib's shape,
+                                                                 survives)
+    i2  take2(&mut v, &v)   on a Vec         argresvact rc 1  ✓ (AddrOf on a Vec
+                                                                 records fine)
+    i3  let r=&v; v[0]=5; r.len()            base       rc 1  ← RegionInferer
+    i4  let n = v.len();                     0 borrows        ← the missing mint
+    idx let n=v.len(); v[n-1]=123;           1 borrow, is_mut=1
+
+## 6. `loan_carrying_type` vs `is_borrow_carrying_type` — SETTLED BY READING,
+##      FIFTH ROUND, NO PROBE SPENT
+
+They are not two names for one question, and the tree says so in three lines:
+
+    ts.loan_carrying = ts.borrow_carrying;      // seed
+    …fixpoint that only INSERTS, with holds_residency_holder NOT skipped…
+
+so `borrow_carrying ⊆ loan_carrying` as sets, and the two type predicates run
+the SAME recursion over them — except that `bc_is_borrow_carrying_type` has a
+`residency_exempt` early `return false` that the loan version does not.
+Therefore `is_borrow_carrying_type(t) ⇒ loan_carrying_type(t)`, never the
+converse. The questions differ on purpose: an Rc/Arc share says the arena is
+ALIVE (escape), not that it is being READ (loan) — D1 round 2 measured that
+with four named programs (c4/c2/X2/X3) and the loan channel exists because of
+it.
+
+⚠ THE ONE CONSEQUENCE WORTH RECORDING: the implication makes the second
+conjunct DEAD at both sites that spell it —
+
+    borrow_check.cpp:4744  if (!is_ref_kind(st) && !loan_carrying_type(st) &&
+                               !is_borrow_carrying_type(st)) continue;
+    borrow_check.cpp:5565  if (!is_borrow_carrying_type(st) &&
+                               !loan_carrying_type(st)) return;
+
+Redundancy, not a defect. Derived by READING the construction, not measured;
+what would falsify it is a name reaching `borrow_carrying` after the seed copy,
+and there is none — the copy is the last statement of the bc fixpoint.
+
+## ⇒ 7. WHAT DESERVES FUNDING, IN ORDER
+
+ 1. **`capsharedlive` — LAND IT.** ceiling 4 / cost 0 / cfail 1 text-only /
+    stdlib ok, four rows with four correct diagnostics, predicted set = measured
+    set both ways. The landing owes two rule-14 duplicates (§3).
+ 2. **The `&self` receiver's missing `BorrowSite` in `RegionInferer`** (§4) —
+    a proven-live site, unpriced, reaching the two `v[v.len()-1]` rows and
+    plausibly more. Price the MINT alone before anything built on it (rule 13).
+ 3. **`bck.D`'s three E0716 rows** (§0) — the root's largest group, never
+    priced, never named in this file.
+ 4. **`argresvact`** stays UNFUNDED but is no longer a dead end: its only cost
+    is a fixture that pins the very divergence the row records (§2). It needs a
+    corpus decision, not another spelling.
+
+## 8. OPEN
+
+ 1. `tpb-mut-with-shared-ref-arg` pins `f(&mut x, &x)` as legal; the ledger
+    books its twin as a hole. One of the two is wrong and this round did not
+    decide which.
+ 2. `d-index-two-phase` is unbuyable while `btvec_append` keeps its shape (§4).
+ 3. `a-fnmut-twice` is still touched by nothing.
+ 4. The two duplicated E0506s and the added line under `capsharedlive` (§3).
+ 5. bck.D's E0716 three (§0), unpriced.
+ 6. `test-levels.sh` run from the SOURCE ROOT prints CMake errors for every
+    tier and then `0/0 tests passed … PLUS: the gates tier FAILED` — a red
+    summary that means "wrong cwd", not a red tree. Met this round; run it
+    from `build/`.
