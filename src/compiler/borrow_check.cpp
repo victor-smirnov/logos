@@ -8037,7 +8037,20 @@ private:
                      //     `g` (stdlib/mem/bt/memstore.logos, `fn store_save`).
                      // `is_temporary_value_expr` answers on the NODE KIND and
                      // can see neither.
-                     (is_ref_kind(m_rt) &&
+                     // ⚠ AND GATE (i) IS `is_plain_ref_kind`, NOT `is_ref_kind`
+                     // — THE FAT VALUE FORMS ARE EXCLUDED, and that was bought
+                     // by a THIRD refusal, this one invisible to all three cost
+                     // columns because it lives in the L4 native pass tier and
+                     // not in `-L bc`: tests/logos/pass/writ_dview_str, on
+                     // `b.get(0u64).as_str()`. `DView::as_str(&self) -> str`
+                     // builds its `str` from a RAW POINTER field, so the bytes
+                     // live in `b` and not in the DView temporary. A by-value
+                     // `str`/`&[T]` is a COPY of a borrow whose lifetime is its
+                     // ELEMENT's — the distinction `is_plain_ref_kind`'s own
+                     // comment above already draws, bought there by a stdlib
+                     // program. ⚠ THE OPEN SIDE: `mk().slice_view() -> &[u32]`
+                     // on a temporary receiver stays ADMITTED.
+                     (is_plain_ref_kind(m_rt) &&
                       [&]{ ExprRef b = peel_recv_base(v.receiver());
                            if (!b || !is_temporary_value_expr(b)) return false;
                            return !is_ref_kind(b.type(pool)); }())) &&

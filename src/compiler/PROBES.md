@@ -10324,3 +10324,45 @@ the ledger cannot represent at all. Three probes priced and all three declined.
  8. NEW: there is no alpha-equivalence comparator for two lifetime binders (§6).
  9. `ltslicelt` + the minted-region exemption, and the printer before it —
     UNCHANGED, not touched this round.
+
+## 10. ⚠ THE COST COLUMNS WERE ALL THREE ZERO AND `L4 bc` FOUND A THIRD WALL
+
+`test-levels.sh L4 bc` on the landed tree: **4453/4455, ONE FAILURE —
+`logos_02_semantic_core_pass_writ_dview_str`**, refused by M1 with the E0716
+text. Every column this round reports had already said zero:
+
+    CEILING 0 · COST 0 pass(ledger+legal) · cfail 0 of 1110 · stdlib 4-of-4
+    fail-text oracle vs the control revert: 0 rc, 0 text, 0 un-refusals
+
+**THE POPULATION IS THE DEFECT.** `ceiling-probe.sh`'s pass half is the ledger
+plus three `pass` directories; `writ_dview_str` is a NATIVE pass fixture in the
+L4 tier and carries no `bc` label, so no cost column this harness owns contains
+it. A third stdlib-shaped wall existed behind the two that `e716recvown` had
+already cleared, and only the once-per-batch expensive gate could see it.
+⚠ THE LADDER EARNED ITS KEEP EXACTLY WHERE IT IS PRICED TO — and a round that
+had committed on three green columns would have shipped this.
+
+    b.get(0u64).as_str()     `Buffer::get` returns a DView BY VALUE, and
+                             `DView::as_str(&self) -> str` builds its `str`
+                             from a RAW POINTER FIELD (`str_from_raw(self.obj,
+                             …)`). The bytes live in `b`; nothing points into
+                             the temporary. LEGAL, and it was refused.
+
+**THE FIX IS GATE (i), AND THE PREDICATE ALREADY EXISTED WITH THIS EXACT
+COMMENT ON IT.** `is_ref_kind` counts the FAT VALUE forms (`str`, `&[T]`,
+borrowed DST) as references; `is_plain_ref_kind`, three lines below it in
+`borrow_check.cpp`, is "the `&`/`&mut`/borrowed-dyn subset … WITHOUT the fat
+value forms", and its own comment records that a by-value slice is a COPY of a
+borrow whose lifetime is its ELEMENT's — bought there by a stdlib program
+(`tv_build(h, name.as_str(), …)`). M1's gate (i) now uses it.
+
+Re-measured after the narrowing, whole ladder: L1 746/746 + gates 305/305 ·
+admits 256/256 0 failed · stdlib 4-of-4 · fail-text oracle 0/1110 changed
+against the control-revert baseline · all eleven hand programs unmoved
+(`r_refuse`, `x_dangle_call`, `x_dangle_meth` refused; the other eight admitted)
+· `writ_dview_str` green.
+
+⚠ **AND THE NARROWING LEAVES A HOLE OPEN, NAMED:** `mk().slice_view() -> &[u32]`
+on a temporary receiver is still admitted. Separating it from `as_str` needs to
+know whether the returned fat value's provenance IS the receiver, which no
+predicate at this site can answer today. It is not closed and it is not claimed.
