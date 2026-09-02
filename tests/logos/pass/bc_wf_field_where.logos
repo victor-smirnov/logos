@@ -1,0 +1,4 @@
+// struct S<T> where T: 'static { x: &'static T } — the struct's where clause covers the field (2026-09-03a)
+package bc_wf_field_where;
+struct S<T> where T: 'static { x: &'static T }
+fn main() -> i32 { return 0i32; }

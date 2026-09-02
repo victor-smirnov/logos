@@ -1,0 +1,5 @@
+// THE LEGAL TWIN: the alias mention under fn f<'a, 'b: 'a> (2026-09-03a)
+package bc_wf_alias;
+type Rr<'x, 'y> = &'x &'y i64;
+fn f<'a, 'b: 'a>(a: &'a i64, b: &'b i64) -> i64 { let z: Option<Rr<'a, 'b>> = Option::None; return *a; }
+fn main() -> i32 { let n = 1i64; return f(&n, &n) as i32 - 1i32; }

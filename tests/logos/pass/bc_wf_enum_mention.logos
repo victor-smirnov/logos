@@ -1,0 +1,5 @@
+// an ENUM mention in a parameter implies T: 'a: enum E<'a, T> { A(&'a T), B } (2026-09-03a)
+package bc_wf_enum_mention;
+enum E<'a, T> { A(&'a T), B }
+fn f<'a, T>(e: &E<'a, T>) -> i64 { let z: Option<&'a T> = Option::None; return 0i64; }
+fn main() -> i32 { let n = 1i64; let e: E<i64> = E::A(&n); return f(&e) as i32; }

@@ -1,0 +1,4 @@
+// THE LEGAL TWIN: enum E<T: 'static> { A(&'static T), B } (2026-09-03a)
+package bc_wf_enum_payload;
+enum E<T: 'static> { A(&'static T), B }
+fn main() -> i32 { return 0i32; }

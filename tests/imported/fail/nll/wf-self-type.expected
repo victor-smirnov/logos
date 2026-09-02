@@ -1,1 +1,1 @@
-return type mismatch: variance mismatch — expected &'a i64, got &'b i64 — lifetime structure incompatible (check &mut invariance / contravariance rules)
+error [fn foo]: lifetime mismatch: return type has lifetime 'a but 'u' has lifetime 'b

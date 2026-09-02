@@ -199,19 +199,7 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         });
     for (auto& impl : prog.impls)
         if (impl.trait_name() == "Copy")
-        {
-            bool static_only_ = false;
-            if (auto tt_ = impl.target_typeref(prog.type_pool.impl())) {
-                auto lts_ = TypeRef(tt_).lifetime_args();
-                static_only_ = !lts_.empty();
-                for (auto& l_ : lts_) if (!outlives_is_static(l_)) static_only_ = false;
-            }
-            if (static_only_) {
-                logos::probe::census("cpy.bc.reg.static");
-                ts.copy_types.insert("\x01static:" + std::string(impl.target_type()));
-            }
             ts.copy_types.insert(std::string(impl.target_type()));
-        }
     // strip_generic: ONLY for DIRECT (attribute) marks — the spec's flag is
     // a verbatim copy of the template's (mono_clone), so registering the
     // `$G`-stripped template base is exact. The MAIN borrow check runs
@@ -567,17 +555,7 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
     };
     auto struct_is_move = [&](TypeRef x) {
         return needs_drop(x, prog, ts) &&
-               !(ts.copy_types.count(std::string(TypeRef(x).struct_name())) &&
-                 !([&]() {
-                     if (!(logos::probe::on("cpystatic") || logos::probe::on("cpybc"))) return false;
-                     if (!ts.copy_types.count("\x01static:" + std::string(TypeRef(x).struct_name()))) return false;
-                     auto lts_ = TypeRef(x).lifetime_args();
-                     logos::probe::census(std::format("cpy.bc.read.n{}", lts_.size()));
-                     for (auto& l_ : lts_) logos::probe::census(std::format("cpy.bc.arg.{}", l_.empty() ? "<empty>" : l_));
-                     bool all_static_ = !lts_.empty();
-                     for (auto& l_ : lts_) if (!outlives_is_static(l_)) all_static_ = false;
-                     return !all_static_;   // not all 'static => NOT Copy => move type
-                 })());
+               !ts.copy_types.count(std::string(TypeRef(x).struct_name()));
     };
     auto enum_is_move = [&](TypeRef x) -> bool {
         std::string en(TypeRef(x).enum_name());

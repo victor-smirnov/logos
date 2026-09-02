@@ -1,0 +1,1 @@
+error [struct Foo]: field 'foo' of struct Foo: the parameter type `T` may not live long enough — `&'static T` requires `T: 'static`

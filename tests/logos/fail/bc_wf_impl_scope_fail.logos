@@ -1,0 +1,7 @@
+// IMPL-SCOPE BOUND, ONE TOKEN APART FROM bc_wf_impl_scope: impl<'a, 'b> with unrelated regions — the let's `&'a &'b i64` is not well-formed (2026-09-03a)
+package bc_wf_impl_scope_fail;
+struct Foo<'a, 'b> { x: &'a i64, y: &'b i64 }
+impl<'a, 'b> Foo<'a, 'b> {
+  fn f(&self) -> i64 { let z: Option<&'a &'b i64> = Option::None; return *self.x; }
+}
+fn main() -> i32 { let n = 1i64; let m = 2i64; let s = Foo { x: &n, y: &m }; return s.f() as i32 - 1i32; }

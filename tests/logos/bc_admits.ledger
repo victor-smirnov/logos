@@ -1195,7 +1195,7 @@
 # slots) keeps the double mutable borrow admitted as the row.
 # regions-close-object-into-object-1 (upstream E0515) and regions-steal-closure (E0597)
 # are refused for the 'static object bound their upstream error is an instance of.
-# TOTAL 166
+# TOTAL 161
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1274,7 +1274,6 @@ issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 issue-90170-elision-mismatch lifereg.N3 tests/imported/admit/lifetimes/issue-90170-elision-mismatch
 iterator-next-extra-named-lifetime lifereg.R18 tests/imported/admit/lifetimes/iterator-next-extra-named-lifetime
 iterator-trait-lifetime-error-13058 lifereg.A tests/imported/admit/lifetimes/iterator-trait-lifetime-error-13058
-lifetime-doesnt-live-long-enough lifereg.NEW-N2 tests/imported/admit/lifetimes/lifetime-doesnt-live-long-enough
 lifetime-mismatch-between-trait-and-impl lifereg.R18 tests/imported/admit/lifetimes/lifetime-mismatch-between-trait-and-impl
 missing-lifetime-in-assoc-type-1 lifereg.R17 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-1
 missing-lifetime-in-assoc-type-5 lifereg.N2 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-5
@@ -1341,7 +1340,6 @@ trait-associated-constant nllmoves.R18 tests/imported/admit/nll/trait-associated
 type-check-pointer-coercions nllmoves.R14 tests/imported/admit/nll/type-check-pointer-coercions
 type-check-pointer-comparisons nllmoves.R2 tests/imported/admit/nll/type-check-pointer-comparisons
 var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
-wf-unreachable nllmoves.NEW-N1 tests/imported/admit/nll/wf-unreachable
 
 # ── tests/ui/regions ─────────────────────────────────────────
 better-blame-constraint-for-outlives-static lifereg.NEW-N1 tests/imported/admit/regions/better-blame-constraint-for-outlives-static
@@ -1359,11 +1357,8 @@ regions-creating-enums3 lifereg.NEW-N1 tests/imported/admit/regions/regions-crea
 regions-escape-method lifereg.C tests/imported/admit/regions/regions-escape-method
 regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr lifereg.L7 tests/imported/admit/regions/regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr
 regions-fn-subtyping-return-static-fail--fn-subtyping lifereg.L7 tests/imported/admit/regions/regions-fn-subtyping-return-static-fail--fn-subtyping
-regions-free-region-ordering-callee-4 lifereg.NEW-N2 tests/imported/admit/regions/regions-free-region-ordering-callee-4
-regions-free-region-ordering-caller lifereg.NEW-L3 tests/imported/admit/regions/regions-free-region-ordering-caller
 regions-free-region-ordering-caller1 lifereg.D tests/imported/admit/regions/regions-free-region-ordering-caller1
 regions-glb-free-free--glb-free-free lifereg.NEW-R19 tests/imported/admit/regions/regions-glb-free-free--glb-free-free
-regions-implied-bounds-projection-gap-1 lifereg.N1 tests/imported/admit/regions/regions-implied-bounds-projection-gap-1
 regions-in-enums-anon lifereg.R17 tests/imported/admit/regions/regions-in-enums-anon
 regions-in-structs-anon lifereg.NEW-L1 tests/imported/admit/regions/regions-in-structs-anon
 regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self

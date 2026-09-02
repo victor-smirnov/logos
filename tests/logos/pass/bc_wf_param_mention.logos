@@ -1,0 +1,5 @@
+// THE LEGAL TWIN: a parameter &Foo<'a,'b> with Foo { x: &'a &'b i64 } implies 'b: 'a through the struct's inferred predicate (2026-09-03a)
+package bc_wf_param_mention;
+struct Foo<'a, 'b> { x: &'a &'b i64 }
+fn f<'a, 'b>(p: &Foo<'a, 'b>) -> i64 { let z: Option<&'a &'b i64> = Option::None; return **p.x; }
+fn main() -> i32 { let n = 1i64; let m = &n; let s = Foo { x: &m }; return f(&s) as i32 - 1i32; }

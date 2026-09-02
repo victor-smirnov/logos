@@ -2599,6 +2599,14 @@ void SemaChecker::collect_enum(TinyMapView node) {
             }
         }
     }
+    {
+        auto enum_outlives = read_lifetime_outlives(node);
+        for (auto& p : read_lifetime_outlives_from(node, la::WHERE.code)) enum_outlives.push_back(p);
+        for (auto& v : info.variants)
+            for (auto pt : v.payload_types)
+                check_written_type_wf(pt, std::format("payload of variant '{}' of enum {}", v.name, ename),
+                                      enum_outlives, /*decl_site=*/true);
+    }
     pop_type_params(info.type_params);
     enums_[sema_key(cur_package_, ename)] = std::move(info);
 }
@@ -4851,18 +4859,6 @@ void SemaChecker::collect_impl(TinyMapView node) {
         if (copy_pkg.empty()) copy_pkg = cur_package_;
         std::string copy_qkey = sema_key(copy_pkg, target);
         if (cond_positions.empty()) {
-            // PROBES cpystatic / cpysema / cpybc — the impl target's lifetime args (PROBES.md 2026-09-02z; A16).
-            bool static_only_ = false;
-            if (target_resolved) {
-                auto lts_ = TypeRef(target_resolved).lifetime_args();
-                static_only_ = !lts_.empty();
-                for (auto& l_ : lts_) if (!outlives_is_static(l_)) static_only_ = false;
-            }
-            if (static_only_) {
-                logos::probe::census("cpy.reg.static");
-                probe_copy_static_only_().insert(target);
-                probe_copy_static_only_().insert(copy_qkey);
-            }
             copy_types_.insert(target);
             if (copy_qkey != target) copy_types_.insert(copy_qkey);
         } else {
@@ -5508,9 +5504,9 @@ void SemaChecker::collect_struct(TinyMapView node) {
                 // "unknown field type" failure).
                 ItemSignatureGuard sig_guard(in_item_signature_);
                 ftype = resolve_type(ftype_node);
-                if (ftype && probe_wf_on_("wffield"))
-                    probe_wf_written_type_(ftype, std::format("field '{}' of struct {}", fname, sname),
-                                           info.lifetime_outlives, /*decl_site=*/true);
+                if (ftype)
+                    check_written_type_wf(ftype, std::format("field '{}' of struct {}", fname, sname),
+                                          info.lifetime_outlives, /*decl_site=*/true);
             }
             unsized_ok_ = was_ok;
             if (is_slice_tail) info.is_dst = true;

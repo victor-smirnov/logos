@@ -1,6 +1,6 @@
 // rustc regions/regions-free-region-ordering-callee-4.rs — upstream reference has a longer lifetime than the data it references / may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-N2
+// shelf: fail — REFUSED since 2026-09-03a: the WF of a WRITTEN type is checked at a let annotation (`&'a &'b i64` requires `'b: 'a`). Was lifereg.NEW-N2.
 package regions_free_region_ordering_callee_4;
 fn ordering4<'a, 'b>(a: &'a i64, b: &'b i64) -> i64 {
   let z: Option<&'a &'b i64> = Option::None;

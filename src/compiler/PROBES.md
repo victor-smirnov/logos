@@ -16935,7 +16935,7 @@ binary in build/ = b20afb44b9af7723 = these sources (priced under 8e594159832ed6
    B69's instantiation rule (§7 R) · the A16 retirements (§8).
 
 ## wfall
-site: src/compiler/sema_impl.hpp::probe_wf_written_type_
+site: src/compiler/sema_decl.cpp::check_written_type_wf (LANDED 2026-09-03a as this symbol; the probe spelling probe_wf_written_type_ is gone)
 build: 8e594159832ed648 (READ, priced); b20afb44b9af7723 (READ, the comment-trimmed rebuild = these sources, L1 747/747)
 measured: 2026-09-02
 fires: 873817
@@ -16945,7 +16945,7 @@ verdict: WF of a written type at let / field / turbofish, strict TypeVar test; 5
 note: `&'y X` ⇒ every region of X outlives 'y (outlives(), permissive_empty=false) and every TypeVar T of X has a declared or implied bound 'z with 'z: 'y; elided / minted / '_ regions skipped; a for<'r> closure type not walked; at a FIELD only 'static obligations are checked (RFC 2093 infers the rest).
 
 ## wflax
-site: src/compiler/sema_impl.hpp::probe_wf_written_type_
+site: src/compiler/sema_decl.cpp::check_written_type_wf (LANDED 2026-09-03a as this symbol; the probe spelling probe_wf_written_type_ is gone)
 build: 8e594159832ed648 (READ, priced); b20afb44b9af7723 (READ, the comment-trimmed rebuild = these sources, L1 747/747)
 measured: 2026-09-02
 fires: 1749641
@@ -17006,3 +17006,112 @@ fires: 9
 ceiling: 0
 cost: 0 (cfail 0, stdlib ok)
 verdict: as cpystatic, bc reader only (9 arrivals over the whole population — the bc reader is behind needs_drop, which a `&T`-only struct never satisfies).
+
+# ═══ ROUND 2026-09-03a — WF OF A WRITTEN TYPE LANDED (wfall, strict), WITH THE THREE FACTS THE PROBE
+# DID NOT HAVE: IMPL-SCOPE PAIRS, THE IMPL HEADER'S IMPLIED BOUNDS, AND A STRUCT'S RFC 2093 INFERRED
+# PREDICATES REACHED THROUGH A MENTION. 5 ROWS CLOSED, PREDICTED NAME FOR NAME BOTH WAYS, 166 -> 161 ═══
+
+## 0. STEP 1, READ FROM THE TREE
+    HEAD 296a63bcf clean = origin/main (= the pricing report's own commit). Live probe names 153 (the 02z
+    record said 148: its eight wf*/cpy* names were counted before their own commit). `# TOTAL 166` = 166 by
+    listing; lifereg 74 / nllmoves 54 / bck 38; roots as recorded. Baseline gate-db build 543
+    (b20afb44b9af7723): admits 166/166 rc 0, `-L bc` 2254 passed / 0 failed / 2 disabled.
+
+## 1. THE PRICING PHASE'S RECOMMENDATION WAS NOT A VERDICT — RULE 5, BY SHAPE (build/hand-2026-09-03a/, 42
+##    programs; run.sh [probe]; unarmed.txt / armed-wfall.txt on b20afb44b9af7723, landed*.txt after)
+The 02z hand set drew every program from a free fn's own binder. Under `wfall` AS PRICED, NINE legal programs
+in shapes it did not write were REFUSED, none visible to its three zero columns:
+    x03 `impl<'a, 'b: 'a> Foo<'a,'b>` method let          x05 `impl<'a,'b> … where 'b: 'a`
+    x07 `impl<'a,'b> Foo<'a,'b>` with Foo { x: &'a &'b }   (the header's WF implies 'b: 'a — RFC 2093)
+    x08 a PARAMETER `&Foo<'a,'b>` of that Foo               x34 the same through a NESTED struct
+    x20 `impl<'a, T> S<'a,T>` with S { x: &'a T }          (the header implies T: 'a)
+    x22 a parameter `&S<'a,T>` of that S                    x35 an ENUM mention `&E<'a,T>`, E { A(&'a T) }
+    x36 a TRAIT impl header `impl<'a,T> Tr for S<'a,T>`
+Three doors, one fact each: (i) the impl's DECLARED pairs (`impl<'a,'b: 'a>`, impl where) reached no method
+body — compute_fn_lifetime_outlives read the fn's own header only; (ii) the impl header's self type / trait
+args were never a source of implied bounds; (iii) a struct or enum's INFERRED outlives predicates (RFC 2093:
+`S<'a,T> { x: &'a T }` requires T: 'a) existed nowhere, so a mention of S in a parameter or a header implied
+nothing. All three are in the DISCHARGE direction — the probe was over-strict, never lax — which is exactly
+what "cost 0 on three populations" cannot see (rule 5, second time running).
+
+## 2. THE LANDING (sema_decl.cpp, sema_impl.hpp; +242/-136 on src with the probe scaffolding removed)
+    check_written_type_wf   = probe_wf_written_type_ strict, ungated, no lax twin; the let message prints the
+                              WRITTEN type (`type_str(t, true)`: `Option<&'a &'b i64>`, not `Option`).
+    datatype_wf_preds(t)    RFC 2093 for a struct / enum: {subject, region} over its members, nested mentions
+                              expanded by substitution, memoised per declaration, a cycle reads empty
+                              (x39 self-recursive, x40 mutually recursive: both legal, both admitted).
+    expand_wf_preds(x,…)    instantiates a mention's predicates: on_tv(actual type arg, actual region),
+                              on_lt(actual long, actual short). Three consumers, ALL in the discharge
+                              direction: deposit_implied_type_outlives (T: 'r half), walk_implied in
+                              compute_fn_lifetime_outlives (region half), and the impl header below.
+    current_impl_self_types_ / current_impl_lifetime_outlives_   set in lower_impl (RAII), read by
+                              compute_fn_lifetime_outlives into impl_scope_outlives_, which joins the fn's
+                              OWN graph — current_outlives_ AND the decl LIFETIME_OUTLIVES array that
+                              region_infer / bc read. ⚠ NOT SemaFuncInfo::lifetime_outlives, which B69's
+                              check_call_outlives reads at a CALL: an impl bound is not exported to callers
+                              (B69 is already over-strict, 02z §7).
+    doors                   let annotation · struct field (decl, 'static only) · ENUM VARIANT PAYLOAD (new,
+                              decl, 'static only; x24/x25) · finish_generic_call type args — which the METHOD
+                              turbofish already reaches (x26/x27: the 02z record's "second door" is the same
+                              door). cpystatic / cpysema / cpybc and wflax removed (declined, A16 / rule 9).
+    NOT a refusal site       datatype_wf_preds is read by nobody that refuses: putting inferred predicates
+                              into a struct's DECLARED tp.lifetime_outlives would make check_type_bounds'
+                              "caller declares SOME bound" arm refuse `fn g<'p,U>(s: S<'p,U>)` at its own
+                              parameter — the deliberately-avoided abuse direction.
+
+## 3. PREDICTED vs MEASURED, AS SETS (build/round-2026-09-03a/targets-2026-09-03a.txt, written before the edit)
+    predicted 5: regions-free-region-ordering-callee-4, regions-free-region-ordering-caller, wf-unreachable,
+    lifetime-doesnt-live-long-enough, regions-implied-bounds-projection-gap-1.
+    measured (gate-db build 544, f827c1d9d84e4078, the first landed build): the SAME five, 161 passed / 5
+    failed of 166. ∅ / ∅ both ways. Every diagnostic read (closed-diags in the fixtures' .expected): the WF
+    message first, matching the upstream reason (E0310 / "reference has a longer lifetime" / "parameter type
+    T may not live long enough").
+    COST, build 544 then 545 (06b815e5f9a18339 = these sources + the decl-array export):
+      pass  `-L bc` 2253/1 (544) → 2274 / 0 failed / 2 disabled (545, +20 fixtures registered)
+      cfail fail_text_oracle 1271 → 1276 rows: ONE change in both builds, wf-self-type (§4); 0 rc flips,
+            0 other text changes
+      stdlib all four layers ok (544 and 545)
+      L1: 747/747 both; the census / population pins moved by exactly the fixture arithmetic (§6).
+    FINAL BINARY cb596eb2ffb3d560 (06b8 with four header comments trimmed to one line): L1 rc 0 (210/210,
+      747/747) · admits 162/162 (161 rows + the ledger gate) · `-L bc` 2282 / 0 / 2 disabled (gate-db build
+      546) · fail_text_oracle 1276 rows, the one wf-self-type TEXT change only · stdlib ok · `L4 bc` on 06b8:
+      3964 / 3964 rc 0 (detached). CONTROL REVERT (build c30ffb74b9c22c6b, the seven compiler sources
+      stashed): all 13 fail fixtures ADMITTED rc 0, bc_wf_impl_header_return REFUSED, the other 14 pass
+      fixtures rc 0 — the fixtures test the fix (build/round-2026-09-03a/control-revert.txt).
+
+## 4. wf-self-type — THE ONE CHANGED FAIL FIXTURE IS A WRONG-SITE REFUSAL MOVED TO THE RIGHT SITE
+    `impl<'a,'b> Foo<'a,'b> { fn xmute(a: &'b i64) -> &'a i64 { return a; } }` + `fn foo<'a,'b>(u: &'b i64)
+    -> &'a i64 { return Foo::<'a,'b>::xmute(u); }`. Upstream (nll/user-annotations/wf-self-type.rs) errors
+    in foo ONLY: xmute is legal under the header's implied 'b: 'a. Before: refused in XMUTE by the variance
+    check ("expected &'a i64, got &'b i64"). After: xmute is accepted (x38 = pass/bc_wf_impl_header_return)
+    and foo is refused by the return-lifetime check ("return type has lifetime 'a but 'u' has lifetime 'b").
+    Re-pinned to the foo line. The first landed build (544) still refused xmute — bc's return check reads the
+    decl LIFETIME_OUTLIVES array, not current_outlives_ — which is why impl_scope_outlives_ joins the array.
+
+## 5. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ · x01 / x28: a generic call `f(x)` with `f<'a, T: 'a>(t: &'a T)` and `x: &'p &'q i64` (T := &'q i64) is
+   REFUSED unarmed: "call to 'f' arg 1: variance mismatch — expected &'a &'q i64, got &'p &'q i64" — the
+   callee's 'a is compared un-instantiated at the argument. Legal Rust; the B69 / meet family (02z §7 R).
+ · a user `type R<'x,'y> = &'x &'y i64;` mentioned as `R<'a,'b>` dies with "struct 'MapIter': not generic —
+   cannot accept 4 type arg(s)" — the alias NAME `R` resolves into a stdlib specialization; `Rr` works
+   (x13/x14). Name resolution, not borrow-check.
+ · `&'a (dyn Tr + 'b)` is a syntax error (x11/x12): the parenthesised object type with a region bound is not
+   in the grammar, so the `+ 'b` region-slot obligation under `&'a` has no spelling to test.
+ · x07/x08 nested `fn` items are a syntax error — no scope-leak test possible in that shape (x16 covers the
+   struct-after-fn scope; refused correctly).
+ · carried from 02z: B69 r07 / r11 legal refusals (unchanged, r11 still refused); the three A16 rows and
+   c24b / t24 and the three projection-container ports are RETIRE candidates with an owner.
+
+## 6. FIXTURES AND PINS
+    5 imported admit -> tests/imported/fail/{lifetimes,nll,regions}/ with the full first line pinned; 8 native
+    fail + 15 native pass bc_wf_* twins one token apart (impl_scope, impl_header, param_mention, enum_payload,
+    method_turbofish, tuple_in_vec, alias, field_scope; pass-only nested_pred, enum_mention, trait_impl_header,
+    impl_header_return, generic_instance, impl_tparam_bound, impl_where, field_where). `# TOTAL` 166 -> 161 by
+    listing. Census pin ALL 8902 -> 8925 (+23 native, -5 admit, +5 imported fail), NOIMPORTED 4508 -> 4526,
+    TIERCOMMIT 215 -> 210; direct_door corpus 2588 -> 2603, nonglob 2397 -> 2412 — each predicted from the
+    fixture arithmetic before the lint was read, and each matched.
+
+## 7. BLOCKS NOT SPENT
+    bck.C 13 (mined) · nllmoves.C 10 · bck.B 10 · nllmoves.B 7 · E0716 9 (owner + stdlib wall) · R18 8 (M-SIG)
+    · the meet (1) · R: regions-static-bound + projection-where-clause-none--c + B69 (one mechanism, behind
+    the meet) · P: regions-normalize-in-where-clause-list (1, two binders, no substitution).

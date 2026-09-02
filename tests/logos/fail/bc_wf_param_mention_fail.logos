@@ -1,0 +1,5 @@
+// PARAMETER MENTION, ONE TOKEN APART FROM bc_wf_param_mention: Foo<'a,'b> { x: &'a i64, y: &'b i64 } infers nothing between 'a and 'b — the let is refused (2026-09-03a)
+package bc_wf_param_mention_fail;
+struct Foo<'a, 'b> { x: &'a i64, y: &'b i64 }
+fn f<'a, 'b>(p: &Foo<'a, 'b>) -> i64 { let z: Option<&'a &'b i64> = Option::None; return *p.x; }
+fn main() -> i32 { let n = 1i64; let s = Foo { x: &n, y: &n }; return f(&s) as i32 - 1i32; }

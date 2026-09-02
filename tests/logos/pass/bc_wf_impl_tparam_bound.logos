@@ -1,0 +1,5 @@
+// impl<'a, T: 'a> S<'a, T> — the impl-level type-param bound reaches the method's let (2026-09-03a)
+package bc_wf_impl_tparam_bound;
+struct S<'a, T> { x: &'a i64, y: Option<T> }
+impl<'a, T: 'a> S<'a, T> { fn f(&self) -> i64 { let z: Option<&'a T> = Option::None; return 0i64; } }
+fn main() -> i32 { let n = 1i64; let s = S { x: &n, y: Option::Some(1i64) }; return s.f() as i32; }

@@ -1,0 +1,6 @@
+// the inferred predicate reaches through a NESTED struct: Outer<'a,'b> { i: Inner<'a,'b> } (2026-09-03a)
+package bc_wf_nested_pred;
+struct Inner<'a, 'b> { x: &'a &'b i64 }
+struct Outer<'a, 'b> { i: Inner<'a, 'b> }
+fn f<'a, 'b>(p: &Outer<'a, 'b>) -> i64 { let z: Option<&'a &'b i64> = Option::None; return **p.i.x; }
+fn main() -> i32 { let n = 1i64; let m = &n; let s = Outer { i: Inner { x: &m } }; return f(&s) as i32 - 1i32; }

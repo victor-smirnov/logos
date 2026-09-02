@@ -1,0 +1,5 @@
+// IMPL HEADER, ONE TOKEN APART FROM bc_wf_impl_header: S<'a, T> { x: &'a i64, y: Option<T> } infers no T: 'a — the method's `Option<&'a T>` is refused (2026-09-03a)
+package bc_wf_impl_header_fail;
+struct S<'a, T> { x: &'a i64, y: Option<T> }
+impl<'a, T> S<'a, T> { fn f(&self) -> i64 { let z: Option<&'a T> = Option::None; return 0i64; } }
+fn main() -> i32 { let n = 1i64; let s = S { x: &n, y: Option::Some(1i64) }; return s.f() as i32; }

@@ -1,0 +1,1 @@
+error [fn f]: turbofish type argument of 'bc_wf_method_turbofish_fail.S__m': the parameter type `T` may not live long enough — `&'x T` requires `T: 'x`

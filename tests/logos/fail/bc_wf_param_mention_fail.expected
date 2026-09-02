@@ -1,0 +1,1 @@
+error [fn f]: let annotation: type `Option<&'a &'b i64>` is not well-formed — the reference under `'a` requires `'b: 'a` and no such bound is declared (reference has a longer lifetime than the data it references)

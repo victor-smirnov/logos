@@ -21,6 +21,165 @@ using writ::MemHolder;
 
 // Declaration lowering methods
 
+const std::vector<SemaChecker::WfPred>& SemaChecker::datatype_wf_preds(TypeRef t) {
+    static const std::vector<WfPred> none;
+    using K = LogosType::Kind;
+    if (!t) return none;
+    const std::vector<std::string>* lps = nullptr;
+    const std::vector<TypeParam>*   tps = nullptr;
+    std::vector<TypeRef> members;
+    std::string key;
+    if (t.kind() == K::Enum) {
+        auto* ei = get_enum_si(t);
+        if (!ei) return none;
+        key = "enum " + ei->package + "::" + std::string(t.enum_name());
+        lps = &ei->lifetime_params; tps = &ei->type_params;
+        for (auto& v : ei->variants) for (auto pt : v.payload_types) members.push_back(pt);
+    } else if (t.kind() == K::Struct || t.kind() == K::ZonedStruct) {
+        auto* si = get_struct_si(t);
+        if (!si) si = get_datatype_si(t);
+        if (!si) return none;
+        key = "struct " + si->package + "::" + std::string(t.struct_name());
+        lps = &si->lifetime_params; tps = &si->type_params;
+        for (auto& f : si->fields) members.push_back(f.type);
+    } else return none;
+    auto it = wf_preds_.find(key);
+    if (it != wf_preds_.end()) return it->second;
+    if (!wf_preds_inflight_.insert(key).second) return none;
+    std::vector<WfPred> out;
+    auto lt_index = [&](std::string_view r) -> int {
+        if (outlives_is_static(r)) return -1;
+        for (size_t i = 0; i < lps->size(); ++i)
+            if (outlives_norm((*lps)[i]) == outlives_norm(r)) return static_cast<int>(i);
+        return -2;
+    };
+    auto tv_index = [&](std::string_view n) -> int {
+        for (size_t i = 0; i < tps->size(); ++i) if ((*tps)[i].name == n) return static_cast<int>(i);
+        return -2;
+    };
+    auto add = [&](int subj, int reg, bool tv) {
+        if (subj == -2 || reg == -2 || (!tv && subj == reg) || (!tv && subj == -1)) return;
+        for (auto& p : out) if (p.subject == subj && p.region == reg && p.is_tv == tv) return;
+        out.push_back({subj, reg, tv});
+    };
+    std::function<void(TypeRef, const std::string&)> walk = [&](TypeRef x, const std::string& under) {
+        if (!x) return;
+        auto k = x.kind();
+        if (k == K::TypeVar) {
+            if (!under.empty()) add(tv_index(x.type_var_name()), lt_index(under), true);
+            return;
+        }
+        if (k == K::Ref || k == K::MutRef) {
+            std::string my(x.lifetime());
+            if (wf_lt_usable(my) && !under.empty()) add(lt_index(my), lt_index(under), false);
+            walk(x.pointee(), wf_lt_usable(my) ? my : under);
+            return;
+        }
+        if (!x.closure_params().empty() || x.closure_ret()) return;
+        if (k == K::Struct || k == K::ZonedStruct || k == K::Enum) {
+            for (auto& l : x.lifetime_args())
+                if (wf_lt_usable(l) && !under.empty()) add(lt_index(l), lt_index(under), false);
+            expand_wf_preds(x, [&](TypeRef ty, const std::string& r) { walk(ty, r); },
+                            [&](const std::string& l, const std::string& r) {
+                                add(lt_index(l), lt_index(r), false); });
+            for (auto a : x.type_args()) walk(a, under);
+            return;
+        }
+        std::string sl(x.lifetime());
+        if (wf_lt_usable(sl) && !under.empty()) add(lt_index(sl), lt_index(under), false);
+        const std::string next = wf_lt_usable(sl) ? sl : under;
+        if (x.pointee()) walk(x.pointee(), next);
+        if (x.elem())    walk(x.elem(), next);
+        for (auto a : x.type_args())   walk(a, next);
+        for (auto e : x.tuple_elems()) walk(e, next);
+    };
+    for (auto m : members) walk(m, "");
+    wf_preds_inflight_.erase(key);
+    return wf_preds_[key] = std::move(out);
+}
+
+void SemaChecker::expand_wf_preds(TypeRef x,
+                                  const std::function<void(TypeRef, const std::string&)>& on_tv,
+                                  const std::function<void(const std::string&, const std::string&)>& on_lt) {
+    const auto& preds = datatype_wf_preds(x);
+    if (preds.empty()) return;
+    auto lts = x.lifetime_args();
+    auto tas = x.type_args();
+    auto reg = [&](int i) -> std::string {
+        if (i < 0) return "'static";
+        return static_cast<size_t>(i) < lts.size() ? std::string(lts[i]) : std::string();
+    };
+    for (auto& p : preds) {
+        std::string r = reg(p.region);
+        if (!wf_lt_usable(r)) continue;
+        if (p.is_tv) {
+            if (static_cast<size_t>(p.subject) < tas.size() && tas[p.subject]) on_tv(tas[p.subject], r);
+        } else {
+            std::string l = reg(p.subject);
+            if (wf_lt_usable(l) && outlives_norm(l) != outlives_norm(r)) on_lt(l, r);
+        }
+    }
+}
+
+void SemaChecker::check_written_type_wf(TypeRef t, const std::string& ctx,
+                                        const std::vector<std::pair<std::string, std::string>>& graph,
+                                        bool decl_site) {
+    if (!t) return;
+    auto adj = outlives_adj(graph);
+    std::function<void(TypeRef, const std::string&)> walk = [&](TypeRef x, const std::string& under) {
+        if (!x) return;
+        using K = LogosType::Kind;
+        auto k = x.kind();
+        auto need_region = [&](std::string_view r) {
+            if (under.empty() || !wf_lt_usable(r)) return;
+            if (decl_site && !outlives_is_static(under)) return;
+            std::string R = outlives_norm(r), U = outlives_norm(under);
+            if (R == U) return;
+            if (!outlives(R, U, adj, /*permissive_empty=*/false))
+                error(std::format("{}: type `{}` is not well-formed — the reference under `{}` "
+                                  "requires `{}: {}` and no such bound is declared (reference "
+                                  "has a longer lifetime than the data it references)",
+                                  ctx, type_str(t, true), U, R, U));
+        };
+        if (k == K::Ref || k == K::MutRef) {
+            std::string my(x.lifetime());
+            need_region(my);
+            walk(x.pointee(), wf_lt_usable(my) ? my : under);
+            return;
+        }
+        if (k == K::TypeVar) {
+            if (under.empty()) return;
+            if (decl_site && !outlives_is_static(under)) return;
+            std::string tv(x.type_var_name());
+            auto it = current_type_lt_outlives_.find(tv);
+            bool ok = false;
+            if (it != current_type_lt_outlives_.end())
+                for (auto& b : it->second)
+                    if (wf_lt_usable(b) && outlives(outlives_norm(b), outlives_norm(under), adj,
+                                                    /*permissive_empty=*/false)) { ok = true; break; }
+            if (!ok)
+                error(std::format("{}: the parameter type `{}` may not live long enough — "
+                                  "`{}` requires `{}: {}`",
+                                  ctx, tv, type_str(t, true), tv, outlives_norm(under)));
+            return;
+        }
+        if (!x.closure_params().empty() || x.closure_ret()) return;
+        if (k == K::Struct || k == K::ZonedStruct || k == K::Enum) {
+            for (auto& lt : x.lifetime_args()) need_region(lt);
+            for (auto a : x.type_args()) walk(a, under);
+            return;
+        }
+        std::string sl(x.lifetime());
+        if (wf_lt_usable(sl)) need_region(sl);
+        const std::string next = wf_lt_usable(sl) ? sl : under;
+        if (x.pointee()) walk(x.pointee(), next);
+        if (x.elem())    walk(x.elem(), next);
+        for (auto a : x.type_args())   walk(a, next);
+        for (auto e : x.tuple_elems()) walk(e, next);
+    };
+    walk(t, "");
+}
+
 void SemaChecker::compute_fn_lifetime_outlives(
         TinyMapView node,
         std::string_view fn_name,
@@ -72,6 +231,9 @@ void SemaChecker::compute_fn_lifetime_outlives(
                     fn_lifetime_known(s) && fn_lifetime_known(outer))
                     out.emplace_back(s, outer);
             }
+            expand_wf_preds(t, [&](TypeRef ty, const std::string& r) { recur(ty, r, out, recur); },
+                            [&](const std::string& l, const std::string& r) {
+                                if (fn_lifetime_known(l) && fn_lifetime_known(r)) out.emplace_back(l, r); });
             for (auto a : t.type_args()) recur(a, outer, out, recur);
             return;
         }
@@ -91,6 +253,8 @@ void SemaChecker::compute_fn_lifetime_outlives(
     lifetime_outlives = read_lifetime_outlives(node);
     for (auto& p : params) walk_implied(p.type, "", lifetime_outlives, walk_implied);
     walk_implied(ret_type, "", lifetime_outlives, walk_implied);
+    impl_scope_outlives_ = current_impl_lifetime_outlives_;
+    for (auto st : current_impl_self_types_) walk_implied(st, "", impl_scope_outlives_, walk_implied);
     auto where_outlives = read_lifetime_outlives_from(node, la::WHERE.code);
     for (auto& p : where_outlives) lifetime_outlives.push_back(std::move(p));
     // Merge type-outlives bounds from where clause.
@@ -240,6 +404,8 @@ void SemaChecker::compute_fn_lifetime_outlives(
                 error(std::format("fn '{}': use of undeclared lifetime name '{}'",
                                   fn_name, lt));
     }
+    // impl-scope pairs join the BODY's graph only; a caller reads SemaFuncInfo::lifetime_outlives.
+    lifetime_outlives.insert(lifetime_outlives.end(), impl_scope_outlives_.begin(), impl_scope_outlives_.end());
 }
 
 DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
@@ -2391,6 +2557,32 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     bool    impl_is_blanket = false;
     std::string impl_bound_trait;
     TypeRef impl_target_typeref = target_resolved;
+    struct ImplWfRestore {
+        SemaChecker& s; std::vector<TypeRef> st; std::vector<std::pair<std::string, std::string>> lo;
+        ~ImplWfRestore() { s.current_impl_self_types_ = std::move(st); s.current_impl_lifetime_outlives_ = std::move(lo); }
+    } _restore_wf{*this, std::move(current_impl_self_types_), std::move(current_impl_lifetime_outlives_)};
+    current_impl_self_types_.clear();
+    current_impl_lifetime_outlives_.clear();
+    {
+        TypeRef self_t = target_resolved;
+        if (!self_t && node.has_key(la::TYPE)) {
+            auto tnode = map_of(node.get(la::TYPE.code));
+            if (code_of(tnode) == la::GENERIC_INST) self_t = resolve_type(tnode);
+        }
+        if (self_t) current_impl_self_types_.push_back(self_t);
+        auto it = trait_name.empty() ? impls_.end() : impls_.find(trait_name + "::" + target);
+        if (it != impls_.end())
+            for (auto ta : it->second.trait_type_args) current_impl_self_types_.push_back(ta);
+        if (node.has_key(la::IMPL_TYPE_PARAMS))
+            current_impl_lifetime_outlives_ = read_lifetime_outlives_from(node, la::IMPL_TYPE_PARAMS.code);
+        else if (trait_name.empty())
+            current_impl_lifetime_outlives_ = read_lifetime_outlives(node);
+        for (auto& p : read_lifetime_outlives_from(node, la::WHERE.code)) current_impl_lifetime_outlives_.push_back(p);
+        if (!impl_tps.empty()) {
+            deposit_implied_type_outlives(current_impl_self_types_, nullptr, impl_tps);
+            impl_type_params_ = impl_tps;
+        }
+    }
 
     ib.str(ik::TRAIT_NAME, trait_name);
     // Trait IDENTITY beside the spelling (impl_keys::CANONICAL_TRAIT). traits_

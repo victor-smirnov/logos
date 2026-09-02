@@ -1,0 +1,6 @@
+// a generic struct method's let over &'a T at the instance S<'p, &'q i64> (2026-09-03a)
+package bc_wf_generic_instance;
+struct S<'a, T> { x: &'a T }
+impl<'a, T> S<'a, T> { fn get(&self) -> &'a T { let z: &'a T = self.x; return z; } }
+fn g<'p, 'q>(x: &'p &'q i64) -> i64 { let s = S { x: x }; return **s.get(); }
+fn main() -> i32 { let n = 5i64; let m = &n; return g(&m) as i32 - 5i32; }

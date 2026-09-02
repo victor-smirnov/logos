@@ -1,0 +1,7 @@
+// the impl's where clause `where 'b: 'a` supplies the bound to a method's let annotation (2026-09-03a)
+package bc_wf_impl_where;
+struct Foo<'a, 'b> { x: &'a i64, y: &'b i64 }
+impl<'a, 'b> Foo<'a, 'b> where 'b: 'a {
+  fn f(&self) -> i64 { let z: Option<&'a &'b i64> = Option::None; return *self.x; }
+}
+fn main() -> i32 { let n = 1i64; let m = 2i64; let s = Foo { x: &n, y: &m }; return s.f() as i32 - 1i32; }

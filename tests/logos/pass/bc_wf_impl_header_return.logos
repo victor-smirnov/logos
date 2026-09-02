@@ -1,0 +1,7 @@
+// the impl header's inferred 'b: 'a discharges the RETURN check too: xmute of wf-self-type alone (2026-09-03a)
+package bc_wf_impl_header_return;
+struct Foo<'a, 'b> { r: &'a &'b i64 }
+impl<'a, 'b> Foo<'a, 'b> {
+  fn xmute(a: &'b i64) -> &'a i64 { return a; }
+}
+fn main() -> i32 { return 0i32; }

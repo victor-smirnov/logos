@@ -1,0 +1,4 @@
+// ENUM PAYLOAD, ONE TOKEN APART FROM bc_wf_enum_payload: A(&'static T) with no T: 'static is refused at the declaration (2026-09-03a)
+package bc_wf_enum_payload_fail;
+enum E<T> { A(&'static T), B }
+fn main() -> i32 { return 0i32; }

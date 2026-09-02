@@ -1,6 +1,6 @@
 // rustc lifetimes/lifetime-doesnt-live-long-enough.rs — upstream E0310 `T` may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-N2
+// shelf: fail — REFUSED since 2026-09-03a: the WF of a WRITTEN type is checked at a struct field (`&'static T` requires `T: 'static`). Was lifereg.NEW-N2.
 package lifetime_doesnt_live_long_enough;
 struct Foo<T> { foo: &'static T }
 fn main() -> i32 { return 0i32; }

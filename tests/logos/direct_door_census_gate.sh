@@ -1321,9 +1321,13 @@ PIN = {
     # the object-lifetime-bound block (Src: 'r at the unsize coercion; the deferred
     # generic call typed with the caller's parameter). BY DIRECT LISTING:
     # ls tests/logos/pass/*.logos | wc -l -> 2588; the glob listing -> 191.
-    'corpus'            : 2588,
+    # 2026-09-03a: +15 / +0 / +15 — the fifteen pass/bc_wf_* legal twins of the
+    # WF-of-a-written-type block (impl-scope bounds, the impl header's and a
+    # parameter mention's RFC 2093 implied bounds, enum payload, method turbofish).
+    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2603; glob -> 191.
+    'corpus'            : 2603,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2397,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2412,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

@@ -1,0 +1,6 @@
+// THE LEGAL TWIN: fn f<'x, T: 'x> — s.m::<&'x T>() (2026-09-03a)
+package bc_wf_method_turbofish;
+struct S;
+impl S { fn m<U>(&self) -> i32 { return 0i32; } }
+fn f<'x, T: 'x>(s: &S, a: &'x i64) -> i32 { return s.m::<&'x T>(); }
+fn main() -> i32 { let s = S; let n = 1i64; return f::<i64>(&s, &n); }

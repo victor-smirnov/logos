@@ -5066,9 +5066,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8867 -> 8902  +35
 #   NOIMPORTED   4492 -> 4508  +16
 #   TIERCOMMIT    233 ->  215  -18
-REGISTRY-ALL         8902
-REGISTRY-NOIMPORTED  4508
-REGISTRY-TIERCOMMIT  215
+# 2026-09-03a — the WF-of-a-written-type block: 5 admit rows -> imported fail,
+#   +8 native fail + +15 native pass bc_wf_* twins. ALL +23 (+23 native, -5
+#   admit, +5 imported fail); NOIMPORTED +18 (+23 -5); TIERCOMMIT -5 (the admit
+#   tests). Predicted before the pin was read.
+#   ALL          8902 -> 8925  +23
+#   NOIMPORTED   4508 -> 4526  +18
+#   TIERCOMMIT    215 ->  210   -5
+REGISTRY-ALL         8925
+REGISTRY-NOIMPORTED  4526
+REGISTRY-TIERCOMMIT  210
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

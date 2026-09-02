@@ -1,6 +1,6 @@
 // rustc regions/regions-free-region-ordering-caller.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-L3
+// shelf: fail — REFUSED since 2026-09-03a: the WF of a WRITTEN type is checked at a let annotation (`&'b &'a u64` requires `'a: 'b`). Was lifereg.NEW-L3.
 // port of rust ui/regions/regions-free-region-ordering-caller.rs
 package regions_free_region_ordering_caller;
 

@@ -1,0 +1,4 @@
+// THE LEGAL TWIN: fn f<'a: 'b, 'b> (2026-09-03a)
+package bc_wf_tuple_in_vec;
+fn f<'a: 'b, 'b>(a: &'a i64, b: &'b i64) -> i64 { let z: Option<Vec<(&'a i64, &'b &'a i64)>> = Option::None; return *a; }
+fn main() -> i32 { let n = 1i64; return f(&n, &n) as i32 - 1i32; }

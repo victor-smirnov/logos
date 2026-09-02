@@ -1,0 +1,6 @@
+// METHOD TURBOFISH, ONE TOKEN APART FROM bc_wf_method_turbofish: s.m::<&'x T>() with no T: 'x (2026-09-03a)
+package bc_wf_method_turbofish_fail;
+struct S;
+impl S { fn m<U>(&self) -> i32 { return 0i32; } }
+fn f<'x, T>(s: &S, a: &'x i64) -> i32 { return s.m::<&'x T>(); }
+fn main() -> i32 { let s = S; let n = 1i64; return f::<i64>(&s, &n); }

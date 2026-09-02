@@ -1,0 +1,1 @@
+error [fn func]: turbofish type argument of 'wf': the parameter type `T` may not live long enough — `&'x T` requires `T: 'x`

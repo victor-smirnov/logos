@@ -1,0 +1,6 @@
+// a trait impl header impl<'a, T> Tr for S<'a, T> implies T: 'a for the method body (2026-09-03a)
+package bc_wf_trait_impl_header;
+trait Tr { fn m(&self) -> i64; }
+struct S<'a, T> { x: &'a T }
+impl<'a, T> Tr for S<'a, T> { fn m(&self) -> i64 { let z: Option<&'a T> = Option::None; return 0i64; } }
+fn main() -> i32 { let n = 1i64; let s = S { x: &n }; return s.m() as i32; }

@@ -1,0 +1,1 @@
+error [struct S]: field 'x' of struct S: the parameter type `T` may not live long enough — `&'static T` requires `T: 'static`
