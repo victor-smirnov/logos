@@ -1044,7 +1044,11 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 for (auto& lb : tp.lifetime_outlives) {
                     if (lt_norm(lb) != "static") continue;
                     for (auto& got : named_lts) {
-                        if (got.empty() || got == "static") continue;
+                        if (got.empty()) logos::probe::census("st.tpbound.empty");
+                        // PROBE st* (2026-09-01p): an EMPTY region is a body borrow, not 'static.
+                        if (got.empty() && !(logos::probe::on("sttpempty") || logos::probe::on("stnoderef") ||
+                                             logos::probe::on("stwhole"))) continue;
+                        if (got == "static") continue;
                         if (bounds_probe_) { bounds_probe_ok_ = false; break; }
                         error(std::format("call to '{}': type argument '{}' has "
                               "lifetime '{}' but the type parameter '{}' requires "

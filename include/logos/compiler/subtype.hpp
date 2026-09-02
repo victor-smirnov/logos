@@ -79,6 +79,14 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
             return true;
         if (x.empty() || y.empty()) {
             (void)logos::probe::on("lteqempty_site");
+            // PROBE st* (2026-09-01p): a 'static slot fed from an EMPTY region.
+            if (x.empty() != y.empty() && outlives_is_static(x.empty() ? y : x)) {
+                logos::probe::census("st.lteq.static_vs_empty");
+                if (logos::probe::on("steqempty") || logos::probe::on("steqaddr") ||
+                    logos::probe::on("stcallarg") || logos::probe::on("stnoderef") ||
+                    logos::probe::on("stwhole"))
+                    return false;
+            }
             if (x.empty() && y.empty() && logos::probe::on("lteqbothempty"))
                 return false;
             if (!(x.empty() && y.empty()) && logos::probe::on("lteqoneempty"))
@@ -347,6 +355,12 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             }
             auto sl = sub.lifetime_args();
             auto pl = sup.lifetime_args();
+            if (sl.empty() && !pl.empty()) {
+                logos::probe::census("st.struct.bare_vs_args");
+                if (logos::probe::on("stbareargs") || logos::probe::on("stnoderef") ||
+                    logos::probe::on("stwhole"))
+                    sl.assign(pl.size(), std::string{});
+            }
             if (sl.size() != pl.size()) return true;
             for (size_t i = 0; i < sl.size(); ++i) {
                 if (!detail::lifetime_at(var_for(i, true), sl[i], pl[i], adj, permissive_empty))
@@ -368,6 +382,12 @@ inline bool subtype(TypeRef sub, TypeRef sup,
                 if (!subtype(sta[i], pta[i], adj, vars, depth + 1, permissive_empty)) return false;
             auto sl = sub.lifetime_args();
             auto pl = sup.lifetime_args();
+            if (sl.empty() && !pl.empty()) {
+                logos::probe::census("st.enum.bare_vs_args");
+                if (logos::probe::on("stbareargs") || logos::probe::on("stnoderef") ||
+                    logos::probe::on("stwhole"))
+                    sl.assign(pl.size(), std::string{});
+            }
             if (sl.size() != pl.size()) return true;
             for (size_t i = 0; i < sl.size(); ++i)
                 if (!detail::lifetime_at(Variance::Co, sl[i], pl[i], adj, permissive_empty))

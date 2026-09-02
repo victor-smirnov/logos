@@ -14281,3 +14281,307 @@ fires: 3 (m1 m2 m3)
 ceiling: 0
 cost: 0
 verdict: LANDED narrow (bare ≡ all-empty); the wide form un-refused ex2d-push-inference-variable-2 and was withdrawn.
+
+# ═══ ROUND 2026-09-01p — A BORROW OF A LOCAL FLOWS INTO A `'static` SLOT AND
+# NOTHING REFUSES IT: THE SUB REGION IS EMPTY, `lt_eq` READS EMPTY AS A WILDCARD,
+# AND `subtype` EXITS ON EQUALITY BEFORE `outlives_is_static` IS EVER ASKED.
+# 29 ROWS OVER 12 ROOTS BY PROPERTY (X-1 HAD RECORDED THREE); CEILING 30 / COST 8
+# WHOLE, 15 / 3 FOR THE TWO-LINE HALF; FOUR PASS FIXTURES ASSERT THE DIVERGENCE ═══
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE) AND THE BRIEF'S CORRECTIONS
+
+    live probe names   145 · ledger # TOTAL 233 (233 by direct listing, 233 admit
+    .logos on disk) · channel lifereg 112 / nllmoves 71 / bck 50 (bck.* incl NEW-*)
+    top roots  bck.C 16 · nllmoves.C 10 · nllmoves.B 10 · lifereg.R17 10 · bck.B 10
+               · bck.NEW 9 · lifereg.R18 8 · lifereg.NEW-N1 7 · N1 7 · C 7 · A 7
+    HEAD 8096cbf83 clean, pushed (the session snapshot said 4e4f226c0 / 242 rows:
+    two landings stale) · unarmed binary dfd362c586297275 · gate-db build 441
+    priced binary 825c9d09b855a76c (READ, scripts/build_hash.py), gate-db 442..449
+Upstream-code split of the 233, derived from each port's header: "lifetime may
+not live long enough" 30 · E0597 28 · E0507 11 · E0499 10 · E0716 9 · E0106 9 ·
+E0621 8 · E0308 7 · E0521 6 · E0382 6 · the rest ≤5 each.
+
+## 1. THE SUBJECT, NAMED BEFORE THE COMPILER WAS TOUCHED (build/targets-2026-09-01p.txt)
+
+PROPERTY, not root: grep the 233 admit programs for `'static` (44 hits), read
+each, keep the ones where a borrow of a STACK LOCAL, a call temporary, or a
+place reached through a NON-'static reference parameter flows into a slot whose
+DECLARED type carries `'static` — let annotation, turbofish, struct field, fn /
+method / fn-pointer formal, `T: 'static` bound, static-mut item, return type.
+29 rows over 12 roots and all three channels (S1 let 8 · S2 generic-with-
+'static 8 · S3 field/assoc 4 · S4 formal/bound 6 · S5 static-mut 1 · S6 return
+through a hop 2). PROBES.md's own X-1 (2026-08-29) had recorded this as
+"`'static` in an annotation constrains nothing — 3 rows" and sent them to the
+DECLINED minting round (`ltmintfresh`, cost 650). By the property it is 29, and
+it does NOT need the minting round: 'static is the one region whose meaning is
+fixed, so the question is answered by the SOURCE of the borrow, a fact the tree
+already carries (`prov_of`, `__static_addr:`, `param_lifetimes_`), against an
+arm that exists (`outlives_is_static`, `check_variance` at let / return / call /
+struct-literal). 15 excluded rows that mention 'static are named in the file.
+
+## 2. THE DOOR, READ AND THEN CENSUSED (rule 17) — build 825c9d09b855a76c
+
+`subtype()` opens with `types_equal_with_lifetimes(sub, sup)`, whose `lt_eq`
+returns TRUE when EITHER side is empty. A body borrow `&x` is typed `&u32` with
+an EMPTY region (only SIGNATURE types are minted — `mint_type_lts_`), the
+annotation is `&'static u32`, so the pair is "equal" and `lifetime_at` /
+`outlives()` — where `outlives_is_static` lives — is never reached. That is
+also why i18 (`let y: &'static u32 = p` with `p: &u32` a PARAM) is refused
+UNARMED: a param's region is minted, `'%N` ≠ `'static`, and the Ref arm runs.
+Census per target program (unarmed): `st.lteq.static_vs_empty` arrives in 24
+of 29; `st.struct.bare_vs_args` in 2 (pattern-substs-on-brace-struct, proj--b);
+`st.tpbound.empty` in 1 (regions-pattern-typing); `st.staticaddr` only in
+issue-69114 and lub-match; NO arrival at all in adt-tuple-enums--t33 (the
+turbofish enum-variant CALL has no variance site), constructor-lifetime-early-
+binding-error (arity 2 vs 1, no compare) and better-blame (`Kind::Slice` has no
+region slot). `st.outl.*` never appears unarmed — the outlives site is in
+SERIES behind `lt_eq` (rule 2), so it can be censused only with A armed.
+
+## 3. THE PROBE TABLE — ONE BUILD, seven names + `steqaddr` by hand, ALL THREE COST COLUMNS
+
+    site  A  lt_eq: exactly one side 'static, the other EMPTY -> not equal
+          B  outlives(): S 'static and L empty -> false even when permissive
+          C  `&STATIC` (sema_expr lower_unary) is typed with region 'static
+          D  Struct/Enum arm: a BARE sub vs a sup with lifetime args compares
+             each as empty instead of `return true` on the arity mismatch
+          E  check_type_bounds `T: 'static`: an empty region is a violation
+          F  `&*p` inherits p's region (a reborrow is not a fresh borrow)
+
+    probe          arms     fires  ceiling  cost  cfail  std  verdict
+    steqempty      A           95     15      5      9   ok   the two-line half; 5 = 2 corpus decisions + 3 fact holes
+    steqaddr       A+C        120     15      3      9   ok   rule-9 twin of steqempty: IDENTICAL ceiling set, 2 fewer costs
+    stcallarg      A+B+C      133     24      4      9   ok   + call-arg / struct-literal / fn-ptr-call sites
+    stbareargs     D           20      4      4      2   ok   ⛔ as spelled: bites NAMED regions too, `'_` read as a name
+    sttpempty      E            2      1      1      0   ok   ⛔ as spelled: reads the WRITTEN type arg, not the value
+    ststaticaddr   C           24      0      0      0   ok   a fact with no consumer alone (rule 2); it is what makes steqaddr's cost 3 not 5
+    stnoderef      A..E       156     30      8     11   ok   the whole minus F
+    stwhole        A..F       912     30      8     11   ok   digit-for-digit = stnoderef in every harness column; separates on l11/l20 (rule 9)
+
+`fires` for stwhole counts F's site (every `&*p`); the row-closing arrivals are
+stnoderef's 156.
+
+## 4. THE SETS, PREDICTED BY NAME FIRST (build/predictions-2026-09-01p.txt), DIFFED BOTH WAYS
+
+steqempty predicted 15, measured 15: predicted∖measured = {adt-brace-structs
+(its only compare is the struct-literal FIELD, permissive — B's row), adt-tuple-
+enums--t33 (no arrival, corrected by the census before the price)};
+measured∖predicted = {pattern-substs-on-brace-enum-variant (the enum literal
+IS typed `Foo` bare and `lt_eq` runs — assigned to D by hand, the census put it
+at A), universe-violation (`let b: fn(&i64)->&i64 = a` with `a: fn(&'static)
+->&'static` — the FnPtr contra arm, E0308 upstream, and the refusal IS the
+upstream reason)}.
+stcallarg 24 = the 15 + adt-brace-structs adt-tuple-struct constant-in-expr-
+inherent-2--static-param do-not-ignore-…-proj--ctl fns method-ufcs-3 promoted-
+annotation issue-46036 (all predicted) + issue-42574--t15 (UNPREDICTED, and a
+COLLISION — §6). stnoderef/stwhole 30 = 24 + pattern-substs-on-brace-struct,
+do-not-ignore-…-proj--b, regions-pattern-typing-issue-19552 (predicted, D/E) +
+explicit-lifetime-required-14285, regions-glb-free-free ×2 (UNPREDICTED — D's
+non-static half, §5). Of the 29 targets, 25 close; NOT closed, each with its
+reason: adt-tuple-enums--t33 and constructor-lifetime-early-binding-error (no
+variance site on that path), better-blame (no slice region slot),
+issue-69114-static-mut-ty (an assignment has no variance site; and the static's
+elided `&u8` is not 'static either — two doors in series).
+DIAGNOSTICS, read on every closed row (build/hand-2026-09-01p/../targets-
+armed.txt): every one names the 'static slot and the elided source — `let 'y':
+… expected &'static u32, got &u32`, `call to 'eat' arg 1: expected &'static
+u32, got &u32`, `struct literal 'Foo' field 'x': …`, `return type mismatch: …
+expected &'static U, got &U` — the right site and the right pair, in the
+generic variance sentence rather than rustc's "does not live long enough".
+regions-pattern-typing prints `has lifetime ''` — an empty name; a landing owes
+it a word. lub-match refuses the `Some` arm (with C armed the `None` arm's
+`&STATIC_ZERO` is 'static, so the message can only be about `t`).
+
+## 5. COST, READ LINE BY LINE — FOUR PASS FIXTURES ASSERT THE DIVERGENCE (⚠ OWNER)
+
+steqempty's 5: variance-co-into-local:10 `let v: i32 = 5; let w: W<&'static
+i32> = W { x: &v }` · region_2:87/96/124 (`@rule region.outlives.static-is-top`
+and two more) `let x: i64 = 7; let s: &'static i64 = &x` · generic_2:116
+(contravariance, LEGAL — A is direction-blind, §7) and :175 `return &GLOBAL` (C)
+· generic_5:63 `&SEVEN` (C) · bc_ltscope_impl_legal_shapes:60 `return &K` (C).
+stcallarg adds region-where-outlives-static-id-rg:20 `run(&v)` with `v` a local
+into `val: &'static i64`. stnoderef adds variance-static-into-bounded-arg:10
+`let h: Holder<'static> = Holder { r: &v }` (v local), bc_ltregslot_dyn_field_
+coerced_arg:48 `A { p: p }` with `p: &'r dyn X` into `A<'r>` (the literal is
+BARE because the dyn field's region is not instantiated — D bites a named
+region), lex_1:205 `Wrap<'_>` and region_2:191/237 `Opt<'_>` / `Hold<'_>` (D
+reads `'_` as a NAME; the mint clears `'_` only on the signature path),
+bc_ltbndstat_legal_shapes:53 `assert_send::<&i64>(&ZERO)` (E reads the WRITTEN
+type arg `&i64`, empty, where the VALUE `&ZERO` is 'static under C).
+⚠ CORPUS DECISION WITH AN OWNER, reported not edited: variance-co-into-local,
+variance-static-into-bounded-arg, region-where-outlives-static-id-rg (all three
+imported PASS ports) and spec/pass/region_2 (three sites, each under a `@rule`)
+assert programs rustc REFUSES with E0597 — a borrow of a `let` local into a
+`'static` slot. Any correct rule for this block reds those four fixtures BY
+CONSTRUCTION, so cost 0 is unreachable for it and the cost floor of the correct
+mechanism is 4, not 0. Not moved.
+cfail 9 (11 with D): every one is an ALREADY-RED fixture whose FIRST line moved
+— `return type has lifetime 'static but 'x' has lifetime (elided)` (closure-
+substs, issue-58053, region-lbr-*, promoted-closure-pair, check-normalized-sig-
+for-wf, mir-check-cast-unsafe-fn, bc_capretsc_closure_static_contract) and
+`cannot return reference to local variable` (regions-addr-of-arg, issue-12470,
+regions-trait-variance) are now preceded by the variance sentence. Rule 14: a
+re-worded red buys nothing; a landing either yields to the existing 'static
+return rule at return sites or re-pins nine `.expected`. STDLIB: all four
+layers under every name.
+
+## 6. RULE 5 — 58 HAND PROGRAMS, MULTI-LINE, VARIED BY SHAPE (build/hand-2026-09-01p/, unarmed.txt + armed-*.txt)
+
+27 illegal (i01–i27: let, `&mut`, tuple, generic struct/enum, turbofish, field,
+`Foo<'static>`, fn / method / fn-ptr arg, `T: 'static`, static-mut assign,
+`&*x` return, match-binding return, deferred init, `&mut self.f`, elided param,
+slice field, assoc type, nested literal, closure body, `Vec::push`,
+`Option::Some`, direct returns, non-move closure over `&'static mut`) and 31
+legal (l01–l31: static-item sources at every site, `'static` params through,
+literal promotion, empty `Vec`/`None`, owned `T: 'static`, fn-ptr stored,
+`&*p` of a 'static param, `&STATIC` in match arms, chains, field reads of
+'static fields, `'_`-free bare literals into named regions, a move closure).
+UNARMED: 23 of 27 illegal admitted (i18 i25 i26 refused by existing rules);
+all 31 legal rc 0.
+stwhole: illegal refused except i13 (static-mut assign), i16 (deferred init —
+no variance site at an assignment), i19 (slice slot). LEGAL REFUSED, by name:
+  l15 `let p: &'static mut u64 = &mut SM` — the `&mut STATIC` path is
+      `lower_expr_inner`'s `addr_of(.., make_ref(true, vt))`, a SECOND minting
+      site C did not cover (every st* name refuses it).
+  l21 `let y: &'static i64 = id(&K)` with `fn id(p: &i64) -> &i64` — the
+      call's ELIDED return region is not instantiated from the 'static arg;
+      the inst map carries names, not the arg's region. Refused by every A name.
+  l31 `move || { doit(data); }` with `data: &'static mut i64` captured — the
+      captured binding's type inside the closure body has an EMPTY region
+      (the same fact that closes issue-42574--t15, which is therefore a
+      COLLISION, not a purchase: its non-move twin i27 and the legal move
+      twin l31 get one verdict). Refused by stcallarg/stnoderef/stwhole.
+  l11 l20 (`&*p`, p 'static) — refused by every name WITHOUT F, rc 0 under
+      stwhole: F is the repair and it costs nothing in the harness.
+  l14 (D alone), l26 (E alone), l01 l12 l13 l17 l22 l24 (A alone) — each
+      un-refused the moment C is armed beside it: the twin (rule 9) separates
+      steqempty from steqaddr on SIX hand programs and on ZERO harness rows.
+  l03 `let y: &'static i64 = &0i64` stays rc 0 under every name — the literal
+      temp's slot is not compared at the let; recorded, not understood.
+
+## 7. ⛔ DECLINED BY NAME, WITH THE NUMBER
+
+ · `stbareargs` as spelled: ceiling 4 / cost 4 / cfail 2. Three of its four rows
+   (explicit-lifetime-required-14285, regions-glb-free-free ×2, E0621) are the
+   ELISION question — a bare literal against a NAMED non-static region — which
+   is the declined minting round's (rule 12), and its costs are `'_` read as a
+   name and a dyn-field literal left bare. The 'static-only spelling (fill the
+   bare side only where `pl[i]` is static) keeps pattern-substs-on-brace-struct
+   and proj--b and drops all four costs; NOT priced this round.
+ · `sttpempty` as spelled: ceiling 1 / cost 1. Re-site: read the ARGUMENT's
+   region, not the written type argument.
+ · `steqempty` alone (A without C): 5 costs of which 3 are static-item borrows —
+   A is right, the fact it reads is missing at the minting site, and steqaddr
+   is the same arm with the fact.
+ · A is DIRECTION-BLIND: `lt_eq(x, y)` is called with x = sub, y = sup, and the
+   FnPtr arm flips them for params; refusing "static vs empty" in BOTH orders
+   refuses generic_2:116 (`fn(&'static)->i32` into `fn(&i32)->i32`, LEGAL)
+   while `universe-violation` needs only the sub-empty/sup-static order. The
+   narrowing is one comparison and was not in the batch.
+
+## 8. ⇒ WHAT DESERVES FUNDING, IN ORDER
+
+ 1. **A(sub-empty, sup-static only) + B + C + C' (`&mut STATIC`) + F**, plus the
+    return-site yield so the nine reds keep their message: predicted 24 rows
+    (stcallarg's 24 minus issue-42574--t15) for a harness cost of exactly the
+    four divergence fixtures and cfail 0 — IF l21 (elided return from a 'static
+    arg) is also repaired at the call instantiation, else +1 legal shape the
+    corpus does not contain. Rule 7: re-price the landed form.
+ 2. D at 'static positions only (+2), E re-sited on the value (+1).
+ 3. NOT: issue-69114 (needs an assignment variance site AND the static's own
+    elided type read as 'static), better-blame (slice slot), t33 / constructor
+    (no site on their path).
+
+## 9. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ · A captured `&'static mut` has an EMPTY region inside a closure body (l31).
+ · The elided return of a call is not instantiated from a 'static argument (l21).
+ · `&mut STATIC` (and `&STATIC` array statics via the slice path) carry no region.
+ · `let y: &'static i64 = &0i64` is admitted at the let and refused at a return
+   (#92, carried) — two answers for one temp.
+
+## 10. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+# TOTAL 233 -> 233. No row bought, no compiler change beyond the env-gated
+probes and census buckets. Not spent: object-lifetime 18 · bck.C 16 ·
+lifereg.R17 10 · nllmoves.B 10 (three of them are in THIS block: adt-brace-
+enums, issue-46036, lub-match) · the 4 rows of this block named in §4 as
+unreachable by these sites.
+
+## 11. OPEN (carried, plus this round's)
+ 1-54. UNCHANGED.
+ 55. NEW: `lt_eq`'s empty-is-wildcard exit is the door for every 'static-slot
+     row; `subtype` never reaches `outlives_is_static` for a body borrow.
+ 56. NEW: `&STATIC` / `&mut STATIC` / a captured binding / an elided call
+     return carry NO region where they are minted — four sources of one
+     missing fact (§6, §9).
+ 57. NEW: four pass fixtures assert `&local` into a 'static slot (§5). Owner.
+
+## steqempty
+site: include/logos/compiler/subtype.hpp::types_equal_with_lifetimes
+build: 825c9d09b855a76c (READ)
+measured: 2026-09-01
+fires: 95
+ceiling: 15
+cost: 5 (cfail 9, stdlib ok)
+verdict: the two-line arm; 3 of the 5 costs are the missing 'static fact at `&STATIC`, 2 are corpus decisions; direction-blind (§7).
+
+## steqaddr
+site: include/logos/compiler/subtype.hpp::types_equal_with_lifetimes
+build: 825c9d09b855a76c (READ)
+measured: 2026-09-01
+fires: 120
+ceiling: 15
+cost: 3 (cfail 9, stdlib ok)
+verdict: rule-9 twin of steqempty — same 15 rows, separates on six legal hand programs; the arm with its fact.
+
+## stcallarg
+site: include/logos/compiler/outlives.hpp::outlives
+build: 825c9d09b855a76c (READ)
+measured: 2026-09-01
+fires: 133
+ceiling: 24
+cost: 4 (cfail 9, stdlib ok)
+verdict: A+B+C; 23 honest + issue-42574--t15 by collision (l31); costs = 3 corpus decisions + generic_2's contra direction.
+
+## stbareargs
+site: include/logos/compiler/subtype.hpp::subtype
+build: 825c9d09b855a76c (READ)
+measured: 2026-09-01
+fires: 20
+ceiling: 4
+cost: 4 (cfail 2, stdlib ok)
+verdict: ⛔ DECLINED as spelled — bites named regions and `'_`; the 'static-only spelling is 2 rows for 0 predicted cost, unpriced.
+
+## sttpempty
+site: src/compiler/sema_collect.cpp::check_type_bounds
+build: 825c9d09b855a76c (READ)
+measured: 2026-09-01
+fires: 2
+ceiling: 1
+cost: 1 (cfail 0, stdlib ok)
+verdict: ⛔ DECLINED as spelled — reads the written type argument; re-site on the argument's region.
+
+## ststaticaddr
+site: src/compiler/sema_expr.cpp::lower_unary
+build: 825c9d09b855a76c (READ)
+measured: 2026-09-01
+fires: 24
+ceiling: 0
+cost: 0 (cfail 0, stdlib ok)
+verdict: a FACT, not an arm — zero alone by rule 2, and the difference between steqempty's 5 and steqaddr's 3.
+
+## stnoderef
+site: include/logos/compiler/subtype.hpp::subtype
+build: 825c9d09b855a76c (READ)
+measured: 2026-09-01
+fires: 156
+ceiling: 30
+cost: 8 (cfail 11, stdlib ok)
+verdict: A..E; the 30 = stcallarg's 24 + D's 4 + E's 1 + proj--b; costs = 4 corpus decisions + D's 3 + E's 1.
+
+## stwhole
+site: src/compiler/sema_expr.cpp::lower_unary
+build: 825c9d09b855a76c (READ)
+measured: 2026-09-01
+fires: 912
+ceiling: 30
+cost: 8 (cfail 11, stdlib ok)
+verdict: A..F; identical to stnoderef in every harness column (rule 9), un-refuses l11/l20 by hand — F is free.

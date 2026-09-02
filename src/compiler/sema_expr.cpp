@@ -3033,8 +3033,13 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                                 "block (Rust `items.static.mut.safety`)", var_name));
                     }
                 }
+                logos::probe::census("st.staticaddr");
+                // PROBE st* (2026-09-01p): `&STATIC` IS 'static — say so in the type.
                 return builder().var_ref(static_addr_name(var_name),
-                                         make_ref(smut, vt));
+                                         make_ref(smut, vt,
+                                             (logos::probe::on("ststaticaddr") || logos::probe::on("steqaddr") ||
+                                              logos::probe::on("stcallarg") || logos::probe::on("stnoderef") ||
+                                              logos::probe::on("stwhole")) ? std::string("static") : std::string()));
             }
             // &array → &[T; N] (Rust). The decay to `&[T]` happens where a
             // slice is EXPECTED (try_coerce_array_ref_to_slice), not here —
@@ -3088,7 +3093,11 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                 auto deref = builder().deref(std::move(operand), pointee_t);
                 if (TypeRef rdt = self_describing_dst_ref(pointee_t, /*is_mut=*/false))
                     return builder().addr_of_temp(std::move(deref), false, rdt);
-                return builder().addr_of_temp(std::move(deref), false, make_ref(false, pointee_t));
+                // PROBE st* (2026-09-01p): `&*p` inherits p's region (a reborrow is not a fresh borrow).
+                if (outlives_is_static(TypeRef(op_t).lifetime())) logos::probe::census("st.reborrow.deref.src_static");
+                return builder().addr_of_temp(std::move(deref), false,
+                    make_ref(false, pointee_t,
+                             logos::probe::on("stwhole") ? std::string(TypeRef(op_t).lifetime()) : std::string()));
             }
             // `&*rc` for a struct with a Deref impl: the reborrow IS `rc.deref()`.
             if (auto dc = emit_generic_deref_call(std::move(operand), /*want_mut=*/false))

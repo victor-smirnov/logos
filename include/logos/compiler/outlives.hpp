@@ -106,6 +106,18 @@ inline bool outlives(
             logos::probe::on("ltmintfresh")) return false;
         return true;                        // unconstrained short side
     }
+    // PROBE st* (2026-09-01p): the permissive exit for an EMPTY sub region
+    // against a 'static sup region, by direction and by kind of emptiness.
+    if (L.empty() && outlives_is_static(S)) {
+        logos::probe::census(permissive_empty ? "st.outl.S_static.L_empty.perm"
+                                              : "st.outl.S_static.L_empty.noperm");
+        if (permissive_empty && (logos::probe::on("stcallarg") ||
+                                 logos::probe::on("stnoderef") ||
+                                 logos::probe::on("stwhole")))
+            return false;
+    }
+    if (lt_is_minted(L) && outlives_is_static(S))
+        logos::probe::census("st.outl.S_static.L_minted");
     if (permissive_empty && L.empty()) {
         if (logos::probe::on("ltelidesub") ||
             logos::probe::on("ltelideboth") ||
