@@ -1,0 +1,25 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the method's binder is its own. Also pins
+// the exemption with a price: a trait DEFAULT method declares 'a in the TRAIT's
+// scope and is lowered under every impl — an `impl<'a>` that inherits it is
+// legal, and the shadow rule reads the trait's binders there, not the impl's.
+package bc_dclshadow_method_own_binder;
+
+struct Foo<T> { v: T }
+impl<'s> Foo<&'s u8> {
+    fn bar<'t>(self: &Foo<&'s u8>, x: &'t u8) -> u8 { return *x; }
+}
+struct S<'a> { x: &'a i64 }
+trait Tr {
+    fn m<'a>(self: &Self, y: &'a i64) -> i64 { return *y; }
+}
+impl<'a> Tr for S<'a> { }
+
+fn main() -> i32 {
+    let b: u8 = 9u8;
+    let f: Foo<&u8> = Foo { v: &b };
+    let v: i64 = 2i64;
+    let s: S = S { x: &v };
+    if f.bar(&b) != 9u8 { return 1i32; }
+    if s.m(&v) != 2i64 { return 2i32; }
+    return 0i32;
+}

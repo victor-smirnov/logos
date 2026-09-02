@@ -1,6 +1,6 @@
 // rustc lifetimes/missing-lifetime-in-assoc-type-2.rs — upstream missing lifetime in associated type (E0637) + E0261
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.R17
+// shelf: fail — REFUSED since 2026-09-02: E0106/E0637 at an impl ASSOCIATED TYPE: `type Item = &T` names no lifetime. Was lifereg.R17.
 package missing_lifetime_in_assoc_type_2;
 struct T { v: i64 }
 struct S { t: T }

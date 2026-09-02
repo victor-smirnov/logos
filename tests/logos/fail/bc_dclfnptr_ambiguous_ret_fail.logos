@@ -1,0 +1,11 @@
+// E0106 AT A FN-POINTER TYPE: an elided output ref with two distinct input
+// lifetimes and no `&self` has no source. The fn-SIGNATURE rule existed; the
+// fn-pointer TYPE never asked it (issue-19707--fn-type-elision).
+// ONE TOKEN from pass/bc_dclfnptr_one_input_ret: `&i64` vs `i64` second input.
+package bc_dclfnptr_ambiguous_ret_fail;
+
+type Pick = fn(&i64, &i64) -> &i64;
+
+fn main() -> i32 {
+    return 0i32;
+}

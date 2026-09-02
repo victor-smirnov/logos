@@ -3,9 +3,11 @@
 // shelf: admit · root bck.C
 // upstream: borrowck/var-matching-lifetime-but-unused-not-mentioned.rs
 // (borrowed data escapes outside of function through a `move` closure)
+// 2026-09-02r: `'a` spelled as upstream spells it — the elided form is E0106 in
+// Rust too, and the decl-site E0106 rule would close this row for the wrong reason.
 package var_matching_lifetime_but_unused_not_mentioned;
-fn call_it<F: Fn() -> &i64>(f: F) -> &i64 { return f(); }
-fn bad() -> &i64 {
+fn call_it<'a, F: Fn() -> &'a i64>(f: F) -> &'a i64 { return f(); }
+fn bad<'a>() -> &'a i64 {
     let x: i64 = 5i64;
     let r: &i64 = &x;
     return call_it(|| { return r; });

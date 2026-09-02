@@ -1,0 +1,12 @@
+// E0496: a method's lifetime binder redeclares its impl block's (shadow).
+// ONE TOKEN from pass/bc_dclshadow_method_own_binder: `'s` vs `'t` on the method.
+package bc_dclshadow_method_redeclares_impl_binder_fail;
+
+struct Foo<T> { v: T }
+impl<'s> Foo<&'s u8> {
+    fn bar<'s>(self: &Foo<&'s u8>, x: &'s u8) { }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

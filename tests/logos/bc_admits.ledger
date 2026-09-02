@@ -1123,7 +1123,35 @@
 #   RE-DERIVED BY DIRECT LISTING, not decremented:
 #     awk '!/^#/ && NF' tests/logos/bc_admits.ledger | wc -l  -> 242
 #     ls tests/imported/admit/*/*.logos | wc -l               -> 242
-# TOTAL 228
+# 2026-09-02 — 228 -> 215, THIRTEEN DECLARATION-SITE LIFETIME ROWS over eight roots
+# (lifereg.R17 ×6, NEW-L1 ×3, N3, NEW-N4, NEW-3, bck.NEW). The tree already owned
+# the fn-signature E0106 rule and the E0261/E0262 binder rule; six declaration
+# sites never asked them, and two counts were too narrow:
+#   · fn-POINTER types and `Fn`-family BOUNDS (E0106 on a WRITTEN `-> &`, read
+#     off the AST so a substituted `-> Item` is not an elision) — issue-19707
+#     --fn-type-elision, --b-bound, mut-ref-owned-suggestion;
+#   · impl ASSOCIATED types — missing-lifetime-in-assoc-type-2, -3;
+#   · IMPL HEADERS: a trait impl's TYPE_PARAMS are the trait's ARGUMENTS and
+#     were read as binders, so `impl Tr<'tcx>` declared 'tcx by using it — a
+#     deletion, issue-107988;
+#   · TRAIT declarations' binders through `read_lifetime_params` (E0262) —
+#     keyword-self-lifetime-error-10412 — and E0496 for a method binder that
+#     redeclares its impl's — shadow;
+#   · TYPE ALIASES of a lifetime-carrying ADT, asked at lower time — the two
+#     e0106-trailing-comma-in-lifetime-suggestion rows;
+#   · the fn-signature count now counts DISTINCT lifetimes (an ADT's elided
+#     argument is one; a named lifetime used twice is one) and reads the
+#     written return AST into type args — elision-error-omits-lifetimeless-
+#     params, missing-lifetime-specifier-13497;
+#   · E0195 on early-bound binder counts — regions-bound-missing-bound-in-impl.
+# NOT closed, by design: var-matching-lifetime-but-unused-not-mentioned (bck.C)
+# — its port had dropped upstream's `'a` and would have closed for E0106, the
+# wrong reason; the port now spells it and the row stands for its own hole.
+# LEGAL RUST AS PORTED, reported for the owner (not edited): missing-lifetime-
+# in-assoc-type-1 / -5 / -6 (no assoc type mentions the binder, so rustc's E0207
+# does not fire). Walled by five pass fixtures declaring unused lifetime params:
+# issue-64173-unused-lifetimes, region-bounds-on-objects-and-type-parameters (E0392).
+# TOTAL 215
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1169,7 +1197,6 @@ mut-borrow-conflict-in-closures-vec bck.C tests/imported/admit/borrowck/mut-borr
 mut-borrow-of-mut-ref bck.A tests/imported/admit/borrowck/mut-borrow-of-mut-ref
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error
 reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow
-regions-bound-missing-bound-in-impl bck.NEW tests/imported/admit/borrowck/regions-bound-missing-bound-in-impl
 regions-escape-bound-fn bck.C tests/imported/admit/borrowck/regions-escape-bound-fn
 regions-escape-unboxed-closure bck.B tests/imported/admit/borrowck/regions-escape-unboxed-closure
 slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck/slice-index-bounds-check-invalidation--t35
@@ -1201,12 +1228,9 @@ reject-specialized-drops-8142 lifereg.L3 tests/imported/admit/dropck/reject-spec
 borrowck-let-suggestion lifereg.D tests/imported/admit/lifetimes/borrowck-let-suggestion
 constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error
 copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions
-e0106-trailing-comma-in-lifetime-suggestion--b-bar-uarg lifereg.NEW-L1 tests/imported/admit/lifetimes/e0106-trailing-comma-in-lifetime-suggestion--b-bar-uarg
-e0106-trailing-comma-in-lifetime-suggestion--missing-lifetime-spec lifereg.NEW-L1 tests/imported/admit/lifetimes/e0106-trailing-comma-in-lifetime-suggestion--missing-lifetime-spec
 e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
 elided-lifetime-mismatch-in-self-type lifereg.R18 tests/imported/admit/lifetimes/elided-lifetime-mismatch-in-self-type
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn
-elision-error-omits-lifetimeless-params lifereg.N3 tests/imported/admit/lifetimes/elision-error-omits-lifetimeless-params
 ex2b-push-no-existing-names lifereg.A tests/imported/admit/lifetimes/ex2b-push-no-existing-names
 ex2c-push-inference-variable lifereg.NEW-R19 tests/imported/admit/lifetimes/ex2c-push-inference-variable
 ex3-both-anon-regions-3 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex3-both-anon-regions-3
@@ -1217,29 +1241,20 @@ ex3-both-anon-regions lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-reg
 explicit-lifetime-required-14285 lifereg.R13 tests/imported/admit/lifetimes/explicit-lifetime-required-14285
 explicit-self-lifetime-mismatch lifereg.NEW-N3 tests/imported/admit/lifetimes/explicit-self-lifetime-mismatch
 issue-103582-hint-type-alias lifereg.A tests/imported/admit/lifetimes/issue-103582-hint-type-alias
-issue-107988 lifereg.R17 tests/imported/admit/lifetimes/issue-107988
-issue-19707--b-bound lifereg.R17 tests/imported/admit/lifetimes/issue-19707--b-bound
-issue-19707--fn-type-elision lifereg.R17 tests/imported/admit/lifetimes/issue-19707--fn-type-elision
 issue-55796--t09 lifereg.N1 tests/imported/admit/lifetimes/issue-55796--t09
 issue-64173-unused-lifetimes lifereg.L4 tests/imported/admit/lifetimes/issue-64173-unused-lifetimes
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 issue-90170-elision-mismatch lifereg.N3 tests/imported/admit/lifetimes/issue-90170-elision-mismatch
 iterator-next-extra-named-lifetime lifereg.R18 tests/imported/admit/lifetimes/iterator-next-extra-named-lifetime
 iterator-trait-lifetime-error-13058 lifereg.A tests/imported/admit/lifetimes/iterator-trait-lifetime-error-13058
-keyword-self-lifetime-error-10412 lifereg.R17 tests/imported/admit/lifetimes/keyword-self-lifetime-error-10412
 lifetime-doesnt-live-long-enough lifereg.NEW-N2 tests/imported/admit/lifetimes/lifetime-doesnt-live-long-enough
 lifetime-mismatch-between-trait-and-impl lifereg.R18 tests/imported/admit/lifetimes/lifetime-mismatch-between-trait-and-impl
 missing-lifetime-in-assoc-type-1 lifereg.R17 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-1
-missing-lifetime-in-assoc-type-2 lifereg.R17 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-2
-missing-lifetime-in-assoc-type-3 lifereg.NEW-3 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-3
 missing-lifetime-in-assoc-type-5 lifereg.N2 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-5
 missing-lifetime-in-assoc-type-6 lifereg.L4 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-6
 missing-lifetime-in-return lifereg.R13 tests/imported/admit/lifetimes/missing-lifetime-in-return
-missing-lifetime-specifier-13497 lifereg.NEW-N4 tests/imported/admit/lifetimes/missing-lifetime-specifier-13497
-mut-ref-owned-suggestion lifereg.NEW-L1 tests/imported/admit/lifetimes/mut-ref-owned-suggestion
 mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17
 mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17
-shadow lifereg.R17 tests/imported/admit/lifetimes/shadow
 temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor
 trait-impl-mismatch-elided-lifetime-issue-65866 lifereg.R18 tests/imported/admit/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866
 trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion

@@ -1,0 +1,12 @@
+// E0195: the impl method's `'b: 'static` makes 'b EARLY-bound where the trait's
+// 'b is late-bound (regions-bound-missing-bound-in-impl).
+// ONE TOKEN from pass/bc_dclimplbnd_matching_bound: `<'b: 'static>` vs `<'b>`.
+package bc_dclimplbnd_extra_bound_fail;
+
+struct Inv<'a> { x: &'a i64 }
+pub trait Foo { fn no_bound<'b>(self: Self, b: Inv<'b>) -> i64; }
+impl Foo for i64 { fn no_bound<'b: 'static>(self: Self, b: Inv<'b>) -> i64 { return *b.x; } }
+
+fn main() -> i32 {
+    return 0i32;
+}

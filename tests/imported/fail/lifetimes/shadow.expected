@@ -1,0 +1,1 @@
+fn 'Foo$G1$ref_u8__bar': lifetime name ''s' shadows a lifetime name that is already in scope (E0496)

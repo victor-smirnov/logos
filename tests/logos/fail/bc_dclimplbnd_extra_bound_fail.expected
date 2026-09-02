@@ -1,0 +1,1 @@
+impl Foo for i64: lifetime parameters or bounds on method 'no_bound' do not match the trait declaration (E0195)

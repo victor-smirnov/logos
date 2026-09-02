@@ -1,0 +1,24 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the output names 'static. Also pins the
+// one-input form, a bound on a TRAIT method's generic, on a STRUCT's, and a
+// named lifetime used twice counting once.
+package bc_dclfnbnd_static_ret;
+
+static SEVEN: i64 = 7i64;
+
+fn call<F>(f: F) -> i64 where F: Fn() -> &'static i64 {
+    return *f();
+}
+fn apply<F: Fn(&i64) -> &i64>(f: F, p: &i64) -> i64 { return *f(p); }
+fn both<'a, F: Fn(&'a i64, &'a i64) -> &i64>(f: F, p: &'a i64, q: &'a i64) -> i64 { return *f(p, q); }
+trait Tr { fn m<F: Fn(&i64) -> &i64>(self: &Self, f: F, p: &i64) -> i64; }
+struct W<F: Fn(&i64) -> &i64> { f: F }
+impl Tr for i64 { fn m<F: Fn(&i64) -> &i64>(self: &Self, f: F, p: &i64) -> i64 { return *f(p); } }
+
+fn main() -> i32 {
+    let v: i64 = 3i64;
+    if call(|| -> &'static i64 { return &SEVEN; }) != 7i64 { return 1i32; }
+    if apply(|x: &i64| -> &i64 { return x; }, &v) != 3i64 { return 2i32; }
+    if both(|x: &i64, y: &i64| -> &i64 { return y; }, &v, &v) != 3i64 { return 3i32; }
+    if 0i64.m(|x: &i64| -> &i64 { return x; }, &v) != 3i64 { return 4i32; }
+    return 0i32;
+}

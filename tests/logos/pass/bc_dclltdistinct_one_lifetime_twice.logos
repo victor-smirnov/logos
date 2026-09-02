@@ -1,0 +1,18 @@
+// THE LEGAL TWIN, ONE TOKEN APART: 'a used in both inputs is ONE lifetime, and
+// the elided output takes it (reference §lifetime-elision, "elided or not").
+// Refused before 2026-09-02r: the count was of POSITIONS.
+package bc_dclltdistinct_one_lifetime_twice;
+
+struct S<'a> { x: &'a i64 }
+
+fn g<'a>(a: &'a i64, b: &'a i64) -> &i64 { return a; }
+fn h<'a>(s: &'a S<'a>) -> &i64 { return s.x; }
+
+fn main() -> i32 {
+    let v: i64 = 1i64;
+    let w: i64 = 2i64;
+    let s: S = S { x: &w };
+    if *g(&v, &w) != 1i64 { return 1i32; }
+    if *h(&s) != 2i64 { return 2i32; }
+    return 0i32;
+}

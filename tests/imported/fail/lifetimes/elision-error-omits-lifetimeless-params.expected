@@ -1,0 +1,1 @@
+missing lifetime specifier (E0106): this function's return type contains a borrowed value with an elided lifetime, but the signature has more than one input lifetime and no `&self` — annotate which input the result borrows from (e.g. `&'a`)

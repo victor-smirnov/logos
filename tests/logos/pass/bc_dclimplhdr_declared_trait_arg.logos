@@ -1,0 +1,22 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the header declares 'x. Also pins `'_` as a
+// trait argument and a binder used in both the argument and the target.
+package bc_dclimplhdr_declared_trait_arg;
+
+trait Tr<'a> { fn pick(self: &Self, x: &'a i64) -> &'a i64; }
+struct W { v: i64 }
+impl<'x> Tr<'x> for W { fn pick(self: &Self, x: &'x i64) -> &'x i64 { return x; } }
+trait Count<'a> { fn n(self: &Self) -> i64; }
+impl Count<'_> for W { fn n(self: &Self) -> i64 { return self.v; } }
+struct S<'a> { x: &'a i64 }
+trait Get<'a> { fn get(self: &Self) -> &'a i64; }
+impl<'a> Get<'a> for S<'a> { fn get(self: &Self) -> &'a i64 { return self.x; } }
+
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let w: W = W { v: 2i64 };
+    let s: S = S { x: &v };
+    if *w.pick(&v) != 4i64 { return 1i32; }
+    if w.n() != 2i64 { return 2i32; }
+    if *s.get() != 4i64 { return 3i32; }
+    return 0i32;
+}

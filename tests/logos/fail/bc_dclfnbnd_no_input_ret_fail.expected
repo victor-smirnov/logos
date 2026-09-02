@@ -1,0 +1,1 @@
+missing lifetime specifier (E0106): the `Fn` bound's return type contains a borrowed value with an elided lifetime and no single input lifetime to borrow from

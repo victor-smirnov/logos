@@ -1,6 +1,6 @@
 // rustc lifetimes/E0106-trailing-comma-in-lifetime-suggestion.rs — upstream E0106
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-L1
+// shelf: fail — REFUSED since 2026-09-02: E0106 at a TYPE ALIAS: `Bar<i64>` takes a lifetime argument the alias did not write. Was lifereg.NEW-L1.
 // second half of the upstream file: Bar<'a,T> written with only the type arg
 package e0106_trailing_comma_in_lifetime_suggestion_b_bar_uarg;
 

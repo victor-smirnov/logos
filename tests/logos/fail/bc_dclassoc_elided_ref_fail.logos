@@ -1,0 +1,15 @@
+// E0106/E0637 AT AN IMPL'S ASSOCIATED TYPE: `type Item = &T` names no lifetime
+// and an impl assoc type has no elision source (missing-lifetime-in-assoc-type-2, -3).
+// ONE TOKEN from pass/bc_dclassoc_named_ref: `&T` vs `&'a T`.
+package bc_dclassoc_elided_ref_fail;
+
+struct W<'a, T> { t: &'a T }
+trait Coll { type Item; fn get(self: &Self) -> Self::Item; }
+impl<'a, T> Coll for W<'a, T> {
+    type Item = &T;
+    fn get(self: &Self) -> Self::Item { return self.t; }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

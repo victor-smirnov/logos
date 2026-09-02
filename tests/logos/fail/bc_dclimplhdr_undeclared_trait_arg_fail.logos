@@ -1,0 +1,13 @@
+// E0261 AT AN IMPL HEADER: `impl Tr<'x> for W` never declares 'x. The header's
+// TYPE_PARAMS slot holds the trait's ARGUMENTS for a trait impl, and reading
+// them as binders let an argument declare itself (issue-107988).
+// ONE TOKEN from pass/bc_dclimplhdr_declared_trait_arg: `impl` vs `impl<'x>`.
+package bc_dclimplhdr_undeclared_trait_arg_fail;
+
+trait Tr<'a> { fn pick(self: &Self, x: &'a i64) -> &'a i64; }
+struct W { v: i64 }
+impl Tr<'x> for W { fn pick(self: &Self, x: &'x i64) -> &'x i64 { return x; } }
+
+fn main() -> i32 {
+    return 0i32;
+}

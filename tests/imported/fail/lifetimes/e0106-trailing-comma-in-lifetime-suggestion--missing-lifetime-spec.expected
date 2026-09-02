@@ -1,0 +1,1 @@
+type alias 'Alias6': missing lifetime specifier (E0106) — the aliased type takes 1 lifetime argument(s) and 0 written

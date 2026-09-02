@@ -1,0 +1,11 @@
+// E0106 counts DISTINCT input lifetimes: 'a and one elided slot are two.
+// ONE TOKEN from pass/bc_dclltdistinct_one_lifetime_twice: `&i64` vs `&'a i64`.
+// This half was refused BEFORE 2026-09-02r too (the position count saw 2); the
+// PASS twin is the half that changed — it was refused, and is legal.
+package bc_dclltdistinct_two_lifetimes_fail;
+
+fn g<'a>(a: &'a i64, b: &i64) -> &i64 { return a; }
+
+fn main() -> i32 {
+    return 0i32;
+}

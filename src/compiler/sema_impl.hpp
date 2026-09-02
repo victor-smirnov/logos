@@ -451,22 +451,25 @@ private:
     std::string mint_lt_() {
         return std::string("'%") + std::to_string(++lt_mint_n_);
     }
-    // dcl* probes (PROBES.md 2026-09-02q): the fn-signature E0106 rule's two
-    // walks, made reachable from the declaration sites that never had them.
-    // The WRITTEN form: an elided `&` anywhere in a type's AST, type args
-    // included. Reads the syntax so a substituted `Item = (&K, &V)` (the
-    // stdlib's idiom) is never mistaken for an elision the user wrote.
-    bool dcl_ast_elided_ref_(writ::TinyMapView n, int d = 0) {
+    // The E0106 walks shared by every declaration site that carries a
+    // signature: fn, fn-pointer type, Fn-family bound, impl assoc type.
+    // WRITTEN elision only — read off the AST, so a substituted `Item := &T`
+    // is never mistaken for an elision the user wrote. A fn-pointer type and
+    // a `dyn`/`impl Fn(..) -> ..` sugar open their OWN elision scope: stop.
+    bool ast_elided_ref_(writ::TinyMapView n, int d = 0) {
         using namespace sema_detail;
         if (n.is_null() || d > 24) return false;
         auto c = code_of(n);
+        if (c == la::FN_PTR_TYPE) return false;
+        if ((c == la::DYN_TYPE || c == la::IMPL_TYPE) &&
+            (n.has_key(la::PARAMS) || n.has_key(la::RET_TYPE))) return false;
         if ((c == la::REF_TYPE || c == la::MUT_REF_TYPE) &&
             (!n.has_key(la::LIFETIME) || n.get(la::LIFETIME.code).is_null()))
             return true;
         for (auto key : {la::POINTEE.code, la::TYPE.code}) {
             if (!n.has_key(key)) continue;
             writ::AnyVal v = n.get(key);
-            if (!v.is_null() && dcl_ast_elided_ref_(map_of(v), d + 1)) return true;
+            if (!v.is_null() && ast_elided_ref_(map_of(v), d + 1)) return true;
         }
         if (n.has_key(la::ITEMS)) {
             writ::AnyVal iv = n.get(la::ITEMS.code);
@@ -474,38 +477,57 @@ private:
                 auto items = arr_of(iv);
                 for (uint64_t i = 0; i < items.size(); ++i) {
                     writ::AnyVal e = items.get(i);
-                    if (!e.is_null() && dcl_ast_elided_ref_(map_of(e), d + 1)) return true;
+                    if (!e.is_null() && ast_elided_ref_(map_of(e), d + 1)) return true;
                 }
             }
         }
         return false;
     }
-    bool dcl_has_elided_ref_(TypeRef t, bool into_args, int d = 0) {
-        if (!t || d > 24) return false;
+    // One entry per lifetime POSITION of `t`: a written name as itself, every
+    // elided slot (`&`, `'_`, a missing ADT lifetime arg) as a fresh one. The
+    // elision rules count DISTINCT lifetimes — `fn(&'a T, &'a T) -> &T` has one.
+    void lt_names_(TypeRef t, std::vector<std::string>& out, int d = 0) {
+        if (!t || d > 24) return;
+        using K = LogosType::Kind;
+        auto slot = [&](std::string_view lt) {
+            if (lt.empty() || lt == "'_" || lt == "_") out.push_back("\x01" + std::to_string(out.size()));
+            else out.push_back(std::string(lt));
+        };
         auto k = t.kind();
-        if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) && t.lifetime().empty()) return true;
-        if (t.pointee() && dcl_has_elided_ref_(t.pointee(), into_args, d + 1)) return true;
-        if (t.elem() && dcl_has_elided_ref_(t.elem(), into_args, d + 1)) return true;
-        for (auto e : t.tuple_elems()) if (dcl_has_elided_ref_(e, into_args, d + 1)) return true;
-        if (into_args) for (auto a : t.type_args()) if (dcl_has_elided_ref_(a, into_args, d + 1)) return true;
-        return false;
-    }
-    int dcl_lt_positions_(TypeRef t, int d = 0) {
-        if (!t || d > 24) return 0;
-        auto k = t.kind();
-        int n = 0;
-        if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef)
-            return 1 + dcl_lt_positions_(t.pointee(), d + 1);
-        if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct || k == LogosType::Kind::Enum) {
-            size_t ar = decl_lt_arity_(t), wr = t.lifetime_args().size();
-            n += (int)(ar > wr ? ar : wr);
+        if (k == K::Ref || k == K::MutRef) slot(t.lifetime());
+        else if (k == K::Struct || k == K::ZonedStruct || k == K::Enum) {
+            auto wr = t.lifetime_args();
+            size_t n = std::max(decl_lt_arity_(t), wr.size());
+            for (size_t i = 0; i < n; ++i) slot(i < wr.size() ? std::string_view(wr[i]) : std::string_view{});
         }
-        if (t.pointee()) n += dcl_lt_positions_(t.pointee(), d + 1);
-        if (t.elem())    n += dcl_lt_positions_(t.elem(), d + 1);
-        for (auto a : t.type_args())   n += dcl_lt_positions_(a, d + 1);
-        for (auto e : t.tuple_elems()) n += dcl_lt_positions_(e, d + 1);
+        if (t.pointee()) lt_names_(t.pointee(), out, d + 1);
+        if (t.elem())    lt_names_(t.elem(), out, d + 1);
+        for (auto a : t.type_args())   lt_names_(a, out, d + 1);
+        for (auto e : t.tuple_elems()) lt_names_(e, out, d + 1);
+    }
+    size_t distinct_input_lts_(const std::vector<TypeRef>& params) {
+        std::vector<std::string> names;
+        for (auto p : params) lt_names_(p, names);
+        return std::set<std::string>(names.begin(), names.end()).size();
+    }
+    // E0195: the EARLY-BOUND binders of a method — those an outlives clause or a
+    // `T: 'x` bound mentions. (rustc's other early-bound cause, a binder absent
+    // from every input type, is not counted; the count is symmetric either way.)
+    size_t early_bound_lts_(const std::vector<std::string>& binders,
+                            const std::vector<std::pair<std::string, std::string>>& outlives,
+                            const std::vector<TypeParam>& tps) {
+        size_t n = 0;
+        for (auto& b : binders) {
+            bool early = false;
+            for (auto& [l, s] : outlives) if (l == b || s == b) early = true;
+            for (auto& tp : tps) for (auto& o : tp.lifetime_outlives) if (o == b) early = true;
+            n += early;
+        }
         return n;
     }
+    // A trait DEFAULT method is lowered under each impl; its binders shadow the
+    // TRAIT's, not the impl's. Null = the enclosing impl's binders.
+    const std::vector<std::string>* shadow_scope_ = nullptr;
     size_t decl_lt_arity_(TypeRef t) {
         using K = LogosType::Kind;
         if (t.kind() == K::Enum) {
@@ -4595,7 +4617,8 @@ private:
         TypeRef ret_type = nullptr;
         bool has_default = false;   // trait method has a default body
         bool is_unsafe = false;     // declared unsafe fn in trait
-        std::vector<std::pair<std::string, std::string>> dcl_lt_outlives_;  // dclimplbnd probe: the declaration's own `'b: 'x` clauses
+        std::vector<std::string> lifetime_params;
+        std::vector<std::pair<std::string, std::string>> lifetime_outlives;  // the declaration's own `'b: 'x` clauses, header + where
         bool has_self_receiver = false;  // first param is `self`/`&self`/`&mut self`/`self: …`
         bool requires_sized_self = false;  // `where Self: Sized` → excluded from the
                                             // vtable (ignored for object-safety, P2-15)
@@ -4640,6 +4663,7 @@ private:
         bool is_module_only = false;           // §4: `pub(module)`
         std::string package;                  // pkg this trait was declared in (for B-mv-02 diag)
         std::vector<TypeParam> type_params;  // e.g. trait Into<T> has T
+        std::vector<std::string> lifetime_params;
         std::vector<SemaTraitMethodInfo> methods;
         std::vector<SemaAssocTypeInfo>   assoc_types;
         std::vector<SemaAssocConstInfo>  assoc_consts;

@@ -1,0 +1,14 @@
+// E0106 IN A FN SIGNATURE: the elided ref is WRITTEN inside a type argument
+// (`Vec<&i64>`), two inputs (missing-lifetime-specifier-13497). Read off the
+// AST: a SUBSTITUTED `FilterIter<Self, &T>` is the bound's lifetime, not this.
+// ONE TOKEN from pass/bc_dclretargs_nested_ref_one_input: `y: &i64` vs `y: i64`.
+package bc_dclretargs_nested_ref_two_inputs_fail;
+
+fn g(x: &i64, y: &i64) -> Vec<&i64> {
+    let v: Vec<&i64> = Vec::<&i64>::new();
+    return v;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

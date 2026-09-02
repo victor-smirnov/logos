@@ -1,0 +1,12 @@
+// E0106 IN A FN SIGNATURE: `&S` where `struct S<'a>` is TWO input lifetimes —
+// the ref's and the struct's elided argument (elision-error-omits-lifetimeless-params).
+// ONE TOKEN from pass/bc_dclltpos_struct_arity_named: `&S` vs `S`.
+package bc_dclltpos_struct_arity_counts_fail;
+
+struct S<'a> { field: &'a i64 }
+
+fn f(a: &S, b: i64) -> &i64 { return a.field; }
+
+fn main() -> i32 {
+    return 0i32;
+}

@@ -1,0 +1,13 @@
+// E0106 AT A TYPE ALIAS: the aliased struct takes a lifetime argument the
+// alias does not write (e0106-trailing-comma-in-lifetime-suggestion). Asked at
+// lower time — at collection (phase 0) no struct is registered yet.
+// ONE TOKEN from pass/bc_dclalias_written_lifetime_arg: `Foo` vs `Foo<'static>`.
+package bc_dclalias_missing_lifetime_arg_fail;
+
+struct Foo<'a> { r: &'a i64 }
+
+type Alias6 = Foo;
+
+fn main() -> i32 {
+    return 0i32;
+}

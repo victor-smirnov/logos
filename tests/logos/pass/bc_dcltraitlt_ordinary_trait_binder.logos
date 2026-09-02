@@ -1,0 +1,17 @@
+// THE LEGAL TWIN, ONE TOKEN APART: an ordinary trait binder, with an outlives
+// clause between two of them.
+package bc_dcltraitlt_ordinary_trait_binder;
+
+trait Ser<'a, T> {
+    fn serialize(val: &'a T) -> i64;
+}
+trait Two<'a, 'b: 'a> { fn n(self: &Self) -> i64; }
+struct W { v: i64 }
+impl<'a> Ser<'a, i64> for W { fn serialize(val: &'a i64) -> i64 { return *val; } }
+impl<'a, 'b: 'a> Two<'a, 'b> for W { fn n(self: &Self) -> i64 { return self.v; } }
+
+fn main() -> i32 {
+    let w: W = W { v: 1i64 };
+    if w.n() != 1i64 { return 1i32; }
+    return 0i32;
+}

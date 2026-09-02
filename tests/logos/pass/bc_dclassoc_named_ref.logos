@@ -1,0 +1,24 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the ref names the impl's 'a. Also pins the
+// shapes the walker must leave alone: a 'static slice, a fn pointer with its
+// own scope, a `Box<dyn Fn(..) -> &..>` whose sugar is its own scope.
+package bc_dclassoc_named_ref;
+
+struct W<'a, T> { t: &'a T }
+trait Coll { type Item; fn get(self: &Self) -> Self::Item; }
+impl<'a, T> Coll for W<'a, T> {
+    type Item = &'a T;
+    fn get(self: &Self) -> Self::Item { return self.t; }
+}
+trait Shapes { type A; type B; type C; }
+impl Shapes for i64 {
+    type A = &'static [i64];
+    type B = fn(&i64, &i64) -> i64;
+    type C = Box<dyn Fn(&i64) -> &i64>;
+}
+
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    let w: W<i64> = W { t: &v };
+    if *w.get() != 5i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,1 @@
+impl Producer for S: associated type 'Item' contains a borrowed value with an elided lifetime (E0106) — name it, e.g. `impl<'a> ... { type Item = &'a ... }`

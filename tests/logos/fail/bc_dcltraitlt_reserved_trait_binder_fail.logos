@@ -1,0 +1,12 @@
+// E0262/E0263 AT A TRAIT DECLARATION: the one declaration kind whose binders
+// never reached `read_lifetime_params` (keyword-self-lifetime-error-10412).
+// ONE TOKEN from pass/bc_dcltraitlt_ordinary_trait_binder: `'self` vs `'a`.
+package bc_dcltraitlt_reserved_trait_binder_fail;
+
+trait Ser<'self, T> {
+    fn serialize(val: &'self T) -> i64;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

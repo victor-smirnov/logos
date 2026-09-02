@@ -1295,9 +1295,15 @@ PIN = {
     # of the five ledger rows the param-region facts closed. The round's other
     # native fixture is a FAIL fixture; the five imported programs moved
     # admit -> fail are not in tests/logos/pass at all.
-    'corpus'            : 2530,
+    # 2026-09-02r: +11 / +0 / +11 — the eleven pass/bc_dcl* legal twins of the
+    # declaration-site lifetime rules (one pair per mechanism, one token apart).
+    # The round's other eleven native fixtures are FAIL fixtures; the thirteen
+    # imported programs moved admit -> fail are not in tests/logos/pass at all.
+    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2541; the glob
+    # listing -> 191; 2541 = 191 + 2350.
+    'corpus'            : 2541,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2339,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2350,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

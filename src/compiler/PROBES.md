@@ -15158,6 +15158,8 @@ fires: 10034
 ceiling: 1
 cost: 0 (cfail 0, stdlib ok)
 verdict: ✓ issue-19707--fn-type-elision; superseded by dclfnptrsyn (same numbers, written ret only).
+LANDED 2026-09-02r (resolve_type FN_PTR_TYPE arm: written ret via ast_elided_ref_, DISTINCT input lifetimes >= 2); probe removed.
+
 
 ## dclfnptr0
 site: src/compiler/sema.cpp::resolve_type (FN_PTR_TYPE arm, 0-input twin)
@@ -15167,6 +15169,8 @@ fires: hand programs only (not priced; dclfnptrsyn0 is its corpus-identical twin
 ceiling: —
 cost: —
 verdict: see dclfnptrsyn0.
+REMOVED 2026-09-02r — the 0-input fn-pointer stays walled by spec/pass/generic_2 (owner).
+
 
 ## dclfnbnd
 site: src/compiler/sema.cpp::read_trait_bound_args (resolved fn_ret)
@@ -15176,6 +15180,8 @@ fires: 7504
 ceiling: 228
 cost: 1115 (cfail 1147, stdlib REFUSED)
 verdict: ⛔ REFUTED as spelled — reads a SUBSTITUTED elision (`FnMut(Item, Item) -> Item`, Item := &T) as written; refuses the empty program.
+REMOVED 2026-09-02r (refuted; the written-return reading landed instead).
+
 
 ## dclfnbnd0
 site: src/compiler/sema.cpp::read_trait_bound_args (0-input twin of dclfnbnd)
@@ -15185,6 +15191,8 @@ fires: hand programs only
 ceiling: —
 cost: —
 verdict: ⛔ shares dclfnbnd's reading; see dclfnbndsyn0.
+REMOVED 2026-09-02r (refuted; the written-return reading landed instead).
+
 
 ## dclassoc
 site: src/compiler/sema_collect.cpp (ASSOC_TYPE_IMPL, resolved atype)
@@ -15194,6 +15202,8 @@ fires: 2
 ceiling: 2
 cost: 0 (cfail 0, stdlib ok)
 verdict: ✓ missing-lifetime-in-assoc-type-2, -3; dclassocsyn is the written-only twin, same numbers.
+LANDED 2026-09-02r as the AST walker at the ASSOC_TYPE_IMPL site; probe removed.
+
 
 ## dclimplhdr
 site: src/compiler/sema_decl.cpp::lower_impl_block (trait-arg loop)
@@ -15203,6 +15213,8 @@ fires: 0
 ceiling: —
 cost: —
 verdict: NEVER FIRED — the trait's lifetime ARGS are read as impl BINDERS one screen above (§4); dclimplhdr2 is the corrected spelling.
+REMOVED 2026-09-02r; the deletion landed (a trait impl reads binders from IMPL_TYPE_PARAMS only).
+
 
 ## dclshadow
 site: src/compiler/sema_decl.cpp::lower_fn (after read_lifetime_params)
@@ -15212,6 +15224,8 @@ fires: 1
 ceiling: 1
 cost: 0 (cfail 0, stdlib ok)
 verdict: ✓ shadow (E0496); impl binders only — a trait declaration's binder is not read (shadow_i04).
+LANDED 2026-09-02r — with the default-method scope fix (shadow_scope_ = the TRAIT's binders; the probe refused shadow_l10/l11) and the E0496 twin at collect_trait for trait method declarations; probe removed.
+
 
 ## dcltraitlt
 site: src/compiler/sema_decl.cpp::lower_trait_def (read_lifetime_params(node))
@@ -15221,6 +15235,8 @@ fires: 227082
 ceiling: 1
 cost: 0 (cfail 0, stdlib ok)
 verdict: ✓ keyword-self-lifetime-error-10412 — the E0262/E0263 arm reached from the one declaration kind that never called it.
+LANDED 2026-09-02r at collect_trait (info.lifetime_params = read_lifetime_params(node)), not lower_trait_def; probe removed.
+
 
 ## dclltpos
 site: src/compiler/sema_decl.cpp::lower_fn (count_ref_positions, ADT arity)
@@ -15230,6 +15246,8 @@ fires: 2
 ceiling: 1
 cost: 0 (cfail 1 TEXT-ONLY: bc_ltscope_undeclared_name_fail also prints E0106, rustc does too; stdlib ok)
 verdict: ✓ elision-error-omits-lifetimeless-params; 12/12 hand shapes.
+LANDED 2026-09-02r inside distinct_input_lts_ (an ADT's elided lifetime arg is one fresh lifetime); probe removed.
+
 
 ## dclretargs
 site: src/compiler/sema_decl.cpp::lower_fn (has_elided_ref into type_args, resolved)
@@ -15239,6 +15257,8 @@ fires: 114816
 ceiling: 1
 cost: 3 (cfail 3, stdlib REFUSED lcm+mem at hashmap.logos:319/327/335)
 verdict: ⛔ REFUTED as spelled — the landed comment's FilterIter false positive is the substituted-elision reading; dclretargssyn is the written-only spelling.
+REMOVED 2026-09-02r (refuted; the written-return walker landed instead).
+
 
 ## dclalias
 site: src/compiler/sema_collect.cpp::collect_type_alias
@@ -15248,6 +15268,8 @@ fires: 0
 ceiling: —
 cost: —
 verdict: NEVER FIRED — phase-0 collection, decl_lt_arity_ answers 0 (§4); dclalias2 is the corrected site.
+REMOVED 2026-09-02r (never fired; the lower-time site landed).
+
 
 ## dclimplbnd
 site: src/compiler/sema_collect.cpp (impl-vs-trait method check; fact `SemaTraitMethodInfo::dcl_lt_outlives_` added and filled at collect_trait)
@@ -15257,6 +15279,8 @@ fires: 1
 ceiling: 1
 cost: 0 (cfail 0, stdlib ok)
 verdict: ✓ regions-bound-missing-bound-in-impl (E0195); compares outlives-clause COUNTS — a landing compares the clauses.
+LANDED 2026-09-02r as early_bound_lts_ (binders mentioned by an outlives clause or a `T: 'x` bound) on SemaTraitMethodInfo.lifetime_params/lifetime_outlives vs the impl method's; probe removed.
+
 
 ## dclfnbndsyn
 site: src/compiler/sema.cpp::read_trait_bound_args (RET_TYPE AST is REF_TYPE/MUT_REF_TYPE)
@@ -15266,6 +15290,8 @@ fires: 17
 ceiling: 1
 cost: 0 (cfail 0, stdlib ok)
 verdict: ✓ issue-19707--b-bound; `&dyn Fn(..) -> &` is a different reader (fnbnd_i03).
+LANDED 2026-09-02r (read_trait_bound_args: ast_elided_ref_ on RET_TYPE, distinct_input_lts_ != 1); probe removed.
+
 
 ## dclfnbndsyn0
 site: src/compiler/sema.cpp::read_trait_bound_args (0-input twin)
@@ -15275,6 +15301,8 @@ fires: 11
 ceiling: 3
 cost: 0 (cfail 0, stdlib ok)
 verdict: ✓ + mut-ref-owned-suggestion; the third (var-matching-lifetime-but-unused-not-mentioned, bck.C) is a mis-port closed for a non-upstream reason — repair the port before landing (§5).
+LANDED 2026-09-02r (the != 1 form is the landed one, bounds only); probe removed.
+
 
 ## dclfnptrsyn
 site: src/compiler/sema.cpp::resolve_type (FN_PTR_TYPE arm, RET_TYPE AST is REF/MUT_REF)
@@ -15284,6 +15312,8 @@ fires: 10034
 ceiling: 1
 cost: 0 (cfail 0, stdlib ok)
 verdict: ✓ issue-19707--fn-type-elision; tuple ret (fnptr_i04) needs the AST walker instead of the top-level node test.
+LANDED 2026-09-02r; probe removed. ⚠ its position count refused fnptr_l10 (`fn(&'a T, &'a T) -> &T`, legal) — landed as DISTINCT lifetimes.
+
 
 ## dclfnptrsyn0
 site: src/compiler/sema.cpp::resolve_type (0-input twin)
@@ -15293,6 +15323,8 @@ fires: 10034
 ceiling: 1
 cost: 1 (spec/pass/generic_2 `fn() -> &i32`, OWNER; cfail 0, stdlib ok)
 verdict: ⛔ DECLINED — buys nothing over dclfnptrsyn and reds an owner fixture.
+REMOVED 2026-09-02r (declined: spec/pass/generic_2).
+
 
 ## dclassocsyn
 site: src/compiler/sema_collect.cpp (ASSOC_TYPE_IMPL, TYPE AST is REF/MUT_REF)
@@ -15302,6 +15334,8 @@ fires: 2
 ceiling: 2
 cost: 0 (cfail 0, stdlib ok)
 verdict: ✓ the two assoc-type rows; nested shapes (tuple, Option) need the AST walker.
+LANDED 2026-09-02r as the walker (tuple / Option shapes close too, dyn-Fn sugar exempt); probe removed.
+
 
 ## dclimplhdr2
 site: src/compiler/sema_decl.cpp::lower_impl_block (read_impl_lts: TYPE_PARAMS skipped for trait impls) + the trait-arg loop's E0261 arm
@@ -15311,6 +15345,8 @@ fires: 40
 ceiling: 1
 cost: 0 (cfail 0, stdlib ok)
 verdict: ✓ issue-107988; a DELETION in the landing (stop reading args as binders). 10/10 hand shapes.
+LANDED 2026-09-02r as the deletion; probe removed.
+
 
 ## dclalias2
 site: src/compiler/sema_decl.cpp::lower_type_alias_def
@@ -15320,6 +15356,8 @@ fires: 2
 ceiling: 2
 cost: 0 (cfail 0, stdlib ok)
 verdict: ✓ e0106-trailing-comma--missing-lifetime-spec, --b-bar-uarg; generic aliases and nested ADTs not read (alias_i03/i05/i06).
+LANDED 2026-09-02r; probe removed.
+
 
 ## dclretargssyn
 site: src/compiler/sema_decl.cpp::lower_fn (dcl_ast_elided_ref_ over the RET_TYPE AST, type args included)
@@ -15329,3 +15367,145 @@ fires: 186234
 ceiling: 1
 cost: 0 (cfail 1 LOST: issue-62007-assign-differing-fields--t22, a port that dropped `'a` — E0106 in Rust too; stdlib ok)
 verdict: ✓ missing-lifetime-specifier-13497; 10/10 hand shapes; the reader every other syn gate should share.
+LANDED 2026-09-02r — with the walker STOPPING at fn-ptr / dyn-Fn / impl-Fn nodes (the probe refused retargs_l10 `-> Box<dyn Fn(&i64) -> &i64>`, legal); probe removed.
+
+
+# ═══ 2026-09-02r — THE SIX DECLARATION SITES LANDED: 13 ROWS CLOSED (228 -> 215),
+# THE LANDED RULES DIFFER FROM THE PROBES AT FOUR POINTS THE HAND SET FORCED ═══
+
+## 0. STEP 1, READ FROM THE TREE (corrections to the handed-down report)
+
+    live probe names 176 (the report said 172) · ledger # TOTAL 228 = 228 by listing
+    · channels lifereg 103 / nllmoves 71 / bck 54 · top roots bck.C 16 · nllmoves.C 10
+    · lifereg.R17 10 · bck.B 10 · nllmoves.B 9 · bck.NEW 9 · lifereg.R18 8 · HEAD
+    673e8a1a4 = origin/main · binary ab07af81b5659be0 (the priced build, probes
+    env-gated) · baseline from the STORE: `-R '^logos_00_bc_admit_'` "nothing has
+    changed that a test run could see", `-L bc` build 473 — 1154 passed / 0 failed.
+
+## 1. RULE 5 FIRST — 67 HAND PROGRAMS IN SHAPES THE PRICING ROUND DID NOT USE
+(build/hand-2026-09-02r/, run.sh; every one multi-line; every armed run proven
+to reach its site by LOGOS_PROBE_FIRE, every unarmed one by LOGOS_CENSUS bucket)
+
+FOUR LEGAL PROGRAMS THE PRICED ARMS REFUSED — the pricing phase's three zero
+columns could not see any of them:
+ · fnptr_l10 `fn(&'a i64, &'a i64) -> &i64` and fnbnd_l10 `Fn(&'a i64, &'a i64)
+   -> &i64`: ONE lifetime used in the inputs (reference §lifetime-elision,
+   "elided or not"); the probes counted POSITIONS (2) and refused both. And the
+   LANDED fn-signature predicate had the same defect — ltpos_l11 `fn g<'a>(a:
+   &'a i64, b: &'a i64) -> &i64` was refused UNARMED; ltpos_l12 `fn g<'a>(s: &'a
+   S<'a>) -> &i64` under dclltpos.
+ · retargs_l10 `fn f(a: &i64, b: &i64) -> Box<dyn Fn(&i64) -> &i64>`: the Fn
+   sugar's elision scope is its own; the AST walker descended into it (a
+   DYN_TYPE's `ITEMS: $...` spread holds its PARAMS/RET items too).
+ · shadow_l10 / shadow_l11: a trait DEFAULT method's own `'a`, inherited by
+   `impl<'a> Tr for S<'a> {}` — synthesised under the impl's binders, refused
+   as E0496. Legal: the default is declared in the trait's scope.
+TWO ILLEGAL SHAPES THE PRICED ARMS MISSED: implbnd_i11 (impl adds `T: 'c` — 'c
+becomes early-bound, rustc E0195; the clause COUNT saw nothing) and assoc_i11
+`type Item = (i64, &i64)` (top-level node test).
+Off-ledger, met on the way, RECORDED: implhdr_l13 `impl<'a, T> Tr<'a, T> for
+S<'a> where T: Copy` dies UNARMED in MLIR — `'func.call' op incorrect number of
+operands for callee` (§6). Five alias programs were first refused by the stdlib
+name-capture defect (09-02q §8 item 64: `type A/B/P/F/R`) and renamed.
+
+## 2. THE LANDED FORM (rule 7), where it differs from the probes
+ · `distinct_input_lts_`: one entry per lifetime POSITION — a written name as
+   itself, every elided slot (`&`, `'_`, an ADT's missing lifetime arg) fresh —
+   and the count is of DISTINCT entries. Shared by the fn signature (replacing
+   count_ref_positions), fn-pointer types (>= 2) and Fn bounds (!= 1).
+ · `ast_elided_ref_`: the written-elision walker, STOPPING at FN_PTR_TYPE and at
+   DYN_TYPE/IMPL_TYPE carrying PARAMS or RET_TYPE. Shared by the fn signature's
+   return (beside the resolved structural check, kept for aliases), fn-pointer
+   and bound returns, and impl assoc types.
+ · `shadow_scope_`: lower_impl_block points it at the TRAIT's `lifetime_params`
+   while lowering a default; lower_fn checks fn binders against it, else against
+   `current_impl_lifetime_params_`. Trait METHOD DECLARATIONS get the same E0496
+   at collect_trait (`trait Tr<'a> { fn m<'a>(); }` — hand shape, no row).
+ · `early_bound_lts_` (E0195): binders mentioned by an outlives clause (either
+   side, header or where) or a `T: 'x` bound, on both sides symmetrically.
+   rustc's other early-bound cause (a binder absent from every input) is not
+   modelled — symmetric, so the count still compares.
+ · SemaTraitInfo.lifetime_params (read through read_lifetime_params at
+   collect_trait — the E0262 site, keyword-self) and SemaTraitMethodInfo
+   .lifetime_params / .lifetime_outlives (the probe's dcl_lt_outlives_).
+ · lower_impl_block: TYPE_PARAMS read as binders only for an INHERENT impl (a
+   deletion); the trait-arg loop's E0261 unconditional.
+ · The 0-input fn-pointer (`fn() -> &T`) stays admitted: spec/pass/generic_2.
+Diff: src/compiler +115/-177 (net -62) against a declared budget of +120 net.
+
+## 3. PREDICTED vs MEASURED, AS SETS (build/predictions-2026-09-02r.txt, written before the edit)
+Landed build ad97373739dd84fe (READ, full `cmake --build` rc 0, stdlib archives
+included). `-R '^logos_00_bc_admit_'` build 484: 215 passed / 13 failed — the
+13 = the predicted 13, name for name, both directions empty:
+    issue-19707--fn-type-elision · issue-19707--b-bound · mut-ref-owned-suggestion
+    · missing-lifetime-in-assoc-type-2 · -3 · issue-107988 · shadow ·
+    keyword-self-lifetime-error-10412 · elision-error-omits-lifetimeless-params ·
+    missing-lifetime-specifier-13497 · e0106-trailing-comma--missing-lifetime-spec
+    · --b-bar-uarg · regions-bound-missing-bound-in-impl
+var-matching-lifetime-but-unused-not-mentioned (bck.C) predicted NOT closed and
+not closed: its port now spells upstream's `'a` (repaired first, verified
+admitted on the OLD binary, rc 0 silent) so it stands for its own hole.
+Every diagnostic read on the landed binary (§4): right code, right site.
+CEILING (09-02q, the probes) 13 = PREDICTED 13 = ACTUAL 13.
+COST: pass 0 (the `-L bc` store, L1, `L4 bc`, §7) · cfail: `fail_text_oracle.py`
+1154 vs 1154 rows, ONE change — bc_ltscope_undeclared_name_fail TEXT-ONLY
+(match 1 -> 1; `fn peek(h: &H<'z>) -> &i32` now also prints E0106 ahead of the
+pinned E0261, rustc prints both; distinct count {fresh, 'z} = 2), 0 rc changes,
+0 matches lost (issue-62007--t22 repaired to spell `'a` FIRST, its E0499 text
+unchanged) · stdlib: all four layers compile (`stdlib-cost.sh`, and the full
+build). UN-REFUSALS: none in the fail corpus (0 rc changes); the one predicted
+shape (`fn g<'a>(a: &'a T, b: &'a T) -> &T`) is now pinned LEGAL by
+pass/bc_dclltdistinct_one_lifetime_twice.
+
+## 4. THE DIAGNOSTICS, ON THE LANDED BINARY (pinned in the moved fixtures)
+    fn-type-elision  `error []: missing lifetime specifier (E0106): this fn-pointer type's return type …` (no fn context — a type-level decl)
+    b-bound / mut-ref-owned  `[fn bar]` / `[fn trait_bound]`: … the `Fn` bound's return type …
+    assoc-type-2 / -3  `[impl Coll for S]: … associated type 'Item' contains a borrowed value with an elided lifetime (E0106)`
+    issue-107988  `:9 [fn W__te]: impl TraitEngineExt: use of undeclared lifetime name ''tcx' in the trait's arguments`
+    shadow  `:7 [fn Foo$G1$ref_u8__bar]: … lifetime name ''s' shadows a lifetime name that is already in scope (E0496)`
+    keyword-self  `[trait Serializable]: lifetime parameter ''self': reserved name …` (context now the TRAIT, not `:557 [fn iter_partition_vec]`)
+    elision-error-omits / 13497  the fn-signature E0106 text, `[fn f]` / `[fn g]`, line 6
+    trailing-comma ×2  `type alias 'Alias6': missing lifetime specifier (E0106) — the aliased type takes 1 lifetime argument(s) and 0 written` (still `:557 [fn iter_partition_vec]`)
+    regions-bound-missing  `[fn i64__no_bound]: impl Foo for i64: lifetime parameters or bounds on method 'no_bound' do not match the trait declaration (E0195)`
+
+## 5. FIXTURES, PINS, GATES
+13 imported programs moved admit -> fail (own root's home: lifetimes/ ×12,
+borrowck/ ×1), `.expected` = the diagnostic. 11 native PAIRS one token apart
+(fail/pass): bc_dclfnptr (`&i64` vs `i64`), bc_dclfnbnd (`&i64` vs `&'static
+i64`), bc_dclassoc (`&T` vs `&'a T`), bc_dclimplhdr (`impl` vs `impl<'x>`),
+bc_dclshadow (`'s` vs `'t`), bc_dcltraitlt (`'self` vs `'a`), bc_dclltpos (`&S`
+vs `S`), bc_dclltdistinct (`&i64` vs `&'a i64`), bc_dclretargs (`y: &i64` vs
+`y: i64`), bc_dclalias (`Foo` vs `Foo<'static>`), bc_dclimplbnd (`<'b:
+'static>` vs `<'b>`). The pass twins also pin the exemptions with a price: the
+default-method scope, the dyn-Fn / fn-ptr own scope, the distinct count, the
+Logos struct-field elision idiom, `'_` as a trait arg, an impl-header where
+clause. Ledger 228 -> 215 by direct listing. Census pins predicted BEFORE
+`ctest -N` was read and matched: ALL 8789 -> 8811 (+22), NOIMPORTED 4459 ->
+4468 (+22 -13), TIERCOMMIT 277 -> 264 (-13). Door gate corpus 2530 -> 2541 =
+191 + 2350 by direct listing.
+
+## 6. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ · `impl<'a, T> Tr<'a, T> for S<'a> where T: Copy { fn get(&self, t: T) -> &'a
+   i64 }` + a call `s.get(1i64)`: MLIR `'func.call' op incorrect number of
+   operands for callee`, unarmed (hand-2026-09-02r/implhdr_l13). A generic
+   trait with a lifetime AND a type argument, method called through the impl.
+ · Every diagnostic raised at a type-alias declaration still carries `:557 [fn
+   iter_partition_vec]`; the trait-binder one now carries `[trait X]`.
+ · `Kind::Slice` has no lifetime slot (carried): `type Item = &[u8]` is seen
+   only by the AST walker now — which is enough for the written form.
+ · E0195's third early-bound cause (a binder absent from every input type) is
+   not modelled; symmetric on both sides.
+
+## 7. ORACLES, EVERY RC
+    build ad97373739dd84fe: full `cmake --build` rc 0 · fail_text_oracle.py rc 0
+    (1154 rows) · stdlib-cost.sh rc 0 (four layers) · `-R '^logos_00_bc_admit_'`
+    rc 8 = the 13 predicted (215 passed) · targeted ctest 42/42 (22 native + 13
+    moved + ledger gate + census pin + producers) rc 0 · L1 / `L4 bc` / door
+    gate / CONTROL REVERT: the commit message carries the rcs.
+
+## 8. NOT SPENT, BY NAME AND NUMBER
+object-lifetime 18 (return-position erasure, 09-01g §6.1) · bck.C 16 (mined;
+var-matching kept) · the 19+2 owner-walled 'static rows · nllmoves.B 9 ·
+E0207 ×3 LEGAL as ported (owner: retire or re-port with the assoc type) ·
+E0392 ×2 walled by five pass fixtures (owner) · regions-in-structs-anon /
+regions-in-enums-anon (design, 146 + 22 legal sites).

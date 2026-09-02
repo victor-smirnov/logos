@@ -1,0 +1,1 @@
+associated type 'Item' contains a borrowed value with an elided lifetime (E0106)

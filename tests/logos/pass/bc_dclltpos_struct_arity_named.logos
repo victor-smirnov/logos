@@ -1,0 +1,23 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `S` by value is ONE input lifetime (its
+// elided argument), so the output takes it. Also pins a lifetime-less struct
+// beside a ref, and the Logos struct-field elision idiom (`struct E { x: &i64 }`
+// declares no binder, so `&E` is one position).
+package bc_dclltpos_struct_arity_named;
+
+struct S<'a> { field: &'a i64 }
+struct P { n: i64 }
+struct E { x: &i64 }
+
+fn f(a: S, b: i64) -> &i64 { return a.field; }
+fn g(p: P, q: &i64) -> &i64 { return q; }
+fn h(e: &E, n: i64) -> &i64 { return e.x; }
+
+fn main() -> i32 {
+    let v: i64 = 3i64;
+    let s: S = S { field: &v };
+    let e: E = E { x: &v };
+    if *f(s, 0i64) != 3i64 { return 1i32; }
+    if *g(P { n: 0i64 }, &v) != 3i64 { return 2i32; }
+    if *h(&e, 0i64) != 3i64 { return 3i32; }
+    return 0i32;
+}

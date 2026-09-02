@@ -1,6 +1,6 @@
 // rustc lifetimes/keyword-self-lifetime-error-10412.rs — upstream lifetimes cannot use keyword names
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.R17
+// shelf: fail — REFUSED since 2026-09-02: E0262/E0263 at a TRAIT declaration's binder ('self). Was lifereg.R17.
 package keyword_self_lifetime_error_10412;
 trait Serializable<'self, T> {
     fn serialize(val: &'self T) -> i64;

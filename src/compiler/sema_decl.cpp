@@ -625,13 +625,10 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     std::vector<TypeParam> type_params = fi_ptr->type_params;
     std::vector<std::string> lifetime_params = read_lifetime_params(node);
     for (auto& l_ : lifetime_params)
-        for (auto& i_ : current_impl_lifetime_params_)
-            if (l_ == i_) {
-                logos::probe::census("dcl.shadow");
-                if (logos::probe::on("dclshadow"))
-                    error(std::format("fn '{}': lifetime name '{}' shadows a lifetime name that is already in scope (E0496)",
-                                      mangled, l_));
-            }
+        for (auto& i_ : (shadow_scope_ ? *shadow_scope_ : current_impl_lifetime_params_))
+            if (l_ == i_)
+                error(std::format("fn '{}': lifetime name '{}' shadows a lifetime name that is already in scope (E0496)",
+                                  mangled, l_));
     // Lifetime-param uniqueness on fn (closes B-gn-02)
     check_unique_names(lifetime_params,
                        [](auto& lt) -> std::string_view { return lt; },
@@ -1060,12 +1057,10 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // `fn g()->&i32` (no source). Only fire on UNANNOTATED output refs — an
     // explicit `&'a`/`&'static` is the user's choice.
     {
-        // An elided output reference is one STRUCTURALLY in the return type:
-        // `&T`, `&&T`, `(&T, &U)`, `[&T; N]`, `&[T]`. A ref nested inside a
-        // generic type-ARG (`FilterIter<Self, &T>` where the iterator's `Item`
-        // resolves to `&T`) is NOT an elided output lifetime — it's the type
-        // param's own lifetime, carried by `Self`/the bound — so we do NOT
-        // recurse into type_args (that was an over-broad false positive).
+        // An elided output reference: STRUCTURALLY in the resolved return type
+        // (`&T`, `(&T, &U)`, `[&T; N]`, an alias of one), or WRITTEN anywhere in
+        // its AST — `Vec<&T>` — where a substituted arg (`FilterIter<Self, &T>`,
+        // Item := &T) is the bound's lifetime, not an elision, and is not read.
         std::function<bool(TypeRef)> has_elided_ref = [&](TypeRef t) -> bool {
             if (!t) return false;
             auto k = TypeRef(t).kind();
@@ -1075,64 +1070,31 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
             if (TypeRef(t).pointee() && has_elided_ref(TypeRef(t).pointee())) return true;
             if (TypeRef(t).elem() && has_elided_ref(TypeRef(t).elem())) return true;
             for (auto e : TypeRef(t).tuple_elems()) if (has_elided_ref(e)) return true;
-            for (auto a : TypeRef(t).type_args())
-                if (has_elided_ref(a)) {
-                    logos::probe::census("dcl.retargs.nested");
-                    if (logos::probe::on("dclretargs")) return true;
-                }
             return false;
         };
-        std::function<int(TypeRef)> count_ref_positions = [&](TypeRef t) -> int {
-            if (!t) return 0;
-            auto k = TypeRef(t).kind();
-            int n = 0;
-            if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) {
-                n += 1;
-                n += count_ref_positions(TypeRef(t).pointee());
-                return n;
-            }
-            if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct ||
-                k == LogosType::Kind::Enum) {
-                size_t ar_ = decl_lt_arity_(TypeRef(t)), wr_ = TypeRef(t).lifetime_args().size();
-                size_t pos_ = ar_ > wr_ ? ar_ : wr_;
-                if (pos_) {
-                    logos::probe::census("dcl.ltpos.structarg", pos_);
-                    if (logos::probe::on("dclltpos")) n += (int)pos_;
-                }
-            }
-            if (TypeRef(t).pointee()) n += count_ref_positions(TypeRef(t).pointee());
-            if (TypeRef(t).elem())    n += count_ref_positions(TypeRef(t).elem());
-            for (auto a : TypeRef(t).type_args())   n += count_ref_positions(a);
-            for (auto e : TypeRef(t).tuple_elems()) n += count_ref_positions(e);
-            return n;
-        };
-        bool ret_ast_elided_ = false;
-        if (ret_type && !has_elided_ref(ret_type) && node.has_key(la::RET_TYPE)) {
-            AnyVal rv_ = node.get(la::RET_TYPE.code);
-            if (!rv_.is_null() && dcl_ast_elided_ref_(map_of(rv_))) {
-                ret_ast_elided_ = true;
-                logos::probe::census("dcl.retargs.syn");
-            }
-        }
-        if (ret_type && (has_elided_ref(ret_type) ||
-                         (ret_ast_elided_ && logos::probe::on("dclretargssyn")))) {
-            int input_lts = 0;
+        bool ret_written_elided = node.has_key(la::RET_TYPE) &&
+            !node.get(la::RET_TYPE.code).is_null() &&
+            ast_elided_ref_(map_of(node.get(la::RET_TYPE.code)));
+        if (ret_type && (has_elided_ref(ret_type) || ret_written_elided)) {
+            std::vector<TypeRef> ptypes;
             bool has_self_ref = false;
             for (auto& p : params) {
                 if (!p.type) continue;
-                input_lts += count_ref_positions(p.type);
+                ptypes.push_back(p.type);
                 if (p.name == "self") {
                     auto pk = TypeRef(p.type).kind();
                     if (pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef)
                         has_self_ref = true;
                 }
             }
-            // Fire on the AMBIGUOUS case: 2+ input lifetimes and no `&self`, so
-            // elision rule 2/3 can't pick a source. (The 0-input case — a ref
-            // returned from no borrowed input, e.g. `Box::leak` returning
-            // `&'static` — is left to explicit annotation / the dangling-borrow
-            // check, to avoid flagging legitimate `'static`-source functions.)
-            if (!has_self_ref && input_lts >= 2) {
+            // Fire on the AMBIGUOUS case: 2+ DISTINCT input lifetimes (a named
+            // one counts once, each elided slot — `&`, `'_`, an ADT's missing
+            // lifetime arg — is fresh) and no `&self`, so elision rule 2/3 can't
+            // pick a source. (The 0-input case — a ref returned from no borrowed
+            // input, e.g. `Box::leak` returning `&'static` — is left to explicit
+            // annotation / the dangling-borrow check, to avoid flagging
+            // legitimate `'static`-source functions.)
+            if (!has_self_ref && distinct_input_lts_(ptypes) >= 2) {
                 error("missing lifetime specifier (E0106): this function's return "
                       "type contains a borrowed value with an elided lifetime, but "
                       "the signature has more than one input lifetime and no `&self` "
@@ -2071,10 +2033,10 @@ std::pair<std::string, TypeRef> SemaChecker::lower_type_alias_def(TinyMapView no
     // Generic aliases have no concrete LIR type (they're inlined at use sites).
     TypeRef type = (ait != type_aliases_.end() && ait->second.type_params.empty())
                    ? ait->second.type : error_t();
+    // E0106 at a type alias: the aliased ADT takes lifetime args the alias did
+    // not write. Asked HERE, not at collection — aliases are collected in phase
+    // 0, before any struct is registered, and decl_lt_arity_ answers 0 there.
     if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
-        // dclalias2: the collect-time twin (`dclalias`) never arrived — aliases
-        // are collected in phase 0, before any struct is registered, so
-        // decl_lt_arity_ answered 0 for every RHS. Here every declaration is known.
         TypeRef t_ = type;
         if ((!t_ || t_.kind() == LogosType::Kind::Error) && !ait->second.rhs_node.is_null())
             t_ = resolve_type(ait->second.rhs_node);
@@ -2082,12 +2044,9 @@ std::pair<std::string, TypeRef> SemaChecker::lower_type_alias_def(TinyMapView no
                    t_.kind() == LogosType::Kind::Enum)) {
             size_t ar_ = decl_lt_arity_(t_), wr_ = 0;
             for (auto& l : t_.lifetime_args()) if (!l.empty()) ++wr_;
-            logos::probe::census(ar_ > wr_ ? "dcl.alias2.elided_ltarg" : "dcl.alias2.ok");
-            if (ar_ > wr_ && logos::probe::on("dclalias2"))
+            if (ar_ > wr_)
                 error(std::format("type alias '{}': missing lifetime specifier (E0106) — the aliased type takes {} lifetime argument(s) and {} written",
                                   name, ar_, wr_));
-        } else {
-            logos::probe::census("dcl.alias2.nonadt");
         }
     }
     return {std::move(name), type};
@@ -2105,8 +2064,6 @@ DeclBuilder SemaChecker::lower_trait_def(TinyMapView node) {
     constexpr uint64_t METHOD_SCHEMA = lir_schema::stmt::Count + 14;
 
     auto tname = std::string(str_of(node.get(la::NAME.code)));
-    logos::probe::census("dcl.traitlt.arrive");
-    if (logos::probe::on("dcltraitlt")) (void)read_lifetime_params(node);
     DeclBuilder b(*cur_prog_, lir_schema::decl::Code::Trait, /*cap=*/16);
     b.str_always(tk::NAME, tname);
     // ADV1-H (dyn-local-trait-shadowing): a user trait whose bare name collides
@@ -2239,18 +2196,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             }
         };
         read_impl_lts(la::IMPL_TYPE_PARAMS.code);
-        {
-            // For a TRAIT impl, TYPE_PARAMS holds the trait's ARGUMENTS
-            // (`impl Tr<'tcx> for W`), not binders; reading them as binders is
-            // what admits issue-107988 (dclimplhdr2, PROBES.md 2026-09-02q).
-            size_t before_ = current_impl_lifetime_params_.size();
-            read_impl_lts(la::TYPE_PARAMS.code);
-            if (!trait_name.empty() && current_impl_lifetime_params_.size() > before_) {
-                logos::probe::census("dcl.implhdr.argbinder",
-                                     current_impl_lifetime_params_.size() - before_);
-                if (logos::probe::on("dclimplhdr2")) current_impl_lifetime_params_.resize(before_);
-            }
-        }
+        // For a TRAIT impl, TYPE_PARAMS holds the trait's ARGUMENTS
+        // (`impl Tr<'tcx> for W`), not binders (issue-107988).
+        if (trait_name.empty()) read_impl_lts(la::TYPE_PARAMS.code);
     }
     struct ImplLtRestore {
         std::vector<std::string>& dst; std::vector<std::string> saved;
@@ -2644,12 +2592,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         std::string ln_(str_of(item.get(la::NAME.code)));
                         bool known_ = ln_.empty() || ln_ == "'static" || ln_ == "static" || ln_ == "'_" || ln_ == "_";
                         for (auto& d_ : current_impl_lifetime_params_) if (d_ == ln_) known_ = true;
-                        if (!known_) {
-                            logos::probe::census("dcl.implhdr.undeclared");
-                            if (logos::probe::on("dclimplhdr") || logos::probe::on("dclimplhdr2"))
-                                error(std::format("impl {}: use of undeclared lifetime name '{}' in the trait's arguments",
-                                                  trait_name, ln_));
-                        }
+                        if (!known_)
+                            error(std::format("impl {}: use of undeclared lifetime name '{}' in the trait's arguments",
+                                              trait_name, ln_));
                         continue;
                     }
                     auto resolved = resolve_type(item);
@@ -3104,7 +3049,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     if (m.default_holder) holder_ = m.default_holder;
                     namespace dk = lir_schema::decl_keys;
                     std::vector<TypeParam> type_params;
+                    shadow_scope_ = &tit->second.lifetime_params;
                     auto fn = lower_fn(map_of(m.default_ast), lower_target, &type_params);
+                    shadow_scope_ = nullptr;
                     holder_ = saved_holder;
                     fn.flag(dk::IS_PUB, true);  // default trait method inherits trait visibility
                     // §8.5: carry every per-method where-bound as a

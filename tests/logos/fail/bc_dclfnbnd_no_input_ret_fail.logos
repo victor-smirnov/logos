@@ -1,0 +1,14 @@
+// E0106 AT AN `Fn` BOUND: `Fn() -> &i64` returns a borrow from no input. The
+// bound's WRITTEN return is read off the AST — a substituted `-> Item` (the
+// stdlib's `FnMut(Item, Item) -> Item`, Item := &T) is the trait's elision,
+// not the bound's (issue-19707--b-bound, mut-ref-owned-suggestion).
+// ONE TOKEN from pass/bc_dclfnbnd_static_ret: `&i64` vs `&'static i64`.
+package bc_dclfnbnd_no_input_ret_fail;
+
+fn call<F>(f: F) -> i64 where F: Fn() -> &i64 {
+    return *f();
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

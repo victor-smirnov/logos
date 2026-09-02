@@ -1,0 +1,24 @@
+// THE LEGAL TWIN, ONE TOKEN APART: no bound on either side. Also pins the
+// bound on BOTH sides (inline in the trait, `where` in the impl), `T: 'c` on
+// both, a bound against the trait's own binder, and an impl-HEADER where
+// clause that is not the method's.
+package bc_dclimplbnd_matching_bound;
+
+struct Inv<'a> { x: &'a i64 }
+struct P<'a, 'b> { x: &'a i64, y: &'b i64 }
+pub trait Foo { fn no_bound<'b>(self: Self, b: Inv<'b>) -> i64; }
+impl Foo for i64 { fn no_bound<'b>(self: Self, b: Inv<'b>) -> i64 { return *b.x; } }
+trait St { fn m<'c: 'static>(self: &Self, x: Inv<'c>) -> i64; }
+impl St for i64 { fn m<'c>(self: &Self, x: Inv<'c>) -> i64 where 'c: 'static { return *x.x; } }
+trait Ty { fn m<'c, T: 'c>(self: &Self, x: &'c T) -> i64; }
+impl Ty for i64 { fn m<'c, T: 'c>(self: &Self, x: &'c T) -> i64 { return 0i64; } }
+trait Own<'a> { fn m<'c: 'a>(self: &Self, x: Inv<'c>) -> i64; }
+impl<'a> Own<'a> for i64 { fn m<'c: 'a>(self: &Self, x: Inv<'c>) -> i64 { return *x.x; } }
+trait Hd { fn m<'c>(self: &Self, x: Inv<'c>) -> i64; }
+impl<'a, 'b> Hd for P<'a, 'b> where 'a: 'b { fn m<'c>(self: &Self, x: Inv<'c>) -> i64 { return *x.x; } }
+
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    if 0i64.no_bound(Inv { x: &v }) != 5i64 { return 1i32; }
+    return 0i32;
+}

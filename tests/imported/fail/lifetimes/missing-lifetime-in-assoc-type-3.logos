@@ -1,6 +1,6 @@
 // rustc lifetimes/missing-lifetime-in-assoc-type-3.rs — upstream E0637
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-3
+// shelf: fail — REFUSED since 2026-09-02: E0106/E0637 at an impl ASSOCIATED TYPE: `type Item = &i64` names no lifetime. Was lifereg.NEW-3.
 package missing_lifetime_in_assoc_type_3;
 // port of lifetimes/missing-lifetime-in-assoc-type-3.rs — bare reference as associated type
 struct S { v: i64 }

@@ -1,6 +1,6 @@
 // rustc lifetimes/shadow.rs — upstream E0496 shadows a lifetime name
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.R17
+// shelf: fail — REFUSED since 2026-09-02: E0496: a method's binder redeclares its impl block's. Was lifereg.R17.
 package shadow;
 struct Foo<T> { v: T }
 impl<'s> Foo<&'s u8> {

@@ -2621,21 +2621,6 @@ void SemaChecker::collect_type_alias(TinyMapView node) {
         entry.type = resolve_type(map_of(node.get(la::TYPE.code)));
         alias_decl_resolve_ = saved_adr;
     }
-    if (entry.type) {
-        TypeRef at_(entry.type);
-        auto k_ = at_.kind();
-        if (k_ == LogosType::Kind::Struct || k_ == LogosType::Kind::ZonedStruct ||
-            k_ == LogosType::Kind::Enum) {
-            size_t ar_ = decl_lt_arity_(at_), wr_ = 0;
-            for (auto& l : at_.lifetime_args()) if (!l.empty()) ++wr_;
-            if (ar_ > wr_) {
-                logos::probe::census("dcl.alias.elided_ltarg");
-                if (logos::probe::on("dclalias"))
-                    error(std::format("type alias '{}': missing lifetime specifier (E0106) — the aliased type takes {} lifetime argument(s) and {} written",
-                                      name, ar_, wr_));
-            }
-        }
-    }
     pop_type_params(entry.type_params);
     // ADR 0021 Phase 4a: retain a GENERIC alias's RHS AST so use sites can
     // re-resolve it under concrete bindings when it instantiates a generic
@@ -3024,6 +3009,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
     }
     // Read trait type params (e.g. trait Into<T>)
     info.type_params = read_type_params(node);
+    info.lifetime_params = read_lifetime_params(node);  // E0262/E0263 live here too
     push_type_params(info.type_params);
     // Read supertraits: trait Foo: Bar + Baz<T> { ... } → SUPERS: { ITEMS: [TRAIT_BOUND(...), ...] }
     if (node.has_key(la::SUPERS)) {
@@ -3260,10 +3246,15 @@ void SemaChecker::collect_trait(TinyMapView node) {
                 AnyVal av = m.get(la::IS_UNSAFE);
                 mi.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
             }
-            mi.dcl_lt_outlives_ = read_lifetime_outlives(m);
+            mi.lifetime_params = read_lifetime_params(m);
+            for (auto& l : mi.lifetime_params)
+                for (auto& t : info.lifetime_params)
+                    if (l == t)
+                        error(std::format("trait {}: method '{}': lifetime name '{}' shadows a lifetime name that is already in scope (E0496)", tname, mi.name, l));
+            mi.lifetime_outlives = read_lifetime_outlives(m);
             {
                 auto w_ = read_lifetime_outlives_from(m, la::WHERE.code);
-                for (auto& p : w_) mi.dcl_lt_outlives_.push_back(p);
+                for (auto& p : w_) mi.lifetime_outlives.push_back(p);
             }
             if (!mi.type_params.empty())
                 pop_type_params(mi.type_params);
@@ -4207,14 +4198,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 push_type_params(gat_tps);
                 auto atype = resolve_type(map_of(m.get(la::TYPE.code)));
                 pop_type_params(gat_tps);
-                if (dcl_has_elided_ref_(atype, false)) {
-                    bool syn_ = code_of(map_of(m.get(la::TYPE.code))) == la::REF_TYPE ||
-                                code_of(map_of(m.get(la::TYPE.code))) == la::MUT_REF_TYPE;
-                    logos::probe::census(syn_ ? "dcl.assoc.syn" : "dcl.assoc.sub");
-                    if (logos::probe::on("dclassoc") || (syn_ && logos::probe::on("dclassocsyn")))
-                        error(std::format("impl {} for {}: associated type '{}' contains a borrowed value with an elided lifetime (E0106) — name it, e.g. `impl<'a> ... {{ type {} = &'a ... }}`",
-                                          trait_name, target, aname, aname));
-                }
+                if (ast_elided_ref_(map_of(m.get(la::TYPE.code))))
+                    error(std::format("impl {} for {}: associated type '{}' contains a borrowed value with an elided lifetime (E0106) — name it, e.g. `impl<'a> ... {{ type {} = &'a ... }}`",
+                                      trait_name, target, aname, aname));
                 AssocTypeEntry ate{atype, impl_tps, gat_tps, std::move(pending_doc_)};
                 pending_doc_.clear();
                 assoc_type_impls_[key] = ate;
@@ -4606,12 +4592,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (sig_match) { matching = c; break; }
                 }
                 if (matching) {
-                    if (m.dcl_lt_outlives_.size() != matching->lifetime_outlives.size()) {
-                        logos::probe::census("dcl.implbnd.mismatch");
-                        if (logos::probe::on("dclimplbnd"))
-                            error(std::format("impl {} for {}: lifetime parameters or bounds on method '{}' do not match the trait declaration (E0195)",
-                                              trait_name, target, m.name));
-                    }
+                    if (early_bound_lts_(m.lifetime_params, m.lifetime_outlives, m.type_params) !=
+                        early_bound_lts_(matching->lifetime_params, matching->lifetime_outlives, matching->type_params))
+                        error(std::format("impl {} for {}: lifetime parameters or bounds on method '{}' do not match the trait declaration (E0195)",
+                                          trait_name, target, m.name));
                     if (m.is_unsafe != matching->is_unsafe) {
                         error(std::format("impl {} for {}: method '{}' has mismatched unsafe parity (trait: {}, impl: {})",
                             trait_name, target, m.name,

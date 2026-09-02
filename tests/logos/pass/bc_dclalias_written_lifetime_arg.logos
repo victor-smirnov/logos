@@ -1,0 +1,26 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the alias writes the lifetime argument.
+// Also pins an alias of an alias, an alias written BEFORE its struct, and a
+// generic alias (inlined at use sites, no LIR type to ask).
+package bc_dclalias_written_lifetime_arg;
+
+type Early = Foo<'static>;
+struct Foo<'a> { r: &'a i64 }
+struct Bar<'a, T> { r: &'a T }
+struct Box2<T> { t: T }
+
+type Alias6 = Foo<'static>;
+type Alias6b = Bar<'static, i64>;
+type Again = Alias6;
+type Gen<T> = Box2<T>;
+
+static SEVEN: i64 = 7i64;
+
+fn main() -> i32 {
+    let a: Alias6 = Foo { r: &SEVEN };
+    let b: Alias6b = Bar { r: &SEVEN };
+    let c: Again = Foo { r: &SEVEN };
+    let e: Early = Foo { r: &SEVEN };
+    let g: Gen<i64> = Box2 { t: 1i64 };
+    if *a.r + *b.r + *c.r + *e.r + g.t != 29i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,23 @@
+// THE LEGAL TWIN, ONE TOKEN APART: one input lifetime, so the elided output
+// takes it (elision rule 2). Also pins the DISTINCT-lifetime count — a named
+// lifetime used twice is ONE input lifetime — and the fn-pointer's own scope
+// inside a return type.
+package bc_dclfnptr_one_input_ret;
+
+type Pick = fn(&i64, i64) -> &i64;
+
+fn first(x: &i64, n: i64) -> &i64 { return x; }
+fn left<'a>(x: &'a i64, y: &'a i64) -> &'a i64 { return x; }
+fn choose(a: &i64, b: &i64) -> fn(&i64, i64) -> &i64 { return first; }
+fn same<'a>(f: fn(&'a i64, &'a i64) -> &i64, p: &'a i64, q: &'a i64) -> &'a i64 { return f(p, q); }
+
+fn main() -> i32 {
+    let v: i64 = 3i64;
+    let w: i64 = 4i64;
+    let p: Pick = first;
+    let c: fn(&i64, i64) -> &i64 = choose(&v, &w);
+    if *p(&v, 0i64) != 3i64 { return 1i32; }
+    if *same(left, &v, &w) != 3i64 { return 2i32; }
+    if *c(&w, 0i64) != 4i64 { return 3i32; }
+    return 0i32;
+}
