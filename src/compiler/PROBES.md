@@ -13650,3 +13650,181 @@ Not spent, each with the number that prices it:
      verdicts and hid a false refusal on the thirteenth, which used the CLOSURE
      route (§4). Rule 5's "vary the shape" is specifically about the ROUTE TO
      THE SITE, not the shape of the program text.
+
+# ═══ ROUND 2026-09-01k — LANDING. `declare_pat_bindings` NOW DECLARES THE
+# RefBind/RefPat KINDS, CARRYING BIND_SLOT AND IS_MUT. ONE ROW CLOSED, AND THE
+# SAME EDIT UN-REFUSES A LEGAL PROGRAM THE CEILING COLUMN CANNOT SEE ══════════
+
+Landing round for the arm 09-01j §5 recommended. Everything below was
+RE-MEASURED on the landed binary; nothing is inherited from the pricing round.
+
+## 1. BASELINE, READ FROM THE STORE BEFORE ANY EDIT
+
+    build 426 (libs 7210713986999d78, READ; no source newer than the binary)
+      -R '^logos_00_bc_admit_'   242/242 already measured, 0 failed
+      -L bc                      1136/1136 passed
+    live probes 146 · # TOTAL 242
+
+## 2. MY OWN COUNTER-EXAMPLES, BEFORE THE EDIT — AND THE ONE THAT PAID
+
+31 hand programs, multi-line, in `/home/logos/sandbox/patdecl2/`: the 16
+inherited from 09-01j plus 15 new ones written to hit ROUTES the pricing round
+did not use — an un-refusal canary (a shadowed outer NON-mut name, borrowed
+mutably after the match), the RefPat recursion (`&E1::V(a)`, `&mut ref mut
+foo`), a binding passed to a fn twice, two sequential matches, a nested match
+binding two names, a struct-FIELD scrutinee, a guard arm beside a plain arm,
+a loop, and the shared/mut conflict inside one arm. Each was proven to REACH
+the site by the `patdecl.arrive.*` census, not assumed to.
+
+⚠ TWO OF MY OWN INSTRUMENTS WERE BROKEN, BOTH IN THE PERMISSIVE DIRECTION, AND
+BOTH CAUGHT ONLY BY READING THE OUTPUT:
+  (a) the first unarmed/armed differ compared runs made with DIFFERENT `-o`
+      paths, so all 25 programs reported MOVED — a differ whose output is
+      100% positive is a broken instrument, the same shape as 09-01j's
+      "242 of 242" property census.
+  (b) the first admit sweep read `$?` after `cmd | sed`, which is SED's rc, so
+      its rc column was uniformly 0 — including on the program that closed.
+      The TEXT column carried the finding; the rc column was noise. Re-run with
+      redirection instead of a pipe: rc 0 -> 1, as it should have read.
+  (c) `stdlib-cost.sh` takes the probe as `$1`, NOT from `LOGOS_PROBE`. My
+      first run printed "all four layers compile under 'nothing armed'" — a
+      GREEN that measured the unarmed compiler. Re-run as
+      `stdlib-cost.sh patdeclrefbmut`: ok, and only then is it evidence.
+  (d) `ctest -N | grep -c 'Test #'` undercounts: ctest pads the number field,
+      so `Test  #267` does not match. It read 168 admits where there are 241.
+
+None of the 31 hand programs moved under the arm.
+
+## 3. THE NUMBERS, RE-MEASURED ON THE LANDED BUILD (rule 7, rule 8)
+
+    landed build fce0ad949e3f7d2e (READ), source re-verified after the control
+    revert on c36a8f06fd0582a0 (the archives are not byte-reproducible across a
+    rebuild; the SOURCE is identical, and §5 is what proves the behaviour)
+
+    CEILING (probe form, my own sweep of all 242 admits, diffed BOTH ways)  1
+    ACTUAL  (landed form, through the store: 241 pass / 1 fail of 242)      1
+    COST pass    0   — the other 241 admits unmoved
+    COST cfail   0   — all 1136 `-L bc -L fail` fixtures identical in rc,
+                       stderr SHA and `.expected` match, run twice: once
+                       armed against unarmed, once landed against unarmed
+    COST stdlib  ok  — four layers, armed AND on the landed binary
+
+PREDICTED SET == ACTUAL SET, and the diff closes in both directions:
+    predicted   {issue-27282-mutation-in-guard}
+    actual      {issue-27282-mutation-in-guard}
+    predicted-not-closed, all four confirmed still admitting:
+      match-guards-always-borrow · issue-27282-move-match-input-into-guard ·
+      borrowck-move-error-with-note--b ·
+      borrowck-move-out-from-array-use-match--t13
+
+THE DIAGNOSTIC WAS READ, NOT THE EXIT CODE:
+    "cannot borrow 'foo' as mutable: already mutably borrowed"
+and it is BYTE-IDENTICAL to what the `let`-bound spelling of the same two loans
+already printed unarmed. The rule is one rule; only the spelling was blind.
+
+## 4. THE CONTROL REVERT FOUND A SECOND EFFECT THE CEILING COLUMN CANNOT SEE
+
+The revert was run to prove the fixtures, and it did — both fail fixtures
+ADMIT on the reverted binary. It also failed a PASS fixture:
+
+    bc_patdeclrefbmut_legal_shapes_pass::shadow_outer
+      reverted binary:  REFUSED "cannot use 'o' while it is mutably borrowed"
+      landed binary:    accepted
+
+That is an UN-REFUSAL, and it is the correct direction: the loan a `ref mut`
+pattern deposits on the scrutinee had no tracked holder, so it never died, and
+a read of `o` AFTER the match was refused. 09-01j's g10 has this shape and
+reported UNMOVED — because g10 reads the shadowing name, not the scrutinee.
+One token of difference in a hand program, and it decides whether the round
+sees this at all.
+
+⚠ AND THE CEILING COLUMN IS STRUCTURALLY BLIND TO IT: the admit corpus holds
+only programs that COMPILE, so a legal program that stops being refused can
+never appear there. Rule 15's sibling — an rc-based ceiling cannot see an
+un-refusal either, in the other direction. The abuse direction is now pinned
+by `bc_patdeclrefbmut_scrutinee_used_in_arm_fail` (the loan must still be live
+INSIDE the arm), and that diagnostic is INHERITED, honestly labelled in the
+fixture itself: the reverted binary refuses it with the same text (rule 14).
+
+## 5. THE FIXTURES, IN THEIR ROOT'S HOME, AND WHAT EACH PINS
+
+    tests/imported/fail/nll/issue-27282-mutation-in-guard  (moved from admit/,
+        header shelf line rewritten, `.expected` added)
+    tests/logos/fail/bc_patdeclrefbmut_two_live_mut_reborrows_fail
+    tests/logos/pass/bc_patdeclrefbmut_sequenced_reborrows_pass   ← its twin,
+        differing ONLY in where `*a = 5i64;` sits. MEASURED, and the reason
+        this and not a shorter perturbation: deleting or moving `*b = 7i64;`
+        does NOT flip the verdict, because `a` is used after `b` is created
+        either way. The transposition is the smallest thing that does.
+    tests/logos/pass/bc_patdeclrefbmut_legal_shapes_pass — ten legal shapes.
+        Its two witnesses are named in the file: the closure reborrow pins
+        IS_MUT (a default-false `is_mut_binding` refuses it — that is exactly
+        why 09-01j declined the first two spellings), and the shadowed outer
+        name pins BIND_SLOT (the inner binding must be a DIFFERENT variable,
+        or the `is_mut_binding` write lands on the outer one).
+    tests/logos/fail/bc_patdeclrefbmut_scrutinee_used_in_arm_fail — §4.
+
+⚠ IS_MUT HAS NO `ref`-TWIN ABUSE FIXTURE, AND THE REASON IS NOT LAZINESS:
+`match o { ref foo => { let bar: &mut i64 = foo; ... } }` is refused by SEMA
+("expected &mut i64, got &i64") before borrow check runs, so the one-token
+twin cannot reach the site. The bit is pinned from the accept side only.
+
+## 6. OFF-LEDGER, RECORDED AND NOT PURSUED (all three carried from 09-01j §7,
+##    RE-MEASURED on the landed binary and all three still stand)
+
+ (a) `let foo: &mut i64 = &mut o;` reborrowed inside a closure is refused
+     "cannot borrow 'foo' as mutable: not declared as mut" — the message names
+     the wrong property, and it is reached with no probe at all. NO LEDGER ROW.
+ (b) `*x = ...` through a `ref`/`ref mut` binding nested under an enum variant
+     is "write through raw pointer requires unsafe context". NEW THIS ROUND:
+     the same message appears for a ONE-LEVEL shared `ref` binding —
+     `match o { ref foo => { *foo = 5i64; } }` — which is a sema/type defect,
+     not the enum nesting. Both are outside borrow check. NO LEDGER ROW.
+ (c) `let ref mut foo = o;` is a syntax error. NO LEDGER ROW.
+
+## 7. LEDGER ARITHMETIC, RE-DERIVED BY DIRECT LISTING
+
+    # TOTAL 242 -> 241, and three independent counts agree:
+      the header line                          241
+      `awk '!/^#/ && NF' | wc -l`              241
+      `find tests/imported/admit -name '*.logos' | wc -l`  241
+      `ctest -N -R '^logos_00_bc_admit_'`      241
+
+NOT SPENT, EACH WITH ITS NUMBER:
+  · THE OBJECT-LIFETIME BLOCK, 18 rows — blocker unchanged (09-01g §4).
+  · bck.C, 16 rows — unchanged (09-01j §1).
+  · lifereg.A 13 + lifereg.R17 10 — surveyed, still unpriced.
+  · nllmoves.B, 10 rows remaining — `match-guards-always-borrow` still needs
+    the per-binding BY-VALUE `mut` flag PLUS a guard-move channel, two doors
+    IN SERIES, and this landing bought neither. ⚠ CITED BY SYMBOL, because the
+    line number 09-01j §4/§5 gave for that record ("PROBES.md:6471") does NOT
+    hold it and did not when it was written — a line number written inside the
+    file it points into self-invalidates on the next append, and this file
+    grows every round. The record lives at the `take_borrow_whole_`
+    binding-mut arm: the guard `!skip_mut_binding_check && !it->is_mut_binding`,
+    its `param_names_` exit, the `mbsite`/`mbhatch`/`mbrefuse` census, and the
+    SECOND COPY of the same test in `take_field_borrow_path_` with a different
+    sentence. Grep `mbrefuse` or `skip_mut_binding_check`.
+    ⚠ AND THE ROW IS A REAL DEFECT, NOT A RETIREMENT CANDIDATE — READ: its
+    `should_reject_destructive_mutate_in_guard` moves a `ref mut` binding into
+    a guard CLOSURE (`let bar: &mut Option<i64> = foo;` inside `||`), which is
+    upstream E0507, and the port's own two `allow_*` functions are the legal
+    control beside it. It admits today.
+  · `structpatty` / `slicepatnull`'s CORRECT spelling — 2 rows (bck.B).
+  · THE EIGHT BARE-`enum_name()` LOOKUPS (09-01i §9.2) — still not measured.
+  · Tuple / At / Or declaration kinds — arrival 0 over all 242 admits, so
+    UNPRICED, NOT REFUTED (rule 4).
+
+## 8. OPEN (carried, plus this round's)
+
+ 1-48. UNCHANGED.
+ 49. NEW: A CEILING COLUMN CANNOT SEE AN UN-REFUSAL, BECAUSE THE ADMIT CORPUS
+     HOLDS ONLY PROGRAMS THAT COMPILE. §4's un-refusal was found by the
+     CONTROL REVERT failing a pass fixture, which is not what a control revert
+     is normally run for. Run the revert against the round's OWN new pass
+     fixtures, not only its fail ones.
+ 50. NEW: FOUR MEASURING INSTRUMENTS WERE BROKEN IN ONE ROUND (§2), each
+     producing a GREEN or a uniform result. Three were mine and one was a
+     script's calling convention. The tell in every case was a number that was
+     too clean: 25 of 25 moved, 0 of 242 rc changes, "nothing armed" in a run
+     that armed something, 168 of 241. READ THE LABEL THE TOOL PRINTS.

@@ -1,0 +1,18 @@
+// bc_patdeclrefbmut — THE ACCEPT TWIN of
+// tests/logos/fail/bc_patdeclrefbmut_two_live_mut_reborrows_fail, differing
+// ONLY in the position of `*a = 5i64;`.
+//
+// There `a` is used AFTER `b` is taken, so the first loan is live across the
+// second and the two mutable reborrows conflict. Here `a`'s last use precedes
+// `b`, its loan is dead, and the program is legal Rust. A declaration channel
+// that tracked the binding but never ended its loans would refuse this, which
+// is the abuse direction of the same arm.
+package bc_patdeclrefbmut_sequenced_reborrows_pass;
+
+fn main() -> i32 {
+  let mut o: i64 = 1i64;
+  match o {
+    ref mut foo => { let a: &mut i64 = foo; *a = 5i64; let b: &mut i64 = foo; *b = 7i64; }
+  }
+  return 0i32;
+}

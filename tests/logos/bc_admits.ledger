@@ -1123,7 +1123,7 @@
 #   RE-DERIVED BY DIRECT LISTING, not decremented:
 #     awk '!/^#/ && NF' tests/logos/bc_admits.ledger | wc -l  -> 242
 #     ls tests/imported/admit/*/*.logos | wc -l               -> 242
-# TOTAL 242
+# TOTAL 241
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1280,7 +1280,6 @@ escape-argument--t09 nllmoves.C tests/imported/admit/nll/escape-argument--t09
 fns nllmoves.NEW-N2 tests/imported/admit/nll/fns
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
 issue-27282-move-match-input-into-guard nllmoves.R11 tests/imported/admit/nll/issue-27282-move-match-input-into-guard
-issue-27282-mutation-in-guard nllmoves.B tests/imported/admit/nll/issue-27282-mutation-in-guard
 issue-27868 nllmoves.R11 tests/imported/admit/nll/issue-27868
 issue-30438-a nllmoves.D tests/imported/admit/nll/issue-30438-a
 issue-30438-b nllmoves.D tests/imported/admit/nll/issue-30438-b

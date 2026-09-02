@@ -1,0 +1,30 @@
+// bc_patdeclrefbmut — THE REFUSE HALF. A `ref mut` binding is a TRACKED LOCAL.
+//
+// `declare_pat_bindings` switched on lir_schema::pat::Code (Count == 13) and
+// called `declare_var` for TWO kinds, VariantData and Wild. A name bound by
+// RefBind was therefore in no tracked set at all, so every arm keyed on it was
+// unreachable AT THAT SPELLING — this program compiled, while the `let`-bound
+// spelling of the same two loans (`let foo: &mut i64 = &mut o;` then two
+// reborrows) was already refused with the text below, unchanged, beside it.
+//
+// The pinned diagnostic is INHERITED, not minted: it is byte-for-byte what the
+// `let`-bound control prints, which is the point — one rule, two spellings.
+//
+// ACCEPT TWIN: tests/logos/pass/bc_patdeclrefbmut_sequenced_reborrows_pass,
+// which differs ONLY in where `*a = 5i64;` sits. Here `a`'s loan is still live
+// when `b` is taken; there it is dead. That transposition is the whole NLL
+// question, and it is the smallest perturbation that flips this verdict —
+// moving or deleting `*b = 7i64;` does NOT (measured: both still refuse,
+// because `a` is used after `b` is created either way).
+//
+// This program is the imported row `issue-27282-mutation-in-guard`
+// (nllmoves.B), retired from tests/logos/bc_admits.ledger by this landing.
+package bc_patdeclrefbmut_two_live_mut_reborrows_fail;
+
+fn main() -> i32 {
+  let mut o: i64 = 1i64;
+  match o {
+    ref mut foo => { let a: &mut i64 = foo; let b: &mut i64 = foo; *a = 5i64; *b = 7i64; }
+  }
+  return 0i32;
+}

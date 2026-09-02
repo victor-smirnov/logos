@@ -1,0 +1,26 @@
+// bc_patdeclrefbmut — THE ABUSE DIRECTION OF THE LOAN THAT NOW ENDS.
+//
+// Declaring the `ref mut` binding did not only close a row; it also let the
+// loan the pattern deposits on the SCRUTINEE end at the arm's close. Measured
+// on a control-reverted binary: `bc_patdeclrefbmut_legal_shapes_pass::
+// shadow_outer` was REFUSED there with "cannot use 'o' while it is mutably
+// borrowed" on a read of `o` AFTER the match — the loan of an untracked
+// binding had no holder and so never died.
+//
+// That correction has an abuse direction, and this is it: INSIDE the arm the
+// loan must still be live. One position apart from `shadow_outer`'s read —
+// there the read of `o` follows the match, here it precedes the write through
+// `foo` inside the arm.
+//
+// ⚠ HONESTLY LABELLED: this diagnostic is INHERITED, not bought. The reverted
+// binary refuses this program with the same text (rule 14). It is here as the
+// guard on the loan-ending, not as evidence for the landing.
+package bc_patdeclrefbmut_scrutinee_used_in_arm_fail;
+
+fn main() -> i32 {
+  let mut o: i64 = 1i64;
+  match o {
+    ref mut foo => { let z: i64 = o; *foo = 5i64; }
+  }
+  return 0i32;
+}

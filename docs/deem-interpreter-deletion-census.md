@@ -4999,9 +4999,22 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8778 -> 8781   +3
 #   NOIMPORTED   4463 -> 4465   +2
 #   TIERCOMMIT    292 ->  291   -1
-REGISTRY-ALL         8781
-REGISTRY-NOIMPORTED  4465
-REGISTRY-TIERCOMMIT  291
+# 2026-09-01k (`declare_pat_bindings` declares the RefBind/RefPat kinds, so a
+#   `ref mut` binding is a tracked local). FOUR native fixtures added
+#   (pass/bc_patdeclrefbmut_sequenced_reborrows_pass,
+#   pass/bc_patdeclrefbmut_legal_shapes_pass,
+#   fail/bc_patdeclrefbmut_two_live_mut_reborrows_fail,
+#   fail/bc_patdeclrefbmut_scrutinee_used_in_arm_fail), one imported program
+#   moved admit -> fail (nll/issue-27282-mutation-in-guard: +1 imported fail
+#   fixture, -1 logos_00_bc_admit_* test, which is again where TIERCOMMIT loses
+#   its one). ALL nets +4 because the imported +1 and the admit -1 cancel;
+#   NOIMPORTED sees only the four native arrivals minus that admit test.
+#   ALL          8781 -> 8785   +4
+#   NOIMPORTED   4465 -> 4468   +3
+#   TIERCOMMIT    291 ->  290   -1
+REGISTRY-ALL         8785
+REGISTRY-NOIMPORTED  4468
+REGISTRY-TIERCOMMIT  290
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

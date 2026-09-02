@@ -1255,6 +1255,26 @@ PIN = {
     #   ls tests/logos/pass/*.logos                      -> 2526
     #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
     #   the same listing minus the glob half             -> 2335
+    # 2026-09-01k (`declare_pat_bindings` declares RefBind/RefPat), +2/0/+2.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 2:
+    #   ls tests/logos/pass/*.logos                      -> 2528
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos         ->  191
+    #   the same listing minus the glob half             -> 2337
+    # partition closes: 2528 = 191 + 2337. THE TWO, NAMED, and the half each
+    # joined (the NONGLOB half — `bc_*` matches neither `wql_*` nor `deem_*`):
+    #   bc_patdeclrefbmut_sequenced_reborrows_pass — the ACCEPT twin of
+    #     bc_patdeclrefbmut_two_live_mut_reborrows_fail, differing only in
+    #     where `*a = 5i64;` sits, which is the whole NLL question.
+    #   bc_patdeclrefbmut_legal_shapes_pass — ten legal shapes over `ref`/
+    #     `ref mut` bindings, pinning pat_keys::IS_MUT (the closure reborrow,
+    #     which a default-false `is_mut_binding` refuses) and BIND_SLOT (the
+    #     shadowed outer name, which must stay a different variable).
+    # The round's other TWO native fixtures are FAIL fixtures and this
+    # population is the PASS corpus, so they move nothing here; the one
+    # imported program that left `admit` for `fail` is not in tests/logos/pass
+    # at all. `glob` and the DOOR counts unmoved: no `wql_*`/`deem_*` match, no
+    # container family, no `direct` output form.
+    # ── the previous round's derivation, kept for the trail ──
     # partition closes: 2526 = 191 + 2335. The one is
     # bc_enumdefkey_legal_shapes — ten legal shapes over generic enums, two of
     # them ONE TOKEN from a fail fixture beside it (`G<i64>` vs `G<String>`,
@@ -1267,9 +1287,9 @@ PIN = {
     # here; the one imported program that left `admit` for `fail` is not in
     # tests/logos/pass at all. `glob` and the DOOR counts unmoved: no
     # `wql_*`/`deem_*` match, no container family, no `direct` output form.
-    'corpus'            : 2526,
+    'corpus'            : 2528,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2335,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2337,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

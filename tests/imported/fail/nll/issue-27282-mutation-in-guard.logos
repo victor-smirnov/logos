@@ -1,0 +1,16 @@
+// rustc nll/issue-27282-mutation-in-guard.rs — upstream E0507
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail · was nllmoves.B, CLOSED 2026-09-02 — `declare_pat_bindings`
+// called `declare_var` for 2 of the 13 pattern kinds, so a name bound by
+// `ref mut` was in no tracked set and every borrow arm keyed on it was
+// unreachable at that spelling. The port takes two `&mut` reborrows of the
+// same binding and uses both afterwards; the `let`-bound spelling of the
+// same two loans was already refused, with this exact text.
+package issue_27282_mutation_in_guard;
+fn main() -> i32 {
+  let mut o: i64 = 1i64;
+  match o {
+    ref mut foo => { let a: &mut i64 = foo; let b: &mut i64 = foo; *a = 5i64; *b = 7i64; }
+  }
+  return 0i32;
+}

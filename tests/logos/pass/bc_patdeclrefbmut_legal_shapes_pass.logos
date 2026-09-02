@@ -1,0 +1,117 @@
+// bc_patdeclrefbmut — THE LEGAL SIDE of "a `ref`/`ref mut` binding is a tracked
+// local". Declaring the binding is what makes every borrow arm REACH it, so the
+// same edit that closed the refuse twin can only be wrong in this direction.
+// Every shape below is legal and MUST still compile.
+//
+// TWO FACTS ARE PINNED HERE, AND EACH HAS ITS OWN WITNESS:
+//
+//  · pat_keys::IS_MUT, carried from the pattern rather than defaulted.
+//    `closure_mut_reborrow` is the witness. A declaration channel that called
+//    `declare_var` and left `is_mut_binding` false refuses it with "cannot
+//    borrow 'foo' as mutable: not declared as mut" — on a binding written
+//    `ref mut` — and that is exactly why the all-kinds and RefBind-only
+//    spellings of this arm were DECLINED (PROBES.md 2026-09-01j §4). It is not
+//    reachable through the `ref` twin: sema types the binding `&i64` and stops
+//    at the type mismatch before borrow check ever runs.
+//
+//  · BIND_SLOT, the binding's own Phase-1 slot. `shadow_outer` is the witness:
+//    the inner `foo` must be a DIFFERENT variable from the outer one, or the
+//    `is_mut_binding` write lands on the outer and un-refuses its own checks.
+//
+// `refpat_variant` and `refpat_ref_mut` cover the RefPat arm, which recurses
+// into the inner pattern — the only kind here that declares by delegation.
+package bc_patdeclrefbmut_legal_shapes_pass;
+
+enum E1 { V(i64) }
+struct S { a: i64, b: i64 }
+
+fn bump(p: &mut i64) -> i64 { *p = *p + 1i64; return *p; }
+
+fn closure_mut_reborrow() -> i64 {
+  let mut o: i64 = 1i64;
+  match o {
+    ref mut foo => { let f = || { let bar: &mut i64 = foo; *bar = 5i64; }; f(); }
+  }
+  return o;
+}
+
+fn shadow_outer() -> i64 {
+  let mut foo: i64 = 1i64;
+  let mut o: i64 = 2i64;
+  match o { ref mut foo => { *foo = 5i64; } }
+  foo = 3i64;
+  return foo + o;
+}
+
+fn refpat_variant() -> i64 {
+  let o: E1 = E1::V(3i64);
+  match &o {
+    &E1::V(a) => { return a; }
+  }
+}
+
+fn refpat_ref_mut() -> i64 {
+  let mut o: i64 = 1i64;
+  match &mut o {
+    &mut ref mut foo => { *foo = 4i64; }
+  }
+  return o;
+}
+
+fn ref_mut_in_loop() -> i64 {
+  let mut o: i64 = 0i64;
+  let mut i: i64 = 0i64;
+  while i < 3i64 {
+    match o { ref mut foo => { *foo = *foo + 1i64; } }
+    i = i + 1i64;
+  }
+  return o;
+}
+
+fn two_sequential_matches() -> i64 {
+  let mut o: i64 = 1i64;
+  match o { ref mut foo => { *foo = 2i64; } }
+  let a: i64 = o;
+  match o { ref mut foo => { *foo = 3i64; } }
+  return a + o;
+}
+
+fn guard_then_body() -> i64 {
+  let mut o: i64 = 1i64;
+  match o {
+    ref mut foo if *foo > 0i64 => { *foo = 5i64; }
+    ref mut bar => { *bar = 6i64; }
+  }
+  return o;
+}
+
+fn passed_to_fn_twice() -> i64 {
+  let mut o: i64 = 1i64;
+  match o {
+    ref mut foo => { let a: i64 = bump(foo); let b: i64 = bump(foo); return a + b; }
+  }
+}
+
+fn nested_match_two_bindings() -> i64 {
+  let mut o: i64 = 1i64;
+  let mut q: i64 = 2i64;
+  match o {
+    ref mut a => { match q { ref mut b => { *a = 5i64; *b = 6i64; } } }
+  }
+  return o + q;
+}
+
+fn struct_field_scrutinee() -> i64 {
+  let mut s: S = S { a: 1i64, b: 2i64 };
+  match s.a { ref mut foo => { *foo = 5i64; } }
+  return s.a + s.b;
+}
+
+fn main() -> i32 {
+  let t: i64 = closure_mut_reborrow() + shadow_outer() + refpat_variant()
+             + refpat_ref_mut() + ref_mut_in_loop() + two_sequential_matches()
+             + guard_then_body() + passed_to_fn_twice()
+             + nested_match_two_bindings() + struct_field_scrutinee();
+  if t == 0i64 { return 1i32; }
+  return 0i32;
+}
