@@ -1106,7 +1106,16 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
             for (auto e : TypeRef(t).tuple_elems()) n += count_ref_positions(e);
             return n;
         };
-        if (ret_type && has_elided_ref(ret_type)) {
+        bool ret_ast_elided_ = false;
+        if (ret_type && !has_elided_ref(ret_type) && node.has_key(la::RET_TYPE)) {
+            AnyVal rv_ = node.get(la::RET_TYPE.code);
+            if (!rv_.is_null() && dcl_ast_elided_ref_(map_of(rv_))) {
+                ret_ast_elided_ = true;
+                logos::probe::census("dcl.retargs.syn");
+            }
+        }
+        if (ret_type && (has_elided_ref(ret_type) ||
+                         (ret_ast_elided_ && logos::probe::on("dclretargssyn")))) {
             int input_lts = 0;
             bool has_self_ref = false;
             for (auto& p : params) {
@@ -2062,6 +2071,25 @@ std::pair<std::string, TypeRef> SemaChecker::lower_type_alias_def(TinyMapView no
     // Generic aliases have no concrete LIR type (they're inlined at use sites).
     TypeRef type = (ait != type_aliases_.end() && ait->second.type_params.empty())
                    ? ait->second.type : error_t();
+    if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
+        // dclalias2: the collect-time twin (`dclalias`) never arrived — aliases
+        // are collected in phase 0, before any struct is registered, so
+        // decl_lt_arity_ answered 0 for every RHS. Here every declaration is known.
+        TypeRef t_ = type;
+        if ((!t_ || t_.kind() == LogosType::Kind::Error) && !ait->second.rhs_node.is_null())
+            t_ = resolve_type(ait->second.rhs_node);
+        if (t_ && (t_.kind() == LogosType::Kind::Struct || t_.kind() == LogosType::Kind::ZonedStruct ||
+                   t_.kind() == LogosType::Kind::Enum)) {
+            size_t ar_ = decl_lt_arity_(t_), wr_ = 0;
+            for (auto& l : t_.lifetime_args()) if (!l.empty()) ++wr_;
+            logos::probe::census(ar_ > wr_ ? "dcl.alias2.elided_ltarg" : "dcl.alias2.ok");
+            if (ar_ > wr_ && logos::probe::on("dclalias2"))
+                error(std::format("type alias '{}': missing lifetime specifier (E0106) — the aliased type takes {} lifetime argument(s) and {} written",
+                                  name, ar_, wr_));
+        } else {
+            logos::probe::census("dcl.alias2.nonadt");
+        }
+    }
     return {std::move(name), type};
 }
 
@@ -2211,7 +2239,18 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             }
         };
         read_impl_lts(la::IMPL_TYPE_PARAMS.code);
-        read_impl_lts(la::TYPE_PARAMS.code);
+        {
+            // For a TRAIT impl, TYPE_PARAMS holds the trait's ARGUMENTS
+            // (`impl Tr<'tcx> for W`), not binders; reading them as binders is
+            // what admits issue-107988 (dclimplhdr2, PROBES.md 2026-09-02q).
+            size_t before_ = current_impl_lifetime_params_.size();
+            read_impl_lts(la::TYPE_PARAMS.code);
+            if (!trait_name.empty() && current_impl_lifetime_params_.size() > before_) {
+                logos::probe::census("dcl.implhdr.argbinder",
+                                     current_impl_lifetime_params_.size() - before_);
+                if (logos::probe::on("dclimplhdr2")) current_impl_lifetime_params_.resize(before_);
+            }
+        }
     }
     struct ImplLtRestore {
         std::vector<std::string>& dst; std::vector<std::string> saved;
@@ -2607,7 +2646,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         for (auto& d_ : current_impl_lifetime_params_) if (d_ == ln_) known_ = true;
                         if (!known_) {
                             logos::probe::census("dcl.implhdr.undeclared");
-                            if (logos::probe::on("dclimplhdr"))
+                            if (logos::probe::on("dclimplhdr") || logos::probe::on("dclimplhdr2"))
                                 error(std::format("impl {}: use of undeclared lifetime name '{}' in the trait's arguments",
                                                   trait_name, ln_));
                         }

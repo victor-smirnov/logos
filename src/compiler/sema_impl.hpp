@@ -453,6 +453,33 @@ private:
     }
     // dcl* probes (PROBES.md 2026-09-02q): the fn-signature E0106 rule's two
     // walks, made reachable from the declaration sites that never had them.
+    // The WRITTEN form: an elided `&` anywhere in a type's AST, type args
+    // included. Reads the syntax so a substituted `Item = (&K, &V)` (the
+    // stdlib's idiom) is never mistaken for an elision the user wrote.
+    bool dcl_ast_elided_ref_(writ::TinyMapView n, int d = 0) {
+        using namespace sema_detail;
+        if (n.is_null() || d > 24) return false;
+        auto c = code_of(n);
+        if ((c == la::REF_TYPE || c == la::MUT_REF_TYPE) &&
+            (!n.has_key(la::LIFETIME) || n.get(la::LIFETIME.code).is_null()))
+            return true;
+        for (auto key : {la::POINTEE.code, la::TYPE.code}) {
+            if (!n.has_key(key)) continue;
+            writ::AnyVal v = n.get(key);
+            if (!v.is_null() && dcl_ast_elided_ref_(map_of(v), d + 1)) return true;
+        }
+        if (n.has_key(la::ITEMS)) {
+            writ::AnyVal iv = n.get(la::ITEMS.code);
+            if (!iv.is_null()) {
+                auto items = arr_of(iv);
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    writ::AnyVal e = items.get(i);
+                    if (!e.is_null() && dcl_ast_elided_ref_(map_of(e), d + 1)) return true;
+                }
+            }
+        }
+        return false;
+    }
     bool dcl_has_elided_ref_(TypeRef t, bool into_args, int d = 0) {
         if (!t || d > 24) return false;
         auto k = t.kind();

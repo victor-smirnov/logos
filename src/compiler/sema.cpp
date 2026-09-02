@@ -5389,8 +5389,17 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
         if (tb.is_fn_family && tb.fn_ret && dcl_has_elided_ref_(tb.fn_ret, false)) {
             int n_ = 0;
             for (auto p : tb.fn_params) n_ += dcl_lt_positions_(p);
-            logos::probe::census(n_ >= 2 ? "dcl.fnbnd.amb" : n_ == 0 ? "dcl.fnbnd.zero" : "dcl.fnbnd.one");
-            if ((logos::probe::on("dclfnbnd") && n_ >= 2) || (logos::probe::on("dclfnbnd0") && n_ != 1))
+            // WRITTEN `-> &T` vs a `-> Item` whose substitution is an elided ref: the
+            // stdlib's `FnMut(Item, Item) -> Item` on `SliceIter<T>` (Item = `&T`)
+            // arrives here 6 times per compile and is legal — the elision is the
+            // trait's, not the bound's.
+            bool syn_ = !rav.is_null() && (code_of(map_of(rav)) == la::REF_TYPE ||
+                                            code_of(map_of(rav)) == la::MUT_REF_TYPE);
+            logos::probe::census(std::string(syn_ ? "dcl.fnbnd.syn." : "dcl.fnbnd.sub.") +
+                                 (n_ >= 2 ? "amb" : n_ == 0 ? "zero" : "one"));
+            if ((logos::probe::on("dclfnbnd") && n_ >= 2) || (logos::probe::on("dclfnbnd0") && n_ != 1) ||
+                (syn_ && ((logos::probe::on("dclfnbndsyn") && n_ >= 2) ||
+                          (logos::probe::on("dclfnbndsyn0") && n_ != 1))))
                 error(std::format("missing lifetime specifier (E0106): the `{}` bound's return type contains a borrowed value with an elided lifetime and no single input lifetime to borrow from", tb.trait_name));
         }
     }
@@ -8329,8 +8338,14 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         if (dcl_has_elided_ref_(t.closure_ret, false)) {
             int n_ = 0;
             for (auto p : t.closure_params) n_ += dcl_lt_positions_(p);
-            logos::probe::census(n_ >= 2 ? "dcl.fnptr.amb" : n_ == 0 ? "dcl.fnptr.zero" : "dcl.fnptr.one");
-            if ((logos::probe::on("dclfnptr") && n_ >= 2) || (logos::probe::on("dclfnptr0") && n_ != 1))
+            bool syn_ = node.has_key(la::RET_TYPE) &&
+                        (code_of(map_of(node.get(la::RET_TYPE.code))) == la::REF_TYPE ||
+                         code_of(map_of(node.get(la::RET_TYPE.code))) == la::MUT_REF_TYPE);
+            logos::probe::census(std::string(syn_ ? "dcl.fnptr.syn." : "dcl.fnptr.sub.") +
+                                 (n_ >= 2 ? "amb" : n_ == 0 ? "zero" : "one"));
+            if ((logos::probe::on("dclfnptr") && n_ >= 2) || (logos::probe::on("dclfnptr0") && n_ != 1) ||
+                (syn_ && ((logos::probe::on("dclfnptrsyn") && n_ >= 2) ||
+                          (logos::probe::on("dclfnptrsyn0") && n_ != 1))))
                 error("missing lifetime specifier (E0106): this fn-pointer type's return type contains a borrowed value with an elided lifetime and no single input lifetime to borrow from");
         }
         return pool_->alloc(std::move(t));

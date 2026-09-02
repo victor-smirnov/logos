@@ -4208,8 +4208,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 auto atype = resolve_type(map_of(m.get(la::TYPE.code)));
                 pop_type_params(gat_tps);
                 if (dcl_has_elided_ref_(atype, false)) {
-                    logos::probe::census("dcl.assoc.elided");
-                    if (logos::probe::on("dclassoc"))
+                    bool syn_ = code_of(map_of(m.get(la::TYPE.code))) == la::REF_TYPE ||
+                                code_of(map_of(m.get(la::TYPE.code))) == la::MUT_REF_TYPE;
+                    logos::probe::census(syn_ ? "dcl.assoc.syn" : "dcl.assoc.sub");
+                    if (logos::probe::on("dclassoc") || (syn_ && logos::probe::on("dclassocsyn")))
                         error(std::format("impl {} for {}: associated type '{}' contains a borrowed value with an elided lifetime (E0106) — name it, e.g. `impl<'a> ... {{ type {} = &'a ... }}`",
                                           trait_name, target, aname, aname));
                 }
