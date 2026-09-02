@@ -7385,7 +7385,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                     TypeRef ti(inner);
                     // type_args() is a fresh vector per call — materialise once.
                     std::vector<TypeRef> targs = ti.type_args();
-                    if (!std::string(ti.lifetime()).empty()) logos::probe::census("objlt.boxcollapse.slot");
+                    logos::probe::census(std::string(ti.lifetime()).empty() ? "objlt.boxcollapse.noslot" : "objlt.boxcollapse.slot");
                     return make_trait_object(ti.trait_name(), std::move(targs), sp_kind,
                                              /*req_send=*/ti.trait_requires_send(),
                                              /*req_sync=*/ti.trait_requires_sync(),
@@ -8146,11 +8146,19 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                             fl = std::string(str_of(fit.get(la::NAME.code)));
                     }
                 }
-                if (node.has_key(la::LIFETIME)) logos::probe::census("objlt.fnfamily.lifetimekey");
+                const bool fn_is_ref_ = node.has_key(la::IS_REF) && !node.get(la::IS_REF.code).is_null() &&
+                                        node.get(la::IS_REF.code).as_value<int32_t>() != 0;
+                std::string fn_prefix_lt_;
+                if (node.has_key(la::LIFETIME) && !node.get(la::LIFETIME.code).is_null())
+                    fn_prefix_lt_ = std::string(str_of(node.get(la::LIFETIME.code)));
+                logos::probe::census(fn_is_ref_ ? (fn_prefix_lt_.empty() ? "objlt.fnfamily.ref.elided" : "objlt.fnfamily.ref.named")
+                                                : "objlt.fnfamily.owned");
                 logos::probe::census(fl.empty() ? "objlt.fnfamily.nobound" : "objlt.fnfamily.plusbound");
-                if (logos::probe::on("objltclos") || logos::probe::on("objltpw") || logos::probe::on("objltall"))
-                    t.lifetime = (fl.empty() || !(logos::probe::on("objltbound") || logos::probe::on("objltall")))
-                                     ? std::string("'dyn") : fl;
+                if (logos::probe::on("objltclos") || logos::probe::on("objltpw") || logos::probe::on("objltall")) {
+                    const bool carry_ = logos::probe::on("objltbound") || logos::probe::on("objltall");
+                    if (fn_is_ref_) t.lifetime = (!fn_prefix_lt_.empty() && carry_) ? fn_prefix_lt_ : std::string("'dynref");
+                    else            t.lifetime = (!fl.empty() && carry_) ? fl : std::string("'dyn");
+                }
             }
             return pool_->alloc(std::move(t));
         }

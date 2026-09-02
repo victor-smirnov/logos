@@ -14754,7 +14754,9 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
     case CoercePos::PlaceWrite:
     case CoercePos::TupleElem:
     case CoercePos::BranchArm:
-        if (pos == CoercePos::PlaceWrite) logos::probe::census("objlt.site.placewrite");
+        if (pos == CoercePos::PlaceWrite)
+            logos::probe::census((logos::probe::on("objltpw") || logos::probe::on("objltall"))
+                                     ? "objlt.site.placewrite.armed" : "objlt.site.placewrite");
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
                CFLAG_SLICE_TO_ARRAY | CFLAG_IMPLICIT_REBORROW |
                CFLAG_WIDEN_INT |
@@ -15013,8 +15015,14 @@ void SemaChecker::check_dyn_auto_bounds_at_coercion(lir_view::ExprRef arg,
             break;
         }
         std::string slot(TypeRef(pdyn).lifetime());
-        if (slot == "'dyn") { slot.clear(); logos::probe::census("objlt.gate.closdyn"); }
-        std::string R = !slot.empty() ? outlives_norm(slot) : (via_ref ? std::string() : std::string("'static"));
+        bool objlt_borrowed_ = via_ref;
+        if (slot == "'dyn")    { slot.clear(); logos::probe::census("objlt.gate.closdyn"); }
+        if (slot == "'dynref") { slot.clear(); objlt_borrowed_ = true; logos::probe::census("objlt.gate.closdynref"); }
+        if (TypeRef(pdyn).kind() == K::TraitObject) {
+            logos::probe::census(std::format("objlt.gate.own{}", (int)TypeRef(pdyn).trait_owning_kind()));
+            if (TypeRef(pdyn).trait_owning_kind() == TypeRef::OwningKind::Borrow) objlt_borrowed_ = true;
+        }
+        std::string R = !slot.empty() ? outlives_norm(slot) : (objlt_borrowed_ ? std::string() : std::string("'static"));
         if (R == "'_") R.clear();
         // the erasure: coerce_arg_to_dyn wrapped the argument in a Cast to the dyn BEFORE this gate ran (09-01g's
         // "return-position erasure" is this cast at the Box::new ARGUMENT); read the source off the cast's operand.
@@ -15055,6 +15063,10 @@ void SemaChecker::check_dyn_auto_bounds_at_coercion(lir_view::ExprRef arg,
                 }
                 case K::Struct: case K::ZonedStruct: case K::Enum:
                     for (auto& la_ : TypeRef(t).lifetime_args()) if (!r_ok(la_)) bad.push_back(la_.empty() ? std::string("'_") : la_);
+                    if (decl_lt_arity_(t) > TypeRef(t).lifetime_args().size()) {
+                        logos::probe::census("objlt.rule.struct.elidedargs");
+                        bad.push_back("'_ (elided lifetime argument of " + type_str(t) + ")");
+                    }
                     for (auto a : TypeRef(t).type_args()) walk(a, d + 1);
                     return;
                 case K::Tuple: for (auto e : TypeRef(t).tuple_elems()) walk(e, d + 1); return;
@@ -16323,8 +16335,21 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 }
             }
             if (type_var_args.empty()) {
-                for (auto& tp : fi.type_params)
-                    type_var_args.push_back(make_typevar(tp.name));
+                // PROBE 2026-09-02x objltinfer — the deferred call's return type carried the CALLEE's
+                // type-param names (`Box::new(v)` with `v: A` typed `Box<T>`); bind them off the args.
+                std::vector<TypeRef> objlt_inf_;
+                const bool objlt_infer_arm_ = logos::probe::on("objltinfer") || logos::probe::on("objltrule") ||
+                                              logos::probe::on("objltclos") || logos::probe::on("objltpw") ||
+                                              logos::probe::on("objltall");
+                if (objlt_infer_arm_ && infer_type_args(fi, arg_exprs, objlt_inf_) &&
+                    objlt_inf_.size() == fi.type_params.size()) {
+                    logos::probe::census("objlt.infer.ok");
+                    type_var_args = std::move(objlt_inf_);
+                } else {
+                    logos::probe::census(objlt_infer_arm_ ? "objlt.infer.fail" : "objlt.infer.unarmed");
+                    for (auto& tp : fi.type_params)
+                        type_var_args.push_back(make_typevar(tp.name));
+                }
             }
             SemaSubst subst;
             for (size_t i = 0; i < fi.type_params.size() && i < type_var_args.size(); ++i)
