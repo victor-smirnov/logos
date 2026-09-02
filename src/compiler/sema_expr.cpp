@@ -5099,6 +5099,10 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     }
 
     // Validate trait bounds for all type params (including variadic pack elements)
+    if (probe_wf_on_("wfturbo"))
+        for (auto& ta_ : type_args)
+            if (ta_) probe_wf_written_type_(ta_, std::format("turbofish type argument of '{}'", callee_diag),
+                                            current_outlives_, /*decl_site=*/false);
     check_type_bounds(callee_diag, fi.type_params, type_args);
 
     // Substitute return type

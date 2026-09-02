@@ -2083,6 +2083,8 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     if (node.has_key(la::TYPE)) {
         auto tnode = map_of(node.get(la::TYPE.code));
         ann = resolve_type(tnode);
+        if (ann && probe_wf_on_("wflet"))
+            probe_wf_written_type_(ann, "let annotation", current_outlives_, /*decl_site=*/false);
         // `Box<dyn T>` now resolves to an OWNING TraitObject (owning bit on the
         // type) — no need to re-sniff the written name. A borrowed `&dyn` is a
         // non-owning TraitObject and is correctly excluded.

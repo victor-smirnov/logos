@@ -3710,6 +3710,87 @@ private:
     // copied and BOTH bindings dropped (double free, adversarial t03).
     std::unordered_map<std::string, std::vector<size_t>> conditional_copy_;
     bool struct_type_is_copy(TypeRef x) const;
+    // PROBES wflet / wffield / wfturbo / wfall / wflax — WF of a written type (PROBES.md 2026-09-02z).
+    static std::set<std::string>& probe_copy_static_only_() {
+        static std::set<std::string> s; return s;
+    }
+    bool probe_wf_on_(const char* site) const {
+        return logos::probe::on(site) || logos::probe::on("wfall") ||
+               logos::probe::on("wflax");
+    }
+    void probe_wf_written_type_(TypeRef t, const std::string& ctx,
+                                const std::vector<std::pair<std::string, std::string>>& graph,
+                                bool decl_site) {
+        if (!t) return;
+        const bool lax = logos::probe::on("wflax");
+        auto adj = outlives_adj(graph);
+        logos::probe::census("wf.arrive." + ctx.substr(0, ctx.find(' ')));
+        auto usable = [&](std::string_view r) {
+            return !r.empty() && !lt_is_minted(r) && r != "'_" && r != "_";
+        };
+        std::function<void(TypeRef, const std::string&)> walk =
+            [&](TypeRef x, const std::string& under) {
+            if (!x) return;
+            using K = LogosType::Kind;
+            auto k = x.kind();
+            auto need_region = [&](std::string_view r) {
+                if (under.empty() || !usable(r)) return;
+                if (decl_site && !outlives_is_static(under)) return;   // RFC 2093: inferred
+                std::string R = outlives_norm(r), U = outlives_norm(under);
+                if (R == U) return;
+                logos::probe::census("wf.need.region");
+                if (!outlives(R, U, adj, /*permissive_empty=*/false)) {
+                    logos::probe::census("wf.refuse.region");
+                    error(std::format("{}: type `{}` is not well-formed — the reference "
+                                      "under `{}` requires `{}: {}` and no such bound is "
+                                      "declared (reference has a longer lifetime than the "
+                                      "data it references)",
+                                      ctx, type_str(t), U, R, U));
+                }
+            };
+            if (k == K::Ref || k == K::MutRef) {
+                std::string my(x.lifetime());
+                need_region(my);
+                walk(x.pointee(), usable(my) ? my : under);
+                return;
+            }
+            if (k == K::TypeVar) {
+                if (under.empty()) return;
+                if (decl_site && !outlives_is_static(under)) return;
+                std::string tv(x.type_var_name());
+                logos::probe::census("wf.need.tv");
+                auto it = current_type_lt_outlives_.find(tv);
+                bool ok = false;
+                if (it != current_type_lt_outlives_.end())
+                    for (auto& b : it->second) {
+                        if (lax) { ok = true; break; }
+                        if (usable(b) && outlives(outlives_norm(b), outlives_norm(under), adj,
+                                                  /*permissive_empty=*/false)) { ok = true; break; }
+                    }
+                if (!ok) {
+                    logos::probe::census("wf.refuse.tv");
+                    error(std::format("{}: the parameter type `{}` may not live long enough — "
+                                      "`{}` requires `{}: {}`",
+                                      ctx, tv, type_str(t), tv, outlives_norm(under)));
+                }
+                return;
+            }
+            if (!x.closure_params().empty() || x.closure_ret()) return;   // a for<'r> binder
+            if (k == K::Struct || k == K::ZonedStruct || k == K::Enum) {
+                for (auto& lt : x.lifetime_args()) need_region(lt);
+                for (auto a : x.type_args()) walk(a, under);
+                return;
+            }
+            std::string sl(x.lifetime());
+            if (usable(sl)) need_region(sl);
+            const std::string next = usable(sl) ? sl : under;
+            if (x.pointee()) walk(x.pointee(), next);
+            if (x.elem())    walk(x.elem(), next);
+            for (auto a : x.type_args())   walk(a, next);
+            for (auto e : x.tuple_elems()) walk(e, next);
+        };
+        walk(t, "");
+    }
 
     int destruct_counter_ = 0;           // unique-name source for `let (...)` temps
 

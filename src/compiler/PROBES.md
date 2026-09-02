@@ -16754,3 +16754,255 @@ fires: n/a (landed, ungated)
 ceiling: 19 (18 + collision)
 cost: 2 (cfail 7, stdlib ok) — the 2 re-spelled as legal, the 7 re-pinned / re-spelled (§4)
 verdict: LANDED as re-spelled in §2; objltstrict DECLINED (name equality), objltrule-without-D3 DECLINED (every `+ 'a` read as 'static), the signature-union closure arm DECLINED (h01). The objlt* names are gone from the sources.
+
+# ═══ ROUND 2026-09-02z — WF OF A WRITTEN TYPE: `&'y X` REQUIRES X: 'y AND IT IS GENERATED
+# NOWHERE — NOT AT A let ANNOTATION, NOT AT A STRUCT FIELD, NOT AT A TURBOFISH. ONE COMPARATOR
+# (outlives.hpp::outlives) EXISTS; THREE DOORS NEVER HAND IT THE OBLIGATION. CEILING 5 = 3 + 1 + 1
+# (ADDITIVE THIS TIME), COST 0 / cfail 0 / STDLIB OK, PREDICTED NAME FOR NAME BOTH WAYS; 47 HAND
+# PROGRAMS IN 23 SHAPES; AND THE ROUND'S THREE OTHER SUB-BLOCKS ALL DIED ON LEGALITY, NOT ON A NUMBER ═══
+
+## 0. STEP 1, READ FROM THE TREE (corrections to the brief)
+    HEAD 574dd1d2b clean = origin/main (the brief's log excerpt began at 4e4f226c0: FIVE commits stale — the object-
+    lifetime landing 09-02y is in) · live probe names 148 (the 7 objlt* names are gone from the sources; the
+    09-02y record's "155" was pre-landing) · `# TOTAL 166` = 166 by listing · lifereg 74 / nllmoves 54 / bck 38 ·
+    roots bck.C 13 · nllmoves.C 10 · bck.B 10 · lifereg.R18 8 · bck.NEW 8 · nllmoves.B 7 · nllmoves.D 6 ·
+    lifereg.NEW-N1 6 · bck.D 6 (56 roots) · 64 of the 166 rows mentioned ZERO times in this file (rows_up.txt).
+    Upstream reasons (headers): "lifetime may not live long enough" 22 · E0597-family 25 · (region) 11 · E0507 11 ·
+    E0716 9 · E0499/E0502 12 · E0509+E0713 9 (retired, spec) · E0521/escape 12. Unarmed 9a130447d78c3136 (READ).
+
+## 1. THE SUBJECT, NAMED BEFORE THE COMPILER WAS TOUCHED (build/round-2026-09-02z/targets-2026-09-02z.txt)
+PROPERTY: an outlives obligation BETWEEN REGIONS (or `T: 'r`) that the program's TEXT pins down and that is
+generated nowhere or dropped at a door before `outlives()`. Grepped over the 166 admits for `&'x … 'y` at a
+let / field / turbofish / type-alias mention and for `where 'x: 'y` on a callee. Four sub-blocks, 12 rows + 1:
+    W  WF of a WRITTEN type with no implied bounds (5): regions-free-region-ordering-callee-4 (NEW-N2),
+       regions-free-region-ordering-caller (NEW-L3), wf-unreachable (nllmoves.NEW-N1), lifetime-doesnt-live-
+       long-enough (NEW-N2, E0310 at a FIELD), regions-implied-bounds-projection-gap-1 (N1, at a TURBOFISH).
+    R  the callee's `where 'a: 'b` at the CALL with a side that is 'static / empty / unmapped (3):
+       regions-static-bound (L2), multiple-sources-for-outlives-requirement--c24b, --t24 (N1); stretch
+       projection-where-clause-none--c (NEW-2).
+    C  `impl Copy for Foo<'static>` selected for Foo<'a> (3): do-not-ignore-lifetime-bounds-in-copy (NEW-S7-1),
+       -proj--b (NEW-1), copy-modulo-regions (NEW-L5).
+    P  an impl's `where 'a: 'b` at projection normalisation (1): regions-normalize-in-where-clause-list (NEW-N2).
+WHY THIS BLOCK: the comparator EXISTS (`outlives()` + the 09-02s empty-vs-'static direction rule) and every door
+is a fact the code drops — the paying shape. Not chosen: bck.C 13 (mined) · nllmoves.C 10 / bck.B 10 /
+nllmoves.B 7 (surveyed 08-31g/o) · E0716 9 (owner + stdlib wall) · R18 (M-SIG rejected) · the meet (1).
+⚠ THREE ROWS THAT LOOK LIKE W ARE LEGAL RUST AND WERE NEVER TARGETS: regions-outlives-projection-container,
+regions-outlives-projection-container-wc, regions-assoc-type-in-supertrait-outlives-container. Upstream puts
+`&'a WithAssoc<TheType<'b>>` at a `let _: … = loop {}` in a fn WITH NO PARAMETER; the ports put it in a
+PARAMETER (`fn with_assoc<'a,'b>(x: &'a WithAssoc<TheType<'b>>)`), and a parameter type carries its own WF as
+an IMPLIED bound (`'b: 'a`). Owner (§8).
+
+## 2. RULE 17 — THE ARRIVAL, CENSUSED OVER THE 166 ADMITS UNDER wfall (build/round-2026-09-02z/census/)
+    wf.arrive.let 173 · wf.arrive.field 47907 · wf.arrive.turbofish 44 · wf.need.region 5 · wf.need.tv 2 ·
+    wf.refuse.region 4 · wf.refuse.tv 2 — the six refusals are the five programs of §4 (caller has two fns),
+    the one discharged region obligation is a declared `'b: 'a`. The population is SMALL (7 obligations over
+    166 programs) — rule 4: the hand set is the measurement, not this.
+    The turbofish door in a GENERIC body (`func<'x,T>` calling `wf::<&'x T>()`) DOES reach finish_generic_call
+    — the deferral of 09-01d is per-ARGUMENT-type and a turbofish with no arguments is never deferred. No hop.
+
+## 3. THE PROBE TABLE — ONE BUILD, armed **8e594159832ed648** (READ; unarmed 9a130447d78c3136), L1 rc 0
+##    inert, batch RC=0, gate-db 534 → 536.., scripts/probe-batch.sh build/round-2026-09-02z/batch-1.spec
+    probe        arms                              fires  ceiling  cost  cfail  std
+    wfall        let + field + turbofish, STRICT   873817     5      0      0   ok
+    wflax        the same, T's bound "exists"     1749641     5      0      0   ok   ← identical; separated by w17 (§6)
+    wflet        let annotation only               82718     3      0      0   ok
+    wffield      struct field only                781261     1      0      0   ok
+    wfturbo      turbofish type argument only       9838     1      0      0   ok
+    cpystatic    'static-only Copy impl, both readers 332683  0      0      0   ok   ← A16 (§7): NOT a refutation
+    cpysema      sema reader only                 332674     0      0      0   ok
+    cpybc        bc reader only                         9     0      0      0   ok
+    Rule 13, measured: 3 + 1 + 1 = 5 = wfall. ADDITIVE — the three doors are disjoint sites and no row needs two.
+    (fires for wfall/wflax count `probe_wf_on_` arrivals at all three sites; every struct field of every
+    program, stdlib included, is one.) cfail: fail_text_oracle 1271 rows, 0 rc / 0 match / 0 text-only under
+    every arm. stdlib-cost.sh all four layers under every arm.
+
+## 4. THE SETS, PREDICTED BY NAME FIRST (build/round-2026-09-02z/predictions-2026-09-02z.txt), DIFFED BOTH WAYS
+    wflet   predicted {callee-4, caller, wf-unreachable} = measured. ∅ / ∅.
+    wffield predicted {lifetime-doesnt-live-long-enough} = measured. ∅ / ∅.
+    wfturbo predicted {regions-implied-bounds-projection-gap-1} "or 0 if deferred" = measured 1. ∅ / ∅.
+    wfall   predicted 5 = measured 5 = the union. ∅ / ∅. wflax = wfall in every column.
+    cpystatic / cpysema / cpybc predicted 0-3 = measured 0 — and the zero is A16, not a broken hop (§7).
+
+## 5. THE DIAGNOSTICS, READ ON THE ARMED BINARY (build/round-2026-09-02z/closed-diags.txt) — every row prints
+##    the WF message FIRST and nothing before it; each matches its upstream reason
+    callee-4 / caller (call2, call4)  `let annotation: type … is not well-formed — the reference under 'a requires
+      'b: 'a and no such bound is declared (reference has a longer lifetime than the data it references)` —
+      upstream "reference has a longer lifetime" / "lifetime may not live long enough".
+    wf-unreachable  the same for `&'static &'a i64` (`'a: 'static`) — upstream region WF in unreachable code.
+    lifetime-doesnt-live-long-enough  `field 'foo' of struct Foo: the parameter type T may not live long enough —
+      &'static T requires T: 'static` — upstream E0310, the same words.
+    regions-implied-bounds-projection-gap-1  `turbofish type argument of 'wf': the parameter type T may not
+      live long enough — &'x T requires T: 'x` — upstream "the parameter type T may not live long enough".
+    ⚠ diagnostic residual: `type_str` of a generic prints the head only (`type \`Option\``); a landing should
+    print the written type, as the field / turbofish messages already do.
+
+## 6. RULE 5 — 47 HAND PROGRAMS, MULTI-LINE, IN 23 SHAPES (build/hand-2026-09-02z/, run.sh [probe];
+##    unarmed.txt, armed-<name>.txt, new-<name>.txt; w40 is a syntax error of my own and is not counted)
+W, 24 LEGAL all rc 0 under wfall AND wflax: w02 `'b: 'a` declared · w03 IMPLIED by a `&'a &'b` parameter ·
+w05 same region twice · w07 `T: 'static` declared · w08 `struct Foo<'a,'b> { x: &'a &'b i64 }` (RFC 2093
+INFERS `'b: 'a` — my first label said illegal; rfc-2093-infer-outlives/nested-regions.rs says inferred) ·
+w09 · w10 · w11 `struct Foo<'a, T> { x: &'a T }` (inferred `T: 'a`) · w13 `T: 'x` declared · w14 implied by
+`&'x T` param · w16 `&'a &'static` · w19 `'y: 'x, T: 'y` (transitive) · w20 `let z: &'a &i64 = p` (elided
+inner = inference variable, SKIPPED) · w21 field `&'a S2<'b>` (inferred) · w22 turbofish-shaped let with
+`T: 'x` · w24 impl<'a> method, `&'a &'a` · w29 `'static` inside `'a` · w31 slice `&'a [&'b i64]` with the bound ·
+w33 impl<'a> method with `'b: 'a` · w35 impl<'a> method, `&'b &'a` IMPLIED by `self: &'b S<'a>` · w38 field
+`&'static &'static` · w39 field `Vec<&'a T>` · w41 return-implied `'b: 'a` · w42 where-chain `'c: 'b, 'b: 'a` ·
+w43 turbofish `g::<S<'a>>()` · w45 `Box<dyn Fn(&'a i64) -> i64>` (a for<'r> binder: not walked) · w46 nested
+block, elided `&&i64` · w47 generic `T: 'a` with a let and a CALL · w48 trait default method.
+W, 16 ILLEGAL all rc 1 under wfall: w01 `Option<&'a &'b i64>` · w04 `&'a S<'b>` · w06 field `&'static T` ·
+w12 turbofish `wf::<&'x T>` · w15 `&'static &'a` in a body · w17 `T: 'y` only, 'y unrelated to 'x (⚠ ADMITTED
+UNDER wflax — the rule-9 separator; the lax test "T has SOME bound" is the 09-02e caller-env spelling, right
+ACROSS a call where names come from two binders and wrong INSIDE one scope where every name is this scope's
+own) · w23 `Wrap<&'x T>` with no bound · w26 tuple element · w27 array element · w28 `&'a mut &'b` · w30 slice
+elem · w32 enum type arg `&'a Option<&'b i64>` · w34 impl<'a> method with an unrelated fn `'b` · w36 field
+`&'static &'a i64` (RFC 2093 does not infer `'a: 'static`: dont-infer-static.rs) · w37 field `Option<&'static T>`
+· w44 turbofish `&'a S<'b>`.
+UNARMED, for the record: w18 `struct Foo<U> { bar: Bar<U> }` with `Bar<T: 'static>` is ALREADY refused (the
+landed check_type_bounds lifetime half at a struct instantiation) — not a W row, nothing to buy.
+Per-site arms behave as their name says: wflet leaves w06/w12 admitted, wffield leaves every let/turbofish
+program admitted, wfturbo leaves w01/w04/w06/w15/w17/w23 admitted — the doors are disjoint.
+
+## 7. ⛔ THE THREE OTHER SUB-BLOCKS — EACH DIES ON LEGALITY, AND NONE IS A NUMBER
+ C  `impl Copy for Foo<'static>`: cpystatic / cpysema / cpybc fire and close NOTHING, and the census shows why
+    nothing could: `struct Foo<'a> { v: &'a i64 }` is Copy in this dialect REGARDLESS of the impl —
+    docs/DIVERGENCES.md **A16 structural auto-Copy, CANONISED BY VICTOR 2026-08-24** ("a struct is implicitly
+    Copy iff no `impl Drop` and every field is Copy; `&T` qualifies"). c10 (the same program with NO Copy impl
+    at all) is admitted unarmed; c09 (`struct P { x: i64 }` moved twice) is admitted unarmed. The three rows
+    are A16 rows; they are RETIRE candidates like E0509/E0713, with an OWNER. Not a compiler fix.
+ R  regions-static-bound is a real row (r01 / r02 / r16 illegal, all admitted; r03 / r15 legal) and needs the
+    callee's `'a: 'static` to be checked when 'static appears at NO argument position (check_call_outlives
+    `it_s == subst.end() → continue`). BUT c24b / t24 ARE LEGAL RUST AS PORTED: upstream pins the callee's `'b`
+    with a TURBOFISH (`outlives_indir::<'_, 'b, _>(&mut 1u32)`); the ports bind `'b` only through a COVARIANT
+    `&'b i64` argument, so region inference instantiates the callee's `'b` at the call point and `&t` / `&mut
+    1i64` satisfy `'a: 'b` trivially. r04 / r08 (the ports' exact shapes) are LEGAL; the upstream turbofish
+    shape is unspellable here (a lifetime turbofish). Owner (§8).
+    ⚠ AND B69 (`check_call_outlives`, b1ff299bd) IS OVER-STRICT TODAY, UNARMED: r07 `fn foo<'p,'q>(p: &'p i64,
+    q: &'q i64) -> i32 { outlives_dir(p, q) }` and r11 `fn foo(k: &i64, m: &i64) -> i32 { outlives_dir(k, m) }`
+    are REFUSED ("caller does not satisfy callee's outlives bound `'a: 'b`") and both are legal — the callee's
+    regions are instantiated AT THE ARGUMENT REGIONS as if every parameter were invariant; Rust instantiates
+    them at variables bounded from below, and `'a := 'b := call-point` satisfies everything. r11 is the
+    ordinary two-elided-params shape and became a refusal when 09-02w MINTED distinct regions for elided
+    parameters (before the mint both sides were "" and `record` skipped them). A B69 refusal is sound only
+    when the callee's SHORT side is pinned — by the return type, an invariant position, or a turbofish — and
+    B69 asks none of that. OFF-LEDGER (a legal refusal has no row), recorded; fixing R soundly and fixing B69
+    are the SAME mechanism: a callee region instantiated at a variable with lower bounds — the meet's wall.
+    projection-where-clause-none--c (r12 illegal, admitted; r13 / r14 legal) sits behind the same wall.
+ P  p01 admitted, p02 legal accepted; 1 row; not priced — the impl's `where 'a: 'b` is read nowhere at
+    projection normalisation, and the two names are two BINDERS (rule 12) with no substitution available.
+
+## 8. ⚠ CORPUS DECISIONS WITH AN OWNER — REPORTED, NOT EDITED
+ · regions-outlives-projection-container, regions-outlives-projection-container-wc, regions-assoc-type-in-
+   supertrait-outlives-container — LEGAL Rust as ported (§1): the obligation sits in a PARAMETER type. The
+   upstream shape (`let _: &'a WithAssoc<TheType<'b>> = loop {}` in a parameterless fn) would be a W row.
+ · multiple-sources-for-outlives-requirement--c24b, --t24 — LEGAL Rust as ported (§7 R).
+ · do-not-ignore-lifetime-bounds-in-copy, -proj--b, copy-modulo-regions — A16 dialect rows (§7 C); retire.
+ · carried: the 09-01 E0716 three, propagate-fail-to-approximate-longer-no-bounds, explicit-static-bound-on-
+   trait, the 09-02x collision split.
+
+## 9. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ · B69 over-strictness, r07 / r11 (§7 R) — two legal programs refused unarmed, one of them a REGRESSION of
+   09-02w's elided-parameter mint. No fixture exists in the shape (the gates are green).
+ · c09 / c10: use-after-move of a drop-free struct is admitted — A16, canonised; not a defect by the tree's
+   own record.
+ · w25 `let z: &'static &'static i64 = &(&N)` (N a static) is refused unarmed with `expected &'static &'static
+   i64, got &&static i64` — the region prints without its apostrophe ("&&static") — and whether the outer
+   temporary promotes is not something I can certify without rustc; recorded as a diagnostic residual only.
+ · wf residue, permissive by construction: enum-variant payload types, type-alias RHS, the METHOD turbofish
+   (sema_expr::lower_method_call's check_type_bounds) and the struct-literal turbofish, a generic struct's
+   own INFERRED predicates at a mention (`let z: Foo<'a, T>` needs `T: 'a`), and every elided / minted region
+   (an inference variable — w20 legal).
+
+## 10. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+# TOTAL 166 -> 166. No row bought; 8 env-gated probe names installed in one commit, L1 rc 0 inert, the
+binary in build/ = b20afb44b9af7723 = these sources (priced under 8e594159832ed648; two probe comments trimmed to one line after pricing, rebuilt, L1 747/747 rc 0, hand set and the five rows re-verified). Not spent: bck.C 13 (mined) · nllmoves.C 10 · bck.B 10
+· nllmoves.B 7 · E0716 9 (owner + stdlib wall) · R18 8 (M-SIG) · the meet (1) · R (§7, behind the meet's wall).
+
+## ⇒ 11. WHAT DESERVES FUNDING, IN ORDER
+ 1. wfall AS SPELLED, STRICT (probe_wf_written_type_ at the three doors): 5 rows over 4 roots, cost 0/0/ok,
+    24 legal + 16 illegal by hand. Landing owes: the written type in the let message; the method / struct-lit
+    turbofish doors (0 rows, same helper); enum variant payloads at the field door (0 rows). Fixture pairs one
+    token apart from the hand set: w01/w02, w04/(w04+`'b: 'a`), w06/w07, w12/w13, w15/w16, w17/w19, w23/w22,
+    w26–w28, w30/w31, w32, w34/w33, w36/w38, w37/w07, w44/w43; pass-only w03 w08 w11 w14 w20 w21 w35 w41 w42
+    w45–w48.
+ 2. NOT wflax — identical in every column and wrong on w17.
+ 3. NOT cpy* — A16; retire the three rows instead (owner).
+ 4. regions-static-bound + projection-where-clause-none--c + B69's two legal refusals: ONE mechanism, a callee
+    region instantiated at a variable with lower bounds; price it with the meet, not before.
+
+## 12. OPEN (carried, plus this round's)
+ · the meet's obligation (glb-free-free--glb-free-free) · M-SIG (R18) · E0716 (owner) · the E0106 fat-input
+   elision (0 rows) · the enum-literal value walk (x03, 0 rows) · the minted region printing as nothing ·
+   B69's instantiation rule (§7 R) · the A16 retirements (§8).
+
+## wfall
+site: src/compiler/sema_impl.hpp::probe_wf_written_type_
+build: 8e594159832ed648 (READ, priced); b20afb44b9af7723 (READ, the comment-trimmed rebuild = these sources, L1 747/747)
+measured: 2026-09-02
+fires: 873817
+ceiling: 5
+cost: 0 (cfail 0 of 1271, stdlib ok)
+verdict: WF of a written type at let / field / turbofish, strict TypeVar test; 5 = 3 + 1 + 1, predicted name for name; 24 legal / 16 illegal by hand. FUND.
+note: `&'y X` ⇒ every region of X outlives 'y (outlives(), permissive_empty=false) and every TypeVar T of X has a declared or implied bound 'z with 'z: 'y; elided / minted / '_ regions skipped; a for<'r> closure type not walked; at a FIELD only 'static obligations are checked (RFC 2093 infers the rest).
+
+## wflax
+site: src/compiler/sema_impl.hpp::probe_wf_written_type_
+build: 8e594159832ed648 (READ, priced); b20afb44b9af7723 (READ, the comment-trimmed rebuild = these sources, L1 747/747)
+measured: 2026-09-02
+fires: 1749641
+ceiling: 5
+cost: 0 (cfail 0, stdlib ok)
+verdict: = wfall in every column; admits w17 (`T: 'y` only, for a `&'x T` mention). DECLINED — rule 9, the strict twin is sound inside one scope.
+
+## wflet
+site: src/compiler/sema_stmt.cpp::lower_let
+build: 8e594159832ed648 (READ, priced); b20afb44b9af7723 (READ, the comment-trimmed rebuild = these sources, L1 747/747)
+measured: 2026-09-02
+fires: 82718
+ceiling: 3
+cost: 0 (cfail 0, stdlib ok)
+verdict: the let door alone: wf-unreachable, regions-free-region-ordering-callee-4, regions-free-region-ordering-caller.
+
+## wffield
+site: src/compiler/sema_collect.cpp::collect_struct
+build: 8e594159832ed648 (READ, priced); b20afb44b9af7723 (READ, the comment-trimmed rebuild = these sources, L1 747/747)
+measured: 2026-09-02
+fires: 781261
+ceiling: 1
+cost: 0 (cfail 0, stdlib ok)
+verdict: the struct-field door alone: lifetime-doesnt-live-long-enough (E0310). Only 'static obligations at a declaration (RFC 2093).
+
+## wfturbo
+site: src/compiler/sema_expr.cpp::finish_generic_call
+build: 8e594159832ed648 (READ, priced); b20afb44b9af7723 (READ, the comment-trimmed rebuild = these sources, L1 747/747)
+measured: 2026-09-02
+fires: 9838
+ceiling: 1
+cost: 0 (cfail 0, stdlib ok)
+verdict: the free-fn turbofish door alone: regions-implied-bounds-projection-gap-1. The method turbofish is a second door, unpriced (0 rows).
+
+## cpystatic
+site: src/compiler/sema.cpp::struct_type_is_copy
+build: 8e594159832ed648 (READ, priced); b20afb44b9af7723 (READ, the comment-trimmed rebuild = these sources, L1 747/747)
+measured: 2026-09-02
+fires: 332683
+ceiling: 0
+cost: 0 (cfail 0, stdlib ok)
+verdict: NOT a refutation and not fundable: the three target rows are A16 auto-Copy (DIVERGENCES.md, canonised 2026-08-24) — `Foo<'a> { v: &'a i64 }` is Copy with or without the impl. Retire the rows (owner).
+
+## cpysema
+site: src/compiler/sema.cpp::struct_type_is_copy
+build: 8e594159832ed648 (READ, priced); b20afb44b9af7723 (READ, the comment-trimmed rebuild = these sources, L1 747/747)
+measured: 2026-09-02
+fires: 332674
+ceiling: 0
+cost: 0 (cfail 0, stdlib ok)
+verdict: as cpystatic, sema reader only.
+
+## cpybc
+site: src/compiler/borrow_check.cpp::build_type_sets
+build: 8e594159832ed648 (READ, priced); b20afb44b9af7723 (READ, the comment-trimmed rebuild = these sources, L1 747/747)
+measured: 2026-09-02
+fires: 9
+ceiling: 0
+cost: 0 (cfail 0, stdlib ok)
+verdict: as cpystatic, bc reader only (9 arrivals over the whole population — the bc reader is behind needs_drop, which a `&T`-only struct never satisfies).

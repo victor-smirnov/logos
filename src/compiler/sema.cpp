@@ -3090,6 +3090,15 @@ bool SemaChecker::struct_type_is_copy(TypeRef x) const {
     // substitution, mono-produced instances), which is what it was always for.
     std::string_view pkg = TypeRef(x).pkg_name();
     std::string qkey = sema_key(pkg, nm);
+    if ((logos::probe::on("cpystatic") || logos::probe::on("cpysema")) &&
+        (probe_copy_static_only_().count(qkey) || (pkg.empty() && probe_copy_static_only_().count(nm)))) {
+        auto lts_ = TypeRef(x).lifetime_args();
+        logos::probe::census(std::format("cpy.sema.read.n{}", lts_.size()));
+        for (auto& l_ : lts_) logos::probe::census(std::format("cpy.sema.arg.{}", l_.empty() ? "<empty>" : l_));
+        bool all_static_ = !lts_.empty();
+        for (auto& l_ : lts_) if (!outlives_is_static(l_)) all_static_ = false;
+        return all_static_;
+    }
     if (copy_types_.count(qkey)) return true;
     if (pkg.empty() && copy_types_.count(nm)) return true;
     auto cond_it = conditional_copy_.find(qkey);
