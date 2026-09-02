@@ -451,6 +451,34 @@ private:
     std::string mint_lt_() {
         return std::string("'%") + std::to_string(++lt_mint_n_);
     }
+    // dcl* probes (PROBES.md 2026-09-02q): the fn-signature E0106 rule's two
+    // walks, made reachable from the declaration sites that never had them.
+    bool dcl_has_elided_ref_(TypeRef t, bool into_args, int d = 0) {
+        if (!t || d > 24) return false;
+        auto k = t.kind();
+        if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) && t.lifetime().empty()) return true;
+        if (t.pointee() && dcl_has_elided_ref_(t.pointee(), into_args, d + 1)) return true;
+        if (t.elem() && dcl_has_elided_ref_(t.elem(), into_args, d + 1)) return true;
+        for (auto e : t.tuple_elems()) if (dcl_has_elided_ref_(e, into_args, d + 1)) return true;
+        if (into_args) for (auto a : t.type_args()) if (dcl_has_elided_ref_(a, into_args, d + 1)) return true;
+        return false;
+    }
+    int dcl_lt_positions_(TypeRef t, int d = 0) {
+        if (!t || d > 24) return 0;
+        auto k = t.kind();
+        int n = 0;
+        if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef)
+            return 1 + dcl_lt_positions_(t.pointee(), d + 1);
+        if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct || k == LogosType::Kind::Enum) {
+            size_t ar = decl_lt_arity_(t), wr = t.lifetime_args().size();
+            n += (int)(ar > wr ? ar : wr);
+        }
+        if (t.pointee()) n += dcl_lt_positions_(t.pointee(), d + 1);
+        if (t.elem())    n += dcl_lt_positions_(t.elem(), d + 1);
+        for (auto a : t.type_args())   n += dcl_lt_positions_(a, d + 1);
+        for (auto e : t.tuple_elems()) n += dcl_lt_positions_(e, d + 1);
+        return n;
+    }
     size_t decl_lt_arity_(TypeRef t) {
         using K = LogosType::Kind;
         if (t.kind() == K::Enum) {
@@ -4540,6 +4568,7 @@ private:
         TypeRef ret_type = nullptr;
         bool has_default = false;   // trait method has a default body
         bool is_unsafe = false;     // declared unsafe fn in trait
+        std::vector<std::pair<std::string, std::string>> dcl_lt_outlives_;  // dclimplbnd probe: the declaration's own `'b: 'x` clauses
         bool has_self_receiver = false;  // first param is `self`/`&self`/`&mut self`/`self: …`
         bool requires_sized_self = false;  // `where Self: Sized` → excluded from the
                                             // vtable (ignored for object-safety, P2-15)

@@ -624,6 +624,14 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // outlives + pop_type_params below + (impl-method) caller filtering.
     std::vector<TypeParam> type_params = fi_ptr->type_params;
     std::vector<std::string> lifetime_params = read_lifetime_params(node);
+    for (auto& l_ : lifetime_params)
+        for (auto& i_ : current_impl_lifetime_params_)
+            if (l_ == i_) {
+                logos::probe::census("dcl.shadow");
+                if (logos::probe::on("dclshadow"))
+                    error(std::format("fn '{}': lifetime name '{}' shadows a lifetime name that is already in scope (E0496)",
+                                      mangled, l_));
+            }
     // Lifetime-param uniqueness on fn (closes B-gn-02)
     check_unique_names(lifetime_params,
                        [](auto& lt) -> std::string_view { return lt; },
@@ -1067,6 +1075,11 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
             if (TypeRef(t).pointee() && has_elided_ref(TypeRef(t).pointee())) return true;
             if (TypeRef(t).elem() && has_elided_ref(TypeRef(t).elem())) return true;
             for (auto e : TypeRef(t).tuple_elems()) if (has_elided_ref(e)) return true;
+            for (auto a : TypeRef(t).type_args())
+                if (has_elided_ref(a)) {
+                    logos::probe::census("dcl.retargs.nested");
+                    if (logos::probe::on("dclretargs")) return true;
+                }
             return false;
         };
         std::function<int(TypeRef)> count_ref_positions = [&](TypeRef t) -> int {
@@ -1077,6 +1090,15 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                 n += 1;
                 n += count_ref_positions(TypeRef(t).pointee());
                 return n;
+            }
+            if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct ||
+                k == LogosType::Kind::Enum) {
+                size_t ar_ = decl_lt_arity_(TypeRef(t)), wr_ = TypeRef(t).lifetime_args().size();
+                size_t pos_ = ar_ > wr_ ? ar_ : wr_;
+                if (pos_) {
+                    logos::probe::census("dcl.ltpos.structarg", pos_);
+                    if (logos::probe::on("dclltpos")) n += (int)pos_;
+                }
             }
             if (TypeRef(t).pointee()) n += count_ref_positions(TypeRef(t).pointee());
             if (TypeRef(t).elem())    n += count_ref_positions(TypeRef(t).elem());
@@ -2055,6 +2077,8 @@ DeclBuilder SemaChecker::lower_trait_def(TinyMapView node) {
     constexpr uint64_t METHOD_SCHEMA = lir_schema::stmt::Count + 14;
 
     auto tname = std::string(str_of(node.get(la::NAME.code)));
+    logos::probe::census("dcl.traitlt.arrive");
+    if (logos::probe::on("dcltraitlt")) (void)read_lifetime_params(node);
     DeclBuilder b(*cur_prog_, lir_schema::decl::Code::Trait, /*cap=*/16);
     b.str_always(tk::NAME, tname);
     // ADV1-H (dyn-local-trait-shadowing): a user trait whose bare name collides
@@ -2577,7 +2601,18 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     auto item = map_of(items.get(i));
                     // L1: skip LIFETIME_PARAM at trait-arg position; Logos
                     // doesn't track regions structurally for trait dispatch.
-                    if (code_of(item) == la::LIFETIME_PARAM) continue;
+                    if (code_of(item) == la::LIFETIME_PARAM) {
+                        std::string ln_(str_of(item.get(la::NAME.code)));
+                        bool known_ = ln_.empty() || ln_ == "'static" || ln_ == "static" || ln_ == "'_" || ln_ == "_";
+                        for (auto& d_ : current_impl_lifetime_params_) if (d_ == ln_) known_ = true;
+                        if (!known_) {
+                            logos::probe::census("dcl.implhdr.undeclared");
+                            if (logos::probe::on("dclimplhdr"))
+                                error(std::format("impl {}: use of undeclared lifetime name '{}' in the trait's arguments",
+                                                  trait_name, ln_));
+                        }
+                        continue;
+                    }
                     auto resolved = resolve_type(item);
                     impl_trait_args.push_back(resolved);
                     if (tit != traits_.end() && type_arg_idx < tit->second.type_params.size())

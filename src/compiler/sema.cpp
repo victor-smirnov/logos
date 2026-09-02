@@ -5386,6 +5386,13 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     if (bnode.has_key(la::RET_TYPE)) {
         auto rav = bnode.get(la::RET_TYPE.code);
         if (!rav.is_null()) tb.fn_ret = resolve_type(map_of(rav));
+        if (tb.is_fn_family && tb.fn_ret && dcl_has_elided_ref_(tb.fn_ret, false)) {
+            int n_ = 0;
+            for (auto p : tb.fn_params) n_ += dcl_lt_positions_(p);
+            logos::probe::census(n_ >= 2 ? "dcl.fnbnd.amb" : n_ == 0 ? "dcl.fnbnd.zero" : "dcl.fnbnd.one");
+            if ((logos::probe::on("dclfnbnd") && n_ >= 2) || (logos::probe::on("dclfnbnd0") && n_ != 1))
+                error(std::format("missing lifetime specifier (E0106): the `{}` bound's return type contains a borrowed value with an elided lifetime and no single input lifetime to borrow from", tb.trait_name));
+        }
     }
 
     // B63 limit-1: capture `for<'a, 'b>` binders from HRTB_BINDERS slot.
@@ -8319,6 +8326,13 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         t.closure_ret = node.has_key(la::RET_TYPE)
             ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
             : void_t();
+        if (dcl_has_elided_ref_(t.closure_ret, false)) {
+            int n_ = 0;
+            for (auto p : t.closure_params) n_ += dcl_lt_positions_(p);
+            logos::probe::census(n_ >= 2 ? "dcl.fnptr.amb" : n_ == 0 ? "dcl.fnptr.zero" : "dcl.fnptr.one");
+            if ((logos::probe::on("dclfnptr") && n_ >= 2) || (logos::probe::on("dclfnptr0") && n_ != 1))
+                error("missing lifetime specifier (E0106): this fn-pointer type's return type contains a borrowed value with an elided lifetime and no single input lifetime to borrow from");
+        }
         return pool_->alloc(std::move(t));
     }
 
