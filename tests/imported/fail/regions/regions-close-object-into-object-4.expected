@@ -1,1 +1,1 @@
-temporary value dropped while borrowed: this reference borrows into a temporary that is dropped at the end of the statement; bind the owning value to a variable first so it outlives the borrow
+error [fn i]: coercion to `dyn X` requires `B<'a, U>: 'static` — lifetime `'a` may not live long enough (object lifetime bound)

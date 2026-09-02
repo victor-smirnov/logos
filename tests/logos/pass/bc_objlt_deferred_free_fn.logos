@@ -1,0 +1,10 @@
+// The free-fn deferral binds its parameters off the arguments too: `mk(v)` with `mk<Q>(v: Q) -> Box<Q>` and `v: A` is `Box<A>`. Refused unarmed before 2026-09-02y with the callee's `Q`.
+package bc_objlt_deferred_free_fn;
+trait Tr { fn m(self: &Self) -> i64; }
+struct S { v: i64 }
+impl Tr for S { fn m(self: &Self) -> i64 { return self.v; } }
+fn mk<Q: Tr>(v: Q) -> Box<Q> { return Box::new(v); }
+fn f<A: Tr + 'static>(v: A) -> Box<dyn Tr> {
+    return mk(v);
+}
+fn main() -> i32 { let b = f(S { v: 3i64 }); return (b.m() - 3i64) as i32; }

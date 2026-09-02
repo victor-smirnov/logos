@@ -1,0 +1,1 @@
+error [fn bad]: coercion to `dyn X` requires `T::Item: 'static` — lifetime `T::Item (no bound on T reaching 'static)` may not live long enough (object lifetime bound)

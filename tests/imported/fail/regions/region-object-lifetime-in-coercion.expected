@@ -1,0 +1,1 @@
+error [fn b]: coercion to `dyn Foo` requires `W<'v>: 'static` — lifetime `'v` may not live long enough (object lifetime bound)

@@ -3,6 +3,7 @@
 // shelf: pin
 // port of rust ui/regions/regions-close-object-into-object-3.rs (E0515)
 // reduced: a boxed trait object built over a borrow of a fn-LOCAL is returned.
+// re-pinned 2026-09-02y: the object-lifetime bound at the unsize coercion now refuses this first; the earlier pin was `cannot return reference to local variable 'c': dangling reference`
 package regions_close_object_into_object_3;
 
 trait Av { fn a(self: &Self) -> i64; }

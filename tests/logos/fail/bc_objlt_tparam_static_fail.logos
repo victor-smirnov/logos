@@ -1,0 +1,7 @@
+// E0310: a type parameter with no `'static` bound coerced into an owned `Box<dyn Tr>` (the object defaults to 'static). The legal twin, one token apart (`A: Tr` -> `A: Tr + 'static`), is bc_objlt_tparam_static.
+package bc_objlt_tparam_static_fail;
+trait Tr { fn m(self: &Self) -> i64; }
+fn f<A: Tr>(v: A) -> Box<dyn Tr> {
+    return Box::new(v);
+}
+fn main() -> i32 { return 0i32; }

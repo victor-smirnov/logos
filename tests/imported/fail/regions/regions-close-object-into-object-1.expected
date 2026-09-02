@@ -1,0 +1,1 @@
+error [fn f]: coercion to `dyn X` requires `B: 'static` — lifetime `'_ (elided lifetime argument of B)` may not live long enough (object lifetime bound)

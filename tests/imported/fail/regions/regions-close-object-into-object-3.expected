@@ -1,1 +1,1 @@
-cannot return reference to local variable 'c': dangling reference
+error [fn h]: coercion to `dyn Xv` requires `Bv: 'static` — lifetime `'_ (elided lifetime argument of Bv)` may not live long enough (object lifetime bound)

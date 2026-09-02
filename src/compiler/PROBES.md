@@ -16589,3 +16589,168 @@ fires: 110126
 ceiling: 18 (19 − regions-close-over-type-parameter-multiple, lost to §6 D4)
 cost: 2 (cfail 7, stdlib ok)
 verdict: the whole; 30/33 legal + 17/17 illegal by hand; fundable once D1-second-site, D3 and D4 are spelled (§9.1).
+
+# ═══ ROUND 2026-09-02y — LANDED: THE OBJECT-LIFETIME BOUND IS CHECKED AT THE UNSIZE COERCION. 18 ROWS + 1
+# COLLISION SPLIT, 184 -> 166, PREDICTED NAME FOR NAME BOTH WAYS. THE RE-SPELLING DIFFERS FROM objltall AT FIVE
+# PLACES THE PRICING'S HAND SET COULD NOT SEE — FOUR OF THEM LEGAL PROGRAMS THE PROBE REFUSED (str literal, the
+# shared-ref reborrow, an owned dyn capture, T: 'static ⇒ T::Item: 'static), ONE A BROKEN HOP (the literal sits
+# under a Call, not a Cast). PER-LITERAL CLOSURE FACTS BY closure_id; POOL IDENTITY CARRIES THE SLOT ═══════════
+
+## 0. STEP 1, READ FROM THE TREE (corrections to the brief)
+    HEAD da86afccb = origin/main, clean. Live probe names **155** (the brief's report said 148 — it was written
+    before its own three probe commits landed; the 7 objlt* names are the difference). `# TOTAL 184` = 184 rows
+    by listing = 184 `bc_admit_` tests · lifereg 77 / nllmoves 54 / bck 53 · roots as 09-02x §0. Store build 526
+    (b67dccf370e7f9f4, = the batch-3 binary, = these sources): admits 1341/0 failed, `-L bc` 1236/0 (READ).
+    The two cost fixtures (pass/bc_tmcb_erased_*_twin) were committed 08-29 in 1fb879b0d, an Opus-5 round, with a
+    "LEGAL twin" claim: as written they are E0310 / a 'static object borrowing `self.v` — not legal Rust. Owner =
+    that round's mistake, not a corpus decision (§5).
+
+## 1. COUNTER-EXAMPLES FIRST (build/hand-2026-09-02y/, run.sh [probe]; 34 legal c01-c50 + 14 illegal y03-y50, every
+##    one multi-line, in shapes 09-02x did not write: str literal captured, `|| *x` by-ref through a shared ref,
+##    Self in impl<'a>, generic struct P<T>, impl-header bounds, enum<'a>, `where 'b: 'a`, `+ Send + 'a`, explicit
+##    `+ 'static`, dyn upcast, an owned Box<dyn Tr> captured, a tuple captured, nested closures, closure with a
+##    ref parameter, Vec push, struct-literal field, if-arm, statics, `T: 'static` on a projection, `where
+##    T::Item: 'static`, F: Fn + 'static boxed). Run on the probe binary UNDER objltall (rule 5) BEFORE any edit:
+    LEGAL REFUSED BY objltall (4) — each a defect of the probe's spelling, none visible to any priced column:
+      c01 `let s = "abc"; Box::new(move || s.len())` into Box<dyn Fn>: refused `'_` — a string literal's Slice type
+          carried NO region (lower_expr LIT_STR: make_slice_type(u8_t())). Fixed: `&'static str` (both LIT_STR sites).
+      c02 `fn f<'a>(x: &'a i64) -> Box<dyn Fn() -> i64 + 'a> { Box::new(|| *x) }`: refused `'_`. The by-ref capture
+          entered the env as `& &'a i64` (a borrow of the LOCAL x). Rust 2021 captures the place `*x` by ImmBorrow
+          and a shared deref stops the supporting prefix, so the loan is `&'a i64` and does not depend on x: LEGAL.
+          Fixed: a by-ref capture of a SHARED reference (Ref kind, not mutated) is the reborrow — the reference's
+          own type; every other by-ref capture stays `&T` with no region. ⚠ 09-02x's x10 is this program labelled
+          ILLEGAL — a handed-down label (rule 17); pinned as pass/bc_objlt_closure_reborrow with the argument.
+          Permissive residue: a body that reads `x` itself (`|| g(x)`) borrows the local and Rust refuses (E0373);
+          this rule accepts it. Recorded, not a refusal.
+      c20 `fn f(b: Box<dyn Tr>) -> Box<dyn Fn() -> i64> { Box::new(move || b.m()) }`: refused `'_`. The walk's
+          TraitObject arm read an empty slot as '_; an OWNED object with no bound is 'static. Fixed.
+      c44 `fn good<T: Iter + 'static>(v: T) -> Box<dyn X> { Box::new(v.into_item()) }`: refused "projection, no
+          bound". RFC 1214: `T: 'r` discharges `T::Item: 'r`. Fixed: an AssocType source is checked through its
+          TypeVar base; a non-TypeVar base is skipped (permissive). `where T::Item: 'static` (c43) is a SYNTAX ERROR
+          today — the declared projection bound cannot be spelled; recorded (§6).
+    ILLEGAL ADMITTED (1): y50 — the ELSE arm of `let b: Box<dyn Tr> = if c { Box::new(S{..}) } else { Box::new(w) }`
+      never reaches the gate (one arrival, the S arm). BranchArm is not a coercion position for the dyn bounds;
+      a miss, not a refusal; recorded (§6).
+    UNARMED DIALECT REFUSALS (not this rule's): c28/c49 `fn run<F: Fn() -> i64 + 'static>(f: F) -> Box<dyn Fn() ->
+      i64> { Box::new(f) }` "expected Box<|| -> i64>, got Box<F>" — a TypeVar `Box<F>` does not unsize into a
+      Closure-kind dyn (their illegal twins y28/y49 are refused by the SAME wrong message); c39/y39 `Box<dyn Sub +
+      'a>` -> `Box<dyn Sup + 'a>` "expected &dyn Sup, got &dyn Sub" — no Box<dyn> upcast. Recorded (§6).
+    After the landing: 30 of 34 legal rc 0 (c28 c49 c39 c43 are the dialect / grammar refusals above, unchanged),
+    13 of 14 illegal rc 1 (y50 the miss above); 09-02x's set: 30/33 legal (l13 l21 l32 unchanged), 16/17 illegal
+    (x10 = c02, legal), h01 now refuses `stat` for 'static vs '%1 — the right fn for the right reason (D3 gone).
+
+## 2. THE LANDING, PER SITE (where it differs from objltall)
+    sema.cpp::resolve_type DYN_TYPE — fn_family: `dyn Fn(..)` (Kind::Closure) carries trait_name = Fn/FnMut/FnOnce,
+      const_val = TraitOwningKind::Box unless IS_REF, lifetime = the `&'a` prefix (IS_REF) or the `+ 'a` bound. The
+      probe's 'dyn / 'dynref MARKERS are gone: the family name says "object", the owning kind says "borrowed".
+      TraitObject / UnsizedDyn: `+ 'a` rides the slot on both paths (unsized_ok_ -> make_unsized_dyn_type lt; the
+      fat path takes it when no prefix was written). The Box collapse and the UnsizedDyn subst arm carry it (already
+      did, ungated).
+    sema.cpp::builder_equals_typeref — UnsizedDyn compares `lifetime`; Closure compares trait_name, const_val,
+      lifetime (D4). compute_type_uid omits all of them: pool entries only, types_equal unchanged — the Slice
+      argument of 2026-08-31m. subst_type_sema's Closure arm preserves the three (a `dyn Fn(T)` in a generic body
+      stayed an object after substitution; the probe lost it — permissive, never measured).
+    sema_expr.cpp::check_object_lifetime_bound (new member, called from check_dyn_auto_bounds_at_coercion after the
+      pdyn test) — R = slot | (owned -> 'static) | (borrowed -> none; '_ -> none). Borrowed = the destination is under
+      a Ref, or a Borrow-owning TraitObject, or a Closure-kind dyn with no owning kind. Source = the operand under the
+      Cast that coerce_arg_to_dyn wrapped (up to two). The literal behind a closure source: the ClosureBox itself; a
+      VarRef whose binding recorded a closure_id; or — ⚠ THE BROKEN HOP the census found on the first build — the ONE
+      argument of the `Box::new(..)` Call whose result is `Box<closure>` (the arg's type IS the literal's, pointer for
+      pointer; a Call returning a `dyn Fn` value is never descended: its Closure type carries a trait_name). On the
+      first landed build every closure row was 0 fires: the arrival at the RETURN position is `er = Call` (code 7),
+      not a Cast around the literal as the O2/O3 rows are. Measured with two TMP census lines, removed.
+      Walk: Ref/MutRef/Slice/DstRef slots (owning slice -> elem); TraitObject: empty slot on an owned object = 'static;
+      Struct/Enum lifetime_args + `decl_lt_arity_ > written` = a fresh region + type_args; Tuple/Array elems; TypeVar
+      via current_type_lt_outlives_ (declared + implied, transitive through outlives()); AssocType via its TypeVar
+      base; Closure via closure_caps_by_id_[cid] (captures carry the captured binding's own closure_id for nesting).
+      Message: `coercion to \`dyn {Fn|FnMut|FnOnce|Tr}\` requires \`{src}: {R}\` — lifetime \`{bad}\` may not live
+      long enough (object lifetime bound)`. objltstrict's name-equality: DECLINED (refuses l04 / l25, transitive).
+    sema_expr.cpp coerce flags — PlaceWrite carries CFLAG_CHECK_DYN_BOUNDS (objltpw).
+    sema_expr.cpp::lower_static_call (deferred branch) — the params are bound off the arguments when inference
+      succeeds (`Box::new(v)` with `v: A` is `Box<A>`); the callee's names only when it cannot (objltinfer).
+    sema_expr.cpp::lower_call — the free-fn deferral keeps `deferred_inferred` from its check_type_bounds pass and the
+      generic-context call at the end uses it as type_var_args (D1's SECOND site: `mk(v)` with `mk<Q>(v: Q) -> Box<Q>`
+      is `Box<A>`, was the callee's `Q`).
+    sema_expr.cpp::lower_closure_expr — closure_caps_by_id_[closure_id] beside the signature-keyed union (which keeps
+      its Send/Sync job untouched, KEY-IDENTITY D as before; the probe's extra ledger row for the gate's union read
+      is deleted from key_identity.ledger with the read). sema_impl.hpp VarInfo.closure_id, set by
+      sema_stmt.cpp::lower_let when the RHS is a ClosureBox; lookup_var_info(name).
+    lower_expr LIT_STR (both) — `&'static str`.
+    `git diff --numstat` on the four sources: +204 / -173 (net +31 with the probe scaffolding removed).
+
+## 3. THE SETS, PREDICTED BY NAME FIRST (build/round-2026-09-02y/predictions-2026-09-02y.txt, before the first edit)
+    Predicted to leave the admitted set: 19 = 18 targets + mut-borrow-conflict-in-closures-vec (collision).
+    Measured (store, build 526 -> 532, `gate_db.py compare`): 28 verdicts moved, EXACTLY the predicted 19 admits +
+    2 pass (bc_tmcb_erased_call_param_twin, bc_tmcb_erased_method_outlives_twin) + 7 fail (`.expected` LOST, rc
+    unchanged: bc_d1r3_f4_closure_local, bc_tmcb_erased_call_local, bc_tmcb_erased_method_local, issue-55796--r09b,
+    regions-close-object-into-object-3, -4, regions-close-param-into-object--b-object-dangles). predicted∖measured =
+    ∅, measured∖predicted = ∅, in every column. CEILING 19 = COST(pass 2 / cfail 7 / stdlib ok: all four layers) =
+    PREDICTED = ACTUAL. fail_text_oracle.py 1236 rows vs failtext-b67dccf370e7f9f4: 7 differ, all match-lost, 0
+    rc flips, 0 text-only — `&'static str` moved no pinned diagnostic. regions-infer-call-3 stayed admitted.
+    Every closed row's diagnostic read (build/round-2026-09-02y/closed-diags.txt): all 19 print the object-lifetime
+    message first and nothing else before it; the closure rows print `dyn Fn` / `dyn FnMut`; the TypeVar rows print
+    the CALLER's name (`A`, `T`); issue-103582 / close-object-1 print `'_ (elided lifetime argument of …)`.
+    Upstream reasons: E0310 ×4, "lifetime may not live long enough" ×6, E0373 ×4, and two that are INSTANCES of the
+    'static object bound under another code — regions-close-object-into-object-1 (E0515, `&*v` into a 'static
+    object) and regions-steal-closure (E0597, `i` borrowed for 'static). Counted; named in the ledger note for review.
+
+## 4. FIXTURES
+    19 imported admit -> tests/imported/fail/{borrowck,lifetimes,nll,regions}/, header `shelf: fail — REFUSED since
+    2026-09-02y …`, `.expected` = the full first line. mut-borrow-conflict-in-closures-vec (bck.C, upstream E0499)
+    split per 09-02v §5: the port pins the object bound; `--bounded` (`Vec<Box<dyn FnMut() + '_>>`, rc 0 on this
+    binary) keeps the double mutable borrow as the row — ⚠ a `Vec<&mut dyn FnMut()>` variant is REFUSED today
+    ("cannot assign to 'y' while it is mutably borrowed"), so the E0499 defect lives only behind the Box.
+    16 native pairs pass/fail one token apart under tests/logos/{pass,fail}/bc_objlt_*: tparam_static, tparam_
+    transitive, struct_lt, struct_where, impl_self, enum_lt, generic_struct, impl_bound, assoc_proj, closure_move_ref,
+    closure_byref_local, closure_reborrow, closure_owned_dyn (fail only, §6), str_literal, placewrite, same_sig_twins;
+    + 3 pass-only for the deferred-call binding: deferred_box_let, deferred_free_fn, deferred_called_runs (the 09-01g
+    §7 SIGSEGV shape, rc 139 before, runs 0 now). ctest 8867 -> 8902; pins by listing: direct_door 2570/2379 ->
+    2588/2397, census_pin 8867/4492/233 -> 8902/4508/215.
+    Re-pinned (5): the four imported ports above and bc_d1r3_f4_closure_local — port text unchanged, `.expected` =
+    the object-bound message, a dated note line records the earlier pin. The native tmcb PAIRS (2 fail + 2 pass) are
+    RE-SPELLED instead: `erase<'a, T: X + 'a> -> Box<dyn X + 'a>` / `make(q: &i64) -> Box<dyn X + '_>` and `nb<'a>
+    -> Box<dyn It + 'a>` / `let mut b: Box<dyn It + '_>` — the object bound is discharged, so the fail twins keep
+    their ORIGINAL guard live and their `.expected` unchanged (dangling-local / E0597 still the first message,
+    measured), and the pass twins become the legal programs their comments claimed. ⚠ CORPUS EDIT, reported: the
+    two pass twins were 09-02x §8's "owner" rows; blame says an agent round (1fb879b0d), and the edit preserves the
+    fixtures' stated intent rather than asserting E0310 programs legal.
+
+## 5. GATES
+    Batch builds: land ×3 (the third after the broken hop). Admit gate 165/19 = predicted; `-L bc` 2192/9/2 other
+    (the two disabled) = predicted 9; stdlib-cost 4 layers rc 0; fail_text_oracle 7 = predicted 7.
+    CONTROL REVERT (compiler sources stashed, c6c2b9527c752284): 44 of 66 touched fixtures RED; restored
+    (a0fc3f598fb36692): 66/66 green. L1 (first landed tree) 747/748: the one red was pass/bc_objlt_deferred_wrap_
+    closure, SIGSEGV at RUN (§6, removed); gates tier red on the three pins (re-derived) and key_identity (the
+    deleted probe row). Final L1 / `L4 bc` / full build: see the commit message.
+
+## 6. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED (measured on this binary, build/hand-2026-09-02y)
+ · `fn wrap<F: Fn() -> i64>(f: F) -> Box<F> { Box::new(f) }` called from main and `(*b)()` — compiles now (was refused
+   "expected Box<F>, got Box<T>"), SIGSEGV at run (rc 139 under ctest). A `Box<closure>` through a generic wrapper is
+   a codegen defect the un-refusal exposed; no fixture (l31 / the removed deferred_wrap_closure).
+ · c20 `fn f(b: Box<dyn Tr>) -> Box<dyn Fn() -> i64> { Box::new(move || b.m()) }`, called after f returns: run 221 /
+   59 (garbage). c20b (the same closure called INSIDE f) and c20c (capturing `b.m()` as i64) run 0 — the owned
+   Box<dyn Tr> captured by an ESCAPING closure is dropped with f's scope. The fail twin is kept, the pass twin is not.
+ · c28/c49: a TypeVar `Box<F>` never unsizes into `Box<dyn Fn(..)>`; c39/y39: no `Box<dyn Sub>` -> `Box<dyn Sup>`
+   upcast (both refused UNARMED with a type-mismatch message; y28/y49/y39 hide behind the same message).
+ · c43: `where T::Item: 'static` is a syntax error (the declared projection bound is unspellable).
+ · y50: BranchArm is not a dyn-bounds coercion position; the else arm of an annotated let is never checked.
+ · READ, not measured: builder_equals_typeref's UnsizedDyn arm compares neither `const_val` (Send/Sync bits) — so
+   `Box<dyn Tr + Send>` and `Box<dyn Tr>` intern to whichever came first (the Box collapse then reads that entry's
+   bits). Off-ledger (auto traits); left as read.
+ · The by-ref rule's permissive residue (`|| g(x)` with x: &T reads the local; Rust E0373, accepted here).
+ · The Vec<&mut dyn FnMut()> variant of the E0499 collision is refused by an existing rule (§4).
+
+## 7. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+# TOTAL 184 -> 166 (-19 + 1 variant), by listing. Not spent: bck.C 16 -> 12 (mined; the 4 here were its dyn rows) ·
+nllmoves.C 10 · bck.B 10 · nllmoves.B 7 · E0716 9 (owner + stdlib wall) · R18 8 (M-SIG) · the meet (1) · the two
+dangling-ref holes with no row (09-01). Rows I believe should be RETIRED as legal: none new; the 09-01 three E0716
+rows and propagate-fail-to-approximate-longer-no-bounds stand as recorded.
+
+## objltall — LANDED 2026-09-02y
+site: src/compiler/sema_expr.cpp::check_object_lifetime_bound (+ resolve_type DYN_TYPE, builder_equals_typeref, lower_static_call, lower_call, lower_closure_expr, lower_let)
+build: 1b077c7bb10968c1 (READ, priced), a0fc3f598fb36692 (READ, restored after the control)
+measured: 2026-09-02
+fires: n/a (landed, ungated)
+ceiling: 19 (18 + collision)
+cost: 2 (cfail 7, stdlib ok) — the 2 re-spelled as legal, the 7 re-pinned / re-spelled (§4)
+verdict: LANDED as re-spelled in §2; objltstrict DECLINED (name equality), objltrule-without-D3 DECLINED (every `+ 'a` read as 'static), the signature-union closure arm DECLINED (h01). The objlt* names are gone from the sources.

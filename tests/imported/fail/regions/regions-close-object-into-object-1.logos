@@ -1,0 +1,9 @@
+// rustc regions/regions-close-object-into-object-1.rs — upstream E0515 cannot return value referencing local data `*v`
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-09-02y: the OBJECT-LIFETIME BOUND is checked at the unsize coercion (`Src: 'r` for `dyn Tr + 'r`, 'static for an unbounded owned object). Was lifereg.A.
+package regions_close_object_into_object_1;
+trait X { fn m(&self) -> i64; }
+struct B<'a> { r: &'a i64 }
+impl<'a> X for B<'a> { fn m(&self) -> i64 { return *self.r; } }
+fn f(v: Box<i64>) -> Box<dyn X> { return Box::new(B { r: &*v }); }
+fn main() -> i32 { let b = f(Box::new(4i64)); if b.m() != 4i64 { return 1i32; } return 0i32; }

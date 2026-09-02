@@ -1,0 +1,7 @@
+// A type parameter bound `A: 'b` into `Box<dyn Tr + 'a>` with NO relation between 'b and 'a. The legal twin, one token apart (`'b` -> `'b: 'a`), is bc_objlt_tparam_transitive: the object bound is discharged through outlives transitivity, not by name.
+package bc_objlt_tparam_transitive_fail;
+trait Tr { fn m(self: &Self) -> i64; }
+fn f<'a, 'b, A: Tr + 'b>(v: A) -> Box<dyn Tr + 'a> {
+    return Box::new(v);
+}
+fn main() -> i32 { return 0i32; }

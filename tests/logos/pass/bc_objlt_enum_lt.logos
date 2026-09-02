@@ -1,0 +1,9 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the enum's lifetime rides the object.
+package bc_objlt_enum_lt;
+trait Tr { fn m(self: &Self) -> i64; }
+enum E<'a> { A(&'a i64), B }
+impl<'a> Tr for E<'a> { fn m(self: &Self) -> i64 { match self { E::A(r) => { return **r; } E::B => { return 0i64; } } } }
+fn f<'a>(e: E<'a>) -> Box<dyn Tr + 'a> {
+    return Box::new(e);
+}
+fn main() -> i32 { let n = 3i64; let b = f(E::A(&n)); return (b.m() - 3i64) as i32; }

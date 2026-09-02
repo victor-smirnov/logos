@@ -1,0 +1,6 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the captured reference's region rides the object.
+package bc_objlt_closure_move_ref;
+fn f<'a>(x: &'a i64) -> Box<dyn Fn() -> i64 + 'a> {
+    return Box::new(move || { return *x; });
+}
+fn main() -> i32 { let n = 4i64; let b = f(&n); return (b() - 4i64) as i32; }

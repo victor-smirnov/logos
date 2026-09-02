@@ -1,6 +1,7 @@
 // rustc regions/regions-close-object-into-object-4.rs — upstream E0515 / E0310
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
+// re-pinned 2026-09-02y: the object-lifetime bound at the unsize coercion now refuses this first; the earlier pin was `temporary value dropped while borrowed: this reference borrows into a temporary that is dropped at the end of the statement; bind the owning value to a variable first so it outlives the borrow`
 package regions_close_object_into_object_4;
 trait A<T> {}
 struct B<'a, T> { r: &'a dyn A<T> }

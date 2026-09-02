@@ -3,6 +3,7 @@
 // shelf: fail — REFUSED since 2026-08-29 (was root lifereg.N1: §B6's MethodCall
 //   arm gated its by-flow entry on `type_may_carry_borrow`, which answered NO for
 //   `Box<dyn It>`, so `b = g.nb()` was never tied to the receiver `g`)
+// re-pinned 2026-09-02y: the object-lifetime bound at the unsize coercion now refuses this first; the earlier pin was `'g' does not live long enough: it is borrowed by 'b', which is used here after 'g' goes out of scope (E0597)`
 package issue_55796_r09b;
 trait It { fn get(self: &Self) -> i64; }
 struct Holder<'a> { r: &'a i64 }

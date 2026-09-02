@@ -1,0 +1,7 @@
+// E0373: a closure borrowing a by-value parameter boxed into `Box<dyn Fn() -> u64>`. The legal twin, one token apart (`||` -> `move ||`), is bc_objlt_closure_byref_local: an owned `u64` capture has no region.
+package bc_objlt_closure_byref_local_fail;
+fn g(x: u64) -> Box<dyn Fn() -> u64> {
+    let f = || -> u64 { return x; };
+    return Box::new(f);
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,16 @@
+// rustc borrowck/mut-borrow-conflict-in-closures-vec.rs — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.C
+// split 2026-09-02y: the port's `Box<dyn FnMut()>` slots are 'static objects and the two closures
+// borrow a local — refused by the object-lifetime bound by itself (../../fail/borrowck/mut-borrow-
+// conflict-in-closures-vec); this variant bounds the objects with `+ '_` and keeps ONLY the upstream
+// defect, the two closures mutably borrowing `y` at once through the boxed slots.
+package mut_borrow_conflict_in_closures_vec_bounded;
+use logos.mem.boxed;
+fn main() -> i32 {
+    let mut y: i64 = 1i64;
+    let mut c: Vec<Box<dyn FnMut() + '_>> = Vec::<Box<dyn FnMut() + '_>>::new();
+    c.push(Box::new(|| { y = 0i64; }));
+    c.push(Box::new(|| { y = 0i64; }));
+    return 0i32;
+}

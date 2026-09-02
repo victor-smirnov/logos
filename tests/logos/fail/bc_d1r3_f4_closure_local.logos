@@ -7,6 +7,7 @@
 // a borrow" answer says YES for a raw POINTER and for a CLOSURE. Measured: with
 // either missing, `box_new`'s `let p = alloc(…); p[0] = val; return Box{ptr:p}`
 // summarised as retaining NOTHING and this program went back to rc=0.
+// re-pinned 2026-09-02y: the object-lifetime bound at the unsize coercion now refuses this first; the earlier pin was `cannot return reference to local variable`
 package bc_d1r3_f4_closure_local;
 use logos.mem.boxed;
 fn mk_closure() -> Box<dyn Fn() -> i64> {

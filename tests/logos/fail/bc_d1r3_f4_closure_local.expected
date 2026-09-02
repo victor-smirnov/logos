@@ -1,1 +1,1 @@
-cannot return reference to local variable
+error [fn mk_closure]: coercion to `dyn Fn` requires `|| -> i64: 'static` — lifetime `'_` may not live long enough (object lifetime bound)

@@ -1,0 +1,1 @@
+error [fn make_object_bad]: coercion to `dyn SomeTrait` requires `A: 'c` — lifetime `A (no bound reaching 'c)` may not live long enough (object lifetime bound)

@@ -1,0 +1,11 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the impl header's binder rides the object.
+package bc_objlt_impl_self;
+trait Tr { fn m(self: &Self) -> i64; }
+struct W<'a> { r: &'a i64 }
+impl<'a> Tr for W<'a> { fn m(self: &Self) -> i64 { return *self.r; } }
+impl<'a> W<'a> {
+    fn into_dyn(self: Self) -> Box<dyn Tr + 'a> {
+        return Box::new(self);
+    }
+}
+fn main() -> i32 { let n = 2i64; let b = W { r: &n }.into_dyn(); return (b.m() - 2i64) as i32; }

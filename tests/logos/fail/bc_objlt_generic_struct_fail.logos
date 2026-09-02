@@ -1,0 +1,9 @@
+// `P<T>` with `T` unbounded boxed into `Box<dyn Tr>`: the type argument is walked. The legal twin, one token apart (`T: Tr` -> `T: Tr + 'static`), is bc_objlt_generic_struct.
+package bc_objlt_generic_struct_fail;
+trait Tr { fn m(self: &Self) -> i64; }
+struct P<T> { v: T }
+impl<T: Tr> Tr for P<T> { fn m(self: &Self) -> i64 { return self.v.m(); } }
+fn f<T: Tr>(p: P<T>) -> Box<dyn Tr> {
+    return Box::new(p);
+}
+fn main() -> i32 { return 0i32; }

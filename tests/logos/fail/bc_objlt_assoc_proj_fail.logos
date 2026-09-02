@@ -1,0 +1,9 @@
+// E0310 on a projection: `T::Item` boxed into `Box<dyn X>` with no bound on `T`. The legal twin, one token apart (`T: Iter` -> `T: Iter + 'static`), is bc_objlt_assoc_proj: `T: 'static` discharges `T::Item: 'static` (RFC 1214).
+package bc_objlt_assoc_proj_fail;
+trait X { fn n(self: &Self) -> i64; }
+trait Iter { type Item: X; fn into_item(self: Self) -> Self::Item; }
+fn bad<T: Iter>(v: T) -> Box<dyn X> {
+    let item = v.into_item();
+    return Box::new(item);
+}
+fn main() -> i32 { return 0i32; }

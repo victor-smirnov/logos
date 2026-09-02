@@ -1,0 +1,1 @@
+error [fn f]: coercion to `dyn Fn` requires `|| -> i64: 'static` — lifetime `'a` may not live long enough (object lifetime bound)

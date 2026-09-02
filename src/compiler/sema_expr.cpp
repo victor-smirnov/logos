@@ -895,7 +895,6 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
 bool SemaChecker::try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target) {
     if (!e || !expr_type(e) || !target) return false;
     TypeRef et(expr_type(e));
-    logos::probe::census(std::format("objlt.tsuc.src{}.dst{}", (int)et.kind(), (int)TypeRef(target).kind()));
     if (!((TypeRef(target).kind() == LogosType::Kind::Struct ||
            TypeRef(target).kind() == LogosType::Kind::ZonedStruct) &&
           (et.kind() == LogosType::Kind::Struct ||
@@ -1312,7 +1311,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     case la::LIT_CHAR: return lower_char_lit(expr);
     case la::LIT_STR: {
         auto sv = str_of(expr.get(la::VALUE.code));
-        return builder().lit_str(std::string(sv), make_slice_type(u8_t()));
+        return builder().lit_str(std::string(sv), make_slice_type(u8_t(), false, TypeRef::OwningKind::Borrow, "'static"));
     }
 
     case la::LIT_BYTES: return lower_bytes_lit(expr);
@@ -4070,6 +4069,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 
     // Determine if we should try inference
     bool try_inference = false;
+    std::vector<TypeRef> deferred_inferred;  // a generic-context call's params, bound off the args (see below)
     if (fit == funcs_.end()) {
         // Only generic overload(s)
         infer_fi = git;
@@ -4127,9 +4127,11 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // running it here therefore adds exactly the lifetime half.
         {
             std::vector<TypeRef> deferred_args;
-            if (infer_type_args(*infer_fi, arg_exprs, deferred_args))
+            if (infer_type_args(*infer_fi, arg_exprs, deferred_args)) {
                 check_type_bounds(std::string(callee), infer_fi->type_params,
                                   deferred_args);
+                deferred_inferred = std::move(deferred_args);
+            }
         }
         // In generic/pack context inference is deferred to mono, but we still must
         // route to the generic overload (if available) rather than pinning a concrete one.
@@ -4260,8 +4262,11 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             return builder().call(fi.symbol_name.empty() ? std::string(callee) : fi.symbol_name, {}, std::move(arg_exprs), fi.ret_type);
         }
         std::vector<TypeRef> type_var_args;
-        for (auto& tp : fi.type_params)
-            type_var_args.push_back(make_typevar(tp.name));
+        if (deferred_inferred.size() == fi.type_params.size())
+            type_var_args = std::move(deferred_inferred);  // the caller's names, not the callee's
+        else
+            for (auto& tp : fi.type_params)
+                type_var_args.push_back(make_typevar(tp.name));
         SemaSubst subst;
         for (size_t i = 0; i < fi.type_params.size() && i < type_var_args.size(); ++i)
             subst[fi.type_params[i].name] = type_var_args[i];
@@ -5213,9 +5218,6 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                 auto pt = subst_type_sema(fi.param_types[i], subst);
                 if (pt && (TypeRef(pt).kind() == LogosType::Kind::TraitObject ||
                            TypeRef(pt).kind() == LogosType::Kind::UnsizedDyn))
-                    logos::probe::census(std::format("objlt.fgc.pt{}.raw{}.at{}", (int)TypeRef(pt).kind(),
-                        (int)TypeRef(fi.param_types[i]).kind(),
-                        expr_type(arg_exprs[i]) ? (int)TypeRef(expr_type(arg_exprs[i])).kind() : -1));
                 retype_bare_enum_arg(arg_exprs[i], pt);
                 try_coerce_closure_to_fnptr(arg_exprs[i], pt);
                 try_coerce_array_ref_to_slice(arg_exprs[i], pt);
@@ -14754,15 +14756,10 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
     case CoercePos::PlaceWrite:
     case CoercePos::TupleElem:
     case CoercePos::BranchArm:
-        if (pos == CoercePos::PlaceWrite)
-            logos::probe::census((logos::probe::on("objltpw") || logos::probe::on("objltall"))
-                                     ? "objlt.site.placewrite.armed" : "objlt.site.placewrite");
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
                CFLAG_SLICE_TO_ARRAY | CFLAG_IMPLICIT_REBORROW |
                CFLAG_WIDEN_INT |
-               ((pos == CoercePos::PlaceWrite &&
-                 (logos::probe::on("objltpw") || logos::probe::on("objltall")))
-                    ? CFLAG_CHECK_DYN_BOUNDS : 0u);  // PROBE 2026-09-02x objltpw
+               (pos == CoercePos::PlaceWrite ? CFLAG_CHECK_DYN_BOUNDS : 0u);
     case CoercePos::StructLitField:
         // Rust MOVES into a struct literal: no reborrow. Everything else
         // applies.
@@ -14992,116 +14989,13 @@ void SemaChecker::check_dyn_auto_bounds_at_coercion(lir_view::ExprRef arg,
     TypeRef pdyn = peel(pt);
     // Accept both the fat `&dyn` form (TraitObject) and the unsized `dyn Trait`
     // payload of an owning container (UnsizedDyn, reached by peeling Box/Rc/Arc).
-    // PROBE 2026-09-02x objltclos: a `dyn Fn(..)` destination is Kind::Closure with a written region slot.
-    const bool objlt_clos_dyn_ = pdyn && TypeRef(pdyn).kind() == LogosType::Kind::Closure &&
-                                 !std::string(TypeRef(pdyn).lifetime()).empty();
+    // A `dyn Fn(..)` destination is Kind::Closure carrying its family name.
+    const bool clos_dyn = pdyn && TypeRef(pdyn).kind() == LogosType::Kind::Closure &&
+                          !std::string(TypeRef(pdyn).trait_name()).empty();
     if (!pdyn || (TypeRef(pdyn).kind() != LogosType::Kind::TraitObject &&
-                  TypeRef(pdyn).kind() != LogosType::Kind::UnsizedDyn && !objlt_clos_dyn_)) return;
-    // PROBE 2026-09-02x objlt* — object-lifetime bound `Src: 'r` at the unsize site. PROBES.md.
-    // @@objlt-arms@@
-    {
-        using K = LogosType::Kind;
-        const bool arm_rule = logos::probe::on("objltrule") || logos::probe::on("objltclos") ||
-                              logos::probe::on("objltpw") || logos::probe::on("objltall") ||
-                              logos::probe::on("objltstrict");
-        const bool arm_clos = logos::probe::on("objltclos") || logos::probe::on("objltpw") ||
-                              logos::probe::on("objltall");
-        const bool arm_strict = logos::probe::on("objltstrict");
-        bool via_ref = false; TypeRef q = pt;
-        for (int g = 0; q && g < 8; ++g) {
-            auto k = TypeRef(q).kind();
-            if ((k == K::Ref || k == K::MutRef || k == K::Ptr) && TypeRef(q).pointee()) { via_ref = true; q = TypeRef(q).pointee(); continue; }
-            if (is_smart_ptr(q) && !TypeRef(q).type_args().empty()) { q = TypeRef(q).type_args()[0]; continue; }
-            break;
-        }
-        std::string slot(TypeRef(pdyn).lifetime());
-        bool objlt_borrowed_ = via_ref;
-        if (slot == "'dyn")    { slot.clear(); logos::probe::census("objlt.gate.closdyn"); }
-        if (slot == "'dynref") { slot.clear(); objlt_borrowed_ = true; logos::probe::census("objlt.gate.closdynref"); }
-        if (TypeRef(pdyn).kind() == K::TraitObject) {
-            logos::probe::census(std::format("objlt.gate.own{}", (int)TypeRef(pdyn).trait_owning_kind()));
-            if (TypeRef(pdyn).trait_owning_kind() == TypeRef::OwningKind::Borrow) objlt_borrowed_ = true;
-        }
-        std::string R = !slot.empty() ? outlives_norm(slot) : (objlt_borrowed_ ? std::string() : std::string("'static"));
-        if (R == "'_") R.clear();
-        // the erasure: coerce_arg_to_dyn wrapped the argument in a Cast to the dyn BEFORE this gate ran (09-01g's
-        // "return-position erasure" is this cast at the Box::new ARGUMENT); read the source off the cast's operand.
-        lir_view::ExprRef objlt_er_ = expr_ref_of(arg);
-        int objlt_casts_ = 0;
-        while (objlt_casts_ < 2 && objlt_er_.kind() == lir_schema::expr::Code::Cast) {
-            auto op_ = lir_view::ECastView{objlt_er_}.operand();
-            if (!op_) break;
-            objlt_er_ = op_; ++objlt_casts_;
-        }
-        if (objlt_casts_) logos::probe::census("objlt.gate.castpeel");
-        TypeRef src0 = objlt_casts_ ? expr_type(objlt_er_) : expr_type(arg);
-        TypeRef sp = src0 ? peel(src0) : TypeRef();
-        const int spk0 = sp ? (int)TypeRef(sp).kind() : -1;
-        logos::probe::census(std::format("objlt.gate.src{}.dst{}", src0 ? (int)TypeRef(src0).kind() : -1, (int)TypeRef(pt).kind()));
-        logos::probe::census(std::format("objlt.gate.sp{}.R{}", spk0, R.empty() ? "none" : (R == "'static" ? "static" : "named")));
-        logos::probe::census(std::format("objlt.gate.argnode{}", (int)expr_ref_of(arg).kind()));
-        if (arm_rule && !R.empty() && sp && TypeRef(sp).kind() != K::TraitObject && TypeRef(sp).kind() != K::UnsizedDyn) {
-            auto adj = outlives_adj(current_outlives_);
-            auto r_ok = [&](std::string_view r) -> bool {
-                if (r.empty() || r == "'_" || r == "_") return false;
-                if (outlives_is_static(r)) return true;
-                if (arm_strict) return outlives_norm(r) == R;
-                return outlives(r, R, adj, /*permissive_empty=*/false);
-            };
-            std::vector<std::string> bad;
-            std::function<void(TypeRef, int)> walk = [&](TypeRef t, int d) {
-                if (!t || d > 6) return;
-                auto k = TypeRef(t).kind();
-                switch (k) {
-                case K::Ref: case K::MutRef: case K::Slice: case K::TraitObject: case K::DstRef: {
-                    if (k == K::Slice && TypeRef(t).owning_slice()) { walk(TypeRef(t).elem(), d + 1); return; }
-                    std::string lt(TypeRef(t).lifetime());
-                    if (!r_ok(lt)) bad.push_back(lt.empty() ? std::string("'_") : lt);
-                    if (k == K::Ref || k == K::MutRef) walk(TypeRef(t).pointee(), d + 1);
-                    else if (k == K::Slice) walk(TypeRef(t).elem(), d + 1);
-                    return;
-                }
-                case K::Struct: case K::ZonedStruct: case K::Enum:
-                    for (auto& la_ : TypeRef(t).lifetime_args()) if (!r_ok(la_)) bad.push_back(la_.empty() ? std::string("'_") : la_);
-                    if (decl_lt_arity_(t) > TypeRef(t).lifetime_args().size()) {
-                        logos::probe::census("objlt.rule.struct.elidedargs");
-                        bad.push_back("'_ (elided lifetime argument of " + type_str(t) + ")");
-                    }
-                    for (auto a : TypeRef(t).type_args()) walk(a, d + 1);
-                    return;
-                case K::Tuple: for (auto e : TypeRef(t).tuple_elems()) walk(e, d + 1); return;
-                case K::Array: walk(TypeRef(t).elem(), d + 1); return;
-                case K::TypeVar: {
-                    std::string tvn(TypeRef(t).type_var_name());
-                    auto it = current_type_lt_outlives_.find(tvn);
-                    bool ok = false;
-                    if (it != current_type_lt_outlives_.end())
-                        for (auto& b : it->second) if (r_ok(b)) { ok = true; break; }
-                    logos::probe::census(ok ? "objlt.rule.tv.ok" : "objlt.rule.tv.bad");
-                    if (!ok) bad.push_back(tvn + " (no bound reaching " + R + ")");
-                    return;
-                }
-                case K::AssocType: { logos::probe::census("objlt.rule.assoc"); bad.push_back(type_str(t) + " (projection, no bound)"); return; }
-                case K::Closure: {
-                    if (!arm_clos) { logos::probe::census("objlt.rule.closure.skipped"); return; }
-                    // KEY-IDENTITY: keyed by the closure SIGNATURE — the same key the Send/Sync read site uses; the union over same-signature literals refuses in the CRUDE direction here (probe).
-                    auto ce = closure_capture_env_.find(type_str(t));
-                    if (ce == closure_capture_env_.end()) { logos::probe::census("objlt.rule.closure.noenv"); return; }
-                    logos::probe::census(std::format("objlt.rule.closure.caps{}", ce->second.size()));
-                    for (auto ct : ce->second) walk(ct, d + 1);
-                    return;
-                }
-                default: return;
-                }
-            };
-            walk(sp, 0);
-            logos::probe::census(bad.empty() ? "objlt.rule.ok" : "objlt.rule.refuse");
-            if (!bad.empty())
-                error(std::format("coercion to `dyn {}` requires `{}: {}` — lifetime `{}` may not live long enough (object lifetime bound)",
-                                  std::string(TypeRef(pdyn).trait_name()), type_str(sp), R, bad.front()));
-        }
-    }
-    if (objlt_clos_dyn_) return;  // PROBE 2026-09-02x: a Closure-kind dyn has no Send/Sync bits to read
+                  TypeRef(pdyn).kind() != LogosType::Kind::UnsizedDyn && !clos_dyn)) return;
+    check_object_lifetime_bound(arg, pt, pdyn, peel);
+    if (clos_dyn) return;  // no Send/Sync bits on a Closure-kind dyn
     bool need_send = TypeRef(pdyn).trait_requires_send();
     bool need_sync = TypeRef(pdyn).trait_requires_sync();
     if (!need_send && !need_sync) return;
@@ -15138,6 +15032,130 @@ void SemaChecker::check_dyn_auto_bounds_at_coercion(lir_view::ExprRef arg,
                 "satisfy `Sync`",
                 std::string(TypeRef(pdyn).trait_name()), type_str(src_pointee)));
     }
+}
+
+// THE OBJECT-LIFETIME BOUND (Rust: coercing `Src` into `dyn Tr + 'r` requires
+// `Src: 'r`; an OWNED `Box<dyn Tr>` with no bound defaults 'r = 'static, a
+// BORROWED `&dyn Tr` with an elided slot has no obligation). `Src: 'r` is read
+// off the source type's components: region slots, a struct's lifetime args (an
+// elided arg of a lifetime-generic struct is a fresh region), a type parameter
+// through its declared `T: 'x` bounds, a projection through its base, a closure
+// through its literal's captures. The source is the operand under the Cast that
+// coerce_arg_to_dyn already wrapped around it.
+void SemaChecker::check_object_lifetime_bound(lir_view::ExprRef arg, TypeRef pt, TypeRef pdyn,
+                                              const std::function<TypeRef(TypeRef)>& peel) {
+    using K = LogosType::Kind;
+    bool via_ref = false;
+    for (TypeRef q = pt; q;) {
+        auto k = TypeRef(q).kind();
+        if ((k == K::Ref || k == K::MutRef || k == K::Ptr) && TypeRef(q).pointee()) { via_ref = true; q = TypeRef(q).pointee(); continue; }
+        break;
+    }
+    bool borrowed = via_ref;
+    if (TypeRef(pdyn).kind() == K::TraitObject && TypeRef(pdyn).trait_owning_kind() == TypeRef::OwningKind::Borrow) borrowed = true;
+    if (TypeRef(pdyn).kind() == K::Closure && !TypeRef(pdyn).const_val()) borrowed = true;
+    std::string slot(TypeRef(pdyn).lifetime());
+    std::string R = !slot.empty() ? outlives_norm(slot) : (borrowed ? std::string() : std::string("'static"));
+    if (R.empty() || R == "'_") return;
+    lir_view::ExprRef er = expr_ref_of(arg);
+    for (int casts = 0; casts < 2 && er.kind() == lir_schema::expr::Code::Cast; ++casts) {
+        auto op = lir_view::ECastView{er}.operand();
+        if (!op) break;
+        er = op;
+    }
+    TypeRef src0 = expr_type(er);
+    TypeRef sp = src0 ? peel(src0) : TypeRef();
+    if (!sp || TypeRef(sp).kind() == K::TraitObject || TypeRef(sp).kind() == K::UnsizedDyn) return;
+    // The literal behind the source: the literal itself, a binding whose RHS
+    // was one, or the one argument of the `Box::new(..)` that produced this
+    // `Box<closure>` (the arg's type is the literal's type, pointer for pointer).
+    std::string src_closure_id;
+    for (lir_view::ExprRef ce = er; ce;) {
+        auto ck = ce.kind();
+        if (ck == lir_schema::expr::Code::ClosureBox) {
+            src_closure_id = std::string(lir_view::EClosureBoxView{ce}.closure_id()); break;
+        }
+        if (ck == lir_schema::expr::Code::VarRef) {
+            if (auto* vi = lookup_var_info(lir_view::EVarRefView{ce}.name())) src_closure_id = vi->closure_id;
+            break;
+        }
+        if (ck == lir_schema::expr::Code::Cast) { ce = lir_view::ECastView{ce}.operand(); continue; }
+        if (ck == lir_schema::expr::Code::Call && TypeRef(sp).kind() == K::Closure &&
+            std::string(TypeRef(sp).trait_name()).empty()) {
+            lir_view::ExprRef only; int n = 0;
+            lir_view::ECallView{ce}.each_arg([&](lir_view::ExprRef a) { only = a; ++n; });
+            if (n == 1 && only && expr_type(only) == sp) { ce = only; continue; }
+        }
+        break;
+    }
+    auto adj = outlives_adj(current_outlives_);
+    auto r_ok = [&](std::string_view r) -> bool {
+        if (r.empty() || r == "'_" || r == "_") return false;
+        if (outlives_is_static(r)) return true;
+        return outlives(r, R, adj, /*permissive_empty=*/false);
+    };
+    auto tv_ok = [&](std::string_view tvn) -> bool {
+        auto it = current_type_lt_outlives_.find(std::string(tvn));
+        if (it == current_type_lt_outlives_.end()) return false;
+        for (auto& b : it->second) if (r_ok(b)) return true;
+        return false;
+    };
+    std::vector<std::string> bad;
+    std::function<void(TypeRef, const std::string&, int)> walk = [&](TypeRef t, const std::string& cid, int d) {
+        if (!t || d > 6) return;
+        auto k = TypeRef(t).kind();
+        switch (k) {
+        case K::Ref: case K::MutRef: case K::Slice: case K::DstRef: {
+            if (k == K::Slice && TypeRef(t).owning_slice()) { walk(TypeRef(t).elem(), "", d + 1); return; }
+            std::string lt(TypeRef(t).lifetime());
+            if (!r_ok(lt)) bad.push_back(lt.empty() ? std::string("'_") : lt);
+            if (k == K::Ref || k == K::MutRef) walk(TypeRef(t).pointee(), "", d + 1);
+            else if (k == K::Slice) walk(TypeRef(t).elem(), "", d + 1);
+            return;
+        }
+        case K::TraitObject: {
+            std::string lt(TypeRef(t).lifetime());
+            if (lt.empty() && TypeRef(t).owning_trait_object()) return;  // an owned object with no bound is 'static
+            if (!r_ok(lt)) bad.push_back(lt.empty() ? std::string("'_") : lt);
+            return;
+        }
+        case K::Struct: case K::ZonedStruct: case K::Enum:
+            for (auto& la_ : TypeRef(t).lifetime_args()) if (!r_ok(la_)) bad.push_back(la_.empty() ? std::string("'_") : la_);
+            if (decl_lt_arity_(t) > TypeRef(t).lifetime_args().size())
+                bad.push_back("'_ (elided lifetime argument of " + type_str(t) + ")");
+            for (auto a : TypeRef(t).type_args()) walk(a, "", d + 1);
+            return;
+        case K::Tuple: for (auto e : TypeRef(t).tuple_elems()) walk(e, "", d + 1); return;
+        case K::Array: walk(TypeRef(t).elem(), "", d + 1); return;
+        case K::TypeVar: {
+            std::string tvn(TypeRef(t).type_var_name());
+            if (!tv_ok(tvn)) bad.push_back(tvn + " (no bound reaching " + R + ")");
+            return;
+        }
+        case K::AssocType: {
+            // RFC 1214: `T: 'r` discharges `T::Item: 'r`. A declared projection
+            // bound (`where T::Item: 'r`) is not parseable today.
+            TypeRef base = TypeRef(t).assoc_base();
+            if (base && TypeRef(base).kind() == K::TypeVar) {
+                if (!tv_ok(TypeRef(base).type_var_name()))
+                    bad.push_back(type_str(t) + " (no bound on " + std::string(TypeRef(base).type_var_name()) + " reaching " + R + ")");
+            }
+            return;
+        }
+        case K::Closure: {
+            if (cid.empty()) return;  // a closure type with no literal in view (a `dyn Fn` value): nothing to read
+            auto ce = closure_caps_by_id_.find(cid);
+            if (ce == closure_caps_by_id_.end()) return;
+            for (auto& [ct, ccid] : ce->second) walk(ct, ccid, d + 1);
+            return;
+        }
+        default: return;
+        }
+    };
+    walk(sp, src_closure_id, 0);
+    if (!bad.empty())
+        error(std::format("coercion to `dyn {}` requires `{}: {}` — lifetime `{}` may not live long enough (object lifetime bound)",
+                          std::string(TypeRef(pdyn).trait_name()), type_str(sp), R, bad.front()));
 }
 
 bool SemaChecker::try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,
@@ -16335,21 +16353,15 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 }
             }
             if (type_var_args.empty()) {
-                // PROBE 2026-09-02x objltinfer — the deferred call's return type carried the CALLEE's
-                // type-param names (`Box::new(v)` with `v: A` typed `Box<T>`); bind them off the args.
-                std::vector<TypeRef> objlt_inf_;
-                const bool objlt_infer_arm_ = logos::probe::on("objltinfer") || logos::probe::on("objltrule") ||
-                                              logos::probe::on("objltclos") || logos::probe::on("objltpw") ||
-                                              logos::probe::on("objltall");
-                if (objlt_infer_arm_ && infer_type_args(fi, arg_exprs, objlt_inf_) &&
-                    objlt_inf_.size() == fi.type_params.size()) {
-                    logos::probe::census("objlt.infer.ok");
-                    type_var_args = std::move(objlt_inf_);
-                } else {
-                    logos::probe::census(objlt_infer_arm_ ? "objlt.infer.fail" : "objlt.infer.unarmed");
+                // The deferred call's return type names the CALLER's type
+                // parameters, not the callee's (`Box::new(v)` with `v: A` is
+                // `Box<A>`, never `Box<T>`): bind them off the arguments.
+                std::vector<TypeRef> inferred;
+                if (infer_type_args(fi, arg_exprs, inferred) && inferred.size() == fi.type_params.size())
+                    type_var_args = std::move(inferred);
+                else
                     for (auto& tp : fi.type_params)
                         type_var_args.push_back(make_typevar(tp.name));
-                }
             }
             SemaSubst subst;
             for (size_t i = 0; i < fi.type_params.size() && i < type_var_args.size(); ++i)
@@ -17980,8 +17992,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         // union-over-literals is conservative in the safe direction and must
         // NOT be converted along with closure_kind_ (#90).
         auto& env = closure_capture_env_[type_str(ctype)];
-        logos::probe::census(env.empty() ? "objlt.closure.env.fresh" : "objlt.closure.env.union");
-        logos::probe::census(std::format("objlt.closure.{}.caps{}", is_move ? "move" : "byref", ec->captures.size()));
+        auto& caps = closure_caps_by_id_[closure_id];
         for (size_t i = 0; i < ec->captures.size(); ++i) {
             TypeRef ct = (i < ec->capture_field_types.size() &&
                           ec->capture_field_types[i])
@@ -17989,10 +18000,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                              : TypeRef(ec->capture_types[i]);
             if (!ct) continue;
             bool by_ref = !is_move;
-            env.push_back(by_ref ? make_ref(i < ec->mut_captures.size() &&
-                                                ec->mut_captures[i],
-                                            ct)
-                                 : ct);
+            bool mut_cap = i < ec->mut_captures.size() && ec->mut_captures[i];
+            env.push_back(by_ref ? make_ref(mut_cap, ct) : ct);
+            const VarInfo* cvi = lookup_var_info(ec->captures[i]);
+            caps.emplace_back((by_ref && !(TypeRef(ct).kind() == LogosType::Kind::Ref && !mut_cap))
+                                  ? make_ref(mut_cap, ct) : ct,
+                              cvi ? cvi->closure_id : std::string());
         }
         if (ec->captures.empty()) (void)env;  // entry exists even if empty
     }

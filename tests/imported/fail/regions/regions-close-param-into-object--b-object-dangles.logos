@@ -3,6 +3,7 @@
 // shelf: fail — REFUSED since 2026-08-29 (was root lifereg.L5: `prov_of`'s Call
 //   door and the return gate both asked `type_may_carry_borrow`, which answered
 //   NO for `Box<dyn X>`, so `erase(h)` merged no provenance from `h`)
+// re-pinned 2026-09-02y: the object-lifetime bound at the unsize coercion now refuses this first; the earlier pin was `cannot return reference to local variable 'local': dangling reference`
 package regions_close_param_into_object_b_object_dangles;
 trait X { fn foo(self: &Self) -> i64; }
 struct Holder<'a> { r: &'a i64 }

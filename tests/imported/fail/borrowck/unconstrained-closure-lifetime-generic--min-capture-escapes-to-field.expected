@@ -1,0 +1,1 @@
+error [fn Foo__ack]: coercion to `dyn Fn` requires `|| -> u64: 'static` — lifetime `'_` may not live long enough (object lifetime bound)

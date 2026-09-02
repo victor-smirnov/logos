@@ -1,0 +1,7 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `move` copies the parameter into the closure.
+package bc_objlt_closure_byref_local;
+fn g(x: u64) -> Box<dyn Fn() -> u64> {
+    let f = move || -> u64 { return x; };
+    return Box::new(f);
+}
+fn main() -> i32 { let h = g(1u64); if h() != 1u64 { return 1i32; } return 0i32; }

@@ -2636,6 +2636,9 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     }
 
     define(name, var_type, is_mut);
+    if (rhs && expr_ref_of(rhs).kind() == lir_schema::expr::Code::ClosureBox && !scope_.empty())
+        scope_.back().vars[std::string(name)].closure_id =
+            std::string(lir_view::EClosureBoxView{expr_ref_of(rhs)}.closure_id());
     // Rust capture-drop order: a closure-RHS let owns its un-skipped
     // captures' drop slots — they drop with this binding, in capture
     // order (see collect-walk group emission).

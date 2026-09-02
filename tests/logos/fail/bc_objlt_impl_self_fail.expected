@@ -1,0 +1,1 @@
+error [fn W__into_dyn]: coercion to `dyn Tr` requires `W<'a>: 'static` — lifetime `'a` may not live long enough (object lifetime bound)

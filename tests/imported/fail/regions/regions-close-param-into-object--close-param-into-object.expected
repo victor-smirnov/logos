@@ -1,0 +1,1 @@
+error [fn p1]: coercion to `dyn X` requires `T: 'static` — lifetime `T (no bound reaching 'static)` may not live long enough (object lifetime bound)

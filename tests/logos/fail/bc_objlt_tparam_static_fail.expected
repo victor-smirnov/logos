@@ -1,0 +1,1 @@
+error [fn f]: coercion to `dyn Tr` requires `A: 'static` — lifetime `A (no bound reaching 'static)` may not live long enough (object lifetime bound)

@@ -5,15 +5,18 @@
 // pass/bc_tmcb_erased_call_param_twin: `&local` here, `q` there.
 // The NAME in the diagnostic is recovered at the report site, not by widening
 // §B6's Call entry — that widening refuses legal programs (PROBES.md).
+// 2026-09-02y: the objects carry `+ 'a` / `+ '_` so the object-lifetime bound is discharged and
+// the dangling-local guard below stays the one that fires (both twins were 'static objects before,
+// which is E0310 in Rust for the twin too).
 package bc_tmcb_erased_call_local;
 
 trait X { fn foo(self: &Self) -> i64; }
 struct Holder<'a> { r: &'a i64 }
 impl<'a> X for Holder<'a> { fn foo(self: &Self) -> i64 { return *self.r; } }
 
-fn erase<T: X>(v: T) -> Box<dyn X> { return Box::new(v); }
+fn erase<'a, T: X + 'a>(v: T) -> Box<dyn X + 'a> { return Box::new(v); }
 
-fn make(q: &i64) -> Box<dyn X> {
+fn make(q: &i64) -> Box<dyn X + '_> {
     let local = 8i64;
     let h = Holder { r: &local };
     return erase(h);

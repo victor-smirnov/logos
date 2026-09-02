@@ -1,0 +1,1 @@
+error [fn mk]: coercion to `dyn FnMut` requires `|| -> void: 'static` — lifetime `'_` may not live long enough (object lifetime bound)

@@ -1,0 +1,9 @@
+// Two same-signature closure literals in one file, the illegal one SECOND: per-literal captures, not a union by signature, decide each. The legal twin (the second fn removed) is bc_objlt_same_sig_twins.
+package bc_objlt_same_sig_twins_fail;
+fn borrowed<'a>(x: &'a i64) -> Box<dyn Fn() -> i64 + 'a> {
+    return Box::new(move || { return *x; });
+}
+fn stat(x: &i64) -> Box<dyn Fn() -> i64> {
+    return Box::new(move || { return *x; });
+}
+fn main() -> i32 { return 0i32; }

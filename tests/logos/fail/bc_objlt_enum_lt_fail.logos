@@ -1,0 +1,9 @@
+// An enum carrying a lifetime, `E<'a>`, boxed into `Box<dyn Tr>`. The legal twin, one token apart (`Box<dyn Tr>` -> `Box<dyn Tr + 'a>`), is bc_objlt_enum_lt.
+package bc_objlt_enum_lt_fail;
+trait Tr { fn m(self: &Self) -> i64; }
+enum E<'a> { A(&'a i64), B }
+impl<'a> Tr for E<'a> { fn m(self: &Self) -> i64 { match self { E::A(r) => { return **r; } E::B => { return 0i64; } } } }
+fn f<'a>(e: E<'a>) -> Box<dyn Tr> {
+    return Box::new(e);
+}
+fn main() -> i32 { return 0i32; }

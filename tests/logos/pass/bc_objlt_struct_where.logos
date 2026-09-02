@@ -1,0 +1,9 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `where 'b: 'a` is the direction the object bound needs.
+package bc_objlt_struct_where;
+trait Tr { fn m(self: &Self) -> i64; }
+struct W<'a> { r: &'a i64 }
+impl<'a> Tr for W<'a> { fn m(self: &Self) -> i64 { return *self.r; } }
+fn f<'a, 'b>(w: W<'b>) -> Box<dyn Tr + 'a> where 'b: 'a {
+    return Box::new(w);
+}
+fn main() -> i32 { let n = 3i64; let b = f(W { r: &n }); return (b.m() - 3i64) as i32; }

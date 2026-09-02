@@ -1,0 +1,6 @@
+// A `&str` PARAMETER captured by a `move` closure boxed into a 'static object: its region is the parameter's. The legal twin (the parameter -> `let s = "abc";`) is bc_objlt_str_literal: a string literal is `&'static str`.
+package bc_objlt_str_literal_fail;
+fn f(s: &str) -> Box<dyn Fn() -> i64> {
+    return Box::new(move || { return s.len() as i64; });
+}
+fn main() -> i32 { return 0i32; }

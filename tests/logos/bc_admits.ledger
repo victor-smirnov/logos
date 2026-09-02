@@ -1175,7 +1175,27 @@
 # &mut T) -> &mut T { &mut *r }`, which rustc refuses; the `&mut *p` twin of the
 # landed `&*p` region fact is therefore NOT landed, and `let r: &'static mut T =
 # &mut *q` (q 'static) is a recorded legal refusal.
-# TOTAL 184
+# 2026-09-02y — 184 -> 166, EIGHTEEN OBJECT-LIFETIME-BOUND ROWS over ten roots (lifereg.L5 ×2,
+# N1 ×3, NEW-R20, nllmoves.NEW-N2, lifereg.A ×3, bck.A, bck.C ×3, lifereg.C ×3, lifereg.D), plus
+# one COLLISION split. ONE rule that was never asked: coercing `Src` into `dyn Tr + 'r`
+# requires `Src: 'r`, and an unbounded OWNED object (`Box<dyn Tr>`) defaults 'r = 'static.
+# The gate existed (`check_dyn_auto_bounds_at_coercion`, six positions) and read a source
+# that `coerce_arg_to_dyn` had already cast to the destination; the pre-erasure type is the
+# cast's operand. `Src: 'r` is read off the components: region slots, a struct's / enum's
+# lifetime args (an elided arg of a lifetime-generic type is a fresh region), a type
+# parameter through its `T: 'x` bounds, a projection through its base (RFC 1214), a
+# closure through its OWN literal's captures (per closure_id, never the signature union).
+# With the facts the rule needs: `+ 'a` rides the region slot of UnsizedDyn / TraitObject /
+# a `dyn Fn(..)` (Kind::Closure, now carrying its family name and owning kind — pool
+# identity compares all three), a string literal is `&'static str`, a deferred generic
+# call is typed with the CALLER's parameter (`Box::new(v)` with `v: A` is `Box<A>`, never
+# `Box<T>` — the 09-01g SIGSEGV), and PlaceWrite is a coercion position.
+# mut-borrow-conflict-in-closures-vec (bck.C, upstream E0499) is refused by the bound —
+# true, not upstream — so it is split: the port pins the bound, and `--bounded` (`+ '_`
+# slots) keeps the double mutable borrow admitted as the row.
+# regions-close-object-into-object-1 (upstream E0515) and regions-steal-closure (E0597)
+# are refused for the 'static object bound their upstream error is an instance of.
+# TOTAL 166
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1189,7 +1209,6 @@ borrowck-access-permissions--c-mut-borrow-deref-box bck.B tests/imported/admit/b
 borrowck-assign-to-andmut-in-borrowed-loc bck.NEW tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-borrowed-loc
 borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
-borrowck-escaping-closure-error-1 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-1
 borrowck-escaping-closure-error-2 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-2
 borrowck-lend-flow-loop bck.NEW-2 tests/imported/admit/borrowck/borrowck-lend-flow-loop
 borrowck-loan-blocks-move-cc--r10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10
@@ -1217,20 +1236,17 @@ issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
 issue-58776-borrowck-scans-children bck.C tests/imported/admit/borrowck/issue-58776-borrowck-scans-children
 issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure
 many-mutable-borrows bck.NEW-M tests/imported/admit/borrowck/many-mutable-borrows
-mut-borrow-conflict-in-closures-vec bck.C tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec
+mut-borrow-conflict-in-closures-vec--bounded bck.C tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec--bounded
 mut-borrow-of-mut-ref bck.A tests/imported/admit/borrowck/mut-borrow-of-mut-ref
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error
 reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow
 regions-escape-bound-fn bck.C tests/imported/admit/borrowck/regions-escape-bound-fn
 regions-escape-unboxed-closure bck.B tests/imported/admit/borrowck/regions-escape-unboxed-closure
 slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck/slice-index-bounds-check-invalidation--t35
-suggest-lt-on-ty-alias-w-generics bck.A tests/imported/admit/borrowck/suggest-lt-on-ty-alias-w-generics
 two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-loop
 two-phase-nonrecv-autoref--a-fnmut-twice bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--a-fnmut-twice
 two-phase-nonrecv-autoref--c-mut-and-shared-args bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--c-mut-and-shared-args
 two-phase-nonrecv-autoref--d-index-two-phase bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--d-index-two-phase
-unconstrained-closure-lifetime-generic--control-escape-to-outer-local bck.C tests/imported/admit/borrowck/unconstrained-closure-lifetime-generic--control-escape-to-outer-local
-unconstrained-closure-lifetime-generic--min-capture-escapes-to-field bck.C tests/imported/admit/borrowck/unconstrained-closure-lifetime-generic--min-capture-escapes-to-field
 var-matching-lifetime-but-unused-not-mentioned bck.C tests/imported/admit/borrowck/var-matching-lifetime-but-unused-not-mentioned
 
 # ── tests/ui/drop ─────────────────────────────────────────
@@ -1253,8 +1269,6 @@ ex3-both-anon-regions-one-is-struct-5 lifereg.NEW-N1 tests/imported/admit/lifeti
 ex3-both-anon-regions-using-impl-items lifereg.R18 tests/imported/admit/lifetimes/ex3-both-anon-regions-using-impl-items
 ex3-both-anon-regions lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions
 explicit-self-lifetime-mismatch lifereg.NEW-N3 tests/imported/admit/lifetimes/explicit-self-lifetime-mismatch
-issue-103582-hint-type-alias lifereg.A tests/imported/admit/lifetimes/issue-103582-hint-type-alias
-issue-55796--t09 lifereg.N1 tests/imported/admit/lifetimes/issue-55796--t09
 issue-64173-unused-lifetimes lifereg.L4 tests/imported/admit/lifetimes/issue-64173-unused-lifetimes
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 issue-90170-elision-mismatch lifereg.N3 tests/imported/admit/lifetimes/issue-90170-elision-mismatch
@@ -1271,7 +1285,6 @@ temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes
 trait-impl-mismatch-elided-lifetime-issue-65866 lifereg.R18 tests/imported/admit/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866
 trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion
 trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch
-unnamed-closure-doesnt-life-long-enough-issue-67634 lifereg.C tests/imported/admit/lifetimes/unnamed-closure-doesnt-life-long-enough-issue-67634
 
 # ── tests/ui/moves ─────────────────────────────────────────
 do-not-suggest-removing-wrong-ref-pattern-issue-132806 nllmoves.B tests/imported/admit/moves/do-not-suggest-removing-wrong-ref-pattern-issue-132806
@@ -1325,7 +1338,6 @@ propagate-multiple-requirements nllmoves.A tests/imported/admit/nll/propagate-mu
 return-wrong-bound-region nllmoves.C tests/imported/admit/nll/return-wrong-bound-region
 sugg-mut-for-binding-issue-137486 nllmoves.D tests/imported/admit/nll/sugg-mut-for-binding-issue-137486
 trait-associated-constant nllmoves.R18 tests/imported/admit/nll/trait-associated-constant
-ty-param-fn nllmoves.NEW-N2 tests/imported/admit/nll/ty-param-fn
 type-check-pointer-coercions nllmoves.R14 tests/imported/admit/nll/type-check-pointer-coercions
 type-check-pointer-comparisons nllmoves.R2 tests/imported/admit/nll/type-check-pointer-comparisons
 var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
@@ -1339,18 +1351,10 @@ issue-101280 lifereg.NEW-N4 tests/imported/admit/regions/issue-101280
 multiple-sources-for-outlives-requirement--c24b lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--c24b
 multiple-sources-for-outlives-requirement--t24 lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--t24
 outlives-with-missing lifereg.R17 tests/imported/admit/regions/outlives-with-missing
-region-borrow-params-issue-29793-big lifereg.C tests/imported/admit/regions/region-borrow-params-issue-29793-big
-region-borrow-params-issue-29793-small lifereg.C tests/imported/admit/regions/region-borrow-params-issue-29793-small
 region-bounds-on-objects-and-type-parameters lifereg.NEW-N4 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
-region-object-lifetime-in-coercion lifereg.A tests/imported/admit/regions/region-object-lifetime-in-coercion
 regions-adjusted-lvalue-op--c26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--c26
 regions-adjusted-lvalue-op--t26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26
 regions-assoc-type-in-supertrait-outlives-container lifereg.L6 tests/imported/admit/regions/regions-assoc-type-in-supertrait-outlives-container
-regions-close-associated-type-into-object lifereg.L5 tests/imported/admit/regions/regions-close-associated-type-into-object
-regions-close-object-into-object-1 lifereg.A tests/imported/admit/regions/regions-close-object-into-object-1
-regions-close-over-type-parameter-1 lifereg.NEW-R20 tests/imported/admit/regions/regions-close-over-type-parameter-1
-regions-close-over-type-parameter-multiple lifereg.N1 tests/imported/admit/regions/regions-close-over-type-parameter-multiple
-regions-close-param-into-object--close-param-into-object lifereg.L5 tests/imported/admit/regions/regions-close-param-into-object--close-param-into-object
 regions-creating-enums3 lifereg.NEW-N1 tests/imported/admit/regions/regions-creating-enums3
 regions-escape-method lifereg.C tests/imported/admit/regions/regions-escape-method
 regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr lifereg.L7 tests/imported/admit/regions/regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr
@@ -1369,9 +1373,7 @@ regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regio
 regions-outlives-projection-container-wc lifereg.NEW-L3 tests/imported/admit/regions/regions-outlives-projection-container-wc
 regions-outlives-projection-container lifereg.NEW-N1 tests/imported/admit/regions/regions-outlives-projection-container
 regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/regions-pattern-typing-issue-19552
-regions-proc-bound-capture lifereg.N1 tests/imported/admit/regions/regions-proc-bound-capture
 regions-ret-borrowed lifereg.C tests/imported/admit/regions/regions-ret-borrowed
 regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-bound
-regions-steal-closure lifereg.D tests/imported/admit/regions/regions-steal-closure
 regions-var-type-out-of-scope lifereg.D tests/imported/admit/regions/regions-var-type-out-of-scope
 resolve-re-error-ice lifereg.R18 tests/imported/admit/regions/resolve-re-error-ice

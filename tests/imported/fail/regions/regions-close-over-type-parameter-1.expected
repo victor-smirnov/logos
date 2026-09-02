@@ -1,0 +1,1 @@
+error [fn make_object1]: coercion to `dyn SomeTrait` requires `A: 'static` — lifetime `A (no bound reaching 'static)` may not live long enough (object lifetime bound)

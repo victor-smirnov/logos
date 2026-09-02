@@ -1,1 +1,1 @@
-'g' does not live long enough: it is borrowed by 'b', which is used here after 'g' goes out of scope (E0597)
+error [fn G__nb]: coercion to `dyn It` requires `Holder<'a>: 'static` — lifetime `'a` may not live long enough (object lifetime bound)

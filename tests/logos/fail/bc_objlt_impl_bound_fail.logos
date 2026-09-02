@@ -1,0 +1,11 @@
+// `Self = P<T>` under `impl<T: Tr> P<T>` boxed into `Box<dyn Tr>`: the IMPL header's bounds are what the walk reads. The legal twin, one token apart (`T: Tr` -> `T: Tr + 'static` on the impl), is bc_objlt_impl_bound.
+package bc_objlt_impl_bound_fail;
+trait Tr { fn m(self: &Self) -> i64; }
+struct P<T> { v: T }
+impl<T: Tr> Tr for P<T> { fn m(self: &Self) -> i64 { return self.v.m(); } }
+impl<T: Tr> P<T> {
+    fn into_dyn(self: Self) -> Box<dyn Tr> {
+        return Box::new(self);
+    }
+}
+fn main() -> i32 { return 0i32; }

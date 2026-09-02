@@ -1,0 +1,6 @@
+// THE LEGAL TWIN: a by-ref capture through a SHARED reference is the reborrow `&'a i64` (Rust 2021 precise capture: the place `*x` is borrowed, and a shared deref stops the supporting prefix, so the local `x` is not what is borrowed); into `+ 'a` it holds.
+package bc_objlt_closure_reborrow;
+fn f<'a>(x: &'a i64) -> Box<dyn Fn() -> i64 + 'a> {
+    return Box::new(|| { return *x; });
+}
+fn main() -> i32 { let n = 4i64; let b = f(&n); return (b() - 4i64) as i32; }

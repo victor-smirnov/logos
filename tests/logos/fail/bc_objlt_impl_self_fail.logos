@@ -1,0 +1,11 @@
+// `Self = W<'a>` inside `impl<'a> W<'a>` boxed into `Box<dyn Tr>` ('static). The legal twin, one token apart (`Box<dyn Tr>` -> `Box<dyn Tr + 'a>`), is bc_objlt_impl_self.
+package bc_objlt_impl_self_fail;
+trait Tr { fn m(self: &Self) -> i64; }
+struct W<'a> { r: &'a i64 }
+impl<'a> Tr for W<'a> { fn m(self: &Self) -> i64 { return *self.r; } }
+impl<'a> W<'a> {
+    fn into_dyn(self: Self) -> Box<dyn Tr> {
+        return Box::new(self);
+    }
+}
+fn main() -> i32 { return 0i32; }

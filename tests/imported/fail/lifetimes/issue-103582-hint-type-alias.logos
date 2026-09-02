@@ -1,0 +1,19 @@
+// rustc  — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-09-02y: the OBJECT-LIFETIME BOUND is checked at the unsize coercion (`Src: 'r` for `dyn Tr + 'r`, 'static for an unbounded owned object). Was lifereg.A.
+package issue_103582_hint_type_alias;
+// port of lifetimes/issue-103582-... — trait object returned from &self outlives the borrow
+trait Greeter0 { fn greet(&self) -> i64; }
+struct FixedGreeter<'a> { s: &'a i64 }
+impl Greeter0 for FixedGreeter<'_> { fn greet(&self) -> i64 { return *self.s; } }
+struct Greetings { v: Vec<i64> }
+impl Greetings {
+  fn get(&self, i: i64) -> Box<dyn Greeter0> { return Box::new(FixedGreeter { s: &self.v[i] }); }
+}
+fn main() -> i32 {
+  let mut vv: Vec<i64> = Vec::new();
+  let mut g: Greetings = Greetings { v: vv };
+  g.v.push(5i64);
+  if g.get(0i64).greet() != 5i64 { return 1i32; }
+  return 0i32;
+}

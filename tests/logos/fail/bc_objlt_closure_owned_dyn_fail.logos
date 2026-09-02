@@ -1,0 +1,7 @@
+// A `move` closure owning a `Box<dyn Tr + 'a>` boxed into `Box<dyn Fn() -> i64>` ('static). The legal twin, one token apart (`Box<dyn Tr + 'a>` -> `Box<dyn Tr>`), COMPILES (an owned object with no bound IS 'static) but is not a pass fixture: calling the returned closure returns a wrong value (exit 59, expected 0) — a codegen defect recorded in PROBES.md (2026-09-02y), not this rule's.
+package bc_objlt_closure_owned_dyn_fail;
+trait Tr { fn m(self: &Self) -> i64; }
+fn f<'a>(b: Box<dyn Tr + 'a>) -> Box<dyn Fn() -> i64> {
+    return Box::new(move || { return b.m(); });
+}
+fn main() -> i32 { return 0i32; }

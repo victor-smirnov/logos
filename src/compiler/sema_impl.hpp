@@ -1505,6 +1505,8 @@ private:
     // soundness gate that emits a specific diagnostic when the source's
     // pointee doesn't structurally satisfy the bound.
     void check_dyn_auto_bounds_at_coercion(lir_view::ExprRef arg, TypeRef pt);
+    void check_object_lifetime_bound(lir_view::ExprRef arg, TypeRef pt, TypeRef pdyn,
+                                     const std::function<TypeRef(TypeRef)>& peel);
 
     // If param `pt` is a trait-object (`&dyn Trait` / `&mut dyn Trait`) and
     // `arg` is a `&Concrete`/`&mut Concrete` that satisfies the trait (directly
@@ -1821,7 +1823,7 @@ private:
                                   std::vector<TypeRef> args = {},
                                   bool req_send = false,
                                   bool req_sync = false,
-                                  std::string lt = {}) {  // PROBE 2026-09-02x objltbound: the `+ 'a` object-lifetime bound rides the region slot
+                                  std::string lt = {}) {  // lt = the `+ 'a` object-lifetime bound
         LogosTypeBuilder t; t.kind = LogosType::Kind::UnsizedDyn;
         t.trait_name = std::string(tname);
         t.type_args = std::move(args);
@@ -3569,7 +3571,21 @@ private:
     // ── Scope management ─────────────────────────────────────────
 
     struct VarInfo { TypeRef type; bool is_mut = false; bool owning_dyn = false;
-                     uint32_t slot = 0; };
+                     uint32_t slot = 0;
+                     std::string closure_id; };  // set when the binding's RHS is a closure literal
+    // A closure LITERAL's captures, by closure_id (per literal — the
+    // signature-keyed closure_capture_env_ is a union and answers a different
+    // question). By-ref capture of a SHARED reference is the reborrow `&'a T`
+    // itself; any other by-ref capture is `&T` with no region (a borrow of the
+    // local). Second of the pair = the captured binding's own closure_id.
+    std::unordered_map<std::string, std::vector<std::pair<TypeRef, std::string>>> closure_caps_by_id_;
+    const VarInfo* lookup_var_info(std::string_view name) const {
+        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
+            auto f = it->vars.find(std::string(name));
+            if (f != it->vars.end()) return &f->second;
+        }
+        return nullptr;
+    }
     struct Frame {
         logos::compiler::StrMap<VarInfo> vars;  // O(1) lookup
         std::vector<std::string> var_order;              // declaration order

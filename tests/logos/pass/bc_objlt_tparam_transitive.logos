@@ -1,0 +1,7 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `'b: 'a` and `A: 'b` reach `A: 'a` transitively.
+package bc_objlt_tparam_transitive;
+trait Tr { fn m(self: &Self) -> i64; }
+fn f<'a, 'b: 'a, A: Tr + 'b>(v: A) -> Box<dyn Tr + 'a> {
+    return Box::new(v);
+}
+fn main() -> i32 { return 0i32; }

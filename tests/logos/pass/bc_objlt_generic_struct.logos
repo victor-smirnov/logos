@@ -1,0 +1,11 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `T: 'static` discharges `P<T>: 'static`.
+package bc_objlt_generic_struct;
+trait Tr { fn m(self: &Self) -> i64; }
+struct S { v: i64 }
+impl Tr for S { fn m(self: &Self) -> i64 { return self.v; } }
+struct P<T> { v: T }
+impl<T: Tr> Tr for P<T> { fn m(self: &Self) -> i64 { return self.v.m(); } }
+fn f<T: Tr + 'static>(p: P<T>) -> Box<dyn Tr> {
+    return Box::new(p);
+}
+fn main() -> i32 { let b = f(P { v: S { v: 1i64 } }); return (b.m() - 1i64) as i32; }

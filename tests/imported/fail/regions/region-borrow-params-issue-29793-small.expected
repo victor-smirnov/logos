@@ -1,0 +1,1 @@
+error [fn g]: coercion to `dyn Fn` requires `|bool| -> u64: 'static` — lifetime `'_` may not live long enough (object lifetime bound)

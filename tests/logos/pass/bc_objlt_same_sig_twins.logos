@@ -1,0 +1,6 @@
+// THE LEGAL TWIN: the legal fn alone; beside its illegal same-signature sibling (bc_objlt_same_sig_twins_fail) it must still be accepted — the sibling's captures are not its own.
+package bc_objlt_same_sig_twins;
+fn borrowed<'a>(x: &'a i64) -> Box<dyn Fn() -> i64 + 'a> {
+    return Box::new(move || { return *x; });
+}
+fn main() -> i32 { let n = 5i64; let b = borrowed(&n); return (b() - 5i64) as i32; }

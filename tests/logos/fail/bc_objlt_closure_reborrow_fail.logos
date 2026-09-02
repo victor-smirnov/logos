@@ -1,0 +1,6 @@
+// A by-ref closure reading `*x` through the ELIDED parameter `x: &i64`, boxed into a 'static object: the reborrow `&*x` has the parameter's region, not 'static. The legal twin (`x: &i64` -> `x: &'a i64`, `Box<dyn Fn() -> i64>` -> `+ 'a`) is bc_objlt_closure_reborrow.
+package bc_objlt_closure_reborrow_fail;
+fn f(x: &i64) -> Box<dyn Fn() -> i64> {
+    return Box::new(|| { return *x; });
+}
+fn main() -> i32 { return 0i32; }

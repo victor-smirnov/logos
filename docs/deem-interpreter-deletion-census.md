@@ -5058,9 +5058,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8811 -> 8825  +14
 #   NOIMPORTED   4468 -> 4464   -4
 #   TIERCOMMIT    264 ->  246  -18
-REGISTRY-ALL         8867
-REGISTRY-NOIMPORTED  4492
-REGISTRY-TIERCOMMIT  233
+# 2026-09-02y — the object-lifetime-bound block: 19 admit rows -> imported fail
+#   (18 closed + 1 collision port), +1 admit variant (--bounded), +16 native
+#   fail + +18 native pass bc_objlt_* twins. ALL +35 (+34 native, -19 admit,
+#   +19 imported fail, +1 admit); NOIMPORTED +16 (+34 -19 +1); TIERCOMMIT -18
+#   (the admit tests). Predicted before the pin was read.
+#   ALL          8867 -> 8902  +35
+#   NOIMPORTED   4492 -> 4508  +16
+#   TIERCOMMIT    233 ->  215  -18
+REGISTRY-ALL         8902
+REGISTRY-NOIMPORTED  4508
+REGISTRY-TIERCOMMIT  215
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

@@ -1,0 +1,1 @@
+error [fn static_proc]: coercion to `dyn FnMut` requires `|| -> i64: 'static` — lifetime `'%1` may not live long enough (object lifetime bound)

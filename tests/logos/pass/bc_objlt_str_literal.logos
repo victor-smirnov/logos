@@ -1,0 +1,7 @@
+// THE LEGAL TWIN: a string literal's type carries 'static, so the closure owning it is 'static.
+package bc_objlt_str_literal;
+fn f() -> Box<dyn Fn() -> i64> {
+    let s = "abc";
+    return Box::new(move || { return s.len() as i64; });
+}
+fn main() -> i32 { let b = f(); return (b() - 3i64) as i32; }

@@ -1,0 +1,1 @@
+error [fn no_region]: coercion to `dyn Debugg` requires `T: 'a` — lifetime `T (no bound reaching 'a)` may not live long enough (object lifetime bound)

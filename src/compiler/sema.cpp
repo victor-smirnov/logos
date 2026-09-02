@@ -1044,6 +1044,7 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
         return t.elem == r.elem();
     case K::UnsizedDyn:
         return t.trait_name == r.trait_name() &&
+               t.lifetime == r.lifetime() &&   // THE REGION SLOT (`+ 'a`, 2026-09-02y)
                vec_ptr_eq(t.type_args, r.type_args());
     case K::DstRef:
         return t.struct_name == r.struct_name() &&
@@ -1058,8 +1059,15 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
                vec_ptr_eq(t.closure_params, r.closure_params()) &&
                t.closure_ret == r.closure_ret();
     case K::Closure:
+        // A `dyn Fn(..)` object type is Kind::Closure too: its family name,
+        // owning kind and region slot are identity (2026-09-02y); a literal's
+        // type carries none of the three. compute_type_uid omits all three, so
+        // the two stay types_equal — pool entries only, as for Slice.
         return vec_ptr_eq(t.closure_params, r.closure_params()) &&
-               t.closure_ret == r.closure_ret();
+               t.closure_ret == r.closure_ret() &&
+               t.trait_name == r.trait_name() &&
+               t.const_val == r.const_val() &&
+               t.lifetime == r.lifetime();
     case K::FnItem:
         // logos-core 1.4: FnItem equality = same fn (struct_name) + same
         // type-args + same signature. Two distinct fns with the same FnPtr
@@ -6456,7 +6464,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (!changed) return t;
         return make_unsized_dyn_type(t.trait_name(), std::move(new_args),
                                      t.trait_requires_send(), t.trait_requires_sync(),
-                                     std::string(t.lifetime()));  // PROBE 2026-09-02x objltbound
+                                     std::string(t.lifetime()));
     }
     case LogosType::Kind::DstRef: {
         // Phase 1B-15: substitute type-args.
@@ -6512,6 +6520,11 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         nt.kind = t.kind();  // preserve Closure vs FnPtr vs FnItem
         nt.closure_params = std::move(new_params);
         nt.closure_ret = new_ret;
+        if (t.kind() == LogosType::Kind::Closure) {   // a `dyn Fn(..)` object keeps its family / owning kind / slot
+            nt.trait_name = std::string(t.trait_name());
+            nt.const_val = t.const_val();
+            nt.lifetime = std::string(t.lifetime());
+        }
         // logos-core 1.4: FnItem identity rides in struct_name + type_args;
         // preserve both across substitution.
         if (t.kind() == LogosType::Kind::FnItem) {
@@ -7385,11 +7398,10 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                     TypeRef ti(inner);
                     // type_args() is a fresh vector per call — materialise once.
                     std::vector<TypeRef> targs = ti.type_args();
-                    logos::probe::census(std::string(ti.lifetime()).empty() ? "objlt.boxcollapse.noslot" : "objlt.boxcollapse.slot");
                     return make_trait_object(ti.trait_name(), std::move(targs), sp_kind,
                                              /*req_send=*/ti.trait_requires_send(),
                                              /*req_sync=*/ti.trait_requires_sync(),
-                                             std::string(ti.lifetime()));  // PROBE 2026-09-02x objltbound
+                                             std::string(ti.lifetime()));
                 }
                 // `Box<[T]>` (and Rc/Arc<[T]>) — heap unsized slice. Collapse to
                 // an OWNING fat slice {data,len}: same layout as `&[T]`, move-only,
@@ -8136,7 +8148,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             t.closure_ret = node.has_key(la::RET_TYPE)
                 ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
                 : void_t();
-            {   // PROBE 2026-09-02x objltclos — `dyn Fn(..)` is Kind::Closure; mark the dyn object type (+ its `+ 'a`) in the region slot. PROBES.md.
+            {   // `dyn Fn(..)` object: family name in trait_name, owning kind in const_val, `&'a` / `+ 'a` in the region slot
                 std::string fl;
                 if (node.has_key(la::ITEMS)) {
                     auto fitems = arr_of(node.get(la::ITEMS.code));
@@ -8146,19 +8158,14 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                             fl = std::string(str_of(fit.get(la::NAME.code)));
                     }
                 }
-                const bool fn_is_ref_ = node.has_key(la::IS_REF) && !node.get(la::IS_REF.code).is_null() &&
-                                        node.get(la::IS_REF.code).as_value<int32_t>() != 0;
-                std::string fn_prefix_lt_;
+                const bool fn_is_ref = node.has_key(la::IS_REF) && !node.get(la::IS_REF.code).is_null() &&
+                                       node.get(la::IS_REF.code).as_value<int32_t>() != 0;
+                std::string fn_prefix_lt;
                 if (node.has_key(la::LIFETIME) && !node.get(la::LIFETIME.code).is_null())
-                    fn_prefix_lt_ = std::string(str_of(node.get(la::LIFETIME.code)));
-                logos::probe::census(fn_is_ref_ ? (fn_prefix_lt_.empty() ? "objlt.fnfamily.ref.elided" : "objlt.fnfamily.ref.named")
-                                                : "objlt.fnfamily.owned");
-                logos::probe::census(fl.empty() ? "objlt.fnfamily.nobound" : "objlt.fnfamily.plusbound");
-                if (logos::probe::on("objltclos") || logos::probe::on("objltpw") || logos::probe::on("objltall")) {
-                    const bool carry_ = logos::probe::on("objltbound") || logos::probe::on("objltall");
-                    if (fn_is_ref_) t.lifetime = (!fn_prefix_lt_.empty() && carry_) ? fn_prefix_lt_ : std::string("'dynref");
-                    else            t.lifetime = (!fl.empty() && carry_) ? fl : std::string("'dyn");
-                }
+                    fn_prefix_lt = std::string(str_of(node.get(la::LIFETIME.code)));
+                t.trait_name = tname;
+                if (!fn_is_ref) t.const_val = int64_t(uint8_t(TraitOwningKind::Box));
+                t.lifetime = fn_is_ref ? fn_prefix_lt : fl;
             }
             return pool_->alloc(std::move(t));
         }
@@ -8184,7 +8191,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // lifetime bound is recorded for future §2.1 region_infer wiring.
         std::vector<TypeRef> args;
         bool req_send = false, req_sync = false;
-        std::string plus_lt;  // PROBE 2026-09-02x objltbound — the `+ 'a` object-lifetime bound. PROBES.md.
+        std::string plus_lt;
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
@@ -8206,7 +8213,6 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                     continue;
                 }
                 if (ic == la::AUTO_LIFE_BOUND.code) {
-                    logos::probe::census("objlt.plusbound.seen");
                     if (item.has_key(la::NAME)) plus_lt = std::string(str_of(item.get(la::NAME.code)));
                     continue;
                 }
@@ -8221,12 +8227,8 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // context, behaviour is unchanged (legacy: bare `dyn Trait` and
         // `&dyn Trait` both produce TraitObject; downstream sema rejects
         // bare-by-value when it matters).
-        if (unsized_ok_) {
-            if (!plus_lt.empty()) logos::probe::census("objlt.plusbound.unsizedpath");
-            return make_unsized_dyn_type(tname, std::move(args), req_send, req_sync,
-                                         (logos::probe::on("objltbound") || logos::probe::on("objltall"))
-                                             ? plus_lt : std::string{});
-        }
+        if (unsized_ok_)
+            return make_unsized_dyn_type(tname, std::move(args), req_send, req_sync, plus_lt);
         // P2-15: forming a `&dyn Trait` fat trait object requires Trait to be
         // object-safe (dyn-compatible). A non-object-safe method has no vtable
         // slot → dispatch would crash; reject at the type-resolution point.
@@ -8244,10 +8246,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             dlt = std::string(str_of(node.get(la::LIFETIME.code)));
         logos::probe::census(dlt.empty() ? "regslot.dyntype.elided"
                                          : "regslot.dyntype.written");
-        if (!plus_lt.empty() && !dlt.empty()) logos::probe::census("objlt.plusbound.withprefix");
-        if (dlt.empty() && !plus_lt.empty() &&
-            (logos::probe::on("objltbound") || logos::probe::on("objltall")))
-            dlt = plus_lt;
+        if (dlt.empty()) dlt = plus_lt;
         return make_trait_object(tname, std::move(args),
                                  TraitOwningKind::Borrow,
                                  req_send, req_sync,

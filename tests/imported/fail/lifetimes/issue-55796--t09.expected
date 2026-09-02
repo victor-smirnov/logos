@@ -1,0 +1,1 @@
+error [fn G__out_neighbors]: coercion to `dyn It` requires `Holder<'a>: 'static` — lifetime `'a` may not live long enough (object lifetime bound)

@@ -1,0 +1,11 @@
+// The PlaceWrite position: a closure borrowing a block-local assigned into an outer `Box<dyn Fn() -> u64>` binding. The legal twin, one token apart (`|| -> u64 { return *r; }` -> a closure with no capture), is bc_objlt_placewrite.
+package bc_objlt_placewrite_fail;
+fn main() -> i32 {
+    let b: Box<dyn Fn() -> u64>;
+    {
+        let f: u64 = 7u64;
+        let r: &u64 = &f;
+        b = Box::new(|| -> u64 { return *r; });
+    }
+    return (b() - 7u64) as i32;
+}

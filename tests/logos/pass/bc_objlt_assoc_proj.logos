@@ -1,0 +1,9 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `T: 'static` reaches the projection.
+package bc_objlt_assoc_proj;
+trait X { fn n(self: &Self) -> i64; }
+trait Iter { type Item: X; fn into_item(self: Self) -> Self::Item; }
+fn good<T: Iter + 'static>(v: T) -> Box<dyn X> {
+    let item = v.into_item();
+    return Box::new(item);
+}
+fn main() -> i32 { return 0i32; }

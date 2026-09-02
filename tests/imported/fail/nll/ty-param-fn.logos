@@ -1,0 +1,8 @@
+// rustc nll/ty-outlives/ty-param-fn.rs — upstream the parameter type `T` may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-09-02y: the OBJECT-LIFETIME BOUND is checked at the unsize coercion (`Src: 'r` for `dyn Tr + 'r`, 'static for an unbounded owned object). Was nllmoves.NEW-N2.
+// port of nll/ty-outlives/ty-param-fn.rs no_region
+package ty_param_fn;
+trait Debugg { fn d(self: &Self) -> i64; }
+fn no_region<'a, T>(x: Box<T>) -> Box<dyn Debugg + 'a> where T: Debugg { return x; }
+fn main() -> i32 { return 0i32; }

@@ -1,1 +1,1 @@
-cannot return reference to local variable 'local': dangling reference
+error [fn erase]: coercion to `dyn X` requires `T: 'static` — lifetime `T (no bound reaching 'static)` may not live long enough (object lifetime bound)

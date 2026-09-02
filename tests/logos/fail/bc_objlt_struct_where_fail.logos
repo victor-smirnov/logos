@@ -1,0 +1,9 @@
+// `W<'b>` into `Box<dyn Tr + 'a>` under `where 'a: 'b` — the wrong direction. The legal twin, one token apart (`'a: 'b` -> `'b: 'a`), is bc_objlt_struct_where.
+package bc_objlt_struct_where_fail;
+trait Tr { fn m(self: &Self) -> i64; }
+struct W<'a> { r: &'a i64 }
+impl<'a> Tr for W<'a> { fn m(self: &Self) -> i64 { return *self.r; } }
+fn f<'a, 'b>(w: W<'b>) -> Box<dyn Tr + 'a> where 'a: 'b {
+    return Box::new(w);
+}
+fn main() -> i32 { return 0i32; }

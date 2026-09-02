@@ -1,0 +1,11 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the impl header's `T: 'static` discharges the object bound on Self.
+package bc_objlt_impl_bound;
+trait Tr { fn m(self: &Self) -> i64; }
+struct P<T> { v: T }
+impl<T: Tr> Tr for P<T> { fn m(self: &Self) -> i64 { return self.v.m(); } }
+impl<T: Tr + 'static> P<T> {
+    fn into_dyn(self: Self) -> Box<dyn Tr> {
+        return Box::new(self);
+    }
+}
+fn main() -> i32 { return 0i32; }

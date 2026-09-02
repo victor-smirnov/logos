@@ -1,15 +1,18 @@
 // PAIR 3 of 3, root lifereg.L5 — the LEGAL twin, one token from
 // fail/bc_tmcb_erased_call_local: the Holder borrows the PARAMETER `q`, which
 // outlives the returned box, instead of the local.
+// 2026-09-02y: `erase<'a, T: X + 'a> -> Box<dyn X + 'a>` and `Box<dyn X + '_>` — as first written
+// (`Box<dyn X>`, 'static) this twin was E0310 in Rust, not legal, and is refused since the
+// object-lifetime bound is checked.
 package bc_tmcb_erased_call_param_twin;
 
 trait X { fn foo(self: &Self) -> i64; }
 struct Holder<'a> { r: &'a i64 }
 impl<'a> X for Holder<'a> { fn foo(self: &Self) -> i64 { return *self.r; } }
 
-fn erase<T: X>(v: T) -> Box<dyn X> { return Box::new(v); }
+fn erase<'a, T: X + 'a>(v: T) -> Box<dyn X + 'a> { return Box::new(v); }
 
-fn make(q: &i64) -> Box<dyn X> {
+fn make(q: &i64) -> Box<dyn X + '_> {
     let local = 8i64;
     let h = Holder { r: q };
     return erase(h);

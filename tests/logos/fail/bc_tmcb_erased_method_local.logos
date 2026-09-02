@@ -3,16 +3,18 @@
 // `type_may_carry_borrow` about the RESULT, which said NO for an erased type,
 // so `b` was tied to nothing. ONE TOKEN from
 // pass/bc_tmcb_erased_method_outlives_twin: the `}` closing `g`'s scope moves.
+// 2026-09-02y: the objects carry `+ 'a` / `+ '_` so the object-lifetime bound is discharged and
+// the E0597 guard below stays the one that fires.
 package bc_tmcb_erased_method_local;
 
 trait It { fn get(self: &Self) -> i64; }
 struct Holder<'a> { r: &'a i64 }
 impl<'a> It for Holder<'a> { fn get(self: &Self) -> i64 { return *self.r; } }
 struct G { v: i64 }
-impl G { fn nb<'a>(self: &'a Self) -> Box<dyn It> { return Box::new(Holder { r: &self.v }); } }
+impl G { fn nb<'a>(self: &'a Self) -> Box<dyn It + 'a> { return Box::new(Holder { r: &self.v }); } }
 
 fn main() -> i32 {
-    let mut b: Box<dyn It>;
+    let mut b: Box<dyn It + '_>;
     { let g = G { v: 5i64 }; b = g.nb(); }
     return (b.get() - 5i64) as i32;
 }

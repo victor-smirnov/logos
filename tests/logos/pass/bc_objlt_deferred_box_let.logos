@@ -1,0 +1,10 @@
+// The deferred generic call inside a generic body is typed with the CALLER's parameter: `Box::new(v)` with `v: A` is `Box<A>`, never Box::new's own `T`. Refused unarmed before 2026-09-02y as "expected Box<A>, got Box<T>".
+package bc_objlt_deferred_box_let;
+trait Tr { fn m(self: &Self) -> i64; }
+struct S { v: i64 }
+impl Tr for S { fn m(self: &Self) -> i64 { return self.v; } }
+fn f<A: Tr + 'static>(v: A) -> Box<dyn Tr> {
+    let b: Box<A> = Box::new(v);
+    return b;
+}
+fn main() -> i32 { let b = f(S { v: 2i64 }); return (b.m() - 2i64) as i32; }

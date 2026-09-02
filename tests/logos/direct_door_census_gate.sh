@@ -1317,9 +1317,13 @@ PIN = {
     # its values for str / slice / dyn / DST fields and in the generic path; the
     # elided region of a fat-pointer parameter minted). BY DIRECT LISTING:
     # ls tests/logos/pass/*.logos | wc -l -> 2570; the glob listing -> 191.
-    'corpus'            : 2570,
+    # 2026-09-02y: +18 / +0 / +18 — the eighteen pass/bc_objlt_* legal twins of
+    # the object-lifetime-bound block (Src: 'r at the unsize coercion; the deferred
+    # generic call typed with the caller's parameter). BY DIRECT LISTING:
+    # ls tests/logos/pass/*.logos | wc -l -> 2588; the glob listing -> 191.
+    'corpus'            : 2588,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2379,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2397,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

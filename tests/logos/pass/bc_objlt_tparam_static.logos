@@ -1,0 +1,9 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `A: 'static` discharges the object bound.
+package bc_objlt_tparam_static;
+trait Tr { fn m(self: &Self) -> i64; }
+struct S { v: i64 }
+impl Tr for S { fn m(self: &Self) -> i64 { return self.v; } }
+fn f<A: Tr + 'static>(v: A) -> Box<dyn Tr> {
+    return Box::new(v);
+}
+fn main() -> i32 { let b = f(S { v: 2i64 }); return (b.m() - 2i64) as i32; }

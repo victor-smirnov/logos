@@ -1,0 +1,6 @@
+// A `move` closure owning `x: &'a i64` boxed into `Box<dyn Fn() -> i64>` ('static). The legal twin, one token apart (`Box<dyn Fn() -> i64>` -> `+ 'a`), is bc_objlt_closure_move_ref.
+package bc_objlt_closure_move_ref_fail;
+fn f<'a>(x: &'a i64) -> Box<dyn Fn() -> i64> {
+    return Box::new(move || { return *x; });
+}
+fn main() -> i32 { return 0i32; }
