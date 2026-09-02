@@ -1,0 +1,1 @@
+call to 'drp' arg 1: variance mismatch — expected &'static i64, got &i64 — lifetime structure incompatible (check &mut invariance / contravariance rules)

@@ -5048,9 +5048,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8789 -> 8811  +22
 #   NOIMPORTED   4459 -> 4468   +9
 #   TIERCOMMIT    277 ->  264  -13
-REGISTRY-ALL         8811
-REGISTRY-NOIMPORTED  4468
-REGISTRY-TIERCOMMIT  264
+# 2026-09-02s (the 'static-slot rule: an EMPTY region is not 'static, by
+#   direction, with its facts). FOURTEEN native fixtures added — seven fail/pass
+#   PAIRS one token apart (bc_st{slot,fnptr,callelide,promote,place,reborrow,
+#   recv}_*) — and EIGHTEEN imported programs moved admit -> fail (nll/ ×17,
+#   regions/regions-addr-of-upvar-self--d-static-local). ALL nets +14 (imported
+#   +18 and admit -18 cancel); NOIMPORTED +14 -18; TIERCOMMIT -18 (the eighteen
+#   admit tests). Predicted before the pin was read.
+#   ALL          8811 -> 8825  +14
+#   NOIMPORTED   4468 -> 4464   -4
+#   TIERCOMMIT    264 ->  246  -18
+REGISTRY-ALL         8825
+REGISTRY-NOIMPORTED  4464
+REGISTRY-TIERCOMMIT  246
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

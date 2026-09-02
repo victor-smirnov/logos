@@ -1,0 +1,14 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `fn id(p: &i64) -> &i64` has one input
+// region, so its elided output is that input's — at the CALL too. `id(&K)` is
+// `&'static i64`. The fail twin passes `&x`, a local.
+package bc_stcallelide_static_arg_elided_ret;
+
+static K: i64 = 7i64;
+
+fn id(p: &i64) -> &i64 { return p; }
+
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let y: &'static i64 = id(&K);
+    return *y as i32 + x as i32 - 8i32;
+}

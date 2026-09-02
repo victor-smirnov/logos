@@ -1,0 +1,12 @@
+// `takes(&x)` into a `&'static i64` parameter: a body borrow, no region name,
+// not 'static (rustc E0597). ONE TOKEN from
+// pass/bc_stpromote_literal_into_static_arg: `&x` vs `&5i64`.
+package bc_stpromote_local_into_static_arg_fail;
+
+fn takes(p: &'static i64) -> i64 { return *p; }
+
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let a: i64 = takes(&x);
+    return a as i32 + x as i32 - 10i32;
+}

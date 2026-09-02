@@ -1,0 +1,11 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the initializer borrows a `static` item,
+// and `&STATIC` IS 'static. The fail twin borrows the local `x` instead.
+package bc_stslot_static_item_into_static_let;
+
+static K: u32 = 5u32;
+
+fn main() -> i32 {
+    let x: u32 = 5u32;
+    let y: &'static u32 = &K;
+    return *y as i32 + x as i32 - 10i32;
+}

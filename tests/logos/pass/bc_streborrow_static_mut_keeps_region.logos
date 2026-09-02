@@ -1,0 +1,18 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `&mut G` of a `static mut` IS 'static, and
+// the implicit reborrow of `q` at the call argument keeps q's region. The
+// fail twin borrows the local `x`.
+package bc_streborrow_static_mut_keeps_region;
+
+static mut G: i64 = 0i64;
+
+fn w(p: &'static mut i64) { *p = 3i64; }
+
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    unsafe {
+        let q = &mut G;
+        w(q);
+        x = G;
+    }
+    return x as i32 - 3i32;
+}

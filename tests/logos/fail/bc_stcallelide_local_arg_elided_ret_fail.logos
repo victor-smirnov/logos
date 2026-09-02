@@ -1,0 +1,14 @@
+// ELISION AT THE CALL: `id(&x)` returns a borrow with `&x`'s region, which has
+// no name, and an EMPTY region is not 'static (rustc E0597). ONE TOKEN from
+// pass/bc_stcallelide_static_arg_elided_ret: `&x` vs `&K`.
+package bc_stcallelide_local_arg_elided_ret_fail;
+
+static K: i64 = 7i64;
+
+fn id(p: &i64) -> &i64 { return p; }
+
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let y: &'static i64 = id(&x);
+    return *y as i32 + K as i32 - 8i32;
+}

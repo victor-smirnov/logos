@@ -79,18 +79,13 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
             return true;
         if (x.empty() || y.empty()) {
             (void)logos::probe::on("lteqempty_site");
-            // PROBE stland (2026-09-02): by DIRECTION — x is the SUB side.
-            if (x.empty() && outlives_is_static(y) && st_land() && !st_land_yield()) {
+            // LANDED 2026-09-02s: an EMPTY sub region is not 'static. By
+            // DIRECTION — x is the sub side; the FnPtr arm below passes
+            // (sup, sub) for a parameter position, so contravariance holds.
+            // The return sites yield to borrow_check's 'static-return rule.
+            if (x.empty() && outlives_is_static(y) && !lt_static_yield()) {
                 logos::probe::census("stland.lteq");
                 return false;
-            }
-            // PROBE st* (2026-09-01p): a 'static slot fed from an EMPTY region.
-            if (x.empty() != y.empty() && outlives_is_static(x.empty() ? y : x)) {
-                logos::probe::census("st.lteq.static_vs_empty");
-                if (logos::probe::on("steqempty") || logos::probe::on("steqaddr") ||
-                    logos::probe::on("stcallarg") || logos::probe::on("stnoderef") ||
-                    logos::probe::on("stwhole"))
-                    return false;
             }
             if (x.empty() && y.empty() && logos::probe::on("lteqbothempty"))
                 return false;
@@ -164,14 +159,16 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
             auto ap = a.closure_params();
             auto bp = b.closure_params();
             if (ap.size() != bp.size()) return false;
-            // PROBE stland: a parameter position is CONTRA — the directional
-            // arm of `lt_eq` must see (sup, sub) there.
-            const bool st_flip = st_land();
-            if (st_flip) logos::probe::census("stland.fnptr.flip");
+            // A parameter position is CONTRA — the directional arm of
+            // `lt_eq` must see (sup, sub) there.
             for (size_t i = 0; i < ap.size(); ++i)
-                if (st_flip ? !types_equal_with_lifetimes(bp[i], ap[i], adj, permissive_minted)
-                            : !types_equal_with_lifetimes(ap[i], bp[i], adj, permissive_minted)) return false;
-            return types_equal_with_lifetimes(a.closure_ret(), b.closure_ret(), adj, permissive_minted);
+                if (!types_equal_with_lifetimes(bp[i], ap[i], adj, permissive_minted)) return false;
+            // An elided OUTPUT region of a fn-pointer type is a binder.
+            const bool saved_yield = lt_static_yield();
+            lt_static_yield() = true;
+            const bool ret_ok = types_equal_with_lifetimes(a.closure_ret(), b.closure_ret(), adj, permissive_minted);
+            lt_static_yield() = saved_yield;
+            return ret_ok;
         }
         case K::Struct:
         case K::ZonedStruct:
@@ -367,8 +364,7 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             auto pl = sup.lifetime_args();
             if (sl.empty() && !pl.empty()) {
                 logos::probe::census("st.struct.bare_vs_args");
-                if (logos::probe::on("stbareargs") || logos::probe::on("stnoderef") ||
-                    logos::probe::on("stwhole"))
+                if (logos::probe::on("stbareargs"))
                     sl.assign(pl.size(), std::string{});
                 // PROBE stlandbare: only where the sup names 'static.
                 if (logos::probe::on("stlandbare"))
@@ -402,8 +398,7 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             auto pl = sup.lifetime_args();
             if (sl.empty() && !pl.empty()) {
                 logos::probe::census("st.enum.bare_vs_args");
-                if (logos::probe::on("stbareargs") || logos::probe::on("stnoderef") ||
-                    logos::probe::on("stwhole"))
+                if (logos::probe::on("stbareargs"))
                     sl.assign(pl.size(), std::string{});
                 // PROBE stlandbare: only where the sup names 'static.
                 if (logos::probe::on("stlandbare"))

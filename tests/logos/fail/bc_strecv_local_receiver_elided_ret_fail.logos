@@ -1,0 +1,16 @@
+// `s.get()` on a LOCAL receiver into a `&'static` let: the auto-ref of `s`
+// has no region name, and the method's elided return is the receiver's
+// (rustc E0597). ONE TOKEN from pass/bc_strecv_static_receiver_elided_ret:
+// `s` vs `S0`.
+package bc_strecv_local_receiver_elided_ret_fail;
+
+struct S { n: i64 }
+impl S { fn get(&self) -> &i64 { return &self.n; } }
+
+static S0: S = S { n: 7i64 };
+
+fn main() -> i32 {
+    let s: S = S { n: 1i64 };
+    let y: &'static i64 = s.get();
+    return *y as i32 + S0.n as i32 - 8i32;
+}

@@ -1,0 +1,13 @@
+// A BODY BORROW INTO A `&'static` SLOT: `&x` has no region name — only
+// signature regions are minted — and an EMPTY region is not 'static
+// (rustc E0597). ONE TOKEN from pass/bc_stslot_static_item_into_static_let:
+// `&x` vs `&K`.
+package bc_stslot_local_into_static_let_fail;
+
+static K: u32 = 5u32;
+
+fn main() -> i32 {
+    let x: u32 = 5u32;
+    let y: &'static u32 = &x;
+    return *y as i32 + K as i32 - 10i32;
+}

@@ -1151,7 +1151,31 @@
 # in-assoc-type-1 / -5 / -6 (no assoc type mentions the binder, so rustc's E0207
 # does not fire). Walled by five pass fixtures declaring unused lifetime params:
 # issue-64173-unused-lifetimes, region-bounds-on-objects-and-type-parameters (E0392).
-# TOTAL 215
+# 2026-09-02s — 215 -> 197, EIGHTEEN `'static`-SLOT ROWS over ten roots (nllmoves.B ×2,
+# NEW-N2 ×3, NEW-L1 ×3, NEW-1 ×2, NEW-N1 ×3, R17 ×2, NEW-S7-1, A, lifereg.NEW-R20).
+# ONE door: `lt_eq` read an EMPTY sub region as a wildcard, so a body borrow
+# `&x` (no name — only signature regions are minted) was "equal" to a `&'static`
+# slot and `outlives_is_static` was never asked. Landed by DIRECTION (sub empty
+# vs sup 'static; the fn-pointer parameter position is contravariant and flips),
+# yielding at the two RETURN sites to borrow_check's own 'static-return rule and
+# at a fn-pointer OUTPUT position (an elided region there is a binder), with the
+# facts the arm needs: `&STATIC` / `&mut STATIC` are 'static, an implicit `&mut`
+# call-arg reborrow keeps the reference's region, a place under a static is
+# 'static (`&ARR[i]`, `&S.f`, a static receiver's auto-ref), `&<literal>` is a
+# promoted constant, and an ELIDED call return takes the single input region /
+# self's at the CALL. Every closed row's diagnostic names the 'static slot and the
+# elided source at the right site (let / call arg / struct literal / fn-ptr call).
+# NOT closed, by design: issue-42574--t15 (a captured `&'static mut` reborrowed
+# inside a NON-move closure has the closure's region — E0521; it had closed by
+# COLLISION with its legal move twin), pattern-substs-on-brace-struct and
+# do-not-ignore-…-proj--b (a BARE literal against `S<'static>` — D, not landed),
+# adt-tuple-enums--t33 / constructor-lifetime-early-binding-error / better-blame /
+# issue-69114-static-mut-ty (no variance site on their path; see PROBES.md).
+# OWNER: pass/zone_mut_thin_source_admits_generic asserts `fn pass(&mut self, r:
+# &mut T) -> &mut T { &mut *r }`, which rustc refuses; the `&mut *p` twin of the
+# landed `&*p` region fact is therefore NOT landed, and `let r: &'static mut T =
+# &mut *q` (q 'static) is a recorded legal refusal.
+# TOTAL 197
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1268,23 +1292,14 @@ issue-99470-move-out-of-some nllmoves.B tests/imported/admit/moves/issue-99470-m
 move-of-addr-of-mut nllmoves.R5 tests/imported/admit/moves/move-of-addr-of-mut
 
 # ── tests/ui/nll ─────────────────────────────────────────
-adt-brace-enums nllmoves.B tests/imported/admit/nll/adt-brace-enums
-adt-brace-structs nllmoves.NEW-N2 tests/imported/admit/nll/adt-brace-structs
-adt-tuple-enums--ctl nllmoves.NEW-L1 tests/imported/admit/nll/adt-tuple-enums--ctl
 adt-tuple-enums--t33 nllmoves.NEW-L1 tests/imported/admit/nll/adt-tuple-enums--t33
-adt-tuple-struct-calls nllmoves.NEW-1 tests/imported/admit/nll/adt-tuple-struct-calls
-adt-tuple-struct nllmoves.NEW-S7-1 tests/imported/admit/nll/adt-tuple-struct
 borrowed-temporary-error--t08 nllmoves.D tests/imported/admit/nll/borrowed-temporary-error--t08
 capture-ref-in-struct--ctl nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--ctl
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
-cast-static-lifetime nllmoves.R17 tests/imported/admit/nll/cast-static-lifetime
-constant-in-expr-inherent-2--static-param nllmoves.NEW-N1 tests/imported/admit/nll/constant-in-expr-inherent-2--static-param
 do-not-ignore-lifetime-bounds-in-copy-proj--b nllmoves.NEW-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy-proj--b
-do-not-ignore-lifetime-bounds-in-copy-proj--ctl nllmoves.NEW-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy-proj--ctl
 do-not-ignore-lifetime-bounds-in-copy nllmoves.NEW-S7-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy
 enum-drop-access nllmoves.E tests/imported/admit/nll/enum-drop-access
 escape-argument--t09 nllmoves.C tests/imported/admit/nll/escape-argument--t09
-fns nllmoves.NEW-N2 tests/imported/admit/nll/fns
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
 issue-27282-move-match-input-into-guard nllmoves.R11 tests/imported/admit/nll/issue-27282-move-match-input-into-guard
 issue-27868 nllmoves.R11 tests/imported/admit/nll/issue-27868
@@ -1294,7 +1309,6 @@ issue-40510-1 nllmoves.C tests/imported/admit/nll/issue-40510-1
 issue-40510-3 nllmoves.C tests/imported/admit/nll/issue-40510-3
 issue-42574-diagnostic-in-nested-closure--b nllmoves.C tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--b
 issue-42574-diagnostic-in-nested-closure--t15 nllmoves.C tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--t15
-issue-46036 nllmoves.B tests/imported/admit/nll/issue-46036
 issue-48697--t16 nllmoves.C tests/imported/admit/nll/issue-48697--t16
 issue-51268 nllmoves.C tests/imported/admit/nll/issue-51268
 issue-52059-report-when-borrow-and-drop-conflict nllmoves.E tests/imported/admit/nll/issue-52059-report-when-borrow-and-drop-conflict
@@ -1311,28 +1325,21 @@ issue-69114-static-mut-ty nllmoves.R1 tests/imported/admit/nll/issue-69114-stati
 issue-98170 nllmoves.R13 tests/imported/admit/nll/issue-98170
 lending-iterator-sanity-checks nllmoves.R2 tests/imported/admit/nll/lending-iterator-sanity-checks
 match-guards-always-borrow nllmoves.B tests/imported/admit/nll/match-guards-always-borrow
-method-ufcs-3 nllmoves.NEW-N2 tests/imported/admit/nll/method-ufcs-3
 method-ufcs-inherent-3 nllmoves.NEW-1 tests/imported/admit/nll/method-ufcs-inherent-3
 method-ufcs-inherent-4 nllmoves.NEW-S7-1 tests/imported/admit/nll/method-ufcs-inherent-4
 move-errors--d nllmoves.B tests/imported/admit/nll/move-errors--d
-normalization nllmoves.NEW-N1 tests/imported/admit/nll/normalization
-pattern-substs-on-brace-enum-variant nllmoves.NEW-L1 tests/imported/admit/nll/pattern-substs-on-brace-enum-variant
 pattern-substs-on-brace-struct nllmoves.NEW-1 tests/imported/admit/nll/pattern-substs-on-brace-struct
-patterns nllmoves.R17 tests/imported/admit/nll/patterns
 projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/nll/projection-two-region-trait-bound-closure
 projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
 projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c
-promoted-annotation nllmoves.A tests/imported/admit/nll/promoted-annotation
 propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/nll/propagate-fail-to-approximate-longer-no-bounds
 propagate-multiple-requirements nllmoves.A tests/imported/admit/nll/propagate-multiple-requirements
 return-wrong-bound-region nllmoves.C tests/imported/admit/nll/return-wrong-bound-region
 sugg-mut-for-binding-issue-137486 nllmoves.D tests/imported/admit/nll/sugg-mut-for-binding-issue-137486
 trait-associated-constant nllmoves.R18 tests/imported/admit/nll/trait-associated-constant
 ty-param-fn nllmoves.NEW-N2 tests/imported/admit/nll/ty-param-fn
-type-ascription-static-lifetime nllmoves.NEW-N1 tests/imported/admit/nll/type-ascription-static-lifetime
 type-check-pointer-coercions nllmoves.R14 tests/imported/admit/nll/type-check-pointer-coercions
 type-check-pointer-comparisons nllmoves.R2 tests/imported/admit/nll/type-check-pointer-comparisons
-universe-violation nllmoves.NEW-L1 tests/imported/admit/nll/universe-violation
 var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
 wf-unreachable nllmoves.NEW-N1 tests/imported/admit/nll/wf-unreachable
 
@@ -1348,7 +1355,6 @@ region-borrow-params-issue-29793-big lifereg.C tests/imported/admit/regions/regi
 region-borrow-params-issue-29793-small lifereg.C tests/imported/admit/regions/region-borrow-params-issue-29793-small
 region-bounds-on-objects-and-type-parameters lifereg.NEW-N4 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
 region-object-lifetime-in-coercion lifereg.A tests/imported/admit/regions/region-object-lifetime-in-coercion
-regions-addr-of-upvar-self--d-static-local lifereg.NEW-R20 tests/imported/admit/regions/regions-addr-of-upvar-self--d-static-local
 regions-adjusted-lvalue-op--c26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--c26
 regions-adjusted-lvalue-op--t26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26
 regions-assoc-type-in-supertrait-outlives-container lifereg.L6 tests/imported/admit/regions/regions-assoc-type-in-supertrait-outlives-container

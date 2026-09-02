@@ -1,0 +1,12 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `&5i64` is a promoted constant and its
+// region is 'static (Rust `destructors.scope.const-promotion`). The fail twin
+// borrows the local `x`.
+package bc_stpromote_literal_into_static_arg;
+
+fn takes(p: &'static i64) -> i64 { return *p; }
+
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let a: i64 = takes(&5i64);
+    return a as i32 + x as i32 - 10i32;
+}

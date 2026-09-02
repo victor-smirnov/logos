@@ -1,0 +1,16 @@
+// A `fn(&'static i64) -> &'static i64` pointer into a `fn(&i64) -> &i64` slot:
+// the PARAMETER position is contravariant, so the slot's binder (`for<'a>`,
+// EMPTY here) is the sub side against the pointer's 'static — not equal
+// (rustc E0308 "one type is more general than the other"). ONE TOKEN from
+// pass/bc_stfnptr_elided_output_is_binder: the two annotations are swapped.
+package bc_stfnptr_static_param_into_elided_fail;
+
+static K: i64 = 7i64;
+
+fn ids(p: &'static i64) -> &'static i64 { return p; }
+
+fn main() -> i32 {
+    let a: fn(&'static i64) -> &'static i64 = ids;
+    let b: fn(&i64) -> &i64 = a;
+    return *b(&K) as i32 - 7i32;
+}

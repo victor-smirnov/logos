@@ -1,0 +1,15 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `fn(&i64) -> &i64` is `for<'a>`; its
+// elided OUTPUT is a binder and instantiates at 'static, so the pointer flows
+// into a `fn(&'static i64) -> &'static i64` slot. The fail twin flows the
+// other way: the PARAMETER position is contravariant (rustc E0308).
+package bc_stfnptr_elided_output_is_binder;
+
+static K: i64 = 7i64;
+
+fn id(p: &i64) -> &i64 { return p; }
+
+fn main() -> i32 {
+    let a: fn(&i64) -> &i64 = id;
+    let b: fn(&'static i64) -> &'static i64 = a;
+    return *b(&K) as i32 - 7i32;
+}

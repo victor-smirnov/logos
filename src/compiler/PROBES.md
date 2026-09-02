@@ -15509,3 +15509,188 @@ var-matching kept) · the 19+2 owner-walled 'static rows · nllmoves.B 9 ·
 E0207 ×3 LEGAL as ported (owner: retire or re-port with the assoc type) ·
 E0392 ×2 walled by five pass fixtures (owner) · regions-in-structs-anon /
 regions-in-enums-anon (design, 146 + 22 legal sites).
+
+# ═══ ROUND 2026-09-02s — THE `'static`-SLOT RULE LANDED: AN EMPTY REGION IS NOT
+# `'static`, BY DIRECTION, WITH ITS FACTS. 18 ROWS, 215 -> 197, COST 0 / 1 RE-PIN
+# (+2 TEXT RE-PINS) / STDLIB OK. ONE OWNER FIXTURE KEEPS THE `&mut *p` FACT OUT ═══
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE) AND THE BRIEF'S CORRECTIONS
+
+    live probe names 156 · ledger # TOTAL 215 (215 by listing) · HEAD 8a37797f0 =
+    origin/main, clean · unarmed binary 532909be228ea54e (build_hash.py), gate-db
+    build 485 · top roots bck.C 16 · nllmoves.C 10 · bck.B 10 · nllmoves.B 9 ·
+    lifereg.R18 8 · bck.NEW 8 · lifereg.NEW-N1 7 · N1 7 · C 7.
+The phase-1 report was accurate: stland installed (outlives.hpp `st_land()`),
+the five owner fixtures repaired in 8a37797f0. Baseline gate-run: admits
+1343 recorded / 0 failed (build 485, from the store); `-L bc` 1178 / 0, rc 0.
+
+## 1. RE-PRICE (rule 8) — `ceiling-probe.sh stland` on 532909be, gate-db 485 -> 486
+
+    fires 771 · CEILING 19 (the 09-02p 24 minus the 3 stfacts closed minus the
+    2 walled by D) · COST pass 0 · cfail 7 of 1178 (rc 0, .expected LOST 7, text
+    0) · stdlib ok. The 19 by name = build/predictions-2026-09-02s.txt's 18 +
+    issue-42574--t15. The 7 cfail: bc_capretsc_closure_static_contract,
+    check-normalized-sig-for-wf, closure-substs, issue-58053, mir-check-cast-
+    unsafe-fn, promoted-closure-pair (all six: the RETURN-site variance sentence
+    now precedes bc's `return type has lifetime 'static but 'x' has lifetime
+    (elided)` / `cannot return reference to local variable`) and
+    regions-addr-of-arg (a LET site: `let _p: &'static i64 = &a` in `fn foo`,
+    upstream E0597 — the arm's refusal IS the upstream one).
+
+## 2. RULE 5 — HAND PROGRAMS IN SHAPES THE TWO PRICED SETS DID NOT USE (build/hand-2026-09-02s/, run.sh, armed-*.txt, fire-*.txt)
+
+32 legal (c01–c32) + 12 illegal (x01–x12) + 8 return-site (r01–r08), all
+multi-line; every one proven to reach the arm by fire log (fire-stland.txt:
+`stland=N` per program; only x02 / x07 / r02 do not arrive, and each has its
+reason below). Under the INSTALLED stland (before any edit), LEGAL REFUSED:
+  c07  `takes(&5i64)` into `&'static i64` — a promoted literal in ARG position
+       (l03's LET form passes only because the let does not compare it)
+  c08  `w(&mut G)` (G a `static mut`, in `unsafe`) — the IMPLICIT `&mut`
+       reborrow at the call argument (`try_implicit_reborrow_mut`) minted
+       `make_ref(dest_mut, pointee)` with NO region: 09-02p's "unsafe-static
+       site l15" was this site, not `lower_expr_inner`'s E0596 arm (which is an
+       error path). Also `let r: &'static mut = &mut *q` — `&mut *p`'s
+       `make_ref(true, pointee_t)` drops p's region (the `&mut` twin of F).
+  c09 c10 c25  an ELIDED call return from a 'static argument / a static
+       receiver (09-01p's l21): the callee's elided output is minted from its
+       single input / self INSIDE the callee, the caller saw an empty slot.
+  c15  `&ARR[1]`, c20 `&S0.n` — a place under a module static:
+       `place_base_region` walked FieldRead/TupleIndex only and read the
+       `__static_addr:` VarRef's `*T` type as "not a reference".
+  c22  a `move` closure over `data: &'static mut` calling `doit(data)` — the
+       implicit reborrow again (l31), NOT a capture defect: c27 (move, shared
+       param) and c28 (move, local `&'static`) pass; only `&mut` fails.
+  c32  `let b: fn(&'static i64) -> &'static i64 = a` with `a: fn(&i64) ->
+       &i64` — a fn-pointer type's elided OUTPUT is a BINDER (`for<'a>`),
+       instantiable at 'static; the direction arm read it as a body borrow.
+ILLEGAL ADMITTED (unchanged by the landing, off-ledger):
+  x03  `match n { 0 => &K, _ => &x }` into `&'static` — the match's type is its
+       FIRST arm's (`&'static`); the `if` twin x06 IS refused (arrival 2).
+  x07  `let g: fn(&i64) -> i64 = needs_static` — a fn ITEM to fn-pointer
+       coercion never reaches the FnPtr variance arm (no arrival); the
+       fn-pointer VARIABLE form x12 is refused.
+  x11 = issue-42574--t15's shape (E0521: a captured `&'static mut` reborrowed
+       inside a NON-move closure has the closure's region) — needs the
+       capture-reborrow fact; not in this landing (§6).
+Return-site set r01–r08 (local-sourced `&*p`, `s.r`, `id(&x)`, a match
+binding, a tail `p`, a closure, a tuple, a param hop): ALL EIGHT refused
+UNARMED by borrow_check's own return rules — so the return-site YIELD (§4)
+costs nothing on any of these shapes and the six cfail rows keep their line.
+
+## 3. THE PREDICTION (build/predictions-2026-09-02s.txt, before the edit)
+
+18 = the re-priced 19 minus issue-42574--t15 (closed by COLLISION: the
+reborrow fact that un-refuses its legal move twin c22/l31 un-refuses it).
+Cost pass 0 · cfail 1 (regions-addr-of-arg re-pinned to its upstream E0597
+line) · stdlib ok · ledger 215 -> 197.
+
+## 4. WHAT LANDED (unconditional; the st* / stland / stlandyield names REMOVED from the sources)
+
+  A  `lt_eq` (subtype.hpp::types_equal_with_lifetimes): x = sub EMPTY, y = sup
+     'static -> not equal, unless `lt_static_yield()` (outlives.hpp) is set —
+     by the two RETURN sites (sema_stmt.cpp, around `check_variance`) and by
+     the FnPtr/Closure arm around its OUTPUT comparison (a binder).
+  D' the FnPtr/Closure arm compares parameters as (sup, sub) — contravariance.
+  B  `outlives()`: L empty vs S 'static -> false (was true when permissive).
+  C  `&STATIC` (lower_unary) and C' `&mut STATIC` (ADDR_OF_MUT) typed 'static.
+  F1 `try_implicit_reborrow_mut`: the reborrow carries the reference's region.
+  F2 `place_base_region`: IndexRead receivers walk like FieldRead; a
+     `__static_addr:` base is 'static. `materialize_recv_ref`: the auto-ref of
+     a place carries the place's region (a static receiver's is 'static).
+  F3 `&<literal>` (LitInt / LitFloat / LitBool) at the shared `&<expr>` site
+     is 'static — a promoted constant. `&mut <literal>` is not (Rust agrees).
+  F4 `subst_call_ret_lts_` / the method path: `fill_elided_ret_` reads every
+     input region slot off the ACTUAL arguments and, with exactly one slot or
+     with `self` first, fills the elided output regions (Ref lifetimes and
+     ADT lifetime args, to declared arity) with it — Rust elision at the CALL.
+     l21 is CARRIED, not a corpus gap.
+  msg `check_variance`: when the two spellings agree (`Foo` vs `Foo`), print
+     the source form; `type_str` renders an empty ADT lifetime arg as `'_`
+     (`Foo<'static>` vs `Foo<'_>`, `SomeEnum<&'static u32>` vs `SomeEnum<&u32>`).
+
+## 5. THE SETS, DIFFED BOTH WAYS (gate-db builds 487, 488)
+
+CLOSED = PREDICTED, 18, both directions empty (build/predictions-2026-09-02s.txt
+vs the admit gate's failed list, `diff` rc 0). Every diagnostic read: the right
+site and the right pair — `let 'y': … expected &'static u32, got &u32`, `call
+to 'eat' arg 1: …`, `struct literal 'SomeStruct' field 't': …`, `fn-ptr call
+arg 1: …`, `method 'A__method' arg 2: …`, `let 'foo': … expected Foo<'static>,
+got Foo<'_>`, `let 'b': … expected fn(&i64) -> &i64, got fn(&'static i64) ->
+&'static i64` (universe-violation, through the flipped parameter position).
+method-ufcs-3 prints the same refusal twice (arg 2 of the method form, arg 3
+of the UFCS form) — one site lowered through two paths; recorded, not fixed.
+COST pass 0: `-L bc` 2111 passed / 3 failed = exactly the three re-pins (below);
+the stfacts/09-01p/09-02p hand sets: every legal program rc 0 except c31
+(§6) and fl33/fl34 (pre-existing bc, unchanged). stdlib: all four layers
+(`stdlib-cost.sh`, and the full build). cfail (`fail_text_oracle.py` vs the
+unarmed 532909be baseline): 0 rc flips; 3 `.expected` LOST, all re-pinned to
+a BETTER line — regions-addr-of-arg (upstream E0597 at the let), regions-
+creating-enums4 (`Ast<'b>` vs `Ast<'a>`, was `Ast` vs `Ast`), ex2d-push-
+inference-variable-2 (`&'a mut Vec<Ref<'b>>`: the implicit reborrow now names
+its region); 4 TEXT-only (enum-lt-cant-lengthen, enum-lt-mix, variance-co-
+enum-cant-lengthen, variance-co-result-cant-lengthen: the `'_` rendering,
+their `variance` pin still matches). The six return-site cfail rows of §1
+keep their line — the yield, verified fixture by fixture.
+
+## 6. WHERE THE LANDING DIFFERS FROM THE PROBE (rule 7) — AND ONE OWNER WALL
+
+ · The probe (stland) closed 19; the landing closes 18: t15 was a collision.
+ · The probe had no F1–F4 and no FnPtr-output yield; each was forced by a
+   hand shape (§2), and each is a FACT the arm needs, not a partition.
+ · The `&mut *p` twin of the landed `&*p` region fact (F-mut, at lower_unary's
+   ADDR_OF_MUT Deref arm) was landed, priced through `-L bc`, and WITHDRAWN:
+   pass/zone_mut_thin_source_admits_generic asserts `fn pass(&mut self, r:
+   &mut T) -> &mut T { return &mut *r; }` — rustc refuses it (the elided
+   output is self's region, `&mut *r` is r's) — and with F-mut the tree agrees
+   (`return type mismatch: … expected &mut T, got &mut T`, two minted regions).
+   ⚠ CORPUS DECISION WITH AN OWNER, reported not edited: the fixture's subject
+   is the zone_mut generic reborrow; `fn pass<'a>(&mut self, r: &'a mut T) ->
+   &'a mut T` is the one-token repair. Until then `let r: &'static mut T =
+   &mut *q` (q 'static; hand c31) is a RECORDED LEGAL REFUSAL of the landed
+   arm — the same class as 09-01p's l11/l20 before F.
+
+## 7. GATES (predicted rc 0 each, read after)
+    the 14 native fixtures: ctest 14/14 · admits 197/197 + the ledger gate ·
+    `-L bc` 2116 recorded, 3 failed before the re-pins, 0 after (re-run) ·
+    L1 from build/ · `L4 bc` detached · full `cmake --build` · CONTROL REVERT
+    (see the commit message for each rc).
+
+## 8. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ · A `match` expression's type is its FIRST arm's (x03); `if` merges.
+ · A fn ITEM to fn-pointer coercion bypasses the FnPtr variance arm (x07).
+ · A captured `&mut` reborrowed inside a non-move closure carries the
+   captured reference's region, not the closure's (x11 = t15, l31/i27).
+ · Promotion covers a bare literal only; `&(1 + 2)`, `&-1`, `&[1, 2]`,
+   `&Some(3)` are promotable in Rust and are NOT 'static here.
+ · method-ufcs-3: one refusal printed twice (method form + UFCS form).
+
+## 9. ⛔ DECLINED / RETIRED BY NAME
+ · `stbareargs` (D as spelled) and `sttpempty` (E) stay env-gated, declined
+   as before; `stlandbare` is now D at 'static positions ALONE (its stland
+   half landed) — 2 rows (pattern-substs-on-brace-struct, proj--b) for 0
+   predicted cost, still unpriced in that spelling.
+ · steqempty / steqaddr / stcallarg / stnoderef / stwhole / ststaticaddr /
+   stland / stlandyield: names removed from the sources — LANDED.
+
+## 10. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+# TOTAL 215 -> 197 by direct listing. 18 imported programs moved admit -> fail
+(nll/ ×17, regions/ ×1), diagnostics pinned in full; 7 native pairs one token
+apart (bc_st{slot,fnptr,callelide,promote,place,reborrow,recv}_*). Not spent:
+the 2 D rows · t15 (capture reborrow) · adt-tuple-enums--t33, constructor-
+lifetime-early-binding-error, better-blame, issue-69114 (no site) ·
+object-lifetime 18 · bck.C 16 · nllmoves.C 10 · bck.B 10 · nllmoves.B 7.
+
+## 11. OPEN (carried, plus this round's)
+ 1-60. UNCHANGED from 09-02p/q/r.
+ 61. NEW: pass/zone_mut_thin_source_admits_generic walls the `&mut *p` region
+     fact (§6). Owner.
+ 62. NEW: x03 / x07 / x11 / promotion-beyond-a-literal (§8).
+
+## stland_landed
+site: include/logos/compiler/subtype.hpp::types_equal_with_lifetimes (+ outlives.hpp::outlives, sema_expr.cpp::try_implicit_reborrow_mut, ::place_base_region, ::materialize_recv_ref, sema_impl.hpp::fill_elided_ret_)
+build: 532909be228ea54e (unarmed control, READ) -> the landed binary, gate-db 488
+measured: 2026-09-02
+fires: 771 (stland re-price)
+ceiling: 19 (probe) / 18 (landed; t15 was a collision)
+cost: 0 (cfail 3 re-pins + 4 text-only, stdlib ok)
+verdict: LANDED 2026-09-02s — A by direction + B + C + C' + FnPtr flip + F1–F4; the `&mut *p` twin withdrawn behind an owner fixture (§6).

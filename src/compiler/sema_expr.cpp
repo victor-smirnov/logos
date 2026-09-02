@@ -260,6 +260,24 @@ lir::LExprPtr SemaChecker::materialize_recv_ref(lir::LExprPtr recv, bool is_mut,
         is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv)) {
         recv = hoist_stmt_temp(std::move(recv), is_mut);
     }
+    // The auto-ref of a PLACE carries the place's region — a module static's
+    // is 'static, a field under a reference-typed base is the base's (F').
+    if (ref_type && recv && TypeRef(ref_type).lifetime().empty() &&
+        (TypeRef(ref_type).kind() == LogosType::Kind::Ref ||
+         TypeRef(ref_type).kind() == LogosType::Kind::MutRef)) {
+        auto rr = expr_ref_of(recv);
+        std::string reg;
+        if (rr.kind() == lir_schema::expr::Code::Deref) {
+            auto op = lir_view::EDerefView{rr}.operand();
+            if (op && op.kind() == lir_schema::expr::Code::VarRef &&
+                lir_view::EVarRefView{op}.name().starts_with("__static_addr:"))
+                reg = "static";
+        } else {
+            reg = place_base_region(rr);
+        }
+        if (!reg.empty())
+            ref_type = make_ref(is_mut, TypeRef(ref_type).pointee(), reg);
+    }
     return builder().addr_of_temp(std::move(recv), is_mut, ref_type);
 }
 
@@ -1410,10 +1428,9 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                                 var_name));
                     }
                 }
-                // PROBE stland: `&mut STATIC` IS 'static — the second minting site.
-                if (st_land()) logos::probe::census("stland.mutstaddr");
+                // `&mut STATIC` IS 'static — say so in the type (2026-09-02s).
                 return builder().var_ref(static_addr_name(var_name),
-                                         make_ref(true, vt, st_land() ? std::string("static") : std::string()));
+                                         make_ref(true, vt, std::string("static")));
             }
             // G162-2: `&mut arr` produces `&mut [T; N]` (a mutable
             // reference to the WHOLE array), so it satisfies a `&mut [T; N]`
@@ -1446,6 +1463,9 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                 auto deref = builder().deref(std::move(operand), pointee_t);
                 if (TypeRef rdt = self_describing_dst_ref(pointee_t, /*is_mut=*/true))
                     return builder().addr_of_temp(std::move(deref), true, rdt);
+                // ⚠ `&mut *p` does NOT yet carry p's region (the `&*p` twin
+                // does): a pass fixture asserts the program that fact refuses —
+                // PROBES.md 2026-09-02s, owner.
                 return builder().addr_of_temp(std::move(deref), true, make_ref(true, pointee_t));
             }
             // `&mut *rc` for a struct with a DerefMut impl: `rc.deref_mut()`.
@@ -3036,15 +3056,9 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                                 "block (Rust `items.static.mut.safety`)", var_name));
                     }
                 }
-                logos::probe::census("st.staticaddr");
-                // PROBE st* (2026-09-01p): `&STATIC` IS 'static — say so in the type.
+                // `&STATIC` IS 'static — say so in the type (2026-09-02s).
                 return builder().var_ref(static_addr_name(var_name),
-                                         make_ref(smut, vt,
-                                             (logos::probe::on("ststaticaddr") || logos::probe::on("steqaddr") ||
-                                              logos::probe::on("stcallarg") || logos::probe::on("stnoderef") ||
-                                              logos::probe::on("stwhole") ||
-                                              (st_land() && (logos::probe::census("stland.staddr"), true)))
-                                                 ? std::string("static") : std::string()));
+                                         make_ref(smut, vt, std::string("static")));
             }
             // &array → &[T; N] (Rust). The decay to `&[T]` happens where a
             // slice is EXPECTED (try_coerce_array_ref_to_slice), not here —
@@ -3127,8 +3141,15 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         // `&<array expr>` — a field, a literal, any array place or rvalue —
         // is `&[T; N]`, like the variable branch above and like Rust. The
         // decay to `&[T]` happens where a slice is EXPECTED.
+        // `&<literal>` is a promoted constant: its region is 'static (Rust
+        // `destructors.scope.const-promotion`; a literal only — 2026-09-02s).
+        auto __lit = expr_ref_of(inner).kind();
         auto __ty_inner = make_ref(false, expr_type(inner),
-                                   place_base_region(inner));
+                                   (__lit == lir_schema::expr::Code::LitInt ||
+                                    __lit == lir_schema::expr::Code::LitFloat ||
+                                    __lit == lir_schema::expr::Code::LitBool)
+                                       ? std::string("static")
+                                       : place_base_region(inner));
         // Rust temporary scope: `f(&make_vec())` materializes a DROPPABLE
         // rvalue whose stack slot nothing else owns. Without the statement-scope
         // hoist it is spilled and never dropped — one leaked allocation per
@@ -10375,6 +10396,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     TypeRef ret = (struct_subst.empty() && lt_subst.empty())
         ? fi.ret_type
         : subst_type_sema(fi.ret_type, struct_subst, lt_subst);
+    {   // Elision at the CALL: an elided output region is self's / the single input's.
+        std::vector<TypeRef> ats_;
+        if (recv) ats_.push_back(expr_type(recv));
+        for (auto& a : arg_exprs) ats_.push_back(a ? expr_type(a) : TypeRef{});
+        ret = fill_elided_ret_(fi.param_types, ats_, ret, /*self_first=*/static_cast<bool>(recv));
+    }
 
     // Auto-ref receiver if method expects `&Self` / `&mut Self` and recv
     // came in by value (common for method-chain temporaries:
@@ -10714,18 +10741,27 @@ std::string SemaChecker::place_base_region(lir_view::ExprRef e) {
         return t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
                      TypeRef(t).kind() == LogosType::Kind::MutRef);
     };
-    while (e && (e.kind() == C::FieldRead || e.kind() == C::TupleIndex)) {
+    auto is_place = [](lir_view::ExprRef x) {
+        return x.kind() == C::FieldRead || x.kind() == C::TupleIndex ||
+               x.kind() == C::IndexRead;
+    };
+    while (e && is_place(e)) {
         lir_view::ExprRef r = e.kind() == C::FieldRead
             ? lir_view::EFieldReadView{e}.receiver()
-            : lir_view::ETupleIndexView{e}.receiver();
+            : e.kind() == C::TupleIndex
+                ? lir_view::ETupleIndexView{e}.receiver()
+                : lir_view::EIndexReadView{e}.receiver();
         if (!r) return {};
-        if (r.kind() == C::FieldRead || r.kind() == C::TupleIndex) {
+        if (is_place(r)) {
             if (is_ref(r.type(pool))) return {};
             e = r;
             continue;
         }
         if (r.kind() == C::Deref) r = lir_view::EDerefView{r}.operand();
         if (!r || r.kind() != C::VarRef) return {};
+        // A place under a module static IS 'static (`&S.f`, `&ARR[i]`).
+        if (lir_view::EVarRefView{r}.name().starts_with("__static_addr:"))
+            return "static";
         TypeRef rt = r.type(pool);
         if (!is_ref(rt) || is_ref(TypeRef(rt).pointee())) return {};
         logos::probe::census("stfacts.place_base");
@@ -15018,9 +15054,11 @@ bool SemaChecker::try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,
         k != lir_schema::expr::Code::Deref &&
         k != lir_schema::expr::Code::IndexRead)
         return false;
+    // The reborrow carries the reborrowed reference's region (2026-09-02s).
+    std::string arg_region(TypeRef(expr_type(arg)).lifetime());
     auto deref = builder().deref(std::move(arg), arg_pointee);
     arg = builder().addr_of_temp(std::move(deref), /*is_mut=*/dest_mut,
-                                  make_ref(dest_mut, arg_pointee));
+                                  make_ref(dest_mut, arg_pointee, arg_region));
     return true;
 }
 

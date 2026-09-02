@@ -1,0 +1,15 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `S0.get()` auto-refs a module static, and
+// that receiver IS 'static; `fn get(&self) -> &i64` returns self's region. The
+// fail twin calls the method on the local `s`.
+package bc_strecv_static_receiver_elided_ret;
+
+struct S { n: i64 }
+impl S { fn get(&self) -> &i64 { return &self.n; } }
+
+static S0: S = S { n: 7i64 };
+
+fn main() -> i32 {
+    let s: S = S { n: 1i64 };
+    let y: &'static i64 = S0.get();
+    return *y as i32 + s.n as i32 - 8i32;
+}

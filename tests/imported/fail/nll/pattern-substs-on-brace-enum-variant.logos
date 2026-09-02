@@ -1,0 +1,11 @@
+// rustc nll/user-annotations/pattern_substs_on_brace_enum_variant.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-09-02: a bare enum literal over a local's borrow into a `Foo<'static>` let; an EMPTY region is not 'static. Was nllmoves.NEW-L1.
+package pattern_substs_on_brace_enum_variant;
+enum Foo<'a> { Bar { field: &'a i64 } }
+fn in_let() -> i32 {
+  let y: i64 = 22i64;
+  let foo: Foo<'static> = Foo::Bar { field: &y };
+  return 0i32;
+}
+fn main() -> i32 { return in_let(); }

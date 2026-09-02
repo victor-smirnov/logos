@@ -1,0 +1,19 @@
+// `w(q)` with `q = &mut x`, a local's borrow, into a `&'static mut` parameter:
+// the implicit reborrow at the argument carries q's region, which has no name
+// (rustc E0597). ONE TOKEN from pass/bc_streborrow_static_mut_keeps_region:
+// `&mut x` vs `&mut G`.
+package bc_streborrow_local_mut_into_static_fail;
+
+static mut G: i64 = 0i64;
+
+fn w(p: &'static mut i64) { *p = 3i64; }
+
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    unsafe {
+        let q = &mut x;
+        w(q);
+        x = G;
+    }
+    return x as i32 - 3i32;
+}

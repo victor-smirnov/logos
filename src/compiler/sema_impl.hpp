@@ -1230,10 +1230,112 @@ private:
                                 const std::vector<std::string>& lifetime_params,
                                 const std::vector<lir::LExprPtr>& args,
                                 TypeRef ret) {
-        if (!ret || lifetime_params.empty()) return ret;
-        logos::probe::census("subst.call.site");
-        auto ls = build_call_lt_subst_(param_types, lifetime_params, args, ret);
-        return ls.empty() ? ret : subst_type_sema(ret, {}, ls);
+        if (!ret) return ret;
+        if (!lifetime_params.empty()) {
+            logos::probe::census("subst.call.site");
+            auto ls = build_call_lt_subst_(param_types, lifetime_params, args, ret);
+            if (!ls.empty()) ret = subst_type_sema(ret, {}, ls);
+        }
+        std::vector<TypeRef> ats;
+        for (auto& a : args) ats.push_back(a ? expr_type(a) : TypeRef{});
+        return fill_elided_ret_(param_types, ats, ret, /*self_first=*/false);
+    }
+    // ── ELISION AT THE CALL (2026-09-02s) ──────────────────────────────────
+    // The callee's own body sees its elided output region minted from the
+    // single input region / from `self` (`mint_type_lts_`, sema_decl.cpp);
+    // the CALLER saw an empty slot, so `let y: &'static T = id(&STATIC)` had
+    // no region to compare. Same rule, read off the ACTUAL arguments: every
+    // input region slot (written or elided) is paired with the argument's
+    // region at that position; one slot, or `self`'s, is the source.
+    void collect_input_regions_(TypeRef pt, TypeRef at,
+                                std::vector<std::string>& out, int depth = 0) {
+        if (!pt || depth > 24) return;
+        using K = LogosType::Kind;
+        auto ak = at ? at.kind() : K::Error;
+        switch (pt.kind()) {
+        case K::Ref: case K::MutRef:
+            out.push_back((ak == K::Ref || ak == K::MutRef) ? std::string(at.lifetime())
+                                                            : std::string{});
+            collect_input_regions_(pt.pointee(), at ? at.pointee() : TypeRef{}, out, depth + 1);
+            return;
+        case K::Struct: case K::ZonedStruct: case K::Enum: {
+            auto pl = pt.lifetime_args();
+            auto al = (ak == pt.kind()) ? at.lifetime_args() : std::vector<std::string>{};
+            size_t n = std::max(pl.size(), decl_lt_arity_(pt));
+            for (size_t i = 0; i < n; ++i)
+                out.push_back(i < al.size() ? al[i] : std::string{});
+            auto pa = pt.type_args();
+            auto aa = (ak == pt.kind()) ? at.type_args() : std::vector<TypeRef>{};
+            for (size_t i = 0; i < pa.size(); ++i)
+                collect_input_regions_(pa[i], i < aa.size() ? aa[i] : TypeRef{}, out, depth + 1);
+            return;
+        }
+        case K::Tuple: {
+            auto pe = pt.tuple_elems();
+            auto ae = (ak == K::Tuple) ? at.tuple_elems() : std::vector<TypeRef>{};
+            for (size_t i = 0; i < pe.size(); ++i)
+                collect_input_regions_(pe[i], i < ae.size() ? ae[i] : TypeRef{}, out, depth + 1);
+            return;
+        }
+        case K::Slice: case K::Array:
+            collect_input_regions_(pt.elem(), (ak == pt.kind()) ? at.elem() : TypeRef{}, out, depth + 1);
+            return;
+        default: return;
+        }
+    }
+    TypeRef fill_elided_regions_(TypeRef t, const std::string& r, int depth = 0) {
+        if (!t || depth > 24) return t;
+        using K = LogosType::Kind;
+        switch (t.kind()) {
+        case K::Ref: case K::MutRef: {
+            auto inner = fill_elided_regions_(t.pointee(), r, depth + 1);
+            std::string lt(t.lifetime());
+            if (!lt.empty() && inner == t.pointee()) return t;
+            return make_ref(t.kind() == K::MutRef, inner, lt.empty() ? r : lt);
+        }
+        case K::Tuple: {
+            std::vector<TypeRef> es; bool changed = false;
+            for (auto e : t.tuple_elems()) {
+                auto ne = fill_elided_regions_(e, r, depth + 1);
+                changed |= (ne != e); es.push_back(ne);
+            }
+            return changed ? make_tuple_type(std::move(es)) : t;
+        }
+        case K::Struct: case K::ZonedStruct: case K::Enum: {
+            std::vector<std::string> lts = t.lifetime_args();
+            size_t arity = decl_lt_arity_(t);
+            bool changed = lts.size() < arity;
+            if (changed) lts.resize(arity);
+            for (auto& l : lts) if (l.empty()) { l = r; changed = true; }
+            std::vector<TypeRef> as;
+            for (auto a : t.type_args()) {
+                auto na = fill_elided_regions_(a, r, depth + 1);
+                changed |= (na != a); as.push_back(na);
+            }
+            if (!changed) return t;
+            if (t.kind() == K::Enum)
+                return make_generic_enum(t.enum_name(), std::move(as), std::move(lts), t.pkg_name());
+            if (t.kind() == K::ZonedStruct)
+                return make_generic_datatype(t.struct_name(), std::move(as), std::move(lts), t.pkg_name());
+            return make_generic_struct(t.struct_name(), std::move(as), std::move(lts), t.pkg_name());
+        }
+        default: return t;
+        }
+    }
+    TypeRef fill_elided_ret_(const std::vector<TypeRef>& param_types,
+                             const std::vector<TypeRef>& arg_types,
+                             TypeRef ret, bool self_first) {
+        if (!ret) return ret;
+        std::vector<std::string> regs;
+        std::string src;
+        for (size_t i = 0; i < param_types.size() && i < arg_types.size(); ++i) {
+            collect_input_regions_(param_types[i], arg_types[i], regs);
+            if (i == 0 && self_first && !regs.empty()) src = regs.front();
+        }
+        if (src.empty() && regs.size() == 1) src = regs.front();
+        if (src.empty()) return ret;
+        logos::probe::census("stland.call.elided_ret");
+        return fill_elided_regions_(ret, src);
     }
 
     TypeRef make_closure_type(std::vector<TypeRef> params, TypeRef ret) {
@@ -6083,6 +6185,9 @@ private:
         if (!types_compatible(from, to)) return;  // outer check handles it
         if (variance_ok(from, to, permissive)) return;
         auto [es, gs] = type_str_pair(to, from);
+        // Two spellings that agree carry the difference in a region the
+        // short form hides (`Foo<'static>` vs `Foo`): print the source form.
+        if (es == gs) es = type_str(to, true), gs = type_str(from, true);
         error(std::format("{}: variance mismatch — expected {}, got {} — "
                           "lifetime structure incompatible "
                           "(check &mut invariance / contravariance rules)",

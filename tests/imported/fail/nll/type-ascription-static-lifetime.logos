@@ -1,0 +1,11 @@
+// rustc nll/user-annotations/type_ascription_static_lifetime.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-09-02: a local's borrow into a `&'static` let; an EMPTY region is not 'static. Was nllmoves.NEW-N1.
+// port of tests/ui/nll/user-annotations/type_ascription_static_lifetime.rs (E0597)
+// type ascription absent; the annotation is written on the `let`
+package type_ascription_static_lifetime;
+fn main() -> i32 {
+    let x: u32 = 22u32;
+    let y: &'static u32 = &x;
+    return *y as i32;
+}

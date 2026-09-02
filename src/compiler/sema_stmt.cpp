@@ -567,10 +567,10 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                 // `fn f(a: &[Vec<i32>]) -> &[Vec<i64>] { a }` slipped
                 // through here while `return a;` was rejected.
                 if (inner) {
-                    st_at_return() = true;   // PROBE stlandyield
+                    lt_static_yield() = true;
                     check_variance(expr_type(inner), ret_type_,
                                    "return type mismatch");
-                    st_at_return() = false;
+                    lt_static_yield() = false;
                     // T1-12: dyn+auto bound at tail-return coercion.
                     check_dyn_auto_bounds_at_coercion(inner, ret_type_);
                     if (ret_type_ && is_move_type(ret_type_) && is_unowned_move_source(inner))
@@ -3309,10 +3309,10 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
                                     "return type mismatch —")) {
                 // diagnostic already emitted by the judgment
             } else if (ret_type_) {
-                st_at_return() = true;   // PROBE stlandyield
+                lt_static_yield() = true;
                 check_variance(expr_type(val), ret_type_, "return type mismatch",
                                /*permissive=*/false);
-                st_at_return() = false;
+                lt_static_yield() = false;
                 // T1-12: dyn+auto bound at return coercion.
                 check_dyn_auto_bounds_at_coercion(val, ret_type_);
                 if (is_move_type(ret_type_) && is_unowned_move_source(val))

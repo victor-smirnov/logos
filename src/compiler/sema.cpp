@@ -2440,7 +2440,7 @@ std::string type_str(TypeRef t, bool source_form) {
           bool first = true;
           for (auto& lt : vis_lts) {
               if (!first) r += ", "; first = false;
-              r += lt;
+              r += lt.empty() ? "'_" : lt;
           }
           for (size_t i = 0; i < TypeRef(t).type_args().size(); ++i) {
               if (!first) r += ", "; first = false;
@@ -2545,7 +2545,7 @@ std::string type_str(TypeRef t, bool source_form) {
         bool first = true;
         for (auto& lt : vis_lts) {
             if (!first) r += ", "; first = false;
-            r += lt;
+            r += lt.empty() ? "'_" : lt;
         }
         for (size_t i = 0; i < TypeRef(t).type_args().size(); ++i) {
             if (!first) r += ", "; first = false;

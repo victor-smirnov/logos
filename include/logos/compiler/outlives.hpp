@@ -68,14 +68,13 @@ inline bool outlives_is_static(std::string_view lt) {
     return lt == "'static" || lt == "static";
 }
 
-// PROBE stland / stlandyield / stlandbare (2026-09-02): the LANDED spelling of the
-// 'static-slot block — numbers in src/compiler/PROBES.md 2026-09-02.
-inline bool st_land() {
-    return logos::probe::on("stland") || logos::probe::on("stlandyield") ||
-           logos::probe::on("stlandbare");
-}
-inline bool& st_at_return() { static bool b = false; return b; }
-inline bool st_land_yield() { return logos::probe::on("stlandyield") && st_at_return(); }
+// Where an EMPTY sub region against a 'static sup slot is NOT a body borrow's
+// missing name, the 'static-slot arm in `lt_eq` yields (PROBES.md 2026-09-02s):
+//   · the two RETURN sites — borrow_check's 'static-return rule owns them and
+//     names the variable;
+//   · a fn-pointer type's OUTPUT position — its elided region is a BINDER
+//     (`fn(&T) -> &T` is `for<'a>`), instantiable at 'static.
+inline bool& lt_static_yield() { static bool b = false; return b; }
 
 // Build a forward adjacency map (longer → set of shorters it outlives directly).
 // Caller passes parsed pairs; this just indexes them. Symmetry: an entry
@@ -115,19 +114,12 @@ inline bool outlives(
             logos::probe::on("ltmintfresh")) return false;
         return true;                        // unconstrained short side
     }
-    // PROBE st* (2026-09-01p): the permissive exit for an EMPTY sub region
-    // against a 'static sup region, by direction and by kind of emptiness.
+    // LANDED 2026-09-02s: an EMPTY region is not 'static — a body borrow has
+    // no name, and the one region whose meaning is fixed is not a wildcard.
     if (L.empty() && outlives_is_static(S)) {
-        logos::probe::census(permissive_empty ? "st.outl.S_static.L_empty.perm"
-                                              : "st.outl.S_static.L_empty.noperm");
-        if (permissive_empty && (logos::probe::on("stcallarg") ||
-                                 logos::probe::on("stnoderef") ||
-                                 logos::probe::on("stwhole") ||
-                                 (st_land() && (logos::probe::census("stland.outl"), true))))
-            return false;
+        logos::probe::census("stland.outl");
+        return false;
     }
-    if (lt_is_minted(L) && outlives_is_static(S))
-        logos::probe::census("st.outl.S_static.L_minted");
     if (permissive_empty && L.empty()) {
         if (logos::probe::on("ltelidesub") ||
             logos::probe::on("ltelideboth") ||

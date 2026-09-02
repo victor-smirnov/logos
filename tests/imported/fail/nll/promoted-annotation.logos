@@ -1,0 +1,9 @@
+// rustc nll/user-annotations/promoted-annotation.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-09-02: a local's borrow into a fn-pointer call's `&'static` argument; an EMPTY region is not 'static. Was nllmoves.A.
+package promoted_annotation;
+// nll/user-annotations/promoted-annotation.rs — a fn-pointer VALUE annotated to take
+// `&'static i64`, then called with a borrow of a local.
+fn dropit(p: &'static i64) {}
+fn foo() { let x: i64 = 0i64; let f: fn(&'static i64) -> () = dropit; f(&x); }
+fn main() -> i32 { foo(); return 0i32; }

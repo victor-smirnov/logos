@@ -1,0 +1,1 @@
+let '_e': variance mismatch — expected SomeEnum<&'static u32>, got SomeEnum<&u32> — lifetime structure incompatible (check &mut invariance / contravariance rules)

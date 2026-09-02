@@ -1301,9 +1301,14 @@ PIN = {
     # imported programs moved admit -> fail are not in tests/logos/pass at all.
     # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2541; the glob
     # listing -> 191; 2541 = 191 + 2350.
-    'corpus'            : 2541,
+    # 2026-09-02s: +7 / +0 / +7 — the seven pass/bc_st* legal twins of the
+    # 'static-slot landing (one pair per fact, one token apart). The seven
+    # fail twins and the eighteen imported programs moved admit -> fail are not
+    # in tests/logos/pass. BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l
+    # -> 2548; the glob listing -> 191; 2548 = 191 + 2357.
+    'corpus'            : 2548,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2350,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2357,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

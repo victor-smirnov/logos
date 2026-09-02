@@ -1,9 +1,0 @@
-// rustc nll/issue-46036.rs — upstream E0597
-// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.B
-package issue_46036;
-// nll/issue-46036.rs — E0597 `a` does not live long enough: the struct field is
-// declared &'static, so borrowing a local into it must be refused.
-struct Foo { x: &'static i64 }
-fn foo() { let a: i64 = 3i64; let f = Foo { x: &a }; loop { let _ = *f.x; } }
-fn main() -> i32 { return 0i32; }

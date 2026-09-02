@@ -1,0 +1,1 @@
+let 'f': variance mismatch — expected SomeStruct<&'static i64>, got SomeStruct<&i64> — lifetime structure incompatible (check &mut invariance / contravariance rules)

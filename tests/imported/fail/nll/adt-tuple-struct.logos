@@ -1,0 +1,14 @@
+// rustc nll/user-annotations/adt-tuple-struct.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-09-02: a local's borrow into a tuple-struct literal's `&'static` field; an EMPTY region is not 'static. Was nllmoves.NEW-S7-1.
+package adt_tuple_struct;
+struct SomeStruct<T> { v: T }
+fn annot_reference_static_lifetime() {
+    let c: i64 = 66i64;
+    let s = SomeStruct::<&'static i64> { v: &c };
+}
+fn annot_reference_named_lifetime<'a>(d: &'a i64) {
+    let c: i64 = 66i64;
+    let s = SomeStruct::<&'a i64> { v: &c };
+}
+fn main() -> i32 { return 0i32; }

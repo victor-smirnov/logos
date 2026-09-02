@@ -1,0 +1,16 @@
+// `&arr[1]` under a LOCAL array into a `&'static` let: the place's base is a
+// stack local, its region has no name, not 'static (rustc E0597). ONE TOKEN
+// from pass/bc_stplace_under_static_is_static: `arr` vs `ARR`.
+package bc_stplace_under_local_array_fail;
+
+struct S { n: i64 }
+
+static ARR: [i64; 3] = [1i64, 2i64, 3i64];
+static S0: S = S { n: 7i64 };
+
+fn main() -> i32 {
+    let arr: [i64; 3] = [4i64, 5i64, 6i64];
+    let y: &'static i64 = &arr[1];
+    let z: &'static i64 = &S0.n;
+    return *y as i32 + *z as i32 + ARR[0] as i32 - 13i32;
+}
