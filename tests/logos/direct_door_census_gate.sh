@@ -1312,9 +1312,14 @@ PIN = {
     # The ten fail twins and the ten imported programs moved admit -> fail are
     # not in tests/logos/pass. BY DIRECT LISTING: ls tests/logos/pass/*.logos |
     # wc -l -> 2560; the glob listing -> 191; 2560 = 191 + 2369.
-    'corpus'            : 2560,
+    # 2026-09-02w: +10 / +0 / +10 — the ten pass/bc_slit{fat,gen,mint}_* legal
+    # twins of the struct-literal block (a bare literal's lifetime args read off
+    # its values for str / slice / dyn / DST fields and in the generic path; the
+    # elided region of a fat-pointer parameter minted). BY DIRECT LISTING:
+    # ls tests/logos/pass/*.logos | wc -l -> 2570; the glob listing -> 191.
+    'corpus'            : 2570,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2369,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2379,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

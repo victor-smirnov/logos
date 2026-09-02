@@ -1,0 +1,1 @@
+error [fn g]: lifetime mismatch: return type has lifetime 'a but 'xs' has lifetime (elided)

@@ -1,0 +1,10 @@
+// E0621 through a LOCAL: the `&[i64]` parameter's (minted) region reaches the
+// return via `V { xs }` and `&v.xs[0]`, and is not `'a`. The legal twin, one token
+// apart (`&[i64]` -> `&'a [i64]`), is bc_slitmint_slice_local.
+package bc_slitmint_slice_local_fail;
+struct V<'a> { xs: &'a [i64] }
+fn g<'a>(xs: &[i64]) -> &'a i64 {
+  let v = V { xs: xs };
+  return &v.xs[0u64];
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,7 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the slice parameter carries the binder.
+package bc_slitfat_slice_field;
+struct S<'a> { v: &'a [i64] }
+fn h<'a>(s: &'a [i64]) -> S<'a> {
+  return S { v: s };
+}
+fn main() -> i32 { let a: [i64; 2] = [1i64, 2i64]; let s = h(&a); return (s.v.len() as i64 - 2i64) as i32; }

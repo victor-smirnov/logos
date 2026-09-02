@@ -1,0 +1,7 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the generic literal's value carries the binder.
+package bc_slitgen_ref_field;
+struct Thing<'a, Q> { x: &'a Q }
+fn thing<'a, Q>(x: &'a Q) -> Thing<'a, Q> {
+  return Thing { x: x };
+}
+fn main() -> i32 { let u: i64 = 4i64; let t = thing(&u); return (*t.x - 4i64) as i32; }

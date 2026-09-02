@@ -1,0 +1,16 @@
+// rustc regions/impl-trait-lifetime-conflict-hashmap-keys.rs — upstream E0308 mismatched types (impl vs trait sig)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root lifereg.R18
+// split 2026-09-02w: the port's body (`&'a K` into `Subject<'static, K>`) is a second
+// defect and is refused by itself (../../fail/regions/impl-trait-lifetime-conflict-hashmap-keys);
+// this variant keeps ONLY the upstream defect, the impl signature that does not match the trait's.
+package impl_trait_lifetime_conflict_hashmap_keys_sig_only;
+struct Subject<'a, T> { p: Option<&'a T> }
+trait MapAssertion<'a, K> {
+  fn key_set(self: &Self) -> Subject<'a, K>;
+}
+struct M<'a, K> { p: &'a K }
+impl<'a, K> MapAssertion<'a, K> for M<'a, K> {
+  fn key_set(self: &Self) -> Subject<'static, K> { return Subject { p: None }; }
+}
+fn main() -> i32 { return 0i32; }

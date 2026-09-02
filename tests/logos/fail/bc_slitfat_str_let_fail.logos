@@ -1,0 +1,9 @@
+// E0621 at a LET: `let f: Flag<'a> = Flag { name: s }` with `s: &str`. The legal twin,
+// one token apart (`&str` -> `&'a str`), is bc_slitfat_str_let.
+package bc_slitfat_str_let_fail;
+struct Flag<'a> { name: &'a str }
+fn h<'a>(s: &str, k: &'a i64) -> i64 {
+  let f: Flag<'a> = Flag { name: s };
+  return *k + f.name.len() as i64;
+}
+fn main() -> i32 { return 0i32; }

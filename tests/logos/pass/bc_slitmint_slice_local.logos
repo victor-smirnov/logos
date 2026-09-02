@@ -1,0 +1,8 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the slice parameter carries the return's region.
+package bc_slitmint_slice_local;
+struct V<'a> { xs: &'a [i64] }
+fn g<'a>(xs: &'a [i64]) -> &'a i64 {
+  let v = V { xs: xs };
+  return &v.xs[0u64];
+}
+fn main() -> i32 { let a: [i64; 2] = [3i64, 4i64]; return (*g(&a) - 3i64) as i32; }

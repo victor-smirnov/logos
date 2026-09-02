@@ -1,0 +1,8 @@
+// E0621 through the GENERIC struct-literal path: `Thing<'a, Q>` built from a `&Q`.
+// The legal twin, one token apart (`&Q` -> `&'a Q`), is bc_slitgen_ref_field.
+package bc_slitgen_ref_field_fail;
+struct Thing<'a, Q> { x: &'a Q }
+fn thing<'a, Q>(x: &Q) -> Thing<'a, Q> {
+  return Thing { x: x };
+}
+fn main() -> i32 { return 0i32; }

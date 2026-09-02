@@ -1175,7 +1175,7 @@
 # &mut T) -> &mut T { &mut *r }`, which rustc refuses; the `&mut *p` twin of the
 # landed `&*p` region fact is therefore NOT landed, and `let r: &'static mut T =
 # &mut *q` (q 'static) is a recorded legal refusal.
-# TOTAL 187
+# TOTAL 184
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1252,7 +1252,6 @@ ex3-both-anon-regions-both-are-structs lifereg.N3 tests/imported/admit/lifetimes
 ex3-both-anon-regions-one-is-struct-5 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex3-both-anon-regions-one-is-struct-5
 ex3-both-anon-regions-using-impl-items lifereg.R18 tests/imported/admit/lifetimes/ex3-both-anon-regions-using-impl-items
 ex3-both-anon-regions lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions
-explicit-lifetime-required-14285 lifereg.R13 tests/imported/admit/lifetimes/explicit-lifetime-required-14285
 explicit-self-lifetime-mismatch lifereg.NEW-N3 tests/imported/admit/lifetimes/explicit-self-lifetime-mismatch
 issue-103582-hint-type-alias lifereg.A tests/imported/admit/lifetimes/issue-103582-hint-type-alias
 issue-55796--t09 lifereg.N1 tests/imported/admit/lifetimes/issue-55796--t09
@@ -1266,7 +1265,6 @@ lifetime-mismatch-between-trait-and-impl lifereg.R18 tests/imported/admit/lifeti
 missing-lifetime-in-assoc-type-1 lifereg.R17 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-1
 missing-lifetime-in-assoc-type-5 lifereg.N2 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-5
 missing-lifetime-in-assoc-type-6 lifereg.L4 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-6
-missing-lifetime-in-return lifereg.R13 tests/imported/admit/lifetimes/missing-lifetime-in-return
 mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17
 mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17
 temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor
@@ -1336,7 +1334,7 @@ wf-unreachable nllmoves.NEW-N1 tests/imported/admit/nll/wf-unreachable
 # ── tests/ui/regions ─────────────────────────────────────────
 better-blame-constraint-for-outlives-static lifereg.NEW-N1 tests/imported/admit/regions/better-blame-constraint-for-outlives-static
 explicit-static-bound-on-trait lifereg.NEW-4 tests/imported/admit/regions/explicit-static-bound-on-trait
-impl-trait-lifetime-conflict-hashmap-keys lifereg.R18 tests/imported/admit/regions/impl-trait-lifetime-conflict-hashmap-keys
+impl-trait-lifetime-conflict-hashmap-keys--sig-only lifereg.R18 tests/imported/admit/regions/impl-trait-lifetime-conflict-hashmap-keys--sig-only
 issue-101280 lifereg.NEW-N4 tests/imported/admit/regions/issue-101280
 multiple-sources-for-outlives-requirement--c24b lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--c24b
 multiple-sources-for-outlives-requirement--t24 lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--t24
@@ -1360,7 +1358,6 @@ regions-fn-subtyping-return-static-fail--fn-subtyping lifereg.L7 tests/imported/
 regions-free-region-ordering-callee-4 lifereg.NEW-N2 tests/imported/admit/regions/regions-free-region-ordering-callee-4
 regions-free-region-ordering-caller lifereg.NEW-L3 tests/imported/admit/regions/regions-free-region-ordering-caller
 regions-free-region-ordering-caller1 lifereg.D tests/imported/admit/regions/regions-free-region-ordering-caller1
-regions-glb-free-free--e-field-lifetime lifereg.NEW-R19 tests/imported/admit/regions/regions-glb-free-free--e-field-lifetime
 regions-glb-free-free--glb-free-free lifereg.NEW-R19 tests/imported/admit/regions/regions-glb-free-free--glb-free-free
 regions-implied-bounds-projection-gap-1 lifereg.N1 tests/imported/admit/regions/regions-implied-bounds-projection-gap-1
 regions-in-enums-anon lifereg.R17 tests/imported/admit/regions/regions-in-enums-anon

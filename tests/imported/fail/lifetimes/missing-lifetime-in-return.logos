@@ -1,6 +1,6 @@
 // rustc lifetimes/missing-lifetime-in-return.rs — upstream E0621 explicit lifetime required
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.R13
+// shelf: fail — REFUSED since 2026-09-02w, when the GENERIC struct-literal path began to read the literal's lifetime args off its values instead of the hint alone, so the return variance check sees the pair. Was lifereg.R13.
 package missing_lifetime_in_return;
 struct Thing<'a, Q> { x: &'a Q }
 fn thing<'a, Q>(x: &Q) -> Thing<'a, Q> { return Thing { x: x }; }

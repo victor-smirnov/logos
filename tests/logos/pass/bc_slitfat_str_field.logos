@@ -1,0 +1,7 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the parameter carries the struct's binder.
+package bc_slitfat_str_field;
+struct Flag<'a> { name: &'a str, desc: &'a str }
+fn h<'a>(s: &'a str) -> Flag<'a> {
+  return Flag { name: s, desc: s };
+}
+fn main() -> i32 { let f = h("ab"); return (f.name.len() as i64 + f.desc.len() as i64 - 4i64) as i32; }

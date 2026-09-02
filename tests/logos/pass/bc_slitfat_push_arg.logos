@@ -1,0 +1,9 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the pushed literal's value carries the Vec's binder;
+// a `'static` literal is pushed beside it.
+package bc_slitfat_push_arg;
+struct Flag<'a> { name: &'a str }
+fn add<'a>(v: &mut Vec<Flag<'a>>, s: &'a str) {
+  v.push(Flag { name: s });
+  v.push(Flag { name: "lit" });
+}
+fn main() -> i32 { let mut v: Vec<Flag> = Vec::new(); add(&mut v, "ab"); return (v.len() as i64 - 2i64) as i32; }

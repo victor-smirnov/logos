@@ -1,0 +1,1 @@
+error [fn thing]: return type mismatch: variance mismatch — expected Thing<'a, Q>, got Thing<Q> — lifetime structure incompatible (check &mut invariance / contravariance rules)

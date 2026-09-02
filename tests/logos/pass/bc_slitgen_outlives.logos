@@ -1,0 +1,8 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `'b: 'a` is declared, so `Thing<'b, Q>` is a
+// `Thing<'a, Q>` by covariance.
+package bc_slitgen_outlives;
+struct Thing<'a, Q> { x: &'a Q }
+fn mk<'a, 'b: 'a, Q>(q: &'b Q) -> Thing<'a, Q> {
+  return Thing { x: q };
+}
+fn main() -> i32 { let v = 3i64; let t = mk(&v); return (*t.x - 3i64) as i32; }

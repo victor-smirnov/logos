@@ -1,6 +1,6 @@
 // rustc lifetimes/explicit-lifetime-required-14285.rs — upstream E0621 explicit lifetime required
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.R13
+// shelf: fail — REFUSED since 2026-09-02w, when a bare struct literal's lifetime args began to be read off its values for a fat-pointer (str / slice / dyn / DST) field and the elided region of such a parameter is minted, so the existing return / let variance check sees the pair. Was lifereg.R13.
 package explicit_lifetime_required_14285;
 trait Foo { fn dummy(&self) -> i64; }
 struct A { x: i64 }

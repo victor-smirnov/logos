@@ -1,0 +1,9 @@
+// E0621: a `&Foo` (custom DST) parameter into `Holder<'a>`'s `&'a Foo` field. The
+// legal twin, one token apart (`&Foo` -> `&'a Foo`), is bc_slitfat_dst_field.
+package bc_slitfat_dst_field_fail;
+struct Foo { a: i64, tail: [u8] }
+struct Holder<'a> { r: &'a Foo, k: i64 }
+fn mk<'a>(f: &Foo, x: &'a i64) -> Holder<'a> {
+  return Holder { r: f, k: *x };
+}
+fn main() -> i32 { return 0i32; }

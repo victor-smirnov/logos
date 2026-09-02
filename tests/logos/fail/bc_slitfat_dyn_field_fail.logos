@@ -1,0 +1,9 @@
+// E0621: a `&dyn Tr` parameter into `B<'a>`'s `&'a dyn Tr` field. The legal twin,
+// one token apart (`&dyn` -> `&'a dyn`), is bc_slitfat_dyn_field.
+package bc_slitfat_dyn_field_fail;
+trait Tr { fn k(&self) -> i64; }
+struct B<'a> { r: &'a dyn Tr }
+fn foo<'a>(a: &dyn Tr) -> B<'a> {
+  return B { r: a };
+}
+fn main() -> i32 { return 0i32; }

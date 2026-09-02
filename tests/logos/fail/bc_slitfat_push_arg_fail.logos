@@ -1,0 +1,10 @@
+// E0621 at a CALL ARGUMENT: `Flag { name: s }` with `s: &str` pushed into a
+// `Vec<Flag<'a>>`. The legal twin, one token apart (`&str` -> `&'a str`), is
+// bc_slitfat_push_arg.
+package bc_slitfat_push_arg_fail;
+struct Flag<'a> { name: &'a str }
+fn add<'a>(v: &mut Vec<Flag<'a>>, s: &str) {
+  v.push(Flag { name: s });
+  v.push(Flag { name: "lit" });
+}
+fn main() -> i32 { return 0i32; }

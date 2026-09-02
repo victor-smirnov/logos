@@ -1,0 +1,10 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the trait-object parameter carries the binder.
+package bc_slitfat_dyn_field;
+trait Tr { fn k(&self) -> i64; }
+struct W { n: i64 }
+impl Tr for W { fn k(&self) -> i64 { return self.n; } }
+struct B<'a> { r: &'a dyn Tr }
+fn foo<'a>(a: &'a dyn Tr) -> B<'a> {
+  return B { r: a };
+}
+fn main() -> i32 { let w = W { n: 3i64 }; let b = foo(&w); return (b.r.k() - 3i64) as i32; }

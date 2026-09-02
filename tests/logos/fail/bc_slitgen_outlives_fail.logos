@@ -1,0 +1,8 @@
+// E0621 in the generic path with a SECOND binder: `Thing<'a, Q>` from `&'b Q` with
+// no `'b: 'a`. The legal twin, one token apart (`'b` -> `'b: 'a`), is bc_slitgen_outlives.
+package bc_slitgen_outlives_fail;
+struct Thing<'a, Q> { x: &'a Q }
+fn mk<'a, 'b, Q>(q: &'b Q) -> Thing<'a, Q> {
+  return Thing { x: q };
+}
+fn main() -> i32 { return 0i32; }

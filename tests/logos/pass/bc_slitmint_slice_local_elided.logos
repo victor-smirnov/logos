@@ -1,0 +1,11 @@
+// LEGAL, and REFUSED before 2026-09-02w ("cannot return reference to temporary
+// value: dangling reference"): the elided `&[i64]` parameter had no region, so the
+// slice read through the local `V { xs }` looked like a borrow of `v`. Elision rule 1
+// gives the return the parameter's region; the mint now writes it.
+package bc_slitmint_slice_local_elided;
+struct V<'a> { xs: &'a [i64] }
+fn g(xs: &[i64]) -> &i64 {
+  let v = V { xs: xs };
+  return &v.xs[0u64];
+}
+fn main() -> i32 { let a: [i64; 2] = [3i64, 4i64]; return (*g(&a) - 3i64) as i32; }

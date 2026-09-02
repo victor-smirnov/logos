@@ -1,0 +1,1 @@
+error [fn add]: method 'Vec__push' arg 1: variance mismatch — expected Flag<'a>, got Flag — lifetime structure incompatible (check &mut invariance / contravariance rules)

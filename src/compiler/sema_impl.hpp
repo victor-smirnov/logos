@@ -612,10 +612,9 @@ private:
                                        t.pkg_name());
         }
         case K::Slice: {
-            // PROBE slitmint / slitall — the slot EXISTS since arm_regslot
-            // landed; this arm predates it. PROBES.md 2026-09-02v.
-            if (logos::probe::slit_mint() &&
-                t.slice_owning_kind() == TypeRef::OwningKind::Borrow) {
+            // A borrowed fat pointer has a region slot (arm_regslot); an
+            // elided one is minted like a `&`'s. LANDED 2026-09-02w.
+            if (t.slice_owning_kind() == TypeRef::OwningKind::Borrow) {
                 std::string slt(t.lifetime());
                 if (slt == "'_" || slt == "_") slt.clear();
                 if (slt.empty()) { slt = fresh(); logos::probe::census("mint.slice.elided"); }
@@ -624,7 +623,6 @@ private:
                 auto ne = mint_type_lts_(t.elem(), out, fixed, depth + 1);
                 return make_slice_type(ne, t.mut_ptr(), TypeRef::OwningKind::Borrow, slt);
             }
-            logos::probe::census("mint.slice.noslot");
             auto ne = mint_type_lts_(t.elem(), out, fixed, depth + 1);
             return ne == t.elem() ? t : make_slice_type(ne, t.mut_ptr());
         }
@@ -634,8 +632,7 @@ private:
                                   : make_array(ne, t.arr_size(), t.arr_size_var());
         }
         case K::DstRef: {
-            if (logos::probe::slit_mint() &&
-                t.dst_owning_kind() == TypeRef::OwningKind::Borrow) {
+            if (t.dst_owning_kind() == TypeRef::OwningKind::Borrow) {
                 std::string dlt(t.lifetime());
                 if (dlt == "'_" || dlt == "_") dlt.clear();
                 if (dlt.empty()) { dlt = fresh(); logos::probe::census("mint.dstref.elided"); }
@@ -646,12 +643,10 @@ private:
                 return make_dst_ref(t.struct_name(), t.pkg_name(), t.mut_ptr(), std::move(as),
                                     TypeRef::OwningKind::Borrow, dlt);
             }
-            logos::probe::census("mint.dstref.noslot");
             return t;
         }
         case K::TraitObject: {
-            if (logos::probe::slit_mint() &&
-                t.trait_owning_kind() == TypeRef::OwningKind::Borrow) {
+            if (t.trait_owning_kind() == TypeRef::OwningKind::Borrow) {
                 std::string dlt(t.lifetime());
                 if (dlt == "'_" || dlt == "_") dlt.clear();
                 if (dlt.empty()) { dlt = fresh(); logos::probe::census("mint.traitobject.elided"); }
@@ -662,7 +657,6 @@ private:
                 return make_trait_object(t.trait_name(), std::move(as), TraitOwningKind::Borrow,
                                          t.trait_requires_send(), t.trait_requires_sync(), dlt);
             }
-            logos::probe::census("mint.traitobject.noslot");
             return t;
         }
         default:
@@ -1209,24 +1203,20 @@ private:
                 walk(dt.pointee(), at.pointee());
                 return;
             }
-            // PROBE slitkinds / slitwhole — the region slot of `&'a str` /
-            // `&'a [T]` / `&'a dyn` / `&'a Dst` (landed, arm_regslot) was never
-            // read by this walk. PROBES.md 2026-09-02v.
+            // `&'a str` / `&'a [T]` / `&'a dyn` / `&'a Dst`: the fat-pointer
+            // region slot pairs like a `&`'s. LANDED 2026-09-02w.
             if ((dk2 == K::Slice || dk2 == K::TraitObject || dk2 == K::DstRef) &&
                 at.kind() == dk2) {
-                logos::probe::census("slit.kinds.arrival");
-                if (logos::probe::slit_kinds()) {
-                    std::string d(dt.lifetime()), a(at.lifetime());
-                    if (!d.empty() && !a.empty()) {
-                        logos::probe::census("slit.kinds.pair");
-                        cands[d].push_back(a);
-                        if (!flt.count(d)) flt.emplace(d, a);
-                    }
-                    if (dk2 == K::Slice) walk(dt.elem(), at.elem());
-                    else {
-                        auto da = dt.type_args(); auto aa = at.type_args();
-                        for (size_t i = 0; i < da.size() && i < aa.size(); ++i) walk(da[i], aa[i]);
-                    }
+                std::string d(dt.lifetime()), a(at.lifetime());
+                if (!d.empty() && !a.empty()) {
+                    logos::probe::census("subst.structlit.fat.pair");
+                    cands[d].push_back(a);
+                    if (!flt.count(d)) flt.emplace(d, a);
+                }
+                if (dk2 == K::Slice) walk(dt.elem(), at.elem());
+                else {
+                    auto da = dt.type_args(); auto aa = at.type_args();
+                    for (size_t i = 0; i < da.size() && i < aa.size(); ++i) walk(da[i], aa[i]);
                 }
                 return;
             }

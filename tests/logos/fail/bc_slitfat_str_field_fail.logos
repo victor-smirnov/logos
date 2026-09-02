@@ -1,0 +1,9 @@
+// E0621: a `&str` PARAMETER (its region minted, elided) stored into `Flag<'a>`'s
+// `&'a str` field and returned. The legal twin, one token apart (`&str` -> `&'a str`),
+// is bc_slitfat_str_field.
+package bc_slitfat_str_field_fail;
+struct Flag<'a> { name: &'a str, desc: &'a str }
+fn h<'a>(s: &str) -> Flag<'a> {
+  return Flag { name: s, desc: s };
+}
+fn main() -> i32 { return 0i32; }

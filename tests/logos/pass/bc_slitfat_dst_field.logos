@@ -1,0 +1,8 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the DST reference carries the binder.
+package bc_slitfat_dst_field;
+struct Foo { a: i64, tail: [u8] }
+struct Holder<'a> { r: &'a Foo, k: i64 }
+fn mk<'a>(f: &'a Foo, x: &'a i64) -> Holder<'a> {
+  return Holder { r: f, k: *x };
+}
+fn main() -> i32 { return 0i32; }

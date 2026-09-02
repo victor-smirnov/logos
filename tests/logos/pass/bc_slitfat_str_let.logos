@@ -1,0 +1,8 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the let's annotation and the value agree.
+package bc_slitfat_str_let;
+struct Flag<'a> { name: &'a str }
+fn h<'a>(s: &'a str, k: &'a i64) -> i64 {
+  let f: Flag<'a> = Flag { name: s };
+  return *k + f.name.len() as i64;
+}
+fn main() -> i32 { let k = 1i64; return (h("ab", &k) - 3i64) as i32; }

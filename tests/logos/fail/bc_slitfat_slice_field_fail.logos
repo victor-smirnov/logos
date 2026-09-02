@@ -1,0 +1,8 @@
+// E0621: a `&[i64]` parameter into `S<'a>`'s `&'a [i64]` field. The legal twin,
+// one token apart (`&[i64]` -> `&'a [i64]`), is bc_slitfat_slice_field.
+package bc_slitfat_slice_field_fail;
+struct S<'a> { v: &'a [i64] }
+fn h<'a>(s: &[i64]) -> S<'a> {
+  return S { v: s };
+}
+fn main() -> i32 { return 0i32; }

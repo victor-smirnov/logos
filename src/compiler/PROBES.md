@@ -16199,3 +16199,130 @@ fires: 493855
 ceiling: 4 (3 honest + hashmap-keys collision)
 cost: 0 (cfail 0, stdlib ok)
 verdict: D1 + D2 + M; M in SERIES with D1 for 14285 (3 + 0 = 4). glb-free-free--glb-free-free walled by the meet (§4). FUND.
+
+# ═══ ROUND 2026-09-02w — LANDED: A BARE STRUCT LITERAL'S LIFETIME ARGS ARE READ OFF ITS
+# VALUES FOR A `&'a str` / `&'a [T]` / `&'a dyn` / `&'a Dst` FIELD AND IN THE GENERIC PATH,
+# AND THE ELIDED REGION OF A FAT-POINTER PARAMETER IS MINTED. 3 E0621 ROWS CLOSED (PREDICTED 3,
+# NAME FOR NAME), 1 COLLISION SPLIT, 187 -> 184 ═════════════════════════════════════════════
+
+## 0. STEP 1, RE-DERIVED (HEAD cf8a21107 clean = origin/main; unarmed binary a5eddc3b6cf0aed3, READ)
+    live probe names 148 · # TOTAL 187 = 187 by listing · lifereg 80 / nllmoves 54 / bck 53 · roots
+    bck.C 16 · nllmoves.C 10 · bck.B 10 · lifereg.R18 8 · bck.NEW 8 · … — the 2026-09-02v report is
+    confirmed digit for digit. Store baseline, build 512 (a5eddc3b6cf0aed3): admit gate 187 recorded /
+    0 failed; `-L bc` 1223 (logos label) / 0 failed.
+
+## 1. TARGETS = the four rows of 2026-09-02v §1, by name; prediction (build/round-2026-09-02w/
+##    predictions-2026-09-02w.txt, written before the first edit): CLOSED 3 = {regions-glb-free-free--
+##    e-field-lifetime, missing-lifetime-in-return, explicit-lifetime-required-14285}; STILL ADMITTED 1 =
+##    {regions-glb-free-free--glb-free-free} (the meet, §5); COLLISION 1 = {impl-trait-lifetime-conflict-
+##    hashmap-keys}; admit gate 187 -> 183 admitted; cost 0 / 0 / ok; k17 un-refused.
+
+## 2. THE LANDING (2b63daf166744b60 logosc-only; b207a9d44abc0a8a after the full build)
+`slitall` ungated AS SPELLED, −26 lines net: `mint_type_lts_` mints a fresh region for an elided
+Borrow-owning Slice / TraitObject / DstRef (a written one is carried; Box-owning keeps none);
+`structlit_lt_subst_` and the ng walk in `lower_struct_lit` pair the fat-pointer region slot like a
+`&`'s; the generic path's `lit_type` takes its lifetime args from `structlit_lt_subst_` over the values
+(census `subst.structlit.gen.differs`, `subst.structlit.fat.pair`). The probe helpers `slit_kinds /
+slit_gen / slit_mint` and the five names are gone; PROBES.md keeps their records (2026-09-02v).
+CANDIDATE B — the ng walk DELEGATING to `structlit_lt_subst_` (one walk, rule "two notions") — was
+DECLINED BEFORE PRICING, by reading, not by a number: `structlit_lt_subst_` carries the MEET, which
+writes "" for a covariant binder offered two regions, and "" is permissive at the return compare; the
+ng walk is first-wins. Delegating would UN-REFUSE every ng literal with two distinct named source
+regions returned into a third binder (i03-shaped with 'b and 'c) that first-wins refuses today by
+luck of order. The two walks stay twins until the meet can spell an obligation (§5).
+
+## 3. RULE 5 — COUNTER-EXAMPLES IN SHAPES THE PRICING DID NOT WRITE (build/hand-2026-09-02w/, run.sh
+##    prints the census per program; every legal program's reach proved by `slit.kinds.pair` /
+##    `slit.gen.*` / `mint.slice.elided` on the armed a5eddc3b6cf0aed3, then re-run on the landing)
+27 LEGAL, all rc 0 armed AND landed: k01 `head<T>(&[T]) -> &T` called through `&'a [i64]` and through
+`&'a [i64; 3]` (the array->slice carrier) · k02 `first(&str) -> &str` called through `&'a str` and
+`String::as_str` · k03 closures with `&[i64]` / `&str` params · k04 `fn(&str) -> i64` fn-pointer param ·
+k05 `F: Fn(&[i64]) -> i64` · k06 trait with a `&[i64]` param and a `&str` return, impl on `S<'a>` ·
+k07 `v.push(Flag { name: s })` into `&mut Vec<Flag<'a>>` with `s: &'a str` AND a `'static` literal ·
+k08 methods returning `Flag { name: s, desc: self.desc }` and `{ "d", self.desc }` (two regions, meet) ·
+k09 hidden-lifetime return `fn mk(s: &str) -> Flag` · k10 let-annotated `Flag<'a>` from `&'b str`
+with `'b: 'a` · k11 generic `Th<'a, Q>` with `Option<&'a Q>` + `&'a str` fields · k12 two binders
+`P<'a, 'b> { xs: &'a [&'b str] }` · k13 `&'a mut [u8]` field · k14 enum literal `E::V { s }` · k15
+`Flag { name: s }` through a LOCAL then `fl.name` returned, named and elided · k16 elided param into a
+local literal, `.len()` · k17 `&v.xs[0]` through a local `V { xs }` (see below) · k18 `&self` method with
+an unused `&str` param returning `Flag { name: self.name }` · k20 index loop over `&[&str]` · k21
+`&'a S -> &'a dyn Tr` coercion at the literal + a method returning `self.r` · k23 `static` array and
+`&'static str` into a literal · k24 nested `Out { i: In { s }, xs }` with str + slice · k25 generic path
+`Thing<'a, Q>` from `&'b Q` with `'b: 'a` (`slit.gen.differs` 1: the type WAS rewritten and the
+program stayed legal) · k26 generic path at an annotated let · k27 generic method `Thing { x: self.x }` ·
+k28 `Box<dyn Tr>` + `&'a str` fields · k30 `-> Flag<'_>` through a local.
+4 ILLEGAL: x01 elided `&str` through a local into `&'a str` (refused: "return type has lifetime 'a but
+'s' has lifetime (elided)") · x02 `v.push(Flag { name: s })`, `s: &str` (refused at the ARG) · x04
+`let v: V<'a> = V { xs }` from `&'b [i64]` (refused at the LET) · x03 enum literal `E::V { s: s }` from
+`&str` into `E<'a>` — STILL ADMITTED, the enum-literal path has no value walk; off-ledger, RECORDED.
+⚠ k17 IS AN UN-REFUSAL OF A LEGAL PROGRAM: `fn g(xs: &[i64]) -> &i64 { let v = V { xs }; return
+&v.xs[0]; }` was refused by the OLD binary ("cannot return reference to temporary value: dangling
+reference" — the elided slice had no region, so the read through `v` looked like a borrow of `v`) and
+is admitted by the landing. Pinned as pass/bc_slitmint_slice_local_elided.
+The 2026-09-02v set re-run on the landing: i01-i24 all rc 1, l01-l23 + m01-m15 all rc 0, n01 n02 n04
+still admitted (E0106 over two fat inputs, recorded 09-02v §6), n03 rc 1. ⚠ l24 is rc 1 on BOTH the
+armed and the landed binary — "field read through `&DstStruct` requires unsafe context", a dialect
+refusal unrelated to the arm; the 09-02v report's "41 legal rc 0" counted it, the honest count is 40.
+
+## 4. THE SETS, BOTH WAYS, AND EVERY ORACLE (2b63daf166744b60 unless said)
+admit gate (gate-run, build 515): 183 passed / 4 failed — FAILED = {explicit-lifetime-required-14285,
+missing-lifetime-in-return, impl-trait-lifetime-conflict-hashmap-keys, regions-glb-free-free--e-field-
+lifetime} = predicted, name for name; predicted∖measured = ∅, measured∖predicted = ∅; glb-free-free--
+glb-free-free admitted as predicted. `-L bc` 2178 passed / 0 failed / 2 disabled. stdlib-cost.sh: all
+four layers, rc 0. fail_text_oracle: 1223 rows vs failtext-a5eddc3b6cf0aed3.tsv — 0 differ, 0 only-old,
+0 only-new. Diagnostics READ, one error each: 14285 `return type mismatch: variance mismatch — expected
+B<'a>, got B` (the minted region still prints as nothing, 09-01p §4's open word) · missing-lifetime-in-
+return `expected Thing<'a, Q>, got Thing<Q>` · e-field-lifetime `expected Flag<'a>, got Flag<'b>` ·
+hashmap-keys `[fn M__key_set]: expected Subject<'static, K>, got Subject<'a, K>`.
+Where the landing differs from the probe (rule 7): nowhere in code — the probe is the landing; the
+ceiling 4 and the close 3 + 1 split agree.
+
+## 5. THE COLLISION ROW: SPLIT, NOT CLOSED — ⚠ A CORPUS ACTION, REVERSIBLE, FLAGGED FOR VICTOR
+impl-trait-lifetime-conflict-hashmap-keys is refused for its BODY (`self.p: &'a K` flowing into the
+declared `Subject<'static, K>`), a real second defect of the port that rustc also reports, but NOT the
+upstream E0308 reason (impl signature vs trait signature), whose comparator is M-SIG (REJECTED 09-06a).
+The ledger gate holds both directions, so the row could not stay while the program is refused, and
+moving it to `fail` alone would have made the M-SIG hole invisible. Done instead, the import blocks'
+own convention (`--e-field-lifetime` / `--glb-free-free`): the port moves to fail/regions with its
+body diagnostic pinned and a shelf line that says it is not the upstream reason; a new
+`impl-trait-lifetime-conflict-hashmap-keys--sig-only` (body `Subject { p: None }`, `p: Option<&'a T>`)
+keeps ONLY the signature defect and is ADMITTED (rc 0, measured) — it carries the lifereg.R18 row.
+187 − 4 + 1 = 184. If Victor prefers the row deleted or the original port edited instead, both are
+one-file changes.
+STILL OPEN, THE FOURTH TARGET: regions-glb-free-free--glb-free-free — `Flag { name: self.name, desc:
+s }` offers `'a` and the minted `'%N` for one covariant binder, the meet writes "", and "" is the
+comparators' word for "no obligation". Needs a region variable with lower bounds (a `'r` with `'r: 'a`
+AND `'r: '%N`, then `'r` vs `'a` at the return). 1 row; the same wall blocks every two-source literal
+returned into a named binder, and is why candidate B (§2) is declined.
+
+## 6. FIXTURES (all measured on 2b63daf166744b60; ctest 8847 -> 8867 = +19 native + 4 fail − 3 admit)
+Imported, moved admit -> fail in their roots' homes, `.expected` pinned from `error [`: lifetimes/
+explicit-lifetime-required-14285, lifetimes/missing-lifetime-in-return, regions/regions-glb-free-free--
+e-field-lifetime, regions/impl-trait-lifetime-conflict-hashmap-keys (§5). Native PAIRS one token apart
+(fail / pass): bc_slitfat_str_field (`&str` / `&'a str`), bc_slitfat_dyn_field, bc_slitfat_slice_field,
+bc_slitfat_dst_field, bc_slitfat_str_let (at a LET), bc_slitgen_ref_field (generic path, `&Q` / `&'a Q`),
+bc_slitgen_outlives (generic path, `'b` / `'b: 'a`), bc_slitfat_push_arg (at a CALL ARG, `&str` /
+`&'a str`), bc_slitmint_slice_local (through a LOCAL, `&[i64]` / `&'a [i64]`) + pass/
+bc_slitmint_slice_local_elided (k17). Pins by listing: direct_door corpus 2560 -> 2570, nonglob 2369
+-> 2379; census_pin 8847/4476/236 -> 8867/4492/233 (−3 = the three admit-gate tests that left).
+
+CONTROL REVERT (sources at HEAD, fixtures kept, logosc ab0925fc34f80c6a): 15 of the 24 red — the 13
+fail fixtures admitted, AND BOTH pass twins bc_slitmint_slice_local{,_elided} refused: the old binary
+refused `fn g<'a>(xs: &'a [i64]) -> &'a i64 { let v = V { xs }; return &v.xs[0]; }` as well, with the
+WRITTEN region — the ng walk never paired a Slice, so `V` carried no region and the read through `v`
+was a "dangling reference". Two legal un-refusals, not one. Restored: hash back to b207a9d44abc0a8a,
+the same 24 + the ledger / pin gates green (27/27). L1 747/747 (+ tier_commit 233 after the pins);
+L4 bc rc 0: 4492/4492 core+spec, 1477/1477 bc; full cmake --build rc 0.
+
+## 7. OFF-LEDGER, RECORDED NOT PURSUED
+ · x03: an ENUM literal (`E::V { s: s }`) never reads its lifetime args off its values — the enum
+   literal path has no value walk at all. No ledger row has the shape.
+ · l24: a field read through `&DstStruct` outside `unsafe` is refused (dialect; not a lifetime matter).
+ · The E0106 declaration-elision rule still counts Ref inputs only (n01 n02 n04, 09-02v §6).
+ · The minted region prints as nothing in every diagnostic (`got Flag`, `got B`, `got Thing<Q>`).
+
+## 8. LEDGER ARITHMETIC
+# TOTAL 187 -> 184: −3 closed (all lifereg: R13 ×2, NEW-R19 ×1) −1 split +1 sig-only (R18). lifereg
+80 -> 77. Blocks NOT spent this round: the meet's obligation (1 row: glb-free-free--glb-free-free),
+M-SIG (the sig-only row + the rest of R18), object-lifetime (5 rows, aa68d1a45), E0716 (owner), the
+E0106 fat-input elision (0 rows).

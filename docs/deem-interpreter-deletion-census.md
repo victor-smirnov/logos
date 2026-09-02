@@ -5058,9 +5058,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8811 -> 8825  +14
 #   NOIMPORTED   4468 -> 4464   -4
 #   TIERCOMMIT    264 ->  246  -18
-REGISTRY-ALL         8847
-REGISTRY-NOIMPORTED  4476
-REGISTRY-TIERCOMMIT  236
+REGISTRY-ALL         8867
+REGISTRY-NOIMPORTED  4492
+REGISTRY-TIERCOMMIT  233
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is
