@@ -1,12 +1,15 @@
 // B76: 'static is bottom of variance; coerces to any 'a in Co position.
+// 2026-09-02: Holder<'static> was built from `&v` of a fn-local (E0597 in
+// rustc); the source is now a `static` item so the &'static is genuine.
 package variance_static_into_bounded_arg;
+
+static V: i32 = 7i32;
 
 struct Holder<'a> { r: &'a i32 }
 
 fn take<'a>(h: Holder<'a>) -> i32 { return 0i32; }
 
 fn main() -> i32 {
-    let v: i32 = 7i32;
-    let h: Holder<'static> = Holder { r: &v };
+    let h: Holder<'static> = Holder { r: &V };
     return take(h);
 }

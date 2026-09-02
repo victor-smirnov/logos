@@ -112,9 +112,12 @@ fn main() -> i64 {
 
     // @rule generic.variance.fn-contravariant-params
     {
+        // 2026-09-02: `_g` names the 'long := 'static the call yields (a
+        // `fn(&'static)` value into an elided-param fn slot is E0308 in rustc);
+        // `r` names ret_static's real &'static return (elided was E0106).
         let f: fn(&i32) -> i32 = some_fn;
-        let _g: fn(&i32) -> i32 = v_fn_param(f);         // fn Contra in param
-        let r: fn() -> &i32 = ret_static;
+        let _g: fn(&'static i32) -> i32 = v_fn_param(f); // fn Contra in param
+        let r: fn() -> &'static i32 = ret_static;
         let _r: fn() -> &i32 = v_fn_ret(r);              // fn Co in return
     }
 

@@ -4,7 +4,10 @@
 // where 'a: 'static`, `ref_id<'a>(&'a()) -> &'a() where 'static: 'a`, and a
 // transitive `where 'a: 'b, 'b: 'static`. Distilled to &'a i64 carrying a value;
 // the &'static source is a borrow of a fn-local (top-level `static` items not ported).
+// 2026-09-02: `static` items exist now; `run(&v)` of a fn-local into `&'static i64`
+// is E0597 in rustc, so the source is a `static` item as upstream's promoted `&()` is.
 package region_where_outlives_static_id_rg;
+static V: i64 = 7i64;
 fn static_id<'a>(t: &'a i64) -> &'static i64 where 'a: 'static { return t; }
 fn ref_id<'a>(t: &'a i64) -> &'a i64 where 'static: 'a { return t; }
 fn static_id_indirect<'a, 'b>(t: &'a i64) -> &'static i64 where 'a: 'b, 'b: 'static { return t; }
@@ -16,6 +19,5 @@ fn run(val: &'static i64) -> i32 {
     return 1i32;
 }
 fn main() -> i32 {
-    let v: i64 = 7i64;
-    return run(&v);
+    return run(&V);
 }

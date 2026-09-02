@@ -23,6 +23,10 @@ fn first<'a, 'b>(x: &'a i64, y: &'b i64) -> &'a i64 { return x; }
 
 // ── 'static is the top region: a &'static flows where any &'a is wanted ──────
 fn take_any<'a>(x: &'a i64) -> &'a i64 { return x; }
+// 2026-09-02: the four `let s: &'static i64` sites below borrowed the fn-locals
+// x / y (E0597 in rustc); they now borrow these `static` items, same values.
+static SX: i64 = 7i64;
+static SY: i64 = 11i64;
 
 // ── transitive outlives chain: 'long: 'mid, 'mid: 'short ⇒ 'long: 'short ─────
 struct Hold<'a> { v: &'a i64 }
@@ -84,7 +88,7 @@ fn main() -> i64 {
     // 'static: r for every r — a &'static value flows into a slot wanting any
     // &'a (here 'static narrowed to the call's fresh 'a).
     {
-        let s: &'static i64 = &x;
+        let s: &'static i64 = &SX;
         let r = take_any(s);
         if *r != 7i64 { return 3; }
     }
@@ -93,7 +97,7 @@ fn main() -> i64 {
     // 'static outlives every lifetime 'a: same witness, a &'static is accepted
     // wherever a shorter &'a is expected and the value flows through.
     {
-        let s: &'static i64 = &y;
+        let s: &'static i64 = &SY;
         let r = take_any(s);
         if *r != 11i64 { return 4; }
     }
@@ -121,7 +125,7 @@ fn main() -> i64 {
     // `where 'a: 'static` edge IS honored — `to_static` compiles and returns a
     // usable &'static under that declared bound.
     {
-        let s: &'static i64 = &x;
+        let s: &'static i64 = &SX;
         let r: &'static i64 = to_static(s);
         if *r != 7i64 { return 7; }
     }
@@ -130,7 +134,7 @@ fn main() -> i64 {
     // 'static is treated as declared in every scope: the &'static annotation
     // above (and here) is never an undeclared-lifetime error.
     {
-        let s: &'static i64 = &y;
+        let s: &'static i64 = &SY;
         if *s != 11i64 { return 8; }
     }
 
