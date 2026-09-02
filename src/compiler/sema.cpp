@@ -8157,6 +8157,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // lifetime bound is recorded for future §2.1 region_infer wiring.
         std::vector<TypeRef> args;
         bool req_send = false, req_sync = false;
+        std::string plus_lt;  // PROBE 2026-09-02x objltbound — the `+ 'a` object-lifetime bound. PROBES.md.
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
@@ -8177,7 +8178,11 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                     // — extend the bit-field when they become load-bearing.
                     continue;
                 }
-                if (ic == la::AUTO_LIFE_BOUND.code) continue;  // lifetime bound — recorded by grammar but enforce-phase (§2.1) absent
+                if (ic == la::AUTO_LIFE_BOUND.code) {
+                    logos::probe::census("objlt.plusbound.seen");
+                    if (item.has_key(la::NAME)) plus_lt = std::string(str_of(item.get(la::NAME.code)));
+                    continue;
+                }
                 args.push_back(resolve_type(item));
             }
         }
@@ -8189,8 +8194,10 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // context, behaviour is unchanged (legacy: bare `dyn Trait` and
         // `&dyn Trait` both produce TraitObject; downstream sema rejects
         // bare-by-value when it matters).
-        if (unsized_ok_)
+        if (unsized_ok_) {
+            if (!plus_lt.empty()) logos::probe::census("objlt.plusbound.unsizedpath");
             return make_unsized_dyn_type(tname, std::move(args), req_send, req_sync);
+        }
         // P2-15: forming a `&dyn Trait` fat trait object requires Trait to be
         // object-safe (dyn-compatible). A non-object-safe method has no vtable
         // slot → dispatch would crash; reject at the type-resolution point.
@@ -8208,6 +8215,10 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             dlt = std::string(str_of(node.get(la::LIFETIME.code)));
         logos::probe::census(dlt.empty() ? "regslot.dyntype.elided"
                                          : "regslot.dyntype.written");
+        if (!plus_lt.empty() && !dlt.empty()) logos::probe::census("objlt.plusbound.withprefix");
+        if (dlt.empty() && !plus_lt.empty() &&
+            (logos::probe::on("objltbound") || logos::probe::on("objltall")))
+            dlt = plus_lt;
         return make_trait_object(tname, std::move(args),
                                  TraitOwningKind::Borrow,
                                  req_send, req_sync,

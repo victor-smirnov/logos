@@ -895,6 +895,7 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
 bool SemaChecker::try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target) {
     if (!e || !expr_type(e) || !target) return false;
     TypeRef et(expr_type(e));
+    logos::probe::census(std::format("objlt.tsuc.src{}.dst{}", (int)et.kind(), (int)TypeRef(target).kind()));
     if (!((TypeRef(target).kind() == LogosType::Kind::Struct ||
            TypeRef(target).kind() == LogosType::Kind::ZonedStruct) &&
           (et.kind() == LogosType::Kind::Struct ||
@@ -5210,6 +5211,11 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
                 auto pt = subst_type_sema(fi.param_types[i], subst);
+                if (pt && (TypeRef(pt).kind() == LogosType::Kind::TraitObject ||
+                           TypeRef(pt).kind() == LogosType::Kind::UnsizedDyn))
+                    logos::probe::census(std::format("objlt.fgc.pt{}.raw{}.at{}", (int)TypeRef(pt).kind(),
+                        (int)TypeRef(fi.param_types[i]).kind(),
+                        expr_type(arg_exprs[i]) ? (int)TypeRef(expr_type(arg_exprs[i])).kind() : -1));
                 retype_bare_enum_arg(arg_exprs[i], pt);
                 try_coerce_closure_to_fnptr(arg_exprs[i], pt);
                 try_coerce_array_ref_to_slice(arg_exprs[i], pt);
@@ -14748,9 +14754,13 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
     case CoercePos::PlaceWrite:
     case CoercePos::TupleElem:
     case CoercePos::BranchArm:
+        if (pos == CoercePos::PlaceWrite) logos::probe::census("objlt.site.placewrite");
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
                CFLAG_SLICE_TO_ARRAY | CFLAG_IMPLICIT_REBORROW |
-               CFLAG_WIDEN_INT;
+               CFLAG_WIDEN_INT |
+               ((pos == CoercePos::PlaceWrite &&
+                 (logos::probe::on("objltpw") || logos::probe::on("objltall")))
+                    ? CFLAG_CHECK_DYN_BOUNDS : 0u);  // PROBE 2026-09-02x objltpw
     case CoercePos::StructLitField:
         // Rust MOVES into a struct literal: no reborrow. Everything else
         // applies.
@@ -14982,6 +14992,89 @@ void SemaChecker::check_dyn_auto_bounds_at_coercion(lir_view::ExprRef arg,
     // payload of an owning container (UnsizedDyn, reached by peeling Box/Rc/Arc).
     if (!pdyn || (TypeRef(pdyn).kind() != LogosType::Kind::TraitObject &&
                   TypeRef(pdyn).kind() != LogosType::Kind::UnsizedDyn)) return;
+    // PROBE 2026-09-02x objlt* — object-lifetime bound `Src: 'r` at the unsize site. PROBES.md.
+    // @@objlt-arms@@
+    {
+        using K = LogosType::Kind;
+        const bool arm_rule = logos::probe::on("objltrule") || logos::probe::on("objltclos") ||
+                              logos::probe::on("objltpw") || logos::probe::on("objltall") ||
+                              logos::probe::on("objltstrict");
+        const bool arm_clos = logos::probe::on("objltclos") || logos::probe::on("objltpw") ||
+                              logos::probe::on("objltall");
+        const bool arm_strict = logos::probe::on("objltstrict");
+        bool via_ref = false; TypeRef q = pt;
+        for (int g = 0; q && g < 8; ++g) {
+            auto k = TypeRef(q).kind();
+            if ((k == K::Ref || k == K::MutRef || k == K::Ptr) && TypeRef(q).pointee()) { via_ref = true; q = TypeRef(q).pointee(); continue; }
+            if (is_smart_ptr(q) && !TypeRef(q).type_args().empty()) { q = TypeRef(q).type_args()[0]; continue; }
+            break;
+        }
+        std::string slot(TypeRef(pdyn).lifetime());
+        std::string R = !slot.empty() ? outlives_norm(slot) : (via_ref ? std::string() : std::string("'static"));
+        if (R == "'_") R.clear();
+        TypeRef src0 = expr_type(arg);
+        TypeRef sp = src0 ? peel(src0) : TypeRef();
+        const int spk0 = sp ? (int)TypeRef(sp).kind() : -1;
+        logos::probe::census(std::format("objlt.gate.src{}.dst{}", src0 ? (int)TypeRef(src0).kind() : -1, (int)TypeRef(pt).kind()));
+        logos::probe::census(std::format("objlt.gate.sp{}.R{}", spk0, R.empty() ? "none" : (R == "'static" ? "static" : "named")));
+        logos::probe::census(std::format("objlt.gate.argnode{}", (int)expr_ref_of(arg).kind()));
+        if (arm_rule && !R.empty() && sp && TypeRef(sp).kind() != K::TraitObject && TypeRef(sp).kind() != K::UnsizedDyn) {
+            auto adj = outlives_adj(current_outlives_);
+            auto r_ok = [&](std::string_view r) -> bool {
+                if (r.empty() || r == "'_" || r == "_") return false;
+                if (outlives_is_static(r)) return true;
+                if (arm_strict) return outlives_norm(r) == R;
+                return outlives(r, R, adj, /*permissive_empty=*/false);
+            };
+            std::vector<std::string> bad;
+            std::function<void(TypeRef, int)> walk = [&](TypeRef t, int d) {
+                if (!t || d > 6) return;
+                auto k = TypeRef(t).kind();
+                switch (k) {
+                case K::Ref: case K::MutRef: case K::Slice: case K::TraitObject: case K::DstRef: {
+                    if (k == K::Slice && TypeRef(t).owning_slice()) { walk(TypeRef(t).elem(), d + 1); return; }
+                    std::string lt(TypeRef(t).lifetime());
+                    if (!r_ok(lt)) bad.push_back(lt.empty() ? std::string("'_") : lt);
+                    if (k == K::Ref || k == K::MutRef) walk(TypeRef(t).pointee(), d + 1);
+                    else if (k == K::Slice) walk(TypeRef(t).elem(), d + 1);
+                    return;
+                }
+                case K::Struct: case K::ZonedStruct: case K::Enum:
+                    for (auto& la_ : TypeRef(t).lifetime_args()) if (!r_ok(la_)) bad.push_back(la_.empty() ? std::string("'_") : la_);
+                    for (auto a : TypeRef(t).type_args()) walk(a, d + 1);
+                    return;
+                case K::Tuple: for (auto e : TypeRef(t).tuple_elems()) walk(e, d + 1); return;
+                case K::Array: walk(TypeRef(t).elem(), d + 1); return;
+                case K::TypeVar: {
+                    std::string tvn(TypeRef(t).type_var_name());
+                    auto it = current_type_lt_outlives_.find(tvn);
+                    bool ok = false;
+                    if (it != current_type_lt_outlives_.end())
+                        for (auto& b : it->second) if (r_ok(b)) { ok = true; break; }
+                    logos::probe::census(ok ? "objlt.rule.tv.ok" : "objlt.rule.tv.bad");
+                    if (!ok) bad.push_back(tvn + " (no bound reaching " + R + ")");
+                    return;
+                }
+                case K::AssocType: { logos::probe::census("objlt.rule.assoc"); bad.push_back(type_str(t) + " (projection, no bound)"); return; }
+                case K::Closure: {
+                    if (!arm_clos) { logos::probe::census("objlt.rule.closure.skipped"); return; }
+                    // KEY-IDENTITY: keyed by the closure SIGNATURE — the same key the Send/Sync read site uses; the union over same-signature literals refuses in the CRUDE direction here (probe).
+                    auto ce = closure_capture_env_.find(type_str(t));
+                    if (ce == closure_capture_env_.end()) { logos::probe::census("objlt.rule.closure.noenv"); return; }
+                    logos::probe::census(std::format("objlt.rule.closure.caps{}", ce->second.size()));
+                    for (auto ct : ce->second) walk(ct, d + 1);
+                    return;
+                }
+                default: return;
+                }
+            };
+            walk(sp, 0);
+            logos::probe::census(bad.empty() ? "objlt.rule.ok" : "objlt.rule.refuse");
+            if (!bad.empty())
+                error(std::format("coercion to `dyn {}` requires `{}: {}` — lifetime `{}` may not live long enough (object lifetime bound)",
+                                  std::string(TypeRef(pdyn).trait_name()), type_str(sp), R, bad.front()));
+        }
+    }
     bool need_send = TypeRef(pdyn).trait_requires_send();
     bool need_sync = TypeRef(pdyn).trait_requires_sync();
     if (!need_send && !need_sync) return;
@@ -17847,6 +17940,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         // union-over-literals is conservative in the safe direction and must
         // NOT be converted along with closure_kind_ (#90).
         auto& env = closure_capture_env_[type_str(ctype)];
+        logos::probe::census(env.empty() ? "objlt.closure.env.fresh" : "objlt.closure.env.union");
+        logos::probe::census(std::format("objlt.closure.{}.caps{}", is_move ? "move" : "byref", ec->captures.size()));
         for (size_t i = 0; i < ec->captures.size(); ++i) {
             TypeRef ct = (i < ec->capture_field_types.size() &&
                           ec->capture_field_types[i])
