@@ -16019,3 +16019,183 @@ sema.cpp::fold_where_bounds extracted from read_type_params)
   +59/-24, sema_impl.hpp +4, sema.cpp +105/-100 (a verbatim move). Fixtures: 10 rows moved admit -> fail in
   their roots' homes (tests/imported/fail/{drop,dropck}) with the diagnostic pinned from `error [`, plus 10
   native pairs one token apart in tests/logos/{fail,pass}/bc_drop{wf,call}_*. Ledger 197 -> 187 by listing.
+
+# ═══ ROUND 2026-09-02v — A BARE STRUCT LITERAL'S LIFETIME ARGS ARE NEVER READ OFF ITS
+# VALUES FOR A `&'a str` / `&'a [T]` / `&'a dyn` / `&'a Dst` FIELD, NOR AT ALL IN THE
+# GENERIC PATH, AND THE ELIDED REGION OF A FAT-POINTER PARAMETER IS NEVER MINTED.
+# 4 E0621 ROWS TARGETED; PRICED 4 (3 HONEST + 1 COLLISION), COST 0 / cfail 0 / STDLIB OK
+# IN TWO BUILDS; THE 4TH TARGET IS WALLED BY THE MEET ═══════════════════════════════
+
+## 0. STEP 1, READ FROM THE TREE (corrections to the brief)
+    live probe names 148 · ledger # TOTAL 187 = 187 by listing · lifereg 80 / nllmoves 54 /
+    bck 53 (the handoff memory said 106/73/54 and 145 probes: stale by two rounds) · roots
+    bck.C 16 · nllmoves.C 10 · bck.B 10 · lifereg.R18 8 · bck.NEW 8 · nllmoves.B 7 ·
+    lifereg.N1 7 · lifereg.C 7 · nllmoves.D 6 · lifereg.NEW-N1 6 · HEAD 8d6f2527d clean =
+    origin/main · unarmed binary c992c1ceba208219 (READ, scripts/build_hash.py).
+    Upstream-code split of the 187 (each port's header): "lifetime may not live long
+    enough"/region 60 · E0597 17 · E0716 9 · E0507 9 · E0621 8 · E0499 7 · E0521 6 ·
+    E0382 6 · E0308 6 · the rest <= 5. 68 of 187 rows are mentioned ZERO times in this file.
+
+## 1. THE TARGET ROWS BY NAME (build/round-2026-09-02v/targets-2026-09-02v.txt, before any edit)
+PROPERTY, not root: a BARE literal (no written lifetime args) of a lifetime-generic struct —
+21 admit rows carry it (bare_lit.txt), across 15 roots and all three channels. Of the 21,
+the ones whose ONLY fault is that the literal's type never receives its values' regions:
+    regions-glb-free-free--e-field-lifetime   lifereg.NEW-R19  E0621  `&'b str` into Flag<'a>          (D1)
+    regions-glb-free-free--glb-free-free      lifereg.NEW-R19  E0621  `&str` param + self.name          (D1 + mint)
+    explicit-lifetime-required-14285          lifereg.R13      E0621  `&dyn Foo` param into B<'a>       (D1 + mint)
+    missing-lifetime-in-return                lifereg.R13      E0621  Thing<'a, Q> from `&Q`            (D2)
+The other 17 by property: 5 are the object-lifetime wall (issue-103582, issue-55796--t09,
+regions-close-object-into-object-1, region-object-lifetime-in-coercion, regions-steal-closure),
+2 the stlandbare D rows (pattern-substs-on-brace-struct, do-not-ignore-…-proj--b), 3 the `impl
+Copy for Foo<'static>` question, 2 method-ufcs (fault at the CALLER), 1 E0392 owner, 1 E0716,
+1 explicit-static-bound-on-trait (W concrete: legal as ported), 1 issue-55394--b (`impl Foo<'_>`
+binder), 1 ex2c (the let's elided annotation). WHY THIS BLOCK: the E0621 root (8 rows) was
+mentioned 8 times here and never surveyed as a block; the shape is an ARM THAT EXISTS
+(`check_variance` at return/let + the Struct arm of `subtype`) reached through a FACT the code
+does not carry. The T:'a block is SPENT (09-01d §14), M-SIG REJECTED (09-06a), object-lifetime
+walled (aa68d1a45), E0716 owner-blocked, Drop landed 09-02u.
+
+## 2. RULE 17 — THE DOORS, READ AND CENSUSED BEFORE ANY EDIT (unarmed c992c1ceba208219)
+A struct literal gets its lifetime args from `hint_struct_type_` (let annotation / call formal /
+return type — and the return hint is set ONLY when `type_args()` is non-empty, so a lifetime-
+only struct has no return hint at all). The non-generic path (sema_expr.cpp `ng_lt_args`) then
+reads the binders off the field VALUES through an inline walk (landed with arm_inst); the
+generic path never does — it takes the hint, and its FIELD check substitutes the binder to the
+value's region (`structlit_lt_subst_`), so both compares are `'a` against `'a`. Both walks handle
+Ref / MutRef / Struct / Enum / Tuple only: `&'a str` and `&'a [T]` are Kind::Slice, `&'a dyn` is
+TraitObject, `&'a Dst` is DstRef — whose REGION SLOT landed (arm_regslot) after the walks were
+written. Census over the 21 property rows: `st.struct.bare_vs_args` fires on 8 (the literal
+reaches `subtype`'s Struct arm BARE and the arity mismatch returns true), `subst.structlit.differs`
+on 7 (the walk found something), on the four targets it found NOTHING.
+Hand (build/hand-2026-09-02v/, unarmed): i01 i02 i04 i07 i08 i09 i10 i12 i13 i14 i15 i20 — `&'a
+i64` / `&'a mut` / tuple / nested struct / Option / enum fields — ALREADY REFUSED ("expected
+Flag<'a>, got Flag"); i03 (`&'a str`), i05 (`&'a dyn`), i11 (`&'a [i64]`), i19 (str at a let) and
+i06 i16 i17 i18 (generic Thing<'a, Q>) ADMITTED. i21 i22 i23 (same three kinds with a NAMED param
+region) under slitkinds: REFUSED, `slit.kinds.pair` 1 — so the second empty side is the VALUE's:
+`mint_type_lts_`'s Slice arm still says "HAS NO LIFETIME SLOT" and mints nothing, TraitObject /
+DstRef return `t` untouched (`mint.slice.noslot` 178 per program).
+
+## 3. THE PROBE TABLE — TWO BUILDS, ALL THREE COST COLUMNS (scripts/probe-batch.sh, L1 rc 0 inert both)
+    site  D1  both walks: Slice / TraitObject / DstRef pair the region slot        (slit.kinds.*)
+          D2  generic path: lit_type's lifetime args := structlit_lt_subst_ over the values (slit.gen.*)
+          M   mint_type_lts_: Slice / TraitObject / DstRef (owning == Borrow) get a fresh region
+    build 7b7af440645936ab (READ):
+    probe        arms      fires  ceiling  cost  cfail  std  closed rows
+    slitkinds    D1           33      1      0      0   ok   e-field-lifetime
+    slitgenlt    D2           15      2      0      0   ok   missing-lifetime-in-return, impl-trait-lifetime-conflict-hashmap-keys (COLLISION, §5)
+    slitwhole    D1+D2        49      3      0      0   ok   = the union, digit for digit (parallel doors: 1 + 2 = 3)
+    build a5eddc3b6cf0aed3 (READ):
+    slitmint     M        493806      0      0      0   ok   a fact with no consumer alone (rule 2)
+    slitall      D1+D2+M  493855      4      0      0   ok   slitwhole + explicit-lifetime-required-14285 (M is the second half of a SERIES for it: 3 + 0 = 4, rule 13)
+fail_text_oracle: 1223 rows, diff EMPTY under every name. stdlib: four layers under every name.
+
+## 4. THE SETS, DIFFED BOTH WAYS (predictions-2026-09-02v.txt, written before the first build)
+Predicted slitkinds 3 — CORRECTED to 1 before the price by the i21-i23 hand pair (§2): glb-free-free
+and 14285 have ELIDED fat-pointer params and needed M. Measured 1 = e-field-lifetime. ✓
+Predicted slitgenlt 1 (+1 collision) — measured 2, the same two names. ✓ Predicted slitall 5 —
+measured 4: predicted∖measured = {regions-glb-free-free--glb-free-free}; measured∖predicted = ∅.
+WHY glb-free-free STAYS: `Flag { name: self.name, desc: s }` offers TWO regions for the one
+covariant binder — `'a` (self.name) and the minted `'%N` (s) — and the MEET (landed 08-31n)
+instantiates it at "" (`meet.structlit.applied`); the return compare is then `lifetime_at(Co, "",
+'a)` = permissive = true. The meet is right that the binder is the region both outlive; it is
+wrong to write that region as "" at a site that has an obligation (`r: 'a`) — the empty spelling
+is the comparators' word for "no obligation". A region variable with lower bounds is the
+machinery; not bought here. 1 row.
+DIAGNOSTICS, read on every closed row: `return type mismatch: variance mismatch — expected
+Flag<'a>, got Flag<'b>` (e-field-lifetime), `… expected Thing<'a, Q>, got Thing<Q>` (missing-
+lifetime-in-return), `… expected B<'a>, got B` (14285). Right site, right pair; the minted region
+prints as nothing (09-01p §4's open word, still open).
+
+## 5. ⛔ COLLISION, NOT A CLOSE: impl-trait-lifetime-conflict-hashmap-keys (lifereg.R18, upstream
+E0308 impl-vs-trait signature). slitgenlt refuses it with `expected Subject<'static, K>, got
+Subject<'a, K>` — the port's BODY does flow `self.p: &'a K` into a 'static slot, but the upstream
+reason is the SIGNATURE (`Subject<'static, K>` vs the trait's `Subject<'a, K>`), which is M-SIG's
+comparator. A row closed by a wrong diagnostic is not closed; the honest ceiling is 3.
+
+## 6. RULE 5 — HAND PROGRAMS, MULTI-LINE, VARIED BY SHAPE (build/hand-2026-09-02v/run.sh, run2.sh)
+Under slitall on a5eddc3b6cf0aed3: 24 ILLEGAL refused (i01-i24: named / elided source into a
+named binder at return, let, method, nested literal, enum literal, tuple field, Option field, `&mut`,
+generic struct ×4, str / slice / dyn / Dst fields with named AND elided params; n03 Holder<'a> from
+`&str` beside a `&'a str`). 41 LEGAL rc 0: l01-l24 (same binder, `'b: 'a` declared, all-elided,
+`'_` return, local literal, 'static source, mixed 'static + 'a fields, method with self's binder,
+call-arg literal (l13: `take(Flag{name:s}, x)` is LEGAL — the callee's binder is inferred),
+two-binder struct, `&*s` reborrow, Dst field) and m01-m15 exercising the MINT in every other
+consumer: `&str -> &str`, `&self` + `&str` -> `&Self` (elision rule 3), `fn head<T>(&[T]) -> &T`,
+`&mut [i64]`, `&dyn Tr` passed on, `Vec<&'a str>` push, `longest<'a>`, `'_` on a slice, a struct
+with str + slice fields and methods returning them, a trait impl with a `&str` param (the sig
+comparator), `&dyn Fn(&str)`, a tuple return `(&i64, &[i64])`, `Holder<'_>` from `&str`, a
+`&'static str` static-array read, two slice inputs to a non-returning fn.
+⚠ STILL ADMITTED, OFF-LEDGER, RECORDED: n01 `fn pick(a: &str, b: &str) -> &str`, n02 `(&[i64],
+&i64) -> &i64`, n04 `longest(&str, &str) -> &str` — E0106 (two input regions, no self). The
+declaration-site elision rule counts Ref inputs only; the mint's `out` now carries the slice
+regions but that rule does not read it. No ledger row has the shape (the two E0106 rows are the
+regions-in-*-anon design pair). Not pursued.
+
+## 7. OFF-LEDGER, RECORDED NOT PURSUED
+ · The MEET writes "" for a covariant binder offered two regions (§4) — a region with an
+   obligation spelled as the region with none. Walls glb-free-free--glb-free-free and, by
+   construction, every two-source literal returned into a named binder.
+ · `mint_type_lts_`'s Slice arm comment ("HAS NO LIFETIME SLOT") is stale since arm_regslot;
+   the arm mints nothing for Slice / TraitObject / DstRef. The probe M is that mint, Borrow-
+   owning only (Box<[T]> / Box<dyn> / Box<Dst> keep no region, correctly).
+ · The return hint (`hint_struct_type_ = ret_type_`) is set only for a struct WITH type args;
+   a lifetime-only struct literal in return position is typed from its values alone.
+ · `Box<[&T]>` with an elided inner ref loses its owning kind in the Slice arm of the mint
+   (pre-existing: `make_slice_type(ne, t.mut_ptr())` drops `owning`). Not touched.
+
+## 8. WHAT DESERVES FUNDING
+ 1. slitall as spelled: 3 honest rows (e-field-lifetime, missing-lifetime-in-return, 14285) for
+    cost 0 / cfail 0 / stdlib ok, 24 illegal + 41 legal hand verdicts across the shapes above. The
+    landing = D1 as ONE walk (the ng path delegating to `structlit_lt_subst_`, rule: two notions),
+    D2 as written, M as written. Fixture pairs: i03/l14, i05/l16, i11/l19, i06/l07, i24/l23, i19/i04.
+ 2. The collision row stays with M-SIG (its signature comparator), not with this arm.
+ 3. NOT: the meet's obligation (1 row, machinery) · E0106 over fat inputs (0 rows).
+
+## 9. LEDGER ARITHMETIC
+# TOTAL 187 -> 187. No row bought; 5 env-gated probes installed (slitkinds slitgenlt slitwhole
+slitmint slitall), L1 rc 0 inert on both builds, the binary in build/ = these sources.
+
+## slitkinds
+site: src/compiler/sema_impl.hpp::structlit_lt_subst_ (+ sema_expr.cpp::lower_struct_lit, the ng walk)
+build: 7b7af440645936ab (READ)
+measured: 2026-09-02
+fires: 33
+ceiling: 1
+cost: 0 (cfail 0, stdlib ok)
+verdict: D1 alone; e-field-lifetime (named `&'b str` param). The elided-param rows need M in series.
+
+## slitgenlt
+site: src/compiler/sema_expr.cpp::lower_struct_lit (generic path, before check_struct_lit_outlives)
+build: 7b7af440645936ab (READ)
+measured: 2026-09-02
+fires: 15
+ceiling: 2
+cost: 0 (cfail 0, stdlib ok)
+verdict: D2 alone; missing-lifetime-in-return + hashmap-keys (COLLISION §5). 1 honest.
+
+## slitwhole
+site: both of the above
+build: 7b7af440645936ab (READ)
+measured: 2026-09-02
+fires: 49
+ceiling: 3
+cost: 0 (cfail 0, stdlib ok)
+verdict: D1 + D2, parallel: 1 + 2 = 3, the union by name.
+
+## slitmint
+site: src/compiler/sema_impl.hpp::mint_type_lts_ (Slice / TraitObject / DstRef arms)
+build: a5eddc3b6cf0aed3 (READ)
+measured: 2026-09-02
+fires: 493806
+ceiling: 0
+cost: 0 (cfail 0, stdlib ok)
+verdict: M alone — a fact with no consumer (rule 2); the site is LIVE (493806 arrivals, stdlib included).
+
+## slitall
+site: the three sites above
+build: a5eddc3b6cf0aed3 (READ)
+measured: 2026-09-02
+fires: 493855
+ceiling: 4 (3 honest + hashmap-keys collision)
+cost: 0 (cfail 0, stdlib ok)
+verdict: D1 + D2 + M; M in SERIES with D1 for 14285 (3 + 0 = 4). glb-free-free--glb-free-free walled by the meet (§4). FUND.

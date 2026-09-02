@@ -612,9 +612,18 @@ private:
                                        t.pkg_name());
         }
         case K::Slice: {
-            // ⚠ Kind::Slice HAS NO LIFETIME SLOT. `&[T]` canonicalises to Slice
-            // at resolve_type and the region of the borrow is DROPPED there, so
-            // no mint can give this parameter a name. Counted, not fixed.
+            // PROBE slitmint / slitall — the slot EXISTS since arm_regslot
+            // landed; this arm predates it. PROBES.md 2026-09-02v.
+            if (logos::probe::slit_mint() &&
+                t.slice_owning_kind() == TypeRef::OwningKind::Borrow) {
+                std::string slt(t.lifetime());
+                if (slt == "'_" || slt == "_") slt.clear();
+                if (slt.empty()) { slt = fresh(); logos::probe::census("mint.slice.elided"); }
+                else            { logos::probe::census("mint.slice.written"); }
+                out.push_back(slt);
+                auto ne = mint_type_lts_(t.elem(), out, fixed, depth + 1);
+                return make_slice_type(ne, t.mut_ptr(), TypeRef::OwningKind::Borrow, slt);
+            }
             logos::probe::census("mint.slice.noslot");
             auto ne = mint_type_lts_(t.elem(), out, fixed, depth + 1);
             return ne == t.elem() ? t : make_slice_type(ne, t.mut_ptr());
@@ -624,12 +633,38 @@ private:
             return ne == t.elem() ? t
                                   : make_array(ne, t.arr_size(), t.arr_size_var());
         }
-        case K::DstRef:
+        case K::DstRef: {
+            if (logos::probe::slit_mint() &&
+                t.dst_owning_kind() == TypeRef::OwningKind::Borrow) {
+                std::string dlt(t.lifetime());
+                if (dlt == "'_" || dlt == "_") dlt.clear();
+                if (dlt.empty()) { dlt = fresh(); logos::probe::census("mint.dstref.elided"); }
+                else            { logos::probe::census("mint.dstref.written"); }
+                out.push_back(dlt);
+                std::vector<TypeRef> as;
+                for (auto a : t.type_args()) as.push_back(mint_type_lts_(a, out, fixed, depth + 1));
+                return make_dst_ref(t.struct_name(), t.pkg_name(), t.mut_ptr(), std::move(as),
+                                    TypeRef::OwningKind::Borrow, dlt);
+            }
             logos::probe::census("mint.dstref.noslot");
             return t;
-        case K::TraitObject:
+        }
+        case K::TraitObject: {
+            if (logos::probe::slit_mint() &&
+                t.trait_owning_kind() == TypeRef::OwningKind::Borrow) {
+                std::string dlt(t.lifetime());
+                if (dlt == "'_" || dlt == "_") dlt.clear();
+                if (dlt.empty()) { dlt = fresh(); logos::probe::census("mint.traitobject.elided"); }
+                else            { logos::probe::census("mint.traitobject.written"); }
+                out.push_back(dlt);
+                std::vector<TypeRef> as;
+                for (auto a : t.type_args()) as.push_back(mint_type_lts_(a, out, fixed, depth + 1));
+                return make_trait_object(t.trait_name(), std::move(as), TraitOwningKind::Borrow,
+                                         t.trait_requires_send(), t.trait_requires_sync(), dlt);
+            }
             logos::probe::census("mint.traitobject.noslot");
             return t;
+        }
         default:
             return t;
         }
