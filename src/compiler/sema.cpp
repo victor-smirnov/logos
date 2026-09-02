@@ -6455,7 +6455,8 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         }
         if (!changed) return t;
         return make_unsized_dyn_type(t.trait_name(), std::move(new_args),
-                                     t.trait_requires_send(), t.trait_requires_sync());
+                                     t.trait_requires_send(), t.trait_requires_sync(),
+                                     std::string(t.lifetime()));  // PROBE 2026-09-02x objltbound
     }
     case LogosType::Kind::DstRef: {
         // Phase 1B-15: substitute type-args.
@@ -7384,9 +7385,11 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                     TypeRef ti(inner);
                     // type_args() is a fresh vector per call — materialise once.
                     std::vector<TypeRef> targs = ti.type_args();
+                    if (!std::string(ti.lifetime()).empty()) logos::probe::census("objlt.boxcollapse.slot");
                     return make_trait_object(ti.trait_name(), std::move(targs), sp_kind,
                                              /*req_send=*/ti.trait_requires_send(),
-                                             /*req_sync=*/ti.trait_requires_sync());
+                                             /*req_sync=*/ti.trait_requires_sync(),
+                                             std::string(ti.lifetime()));  // PROBE 2026-09-02x objltbound
                 }
                 // `Box<[T]>` (and Rc/Arc<[T]>) — heap unsized slice. Collapse to
                 // an OWNING fat slice {data,len}: same layout as `&[T]`, move-only,
@@ -8133,6 +8136,22 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             t.closure_ret = node.has_key(la::RET_TYPE)
                 ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
                 : void_t();
+            {   // PROBE 2026-09-02x objltclos — `dyn Fn(..)` is Kind::Closure; mark the dyn object type (+ its `+ 'a`) in the region slot. PROBES.md.
+                std::string fl;
+                if (node.has_key(la::ITEMS)) {
+                    auto fitems = arr_of(node.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < fitems.size(); ++i) {
+                        auto fit = map_of(fitems.get(i));
+                        if (code_of(fit) == la::AUTO_LIFE_BOUND.code && fit.has_key(la::NAME))
+                            fl = std::string(str_of(fit.get(la::NAME.code)));
+                    }
+                }
+                if (node.has_key(la::LIFETIME)) logos::probe::census("objlt.fnfamily.lifetimekey");
+                logos::probe::census(fl.empty() ? "objlt.fnfamily.nobound" : "objlt.fnfamily.plusbound");
+                if (logos::probe::on("objltclos") || logos::probe::on("objltpw") || logos::probe::on("objltall"))
+                    t.lifetime = (fl.empty() || !(logos::probe::on("objltbound") || logos::probe::on("objltall")))
+                                     ? std::string("'dyn") : fl;
+            }
             return pool_->alloc(std::move(t));
         }
         // KNOWN GAP (adversarial #1, H): this is a BARE-name lookup — a
@@ -8196,7 +8215,9 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // bare-by-value when it matters).
         if (unsized_ok_) {
             if (!plus_lt.empty()) logos::probe::census("objlt.plusbound.unsizedpath");
-            return make_unsized_dyn_type(tname, std::move(args), req_send, req_sync);
+            return make_unsized_dyn_type(tname, std::move(args), req_send, req_sync,
+                                         (logos::probe::on("objltbound") || logos::probe::on("objltall"))
+                                             ? plus_lt : std::string{});
         }
         // P2-15: forming a `&dyn Trait` fat trait object requires Trait to be
         // object-safe (dyn-compatible). A non-object-safe method has no vtable

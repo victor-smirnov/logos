@@ -1820,10 +1820,12 @@ private:
     TypeRef make_unsized_dyn_type(std::string_view tname,
                                   std::vector<TypeRef> args = {},
                                   bool req_send = false,
-                                  bool req_sync = false) {
+                                  bool req_sync = false,
+                                  std::string lt = {}) {  // PROBE 2026-09-02x objltbound: the `+ 'a` object-lifetime bound rides the region slot
         LogosTypeBuilder t; t.kind = LogosType::Kind::UnsizedDyn;
         t.trait_name = std::string(tname);
         t.type_args = std::move(args);
+        t.lifetime = std::move(lt);
         // `dyn Trait + Send/Sync` inside an owning container (`Box<dyn …>`):
         // carry the auto-bound bits in const_val (same encoding as
         // make_trait_object) so the bound survives type construction and the

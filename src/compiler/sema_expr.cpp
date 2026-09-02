@@ -14990,8 +14990,11 @@ void SemaChecker::check_dyn_auto_bounds_at_coercion(lir_view::ExprRef arg,
     TypeRef pdyn = peel(pt);
     // Accept both the fat `&dyn` form (TraitObject) and the unsized `dyn Trait`
     // payload of an owning container (UnsizedDyn, reached by peeling Box/Rc/Arc).
+    // PROBE 2026-09-02x objltclos: a `dyn Fn(..)` destination is Kind::Closure with a written region slot.
+    const bool objlt_clos_dyn_ = pdyn && TypeRef(pdyn).kind() == LogosType::Kind::Closure &&
+                                 !std::string(TypeRef(pdyn).lifetime()).empty();
     if (!pdyn || (TypeRef(pdyn).kind() != LogosType::Kind::TraitObject &&
-                  TypeRef(pdyn).kind() != LogosType::Kind::UnsizedDyn)) return;
+                  TypeRef(pdyn).kind() != LogosType::Kind::UnsizedDyn && !objlt_clos_dyn_)) return;
     // PROBE 2026-09-02x objlt* — object-lifetime bound `Src: 'r` at the unsize site. PROBES.md.
     // @@objlt-arms@@
     {
@@ -15010,9 +15013,20 @@ void SemaChecker::check_dyn_auto_bounds_at_coercion(lir_view::ExprRef arg,
             break;
         }
         std::string slot(TypeRef(pdyn).lifetime());
+        if (slot == "'dyn") { slot.clear(); logos::probe::census("objlt.gate.closdyn"); }
         std::string R = !slot.empty() ? outlives_norm(slot) : (via_ref ? std::string() : std::string("'static"));
         if (R == "'_") R.clear();
-        TypeRef src0 = expr_type(arg);
+        // the erasure: coerce_arg_to_dyn wrapped the argument in a Cast to the dyn BEFORE this gate ran (09-01g's
+        // "return-position erasure" is this cast at the Box::new ARGUMENT); read the source off the cast's operand.
+        lir_view::ExprRef objlt_er_ = expr_ref_of(arg);
+        int objlt_casts_ = 0;
+        while (objlt_casts_ < 2 && objlt_er_.kind() == lir_schema::expr::Code::Cast) {
+            auto op_ = lir_view::ECastView{objlt_er_}.operand();
+            if (!op_) break;
+            objlt_er_ = op_; ++objlt_casts_;
+        }
+        if (objlt_casts_) logos::probe::census("objlt.gate.castpeel");
+        TypeRef src0 = objlt_casts_ ? expr_type(objlt_er_) : expr_type(arg);
         TypeRef sp = src0 ? peel(src0) : TypeRef();
         const int spk0 = sp ? (int)TypeRef(sp).kind() : -1;
         logos::probe::census(std::format("objlt.gate.src{}.dst{}", src0 ? (int)TypeRef(src0).kind() : -1, (int)TypeRef(pt).kind()));
@@ -15075,6 +15089,7 @@ void SemaChecker::check_dyn_auto_bounds_at_coercion(lir_view::ExprRef arg,
                                   std::string(TypeRef(pdyn).trait_name()), type_str(sp), R, bad.front()));
         }
     }
+    if (objlt_clos_dyn_) return;  // PROBE 2026-09-02x: a Closure-kind dyn has no Send/Sync bits to read
     bool need_send = TypeRef(pdyn).trait_requires_send();
     bool need_sync = TypeRef(pdyn).trait_requires_sync();
     if (!need_send && !need_sync) return;
