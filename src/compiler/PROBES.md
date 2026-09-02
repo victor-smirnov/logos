@@ -13828,3 +13828,270 @@ NOT SPENT, EACH WITH ITS NUMBER:
      script's calling convention. The tell in every case was a number that was
      too clean: 25 of 25 moved, 0 of 242 rc changes, "nothing armed" in a run
      that armed something, 168 of 241. READ THE LABEL THE TOOL PRINTS.
+
+# ═══ ROUND 2026-09-01m — THE STRUCT-METHOD ARGUMENT IS NOT A VARIANCE SITE.
+# THE ARM (`check_variance` + the landed binder rule) REFUSES THE SAME COERCION
+# AT let-init AND AT A FREE-FN CALL AND IS NEVER CALLED FROM `lower_method_call`.
+# CEILING 6 HONEST (+1 BY NAME COLLISION), COST 0/0/ok — AND A STRUCT LITERAL
+# LEAKS ITS OWN BINDER NAME INTO THE CALLER'S SCOPE, UNARMED, TODAY ═══════════
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE), AND THE HAND-OFF'S CORRECTIONS
+
+    live probe names        145          (`probe::on("…")` in src include)
+    ledger                  # TOTAL 241  bck 54 · nllmoves 73 · lifereg 114
+    HEAD                    6c4eb2176    clean, pushed; binary 922d47bd2bfdfb45
+    handoff said nllmoves 74 — it is 73 by direct count; the rest held.
+    A-2 (2026-08-30e) said "the METHOD-CALL argument is not a comparison
+    site" and was carried unpriced through nine rounds. Read off the tree:
+    there are FOUR method-argument loops in sema_expr.cpp and ONE calls
+    check_variance — the dyn-dispatch loop ("method '{}' arg {}"). The
+    struct/impl loop in `lower_method_call` (formats "method '{}' arg {}:"
+    with `mangled`), the trait-bound loop (`chosen_method`) and the UFCS loop
+    in `lower_static_call` all stop at `expect_type(CoercePos::MethodArg)`.
+    ⚠ 2026-08-30e's C2 ("put(x, y) free fn, named — rc 0") is STALE: the
+    free-fn site refuses it today, unarmed (h16 below). The site question is
+    now the WHOLE difference between a free call and a method call.
+
+## 1. THE SUBJECT, NAMED BEFORE THE COMPILER WAS TOUCHED
+
+build/targets/targets-2026-09-01m.txt. Population derived BY PROPERTY, not by
+the root label: a program whose lifetime-bearing coercion is an ARGUMENT to a
+struct/impl method. Instrument: `probe::census` at the three loops, over all
+241 admits, no probe armed (build eb79ee5b7236380b):
+
+    mcall.A.arg        37   arrivals at the struct/impl loop
+    mcall.A.arg.ptlt   16   … with a lifetime-bearing FORMAL, in 15 programs
+    mcall.A.arg.atlt   14   … with a lifetime-bearing ACTUAL
+    mcall.B.arg         0   the trait-bound loop is reached by NO admit
+    mcall.C.arg         8   UFCS, none with a lifetime-bearing formal
+
+The 15: e0621-…-pointee-lifetime-distinct · ex2a-push-one-existing-name-2 ·
+ex2a-…-early-bound · ex2b-push-no-existing-names · ex2c-push-inference-variable
+· ex2e-push-inference-variable-3 · ex3-both-anon-regions · ex3-…-3 ·
+ex3-…-both-are-structs · ex3-…-both-are-structs-{early,late}bound-regions ·
+ex3-…-latebound-regions · ex3-…-using-impl-items · issue-90170-elision-mismatch
+· method-ufcs-3. Roots: lifereg.A ×8, N3 ×2, NEW-N1 ×2, NEW-R19, R18,
+nllmoves.NEW-N2 — SIX labels for one site. The 13-row `lifereg.A` label
+contains 8 of them; the "A-2 = 6 rows" list contained 5 (its sixth,
+iterator-trait-lifetime-error-13058, has NO explicit argument — its door is
+the return, and it is not in this population at all).
+
+## 2. THE PROBE TABLE — build **eb79ee5b7236380b** (READ), gate-db 430 → 436
+
+    probe               fires  ceiling  cost  cfail  std  site / spelling
+    mcallvar            53491     7       0     0    ok   A: check_variance(at, pt), permissive
+    mcallvarinst        53491     7       0     0    ok   A: + inst_call_params_ over [recv]+args,
+                                                          binders = fn's own ∪ regions of the self formal
+    mcallvarstrict      53490    13       0     2    ok   A: permissive=false
+    mcallvarinststrict  53490    13       0     2    ok   A: inst + permissive=false
+    tmcallvar            1175     0       0     0    ok   B: trait-bound loop — 0 admit arrivals (§1), rule 4
+    scallvar             3418     0       1     0    ok   C: UFCS — cost = two-phase-method-receivers
+
+Additivity (rule 13): var ⊂ strict, 7 + 6 = 13 and the union is 13; inst
+changes NO corpus number in either column and separates from var only by hand
+(h15 below) — rule 9, the inner predicate has two names and they agree digit
+for digit on every column the harness owns.
+
+## 3. THE SETS, PREDICTED BY NAME FIRST (build/predictions-2026-09-01m.txt)
+
+mcallvar PREDICTED 4 = the named-vs-named set. MEASURED 7:
+    predicted ∩ measured   ex3-…-latebound-regions · ex3-…-both-are-structs-
+                           latebound-regions · …-earlybound-regions ·
+                           ex2e-push-inference-variable-3               (4/4)
+    measured ∖ predicted   e0621-…-pointee-lifetime-distinct ·
+                           ex2a-push-one-existing-name-early-bound ·
+                           ex2a-push-one-existing-name-2                (3)
+    predicted ∖ measured   ∅
+The three unpredicted are NAMED-vs-MINTED (`&'a i64` ← `&i64`): the comparator
+already refuses a minted region against a declared one; I had predicted the
+permissive tail would admit it. Minted-vs-minted (both anonymous) admits under
+permissive and refuses under strict — that is the whole of strict's +6:
+ex2b · ex3-both-anon-regions · ex3-…-3 · ex3-…-both-are-structs ·
+ex3-…-using-impl-items · issue-90170-elision-mismatch.
+NOT closed by any arm, as predicted: iterator-trait-lifetime-error-13058
+(no argument), method-ufcs-3 (turbofish `&'static u32` — the explicit type arg
+is never compared, a different door), ex2c-push-inference-variable (`let z:
+Ref = …` — the ANNOTATED elided slot stays EMPTY where the un-annotated `let b
+= Ref{…}` gets a name; §5).
+
+## 4. THE DIAGNOSTICS, READ ON THE ARMED BINARY — ONE ROW IS CLOSED BY A COLLISION
+
+    e0621-…-distinct        method 'Vec__push' arg 1: variance mismatch — expected &'a i64, got &i64
+    ex2a-…-early-bound      … expected &'a i64, got &i64
+    ex2a-…-name-2           … expected Ref<'a>, got Ref
+    ex3-…-latebound         … expected &'a i64, got &'b i64
+    ex3-…-structs-latebound … expected Ref<'a>, got Ref<'b>
+    ex3-…-structs-earlybound… expected Ref<'a>, got Ref<'b>
+    ex2e-push-inference-3   … expected Ref<'b>, got Ref<'a>      ⛔ READ IT
+
+ex2e-3 is `fn foo<'a,'b,'c>(x: &'a mut Vec<Ref<'b>>, y: Ref<'c>) { let b = Ref
+{ data: y.data }; a.push(b); }`. The value is Ref<'c>; the message says Ref<'a>.
+`'a` there is `struct Ref<'a>`'s OWN binder, not foo's: the un-annotated struct
+literal is typed with the DECLARATION's binder name, and foo happens to declare
+an `'a` too. The refusal fires because BOTH names are `current_lt_binders()`
+of foo — a name collision, not the 'c-vs-'b relation. ONE-TOKEN CONTROL: rename
+foo's binders to 'p,'q,'r (h31) — still refused, "expected Ref<'q>, got
+Ref<'a>", and now 'a is nobody's binder; add `'r: 'q` (h30, LEGAL) — STILL
+REFUSED, same text. So: ex2e-3's closure is by the wrong reason (honest ceiling
+6, not 7), AND the same leak refuses a legal program.
+
+## 5. ⚠ BLOCKER, OFF-LEDGER IN LOCATION, IN SCOPE BY RULE: THE STRUCT LITERAL
+##    LEAKS ITS BINDER — UNARMED, TODAY, AT TWO SITES THAT ALREADY COMPARE
+
+    h33  let b = Ref{data: y.data}; a_push(x, b)   free-fn arg   rc 1 UNARMED
+         "call to 'a_push' arg 2: variance mismatch — expected Ref<'q>, got Ref<'a>"
+    h34  let b = Ref{data: y.data}; return b       return         rc 1 UNARMED
+         "return type mismatch: … expected Ref<'q>, got Ref<'a>"
+Both LEGAL (`'r: 'q` declared). No probe involved. The site is
+`structlit_lt_subst_` / the un-annotated literal's region: it should be the
+FIELD VALUE's region ('r), and it is the declaration's name. This is M-AGG's
+site (2026-09-01v §7) seen from the other direction — not "the losing
+candidate is dropped" but "the binder is never instantiated at all when the
+literal has no annotation". It blocks ex2e-3 (this block) and ex2c, and it is a
+standing false refusal the ledger cannot see (the ledger holds only programs
+that COMPILE). Not pursued this round: this is a pricing round.
+
+## 6. RULE 5 — 40 HAND PROGRAMS, MULTI-LINE, VARIED BY ROUTE, build/hand-2026-09-01m/
+
+Routes covered: Vec::push on a param (named/anon/bound-inline/bound-where),
+local Vec + local borrow, static into named/anon slot, user struct method with
+the impl's binder, trait-bound generic receiver, a method's OWN binder with two
+caller regions (named and anon), two-lifetime struct, Option<&'a> payload,
+&mut invariant slot, index read after push, rebound anon local, generic T,
+&str, by-value deref, field of a named struct, 'static elem. Unarmed, all 27
+LEGAL ones rc 0 except the two the literal leak refuses (h18, h30; §5) and
+h25/h26 (§8); all ILLEGAL ones rc 0 except the two controls h16/h17.
+
+    under            refuses LEGAL                       misses ILLEGAL
+    mcallvar         h15 (impl<'a,'b> binders vs caller  h01 h12 h19-renamed? no:
+                     'x,'y — rule 12: "expected &'a i64,  h01 (both anon), h12 (site B)
+                     got &'x i64"), h18/h30 (§5)
+    mcallvarinst     h18/h30 only (§5)                    h01, h12
+    mcallvarstrict   h14, h27 (a method's own binder      h12
+                     against two caller regions — rule 12), h15, h18/h30
+    mcallvarinststrict h18/h30 only (§5)                  h12
+h12 is the trait-bound route (site B), which no admit reaches (§1) and which
+`tmcallvar` arms: it stays rc 0 under tmcallvar too — `T: Sink<'a>`'s method
+formal arrives as the TRAIT's `&'a u8` with `'a` unsubstituted from the bound,
+so named-vs-minted never happens there. A second door, not priced.
+
+## 7. ⛔ DECLINED / CAVEATS, BY NAME
+
+ · `mcallvar` (permissive, no inst): refuses h15, a legal two-binder impl.
+   The correct spelling is `mcallvarinst` — same 7 rows, h15 fixed.
+ · `mcallvarstrict`: refuses h14/h27 (rule 12) — declined at that spelling.
+ · `mcallvarinststrict`: 13 rows, cost 0 on all three populations AND on
+   the hand set, BUT (a) cfail 2: `ex3-both-anon-regions-using-fn-items` and
+   `-using-trait-objects` LOSE their pinned E0596 — the sema refusal now
+   preempts borrow_check's, and the program is illegal either way (upstream
+   pins E0596 because the port dropped `mut`); (b) its six extra rows are
+   refused with "expected &i64, got &i64" — two minted regions spelled alike
+   (08-31n §3's spelling defect). A row closed by an unreadable message is
+   closed for the right reason with the wrong sentence; land only with the
+   minted-name spelling fixed or the message re-worded to name the params.
+ · `scallvar`: ceiling 0, cost 1 — `Foo::method(a, a.x)`: "expected &mut
+   Foo<'a>, got &mut Foo" — the impl binder unsubstituted at UFCS (rule 12),
+   the same defect `inst` fixes at site A. Declined as spelled.
+ · `tmcallvar`: 0 arrivals from admits; its own hand row (h12) shows the
+   formal carries the trait's binder unsubstituted. Not a zero, an un-instantiated hop (rule 11).
+
+## 8. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+
+ · `impl<'x> S<'x> { fn set(self: &mut Self, x: &'x i64) { self.v = x; } }`
+   with `struct S<'a>` — REFUSED UNARMED: "assignment to 'self.v': variance
+   mismatch — expected &'a i64, got &'x i64". A renamed impl binder is not
+   substituted into the field types of `Self`. Legal Rust (h25); 7640 records
+   a different symptom of the same shape ("undeclared lifetime name").
+ · `x.contains(&y)` on `Vec<&'a u8>`: "'&'a u8' does not implement trait
+   'Eq'" — no `Eq` for references in the prelude (h36).
+ · §5's literal leak, at the free-fn and return sites — a standing false
+   refusal, no ledger row can represent it.
+
+## 9. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+
+    # TOTAL 241 → 241. Nothing bought, nothing retired, no compiler change.
+    Six probes priced under one build; sources reverted, binary rebuilt.
+Not spent: the object-lifetime block (18, blocker 09-01g §6.1) · bck.C 16 ·
+lifereg.R17 10 · nllmoves.B remainder · the eight bare-`enum_name()` lookups.
+
+## ⇒ 10. WHAT DESERVES FUNDING, IN ORDER
+
+ 1. **LAND `mcallvarinst` at site A** — the free-fn site's exact pair
+    (`inst_call_params_` + `check_variance`, permissive) moved to the
+    struct/impl method loop, binders = the fn's own ∪ the self formal's.
+    Ceiling 7 (6 honest + ex2e-3 by collision), cost 0/0/ok, 27 legal hand
+    programs unmoved except the two §5 refuses ALREADY at other sites. Rule 7:
+    re-price the landed form. Predicted closed set = §3's seven names.
+ 2. **THE LITERAL LEAK (§5)** — instantiate the struct's binder from the
+    field value at an un-annotated literal. It un-refuses h18/h30/h33/h34
+    (legal, refused today), makes ex2e-3's closure honest, and is the door for
+    ex2c. It is a sema fix with no probe: the control is h33/h34 unarmed.
+ 3. **The strict half at site A** only after the minted-name spelling is
+    readable: +6 rows for an E0596 re-pin on two illegal ports.
+ 4. NOT: `scallvar`/`tmcallvar` as spelled — each needs the binder
+    instantiation first (rule 2, doors in series).
+
+## 11. OPEN (carried, plus this round's)
+
+ 1-50. UNCHANGED.
+ 51. NEW: an un-annotated struct literal is typed with the declaration's
+     binder NAME; the name can collide with a caller binder and a refusal
+     then fires for a relation nobody wrote (§4). A ceiling column cannot
+     tell a collision from a closure — only the message can.
+ 52. NEW: `let z: Ref = Ref{…}` (annotated, elided) and `let b = Ref{…}`
+     (un-annotated) get DIFFERENT region shapes for the same value — empty
+     vs the leaked binder. Two notions of "elided", neither the value's.
+
+## mcallvar
+site: src/compiler/sema_expr.cpp::lower_method_call
+build: eb79ee5b7236380b
+measured: 2026-09-01
+fires: 53491
+ceiling: 7
+cost: 0
+verdict: cost 0/0/ok; 6 honest rows + ex2e-3 by binder collision (§4); refuses h15 (rule 12) — land as mcallvarinst.
+
+## mcallvarinst
+site: src/compiler/sema_expr.cpp::lower_method_call
+build: eb79ee5b7236380b
+measured: 2026-09-01
+fires: 53491
+ceiling: 7
+cost: 0
+verdict: FUND. Same 7 rows as mcallvar, h15 fixed; only the §5 literal leak (h18/h30) stands, and it stands unarmed at other sites already.
+
+## mcallvarstrict
+site: src/compiler/sema_expr.cpp::lower_method_call
+build: eb79ee5b7236380b
+measured: 2026-09-01
+fires: 53490
+ceiling: 13
+cost: 0
+verdict: DECLINED as spelled — cfail 2 (E0596 pins lost), refuses h14/h27 (rule 12); the +6 print "expected &i64, got &i64".
+
+## mcallvarinststrict
+site: src/compiler/sema_expr.cpp::lower_method_call
+build: eb79ee5b7236380b
+measured: 2026-09-01
+fires: 53490
+ceiling: 13
+cost: 0
+verdict: HELD — 0 on all three populations and 40 hand programs, but cfail 2 and the six extra rows' message is two minted names spelled alike; land after the spelling is readable.
+
+## tmcallvar
+site: src/compiler/sema_expr.cpp::lower_method_call
+build: eb79ee5b7236380b
+measured: 2026-09-01
+fires: 1175
+ceiling: 0
+cost: 0
+verdict: NOT a zero — 0 admit arrivals at the trait-bound loop, and h12 shows the formal carries the trait's binder unsubstituted (rule 11).
+
+## scallvar
+site: src/compiler/sema_expr.cpp::lower_static_call
+build: eb79ee5b7236380b
+measured: 2026-09-01
+fires: 3418
+ceiling: 0
+cost: 1
+verdict: DECLINED — two-phase-method-receivers refused ("expected &mut Foo<'a>, got &mut Foo"), the impl binder unsubstituted at UFCS; needs inst first.
