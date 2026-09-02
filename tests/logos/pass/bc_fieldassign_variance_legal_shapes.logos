@@ -5,13 +5,13 @@
 // COST 0 over the 807-program legal corpus — and COST 0 IS NOT A SAFETY CLAIM,
 // because a corpus only refuses programs it CONTAINS. So the refusal was
 // attacked by hand in the ABUSE direction, and these are those programs:
-// EIGHTEEN legal field writes, each one proven to reach the check (the probe
+// SIXTEEN legal field writes, each one proven to reach the check (the probe
 // fired exactly once per fn, twice for the two that assign twice), all still
 // admitted.
 //
 // They are kept as ONE fixture on purpose. The measurement that funded the rule
-// was "eighteen shapes, zero refusals"; eighteen separate fixtures would let
-// seventeen of them stay green while the eighteenth is quietly deleted, and the
+// was "eighteen shapes, zero refusals" (sixteen since 2026-09-01n); separate
+// fixtures would let all but one stay green while the last is quietly deleted, and the
 // claim is about the SET.
 //
 // ⚠ THE REFUSE HALF IS `fail/bc_fieldassign_variance_no_bound_fail`. Without it
@@ -57,13 +57,11 @@ fn s_fnptr<'a>(o: &mut F<'a>, g: fn(&'a i64) -> i64) { o.f = g; }
 fn s_generic<T>(o: &mut G<T>, s: T) { o.v = s; }
 // 12 — an ENUM-typed field carrying the region in a payload.
 fn s_enum<'a>(o: &mut HE<'a>, s: E<'a>) { o.e = s; }
-// 13 — the holder's struct lifetime ELIDED. ⚠ THIS ONE IS A KNOWN HOLE, NOT A
-// SUCCESS: the elided region is not instantiated to anything this check can
-// compare, so an unsound source would pass here too. It is pinned as ADMITTED
-// so the day that stops being true is visible, not as evidence of correctness.
-fn s_elided<'a>(o: &mut H, s: &'a i64) { o.p = s; }
-// 14 — the same hole spelled `'_`.
-fn s_anon<'a>(o: &mut H<'_>, s: &'a i64) { o.p = s; }
+// 13/14 — the holder's struct lifetime ELIDED (`H` / `H<'_>`) used to sit here
+// as a KNOWN HOLE pinned as admitted. Since 2026-09-01n a field read on a
+// lifetime-only struct is typed with the RECEIVER's region, so the elided
+// holder is a fresh region and storing `&'a` into it is refused — Rust's
+// verdict. They live in `fail/bc_fieldassign_variance_elided_holder_fail`.
 // 15 — a TWO-HOP bound chain, `'c: 'b: 'a`, and two writes.
 fn s_chain<'a, 'b, 'c>(o: &mut H<'a>, s: &'b i64, u: &'c i64)
     where 'b: 'a, 'c: 'b { o.p = s; o.p = u; }

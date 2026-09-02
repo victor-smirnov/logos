@@ -1,0 +1,16 @@
+// THE TWO SHAPES THAT LEFT `pass/bc_fieldassign_variance_legal_shapes` on
+// 2026-09-01n. Their own header called them a KNOWN HOLE pinned as admitted "so
+// the day that stops being true is visible": a field read on a lifetime-only
+// struct was typed with the DECLARATION's binder (`field_type_of_for_type`
+// returned early on an empty type-arg list, before its lifetime substitution),
+// so `o.p` on `o: &mut H` read as `&'a i64` and happened to match the fn's own
+// `'a`. With the receiver's region substituted the holder's elided region is a
+// fresh one, and storing `&'a` into it needs a bound nobody wrote — rustc
+// refuses both (lifetime may not live long enough).
+// ⚠ The two elided regions print alike in the message; that spelling is the
+// open item of PROBES.md 2026-08-31n §3, not this fixture's claim.
+package bc_fieldassign_variance_elided_holder_fail;
+struct H<'a> { p: &'a i64 }
+fn s_elided<'a>(o: &mut H, s: &'a i64) { o.p = s; }
+fn s_anon<'a>(o: &mut H<'_>, s: &'a i64) { o.p = s; }
+fn main() -> i32 { return 0i32; }

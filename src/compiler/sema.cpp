@@ -9005,7 +9005,10 @@ TypeRef SemaChecker::field_type_of_for_type(TypeRef struct_t,
         }
     }
     auto raw = field_type_of(TypeRef(struct_t).struct_name(), fname, TypeRef(struct_t).pkg_name());
-    if (!raw || TypeRef(struct_t).type_args().empty()) return raw;
+    // A lifetime-only struct still needs the lifetime substitution below
+    // (PROBES.md 2026-09-01n §4: `y.data` on `Ref<'c>` read as `&'a i64`).
+    if (!raw || (TypeRef(struct_t).type_args().empty() &&
+                 TypeRef(struct_t).lifetime_args().empty())) return raw;
 
     // If it's a variadic expansion (name_N), we need to resolve it against the type arguments.
     if (fname.find('_') != std::string::npos) {

@@ -1123,7 +1123,7 @@
 #   RE-DERIVED BY DIRECT LISTING, not decremented:
 #     awk '!/^#/ && NF' tests/logos/bc_admits.ledger | wc -l  -> 242
 #     ls tests/imported/admit/*/*.logos | wc -l               -> 242
-# TOTAL 241
+# TOTAL 233
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1203,22 +1203,14 @@ constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifeti
 copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions
 e0106-trailing-comma-in-lifetime-suggestion--b-bar-uarg lifereg.NEW-L1 tests/imported/admit/lifetimes/e0106-trailing-comma-in-lifetime-suggestion--b-bar-uarg
 e0106-trailing-comma-in-lifetime-suggestion--missing-lifetime-spec lifereg.NEW-L1 tests/imported/admit/lifetimes/e0106-trailing-comma-in-lifetime-suggestion--missing-lifetime-spec
-e0621-mut-ref-aliases-pointee-lifetime-distinct lifereg.A tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime-distinct
 e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
 elided-lifetime-mismatch-in-self-type lifereg.R18 tests/imported/admit/lifetimes/elided-lifetime-mismatch-in-self-type
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn
 elision-error-omits-lifetimeless-params lifereg.N3 tests/imported/admit/lifetimes/elision-error-omits-lifetimeless-params
-ex2a-push-one-existing-name-2 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex2a-push-one-existing-name-2
-ex2a-push-one-existing-name-early-bound lifereg.A tests/imported/admit/lifetimes/ex2a-push-one-existing-name-early-bound
 ex2b-push-no-existing-names lifereg.A tests/imported/admit/lifetimes/ex2b-push-no-existing-names
 ex2c-push-inference-variable lifereg.NEW-R19 tests/imported/admit/lifetimes/ex2c-push-inference-variable
-ex2e-push-inference-variable-3 lifereg.A tests/imported/admit/lifetimes/ex2e-push-inference-variable-3
 ex3-both-anon-regions-3 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex3-both-anon-regions-3
-ex3-both-anon-regions-both-are-structs-2 lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs-2
-ex3-both-anon-regions-both-are-structs-earlybound-regions lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs-earlybound-regions
-ex3-both-anon-regions-both-are-structs-latebound-regions lifereg.NEW-R19 tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs-latebound-regions
 ex3-both-anon-regions-both-are-structs lifereg.N3 tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs
-ex3-both-anon-regions-latebound-regions lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions-latebound-regions
 ex3-both-anon-regions-one-is-struct-5 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex3-both-anon-regions-one-is-struct-5
 ex3-both-anon-regions-using-impl-items lifereg.R18 tests/imported/admit/lifetimes/ex3-both-anon-regions-using-impl-items
 ex3-both-anon-regions lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions

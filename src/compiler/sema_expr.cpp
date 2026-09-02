@@ -3637,7 +3637,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             // payload as `T` instead of `i32` and break inference downstream.
             if (pt && TypeRef(pt).kind() == LogosType::Kind::Enum &&
                 !TypeRef(pt).type_args().empty() && !enum_arg_unresolved(pt))
-                return pt;
+                return elide_sig_lts_(pt);
             return nullptr;
         };
         // A tuple formal hints a tuple-literal arg's element types so untyped int
@@ -9101,7 +9101,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 hint_closure_formal_ = formals_hint[arg_idx];
             else if (k == LogosType::Kind::Enum &&
                      !TypeRef(f).type_args().empty())
-                hint_enum_type_ = f;
+                hint_enum_type_ = elide_sig_lts_(f);
             else if ((k == LogosType::Kind::Struct ||
                       k == LogosType::Kind::ZonedStruct) &&
                      !TypeRef(f).type_args().empty())
@@ -10089,6 +10089,27 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         error(std::format("method call '{}': expected {} args, got {}",
               mangled, expected_explicit, explicit_args));
     else {
+        // The callee's binders (fn's own ∪ every non-static region of the
+        // DECLARED signature) instantiated once for the argument comparison —
+        // the free-fn site's pair. PROBES.md 2026-09-01n (`mcallvarinst`).
+        std::vector<TypeRef> ipts_;
+        {
+            std::vector<TypeRef> spts_;
+            for (auto p0_ : fi.param_types)
+                spts_.push_back(struct_subst.empty() ? p0_ : subst_type_sema(p0_, struct_subst));
+            std::vector<std::string> binders_ = fi.lifetime_params;
+            std::unordered_set<std::string> rb_;
+            for (auto p0_ : fi.param_types) collect_param_regions_(p0_, rb_);
+            collect_param_regions_(fi.ret_type, rb_);
+            for (auto& r_ : rb_)
+                if (!outlives_is_static(r_) &&
+                    std::find(binders_.begin(), binders_.end(), r_) == binders_.end())
+                    binders_.push_back(r_);
+            std::vector<lir::LExprPtr> all_;
+            all_.push_back(recv);
+            for (auto& a_ : arg_exprs) all_.push_back(a_);
+            ipts_ = inst_call_params_(spts_, binders_, all_, fi.ret_type);
+        }
         for (uint64_t i = 0; i < explicit_args; ++i) {
             size_t pi = i + 1;
             if (pi < fi.param_types.size()) {
@@ -10111,6 +10132,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (!struct_subst.empty()) pt = subst_type_sema(pt, struct_subst);
                 expect_type(arg_exprs[i], pt, CoercePos::MethodArg,
                             std::format("method '{}' arg {}:", mangled, i + 1));
+                logos::probe::census("mcall.A.var");
+                check_variance(at, (ipts_.empty() || pi >= ipts_.size()) ? pt : ipts_[pi],
+                               std::format("method '{}' arg {}", mangled, i + 1));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i]))
                         if (!intlit_fits(*v, TypeRef(pt).kind()))

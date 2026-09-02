@@ -719,6 +719,16 @@ private:
         }
         return ls;
     }
+    // A formal used as a HINT must not carry the callee's binders into the
+    // value it types (`put(s, None)`). PROBES.md 2026-09-01n §5.
+    TypeRef elide_sig_lts_(TypeRef t) {
+        if (!t) return t;
+        std::unordered_set<std::string> rs;
+        collect_param_regions_(t, rs);
+        SemaLifetimeSubst ls;
+        for (auto& r : rs) if (!outlives_is_static(r)) ls[r] = "";
+        return ls.empty() ? t : subst_type_sema(t, {}, ls);
+    }
     // The ARGUMENT side of the same map. Returns an empty vector when there is
     // nothing to instantiate, so the caller keeps its own `param_types`.
     std::vector<TypeRef> inst_call_params_(const std::vector<TypeRef>& param_types,

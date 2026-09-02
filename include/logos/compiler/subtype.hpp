@@ -168,6 +168,17 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
                 if (!types_equal_with_lifetimes(ata[i], bta[i], adj, permissive_minted)) return false;
             auto alts = a.lifetime_args();
             auto blts = b.lifetime_args();
+            // Bare `P` and all-empty `P<''>` are two spellings of one elided
+            // type; bare vs a NAMED region keeps its answer. PROBES.md
+            // 2026-09-01n §6 (the wide form un-refused a pinned program).
+            {
+                auto all_empty = [](const auto& v) {
+                    for (auto& l : v) if (!l.empty()) return false;
+                    return true;
+                };
+                if (alts.empty() != blts.empty() &&
+                    all_empty(alts) && all_empty(blts)) return true;
+            }
             if (alts.size() != blts.size()) return false;
             for (size_t i = 0; i < alts.size(); ++i)
                 if (!lt_eq(alts[i], blts[i])) return false;

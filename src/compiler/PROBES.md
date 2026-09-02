@@ -14095,3 +14095,189 @@ fires: 3418
 ceiling: 0
 cost: 1
 verdict: DECLINED — two-phase-method-receivers refused ("expected &mut Foo<'a>, got &mut Foo"), the impl binder unsubstituted at UFCS; needs inst first.
+
+# ═══ ROUND 2026-09-01n — `mcallvarinst` LANDED, AND THE STRUCT LITERAL'S "LEAK"
+# WAS THE FIELD READ: `field_type_of_for_type` RETURNED BEFORE ITS LIFETIME
+# SUBSTITUTION WHENEVER THE STRUCT HAD NO TYPE ARGS. LEDGER 241 → 233 (8 rows,
+# 7 predicted + 1), COST 0/0/ok, SIX FAIL FIXTURES CHANGE SPELLING ONLY ═══════
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE) AND THE PRICING REPORT'S CORRECTIONS
+
+    live probe names   145 · ledger # TOTAL 241 · bck 54 / nllmoves 73 / lifereg 114
+    HEAD c61ec5aa0 clean, pushed · unarmed binary 922d47bd2bfdfb45, gate-db build 429
+    baseline (store): logos_00_bc_admit_ 241/241 measured, -L bc 2064/2064, 0 failed
+Corrections to 09-01m: (1) "h18/h30 are refused by the literal leak UNARMED at
+other sites" is WRONG — h18 and h30 are rc 0 unarmed (CONTROL REVERT, sources
+stashed, rebuilt); their free-fn/return TWINS h33/h34 are the unarmed refusals.
+So `mcallvarinst` AS PRICED refuses two legal programs it did not count.
+(2) "instantiate the struct's binder at the literal" is the wrong site: the
+literal already pairs field types against values (`subst.structlit.site`); the
+binder arrives THROUGH THE VALUE, from the field READ `y.data`.
+
+## 1. TARGET ROWS (build/predictions-2026-09-01n.txt, written before the build)
+The seven of 09-01m §3 by name; predicted # TOTAL 241 → 234; cost 0/0/ok.
+
+## 2. RULE 5 FIRST — 37 NEW-SHAPE HAND PROGRAMS, build/hand-2026-09-01n/ (c01–c32)
+Shapes the pricing did not use: nested call as argument, generic wrapper with
+T = &'a i64 bound from the receiver, `None`/`Some` into `Option<&'a>` formal,
+impl binder read off `self.field`, `&mut *y` reborrow, `self.items.push` inside
+`impl<'a>`, a local alias of the field, own-binder + type param, chained
+`v.push(w.get())`, annotated literal with a bound, tuple, enum payload, an impl
+binder ABSENT from the self formal, inferred receiver region in a loop, slice,
+generic T, two struct binders / wrong slot, `&'static str`, by-value receiver,
+`where` bound on the caller, `&'a dyn Tr`, `Vec<Vec<&'a>>`, caller binder
+spelled like the callee's, index write, free-fn `None`, covariant Option with a
+bound, and the m1/m2/m3 local-literal-into-`&mut P<'q>` shape.
+Reached: `LOGOS_CENSUS` bucket `mcall.A.var` = 53 arrivals over the set.
+UNARMED, LEGAL refused (standing, none of them this block's): c10 (annotated
+`let b: Ref<'c> = Ref{…}` — the leak, 3rd site), c14 (`W{ v: Vec::new() }`:
+"expected Vec<&'a i64>, got Vec<T>"), c24 (`v[0] = y` through `&mut Vec`: the
+index place is not auto-deref'd), c28 (`return y.data` on `Ref<'c>`: "expected
+&'c i64, got &'a i64" — THE ROOT, §4), c25/c25z (`put(s, None)` free fn, §5),
+m1/m2 (`let mut p = P{l:&n}; take(&mut p)`: "expected &mut P<>, got &mut P", §6).
+
+## 3. THE LANDING AS PRICED REFUSED FOUR LEGAL PROGRAMS — h18 h30 c03 c13
+    h18/h30  the leak at the new site (§4)
+    c03      `s.set(None)` → "expected Option, got Option" (§5)
+    c13      `impl<'a> W { fn f(&self, x: &'a i64) }` from `g<'a,'b>(y: &'b)`:
+             "expected &'a i64, got &'b i64" — the impl binder is not in the
+             self formal, so "fn's own ∪ self formal's regions" missed it and
+             the caller's `'a` collided (rule 12). FIX: binders = the fn's own
+             ∪ EVERY non-static region of the DECLARED param types and return.
+All four rc 0 unarmed (control revert), rc 1 under the priced spelling.
+
+## 4. THE ROOT OF 09-01m §5: `field_type_of_for_type` (sema.cpp)
+    if (!raw || TypeRef(struct_t).type_args().empty()) return raw;
+returned BEFORE the "Bug 4" lifetime substitution for every struct with NO type
+params — `Ref<'a>`, `S<'a>`, every lifetime-only holder. `y.data` on `Ref<'c>`
+was `&'a i64`, and that `'a` flowed into the un-annotated literal (the literal
+walk pairs `&'a` against `&'a` and mints nothing), into `self.v = x` inside a
+RENAMED `impl<'x> S<'x>` (09-01m §8's "undeclared lifetime" twin, h25, LEGAL,
+refused unarmed), into the free-fn argument (h33) and the return (h34). ONE
+condition: `type_args().empty() && lifetime_args().empty()`. Un-refuses c10
+c28 h18 h25 h30 h33 h34; makes ex2e-3's diagnostic honest (`expected Ref<'b>,
+got Ref<'c>`); closes ex3-…-both-are-structs-2 (`x.b = y.b`, unpredicted, +1).
+COST: `pass/bc_fieldassign_variance_legal_shapes` shapes 13/14 (`o: &mut H` /
+`&mut H<'_>`, `o.p = s` with `s: &'a`) are REFUSED — their own header pinned
+them "as ADMITTED so the day that stops being true is visible", and rustc
+refuses both. Moved to `fail/bc_fieldassign_variance_elided_holder_fail`
+(⚠ corpus decision, reversible: the pass fixture's set is 16, was 18). Four
+`.expected` change spelling from `expected &'b i64` (the DECLARATION's binder,
+which was the leak) to `expected &i64, got &i64` (two minted regions, printed
+alike — 08-31n §3, inherited): apit--apit, one-is-struct, -3, -4; two more
+change stderr only with `.expected` still matching (--d-min, both-are-structs-3).
+
+## 5. `None` AS AN ARGUMENT — THE FORMAL USED AS A HINT CARRIES THE CALLEE'S BINDER
+`enum_hint_for` (free-fn) and `lower_arg_with_hint` (method) set
+`hint_enum_type_` = the DECLARED formal, so `None` lowers as `Option<&'a i64>`
+with the CALLEE's `'a`; the comparison then reads that name against the
+caller's `'q`, and the permissive tail refuses it because `'q` is MENTIONED by
+the implied bound of `s: &mut S<'q>` (mentioned-ness is not a relation —
+lifereg_unmentioned's door, seen from a third side). Measured with a one-token
+control: renaming the callee's binder to `'z` (c25z) does not change the
+verdict. Fix by property: `elide_sig_lts_` — the hint's non-static regions are
+the callee's to instantiate, so the hint carries them ELIDED. Un-refuses c03
+c25 c25z c27; h22 (`Some(y)` anonymous, ILLEGAL) stays refused. The coerce-
+toward-the-instantiated-formal spelling (F3) was tried, changed nothing here
+(the hint precedes the loop) and was removed.
+
+## 6. m3 — THE LANDING EXTENDED A STANDING FREE-FN REFUSAL TO THE METHOD SITE
+`let mut p = P{l: &n}` is a BARE `P` (the body borrow `&n` carries no region,
+so the literal walk maps nothing); the instantiated formal `&mut P<'q>` is
+`&mut P<''>` (MENTIONED, unnameable); `types_equal_with_lifetimes`'s Struct arm
+read 0 ≠ 1 lifetime args as INEQUALITY at the invariant position. m1/m2 refused
+unarmed at `take(&mut p)`; m3 (`w.take(&mut p)`) rc 0 unarmed, rc 1 landed.
+FIRST FIX (bare vs anything → compatible) UN-REFUSED a pinned illegal program:
+`ex2d-push-inference-variable-2` — `let a: &mut Vec<Ref> = x` with `x: &'a mut
+Vec<Ref<'b>>`, whose pin is at the LET (a LEGAL statement in Rust; the illegal
+part is the push, and `Vec<Ref>` annotated keeps an EMPTY slot — open item 52 —
+so the push compares nothing). ⚠ That pin is a refusal at a legal site; it is
+REPORTED, not moved. NARROWED: bare and ALL-EMPTY are two spellings of the same
+elided type; bare vs a NAMED region keeps its answer. m1 m2 m3 rc 0, ex2d
+refused as before, `-L bc` 0 failed.
+
+## 7. THE NUMBERS ON THE LANDED BINARY (gate-db 438/439; rule 7)
+    ceiling  8   = predicted 7 + ex3-…-both-are-structs-2 (via §4)
+    cost     pass 0 (after the corpus decision of §4) · cfail 0 after 4 re-pins
+             · stdlib ok (all four layers) · fail-text: 0 RC, 6 TEXT
+    admits   233/233 still admitted (the gate in its other direction)
+    hand     c01–c32 + m1–m3 + h01–h44: every LEGAL rc 0 except the standing
+             unrelated c14 c24 h36 (h43/h44 are broken hand programs); ILLEGAL
+             refused except h01 (both anonymous — permissive by policy), h12
+             (site B, 0 admit arrivals), c15i (`&'a [u8]`: the slice region slot)
+PREDICTED ∖ ACTUAL = ∅ · ACTUAL ∖ PREDICTED = {ex3-both-anon-regions-both-are-
+structs-2}. Every closed row's diagnostic read; seven name the regions; the
+eighth prints two minted regions alike (08-31n §3).
+
+## 8. FIXTURES
+Eight admit → `tests/imported/fail/lifetimes/` with the diagnostic pinned in
+full; `pass/bc_mcallvar_legal_twins` = the legal twin of each (one token: the
+source NAMED, `'b: 'a` declared, the two elided regions unified) + the six hand
+programs that priced the spelling (c13 c03 c25 c28 h30-shape h25-shape) + m1/m3
+in `main`; `fail/bc_fieldassign_variance_elided_holder_fail` (§4). Ledger
+# TOTAL 233 by direct listing. Census pin 8785/4468/290 → 8787/4462/282; door
+census corpus 2528 → 2529, nonglob 2337 → 2338.
+
+## 9. OFF-LEDGER, RECORDED AND NOT PURSUED
+ · c14: `W { v: Vec::new() }` on `struct W<'a>{ v: Vec<&'a i64> }` — "expected
+   Vec<&'a i64>, got Vec<T>": the literal field does not hint `Vec::new()`.
+ · c24: `v[0usize] = y` / `v.push(v[0usize])` with `v: &mut Vec<&'a i64>` — the
+   index place through a `&mut Vec` parameter is not auto-deref'd.
+ · ex2d-push-inference-variable-2's pin sits at a legal statement (§6); the
+   honest refusal is at the push and needs the annotated `Vec<Ref>` slot to be
+   a fresh region (item 52). Owner's call.
+ · h36 `Vec::contains` on `&'a u8`: no `Eq` for references (carried).
+ · Minted regions print as elided, so "expected &i64, got &i64" is the sentence
+   for two DISTINCT regions — six fixtures now pin it (08-31n §3, carried).
+
+## 10. BLOCKS NOT SPENT, WITH THEIR NUMBERS
+object-lifetime block 18 (erasure in RETURN position) · bck.C 16 · lifereg.R17
+10 · nllmoves.B 10 · site B / site C (`tmcallvar` / `scallvar`, 0 admit rows
+each, an un-instantiated trait/impl binder in series) · the strict half at site
+A (+6 both-anonymous rows) waits on the minted-name spelling.
+
+## 11. OPEN (carried, plus this round's)
+ 1-52. UNCHANGED, except 51 (the collision) is CLOSED by §4 and 52 gained a
+       second witness (ex2d's pin).
+ 53. NEW: `enum_hint_for` / `lower_arg_with_hint` hint from the DECLARED
+     formal; the elision is a repair at the hint, the instantiation belongs
+     at the call (the inst map exists only after the args are lowered).
+ 54. NEW: `current_lt_binders` — a callee's binder that collides with a caller
+     binder by NAME is still refused wherever no substitution reaches (site B,
+     site C, the dyn loop); measured, not counted.
+
+## mcallvarinst — LANDED
+site: src/compiler/sema_expr.cpp::lower_method_call (the struct/impl argument loop)
+build: 5f7fbaba27b78920 (READ)
+measured: 2026-09-01
+fires: 53 (census `mcall.A.var` over the hand set; 53491 corpus arrivals at 09-01m)
+ceiling: 8
+cost: 0
+verdict: LANDED with binders enumerated from the DECLARED signature (not the self formal), the enum hint elided, the field read substituted, and the bare/all-empty struct equality; 4 legal refusals of the priced spelling closed first.
+
+## elide_sig_lts_
+site: src/compiler/sema_impl.hpp::elide_sig_lts_
+build: 5f7fbaba27b78920
+measured: 2026-09-01
+fires: 4 (c03 c25 c25z c27)
+ceiling: 0
+cost: 0
+verdict: LANDED at `enum_hint_for` and `lower_arg_with_hint`; a repair at the hint site, item 53.
+
+## field_type_of_for_type
+site: src/compiler/sema.cpp::field_type_of_for_type
+build: 5f7fbaba27b78920
+measured: 2026-09-01
+fires: 7 legal un-refusals (c10 c28 h18 h25 h30 h33 h34)
+ceiling: 1
+cost: 0
+verdict: LANDED — the early return skipped the lifetime substitution for every lifetime-only struct; 2 pass shapes moved to fail by their own header's terms, 4 `.expected` re-spelled.
+
+## types_equal_with_lifetimes.struct_bare
+site: include/logos/compiler/subtype.hpp::types_equal_with_lifetimes
+build: 5f7fbaba27b78920
+measured: 2026-09-01
+fires: 3 (m1 m2 m3)
+ceiling: 0
+cost: 0
+verdict: LANDED narrow (bare ≡ all-empty); the wide form un-refused ex2d-push-inference-variable-2 and was withdrawn.

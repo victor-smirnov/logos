@@ -5012,9 +5012,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8781 -> 8785   +4
 #   NOIMPORTED   4465 -> 4468   +3
 #   TIERCOMMIT    291 ->  290   -1
-REGISTRY-ALL         8785
-REGISTRY-NOIMPORTED  4468
-REGISTRY-TIERCOMMIT  290
+# 2026-09-01n (the struct/impl METHOD ARGUMENT is a variance site; a field read
+#   on a lifetime-only struct carries the receiver's region). TWO native fixtures
+#   added (pass/bc_mcallvar_legal_twins, fail/bc_fieldassign_variance_elided_
+#   holder_fail — the two shapes that left pass/bc_fieldassign_variance_legal_
+#   shapes, whose header pinned them as a KNOWN HOLE), EIGHT imported programs
+#   moved admit -> fail (lifetimes/: e0621-mut-ref-aliases-pointee-lifetime-
+#   distinct, ex2a-push-one-existing-name-2, ex2a-push-one-existing-name-early-
+#   bound, ex3-both-anon-regions-latebound-regions, ex3-both-anon-regions-both-
+#   are-structs-{latebound,earlybound}-regions, ex2e-push-inference-variable-3,
+#   ex3-both-anon-regions-both-are-structs-2). ALL nets +2 (imported +8 and
+#   admit -8 cancel); NOIMPORTED +2 -8; TIERCOMMIT -8 (the eight admit tests).
+#   ALL          8785 -> 8787   +2
+#   NOIMPORTED   4468 -> 4462   -6
+#   TIERCOMMIT    290 ->  282   -8
+REGISTRY-ALL         8787
+REGISTRY-NOIMPORTED  4462
+REGISTRY-TIERCOMMIT  282
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

@@ -1,0 +1,100 @@
+// THE LEGAL TWINS OF THE EIGHT LEDGER ROWS CLOSED ON 2026-09-01n, each one
+// token from its refused sibling under tests/imported/fail/lifetimes/, plus the
+// hand programs that PRICED the landing (src/compiler/PROBES.md 2026-09-01n):
+// the struct/impl method-argument loop of lower_method_call now instantiates
+// the callee's binders and compares variance, the way the free-fn call did.
+//
+// Kept as ONE fixture on purpose: the claim is about the SET. Every fn here is
+// ordinary Rust; every one of them was rc 0 before the landing and stays rc 0.
+// Four of them were REFUSED by the landing's first spelling and are the reason
+// it is spelled the way it is:
+//   t_impl_binder_off_self   an impl binder absent from the self formal is
+//                            still the callee's — binders are enumerated from
+//                            the DECLARED signature, not from `self` alone
+//   t_none_arg / t_none_free a formal used as an enum HINT carried the callee's
+//                            binder into `None`'s type; the hint is now elided
+//   t_field_projection       `y.data` on `Ref<'c>` was typed `&'a i64` with the
+//                            DECLARATION's binder (field_type_of_for_type
+//                            returned before its lifetime substitution when the
+//                            struct had no TYPE args) — the "literal leak" of
+//                            PROBES.md 2026-09-01m §5, root found and closed
+//   t_literal_freefn / t_ex2e_bound / t_renamed_impl_binder: the same leak
+//                            seen at a free-fn argument, at a method argument
+//                            through an un-annotated literal, and at a field
+//                            assignment inside an impl whose binder is renamed
+package bc_mcallvar_legal_twins;
+
+struct Ref<'a> { data: &'a i64 }
+struct Ref2<'a, 'b> { a: &'a i64, b: &'b i64 }
+
+// e0621-…-distinct / ex2a-…-early-bound: the anonymous source, NAMED.
+fn t_push_named<'a>(x: &mut Vec<&'a i64>, y: &'a i64) { x.push(y); }
+// ex3-both-anon-regions-latebound-regions: `'b: 'a` declared.
+fn t_push_bound<'a, 'b: 'a>(x: &mut Vec<&'a i64>, y: &'b i64) { x.push(y); }
+// ex3-…-both-are-structs-latebound-regions: the same through a struct.
+fn t_push_struct_bound<'a, 'b: 'a>(x: &mut Vec<Ref<'a>>, y: Ref<'b>) { x.push(y); }
+// ex3-…-both-are-structs-earlybound-regions: by-value receiver.
+fn t_push_struct_byval<'a, 'b: 'a>(mut x: Vec<Ref<'a>>, y: Ref<'b>) { x.push(y); }
+// ex2a-push-one-existing-name-2: the anonymous `Ref`, NAMED.
+fn t_push_ref_named<'a>(x: Ref<'a>, y: &mut Vec<Ref<'a>>) { y.push(x); }
+// ex2e-push-inference-variable-3: `'c: 'b`, through an un-annotated literal.
+fn t_ex2e_bound<'a, 'b, 'c: 'b>(x: &'a mut Vec<Ref<'b>>, y: Ref<'c>) {
+    let a: &mut Vec<Ref<'b>> = x;
+    let b = Ref { data: y.data };
+    a.push(b);
+}
+// ex3-…-both-are-structs-2: the two elided regions, UNIFIED by naming them.
+fn t_field_copy_same<'a>(x: &mut Ref2<'a, 'a>, y: Ref2<'a, 'a>) { x.b = y.b; }
+
+struct W { k: i64 }
+impl<'a> W {
+    fn f(self: &Self, x: &'a i64) -> &'a i64 { return x; }
+}
+fn t_impl_binder_off_self<'a, 'b>(w: &W, y: &'b i64) -> i64 { let r = w.f(y); return *r; }
+
+struct S<'a> { o: Option<&'a i64> }
+impl<'a> S<'a> {
+    fn set(self: &mut Self, x: Option<&'a i64>) { self.o = x; }
+}
+fn put<'a>(s: &mut S<'a>, x: Option<&'a i64>) { s.o = x; }
+fn t_none_arg<'q>(s: &mut S<'q>, y: &'q i64) { s.set(None); s.set(Some(y)); }
+fn t_none_free<'q>(s: &mut S<'q>) { put(s, None); }
+
+fn t_field_projection<'c>(y: Ref<'c>) -> &'c i64 { return y.data; }
+fn a_push<'a>(v: &mut Vec<Ref<'a>>, b: Ref<'a>) { v.push(b); }
+fn t_literal_freefn<'q, 'r: 'q>(v: &mut Vec<Ref<'q>>, y: Ref<'r>) {
+    let b = Ref { data: y.data };
+    a_push(v, b);
+}
+
+struct SR<'a> { v: &'a i64 }
+impl<'x> SR<'x> {
+    fn t_renamed_impl_binder(self: &mut Self, x: &'x i64) { self.v = x; }
+}
+
+struct P<'a, 'b> { l: &'a i64, r: &'b i64 }
+impl<'a, 'b> P<'a, 'b> {
+    fn set(self: &mut Self, l: &'a i64, r: &'b i64) { self.l = l; self.r = r; }
+}
+fn t_two_lt_struct<'x, 'y>(p: &mut P<'x, 'y>, a: &'x i64, b: &'y i64) { p.set(a, b); }
+
+fn main() -> i32 {
+    let n = 5i64;
+    let m = 6i64;
+    let mut v: Vec<&i64> = Vec::new();
+    t_push_named(&mut v, &n);
+    t_push_bound(&mut v, &m);
+    let mut s = S { o: Some(&n) };
+    t_none_arg(&mut s, &m);
+    t_none_free(&mut s);
+    let w = W { k: 1i64 };
+    if t_impl_binder_off_self(&w, &m) != 6i64 { return 1i32; }
+    if *t_field_projection(Ref { data: &n }) != 5i64 { return 2i32; }
+    let mut sr = SR { v: &n };
+    sr.t_renamed_impl_binder(&m);
+    if *sr.v != 6i64 { return 3i32; }
+    let mut p = P { l: &n, r: &n };
+    t_two_lt_struct(&mut p, &m, &m);
+    if *p.l + *p.r != 12i64 { return 4i32; }
+    return 0i32;
+}

@@ -1,1 +1,1 @@
-assignment to 'y.b': variance mismatch — expected &'b u64, got &u64 — lifetime structure incompatible (check &mut invariance / contravariance rules)
+assignment to 'y.b': variance mismatch — expected &u64, got &u64 — lifetime structure incompatible (check &mut invariance / contravariance rules)

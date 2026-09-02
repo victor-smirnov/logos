@@ -1,6 +1,9 @@
 // rustc lifetimes/lifetime-errors/ex2a-push-one-existing-name-2.rs — upstream E0621 explicit lifetime
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-N1
+// shelf: fail — REFUSED since 2026-09-01n, when the struct/impl METHOD ARGUMENT
+// became a variance site and a field read on a lifetime-only struct stopped
+// leaking the declaration's binder (src/compiler/PROBES.md). The row this file
+// used to carry in tests/logos/bc_admits.ledger is deleted in the same change.
 // port of rust tests/ui/lifetimes/lifetime-errors/ex2a-push-one-existing-name-2.rs
 package ex2a;
 struct Ref<'a> { data: &'a i64 }
