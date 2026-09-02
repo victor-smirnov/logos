@@ -17115,3 +17115,192 @@ what "cost 0 on three populations" cannot see (rule 5, second time running).
     bck.C 13 (mined) · nllmoves.C 10 · bck.B 10 · nllmoves.B 7 · E0716 9 (owner + stdlib wall) · R18 8 (M-SIG)
     · the meet (1) · R: regions-static-bound + projection-where-clause-none--c + B69 (one mechanism, behind
     the meet) · P: regions-normalize-in-where-clause-list (1, two binders, no substitution).
+
+# ═══ ROUND 2026-09-04b — THE §B6 STORE RECORDER'S DESTINATION. A BORROW STORED THROUGH A BARE `*p =`
+# IS RECORDED BY NOTHING; A HOLDER NEVER READ AGAIN IS REPORTED BY NOTHING. FOUR BUILDS: THE UNION
+# `dwstore` PRICES 4 ROWS OVER 4 ROOTS AT COST 0 / cfail 4 TEXT-ONLY / STDLIB OK, ADDITIVITY MEASURED
+# AND HOLDING; W2 REFUTED AS A SERIES OVER 11 423 ARRIVALS; TWO RECORDED FACTS IN THIS FILE CORRECTED ═══
+
+## 0. STEP 1, READ FROM THE TREE — AND THREE CORRECTIONS TO THE INHERITED RECORD
+    HEAD cd843fb82 clean = origin/main. Live probe names **148** (`grep -rhoP 'probe::on\("\K[a-z_0-9]+'`).
+    `# TOTAL 161` = 161 by listing = 161 files, all present. Block split **lifereg 60 / nllmoves 52 / bck 49**.
+    Upstream-code split of the 161: "lifetime may not live long enough" 21 · E0597 14 · (region) 11 · E0507 11
+    · E0499 10 · E0716 9 · E0521 6 · E0382 6 · E0308 6 · E0621 5 · E0596 5 · E0509 5 · the rest <= 4.
+    **54 of the 161 rows are mentioned ZERO times in this file.**
+    Top roots: bck.C 13 · nllmoves.C 10 · bck.B 10 · lifereg.R18 8 · bck.NEW 8 · nllmoves.B 7 · nllmoves.D 6
+    · lifereg.NEW-N1 6 · bck.D 6 (56 roots in all).
+    Baseline binary: `logosc 0.42.0-preview+main-gcd843fb8`, sha256[0:16] **42a953aaa90c54c9** (READ).
+    ⚠ THE TREE'S BUILD WAS STALE AND ITS VERSION STRING LIED. `build/bin/logosc` reported
+    `main-g296a63bc-dirty` while HEAD was cd843fb8 and `ninja` said "no work to do": the version string is
+    fixed at CONFIGURE time, so a rebuild alone does not refresh the identity the gate DB keys on. `cmake .`
+    then `cmake --build` was needed. Any round that prices against a stale identity records verdicts under
+    another build's name.
+    ⚠ CORRECTION TO THE 09-03a RECORD: its "lifereg 74 / nllmoves 54 / bck 38" at `# TOTAL 166` is wrong —
+    the same commit measures **64 / 53 / 49**. (Its five closed rows were 4 lifereg + 1 nllmoves, so the
+    current 60 / 52 / 49 follows from 64 / 53 / 49 and not from the recorded figures.)
+    ⚠ CORRECTION TO 2026-08-29 §F3: "`walk_closure_body` returns at `if (cbv.is_move()) return;`, so no body
+    rule of any kind reaches" borrowed-data-escapes-closure-148392 — that early return was REMOVED by
+    `capmovewalk` (2026-08-31p) and the file says so 900 lines further down. A `move` body IS walked today.
+
+## 1. THE TARGET ROWS BY NAME (build/round-2026-09-04b/targets-2026-09-04b.txt, written BEFORE any edit)
+PROPERTY, NOT A ROOT LABEL: **a borrow is stored into a destination place whose ROOT the §B6 recorder never
+reaches, or into a root that is never read again.** One site: `borrow_check.cpp Code::DerefWrite`, the
+"§B6: `root.f = &x` stores a borrow into root's OWN storage" walk, plus `Code::Assign`'s `record_ref_sources`.
+THE ARM EXISTS AND IS PROVEN LIVE — four hand programs on the unarmed baseline, one token from the four that
+admit (build/hand-2026-09-04b/):
+    x06 `s.r = &local`        REFUSED E0597 "borrowed by 's'"   x03 `*out = &local` (out a &mut PARAM)   rc 0
+    x09 `t.0 = &local`        REFUSED E0597                     x04 `*out = &local` (out a &mut LOCAL)   rc 0
+    x10 `o.i.r = &local`      REFUSED E0597                     x08 `v[0] = &local` (v a local array)    rc 0
+    x07 `s = Sink{r:&local}`  REFUSED E0597                     x01 `x = Some(&t)`  (x never read again) rc 0
+The four exits are named W1 (the deref hop), W2 (`!param_names_.count(root)`), W3 (the index hop), W4 (no
+later read, so §B6 has no use to report at). 11 target rows over 8 roots and all three blocks:
+    W1  nll/capture-ref-in-struct--ctl · nll/capture-ref-in-struct--t08 ·
+        nll/propagate-multiple-requirements · borrowck/borrowck-local-borrow-with-panic-outlives-fn ·
+        nll/escape-argument--t09
+    W2  borrowck/anonymous-region-in-apit--closure-param-escapes · lifetimes/e0621-mut-ref-aliases-pointee-lifetime
+    W3  lifetimes/mut-slice-struct-lifetime-transmute--c17 · --t17
+    W4  borrowck/regions-escape-unboxed-closure · borrowck/regions-escape-bound-fn
+WHY THIS BLOCK. The population was derived BY THE PROPERTY: a scan of all 161 programs for a store whose
+destination is a deref, an index, or a param-rooted place gave **25 rows over 14 roots**; these 11 are the
+subset whose upstream reason is a STORED BORROW rather than exclusivity. The root labels hid it — it spans
+bck.A/B/C/NEW-R19, nllmoves.A/B/C, lifereg.B. The closure block (34 rows by the same kind of scan) is mined
+over six rounds and its two remaining spellings are recorded as un-refusing pinned fixtures (`capretcaps`)
+or as needing an expected-signature fact that exists nowhere. lifereg.R18 (8) is M-SIG/owner; E0716 (9) is
+owner + stdlib wall.
+
+## 2. THE PROBE TABLE — FOUR BUILDS, ALL THREE COST COLUMNS, EVERY BUILD IDENTITY READ
+build A = failtext-`3a5c77e621e40d67`, gate-db 547 unarmed -> 549/550 armed (batch `build/batch-2026-09-04b.spec`)
+build B = failtext-`0d954c87ab89188e`, gate-db 555 -> 557 (batch2)   build C = failtext-`7b49cac00eca4e74` (batch3)
+build D = the union arm (batch4). L1 rc=0 / batch inert on every one of the four.
+
+    probe               site                                fires   ceil  cost  cfail  stdlib  verdict
+    dwptrroot        A  DerefWrite, bare ptr -> reborrow root  2723     1     0      0    ok    ✓ FUNDABLE
+    dwptrself        A  ditto, record on the POINTER name      2723     0     0      0    ok    rule 9: the
+                        (the inner-predicate twin)                                            root half is all of it
+    dwparamdst       A  the §B6 walk's param exemption         4069     0     0      0    ok    rule 11 — see §4
+    dangpop          A  report AT pop_scope's dangle deposit    101     3    15     68    ⛔    STOP — §5
+    dangpopout       A  ditto, binding declared OUTSIDE frame   101     3    15     68    ⛔    STOP — §5
+    dwderefhop       B  the §B6 walk gains a Deref case        7266     0     0      0    ok    first half of a series
+    dwptrparam       B  `*param = &local` reported AT THE WRITE 2723     2     0      0    ok    ✓ FUNDABLE
+    dwptrparamany    B  ditto, any source (not only locals)    2723     3     —      —     —    rule 9 twin, §6
+    dwseries         C  dwderefhop + dwparamdst TOGETHER      11423     0     0      0    ok    ⛔ W2 REFUTED
+    lifereg_indexstore  re-priced (rule 8), W3                    —     0     0      0    ⛔    ⛔ W3 REFUTED, §7
+    fpwrite             re-priced (rule 8), W4-closure half       —     1     0      4    ok    ✓ FUNDABLE
+    dwstore          D  dwptrroot ∪ dwptrparam ∪ fpwrite     184791     4     0      4    ok    ✓ THE RECOMMENDATION
+
+## 3. THE SETS, WITH ROOTS AND DIAGNOSTICS — DIFFED BOTH WAYS AGAINST §1
+Measured independently of `ceiling-probe.sh` by compiling all 161 ledger programs under each name
+(`/tmp/cl/matrix.sh`; the two oracles agree everywhere except `dangpopout`, §8).
+    dwptrroot       {nll/capture-ref-in-struct--ctl}                                    nllmoves.B  E0597
+    dwptrparam      {borrowck/borrowck-local-borrow-with-panic-outlives-fn,             bck.A       E0597
+                     nll/propagate-multiple-requirements}                               nllmoves.A  (region)
+    dwptrparamany   the above PLUS {nll/escape-argument--t09}                           nllmoves.C  E0597
+    fpwrite         {borrowck/regions-escape-bound-fn}                                  bck.C       E0521
+    dangpop         {borrowck/anonymous-region-in-apit--closure-param-escapes,          bck.C       E0521
+                     borrowck/regions-escape-bound-fn,                                  bck.C       E0521
+                     borrowck/regions-escape-unboxed-closure}                           bck.B       E0597
+    dwparamdst / dwderefhop / dwseries / dwptrself / lifereg_indexstore   ∅
+    **dwstore (the union) = the four rows of dwptrroot ∪ dwptrparam ∪ fpwrite. RULE 13 MEASURED, NOT
+    ASSUMED: ALL − union = ∅ and union − ALL = ∅, in the SET and not only the count; cfail 4 = fpwrite's
+    own 4, so the increment on the text is zero as well.**
+    predicted∖closed = {nll/capture-ref-in-struct--t08, lifetimes/e0621-mut-ref-aliases-pointee-lifetime,
+                        lifetimes/mut-slice-struct-lifetime-transmute--c17, --t17} — four of eleven.
+    closed∖predicted = ∅ for every one of the eleven names.
+Diagnostics READ on the armed binaries, not inferred from rc:
+    capture-ref-in-struct--ctl  `'y' does not live long enough: it is borrowed by 'p', which is used here
+                                 after 'y' goes out of scope (E0597)` — upstream E0597, the same reason.
+    the two dwptrparam rows     `ceiling-probe dwptrparam: borrowed data escapes: 'z'/'local' is stored
+                                 through 'x'/'out', which the caller owns (E0521)` — upstream says E0597 /
+                                 "lifetime may not live long enough"; a LANDING must re-word to §B6's
+                                 sentence, and the row is not closed by this text (rule "a row closed by a
+                                 wrong diagnostic is not closed").
+
+## 4. W2 IS REFUTED, AND ITS FIRST ZERO WAS A ZERO THROUGH A HOP THAT NEVER RUNS (RULE 11)
+`dwparamdst` drops the §B6 walk's `!param_names_.count(root)` exemption and priced **0 over 4069 arrivals** —
+which looks like rule 4's "populous site, honest negative". It is not: the walk it guards **breaks at a
+Deref**, so for `(*s).f = &x` — which is the shape of both W2 rows and of `anonymous-region-in-apit` —
+`c` never becomes a `VarRef` and the param test is never asked. `dwderefhop` adds the Deref case; alone it
+also prices 0, because it then hits the exemption. **`dwseries` arms both: 11 423 arrivals (up from 7 266
+with the hop alone, so the hop is crossing and the root test IS being reached), CEILING 0, cost 0, cfail 0,
+stdlib ok.** That is the honest refutation of W2 — a series measured as a whole, over a site proven live in
+both halves, and the recorded task-#78 framing ("`note_holder_escape_prov` skips params") is the wrong
+description of the miss: the destination is not reached at all, and dropping the param test changes nothing
+even once it is.
+
+## 5. W4's BIG ARM IS BLOCKED BY A CORPUS DECISION, AND PROBES.md IS WRONG ABOUT WHY IT WAS DEAR
+The 2026-08-29 record says `regions-escape-bound-fn`'s row "needs a diagnostic site that does not exist
+today". **It exists**: `pop_scope` already computes the source, the holder and the line and deposits
+`dangling_[binding]`; the only thing missing is a `report` at the deposit instead of at the first later USE.
+`dangpop` is that one line, and it closes THREE rows — the two W4 targets plus `anonymous-region-in-apit`,
+which W2 could not reach. It is nevertheless NOT FUNDABLE AS SPELLED, and the reason is a corpus decision:
+  · **COST 15 pass fixtures**, and the first of them is `tests/logos/pass/nll_borrow_not_used_after_scope`,
+    whose own header asserts the exact opposite property: *"a reference binding may be assigned a
+    short-lived borrow even if the binding outlives the referent, AS LONG AS it is not used afterwards."*
+    That fixture and the ledger row `regions-escape-unboxed-closure` are the same shape one token apart
+    (`&i64` + a read inside the block vs `Option<&i64>` + no read at all). **They cannot both be right.**
+    ⚠ AND THE LEDGER ROW MAY BE THE ONE THAT IS WRONG: upstream `regions-escape-unboxed-closure.rs` errors
+    because of a closure's higher-ranked parameter, and the Logos port DROPPED the closure — what is left
+    is a bare block whose legality under NLL is exactly what the pass fixture asserts. **A ledger row that
+    is legal Rust is a corpus decision with an owner. Reported, not edited.**
+  · **STDLIB REFUSED**: `lang/writ/objdata.logos::wod_serialize`, `'d' does not live long enough: it is
+    borrowed by 'r'`, where `r` is the match-arm binding of `zeroed_compactify(&d, v)`. `d` outlives it by
+    construction. ⚠ THIS IS NOT NEW OVER-REFUSAL — the deposit `dangling_[r] = {d}` is made by the UNARMED
+    compiler too; only the wait-for-a-use hides it. **Reporting at the deposit surfaces every spurious
+    deposit §B6 has ever made**, and 15 pass + 68 cfail is the size of that residue. The mechanism is right
+    by direction; the DEPOSIT is what has to be made honest first, and that is its own priced question.
+  · rule 9 on the inner predicate: `dangpopout` (fire only when the holder is declared OUTSIDE the dying
+    frame) closes the SAME three at the SAME cost. The narrowing buys nothing; do not spell it that way.
+
+## 6. RULE 5 — THE HAND PROGRAMS VARY THE SHAPE, NOT THE COUNT (build/hand-2026-09-04b, 29 programs)
+Twelve shapes drawn from six syntaxes, run unarmed and under each of the three fundable names:
+    MUST ADMIT (all admitted under dwptrroot / dwptrparam / dwptrparamany)
+      h02 `*out = &K` (a `static` source)          h03 `*out = cur` where `cur = *out` (a reborrow)
+      h05 `*out = v`, a non-ref value              h08 `*s.p = src` through a field of a `&mut` param
+      h12 `*out = h.r` where `h` is a LOCAL struct holding a PARAM borrow — the shape that would break a
+          root-keyed source test; `collect_ref_sources` names the param, not `h`. The one that mattered.
+      g01/g02/g03 the dwptrroot side: a `&mut` local whose pointee outlives, a shadowed inner block, a loop
+          remaking the reference each iteration.
+    MUST REFUSE (all refused under dwptrparam, and all rc 0 on the unarmed baseline — the control revert)
+      h09 `*out = &copy` where `copy` is a fn-local copy of the param's pointee
+      h11 `*out = &arr[0]` where `arr` is a local array
+      e01/e02 `*out = &local` at fn level and inside a closure body — the ledger shape, both spellings
+      x03 the same with a later read in the caller
+    ⚠ TWO PROGRAMS ARE REFUSED **UNARMED** AND THE MESSAGE IS BROKEN: h01 `fn store(out: &mut &i64, src:
+      &i64) { *out = src; }` and h04 (the same through a local) print `deref-write '*ptr = …': variance
+      mismatch — expected &i64, got &i64 — lifetime structure incompatible`. The VERDICT is right (rustc
+      wants `'b: 'a` declared); the message prints two identical types. Same "expected &i64, got &i64"
+      shape this file already names at the DECLINED probe of 2026-09-01m. OFF-LEDGER, RECORDED, NOT PURSUED.
+    ⚠ `dwptrparamany` (rule 9's wider twin) closes one MORE row — `escape-argument--t09`, whose source is a
+      closure PARAMETER rather than a local — and its cost was NOT measured on the three populations. It is
+      the next thing to price, not the thing to fund: `*out = other_param` must stay legal and only h01/h04
+      test that shape, and both are already refused for a different reason.
+
+## 7. W3 RE-PRICED (RULE 8) AND IT DECAYED IN THE BAD DIRECTION
+`lifereg_indexstore` was recorded 2026-08-28 at "187 fires, CEILING 0, COST 0" over a 379-row ledger, with
+the right caveat that rule 4 makes it a refutation of the spelling and not of the observation. Re-armed on
+today's binary: **CEILING still 0, and the STDLIB NO LONGER COMPILES** — `mem`, 2 refusals in `ts_scan`
+(`'nm' does not live long enough: it is borrowed by 'out'`, then `cannot return reference to local variable
+'out'`). A cost that was 0 is now the hardest cost there is. W3's two rows are not buyable at this site.
+
+## 8. ⚠ A TOOL FINDING: A CEILING READ FROM THE GATE STORE IS POLLUTED BY THE PREVIOUS PROBE
+`ceiling-probe.sh` printed `dangpopout` CEILING = **1**; compiling the 161 ledger programs directly under
+`LOGOS_PROBE=dangpopout` gives **3**, verified row by row by hand. `dangpop` — which closes two of those
+three — had been armed against the SAME build identity minutes earlier, and `LOGOS_PROBE` is not part of
+that identity, so the baseline the second read differenced against already contained the first probe's
+armed verdicts. Every other name in §3 was cross-checked against the direct matrix and agrees. TOOLING IS
+FROZEN, so this is recorded, not fixed: **when two probes share rows, price them in separate builds or
+believe the direct matrix.**
+
+## 9. WHAT DESERVES FUNDING
+ 1. **`dwstore` — 4 rows over 4 roots at cost 0 / cfail 4 TEXT-ONLY / stdlib ok, additivity measured.**
+    Two mechanisms, one site: (a) a bare `*p = <value>` never arrives at the §B6 walk at all, because that
+    walk is guarded on `ptr.kind() == AddrOfTemp` and `*p = v` lowers to a BARE pointer; resolving `p`
+    through `reborrow_of_.each_root_place` and recording there closes capture-ref-in-struct--ctl.
+    (b) when `p` is a PARAM there is no local root to record on and the fact is an ESCAPE — reported at the
+    write. A landing must re-word (b) to §B6's own sentence: the probe's E0521 text is not the row's reason.
+ 2. `dwptrparamany`, unpriced on the three populations, for a fifth row (escape-argument--t09).
+ 3. The `dangling_` DEPOSIT, on its own: `dangpop`'s 15 pass + 68 cfail + 1 stdlib refusal is a measurement
+    of how many spurious deposits §B6 makes today, and it is the gate on three more rows.
+ 4. FOR AN OWNER: `pass/nll_borrow_not_used_after_scope` versus the ledger row
+    `borrowck/regions-escape-unboxed-closure` — the same property, opposite verdicts pinned in both
+    directions, and the port dropped the closure that made the upstream program illegal.

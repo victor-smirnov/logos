@@ -12472,7 +12472,8 @@ private:
                 // §B6 (E0597): (re-)record sources on assign — a rebind re-owns
                 // (clears any prior dangling), then tracks the new borrow.
                 record_ref_sources(name, val, ln);
-                if (logos::probe::on("fpwrite") && in_closure_body_ && val &&
+                if ((logos::probe::on("fpwrite") ||
+                     logos::probe::on("dwstore")) && in_closure_body_ && val &&
                     !closure_body_decls_.count(name)) {
                     std::vector<std::string> fpw_srcs;
                     collect_ref_sources(val, fpw_srcs);
@@ -12692,7 +12693,8 @@ private:
                     // is an ESCAPE: a borrow of a LOCAL stored through a `&mut`
                     // the caller owns. Reported AT THE WRITE. PROBES.md.
                     if ((logos::probe::on("dwptrparam") ||
-                         logos::probe::on("dwptrparamany")) && !pn_.empty() &&
+                         logos::probe::on("dwptrparamany") ||
+                         logos::probe::on("dwstore")) && !pn_.empty() &&
                         (param_names_.count(pn_) || closure_param_names_.count(pn_))) {
                         const bool any_ = logos::probe::on("dwptrparamany");
                         std::vector<std::string> esc_;
@@ -12710,7 +12712,8 @@ private:
                             }
                         }
                     }
-                    if (logos::probe::on("dwptrroot") && !pn_.empty()) {
+                    if ((logos::probe::on("dwptrroot") ||
+                         logos::probe::on("dwstore")) && !pn_.empty()) {
                         std::vector<std::string> rts_;
                         reborrow_of_.each_root_place(pn_,
                             [&](const std::string& r_) { rts_.push_back(r_); });
