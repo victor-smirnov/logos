@@ -186,4 +186,10 @@ inline bool callmeet_unguarded() { return on("ltcallmeetany"); }
 inline bool arm_mintiv() { return true; }
 inline bool mintiv_any() { return on("ltregallany"); }
 
+// slit* (PROBES.md 2026-09-02v) — a bare struct literal's lifetime args are
+// read off its VALUES: the fat-pointer kinds in the two walks (slitkinds), the
+// generic path (slitgenlt), both (slitwhole).
+inline bool slit_kinds() { return on("slitkinds") || on("slitwhole"); }
+inline bool slit_gen()   { return on("slitgenlt") || on("slitwhole"); }
+
 }  // namespace logos::probe

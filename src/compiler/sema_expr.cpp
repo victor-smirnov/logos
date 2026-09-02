@@ -11817,6 +11817,33 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 mark_moved_expr(expr_ref_of(fval));
         }
 
+        // PROBE slitgenlt / slitwhole — the GENERIC path types the literal from
+        // the HINT alone; its lifetime args are never read off the values, so
+        // the return/let compare is `'a` against `'a`. PROBES.md 2026-09-02v.
+        if (!sinfo.lifetime_params.empty()) {
+            logos::probe::census("slit.gen.site");
+            if (logos::probe::slit_gen()) {
+                auto blift = structlit_lt_subst_(sinfo.lifetime_params,
+                                                 effective->fields, fields,
+                                                 sinfo.package.empty()
+                                                   ? std::string(sname)
+                                                   : sinfo.package + "." + std::string(sname));
+                std::vector<std::string> nl = TypeRef(lit_type).lifetime_args();
+                nl.resize(sinfo.lifetime_params.size());
+                bool changed = false;
+                for (size_t i = 0; i < sinfo.lifetime_params.size(); ++i) {
+                    auto it = blift.find(sinfo.lifetime_params[i]);
+                    if (it == blift.end()) continue;
+                    if (nl[i] != it->second) { nl[i] = it->second; changed = true; }
+                }
+                if (changed) {
+                    logos::probe::census("slit.gen.differs");
+                    lit_type = slit_is_zoned
+                        ? make_generic_datatype(std::string(sname), args, nl)
+                        : make_generic_struct(std::string(sname), args, nl);
+                }
+            }
+        }
         // B77: verify generic-struct's `where 'a: 'b` constraints.
         check_struct_lit_outlives(std::string(sname),
                                   sinfo.lifetime_params,
@@ -12055,6 +12082,26 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 std::string d(dt.lifetime()), a(at.lifetime());
                 if (!d.empty() && !a.empty() && !flt.count(d)) flt.emplace(d, a);
                 walk(dt.pointee(), at.pointee());
+                return;
+            }
+            // PROBE slitkinds / slitwhole — twin of the same arm in
+            // structlit_lt_subst_ (sema_impl.hpp); this walk is the non-generic
+            // path's own copy. PROBES.md 2026-09-02v.
+            if ((dk2 == K::Slice || dk2 == K::TraitObject || dk2 == K::DstRef) &&
+                at.kind() == dk2) {
+                logos::probe::census("slit.kinds.arrival.ng");
+                if (logos::probe::slit_kinds()) {
+                    std::string d(dt.lifetime()), a(at.lifetime());
+                    if (!d.empty() && !a.empty()) {
+                        logos::probe::census("slit.kinds.pair.ng");
+                        if (!flt.count(d)) flt.emplace(d, a);
+                    }
+                    if (dk2 == K::Slice) walk(dt.elem(), at.elem());
+                    else {
+                        auto da = dt.type_args(); auto aa = at.type_args();
+                        for (size_t i = 0; i < da.size() && i < aa.size(); ++i) walk(da[i], aa[i]);
+                    }
+                }
                 return;
             }
             if ((dk2 == K::Struct || dk2 == K::ZonedStruct || dk2 == K::Enum) &&

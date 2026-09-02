@@ -1174,6 +1174,27 @@ private:
                 walk(dt.pointee(), at.pointee());
                 return;
             }
+            // PROBE slitkinds / slitwhole — the region slot of `&'a str` /
+            // `&'a [T]` / `&'a dyn` / `&'a Dst` (landed, arm_regslot) was never
+            // read by this walk. PROBES.md 2026-09-02v.
+            if ((dk2 == K::Slice || dk2 == K::TraitObject || dk2 == K::DstRef) &&
+                at.kind() == dk2) {
+                logos::probe::census("slit.kinds.arrival");
+                if (logos::probe::slit_kinds()) {
+                    std::string d(dt.lifetime()), a(at.lifetime());
+                    if (!d.empty() && !a.empty()) {
+                        logos::probe::census("slit.kinds.pair");
+                        cands[d].push_back(a);
+                        if (!flt.count(d)) flt.emplace(d, a);
+                    }
+                    if (dk2 == K::Slice) walk(dt.elem(), at.elem());
+                    else {
+                        auto da = dt.type_args(); auto aa = at.type_args();
+                        for (size_t i = 0; i < da.size() && i < aa.size(); ++i) walk(da[i], aa[i]);
+                    }
+                }
+                return;
+            }
             if ((dk2 == K::Struct || dk2 == K::ZonedStruct || dk2 == K::Enum) &&
                 at.kind() == dk2) {
                 auto dl = dt.lifetime_args(); auto al = at.lifetime_args();
