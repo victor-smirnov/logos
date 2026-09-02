@@ -2926,6 +2926,21 @@ private:
                     if (!dying_binding(frame, src)) continue;   // F5, not the name
                     dangling_[binding] =
                         DanglingRef{ src.name, ref_borrow_line_[place] };
+                    // PROBE 2026-09-04b — W4. §B6 deposits the dangle here and
+                    // waits for a USE; a holder never read again is never
+                    // reported. See src/compiler/PROBES.md.
+                    if (logos::probe::on("dangpop"))
+                        report(ref_borrow_line_[place], std::format(
+                            "ceiling-probe dangpop: '{}' does not live long "
+                            "enough: it is borrowed by '{}' (E0597)",
+                            src.name, binding));
+                    if (logos::probe::on("dangpopout") &&
+                        std::find(frame.declared.begin(), frame.declared.end(),
+                                  binding) == frame.declared.end())
+                        report(ref_borrow_line_[place], std::format(
+                            "ceiling-probe dangpopout: '{}' does not live long "
+                            "enough: it is borrowed by '{}' (E0597)",
+                            src.name, binding));
                     if (dorder)
                         report(ref_borrow_line_[place], std::format(
                             "ceiling-probe droporder: '{}' does not live long "
@@ -12664,6 +12679,27 @@ private:
                 SDerefWriteView v{sr};
                 auto ptr = v.ptr();
                 using EC = lir_schema::expr::Code;
+                // PROBE 2026-09-04b — W1a. `*q = &y` lowers to DerefWrite with a
+                // BARE ptr, so the §B6 walk below (guarded on AddrOfTemp) never
+                // runs and no source is recorded anywhere. See PROBES.md.
+                if (ptr && ptr.kind() == EC::VarRef) {
+                    std::string pn_(EVarRefView{ptr}.name());
+                    if (logos::probe::on("dwptrself") && !pn_.empty() &&
+                        var_has(NO_SLOT, pn_))
+                        add_ref_sources(pn_, std::string{}, v.value(), ln);
+                    if (logos::probe::on("dwptrroot") && !pn_.empty()) {
+                        std::vector<std::string> rts_;
+                        reborrow_of_.each_root_place(pn_,
+                            [&](const std::string& r_) { rts_.push_back(r_); });
+                        for (auto& r_ : rts_) {
+                            std::string base_ = r_;
+                            if (auto d_ = base_.find('.'); d_ != std::string::npos)
+                                base_ = base_.substr(0, d_);
+                            if (!base_.empty() && var_has(NO_SLOT, base_))
+                                add_ref_sources(base_, std::string{}, v.value(), ln);
+                        }
+                    }
+                }
                 if (ptr && ptr.kind() == EC::AddrOfTemp) {
                     EAddrOfTempView atv{ptr};
                     auto cur = atv.inner();
@@ -12772,7 +12808,12 @@ private:
                         atv.inner().kind() != EC::VarRef) {
                         std::string root(EVarRefView{c}.name());
                         uint32_t root_slot = EVarRefView{c}.var_slot();  // Phase-1
-                        if (var_has(root_slot, root) && !param_names_.count(root)) {
+                        // PROBE 2026-09-04b — W2. The param exemption at this
+                        // §B6 walk is task #78's; `dwparamdst` drops it so a
+                        // store into `(*param).f` records its sources. PROBES.md.
+                        if (var_has(root_slot, root) &&
+                            (logos::probe::on("dwparamdst") ||
+                             !param_names_.count(root))) {
                             add_ref_sources(root, std::string{}, v.value(), ln);
                             // B87 AT THE FIELD DOOR. The Let and Assign arms
                             // deposit into dropck_borrow_sources_; this door —
