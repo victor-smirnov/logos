@@ -8248,6 +8248,14 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_tuple(
 
 lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
+    // PROBE 2026-09-02t — E0040 explicit destructor call, method spelling. PROBES.md.
+    if (method_name == "drop") {
+        if (logos::probe::census_armed()) logos::probe::census("dropcall.m");
+        if (logos::probe::on("dropcallm")) {
+            error("explicit use of destructor method (E0040)");
+            return error_expr();
+        }
+    }
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
 
     // Depth-N receiver autoderef (full RFC 2005 match ergonomics): a `&&T`
@@ -15487,6 +15495,22 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
+    // PROBE 2026-09-02t — E0040 through a path: `Drop::drop(x)` (dropcallq) / `S::drop(x)` (dropcallt).
+    {
+        std::string cn1_(str_of(node.get(la::RECEIVER.code)));
+        std::string mn1_(str_of(node.get(la::NAME.code)));
+        if (mn1_ == "drop") {
+            if (logos::probe::census_armed()) logos::probe::census("dropcall.q." + cn1_);
+            bool refuse_ = false;
+            if (logos::probe::on("dropcallq") && cn1_ == "Drop") refuse_ = true;
+            if (logos::probe::on("dropcallt") && cn1_ != "Drop") refuse_ = true;
+            // @@dropcall-arms@@
+            if (refuse_) {
+                error("explicit use of destructor method (E0040)");
+                return error_expr();
+            }
+        }
+    }
     // Phase 1B-5 parity for TYPE-side turbofish (`PkdArray::<str>::format`):
     // bare `[T]`/`str`-as-unsized/`dyn` type args are legal when the class's
     // param is `?Sized` (or a partial spec may govern). resolve_generic's

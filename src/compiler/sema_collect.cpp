@@ -3739,9 +3739,79 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // type's own package re-imports a different non-pub Drop, e.g. std.string
     // and writ.zone both used to declare local `trait Drop`). Treating Drop
     // as a built-in matches Copy and lets the impl resolve via name alone.
-    if (!trait_name.empty() && trait_name != "Copy" && trait_name != "Drop"
-        && !traits_.count(trait_name))
+    const bool builtin_marker_ = !trait_name.empty() &&
+        !(trait_name != "Copy" && trait_name != "Drop");
+    const bool trait_is_drop_ = builtin_marker_ && trait_name != "Copy";
+    if (!trait_name.empty() && !builtin_marker_ && !traits_.count(trait_name))
         error(std::format("impl: unknown trait '{}'", trait_name));
+    // PROBE 2026-09-02t — Drop impl well-formedness (E0120/E0366/E0367). PROBES.md.
+    if (trait_is_drop_) {
+        std::string bt_ = target;
+        if (auto d_ = bt_.find('$'); d_ != std::string::npos) bt_ = bt_.substr(0, d_);
+        auto [sp_, ss_] = find_struct_by_name(bt_);
+        auto [dp_, ds_] = find_datatype_by_name(bt_);
+        auto [ep_, ei_] = find_enum_by_name(bt_);
+        const bool adte_ = (ss_ != nullptr) || (ds_ != nullptr) || (ei_ != nullptr);
+        const bool nonadte_ = !adte_;
+        const std::string ow_ = ss_ ? std::string(sp_) : (ds_ ? std::string(dp_) : (ei_ ? std::string(ep_) : std::string()));
+        const bool foreign_ = adte_ && ow_ != cur_package_;
+        bool spec_ = false, specty_ = false;
+        if (target_resolved)
+            for (auto a_ : TypeRef(target_resolved).type_args()) {
+                if (!a_) continue;
+                auto k_ = TypeRef(a_).kind();
+                if (k_ != LogosType::Kind::TypeVar) spec_ = true;
+                if (k_ != LogosType::Kind::TypeVar && k_ != LogosType::Kind::ConstVar &&
+                    k_ != LogosType::Kind::WStaticLit && k_ != LogosType::Kind::CfgSlotType)
+                    specty_ = true;
+            }
+        bool bnddiff_ = false, bndassoc_ = false, sized_ = false;
+        auto bkey_ = [&](const TraitBound& b_, bool full_) {
+            std::string k_ = b_.trait_name;
+            if (!full_) return k_;
+            k_ += "<";
+            for (auto ta_ : b_.type_args) k_ += (ta_ ? type_str(ta_) : std::string("?")) + ",";
+            for (auto& ae_ : b_.assoc_eqs) k_ += ae_.first + "=" + (ae_.second ? type_str(ae_.second) : std::string("?")) + ",";
+            return k_ + ">";
+        };
+        if (ss_)
+            for (size_t i_ = 0; i_ < impl_tps.size() && i_ < ss_->type_params.size(); ++i_) {
+                std::vector<std::string> mn_, tn_, mf_, tf_;
+                for (auto& b_ : impl_tps[i_].bounds) { if (b_.is_relaxed) continue; mn_.push_back(bkey_(b_, false)); mf_.push_back(bkey_(b_, true)); }
+                for (auto& b_ : ss_->type_params[i_].bounds) { if (b_.is_relaxed) continue; tn_.push_back(bkey_(b_, false)); tf_.push_back(bkey_(b_, true)); }
+                std::sort(mn_.begin(), mn_.end()); std::sort(tn_.begin(), tn_.end());
+                std::sort(mf_.begin(), mf_.end()); std::sort(tf_.begin(), tf_.end());
+                if (mn_ != tn_) bnddiff_ = true;
+                if (mf_ != tf_) bndassoc_ = true;
+                if (impl_tps[i_].implicit_sized && !ss_->type_params[i_].implicit_sized) sized_ = true;
+            }
+        if (logos::probe::census_armed()) {
+            logos::probe::census("dropwf.arrival");
+            if (nonadte_) logos::probe::census("dropwf.nonadte." + target);
+            if (foreign_) logos::probe::census("dropwf.foreign." + target);
+            if (spec_) logos::probe::census("dropwf.spec." + target);
+            if (specty_) logos::probe::census("dropwf.specty." + target);
+            if (bnddiff_) logos::probe::census("dropwf.bnddiff." + target);
+            if (bndassoc_) logos::probe::census("dropwf.bndassoc." + target);
+            if (sized_) logos::probe::census("dropwf.sized." + target);
+        }
+        const bool stdpkg_ = cur_package_.starts_with("logos.");
+        bool refuse_ = false;
+        if (logos::probe::on("dropwfadte") && nonadte_) refuse_ = true;
+        if (logos::probe::on("dropwfloc") && foreign_) refuse_ = true;
+        if (logos::probe::on("dropwfspec") && spec_) refuse_ = true;
+        if (logos::probe::on("dropwfspecty") && specty_) refuse_ = true;
+        if (logos::probe::on("dropwfbnddiff") && bnddiff_) refuse_ = true;
+        if (logos::probe::on("dropwfbnddiffu") && (bnddiff_ && !stdpkg_)) refuse_ = true;
+        if (logos::probe::on("dropwfbndassoc") && bndassoc_) refuse_ = true;
+        if (logos::probe::on("dropwfsized") && sized_) refuse_ = true;
+        if (logos::probe::on("dropwfsizedu") && (sized_ && !stdpkg_)) refuse_ = true;
+        if (logos::probe::on("dropwfwhole") && (nonadte_ || foreign_ || specty_ || bndassoc_ || sized_)) refuse_ = true;
+        if (logos::probe::on("dropwfwholeu") && (nonadte_ || foreign_ || specty_ || ((bndassoc_ || sized_) && !stdpkg_))) refuse_ = true;
+        // @@dropwf-arms@@
+        if (refuse_)
+            error(std::format("impl Drop for '{}': ill-formed `Drop` impl (E0120/E0366/E0367)", target));
+    }
     // Phase 6: scope the impl's trait name so `Self::Item<X>` inside
     // method bodies / signatures resolves before impls_ is populated.
     current_impl_trait_name_ = trait_name;

@@ -15694,3 +15694,245 @@ fires: 771 (stland re-price)
 ceiling: 19 (probe) / 18 (landed; t15 was a collision)
 cost: 0 (cfail 3 re-pins + 4 text-only, stdlib ok)
 verdict: LANDED 2026-09-02s — A by direction + B + C + C' + FnPtr flip + F1–F4; the `&mut *p` twin withdrawn behind an owner fixture (§6).
+
+# ═══ ROUND 2026-09-02t — THE DROP BLOCK: A `Drop` IMPL IS NEVER CHECKED AGAINST THE
+# TYPE IT IS FOR (E0120/E0366/E0367), AND `x.drop()` / `Drop::drop(x)` ARE ORDINARY CALLS
+# (E0040). 10 ROWS OVER 7 ROOTS BY PROPERTY, PRICED 10 / COST 0 / cfail 0 / STDLIB OK
+# IN ONE BUILD — BEHIND TWO STDLIB `Drop` IMPLS THAT ARE THEMSELVES E0367 SHAPES ═══
+
+## 0. STEP 1, READ FROM THE TREE (corrections to the brief and to the handoff memory)
+
+    live probe names 148 (memory said 145) · ledger # TOTAL 197 = 197 by listing ·
+    channels lifereg 90 / nllmoves 54 / bck 53 (memory said 106/73/54 — stale by one
+    round) · roots bck.C 16 · nllmoves.C 10 · bck.B 10 · lifereg.R18 8 · bck.NEW 8 ·
+    lifereg.NEW-N1 7 · nllmoves.B 7 · lifereg.N1 7 · lifereg.C 7 · nllmoves.D 6 ·
+    HEAD d1160f885 = origin/main, clean · unarmed binary fe03f2edfe7a5c6d
+    (build_hash.py) · stash@{0} = 14 `dropwf*`/`dropcall*` probes from stopped round
+    w4s2ncz3r, NEVER PRICED (git stash list; no record of them anywhere in this file).
+Rows by mention count in THIS FILE (grep -c of each name): 83 of 197 rows are
+mentioned ZERO times — no survey ever named them. The Drop-property rows are all in
+that set.
+
+## 1. THE TARGET ROWS BY NAME (build/…/targets-2026-09-02t.txt, written before any edit)
+
+Derived BY PROPERTY, not by root: grep the 197 programs for `impl … Drop for` or a
+`.drop()` / `Drop::drop(` call → 34 rows. Of those, the ones whose upstream error is a
+DECLARATION- or CALL-SITE rule:
+    lifereg.NEW-C1  drop-on-non-struct                              E0120  `impl Drop for &mut i64`
+    lifereg.NEW-N1  drop-impl-for-type-param-with-trait-bound       E0120  `impl<T> Drop for T where T: A`
+    lifereg.NEW-1   drop-foreign-fundamental                        E0120  `impl Drop for Vec<A>`
+    lifereg.L3      reject-specialized-drops-8142                   E0366  `impl Drop for P<i64>`
+    lifereg.NEW-1   issue-38868                                     E0366  `impl Drop for List<i64>`
+    lifereg.L3      constrained-by-assoc-type-equality-and-self-ty  E0367  impl bound `T: Trait<Assoc = U>`, struct `T: Trait`
+    lifereg.NEW-N5  drop-impl-sized-bound-mismatch                  E0367  struct `G<T: ?Sized>`, `impl<T> Drop for G<T>`
+    lifereg.NEW-N6  explicit-call-to-dtor                           E0040  `x.drop()`
+    lifereg.NEW-2   explicit-drop-call-named-ref                    E0040  `Drop::drop(&mut f)`
+    lifereg.NEW-N2  explicit-drop-call-error                        E0040  `Drop::drop(&mut f)`
+Same property, NOT targets: E0509 ×5 (bck.E ×3, the two tuple-struct-with-dtor rows) —
+RETIRED, spec `intrinsic.drop.skip-moved-out-paths` (B-4, P4, PAIR); E0713 ×3
+(nllmoves.E enum-drop-access / issue-52059 / issue-53773 — a field REFERENCE returned
+out of a by-value `Drop` parameter: the same partial-move-out-of-Drop design question
+as E0509, and a real aliasing hole: enum-drop-access's destructor writes through the
+`&mut` it just returned); issue-54556-stephaneyfx (E0597, `let a: A; let b; a = A { r:
+&b }` — drop ORDER, another mechanism); dropck-only-error (E0277, R18's M-SIG family).
+WHY THIS BLOCK: never surveyed; its probes were already written and never priced; the
+shape is 09-02r's (declaration-site WF, 13 rows, cost 0/0/ok). The other unsurveyed
+blocks — nllmoves.D ×6 / lifereg.D ×5 — sit behind the E0716 machinery whose owner
+decision and stdlib wall (e716recvtmp) are recorded; object-lifetime 18 is walled by
+return-position erasure; bck.C is mined.
+
+## 2. RULE 17 — THE ARRIVAL, CENSUSED BEFORE BELIEVING ANY NUMBER (LOGOS_CENSUS over the 197 admits, armed-inert binary f3595f74da75ca32)
+
+    dropwf.arrival 2830 = every `impl Drop` collect_impl sees, INCLUDING THE PRELUDE'S:
+    the stdlib's Drop impls are re-collected in EVERY compilation (Box, DropGuard,
+    ArrayIntoIter, Vec, … ≈ 14 arrivals per program). So a WF rule with no package
+    guard prices against the stdlib on every program, not only in the stdlib column:
+    dropwf.sized.Box 197 · dropwf.bnddiff.DropGuard 197 · dropwf.bndassoc.DropGuard 197
+    · dropwf.spec.ArrayIntoIter 197 (a `const N` arg — specty is clean).
+    The ledger's own buckets, 2 each (the program's impls are collected twice):
+    nonadte.$mut_ref_&mut i64 · nonadte.T · foreign.Vec$G1$A · specty.{List,P,Vec}$G1$…
+    · sized.G · bndassoc.Foo. dropcall.m 1 · dropcall.q.Drop 2.
+⇒ TWO STDLIB `Drop` IMPLS ARE REAL E0367 SHAPES, BY NAME: `impl<T> Drop for Box<T>`
+against `pub struct Box<T: ?Sized>` (mem/boxed/boxed.logos; rustc: `impl<T: ?Sized>
+Drop for Box<T>`), and `impl<F: FnOnce() -> ()> Drop for DropGuard<F>` against `pub
+struct DropGuard<F>` (mem/manually_drop/manually_drop.logos). Each is a one-token repair
+of the STDLIB (the impl's `?Sized`; the struct's bound). Until then the un-exempted
+arms refuse every program — that is what the 1133 column below IS.
+
+## 3. THE PROBE TABLE — armed build f3595f74da75ca32 (READ), one build, L1 rc 0 inert, batch RC=0
+(scripts/probe-batch.sh, spec build/…/batch-2026-09-02t.spec; per-probe /tmp/probe-<name>.out)
+
+    probe            fires  ceiling  cost  cfail(1203)  stdlib  verdict
+    dropwfadte       36809        2     0        0        ok    non-ADT target (struct/datatype/enum/union all count)
+    dropwfloc        36810        1     0        0        ok    ADT owned by another package
+    dropwfspec       36000      197  1133     1196        ⛔    any non-TypeVar arg — REFUTED: a `const N` arg (lang ArrayIntoIter, lcm ContainerRef) is not specialisation
+    dropwfspecty     36808        3     0        0        ok    non-TypeVar, non-const arg (E0366) — also takes drop-foreign-fundamental (`Vec<A>`)
+    dropwfbnddiff    36008      197  1133     1196        ⛔    bound trait NAMES differ — the DropGuard wall
+    dropwfbnddiffu   36811        0     0        0        ok    same, stdlib packages exempt — 0 rows: the E0367 row differs by an ASSOC BINDING, not a name
+    dropwfbndassoc   36008      197  1133     1196        ⛔    bound keys incl. type args + `Assoc = T` differ — the DropGuard wall
+    dropwfsized      36008      197  1133     1196        ⛔    impl `T` (implicit Sized) vs struct `T: ?Sized` — the Box wall
+    dropwfsizedu     36810        1     0        0        ok    same, stdlib exempt
+    dropwfwhole      36008      197  1133     1196        ⛔    nonadte ∨ foreign ∨ specty ∨ bndassoc ∨ sized
+    dropwfwholeu     36804        7     0        0        ok    same, (bndassoc ∨ sized) stdlib-exempt — THE WHOLE, rule 13
+    dropcallm            1        1     0        0        ok    `x.drop()` by method NAME — cost 0 IS FALSE, §5
+    dropcallq            2        2     0        0        ok    `Drop::drop(x)`
+    dropcallt            2        0     0        0        ok    `S::drop(x)` — site reached (2 arrivals), corpus holds no such call (rule 4)
+Every `stdlib ok` line read in full: `stdlib: all four layers compile under '<name>'`;
+every cfail line `0 of 1203 (rc 0, .expected-match 0, text-only 0)`.
+
+## 4. PREDICTED vs MEASURED, AS SETS (build/…/predictions-2026-09-02t.txt, written before the first result)
+    dropwfadte    predicted {drop-on-non-struct, drop-impl-for-type-param}       = measured. both directions empty.
+    dropwfloc     predicted {drop-foreign-fundamental}                             = measured.
+    dropwfspecty  predicted {8142, 38868}; measured + drop-foreign-fundamental — `Vec<A>` has a concrete arg. ONE extra, a collision with loc.
+    dropwfbnddiffu predicted 0 = measured 0.   dropwfsizedu predicted {sized-bound-mismatch} = measured.
+    dropwfbndassoc predicted {constrained-by-assoc}: walled in its own column (197); its admit bucket is exactly `bndassoc.Foo`, and wholeu closes the row.
+    dropwfwholeu  predicted the 7 = measured the 7, name for name. RULE 13: parts adte 2 + loc 1 + specty 3 + sizedu 1 + bndassoc 1, union 7 (loc ⊂ specty) = the whole. ADDITIVE AS SETS.
+    dropcallm 1 = predicted · dropcallq 2 = predicted · dropcallt 0 = predicted.
+    WRONG PREDICTION, recorded: I predicted pass cost 0 for spec/bnddiff/bndassoc/sized/whole with only the stdlib column red; measured 1133 — because the prelude's impls are collected per program (§2). The wall is in every column, not one.
+    UNION over the three sites = 10 = every target row. Diagnostics read on every one:
+      the seven WF rows: `error [impl Drop for <target>]: impl Drop for '<target>': ill-formed `Drop` impl (E0120/E0366/E0367)` — the crude single sentence; a landing prints the upstream code per predicate (E0120 nonadte/foreign, E0366 specty, E0367 bndassoc/sized). Target spelling is the mangled key (`Vec$G1$A`, `$mut_ref_&mut i64`, `P$G1$i64`) — print the source form.
+      the three E0040 rows: `<file>:<line>: error [fn main|fn foo]: explicit use of destructor method (E0040)` — right line, right fn.
+
+## 5. RULE 5 — 32 HAND PROGRAMS, 14 ARMS, EVERY ONE MULTI-LINE (build/…/hand/, run.sh, armed-<name>.txt, fire-<name>.txt)
+18 legal (c01–c18): plain · generic · same inline bound · `?Sized` both sides · enum ·
+union · const generic · user-declared `trait Drop` + `self.drop()` (= issue-3220's
+shape) · an INHERENT method named `drop` on a type with no Drop · struct-where/impl-
+inline · struct-inline/impl-WHERE · bound order swapped · identical `Assoc = i64` both
+sides · lifetime generic · alias target · three params · impl before struct · a user
+trait `Tidy` with a method `drop`. All 18 rc 0 unarmed.
+  LEGAL REFUSED by the surviving arms:
+    c11 `struct W<T: Copy>` + `impl<T> Drop for W<T> where T: Copy` — dropwfbnddiffu AND
+        dropwfwholeu. The impl's WHERE bounds are not in `impl_tps[i].bounds` (collect_impl
+        reads its where-clause for lifetime outlives only), the struct's where bounds ARE
+        folded (c10 passes). x04 (the illegal where form) is NOT refused for the same
+        reason. ⇒ the landed comparator must read the impl's WHERE items into the key set
+        on both sides. A COST THE THREE COLUMNS COULD NOT SEE: no corpus program has it.
+    c08 · c09 · c18 — dropcallm. `x.drop()` by NAME refuses a user `trait Drop` (c08 =
+        imported/pass/issues/issue-3220-consume-self-drop-is, VERIFIED refused under
+        dropcallm, rc 1 — the cost column's population does not contain imported/pass/
+        issues), an inherent `fn drop(&self)`, and a user trait `Tidy::drop`. The correct
+        arm asks the RESOLVED method's trait IDENTITY (the builtin Drop), which is a
+        registry question — `traits_.count("Drop")` and `tname == "Drop"` both red
+        logos_00_key_identity_lint (measured: the first batch aborted on it, count 41 vs
+        pin 40) — so the spelling is a landing decision, not a probe. dropcallq / dropcallt
+        refuse no legal program.
+  ILLEGAL (x01–x14): x01 `impl Drop for i64`, x02 `impl Drop for (S, S)`, x03 `impl Drop
+  for [S; 2]` were refused UNARMED (inherited, rule 14; §7 for what they print). The
+  eleven others are ADMITTED unarmed and refused by exactly the predicted arm: x05
+  `W<S>` specty · x06 `impl<T> Drop for Option<T>` loc (an enum, so adte holds) · x07
+  Clone-vs-Copy bnddiffu · x08 `?Sized` sizedu · x09 `q.drop()` in a closure callm · x10
+  `S::drop(&mut s)` callt only · x11 `Drop::drop` in a nested block callq · x12 `Vec<i64>`
+  loc + specty · x13 assoc binding dropped on the impl side bndassoc only (bnddiffu
+  blind, as designed) · x14 `impl<T: Copy> Drop for T` adte. x04 (impl where-bound)
+  refused by NO surviving arm — c11's twin.
+  Fire logs: every c/x program arrives (dropwfadte 14–16 per program = the prelude's
+  impls + its own); dropcallm fires 4 = c08 c09 c18 x09; dropcallq 2 = x11 (+ x10's
+  arrival); dropcallt 2.
+
+## 6. ⇒ WHAT DESERVES FUNDING, IN ORDER
+ 1. THE WF WHOLE (dropwfwholeu's five predicates) — 7 rows, cost 0/0/ok, PROVIDED the
+    two stdlib impls are repaired FIRST (Box `impl<T: ?Sized>`, DropGuard's struct
+    bound) and the package exemption is then DELETED — the exemption is a probe device,
+    not a rule (a stdlib that violates the rule is the defect, gate exemption in the
+    abuse direction). With the repairs the un-exempted arm should price 7 / 0 / 0 / ok;
+    RE-PRICE, do not assume. Landing form: per-predicate diagnostics with the upstream
+    code; both sides' WHERE bounds in the key set (c11/x04); `?Sized` compared as
+    implicit_sized (as here), relaxed bounds skipped from the key set.
+ 2. dropcallq — 2 rows, cost 0 in every column and by hand. Land as spelled.
+ 3. dropcallm — 1 row, but only with trait identity at the resolved method (c08 c09
+    c18, issue-3220). Not as spelled.
+ 4. dropcallt — 0 rows; `S::drop(x)` is E0040 too; land with (3) under the same identity test, no row.
+
+## 7. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ · `impl Drop for (S, S)` is a SYNTAX ERROR (`syntax error near 'impl' at line 3 col 1`) — a tuple impl target does not parse at all (x02); `impl Trait for (A, B)` is a documented target shape in collect_impl (SL-sl-08).
+ · `impl Drop for [S; 2]`: `error [fn drop]: impl Drop for : missing method 'drop'` — an ARRAY impl target lowers to an EMPTY target name (x03).
+ · `impl Drop for i64` is refused with `error [impl Hash for $tuple$8]: impl Copy for i64: the type also implements Drop (E0184)` — right refusal, the CONTEXT is a stale prelude impl and the sentence is inverted (it is the Drop impl that is new).
+ · The prelude's impls are re-collected per compilation (§2): any future declaration-site rule prices against the stdlib in the PASS column, not only the stdlib column.
+ · logos.lang.drop's `trait Drop` is `fn drop(self: Self)` BY VALUE; the corpus writes `&mut self` almost everywhere and both run (explicit-call-to-dtor counts 2 destructor runs). Two conventions, one name.
+
+## 8. TREE STATE
+14 env-gated names installed (sema_collect.cpp::collect_impl one block with a
+`@@dropwf-arms@@` marker; sema_expr.cpp::lower_method_call and ::lower_static_call),
+inert at L1 (batch rc 0), binary f3595f74da75ca32 built from these sources. Ledger
+197 -> 197: no row bought this round (pricing only).
+
+## dropwfwholeu
+site: src/compiler/sema_collect.cpp::collect_impl
+build: f3595f74da75ca32
+measured: 2026-09-02
+fires: 36804
+ceiling: 7
+cost: 0 (cfail 0 of 1203, stdlib ok) — hand: c11 (impl WHERE bound invisible)
+verdict: FUND after the two stdlib repairs (Box `?Sized`, DropGuard bound) and with the package exemption deleted; add WHERE bounds to the key set.
+
+## dropwfadte
+site: src/compiler/sema_collect.cpp::collect_impl
+build: f3595f74da75ca32
+measured: 2026-09-02
+fires: 36809
+ceiling: 2
+cost: 0 (cfail 0, stdlib ok)
+verdict: part of the whole; struct/datatype/enum/union all ADT (c05 c06 pass).
+
+## dropwfloc
+site: src/compiler/sema_collect.cpp::collect_impl
+build: f3595f74da75ca32
+measured: 2026-09-02
+fires: 36810
+ceiling: 1
+cost: 0 (cfail 0, stdlib ok)
+verdict: part of the whole; its one row is also specty's.
+
+## dropwfspecty
+site: src/compiler/sema_collect.cpp::collect_impl
+build: f3595f74da75ca32
+measured: 2026-09-02
+fires: 36808
+ceiling: 3
+cost: 0 (cfail 0, stdlib ok)
+verdict: part of the whole; the E0366 predicate. dropwfspec (const args count) REFUTED by lang ArrayIntoIter / lcm ContainerRef — DECLINED.
+
+## dropwfsizedu
+site: src/compiler/sema_collect.cpp::collect_impl
+build: f3595f74da75ca32
+measured: 2026-09-02
+fires: 36810
+ceiling: 1
+cost: 0 (cfail 0, stdlib ok)
+verdict: part of the whole; dropwfsized (no exemption) is walled by mem Box — repair the stdlib, then delete the exemption.
+
+## dropwfbndassoc
+site: src/compiler/sema_collect.cpp::collect_impl
+build: f3595f74da75ca32
+measured: 2026-09-02
+fires: 36008
+ceiling: 1 (by its admit bucket; its column shows 197 = the DropGuard wall)
+cost: walled (1133 / 1196 / ⛔) until DropGuard is repaired; dropwfbnddiffu (names only) prices 0 rows / 0 cost and is the WRONG comparator
+verdict: the E0367 predicate; part of the whole. dropwfbnddiff / dropwfbnddiffu DECLINED (name-only).
+
+## dropcallq
+site: src/compiler/sema_expr.cpp::lower_static_call
+build: f3595f74da75ca32
+measured: 2026-09-02
+fires: 2
+ceiling: 2
+cost: 0 (cfail 0, stdlib ok; hand 0)
+verdict: FUND as spelled.
+
+## dropcallm
+site: src/compiler/sema_expr.cpp::lower_method_call
+build: f3595f74da75ca32
+measured: 2026-09-02
+fires: 1
+ceiling: 1
+cost: 0 in every column — FALSE: issue-3220-consume-self-drop-is (imported/pass/issues, outside the cost population) refused, hand c08 c09 c18
+verdict: the row is real; the arm needs the resolved method's trait IDENTITY (a key-identity site). Not as spelled.
+
+## dropcallt
+site: src/compiler/sema_expr.cpp::lower_static_call
+build: f3595f74da75ca32
+measured: 2026-09-02
+fires: 2
+ceiling: 0
+cost: 0 (hand: x10 refused, no legal refusal)
+verdict: land with dropcallm under the identity test; no row.
