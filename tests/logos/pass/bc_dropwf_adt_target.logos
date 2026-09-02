@@ -1,0 +1,7 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `impl Drop for S`, a local struct.
+package bc_dropwf_adt_target;
+struct S { v: i64 }
+impl Drop for S {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { let s: S = S { v: 0i64 }; return s.v as i32; }

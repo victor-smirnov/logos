@@ -1,0 +1,8 @@
+// E0120: `Drop` for an ADT of ANOTHER package (`Box`). The legal twin, one
+// token apart (`Box` -> `Own`), is bc_dropwf_local_adt.
+package bc_dropwf_foreign_adt_fail;
+struct Own<T> { x: T }
+impl<T> Drop for Box<T> {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { return 0i32; }

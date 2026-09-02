@@ -1,0 +1,7 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the impl restates the struct's `T: Clone`.
+package bc_dropwf_same_bound;
+struct S<T: Clone> { x: T }
+impl<T: Clone> Drop for S<T> {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { let s: S<i64> = S { x: 0i64 }; return s.x as i32; }

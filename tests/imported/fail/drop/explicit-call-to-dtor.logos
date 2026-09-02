@@ -1,6 +1,6 @@
 // rustc drop/explicit-call-to-dtor.rs — upstream E0040 explicit use of destructor method
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-N6
+// shelf: fail — REFUSED since 2026-09-02: `x.drop()` names the destructor (E0040). Was lifereg.NEW-N6.
 // port of rust tests/ui/drop/explicit-call-to-dtor.rs — E0040 explicit use of destructor method
 // (`let mut x` so the receiver mut-borrow noise is out of the way; see ctl/explicit-call-to-dtor-nonmut.logos)
 package explicit_call_to_dtor;

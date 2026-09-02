@@ -1,0 +1,11 @@
+// LEGAL: with a user `trait Drop` in scope, `Drop::drop(s)` is a UFCS call
+// to THAT trait.
+package bc_dropcall_user_trait_path;
+trait Drop { fn drop(self: Self) -> i64; }
+struct S { v: i64 }
+impl Drop for S { fn drop(self: Self) -> i64 { return self.v; } }
+fn main() -> i32 {
+    let s: S = S { v: 0i64 };
+    let r: i64 = Drop::drop(s);
+    return r as i32;
+}

@@ -1,0 +1,10 @@
+// E0040: `Drop::drop(&mut f)` names the prelude trait's method, here in a
+// nested block. The legal twin is bc_dropcall_user_trait_path.
+package bc_dropcall_path_fail;
+struct Foo { x: i32 }
+impl Drop for Foo { fn drop(self: &mut Foo) {} }
+fn main() -> i32 {
+    let mut f: Foo = Foo { x: 1i32 };
+    { Drop::drop(&mut f); }
+    return 0i32;
+}

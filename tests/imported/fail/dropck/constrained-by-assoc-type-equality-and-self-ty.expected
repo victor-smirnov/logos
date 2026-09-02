@@ -1,0 +1,1 @@
+error [impl Drop for Foo]: impl Drop for Foo<T, U>: `T: Trait<Assoc = U>` is required by the `Drop` impl but not by `Foo` (E0367)

@@ -1,0 +1,1 @@
+error [impl Drop for P]: impl Drop for P<T, T>: `Drop` impls cannot be specialized (E0366)

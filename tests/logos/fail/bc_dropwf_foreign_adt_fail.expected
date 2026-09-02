@@ -1,0 +1,1 @@
+error [impl Drop for Box]: impl Drop for Box<T>: the `Drop` trait may only be implemented for local structs, enums, and unions (E0120)

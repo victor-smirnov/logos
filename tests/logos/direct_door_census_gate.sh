@@ -1306,9 +1306,15 @@ PIN = {
     # fail twins and the eighteen imported programs moved admit -> fail are not
     # in tests/logos/pass. BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l
     # -> 2548; the glob listing -> 191; 2548 = 191 + 2357.
-    'corpus'            : 2548,
+    # 2026-09-02u: +12 / +0 / +12 — the twelve pass/bc_drop{wf,call}_* legal twins
+    # of the Drop block (E0120/E0366/E0367/E0277/E0040; one pair per predicate,
+    # one token apart, plus the three legal shapes the priced arms refused).
+    # The ten fail twins and the ten imported programs moved admit -> fail are
+    # not in tests/logos/pass. BY DIRECT LISTING: ls tests/logos/pass/*.logos |
+    # wc -l -> 2560; the glob listing -> 191; 2560 = 191 + 2369.
+    'corpus'            : 2560,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2357,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2369,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

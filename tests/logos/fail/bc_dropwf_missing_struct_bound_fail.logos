@@ -1,0 +1,9 @@
+// E0277: the struct requires `T: Copy` and the impl header `S<T>` does not
+// prove it — the impl is not well-formed. The legal twin, one token apart
+// (`impl<T>` -> `impl<U: Copy>` … renamed), is bc_dropwf_renamed_param.
+package bc_dropwf_missing_struct_bound_fail;
+struct S<T: Copy> { x: T }
+impl<T> Drop for S<T> {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { return 0i32; }

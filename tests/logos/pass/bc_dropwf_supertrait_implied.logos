@@ -1,0 +1,14 @@
+// LEGAL: `T: Sub + Base` on the impl is IMPLIED by the struct's `T: Sub`
+// (`Sub: Base`). A name-set comparator refuses this; rustc elaborates.
+// Also: params aligned by the TARGET's args, not by position (`<B, A>`).
+package bc_dropwf_supertrait_implied;
+trait Base { fn b(&self) -> i64; }
+trait Sub: Base { fn s(&self) -> i64; }
+struct S<T: Sub, U: Copy> { x: T, u: U }
+impl<U: Copy, T: Sub + Base> Drop for S<T, U> {
+    fn drop(self: &mut Self) { }
+}
+struct Z { v: i64 }
+impl Base for Z { fn b(&self) -> i64 { return self.v; } }
+impl Sub for Z { fn s(&self) -> i64 { return self.v + 1i64; } }
+fn main() -> i32 { let s: S<Z, i64> = S { x: Z { v: 1i64 }, u: 0i64 }; return (s.x.s() - 2i64) as i32; }

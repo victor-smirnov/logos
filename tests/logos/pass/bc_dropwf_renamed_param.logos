@@ -1,0 +1,8 @@
+// LEGAL: the impl's parameter is `U`, the struct's `T`; bounds compare by
+// what the parameter STANDS FOR, not by its spelling (rule 12).
+package bc_dropwf_renamed_param;
+struct S<T: Copy> { x: T }
+impl<U: Copy> Drop for S<U> {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { let s: S<i64> = S { x: 0i64 }; return s.x as i32; }

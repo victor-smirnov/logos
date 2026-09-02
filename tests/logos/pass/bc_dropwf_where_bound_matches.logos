@@ -1,0 +1,8 @@
+// THE LEGAL TWIN, ONE TOKEN APART: the struct carries the `Copy` the impl's
+// where-clause asks for.
+package bc_dropwf_where_bound_matches;
+struct S<T: Copy> { x: T }
+impl<T> Drop for S<T> where T: Copy {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { let s: S<i64> = S { x: 0i64 }; return s.x as i32; }

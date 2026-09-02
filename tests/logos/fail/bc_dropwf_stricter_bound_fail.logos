@@ -1,0 +1,10 @@
+// E0367: the impl asks `T: Copy`, the struct only `T: Clone`; `Copy` is not
+// implied by `Clone`. The legal twin, one token apart (`Copy` -> `Clone`), is
+// bc_dropwf_same_bound; bc_dropwf_supertrait_implied is the OTHER direction of
+// implication (`Sub + Base` from `Sub`), which IS legal.
+package bc_dropwf_stricter_bound_fail;
+struct S<T: Clone> { x: T }
+impl<T: Copy> Drop for S<T> {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { return 0i32; }

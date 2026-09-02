@@ -1,0 +1,12 @@
+// LEGAL: a user `trait Drop` shadows the prelude's; `t.drop()` / `s.drop()`
+// call ITS method (rustc: issue-3220's shape), inside a closure and a fn.
+package bc_dropcall_user_trait_method;
+trait Drop { fn drop(self: Self) -> i64; }
+struct S { v: i64 }
+impl Drop for S { fn drop(self: Self) -> i64 { return self.v; } }
+fn inner() -> i64 {
+    let s: S = S { v: 0i64 };
+    let f = || -> i64 { let t: S = S { v: 0i64 }; return t.drop(); };
+    return s.drop() + f();
+}
+fn main() -> i32 { return inner() as i32; }

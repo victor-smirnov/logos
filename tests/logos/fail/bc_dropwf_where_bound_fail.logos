@@ -1,0 +1,10 @@
+// E0367 spelled in the impl's WHERE clause. read_type_params_from does not
+// fold an impl header's where-bounds; the Drop check folds them itself. The
+// legal twin, one token apart (struct `<T>` -> `<T: Copy>`), is
+// bc_dropwf_where_bound_matches.
+package bc_dropwf_where_bound_fail;
+struct S<T> { x: T }
+impl<T> Drop for S<T> where T: Copy {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { return 0i32; }

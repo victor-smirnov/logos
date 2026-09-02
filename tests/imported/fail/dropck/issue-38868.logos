@@ -1,6 +1,6 @@
 // rustc dropck/issue-38868.rs — upstream E0366
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-1
+// shelf: fail — REFUSED since 2026-09-02: a specialised `Drop` impl (E0366). Was lifereg.NEW-1.
 package issue_38868;
 // port of dropck/issue-38868.rs — Drop impl specialised to one instantiation (E0366)
 struct List<T> { head: T }

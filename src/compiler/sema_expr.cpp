@@ -8248,15 +8248,12 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_tuple(
 
 lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
-    // PROBE 2026-09-02t — E0040 explicit destructor call, method spelling. PROBES.md.
-    if (method_name == "drop") {
-        if (logos::probe::census_armed()) logos::probe::census("dropcall.m");
-        if (logos::probe::on("dropcallm")) {
-            error("explicit use of destructor method (E0040)");
-            return error_expr();
-        }
-    }
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+    // E0040: `x.drop()` naming the destructor. PROBES.md 2026-09-02u.
+    if (method_name == "drop" && recv && explicit_destructor_call(expr_type(recv))) {
+        error("explicit use of destructor method (E0040)");
+        return error_expr();
+    }
 
     // Depth-N receiver autoderef (full RFC 2005 match ergonomics): a `&&T`
     // binding (reference payload under a `&E` scrutinee) peels its EXTRA
@@ -15495,22 +15492,6 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
-    // PROBE 2026-09-02t — E0040 through a path: `Drop::drop(x)` (dropcallq) / `S::drop(x)` (dropcallt).
-    {
-        std::string cn1_(str_of(node.get(la::RECEIVER.code)));
-        std::string mn1_(str_of(node.get(la::NAME.code)));
-        if (mn1_ == "drop") {
-            if (logos::probe::census_armed()) logos::probe::census("dropcall.q." + cn1_);
-            bool refuse_ = false;
-            if (logos::probe::on("dropcallq") && cn1_ == "Drop") refuse_ = true;
-            if (logos::probe::on("dropcallt") && cn1_ != "Drop") refuse_ = true;
-            // @@dropcall-arms@@
-            if (refuse_) {
-                error("explicit use of destructor method (E0040)");
-                return error_expr();
-            }
-        }
-    }
     // Phase 1B-5 parity for TYPE-side turbofish (`PkdArray::<str>::format`):
     // bare `[T]`/`str`-as-unsized/`dyn` type args are legal when the class's
     // param is `?Sized` (or a partial spec may govern). resolve_generic's
@@ -15680,6 +15661,24 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     // TRAIT (not a struct/enum/type-param), dispatch on the first argument's
     // concrete receiver type (which must impl the trait). `Type::method(recv)`
     // (type-qualified) already works; this adds the trait-qualified form.
+    // E0040 through a path: `Drop::drop(x)` / `S::drop(x)`. PROBES.md 2026-09-02u.
+    if (method_name == "drop" && !arg_exprs.empty()) {
+        TypeRef at = expr_type(arg_exprs[0]);
+        while (at && (is_ref_like(TypeRef(at).kind()) || TypeRef(at).kind() == LogosType::Kind::Ptr) &&
+               TypeRef(at).pointee())
+            at = TypeRef(at).pointee();
+        std::string abare;
+        if (at && (TypeRef(at).kind() == LogosType::Kind::Struct || TypeRef(at).kind() == LogosType::Kind::ZonedStruct))
+            abare = std::string(TypeRef(at).struct_name());
+        else if (at && TypeRef(at).kind() == LogosType::Kind::Enum)
+            abare = std::string(TypeRef(at).enum_name());
+        if (auto d = abare.find('$'); d != std::string::npos) abare = abare.substr(0, d);
+        const bool prelude_drop = class_name == "Drop" && explicit_destructor_call(nullptr);
+        if (prelude_drop || (!abare.empty() && class_name == abare && explicit_destructor_call(at))) {
+            error("explicit use of destructor method (E0040)");
+            return error_expr();
+        }
+    }
     if (find_trait_iter_scoped(std::string(class_name)) != traits_.end() &&
         !arg_exprs.empty() && !enums_.count(std::string(class_name)) &&
         find_struct_by_name(std::string(class_name)).second == nullptr &&
@@ -25202,4 +25201,31 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
     push_metacall_site(prog, site);
 }
 
+// Is a call spelled `drop` the DESTRUCTOR (E0040)? PROBES.md 2026-09-02u §2; null = the scope half alone.
+bool SemaChecker::explicit_destructor_call(TypeRef recv_type) {
+    // KEY-IDENTITY: the destructor trait IS the bare name `Drop` here (collect_impl builtin_marker_).
+    for (auto& kv : traits_)
+        if (kv.second.name == "Drop" && kv.second.package != "logos.lang.drop") return false;
+    if (!recv_type) return true;
+    TypeRef rt = recv_type;
+    while (rt && (is_ref_like(TypeRef(rt).kind()) || TypeRef(rt).kind() == LogosType::Kind::Ptr) &&
+           TypeRef(rt).pointee())
+        rt = TypeRef(rt).pointee();
+    if (!rt) return false;
+    std::string bare;
+    if (TypeRef(rt).kind() == LogosType::Kind::Struct || TypeRef(rt).kind() == LogosType::Kind::ZonedStruct)
+        bare = std::string(TypeRef(rt).struct_name());
+    else if (TypeRef(rt).kind() == LogosType::Kind::Enum)
+        bare = std::string(TypeRef(rt).enum_name());
+    if (auto d = bare.find('$'); d != std::string::npos) bare = bare.substr(0, d);
+    if (bare.empty()) return false;
+    // `S__drop` is also drop_fn_for's key: only a `Drop`-trait candidate counts (PROBES.md §3).
+    bool from_drop = false;
+    for (const SemaFuncInfo* c : find_func_candidates(bare + "__drop")) {
+        if (!c) continue;
+        if (c->trait_name.empty()) return false;
+        if (c->trait_name == "Drop") from_drop = true;
+    }
+    return from_drop;
+}
 } // namespace logos::compiler

@@ -1,0 +1,10 @@
+// E0040: `S::drop(&mut s)` resolves to S's `Drop` impl. The legal twin is
+// bc_dropcall_inherent_drop: an inherent `drop` wins over the destructor.
+package bc_dropcall_type_path_fail;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut Self) { } }
+fn main() -> i32 {
+    let mut s: S = S { v: 0i64 };
+    S::drop(&mut s);
+    return 0i32;
+}

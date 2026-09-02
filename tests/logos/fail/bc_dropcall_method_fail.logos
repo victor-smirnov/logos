@@ -1,0 +1,12 @@
+// E0040: `r.drop()` through a `&mut S` names S's destructor. The legal twin
+// is bc_dropcall_user_trait_method: a user `trait Drop` in scope shadows the
+// prelude's, and `s.drop()` is that trait's method.
+package bc_dropcall_method_fail;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut Self) { } }
+fn kill(r: &mut S) { r.drop(); }
+fn main() -> i32 {
+    let mut s: S = S { v: 0i64 };
+    kill(&mut s);
+    return 0i32;
+}

@@ -1,0 +1,8 @@
+// E0120: `Drop` for a REFERENCE type. The legal twin, one token apart
+// (`&S` -> `S`), is bc_dropwf_adt_target.
+package bc_dropwf_ref_target_fail;
+struct S { v: i64 }
+impl Drop for &S {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { return 0i32; }

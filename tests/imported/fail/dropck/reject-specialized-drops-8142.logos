@@ -1,6 +1,6 @@
 // rustc dropck/reject-specialized-drops-8142.rs — upstream E0366/E0367
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.L3
+// shelf: fail — REFUSED since 2026-09-02: a specialised `Drop` impl (E0366). Was lifereg.L3.
 package reject_specialized_drops_8142;
 struct P<T> { x: T }
 impl Drop for P<i64> {

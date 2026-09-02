@@ -1,0 +1,13 @@
+// LEGAL: an INHERENT method named `drop` (with an extra parameter here) is
+// ordinary; `b.drop(0)` and `Bin::drop(&mut b, 0)` are not E0040.
+package bc_dropcall_inherent_drop;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut Self) { } }
+struct Bin { s: S }
+impl Bin { fn drop(self: &mut Self, extra: i64) -> i64 { return self.s.v + extra; } }
+fn main() -> i32 {
+    let mut b: Bin = Bin { s: S { v: 0i64 } };
+    let a: i64 = b.drop(0i64);
+    let c: i64 = Bin::drop(&mut b, 0i64);
+    return (a + c) as i32;
+}

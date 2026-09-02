@@ -15864,6 +15864,7 @@ fires: 36804
 ceiling: 7
 cost: 0 (cfail 0 of 1203, stdlib ok) — hand: c11 (impl WHERE bound invisible)
 verdict: FUND after the two stdlib repairs (Box `?Sized`, DropGuard bound) and with the package exemption deleted; add WHERE bounds to the key set.
+2026-09-02u: LANDED as check_drop_impl_wf — NOT as spelled: name-set comparator refused 5 legal shapes (n01 n03 n04 n05 n15, §3); the landing elaborates supertraits, aligns by the target's args, folds the impl WHERE, skips `Sized` bounds. Package exemption deleted; stdlib repaired by name.
 
 ## dropwfadte
 site: src/compiler/sema_collect.cpp::collect_impl
@@ -15873,6 +15874,7 @@ fires: 36809
 ceiling: 2
 cost: 0 (cfail 0, stdlib ok)
 verdict: part of the whole; struct/datatype/enum/union all ADT (c05 c06 pass).
+2026-09-02u: LANDED (E0120 arm, with loc). 2 rows.
 
 ## dropwfloc
 site: src/compiler/sema_collect.cpp::collect_impl
@@ -15882,6 +15884,7 @@ fires: 36810
 ceiling: 1
 cost: 0 (cfail 0, stdlib ok)
 verdict: part of the whole; its one row is also specty's.
+2026-09-02u: LANDED (E0120 arm). 1 row.
 
 ## dropwfspecty
 site: src/compiler/sema_collect.cpp::collect_impl
@@ -15891,6 +15894,7 @@ fires: 36808
 ceiling: 3
 cost: 0 (cfail 0, stdlib ok)
 verdict: part of the whole; the E0366 predicate. dropwfspec (const args count) REFUTED by lang ArrayIntoIter / lcm ContainerRef — DECLINED.
+2026-09-02u: LANDED (E0366 arm) + repeated-parameter case (y01); WStaticLit NOT exempt (a literal is a specialisation), CfgSlotType is. 3 rows. dropwfspec DECLINED.
 
 ## dropwfsizedu
 site: src/compiler/sema_collect.cpp::collect_impl
@@ -15900,6 +15904,7 @@ fires: 36810
 ceiling: 1
 cost: 0 (cfail 0, stdlib ok)
 verdict: part of the whole; dropwfsized (no exemption) is walled by mem Box — repair the stdlib, then delete the exemption.
+2026-09-02u: LANDED (E0367 Sized arm, no exemption; Box repaired `impl<T: ?Sized>`). 1 row. dropwfsized DECLINED (= the un-exempted form, now the same code).
 
 ## dropwfbndassoc
 site: src/compiler/sema_collect.cpp::collect_impl
@@ -15909,6 +15914,7 @@ fires: 36008
 ceiling: 1 (by its admit bucket; its column shows 197 = the DropGuard wall)
 cost: walled (1133 / 1196 / ⛔) until DropGuard is repaired; dropwfbnddiffu (names only) prices 0 rows / 0 cost and is the WRONG comparator
 verdict: the E0367 predicate; part of the whole. dropwfbnddiff / dropwfbnddiffu DECLINED (name-only).
+2026-09-02u: LANDED (E0367 bound arm, implication not equality; DropGuard repaired: struct + 2 fns carry `F: FnOnce() -> ()`). 1 row. bnddiff / bnddiffu DECLINED (name-set: n01 n03 refused).
 
 ## dropcallq
 site: src/compiler/sema_expr.cpp::lower_static_call
@@ -15918,6 +15924,7 @@ fires: 2
 ceiling: 2
 cost: 0 (cfail 0, stdlib ok; hand 0)
 verdict: FUND as spelled.
+2026-09-02u: LANDED with the scope test — NOT as spelled: `Drop::drop(s)` with a user `trait Drop` in scope is legal (n08) and the arm refused it.
 
 ## dropcallm
 site: src/compiler/sema_expr.cpp::lower_method_call
@@ -15927,6 +15934,7 @@ fires: 1
 ceiling: 1
 cost: 0 in every column — FALSE: issue-3220-consume-self-drop-is (imported/pass/issues, outside the cost population) refused, hand c08 c09 c18
 verdict: the row is real; the arm needs the resolved method's trait IDENTITY (a key-identity site). Not as spelled.
+2026-09-02u: LANDED with explicit_destructor_call (scope test + the `S__drop` candidates' trait_name; NOT drop_fn_for: c18 `Tidy::drop` is found there and was refused). 1 row.
 
 ## dropcallt
 site: src/compiler/sema_expr.cpp::lower_static_call
@@ -15936,3 +15944,78 @@ fires: 2
 ceiling: 0
 cost: 0 (hand: x10 refused, no legal refusal)
 verdict: land with dropcallm under the identity test; no row.
+2026-09-02u: LANDED with dropcallm (bc_dropcall_type_path_fail). 0 rows. Its arm refused n10 (user `trait Drop`, `S::drop`).
+
+# ═══ ROUND 2026-09-02u — THE DROP BLOCK LANDED: 10 ROWS, 197 -> 187. THE PRICED ARMS
+# REFUSED NINE LEGAL PROGRAMS THE PRICING PHASE COULD NOT SEE (RULE 5, NEW SHAPES); THE
+# LANDING IS A DIFFERENT COMPARATOR AT EVERY ONE OF THE THREE SITES ═══
+
+## 0. STEP 1 (read from the tree): probes 162, ledger 197 = 197 by listing, lifereg 90 / nllmoves 54 / bck 53,
+HEAD 734ee6a64 = origin/main clean, binary f3595f74da75ca32 (= the 14 probes installed, unarmed). The
+handoff report's census was correct to the digit. Baseline: gate-run `^logos_00_bc_admit_` rc 0 and `-L bc`
+rc 0, both "Nothing has changed that a test run could see" — the store held every verdict for f3595f74.
+Targets = build/targets-2026-09-02t.txt (10 rows, 7 roots), prediction build/predictions-2026-09-02u.txt
+written before any edit: 10 rows by name, cost 0/0/ok after two stdlib repairs.
+
+## 1. RULE 5 FIRST — 15 LEGAL + 8 ILLEGAL HAND PROGRAMS IN SHAPES THE PRICING PHASE DID NOT USE
+(build/hand-2026-09-02u/, run.sh; every one multi-line; reach proven by census `dropwf.arrival` 15-16 per
+program and `dropwf.e0366` / `dropwf.e0277` on y01 / y04). Under the RECOMMENDED arms on f3595f74:
+    dropwfwholeu refused LEGAL n01 (impl `T: Sub + Base` vs struct `T: Sub`, `Sub: Base` — supertrait
+      elaboration), n03 (impl params in the other order), n04 (impl WHERE `T: Conv<U>`), n05 (explicit
+      `T: Sized`), n15 (impl `where T: ?Sized`) — FIVE; and ADMITTED illegal y01 (`P<T, T>`), y03 (where-bound
+      stricter).
+    dropcallm refused LEGAL n09 (user `trait Drop`, call in a closure) and n14 (inherent `drop(&mut self, i64)`).
+    dropcallq refused LEGAL n08 (`Drop::drop(s)` to a user `trait Drop`).   dropcallt refused LEGAL n10.
+  Seven correct verdicts in one syntax (09-02t §5) had said cost 0 for all four. Nine legal refusals.
+  Inherited (rule 14, unarmed): n10-original (inherent `drop` + `impl Drop` = "duplicate function S__drop"),
+  y08 `impl Drop for *const S` ("unknown type 'Self'"), c18-as-y09 `Q<T>` with `impl<T: ?Sized>` (E0277 by the
+  generic-arg rule). Under the LANDED binary: n01-n15 rc 0, y01-y08 refused with the named code, c01-c18 rc 0
+  (c18 was refused by the first landing — §3), x04-x14 refused, x01-x03 as before.
+
+## 2. THE LANDING (sema_collect.cpp::check_drop_impl_wf, sema_expr.cpp::explicit_destructor_call + 2 sites,
+sema.cpp::fold_where_bounds extracted from read_type_params)
+  E0120  target not a struct/datatype/enum, or owned by another package.
+  E0366  a target arg that is not a TypeVar / ConstVar / CfgSlotType, or a parameter named twice.
+  E0367  an impl predicate on parameter P not in the ELABORATED set of the struct's predicates on the parameter
+         P STANDS FOR (aligned by the target's args, rendered under the rename; supertraits walked via
+         find_trait_iter_scoped; identity_trait > canonical_trait > trait_name as the key; relaxed and `Sized`
+         bounds out of the set; `Sized` = implicit_sized flag). Impl WHERE folded on a COPY of impl_tps.
+  E0277  the reverse direction (a struct bound the impl header does not restate) — priced on the same build,
+         stdlib ok, cost 0; landed since the loop is the same.
+  E0040  `x.drop()` / `S::drop(x)`: no user `trait Drop` in the compilation (every traits_ entry named Drop has
+         package logos.lang.drop), and the `S__drop` candidates hold a `Drop`-trait method and no inherent one.
+         `Drop::drop(x)`: the scope half alone.
+  Where the fix differs from its probe: wholeu compared sorted key STRINGS by POSITION (n01 n03 n04 n05 n15);
+  callm/callq/callt compared the SPELLING (n08 n09 n10 n14); the first landing used drop_fn_for and refused c18
+  (§3). The E0366 arm dropped the probe's WStaticLit exemption (a literal arg IS a specialisation).
+
+## 3. OFF-LEDGER, RECORDED NOT PURSUED
+  · THE DESTRUCTOR IS KEYED ON THE MANGLED NAME `<T>__drop` (sema.cpp::drop_fn_for): hand t18 — `trait Tidy
+    { fn drop(&mut self) }`, `impl Tidy for S`, NO `impl Drop` — main returns 1: Tidy::drop RAN AT SCOPE EXIT
+    (Rust: 0). c09's inherent `drop` is the same hole. A user trait named `Drop` is likewise MERGED with the
+    prelude's at collect_impl (builtin_marker_ by name), so issue-3220's `trait Drop` is also a destructor
+    here. Both are the KEY-IDENTITY class; not a BC row.
+  · read_type_params_from (impl headers) does NOT fold the impl's WHERE trait bounds into impl_tps —
+    `impl<T> Foo for S<T> where T: Copy` has an unbounded T everywhere downstream. Only the Drop check folds
+    them (on a copy). The general fold is a separate mechanism with its own price.
+  · Inherent + trait method of one name on one type = "duplicate function S__drop" (n10-original).
+  · Box<dyn Tr>: destructor of the payload runs once (bx1, = Rust) — no defect; the `?Sized` repair keeps it.
+  · x02/x03 (tuple / array impl targets) as recorded in 09-02t §7.
+
+## 4. COST AND GATES (final binary daceb3fc9287a767 = these sources + the rebuilt stdlib)
+  stdlib: the two repairs by name (boxed.logos `impl<T: ?Sized> Drop for Box<T>`; manually_drop.logos
+  `struct DropGuard<F: FnOnce() -> ()>` + drop_guard_new / drop_guard_disarm_into carry the bound); full
+  `cmake --build` rc 0 three times (build2/3/4) — the stdlib compiles under the rule with NO exemption.
+  fail_text_oracle: unarmed (f3595f74) vs armed (4c2bd3b3): 1203 rows, diff EMPTY (rc, sha, match).
+  gate-run `^logos_00_bc_admit_` on 4c2bd3b3: 187 passed / 10 failed of 197 — the 10 = the prediction, both
+  directions. gate-run `-L bc`: 2146 passed / 0 failed. key_identity_lint: 2 new bare intercepts, both D
+  (`is_sized` in check_drop_impl_wf; `kv.second.name == "Drop"` in explicit_destructor_call), pins moved
+  sema_collect 40 -> 41, sema_expr 153 -> 155 (one intercept each of the Drop-name kind). ARGSCAN unchanged.
+  CONTROL REVERT (compiler + stdlib stashed, rebuilt, hash ae38f0a535b4cf43): the 32 fixtures = 20 FAIL / 12
+  pass — every fail fixture (10 moved rows + 10 native) is admitted by the old compiler, every pass twin
+  passes; restored + rebuilt, `git status` = the same 6 files.
+  L1: `test-levels.sh L1` 747/747, smoke tier 12 684 cases; the gates tier red ONLY on the two population pins this round moves (direct_door corpus/nonglob +12; census_pin REGISTRY-ALL 8825 -> 8847 = +22 native +10 moved-fixture tests -10 vanished admit gates, NOIMPORTED 4464 -> 4476, TIERCOMMIT 246 -> 236), both green after the move.   L4 bc: `test-levels.sh L4 bc` (LOGOS_L4_BG=1, detached) 1473/1473 passed, 0 failed; its RC 8 = the population-pin lint at its head (direct_door corpus 2548 -> 2560, nonglob 2357 -> 2369: the 12 pass twins; pin moved by direct listing, lint green).   final fail oracle vs unarmed: 1203 + 20 rows, +20 (the new fail fixtures) / 0 changed / 0 removed.   final admit gate: 187 passed / 0 failed of 187 (gate-db build 507).
+  Diff budget: rule predicted <= 150 compiler lines; measured sema_collect +106/-68 (probe block out), sema_expr
+  +59/-24, sema_impl.hpp +4, sema.cpp +105/-100 (a verbatim move). Fixtures: 10 rows moved admit -> fail in
+  their roots' homes (tests/imported/fail/{drop,dropck}) with the diagnostic pinned from `error [`, plus 10
+  native pairs one token apart in tests/logos/{fail,pass}/bc_drop{wf,call}_*. Ledger 197 -> 187 by listing.

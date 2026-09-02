@@ -1,0 +1,8 @@
+// THE LEGAL TWIN: `?Sized` relaxed on the impl too, in the where-clause form.
+package bc_dropwf_sized_where_relaxed;
+trait Bar { fn b(self: &Self) -> i64; }
+struct G<T: ?Sized> { p: *const T }
+impl<T> Drop for G<T> where T: ?Sized {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { let g: G<i64> = G { p: 0 as *const i64 }; return 0i32; }

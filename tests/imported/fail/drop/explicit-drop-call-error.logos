@@ -1,6 +1,6 @@
 // rustc drop/explicit-drop-call-error.rs — upstream E0040 explicit use of destructor method
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-N2
+// shelf: fail — REFUSED since 2026-09-02: `Drop::drop(x)` names the destructor (E0040). Was lifereg.NEW-N2.
 package explicit_drop_call_error;
 struct Foo { x: i32 }
 impl Drop for Foo { fn drop(self: &mut Foo) {} }

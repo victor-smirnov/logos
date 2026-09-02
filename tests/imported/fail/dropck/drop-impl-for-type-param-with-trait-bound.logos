@@ -1,6 +1,6 @@
 // rustc dropck/drop-impl-for-type-param-with-trait-bound.rs — upstream E0120 + E0210
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-N1
+// shelf: fail — REFUSED since 2026-09-02: a `Drop` impl for a type parameter (E0120). Was lifereg.NEW-N1.
 package drop_impl_for_type_param_with_trait_bound;
 trait A { fn a(&self) -> i64; }
 impl<T> Drop for T where T: A { fn drop(&mut self) { } }

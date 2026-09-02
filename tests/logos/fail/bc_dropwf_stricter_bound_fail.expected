@@ -1,0 +1,1 @@
+error [impl Drop for S]: impl Drop for S<T>: `T: Copy` is required by the `Drop` impl but not by `S` (E0367)

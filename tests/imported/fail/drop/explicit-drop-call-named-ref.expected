@@ -1,0 +1,1 @@
+error [fn foo]: explicit use of destructor method (E0040)

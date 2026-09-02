@@ -1175,7 +1175,7 @@
 # &mut T) -> &mut T { &mut *r }`, which rustc refuses; the `&mut *p` twin of the
 # landed `&*p` region fact is therefore NOT landed, and `let r: &'static mut T =
 # &mut *q` (q 'static) is a recorded legal refusal.
-# TOTAL 197
+# TOTAL 187
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1234,19 +1234,9 @@ unconstrained-closure-lifetime-generic--min-capture-escapes-to-field bck.C tests
 var-matching-lifetime-but-unused-not-mentioned bck.C tests/imported/admit/borrowck/var-matching-lifetime-but-unused-not-mentioned
 
 # ── tests/ui/drop ─────────────────────────────────────────
-drop-foreign-fundamental lifereg.NEW-1 tests/imported/admit/drop/drop-foreign-fundamental
-explicit-call-to-dtor lifereg.NEW-N6 tests/imported/admit/drop/explicit-call-to-dtor
-explicit-drop-call-error lifereg.NEW-N2 tests/imported/admit/drop/explicit-drop-call-error
-explicit-drop-call-named-ref lifereg.NEW-2 tests/imported/admit/drop/explicit-drop-call-named-ref
 
 # ── tests/ui/dropck ─────────────────────────────────────────
-constrained-by-assoc-type-equality-and-self-ty lifereg.L3 tests/imported/admit/dropck/constrained-by-assoc-type-equality-and-self-ty
-drop-impl-for-type-param-with-trait-bound lifereg.NEW-N1 tests/imported/admit/dropck/drop-impl-for-type-param-with-trait-bound
-drop-impl-sized-bound-mismatch lifereg.NEW-N5 tests/imported/admit/dropck/drop-impl-sized-bound-mismatch
-drop-on-non-struct lifereg.NEW-C1 tests/imported/admit/dropck/drop-on-non-struct
 dropck-only-error lifereg.R18 tests/imported/admit/dropck/dropck-only-error
-issue-38868 lifereg.NEW-1 tests/imported/admit/dropck/issue-38868
-reject-specialized-drops-8142 lifereg.L3 tests/imported/admit/dropck/reject-specialized-drops-8142
 
 # ── tests/ui/lifetimes ─────────────────────────────────────────
 borrowck-let-suggestion lifereg.D tests/imported/admit/lifetimes/borrowck-let-suggestion

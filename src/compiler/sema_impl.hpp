@@ -5796,6 +5796,10 @@ private:
         read_lifetime_outlives_from(writ::TinyMapView node, int32_t field_code);
     std::vector<TypeParam> read_type_params_from(writ::TinyMapView node, int32_t field_code);
     std::vector<TypeParam> read_type_params(writ::TinyMapView node);
+    void fold_where_bounds(writ::TinyMapView node, std::vector<TypeParam>& result);
+    void check_drop_impl_wf(const std::string& target, TypeRef target_resolved,
+                            const std::vector<TypeParam>& impl_tps, writ::TinyMapView node);
+    bool explicit_destructor_call(TypeRef recv_type);
     // Read type_args + assoc_eqs from a TRAIT_BOUND node's TYPE_PARAMS slot.
     // ASSOC_EQ_BIND items go to assoc_eqs; everything else is resolved as a type.
     void read_trait_bound_args(writ::TinyMapView bnode, TraitBound& tb);

@@ -1,0 +1,1 @@
+error [impl Drop for $mut_ref_&mut i64]: impl Drop for &mut i64: the `Drop` trait may only be implemented for local structs, enums, and unions (E0120)

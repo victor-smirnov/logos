@@ -105,7 +105,7 @@ impl<T> DerefMut<T> for Box<T> {
 // Drop if any; no-op for POD/Copy T), then free the heap block. Null-guarded
 // (defensive — a moved-from box is not dropped, and box_new of a 0-byte alloc
 // could yield null).
-impl<T> Drop for Box<T> {
+impl<T: ?Sized> Drop for Box<T> {
     fn drop(self: Box<T>) {
         unsafe {
             let p: *mut T = self.ptr;

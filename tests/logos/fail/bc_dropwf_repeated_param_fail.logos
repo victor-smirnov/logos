@@ -1,0 +1,8 @@
+// E0366: `P<T, T>` names one parameter twice — a specialisation with no
+// concrete type in it. The legal twin is bc_dropwf_distinct_params (`P<A, B>`).
+package bc_dropwf_repeated_param_fail;
+struct P<A, B> { a: A, b: B }
+impl<T> Drop for P<T, T> {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { return 0i32; }

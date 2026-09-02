@@ -1,0 +1,1 @@
+error [impl Drop for $ref_S]: impl Drop for &S: the `Drop` trait may only be implemented for local structs, enums, and unions (E0120)

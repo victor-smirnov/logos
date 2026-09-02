@@ -1,0 +1,7 @@
+// THE LEGAL TWIN, ONE TOKEN APART: `impl<T> Drop for Own<T>`, this package's ADT.
+package bc_dropwf_local_adt;
+struct Own<T> { x: T }
+impl<T> Drop for Own<T> {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { let o: Own<i64> = Own { x: 0i64 }; return o.x as i32; }

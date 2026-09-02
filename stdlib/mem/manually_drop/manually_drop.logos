@@ -130,7 +130,7 @@ impl Alignment {
 // closure doesn't fire (e.g. when the work succeeded and cleanup
 // isn't needed).
 /// Runs the closure `f` at scope-exit (drop) unless defused via `disarm`.
-pub struct DropGuard<F> {
+pub struct DropGuard<F: FnOnce() -> ()> {
     /// Cleanup closure; called exactly once at drop while `armed`.
     pub f:     F,
     /// Whether the closure fires on drop; cleared by `disarm`.
@@ -138,7 +138,7 @@ pub struct DropGuard<F> {
 }
 
 /// Creates an armed `DropGuard` that runs `f` on drop.
-pub fn drop_guard_new<F>(f: F) -> DropGuard<F> {
+pub fn drop_guard_new<F: FnOnce() -> ()>(f: F) -> DropGuard<F> {
     return DropGuard::<F> { f: f, armed: true };
 }
 
@@ -152,7 +152,7 @@ impl<F: FnOnce() -> ()> DropGuard<F> {
 // firing; here we expose the moral equivalent.
 /// Consumes the guard, returning the closure `f` without running it.
 /// Extracting `f` by value suppresses the guard's `Drop`.
-pub fn drop_guard_disarm_into<F>(g: DropGuard<F>) -> F {
+pub fn drop_guard_disarm_into<F: FnOnce() -> ()>(g: DropGuard<F>) -> F {
     // Move semantics: `g` is consumed here; its `Drop` doesn't fire
     // because we extract `f` by value below.
     return g.f;

@@ -1,0 +1,10 @@
+// E0367: the impl's `T` is implicitly `Sized`, the struct's is `?Sized`. The
+// legal twin, one token apart (`where T: ?Sized` added), is
+// bc_dropwf_sized_where_relaxed.
+package bc_dropwf_sized_stricter_fail;
+trait Bar { fn b(self: &Self) -> i64; }
+struct G<T: ?Sized> { p: *const T }
+impl<T> Drop for G<T> {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,1 @@
+error [impl Drop for Vec$G1$A]: impl Drop for Vec<A>: the `Drop` trait may only be implemented for local structs, enums, and unions (E0120)

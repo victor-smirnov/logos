@@ -1,0 +1,1 @@
+error [impl Drop for List$G1$i64]: impl Drop for List<i64>: `Drop` impls cannot be specialized (E0366)

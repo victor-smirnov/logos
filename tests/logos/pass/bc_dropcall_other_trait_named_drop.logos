@@ -1,0 +1,9 @@
+// LEGAL: `Tidy::drop` is not the destructor — S has no `Drop` impl at all,
+// though `S__drop` is the destructor's mangled name (drop_fn_for).
+package bc_dropcall_other_trait_named_drop;
+trait Tidy { fn drop(self: &mut Self); }
+struct S { x: i64 }
+impl Tidy for S {
+    fn drop(self: &mut Self) { self.x = 0i64; }
+}
+fn main() -> i32 { let mut s: S = S { x: 1i64 }; s.drop(); return s.x as i32; }

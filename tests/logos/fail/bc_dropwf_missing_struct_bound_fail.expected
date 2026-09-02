@@ -1,0 +1,1 @@
+error [impl Drop for S]: impl Drop for S<T>: the trait bound `T: Copy` is not satisfied; required by a bound in `S` (E0277)

@@ -5820,103 +5820,8 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
     return result;
 }
 
-std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
-    std::vector<TypeParam> result;
-    if (!node.has_key(la::TYPE_PARAMS)) return result;
-    AnyVal tpav = node.get(la::TYPE_PARAMS.code);
-    if (tpav.is_null()) return result;
-    // type_param_list => { ITEMS: $... }
-    auto tplist = map_of(tpav);
-    if (!tplist.has_key(la::ITEMS)) return result;
-    auto tpitems = arr_of(tplist.get(la::ITEMS.code));
-    // Pre-pass: add all type param names as typevars so bounds referencing sibling params resolve.
-    // CONST params pre-register too (as ConstVars) — a sibling's trait bound
-    // may carry one as a const-generic ARGUMENT (`B: BtBranch<K, N>` with
-    // `const N: u32` declared in the same list); without the pre-pass that
-    // bound resolved before N existed and died as "unknown type 'N'".
-    std::vector<std::string> temp_params;
-    for (uint64_t i = 0; i < tpitems.size(); ++i) {
-        auto tpnode = map_of(tpitems.get(i));
-        int32_t tpc = code_of(tpnode);
-        if (tpc == la::TYPE_PARAM || tpc == la::CONST_PARAM) {
-            auto name = std::string(str_of(tpnode.get(la::NAME.code)));
-            if (!current_type_params_.count(name)) {
-                if (tpc == la::CONST_PARAM) {
-                    LogosTypeBuilder c; c.kind = LogosType::Kind::ConstVar;
-                    c.type_var_name = name;
-                    current_type_params_[name] = pool_->alloc(std::move(c));
-                } else {
-                    current_type_params_[name] = make_typevar(name);
-                }
-                temp_params.push_back(name);
-            }
-        }
-    }
-    for (uint64_t i = 0; i < tpitems.size(); ++i) {
-        auto tpnode = map_of(tpitems.get(i));
-        // Skip lifetime params ('a) — deferred to borrow checker.
-        if (code_of(tpnode) == la::LIFETIME_PARAM) continue;
-        if (code_of(tpnode) == la::CONST_PARAM) {
-            TypeParam tp;
-            tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
-            tp.is_const = true;
-            tp.const_type = resolve_type(map_of(tpnode.get(la::TYPE.code)));
-            if (tpnode.has_key(la::IS_VARIADIC)) {
-                AnyVal av = tpnode.get(la::IS_VARIADIC.code);
-                tp.is_variadic = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
-            }
-            result.push_back(std::move(tp));
-            continue;
-        }
-        if (code_of(tpnode) != la::TYPE_PARAM) continue;
-        TypeParam tp;
-        tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
-        // Check variadic flag (T...)
-        if (tpnode.has_key(la::IS_VARIADIC)) {
-            AnyVal av = tpnode.get(la::IS_VARIADIC.code);
-            tp.is_variadic = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
-        }
-        // Optional bounds: ITEMS holds TRAIT_BOUND and LIFETIME_PARAM nodes
-        if (tpnode.has_key(la::ITEMS)) {
-            auto bounds = arr_of(tpnode.get(la::ITEMS.code));
-            for (uint64_t b = 0; b < bounds.size(); ++b) {
-                auto bnode = map_of(bounds.get(b));
-                if (code_of(bnode) == la::TRAIT_BOUND) {
-                    TraitBound tb;
-                    tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
-                    read_trait_bound_args(bnode, tb);
-                    tp.bounds.push_back(std::move(tb));
-                } else if (code_of(bnode) == la::LIFETIME_PARAM) {
-                    // `T: 'a` — the OUTLIVES half. Dropped here until
-                    // 2026-09-01 while the twin reader `read_type_params_from`
-                    // kept it, so every fn/struct/trait/enum saw an empty
-                    // `lifetime_outlives` and both consumers read a null.
-                    tp.lifetime_outlives.push_back(
-                        std::string(str_of(bnode.get(la::NAME.code))));
-                }
-            }
-        }
-        // Default type argument `<T = Default>` / `<T: Bound = Default>` — the
-        // grammar stores it in the TYPE slot (a non-const TYPE_PARAM otherwise
-        // never carries TYPE). Filled at use sites in resolve_type.
-        if (tpnode.has_key(la::TYPE)) {
-            AnyVal dav = tpnode.get(la::TYPE.code);
-            if (!dav.is_null() && dav.is_pointer())
-                tp.default_type = resolve_type(map_of(dav));
-        }
-        // Validate: variadic param must be last
-        if (tp.is_variadic && i + 1 < tpitems.size())
-            error("variadic type parameter must be last in the type parameter list");
-        // Note: relaxed-bound finalization happens after `where`-clause
-        // merge below, so a `where T: ?Sized` clause is also honored.
-        result.push_back(std::move(tp));
-    }
-    // Merge bounds from `where T: Trait, U: Trait2` clause. The pre-pass
-    // typevars are still in scope here (erased AFTER the merge below) so a
-    // where-clause bound whose args reference a sibling type-param — e.g.
-    // `where F: FnOnce(T, T) -> bool` — resolves `T` instead of failing with
-    // "unknown type 'T'" (matches the inline `<T, F: FnOnce(T,T)->bool>` form,
-    // which already worked because its bounds resolve during the loop above).
+// A where-clause's bounds folded onto the parameters they name; read_type_params_from does NOT call it (PROBES.md 2026-09-02u §3).
+void SemaChecker::fold_where_bounds(TinyMapView node, std::vector<TypeParam>& result) {
     if (node.has_key(la::WHERE)) {
         AnyVal wav = node.get(la::WHERE.code);
         if (!wav.is_null()) {
@@ -6016,9 +5921,106 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
             }
         }
     }
-    // Remove temp typevars added in the pre-pass (now that both the inline
-    // bounds AND the where-clause bounds have been resolved with the sibling
-    // type-params in scope). push_type_params re-adds them properly later.
+}
+
+std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
+    std::vector<TypeParam> result;
+    if (!node.has_key(la::TYPE_PARAMS)) return result;
+    AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+    if (tpav.is_null()) return result;
+    // type_param_list => { ITEMS: $... }
+    auto tplist = map_of(tpav);
+    if (!tplist.has_key(la::ITEMS)) return result;
+    auto tpitems = arr_of(tplist.get(la::ITEMS.code));
+    // Pre-pass: add all type param names as typevars so bounds referencing sibling params resolve.
+    // CONST params pre-register too (as ConstVars) — a sibling's trait bound
+    // may carry one as a const-generic ARGUMENT (`B: BtBranch<K, N>` with
+    // `const N: u32` declared in the same list); without the pre-pass that
+    // bound resolved before N existed and died as "unknown type 'N'".
+    std::vector<std::string> temp_params;
+    for (uint64_t i = 0; i < tpitems.size(); ++i) {
+        auto tpnode = map_of(tpitems.get(i));
+        int32_t tpc = code_of(tpnode);
+        if (tpc == la::TYPE_PARAM || tpc == la::CONST_PARAM) {
+            auto name = std::string(str_of(tpnode.get(la::NAME.code)));
+            if (!current_type_params_.count(name)) {
+                if (tpc == la::CONST_PARAM) {
+                    LogosTypeBuilder c; c.kind = LogosType::Kind::ConstVar;
+                    c.type_var_name = name;
+                    current_type_params_[name] = pool_->alloc(std::move(c));
+                } else {
+                    current_type_params_[name] = make_typevar(name);
+                }
+                temp_params.push_back(name);
+            }
+        }
+    }
+    for (uint64_t i = 0; i < tpitems.size(); ++i) {
+        auto tpnode = map_of(tpitems.get(i));
+        // Skip lifetime params ('a) — deferred to borrow checker.
+        if (code_of(tpnode) == la::LIFETIME_PARAM) continue;
+        if (code_of(tpnode) == la::CONST_PARAM) {
+            TypeParam tp;
+            tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
+            tp.is_const = true;
+            tp.const_type = resolve_type(map_of(tpnode.get(la::TYPE.code)));
+            if (tpnode.has_key(la::IS_VARIADIC)) {
+                AnyVal av = tpnode.get(la::IS_VARIADIC.code);
+                tp.is_variadic = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+            }
+            result.push_back(std::move(tp));
+            continue;
+        }
+        if (code_of(tpnode) != la::TYPE_PARAM) continue;
+        TypeParam tp;
+        tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
+        // Check variadic flag (T...)
+        if (tpnode.has_key(la::IS_VARIADIC)) {
+            AnyVal av = tpnode.get(la::IS_VARIADIC.code);
+            tp.is_variadic = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+        }
+        // Optional bounds: ITEMS holds TRAIT_BOUND and LIFETIME_PARAM nodes
+        if (tpnode.has_key(la::ITEMS)) {
+            auto bounds = arr_of(tpnode.get(la::ITEMS.code));
+            for (uint64_t b = 0; b < bounds.size(); ++b) {
+                auto bnode = map_of(bounds.get(b));
+                if (code_of(bnode) == la::TRAIT_BOUND) {
+                    TraitBound tb;
+                    tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
+                    read_trait_bound_args(bnode, tb);
+                    tp.bounds.push_back(std::move(tb));
+                } else if (code_of(bnode) == la::LIFETIME_PARAM) {
+                    // `T: 'a` — the OUTLIVES half. Dropped here until
+                    // 2026-09-01 while the twin reader `read_type_params_from`
+                    // kept it, so every fn/struct/trait/enum saw an empty
+                    // `lifetime_outlives` and both consumers read a null.
+                    tp.lifetime_outlives.push_back(
+                        std::string(str_of(bnode.get(la::NAME.code))));
+                }
+            }
+        }
+        // Default type argument `<T = Default>` / `<T: Bound = Default>` — the
+        // grammar stores it in the TYPE slot (a non-const TYPE_PARAM otherwise
+        // never carries TYPE). Filled at use sites in resolve_type.
+        if (tpnode.has_key(la::TYPE)) {
+            AnyVal dav = tpnode.get(la::TYPE.code);
+            if (!dav.is_null() && dav.is_pointer())
+                tp.default_type = resolve_type(map_of(dav));
+        }
+        // Validate: variadic param must be last
+        if (tp.is_variadic && i + 1 < tpitems.size())
+            error("variadic type parameter must be last in the type parameter list");
+        // Note: relaxed-bound finalization happens after `where`-clause
+        // merge below, so a `where T: ?Sized` clause is also honored.
+        result.push_back(std::move(tp));
+    }
+    // Merge bounds from `where T: Trait, U: Trait2` clause. The pre-pass
+    // typevars are still in scope here (erased AFTER the merge below) so a
+    // where-clause bound whose args reference a sibling type-param — e.g.
+    // `where F: FnOnce(T, T) -> bool` — resolves `T` instead of failing with
+    // "unknown type 'T'" (matches the inline `<T, F: FnOnce(T,T)->bool>` form,
+    // which already worked because its bounds resolve during the loop above).
+    fold_where_bounds(node, result);
     for (auto& name : temp_params)
         current_type_params_.erase(name);
     // Phase 1: finalize relaxed bounds (`?Sized`) after all bounds —

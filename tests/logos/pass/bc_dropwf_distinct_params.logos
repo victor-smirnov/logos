@@ -1,0 +1,7 @@
+// THE LEGAL TWIN: every arg of the target is a DISTINCT parameter.
+package bc_dropwf_distinct_params;
+struct P<A, B> { a: A, b: B }
+impl<A, B> Drop for P<A, B> {
+    fn drop(self: &mut Self) { }
+}
+fn main() -> i32 { let p: P<i64, i32> = P { a: 0i64, b: 0i32 }; return p.b; }

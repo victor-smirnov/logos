@@ -3744,74 +3744,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
     const bool trait_is_drop_ = builtin_marker_ && trait_name != "Copy";
     if (!trait_name.empty() && !builtin_marker_ && !traits_.count(trait_name))
         error(std::format("impl: unknown trait '{}'", trait_name));
-    // PROBE 2026-09-02t — Drop impl well-formedness (E0120/E0366/E0367). PROBES.md.
-    if (trait_is_drop_) {
-        std::string bt_ = target;
-        if (auto d_ = bt_.find('$'); d_ != std::string::npos) bt_ = bt_.substr(0, d_);
-        auto [sp_, ss_] = find_struct_by_name(bt_);
-        auto [dp_, ds_] = find_datatype_by_name(bt_);
-        auto [ep_, ei_] = find_enum_by_name(bt_);
-        const bool adte_ = (ss_ != nullptr) || (ds_ != nullptr) || (ei_ != nullptr);
-        const bool nonadte_ = !adte_;
-        const std::string ow_ = ss_ ? std::string(sp_) : (ds_ ? std::string(dp_) : (ei_ ? std::string(ep_) : std::string()));
-        const bool foreign_ = adte_ && ow_ != cur_package_;
-        bool spec_ = false, specty_ = false;
-        if (target_resolved)
-            for (auto a_ : TypeRef(target_resolved).type_args()) {
-                if (!a_) continue;
-                auto k_ = TypeRef(a_).kind();
-                if (k_ != LogosType::Kind::TypeVar) spec_ = true;
-                if (k_ != LogosType::Kind::TypeVar && k_ != LogosType::Kind::ConstVar &&
-                    k_ != LogosType::Kind::WStaticLit && k_ != LogosType::Kind::CfgSlotType)
-                    specty_ = true;
-            }
-        bool bnddiff_ = false, bndassoc_ = false, sized_ = false;
-        auto bkey_ = [&](const TraitBound& b_, bool full_) {
-            std::string k_ = b_.trait_name;
-            if (!full_) return k_;
-            k_ += "<";
-            for (auto ta_ : b_.type_args) k_ += (ta_ ? type_str(ta_) : std::string("?")) + ",";
-            for (auto& ae_ : b_.assoc_eqs) k_ += ae_.first + "=" + (ae_.second ? type_str(ae_.second) : std::string("?")) + ",";
-            return k_ + ">";
-        };
-        if (ss_)
-            for (size_t i_ = 0; i_ < impl_tps.size() && i_ < ss_->type_params.size(); ++i_) {
-                std::vector<std::string> mn_, tn_, mf_, tf_;
-                for (auto& b_ : impl_tps[i_].bounds) { if (b_.is_relaxed) continue; mn_.push_back(bkey_(b_, false)); mf_.push_back(bkey_(b_, true)); }
-                for (auto& b_ : ss_->type_params[i_].bounds) { if (b_.is_relaxed) continue; tn_.push_back(bkey_(b_, false)); tf_.push_back(bkey_(b_, true)); }
-                std::sort(mn_.begin(), mn_.end()); std::sort(tn_.begin(), tn_.end());
-                std::sort(mf_.begin(), mf_.end()); std::sort(tf_.begin(), tf_.end());
-                if (mn_ != tn_) bnddiff_ = true;
-                if (mf_ != tf_) bndassoc_ = true;
-                if (impl_tps[i_].implicit_sized && !ss_->type_params[i_].implicit_sized) sized_ = true;
-            }
-        if (logos::probe::census_armed()) {
-            logos::probe::census("dropwf.arrival");
-            if (nonadte_) logos::probe::census("dropwf.nonadte." + target);
-            if (foreign_) logos::probe::census("dropwf.foreign." + target);
-            if (spec_) logos::probe::census("dropwf.spec." + target);
-            if (specty_) logos::probe::census("dropwf.specty." + target);
-            if (bnddiff_) logos::probe::census("dropwf.bnddiff." + target);
-            if (bndassoc_) logos::probe::census("dropwf.bndassoc." + target);
-            if (sized_) logos::probe::census("dropwf.sized." + target);
-        }
-        const bool stdpkg_ = cur_package_.starts_with("logos.");
-        bool refuse_ = false;
-        if (logos::probe::on("dropwfadte") && nonadte_) refuse_ = true;
-        if (logos::probe::on("dropwfloc") && foreign_) refuse_ = true;
-        if (logos::probe::on("dropwfspec") && spec_) refuse_ = true;
-        if (logos::probe::on("dropwfspecty") && specty_) refuse_ = true;
-        if (logos::probe::on("dropwfbnddiff") && bnddiff_) refuse_ = true;
-        if (logos::probe::on("dropwfbnddiffu") && (bnddiff_ && !stdpkg_)) refuse_ = true;
-        if (logos::probe::on("dropwfbndassoc") && bndassoc_) refuse_ = true;
-        if (logos::probe::on("dropwfsized") && sized_) refuse_ = true;
-        if (logos::probe::on("dropwfsizedu") && (sized_ && !stdpkg_)) refuse_ = true;
-        if (logos::probe::on("dropwfwhole") && (nonadte_ || foreign_ || specty_ || bndassoc_ || sized_)) refuse_ = true;
-        if (logos::probe::on("dropwfwholeu") && (nonadte_ || foreign_ || specty_ || ((bndassoc_ || sized_) && !stdpkg_))) refuse_ = true;
-        // @@dropwf-arms@@
-        if (refuse_)
-            error(std::format("impl Drop for '{}': ill-formed `Drop` impl (E0120/E0366/E0367)", target));
-    }
+    // rustc check_drop_impl: E0120 / E0366 / E0367 at the declaration. PROBES.md 2026-09-02u.
+    if (trait_is_drop_) check_drop_impl_wf(target, target_resolved, impl_tps, node);
     // Phase 6: scope the impl's trait name so `Self::Item<X>` inside
     // method bodies / signatures resolves before impls_ is populated.
     current_impl_trait_name_ = trait_name;
@@ -6680,4 +6614,98 @@ void SemaChecker::check_supertrait_impls() {
     }
 }
 
+// `impl Drop for X` well-formedness: E0120 / E0366 / E0367 / E0277. PROBES.md 2026-09-02u §2.
+void SemaChecker::check_drop_impl_wf(const std::string& target, TypeRef target_resolved,
+                                     const std::vector<TypeParam>& impl_tps, TinyMapView node) {
+    const std::string src = target_resolved ? type_str(target_resolved) : target;
+    std::string bt = target;
+    if (auto d = bt.find('$'); d != std::string::npos) bt = bt.substr(0, d);
+    auto [sp, ss] = find_struct_by_name(bt);
+    auto [dp, ds] = find_datatype_by_name(bt);
+    auto [ep, ei] = find_enum_by_name(bt);
+    if (logos::probe::census_armed()) logos::probe::census("dropwf.arrival");
+    const SemaStructInfo* si = ss ? ss : ds;
+    const std::string owner = ss ? sp : ds ? dp : ei ? ep : std::string();
+    if ((!si && !ei) || owner != cur_package_) {
+        if (logos::probe::census_armed()) logos::probe::census("dropwf.e0120");
+        error(std::format("impl Drop for {}: the `Drop` trait may only be implemented for local structs, enums, and unions (E0120)", src));
+        return;
+    }
+    std::vector<std::string> arg_names;
+    if (target_resolved)
+        for (auto a : TypeRef(target_resolved).type_args()) {
+            if (!a) continue;
+            auto k = TypeRef(a).kind();
+            const bool param = k == LogosType::Kind::TypeVar || k == LogosType::Kind::ConstVar ||
+                               k == LogosType::Kind::CfgSlotType;
+            std::string nm = param ? std::string(TypeRef(a).type_var_name()) : std::string();
+            if (!param || std::find(arg_names.begin(), arg_names.end(), nm) != arg_names.end()) {
+                if (logos::probe::census_armed()) logos::probe::census("dropwf.e0366");
+                error(std::format("impl Drop for {}: `Drop` impls cannot be specialized (E0366)", src));
+                return;
+            }
+            arg_names.push_back(nm);
+        }
+    const std::vector<TypeParam>& def_tps = si ? si->type_params : ei->type_params;
+    if (arg_names.empty() || arg_names.size() != def_tps.size()) return;
+    std::vector<TypeParam> itps = impl_tps;
+    fold_where_bounds(node, itps);
+    for (auto& tp : itps) finalize_relaxed_bounds(tp);
+    // impl parameter name -> the definition's parameter it stands for
+    SemaSubst ren;
+    for (size_t j = 0; j < arg_names.size(); ++j) ren[arg_names[j]] = make_typevar(def_tps[j].name);
+    // KEY-IDENTITY: `Sized` is the compiler's own marker (finalize_relaxed_bounds intercepts it by name).
+    auto is_sized = [](const TraitBound& b) { return b.trait_name == "Sized"; };
+    auto render = [&](const TraitBound& b, bool ident) {
+        std::string k = ident ? (!b.identity_trait.empty() ? b.identity_trait
+                               : !b.canonical_trait.empty() ? b.canonical_trait : b.trait_name)
+                              : b.trait_name;
+        if (b.type_args.empty() && b.assoc_eqs.empty()) return k;
+        k += "<";
+        for (size_t i = 0; i < b.type_args.size(); ++i)
+            k += (i ? ", " : "") + (b.type_args[i] ? type_str(subst_type_sema(b.type_args[i], ren)) : std::string("?"));
+        for (auto& ae : b.assoc_eqs)
+            k += (k.back() == '<' ? "" : ", ") + ae.first + " = " + (ae.second ? type_str(subst_type_sema(ae.second, ren)) : std::string("?"));
+        return k + ">";
+    };
+    // a bound set with its supertraits, as identity keys
+    auto elaborate = [&](const std::vector<TraitBound>& bs) {
+        std::set<std::string> out; std::vector<TraitBound> work(bs.begin(), bs.end());
+        while (!work.empty()) {
+            TraitBound b = std::move(work.back()); work.pop_back();
+            if (b.is_relaxed || is_sized(b)) continue;
+            if (!out.insert(render(b, true)).second) continue;
+            if (auto it = find_trait_iter_scoped(b.trait_name); it != traits_.end())
+                for (auto& sb : it->second.supertraits) work.push_back(sb);
+        }
+        return out;
+    };
+    for (size_t j = 0; j < arg_names.size(); ++j) {
+        const TypeParam* itp = nullptr;
+        for (auto& tp : itps) if (tp.name == arg_names[j]) { itp = &tp; break; }
+        if (!itp) continue;
+        const TypeParam& dtp = def_tps[j];
+        if (itp->implicit_sized && !dtp.implicit_sized && !itp->is_const) {
+            if (logos::probe::census_armed()) logos::probe::census("dropwf.e0367");
+            error(std::format("impl Drop for {}: `{}: Sized` is required by the `Drop` impl but not by `{}` (E0367)", src, dtp.name, bt));
+            return;
+        }
+        auto dset = elaborate(dtp.bounds);
+        for (auto& b : itp->bounds) {
+            if (b.is_relaxed || is_sized(b)) continue;
+            if (dset.count(render(b, true))) continue;
+            if (logos::probe::census_armed()) logos::probe::census("dropwf.e0367");
+            error(std::format("impl Drop for {}: `{}: {}` is required by the `Drop` impl but not by `{}` (E0367)", src, dtp.name, render(b, false), bt));
+            return;
+        }
+        auto iset = elaborate(itp->bounds);
+        for (auto& b : dtp.bounds) {
+            if (b.is_relaxed || is_sized(b)) continue;
+            if (iset.count(render(b, true))) continue;
+            if (logos::probe::census_armed()) logos::probe::census("dropwf.e0277");
+            error(std::format("impl Drop for {}: the trait bound `{}: {}` is not satisfied; required by a bound in `{}` (E0277)", src, dtp.name, render(b, false), bt));
+            return;
+        }
+    }
+}
 } // namespace logos::compiler
