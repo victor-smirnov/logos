@@ -1,7 +1,0 @@
-// rustc nll/mir_check_cast_unsize.rs — upstream lifetime may not live long enough
-// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.NEW-N3
-package mir_check_cast_unsize;
-struct U { n: u32 }
-fn bar(x: &U) -> &'static U { return &*x; }
-fn main() -> i32 { return 0i32; }

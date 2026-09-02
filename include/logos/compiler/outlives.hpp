@@ -68,6 +68,15 @@ inline bool outlives_is_static(std::string_view lt) {
     return lt == "'static" || lt == "static";
 }
 
+// PROBE stland / stlandyield / stlandbare (2026-09-02): the LANDED spelling of the
+// 'static-slot block — numbers in src/compiler/PROBES.md 2026-09-02.
+inline bool st_land() {
+    return logos::probe::on("stland") || logos::probe::on("stlandyield") ||
+           logos::probe::on("stlandbare");
+}
+inline bool& st_at_return() { static bool b = false; return b; }
+inline bool st_land_yield() { return logos::probe::on("stlandyield") && st_at_return(); }
+
 // Build a forward adjacency map (longer → set of shorters it outlives directly).
 // Caller passes parsed pairs; this just indexes them. Symmetry: an entry
 // `(a, b)` means a: b (a lives at least as long as b).
@@ -113,7 +122,8 @@ inline bool outlives(
                                               : "st.outl.S_static.L_empty.noperm");
         if (permissive_empty && (logos::probe::on("stcallarg") ||
                                  logos::probe::on("stnoderef") ||
-                                 logos::probe::on("stwhole")))
+                                 logos::probe::on("stwhole") ||
+                                 (st_land() && (logos::probe::census("stland.outl"), true))))
             return false;
     }
     if (lt_is_minted(L) && outlives_is_static(S))

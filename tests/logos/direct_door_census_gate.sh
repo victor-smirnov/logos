@@ -1291,9 +1291,13 @@ PIN = {
     # of the eight ledger rows the method-argument variance site closed. The
     # round's other native fixture is a FAIL fixture; the eight imported programs
     # moved admit -> fail are not in tests/logos/pass at all.
-    'corpus'            : 2529,
+    # 2026-09-02p: +1 / +0 / +1 — pass/bc_stfacts_legal_twins, the legal twins
+    # of the five ledger rows the param-region facts closed. The round's other
+    # native fixture is a FAIL fixture; the five imported programs moved
+    # admit -> fail are not in tests/logos/pass at all.
+    'corpus'            : 2530,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2338,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2339,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

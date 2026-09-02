@@ -1,9 +1,13 @@
-// rustc nll/user-annotations/constant-in-expr-normalize.rs — upstream lifetime
+// rustc nll/constant-in-expr-normalize.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: pin
+// shelf: fail (refused for the upstream reason)
+// 2026-09-02p: the port's `impl` used to return `&self.v` as `&'a i64` — itself
+// illegal (it was admitted only while a field borrow through `self` carried no
+// region). The impl now holds a `&'a i64` field so the ONE refusal is foo's, the
+// upstream one.
 package constant_in_expr_normalize;
 trait Foo<'a> { fn c(self: &Self) -> &'a i64; }
-struct U { v: i64 }
-impl<'a> Foo<'a> for U { fn c(self: &Self) -> &'a i64 { return &self.v; } }
-fn foo<'a>(u: &'a U) -> &'static i64 { return u.c(); }
+struct U<'a> { v: &'a i64 }
+impl<'a> Foo<'a> for U<'a> { fn c(self: &Self) -> &'a i64 { return self.v; } }
+fn foo<'a>(u: &'a U<'a>) -> &'static i64 { return u.c(); }
 fn main() -> i32 { return 0i32; }

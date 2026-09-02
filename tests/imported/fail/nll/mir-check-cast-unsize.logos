@@ -1,0 +1,10 @@
+// rustc nll/mir_check_cast_unsize.rs — upstream lifetime may not live long enough
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — REFUSED since 2026-09-02p, when a body borrow through a
+// parameter reference began to carry the parameter's region (`&*p`, `&p.f`,
+// `&mut p.f`, a default-mode match binding, an elided `let` annotation) and
+// the existing return / let variance check saw it; was nllmoves.NEW-N3
+package mir_check_cast_unsize;
+struct U { n: u32 }
+fn bar(x: &U) -> &'static U { return &*x; }
+fn main() -> i32 { return 0i32; }

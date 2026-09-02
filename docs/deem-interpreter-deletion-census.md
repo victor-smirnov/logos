@@ -5026,9 +5026,20 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8785 -> 8787   +2
 #   NOIMPORTED   4468 -> 4462   -6
 #   TIERCOMMIT    290 ->  282   -8
-REGISTRY-ALL         8787
-REGISTRY-NOIMPORTED  4462
-REGISTRY-TIERCOMMIT  282
+# 2026-09-02p (a body borrow through a PARAMETER reference carries the
+#   parameter's region: `&*p`, `&p.f` / `&mut p.f`, a default-mode match binding,
+#   an elided `let`). TWO native fixtures added (pass/bc_stfacts_legal_twins,
+#   fail/bc_stfacts_field_via_param_static_fail), FIVE imported programs moved
+#   admit -> fail (nll/: mir-check-cast-unsize, lub-match; regions/: regions-
+#   addr-of-self, regions-addr-of-upvar-self--c-control-noclosure, --upvar-self).
+#   ALL nets +2 (imported +5 and admit -5 cancel); NOIMPORTED +2 -5; TIERCOMMIT
+#   -5 (the five admit tests). Predicted before the pin was read; it matched.
+#   ALL          8787 -> 8789   +2
+#   NOIMPORTED   4462 -> 4459   -3
+#   TIERCOMMIT    282 ->  277   -5
+REGISTRY-ALL         8789
+REGISTRY-NOIMPORTED  4459
+REGISTRY-TIERCOMMIT  277
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

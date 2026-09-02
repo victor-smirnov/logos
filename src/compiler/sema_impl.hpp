@@ -6432,6 +6432,7 @@ private:
     lir::LExprPtr lower_offset_of(writ::TinyMapView node);  // offset_of!(Type, field)
     lir::LExprPtr lower_binop(writ::TinyMapView node);
     lir::LExprPtr lower_unary(writ::TinyMapView node);
+    std::string place_base_region(lir_view::ExprRef e);
     lir::LExprPtr lower_deref(writ::TinyMapView node);
     // Box DerefMove: lowers `*box_var` (move-typed Box) to `box_take(b)`.
     // Returns null when not applicable (operand isn't a bare Box var, or its

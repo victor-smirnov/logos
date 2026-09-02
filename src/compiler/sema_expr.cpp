@@ -1410,8 +1410,10 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                                 var_name));
                     }
                 }
+                // PROBE stland: `&mut STATIC` IS 'static — the second minting site.
+                if (st_land()) logos::probe::census("stland.mutstaddr");
                 return builder().var_ref(static_addr_name(var_name),
-                                         make_ref(true, vt));
+                                         make_ref(true, vt, st_land() ? std::string("static") : std::string()));
             }
             // G162-2: `&mut arr` produces `&mut [T; N]` (a mutable
             // reference to the WHOLE array), so it satisfies a `&mut [T; N]`
@@ -1467,7 +1469,8 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         auto inner = lower_expr(child);
         mut_place_ctx_ = saved_mut_place;
         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
-        auto __ty_inner = make_ref(true, expr_type(inner));
+        auto __ty_inner = make_ref(true, expr_type(inner),
+                                   place_base_region(inner));
         // `&mut o.f` / `&mut a[i]` / `&mut <temp>` over a `#[zone_mut]` value:
         // a place carries no zone. Checked HERE and not only in
         // materialize_recv_ref because the extending-borrow arm below (a
@@ -3039,7 +3042,9 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                                          make_ref(smut, vt,
                                              (logos::probe::on("ststaticaddr") || logos::probe::on("steqaddr") ||
                                               logos::probe::on("stcallarg") || logos::probe::on("stnoderef") ||
-                                              logos::probe::on("stwhole")) ? std::string("static") : std::string()));
+                                              logos::probe::on("stwhole") ||
+                                              (st_land() && (logos::probe::census("stland.staddr"), true)))
+                                                 ? std::string("static") : std::string()));
             }
             // &array → &[T; N] (Rust). The decay to `&[T]` happens where a
             // slice is EXPECTED (try_coerce_array_ref_to_slice), not here —
@@ -3093,11 +3098,10 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                 auto deref = builder().deref(std::move(operand), pointee_t);
                 if (TypeRef rdt = self_describing_dst_ref(pointee_t, /*is_mut=*/false))
                     return builder().addr_of_temp(std::move(deref), false, rdt);
-                // PROBE st* (2026-09-01p): `&*p` inherits p's region (a reborrow is not a fresh borrow).
-                if (outlives_is_static(TypeRef(op_t).lifetime())) logos::probe::census("st.reborrow.deref.src_static");
+                // LANDED 2026-09-02p (was PROBE stwhole/stfacts F): a reborrow is
+                // not a fresh borrow — `&*p` carries p's region.
                 return builder().addr_of_temp(std::move(deref), false,
-                    make_ref(false, pointee_t,
-                             logos::probe::on("stwhole") ? std::string(TypeRef(op_t).lifetime()) : std::string()));
+                    make_ref(false, pointee_t, std::string(TypeRef(op_t).lifetime())));
             }
             // `&*rc` for a struct with a Deref impl: the reborrow IS `rc.deref()`.
             if (auto dc = emit_generic_deref_call(std::move(operand), /*want_mut=*/false))
@@ -3123,7 +3127,8 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         // `&<array expr>` — a field, a literal, any array place or rvalue —
         // is `&[T; N]`, like the variable branch above and like Rust. The
         // decay to `&[T]` happens where a slice is EXPECTED.
-        auto __ty_inner = make_ref(false, expr_type(inner));
+        auto __ty_inner = make_ref(false, expr_type(inner),
+                                   place_base_region(inner));
         // Rust temporary scope: `f(&make_vec())` materializes a DROPPABLE
         // rvalue whose stack slot nothing else owns. Without the statement-scope
         // hoist it is spilled and never dropped — one leaked allocation per
@@ -10694,6 +10699,39 @@ lir::LExprPtr SemaChecker::schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ft
                       "(no WAny↔T conversion)", std::string(sname),
                       std::string(field), type_str(ftype)));
     return builder().cast(std::move(anyval), ftype);
+}
+
+// LANDED 2026-09-02p (was PROBE stfacts F'): the region of a borrowed FIELD place is the region of the
+// reference it is reached through — `&p.f` with `p: &'a S` is `&'a F`. Walks
+// the field / tuple-index chain to its base variable. Empty (unchanged) when
+// the base is owned, is a reference to a reference, or the chain crosses a
+// reference-typed field: there the place lives behind an INNER reference and
+// this walk does not know its region.
+std::string SemaChecker::place_base_region(lir_view::ExprRef e) {
+    using C = lir_schema::expr::Code;
+    const auto* pool = cur_prog_->type_pool.impl();
+    auto is_ref = [&](TypeRef t) {
+        return t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
+                     TypeRef(t).kind() == LogosType::Kind::MutRef);
+    };
+    while (e && (e.kind() == C::FieldRead || e.kind() == C::TupleIndex)) {
+        lir_view::ExprRef r = e.kind() == C::FieldRead
+            ? lir_view::EFieldReadView{e}.receiver()
+            : lir_view::ETupleIndexView{e}.receiver();
+        if (!r) return {};
+        if (r.kind() == C::FieldRead || r.kind() == C::TupleIndex) {
+            if (is_ref(r.type(pool))) return {};
+            e = r;
+            continue;
+        }
+        if (r.kind() == C::Deref) r = lir_view::EDerefView{r}.operand();
+        if (!r || r.kind() != C::VarRef) return {};
+        TypeRef rt = r.type(pool);
+        if (!is_ref(rt) || is_ref(TypeRef(rt).pointee())) return {};
+        logos::probe::census("stfacts.place_base");
+        return std::string(TypeRef(rt).lifetime());
+    }
+    return {};
 }
 
 lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {

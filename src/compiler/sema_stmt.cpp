@@ -567,8 +567,10 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                 // `fn f(a: &[Vec<i32>]) -> &[Vec<i64>] { a }` slipped
                 // through here while `return a;` was rejected.
                 if (inner) {
+                    st_at_return() = true;   // PROBE stlandyield
                     check_variance(expr_type(inner), ret_type_,
                                    "return type mismatch");
+                    st_at_return() = false;
                     // T1-12: dyn+auto bound at tail-return coercion.
                     check_dyn_auto_bounds_at_coercion(inner, ret_type_);
                     if (ret_type_ && is_move_type(ret_type_) && is_unowned_move_source(inner))
@@ -2595,6 +2597,18 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         // (`let v: Vec<_> = vec![1]` binds as Vec<i32> — the hole used to
         // leak into mono as a literal `Vec$G1$_` instantiation).
         var_type = ann_is_impl ? rhs_type : fill_inferred_from_rhs(ann, rhs_type);
+        // LANDED 2026-09-02p (was PROBE stland/stfacts L): an ELIDED annotation
+        // region is an inference variable — the binding takes the initializer's region.
+        if (rhs && var_type && rhs_type &&
+            (TypeRef(var_type).kind() == LogosType::Kind::Ref ||
+             TypeRef(var_type).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(rhs_type).kind() == TypeRef(var_type).kind() &&
+            TypeRef(var_type).lifetime().empty() && !TypeRef(rhs_type).lifetime().empty()) {
+            logos::probe::census("stfacts.let.region");
+            var_type = make_ref(TypeRef(var_type).kind() == LogosType::Kind::MutRef,
+                                TypeRef(var_type).pointee(),
+                                std::string(TypeRef(rhs_type).lifetime()));
+        }
         // Retype the rhs tuple expression node to use the concrete annotation tuple type.
         // This ensures codegen sees (f32, f32) instead of (FloatLit, FloatLit).
         // Use the hole-FILLED type — stamping a raw `(i64, _)` annotation
@@ -3295,8 +3309,10 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
                                     "return type mismatch —")) {
                 // diagnostic already emitted by the judgment
             } else if (ret_type_) {
+                st_at_return() = true;   // PROBE stlandyield
                 check_variance(expr_type(val), ret_type_, "return type mismatch",
                                /*permissive=*/false);
+                st_at_return() = false;
                 // T1-12: dyn+auto bound at return coercion.
                 check_dyn_auto_bounds_at_coercion(val, ret_type_);
                 if (is_move_type(ret_type_) && is_unowned_move_source(val))
@@ -4414,7 +4430,11 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             for (int li = 0; li < default_depth; ++li)
                 binding_types[k] = make_ref(
                     li == default_depth - 1 ? default_mut : false,
-                    binding_types[k]);
+                    binding_types[k],
+                    // LANDED 2026-09-02p (was PROBE stfacts P): the outermost layer
+                    // IS the scrutinee's reference, so it carries its region.
+                    li == default_depth - 1 ? std::string(TypeRef(scrut_type).lifetime())
+                                            : std::string());
             // 3/4, NOT 1/2: see pat_keys::BINDING_REF_MODES. The place a
             // default-mode binding names sits under the scrutinee's implicit
             // deref, which is not where a written `ref` puts it.

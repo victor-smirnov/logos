@@ -1,0 +1,10 @@
+// A borrow of a FIELD reached through a parameter reference carries the
+// parameter's region (2026-09-02p), so it cannot satisfy a `'static` return.
+// rustc: lifetime may not live long enough. Its legal twin — `x: &'static S` —
+// is `t_field_via_static_param` in pass/bc_stfacts_legal_twins.
+package bc_stfacts_field_via_param_static_fail;
+struct S { n: i64 }
+fn f(x: &S) -> &'static i64 {
+    return &x.n;
+}
+fn main() -> i32 { let s: S = S { n: 1i64 }; return (*f(&s)) as i32 - 1i32; }

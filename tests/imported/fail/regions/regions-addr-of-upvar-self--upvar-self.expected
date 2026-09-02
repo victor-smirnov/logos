@@ -1,0 +1,1 @@
+let 'p': variance mismatch — expected &'static mut u64, got &mut u64 — lifetime structure incompatible (check &mut invariance / contravariance rules)

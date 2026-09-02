@@ -79,6 +79,11 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
             return true;
         if (x.empty() || y.empty()) {
             (void)logos::probe::on("lteqempty_site");
+            // PROBE stland (2026-09-02): by DIRECTION — x is the SUB side.
+            if (x.empty() && outlives_is_static(y) && st_land() && !st_land_yield()) {
+                logos::probe::census("stland.lteq");
+                return false;
+            }
             // PROBE st* (2026-09-01p): a 'static slot fed from an EMPTY region.
             if (x.empty() != y.empty() && outlives_is_static(x.empty() ? y : x)) {
                 logos::probe::census("st.lteq.static_vs_empty");
@@ -159,8 +164,13 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
             auto ap = a.closure_params();
             auto bp = b.closure_params();
             if (ap.size() != bp.size()) return false;
+            // PROBE stland: a parameter position is CONTRA — the directional
+            // arm of `lt_eq` must see (sup, sub) there.
+            const bool st_flip = st_land();
+            if (st_flip) logos::probe::census("stland.fnptr.flip");
             for (size_t i = 0; i < ap.size(); ++i)
-                if (!types_equal_with_lifetimes(ap[i], bp[i], adj, permissive_minted)) return false;
+                if (st_flip ? !types_equal_with_lifetimes(bp[i], ap[i], adj, permissive_minted)
+                            : !types_equal_with_lifetimes(ap[i], bp[i], adj, permissive_minted)) return false;
             return types_equal_with_lifetimes(a.closure_ret(), b.closure_ret(), adj, permissive_minted);
         }
         case K::Struct:
@@ -360,6 +370,14 @@ inline bool subtype(TypeRef sub, TypeRef sup,
                 if (logos::probe::on("stbareargs") || logos::probe::on("stnoderef") ||
                     logos::probe::on("stwhole"))
                     sl.assign(pl.size(), std::string{});
+                // PROBE stlandbare: only where the sup names 'static.
+                if (logos::probe::on("stlandbare"))
+                    for (auto& l : pl)
+                        if (outlives_is_static(l)) {
+                            logos::probe::census("stland.bare.struct");
+                            sl.assign(pl.size(), std::string{});
+                            break;
+                        }
             }
             if (sl.size() != pl.size()) return true;
             for (size_t i = 0; i < sl.size(); ++i) {
@@ -387,6 +405,14 @@ inline bool subtype(TypeRef sub, TypeRef sup,
                 if (logos::probe::on("stbareargs") || logos::probe::on("stnoderef") ||
                     logos::probe::on("stwhole"))
                     sl.assign(pl.size(), std::string{});
+                // PROBE stlandbare: only where the sup names 'static.
+                if (logos::probe::on("stlandbare"))
+                    for (auto& l : pl)
+                        if (outlives_is_static(l)) {
+                            logos::probe::census("stland.bare.enum");
+                            sl.assign(pl.size(), std::string{});
+                            break;
+                        }
             }
             if (sl.size() != pl.size()) return true;
             for (size_t i = 0; i < sl.size(); ++i)

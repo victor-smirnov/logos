@@ -1,0 +1,137 @@
+// THE LEGAL TWINS OF THE FIVE LEDGER ROWS CLOSED ON 2026-09-02p and of the hand
+// programs that priced the landing (src/compiler/PROBES.md 2026-09-02p): a body
+// borrow through a PARAMETER reference now carries the parameter's region —
+// `&*p`, `&p.f` / `&mut p.f` (through the base variable only), a default-mode
+// match binding under a `&`/`&mut` scrutinee, and an elided `let` annotation.
+// Every fn here is ordinary Rust; every one was rc 0 before the landing and stays
+// rc 0. (The legal program the landing UN-REFUSED — a `let cur: &Node = root`
+// chain over `Node<'a> { next: Option<&'a Node<'a>> }` — is a hand program in
+// PROBES.md 2026-09-02p, not here: `LOGOS_VERIFY_LAYOUT=1` crashes on that
+// recursive struct with or without the landing.)
+package bc_stfacts_legal_twins;
+struct S { n: i64 }
+struct TG { g: i64 }
+struct SR<'c> { f: &'c TG }
+struct H<'a> { r: &'a i64 }
+struct SO { o: Option<i64> }
+struct SV { v: Vec<i64> }
+static Z: i64 = 0i64;
+static G: S = S { n: 4i64 };
+static TT: TG = TG { g: 3i64 };
+
+fn t_field_named_through<'a>(x: &'a S) -> &'a i64 { return &x.n; }
+fn t_field_elided_through(x: &S) -> &i64 { return &x.n; }
+fn t_field_via_static_param(x: &'static S) -> &'static i64 { return &x.n; }
+fn t_reborrow_static_param(x: &'static S) -> &'static S { return &*x; }
+fn t_reborrow_shorter<'a, 'b>(x: &'a i64, _y: &'b i64) -> &'b i64 where 'a: 'b { return &*x; }
+fn t_two_params_outlives<'a, 'b>(a: &'a S, b: &'b S) -> &'a i64 where 'b: 'a { if a.n > 0i64 { return &b.n; } return &a.n; }
+fn t_match_named<'a>(o: &'a Option<i64>) -> &'a i64 {
+    match o { Option::Some(s) => { return s; } Option::None => { return &Z; } }
+}
+fn t_match_let_hop(o: &Option<i64>) -> &i64 {
+    match o { Option::Some(s) => { let t: &i64 = s; return t; } Option::None => { return &Z; } }
+}
+fn t_match_copy_out(o: &Option<i64>) -> i64 {
+    match o { Option::Some(s) => { return *s; } Option::None => { return 0i64; } }
+}
+fn t_match_mut<'a>(o: &'a mut Option<i64>, d: &'a mut i64) -> &'a mut i64 {
+    match o { Option::Some(s) => { return s; } Option::None => { return d; } }
+}
+fn t_match_on_field<'a>(x: &'a SO) -> &'a i64 {
+    match &x.o { Option::Some(s) => { return s; } Option::None => { return &Z; } }
+}
+fn t_if_let<'a>(o: &'a Option<i64>) -> &'a i64 { if let Option::Some(s) = o { return s; } return &Z; }
+fn t_bump(o: &mut Option<i64>) { match o { Option::Some(s) => { *s = *s + 1i64; } Option::None => { } } }
+fn t_let_chain<'a>(x: &'a i64) -> &'a i64 { let y: &i64 = x; let z: &i64 = y; return z; }
+fn t_let_reassign<'a, 'b>(x: &'a i64, y: &'b i64, c: bool) -> i64 { let mut p: &i64 = x; if c { p = y; } return *p; }
+fn t_let_region_reassign<'a>(o: &'a Option<i64>, d: &'a i64) -> &'a i64 {
+    let mut cur: &i64 = d;
+    match o { Option::Some(s) => { cur = s; } Option::None => { } }
+    return cur;
+}
+fn t_mut_field_call(x: &mut S) { inc(&mut x.n); }
+fn inc(p: &mut i64) { *p = *p + 1i64; }
+fn t_mut_field_return(x: &mut S) -> &mut i64 { return &mut x.n; }
+fn t_field_into_vec<'a>(x: &'a S, v: &mut Vec<&'a i64>) { v.push(&x.n); }
+fn t_field_into_vec_shorter<'a, 'b>(x: &'b S, _w: &'a i64) -> Vec<&'a i64> where 'b: 'a {
+    let mut v: Vec<&'a i64> = Vec::new(); v.push(&x.n); return v;
+}
+fn id<T>(t: T) -> T { return t; }
+fn t_field_generic_id<'a>(x: &'a S) -> &'a i64 { return id(&x.n); }
+fn wrap<T>(t: T) -> Option<T> { return Option::Some(t); }
+fn t_field_generic_wrap_shorter<'a, 'b>(x: &'b S, _w: &'a i64) -> Option<&'a i64> where 'b: 'a {
+    let o: Option<&'a i64> = wrap(&x.n); return o;
+}
+fn t_field_struct_literal<'a>(x: &'a S) -> H<'a> { return H { r: &x.n }; }
+fn t_tuple_field<'a>(t: &'a (i64, i64)) -> &'a i64 { return &t.0; }
+fn t_index_field<'a>(x: &'a SV) -> &'a i64 { return &x.v[0]; }
+fn t_local_base() -> i64 { let s: S = S { n: 9i64 }; let r: &i64 = &s.n; return *r; }
+fn t_box_base(b: Box<S>) -> i64 { let r: &i64 = &b.n; return *r; }
+fn t_closure_field<'a>(x: &'a S) -> i64 { let c = || -> i64 { let r: &i64 = &x.n; return *r; }; return c(); }
+fn t_static_ref_local() -> &'static i64 { let p: &'static S = &G; return &p.n; }
+fn t_static_field_read(x: &SR<'static>) -> &'static TG { return x.f; }
+impl S {
+    fn get(&self) -> &i64 { return &self.n; }
+    fn get_named<'a>(self: &'a S) -> &'a i64 { let p: &i64 = &self.n; return p; }
+    fn twice(&self) -> i64 { let a: &i64 = self.get(); let b: &i64 = &*a; return *a + *b; }
+    fn bump_self(&mut self) { let p: &mut i64 = &mut self.n; *p = *p + 1i64; }
+}
+
+fn main() -> i32 {
+    let s: S = S { n: 1i64 };
+    let t5: S = S { n: 5i64 };
+    if *t_field_named_through(&s) != 1i64 { return 1i32; }
+    if *t_field_elided_through(&s) != 1i64 { return 2i32; }
+    if *t_field_via_static_param(&G) != 4i64 { return 3i32; }
+    if t_reborrow_static_param(&G).n != 4i64 { return 4i32; }
+    if *t_reborrow_shorter(&s.n, &t5.n) != 1i64 { return 5i32; }
+    if *t_two_params_outlives(&s, &t5) != 5i64 { return 6i32; }
+    let o: Option<i64> = Option::Some(3i64);
+    let w: i64 = 0i64;
+    if *t_match_named(&o) != 3i64 { return 7i32; }
+    if *t_match_let_hop(&o) != 3i64 { return 8i32; }
+    if t_match_copy_out(&o) != 3i64 { return 9i32; }
+    let mut om: Option<i64> = Option::Some(3i64);
+    let mut d: i64 = 0i64;
+    *t_match_mut(&mut om, &mut d) = 8i64;
+    match om { Option::Some(v) => { if v != 8i64 { return 10i32; } } Option::None => { return 10i32; } }
+    let so: SO = SO { o: Option::Some(9i64) };
+    if *t_match_on_field(&so) != 9i64 { return 11i32; }
+    if *t_if_let(&o) != 3i64 { return 12i32; }
+    t_bump(&mut om);
+    match om { Option::Some(v) => { if v != 9i64 { return 13i32; } } Option::None => { return 13i32; } }
+    if *t_let_chain(&s.n) != 1i64 { return 14i32; }
+    if t_let_reassign(&s.n, &t5.n, true) != 5i64 { return 15i32; }
+    if *t_let_region_reassign(&o, &w) != 3i64 { return 16i32; }
+    let mut m: S = S { n: 1i64 };
+    t_mut_field_call(&mut m);
+    if m.n != 2i64 { return 17i32; }
+    *t_mut_field_return(&mut m) = 7i64;
+    if m.n != 7i64 { return 18i32; }
+    let mut v: Vec<&i64> = Vec::new();
+    t_field_into_vec(&s, &mut v);
+    if *v[0] != 1i64 { return 19i32; }
+    let v2: Vec<&i64> = t_field_into_vec_shorter(&t5, &w);
+    if *v2[0] != 5i64 { return 20i32; }
+    if *t_field_generic_id(&s) != 1i64 { return 21i32; }
+    let ow: Option<&i64> = t_field_generic_wrap_shorter(&t5, &w);
+    match ow { Option::Some(r) => { if *r != 5i64 { return 22i32; } } Option::None => { return 22i32; } }
+    if *t_field_struct_literal(&s).r != 1i64 { return 23i32; }
+    let tu: (i64, i64) = (5i64, 6i64);
+    if *t_tuple_field(&tu) != 5i64 { return 24i32; }
+    let mut vv: Vec<i64> = Vec::new(); vv.push(7i64);
+    let sv: SV = SV { v: vv };
+    if *t_index_field(&sv) != 7i64 { return 25i32; }
+    if t_local_base() != 9i64 { return 26i32; }
+    if t_box_base(Box::new(S { n: 2i64 })) != 2i64 { return 27i32; }
+    if t_closure_field(&s) != 1i64 { return 28i32; }
+    if *t_static_ref_local() != 4i64 { return 29i32; }
+    let sr: SR = SR { f: &TT };
+    if t_static_field_read(&sr).g != 3i64 { return 30i32; }
+    if *s.get() != 1i64 { return 31i32; }
+    if *s.get_named() != 1i64 { return 32i32; }
+    if s.twice() != 2i64 { return 33i32; }
+    m.bump_self();
+    if m.n != 8i64 { return 34i32; }
+    return 0i32;
+}

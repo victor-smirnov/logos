@@ -14585,3 +14585,267 @@ fires: 912
 ceiling: 30
 cost: 8 (cfail 11, stdlib ok)
 verdict: A..F; identical to stnoderef in every harness column (rule 9), un-refuses l11/l20 by hand — F is free.
+
+# ═══ ROUND 2026-09-02p — THE `'static`-SLOT BLOCK IS WALLED BY FIVE PASS
+# FIXTURES THAT ASSERT `&local` INTO `'static`; THE FACTS HALF LANDED ALONE:
+# A BODY BORROW THROUGH A PARAMETER REFERENCE CARRIES THE PARAMETER'S REGION
+# (`&*p`, `&p.f` / `&mut p.f`, A DEFAULT-MODE MATCH BINDING, AN ELIDED `let`).
+# LEDGER 233 -> 228, COST 0/0/ok, FOUR .expected RE-PINNED, ONE PORT REPAIRED ═══
+
+## 0. CENSUS (STEP 1, READ FROM THE TREE) AND THE BRIEF'S CORRECTIONS
+
+    live probe names 156 (145 in the 09-01p brief: +8 st*, +3 stland*) · ledger
+    # TOTAL 233 (233 rows by listing) · channels lifereg 106 / nllmoves 73 /
+    bck 54 — the brief's "112 / 71 / 50" was one landing stale (09-01n moved 8
+    lifereg rows) · HEAD 9c4310d77 = origin/main, plus ONE LOCAL WIP commit
+    d351610c7 from the previous fund agent: stland / stlandyield / stlandbare
+    installed, built (5d8f031d457bfaa5), NOT priced, tree otherwise clean.
+    Squashed into this round's landing.
+Brief said "four pass fixtures"; measured FIVE (generic_2 is the fifth, §4).
+
+## 1. THE WIP SPELLING, READ (rule 17) — build 5d8f031d457bfaa5
+
+stland = A by DIRECTION (`lt_eq`: x = sub side EMPTY, y = sup 'static -> not
+equal; the FnPtr arm passes (sup, sub) for params so contravariance holds) +
+B (`outlives` permissive exit closed for S 'static) + C (`&STATIC` typed
+'static) + C' (`&mut STATIC`, `lower_expr_inner`) + F (`&*p` carries p's
+region) + L (an ELIDED `let` annotation takes the initializer's region).
+stlandyield = stland with A MUTED at the two return sites (a static flag set
+around `check_variance`). stlandbare = stland + D at 'static positions only.
+The spelling is the one 09-01p §8 asked for; it was priced as found.
+
+## 2. THE TABLE — 09-01p's binary for the three WIP names, plus two of mine
+##    (6fb55fb7ce6ed53d), plus the bc hatch nobody had priced against this block
+
+    probe             arms                          fires  ceiling  cost  cfail  std  verdict
+    stland            A(dir)+B+C+C'+F+L             84252     24      4      9   ok   = stcallarg's 24 digit for digit; the 4 = §4's owner fixtures
+    stlandyield       stland, A muted at return     84301     23      4      3   ok   loses lub-match; cfail 3 = a LET site + the two `&*x` returns (F, not A)
+    stlandbare        stland + D('static only)      84274     26      5      9   ok   +pattern-substs-on-brace-struct, proj--b; +variance-static-into-bounded-arg
+    lifereg_aggtrust  bc B86 aggregate hatch closed    22      1      0      0   ok   ⛔ refuses al01 — a 'static FIELD read through an elided param (legal)
+    stfacts           F+L+F'+P, no arm              87383      5      0      4   ok   THE LANDING (F' re-spelled, §6)
+    stfactsrb         F+L only                      83176      1      0      2   ok   F alone = mir-check-cast-unsize; P and F' are the other four
+
+    F' `&p.f` / `&mut p.f` carries p's region (base variable only, §6)
+    P  a default-binding-mode match binding's outermost `&` carries the
+       SCRUTINEE's region (the layer IS the scrutinee's reference)
+
+## 3. THE SETS, PREDICTED BY NAME (build/predictions-2026-09-02p.txt), DIFFED BOTH WAYS
+
+stland predicted 24 = stcallarg's 24; measured 24, the same names — the
+direction narrowing dropped NOTHING (universe-violation refuses through the
+flipped param position). stlandyield predicted 23 or 24 on one question
+(does the `Some(s)` binding carry `maybe`'s region?) — measured 23, so it
+does not; that is P. stlandbare predicted 26, measured 26. stfacts predicted
+5 BY NAME before the price — mir-check-cast-unsize (F), lub-match (P+L),
+regions-addr-of-self, regions-addr-of-upvar-self--c-control-noclosure,
+--upvar-self (F' through `self`) — measured 5, the same names, and nothing
+outside the block (the E0621 hop shapes like fi07 are refused by the same
+machinery but no ledger row has that shape). stfactsrb predicted 1, measured 1.
+lifereg_aggtrust predicted >= 2, measured 1: lub-match is admitted through
+`prov.params.empty() -> return`, not through the hatch.
+DIAGNOSTICS, read on every closed row: `return type mismatch: variance
+mismatch — expected &'static U, got &U` (mir-check-cast-unsize), `… expected
+&'static i64, got &i64` (lub-match), `let 'p': variance mismatch — expected
+&'static mut i64, got &mut i64` (the three regions rows). Right site, right
+pair; the elided region prints as nothing (09-01p §4's open word).
+
+## 4. COST — FIVE PASS FIXTURES ASSERT A DIVERGENCE (⚠ OWNER; reported, NOT edited)
+
+stland's 4 / stlandbare's 5, each read at its line:
+  · imported/pass/variance/variance-co-into-local:10 `let w: W<&'static i32> = W { x: &v }`, v a `let`
+  · imported/pass/variance/variance-static-into-bounded-arg:10 `let h: Holder<'static> = Holder { r: &v }` (D)
+  · imported/pass/regions/region-where-outlives-static-id-rg:20 `run(&v)` into `val: &'static i64` —
+    its OWN header says "the &'static source is a borrow of a fn-local (top-level
+    `static` items not ported)": a known mis-port, and `static` items exist now
+  · spec/pass/region_2:87 :96 :124 :133 `let s: &'static i64 = &x` under
+    `@rule region.outlives.static-is-top` and three more rules — the rule under
+    test is "'static flows to 'a"; the WITNESS is E0597 in Rust
+  · spec/pass/generic_2:116 `let _g: fn(&i32)->i32 = v_fn_param(f)` whose value
+    is `fn(&'static i32)->i32` (E0308 upstream: one type is more general), and
+    :118 a `fn() -> &'static i32` slot fed `fn() -> &i32` (:117 itself is E0106)
+Every arm that refuses `&local` into a 'static slot reds the first four BY
+CONSTRUCTION; the fifth is the FnPtr direction. 19 rows of stland's 24 (all
+LOCAL-sourced) and stlandbare's 2 wait on this decision. Each fixture is one
+edit away (a `static` item for the local; the fn-pointer lines dropped or
+reversed) — the owner's edit, not mine.
+cfail 9 under stland: 09-01p §5's nine, unchanged.
+
+## 5. RULE 5 — HAND PROGRAMS, MULTI-LINE, VARIED BY SHAPE (build/hand-2026-09-02p/)
+
+stfacts: 13 illegal (fi01–fi13: `&*x` through a let hop, `&x.n` / `&mut x.n`
+returned, `&self.n` through a let, a `Some(s)` binding returned, a nested
+field chain, `&b.n` into ANOTHER named region (E0621 shape), a binding into a
+'static let, a field into a 'static struct field / call arg, a double-ref
+outer into 'static, a match on `&x.o`, a tuple field) — ALL refused (fi11,
+fi13 were already refused unarmed by bc). 33 legal (fl01–fl36: named /
+elided / 'static params through; `&*x` into a shorter region under a
+where-clause; match under `&` / `&mut` / `if let` / on a field; let chains
+and re-assignment; `&mut x.n` into a call and returned; a field into
+`Vec<&'a>` and into `Vec<&'b>` with `'b: 'a`; through `id<T>` and `wrap<T>`
+into a SHORTER `Option<&'a>`; a struct literal field; a tuple field; an index;
+an owned local base; a `Box` base; a closure over a param; a `&'static S`
+local; a 'static field read; method receivers incl. a reborrow chain) — 31
+rc 0 unarmed and armed. The other two:
+  fl33 `fn f<'a,'b>(x: &'a &'b S) -> &'b i64 { &x.n }` and fl34 (a `&'c T`
+      FIELD crossed) are LEGAL Rust and REFUSED UNARMED by bc's return rule,
+      which reads the OUTER region of the path. Unchanged by the landing
+      (F' returns empty across a reference-typed hop, §6). Off-ledger, §8.
+  fl24 `let mut cur: &Node = root; loop { match cur.next { Some(n) => cur = n,
+      None => return cur } }` over `Node<'a> { next: Option<&'a Node<'a>> }`
+      is LEGAL and was REFUSED unarmed (`expected &'a Node<'a>, got &Node`):
+      the elided `let` was a wildcard that never met `root`'s region. L
+      un-refuses it. It is a hand program and not a pass fixture because
+      `LOGOS_VERIFY_LAYOUT=1` segfaults on that recursive struct (§8).
+agg/: al01 `struct U { s: &'static i64 } fn f(x: &U) -> &'static i64 { x.s }`
+LEGAL — admitted unarmed, REFUSED by lifereg_aggtrust: the B86 hatch is doing
+real work (deferring a 'static FIELD read to the type checker). Declined; the
+correct reading of that site is the RETURNED EXPRESSION's own type, which is
+what sema's return check does once F carries the region. al02 legal rc 0
+both; ai01 `&*x` into `&'a U` illegal, refused by F.
+The 09-01p set (58) under stland: illegal admitted = i08 i12 i13 i16 i19 i21
+(D / E / assignment / slice — as designed); the legal half re-run below.
+
+## 6. WHERE THE LANDING DIFFERS FROM ITS PROBE (rule 7)
+
+F' as first spelled walked the AST field chain to its base VARIABLE and used
+that reference's region — which is the OUTER region of a double reference or
+of a reference-typed field path, exactly the bc defect of fl33/fl34. Landed:
+a walk over the LIR `FieldRead` / `TupleIndex` receivers (`place_base_region`,
+sema_expr.cpp) that returns EMPTY when the base is a reference to a
+reference or when any intermediate receiver is itself reference-typed — the
+fact is recorded where it is certain and nowhere else. Re-priced on the
+landed binary through the full gates (§7); the five rows and the hand
+verdicts are identical to the AST spelling's.
+The st* / stland* names stay in the sources as env-gated probes with their
+records; F and L, which they shared, are now unconditional.
+
+## 7. THE LANDED FORM, PRICED THROUGH THE GATES (binary 0afe186eba55df25, gate-db 458)
+
+    admits   `-R '^logos_00_bc_admit'`  229/229 (228 rows + the ledger gate)      rc 0
+    pass     `-L bc`                    2079/2079 (2 disabled, the known pins)    rc 0
+    fail     fail_text_oracle vs the unarmed 5d8f031d457bfaa5: 0 rc flips,
+             0 .expected lost, 4 TEXT = the three re-pinned ports + the repaired
+             one; 6 new fail fixtures (5 relanded + the native pair's half)
+    stdlib   all four layers                                                     rc 0
+    L1       tier_commit — red ONCE on `population_pin_lint` (corpus 2529 ->
+             2530: pass/bc_stfacts_legal_twins), re-derived in
+             direct_door_census_gate.sh; the registry census pin moved 8787 ->
+             8789 / 4462 -> 4459 / 282 -> 277, predicted before it was read;
+             L1 re-run in full after both pin edits: 277/277 + 747/747, rc 0
+    L4 bc    3889/3891, rc 8 — the two reds were exactly the two pins above
+             (`census_pin`, and `population_pin_lint`, which L4 reached before
+             the pin edit landed); both re-run green; no other test moved
+    CONTROL REVERT (compiler sources stashed, rebuilt f2d547e2a88f7495): the
+    five relanded ports + the native fail fixture + the three re-pinned ports
+    all FAIL (admitted / old wording); restored (0afe186eba55df25): 11/11 pass.
+The 09-01p hand set (58) on the landed binary: 31/31 legal rc 0; the illegal
+half now refuses i14 i15 i17 i22 (param-sourced hops) on top of i18 i25 i26;
+the local-sourced rest stays admitted — that is the wall of §4, not a
+regression. Under stland (WIP) the legal half refuses l15 l21 l31: l15 shows
+C' covered `lower_expr_inner`'s SECOND `&mut STATIC` return and not its first
+(the unsafe-static path, `make_ref(true, vt)` ~line 1392) — one more minting
+site for the owner-blocked arm.
+
+## 8. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ · `LOGOS_VERIFY_LAYOUT=1` (mlir_gen_types.cpp, the layout verifier the pass
+   tier sets on EVERY fixture) SEGFAULTS (rc 139) on a struct recursive through
+   `Option<&'a Node<'a>>` — build/hand-2026-09-02p/x24c_no_loop.logos, 6 lines,
+   no borrow of any kind; identical with the landing stashed. A pass fixture of
+   that shape is impossible today.
+ · bc's named/'static return rule reads the OUTER region of a double-reference
+   path (`x: &'a &'b S`, `&x.n` is `&'b`) and of a reference-typed field path
+   (fl33, fl34): legal Rust, refused before and after.
+ · imported/admit `patterns`' fn `static_to_a_to_static_through_variable`
+   (`let y: &u32 = &22u32; return y` with an elided `&u32` param) is LEGAL Rust —
+   the port dropped upstream's `'a` and the literal promotes. Its other four
+   fns keep the row honest; under A that fn would be refused for a non-Rust
+   reason (#92, literal promotion).
+ · constant-in-expr-normalize's impl (`fn c(&self) -> &'a i64 { &self.v }`) was
+   itself illegal and admitted only because a field borrow through `self` had no
+   region; REPAIRED in this round (a `&'a i64` field) so the port's ONE refusal
+   stays the upstream one. In scope because it was a cfail of the landing.
+ · A tracked file `1` sits in the repo root: a `LOGOS_CENSUS=1` dump (the census
+   writes to the file the env value names) committed in bad8b8448. Junk.
+ · A captured `&'static mut` still has an EMPTY region inside a closure body
+   (09-01p §9, l31 / issue-42574--t15) — untouched; the facts here go through
+   `lookup`, which returns the capture's declared type, so `self` in a closure
+   DOES carry its region (--upvar-self closed).
+
+## 9. ⛔ DECLINED BY NAME, WITH THE NUMBER
+ · stland / stlandbare: cost 4 / 5, all five OWNER fixtures (§4). Not a defect
+   of the arm — the arm is right — but a landing cannot red a pass fixture it
+   may not edit. 19 (+2) rows named in §4 wait on the owner.
+ · stlandyield: 23 for cfail 3 and the SAME cost 4 — the yield buys nothing
+   the owner wall does not already block.
+ · lifereg_aggtrust: 1 / 0 / 0 in the harness, and refuses al01 (rule 5).
+ · A "return-site-only" A (the inverse of the yield) was considered and NOT
+   priced: it would buy lub-match at the price of a partition by site chosen
+   to dodge the wall (rule 6); lub-match closed by two FACTS instead.
+
+## 10. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+# TOTAL 233 -> 228: mir-check-cast-unsize (nllmoves.NEW-N3), lub-match
+(nllmoves.B), regions-addr-of-self (lifereg.A), regions-addr-of-upvar-self--
+c-control-noclosure, --upvar-self (lifereg.NEW-R20). Not spent: the 19 (+2)
+walled rows of this block (§4) · object-lifetime 18 · bck.C 16 · lifereg.R17
+10 · nllmoves.B 9 · the 4 rows 09-01p §4 named unreachable (t33, constructor,
+better-blame, issue-69114).
+
+## 11. OPEN (carried, plus this round's)
+ 1-57. UNCHANGED from 09-01p.
+ 58. NEW: five pass fixtures (§4) wall 19+2 rows; owner.
+ 59. NEW: the layout verifier crashes on a recursive `Option<&'a Self>` struct.
+ 60. NEW: bc's return rule reads the OUTER region of a multi-hop path (fl33/34).
+
+## stland
+site: include/logos/compiler/subtype.hpp::types_equal_with_lifetimes (+ outlives.hpp, sema_expr.cpp, sema_stmt.cpp)
+build: 5d8f031d457bfaa5 (READ)
+measured: 2026-09-02
+fires: 84252
+ceiling: 24
+cost: 4 (cfail 9, stdlib ok)
+verdict: ⛔ BLOCKED by the five owner fixtures (§4); the arm itself is right by direction. F and L landed out of it.
+
+## stlandyield
+site: src/compiler/sema_stmt.cpp (return sites, `st_at_return`)
+build: 5d8f031d457bfaa5 (READ)
+measured: 2026-09-02
+fires: 84301
+ceiling: 23
+cost: 4 (cfail 3, stdlib ok)
+verdict: ⛔ DECLINED — the yield loses lub-match and does not touch the cost.
+
+## stlandbare
+site: include/logos/compiler/subtype.hpp::subtype (Struct/Enum arms)
+build: 5d8f031d457bfaa5 (READ)
+measured: 2026-09-02
+fires: 84274
+ceiling: 26
+cost: 5 (cfail 9, stdlib ok)
+verdict: ⛔ BLOCKED with stland; the 'static-only D is 2 rows for the fifth owner fixture.
+
+## lifereg_aggtrust
+site: src/compiler/borrow_check.cpp (the B86 inner-lifetime hatch)
+build: 5d8f031d457bfaa5 (READ)
+measured: 2026-09-02
+fires: 22
+ceiling: 1
+cost: 0 (cfail 0, stdlib ok)
+verdict: ⛔ DECLINED — refuses al01, a legal 'static field read through an elided param; the hatch is right and the site is wrong.
+
+## stfacts
+site: src/compiler/sema_expr.cpp::place_base_region (+ lower_unary `&*p`, sema_stmt.cpp lower_let, the default-binding-mode wrap)
+build: 6fb55fb7ce6ed53d (READ)
+measured: 2026-09-02
+fires: 87383
+ceiling: 5
+cost: 0 (cfail 4, stdlib ok)
+verdict: LANDED 2026-09-02p with F' re-spelled over the LIR (§6); cfail 4 = 3 re-pins + 1 port repair.
+
+## stfactsrb
+site: src/compiler/sema_expr.cpp::lower_unary (`&*p`) + sema_stmt.cpp lower_let
+build: 6fb55fb7ce6ed53d (READ)
+measured: 2026-09-02
+fires: 83176
+ceiling: 1
+cost: 0 (cfail 2, stdlib ok)
+verdict: the F+L half; landed inside stfacts.

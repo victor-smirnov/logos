@@ -1,6 +1,9 @@
 // rustc regions/regions-addr-of-upvar-self.rs — upstream lifetime may not live long enough / E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-R20
+// shelf: fail — REFUSED since 2026-09-02p, when a body borrow through a
+// parameter reference began to carry the parameter's region (`&*p`, `&p.f`,
+// `&mut p.f`, a default-mode match binding, an elided `let` annotation) and
+// the existing return / let variance check saw it; was lifereg.NEW-R20
 package regions_addr_of_upvar_self_c_control_noclosure;
 struct Dog { food: u64 }
 impl Dog {

@@ -1123,7 +1123,7 @@
 #   RE-DERIVED BY DIRECT LISTING, not decremented:
 #     awk '!/^#/ && NF' tests/logos/bc_admits.ledger | wc -l  -> 242
 #     ls tests/imported/admit/*/*.logos | wc -l               -> 242
-# TOTAL 233
+# TOTAL 228
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1295,12 +1295,10 @@ issue-62007-assign-differing-fields--c nllmoves.R3 tests/imported/admit/nll/issu
 issue-69114-static-mut-ty nllmoves.R1 tests/imported/admit/nll/issue-69114-static-mut-ty
 issue-98170 nllmoves.R13 tests/imported/admit/nll/issue-98170
 lending-iterator-sanity-checks nllmoves.R2 tests/imported/admit/nll/lending-iterator-sanity-checks
-lub-match nllmoves.B tests/imported/admit/nll/lub-match
 match-guards-always-borrow nllmoves.B tests/imported/admit/nll/match-guards-always-borrow
 method-ufcs-3 nllmoves.NEW-N2 tests/imported/admit/nll/method-ufcs-3
 method-ufcs-inherent-3 nllmoves.NEW-1 tests/imported/admit/nll/method-ufcs-inherent-3
 method-ufcs-inherent-4 nllmoves.NEW-S7-1 tests/imported/admit/nll/method-ufcs-inherent-4
-mir-check-cast-unsize nllmoves.NEW-N3 tests/imported/admit/nll/mir-check-cast-unsize
 move-errors--d nllmoves.B tests/imported/admit/nll/move-errors--d
 normalization nllmoves.NEW-N1 tests/imported/admit/nll/normalization
 pattern-substs-on-brace-enum-variant nllmoves.NEW-L1 tests/imported/admit/nll/pattern-substs-on-brace-enum-variant
@@ -1335,10 +1333,7 @@ region-borrow-params-issue-29793-big lifereg.C tests/imported/admit/regions/regi
 region-borrow-params-issue-29793-small lifereg.C tests/imported/admit/regions/region-borrow-params-issue-29793-small
 region-bounds-on-objects-and-type-parameters lifereg.NEW-N4 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
 region-object-lifetime-in-coercion lifereg.A tests/imported/admit/regions/region-object-lifetime-in-coercion
-regions-addr-of-self lifereg.A tests/imported/admit/regions/regions-addr-of-self
-regions-addr-of-upvar-self--c-control-noclosure lifereg.NEW-R20 tests/imported/admit/regions/regions-addr-of-upvar-self--c-control-noclosure
 regions-addr-of-upvar-self--d-static-local lifereg.NEW-R20 tests/imported/admit/regions/regions-addr-of-upvar-self--d-static-local
-regions-addr-of-upvar-self--upvar-self lifereg.NEW-R20 tests/imported/admit/regions/regions-addr-of-upvar-self--upvar-self
 regions-adjusted-lvalue-op--c26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--c26
 regions-adjusted-lvalue-op--t26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26
 regions-assoc-type-in-supertrait-outlives-container lifereg.L6 tests/imported/admit/regions/regions-assoc-type-in-supertrait-outlives-container
