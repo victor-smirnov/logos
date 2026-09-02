@@ -12687,6 +12687,29 @@ private:
                     if (logos::probe::on("dwptrself") && !pn_.empty() &&
                         var_has(NO_SLOT, pn_))
                         add_ref_sources(pn_, std::string{}, v.value(), ln);
+                    // PROBE 2026-09-04b — W1a+W2 in series. When the pointer is
+                    // a PARAM there is no local root to record on, and the fact
+                    // is an ESCAPE: a borrow of a LOCAL stored through a `&mut`
+                    // the caller owns. Reported AT THE WRITE. PROBES.md.
+                    if ((logos::probe::on("dwptrparam") ||
+                         logos::probe::on("dwptrparamany")) && !pn_.empty() &&
+                        (param_names_.count(pn_) || closure_param_names_.count(pn_))) {
+                        const bool any_ = logos::probe::on("dwptrparamany");
+                        std::vector<std::string> esc_;
+                        collect_ref_sources(v.value(), esc_);
+                        for (auto& s_ : esc_) {
+                            bool local_ = var_has(NO_SLOT, s_) &&
+                                          !param_names_.count(s_) &&
+                                          !closure_param_names_.count(s_);
+                            if (local_ || any_) {
+                                report(ln, std::format(
+                                    "ceiling-probe dwptrparam: borrowed data "
+                                    "escapes: '{}' is stored through '{}', which "
+                                    "the caller owns (E0521)", s_, pn_));
+                                break;
+                            }
+                        }
+                    }
                     if (logos::probe::on("dwptrroot") && !pn_.empty()) {
                         std::vector<std::string> rts_;
                         reborrow_of_.each_root_place(pn_,
@@ -12784,6 +12807,13 @@ private:
                     while (c) {
                         if (c.kind() == EC::FieldRead)       c = EFieldReadView{c}.receiver();
                         else if (c.kind() == EC::TupleIndex) c = ETupleIndexView{c}.receiver();
+                        // PROBE 2026-09-04b — W1b. `(*p).f = &x` walks to a
+                        // Deref and the loop breaks, so no root is reached and
+                        // `dwparamdst` (which tests the root) priced 0 through a
+                        // hop that never runs — rule 11. PROBES.md.
+                        else if (logos::probe::on("dwderefhop") &&
+                                 c.kind() == EC::Deref)
+                            c = EDerefView{c}.operand();
                         // MEASURED 2026-08-28, 379-row ledger: 187 fires,
                         // CEILING 0, COST 0. NEGATIVE RESULT. Predicted
                         // mut-slice-struct-lifetime-transmute--c17 (and
