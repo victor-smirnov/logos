@@ -1,0 +1,19 @@
+// PAIR B, illegal half — ONE TOKEN from pass/bc_argretlet_mask_scratch_admit:
+// the two arguments are the other way round, so `a` is the one `keep` puts in
+// its RESULT. The callee's flow summary marks parameter 0 as reaching the
+// result, `a` is held for `w`'s lifetime, and the write to `a` conflicts.
+// Upstream E0506.
+package bc_argretlet_mask_reaching_fail;
+struct W { p: &mut i64 }
+fn keep(src: &mut i64, scratch: &mut i64) -> W {
+    *scratch = *scratch + 1i64;
+    return W { p: src };
+}
+fn main() -> i32 {
+    let mut a: i64 = 1i64;
+    let mut b: i64 = 2i64;
+    let w: W = keep(&mut a, &mut b);
+    a = 9i64;
+    *w.p = 3i64;
+    return 0i32;
+}

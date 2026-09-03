@@ -1,0 +1,26 @@
+// PAIR C, legal half — ONE TOKEN from fail/bc_argretlet_recv_plain_self_fail:
+// `Cursor`'s field is `&Row`, not `Row`. `Self` itself carries a borrow, so
+// what `nxt` yields may be a COPY of that carried borrow — its lifetime is
+// `Self`'s own parameter and not the `&mut self` loan. This is the
+// `Iterator::next` shape, and it is why the receiver tie asks whether the
+// receiver's type carries a borrow: without that question the stdlib's `lang`
+// layer does not build. PROBES.md 2026-09-03n.
+package bc_argretlet_recv_borrowing_self_admit;
+struct Row { n: i64 }
+struct Cursor { data: &Row, at: i64 }
+struct Item { p: &i64 }
+impl Cursor {
+    fn nxt(self: &mut Cursor) -> Item {
+        self.at = self.at + 1i64;
+        return Item { p: &self.data.n };
+    }
+}
+fn main() -> i32 {
+    let r: Row = Row { n: 4i64 };
+    let mut c: Cursor = Cursor { data: &r, at: 0i64 };
+    let a: Item = c.nxt();
+    let b: Item = c.nxt();
+    let n: i64 = *a.p + *b.p;
+    if n != 8i64 { return 1i32; }
+    return 0i32;
+}

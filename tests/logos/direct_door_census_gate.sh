@@ -1354,10 +1354,13 @@ PIN = {
     # 2026-09-03k: 2632 -> 2634. Two pass twins of the receiver-CHAIN move
     # predicate (bc_mvchain_nested_field_owned_admit,
     # bc_mvchain_box_field_owned_admit), both non-glob.
-    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2634.
-    'corpus'            : 2634,
+    # 2026-09-03n: 2634 -> 2637. Three pass twins of the call-result loan
+    # (bc_argretlet_call_arg_dead_admit, bc_argretlet_mask_scratch_admit,
+    # bc_argretlet_recv_borrowing_self_admit), all three non-glob.
+    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2637.
+    'corpus'            : 2637,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2443,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2446,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

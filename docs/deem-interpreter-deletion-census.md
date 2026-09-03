@@ -5142,9 +5142,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8977 -> 8981   +4
 #   NOIMPORTED   4555 -> 4557   +2
 #   TIERCOMMIT    187 ->  185   -2
-REGISTRY-ALL         8981
-REGISTRY-NOIMPORTED  4557
-REGISTRY-TIERCOMMIT  185
+# 2026-09-03n (the call-result loan round): +6 native fixtures (three fail
+#   pairs' halves under tests/logos/fail, three pass halves under
+#   tests/logos/pass) and -3 admit tests (three ledger rows closed and moved
+#   admit->imported fail, which is +0 to ALL). NOIMPORTED +3 (+6 native, -3
+#   admit tests, which are not `imported`-labelled and their fail ports are);
+#   TIERCOMMIT -3 (the three admit tests). Predicted before the pin was read;
+#   all three landed on the number.
+#   ALL          8981 -> 8987   +6
+#   NOIMPORTED   4557 -> 4560   +3
+#   TIERCOMMIT    185 ->  182   -3
+REGISTRY-ALL         8987
+REGISTRY-NOIMPORTED  4560
+REGISTRY-TIERCOMMIT  182
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

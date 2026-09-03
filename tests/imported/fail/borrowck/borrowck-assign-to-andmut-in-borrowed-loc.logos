@@ -1,6 +1,7 @@
 // rustc borrowck/borrowck-assign-to-andmut-in-borrowed-loc.rs — upstream E0503/E0506
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.NEW
+// shelf: fail (CLOSED 2026-09-03n — a call whose result carries a borrow of an
+//   argument now holds that argument for the binding's lifetime)
 // upstream: borrowck-assign-to-andmut-in-borrowed-loc.rs E0503/E0506
 package borrowck_assign_to_andmut_in_borrowed_loc;
 struct S { pointer: &mut i64 }

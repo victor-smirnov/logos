@@ -1,6 +1,7 @@
 // rustc borrowck/borrowed-mut-pointer-assign-overflow-off.rs — upstream E0503 + E0506
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: fail (CLOSED 2026-09-03n — a call whose result carries a borrow of an
+//   argument now holds that argument for the binding's lifetime)
 package borrowed_mut_pointer_assign_overflow_off;
 struct S { pointer: &mut i64 }
 fn copy_borrowed_ptr(p: &mut S) -> S { return S { pointer: &mut *p.pointer }; }

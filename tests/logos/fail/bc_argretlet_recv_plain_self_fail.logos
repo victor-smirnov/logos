@@ -1,0 +1,21 @@
+// PAIR C, illegal half — ONE TOKEN from pass/bc_argretlet_recv_borrowing_self_admit:
+// `Cursor`'s field is an OWNED `Row`, so `Self` holds no borrow and anything
+// reference-shaped coming out of `&mut self` must point into the receiver's
+// own storage. Two live results therefore alias the same `&mut`. Upstream E0499.
+package bc_argretlet_recv_plain_self_fail;
+struct Row { n: i64 }
+struct Cursor { data: Row, at: i64 }
+struct Item { p: &mut i64 }
+impl Cursor {
+    fn nxt(self: &mut Cursor) -> Item {
+        self.at = self.at + 1i64;
+        return Item { p: &mut self.data.n };
+    }
+}
+fn main() -> i32 {
+    let mut c: Cursor = Cursor { data: Row { n: 4i64 }, at: 0i64 };
+    let a: Item = c.nxt();
+    let b: Item = c.nxt();
+    let n: i64 = *a.p + *b.p;
+    return 0i32;
+}

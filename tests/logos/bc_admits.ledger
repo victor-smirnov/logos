@@ -1211,15 +1211,28 @@
 # param arm was priced with `collect_ref_sources`, which names the local a
 # reference was COPIED OUT OF — it refuses `*out = hr.r` where `hr = &h` and
 # `h = H{ r: <param> }`, pinned legal by pass/bc_b6ptr_param_holder_field.
-# TOTAL 136
+# 2026-09-03n — 136 -> 133. THREE rows, predicted as three BY NAME before the
+# landing (build/round-2026-09-03n/targets-2026-09-03n.txt), closed set == the
+# predicted set both ways. A `let` whose RHS is a call kept nothing: the
+# argument's call-site borrow is released at the call, so `let z = f(&mut y);`
+# left `y` unheld while `z` lived. The loan is now recorded with the BINDING as
+# holder — which is what lets NLL retire it at that binding's last use — for
+# every argument the CALLEE'S OWN FLOW SUMMARY marks as reaching the result.
+#   borrowed-mut-pointer-assign-overflow-off   bck.B    E0503
+#   borrowck-assign-to-andmut-in-borrowed-loc  bck.NEW  E0503
+#   already-borrowed-as-mutable-if-let-133941  bck.NEW  E0499
+# ⚠ THE RECEIVER TIE ASKS ONE MORE QUESTION AND THE STDLIB IS WHAT NAMED IT: a
+# `&mut self` result is tied to the receiver only when `Self`'s own type holds
+# no borrow. `Splitter::next` summarises `result<-0x1 EXACT` and yet Rust ties
+# the ITEM to `Self`'s lifetime, not to the `&mut self` loan; without the
+# question `stdlib/lang` does not build. PROBES.md 2026-09-03n.
+# TOTAL 133
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
-already-borrowed-as-mutable-if-let-133941 bck.NEW tests/imported/admit/borrowck/already-borrowed-as-mutable-if-let-133941
 anonymous-region-in-apit--closure-param-escapes bck.C tests/imported/admit/borrowck/anonymous-region-in-apit--closure-param-escapes
 augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments
 borrow-immutable-upvar-mutation-impl-trait bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait
-borrowck-assign-to-andmut-in-borrowed-loc bck.NEW tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-borrowed-loc
 borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
 borrowck-escaping-closure-error-2 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-2
@@ -1239,7 +1252,6 @@ borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck
 borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--t17
 borrowck-unboxed-closures bck.A tests/imported/admit/borrowck/borrowck-unboxed-closures
 borrowed-data-escapes-closure-148392 bck.C tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392
-borrowed-mut-pointer-assign-overflow-off bck.B tests/imported/admit/borrowck/borrowed-mut-pointer-assign-overflow-off
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
 issue-101119 bck.C tests/imported/admit/borrowck/issue-101119
 issue-36082 bck.D tests/imported/admit/borrowck/issue-36082

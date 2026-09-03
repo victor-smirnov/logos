@@ -12377,6 +12377,10 @@ private:
                     in_destructure_temp_ = is_destructure_temp_name(name);
                     visit(val, /*consuming=*/true, ln);
                     in_destructure_temp_ = saved_dst;
+                    // A call result carrying a borrow of an ARGUMENT holds it
+                    // for the BINDING's lifetime — agg_record_result_args.
+                    if (type_may_carry_borrow(t))
+                        agg_record_result_args(val, ln, name);
                     // Door E / EXEMPT — the HOP ONLY, deliberately not the
                     // routing. When the LOAN channel says the value carries a
                     // borrow but the ESCAPE classification does not (an erased
@@ -13874,6 +13878,73 @@ public:
         return flows_ ? resolve_method_flow(*flows_, fn_index_,
                                            prog_.type_pool.impl(), v)
                       : nullptr;
+    }
+    // `let z = f(&mut y)`: record, with the BINDING as holder, a loan of every
+    // argument the callee's flow summary marks as reaching the RESULT.
+    // ADDITIVE — the consuming visit has already run. PROBES.md 2026-09-03n.
+    void agg_record_result_args(lir_view::ExprRef val, uint32_t line,
+                                const std::string& holder) {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        const auto* pool = prog_.type_pool.impl();
+        const FlowSummary* fs = nullptr;
+        unsigned base = 0;
+        ExprRef recv;
+        if (val.kind() == Code::Call) {
+            fs = flow_of_call(ECallView{val}.callee());
+        } else if (val.kind() == Code::MethodCall) {
+            EMethodCallView mv{val};
+            fs = flow_of_method(mv); base = 1; recv = mv.receiver();
+        } else return;
+        if (!fs || !fs->available) return;
+        auto rec1 = [&](ExprRef a, unsigned pi) {
+            if (!a || pi >= fs->nparams) return;
+            if ((fs->to_result & (1ull << pi)) == 0) return;
+            logos::probe::census("argretlet.sel");
+            BorrowPlace bp; bool m = false;
+            if (a.kind() == Code::AddrOfTemp) {
+                EAddrOfTempView av{a};
+                bp = extract_borrow_place(av.inner(), pool);
+                m = av.is_mut();
+            } else if (a.kind() == Code::AddrOf) {
+                bp.root = std::string(EAddrOfView{a}.var_name());
+                bp.root_slot = NO_SLOT;
+                m = is_mut_ref(a.type(pool));
+            } else if (is_ref_kind(a.type(pool))) {
+                bp = extract_borrow_place(a, pool);
+                m = is_mut_ref(a.type(pool));
+            } else return;
+            bool rawptr = bp.root_type &&
+                          bp.root_type.kind() == LogosType::Kind::Ptr;
+            if (bp.root.empty() || rawptr) return;
+            if (bp.root_slot != NO_SLOT || !var_has(NO_SLOT, bp.root))
+                if (!var_has(bp.root_slot, bp.root)) return;
+            logos::probe::census("argretlet.rec");
+            record_borrow(bp, m, line, holder, {/*skip_mut_binding=*/true});
+        };
+        // ⚠ SOUNDNESS/PRECISION CAVEAT: the receiver is tied only when `Self`'s
+        // own type holds no borrow — a lifetime fact `to_result` cannot carry,
+        // and `Iterator::next` is the counter-example. PROBES.md 2026-09-03n §6.
+        // ⛔ DECLINED CONTROL TWINS: `aggwholem`, `aggwholef` — same §.
+        TypeRef recv_ty;
+        if (recv) {
+            lir_view::ExprRef recv_in = recv;
+            if (recv_in.kind() == Code::AddrOfTemp)
+                recv_in = EAddrOfTempView{recv_in}.inner();
+            recv_ty = recv_in ? recv_in.type(pool) : TypeRef{};
+            if (recv_ty && is_ref_kind(recv_ty) && recv_ty.pointee())
+                recv_ty = recv_ty.pointee();
+        }
+        bool recv_bc = recv_ty && type_may_carry_borrow(recv_ty) &&
+                       !logos::probe::on("aggwholem");
+        if (base == 1 && !recv_bc && !logos::probe::on("aggwholef"))
+            rec1(recv, 0);
+        unsigned ai = base;
+        EMethodCallView mv2{val};
+        if (val.kind() == Code::Call)
+            ECallView{val}.each_arg([&](ExprRef a){ rec1(a, ai++); });
+        else
+            mv2.each_arg([&](ExprRef a){ rec1(a, ai++); });
     }
     // P2-10: when checking GENERIC templates pre-mono, move/use-after-move
     // tracking is imprecise (TypeVar values + generic method-call move

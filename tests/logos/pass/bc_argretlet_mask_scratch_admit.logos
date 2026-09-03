@@ -1,0 +1,24 @@
+// PAIR B, legal half — ONE TOKEN from fail/bc_argretlet_mask_reaching_fail:
+// the two arguments at the call are SWAPPED, so `a` is the SCRATCH parameter —
+// the one the callee's flow summary says does NOT reach the result. It is
+// therefore not held, and `a` stays writable while `w` lives. This is the
+// whole of the mask: the blunt twin that records every `&`/`&mut` argument
+// (`aggwhole`, re-priced this round at ceiling 4 / cost 40 /
+// stdlib REFUSED — PROBES.md 2026-09-03n)
+// refuses this program.
+package bc_argretlet_mask_scratch_admit;
+struct W { p: &mut i64 }
+fn keep(src: &mut i64, scratch: &mut i64) -> W {
+    *scratch = *scratch + 1i64;
+    return W { p: src };
+}
+fn main() -> i32 {
+    let mut a: i64 = 1i64;
+    let mut b: i64 = 2i64;
+    let w: W = keep(&mut b, &mut a);
+    a = 9i64;
+    *w.p = 3i64;
+    if a != 9i64 { return 1i32; }
+    if b != 3i64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,13 @@
+// PAIR A, illegal half — ONE TOKEN from pass/bc_argretlet_call_arg_dead_admit:
+// `w` is USED after `x` is written, so the loan `wrap(&mut x)` handed to `w`
+// is still live at the assignment. Upstream E0506.
+package bc_argretlet_call_arg_live_fail;
+struct W { p: &mut i64 }
+fn wrap(r: &mut i64) -> W { return W { p: r }; }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let w: W = wrap(&mut x);
+    x = 5i64;
+    *w.p = 2i64;
+    return 0i32;
+}

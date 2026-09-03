@@ -1,0 +1,16 @@
+// PAIR A, legal half — ONE TOKEN from fail/bc_argretlet_call_arg_live_fail:
+// the two statements after the `let` are SWAPPED, so `w`'s last use precedes
+// the write to `x` and NLL has retired the loan by then. The holder is what
+// makes that possible: a loan re-homed with an EMPTY holder could never be
+// retired and this program would be refused.
+package bc_argretlet_call_arg_dead_admit;
+struct W { p: &mut i64 }
+fn wrap(r: &mut i64) -> W { return W { p: r }; }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let w: W = wrap(&mut x);
+    *w.p = 2i64;
+    x = 5i64;
+    if x != 5i64 { return 1i32; }
+    return 0i32;
+}

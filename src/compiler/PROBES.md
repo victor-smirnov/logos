@@ -3382,6 +3382,12 @@ Sources reverted, rebuilt, all 25 fixtures re-measured, sources restored, rebuil
 rows are closed, so they are not the rule-8 hazard (a probe leaving with its rows
 still open).
 
+⚠ `aggwhole` WAS RE-PRICED 2026-09-03n AND ITS NUMBER DID NOT DECAY: 92 214
+fires, CEILING 4 (the same four rows by name), COST 40 (the same forty by name),
+COST-fail 0 of 1334, and ⛔ the stdlib does not build under it (lang 1 + mem 20).
+It remains a STOP. `aggnarrow` is still un-re-priced. The paragraph below is the
+warning that produced that measurement and is kept for its reasoning.
+
 ⚠ `aggwhole` AND `aggnarrow` MUST BE RE-PRICED BEFORE ANYONE READS THEIR
 NUMBERS. Both were measured with the `is_self_borrowing` result-test widening
 armed as part of them; that half is now UNCONDITIONAL, so their recorded
@@ -19968,3 +19974,160 @@ NOT SPENT, each with its number: bck.C 12 · nllmoves.C 9 · bck.NEW 8 (real fre
 lifereg.R18 7 (M-SIG, rejected) · bck.B 6 · bck.D 6 (3 owner) · lifereg.NEW-N1 5 ·
 nllmoves.E 4 (E0713 ×3 = the §8.2 owner question) · nllmoves.B 3 · lifereg.R17 4 ·
 nllmoves.D 3 · lifereg.D 3 · bck.E 3 (E0509, retired).
+
+# ═══ ROUND 2026-09-03n — LANDED. A `let` WHOSE RHS IS A CALL KEPT NOTHING: THE
+# ARGUMENT'S CALL-SITE BORROW IS RELEASED AT THE CALL, SO `let z = f(&mut y);`
+# LEFT `y` UNHELD WHILE `z` LIVED. THE LOAN NOW CARRIES THE **BINDING** AS
+# HOLDER AND IS MASKED BY THE CALLEE'S OWN `to_result`. 3 ROWS (predicted 3 by
+# name, both ways), 136 -> 133, cost 0 pass / 0 of 1334 cfail / stdlib ok. ═══
+
+## 0. STEP 1, RE-DERIVED — AND THE HANDED-DOWN REPORT WAS WRONG IN TWO COLUMNS
+HEAD `980c0962a`, tree clean at open. Live probe names **159**, not the 156 the
+handed-down report quotes — it was written before its own three names landed
+(rule 17 again, and the drift is one round old). `# TOTAL 136`, 136 by direct
+listing. Channel split **lifereg 51 · bck 43 · nllmoves 42**; the lifetime
+channel is the bulk, as the prompt's durable claim says.
+⚠ SECOND CORRECTION: `scripts/build_hash.py` on the committed tree at HEAD reads
+**`f12042972c39c149`**, not the `20ebcd9cbe611496` 2026-09-03m §0 records for the
+same commit — verified by a full `cmake --build` that changed nothing. A recorded
+build identity is not re-derivable across a stdlib rebuild; read it, do not quote
+it.
+
+## 1. WHY THIS SUBJECT — A STANDING RULE-8 WARNING, NOT A NEW HYPOTHESIS
+`## aggwhole` in this file carries its own instruction: "⚠ `aggwhole` AND
+`aggnarrow` MUST BE RE-PRICED BEFORE ANYONE READS THEIR NUMBERS", because their
+recorded 4/40 and 0/0 were taken with the `is_self_borrowing` result widening
+armed as part of them and that half is now unconditional. Its recorded CEILING-4
+set is FOUR LIVE LEDGER ROWS — three of them exactly the block 2026-09-03m
+aimed at and priced at ceiling 0, and the fourth `issue-54382-use-span-of-tail-
+of-block` (nllmoves.D). So the subject was already named in the tree, with a
+number, and the previous round's §9.1 had named the funding condition: **the
+re-homed record must carry a HOLDER**.
+
+## 2. THE PREDICTION, WRITTEN BEFORE THE LANDING
+`build/round-2026-09-03n/targets-2026-09-03n.txt`: THREE rows for the landing arm
+by name, FOUR for the blunt twin, and the rest of the 136 named as the negative
+half so the diff runs both ways.
+
+## 3. WHAT THE PREVIOUS ROUND HAD RIGHT AND WHAT IT HAD WRONG
+RIGHT: the fact is carried (`FlowSummary::to_result`, AVAILABLE and EXACT on
+every target) and the holder is the missing half.
+WRONG, and it is why its ceiling was 0: it spelled the repair at `visit_args`,
+where the result's binding **does not exist yet**, so the re-homed record could
+only take an EMPTY holder — an immortal loan, which is the whole of its cost 3 /
+91-stdlib-refusal artefact. THE SAME MECHANISM SPELLED AT THE `let`, where the
+binding's name is already published (`note_binding_slot` runs BEFORE the RHS),
+costs nothing. ⚠ THE SITE, NOT THE MECHANISM, WAS THE PRICE.
+
+## 4. THE ARMS, ONE BUILD EACH, EVERY COST COLUMN READ
+    probe        keyed on                                  fires   ceil  cost  cfail   stdlib
+    aggwholeu    = `aggwhole`: route the `let` through      92214    4    40   0/1334  ⛔ lang 1 + mem 20
+                   take_ref_borrows on type_may_carry_borrow
+    aggwholem    ADDITIVE + to_result mask, receiver tied   94026    3     0   0/1334  ⛔ lang 1
+                   unconditionally
+    aggwholef    aggwholem minus the receiver tie           98356    2     0   0/1334  ok
+    aggwholeg    aggwholem, receiver tied only when         98302    3     0   0/1334  ok  ← LANDED
+                   `Self`'s own type holds no borrow
+`aggwholeu` REPRODUCES `aggwhole`'s recorded 4 / 40 EXACTLY, and its forty names
+are the same forty. So the standing rule-8 warning resolves: the number did not
+decay, and the STOP stands — the stdlib does not build under it (lang 1 + mem 20,
+every refusal of the "loan that never expires" shape).
+
+## 5. THE SETS, DIFFED BOTH WAYS
+    aggwholeg closed = {borrowed-mut-pointer-assign-overflow-off (bck.B, E0503),
+      borrowck-assign-to-andmut-in-borrowed-loc (bck.NEW, E0503),
+      already-borrowed-as-mutable-if-let-133941 (bck.NEW, E0499)}
+    predicted ∖ closed = ∅   closed ∖ predicted = ∅
+    aggwholeu closed = the same three PLUS issue-54382-use-span-of-tail-of-block
+      (nllmoves.D, E0597) — its fourth row is bought only by the blunt routing
+      and comes with the 40 and the stdlib STOP, so it is NOT bought here.
+DIAGNOSTICS READ ON THE BINARY, not inferred from an exit code:
+  `cannot use 'y' while it is mutably borrowed` (×2, upstream E0503/E0506) and
+  `cannot borrow 'foo': 'foo' is already mutably borrowed` (upstream E0499).
+
+## 6. ⚠ THE STDLIB NAMED THE ONE NARROWING, AND IT IS A LIFETIME FACT THE FLOW
+## MASK CANNOT CARRY
+`aggwholem` — the mask alone, receiver tied unconditionally — refuses exactly one
+stdlib function: `Splitter__reduce`, `cannot use 'it' while it is mutably
+borrowed`, at `let first: Option<Item> = it.next();`. `LOGOS_DUMP_FLOWS` on the
+`lang` layer prints `logos.lang.str.Splitter__next__f__refmut_Splitter:
+result<-0x1 **EXACT**` — the summary is right, self DOES flow to the result — and
+Rust still admits the program, because `Iterator::next` ties the ITEM to `Self`'s
+own lifetime parameter and not to the `&mut self` loan. **`to_result` is a FLOW
+fact; the question is a LIFETIME fact, and Logos elides both lifetimes, so no
+mask over `to_result` can separate them.**
+THE LANDED NARROWING IS THE HALF THAT IS DECIDABLE: tie the receiver only when
+`Self`'s own type holds no borrow. If it holds none, anything reference-shaped
+coming out of `&mut self` must point into the receiver's own storage; if it holds
+one, the result may be a COPY of that carried borrow. The narrowing is applied to
+the RECEIVER only — the free-call ARGUMENT arm is not narrowed, and T1/T2 are
+exactly a case (`y: S` where `S { pointer: &mut i64 }`) where narrowing the
+arguments the same way would refuse nothing and lose two rows. That asymmetry is
+recorded as an asymmetry, not dressed up as a principle: nothing has refuted the
+argument arm, and the stdlib refuted the receiver arm by name.
+
+## 7. RULE 5 — 20 HAND PROGRAMS, SHAPES VARIED, `/home/logos/sandbox/aggw/`
+NLL retirement · a scratch parameter that does not reach the result · two shared
+borrows of one place · sequential mutable borrows · a shared borrow held across a
+READ · a `&self`/`&mut self` method result · a nested call · a tuple result · a
+loop body · a generic fn · a shadowing `let` · an `Option`-shaped result · a
+by-value argument · a field-precise borrow with a sibling-field write · two
+shared method results · a field-path receiver · a stdlib `Vec` · a DISCARDED
+holder · and the iterator shape. **19 legal, all 19 admitted.** The twentieth,
+c14 (`let w = wrap(&mut x); x = 5i64; *w.p = 2i64;`), is a REAL E0506 the base
+compiler admitted and the landed rule refuses — a soundness gain outside the
+ledger, pinned as fail/bc_argretlet_call_arg_live_fail.
+**RULE 9 / RULE 18 — THE TWINS SEPARATE ON HAND PROGRAMS, NOT ON THE HARNESS.**
+`aggwholeg` and `aggwholem` are identical in all four harness columns except the
+stdlib. They separate on `sandbox/aggw/d5.logos`, an 18-line `Iterator::next`
+shape written from the stdlib's refusal — legal, admitted by `aggwholeg`, refused
+by `aggwholem` — now pinned as pass/bc_argretlet_recv_borrowing_self_admit with
+its one-token illegal partner fail/bc_argretlet_recv_plain_self_fail (`data: Row`
+instead of `data: &Row`).
+
+## 8. THE THREE PAIRS, ONE TOKEN APART, AND WHAT EACH CONTROL DOES TO THEM
+    fail/bc_argretlet_call_arg_live_fail   ⟷ pass/bc_argretlet_call_arg_dead_admit
+      (the two statements after the `let` swapped: the holder is what makes the
+       legal half legal — an EMPTY-holder loan could never be retired)
+    fail/bc_argretlet_mask_reaching_fail   ⟷ pass/bc_argretlet_mask_scratch_admit
+      (the two ARGUMENTS at the call swapped: the mask decides which is held)
+    fail/bc_argretlet_recv_plain_self_fail ⟷ pass/bc_argretlet_recv_borrowing_self_admit
+      (`Row` vs `&Row` in one field: §6's lifetime fact)
+MEASURED ON THE LANDED BINARY, each control against the two pass halves:
+    aggwhole   refuses BOTH  (the cost-40 artefact, pinned)
+    aggwholem  refuses the RECEIVER one only  (the stdlib STOP shape, pinned)
+    aggwholef  refuses NEITHER  (and buys 2 rows instead of 3)
+
+## 9. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **THE `Iterator::next` LIFETIME FACT IS A REAL GAP AND IT IS NOT BORROW-
+    CHECK'S TO FIX.** §6: `to_result` cannot say whether the result's lifetime is
+    the `&mut self` loan's or `Self`'s own parameter. The narrowing in §6 buys the
+    decidable half; the general answer needs the region channel to carry the
+    lifetime a returned item is tied to. Recorded, not pursued (lifereg block).
+ 2. **CARRIED FORWARD, RE-CHECKED PRESENT, STILL THE OWNER'S:** the three E0713
+    rows (nllmoves.E) recorded "retired, spec" by analogy with E0509 — 2026-09-03m
+    §8.2's own text calls the analogy questionable; the four E0716 rows that are
+    LEGAL RUST; and 2026-09-02p §4's five owner pass fixtures walling the 16-row
+    `'static` block. None edited, none bought.
+
+## 10. THE TREE AT CLOSE
+`src/compiler/borrow_check.cpp` only, one new member function
+(`agg_record_result_args`) plus one line at the `let` gate. `aggwholeu` was a
+redundant alias for the `aggwhole` gate that already existed and is REMOVED with
+its measurement recorded here; `aggwholem` and `aggwholef` stay INSTALLED as the
+two INVERTED controls and are ⛔ DECLINED by name — `aggwholem` on the stdlib and
+on d5, `aggwholef` on the row count. Two census buckets kept
+(`argretlet.sel` / `argretlet.rec`). Prose lives here; the site carries a
+three-line header and a four-line soundness caveat, and the +71/-0 diff was
+re-read for prose after the round (feedback_post_round_check_tool_use) and cut
+from 23 comment lines to 7.
+`# TOTAL` 136 -> 133, and 133 BY DIRECT LISTING. Pins re-derived BY DIRECT
+LISTING in the gates that hold them: direct_door corpus 2634 -> 2637 / nonglob
+2443 -> 2446 (glob 191 unchanged); registry ALL 8981 -> 8987, NOIMPORTED
+4557 -> 4560, TIERCOMMIT 185 -> 182.
+NOT SPENT, each with its number: bck.C 12 · nllmoves.C 9 · lifereg.R18 7 (M-SIG,
+rejected) · bck.NEW 6 (8 minus the two closed here; of the rest 2 are E0509
+retired, 1 declined 09-03j §6) · bck.D 6 (3 owner) · lifereg.NEW-N1 5 ·
+nllmoves.E 4 (E0713 ×3 = the §9.2 owner question) · bck.B 5 · lifereg.R17 4 ·
+nllmoves.B 3 · nllmoves.D 3 (issue-54382 is `aggwhole`'s fourth row and needs the
+blunt routing) · lifereg.D 3 · bck.E 3 (E0509, retired).
