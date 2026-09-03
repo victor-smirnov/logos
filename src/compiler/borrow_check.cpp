@@ -602,6 +602,9 @@ struct VarState {
     // Phase 3 — binding mutability (`let mut x` vs `let x`).
     // Required for rejecting `&mut x` and `x = ...` against immutable bindings.
     bool     is_mut_binding = false;
+    // Introduced by a PATTERN or a loop header, not by a `let`: `is_mut_binding`
+    // is UNANSWERABLE there (PROBES.md 2026-09-03h §8).
+    bool     pat_bound = false;
     // Partial moves: name → line where field was moved out. Reading the
     // same field again, or the whole value, after a field move is rejected.
     std::unordered_map<std::string, uint32_t> moved_fields;
@@ -2090,6 +2093,7 @@ class BorrowChecker {
     // the desugared index_mut (returns 0 ⇒ would record a SHARED borrow ⇒ two
     // `&mut v[i]` alias undetected). The MethodCall recorder ORs this in.
     bool                                 reborrow_force_mut_ = false;
+    bool                                 declaring_pattern_ = false;
     // THE BASE OF A SLICE VIEW. The array→slice coercion is borrow-forming
     // (take_ref_borrows' SliceLit arm says so and delegates to record it), but
     // its base has two spellings: `&arr` -> AddrOf, which the AddrOf arm always
@@ -2971,6 +2975,7 @@ private:
 
     void declare_var(const std::string& name, uint32_t slot = NO_SLOT) {
         var_at(slot, name) = VarState{};  // Phase-1: real slot → dense slot_
+        if (declaring_pattern_) var_at(slot, name).pat_bound = true;
         if (in_closure_body_) closure_body_decls_.insert(name);
         if (!scopes_.empty()) {
             scopes_.back().declared.push_back(name);
@@ -5363,6 +5368,10 @@ private:
     // scope; PatWild may also bind (when name is non-empty and not "_").
     void declare_pat_bindings(lir_view::PatRef pr) {
         if (!pr) return;
+        const bool saved_dp_ = declaring_pattern_;
+        declaring_pattern_ = true;
+        struct DPRestore { bool* f; bool v; ~DPRestore() { *f = v; } }
+            dp_restore_{&declaring_pattern_, saved_dp_};
         using Code = lir_schema::pat::Code;
         // CENSUS (2026-09-01j): arrival by pattern kind at the DECLARATION
         // channel. See PROBES.md `patdecl*`.
@@ -10104,8 +10113,27 @@ private:
                         // (`self.arc.deref_mut()` borrows self.arc, not all
                         // of self) — whole-root would falsely lock sibling
                         // field uses for the holder's lifetime.
+                        // CEILING PROBES — PROBES.md 2026-09-03h.
+                        if (m) {
+                            logos::probe::census("drf.mut");
+                            logos::probe::census(force_mut ? "drf.force"
+                                                           : "drf.selfmut");
+                            if (auto* mst_ = var_find(bp.root_slot, bp.root);
+                                mst_ && !mst_->is_mut_binding)
+                                logos::probe::census(param_names_.count(bp.root)
+                                    ? "drf.nomut.param" : "drf.nomut.local");
+                        }
+                        bool pat_root_ = false;
+                        if (auto* pst_ = var_find(bp.root_slot, bp.root))
+                            pat_root_ = pst_->pat_bound;
+                        if (m && pat_root_) logos::probe::census("drf.patroot");
+                        // ⛔ `drfmutforce`/`drfrecvboth` REFUTED at 0 fires,
+                        // code out — PROBES.md 2026-09-03h §5.
+                        const bool ask_mb_ = m &&
+                            (logos::probe::on("drfmutany") ||
+                             (!pat_root_ && logos::probe::on("drfmutlet")));
                         record_borrow(bp, m, line, holder,
-                                      {/*skip_mut_binding=*/true});
+                                      {/*skip_mut_binding=*/!ask_mb_});
                     }
                 } else if (recv && is_ref_kind(recv.type(pool))) {
                     take_ref_borrows(recv, line, holder, record_only);  // #70
@@ -11301,7 +11329,9 @@ private:
         bool saved_sup = suppress_reports_;
         suppress_reports_ = true;
         push_scope();
+        declaring_pattern_ = true;
         for (auto& v : loop_vars) declare_var(v);
+        declaring_pattern_ = false;
         seed_loop_var_loans();
         bool saved_div = cur_diverged_;
         cur_diverged_ = false;
@@ -11388,7 +11418,9 @@ private:
         loop_stack_.back().outer_scope_count = scopes_.size();   // r11: frames that survive the loop
         cur_diverged_ = false;
         push_scope();
+        declaring_pattern_ = true;
         for (auto& v : loop_vars) declare_var(v);
+        declaring_pattern_ = false;
         seed_loop_var_loans();
         walk_stmts_releasing(body, /*defer_release=*/false);
         cur_diverged_ = saved_div;

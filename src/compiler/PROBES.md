@@ -19007,3 +19007,207 @@ admit test (1/1), and c09 and c10 both compile rc 0 — i.e. both are real holes
     bck.C 12 · nllmoves.C 9 · bck.B 9 · bck.NEW 8 (real size 5) · lifereg.R18 7 · bck.D 6 ·
     lifereg.NEW-N1 5. The 37-row NON-ZERO-SUMMARY population of 09-03f §1 now has TWO of its
     37 spent.
+
+# ═══ ROUND 2026-09-03h — PRICING ONLY, NO FIX LANDED. THE DECLARED-MUT QUESTION IS
+# NOT ASKED WHERE THE BORROW OF THE ROOT IS RECORDED THROUGH A **RECEIVER** ROUTE:
+# `record_borrow(bp, m, line, holder, {skip_mut_binding=TRUE})` IS A BLANKET
+# EXEMPTION AT THE BARE-PLACE `result_borrows_self` ARM. CEILING **2** (predicted 2
+# BY NAME, both ways) / COST 0 / cfail **0 of 1326** IN ALL THREE TEXT COLUMNS /
+# STDLIB FOUR LAYERS, FOR BOTH TWINS. ⚠ RULE 9 IN ITS PUREST FORM: `drfmutany` AND
+# `drfmutlet` ARE IDENTICAL IN EVERY COLUMN THE HARNESS OWNS, DIGIT FOR DIGIT, AND
+# SEPARATE ON **THREE HAND-WRITTEN LEGAL PROGRAMS IN THREE BINDING SYNTAXES**.
+# `drfmutforce` REFUTED AT 0 FIRES; `recvmutbind` RE-PRICED AND ITS COST HAS GROWN. ═══
+
+## 0. STEP 1, RE-DERIVED FROM THE TREE (the brief quoted no figures; nothing needed correcting)
+    HEAD at open `c72c5d9dd`, tree clean, = origin/main. build_hash `794a23f8260d4336` (READ).
+    live probe names (`probe::on("…")` in src+include)   **153**
+    `# TOTAL` in tests/logos/bc_admits.ledger            **140**, and 140 by direct listing
+    channel split                    **lifereg 51 · bck 46 · nllmoves 43**
+    largest roots  bck.C 12 · nllmoves.C 9 · bck.B 9 · bck.NEW 8 · lifereg.R18 7 ·
+                   bck.D 6 · lifereg.NEW-N1 5
+The handed-down 09-03g report checks out in every column. AT CLOSE: probe names **155**
+(153 + `drfmutany` + `drfmutlet`; `drfmutforce` and `drfrecvboth` installed, refuted and
+REMOVED in the same round), `# TOTAL` **140** unchanged — no row bought, no row retired,
+no behaviour changed. build_hash **`e763b96c4c9cf102`** (READ from `scripts/build_hash.py` on the
+committed tree), L1 **748/748 rc 0** with nothing armed, run THREE times: at the four-probe
+batch, after the two-name trim, and on the committed tree. ⚠ THE PRICES BELOW WERE TAKEN ON
+`cda7d5a278952552` (the batch) and `e38bf7d61d1485c7` (the trimmed tree, both survivors
+re-priced there in full); the committed `e763b96c4c9cf102` differs from `e38bf7d61d1485c7`
+ONLY in eleven deleted comment lines moved into this file, and the two rows and the four
+separating hand programs were re-verified on it.
+
+## 1. THE TARGET ROWS, NAMED BEFORE THE COMPILER WAS TOUCHED
+`build/round-2026-09-03h/targets-2026-09-03h.txt` (74 lines), written before the first edit
+to `src/`. NUMBER **3**, and the file also names by name the 10 rows of the same derived
+population predicted NOT to close, plus the remaining 130.
+
+## 2. THE POPULATION, DERIVED BY THE PROPERTY AND NOT BY THE ROOT LABEL
+The upstream diagnostic CODE carried in each ledger program's own header, over all 140:
+    E0597 14 · E0499 9 · E0507 8 · E0716 7 · E0502 7 · E0509 6 · E0382 6 · E0308 6 ·
+    E0621 5 · **E0596 5** · E0521 5 · E0506 4 · E0505 4 · … · 38 rows carry no code.
+The E0596/E0594 set is **6 rows spanning 4 roots** (bck.A ×2, bck.B ×2, bck.C ×1,
+bck.NEW-M ×1) — it cuts three channels' worth of root labels and the label was not
+consulted until the set existed. Three of the six have their defect elsewhere and were
+named as holds: `borrow-immutable-upvar-mutation-impl-trait` (bck.C, E0594, a `move`
+closure mutating its capture), `borrowck-unboxed-closures` (bck.A, FnMut bound),
+`mut-borrow-of-mut-ref` (bck.A, `&mut b` on a `&mut i64` PARAM — the param hatch owns it).
+
+## 3. THE MISSING OBSERVATION, ON A ONE-TOKEN LADDER, MEASURED BEFORE ANY EDIT (rule 17)
+`/home/logos/sandbox/mutroot`, multi-line, the mutation identical, only the PLACE varying:
+    x1  `let a: i64;        let r = &mut a;`      rc 1  "cannot borrow 'a' as mutable: not declared as mut"
+    x2  `let s: S;          let r = &mut s.v;`    rc 1  "… 's' not declared as mut"       (field hop: asked)
+    y3  `let w: Vec<i64>;   let r = &mut w[0];`   rc 1  "… not declared as mut"           (index hop: asked)
+    y5  `let b: Box<S>;     let r = &mut b.v;`    rc 1  "… not declared as mut"           (field-thru-Box: asked)
+    x3  `let b: Box<i64>;   let r = &mut *b;`     rc **0**  ADMITTED  ← the hole
+    y6  `let b: Box<i64>;   bump(&mut *b);`       rc **0**  ADMITTED  ← the hole
+    y4  `let mut a; let r = &mut a; let q = &mut *r;`  rc 0  LEGAL, must stay admitted
+⇒ THE DISCRIMINATOR IS THE **BARE** DEREF OF AN OWNING SMART POINTER, and nothing else.
+And the fact is RECORDED, not absent (rule 16): the LOAN on `b` is there — z1 (two live
+`&mut *b`) refuses E0499, z2 (`&*b` then `&mut *b`) refuses E0502, z3 (move `b` while
+`&mut *b` lives) refuses E0505. Only the BINDING-MUT question is skipped.
+THE SITE, and it is one line: `borrow_check.cpp`, the MethodCall arm's bare-place receiver
+branch (`else if (recv && result_borrows_self(v))`) ends
+    record_borrow(bp, m, line, holder, {/*skip_mut_binding=*/true});
+`*b` on a `Box` lowers to `Deref(MethodCall b.deref_mut())`, so the receiver `b` is a bare
+place and this branch owns it — while its SIBLING, the `AddrOfTemp` receiver branch twenty
+lines up, passes the flag's default (false) and therefore refuses y5. THE ARM EXISTS:
+`take_borrow_whole_`'s binding-mut arm, with its param hatch, its by-value-param rule and
+its wording. The fact this route does not carry is "ask it".
+
+## 4. THE PROBE TABLE — ALL THREE COST COLUMNS, EVERY IDENTITY READ
+Batch of four via `probe-batch.sh build/batch-2026-09-03h.spec` (ONE build, L1 inert
+748/748 rc 0), priced on `cda7d5a278952552`; then `drfmutlet` added by hand and BOTH
+survivors re-priced on the committed `e38bf7d61d1485c7`. Both readings are given.
+    probe        site                                        fires ceil cost cfail std
+    drfmutany    A, exemption dropped whenever the borrow      190   2    0     0    ok
+                 is mutable                                   (identical on both builds)
+    drfmutlet    A, dropped only when the ROOT BINDING was     190   2    0     0    ok
+                 NOT introduced by a pattern or a loop header
+    drfmutforce  A, dropped only when `force_mut`               **0**  — ⛔ NEVER FIRED
+    recvmutbind  B (check_recv_conflict, installed 08-28)    18161   1    1     2    ok  ⛔
+    drfrecvboth  drfmutforce + recvmutbind, one process      18161   1    1     2    ok  ⛔
+`cost` is `pass(ledger+legal)`, `cfail` is **1326** `-L bc -L fail` fixtures in three
+columns (rc, normalised stderr SHA, `.expected` substring match) against a baseline the
+tool measured on each build, `std` is `stdlib-cost.sh`'s four layers. READ IN FULL, per
+rule "read the WHOLE cost line": for both survivors every column is 0/0/ok on BOTH builds.
+
+## 5. ⛔ `drfmutforce` REFUTED — 0 FIRES, WHICH IS NOT A CEILING 0
+The hypothesis was that the discriminator is `force_mut` — the flag the `&mut *(method
+result)` reborrow route sets, i.e. "the SOURCE wrote an explicit `&mut` over the deref".
+It never fires: `&mut *b` on a Box reaches this arm with `force_mut` FALSE and `m` coming
+from `method_self_kind(v) == 2` (`deref_mut` takes `&mut self`). RULE 1 IS DISCHARGED BY
+CENSUS, NOT BY THE ZERO — over the 140 ledger admits, `drf.mut` 2, `drf.selfmut` 2,
+`drf.force` **0**: the site is live, the sub-branch is not. `drfrecvboth` went with it —
+its only purpose was the additivity check against `recvmutbind`, and with one half dead it
+measured 1 = 0 + 1, which is arithmetic about nothing. Both names REMOVED with their code;
+a marker at the site carries the numbers. ⚠ ADDITIVITY OF `drfmutany` WITH `recvmutbind`
+IS THEREFORE **NOT MEASURED** — and it does not matter, because site B is a STOP (§7).
+
+## 6. ⚠ RULE 9 — THE TWO NAMES ARE DIGIT-IDENTICAL ON EVERY POPULATION THE HARNESS OWNS
+    fires 190 = 190 · ceiling 2 = 2, SAME TWO ROWS · cost 0 = 0 · cfail 0/1326 = 0/1326 ·
+    stdlib ok = ok, on BOTH builds.
+They separate on **hand programs only**, and the reason is a census fact: `drf.patroot`
+(the arrival whose root binding came from a pattern or a loop header) is **0 over the 140
+ledger admits** and **4 over the 17 hand programs**. The corpus contains none of them.
+    /home/logos/sandbox/drfmut, 17 programs, multi-line, SHAPES not counts (rule 5):
+      h01  `match e { E::A(mut b) => { let r = &mut *b; } }`   base 0 · any **1** · let 0
+      h13  `if let Option::Some(mut b) = o { &mut *b }`        base 0 · any **1** · let 0
+      h14  `for mut b in vs { let r = &mut *b; }`              base 0 · any **1** · let 0
+      h02  `let mut b: Box<i64>; &mut *b`                      base 0 · any 0 · let 0  LEGAL
+      h04  `fn bump(b: &mut Box<i64>) { &mut **b }`            base 0 · any 0 · let 0  LEGAL
+      h05  `let mut h: H; &mut *h.b`  (field-then-deref)       base 0 · any 0 · let 0  LEGAL
+      h06  `let b: Box<i64>; let r = &*b;` (SHARED)            base 0 · any 0 · let 0  LEGAL
+      h07  `let mut v: Vec<i64>; &mut v[0]`                    base 0 · any 0 · let 0  LEGAL
+      h08/h09 `&mut self` inherent method on a `mut` local /
+              through a `&mut` param                          base 0 · any 0 · let 0  LEGAL
+      h03/h12 `v.push` / `s.len()` on stdlib containers        base 0 · any 0 · let 0  LEGAL
+      h16  `let ws: W; let mut w: W = ws; w.poke();`           base 0 · any 0 · let 0  LEGAL
+      h11  `fn take(b: Box<i64>) { let r = &mut *b; }`         base 0 · any **1** · let **1**
+           — a BY-VALUE param not declared `mut`. E0596 upstream, so this is a CLOSING
+           direction with NO LEDGER ROW; the by-value-param rule inside
+           `take_borrow_whole_` (`byval_w`) is what refuses it, unchanged by this round.
+      h10  `let c: Cell; c.get()` (AddrOfTemp receiver)        base **1** — already refused.
+**THREE LEGAL PROGRAMS, THREE DIFFERENT BINDING SYNTAXES, ALL REFUSED BY THE CRUDE TWIN
+AND NONE BY THE MASKED ONE.** That is the whole separation, and no column of the harness
+can see it. ⚠ COST 0 IS STILL NOT A SAFETY CLAIM: what it is, is 1326 fail fixtures
+unchanged in three text columns, four stdlib layers built, the pass corpus green, and
+fourteen legal hand programs in fourteen syntaxes admitted by `drfmutlet`.
+
+## 7. ⛔ `recvmutbind` RE-PRICED (rule 8) — AND ITS COST HAS GROWN SINCE 2026-08-28
+The 08-28 record reads "205 fires, CEILING 1, COST 0". Today, on `cda7d5a278952552`:
+    fires **18 161** · ceiling **1** (`many-mutable-borrows`, unchanged) · cost **1**
+    (`pass/bc_recvmutbind_pattern_mut_binding` — the fixture that round LANDED to pin the
+    refutation) · **cfail 2**, both TEXT-ONLY and both invisible to ctest:
+      fail/bc_match_deref_mut_not_mut
+      fail/borrowck-no-cycle-in-exchange-heap--move-while-refmut-borrowed
+    stdlib ok.
+VERDICT UNCHANGED AND NOW WORSE: it changes more pinned diagnostics (2) than it closes
+rows (1). STOP as spelled. ⚠ THE COST DID NOT GROW BECAUSE THE COMPILER CHANGED — it grew
+because the 08-28 round wrote the counter-example down as a fixture and because the fail
+text oracle did not exist then. A record is not an installed probe (rule 8), both ways.
+
+## 8. ⚠ THE BLOCKER, NAMED WITH A CONTROL — AND IT IS SHARED BY BOTH SITES
+Sema carries **no by-value pattern `mut`**. Measured on the BASE binary, before any edit:
+    q1  `match e { E::A(mut a) => { a = a + 1i64; … } }` → `assignment to immutable
+        variable 'a'`  — LEGAL RUST, REFUSED TODAY, and this round did not cause it.
+    q2  the same with `&mut a` → `cannot borrow 'a' as mutable: not declared as mut`.
+This is the identical blocker the 2026-08-28 round named when it declined `recvmutbind`
+("`mut` written in a PATTERN never reaches `is_mut_binding`; the LIR pattern schema has no
+by-value-`mut` key"), re-measured and still true three months of rounds later.
+`drfmutlet` DOES NOT FIX IT — it ROUTES AROUND IT, by refusing to ask a question that
+cannot be answered for a pattern binding, which is why its ceiling is the same 2 and its
+hand cost is 0. The bit itself is worth naming as the bigger prize, unchanged from 08-28:
+a per-binding by-value-`mut` flag on PatVariantData/PatWild, set by sema and read by
+`declare_pat_bindings`, would (a) close q1/q2, two standing false refusals, (b) let
+`drfmutlet` be spelled as `drfmutany` with no mask, and (c) is the only thing that could
+make site B (`recvmutbind`, 1 row) fundable. That work is in SEMA, not borrow-check.
+
+## 9. THE MACHINERY `drfmutlet` NEEDS, AND WHY IT IS BORROW-CHECK-LOCAL
+`VarState::pat_bound` — "this binding was introduced by a pattern or a loop header".
+Written in ONE place (`declare_var`, gated on a `declaring_pattern_` member) and set by
+two callers: `declare_pat_bindings` (RAII, so the recursion is covered once) and the two
+`for (auto& v : loop_vars) declare_var(v)` loop headers. No sema change, no LIR schema
+change. It is the COMPLEMENT of the unanswerable question, not the answer to it.
+
+## 10. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED (the brief's rule: record, do not chase)
+ 1. `let b: Box<i64> = Box::new(1i64); *b = 7i64;` → **"write through raw pointer requires
+    unsafe context"**. A write through a Box deref is diagnosed as a raw-pointer write.
+    Wrong diagnostic on a program rustc refuses for a different reason (E0594); no ledger
+    row. `/home/logos/sandbox/mutroot/y1.logos`.
+ 2. `let (mut a, _c): (Box<i64>, i64) = (…);` → **parse error near ')'** — a tuple-pattern
+    `let` with `mut` does not parse. `/home/logos/sandbox/drfmut/h15.logos`.
+ 3. `let mut b: Box<Vec<i64>> = Box::new(Vec::new());` → **`type mismatch — expected
+    Box<Vec<i64>>, got Box<Vec<T>>`**: the element type is not propagated into
+    `Vec::new()` through `Box::new`. `/home/logos/sandbox/drfmut/h17.logos`.
+ 4. q1/q2 of §8 — two standing false refusals of legal Rust, PRE-EXISTING, sema's.
+ 5. The four E0716-family rows that are LEGAL RUST remain an owner's decision, carried
+    forward unchanged: borrowck-borrowed-uniq-rvalue, -2, issue-36082, borrowck-let-suggestion.
+
+## 11. WHAT DESERVES FUNDING
+ 1. **`drfmutlet`: ceiling 2 / cost 0 / cfail 0 of 1326 / stdlib ok on two independent
+    builds, both diagnostics read and both upstream E0596 verbatim in reason** —
+    `cannot borrow 'x' as mutable: not declared as mut` against rustc's "cannot borrow
+    `*x` as mutable, as `x` is not declared as mutable". RULE 14 discharged: the base
+    binary is rc 0 and SILENT on both rows. The landing owes what the probe does not
+    (rule 7): the probe drops one blanket exemption at ONE branch; a correct fix must
+    decide whether the sibling `AddrOfTemp` branch and `take_field_borrow_path_` should
+    ask the same `pat_bound` question (they ask `is_mut_binding` unmasked today and so
+    already carry the q1/q2 false refusal — h10 is the witness). The two pass fixtures it
+    owes are h01 and h13; the two fail pins are the two rows.
+ 2. **DO NOT fund `drfmutany`.** Same ceiling, same two rows, and its cost is three legal
+    programs in three binding syntaxes. Keep it installed as `drfmutlet`'s control twin
+    (rule 18) — the pair is the only thing that shows the mask does the separating.
+ 3. **DO NOT fund `recvmutbind`** (§7), and do not re-price it again without first buying
+    the sema bit of §8; its verdict has now been re-derived twice from the same blocker.
+ 4. **The next blocks by size that are neither mined nor owner-blocked** are unchanged:
+    `nllmoves.C` 9 and the remaining 7 of `bck.B`. bck.B is no longer un-surveyed: its
+    two Box-deref rows are priced here, and the other seven were read program by program
+    and are heterogeneous (E0507 move-out-of-deref ×2, E0509 spec-retired ×1, E0382 array
+    pattern ×1, E0503/E0506 ×1, E0499 index ×1, E0521 escape ×1) — a root, not a class.
+
+## 12. LEDGER BLOCKS NOT SPENT THIS ROUND, EACH WITH ITS NUMBER
+    bck.C 12 (mined seven rounds) · nllmoves.C 9 · bck.B 9 (2 priced here, unspent) ·
+    bck.NEW 8 (real size 5) · lifereg.R18 7 (M-SIG, rejected) · bck.D 6 ·
+    lifereg.NEW-N1 5. E0509 ×6 across bck.B/bck.E/bck.NEW stays RETIRED by spec
+    `intrinsic.drop.skip-moved-out-paths` (a PAIR decision). The 37-row NON-ZERO-SUMMARY
+    population of 09-03f §1 still has only 2 of its 37 spent.
