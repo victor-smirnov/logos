@@ -1794,28 +1794,12 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
     std::vector<lir_view::StmtRef> blk;
     std::string tmp = std::format("__dst_{}", destruct_counter_++);
     define(tmp, rhs_type);
-    // ── E0507 AT A DESTRUCTURING `let` ──────────────────────────────────
-    // Exemption (4) of borrow_check's `deref_move_exempt` — "a destructure
-    // temp owns what it yields" — is a concession to WHERE that check runs:
-    // by then the source is the `__dst_N` temp above and the fact that it was
-    // built from `*r` is gone. Here the source EXPRESSION is still in hand, so
-    // `is_unowned_move_source` — the one predicate for "this place does not own
-    // what it yields" — is asked where the fact lives, and the exemption keeps
-    // its job downstream.
-    //
-    // ⚠ ONLY A BY-VALUE BINDING OF A MOVE-TYPED FIELD IS A MOVE, and both
-    // exclusions are MEASURED, not cautious. `let A { s: ref v, t: w } = *r;`
-    // and `let A { s: _, t: w } = *r;` bind nothing out of `*r` and are legal
-    // Rust; the crude twin `destrpatmv` asked only whether a FIELD is
-    // move-typed and refuses both, and neither shape appears in any of the
-    // three cost populations. `destrpatany` — an unowned source ALONE, with no
-    // binding question — is REFUTED: it costs `pass/bc_deref_move_exempt_admit`,
-    // the exemption's own pinned control. See PROBES.md 2026-09-02pat §7/§10.
+    // E0507 at a destructuring `let`: only a BY-VALUE binding of a move-typed
+    // field moves out. `ref`/`_` exclusions and the refuted wider twins:
+    // PROBES.md 2026-09-02pat §7/§10, 2026-09-02land.
     if (is_unowned_move_source(rhs)) {
         std::string bn_;
-        // `ref v` / `ref mut v` is a PAT_WILD carrying IS_REF (build_pattern
-        // reads exactly this flag); `_` is a PAT_WILD named "_". Either way the
-        // field is not moved out.
+        // `ref v` / `_` are both PAT_WILD; IS_REF separates them.
         auto by_ref_ = [&](TinyMapView n) {
             return n.has_key(la::IS_REF) && n.get(la::IS_REF.code).is_value() &&
                    n.get(la::IS_REF.code).as_value<uint8_t>() != 0;
@@ -6429,32 +6413,14 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
                            TypeRef(scrut_type).kind() == LogosType::Kind::MutRef) &&
             TypeRef(scrut_type).pointee())
             inner_t = TypeRef(scrut_type).pointee();
-        // ── E0507 AT A `&`-PATTERN ──────────────────────────────────────
-        // The `&` HERE performs the deref `is_unowned_move_source` answers for
-        // `*r`, and no pattern site asked: `bind_pattern` receives the
-        // scrutinee's TYPE and never its EXPRESSION, so `match r { &q => … }`
-        // moved a non-Copy value out from behind a reference and nothing
-        // objected. The type is enough at THIS site — a `&`-pattern only
-        // type-checks against a reference, so the deref is in the pattern.
-        //
-        // ⚠ THE POINTEE ALONE OVER-REFUSES, MEASURED. Asking only "is the
-        // pointee a move type" (`patrefany`) refuses SEVEN legal programs no
-        // cost population contains — a `ref` sub-binding, its enum spelling, a
-        // Copy payload through `&mut`, a mixed by-ref/by-value pair, an
-        // `if let`, a bare `&_` that binds nothing at all, and a PRE-MONO
-        // generic body where a bare `T` reads as a move type. The
-        // discriminator is the BINDING MODE, the same fact
-        // (`pat_keys::BINDING_REF_MODES`) the match-arm site above reads.
-        //
-        // ⚠ SILENT ON Struct / Slice / Tuple INNER PATTERNS, deliberately:
-        // `match r { &Out { i: q } => … }` stays admitted. That is one spelling
-        // wide and named in PROBES.md (2026-09-02pat §9); the match-arm site
-        // records the same silence for the same reason.
+        // E0507 at a `&`-pattern: the deref is IN the pattern, so the binding
+        // MODE decides, not the pointee alone (the pointee test over-refuses,
+        // measured). Silent on Struct/Slice/Tuple inner patterns, deliberately.
+        // PROBES.md 2026-09-02pat §6/§9, 2026-09-02land.
         if (inner_t && is_move_type(inner_t)) {
             const auto* tp_ = cur_prog_->type_pool.impl();
             std::string bn_;
-            // Fills `bn_` with the BINDING'S OWN NAME — the only part of this
-            // the reader can act on (`ref q` is the repair).
+            // `bn_` = the binding's own name; `ref q` is the repair.
             std::function<bool(lir_view::PatRef, bool)> byval_;
             byval_ = [&](lir_view::PatRef p, bool wt) -> bool {
                 if (!p) return false;
