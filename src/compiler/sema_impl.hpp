@@ -2166,9 +2166,10 @@ private:
     // (index of a NON-raw container, incl. `v[i]` over a user Index trait which
     // lowers to `*(v.index(i))`). Raw-pointer deref/index is exempt (unsafe; the
     // programmer's job — this is how mem/ptr/Vec primitives legitimately move
-    // out, e.g. `let old = p[0]; p[0] = new` with p:*mut T). Box deref-move
-    // (`*b` = Deref of a `deref()` call — LEGAL, Box owns its content) and
-    // field-out-of-`&self` are NOT flagged here (documented).
+    // out, e.g. `let old = p[0]; p[0] = new` with p:*mut T). A `Box` hop is
+    // exempt (Box owns its content). ⚠ `bx.field` IS admitted and DOUBLE-FREES
+    // at run time — the field case has no DerefMove lowering; PROBES.md
+    // 2026-09-03k §9.1.
     bool is_unowned_move_source(const lir::LExprPtr& e) {
         if (!e) return false;
         auto r = expr_ref_of(e);
@@ -2255,41 +2256,56 @@ private:
             }
             return false;
         };
-        // CEILING PROBES 2026-09-03j — see PROBES.md. The FieldRead/TupleIndex
-        // arms read the IMMEDIATE receiver's TYPE KIND only; this walk carries
-        // the fact they lack: bit 1 = the chain traverses a Deref node,
-        // bit 2 = it traverses a user deref/index CALL.
-        std::function<int(lir_view::ExprRef)> chain_hop_ =
-            [&](lir_view::ExprRef x) -> int {
-            int seen = 0;
+        // The receiver-CHAIN predicate — PROBES.md 2026-09-03k. A `Box`
+        // deref-call hop is TRANSPARENT (Box owns its content), so the walk
+        // CONTINUES past it: `&Holder { bx: Box<_> }` still refuses.
+        auto call_recv_ = [&](lir_view::ExprRef op) -> lir_view::ExprRef {
+            if (!op) return {};
+            if (op.kind() == Code::MethodCall)
+                return lir_view::EMethodCallView{op}.receiver();
+            lir_view::ExprRef first{};
+            if (op.kind() == Code::Call)
+                lir_view::ECallView{op}.each_arg([&](lir_view::ExprRef a) {
+                    if (!first) first = a;
+                });
+            return first;
+        };
+        auto is_box_deref_call_ = [&](lir_view::ExprRef op) -> bool {
+            auto rv = call_recv_(op);
+            auto t = rv ? rv.type(pool) : TypeRef(nullptr);
+            while (t && (t.kind() == LogosType::Kind::Ref ||
+                         t.kind() == LogosType::Kind::MutRef))
+                t = t.pointee();
+            return t && t.kind() == LogosType::Kind::Struct &&
+                   std::string(t.struct_name()) == "Box";
+        };
+        std::function<bool(lir_view::ExprRef)> recv_unowned_ =
+            [&](lir_view::ExprRef x) -> bool {
             while (x) {
-                if (x.kind() == Code::Deref) {
-                    seen |= 1;
-                    if (is_deref_or_index_call(lir_view::EDerefView{x}.operand()))
-                        seen |= 2;
+                auto t = x.type(pool);
+                if (t) {
+                    auto k = t.kind();
+                    if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef)
+                        return true;
+                    if (k == LogosType::Kind::Ptr) return false;
                 }
-                if (is_deref_or_index_call(x)) seen |= 2;
                 switch (x.kind()) {
                     case Code::FieldRead:  x = lir_view::EFieldReadView{x}.receiver(); break;
                     case Code::TupleIndex: x = lir_view::ETupleIndexView{x}.receiver(); break;
-                    case Code::IndexRead:  x = lir_view::EIndexReadView{x}.receiver(); break;
-                    case Code::SliceIndex: x = lir_view::ESliceIndexView{x}.slice();   break;
-                    case Code::Deref:      x = lir_view::EDerefView{x}.operand();      break;
-                    case Code::MethodCall: x = lir_view::EMethodCallView{x}.receiver(); break;
-                    default: return seen;
+                    case Code::AddrOfTemp: x = lir_view::EAddrOfTempView{x}.inner();   break;
+                    case Code::Deref: {
+                        auto op = lir_view::EDerefView{x}.operand();
+                        if (is_deref_or_index_call(op)) {
+                            if (!is_box_deref_call_(op)) return true;
+                            x = call_recv_(op);
+                            break;
+                        }
+                        x = op;
+                        break;
+                    }
+                    default: return false;
                 }
             }
-            return seen;
-        };
-        auto fld_probe_ = [&](lir_view::ExprRef recv, bool base) -> bool {
-            const int hop = chain_hop_(recv);
-            logos::probe::census("mvsrc.fld.arrive");
-            if (base)     logos::probe::census("mvsrc.fld.base");
-            if (hop & 1)  logos::probe::census("mvsrc.fld.deref");
-            if (hop & 2)  logos::probe::census("mvsrc.fld.call");
-            if (base) return true;
-            if ((hop & 1) && logos::probe::on("mvfldany")) return true;
-            if ((hop & 2) && logos::probe::on("mvfldcall")) return true;
             return false;
         };
         switch (r.kind()) {
@@ -2314,10 +2330,7 @@ private:
                 // (`fn f(r:&S)->T{r.field}`) — E0507. Owned receivers (by-value
                 // self / locals) are partial moves (allowed) — their receiver
                 // type is a Struct, not a reference.
-                auto recv = lir_view::EFieldReadView{r}.receiver();
-                auto rt = recv ? recv.type(pool) : TypeRef(nullptr);
-                return fld_probe_(recv, rt && (rt.kind() == LogosType::Kind::Ref ||
-                                               rt.kind() == LogosType::Kind::MutRef));
+                return recv_unowned_(lir_view::EFieldReadView{r}.receiver());
             }
             // ⚠ A TUPLE ELEMENT IS A FIELD WHOSE NAME IS ITS INDEX, and this
             // switch said so for `s.f` and not for `t.0`, so `fn f(r:&(S,i64))
@@ -2329,10 +2342,7 @@ private:
             // { return t.0; }` — an OWNED tuple partial move, which is legal
             // and compiles today. Measured both directions before and after.
             case Code::TupleIndex: {
-                auto recv = lir_view::ETupleIndexView{r}.receiver();
-                auto rt = recv ? recv.type(pool) : TypeRef(nullptr);
-                return fld_probe_(recv, rt && (rt.kind() == LogosType::Kind::Ref ||
-                                               rt.kind() == LogosType::Kind::MutRef));
+                return recv_unowned_(lir_view::ETupleIndexView{r}.receiver());
             }
             default: return false;
         }

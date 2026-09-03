@@ -5132,9 +5132,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8971 -> 8977   +6
 #   NOIMPORTED   4551 -> 4555   +4
 #   TIERCOMMIT    189 ->  187   -2
-REGISTRY-ALL         8977
-REGISTRY-NOIMPORTED  4555
-REGISTRY-TIERCOMMIT  187
+# 2026-09-03k — `is_unowned_move_source`'s FieldRead/TupleIndex arms walk the
+#   receiver CHAIN: 2 admit rows -> imported fail (borrowck, nll), +2 native
+#   fail + +2 native pass bc_mvchain_* twins. ALL +4 (+4 native; the 2 rows
+#   move admit->imported fail, which is +0 to ALL); NOIMPORTED +2 (+4 native,
+#   -2 admit tests, which are not `imported`-labelled and their fail ports
+#   are); TIERCOMMIT -2 (the two admit tests). Predicted before the pin was
+#   read; all three landed on the number.
+#   ALL          8977 -> 8981   +4
+#   NOIMPORTED   4555 -> 4557   +2
+#   TIERCOMMIT    187 ->  185   -2
+REGISTRY-ALL         8981
+REGISTRY-NOIMPORTED  4557
+REGISTRY-TIERCOMMIT  185
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

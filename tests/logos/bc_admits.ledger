@@ -1211,7 +1211,7 @@
 # param arm was priced with `collect_ref_sources`, which names the local a
 # reference was COPIED OUT OF — it refuses `*out = hr.r` where `hr = &h` and
 # `h = H{ r: <param> }`, pinned legal by pass/bc_b6ptr_param_holder_field.
-# TOTAL 138
+# TOTAL 136
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1241,7 +1241,6 @@ borrowck-unboxed-closures bck.A tests/imported/admit/borrowck/borrowck-unboxed-c
 borrowed-data-escapes-closure-148392 bck.C tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392
 borrowed-mut-pointer-assign-overflow-off bck.B tests/imported/admit/borrowck/borrowed-mut-pointer-assign-overflow-off
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
-deref-field-pattern-ref-suggestion-issue-146995 bck.B tests/imported/admit/borrowck/deref-field-pattern-ref-suggestion-issue-146995
 issue-101119 bck.C tests/imported/admit/borrowck/issue-101119
 issue-36082 bck.D tests/imported/admit/borrowck/issue-36082
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
@@ -1311,7 +1310,6 @@ issue-42574-diagnostic-in-nested-closure--t15 nllmoves.C tests/imported/admit/nl
 issue-48697--t16 nllmoves.C tests/imported/admit/nll/issue-48697--t16
 issue-51268 nllmoves.C tests/imported/admit/nll/issue-51268
 issue-52059-report-when-borrow-and-drop-conflict nllmoves.E tests/imported/admit/nll/issue-52059-report-when-borrow-and-drop-conflict
-issue-52086 nllmoves.B tests/imported/admit/nll/issue-52086
 issue-52663-span-decl-captured-variable nllmoves.C tests/imported/admit/nll/issue-52663-span-decl-captured-variable
 issue-53773 nllmoves.E tests/imported/admit/nll/issue-53773
 issue-54124 nllmoves.NEW-L1 tests/imported/admit/nll/issue-54124

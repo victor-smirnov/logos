@@ -1,0 +1,13 @@
+// PAIR A, illegal half — ONE TOKEN from pass/bc_mvchain_nested_field_owned_admit:
+// `t` is `&Top`. The reference is TWO field hops above the move, and the arm
+// that used to read only the IMMEDIATE receiver's type kind saw `Mid` there
+// and admitted it. Upstream E0507.
+package bc_mvchain_nested_field_ref_fail;
+use logos.mem.string;
+struct Mid { v: String, n: i64 }
+struct Top { mid: Mid, tag: i64 }
+fn steal(t: &Top) -> String {
+    let out: String = t.mid.v;
+    return out;
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,16 @@
+// PAIR A, legal half — ONE TOKEN from fail/bc_mvchain_nested_field_ref_fail:
+// `t` is `Top`, not `&Top`. Every hop of `t.mid.v` is a field of a place the
+// function owns, so the move is an ordinary partial move.
+package bc_mvchain_nested_field_owned_admit;
+use logos.mem.string;
+struct Mid { v: String, n: i64 }
+struct Top { mid: Mid, tag: i64 }
+fn steal(t: Top) -> String {
+    let out: String = t.mid.v;
+    return out;
+}
+fn main() -> i32 {
+    let s: String = steal(Top { mid: Mid { v: String::from("z"), n: 1i64 }, tag: 2i64 });
+    if s.len() != 1 { return 1i32; }
+    return 0i32;
+}

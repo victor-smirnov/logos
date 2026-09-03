@@ -1,6 +1,8 @@
 // rustc borrowck/deref-field-pattern-ref-suggestion-issue-146995.rs — upstream E0507 cannot move out of deref
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: fail — REFUSED since 2026-09-03k: the FieldRead/TupleIndex arms of
+// `is_unowned_move_source` walk the receiver CHAIN, so the user `Deref` hop
+// between `w` and `.field` is seen. Upstream E0507. Was bck.B.
 package deref_field_pattern_ref_suggestion_issue_146995;
 use logos.mem.string;
 struct NonCopy { v: String }

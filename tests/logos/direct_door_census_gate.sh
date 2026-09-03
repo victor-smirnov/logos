@@ -1351,10 +1351,13 @@ PIN = {
     # binding-mut question (bc_drfmut_deref_mut_local_admit,
     # bc_drfmut_deref_thru_mut_ref_admit, bc_drfmut_destructure_pat_mut_admit,
     # bc_drfmut_nested_pat_mut_admit), all four non-glob.
-    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2632.
-    'corpus'            : 2632,
+    # 2026-09-03k: 2632 -> 2634. Two pass twins of the receiver-CHAIN move
+    # predicate (bc_mvchain_nested_field_owned_admit,
+    # bc_mvchain_box_field_owned_admit), both non-glob.
+    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2634.
+    'corpus'            : 2634,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2441,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2443,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

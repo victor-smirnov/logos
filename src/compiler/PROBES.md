@@ -19602,3 +19602,204 @@ fires: 132 / 4 / 123
 ceiling: 2 / 0 / 0
 cost: 0 (cfail 0 of 1330, stdlib ok) for all three
 verdict: ⛔ RETIRED. mvall showed the whole is NOT the sum (2 + 0 + 0 = 2); mvargdoor duplicates an existing door (§5); mvrawdrf was the broken hop of §6.
+
+# ═══ ROUND 2026-09-03k — LANDED. `is_unowned_move_source`'s FieldRead /
+# TupleIndex ARMS NOW WALK THE RECEIVER **CHAIN** INSTEAD OF READING THE
+# IMMEDIATE RECEIVER'S TYPE KIND, WITH THE `Box` DEREF-CALL HOP TRANSPARENT:
+# 2 ROWS CLOSED (PREDICTED 2 BY NAME, BOTH WAYS), 138 -> 136. COST 0 pass /
+# 0 of 1330 in ALL THREE fail-oracle COLUMNS / STDLIB FOUR LAYERS OK.
+# ⚠ AND THE PRICING ROUND'S ONE RECORDED COST WAS NOT A COST: `s02`, the
+# "legal Box field move both twins refuse", COMPILES AND DOUBLE-FREES. ═══
+
+## 0. STEP 1, RE-DERIVED (the brief's paraphrase needed one correction)
+    HEAD at open `103b2d17b`, tree clean = origin/main. build_hash
+    `e5554e0fd56e21f3` = gate-db build **644** (READ, not assumed).
+    live probe names **158** (the brief's paraphrase of 09-03j said 156;
+    `grep -rhoP 'probe::on\("\K[a-z_0-9]+' src include | sort -u | wc -l` = 158).
+    `# TOTAL` **138**, and 138 by direct listing.
+    CHANNELS: lifereg **51** · bck **44** · nllmoves **43** — unchanged.
+    LARGEST ROOTS: bck.C 12 · nllmoves.C 9 · bck.NEW 8 · lifereg.R18 7 ·
+    bck.B 7 · bck.D 6 · lifereg.NEW-N1 5.
+    BASELINE READ FROM THE STORE, not re-run: build 644, `-R '^logos_00_bc_admit_'`
+    138/138 already measured, 0 failed; `-L bc` 1330 measured this session,
+    100% passed, 0 failed (2359 in the label overall, 0 failed).
+AT CLOSE: `# TOTAL` **136**, 136 by direct listing. build_hash
+`ec7f7e02b7f34d5d`-class rebuild = gate-db build **650** (READ).
+Prediction file, written BEFORE the landing edit:
+`build/round-2026-09-03k/prediction-2026-09-03k.txt`.
+
+## 1. WHAT LANDED
+`is_unowned_move_source` (src/compiler/sema_impl.hpp). The FieldRead and
+TupleIndex arms asked whether the **immediate** receiver's TYPE KIND is
+Ref/MutRef. They now ask `recv_unowned_(recv)`, a walk of the receiver chain:
+
+    Ref / MutRef anywhere in the chain            -> UNOWNED (E0507)
+    Ptr anywhere in the chain                     -> owned (raw exemption, unchanged)
+    Deref(<deref/index CALL>)                     -> UNOWNED, unless the call's
+                                                     receiver is a `Box`, which is
+                                                     a TRANSPARENT hop: the walk
+                                                     CONTINUES past it
+    FieldRead / TupleIndex / AddrOfTemp / Deref   -> continue to the receiver
+    anything else                                 -> owned
+
+`mvfldany` / `mvfldcall` / `mvall` / `mvargdoor` / `mvrawdrf` are RETIRED WITH
+THEIR CODE — the landed rule supersedes the arm they probed. `mvrawany` and
+`mvrawptr` stay INSTALLED and DECLINED (09-03j §6, the stdlib wall).
+DIFF: +47 / -36 lines, one file.
+
+## 2. WHY THE `Box` HOP IS TRANSPARENT AND NOT A STOP
+Box has a real `impl Deref<T> for Box<T>` in `stdlib/mem/boxed/boxed.logos:92`,
+so `bx.field` lowers to `Deref(Box__deref(&bx))` and is INDISTINGUISHABLE from
+`rc.field` by node shape — MEASURED: under 09-03j's `mvfldcall` the census bucket
+`mvsrc.fld.call` is 1 for BOTH. The separation is the call receiver's TYPE.
+Box OWNS its content (DerefMove, `ff8e243b`), so the hop is transparent and the
+walk continues past it — which is what makes `fn steal(h:&Holder)->Arr
+{ h.bx.arr }` still refuse. A STOP would have admitted it.
+
+## 3. PREDICTED vs ACTUAL, AS SETS, DIFFED BOTH WAYS
+PREDICTED (file, before the landing edit): **2**, by name —
+    deref-field-pattern-ref-suggestion-issue-146995   bck.B       E0507
+    issue-52086                                       nllmoves.B  E0507
+ACTUAL, `gate-run.sh -R '^logos_00_bc_admit_'` on build 649: 136 passed /
+**2 failed**, exactly those two.
+    predicted ∖ actual = ∅ · actual ∖ predicted = ∅.
+DIAGNOSTICS READ ON THE BINARY, not the exit code:
+    146995:11 error [fn take]: cannot move out of a value behind a reference / out of an index (E0507)
+    52086:11  error [fn main]: cannot move out of a value behind a reference / out of an index (E0507)
+Line 11 of 146995 is `let val: NonCopy = w.field;` through `impl Deref for Wrap`;
+line 11 of 52086 is `eat(x.field)` with `x: Rc<Bar>`. Both upstream reasons are
+E0507. Right site, right reason.
+THE FIX IS WIDER THAN ITS PROBE (rule 7) IN TWO SHAPES, AND THE WIDENING WAS
+PREDICTED TO CLOSE NOTHING AND CLOSED NOTHING: (a) a nested field move out of a
+reference (`r.inner.v` — 09-03j §9.1's standing hole, now closed as behaviour),
+(b) an index-then-field move (`v[0].field`). Censused over the 138 before the
+edit: the only multi-hop field reads in the corpus are `g.r.n`, `h.r.n`,
+`self.raw.n` and `v[0u64].oh_no(&v)` — all i64/Copy or a method call, so
+`is_unowned_move_source` is never consulted. 0 extra rows, as written down.
+
+## 4. COST, ALL THREE COLUMNS, AGAINST A CONTROL-REVERT BASELINE
+    pass    `-L bc` 2359 tests: 2357 passed / **0 failed** / 2 disabled
+            (dropck-shadow-rebind, poll-problem-case-3 — disabled at baseline too)
+    cfail   `fail_text_oracle.py` over 1330 `-L bc -L fail` fixtures:
+            **`diff` of the armed and the reverted runs is EMPTY** — 0 rc moves,
+            0 normalised-stderr sha moves, 0 `.expected` matches lost. Rule 15
+            discharged by the only oracle that can see a text-only change.
+    stdlib  `stdlib-cost.sh`: all four layers compile.
+CONTROL REVERT, NOT READ BUT RUN: `git checkout src/compiler/sema_impl.hpp` +
+full `cmake --build` reproduced build_hash `e5554e0fd56e21f3` — gate-db keyed the
+reverted tree to **build 644**, the same id as the baseline, and reported 0
+failed over the 138 rows. The green checkpoint is a measured identity, not a claim.
+CODEGEN IS UNTOUCHED: the nine admitted Box hand programs compile to
+BYTE-IDENTICAL objects on the reverted and the landed binary (sha256, 9 of 9).
+
+## 5. ⚠ RULE 5 — 41 HAND PROGRAMS, AND THE PRICING ROUND'S ONE RECORDED COST
+##    WAS NOT A COST
+`/home/logos/sandbox/mvfix/` (19 new, mine, in shapes 09-03j did not use) plus
+the 22 of `/home/logos/sandbox/mvderef/`. Every verdict below was taken on BOTH
+binaries — the reverted one and the landed one.
+NEWLY REFUSED, all ILLEGAL Rust, all ADMITTED BY THE REVERTED BINARY:
+    y03  `fn steal(h:&Holder)->String { h.bx.field }`      Box behind `&`
+    y06  the same through `&mut Holder`
+    y04  `fn steal(r:&Top)->String { r.mid.deep.v }`       two field hops
+    y05  an `Rc` field move at a `let`
+    y08  a user-`Deref` field move next to an OWNED tuple partial move
+         (the tuple half stays admitted — the arm is not blanket)
+    y09  `v[0].field` with `v: Vec<Inner>`
+    s01/s05/s06/x07  the 09-03j hand programs the probe's twins missed
+UNCHANGED AND ADMITTED, 10 legal programs in 10 spellings (k01-k10):
+`Box<Box<Inner>>` · a Box returned by a call (`mk().field`) · a Box in an owned
+struct field · a by-value-`self` field move · a Box field move inside an `if` ·
+one at a CALL ARGUMENT · one at a RETURN through a by-value `Box` parameter ·
+one inside a generic fn · one inside a `while` body · a plain owned partial move.
+UNCHANGED PRE-EXISTING DIALECT LIMITS, identical text on both binaries and NOT
+this round's doing: k08 `bt.0` on a `Box<(String,i64)>` ("tuple index on
+non-tuple type"), y01/y02 `rb.field` on `&Box<Inner>` and y07 on `&Rc<Pair>`
+("struct 'Box$G1$Inner' has no field 'field'") — field autoderef does not fire
+through a smart pointer behind a reference.
+
+## 6. ⚠ THE PRICING ROUND'S `s02` COST, RE-MEASURED: IT IS A DOUBLE FREE
+09-03j §8 records `s02` — `let bx: Box<Inner>; let v: String = bx.field;` — as a
+LEGAL Rust program that both fld twins refuse, and §10 made a Box exemption the
+condition of funding. The exemption LANDED and `s02` is admitted. But `s02` was
+never a working program: RUN, on the reverted binary and the landed one alike,
+
+    free(): double free detected in tcache 2 ; rc 134
+
+`Box::drop` frees the block AND drops the `Inner`, dropping the `String` that
+was already moved into `v`. `*bx` (which lowers to `box_take`) runs rc 0; the
+PARTIAL move has no such lowering. So the pricing round's single recorded cost
+was a program that aborts, and admitting it — which is what this round does —
+neither creates nor hides the defect (§9.1). ⚠ THE `Box` PASS FIXTURE THEREFORE
+MOVES A DROP-FREE TYPE (`struct Arr { a: [i64;4] }`), and says so in its header:
+a fixture may not assert a program that double-frees.
+
+## 7. THE FIXTURES
+RELANDED IN THEIR OWN ROOT'S HOME, diagnostics pinned in full:
+    tests/imported/fail/borrowck/deref-field-pattern-ref-suggestion-issue-146995
+    tests/imported/fail/nll/issue-52086
+NATIVE PAIRS, ONE TOKEN APART (`&` present or absent), both halves run:
+    PAIR A  pass/bc_mvchain_nested_field_owned_admit  ⟷ fail/bc_mvchain_nested_field_ref_fail
+            `t: Top` vs `t: &Top`, move `t.mid.v` — the reference two hops up
+    PAIR B  pass/bc_mvchain_box_field_owned_admit     ⟷ fail/bc_mvchain_box_field_ref_fail
+            `h: Holder` vs `h: &Holder`, move `h.bx.arr` — the Box hop is
+            transparent, so the walk reaches the `&` and refuses
+The NON-owning hop (Rc, user `Deref`) is pinned by the two relanded imported
+fail fixtures, whose `.expected` carries the whole diagnostic line.
+PINS RE-DERIVED BY DIRECT LISTING, in the gates that hold them:
+    direct_door_census_gate.sh  corpus 2632 -> 2634, nonglob 2441 -> 2443
+    deem-interpreter-deletion-census.md  ALL 8977 -> 8981, NOIMPORTED 4555 ->
+    4557, TIERCOMMIT 187 -> 185 (the two admit tests leaving `tier_commit`)
+
+## 8. ORACLES, EVERY rc
+    gate-run.sh -R '^logos_00_bc_admit_'   build 649: 136 passed / 2 failed (the target rows)
+                                           build 650: 136 passed / 0 failed (after the reland)
+    gate-run.sh -L bc                      build 649: 2357 / 0 failed / 2 disabled
+    FORCE=1 gate-run.sh -R 'bc_mvchain|bc_admits_ledger|…'   7 / 0 failed
+        ⚠ FORCE was needed because gate_db keys a run on the COMPILER, not on the
+        TEST FILES: the first record of `bc_mvchain_box_field_owned_admit` under
+        build 650 was a FAILURE from the String-payload draft of §6, and editing
+        the fixture does not move the key. A stale green would have been the
+        permissive direction.
+    stdlib-cost.sh                         all four layers compile
+    fail_text_oracle.py (armed vs reverted) diff EMPTY over 1330 × 3 columns
+    test-levels.sh L1                      rc 0 — 748/748 + 12 684 generated + 185 gates
+    test-levels.sh L4 bc                   see the commit message
+
+## 9. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **A PARTIAL MOVE OUT OF A `Box` DOUBLE-FREES AT RUN TIME.** `let bx:
+    Box<Inner> = Box::new(…); let v: String = bx.field;` compiles rc 0 and aborts
+    with `free(): double free detected in tcache 2`. Reproduced on the reverted
+    binary and the landed one, byte-identical objects, so it is neither caused
+    nor masked here. Present for every shape tried: a bare Box local, a Box in an
+    owned struct field, a Box returned by a call, `Box<Box<T>>`, a Box parameter,
+    inside a generic fn, inside an `if`, inside a `while`, at a call argument, at
+    a return. It disappears only when the moved type has no drop glue. The whole
+    `*bx` move is FINE (`box_take`). The missing lowering is DerefMove for a
+    FIELD: sema must either mark the field moved in the Box's drop glue or refuse.
+    NO LEDGER ROW HAS THIS SHAPE — the two rows this round bought are the
+    Rc/user-`Deref` spellings, which are E0507 upstream and now refused.
+ 2. `w.field` where `w: &Wrap` does not auto-deref through a user `Deref` impl,
+    and `bt.0` does not auto-deref through a `Box` (§5). Pre-existing, unchanged.
+ 3. **THREE DOCUMENTS STILL CONTRADICT A LANDED FEATURE** (09-03j §9.3):
+    `docs/spec/ownership.md` and `docs/spec/divergences.md` say Box move-out is
+    rejected "since DerefMove is unimplemented". `*bx` works. Left for their
+    owner — and §9.1 says the sentence is only HALF stale, because the FIELD case
+    is exactly the unimplemented half.
+ 4. Carried forward: the four E0716 rows that are LEGAL RUST, and 09-02p §4's
+    five owner pass fixtures walling the `'static` block.
+
+## 10. LEDGER BLOCKS NOT SPENT THIS ROUND, EACH WITH ITS NUMBER
+    bck.C 12 · nllmoves.C 9 · bck.NEW 8 (its E0507 member,
+    borrowck-move-from-unsafe-ptr, is DECLINED by name — 09-03j §6: ceiling 1
+    against a REFUSED stdlib `PrimVec__get`, one pass fixture and eight
+    `.expected` losses; not re-priced) · lifereg.R18 7 (M-SIG, rejected 09-06a) ·
+    bck.B 5 (was 7) · bck.D 6 · lifereg.NEW-N1 5 · nllmoves.E 4 · lifereg.R17 4 ·
+    nllmoves.B 3 (was 4). The 16-row `'static` population stays OWNER-BLOCKED.
+
+## RETIRED-2026-09-03k (mvfldany, mvfldcall, mvall, mvargdoor, mvrawdrf)
+prior site: src/compiler/sema_impl.hpp::is_unowned_move_source (FieldRead + TupleIndex arms)
+prior build: e5554e0fd56e21f3 (READ)
+measured: 2026-09-03
+verdict: ⛔ RETIRED WITH THEIR CODE 2026-09-03k — the receiver-chain walk they
+priced is now the rule, unconditionally and with the Box hop exempt. Their
+recorded ceiling (2) is this round's actual closed set, digit for digit.

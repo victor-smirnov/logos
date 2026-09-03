@@ -1,0 +1,13 @@
+// PAIR B, illegal half — ONE TOKEN from pass/bc_mvchain_box_field_owned_admit:
+// `h` is `&Holder`. The Box hop stays transparent and the walk CONTINUES past
+// it to the `&` above — which is why the Box exemption is a TRANSPARENT HOP and
+// not a stop. Upstream E0507.
+package bc_mvchain_box_field_ref_fail;
+struct Arr { a: [i64; 4] }
+struct Inner { arr: Arr, n: i64 }
+struct Holder { bx: Box<Inner>, tag: i64 }
+fn steal(h: &Holder) -> Arr {
+    let out: Arr = h.bx.arr;
+    return out;
+}
+fn main() -> i32 { return 0i32; }

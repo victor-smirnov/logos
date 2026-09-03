@@ -1,0 +1,21 @@
+// PAIR B, legal half — ONE TOKEN from fail/bc_mvchain_box_field_ref_fail:
+// `h` is `Holder`, not `&Holder`. `Box` OWNS its content, so the `Box__deref`
+// hop in `h.bx.arr` is TRANSPARENT to the receiver-chain walk and the move is
+// an ordinary partial move out of a place the function owns.
+// ⚠ THE MOVED TYPE IS DROP-FREE ON PURPOSE. A Box partial move of a type WITH
+// drop glue (`String`) compiles and then DOUBLE-FREES at run time — an
+// independent codegen hole recorded in PROBES.md 2026-09-03k §9.1, not
+// something this fixture may assert.
+package bc_mvchain_box_field_owned_admit;
+struct Arr { a: [i64; 4] }
+struct Inner { arr: Arr, n: i64 }
+struct Holder { bx: Box<Inner>, tag: i64 }
+fn steal(h: Holder) -> Arr {
+    let out: Arr = h.bx.arr;
+    return out;
+}
+fn main() -> i32 {
+    let a: Arr = steal(Holder { bx: Box::new(Inner { arr: Arr { a: [7i64, 1i64, 1i64, 1i64] }, n: 1i64 }), tag: 2i64 });
+    if a.a[0] != 7i64 { return 1i32; }
+    return 0i32;
+}
