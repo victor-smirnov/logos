@@ -73,11 +73,13 @@
 # pattern-binding sites that deposit nothing, places whose base is not a
 # variable, region/dropck rows, and read-side rows. The remaining two with this
 # spelling (borrowck-access-permissions--c-mut-borrow-deref-box,
-# borrow-immutable-deref-box) are NOT closed and were not attempted: a `Box`
-# deref crosses no reference, so closing them means deleting
-# `skip_mut_binding_check`, which take_borrow's own comment says the stdlib's
-# `arc.deref_mut()` on a non-mut Arc binding relies on. That is its own round,
-# with the stdlib build as the oracle.
+# borrow-immutable-deref-box) CLOSED 2026-09-03i, and NOT by deleting
+# `skip_mut_binding_check`: the bare-place RECEIVER route's blanket
+# `skip_mut_binding=true` became a QUESTION carrying the exemptions its
+# AddrOfTemp sibling already takes (root_is_ref / place_thru_mut_ref) plus a
+# mask for bindings whose `mut` sema's pattern lowering drops. The Rc/Arc roots
+# this comment feared never reach that branch — `root_is_rc` excludes them
+# upstream of it — and the stdlib's four layers were the oracle: they build.
 # 2026-08-27 — 447 -> 438. NINE rows; the CEILING PROBE said 36 and the
 # prediction before the edit said 9. The four pattern propagators (sources /
 # prov / loans / reborrows) all COPY facts the scrutinee already carries onto
@@ -1209,16 +1211,14 @@
 # param arm was priced with `collect_ref_sources`, which names the local a
 # reference was COPIED OUT OF — it refuses `*out = hr.r` where `hr = &h` and
 # `h = H{ r: <param> }`, pinned legal by pass/bc_b6ptr_param_holder_field.
-# TOTAL 140
+# TOTAL 138
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
 already-borrowed-as-mutable-if-let-133941 bck.NEW tests/imported/admit/borrowck/already-borrowed-as-mutable-if-let-133941
 anonymous-region-in-apit--closure-param-escapes bck.C tests/imported/admit/borrowck/anonymous-region-in-apit--closure-param-escapes
 augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments
-borrow-immutable-deref-box bck.B tests/imported/admit/borrowck/borrow-immutable-deref-box
 borrow-immutable-upvar-mutation-impl-trait bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait
-borrowck-access-permissions--c-mut-borrow-deref-box bck.B tests/imported/admit/borrowck/borrowck-access-permissions--c-mut-borrow-deref-box
 borrowck-assign-to-andmut-in-borrowed-loc bck.NEW tests/imported/admit/borrowck/borrowck-assign-to-andmut-in-borrowed-loc
 borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue

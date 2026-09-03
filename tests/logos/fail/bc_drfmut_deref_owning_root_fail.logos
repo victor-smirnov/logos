@@ -1,0 +1,12 @@
+// PAIR B, illegal half — ONE TOKEN from pass/bc_drfmut_deref_thru_mut_ref_admit:
+// `r` OWNS the Box instead of referencing it, so the deref is a use of an
+// immutable binding. Upstream E0596.
+package bc_drfmut_deref_owning_root_fail;
+
+fn main() -> i32 {
+    let b: Box<i64> = Box::new(1i64);
+    let r: Box<i64> = b;
+    let q: &mut i64 = &mut *r;
+    *q = 4i64;
+    return 0i32;
+}

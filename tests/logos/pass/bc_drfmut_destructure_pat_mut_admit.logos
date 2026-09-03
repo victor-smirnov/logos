@@ -1,0 +1,17 @@
+// THE MASK, half 1 of 2. Sema lowers `let W { b: mut bb } = w;` to
+// `let __dst_0 = w; let bb = __dst_0.b;` and the pattern's `mut` does not
+// survive that lowering, so `is_mut_binding` is UNANSWERABLE for `bb`. Asking
+// it anyway refuses this LEGAL Rust program — measured, before the mask was
+// written. The landed rule inherits the unanswerability along the projection.
+package bc_drfmut_destructure_pat_mut_admit;
+
+struct W { b: Box<i64> }
+
+fn main() -> i32 {
+    let w: W = W { b: Box::new(1i64) };
+    let W { b: mut bb } = w;
+    let r: &mut i64 = &mut *bb;
+    *r = 7i64;
+    if *bb != 7i64 { return 1i32; }
+    return 0i32;
+}

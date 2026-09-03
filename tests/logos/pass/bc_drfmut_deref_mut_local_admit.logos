@@ -1,0 +1,13 @@
+// PAIR A, legal half — ONE TOKEN from fail/bc_drfmut_deref_immutable_local_fail:
+// the `mut` on the `let`. `&mut *b` on a Box lowers to `b.deref_mut()`, so the
+// binding-mut question is asked at the MethodCall bare-place receiver route
+// (LANDED 2026-09-03i). With `mut` written it must stay admitted.
+package bc_drfmut_deref_mut_local_admit;
+
+fn main() -> i32 {
+    let mut b: Box<i64> = Box::new(1i64);
+    let r: &mut i64 = &mut *b;
+    *r = 2i64;
+    if *b != 2i64 { return 1i32; }
+    return 0i32;
+}

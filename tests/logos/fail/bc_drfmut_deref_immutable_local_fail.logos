@@ -1,0 +1,11 @@
+// PAIR A, illegal half — ONE TOKEN from pass/bc_drfmut_deref_mut_local_admit:
+// the `mut` is gone. Upstream E0596 ("cannot borrow `*b` as mutable, as `b` is
+// not declared as mutable"). Was admitted before 2026-09-03i.
+package bc_drfmut_deref_immutable_local_fail;
+
+fn main() -> i32 {
+    let b: Box<i64> = Box::new(1i64);
+    let r: &mut i64 = &mut *b;
+    *r = 2i64;
+    return 0i32;
+}

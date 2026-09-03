@@ -10113,7 +10113,6 @@ private:
                         // (`self.arc.deref_mut()` borrows self.arc, not all
                         // of self) — whole-root would falsely lock sibling
                         // field uses for the holder's lifetime.
-                        // CEILING PROBES — PROBES.md 2026-09-03h.
                         if (m) {
                             logos::probe::census("drf.mut");
                             logos::probe::census(force_mut ? "drf.force"
@@ -10123,15 +10122,19 @@ private:
                                 logos::probe::census(param_names_.count(bp.root)
                                     ? "drf.nomut.param" : "drf.nomut.local");
                         }
+                        // LANDED 2026-09-03i — the binding-mut question, with
+                        // the AddrOfTemp sibling's own exemptions and the
+                        // unanswerable-binding mask. `drfmutoff` restores the
+                        // old blanket exemption. PROBES.md 2026-09-03i.
                         bool pat_root_ = false;
                         if (auto* pst_ = var_find(bp.root_slot, bp.root))
                             pat_root_ = pst_->pat_bound;
                         if (m && pat_root_) logos::probe::census("drf.patroot");
-                        // ⛔ `drfmutforce`/`drfrecvboth` REFUTED at 0 fires,
-                        // code out — PROBES.md 2026-09-03h §5.
-                        const bool ask_mb_ = m &&
-                            (logos::probe::on("drfmutany") ||
-                             (!pat_root_ && logos::probe::on("drfmutlet")));
+                        const bool root_is_ref_ =
+                            bp.root_type && is_ref_kind(bp.root_type);
+                        const bool ask_mb_ = m && !pat_root_ && !root_is_ref_ &&
+                            !place_thru_mut_ref(bp) &&
+                            !logos::probe::on("drfmutoff");
                         record_borrow(bp, m, line, holder,
                                       {/*skip_mut_binding=*/!ask_mb_});
                     }
@@ -12410,8 +12413,25 @@ private:
                 declare_var(name, v.var_slot());  // Phase-1
                 note_reborrow(name, t, val);      // H1
                 note_closure_caps(name, val);     // H4
-                if (auto it = var_find(v.var_slot(), name); it != nullptr)
+                if (auto it = var_find(v.var_slot(), name); it != nullptr) {
                     it->is_mut_binding = v.is_mut();
+                    // A `let` PROJECTING OUT of a place whose own declared-mut
+                    // answer is unanswerable inherits that — sema's pattern
+                    // lowerings (`__dst_*`, `__pat_pld_*`) drop the pattern's
+                    // `mut`. PROBES.md 2026-09-03i §4.
+                    lir_view::ExprRef dst_term_;
+                    (void)value_local_root(val, pool, nullptr, &dst_term_);
+                    if (dst_term_ && val.kind() != lir_schema::expr::Code::VarRef &&
+                        dst_term_.kind() == lir_schema::expr::Code::VarRef) {
+                        auto tn_ = lir_view::EVarRefView{dst_term_}.name();
+                        auto* tst_ = var_find(
+                            lir_view::EVarRefView{dst_term_}.var_slot(),
+                            std::string(tn_));
+                        if (is_destructure_temp_name(tn_) ||
+                            (tst_ && tst_->pat_bound))
+                            it->pat_bound = true;
+                    }
+                }
                 if (is_ref_kind(t) || is_borrow_carrying_type(t)) {
                     RefProv vp = prov_of(val);
                     // E0716: a `let`-bound reference outlives its statement, but

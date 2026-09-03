@@ -19211,3 +19211,151 @@ change. It is the COMPLEMENT of the unanswerable question, not the answer to it.
     lifereg.NEW-N1 5. E0509 ×6 across bck.B/bck.E/bck.NEW stays RETIRED by spec
     `intrinsic.drop.skip-moved-out-paths` (a PAIR decision). The 37-row NON-ZERO-SUMMARY
     population of 09-03f §1 still has only 2 of its 37 spent.
+
+# ═══ ROUND 2026-09-03i — LANDED. THE BINDING-MUT QUESTION IS NOW **ASKED** AT THE
+# METHODCALL BARE-PLACE RECEIVER ROUTE, CARRYING THE SAME EXEMPTIONS ITS ADDROFTEMP
+# SIBLING ALREADY TAKES. **2 ROWS CLOSED (predicted 2 BY NAME, both ways), 140 -> 138**,
+# cost 0 / cfail **0 of 1326 in all three text columns** / stdlib four layers / L1 748.
+# ⚠ THE PRICING PHASE'S RECOMMENDED ARM (`drfmutlet`) IS **DECLINED**: it refuses FOUR
+# legal Rust programs in shapes its seventeen hand programs did not contain. ═══
+
+## 0. STEP 1, RE-DERIVED (the handed-down 09-03h report checked out in every column)
+    HEAD at open `2fa91c1f0`, tree clean, = origin/main. build_hash `e763b96c4c9cf102`.
+    live probe names 155 · `# TOTAL` 140, and 140 by direct listing ·
+    channels lifereg 51 · bck 46 · nllmoves 43 · roots bck.C 12 · nllmoves.C 9 ·
+    bck.B 9 · bck.NEW 8 · lifereg.R18 7 · bck.D 6 · lifereg.NEW-N1 5.
+AT CLOSE: probe names **154** (`drfmutany` and `drfmutlet` removed with their code,
+`drfmutoff` — the landed rule turned OFF — installed as the control), `# TOTAL` **138**
+by direct listing, channels lifereg 51 · **bck 44** · nllmoves 43. build_hash
+`a4c02b7b25e8bfeb` (READ). Prediction file, written before the first edit to `src/`:
+`build/round-2026-09-03i/prediction-2026-09-03i.txt`.
+
+## 1. ⚠ RULE 5, PAID FOR THE SECOND ROUND RUNNING — `drfmutlet` COSTS FOUR LEGAL PROGRAMS
+The 09-03h recommendation was `drfmutlet`: ceiling 2 / cost 0 / cfail 0 of 1326 / stdlib
+ok on two builds, seventeen hand programs. SIX NEW HAND PROGRAMS IN SHAPES IT DID NOT
+CONTAIN, each PROVEN to reach the site by `LOGOS_PROBE_FIRE`, were written before any
+edit (`/home/logos/sandbox/drfmut2`). FOUR of them are legal Rust that `drfmutlet`
+REFUSES — base rc 0, armed rc 1:
+    c03  `let mut b: Box<i64>; let r: &mut Box<i64> = &mut b; let q = &mut **r;`
+         "cannot borrow 'r' as mutable: not declared as mut"   ← ROOT IS A REFERENCE
+    c10  the same with `r` coming back from `fn lend(&mut Box<i64>) -> &mut Box<i64>`
+    c05  `let W { b: mut bb } = w; let r = &mut *bb;`           ← DESTRUCTURING `let`
+    c09  `if let Option::Some(W { b: mut bb }) = o { … }`       ← NESTED STRUCT PATTERN
+`drfmutany` refuses those four AND the three the 09-03h round already found (h01/h13/h14),
+so its cost is SEVEN. Neither twin is fundable as spelled. TWO SEPARATE CAUSES, and the
+pricing phase's `pat_bound` mask addresses only one of them and only at three of its five
+doors. **DECLINED BY NAME**: `drfmutlet`, cost 4 legal programs; `drfmutany`, cost 7.
+
+## 2. THE LANDED RULE — REPAIR BY DELEGATION, NOT A NEW PREDICATE
+    const bool ask_mb_ = m && !pat_root_ && !root_is_ref_ &&
+                         !place_thru_mut_ref(bp) && !probe::on("drfmutoff");
+    record_borrow(bp, m, line, holder, {/*skip_mut_binding=*/!ask_mb_});
+`root_is_ref` and `place_thru_mut_ref` are NOT new: they are the two exemptions the
+AddrOfTemp arm of `take_field_borrow_path_` has taken since 2026-08-31p, verbatim, for
+this same question. The receiver route was not missing a rule — it was missing the
+question, and asking it without the sibling's exemptions is what c03/c10 measure. This is
+the shape the 09-03h round's §11 named as the landing's rule-7 debt, discharged by
+delegation rather than by a second spelling.
+
+## 3. ⚠ `drfmutforce` STAYS REFUTED, `recvmutbind` STAYS A STOP
+Neither was re-opened. `recvmutbind`'s 09-03h re-price (18 161 fires, ceiling 1, cost 1,
+cfail 2 text-only) still condemns it and the sema blocker below is still its precondition.
+
+## 4. THE MASK, AND WHY ONE NAME-PREFIX TEST IS NOT ENOUGH (c05 vs c09)
+`VarState::pat_bound` was landed by 09-03h's PRICING commit as "introduced by a pattern or
+a loop header" and set at three doors (`declare_pat_bindings` under an RAII flag, the two
+loop headers). MEASURED: that covers a match arm, an `if let`, a `while let` and a `for` —
+and NOT the two doors c05/c09 use, because sema does not send those through
+`declare_pat_bindings` at all:
+    `let W { b: mut bb } = w;`  ⇒  `let __dst_0 = w; let bb = __dst_0.b;`   (sema_stmt 1795)
+    `if let Some(W { b: mut bb })`  ⇒  payload synth `__pat_pld_Some_0` + a prologue
+                                       destructure off it                  (sema_stmt 4265)
+Both arrive in borrow-check as PLAIN `let`s with the `mut` GONE, so `is_mut_binding` is
+false and answerable-looking. TRACED, not guessed (`LOGOS_DST_TRACE`, a temporary
+instrument, removed):
+    c05  `[dst] name=bb  valkind=FieldRead termname=__dst_0`
+    c09  `[dst] name=bb  valkind=FieldRead termname=__pat_pld_Some_0`
+So the mask PROPAGATES along the projection instead of testing one prefix: a `let` whose
+initialiser is a PROJECTION (not a bare `VarRef` — that spelling answers the question and
+must keep answering it) whose terminal root is either `is_destructure_temp_name` or itself
+`pat_bound` inherits `pat_bound`. `__pat_pld_*` needs no name of its own — it IS a
+VariantData binding and is already masked; only `__dst_*` is a plain `let`. ONE predicate,
+two doors, and the second door is what the one-prefix spelling could not reach: it was
+BUILT and MEASURED refusing c09 before the propagation replaced it.
+
+## 5. THE CLOSED SET, DIFFED BOTH WAYS, EVERY DIAGNOSTIC READ ON THE BINARY
+Ledger run on the fixed build: 138 passed / **2 failed** of 140 — exactly the two named:
+    borrow-immutable-deref-box                            "cannot borrow 'x' as mutable: not declared as mut"
+    borrowck-access-permissions--c-mut-borrow-deref-box   "cannot borrow 'bx' as mutable: not declared as mut"
+Upstream E0596 is "cannot borrow `*x` as mutable, as `x` is not declared as mutable" —
+same reason, both. predicted ∖ actual = ∅; actual ∖ predicted = ∅. All four named holds
+held (`many-mutable-borrows`, `borrow-immutable-upvar-mutation-impl-trait`,
+`borrowck-unboxed-closures`, `mut-borrow-of-mut-ref`). RULE 14 discharged by CONTROL
+REVERT, not by reading: on the stash-and-rebuild binary both rows compile **rc 0, silent**.
+
+## 6. COST, ALL THREE POPULATIONS, ON THE LANDED BUILD
+    pass   `-L bc` 2349 passed / 0 failed (baseline build 634: 2349/0) ·
+           `-R '^logos_(25_spec|03_ownership|04_advanced)_pass'` 190/190 ·
+           ledger 138/138 after the two rows were relanded as fail fixtures
+    fail   `scripts/fail_text_oracle.py` over 1326 `-L bc -L fail` fixtures against a
+           baseline REBUILT BY STASH (`build/oracle-2026-09-03i-control.txt`) rather than
+           a recorded number: **0 rows differ** in rc, in normalised-stderr SHA, or in
+           `.expected` match. Same population both sides (key sets equal).
+    stdlib `scripts/stdlib-cost.sh` — all four layers compile. The full `cmake --build`
+           rebuilds every stdlib layer and every example from source and is rc 0.
+FOURTEEN legal hand programs of 09-03h plus TWELVE of this round's sixteen are admitted,
+before and after, identically.
+
+## 7. THE FIXTURES, IN PAIRS ONE TOKEN APART
+    pass/bc_drfmut_deref_mut_local_admit      `let mut b: Box<i64>; &mut *b`
+    fail/bc_drfmut_deref_immutable_local_fail the same with the `mut` GONE  (PAIR A)
+    pass/bc_drfmut_deref_thru_mut_ref_admit   `let r: &mut Box<i64> = &mut b; &mut **r`
+    fail/bc_drfmut_deref_owning_root_fail     the same with `r: Box<i64>`   (PAIR B)
+    pass/bc_drfmut_destructure_pat_mut_admit  the `__dst_` door of the mask
+    pass/bc_drfmut_nested_pat_mut_admit       the `__pat_pld_` door of the mask
+    tests/imported/fail/borrowck/{borrow-immutable-deref-box,
+      borrowck-access-permissions--c-mut-borrow-deref-box}  — the two rows, pinned in full
+PAIR B is the separator between the landed rule and the crude arm the pricing phase
+recommended: `drfmutlet` refuses its legal half. All four `bc_drfmut_*_admit` fixtures and
+both rows were compiled on the CONTROL-REVERTED binary: the two `*_fail` halves and the two
+rows are rc 0 there, the four `*_admit` are rc 0 on both.
+
+## 8. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED — THREE MORE STANDING FALSE REFUSALS
+All three are PRE-EXISTING: measured identically on the control-reverted binary, and the
+`drfmutoff` control shows this round's site is never even reached for c06/c14.
+ 1. `let mut s: S; let sr: &mut S = &mut s; let r: &mut i64 = sr.get();` →
+    "cannot borrow 'sr' as mutable: not declared as mut". LEGAL RUST. The AddrOfTemp
+    RECEIVER branch inside the MethodCall arm (`recv.kind() == AddrOfTemp &&
+    result_borrows_self`) calls `record_borrow` with the flag's DEFAULT and therefore asks
+    the question with NEITHER the pattern mask NOR — at that spelling — a reference
+    exemption that fires here. `/home/logos/sandbox/drfmut2/c06.logos`.
+ 2. `let P { a: mut aa } = p; let r: &mut i64 = aa.get();` — the same branch, reached from
+    the mask's own door: a destructure-lowered binding whose use is a `&mut self` METHOD
+    rather than a deref. LEGAL RUST, refused. `.../c14.logos`. ⚠ THE MASK LANDED HERE IS
+    NOT WIRED INTO THAT BRANCH, DELIBERATELY: doing so only UN-refuses programs, closes no
+    ledger row, and its own cost is unmeasured — it is a separate mechanism and a separate
+    round. This is the round's answer to 09-03h §11's "decide whether the sibling should
+    ask the same question": NOT in this round, and the two witnesses are named.
+ 3. `let mut bb: Box<Box<i64>>; let r = &mut **bb;` → "cannot borrow 'bb' as mutable:
+    'bb' is behind a `&` reference". LEGAL RUST, refused, wrong reason. `.../c07.logos`.
+ 4. Carried forward unchanged: the 09-03h §10 list (Box-deref write diagnosed as a raw
+    pointer write; `let (mut a, _c): (…)` parse error; `Box::new(Vec::new())` element type;
+    q1/q2 sema by-value pattern `mut`) and the four E0716 rows that are LEGAL RUST and are
+    an owner's decision.
+
+## 9. THE BLOCKER IS UNCHANGED AND IS STILL THE BIGGER PRIZE
+Sema carries no by-value pattern `mut`: `match e { E::A(mut a) => { a = a + 1i64; } }` is
+still "assignment to immutable variable 'a'" on the landed binary. This round ROUTES
+AROUND it at one more pair of doors; it does not answer it. A per-binding by-value-`mut`
+flag set by sema and read by `declare_pat_bindings` would close q1/q2, delete `pat_bound`
+and its propagation entirely, and is the only thing that makes site B (`recvmutbind`)
+fundable. That work is in SEMA.
+
+## 10. BLOCKS NOT SPENT, EACH WITH ITS NUMBER (bck.B is now 7)
+bck.C 12 (mined over seven rounds) · nllmoves.C 9 · **bck.B 7** (was 9; the two E0596
+deref-box rows are this round's) · bck.NEW 8 (real size 5) · lifereg.R18 7 (M-SIG,
+rejected 09-06a) · bck.D 6 · lifereg.NEW-N1 5 · nllmoves.E 4 · nllmoves.B 4 · lifereg.R17 4.
+The E0596/E0594 population derived by upstream code in 09-03h §2 was 6 rows over 4 roots;
+**2 are now spent**, and the other 4 have their defect elsewhere (a `move` closure mutating
+its capture, an FnMut bound, the param hatch) and were named as holds before the round.
+The 37-row NON-ZERO-SUMMARY population of 09-03f still has TWO of its 37 spent.

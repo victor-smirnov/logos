@@ -1,0 +1,16 @@
+// PAIR B, legal half — ONE TOKEN from fail/bc_drfmut_deref_owning_root_fail:
+// `r`'s type is `&mut Box<i64>`, not `Box<i64>`. Writing THROUGH a `&mut`
+// needs no `mut` on the binding that holds it (Rust parity), which is the
+// `root_is_ref` exemption the AddrOfTemp sibling already took and which the
+// receiver route now takes too. The crude twin (the question asked with no
+// exemption) REFUSES this program.
+package bc_drfmut_deref_thru_mut_ref_admit;
+
+fn main() -> i32 {
+    let mut b: Box<i64> = Box::new(1i64);
+    let r: &mut Box<i64> = &mut b;
+    let q: &mut i64 = &mut **r;
+    *q = 4i64;
+    if *b != 4i64 { return 1i32; }
+    return 0i32;
+}

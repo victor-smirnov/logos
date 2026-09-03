@@ -1347,10 +1347,14 @@ PIN = {
     # receiver-tie (bc_selflt_binder_shared_shared_admit,
     # bc_selflt_generic_dead_first_admit, bc_selflt_binder_other_param_admit),
     # all three non-glob.
-    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2628.
-    'corpus'            : 2628,
+    # 2026-09-03i: 2628 -> 2632. Four pass twins of the receiver-route
+    # binding-mut question (bc_drfmut_deref_mut_local_admit,
+    # bc_drfmut_deref_thru_mut_ref_admit, bc_drfmut_destructure_pat_mut_admit,
+    # bc_drfmut_nested_pat_mut_admit), all four non-glob.
+    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2632.
+    'corpus'            : 2632,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2437,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2441,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

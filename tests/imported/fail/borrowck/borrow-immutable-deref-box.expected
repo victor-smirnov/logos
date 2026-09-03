@@ -1,0 +1,1 @@
+[fn main]: cannot borrow 'x' as mutable: not declared as mut
