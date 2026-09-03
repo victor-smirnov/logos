@@ -19359,3 +19359,246 @@ The E0596/E0594 population derived by upstream code in 09-03h §2 was 6 rows ove
 **2 are now spent**, and the other 4 have their defect elsewhere (a `move` closure mutating
 its capture, an FnMut bound, the param hatch) and were named as holds before the round.
 The 37-row NON-ZERO-SUMMARY population of 09-03f still has TWO of its 37 spent.
+
+# ═══ ROUND 2026-09-03j — PRICING ONLY, NO FIX LANDED. `is_unowned_move_source`'s
+# FieldRead / TupleIndex ARMS READ THE **IMMEDIATE** RECEIVER'S TYPE KIND AND NEVER
+# WHETHER THE CHAIN TRAVERSES A DEREF HOP, SO A MOVE OUT OF `Rc`/user-`Deref` IS
+# ADMITTED WHILE THE ONE-HOP `&` SPELLING IS REFUSED. CEILING **2** (predicted 2 BY
+# NAME, both ways) / COST 0 / cfail 0 of 1330 IN ALL THREE TEXT COLUMNS / STDLIB
+# FOUR LAYERS, FOR BOTH TWINS. ⚠ AND BOTH REFUSE ONE LEGAL PROGRAM NO POPULATION
+# CONTAINS (a Box FIELD move — Box DerefMove IS implemented, three documents say it
+# is not). ⚠ RULE 11 MEASURED WITH A NUMBER: the raw-pointer arm read "ceiling 0 /
+# cost 0 / stdlib ok" through a BROKEN SECOND HOP; opening both doors turns it into
+# ceiling 1 / cost 1 pass fixture / cfail 8 / **STDLIB REFUSED**. ═══
+
+## 0. STEP 1, RE-DERIVED FROM THE TREE (the brief quoted no figures; nothing needed correcting)
+    HEAD at open `c86233711`, tree clean = origin/main. build_hash `cf6dd3f780795dd7`.
+    live probe names **154** · `# TOTAL` **138**, and 138 by direct listing ·
+    CHANNELS: lifereg **51** · bck **44** · nllmoves **43** — the lifetime channel is
+    the bulk, as the brief says.
+    LARGEST ROOTS: bck.C 12 · nllmoves.C 9 · bck.NEW 8 · lifereg.R18 7 · bck.B 7 ·
+    bck.D 6 · lifereg.NEW-N1 5 · nllmoves.E 4 · nllmoves.B 4 · lifereg.R17 4.
+    BY UPSTREAM CODE (whole-file grep over the 138 programs, not the header):
+    NONE 35 · E0597 13 · E0499 9 · E0507 8 · E0716 7 · E0382 6 · E0308 6 · E0621 5 ·
+    E0521 5 · E0509 5 · E0505 4 · E0502 4 · E0713 3 · E0596 3 · E0207 3 · E0106 3.
+AT CLOSE: probe names **156** (`mvfldany`, `mvfldcall` kept as the rule-18 twin pair;
+`mvrawany`, `mvrawptr` kept as the raw pair's own twin; `mvall`, `mvargdoor`,
+`mvrawdrf` INSTALLED, PRICED AND REMOVED WITH THEIR CODE in the same round).
+`# TOTAL` **138** unchanged — no row bought, no row retired, no behaviour changed.
+build_hash at close `e5554e0fd56e21f3` (READ), builds 644 (unarmed) -> 648.
+Targets file, written BEFORE the compiler was touched:
+`build/round-2026-09-03j/targets-2026-09-03j.txt`.
+
+## 1. THE TARGET ROWS, NAMED BEFORE THE COMPILER WAS TOUCHED
+    T1  deref-field-pattern-ref-suggestion-issue-146995   bck.B       E0507
+    T2  issue-52086                                       nllmoves.B  E0507
+    T3  borrowck-move-from-unsafe-ptr                     bck.NEW     E0507
+
+## 2. THE POPULATION, DERIVED BY THE PROPERTY AND NOT BY THE ROOT LABEL
+Grepped over the 138 admit programs for a program that names a `Deref` impl, `rc_new`,
+`Box<`, `*const` or `*mut`: 11 rows over 9 roots and all three channels. Of those the
+ones whose defect is a MOVE out of a place the fn does not own are T1/T2/T3 — three
+roots (bck.B, nllmoves.B, bck.NEW), two channels, no root label groups them.
+⚠ FOUR BLOCKS WERE READ AND REJECTED FIRST, each because PROBES.md already answers it:
+ · **The `&local -> 'static` block.** 16 of the 138 mention `'static`, 6 of them E0597
+   with a local's borrow reaching a written `'static` slot (adt-tuple-enums--t33,
+   pattern-substs-on-brace-struct, do-not-ignore-lifetime-bounds-in-copy-proj--b,
+   better-blame-constraint-for-outlives-static, constructor-lifetime-early-binding-error,
+   issue-69114-static-mut-ty). CENSUSED FIRST (rule 17): `stland.lteq` fires **0** times
+   over all seven — the compare never happens. But round 2026-09-02p §2/§4 already priced
+   the whole mechanism: `stland` ceiling 24 / cost 4, `stlandbare` ceiling 26 / cost 5,
+   and the cost is FIVE PASS FIXTURES THAT ASSERT THE DIVERGENCE plus four `@rule` lines
+   in `tests/spec/pass/region_2` — an OWNER decision. All five fixtures RE-CHECKED PRESENT
+   this round. NOT re-bought.
+ · `impl Copy for Foo<'static>` (3 rows) = A16 structural auto-Copy, canonised by Victor
+   2026-08-24: retire candidates, not a compiler fix (09-02z §7).
+ · regions-in-structs-anon / regions-in-enums-anon are DESIGN rows; the two E0392 rows are
+   walled by five owner pass fixtures (09-01 §…); lifereg.R18 is M-SIG, rejected 09-06a.
+ · The PATTERN-SITE half of E0507 landed 2026-09-02land (3 rows) and `move-errors--d` is
+   that round's OWNER decision. This block is the VALUE-position half, untouched by it.
+
+## 3. THE MISSING OBSERVATION, READ OFF THE CODE BEFORE ANY EDIT (rule 17)
+`is_unowned_move_source` (src/compiler/sema_impl.hpp) is the ONE predicate for "this place
+does not own what it yields". Its `Deref` arm already asks `is_deref_or_index_call`; its
+`FieldRead` and `TupleIndex` arms ask only whether the **immediate** receiver's TYPE KIND
+is Ref/MutRef. So `r.field` with `r: &S` is refused and `x.field` with `x: Rc<Bar>` — the
+same move one auto-deref further out — is admitted. The fact the arms lack is the chain,
+not a rule.
+
+## 4. THE PROBE TABLE — ALL THREE COST COLUMNS, EVERY IDENTITY READ
+Batch 1, build `b4eb991f0f64b0c6` (READ), `scripts/probe-batch.sh build/batch-2026-09-03j.spec`,
+L1 rc 0 inert with nothing armed:
+    probe        arms                                    fires  ceil  cost  cfail  std  verdict
+    mvfldany     FieldRead/TupleIndex: any Deref in chain    4     2     0    0/1330  ok  ✓
+    mvfldcall    the same, user deref/index CALL only        4     2     0    0/1330  ok  ✓ (rule-9 twin)
+    mvall        mvfldcall + mvargdoor + mvrawdrf          132     2     0    0/1330  ok  NOT additive: 2+0+0 = 2
+    mvrawany     the raw exemption dropped                 274     0     0    0/1330  ok  ⚠ NOT a refutation — §6
+    mvrawdrf     the raw exemption dropped for a direct *p 123     0     0    0/1330  ok  ⚠ the same broken hop
+    mvargdoor    is_unowned_move_source at a CALL ARGUMENT   4     0     0    0/1330  ok  ⛔ REDUNDANT — §5
+Batch 2, build `e5554e0fd56e21f3` (READ), after the three refuted names were removed and the
+raw mechanism was re-spelled as BOTH doors (§6). Re-priced per rule 8:
+    mvfldany     unchanged                                   3     2     0    0/1330  ok  ✓ ceiling held
+    mvfldcall    unchanged                                   3     2     0    0/1330  ok  ✓ ceiling held
+    mvrawany     BOTH doors, every raw hop               25054     1     1    8/1330  ⛔  stdlib REFUSED
+    mvrawptr     BOTH doors, a direct `*p` only          24926     1     1    8/1330  ⛔  stdlib REFUSED
+⚠ THE RAW PAIR'S `fires` DOUBLE-COUNT: the two-door spelling calls `probe::on` twice on the
+same arrival (once for `raw_open_`, once at the exemption). The fire count is ~2x the arrival
+count; it is used here only to prove the site LIVE, and every other column is unaffected.
+
+## 5. ⛔ `mvargdoor` REFUTED — THE ARGUMENT DOOR ALREADY EXISTS, AND A COMMENT SAYS IT DOES NOT
+`sema_stmt.cpp` says in words that "return/arg positions are NOT caught here". The return
+position is caught (`sema_stmt.cpp`, two sites) and so is the argument position:
+`sema_expr.cpp::coerce_arg_to_param` under `CFLAG_CHECK_E0507` asks exactly this predicate
+for a by-value move-typed formal. MEASURED, not read: under `mvargdoor` alone the census
+bucket `mvsrc.arg.unowned` is **0** and `issue-52086` is admitted; under `mvfldcall` alone
+it is **1** and the row is refused *by the existing door*. Rule 14: a branch that duplicates
+a door buys nothing. The probe and its code are OUT; the stale sentence is left for the
+landing round to correct at its own site.
+
+## 6. ⚠ RULE 11, MEASURED WITH A NUMBER — A CEILING 0 THAT WAS A BROKEN SECOND HOP
+Batch 1 read `mvrawany` as **274 fires / ceiling 0 / cost 0 / cfail 0 / stdlib ok** — the
+exact shape of "proven live and refuted". It was neither. `roots_through_raw` is only the
+FIRST door; the `Deref` arm's own type test accepts Ref/MutRef and **excludes Ptr**, so with
+the exemption dropped the predicate still returned false. Census on the row itself:
+`mvsrc.raw.exempt` 1, `mvsrc.raw.direct` 1, verdict still admitted. With BOTH doors opened
+(`mvrawany` / `mvrawptr`, batch 2) the same mechanism prices:
+    ceiling 1  — `borrowck-move-from-unsafe-ptr`, predicted BY NAME, ∅ both ways
+    cost 1     — `logos_02_semantic_core_pass_bc_deref_move_exempt_admit`, a pass fixture
+                 whose NAME is the exemption
+    cfail 8    — eight `-L bc -L fail` fixtures LOSE their `.expected` match (the whole
+                 move-out-of-`static` family: bc_move_out_of_static_fail,
+                 borrowck-move-out-of-static-item, issue-17718-static-move,
+                 issue-47215-ice-from-drop-elab ×3, move-error-snippets--r31/--t31)
+    stdlib     ⛔ **REFUSED at layer `lang`** — `stdlib/lang/fabric/fabric.logos:355`
+                 `[fn PrimVec__get]: cannot move out of a value behind a reference / out of
+                 an index (E0507)`.
+NARROWING TO A DIRECT `*p` CHANGES NOTHING: `mvrawptr` costs exactly what `mvrawany` costs,
+digit for digit, because `PrimVec__get` is itself a direct `*p`. **T3 IS NOT FUNDABLE as
+spelled: one ledger row against a stdlib wall.** Both names are KEPT as each other's control
+twin (rule 18) so the next round does not re-derive this from a dead arm.
+
+## 7. THE SETS, DIFFED BOTH WAYS, DIAGNOSTIC READ ON THE BINARY
+PREDICTED before the price: T1 and T2 for the fld arms, T3 for the raw arm.
+ACTUAL, `mvfldany` = `mvfldcall` = `mvall`, on both builds:
+    logos_00_bc_admit_borrowck_deref-field-pattern-ref-suggestion-issue-146995
+    logos_00_bc_admit_nll_issue-52086
+predicted ∖ actual = ∅, actual ∖ predicted = ∅. Diagnostics READ on the armed binary
+(rc **1** each; the unarmed binary is rc 0 and silent on both — rule 14 discharged):
+    146995:11  error [fn take]: cannot move out of a value behind a reference / out of an index (E0507)
+    52086:11   error [fn main]: cannot move out of a value behind a reference / out of an index (E0507)
+Line 11 of 146995 is `let val: NonCopy = w.field;` through `impl Deref for Wrap`; line 11 of
+52086 is `eat(x.field)` with `x: Rc<Bar>`. Both upstream reasons are E0507. Right site,
+right reason. `mvrawany`/`mvrawptr` predicted T3 by name and closed exactly T3.
+
+## 8. ⚠ RULE 9 AND RULE 5 — 22 HAND PROGRAMS, MULTI-LINE, `/home/logos/sandbox/mvderef/`
+The two fld twins are digit-identical in EVERY column the harness owns. They separate on
+three hand programs, and the separation runs BOTH ways:
+    s01  `fn steal(r:&S)->String { let out: String = (*r).v; return out; }`   ILLEGAL Rust
+    s05  the same through `&mut S`                                            ILLEGAL Rust
+         ADMITTED UNARMED (a standing hole, §9.1). `mvfldany` REFUSES both; `mvfldcall`
+         admits both — the deref is a plain `Deref` node, not a deref/index CALL.
+         ⇒ `mvfldany` DOMINATES: same ceiling, same three columns, two more correct verdicts.
+    s02  `let bx: Box<Inner> = Box::new(…); let v: String = bx.field;`        **LEGAL Rust**
+         ADMITTED UNARMED. **BOTH TWINS REFUSE IT.** Cost 1 legal program for both, and it
+         is invisible to all three harness columns because no fixture contains the shape.
+FOURTEEN LEGAL PROGRAMS ADMITTED BY BOTH, unarmed and armed, in shapes chosen to vary the
+SPELLING and not the count: an owned struct partial move · an owned TUPLE partial move ·
+a nested owned chain `o.inner.field` · a Copy field through `Rc` · a Copy field through a
+user `Deref` · a Copy field through `Box` · a `String::len()` through `Rc` · a `&x.field`
+borrow passed to a `&String` formal · a method call through a user `Deref` receiver · a
+struct literal fed from an owned partial move · a Copy field of a `&S` param · an array
+index of a Copy element · a `while` loop reading a Copy field through a `Deref` · the whole
+`*bx` Box deref move (s03).
+FOUR ILLEGAL PROGRAMS REFUSED by both: x01 (T1's shape), x02 (T2's shape), x06 (an `Rc`
+field move at a `let`), x04 (`r.v` through `&S` — already refused unarmed).
+
+## 9. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **A move out of a NESTED field of a `&`/`&mut` receiver is ADMITTED, unarmed and under
+    both twins**: `fn steal(r:&S) -> String { return r.inner.v; }` (x07) and its `&mut`
+    twin (s06) compile rc 0, while the one-hop `r.v` is refused. The `FieldRead` arm reads
+    only the TOP receiver's kind, so an intervening owned-struct field hides the reference.
+    Standing soundness hole, no ledger row has the shape, both probes miss it.
+ 2. **`(*r).v` and `r.v` disagree** (s01/s05, §8): the explicit-deref spelling of a refused
+    program is admitted. `mvfldany` closes it; `mvfldcall` does not.
+ 3. **THREE DOCUMENTS CONTRADICT A LANDED FEATURE.** `sema_impl.hpp`'s
+    `is_unowned_move_source` comment, `docs/spec/ownership.md` and `docs/spec/divergences.md`
+    all say Box move-out is rejected "since DerefMove is unimplemented". Box DerefMove IS
+    implemented (`docs/track3-gaps/tier-reaudit-findings.md`: "Box DerefMove — IMPLEMENTED
+    (ff8e243b)"), and MEASURED this round: `let i: Inner = *bx;` compiles rc 0 (s03). The
+    divergence note is stale in both spec files and in the compiled source's comment.
+ 4. `w.field` where `w: &Wrap` does not auto-deref through a user `Deref` impl — "field
+    read: struct 'Wrap' has no field 'field'" (x09). Pre-existing dialect limit, unrelated.
+ 5. Carried forward unchanged: the 09-03i §8 list (the AddrOfTemp receiver branch's two
+    false refusals c06/c14, the `Box<Box<i64>>` wrong-reason refusal c07), the sema
+    by-value pattern `mut` blocker, and the four E0716 rows that are LEGAL RUST and are an
+    owner's decision.
+
+## 10. WHAT DESERVES FUNDING
+ 1. **`mvfldany`, NOT `mvfldcall`**: ceiling 2 / cost 0 / cfail 0 of 1330 in all three text
+    columns / stdlib four layers, on TWO independent builds, both diagnostics read and both
+    upstream E0507 verbatim. It dominates its twin on s01/s05. ⚠ IT IS NOT FUNDABLE AS
+    SPELLED: the landing owes what the probe does not (rule 7) — an EXEMPTION for the Box
+    hop, or s02 (a legal Box field move) is refused and the round costs a legal program the
+    corpus cannot see. The exemption is a fact the walk can carry: the Box deref lowers to
+    `box_take`, not to a user `deref` impl. The two pass fixtures it owes are s02 and s03;
+    the two fail pins are T1 and T2.
+ 2. **DO NOT fund `mvfldcall`.** Same ceiling, same three columns, same s02 cost, and two
+    fewer correct verdicts. Keep it installed as `mvfldany`'s control twin (rule 18) — the
+    pair is the only thing that shows the chain walk, not the CALL test, does the work.
+ 3. **DO NOT fund `mvrawany` / `mvrawptr`** (§6): one row against a REFUSED stdlib, a pass
+    fixture named for the exemption, and eight `.expected` losses. Re-pricing it is only
+    worth it after `PrimVec__get` stops moving out of a raw deref, which is a stdlib change.
+ 4. **`mvargdoor` is OUT** (§5) — the door exists.
+ 5. The nested-field hole of §9.1 is the same arm one hop wider and closes NO ledger row
+    today; named, not probed.
+
+## 11. LEDGER BLOCKS NOT SPENT THIS ROUND, EACH WITH ITS NUMBER
+    bck.C 12 (mined seven rounds) · nllmoves.C 9 · bck.NEW 8 · lifereg.R18 7 (M-SIG,
+    rejected 09-06a) · bck.B 7 · bck.D 6 · lifereg.NEW-N1 5 · nllmoves.E 4 · nllmoves.B 4 ·
+    lifereg.R17 4. The `'static` population of §2 (16 rows) stays OWNER-BLOCKED on the five
+    pass fixtures of 09-02p §4 — re-verified present, not re-priced.
+
+## mvfldany
+site: src/compiler/sema_impl.hpp::is_unowned_move_source (FieldRead + TupleIndex arms, `chain_hop_`)
+build: e5554e0fd56e21f3 (READ)
+measured: 2026-09-03
+fires: 3
+ceiling: 2
+cost: 0 (cfail 0 of 1330 in rc / stderr-sha / .expected, stdlib four layers ok)
+verdict: ✓ RECOMMENDED, but only with a Box exemption — as spelled it refuses s02, a legal Box FIELD move that no population contains.
+
+## mvfldcall
+site: src/compiler/sema_impl.hpp::is_unowned_move_source (the same arms, user deref/index CALL only)
+build: e5554e0fd56e21f3 (READ)
+measured: 2026-09-03
+fires: 3
+ceiling: 2
+cost: 0 (cfail 0 of 1330, stdlib ok) — and 1 legal HAND program (s02), plus two missed illegal ones (s01, s05)
+verdict: ⛔ DECLINED as the landing, KEPT as `mvfldany`'s control twin (rule 18).
+
+## mvrawany
+site: src/compiler/sema_impl.hpp::is_unowned_move_source (`roots_through_raw` + the Deref arm's Ptr test — TWO doors)
+build: e5554e0fd56e21f3 (READ)
+measured: 2026-09-03
+fires: 25054
+ceiling: 1
+cost: 1 pass fixture (bc_deref_move_exempt_admit), cfail 8 `.expected` LOST, stdlib ⛔ REFUSED (lang, fabric.logos:355 PrimVec__get)
+verdict: ⛔ NOT FUNDABLE — one row against a stdlib wall. ⚠ Its batch-1 reading was ceiling 0 / cost 0 / stdlib ok through a BROKEN SECOND HOP (rule 11).
+
+## mvrawptr
+site: the same two doors, opened only for a DIRECT `*p` of a raw pointer
+build: e5554e0fd56e21f3 (READ)
+measured: 2026-09-03
+fires: 24926
+ceiling: 1
+cost: identical to mvrawany, digit for digit — the narrowing buys nothing because PrimVec__get is itself a direct `*p`
+verdict: ⛔ NOT FUNDABLE; kept as mvrawany's control twin.
+
+## mvall / mvargdoor / mvrawdrf
+site: installed, priced and REMOVED with their code in this round (batch 1, build b4eb991f0f64b0c6)
+build: b4eb991f0f64b0c6 (READ)
+measured: 2026-09-03
+fires: 132 / 4 / 123
+ceiling: 2 / 0 / 0
+cost: 0 (cfail 0 of 1330, stdlib ok) for all three
+verdict: ⛔ RETIRED. mvall showed the whole is NOT the sum (2 + 0 + 0 = 2); mvargdoor duplicates an existing door (§5); mvrawdrf was the broken hop of §6.

@@ -2202,7 +2202,26 @@ private:
             }
             return false;
         };
-        if (roots_through_raw(r)) return false;
+        // CEILING PROBES 2026-09-03j — the raw-pointer exemption is BLANKET and
+        // the Deref arm's own type test excludes Ptr, so the mechanism is TWO
+        // DOORS IN SERIES; both probes open BOTH. `mvrawptr` opens them only for
+        // a DIRECT `*p` of a raw pointer, `mvrawany` for every raw hop.
+        // PROBES.md 2026-09-03j.
+        const bool raw_open_ = logos::probe::on("mvrawany") ||
+                               logos::probe::on("mvrawptr");
+        if (roots_through_raw(r)) {
+            logos::probe::census("mvsrc.raw.exempt");
+            bool direct_ = false;
+            if (r.kind() == Code::Deref) {
+                auto o_ = lir_view::EDerefView{r}.operand();
+                auto ot_ = o_ ? o_.type(pool) : TypeRef(nullptr);
+                direct_ = ot_ && ot_.kind() == LogosType::Kind::Ptr;
+            }
+            if (direct_) logos::probe::census("mvsrc.raw.direct");
+            if (!(logos::probe::on("mvrawany") ||
+                  (direct_ && logos::probe::on("mvrawptr"))))
+                return false;
+        }
         auto is_raw = [&](lir_view::ExprRef x) {
             auto t = x ? x.type(pool) : TypeRef(nullptr);
             return t && t.kind() == LogosType::Kind::Ptr;
@@ -2236,6 +2255,43 @@ private:
             }
             return false;
         };
+        // CEILING PROBES 2026-09-03j — see PROBES.md. The FieldRead/TupleIndex
+        // arms read the IMMEDIATE receiver's TYPE KIND only; this walk carries
+        // the fact they lack: bit 1 = the chain traverses a Deref node,
+        // bit 2 = it traverses a user deref/index CALL.
+        std::function<int(lir_view::ExprRef)> chain_hop_ =
+            [&](lir_view::ExprRef x) -> int {
+            int seen = 0;
+            while (x) {
+                if (x.kind() == Code::Deref) {
+                    seen |= 1;
+                    if (is_deref_or_index_call(lir_view::EDerefView{x}.operand()))
+                        seen |= 2;
+                }
+                if (is_deref_or_index_call(x)) seen |= 2;
+                switch (x.kind()) {
+                    case Code::FieldRead:  x = lir_view::EFieldReadView{x}.receiver(); break;
+                    case Code::TupleIndex: x = lir_view::ETupleIndexView{x}.receiver(); break;
+                    case Code::IndexRead:  x = lir_view::EIndexReadView{x}.receiver(); break;
+                    case Code::SliceIndex: x = lir_view::ESliceIndexView{x}.slice();   break;
+                    case Code::Deref:      x = lir_view::EDerefView{x}.operand();      break;
+                    case Code::MethodCall: x = lir_view::EMethodCallView{x}.receiver(); break;
+                    default: return seen;
+                }
+            }
+            return seen;
+        };
+        auto fld_probe_ = [&](lir_view::ExprRef recv, bool base) -> bool {
+            const int hop = chain_hop_(recv);
+            logos::probe::census("mvsrc.fld.arrive");
+            if (base)     logos::probe::census("mvsrc.fld.base");
+            if (hop & 1)  logos::probe::census("mvsrc.fld.deref");
+            if (hop & 2)  logos::probe::census("mvsrc.fld.call");
+            if (base) return true;
+            if ((hop & 1) && logos::probe::on("mvfldany")) return true;
+            if ((hop & 2) && logos::probe::on("mvfldcall")) return true;
+            return false;
+        };
         switch (r.kind()) {
             case Code::IndexRead:
                 return !is_raw(lir_view::EIndexReadView{r}.receiver());
@@ -2245,6 +2301,9 @@ private:
                 auto op = lir_view::EDerefView{r}.operand();
                 if (op && op.kind() == Code::VarRef) {
                     auto ot = op.type(pool);
+                    // 2026-09-03j: the SECOND door of the raw mechanism.
+                    if (raw_open_ && ot && ot.kind() == LogosType::Kind::Ptr)
+                        return true;
                     return ot && (ot.kind() == LogosType::Kind::Ref ||
                                   ot.kind() == LogosType::Kind::MutRef);
                 }
@@ -2257,8 +2316,8 @@ private:
                 // type is a Struct, not a reference.
                 auto recv = lir_view::EFieldReadView{r}.receiver();
                 auto rt = recv ? recv.type(pool) : TypeRef(nullptr);
-                return rt && (rt.kind() == LogosType::Kind::Ref ||
-                              rt.kind() == LogosType::Kind::MutRef);
+                return fld_probe_(recv, rt && (rt.kind() == LogosType::Kind::Ref ||
+                                               rt.kind() == LogosType::Kind::MutRef));
             }
             // ⚠ A TUPLE ELEMENT IS A FIELD WHOSE NAME IS ITS INDEX, and this
             // switch said so for `s.f` and not for `t.0`, so `fn f(r:&(S,i64))
@@ -2272,8 +2331,8 @@ private:
             case Code::TupleIndex: {
                 auto recv = lir_view::ETupleIndexView{r}.receiver();
                 auto rt = recv ? recv.type(pool) : TypeRef(nullptr);
-                return rt && (rt.kind() == LogosType::Kind::Ref ||
-                              rt.kind() == LogosType::Kind::MutRef);
+                return fld_probe_(recv, rt && (rt.kind() == LogosType::Kind::Ref ||
+                                               rt.kind() == LogosType::Kind::MutRef));
             }
             default: return false;
         }
