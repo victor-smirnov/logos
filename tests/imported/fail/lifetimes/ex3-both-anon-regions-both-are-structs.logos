@@ -1,6 +1,6 @@
 // rustc lifetimes/lifetime-errors/ex3-both-anon-regions-both-are-structs.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.N3
+// shelf: fail · was lifereg.N3
 package ex3_both_anon_regions_both_are_structs;
 struct Ref<'a> { x: &'a u32 }
 fn foo(x: &mut Vec<Ref>, y: Ref) -> i32 { x.push(y); return 0i32; }

@@ -1,0 +1,1 @@
+call to 'swap_ref' arg 2: the elided lifetime of parameter 'a' and the elided lifetime of parameter 'b' are two distinct regions of this signature and no bound relates them — give them one name (e.g. `fn f<'a>(.. &'a ..)`)

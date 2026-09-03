@@ -1,0 +1,1 @@
+method 'Vec__push' arg 1: the elided lifetime of parameter 'z' and the elided lifetime of parameter 'x' are two distinct regions of this signature and no bound relates them — give them one name (e.g. `fn f<'a>(.. &'a ..)`)

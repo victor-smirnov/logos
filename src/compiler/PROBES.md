@@ -17641,3 +17641,136 @@ CALLEE binder instantiated to a minted name; nothing this round could write reac
 NOT SPENT: nllmoves.C 10 · bck.B 10 · bck.C 12 · nllmoves.B 6 · E0716 9 (owner + stdlib wall) ·
 lifereg.R18 8 (M-SIG) · the meet (1, needs region intersection) · the 9 targets of §5 that reach no
 door this round found.
+
+# ═══ ROUND 2026-09-06a — LANDED. A MINTED REGION REGISTERED IN `current_lt_binders()` IS A RIGID
+# UNIVERSAL AND IS NOT EQUAL TO ANY OTHER REGION; A LOCAL'S **OWN OUTER** REGION IS AN INFERENCE
+# VARIABLE AND ONLY THAT ONE SLOT IS DE-RIGIDIFIED; AND THE REFUSAL NAMES THE TWO PARAMETERS.
+# 6 ROWS CLOSED (PREDICTED 6 BY NAME, BOTH WAYS), COST 0 / cfail 2 RE-PINS / STDLIB OK. 157 -> 151 ═
+
+## 0. STEP 1, READ FROM THE TREE
+    HEAD f85ec2b79 clean = origin/main. Live probe names **158** at start, **152** at end (six
+    `ltrigid*` names retired — four had their only site replaced by the landing, two were the crude
+    de-rigidify this round refutes and REMOVED). `# TOTAL 157` = 157 by listing; **151** at end.
+    Block split lifereg 60 / nllmoves 50 / bck 47 at start; **lifereg 54** at end.
+    ⚠ `logosc --version` stale for a FOURTH round at a clean HEAD (`main-ge0bdc0c4` at f85ec2b79);
+    it is a CONFIGURE-time string and does not describe the binary. `build_hash.py` does.
+    BASELINE, READ FROM THE STORE (build 573): `-R ^logos_00_bc_admit_` 157/157 recorded 0 failed;
+    `-L bc` 1293/1293 passed 0 failed.
+
+## 1. THE MECHANISM, IN THREE PARTS — AND ONLY THE THREE TOGETHER PRICE 0
+ 1. `subtype.hpp` `lt_eq` and `lifetime_at(Variance::Inv)`: two DISTINCT minted names are not equal
+    when **EITHER** is in `current_lt_binders()`. 2026-09-05a §11.4 declined this widening as
+    "indistinguishable from `ltrigid` everywhere measured, which means unmeasured". It is measured
+    now, and the separating program is x05 below — under part 2 the mixed bucket is POPULATED, and
+    the "both binders" rule admits `let z = y; x.push(z);` while the either-side rule refuses it.
+ 2. `sema_stmt.cpp`, the unannotated `let`: erase from `current_lt_binders()` the local's **own**
+    minted region — the outer slot of a `Ref`/`MutRef`, which is COVARIANT — and NOTHING reachable
+    through it. That is 2026-09-05a §6's variance-correct rule implemented by name: a region under a
+    `&mut`, or inside a type argument, sits at an INVARIANT position and stays a universal.
+    ⚠ The erased name is then permissive in `outlives()` too (outlives.hpp's both-binders rule no
+    longer fires for it), which is what "inference variable" has to mean for a returned local.
+ 3. `sema_impl.hpp check_variance` + `minted_lt_origin()` (sema_decl.cpp fills it at the mint,
+    `last_rigid_mismatch()` carries the refused pair from the comparator): a refusal between two
+    elided slots prints **the two parameters**, not one spelling twice.
+
+## 2. THE PROBE THAT PRICED IT (batch build 577, unarmed 576)
+    probe          site                                       fires  ceil  cost  cfail  std  verdict
+    ltrigidcov     either-side rule + OUTER-ONLY de-rigidify   2893     6     0      2   ok  ok
+    ltrigidcovb    the OUTER-ONLY de-rigidify ALONE (control)  2884     0     0      0   ok  live, buys 0
+    Rule 13, measured not assumed: the pair is a **SERIES** — `ltrigidcovb` alone is identical to
+    unarmed on all 37 hand programs, and 2026-09-05a measured the eq-half alone at cost 2. Neither
+    half prices 0; the composition does.
+
+## 3. RULE 5 — 37 HAND PROGRAMS, build/hand-2026-09-06a, SHAPES THE PRICING PHASE DID NOT WRITE
+28 legal (l01–l28) + 9 illegal (x01–x09). The nine NEW ones are the abuse directions of the widening:
+    l19  `let mut t = a; t = b;`               a local's INFERENCE region reassigned from a RIGID one
+    l20  the covariant twin of l19 (`&i64`, conditional)
+    l21  `fn id_ref<'q>(r:&'q i64)->&'q i64` called with a LOCAL — a caller inference region against
+         a callee's WRITTEN binder instantiated at the call. This is exactly the separating shape
+         2026-09-05a §8 said nothing it could write reached; it ADMITS.
+    l22  two locals off ONE parameter    l23  a local RETURNED by elision (the outlives half)
+    l24  a `&mut` local written through  l25  a TUPLE local (outer is not a Ref: nothing erased)
+    l26  an ANNOTATED local (the other branch)   l27  the push with `'a` WRITTEN   l28  `&self`
+    x07  `let mut t0 = a; swap_ref(&mut t0, &mut b);` — LOCAL vs PARAMETER. `&mut b` pins the inner
+         region to `b`'s own rigid one; illegal upstream, and it is the mixed bucket in the ABUSE
+         direction. REFUSED.
+    x08  `let v = x; let z = y; v.push(z);`  x09  `let mut z = y; z = w; x.push(z);`
+**28 of 28 legal ADMIT; 9 of 9 illegal REFUSE.** Unarmed: 28 admit and **all nine illegal admit too**.
+`ltrigidcovb` alone: identical to unarmed on all 37 — PROVEN LIVE (2884 fires) and buying nothing.
+⇒ the 2026-09-05a hole (x04/x05/x06, one `let` wide) is CLOSED by the narrowing, not by the count.
+
+## 4. THE SETS, PREDICTED BY NAME BEFORE ANY FIXTURE WAS TOUCHED
+(build/round-2026-09-06a/predictions-2026-09-06a.txt, written after the fix built, before the ledger.)
+PREDICTED 6, ACTUAL 6, **predicted ∖ actual = ∅ and actual ∖ predicted = ∅**:
+    ex2b-push-no-existing-names             lifereg.A       ex3-both-anon-regions        lifereg.A
+    ex3-both-anon-regions-3                 lifereg.NEW-N1  issue-90170-elision-mismatch lifereg.N3
+    ex3-both-anon-regions-both-are-structs  lifereg.N3      ex3-both-anon-regions-using-impl-items R18
+⚠ **THE FIX IS NOT ITS PROBE.** The probe closed the same six printing `expected &u8, got &u8`; a row
+closed by a wrong diagnostic is not closed. Every one now reads, e.g. issue-90170-elision-mismatch:
+    method 'Vec__push' arg 1: the elided lifetime of parameter 'x' and the elided lifetime of
+    parameter 'y' are two distinct regions of this signature and no bound relates them —
+    give them one name (e.g. `fn f<'a>(.. &'a ..)`)
+Each of the six upstream headers reads "lifetime may not live long enough". Read one by one, pinned
+in full, `-using-impl-items` under `fn U__foo` and `-3` naming `z`/`x` (its own two slots).
+
+## 5. COST — THREE POPULATIONS, PLUS THE TEXT ORACLE OVER THE **LANDED** BINARY
+  pass    `-L bc` 2298 tests: 2294 passed, 2 failed (§COST below), 2 disabled. Zero legal programs
+          refused. L1 747/747 + the 200-test gates tier.
+  fail    `scripts/fail_text_oracle.py` over 1293 pre-existing fixtures, landed vs the pre-landing
+          unarmed baseline: **rc moved 0, `.expected` match moved 0, stderr text changed 2** — and
+          the two are the two re-pins. NOTHING ELSE IN THE TREE CHANGED ITS TEXT (rule 15).
+  stdlib  all four layers compile; the full `cmake --build` links every fixture archive and example.
+
+### ⚠ COST — TWO `.expected` RE-PINS, AND ONE OF THEM IS A DIVERGENCE I OWN
+`imported/fail/lifetimes/ex3-both-anon-regions-using-fn-items` and `…-using-trait-objects` are both
+`fn foo(y: Vec<&i64>, z: &i64) { y.push(z); }`. Both were pinned on `cannot borrow 'y' as mutable:
+not declared as mut`; the region refusal now PRE-EMPTS it. Their rc is unchanged and both still fail.
+⚠ 2026-09-05a §9 said "their upstream reason IS this round's anon-region one". **THAT IS HALF WRONG,
+read off the file headers**: `-using-trait-objects` says "upstream lifetime may not live long enough
++ E0596", so its new leading reason is upstream-correct; `-using-fn-items` says "upstream E0596
+cannot borrow as mutable" ALONE, so ours now leads with a reason rustc does not report for it.
+Ordering is the real fix (a borrow-check refusal should pre-empt a lifetime-relation one) and it is
+not this mechanism. RE-PINNED with a marker in each file, **REPORTED AS A CORPUS DECISION**.
+
+## 6. CONTROL REVERT — RUN, NOT ASSERTED
+The five compiler files reverted (`build/round-2026-09-06a/compiler.patch`), rebuilt, corpus intact:
+**all 12 fail fixtures of this block go RED** — the 6 relanded imported ports, the 4 native
+`bc_ltrigid_*_fail` twins and the 2 re-pins — and all 6 pass twins stay green. Restored and rebuilt.
+
+## 7. THE CORPUS DELTA, EACH NUMBER PREDICTED FROM THE FIXTURE ARITHMETIC
+6 imported `admit` -> `fail` in their own root's home with the diagnostic pinned in full; 4 native
+`fail` + 6 native `pass` `bc_ltrigid_*` twins, in PAIRS one token apart (`b` vs `t1`; elided vs `'a`).
+Ledger `# TOTAL` 157 -> **151**, re-derived BY DIRECT LISTING (151 rows).
+census_pin ALL 8935 -> 8945 (+10 native, -6 admit, +6 imported fail), NOIMPORTED 4532 -> 4536 (+10-6),
+TIERCOMMIT 206 -> 200 (-6). direct_door corpus 2608 -> 2614 / nonglob 2417 -> 2423 (+6 pass twins),
+by direct listing `ls tests/logos/pass/*.logos | wc -l` -> 2614.
+
+## 8. RETIRED, AND WHY — SIX NAMES
+`ltrigid` `ltrigideq` `ltrigidinv` `ltrigidany`: their only site is now the landed rule; the control
+revert is `git revert` of the landing commit, not an env var. `ltrigidlet` / `ltrigidletb`: the crude
+whole-type de-rigidify is REFUTED by x04/x05/x06 and superseded by the outer-only one — code REMOVED.
+⚠ The `Variance::Inv` arm still has **zero arrivals** (2026-09-05a §4). It was landed symmetric with
+`lt_eq` because an asymmetric pair of comparators is a defect waiting for its first caller, not
+because anything measured it. Do not price it again without a program that reaches it.
+
+## 9. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. `logosc --version` reports a stale `main-g…` at a clean HEAD for the FOURTH consecutive round.
+    Configure-time string; `cmake .` rewrites the tracked in-source `CTestTestfile.cmake` to fix it,
+    which then makes `probe-batch.sh` refuse a "dirty" tree. Standing trap, not this round's subject.
+ 2. The repo root still carries untracked `cpack` output (CPackConfig.cmake, bin/, share/,
+    _pkglinks/, packaging/{deb,rpm}/*). Left alone for the third round.
+ 3. `-L bc` selected **1293** tests at the pre-round baseline and **2298** after `cmake` re-globbed;
+    the difference is the 1005 `pass`-labelled `bc` fixtures, which the baseline selection did not
+    hold. A gate whose POPULATION moves between two runs of the same command is not a comparison
+    (memory: "a RATIO from two SEPARATELY-measured columns"). Both runs are recorded in the store.
+
+## 10. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+# TOTAL 157 -> **151**. Six rows bought over four lifereg roots (A ×2, N3 ×2, NEW-N1, R18).
+NOT SPENT, each with its number: **nllmoves 50** (C 10 · B 6 the largest roots) · **bck 47**
+(C 12 · B 10 · D 6 · NEW 8) · **lifereg 54** remaining, of which the nine 2026-09-05a targets that
+reach NO door (`rigid.eq.arrive` = 0: ex3-both-anon-regions-one-is-struct-5, trait-impl-mismatch-
+elided-lifetime-issue-65866, outlives-with-missing, regions-adjusted-lvalue-op--c26/--t26,
+mut-borrow-of-mut-ref, anonymous-region-in-apit--closure-param-escapes, two-phase-nonrecv-autoref--
+c-mut-and-shared-args, slice-index-bounds-check-invalidation--t35) · E0716 9 (owner + stdlib wall) ·
+the meet (1, needs region intersection).
+

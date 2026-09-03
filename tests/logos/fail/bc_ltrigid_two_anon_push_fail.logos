@@ -1,0 +1,6 @@
+// TWO ELIDED SLOTS OF ONE SIGNATURE ARE TWO RIGID UNIVERSALS (2026-09-06a).
+// ONE TOKEN APART from tests/logos/pass/bc_ltrigid_two_anon_push_named: the
+// pass twin writes `'a` in both slots.
+package bc_ltrigid_two_anon_push_fail;
+fn foo(x: &mut Vec<&u8>, y: &u8) { x.push(y); }
+fn main() -> i32 { return 0i32; }

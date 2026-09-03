@@ -1,0 +1,7 @@
+// A caller's inference region meets a callee's WRITTEN binder instantiated at
+// the call — the mixed shape 2026-09-05a §8 could not reach and the widened
+// rule had to be measured against.
+package bc_ltrigid_callee_binder_from_local;
+fn id_ref<'q>(r: &'q i64) -> &'q i64 { return r; }
+fn foo(a: &i64) -> i64 { let t = a; let u = id_ref(t); return *u; }
+fn main() -> i32 { let x: i64 = 5i64; return foo(&x) as i32 - 5i32; }

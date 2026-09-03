@@ -1,0 +1,7 @@
+// THE LEGAL TWIN: both sides are LOCALS, whose outer regions are inference
+// variables and may shrink to one region. This is what the de-rigidify of the
+// local's own covariant slot buys, and it is why the rule costs 0.
+package bc_ltrigid_local_vs_local_swap;
+use logos.lang.mem;
+fn foo(a: &mut i64, b: &mut i64) -> i64 { let mut t0 = a; let mut t1 = b; swap_ref(&mut t0, &mut t1); *t1 = 22i64; return *t0; }
+fn main() -> i32 { let mut x: i64 = 1i64; let mut y: i64 = 2i64; return foo(&mut x, &mut y) as i32 - 2i32; }

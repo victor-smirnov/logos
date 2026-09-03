@@ -1329,9 +1329,14 @@ PIN = {
     # (bc_b6ptr_reborrow_root_outlives, bc_b6ptr_param_static,
     # bc_b6ptr_param_holder_field, bc_b6clo_param_pointee_copy,
     # bc_b6clo_store_outer_local), all five non-glob.
-    'corpus'            : 2608,
+    # 2026-09-06a: 2608 -> 2614. Six pass twins of the rigid-minted-region block
+    # (bc_ltrigid_two_anon_push_named, _local_rebind_value_named,
+    # _local_both_rebound_named, _local_vs_local_swap,
+    # _local_reassigned_from_second, _callee_binder_from_local), all six
+    # non-glob. BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2614.
+    'corpus'            : 2614,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2417,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2423,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

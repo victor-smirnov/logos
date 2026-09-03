@@ -1,6 +1,6 @@
 // rustc lifetimes/issue-90170-elision-mismatch.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.N3
+// shelf: fail · was lifereg.N3
 package issue_90170_elision_mismatch;
 fn foo(x: &mut Vec<&u8>, y: &u8) -> i32 { x.push(y); return 0i32; }
 fn main() -> i32 { return 0i32; }

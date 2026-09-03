@@ -1,0 +1,6 @@
+// A local rebound from one parameter and REASSIGNED from the other: the local's
+// region is an inference variable both parameters outlive. Legal, and the
+// counter-example the widened either-side rule had to survive.
+package bc_ltrigid_local_reassigned_from_second;
+fn foo(a: &mut i64, b: &mut i64) -> i64 { let mut t = a; t = b; *t = 7i64; return *t; }
+fn main() -> i32 { let mut x: i64 = 1i64; let mut y: i64 = 2i64; return foo(&mut x, &mut y) as i32 - 7i32; }

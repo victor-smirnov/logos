@@ -1,0 +1,6 @@
+// BOTH sides rebound through locals: the de-rigidify touches ONLY the local's
+// own OUTER region, so the element region under the `&mut` — an INVARIANT
+// position — stays a universal and the push is still refused.
+package bc_ltrigid_local_both_rebound_fail;
+fn foo(x: &mut Vec<&u8>, y: &u8) { let v = x; let z = y; v.push(z); }
+fn main() -> i32 { return 0i32; }

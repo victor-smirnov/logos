@@ -1,0 +1,7 @@
+// ONE TOKEN APART from tests/logos/pass/bc_ltrigid_local_vs_local_swap: `b`
+// where the legal twin passes `t1`. `&mut b` pins the inner region to the
+// parameter's own rigid region, and no bound relates it to the local's.
+package bc_ltrigid_local_vs_param_swap_fail;
+use logos.lang.mem;
+fn foo(a: &mut i64, b: &mut i64) { let mut t0 = a; swap_ref(&mut t0, &mut b); }
+fn main() -> i32 { return 0i32; }

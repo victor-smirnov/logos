@@ -53,6 +53,19 @@ inline std::unordered_set<std::string>& current_lt_binders() {
     return s;
 }
 
+// The last pair of DISTINCT minted regions a comparator refused to equate, and
+// the parameter each was minted for. Written at the refusal in subtype.hpp,
+// read by check_variance so the message can name the two elided slots instead
+// of printing one spelling twice. See src/compiler/PROBES.md 2026-09-06a.
+inline std::pair<std::string, std::string>& last_rigid_mismatch() {
+    static std::pair<std::string, std::string> p;
+    return p;
+}
+inline std::unordered_map<std::string, std::string>& minted_lt_origin() {
+    static std::unordered_map<std::string, std::string> m;
+    return m;
+}
+
 // A MINTED REGION — the name an elided slot did not have. `""` means both
 // "elided here" and "the same region as that other elided slot"; a minted name
 // means exactly the first. The prefix is unspellable in the grammar, so a

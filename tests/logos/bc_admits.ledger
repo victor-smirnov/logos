@@ -1209,7 +1209,7 @@
 # param arm was priced with `collect_ref_sources`, which names the local a
 # reference was COPIED OUT OF — it refuses `*out = hr.r` where `hr = &h` and
 # `h = H{ r: <param> }`, pinned legal by pass/bc_b6ptr_param_holder_field.
-# TOTAL 157
+# TOTAL 151
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1273,17 +1273,11 @@ copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-re
 e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
 elided-lifetime-mismatch-in-self-type lifereg.R18 tests/imported/admit/lifetimes/elided-lifetime-mismatch-in-self-type
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn
-ex2b-push-no-existing-names lifereg.A tests/imported/admit/lifetimes/ex2b-push-no-existing-names
 ex2c-push-inference-variable lifereg.NEW-R19 tests/imported/admit/lifetimes/ex2c-push-inference-variable
-ex3-both-anon-regions-3 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex3-both-anon-regions-3
-ex3-both-anon-regions-both-are-structs lifereg.N3 tests/imported/admit/lifetimes/ex3-both-anon-regions-both-are-structs
 ex3-both-anon-regions-one-is-struct-5 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex3-both-anon-regions-one-is-struct-5
-ex3-both-anon-regions-using-impl-items lifereg.R18 tests/imported/admit/lifetimes/ex3-both-anon-regions-using-impl-items
-ex3-both-anon-regions lifereg.A tests/imported/admit/lifetimes/ex3-both-anon-regions
 explicit-self-lifetime-mismatch lifereg.NEW-N3 tests/imported/admit/lifetimes/explicit-self-lifetime-mismatch
 issue-64173-unused-lifetimes lifereg.L4 tests/imported/admit/lifetimes/issue-64173-unused-lifetimes
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
-issue-90170-elision-mismatch lifereg.N3 tests/imported/admit/lifetimes/issue-90170-elision-mismatch
 iterator-next-extra-named-lifetime lifereg.R18 tests/imported/admit/lifetimes/iterator-next-extra-named-lifetime
 iterator-trait-lifetime-error-13058 lifereg.A tests/imported/admit/lifetimes/iterator-trait-lifetime-error-13058
 lifetime-mismatch-between-trait-and-impl lifereg.R18 tests/imported/admit/lifetimes/lifetime-mismatch-between-trait-and-impl

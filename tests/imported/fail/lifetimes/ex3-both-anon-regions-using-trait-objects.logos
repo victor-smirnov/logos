@@ -3,6 +3,12 @@
 // shelf: fail · was lifereg.R2 — filed there by its import block, it is bck.A-1's partition, CLOSED 2026-08-31p — the `not declared as mut` param hatch is for
 // REFERENCE params; a BY-VALUE param is not a reborrow and is E0596.
 // port of rust tests/ui/lifetimes/lifetime-errors/ex3-both-anon-regions-using-trait-objects.rs
+// ⚠ RE-PINNED 2026-09-06a: the rigid-minted-region rule now refuses `y.push(z)`
+// for the two UNRELATED elided regions, and that error pre-empts the `not declared
+// as mut` one this file used to pin. The refusal is unchanged; the REASON moved.
+// Upstream reports E0596 here (and, for -using-trait-objects, the region reason
+// too), so the leading reason now diverges from rustc's for -using-fn-items.
+// CORPUS DECISION, reported in PROBES.md 2026-09-06a §COST.
 package ex3_both_anon_regions_using_trait_objects;
 fn foo(y: Vec<&u8>, z: &u8) { y.push(z); }
 fn main() -> i32 { return 0i32; }

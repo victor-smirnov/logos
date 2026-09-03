@@ -1,0 +1,4 @@
+// THE LEGAL TWIN: the same push with ONE name written in both slots.
+package bc_ltrigid_two_anon_push_named;
+fn foo<'a>(x: &mut Vec<&'a u8>, y: &'a u8) { x.push(y); }
+fn main() -> i32 { let b: u8 = 1u8; let mut v: Vec<&u8> = Vec::new(); foo(&mut v, &b); return v.len() as i32 - 1i32; }

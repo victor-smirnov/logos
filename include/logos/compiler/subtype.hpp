@@ -85,11 +85,15 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
                 if (bx_ && by_)   logos::probe::census("rigid.eq.both");
                 if (bx_ != by_)   logos::probe::census("rigid.eq.one");
                 if (!bx_ && !by_) logos::probe::census("rigid.eq.none");
-                if (bx_ && by_ &&
-                    (logos::probe::on("ltrigideq") || logos::probe::on("ltrigid") ||
-                     logos::probe::on("ltrigidlet")))
+                // LANDED 2026-09-06a — a minted name registered in
+                // current_lt_binders() is a RIGID UNIVERSAL of the signature
+                // under check, not an inference variable, and two distinct ones
+                // are not equal. EITHER side suffices: what faces a universal
+                // here is a local's fresh region, which no bound relates to it.
+                if (bx_ || by_) {
+                    last_rigid_mismatch() = {std::string(x), std::string(y)};
                     return false;
-                if ((bx_ || by_) && logos::probe::on("ltrigidany")) return false;
+                }
             }
             return true;
         }
@@ -279,10 +283,10 @@ inline bool lifetime_at(Variance v,
                     if (bs_ && bp_)   logos::probe::census("rigid.inv.both");
                     if (bs_ != bp_)   logos::probe::census("rigid.inv.one");
                     if (!bs_ && !bp_) logos::probe::census("rigid.inv.none");
-                    if (bs_ && bp_ &&
-                        (logos::probe::on("ltrigidinv") || logos::probe::on("ltrigid")))
+                    if (bs_ || bp_) {
+                        last_rigid_mismatch() = {std::string(sub_lt), std::string(sup_lt)};
                         return false;
-                    if ((bs_ || bp_) && logos::probe::on("ltrigidany")) return false;
+                    }
                 }
                 return true;
             }

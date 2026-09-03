@@ -1,0 +1,4 @@
+// THE LEGAL TWIN of bc_ltrigid_local_rebind_value_fail: one written name.
+package bc_ltrigid_local_rebind_value_named;
+fn foo<'a>(x: &mut Vec<&'a u8>, y: &'a u8) { let z = y; x.push(z); }
+fn main() -> i32 { let b: u8 = 1u8; let mut v: Vec<&u8> = Vec::new(); foo(&mut v, &b); return v.len() as i32 - 1i32; }

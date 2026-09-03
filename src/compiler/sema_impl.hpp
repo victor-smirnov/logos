@@ -6275,11 +6275,27 @@ private:
             ctx.starts_with("struct literal"))
             permissive = false;
         if (!types_compatible(from, to)) return;  // outer check handles it
+        last_rigid_mismatch() = {};
         if (variance_ok(from, to, permissive)) return;
         auto [es, gs] = type_str_pair(to, from);
         // Two spellings that agree carry the difference in a region the
         // short form hides (`Foo<'static>` vs `Foo`): print the source form.
         if (es == gs) es = type_str(to, true), gs = type_str(from, true);
+        // A minted region is unspellable and `type_str` hides it, so a refusal
+        // between two ELIDED slots printed one spelling twice and named no
+        // region at all. Name the parameters they were minted for.
+        auto& rm_ = last_rigid_mismatch();
+        auto& org_ = minted_lt_origin();
+        auto ox_ = org_.find(rm_.first), oy_ = org_.find(rm_.second);
+        if (!rm_.first.empty() && rm_.first != rm_.second &&
+            ox_ != org_.end() && oy_ != org_.end() && ox_->second != oy_->second) {
+            error(std::format("{}: the elided lifetime of {} and the elided "
+                              "lifetime of {} are two distinct regions of this "
+                              "signature and no bound relates them — give them "
+                              "one name (e.g. `fn f<'a>(.. &'a ..)`)",
+                              ctx, oy_->second, ox_->second));
+            return;
+        }
         error(std::format("{}: variance mismatch — expected {}, got {} — "
                           "lifetime structure incompatible "
                           "(check &mut invariance / contravariance rules)",

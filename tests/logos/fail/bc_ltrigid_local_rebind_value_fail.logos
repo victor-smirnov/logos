@@ -1,0 +1,7 @@
+// A LOCAL'S OWN REGION IS AN INFERENCE VARIABLE, AND AN INFERENCE VARIABLE IS
+// STILL NOT A UNIVERSAL: rebinding `y` through `let z = y;` must not launder
+// the relation the signature does not declare (2026-09-06a; the hole the crude
+// `ltrigidlet` arm opened, one `let` wide).
+package bc_ltrigid_local_rebind_value_fail;
+fn foo(x: &mut Vec<&u8>, y: &u8) { let z = y; x.push(z); }
+fn main() -> i32 { return 0i32; }

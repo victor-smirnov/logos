@@ -819,6 +819,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     std::vector<TypeRef> mint_ptypes_;      // parallel to fi_ptr->param_types
     TypeRef mint_ret_ = nullptr;
     minted_lts_.clear();
+    minted_lt_origin().clear();
     const bool mint_on_ = logos::probe::on("ltmintunify") ||
                           logos::probe::on("ltmintsubst") ||
                           logos::probe::on("ltmintfree") ||
@@ -844,6 +845,24 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                 }
             }
         }
+        // The parameter each minted region belongs to, so a refusal can name
+        // the two elided slots instead of printing one spelling twice.
+        std::vector<std::string> pnames_;
+        if (node.has_key(la::PARAMS)) {
+            auto pav2_ = node.get(la::PARAMS.code);
+            if (pav2_.is_pointer()) {
+                auto pn2_ = map_of(pav2_);
+                if (pn2_.has_key(la::ITEMS)) {
+                    auto arr2_ = arr_of(pn2_.get(la::ITEMS.code));
+                    for (size_t ai_ = 0; ai_ < arr2_.size(); ++ai_) {
+                        auto pm_ = map_of(arr2_.get(ai_));
+                        pnames_.push_back(pm_.has_key(la::NAME)
+                                              ? std::string(str_of(pm_.get(la::NAME.code)))
+                                              : std::string{});
+                    }
+                }
+            }
+        }
         std::vector<std::string> in_regions_;
         std::string self_region_;
         for (size_t pi_ = 0; pi_ < fi_ptr->param_types.size(); ++pi_) {
@@ -851,7 +870,13 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
             TypeRef mt_ = mint_type_lts_(subst_type_sema(fi_ptr->param_types[pi_], {}), regs_);
             mint_ptypes_.push_back(mt_);
             if (pi_ == 0 && first_is_self_ && !regs_.empty()) self_region_ = regs_.front();
-            for (auto& r_ : regs_) in_regions_.push_back(r_);
+            std::string who_ = pi_ < pnames_.size() && !pnames_[pi_].empty()
+                                   ? "parameter '" + pnames_[pi_] + "'"
+                                   : "parameter " + std::to_string(pi_ + 1);
+            for (auto& r_ : regs_) {
+                in_regions_.push_back(r_);
+                if (lt_is_minted(r_)) minted_lt_origin().emplace(r_, who_);
+            }
         }
         TypeRef rt0_ = subst_type_sema(fi_ptr->ret_type, {});
         std::string src_ = !self_region_.empty()

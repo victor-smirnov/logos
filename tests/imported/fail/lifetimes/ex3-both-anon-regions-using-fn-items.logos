@@ -2,6 +2,12 @@
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: fail · was lifereg.R2 — filed there by its import block, it is bck.A-1's partition, CLOSED 2026-08-31p — the `not declared as mut` param hatch is for
 // REFERENCE params; a BY-VALUE param is not a reborrow and is E0596.
+// ⚠ RE-PINNED 2026-09-06a: the rigid-minted-region rule now refuses `y.push(z)`
+// for the two UNRELATED elided regions, and that error pre-empts the `not declared
+// as mut` one this file used to pin. The refusal is unchanged; the REASON moved.
+// Upstream reports E0596 here (and, for -using-trait-objects, the region reason
+// too), so the leading reason now diverges from rustc's for -using-fn-items.
+// CORPUS DECISION, reported in PROBES.md 2026-09-06a §COST.
 package ex3_both_anon_regions_using_fn_items;
 fn foo(y: Vec<&i64>, z: &i64) {
   y.push(z);
