@@ -19803,3 +19803,168 @@ measured: 2026-09-03
 verdict: ⛔ RETIRED WITH THEIR CODE 2026-09-03k — the receiver-chain walk they
 priced is now the rule, unconditionally and with the Box hop exempt. Their
 recorded ceiling (2) is this round's actual closed set, digit for digit.
+
+# ═══ ROUND 2026-09-03m — PRICING. A CALL-ARGUMENT LOAN IS RELEASED AT THE CALL EVEN WHEN THE
+# CALLEE'S FLOW SUMMARY SAYS THAT ARGUMENT REACHES THE RESULT. THE MASK-KEYED ARM IS A
+# **STOP**: CEILING 0 / cost 3 pass / 3 of 1334 cfail / **STDLIB REFUSED (91)**. THE CRUDE
+# CONTROL TWIN IS A SATURATED INSTRUMENT AND ITS "136" IS NOT A CEILING. ═══
+
+## 0. STEP 1, RE-DERIVED (the handed-down report was checked, not copied)
+HEAD `96bafe89f` clean at open. Live probe names **156**; `# TOTAL 136`, 136 by direct
+listing; channel split **lifereg 51 · bck 43 · nllmoves 42** — the lifetime channel is the
+bulk, as the prompt says. Unarmed build hash `f905bddd79908466` (READ from
+`scripts/build_hash.py`); armed-inert build hash **`20ebcd9cbe611496`** (READ), the tree
+committed here. `test-levels.sh L1` from `build/` on the armed-inert tree: **rc 0,
+748/748** + 12 684 generated + 185 gates. Store builds: 652 unarmed -> 653/654/655 armed.
+⚠ ONE CORRECTION TO THE CARRIED-FORWARD LIST: `bck.B` is **6**, not 5 (09-03k §10 said
+"bck.B 5 (was 7)"); direct listing gives borrowck-loan-vec-content, -move-error-with-note--b,
+-move-out-from-array-use-match--t13, borrowed-mut-pointer-assign-overflow-off, issue-51117,
+regions-escape-unboxed-closure. `bck.E` is 3, `nllmoves.D` 3, `lifereg.D` 3 — all check out.
+
+## 1. THE TARGET ROWS, WRITTEN BEFORE THE COMPILER WAS TOUCHED
+`build/round-2026-09-03m/targets-2026-09-03m.txt`. FIVE, and the file also names twenty-one
+rows predicted NOT to close so the diff runs both ways.
+    T1 borrowed-mut-pointer-assign-overflow-off   bck.B      E0503
+    T2 borrowck-assign-to-andmut-in-borrowed-loc  bck.NEW    E0503
+    T3 already-borrowed-as-mutable-if-let-133941  bck.NEW    E0499
+    T4 two-phase-across-loop                      bck.NEW-L  E0499
+    T5 temporary-lifetime-extension-tuple-ctor    lifereg.D  E0716
+
+## 2. WHY THIS BLOCK — DERIVED BY THE PROPERTY, NOT BY THE ROOT LABEL
+Declined/refuted/owner entries read first: bck.C 12 + nllmoves.C 9 = the closure boundary
+(mined six rounds); lifereg.R18 7 = M-SIG rejected 09-06a; the 16-row `'static` population
+is OWNER-BLOCKED (09-02p, five pass fixtures + four `@rule` lines in tests/spec/pass/
+region_2, RE-CHECKED PRESENT); E0509 ×5 RETIRED by spec `intrinsic.drop.skip-moved-out-
+paths`; the three `impl Copy for Foo<'static>` rows are A16, canonised by Victor; the §B6
+pop_scope channel is mined (`dangpop`/`dangpopout` STOP at 15 pass + 68 cfail, `droporder`'s
+landable half landed at 78fc0fe51 and its crude half was already measured UNLANDABLE).
+THE PROPERTY, grepped over the 136 programs: **a call — free fn or method — whose RESULT
+carries a borrow of an ARGUMENT is bound to a local, and the argument's own place is then
+used or re-borrowed while that local is live.** Five rows, four roots, three channels.
+T1 and T2 are THE SAME PROGRAM under two different roots.
+
+## 3. RULE 17 — THE ARRIVAL, CENSUSED BEFORE ANY EDIT WAS BELIEVED
+`LOGOS_DUMP_FLOWS` on all five targets: the callee's summary is AVAILABLE and **EXACT**,
+and says `result<-0x1` on every one — parameter 0 reaches the result. THE FACT IS CARRIED.
+Two `census()` buckets at the site, over the 136 ledger programs (armed-inert binary):
+    argret.loaned.plain    26175   an argument took a loan; the mask does NOT select it
+    argret.loaned.masked      17   an argument took a loan AND the mask selects it
+    argret.masked.noloan      61   the mask selects it and NO loan record was made
+PER ROW, the whole masked-and-loaned population of the ledger is SEVEN programs:
+    borrowed-data-escapes-closure-148392 6 · regions-escape-unboxed-closure 6 ·
+    borrowck-assign-to-andmut-in-borrowed-loc 1 · borrowed-mut-pointer-assign-overflow-off 1
+    · impl-trait-captures 1 · method-ufcs-inherent-3 1 · method-ufcs-inherent-4 1
+⇒ **T1 AND T2 ARE LIVE AT THE SITE (1 arrival each). T5 IS `masked.noloan` — the argument
+is `&temp()` and no loan record exists to re-home. T3 AND T4 REGISTER ZERO ARRIVALS**: the
+`&mut self` receiver of a method takes NO loan at all today (the `__recv_resv` record is
+`recvargloan`'s, DECLINED 2026-08-28 at cost 1). Rule 2 — doors in series.
+
+## 4. THE MISSING OBSERVATION, READ OFF THE CODE
+File header line 14 states it as a design: "Call-site borrows (&x in function args) are
+transient (released after the call)." `visit_args` does `push_scope()` … `pop_scope()`, and
+`pop_scope`'s re-home lambda `escapes()` returns FALSE immediately for `rec.holder.empty()`
+— an argument borrow has no holder, because the result's binding is not declared until
+AFTER `visit_args` returns. `pending_esc_holder_` exists for exactly this class but is set
+only by `visit_block_value`. So the ARM EXISTS (`move_out(frame.borrows, parent.borrows)`),
+the FACT EXISTS (`FlowSummary::to_result`, a bitmask over EVERY parameter, read at nine
+other sites), and this site asks neither.
+
+## 5. THE PROBE TABLE — ALL THREE COST COLUMNS, EVERY IDENTITY READ
+Three arms, ONE build (`20ebcd9cbe611496`, READ), L1 rc 0 unarmed, then `ceiling-probe.sh`
+per name. `visit_args` gained an optional `(const FlowSummary*, unsigned base)`; the
+MethodCall site passes `flow_of_method(v), base=1` (receiver is param 0), the Call site
+`flow_of_call(cv.callee()), base=0`.
+    probe        keyed on                                   fires    ceil  cost  cfail   stdlib
+    argretloan   the callee's to_result bit for this arg  1763355     0     3    3/1334  ⛔ REFUSED (lcm 24 + mem 67)
+    argretmut    ditto, `&mut` records only               1791914     0     3    2/1334  ⛔ REFUSED (mem 67)
+    argretany    EVERY argument record, mask ignored      1694914   ⚠136  1219  716/1334 ⛔ REFUSED (all four layers)
+⚠ **`argretany`'s 136 IS NOT A CEILING — IT IS A SATURATED INSTRUMENT.** 136 is the WHOLE
+ledger. Compiling a two-line hand program under it fails inside the PRELUDE
+(`error [fn Option__refmut_i32__filter]: cannot move 'v' while it is borrowed`), so every
+row "closes" because nothing compiles at all. Recorded as rule 18's control twin and as
+the demonstration that the summary mask is what makes the site tractable; its ceiling
+column must never be quoted as a number of rows.
+COST, ALL THREE ARMS, IS ONE ARTEFACT AND IT IS THE CRUDE PROBE'S, NOT THE MECHANISM'S:
+every one of the 3 pass rows and every one of the 91 stdlib refusals reads
+`cannot borrow 'X' as mutable: already mutably borrowed` / `cannot assign to 'X' because it
+is borrowed` — a loan that NEVER EXPIRES. The re-homed record carries an EMPTY holder, so
+`release_dead_borrows` (which retires at the holders' last use) can never retire it and it
+lives to the end of the enclosing scope. Rule 7 exactly.
+
+## 6. THE SETS, DIFFED BOTH WAYS
+    argretloan closed = ∅ · argretmut closed = ∅.  predicted ∖ closed = {T1..T5};
+    closed ∖ predicted = ∅. Every one of the twenty-one rows predicted NOT to close did not.
+    argretany closed = all 136 — see §5; not a set, an outage.
+
+## 7. RULE 5 AND RULE 9 — EIGHT MULTI-LINE HAND PROGRAMS, `/home/logos/sandbox/argret/`
+SHAPES: the T1/T2 program itself; the same with an ORDINARY field write; a `&mut i64` arg
+stored by value in a returned struct; the same returning a bare `&mut i64`; a second `&mut`
+borrow rather than an assignment; a SHARED `&` argument; a by-value struct copy through
+`&self`; and two sequential `&mut` calls returning `i64` (legal Rust, the false-positive
+shape). BASE = unarmed.
+    h1  `let z = copy_borrowed_ptr(&mut y); *y.pointer = …`   BASE 0 · loan **0** · mut 0
+    h2  h1 with `y.n = 7i64` instead                          BASE 0 · loan **1** · mut 1
+    h3  `let w = wrap(&mut x); x = 5i64;`                     BASE 0 · loan **0** · mut 0
+    h4  h3 with `-> &mut i64` instead of `-> W`               BASE **1** (already refused)
+    h5  `let w = wrap(&mut x); let q = &mut x;`               BASE 0 · loan **1** · mut 1
+    h6  `let r = look(&x); x = 5i64;` (SHARED arg)            BASE 0 · loan **1** · mut **0**
+    h7  `let z = peek(&y); y.n = 9i64;` (`&self`, by-value)   BASE 0 · loan 0 · mut 0
+    h8  `add(&mut a,1); add(&mut a,2); a.t = 0;` LEGAL        BASE 0 · loan **0** · mut **0**
+**h1 vs h2 ARE ONE TOKEN APART AND THEY SEPARATE: the re-homed loan IS live and IS
+checked** (h2's message is `cannot borrow 'y.n' as mutable: already mutably borrowed`,
+correct) **— and the T1/T2 shape still passes, because the USE is `*y.pointer`, a write
+THROUGH a `&mut` FIELD of the borrowed place, which no conflict site treats as a use of
+`y`.** THAT IS THE SECOND DOOR, and it is why the ceiling is 0 with the site proven live.
+**RULE 9 — THE TWINS SEPARATE ON EXACTLY ONE PROGRAM, h6, AND `argretloan` IS THE CORRECT
+ONE:** `let r = look(&x); x = 5i64;` is E0506 in Rust; `argretloan` refuses it with
+`cannot assign to 'x' because it is borrowed` and `argretmut` admits it. Identical in every
+harness column but one cfail row. h8 — the legal two-call shape — is admitted by both.
+
+## 8. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **THE SECOND DOOR HAS A POPULATION.** Twelve ledger rows spell `*<place>.<field>`:
+    borrowed-mut-pointer-assign-overflow-off · borrowck-assign-to-andmut-in-borrowed-loc ·
+    already-borrowed-as-mutable-if-let-133941 · anonymous-region-in-apit--closure-param-
+    escapes · borrowck-let-suggestion · e0621-mut-ref-aliases-pointee-lifetime ·
+    iterator-next-extra-named-lifetime · capture-ref-in-struct--t08 · enum-drop-access ·
+    issue-54556-stephaneyfx · impl-trait-captures · do-not-ignore-lifetime-bounds-in-copy.
+    Not all are this mechanism; the number is a bound on where the door could matter.
+ 2. **E0713 ×3 (nllmoves.E: enum-drop-access, issue-52059-report-when-borrow-and-drop-
+    conflict, issue-53773) ARE RECORDED "RETIRED, SPEC" BY ANALOGY WITH E0509 (09-02t §1),
+    AND THE ANALOGY IS QUESTIONABLE.** E0509 is retired because Logos deliberately supports
+    a partial move out of a `Drop` type (`intrinsic.drop.skip-moved-out-paths`). The three
+    E0713 rows are not a partial move: each returns a `&`/`&mut` FIELD out of a by-value
+    parameter whose type has a destructor, so the destructor runs on the reference the
+    caller now holds — 09-02t's own text calls enum-drop-access "a real aliasing hole".
+    This is an OWNER question (does the spec clause reach a REFERENCE field?), reported,
+    not edited and not bought.
+ 3. The four E0716 rows that are LEGAL RUST, and 09-02p §4's five owner pass fixtures
+    walling the `'static` block: carried forward unchanged, both re-checked present.
+
+## 9. WHAT DESERVES FUNDING
+ 1. **NOT THIS ARM AS IT STANDS.** `argretloan` is a STOP: ceiling 0 AND the stdlib does not
+    build. But the STOP is a property of the CRUDENESS, not of the mechanism — §5 shows every
+    refusal is one artefact (an unexpiring loan). THE CONDITION OF FUNDING IS THEREFORE
+    NAMED: the re-homed record must carry a HOLDER — the binding the call's result is about
+    to be bound to — so `release_dead_borrows` retires it at that binding's last use exactly
+    as it does for every other loan. `pending_esc_holder_` is the existing channel and is
+    set only by `visit_block_value`; the `SLet`/`SAssign` arms know the name and run AFTER
+    `visit_args`. Until that is done the mechanism has NOT been priced, only its crude form.
+ 2. **AND IT WOULD STILL BUY ZERO ROWS ALONE (rule 2).** T1/T2 need the SECOND door of §7
+    (a use through a `&mut` field is a use of the owner); T3/T4 need the receiver loan that
+    `recvargloan` was declined for; T5 needs a loan record for a TEMPORARY argument. Four
+    doors, three of them in series with this one. A round that funds only this one buys
+    nothing, and that is now measured rather than argued.
+ 3. THE NEXT BLOCK BY SIZE that is neither mined nor owner-blocked remains **bck.NEW 6**
+    (8 minus the two E0509 rows), of which this round proves 2 sit behind two doors and 1
+    (borrowck-move-from-unsafe-ptr) was declined 09-03j §6. Its real free size is 3.
+
+## 10. THE TREE AT CLOSE
+Three env-gated probe names in ONE commit, `src/compiler/borrow_check.cpp` only, +51/-4.
+Three `census()` buckets kept — they are what sized §3 and cost nothing unarmed. The three
+arms stay INSTALLED and are ⛔ **DECLINED / STOP** by name: `argretloan` and `argretmut` on
+the stdlib wall, `argretany` as a saturated instrument. Prose lives here; the site carries a
+four-line marker. # TOTAL 136 -> 136. **No row bought, no row retired, no behaviour changed.**
+NOT SPENT, each with its number: bck.C 12 · nllmoves.C 9 · bck.NEW 8 (real free size 3) ·
+lifereg.R18 7 (M-SIG, rejected) · bck.B 6 · bck.D 6 (3 owner) · lifereg.NEW-N1 5 ·
+nllmoves.E 4 (E0713 ×3 = the §8.2 owner question) · nllmoves.B 3 · lifereg.R17 4 ·
+nllmoves.D 3 · lifereg.D 3 · bck.E 3 (E0509, retired).

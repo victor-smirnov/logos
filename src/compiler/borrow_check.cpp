@@ -14038,10 +14038,21 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
     // Helper: visit a sequence of call arguments via per-view each_arg.
     // EAddrOf args (including those nested in if/match) create call-site
     // borrows released when the scope pops after the call.
-    auto visit_args = [&](auto&& view) {
+    // ── CEILING PROBES `argretloan` / `argretany` / `argretmut` — SITE A.
+    // A call-argument loan is released unconditionally at this frame's pop
+    // (this file's header: "Call-site borrows ... are transient"), even when the
+    // callee's to_result says the argument reaches the RESULT.
+    // See src/compiler/PROBES.md 2026-09-03m.
+    auto visit_args = [&](auto&& view, const FlowSummary* argret_fs = nullptr,
+                          unsigned argret_base = 0) {
         push_scope();  // call-site borrow scope
         in_call_args_++;
-        view.each_arg([&](ExprRef a) {
+        const bool argret_any = logos::probe::on("argretany");
+        const bool argret_msk = logos::probe::on("argretloan");
+        const bool argret_mut = logos::probe::on("argretmut");
+        std::vector<size_t> argret_keep_b, argret_keep_f;
+        unsigned argret_i = 0;
+        auto argret_one = [&](ExprRef a) {
             // ── CEILING PROBE `mutrefargmove` — `&mut T` is not Copy: handing
             // one to a BY-VALUE param moves it. sema's
             // try_implicit_reborrow_mut wraps a `&mut` into
@@ -14101,6 +14112,28 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             }
             if (a && is_ref_kind(a.type(pool))) take_ref_borrows(a, line);
             else                                visit(a, /*consuming=*/true, line);
+        };
+        view.each_arg([&](ExprRef a) {
+            size_t b0 = scopes_.back().borrows.size();
+            size_t f0 = scopes_.back().field_borrows.size();
+            argret_one(a);
+            unsigned pi = argret_i++ + argret_base;
+            bool sel = argret_fs && argret_fs->available &&
+                       pi < argret_fs->nparams &&
+                       (argret_fs->to_result & (1ull << pi)) != 0;
+            bool made = b0 < scopes_.back().borrows.size() ||
+                        f0 < scopes_.back().field_borrows.size();
+            if (made) logos::probe::census(sel ? "argret.loaned.masked"
+                                               : "argret.loaned.plain");
+            else if (sel) logos::probe::census("argret.masked.noloan");
+            if (argret_any || ((argret_msk || argret_mut) && sel)) {
+                for (size_t k = b0; k < scopes_.back().borrows.size(); ++k)
+                    if (!argret_mut || scopes_.back().borrows[k].is_mut)
+                        argret_keep_b.push_back(k);
+                for (size_t k = f0; k < scopes_.back().field_borrows.size(); ++k)
+                    if (!argret_mut || scopes_.back().field_borrows[k].is_mut)
+                        argret_keep_f.push_back(k);
+            }
         });
         // ⚠ PROBE argresvact — ACTIVATION AT THE CALL. See PROBES.md 2026-08-31s.
         if (!scopes_.empty()) {
@@ -14121,6 +14154,22 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             }
         }
         in_call_args_--;
+        if (scopes_.size() >= 2 && (!argret_keep_b.empty() || !argret_keep_f.empty())) {
+            auto& fr = scopes_.back();
+            auto& par = scopes_[scopes_.size() - 2];
+            std::sort(argret_keep_b.begin(), argret_keep_b.end());
+            std::sort(argret_keep_f.begin(), argret_keep_f.end());
+            for (auto it = argret_keep_b.rbegin(); it != argret_keep_b.rend(); ++it)
+                if (*it < fr.borrows.size()) {
+                    par.borrows.push_back(std::move(fr.borrows[*it]));
+                    fr.borrows.erase(fr.borrows.begin() + (long)*it);
+                }
+            for (auto it = argret_keep_f.rbegin(); it != argret_keep_f.rend(); ++it)
+                if (*it < fr.field_borrows.size()) {
+                    par.field_borrows.push_back(std::move(fr.field_borrows[*it]));
+                    fr.field_borrows.erase(fr.field_borrows.begin() + (long)*it);
+                }
+        }
         pop_scope();
     };
 
@@ -14886,7 +14935,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     if (mut_arg && !rbp.root.empty())
                         record_borrow(rbp, /*is_mut=*/true, line, "__recv_resv");
                 }
-                visit_args(v);
+                visit_args(v, flow_of_method(v), /*base=*/1);
                 if (rl && mut_arg && !rbp.root.empty())
                     release_borrows_held_by("__recv_resv");
             }
@@ -15170,7 +15219,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                                             line);
                 }
             }
-            visit_args(cv);
+            visit_args(cv, flow_of_call(cv.callee()), /*base=*/0);
             // ── D1 round 2, Door F: the free-call mirror of the capture flow ──
             // The MethodCall arm above has this rule (door 8b): a BY-VALUE
             // borrow-carrying argument passed to a `&mut self` method may be
