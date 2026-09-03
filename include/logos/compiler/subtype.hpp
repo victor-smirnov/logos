@@ -75,8 +75,23 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
         // `swap_ref(&mut t0, &mut t1)`. Equating two minted names restores
         // exactly the unarmed answer for slots nobody wrote.
         if (logos::probe::arm_mintiv() && lt_is_minted(x) && lt_is_minted(y) &&
-            (permissive_minted || logos::probe::mintiv_any()))
+            (permissive_minted || logos::probe::mintiv_any())) {
+            // PROBES ltrigideq / ltrigid / ltrigidany — see PROBES.md 2026-09-05a.
+            const bool bx_ = current_lt_binders().count(std::string(x)) != 0;
+            const bool by_ = current_lt_binders().count(std::string(y)) != 0;
+            logos::probe::census("rigid.eq.arrive");
+            if (x != y) {
+                logos::probe::census("rigid.eq.distinct");
+                if (bx_ && by_)   logos::probe::census("rigid.eq.both");
+                if (bx_ != by_)   logos::probe::census("rigid.eq.one");
+                if (!bx_ && !by_) logos::probe::census("rigid.eq.none");
+                if (bx_ && by_ &&
+                    (logos::probe::on("ltrigideq") || logos::probe::on("ltrigid")))
+                    return false;
+                if ((bx_ || by_) && logos::probe::on("ltrigidany")) return false;
+            }
             return true;
+        }
         if (x.empty() || y.empty()) {
             (void)logos::probe::on("lteqempty_site");
             // LANDED 2026-09-02s: an EMPTY sub region is not 'static. By
@@ -253,8 +268,23 @@ inline bool lifetime_at(Variance v,
             // both sites it is asked at).
             if (logos::probe::arm_mintiv() &&
                 lt_is_minted(sub_lt) && lt_is_minted(sup_lt) &&
-                (permissive_empty || logos::probe::mintiv_any()))
+                (permissive_empty || logos::probe::mintiv_any())) {
+                // PROBES ltrigidinv / ltrigid / ltrigidany — PROBES.md 2026-09-05a.
+                const bool bs_ = current_lt_binders().count(std::string(sub_lt)) != 0;
+                const bool bp_ = current_lt_binders().count(std::string(sup_lt)) != 0;
+                logos::probe::census("rigid.inv.arrive");
+                if (sub_lt != sup_lt) {
+                    logos::probe::census("rigid.inv.distinct");
+                    if (bs_ && bp_)   logos::probe::census("rigid.inv.both");
+                    if (bs_ != bp_)   logos::probe::census("rigid.inv.one");
+                    if (!bs_ && !bp_) logos::probe::census("rigid.inv.none");
+                    if (bs_ && bp_ &&
+                        (logos::probe::on("ltrigidinv") || logos::probe::on("ltrigid")))
+                        return false;
+                    if ((bs_ || bp_) && logos::probe::on("ltrigidany")) return false;
+                }
                 return true;
+            }
             if (sub_lt.empty() || sup_lt.empty()) {
                 (void)logos::probe::on("ltinvempty_site");
                 if (logos::probe::on("ltmintfresh")) return false;
