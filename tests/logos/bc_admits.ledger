@@ -1209,11 +1209,10 @@
 # param arm was priced with `collect_ref_sources`, which names the local a
 # reference was COPIED OUT OF — it refuses `*out = hr.r` where `hr = &h` and
 # `h = H{ r: <param> }`, pinned legal by pass/bc_b6ptr_param_holder_field.
-# TOTAL 151
+# TOTAL 148
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
-access-mode-in-closures bck.B tests/imported/admit/borrowck/access-mode-in-closures
 already-borrowed-as-mutable-if-let-133941 bck.NEW tests/imported/admit/borrowck/already-borrowed-as-mutable-if-let-133941
 anonymous-region-in-apit--closure-param-escapes bck.C tests/imported/admit/borrowck/anonymous-region-in-apit--closure-param-escapes
 augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments
@@ -1292,9 +1291,7 @@ trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/t
 trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch
 
 # ── tests/ui/moves ─────────────────────────────────────────
-do-not-suggest-removing-wrong-ref-pattern-issue-132806 nllmoves.B tests/imported/admit/moves/do-not-suggest-removing-wrong-ref-pattern-issue-132806
 issue-75904-move-closure-loop nllmoves.C tests/imported/admit/moves/issue-75904-move-closure-loop
-issue-99470-move-out-of-some nllmoves.B tests/imported/admit/moves/issue-99470-move-out-of-some
 move-of-addr-of-mut nllmoves.R5 tests/imported/admit/moves/move-of-addr-of-mut
 
 # ── tests/ui/nll ─────────────────────────────────────────

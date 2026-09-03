@@ -1333,10 +1333,14 @@ PIN = {
     # (bc_ltrigid_two_anon_push_named, _local_rebind_value_named,
     # _local_both_rebound_named, _local_vs_local_swap,
     # _local_reassigned_from_second, _callee_binder_from_local), all six
-    # non-glob. BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2614.
-    'corpus'            : 2614,
+    # non-glob. 2026-09-02land: 2614 -> 2617. Three pass twins of the
+    # pattern-site E0507 block (bc_patref_amp_binds_nothing,
+    # bc_patref_variant_binds_by_ref, bc_destrpat_owned_binds_by_value), all
+    # three non-glob.
+    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2617.
+    'corpus'            : 2617,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2423,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2426,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

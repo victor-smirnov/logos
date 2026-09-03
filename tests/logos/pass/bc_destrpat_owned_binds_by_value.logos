@@ -1,0 +1,12 @@
+// PAIR with fail/bc_destrpat_deref_binds_by_value_fail, ONE TOKEN apart: the
+// destructured source is `a` here and `*r` there. An OWNED source owns what it
+// yields, so moving a move-typed field out of it is legal.
+package bc_destrpat_owned_binds_by_value;
+use logos.mem.string;
+struct A { s: String, t: i64 }
+fn main() -> i32 {
+    let a = A { s: String::from("nn"), t: 5i64 };
+    let r: &A = &a;
+    let A { s: v, t: w } = a;
+    return (v.len() as i64 + w) as i32;
+}

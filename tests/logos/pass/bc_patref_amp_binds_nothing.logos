@@ -1,0 +1,13 @@
+// PAIR with fail/bc_patref_amp_binds_by_value_fail, ONE TOKEN apart: `&_` here,
+// `&q` there. A `&`-pattern that binds NOTHING moves nothing out of the shared
+// reference, so the E0507 at the RefPat site must stay silent.
+package bc_patref_amp_binds_nothing;
+use logos.mem.string;
+struct NC { v: String }
+fn main() -> i32 {
+    let n = NC { v: String::from("ab") };
+    let r: &NC = &n;
+    match r {
+        &_ => { return 0i32; }
+    }
+}

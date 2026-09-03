@@ -1,0 +1,13 @@
+// PAIR with pass/bc_patref_amp_binds_nothing, ONE TOKEN apart: `&q` here, `&_`
+// there. The `&` in the PATTERN performs the deref, and `q` binds the pointee
+// BY VALUE — a move out from behind a shared reference (rustc E0507).
+package bc_patref_amp_binds_by_value_fail;
+use logos.mem.string;
+struct NC { v: String }
+fn main() -> i32 {
+    let n = NC { v: String::from("ab") };
+    let r: &NC = &n;
+    match r {
+        &q => { return 0i32; }
+    }
+}

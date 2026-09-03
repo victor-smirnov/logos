@@ -1,6 +1,6 @@
 // rustc moves/issue-99470-move-out-of-some.rs — upstream E0507
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.B
+// shelf: fail · was nllmoves.B
 package issue_99470_move_out_of_some;
 // moves/issue-99470-move-out-of-some.rs — E0507 move out of enum variant behind shared ref
 struct P { v: i64 }

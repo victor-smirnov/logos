@@ -1794,22 +1794,39 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
     std::vector<lir_view::StmtRef> blk;
     std::string tmp = std::format("__dst_{}", destruct_counter_++);
     define(tmp, rhs_type);
-    // CEILING PROBES `destrpatany` / `destrpatmv` — exemption (4) of
-    // borrow_check's `deref_move_exempt`, asked where the discarded fact still
-    // lives. `destrpatany` refuses every destructure off an unowned source (the
-    // same-site control twin, rule 18); `destrpatmv` refuses only when a
-    // BINDING is move-typed, which is the residual the exemption's own comment
-    // names.
-    if (logos::probe::on("destrpatany") || logos::probe::on("destrpatmv")) {
-        bool unowned_ = is_unowned_move_source(rhs);
-        bool binds_move_ = false;
-        std::function<void(TinyMapView, TypeRef)> scan_;
-        scan_ = [&](TinyMapView p, TypeRef rt) {
-            if (!p.has_key(la::ITEMS)) return;
+    // ── E0507 AT A DESTRUCTURING `let` ──────────────────────────────────
+    // Exemption (4) of borrow_check's `deref_move_exempt` — "a destructure
+    // temp owns what it yields" — is a concession to WHERE that check runs:
+    // by then the source is the `__dst_N` temp above and the fact that it was
+    // built from `*r` is gone. Here the source EXPRESSION is still in hand, so
+    // `is_unowned_move_source` — the one predicate for "this place does not own
+    // what it yields" — is asked where the fact lives, and the exemption keeps
+    // its job downstream.
+    //
+    // ⚠ ONLY A BY-VALUE BINDING OF A MOVE-TYPED FIELD IS A MOVE, and both
+    // exclusions are MEASURED, not cautious. `let A { s: ref v, t: w } = *r;`
+    // and `let A { s: _, t: w } = *r;` bind nothing out of `*r` and are legal
+    // Rust; the crude twin `destrpatmv` asked only whether a FIELD is
+    // move-typed and refuses both, and neither shape appears in any of the
+    // three cost populations. `destrpatany` — an unowned source ALONE, with no
+    // binding question — is REFUTED: it costs `pass/bc_deref_move_exempt_admit`,
+    // the exemption's own pinned control. See PROBES.md 2026-09-02pat §7/§10.
+    if (is_unowned_move_source(rhs)) {
+        std::string bn_;
+        // `ref v` / `ref mut v` is a PAT_WILD carrying IS_REF (build_pattern
+        // reads exactly this flag); `_` is a PAT_WILD named "_". Either way the
+        // field is not moved out.
+        auto by_ref_ = [&](TinyMapView n) {
+            return n.has_key(la::IS_REF) && n.get(la::IS_REF.code).is_value() &&
+                   n.get(la::IS_REF.code).as_value<uint8_t>() != 0;
+        };
+        std::function<bool(TinyMapView, TypeRef)> byval_move_;
+        byval_move_ = [&](TinyMapView p, TypeRef rt) -> bool {
+            if (!p.has_key(la::ITEMS)) return false;
             auto iav = p.get(la::ITEMS.code);
-            if (!iav.is_pointer()) return;
+            if (!iav.is_pointer()) return false;
             auto fi = map_of(iav);
-            if (!fi.has_key(la::ITEMS)) return;
+            if (!fi.has_key(la::ITEMS)) return false;
             auto fs = arr_of(fi.get(la::ITEMS.code));
             std::string sn_(TypeRef(rt).struct_name());
             for (uint64_t i = 0; i < fs.size(); ++i) {
@@ -1817,28 +1834,35 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                 if (!fav.is_pointer()) continue;
                 auto fn_ = map_of(fav);
                 int32_t fc_ = code_of(fn_);
-                std::string fname_;
-                if (fc_ == la::PAT_FIELD || (fc_ == la::PAT_WILD && fn_.has_key(la::NAME)))
-                    fname_ = std::string(str_of(fn_.get(la::NAME.code)));
-                else continue;
+                // PAT_REST (`..`) names no field and binds nothing.
+                if (fc_ != la::PAT_FIELD &&
+                    !(fc_ == la::PAT_WILD && fn_.has_key(la::NAME))) continue;
+                std::string fname_(str_of(fn_.get(la::NAME.code)));
                 auto ft_ = field_type_of(sn_, fname_, TypeRef(rt).pkg_name());
                 if (!ft_) continue;
-                TinyMapView sub_{};
-                bool hs_ = false;
+                // The SHORTHAND spelling (`let A { s }` / `let A { ref s }`)
+                // carries the mode on the field node itself.
+                if (by_ref_(fn_)) continue;
+                std::string bind_ = fname_;
                 if (fc_ == la::PAT_FIELD && fn_.has_key(la::VALUE)) {
-                    sub_ = map_of(fn_.get(la::VALUE.code));
-                    hs_ = true;
+                    auto sub_ = map_of(fn_.get(la::VALUE.code));
+                    if (code_of(sub_) == la::PAT_STRUCT)
+                        { if (byval_move_(sub_, ft_)) return true; continue; }
+                    if (code_of(sub_) == la::PAT_WILD) {
+                        if (by_ref_(sub_)) continue;
+                        if (sub_.has_key(la::NAME))
+                            bind_ = std::string(str_of(sub_.get(la::NAME.code)));
+                    }
                 }
-                if (hs_ && code_of(sub_) == la::PAT_WILD) hs_ = false;
-                if (hs_ && code_of(sub_) == la::PAT_STRUCT) { scan_(sub_, ft_); continue; }
-                if (is_move_type(ft_)) binds_move_ = true;
+                if (bind_ == "_" || bind_.empty()) continue;
+                if (is_move_type(ft_)) { bn_ = bind_; return true; }
             }
+            return false;
         };
-        scan_(pat_node, rhs_type);
-        if (unowned_ && (logos::probe::on("destrpatany") ||
-                         (logos::probe::on("destrpatmv") && binds_move_)))
-            error("cannot move out of a value behind a reference / out of an "
-                  "index (E0507)");
+        if (byval_move_(pat_node, rhs_type))
+            error(std::format(
+                "cannot move out of a value behind a reference / out of an "
+                "index (E0507): the pattern binds '{}' by value", bn_));
     }
     // `let __dst = rhs` consumes rhs — mark the source moved (lower_let does
     // this for a plain `let`; this manual SLet must too, else the source AND
@@ -6405,21 +6429,46 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
                            TypeRef(scrut_type).kind() == LogosType::Kind::MutRef) &&
             TypeRef(scrut_type).pointee())
             inner_t = TypeRef(scrut_type).pointee();
-        // CEILING PROBE `patrefbyval` — RULE 9, the narrow twin of `patrefany`:
-        // refuse only when the inner pattern makes a BY-VALUE binding of a
-        // move-typed value, so `&NC { v: ref q }` / `&O::S(ref y)` stay
-        // admitted. Reads BINDING_REF_MODES, the same fact the landed
-        // match-arm site reads.
-        if (logos::probe::on("patrefbyval") && inner_t && is_move_type(inner_t)) {
+        // ── E0507 AT A `&`-PATTERN ──────────────────────────────────────
+        // The `&` HERE performs the deref `is_unowned_move_source` answers for
+        // `*r`, and no pattern site asked: `bind_pattern` receives the
+        // scrutinee's TYPE and never its EXPRESSION, so `match r { &q => … }`
+        // moved a non-Copy value out from behind a reference and nothing
+        // objected. The type is enough at THIS site — a `&`-pattern only
+        // type-checks against a reference, so the deref is in the pattern.
+        //
+        // ⚠ THE POINTEE ALONE OVER-REFUSES, MEASURED. Asking only "is the
+        // pointee a move type" (`patrefany`) refuses SEVEN legal programs no
+        // cost population contains — a `ref` sub-binding, its enum spelling, a
+        // Copy payload through `&mut`, a mixed by-ref/by-value pair, an
+        // `if let`, a bare `&_` that binds nothing at all, and a PRE-MONO
+        // generic body where a bare `T` reads as a move type. The
+        // discriminator is the BINDING MODE, the same fact
+        // (`pat_keys::BINDING_REF_MODES`) the match-arm site above reads.
+        //
+        // ⚠ SILENT ON Struct / Slice / Tuple INNER PATTERNS, deliberately:
+        // `match r { &Out { i: q } => … }` stays admitted. That is one spelling
+        // wide and named in PROBES.md (2026-09-02pat §9); the match-arm site
+        // records the same silence for the same reason.
+        if (inner_t && is_move_type(inner_t)) {
             const auto* tp_ = cur_prog_->type_pool.impl();
+            std::string bn_;
+            // Fills `bn_` with the BINDING'S OWN NAME — the only part of this
+            // the reader can act on (`ref q` is the repair).
             std::function<bool(lir_view::PatRef, bool)> byval_;
             byval_ = [&](lir_view::PatRef p, bool wt) -> bool {
                 if (!p) return false;
                 switch (p.kind()) {
                     case ps::Code::Wild: {
+                        // A named Wild directly under `&` really did carry no
+                        // `ref`: `&ref q` lowers to PatRefBind, not to a named
+                        // Wild (MEASURED — it is admitted). Under an `@` the
+                        // keyword is gone, so `wt` is false there.
                         if (!wt) return false;
                         auto n = lir_view::PatWildView{p}.name();
-                        return !n.empty() && n != "_";
+                        if (n.empty() || n == "_") return false;
+                        bn_ = std::string(n);
+                        return true;
                     }
                     case ps::Code::VariantData: {
                         lir_view::PatVariantDataView vv{p};
@@ -6427,12 +6476,17 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
                         std::vector<TypeRef> tys;
                         vv.each_binding([&](std::string_view s){ ns.emplace_back(s); });
                         vv.each_binding_type(tp_, [&](TypeRef t){ tys.push_back(t); });
+                        // Mode 0 = by value; 1/2 = `ref` / `ref mut`, which move
+                        // nothing. An ABSENT vector means all-by-value: the key
+                        // is minted only where a mode is spelled.
                         auto ms = vv.bind_ref_modes();
                         for (size_t i = 0; i < ns.size(); ++i) {
                             uint32_t m = i < ms.size() ? ms[i] : 0u;
                             TypeRef bt = i < tys.size() ? tys[i] : TypeRef(nullptr);
-                            if (m == 0 && ns[i] != "_" && bt && is_move_type(bt))
+                            if (m == 0 && ns[i] != "_" && bt && is_move_type(bt)) {
+                                bn_ = ns[i];
                                 return true;
+                            }
                         }
                         return false;
                     }
@@ -6443,19 +6497,18 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
                         return any;
                     }
                     case ps::Code::At:
+                        // PatAt carries no mode field at all, so `ref b @ …`
+                        // and `b @ …` are the same node — only the SUB-pattern,
+                        // whose own node may carry a mode, is walked.
                         return byval_(lir_view::PatAtView{p}.sub(), false);
                     default: return false;
                 }
             };
             if (byval_(v.inner(), true))
-                error("cannot move out of a value behind a reference / out of "
-                      "an index (E0507): the pattern binds by value");
+                error(std::format(
+                    "cannot move out of a value behind a reference / out of an "
+                    "index (E0507): the pattern binds '{}' by value", bn_));
         }
-        // CEILING PROBE `patrefany` — a `&`-PATTERN performs the deref that
-        // `is_unowned_move_source` answers for `*r`; no pattern site asks.
-        if (logos::probe::on("patrefany") && inner_t && is_move_type(inner_t))
-            error("cannot move out of a value behind a reference / out of an "
-                  "index (E0507)");
         if (auto inner = v.inner()) bind_pattern_ref(inner, inner_t);
     } else if (k == ps::Code::Struct) {
         lir_view::PatStructView v{pr};

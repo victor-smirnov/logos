@@ -1,0 +1,13 @@
+// PAIR with pass/bc_destrpat_owned_binds_by_value, ONE TOKEN apart: `*r` here,
+// `a` there. A destructuring `let` through a deref binds the move-typed field
+// `v` BY VALUE — rustc E0507. borrow_check's `deref_move_exempt` exemption (4)
+// cannot see this: by the time it asks, the source is a `__dst_N` temp.
+package bc_destrpat_deref_binds_by_value_fail;
+use logos.mem.string;
+struct A { s: String, t: i64 }
+fn main() -> i32 {
+    let a = A { s: String::from("nn"), t: 5i64 };
+    let r: &A = &a;
+    let A { s: v, t: w } = *r;
+    return (v.len() as i64 + w) as i32;
+}

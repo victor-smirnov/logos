@@ -1,0 +1,14 @@
+// PAIR with pass/bc_patref_variant_binds_by_ref, ONE TOKEN apart: `y` here,
+// `ref y` there. The payload is bound BY VALUE through a `&`-pattern over a
+// shared reference — rustc E0507. The binding mode is the whole discriminator.
+package bc_patref_variant_binds_by_value_fail;
+use logos.mem.string;
+enum O { S(String), N }
+fn main() -> i32 {
+    let o: O = O::S(String::from("abc"));
+    let x: &O = &o;
+    match x {
+        &O::S(y) => { return y.len() as i32; }
+        &O::N => { return 0i32; }
+    }
+}

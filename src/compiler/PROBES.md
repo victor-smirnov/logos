@@ -17943,3 +17943,149 @@ NOT SPENT, each with its number: bck.C 12 (mined) · bck.B 10 · nllmoves.C 10 �
 lifereg.R18 7 (M-SIG, rejected 09-06a) · nllmoves.D 6 · bck.D 6 (two-phase) · E0716 9 (owner +
 stdlib wall) · the meet (1, needs region intersection) · B-3, the place walk breaking at a user
 `Deref` CALL, 2 rows (deref-field-…-146995, issue-52086), blocker recorded at `callroot`.
+
+═══ 2026-09-02land — THE PATTERN-SITE E0507 LANDED AT TWO SITES: 3 ROWS (151 -> 148),
+# AND THE RECOMMENDED DESTRUCTURE ARM WAS WRONG IN THE ONE DIRECTION ITS THREE ZERO
+# COLUMNS COULD NOT SEE ═══
+
+## 0. STEP 1, RE-DERIVED FROM THE TREE (nothing taken from the handoff)
+    HEAD 447b88187 clean = origin/main at open. Live probe names **156** at open (the four
+    2026-09-02pat probes installed), `# TOTAL 151` = **151** by direct listing.
+    CHANNEL SPLIT: lifereg 54 · nllmoves 50 · bck 47 — the pricing round's figures reproduce
+    exactly. LARGEST ROOTS: bck.C 12 · bck.B 10 · nllmoves.C 10 · bck.NEW 8 · lifereg.R18 7.
+    BASELINE, READ FROM THE STORE, not re-run: build **581** (libs da24fe675cab2a4f),
+    `-R '^logos_00_bc_admit_'` 151/151 already measured (1352 recorded, 0 failed);
+    `-L bc` 1303/1303 passed, recorded under 581.
+    ⚠ `-L bc` SELECTED 1303 TESTS AT THE BASELINE AND 2314 AFTER THE NEXT `cmake --build`,
+    with no fixture added in between — the same re-glob drift 2026-09-06a recorded (1293 ->
+    2298). The population of a `ctest -L` filter is not stable across a build. Both runs green.
+
+## 1. WHAT WAS LANDED, AND WHERE IT DIFFERS FROM THE PROBE IT CAME FROM (rule 7)
+Two sites in `sema_stmt.cpp`, one predicate each, both asking `is_unowned_move_source`'s question
+where the fact still exists:
+ A. `bind_pattern_ref`, the `RefPat` arm — a `&`-PATTERN performs the deref itself, so the
+    scrutinee TYPE is enough. Refuses only a BY-VALUE binding of a move-typed value, reading
+    `pat_keys::BINDING_REF_MODES`. **Identical predicate to `patrefbyval`**, plus the binding's
+    own NAME in the diagnostic ("the pattern binds 'q' by value").
+ B. `lower_let_destruct` — refuses a destructure through an unowned source when a BINDING is
+    by value and move-typed. **NOT `destrpatmv`'s predicate.** The probe asked only whether a
+    FIELD is move-typed and it is WRONG in two spellings (§2).
+Four probe names RETIRED, their code removed: `patrefany`, `patrefbyval` (site A is now
+behaviour), `destrpatany`, `destrpatmv`. Live names **156 -> 152**.
+
+## 2. ⚠ THE PRICING ROUND'S RECOMMENDATION #2 REFUSES TWO LEGAL PROGRAMS — AND BOTH OF THEM
+##    ABORT AT RUN TIME ON THE UNARMED COMPILER
+Written for this round, in shapes no cost population and none of the 26 pricing programs
+contains (`/home/logos/sandbox/patland/`):
+    d01  `let A { s: ref v, t: w } = *r;`   a `ref` sub-binding moves nothing   LEGAL
+    d02  `let A { s: _,     t: w } = *r;`   `_` binds nothing at all            LEGAL
+`destrpatmv` REFUSES BOTH. The landed rule admits both — it asks for a by-value BINDING, skipping
+a sub-pattern that carries `IS_REF` (which is exactly what `build_pattern` reads for `ref v`) and
+one named `_`.
+⚠ AND THE SAME TWO PROGRAMS ARE MISCOMPILED TODAY: built and run under `run_test.sh pass`, both
+exit **134** (abort). `emit_destruct` emits a plain field READ for every field spelling — it drops
+`IS_REF` and treats `_` as a binding name — so the source and the binding both own the `String`
+buffer and it is freed twice. OFF-LEDGER, RECORDED NOT PURSUED (§8.1). It is also why refusing
+them would have looked free: an rc-only cost oracle sees a program that already fails.
+⇒ RULE 5, RESTATED WITH A NEW NUMBER: an arm with THREE zero columns and 18 correct legal
+verdicts was still wrong in one direction, and the direction was found by writing programs in a
+SPELLING the pricing set did not use (`ref` / `_` inside a destructure), not by more of the same.
+
+## 3. RULE 5, THIS ROUND: 34 LEGAL HAND PROGRAMS ADMITTED, 0 REFUSED
+The pricing round's 18 legal + **16 new ones written before the compiler was touched**, of which
+these are the shapes it did not have (all ADMIT on the landed binary):
+    n01  `fn take<T: Copy>(r:&T) { match r { &q => … } }`  the by-value PRE-MONO trap: a bare `T`
+         reads as a move type, and only the `T: Copy` bound says otherwise. The pricing set tested
+         this shape ONLY with a `ref` binding (l14), which the walk never reaches.
+    n02  the same with the Copy bound on the IMPL block, not the fn — `current_type_bounds_` must
+         be populated at the pattern site from a second source.
+    n03  an OR-pattern of two `&`-arms, both `ref`      n04  `&O::S(ref a, b)` — the ENUM spelling
+    n05  `&O::S(_)` over a move payload                      of l13 (l13 is a Struct inner, which
+    n09  `while let &O::S(y)` with a Copy payload            the walk is silent on)
+    n10  `&&q` over a `&&i64`                          n11  `&O::S(y)` Copy payload, move enum
+    n12  a GENERIC enum `&O::S(_y)` under `T: Copy`    n13  `&O::S(ref mut y)` through `&mut`
+    n14  `&ref q` — the pattern derefs and then binds BY REFERENCE. This is what licenses
+         `wild_trusted = true` at the inner of `&`: if `&ref q` arrived as a named Wild the rule
+         would refuse it, and it does not.
+    d01-d06  the destructure side, incl. `..`, a nested all-Copy struct, and a generic `T: Copy`.
+CONTROLS, PROVING THE SITE IS LIVE rather than absent (rule 1): c01/c02 are n01/n02 with the
+`Copy` bound DELETED — both REFUSE, naming the binding. On the unarmed compiler c01/c02 do not
+refuse either; they die in the LLVM verifier ("type of return operand 0 ('!llvm.ptr') doesn't
+match function result type ('i64')"), which is the same hole one phase downstream.
+ILLEGAL: x01/x02/x03/x04/x08 refuse with the new named diagnostic, x05/x06 by the two pre-existing
+rules, x07 still ADMITTED (§7, the named residual).
+NOT COUNTER-EXAMPLES, RECORDED SO THE NEXT ROUND DOES NOT RE-WRITE THEM: `&`-patterns in a fn
+parameter (`fn g(&x: &i64)`) and in a closure parameter (`|&x: &i64|`) are SYNTAX ERRORS; `for &x
+in a.iter()` fails on the array receiver; and `match t { (&q, m) => … }` — a `&`-pattern nested in
+a TUPLE pattern — compiles to "undefined variable 'q'", i.e. the binding is dropped. All four are
+pre-existing and unrelated to this change.
+
+## 4. THE CLOSED SET, DIFFED BOTH WAYS, EVERY DIAGNOSTIC READ
+PREDICTED (build/round-2026-09-02land/prediction.txt, written before any measurement of the edit):
+**3** — 132806, issue-99470, access-mode-in-closures. ACTUAL: exactly those three.
+**predicted ∖ actual = ∅, actual ∖ predicted = ∅.** `gate-run.sh -R '^logos_00_bc_admit_'` at
+build 586: 148 passed / 3 failed / 151 recorded, and the three failures are those three names.
+    do-not-suggest-removing-wrong-ref-pattern-issue-132806 :12  E0507 … the pattern binds 'q' by value
+    issue-99470-move-out-of-some                          :12  E0507 … the pattern binds 'y' by value
+    access-mode-in-closures                               :12  E0507 … the pattern binds 'inner' by value
+One diagnostic each, at the line the pattern is written on, and E0507 is each row's upstream
+reason. `move-errors--d` was PREDICTED NOT TO CLOSE and did not: its only binding is `s: v` with
+`s: i64`, not a move type — the corpus decision of 2026-09-02pat §8 stands untouched (§6).
+
+## 5. COST, ALL THREE COLUMNS, ON THE LANDED BINARY (build 586)
+    pass     `-L bc` **2321/2321** after the fixtures (2314/2314 before them), 0 failed.
+             L1 **747/747** + 197 gates, 0 failed.
+    cfail    `fail_text_oracle.py` over the 1303 `-L bc -L fail` fixtures, the landed binary vs
+             the control revert: rc moved **0**, `.expected` match moved **0**, normalised stderr
+             sha moved **0**. (§9 for the control-revert run itself.)
+    stdlib   `stdlib-cost.sh` — all four layers compile.
+
+## 6. THE `move-errors--d` CORPUS DECISION IS UNCHANGED AND STILL FOR AN OWNER
+Nothing in this landing touches it, and that is deliberate: no predicate can separate it from
+`imported/pass/structs/newtype-struct-with-dtor` (a pinned rustc UI PASS test) and
+`pass/bc_deref_move_exempt_admit:56` — three programs that destructure a `Drop` struct through a
+reference binding only Copy fields, differing in pattern SPELLING and in `&` vs `&mut`. Either the
+port dropped the non-Copy field upstream's case d has, or the row is legal Rust as ported and
+should be RETIRED. Reported, not edited; its `nllmoves.B` label is wrong until it is settled.
+
+## 7. THE NAMED RESIDUAL, RE-MEASURED AND STILL OPEN
+`match r { &Out { i: q } => … }` (x07) is still ADMITTED: the RefPat walk claims nothing for a
+Struct, Slice or Tuple inner pattern. The landed match-arm site records the same silence for the
+same reason (their binding types are not reachable there); here they WOULD be — the RefPat arm
+holds `inner_t`, so `field_type_of` is one call away — so this is a narrower silence than that
+one, chosen as the explicit silence rather than a second predicate in a landing that already has
+two. No ledger row is this shape today. One spelling wide; named, not probed.
+
+## 8. OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **`emit_destruct` IGNORES A FIELD'S BINDING MODE — a double free, MEASURED.** `let A { s: ref
+    v, t: w } = *r;` and `let A { s: _, t: w } = *r;` both compile and both abort (exit 134). The
+    lowering emits a field READ per field whatever the spelling, so `ref` copies instead of
+    borrowing and `_` binds a value it was told not to bind. This is a MISCOMPILE, not a
+    borrow-check hole, and it BLOCKS the two pass twins that would pin this round's two
+    exclusions: neither program can be a `pass` fixture while it aborts. That is why pair 3 below
+    is one token apart on the SOURCE (`*r` vs `a`) and not on the binding mode.
+ 2. `match r { &ref q => … }` compiles and returns **0** where the value is 2 (`q.v.len()` on a
+    `String` of length 2). The admit verdict is right and the VALUE is wrong — a second miscompile
+    at the same door, found while looking for a pass twin.
+ 3. `patmoveref`'s recorded ceiling 3 has decayed to 0 (2026-09-02pat §10.2); unchanged here.
+
+## 9. THE CONTROL REVERT
+`git stash` of `src/compiler/sema_stmt.cpp` alone, full rebuild, then: the six new native fixtures
+and the three moved imported ones re-run. See §5 for the oracle diff taken on that same binary.
+
+## 10. FIXTURES — PAIRS ONE TOKEN APART, IN THEIR ROOT'S HOME
+Three imported `admit` -> `fail` in their own directories (`fail/moves/`, `fail/borrowck/`), each
+with the full diagnostic pinned. Three native PAIRS, `tests/logos/{fail,pass}`:
+    &q            vs  &_             bc_patref_amp_binds_by_value_fail / _amp_binds_nothing
+    &O::S(y)      vs  &O::S(ref y)   bc_patref_variant_binds_by_value_fail / _variant_binds_by_ref
+    `= *r;`       vs  `= a;`         bc_destrpat_deref_binds_by_value_fail / _owned_binds_by_value
+Census pins re-derived and updated with their arithmetic: REGISTRY-ALL 8945 -> 8951,
+NOIMPORTED 4536 -> 4539, TIERCOMMIT 200 -> 197; direct_door corpus 2614 -> 2617, nonglob
+2423 -> 2426. Every delta predicted from the fixture count before the pin was read.
+
+## 11. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+# TOTAL 151 -> **148**, by direct listing (`awk '!/^#/ && NF' | wc -l` = 148).
+Channel split now: lifereg 54 · nllmoves 48 · bck 46 — nllmoves.B 6 -> 4, bck.B 10 -> 9.
+NOT SPENT, each with its number: bck.C 12 (mined) · nllmoves.C 10 · bck.B 9 · bck.NEW 8 ·
+lifereg.R18 7 (M-SIG, rejected 09-06a) · nllmoves.D 6 · bck.D 6 (two-phase) · E0716 9 (owner +
+stdlib wall) · B-3, the place walk breaking at a user `Deref` CALL, 2 rows.

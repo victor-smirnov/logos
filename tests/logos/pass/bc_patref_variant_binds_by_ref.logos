@@ -1,0 +1,13 @@
+// PAIR with fail/bc_patref_variant_binds_by_value_fail, ONE TOKEN apart: `ref y`
+// here, `y` there. A `ref` payload binding under a `&`-pattern moves nothing.
+package bc_patref_variant_binds_by_ref;
+use logos.mem.string;
+enum O { S(String), N }
+fn main() -> i32 {
+    let o: O = O::S(String::from("abc"));
+    let x: &O = &o;
+    match x {
+        &O::S(ref y) => { return y.len() as i32; }
+        &O::N => { return 0i32; }
+    }
+}
