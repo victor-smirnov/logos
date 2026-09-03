@@ -17074,6 +17074,27 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     if (!p.has_key(la::TYPE) && !p.has_key(la::NAMES) &&
                         i < hint_param_types.size() && hint_param_types[i])
                         ptype = hint_param_types[i];
+                    // PROBES closmintp/closrigid/closretelide/closretfresh —
+                    // src/compiler/PROBES.md 2026-09-03clos.
+                    {
+                        std::function<void(TypeRef,int)> cw_ = [&](TypeRef t_, int d_) {
+                            if (!t_ || d_ > 8) return;
+                            auto k_ = TypeRef(t_).kind();
+                            if (k_ == LogosType::Kind::Ref || k_ == LogosType::Kind::MutRef) {
+                                if (TypeRef(t_).lifetime().empty())
+                                    logos::probe::census("clos.param.elided");
+                                else logos::probe::census("clos.param.written");
+                                cw_(TypeRef(t_).pointee(), d_ + 1);
+                            }
+                        };
+                        logos::probe::census("clos.param.any");
+                        cw_(ptype, 0);
+                    }
+                    if (logos::probe::on("closmintp") || logos::probe::on("closrigid") ||
+                        logos::probe::on("closretelide") || logos::probe::on("closretfresh")) {
+                        std::vector<std::string> mregs_;
+                        ptype = mint_type_lts_(ptype, mregs_);
+                    }
                     // C5-cl-07: tuple-destructure param `(a, b): (T1, T2)`.
                     // Grammar emits PARAM with NAMES = {ITEMS: [name, …]}
                     // and TYPE = tuple type. Synthesise a single param,
@@ -17147,6 +17168,25 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     bool has_annot = node.has_key(la::RET_TYPE);
     TypeRef ret_type = has_annot
         ? resolve_type(map_of(node.get(la::RET_TYPE.code))) : void_t();
+    // PROBE closretelide — elision rule 1 AT A CLOSURE: exactly one input
+    // region ⇒ the annotated elided return takes it. PROBES.md 2026-09-03clos.
+    if (has_annot && ret_type && logos::probe::on("closretelide")) {
+        std::vector<std::string> ir_;
+        for (auto& pt_ : param_types) {
+            std::vector<std::string> o_;
+            (void)mint_type_lts_(pt_, o_);
+            for (auto& r_ : o_) ir_.push_back(r_);
+        }
+        std::sort(ir_.begin(), ir_.end());
+        ir_.erase(std::unique(ir_.begin(), ir_.end()), ir_.end());
+        if (ir_.size() == 1) {
+            std::vector<std::string> ro_;
+            ret_type = mint_type_lts_(ret_type, ro_, ir_.front());
+            logos::probe::census("clos.ret.unified");
+        } else {
+            logos::probe::census("clos.ret.no-source");
+        }
+    }
 
     // §7.1: snapshot body_ever_moved_ before the closure body so we can
     // compute the body-MOVED set of OUTER (capture-source) vars. With fn
@@ -17162,6 +17202,26 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // `return` inside the body drops only the closure's own frames, not the
     // enclosing function's captured locals (the env borrows them / the original
     // binding owns them — dropping here would double-free).
+    // PROBES closrigid/closretelide/closretfresh — a closure's own elided `&`
+    // regions are BINDERS OF THE CLOSURE'S SCOPE. PROBES.md 2026-09-03clos.
+    struct ClosBinderGuard_ {
+        std::unordered_set<std::string> saved; bool on = false;
+        ~ClosBinderGuard_() { if (on) current_lt_binders() = saved; }
+    } cbg_;
+    if (logos::probe::on("closrigid") || logos::probe::on("closretelide") ||
+        logos::probe::on("closretfresh")) {
+        cbg_.saved = current_lt_binders();
+        cbg_.on = true;
+        for (auto& pt_ : param_types) {
+            std::vector<std::string> o_;
+            (void)mint_type_lts_(pt_, o_);
+            for (auto& r_ : o_)
+                if (lt_is_minted(r_)) {
+                    current_lt_binders().insert(r_);
+                    logos::probe::census("clos.binder.registered");
+                }
+        }
+    }
     push_closure_scope();
     for (auto& p : params) {
         // Skip mut-bind synths: the user name is defined mutable below; defining
@@ -17190,6 +17250,13 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     for (auto& p : params) param_names.insert(p.name);
 
     // Lower body — closure body is its own unsafe scope, does NOT inherit enclosing context.
+    // PROBE closretfresh — rule 9's twin of closretelide, THE ABUSE DIRECTION:
+    // the annotated elided return takes a FRESH region, not the input's.
+    if (has_annot && ret_type && logos::probe::on("closretfresh")) {
+        std::vector<std::string> ro_;
+        ret_type = mint_type_lts_(ret_type, ro_);
+        logos::probe::census("clos.ret.fresh");
+    }
     auto saved_ret = ret_type_;
     bool saved_unsafe = inside_unsafe_;
     ret_type_ = has_annot ? ret_type : nullptr;

@@ -18089,3 +18089,211 @@ Channel split now: lifereg 54 · nllmoves 48 · bck 46 — nllmoves.B 6 -> 4, bc
 NOT SPENT, each with its number: bck.C 12 (mined) · nllmoves.C 10 · bck.B 9 · bck.NEW 8 ·
 lifereg.R18 7 (M-SIG, rejected 09-06a) · nllmoves.D 6 · bck.D 6 (two-phase) · E0716 9 (owner +
 stdlib wall) · B-3, the place walk breaking at a user `Deref` CALL, 2 rows.
+
+
+# ═══ ROUND 2026-09-03clos — PRICING ONLY, NO FIX LANDED. THE ELISION ENGINE IS A **FN-DECLARATION**
+# ENGINE: A CLOSURE'S OWN `&` PARAMETERS ARE NEVER MINTED AND NEVER REGISTERED, SO EVERY CLOSURE
+# REGION IS THE EMPTY SPELLING. MINTING THEM PRICES CEILING 3 / COST 0 / cfail 3 / STDLIB OK — AND
+# ⛔ REFUSES A LEGAL PROGRAM NO POPULATION CONTAINS (m11). THE **BINDER REGISTRATION IS REFUTED**:
+# 11 REGISTRATIONS, **0 READS** — `closrigid` IS `closmintp` WITH DEAD CODE ATTACHED, MEASURED BY
+# CENSUS AND NOT BY THE COLUMNS (RULE 9 ANSWERED THE OTHER WAY ROUND). ═══════════════════════════
+
+## 0. STEP 1, RE-DERIVED FROM THE TREE (nothing taken from the brief)
+    HEAD `eed909358`, clean = origin/main at open. LIVE PROBE NAMES **152** at open
+    (`grep -rhoP 'probe::on\("\K[a-z_0-9]+' src include | sort -u | wc -l`), **156** at close.
+    `# TOTAL 148`, and 148 by direct listing (`awk '!/^#/ && NF' | wc -l`).
+    CHANNEL SPLIT, derived: **lifereg 54 · nllmoves 48 · bck 46**. LARGEST ROOTS: bck.C 12 ·
+    nllmoves.C 10 · bck.B 9 · bck.NEW 8 · lifereg.R18 7 · nllmoves.D 6 · nllmoves.E 6 · bck.D 6.
+    BASELINE READ FROM THE STORE, not re-run: build **588** (libs `3d43452a16041699`),
+    `logos_00_bc_admit_*` 148 recorded / 148 passed / 0 failed.
+    ⚠ CORRECTION TO THE BRIEF: `logos::probe::arm_inst()` and `arm_mintiv()` return `true`
+    UNCONDITIONALLY — the mint and the rigid-universal rule are BEHAVIOUR, not probes. A round
+    that greps for `ltmint*` as "the arm" is reading a retired name.
+
+## 1. THE TARGET ROWS, BY NAME, WRITTEN BEFORE THE COMPILER WAS TOUCHED
+`build/round-2026-09-03clos/targets-2026-09-03clos.txt`.
+PROPERTY, NOT A ROOT LABEL: **a region appears at a CLOSURE's own `&` parameter, or in an
+`Fn*(..)` bound's parameter position.** Scanned all 148 programs for `|…&…|` or
+`Fn(Once|Mut)?\(…&`: **11 rows over 4 roots and all three blocks** (bck.C 1, lifereg.C 4,
+lifereg.NEW-N3 1, nllmoves.C 3, nllmoves.NEW-L1 1, nllmoves.NEW-N2 1). The root labels hid it.
+PRIMARY (6): anonymous-region-in-apit--closure-param-escapes (bck.C) · regions-infer-call-3 ·
+regions-nested-fns-2 (lifereg.C) · escape-argument--t09 · return-wrong-bound-region (nllmoves.C) ·
+issue-54124 (nllmoves.NEW-L1).  SECONDARY (2): regions-ret-borrowed · regions-escape-method.
+OUT OF BLOCK, named so the next round does not re-derive them: issue-74400 (HRTB generality),
+projection-two-region-trait-bound-closure (projection outlives), and **issue-48697--t16, whose
+direction is the OPPOSITE** — rustc unifies the closure's region across BOTH calls, so a RIGID
+closure region would ADMIT it. (§5: two probes closed it anyway. That is the informative miss.)
+WHY THIS BLOCK: the shape that has paid every round — AN ARM THAT EXISTS reached through A FACT
+THE CODE DOES NOT CARRY. `sema_decl.cpp:821..1318` mints a signature's elided regions and
+registers them in `current_lt_binders()`; `subtype.hpp` lt_eq / the Inv arm and
+`outlives.hpp`'s unmentioned-binder rule both key on that set. `lower_closure_expr`
+(`sema_expr.cpp:17019`) does NEITHER, so every closure `&` param carries `""`, which lt_eq's
+`x.empty() || y.empty()` branch reads as permissive. The other big blocks are spent or owned
+(bck.C mined over six rounds, the §B6 store channel landed/refuted, lifereg.R18 M-SIG rejected
+09-06a, E0716 owner + stdlib wall, `move-errors--d` and `regions-escape-unboxed-closure` corpus
+decisions).
+
+## 2. RULE 17 — THE ARRIVAL CENSUS, ON THE UNARMED BINARY, BEFORE ANY VERDICT WAS BELIEVED
+Unconditional census riding the same build, summed over all 148 admits, NOTHING armed:
+    clos.param.any        15   ← the WHOLE closure-parameter population of the ledger is 15 slots
+    clos.param.elided     11        (11 elided, 2 written, 2 non-ref)
+    rigid.eq.arrive        4   ← the landed rigid equality is asked FOUR times in 148 programs
+    rigid.inv.*            0   ← the Inv twin still has ZERO arrivals (unchanged since 09-05a)
+    mint.fn.signature 542650 / mint.ref.elided 138132 — the fn-side engine, for scale.
+⇒ the site is tiny. Rule 4 applies in the OTHER direction too: a ceiling of 3 off 11 elided slots
+is a large fraction of the population, not a rounding error.
+
+## 3. THE PROBE TABLE — ONE BUILD, ALL THREE COST COLUMNS, EVERY IDENTITY READ
+Batch `build/batch-2026-09-03clos.spec`, build hash `797761721022255f` (unarmed gate-db **589**;
+armed 590/591/592/593). `probe-batch` L1 **rc=0, batch inert**. `gate-run.sh -L bc` on 589:
+**1309/1309 passed, 0 failed** (⚠ the label selected 1309 here against 1303/2314 in the last two
+rounds — the same re-glob drift, recorded again).
+    probe          site                                    fires  ceil  cost  cfail  std  verdict
+    closmintp   A  mint the closure's elided `&` param        183     3     0      3   ok  see §6
+                   regions (`mint_type_lts_` at the closure)
+    closrigid   B  closmintp + register them in               670     3     0      3   ok  ⛔ REFUTED
+                   `current_lt_binders()` for the body                                     as an ADDITION
+    closretelide C closrigid + elision rule 1 on an           935     4     1      7   ok  ⛔ DECLINED
+                   ANNOTATED elided closure return
+    closretfresh D closrigid + a FRESH region for that        935     6     6     11   ok  ⛔ DECLINED
+                   return (rule 9's abuse-direction twin)                                  (the twin)
+⚠ MEASURED INDEPENDENTLY OF `ceiling-probe.sh` (2026-09-04b §8's pollution finding): all 148
+ledger programs compiled directly under each `LOGOS_PROBE`. THE TWO ORACLES AGREE EXACTLY,
+name for name, on all four names.
+
+## 4. ⛔ RULE 9 ANSWERED BY THE CENSUS, NOT BY THE COLUMNS: THE BINDER HALF IS DEAD
+`closrigid` = `closmintp` + `clos.binder.registered` **11**. Identical in EVERY column, identical
+row-for-row in the direct matrix, and identical on all 32 hand programs. The census says why:
+    unarmed      rigid.eq.arrive  4    distinct 1    one 1    both 0    none 0
+    closmintp    rigid.eq.arrive 12    distinct 1    one 1    both 0    none 0
+    closrigid    rigid.eq.arrive 12    distinct 1    one 1    both 0    none 0   ← 11 registrations
+    closretelide rigid.eq.arrive 14    distinct 1    one 1    both 0    none 0      changed NOTHING
+    closretfresh rigid.eq.arrive 15    distinct 1    one 1    both 0    none 0
+The mint DOES push more pairs to the rigid site (4 → 12), but **every closure pair that arrives is
+`x == y`**; the one distinct pair in the corpus is the same fn-side pair in all five columns.
+⇒ **THE 11 REGISTERED CLOSURE BINDERS ARE NEVER READ.** The rigid-universal rule — the arm this
+round targeted by name — is NOT the door these rows come through. The door is the MINT: the
+refusals below are the variance/Inv comparison and the fn-level elision check reading the minted
+SPELLING. `closrigid`'s registration is dead code and must not be spelled that way.
+⇒ RULE 9, RESTATED: an inner predicate whose two names are identical in every harness column can
+still be settled — by a CENSUS AT THE PREDICATE'S OWN READ SITE, which says one of them is never
+consulted. That is cheaper than a hand program and it is decisive.
+
+## 5. THE SETS, PREDICTED BY NAME FIRST, DIFFED BOTH WAYS, EVERY DIAGNOSTIC READ
+    closmintp / closrigid  {nll/escape-argument--t09          nllmoves.C
+                            regions/regions-infer-call-3      lifereg.C
+                            regions/regions-ret-borrowed}     lifereg.C
+    closretelide           the above + {nll/issue-48697--t16} nllmoves.C
+    closretfresh           the above + {nll/return-wrong-bound-region  nllmoves.C
+                                        regions/regions-escape-method  lifereg.C}
+    predicted(8) ∖ closrigid = {anonymous-region-in-apit--closure-param-escapes,
+        regions-nested-fns-2, return-wrong-bound-region, issue-54124, regions-escape-method} — 5 of 8.
+    closrigid ∖ predicted = ∅.
+    closretelide ∖ predicted = {issue-48697--t16} — **the row §1 named as the OPPOSITE direction**.
+⚠ AND THE ROWS ARE NOT CLOSED, BECAUSE THE DIAGNOSTIC IS WRONG. Read on the armed binaries:
+    escape-argument--t09  :11  `deref-write '*ptr = …': variance mismatch — expected &i64, got
+                               &i64 — lifetime structure incompatible` — the message this file
+                               already names as broken (2026-09-04b §6, 2026-09-01m). It prints
+                               the same type twice and states no reason. Upstream reason: E0597.
+    regions-ret-borrowed  :6   `return type mismatch: variance mismatch — expected &'a i64, got
+                               &i64` — the best of the three; it at least names 'a against the
+                               closure's elided slot. Upstream: "lifetime may not live long enough".
+    regions-infer-call-3       `[fn manip]: lifetime elision: return reference must derive from
+                               'y' (the only reference parameter)` — RIGHT VERDICT, WRONG REASON.
+                               Upstream is a region error, not an elision error, and the sentence
+                               is attributed to `fn manip` while the offending signature is the
+                               closure's.
+⇒ by "A ROW CLOSED BY A WRONG DIAGNOSTIC IS NOT CLOSED", **ceiling 3 buys 0 rows as spelled**. A
+landing must carry a sentence naming the closure's own parameter and the region it was tied to —
+`minted_lt_origin()` already holds exactly that map for the fn side and is untouched here.
+
+## 6. ⚠ RULE 5 BIT — cost 0 ON THREE POPULATIONS, 18 CORRECT LEGAL VERDICTS, AND **m11 IS A LEGAL
+##    PROGRAM REFUSED** (`/home/logos/sandbox/closreg/`, 32 multi-line programs, shapes varied)
+LEGAL, ADMITTED under closmintp/closrigid (l01–l18, m02–m10, m12, m14): an annotated elided return
+that yields its own param · a value return · two ref params · `&mut` param · a captured outer
+reference beside the param · a generic `FnOnce(&i64)` bound with an UNTYPED param (hint path) ·
+`move` · coercion to `fn(&i64)->i64` · nested closures · the param into a struct field with an
+elided region · `&Struct` param · a TUPLE-DESTRUCTURE param `|(x,y): (&i64,&i64)|` · `|mut x|` ·
+forwarding to a `<'r>` callee · `&[i64;3]` param · returning `&x.v` · two closures each with its
+own region · a WRITTEN `'a` param · `&dyn Tr` param · a method receiver · `Box<dyn Fn(&i64)->i64>`
+· a fn-pointer STRUCT FIELD initialised from a literal · two different pointee types.
+CONTROLS, PROVING THE SITE IS LIVE (rule 1) — both rc 0 UNARMED, both refused armed:
+    x01 the regions-infer-call-3 shape      x02 `|q:&mut &i64, r:&i64| { *q = r; }`
+⛔ **m11 — LEGAL AND REFUSED:**
+    fn run<'a>(w: &'a i64, p: &mut &'a i64) {
+        let mut closure = |q: &mut &'a i64, r: &'a i64| { *q = r; };
+        closure(p, w);
+    }
+The two closure param regions are TIED BY A WRITTEN `'a`, the body is sound, and the UNARMED
+compiler compiles it (rc 0). Armed: `closure call arg 1: variance mismatch — expected
+&mut &'a i64, got &mut &'a i64`. The cause is the mint's OWN blind spot: `&mut &'a i64` has a
+written inner region and an **ELIDED OUTER** one, the mint gives that outer slot a rigid `'%N`,
+and the caller's argument `p` cannot match a name minted inside the closure. No population in the
+harness contains a closure parameter with a written inner lifetime under an elided `&mut`, which
+is why three zero columns and 18 correct legal verdicts saw nothing.
+⇒ THE SHAPE THAT FOUND IT was a written lifetime INSIDE a closure parameter — a spelling the
+pricing programs and the whole 148-row corpus lack. Count did not find it; SPELLING did.
+⚠ `m01` (x02 one token apart: the stored source declared OUTSIDE the block, so it outlives) is
+ALSO refused. I read it as ILLEGAL in rustc — an annotated closure signature whose two regions are
+untied makes `*q = r` unprovable at the CLOSURE, whatever the argument — but **there is no rustc on
+this box and I did not verify it**. If m01 is legal, the arm is wrong in a second direction. It is
+recorded as UNRESOLVED, not as a pass.
+
+## 7. cfail — READ, NOT COUNTED, AND IT IS A DIAGNOSTIC REGRESSION
+closmintp/closrigid move 3 of 1309 `-L bc -L fail` fixtures, all `.expected` LOST, all rc
+unchanged: `bc_capretsc_closure_static_contract`, `nll/closure-substs`, `nll/issue-58053`. All
+three pin the SAME sentence, and it is the SPECIFIC one:
+    was  `lifetime mismatch: return type has lifetime 'static but 'x' has lifetime (elided)`
+    now  `return type mismatch: variance mismatch — expected &'static i64, got &i64 — lifetime
+          structure incompatible (check &mut invariance / contravariance rules)`
+Rule 14 says a branch that only re-words an already-red diagnostic buys nothing; here it is worse
+than that — the mint REPLACES a sentence that names the binding and the two lifetimes with the
+generic variance text. Any landing must keep the `'static` contract check ahead of the variance
+comparison. closretelide moves 7 and closretfresh 11, same shape.
+
+## 8. ⛔ closretelide AND closretfresh — DECLINED BY NAME
+    closretelide  ceiling 4, **cost 1**: `pass/bc_h4e_closure_arg_tie_param` — which IS hand
+                  program l01, `let c = |x:&i64| -> &i64 { return x; }; return c(p);` inside
+                  `fn get(p:&i64) -> &i64`. Tying the closure's annotated elided return to its own
+                  rigid param makes `c(p)`'s result unequal to `get`'s minted return. cfail 7 > 4.
+                  Its extra row (issue-48697--t16) is the row §1 predicted would need the OPPOSITE
+                  rule, so it is bought by a wrong model as well as a wrong message.
+    closretfresh  ceiling 6, **cost 6** legal pass fixtures + cfail 11. The abuse direction of the
+                  same predicate, and it refuses l01 and l16 by hand. Rule 9's twin is REFUTED by
+                  cost, exactly where its own predicate says it should be.
+
+## 9. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **A PRE-EXISTING OVER-REFUSAL AT THE SAME DOOR, UNARMED.** m13 —
+    `let z: i64 = 8i64; let mut p: &i64 = &x; { let c = |q:&mut &i64| { *q = &z; }; c(&mut p); }
+     return *p;` — is refused by the UNARMED compiler: `'z' does not live long enough: it is
+    borrowed and stored through 'q', whose storage the caller owns and outlives this function
+    (E0597)`. `z` outlives every use of `p`. The §B6 store rule keys on "the caller owns the
+    destination" and never asks whether the SOURCE outlives it. Not a borrow-check HOLE — an
+    over-refusal, so no ledger row can carry it. NOT PURSUED.
+ 2. The `expected &i64, got &i64` message (§5) is now measured at a THIRD site (`deref-write` and
+    `return type mismatch`, under a closure). Same defect, already recorded 2026-09-01m / 09-04b §6.
+
+## 10. ⇒ WHAT DESERVES FUNDING, IN ORDER
+ 1. **THE CLOSURE MINT (`closmintp`), BUT ONLY WITH TWO REPAIRS FIRST — 3 rows, cost 0 on three
+    populations, and NOT FUNDABLE AS SPELLED.** (a) the OUTER slot of a closure param that has a
+    WRITTEN inner region must not be minted rigid, or m11 breaks; (b) the diagnostic must name the
+    closure's parameter (`minted_lt_origin()` already carries the map on the fn side) and the
+    `'static` contract check must stay ahead of the variance comparison, or §7's three pins
+    regress. Both repairs are at sites that exist. WITHOUT them the ceiling is real and the
+    rows are not closed.
+ 2. **DO NOT SPELL THE BINDER REGISTRATION** (§4): 11 registrations, 0 reads, measured.
+ 3. **A REGION AT A CLOSURE PARAMETER NEEDS A SECOND FACT — THE EXPECTED SIGNATURE.** The 5 rows
+    §1 predicted and did not get (anonymous-region-in-apit, regions-nested-fns-2,
+    return-wrong-bound-region, issue-54124, regions-escape-method) all need the region the CALLER
+    or the `Fn*` bound demands, which `hint_closure_formal_` reaches but never compares against.
+    That is the next priced question in this block; the mint is its first hop (rule 2: doors in
+    series).
+ 4. FOR AN OWNER: whether `m01` is legal Rust (§6). It decides whether the whole `*q = r`
+    refusal is by signature (right) or by argument (wrong), and it cannot be settled on this box.
+
+## 11. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+# TOTAL 148 -> 148. **No row bought, no row retired, no behaviour changed.** Four env-gated probe
+names installed in ONE commit, L1 rc=0 inert, `-L bc` 1309/1309. Live probe names 152 -> 156.
+NOT SPENT, each with its number: bck.C 12 (mined) · nllmoves.C 10 · bck.B 9 · bck.NEW 8 ·
+lifereg.R18 7 (M-SIG, rejected 09-06a) · nllmoves.D 6 · nllmoves.E 6 · bck.D 6 (two-phase) ·
+E0716 9 (owner + stdlib wall) · B-3, the place walk breaking at a user `Deref` CALL, 2 rows.
