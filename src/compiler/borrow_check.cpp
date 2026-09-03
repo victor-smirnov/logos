@@ -10402,6 +10402,31 @@ private:
                         else if (logos::probe::on("capmoveloan") &&
                                  root_has_live_loan(std::string(cap)))
                             consume(std::string(cap), line);
+                        // ── ROUND 2026-09-03o: the move-capture deposit,
+                        // keyed on the CAPTURED TYPE. See PROBES.md.
+                        TypeRef _cmt = i < cap_types.size() ? cap_types[i]
+                                                            : TypeRef(nullptr);
+                        bool _cmdrop = _cmt && needs_drop(_cmt, prog_, ts_);
+                        bool _cmref  = _cmt && type_may_carry_borrow(_cmt);
+                        bool _cmloan = root_has_live_loan(std::string(cap));
+                        logos::probe::census("capmove.arrive");
+                        logos::probe::census(_cmt ? "capmove.typed"
+                                                  : "capmove.untyped");
+                        if (_cmdrop) logos::probe::census("capmove.drop");
+                        if (_cmref)  logos::probe::census("capmove.ref");
+                        if (_cmloan) logos::probe::census("capmove.loan");
+                        if (!_cmdrop && !_cmref && !_cmloan)
+                            logos::probe::census("capmove.trivial");
+                        if ((_cmdrop || _cmref) &&
+                            logos::probe::on("capmovety"))
+                            consume(std::string(cap), line);
+                        if (_cmdrop && logos::probe::on("capmovedrop"))
+                            consume(std::string(cap), line);
+                        if (_cmref && logos::probe::on("capmoveref"))
+                            consume(std::string(cap), line);
+                        if ((_cmdrop || _cmref || _cmloan) &&
+                            logos::probe::on("capmoveboth"))
+                            consume(std::string(cap), line);
                         ++i; return;
                     }
                     std::string root(cap);
