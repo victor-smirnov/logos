@@ -18483,3 +18483,167 @@ fact: the region the CALLER or the `Fn*` bound demands of the closure. `hint_clo
 params are untyped, and its REGIONS are never compared against the minted ones. That is the next
 priced question in this block, and rule 2 applies: it is a door in series with the one just
 opened, not an alternative to it.
+
+# ═══ ROUND 2026-09-03d — A `&<RVALUE>` IS ANSWERED BY WHAT IT **CONTAINS** INSTEAD OF BY
+# WHERE IT **LIVES**, AND THE `let` ARM'S E0716 QUESTION IS NEVER ASKED AT THE `assign`
+# ARM. FOUR PROBES, **CEILING 4 / COST 0 / cfail 0 / stdlib ok**, ADDITIVE 2+2=4 EXACTLY,
+# SETS PREDICTED BY NAME AND ∅ IN BOTH DIRECTIONS. NOTHING LANDED — THIS ROUND PRICES. ═══
+
+## 0. STEP 1, RE-DERIVED FROM THE TREE (nothing taken from the brief)
+    HEAD `6aac9ffa5`, clean = origin/main at open. LIVE PROBE NAMES **152** at open,
+    **156** at close (four added: tmpfresh, tmpagg, tmpassign, tmpboth; none retired).
+    `# TOTAL 145`, and 145 by direct listing. CHANNEL SPLIT, derived:
+    **lifereg 52 · nllmoves 47 · bck 46** — lifereg is the plurality, not "the bulk".
+    LARGEST ROOTS, derived: bck.C 12 · nllmoves.C 9 · bck.B 9 · bck.NEW 8 · lifereg.R18 7 ·
+    nllmoves.D 6 · bck.D 6 · lifereg.NEW-N1 5 · nllmoves.E **4** · nllmoves.B 4 ·
+    lifereg.R17 4 · lifereg.D 4.
+⚠ TWO CORRECTIONS TO THIS FILE'S OWN CARRIED-FORWARD "NOT SPENT" LIST (2026-09-03b §11,
+  and identical in 09-03clos, 09-03a, 09-02z — four rounds):
+   1. **`nllmoves.C` is 9, not 10.** It was 9 the moment 09-03b closed escape-argument--t09.
+      §11 of that very round wrote "nllmoves.C 10 -> 9" in one paragraph and "nllmoves.C 9"
+      in the split, then listed "nllmoves.C 10" three lines later in NOT SPENT.
+   2. **`nllmoves.E` is 4, not 6.** Rows: enum-drop-access, issue-52059-report-when-borrow-
+      and-drop-conflict, issue-53773, issue-54556-stephaneyfx. The 6 has been carried since
+      2026-09-02z with no row to back it.
+  `bck.C 12 · bck.B 9 · bck.NEW 8 · lifereg.R18 7 · nllmoves.D 6 · bck.D 6` all check out.
+    BASELINE: the store's own unarmed baseline was read by `ceiling-probe.sh`, builds 604
+    (unarmed) / 608 (unarmed, after the tmpboth edit). Committed build hash `4698fa2f726c78f6`
+    (READ from `scripts/build_hash.py` on the committed tree; the prices were taken on
+    `a9654d5a3d11549e` and `67d3c2a442799b2a`, which differ from it ONLY in five deleted
+    comment lines — see §9).
+
+## 1. THE TARGET ROWS AND THE PREDICTION, WRITTEN BEFORE THE COMPILER WAS TOUCHED
+`build/round-2026-09-03d/targets-2026-09-03d.txt`. NUMBER **4**, and the file also names
+seventeen rows PREDICTED NOT TO CLOSE so the diff runs both ways.
+
+## 2. WHY THIS BLOCK — DERIVED BY THE PROPERTY, NOT BY THE ROOT LABEL
+Declined/refuted/owner entries read first: bck.C 12 + nllmoves.C 9 are the closure boundary,
+mined over six rounds (`capshared`→`capsharedlive` landed, `capmut` ⛔18/17, `capretcaps`/
+`capretplt` retired, `closretelide`/`closretfresh`/`closrigid` declined 09-03clos/09-03b);
+lifereg.R18 7 is M-SIG, REJECTED 09-06a; the three `let`-initialiser E0716 rows are LEGAL
+RUST as ported (2026-09-01 §1) and are an owner's decision, not a purchase.
+THE D ROOTS (bck.D 6 · nllmoves.D 6 · lifereg.D 4 = **16 rows**, three blocks) carry one
+named missing observation — "a TEMPORARY has no owner to key a loan on" — and the machinery
+for it is recorded CORRECT. **SIX HAND PROGRAMS, ONE TOKEN APART, MEASURED BEFORE ANY EDIT:**
+    t06  impl T { fn idx(self:&T)->&T { return &T{ s: 5i64   }; } }   rc 1 REFUSED
+    t08  impl T { fn idx(self:&T)->&T { return &T{ s: self.s }; } }   rc 0 ADMITTED
+    t07  fn idx(a:&T)->&T          { return &T{ s: a.s    }; }        rc 0 ADMITTED
+    t02  fn f()->&S                { return &mk();          }         rc 1 REFUSED
+    t01  let mut r:&S = &base;  r = &mk();                            rc 0 ADMITTED
+    t05  let mut x:&i64 = &z;   x = &id(3i64);                        rc 0 ADMITTED
+⇒ THE DISCRIMINATOR IS NEITHER METHOD-NESS NOR THE RVALUE KIND. It is whether the rvalue's
+OPERANDS mention a param or a local. `borrow_check.cpp::prov_of`, `case Code::AddrOfTemp`:
+    auto inner_prov = prov_of(v.inner());
+    if (!inner_prov.params.empty() || inner_prov.is_local || inner_prov.is_temp)
+        return inner_prov;                       // ← the CONTENTS answer, and win
+    if (is_temporary_value_expr(v.inner()))      // ← the STORAGE answer, unreachable
+        return {{}, /*is_local=*/true, /*is_temp=*/false};
+`is_temporary_value_expr` is the arm that already refuses `return &mk();` — it is simply
+placed AFTER the short-circuit, so any fresh aggregate that borrows anything is answered by
+what it holds instead of by where it sits. THE ARM EXISTS; the fact it never carries is
+"this AddrOf is of a FRESH PLACE, whatever its fields borrow".
+SECOND SITE, same root, one statement kind away: the `Let` arm asks `vp.is_temp` and reports
+E0716; the `Assign` arm does `prov_[name] = prov_of(val)` and asks NOTHING. Rust extends a
+temporary bound by a `let` INITIALISER and does not extend one on an assignment.
+
+## 3. THE PROBE TABLE — ALL THREE COST COLUMNS, EVERY IDENTITY READ
+`probe-batch.sh` was not used (its spec is one `file:` per record and mechanism A is one
+overlapping hunk carrying two names). THE SAME PROTOCOL BY HAND: every arm installed, ONE
+build, `test-levels.sh L1` from `build/` proving the batch inert (**rc=0, 747/747**, run
+twice — before and after the comment trim), then `ceiling-probe.sh` per name.
+    probe      site                                           fires ceil cost cfail std
+    tmpfresh  A prov_of/AddrOfTemp: the storage answer wins,     2    2    0     0   ok
+                for EVERY is_temporary_value_expr kind
+    tmpagg    A the same, restricted to AGGREGATE literals       2    2    0     0   ok
+                (StructLit/TupleLit/ArrLit/EnumLit/EnumLitData)
+    tmpassign B the `let` arm's E0716 question, asked at the     2    2    0     0   ok
+                `assign` arm for a direct `&<rvalue>`
+    tmpboth   A+B  both arms in one process                      4    4    0     0   ok
+COST-fail: 0 of **1315** `-L bc -L fail` fixtures changed (rc 0, `.expected`-match 0,
+text-only 0) for all four. `stdlib-cost.sh`: all four layers compile under every name.
+
+## 4. ⚠ THE COST 0 IS A POPULATION FACT, NOT A SAFETY CLAIM — AND THE POPULATION IS **FOUR**
+`census()` at both sites, then EVERY `.logos` in the tree compiled under `LOGOS_CENSUS`:
+    tests/**/*.logos   **8909 programs**   tmp.fresh.shadowed 2 · tmp.fresh.agg 2 · tmp.assign.rvalue 2
+    the 145 ledger rows                    tmp.fresh.shadowed 2 · tmp.fresh.agg 2 · tmp.assign.rvalue 2
+    the stdlib, all four layers            **0 · 0 · 0**
+So the entire arrival population of both sites in the whole tree is the FOUR ledger rows.
+Cost 0 on three populations here means "nothing else in the tree has the shape", which is
+exactly the reading rule 5 forbids treating as safety. **18 OF 20 HAND PROGRAMS NEVER
+REACHED THE SITE EITHER** (§6) — their zeros are zeros through a door that never opened.
+WHY THE DOOR IS NARROW, measured not guessed: the `let` form of the same expression is
+refused by a DIFFERENT channel and never consults this one —
+    h21 `fn f(p:&S)->&S { let r:&S = &S{n:p.n}; return r; }`  rc **1 UNARMED**, 0 arrivals
+    h22 `fn f(p:&S)->i64 { let r:&S = &S{n:p.n}; return r.n; }` rc 0, 0 arrivals
+so site A is reached only from `check_return_value` on a DIRECT `return &<rvalue>`.
+
+## 5. THE SETS, DIFFED BOTH WAYS, EVERY DIAGNOSTIC READ
+    tmpfresh = tmpagg = {issue-30438-a, issue-30438-b}          predicted ∖ closed = ∅, closed ∖ predicted = ∅
+    tmpassign          = {sugg-mut-for-binding-issue-137486,
+                          regions-var-type-out-of-scope}        predicted ∖ closed = ∅, closed ∖ predicted = ∅
+    tmpboth            = the union, FOUR                        **2 + 2 = 4, additivity HOLDS with no cross-term**
+    Every one of the seventeen rows predicted NOT to close did not close.
+DIAGNOSTICS, read on the binary, and each matches the row's own upstream reason:
+    issue-30438-a  `[fn Test__idx]: cannot return reference to temporary value: dangling
+                   reference`. Upstream: "cannot return reference to temporary value". SAME.
+    issue-30438-b  `[fn Test__index]: …` idem. Upstream E0515. SAME.
+    sugg-mut-for-binding-issue-137486  `[fn main]: temporary value dropped while borrowed:
+                   … bind the owning value to a variable first`. Upstream E0716. SAME.
+    regions-var-type-out-of-scope      `[fn foo]: …` idem. Upstream E0716. SAME.
+⚠ None of the four is a REWORDING (rule 14): all four are rc 0 -> 1 on a fixture that
+printed nothing before.
+
+## 6. RULE 5 AND RULE 9 — 26 HAND PROGRAMS, MULTI-LINE, `/home/logos/sandbox/tmpsite/`
+SHAPES (`hand/h01…h22`): a fresh aggregate from a param in a `let`, as a CALL ARGUMENT, in
+a tuple literal, an array literal, an enum literal with payload, a binop, a cast, a call
+result, a method receiver by autoref, a generic fn over a type parameter, two aggregates in
+one fn; and for site B: assignment from a LOCAL, from a PARAM FIELD, from an ARRAY ELEMENT,
+from a CONST-PROMOTED `&5i64`, inside a WHILE LOOP, through a DEREF of a param, to a struct
+FIELD. **ALL 18 LEGAL PROGRAMS ADMITTED UNDER ALL FOUR ARMS**, and the two intended-illegal
+(h16 `return &S{n:p.n}`, h17 `r = &mk();`) refused by the right arm and only by it.
+⚠ AND THE ZEROS ARE MOSTLY EMPTY (§4): only h16 and h17 arrive at a site at all.
+**RULE 9 — THE TWIN IS SEPARATED BY EXACTLY ONE PROGRAM, AND IT IS A REAL HOLE WITH NO ROW:**
+    s04  `fn f(p: &S) -> &i32 { return &(p.n as i32); }`   base rc **0** · tmpfresh **1** · tmpagg **0**
+A `Cast` is `is_temporary_value_expr` and is not an aggregate. It compiles today and returns
+a pointer into the dead frame; rustc gives E0515. s01/s02/s03 (`&mk(p.n)`, `&(*p + 1i64)`,
+`&p.dup()`, all returned) are ALREADY rc 1 unarmed through other doors and register 0
+arrivals here. ⇒ tmpfresh is the correct arm and tmpagg UNDER-refuses; the two are otherwise
+digit-for-digit identical in every harness column, exactly as rule 9 predicts.
+
+## 7. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **`&(<param expr> as T)` RETURNED IS ADMITTED — a dangling return with no ledger row**
+    (s04, §6). It is INSIDE mechanism A's fix, not beside it: `tmpfresh` closes it and
+    `tmpagg` does not. Recorded here because it is a hole the ledger does not name.
+ 2. **The four E0716-family rows that are LEGAL RUST stay an owner's decision**, unchanged
+    from 2026-09-01 §1: borrowck-borrowed-uniq-rvalue, -2, issue-36082 (a `let` INITIALISER
+    extends the temporary in Rust), and borrowck-let-suggestion (`let h = Holder { p: &mk() }`,
+    which Rust also extends). Reported, not edited.
+
+## 8. WHAT DESERVES FUNDING
+ 1. **`tmpfresh` + `tmpassign` TOGETHER, i.e. `tmpboth`: ceiling 4 / cost 0 / cfail 0 /
+    stdlib ok, additive, four correct diagnostics, and it also closes s04.** The correct
+    landing owes what the crude arm does not (rule 7): mechanism A must MERGE rather than
+    replace — `{inner_prov.params, is_local=true, is_temp=false}` is what the probe returns
+    and it is probably already right, but the `params` half must be shown to still reach the
+    elision arm of `check_return_value` on a program that needs it. Mechanism B owes the
+    `&mut` spelling a pinned pair and must keep `is_promoted_borrow` in front (h11).
+ 2. **DO NOT read the cost columns as a safety argument for this one** (§4). The corpus has
+    four programs of this shape and the stdlib has none; the argument has to be made at the
+    predicate, and the predicate is `is_temporary_value_expr`, which the tree already trusts
+    at three other sites.
+ 3. The next block by size that is neither mined nor owner-blocked is **bck.NEW (8)**, which
+    no round has ever surveyed by missing observation; two of its eight
+    (borrowck-move-out-of-tuple-struct-with-dtor--r13/--t13) are E0509 and belong with the
+    five already-recorded E0509 retire candidates, so its real size is 6.
+
+## 9. THE TREE AT CLOSE
+Four env-gated probe names in ONE commit, `src/compiler/borrow_check.cpp` only, +34/-2.
+Two `census()` buckets (`tmp.fresh.shadowed`, `tmp.fresh.agg`, `tmp.assign.rvalue`) kept —
+they are what sized the question in §4 and they cost nothing unarmed. Prose lives here; the
+two sites carry a one-line marker each. The comment trim was made BEFORE the commit and the
+binary rebuilt and re-verified (§0) — the four rows flip identically on `4698fa2f726c78f6`.
+# TOTAL 145 -> 145. **No row bought, no row retired, no behaviour changed.**
+NOT SPENT, each with its number: bck.C 12 (mined six rounds) · nllmoves.C 9 · bck.B 9 ·
+bck.NEW 8 (never surveyed) · lifereg.R18 7 (M-SIG, rejected 09-06a) · nllmoves.D 6 ·
+bck.D 6 (two-phase 3, E0716-extension 3 = owner) · lifereg.NEW-N1 5 · nllmoves.E 4 ·
+nllmoves.B 4 · lifereg.R17 4 · lifereg.D 4 · E0716 owner rows 4.

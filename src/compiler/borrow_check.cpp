@@ -7771,8 +7771,24 @@ private:
                     return {{}, /*is_local=*/false, /*is_temp=*/true};
                 auto inner_prov = prov_of(v.inner());
                 if (!inner_prov.params.empty() || inner_prov.is_local ||
-                    inner_prov.is_temp)
+                    inner_prov.is_temp) {
+                    // PROBES tmpfresh / tmpagg — src/compiler/PROBES.md 2026-09-03d.
+                    if (is_temporary_value_expr(v.inner())) {
+                        logos::probe::census("tmp.fresh.shadowed");
+                        if (logos::probe::on("tmpfresh") ||
+                            logos::probe::on("tmpboth"))
+                            return {inner_prov.params, true, false};
+                        auto ik_ = v.inner().kind();
+                        if (ik_ == Code::StructLit || ik_ == Code::TupleLit ||
+                            ik_ == Code::ArrLit || ik_ == Code::EnumLit ||
+                            ik_ == Code::EnumLitData) {
+                            logos::probe::census("tmp.fresh.agg");
+                            if (logos::probe::on("tmpagg"))
+                                return {inner_prov.params, true, false};
+                        }
+                    }
                     return inner_prov;
+                }
                 // A DIRECT `&<literal/struct-lit/call>` bound to a `let` is
                 // lifetime-EXTENDED in Rust (`let r = &mut 5;` keeps the temporary
                 // alive as long as `r`) → NOT dangling at the binding; mark
@@ -12496,8 +12512,24 @@ private:
                     st = VarState{};
                     st.is_mut_binding = was_mut;
                 }
-                if (is_ref_assign)
+                if (is_ref_assign) {
+                    // PROBE tmpassign — src/compiler/PROBES.md 2026-09-03d.
+                    if (val && val.kind() == lir_schema::expr::Code::AddrOfTemp &&
+                        !const_promote::is_promoted_borrow(val, pool) &&
+                        is_temporary_value_expr(
+                            lir_view::EAddrOfTempView{val}.inner())) {
+                        logos::probe::census("tmp.assign.rvalue");
+                        if (logos::probe::on("tmpassign") ||
+                            logos::probe::on("tmpboth"))
+                            report(ln,
+                                "temporary value dropped while borrowed: this "
+                                "reference borrows into a temporary that is "
+                                "dropped at the end of the statement; bind the "
+                                "owning value to a variable first so it "
+                                "outlives the borrow");
+                    }
                     prov_[name] = prov_of(val);
+                }
                 // #86 MISS 1 / SITE a — THE WHOLE-VALUE REASSIGN.
                 //   `let mut w: W = W{v:""}; w = W{v:o.as_str()}; return w;`
                 // was rc 0: `is_ref_assign` is false (W is not a ref kind and
