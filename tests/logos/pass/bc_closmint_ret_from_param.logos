@@ -1,0 +1,16 @@
+// The same closure returning a reference derived from its OWN parameter, which
+// is what the elision rule the mint made askable actually demands.
+//
+// ⚠ ITS REFUSED TWIN IS ONE TOKEN AWAY:
+// tests/logos/fail/bc_closmint_ret_from_capture_fail — `select(y, y)` -> `select(x, y)`.
+package bc_closmint_ret_from_param;
+
+fn select<'r>(a: &'r i64, b: &'r i64) -> &'r i64 { return a; }
+fn with<'q>(f: &dyn Fn(&'q i64) -> &'q i64) -> i64 { let t: i64 = 20i64; return *f(&t); }
+
+fn manip<'a>(x: &'a i64) -> i64 {
+    let c = |y: &i64| { return select(y, y); };
+    return with(&c);
+}
+
+fn main() -> i32 { let v: i64 = 1i64; if manip(&v) != 20i64 { return 1i32; } return 0i32; }

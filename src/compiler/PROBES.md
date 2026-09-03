@@ -18297,3 +18297,189 @@ names installed in ONE commit, L1 rc=0 inert, `-L bc` 1309/1309. Live probe name
 NOT SPENT, each with its number: bck.C 12 (mined) · nllmoves.C 10 · bck.B 9 · bck.NEW 8 ·
 lifereg.R18 7 (M-SIG, rejected 09-06a) · nllmoves.D 6 · nllmoves.E 6 · bck.D 6 (two-phase) ·
 E0716 9 (owner + stdlib wall) · B-3, the place walk breaking at a user `Deref` CALL, 2 rows.
+
+# ═══ ROUND 2026-09-03b — LANDED. THE CLOSURE-PARAMETER MINT, WITH BOTH REPAIRS ITS OWN PRICING
+# ROUND NAMED AS BLOCKING. **3 ROWS CLOSED, PREDICTED 3 BY NAME, BOTH DIRECTIONS**; 148 -> 145.
+# CEILING 3 / COST 0 / cfail **0** / stdlib ok. TWO ARMS DECLINED BY NAME AT 3 UN-REFUSALS AND
+# 46 REWORDINGS — AND BOTH WERE THE SAME REPAIR, KEYED ON `lt_is_minted` INSTEAD OF ON THE
+# CLOSURE. THE PREDICATE THAT SEPARATES THEM IS A SET, NOT A SPELLING. ════════════════════════
+
+## 0. STEP 1, RE-DERIVED FROM THE TREE (nothing taken from the brief)
+    HEAD `9dce0ace2`, clean = origin/main at open. LIVE PROBE NAMES **156** at open,
+    **152** at close (four retired, none added — see §8).
+    `# TOTAL 148`, and 148 by direct listing. CHANNEL SPLIT, derived:
+    **lifereg 54 · nllmoves 48 · bck 46**. Largest roots: bck.C 12 · nllmoves.C 10 · bck.B 9 ·
+    bck.NEW 8 · lifereg.R18 7 · nllmoves.D 6 · nllmoves.E 6 · bck.D 6.
+    BASELINE READ FROM THE STORE, not re-run: build **589** (lib_hash
+    `797761721022255f-e3b0c44298fc`, head eed909358) — 2661 verdicts, 2659 passed, 0 FAILED,
+    2 `disabled` (dropck-shadow-rebind, poll-problem-case-3, the known imported reds).
+    `logos_00_bc_admit_*`: **148 recorded / 148 passed / 0 failed** on both 588 and 589.
+    ⚠ THE HANDOFF SAID "-L bc 1309/1309 passed, 0 failed". The store says 1309 selected and
+    TWO of them `disabled`, not passed. Neither number is wrong; they are different questions.
+
+## 1. THE TARGET ROWS AND THE PREDICTION, WRITTEN BEFORE THE COMPILER WAS TOUCHED
+`build/round-2026-09-03b/targets-2026-09-03b.txt`. NUMBER **3**, LIST: escape-argument--t09
+(nllmoves.C) · regions-infer-call-3 (lifereg.C) · regions-ret-borrowed (lifereg.C) — the
+measured ceiling set of 2026-09-03clos's `closmintp`, with the repair-(a) skip predicted to
+remove none of them. PREDICTED NOT CLOSED, named so the diff runs both ways: the five rows
+09-03clos §1 predicted and missed (anonymous-region-in-apit--closure-param-escapes,
+regions-nested-fns-2, return-wrong-bound-region, issue-54124, regions-escape-method) plus
+issue-48697--t16, whose direction is the opposite.
+
+## 2. WHAT LANDED — FOUR SITES, ONE ARM (`logos::probe::arm_closmint()`, probe.hpp)
+ (A) `lower_closure_expr` (sema_expr.cpp): a closure's own `&` parameters go through
+     `mint_type_lts_`, exactly as `sema_decl.cpp:821..` does for a fn signature. Each minted
+     region is recorded in `minted_lt_origin()` as "closure parameter 'q'" AND in the new
+     `closure_minted_lts()` (outlives.hpp).
+ (B) REPAIR (a) — a parameter that MENTIONS A WRITTEN REGION anywhere is skipped. The test is
+     `mint_type_lts_`'s own `out` vector (every slot it met, minted or written), not a
+     hand-written type walk: the two would disagree on Slice / DstRef / struct arguments.
+ (C) REPAIR (b) — `lt_eq` (subtype.hpp): a CLOSURE-minted region facing `'static` while
+     `lt_static_yield()` is set yields, as an EMPTY region already did. The refusal is not
+     lost; borrow_check's return-contract check makes it, naming the binding.
+ (D) THE DIAGNOSTIC — `last_rigid_mismatch()` is now recorded at the two NON-mintiv tails of
+     subtype.hpp (`lt_eq`'s and the invariance arm's), which is where a closure's regions
+     actually refuse; 09-03clos §4 measured that the rigid arm is never the door because it
+     needs a REGISTERED binder and a closure registers none. `check_variance` gains the
+     one-sided case: one side a closure parameter's elided slot, the other a written name.
+
+## 3. THE PROBE TABLE — TWO BUILDS, ALL THREE COST COLUMNS, EVERY IDENTITY READ
+`probe-batch.sh` was not used: its spec format is one `file:` per record and this arm spans
+three files. THE SAME PROTOCOL WAS RUN BY HAND — every arm installed, ONE build, `test-levels.sh
+L1` from `build/` proving the batch inert (**rc=0, 747/747**), then `ceiling-probe.sh` per name.
+    probe        site                                   fires  ceil  cost  cfail  std  verdict
+    closmintr  A  (A)+(B) only — the mint and the skip     183    3     0      3   ok  see §5
+    closmintsc  = closmintr + (C) keyed on lt_is_minted   2033    3     0    ⛔6   ok  ⛔ DECLINED
+    closmintdx  = closmintsc + (D) keyed on lt_is_minted  2433    3     0   ⛔49   ok  ⛔ DECLINED
+    ── rebuilt, both repairs re-keyed on `closure_minted_lts()` ──
+    closmintcy  = closmintr + (C) + (D)'s recording       2431    3     0      0   ok  ok
+    closmintc   = closmintcy + (D)'s message              2623    3     0      0   ok  ✅ LANDED
+`ceiling-probe.sh` names the same three rows for all five. `stdlib-cost.sh` (inside it): all
+four layers compile under every name.
+
+## 4. ⛔ THE TWO DECLINED ARMS, BY NAME, WITH THE NUMBER THAT CONDEMNS EACH
+    closmintsc  cfail 6, and **THREE OF THEM ARE rc 1 -> 0 — UN-REFUSALS**:
+                nll-anon-to-static, region-lbr-anon-does-not-outlive-static,
+                region-lbr-named-does-not-outlive-static lost their `.expected`, and
+                bc_stfacts_field_via_param_static_fail, lub-match and mir-check-cast-unsize
+                STOPPED BEING REFUSED. Every one is a FN, not a closure. Repair (b) keyed on
+                "is this region minted" hands the fn side's `'static` obligation to a
+                borrow_check rule that does not cover it. THE COLUMNS SAW IT AND SIX HAND
+                PROGRAMS (s02–s06 + the three pins) DID NOT SAY IT FIRST — `fail_text_oracle`'s
+                rc column is the only oracle in the harness that can see an un-refusal.
+    closmintdx  cfail 49, of which **46 are `.expected` LOST** for 0 extra rows. Rule 14 exactly:
+                the one-sided message keyed on `lt_is_minted` re-words every fn-side
+                elided-vs-written refusal in the corpus.
+⇒ BOTH DECLINED ARMS ARE THE SAME TWO REPAIRS WITH ONE PREDICATE CHANGED. `lt_is_minted` is a
+SPELLING TEST — it asks what a name looks like. `closure_minted_lts()` is a SET the minting site
+writes, and it is the only thing that can answer "whose elided slot is this". Re-keyed, the same
+two repairs cost **0 and 0**. Rule 12's shape, one level up: a predicate over the FORM of a name
+cannot say which BINDER minted it, and only the minting site can.
+
+## 5. THE SETS, DIFFED BOTH WAYS, EVERY DIAGNOSTIC READ ON THE LANDED BINARY
+    predicted(3) = closed(3) = {escape-argument--t09, regions-infer-call-3, regions-ret-borrowed}
+    predicted ∖ closed = ∅.   closed ∖ predicted = ∅.
+    The six rows predicted NOT to close did not close. issue-48697--t16 still compiles.
+    escape-argument--t09  `[fn main]: deref-write '*ptr = …': the elided lifetime of closure
+                          parameter 'q' and the elided lifetime of closure parameter 'r' are two
+                          distinct regions of this signature and no bound relates them — give
+                          them one name`. Upstream rustc: the closure-requirements form of
+                          E0597, "requires that `'1` must outlive `'2`". SAME VERDICT, SAME REASON.
+    regions-ret-borrowed  `[fn return_it]: return type mismatch: the elided lifetime of closure
+                          parameter 'o' is a region distinct from 'a, and no bound relates them
+                          — name it 'a`. Upstream: "lifetime may not live long enough".
+    regions-infer-call-3  `[fn manip]: lifetime elision: return reference must derive from 'y'
+                          (the only reference parameter)`. The closure's return is traced to the
+                          CAPTURE `x`, and under elision the closure's return may only derive
+                          from its own reference parameter. ⚠ THE `[fn manip]` PREFIX NAMES THE
+                          ENCLOSING FN, NOT THE CLOSURE — that is this tree's uniform convention
+                          for a closure diagnostic and it is pinned by the two ACCEPTED closure
+                          fail fixtures (`closure-substs` "[fn foo]", `issue-58053` "[fn main]").
+                          Recorded as a RESIDUAL, not repaired: a closure context label is a
+                          cross-cutting diagnostic change with its own price.
+⚠ 09-03clos §5 read all three of these as "not closed, the diagnostic is wrong". Two of the three
+were fixed by (D); the third was the tree's convention, not a defect of this landing.
+
+## 6. RULE 5 — 27 NEW HAND PROGRAMS, MULTI-LINE, IN SHAPES THE PRICING ROUND DID NOT USE
+`/home/logos/sandbox/closfix/` (27 new), re-run over `/home/logos/sandbox/closreg/` (32 old).
+NEW SHAPES: two elided params unified by a generic `<'r>` callee with the result consumed
+locally (n01) AND ITS FN CONTROL (n01f) · `& &'a i64` · a struct param with a WRITTEN lifetime
+argument · `&'static` param · a written param through a generic `FnOnce` bound · one written and
+one elided param tied only in the body · a param forwarded to a second closure · a store whose
+both ends are body-local · a return from a CAPTURE · `&mut &'a i64` alone (n11) · `&mut Wrap<'a>`
+(n12) · a fully written `'static` signature · a closure CALLED TWICE at two argument regions ·
+three params through an if/else · a param bound to a local `&` · a param across a loop ·
+`&[i64]` · `&mut i64` · param + capture into one two-param callee · into a struct with an elided
+argument · a closure inside a closure · a generic `ident<T>(&T)->&T` · a method receiver · a
+written `'a` meeting an elided closure param at a call (q01), through a fn's written return
+(q02), through a struct field (q03), through a CALLEE's own `<'r>` (q04), and the tied store (q05).
+    LEGAL AND ADMITTED: all 27, plus all of closreg except the three named below. 0 refused.
+    REFUSED, ALL INTENDED: x01/x02 (the two ledger shapes) · m01 (§9) · s02–s06 (`'static`
+    obligations that must not be discharged — the abuse direction of repair (b), checked at a
+    fn return, a tail expression, a `let`, a closure `let`, and a call argument).
+⛔ **m11, n11 AND n12 — THE THREE LEGAL PROGRAMS `closmintp` REFUSED — ARE ADMITTED.** n12 is a
+SECOND shape of the same defect, found this round: `&mut Wrap<'a>`, a written region inside a
+STRUCT ARGUMENT rather than under a `&`. A repair written against m11's `&mut &'a i64` alone by
+hand would have missed it; deriving the test from `mint_type_lts_`'s own report did not.
+
+## 7. THE CONTROL REVERT — RUN, NOT ASSERTED
+`arm_closmint()` flipped to `return false`, full rebuild, measured, flipped back, rebuilt.
+    escape-argument--t09 rc 0 · regions-infer-call-3 rc 0 · regions-ret-borrowed rc 0
+    bc_capretsc_closure_static_contract: the pinned `'static` sentence, unchanged.
+The three rows are admitted again with the arm off and refused with it on. Nothing else in this
+commit closes them.
+
+## 8. RETIRED, AND WHY — FOUR NAMES
+`closmintp`, `closrigid`, `closretelide`, `closretfresh` (installed 2026-09-03clos) are DELETED
+from `sema_expr.cpp`. Their verdicts stand recorded in this file: closmintp is superseded by the
+landing; closrigid was REFUTED BY CENSUS (11 registrations, 0 reads); closretelide was DECLINED
+at cost 1 / cfail 7; closretfresh at cost 6 / cfail 11. The `clos.param.{any,elided,written}`
+census block is KEPT — it is what sized the question and it costs nothing. `closmintr`,
+`closmintsc`, `closmintcy`, `closmintdx` were never committed as probes; `closmintc` became
+`arm_closmint()`. Live probe names 156 -> 152.
+
+## 9. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **`m02` IS A CODEGEN DEFECT, AND 09-03clos §6 RECORDED IT AS LEGAL-AND-ADMITTED.** A closure
+    inside a GENERIC fn instantiated at two types: `fn twice<T: Copy>(v: T) -> T { let c =
+    |x: &T| -> T { return *x; }; return c(&v); }` called at `i64` and `i32` emits
+    `error: redefinition of symbol named '__closure_0'` and `mlir_gen: module verification
+    failed`. MEASURED UNDER THE CONTROL REVERT TOO — it is PRE-EXISTING and this landing did not
+    cause it. The closure's synthetic name is not qualified by the monomorphisation. Off
+    borrow-check; NOT PURSUED.
+ 2. **`m13` — the pre-existing UNARMED over-refusal at the same door**, unchanged by this
+    landing: `*q = &z` through a closure's `&mut` param where `z` outlives every use. The §B6
+    store rule never asks whether the SOURCE outlives the destination. Recorded 09-03clos §9.
+ 3. **FOR AN OWNER, STILL UNRESOLVED: is `m01` legal Rust?** An annotated closure signature whose
+    two regions are untied, with the stored source declared OUTSIDE the block, so it outlives.
+    Refused by the landing. I read it as illegal — the store is unprovable AT THE CLOSURE
+    whatever the argument — but there is no rustc on this box. If it is legal, the arm is wrong
+    in a direction three zero columns and 59 hand programs cannot see.
+
+## 10. FIXTURES — PAIRS ONE TOKEN APART, IN THEIR ROOT'S HOME
+Three imported `admit` -> `fail` in their own directories (`fail/nll/`, `fail/regions/` ×2),
+each with the full diagnostic pinned and its `shelf:` header rewritten to say why. Three native
+PAIRS, `tests/logos/{fail,pass}`, each pair differing by the written `'a`:
+    `|q:&mut &i64, r:&i64|`   vs `|q:&mut &'a i64, r:&'a i64|`
+        bc_closmint_two_params_untied_fail / bc_closmint_two_params_tied
+    `|q:&mut Wrap, r:&i64|`   vs `|q:&mut Wrap<'a>, r:&'a i64|`
+        bc_closmint_struct_arg_untied_fail / bc_closmint_struct_arg_tied
+    `select(x, y)` (capture)  vs `select(y, y)` (own param)
+        bc_closmint_ret_from_capture_fail / bc_closmint_ret_from_param
+Census pins re-derived, EVERY DELTA PREDICTED BEFORE THE PIN WAS READ AND ALL THREE EXACT:
+REGISTRY-ALL 8951 -> 8957 (+6), NOIMPORTED 4539 -> 4542 (+3), TIERCOMMIT 197 -> 194 (-3);
+direct_door corpus 2617 -> 2620, nonglob 2426 -> 2429.
+
+## 11. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+# TOTAL 148 -> **145**, by direct listing (`awk '!/^#/ && NF' | wc -l` = 145).
+Channel split now: **lifereg 52 · nllmoves 47 · bck 46** — lifereg.C 4 -> 2, nllmoves.C 10 -> 9.
+NOT SPENT, each with its number: bck.C 12 (mined over six rounds) · nllmoves.C 9 · bck.B 9 ·
+bck.NEW 8 · lifereg.R18 7 (M-SIG, rejected 09-06a) · nllmoves.D 6 · nllmoves.E 6 · bck.D 6
+(two-phase) · E0716 9 (owner + stdlib wall) · B-3, the place walk breaking at a user `Deref`
+CALL, 2 rows.
+⇒ WHAT THE CLOSURE BLOCK STILL NEEDS, AND HOW MUCH OF IT EXISTS. The mint was hop one and it is
+now landed behaviour. The five rows named in §1 as predicted-and-missed all need the SECOND
+fact: the region the CALLER or the `Fn*` bound demands of the closure. `hint_closure_formal_`
+(sema_expr.cpp) already reaches that expected signature — it is read for PARAM TYPES when the
+params are untyped, and its REGIONS are never compared against the minted ones. That is the next
+priced question in this block, and rule 2 applies: it is a door in series with the one just
+opened, not an alternative to it.

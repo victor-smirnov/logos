@@ -1,0 +1,24 @@
+// THE CLOSURE MINT — a closure's OWN `&` parameters are minted like a fn
+// signature's, so `q` and `r` are two DISTINCT regions of the closure's
+// signature and `*q = r` relates them with no bound saying it may.
+// Before 2026-09-03b a closure parameter was minted by nothing: every closure
+// region was the empty spelling, which `lt_eq` reads as permissive.
+//
+// ⚠ ITS ADMITTED TWIN IS ONE TOKEN AWAY, TWICE:
+// tests/logos/pass/bc_closmint_two_params_tied — write `'a` on both closure
+// parameters and the two ends are one region, which is legal.
+package bc_closmint_two_params_untied_fail;
+
+fn run<'a>(p: &mut &'a i64, w: &'a i64) {
+    let c = |q: &mut &i64, r: &i64| { *q = r; };
+    c(p, w);
+}
+
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let y: i64 = 2i64;
+    let mut p: &i64 = &x;
+    run(&mut p, &y);
+    if *p != 2i64 { return 1i32; }
+    return 0i32;
+}

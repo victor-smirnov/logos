@@ -1337,10 +1337,13 @@ PIN = {
     # pattern-site E0507 block (bc_patref_amp_binds_nothing,
     # bc_patref_variant_binds_by_ref, bc_destrpat_owned_binds_by_value), all
     # three non-glob.
-    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2617.
-    'corpus'            : 2617,
+    # 2026-09-03b: 2617 -> 2620. Three pass twins of the closure-parameter mint
+    # (bc_closmint_two_params_tied, bc_closmint_struct_arg_tied,
+    # bc_closmint_ret_from_param), all three non-glob.
+    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2620.
+    'corpus'            : 2620,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2426,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2429,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

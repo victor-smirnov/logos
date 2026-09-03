@@ -117,6 +117,14 @@ inline bool on(const char* name) {
 // that still WIDEN something (ltmeetany, ltmintmeetrg, ltmintmeetamb,
 // ltcallmeetany, ltregallany) stay probes and are asked separately below.
 inline bool arm_inst() { return true; }
+// ⚠ LANDED 2026-09-03b — THE CLOSURE HALF OF THE SAME ENGINE. `arm_inst()`
+// mints a FN SIGNATURE's elided regions; until this landing a closure's own `&`
+// parameters were minted by nothing, so every closure region was the empty
+// spelling and `lt_eq`'s `x.empty() || y.empty()` branch read it as permissive.
+// Not a probe, for the same two reasons: it is behaviour, and its control
+// revert is `git revert` of the landing commit. Three ledger rows, cost 0 on
+// all three populations. src/compiler/PROBES.md 2026-09-03b.
+inline bool arm_closmint() { return true; }
 inline bool arm_subst() {
     return on("ltsubstinst") || on("ltmeetco");
 }

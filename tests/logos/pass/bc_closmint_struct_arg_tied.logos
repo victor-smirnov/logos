@@ -1,0 +1,22 @@
+// REPAIR (a) AT A STRUCT LIFETIME ARGUMENT — the written `'a` on `Wrap<'a>`
+// leaves the whole parameter un-minted, so the caller's `s` still matches.
+//
+// ⚠ ITS REFUSED TWIN IS ONE TOKEN AWAY, TWICE:
+// tests/logos/fail/bc_closmint_struct_arg_untied_fail — drop the two `'a`.
+package bc_closmint_struct_arg_tied;
+
+struct Wrap<'a> { v: &'a i64 }
+
+fn run<'a>(w: &'a i64, s: &mut Wrap<'a>) {
+    let c = |q: &mut Wrap<'a>, r: &'a i64| { q.v = r; };
+    c(s, w);
+}
+
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let y: i64 = 2i64;
+    let mut s: Wrap = Wrap { v: &x };
+    run(&y, &mut s);
+    if *s.v != 2i64 { return 1i32; }
+    return 0i32;
+}

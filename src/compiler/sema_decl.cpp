@@ -820,6 +820,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     TypeRef mint_ret_ = nullptr;
     minted_lts_.clear();
     minted_lt_origin().clear();
+    closure_minted_lts().clear();
     const bool mint_on_ = logos::probe::on("ltmintunify") ||
                           logos::probe::on("ltmintsubst") ||
                           logos::probe::on("ltmintfree") ||

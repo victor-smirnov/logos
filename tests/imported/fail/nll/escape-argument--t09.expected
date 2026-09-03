@@ -1,0 +1,1 @@
+[fn main]: deref-write '*ptr = …': the elided lifetime of closure parameter 'q' and the elided lifetime of closure parameter 'r' are two distinct regions of this signature and no bound relates them — give them one name (e.g. `fn f<'a>(.. &'a ..)`)

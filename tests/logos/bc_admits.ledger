@@ -1209,7 +1209,7 @@
 # param arm was priced with `collect_ref_sources`, which names the local a
 # reference was COPIED OUT OF — it refuses `*out = hr.r` where `hr = &h` and
 # `h = H{ r: <param> }`, pinned legal by pass/bc_b6ptr_param_holder_field.
-# TOTAL 148
+# TOTAL 145
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1301,7 +1301,6 @@ capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-st
 do-not-ignore-lifetime-bounds-in-copy-proj--b nllmoves.NEW-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy-proj--b
 do-not-ignore-lifetime-bounds-in-copy nllmoves.NEW-S7-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy
 enum-drop-access nllmoves.E tests/imported/admit/nll/enum-drop-access
-escape-argument--t09 nllmoves.C tests/imported/admit/nll/escape-argument--t09
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
 issue-27282-move-match-input-into-guard nllmoves.R11 tests/imported/admit/nll/issue-27282-move-match-input-into-guard
 issue-27868 nllmoves.R11 tests/imported/admit/nll/issue-27868
@@ -1363,13 +1362,11 @@ regions-glb-free-free--glb-free-free lifereg.NEW-R19 tests/imported/admit/region
 regions-in-enums-anon lifereg.R17 tests/imported/admit/regions/regions-in-enums-anon
 regions-in-structs-anon lifereg.NEW-L1 tests/imported/admit/regions/regions-in-structs-anon
 regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self
-regions-infer-call-3 lifereg.C tests/imported/admit/regions/regions-infer-call-3
 regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
 regions-outlives-projection-container-wc lifereg.NEW-L3 tests/imported/admit/regions/regions-outlives-projection-container-wc
 regions-outlives-projection-container lifereg.NEW-N1 tests/imported/admit/regions/regions-outlives-projection-container
 regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/regions-pattern-typing-issue-19552
-regions-ret-borrowed lifereg.C tests/imported/admit/regions/regions-ret-borrowed
 regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-bound
 regions-var-type-out-of-scope lifereg.D tests/imported/admit/regions/regions-var-type-out-of-scope
 resolve-re-error-ice lifereg.R18 tests/imported/admit/regions/resolve-re-error-ice

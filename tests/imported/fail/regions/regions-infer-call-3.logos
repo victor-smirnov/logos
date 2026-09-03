@@ -1,6 +1,10 @@
 // rustc regions/regions-infer-call-3.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.C
+// shelf: fail — REFUSED since 2026-09-03b: the closure's own elided `&`
+// parameter is minted, so its return can no longer silently derive from the
+// CAPTURE `x` — under elision it must derive from the closure's only
+// reference parameter. Upstream `lifetime may not live long enough`.
+// Was lifereg.C.
 package regions_infer_call_3;
 fn select<'r>(x: &'r i64, y: &'r i64) -> &'r i64 { return x; }
 fn with<'q>(f: &dyn Fn(&'q i64) -> &'q i64) -> i64 { let t: i64 = 20i64; return *f(&t); }

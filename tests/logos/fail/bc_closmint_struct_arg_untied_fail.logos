@@ -1,0 +1,24 @@
+// THE SAME MINT AT A STRUCT LIFETIME ARGUMENT rather than a `&`: `Wrap` with
+// no argument written carries an elided region, the mint names it, and the
+// field store `q.v = r` relates it to a second, distinct closure region.
+//
+// ⚠ ITS ADMITTED TWIN IS ONE TOKEN AWAY, TWICE:
+// tests/logos/pass/bc_closmint_struct_arg_tied — write `'a` on `Wrap` and on
+// `r`, and the parameter is left un-minted by repair (a).
+package bc_closmint_struct_arg_untied_fail;
+
+struct Wrap<'a> { v: &'a i64 }
+
+fn run<'a>(w: &'a i64, s: &mut Wrap<'a>) {
+    let c = |q: &mut Wrap, r: &i64| { q.v = r; };
+    c(s, w);
+}
+
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let y: i64 = 2i64;
+    let mut s: Wrap = Wrap { v: &x };
+    run(&y, &mut s);
+    if *s.v != 2i64 { return 1i32; }
+    return 0i32;
+}

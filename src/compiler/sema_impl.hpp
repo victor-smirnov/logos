@@ -6296,6 +6296,28 @@ private:
                               ctx, oy_->second, ox_->second));
             return;
         }
+        // LANDED 2026-09-03b — ONE side is a CLOSURE parameter's elided slot and
+        // the other a name the user WROTE. Naming the slot and the binder is the
+        // whole content of the refusal; `expected &'a i64, got &i64` states
+        // neither. Keyed on closure_minted_lts(), not on lt_is_minted: the
+        // unrestricted form re-words 46 pinned diagnostics for 0 extra rows
+        // (measured, src/compiler/PROBES.md 2026-09-03b).
+        if (logos::probe::arm_closmint() && !rm_.first.empty() &&
+            rm_.first != rm_.second &&
+            closure_minted_lts().count(rm_.first) !=
+                closure_minted_lts().count(rm_.second)) {
+            const bool fm_ = closure_minted_lts().count(rm_.first) != 0;
+            const std::string& mn_ = fm_ ? rm_.first : rm_.second;
+            const std::string& wn_ = fm_ ? rm_.second : rm_.first;
+            auto om_ = org_.find(mn_);
+            if (om_ != org_.end() && !wn_.empty() && !lt_is_minted(wn_)) {
+                error(std::format("{}: the elided lifetime of {} is a region "
+                                  "distinct from {}, and no bound relates them "
+                                  "— name it {}",
+                                  ctx, om_->second, wn_, wn_));
+                return;
+            }
+        }
         error(std::format("{}: variance mismatch — expected {}, got {} — "
                           "lifetime structure incompatible "
                           "(check &mut invariance / contravariance rules)",

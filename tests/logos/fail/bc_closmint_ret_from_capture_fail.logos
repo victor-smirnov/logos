@@ -1,0 +1,19 @@
+// THE CLOSURE'S ELIDED RETURN MAY NOT DERIVE FROM A CAPTURE. With the closure's
+// own parameter minted, the closure's inferred signature is `Fn(&'r) -> &'r`
+// and a return traced to the CAPTURE `x` violates it. Upstream rustc:
+// `lifetime may not live long enough` (regions/regions-infer-call-3.rs, which
+// this fixture is the native twin of).
+//
+// ⚠ ITS ADMITTED TWIN IS ONE TOKEN AWAY:
+// tests/logos/pass/bc_closmint_ret_from_param — `select(x, y)` -> `select(y, y)`.
+package bc_closmint_ret_from_capture_fail;
+
+fn select<'r>(a: &'r i64, b: &'r i64) -> &'r i64 { return a; }
+fn with<'q>(f: &dyn Fn(&'q i64) -> &'q i64) -> i64 { let t: i64 = 20i64; return *f(&t); }
+
+fn manip<'a>(x: &'a i64) -> i64 {
+    let c = |y: &i64| { return select(x, y); };
+    return with(&c);
+}
+
+fn main() -> i32 { let v: i64 = 1i64; if manip(&v) != 20i64 { return 1i32; } return 0i32; }

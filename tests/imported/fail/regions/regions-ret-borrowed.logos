@@ -1,6 +1,9 @@
 // rustc regions/regions-ret-borrowed.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.C
+// shelf: fail — REFUSED since 2026-09-03b: `|o| o`'s parameter region is
+// minted, and the `FnOnce(&i64) -> R` bound instantiates R at that region,
+// which is not `return_it`'s `'a`. Upstream `lifetime may not live long
+// enough`. Was lifereg.C.
 package regions_ret_borrowed;
 fn with<R, F>(f: F) -> R where F: FnOnce(&i64) -> R { return f(&3i64); }
 fn return_it<'a>() -> &'a i64 { return with(|o| o); }

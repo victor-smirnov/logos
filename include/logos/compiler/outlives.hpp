@@ -66,6 +66,16 @@ inline std::unordered_map<std::string, std::string>& minted_lt_origin() {
     return m;
 }
 
+// The minted regions belonging to a CLOSURE's OWN parameters, as opposed to an
+// enclosing fn signature's. The distinction is not cosmetic and it is not a
+// label: measured 2026-09-03b, a rule keyed on "minted" alone un-refuses three
+// pinned fn-side `fail` fixtures (nll-anon-to-static and two siblings), while
+// the same rule keyed on THIS set costs nothing. Cleared with minted_lt_origin.
+inline std::unordered_set<std::string>& closure_minted_lts() {
+    static std::unordered_set<std::string> s;
+    return s;
+}
+
 // A MINTED REGION — the name an elided slot did not have. `""` means both
 // "elided here" and "the same region as that other elided slot"; a minted name
 // means exactly the first. The prefix is unspellable in the grammar, so a

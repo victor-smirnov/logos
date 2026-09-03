@@ -1,6 +1,9 @@
 // rustc nll/closure-requirements/escape-argument.rs — upstream E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.C
+// shelf: fail — REFUSED since 2026-09-03b: a closure's OWN `&` parameters
+// are minted like a fn signature's, so `q` and `r` are two DISTINCT regions
+// of the closure's signature and `*q = r` relates them with no bound saying
+// it may. Upstream E0597. Was nllmoves.C.
 package escape_argument_t09;
 fn deref(z: &i64) { }
 fn main() -> i32 {

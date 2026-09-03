@@ -114,11 +114,35 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
             if (logos::probe::on("ltmintfresh")) return false;
             return true;
         }
+        // LANDED 2026-09-03b — REPAIR (b). A MINTED region IS the
+        // elided slot that had no name, and `lt_static_yield()` already says a
+        // return position defers a `'static` obligation on an elided slot to
+        // borrow_check, which reports it naming the binding and both lifetimes.
+        // The mint renamed the slot, the yield stopped applying, and the
+        // generic variance text replaced that sentence. PROBES.md 2026-09-03b.
+        // ⚠ CLOSURE-minted only: keyed on lt_is_minted instead, the same rule
+        // UN-REFUSES three pinned fn-side `fail` fixtures (measured).
+        if (logos::probe::arm_closmint() &&
+            closure_minted_lts().count(std::string(x)) &&
+            outlives_is_static(y) && lt_static_yield()) {
+            logos::probe::census("clos.static.yield");
+            return true;
+        }
         if (x == y) return true;
         if (!adj) return false;
         // Mutual outlives → treated as equal.
-        return outlives(x, y, *adj, /*permissive_empty=*/false) &&
-               outlives(y, x, *adj, /*permissive_empty=*/false);
+        const bool eq_ = outlives(x, y, *adj, /*permissive_empty=*/false) &&
+                         outlives(y, x, *adj, /*permissive_empty=*/false);
+        // LANDED 2026-09-03b — THIS tail, not the rigid arm above, is where a
+        // closure's minted regions refuse: the rigid arm needs a REGISTERED
+        // binder and a closure registers none (PROBES.md 2026-09-03clos §4).
+        // Record the pair so check_variance can name the elided slots instead
+        // of printing one spelling twice.
+        if (!eq_ && logos::probe::arm_closmint() &&
+            (closure_minted_lts().count(std::string(x)) ||
+             closure_minted_lts().count(std::string(y))))
+            last_rigid_mismatch() = {std::string(x), std::string(y)};
+        return eq_;
     };
     using K = LogosType::Kind;
     switch (a.kind()) {
@@ -295,7 +319,15 @@ inline bool lifetime_at(Variance v,
                 if (logos::probe::on("ltmintfresh")) return false;
                 if (logos::probe::on("ltinvempty")) return false;
             }
-            return outlives_norm(sub_lt) == outlives_norm(sup_lt);
+            const bool ieq_ = outlives_norm(sub_lt) == outlives_norm(sup_lt);
+            // LANDED 2026-09-03b — the INVARIANT twin of the lt_eq tail (rule 3:
+            // one name, and both sites it is asked at). `*q = r` between two
+            // closure parameters refuses HERE.
+            if (!ieq_ && logos::probe::arm_closmint() &&
+                (closure_minted_lts().count(std::string(sub_lt)) ||
+                 closure_minted_lts().count(std::string(sup_lt))))
+                last_rigid_mismatch() = {std::string(sub_lt), std::string(sup_lt)};
+            return ieq_;
         }
     }
     return false;
