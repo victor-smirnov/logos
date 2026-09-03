@@ -6398,8 +6398,14 @@ private:
         if (!f) return false;
         auto* pool = prog_.type_pool.impl();
         auto params = f.params();
-        if (params.empty() || !is_ref_kind(params[0].type(pool)) ||
-            !f.lifetime_params().empty())
+        // CEILING PROBES `selfltany` / `selfltmask` — SITE A. See PROBES.md.
+        bool lt_exit = !f.lifetime_params().empty();
+        if (lt_exit && logos::probe::on("selfltany")) lt_exit = false;
+        if (lt_exit && logos::probe::on("selfltmask")) {
+            const FlowSummary* sfs = flow_of_call(f.name());
+            if (sfs && sfs->available && (sfs->to_result & 1ull)) lt_exit = false;
+        }
+        if (params.empty() || !is_ref_kind(params[0].type(pool)) || lt_exit)
             return false;
         TypeRef ret = f.ret_type(pool);
         if (is_borrow_carrying_type(ret)) return true;
@@ -6421,6 +6427,8 @@ private:
         // -> str` returns a piece of src — the token is just offsets). Tie to
         // self only when self is the sole borrow input; ambiguous → no tie
         // (lenient vs Rust elision; revisit with explicit lifetimes).
+        // SITE B surveyed 2026-09-03f and RETIRED: `selffatany` (1298 arrivals)
+        // and `selffatmask` (1004) both priced CEILING 0 / cost 0. See PROBES.md.
         for (size_t i = 1; i < params.size(); ++i)
             if (is_ref_kind(params[i].type(pool))) return false;
         return true;

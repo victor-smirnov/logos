@@ -18753,3 +18753,147 @@ the existing retire candidates, so its real size is 6) · lifereg.R18 7 (M-SIG, 
 nllmoves.E 4 · nllmoves.B 4 · lifereg.R17 4 · nllmoves.D **3** · lifereg.D **2**.
 THE D ROOTS ARE NOT EXHAUSTED: what is left in them is the owner's E0716-extension question
 and two-phase borrows, neither of which is a temporary-storage question.
+
+# ═══ ROUND 2026-09-03f — PRICING. THE PARAM-SIDE EXITS OF `is_self_borrowing`,
+# NEVER SURVEYED (its RESULT test has been, three times). SITE A: **A CALLEE
+# WITH EXPLICIT LIFETIME BINDERS IS NEVER SELF-BORROWING**, so an annotated
+# `fn next<'a>(&'a mut self) -> &'a i64` ties nothing where its ELIDED twin ties.
+# CEILING 1 / COST 0 / cfail 0 of 1323 / stdlib ok for the mask twin; the crude
+# twin costs 2. SITE B REFUTED AT 1298 LIVE ARRIVALS. ═══
+
+## 0. STEP 1, RE-DERIVED — AND THE PROMPT WAS THREE ROUNDS STALE
+The handed-down prompt's `git log` head was `eed909358`; the tree's HEAD at open was
+**`8070220fe`**, three landings later. Everything below was re-derived, not copied.
+    live probe names (`probe::on("…")` in src+include)   **152**   (156 -> 152 at 09-03e)
+    `# TOTAL` in tests/logos/bc_admits.ledger            **141**   and 141 by direct listing
+    channel split                    **lifereg 51 · bck 46 · nllmoves 44**
+    build_hash at open `be1436c60f57aa11`; tree clean.
+AT CLOSE: probe names **154** (152 + 2) — `selfltany` and `selfltmask` INSTALLED, `selffatany`,
+`selffatmask` and `selfboth` RETIRED with their code (§6). build_hash `e8a5a39247bd9d8d`,
+L1 748/748 rc 0.
+
+## 1. THE POPULATION, DERIVED BY PROPERTY AND NOT BY ROOT LABEL
+Every one of the 141 ledger programs compiled under `LOGOS_DUMP_FLOWS=1`, the output
+filtered to summaries of the program's OWN package (the unfiltered dump is ~8380 lines of
+stdlib per program and says nothing):
+    **37 of 141** rows contain a user function with a NON-ZERO borrow-flow summary.
+Cross-cut with a syntactic property (`fn \w+ *< *'` — an explicit lifetime binder):
+    **35 of 141** rows, spanning **20 roots** — bck.C, lifereg.{A,B,D,L2,L6,L7,N1,NEW-L3,
+    NEW-L5,NEW-N1,NEW-N2,NEW-N4,NEW-R19,R18}, nllmoves.{A,NEW-1,NEW-2,NEW-4,NEW-L1,NEW-N1,
+    NEW-N2,NEW-S7-1,R13,R14,R2}. Listed in `build/round-2026-09-03f/ltfn_rows.txt`.
+Neither set is a root; both cut across the three channels. The root label was not consulted
+until after the sets existed.
+
+## 2. THE MISSING OBSERVATION, ON A ONE-TOKEN PAIR, BEFORE ANY EDIT
+`/home/logos/sandbox/flowloan`, multi-line, identical bodies, one token apart:
+    e1  `fn f(self: &mut Foo)       -> &mut i64`  `let b=foo.f(); foo.g(); *b;`  rc **1**
+    e2  `fn f<'a>(self:&'a mut Foo) -> &'a mut i64`  IDENTICAL CALLER            rc **0**
+`is_self_borrowing` bails on `!f.lifetime_params().empty()`, so `result_borrows_self` says
+no and the MethodCall arm never records the receiver borrow with `holder = b`. THE ARM
+EXISTS AND IS CORRECT; the fact it needs is one the code refuses to look at.
+⚠ AND THE NEIGHBOURING SHAPE IS **NOT** THIS ONE, measured the same way so the two are not
+merged: e3 `fn f(self:&mut Foo) -> Bar` (a plain struct holding `&mut i64`) admits, and e4
+— THE SAME PROGRAM with `#[borrow_carrying]` on `Bar` — refuses. That separates at the
+`let` ROUTING gate (`is_borrow_carrying_type` vs the structural predicate), which is
+`aggwhole`'s site, CEILING 4 / COST 40, already refuted. So the two `bck.NEW` rows PROBES.md
+assigns to `aggwhole` (already-borrowed-as-mutable-if-let-133941,
+borrowck-assign-to-andmut-in-borrowed-loc) were RE-CONFIRMED as that set by hand and are
+NOT in this round's target.
+
+## 3. THE PROBE TABLE — ALL THREE COST COLUMNS, build `ba8366bc4d500641`, builds 614->615
+    probe        site                                      fires ceiling cost cfail std
+    selfltany    A dropped unconditionally                   492     1     2     0   ok  ⛔ COST>=CEILING
+    selfltmask   A dropped only when the callee's own        364     1     0     0   ok  ✓
+                 FlowSummary says `to_result & 1`
+    selffatany   B (the other-ref-param exit) dropped       1298     0     0     0   ok  ⛔ REFUTED, SITE LIVE
+    selffatmask  B kept only when the summary says param    1004     0     0     0   ok  ⛔ REFUTED, SITE LIVE
+                 i ALSO reaches the result
+    selfboth     selfltmask + selffatmask, ONE process      1368     1     0     0   ok  = 1 + 0
+COST-fail is **0 of 1323** `-L bc -L fail` fixtures in all three columns (rc, normalised
+stderr SHA, `.expected` match) for every one of the five; `stdlib-cost.sh` compiles all four
+layers under each. RULE 13, MEASURED NOT ASSUMED: `selfboth` = 1 = 1 + 0, additivity holds
+with no cross-term — and the zero half is genuinely zero, not a series (§5).
+
+## 4. THE SETS, DIFFED BOTH WAYS, DIAGNOSTIC READ
+PREDICTED BY NAME BEFORE ANY EDIT (`build/round-2026-09-03f/targets-2026-09-03f.txt`):
+**{lending-iterator-sanity-checks}**, and 34 named in the population predicted NOT to close.
+    selfltany = selfltmask = selfboth = **{lending-iterator-sanity-checks}** (nllmoves.R2)
+    predicted ∖ actual = ∅   ·   actual ∖ predicted = ∅   ·   all 34 others held.
+DIAGNOSTIC, read on the binary, not the exit code:
+    `error [fn main]: cannot borrow 't' as mutable: already mutably borrowed`
+    upstream `lending-iterator-sanity-checks.rs` is **E0499** "cannot borrow `t` as mutable
+    more than once at a time". SAME REASON.
+NOT a rule-14 rewording: the fixture is rc 0 and SILENT unarmed on both `ba8366bc4d500641`
+and the final `e8a5a39247bd9d8d`.
+THE COST OF THE CRUDE TWIN, BY NAME — two `pass` fixtures, both the residency-escape shape:
+    pass/bc_esc_holder_residency_backed_admit    `error [fn make_held_doc]: cannot borrow
+    pass/bc_esc_holder_residency_pershare_admit   'h' as mutable: 1 shared borrow(s) active`
+
+## 5. ⚠ RULE 9 — THE TWIN IS SEPARATED BY A LEGAL PROGRAM NO POPULATION CONTAINS
+Twelve hand programs, multi-line, `/home/logos/sandbox/selfland/h01…h12`, varied by SHAPE
+and not by count: two live shared results; a `&'a mut` result whose first use is dead before
+the second call; a FREE fn with `<'a>`; a `<'a>` method returning a SCALAR; a method whose
+result comes from ANOTHER param; a `&'a mut` result and a sibling-field read; a struct
+`S<'a>` built by a `<'a>` free fn; a TRAIT method with `<'a>`; a disjoint-field `&'a mut`;
+a two-input free fn; a by-value `self` with a `<'a>` binder; and h12, the intended-illegal
+twin of h02.
+    **ELEVEN LEGAL PROGRAMS ADMITTED UNDER `selfltmask`. ZERO REFUSED.**
+    h12 (`let a=s.nx(); let b=s.nx(); *a + *b;`) refused by BOTH twins — correct, it is
+        lending-iterator's own shape and rustc gives E0499. Its legal twin h02 (first
+        result dead first) stays ADMITTED, so NLL is doing the work, not a lexical lock.
+    **h05 SEPARATES THE TWINS AND IT IS LEGAL:**
+        `fn other<'a>(self: &S, o: &'a S) -> &'a i64 { return &o.n; }`
+        `let r = s.other(&t); s.bump(); *r`      base rc 0 · selfltmask rc **0** · selfltany rc **1**
+    The result borrows `o`, not `self`; the summary says `to_result` bit **1**, not bit 0.
+    The crude twin locks the receiver anyway. That is the same defect the two `pass`
+    fixtures in §4 catch — three witnesses, one written by hand, and the hand one is the
+    only one that names WHY.
+⚠ THE COST 0 IS STILL NOT A SAFETY CLAIM (rule 5). What it is: 1323 fail fixtures unchanged
+in three text columns, four stdlib layers built, 2620-odd legal programs green, and eleven
+hand programs of eleven different syntaxes. The argument has to be made at the predicate —
+"a callee whose OWN summary says parameter 0 reaches the result does borrow its receiver,
+whether or not the binders are spelled" — and the fallback when the summary is UNAVAILABLE
+(extern, cross-archive, indirect, >kFlowMaxParams) is the CURRENT permissive exit, so the
+arm can only ADD ties.
+
+## 6. ⛔ SITE B REFUTED — 1298 ARRIVALS, CEILING 0, AND THE CODE IS OUT
+`for (i=1..) if (is_ref_kind(params[i])) return false;` — "the fat result may slice THAT
+instead of self". Both the crude de-exemption (`selffatany`, 1298 arrivals) and the
+summary-masked one (`selffatmask`, 1004) close NOTHING and cost NOTHING on all three
+populations. RULE 1 IS DISCHARGED: the site is populous, not silent. RULE 11 IS DISCHARGED
+TOO — the downstream channel (is_self_borrowing → result_borrows_self → the MethodCall
+receiver tie) is PROVEN LIVE by `selfltmask`'s row through the very same hops, so this zero
+is a property of the sub-population and not a broken hop. Code REMOVED; a one-line marker
+at the site records the numbers. `selfboth` retired with it — its whole purpose was the
+additivity check in §3, which is now measured.
+
+## 7. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **`fn f<'a>(self:&'a mut Foo) -> &'a mut i64` WITH A LATER RECEIVER USE IS A REAL HOLE
+    WITH NO LEDGER ROW** — e1/e2 in §2 and h12 in §5. Only ONE ledger row
+    (lending-iterator-sanity-checks) names it; the ledger under-counts this shape because
+    the imported corpus rarely spells binders on an inherent method. It is INSIDE the
+    mechanism, not beside it.
+ 2. **The two `bck.NEW` rows re-confirmed as `aggwhole`'s set** (§2, e3/e4). Unchanged
+    verdict, now with a two-line control instead of a citation.
+ 3. **The four E0716-family rows that are LEGAL RUST remain an owner's decision** — carried
+    forward unchanged from 09-03e §5.2: borrowck-borrowed-uniq-rvalue, -2, issue-36082,
+    borrowck-let-suggestion.
+
+## 8. WHAT DESERVES FUNDING
+ 1. **`selfltmask`: ceiling 1 / cost 0 / cfail 0 of 1323 / stdlib ok, one correct
+    diagnostic, and a hand-written legal separator (h05) its crude twin refuses.** The
+    landing owes what the probe does not (rule 7): the summary lookup is `flow_of_call(
+    f.name())` on the DECLARATION, while every other `to_result` consumer in the file
+    resolves through `resolve_call_flow(..., &fn_index_)` at the CALL — the mono-key /
+    by_bare agreement half is therefore untested here and must be shown to answer the same
+    on a generic method before it lands. h05 and h02 are the two pass fixtures it owes;
+    h12 and lending-iterator are the two fail pins.
+ 2. **DO NOT fund `selfltany`.** Its cost is three legal programs (two pinned, one by hand)
+    and its ceiling is the SAME single row. It stays installed as `selfltmask`'s standing
+    control twin (rule 18) — the pair is what shows the mask is doing the separating.
+ 3. **The next block by size that is neither mined nor owner-blocked** remains
+    **nllmoves.C (9)** and **bck.B (9)**; `bck.NEW`'s real size is now 5 (two are
+    `aggwhole`'s, one is a documented raw-pointer divergence, two are E0509 retire
+    candidates). The 37-row NON-ZERO-SUMMARY population of §1 is the durable asset of this
+    round: it is a mechanically re-derivable set that cuts all three channels, and only one
+    of its 37 has been spent.
