@@ -86,7 +86,8 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
                 if (bx_ != by_)   logos::probe::census("rigid.eq.one");
                 if (!bx_ && !by_) logos::probe::census("rigid.eq.none");
                 if (bx_ && by_ &&
-                    (logos::probe::on("ltrigideq") || logos::probe::on("ltrigid")))
+                    (logos::probe::on("ltrigideq") || logos::probe::on("ltrigid") ||
+                     logos::probe::on("ltrigidlet")))
                     return false;
                 if ((bx_ || by_) && logos::probe::on("ltrigidany")) return false;
             }

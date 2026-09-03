@@ -2619,6 +2619,33 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
             builder().retype_expr(rhs, var_type);
     } else {
         var_type = rhs_type;
+        // PROBES ltrigidlet / ltrigidletb — A LOCAL'S REGION IS AN INFERENCE
+        // VARIABLE. `let mut t0 = a;` in Rust does NOT pin the local to the
+        // parameter's region: covariance lets it shrink, which is why
+        // `swap_ref(&mut t0, &mut t1)` is legal with two anonymous parameter
+        // regions. Here the local inherits the parameter's MINTED name, which
+        // sema_decl registered as a binder of this scope, and the rigid rule
+        // then refuses it. Crude proxy: un-register those names.
+        if (logos::probe::on("ltrigidlet") || logos::probe::on("ltrigidletb")) {
+            std::function<void(TypeRef, int)> derigid_ = [&](TypeRef t, int d) {
+                if (!t || d > 16) return;
+                using K2_ = LogosType::Kind;
+                std::string lt_(TypeRef(t).lifetime());
+                if (lt_is_minted(lt_)) current_lt_binders().erase(lt_);
+                for (auto& l2_ : TypeRef(t).lifetime_args())
+                    if (lt_is_minted(l2_)) current_lt_binders().erase(l2_);
+                switch (TypeRef(t).kind()) {
+                    case K2_::Ref: case K2_::MutRef:
+                        derigid_(TypeRef(t).pointee(), d + 1); break;
+                    case K2_::Tuple:
+                        for (auto e2_ : TypeRef(t).tuple_elems()) derigid_(e2_, d + 1);
+                        break;
+                    default: break;
+                }
+                for (auto a2_ : TypeRef(t).type_args()) derigid_(a2_, d + 1);
+            };
+            derigid_(var_type, 0);
+        }
         if (TypeRef(var_type).kind() == LogosType::Kind::IntLit) {
             // Default IntLit to i32; upgrade to i64 if the literal value overflows i32.
             var_type = i32_t();
