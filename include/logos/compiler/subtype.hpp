@@ -114,14 +114,10 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
             if (logos::probe::on("ltmintfresh")) return false;
             return true;
         }
-        // LANDED 2026-09-03b — REPAIR (b). A MINTED region IS the
-        // elided slot that had no name, and `lt_static_yield()` already says a
-        // return position defers a `'static` obligation on an elided slot to
-        // borrow_check, which reports it naming the binding and both lifetimes.
-        // The mint renamed the slot, the yield stopped applying, and the
-        // generic variance text replaced that sentence. PROBES.md 2026-09-03b.
-        // ⚠ CLOSURE-minted only: keyed on lt_is_minted instead, the same rule
-        // UN-REFUSES three pinned fn-side `fail` fixtures (measured).
+        // 2026-09-03b repair (b): a minted region IS an elided slot, so
+        // `lt_static_yield()` must keep applying. ⚠ CLOSURE-minted only —
+        // keyed on lt_is_minted this un-refuses three pinned fn-side `fail`
+        // fixtures (measured). PROBES.md 2026-09-03b.
         if (logos::probe::arm_closmint() &&
             closure_minted_lts().count(std::string(x)) &&
             outlives_is_static(y) && lt_static_yield()) {
