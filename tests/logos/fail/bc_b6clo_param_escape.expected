@@ -1,0 +1,1 @@
+'local' does not live long enough: it is borrowed and stored through 'out', whose storage the caller owns and outlives this function (E0597)

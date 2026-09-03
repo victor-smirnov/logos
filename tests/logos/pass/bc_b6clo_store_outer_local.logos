@@ -1,0 +1,14 @@
+// THE LEGAL TWIN of fail/bc_b6clo_store_outer, one token apart: the stored
+// borrow names the enclosing fn's local `k`, which outlives the closure call.
+// (2026-09-02c)
+package bc_b6clo_store_outer_local;
+fn with_int<F: FnOnce(&i64)>(f: F) {
+    let x: i64 = 3i64;
+    f(&x);
+}
+fn main() -> i32 {
+    let k: i64 = 7i64;
+    let mut x: Option<&i64> = Option::None;
+    with_int(|y: &i64| { x = Option::Some(&k); });
+    return 0i32;
+}

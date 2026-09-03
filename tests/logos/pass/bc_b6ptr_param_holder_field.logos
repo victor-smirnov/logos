@@ -1,0 +1,18 @@
+// THE LEGAL TWIN of fail/bc_b6ptr_param_field_escape: the value read out of the
+// local holder `hr` is a COPY of a reference the CALLER already owns; no
+// storage of `h`/`hr` is borrowed here. The holder channel
+// (`collect_ref_sources`) names the local `h` and would refuse this.
+// (2026-09-02c)
+package bc_b6ptr_param_holder_field;
+struct H { r: &i64 }
+fn store(out: &mut &i64, src: &i64) {
+    let h: H = H { r: src };
+    let hr: &H = &h;
+    *out = hr.r;
+}
+fn main() -> i32 {
+    let k: i64 = 5i64;
+    let mut p: &i64 = &k;
+    store(&mut p, &k);
+    return (*p - 5i64) as i32;
+}

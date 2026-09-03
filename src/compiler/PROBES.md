@@ -17304,3 +17304,119 @@ believe the direct matrix.**
  4. FOR AN OWNER: `pass/nll_borrow_not_used_after_scope` versus the ledger row
     `borrowck/regions-escape-unboxed-closure` — the same property, opposite verdicts pinned in both
     directions, and the port dropped the closure that made the upstream program illegal.
+
+
+# ═══ ROUND 2026-09-02c — THE §B6 STORE THROUGH A BARE POINTER LANDED: 4 ROWS, 161 -> 157 ═══════════
+# PREDICTED 4 BY NAME BEFORE THE EDIT AND CLOSED EXACTLY THOSE 4; THE PRICED ARM REFUSED A LEGAL
+# PROGRAM AND WAS NARROWED BEFORE LANDING (RULE 5 BIT, IN A SHAPE THE PRICING PHASE DID NOT WRITE)
+
+## 0. STEP 1, READ FROM THE TREE
+    HEAD 99c3dc145 clean = origin/main. Live probe names **157**. `# TOTAL 161` = 161 by listing.
+    Block split **lifereg 60 / nllmoves 52 / bck 49**; top roots bck.C 13 · nllmoves.C 10 · bck.B 10 ·
+    lifereg.R18 8 · bck.NEW 8. Every figure agrees with the 2026-09-04b record.
+    ⚠ THE TREE'S BINARY WAS AGAIN STALE IN ITS IDENTITY: `logosc --version` said `main-gcd843fb8` at
+    HEAD 99c3dc145 with ninja idle. `cmake .` + `cmake --build` -> `main-g99c3dc14`, sha256[0:16]
+    **f92d58ac26036157**. The 2026-09-04b warning about the configure-time version string HOLDS and is
+    not a one-off; every round must re-configure before it prices anything.
+    BASELINE READ FROM THE STORE, gate-db build **565**: `-R '^logos_00_bc_admit_'` 161/161 passed;
+    `-L bc` 2282 passed / 0 failed / 2 disabled.
+
+## 1. WHAT LANDED — THREE DISPOSITIONS AT ONE SITE, ALL UNGATED
+`Code::DerefWrite` with a BARE `ptr` (`*q = v`), which the §B6 store recorder never saw because that
+recorder is guarded on `ptr.kind() == AddrOfTemp`:
+  (a) `q` reborrows a LOCAL — `reborrow_of_.each_root_place(q)` -> `add_ref_sources(place_root(r), …)`.
+      pop_scope then reports in §B6's OWN sentence at the root's first use past the referent's death.
+  (b) `q` is a PARAMETER (fn or closure) — no local place exists to record on, because the destination
+      storage is the CALLER's. Reported AT THE WRITE, E0597.
+  (c) `Code::Assign` inside a closure body to a name the body did not declare, whose value names a
+      CLOSURE PARAMETER — E0521, `borrowed data escapes the closure`.
+`collect_borrowed_local_roots` is new (the AddrOf / AddrOfTemp-place-chain / StructLit / TupleLit / Cast
+walk, params excluded). Probe gates `dwptrroot` / `dwptrparam` / `dwstore` / `fpwrite` / `dwptrself` are
+GONE from the tree; `dwptrparamany` survives as a probe ON TOP of the landed narrow arm (rule 9, still
+unpriced on pass/cfail/stdlib). Live probe names 157 -> 152.
+
+## 2. ⚠ RULE 5 BIT: THE PRICED `dwstore` REFUSED A LEGAL PROGRAM, AND THE LANDING IS NARROWER
+22 hand programs, build/hand-2026-09-02c, in shapes the pricing phase did not write (a local ref
+BINDING re-read, a `&h` hop over a local holder, a tuple holder, a call-returning-a-static, a two-level
+reborrow chain, a struct-field root, a loop, a body-local shadow in a nested block, a struct-typed
+closure parameter, a by-value closure parameter, arithmetic on the pointee). Under `dwstore` as priced:
+    c02  `fn store(out: &mut &i64, src: &i64) { let h = H{r:src}; let hr = &h; *out = hr.r; }`
+         REFUSED — `ceiling-probe dwptrparam: 'h' is stored through 'out'`. **LEGAL RUST**: `hr.r` is a
+         COPY of a reference the caller already owns; no storage of `h` is borrowed anywhere.
+The mechanism is the SOURCE CHANNEL, not the rule: `collect_ref_sources` names the HOLDER a reference
+was copied out of. ⚠ AND IT CORRECTS A RECORDED FACT — 2026-09-04b §6 h12 says of `*out = h.r` that
+"`collect_ref_sources` names the param, not `h`. The one that mattered." Measured here: TRUE for the
+direct field read (hand c11 admits under `dwstore`), FALSE the moment one `&h` hop is inserted. A hand
+program that admits does not certify the channel; it certifies that spelling.
+The landing uses `collect_borrowed_local_roots` instead. c02 admits; all four target rows still close.
+COST OF THE NARROWING, stated: `*out = pick(&local)` where `pick(&i64) -> &i64` returns a `static` (hand
+c03) now ADMITS. Under elision the result carries `local`'s region, so upstream would refuse it — but it
+was admitted before this round too, so this is status quo and not a new hole. Not a ledger row.
+
+## 3. PREDICTED vs CLOSED, DIFFED BOTH WAYS (build/round-2026-09-02c/prediction.txt, written first)
+All 157+4 ledger programs compiled directly on the landed binary; the refusing set is EXACTLY:
+    nll/capture-ref-in-struct--ctl                  nllmoves.B  (a)  'y' does not live long enough: it is
+                                                                    borrowed by 'p', which is used here
+                                                                    after 'y' goes out of scope (E0597)
+    borrowck/borrowck-local-borrow-with-panic-outlives-fn bck.A (b)  'z' does not live long enough: it is
+                                                                    borrowed and stored through 'x', whose
+                                                                    storage the caller owns and outlives
+                                                                    this function (E0597)
+    nll/propagate-multiple-requirements             nllmoves.A  (b)  the same sentence, 'local' / 'out'
+    borrowck/regions-escape-bound-fn                bck.C       (c)  borrowed data escapes the closure:
+                                                                    'y' is stored into 'x', which outlives
+                                                                    the closure call (E0521)
+    predicted∖closed = ∅ · closed∖predicted = ∅. Upstream codes: E0597 / E0597 / (region) / E0521 — every
+    diagnostic READ, not inferred from rc. The probe's E0521 wording for (b) was NOT landed: the reason is
+    a referent that dies at the frame's end, and E0597 is that reason.
+
+## 4. COST, EVERY COLUMN, ON THE LANDED BINARY
+    stdlib      `stdlib-cost.sh`: all four layers compile. Full `cmake --build`: rc 0.
+    cfail       `fail_text_oracle.py`, 1284 fixtures, control-revert baseline vs landed:
+                rc moved **0** · `.expected` match moved **0** · TEXT moved **4**, all READ:
+                  tests/logos/fail/bc_f1_closure_param_escape, .../bc_f1_closure_param_shadow_inner_block,
+                  tests/imported/fail/borrowck/issue-45983, .../regions-escape-bound-fn-2
+                Each gains ONE line — the new E0521 escape sentence — BEFORE the E0597 line it already
+                pinned. ⚠ For issue-45983 and regions-escape-bound-fn-2 the UPSTREAM code is E0521, so the
+                added line is the upstream-correct one and the E0597 is now the secondary. Left as a
+                duplicate rather than suppressed: suppressing the §B6 deposit would drop the very line
+                those four `.expected` files pin, and re-pinning them to the E0521 line is a corpus
+                decision. RECORDED, NOT TAKEN.
+    pass        `-L bc` 2296 passed / 0 failed / 2 disabled (2298 rows, +14 = 10 native + 4 imported fail).
+                L1 747/747 + 206/206 gates.
+    CONTROL REVERT (`git stash` of borrow_check.cpp + full rebuild): all four rows admit again at rc 0,
+    and hand c02 admits. The revert is what the cfail baseline was measured on.
+
+## 5. THE FIXTURES — PAIRS ONE TOKEN APART
+4 imported admit -> fail in their roots' homes, diagnostics pinned in full. 5 native fail + 5 native pass
+`bc_b6*` twins: reborrow_root (inner `y` / outer `y`) · param_escape (`&local` / `&G`) ·
+param_field_escape (`&mut z.1` / the c02 holder copy) · clo_param_escape (`*out = &local` / `*out = local`)
+· clo_store_outer (`Some(y)` / `Some(&k)`). Census pins re-derived BEFORE they were read:
+ALL 8925 -> 8935 (+10 native), NOIMPORTED 4526 -> 4532 (+10 −4 admit), TIERCOMMIT 210 -> 206 (−4 admit),
+direct_door corpus 2603 -> 2608 / nonglob 2412 -> 2417 (+5 pass twins).
+
+## 6. WHAT THIS ROUND DID NOT BUY, BY NAME AND BY NUMBER
+    nll/capture-ref-in-struct--t08                      the (a) arm's ceiling was 1, not 2
+    nll/escape-argument--t09                            only `dwptrparamany` reaches it; STILL UNPRICED on
+                                                        pass/cfail/stdlib. The next thing to price.
+    lifetimes/e0621-mut-ref-aliases-pointee-lifetime     W2, refuted as a SERIES: ceiling 0 over 11 423 arrivals
+    lifetimes/mut-slice-...-transmute--c17 / --t17       W3, ceiling 0 AND the stdlib refuses (2 in mem/ts_scan)
+    borrowck/anonymous-region-in-apit--closure-param-escapes,
+    borrowck/regions-escape-unboxed-closure              `dangpop` only: 15 pass + 68 cfail + 1 stdlib refusal
+BLOCKS NOT SPENT: lifereg 60 rows (untouched — R18 8 is M-SIG/owner, E0716 9 is owner + stdlib wall);
+of nllmoves 50 and bck 47 the closure block's remaining spellings are recorded as un-refusing pinned
+fixtures or as needing a fact that exists nowhere.
+
+## 7. OFF-LEDGER, RECORDED NOT PURSUED (unchanged by this round, re-measured on the landed binary)
+`fn store(out: &mut &i64, src: &i64) { *out = src; }` and the same through a local (hand c01, d09) are
+refused UNARMED with `deref-write '*ptr = …': variance mismatch — expected &i64, got &i64 — lifetime
+structure incompatible`. The verdict is right (rustc wants `'b: 'a` declared); the message prints two
+IDENTICAL types. Third round in which this exact shape is recorded. It is also why the "a local ref
+binding copied into `*out`" counter-example could not be run against the landing at all — the program
+never reaches borrow-check's store recorder.
+
+## 8. FOR AN OWNER — CARRIED FORWARD, STILL NOT ACTED ON
+`tests/logos/pass/nll_borrow_not_used_after_scope` versus the ledger row
+`borrowck/regions-escape-unboxed-closure`: the same property, opposite verdicts pinned in both
+directions, and the port DROPPED the closure that made the upstream program illegal. A ledger row that is
+legal Rust as ported should be RETIRED, not bought; that is a corpus decision with an owner.

@@ -1,0 +1,15 @@
+// A borrow of a LOCAL stored through a `&mut` PARAMETER: the destination
+// storage belongs to the caller, so the referent's death ends the frame while
+// the pointee lives on. TWIN of pass/bc_b6ptr_param_static, one token apart:
+// the source is a local here and a `static` there. (2026-09-02c)
+package bc_b6ptr_param_escape;
+static G: i64 = 9i64;
+fn store(out: &mut &i64) {
+    let local: i64 = 1i64;
+    *out = &local;
+}
+fn main() -> i32 {
+    let mut p: &i64 = &G;
+    store(&mut p);
+    return *p as i32;
+}

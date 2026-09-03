@@ -1,0 +1,1 @@
+'z' does not live long enough: it is borrowed and stored through 'x', whose storage the caller owns and outlives this function (E0597)

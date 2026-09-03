@@ -1,0 +1,16 @@
+// §B6 through a BARE pointer: `*q = &y` where `q` reborrows `p` records the
+// stored borrow on `p`. TWIN of pass/bc_b6ptr_reborrow_root_outlives, one token
+// apart: `y` is declared INSIDE the inner block here. (2026-09-02c)
+package bc_b6ptr_reborrow_root;
+fn deref(z: &i64) { }
+fn main() -> i32 {
+    let x: i64 = 44i64;
+    let mut p: &i64 = &x;
+    {
+        let y: i64 = 22i64;
+        let q: &mut &i64 = &mut p;
+        *q = &y;
+    }
+    deref(p);
+    return 0i32;
+}

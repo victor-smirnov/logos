@@ -3167,6 +3167,59 @@ private:
         }
     }
 
+    // The locals whose OWN STORAGE this value borrows at this expression: an
+    // `&place` / `&mut place` whose base binding is a local of this frame,
+    // through aggregate literals, casts and an `AddrOfTemp` place chain.
+    // NARROWER than `collect_ref_sources`, which names the HOLDER a reference
+    // was copied out of and so would refuse the legal `*out = hr.r`
+    // (pass/bc_b6ptr_param_holder_field). Params outlive the frame: excluded.
+    void collect_borrowed_local_roots(lir_view::ExprRef e,
+                                      std::vector<std::string>& out) const {
+        if (!e) return;
+        using EC = lir_schema::expr::Code;
+        auto emit = [&](std::string n) {
+            if (n.empty() || !var_has(NO_SLOT, n)) return;
+            if (param_names_.count(n) || closure_param_names_.count(n)) return;
+            if (std::find(out.begin(), out.end(), n) == out.end())
+                out.push_back(std::move(n));
+        };
+        switch (e.kind()) {
+            case EC::AddrOf:
+                emit(std::string(lir_view::EAddrOfView{e}.var_name()));
+                return;
+            case EC::AddrOfTemp: {
+                auto cur = lir_view::EAddrOfTempView{e}.inner();
+                while (cur) {
+                    if (cur.kind() == EC::FieldRead)
+                        cur = lir_view::EFieldReadView{cur}.receiver();
+                    else if (cur.kind() == EC::IndexRead)
+                        cur = lir_view::EIndexReadView{cur}.receiver();
+                    else if (cur.kind() == EC::SliceIndex)
+                        cur = lir_view::ESliceIndexView{cur}.slice();
+                    else if (cur.kind() == EC::TupleIndex)
+                        cur = lir_view::ETupleIndexView{cur}.receiver();
+                    else break;
+                }
+                if (cur && cur.kind() == EC::VarRef)
+                    emit(std::string(lir_view::EVarRefView{cur}.name()));
+                return;
+            }
+            case EC::StructLit:
+                lir_view::EStructLitView{e}.each_field_value(
+                    [&](lir_view::ExprRef fv) { collect_borrowed_local_roots(fv, out); });
+                return;
+            case EC::TupleLit:
+                lir_view::ETupleLitView{e}.each_elem(
+                    [&](lir_view::ExprRef fv) { collect_borrowed_local_roots(fv, out); });
+                return;
+            case EC::Cast:
+                collect_borrowed_local_roots(lir_view::ECastView{e}.operand(), out);
+                return;
+            default:
+                return;
+        }
+    }
+
     // §B6 (E0597): record the LOCAL variables that binding `name` borrows from,
     // so pop_scope can flag `name` dangling if it outlives one of them. Clears
     // any stale dangling/sources first (a rebind re-owns). Only records when the
@@ -12472,17 +12525,20 @@ private:
                 // §B6 (E0597): (re-)record sources on assign — a rebind re-owns
                 // (clears any prior dangling), then tracks the new borrow.
                 record_ref_sources(name, val, ln);
-                if ((logos::probe::on("fpwrite") ||
-                     logos::probe::on("dwstore")) && in_closure_body_ && val &&
-                    !closure_body_decls_.count(name)) {
+                // §B6 ACROSS THE CLOSURE BOUNDARY (E0521). A closure
+                // parameter's referent is bound by the CALL; a binding the body
+                // did not declare outlives every call, so a borrow naming a
+                // closure parameter that lands there escapes — and §B6 has no
+                // later use in THIS frame to report at.
+                if (in_closure_body_ && val && !closure_body_decls_.count(name)) {
                     std::vector<std::string> fpw_srcs;
                     collect_ref_sources(val, fpw_srcs);
                     for (auto& fpw_s : fpw_srcs)
                         if (closure_param_names_.count(fpw_s)) {
                             report(ln, std::format(
-                                "ceiling-probe fpwrite: borrowed data escapes the "
-                                "closure: '{}' is stored into '{}', which outlives "
-                                "the closure call (E0521)", fpw_s, name));
+                                "borrowed data escapes the closure: '{}' is "
+                                "stored into '{}', which outlives the closure "
+                                "call (E0521)", fpw_s, name));
                             break;
                         }
                 }
@@ -12680,47 +12736,51 @@ private:
                 SDerefWriteView v{sr};
                 auto ptr = v.ptr();
                 using EC = lir_schema::expr::Code;
-                // PROBE 2026-09-04b — W1a. `*q = &y` lowers to DerefWrite with a
-                // BARE ptr, so the §B6 walk below (guarded on AddrOfTemp) never
-                // runs and no source is recorded anywhere. See PROBES.md.
+                // §B6 THROUGH A BARE POINTER. `*q = &y` lowers to DerefWrite
+                // with a BARE `ptr`, so the AddrOfTemp walk below — which is
+                // where §B6's store recorder lives — never runs and the stored
+                // borrow is recorded NOWHERE. Two dispositions, by what `q` is.
                 if (ptr && ptr.kind() == EC::VarRef) {
                     std::string pn_(EVarRefView{ptr}.name());
-                    if (logos::probe::on("dwptrself") && !pn_.empty() &&
-                        var_has(NO_SLOT, pn_))
-                        add_ref_sources(pn_, std::string{}, v.value(), ln);
-                    // PROBE 2026-09-04b — W1a+W2 in series. When the pointer is
-                    // a PARAM there is no local root to record on, and the fact
-                    // is an ESCAPE: a borrow of a LOCAL stored through a `&mut`
-                    // the caller owns. Reported AT THE WRITE. PROBES.md.
-                    if ((logos::probe::on("dwptrparam") ||
-                         logos::probe::on("dwptrparamany") ||
-                         logos::probe::on("dwstore")) && !pn_.empty() &&
+                    // (b) `q` IS A PARAMETER: the destination storage belongs
+                    // to the CALLER, so a borrow of a local of THIS frame
+                    // escapes by construction. Reported at the write — no later
+                    // use in this frame has to exist for the error to be real.
+                    // ⚠ SOUNDNESS OF THE SOURCE SET: only locals whose OWN
+                    // storage this value borrows (collect_borrowed_local_roots),
+                    // never the holder channel — see PROBES.md 2026-09-02c §2.
+                    if (!pn_.empty() &&
                         (param_names_.count(pn_) || closure_param_names_.count(pn_))) {
-                        const bool any_ = logos::probe::on("dwptrparamany");
                         std::vector<std::string> esc_;
-                        collect_ref_sources(v.value(), esc_);
-                        for (auto& s_ : esc_) {
-                            bool local_ = var_has(NO_SLOT, s_) &&
-                                          !param_names_.count(s_) &&
-                                          !closure_param_names_.count(s_);
-                            if (local_ || any_) {
-                                report(ln, std::format(
-                                    "ceiling-probe dwptrparam: borrowed data "
-                                    "escapes: '{}' is stored through '{}', which "
-                                    "the caller owns (E0521)", s_, pn_));
-                                break;
-                            }
+                        collect_borrowed_local_roots(v.value(), esc_);
+                        // PROBE — the rule-9 twin, UNPRICED on pass/cfail/stdlib:
+                        // count a borrow of a PARAM's referent as escaping too
+                        // (`*out = &*other_param`). Reaches nll/escape-argument--t09.
+                        if (esc_.empty() && logos::probe::on("dwptrparamany")) {
+                            std::vector<std::string> any_;
+                            collect_ref_sources(v.value(), any_);
+                            for (auto& a_ : any_)
+                                if (a_ != pn_) { esc_.push_back(a_); break; }
                         }
+                        if (!esc_.empty())
+                            report(ln, std::format(
+                                "'{}' does not live long enough: it is borrowed "
+                                "and stored through '{}', whose storage the "
+                                "caller owns and outlives this function (E0597)",
+                                esc_.front(), pn_));
                     }
-                    if ((logos::probe::on("dwptrroot") ||
-                         logos::probe::on("dwstore")) && !pn_.empty()) {
+                    // (a) `q` IS A LOCAL REBORROW: resolve it to the place it
+                    // reborrows and record the stored sources THERE, which is
+                    // what the AddrOfTemp walk would have done had the pointer
+                    // been spelled as a place. pop_scope then reports at the
+                    // root's first use past the referent's death, in §B6's own
+                    // sentence.
+                    if (!pn_.empty()) {
                         std::vector<std::string> rts_;
                         reborrow_of_.each_root_place(pn_,
                             [&](const std::string& r_) { rts_.push_back(r_); });
                         for (auto& r_ : rts_) {
-                            std::string base_ = r_;
-                            if (auto d_ = base_.find('.'); d_ != std::string::npos)
-                                base_ = base_.substr(0, d_);
+                            std::string base_ = place_root(r_);
                             if (!base_.empty() && var_has(NO_SLOT, base_))
                                 add_ref_sources(base_, std::string{}, v.value(), ln);
                         }

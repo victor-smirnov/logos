@@ -1325,9 +1325,13 @@ PIN = {
     # WF-of-a-written-type block (impl-scope bounds, the impl header's and a
     # parameter mention's RFC 2093 implied bounds, enum payload, method turbofish).
     # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2603; glob -> 191.
-    'corpus'            : 2603,
+    # 2026-09-02c: 2603 -> 2608. Five pass twins of the §B6-store block
+    # (bc_b6ptr_reborrow_root_outlives, bc_b6ptr_param_static,
+    # bc_b6ptr_param_holder_field, bc_b6clo_param_pointee_copy,
+    # bc_b6clo_store_outer_local), all five non-glob.
+    'corpus'            : 2608,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2412,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2417,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

@@ -1,6 +1,6 @@
 // rustc borrowck/borrowck-local-borrow-with-panic-outlives-fn.rs — upstream E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.A
+// shelf: fail — REFUSED since 2026-09-02c: a borrow of a local stored through a `&mut` PARAMETER escapes, reported at the write. Was bck.A.
 // upstream: borrowck/borrowck-local-borrow-with-panic-outlives-fn.rs (E0597 `z.1` does not live long enough)
 // Reshape: `&mut Option<&'static mut isize>` -> a &mut out-parameter holding a &mut i64.
 package borrowck_local_borrow_with_panic_outlives_fn;

@@ -1195,7 +1195,21 @@
 # slots) keeps the double mutable borrow admitted as the row.
 # regions-close-object-into-object-1 (upstream E0515) and regions-steal-closure (E0597)
 # are refused for the 'static object bound their upstream error is an instance of.
-# TOTAL 161
+# 2026-09-02c — 161 -> 157. FOUR rows, predicted as four BY NAME before the edit
+# (build/round-2026-09-02c/prediction.txt), closed set == predicted set both ways.
+# §B6's store recorder is guarded on the destination being an `AddrOfTemp` place,
+# so a bare `*q = &y` — the spelling every one of these four uses — arrived at no
+# recorder at all. Three dispositions at the one site, by what the destination is:
+#   capture-ref-in-struct--ctl                    E0597  q reborrows a LOCAL: record on the root place
+#   borrowck-local-borrow-with-panic-outlives-fn  E0597  q is a PARAMETER: the caller owns the storage,
+#   propagate-multiple-requirements               E0597    so a borrow of a local escapes at the write
+#   regions-escape-bound-fn                       E0521  a closure PARAMETER's borrow stored into a
+#                                                        binding the body did not declare
+# ⚠ THE PRICED PROBE REFUSED A LEGAL PROGRAM AND THE LANDING IS NARROWER: the
+# param arm was priced with `collect_ref_sources`, which names the local a
+# reference was COPIED OUT OF — it refuses `*out = hr.r` where `hr = &h` and
+# `h = H{ r: <param> }`, pinned legal by pass/bc_b6ptr_param_holder_field.
+# TOTAL 157
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1214,7 +1228,6 @@ borrowck-lend-flow-loop bck.NEW-2 tests/imported/admit/borrowck/borrowck-lend-fl
 borrowck-loan-blocks-move-cc--r10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10
 borrowck-loan-blocks-move-cc--t10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--t10
 borrowck-loan-vec-content bck.B tests/imported/admit/borrowck/borrowck-loan-vec-content
-borrowck-local-borrow-with-panic-outlives-fn bck.A tests/imported/admit/borrowck/borrowck-local-borrow-with-panic-outlives-fn
 borrowck-move-by-capture bck.C tests/imported/admit/borrowck/borrowck-move-by-capture
 borrowck-move-error-with-note--b bck.B tests/imported/admit/borrowck/borrowck-move-error-with-note--b
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
@@ -1240,7 +1253,6 @@ mut-borrow-conflict-in-closures-vec--bounded bck.C tests/imported/admit/borrowck
 mut-borrow-of-mut-ref bck.A tests/imported/admit/borrowck/mut-borrow-of-mut-ref
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error
 reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow
-regions-escape-bound-fn bck.C tests/imported/admit/borrowck/regions-escape-bound-fn
 regions-escape-unboxed-closure bck.B tests/imported/admit/borrowck/regions-escape-unboxed-closure
 slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck/slice-index-bounds-check-invalidation--t35
 two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-loop
@@ -1294,7 +1306,6 @@ move-of-addr-of-mut nllmoves.R5 tests/imported/admit/moves/move-of-addr-of-mut
 # ── tests/ui/nll ─────────────────────────────────────────
 adt-tuple-enums--t33 nllmoves.NEW-L1 tests/imported/admit/nll/adt-tuple-enums--t33
 borrowed-temporary-error--t08 nllmoves.D tests/imported/admit/nll/borrowed-temporary-error--t08
-capture-ref-in-struct--ctl nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--ctl
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
 do-not-ignore-lifetime-bounds-in-copy-proj--b nllmoves.NEW-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy-proj--b
 do-not-ignore-lifetime-bounds-in-copy nllmoves.NEW-S7-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy
@@ -1333,7 +1344,6 @@ projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/n
 projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
 projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c
 propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/nll/propagate-fail-to-approximate-longer-no-bounds
-propagate-multiple-requirements nllmoves.A tests/imported/admit/nll/propagate-multiple-requirements
 return-wrong-bound-region nllmoves.C tests/imported/admit/nll/return-wrong-bound-region
 sugg-mut-for-binding-issue-137486 nllmoves.D tests/imported/admit/nll/sugg-mut-for-binding-issue-137486
 trait-associated-constant nllmoves.R18 tests/imported/admit/nll/trait-associated-constant

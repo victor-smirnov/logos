@@ -1,0 +1,14 @@
+// A CLOSURE body stores a borrow of a closure-local through the enclosing fn's
+// `&mut` parameter. TWIN of pass/bc_b6clo_param_pointee_copy, one token apart:
+// there the closure stores the POINTEE, not the borrow. (2026-09-02c)
+package bc_b6clo_param_escape;
+fn dangle(out: &mut &i64) {
+    let c = || { let local: i64 = 4i64; *out = &local; };
+    c();
+}
+fn main() -> i32 {
+    let z: i64 = 0i64;
+    let mut p: &i64 = &z;
+    dangle(&mut p);
+    return *p as i32;
+}

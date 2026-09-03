@@ -1,6 +1,6 @@
 // rustc borrowck/regions-escape-bound-fn.rs — upstream E0521
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: fail — REFUSED since 2026-09-02c: a closure parameter's borrow stored into a name the body did not declare escapes the call (E0521). Was bck.C.
 package regions_escape_bound_fn;
 fn with_int<F: FnOnce(&i64)>(f: F) {
     let x: i64 = 3i64;

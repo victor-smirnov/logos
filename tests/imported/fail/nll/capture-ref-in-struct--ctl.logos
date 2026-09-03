@@ -1,6 +1,6 @@
 // rustc nll/capture-ref-in-struct.rs — upstream E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.B
+// shelf: fail — REFUSED since 2026-09-02c: `*q = &y` through a BARE pointer now records the stored borrow on the place `q` reborrows (§B6). Was nllmoves.B.
 package capture_ref_in_struct_ctl;
 fn deref(z: &i64) { }
 fn main() -> i32 {

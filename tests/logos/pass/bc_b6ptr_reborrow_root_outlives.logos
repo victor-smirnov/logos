@@ -1,0 +1,16 @@
+// THE LEGAL TWIN of fail/bc_b6ptr_reborrow_root, one token apart: `y` is
+// declared OUTSIDE the inner block, so the borrow stored through `q` outlives
+// the read of `p`. (2026-09-02c)
+package bc_b6ptr_reborrow_root_outlives;
+fn deref(z: &i64) { }
+fn main() -> i32 {
+    let x: i64 = 44i64;
+    let y: i64 = 22i64;
+    let mut p: &i64 = &x;
+    {
+        let q: &mut &i64 = &mut p;
+        *q = &y;
+    }
+    deref(p);
+    return 0i32;
+}

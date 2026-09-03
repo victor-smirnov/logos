@@ -1,0 +1,16 @@
+// The stored borrow is of a FIELD of a local, reached through an AddrOfTemp
+// place chain. TWIN of pass/bc_b6ptr_param_holder_field: there the value COPIES
+// a reference out of a local holder and borrows none of its storage.
+// (2026-09-02c)
+package bc_b6ptr_param_field_escape;
+fn store(out: &mut &mut i64) {
+    let mut z: (i64, i64) = (0i64, 0i64);
+    *out = &mut z.1;
+}
+fn main() -> i32 {
+    let mut sink: i64 = 7i64;
+    let mut p: &mut i64 = &mut sink;
+    store(&mut p);
+    *p = 99i64;
+    return 0i32;
+}

@@ -1,6 +1,6 @@
 // rustc nll/closure-requirements/propagate-multiple-requirements.rs — upstream (region)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.A
+// shelf: fail — REFUSED since 2026-09-02c: a borrow of a local stored through a `&mut` PARAMETER escapes, reported at the write. Was nllmoves.A.
 package propagate_multiple_requirements;
 // nll/closure-requirements/propagate-multiple-requirements.rs (reshaped): a closure
 // deposits a borrow of a closure-local into a `&mut` out-parameter of the enclosing fn.

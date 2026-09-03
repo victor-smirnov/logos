@@ -1,0 +1,16 @@
+// A closure PARAMETER's borrow stored into a binding the closure body did not
+// declare: the parameter's referent is bound by the CALL, the binding outlives
+// every call (E0521). TWIN of pass/bc_b6clo_store_outer_local, one token apart:
+// there the stored borrow names an enclosing local instead of the parameter.
+// (2026-09-02c)
+package bc_b6clo_store_outer;
+fn with_int<F: FnOnce(&i64)>(f: F) {
+    let x: i64 = 3i64;
+    f(&x);
+}
+fn main() -> i32 {
+    let k: i64 = 7i64;
+    let mut x: Option<&i64> = Option::None;
+    with_int(|y: &i64| { x = Option::Some(y); });
+    return 0i32;
+}
