@@ -17774,3 +17774,172 @@ mut-borrow-of-mut-ref, anonymous-region-in-apit--closure-param-escapes, two-phas
 c-mut-and-shared-args, slice-index-bounds-check-invalidation--t35) · E0716 9 (owner + stdlib wall) ·
 the meet (1, needs region intersection).
 
+
+# ═══ ROUND 2026-09-02pat — PRICING ONLY, NO FIX LANDED. THE PATTERN SITES HAVE NO SCRUTINEE
+# EXPRESSION: FOUR PROBES, TWO SITES, TWO NARROW ARMS AT ceiling 2 + 1 / COST 0 / cfail 0 / stdlib ok,
+# AND BOTH CRUDE TWINS DECLINED BY HAND PROGRAMS THE CORPUS DOES NOT CONTAIN ═══
+
+## 0. STEP 1, READ FROM THE TREE (every number re-derived, none taken from the brief)
+    HEAD 550be739d clean = origin/main at open. Live probe names **152** at open, **156** at close
+    (`patrefany` `patrefbyval` `destrpatmv` `destrpatany` added; none retired).
+    `# TOTAL 151` = **151** by direct listing.
+    CHANNEL SPLIT, derived: **lifereg 54 · nllmoves 50 · bck 47**. The brief's "the cheap `bck`
+    residue is spent and the lifetime channel is the bulk" is now only half true — lifereg leads
+    by four rows, not by a margin; nllmoves and bck are within seven of it.
+    LARGEST ROOTS: bck.C 12 · bck.B 10 · nllmoves.C 10 · bck.NEW 8 · lifereg.R18 7 ·
+    nllmoves.B 6 · nllmoves.D 6 · bck.D 6.
+    BY UPSTREAM CODE (whole-file grep, not the header): E0597 14 · E0507 11 · E0499 10 · E0716 9 ·
+    E0382 6 · E0308 6 · E0621 5 · E0596 5 · E0521 5 · E0509 5 · none-with-a-code 38.
+    BUILDS: unarmed **c2ca0cc91d4f4a4b** (store build 581) → batch **da24fe675cab2a4f**
+    (builds 582-585), both READ with `scripts/build_hash.py build`. probe-batch: 3 records, ONE
+    build, **L1 rc=0, batch inert**. `destrpatany` priced separately on the same build.
+    ⚠ `logosc --version` was NOT consulted; the four rounds of stale-version findings stand.
+    ⚠ The repo root is CLEAN this round — the cpack litter of 09-05a/09-06a is gone.
+
+## 1. THE TARGET ROWS, BY NAME, WRITTEN BEFORE THE COMPILER WAS TOUCHED
+`build/round-2026-09-02pat/targets.txt`, four rows over two roots and two channels:
+    do-not-suggest-removing-wrong-ref-pattern-issue-132806  nllmoves.B  E0507  `match r { &q => }`
+    issue-99470-move-out-of-some                            nllmoves.B  E0507  `match x { &Opt::Some(y) => }`
+    move-errors--d                                          nllmoves.B  E0507  `let A { s: v } = *r;`
+    access-mode-in-closures                                 bck.B       E0507  `let S { v: inner } = *s;`
+THE PROPERTY, not the root label: a MOVE whose source place is reached THROUGH A PATTERN, where
+the PATTERN — not the scrutinee expression — performs the deref or names the binding. The tree
+states the missing fact itself, at sema_stmt.cpp:9712: "`bind_pattern` receives the scrutinee's
+TYPE and never its EXPRESSION". `is_unowned_move_source` is consulted at SIX value positions and
+at none of the four `bind_pattern` sites.
+WHY THIS BLOCK: the ARM EXISTS (the predicate already answers deref / index / field / tuple-index
+with a raw-pointer exemption WALK, and the landed match-arm site already reads
+BINDING_REF_MODES); both crude spellings were priced and stopped FOR COST years of rounds ago
+(`patmoveref` ceiling 3 cost 2, `destrmove` ceiling 2 cost 1) and the narrow one was never priced;
+and the hole has a DISCRIMINATOR rather than a design gap — measured unarmed, `let (a,b) = *r;`
+with a non-Copy element IS refused (x06) and `let A { s: v } = *r;` is NOT (x03).
+
+## 2. RULE 17 — THE ARRIVAL CENSUS, ON THE UNARMED BINARY, BEFORE ANY EDIT
+17 multi-line hand programs (`/home/logos/sandbox/patplace/`): 10 legal admit, and of 7 illegal
+only x05 (`match *r { E::A(s) => }`, the landed arm) and x06 (`let (a,b) = *r`, borrow_check's
+position-general Deref rule) refuse. **Five illegal shapes admitted, and the four ledger rows are
+four of them.**
+
+## 3. THE PROBE TABLE — ALL THREE COST COLUMNS (batch build da24fe675cab2a4f, unarmed 581)
+    probe        site                                                 fires ceil cost cfail std verdict
+    patrefany    bind_pattern_ref RefPat: pointee is a move type         12    2    0     0   ok ⛔ §6
+    patrefbyval  same, only if the inner pattern BINDS BY VALUE          12    2    0     0   ok ok
+    destrpatmv   let-destructure: unowned source AND a move-typed        39    1    0     0   ok ok
+                 binding (exemption (4)'s own named residual)
+    destrpatany  same site, unowned source ALONE (control twin, rule 18) 35    2    1     0   ok ⛔ §7
+`cost` is `pass(ledger+legal)`, `cfail` the 1303 `-L bc -L fail` fixtures by TEXT (rc /
+.expected-match / text-only, all zero for all four), `std` all four stdlib layers compiled.
+
+## 4. THE SETS, PREDICTED BY NAME BEFORE THE RUN — AND ONE PREDICTION MISSED
+`patrefany` / `patrefbyval` predicted {132806, issue-99470}. **ACTUAL = exactly those two,
+predicted∖actual = ∅ and actual∖predicted = ∅**, and the two probes' row sets are identical.
+`destrpatmv` predicted {move-errors--d, access-mode-in-closures}. **ACTUAL = {access-mode-in-
+closures}; predicted ∖ actual = {move-errors--d}** — §8 is why, and it is the round's real finding.
+`destrpatany` closes both, and pays for the second row with a pinned legal fixture.
+EVERY CLOSED ROW'S DIAGNOSTIC WAS READ, AT ITS OWN LINE, NOT ITS EXIT CODE:
+    132806 :12   E0507 … : the pattern binds by value     ← the `&q =>` arm
+    99470  :12   E0507 … : the pattern binds by value     ← the `&Opt::Some(y) =>` arm
+    access-mode-in-closures :12  E0507                    ← the closure's `let S { v: inner } = *s;`
+    move-errors--d :10  E0507  (destrpatany only)
+Each upstream reason is E0507 and each message is E0507 at the line the pattern is written on.
+
+## 5. RULE 5 — 26 HAND PROGRAMS, MULTI-LINE, VARIED BY SHAPE (`/home/logos/sandbox/patplace/`)
+18 legal (l01, l03-l18) + 8 illegal (x01-x08). Shapes, not counts: a `&`-pattern over a COPY
+struct · an OWNED destructure · `&NC { v: ref q }` · an all-Copy destructure THROUGH a deref ·
+an owned enum payload moved · `match *r` with a `ref` · an owned partial move · `&O::S(ref y)` ·
+an owned tuple destructure · a tuple destructure through a deref (Copy) · a `&`-pattern over a
+`&mut` binding a COPY payload · a `&`-pattern binding one field by ref and one Copy field by value ·
+**a PRE-MONO GENERIC body where a bare `T` reads as a move type** · `if let &O::S(ref y)` ·
+a bare `&_` wildcard · a destructure off an owned temp built from a deref-read field ·
+the exemption's own `let P { a: x } = *r` shape · and on the illegal side `while let &O::S(y)`,
+a `&`-pattern under a nested struct field, and both destructure spellings.
+**`patrefbyval`: 18 of 18 legal ADMIT and x01 / x02 / x08 REFUSE. `destrpatmv`: 18 of 18 legal
+ADMIT and x03 / x04 REFUSE.** Unarmed: all 18 admit and x01-x04, x07, x08 admit too.
+
+## 6. ⛔ `patrefany` DECLINED BY NAME — COST 0 ON ALL THREE POPULATIONS, **SEVEN** LEGAL PROGRAMS
+The crude arm ("the pointee is a move type") prices cost 0 / cfail 0 / stdlib ok and refuses SEVEN
+legal hand programs, not one of which any of the three populations contains:
+    l04  `match r { &NC { v: ref q } => }`                     a `ref` sub-binding moves nothing
+    l09  `match x { &O::S(ref y) => }`                         the enum spelling of the same
+    l12  `match x { &O::S(y) => … &O::N(ref z) => }`  over &mut, y is a COPY payload
+    l13  `match r { &NC { v: ref a, n: b } => }`               one field by ref, one Copy by value
+    l14  `fn peek<T>(r:&W<T>) { match r { &W { t: ref _q } => } }`  ⚠ PRE-MONO: a bare `T` reads as
+         a move type, the exact trap `deref_move_exempt`'s exemption (3) exists for
+    l15  `if let &O::S(ref y) = x`                             a second bind_pattern site
+    l16  `match r { &_ => }`                                   binds NOTHING AT ALL
+It is not a ceiling worth having either: its row set is IDENTICAL to the narrow twin's.
+⇒ RULE 9 IS SATISFIED HERE AND THE ANSWER IS A DECLINE. The two twins are identical in every
+column the harness owns — fires 12, ceiling 2 (same two names), cost 0, cfail 0, stdlib ok — and
+the separating programs exist and are seven. A twin that the harness cannot separate is not
+"unmeasured" when hand programs separate it decisively; it is REFUTED.
+
+## 7. ⛔ `destrpatany` DECLINED BY NAME — 1 EXTRA ROW FOR THE EXEMPTION'S OWN PINNED CONTROL
+Ceiling 2 vs `destrpatmv`'s 1; the extra row is `move-errors--d`. It is bought with
+`pass/bc_deref_move_exempt_admit:56` — `Fd::drop`'s `let Fd { n: s } = *self;`, whose every
+binding is `u32` — plus hand program l18 (`let P { a: x } = *r;`). That is exactly the cost
+`destrmove` was priced at in 2026-08-29 at the borrow_check site, reproduced at the sema site:
+**the same-site control twin agrees with the cross-site one, digit for digit (ceiling 2, cost 1,
+the same fixture).** Rule 18 discharged.
+RULE 13, MEASURED NOT ASSUMED: the pair is NESTED, not a series — `destrpatany` ⊃ `destrpatmv`
+row-for-row, and the increment (one row) costs exactly one legal fixture and one hand program.
+
+## 8. ⚠ `move-errors--d` CANNOT BE BOUGHT BY ANY RULE THAT ALSO ADMITS A PINNED rustc PASS TEST —
+##    A CORPUS DECISION WITH AN OWNER
+    tests/imported/admit/nll/move-errors--d        (LEDGER ROW, nllmoves.B)
+        struct A { s: i64 }  impl Drop for A       let r: &A = &a;   let A { s: v } = *r;
+    tests/imported/pass/structs/newtype-struct-with-dtor   (PINNED PASS, a rustc UI PASS test)
+        pub struct Fd(u32);  impl Drop for Fd      let Fd(s) = *self;
+    tests/logos/pass/bc_deref_move_exempt_admit:56 (PINNED PASS, the exemption's own control)
+        struct Fd { n: u32 } impl Drop for Fd      let Fd { n: s } = *self;
+All three destructure a `Drop` struct through a reference and bind ONLY Copy fields. They differ
+in the pattern SPELLING (brace vs tuple) and in `&` vs `&mut` — neither is a rule. `destrpatany`
+refuses the ledger row and the third one and not the second, purely because the tuple-struct
+spelling lowers through a different site. **A predicate cannot separate them; the CORPUS must.**
+Either the port of `move-errors.rs` case d dropped the non-Copy field its upstream case had — in
+which case the row should be re-ported — or the row is legal Rust as ported and should be RETIRED.
+Reported, NOT edited. Until it is settled, `move-errors--d` does not belong to the
+"pattern has no scrutinee expression" block at all; its root label `nllmoves.B` is wrong.
+
+## 9. ⚠ THE NARROW `&`-PATTERN ARM'S OWN NAMED RESIDUAL, MEASURED
+`patrefbyval` leaves x07 admitted — `match r { &Out { i: q } => }`, a `&`-pattern whose inner
+pattern is a STRUCT. The walker is silent on `Struct` and `Slice` for the reason the landed
+match-arm site already records: their binding TYPES are not reachable at that position. Here they
+WOULD be (the RefPat arm holds `inner_t`, so `field_type_of` is one call away), so this is a
+narrower silence than the landed one and it is a hole one spelling wide. No ledger row is this
+shape today. Not probed; named so the next round does not rediscover it.
+
+## 10. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. The brace-struct and tuple-struct `let`-destructures lower through DIFFERENT sites
+    (sema_stmt.cpp ~1795 vs ~1379/1519/1581/1679) and only the brace one is exempt at
+    `deref_move_exempt`'s `in_destructure_temp_`. Measured: `let (a,b) = *r;` with a non-Copy
+    element refuses unarmed (x06) and `let A { s: v } = *r;` admits (x03). One question, two
+    answers, decided by spelling. This is the shape rule 12 warns about one level down.
+ 2. `patmoveref` (ceiling 3, cost 2, "STOP as spelled", 2026-08-31g) — its three rows were the
+    "scrutinee IS the unowned source" partition and none of them is on the ledger any more; its
+    ceiling has DECAYED and it should not be re-priced as recorded (rule 8).
+
+## 11. ⇒ WHAT DESERVES FUNDING, IN ORDER
+ 1. **`patrefbyval` — 2 rows (132806, issue-99470), cost 0 on all three populations, 18 of 18
+    legal hand programs admitted including the pre-mono generic and the bare `&_`.** The site is
+    `bind_pattern_ref`'s `RefPat` arm; the fact it needs (BINDING_REF_MODES) is already minted and
+    already read by the landed match-arm rule. A landing owes it (a) the Struct/Slice inner arm of
+    §9 or an explicit silence, and (b) the `&`-pattern's OWN diagnostic wording, which should name
+    the binding as the match-arm site's does rather than say "the pattern binds by value".
+ 2. **`destrpatmv` — 1 row (access-mode-in-closures), cost 0.** It is `deref_move_exempt`
+    exemption (4)'s own named residual, repaired where the discarded fact still lives instead of
+    suppressed where it was lost. Landing it does NOT let exemption (4) be deleted: `destrpatany`
+    is what deleting it means and it costs a pinned control.
+ 3. **THE `move-errors--d` CORPUS DECISION (§8), FOR AN OWNER** — re-port or retire; it cannot be
+    bought while `newtype-struct-with-dtor` is pinned.
+ 4. **NOT `patrefany`** (§6, seven legal programs) and **NOT `destrpatany`** (§7, a pinned control).
+ 5. NOT MEASURED, AND SAID SO: the COMPOSITION of arms 1 and 2. One probe arms per process, so
+    "2 + 1 = 3" is inferred from disjoint sites and disjoint row sets and from each arm leaving the
+    other's programs unchanged. Necessary, not sufficient (rule 13).
+
+## 12. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+# TOTAL 151 -> 151. **No row bought, no row retired, no behaviour changed.** Four env-gated probe
+names installed in ONE commit, L1 rc=0 inert. Live probe names 152 -> 156.
+NOT SPENT, each with its number: bck.C 12 (mined) · bck.B 10 · nllmoves.C 10 · bck.NEW 8 ·
+lifereg.R18 7 (M-SIG, rejected 09-06a) · nllmoves.D 6 · bck.D 6 (two-phase) · E0716 9 (owner +
+stdlib wall) · the meet (1, needs region intersection) · B-3, the place walk breaking at a user
+`Deref` CALL, 2 rows (deref-field-…-146995, issue-52086), blocker recorded at `callroot`.
