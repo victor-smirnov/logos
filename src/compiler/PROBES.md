@@ -17420,3 +17420,224 @@ never reaches borrow-check's store recorder.
 `borrowck/regions-escape-unboxed-closure`: the same property, opposite verdicts pinned in both
 directions, and the port DROPPED the closure that made the upstream program illegal. A ledger row that is
 legal Rust as ported should be RETIRED, not bought; that is a corpus decision with an owner.
+
+
+# ═══ ROUND 2026-09-05a — THE MINT ALREADY REGISTERS A SIGNATURE'S ELIDED REGIONS AS BINDERS OF THIS
+# SCOPE (sema_decl.cpp:1293) AND BOTH COMPARATORS THROW THAT AWAY: `arm_mintiv` EQUATES TWO **RIGID
+# UNIVERSALS**, WHICH IS WHY `fn foo(x:&mut Vec<&u8>, y:&u8){ x.push(y); }` COMPILES. TWO BUILDS.
+# CEILING 6 OVER 4 lifereg ROOTS AT COST 2 / cfail 3 / STDLIB OK; THE COST IS **ONE SHAPE**, AND THE
+# ARM THAT REMOVES IT (cost 0) RE-ADMITS THE ILLEGAL PROGRAM WITH ONE `let` INSERTED — RULE 5 BIT
+# AGAIN, IN A SHAPE NO POPULATION CONTAINS. THE Inv TWIN OF `arm_mintiv` **NEVER FIRED** ═══════════
+
+## 0. STEP 1, READ FROM THE TREE (corrections to the brief)
+    HEAD e0bdc0c40 clean = origin/main. Live probe names **152**. `# TOTAL 157` = 157 by listing.
+    Block split **lifereg 60 / nllmoves 50 / bck 47**; top roots bck.C 12 · nllmoves.C 10 · bck.B 10 ·
+    lifereg.R18 8 · bck.NEW 8 · nllmoves.D 6 · nllmoves.B 6 · lifereg.NEW-N1 6 · bck.D 6.
+    ⚠ THE STALE-IDENTITY WARNING HOLDS FOR A THIRD ROUND: `cmake .` + `cmake --build` before anything.
+    Unarmed **8729bb56bd7c8a3c** (READ). Directory split: borrowck 47 · nll 46 · regions 30 ·
+    lifetimes 29 · moves 4 · dropck 1.
+    ⚠ CTestTestfile.cmake was MODIFIED in the working tree by `cmake .` (in-source generated, tracked);
+    restored with `git checkout` before probe-batch, which refuses a dirty tree. The repo root also
+    carries untracked packaging leftovers (CPackConfig.cmake, bin/, share/, _pkglinks/, packaging/*)
+    from an earlier `cpack` run — NOT this round's, left alone.
+
+    **THE CHANNEL SPLIT, DERIVED (rows by their upstream reason, read from each port's header):**
+      (region) / "lifetime may not live long enough"   31   ← THE BULK, and this round's channel
+      E0597 12 · E0507 11 · E0716 9 · E0499 10 · E0382 6 · E0308 6 · E0621 5 · E0596 5 · E0521 5 ·
+      E0509 5 · E0505 4 · E0502 4 · E0713 3 · E0207 3 · rest ≤2 each.
+
+## 1. THE TARGET ROWS BY NAME (build/round-2026-09-05a/targets-2026-09-05a.txt, written BEFORE any edit)
+Derived BY THE PROPERTY, not by the root label: **a fn signature with ≥2 ELIDED region slots that the
+body relates** (`&` not followed by `'`, plus a bare mention of a struct/enum declared `<'a…>` used with
+no lifetime args). **15 rows over 9 roots and 3 blocks** — the set cuts across lifereg.A/N3/NEW-N1/R17/
+R18/R2 and bck.A/C/D/NEW, which no root label would have grouped:
+
+    lifereg.A       ex2b-push-no-existing-names                       fn foo(x:&mut Vec<Ref>, y:Ref)
+    lifereg.A       ex3-both-anon-regions                             fn foo(x:&mut Vec<&u8>, y:&u8)
+    lifereg.N3      ex3-both-anon-regions-both-are-structs            fn foo(x:&mut Vec<Ref>, y:Ref)
+    lifereg.N3      issue-90170-elision-mismatch                      fn foo(x:&mut Vec<&u8>, y:&u8)
+    lifereg.NEW-N1  ex3-both-anon-regions-3                           fn foo(z:&mut Vec<(&u8,&u8)>, x:&u8, y:&u8)
+    lifereg.NEW-N1  ex3-both-anon-regions-one-is-struct-5             fn bar(foo:&mut Foo)
+    lifereg.R18     ex3-both-anon-regions-using-impl-items            impl fn foo(x:&mut Vec<&i64>, y:&i64)
+    lifereg.R18     trait-impl-mismatch-elided-lifetime-issue-65866   fn bar(self:&Self, r:&mut Re)
+    lifereg.R17     outlives-with-missing                             fn set_handler(self:&Self, handler:&H)
+    lifereg.R2      regions-adjusted-lvalue-op--c26 / --t26           fn oh_no(self:&mut Self, other:&Vec<Data>)
+    bck.A           mut-borrow-of-mut-ref                             fn h2(x:&mut &mut i64)
+    bck.C           anonymous-region-in-apit--closure-param-escapes   fn bar(s:&mut Sink, baz:&i64)
+    bck.D           two-phase-nonrecv-autoref--c-mut-and-shared-args  fn double_access(m:&mut [i64;3], s:&[i64;3])
+    bck.NEW         slice-index-bounds-check-invalidation--t35        fn modify_after_assert(x:&[&[i64]])
+
+WHY THIS BLOCK. The cheap channels are spent or owned (bck's §B6 store residue bought 09-02c; E0716 is
+owner + a stdlib wall; R18's M-SIG half rejected 09-06a; the meet needs region inference). The region
+channel is 31 of 157. And the mechanism is the shape that has paid every round — **AN ARM THAT EXISTS,
+REACHED THROUGH A FACT THE CODE ALREADY CARRIES AND NEVER ASKS FOR**:
+  · the mint is LANDED and unconditional (`probe.hpp arm_inst() == true`; `sema_decl.cpp mint_on_`):
+    every elided slot of a fn signature gets a distinct `'%n`;
+  · `sema_decl.cpp:1293` already registers those names in `current_lt_binders()`, under the comment
+    "A MINTED REGION IS A BINDER OF THIS SCOPE — a fresh universal region of this signature";
+  · and `subtype.hpp`'s two `arm_mintiv()` sites return TRUE for ANY two minted names, never asking
+    that set. So `'%1` (x's element region) and `'%2` (y's) — two rigid universals of the fn under
+    check — unify, and `x.push(y)` compiles.
+
+## 2. RULE 17 — THE ARRIVAL, CENSUSED BEFORE ANY VERDICT WAS BELIEVED (unconditional census riding the
+##    same build; totals over all 157 admits, NOTHING armed)
+    mint.fn.signature       575 644     mint.ref.elided      146 556     mint.ret.unified   128 489
+    mint.ret.no-source      447 155     mint.slice.elided     27 640     mint.ref.written       116
+    ── the mintiv equality site itself ──────────────────────────────────────────────────────────
+    rigid.eq.arrive              12     rigid.eq.distinct          8     rigid.eq.both            8
+    rigid.eq.one                  0     rigid.eq.none              0
+    rigid.inv.arrive              0     (the Variance::Inv arm — see §4)
+**146 556 minted slots and TWELVE arrivals.** Every distinct pair that reaches the permissive branch
+has BOTH sides in `current_lt_binders()`. Re-censused over 21 more programs (the 24 hand programs, the
+two cost fixtures, the illegal twin): `one` and `none` are still 0. ⇒ **the landed `arm_mintiv`
+permissiveness has no observed use as an inference-variable rule anywhere this round could reach; every
+time it answers, it is equating two rigid universals.**
+
+## 3. THE PROBE TABLE — TWO BUILDS, ALL THREE COST COLUMNS, EVERY IDENTITY READ
+    build 1 armed **636fbe000112f10c**   build 2 armed **5e0b0e261ee16127**   unarmed 8729bb56bd7c8a3c
+    probe          site                                   fires  ceil  cost  cfail  std  verdict
+    ltrigid        BOTH mintiv sites, both-binders rule       15     6     2      3   ok  ok
+    ltrigideq      lt_eq site ONLY                            15     6     2      3   ok  = ltrigid, digit for digit
+    ltrigidinv     Variance::Inv arm ONLY                      0     —     —      —    —  ⛔ NEVER FIRED
+    ltrigidany     WIDENED: EITHER side a scope binder        15     6     2      3   ok  = ltrigid, digit for digit
+    ltrigidlet     ltrigid + de-rigidify unannotated locals 2893     6     0      2   ok  ⚠ §6 — cost 0 with a hole
+    ltrigidletb    the de-rigidify ALONE (series control)   2884     0     0      0   ok  PROVEN LIVE, buys nothing
+
+    ADDITIVITY (rule 13), measured not assumed: ltrigideq 6 + ltrigidinv (unreached) = ltrigid 6 — the
+    whole IS the first site, because the second has no arrivals. ltrigid 6 + ltrigidletb 0 = ltrigidlet
+    6 in the CEILING column but 2 → 0 in the COST column: **the pair is a SERIES on cost and a no-op on
+    ceiling.** A per-site zero here is not a refutation of the site, it is an unreached door (rule 1).
+
+    ⚠ EVERY CEILING IN THIS TABLE WAS ALSO TAKEN BY COMPILING ALL 157 ADMITS DIRECTLY under
+    `LOGOS_PROBE=<name>` (build/round-2026-09-05a/matrix.sh, armed-*.txt / b2-*.txt), because
+    2026-09-04b §8 measured a store-read ceiling polluted by a previous probe on the same build
+    identity. Direct and store AGREE on every row of every name this round, and the unarmed control on
+    each armed build refuses 0 of 157.
+
+## 4. ⛔ THE Inv TWIN OF `arm_mintiv` IS DEAD CODE IN THIS CORPUS
+`subtype.hpp`'s `lifetime_at`, `case Variance::Inv`, carries the same minted-inference-variable rule as
+`lt_eq` — rule 3's "one name per site" was honoured when it landed 2026-08-31n. **It has ZERO arrivals**
+over 157 admits + 24 hand programs + 3 fixtures, and `ceiling-probe.sh` reports NEVER FIRED, not 0.
+The reason is structural: `variance_at`'s `Variance::Inv` dispatches to `types_equal_with_lifetimes`,
+whose `lt_eq` lambda is the equality that actually runs; `lifetime_at`'s Inv arm is reached only from a
+caller that compares two REGIONS at an invariant position directly, and nothing in reach does.
+Recorded, not removed — TOOLING IS FROZEN and this is a soundness-relevant arm someone may yet feed.
+
+## 5. THE SETS, PREDICTED BY NAME FIRST, DIFFED BOTH WAYS
+    CLOSED (all four rigid arms, both builds, direct and store):
+      lifereg.A       ex2b-push-no-existing-names               `Vec__push` arg 1: variance mismatch
+      lifereg.A       ex3-both-anon-regions                     — expected &u8, got &u8 —
+      lifereg.N3      ex3-both-anon-regions-both-are-structs      lifetime structure incompatible
+      lifereg.N3      issue-90170-elision-mismatch
+      lifereg.NEW-N1  ex3-both-anon-regions-3
+      lifereg.R18     ex3-both-anon-regions-using-impl-items
+    closed ∖ targets = ∅.  targets ∖ closed = 9, AND THE CENSUS SAYS WHY: **all nine have
+    rigid.eq.arrive = 0** — ex3-both-anon-regions-one-is-struct-5, trait-impl-mismatch-elided-lifetime-
+    issue-65866, outlives-with-missing, regions-adjusted-lvalue-op--c26/--t26, mut-borrow-of-mut-ref,
+    anonymous-region-in-apit--closure-param-escapes, two-phase-nonrecv-autoref--c-mut-and-shared-args,
+    slice-index-bounds-check-invalidation--t35. They are not cases the rule is too weak for; they never
+    reach this door. Same for ex2c-push-inference-variable (the adjacent NEW-R19 row).
+    Each of the six arrives exactly once (twice for -3 and -using-impl-items) and each flips.
+
+    ⚠ **THE DIAGNOSTIC IS RIGHT AT THE SITE AND WRONG ON THE PAGE.** All six print
+    `method 'Vec__push' arg 1: variance mismatch — expected &u8, got &u8 — lifetime structure
+    incompatible`: two IDENTICAL types and no region named, where upstream says "lifetime may not live
+    long enough … argument requires that `'1` must outlive `'2`". A ROW CLOSED BY A WRONG DIAGNOSTIC IS
+    NOT CLOSED — this is the already-recorded `expected Option, got Option` prerequisite (2026-08-31m
+    §11.7), and it now blocks six rows rather than being cosmetic. The regions HAVE names ('%1/'%2) and
+    the parameter they were minted for is known at the mint site.
+
+## 6. ⚠ RULE 5 BIT — THE ARM THAT PRICES COST 0 RE-ADMITS THE ILLEGAL PROGRAM WITH ONE `let` INSERTED
+`ltrigid`'s COST is 2, and BOTH are one shape: `tests/logos/pass/bc_ltmintgen_two_minted_regions_one_
+typaram` and `.../bc_ltmintiv_minted_regions_unify_at_a_call` are the SAME program one line apart —
+`fn foo(a:&mut i64,b:&mut i64){ let mut t0=a; let mut t1=b; swap_ref(&mut t0,&mut t1); … }`. Legal in
+Rust because `t0`/`t1` are LOCALS whose region is an inference variable and covariance lets both
+parameter regions shrink into a common one; here the local inherits the parameter's minted name, which
+`sema_decl` registered as a binder, so the rigid rule refuses it.
+
+`ltrigidlet` un-registers those names at the unannotated `let` (sema_stmt.cpp, the `else` branch where
+`var_type = rhs_type`). COST 2 → **0**, cfail 3 → 2, ceiling unchanged at the same six rows. And the
+hand set killed it:
+
+    x01  fn foo(x:&mut Vec<&u8>, y:&u8) { x.push(y); }                 ltrigid REFUSE  ltrigidlet REFUSE
+    x04  … { let v = x; v.push(y); }                                   ltrigid REFUSE  ltrigidlet ADMIT ⛔
+    x05  … { let z = y; x.push(z); }                                   ltrigid REFUSE  ltrigidlet ADMIT ⛔
+    x06  … { let v = x; let z = y; v.push(z); }                        ltrigid REFUSE  ltrigidlet ADMIT ⛔
+
+All three are illegal upstream for x01's own reason, and **not one of the three populations contains
+them** — the pass corpus, the 1293 `-L bc -L fail` fixtures and the stdlib all say cost 0. A hole one
+`let` wide, bought with a number.
+⇒ what the measurement actually says: **a local's region must be a FRESH INFERENCE region related to
+the initializer's BY VARIANCE** — EQUAL at an invariant position (so `let v = x;` keeps `Vec`'s element
+region rigid and x04 stays refused) and OUTLIVED at a covariant one (so `let mut t0 = a;` may shrink and
+l09 stays legal). The variance fixpoint (`compute_variances` / `variance_in_type`) and the minted-name
+class (`lt_is_minted`, the unspellable `'%` prefix) both already exist; the constraint edge does not.
+⚠ x05 shows the edge must be an OBLIGATION, not an assumption written into `current_outlives_`: there
+the demand `'z == '%1` is discharged by unification and the inherited `'%2: 'z` must then be CHECKED.
+
+## 7. RULE 5 — THE HAND SET, 24 PROGRAMS, MULTI-LINE, VARIED BY SHAPE (build/hand-2026-09-05a/, run.sh
+##    [probe]; unarmed.txt / unarmed2.txt / a-<name>.txt)
+18 legal (l01–l18) + 6 illegal (x01–x06). Shapes: two anon regions never related · elision rule 1 ·
+a callee binder offered two caller regions (the landed meet, 08-31n §2) · a container whose element
+carries no region · the same push with the regions WRITTEN · each parameter used independently through
+a call · an elided `&self` plus a second elided parameter · a struct literal from two anon regions (the
+covariant-intersection wall) · the `&mut`-local generic swap · two `&str` · a closure capturing both ·
+a tuple of the two references · an elided receiver on a GENERIC struct's method · two pushes of
+dereferenced values · a local ref re-derived from ONE parameter · a local rebound and returned by
+elision · two locals used separately · a `&mut` local written through.
+**Under `ltrigid`: 17 of 18 legal programs admit; the single refusal is l09, the corpus's own cost
+shape.** Under `ltrigidlet`: 18 of 18 admit and x04/x05/x06 break (§6). `ltrigidletb` alone: identical
+to unarmed on all 24.
+
+## 8. RULE 9 — THE TWIN WAS NOT SEPARATED, AND THAT IS THE FINDING
+`ltrigidany` (either side a scope binder) is identical to `ltrigid` (both sides) in EVERY column —
+ceiling 6 same six names, cost 2 same two names, cfail 3 same three names, stdlib ok — and on all 24
+hand programs. It is NOT reported here as agreement: the census says the mixed bucket
+(`rigid.eq.one`) has **zero** members in everything measured, so the two predicates were never asked a
+question they answer differently. **An inner predicate with no separating program is unmeasured, not
+confirmed.** The separating shape would be a comparison between a caller's rigid minted region and a
+CALLEE binder instantiated to a minted name; nothing this round could write reached it.
+
+## 9. cfail — READ, NOT COUNTED
+`ltrigid`: 3 of 1293 changed, **rc moved 0** (no un-refusals), `.expected` match lost 3, text-only 0.
+  · `imported/fail/borrowck/borrowck-swap-mut-base-ptr` — pins "cannot borrow 't0' as mutable: 1 shared
+    borrow(s) active"; the variance error now pre-empts it. This is the SPURIOUS refusal 2026-08-31n
+    removed, coming back. It is the cost of §6's shape and `ltrigidlet` removes it.
+  · `imported/fail/lifetimes/ex3-both-anon-regions-using-fn-items` and `…-using-trait-objects` — both
+    pin "cannot borrow 'y' as mutable: not declared as mut", and the new line pre-empts. ⚠ **Their
+    upstream reason IS this round's anon-region one**; the pinned `mut` complaint is an accidental,
+    weaker reason the port acquired. Re-pinning them to the region sentence is a CORPUS DECISION WITH
+    AN OWNER — reported, not edited. These two survive under `ltrigidlet` as its whole cfail.
+
+## 10. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. `logosc --version` again reported a stale `main-g…` at a clean HEAD with ninja idle (third round);
+    `cmake .` + `cmake --build` fixed it. The configure-time version string is a standing trap.
+ 2. The repo root carries untracked `cpack` output (CPackConfig.cmake, CPackSourceConfig.cmake, bin/,
+    share/, _pkglinks/, packaging/{deb,rpm}/*) and `cmake .` rewrites the tracked in-source
+    `CTestTestfile.cmake`. Both make `logosc --version` read `-dirty` and both make `probe-batch.sh`
+    refuse. Not this round's, not cleaned; named so the next round does not re-diagnose it.
+
+## 11. ⇒ WHAT DESERVES FUNDING, IN ORDER
+ 1. **THE RIGID/INFERENCE SPLIT FOR MINTED REGIONS — ceiling 6 over 4 lifereg roots, cost 2 whose whole
+    root is named and whose repair is designed (§6).** The rule itself is two lines at one site
+    (`lt_eq`): two minted names that are BOTH binders of the scope under check are two universals and
+    are not equal. What must land WITH it, and only with it:
+      (a) a local's region minted fresh and related to its initializer BY VARIANCE (§6) — without it the
+          cost is two legal programs; with the crude version instead, the cost is a hole one `let` wide;
+      (b) the diagnostic (§5): print the regions and the parameters they were minted for, not
+          `expected &u8, got &u8`.
+    Cost after (a): 0 legal refusals, 2 `.expected` re-pins whose new text is the upstream-correct one.
+ 2. **THE TWO `.expected` RE-PINS (§9), FOR AN OWNER** — `ex3-both-anon-regions-using-fn-items` and
+    `…-using-trait-objects` are pinned on a `mut` complaint that is not their upstream reason.
+ 3. **NOT the Inv arm of `arm_mintiv` (§4)** — never fired in 184 programs. Do not price it again
+    without first writing a program that reaches it.
+ 4. **NOT `ltrigidany` as a widening (§8)** — indistinguishable from `ltrigid` everywhere measured,
+    which means unmeasured, not safe.
+
+## 12. LEDGER ARITHMETIC AND THE BLOCKS NOT SPENT
+# TOTAL 157 -> 157. No row bought. Six env-gated probe names installed over two commits
+(`ltrigid` `ltrigideq` `ltrigidinv` `ltrigidany` `ltrigidlet` `ltrigidletb`) plus an unconditional
+`rigid.*` census; L1 rc 0 inert on both builds. Live probe names 152 -> 158.
+NOT SPENT: nllmoves.C 10 · bck.B 10 · bck.C 12 · nllmoves.B 6 · E0716 9 (owner + stdlib wall) ·
+lifereg.R18 8 (M-SIG) · the meet (1, needs region intersection) · the 9 targets of §5 that reach no
+door this round found.
