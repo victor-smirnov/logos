@@ -1,0 +1,1 @@
+[fn f]: cannot return reference to temporary value: dangling reference

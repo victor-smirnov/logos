@@ -1,0 +1,16 @@
+// `&<rvalue>` is a borrow of a FRESH PLACE in this frame, however deeply its
+// fields read a parameter — the operands say what it CONTAINS, never where it
+// LIVES. Returning it dangles (rustc E0515).
+//
+// ⚠ ITS ADMITTED TWIN IS ONE TOKEN AWAY:
+// tests/logos/pass/bc_tmpfresh_ret_self — `&S { n: self.n }` -> `self`.
+package bc_tmpfresh_ret_fresh_agg_fail;
+
+struct S { n: i64 }
+impl S { fn get(self: &S) -> &S { return &S { n: self.n }; } }
+
+fn main() -> i32 {
+    let s: S = S { n: 7i64 };
+    let r: &S = s.get();
+    return r.n as i32 - 7i32;
+}

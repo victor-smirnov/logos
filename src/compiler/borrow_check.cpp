@@ -2201,7 +2201,13 @@ public:
     // 0=assign 1=derefwrite 2=outparam 3=recvstore.
     static inline uint64_t holder_escape_prov_by_door_[4] = {0, 0, 0, 0};
 private:
-    struct DanglingRef { std::string source; uint32_t borrow_line; };
+    // `from_temp`: the referent is not a named local that went out of scope
+    // (E0597) but an unnamed TEMPORARY that dropped at the end of the
+    // assignment's own statement (E0716). Same channel, same use-sensitivity,
+    // different sentence — see check_live.
+    struct DanglingRef {
+        std::string source; uint32_t borrow_line; bool from_temp = false;
+    };
     std::unordered_map<std::string, DanglingRef>              dangling_;
     // Declared lifetime parameters of the current function (e.g. ["'a", "'b"]).
     std::vector<std::string>             fn_lifetime_params_;
@@ -5258,10 +5264,17 @@ private:
     void check_live(const std::string& name, uint32_t line, uint32_t slot = NO_SLOT) {
         // §B6 (E0597): using a reference whose referent has gone out of scope.
         if (auto dit = dangling_.find(name); dit != dangling_.end()) {
-            report(line, std::format(
-                "'{}' does not live long enough: it is borrowed by '{}', which is "
-                "used here after '{}' goes out of scope (E0597)",
-                dit->second.source, name, dit->second.source));
+            if (dit->second.from_temp)
+                report(line, std::format(
+                    "temporary value dropped while borrowed: '{}' borrows into a "
+                    "temporary that is dropped at the end of the statement and is "
+                    "used here; bind the owning value to a variable first so it "
+                    "outlives the borrow (E0716)", name));
+            else
+                report(line, std::format(
+                    "'{}' does not live long enough: it is borrowed by '{}', which is "
+                    "used here after '{}' goes out of scope (E0597)",
+                    dit->second.source, name, dit->second.source));
             dangling_.erase(dit);   // report once per binding
         }
         auto it = var_find(slot, name);
@@ -7770,33 +7783,26 @@ private:
                     is_materialized_temp_name(EVarRefView{in}.name()))
                     return {{}, /*is_local=*/false, /*is_temp=*/true};
                 auto inner_prov = prov_of(v.inner());
-                if (!inner_prov.params.empty() || inner_prov.is_local ||
-                    inner_prov.is_temp) {
-                    // PROBES tmpfresh / tmpagg — src/compiler/PROBES.md 2026-09-03d.
-                    if (is_temporary_value_expr(v.inner())) {
-                        logos::probe::census("tmp.fresh.shadowed");
-                        if (logos::probe::on("tmpfresh") ||
-                            logos::probe::on("tmpboth"))
-                            return {inner_prov.params, true, false};
-                        auto ik_ = v.inner().kind();
-                        if (ik_ == Code::StructLit || ik_ == Code::TupleLit ||
-                            ik_ == Code::ArrLit || ik_ == Code::EnumLit ||
-                            ik_ == Code::EnumLitData) {
-                            logos::probe::census("tmp.fresh.agg");
-                            if (logos::probe::on("tmpagg"))
-                                return {inner_prov.params, true, false};
-                        }
-                    }
-                    return inner_prov;
-                }
+                // A `&<rvalue>` is answered by WHERE IT LIVES, not by what it
+                // CONTAINS: the operand is materialised into a fresh place in
+                // THIS frame, so the borrow is frame-rooted however deeply its
+                // operands read a parameter. Promotion is answered above, so
+                // nothing reaching here is promotable. `params` is CARRIED so
+                // every consumer but the return gate (which refuses on
+                // is_local first) sees what it saw before.
                 // A DIRECT `&<literal/struct-lit/call>` bound to a `let` is
-                // lifetime-EXTENDED in Rust (`let r = &mut 5;` keeps the temporary
-                // alive as long as `r`) → NOT dangling at the binding; mark
-                // is_local so it is caught only when RETURNED past the scope
-                // (check_return_value). This is DISTINCT from the materialized
-                // `__rtmp` case above, which is statement-scoped + NOT extended.
+                // lifetime-EXTENDED in Rust (`let r = &mut 5;` keeps the
+                // temporary alive as long as `r`) → NOT dangling at the
+                // binding; is_local is caught only when RETURNED past the
+                // scope (check_return_value). This is DISTINCT from the
+                // materialized `__rtmp` case above, which is statement-scoped
+                // and NOT extended. See src/compiler/PROBES.md 2026-09-03e.
                 if (is_temporary_value_expr(v.inner()))
-                    return {{}, /*is_local=*/true, /*is_temp=*/false};
+                    return {inner_prov.params, /*is_local=*/true,
+                            /*is_temp=*/false};
+                if (!inner_prov.params.empty() || inner_prov.is_local ||
+                    inner_prov.is_temp)
+                    return inner_prov;
                 // Front (c): a borrow rooted at a VALUE local (`&c.x`, `&c.a[i]`, or
                 // a deref of a value-local ref/smart-ptr like `&*h`) is dangling if
                 // returned. `value_local_root` does the walk + value-local check.
@@ -12512,24 +12518,7 @@ private:
                     st = VarState{};
                     st.is_mut_binding = was_mut;
                 }
-                if (is_ref_assign) {
-                    // PROBE tmpassign — src/compiler/PROBES.md 2026-09-03d.
-                    if (val && val.kind() == lir_schema::expr::Code::AddrOfTemp &&
-                        !const_promote::is_promoted_borrow(val, pool) &&
-                        is_temporary_value_expr(
-                            lir_view::EAddrOfTempView{val}.inner())) {
-                        logos::probe::census("tmp.assign.rvalue");
-                        if (logos::probe::on("tmpassign") ||
-                            logos::probe::on("tmpboth"))
-                            report(ln,
-                                "temporary value dropped while borrowed: this "
-                                "reference borrows into a temporary that is "
-                                "dropped at the end of the statement; bind the "
-                                "owning value to a variable first so it "
-                                "outlives the borrow");
-                    }
-                    prov_[name] = prov_of(val);
-                }
+                if (is_ref_assign) prov_[name] = prov_of(val);
                 // #86 MISS 1 / SITE a — THE WHOLE-VALUE REASSIGN.
                 //   `let mut w: W = W{v:""}; w = W{v:o.as_str()}; return w;`
                 // was rc 0: `is_ref_assign` is false (W is not a ref kind and
@@ -12557,6 +12546,24 @@ private:
                 // §B6 (E0597): (re-)record sources on assign — a rebind re-owns
                 // (clears any prior dangling), then tracks the new borrow.
                 record_ref_sources(name, val, ln);
+                // E0716 AT THE ASSIGN ARM. Rust extends a temporary bound by a
+                // `let` INITIALISER and does NOT extend one on an assignment:
+                // `r = &mk();` leaves `r` pointing into a value dropped at the
+                // end of this statement.
+                // ⚠ DEPOSITED, NOT REPORTED: NLL flags only the first USE past
+                // the death, so an assignment whose reference is never read
+                // again is LEGAL. §B6's `dangling_` is that channel and
+                // `from_temp` picks the sentence in check_live.
+                // ⚠ MUST STAY AFTER `record_ref_sources`, which erases
+                // `dangling_[name]` as part of the rebind re-own.
+                // See src/compiler/PROBES.md 2026-09-03e.
+                if (is_ref_assign && val &&
+                    val.kind() == lir_schema::expr::Code::AddrOfTemp &&
+                    !const_promote::is_promoted_borrow(val, pool) &&
+                    is_temporary_value_expr(
+                        lir_view::EAddrOfTempView{val}.inner()))
+                    dangling_[name] =
+                        DanglingRef{ std::string(), ln, /*from_temp=*/true };
                 // §B6 ACROSS THE CLOSURE BOUNDARY (E0521). A closure
                 // parameter's referent is bound by the CALL; a binding the body
                 // did not declare outlives every call, so a borrow naming a

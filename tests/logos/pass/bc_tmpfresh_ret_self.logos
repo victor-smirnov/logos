@@ -1,0 +1,15 @@
+// The same method returning the borrow it was GIVEN, which really does outlive
+// the call. The fresh-place rule must not reach it.
+//
+// ⚠ ITS REFUSED TWIN IS ONE TOKEN AWAY:
+// tests/logos/fail/bc_tmpfresh_ret_fresh_agg_fail — `self` -> `&S { n: self.n }`.
+package bc_tmpfresh_ret_self;
+
+struct S { n: i64 }
+impl S { fn get(self: &S) -> &S { return self; } }
+
+fn main() -> i32 {
+    let s: S = S { n: 7i64 };
+    let r: &S = s.get();
+    return r.n as i32 - 7i32;
+}

@@ -5103,9 +5103,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8951 -> 8957   +6
 #   NOIMPORTED   4539 -> 4542   +3
 #   TIERCOMMIT    197 ->  194   -3
-REGISTRY-ALL         8957
-REGISTRY-NOIMPORTED  4542
-REGISTRY-TIERCOMMIT  194
+# 2026-09-03e — a `&<rvalue>` is answered by WHERE IT LIVES, and an ASSIGNMENT
+#   does not extend a temporary: 4 admit rows -> imported fail (3 nll +
+#   1 regions), +4 native fail + +5 native pass bc_tmpfresh_*/bc_tmpassign_*
+#   twins. ALL +9 (+9 native, -4 admit, +4 imported fail); NOIMPORTED +5
+#   (+9 -4, the admit tests are not `imported`-labelled); TIERCOMMIT -4 (the
+#   admit tests). Predicted before the pin was read; all three landed on the
+#   number, and `ctest -N` was predicted 8966 before the reconfigure.
+#   ALL          8957 -> 8966   +9
+#   NOIMPORTED   4542 -> 4547   +5
+#   TIERCOMMIT    194 ->  190   -4
+REGISTRY-ALL         8966
+REGISTRY-NOIMPORTED  4547
+REGISTRY-TIERCOMMIT  190
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

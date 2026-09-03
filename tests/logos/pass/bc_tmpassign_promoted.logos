@@ -1,0 +1,16 @@
+// The same assignment shape with a CONST-PROMOTED borrow: `&5i64` is `&'static`
+// and there is nothing to dangle into, so `is_promoted_borrow` must stay in
+// FRONT of the temporary question.
+//
+// ⚠ ITS REFUSED TWIN IS ONE TOKEN AWAY:
+// tests/logos/fail/bc_tmpassign_used_after_fail — `&5i64` -> `&id(3i64)`.
+package bc_tmpassign_promoted;
+
+fn f() -> i64 {
+    let z: i64 = 1i64;
+    let mut x: &i64 = &z;
+    x = &5i64;
+    return *x;
+}
+
+fn main() -> i32 { return f() as i32 - 5i32; }

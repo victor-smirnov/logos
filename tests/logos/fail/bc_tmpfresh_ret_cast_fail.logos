@@ -1,0 +1,17 @@
+// A `Cast` is a temporary with no place of its own, exactly as a struct
+// literal is: `&(p.n as i32)` materialises an i32 in THIS frame and returning
+// it dangles (rustc E0515). This shape had NO ledger row — it was found by the
+// separator between two arms of the same hypothesis, 2026-09-03d §6 (s04).
+//
+// ⚠ ITS ADMITTED TWIN IS ONE TOKEN AWAY:
+// tests/logos/pass/bc_tmpfresh_let_cast — the same borrow, read in the frame
+// instead of returned out of it.
+package bc_tmpfresh_ret_cast_fail;
+
+struct S { n: i64 }
+fn f(p: &S) -> &i32 { return &(p.n as i32); }
+
+fn main() -> i32 {
+    let s: S = S { n: 3i64 };
+    return *f(&s) - 3i32;
+}

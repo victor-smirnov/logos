@@ -1,0 +1,19 @@
+// The `&mut` spelling of the same question: an assignment from `&mut <rvalue>`
+// borrows a temporary dropped at the end of the statement, and the next line
+// reads through it (rustc E0716).
+//
+// ⚠ ITS ADMITTED TWIN IS ONE TOKEN AWAY:
+// tests/logos/pass/bc_tmpassign_mut_local — `&mut mk()` -> `&mut s`.
+package bc_tmpassign_mut_used_after_fail;
+
+struct S { n: i64 }
+fn mk() -> S { return S { n: 4i64 }; }
+
+fn f() -> i64 {
+    let mut s: S = S { n: 9i64 };
+    let mut r: &mut S = &mut s;
+    r = &mut mk();
+    return r.n;
+}
+
+fn main() -> i32 { return f() as i32 - 4i32; }

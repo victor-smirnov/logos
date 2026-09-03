@@ -1209,7 +1209,7 @@
 # param arm was priced with `collect_ref_sources`, which names the local a
 # reference was COPIED OUT OF — it refuses `*out = hr.r` where `hr = &h` and
 # `h = H{ r: <param> }`, pinned legal by pass/bc_b6ptr_param_holder_field.
-# TOTAL 145
+# TOTAL 141
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1304,8 +1304,6 @@ enum-drop-access nllmoves.E tests/imported/admit/nll/enum-drop-access
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
 issue-27282-move-match-input-into-guard nllmoves.R11 tests/imported/admit/nll/issue-27282-move-match-input-into-guard
 issue-27868 nllmoves.R11 tests/imported/admit/nll/issue-27868
-issue-30438-a nllmoves.D tests/imported/admit/nll/issue-30438-a
-issue-30438-b nllmoves.D tests/imported/admit/nll/issue-30438-b
 issue-40510-1 nllmoves.C tests/imported/admit/nll/issue-40510-1
 issue-40510-3 nllmoves.C tests/imported/admit/nll/issue-40510-3
 issue-42574-diagnostic-in-nested-closure--b nllmoves.C tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--b
@@ -1335,7 +1333,6 @@ projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projecti
 projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c
 propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/nll/propagate-fail-to-approximate-longer-no-bounds
 return-wrong-bound-region nllmoves.C tests/imported/admit/nll/return-wrong-bound-region
-sugg-mut-for-binding-issue-137486 nllmoves.D tests/imported/admit/nll/sugg-mut-for-binding-issue-137486
 trait-associated-constant nllmoves.R18 tests/imported/admit/nll/trait-associated-constant
 type-check-pointer-coercions nllmoves.R14 tests/imported/admit/nll/type-check-pointer-coercions
 type-check-pointer-comparisons nllmoves.R2 tests/imported/admit/nll/type-check-pointer-comparisons
@@ -1368,5 +1365,4 @@ regions-outlives-projection-container-wc lifereg.NEW-L3 tests/imported/admit/reg
 regions-outlives-projection-container lifereg.NEW-N1 tests/imported/admit/regions/regions-outlives-projection-container
 regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/regions-pattern-typing-issue-19552
 regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-bound
-regions-var-type-out-of-scope lifereg.D tests/imported/admit/regions/regions-var-type-out-of-scope
 resolve-re-error-ice lifereg.R18 tests/imported/admit/regions/resolve-re-error-ice

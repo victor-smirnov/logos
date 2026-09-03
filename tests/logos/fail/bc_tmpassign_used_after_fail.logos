@@ -1,0 +1,23 @@
+// An ASSIGNMENT does not extend a temporary — only a `let` INITIALISER does.
+// `x = &id(3i64);` leaves `x` pointing into a value dropped at the end of that
+// statement, and the next line reads it (rustc E0716).
+//
+// ⚠ TWO ADMITTED TWINS, EACH ONE TOKEN AWAY:
+// tests/logos/pass/bc_tmpassign_never_used — `return *x;` -> `return 5i64;`
+//   (NLL: with no later use there is no error, and every rustc E0716 names a
+//   "borrow later used here"). This is the token that separates the landing
+//   from its own ceiling probe, which refused the twin.
+// tests/logos/pass/bc_tmpassign_promoted  — `&id(3i64)` -> `&5i64`
+//   (const promotion: the referent is in static storage, nothing dangles).
+package bc_tmpassign_used_after_fail;
+
+fn id(x: i64) -> i64 { return x; }
+
+fn f() -> i64 {
+    let z: i64 = 1i64;
+    let mut x: &i64 = &z;
+    x = &id(3i64);
+    return *x;
+}
+
+fn main() -> i32 { return f() as i32 - 3i32; }

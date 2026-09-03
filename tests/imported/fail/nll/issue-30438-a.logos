@@ -1,6 +1,8 @@
 // rustc nll/issue-30438-a.rs — upstream cannot return reference to temporary value
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.D
+// shelf: fail — REFUSED since 2026-09-03e: `&<rvalue>` is answered by WHERE
+// IT LIVES, so `&Test { s: self.s }` is a borrow of a fresh place in this
+// frame whatever its fields read. Upstream E0515. Was nllmoves.D.
 package issue_30438_a;
 struct Test { s: i64 }
 impl Test { fn idx(self: &Test) -> &Test { return &Test { s: self.s }; } }

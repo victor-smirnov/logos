@@ -1,0 +1,19 @@
+// The same `&(p.n as i32)` temporary, BOUND by a `let` and read in the frame:
+// Rust extends a temporary bound by a `let` initialiser, so this is legal and
+// the fresh-place rule must refuse only the ESCAPE.
+//
+// ⚠ ITS REFUSED TWIN IS ONE TOKEN AWAY:
+// tests/logos/fail/bc_tmpfresh_ret_cast_fail — `return *q;` -> `return q;`
+// with the reference leaving the frame.
+package bc_tmpfresh_let_cast;
+
+struct S { n: i64 }
+fn f(p: &S) -> i32 {
+    let q: &i32 = &(p.n as i32);
+    return *q;
+}
+
+fn main() -> i32 {
+    let s: S = S { n: 3i64 };
+    return f(&s) - 3i32;
+}

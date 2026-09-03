@@ -1,0 +1,19 @@
+// The same `&mut` assignment from a LOCAL that outlives the read — the
+// negative control for the deposit: the statement shape is identical and only
+// the referent's storage differs.
+//
+// ⚠ ITS REFUSED TWIN IS ONE TOKEN AWAY:
+// tests/logos/fail/bc_tmpassign_mut_used_after_fail — `&mut s` -> `&mut mk()`.
+package bc_tmpassign_mut_local;
+
+struct S { n: i64 }
+fn mk() -> S { return S { n: 4i64 }; }
+
+fn f() -> i64 {
+    let mut s: S = S { n: 9i64 };
+    let mut r: &mut S = &mut s;
+    r = &mut s;
+    return r.n;
+}
+
+fn main() -> i32 { return f() as i32 - 9i32; }

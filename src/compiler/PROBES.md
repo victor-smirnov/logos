@@ -18647,3 +18647,109 @@ NOT SPENT, each with its number: bck.C 12 (mined six rounds) · nllmoves.C 9 · 
 bck.NEW 8 (never surveyed) · lifereg.R18 7 (M-SIG, rejected 09-06a) · nllmoves.D 6 ·
 bck.D 6 (two-phase 3, E0716-extension 3 = owner) · lifereg.NEW-N1 5 · nllmoves.E 4 ·
 nllmoves.B 4 · lifereg.R17 4 · lifereg.D 4 · E0716 owner rows 4.
+
+# ═══ ROUND 2026-09-03e — LANDED. A `&<RVALUE>` IS NOW ANSWERED BY **WHERE IT LIVES**, AND
+# THE `let` ARM'S E0716 QUESTION IS ASKED AT THE `assign` ARM **USE-SENSITIVELY**.
+# 4 ROWS CLOSED (PREDICTED 4 BY NAME, ∅ BOTH WAYS), 145 -> 141.
+# COST: pass 0 / cfail 0 of 1315 (rc, stderr sha AND `.expected` match) / stdlib ok. ═══
+
+## 0. STEP 1, RE-DERIVED (the handed-down report was checked, not copied)
+HEAD `a92b46736` clean at open; live probe names **156**; `# TOTAL 145`, 145 by direct
+listing; roots and the channel split bck 46 · lifereg 52 · nllmoves 47 — every figure in
+the pricing round's §0 re-derived TRUE. BASELINE READ FROM THE STORE, build **610**:
+admit ledger 145/145 passed; `-L bc` 2330 passed / 0 failed / 2 disabled.
+AT CLOSE: probe names **152** — `tmpfresh`, `tmpagg`, `tmpassign`, `tmpboth` RETIRED, the
+first replaced by the landing and the other three refuted or superseded below.
+
+## 1. ⚠ THE PRICED ARM REFUSED A LEGAL PROGRAM, AND ONLY A NEW SHAPE COULD SEE IT
+The pricing round recommended `tmpboth` = mechanism A + `tmpassign`. **`tmpassign` REPORTS
+AT THE ASSIGNMENT**, and 15 fresh counter-examples (`/home/logos/sandbox/tmpland/c01…c20`,
+multi-line, varied by position rather than by count) separated it at ONE program:
+    c06  `let mut x:&i64 = &z;  x = &id(3i64);  return 5i64;`   base rc 0 · tmpassign rc **1**
+`x` is never read again. **Every rustc E0716 names a "borrow later used here"** — NLL flags
+the USE, not the assignment — so c06 is LEGAL and the priced arm refused it. Its three cost
+columns could not see this: the whole arrival population of the site in 8909 tree programs
+was the two ledger rows, and both READ the reference on the next line.
+⇒ THE LANDING IS NOT THE PROBE. Mechanism B **deposits into `dangling_`** — §B6's existing
+use-sensitive channel, whose comment already says "a never-used dangling binding is never
+reported" — and `check_live` prints the E0716 sentence at the FIRST LATER USE, chosen by a
+new `from_temp` bit on `DanglingRef`. c06 is admitted by the landing and both ledger rows
+still close, because both read the reference.
+⚠ AND THE DEPOSIT HAD TO MOVE: written at the `is_ref_assign` block it was ERASED one line
+later by `record_ref_sources`, which clears `dangling_[name]` as part of the rebind re-own.
+MEASURED, not reasoned: the deposit fired, `check_live` arrived at the use, `dang=0`.
+
+## 2. WHAT LANDED, TWO SITES, `src/compiler/borrow_check.cpp` ONLY
+ A. `prov_of`, `case Code::AddrOfTemp`: the `is_temporary_value_expr` answer is HOISTED
+    ABOVE the inner-provenance short-circuit and CARRIES `inner_prov.params`. A `&<rvalue>`
+    is a borrow of a fresh place in THIS frame however deeply its operands read a parameter.
+    THE SAFETY ARGUMENT IS AT THE PREDICATE, not in the cost columns: `is_promoted_borrow`
+    is answered ABOVE this point, so nothing reaching here is promotable — every arrival is
+    a temporary that really does die with the frame. `params` is carried, not dropped, so
+    every consumer but the return gate (which refuses on `is_local` before it reads
+    `params`) sees exactly what it saw before.
+ B. the `Assign` arm, AFTER `record_ref_sources`: a non-promoted `&<temporary>` deposits
+    `DanglingRef{from_temp=true}`; `check_live` reports E0716 at the first later use.
+
+## 3. CEILING vs COST vs PREDICTED vs ACTUAL
+    ceiling (the probes, 09-03d)   4      tmpfresh 2 + tmpassign 2, additive
+    PREDICTED (by name, before any edit, build/round-2026-09-03e/targets-2026-09-03e.txt)  4
+    ACTUAL (gate_db compare 610 -> 611)                                                   4
+        issue-30438-a · issue-30438-b · sugg-mut-for-binding-issue-137486 ·
+        regions-var-type-out-of-scope
+    predicted ∖ actual = ∅   ·   actual ∖ predicted = ∅   ·   the 12 rows named as
+    NOT-to-close all held.
+    COST pass    `-L bc` 2330 / 0 (identical to build 610) · `-R '^logos_(25_spec|
+                 03_ownership|04_advanced)_pass'` 190 / 0
+    COST cfail   **0 of 1315** in ALL THREE columns — rc, normalised-stderr SHA and
+                 `.expected` match — base binary REBUILT for the baseline
+                 (`build/probe/failtext-4698fa2f726c78f6.tsv`), not inherited.
+    COST stdlib  all four layers compile; the full `cmake --build` is green.
+DIAGNOSTICS READ, not exit codes. Two rows print "cannot return reference to temporary
+value: dangling reference" (upstream E0515 for both); two print "temporary value dropped
+while borrowed: '<name>' borrows into a temporary … and is used here" (upstream E0716 for
+both). None is a rule-14 rewording: all four were SILENT on build 610.
+
+## 4. THE FIXTURES, IN PAIRS ONE TOKEN APART, AND THE CONTROL REVERT
+Four imported rows moved `admit/` -> `fail/` with the diagnostic pinned in full. NATIVE:
+    fail bc_tmpfresh_ret_fresh_agg_fail   ·  pass bc_tmpfresh_ret_self      `&S{n:self.n}` / `self`
+    fail bc_tmpfresh_ret_cast_fail        ·  pass bc_tmpfresh_let_cast      returned / read in frame
+    fail bc_tmpassign_used_after_fail     ·  pass bc_tmpassign_never_used   `return *x;` / `return 5i64;`
+                                          ·  pass bc_tmpassign_promoted     `&id(3i64)` / `&5i64`
+    fail bc_tmpassign_mut_used_after_fail ·  pass bc_tmpassign_mut_local    `&mut mk()` / `&mut s`
+`bc_tmpassign_never_used` IS c06 — the token that separates the landing from its own probe
+is pinned as a pass fixture, so a future round cannot re-buy the refusal silently.
+CONTROL REVERT (`git stash` of the ONE source file, logosc relinked, build hash back to
+`4698fa2f726c78f6`): all four new fail fixtures compile CLEAN and all five pass twins stay
+green — the reds are this change and nothing else. Restored and rebuilt before the gates.
+`bc_tmpfresh_ret_cast_fail` is the off-ledger `&(<param expr> as T)` return hole recorded by
+09-03d §7.1 (s04): it had no row and is now pinned.
+
+## 5. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **`dangling_`'s BRANCH JOIN IGNORES DIVERGENCE — pre-existing, now reachable by E0716.**
+    `c17`: the temporary-borrowing assignment is in an `if` arm that RETURNS and the
+    reference is read only on the path that cannot follow it; the landing refuses it, and
+    that is a legal program. INHERITED, PROVED BY CONTROL: `c17e` is the same shape on the
+    UNTOUCHED E0597 half (`x = &inner` inside the diverging arm) and the BASE binary at
+    `4698fa2f726c78f6` refuses it too. So the defect is the join at the if/match merge
+    (`acc_dang`), not this deposit — a diverging branch's dangles should not join. It is one
+    fix for both sentences and it is NOT in this round: it would also un-refuse whatever
+    currently-pinned `fail` fixtures rest on the imprecision, which is a cost measurement of
+    its own. NO LEDGER ROW names it.
+ 2. **The four E0716-family rows that are LEGAL RUST remain an owner's decision** — unchanged
+    from 2026-09-01 §1 and 09-03d §7.2: borrowck-borrowed-uniq-rvalue, -2, issue-36082,
+    borrowck-let-suggestion. A `let` INITIALISER extends the temporary in Rust; these ports
+    ask for a refusal Rust does not give. RETIRE CANDIDATES, reported, not edited.
+
+## 6. THE TREE AT CLOSE, AND WHAT WAS NOT SPENT
+`# TOTAL 145 -> 141`, re-derived BY DIRECT LISTING (141). Channel split now
+**lifereg 51 · bck 46 · nllmoves 44**. Registry pin +9 / +5 / -4 (8966 / 4547 / 190), each
+predicted before the reconfigure and each landing on the number; population pin 2620 -> 2625.
+L1 748/748 rc 0 · the four probe names retired · one source file changed.
+NOT SPENT, each with its number: bck.C 12 (mined six rounds) · nllmoves.C 9 · bck.B 9 ·
+**bck.NEW 8, never surveyed by missing observation** (2 of the 8 are E0509 and belong with
+the existing retire candidates, so its real size is 6) · lifereg.R18 7 (M-SIG, rejected
+09-06a) · bck.D 6 (two-phase 3 + the three E0716-extension owner rows) · lifereg.NEW-N1 5 ·
+nllmoves.E 4 · nllmoves.B 4 · lifereg.R17 4 · nllmoves.D **3** · lifereg.D **2**.
+THE D ROOTS ARE NOT EXHAUSTED: what is left in them is the owner's E0716-extension question
+and two-phase borrows, neither of which is a temporary-storage question.

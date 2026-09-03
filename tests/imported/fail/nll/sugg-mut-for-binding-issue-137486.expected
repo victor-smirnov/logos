@@ -1,0 +1,1 @@
+[fn main]: temporary value dropped while borrowed: 'ref_s' borrows into a temporary that is dropped at the end of the statement and is used here; bind the owning value to a variable first so it outlives the borrow (E0716)

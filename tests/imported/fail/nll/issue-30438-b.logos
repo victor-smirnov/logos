@@ -1,6 +1,7 @@
 // rustc nll/issue-30438-b.rs — upstream E0515 cannot return reference to temporary
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.D
+// shelf: fail — REFUSED since 2026-09-03e: same as issue-30438-a, with the
+// method carrying an extra parameter. Upstream E0515. Was nllmoves.D.
 // port of rust tests/ui/nll/issue-30438-b.rs
 // the method returns a reference into a value it constructs in its own body.
 // rustc: E0515 cannot return reference to temporary value.

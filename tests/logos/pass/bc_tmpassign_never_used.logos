@@ -1,0 +1,18 @@
+// The same assignment from a temporary, with the reference NEVER read again.
+// NLL flags only the first USE past the death — every rustc E0716 names a
+// "borrow later used here" — so this is legal and must stay admitted.
+//
+// ⚠ ITS REFUSED TWIN IS ONE TOKEN AWAY:
+// tests/logos/fail/bc_tmpassign_used_after_fail — `return 5i64;` -> `return *x;`.
+package bc_tmpassign_never_used;
+
+fn id(x: i64) -> i64 { return x; }
+
+fn f() -> i64 {
+    let z: i64 = 1i64;
+    let mut x: &i64 = &z;
+    x = &id(3i64);
+    return 5i64;
+}
+
+fn main() -> i32 { return f() as i32 - 5i32; }
