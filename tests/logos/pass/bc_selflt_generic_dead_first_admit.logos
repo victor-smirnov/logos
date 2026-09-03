@@ -1,0 +1,19 @@
+// THE LEGAL TWIN of fail/bc_selflt_generic_two_live_muts_fail, one statement
+// apart: `*a = 1i64;` is gone, so the first `&mut` is dead before the second is
+// taken and NLL accepts. This is what shows the tie is a LIVENESS answer and
+// not a lexical lock on the receiver.
+package bc_selflt_generic_dead_first_admit;
+
+struct Cell<T> { v: T }
+impl<T> Cell<T> {
+    fn peek<'a>(self: &'a mut Cell<T>) -> &'a mut T { return &mut self.v; }
+}
+
+fn main() -> i32 {
+    let mut c: Cell<i64> = Cell { v: 3i64 };
+    let a: &mut i64 = c.peek();
+    let b: &mut i64 = c.peek();
+    *b = 2i64;
+    if c.v != 2i64 { return 1i32; }
+    return 0i32;
+}

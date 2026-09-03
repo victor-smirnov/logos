@@ -5113,9 +5113,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8957 -> 8966   +9
 #   NOIMPORTED   4542 -> 4547   +5
 #   TIERCOMMIT    194 ->  190   -4
-REGISTRY-ALL         8966
-REGISTRY-NOIMPORTED  4547
-REGISTRY-TIERCOMMIT  190
+# 2026-09-03g — a callee with EXPLICIT LIFETIME BINDERS is no longer exempt
+#   from the elision receiver-tie when its own flow summary says parameter 0
+#   reaches the result: 1 admit row -> imported fail (nll), +2 native fail +
+#   +3 native pass bc_selflt_* twins. ALL +5 (+5 native, -1 admit, +1 imported
+#   fail); NOIMPORTED +4 (+5 -1, the admit tests are not `imported`-labelled);
+#   TIERCOMMIT -1 (the admit test). Predicted before the pin was read; all
+#   three landed on the number.
+#   ALL          8966 -> 8971   +5
+#   NOIMPORTED   4547 -> 4551   +4
+#   TIERCOMMIT    190 ->  189   -1
+REGISTRY-ALL         8971
+REGISTRY-NOIMPORTED  4551
+REGISTRY-TIERCOMMIT  189
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

@@ -1,0 +1,19 @@
+// One token from pass/bc_selflt_binder_shared_shared_admit: `touch` takes
+// `&mut S`. `r` is a shared borrow of `s` still live across it — rustc E0502.
+// Admitted before 2026-09-03g because `look`'s explicit `<'a>` binder exempted
+// it from the elision receiver-tie.
+package bc_selflt_binder_shared_mut_fail;
+
+struct S { n: i64 }
+impl S {
+    fn look<'a>(self: &'a S) -> &'a i64 { return &self.n; }
+    fn touch(self: &mut S) -> i64 { return self.n + 1i64; }
+}
+
+fn main() -> i32 {
+    let mut s: S = S { n: 6i64 };
+    let r: &i64 = s.look();
+    let q: i64 = s.touch();
+    if *r + q != 13i64 { return 1i32; }
+    return 0i32;
+}

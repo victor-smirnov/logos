@@ -18897,3 +18897,113 @@ additivity check in §3, which is now measured.
     candidates). The 37-row NON-ZERO-SUMMARY population of §1 is the durable asset of this
     round: it is a mechanically re-derivable set that cuts all three channels, and only one
     of its 37 has been spent.
+
+═══ ROUND 2026-09-03g — LANDING. THE SUMMARY-MASKED LIFETIME-BINDER EXEMPTION.
+# 1 ROW CLOSED (predicted 1 BY NAME, both ways), 141 -> 140. COST 0 pass / 0 of
+# 1323 fail fixtures in ALL THREE TEXT COLUMNS against a REBUILT base baseline /
+# stdlib four layers. `selfltany` KEPT as the control twin. ═══
+
+## 0. STEP 1, RE-DERIVED
+    HEAD at open `235c08e43` (the 09-03f pricing commit), tree clean, = origin/main.
+    live probe names   **154**      `# TOTAL`  **141**, and 141 by direct listing
+    channel split      **lifereg 51 · bck 46 · nllmoves 44**
+The handed-down report was accurate in every column this time; nothing in it needed
+correcting. AT CLOSE: probe names **153** (`selfltmask` becomes behaviour; `selfltany`
+stays), `# TOTAL` **140** by direct listing.
+
+## 1. THE LANDING — `is_self_borrowing`, SITE A
+```
+bool lt_exit = !f.lifetime_params().empty();
+if (lt_exit) {
+    const FlowSummary* sfs = flow_of_call(f.name());
+    if (sfs && sfs->available && (sfs->to_result & 1ull)) lt_exit = false;
+}
+if (lt_exit && logos::probe::on("selfltany")) lt_exit = false;   // control twin
+```
+⚠ RULE 7 DEBT FROM 09-03f §8.1, DISCHARGED BY MEASUREMENT AND NOT BY READING.
+The worry was that `flow_of_call(f.name())` on the DECLARATION is a different lookup from
+`resolve_call_flow(..., &fn_index_)` at the CALL. It is not: `flow_of_call` (borrow_check.cpp
+`flow_of_call`) *is* `resolve_call_flow(*flows_, symbol, &fn_index_)`, and `f.name()` from a
+`fn_index_` FunctionView is the FULL mangled symbol, so the direct `flows.find` hits and the
+`by_bare` tier is never needed. MEASURED on a generic method (`/home/logos/sandbox/selfmask2/c02`):
+    [flow] c02.Cell$G1$i64__peek__g__ref_Cell$G1$T: result<-0x1  EXACT
+    [flow] c02.Cell__peek__g__ref_Cell$G1$T:        result<-0x1  EXACT
+both available and agreeing, pre-mono and instance. And the CLOSING direction is pinned, not
+just the permissive one: `fail/bc_selflt_generic_two_live_muts_fail` is a monomorphised
+method and it refuses.
+
+## 2. ⚠ RULE 5 — MY OWN COUNTER-EXAMPLES, TEN NEW SHAPES, NONE FROM THE PRICING PHASE
+`/home/logos/sandbox/selfmask2/c01..c10`, multi-line, every one with its arrival at the site
+PROVEN by `LOGOS_PROBE_FIRE` and not assumed.
+    c02 generic struct's `<'a>` method                fires 2  base 0  landed 0   LEGAL, admitted
+    c03 TWO binders, result tied to the OTHER one     fires 1  base 0  landed 0   LEGAL, admitted
+    c04 `<'a>` shared result + a later SHARED use     fires 2  base 0  landed 0   LEGAL, admitted
+    c05 `&'a mut` result consumed, THEN a mutation    fires 2  base 0  landed 0   LEGAL, admitted
+    c07 receiver is a FIELD; a DISJOINT field written fires 2  base 0  landed 0   LEGAL, admitted
+    c08 result taken and dead INSIDE a while loop     fires 4  base 0  landed 0   LEGAL, admitted
+    c09 GENERIC struct, two live `&mut` (E0499)       fires    base 0  landed 1   ILLEGAL, closed
+    c10 shared result live across `&mut self` (E0502) fires    base 0  landed 1   ILLEGAL, closed
+    c01 result named by the STRUCT's binder `&'x`     NEVER FIRES — see §5.1
+    c06 `<'a>` method returning a SCALAR              NEVER FIRES — vacuous, recorded as such
+FOUR of the six legal ones (c04, c05, c07, c08) are programs where the mask ACTIVELY FLIPS —
+`look`'s summary is `result<-0x1`, so the exemption is dropped and the receiver IS tied — and
+they stay admitted because NLL decides liveness. That is the observation the cost columns
+cannot make: cost 0 says nothing was refused, these say the arm was ON when nothing was.
+c03 is a SECOND separator from the crude twin, independent of 09-03f's h05 and a different
+shape (two binders vs a shared self with one): base 0 · landed 0 · `selfltany` **1**.
+⚠ STILL NOT A SAFETY CLAIM. What it is: six legal programs in six shapes the pricing phase
+did not write, four of them with the arm firing and flipping; plus 09-03f's eleven.
+
+## 3. THE SETS, DIFFED BOTH WAYS, DIAGNOSTIC READ
+PREDICTED, in `build/round-2026-09-03g/prediction.txt`, written BEFORE the first edit to src:
+    count 1, `{lending-iterator-sanity-checks}` (nllmoves.R2); the other 34 rows of the
+    explicit-binder population and the remaining 106 predicted NOT to close.
+ACTUAL, `gate-run.sh -R '^logos_00_bc_admit_'`, build 621: 140 passed / 1 failed, the one
+failure `logos_00_bc_admit_nll_lending-iterator-sanity-checks`.
+    predicted ∖ actual = ∅ · actual ∖ predicted = ∅ · all 34 named holds held.
+DIAGNOSTIC READ ON THE BINARY:
+    `error [fn main]: cannot borrow 't' as mutable: already mutably borrowed`
+    upstream E0499 "cannot borrow `t` as mutable more than once at a time". SAME REASON.
+RULE 14: the fixture is rc 0 and SILENT on the control-reverted binary (§4), so this is not
+a rewording of an already-red diagnostic.
+
+## 4. COST, AND THE CONTROL REVERT
+    `gate-run.sh -R '^logos_00_bc_admit_'`  base build 620 141/0 → 621 140/1  (the one row)
+    `gate-run.sh -L bc`                     base 2343/0/2  →  landed **2343/0/2**
+    `stdlib-cost.sh`                        all four layers compile
+    `fail_text_oracle.py`                   **0 of 1323** changed lines, rc + stderr SHA +
+                                            `.expected` match, against a baseline REBUILT by
+                                            `git stash` + full `cmake --build` — not a
+                                            recorded number from another build.
+CONTROL REVERT, on that same reverted binary: `lending-iterator-sanity-checks` PASSES as an
+admit test (1/1), and c09 and c10 both compile rc 0 — i.e. both are real holes that were open.
+
+## 5. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 5.1 **A PRE-EXISTING FALSE REFUSAL, NOT THIS ARM'S**: c01 —
+     `impl<'x> Wrap<'x> { fn inner(self: &Wrap<'x>) -> &'x i64 { return self.p; } }`, then
+     `let r = w.inner(); w.bump();`. The result's lifetime is the STRUCT's binder and
+     outlives the receiver's own borrow, so rustc accepts. logosc refuses with
+     `cannot borrow 'w' as mutable: 'w' has shared borrows` on the BASE binary as well as
+     the landed one, and `is_self_borrowing`'s site is never even reached (0 fires). It is a
+     legal program the tree refuses; it has no ledger row (the ledger names only the other
+     direction). RECORDED, NOT PURSUED — it is outside this round's mechanism.
+ 5.2 The four E0716-family rows that are LEGAL RUST remain an owner's decision, carried
+     forward unchanged: borrowck-borrowed-uniq-rvalue, -2, issue-36082, borrowck-let-suggestion.
+ 5.3 The under-naming noted at 09-03f §7.1 stands: `lending-iterator-sanity-checks` was the
+     ONLY ledger row for a shape that c09, c10 and 09-03f's h12/e1 all exhibit. The ledger
+     under-counts the annotated-binder receiver tie; the corpus, not the compiler, is why.
+
+## 6. FIXTURES, IN PAIRS
+    fail/bc_selflt_binder_shared_mut_fail   ⟷ pass/bc_selflt_binder_shared_shared_admit
+        ONE TOKEN: `touch(self: &mut S)` vs `touch(self: &S)`.
+    fail/bc_selflt_generic_two_live_muts_fail ⟷ pass/bc_selflt_generic_dead_first_admit
+        ONE STATEMENT: `*a = 1i64;` present or absent — the mono-key half, and the proof the
+        tie is a LIVENESS answer rather than a lexical lock.
+    pass/bc_selflt_binder_other_param_admit
+        the SEPARATOR from `selfltany`: legal, admitted by the mask, REFUSED by the crude twin.
+    tests/imported/fail/nll/lending-iterator-sanity-checks — the row, diagnostic pinned in full.
+
+## 7. LEDGER BLOCKS NOT SPENT THIS ROUND, EACH WITH ITS NUMBER
+    bck.C 12 · nllmoves.C 9 · bck.B 9 · bck.NEW 8 (real size 5) · lifereg.R18 7 · bck.D 6 ·
+    lifereg.NEW-N1 5. The 37-row NON-ZERO-SUMMARY population of 09-03f §1 now has TWO of its
+    37 spent.

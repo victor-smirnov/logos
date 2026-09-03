@@ -1,0 +1,19 @@
+// THE MONO-KEY HALF. `peek` is a method of a GENERIC struct carrying its own
+// `<'a>`; the receiver tie is decided from the DECLARATION's flow summary, so
+// this pins that the summary is found for a monomorphised method and not only
+// for a plain one. Two live `&mut` from the same cell — rustc E0499.
+package bc_selflt_generic_two_live_muts_fail;
+
+struct Cell<T> { v: T }
+impl<T> Cell<T> {
+    fn peek<'a>(self: &'a mut Cell<T>) -> &'a mut T { return &mut self.v; }
+}
+
+fn main() -> i32 {
+    let mut c: Cell<i64> = Cell { v: 3i64 };
+    let a: &mut i64 = c.peek();
+    let b: &mut i64 = c.peek();
+    *a = 1i64;
+    *b = 2i64;
+    return 0i32;
+}

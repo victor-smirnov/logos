@@ -1343,10 +1343,14 @@ PIN = {
     # 2026-09-03e: 2620 -> 2625. Five pass twins of the temporary-place block
     # (bc_tmpfresh_ret_self, bc_tmpfresh_let_cast, bc_tmpassign_never_used,
     # bc_tmpassign_promoted, bc_tmpassign_mut_local), all five non-glob.
-    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2625.
-    'corpus'            : 2625,
+    # 2026-09-03g: 2625 -> 2628. Three pass twins of the lifetime-binder
+    # receiver-tie (bc_selflt_binder_shared_shared_admit,
+    # bc_selflt_generic_dead_first_admit, bc_selflt_binder_other_param_admit),
+    # all three non-glob.
+    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2628.
+    'corpus'            : 2628,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2434,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2437,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

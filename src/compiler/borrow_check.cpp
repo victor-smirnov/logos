@@ -6398,13 +6398,19 @@ private:
         if (!f) return false;
         auto* pool = prog_.type_pool.impl();
         auto params = f.params();
-        // CEILING PROBES `selfltany` / `selfltmask` — SITE A. See PROBES.md.
+        // LANDED 2026-09-03g. A binder is not evidence that the result does
+        // NOT come from the receiver: ask the callee's OWN flow summary, where
+        // `to_result & 1` means parameter 0 (self) reaches the result whether
+        // or not the lifetimes are spelled. UNAVAILABLE (extern, cross-archive,
+        // indirect, >kFlowMaxParams) keeps the exit, so this only ADDS ties.
+        // `selfltany` — the same exit dropped WITHOUT the mask — stays as the
+        // control twin; it costs three legal programs. See PROBES.md.
         bool lt_exit = !f.lifetime_params().empty();
-        if (lt_exit && logos::probe::on("selfltany")) lt_exit = false;
-        if (lt_exit && logos::probe::on("selfltmask")) {
+        if (lt_exit) {
             const FlowSummary* sfs = flow_of_call(f.name());
             if (sfs && sfs->available && (sfs->to_result & 1ull)) lt_exit = false;
         }
+        if (lt_exit && logos::probe::on("selfltany")) lt_exit = false;
         if (params.empty() || !is_ref_kind(params[0].type(pool)) || lt_exit)
             return false;
         TypeRef ret = f.ret_type(pool);

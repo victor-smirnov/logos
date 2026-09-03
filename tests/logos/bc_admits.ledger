@@ -1209,7 +1209,7 @@
 # param arm was priced with `collect_ref_sources`, which names the local a
 # reference was COPIED OUT OF — it refuses `*out = hr.r` where `hr = &h` and
 # `h = H{ r: <param> }`, pinned legal by pass/bc_b6ptr_param_holder_field.
-# TOTAL 141
+# TOTAL 140
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1322,7 +1322,6 @@ issue-55394--b nllmoves.NEW-3 tests/imported/admit/nll/issue-55394--b
 issue-62007-assign-differing-fields--c nllmoves.R3 tests/imported/admit/nll/issue-62007-assign-differing-fields--c
 issue-69114-static-mut-ty nllmoves.R1 tests/imported/admit/nll/issue-69114-static-mut-ty
 issue-98170 nllmoves.R13 tests/imported/admit/nll/issue-98170
-lending-iterator-sanity-checks nllmoves.R2 tests/imported/admit/nll/lending-iterator-sanity-checks
 match-guards-always-borrow nllmoves.B tests/imported/admit/nll/match-guards-always-borrow
 method-ufcs-inherent-3 nllmoves.NEW-1 tests/imported/admit/nll/method-ufcs-inherent-3
 method-ufcs-inherent-4 nllmoves.NEW-S7-1 tests/imported/admit/nll/method-ufcs-inherent-4

@@ -1,0 +1,21 @@
+// THE SEPARATOR BETWEEN THE LANDED RULE AND ITS CRUDE TWIN `selfltany`.
+// `pick`'s result names 'b, the OTHER parameter's binder: the flow summary's
+// `to_result` says bit 1, not bit 0, so the receiver is NOT tied and mutating
+// `s` afterwards is legal. Dropping the binder exemption UNCONDITIONALLY
+// (LOGOS_PROBE=selfltany) refuses this program; the summary mask admits it.
+package bc_selflt_binder_other_param_admit;
+
+struct S { n: i64 }
+impl S {
+    fn pick<'a, 'b>(self: &'a S, o: &'b S) -> &'b i64 { return &o.n; }
+    fn bump(self: &mut S) { self.n = self.n + 1i64; }
+}
+
+fn main() -> i32 {
+    let mut s: S = S { n: 1i64 };
+    let t: S = S { n: 4i64 };
+    let r: &i64 = s.pick(&t);
+    s.bump();
+    if *r != 4i64 { return 1i32; }
+    return 0i32;
+}

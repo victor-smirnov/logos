@@ -1,0 +1,18 @@
+// THE LEGAL TWIN, ONE TOKEN APART from fail/bc_selflt_binder_shared_mut_fail:
+// `touch` takes `&S`, so the shared result of `look` and the shared borrow the
+// second call takes coexist. rustc accepts.
+package bc_selflt_binder_shared_shared_admit;
+
+struct S { n: i64 }
+impl S {
+    fn look<'a>(self: &'a S) -> &'a i64 { return &self.n; }
+    fn touch(self: &S) -> i64 { return self.n + 1i64; }
+}
+
+fn main() -> i32 {
+    let mut s: S = S { n: 6i64 };
+    let r: &i64 = s.look();
+    let q: i64 = s.touch();
+    if *r + q != 13i64 { return 1i32; }
+    return 0i32;
+}
