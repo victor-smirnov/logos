@@ -1489,12 +1489,21 @@ set_tests_properties(logos_00_mlir_gen_bug_ledger PROPERTIES
 # scheduler that owns the work parallelises, and a failure NAMES the program
 # instead of reporting that the fold disagreed. What is left here is the roster:
 # every row has a file, every file has a row, and `# TOTAL` matches — no compiles.
+# ⚠ TWO LEDGERS SINCE 2026-09-04, ONE SHELF. `bc_admits.ledger` is the actionable
+# queue; `bc_admits_blocked.ledger` holds the rows no compiler fix closes (legal
+# Rust as ported / a canonised divergence / a wall of legal fixtures with an
+# owner), each with the reason and the DATE it was last re-verified. Nothing
+# moved off the shelf and the per-program tests below are unchanged: the split
+# is about what a round may spend its pricing phase on. The gate takes both and
+# holds EACH file's own `# TOTAL`, so a row cannot be walked from one into the
+# other without both counts moving in the same commit.
 add_test(
     NAME logos_00_bc_admits_ledger
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/bc_admits_ledger_gate.sh
             $<TARGET_FILE:logosc>
             ${CMAKE_CURRENT_SOURCE_DIR}/bc_admits.ledger
             ${CMAKE_SOURCE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/bc_admits_blocked.ledger
 )
 set_tests_properties(logos_00_bc_admits_ledger PROPERTIES
     TIMEOUT 300

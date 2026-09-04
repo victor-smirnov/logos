@@ -1,5 +1,25 @@
 # bc_admits.ledger — PROGRAMS rustc REJECTS AND logosc COMPILES, named one per
-# row. THIS FILE IS THE ONLY PLACE THE ADMITTED SET IS NAMED.
+# row. THIS FILE IS THE ACTIONABLE QUEUE: every row here is a borrow-check
+# DEFECT with a root, and a round may pick its targets from it without first
+# re-deciding whether the row is a defect at all.
+#
+# ⚠ IT IS NO LONGER THE ONLY PLACE THE ADMITTED SET IS NAMED — 2026-09-04. The
+# rows that NO COMPILER FIX CLOSES (the port is legal Rust as written; a
+# canonised Logos divergence; a wall of legal fixtures only the owner can move)
+# were split out into `tests/logos/bc_admits_blocked.ledger`, 124 -> 99 + 25.
+# The ADMITTED SET is the two files together, and the gate reads both: every
+# row has a file, every file under tests/imported/admit/ has a row in ONE of
+# them, and each file holds its OWN `# TOTAL`. Nothing left the admit shelf, so
+# every one of the 124 programs still has its `logos_00_bc_admit_*` test and a
+# program that stops being admitted is still RED wherever its row lives.
+#
+# ⚠ THE BLOCKED FILE IS RE-VERIFIED, NOT CARRIED. A DECLINE IS A MEASUREMENT
+# WITH A TIMESTAMP AND A WALL DECAYS — this split exists because a "five owner
+# fixtures wall this block" verdict was carried for six rounds after four of the
+# five had been REPAIRED, and re-pricing came back 5 -> 1. Every blocked row
+# carries the DATE its reason was last checked against the tree; a reason that
+# cannot be re-checked today sends its row BACK here. Moving a row THERE needs
+# the port and the wall opened today, not a citation.
 #
 # Source: 983 rustc compile-fail tests from tests/ui/{borrowck,nll,moves,
 # lifetimes,regions,dropck,drop}, ported at upstream
@@ -29,6 +49,22 @@
 # ⚠ A ROW IS NOT AN EXCUSE. It is a defect with a name, and the intended way for
 # this file to change is to SHRINK: a class fix reds this gate BECAUSE IT
 # IMPROVED, and the count is then edited down in the same change.
+# 2026-09-04 — 124 -> 99. NOT A FIX AND NOT A SHRINK OF THE HOLE SET: 25 rows
+# moved to `bc_admits_blocked.ledger`, all 124 programs still on the shelf and
+# still tested. Every moved row was re-verified that day by opening the PORT,
+# and every "walled by X" claim by opening X — the five unused-lifetime-param
+# pass fixtures (spec generic_2 LtMarker<'a>, imported variance-bivariant-unused
+# Marker<'a>, pass/struct_lifetime_param View<'z>, zoned_storage_pin_acceptance
+# WritView<'a>, struct_lifetime_generic Slice<'z,T>) ALL still declare one, and
+# pass/nll_borrow_not_used_after_scope and pass/structs/newtype-struct-with-dtor
+# still say what their claims say. THREE recorded claims were REFUTED and their
+# rows STAYED here: the E0713 x3 "retired by analogy with E0509" (the spec
+# clause is about drop SUPPRESSING a moved-out sub-value, not about a `&mut`
+# escaping past a destructor that writes through it), the third A16 row
+# `-proj--b` (it is a fail fixture now, not an admit row), and the six
+# `lifereg.R18` M-SIG rows "rejected twice" (the root was 8 rows in every census
+# and is 6 today, and M-SIG §6.1 landed in round 2026-09-04y). The `'static`
+# population was NOT touched: 09-08 measured that wall at cost 1.
 # 2026-08-26 — 455 -> 452. THE LEDGER SHRANK BECAUSE THE CHECKER IMPROVED, which
 # is the only direction this file is meant to move. The D1 by-value-hop gate in
 # take_ref_borrows asked `loan_carrying_type` — the NAMED-CARRIER closure, which
@@ -1241,15 +1277,13 @@
 # Rust) were refused until `!in_closure_body_` was added. Both tokens are
 # pinned in PAIRS: fail/bc_capmovemut_{mutref_capture,sibling_closures} vs
 # pass/bc_capmovemut_{sharedref_capture,nested_closures}. PROBES.md 2026-09-03p.
-# TOTAL 124
+# TOTAL 99
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
 anonymous-region-in-apit--closure-param-escapes bck.C tests/imported/admit/borrowck/anonymous-region-in-apit--closure-param-escapes
 augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments
 borrow-immutable-upvar-mutation-impl-trait bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait
-borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2
-borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
 borrowck-escaping-closure-error-2 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-2
 borrowck-lend-flow-loop bck.NEW-2 tests/imported/admit/borrowck/borrowck-lend-flow-loop
 borrowck-loan-blocks-move-cc--r10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10
@@ -1259,16 +1293,10 @@ borrowck-move-by-capture bck.C tests/imported/admit/borrowck/borrowck-move-by-ca
 borrowck-move-error-with-note--b bck.B tests/imported/admit/borrowck/borrowck-move-error-with-note--b
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
 borrowck-move-out-from-array-use-match--t13 bck.B tests/imported/admit/borrowck/borrowck-move-out-from-array-use-match--t13
-borrowck-move-out-of-struct-with-dtor bck.E tests/imported/admit/borrowck/borrowck-move-out-of-struct-with-dtor
-borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13
-borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13
 borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed
-borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--b
-borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--t17
 borrowck-unboxed-closures bck.A tests/imported/admit/borrowck/borrowck-unboxed-closures
 borrowed-data-escapes-closure-148392 bck.C tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
-issue-36082 bck.D tests/imported/admit/borrowck/issue-36082
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
 issue-58776-borrowck-scans-children bck.C tests/imported/admit/borrowck/issue-58776-borrowck-scans-children
 issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure
@@ -1277,7 +1305,6 @@ mut-borrow-conflict-in-closures-vec--bounded bck.C tests/imported/admit/borrowck
 mut-borrow-of-mut-ref bck.A tests/imported/admit/borrowck/mut-borrow-of-mut-ref
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error
 reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow
-regions-escape-unboxed-closure bck.B tests/imported/admit/borrowck/regions-escape-unboxed-closure
 slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck/slice-index-bounds-check-invalidation--t35
 two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-loop
 two-phase-nonrecv-autoref--a-fnmut-twice bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--a-fnmut-twice
@@ -1291,18 +1318,12 @@ var-matching-lifetime-but-unused-not-mentioned bck.C tests/imported/admit/borrow
 dropck-only-error lifereg.R18 tests/imported/admit/dropck/dropck-only-error
 
 # ── tests/ui/lifetimes ─────────────────────────────────────────
-borrowck-let-suggestion lifereg.D tests/imported/admit/lifetimes/borrowck-let-suggestion
 constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error
-copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions
 e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn
-issue-64173-unused-lifetimes lifereg.L4 tests/imported/admit/lifetimes/issue-64173-unused-lifetimes
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 iterator-next-extra-named-lifetime lifereg.R18 tests/imported/admit/lifetimes/iterator-next-extra-named-lifetime
 lifetime-mismatch-between-trait-and-impl lifereg.R18 tests/imported/admit/lifetimes/lifetime-mismatch-between-trait-and-impl
-missing-lifetime-in-assoc-type-1 lifereg.R17 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-1
-missing-lifetime-in-assoc-type-5 lifereg.N2 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-5
-missing-lifetime-in-assoc-type-6 lifereg.L4 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-6
 mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17
 mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17
 temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor
@@ -1318,7 +1339,6 @@ move-of-addr-of-mut nllmoves.R5 tests/imported/admit/moves/move-of-addr-of-mut
 adt-tuple-enums--t33 nllmoves.NEW-L1 tests/imported/admit/nll/adt-tuple-enums--t33
 borrowed-temporary-error--t08 nllmoves.D tests/imported/admit/nll/borrowed-temporary-error--t08
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
-do-not-ignore-lifetime-bounds-in-copy nllmoves.NEW-S7-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy
 enum-drop-access nllmoves.E tests/imported/admit/nll/enum-drop-access
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
 issue-27282-move-match-input-into-guard nllmoves.R11 tests/imported/admit/nll/issue-27282-move-match-input-into-guard
@@ -1343,7 +1363,6 @@ issue-98170 nllmoves.R13 tests/imported/admit/nll/issue-98170
 match-guards-always-borrow nllmoves.B tests/imported/admit/nll/match-guards-always-borrow
 method-ufcs-inherent-3 nllmoves.NEW-1 tests/imported/admit/nll/method-ufcs-inherent-3
 method-ufcs-inherent-4 nllmoves.NEW-S7-1 tests/imported/admit/nll/method-ufcs-inherent-4
-move-errors--d nllmoves.B tests/imported/admit/nll/move-errors--d
 projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/nll/projection-two-region-trait-bound-closure
 projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
 projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c
@@ -1358,26 +1377,18 @@ better-blame-constraint-for-outlives-static lifereg.NEW-N1 tests/imported/admit/
 explicit-static-bound-on-trait lifereg.NEW-4 tests/imported/admit/regions/explicit-static-bound-on-trait
 impl-trait-lifetime-conflict-hashmap-keys--sig-only lifereg.R18 tests/imported/admit/regions/impl-trait-lifetime-conflict-hashmap-keys--sig-only
 issue-101280 lifereg.NEW-N4 tests/imported/admit/regions/issue-101280
-multiple-sources-for-outlives-requirement--c24b lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--c24b
-multiple-sources-for-outlives-requirement--t24 lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--t24
 outlives-with-missing lifereg.R17 tests/imported/admit/regions/outlives-with-missing
-region-bounds-on-objects-and-type-parameters lifereg.NEW-N4 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
 regions-adjusted-lvalue-op--c26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--c26
 regions-adjusted-lvalue-op--t26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26
-regions-assoc-type-in-supertrait-outlives-container lifereg.L6 tests/imported/admit/regions/regions-assoc-type-in-supertrait-outlives-container
 regions-creating-enums3 lifereg.NEW-N1 tests/imported/admit/regions/regions-creating-enums3
 regions-escape-method lifereg.C tests/imported/admit/regions/regions-escape-method
 regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr lifereg.L7 tests/imported/admit/regions/regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr
 regions-fn-subtyping-return-static-fail--fn-subtyping lifereg.L7 tests/imported/admit/regions/regions-fn-subtyping-return-static-fail--fn-subtyping
 regions-free-region-ordering-caller1 lifereg.D tests/imported/admit/regions/regions-free-region-ordering-caller1
 regions-glb-free-free--glb-free-free lifereg.NEW-R19 tests/imported/admit/regions/regions-glb-free-free--glb-free-free
-regions-in-enums-anon lifereg.R17 tests/imported/admit/regions/regions-in-enums-anon
-regions-in-structs-anon lifereg.NEW-L1 tests/imported/admit/regions/regions-in-structs-anon
 regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self
 regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
-regions-outlives-projection-container-wc lifereg.NEW-L3 tests/imported/admit/regions/regions-outlives-projection-container-wc
-regions-outlives-projection-container lifereg.NEW-N1 tests/imported/admit/regions/regions-outlives-projection-container
 regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/regions-pattern-typing-issue-19552
 regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-bound
 resolve-re-error-ice lifereg.R18 tests/imported/admit/regions/resolve-re-error-ice

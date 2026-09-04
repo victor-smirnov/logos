@@ -1,0 +1,90 @@
+# bc_admits_blocked.ledger — ADMITTED PROGRAMS THAT NO COMPILER FIX CLOSES.
+#
+# THE SPLIT, AND WHY IT IS NOT A SKIP LIST. `bc_admits.ledger` is the queue: a
+# row there is a borrow-check DEFECT with a root, and the intended way for that
+# file to change is to SHRINK. This file holds the rows that are not defects and
+# never were — a round that prices them is buying nothing, and four rounds in a
+# row spent their pricing phase rediscovering that. Three kinds, and nothing
+# else may be filed here:
+#
+#   LEGAL-AS-PORTED   the PORT is legal Rust as written, whatever upstream did.
+#                     A fix that closed it would refuse a correct program. The
+#                     owner's move is to re-port it (restore the turbofish, the
+#                     non-Copy field, the closure, the parameterless `loop{}`)
+#                     or to retire it — NOT to change the checker.
+#   DIVERGENCE-*      Logos deliberately admits the shape, canonised in
+#                     docs/DIVERGENCES.md or named by a `docs/spec/` clause.
+#   OWNER-CORPUS      closing it would red LEGAL fixtures or the stdlib. The
+#                     wall is named in the row, and the wall is what must be
+#                     re-measured — not the row.
+#
+# ⚠ THE COVERAGE IS UNCHANGED. These programs did NOT move off the admit shelf.
+# Each still has its own registered test `logos_00_bc_admit_<dir>_<name>` from
+# the CMake glob, and each still asserts that the compile is SILENT. If one of
+# them ever starts being refused that is still RED and still news — being a
+# non-defect is not permission to change behaviour quietly.
+#
+# ⚠ THIS FILE IS RE-VERIFIED, NOT CARRIED. A DECLINE IS A MEASUREMENT WITH A
+# TIMESTAMP AND A WALL DECAYS. This file exists because a "five owner fixtures
+# wall this block" verdict was carried for six rounds after four of the five had
+# been REPAIRED, and re-pricing came back 5 -> 1. So every row carries the DATE
+# its reason was last checked against the tree, and a row whose reason cannot be
+# re-checked TODAY goes back to `bc_admits.ledger`, where the queue can see it.
+# Re-verifying a row means opening the PORT and the WALL, not reading this file.
+#
+# Format:  <fixture> <root-id> <path relative to the repo root, no .logos>
+#          # <REASON-TAG> <date verified> — <the evidence, in one line>
+# The row itself is the same three columns `bc_admits.ledger` uses and is parsed
+# by the same loop in `bc_admits_ledger_gate.sh`; the reason is a comment, so
+# there is one row format in this tree and not two.
+#
+# Held by `logos_00_bc_admits_ledger` exactly as the queue is: every row has a
+# file, every file under tests/imported/admit/ has a row in ONE of the two
+# files, and EACH file's own `# TOTAL` is held against its own row count.
+#
+# ── 2026-09-04, the split: 124 -> 99 queue rows + 25 here ───────────────────
+# EVERY ROW BELOW WAS RE-VERIFIED ON 2026-09-04 BY OPENING THE PORT, AND EVERY
+# "walled by X" CLAIM BY OPENING X. What the re-verification CONTRADICTED, so
+# that the next reader does not re-inherit it:
+#   · E0713 x3 (enum-drop-access, issue-52059-…, issue-53773) are recorded
+#     "retired, spec, by analogy with E0509". THE ANALOGY IS REFUTED AND THEY
+#     ARE NOT HERE. `intrinsic.drop.skip-moved-out-paths` says drop SUPPRESSES a
+#     moved-out sub-value; it says nothing about a `&mut` handed out PAST a
+#     destructor that then writes through it, which is what these three do
+#     (`drop_enum(d)` returns `opt.r` and `DropOpt::drop` stores 9 through it).
+#     They stay in the queue as the aliasing holes they are.
+#   · `do-not-ignore-lifetime-bounds-in-copy-proj--b` is recorded as a third A16
+#     row. It is NOT on the admit shelf at all any more — it is a fail fixture,
+#     tests/imported/fail/nll/, with a pinned diagnostic. The A16 group is TWO.
+#   · the six `lifereg.R18` M-SIG rows are recorded "rejected twice" and are NOT
+#     here. That decline decayed: every PROBES census through 09-07 prints
+#     "lifereg.R18 8" and the root is SIX rows today, and M-SIG §6.1 (`Self`
+#     substituted at the conformance site) LANDED in round 2026-09-04y after the
+#     rejection. A partially-landed compiler direction is a queue row.
+
+borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue  # LEGAL-AS-PORTED 2026-09-04 — &mk().v in a let init: the borrow, the field expr and mk() are all extending
+borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2  # LEGAL-AS-PORTED 2026-09-04 — &mk() bound directly by a let: the textbook temporary-lifetime extension
+borrowck-let-suggestion lifereg.D tests/imported/admit/lifetimes/borrowck-let-suggestion  # LEGAL-AS-PORTED 2026-09-04 — Holder{p:&mk()} — a braced-struct operand in a let init is extending
+borrowck-move-out-of-struct-with-dtor bck.E tests/imported/admit/borrowck/borrowck-move-out-of-struct-with-dtor  # DIVERGENCE-DROP 2026-09-04 — let g = s.f out of a Drop S — the shape intrinsic.drop.skip-moved-out-paths is written for
+borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13  # DIVERGENCE-DROP 2026-09-04 — let S{f:inner} = s out of a Drop S, same clause
+borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13  # DIVERGENCE-DROP 2026-09-04 — let S{f:inner} = s out of a Drop S, same clause
+borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--b  # DIVERGENCE-DROP 2026-09-04 — T{a:2,b:s0.b} moves one field out of a Drop T, same clause
+borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--t17  # DIVERGENCE-DROP 2026-09-04 — T{a:2,..s0} FRU out of a Drop T, same clause
+copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions  # DIVERGENCE-A16 2026-09-04 — [x;4] needs Copy; Foo{f:&i64} is auto-Copy at every region
+do-not-ignore-lifetime-bounds-in-copy nllmoves.NEW-S7-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy  # DIVERGENCE-A16 2026-09-04 — Foo{v:&i64} is auto-Copy at every region; impl Copy for Foo<'static> is not a restriction here
+issue-36082 bck.D tests/imported/admit/borrowck/issue-36082  # LEGAL-AS-PORTED 2026-09-04 — &mk().a in a let init, same extension as borrowck-borrowed-uniq-rvalue
+issue-64173-unused-lifetimes lifereg.L4 tests/imported/admit/lifetimes/issue-64173-unused-lifetimes  # OWNER-CORPUS 2026-09-04 — struct Foo<'s>{n:i64}: E0392 would red five pass fixtures that declare unused lifetime params
+missing-lifetime-in-assoc-type-1 lifereg.R17 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-1  # LEGAL-AS-PORTED 2026-09-04 — impl<'a> Give for &S — no assoc type mentions 'a, so E0207 does not fire
+missing-lifetime-in-assoc-type-5 lifereg.N2 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-5  # LEGAL-AS-PORTED 2026-09-04 — impl<'a> Get for S — no assoc type at all, so E0207 does not fire
+missing-lifetime-in-assoc-type-6 lifereg.L4 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-6  # LEGAL-AS-PORTED 2026-09-04 — type Item = i64 does not mention 'a, so E0207 does not fire
+move-errors--d nllmoves.B tests/imported/admit/nll/move-errors--d  # LEGAL-AS-PORTED 2026-09-04 — let A{s:v} = *r with s: i64 is a COPY, not a move; upstream's field is not Copy
+multiple-sources-for-outlives-requirement--c24b lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--c24b  # LEGAL-AS-PORTED 2026-09-04 — no turbofish: 'b is only in the covariant &'b i64 arg and shrinks into the body
+multiple-sources-for-outlives-requirement--t24 lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--t24  # LEGAL-AS-PORTED 2026-09-04 — no turbofish: same covariant shrink, and the &mut 1i64 temp lives to the end of the statement
+region-bounds-on-objects-and-type-parameters lifereg.NEW-N4 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters  # OWNER-CORPUS 2026-09-04 — struct Foo<'a,'b,'c> with 'c unused: the same five-fixture E0392 wall
+regions-assoc-type-in-supertrait-outlives-container lifereg.L6 tests/imported/admit/regions/regions-assoc-type-in-supertrait-outlives-container  # LEGAL-AS-PORTED 2026-09-04 — same: the port's p: &'a WithAssoc<TheType<'b>> parameter supplies the implied bound
+regions-escape-unboxed-closure bck.B tests/imported/admit/borrowck/regions-escape-unboxed-closure  # LEGAL-AS-PORTED 2026-09-04 — the port dropped the closure; NLL accepts a stored borrow never used after its referent dies
+regions-in-enums-anon lifereg.R17 tests/imported/admit/regions/regions-in-enums-anon  # OWNER-CORPUS 2026-09-04 — elided & in an enum payload, pinned by pass/bc_enumpldlt_placeholder_payload_lifetime E1
+regions-in-structs-anon lifereg.NEW-L1 tests/imported/admit/regions/regions-in-structs-anon  # OWNER-CORPUS 2026-09-04 — elided & in a struct field is the Logos idiom: 134 legal declaration sites in 101 files
+regions-outlives-projection-container lifereg.NEW-N1 tests/imported/admit/regions/regions-outlives-projection-container  # LEGAL-AS-PORTED 2026-09-04 — upstream writes let _: .. = loop{} with NO parameter; the port takes v: &'a .. and gets implied bounds
+regions-outlives-projection-container-wc lifereg.NEW-L3 tests/imported/admit/regions/regions-outlives-projection-container-wc  # LEGAL-AS-PORTED 2026-09-04 — same: the port's x: &'a WithAssoc<TheType<'b>> parameter supplies the implied bound
+# TOTAL 25
