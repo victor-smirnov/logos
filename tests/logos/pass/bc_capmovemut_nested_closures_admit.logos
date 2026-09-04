@@ -1,0 +1,16 @@
+// PAIR B, legal half — the NESTED twin of
+// fail/bc_capmovemut_sibling_closures_fail. Legal Rust: the outer `move`
+// closure takes `q`, and the inner `move` closure takes it out of the OUTER
+// CLOSURE'S CAPTURE FIELD, not out of `main`'s binding. This is the whole of
+// the `!in_closure_body_` condition on the landed deposit — without it the
+// inner capture re-moves a binding the outer capture already moved, and this
+// program is refused with "use of moved value 'q'".
+package bc_capmovemut_nested_closures_admit;
+fn main() -> i32 {
+    let mut a: i64 = 0i64;
+    let q: &mut i64 = &mut a;
+    let f = move || { let g = move || { *q = 3i64; }; g(); };
+    f();
+    if a != 3i64 { return 1i32; }
+    return 0i32;
+}

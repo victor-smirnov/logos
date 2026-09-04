@@ -5093,9 +5093,26 @@ private:
     // The VERB stays with the route (a borrow of a moved value is upstream's
     // "borrow of moved value", a plain use is "use of moved value"); the FACT
     // and its line live here. Returns true when it reported.
+    // LANDED 2026-09-03p — ONE FACT, TWO VERBS: same name, same line, same
+    // moved_line reported once as a borrow and once as a use. rustc prints one
+    // E0382. Measured as `movedupe`; see PROBES.md §2026-09-03p.
     bool report_moved_value(const VarState& vs, const std::string& name,
                             uint32_t line, const char* verb) {
         if (!vs.moved) return false;
+        // ⚠ STATE-FREE BY MEASUREMENT: two member-keyed spellings suppressed
+        // BOTH reports (the key outlived `suppress_reports_`, then survived
+        // `exclusivity_only_`). Ask the list what was actually emitted.
+        {
+            std::string tail = vs.moved_line
+                ? std::format("moved value '{}' (moved on line {})",
+                              name, vs.moved_line)
+                : std::format("moved value '{}'", name);
+            for (const auto& d : diags_.diags)
+                if (d.line == line && d.message.size() >= tail.size() &&
+                    d.message.compare(d.message.size() - tail.size(),
+                                      tail.size(), tail) == 0)
+                    return true;
+        }
         if (vs.moved_line)
             report(line, std::format("{} moved value '{}' (moved on line {})",
                                      verb, name, vs.moved_line));
@@ -10432,10 +10449,22 @@ private:
                               ts_.holds_mut_ref.count(
                                   std::string(_cmt.struct_name())) > 0));
                         if (_cmmut) logos::probe::census("capmove.mut");
-                        if (_cmmut && logos::probe::on("capmovemut"))
+                        // LANDED 2026-09-03p — a `move` capture of a `&mut` is
+                        // a move. BOTH conditions are load-bearing and both are
+                        // pinned in pairs; see PROBES.md §2026-09-03p.
+                        // ⚠ NOT `_cmref`: `&T` IS Copy and
+                        //   type_may_carry_borrow answers TRUE for it.
+                        // ⚠ `!in_closure_body_`: inside an enclosing closure's
+                        //   body the name denotes THAT closure's capture field,
+                        //   so a second deposit re-moves an already-moved
+                        //   binding and refuses legal nested `move` closures.
+                        if (_cmmut && !in_closure_body_)
                             consume(std::string(cap), line);
-                        if ((_cmmut || _cmdrop) &&
-                            logos::probe::on("capmovemutd"))
+                        // ⚠ EVERY capmove* ARM ABOVE NOW STACKS ON THIS DEPOSIT
+                        // and every recorded number for one predates it (rule 8).
+                        // PROBE capmovedropn — control twin, ⛔ ceiling 1 cost 1.
+                        if (_cmdrop && !in_closure_body_ &&
+                            logos::probe::on("capmovedropn"))
                             consume(std::string(cap), line);
                         ++i; return;
                     }

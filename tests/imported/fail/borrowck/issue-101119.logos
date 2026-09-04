@@ -1,6 +1,7 @@
 // rustc borrowck/issue-101119.rs — upstream E0382
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: fail (CLOSED 2026-09-03p — a `move` closure's capture of a `&mut`
+//   is a move of that binding, and the loop back edge carries it)
 // upstream: borrowck/issue-101119.rs  E0382
 package issue_101119;
 struct State { n: i64 }

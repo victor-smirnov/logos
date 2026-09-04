@@ -20132,6 +20132,161 @@ nllmoves.E 4 (E0713 ×3 = the §9.2 owner question) · bck.B 5 · lifereg.R17 4 
 nllmoves.B 3 · nllmoves.D 3 (issue-54382 is `aggwhole`'s fourth row and needs the
 blunt routing) · lifereg.D 3 · bck.E 3 (E0509, retired).
 
+# ═══ ROUND 2026-09-03p — LANDED. A `move` CLOSURE'S CAPTURE OF A `&mut` IS A MOVE OF THAT
+# BINDING, AND THE LOOP BACK EDGE CARRIES IT. 1 ROW CLOSED (PREDICTED 1 BY NAME, BOTH WAYS),
+# `# TOTAL` **133 -> 132**. COST **0 pass / 0 of 1340 cfail / stdlib four layers ok**.
+# ⚠ THE PRICING PHASE'S RECOMMENDED ARM REFUSED A LEGAL PROGRAM ITS 25 HAND PROGRAMS COULD
+# NOT SEE — NESTED `move` CLOSURES OVER ONE `&mut` — AND THE SAME COUNTER-EXAMPLE
+# RE-ATTRIBUTES A COST 09-03o BOOKED TO THE DROP HALF. RULE 5 FOR THE SECOND ROUND RUNNING.
+# ALSO LANDED: the duplicate diagnostic this row owed, `movedupe`. ═══
+
+## 0. STEP 1, RE-DERIVED — TWO CORRECTIONS TO THE HANDED-DOWN REPORT
+    Live probe names **166**; the 09-03o report says 161. THIRD ROUND RUNNING that the
+    handed-down probe count is stale (rule 17). `# TOTAL` **133** at open, and 133 by
+    direct listing. Channel split **lifereg 51 · nllmoves 42 · bck 40** — unchanged, and
+    the prompt's durable claim holds. Baseline, quoted from the store:
+    gate-db **build 674 — 133 passed / 0 failed**, i.e. all 133 rows still admitted.
+    Build hash at close **1a329cb058aa0be1** (READ).
+
+## 1. ⚠ THE COUNTER-EXAMPLE THAT CONDEMNED THE RECOMMENDED ARM
+`/home/logos/sandbox/capmove2/`, twelve programs in shapes 09-03o did not use, each proven
+to reach the site by `capmove.mut` in `LOGOS_CENSUS` (⚠ `LOGOS_CENSUS` is a FILE PATH, not
+a flag — read as a flag it prints nothing and every program looks unreached):
+    n01 the `&mut` binding REASSIGNED after the closure, then used     admitted ✓
+    n02 SHADOWED by a second `let q` after the closure                 admitted ✓
+    n03 closure in the `if` arm, `*q` in the `else` arm                admitted ✓
+    n04 closure inside an `if` inside a `while`                        admitted ✓
+    n05 two move closures over two DIFFERENT `&mut`                    admitted ✓
+    n07 struct holding `&mut`, the binding reassigned after            admitted ✓
+    n08 closure inside a `match` arm                                   admitted ✓
+    n09 the REFERENT `a` read after the closure's last use             admitted ✓
+    n10 a `&mut` PARAMETER captured, referent read in the CALLER       admitted ✓
+    n12 two `run(move || …)` STATEMENTS                                admitted, 0 census
+    p01 POSITIVE CONTROL, `*q = 2i64;` after the move                  REFUSED ✓ right text
+    **n11 NESTED `move` CLOSURES OVER ONE `&mut` — LEGAL RUST — ⛔ REFUSED**
+         "use of moved value 'q' (moved on line 5)", `capmove.mut 2`.
+**THE CAUSE.** `walk_closure_body` walks the outer closure's body IN THE SAME FRAME, so the
+INNER `move` closure's capture of `q` deposits a second `consume()` against the enclosing
+frame's binding that the outer capture already moved. Inside the outer body the name denotes
+the OUTER CLOSURE'S CAPTURE FIELD, not the frame's binding. `in_closure_body_`
+(borrow_check.cpp, member of the checker) already separates them and is TRUE at the inner arm.
+
+**⇒ IT RE-ATTRIBUTES A 09-03o COST.** 09-03o §6 booked `l08` (nested `move` closures over one
+Drop value) as `capmovety`/`capmovedrop`'s DROP-HALF cost — "the drop half again". It is not:
+it is this nesting defect, and it is shared by every arm that deposits here. MEASURED on the
+09-03o binary: `l08` is refused by `capmovedrop` and ADMITTED by `capmovemut`, and n11 is the
+same program with `&mut` where l08 has `Drop`. A shared symptom is not a shared defect.
+
+## 2. THE TABLE — THE NARROWED ARM AND ITS CONTROL TWIN, EVERY COST COLUMN READ
+    probe          keyed on                              fires  ceil  cost  cfail    stdlib  verdict
+    capmovemutn    `&mut` AND !in_closure_body_              2     1     0  0/1340   ok      ✓ LANDED
+    capmovedropn   needs_drop AND !in_closure_body_         10     1     1  0/1340   ok      ⛔ 1 vs 1
+    movedupe       one fact reported twice at one line      45     0     0  1/1340   ok      ✓ LANDED (§4)
+**RULE 9 / RULE 18, AND THE TWIN IS WHAT SHOWS THE KEY DOES THE SEPARATING.** With the SAME
+nesting guard over the DROP key the arm is ⛔ ceiling 1 vs cost 1: it buys
+`borrowck-loan-blocks-move-cc--r10` and refuses `logos_25_spec_pass_borrow_4`, the
+body-moves-the-capture shape (09-03o's l03). The two arms differ ONLY in the key, and the
+`&mut` key is the one that costs nothing. `&T` IS Copy; `type_may_carry_borrow` is the
+wrong predicate and answers TRUE for it.
+**THE NESTING GUARD ALSO SHRANK THE DROP ARM'S CEILING.** `capmovedrop` was ceiling 2 in
+09-03o; `capmovedropn` is ceiling 1. The row it loses is `borrowck-move-by-capture` — which
+means 09-03o closed that row THROUGH THE NESTING DEFECT, i.e. by a wrong mechanism. It was
+never bought, and it is not bought here.
+
+## 3. THE CLOSED SET, DIFFED BOTH WAYS, DIAGNOSTIC READ ON THE BINARY
+Predicted BY NAME AND BY NUMBER before the first compiler edit, in
+`build/round-2026-09-03p/targets-2026-09-03p.txt`: **N = 1, {issue-101119}**.
+Actual, from `gate-run.sh -R '^logos_00_bc_admit_'` on the landed binary — gate-db
+**build 678 — 132 passed / 1 failed**, the one failure being
+`logos_00_bc_admit_borrowck_issue-101119`. **predicted ∖ actual = ∅. actual ∖ predicted = ∅.**
+The other 132 rows unchanged.
+    issue-101119   `cannot borrow moved value 'state' (moved on line 13)`
+      Upstream E0382, "value moved here, in previous iteration of loop". RIGHT variable,
+      RIGHT reason, RIGHT line — the move IS the capture on the loop's own line, and the
+      refusal is the SECOND iteration's arrival at it. ⚠ ADJACENT, NOT VERBATIM, and
+      recorded as such: rustc's headline for this program is "use of moved value: `state`"
+      while the survivor of our pair is the BORROW verb ("borrow of moved value" is the same
+      E0382's other wording). The fact and its line are upstream's; the verb is the route's.
+
+## 4. THE DUPLICATE THE ROW OWED — AND A SECOND WITNESS THAT IS NOT A CLOSURE
+09-03o recorded that this row prints TWO messages where rustc prints one, and that a landing
+owes the suppression. Both were true and neither was wrong: `walk_closure_body` runs BEFORE
+the capture loop, so the body's use of the captured name reaches `take_borrow_whole_`
+("cannot borrow moved value") and the capture deposit's own `consume()` reaches
+`report_moved_value` again ("use of moved value") — same name, same line, same `moved_line`.
+ONE fact, two verbs. `movedupe` collapses it.
+⚠ **THE SECOND WITNESS IS NOT A CLOSURE AT ALL.** `movedupe`'s single cfail row is
+`logos_06_diagnostics_fail_copy-suggestion-region-vid`, an imported fixture that has been
+pinning the identical pair since it was imported:
+    before  use of moved value 'helpers' (moved on line 10)
+            cannot borrow moved value 'helpers' (moved on line 10)
+    after   use of moved value 'helpers' (moved on line 10)
+Its `.expected` matched BEFORE and matches AFTER — `run_test.sh` greps a substring, so this
+fixture was green over a duplicate and is invisible to ctest either way (rule 15 in the
+other direction: the rc oracle cannot see a REMOVED line any more than an added one). It is
+now an EXACT match. Read before believing; the ceiling-probe verdict for `movedupe` is the
+script's rule-14 stop sign ("changes more pinned diagnostics (1) than it closes rows (0)")
+and it is the right warning for the wrong branch — this one removes a redundant duplicate on
+the round's own row, and the corpus change is that same duplicate collapsing.
+⚠ **THE DEDUPE HAD TO BE STATE-FREE, AND TWO SPELLINGS PROVED IT.** A member holding the
+last key suppressed **BOTH** reports and took issue-101119 back to rc 0 UNDER AN ARM THAT
+CLOSES IT: loop dataflow runs a dry pass (`suppress_reports_`) that records the key without
+emitting. Guarding on `suppress_reports_` was still not enough, because `report()` ALSO
+drops a message under `exclusivity_only_` after the key was recorded. Only asking `diags_`
+what was actually emitted is honest. A dedupe keyed on intent, not on output, is a gate lie.
+
+## 5. ⚠ A FALSE ZERO I MADE MYSELF, AND IT WOULD HAVE READ AS A REFUTATION
+`probe::on` arms **ONE name per process**. `LOGOS_PROBE=capmovemutn,movedupe` arms NEITHER,
+and the pair printed rc 0 — which reads exactly like "the dedupe suppressed the whole
+diagnostic". Three builds went into chasing it. The rule is in the tree already (rule 1: a
+zero is not an answer until the site is proven live) and the census that proves the site live
+is the same instrument that would have caught this: `movedupe.ask` counted ZERO. Recorded so
+the next round does not spend the builds. **To exercise two arms together, land one first.**
+
+## 6. THE FIXTURES — TWO PAIRS, ONE PER LOAD-BEARING TOKEN, CONTROL-REVERTED
+    fail/bc_capmovemut_mutref_capture_fail   `&mut` capture, `*q` after   use of moved value 'q'
+    pass/bc_capmovemut_sharedref_capture_admit  the same with `&`         exit: 0
+      ONE TOKEN apart (`mut`). This pair IS the key, and it pins `&T`-is-Copy against
+      `type_may_carry_borrow` for whoever next reaches for a carries-a-borrow predicate.
+    fail/bc_capmovemut_sibling_closures_fail  two move closures, SAME level  use of moved value 'q'
+    pass/bc_capmovemut_nested_closures_admit  the same two, NESTED           exit: 0
+      This pair IS `!in_closure_body_`: siblings both deposit in the frame that owns the
+      binding and the second is E0382; nested, the inner one takes it out of the OUTER
+      CLOSURE'S capture field and the program is legal.
+    imported admit -> fail: `issue-101119`, diagnostic pinned in full.
+**CONTROL REVERT, RUN BEFORE THE FIXTURES WERE BELIEVED** (borrow_check.cpp stashed, full
+rebuild, same six tests): the three fail fixtures ALL RED, both pass halves still GREEN —
+they were legal before and after, which is the point of a pair. Restored byte-identical
+(`diff -q` against a copy taken before the stash) and rebuilt.
+
+## 7. ⚠ CARRIED FORWARD FROM 09-03o, RE-CHECKED, STILL OPEN — AND WORTH MORE THAN THIS ROW
+ 1. **THE LOOP BACK EDGE STILL DOES NOT SEE A DROP-ONLY CAPTURE'S MOVE.** `i02`
+    (`while … { let f = move || a.x; }` over a Drop `a`) is STILL ADMITTED, with the site
+    live and `consume()` executing, while `let b: D = a;` in the same position is refused.
+    issue-101119 closes because a `&mut` PARAMETER capture is a move, not because that hop
+    works. The witness exists today and the prize is bigger than this row.
+ 2. **THE NON-`let` ClosureBox ARM STILL HAS NO CAPTURE DEPOSIT.** Re-measured this round:
+    `n12` (`run(move || …);` twice, as statements) records **ZERO** census arrivals. That is
+    why `borrowck-loan-blocks-move-cc--t10` does not close while its one-token twin `--r10`
+    does — two ledger rows separated by a syntactic accident of the checker.
+ 3. **`struct NotCopy { x: i64 }` IS SILENTLY Copy** — A16 structural auto-Copy, an OWNER
+    question, and the reason `nllmoves.C issue-75904-move-closure-loop` is admitted.
+    Reported, not pursued, not edited. Off-ledger and left off-ledger.
+
+## 8. THE TREE AT CLOSE
+`src/compiler/borrow_check.cpp` +32/-3 (18 comment lines after a deliberate trim from 38 —
+the post-round prose check applied to my own diff before the commit, not after). Probe arms:
+`capmovemut` and `capmovemutn` REMOVED, subsumed by the landing; `capmovedropn` installed as
+the priced control twin with its ⛔ 1 vs 1 in one line; `capmove`, `capmoveloan`,
+`capmovety`, `capmovedrop`, `capmoveref`, `capmovemutd` left gated with a ⚠ saying they now
+STACK on a landed deposit and that every recorded number for them predates it (rule 8).
+Eight census buckets kept. GATES ON THE FINAL BINARY: §9.
+NOT SPENT, each with its number: bck.C 11 (the `move` half is now spent — 3 of its 6 rows
+were reachable, 1 bought, 1 blocked by §7.2, 1 by §7.1) · nllmoves.C 9 (one blocked by §7.3)
+· lifereg.R18 7 (M-SIG, rejected) · bck.NEW 6 · bck.D 6 (3 owner) · lifereg.NEW-N1 5 ·
+bck.B 5 · lifereg.R17 4 · nllmoves.E 4 (E0713 ×3 owner) · nllmoves.B 3 · nllmoves.D 3 ·
+lifereg.D 3 · bck.E 3 (E0509, retired by spec).
+
 # ═══ ROUND 2026-09-03o — PRICING. THE `move`-CAPTURE ARM RETURNS BEFORE EVERY DEPOSIT, SO
 # borrow_check's MOVE CHANNEL NEVER LEARNS THAT A `move` CAPTURE IS A MOVE. `capmove`'s
 # 2026-08-27 RECORD IS STALE IN ALL THREE COLUMNS (7/2/3 → **35 fires / ceiling 3 / cost 7**).

@@ -1,0 +1,13 @@
+// PAIR A, illegal half — ONE TOKEN (`mut`) from
+// pass/bc_capmovemut_sharedref_capture_admit: a `move` closure's capture of a
+// `&mut` IS a move of that binding, because `&mut T` is the reference that is
+// not Copy. `*q` after the closure is upstream E0382.
+package bc_capmovemut_mutref_capture_fail;
+fn main() -> i32 {
+    let mut a: i64 = 0i64;
+    let q: &mut i64 = &mut a;
+    let f = move || { let v: i64 = *q; };
+    f();
+    let w: i64 = *q;
+    return w as i32;
+}

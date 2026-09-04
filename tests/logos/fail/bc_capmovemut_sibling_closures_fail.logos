@@ -1,0 +1,14 @@
+// PAIR B, illegal half — the SIBLING twin of
+// pass/bc_capmovemut_nested_closures_admit: two `move` closures at the SAME
+// level over one `&mut`. The first capture moves `q`, so the second is
+// upstream E0382. Both deposits are in the frame that owns the binding.
+package bc_capmovemut_sibling_closures_fail;
+fn main() -> i32 {
+    let mut a: i64 = 0i64;
+    let q: &mut i64 = &mut a;
+    let f = move || { *q = 1i64; };
+    let g = move || { *q = 2i64; };
+    f();
+    g();
+    return 0i32;
+}

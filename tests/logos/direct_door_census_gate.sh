@@ -1357,10 +1357,14 @@ PIN = {
     # 2026-09-03n: 2634 -> 2637. Three pass twins of the call-result loan
     # (bc_argretlet_call_arg_dead_admit, bc_argretlet_mask_scratch_admit,
     # bc_argretlet_recv_borrowing_self_admit), all three non-glob.
-    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2637.
-    'corpus'            : 2637,
+    # 2026-09-03p: 2637 -> 2639. Two pass twins of the `move`-capture deposit
+    # (bc_capmovemut_sharedref_capture_admit — `&T` IS Copy, the token the key
+    # turns on; bc_capmovemut_nested_closures_admit — nested `move` closures
+    # over one `&mut`, the `!in_closure_body_` condition), both non-glob.
+    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2639.
+    'corpus'            : 2639,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2446,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2448,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

@@ -1,0 +1,15 @@
+// PAIR A, legal half — ONE TOKEN (`mut`) from
+// fail/bc_capmovemut_mutref_capture_fail: `&T` IS Copy, so the same `move`
+// capture copies the reference and leaves `q` usable. This is the token the
+// key turns on, and it is why `type_may_carry_borrow` was the WRONG
+// predicate — it answers TRUE for `&i64` (PROBES.md 2026-09-03o §6, l06).
+package bc_capmovemut_sharedref_capture_admit;
+fn main() -> i32 {
+    let mut a: i64 = 7i64;
+    let q: &i64 = &a;
+    let f = move || { let v: i64 = *q; };
+    f();
+    let w: i64 = *q;
+    if w != 7i64 { return 1i32; }
+    return 0i32;
+}

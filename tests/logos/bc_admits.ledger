@@ -1226,7 +1226,22 @@
 # no borrow. `Splitter::next` summarises `result<-0x1 EXACT` and yet Rust ties
 # the ITEM to `Self`'s lifetime, not to the `&mut self` loan; without the
 # question `stdlib/lang` does not build. PROBES.md 2026-09-03n.
-# TOTAL 133
+# 2026-09-03p — 133 -> 132. ONE row, predicted as one BY NAME before the
+# landing (build/round-2026-09-03p/targets-2026-09-03p.txt); closed set ==
+# predicted set, both ways. A `move` closure's capture of a `&mut` (or of a
+# struct holding one) is a MOVE of that binding — `&mut T` is the reference
+# that is not Copy — and borrow_check's ClosureBox arm returned before every
+# deposit, so its own loop-aware move channel never learned it.
+#   issue-101119   bck.C   E0382 (moved in the previous iteration of the loop)
+# ⚠ TWO CONDITIONS, AND THE SECOND WAS BOUGHT WITH A COUNTER-EXAMPLE. The key
+# is `&mut`, NOT "carries a borrow": `&T` IS Copy and type_may_carry_borrow
+# answers TRUE for it. And the deposit belongs to the frame that OWNS the
+# binding — inside an enclosing closure's body the captured name denotes THAT
+# closure's capture field, so NESTED `move` closures over one `&mut` (legal
+# Rust) were refused until `!in_closure_body_` was added. Both tokens are
+# pinned in PAIRS: fail/bc_capmovemut_{mutref_capture,sibling_closures} vs
+# pass/bc_capmovemut_{sharedref_capture,nested_closures}. PROBES.md 2026-09-03p.
+# TOTAL 132
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1253,7 +1268,6 @@ borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrow
 borrowck-unboxed-closures bck.A tests/imported/admit/borrowck/borrowck-unboxed-closures
 borrowed-data-escapes-closure-148392 bck.C tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
-issue-101119 bck.C tests/imported/admit/borrowck/issue-101119
 issue-36082 bck.D tests/imported/admit/borrowck/issue-36082
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
 issue-58776-borrowck-scans-children bck.C tests/imported/admit/borrowck/issue-58776-borrowck-scans-children
