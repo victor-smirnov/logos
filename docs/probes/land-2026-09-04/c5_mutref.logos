@@ -1,0 +1,17 @@
+// COUNTER-EXAMPLE root 5 — `(*r)()` through a `&mut` borrow of a closure,
+// called TWICE. The MutRef half of the discriminator.
+package c5_mutref;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn main() -> i32 {
+    let k: i64 = 5i64;
+    let mut c = || { return k + 1i64; };
+    let r = &mut c;
+    let a: i64 = (*r)();
+    let b: i64 = (*r)();
+    printi("a=%d\n", a as i32);
+    printi("b=%d\n", b as i32);
+    if a != 6i64 { return 1i32; }
+    if b != 6i64 { return 2i32; }
+    return 0i32;
+}

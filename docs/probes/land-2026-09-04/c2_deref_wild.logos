@@ -1,0 +1,24 @@
+// COUNTER-EXAMPLE root 2 — `_` through a DEREF, counted.
+package c2_deref_wild;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+static mut N: i64 = 0i64;
+struct Owner { k: i64 }
+impl Drop for Owner { fn drop(self: Owner) { unsafe { N = N + 1i64; } } }
+struct A { o: Owner, t: i64 }
+fn f(r: &A) -> i64 {
+    let A { o: _, t: w } = *r;
+    return w;
+}
+fn main() -> i32 {
+    {
+        let a: A = A { o: Owner { k: 7i64 }, t: 2i64 };
+        let g: i64 = f(&a);
+        if g != 2i64 { return 3i32; }
+    }
+    unsafe {
+        printi("N=%d\n", N as i32);
+        if N != 1i64 { return 1i32; }
+    }
+    return 0i32;
+}

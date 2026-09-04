@@ -3199,15 +3199,16 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
     if (TypeRef(t).kind() == LogosType::Kind::Enum) type_name = std::string(TypeRef(t).enum_name());
     if (type_name.empty()) return {};
     std::string mangled = type_name + "__drop";
-    // PROBE dropident (2026-09-04five, root 3): the destructor is keyed on the
-    // MANGLED NAME, so an inherent `drop` or a USER trait's `drop` runs at scope
-    // exit. `SemaFuncInfo::trait_name` is the fact, and explicit_destructor_call
-    // already reads it off this same candidate list. PROBES.md 2026-09-02u §3.
-    // The arm is the EXISTING reader, called: no second copy of the identity
-    // test, and no new bare-name intercept for key_identity_lint to census.
-    if (logos::probe::on("dropident") &&
-        !const_cast<SemaChecker*>(this)->explicit_destructor_call(t))
-        return {};
+    // THE DESTRUCTOR IS THE `Drop` TRAIT'S `drop`, NOT EVERY FN SPELLED
+    // `<T>__drop`: the key below is a MANGLED NAME, so an inherent `fn drop` or
+    // any other trait's `drop` was run at scope exit. KEY-IDENTITY: the bare name
+    // `Drop` is the carried decision (collect_impl's builtin_marker_ merges any
+    // package's `trait Drop`), the same words explicit_destructor_call uses.
+    // ⚠ PER-CANDIDATE, and it must not become a call to explicit_destructor_call:
+    // that reader's global `traits_` bail costs 58 fixtures. PROBES.md 2026-09-04land root 3.
+    auto is_drop_impl_ = [](const SemaFuncInfo* c) {
+        return c && c->trait_name == "Drop";
+    };
     // B-mv-02: a candidate Drop impl must belong to the SAME package as `t`.
     // A user `struct Vec<T>` and the stdlib `Vec<T>` share the bare concrete
     // name `Vec$G1$i32` (struct TYPES are package-qualified at the MLIR level,
@@ -3223,9 +3224,11 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
     };
     std::vector<TypeRef> sig{t};
     if (auto* fi = find_func_by_base_and_signature(mangled, sig, false))
-        return fi->symbol_name.empty() ? mangled : fi->symbol_name;
+        if (is_drop_impl_(fi))
+            return fi->symbol_name.empty() ? mangled : fi->symbol_name;
     for (auto* cand : find_func_candidates(mangled)) {
         if (!cand || cand->param_types.size() != 1) continue;
+        if (!is_drop_impl_(cand)) continue;
         auto pt = cand->param_types[0];
         if (pt && types_equal(pt, t))
             return cand->symbol_name.empty() ? mangled : cand->symbol_name;
@@ -3238,6 +3241,7 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
     // here is sufficient — no codegen change needed.
     for (auto* cand : find_func_candidates(mangled)) {
         if (!cand || cand->param_types.size() != 1) continue;
+        if (!is_drop_impl_(cand)) continue;
         auto pt = cand->param_types[0];
         if (!pt) continue;
         auto pk = TypeRef(pt).kind();
@@ -3256,6 +3260,7 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
     // struct's methods.
     for (auto* cand : find_func_candidates(mangled)) {
         if (!cand || cand->param_types.size() != 1) continue;
+        if (!is_drop_impl_(cand)) continue;
         auto pt = cand->param_types[0];
         if (!pt) continue;
         auto pk = TypeRef(pt).kind();

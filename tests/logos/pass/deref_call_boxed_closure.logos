@@ -1,0 +1,17 @@
+// PIN (2026-09-04land, root 5): `(*b)()` on a `Box<dyn Fn()>`. `Box::deref`
+// already yields the {fn,env} pair's address (box_new memcpys the pair INLINE),
+// so the deref must NOT load again. Pre-fix it loaded the function pointer AS
+// data: compile rc 0, run rc 139 — a SILENT SIGSEGV on an obvious spelling.
+// TWIN one token apart: deref_call_boxed_closure_direct (`(*b)()` -> `b()`),
+// which is the direction that MUST keep the load — a blanket kind test breaks
+// it, and that is why the discriminator is the operand's reference kind.
+package deref_call_boxed_closure;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn main() -> i32 {
+    let b: Box<dyn Fn() -> i64> = Box::new(|| { return 21i64; });
+    let got: i64 = (*b)();
+    printi("got=%d\n", got as i32);
+    if got != 21i64 { return 1i32; }
+    return 0i32;
+}

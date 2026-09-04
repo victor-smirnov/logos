@@ -1,0 +1,19 @@
+// COUNTER-EXAMPLE root 3 — the PRELUDE `Drop` impl must still run, EXACTLY ONCE.
+// The assertion is the destructor count.
+package c3_prelude;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+static mut N: i64 = 0i64;
+struct S { k: i64 }
+impl Drop for S { fn drop(self: S) { unsafe { N = N + 1i64; } } }
+fn main() -> i32 {
+    {
+        let s: S = S { k: 4i64 };
+        if s.k != 4i64 { return 3i32; }
+    }
+    unsafe {
+        printi("N=%d\n", N as i32);
+        if N != 1i64 { return 1i32; }
+    }
+    return 0i32;
+}

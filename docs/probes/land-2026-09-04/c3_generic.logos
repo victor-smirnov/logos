@@ -1,0 +1,21 @@
+// COUNTER-EXAMPLE root 3 — a GENERIC `impl<T> Drop for Foo<T>`: the drop fn is
+// registered under a TEMPLATE name and matched by base name, three loops down.
+package c3_generic;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+static mut N: i64 = 0i64;
+struct Foo<T> { v: T }
+impl<T> Drop for Foo<T> { fn drop(self: &mut Self) { unsafe { N = N + 1i64; } } }
+fn main() -> i32 {
+    {
+        let a: Foo<i64> = Foo { v: 4i64 };
+        let b: Foo<i32> = Foo { v: 5i32 };
+        if a.v != 4i64 { return 3i32; }
+        if b.v != 5i32 { return 4i32; }
+    }
+    unsafe {
+        printi("N=%d\n", N as i32);
+        if N != 2i64 { return 1i32; }
+    }
+    return 0i32;
+}

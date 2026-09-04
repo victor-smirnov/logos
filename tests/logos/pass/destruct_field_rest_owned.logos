@@ -1,0 +1,24 @@
+// PIN (2026-09-04land, root 2): `..` over an OWNED source leaves the untaken
+// field with the source, which must still drop it. Pre-fix the whole receiver
+// was marked moved unconditionally, so the field was LEAKED — 0 destructor runs
+// for 1 value, exit code 0, and no rc oracle anywhere can see it.
+// TWIN one token apart: destruct_field_rest_through_deref (`a` -> `*r`).
+package destruct_field_rest_owned;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+static mut N: i64 = 0i64;
+struct Owner { k: i64 }
+impl Drop for Owner { fn drop(self: Owner) { unsafe { N = N + 1i64; } } }
+struct A { o: Owner, t: i64 }
+fn main() -> i32 {
+    {
+        let a: A = A { o: Owner { k: 7i64 }, t: 2i64 };
+        let A { t: w, .. } = a;
+        if w != 2i64 { return 3i32; }
+    }
+    unsafe {
+        printi("N=%d\n", N as i32);
+        if N != 1i64 { return 1i32; }
+    }
+    return 0i32;
+}

@@ -1797,7 +1797,11 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
     // E0507 at a destructuring `let`: only a BY-VALUE binding of a move-typed
     // field moves out. `ref`/`_` exclusions and the refuted wider twins:
     // PROBES.md 2026-09-02pat §7/§10, 2026-09-02land.
-    if (is_unowned_move_source(rhs)) {
+    // UNOWNED SOURCE (`= *r`): `__dst` is a bit-copy of a place this scope does
+    // NOT own and must drop nothing; an OWNED source makes `__dst` the owner of
+    // every field the pattern does not take. PROBES.md 2026-09-04land root 2.
+    const bool unowned_src_ = is_unowned_move_source(rhs);
+    if (unowned_src_) {
         std::string bn_;
         // `ref v` / `_` are both PAT_WILD; IS_REF separates them.
         auto by_ref_ = [&](TinyMapView n) {
@@ -1860,8 +1864,9 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
     }
     // B98: helper that destructures a struct-pattern into the block.
     // Recursive (handles nested PAT_STRUCT in field values).
-    std::function<void(TinyMapView, const std::string&, TypeRef)> emit_destruct;
-    emit_destruct = [&](TinyMapView pat, const std::string& recv_var, TypeRef recv_type) {
+    std::function<void(TinyMapView, const std::string&, TypeRef, bool)> emit_destruct;
+    emit_destruct = [&](TinyMapView pat, const std::string& recv_var, TypeRef recv_type,
+                        bool unowned) {
         if (!pat.has_key(la::ITEMS)) return;
         auto items_av = pat.get(la::ITEMS.code);
         if (!items_av.is_pointer()) return;
@@ -1869,12 +1874,20 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
         if (!fitems.has_key(la::ITEMS)) return;
         auto fields = arr_of(fitems.get(la::ITEMS.code));
         std::string recv_sname(TypeRef(recv_type).struct_name());
+        // A field this pattern does NOT take by value stays the receiver's, so
+        // the receiver's own scope-exit Drop must still run for it.
+        std::vector<std::string> byval_taken_;
+        bool left_behind_ = false;
+        auto is_ref_bind_ = [&](TinyMapView n) {
+            return n.has_key(la::IS_REF) && n.get(la::IS_REF.code).is_value() &&
+                   n.get(la::IS_REF.code).as_value<uint8_t>() != 0;
+        };
         for (uint64_t i = 0; i < fields.size(); ++i) {
             auto fav = fields.get(i);
             if (!fav.is_pointer()) continue;
             auto fnode = map_of(fav);
             int32_t fc = code_of(fnode);
-            if (fc == la::PAT_REST) continue;
+            if (fc == la::PAT_REST) { left_behind_ = true; continue; }
             if (fc != la::PAT_FIELD) continue;
             auto fname = std::string(str_of(fnode.get(la::NAME.code)));
             std::string bind_name = fname;
@@ -1890,24 +1903,15 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                 bind_name = std::string(str_of(sub.get(la::NAME.code)));
                 has_sub = false;  // simple alias — treat as name bind
             }
-            // PROBE dstrbind (2026-09-04five, root 2): this loop emits a plain
-            // by-value field READ for every field spelling, so `ref v` copies and
-            // `_` binds — both double-free. The crude arm emits NOTHING for either
-            // spelling (correct for `_`, a refusal-by-omission for `ref`).
-            if (logos::probe::on("dstrbind")) {
-                auto probe_isref_ = [&](TinyMapView n) {
-                    return n.has_key(la::IS_REF) &&
-                           n.get(la::IS_REF.code).is_value() &&
-                           n.get(la::IS_REF.code).as_value<uint8_t>() != 0;
-                };
-                bool probe_skip_ = probe_isref_(fnode) || bind_name == "_";
-                if (fnode.has_key(la::VALUE)) {
-                    auto probe_sv_ = map_of(fnode.get(la::VALUE.code));
-                    if (code_of(probe_sv_) == la::PAT_WILD && probe_isref_(probe_sv_))
-                        probe_skip_ = true;
-                }
-                if (probe_skip_) continue;
+            // THE FIELD'S BINDING MODE. `ref v` / `_` / `v` are three different
+            // answers to "who owns this field afterwards"; the shorthand carries
+            // the mode on the field node, the sub-pattern spelling on PAT_WILD.
+            bool by_ref_bind_ = is_ref_bind_(fnode);
+            if (fnode.has_key(la::VALUE)) {
+                auto sv_ = map_of(fnode.get(la::VALUE.code));
+                if (code_of(sv_) == la::PAT_WILD && is_ref_bind_(sv_)) by_ref_bind_ = true;
             }
+            const bool wild_bind_ = !by_ref_bind_ && bind_name == "_" && !has_sub;
             // ── D1 round 8 / S0: THE PATTERN PATH DROPPED THE pkg_hint ─────
             //
             // THE DEFECT (measured). `let Hs352959f3caf5b795Cur { found, .. } =
@@ -1961,12 +1965,29 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                     ft = subst_type_sema(ft, subst);
                 }
             }
+            // `_` TAKES NOTHING: emit no binding at all.
+            if (wild_bind_) { left_behind_ = true; continue; }
+            // `ref v` BORROWS: bind `&recv.field`, type `&T` (the rule
+            // `spec/pass/pat_2` states and the by-value read did not hold).
+            if (by_ref_bind_ && !has_sub) {
+                left_behind_ = true;
+                TypeRef rft = make_ref(false, ft);
+                define(bind_name, rft);
+                auto recv = builder().var_ref(recv_var, recv_type);
+                auto fr   = builder().field_read(std::move(recv), fname, ft);
+                lir::SLet sl;
+                sl.name = bind_name; sl.type = rft; sl.is_mut = false;
+                sl.value = builder().addr_of_temp(std::move(fr), false, rft);
+                blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                continue;
+            }
             // Emit a let with the field value.
             std::string fvar = has_sub
                 ? std::format("__dst_{}_{}", destruct_counter_, fname)
                 : bind_name;
             if (has_sub) ++destruct_counter_;
             define(fvar, ft);
+            if (is_move_type(ft)) byval_taken_.push_back(fname);
             {
                 auto recv = builder().var_ref(recv_var, recv_type);
                 auto fr   = builder().field_read(std::move(recv), fname, ft);
@@ -1989,21 +2010,27 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                         std::string_view(TypeRef(ft).struct_name()), sub_sname));
                     continue;
                 }
-                emit_destruct(sub, fvar, ft);
+                emit_destruct(sub, fvar, ft, /*unowned=*/false);
             } else if (has_sub) {
                 error(std::format(
                     "let struct-pattern field '{}': nested patterns of this kind not "
                     "yet supported; bind to a name", fname));
             }
         }
+        // WHO OWNS WHAT IS LEFT. Each by-value binding owns its field; the receiver
+        // is marked moved WHOLESALE only when the pattern takes every field by value
+        // or owns nothing to begin with, else only the taken fields are marked and
+        // the receiver's own Drop still runs for the rest. A type with its own `drop`
+        // fn keeps the blanket mark: a partial receiver Drop would call that
+        // destructor on a half-moved value. PROBES.md 2026-09-04land root 2.
+        if (!is_move_type(recv_type)) return;
+        if (unowned || !left_behind_ || !drop_fn_for(recv_type).empty()) {
+            mark_moved(recv_var);
+            return;
+        }
+        for (auto& f : byval_taken_) mark_moved(recv_var + "." + f);
     };
-    emit_destruct(pat_node, tmp, rhs_type);
-    // The destructure moved the struct's fields into the bindings (each field
-    // binding owns the field value, e.g. a String's buffer ptr). The source
-    // temp must NOT also drop those fields at scope exit — that double-frees.
-    // A destructure consumes the whole value, so mark the temp moved (its
-    // scope-exit Drop is suppressed; the field bindings own + drop the data).
-    if (is_move_type(rhs_type)) mark_moved(tmp);
+    emit_destruct(pat_node, tmp, rhs_type, unowned_src_);
     lir::SBlock sb;
     sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
     sb.body = lir_mirror_block(*cur_prog_, blk);

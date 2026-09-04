@@ -1,0 +1,22 @@
+// PIN (2026-09-04land, root 3): a USER trait whose method happens to be named
+// `drop`, with NO `impl Drop` anywhere. Pre-fix `Tidy::drop` ran at scope exit.
+// TWIN one token apart: drop_ident_other_trait_named_drop (`trait Tidy` -> `trait Drop`),
+// which is the 109-fixture corpus idiom and MUST keep running.
+package drop_ident_other_trait_is_not_a_destructor;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+static mut I: i64 = 0i64;
+trait Tidy { fn drop(self: &mut Self); }
+struct S { k: i64 }
+impl Tidy for S { fn drop(self: &mut Self) { unsafe { I = I + 1i64; } } }
+fn main() -> i32 {
+    {
+        let mut s: S = S { k: 5i64 };
+        if s.k != 5i64 { return 3i32; }
+    }
+    unsafe {
+        printi("I=%d\n", I as i32);
+        if I != 0i64 { return 1i32; }
+    }
+    return 0i32;
+}

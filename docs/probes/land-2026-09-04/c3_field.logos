@@ -1,0 +1,21 @@
+// COUNTER-EXAMPLE root 3 — the destructor reached through a FIELD (drop glue,
+// not a direct drop_fn_for hit) and through a String's stdlib destructor.
+package c3_field;
+use logos.mem.string;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+static mut N: i64 = 0i64;
+struct Inner { k: i64 }
+impl Drop for Inner { fn drop(self: Inner) { unsafe { N = N + 1i64; } } }
+struct Outer { i: Inner, s: String }
+fn main() -> i32 {
+    {
+        let o: Outer = Outer { i: Inner { k: 1i64 }, s: String::from("0123456789abcdef") };
+        if o.s.len() != 16i64 { return 3i32; }
+    }
+    unsafe {
+        printi("N=%d\n", N as i32);
+        if N != 1i64 { return 1i32; }
+    }
+    return 0i32;
+}

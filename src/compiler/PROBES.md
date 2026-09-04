@@ -22200,6 +22200,271 @@ oracle for anything. Excluded from every number above; with it excluded the null
 
 ---
 
+
+# ═══ ROUND 2026-09-04land — THREE OF THE FIVE RUNTIME HOLES CLOSED AND PINNED,
+# TWO DECLINED BY NAME WITH THE NUMBER. EVERY VERDICT IS A RUN: COMPILED, LINKED,
+# EXECUTED, EXIT CODE AND STDOUT READ, VALGRIND WHERE IT ALLOCATES. COST 0 ON THE
+# WHOLE CORPUS FOR ALL THREE, MEASURED SEPARATELY, ONE BUILD EACH.
+# ⚠ THE HANDED-DOWN PLAN WAS WRONG IN THREE PLACES AND MY OWN COUNTER-EXAMPLES
+# ARE WHAT FOUND IT (rule 5, rule 17). ══════════════════════════════════════════
+
+## 0. STEP 1, RE-DERIVED
+    HEAD `22e7e9c75` clean = origin/main at open. probe-log-lint **173 records**.
+    `# TOTAL 99` (bc_admits) + `# TOTAL 25` (blocked), both by direct listing, at
+    open AND at close: NO LEDGER ROW OPENED OR CLOSED, and none was expected —
+    not one of the five is a borrow-check row.
+    Binary at open `37c8cddb14adb561 43`.
+    ⚠ `build_hash.py` DISAGREED WITH ITSELF: a `cmake .` + full rebuild of the
+    UNCHANGED HEAD sources (the control revert, `git status` clean) reported
+    `9809803062696be1`, not `37c8cddb14adb561`. The identity moves without the
+    sources moving. Recorded, not chased; every number below is keyed to the
+    SOURCES, and the control revert's behaviour was re-measured, not assumed.
+
+## 1. BASELINE, FROM THE STORE, BEFORE ANY EDIT (gate-run.sh, build 746)
+    `-L bc`    1360 / 1360 passed, 0 failed.
+    `-L pass`  5604 passed / **4 FAILED** / 3 disabled of 5611 recorded.
+    ⚠ THE FOUR REDS ARE PRE-EXISTING AND ARE NOT IN MEMORY'S "5 imported reds"
+    LIST: `box-concrete-as-box-dyn-return`, `blanket-impl-box-to-dyn-b172`,
+    `blanket-impl-generic-struct-dyn`, `generic-struct-method-chain-b162` — all
+    four `logos_02_semantic_core_pass`, i.e. the NATIVE tier. The same four, and
+    only those four, are red after every landing below; that identity is what
+    makes "cost 0" readable at all.
+
+## 2. WHAT LANDED — THREE ROOTS, EACH WITH ITS RUN EVIDENCE
+### ROOT 2 — the binding mode of a destructuring `let` (sema_stmt.cpp,
+### `lower_let_destruct`'s `emit_destruct`). FIXED.
+The fix is a CASE SPLIT the crude probe did not have: `_` emits no binding,
+`ref v` binds `&recv.field` typed `&T`, and — the half no probe touched — the
+receiver is marked moved WHOLESALE only when the pattern takes every field by
+value or the source is UNOWNED; otherwise only the by-value fields are marked,
+so the receiver's own Drop still runs for what the pattern left behind.
+
+    program (all mine, multi-line, destructor COUNT on stdout)  before -> after
+    d2_ref                `let A { s: ref v, t: w } = *r;`     134 -> 0
+    d2_wild               `let A { s: _,     t: w } = *r;`     134 -> 0
+    c2_deref_ref          the same, counted                 N=2 -> N=1, rc 1 -> 0
+    c2_deref_wild         the same, counted                 N=2 -> N=1, rc 1 -> 0
+    c2_shorthand_ref      `let A { ref o, t } = *r;`        N=2 -> N=1, rc 1 -> 0
+    c2_rest               `let A { t: w, .. } = a;` OWNED   N=0 -> N=1, rc 1 -> 0
+    c2_nested             `let A { b: B { o: v }, .. } = a;` N=2 -> N=1, rc 1 -> 0
+    UNMOVED, and each one is a control: c2_owned_wild N=1, c2_owned_ref N=1,
+    c2_owned_byval N=1, c2_deref_rest N=1, d2_owned_control rc 0.
+Valgrind, after: d2_ref 1/1, d2_wild 1/1, c2_deref_ref 1/1, c2_nested 1/1,
+c2_rest 1/1, c2_owned_byval 1/1 allocs/frees, ERROR SUMMARY 0 in every one.
+
+⚠ **THE RECOMMENDED CRUDE ARM IS REFUTED BY TWO OF MY OWN SHAPES.** `dstrbind`
+skips the binding for `_` and `ref` UNCONDITIONALLY. Measured on the committed
+binary with the probe armed: `c2_owned_wild` goes from CORRECT (N=1) to a **LEAK
+(N=0)** — over an owned source the wildcard's binding was the only thing dropping
+that field — and `c2_owned_ref` is REFUSED ("undefined variable 'v'"). The
+pricing phase used deref-source shapes only; its 6269-fixture runtime column saw
+NEITHER, because no fixture in the tree destructures an owned source with a `_`
+on a droppable field. Rule 5, seventh round of eight.
+
+⚠ **TWO DEFECTS AT THIS DOOR WERE ON NO LIST.** `c2_rest` (a `..` over an owned
+source LEAKS the untaken field: 0 destructor runs for 1 value, exit code 0) and
+`c2_nested` (a nested struct pattern DOUBLE-DROPS: the intermediate receiver was
+never told which of its fields the sub-pattern took). Both found by writing
+shapes the handoff did not name; both fixed by the same case split; both pinned.
+
+⚠ **`spec/pass/pat_2` HAS BEEN ASSERTING A RULE THE COMPILER DID NOT HOLD.** Its
+`@rule pat.bind.struct-field-ref` says `let Pt { x: ref px }` binds px to a
+REFERENCE. MEASURED on the committed binary: `let q: i64 = px;` COMPILED (rc 0)
+and `takes(px)` with `takes(r: &i64)` was REFUSED ("expected &i64, got i64") —
+px was an `i64` by value. pat_2 passes only because `*px` on an `i64` is
+tolerated. After the fix both verdicts invert, and they are the new pass/fail
+pair `destruct_field_ref_binds_a_reference` / `destruct_field_ref_is_not_a_value`.
+
+COST, whole corpus, this landing ALONE (build 752): `-L bc` 2405/2405 passed,
+0 failed; `-L pass` 5842 passed / 4 failed of 5849 — the same four. **COST 0.**
+
+### ROOT 5 — `(*x)()` over a closure place (mlir_gen_expr.cpp,
+### `gen_expr_kind(EDerefView)`). FIXED.
+    d5       `wrap(||…)` then `(*b)()`            139 -> 0
+    d5_nogen `Box::new(||…)` then `(*b)()`        139 -> 0
+    d5_refc  `let r = &c; (*r)()`                 139 -> 0
+    c5_dynbox   `(*b)()` on a `Box<dyn Fn()->i64>`   139 -> 0, stdout got=21
+    c5_mutref   `(*r)()` through `&mut`, called TWICE 139 -> 0, stdout a=6 b=6
+    c5_param    `(*f)()` on a `&F` PARAMETER under an `Fn` bound  139 -> 0
+    COUNTER-DIRECTION, unmoved: d5_call 0, d4b_inside 0, d4c_i64 0, d5_ctl 0,
+    d5_move 0, c5_boxcall_ctl 0 (`b()` on the same Box, one token from c5_dynbox).
+
+⚠ **RULE 16, AND THE HANDOFF HAD IT BACKWARDS. THE DISCRIMINATOR DID NOT EXIST.**
+2026-09-04five §3 says "the site already HAS the shape of the answer:
+`deref_operand_is_ptr_to_dyn_handle` is the provenance discriminator written for
+TraitObject three branches above". READ IT: its whole body is `(void)operand;
+return false;` under a comment explaining that the uniform fat model made it
+unnecessary. There was nothing to ask. The discriminator is MINTED this round.
+
+⚠ **AND THE FIRST DISCRIMINATOR I WROTE WAS WRONG, CAUGHT BY A RUN.** Keying on
+"operand is Ref/MutRef/**Ptr** to a closure" behaves EXACTLY like the refuted
+blanket kind test: d5_call / d4b_inside / d4c_i64 go 0 -> **139**. The LLVM says
+why — for `b()` on a `Box<Closure>` the operand's LIR type is a LIE: sema
+(`callee_is_box_closure`, sema_expr.cpp) builds `Deref(VarRef b, make_ptr(true,
+Closure))` over the BOX place, whose slot holds the 8-byte payload handle, so the
+load is right there; the `&fn`/`&closure` callee one branch below is built with
+`make_ref(false, …)` and the load is wrong. **Ref/MutRef yes, Ptr no** is
+therefore not a coincidence of spelling: the two spellings ARE the two answers,
+and both are now pinned (`deref_call_boxed_closure` / `_direct`,
+`deref_call_ref_closure` / `_direct`).
+
+COST, whole corpus, root2+root5 (build 753): `-L bc` 2405/2405, `-L pass` 5842
+passed / 4 failed of 5849 — the same four. **COST 0** (the record predicted 12-13
+for the blanket arm; the discriminator costs none of them).
+
+### ROOT 3 — the destructor's IDENTITY (sema.cpp, `drop_fn_for`). FIXED.
+Every one of the four match loops now takes only a candidate whose
+`SemaFuncInfo::trait_name == "Drop"`.
+    d3_trait  user `trait Tidy { fn drop(&mut self); }`, no impl Drop   1 -> 0
+    d3_inh    inherent `fn drop(&mut self)`                            1 -> 0
+    d3_ctl    the same method named `tidy`                             0 -> 0
+    c3_prelude    prelude `impl Drop`, counted            N=1 -> N=1  (unmoved)
+    c3_usertrait  the 109-fixture idiom, own `trait Drop` N=1 -> N=1  (unmoved)
+    c3_generic    `impl<T> Drop for Foo<T>`, 2 instances  N=2 -> N=2  (unmoved)
+    c3_field      through a FIELD + a stdlib String       N=1 -> N=1  (unmoved,
+                  valgrind 2 allocs / 2 frees, 0 errors)
+
+⚠ **THE ARM IS NOT THE PROBE (rule 7).** `dropident` CALLED
+`explicit_destructor_call`, which opens with a GLOBAL bail on any `traits_` entry
+named `Drop` outside `logos.lang.drop` — cost 58 by rc, 88 by the runtime column.
+The landed test consults `traits_` not at all. Predicted cost 0 on all 58 by
+name; MEASURED 0.
+⚠ **THE 108 IS 109** (rule 8): `grep -rl "trait Drop" tests/ --include=*.logos`
+is **109** files today, and 0 of them import `logos.lang.drop`. The user-`trait
+Drop` spelling is still a corpus decision and is still NOT taken — but the
+per-candidate test does not need it taken, which is the whole point.
+
+COST, whole corpus, all three (build 754): `-L bc` 2405/2405, `-L pass` 5842
+passed / 4 failed of 5849 — the same four. **COST 0.**
+
+## 3. WHAT IS DECLINED, BY NAME, WITH THE NUMBER
+ · **ROOT 1 — the partial move out of a `Box` (`bx.field`). DECLINED.**
+   Reproduced today: d1 compile rc 0, run rc **134**, valgrind Invalid free,
+   2 allocs / **3 frees**. THE NUMBER THAT CONDEMNS THE CHEAP ARM: `bx.s` where
+   `bx: Box<Inner>` is **LEGAL RUST** — `Box` is the one type with DerefMove —
+   so `bxfldmv`'s refusal refuses a legal program, and it does it through
+   `is_unowned_move_source`, i.e. under **E0507's wording** ("cannot move out of
+   a value behind a reference"), which is not what is wrong with it. Trading a
+   silent double free for a wrong diagnostic on a legal program is not a fix.
+   The real repair is the DerefMove lowering, and it is two doors in series:
+   even a recorded `bx.s` cannot be honoured because `Box<T>`'s destructor is an
+   ordinary user fn in `logos.mem.boxed` and `SDrop.moved_fields` steers only the
+   struct field-drop loop. `bxfldmv` fires **2** times over the whole ledger +
+   legal corpus. It needs its own round, as a feature.
+ · **ROOT 4 — the escaping `move` closure's owned `Box<dyn Tr>` capture.
+   DECLINED, and the number is `clowndyn`'s 1 -> 134.** Re-verified today: d4
+   compile rc 0, run rc 1, and it is UNMOVED by all three landings. Half the
+   mechanism is measurably worse than none (giving the heap env ownership while
+   sema's `closure_owned_drop_` still drops the parameter turns garbage into an
+   abort), and the site fires **0** times over the ledger, the legal corpus and
+   all 6269 pass fixtures — nothing in the tree would catch a half-landing. Both
+   halves, a fixture written first, its own round.
+
+## 4. WHAT CONTRADICTS A RECORDED CLAIM (the most valuable output)
+ 1. `deref_operand_is_ptr_to_dyn_handle` is a `return false` STUB. The
+    2026-09-04five record calls it the provenance discriminator that root 5 fails
+    to ask. There was no fact to consult — rule 16, in the other direction from
+    the one that was written down.
+ 2. `spec/pass/pat_2`'s `@rule pat.bind.struct-field-ref` did not hold: `ref px`
+    bound an `i64` BY VALUE. The fixture passed because its field is scalar.
+ 3. The "108 fixtures declaring their own `trait Drop`" is **109**.
+ 4. The `-L pass` tier has **4 pre-existing reds** in the NATIVE
+    `logos_02_semantic_core_pass` half at HEAD `22e7e9c75`. Memory's standing
+    note records 5 reds and puts them in the IMPORTED tier; these four are not
+    those. Not chased — recorded so the next round does not read them as its own.
+ 5. `build_hash.py` reported a different identity for a rebuild of BYTE-IDENTICAL
+    sources (§0).
+ 6. **NEW, OPEN, and it survived this round's fix:** a type with BOTH an
+    inherent `fn drop` AND a real `impl Drop` runs the INHERENT one at scope exit
+    and never the trait one — `c3_both` prints `TN=0 IN=1` and exits 1 on the
+    committed binary AND on the fixed one. The identity test is upstream of it:
+    both methods mangle to the same `S__drop` SYMBOL, so `drop_fn_for` returns a
+    candidate correctly identified as the `Drop` impl and codegen calls the
+    inherent body. A symbol COLLISION, one door below root 3, with no fixture
+    (writing one would assert a program that returns 1 — blocked on the fix).
+ 7. `imported/pass/cast/cast-region-to-uint` prints a stack address and is a
+    registered `pass` fixture (carried from 2026-09-04five, not re-chased).
+
+## 5. THE PINS — 18 FIXTURES, EVERY ONE A RUN, IN PAIRS ONE TOKEN APART
+Nine of them assert a DESTRUCTOR COUNT on stdout, because an rc oracle cannot
+tell one drop from two, nor from none — both of this round's root-2 findings were
+invisible to every exit code in the tree.
+    destruct_field_wild_through_deref  <-> destruct_field_ref_through_deref
+    destruct_field_rest_owned          <-> destruct_field_rest_through_deref
+        (`= a` vs `= *r`: the SAME line, OPPOSITE answers — the reason the fix is
+         a case split on the source and not a change to the loop alone)
+    destruct_field_nested_owned        <-> destruct_field_nested_ref
+    destruct_field_ref_binds_a_reference <-> fail/destruct_field_ref_is_not_a_value
+    deref_call_boxed_closure           <-> deref_call_boxed_closure_direct
+    deref_call_ref_closure             <-> deref_call_ref_closure_direct
+    deref_call_ref_closure_param       (the `&F` parameter spelling)
+    drop_ident_inherent_is_not_a_destructor <-> drop_ident_trait_is_a_destructor
+    drop_ident_other_trait_is_not_a_destructor <-> drop_ident_other_trait_named_drop
+        (`trait Tidy` vs `trait Drop`: the second is the 109-fixture corpus idiom
+         and is the fixture that says why the identity test is PER-CANDIDATE)
+    drop_ident_generic_impl_runs_once  (the base-name fallback loop)
+All 19 selected by `ctest -R 'destruct_field_|deref_call_|drop_ident_'` pass.
+
+## 6. THE ORACLES, EVERY rc
+    baseline  gate-run `-L bc` 1360/1360 rc 0; `-L pass` 4 failed (§1)   build 746
+    root2     `-L bc` 2405/2405 rc 0; `-L pass` 4 failed (the same four) build 752
+    +root5    `-L bc` 2405/2405 rc 0; `-L pass` 4 failed (the same four) build 753
+    +root3    `-L bc` 2405/2405 rc 0; `-L pass` 4 failed (the same four) build 754
+    stdlib-cost.sh            all four layers compile          rc 0
+    fail_text_oracle.py       1360 fail fixtures, unarmed vs fixed:
+                              **0 rc moved, 0 stderr sha moved, 0 `.expected`
+                              match moved** — the only oracle that can see an
+                              un-refusal or an added line, and it saw nothing.
+    CONTROL REVERT            `git stash -u`, full rebuild of HEAD's sources,
+                              every program above re-run: d1 134, d2_ref 134,
+                              d2_wild 134, d3_trait 1, d3_inh 1, d4 1, d5 139,
+                              d5_nogen 139, d5_refc 139, c5_dynbox 139,
+                              c5_mutref 139, c5_param 139, c2_rest N=0,
+                              c2_deref_ref N=2, c2_deref_wild N=2, c2_nested N=2,
+                              c2_shorthand_ref N=2, t_refty COMPILED.
+                              The old binary does the wrong thing AT RUN TIME on
+                              every program the fix moves, and nothing else moved.
+    ⚠ `-L bc` listed 1360 tests at build 746 and 2405 at builds 752-754, same
+    filter, same tree. Recorded, not chased; every run was 0 failed and the later
+    population is a superset.
+
+## 7. THE GATE MOVES THIS ROUND MADE, AND WHY
+    key_identity_lint  `#SCAN sema.cpp 49 5a50bc47` -> `50 0a9e8634`. The new
+      bare-name intercept is `drop_fn_for`'s `c->trait_name == "Drop"`, and the
+      bare name is the CARRIED DECISION: collect_impl's `builtin_marker_` merges
+      any package's `trait Drop` into the destructor trait (109 fixtures rely on
+      exactly that), so in this tree the destructor trait's identity IS the bare
+      name — the words `explicit_destructor_call` already uses at its own site.
+      What it replaces is worse than a bare name: a MANGLED-SYMBOL key.
+    population_pin_lint  direct_door corpus 2650 -> 2667, nonglob 2459 -> 2476,
+      by direct listing (`ls tests/logos/pass/*.logos | wc -l` -> 2667).
+    census_pin  REGISTRY-ALL 9011 -> 9029, NOIMPORTED 4575 -> 4593 (+18, the new
+      fixtures, none imported), TIERCOMMIT 173 unmoved.
+    Probes REMOVED with their defects: `dstrbind`, `derefclos`, `dropident`.
+    STILL INSTALLED, both for declined roots: `bxfldmv`, `clowndyn`.
+
+## 8. POST-ROUND TOOL CHECK — AND THE PROSE WAS TRIMMED AND RE-MEASURED
+`git diff src/compiler | grep -c '^+ *//'` read **57** added comment lines at
+first landing — over the ceiling the prose rule sets for a compiled source, and
+2026-09-04five declined its own trim rather than move the binary hash. That is the
+wrong trade: a comment cannot change semantics, so the honest move is to trim and
+RE-MEASURE. Trimmed to **32** (each site keeps a marker, the language rule the
+reader needs, and a PROBES.md pointer; every number lives here), rebuilt, and
+every gate re-run on the trimmed binary:
+    L1                        751/751 + smoke 12 684 + gates tier 173   rc 0
+    gate-run `-L bc`          2405 / 2405 passed, 0 failed         build 756
+    gate-run `-L pass`        5859 passed / **4** failed of 5866    build 756
+                              — the SAME four pre-existing reds, and the
+                              population grew by exactly the 17 new pass fixtures
+    L4 bc (detached, LOGOS_L4_BG=1)  1538 passed / 0 failed / 2 disabled  rc 0
+    hand programs re-run on the trimmed binary: c2_rest N=1, c2_nested N=1,
+    c2_deref_ref N=1, c5_dynbox got=21, c5_boxcall_ctl got=21, c3_usertrait N=1,
+    c3_generic N=2 — unchanged.
+    `# TOTAL 99` + `# TOTAL 25`, re-derived at close by direct listing
+    (`grep -cE '^[^#[:space:]]'`): 99 and 25, both agreeing with their headers.
+
+---
+
 ## bxfldmv
 site: src/compiler/sema_impl.hpp::is_unowned_move_source
 build: 37c8cddb14adb561

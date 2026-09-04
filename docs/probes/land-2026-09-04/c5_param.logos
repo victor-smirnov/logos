@@ -1,0 +1,18 @@
+// COUNTER-EXAMPLE root 5 — the deref happens on a `&Closure` PARAMETER, one
+// call frame away from the closure's definition, with a real captured value.
+package c5_param;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn twice<F: Fn() -> i64>(f: &F) -> i64 {
+    let a: i64 = (*f)();
+    let b: i64 = (*f)();
+    return a + b;
+}
+fn main() -> i32 {
+    let base: i64 = 11i64;
+    let c = || { return base + 1i64; };
+    let got: i64 = twice(&c);
+    printi("got=%d\n", got as i32);
+    if got != 24i64 { return 1i32; }
+    return 0i32;
+}

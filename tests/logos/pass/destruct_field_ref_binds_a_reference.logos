@@ -1,0 +1,15 @@
+// PIN (2026-09-04land, root 2): `ref px` binds a REFERENCE — the rule
+// `spec/pass/pat_2` has asserted since it was written and that did not hold:
+// pre-fix `px` was an `i64` by value (`let q: i64 = px;` compiled), and that
+// by-value read is what double-freed a droppable field.
+// TWIN one token apart: fail/destruct_field_ref_is_not_a_value.
+package destruct_field_ref_binds_a_reference;
+struct Pt { x: i64, y: i64 }
+fn takes(r: &i64) -> i64 { return *r; }
+fn main() -> i32 {
+    let p: Pt = Pt { x: 14i64, y: 15i64 };
+    let Pt { x: ref px, y: _ } = p;
+    if takes(px) != 14i64 { return 1i32; }
+    if *px != 14i64 { return 2i32; }
+    return 0i32;
+}

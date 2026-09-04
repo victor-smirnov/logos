@@ -1382,9 +1382,26 @@ PIN = {
     # initializer already carries the parameter's own region), all three
     # non-glob, each one token from its fail twin.
     # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2650.
-    'corpus'            : 2650,
+    # 2026-09-04land: 2650 -> 2667. SEVENTEEN pass fixtures pinning three RUNTIME
+    # soundness holes, all seventeen non-glob and every one of them asserting a
+    # RUN — exit code plus stdout, and where the real assertion is a destructor
+    # COUNT the count is what stdout carries (an rc oracle cannot tell one drop
+    # from two, nor from none):
+    #   destruct_field_{wild,ref}_through_deref, destruct_field_rest_{owned,
+    #   through_deref}, destruct_field_nested_{owned,ref},
+    #   destruct_field_ref_binds_a_reference  — the binding mode of a
+    #     destructuring `let` (7; the last one's twin is the FAIL fixture
+    #     destruct_field_ref_is_not_a_value)
+    #   deref_call_boxed_closure{,_direct}, deref_call_ref_closure{,_direct},
+    #   deref_call_ref_closure_param — `(*b)()` over a closure place, BOTH
+    #     directions of the discriminator (5)
+    #   drop_ident_{inherent_is_not_a_destructor,trait_is_a_destructor,
+    #   other_trait_is_not_a_destructor,other_trait_named_drop,
+    #   generic_impl_runs_once} — the destructor's IDENTITY (5)
+    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2667.
+    'corpus'            : 2667,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2459,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2476,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

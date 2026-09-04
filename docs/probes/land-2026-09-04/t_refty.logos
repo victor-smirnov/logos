@@ -1,0 +1,11 @@
+// What TYPE does `ref px` give today? If it is a real `&i64`, `let q: i64 = px;`
+// must be refused.
+package t_refty;
+struct Pt { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: Pt = Pt { x: 14i64, y: 15i64 };
+    let Pt { x: ref px, y: _ } = p;
+    let q: i64 = px;
+    if q != 14i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,14 @@
+// PIN (2026-09-04land, root 5): the COUNTER-DIRECTION twin of
+// deref_call_boxed_closure, one token apart (`(*b)()` -> `b()`). Here the
+// callee is the Box PLACE, whose slot holds the 8-byte payload handle, and the
+// load IS right. Both arms of the discriminator are pinned, or half of it rots.
+package deref_call_boxed_closure_direct;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn main() -> i32 {
+    let b: Box<dyn Fn() -> i64> = Box::new(|| { return 21i64; });
+    let got: i64 = b();
+    printi("got=%d\n", got as i32);
+    if got != 21i64 { return 1i32; }
+    return 0i32;
+}

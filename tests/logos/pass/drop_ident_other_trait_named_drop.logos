@@ -1,0 +1,25 @@
+// PIN (2026-09-04land, root 3): the TWIN of
+// drop_ident_other_trait_is_not_a_destructor, one token apart
+// (`trait Tidy` -> `trait Drop`). A package declaring its OWN `trait Drop` is the
+// idiom of 109 fixtures in this tree; collect_impl's bare-name marker makes it
+// THE destructor trait and the identity test accepts it unchanged. Reusing
+// `explicit_destructor_call` here instead costs 58 fixtures through its global
+// bail — this is the fixture that says why the test is per-candidate.
+package drop_ident_other_trait_named_drop;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+static mut I: i64 = 0i64;
+trait Drop { fn drop(self: &mut Self); }
+struct S { k: i64 }
+impl Drop for S { fn drop(self: &mut Self) { unsafe { I = I + 1i64; } } }
+fn main() -> i32 {
+    {
+        let mut s: S = S { k: 5i64 };
+        if s.k != 5i64 { return 3i32; }
+    }
+    unsafe {
+        printi("I=%d\n", I as i32);
+        if I != 1i64 { return 1i32; }
+    }
+    return 0i32;
+}

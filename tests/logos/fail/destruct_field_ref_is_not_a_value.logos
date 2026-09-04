@@ -1,0 +1,13 @@
+// PIN (2026-09-04land, root 2): the FAIL half of
+// pass/destruct_field_ref_binds_a_reference, one token apart (`&i64` -> `i64`).
+// `ref px` binds `&i64`; binding it to an `i64` must be refused. Pre-fix this
+// program COMPILED, which is the same defect the droppable-field double free is.
+package destruct_field_ref_is_not_a_value;
+struct Pt { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: Pt = Pt { x: 14i64, y: 15i64 };
+    let Pt { x: ref px, y: _ } = p;
+    let q: i64 = px;
+    if q != 14i64 { return 1i32; }
+    return 0i32;
+}

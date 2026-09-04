@@ -2085,13 +2085,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
     // until a repro says otherwise.
     if (type && ref_repr_of(type) == RefReprKind::FatSlice)
         return ptr;
-    // PROBE derefclos (2026-09-04five, root 5): the FatClosure kind is on the LOAD
-    // path by the comment above, and `Box::new(closure)` stores the {fn,env} pair
-    // INLINE (box_new memcpys 16 B), so `Box__deref` already yields the pair's
-    // address and the load is one indirection too many — SIGSEGV.
-    if (type && ref_repr_of(type) == RefReprKind::FatClosure &&
-        logos::probe::on("derefclos"))
-        return ptr;
+    // FatClosure pointee — the answer is the OPERAND'S REFERENCE KIND, not the
+    // pointee: `&Closure`/`&mut Closure` (and the `&T` a `Box::deref` CALL
+    // returns) ALREADY address the {fn,env} pair, so `*p` is a no-op reinterpret;
+    // a `*mut Closure` addresses a slot holding the 8-byte handle and must LOAD.
+    // The two spellings are minted deliberately at sema_expr.cpp
+    // (`callee_is_box_closure` -> make_ptr; the `&fn`/`&closure` callee below it
+    // -> make_ref). ⚠ `deref_operand_is_ptr_to_dyn_handle` is a `return false`
+    // stub — not the discriminator. Measurements: PROBES.md 2026-09-04land root 5.
+    if (type && ref_repr_of(type) == RefReprKind::FatClosure) {
+        TypeRef op_t = v.operand() ? v.operand().type(pool_impl()) : TypeRef(nullptr);
+        if (op_t) {
+            auto ok = TypeRef(op_t).kind();
+            if ((ok == LogosType::Kind::Ref || ok == LogosType::Kind::MutRef) &&
+                ref_repr_of(TypeRef(op_t).pointee()) == RefReprKind::FatClosure)
+                return ptr;
+        }
+    }
     auto pointee = logos_to_mlir(type);
     if (!pointee) pointee = builder_.getI32Type();
     return builder_.create<mlir::LLVM::LoadOp>(loc_, pointee, ptr);

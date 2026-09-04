@@ -141,7 +141,17 @@
 #SCAN module_loader.cpp 1 dfda2a6a
 #SCAN mono_clone.cpp 97 64d05c85
 #SCAN mono_impl.hpp 14 3dae6516
-#SCAN sema.cpp 49 5a50bc47
+# 2026-09-04land, +1 (49 -> 50), roster 5a50bc47 -> 0a9e8634: `drop_fn_for`'s
+# per-candidate `c->trait_name == "Drop"` identity test. THE BARE NAME IS THE
+# CARRIED DECISION, not an oversight: `collect_impl`'s `builtin_marker_` merges a
+# `trait Drop` declared in ANY package into the destructor trait — 109 fixtures in
+# this tree declare their own and none imports `logos.lang.drop` — so in this tree
+# the destructor trait's IDENTITY *is* the bare name. The site next door,
+# `explicit_destructor_call` (sema_expr.cpp), records the same decision in the same
+# words. What the test replaces is worse than a bare name: keying the destructor on
+# the MANGLED SYMBOL `<T>__drop`, which ran any inherent or other-trait `drop` at
+# scope exit (PROBES.md 2026-09-04land, root 3).
+#SCAN sema.cpp 50 0a9e8634
 #SCAN sema_auto_trait.cpp 15 9ab14bd6
 #SCAN sema_collect.cpp 41 c7be1d14
 #SCAN sema_decl.cpp 2 ce09ff69

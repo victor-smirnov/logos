@@ -1,0 +1,13 @@
+// CONTROL root 5 — the COUNTER-DIRECTION, one token from c5_dynbox: the SAME
+// Box called as `b()`, which must keep the LOAD. If the arm over-fires this
+// SIGSEGVs.
+package c5_boxcall_ctl;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn main() -> i32 {
+    let b: Box<dyn Fn() -> i64> = Box::new(|| { return 21i64; });
+    let got: i64 = b();
+    printi("got=%d\n", got as i32);
+    if got != 21i64 { return 1i32; }
+    return 0i32;
+}

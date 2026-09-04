@@ -1,0 +1,9 @@
+package t_refty2;
+struct Pt { x: i64, y: i64 }
+fn takes(r: &i64) -> i64 { return *r; }
+fn main() -> i32 {
+    let p: Pt = Pt { x: 14i64, y: 15i64 };
+    let Pt { x: ref px, y: _ } = p;
+    if takes(px) != 14i64 { return 1i32; }
+    return 0i32;
+}
