@@ -10424,8 +10424,18 @@ private:
                             consume(std::string(cap), line);
                         if (_cmref && logos::probe::on("capmoveref"))
                             consume(std::string(cap), line);
-                        if ((_cmdrop || _cmref || _cmloan) &&
-                            logos::probe::on("capmoveboth"))
+                        // BATCH 2: `&T` IS Copy — `type_may_carry_borrow` is the
+                        // wrong key (l06). The non-Copy reference is `&mut`.
+                        bool _cmmut = _cmt &&
+                            (_cmt.kind() == LogosType::Kind::MutRef ||
+                             (_cmt.kind() == LogosType::Kind::Struct &&
+                              ts_.holds_mut_ref.count(
+                                  std::string(_cmt.struct_name())) > 0));
+                        if (_cmmut) logos::probe::census("capmove.mut");
+                        if (_cmmut && logos::probe::on("capmovemut"))
+                            consume(std::string(cap), line);
+                        if ((_cmmut || _cmdrop) &&
+                            logos::probe::on("capmovemutd"))
                             consume(std::string(cap), line);
                         ++i; return;
                     }
