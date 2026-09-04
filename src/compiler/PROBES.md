@@ -21379,3 +21379,137 @@ Seven probe names installed and ALL SEVEN RETIRED WITH THEIR CODE — `closrethi
 `ret_type_rev_hint_` / `probe_cv_report_` members and the `lt_empty_strict()` flag.
 `git checkout --` on the five touched files; no probe is installed by this round and
 `# TOTAL` is 128 → 128.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ═══ ROUND 2026-09-04f — LANDED. A CLOSURE CHECKED AGAINST AN `Fn*` BOUND TAKES
+# ═══ ITS SIGNATURE REGIONS **FROM THE BOUND**. `# TOTAL` 128 → 127.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+## 1. STEP 1 AT OPEN — NOTHING STALE
+live probes 165 · `# TOTAL` 128 (128 by direct listing) · lifereg 47 · nllmoves 42 · bck 39 ·
+largest roots bck.C 11 · nllmoves.C 9 · lifereg.R18 6 · bck.NEW 6 · bck.D 6 · bck.B 5.
+Baselines READ FROM THE STORE, both filters: build 713 / logosc 0.42.0-preview+main-g71f591cd
+(libs `4b4ef5cb5beb3bd7`), 6105 recorded / **0 failed**, 128 admit tests and 2393 `-L bc`
+tests all already measured under it. 09-04e §1's two harness-path corrections held.
+
+## 2. THE MECHANISM — THE THIRD HOP, AND IT IS THE **MINTING SITE**, NOT A COMPARATOR
+09-04e §6 measured that every region on the closure side of a return comparison is the EMPTY
+spelling, so `lt_eq`'s `x.empty() || y.empty()` yield makes the pair equal in BOTH directions
+and no arm at that position can ever separate. 09-04e §8 then named `variance_ok` as the next
+suspect. **That reading was wrong and this round refutes it by construction**: the swallow is
+not a comparator that fails to consult a region, it is that THERE IS NO REGION TO CONSULT.
+Rule 16 — "no fact recorded" and "the fact is absent" are different, and only the minting site
+distinguishes them. `closmintp` (landed 09-03b) mints a closure's `&` PARAMETERS and mints them
+FRESH, independent of the bound the closure is being checked against; the RETURN is never
+minted at all. So the repair is at the mint:
+
+  (H) an ELIDED `&` region slot of closure parameter i ADOPTS the region the `Fn*` bound
+      WRITES at that position (`mint_type_lts_`'s `fixed` seed, which already existed);
+      an elided `&` return adopts the region the bound writes at the return.
+  (B) an UNANNOTATED closure under a bound whose return is a `&` adopts THAT RETURN as its
+      return type. ⚠ NARROWED TO `&` ON PURPOSE: 09-04e's `closrethint` took the hint's return
+      unconditionally and paid cost 1 on a bound returning an uninstantiated `T`.
+  (C) elision rule 1 ON THE CLOSURE SIGNATURE: exactly one input region and a still-elided `&`
+      return ⇒ the return is tied to that input region — **but only where the bound DEMANDS A
+      REGION AT THE RETURN** (`is_ref_(hret_)`). That guard is the whole difference between
+      this rule and 09-03clos's DECLINED `closretelide`; see §5.
+
+## 3. THE PROBE TABLE — TWO BUILDS, ALL THREE COST COLUMNS
+    probe        components              fires  ceil  cost  cfail  std  verdict
+    closbndp     (H) params only           193     0     0      0   ok  ⛔ 0 — half a series
+    closbndret   (B) only                  499     0     0      0   ok  ⛔ 0 — half a series
+    closbndall   (H)+(B)+(C) UNGUARDED    1690     2     1      3   ok  ⛔ §5
+    closbndph    (H) params + (H) return   692     1     0      0   ok  ✓
+    closbndbnd   (H)+(B)+(C) GUARDED      1690     1     0      0   ok  ✓ LANDED
+⇒ RULE 13 AGAIN, AND IN ITS SHARPEST FORM: 0 + 0 = 2. `closbndp` and `closbndret` are the two
+halves of one series (rule 2) and each alone is worth nothing; the credit is per SET.
+Not priced separately and retired with their code: `closbndhr`, `closbndtie`, `closbndbe`,
+`closbndtie2` (the rule-9/18 twin of (C), tying to the FIRST of several inputs).
+
+## 4. ⛔ THE SET, DIFFED BOTH WAYS — AND THE UNGUARDED ARM'S EXTRA ROW IS A WRONG MODEL
+predicted N = 2 BY NAME in `build/round-2026-09-04f/targets-2026-09-04f.txt`, written before
+the first compiler edit: {return-wrong-bound-region `nllmoves.C`, regions-nested-fns-2
+`lifereg.C`}. Population derived BY THE PROPERTY: the admit corpus has exactly 5 rows carrying
+an `Fn*` bound with a `&` in its signature; the other three were predicted NOT to close by
+name and by reason (regions-escape-method — the bound returns a type parameter `B`;
+projection-two-region-trait-bound-closure — the bound has no return, the illegality is a
+projection outlives; issue-74400 — the bound returns a struct), and none of them closed.
+    measured(closbndbnd) = {return-wrong-bound-region}
+    predicted ∖ measured = {regions-nested-fns-2}          ← §6
+    measured ∖ predicted = ∅
+`closbndall`'s SECOND row, issue-48697--t16, is BOUGHT BY A WRONG MODEL and would not have
+been closed: upstream is E0515 on `let k = f(&z);` (a local escaping through the closure) and
+the arm printed a lifetime mismatch on the LATER `return f(x);`. Its closure is in a bare
+`let` with no bound at all — the guard of §5 removes it, correctly.
+
+## 5. ⚠ RULE 5 — THE UNGUARDED (C) IS `closretelide` REBORN, AND ITS COST IS THE H4-e FAMILY
+`closbndall` costs 1 pass fixture and three pinned diagnostics, and all four are ONE family —
+the H4-e closure-call tie (`let c = |x:&i64| -> &i64 { return x; }; return c(&l);`), whose
+closure has NO bound: pass/bc_h4e_closure_arg_tie_param, fail/bc_h4e_closure_arg_tie_dangle,
+imported/fail/nll/issue-48697--b, imported/fail/regions/regions-ret-borrowed-1. The last of
+these HAS a bound, `Fn(&i64) -> R`, whose return is a type parameter — so "a hint exists" is
+NOT the right guard either; **the right guard is that the bound demands a REGION at the
+return**, `is_ref_(hret_)`. With it: ceiling 1, cost 0, cfail 0, stdlib four layers.
+⚠ MY OWN COUNTER-EXAMPLE SET HAD THIS GAP TOO. g09 was written as the l01 shape and is not:
+it returns `i64` where the fixture returns `&i64`, so it stayed green under the unguarded arm
+and did not warn me. The harness found it; the hand set did not.
+
+## 6. ⛔ regions-nested-fns-2 DOES NOT CLOSE, AND THE REASON IS A FOURTH HOP — MEASURED
+Under `LOGOS_CENSUS`, y03 (its hand twin) prints `closbnd.ret.adopted 1` and
+`closbnd.ret.tied 1`: the mint ARRIVES, `ret_type_` inside the body is `&'#0 i64`, and the
+program still compiles rc 0. So `return &y;` — a borrow of a closure-LOCAL — is not refused
+against a minted return region. The region on the VALUE side of that comparison is the missing
+fact now, not the one on the signature side. Doors in series (rule 2), and this is the fourth.
+
+## 7. RULE 5 — 15 NEW MULTI-LINE SHAPES, NONE FROM THE PRICING SET, PLUS THE THREE THAT
+##    CONDEMNED LAST ROUND'S SURVIVOR
+`/home/logos/sandbox/rv4/`, written before the first compiler edit, unarmed verdicts recorded
+first: a closure returning a REBORROW OF A FIELD of its param · a bound writing `'a` at
+param 0 and at the return · a bound returning a NON-reference · a param with a WRITTEN inner
+region · a `&mut` param · TWO elided inputs and an elided `&` return · the closure's OWN
+written `-> &'z i64` · a struct carrying a lifetime through the param · a closure in a bare
+`let` with no bound · a `'static` return under an elided bound · an `FnMut` bound · TWO
+closure arguments in one call. **All 12 legal, all 12 admitted on the landed binary**, and
+with rv3 h01–h16 re-run that is **28 legal hand programs admitted** — including h01, h06 and
+h12, the three simplest-shape legal programs that killed 09-04e's cost-0 survivor.
+Two illegal: y02 (the ledger row's shape) REFUSED naming `'b` and `'a`; y01 (a CAPTURE
+returned under a higher-ranked bound) REFUSED — it was ALREADY red under a wrong sentence
+about the enclosing fn's own elision, and the landing replaces it with one that names the
+closure parameter and the capture. Rule 14: that fixture is an INHERITED refusal and its
+header says so.
+⚠ g10 IS A REPAIR, NOT A COST: `|p| { return &K; }` for a `static K` under `Fn(&i64) -> &i64`
+was RED UNARMED (`callable '|&i64| -> &static i64' does not match … the bound declares &i64`)
+— legal Rust, an over-refusal — and is green on the landed binary. It is also the ONLY column
+in which `closbndph` and `closbndbnd` differ (rule 9: they are digit-for-digit identical in
+ceiling, cost, cfail and stdlib, and separate on one hand program).
+
+## 8. COST, ALL THREE POPULATIONS, AND THE CONTROL
+cfail: `fail_text_oracle.py` over control (`failtext-b60731089f055ecc.tsv`, the batch build
+with nothing armed) and landed: 1351 → 1354 rows, ADDED exactly the 3 this round writes,
+REMOVED none, and **0 of the 1351 pre-existing fail fixtures moved** in rc, stderr sha OR
+`.expected`-match. stdlib: `stdlib-cost.sh` — all four layers compile.
+CONTROL REVERT of `sema_expr.cpp` alone to `f1a569ced`, rebuilt: bc_closbnd_ret_wrong_region_
+fail and imported return-wrong-bound-region both compile **rc 0, clean** — the landing is what
+refuses them; bc_closbnd_elided_capture_fail is rc 1 under the OLD wrong sentence; both pass
+twins stay green. Restored and rebuilt, all three fail fixtures EXPECTED-MATCH again.
+
+## 9. OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **A `'static` RETURN UNDER AN ELIDED-REGION `Fn` BOUND WAS AN OVER-REFUSAL** (§7, g10).
+    Pre-existing, repaired as a side effect of (B)+(C). No ledger row could carry it — an
+    over-refusal is not an admitted illegal program.
+ 2. **THE FOURTH `type_str` DEGENERACY SITE** at the closure return (09-04e §9.1) is unchanged.
+ 3. CARRIED FORWARD, STILL THE OWNER'S: three E0713 rows (nllmoves.E); the E0716-family rows
+    that are LEGAL RUST; 09-02p §4's five owner pass fixtures walling the `'static` population;
+    09-03clos §9.4 (`m01`).
+
+## 10. NOT SPENT, EACH WITH ITS NUMBER (re-derived by direct listing, not carried)
+bck.C 11 · nllmoves.C 8 · lifereg.R18 6 · bck.NEW 6 · bck.D 6 · bck.B 5 · nllmoves.E 4 ·
+lifereg.R17 4 · lifereg.NEW-N1 4 · nllmoves.NEW-1 3 · nllmoves.B 3 · nllmoves.D 3 ·
+lifereg.NEW-R19 3 · lifereg.N1 3 · lifereg.D 3 · bck.E 3 (E0509, retired by spec).
+
+## 11. THE TREE AT CLOSE
+NINE probe names installed by this round and ALL NINE RETIRED WITH THEIR CODE — `closbndp`,
+`closbndret`, `closbndall`, `closbndhr`, `closbndtie`, `closbndbe`, `closbndtie2`,
+`closbndph`, `closbndbnd`. Live probe census 165 → 165. Two census buckets stay because the
+landed rule reads them, `closbnd.ret.adopted` and `closbnd.ret.tied` — §6 is measured with
+them. No probe is installed by this round.

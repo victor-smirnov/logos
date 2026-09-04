@@ -1,0 +1,15 @@
+// The ADMIT half of the pair. ONE TOKEN from
+// fail/bc_closbnd_elided_capture_fail.logos: the closure returns its own
+// parameter `p`, not the capture `s`. This is the simplest legal closure under
+// an `Fn(&T) -> &T` bound in the language and the harness's legal corpus did
+// not contain it — 09-04e's cost-0 survivor refused exactly this shape.
+package bc_closbnd_elided_param_ok;
+fn apply<F>(f: F, v: &i64) -> i64 where F: Fn(&i64) -> &i64 {
+    let r: &i64 = f(v);
+    return *r;
+}
+fn outer(s: &i64) -> i64 {
+    let x: i64 = 1i64;
+    return apply(|p| { return p; }, &x);
+}
+fn main() -> i32 { let z: i64 = 9i64; return outer(&z) as i32 - 1i32; }

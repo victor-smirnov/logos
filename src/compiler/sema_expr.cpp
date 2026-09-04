@@ -17069,6 +17069,9 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     std::vector<TupleParam> tuple_params;
     std::vector<lir::LParam> params;
     std::vector<TypeRef> param_types;
+    // 2026-09-04f: the closure's INPUT regions in signature order — elision
+    // rule 1 counts these. PROBES.md 2026-09-04f.
+    std::vector<std::string> clos_in_regs_;
     if (node.has_key(la::PARAMS)) {
         AnyVal pav = node.get(la::PARAMS.code);
         if (!pav.is_null() && pav.is_pointer()) {
@@ -17122,15 +17125,27 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     // regions are minted, exactly as a fn signature's are
                     // (sema_decl.cpp). src/compiler/PROBES.md 2026-09-03b.
                     if (logos::probe::arm_closmint()) {
+                        // LANDED 2026-09-04f — (H): when the `Fn*` BOUND writes a
+                        // region at THIS parameter, the closure's elided slot
+                        // ADOPTS it instead of minting a region the bound has
+                        // never heard of. src/compiler/PROBES.md 2026-09-04f.
+                        std::string hlt_;
+                        if (i < hint_param_types.size() && hint_param_types[i]) {
+                            TypeRef hp_(hint_param_types[i]);
+                            auto hk_ = TypeRef(hp_).kind();
+                            if (hk_ == LogosType::Kind::Ref ||
+                                hk_ == LogosType::Kind::MutRef)
+                                hlt_ = std::string(TypeRef(hp_).lifetime());
+                        }
                         std::vector<std::string> mregs_;
-                        TypeRef mt_ = mint_type_lts_(ptype, mregs_);
+                        TypeRef mt_ = mint_type_lts_(ptype, mregs_, hlt_);
                         // A parameter that MENTIONS A WRITTEN REGION anywhere is
                         // left alone: its remaining elided slots are tied by the
                         // user to a binder the CALLER supplies. `mint_type_lts_`
                         // reports every slot it met, minted or written.
                         bool written_ = false;
                         for (auto& r_ : mregs_)
-                            if (!lt_is_minted(r_)) { written_ = true; break; }
+                            if (!lt_is_minted(r_) && r_ != hlt_) { written_ = true; break; }
                         if (written_) {
                             logos::probe::census("clos.param.written-skip");
                         } else {
@@ -17139,10 +17154,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                                 ? "closure parameter " + std::to_string(i + 1)
                                 : "closure parameter '" + pname + "'";
                             for (auto& r_ : mregs_) {
+                                if (!lt_is_minted(r_)) continue;
                                 minted_lt_origin().emplace(r_, who_);
                                 closure_minted_lts().insert(r_);
                             }
                         }
+                        if (!mregs_.empty()) clos_in_regs_.push_back(mregs_[0]);
                     }
                     // C5-cl-07: tuple-destructure param `(a, b): (T1, T2)`.
                     // Grammar emits PARAM with NAMES = {ITEMS: [name, …]}
@@ -17217,6 +17234,53 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     bool has_annot = node.has_key(la::RET_TYPE);
     TypeRef ret_type = has_annot
         ? resolve_type(map_of(node.get(la::RET_TYPE.code))) : void_t();
+    // ── LANDED 2026-09-04f: THE CLOSURE'S RETURN REGION COMES FROM THE BOUND ─
+    // 09-04e §6 measured that EVERY region on the closure side of the return
+    // comparison is the EMPTY spelling, which is why every return-position arm
+    // it priced read 0 in BOTH directions: mintedness, not direction, is the
+    // discriminator. A closure checked against an `Fn*` bound takes its return
+    // region FROM that bound. src/compiler/PROBES.md 2026-09-04f.
+    {
+        TypeRef hret_;
+        if (hint_closure_formal_) {
+            TypeRef h_ = peel_to_callable(hint_closure_formal_);
+            if (h_ && (LogosType::is_fn_value_kind(TypeRef(h_).kind()) ||
+                       TypeRef(h_).kind() == LogosType::Kind::Closure))
+                hret_ = TypeRef(h_).closure_ret();
+        }
+        auto is_ref_ = [](TypeRef t) {
+            return t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
+                         TypeRef(t).kind() == LogosType::Kind::MutRef);
+        };
+        // (B) an UNANNOTATED closure under a bound whose return is a `&`
+        // adopts that return. Narrowed to `&` on purpose: 09-04e's
+        // `closrethint` took the hint's return unconditionally and paid cost 1
+        // on a bound whose return was an uninstantiated `T`.
+        if (!has_annot && is_ref_(hret_)) {
+            logos::probe::census("closbnd.ret.adopted");
+            ret_type = hret_;
+            has_annot = true;
+        }
+        if (is_ref_(ret_type) && TypeRef(ret_type).lifetime().empty()) {
+            std::string rlt_;
+            // (H) the bound WRITES a region at the return position.
+            if (is_ref_(hret_) && !TypeRef(hret_).lifetime().empty())
+                rlt_ = std::string(TypeRef(hret_).lifetime());
+            // (C) elision rule 1 on the closure signature — but ONLY where THE
+            // BOUND DEMANDS A REGION AT THE RETURN. Without `is_ref_(hret_)`
+            // this is 09-03clos's `closretelide` reborn: it re-ties the H4-e
+            // closure-call family, which has no bound at all, and pays cost 1
+            // plus three lost pins for it. Measured 2026-09-04f.
+            else if (is_ref_(hret_) && clos_in_regs_.size() == 1)
+                rlt_ = clos_in_regs_[0];
+            if (!rlt_.empty()) {
+                logos::probe::census("closbnd.ret.tied");
+                ret_type = make_ref(
+                    TypeRef(ret_type).kind() == LogosType::Kind::MutRef,
+                    TypeRef(ret_type).pointee(), rlt_);
+            }
+        }
+    }
     // §7.1: snapshot body_ever_moved_ before the closure body so we can
     // compute the body-MOVED set of OUTER (capture-source) vars. With fn
     // params now dropping at scope-end (Rust-conformant), the historical

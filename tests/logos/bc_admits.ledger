@@ -1241,7 +1241,7 @@
 # Rust) were refused until `!in_closure_body_` was added. Both tokens are
 # pinned in PAIRS: fail/bc_capmovemut_{mutref_capture,sibling_closures} vs
 # pass/bc_capmovemut_{sharedref_capture,nested_closures}. PROBES.md 2026-09-03p.
-# TOTAL 128
+# TOTAL 127
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1351,7 +1351,6 @@ projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/n
 projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
 projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c
 propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/nll/propagate-fail-to-approximate-longer-no-bounds
-return-wrong-bound-region nllmoves.C tests/imported/admit/nll/return-wrong-bound-region
 trait-associated-constant nllmoves.R18 tests/imported/admit/nll/trait-associated-constant
 type-check-pointer-coercions nllmoves.R14 tests/imported/admit/nll/type-check-pointer-coercions
 type-check-pointer-comparisons nllmoves.R2 tests/imported/admit/nll/type-check-pointer-comparisons

@@ -5179,9 +5179,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8996 -> 9001   +5
 #   NOIMPORTED   4566 -> 4569   +3
 #   TIERCOMMIT    179 ->  177   -2
-REGISTRY-ALL         9001
-REGISTRY-NOIMPORTED  4569
-REGISTRY-TIERCOMMIT  177
+# 2026-09-04f (the closure-signature-from-the-bound rule). +4 native fixtures
+#   (bc_closbnd_{ret_wrong_region_fail,elided_capture_fail} and their two pass
+#   twins) and ONE imported admit -> imported fail move, which is +1/-1 in ALL.
+#   The removed admit gate is NOT labelled `imported`, so NOIMPORTED takes only
+#   +4-1 = +3; it WAS tier_commit, so TIERCOMMIT takes -1. All three landed.
+#   ALL          9001 -> 9005   +4
+#   NOIMPORTED   4569 -> 4572   +3
+#   TIERCOMMIT    177 ->  176   -1
+REGISTRY-ALL         9005
+REGISTRY-NOIMPORTED  4572
+REGISTRY-TIERCOMMIT  176
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

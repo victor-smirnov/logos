@@ -1,0 +1,10 @@
+// The ADMIT half of the pair. ONE TOKEN from
+// fail/bc_closbnd_ret_wrong_region_fail.logos: the closure returns `a`, the
+// parameter whose region the bound WRITES as `'a` and demands back at the
+// return. Adopting the bound's region must not refuse this.
+package bc_closbnd_ret_own_region_ok;
+fn expect_sig<F>(f: F) -> i32 where F: for<'a> Fn(&'a i64, &i64) -> &'a i64 { return 0i32; }
+fn main() -> i32 {
+    let g: i32 = expect_sig(|a: &i64, b: &i64| -> &i64 { return a; });
+    return g;
+}

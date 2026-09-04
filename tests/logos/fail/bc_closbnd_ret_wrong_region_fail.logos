@@ -1,0 +1,12 @@
+// ONE TOKEN from pass/bc_closbnd_ret_own_region_ok.logos: the closure returns
+// `b`, not `a`. The bound is `for<'a> Fn(&'a i64, &i64) -> &'a i64` — it WRITES
+// `'a` at parameter 0 and at the return, so the closure's two elided parameter
+// slots adopt `'a` and a fresh region respectively and the return demands `'a`.
+// Returning `b` yields the OTHER region. rustc: lifetime may not live long
+// enough. src/compiler/PROBES.md 2026-09-04f, arm (H).
+package bc_closbnd_ret_wrong_region_fail;
+fn expect_sig<F>(f: F) -> i32 where F: for<'a> Fn(&'a i64, &i64) -> &'a i64 { return 0i32; }
+fn main() -> i32 {
+    let g: i32 = expect_sig(|a: &i64, b: &i64| -> &i64 { return b; });
+    return g;
+}

@@ -1,0 +1,1 @@
+return type mismatch: the elided lifetime of closure parameter 'b' is a region distinct from 'a, and no bound relates them — name it 'a

@@ -1,0 +1,1 @@
+return type mismatch: the elided lifetime of closure parameter 'p' and the elided lifetime of parameter 's' are two distinct regions of this signature and no bound relates them — give them one name (e.g. `fn f<'a>(.. &'a ..)`)

@@ -1,0 +1,17 @@
+// ONE TOKEN from pass/bc_closbnd_elided_param_ok.logos: the closure returns the
+// CAPTURE `s`, not its own parameter `p`. The bound `Fn(&i64) -> &i64` writes no
+// region, so elision rule 1 on the BOUND ties the return to the closure's single
+// input region; `s` carries the enclosing fn's region instead. rustc: E0521 —
+// borrowed data escapes outside of closure. src/compiler/PROBES.md 2026-09-04f,
+// arm (C). ⚠ THIS PROGRAM WAS ALREADY RED before 2026-09-04f, under a DIFFERENT
+// and wrong sentence about `fn outer`'s own elision; the pin is the new message.
+package bc_closbnd_elided_capture_fail;
+fn apply<F>(f: F, v: &i64) -> i64 where F: Fn(&i64) -> &i64 {
+    let r: &i64 = f(v);
+    return *r;
+}
+fn outer(s: &i64) -> i64 {
+    let x: i64 = 1i64;
+    return apply(|p| { return s; }, &x);
+}
+fn main() -> i32 { let z: i64 = 9i64; return outer(&z) as i32 - 9i32; }
