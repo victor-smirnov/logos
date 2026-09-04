@@ -21212,3 +21212,170 @@ retired by spec) · lifereg.L1 2 (T3 blocked by §8.1).
 Five probe names retired WITH their code — `recvvarall`, `recvvarm`, `recvvarmp`,
 `recvvartb`, `recvvardyn` — together with `recv_probe_` and all six `recvvar.{A,B,D}.*`
 census buckets. No probe is installed by this round.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ═══ ROUND 2026-09-04e — PRICED, NOTHING LANDED. THE CLOSURE BOUNDARY'S SECOND
+# ═══ HOP (`hint_closure_formal_`'s REGIONS) IS **REFUTED**: SEVEN ARMS, THE FACT
+# ═══ PROVEN TO ARRIVE ON EVERY PREDICTED ROW, AND THE BEST OF THEM CLOSES ONE ROW
+# ═══ AT COST 0 ON ALL THREE HARNESS POPULATIONS WHILE REFUSING THREE LEGAL HAND
+# ═══ PROGRAMS OF THE SIMPLEST SHAPE IN THE LANGUAGE. `# TOTAL` 128 → 128.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+## 1. STEP 1, DERIVED FROM THE TREE
+HEAD `ca72e7a9b`, clean = origin/main. `# TOTAL` **128**, 128 by direct listing.
+CHANNEL SPLIT, derived: **lifereg 47 · nllmoves 42 · bck 39**.
+LARGEST ROOTS, derived: bck.C 11 · nllmoves.C 9 · lifereg.R18 6 · bck.NEW 6 · bck.D 6 ·
+bck.B 5 · nllmoves.E 4 · lifereg.R17 4 · lifereg.NEW-N1 4 · rest ≤ 3.
+LIVE PROBE NAMES by the literal grep: **165** at open, **165** at close (seven names
+installed and all seven RETIRED with their code — see §9).
+⚠ TWO CORRECTIONS TO THE HARNESS RECIPE, BOTH MEASURED THIS ROUND:
+ 1. **`scripts/test-levels.sh` DOES NOT EXIST.** The script is `tests/logos/test-levels.sh`
+    (invoked from `build/` as `bash ../tests/logos/test-levels.sh L1`). Two runs were lost
+    to `rc=127` before the path was grepped. Every prompt and several §-headers in this file
+    spell it `scripts/test-levels.sh`.
+ 2. The compiler binary is `build/bin/logosc`, not `build/logosc`.
+BASELINE: `-L bc` and the ledger read from the store by `ceiling-probe.sh`, unarmed build
+**714** (first batch) / the store's own read for the later builds. Build hashes READ from
+`scripts/build_hash.py`: `ef8cea5163d689c0` (batch 1), `0cbaa2705fc3013b` (batch 2),
+`b3e956a5853bcc6e` (batch 3), `030c788ad626c581` (batch 4). L1 **rc=0, 748/748** on batch 1
+and on batch 3 — the batch is inert unarmed.
+
+## 2. THE TARGET ROWS AND WHY THIS BLOCK — WRITTEN BEFORE THE COMPILER WAS TOUCHED
+`build/round-2026-09-04e/targets-2026-09-04e.txt`, N = **6** by name plus 19 rows named as
+PREDICTED-NOT-TO-CLOSE.  Declined/refuted/retired/owner entries read first: `closmintp`
+LANDED (`1d7f46c37`), `closrigid` REFUTED BY CENSUS, `closretelide` DECLINED at cost 1,
+`closretfresh` at cost 6, `capmut` ⛔18/17, `capretcaps`/`capretplt` retired, lifereg.R18 =
+M-SIG rejected, the E0716 rows an owner's.
+POPULATION DERIVED BY THE PROPERTY, not the root label: grepping the admit corpus for a
+closure literal gives **27 programs across SEVEN roots**; the sub-population whose closure
+SIGNATURE carries a region cuts across bck.C, lifereg.C, nllmoves.C, nllmoves.NEW-L1,
+nllmoves.NEW-N2.  2026-09-03clos §10.3 named this question by name as "the next priced
+question in this block", and its first hop landed — rule 2, a door in SERIES.
+THE MECHANISM, READ IN THE TREE BEFORE ANY EDIT — `sema_expr.cpp::lower_closure_expr`:
+    ret_type_ = has_annot ? ret_type : nullptr;
+⇒ an UNANNOTATED closure body's every `return` skips the whole `expect_type` /
+`check_variance` / E0507 chain of `lower_return`; the comment above it says so in words.
+`hint_closure_formal_` is live at that very line (read twenty lines above for PARAM types)
+and its RETURN type is never read.  An arm that EXISTS, reached through a fact the code
+does not carry — the shape the prompt says has paid every time.
+
+## 3. ⚠ THE CENSUS FIRST (RULE 17) — THE SITE IS LIVE AND THE ARRIVAL BOUNDS EVERY ARM
+Seven buckets at `lower_closure_expr`, all 128 ledger programs compiled directly:
+    closhint.arrive              33      closure literals in the ledger corpus
+    closhint.noannot             24      …with no `-> R`
+    closhint.hintret             11      …where hint_closure_formal_ peels to a callable
+    closhint.noannot.hintret      3      arm A's population
+    closhint.noannot.hintret.ref  2      arm D's population
+    closhint.annot.hintret        5      arm B's population
+    closhint.hintparams           6      arm C's population
+Every arm's ceiling is bounded by its own bucket BEFORE the build, and per-program census
+proved each arm ARMED on exactly the rows §2 predicted (`closhint.A.armed` on
+regions-nested-fns-2 and var-matching-…; `closhint.annot.hintret` on return-wrong-bound-region,
+regions-escape-method, issue-54124).  **RULE 1 IS DISCHARGED: every zero below is a real zero.**
+
+## 4. THE PROBE TABLE — FOUR BUILDS, ALL THREE COST COLUMNS, EVERY IDENTITY READ
+    probe          site / edit                                fires ceil cost cfail std verdict
+    closrethint  A `ret_type_ = hint_ret_` when !has_annot       48    0    1   0/1351 ok ⛔
+    closretref   D as A, only when the hint return holds a `&`   48    0    0   0/1351 ok ⛔ 0
+    closannhint  B check_variance(written_ret, hint_ret)         71    0    0   0/1351 ok ⛔ 0
+    closparmhint C check_variance(hint_param[i], closure_param)  499   1    2   0/1351 ok ⛔ WRONG
+    closannhintr B' the same pair REVERSED                       71    0    0   0/1351 ok ⛔ 0
+    closretrev   A' arm A's compare reversed at lower_return      2    0    0   0/1351 ok ⛔ 0
+    closhintstrict  S  B'+A' with the EMPTY-region yield off      9    1    0   0/1351 ok ⛔ §7
+    closhintstrictb S2 rule-9 twin: both-empty also refuses      13    1    0   0/1351 ok ⛔ §7
+    closhintrep     S3 S + the `types_compatible` early exit     13    1    0   0/1351 ok ⛔ §7
+                       suspended (rule: census the PERMISSIVE exits)
+`closrethint`'s cost 1 is `logos_02_semantic_core_pass_closure-generic-fnonce-unit-ret-cl3`:
+the hint's return there is an UNINSTANTIATED type parameter `T`, so the arm demands
+`expected T, got i64`.  `closretref` is the rule-9 narrow twin that skips exactly those, and
+it prices 0 — and closes nothing.
+
+## 5. THE SETS, PREDICTED BY NAME, DIFFED BOTH WAYS
+    predicted(6) = {regions-nested-fns-2 lifereg.C, var-matching-lifetime-but-unused-not-
+        mentioned bck.C, return-wrong-bound-region nllmoves.C, regions-escape-method lifereg.C,
+        issue-54124 nllmoves.NEW-L1, projection-two-region-trait-bound-closure nllmoves.NEW-N2}
+    measured(closrethint / closretref / closannhint / closannhintr / closretrev) = ∅
+    measured(closparmhint)  = {return-wrong-bound-region}
+    measured(closhintstrict / closhintstrictb / closhintrep) = {regions-nested-fns-2}
+    predicted ∖ measured(union) = {var-matching-…, regions-escape-method, issue-54124,
+        projection-two-region-trait-bound-closure} — 4 of 6.
+    measured ∖ predicted = ∅.
+**AND THE ONE ROW closparmhint TOOK IS NOT CLOSED — THE DIAGNOSTIC IS WRONG.** Read:
+    return-wrong-bound-region:7  `closure parameter: the elided lifetime of closure parameter
+      'a' is a region distinct from 'a, and no bound relates them — name it 'a`
+The program's actual illegality is that the RETURN is tied to `b` where the bound
+(`for<'a> Fn(&'a i64, &i64) -> &'a i64`) demands `a`; the arm refuses it for the spelling of
+its PARAMETERS. The same sentence refuses `pass/bc_dclfnbnd_static_ret:21`, which is that
+fixture's own pinned LEGAL TWIN (`both(|x: &i64, y: &i64| -> &i64 { return y; }, &v, &v)`).
+`closparmhint` ⛔ REFUTED: ceiling 1 bought by a wrong model, cost 2.
+
+## 6. ⇒ WHY EVERY REVERSED AND FORWARD RETURN ARM IS ZERO — THE ROOT, MEASURED
+`include/logos/compiler/subtype.hpp`, `lt_eq`:
+    if (x.empty() || y.empty()) { … return true; }        // ← unconditional except 'static
+**EVERY REGION ON THE CLOSURE SIDE OF THIS COMPARISON IS THE EMPTY SPELLING**, so the pair
+compares EQUAL in BOTH directions and no arm at the return position can ever separate.
+The 09-03clos mint (`closmintp`, landed) mints a closure's `&` PARAMETERS only — which is
+why `closparmhint` at the PARAMETER position DOES produce a refusal and names a rigid
+region, while `closannhint` and `closannhintr`, the same pair at the RETURN position, are
+silent 71 times each.  Direction is not the discriminator; MINTEDNESS is.
+⚠ AND THE BLANKET REPAIR IS ALREADY PRICED AND REFUSED: `lteqoneempty` = ceiling 34,
+**cost 26, cfail 35, stdlib REFUSED**; `lteqbothempty` = 13 / 2 / 14 / stdlib REFUSED
+(this file, §5191-5199). The empty-region yield cannot be removed globally.
+
+## 7. ⛔ RULE 5 KILLED THE ONE SURVIVOR, AND COST 0 ON THREE POPULATIONS DID NOT SEE IT
+`closhintstrict` suspends that yield for the closure-return comparison ALONE: ceiling 1,
+**cost 0 on pass, 0 of 1351 on the fail text oracle, and all four stdlib layers compile**.
+19 hand programs in `/home/logos/sandbox/rv3/`, written before the arm existed, every one
+multi-line, varied by SHAPE (a generic `Fn` bound · a value-only bound · a fn-POINTER let
+annotation · a capture that outlives · a `for<'x>` two-param bound · a METHOD-call argument ·
+a struct carrying a lifetime · an ANNOTATED closure agreeing with its bound · a bound
+returning a TYPE PARAMETER · a unit-returning FnOnce · a `&mut` param · NESTED closures ·
+a bound consumed in a `while` loop · a closure RETURNED as a fn-pointer · a written `'a` on
+both sides · a `'static` capture):
+    **h01, h06, h12 — LEGAL RUST, REFUSED.**  h01 is
+        fn apply<F>(f: F, v: &i64) -> i64 where F: Fn(&i64) -> &i64 { … }
+        apply(|p| { return p; }, &x)
+    the simplest legal closure-under-an-`Fn(&T)->&T`-bound in the language, and it is not in
+    the corpus.  h06 is the same through a METHOD call, h12 through NESTED closures.
+    (h16 is red UNARMED — a `'static` capture — and is NOT a cost.)
+    Correct verdicts: 12 of 15 legal admitted, and x02 — the ILLEGAL twin of h05 — refused
+    with a sentence that names the parameter.
+⇒ THE RECORDED COST 0 IS THE THIRD SUCCESSIVE FALSE ZERO OF ITS KIND. The harness's legal
+population does not contain a closure passed to a generic `Fn(&T) -> &T`.
+
+## 8. ⚠ THE PERMISSIVE EARLY EXIT WAS **NOT** THE SWALLOW — A NEGATIVE RESULT WITH A NAME
+`check_variance`'s `if (!types_compatible(from, to)) return;  // outer check handles it` is
+a permissive exit, and `closhint.strict.refuse` fired on return-wrong-bound-region and on
+var-matching-… while both still compiled rc 0, which named it as the suspect.  `closhintrep`
+suspends that exit and is **IDENTICAL to `closhintstrict` in every column and on all 19 hand
+programs**.  ⇒ the suppression is upstream of it, in `variance_ok`, which at a COVARIANT
+`&` position never consults the region at all.  That is the next question in this block and
+it is a THIRD hop, not an alternative to the two already opened (rule 2).
+⚠ RULE 9 UNSETTLED FOR `closhintstrictb`: it differs from `closhintstrict` only in the
+both-empty case, fires 13 vs 9, and is identical in every harness column and on all 19 hand
+programs. Only a census at its own refusal bucket separates them, and neither is fundable.
+
+## 9. OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **`type_str` DEGENERACY AT THE CLOSURE RETURN, A FOURTH SITE.** Every refusal this round
+    printed `expected &i64, got &i64` — one spelling twice. Already recorded 2026-09-01m /
+    09-04b §6 / 09-03clos §9.2 at the fn return, the deref-write and the method receiver;
+    the closure return is a fourth. The 09-04d repair (`decl_form`) is passed only by the two
+    receiver sites.
+ 2. `tests/logos/test-levels.sh`, not `scripts/` — §1.
+ 3. CARRIED FORWARD, STILL THE OWNER'S: three E0713 rows (nllmoves.E); the E0716-family rows
+    that are LEGAL RUST; 09-02p §4's five owner pass fixtures walling the `'static` population;
+    09-03clos §9.4 (`m01`).
+
+## 10. NOT SPENT, EACH WITH ITS NUMBER (re-derived, not carried)
+bck.C 11 · nllmoves.C 9 · lifereg.R18 6 (M-SIG, rejected 09-06a) · bck.NEW 6 (real size 3) ·
+bck.D 6 (3 owner) · bck.B 5 · nllmoves.E 4 (E0713 ×3 owner) · lifereg.R17 4 ·
+lifereg.NEW-N1 4 · nllmoves.NEW-1 3 · nllmoves.B 3 · nllmoves.D 3 · lifereg.NEW-R19 3 ·
+lifereg.N1 3 · lifereg.D 3 · bck.E 3 (E0509, retired by spec).
+
+## 11. THE TREE AT CLOSE
+Seven probe names installed and ALL SEVEN RETIRED WITH THEIR CODE — `closrethint`,
+`closretref`, `closannhint`, `closannhintr`, `closretrev`, `closparmhint`, `closhintstrict`,
+`closhintstrictb`, `closhintrep` — together with the `closhint.*` census buckets, the
+`ret_type_rev_hint_` / `probe_cv_report_` members and the `lt_empty_strict()` flag.
+`git checkout --` on the five touched files; no probe is installed by this round and
+`# TOTAL` is 128 → 128.
