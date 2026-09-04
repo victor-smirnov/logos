@@ -1362,9 +1362,15 @@ PIN = {
     # turns on; bc_capmovemut_nested_closures_admit — nested `move` closures
     # over one `&mut`, the `!in_closure_body_` condition), both non-glob.
     # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2639.
-    'corpus'            : 2642,
+    # 2026-09-04d: 2642 -> 2645. Three pass fixtures of the method-call RECEIVER
+    # check (bc_recv_self_lt_invariant_ok — the `'a` off the outer `&mut`;
+    # bc_recv_trait_bound_lt_ok — the caller writes `&'r T`, upstream E0621's own
+    # suggestion; bc_recv_self_lt_generic_admit — the pinned exemption that the
+    # comparand is the INSTANTIATED slot), all three non-glob.
+    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2645.
+    'corpus'            : 2645,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2451,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2454,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

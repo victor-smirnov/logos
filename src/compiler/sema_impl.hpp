@@ -6321,13 +6321,11 @@ private:
     // `permissive` should be false at body sites (return / let-init) where
     // both lifetimes are fn-scope-fixed; true at call-site arg-pass where
     // caller's region inference fills in unresolved regions.
-    // PROBE 2026-09-04c — M-SELF's CALL HALF. Parameter 0 is never compared at
-    // any of the three method-call sites; this is the one predicate they share.
-    static bool recv_probe_(const char* n) {
-        return logos::probe::on(n) || logos::probe::on("recvvarall");
-    }
+    // `decl_form` is the caller's UNINSTANTIATED spelling of `to`, supplied
+    // only where instantiation is what erased the region names (the method-call
+    // receiver sites). It is read at ONE place: the es == gs tail below.
     void check_variance(TypeRef from, TypeRef to, const std::string& ctx,
-                        bool permissive = true) {
+                        bool permissive = true, TypeRef decl_form = {}) {
         if (!from || !to) return;
         if (TypeRef(from).kind() == LogosType::Kind::Error ||
             TypeRef(to).kind() == LogosType::Kind::Error) return;
@@ -6355,6 +6353,13 @@ private:
         // Two spellings that agree carry the difference in a region the
         // short form hides (`Foo<'static>` vs `Foo`): print the source form.
         if (es == gs) es = type_str(to, true), gs = type_str(from, true);
+        // Still one spelling twice: `to` is an INSTANTIATED signature and the
+        // written region names died in the instantiation. The declared form is
+        // the only spelling that names them. PROBES.md, round 2026-09-04d.
+        if (es == gs && decl_form) {
+            auto ds_ = type_str(decl_form, true);
+            if (ds_ != gs) es = ds_;
+        }
         // A minted region is unspellable and `type_str` hides it, so a refusal
         // between two ELIDED slots printed one spelling twice and named no
         // region at all. Name the parameters they were minted for.

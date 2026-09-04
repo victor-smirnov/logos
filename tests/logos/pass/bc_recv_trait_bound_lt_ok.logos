@@ -1,0 +1,11 @@
+// Pair twin of fail/bc_recv_trait_bound_lt_fail.logos, ONE TOKEN apart: the
+// caller writes `&'r T`, which is exactly what upstream E0621 asks for.
+package bc_recv_trait_bound_lt_ok;
+trait Itble<'r> { fn iter(self: &'r Self) -> &'r i64; }
+struct Pair { a: i64 }
+impl<'r> Itble<'r> for Pair { fn iter(self: &'r Pair) -> &'r i64 { return &self.a; } }
+fn check<'r, T: Itble<'r>>(cont: &'r T) -> i64 { let c: &i64 = cont.iter(); return *c; }
+fn main() -> i32 {
+    let p: Pair = Pair { a: 1i64 };
+    return check(&p) as i32 - 1i32;
+}

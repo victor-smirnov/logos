@@ -5170,9 +5170,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8991 -> 8996   +5
 #   NOIMPORTED   4563 -> 4566   +3
 #   TIERCOMMIT    181 ->  179   -2
-REGISTRY-ALL         8996
-REGISTRY-NOIMPORTED  4566
-REGISTRY-TIERCOMMIT  179
+# 2026-09-04d — M-SELF's CALL half. Same shape as 09-04a, and predicted from it
+#   BEFORE the pin was read: +5 native fixtures (2 fail, 3 pass); the two closed
+#   ledger rows move imported admit -> imported fail, so ALL is unchanged by them
+#   (-2 admit tests, +2 imported fail tests) while NOIMPORTED loses the 2 admit
+#   gates (admit tests are not labelled `imported`, the ports they run are);
+#   TIERCOMMIT -2 (the two admit tests). All three landed on the number.
+#   ALL          8996 -> 9001   +5
+#   NOIMPORTED   4566 -> 4569   +3
+#   TIERCOMMIT    179 ->  177   -2
+REGISTRY-ALL         9001
+REGISTRY-NOIMPORTED  4569
+REGISTRY-TIERCOMMIT  177
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

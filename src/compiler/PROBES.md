@@ -21049,7 +21049,7 @@ priced not bought; T2 blocked by §4) · bck.B 5 · lifereg.R17 4 · nllmoves.E 
 nllmoves.B 3 · nllmoves.D 3 · lifereg.D 3 · bck.E 3 (E0509, retired by spec).
 
 ## recvvarall
-site: src/compiler/sema_impl.hpp::recv_probe_ — the shared predicate of the three method-call receiver sites
+site: the shared `recv_probe_` predicate of the three method-call receiver sites — RETIRED 2026-09-04d with the code it gated; the two sites it named live on unconditionally (see recvvarm, recvvartb)
 build: 9e1b2d1528a41e6b (READ)
 measured: 2026-09-04
 fires: 64958
@@ -21092,3 +21092,123 @@ fires: 219
 ceiling: 0
 cost: 0 (cfail 0 of 1347, stdlib ok)
 verdict: ⛔ LIVE AND EMPTY — recvvar.D.arrive 1 / recvvar.D.cmp 1 on a hand `&dyn Sp` program, so this is a real zero and not an unreached site (rule 1). No ledger row calls a lifetime-carrying method through dyn. Rule 4: 219 fires is a small population and this refutes nothing.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ═══ ROUND 2026-09-04d — LANDED. M-SELF's **CALL** HALF: THE RECEIVER IS PARAMETER
+# ═══ 0 AND EVERY METHOD-CALL ARGUMENT LOOP STARTS AT `pi = i + 1`. 130 → 128.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+## 1. STEP 1 AT OPEN — AND THE 09-04c CORRECTION TO THE RECIPE HELD
+HEAD `71f591cd1`, clean = origin/main. `# TOTAL` **130**, 130 by direct listing.
+Channel split **lifereg 49 · nllmoves 42 · bck 39**. Roots: bck.C 11 · nllmoves.C 9 ·
+lifereg.R18 6 · bck.NEW 6 · bck.D 6 · lifereg.NEW-N1 5 · bck.B 5 · nllmoves.E 4 ·
+lifereg.R17 4 · rest ≤ 3. The grep census read **167** — 09-04c's §10 warning is confirmed
+from the other side: five names were installed and the literal grep saw two, because
+`recvvarm` / `recvvartb` / `recvvardyn` went through the shared `recv_probe_`.
+Baseline READ from the store: build 706, `^logos_00_bc_admit_` 130 recorded / 0 failed;
+`-L bc` 1347 / 0 failed.
+
+## 2. WHAT LANDED — TWO SITES, AND THE COMPARAND IS THE **INSTANTIATED** SLOT
+`src/compiler/sema_expr.cpp`, site A (struct/impl path) and site B (trait-bound
+`chosen_method` path). Both compare `expr_type(recv)` against parameter 0 through the same
+`check_variance` every explicit argument already goes through. At site A the comparand is
+`ipts_[0]` — the callee's binders instantiated against THIS call, receiver included — which
+was already computed at that site and never read. Site D (dyn/vtable) is DECLINED and its
+probe was removed with it.
+
+## 3. ⚠ THE DIAGNOSTIC WAS THE BLOCKER, AND IT WAS A REAL ONE (09-04c §7)
+Armed, T1 printed **`expected &mut Foo, got &mut Foo`** — one spelling twice, through BOTH
+existing fallbacks. `check_variance`'s `es == gs` tail already retries in source form; that
+does not help here because `to` is the INSTANTIATED signature and the written `'a` died in
+the instantiation. The declared slot is the only spelling that still names it, and only the
+call site holds it. `check_variance` therefore gained a fifth parameter, `decl_form`, read at
+exactly one place — the `es == gs` tail — and passed only by the two receiver sites:
+
+    T1  method 'Foo__modify' receiver: variance mismatch — expected &'a mut Foo<'a>, got &mut Foo — …
+    T4  method 'iter' receiver: variance mismatch — expected &'r T, got &T — …
+
+T4's text is upstream E0621 term for term ("add explicit lifetime `'r` to the type of
+`cont`: `&'r T`"). T1's names the region the caller must supply and the invariance that
+forces it, which is upstream's "lifetime may not live long enough" for this program.
+
+## 4. THE SET, DIFFED BOTH WAYS
+Predicted **N = 2** by name in `build/round-2026-09-04d/targets-2026-09-04d.txt`, written
+before the first compiler edit. Measured on the landed binary via
+`ctest -R '^logos_00_bc_admit_'`: **N = 2**, {ex3-both-anon-regions-one-is-struct-5
+(lifereg.NEW-N1), iterator-trait-lifetime-error-13058 (lifereg.A)}.
+**predicted ∖ measured = ∅. measured ∖ predicted = ∅.** T2 `trait-method-lifetime-suggestion`
+and T3 `elided-self-lifetime-in-trait-fn` were predicted NOT to close, by name and reason, and
+did not: 09-04c §4's blocker — a trait default body is not type-checked when the trait has no
+implementor — is untouched by this round. `lifereg.A` is now EMPTY; `lifereg.NEW-N1` 5 → 4.
+
+## 5. ⚠ RULE 5 — 16 NEW SHAPES, WRITTEN BEFORE THE FIRST EDIT, NONE FROM THE PRICING SET
+`/home/logos/sandbox/rv2/`, N01–N16, every one multi-line and every one run under
+`LOGOS_CENSUS` to prove it reached the site. **14 legal, all admitted**: a struct with BOTH
+a lifetime and a type parameter through an elided caller · a receiver that is a FIELD of a
+`&mut` · `self: &'static S` on a static · a receiver that is a bare function RETURN with no
+binding · a trait DEFAULT body with an implementor · **T4's legal twin** (`cont: &'r T`,
+site B, admitted) · **T1's legal twin** (the `'a` off the outer `&mut`) · two lifetimes
+permuted between header and self type · a generic fn calling a trait method in a `while`
+loop · a RECURSIVE call on `self` inside its own body · X03's legal counterpart · an ARRAY of
+lifetime-carrying structs indexed in a loop · a trait with a binder whose method takes
+`&mut Self` · `self: S<'a>` BY VALUE · a chained `o.inner().get()`.
+**N02 is RED UNARMED** — `call to 'go' arg 1: expected &mut Outer, got &mut Outer<'_>`, the
+ARGUMENT site, byte-identical before and after — and is not a cost.
+⚠ **N08 REACHES NEITHER SITE.** An `enum` receiver with a lifetime (`enum E<'a>`, method
+called on a local) produces NO census bucket at A or B. The arm does not cover enum method
+calls at all; that is a fourth path and it is unpriced. Recorded, not pursued.
+The pricing round's 24 re-run on the LANDED binary: 21 legal admitted, L18 red unarmed
+(`Box` / unsafe context, pre-existing), X01 and X02 refused with the repaired text.
+**40 hand programs total, 35 legal admitted, 2 illegal refused, 2 pre-existing reds.**
+
+## 6. ⛔ X03 — STILL ILLEGAL AND STILL ADMITTED. THE ARM IS NOT THE WHOLE PREDICATE.
+`impl<'a> Foo<'a> { fn take(self: &'a Foo<'a>) }` called from `fn bar(foo: &Foo)` is X01 with
+`&mut` replaced by `&`. rustc rejects it; this landing admits it, exactly as the probe did.
+The mechanism catches the INVARIANT (`&mut`) case and the RIGID-UNIVERSAL case; the covariant
+shared-ref case is permissive. A ceiling bounds the count, not the set (rule 6). This is a
+second observation the SAME site needs and it is not bought here.
+
+## 7. COST, ALL THREE POPULATIONS, AND THE CONTROL — THE PRICING WAS EXACT IN ALL THREE
+`pass`: `-L bc` **2391 passed / 0 failed / 2 disabled**, admit gate **128 / 0 of 128**, both
+gate-db build 713. `stdlib`: `stdlib-cost.sh` rc 0, all four layers, and the full
+`cmake --build` rc 0 compiled every layer plus every tool from source.
+`cfail`: **fail_text_oracle over control and landed, 1351 rows each, 0 added and 0 removed.**
+Of the **1347 pre-existing** fail fixtures, **rc moved 0** and **`.expected`-match moved 0**;
+**stderr sha moved 3**, and they are exactly the three the pricing phase named —
+`gat-lt-arg-mismatch`, `gat-lt-divergent`, `gat-lt-propagation`. The 4 rows that DID move rc
+and match are the four new/moved fixtures. The added line, read on the landed binary:
+
+    + method 'get' receiver: variance mismatch — expected &'a T, got &'b T — …
+      return type mismatch: variance mismatch — expected T::Item, got T::Item — …
+
+Rule 14 in the abuse direction: this is not ONLY a re-wording — it also closes T4 — and the
+added line names the two regions where the inherited one prints one spelling twice.
+
+**CONTROL REVERT**, `sema_expr.cpp` + `sema_impl.hpp` alone to `71f591cd1`, rebuilt: all FOUR
+fail fixtures **compile clean** (red without the change) and all THREE pass twins stay green,
+so no fixture is asserting something the tree already did. Restored and rebuilt, the binary
+hashes back to the tested identity `c9a2dc9db690e816833340adbc7f4f47`.
+
+## 8. OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **A trait default body is not type-checked when the trait has no implementor** (09-04c
+    §4, re-verified this round on T2 and T3 — both still compile rc 0 on the landed binary).
+    It is what blocks `trait-method-lifetime-suggestion` and `elided-self-lifetime-in-trait-fn`.
+ 2. **An enum receiver reaches neither method-call site the round instrumented** (§5, N08).
+ 3. The ARGUMENT-site defect of N02 / N07's first form: `call to 'f' arg 1: expected
+    &mut Outer, got &mut Outer<'_>` for a legal program whose parameter's lifetime list is
+    elided. Pre-existing, unchanged by this round, and it is the arg-site twin of the
+    `type_str` degeneracy §3 repaired at the receiver.
+ 4. CARRIED FORWARD, STILL THE OWNER'S: three E0713 rows (nllmoves.E); four E0716-family rows
+    that are LEGAL RUST; 09-02p §4's five owner pass fixtures walling the 16-row `'static`
+    population.
+
+## 9. NOT SPENT, EACH WITH ITS NUMBER
+bck.C 11 · nllmoves.C 9 · lifereg.R18 6 (M-SIG, rejected 09-06a) · bck.NEW 6 (real size 3) ·
+bck.D 6 (3 owner) · bck.B 5 · lifereg.NEW-N1 4 (T2 blocked by §8.1) · lifereg.R17 4 ·
+nllmoves.E 4 (E0713 ×3 owner) · nllmoves.B 3 · nllmoves.D 3 · lifereg.D 3 · bck.E 3 (E0509,
+retired by spec) · lifereg.L1 2 (T3 blocked by §8.1).
+
+## 10. THE TREE AT CLOSE
+Five probe names retired WITH their code — `recvvarall`, `recvvarm`, `recvvarmp`,
+`recvvartb`, `recvvardyn` — together with `recv_probe_` and all six `recvvar.{A,B,D}.*`
+census buckets. No probe is installed by this round.

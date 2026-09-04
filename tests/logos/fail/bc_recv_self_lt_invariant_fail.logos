@@ -1,0 +1,16 @@
+// The RECEIVER is parameter 0 and was never compared against its declared slot
+// (2026-09-04d). `self: &'a mut Foo<'a>` ties the outer `&mut` borrow to the
+// struct's own region; `&mut` is invariant, so a caller holding `&mut Foo<'_>`
+// for a shorter region cannot call it.
+// Pair twin of pass/bc_recv_self_lt_invariant_ok.logos, ONE TOKEN apart: `'a`.
+package bc_recv_self_lt_invariant_fail;
+struct Foo<'a> { p: &'a i64 }
+impl<'a> Foo<'a> {
+    fn modify(self: &'a mut Foo<'a>) -> i64 { return *self.p; }
+}
+fn bar(foo: &mut Foo) -> i64 { return foo.modify(); }
+fn main() -> i32 {
+    let n: i64 = 1i64;
+    let mut f: Foo = Foo { p: &n };
+    return bar(&mut f) as i32 - 1i32;
+}

@@ -1,0 +1,1 @@
+method 'iter' receiver: variance mismatch — expected &'r T, got &T — lifetime structure incompatible (check &mut invariance / contravariance rules)

@@ -8035,18 +8035,6 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                 } else {
                     SemaSubst self_subst;
                     self_subst["Self"] = expr_type(recv);
-                    if (recv_probe_("recvvardyn") && !m.param_types.empty() &&
-                        m.param_types[0] && expr_type(recv)) {
-                        logos::probe::census("recvvar.D.arrive");
-                        TypeRef p0_ = subst_type_sema(m.param_types[0], self_subst);
-                        if (p0_ && TypeRef(p0_).kind() != LogosType::Kind::TypeVar &&
-                            TypeRef(p0_).kind() != LogosType::Kind::AssocType) {
-                            logos::probe::census("recvvar.D.cmp");
-                            check_variance(expr_type(recv), p0_,
-                                           std::format("method '{}' receiver",
-                                                       std::string(method_name)));
-                        }
-                    }
                     for (uint64_t i = 0; i < explicit_args; ++i) {
                         auto pt = subst_type_sema(m.param_types[i + 1], self_subst);
                         // Canonical-order coercion: arg_to_dyn → reborrow →
@@ -8717,17 +8705,18 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         }
                     }
                 }
-                if (recv_probe_("recvvartb") && !chosen_method->param_types.empty() &&
+                // The receiver as parameter 0, at the trait-bound path — the
+                // loop below likewise starts at i + 1. 2026-09-04d.
+                if (!chosen_method->param_types.empty() &&
                     chosen_method->param_types[0] && expr_type(recv)) {
-                    logos::probe::census("recvvar.B.arrive");
                     TypeRef p0_ = subst_type_sema(chosen_method->param_types[0], self_subst);
                     if (p0_ && TypeRef(p0_).kind() != LogosType::Kind::TypeVar &&
-                        TypeRef(p0_).kind() != LogosType::Kind::AssocType) {
-                        logos::probe::census("recvvar.B.cmp");
+                        TypeRef(p0_).kind() != LogosType::Kind::AssocType)
                         check_variance(expr_type(recv), p0_,
                                        std::format("method '{}' receiver",
-                                                   std::string(method_name)));
-                    }
+                                                   std::string(method_name)),
+                                       /*permissive=*/true,
+                                       chosen_method->param_types[0]);
                 }
                 for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
                     auto pt = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
@@ -10185,21 +10174,20 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             for (auto& a_ : arg_exprs) all_.push_back(a_);
             ipts_ = inst_call_params_(spts_, binders_, all_, fi.ret_type);
         }
-        {   // PROBE 2026-09-04c site A — struct/impl method path
-            const bool rvm_ = recv_probe_("recvvarm");
-            const bool rvp_ = logos::probe::on("recvvarmp");
-            if ((rvm_ || rvp_) && !fi.param_types.empty() && fi.param_types[0] && expr_type(recv)) {
-                logos::probe::census("recvvar.A.arrive");
-                TypeRef p0d_ = fi.param_types[0];
-                if (!struct_subst.empty()) p0d_ = subst_type_sema(p0d_, struct_subst);
-                TypeRef p0_ = (rvp_ || ipts_.empty()) ? p0d_ : TypeRef(ipts_[0]);
-                if (p0_ && TypeRef(p0_).kind() != LogosType::Kind::TypeVar &&
-                    TypeRef(p0_).kind() != LogosType::Kind::AssocType) {
-                    logos::probe::census("recvvar.A.cmp");
-                    check_variance(expr_type(recv), p0_,
-                                   std::format("method '{}' receiver", mangled));
-                }
-            }
+        // The RECEIVER is parameter 0 and the loop below starts at pi = 1, so
+        // until 2026-09-04d it was never compared against its declared slot at
+        // any method-call site. `ipts_[0]` — the callee's binders instantiated
+        // against THIS call, receiver included — was already computed here and
+        // never read. The UNINSTANTIATED slot is not the comparand: it refuses
+        // six legal calls (PROBES.md 2026-09-04c §2, probe `recvvarmp`).
+        if (!fi.param_types.empty() && fi.param_types[0] && expr_type(recv) &&
+            !ipts_.empty()) {
+            TypeRef p0_ = TypeRef(ipts_[0]);
+            if (p0_ && TypeRef(p0_).kind() != LogosType::Kind::TypeVar &&
+                TypeRef(p0_).kind() != LogosType::Kind::AssocType)
+                check_variance(expr_type(recv), p0_,
+                               std::format("method '{}' receiver", mangled),
+                               /*permissive=*/true, fi.param_types[0]);
         }
         for (uint64_t i = 0; i < explicit_args; ++i) {
             size_t pi = i + 1;

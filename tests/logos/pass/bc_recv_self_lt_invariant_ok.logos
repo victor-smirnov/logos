@@ -1,0 +1,14 @@
+// Pair twin of fail/bc_recv_self_lt_invariant_fail.logos, ONE TOKEN apart: the
+// `'a` on the OUTER `&mut` is gone. The receiver borrow is then free to be
+// shorter than the struct's region and the call is legal.
+package bc_recv_self_lt_invariant_ok;
+struct Foo<'a> { p: &'a i64 }
+impl<'a> Foo<'a> {
+    fn modify(self: &mut Foo<'a>) -> i64 { return *self.p; }
+}
+fn bar(foo: &mut Foo) -> i64 { return foo.modify(); }
+fn main() -> i32 {
+    let n: i64 = 1i64;
+    let mut f: Foo = Foo { p: &n };
+    return bar(&mut f) as i32 - 1i32;
+}

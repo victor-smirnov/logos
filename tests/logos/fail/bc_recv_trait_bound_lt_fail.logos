@@ -1,0 +1,13 @@
+// The trait-bound method-call path (`chosen_method`) has the same off-by-one:
+// the loop starts at param 1. `iter` declares `self: &'r Self` where `'r` is a
+// RIGID universal of the caller, and `cont: &T` mints its own region.
+// Pair twin of pass/bc_recv_trait_bound_lt_ok.logos, ONE TOKEN apart: `'r`.
+package bc_recv_trait_bound_lt_fail;
+trait Itble<'r> { fn iter(self: &'r Self) -> &'r i64; }
+struct Pair { a: i64 }
+impl<'r> Itble<'r> for Pair { fn iter(self: &'r Pair) -> &'r i64 { return &self.a; } }
+fn check<'r, T: Itble<'r>>(cont: &T) -> i64 { let c: &i64 = cont.iter(); return *c; }
+fn main() -> i32 {
+    let p: Pair = Pair { a: 1i64 };
+    return check(&p) as i32 - 1i32;
+}

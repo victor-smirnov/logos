@@ -1,0 +1,15 @@
+// EXEMPTION, pinned: the receiver comparison is against the callee's binders
+// INSTANTIATED for this call. A struct carrying BOTH a lifetime and a type
+// parameter, called through an elided caller signature, must stay admitted —
+// the uninstantiated slot refuses exactly this shape (2026-09-04c, recvvarmp).
+package bc_recv_self_lt_generic_admit;
+struct P<'a, T> { r: &'a T }
+impl<'a, T> P<'a, T> {
+    fn get(self: &P<'a, T>) -> &'a T { return self.r; }
+}
+fn use_it(p: &P<'_, i64>) -> i64 { let v: &i64 = p.get(); return *v; }
+fn main() -> i32 {
+    let n: i64 = 1i64;
+    let p: P<'_, i64> = P { r: &n };
+    return use_it(&p) as i32 - 1i32;
+}

@@ -1,0 +1,1 @@
+method 'Foo__modify' receiver: variance mismatch — expected &'a mut Foo<'a>, got &mut Foo — lifetime structure incompatible (check &mut invariance / contravariance rules)

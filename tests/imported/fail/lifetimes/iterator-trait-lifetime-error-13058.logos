@@ -1,6 +1,6 @@
 // rustc lifetimes/iterator-trait-lifetime-error-13058.rs — upstream E0621
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.A
+// shelf: fail · was lifereg.A
 package iterator_trait_lifetime_error_13058;
 // port of lifetimes/iterator-trait-lifetime-error-13058.rs — E0621 explicit lifetime required
 trait Itble<'r> { fn iter(self: &'r Self) -> &'r i64; }
