@@ -4103,6 +4103,60 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     : target;
                 auto mangled = reg_target + "__" + mname;
                 collect_fn(m, reg_target, trait_name);
+                // [PROBES.md 2026-09-03q] M-SELF decl half at the COLLECT site.
+                // Env-gated. `impl_self_ty` is the impl target WITH its written
+                // type and lifetime arguments; `lower_fn`'s `Self` is not.
+                if (trait_name.empty() && impl_self_ty && m.has_key(la::PARAMS)) {
+                    auto _pav = m.get(la::PARAMS.code);
+                    if (_pav.is_pointer()) {
+                        auto _pn = map_of(_pav);
+                        if (_pn.has_key(la::ITEMS)) {
+                            auto _arr = arr_of(_pn.get(la::ITEMS.code));
+                            if (_arr.size() > 0) {
+                                auto _p0 = map_of(_arr.get(0));
+                                if (code_of(_p0) == la::PARAM && _p0.has_key(la::NAME) &&
+                                    str_of(_p0.get(la::NAME.code)) == "self" &&
+                                    _p0.has_key(la::TYPE)) {
+                                    TypeRef _w = resolve_type(map_of(_p0.get(la::TYPE.code)));
+                                    if (_w && (_w.kind() == LogosType::Kind::Ref ||
+                                               _w.kind() == LogosType::Kind::MutRef))
+                                        _w = TypeRef(_w.pointee());
+                                    TypeRef _s{impl_self_ty};
+                                    if (_w) {
+                                        bool _eq = types_equal(_w, _s);
+                                        bool _eqlt = detail::types_equal_with_lifetimes(_w, _s);
+                                        auto _nm = [](TypeRef t) {
+                                            std::string s(t.struct_name());
+                                            if (s.empty()) s = std::string(t.enum_name());
+                                            return s;
+                                        };
+                                        std::string _wn = _nm(_w), _sn = _nm(_s);
+                                        bool _same = !_wn.empty() && _wn == _sn &&
+                                                     _w.kind() == _s.kind();
+                                        logos::probe::census("selfcol.arrive");
+                                        if (_same) logos::probe::census("selfcol.same");
+                                        if (!_eq) logos::probe::census(_same ? "selfcol.differs.same"
+                                                                             : "selfcol.differs.other");
+                                        else if (!_eqlt) logos::probe::census("selfcol.ltonly");
+                                        if (!_eq && logos::probe::on("selfcol"))
+                                            error(std::format(
+                                                "method '{}': the written `self:` type does not "
+                                                "match the impl target '{}'", mname, target));
+                                        if (!_eqlt && logos::probe::on("selfcollt"))
+                                            error(std::format(
+                                                "method '{}': the written `self:` type does not "
+                                                "match the impl target '{}' (lifetime arguments)",
+                                                mname, target));
+                                        if (!_eqlt && _same && logos::probe::on("selfcolsame"))
+                                            error(std::format(
+                                                "method '{}': the written `self:` type does not "
+                                                "match the impl target '{}'", mname, target));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 // Trait-impl methods inherit their trait's accessibility:
                 // if the trait is reachable, so are its methods.  The
                 // grammar disallows `pub fn` inside trait / trait-impl
