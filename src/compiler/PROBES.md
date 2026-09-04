@@ -21513,3 +21513,191 @@ NINE probe names installed by this round and ALL NINE RETIRED WITH THEIR CODE �
 `closbndph`, `closbndbnd`. Live probe census 165 → 165. Two census buckets stay because the
 landed rule reads them, `closbnd.ret.adopted` and `closbnd.ret.tied` — §6 is measured with
 them. No probe is installed by this round.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ═══ ROUND 2026-09-08 — PRICING ONLY. THE 09-02p OWNER WALL THAT DECLINED
+# ═══ `stlandbare` IS **STALE**: FOUR OF ITS FIVE FIXTURES WERE REPAIRED ON
+# ═══ 09-02 AND ITS COST IS 5 → **1**. `# TOTAL` 127 → 127, no behaviour changed.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+## 1. STEP 1, DERIVED FROM THE TREE — AND THE RECIPE UNDERCOUNTS BY THREE
+`grep -rhoP 'probe::on\("\K[a-z_0-9]+' src include | sort -u | wc -l` = **165**;
+`python3 scripts/probe-log-lint.py` = **168 records, every site symbol resolves**. The
+09-04c correction still holds and the delta is still three: names reached through a shared
+`probe::on(const char*)` helper are invisible to the grep. READ THE LINT, NOT THE GREP.
+`# TOTAL` **127** (127 by direct listing). Channel split, derived, NOT quoted:
+**lifereg 47 · nllmoves 41 · bck 39**. Largest roots: bck.C 11 · nllmoves.C 8 ·
+lifereg.R18 6 · bck.NEW 6 · bck.D 6 · bck.B 5 · nllmoves.E 4 · lifereg.R17 4 ·
+lifereg.NEW-N1 4. Upstream-code split of the 127 headers: none 32 · E0597 13 · E0499 8 ·
+E0716 7 · E0507 6 · E0521 5 · E0509 5 · E0382 5 · E0308 5 · E0621 4 · E0505 4 · E0502 4.
+Opening binary `cde1871eb267b4c1` (READ from `build_hash.py`), gate-db build 734; all 8
+target rows re-compiled by hand at open and every one was rc 0.
+
+## 2. THE TARGET ROWS BY NAME — build/round-2026-09-08/targets-2026-09-08.txt, WRITTEN
+##    BEFORE THE COMPILER WAS TOUCHED
+PROPERTY, not root: a WRITTEN region ARGUMENT inside a type that is the TARGET of a value
+flow — a `let` annotation, a struct-literal FIELD type, or a declared PARAMETER type —
+where the SOURCE value's own region argument was never minted, so the comparator that IS
+called (`check_variance`, sema_stmt.cpp:2519 / sema_expr.cpp:11783 / :3869) sees an EMPTY
+spelling on one side and `subtype` yields.
+    T1 pattern-substs-on-brace-struct                             nllmoves.NEW-1
+    T2 do-not-ignore-lifetime-bounds-in-copy-proj--b              nllmoves.NEW-1
+    T3 method-ufcs-inherent-3                                     nllmoves.NEW-1
+    T4 regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr  lifereg.L7
+    T5 regions-fn-subtyping-return-static-fail--fn-subtyping      lifereg.L7
+    T6 do-not-ignore-lifetime-bounds-in-copy                      nllmoves.NEW-S7-1
+    T7 copy-modulo-regions                                        lifereg.NEW-L5
+    T8 var-appears-twice                                          nllmoves.NEW-4
+WHY THIS BLOCK OVER THE OTHERS: all three of `nllmoves.NEW-1` and both of `lifereg.L7` are
+in it, and those two roots are among the least-read in the file (2 and 0 mentions before
+this round). The mechanism is an ARM THAT EXISTS — `subtype`'s Struct/Enum lifetime-arg
+loop, reached only when `sub.lifetime_args()` is non-empty.
+
+## 3. TWO CANDIDATE BLOCKS WERE KILLED BY READING, BEFORE THE FIRST BUILD
+ 1. **DECLARATION-SITE LIFETIME WELL-FORMEDNESS** — E0106 ×3, E0207 ×3, E0392 ×2, eight
+    rows over six roots, derived by property. **ALREADY SPENT, 09-02q**: the structs-anon /
+    enums-anon pair are DESIGN rows (146 + 22 legal uses of the elided form), E0392 is
+    walled by five owner fixtures, and the three E0207 rows are **LEGAL RUST as ported**
+    (rustc's E0207 for a lifetime fires only when it appears in an associated type; the
+    ports dropped upstream's `type IntoIter = Iter<'a,..>`). Not re-bought, not re-refuted.
+ 2. **THE TWO-PHASE / E0716 TEMPORARY BLOCK** — bck.D + nllmoves.D. Mined across 09-01,
+    09-01v, 08-31u; the E0716 three are a corpus decision with an owner ("three mis-ports",
+    09-01 §5.4). Not re-entered.
+
+## 4. THE PROBE TABLE — FOUR INSTALLED ARMS RE-PRICED ON THE OPENING BINARY AT ZERO BUILD
+##    COST (RULE 8), THEN ONE BATCH OF THREE. ALL THREE COST COLUMNS ON EVERY ROW.
+Binary `cde1871eb267b4c1`, gate-db 734 (unarmed) → 735/736/737/738 (armed):
+    probe        arm                                        fires  ceil  cost  cfail  std  verdict
+    stlandbare   sub bare vs sup naming 'static                16     2     1    0/1354 ok  ✓ §6 — WAS 26/5 on a 233-row ledger
+    stbareargs   sub bare vs ANY sup lt args                   15     3     3    0/1354 ok  ⛔ cost >= ceiling
+    sttpempty    T's lt arg empty under `T: 'static`            2     1     1    0/1354 ok  ⛔ 1 vs 1
+    capmut       every capture marked mut                      176     2    32   24/1354 ok  ⛔ §5 — AND BOTH ROWS ARE WRONG-DIAGNOSTIC
+Batch build `0edd56294d2f3397` (READ), L1 rc 0 with nothing armed, gate-db 739 → 740/741/742:
+    stmintland   the LITERAL MINT + stlandbare               8729     2     1    0/1354 ok  = stlandbare, digit for digit
+    stmintbare   the LITERAL MINT + stbareargs               8727     3     3    0/1354 ok  = stbareargs, digit for digit
+    ltsubstlit   the LITERAL MINT alone                      8713     0     0    0/1354 ok  ⛔ 0 at 8713 fires — §8
+⇒ **RULE 13 IN THE FLAT DIRECTION: 0 + 2 = 2.** The mint is live 8713 times per corpus and
+adds NOTHING to either comparator — neither a row nor a cost. It is not half a series here;
+it is a hop whose output is discarded one statement later (§8).
+
+## 5. THE SETS, DIFFED BOTH WAYS, EVERY DIAGNOSTIC READ ON A BINARY
+predicted N = 5 BY NAME (T1..T5). measured(stlandbare) = {T1, T2}.
+    predicted ∖ measured = {T3, T4, T5}       T3 is a CALL-RETURN mint, T4/T5 an
+                                              FnItem→FnPtr coercion — different sites,
+                                              neither touched by any arm here
+    measured ∖ predicted = ∅
+`stbareargs` adds exactly one row over `stlandbare`: explicit-static-bound-on-trait
+(lifereg.NEW-4) — and pays two more legal refusals for it.
+DIAGNOSTICS, read on the armed binary, not inferred from the exit code:
+    T1  pattern-substs-on-brace-struct:8   `let 'foo': variance mismatch — expected
+        Foo<'static>, got Foo`                            upstream E0597 (`y` too short)
+    T2  do-not-ignore-…-copy-proj--b:11    `struct literal 'T1' field 'f': variance
+        mismatch — expected Foo<'static>, got Foo`        upstream E0597
+    stbareargs' extra: explicit-static-bound-on-trait:11  `return type mismatch: variance
+        mismatch — expected Hello<'a>, got Hello`
+⚠ RIGHT SITE, RIGHT PAIR, AND THE SENTENCE IS STILL SHORT OF UPSTREAM'S: it names the two
+type spellings and no BORROW — rustc names `y` and says it does not live long enough. The
+`got Foo` half is the same `type_str` degeneracy recorded four times before (09-01m,
+09-04b §6, 09-03clos §9.2, 09-04f §9.1): the value's region is unspellable because it was
+never minted. A landing owes the sentence; the row is not closed by the exit code.
+⛔ **`capmut`'s CEILING 2 IS FALSE — BOTH ROWS ARE BOUGHT BY A WRONG DIAGNOSTIC.**
+borrowck-move-by-capture prints `cannot borrow 'bar' as mutable: not declared as mut` and
+issue-52663 prints `cannot borrow 'x.0' as mutable: 'x' not declared as mut`; upstream is
+E0507 and a captured-variable-escape respectively. Forcing `is_mut = true` on every capture
+buys a MUT-DECLARATION error, not the borrow defect. With cost 32 and 24 changed pinned
+fixtures (12 `.expected` LOST, 12 text-only and therefore invisible to ctest, rule 15) it is
+dead twice over. Its record at :1539 (⛔ 18/17) decayed to ⛔ 2/32 — and 2 of the 2 are wrong.
+
+## 6. ⚠ THE CORRECTION THIS ROUND EXISTS FOR — THE OWNER WALL IS **STALE**
+09-02p §4 declined `stland` / `stlandbare` at cost 4 / 5 with the reason "all five OWNER
+fixtures", and 09-02p §9 and every later round's carried list repeated it verbatim. **FOUR
+OF THE FIVE WERE REPAIRED ON 2026-09-02 AND SAY SO IN THEIR OWN HEADERS**, read this round:
+  · imported/pass/variance/variance-co-into-local — `static V: i32 = 5i32;` now, and the
+    header reads "2026-09-02: the 'static field was fed `&v` of a fn-local (E0597 in
+    rustc); the source is now a `static` item so the &'static is genuine"
+  · imported/pass/variance/variance-static-into-bounded-arg — `static V: i32 = 7i32;`
+  · imported/pass/regions/region-where-outlives-static-id-rg — `run(&V)`, V a `static`
+  · spec/pass/region_2:91,:128 — `let s: &'static i64 = &SX;`, `static SX: i64 = 7i64;`
+  · spec/pass/generic_2:118..120 — `let r: fn() -> &'static i32 = ret_static;`
+MEASURED CONSEQUENCE, not inferred: `stlandbare` costs **1**, not 5, and its one cost is
+NOT on that list. A DECLINE IS A MEASUREMENT WITH A TIMESTAMP; four rounds carried this one
+past its repair.
+
+## 7. ⚠ RULE 5 — 22 HAND PROGRAMS IN `/home/logos/sandbox/wlt2/`, SHAPES VARIED, WRITTEN
+##    BEFORE THE RE-PRICING FINISHED, UNARMED VERDICTS RECORDED FIRST
+Legal (18, all rc 0 unarmed AND under `stlandbare`): a `static`-sourced `Holder<'static>`
+annotation · a named `'a` annotation matching the source · a `'_` annotation · NO
+annotation · a nested struct-literal field typed `Holder<'static>` · an ENUM `E<'static>` ·
+a struct with BOTH a lifetime and a type param · the call-argument direction · the
+return-position direction · a `Vec<Holder<'static>>` push · a `where 'a: 'static` widening ·
+a `let mut` reassigned to a second static · a TUPLE holding it · a `Box<>` of it · a closure
+`Fn(Holder<'a>)` bound · a bare literal passed DIRECTLY into a `SR<'static>` parameter ·
+the same through a `&'static` parameter · a bare local returned as `SR<'static>`.
+⚠ **ONE LEGAL PROGRAM IS REFUSED, AND IT REPRODUCES THE CORPUS COST EXACTLY** — l16:
+    static TT: i64 = 3i64;  struct SR<'c> { f: &'c i64 }
+    fn read(x: &SR<'static>) -> i64 { return *x.f; }
+    fn main() -> i32 { let sr = SR { f: &TT };  if read(&sr) != 3i64 { return 1i32; } … }
+`call to 'read' arg 1: variance mismatch — expected &SR<'static>, got &SR`. That is
+tests/logos/pass/bc_stfacts_legal_twins:130 (`let sr: SR = SR { f: &TT }; t_static_field_
+read(&sr)`) in a hand program, found independently of the corpus. The cost is ONE DEFECT
+WITH A LOCATION (§8), not an exemption.
+Illegal, refused under `stlandbare`: i01 (the T1 shape) and i03 (the T2 shape). i02 (enum)
+and i04 (return position) were ALREADY RED unarmed — rule 14, inherited, they buy nothing.
+i05 (`let h: Holder<'a>` fed a LOCAL borrow, 'a the fn's own universal) is **STILL ADMITTED**
+under `stlandbare` by construction — it is the non-'static half, which is `stbareargs`.
+
+## 8. ⛔ THE FOURTH DOOR, LOCATED AND MEASURED — AN UNANNOTATED `let` DISCARDS THE
+##    LITERAL'S MINTED LIFETIME ARGS
+The mint is not missing. `sema_expr.cpp` ~:12108 already reads each declared field type
+against the field VALUE and writes `ng_lt_args`, gated behind `ltsubstlit` / `ltmintsubst` /
+`ltmintfree` / `ltmintimpl` / `arm_inst()`; the GENERIC-struct twin at ~:11861 LANDED
+2026-09-02w and is ungated. Under `LOGOS_CENSUS` on l16 the gated one FIRES and CHANGES the
+value: `subst.structlit.site 1 · subst.structlit.differs 1`. The refusal happens anyway.
+THREE PROGRAMS ONE TOKEN APART SAY WHERE IT GOES (same binary, `stmintland` armed):
+    l21  read(&SR { f: &TT })            literal passed DIRECTLY      rc 0
+    l22  let sr: SR<'static> = SR{…};    ANNOTATED let                rc 0
+    l16  let sr = SR { f: &TT };         UNANNOTATED let              REFUSED
+⇒ the binding is the hop that drops it: with an annotation the args come from
+`hint_struct_type_`, with none the local's recorded type is bare — and the mint's result,
+computed one expression earlier, never reaches it. That is why `ltsubstlit` prices ceiling 0
+at 8713 fires (rule 1: the site is live, the zero is a DISCARDED OUTPUT) and why
+`stmintland` is digit-for-digit `stlandbare`.
+
+## 9. OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. `enum ER<'c> { R(&'c i64), N }` with `fn read(x: &ER<'static>) -> i64` and a `match`
+    whose arms both `return` an `i64` is RED UNARMED with `[fn read]: return type
+    mismatch` (`/home/logos/sandbox/wlt2/l19.logos`). Not a borrow-check defect; not chased.
+ 2. The `type_str` degeneracy at the struct/enum lifetime-arg comparison is a FIFTH site
+    (§5), after the fn return, the deref-write, the method receiver and the closure return.
+ 3. CARRIED FORWARD, STILL THE OWNER'S: three E0713 rows (nllmoves.E); the E0716-family
+    rows that are LEGAL RUST; the three E0207 rows of §3.1, LEGAL RUST as ported.
+
+## 10. ⇒ WHAT DESERVES FUNDING, IN ORDER
+ 1. **`stlandbare`, AND IT IS FUNDABLE TODAY** — ceiling 2 (T1, T2, predicted by name),
+    cost 1, cfail 0 of 1354, stdlib four layers. Its four-round-old decline rests on a wall
+    that no longer stands (§6). It needs §8 first, or it lands a false refusal.
+ 2. **§8 IS THE BLOCKER AND IT IS ONE FACT AT ONE HOP** — carry the struct literal's minted
+    lifetime args into the type recorded for an UNANNOTATED `let`. It is what makes
+    `stlandbare`'s cost 0, and it is priced: the mint itself is cost 0 / cfail 0 / stdlib ok
+    at 8713 fires (`ltsubstlit`), so only the carry is unpriced.
+ 3. **NOT `stbareargs`** (3 vs 3) and **NOT `stmintbare`** — identical, §4.
+ 4. **NOT `capmut`** — 2 rows, both WRONG-DIAGNOSTIC, 32 cost, 24 changed pinned
+    fixtures (§5).
+ 5. T3 (a CALL-RETURN mint) and T4/T5 (an FnItem→FnPtr coercion) are two further sites of
+    the same property and NOTHING in this round touched either. T4/T5's target is
+    `fn(&S) -> &'static S`, so `generic_2:120`'s repair may have unwalled them too — unmeasured.
+
+## 11. THE TREE AT CLOSE
+NO source file is modified. The three batch names — `stmintland`, `stmintbare` and the
+third record's re-price of the installed `ltsubstlit` — were applied by
+`scripts/probe-batch.sh`, priced, and REVERTED with `git checkout --` on
+`include/logos/compiler/subtype.hpp` and `src/compiler/sema_expr.cpp`; the tree was then
+REBUILT and `build_hash.py` reads `cde1871eb267b4c1` again, the opening identity, so the
+binary contains no probe that is in no source file. Live probe census 165 grep / 168 lint,
+unchanged. `# TOTAL` 127 → 127. Targets file: `build/round-2026-09-08/targets-2026-09-08.txt`;
+batch spec `build/round-2026-09-08/spec.txt`; hand programs `/home/logos/sandbox/wlt2/`.
+NOT SPENT, each with its number (re-derived by direct listing, not carried): bck.C 11 ·
+nllmoves.C 8 · lifereg.R18 6 (M-SIG, rejected 09-06a) · bck.NEW 6 · bck.D 6 (3 owner) ·
+bck.B 5 · nllmoves.E 4 (E0713 ×3 owner) · lifereg.R17 4 · lifereg.NEW-N1 4 ·
+nllmoves.NEW-1 3 (T1/T2 priced this round, T3 unpriced) · nllmoves.B 3 · nllmoves.D 3 ·
+lifereg.NEW-R19 3 · lifereg.N1 3 · lifereg.D 3 · bck.E 3 (E0509, retired by spec).
