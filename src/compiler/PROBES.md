@@ -20667,7 +20667,7 @@ cost: 1 (cfail 0 of 1343, stdlib ok)
 verdict: ✓ FUND AFTER §7.1. elided-lifetime-mismatch-in-self-type + explicit-self-lifetime-mismatch, predicted by name both ways. The one cost is `enum C<'a>` with no type params — one located defect, not an exemption. 18 hand programs, 5 illegal refused, 11 legal admitted, 2 legal refused and both are that one shape.
 
 ## selfdecl / selfdecllt / selfdeclany / selfdecltrlt
-site: src/compiler/sema_decl.cpp::lower_fn, the `self` parameter, vs current_type_params_["Self"]
+site: src/compiler/sema_decl.cpp::lower_fn — the `self` parameter, vs current_type_params_["Self"]
 build: (build 1 of 2026-09-03q, not committed)
 measured: 2026-09-03
 fires: 737600 / 737648 / 1084905 / 1085022
