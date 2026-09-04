@@ -1,0 +1,12 @@
+// An ELIDED `let` annotation region is an inference variable: `let z: Ref = ...`
+// takes the INITIALIZER's region, so pushing it into a `Vec<Ref<'b>>` compares
+// 'c against 'b instead of comparing nothing. Closed lifereg.NEW-R19
+// (imported/fail/lifetimes/ex2c-push-inference-variable).
+// Pair twin of fail/bc_letelide_lt_carry_fail.logos, ONE TOKEN apart: `w` vs `y`.
+package bc_letelide_lt_carry_ok;
+struct Ref<'a> { data: &'a i64 }
+fn foo<'a, 'b, 'c>(x: &'a mut Vec<Ref<'b>>, y: Ref<'c>, w: Ref<'b>) {
+    let z: Ref = Ref { data: w.data };
+    x.push(z);
+}
+fn main() -> i32 { return 0i32; }

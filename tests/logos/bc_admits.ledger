@@ -1241,7 +1241,7 @@
 # Rust) were refused until `!in_closure_body_` was added. Both tokens are
 # pinned in PAIRS: fail/bc_capmovemut_{mutref_capture,sibling_closures} vs
 # pass/bc_capmovemut_{sharedref_capture,nested_closures}. PROBES.md 2026-09-03p.
-# TOTAL 127
+# TOTAL 124
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1296,7 +1296,6 @@ constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifeti
 copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions
 e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn
-ex2c-push-inference-variable lifereg.NEW-R19 tests/imported/admit/lifetimes/ex2c-push-inference-variable
 issue-64173-unused-lifetimes lifereg.L4 tests/imported/admit/lifetimes/issue-64173-unused-lifetimes
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 iterator-next-extra-named-lifetime lifereg.R18 tests/imported/admit/lifetimes/iterator-next-extra-named-lifetime
@@ -1319,7 +1318,6 @@ move-of-addr-of-mut nllmoves.R5 tests/imported/admit/moves/move-of-addr-of-mut
 adt-tuple-enums--t33 nllmoves.NEW-L1 tests/imported/admit/nll/adt-tuple-enums--t33
 borrowed-temporary-error--t08 nllmoves.D tests/imported/admit/nll/borrowed-temporary-error--t08
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
-do-not-ignore-lifetime-bounds-in-copy-proj--b nllmoves.NEW-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy-proj--b
 do-not-ignore-lifetime-bounds-in-copy nllmoves.NEW-S7-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy
 enum-drop-access nllmoves.E tests/imported/admit/nll/enum-drop-access
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
@@ -1346,7 +1344,6 @@ match-guards-always-borrow nllmoves.B tests/imported/admit/nll/match-guards-alwa
 method-ufcs-inherent-3 nllmoves.NEW-1 tests/imported/admit/nll/method-ufcs-inherent-3
 method-ufcs-inherent-4 nllmoves.NEW-S7-1 tests/imported/admit/nll/method-ufcs-inherent-4
 move-errors--d nllmoves.B tests/imported/admit/nll/move-errors--d
-pattern-substs-on-brace-struct nllmoves.NEW-1 tests/imported/admit/nll/pattern-substs-on-brace-struct
 projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/nll/projection-two-region-trait-bound-closure
 projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
 projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c

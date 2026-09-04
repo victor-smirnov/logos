@@ -1375,9 +1375,16 @@ PIN = {
     # legal closure under such a bound in the language and the shape 09-04e's
     # cost-0 survivor refused), both non-glob.
     # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2647.
-    'corpus'            : 2647,
+    # 2026-09-09: 2647 -> 2650. Three pass twins of the struct-literal region
+    # mint (bc_letann_lt_static_ok — the `let Foo<'static>` annotation fed a
+    # module STATIC; bc_structlit_field_lt_static_ok — the same at a struct-
+    # literal FIELD; bc_letelide_lt_carry_ok — an ELIDED `let` annotation whose
+    # initializer already carries the parameter's own region), all three
+    # non-glob, each one token from its fail twin.
+    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2650.
+    'corpus'            : 2650,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2456,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2459,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

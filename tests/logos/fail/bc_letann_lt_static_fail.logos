@@ -1,0 +1,14 @@
+// A struct literal's lifetime args are read off its VALUES, so `Foo { field: &y }`
+// over a fn-LOCAL leaves the binder EMPTY-BUT-PRESENT and the `let` annotation
+// `Foo<'static>` has something to compare against. Closed nllmoves.NEW-1
+// (imported/fail/nll/pattern-substs-on-brace-struct).
+// Pair twin of pass/bc_letann_lt_static_ok.logos, ONE TOKEN apart: `&y` vs `&SX`.
+package bc_letann_lt_static_fail;
+static SX: i64 = 22i64;
+struct Foo<'a> { field: &'a i64 }
+fn main() -> i32 {
+    let y: i64 = 22i64;
+    let foo: Foo<'static> = Foo { field: &y };
+    if *foo.field != 22i64 { return 1i32; }
+    return 0i32;
+}

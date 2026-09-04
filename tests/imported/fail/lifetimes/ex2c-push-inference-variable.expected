@@ -1,0 +1,1 @@
+method 'Vec__push' arg 1: variance mismatch — expected Ref<'b>, got Ref<'c> — lifetime structure incompatible (check &mut invariance / contravariance rules)

@@ -1,1 +1,1 @@
-error [fn Greetings__get]: coercion to `dyn Greeter0` requires `FixedGreeter: 'static` — lifetime `'_ (elided lifetime argument of FixedGreeter)` may not live long enough (object lifetime bound)
+error [fn Greetings__get]: coercion to `dyn Greeter0` requires `FixedGreeter<'_>: 'static` — lifetime `'_` may not live long enough (object lifetime bound)

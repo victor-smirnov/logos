@@ -2664,6 +2664,27 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                                 TypeRef(var_type).pointee(),
                                 std::string(TypeRef(rhs_type).lifetime()));
         }
+        // LANDED 2026-09-09 — the STRUCT/ENUM twin of the Ref hop above: one
+        // predicate ("an elided annotation region is an inference variable"),
+        // asked at both kinds it can be asked at.
+        if (rhs && var_type && rhs_type) {
+            using KSL_ = LogosType::Kind;
+            auto vk_ = TypeRef(var_type).kind();
+            if ((vk_ == KSL_::Struct || vk_ == KSL_::ZonedStruct || vk_ == KSL_::Enum) &&
+                TypeRef(rhs_type).kind() == vk_ &&
+                TypeRef(var_type).lifetime_args().empty() &&
+                !TypeRef(rhs_type).lifetime_args().empty()) {
+                logos::probe::census("stfacts.let.struct_region");
+                LogosTypeBuilder lt_;
+                lt_.kind          = vk_;
+                lt_.struct_name   = std::string(TypeRef(var_type).struct_name());
+                lt_.enum_name     = std::string(TypeRef(var_type).enum_name());
+                lt_.pkg_name      = std::string(TypeRef(var_type).pkg_name());
+                lt_.type_args     = TypeRef(var_type).type_args();
+                lt_.lifetime_args = TypeRef(rhs_type).lifetime_args();
+                var_type = pool_->alloc(std::move(lt_));
+            }
+        }
         // Retype the rhs tuple expression node to use the concrete annotation tuple type.
         // This ensures codegen sees (f32, f32) instead of (FloatLit, FloatLit).
         // Use the hole-FILLED type — stamping a raw `(i64, _)` annotation

@@ -1448,8 +1448,15 @@ private:
         // the length. arg holds the address expression; reuse it directly.
         // want_elem: the hole-filled element when expected was `&[_]`.
         auto len = builder().lit_int(n, prim(LogosType::Kind::I64));
+        // The decayed slice keeps the SOURCE ref's region. `make_slice_type`
+        // has always taken a lifetime; this call never passed one, so every
+        // `&[T; N]` -> `&[T]` decay produced a region-less slice and the
+        // comparison downstream had nothing to compare: a LOCAL array passed
+        // to `fn want(x: &'static [i64])` was admitted in BOTH directions.
         arg = builder().slice_lit(std::move(arg), std::move(len),
-                                  make_slice_type(want_elem, src_mut));
+                                  make_slice_type(want_elem, src_mut,
+                                                  TypeRef::OwningKind::Borrow,
+                                                  std::string(at.lifetime())));
         return true;
     }
     // Inverse of the above. `&arr` over an array *variable* is lowered

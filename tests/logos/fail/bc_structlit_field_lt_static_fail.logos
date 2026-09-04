@@ -1,0 +1,14 @@
+// The same predicate at the struct-literal FIELD position rather than a `let`:
+// `T1 { f: Foo { r: &s } }` where the field is declared `Foo<'static>`.
+// Closed nllmoves.NEW-1 (imported/fail/nll/do-not-ignore-lifetime-bounds-in-copy-proj--b).
+// Pair twin of pass/bc_structlit_field_lt_static_ok.logos, ONE TOKEN apart: `&s` vs `&SS`.
+package bc_structlit_field_lt_static_fail;
+static SS: i64 = 2i64;
+struct Foo<'a> { r: &'a i64 }
+struct T1 { f: Foo<'static> }
+fn main() -> i32 {
+    let s: i64 = 2i64;
+    let a: T1 = T1 { f: Foo { r: &s } };
+    if *a.f.r != 2i64 { return 1i32; }
+    return 0i32;
+}

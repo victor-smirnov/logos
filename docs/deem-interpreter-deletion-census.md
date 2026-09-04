@@ -5187,9 +5187,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9001 -> 9005   +4
 #   NOIMPORTED   4569 -> 4572   +3
 #   TIERCOMMIT    177 ->  176   -1
-REGISTRY-ALL         9005
-REGISTRY-NOIMPORTED  4572
-REGISTRY-TIERCOMMIT  176
+# 2026-09-09 (the struct-literal region mint). SIX new native fixtures, three
+#   fail/pass PAIRS one token apart; and THREE imported `admit` rows closed, so
+#   their fixtures moved from tests/imported/admit/ to tests/imported/fail/.
+#   The moved three are `imported`-labelled at their new home and were NOT
+#   before, so NOIMPORTED takes +6-3 = +3; they WERE tier_commit as admit gates
+#   and the fail tier is not, so TIERCOMMIT takes -3.
+#   ALL          9005 -> 9011   +6
+#   NOIMPORTED   4572 -> 4575   +3
+#   TIERCOMMIT    176 ->  173   -3
+REGISTRY-ALL         9011
+REGISTRY-NOIMPORTED  4575
+REGISTRY-TIERCOMMIT  173
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

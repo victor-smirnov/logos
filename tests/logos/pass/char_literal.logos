@@ -1,7 +1,14 @@
 // `char` is a 4-byte Unicode scalar (Rust-style); `'X'` is a char literal.
 // Distinct from u32 — explicit cast required. Lifetimes (`'a`) still
 // parse correctly because the lexer peeks for the closing apostrophe.
+// 2026-09-09: the incidental lifetime scaffold fed `&x` of a fn-LOCAL into a
+// `Borrowed<'static>` slot (E0597 in rustc). Sixth fixture of the class
+// `8a37797f0` repaired on 2026-09-02 the same way and for the same reason —
+// the source is now a `static` item, so the &'static is genuine. Every char
+// assertion below is untouched; only the borrow's SOURCE moved.
 package char_literal;
+
+static X: i32 = 7;
 
 struct Borrowed<'a> { p: &'a i32 }
 
@@ -20,8 +27,7 @@ fn main() -> i32 {
     let bv: u8 = a as u8;
 
     // Lifetime tokens still work alongside char literals.
-    let x: i32 = 7;
-    let r: Borrowed<'static> = Borrowed { p: &x };
+    let r: Borrowed<'static> = Borrowed { p: &X };
 
     return (n as i32) + (bv as i32) + (nl as u32 as i32) +
            (bs as u32 as i32) + (q as u32 as i32) + (z as u32 as i32) + *r.p;

@@ -3063,8 +3063,18 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             // &array → &[T; N] (Rust). The decay to `&[T]` happens where a
             // slice is EXPECTED (try_coerce_array_ref_to_slice), not here —
             // eager decay is what made `&a` and `&s.c` answer differently.
-            if (TypeRef(vt).kind() == LogosType::Kind::Array)
+            if (TypeRef(vt).kind() == LogosType::Kind::Array) {
+                // The static-address branch above is guarded `kind() != Array`,
+                // so `&ARR` over a module static ARRAY reached here and was
+                // typed with NO region while `&SCALAR` got 'static: the region
+                // is a property of the STORAGE, not of the pointee's kind.
+                if (is_module_static_unshadowed(var_name)) {
+                    logos::probe::census("static.array.region");
+                    return builder().addr_of(std::string(var_name),
+                                             make_ref(false, vt, std::string("static")));
+                }
                 return builder().addr_of(std::string(var_name), make_ref(false, vt));
+            }
             // &Box<[T]> → borrowed &[T] (Deref coercion). An owning slice shares
             // the borrowed slice's {data,len} representation, so the same storage
             // ptr re-typed as a borrowed slice is the view — no copy, no move.
@@ -11873,6 +11883,14 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     if (it == blift.end()) continue;
                     if (nl[i] != it->second) { nl[i] = it->second; changed = true; }
                 }
+                {
+                    logos::probe::census("lit.mint.gen.sized");
+                    nl.assign(sinfo.lifetime_params.size(), std::string{});
+                    for (size_t i = 0; i < sinfo.lifetime_params.size(); ++i)
+                        if (auto it2 = blift.find(sinfo.lifetime_params[i]); it2 != blift.end())
+                            nl[i] = it2->second;
+                    changed = true;
+                }
                 if (changed) {
                     logos::probe::census("subst.structlit.gen.differs");
                     lit_type = slit_is_zoned
@@ -12105,9 +12123,9 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     // the u7/u8 pair, pinned as fixtures). The fix is substitution: pair each
     // declared field type against the actual field VALUE's type and read the
     // struct's binder off the value's region.
-    if ((logos::probe::on("ltsubstlit") || logos::probe::on("ltmintsubst") ||
-         logos::probe::on("ltmintfree") || logos::probe::on("ltmintimpl") || logos::probe::arm_inst()) &&
-        !sinfo.lifetime_params.empty()) {
+    // LANDED 2026-09-09 (was PROBE ltsubstlit — its only site, retired by this
+    // landing). The literal's lifetime args are read off its VALUES.
+    if (!sinfo.lifetime_params.empty()) {
         logos::probe::census("subst.structlit.site");
         std::unordered_map<std::string, std::string> flt;
         std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef dt, TypeRef at) {
@@ -12163,6 +12181,15 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 }
             }
         }
+        // A binder the VALUES did not spell stays EMPTY-BUT-PRESENT: "no fact
+        // recorded" and "the fact is absent" are different, and only this
+        // minting site can tell them apart. A type that never reached a mint
+        // keeps zero args and still yields at the comparison.
+        logos::probe::census("lit.mint.sized");
+        ng_lt_args.assign(sinfo.lifetime_params.size(), std::string{});
+        for (size_t i = 0; i < sinfo.lifetime_params.size(); ++i)
+            if (auto it = flt.find(sinfo.lifetime_params[i]); it != flt.end())
+                ng_lt_args[i] = it->second;
     }
     // B77: verify struct's `where 'a: 'b` against caller's outlives graph.
     check_struct_lit_outlives(std::string(sname),

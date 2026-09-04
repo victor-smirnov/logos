@@ -1,0 +1,1 @@
+struct literal 'T1' field 'f': variance mismatch — expected Foo<'static>, got Foo<'_> — lifetime structure incompatible (check &mut invariance / contravariance rules)

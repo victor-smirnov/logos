@@ -21701,3 +21701,160 @@ nllmoves.C 8 · lifereg.R18 6 (M-SIG, rejected 09-06a) · bck.NEW 6 · bck.D 6 (
 bck.B 5 · nllmoves.E 4 (E0713 ×3 owner) · lifereg.R17 4 · lifereg.NEW-N1 4 ·
 nllmoves.NEW-1 3 (T1/T2 priced this round, T3 unpriced) · nllmoves.B 3 · nllmoves.D 3 ·
 lifereg.NEW-R19 3 · lifereg.N1 3 · lifereg.D 3 · bck.E 3 (E0509, retired by spec).
+
+# ═══ ROUND 2026-09-09 — THE STRUCT LITERAL'S LIFETIME ARGS ARE READ OFF ITS
+# ═══ VALUES, AND A BINDER THE VALUES DID NOT SPELL STAYS EMPTY-BUT-PRESENT.
+# ═══ 3 ROWS CLOSED (predicted 2 by name; the third is the same door).
+# ═══ `# TOTAL` 127 -> 124.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+## 1. STEP 1, DERIVED. The 09-08 record is CORRECT term for term and re-derived
+here, not carried: `grep -rhoP 'probe::on\("\K[a-z_0-9]+' src include | sort -u | wc -l`
+= **165**, `probe-log-lint.py` = **168 records, every site symbol resolves** (read the
+LINT — three names reach `probe::on` through a helper). `# TOTAL` **127** at open by
+direct listing. Channel split **lifereg 47 · nllmoves 41 · bck 39**. Baseline READ from
+the store: gate-db build 734, libs `cde1871eb267b4c1`, 2715 recorded / 0 failed
+(admits 127/0, `-L bc` 2398/0).
+
+## 2. ⚠ THE FIRST CORRECTION: `probe::on` IS `strcmp`, SO `LOGOS_PROBE` HOLDS
+##    EXACTLY ONE NAME — A COMMA LIST ARMS **NOTHING**
+`include/logos/compiler/probe.hpp`: `if (!armed || std::strcmp(armed, name) != 0)`.
+`LOGOS_PROBE=stlandbare,ltsubstlit` is not two arms, it is ZERO arms, and it reports rc 0
+on everything — indistinguishable from a clean legal verdict. Six of this round's first
+hand verdicts were taken that way and were unarmed runs wearing an armed label. The
+pricing harness never meets this because it arms one name; a hand check does. ANY
+multi-arm hypothesis needs a BUILD with one name at every site, which is exactly what
+`stmintland` was.
+
+## 3. ⚠ THE SECOND CORRECTION: 09-08 §10.2 RECOMMENDED A CHANGE ITS OWN §4 TABLE
+##    REFUTES, AND THE ARM IT RECOMMENDED REFUSES LEGAL PROGRAMS
+§10.2 said the §8 blocker "is what makes `stlandbare`'s cost 0". But `stmintland` IS
+mint+`stlandbare` in one build, and §4 measured it ceiling 2 / cost 1 — digit for digit
+`stlandbare`. The carry was never the cost's discharge in that form.
+And `stlandbare` itself is a REFUSE-ON-ABSENCE arm with no discrimination whatever. On
+the opening binary, one name per run:
+    g3  read(&G{f:&TT,v:4})    LEGAL, static src, literal passed DIRECT   rc 0
+    g4  read(&G{f:&n ,v:4})    ILLEGAL, local src, literal passed DIRECT  rc 1
+    g1  let g: G<i64> = G{f:&TT,..}; read(&g)   LEGAL, VIA A LET          rc 1  ⚠
+    a2  let sr: SR = SR{f:&TT};      read(&sr)  LEGAL, VIA A LET          rc 1  ⚠
+g1 and g3 differ by ONE `let`. `stlandbare` refuses four legal programs in this file's
+hand set; its corpus cost of 1 is not a safety property, it is a census of what the
+corpus happens to contain. **`stlandbare` / `stbareargs` / `stmintland` / `stmintbare`
+are REFUTED AS LANDINGS** — not by their cost column, by their predicate.
+
+## 4. THE MECHANISM THAT LANDED — FOUR DOORS, AND NOT ONE OF THEM IS A FILL
+D0  `&<module static ARRAY>` carries 'static. `sema_expr.cpp`'s static-address branch is
+    guarded `kind() != Array`, so `&ARR` fell through to the array branch and was typed
+    with NO region while `&SCALAR` got one. `fn want(x: &'static [i64;2])` fed `&ARR` was
+    REFUSED before this round — a standing false refusal, now green.
+D0b The `&[T; N]` -> `&[T]` decay kept no region: `make_slice_type` has always taken a
+    lifetime and `try_coerce_array_ref_to_slice` never passed one. Now it passes the
+    SOURCE ref's.
+D1  The struct literal's lifetime args come from its VALUES (was PROBE `ltsubstlit`, its
+    ONLY site — retired by this landing), and the vector is SIZED to the struct's binders
+    so a binder the values did not spell stays EMPTY-BUT-PRESENT. This is rule 16 made
+    operational: "no fact recorded" and "the fact is absent" are different, and only the
+    MINTING SITE can tell them apart. A type that never reached a mint keeps zero args and
+    still yields — which is why this is not `stlandbare` with extra steps. Twin applied to
+    the generic branch (`:11861`, ungated since 09-02w) as well.
+D2  An ELIDED `let` annotation region is an inference variable, so the binding takes the
+    INITIALIZER's region. This hop was ALREADY LANDED AND UNGATED FOR `Ref`/`MutRef` at
+    `sema_stmt.cpp` ("stfacts.let.region", 09-02p). Its Struct/Enum twin at the same site
+    did not exist. One predicate, both kinds it can be asked at (rule 3).
+
+## 5. THE SETS, DIFFED BOTH WAYS, EVERY DIAGNOSTIC READ ON A BINARY
+Predicted N = 2 BY NAME in `build/round-2026-09-09/prediction.txt`, written before the
+first compiler edit. Measured N = 3.
+    predicted ∖ measured = ∅
+    measured ∖ predicted = { ex2c-push-inference-variable, lifereg.NEW-R19 }
+The extra row is closed by D2, the door the prediction names — `let z: Ref = Ref { data:
+y.data }` is the ELIDED annotation exactly, and the prediction reasoned about D2 only as
+the cost's discharge. A door predicted for the cost column paid a ledger row as well.
+    pattern-substs-on-brace-struct   let 'foo': variance mismatch — expected Foo<'static>,
+                                     got Foo<'_>                        upstream E0597
+    do-not-ignore-…-copy-proj--b     struct literal 'T1' field 'f': … expected Foo<'static>,
+                                     got Foo<'_>                        upstream E0597
+    ex2c-push-inference-variable     method 'Vec__push' arg 1: … expected Ref<'b>,
+                                     got Ref<'c>          upstream "may not live long enough"
+⚠ AND THE `type_str` DEGENERACY IS PARTLY REPAIRED. `got Foo` was recorded as a defect
+five times (09-01m, 09-04b §6, 09-03clos §9.2, 09-04f §9.1, 09-08 §5): the value's region
+was unspellable because it was never minted. It is `got Foo<'_>` now, at every one of
+these sites, because D1 mints it. Three PINNED `fail` diagnostics moved for the same
+reason and were RE-PINNED, not weakened — `B: 'static` became `B<'_>: 'static`, and the
+parenthetical `'_ (elided lifetime argument of B)` is dropped because the type now spells
+its own argument.
+
+## 6. ⚠ RULE 5 — 29 LEGAL + 9 ILLEGAL HAND PROGRAMS, `/home/logos/sandbox/wlt4/`,
+##    IN SHAPES THE PRICING ROUND DID NOT USE. **0 FALSE REFUSALS, 8/9 REFUSED.**
+Legal, all rc 0 on the LANDED binary: two lifetime params both static-sourced · a SLICE
+field · a field that is a reference to another STRUCT · a struct built in a helper and
+RETURNED · a field from a `&'static` PARAMETER rather than a static item · one binder used
+in TWO fields · a NON-'static reader (`read<'a>(&SR<'a>)`) fed a LOCAL · an ENUM · a
+generic `G<'c,T>` · BY-VALUE `take(SR<'static>)` · a NESTED literal · an inherent METHOD
+through `&self` · functional-update `..base` · a `Vec<SR>` element · SHADOWING · a TUPLE
+element · a field READ off a struct holding it · a literal passed DIRECT with no binding ·
+an if/else initializer · reassignment through `let mut` · a static ARRAY field · the
+array->slice decay · plus the pricing round's a1/a2/g1/g3/r1.
+Illegal, all refused: local into `SR<'static>` via a let · the ENUM twin · at a
+struct-literal FIELD · one of two binders local · BY VALUE · the GENERIC struct · an
+EXPLICIT `let sr: SR<'static> = SR{f:&n}` (admitted by the tree before this round) ·
+`want(&n)` at the bare-ref level.
+⚠ THE ONE THAT IS STILL ADMITTED IS **NOT** CLOSED BY THIS LANDING AND IS RECORDED, NOT
+CLAIMED: `e4` — a fn-LOCAL array passed to `fn want(x: &'static [i64])`. D0b now gives the
+decayed slice the source's region, but the Slice lifetime comparison in `subtype.hpp:399`
+is behind the un-landed `ltslicevar` / `ltslicelt` arms, so nothing reads it. Half a
+mechanism is not one (rule 2). The fact is now CARRIED; the comparison is the open half.
+
+## 7. COST — AND THE `-L bc` LABEL AND `ceiling-probe`'s PASS POPULATION BOTH MISSED IT
+`ceiling-probe.sh stletlt`: fired 92208, CEILING 3, COST 0 `[pass(ledger+legal) fail(text)
+stdlib]`, COST-fail 3 of 1354 (`.expected` LOST, rc unchanged, §5), stdlib all four layers.
+**The cost was not 0.** A FULL `ctest` — 9006 tests, not the `bc` label — found
+`logos_02_semantic_core_pass_char_literal` refused. It is a CHAR-LITERAL fixture whose
+incidental lifetime scaffold read `let x: i32 = 7; let r: Borrowed<'static> = Borrowed
+{ p: &x }` — `&local` into a 'static slot, E0597 in rustc. That is the SIXTH fixture of the
+class commit `8a37797f0` repaired on 2026-09-02 ("five pass fixtures asserted that `&local`
+flows into a `'static` slot … their sources are now `static` items, their subjects
+untouched"); the 09-02 sweep could not see it because the probe of the day never reached
+the struct-literal path. Repaired identically — `static X: i32 = 7;` — with every char
+assertion byte-identical, and REPORTED here because a pass fixture asserting a divergence
+is the owner's call even when the repair has a precedent this exact.
+⇒ **RUN THE FULL SUITE BEFORE BELIEVING A COST.** `-L bc` is 2407 of 9006 tests and it
+returned green over this.
+
+## 8. THE CONTROL REVERT — FOUR REDS THAT ARE NOT MINE
+The full suite also reds `box-concrete-as-box-dyn-return`, `blanket-impl-box-to-dyn-b172`,
+`blanket-impl-generic-struct-dyn` (all three: `coercion to dyn requires T: 'static`) and
+`generic-struct-method-chain-b162` (E0507). The three compiler files were STASHED, the
+tree REBUILT, and all four are RED WITH THE EDITS REVERTED, while the three target rows
+are rc 0 (admitted) in the same control — a green checkpoint in both directions. They are
+PRE-EXISTING and are recorded, not pursued. The stash was popped and the binary rebuilt to
+`c4c8c6b7c92ba92f`, its identity before the control.
+
+## 9. THE ORACLES, EVERY ONE, WITH ITS rc
+    L1                       rc 0 — 748/748, gates tier 173/173
+    L4 bc (detached)         1538 passed / 0 failed
+    full ctest (9006)        4 failed, ALL FOUR pre-existing by control revert (§8)
+    gate-run -R bc_admit_    build 745 — 124 passed / 0 failed / 0 other  (FORCE=1: the
+                             store keys on the BINARY hash and a FIXTURE had changed)
+    gate-run -L bc           build 745 — 2405 passed / 0 failed / 2 disabled
+    stdlib-cost.sh           all four layers compile
+    fail_text_oracle.py      1360 vs the opening 1354: +6 NEW (the three closed rows and
+                             the three fail twins), **0 GONE — no un-refusal anywhere**,
+                             3 CHANGED and all three are §5's re-pins, rc unchanged,
+                             `.expected` matching again after re-pin.
+
+## 10. THE TREE AT CLOSE
+Probe names: `ltsubstlit` RETIRED (its only site is now unconditional). No probe installed;
+`stlandbare` / `stbareargs` / `sttpempty` / `capmut` remain INSTALLED AND DECLINED — and
+`stlandbare`'s decline is now on its PREDICATE (§3), not on a cost number that decays.
+Census buckets renamed to outlive the probe: `lit.mint.sized`, `lit.mint.gen.sized`,
+`static.array.region`, `stfacts.let.struct_region`.
+Pins re-derived BY DIRECT LISTING: `direct_door` corpus 2647 -> 2650, nonglob 2456 -> 2459;
+REGISTRY-ALL 9005 -> 9011, NOIMPORTED 4572 -> 4575, TIERCOMMIT 176 -> 173.
+`# TOTAL` **127 -> 124**, re-derived by direct listing (124 non-comment rows).
+NOT SPENT, each with its number, re-derived not carried: bck.C 11 · nllmoves.C 8 ·
+lifereg.R18 6 (M-SIG, rejected 09-06a) · bck.NEW 6 · bck.D 6 (3 owner) · bck.B 5 ·
+nllmoves.E 4 (E0713 ×3 owner) · lifereg.R17 4 · lifereg.NEW-N1 4 · nllmoves.B 3 ·
+nllmoves.D 3 · lifereg.N1 3 · lifereg.D 3 · bck.E 3 (E0509, retired by spec).
+STILL OPEN ON THIS PROPERTY, unpriced: T3 method-ufcs-inherent-3 (a CALL-RETURN mint) and
+T4/T5 regions-fn-subtyping-… (an FnItem->FnPtr coercion) — two further sites, untouched.
