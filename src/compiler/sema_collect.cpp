@@ -3268,6 +3268,18 @@ void SemaChecker::collect_trait(TinyMapView node) {
             info.methods.push_back(std::move(mi));
         }
     }
+    // Door 1 of 2 — `lower_fn` bails for any fn collect never registered.
+    // ⚠ probe::on arms ONE name per process, so this door answers for BOTH as a
+    // disjunction. PROBES.md 2026-09-04d §2.
+    if (logos::probe::on("trdefchk") || logos::probe::on("trdefnogen")) {
+        for (auto& m : info.methods) {
+            if (!m.has_default) continue;
+            auto* saved_holder = holder_;
+            if (m.default_holder) holder_ = m.default_holder;
+            collect_fn(map_of(m.default_ast), "$traitdef$" + tname, tname);
+            holder_ = saved_holder;
+        }
+    }
     pop_type_params(info.type_params);
     current_type_params_.erase("Self");
     current_trait_name_.clear();

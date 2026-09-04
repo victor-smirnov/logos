@@ -11,7 +11,13 @@
 // Method bodies for collect_*, lower_expr/stmt/decl are in sema_collect.cpp,
 // sema_expr.cpp, sema_stmt.cpp, sema_decl.cpp respectively.
 
+#include <logos/compiler/probe.hpp>
 #include "sema_impl.hpp"
+
+// KEY-IDENTITY: `Self` is a TYPE-PARAMETER name, scoped to the signature being
+// lowered — the same namespace normalize_assoc_eq documents. Named here so the
+// trait-default-body probe adds no new bare entity-name call argument.
+static const char kSelfTypeParamName[] = "Self";
 #include "ctfe.hpp"
 
 #include <logos/compiler/lir_mirror.hpp>
@@ -3273,6 +3279,37 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
         if (pk != LogosType::Kind::Struct && pk != LogosType::Kind::ZonedStruct) continue;
         if (TypeRef(pt).struct_name() == TypeRef(t).struct_name() && pkg_matches(pt))
             return cand->symbol_name.empty() ? mangled : cand->symbol_name;
+    }
+    // The plain base is not the only key: `collect_fn`'s G156-5 files a trait
+    // method under `<T>__<Trait>__<m>` when an inherent one holds the plain
+    // base. PROBES.md 2026-09-04d §3.
+    {
+        auto rit = trait_method_registry_.find(mangled);
+        const bool reg_has_drop =
+            rit != trait_method_registry_.end() &&
+            std::find(rit->second.begin(), rit->second.end(), "Drop") != rit->second.end();
+        if (reg_has_drop) {
+            logos::probe::census("dropfor.qualified.miss");
+            if (logos::probe::on("dropqual")) {
+                std::string qual = type_name + "__Drop__drop";
+                for (auto* cand : find_func_candidates(qual)) {
+                    if (!cand || cand->param_types.size() != 1) continue;
+                    if (!is_drop_impl_(cand)) continue;
+                    auto pt = cand->param_types[0];
+                    if (!pt) continue;
+                    auto pk = TypeRef(pt).kind();
+                    if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
+                        TypeRef(pt).pointee()) {
+                        pt = TypeRef(pt).pointee();
+                        pk = TypeRef(pt).kind();
+                    }
+                    if (pk != LogosType::Kind::Struct && pk != LogosType::Kind::ZonedStruct)
+                        continue;
+                    if (TypeRef(pt).struct_name() == TypeRef(t).struct_name() && pkg_matches(pt))
+                        return cand->symbol_name.empty() ? qual : cand->symbol_name;
+                }
+            }
+        }
     }
     return {};
 }
@@ -10752,6 +10789,58 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 auto trait_doc = take_pending_doc();
                 td.str(lir_schema::trait_keys::DOC, trait_doc);
                 prog.traits.push_back(td.view<lir_view::TraitView>());
+                // A trait default body is lowered only as a per-impl copy, so a
+                // trait with no implementor is never checked. PROBES.md
+                // 2026-09-04d §2/§7.
+                if (logos::probe::census_armed() || logos::probe::on("trdefchk") ||
+                    logos::probe::on("trdefnogen")) {
+                    std::string _tn(tv.name());
+                    auto _tit = traits_.find(_tn);
+                    if (_tit != traits_.end()) {
+                        bool _has_impl = false;
+                        for (auto& kv : impls_)
+                            if (kv.first.rfind(_tn + "::", 0) == 0) { _has_impl = true; break; }
+                        for (auto& m : _tit->second.methods) {
+                            if (!m.has_default) continue;
+                            logos::probe::census("trdef.mint");
+                            if (_has_impl) { logos::probe::census("trdef.hasimpl"); continue; }
+                            logos::probe::census("trdef.orphan");
+                            const bool _emit = logos::probe::on("trdefchk");
+                            if (!_emit && !logos::probe::on("trdefnogen")) continue;
+                            namespace dk = lir_schema::decl_keys;
+                            push_type_params(_tit->second.type_params);
+                            const std::string _self_key = kSelfTypeParamName;
+                            TypeRef _self = make_typevar(_self_key);
+                            bool _had_self = current_type_params_.count(_self_key) > 0;
+                            TypeRef _saved_self = _had_self ? current_type_params_[_self_key] : nullptr;
+                            current_type_params_[_self_key] = _self;
+                            auto _saved_bounds = current_type_bounds_[_self_key];
+                            TraitBound _tb; _tb.trait_name = _tn;
+                            current_type_bounds_[_self_key] = {_tb};
+                            auto* _saved_holder = holder_;
+                            if (m.default_holder) holder_ = m.default_holder;
+                            std::vector<TypeParam> _tps;
+                            shadow_scope_ = &_tit->second.lifetime_params;
+                            logos::probe::census("trdef.lower." + _tn + "." + m.name);
+                            auto _fn = lower_fn(map_of(m.default_ast),
+                                                "$traitdef$" + _tn, &_tps);
+                            logos::probe::census("trdef.lowered." + _tn + "." + m.name);
+                            shadow_scope_ = nullptr;
+                            holder_ = _saved_holder;
+                            _fn.flag(dk::IS_PUB, true);
+                            if (!_tps.empty()) {
+                                auto a = _fn.array(dk::TYPE_PARAMS);
+                                for (auto& tp : _tps) a.push_fn_tparam(tp);
+                            }
+                            // `trdefnogen` = the same check without the emit.
+                            if (_emit) prog.functions.push_back(_fn.view<lir_view::FunctionView>());
+                            current_type_bounds_[_self_key] = _saved_bounds;
+                            if (_had_self) current_type_params_[_self_key] = _saved_self;
+                            else current_type_params_.erase(_self_key);
+                            pop_type_params(_tit->second.type_params);
+                        }
+                    }
+                }
             }
         }
         else if (c == la::IMPL_BLOCK) lower_impl_block(item, prog);

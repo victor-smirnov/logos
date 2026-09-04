@@ -22553,3 +22553,252 @@ note: FatClosure is on the LOAD path deliberately ("a CLOSURE value is an 8-byte
   with compile rc unchanged. The discriminator is the operand's PROVENANCE, which
   `deref_operand_is_ptr_to_dyn_handle` already decides three branches above for TraitObject.
   Runtime column: 0 compile-rc, 13 run-rc (all -11), 0 stdout, over 6269.
+
+# ═══ ROUND 2026-09-04d — PRICING ONLY, NO FIX LANDED. THREE HANDED-DOWN "HOLES OF SILENT
+# ACCEPTANCE": ONE REPRODUCES AND IS TWO DOORS IN SERIES, ONE IS **CLOSED**, ONE REPRODUCES AS A
+# DIFFERENT AND STRICTLY WORSE DEFECT THAN ITS DESCRIPTION. THE THREE SHARE NOTHING — THE MATRIX
+# IS DIAGONAL. **THE HEADLINE NUMBER IS 304**: `trdefchk`'s COST WAS 0 ON EVERY EXISTING COLUMN
+# AND **304 OF 6286** ON THE RUNTIME ONE, AND ITS CONTROL TWIN PUTS THAT BACK TO **0**. ONE
+# BUILD FOR THE FIRST TWO PROBES, ONE FOR THE TWIN. ═══
+
+## 0. STEP 1, RE-DERIVED
+    HEAD at open `6ae8bf7bc`, tree clean = origin/main.
+    ⚠ `build/bin/logosc` was 15:11 and HEAD 15:32 — REBUILT BEFORE THE FIRST PROBE
+    (`ninja: no work to do`, so the binary already carried HEAD's sources).
+    live probe names **173**. `# TOTAL` admits **99**, blocked **25**.
+    Unarmed `build_hash.py` **3b3c4ff4868b6473 43**, md5 `5800b627...` after the
+    first batch, `cb3c31ecff057cc1` batch 1 (trdefchk + dropqual),
+    `dcd28a72ce12d98e` batch 2 (+ trdefnogen). L1 rc 0 on both, batch inert.
+    ⚠ EVERY NUMBER BELOW WAS MEASURED AT `dcd28a72ce12d98e`. Trimming this round's
+    site comments down to markers afterwards moved the hash to **75e63c90fea1d214**
+    with no behaviour changed — the same lesson as the 58 703 invalidated verdicts.
+    RE-VERIFIED ON THE FINAL BINARY: all five d1 witnesses unarmed 0 / trdefchk 1 /
+    trdefnogen 1, c3_leak 64 lost bytes unarmed and 0 with `TRAIT END` under
+    dropqual, c3_both compiler rc 1. Trim the comments BEFORE the columns next time.
+    ⚠ THE KEY-IDENTITY LINT WENT RED ON THE FIRST BATCH and it was RIGHT: the probe
+    added three bare `"Self"` call arguments. Named once as `kSelfTypeParamName`
+    (sema.cpp) — no ledger edit, no pin, green.
+
+## 1. DEFECT 2 IS **CLOSED**, AND THAT IS THE FINDING (rule 17 / rule 8)
+The handed-down claim — "a move out of a NESTED field of a `&`/`&mut` receiver is admitted while
+the one-hop spelling is refused" — DOES NOT REPRODUCE on today's binary. Four illegal shapes,
+each multi-line, `/home/logos/sandbox/r3holes/`:
+    d2_onehop      `fn steal(r:&S)->String{ return r.v; }`             rc 1 E0507
+    d2_nested      `return r.inner.v;`                                 rc 1 E0507
+    d2_nested_mut  the same through `&mut S`                           rc 1 E0507
+    d2_three       `return r.b.a.v;` (three hops)                      rc 1 E0507
+and the LEGAL direction still compiles: d2_legal_owned (the same nested move out of an OWNED
+`S`) rc 0, d2_legal_copy (a Copy field behind `&`) rc 0.
+CLOSED BY: `recv_unowned_`, the receiver-chain walk inside
+`SemaChecker::is_unowned_move_source` (src/compiler/sema_impl.hpp) — it climbs
+FieldRead/TupleIndex/AddrOfTemp/Deref receivers and answers Ref/MutRef at any depth. Round
+2026-09-03k's "wider than its probe in two shapes" is CONFIRMED by re-measurement, six rounds
+later. NO probe was built for defect 2 and none should be.
+
+## 2. DEFECT 1 REPRODUCES — AND IT IS **TWO DOORS IN SERIES**, WHICH THE DESCRIPTION DOES NOT SAY
+Five multi-line witnesses, one trait, no implementor, `main` untouched — ALL rc 0 unarmed:
+    d1_arity    `self.a(true)` against `fn a(self:&Self, x:i64)`
+    d1_nosuch   `self.nosuch(1i64)` — a method that does not exist
+    d1_lettype  `let q: bool = 1i64;`
+    d1_rettype  `return true;` from `-> i64`
+    d1_undef    `return zzz_undefined_name;`
+Add ONE `impl T for S {}` (d1_withimpl) and the SAME body is refused:
+`error [fn S__b]: let 'q': type mismatch — expected bool, got i64`.
+
+**RULE 16 — THE FACT IS RECORDED AND DISCARDED, NOT ABSENT.** `Sema::collect_trait_def`
+(sema_collect.cpp) stores `mi.default_ast` + `mi.default_holder` on
+`SemaTraitMethodInfo` for every default body. CENSUS OF THE CONSUMERS: `grep default_ast`
+returns exactly **two** reads, `collect_fn(map_of(m.default_ast), def_reg_target, trait_name)`
+in collect_impl's impl loop and `lower_fn(map_of(m.default_ast), lower_target, &type_params)`
+in `SemaChecker::lower_impl_block` (sema_decl.cpp). BOTH iterate IMPLS. Zero impls ⇒ zero reads.
+Mint-site census, unarmed, on d1_lettype: `trdef.mint 43 · trdef.hasimpl 41 · trdef.orphan 2`.
+
+**DOOR 2, LOCATED BY MEASUREMENT AFTER THE FIRST ARM DID NOTHING.** Opening only the lower-side
+door made the probe fire 94 times and change no verdict — and that reads exactly like a refuted
+hypothesis. It is not. `lowerfn.td.entry 2` with `letann.arrive 0`: `lower_fn` was ENTERED and
+`lower_let` never was. The bail is `if (!fi_ptr) { fn.str_always(NAME, fn_name); return fn; }`
+in `SemaChecker::lower_fn` — commented "shouldn't happen after collect". A body collect never
+registered gets a NAMED, EMPTY function and NO diagnostic; `nm` confirms `$traitdef$T__b` in the
+object with an empty body. Census `lowerfn.nofuncinfo` is installed at that line.
+So the mechanism is COLLECT-side registration **then** LOWER-side synthesis, and half of it
+is worth nothing (rule 2).
+
+## 3. DEFECT 3 REPRODUCES AS A **DIFFERENT AND WORSE** DEFECT THAN ITS DESCRIPTION (rule 17)
+The handed-down claim is "a type with BOTH an inherent `fn drop` AND a real `impl Drop` runs the
+INHERENT one at scope exit (`c3_both` TN=0 IN=1)". On today's binary, with the 2026-09-04land
+`drop_fn_for` fix in, **the inherent one never runs**. What happens instead is ORDER-DEPENDENT
+and neither half is right:
+    c3_both   `impl Drop for R` FIRST, inherent `impl R { fn drop }` second, same arity
+              → **compiler rc 1, `error [fn R__drop]: duplicate function 'R__drop'`**.
+              A FALSE REFUSAL: both an inherent `drop` and a `Drop` impl on one type is
+              legal Rust (only the CALL `r.drop()` is E0040).
+    c3_order  the SAME two impls, INHERENT FIRST → **rc 0, and the destructor is GONE**.
+              stdout `END` alone: TN=0, IN=0.
+    c3_leak   c3_order with a `malloc`'d field the `Drop` impl frees → rc 0, valgrind
+              **64 bytes in 1 blocks are definitely lost, ERROR SUMMARY: 1**.
+    c3_refself inherent `fn drop(self:&R, k:i32)` (DIFFERENT ARITY) → rc 0, prints TRAIT.
+    c3_inhonly inherent alone → rc 0, prints END alone. The 09-04land fix, working.
+    c3_generic `impl Drop for G<i32>` → rc 1 E0366, a different and correct refusal.
+**THE `Drop` BODY IS COMPILED AND LINKED AND NEVER CALLED.** `nm /tmp/c3_leak.o` carries BOTH
+`c3_leak.R__Drop__drop__f__R` and `c3_leak.R__drop__f__R`.
+
+**RULE 16 — RECORDED AND DISCARDED, and this one is provable from the symbol table.** G156-5 in
+`Sema::collect_fn` (sema_collect.cpp) re-keys a trait method to `<T>__<Trait>__<m>` when an
+INHERENT method of the same name+signature already holds the plain base, and files the trait in
+`trait_method_registry_[plain_base]`. `SemaChecker::drop_fn_for` (sema.cpp) builds
+`mangled = type_name + "__drop"` and runs FOUR candidate loops, ALL on the plain base. It never
+asks the registry it could ask. Census at the site: `dropfor.qualified.miss` = **5** on
+c3_order, 5 on c3_leak.
+⚠ THE ASYMMETRY IS THE SAME FACT FROM THE OTHER SIDE: the re-key block is entered only when
+`!info.trait_name.empty()`, so an INHERENT method arriving second hits the plain
+`duplicate function` path instead — which is why the two spellings differ by declaration order.
+
+## 4. NO GROUPING. THE MATRIX IS DIAGONAL, AND IT WAS MEASURED, NOT ASSUMED (rule 4 note)
+Each witness compiled AND run AND valgrinded under each arm, build `dcd28a72ce12d98e`:
+    witness      unarmed              trdefchk           dropqual
+    d1_lettype   cc 0 run 0 lost 0    **cc 1 REFUSED**   cc 0 run 0 lost 0
+    d2_nested    cc 1 REFUSED         cc 1 REFUSED       cc 1 REFUSED
+    c3_leak      cc 0 run 0 **lost 64**  cc 0 run 0 lost 64  cc 0 run 0 **lost 0**
+One arm moves exactly one witness. Three defects, three roots — `lower_fn`'s post-collect bail,
+`recv_unowned_` (already repaired), `drop_fn_for`'s plain-base key — in three files, sharing no
+predicate, no census bucket and no fix.
+
+## 5. THE PROBE TABLE — AND THE COLUMN THAT CONDEMNS THE RECOMMENDED ARM
+    builds cb3c31ecff057cc1 (trdefchk, dropqual) and dcd28a72ce12d98e (+trdefnogen);
+    L1 rc 0 on both with nothing armed. RUNTIME = scripts/run_oracle.py, 6286
+    pass fixtures compiled + linked + RUN, triple (ccrc, runrc, stdout-sha).
+    probe       fires    ceil  cost-pass  cost-fail  stdlib  RUNTIME (of 6286)
+    trdefchk    492277      2          0    2 TEXT      ok    **304**
+    trdefnogen  492277      1          0          0     ok        0
+    dropqual         0      0          0          –     ok        0
+**COST 0 ON EVERY PRE-EXISTING COLUMN AND 304 ON THE RUNTIME ONE.** All 304 are `ccrc 0 -> 90`:
+logosc exits 0 after mlir_gen self-diagnoses `no MLIR type for TypeVar 'Self'`. Nothing in
+`ceiling-probe.sh`'s three populations can see a compile that exits 0 while printing a
+malfunction — this is the 14th gate lie's population, and the runtime column is the only reader.
+**⚠ AND THE RUNTIME COLUMN HAS A KNOWN FALSE POSITIVE OF ITS OWN.**
+`logos_02_semantic_core_pass_cast-region-to-uint` printf's `{:x}` OF A STACK ADDRESS: three
+unarmed runs give three different stdout SHAs. It appears as damage under EVERY probe (it did
+under both of these, with two DIFFERENT hashes) and must be subtracted by name. 305 → 304.
+
+## 6. ⚠ RULE 18 / RULE 7 — THE CONTROL TWIN CONDEMNS **THE WHOLE CEILING**, NOT PART OF IT
+`trdefnogen` is `trdefchk` with one statement removed: it runs the SAME sema check and does NOT
+`prog.functions.push_back` the lowered body — which is what a correct fix does, since a trait
+with no implementor needs no code emitted. Same fires (492277), same five witnesses refused with
+the same five diagnostics. What moves:
+    · `elided-self-lifetime-in-trait-fn` (T3, named BY NAME in 09-04c §4) rc 1 → **rc 0**.
+      Its "closure" under `trdefchk` was `mlir_gen: 1 self-diagnosed malfunction` after the
+      method call resolved to `''` and the `let` statement was DROPPED. Not a borrow verdict.
+    · both `COST-fail` TEXT rows → 0. Same artifact.
+    · the RUNTIME column 304 → **0**.
+And the ONE row that survives is a **PROBE DEFECT, not a closure**:
+`regions-infer-bound-from-trait-self` refuses with `use of undeclared lifetime name ''a'` —
+the trait's own binder `'a` is not in scope in the probe's lowering (`shadow_scope_` alone is
+not enough; `lower_impl_block` brings it in by another route). The upstream reason is
+"parameter type `Self` may not live long enough".
+**THE HONEST CEILING OF DEFECT 1 ON THE LEDGER IS 0 ROWS.** `trait-method-lifetime-suggestion`
+(T2), the second row 09-04c named, compiles rc 0 under both arms. The prompt's "blocks two
+ledger rows BY NAME" is refuted BY MEASUREMENT: unblocking the type-check does not close either.
+
+## 7. WHAT A DEFAULT BODY WITH NO IMPLEMENTOR CAN AND CANNOT BE CHECKED AGAINST
+CAN (all five witnesses live here, and all five are caught by the check alone):
+  · the trait's own TYPE params and their bounds, and its LIFETIME params — §6's surviving
+    row is precisely the failure to bring the latter into scope, so this is a REQUIREMENT
+    on the fix, not an option;
+  · `Self` as a RIGID type parameter bounded by the trait itself (and its supertraits). This
+    is the blanket-impl binding already in the tree (`self_type = make_typevar(target)`), and
+    it is what makes d1_nosuch a real diagnostic:
+    `type parameter 'Self' has no trait bound providing method 'nosuch'` (rustc's E0599);
+  · everything that does not mention `Self` at all: arity and argument types of calls to the
+    trait's other methods and to free fns, `let` annotations, the declared return type,
+    undefined names.
+CANNOT:
+  · any CONCRETE LAYOUT of `Self` — `self.field` has no answer, and rustc forbids it too;
+  · associated-type VALUES. `Self::Item` is an opaque projection; anything that needs the
+    concrete `Item` (whether it is `Ord`, say) must defer — exactly what the `where_param_bounds`
+    gate in `lower_impl_block` already does, deferring to mono;
+  · any INHERENT method of a future implementor (correctly an error; Rust agrees);
+  · mono-time facts: which specialisation an overloaded generic picks, drop glue for `Self`,
+    and **the variance of a concrete `Self` against a region** — which is the shape of T2/T3
+    and the reason §6's honest ceiling is 0;
+  · **CODEGEN. There is nothing to emit.** The 304 is the entire price of not noticing this.
+
+## 8. WHY `dropqual` FIRES 0 OVER THE CORPUS AND WHY THAT IS NOT A REFUTATION (rule 1)
+The site is PROVEN LIVE by hand: `dropfor.qualified.miss` 5 on c3_order and on c3_leak, and the
+arm turns c3_leak's 64 lost bytes into `ERROR SUMMARY: 0 errors` with `TRAIT` on stdout. Over the
+corpus it is never reached, and the population says why: **5** fixtures declare both an
+`impl Drop for X` and an inherent `fn drop` on the same `X`
+(`imported/pass/drop/drop-trait`, `pass/bc_recvpartial_disjoint_admit`,
+`pass/drop_ident_inherent_is_not_a_destructor`, `pass/drop_ident_trait_is_a_destructor`,
+`pass/drop_temp_receiver`) and **all five give `dropfor.qualified.miss` 0** — they differ in
+ARITY or in declaration ORDER, and the collision needs same-arity AND inherent-first.
+The corpus has no witness because none was ever written, not because the defect is not there.
+⚠ AND A FIXTURE CANNOT BE WRITTEN FOR THE OTHER SPELLING: c3_both aborts the COMPILE with a
+false `duplicate function`, so the pass fixture that would pin it is blocked on the fix.
+
+## 9. WHAT DESERVES FUNDING, IN ORDER
+1. **`drop_fn_for` consults the qualified base** (defect 3). It is a SOUNDNESS hole with a RUN
+   oracle: 64 definitely-lost bytes → 0, `TRAIT` printed, ceiling 0, cost 0 on all four columns
+   including the runtime one, stdlib ok. The fix is small and its blast radius is measured at
+   five near-miss fixtures, all unmoved. The SECOND half — the false `duplicate function` when
+   the trait impl is declared first — is the same asymmetry read from the other side and should
+   land with it, since it is what blocks the pass fixture.
+2. **The trait-default-body type-check** (defect 1), and ONLY in `trdefnogen`'s shape:
+   check, do not emit. Cost 0 on four columns, RUNTIME 0, stdlib ok, and it refuses five
+   illegal programs no oracle in the tree refuses today. **It closes ZERO ledger rows** — fund
+   it as a soundness repair, never as a ledger arm, and require the trait's lifetime binders in
+   scope (§6's one surviving row is the proof that the naive lowering lacks them).
+3. Nothing for defect 2. It is closed, and the number that says so is four E0507 refusals with
+   two legal shapes still rc 0.
+**THE NUMBER THAT CONDEMNS THE ALTERNATIVE**: `trdefchk` — the arm that both checks AND emits,
+and the one the ceiling table would have recommended on `ceiling 2 / cost 0` — damages **304 of
+6286** fixtures that RUN, and every one of the 2 rows it "closes" is an mlir_gen malfunction or
+a missing lifetime binder rather than a borrow verdict.
+
+## trdefchk
+site: src/compiler/sema.cpp::lower_impl_block
+build: 75e63c90fea1d214 (columns measured at dcd28a72ce12d98e; comment-only delta, witnesses re-verified)
+measured: 2026-09-04
+fires: 492277
+ceiling: 2
+cost: 0
+verdict: ⛔ DECLINED IN THIS SHAPE — cost 0 on every pre-existing column and 304 of 6286 on the
+  runtime one, and both ceiling rows are artifacts its control twin removes
+note: opens BOTH doors of the trait-default-body check — collect-side registration under
+  `$traitdef$<Trait>` (sema_collect.cpp, beside `collect_fn`) and lower-side synthesis with
+  `Self` a TypeVar bounded by the trait. Refuses all five illegal witnesses with correct
+  diagnostics. The 304 are all `ccrc 0 -> 90`: mlir_gen has no MLIR type for an uninstantiated
+  `Self`. cost-fail 2 TEXT-only, stdlib four layers ok. See `trdefnogen`.
+
+## trdefnogen
+site: src/compiler/sema.cpp::lower_impl_block
+build: 75e63c90fea1d214 (columns measured at dcd28a72ce12d98e; comment-only delta, witnesses re-verified)
+measured: 2026-09-04
+fires: 492277
+ceiling: 1
+cost: 0
+verdict: ✓ FUND — the same check with `prog.functions.push_back` removed; cost 0 on all four
+  columns INCLUDING the runtime one, and its single ceiling row is the probe's own defect
+note: rule 18's control twin for `trdefchk`, and it condemns the whole ceiling. Same fires, same
+  five witnesses refused, same diagnostics. `elided-self-lifetime-in-trait-fn` goes back to rc 0
+  (its closure was `mlir_gen: 1 self-diagnosed malfunction`), both TEXT fail rows go to 0, and
+  RUNTIME 304 -> 0. The surviving row `regions-infer-bound-from-trait-self` refuses with
+  `use of undeclared lifetime name ''a'` — the trait's own binder is not in scope in the probe's
+  lowering, so the honest ledger ceiling of this mechanism is **0**.
+
+## dropqual
+site: src/compiler/sema.cpp::drop_fn_for
+build: 75e63c90fea1d214 (columns measured at dcd28a72ce12d98e; comment-only delta, witnesses re-verified)
+measured: 2026-09-04
+fires: 0
+ceiling: 0
+cost: 0
+verdict: ✓ FUND — a soundness repair with a RUN oracle, priced 0 everywhere; the corpus fire
+  count is 0 because the corpus contains no witness, and the site is proven live by hand
+note: after the four plain-base loops fail, consult `trait_method_registry_[<T>__drop]` for
+  `"Drop"` and re-run the match on `<T>__Drop__drop` — the base G156-5 in `collect_fn` re-keyed
+  it to. Live-site proof: `dropfor.qualified.miss` 5 on c3_order and c3_leak, and armed, c3_leak
+  goes from `definitely lost: 64 bytes in 1 blocks` to `ERROR SUMMARY: 0 errors` with `TRAIT` on
+  stdout. RUNTIME column 0 of 6286 (after subtracting the ASLR-nondeterministic
+  `cast-region-to-uint`), stdlib four layers ok. All 5 corpus fixtures that declare both an
+  `impl Drop` and an inherent `fn drop` give `dropfor.qualified.miss` 0 — they differ in arity
+  or in declaration order.

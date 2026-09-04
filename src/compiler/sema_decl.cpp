@@ -777,6 +777,9 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
         }
     }
     if (!fi_ptr) {            // shouldn't happen after collect
+        // Door 2 — a body collect never registered gets a NAMED, EMPTY function
+        // here, no diagnostic, `lower_block` unentered. PROBES.md 2026-09-04d §2.
+        logos::probe::census("lowerfn.nofuncinfo");
         fn.str_always(dk::NAME, fn_name);
         return fn;
     }
