@@ -20487,3 +20487,217 @@ reachable) · nllmoves.C 9 (one of its nine, issue-75904, is blocked by §8.1, n
 lifereg.R18 7 (M-SIG, rejected) · bck.NEW 6 · bck.D 6 (3 owner) · lifereg.NEW-N1 5 ·
 bck.B 5 · lifereg.R17 4 · nllmoves.E 4 (E0713 ×3 owner) · nllmoves.B 3 · nllmoves.D 3 ·
 lifereg.D 3 · bck.E 3 (E0509, retired).
+
+# ═══ ROUND 2026-09-03q — PRICING. M-SELF's DECL HALF, NAMED BY THE 2026-09-01v SURVEY AND
+# NEVER PRICED, HAS ITS SITE FOUND: THE WRITTEN `self:` TYPE OF AN **INHERENT** IMPL METHOD IS
+# COMPARED AGAINST `impl_self_ty` FOR THE FIRST TIME, AT THE COLLECT SITE. `selfcolsame` IS
+# **3 fires / CEILING 2 / COST 1 / cfail 0 of 1343 / STDLIB FOUR LAYERS OK**, AND THE TWO ROWS
+# ARE THE TWO PREDICTED BY NAME. THE ONE COST IS **ONE SHAPE** — AN ENUM WHOSE ONLY GENERIC
+# PARAMETERS ARE LIFETIMES — ISOLATED BY 18 HAND PROGRAMS. NO ROW BOUGHT, NO BEHAVIOUR
+# CHANGED: `# TOTAL` 132 → 132. FOUR BUILDS. ═══
+
+## 0. STEP 1, RE-DERIVED — TWO CORRECTIONS TO THE HANDED-DOWN REPORT
+    live probe names **165** at open (09-03p's close says 166 — FOURTH ROUND RUNNING that the
+    handed-down probe count is stale, rule 17). `# TOTAL` **132**, and 132 by direct listing.
+    Channel split **lifereg 51 · nllmoves 42 · bck 39** — bck is 39, not the 40 09-03p recorded;
+    its own landing took the row and the closing sentence was not re-derived.
+    Roots: bck.C 11 · nllmoves.C 9 · lifereg.R18 7 · bck.NEW 6 · bck.D 6 · lifereg.NEW-N1 5 ·
+    bck.B 5 · nllmoves.E 4 · lifereg.R17 4 · rest ≤3.
+    HEAD at open `798bd7a08`, tree clean = origin/main. Unarmed binary **1a329cb058aa0be1**
+    (READ). Build at close **ce572adc415fe3cd** (READ). gate-db build 692: `-L bc` 1343 / 0 failed.
+
+## 1. THE TARGET ROWS BY NAME — build/round-2026-09-03q/targets-2026-09-03q.txt, WRITTEN BEFORE
+##    THE FIRST COMPILER EDIT
+    T1 elided-lifetime-mismatch-in-self-type   lifereg.R18     impl Pair<i64,i64> { fn say(self:&Pair<u8,i64>) }
+    T2 explicit-self-lifetime-mismatch         lifereg.NEW-N3  impl<'a,'b> Foo<'a,'b> { fn bar(self:Foo<'b,'a>) }
+    T3 ex3-both-anon-regions-one-is-struct-5   lifereg.NEW-N1  the CALL half (receiver vs `&'a mut Foo<'a>`)
+    T4 trait-method-lifetime-suggestion        lifereg.NEW-N1  the CALL half (a trait default body)
+WHY THIS BLOCK. Every larger block is mined or owner-blocked and the file says so: bck.C's move
+half spent (09-03p), nllmoves.C mined seven rounds, lifereg.R18's other six rows are M-SIG
+REJECTED 09-06a, bck.D/E0716 owner, E0509 retired by spec, the 16-row `'static` population walled
+by five owner pass fixtures, the pop_scope/E0597 channel STOPped (`dangpop` 15 pass + 68 cfail),
+the mut-binding channel STOPped (`mbnoparam` degenerate; `recvmutbind` blocked on a SEMA
+by-value-pattern-`mut` bit), M-AGG's struct-literal half landed 09-02w. **M-SELF is the one named
+missing observation in the 09-01v §7 survey with no priced arm and no owner block**, and
+09-03x §7.1 had already recorded that the site shelved for T1 CANNOT own it — T1/T2 are INHERENT
+impls, where the trait-conformance loop that holds `sig_match` never runs. So the D half had no
+located site at all.
+
+## 2. RULE 17 — THE ARRIVAL, CENSUSED BEFORE ANY NUMBER WAS BELIEVED, AND IT KILLED TWO SITES
+The first two builds put the compare in `sema_decl.cpp::lower_fn`, at the `self` parameter, against
+`current_type_params_["Self"]`. Both were the DEGENERATE POLE — ceiling 132 (the whole ledger),
+cost 1224, stdlib ⛔ — and the census says why: on a two-line hand program `selfdecl.differs.inh`
+is already **278** with nothing of mine in it. READ AT THE SITE afterwards (sema_decl.cpp, the
+`need_set` block): `Self` in `lower_fn` is KEPT only when the bare NAME matches and is otherwise
+rebuilt as `make_struct_type(struct_ctx)` — a bare name with NO type and NO lifetime arguments.
+⇒ **`lower_fn` does not carry the impl target's written arguments at all.** A narrowing that asked
+only "same ADT name, type args differ" (`selfargs`) was equally degenerate for the same reason,
+and its lifetime twin `selfargslt` NEVER FIRED. Two builds, no usable number, one located fact.
+
+## 3. THE SITE THAT HAS THE FACT — src/compiler/sema_collect.cpp, after `collect_fn(m, reg_target,
+##    trait_name)` — AND THE TABLE, ALL THREE COST COLUMNS
+`impl_self_ty` (sema_collect.cpp, the block at `TypeRef impl_self_ty = nullptr;`) IS the impl target
+with its written type and lifetime arguments. The arm resolves the method's parameter-0 type when
+it is named `self`, peels one Ref/MutRef, and compares.
+    build ce572adc415fe3cd (READ) — probes installed by scripts/probe-batch.sh, L1 rc 0 inert
+    probe          keyed on                                    fires  ceil  cost  cfail    stdlib  verdict
+    selfcol        !types_equal(written, impl_self_ty)        316057   132  1224  1336/1343  ⛔    ⛔ degenerate pole
+    selfcollt      the same with lifetimes                    316059   132  1224  1336/1343  ⛔    ⛔ degenerate pole
+    selfcolsame    + SAME ADT name AND kind                        3     2     1     0/1343  ok    ✓ FUND (§6)
+**RULE 9 — THE INNER PREDICATE, AND THE TWO NAMES SEPARATE BY FOUR ORDERS OF MAGNITUDE.**
+`selfcol` and `selfcolsame` differ ONLY by the `_same` clause. Without it the arm answers "unequal"
+for every method whose written self type is spelled in any form the impl target is not (`&Self`,
+a package-qualified name, a `$G`-suffixed monomorphisation) and refuses the stdlib. The `_same`
+clause is what makes the question "are these the SAME type with DIFFERENT arguments" instead of
+"are these spelled identically".
+
+## 4. THE SET, DIFFED BOTH WAYS, DIAGNOSTIC READ ON THE BINARY
+Predicted BY NAME AND BY NUMBER before the first compiler edit (targets-2026-09-03q.txt): the D
+half is **N = 2, {elided-lifetime-mismatch-in-self-type, explicit-self-lifetime-mismatch}**.
+Measured ceiling: the same two names. **predicted ∖ measured = ∅. measured ∖ predicted = ∅.**
+    error [fn Pair__say]: method 'say': the written `self:` type does not match the impl target 'Pair'
+    error [fn Foo__bar]: method 'bar': the written `self:` type does not match the impl target 'Foo'
+⚠ RIGHT SITE, RIGHT REASON, AND THE TEXT IS NOT UPSTREAM'S. rustc says "mismatched `self` parameter
+type — expected `Pair<i64, i64>`, found `Pair<u8, i64>`". A landing owes the two spellings in the
+message; the probe prints neither, and a row closed by a wrong diagnostic is not closed.
+⚠ T3 AND T4 ARE NOT IN THIS SET AND WERE NOT EXPECTED TO BE — they are the CALL half of M-SELF (a
+receiver checked against the written `self:` type, regions included), a different site, unpriced.
+
+## 5. ⛔ `dtselflt` — NEVER FIRED, WHICH IS NOT A ZERO (rule 1), AND IT REFUTES THE SITE NOT THE FACT
+The one cost is an ENUM (§6), so the fourth build armed the obvious repair: the datatype branch of
+`impl_self_ty` drops the lifetime args when `impl_tps` is empty, exactly the defect the STRUCT
+branch's own probe comment describes and that 2026-08-31j repaired on the struct half only.
+`dtselflt` **FIRED 0 TIMES** and `selfcold` (= `dtselflt` + `selfcolsame`) was IDENTICAL to
+`selfcolsame` in all three columns. ⇒ for `impl<'a> C<'a>` the target node is a GENERIC_INST, so
+`impl_self_ty = target_resolved` and the `else` chain I armed is never entered. The enum's missing
+lifetime arguments come off `resolve_type` on the GENERIC_INST path, not off that fallback. The
+edit is OUT of the tree; the number is recorded so the next round does not spend the build.
+
+## 6. ⚠ RULE 5 — 18 HAND PROGRAMS, SHAPES VARIED, AND THE COST IS EXACTLY ONE SHAPE
+`/home/logos/sandbox/selfcol/`, all multi-line, each run UNARMED and under `selfcolsame` on
+ce572adc415fe3cd. Unarmed: rc 0, all eighteen.
+    ILLEGAL, all five REFUSED ✓
+      X1 impl P<i64,i64> { fn say(self:&P<u8,i64>) }        type args differ      (T1's shape)
+      X2 impl<'a,'b> F<'a,'b> { fn g(self: F<'b,'a>) }      lt args swapped, STRUCT, by value (T2's shape)
+      X3 impl<'a,'b> D<'a,'b> { fn g(self:&D<'b,'a>) }      lt args swapped, ENUM, by reference
+      X4 impl<'a> S<'a> { fn g(self:&S<'static>) }          'static in the slot
+      X5 impl<T> G<T> { fn g(self:&G<i64>) }                a concrete type for a type var
+    LEGAL, eleven ADMITTED ✓
+      L1 &'a S<'a> · L2 &S<'a> · L3 S<'a> by value · L6 impl<T> G<T> with &G<T> ·
+      L7 two lifetime params · L8 `self: &Self` · L9 non-generic `impl A { fn g(self:&A) }` ·
+      L11 `&'a mut S<'a>` · L12 `enum E<T>` with a TYPE param · L13 a TRAIT impl on S<'a>
+      (the inherent-only exemption, proven by an admitted program and not by reading) ·
+      L14 a static method with no `self` at all.
+    ⛔ LEGAL, TWO REFUSED — AND THEY ARE ONE SHAPE
+      L4 enum C<'a> { R(&'a i64), O(i64) }, `fn g(self: &C<'a>)`
+      L5 the same by value, `fn g(self: C<'a>)`
+**AN ENUM WHOSE ONLY GENERIC PARAMETERS ARE LIFETIMES.** L12 (an enum with a TYPE parameter) is
+admitted and L1/L2/L3 (the struct twins of L4/L5) are admitted, so it is neither "enums" nor
+"lifetime parameters" but their intersection. That is the whole corpus cost too: the one
+`logos_02_semantic_core_pass_region-lub-match-deref-arm-rg` is `enum Cached<'a>` with
+`fn get_ref(self: &'a Cached<'a>)`. ⚠ COST 1 IS NOT "one fixture's worth of risk": it is a LOWER
+bound, and the shape it names is a real class of legal program the corpus happens to contain once.
+
+## 7. ⇒ WHAT DESERVES FUNDING, IN ORDER
+ 1. **THE ENUM SELF-TYPE FACT FIRST, THE CHECK SECOND.** `selfcolsame` is 2 rows for cost 1 and
+    the cost is one located defect, not an exemption: an `impl<'a> C<'a>` on an ENUM does not put
+    the lifetime arguments into `impl_self_ty`, while the struct twin does. Repair it (on the
+    GENERIC_INST/`resolve_type` path — NOT the fallback `else`, §5) and the same arm should price
+    at cost 0. It is a BLOCKER, and the rows it unblocks are T1 and T2 by name.
+ 2. **THE DIAGNOSTIC.** rustc names both types; the probe names neither (§4). A landing owes it.
+ 3. **THE CALL HALF (T3, T4) IS STILL UNPRICED** and is a different site — the receiver compared
+    against the written `self:` type with its regions. Nothing in this round touches it.
+ 4. NOT `selfcol` / `selfcollt` — the degenerate pole, ceiling 132 and stdlib ⛔ (§3).
+ 5. NOT `dtselflt` — the site is not reached (§5).
+
+## 8. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. `impl A { fn get(self: &B) -> i64 { return self.y; } }` COMPILES CLEAN, and the method is then
+    reachable through NEITHER type: `b.get()` says "'B' has no method 'get'" and `a.get()` says
+    "'A' has no method 'get'". A declaration accepted and unreachable; no runtime hole.
+    `/home/logos/sandbox/selfty/s01.logos`, s05, s06.
+ 2. `Self` in `lower_fn` is a bare name with no arguments (§2). Anything downstream that reads it
+    as the impl target's type is reading a fact that is not there. Not chased.
+ 3. CARRIED FORWARD, RE-CHECKED PRESENT, STILL THE OWNER'S: the three E0713 rows (nllmoves.E);
+    the four E0716-family rows that are LEGAL RUST; 2026-09-02p §4's five owner pass fixtures
+    walling the 16-row `'static` population.
+ 4. 09-03p §7's three carried items (the loop back edge and a drop-only capture; the non-`let`
+    ClosureBox arm with no capture deposit; structural auto-Copy) were NOT re-measured this round.
+
+## 9. THE TREE AT CLOSE
+`src/compiler/sema_collect.cpp` +40/−1, all of it inside one `if (trait_name.empty() && …)` block
+after `collect_fn`, env-gated, with five census buckets (`selfcol.arrive/same/differs.same/
+differs.other/ltonly`). Probe names `selfcol`, `selfcollt`, `selfcolsame` INSTALLED; the first two
+carry their ⛔ in one line each. `selfdecl`/`selfdecllt`/`selfdeclany`/`selfdecltrlt` (build 1) and
+`selfargs`/`selfargslt`/`selfargsboth`/`selfargsany` (build 2) are OUT of the tree — their records
+are §2. `dtselflt`/`selfcold` (build 4) are OUT — their record is §5.
+GATES ON THE FINAL BINARY ce572adc415fe3cd: L1 **rc 0** (748/748, the enumerator's 12 684
+generated cases, the 181 tier_commit gates); `gate-run.sh -L bc` **1343 passed / 0 failed**
+(gate-db build 692).
+NOT SPENT, each with its number: bck.C 11 · nllmoves.C 9 · lifereg.R18 7 (M-SIG rejected; its
+elided-lifetime-mismatch-in-self-type row is THIS round's, still unbought) · bck.NEW 6 (real
+size 3) · bck.D 6 (3 owner) · lifereg.NEW-N1 5 (2 of them are M-SELF's CALL half, §7.3) ·
+bck.B 5 · lifereg.R17 4 · nllmoves.E 4 (E0713 ×3 owner) · nllmoves.B 3 · nllmoves.D 3 ·
+lifereg.D 3 · bck.E 3 (E0509, retired by spec).
+
+## selfcol
+site: src/compiler/sema_collect.cpp, after `collect_fn(m, reg_target, trait_name)` (inherent impls)
+build: ce572adc415fe3cd (READ)
+measured: 2026-09-03
+fires: 316057
+ceiling: 132
+cost: 1224 (cfail 1336 of 1343, stdlib ⛔)
+verdict: ⛔ DEGENERATE POLE — `types_equal` without the same-ADT clause answers "unequal" for every spelling the impl target does not use.
+
+## selfcollt
+site: as selfcol, with detail::types_equal_with_lifetimes
+build: ce572adc415fe3cd (READ)
+measured: 2026-09-03
+fires: 316059
+ceiling: 132
+cost: 1224 (cfail 1336 of 1343, stdlib ⛔)
+verdict: ⛔ DEGENERATE POLE — selfcol's control twin; the lifetime comparator changes 2 arrivals and nothing else.
+
+## selfcolsame
+site: as selfcol, + SAME ADT name and kind, then detail::types_equal_with_lifetimes
+build: ce572adc415fe3cd (READ)
+measured: 2026-09-03
+fires: 3
+ceiling: 2
+cost: 1 (cfail 0 of 1343, stdlib ok)
+verdict: ✓ FUND AFTER §7.1. elided-lifetime-mismatch-in-self-type + explicit-self-lifetime-mismatch, predicted by name both ways. The one cost is `enum C<'a>` with no type params — one located defect, not an exemption. 18 hand programs, 5 illegal refused, 11 legal admitted, 2 legal refused and both are that one shape.
+
+## selfdecl / selfdecllt / selfdeclany / selfdecltrlt
+site: src/compiler/sema_decl.cpp::lower_fn, the `self` parameter, vs current_type_params_["Self"]
+build: (build 1 of 2026-09-03q, not committed)
+measured: 2026-09-03
+fires: 737600 / 737648 / 1084905 / 1085022
+ceiling: 132 (all four)
+cost: 1224 (cfail 1286, stdlib ⛔) — all four
+verdict: ⛔ WRONG SITE, REMOVED. `Self` in lower_fn is `make_struct_type(struct_ctx)` — a bare name with no type and no lifetime arguments — so every generic method "differs". 278 stdlib arrivals on a two-line hand program.
+
+## selfargs / selfargslt / selfargsboth / selfargsany
+site: as selfdecl, narrowed to SAME ADT name + differing arguments
+build: (build 2 of 2026-09-03q, not committed)
+measured: 2026-09-03
+fires: 427394 / 0 / 427394 / 742667
+ceiling: 132 / — / 132 / 132
+cost: 1224 (cfail 1286, stdlib ⛔); selfargslt NEVER FIRED
+verdict: ⛔ WRONG SITE, REMOVED. The narrowing does not rescue a site whose `Self` has no arguments at all; the lifetime-only twin never fired because neither side carries lifetime args there.
+
+## dtselflt
+site: src/compiler/sema_collect.cpp, the datatype fallback branch of impl_self_ty (impl_tps empty)
+build: (build 4 of 2026-09-03q, not committed)
+measured: 2026-09-03
+fires: 0
+ceiling: — (NEVER FIRED)
+cost: — 
+verdict: ⛔ SITE NOT REACHED (rule 1: not a zero). `impl<'a> C<'a>` is a GENERIC_INST target, so impl_self_ty = target_resolved and this fallback is never entered. The enum's missing lifetime args are on the resolve_type path.
+
+## selfcold
+site: dtselflt + selfcolsame under one name
+build: (build 4 of 2026-09-03q, not committed)
+measured: 2026-09-03
+fires: 3
+ceiling: 2
+cost: 1 (cfail 0 of 1343, stdlib ok)
+verdict: ⛔ REMOVED — DIGIT FOR DIGIT IDENTICAL to selfcolsame in every column, because its dtselflt half never fires (§5). The pair is the control that shows the repair did not land where it was aimed.
