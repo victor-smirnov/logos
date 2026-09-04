@@ -17237,7 +17237,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // ── LANDED 2026-09-04f: THE CLOSURE'S RETURN REGION COMES FROM THE BOUND ─
     // 09-04e §6 measured that EVERY region on the closure side of the return
     // comparison is the EMPTY spelling, which is why every return-position arm
-    // it priced read 0 in BOTH directions: mintedness, not direction, is the
+    // read 0 in BOTH directions: mintedness, not direction, is the
     // discriminator. A closure checked against an `Fn*` bound takes its return
     // region FROM that bound. src/compiler/PROBES.md 2026-09-04f.
     {
@@ -17253,9 +17253,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                          TypeRef(t).kind() == LogosType::Kind::MutRef);
         };
         // (B) an UNANNOTATED closure under a bound whose return is a `&`
-        // adopts that return. Narrowed to `&` on purpose: 09-04e's
-        // `closrethint` took the hint's return unconditionally and paid cost 1
-        // on a bound whose return was an uninstantiated `T`.
+        // adopts that return. NARROWED TO `&` ON PURPOSE — the unnarrowed form
+        // is `closrethint`, declined; PROBES.md 2026-09-04e §3.
         if (!has_annot && is_ref_(hret_)) {
             logos::probe::census("closbnd.ret.adopted");
             ret_type = hret_;
@@ -17268,9 +17267,9 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 rlt_ = std::string(TypeRef(hret_).lifetime());
             // (C) elision rule 1 on the closure signature — but ONLY where THE
             // BOUND DEMANDS A REGION AT THE RETURN. Without `is_ref_(hret_)`
-            // this is 09-03clos's `closretelide` reborn: it re-ties the H4-e
-            // closure-call family, which has no bound at all, and pays cost 1
-            // plus three lost pins for it. Measured 2026-09-04f.
+            // this is 09-03clos's `closretelide` reborn and it re-ties the H4-e
+            // closure-call family, which has no bound at all; the damage is
+            // priced in PROBES.md 2026-09-04f §5.
             else if (is_ref_(hret_) && clos_in_regs_.size() == 1)
                 rlt_ = clos_in_regs_[0];
             if (!rlt_.empty()) {
