@@ -3638,23 +3638,19 @@ void SemaChecker::collect_impl(TinyMapView node) {
     TypeRef impl_self_ty = nullptr;
     {
         TypeRef& self_type = impl_self_ty;
-        // [PROBES.md 2026-09-04a] the impl target AS WRITTEN, resolved once.
-        // The chain below REBUILDS Self from the DECLARED lifetime params of the
-        // struct, mapped POSITIONALLY onto the impl header, and has no enum arm
-        // at all. `resolve_type` on the target node already carries the written
-        // lifetime arguments for struct, enum and datatype alike.
-        TypeRef _writ = nullptr;
-        if ((logos::probe::on("selfwrit") || logos::probe::on("selfckw")) &&
-            !target_resolved && node.has_key(la::TYPE)) {
-            auto _tn = map_of(node.get(la::TYPE.code));
-            if (code_of(_tn) == la::GENERIC_INST) {
-                TypeRef _r = resolve_type(_tn);
-                if (_r && !_r.lifetime_args().empty()) _writ = _r;
+        // The impl target AS WRITTEN, resolved once: the chain below rebuilds
+        // Self from a struct's DECLARED lifetime params mapped POSITIONALLY onto
+        // the impl header, and has no enum arm at all. PROBES.md 2026-09-04a.
+        TypeRef self_written = nullptr;
+        if (!target_resolved && node.has_key(la::TYPE)) {
+            auto wnode = map_of(node.get(la::TYPE.code));
+            if (code_of(wnode) == la::GENERIC_INST) {
+                TypeRef wres = resolve_type(wnode);
+                if (wres && !wres.lifetime_args().empty()) self_written = wres;
             }
         }
-        if (_writ) {
-            logos::probe::census("selfwrit.used");
-            self_type = _writ;
+        if (self_written) {
+            self_type = self_written;
         } else if (target_resolved) {
             // Concrete specialization: use the fully resolved type (preserves type_args).
             self_type = target_resolved;
@@ -4120,56 +4116,51 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     : target;
                 auto mangled = reg_target + "__" + mname;
                 collect_fn(m, reg_target, trait_name);
-                // [PROBES.md 2026-09-03q] M-SELF decl half at the COLLECT site.
-                // Env-gated. `impl_self_ty` is the impl target WITH its written
-                // type and lifetime arguments; `lower_fn`'s `Self` is not.
+                // The written `self:` type of an INHERENT impl method,
+                // checked against the impl target for the first time here —
+                // this is the only site that has both. (`lower_fn`'s `Self` is
+                // a bare name with no arguments.) PROBES.md 2026-09-04a.
                 if (trait_name.empty() && impl_self_ty && m.has_key(la::PARAMS)) {
-                    auto _pav = m.get(la::PARAMS.code);
-                    if (_pav.is_pointer()) {
-                        auto _pn = map_of(_pav);
-                        if (_pn.has_key(la::ITEMS)) {
-                            auto _arr = arr_of(_pn.get(la::ITEMS.code));
-                            if (_arr.size() > 0) {
-                                auto _p0 = map_of(_arr.get(0));
-                                if (code_of(_p0) == la::PARAM && _p0.has_key(la::NAME) &&
-                                    str_of(_p0.get(la::NAME.code)) == "self" &&
-                                    _p0.has_key(la::TYPE)) {
-                                    TypeRef _w = resolve_type(map_of(_p0.get(la::TYPE.code)));
-                                    if (_w && (_w.kind() == LogosType::Kind::Ref ||
-                                               _w.kind() == LogosType::Kind::MutRef))
-                                        _w = TypeRef(_w.pointee());
-                                    TypeRef _s{impl_self_ty};
-                                    if (_w) {
-                                        bool _eq = types_equal(_w, _s);
-                                        bool _eqlt = detail::types_equal_with_lifetimes(_w, _s);
-                                        auto _nm = [](TypeRef t) {
+                    auto pav = m.get(la::PARAMS.code);
+                    if (pav.is_pointer()) {
+                        auto pnode = map_of(pav);
+                        if (pnode.has_key(la::ITEMS)) {
+                            auto pitems = arr_of(pnode.get(la::ITEMS.code));
+                            if (pitems.size() > 0) {
+                                auto p0 = map_of(pitems.get(0));
+                                if (code_of(p0) == la::PARAM && p0.has_key(la::NAME) &&
+                                    str_of(p0.get(la::NAME.code)) == "self" &&
+                                    p0.has_key(la::TYPE)) {
+                                    TypeRef written = resolve_type(map_of(p0.get(la::TYPE.code)));
+                                    if (written && (written.kind() == LogosType::Kind::Ref ||
+                                               written.kind() == LogosType::Kind::MutRef))
+                                        written = TypeRef(written.pointee());
+                                    TypeRef self_ty{impl_self_ty};
+                                    if (written) {
+                                        bool eq = types_equal(written, self_ty);
+                                        bool eq_lt = detail::types_equal_with_lifetimes(written, self_ty);
+                                        auto adt_name = [](TypeRef t) {
                                             std::string s(t.struct_name());
                                             if (s.empty()) s = std::string(t.enum_name());
                                             return s;
                                         };
-                                        std::string _wn = _nm(_w), _sn = _nm(_s);
-                                        bool _same = !_wn.empty() && _wn == _sn &&
-                                                     _w.kind() == _s.kind();
-                                        logos::probe::census("selfcol.arrive");
-                                        if (_same) logos::probe::census("selfcol.same");
-                                        if (!_eq) logos::probe::census(_same ? "selfcol.differs.same"
-                                                                             : "selfcol.differs.other");
-                                        else if (!_eqlt) logos::probe::census("selfcol.ltonly");
-                                        if (!_eq && logos::probe::on("selfcol"))
+                                        std::string wname = adt_name(written), sname_ = adt_name(self_ty);
+                                        bool same_adt = !wname.empty() && wname == sname_ &&
+                                                        written.kind() == self_ty.kind();
+                                        // Rust E0308 "mismatched `self`
+                                        // parameter type". An ELIDED
+                                        // lifetime-argument list asserts
+                                        // nothing: `self: &C` inside
+                                        // `impl<'a> C<'a>` is the elision, not
+                                        // a second spelling — compare the
+                                        // lifetime arguments only when some
+                                        // were written. PROBES.md 2026-09-04a.
+                                        bool lt_written = !written.lifetime_args().empty();
+                                        if (same_adt && (!eq || (!eq_lt && lt_written)))
                                             error(std::format(
-                                                "method '{}': the written `self:` type does not "
-                                                "match the impl target '{}'", mname, target));
-                                        if (!_eqlt && logos::probe::on("selfcollt"))
-                                            error(std::format(
-                                                "method '{}': the written `self:` type does not "
-                                                "match the impl target '{}' (lifetime arguments)",
-                                                mname, target));
-                                        if (!_eqlt && _same &&
-                                            (logos::probe::on("selfcolsame") ||
-                                             logos::probe::on("selfckw")))
-                                            error(std::format(
-                                                "method '{}': the written `self:` type does not "
-                                                "match the impl target '{}'", mname, target));
+                                                "mismatched `self` parameter type: expected "
+                                                "'{}', found '{}'",
+                                                type_str(self_ty, true), type_str(written, true)));
                                     }
                                 }
                             }

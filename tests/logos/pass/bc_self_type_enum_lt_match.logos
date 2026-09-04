@@ -1,0 +1,11 @@
+// Pair twin of fail/bc_self_type_enum_lt_mismatch_fail.logos, ONE TOKEN apart.
+package bc_self_type_enum_lt_match;
+enum C<'a> { R(&'a i64), O(i64) }
+impl<'a> C<'a> {
+    fn g(self: &C<'a>) -> i64 { return 0i64; }
+}
+fn main() -> i32 {
+    let n: i64 = 1i64;
+    let c: C = C::R(&n);
+    return c.g() as i32;
+}

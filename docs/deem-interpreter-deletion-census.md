@@ -5161,9 +5161,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          8987 -> 8991   +4
 #   NOIMPORTED   4560 -> 4563   +3
 #   TIERCOMMIT    182 ->  181   -1
-REGISTRY-ALL         8991
-REGISTRY-NOIMPORTED  4563
-REGISTRY-TIERCOMMIT  181
+# 2026-09-04a (the written `self:` type of an inherent impl method): +5 native
+#   fixtures (2 fail, 3 pass under tests/logos) and -2 admit tests (two ledger
+#   rows closed and moved admit->imported fail, +0 to ALL). NOIMPORTED +3 (+5
+#   native, -2 admit tests, which are not `imported`-labelled while their fail
+#   ports are); TIERCOMMIT -2 (the two admit tests). Predicted from the shape of
+#   the 09-03p entry BEFORE the pin was read; all three landed on the number.
+#   ALL          8991 -> 8996   +5
+#   NOIMPORTED   4563 -> 4566   +3
+#   TIERCOMMIT    181 ->  179   -2
+REGISTRY-ALL         8996
+REGISTRY-NOIMPORTED  4566
+REGISTRY-TIERCOMMIT  179
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

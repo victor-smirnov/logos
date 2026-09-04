@@ -20701,3 +20701,172 @@ fires: 3
 ceiling: 2
 cost: 1 (cfail 0 of 1343, stdlib ok)
 verdict: ⛔ REMOVED — DIGIT FOR DIGIT IDENTICAL to selfcolsame in every column, because its dtselflt half never fires (§5). The pair is the control that shows the repair did not land where it was aimed.
+
+# ═══ ROUND 2026-09-04a — LANDED. M-SELF's DECL HALF. THE `self:` TYPE OF AN **INHERENT** IMPL
+# METHOD IS NOW CHECKED AGAINST THE IMPL TARGET, AND THE TARGET IS READ **AS WRITTEN**. TWO
+# BLOCKERS, ONE REPAIR: the `impl_self_ty` fallback chain has a struct arm and a datatype arm
+# and **NO ENUM ARM**, and `self_lt_args_` maps the header's binders POSITIONALLY and never
+# reads the target. `resolve_type(target node)` already carries both. CEILING 2 / COST 0 pass /
+# COST-fail 0 of 1343 / STDLIB four layers ok. **2 rows closed, predicted 2 BY NAME, both ways.
+# `# TOTAL` 132 → 130** by direct listing. Live probe names 168 → 165. ═══
+
+## 0. STEP 1, RE-DERIVED — AND THE HANDED-DOWN REPORT WAS STALE IN TWO PLACES AGAIN
+    live probe names **168** at open — the handed-down report says 165, the FIFTH round running
+    that this number is stale (rule 17). `# TOTAL` **132**, 132 by direct listing.
+    Channel split **lifereg 51 · nllmoves 42 · bck 39** — that half of the report was right.
+    Roots at open: bck.C 11 · nllmoves.C 9 · lifereg.R18 7 · bck.NEW 6 · bck.D 6 ·
+    lifereg.NEW-N1 5 · bck.B 5 · nllmoves.E 4 · lifereg.R17 4 · rest ≤3.
+    HEAD at open `dff9e5f35`. gate-db build 692 (libs ce572adc415fe3cd), READ from the store:
+    `-R ^logos_00_bc_admit_` 132 of 132 already measured, 0 failed; `-L bc` 2379 already
+    measured, 0 failed. ⚠ 2379, not the 1343 the handed-down report quotes — 1343 is
+    `ceiling-probe`'s `-L bc -L fail` cfail population, a different set.
+
+## 1. ⛔ THE TREE WAS RED AT HEAD AND THE PREVIOUS ROUND REPORTED "L1 rc 0"
+`logos_00_probe_log_lint` (tier_commit) FAILED at `dff9e5f35`, on a stashed clean tree, before
+this round touched a compiler source: the `selfdecl` record's `site:` line read
+`sema_decl.cpp::lower_fn, the `self` parameter…` and the lint's `^site:\s*(\S+)::(\S+)` takes
+the comma as part of the symbol. Fixed in its own commit `82f29a762`: 164 records, every site
+symbol resolves. ⚠ A GATE'S rc IS A MEASUREMENT WITH A TIMESTAMP — the previous round's closing
+sentence was composed, not re-derived, and the batch harness found it in eleven seconds.
+
+## 2. THE TWO BLOCKERS, BOTH LOCATED BY READING BEFORE THE FIRST BUILD
+ B1 **THERE IS NO ENUM ARM.** An `enum` is collected by `collect_enum` into `enums_`
+    (SemaEnumInfo); `impl_self_ty`'s fallback chain tries `find_struct_by_name`, then
+    `find_datatype_by_name`, then a blanket typevar, then `lookup_type_by_name` — and that last
+    returns `make_enum_type(name, epkg)`, a bare name with **no lifetime arguments**.
+    ⚠ **THIS REFUTES 2026-09-03q §5.** That round concluded `impl<'a> C<'a>` on an enum takes the
+    GENERIC_INST/`target_resolved` path. It does not: `target_resolved` is left null there
+    because the branch only sets it when `type_args()` is non-empty, and `C<'a>` has none.
+    `dtselflt` fired 0 because **an enum is not a datatype**, not because the site is unreached.
+ B2 **`self_lt_args_` NEVER READS THE TARGET.** It maps `impl_lt_params` POSITIONALLY onto the
+    struct's DECLARED lifetime params, so `impl<'a,'b> F<'b,'a>` and `impl<'a,'b> F<'a,'b>` mint
+    the SAME `Self`. Rule 12: the check would have been right about T2 by coincidence, and it
+    REFUSED a legal program — counter-example c1, measured on the pricing round's own binary.
+
+## 3. ONE REPAIR FOR BOTH — src/compiler/sema_collect.cpp, `impl_self_ty`
+`resolve_type` on the impl target node already builds `make_generic_struct` /
+`make_generic_enum` / `make_generic_datatype` with the **written** lifetime arguments. So when
+`target_resolved` is null and the target is a GENERIC_INST whose resolution carries lifetime
+arguments, `Self` is that type. The positional chain stays for every other shape.
+
+    build (landed, control-revert round trip verified) — LOGOS_PROBE-gated while priced
+    probe        keyed on                                        fires  ceil  cost  cfail    stdlib
+    selfwrit     the repair ALONE                              1609514     0     0   0/1343   ok
+    selfckw      repair + 09-03q's `selfcolsame` predicate      1609514     2     0   0/1343   ok
+    selfckw2     repair + the ELISION exemption + the new text  1609514     2     0   0/1343   ok
+    selfwrit2    selfwrit under the second batch's name         1609514     0     0   0/1343   ok
+
+**RULE 1 — `selfwrit`'s CEILING 0 IS NOT A REFUTATION AND THE SITE IS PROVEN LIVE.** Under
+`LOGOS_PROBE=selfwrit` the census bucket `selfwrit.used` reads **2** on each of three hand
+programs (an enum, a struct, and the permuted-binder c1). A pure repair that closes no row by
+itself and costs nothing is exactly what a blocker looks like — its value is in `selfckw`.
+**RULE 13 — AND THE INCREMENT IS THE WHOLE POINT.** 09-03q's `selfcolsame` was ceiling 2 / **cost
+1**; the same predicate over the repaired `Self` is ceiling 2 / **cost 0**. The two doors are in
+SERIES and the cost lived entirely in the first one.
+
+## 4. THE SET, DIFFED BOTH WAYS, EVERY DIAGNOSTIC READ ON THE LANDED BINARY
+Predicted BY NAME AND BY NUMBER in `build/round-2026-09-04a/targets-2026-09-04a.txt`, written
+before the first compiler edit: **N = 2**.
+    error [fn Pair$G2$i64$i64__say]: mismatched `self` parameter type: expected 'Pair<i64, i64>', found 'Pair<u8, i64>'
+    error [fn Foo__bar]:             mismatched `self` parameter type: expected 'Foo<'a, 'b>', found 'Foo<'b, 'a>'
+**predicted ∖ actual = ∅. actual ∖ predicted = ∅.** Both are upstream's E0308 "mismatched `self`
+parameter type", and unlike 09-03q's probe text the message now names BOTH spellings, which is
+what rustc prints. T3 `ex3-both-anon-regions-one-is-struct-5` and T4
+`trait-method-lifetime-suggestion` were predicted NOT to close and did not (rc 0 on the landed
+binary): they are M-SELF's CALL half, a different site, still unpriced.
+⚠ `type_str(t, /*source_form=*/true)` is load-bearing: the NAME form of an ENUM deliberately
+drops its arguments (it is the method-symbol key), so the bare `type_str` printed
+`expected 'D', found 'D'` for X3. Caught by a hand program, not by any column.
+
+## 5. ⚠ RULE 5 — 40 HAND PROGRAMS, 22 OF THEM WRITTEN THIS ROUND IN SHAPES THE PRICING PHASE
+##    DID NOT USE, AND TWO OF THEM CONDEMNED THE RECOMMENDED ARM
+`/home/logos/sandbox/selfcol/` (the pricing round's 18) + `/home/logos/sandbox/m4self/`
+(c1–c6, d1–d8, e1, s1), all multi-line, all run UNARMED and on the landed binary.
+    **THE RECOMMENDED ARM REFUSED TWO LEGAL PROGRAMS ITS THREE ZERO COLUMNS COULD NOT SEE:**
+      c1 `impl<'a,'b> F<'b,'a> { fn g(self: &F<'b,'a>) }`  — the target's own spelling. B2.
+      c3 `impl<'a> S<'a>      { fn g(self: &S) }`          — an ELIDED argument list.
+      (and h5, the pricing round's own program, is c3's enum twin — it was in that round's 18
+      and its refusal went unremarked because the round read only rc over the corpus.)
+    B2 is repaired; the ELISION is an EXEMPTION, stated as a predicate and pinned as a fixture:
+    an absent lifetime-argument list asserts nothing, so the lifetime halves are compared only
+    when `written.lifetime_args()` is non-empty. `!eq` (a TYPE-argument difference) is unaffected.
+    LEGAL, 35 ADMITTED: the pricing round's 11 L-programs and h1–h5 (**L4/L5 and h5 now admitted
+    — L4/L5 were 09-03q's entire corpus cost**), plus c1–c6 and d1–d8: a `'a,'a` repeated binder,
+    an alpha-RENAMED binder (`impl<'q> C<'q>`, rule 12), a method with its OWN extra binder
+    `fn g<'b>(self:&'b C<'a>)`, `&mut S<'a>`, `impl<'a> S<'a,i64>` (lifetime + concrete type
+    arg), a TRAIT impl on an enum with a lifetime, `self: C<'a>` by value, `self: Self` bare,
+    a nested lifetime-carrying field, `&Self` on an enum, and a type-parameter enum.
+    ILLEGAL, 5 REFUSED: type args differ; lifetime args swapped on a STRUCT; the same on an
+    ENUM (**this is the one whose message needed `source_form`**); `'static` in the slot;
+    a concrete type for a type variable.
+
+## 6. THE FIXTURES, IN PAIRS ONE TOKEN APART, AND THE CONTROL REVERT
+Two imported admit → `tests/imported/fail/lifetimes/`, diagnostics pinned in full. Five native:
+    fail/bc_self_type_lt_args_mismatch_fail   `&F<'b,'b>`  ⟷ pass/bc_self_type_lt_args_match  `&F<'a,'b>`
+    fail/bc_self_type_enum_lt_mismatch_fail   `&C<'static>`⟷ pass/bc_self_type_enum_lt_match   `&C<'a>`
+    pass/bc_self_type_elided_lt_admit         `&C`         — the EXEMPTION of §5, one token from the enum fail twin
+**CONTROL REVERT** of `src/compiler/sema_collect.cpp` alone to `82f29a762`, rebuilt: all FOUR
+fail fixtures compile rc 0 (i.e. all four RED as fail tests) and all THREE pass twins stay
+green. Restored and rebuilt: `build/bin/logosc` hashes back to the tested identity
+`8912601a45dd87688ee300111f2b57ab`, digit for digit.
+**fail_text_oracle over the CONTROL and the LANDED binary, 1347 rows each**: exactly the four
+new/moved fixtures moved (rc 0→1, sha, match 0→1). **Of the 1343 pre-existing fail fixtures,
+rc moved 0, stderr sha moved 0, `.expected`-match moved 0.**
+
+## 7. GATES ON THE LANDED BINARY
+L1 **rc 0** — 748/748, the enumerator's 12 684 generated cases, 179 tier_commit gates.
+`gate-run.sh -L bc` **2384 passed / 0 failed** (gate-db build 705; 2386 selected, 2 disabled).
+`test-levels.sh L4 bc` DETACHED **4134 / 4134, rc 0**. `stdlib-cost.sh`: all four layers.
+Census pin ALL 8991→8996 / NOIMPORTED 4563→4566 / TIERCOMMIT 181→179 and direct_door corpus
+2639→2642 / nonglob 2448→2451, each derived from the fixture arithmetic (+5 native, −2 admit
+tests, the 2 imported fail ports being `imported`-labelled) before the pin was read.
+
+## 8. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. **`self_lt_args_` IS STILL POSITIONAL** for every target this repair does not cover — a
+    plain nominal target (`impl<'a> S` with no written arguments) still rebuilds `Self` from the
+    header by order of declaration. No hand program in this round's 40 reaches it; not chased.
+ 2. CARRIED FORWARD FROM 09-03q §8.1, RE-MEASURED AND STILL TRUE on the landed binary:
+    `impl A { fn get(self: &B) -> i64 { … } }` compiles clean and the method is reachable
+    through NEITHER type. The check here is gated on `same_adt` and says nothing about it.
+ 3. CARRIED FORWARD, RE-CHECKED PRESENT, STILL THE OWNER'S: the three E0713 rows (nllmoves.E);
+    the four E0716-family rows that are LEGAL RUST; 2026-09-02p §4's five owner pass fixtures
+    walling the 16-row `'static` population.
+
+## 9. THE TREE AT CLOSE
+`src/compiler/sema_collect.cpp` +50/−59 against `82f29a762`: the `self_written` arm in
+`impl_self_ty`, and the `self:`-parameter check after `collect_fn` with its probe scaffolding
+removed and its locals named. **RETIRED WITH THEIR CODE: `selfcol`, `selfcollt`, `selfcolsame`
+(168 → 165).** `selfwrit`/`selfckw`/`selfwrit2`/`selfckw2` were pricing-only and were never
+committed unretired. `# TOTAL` 132 → 130 by direct listing; lifereg.R18 7 → 6, lifereg.NEW-N3
+2 → 1, channel lifereg 51 → 49.
+NOT SPENT, each with its number: bck.C 11 · nllmoves.C 9 · lifereg.R18 6 (M-SIG rejected
+09-06a) · bck.NEW 6 (real size 3) · bck.D 6 (3 owner) · lifereg.NEW-N1 5 (2 of them M-SELF's
+CALL half, §4) · bck.B 5 · lifereg.R17 4 · nllmoves.E 4 (E0713 ×3 owner) · nllmoves.B 3 ·
+nllmoves.D 3 · lifereg.D 3 · bck.E 3 (E0509, retired by spec).
+
+## selfwrit
+site: src/compiler/sema_collect.cpp::collect_impl — the `impl_self_ty` block, `self_written`
+build: (batch 1 of 2026-09-04a; the arm LANDED ungated, the probe name did not)
+measured: 2026-09-04
+fires: 1609514
+ceiling: 0
+cost: 0 (cfail 0 of 1343, stdlib ok)
+verdict: ✓ LANDED AS A BLOCKER REPAIR. Ceiling 0 alone; the site is PROVEN LIVE (`selfwrit.used` = 2 on three hand programs) and it takes `selfcolsame`'s cost 1 to 0 — the two doors are in SERIES (rule 13).
+
+## selfckw
+site: as selfwrit, plus the `self:`-parameter compare after collect_fn
+build: (batch 1 of 2026-09-04a)
+measured: 2026-09-04
+fires: 1609514
+ceiling: 2
+cost: 0 (cfail 0 of 1343, stdlib ok)
+verdict: ⛔ SUPERSEDED BY selfckw2 — it refuses `self: &S` inside `impl<'a> S<'a>` (c3, h5), an ELIDED argument list, which is legal. Cost 0 on all three populations did not see it.
+
+## selfckw2
+site: as selfckw, with the lifetime halves compared only when some were WRITTEN
+build: (batch 2 of 2026-09-04a; LANDED ungated as the shipped predicate)
+measured: 2026-09-04
+fires: 1609514
+ceiling: 2
+cost: 0 (cfail 0 of 1343, stdlib ok)
+verdict: ✓ LANDED. elided-lifetime-mismatch-in-self-type + explicit-self-lifetime-mismatch, predicted 2 by name both ways. 40 hand programs: 35 legal admitted, 5 illegal refused.

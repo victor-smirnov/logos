@@ -1,0 +1,1 @@
+mismatched `self` parameter type: expected 'Foo<'a, 'b>', found 'Foo<'b, 'a>'

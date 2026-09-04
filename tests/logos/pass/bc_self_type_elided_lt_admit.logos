@@ -1,0 +1,14 @@
+// THE NAMED EXCLUSION. `self: &C` inside `impl<'a> C<'a>` writes NO lifetime
+// argument, so there is nothing to disagree with — the check compares lifetime
+// arguments only when some were written. One token from the fail twin
+// fail/bc_self_type_enum_lt_mismatch_fail.logos (`&C` vs `&C<'static>`).
+package bc_self_type_elided_lt_admit;
+enum C<'a> { R(&'a i64), O(i64) }
+impl<'a> C<'a> {
+    fn g(self: &C) -> i64 { return 0i64; }
+}
+fn main() -> i32 {
+    let n: i64 = 1i64;
+    let c: C = C::R(&n);
+    return c.g() as i32;
+}

@@ -1241,7 +1241,7 @@
 # Rust) were refused until `!in_closure_body_` was added. Both tokens are
 # pinned in PAIRS: fail/bc_capmovemut_{mutref_capture,sibling_closures} vs
 # pass/bc_capmovemut_{sharedref_capture,nested_closures}. PROBES.md 2026-09-03p.
-# TOTAL 132
+# TOTAL 130
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1295,11 +1295,9 @@ borrowck-let-suggestion lifereg.D tests/imported/admit/lifetimes/borrowck-let-su
 constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error
 copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions
 e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
-elided-lifetime-mismatch-in-self-type lifereg.R18 tests/imported/admit/lifetimes/elided-lifetime-mismatch-in-self-type
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn
 ex2c-push-inference-variable lifereg.NEW-R19 tests/imported/admit/lifetimes/ex2c-push-inference-variable
 ex3-both-anon-regions-one-is-struct-5 lifereg.NEW-N1 tests/imported/admit/lifetimes/ex3-both-anon-regions-one-is-struct-5
-explicit-self-lifetime-mismatch lifereg.NEW-N3 tests/imported/admit/lifetimes/explicit-self-lifetime-mismatch
 issue-64173-unused-lifetimes lifereg.L4 tests/imported/admit/lifetimes/issue-64173-unused-lifetimes
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 iterator-next-extra-named-lifetime lifereg.R18 tests/imported/admit/lifetimes/iterator-next-extra-named-lifetime

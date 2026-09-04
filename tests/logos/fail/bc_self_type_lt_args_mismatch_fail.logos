@@ -1,0 +1,12 @@
+// The written `self:` type of an inherent impl method must be the impl target.
+// Pair twin: pass/bc_self_type_lt_args_match.logos, ONE TOKEN apart (`'b` / `'a`).
+package bc_self_type_lt_args_mismatch_fail;
+struct F<'a, 'b> { p: &'a i64, q: &'b i64 }
+impl<'a, 'b> F<'a, 'b> {
+    fn g(self: &F<'b, 'b>) -> i64 { return *self.p; }
+}
+fn main() -> i32 {
+    let n: i64 = 1i64;
+    let f: F = F { p: &n, q: &n };
+    return f.g() as i32;
+}

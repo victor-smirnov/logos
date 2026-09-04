@@ -1,0 +1,1 @@
+mismatched `self` parameter type: expected 'C<'a>', found 'C<'static>'

@@ -1,0 +1,13 @@
+// Pair twin of fail/bc_self_type_lt_args_mismatch_fail.logos, ONE TOKEN apart.
+// The impl target is read AS WRITTEN, so `impl<'a,'b> F<'a,'b>` accepts exactly
+// `&F<'a,'b>` — and `impl<'a,'b> F<'b,'a>` would accept exactly `&F<'b,'a>`.
+package bc_self_type_lt_args_match;
+struct F<'a, 'b> { p: &'a i64, q: &'b i64 }
+impl<'a, 'b> F<'a, 'b> {
+    fn g(self: &F<'a, 'b>) -> i64 { return *self.p; }
+}
+fn main() -> i32 {
+    let n: i64 = 1i64;
+    let f: F = F { p: &n, q: &n };
+    return f.g() as i32 - 1i32;
+}
