@@ -1,0 +1,21 @@
+// TWIN of bc_dropident_inherent_first with the type made GENERIC: mono pins and
+// instantiates a generic `impl Drop` by the METHOD NAME `drop`, which the
+// inherent method holds, so the destructor template was never cloned at all.
+// Exactly one "T".
+package bc_dropident_generic_struct;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct G<T> { v: T }
+impl<T> G<T> {
+    fn drop(self: &mut Self) -> i32 { say("I"); return 0i32; }
+}
+impl<T> Drop for G<T> {
+    fn drop(self: &mut Self) { say("T"); }
+}
+fn main() -> i32 {
+    {
+        let mut g: G<i32> = G { v: 7i32 };
+    }
+    say("|END");
+    return 0i32;
+}

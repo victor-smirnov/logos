@@ -466,74 +466,93 @@ private:
         if (!prog_) return base;
         // After unification, method names may be `[pkg.]Base__method[__f__sig]`.
         // Match either bare base or a pkg-qualified form ending with `.base`.
-        auto matches = [&](std::string_view nm) -> bool {
-            if (nm == base) return true;
+        auto matches_base = [&](std::string_view nm, const std::string& b) -> bool {
+            if (nm == b) return true;
             // Check `Base__method__[fg]__sig` exact prefix
-            bool starts = nm.size() > base.size() &&
-                          nm.compare(0, base.size(), base) == 0 &&
-                          (nm.compare(base.size(), 5, "__f__") == 0 ||
-                           nm.compare(base.size(), 5, "__g__") == 0);
+            bool starts = nm.size() > b.size() &&
+                          nm.compare(0, b.size(), b) == 0 &&
+                          (nm.compare(b.size(), 5, "__f__") == 0 ||
+                           nm.compare(b.size(), 5, "__g__") == 0);
             if (starts) return true;
             // Check `pkg.Base__method[__[fg]__sig]` — pkg may have inner dots,
             // so split at the LAST dot (boundary between pkg and bare name).
             auto dot = nm.rfind('.');
             if (dot != std::string_view::npos) {
                 std::string_view rest = nm.substr(dot + 1);
-                if (rest == base) return true;
-                if (rest.size() > base.size() &&
-                    rest.compare(0, base.size(), base) == 0 &&
-                    (rest.compare(base.size(), 5, "__f__") == 0 ||
-                     rest.compare(base.size(), 5, "__g__") == 0))
+                if (rest == b) return true;
+                if (rest.size() > b.size() &&
+                    rest.compare(0, b.size(), b) == 0 &&
+                    (rest.compare(b.size(), 5, "__f__") == 0 ||
+                     rest.compare(b.size(), 5, "__g__") == 0))
                     return true;
             }
             return false;
         };
-        auto scan_methods = [&](lir_view::StructView sd) -> std::string {
-            std::string found;
-            sd.each_method([&](lir_view::FunctionView mp) {
-                if (found.empty() && matches(mp.name())) found = std::string(mp.name());
-            });
-            return found;
-        };
-        // Pass 1 — QUALIFIED. Only the struct the caller's package actually
-        // names. `owned` records that such a struct EXISTS, which is what
-        // closes the bare pass off below.
-        bool owned = false;
-        if (!pkg.empty()) {
+        // THE DESTRUCTOR IS THE `Drop` TRAIT'S `drop`. When an inherent method
+        // and the `Drop` impl share the name, `collect_fn`'s G156-5 leaves the
+        // inherent on the plain base and files the trait one under
+        // `<T>__Drop__drop`; a name match on `<T>__drop` therefore answers with
+        // the INHERENT method, which is not a destructor. Ask for the qualified
+        // key first and only then for the plain one. PROBES.md 2026-09-04drop §3 site C.
+        std::string qbase;
+        if (method_name == "drop") qbase = std::string(bare_struct) + "__Drop__drop";
+        // `stop_on_owned` reproduces the authoritative-negative rule below; the
+        // qualified probe must NOT stop there, or a type whose only `drop` is
+        // inherent would resolve to a symbol that does not exist.
+        auto search = [&](const std::string& b, bool stop_on_owned) -> std::string {
+            auto matches = [&](std::string_view nm) { return matches_base(nm, b); };
+            auto scan_methods = [&](lir_view::StructView sd) -> std::string {
+                std::string found;
+                sd.each_method([&](lir_view::FunctionView mp) {
+                    if (found.empty() && matches(mp.name())) found = std::string(mp.name());
+                });
+                return found;
+            };
+            // Pass 1 — QUALIFIED. Only the struct the caller's package actually
+            // names. `owned` records that such a struct EXISTS, which is what
+            // closes the bare pass off below.
+            bool owned = false;
+            if (!pkg.empty()) {
+                for (auto& sd : prog_->structs) {
+                    if (sd.name() != bare_struct || sd.pkg() != pkg) continue;
+                    owned = true;
+                    if (pkg_owns_struct) *pkg_owns_struct = true;
+                    if (auto found = scan_methods(sd); !found.empty()) return found;
+                }
+                // Free-function / trait-impl form, same package only. `matches`
+                // accepts a bare spelling too, which for a pkg-owned struct is
+                // that struct's own un-mangled method — keep it.
+                for (auto& fn : prog_->functions) {
+                    if (!fn) continue;
+                    std::string_view nm = fn.name();
+                    auto dot = nm.rfind('.');
+                    std::string_view fpkg = dot == std::string_view::npos
+                                                ? std::string_view{} : nm.substr(0, dot);
+                    if (!fpkg.empty() && fpkg != pkg) continue;
+                    if (matches(nm)) return std::string(nm);
+                }
+                // The package OWNS a struct of this name and it has no such
+                // method: that is the answer. Falling through would steal a
+                // homonym's (measured SIGSEGVs — see the note above).
+                if (owned) return stop_on_owned ? b : std::string{};
+            }
+            // Pass 2 — BARE, LAST RESORT. Reached when the caller named no
+            // package, or when no struct of that package+name exists at all.
             for (auto& sd : prog_->structs) {
-                if (sd.name() != bare_struct || sd.pkg() != pkg) continue;
-                owned = true;
-                if (pkg_owns_struct) *pkg_owns_struct = true;
+                if (sd.name() != bare_struct) continue;
                 if (auto found = scan_methods(sd); !found.empty()) return found;
             }
-            // Free-function / trait-impl form, same package only. `matches`
-            // accepts a bare spelling too, which for a pkg-owned struct is
-            // that struct's own un-mangled method — keep it.
             for (auto& fn : prog_->functions) {
                 if (!fn) continue;
-                std::string_view nm = fn.name();
-                auto dot = nm.rfind('.');
-                std::string_view fpkg = dot == std::string_view::npos
-                                            ? std::string_view{} : nm.substr(0, dot);
-                if (!fpkg.empty() && fpkg != pkg) continue;
-                if (matches(nm)) return std::string(nm);
+                if (matches(fn.name())) return std::string(fn.name());
             }
-            // The package OWNS a struct of this name and it has no such
-            // method: that is the answer. Falling through would steal a
-            // homonym's (measured SIGSEGVs — see the note above).
-            if (owned) return base;
+            return stop_on_owned ? b : std::string{};
+        };
+        if (!qbase.empty()) {
+            if (auto q = search(qbase, false); !q.empty()) return q;
+            if (pkg_owns_struct) *pkg_owns_struct = false;
         }
-        // Pass 2 — BARE, LAST RESORT. Reached when the caller named no
-        // package, or when no struct of that package+name exists at all.
-        for (auto& sd : prog_->structs) {
-            if (sd.name() != bare_struct) continue;
-            if (auto found = scan_methods(sd); !found.empty()) return found;
-        }
-        for (auto& fn : prog_->functions) {
-            if (!fn) continue;
-            if (matches(fn.name())) return std::string(fn.name());
-        }
-        return base;
+        return search(base, true);
     }
 
     const TypePoolImpl* pool_impl() const noexcept {

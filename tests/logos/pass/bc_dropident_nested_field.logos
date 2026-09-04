@@ -1,0 +1,21 @@
+// The both-spellings type as a FIELD: the outer struct's drop glue reaches the
+// field through a second symbol-resolution path (resolve_method_symbol), which
+// answered with the inherent method. Exactly one "T".
+package bc_dropident_nested_field;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct R { id: i32 }
+impl R {
+    fn drop(self: &mut Self) -> i32 { say("I"); return 0i32; }
+}
+impl Drop for R {
+    fn drop(self: &mut Self) { say("T"); }
+}
+struct Outer { r: R }
+fn main() -> i32 {
+    {
+        let mut o: Outer = Outer { r: R { id: 3i32 } };
+    }
+    say("|END");
+    return 0i32;
+}

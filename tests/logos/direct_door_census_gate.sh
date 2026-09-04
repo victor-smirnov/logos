@@ -1399,9 +1399,21 @@ PIN = {
     #   other_trait_is_not_a_destructor,other_trait_named_drop,
     #   generic_impl_runs_once} — the destructor's IDENTITY (5)
     # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2667.
-    'corpus'            : 2667,
+    # 2026-09-04drop: 2667 -> 2677. TEN pass fixtures pinning the destructor
+    # identity defect's remaining two doors, all ten non-glob and every one of
+    # them a RUN whose stdout carries the destructor COUNT:
+    #   bc_dropident_{inherent_first,impl_first,inherent_only} — the plain
+    #     `<T>__drop` name in both declaration orders and with the `impl Drop`
+    #     removed (3; impl_first was REFUSED outright before this round)
+    #   bc_dropident_{nested_field,array_three,move_once,consumed_by_callee,
+    #   heap_free,two_structs} — the same type reached through drop GLUE:
+    #     a field, three array elements, a move, a call boundary, a malloc'd
+    #     block, and two types at once (6)
+    #   bc_dropident_generic_struct — mono's pin-by-method-name (1)
+    # BY DIRECT LISTING: ls tests/logos/pass/*.logos | wc -l -> 2677.
+    'corpus'            : 2677,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2476,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2486,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

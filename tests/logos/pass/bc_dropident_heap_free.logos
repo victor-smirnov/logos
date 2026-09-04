@@ -1,0 +1,22 @@
+// The `Drop` impl owns a malloc'd block. A missed destructor here is a LEAK,
+// which no exit code can see; running the INHERENT method instead of the trait
+// one leaked 64 bytes (valgrind, before the fix). "T" means free() ran once.
+package bc_dropident_heap_free;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn malloc(n: u64) -> *mut u8;
+extern fn free(p: *mut u8);
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct R { p: *mut u8 }
+impl R {
+    fn drop(self: &mut Self) -> i32 { say("I"); return 0i32; }
+}
+impl Drop for R {
+    fn drop(self: &mut Self) { say("T"); unsafe { free(self.p); } }
+}
+fn main() -> i32 {
+    {
+        let mut r: R = R { p: unsafe { malloc(64u64) } };
+    }
+    say("|END");
+    return 0i32;
+}

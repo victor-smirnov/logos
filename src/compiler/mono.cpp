@@ -1159,6 +1159,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 if (impl_trait == "Drop") {
                     pinned_method_roots_.insert(sd_name + "__drop");
                     enqueue_method_inst(cit->second, "drop");
+                    // …AND UNDER ITS QUALIFIED KEY. When the same type also has
+                    // an INHERENT `drop`, collect_fn's G156-5 leaves the
+                    // inherent on the plain base and files this one as
+                    // `Drop__drop`; enqueuing only "drop" then instantiates the
+                    // inherent method and the destructor is never cloned. A
+                    // no-op when no such template exists (matches.empty()).
+                    // PROBES.md 2026-09-04drop §3 site D.
+                    pinned_method_roots_.insert(sd_name + "__Drop__drop");
+                    enqueue_method_inst(cit->second, "Drop__drop");
                 }
             }
         }

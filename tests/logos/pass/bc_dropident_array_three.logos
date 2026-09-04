@@ -1,0 +1,20 @@
+// TWIN of bc_dropident_nested_field with the field replaced by three ARRAY
+// elements: the count is the assertion — three destructor runs, not two, not
+// six, and not the inherent method's "I".
+package bc_dropident_array_three;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct R { id: i32 }
+impl R {
+    fn drop(self: &mut Self) -> i32 { say("I"); return 0i32; }
+}
+impl Drop for R {
+    fn drop(self: &mut Self) { say("T"); }
+}
+fn main() -> i32 {
+    {
+        let a: [R; 3] = [R { id: 1i32 }, R { id: 2i32 }, R { id: 3i32 }];
+    }
+    say("|END");
+    return 0i32;
+}

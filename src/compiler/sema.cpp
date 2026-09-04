@@ -3290,24 +3290,22 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
             std::find(rit->second.begin(), rit->second.end(), "Drop") != rit->second.end();
         if (reg_has_drop) {
             logos::probe::census("dropfor.qualified.miss");
-            if (logos::probe::on("dropqual")) {
-                std::string qual = type_name + "__Drop__drop";
-                for (auto* cand : find_func_candidates(qual)) {
-                    if (!cand || cand->param_types.size() != 1) continue;
-                    if (!is_drop_impl_(cand)) continue;
-                    auto pt = cand->param_types[0];
-                    if (!pt) continue;
-                    auto pk = TypeRef(pt).kind();
-                    if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
-                        TypeRef(pt).pointee()) {
-                        pt = TypeRef(pt).pointee();
-                        pk = TypeRef(pt).kind();
-                    }
-                    if (pk != LogosType::Kind::Struct && pk != LogosType::Kind::ZonedStruct)
-                        continue;
-                    if (TypeRef(pt).struct_name() == TypeRef(t).struct_name() && pkg_matches(pt))
-                        return cand->symbol_name.empty() ? qual : cand->symbol_name;
+            std::string qual = type_name + "__Drop__drop";
+            for (auto* cand : find_func_candidates(qual)) {
+                if (!cand || cand->param_types.size() != 1) continue;
+                if (!is_drop_impl_(cand)) continue;
+                auto pt = cand->param_types[0];
+                if (!pt) continue;
+                auto pk = TypeRef(pt).kind();
+                if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
+                    TypeRef(pt).pointee()) {
+                    pt = TypeRef(pt).pointee();
+                    pk = TypeRef(pt).kind();
                 }
+                if (pk != LogosType::Kind::Struct && pk != LogosType::Kind::ZonedStruct)
+                    continue;
+                if (TypeRef(pt).struct_name() == TypeRef(t).struct_name() && pkg_matches(pt))
+                    return cand->symbol_name.empty() ? qual : cand->symbol_name;
             }
         }
     }

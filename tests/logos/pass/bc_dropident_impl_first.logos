@@ -1,0 +1,20 @@
+// TWIN of bc_dropident_inherent_first, the two impl blocks SWAPPED. Declaration
+// order must not decide which function owns the plain `R__drop` name; before
+// this was fixed this spelling was refused outright ("duplicate function").
+package bc_dropident_impl_first;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct R { id: i32 }
+impl Drop for R {
+    fn drop(self: &mut Self) { say("T"); }
+}
+impl R {
+    fn drop(self: &mut Self) -> i32 { say("I"); return 0i32; }
+}
+fn main() -> i32 {
+    {
+        let mut r: R = R { id: 7i32 };
+    }
+    say("|END");
+    return 0i32;
+}

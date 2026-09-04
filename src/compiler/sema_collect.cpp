@@ -6437,6 +6437,51 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
             info.base_name = qual_base;
         }
     }
+    // G156-5, THE OTHER DECLARATION ORDER. The block above qualifies a TRAIT
+    // method that arrives after an inherent one. When the impls appear the other
+    // way round the trait method already holds the plain base and the inherent
+    // one collides with it — which Rust does not: the inherent method always
+    // wins the plain name and the trait method is only reachable as
+    // `<Trait>::m`. Re-key the sitting trait entry here so the outcome does not
+    // depend on declaration order. PROBES.md 2026-09-04drop §3 site B.
+    if (info.trait_name.empty() && struct_ctx.size() && raw_name.size()) {
+        bool generic = !info.type_params.empty();
+        auto& ov  = generic ? generic_overloads_ : func_overloads_;
+        auto& tbl = generic ? generic_funcs_     : funcs_;
+        const std::string plain_sig =
+            function_signature_key(base_name, info.param_types, info.is_vararg);
+        std::string sitting;
+        if (auto oit = ov.find(base_name); oit != ov.end()) {
+            for (auto& sym : oit->second) {
+                auto fit = tbl.find(sym);
+                if (fit == tbl.end()) continue;
+                if (fit->second.trait_name.empty()) continue;
+                if (function_signature_key(base_name, fit->second.param_types,
+                                           fit->second.is_vararg) != plain_sig)
+                    continue;
+                sitting = sym;
+                break;
+            }
+        }
+        if (!sitting.empty()) {
+            if (auto fit = tbl.find(sitting); fit != tbl.end()) {
+                SemaFuncInfo ex = std::move(fit->second);
+                tbl.erase(fit);
+                std::string ex_qual = std::string(struct_ctx) + "__" + ex.trait_name +
+                                      trait_targ_suffix(ex.trait_type_args) + "__" +
+                                      std::string(raw_name);
+                ex.base_name   = ex_qual;
+                ex.symbol_name = function_symbol_name(ex_qual, ex);
+                auto& plist = ov[base_name];
+                plist.erase(std::remove(plist.begin(), plist.end(), sitting), plist.end());
+                ov[ex_qual].push_back(ex.symbol_name);
+                auto& traits = trait_method_registry_[base_name];
+                if (std::find(traits.begin(), traits.end(), ex.trait_name) == traits.end())
+                    traits.push_back(ex.trait_name);
+                tbl[ex.symbol_name] = std::move(ex);
+            }
+        }
+    }
 
     if (!info.type_params.empty()) {
         info.symbol_name = function_symbol_name(base_name, info);

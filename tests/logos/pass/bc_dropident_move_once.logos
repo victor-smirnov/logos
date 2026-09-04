@@ -1,0 +1,21 @@
+// Moved out of `a` into `b`: the destructor must run EXACTLY ONCE, at `b`'s
+// slot. A double free and a leak are both invisible to the exit code, so the
+// count of "T" is the whole assertion.
+package bc_dropident_move_once;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct R { id: i32 }
+impl R {
+    fn drop(self: &mut Self) -> i32 { say("I"); return 0i32; }
+}
+impl Drop for R {
+    fn drop(self: &mut Self) { say("T"); }
+}
+fn main() -> i32 {
+    {
+        let a: R = R { id: 1i32 };
+        let b: R = a;
+    }
+    say("|END");
+    return 0i32;
+}

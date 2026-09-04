@@ -1,0 +1,23 @@
+// TWIN of bc_dropident_move_once with the move crossing a CALL boundary: the
+// callee owns the value, so the single destructor run happens inside it —
+// "E" then "T", before "|END".
+package bc_dropident_consumed_by_callee;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct R { id: i32 }
+impl R {
+    fn drop(self: &mut Self) -> i32 { say("I"); return 0i32; }
+}
+impl Drop for R {
+    fn drop(self: &mut Self) { say("T"); }
+}
+fn eat(r: R) -> i32 {
+    say("E");
+    return r.id;
+}
+fn main() -> i32 {
+    let a: R = R { id: 1i32 };
+    let n: i32 = eat(a);
+    say("|END");
+    return 0i32;
+}

@@ -1,0 +1,29 @@
+// Two DISTINCT types, each with both spellings, in one program and in opposite
+// declaration orders. Each destructor runs once, in scope order.
+package bc_dropident_two_structs;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct A { id: i32 }
+struct B { id: i32 }
+impl A {
+    fn drop(self: &mut Self) -> i32 { say("ia"); return 0i32; }
+}
+impl Drop for A {
+    fn drop(self: &mut Self) { say("ta"); }
+}
+impl Drop for B {
+    fn drop(self: &mut Self) { say("tb"); }
+}
+impl B {
+    fn drop(self: &mut Self) -> i32 { say("ib"); return 0i32; }
+}
+fn main() -> i32 {
+    {
+        let mut a: A = A { id: 1i32 };
+    }
+    {
+        let mut b: B = B { id: 2i32 };
+    }
+    say("|END");
+    return 0i32;
+}

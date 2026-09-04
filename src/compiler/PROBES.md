@@ -22802,3 +22802,143 @@ note: after the four plain-base loops fail, consult `trait_method_registry_[<T>_
   `cast-region-to-uint`), stdlib four layers ok. All 5 corpus fixtures that declare both an
   `impl Drop` and an inherent `fn drop` give `dropfor.qualified.miss` 0 — they differ in arity
   or in declaration order.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ═══ ROUND 2026-09-04drop — LANDED. THE DESTRUCTOR-IDENTITY DEFECT HAD **THREE**
+# ═══ DOORS IN SERIES, NOT ONE, AND THE PRICED ARM OPENED ONLY THE FIRST. DEFECT 1
+# ═══ DECLINED BY ITS OWN RUNTIME NUMBER; DEFECT 2 CONFIRMED CLOSED. 10 FIXTURES.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+## 1. STEP 1 AT OPEN
+HEAD `08ec3b5bd`, clean = origin/main (`scripts/arc-progress.py` untracked, not mine, left
+alone). `probe-log-lint` **176 records**, every site symbol resolves. `# TOTAL` **99** admits /
+**25** blocked. `build_hash.py` **1cbf316ac3ef779a 43** at close (`75e63c90fea1d214 43` at open).
+Baselines READ from the store: `-L bc` build **763**, 2405 passed / 0 failed / 2 disabled.
+Runtime column `/tmp/rt_base.tsv`, 6286 pass fixtures compiled + linked + RUN.
+
+## 2. THE THREE HANDED-DOWN HOLES, REPRODUCED ON TODAY'S BINARY (rule 17)
+· **Defect 1 (a trait default body with no implementor is checked by nobody) REPRODUCES**, and
+  is **DECLINED** — §7.
+· **Defect 2 (a move out of a NESTED field of a `&` receiver) DOES NOT REPRODUCE. CLOSED.**
+  `r.v`, `r.inner.v`, `r.inner.v` through `&mut` and `r.b.a.v` are all rc 1 E0507; the legal
+  direction (the same nested move out of an OWNED `S`, a `Copy` field behind `&`) is rc 0.
+  `recv_unowned_` in `SemaChecker::is_unowned_move_source` closed it; 2026-09-03k's "wider than
+  its probe in two shapes" claim is confirmed, and the standing prompt line describing it as an
+  open hole is now WRONG in the tree's own favour.
+· **Defect 3 (a type with BOTH an inherent `fn drop` and an `impl Drop`) REPRODUCES, and is
+  ORDER-DEPENDENT IN TWO DIRECTIONS**, which no handed-down description said:
+      `impl Drop` first, inherent second  → **rc 1, `duplicate function 'R__drop'`** on LEGAL
+                                            Rust. The program never runs at all.
+      inherent first, `impl Drop` second  → **rc 0 and NO destructor**: stdout `|END` alone;
+                                            with a `malloc`'d field, valgrind
+                                            `definitely lost: 64 bytes in 1 blocks`.
+  `nm` shows `R__Drop__drop__f__refmut_R` compiled and linked into the object, uncalled.
+
+## 3. ⚠ THREE DOORS IN SERIES. THE PRICED ARM (`dropqual`) OPENED ONE OF THEM.
+`dropqual` — `drop_fn_for` consulting `<T>__Drop__drop` when `trait_method_registry_` says the
+plain base holds a `Drop` — was priced ceiling 0 / cost 0 / runtime 0 and recommended. Landed
+ALONE it fixes the DIRECT local (`let r: R` at scope exit) and NOTHING ELSE. Measured, one edit
+at a time, on the same six witnesses:
+
+    witness                       pre-fix     +drop_fn_for   +resolve_method_symbol  +mono
+    N02 direct local              |END        T|END          T|END                   T|END
+    N05 nested FIELD              |END        **I|END**      T|END                   T|END
+    N09 three ARRAY elements      |END        **III|END**    TTT|END                 TTT|END
+    N08 GENERIC struct            |END        **I|END**      I|END                   T|END
+    N14 malloc'd, valgrind        lost 64     lost 64        lost 0                  lost 0
+    N01 `impl Drop` declared 1st  **rc 1**    rc 1           rc 1                    rc 0
+
+⚠ **THE MIDDLE COLUMN IS WORSE THAN THE FIRST, NOT BETTER.** Opening only the sema door made
+`has_droppable_fields` answer YES for the field/element/generic cases, so drop glue was emitted
+— and the glue's own symbol lookup then answered with the INHERENT method. A program that
+previously ran no destructor now CALLS A NON-DESTRUCTOR at scope exit. Rule 2 in its sharpest
+form: half a mechanism is not one, and here half was a regression.
+
+Four sites, three files, one predicate ("the destructor is the `Drop` trait's `drop`"):
+  A `SemaChecker::drop_fn_for` (`sema.cpp`) — the qualified key, now unconditional.
+  B `SemaChecker::collect_fn` (`sema_collect.cpp`) — G156-5's OTHER declaration order. The
+    existing block qualifies a TRAIT method arriving after an inherent one; the reverse order
+    left the trait method on the plain base and the inherent collided with it. Rust gives the
+    plain name to the inherent method ALWAYS. The sitting trait entry is re-keyed here, so the
+    outcome no longer depends on which `impl` block was typed first.
+  C `MLIRGenImpl::resolve_method_symbol` (`mlir_gen_impl.hpp`) — the codegen-side lookup that
+    every FIELD, ELEMENT, PAYLOAD and moved-out drop goes through. It matched `<T>__drop` by
+    NAME. It now asks `<T>__Drop__drop` first and falls back only on a miss.
+  D `Mono::run`'s `impl_trait == "Drop"` pin (`mono.cpp`) — pinned and enqueued the method named
+    `drop`, which for a clashing type is the inherent one, so the destructor template was never
+    cloned. Both keys are pinned now; `enqueue_method_inst` is a no-op when no such template
+    exists (`matches.empty()`).
+
+## 4. ⚠ WHERE THE FIX DIFFERS FROM ITS PROBE (rule 7)
+The probe was one `if` inside `drop_fn_for`. The landed form is FOUR sites, and sites C and D
+were invisible to the probe because the probe was never run against a witness whose type was
+reached through GLUE. §4 of 2026-09-04d priced `dropqual` on `c3_leak` — a DIRECT local — and
+recorded corpus cost 0 for a mechanism it had exercised at one of its four doors. The shape
+that forced each: C by `N05` (the same type as a struct FIELD), D by `N08` (`struct G<T>` with
+a blanket `impl<T> Drop`). Rule 5 again, and the shapes came from writing new programs, not
+from re-running the priced one.
+
+## 5. PREDICTION, DIFFED BOTH WAYS
+`build/round-2026-09-04drop/prediction.txt`, written before the first witness was re-run and
+after only sites A and B compiled: **N = 10 by name** {N01 N02 N04 N05 N06 N09 N14 N15 N17 N18},
+plus 8 named as UNCHANGED. Measured after A+B: **8 of the 10 landed as written**;
+**N05 and N09 moved to a THIRD value neither predicted nor the old one** (`I|END` / `III|END`),
+which is what named site C. `N08` was predicted UNCHANGED and is the one witness that then
+demanded site D. predicted ∖ measured = ∅ after C+D; measured ∖ predicted = {N08}.
+
+## 6. COST — FOUR COLUMNS, AND A CONTROL REVERT THAT RUNS
+    L1                751/751 + 12 684 generated + 173 tier_commit, rc 0
+    `-L bc`           build 765, **2415 passed / 0 failed** (2405 + the 10 new), rc 0
+    stdlib-cost.sh    all four layers, ok
+    full cmake --build  rc 0 (the whole stdlib and every example re-emitted under site D)
+    RUNTIME           `run_oracle.py`, base vs final over the 6286 common fixtures:
+                      **1 difference, and it is `cast-region-to-uint`**, the known false
+                      positive that printf's `{:x}` of a STACK ADDRESS (2026-09-04d §5).
+                      **COST 0.**
+    FAIL TEXT         `fail_text_oracle.py`, 1360 fixtures: rc and `.expected`-match identical
+                      on every row; stderr text identical on every row. **0 changed.**
+⚠ **AND THE FAIL-TEXT ORACLE SELF-INVALIDATES ON ANY REBUILD.** Its raw sha differed on ALL
+1360 rows between two runs of the SAME corpus, because `logosc` prints a four-line ABI-freshness
+warning naming the compiler's own build timestamp whenever the stdlib archives are older than
+the binary. `_NORM` strips `/tmp/<T>` and `logosc: wrote`; it does not strip that. A reader who
+took the sha column at face value here would have reported 1360 damaged fixtures on a change
+that damaged none. Measured both ways: with the warning lines deleted, 0.
+
+**CONTROL REVERT, AT RUN TIME AND NOT MERELY AT COMPILE TIME.** `git stash` of `src/compiler`
++ rebuild, three separate times, restoring and re-verifying between each (green checkpoint each
+time). On the reverted binary: N02/N05/N09 print `|END` with no destructor, N14 leaks
+`64 bytes in 1 blocks` under valgrind, N18 prints `E|END`, and N01 is refused
+`duplicate function 'R__drop'`. On the restored binary, all six are correct and N14 is
+`ERROR SUMMARY: 0 errors`.
+
+## 7. ⛔ DEFECT 1 — DECLINED BY NAME, AND THE NUMBER IS **304 OF 6286**
+A trait default body IS still unchecked with no implementor: five multi-line witnesses compile
+rc 0 today (`self.a(true)` against `fn a(self:&Self,x:i64)`; a call to a NONEXISTENT method;
+`let q: bool = 1i64`; `return true` from `-> i64`; an undefined name), and adding one empty
+`impl` refuses the same body. It is a real soundness hole and it is NOT bought here:
+  · `trdefchk` (check AND emit) damages **304 of 6286** fixtures that RUN, all `ccrc 0 → 90`
+    (`mlir_gen` self-diagnosing on an uninstantiated `Self`), which every pre-existing cost
+    column reads as 0 — the 14th gate lie's population.
+  · `trdefnogen` (check, do NOT emit) reads 0 everywhere, and its own control twin condemns the
+    ceiling: `elided-self-lifetime-in-trait-fn` "closed" only through the malfunction, and the
+    one surviving row refuses with `use of undeclared lifetime name ''a'` — the probe's OWN
+    missing binder, not a borrow verdict. **Honest ledger ceiling 0.**
+The prompt's "blocks two ledger rows BY NAME" stays REFUTED: `trait-method-lifetime-suggestion`
+compiles rc 0 under both arms. Funding it is a soundness repair whose scope is a whole class of
+never-checked code, and it needs its own round with the trait's lifetime binders in scope. The
+boundary is recorded in 2026-09-04d §8 and is unchanged.
+
+## 8. STILL OPEN, FOUND HERE, NOT PURSUED
+`N07` — an EXPLICIT call to an inherent `drop` taking an extra argument, when the `impl Drop` is
+declared SECOND: `error: 'func.call' op incorrect number of operands for callee` +
+`mlir_gen: module verification failed`. The same program with the two `impl` blocks SWAPPED
+(`N07b`) compiles and prints `IT|END` correctly. Signatures DIFFER here, so neither the G156-5
+clash path nor any site above is reached: the two entries coexist as overloads on the plain base
+and the CALL picks the wrong one. A fifth door of the same identity question, on the
+overload-resolution side rather than the destructor side. Sources in `/home/logos/sandbox/r4/`.
+
+## 9. LEDGER
+No row closed and none opened. Re-derived BY DIRECT LISTING: `bc_admits.ledger` **99** non-comment
+rows (`# TOTAL 99`), `bc_admits_blocked.ledger` **25** (`# TOTAL 25`), and
+`ctest -N -R '^logos_00_bc_admit_'` registers **124 = 99 + 25**. Defect 3 is a RUNTIME soundness
+hole with no ledger row and never had one; defect 2's repair closed its rows in 2026-09-03k.
