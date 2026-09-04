@@ -6321,6 +6321,11 @@ private:
     // `permissive` should be false at body sites (return / let-init) where
     // both lifetimes are fn-scope-fixed; true at call-site arg-pass where
     // caller's region inference fills in unresolved regions.
+    // PROBE 2026-09-04c — M-SELF's CALL HALF. Parameter 0 is never compared at
+    // any of the three method-call sites; this is the one predicate they share.
+    static bool recv_probe_(const char* n) {
+        return logos::probe::on(n) || logos::probe::on("recvvarall");
+    }
     void check_variance(TypeRef from, TypeRef to, const std::string& ctx,
                         bool permissive = true) {
         if (!from || !to) return;

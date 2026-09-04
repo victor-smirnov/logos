@@ -20870,3 +20870,225 @@ fires: 1609514
 ceiling: 2
 cost: 0 (cfail 0 of 1343, stdlib ok)
 verdict: ✓ LANDED. elided-lifetime-mismatch-in-self-type + explicit-self-lifetime-mismatch, predicted 2 by name both ways. 40 hand programs: 35 legal admitted, 5 illegal refused.
+
+# ═══ ROUND 2026-09-04c — PRICING ONLY, NO FIX LANDED. M-SELF's **CALL** HALF: THE RECEIVER IS
+# NEVER COMPARED AGAINST PARAMETER 0 AT ANY OF THE THREE METHOD-CALL SITES. `recvvarall` IS
+# **CEILING 2 / COST 0 pass / COST-fail 3 TEXT-ONLY / STDLIB four layers ok**, ADDITIVE OVER ITS
+# THREE SITES (1 + 1 + 0), AND ITS RULE-9 TWIN SEPARATES BY SIX LEGAL REFUSALS AND ONE DESTROYED
+# PINNED DIAGNOSTIC. **2 OF THE 4 PREDICTED ROWS DO NOT CLOSE AND THE REASON IS A BLOCKER: A
+# TRAIT DEFAULT BODY WITH NO IMPLEMENTOR IS NOT TYPE-CHECKED AT ALL.** ONE BUILD. ═══
+
+## 0. STEP 1, RE-DERIVED — AND FOR THE FIRST TIME IN SIX ROUNDS NOTHING WAS STALE
+    live probe names **165** at open (09-04a's close says 165 — correct).
+    `# TOTAL` **130**, and 130 by direct listing.
+    Channel split **lifereg 49 · nllmoves 42 · bck 39** — matches 09-04a §9.
+    Roots at open: bck.C 11 · nllmoves.C 9 · lifereg.R18 6 · bck.NEW 6 · bck.D 6 ·
+    lifereg.NEW-N1 5 · bck.B 5 · nllmoves.E 4 · lifereg.R17 4 · rest ≤3.
+    HEAD at open `a5c10e708`, tree clean = origin/main. Unarmed binary md5
+    `8912601a45dd87688ee300111f2b57ab`, `build_hash.py` **fbada36f8d18879d** (READ).
+    Build with the batch installed **9e1b2d1528a41e6b** (READ), md5 `b98fb860bf3394c80719bcc73a01ed4c`.
+    gate-db builds 706 (unarmed) → 707–711 (the five armed identities).
+
+## 1. THE TARGET ROWS BY NAME — build/round-2026-09-04c/targets-2026-09-04c.txt, WRITTEN BEFORE
+##    THE FIRST COMPILER EDIT
+POPULATION DERIVED **BY THE PROPERTY**, not by the root label: `grep -rl "self: *&'"
+tests/imported/admit` → **6 rows across 4 roots**. Two of the six
+(`iterator-next-extra-named-lifetime`, `trait-impl-mismatch-elided-lifetime-issue-65866`, both
+lifereg.R18) are the IMPL-vs-TRAIT signature compare = M-SIG, REJECTED 09-06a, and are NOT
+targets. The remaining FOUR are one shape — a method whose `self:` type carries a region that is
+a BINDER of the trait/impl, CALLED on a receiver whose region is anonymous or shorter:
+    T1 ex3-both-anon-regions-one-is-struct-5   lifereg.NEW-N1  `fn modify(self:&'a mut Foo<'a>)`; `bar(foo:&mut Foo){foo.modify()}`
+    T2 trait-method-lifetime-suggestion        lifereg.NEW-N1  trait default body calls `self.foo()` where `fn foo(self:&'a Self)`
+    T3 elided-self-lifetime-in-trait-fn        lifereg.L1      the same shape, returning `&'a bool`
+    T4 iterator-trait-lifetime-error-13058     lifereg.A       `check<'r,T:It<'r>>(c:&T){c.iter()}`, `fn iter(self:&'r Self)`
+WHY THIS BLOCK. bck.C 11 and nllmoves.C 9 are mined seven rounds; lifereg.R18 6 is M-SIG,
+rejected 09-06a; bck.NEW 6 has real size 3; bck.D 6 is 3 owner (two-phase); bck.E 3 is E0509,
+retired by spec; nllmoves.E 4 is E0713 ×3 owner; the 16-row `'static` population is walled by
+five owner pass fixtures (09-02p §4) and the E0716 family is LEGAL RUST, owner's. **09-04a §4
+and 09-03q §7.3 name the CALL half BY NAME as "a different site, still unpriced"**, and it is
+the last named missing observation of the 09-01v survey with no priced arm and no owner block.
+
+## 2. RULE 17 — THE ARRIVAL, LOCATED BY READING BEFORE THE FIRST BUILD, AND THE FACT IS ALREADY
+##    CARRIED
+`src/compiler/sema_expr.cpp` has **three** method-call argument loops and **all three index
+`pi = i + 1`**, with no `pi == 0` iteration — so the receiver is never `expect_type`d and never
+`check_variance`d against `fi.param_types[0]`:
+  A the struct/impl path (`mangled`), B the trait-bound `chosen_method` path, D the dyn/vtable
+  path. (A fourth, `try_method_on_tagged`, does no per-argument checking at all.)
+**THE ARM EXISTS AND THE FACT IS ALREADY CARRIED**, which is stronger than the shape that has
+paid every time: at site A, `all_.push_back(recv)` puts the receiver at slot 0 of the
+instantiation input and `spts_` is built over EVERY `fi.param_types`, so `ipts_[0]` — the
+callee's binders instantiated against this call — is **computed and then never read**.
+
+    build 9e1b2d1528a41e6b (READ) — five probes, ONE build, L1 rc 0 inert with nothing armed
+    probe        keyed on                                       fires  ceil  cost  cfail    stdlib  verdict
+    recvvarall   all three sites, vs the instantiated p0         64958     2     0   3 TEXT    ok    ✓ FUND after §5/§6
+    recvvarm     site A alone (struct/impl)                      63173     1     0   0/1347   ok    ✓ the clean half
+    recvvarmp    site A vs the UNINSTANTIATED p0 (rule 9 twin)   63173     1     3   1 MATCH   ok    ⛔ refuses 6 legal calls, destroys a pinned E0597
+    recvvartb    site B alone (trait-bound chosen_method)         1566     1     0   3 TEXT    ok    ✓ but read §4 before funding
+    recvvardyn   site D alone (dyn/vtable)                         219     0     0   0/1347   ok    ⛔ live, and empty
+
+**RULE 13 — CHECKED, NOT ASSUMED, AND HERE IT IS ADDITIVE.** 1 + 1 + 0 = 2 = `recvvarall`.
+The three sites are disjoint in the corpus; no series, no negative increment.
+**RULE 1 / RULE 2 — `recvvardyn`'s ZERO IS ON A PROVEN-LIVE SITE.** `recvvar.D.arrive` = 1 and
+`recvvar.D.cmp` = 1 on `hand/L13.logos` (`&dyn Sp`), so the site is entered and the comparison
+runs; it closes nothing because no ledger row calls a lifetime-carrying method through `dyn`.
+Rule 4: 219 fires is a small population and this is not a refutation of anything.
+**RULE 9 — THE INNER PREDICATE, AND THE TWO NAMES SEPARATE ON EVERY COLUMN THAT MATTERS.**
+`recvvarm` and `recvvarmp` are digit-for-digit identical in fires (63173) and ceiling (1) and
+differ only in whether p0 is `ipts_[0]` or the declared `fi.param_types[0]`. The uninstantiated
+twin refuses **six legal call sites** in three corpus programs — `H__swap`, `H__stash_sound`,
+`S__set`, `P__set`, `SR__t_renamed_impl_binder`, `Foo__bar`, all of the form "expected
+`&mut H<'a>`, got `&mut H`" — and **replaces a pinned E0597 with a bogus variance error** in
+`bc_ltscope_wrong_direction_callsite_fail` (`.expected` LOST, the only match-loss in the batch).
+`inst_call_params_`'s instantiation of the callee's binders is the whole load-bearing fact.
+
+## 3. THE SET, DIFFED BOTH WAYS — AND HALF THE PREDICTION IS WRONG FOR A LOCATED REASON
+Predicted BY NAME AND BY NUMBER before the first compiler edit: **N = 4**, {T1, T2, T3, T4}.
+Measured (`recvvarall`): **N = 2**, {ex3-both-anon-regions-one-is-struct-5,
+iterator-trait-lifetime-error-13058} = {T1, T4}.
+**measured ∖ predicted = ∅. predicted ∖ measured = {T2, T3}** — and both are the TRAIT
+DEFAULT BODY shape. Diagnostics read on the armed binary:
+    T1  error [fn bar]:   method 'Foo__modify' receiver: variance mismatch — expected &mut Foo, got &mut Foo — …
+    T4  error [fn check]: method 'iter' receiver: variance mismatch — expected &'r T, got &T — …
+
+## 4. ⛔ WHY T2 AND T3 DO NOT CLOSE — A BLOCKER, AND IT IS BIGGER THAN THIS BLOCK
+Under `LOGOS_PROBE=recvvarall` with `LOGOS_CENSUS`, T1 gives `recvvar.A.arrive` 1 /
+`recvvar.A.cmp` 1 and T4 gives `recvvar.B.arrive` 1 / `.cmp` 1. **T2 and T3 produce NO BUCKET AT
+ALL** — the site is not reached (rule 1: that is not a zero). Isolated with four hand programs
+in `/home/logos/sandbox/recvvar/` (d1–d4), each multi-line:
+    **A TRAIT DEFAULT BODY IS NOT TYPE-CHECKED WHEN THE TRAIT HAS NO IMPLEMENTOR.**
+    `fn b(self:&Self)->i64 { return self.a(true); }` against `fn a(self:&Self, x:i64)` compiles
+    rc 0. So does a call to a method that does not exist (`self.nosuch(1i64)`), so does a
+    return-type mismatch, so does `let q: bool = 1i64;`. Add ONE `impl` (d5) and the same body
+    is checked: `error [fn S__b]: let 'q': type mismatch — expected bool, got i64`.
+T2 and T3 both declare a trait and never implement it, so their bodies are dead code to sema and
+the ledger row is admitted for a reason that has nothing to do with the receiver.
+**THE ROWS IT UNBLOCKS, BY NAME: T2 `trait-method-lifetime-suggestion` and T3
+`elided-self-lifetime-in-trait-fn`.** With an implementor added by hand (d6, T3's shape) the
+call DOES reach site A (`recvvar.A.arrive` 3) and is still admitted — so the two rows need BOTH
+this blocker repaired AND a second observation; they are not one arm away.
+
+## 5. ⚠ THE THREE `cfail` ROWS ARE ADDITIONS TO ALREADY-RED FIXTURES, AND THE ADDED LINE IS THE
+##    BETTER ONE (rule 14, checked against the unarmed binary)
+`gat-lt-arg-mismatch`, `gat-lt-divergent`, `gat-lt-propagation` (all `-L bc -L fail`, `.expected`
+= "variance", still matching). Unarmed each prints ONE line:
+    return type mismatch: variance mismatch — expected T::Item, got T::Item — …
+Armed, `recvvartb` prepends:
+    method 'get' receiver: variance mismatch — expected &'a T, got &'b T — …
+Same defect, same line of the same file, and the added line NAMES THE TWO REGIONS where the
+inherited one prints one spelling twice. Rule 14 says a branch that only re-words an already-red
+diagnostic buys nothing; this one does not only re-word — it also closes T4 — but the harness's
+"STOP re-words more diagnostics than it closes rows" verdict on `recvvartb` and `recvvarall` is
+a **FALSE STOP** here and the three `.expected` files are a landing decision, not damage.
+
+## 6. ⚠ RULE 5 — 24 HAND PROGRAMS, SHAPES VARIED, AND ONE OF THEM IS A **MISSED REFUSAL**
+`/home/logos/sandbox/recvvar/hand/`, all multi-line, each run UNARMED and under `recvvarall`.
+    **LEGAL, 21 ADMITTED** (L18 is red UNARMED — `Box::new` — and is not a cost): `&S<'a>` ·
+    `&'a S<'a>` returning `&'a i64` · a non-generic `&S` and `&mut S` pair · an ENUM `E<'a>` ·
+    a TYPE-parameter `G<T>` · a trait-bound `go<T:Tr>(t:&T)` · a trait WITH a lifetime binder
+    `Tr2<'a>` called on a concrete receiver · an elided caller `fn call(s:&S)` · a method with
+    its OWN extra binder `fn m<'b>(self:&'b S<'a>)` · `self: S<'a>` BY VALUE · `&mut S<'a>`
+    with an `&'a i64` argument · an ALPHA-RENAMED binder (`'q` in the struct, `'z` at the call,
+    rule 12) · `&dyn Sp` · a static method beside a `self` method · a method calling a SIBLING
+    method on `self` · a method on a nested FIELD · a CHAINED `s.me().get()` · two lifetime
+    params `S<'a,'b>` · a call from inside a CLOSURE · a call through an ARRAY INDEX
+    `v[0].get()` · a trait DEFAULT method with an implementor.
+    **ILLEGAL, 2 REFUSED**: X01 = T1's shape; X02 = T4's shape.
+    ⛔ **X03 — ILLEGAL AND ADMITTED.** `impl<'a> Foo<'a> { fn take(self: &'a Foo<'a>) -> i64 }`
+    called from `fn bar(foo: &Foo)` is X01 with `&mut` replaced by `&`, rustc rejects it, and
+    the arm lets it through. The mechanism catches the INVARIANT (`&mut`) case and the
+    RIGID-UNIVERSAL (`&'r T` against a bound) case; the COVARIANT shared-ref case is permissive
+    and the arm says nothing. **The ceiling bounds the count, not the set (rule 6): this arm is
+    not the whole of "the receiver's region is checked".**
+
+## 7. ⚠ A ROW CLOSED BY A WRONG DIAGNOSTIC IS NOT CLOSED — AND BOTH OF THESE WOULD BE
+Upstream is "lifetime may not live long enough" for T1 and E0621 "explicit lifetime required"
+for T4. The probe prints "variance mismatch — … — lifetime structure incompatible (check &mut
+invariance / contravariance rules)" for both. Worse, T1's text is **`expected &mut Foo, got
+&mut Foo`** — the same spelling twice, which is exactly the `type_str(t, source_form=true)`
+defect 09-04a repaired at the `self:`-decl site and did not repair here. A landing owes:
+(a) the upstream reason, and (b) a printer that shows the two regions.
+
+## 8. ⇒ WHAT DESERVES FUNDING, IN ORDER
+ 1. **`recvvarall` MINUS `recvvarmp`** — the receiver compared against `ipts_[0]`, at sites A
+    and B. Ceiling 2 (T1, T4, predicted by name), cost 0 on the pass corpus, stdlib four layers,
+    and its only `cfail` is three ADDED lines that state the defect better than the inherited
+    ones (§5). It needs the diagnostic of §7 before it is a landing.
+ 2. **NOT the uninstantiated twin.** `recvvarmp` is the control that shows the instantiation is
+    the mechanism, not the comparison (§2).
+ 3. **NOT `recvvardyn` on its own** — live, empty, 219 fires (§2).
+ 4. **THE BLOCKER OF §4 IS THE BIGGER FIND AND IT IS NOT THIS BLOCK'S.** "A trait default body
+    is unchecked when the trait has no implementor" is a permissive sema hole that admits an
+    unknown method call and a `let` type mismatch. It is named here because it is what stops T2
+    and T3; it is not a borrow-check defect and this round did not pursue it further.
+ 5. The COVARIANT shared-ref case (§6 X03) is a second observation the same site needs.
+
+## 9. ⚠ OFF-LEDGER, RECORDED AND NOT PURSUED
+ 1. §4's blocker, above — the only one measured this round.
+ 2. CARRIED FORWARD, RE-CHECKED PRESENT, STILL THE OWNER'S: the three E0713 rows (nllmoves.E);
+    the four E0716-family rows that are LEGAL RUST; 2026-09-02p §4's five owner pass fixtures
+    walling the 16-row `'static` population.
+ 3. CARRIED FORWARD FROM 09-04a §8, NOT RE-MEASURED: `self_lt_args_` is still positional for a
+    plain nominal impl target; `impl A { fn get(self: &B) }` compiles and is reachable through
+    neither type.
+
+## 10. THE TREE AT CLOSE
+`src/compiler/sema_expr.cpp` and `src/compiler/sema_impl.hpp` carry the five probes, all
+env-gated, with six census buckets (`recvvar.{A,B,D}.{arrive,cmp}`). NO BEHAVIOUR CHANGED:
+`# TOTAL` 130 → 130.
+⚠ **THE STEP-1 PROBE CENSUS UNDERCOUNTS THIS ROUND BY THREE, AND THE REASON IS THE SPELLING.**
+Five names were installed; `grep -rhoP 'probe::on\("\K[a-z_0-9]+'` reads **165 → 167**, because
+`recvvarm` / `recvvartb` / `recvvardyn` reach `probe::on` through the shared
+`recv_probe_(const char*)` predicate of §2 and never appear as a literal at a `probe::on("…")`
+call. `probe-log-lint` sees all five (**164 → 169 records**). A grep-defined class certifies what
+it cannot see; the next round's STEP 1 should read the LINT's count, not the grep's.
+NOT SPENT, each with its number: bck.C 11 · nllmoves.C 9 · lifereg.R18 6 (M-SIG rejected
+09-06a) · bck.NEW 6 (real size 3) · bck.D 6 (3 owner) · lifereg.NEW-N1 5 (T1 is THIS round's,
+priced not bought; T2 blocked by §4) · bck.B 5 · lifereg.R17 4 · nllmoves.E 4 (E0713 ×3 owner) ·
+nllmoves.B 3 · nllmoves.D 3 · lifereg.D 3 · bck.E 3 (E0509, retired by spec).
+
+## recvvarall
+site: src/compiler/sema_impl.hpp::recv_probe_ — the shared predicate of the three method-call receiver sites
+build: 9e1b2d1528a41e6b (READ)
+measured: 2026-09-04
+fires: 64958
+ceiling: 2
+cost: 0 (cfail 3 of 1347, all TEXT-ONLY additions to already-red fixtures; stdlib ok)
+verdict: ✓ FUND AFTER THE DIAGNOSTIC (§7). ex3-both-anon-regions-one-is-struct-5 + iterator-trait-lifetime-error-13058, predicted by name; the other two predicted rows are blocked by §4. Additive over its three sites (1+1+0).
+
+## recvvarm
+site: src/compiler/sema_expr.cpp::lower_method_call — the struct/impl path (`mangled`), receiver vs ipts_[0]
+build: 9e1b2d1528a41e6b (READ)
+measured: 2026-09-04
+fires: 63173
+ceiling: 1
+cost: 0 (cfail 0 of 1347, stdlib ok)
+verdict: ✓ THE CLEAN HALF — ex3-both-anon-regions-one-is-struct-5, zero on all three populations, 21 varied legal hand programs admitted. Its twin recvvarmp is the control that prices the instantiation.
+
+## recvvarmp
+site: as recvvarm, against the UNINSTANTIATED fi.param_types[0] (rule 9 twin)
+build: 9e1b2d1528a41e6b (READ)
+measured: 2026-09-04
+fires: 63173
+ceiling: 1
+cost: 3 (cfail 1 of 1347 — a pinned E0597 .expected LOST; stdlib ok)
+verdict: ⛔ COST ≥ CEILING. Six legal call sites refused across three corpus programs, all "expected &mut H<'a>, got &mut H"; identical to recvvarm in fires and ceiling. The instantiation of the callee's binders by inst_call_params_ IS the mechanism.
+
+## recvvartb
+site: src/compiler/sema_expr.cpp::lower_method_call — the trait-bound `chosen_method` path, receiver vs subst(param_types[0])
+build: 9e1b2d1528a41e6b (READ)
+measured: 2026-09-04
+fires: 1566
+ceiling: 1
+cost: 0 (cfail 3 of 1347, all TEXT-ONLY; stdlib ok)
+verdict: ✓ iterator-trait-lifetime-error-13058. The harness's "re-words more than it closes" STOP is FALSE here: the three gat-lt-* rows are ADDED lines on fixtures already red for the same defect, and the added line names both regions (§5).
+
+## recvvardyn
+site: src/compiler/sema_expr.cpp::try_method_on_dyn — the vtable path, receiver vs subst(m.param_types[0])
+build: 9e1b2d1528a41e6b (READ)
+measured: 2026-09-04
+fires: 219
+ceiling: 0
+cost: 0 (cfail 0 of 1347, stdlib ok)
+verdict: ⛔ LIVE AND EMPTY — recvvar.D.arrive 1 / recvvar.D.cmp 1 on a hand `&dyn Sp` program, so this is a real zero and not an unreached site (rule 1). No ledger row calls a lifetime-carrying method through dyn. Rule 4: 219 fires is a small population and this refutes nothing.
