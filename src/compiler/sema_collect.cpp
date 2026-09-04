@@ -3638,7 +3638,24 @@ void SemaChecker::collect_impl(TinyMapView node) {
     TypeRef impl_self_ty = nullptr;
     {
         TypeRef& self_type = impl_self_ty;
-        if (target_resolved) {
+        // [PROBES.md 2026-09-04a] the impl target AS WRITTEN, resolved once.
+        // The chain below REBUILDS Self from the DECLARED lifetime params of the
+        // struct, mapped POSITIONALLY onto the impl header, and has no enum arm
+        // at all. `resolve_type` on the target node already carries the written
+        // lifetime arguments for struct, enum and datatype alike.
+        TypeRef _writ = nullptr;
+        if ((logos::probe::on("selfwrit") || logos::probe::on("selfckw")) &&
+            !target_resolved && node.has_key(la::TYPE)) {
+            auto _tn = map_of(node.get(la::TYPE.code));
+            if (code_of(_tn) == la::GENERIC_INST) {
+                TypeRef _r = resolve_type(_tn);
+                if (_r && !_r.lifetime_args().empty()) _writ = _r;
+            }
+        }
+        if (_writ) {
+            logos::probe::census("selfwrit.used");
+            self_type = _writ;
+        } else if (target_resolved) {
             // Concrete specialization: use the fully resolved type (preserves type_args).
             self_type = target_resolved;
         } else {
@@ -4147,7 +4164,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                                 "method '{}': the written `self:` type does not "
                                                 "match the impl target '{}' (lifetime arguments)",
                                                 mname, target));
-                                        if (!_eqlt && _same && logos::probe::on("selfcolsame"))
+                                        if (!_eqlt && _same &&
+                                            (logos::probe::on("selfcolsame") ||
+                                             logos::probe::on("selfckw")))
                                             error(std::format(
                                                 "method '{}': the written `self:` type does not "
                                                 "match the impl target '{}'", mname, target));
