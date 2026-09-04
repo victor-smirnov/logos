@@ -13,6 +13,7 @@
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sema.hpp>
+#include <logos/compiler/probe.hpp>
 #include "layout_law.hpp"
 #include "mangled_name.hpp"
 
