@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row box_vec_new_infer (tier 3). The element type is not propagated
+// into Vec::new() through Box::new: TODAY 'type mismatch — expected Box<Vec<i64>>,
+// got Box<Vec<T>>' on a legal program (2026-09-03h §10.3).
+package box_vec_new_infer;
+fn main() -> i32 {
+    let mut b: Box<Vec<i64>> = Box::new(Vec::new());
+    let v: &mut Vec<i64> = &mut *b;
+    v.push(1i64);
+    return 0i32;
+}

@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row outlives_call_instantiation (tier 3). B69 check_call_outlives
+// instantiates the callee's regions AT THE ARGUMENT REGIONS as if every parameter
+// were invariant; Rust instantiates them at variables bounded from below, and
+// 'a := 'b := call point satisfies 'a: 'b. Both callers are legal Rust and TODAY
+// both are refused ("caller does not satisfy callee's outlives bound"). bar is the
+// regression exposed when 2026-09-02w minted distinct regions for elided params.
+// One program, two shapes: a 'refuses' row stays open until BOTH compile.
+package outlives_call_instantiation;
+fn outlives_dir<'a, 'b>(x: &'a i64, y: &'b i64) -> i32 where 'a: 'b { return (*x + *y) as i32; }
+fn foo<'p, 'q>(p: &'p i64, q: &'q i64) -> i32 { return outlives_dir(p, q); }
+fn bar(k: &i64, m: &i64) -> i32 { return outlives_dir(k, m); }
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let b: i64 = 2i64;
+    if foo(&a, &b) != 3i32 { return 1i32; }
+    if bar(&a, &b) != 3i32 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,23 @@
+// SOUNDNESS QUEUE row closure_owned_dyn_capture (tier 1). A move closure that OWNS
+// a Box<dyn Tr>, returned as Box<dyn Fn() -> i64> and called after its defining fn
+// returned. Rust: 59. TODAY the owned capture is dropped with f's scope, the call
+// reads freed memory (valgrind 'Invalid read') and main returns 1. The half-mechanism
+// clowndyn measured 1 -> 134 and was declined (2026-09-04, 6ae8bf7bc).
+// `Box<dyn Fn() -> i64>` and CALLED AFTER the defining fn returned.
+package closure_owned_dyn_capture;
+trait Tr { fn m(self: &Self) -> i64; }
+struct S { v: i64 }
+impl Tr for S {
+    fn m(self: &Self) -> i64 { return self.v; }
+}
+fn f(b: Box<dyn Tr>) -> Box<dyn Fn() -> i64> {
+    return Box::new(move || { return b.m(); });
+}
+fn main() -> i32 {
+    let g: Box<dyn Fn() -> i64> = f(Box::new(S { v: 59i64 }));
+    let got: i64 = g();
+    if got != 59i64 {
+        return 1i32;
+    }
+    return 0i32;
+}

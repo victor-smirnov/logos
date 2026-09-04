@@ -1,0 +1,26 @@
+// SOUNDNESS QUEUE row drop_inherent_call_order (tier 1). A type with BOTH an
+// inherent fn drop(&mut self, k) and an impl Drop, the impl Drop declared SECOND,
+// and an EXPLICIT call to the inherent one. Rust prints I then T. TODAY the call
+// resolves to the wrong symbol and dies in codegen: "'func.call' op incorrect
+// number of operands for callee" + module verification failed. Swap the two impl
+// blocks and it prints IT|END. The arity mismatch is the only thing that makes the
+// wrong callee VISIBLE — the fifth door of the destructor-identity question
+// (2026-09-04, 4a307b156 closed the first four).
+package drop_inherent_call_order;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct R { id: i32 }
+impl R {
+    fn drop(self: &mut Self, k: i32) -> i32 { say("I"); return k; }
+}
+impl Drop for R {
+    fn drop(self: &mut Self) { say("T"); }
+}
+fn main() -> i32 {
+    {
+        let mut r: R = R { id: 1i32 };
+        let n: i32 = r.drop(0i32);
+    }
+    say("|END\n");
+    return 0i32;
+}

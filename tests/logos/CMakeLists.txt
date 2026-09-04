@@ -1511,6 +1511,35 @@ set_tests_properties(logos_00_bc_admits_ledger PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# ── THE SOUNDNESS QUEUE — OPEN DEFECTS THAT COMPILE CLEAN, HELD LIKE THE BC LEDGER ──
+# `tests/logos/soundness_queue.ledger` names every open soundness defect — a
+# program that compiles and double-frees, reads freed memory, is checked by
+# nobody, or (tiers 3-4) is legal Rust and refused. None can be a fixture: a
+# pass fixture may not assert a program that ABORTS, and a fail fixture asserting
+# the refusal of a legal program would pin the defect as the rule. So the
+# programs live under tests/soundness/open/ — NOTHING globs that directory — and
+# the gate is their registration: every row's program still exhibits its
+# recorded wrong behaviour (a fix that lands without deleting its row is RED),
+# every program on the shelf has a row, and the count matches `# TOTAL`.
+# ⚠ IN THE EVERYDAY TIER (`tier_commit`) for the same reason the bc ledger is:
+# what must not be silent is a row CLOSING without its row being deleted, and
+# that has to be seen by the commit that closed it.
+# ⚠ THIS GATE COMPILES AND RUNS ITS ROWS, SERIALLY (one scheduler — no fan-out).
+# MEASURED 2026-09-04: 18 rows, 13.8 s wall. It is affordable because the file
+# is meant to SHRINK; at hundreds of rows do what bc did (one test per program).
+add_test(
+    NAME logos_00_soundness_queue
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/soundness_queue_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/soundness_queue.ledger
+            ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(logos_00_soundness_queue PROPERTIES
+    TIMEOUT 600
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ── ONE TEST PER ADMIT PROGRAM ──────────────────────────────────────────────
 # DERIVED FROM THE GLOB, NOT LISTED, exactly as the facts registration above:
 # a program added tomorrow gets its test automatically, and the roster gate is

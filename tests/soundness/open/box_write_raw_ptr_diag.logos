@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row box_write_raw_ptr_diag (tier 4). '*b = 7' through an immutable
+// Box is ILLEGAL (rustc E0594: b is not mut); TODAY it is refused as 'write through
+// raw pointer requires unsafe context' — a Box deref diagnosed as a raw-pointer
+// write (2026-09-03h §10.1).
+package box_write_raw_ptr_diag;
+fn main() -> i32 {
+    let b: Box<i64> = Box::new(1i64);
+    *b = 7i64;
+    return 0i32;
+}

@@ -45,6 +45,25 @@ def declared_total(path: str) -> int | None:
     return None
 
 
+def soundness_rows(path: str = "tests/logos/soundness_queue.ledger") -> dict:
+    """The OFF-ledger soundness queue, read the way its gate reads it — by direct
+    listing of `<id> <tier> <path> <observed...>` rows, never the `# TOTAL` line."""
+    by_tier: dict[str, int] = {}
+    total = 0
+    try:
+        with open(path) as fh:
+            for ln in fh:
+                body = ln.split("#", 1)[0].split()
+                if len(body) < 4:
+                    continue
+                total += 1
+                by_tier[body[1]] = by_tier.get(body[1], 0) + 1
+    except FileNotFoundError:
+        pass
+    return {"total": total, "declared": declared_total(path),
+            "by_tier": {k: by_tier[k] for k in sorted(by_tier)}}
+
+
 def landings() -> list[dict]:
     """Every commit whose subject states a ledger transition, oldest first."""
     out = []
@@ -110,6 +129,7 @@ def main() -> int:
         "landings": rows,
         "rate": rate_windows(rows),
         "head": sh("git", "rev-parse", "--short", "HEAD").strip(),
+        "soundness": soundness_rows(),
     }
 
     if "--json" in sys.argv:

@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row tuple_pat_mut_parse (tier 3). A tuple-pattern let with a
+// 'mut' binding is legal Rust and TODAY does not parse: syntax error near ')'
+// (2026-09-03h §10.2).
+package tuple_pat_mut_parse;
+fn main() -> i32 {
+    let (mut a, _c): (Box<i64>, i64) = (Box::new(1i64), 2i64);
+    let r: &mut i64 = &mut *a;
+    *r = 3i64;
+    return 0i32;
+}

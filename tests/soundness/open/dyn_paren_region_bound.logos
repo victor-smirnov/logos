@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row dyn_paren_region_bound (tier 3). The parenthesised object
+// type with a region bound, &'a (dyn Tr + 'b), is legal Rust and TODAY is a syntax
+// error (2026-09-02x §6 x11/x12).
+package dyn_paren_region_bound;
+trait Tr { fn m(self: &Self) -> i64; }
+struct S { v: i64 }
+impl Tr for S { fn m(self: &Self) -> i64 { return self.v; } }
+fn call<'a, 'b>(x: &'a (dyn Tr + 'b)) -> i64 { return x.m(); }
+fn main() -> i32 {
+    let s: S = S { v: 3i64 };
+    if call(&s) != 3i64 { return 1i32; }
+    return 0i32;
+}

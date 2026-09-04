@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row box_field_move (tier 1). A partial move of a drop-carrying
+// field out of a Box: legal Rust (Box is the one type with DerefMove). TODAY the
+// moved String is freed twice — rc 134, valgrind 'Invalid free'. Repair = DerefMove
+// lowering for a FIELD; the cheap refusal was declined (2026-09-04, 6ae8bf7bc).
+package box_field_move;
+use logos.mem.boxed;
+use logos.mem.string;
+struct Inner { s: String, n: i64 }
+fn main() -> i32 {
+    let bx: Box<Inner> = Box::new(Inner { s: String::from("abcdefghijklmnop"), n: 3i64 });
+    let v: String = bx.s;
+    if v.len() != 16i64 { return 1i32; }
+    return 0i32;
+}

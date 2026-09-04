@@ -1,0 +1,34 @@
+// SOUNDNESS QUEUE row dangle_join_diverging_arm (tier 3). dangling_'s branch join
+// ignores DIVERGENCE: a borrow that dangles is created in an if-arm that RETURNS,
+// and the reference is read only on the path that cannot follow it. Legal Rust.
+// TODAY both faces are refused — the temporary (E0716 channel) and the block-local
+// (E0597 channel, pre-existing, proved by control). One fix at the if/match merge
+// (acc_dang) serves both; the row stays open until BOTH compile (2026-09-03e §5.1).
+package dangle_join_diverging_arm;
+fn id(x: i64) -> i64 { return x; }
+fn temp_arm(c: bool) -> i64 {
+    let z: i64 = 4i64;
+    let mut x: &i64 = &z;
+    if c {
+        x = &id(3i64);
+        return 9i64;
+    }
+    return *x;
+}
+fn local_arm(c: bool) -> i64 {
+    let g: i64 = 4i64;
+    let mut x: &i64 = &g;
+    if c {
+        let inner: i64 = 3i64;
+        x = &inner;
+        return 9i64;
+    }
+    return *x;
+}
+fn main() -> i32 {
+    if temp_arm(false) != 4i64 { return 1i32; }
+    if temp_arm(true) != 9i64 { return 2i32; }
+    if local_arm(false) != 4i64 { return 3i32; }
+    if local_arm(true) != 9i64 { return 4i32; }
+    return 0i32;
+}

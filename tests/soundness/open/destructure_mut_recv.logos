@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row destructure_mut_recv (tier 3). A 'mut' binding produced by a
+// destructuring let calls a &mut self method (legal Rust). TODAY refused: cannot
+// borrow 'aa' as mutable: not declared as mut — sema carries no by-value pattern
+// 'mut' and the receiver branch does not read the borrow-check-local mask
+// (2026-09-03i §8.2, 2026-09-03h §8).
+package destructure_mut_recv;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+// DESTRUCTURING let out of a tuple-shaped struct pattern.
+struct P { a: S }
+fn main() -> i32 {
+    let p: P = P { a: S { v: 1i64 } };
+    let P { a: mut aa } = p;
+    let r: &mut i64 = aa.get();
+    *r = 5i64;
+    return 0i32;
+}

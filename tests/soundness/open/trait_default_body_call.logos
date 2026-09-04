@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row trait_default_body_call (tier 2). Same root as
+// trait_default_body_type, the other face: a call to a method that does not exist
+// ('self.nosuch') inside a default body with no implementor compiles rc 0. Two rows
+// because they are two faces of one missing check, and an 'admits' row that bundled
+// both would go red on a half fix and lose the other half.
+package trait_default_body_call;
+
+trait T {
+    fn a(self: &Self, x: i64) -> i64;
+    fn b(self: &Self) -> i64 {
+        return self.nosuch(1i64);
+    }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

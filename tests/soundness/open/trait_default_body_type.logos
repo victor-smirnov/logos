@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row trait_default_body_type (tier 2). A trait default body with
+// NO implementor anywhere is checked by nobody: 'let q: bool = 1i64' compiles rc 0.
+// Add one empty 'impl T for S {}' and the same body is refused. Honest repair = a
+// CHECK-ONLY lowering (never emit: emitting damaged 304 of 6286 runtime fixtures)
+// with the trait's own lifetime binders in scope and Self a rigid param bounded by
+// the trait; priced cost 0 on every column on 2026-09-04 and declined on a LEDGER
+// ceiling of 0 — the wrong criterion for this queue.
+package trait_default_body_type;
+
+trait T {
+    fn b(self: &Self) -> i64 {
+        let q: bool = 1i64;
+        return 0i64;
+    }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row layout_verify_recursive_ref (tier 3). A struct recursive
+// through Option<&'a Self> is legal and compiles clean by hand — but the pass tier
+// sets LOGOS_VERIFY_LAYOUT=1 on every fixture, and under it the COMPILER SEGFAULTS
+// (rc 139, no diagnostic). The queue's reader compiles under the pass tier's env for
+// exactly this reason; a fixture with this shape cannot exist today (2026-09-02s §8).
+package layout_verify_recursive_ref;
+struct Node<'a> { v: i64, next: Option<&'a Node<'a>> }
+fn main() -> i32 {
+    let n: Node = Node { v: 1i64, next: None };
+    if n.v != 1i64 { return 1i32; }
+    return 0i32;
+}

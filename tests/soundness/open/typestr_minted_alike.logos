@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row typestr_minted_alike (tier 4). The program is ILLEGAL and the
+// refusal is right; the SENTENCE is the defect: two minted (elided) regions print
+// alike, 'expected &i64, got &i64'. Four type_str sites; it has blocked rows
+// (09-06a had to carry minted_lt_origin() first). Five imported fail fixtures pin
+// this very sentence today, so the fix re-pins them.
+package typestr_minted_alike;
+fn store(slot: &mut &i64, x: &i64) { *slot = x; }
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let mut r: &i64 = &a;
+    {
+        let s: i64 = 2i64;
+        store(&mut r, &s);
+    }
+    return 0i32;
+}

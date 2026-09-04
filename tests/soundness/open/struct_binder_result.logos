@@ -1,0 +1,21 @@
+// SOUNDNESS QUEUE row struct_binder_result (tier 3). The method's result lifetime is
+// the STRUCT's binder 'x, not the receiver's own borrow, so 'w.bump()' after
+// 'let r = w.inner()' is legal Rust. TODAY refused: cannot borrow 'w' as mutable:
+// 'w' has shared borrows. is_self_borrowing's site is never reached (0 fires) —
+// a different channel (2026-09-03g §5.1).
+package struct_binder_result;
+
+struct Wrap<'x> { p: &'x i64, k: i64 }
+impl<'x> Wrap<'x> {
+    fn inner(self: &Wrap<'x>) -> &'x i64 { return self.p; }
+    fn bump(self: &mut Wrap<'x>) { self.k = self.k + 1i64; }
+}
+
+fn main() -> i32 {
+    let base: i64 = 7i64;
+    let mut w: Wrap = Wrap { p: &base, k: 0i64 };
+    let r: &i64 = w.inner();
+    w.bump();
+    if *r != 7i64 { return 1i32; }
+    return 0i32;
+}

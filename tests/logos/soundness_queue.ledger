@@ -1,0 +1,60 @@
+# soundness_queue.ledger — OPEN SOUNDNESS DEFECTS, ONE PER ROW. Every row is a
+# program that logosc compiles clean and that is WRONG: it runs incorrectly, it
+# accepts what must be refused, or (tiers 3-4) it refuses legal Rust or gives an
+# illegal program the wrong sentence. The programs live under
+# tests/soundness/open/ — deliberately NOT under tests/{logos,imported,spec}/
+# {pass,fail}, which is what tests/logos/CMakeLists.txt globs and
+# corpus_registration_gate.sh walks: a program there would need an `.expected`
+# asserting the defect is correct, and a fixture may not assert a program that
+# ABORTS. Their registration is soundness_queue_gate.sh, which names every one.
+#
+# ⚠ A ROW IS NOT AN EXCUSE, AND THIS FILE IS MEANT TO SHRINK. The bc ledger's
+# discipline, copied: every row's program must STILL exhibit the recorded wrong
+# behaviour or the gate reds — a defect that stopped reproducing is either FIXED
+# (delete the row, decrement `# TOTAL`, land the program as a pass/fail fixture,
+# all in the same commit) or was never real. Before this file existed the queue
+# lived in prose and failed twice in four days: one defect was recorded under an
+# innocent program, and a "five owner fixtures wall this" verdict was carried six
+# rounds after four of the five had been repaired.
+#
+# ⚠ THE RECORDED BEHAVIOUR IS A MEASUREMENT WITH A DATE. It was read on the
+# binary of 2026-09-04 (HEAD ac27d1a99): compiled, linked, RUN, exit code and
+# stdout read, valgrind where a heap error was possible. A row's wrong behaviour
+# was never copied from a description — three of the five 2026-09-04 tier-1
+# candidates and the "type with both drops runs the inherent one" candidate did
+# not survive re-running and are not here.
+#
+# Format:  <id> <tier> <path relative to the repo root, no .logos> <observed...>
+#
+# `observed` is the WRONG behaviour today, machine-checkable, one of:
+#   admits          compiles with no diagnostic; rustc refuses the program
+#   refuses         does not compile clean (a diagnostic, or the compiler died);
+#                   the program is legal Rust
+#   run <rc>        compiles clean, links, and the binary exits <rc> (wrong)
+#   diag <text...>  refused, and stderr contains <text> — the program is
+#                   illegal, the SENTENCE is the defect
+# The reader compiles the way the pass tier does (LOGOS_VERIFY_LAYOUT=1), so a
+# compiler crash the fixture corpus would meet is a `refuses` here.
+#
+# `tier`:  1 memory corruption / wrong code runs      2 a class is not checked
+#          3 legal Rust refused                        4 diagnostics and hygiene
+#
+# TOTAL 18
+box_field_move                1 tests/soundness/open/box_field_move                run 134
+closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
+drop_inherent_call_order      1 tests/soundness/open/drop_inherent_call_order      refuses
+trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
+trait_default_body_call       2 tests/soundness/open/trait_default_body_call       admits
+outlives_call_instantiation   3 tests/soundness/open/outlives_call_instantiation   refuses
+struct_binder_result          3 tests/soundness/open/struct_binder_result          refuses
+mutref_recv_immut_binding     3 tests/soundness/open/mutref_recv_immut_binding     refuses
+destructure_mut_recv          3 tests/soundness/open/destructure_mut_recv          refuses
+boxbox_mut_deref              3 tests/soundness/open/boxbox_mut_deref              refuses
+dangle_join_diverging_arm     3 tests/soundness/open/dangle_join_diverging_arm     refuses
+closure_in_generic_two_insts  3 tests/soundness/open/closure_in_generic_two_insts  refuses
+tuple_pat_mut_parse           3 tests/soundness/open/tuple_pat_mut_parse           refuses
+dyn_paren_region_bound        3 tests/soundness/open/dyn_paren_region_bound        refuses
+box_vec_new_infer             3 tests/soundness/open/box_vec_new_infer             refuses
+layout_verify_recursive_ref   3 tests/soundness/open/layout_verify_recursive_ref   refuses
+typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike          diag expected &i64, got &i64
+box_write_raw_ptr_diag        4 tests/soundness/open/box_write_raw_ptr_diag        diag write through raw pointer requires unsafe context

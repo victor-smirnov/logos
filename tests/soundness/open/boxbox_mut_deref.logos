@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row boxbox_mut_deref (tier 3). '&mut **bb' on a 'mut' local
+// Box<Box<i64>> is legal Rust. TODAY refused, with the wrong reason: cannot borrow
+// 'bb' as mutable: 'bb' is behind a '&' reference (2026-09-03i §8.3).
+package boxbox_mut_deref;
+fn main() -> i32 {
+    let mut bb: Box<Box<i64>> = Box::new(Box::new(1i64));
+    let r: &mut i64 = &mut **bb;
+    *r = 6i64;
+    return 0i32;
+}

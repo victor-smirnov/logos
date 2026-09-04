@@ -5212,9 +5212,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9029 -> 9039   +10
 #   NOIMPORTED   4593 -> 4603   +10
 #   TIERCOMMIT    173 ->  173     0
-REGISTRY-ALL         9039
-REGISTRY-NOIMPORTED  4603
-REGISTRY-TIERCOMMIT  173
+# 2026-09-04 (the soundness queue, `logos_00_soundness_queue`). ONE new gate,
+#   tier_commit, not imported: the off-ledger soundness defects get the bc
+#   ledger's two-direction discipline. Its 18 programs live under
+#   tests/soundness/open/, which nothing globs, so they add no test of their own.
+#   ALL          9039 -> 9040   +1
+#   NOIMPORTED   4603 -> 4604   +1
+#   TIERCOMMIT    173 ->  174   +1
+REGISTRY-ALL         9040
+REGISTRY-NOIMPORTED  4604
+REGISTRY-TIERCOMMIT  174
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is
