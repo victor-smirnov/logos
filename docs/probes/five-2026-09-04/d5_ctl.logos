@@ -1,0 +1,14 @@
+// DEFECT 5 CONTROL — the same generic wrapper over a NON-closure type.
+package d5_ctl;
+struct P { v: i64 }
+fn wrap<T>(f: T) -> Box<T> {
+    return Box::new(f);
+}
+fn main() -> i32 {
+    let b = wrap(P { v: 3i64 });
+    let got: i64 = (*b).v;
+    if got != 3i64 {
+        return 1i32;
+    }
+    return 0i32;
+}

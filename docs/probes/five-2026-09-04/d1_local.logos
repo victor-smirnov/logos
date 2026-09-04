@@ -1,0 +1,12 @@
+// DEFECT 1 REFERENCE POINT — the SAME partial move out of a LOCAL struct,
+// no Box in the place chain. Rust: legal; the local's drop glue must skip `s`.
+package d1_local;
+use logos.mem.string;
+struct Inner { s: String, n: i64 }
+fn main() -> i32 {
+    let inn: Inner = Inner { s: String::from("abcdefghijklmnop"), n: 3i64 };
+    let v: String = inn.s;
+    let n: i64 = v.len();
+    if n != 16i64 { return 1i32; }
+    return 0i32;
+}

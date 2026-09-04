@@ -1890,6 +1890,24 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                 bind_name = std::string(str_of(sub.get(la::NAME.code)));
                 has_sub = false;  // simple alias — treat as name bind
             }
+            // PROBE dstrbind (2026-09-04five, root 2): this loop emits a plain
+            // by-value field READ for every field spelling, so `ref v` copies and
+            // `_` binds — both double-free. The crude arm emits NOTHING for either
+            // spelling (correct for `_`, a refusal-by-omission for `ref`).
+            if (logos::probe::on("dstrbind")) {
+                auto probe_isref_ = [&](TinyMapView n) {
+                    return n.has_key(la::IS_REF) &&
+                           n.get(la::IS_REF.code).is_value() &&
+                           n.get(la::IS_REF.code).as_value<uint8_t>() != 0;
+                };
+                bool probe_skip_ = probe_isref_(fnode) || bind_name == "_";
+                if (fnode.has_key(la::VALUE)) {
+                    auto probe_sv_ = map_of(fnode.get(la::VALUE.code));
+                    if (code_of(probe_sv_) == la::PAT_WILD && probe_isref_(probe_sv_))
+                        probe_skip_ = true;
+                }
+                if (probe_skip_) continue;
+            }
             // ── D1 round 8 / S0: THE PATTERN PATH DROPPED THE pkg_hint ─────
             //
             // THE DEFECT (measured). `let Hs352959f3caf5b795Cur { found, .. } =

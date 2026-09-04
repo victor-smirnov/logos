@@ -1,0 +1,12 @@
+// DEFECT 1 REFERENCE POINT 2 — the WHOLE-value move `*bx` (box_take).
+package d1_boxstar;
+use logos.mem.boxed;
+use logos.mem.string;
+struct Inner { s: String, n: i64 }
+fn main() -> i32 {
+    let bx: Box<Inner> = Box::new(Inner { s: String::from("abcdefghijklmnop"), n: 3i64 });
+    let inn: Inner = *bx;
+    let n: i64 = inn.s.len();
+    if n != 16i64 { return 1i32; }
+    return 0i32;
+}

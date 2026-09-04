@@ -1,0 +1,17 @@
+// DEFECT 3 CONTROL — identical, method named `tidy` instead of `drop`.
+package d3_ctl;
+static mut RAN: i64 = 0i64;
+trait Tidy { fn tidy(&mut self); }
+struct S { n: i64 }
+impl Tidy for S {
+    fn tidy(&mut self) {
+        unsafe { RAN = RAN + 1i64; }
+    }
+}
+fn main() -> i32 {
+    {
+        let mut s: S = S { n: 5i64 };
+        if s.n != 5i64 { return 3i32; }
+    }
+    unsafe { return RAN as i32; }
+}

@@ -3199,6 +3199,15 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
     if (TypeRef(t).kind() == LogosType::Kind::Enum) type_name = std::string(TypeRef(t).enum_name());
     if (type_name.empty()) return {};
     std::string mangled = type_name + "__drop";
+    // PROBE dropident (2026-09-04five, root 3): the destructor is keyed on the
+    // MANGLED NAME, so an inherent `drop` or a USER trait's `drop` runs at scope
+    // exit. `SemaFuncInfo::trait_name` is the fact, and explicit_destructor_call
+    // already reads it off this same candidate list. PROBES.md 2026-09-02u §3.
+    // The arm is the EXISTING reader, called: no second copy of the identity
+    // test, and no new bare-name intercept for key_identity_lint to census.
+    if (logos::probe::on("dropident") &&
+        !const_cast<SemaChecker*>(this)->explicit_destructor_call(t))
+        return {};
     // B-mv-02: a candidate Drop impl must belong to the SAME package as `t`.
     // A user `struct Vec<T>` and the stdlib `Vec<T>` share the bare concrete
     // name `Vec$G1$i32` (struct TYPES are package-qualified at the MLIR level,

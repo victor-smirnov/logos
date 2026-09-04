@@ -1,0 +1,11 @@
+// DEFECT 2 CONTROL — the SAME destructure over an OWNED source (`a`, not `*r`).
+package d2_owned_control;
+use logos.mem.string;
+struct A { s: String, t: i64 }
+fn main() -> i32 {
+    let a: A = A { s: String::from("kkkkkkkkkkkkkkkk"), t: 1i64 };
+    let A { s: v, t: w } = a;
+    let n: i64 = v.len();
+    if n + w != 17i64 { return 1i32; }
+    return 0i32;
+}

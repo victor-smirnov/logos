@@ -21858,3 +21858,433 @@ nllmoves.E 4 (E0713 ×3 owner) · lifereg.R17 4 · lifereg.NEW-N1 4 · nllmoves.
 nllmoves.D 3 · lifereg.N1 3 · lifereg.D 3 · bck.E 3 (E0509, retired by spec).
 STILL OPEN ON THIS PROPERTY, unpriced: T3 method-ufcs-inherent-3 (a CALL-RETURN mint) and
 T4/T5 regions-fn-subtyping-… (an FnItem->FnPtr coercion) — two further sites, untouched.
+
+
+# ═══ ROUND 2026-09-04five — THE FIVE RUNTIME SOUNDNESS HOLES: ALL FIVE REPRODUCED ON
+# TODAY'S BINARY, FIVE DISTINCT ROOTS BY SYMBOL, **BOTH HANDED-DOWN GROUPINGS REFUTED
+# BY MEASUREMENT**, AND DEFECT 5 IS NOT THE DEFECT IT WAS RECORDED AS. NO FIX LANDED.
+# ⚠ THE ORACLE IS A RUN. Every program below was COMPILED, LINKED AND EXECUTED and its
+# EXIT CODE READ; the ones that allocate were also run under valgrind. All five compile
+# rc 0 — a compile's exit code cannot see any of them. ═══════════════════════════════
+
+## 0. STEP 1, RE-DERIVED FROM THE TREE (nothing taken from the brief)
+    HEAD `0c9264708` clean = origin/main at open (the brief's "recent commits" list was
+    five commits stale — rule 17 applies to the handoff's git log too).
+    LIVE PROBE NAMES **168** at open by `probe-log-lint.py` (a literal grep undercounts).
+    `# TOTAL 99` in bc_admits.ledger + `# TOTAL 25` in bc_admits_blocked.ledger, both by
+    direct listing. Binary at open `c4c8c6b7c92ba92f 43`; after the probe batch
+    `37c8cddb14adb561 43`. Box CONTENDED (load average 40, a Steam/Proton process on the
+    machine) — timings below are inflated, the COUNTS are not.
+    ⚠ NO LEDGER ROW MOVED AND NONE WAS EXPECTED: none of the five is a borrow-check row.
+    Both `# TOTAL`s re-derived by direct listing at close: **99** and **25**, unchanged.
+
+## 1. THE FIVE, REPRODUCED — PROGRAM, COMPILE rc, RUN rc, VALGRIND
+Sources in `build/hand-2026-09-04five/`, matrix in `matrix.txt`, driver `matrix.sh`.
+Every program is multi-line and was written for this round.
+
+    #  program        compile  run  stderr / valgrind
+    1  d1               0      134  "free(): double free detected in tcache 2"
+                                    valgrind: Invalid free, 2 allocs / **3 frees**
+       `let bx: Box<Inner> = Box::new(Inner{ s: String::from(..), n });`
+       `let v: String = bx.s;`
+    2a d2_ref           0      134  double free; 1 alloc / **2 frees**
+       `fn f(r:&A)->i64 { let A { s: ref v, t: w } = *r; … }`
+    2b d2_wild          0      134  double free; 1 alloc / **2 frees**
+       `fn f(r:&A)->i64 { let A { s: _, t: w } = *r; … }`
+    3a d3_trait         0        1  `trait Tidy { fn drop(&mut self); }`, `impl Tidy for S`,
+                                    NO `impl Drop`. Rust: 0. `Tidy::drop` RAN at scope exit.
+    3b d3_inh           0        1  the same with an INHERENT `fn drop(&mut self)`.
+    4  d4               0        1  the escaped closure returned **24349085727** for 59
+                                    (printed on a `println!` variant); valgrind: **Invalid
+                                    read of size 8** + 10 bytes definitely lost. Use after free.
+    5  d5               0      139  SIGSEGV. `wrap<F:Fn()->i64>(f:F)->Box<F>` + `(*b)()`.
+
+CONTROLS, each one token from its defect, ALL rc 0 and valgrind-clean:
+    d1_local     the same partial move out of a LOCAL struct (no Box in the chain) — the
+                 drop-flag mechanism EXISTS and works: 1 alloc / 1 free.
+    d1_boxstar   the WHOLE-value `*bx` (`box_take`) — 2 allocs / 2 frees.
+    d1_nodrop    a Box partial move of a drop-free field.
+    d1_control   the drop-free twin of d1 (the shape `bc_mvchain_box_field_owned_admit` pins).
+    d2_owned_control  the same destructure over an OWNED source (`= a`, not `= *r`).
+    d3_ctl       the same program with the method named `tidy` — returns 0.
+    d4b_inside   the same closure CALLED INSIDE `f`; d4c_i64 the same escape with an i64 capture.
+    d5_ctl       `wrap<T>(t:T)->Box<T>` over a NON-closure struct.
+
+## 2. ⚠ DEFECT 5 IS NOT WHAT IT WAS RECORDED AS — THE GENERIC WRAPPER IS INNOCENT (rule 17)
+2026-09-02y §6 recorded #5 as "`wrap<F>(f:F)->Box<F>` compiles and SIGSEGVs, it began
+compiling after the deferred-generic-call binding". Measured today, three programs one
+token apart:
+    d5        `wrap(||…)` then `(*b)()`                          **139**
+    d5_call   the SAME `wrap`, called as `b()`                   **0**   ← the wrapper is fine
+    d5_nogen  NO wrapper at all: `Box::new(||…)` then `(*b)()`   **139**
+    d5_refc   NO Box either: `let r = &c; (*r)()`                **139**
+The generic wrapper was a coincidence of spelling. The defect is **`(*x)()` over any place
+whose pointee is a CLOSURE**, and it is one deref lowering, not a monomorphisation bug.
+⚠ THE REMOVED FIXTURE THAT ASSERTED THE OLD REFUSAL WAS THEREFORE ASSERTING THE WRONG THING:
+`wrap<F>->Box<F>` is a legal, working feature today; what needs a fixture is `(*b)()`.
+
+## 3. THE ROOTS, BY SYMBOL, AND RULE 16 ANSWERED AT EACH
+
+### ROOT 1 — `move_path_of` (src/compiler/sema_impl.hpp) + the Box's opaque drop. TWO
+### DOORS IN SERIES (rule 2), and the FACT IS **ABSENT**, not discarded.
+The place `bx.s` lowers to FieldRead over a `Box__deref` CALL. `move_path_of` walks
+FieldRead/TupleIndex only and returns `""` for a chain that does not bottom out in a
+VarRef — so `mark_moved_expr`'s FieldRead arm records nothing, `make_drop_stmt` gets an
+empty `moved_fields`, and the SDrop for `bx` skips nothing. PROVED ON THE ARTEFACT, not
+by reading: `logosc --emit-llvm` on d1 emits, in `main`, BOTH
+    call void @…String__drop__f__String(ptr %3)          ; the binding `v`
+    call void @…Box$G1$Inner__drop__g__Box$G1$T(ptr %4)   ; the Box, whose glue frees Inner.s
+The second door: even a recorded `bx.s` could not be honoured — `Box<T>`'s destructor is
+an ORDINARY user fn in `logos.mem.boxed`, not the SDrop struct field-drop loop that
+`moved_fields` steers. Half this mechanism is not one.
+⚠ THE COMPANION SITE, `is_unowned_move_source` (same file), ALREADY CARRIES THE MARKER —
+its own comment says "`bx.field` IS admitted and DOUBLE-FREES at run time". The admission
+is deliberate and correct-in-principle (Box owns its content); what is missing is the
+DerefMove lowering underneath it.
+
+### ROOT 2 — the `emit_destruct` lambda inside `SemaChecker::lower_let_destruct`
+### (src/compiler/sema_stmt.cpp). The fact is **RECORDED AND DISCARDED** (rule 16).
+The loop computes `bind_name` and then emits, unconditionally,
+    field_read(var_ref(tmp), fname)  →  SLet bind_name
+for every field spelling. `la::IS_REF` is never read and `"_"` is never special-cased —
+so `ref v` gets a by-value COPY of the field and `_` gets a binding it was told not to
+make; both then own the same buffer as the source.
+THE SAME AST NODES ARE READ CORRECTLY TWENTY LINES ABOVE, in the same function: the E0507
+block landed 2026-09-02land has `by_ref_(fnode)` reading `la::IS_REF` and a `bind_ == "_"`
+test, on the identical `fnode` / `sub_`. The fact is present, minted, and consumed by one
+of the two consumers in this function. CENSUS AT THE MINT SITE: the `dstrbind` probe reads
+exactly those two bits at `emit_destruct` and **fires 56 times** over the ledger + legal
+corpus — the site is live and the bits are there.
+⚠ AND THE CORPUS ALREADY ASSERTS THE `ref` SPELLING: `tests/spec/pass/pat_2.logos` has
+`let Pt { x: ref px, y: _ } = p; if *px != 14i64 …` under `@rule pat.bind.struct-field-ref`
+("binds px to a reference to field x"). It passes only because the field is `i64`. The
+same line with a `String` field is d2_ref, which aborts.
+
+### ROOT 3 — `SemaChecker::drop_fn_for` (src/compiler/sema.cpp).
+### **RECORDED AND DISCARDED**, and the reader that asks is one call away.
+The key is `type_name + "__drop"` looked up through `find_func_candidates`; four match
+loops, and not one of them looks at the candidate's `trait_name`. `SemaFuncInfo::trait_name`
+IS populated — `SemaChecker::explicit_destructor_call` (src/compiler/sema_expr.cpp), the
+E0040 landing of 2026-09-02u, reads it off THE SAME candidate list:
+    for (const SemaFuncInfo* c : find_func_candidates(bare + "__drop")) {
+        if (c->trait_name.empty()) return false;
+        if (c->trait_name == "Drop") from_drop = true; }
+CENSUS: the `dropident` probe calls that existing reader from `drop_fn_for` and **fires
+170 680 times** — every drop-glue decision in the corpus passes this site.
+THE THIRD SPELLING, same class, different site: `collect_impl` (src/compiler/sema_collect.cpp)
+sets `builtin_marker_` from the BARE trait name, so a user `trait Drop` in any package is
+merged with the prelude's.
+
+### ROOT 4 — `MLIRGenImpl::emit_closure` (src/compiler/mlir_gen_dyn.cpp).
+### **RECORDED AND DISCARDED**.
+`capture_own_inline[i]` is the decision "this escaping `move` closure OWNS its capture
+inline in the heap env". The loop reads `capture_is_dyn[i] = var_dyn_trait_.count(name)` —
+a bare "is a dyn" bit — and `continue`s, with the comment "a dyn value-fat-pair is itself
+a borrowed handle, not owned storage". For an OWNING `Box<dyn Tr>` that is false. The
+owning bit is on the capture's OWN TypeRef: `TypeRef::owning_trait_object()`, the same
+predicate `gen_drop_owning_dyn_handle` is dispatched on two files away (mlir_gen_stmt.cpp).
+PROVED ON THE ARTEFACT: `f`'s emitted body stores `ptr %0` — the ADDRESS OF ITS OWN
+PARAMETER SLOT — into the heap env, and then, after building the Box, runs the parameter's
+drop (`call void %16(ptr %11); call void @free(ptr %11)`). The escaped closure reads a slot
+that has been freed and whose stack frame is gone.
+
+### ROOT 5 — `MLIRGenImpl::gen_expr_kind(lir_view::EDerefView, TypeRef)`
+### (src/compiler/mlir_gen_expr.cpp). The DISCRIMINATOR EXISTS AND IS NOT ASKED.
+The function returns `ptr` unchanged for Struct / TraitObject / Array / Tuple / FatSlice
+and LOADS for everything else. FatClosure is on the load path DELIBERATELY — the comment
+says so: "a CLOSURE value is an 8-byte pointer-to-{fn,env} handle … so FatClosure stays on
+the load path". That convention does not hold for a Box payload: `box_new` for a closure
+`alloc(16)` + `memcpy 16` — the {fn,env} PAIR is stored INLINE — so `Box__deref` already
+returns the pair's address and the load reads the function pointer as data.
+    main:  %14 = call ptr @…Box…__deref(ptr %4)
+           %15 = load ptr, ptr %14        ← one indirection too many
+           %17 = load ptr, gep(%15,0,0) ; call %17(...)   → SIGSEGV
+The site already HAS the shape of the answer for the neighbouring kind:
+`deref_operand_is_ptr_to_dyn_handle` is the provenance discriminator written for
+TraitObject three branches above, for the identical "is this a pointer to a stored HANDLE
+or a pointer INTO the storage" question. Nothing asks it for a closure.
+
+## 4. THE GROUPING, TESTED BY MEASUREMENT — **BOTH HANDED-DOWN GROUPS ARE REFUTED**
+The brief proposed two groups: "1 and 2 are both drop glue ignoring that something was
+moved or bound by reference", "4 and 5 are both a closure/Box capture's ownership". The
+test it named is the right one — does ONE candidate edit move BOTH members? — and the
+answer is no, in all four directions. `build/hand-2026-09-04five/matrix.txt`, every cell a
+COMPILE rc / RUN rc / stdout sha on today's binary:
+
+    program      unarmed   bxfldmv  dstrbind  dropident  clowndyn  derefclos
+    d1            0/134     1/—      0/134     0/134      0/134     0/134
+    d2_ref        0/134     0/134    1/—       0/134      0/134     0/134
+    d2_wild       0/134     0/134    **0/0**   0/134      0/134     0/134
+    d3_trait      0/1       0/1      0/1       **0/0**    0/1       0/1
+    d3_inh        0/1       0/1      0/1       **0/0**    0/1       0/1
+    d4            0/1       0/1      0/1       0/1        **0/134** 0/139
+    d5            0/139     0/139    0/139     0/139      0/139     **0/0**
+    d5_nogen      0/139     0/139    0/139     0/139      0/139     **0/0**
+    d5_refc       0/139     0/139    0/139     0/139      0/139     **0/0**
+    d5_call       0/0       0/0      0/0       0/0        0/0       0/139  ← cost
+    d4b_inside    0/0       0/0      0/0       0/0        0/0       0/139  ← cost
+    d4c_i64       0/0       0/0      0/0       0/0        0/0       0/139  ← cost
+    d1_control    0/0       1/—  ← cost
+    (`1/—` = the crude arm turned the miscompile into a compile-time refusal.)
+
+GROUP A (1+2): **COINCIDENCE.** `bxfldmv` moves d1 and NOTHING in d2; `dstrbind` moves
+both d2 spellings and NOTHING in d1. Two files, two phases of the same file, no shared
+line. What they share is a SYMPTOM (`free(): double free`) and a family (a source and a
+binding both owning one buffer) — and 2026-08-27 already priced what grouping ten rows by
+a shared symptom is worth: the fix closed ONE.
+
+GROUP B (4+5): **COINCIDENCE, AND THE SECOND MEMBER IS A DIFFERENT DEFECT ENTIRELY** (§2).
+`clowndyn` moves only d4; `derefclos` moves the four `(*x)()` programs and not d4's value.
+Different file, different question (env layout vs deref repr), and `derefclos` is the only
+one of the five that moves d4 at all — it makes it WORSE (139), which is the two arms
+disagreeing about the same convention, not agreeing about a root.
+
+⚠ THE ONE REAL COUPLING IS INSIDE ROOT 4, AND IT IS A SERIES (rule 2). `clowndyn` takes d4
+from 1 (garbage) to **134** (abort). It is not a regression of the arm; it is the arm's own
+source comment coming true — "the predicate here MUST match that sema decision exactly
+(else double-free / leak)". Giving the env ownership without also removing the parameter
+from sema's `closure_owned_drop_` leaves two owners. Root 4 needs BOTH halves in one
+landing; half of it is measurably worse than none.
+
+## 5. THE PROBE TABLE — FIVE PROBES, **ONE BUILD** (`37c8cddb14adb561`), L1 rc 0 INERT
+`build/round-2026-09-04five/probes.spec`, `scripts/probe-batch.sh`. probe-batch proved the
+batch inert with nothing armed BEFORE pricing: `test-levels.sh L1` **rc 0**, 748/748 + the
+gates tier. Builds 746 (unarmed) → 747…751 (one identity per armed name).
+
+    probe      site                                       fires  ceiling  cost  cfail  std
+    bxfldmv    sema_impl.hpp::is_unowned_move_source          2      0      1      0    ok
+    dstrbind   sema_stmt.cpp::lower_let_destruct             56      0      1      0    ok
+    dropident  sema.cpp::drop_fn_for                    170 680      0     58      0    ok
+    clowndyn   mlir_gen_dyn.cpp::emit_closure                 0      —      —      —     —
+    derefclos  mlir_gen_expr.cpp::gen_expr_kind(EDerefView)  16      0     12      0    ok
+
+CEILING IS 0 FOR ALL FIVE **BY CONSTRUCTION AND IT IS NOT A RESULT**: the ceiling column
+counts `bc_admits.ledger` rows closed, and none of the five defects is a borrow-check row.
+It is printed because the tool prints it, and the "STOP cost>=ceiling" verdicts it produces
+are the tool reading a column that does not apply. cfail 0 of 1360 for all four that fired,
+and all four stdlib layers compile under every armed name.
+
+⚠ `clowndyn` **NEVER FIRED** — 0 arrivals over the whole ledger + legal population. That is
+not a zero (rule 1). PROVED LIVE BY HAND INSTEAD: with `LOGOS_PROBE_FIRE` set, d4 records
+`clowndyn 1` and d4c_i64 (the same escape with an i64 capture) records nothing — the site
+is reached and the arm's own predicate is what selects. THE FINDING IN THE ZERO: an
+escaping `move` closure that owns a `Box<dyn Tr>` occurs in **NO fixture in this tree**.
+
+## 6. RULE 7, MEASURED AND DIAGNOSED — EVERY ONE OF THE FOUR COSTS IS THE CRUDE ARM,
+##    AND THREE OF THEM ARE EXPLAINED BY NAME
+A ceiling probe is deliberately wrong; the number that matters is what the CORRECT arm
+would cost, and each of these four decomposes.
+
+ · `bxfldmv` cost 1 = `pass/bc_mvchain_box_field_owned_admit`. The crude arm refuses EVERY
+   move out of a Box's field; that fixture moves an `Arr` ([i64;4]) and says in its own
+   header that it is DROP-FREE ON PURPOSE. The correct predicate is not "move-typed" but
+   "HAS DROP GLUE" (`drop_fn_for` / `has_droppable_fields`), which that fixture fails.
+   PREDICTED cost of the correct arm on this population: 0. NOT MEASURED (one build).
+
+ · `dstrbind` cost 1 = `spec/pass/pat_2` — and it is the `ref px` line quoted in §3. The
+   crude arm SKIPS the binding, so `px` is undefined; the correct arm BINDS BY REFERENCE
+   (`&tmp.field`, type `&T`), which is what that fixture's own `@rule` says must happen.
+   The `_` half needs no repair at all: d2_wild goes 134 → **0** under the crude arm.
+   PREDICTED cost of the correct arm: 0, and pat_2 becomes its pin.
+
+ · `dropident` cost 58, and **58 of 58 are fixtures that declare their own
+   `trait Drop { fn drop(self: Self); }` in their own package** (checked by grep over each
+   failing fixture's source; none of the 108 such files in the tree imports the prelude's).
+   The cost is NOT the identity test — it is the GLOBAL BAIL at the top of the reader I
+   reused: `explicit_destructor_call` returns false the moment ANY traits_ entry named
+   `Drop` has a package other than `logos.lang.drop`, which is exactly what those 108 are.
+   The correct arm is the per-candidate half alone (`trait_name == "Drop"` accepted,
+   EMPTY = inherent and any OTHER trait name rejected), which does not consult traits_ at
+   all. PREDICTED cost on this population: 0, all 58 by name. NOT MEASURED (one build).
+   ⚠ AND THE 108 ARE A CORPUS DECISION, NOT A BUG TO FIX: `collect_impl`'s bare-name merge
+   is what makes them work at all. Closing the user-`trait Drop` spelling of root 3 means
+   re-porting 108 fixtures onto the prelude trait. Closing the INHERENT and OTHER-NAMED
+   spellings (d3_inh, d3_trait) does not touch them.
+
+ · `derefclos` cost 12 — `box-dyn-fnmut`, `dyn-box-fn-call`, `boxed-capturing-closure-
+   factory-b167`, `boxed-noncapturing-closure-return-b167`, six `bc_objlt_closure*`,
+   `bc_d1r3_f4_closure_param_admits`, `spec/pass/type_5` — and my own d5_call / d4b_inside /
+   d4c_i64 join them (0 → 139). THIS COST IS REAL AND STRUCTURAL, not a crudeness artefact:
+   both directions of the site are live, and the LLVM shows exactly why. For `b()` on a
+   `Box<closure>` the EDerefView operand is the BOX STRUCT'S ADDRESS and one load is right:
+       unarmed   %14 = load ptr, ptr %4        ; %4 = alloca Box{ptr} -> the payload address
+       derefclos %14 = gep %4, 0, 0            ; the Box's own {ptr} read AS the {fn,env} pair
+   For `(*b)()` the operand is a `Box__deref` CALL RESULT, which has ALREADY done that load,
+   and the second one is the SIGSEGV. Same node kind, opposite answers, and the
+   discriminator is the operand's PROVENANCE — a stored handle vs a pointer into the
+   storage — which is precisely what `deref_operand_is_ptr_to_dyn_handle` decides three
+   branches above for TraitObject, and what `is_deref_or_index_call` (sema_impl.hpp) spells
+   for a user `deref` call. Neither is asked here. A blanket kind test cannot separate the
+   two directions; the 12 are the proof that it must not be tried.
+   ⚠ d5_refc (`let r = &c; (*r)()`, a plain `&Closure`) is FIXED by the blanket arm
+   (139 → 0), so the load is wrong there too — the load branch is right ONLY for a Box (or
+   `&Box`) VALUE, i.e. exactly where the pointer being deref'd IS the stored handle.
+
+## 7. THE RUNTIME COST COLUMN — MY OWN, AND IT SAW WHAT THE OTHERS COULD NOT
+`scripts/run_oracle.py` (written this round). `ceiling-probe.sh` prices COST over
+`-L bc -L pass` plus three directories — **1047 of the tree's 6468 registered `pass` tests**
+— and none of the three columns it prints can see a program that still compiles and now
+computes the wrong thing. So the unit here is a triple taken from a program COMPILED,
+LINKED AND EXECUTED: logosc's rc (90 = exited 0 after self-diagnosing), the program's own
+exit code, and sha256 of its stdout. Population read from `ctest -N -V -L pass` command
+lines: **6269** run_test.sh pass fixtures, one run unarmed and one per probe name, six runs
+in parallel at 6 workers each (~2 h wall on a contended box). Baselines and armed runs in
+`build/probe/run/*.tsv`.
+
+    probe      compile-rc moved   run-rc moved   stdout-only moved   TOTAL   (ceiling-probe said)
+    bxfldmv           1                0                 0             1            1
+    dstrbind          1                0                 0             1            1
+    dropident         0               50                38            88           58
+    clowndyn          0                0                 0             0            —
+    derefclos         0               13                 0            13           12
+
+⚠ **THE COLUMN EARNED ITS PRICE ON `dropident`: 88 damaged fixtures where the three
+existing columns saw 58, and 38 of the 30 extra are STDOUT-ONLY** — `cond_move_*`,
+`adv1_capture_drop_order`, the drop-transcript family: the destructor stops running, the
+program still exits 0, and the only witness is the missing `D<n>` line. An rc-based oracle
+is blind to exactly the damage a drop-glue change does.
+⚠ AND ON `derefclos`: 13, not 12 — `boxed-cl-call` is a thirteenth, and every one of the 13
+moved to run rc **-11 (SIGSEGV)** with compile rc unchanged at 0.
+
+⚠ **RULE 18 — THE ORACLE'S OWN CONTROL TWIN, AND IT FOUND ONE FALSE POSITIVE.**
+`clowndyn` never fires, so it is this oracle's null pole; on the raw diff it reported ONE
+change, `imported/pass/cast/cast-region-to-uint`, which reported a change under all five
+names. That fixture prints a STACK ADDRESS (`&x=7ffefb3cbe10`, three different values in
+three consecutive runs of one binary) — it is nondeterministic and its stdout cannot be an
+oracle for anything. Excluded from every number above; with it excluded the null pole reads
+**0**, which is what makes the other four columns readable at all.
+
+## 8. WHAT DESERVES FUNDING, IN ORDER, WITH THE NUMBER THAT CONDEMNS EACH DECLINE
+ 1. **ROOT 2 — `emit_destruct`'s binding mode.** The `_` half is DONE at ZERO cost: d2_wild
+    goes 134 → 0 under the crude arm and the whole-corpus runtime diff is **1 program**,
+    which is the `ref` half's crudeness (`spec/pass/pat_2`, the fixture that already
+    ASSERTS the correct `ref px` semantics). Smallest edit of the five, one function, the
+    fact already read twenty lines above, and the corpus supplies its own pin. Fund first.
+ 2. **ROOT 5 — the FatClosure deref.** Four programs 139 → 0 under a one-line arm; the cost
+    is 13 and it is a real fork, not crudeness, and the discriminator that resolves it
+    (`deref_operand_is_ptr_to_dyn_handle`) is already written at the same site for the
+    neighbouring kind. Highest ratio of programs-fixed to concepts-introduced. And it is
+    the defect with the worst symptom in the set: a silent SIGSEGV on `(*b)()`, a spelling
+    a user reaches for immediately.
+ 3. **ROOT 3 — `drop_fn_for`'s key.** The identity test is one field on a struct the site
+    already holds, and 58 of the crude arm's 58 corpus costs are attributable BY NAME to
+    the global bail in the reader I borrowed, not to the test. But it splits: the INHERENT
+    and OTHER-NAMED-TRAIT spellings (d3_inh, d3_trait) are free; the user-`trait Drop`
+    spelling is a CORPUS DECISION worth **108 fixtures**, and it is not mine to take.
+    Fund the first two spellings; put the third in front of an owner.
+ 4. **ROOT 1 — DerefMove for a Box field.** Correct, but it is TWO DOORS IN SERIES and the
+    second one is a feature, not a repair: `moved_fields` cannot steer `Box<T>`'s
+    destructor because that destructor is an ordinary user function. The cheap alternative
+    — REFUSE the partial move (what `bxfldmv` does) — costs 1 program crudely and a
+    PREDICTED 0 when keyed on drop glue rather than move-ness, and it converts a silent
+    double free into a diagnostic today. Fund the REFUSAL now and the lowering later; do
+    not fund the lowering as if it were a bug fix.
+ 5. **⛔ ROOT 4 — DECLINE THIS ROUND, and the number is `clowndyn`'s 1 → 134.** Half the
+    mechanism is measurably WORSE than none: giving the heap env ownership of the
+    `Box<dyn Tr>` without simultaneously removing the parameter from sema's
+    `closure_owned_drop_` turns garbage into an abort. The site fires **0 times over the
+    entire ledger + legal corpus** and **0 times over all 6269 pass fixtures** — no fixture
+    in the tree has this shape, so nothing will catch a half-landing. It needs both halves,
+    a fixture written first, and its own round.
+
+## 9. OFF-LEDGER, RECORDED AND NOT PURSUED
+ · `imported/pass/cast/cast-region-to-uint` prints a stack address and is registered as a
+   `pass` fixture. Its stdout is different on every run; whatever its `.expected` asserts,
+   it cannot be asserting that line. Found as this round's oracle noise, not chased.
+ · The 2026-09-02land §8.2 sibling (`match r { &ref q => … }` returning 0 for 2) was not
+   re-measured this round — it is a THIRD spelling at root 2's door and belongs with it.
+ · `wrap<F: Fn()->i64>(f: F) -> Box<F>` WORKS (rc 0, called as `b()`). The fixture removed
+   in 2026-09-02y asserted a refusal of a legal program; what needs a fixture is `(*b)()`.
+ · No ledger row opened or closed: `# TOTAL 99` + `# TOTAL 25`, both re-derived by direct
+   listing at close, unchanged.
+
+---
+
+## bxfldmv
+site: src/compiler/sema_impl.hpp::is_unowned_move_source
+build: 37c8cddb14adb561
+measured: 2026-09-04
+fires: 2
+ceiling: 0
+cost: 1
+verdict: refusing a Box FIELD partial move turns the double free into a diagnostic; the
+  one cost is the DROP-FREE fixture, which a drop-glue-keyed predicate would not touch
+note: the crude arm makes the Box deref-call hop OPAQUE inside `recv_unowned_`, so every
+  `bx.field` move is E0507. 2 arrivals over the whole ledger + legal corpus — a very
+  narrow site. Cost 1 = `pass/bc_mvchain_box_field_owned_admit`, whose own header says its
+  moved type is DROP-FREE ON PURPOSE; keying the refusal on DROP GLUE rather than
+  move-ness is PREDICTED cost 0 there and NOT MEASURED. Runtime column (6269 pass fixtures
+  compiled+linked+run): 1 compile-rc move, 0 run-rc, 0 stdout — the same one fixture.
+  The REAL fix is a DerefMove lowering for a field, which needs a second door: `Box<T>`'s
+  destructor is an ordinary user fn and `SDrop.moved_fields` cannot steer it.
+
+## dstrbind
+site: src/compiler/sema_stmt.cpp::lower_let_destruct
+build: 37c8cddb14adb561
+measured: 2026-09-04
+fires: 56
+ceiling: 0
+cost: 1
+verdict: the `_` half is a FREE FIX (d2_wild 134 -> 0); the `ref` half needs a bind-by-
+  reference, and skipping it is what the single cost measures
+note: `emit_destruct` emits a by-value field READ for every spelling. The arm reads
+  `la::IS_REF` and `bind_name == "_"` — the SAME bits the E0507 block twenty lines above
+  reads off the SAME nodes, which is the rule-16 answer: RECORDED AND DISCARDED. Cost 1 =
+  `spec/pass/pat_2`, whose `@rule pat.bind.struct-field-ref` asserts `let Pt { x: ref px }`
+  binds px to a REFERENCE — it passes today only because the field is `i64`. Runtime
+  column: 1 compile-rc move, 0 run-rc, 0 stdout, over 6269.
+
+## dropident
+site: src/compiler/sema.cpp::drop_fn_for
+build: 37c8cddb14adb561
+measured: 2026-09-04
+fires: 170680
+ceiling: 0
+cost: 58
+verdict: 58 of 58 costs are the borrowed reader's GLOBAL BAIL, not the identity test — and
+  the runtime column found 88, of which 38 are STDOUT-ONLY and invisible to every rc oracle
+note: the destructor is keyed on the mangled name `<T>__drop`; the arm calls the existing
+  `explicit_destructor_call` (sema_expr.cpp), which reads `SemaFuncInfo::trait_name` off the
+  same candidate list. Every one of the 58 refused fixtures declares its OWN
+  `trait Drop { fn drop(self: Self); }` in its own package (108 such files in the tree, none
+  importing the prelude's), which trips that reader's "any traits_ entry named Drop from
+  another package ⇒ false" bail. The PER-CANDIDATE half alone (accept `trait_name == "Drop"`,
+  reject EMPTY and any other name) is PREDICTED cost 0 on all 58, NOT MEASURED.
+  ⚠ THE USER-`trait Drop` SPELLING IS A 108-FIXTURE CORPUS DECISION, not a fix.
+
+## clowndyn
+site: src/compiler/mlir_gen_dyn.cpp::gen_closure
+build: 37c8cddb14adb561
+measured: 2026-09-04
+fires: 0
+ceiling: —
+cost: —
+verdict: NEVER FIRED over the ledger, the legal corpus AND all 6269 pass fixtures — proved
+  live only by a hand program, and half the mechanism is WORSE than none
+note: an escaping `move` closure's OWNING `Box<dyn Tr>` capture stays a borrow because the
+  loop asks `capture_is_dyn` (a bare "is a dyn" bit) and not the capture TypeRef's own
+  `owning_trait_object()`. Armed, `build/hand-2026-09-04five/d4.logos` records `clowndyn 1`
+  and d4c_i64 (same escape, i64 capture) records nothing — the site is reached, the arm's
+  predicate selects. The arm takes d4 from run rc 1 (garbage: 24349085727 for 59) to 134
+  (abort): the env now owns the value AND sema's `closure_owned_drop_` still drops the
+  parameter. TWO DOORS IN SERIES; the source comment at the site says so and it is right.
+  Runtime column: 0 moves over 6269 — this shape is in NO fixture in the tree.
+
+## derefclos
+site: src/compiler/mlir_gen_expr.cpp::gen_expr_kind
+build: 37c8cddb14adb561
+measured: 2026-09-04
+fires: 16
+ceiling: 0
+cost: 12 (13 by the runtime column)
+verdict: fixes FOUR SIGSEGVing spellings of `(*x)()` and breaks THIRTEEN `Box<dyn Fn>`
+  callers — both directions of the site are live and the blanket kind test must not be used
+note: FatClosure is on the LOAD path deliberately ("a CLOSURE value is an 8-byte
+  pointer-to-{fn,env} handle"), and that convention is false for a Box PAYLOAD: box_new
+  allocates 16 B and memcpys the pair INLINE, so `Box__deref` already returns the pair's
+  address. `(*b)()` therefore loads the fn pointer as data — SIGSEGV. But `b()` on the same
+  `Box<closure>` reaches the SAME node with the Box struct's own address as the operand,
+  where the load is right; making it a pointer-through breaks 13 fixtures, all to run rc -11
+  with compile rc unchanged. The discriminator is the operand's PROVENANCE, which
+  `deref_operand_is_ptr_to_dyn_handle` already decides three branches above for TraitObject.
+  Runtime column: 0 compile-rc, 13 run-rc (all -11), 0 stdout, over 6269.

@@ -1,0 +1,14 @@
+// DEFECT 5 — `wrap<F>(f: F) -> Box<F>` over a closure, then `(*b)()`.
+package d5;
+fn wrap<F: Fn() -> i64>(f: F) -> Box<F> {
+    return Box::new(f);
+}
+fn main() -> i32 {
+    let n: i64 = 3i64;
+    let b = wrap(|| { return n; });
+    let got: i64 = (*b)();
+    if got != 3i64 {
+        return 1i32;
+    }
+    return 0i32;
+}

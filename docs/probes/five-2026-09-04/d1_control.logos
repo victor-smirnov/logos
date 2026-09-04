@@ -1,0 +1,11 @@
+// DEFECT 1 CONTROL — same shape, drop-FREE moved type.
+package d1_control;
+use logos.mem.boxed;
+struct Arr { a: [i64; 4] }
+struct Inner { arr: Arr, n: i64 }
+fn main() -> i32 {
+    let bx: Box<Inner> = Box::new(Inner { arr: Arr { a: [7i64,1i64,1i64,1i64] }, n: 3i64 });
+    let v: Arr = bx.arr;
+    if v.a[0] != 7i64 { return 1i32; }
+    return 0i32;
+}

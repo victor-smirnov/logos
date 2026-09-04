@@ -1871,7 +1871,15 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     if (heap_env_pre && v.is_move()) {
         for (size_t i = 0; i < captures.size(); ++i) {
             if (!capture_is_pointer_repr[i]) continue;
-            if (capture_is_dyn[i]) continue;  // dyn handle is a borrow
+            // PROBE clowndyn (2026-09-04five, root 4): an OWNING `Box<dyn Tr>` IS
+            // owned storage, and leaving it a borrow makes an escaping `move`
+            // closure read its defining fn's dead slot. The owning bit is on the
+            // capture's own TypeRef (trait_owning_kind), read at
+            // gen_drop_owning_dyn_handle already.
+            if (capture_is_dyn[i] &&
+                !(logos::probe::on("clowndyn") &&
+                  TypeRef(capture_types[i]).owning_trait_object()))
+                continue;  // dyn handle is a borrow
             if (capture_is_mut_ref[i]) continue;
             capture_own_inline[i] = true;
         }

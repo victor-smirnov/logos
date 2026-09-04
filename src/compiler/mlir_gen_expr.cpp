@@ -2085,6 +2085,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
     // until a repro says otherwise.
     if (type && ref_repr_of(type) == RefReprKind::FatSlice)
         return ptr;
+    // PROBE derefclos (2026-09-04five, root 5): the FatClosure kind is on the LOAD
+    // path by the comment above, and `Box::new(closure)` stores the {fn,env} pair
+    // INLINE (box_new memcpys 16 B), so `Box__deref` already yields the pair's
+    // address and the load is one indirection too many — SIGSEGV.
+    if (type && ref_repr_of(type) == RefReprKind::FatClosure &&
+        logos::probe::on("derefclos"))
+        return ptr;
     auto pointee = logos_to_mlir(type);
     if (!pointee) pointee = builder_.getI32Type();
     return builder_.create<mlir::LLVM::LoadOp>(loc_, pointee, ptr);

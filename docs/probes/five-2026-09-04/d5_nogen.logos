@@ -1,0 +1,12 @@
+// DEFECT 5 CONTROL — `(*b)()` where the Box was made WITHOUT the generic
+// wrapper. Isolates the deref-call from the generic `Box<F>` return.
+package d5_nogen;
+fn main() -> i32 {
+    let n: i64 = 3i64;
+    let b = Box::new(|| { return n; });
+    let got: i64 = (*b)();
+    if got != 3i64 {
+        return 1i32;
+    }
+    return 0i32;
+}

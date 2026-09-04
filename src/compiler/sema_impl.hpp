@@ -2304,6 +2304,12 @@ private:
                         auto op = lir_view::EDerefView{x}.operand();
                         if (is_deref_or_index_call(op)) {
                             if (!is_box_deref_call_(op)) return true;
+                            // PROBE bxfldmv (2026-09-04five, root 1): the Box hop is
+                            // TRANSPARENT here and `bx.field` of a move-typed field
+                            // then DOUBLE-FREES at run time (no DerefMove lowering for
+                            // a FIELD). The crude arm turns the miscompile into a
+                            // refusal by treating the Box hop as unowned.
+                            if (logos::probe::on("bxfldmv")) return true;
                             x = call_recv_(op);
                             break;
                         }

@@ -1,0 +1,14 @@
+// The OTHER side of the Deref site: `*r` over a plain `&Closure`.
+// If the FatClosure load branch is turned off blanketly, this is the
+// program that would break.
+package d5_refc;
+fn main() -> i32 {
+    let n: i64 = 3i64;
+    let c = || { return n; };
+    let r = &c;
+    let got: i64 = (*r)();
+    if got != 3i64 {
+        return 1i32;
+    }
+    return 0i32;
+}

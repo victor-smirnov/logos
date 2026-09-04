@@ -1,0 +1,11 @@
+// DEFECT 1 REFERENCE POINT 3 — a Box partial move whose field type has NO
+// drop glue: the recorded claim is that this one is fine.
+package d1_nodrop;
+use logos.mem.boxed;
+struct Inner { k: i64, n: i64 }
+fn main() -> i32 {
+    let bx: Box<Inner> = Box::new(Inner { k: 9i64, n: 3i64 });
+    let v: i64 = bx.k;
+    if v != 9i64 { return 1i32; }
+    return 0i32;
+}

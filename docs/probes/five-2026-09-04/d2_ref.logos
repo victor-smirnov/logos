@@ -1,0 +1,16 @@
+// DEFECT 2a — a `ref` sub-binding in a let-destructure through a deref.
+// Nothing moves out of `*r`; `v` must BORROW the String, not copy its buffer.
+package d2_ref;
+use logos.mem.string;
+struct A { s: String, t: i64 }
+fn f(r: &A) -> i64 {
+    let A { s: ref v, t: w } = *r;
+    let n: i64 = v.len();
+    return n + w;
+}
+fn main() -> i32 {
+    let a: A = A { s: String::from("kk"), t: 1i64 };
+    let g: i64 = f(&a);
+    if g != 3i64 { return 1i32; }
+    return 0i32;
+}

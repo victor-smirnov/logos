@@ -1,0 +1,18 @@
+// DEFECT 4 CONTROL — the same closure CALLED INSIDE f, before f returns.
+package d4b_inside;
+trait Tr { fn m(self: &Self) -> i64; }
+struct S { v: i64 }
+impl Tr for S {
+    fn m(self: &Self) -> i64 { return self.v; }
+}
+fn f(b: Box<dyn Tr>) -> i64 {
+    let c: Box<dyn Fn() -> i64> = Box::new(move || { return b.m(); });
+    return c();
+}
+fn main() -> i32 {
+    let got: i64 = f(Box::new(S { v: 59i64 }));
+    if got != 59i64 {
+        return 1i32;
+    }
+    return 0i32;
+}

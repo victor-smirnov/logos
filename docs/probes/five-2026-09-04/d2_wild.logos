@@ -1,0 +1,15 @@
+// DEFECT 2b — a `_` sub-pattern in a let-destructure through a deref.
+// `_` binds nothing, so the String must not be bound and must not be dropped.
+package d2_wild;
+use logos.mem.string;
+struct A { s: String, t: i64 }
+fn f(r: &A) -> i64 {
+    let A { s: _, t: w } = *r;
+    return w;
+}
+fn main() -> i32 {
+    let a: A = A { s: String::from("llllllllllllmmmm"), t: 2i64 };
+    let g: i64 = f(&a);
+    if g != 2i64 { return 1i32; }
+    return 0i32;
+}

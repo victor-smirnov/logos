@@ -1,0 +1,11 @@
+// DEFECT 1 — partial move of a DROP-CARRYING field out of a Box.
+package d1;
+use logos.mem.boxed;
+use logos.mem.string;
+struct Inner { s: String, n: i64 }
+fn main() -> i32 {
+    let bx: Box<Inner> = Box::new(Inner { s: String::from("abcdefghijklmnop"), n: 3i64 });
+    let v: String = bx.s;
+    if v.len() != 16i64 { return 1i32; }
+    return 0i32;
+}
