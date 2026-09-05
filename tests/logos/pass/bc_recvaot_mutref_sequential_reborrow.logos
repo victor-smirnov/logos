@@ -1,0 +1,16 @@
+// 2026-09-05a: two SEQUENTIAL reborrows through an immutable &mut local (the first is dead before the second) — legal; fail twin bc_recvaot_two_live_reborrows_fail keeps both live.
+package bc_recvaot_mutref_sequential_reborrow;
+struct S { v: i64 }
+impl S {
+    fn get(&mut self) -> &mut i64 { return &mut self.v; }
+}
+fn main() -> i32 {
+    let mut s: S = S { v: 1i64 };
+    let sr: &mut S = &mut s;
+    let r1: &mut i64 = sr.get();
+    *r1 = 2i64;
+    let r2: &mut i64 = sr.get();
+    *r2 = 3i64;
+    if s.v != 3i64 { return 1i32; }
+    return 0i32;
+}

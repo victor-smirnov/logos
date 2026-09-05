@@ -1,0 +1,12 @@
+// 2026-09-05a: the corpus hole 2026-09-04g named — an OWNED IMMUTABLE local calling a &mut self method that returns a borrow (E0596). Pass twin: bc_recvaot_owned_mut_recv.
+package bc_recvaot_owned_immut_recv_fail;
+struct S { v: i64 }
+impl S {
+    fn get(&mut self) -> &mut i64 { return &mut self.v; }
+}
+fn main() -> i32 {
+    let s: S = S { v: 1i64 };
+    let r: &mut i64 = s.get();
+    *r = 3i64;
+    return 0i32;
+}

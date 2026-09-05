@@ -10077,36 +10077,15 @@ private:
                         // the two siblings that already split on the path: the
                         // bare-place receiver arm below and the explicit
                         // `&mut place` AddrOf arm.
-                        // PROBES 2026-09-04g: this branch asks the binding-mut
-                        // question with NONE of the sibling's exemptions.
-                        bool pat_a_ = false;
-                        if (auto* pa_ = var_find(bp.root_slot, bp.root))
-                            pat_a_ = pa_->pat_bound;
-                        const bool ref_a_ = bp.root_type && is_ref_kind(bp.root_type);
-                        const bool thru_a_ = place_thru_mut_ref(bp);
-                        if (m) {
-                            logos::probe::census("recvaot.mut");
-                            if (auto* ma_ = var_find(bp.root_slot, bp.root);
-                                ma_ && !ma_->is_mut_binding) {
-                                logos::probe::census("recvaot.nomut");
-                                logos::probe::census(
-                                    ref_a_ ? "recvaot.nomut.ref"
-                                    : thru_a_ ? "recvaot.nomut.thru"
-                                    : pat_a_ ? "recvaot.nomut.pat"
-                                    : param_names_.count(bp.root)
-                                        ? "recvaot.nomut.param"
-                                        : "recvaot.nomut.local");
-                            }
-                        }
-                        const bool skip_a_ =
-                            logos::probe::on("recvaotany") ||
-                            (logos::probe::on("recvaotdel") &&
-                             (pat_a_ || ref_a_ || thru_a_)) ||
-                            (logos::probe::on("recvaotref") &&
-                             (ref_a_ || thru_a_)) ||
-                            (logos::probe::on("recvaotpat") && pat_a_);
+                        // LANDED 2026-09-05a: a `&mut` root or a place reached
+                        // THROUGH a `&mut` is a reborrow — the field tail's own
+                        // exemption. `recvaotask` = the unmasked question.
+                        const bool root_is_mut_ref_ = bp.root_type &&
+                            bp.root_type.kind() == LogosType::Kind::MutRef;
                         record_borrow(bp, m, line, holder,
-                                      {/*skip_mut_binding=*/skip_a_});  // recvaotdel recvaotref recvaotpat
+                                      {/*skip_mut_binding=*/m &&
+                                       !logos::probe::on("recvaotask") &&
+                                       (root_is_mut_ref_ || place_thru_mut_ref(bp))});
                     }
                 } else if (recv && result_borrows_self(v)) {
                     // Bare VarRef / place receiver — sema didn't wrap it in
@@ -12513,9 +12492,9 @@ private:
                 if (auto it = var_find(v.var_slot(), name); it != nullptr) {
                     it->is_mut_binding = v.is_mut();
                     // A `let` PROJECTING OUT of a place whose own declared-mut
-                    // answer is unanswerable inherits that — sema's pattern
-                    // lowerings (`__dst_*`, `__pat_pld_*`) drop the pattern's
-                    // `mut`. PROBES.md 2026-09-03i §4.
+                    // answer is unanswerable inherits that — sema's match/for/
+                    // if-let lowerings (`__pat_pld_*`) drop the pattern's `mut`
+                    // (2026-09-03i §4); the `__dst_*` half went 2026-09-05a.
                     lir_view::ExprRef dst_term_;
                     (void)value_local_root(val, pool, nullptr, &dst_term_);
                     if (dst_term_ && val.kind() != lir_schema::expr::Code::VarRef &&
@@ -12524,8 +12503,9 @@ private:
                         auto* tst_ = var_find(
                             lir_view::EVarRefView{dst_term_}.var_slot(),
                             std::string(tn_));
-                        if (is_destructure_temp_name(tn_) ||
-                            (tst_ && tst_->pat_bound))
+                        if ((tst_ && tst_->pat_bound) ||
+                            (logos::probe::on("patmutoff") &&
+                             is_destructure_temp_name(tn_)))
                             it->pat_bound = true;
                     }
                 }

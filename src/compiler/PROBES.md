@@ -23121,3 +23121,163 @@ ceiling: 0 (bc) / 1 (soundness queue: destructure_mut_recv)
 cost: 0 pass / 0 cfail / stdlib ok / runtime 0 of 6296 / hand: ADMITS a19 (illegal, no-`mut` destructure)
 verdict: ⛔ NOT as a borrow-check rule — fund the sema by-value pattern `mut` bit instead
 note: skip iff pat_bound; indistinguishable from the no-`mut` twin until sema carries the bit.
+
+# ═══ ROUND 2026-09-05a — THE SOUNDNESS QUEUE IS THE OBJECTIVE. TWO ROOTS, FOUR ROWS CLOSED
+# (predicted 4 BY NAME, both ways), ONE ROW ADDED, `# TOTAL` 20 -> 17. (A) THE AddrOfTemp
+# RECEIVER BRANCH TAKES THE REBORROW EXEMPTION ITS FIELD TAIL ALREADY TAKES, SPELLED `MutRef`;
+# (B) SEMA CARRIES THE BY-VALUE PATTERN `mut` INTO EVERY `let PATTERN` LOWERING, INTO ITS OWN
+# SCOPE AND INTO THE GRAMMAR'S TWO MISSING SPELLINGS, AND THE `__dst_*` HALF OF THE pat_bound
+# MASK IS DELETED. Cost over the PRE-EXISTING corpus: pass 0 / cfail 1 text-only (a FALSE LINE
+# REMOVED) / `-L fail` 2477 of 2477 + 7 new / stdlib four layers / RUNTIME (§6). Both control
+# twins price to exactly the new fixtures and nothing else. ═══
+
+## 0. STEP 1, RE-DERIVED (one correction to the brief's paraphrase)
+    HEAD 163f043bc, tree clean = origin/main. build_hash `8cf7721cc3d2a138` (READ, = the record).
+    soundness_queue `# TOTAL` 20 = 20 by listing · bc_admits 99 · bc_admits_blocked 25 ·
+    probe records 180, every site resolves. Queue gate rc 0 with LOGOS_LIB_DIR=build/lib/logos.
+    L1 at open: 751/751 (from the 09-04g record; re-run at close, §6).
+⚠ THE GATE HID TWO OF ITS OWN CLOSINGS. Under `set -euo pipefail`, the FAIL branch's
+`grep -m2 -E "error( \[|:)" "$O_ERR" | sed …` matches NOTHING for a `refuses` row that now
+compiles CLEAN, so the pipeline's status ended the `while read` loop at the FIRST such row:
+rows after it unjudged, the `# TOTAL` check and the no-row direction never reached. Measured:
+4 closings reported as 2 (`mutref_recv_immut_binding` was the loop's last line). rc was still
+1, so the gate was not permissive — it was TRUNCATED, the 16th kind of gate lie. Fixed with
+`|| true` on that one pipeline; the four closings then read as four.
+
+## 1. THE TARGET ROWS BY ID (file `build/round-2026-09-05a/targets-2026-09-05a.txt`, before any edit)
+    A  mutref_recv_immut_binding    tier 3 refuses  `let sr: &mut S = &mut s; sr.get()`
+    B  destructure_mut_recv         tier 3 refuses  `let P { a: mut aa } = p; aa.get()`
+    B  destructure_no_mut_box_deref tier 2 ADMITS   `let W { b: bb } = w; &mut *bb`
+    B  tuple_pat_mut_parse          tier 3 refuses  `let (mut a, _c): (Box<i64>, i64) = …` (syntax error)
+Predicted closed: exactly these four. Predicted NOT moved: boxbox_mut_deref (shared-ref gate)
+and every other row. Predicted ADDED: one row for the match/for/if-let `mut` shape (§7).
+Both held: the gate (fixed, §0) names the four and nothing else; 17 rows hold at close.
+
+## 2. ROOT A — the AddrOfTemp receiver branch (borrow_check.cpp take_ref_borrows, MethodCall arm)
+09-04g priced `recvaotref` (skip iff `is_ref_kind(root_type) || place_thru_mut_ref`). LANDED by
+delegation with the field tail's own spelling: `skip_mut_binding = m && (root_type.kind() ==
+MutRef || place_thru_mut_ref(bp))`. Rule 7 — where the fix differs from its probe: `is_ref_kind`
+includes SHARED refs; `MutRef` does not. On every hand shape the two agree because
+record_borrow's shared-ref gate refuses a `&`-crossed place before take_borrow_whole_ is asked
+(c03/c12 below read "behind a `&` reference" under both); the landing spells the narrower one so
+the agreement is not load-bearing. Control twin `recvaotask` restores the unmasked question.
+
+## 3. ROOT B — sema drops the by-value pattern `mut` (three rows, one root)
+The parser ALREADY produces `PAT_WILD{NAME, IS_MUT}` for `mut x` in `pat_single` and
+`PAT_FIELD{…, VALUE: PAT_WILD{IS_MUT}}` for `a: mut aa`; every `let PATTERN = rhs` lowering
+in sema_stmt.cpp (`lower_let_destruct`'s tuple names, `lower_let_pat`'s struct-shaped variant,
+slice, tuple-struct, deferred variant and struct arms — the six `__dst_*` sites) stamped
+`SLet.is_mut = false` and `define(name, type)` with the default `is_mut=false`. So the borrow
+checker could not answer the binding-mut question for a destructured binding, and 09-03i
+MASKED it (`pat_bound` inherited by any `let` projecting out of a `__dst_*` temp) — which is
+exactly what ADMITTED `destructure_no_mut_box_deref`.
+LANDED: one static predicate `pat_byval_mut(node)` = IS_MUT && !IS_REF (a `ref mut` is a
+different mode), read at all six SLet sites AND their six `define` calls (sema's own scope —
+without the second half `let [mut a, b] = arr; a = a + b;` was refused by sema's "assignment to
+immutable variable", a door the borrow checker never sees). Grammar: `pat_binding` (the typed
+tuple let) gains `KW_MUT IDENT`, `pat_field` gains the `S { mut a }` shorthand. Borrow check:
+the `is_destructure_temp_name` half of the mask is deleted; the `tst_->pat_bound` half stays
+because match/for/if-let bindings still carry no bit (§7). Control twin `patmutoff` (one name,
+the mechanism's two halves: sema stamps false again AND the mask returns).
+
+## 4. RULE 5 — COUNTER-EXAMPLES FIRST, IN SHAPES 09-04g DID NOT USE (scratchpad r05/cx, 24; r05/fx, 13)
+Every program compiled on the base binary, on the probe build under `recvaotref`/`recvaotdel`
+(reach proven by LOGOS_PROBE_FIRE), and on the landed build; base / landed:
+    LEGAL, base REFUSED -> landed RUNS rc 0 (10):
+      b03 `&mut` chosen by a call with explicit `<'a>` (the elided form is E0106 — my first
+          spelling was ILLEGAL and the compiler said so) · b04 `&mut` PARAM rebound to a local
+      · b05 `if let Some(sr) = o` over Option<&mut S> · b06 `&mut arr[1]` · b08 two SEQUENTIAL
+      reborrows · b10 `&self` then `&mut self` on the same immutable `&mut` · b11 generic
+      `&mut T` with a trait method · b12 `&mut Box<S>` · b14 trait method on an immutable `&mut`
+      · t8 `let T(mut s, k)` · t5b `let E::A { x: mut s }` · t9 `let [mut a, b]; a = …` (sema
+      door) · t12 destructured `mut aa` REASSIGNED (sema door) · t2/t3 the two grammar spellings
+    LEGAL, base and landed both RUN (5): b01 `&mut` in a FIELD of an immutable struct (field
+      tail already exempt) · b02 `&mut` in a TUPLE element · b07 `*sr.mget() = 6` (no holder —
+      the branch is not even reached) · b13 closure `|p: &mut S|` (param hatch) · t7
+    ILLEGAL, refused on both, sentence READ (11 + 4): c01 `Box<&mut S>` immutable Box (behind
+      `&` — right verdict, inherited wrong sentence) · c02 `&mut` field behind `&H` · c03
+      `let rr: &&mut S = &sr; rr.mget()` ("behind a `&` reference" — the `MutRef` vs
+      `is_ref_kind` witness, §2) · c04 owned field of an immutable struct · c06 owned immutable
+      + trait method · c08 owner written while reborrowed · c10 by-value param · c11 tuple
+      behind `&` · c12 `&&mut S` param · t1 tuple let without `mut` · t4 shorthand without
+      `mut` · a03 a07 a19 a20 a22(now refused, was ADMITTED) of the 09-04g ladder
+    ILLEGAL, both refuse, the SENTENCE CHANGED to the correct one (2): c05 `let t: &mut S = sr;
+      sr.mget(); t.mget()` — rustc reborrows at a typed `let`, so this is E0499 "already
+      mutably borrowed", which is what the landed build says; base said "not declared as mut".
+      c07 two LIVE reborrows — the same E0499, pinned as a fail fixture.
+Rule 9: `recvaotany` (09-04g's crude twin) and the landed predicate separate on a03/a07/a20 in
+the ladder and on c04/c06/c10 here — a03 is now a fail fixture, so the corpus can see it.
+
+## 5. THE FIXTURES (19: 12 pass + 7 fail, in pairs, all `bc_` so the `-L bc` gate owns them)
+    pass bc_recvaot_mutref_local_immut (the row, asserts s.v) ↔ fail bc_recvaot_two_live_reborrows_fail
+    pass bc_recvaot_mutref_sequential_reborrow             ↔ the same fail, one statement moved
+    pass bc_recvaot_owned_mut_recv (`let mut s`)           ↔ fail bc_recvaot_owned_immut_recv_fail (`let s`, a03)
+    pass bc_recvaot_mutref_iflet_option                    ·  fail bc_recvaot_ref_to_mutref_local_fail (c03)
+    pass bc_patmut_struct_destructure_recv (the row)       ↔ fail bc_patmut_struct_destructure_no_mut_fail (a19)
+    pass bc_patmut_struct_destructure_box_deref (`mut bb`) ↔ fail bc_patmut_struct_destructure_box_deref_fail (THE ROW, a22)
+    pass bc_patmut_tuple_let_box_deref (the row)           ↔ fail bc_patmut_tuple_let_no_mut_fail
+    pass bc_patmut_struct_shorthand                        ↔ fail bc_patmut_struct_shorthand_no_mut_fail
+    pass bc_patmut_tuple_struct_let · bc_patmut_variant_struct_let · bc_patmut_slice_let_reassign ·
+         bc_patmut_struct_destructure_reassign
+CONTROL, on the BASE binary (`logosc.base`, build 8cf7721c…, LOGOS_LIB_DIR set): 10 of the 12
+pass fixtures RED (the two green ones are the a04/t7 twins, legal on both), 2 of the 7 fail
+fixtures RED — `bc_patmut_struct_destructure_box_deref_fail` COMPILED (the tier-2 admit) and
+`bc_recvaot_two_live_reborrows_fail` printed the wrong sentence. Every `.expected` read.
+
+## 6. THE PRICE — every column, landed build `171086dd8e9b1381` (READ)
+    twin        fires   bc-ceil  cost(pass)                               cfail (1367)                          stdlib
+    recvaotask   206    0        3 = exactly the three bc_recvaot_* pass   2: the false line RETURNS +           ok
+                                 fixtures; no pre-existing program          two_live_reborrows loses its match
+    patmutoff   8470    0        7 = exactly the seven bc_patmut_* pass    1: box_deref_fail 1 -> 0 (RE-ADMITTED)  ok
+                                 fixtures; no pre-existing program
+Read the other way: the landed tree, against its own twins, changes NO pre-existing pass program
+and ONE pre-existing fail text (bc_d1r7_a1_family_next_batch_reborrow: `let r = &mut s;
+r.next_batch()` no longer prints the FALSE `cannot borrow 'r' as mutable: not declared as mut`
+above the pinned correct line — 09-04g §3 read it). fail_text_oracle across the rebuild: build 1
+(compiler only) matched the 8cf7 base on 1359 of 1360 (that row); build 2 re-ran configure and
+the ABI-freshness warning moved all 1360 (the recorded self-invalidation) — hence the twins.
+stdlib-cost.sh: four layers, unarmed, on both builds. bc ledgers: 99 / 25, unchanged both ways.
+Full-suite columns on the COMMITTED build `cdde77be7fb503f2` (READ; the twins above were priced
+on `171086dd…`, the same sources with two site comments three lines shorter): L1 751/751 rc 0 +
+the 174-test gates tier (census_pin and direct_door_census hold the predicted +19 / +12);
+`L4 bc`, run_oracle.py and gate-run.sh -L bc — see the commit message.
+
+## 7. QUEUE — 4 CLOSED, 1 ADDED, 20 -> 17
+    pattern_mut_recv  3  refuses  `match e { E::A(mut s) => s.get() }` (a10; a11 `for mut s`, a12
+                                  `if let Some(mut s)` are the same root). LIR PatVariantData /
+                                  PatWild carry no by-value `mut` (BINDING_REF_MODES 0 = "by
+                                  value" either way, and its three consumers test `m == 0` for
+                                  "moves"), so declare_pat_bindings cannot set is_mut_binding.
+                                  The bit needs a parallel key, the mirror, the view,
+                                  mono_clone and the sema match-arm fill — not this round.
+    ALSO SEEN, no row: `let E::A(mut s) = e;` (tuple-shaped variant at let position) is refused
+    by sema as "'let <pattern> = expr;' currently supports struct patterns only" — a feature
+    gap with its own sentence, not a soundness defect; recorded here, not rowed.
+
+## 8. NOT SPENT, WITH THE NUMBER
+    boxbox_mut_deref — unmoved (predicted): extract_borrow_place's `cross` marks the inner
+      `deref_mut` result as crossed-shared; a third root, unpriced.
+    sharedref_recv_mut_method_diag — sema method lookup; unpriced.
+    recvaotany / recvaotdel / recvaotpat (09-04g) — retired with the pricing block; `recvaotref`
+      is the landed predicate (spelled MutRef, §2); the `pat` half was NOT funded as a borrow-check
+      rule — its row closed through the sema bit, with a19 REFUSED, as §5 of 09-04g asked.
+
+## recvaotask
+site: src/compiler/borrow_check.cpp::take_ref_borrows
+build: 171086dd8e9b1381
+measured: 2026-09-05
+fires: 206
+ceiling: 0 (bc) / 0 (soundness queue)
+cost: 3 pass (exactly the new bc_recvaot_* fixtures) / cfail 2 of 1367 (the false line returns; two_live_reborrows loses its match) / stdlib ok
+verdict: control twin of the LANDED root-A predicate — restores the unmasked binding-mut question at the AddrOfTemp receiver branch
+note: skip_mut_binding = m && !on("recvaotask") && (root_type is MutRef || place_thru_mut_ref).
+
+## patmutoff
+site: src/compiler/sema_stmt.cpp::pat_byval_mut
+build: 171086dd8e9b1381
+measured: 2026-09-05
+fires: 8470
+ceiling: 0 (bc) / 0 (soundness queue)
+cost: 7 pass (exactly the new bc_patmut_* fixtures) / cfail 1 of 1367 (bc_patmut_struct_destructure_box_deref_fail RE-ADMITTED, rc 1 -> 0) / stdlib ok
+verdict: control twin of the LANDED root-B mechanism — sema stamps is_mut=false again AND the `__dst_*` half of the pat_bound mask returns (borrow_check.cpp, the `let` arm)
+note: one name for the two halves of one mechanism; both must revert together for the old behaviour to be the old behaviour.

@@ -1,0 +1,8 @@
+// 2026-09-05a: tuple let WITHOUT 'mut' then '&mut *a' — E0596. Pass twin: bc_patmut_tuple_let_box_deref.
+package bc_patmut_tuple_let_no_mut_fail;
+fn main() -> i32 {
+    let (a, _c): (Box<i64>, i64) = (Box::new(1i64), 2i64);
+    let r: &mut i64 = &mut *a;
+    *r = 3i64;
+    return 0i32;
+}

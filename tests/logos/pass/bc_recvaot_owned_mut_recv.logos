@@ -1,0 +1,13 @@
+// 2026-09-05a: pass twin of bc_recvaot_owned_immut_recv_fail, one token apart ('let mut s').
+package bc_recvaot_owned_mut_recv;
+struct S { v: i64 }
+impl S {
+    fn get(&mut self) -> &mut i64 { return &mut self.v; }
+}
+fn main() -> i32 {
+    let mut s: S = S { v: 1i64 };
+    let r: &mut i64 = s.get();
+    *r = 3i64;
+    if s.v != 3i64 { return 1i32; }
+    return 0i32;
+}

@@ -23,6 +23,17 @@ using writ::StringView;
 using writ::AnyVal;
 using writ::MemHolder;
 
+// `mut x` in a pattern (IS_MUT without IS_REF; `ref mut` is another mode) binds
+// BY VALUE, mutable. Read at every `let PATTERN` lowering's SLet AND define —
+// all six stamped false until 2026-09-05a. `patmutoff` = the control twin.
+static bool pat_byval_mut(TinyMapView n) {
+    auto flag = [&](const la::Key& k) {
+        return n.has_key(k) && n.get(k.code).is_value() &&
+               n.get(k.code).as_value<uint8_t>() != 0;
+    };
+    return !logos::probe::on("patmutoff") && flag(la::IS_MUT) && !flag(la::IS_REF);
+}
+
 // Statement lowering methods
 
 // ── Does a `break` TARGET this loop? — the one predicate ──────────────────
@@ -1078,12 +1089,12 @@ lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
             } else {
                 std::string nm(str_of(bnode.get(la::NAME.code)));
                 all_names.push_back(nm);
-                define(nm, elem_t);
+                define(nm, elem_t, pat_byval_mut(bnode));
                 // Binding moves the element OUT of src_tmp — mark src_tmp.<pos>
                 // moved so src_tmp's scope-exit drop skips it (double-free else).
                 if (is_move_type(elem_t)) mark_moved_expr(expr_ref_of(elem_expr));
                 lir::SLet el;
-                el.name = nm; el.type = elem_t; el.is_mut = false; el.value = std::move(elem_expr);
+                el.name = nm; el.type = elem_t; el.is_mut = pat_byval_mut(bnode); el.value = std::move(elem_expr);
                 blk.push_back(make_stmt_emit(node_line_, std::move(el)));
             }
         }
@@ -1386,7 +1397,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
         }
         // Walk the user's PAT_FIELD list: per entry, validate the field
         // exists in the variant and pick the user-visible binding name.
-        struct UserField { std::string fname; std::string bind; size_t idx; TypeRef ftype; };
+        struct UserField { std::string fname; std::string bind; size_t idx; TypeRef ftype; bool is_mut; };
         std::vector<UserField> ufields;
         if (pat_node.has_key(la::ITEMS)) {
             AnyVal iav = pat_node.get(la::ITEMS.code);
@@ -1410,9 +1421,11 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                         continue;
                     }
                     std::string bind = fname;  // shorthand default
+                    bool bmut = pat_byval_mut(fnode);
                     if (fnode.has_key(la::VALUE)) {
                         auto sub = map_of(fnode.get(la::VALUE.code));
                         if (code_of(sub) == la::PAT_WILD) {
+                            bmut = bmut || pat_byval_mut(sub);
                             bind = sub.has_key(la::NAME)
                                 ? std::string(str_of(sub.get(la::NAME.code)))
                                 : std::string("_");
@@ -1424,7 +1437,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                             bind = "_";
                         }
                     }
-                    ufields.push_back({fname, bind, idx, sve_vinfo->payload_types[idx]});
+                    ufields.push_back({fname, bind, idx, sve_vinfo->payload_types[idx], bmut});
                 }
             }
         }
@@ -1452,9 +1465,9 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
             me.scrut = builder().var_ref(tmp, rhs_type);
             me.arms.push_back(std::move(arm));
             auto match_expr = builder().match_expr_v(std::move(me), uf.ftype);
-            define(uf.bind, uf.ftype);
+            define(uf.bind, uf.ftype, uf.is_mut);
             lir::SLet sl;
-            sl.name = uf.bind; sl.type = uf.ftype; sl.is_mut = false;
+            sl.name = uf.bind; sl.type = uf.ftype; sl.is_mut = uf.is_mut;
             sl.value = std::move(match_expr);
             blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
@@ -1540,7 +1553,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                 lir::SLet sl;
                 sl.name   = vname;
                 sl.type   = elem_t;
-                sl.is_mut = false;
+                sl.is_mut = pat_byval_mut(en);
                 // 2026-05-13: previously used slice_index (fat-pointer
                 // GEP shape `{ptr, i64}`) on the temp slot. That worked
                 // accidentally because the (broken) let-rebind dropped a
@@ -1554,7 +1567,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                     builder().var_ref(tmp, rhs_type),
                     builder().lit_int((int64_t)j, prim(LogosType::Kind::I64)),
                     elem_t);
-                define(vname, elem_t);
+                define(vname, elem_t, pat_byval_mut(en));
                 blk.push_back(
                     make_stmt_emit(node_line_, std::move(sl)));
             } else {
@@ -1628,11 +1641,11 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                             lir::SLet sl;
                             sl.name   = vname;
                             sl.type   = ftype;
-                            sl.is_mut = false;
+                            sl.is_mut = pat_byval_mut(bnode);
                             sl.value  = builder().field_read(
                                 builder().var_ref(tmp, rhs_type),
                                 std::to_string(fpos), ftype);
-                            define(vname, ftype);
+                            define(vname, ftype, pat_byval_mut(bnode));
                             blk.push_back(
                                 make_stmt_emit(node_line_, std::move(sl)));
                         } else {
@@ -1708,6 +1721,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                 } else if (fc == la::PAT_WILD && fnode.has_key(la::NAME)) {
                     bind_name = std::string(str_of(fnode.get(la::NAME.code)));
                 } else continue;   // PAT_REST and friends bind nothing
+                const bool bmut = pat_byval_mut(fnode) || (has_sub && pat_byval_mut(sub));
                 if (has_sub && code_of(sub) == la::PAT_WILD && sub.has_key(la::NAME)) {
                     bind_name = std::string(str_of(sub.get(la::NAME.code)));
                     has_sub = false;   // simple alias
@@ -1717,9 +1731,9 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                     continue;
                 }
                 if (bind_name.empty() || bind_name == "_") continue;
-                define(bind_name, error_t());
+                define(bind_name, error_t(), bmut);
                 lir::SLet sl;
-                sl.name = bind_name; sl.type = error_t(); sl.is_mut = false;
+                sl.name = bind_name; sl.type = error_t(); sl.is_mut = bmut;
                 sl.value = builder().var_ref(etmp, rhs_type);
                 eblk.push_back(make_stmt_emit(node_line_, std::move(sl)));
             }
@@ -1899,6 +1913,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                 sub = map_of(fnode.get(la::VALUE.code));
                 has_sub = true;
             }
+            const bool bmut = pat_byval_mut(fnode) || (has_sub && pat_byval_mut(sub));
             if (has_sub && code_of(sub) == la::PAT_WILD && sub.has_key(la::NAME)) {
                 bind_name = std::string(str_of(sub.get(la::NAME.code)));
                 has_sub = false;  // simple alias — treat as name bind
@@ -1986,13 +2001,13 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                 ? std::format("__dst_{}_{}", destruct_counter_, fname)
                 : bind_name;
             if (has_sub) ++destruct_counter_;
-            define(fvar, ft);
+            define(fvar, ft, bmut);
             if (is_move_type(ft)) byval_taken_.push_back(fname);
             {
                 auto recv = builder().var_ref(recv_var, recv_type);
                 auto fr   = builder().field_read(std::move(recv), fname, ft);
                 lir::SLet sl;
-                sl.name = fvar; sl.type = ft; sl.is_mut = false;
+                sl.name = fvar; sl.type = ft; sl.is_mut = bmut;
                 sl.value = std::move(fr);
                 blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
             }

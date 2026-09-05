@@ -1,0 +1,12 @@
+// 2026-09-05a: struct-pattern shorthand WITHOUT 'mut' then a &mut self method — E0596. Pass twin: bc_patmut_struct_shorthand.
+package bc_patmut_struct_shorthand_no_mut_fail;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+struct P { a: S }
+fn main() -> i32 {
+    let p: P = P { a: S { v: 1i64 } };
+    let P { a } = p;
+    let r: &mut i64 = a.get();
+    *r = 5i64;
+    return 0i32;
+}

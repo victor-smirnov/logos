@@ -1,0 +1,9 @@
+// 2026-09-05a: slice let '[mut a, b]' — the binding is ASSIGNABLE (sema's own scope carries the bit, not only the borrow checker's).
+package bc_patmut_slice_let_reassign;
+fn main() -> i32 {
+    let arr: [i64; 2] = [1i64, 2i64];
+    let [mut a, b] = arr;
+    a = a + b;
+    if a != 3i64 { return 1i32; }
+    return 0i32;
+}

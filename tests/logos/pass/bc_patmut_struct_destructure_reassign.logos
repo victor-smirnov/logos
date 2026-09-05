@@ -1,0 +1,11 @@
+// 2026-09-05a: a destructured 'mut aa' is ASSIGNABLE (sema scope bit), not only borrowable.
+package bc_patmut_struct_destructure_reassign;
+struct S { v: i64 }
+struct P { a: S, k: i64 }
+fn main() -> i32 {
+    let p: P = P { a: S { v: 1i64 }, k: 2i64 };
+    let P { a: mut aa, k } = p;
+    aa = S { v: k + 3i64 };
+    if aa.v != 5i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,13 @@
+// 2026-09-05a: struct-shaped variant let 'E::A { x: mut s }' — the by-value 'mut' reaches the binding.
+package bc_patmut_variant_struct_let;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+enum E { A { x: S } }
+fn main() -> i32 {
+    let e: E = E::A { x: S { v: 1i64 } };
+    let E::A { x: mut s } = e;
+    let r: &mut i64 = s.get();
+    *r = 7i64;
+    if s.v != 7i64 { return 1i32; }
+    return 0i32;
+}

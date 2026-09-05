@@ -220,7 +220,11 @@ while IFS= read -r line; do
         echo "      in the same commit — the row leaving IS the record of the fix. If"
         echo "      nothing in this change was meant to touch it, it closed by accident"
         echo "      or was never real; either way the row may not stand."
-        grep -m2 -E "error( \[|:)" "$O_ERR" 2>/dev/null | sed 's/^/        /'
+        # `|| true`: a `refuses` row that now compiles CLEAN has no `error` line, and
+        # under `set -eo pipefail` a grep that matches nothing ended the whole loop
+        # here — every row after it unjudged, the count and the no-row direction
+        # never reached (measured 2026-09-05a: 4 closings reported as 2).
+        grep -m2 -E "error( \[|:)" "$O_ERR" 2>/dev/null | sed 's/^/        /' || true
         fail=1
     fi
 done < "$LEDGER"

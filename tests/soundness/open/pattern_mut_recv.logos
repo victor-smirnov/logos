@@ -1,0 +1,23 @@
+// SOUNDNESS QUEUE row pattern_mut_recv (tier 3). A 'mut' binding written in a MATCH
+// pattern (the same for `for mut s in` and `if let Some(mut s)`) calls a &mut self
+// method — legal Rust. TODAY refused: cannot borrow 's' as mutable: not declared as
+// mut. The LIR pattern schema carries no by-value 'mut' (BINDING_REF_MODES 0 is "by
+// value" whether or not 'mut' was written), so declare_pat_bindings cannot set
+// is_mut_binding; the `let PATTERN` lowerings got the bit in 2026-09-05a, these did
+// not (PROBES.md 2026-09-05a §7, 2026-09-04g §8.2).
+package pattern_mut_recv;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+enum E { A(S), B }
+fn main() -> i32 {
+    let e: E = E::A(S { v: 1i64 });
+    match e {
+        E::A(mut s) => {
+            let r: &mut i64 = s.get();
+            *r = 8i64;
+            if s.v != 8i64 { return 1i32; }
+        },
+        E::B => {}
+    }
+    return 0i32;
+}

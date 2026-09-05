@@ -1,0 +1,13 @@
+// 2026-09-05a: tuple-struct let 'T(mut s, k)' — the by-value 'mut' reaches the binding.
+package bc_patmut_tuple_struct_let;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+struct T(S, i64);
+fn main() -> i32 {
+    let t: T = T(S { v: 1i64 }, 2i64);
+    let T(mut s, k) = t;
+    let r: &mut i64 = s.get();
+    *r = k + 5i64;
+    if s.v != 7i64 { return 1i32; }
+    return 0i32;
+}

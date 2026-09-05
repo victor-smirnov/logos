@@ -1,0 +1,12 @@
+// 2026-09-05a: a destructured binding WITHOUT 'mut' calling a &mut self method — E0596. Pass twin: bc_patmut_struct_destructure_recv, one token apart.
+package bc_patmut_struct_destructure_no_mut_fail;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+struct P { a: S }
+fn main() -> i32 {
+    let p: P = P { a: S { v: 1i64 } };
+    let P { a: aa } = p;
+    let r: &mut i64 = aa.get();
+    *r = 5i64;
+    return 0i32;
+}

@@ -5219,8 +5219,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9039 -> 9040   +1
 #   NOIMPORTED   4603 -> 4604   +1
 #   TIERCOMMIT    173 ->  174   +1
-REGISTRY-ALL         9040
-REGISTRY-NOIMPORTED  4604
+# 2026-09-05a (soundness queue: 4 rows closed, 20 -> 17 with one added). The
+#   four programs leave tests/soundness/open/ (unglobbed, so no test leaves)
+#   and land as native fixtures with their twins: +12 pass + +7 fail, all
+#   `bc_recvaot_*` / `bc_patmut_*`, none imported, none tier_commit.
+#   Predicted before the pin was read.
+#   ALL          9040 -> 9059   +19
+#   NOIMPORTED   4604 -> 4623   +19
+#   TIERCOMMIT    174 ->  174     0
+REGISTRY-ALL         9059
+REGISTRY-NOIMPORTED  4623
 REGISTRY-TIERCOMMIT  174
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

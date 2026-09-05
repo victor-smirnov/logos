@@ -1,0 +1,13 @@
+// 2026-09-05a: ex-soundness-queue row destructure_mut_recv — a 'mut' binding made by a destructuring let calls a &mut self method; sema now carries the pattern's by-value 'mut'.
+package bc_patmut_struct_destructure_recv;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+struct P { a: S }
+fn main() -> i32 {
+    let p: P = P { a: S { v: 1i64 } };
+    let P { a: mut aa } = p;
+    let r: &mut i64 = aa.get();
+    *r = 5i64;
+    if aa.v != 5i64 { return 1i32; }
+    return 0i32;
+}

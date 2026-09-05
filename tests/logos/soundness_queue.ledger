@@ -39,24 +39,21 @@
 # `tier`:  1 memory corruption / wrong code runs      2 a class is not checked
 #          3 legal Rust refused                        4 diagnostics and hygiene
 #
-# TOTAL 20
+# TOTAL 17
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 drop_inherent_call_order      1 tests/soundness/open/drop_inherent_call_order      refuses
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
 trait_default_body_call       2 tests/soundness/open/trait_default_body_call       admits
-destructure_no_mut_box_deref  2 tests/soundness/open/destructure_no_mut_box_deref  admits
 outlives_call_instantiation   3 tests/soundness/open/outlives_call_instantiation   refuses
 struct_binder_result          3 tests/soundness/open/struct_binder_result          refuses
-mutref_recv_immut_binding     3 tests/soundness/open/mutref_recv_immut_binding     refuses
-destructure_mut_recv          3 tests/soundness/open/destructure_mut_recv          refuses
 boxbox_mut_deref              3 tests/soundness/open/boxbox_mut_deref              refuses
 dangle_join_diverging_arm     3 tests/soundness/open/dangle_join_diverging_arm     refuses
 closure_in_generic_two_insts  3 tests/soundness/open/closure_in_generic_two_insts  refuses
-tuple_pat_mut_parse           3 tests/soundness/open/tuple_pat_mut_parse           refuses
 dyn_paren_region_bound        3 tests/soundness/open/dyn_paren_region_bound        refuses
 box_vec_new_infer             3 tests/soundness/open/box_vec_new_infer             refuses
 layout_verify_recursive_ref   3 tests/soundness/open/layout_verify_recursive_ref   refuses
+pattern_mut_recv              3 tests/soundness/open/pattern_mut_recv              refuses
 typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike          diag expected &i64, got &i64
 box_write_raw_ptr_diag        4 tests/soundness/open/box_write_raw_ptr_diag        diag write through raw pointer requires unsafe context
 sharedref_recv_mut_method_diag 4 tests/soundness/open/sharedref_recv_mut_method_diag diag 'S' has no method 'mget'

@@ -1,0 +1,10 @@
+// 2026-09-05a: ex-soundness-queue row tuple_pat_mut_parse — 'let (mut a, c)' parses (grammar: pat_binding KW_MUT IDENT) and the binding is mutable.
+package bc_patmut_tuple_let_box_deref;
+fn main() -> i32 {
+    let (mut a, c): (Box<i64>, i64) = (Box::new(1i64), 2i64);
+    let r: &mut i64 = &mut *a;
+    *r = 3i64;
+    if *a != 3i64 { return 1i32; }
+    if c != 2i64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,11 @@
+// 2026-09-05a: pass twin of bc_patmut_struct_destructure_box_deref_fail (ex-queue row destructure_no_mut_box_deref), one token apart ('mut bb').
+package bc_patmut_struct_destructure_box_deref;
+struct W { b: Box<i64> }
+fn main() -> i32 {
+    let w: W = W { b: Box::new(1i64) };
+    let W { b: mut bb } = w;
+    let r: &mut i64 = &mut *bb;
+    *r = 4i64;
+    if *bb != 4i64 { return 1i32; }
+    return 0i32;
+}

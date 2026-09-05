@@ -1,0 +1,13 @@
+// 2026-09-05a: struct-pattern SHORTHAND 'mut a' (grammar: pat_field KW_MUT IDENT) binds by value, mutable.
+package bc_patmut_struct_shorthand;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+struct P { a: S }
+fn main() -> i32 {
+    let p: P = P { a: S { v: 1i64 } };
+    let P { mut a } = p;
+    let r: &mut i64 = a.get();
+    *r = 5i64;
+    if a.v != 5i64 { return 1i32; }
+    return 0i32;
+}
