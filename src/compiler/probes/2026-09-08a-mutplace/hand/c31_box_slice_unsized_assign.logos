@@ -1,0 +1,10 @@
+package c31;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    let mut b: Box<Vec<i64>> = Box::new(v);
+    let w: Vec<i64> = Vec::new();
+    *b = w;
+    if b.len() != 0i64 { return 1i32; }
+    return 0i32;
+}

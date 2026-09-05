@@ -1,0 +1,8 @@
+package c14;
+fn main() -> i32 {
+    let mut b: Box<i64> = Box::new(1i64);
+    let m: &mut Box<i64> = &mut b;
+    **m = 4i64;
+    if *b != 4i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,10 @@
+d01_box_in_vec_write_immut               cc=1   run=-        errs=2  error [fn main]: cannot borrow 'v' as mutable: not declared as mut
+d02_box_in_vec_write_immut_pushless      cc=1   run=-        errs=1  error [fn f]: cannot borrow 'v' as mutable: not declared as mut
+d03_derefmut_paren_field_write           cc=0   run=0        errs=0  
+d04_derefmut_autoderef_field_write       cc=0   run=0        errs=0  
+d05_derefmut_field_compound              cc=0   run=0        errs=0  
+d06_indexmut_through_field_write         cc=0   run=0        errs=0  
+d07_derefmut_compound                    cc=0   run=0        errs=0  
+d08_derefonly_index_through_deref_write  cc=1   run=-        errs=1  error [fn main]: cannot mutate through '*W': 'W' implements `Deref` but not `DerefMut` (E0594/E0596)
+d09_derefonly_read_still_fine            cc=0   run=0        errs=0  
+d10_index_read_in_rhs_of_deref_write     cc=0   run=0        errs=0  

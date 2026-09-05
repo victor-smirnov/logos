@@ -1,0 +1,8 @@
+// `*b = 3` on a by-value `mut b: Box<i64>` param: legal, runs.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_byval_mut_box_param_write;
+fn f(mut b: Box<i64>) -> i64 { *b = 3i64; return *b; }
+fn main() -> i32 {
+    if f(Box::new(1i64)) != 3i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,10 @@
+package c30;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let y: Box<&mut i64> = Box::new(&mut x);
+    let p: &Box<&mut i64> = &y;
+    let q: &i64 = &***p;
+    **y = 2i64;
+    let _ = *q;
+    return 0i32;
+}

@@ -4372,6 +4372,38 @@ private:
 
     // ── Borrow operations ─────────────────────────────────────────────────
 
+    // THE binding-mut question, asked once: a `&mut` of a binding declared
+    // without `mut` is E0596 — unless the binding is a REFERENCE param (a
+    // `&mut` through one is a reborrow; 1 949 957 of the hatch's 1 950 012
+    // arrivals, 2026-08-31p). A BY-VALUE param is not a reborrow. Reports and
+    // returns true; the callers are take_borrow_whole_ (AddrOf/AddrOfTemp) and
+    // check_recv_conflict (the bare-place `&mut self` receiver, `b.deref_mut()`).
+    bool refuse_not_mut_binding(const VarState& it, const std::string& target,
+                                uint32_t line) {
+        if (it.is_mut_binding) return false;
+        logos::probe::census("mb.w.arrive");
+        if (param_names_.count(target)) {
+            logos::probe::census("mb.w.hatch");
+            logos::probe::census(param_byval_.count(target)
+                ? "mb.w.hatch.byval" : "mb.w.hatch.ref");
+        } else logos::probe::census("mb.w.refuse");
+        // CEILING PROBES (C) — see PROBES.md. `mbsite` is the arrival
+        // population with the mut bit absent; `mbhatch` is the subset
+        // the param hatch exempts; `mbrefuse` is what the guard
+        // actually refuses today; `mbnoparam` CLOSES the hatch.
+        (void)logos::probe::on("mbsite");
+        const bool hatched = param_names_.count(target) > 0;
+        if (hatched) (void)logos::probe::on("mbhatch");
+        const bool byval_w = hatched && param_byval_.count(target) > 0;
+        if (!hatched || byval_w || logos::probe::on("mbnoparam")) {
+            if (!hatched) (void)logos::probe::on("mbrefuse");
+            report(line, std::format(
+                "cannot borrow '{}' as mutable: not declared as mut", target));
+            return true;
+        }
+        return false;
+    }
+
     // Take a borrow of 'target'. Registers it in the current scope for cleanup.
     void take_borrow_whole_(const std::string& target, uint32_t target_slot,
                      bool is_mut, uint32_t line,
@@ -4411,28 +4443,9 @@ private:
             // tracks EXCLUSIVITY only — binding-mut legality for bare
             // receivers stays the (permissive) status quo, the stdlib's
             // `arc.deref_mut()` on a non-mut Arc binding relies on it.
-            if (!skip_mut_binding_check && !it->is_mut_binding) {
-                logos::probe::census("mb.w.arrive");
-                if (param_names_.count(target)) {
-                    logos::probe::census("mb.w.hatch");
-                    logos::probe::census(param_byval_.count(target)
-                        ? "mb.w.hatch.byval" : "mb.w.hatch.ref");
-                } else logos::probe::census("mb.w.refuse");
-                // CEILING PROBES (C) — see PROBES.md. `mbsite` is the arrival
-                // population with the mut bit absent; `mbhatch` is the subset
-                // the param hatch exempts; `mbrefuse` is what the guard
-                // actually refuses today; `mbnoparam` CLOSES the hatch.
-                (void)logos::probe::on("mbsite");
-                const bool hatched = param_names_.count(target) > 0;
-                if (hatched) (void)logos::probe::on("mbhatch");
-                const bool byval_w = hatched && param_byval_.count(target) > 0;
-                if (!hatched || byval_w || logos::probe::on("mbnoparam")) {
-                    if (!hatched) (void)logos::probe::on("mbrefuse");
-                    report(line, std::format(
-                        "cannot borrow '{}' as mutable: not declared as mut", target));
-                    return;
-                }
-            }
+            if (!skip_mut_binding_check &&
+                refuse_not_mut_binding(*it, target, line))
+                return;
             // B83: any tracked field-path borrow blocks a whole-value mut.
             if (!it->mut_field_borrows.empty() ||
                 !it->shared_field_borrows.empty()) {
@@ -6578,52 +6591,16 @@ private:
         if (bp.root_type && bp.root_type.kind() == LogosType::Kind::Ptr) return;
         auto sit = var_find(bp.root_slot, bp.root);
         if (sit == nullptr) return;
-        // ── CEILING PROBE `recvmutbind` — ONE RULE AT TWO SPELLINGS, and only
-        // one has it. `let f: Foo = ...; f.bump();` (AddrOfTemp receiver) is
-        // refused by take_borrow_whole_'s binding-mut arm; the byte-equivalent
-        // over a bare-place receiver (`let v: Vec<i64> = Vec::new(); v.push(1);`)
-        // compiles. check_recv_conflict has no binding-mut arm at all.
-        // ── MEASURED 2026-08-28 (re-priced on this tree): 205 fires over 389
-        // ledger compiles, CEILING 1, COST 0 — exactly the predicted row,
-        // borrowck_many-mutable-borrows (E0596).
-        // ⚠ THE PREDICTED HAZARD DID NOT MATERIALISE. The aiming report
-        // expected a LARGE cost, on the reading that `skip_mut_binding_check`'s
-        // comment makes the bare-receiver permissiveness load-bearing for the
-        // stdlib (`arc.deref_mut()` on a non-mut Arc binding). Over 807 bc/pass
-        // tests plus three spec dirs it costs nothing.
-        //
-        // ⛔ DECLINED 2026-08-28, AND NOT BY THE CORPUS — BY A HAND-WRITTEN
-        // COUNTER-EXAMPLE, which is the only thing a COST 0 has ever been
-        // refuted by. `tests/logos/pass/bc_recvmutbind_pattern_mut_binding.logos`
-        //     match e { E::A(mut v) => { v.push(1i64); }, E::B => {} }
-        // is legal Rust, compiles today, and this arm REFUSES it — the probe
-        // fired once and reported "cannot borrow 'v' as mutable: not declared
-        // as mut". `mut` written in a PATTERN never reaches `is_mut_binding`:
-        // declare_pat_bindings calls declare_var and the LIR pattern schema has
-        // no by-value-`mut` key at all (IS_MUT is PatRefBind/PatRefPat only;
-        // BIND_MODES 0 means "by value" whether or not `mut` was written). So
-        // the binding-mut question cannot be asked correctly at ANY spelling
-        // until sema carries that bit.
-        //
-        // ⚠ AND THE SAME OVER-REFUSAL IS ALREADY LANDED AT THE OTHER SPELLING.
-        // Measured beside it: `match e { E::A(mut f) => { f.bump(); } }` over a
-        // struct receiver, and `... => { let r = &mut f; }`, are refused TODAY
-        // by the AddrOfTemp/AddrOf mut-binding arms. Arming this probe would
-        // not introduce a new class of wrongness; it would spread an existing
-        // one to the last receiver spelling where such programs still compile.
-        // That is still a legal-program refusal, so the row is not bought.
-        // THE PREREQUISITE, named so the next round does not re-derive it: a
-        // per-binding by-value-`mut` flag on PatVariantData/PatWild, parallel
-        // to BINDINGS, set by sema and read by declare_pat_bindings. With that
-        // bit this arm is a one-liner again AND the two AddrOf arms stop
-        // refusing legal programs — a strictly bigger prize than one row.
-        if (logos::probe::on("recvmutbind") && is_mut &&
-            !sit->is_mut_binding && !param_names_.count(bp.root) &&
-            !(bp.root_type && is_ref_kind(bp.root_type))) {
-            report(line, std::format(
-                "cannot borrow '{}' as mutable: not declared as mut", bp.root));
+        // LANDED 2026-09-08a (was CEILING PROBE `recvmutbind`, declined 08-28
+        // because a pattern-bound `mut` did not reach is_mut_binding; carried
+        // since 09-06). ONE RULE AT TWO SPELLINGS: the AddrOfTemp receiver
+        // (`let f: Foo; f.bump()`) was refused by take_borrow_whole_'s
+        // binding-mut arm and the bare-place receiver (`v.push(1)`,
+        // `*b += 1` = `b.deref_mut()`) was not. Delegated to the same
+        // predicate; a reference root is a reborrow. PROBES.md 2026-09-08a.
+        if (is_mut && !(bp.root_type && is_ref_kind(bp.root_type)) &&
+            refuse_not_mut_binding(*sit, bp.root, line))
             return;
-        }
         if (sit->mut_borrowed) {
             // D1 residuals / P2 (task #51): DO NOT report here. Both callers
             // (the MethodCall bare-place-receiver check and the SD-DST Call
@@ -9646,8 +9623,15 @@ private:
                 // borrow of the method's receiver (closing collection iterator-
                 // invalidation: `let r=&v[i]; v.push(); use r`).
                 if (inner && inner.kind() == Code::Deref) {
-                    if (auto op = EDerefView{inner}.operand();
-                        op && op.kind() == Code::MethodCall) {
+                    // The call may sit under MORE than one place deref: `&***p`
+                    // over `p: &Box<&mut i64>` is Deref(Deref(deref(Deref p))),
+                    // the outer `*` crossing the `&mut` payload. The loan is the
+                    // call's receiver's either way (2026-09-08a: rustc
+                    // issue-14498, an E0506 the one-deref test admitted once
+                    // the Box step was the mutable one).
+                    auto op = EDerefView{inner}.operand();
+                    while (op && op.kind() == Code::Deref) op = EDerefView{op}.operand();
+                    if (op && op.kind() == Code::MethodCall) {
                         // `&mut v[i]` (= AddrOfTemp(Deref(index_mut(...)))): the
                         // outer `&mut` makes the receiver borrow MUTABLE even
                         // when method_self_kind can't resolve the desugared
@@ -14970,8 +14954,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             // (`rrp.path.empty()`), so the D8 field-split admits are untouched,
             // and gated on the binding already being mut or a param so the
             // binding-mut question stays out of this rule entirely — that
-            // question is `recvmutbind`, and it is declined for a reason
-            // recorded at check_recv_conflict.
+            // question is check_recv_conflict's (landed 2026-09-08a).
             //
             // ── PRICED BEFORE IT WAS WRITTEN (scripts/ceiling-probe.sh,
             // 2026-08-28): 342 fires over 387 ledger compiles, CEILING 2,

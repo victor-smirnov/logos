@@ -1,0 +1,7 @@
+package c32;
+fn main() -> i32 {
+    let mut b: Box<i64> = Box::new(0i64);
+    while *b < 3i64 { *b = *b + 1i64; }
+    if *b != 3i64 { return 1i32; }
+    return 0i32;
+}

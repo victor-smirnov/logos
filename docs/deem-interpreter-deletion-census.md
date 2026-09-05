@@ -5244,9 +5244,22 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9095 -> 9161   +66
 #   NOIMPORTED   4659 -> 4725   +66
 #   TIERCOMMIT    174 ->  174     0
-REGISTRY-ALL         9161
-REGISTRY-NOIMPORTED  4725
-REGISTRY-TIERCOMMIT  174
+# 2026-09-08a (soundness queue: 7 rows closed, 2 added, 28 -> 23). The seven
+#   programs leave tests/soundness/open/ (unglobbed) and land with their twins
+#   and the round's counter-examples: +35 pass + +20 fail, all `bc_mutplace_*`,
+#   none imported, none tier_commit. Predicted from the file count before the
+#   pin was read (`ls tests/logos/pass/bc_mutplace_*.logos | wc -l` -> 35,
+#   `ls tests/logos/fail/bc_mutplace_*.logos | wc -l` -> 20).
+#   And ONE bc-ledger row closed by the same change: many-mutable-borrows (E0596,
+#   `v.push(0)` on a non-mut Vec) moves tests/imported/admit -> tests/imported/fail:
+#   its logos_00_bc_admit_* test (tier_commit, non-imported) becomes an imported
+#   fail fixture — ALL unchanged, NOIMPORTED -1, TIERCOMMIT -1 (the gate said so).
+#   ALL          9161 -> 9216   +55
+#   NOIMPORTED   4725 -> 4779   +54
+#   TIERCOMMIT    174 ->  173    -1
+REGISTRY-ALL         9216
+REGISTRY-NOIMPORTED  4779
+REGISTRY-TIERCOMMIT  173
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

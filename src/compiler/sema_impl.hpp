@@ -5397,13 +5397,15 @@ private:
     // the use context has to be carried in. The same channel answers the same
     // question for an EXPLICIT deref: a `match *b { … ref mut y … }` scrutinee
     // (see `arms_bind_ref_mut`).
-    // SET by the `&mut <field place>` arm of `lower_expr` and by the match
-    // scrutinee, both restoring what they saved; CONSUMED and cleared by
-    // `lower_field_read` (which re-arms it only for a receiver that is itself a
-    // field place, so `&mut a.b.f` steps mutably at both levels) and by
-    // `lower_deref`. Every other position lowers with it FALSE — an over-eager
-    // mutable step would refuse `&mut f(a.b)` for a non-`mut` `a`, and a
-    // `Deref`-only type has no `deref_mut` to call at all.
+    // SET at every mutable-use position through `lower_mut_place` (the LHS of
+    // `=` / `op=`, the operand of `&mut`, a deref-write) and by the match
+    // scrutinee; CONSUMED and cleared by each place projection (`lower_deref`,
+    // `lower_field_read`, `lower_index_read`, TUPLE_INDEX), which re-arm it
+    // for a base that is itself a place node (`is_place_node`) so `&mut **bb`
+    // / `(*b).f = v` / `*v[i] = v` step mutably at every level. Every other
+    // position lowers with it FALSE — an over-eager mutable step would refuse
+    // `&mut f(a.b)` for a non-`mut` `a`. A `Deref`-only / `Index`-only step
+    // under it is REFUSED (`refuse_deref_only`), never degraded to the shared one.
     bool mut_place_ctx_ = false;
 
     // B-ts-01: synth tuple-struct field names "0", "1", … interned in
@@ -7763,8 +7765,21 @@ private:
     // `x.deref()`), and return the dereferenced Target place. nullopt when the
     // receiver type implements no Deref. The concrete Target is computed by
     // substituting the Deref impl's target pattern against recv's type.
-    std::optional<lir::LExprPtr> emit_generic_deref_step(lir::LExprPtr recv, bool want_mut);
-    std::optional<lir::LExprPtr> emit_generic_deref_call(lir::LExprPtr recv, bool want_mut);
+    // `degraded` (optional): set TRUE when a `want_mut` step found only a
+    // `Deref` impl and took the SHARED step — the caller in a mutable-use
+    // position refuses (E0594/E0596); every other caller may ignore it.
+    std::optional<lir::LExprPtr> emit_generic_deref_step(lir::LExprPtr recv, bool want_mut,
+                                                         bool* degraded = nullptr);
+    std::optional<lir::LExprPtr> emit_generic_deref_call(lir::LExprPtr recv, bool want_mut,
+                                                         bool* degraded = nullptr);
+    // A mutable-use position refusing a `Deref`-only step (rustc E0594/E0596).
+    void refuse_deref_only(TypeRef t);
+    // The place-projection nodes that carry a mutable-use position down to
+    // their base (parens unwrapped): DEREF / FIELD_READ / INDEX_READ / TUPLE_INDEX.
+    bool is_place_node(writ::TinyMapView n) noexcept;
+    // Lower `n` as a PLACE in a mutable-use position: arms `mut_place_ctx_`
+    // for a place node, lowers, and leaves the context cleared.
+    lir::LExprPtr lower_mut_place(writ::TinyMapView n);
 
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);

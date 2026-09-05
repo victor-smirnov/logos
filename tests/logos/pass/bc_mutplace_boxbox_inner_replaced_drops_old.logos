@@ -1,0 +1,16 @@
+// `**bb = D{..}` on a `Box<Box<D>>`: the old D drops at the write — destructor count 11 asserted by the exit code.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_boxbox_inner_replaced_drops_old;
+struct D { v: i64, i: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.i = *self.i + self.v; } } }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let mut bb: Box<Box<D>> = Box::new(Box::new(D { v: 1i64, i: p }));
+        **bb = D { v: 10i64, i: p };
+        if c != 1i64 { return 3i32; }
+    }
+    if c != 11i64 { return 1i32; }
+    return 0i32;
+}

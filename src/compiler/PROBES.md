@@ -24233,3 +24233,135 @@ ceiling: 0 (bc) / 6 (soundness queue, by name: boxbox_mut_deref, box_deref_assig
 cost: 0 pass / cfail 1 (the same un-refusal) / stdlib ok / runtime 0 damaged of 6388 / hand: 36 shapes at Rust's verdict except h09 h10 (sentence), h12 (stdlib Rc DerefMut), h16 (own row)
 verdict: FUND as one landing; halves are in series
 note: nest + wrdeleg + cmprefuse + dwptrmc under one name.
+
+# ═══ ROUND 2026-09-08a (LANDING, soundness queue) — A PLACE IN A MUTABLE-USE POSITION TAKES THE MUTABLE TRAIT STEP
+# AT EVERY LEVEL: `mut_place_ctx_` is armed at every mutable-use position (the LHS of `=` / `op=`, the operand of
+# `&mut`, a deref-write) and carried down every place projection (DEREF / FIELD_READ / INDEX_READ / TUPLE_INDEX,
+# parens unwrapped); the Deref step and the Index step consume it, a `Deref`-only / `Index`-only step under it is
+# REFUSED, DEREF_WRITE takes the read side's generic `deref_mut` step and flows through the common tail, and the bare
+# `deref_mut()` / `&mut self` receiver is asked the binding-mut question (`recvmutbind` LANDED by delegation).
+# 7 rows closed (predicted 7 by name, both ways), 2 rows ADDED (28 -> 23), 4 admits found by the counter-examples and
+# closed by the same change, +35 pass / +20 fail (`bc_mutplace_*`), cost 0 pass / cfail 0 rc, 3 re-pinned wrong-reason
+# sentences READ / stdlib four layers / runtime 0 of 6388 (one stale port corrected). ═══
+
+## 0. STEP 1, RE-DERIVED (HEAD a9c7b67fd = origin/main, clean; probe-log-lint 202 records; build 292d8b06b75c0344 READ)
+    queue 28 (gate rc 0 with LOGOS_LIB_DIR=build/lib/logos), bc_admits 99, bc_admits_blocked 25. The pricing report's
+    numbers held. Baseline oracles quoted from the store: `gate-run.sh -L bc` "Nothing has changed that a test run
+    could see" (build 292d… already measured, 2538 tests), fail_text_oracle 1389 rows, run_oracle 6388 rows.
+
+## 1. THE CLASS, BY PROPERTY (probes/2026-09-08a-mutplace/PREDICTION.md, written before any edit)
+    A PLACE EXPRESSION in a MUTABLE-USE POSITION whose projection chain crosses a trait step (Deref / Index) must take
+    the mutable trait step (DerefMut / IndexMut), refuse when only the shared trait is implemented, and ask the
+    receiver's binding-mut question. ENUMERATED by the Rust reference's mutable place expression contexts:
+      positions: (1) LHS of `=` — PLACE_ASSIGN's FIELD_READ / INDEX_READ / TUPLE_INDEX / DEREF place, DEREF_WRITE;
+                 (2) LHS of `op=` — lower_place_compound_assign, DEREF_COMPOUND; (3) operand of `&mut`;
+                 (4) `&mut self` receiver — lower_method_call, ALREADY asked (target_method_wants_mut_self), untouched;
+                 (5) match scrutinee with `ref mut` — ALREADY armed, untouched; (6) `let ref mut x = place` — noted, unasked.
+      projections that carry the position: DEREF, FIELD_READ, INDEX_READ, TUPLE_INDEX, PAREN_EXPR (`is_place_node`).
+      steps that consume it: lower_deref, the field auto-deref loop, the index auto-deref loop, the Index step.
+    Before (HEAD, tables/c01-c32_before_HEAD_a9c7b67fd.txt): the position reached `&mut x.f` (field chain), `&mut *x`
+    (one level), DEREF_COMPOUND (one level), the match scrutinee — and NOTHING else. 12 legal shapes refused as
+    "write through raw pointer" / "behind a `&`", and FOUR illegal shapes ADMITTED that no row named: `(*w).f = 7`,
+    `w.f = 7`, `w.f += 6` over a Deref-only W (c03/c04/c26, they compiled and RAN), `h.m[0] = 9` over an Index-only M
+    through a FIELD receiver (c17 — lower_place_assign refused only a bare-variable receiver).
+
+## 2. COUNTER-EXAMPLES FIRST — 42 hand programs in shapes the pricing round did not use (hand/, expected.tsv):
+    a GENERIC fn `**b = v` over `&mut Box<T>` (c01) · a closure capture (c02) · `*b = *b + 6` (c07) · `if let Some(b) =
+    &mut ob { **b = 3 }` (c08) · a for loop (c09) · a Box in a TUPLE `*t.0 = 5` (c10) · `(**bb).f` and `bb.f` (c13) ·
+    `**m` through a `&mut Box` local (c14) · `h.v[0] = 7` (c16) · a by-value `mut b: Box` param (c20) · two user
+    DerefMut hops (c21) · `(*b) = 7` (c22) · `**bb = D{..}` with a destructor count (c24) · `while *b < 3` (c32) ·
+    Box<Vec> index writes (c06/c23) · reads through Deref-only stay legal (d09) · the RHS index read (d10) · the
+    receiver arm's own set: `v.push(1)` on a non-mut local / by-value param / `mut` param / destructured `mut` /
+    closure `mut` param / `self.v` / `for mut w` (c37-c43) · `*r = 5` and `rs.bump()` through non-mut `&mut` locals
+    (c35). Every verdict matches Rust's after the landing except c22 and c33 (§5, two new rows) and c05/c23's older
+    sentence ("assignment to immutable variable 'b'", the right verdict).
+
+## 3. THE CHANGE (sema_impl.hpp / sema_expr.cpp / sema_stmt.cpp / borrow_check.cpp)
+    `lower_mut_place(n)` = arm `mut_place_ctx_` for a place node, lower, clear — used at: the addr-of-mut arm (both
+    the `&mut *x` operand and the `&mut <place>` fallback), DEREF_WRITE, DEREF_COMPOUND (all four re-lowerings),
+    lower_place_assign, lower_place_compound_assign (both eval-#2 sites). lower_deref / lower_field_read /
+    lower_index_read / TUPLE_INDEX consume it and re-arm it for a place-node base. `emit_generic_deref_call/step` take
+    `bool* degraded`; every consumer in a mutable-use position refuses on degrade with ONE sentence
+    (`refuse_deref_only`: "cannot mutate through '*W': 'W' implements `Deref` but not `DerefMut` (E0594/E0596)").
+    lower_index_read under the position asks IndexMut (`index_mut`, a `&mut` receiver) and refuses an Index-only type
+    with lower_place_assign's own sentence. DEREF_WRITE: the Struct/ZonedStruct operand takes emit_generic_deref_call
+    (want_mut) and the `&mut` flows through the common tail — the has_dm arm (a by-name impl table +
+    find_func_by_base_and_signature, concrete symbols only, returning BEFORE the T1.5 old-value drop) is DELETED.
+    borrow_check: the mb.w predicate is factored into `refuse_not_mut_binding` and check_recv_conflict asks it for a
+    bare-place `&mut self` receiver whose root is not a reference (`recvmutbind` landed by delegation; its 08-28
+    blocker — a pattern-bound `mut` not reaching is_mut_binding — retired 09-06). take_ref_borrows' AddrOfTemp arm
+    walks EVERY place deref down to the deref call (`&***p` over `p: &Box<&mut i64>`), which is the §4a debt paid.
+    WHERE THE FIX DIFFERS FROM ITS PROBE: the probe re-armed at five doors by spelling (nest_place_node over
+    DEREF/FIELD_READ); the landing arms at the POSITIONS and carries through every projection, so PLACE_ASSIGN and the
+    compound place path — never probed — are covered, which is what closed c03/c04/c26/c17 and box_in_vec_deref_write
+    (the probe's own record said INDEX_READ "is not a nest node"). dwptrmc's `take_ref_borrows(ptr, "__dwrecv") +
+    release` hack is replaced by the receiver question at the one site that owns it.
+
+## 4. THE PRICE (build 1 = 48838d1a64569b09, build 3 = 0333c89fa56e429c; FINAL below)
+    pass (`gate-run.sh -L bc`, DB): build 1 — 2533 / 3 failed = exactly the three wrong-reason pins re-pinned in §4a;
+      build 3 — 2591 passed / 0 failed / 2 disabled (the 55 new fixtures registered by the re-glob).
+    cfail (fail_text_oracle, 1389 -> 1409 rows): rc moved 0; text moved 5 (READ): bc_field_deref_no_deref_mut
+      ("behind a `&`" -> the Deref-only sentence, rustc E0596 "cannot borrow data in dereference of `C` as mutable"),
+      borrowck-borrow-overloaded-deref ("deref-write: '=' left side must be…" -> the Deref-only sentence),
+      borrowck-issue-14498--box-mut-ref (§4a), bc_match_deref_mut_not_mut + borrowck-no-cycle-in-exchange-heap--
+      move-while-refmut-borrowed (a SECOND line "cannot borrow 'x' as mutable: not declared as mut" from the receiver
+      arm ahead of the pinned 'x.0' line — the same defect twice, both still match; a duplicate, recorded).
+    stdlib: all four layers compile.
+    runtime (run_oracle, one binary each): build 1 — 1 of 6388 moved: tests/imported/pass/iterators/
+      test_harness_coretest_iter_zip_nth REFUSED "cannot borrow 'it0' as mutable: not declared as mut" — `let it0 =
+      iter_zip(..); it0.nth(0)` where `nth` is `&mut self` (iter.logos:573); the port's own header says `.nth` took
+      `self` BY VALUE when it was ported, and upstream's binding is `let mut it`. The port decayed with the stdlib;
+      `mut` restored on its four iters, header updated. Build 3 — 0 of 6388 moved, +35 new pass rows.
+ 4a. THE §4a DEBT, PAID AND READ. borrowck-issue-14498--box-mut-ref as ported had `let y` where upstream
+    borrow_in_var_from_var has `let mut y`; with the Box step mutable, `**y = 2` on the non-mut port is refused "not
+    declared as mut" (the c33 divergence, §5) and the SAME program with `let mut y` was ADMITTED on build 1 — the
+    E0506 un-refusal the pricing round predicted. Root, read: take_ref_borrows' AddrOfTemp arm delegated to the
+    deref CALL only when it sat directly under ONE Deref; `&***p` is Deref(Deref(deref(Deref p))) — the outer `*`
+    crosses the `&mut` payload — so the loan `q` holds was recorded at nothing `**y`'s receiver borrow could conflict
+    with. The arm now walks every place deref to the call; the port's `mut` is restored to upstream's and its
+    .expected re-pinned to "cannot borrow 'y' as mutable: 'y' has shared borrows" (E0506; c19 direct and c29 via `&y`
+    over `Box<i64>` say the same).
+
+## 5. QUEUE — 7 rows closed (predicted 7 by name in PREDICTION.md; the gate named exactly those 7 and no other, both
+##    ways: tables/queue_gate_build1.txt), 2 rows ADDED, 28 -> 23, gate rc 0 on 23:
+    CLOSED, each program landed as a fixture with its twin (diagnostics READ, §2 tables):
+      boxbox_mut_deref -> pass/bc_mutplace_boxbox_addrof_mut (+ _immut_fail "cannot borrow 'bb' as mutable: not declared as mut")
+      box_deref_assign_mut_let -> pass/bc_mutplace_box_deref_assign; box_write_raw_ptr_diag -> its fail twin
+        fail/bc_mutplace_box_deref_assign_immut_fail ("cannot borrow 'b' as mutable: not declared as mut" — rustc E0594
+        names the assignment, ours the borrow; the verdict and the property are right)
+      derefonly_compound_write_admit -> fail/bc_mutplace_derefonly_compound_fail (the Deref-only sentence; twin pass adds DerefMut)
+      user_derefmut_write_leaks_old -> pass/bc_mutplace_user_derefmut_write_drops_old (exit 0 = destructor count 11; was 10;
+        + _immut_fail)
+      derefmut_compound_recv_immut_admit -> fail/bc_mutplace_box_compound_immut_fail ("not declared as mut"; + pass twin)
+      box_in_vec_deref_write -> pass/bc_mutplace_box_in_vec_deref_write (+ _immut_fail over a by-value param)
+    ADDED: paren_place_assign_target (t3 refuses) — `(*b) = 7`, a PAREN place on the LHS, "invalid assignment target";
+      box_mutref_payload_write_immut_box (t3 refuses) — `**y = 2` on a NON-mut `y: Box<&mut i64>` is legal Rust because
+      rustc's Box deref is a built-in place (is_mutable: Deref of `&mut` asks the base with LocalMutationIsAllowed::Yes);
+      Logos's Box goes through `deref_mut()` and earns the user-DerefMut sentence. Not a by-name exemption (rule 12).
+    NEW DEFECTS closed in the same change (no row needed — they went straight to pairs): c03 c04 c26 c17 (§1).
+    bc ledger: ONE ROW CLOSED — many-mutable-borrows (bck.NEW-M, E0596: `let v: Vec<i64>; v.push(0); v.push(0)`),
+    the row the 08-28 `recvmutbind` pricing named (ceiling 1) and could not buy; L1's `logos_00_bc_admit_*` gate on the
+    FULL build named it (the -L bc store had not: that label does not carry the admit gates). Program moved
+    tests/imported/admit -> tests/imported/fail with "cannot borrow 'v' as mutable: not declared as mut"; bc_admits
+    `# TOTAL` 99 -> 98 by direct listing, bc_admits_blocked 25 unmoved. h12 `*r = 7` on Rc stays the stdlib owner's
+    (rc.logos carries `impl DerefMut for Rc`).
+    ⚠ CONTRADICTS the 09-07a record: "INDEX_READ is not a nest node; lower_index_place(is_mut) is the door, reached
+    today only from `&mut v[i]`" — the door is lower_index_read itself once it consumes the position; no separate
+    landing was needed for box_in_vec_deref_write.
+
+## 6. GATES ON THE FINAL BUILD b649acb79e093978 (full `cmake --build`, then the re-glob of the moved bc program)
+    L1 754/754 + 173 gates rc 0 (the gates tier is 173: the bc_admit test of the closed row left it) · `test-levels.sh
+    L4 bc` detached: core+spec 4775/4779 with ONE load timeout (wql_domain_static_extremes, 120 s under load 41;
+    35.8 s green on rerun) and three census gates Not Run behind it (plan_ground_census / pull_shape /
+    direct_door_census — all green rerun, `-FA '.*'` on the produced facts), bc half 1539/1539 · queue gate rc 0 on 23 ·
+    run_oracle 6423 rows (6388 + 35 new), 0 moved against the 292d… baseline · probe-log-lint 202 records.
+    CONTROL REVERT (tables/../scratch, quoted in the commit): the four compiler sources checked out to HEAD, logosc
+    rebuilt (3491d5b9775c0b7c): user_derefmut_write_drops_old RUNS exit 1 (counter 10), the four admits and
+    many-mutable-borrows compile rc 0 and RUN, the three legal rows refused "write through raw pointer" / "behind a
+    `&`"; patch re-applied, rebuilt, hash back to b649acb79e093978 exactly.
+    ⚠ STALE PORTS: two imported programs had decayed against upstream/stdlib — 14498 (`let y` for upstream's
+    `let mut y`) and iter_zip_nth (`let it0` when `nth` became `&mut self`); both restored to `mut`, one token each,
+    headers say why. Owner may overrule.
+    ⚠ DUPLICATE SENTENCE (recorded, not fixed): a `match *x { ref mut … }` on a non-mut Box now prints "cannot borrow
+    'x' as mutable: not declared as mut" (receiver arm) AND "cannot borrow 'x.0' as mutable: 'x' not declared as mut"
+    (field arm) — two fixtures, both still match their pin.

@@ -1,0 +1,16 @@
+// reads through a Deref-only type — `(*w).f`, `w.f`, `&*w`, `&w.f` — stay legal, run.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_derefonly_read_still_fine;
+use logos.lang.ops;
+struct S { f: i64 }
+struct W { inner: S }
+impl Deref<S> for W { fn deref(&self) -> &S { return &self.inner; } }
+fn main() -> i32 {
+    let w: W = W { inner: S { f: 1i64 } };
+    let a: i64 = (*w).f;
+    let b: i64 = w.f;
+    let r: &S = &*w;
+    let q: &i64 = &w.f;
+    if a + b + r.f + *q != 4i64 { return 1i32; }
+    return 0i32;
+}

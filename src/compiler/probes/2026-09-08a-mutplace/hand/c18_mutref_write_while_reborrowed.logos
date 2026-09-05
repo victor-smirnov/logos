@@ -1,0 +1,9 @@
+package c18;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let y: &mut i64 = &mut x;
+    let q: &i64 = &*y;
+    *y = 2i64;
+    let _ = *q;
+    return 0i32;
+}

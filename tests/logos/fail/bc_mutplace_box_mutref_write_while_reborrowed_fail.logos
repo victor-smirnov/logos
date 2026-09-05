@@ -1,0 +1,11 @@
+// `**y = 2` on a `let mut y: Box<&mut i64>` while `q = &**y` is live: E0506.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_box_mutref_write_while_reborrowed_fail;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let mut y: Box<&mut i64> = Box::new(&mut x);
+    let q: &i64 = &**y;
+    **y = 2i64;
+    let _ = *q;
+    return 0i32;
+}

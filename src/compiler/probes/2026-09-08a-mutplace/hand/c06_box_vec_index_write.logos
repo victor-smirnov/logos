@@ -1,0 +1,9 @@
+package c06;
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    let mut b: Box<Vec<i64>> = Box::new(v);
+    b.push(1i64);
+    b[0] = 5i64;
+    if b[0] != 5i64 { return 1i32; }
+    return 0i32;
+}

@@ -1277,7 +1277,7 @@
 # Rust) were refused until `!in_closure_body_` was added. Both tokens are
 # pinned in PAIRS: fail/bc_capmovemut_{mutref_capture,sibling_closures} vs
 # pass/bc_capmovemut_{sharedref_capture,nested_closures}. PROBES.md 2026-09-03p.
-# TOTAL 99
+# TOTAL 98
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1300,7 +1300,6 @@ buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
 issue-58776-borrowck-scans-children bck.C tests/imported/admit/borrowck/issue-58776-borrowck-scans-children
 issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure
-many-mutable-borrows bck.NEW-M tests/imported/admit/borrowck/many-mutable-borrows
 mut-borrow-conflict-in-closures-vec--bounded bck.C tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec--bounded
 mut-borrow-of-mut-ref bck.A tests/imported/admit/borrowck/mut-borrow-of-mut-ref
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error

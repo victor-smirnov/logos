@@ -1,0 +1,10 @@
+// `*v[0] = 7` over a `let mut v: Vec<Box<i64>>`: legal (IndexMut place, then DerefMut), runs. ONE TOKEN from fail/bc_mutplace_box_in_vec_deref_write_immut_fail. Was soundness-queue row box_in_vec_deref_write (tier 3).
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_box_in_vec_deref_write;
+fn main() -> i32 {
+    let mut v: Vec<Box<i64>> = Vec::new();
+    v.push(Box::new(1i64));
+    *v[0] = 7i64;
+    if *v[0] != 7i64 { return 1i32; }
+    return 0i32;
+}

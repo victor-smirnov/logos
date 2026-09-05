@@ -1,0 +1,9 @@
+package c44;
+static mut G: i64 = 1i64;
+fn main() -> i32 {
+    unsafe { G = 2i64; }
+    let mut b: Box<i64> = Box::new(0i64);
+    unsafe { *b = G; }
+    if *b != 2i64 { return 1i32; }
+    return 0i32;
+}

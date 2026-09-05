@@ -1,0 +1,10 @@
+// `*v[0] = 7` over a by-value `v: Vec<Box<i64>>` param without `mut`: E0596. Twin of pass/bc_mutplace_box_in_vec_deref_write.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_box_in_vec_deref_write_immut_fail;
+fn f(v: Vec<Box<i64>>) { *v[0] = 7i64; }
+fn main() -> i32 {
+    let mut v: Vec<Box<i64>> = Vec::new();
+    v.push(Box::new(1i64));
+    f(v);
+    return 0i32;
+}

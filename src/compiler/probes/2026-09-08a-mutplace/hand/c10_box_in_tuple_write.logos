@@ -1,0 +1,7 @@
+package c10;
+fn main() -> i32 {
+    let mut t: (Box<i64>, i64) = (Box::new(1i64), 2i64);
+    *t.0 = 5i64;
+    if *t.0 != 5i64 { return 1i32; }
+    return 0i32;
+}

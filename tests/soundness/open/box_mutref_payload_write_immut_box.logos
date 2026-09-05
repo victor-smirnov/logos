@@ -1,0 +1,20 @@
+// SOUNDNESS QUEUE row box_mutref_payload_write_immut_box (tier 3). `**y = 2`
+// where `let y: Box<&mut i64>` is NOT `mut` is legal Rust: rustc's Box deref is
+// a BUILT-IN place projection and a write through the `&mut` payload needs no
+// `&mut y` (is_mutable: Deref of `&mut` asks the base with
+// LocalMutationIsAllowed::Yes). Logos models Box through the DerefMut trait, so
+// the step is `y.deref_mut()` and the receiver's binding-mut question refuses
+// "cannot borrow 'y' as mutable: not declared as mut" — the sentence a USER
+// DerefMut type earns (rustc E0596 there). Closing it needs Box to be a
+// built-in place, not a by-name exemption (a lookup key is not an identity).
+// Found 2026-09-08a (hand c33). Rust: exit 0.
+package box_mutref_payload_write_immut_box;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    {
+        let y: Box<&mut i64> = Box::new(&mut x);
+        **y = 2i64;
+    }
+    if x != 2i64 { return 1i32; }
+    return 0i32;
+}

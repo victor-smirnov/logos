@@ -1,0 +1,10 @@
+package c42;
+struct H { v: Vec<i64> }
+impl H { fn add(&mut self, x: i64) { self.v.push(x); } }
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    let mut h: H = H { v: v };
+    h.add(3i64);
+    if h.v.len() != 1i64 { return 1i32; }
+    return 0i32;
+}

@@ -334,9 +334,31 @@ lir::LExprPtr SemaChecker::lower_expr_temp_scoped(writ::TinyMapView node) {
                                 builder().var_ref(vn, vt), vt);
 }
 
+// The place-projection nodes that carry a mutable-use position to their base.
+bool SemaChecker::is_place_node(TinyMapView n) noexcept {
+    while (!n.is_null() && code_of(n) == la::PAREN_EXPR && n.has_key(la::VALUE))
+        n = map_of(n.get(la::VALUE.code));
+    auto c = code_of(n);
+    return c == la::DEREF || c == la::FIELD_READ || c == la::INDEX_READ ||
+           c == la::TUPLE_INDEX;
+}
+
+lir::LExprPtr SemaChecker::lower_mut_place(TinyMapView n) {
+    mut_place_ctx_ = is_place_node(n);
+    auto e = lower_expr(n);
+    mut_place_ctx_ = false;
+    return e;
+}
+
+void SemaChecker::refuse_deref_only(TypeRef t) {
+    error(std::format("cannot mutate through '*{}': '{}' implements `Deref` "
+                      "but not `DerefMut` (E0594/E0596)",
+                      type_str(t), type_str(t)));
+}
+
 std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_step(
-        lir::LExprPtr recv, bool want_mut) {
-    auto call = emit_generic_deref_call(std::move(recv), want_mut);
+        lir::LExprPtr recv, bool want_mut, bool* degraded) {
+    auto call = emit_generic_deref_call(std::move(recv), want_mut, degraded);
     if (!call) return std::nullopt;
     TypeRef ref_t = expr_type(*call);
     auto k = TypeRef(ref_t).kind();
@@ -351,7 +373,8 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_step(
 // returns the `&Target` (or fat ref) CALL itself, no place-deref. The `&*x`
 // reborrow shape and the deref-step both build on this.
 std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
-        lir::LExprPtr recv, bool want_mut) {
+        lir::LExprPtr recv, bool want_mut, bool* degraded) {
+    if (degraded) *degraded = false;
     if (!recv) return std::nullopt;
     TypeRef rt = expr_type(recv);
     if (TypeRef(rt).kind() != LogosType::Kind::Struct &&
@@ -400,7 +423,10 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
     // DISPATCH fallback. `lower_method_call`'s "an over-eager want_mut=true is
     // safe" now says something true.
     if (!impl_p && want_mut) {
-        if ((impl_p = pick("Deref"))) { want_mut = false; tr = "Deref"; }
+        if ((impl_p = pick("Deref"))) {
+            want_mut = false; tr = "Deref";
+            if (degraded) *degraded = true;
+        }
     }
     if (!impl_p) return std::nullopt;
     const SemaImplInfo& impl = *impl_p;
@@ -1450,7 +1476,9 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         // recognises it and emits the operand's value (load) directly,
         // identical to what the sema peephole used to do.
         if (code_of(child) == la::DEREF && child.has_key(la::VALUE)) {
-            auto operand = lower_expr(map_of(child.get(la::VALUE.code)));
+            // The operand is a place in a mutable-use position: `&mut **bb`
+            // steps the inner `*bb` through `deref_mut` too.
+            auto operand = lower_mut_place(map_of(child.get(la::VALUE.code)));
             auto op_t = expr_type(operand);
             if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
                 TypeRef(op_t).kind() == LogosType::Kind::MutRef ||
@@ -1469,8 +1497,13 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                 return builder().addr_of_temp(std::move(deref), true, make_ref(true, pointee_t));
             }
             // `&mut *rc` for a struct with a DerefMut impl: `rc.deref_mut()`.
-            if (auto dc = emit_generic_deref_call(std::move(operand), /*want_mut=*/true))
+            // A `Deref`-only struct is not a mutable place (E0596).
+            bool deref_only = false;
+            if (auto dc = emit_generic_deref_call(std::move(operand), /*want_mut=*/true,
+                                                  &deref_only)) {
+                if (deref_only) { refuse_deref_only(op_t); return error_expr(); }
                 return std::move(*dc);
+            }
             if (reject_thin_zone_mut_ref(op_t, /*src_ref_t=*/nullptr)) return error_expr();
             return builder().addr_of_temp(std::move(operand), true, make_ref(true, op_t));
         }
@@ -1485,8 +1518,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         // `b.deref_mut()`. Only a field place — `&mut f(a.b)` borrows the CALL's
         // temporary and leaves `a.b` an ordinary read.
         bool saved_mut_place = mut_place_ctx_;
-        mut_place_ctx_ = (code_of(child) == la::FIELD_READ);
-        auto inner = lower_expr(child);
+        auto inner = lower_mut_place(child);
         mut_place_ctx_ = saved_mut_place;
         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
         auto __ty_inner = make_ref(true, expr_type(inner),
@@ -2114,8 +2146,13 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     }
 
     case la::TUPLE_INDEX: {
+        // Consume the mutable-use context (see `mut_place_ctx_`); the
+        // receiver is a place in the same position (`*t.0 = v` on a Box).
+        bool tmut_ctx = mut_place_ctx_;
+        mut_place_ctx_ = false;
         auto recv = expr.has_key(la::RECEIVER)
-            ? lower_expr(map_of(expr.get(la::RECEIVER.code)))
+            ? (tmut_ctx ? lower_mut_place(map_of(expr.get(la::RECEIVER.code)))
+                        : lower_expr(map_of(expr.get(la::RECEIVER.code))))
             : error_expr();
         // Auto-deref: &(T) and &mut (T) -> use pointee type for index lookup
         TypeRef recv_tuple_type = expr_type(recv);
@@ -3246,8 +3283,10 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     // Consume the mutable-use context (see `mut_place_ctx_`): it belongs to
     // THIS deref, not to whatever the operand contains.
     bool mut_ctx = mut_place_ctx_;
+    auto operand_node = map_of(node.get(la::VALUE.code));
+    // The position carries down to a base that is itself a place (`**bb`).
+    auto operand = mut_ctx ? lower_mut_place(operand_node) : lower_expr(operand_node);
     mut_place_ctx_ = false;
-    auto operand = lower_expr(map_of(node.get(la::VALUE.code)));
     auto vt = expr_type(operand);
     if (TypeRef(vt).kind() == LogosType::Kind::Error)
         return builder().deref(std::move(operand), error_t());
@@ -3255,8 +3294,12 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     // resolved through the generic-aware method machinery (method_call_v) so it
     // works for GENERIC impls too — the old find_func path saw only concrete
     // (non-generic) symbols, which is why Box needed a bespoke `.ptr` path.
-    if (auto d = emit_generic_deref_step(std::move(operand), /*want_mut=*/mut_ctx))
+    bool deref_only = false;
+    if (auto d = emit_generic_deref_step(std::move(operand), /*want_mut=*/mut_ctx,
+                                         &deref_only)) {
+        if (deref_only) { refuse_deref_only(vt); return error_expr(); }
         return *d;
+    }
     if (TypeRef(vt).kind() != LogosType::Kind::Ptr &&
         TypeRef(vt).kind() != LogosType::Kind::Ref &&
         TypeRef(vt).kind() != LogosType::Kind::MutRef) {
@@ -10835,8 +10878,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     // else the receiver contains lowers as an ordinary read.
     auto recv_node = map_of(node.get(la::RECEIVER.code));
     bool mut_ctx = mut_place_ctx_;
-    mut_place_ctx_ = mut_ctx && code_of(recv_node) == la::FIELD_READ;
-    auto recv = lower_expr(recv_node);
+    auto recv = mut_ctx ? lower_mut_place(recv_node) : lower_expr(recv_node);
     mut_place_ctx_ = false;
     // A DROPPABLE fresh rvalue base (`make().x`) must live to the end of the
     // statement then drop — otherwise the temporary leaks (its Drop never runs).
@@ -10868,8 +10910,11 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
             // a move out of a deref and not a missing mutable step.
             (void)logos::probe::on("fldderefsite");
             bool step_mut = mut_ctx || logos::probe::on("fldderefmut");
-            auto stepped = emit_generic_deref_step(recv, /*want_mut=*/step_mut);
+            bool deref_only = false;
+            auto stepped = emit_generic_deref_step(recv, /*want_mut=*/step_mut,
+                                                   &deref_only);
             if (!stepped) break;
+            if (mut_ctx && deref_only) { refuse_deref_only(recv_base_t); return error_expr(); }
             recv = *stepped;
             recv_base_t = expr_type(recv);
         }
@@ -12267,7 +12312,13 @@ lir::LExprPtr SemaChecker::lower_index_place(TinyMapView node, bool is_mut) {
 }
 
 lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
-    auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+    // Consume the mutable-use context (see `mut_place_ctx_`): an indexed place
+    // written or borrowed mutably takes the IndexMut step, and its receiver
+    // is itself a place in the same position (`*v[i] = x`, `b[i] = x` on a Box).
+    bool mut_ctx = mut_place_ctx_;
+    auto recv_node = map_of(node.get(la::RECEIVER.code));
+    auto recv = mut_ctx ? lower_mut_place(recv_node) : lower_expr(recv_node);
+    mut_place_ctx_ = false;
     auto arr_type = expr_type(recv);
 
     // Rust autoderef at the index position: peel `&&…` chains with REAL
@@ -12385,8 +12436,11 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
                               (!_bn.empty() && impls_.count("Index::" + _bn));
             if (_has_index) break;
         }
-        auto stepped = emit_generic_deref_call(std::move(recv), /*want_mut=*/false);
+        bool deref_only = false;
+        auto stepped = emit_generic_deref_call(std::move(recv), /*want_mut=*/mut_ctx,
+                                               &deref_only);
         if (!stepped) break;     // recv (raw handle) still valid — no Deref impl
+        if (mut_ctx && deref_only) { refuse_deref_only(arr_type); return error_expr(); }
         TypeRef rt2 = expr_type(*stepped);
         if (TypeRef(rt2).kind() == LogosType::Kind::Slice ||
             TypeRef(rt2).kind() == LogosType::Kind::TraitObject) {
@@ -12403,9 +12457,21 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
         auto base_name = std::string(TypeRef(arr_type).struct_name());
         bool has_index = impls_.count("Index::" + type_name) ||
                          (!base_name.empty() && impls_.count("Index::" + base_name));
+        // In a mutable-use position the step is `index_mut` (IndexMut), and
+        // an `Index`-only type is not a writable place (E0594) — the same
+        // refusal `lower_place_assign` gives a bare-variable receiver.
+        const char* itr = mut_ctx ? "IndexMut" : "Index";
+        bool has_trait = impls_.count(std::string(itr) + "::" + type_name) ||
+                         (!base_name.empty() && impls_.count(std::string(itr) + "::" + base_name));
+        if (has_index && mut_ctx && !has_trait) {
+            error(std::format("cannot assign to index of '{}': type '{}' implements "
+                              "`Index` but not `IndexMut`", type_str(arr_type),
+                              type_name.empty() ? base_name : type_name));
+            return error_expr();
+        }
         if (has_index) {
-            auto mangled = type_name + "__index";
-            auto ref_t = make_ref(false, arr_type);
+            auto mangled = type_name + (mut_ctx ? "__index_mut" : "__index");
+            auto ref_t = make_ref(mut_ctx, arr_type);
             // Pick the unique 2-param candidate (recv + idx). Widen
             // integer-literal idx to the formal type so `m[3]`-style
             // literal indexes match.
@@ -12415,7 +12481,7 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
             }
             if (fit) {
                 widen_int_expr(idx, fit->param_types[1], builder());
-                auto recv_ref = materialize_recv_ref(std::move(recv), false, ref_t);
+                auto recv_ref = materialize_recv_ref(std::move(recv), mut_ctx, ref_t);
                 std::vector<lir::LExprPtr> args;
                 args.push_back(std::move(recv_ref));
                 args.push_back(std::move(idx));
@@ -12435,8 +12501,8 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
             // Output = the impl's `Index<Idx, Output>` 2nd trait-arg, with the
             // struct's type-args substituted for the impl's type params.
             const SemaImplInfo* ii = nullptr;
-            if (auto it = impls_.find("Index::" + type_name); it != impls_.end()) ii = &it->second;
-            else if (auto it2 = impls_.find("Index::" + base_name); it2 != impls_.end()) ii = &it2->second;
+            if (auto it = impls_.find(std::string(itr) + "::" + type_name); it != impls_.end()) ii = &it->second;
+            else if (auto it2 = impls_.find(std::string(itr) + "::" + base_name); it2 != impls_.end()) ii = &it2->second;
             if (ii && ii->trait_type_args.size() >= 2) {
                 SemaSubst subst;
                 if (ii->target_typeref) {
@@ -12451,12 +12517,12 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
                 if (idx_t && TypeRef(idx_t).kind() != LogosType::Kind::TypeVar)
                     widen_int_expr(idx, idx_t, builder());
                 lir::EMethodCall mc;
-                mc.receiver = materialize_recv_ref(std::move(recv), false, ref_t);
-                mc.method = "index";
+                mc.receiver = materialize_recv_ref(std::move(recv), mut_ctx, ref_t);
+                mc.method = mut_ctx ? "index_mut" : "index";
                 mc.args.push_back(std::move(idx));
                 mc.vtable_index = -1;
                 mc.resolved_type = "";
-                auto call_e = builder().method_call_v(std::move(mc), make_ref(false, out_t));
+                auto call_e = builder().method_call_v(std::move(mc), make_ref(mut_ctx, out_t));
                 return builder().deref(std::move(call_e), out_t);
             }
         }

@@ -1,0 +1,10 @@
+package c43;
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    let mut vs: Vec<Vec<i64>> = Vec::new();
+    vs.push(v);
+    let mut n: i64 = 0i64;
+    for mut w in vs { w.push(1i64); n = n + w.len(); }
+    if n != 1i64 { return 1i32; }
+    return 0i32;
+}

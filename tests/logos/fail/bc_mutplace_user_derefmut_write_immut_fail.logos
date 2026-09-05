@@ -1,0 +1,19 @@
+// `*w = S{..}` through a user DerefMut on a `let w` (no `mut`): E0596. ONE TOKEN from pass/bc_mutplace_user_derefmut_write_drops_old.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_user_derefmut_write_immut_fail;
+use logos.lang.ops;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+struct W { inner: S }
+impl Deref<S> for W { fn deref(&self) -> &S { return &self.inner; } }
+impl DerefMut<S> for W { fn deref_mut(&mut self) -> &mut S { return &mut self.inner; } }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let w: W = W { inner: S { v: 1i64, i: p } };
+        *w = S { v: 10i64, i: p };
+    }
+    if c != 11i64 { return 1i32; }
+    return 0i32;
+}

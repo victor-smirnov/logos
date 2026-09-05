@@ -1,0 +1,8 @@
+package c05;
+struct S { f: i64 }
+fn main() -> i32 {
+    let b: Box<S> = Box::new(S { f: 1i64 });
+    b.f = 7i64;
+    if b.f != 7i64 { return 1i32; }
+    return 0i32;
+}

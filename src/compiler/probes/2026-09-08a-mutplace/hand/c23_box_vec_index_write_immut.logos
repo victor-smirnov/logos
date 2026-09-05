@@ -1,0 +1,7 @@
+package c23;
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    let b: Box<Vec<i64>> = Box::new(v);
+    b[0] = 5i64;
+    return 0i32;
+}

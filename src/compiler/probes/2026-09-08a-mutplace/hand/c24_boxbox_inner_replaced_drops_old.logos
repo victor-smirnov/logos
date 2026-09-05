@@ -1,0 +1,14 @@
+package c24;
+struct D { v: i64, i: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.i = *self.i + self.v; } } }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let mut bb: Box<Box<D>> = Box::new(Box::new(D { v: 1i64, i: p }));
+        **bb = D { v: 10i64, i: p };
+        if c != 1i64 { return 3i32; }
+    }
+    if c != 11i64 { return 1i32; }
+    return 0i32;
+}

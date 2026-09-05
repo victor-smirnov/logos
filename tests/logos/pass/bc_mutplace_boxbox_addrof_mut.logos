@@ -1,0 +1,9 @@
+// `&mut **bb` on a `let mut bb: Box<Box<i64>>`: legal, runs. ONE TOKEN from fail/bc_mutplace_boxbox_addrof_immut_fail. Was soundness-queue row boxbox_mut_deref (tier 3).
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_boxbox_addrof_mut;
+fn main() -> i32 {
+    let mut bb: Box<Box<i64>> = Box::new(Box::new(1i64));
+    let r: &mut i64 = &mut **bb;
+    *r = 6i64;
+    return 0i32;
+}

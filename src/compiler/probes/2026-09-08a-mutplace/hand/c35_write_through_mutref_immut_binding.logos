@@ -1,0 +1,14 @@
+package c35;
+struct S { v: i64 }
+impl S { fn bump(&mut self) { self.v = self.v + 1i64; } }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let r: &mut i64 = &mut x;
+    *r = 5i64;
+    let mut s: S = S { v: 1i64 };
+    let rs: &mut S = &mut s;
+    rs.bump();
+    if x != 5i64 { return 1i32; }
+    if s.v != 2i64 { return 2i32; }
+    return 0i32;
+}

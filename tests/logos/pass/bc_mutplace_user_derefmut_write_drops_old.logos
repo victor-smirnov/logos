@@ -1,0 +1,19 @@
+// `*w = S{..}` through a user DerefMut: the OLD value drops at the assignment — destructor count 1 + 10 = 11 asserted by the exit code (was 10: the has_dm arm returned before the T1.5 tail). ONE TOKEN from fail/bc_mutplace_user_derefmut_write_immut_fail. Was soundness-queue row user_derefmut_write_leaks_old (tier 1).
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_user_derefmut_write_drops_old;
+use logos.lang.ops;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+struct W { inner: S }
+impl Deref<S> for W { fn deref(&self) -> &S { return &self.inner; } }
+impl DerefMut<S> for W { fn deref_mut(&mut self) -> &mut S { return &mut self.inner; } }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let mut w: W = W { inner: S { v: 1i64, i: p } };
+        *w = S { v: 10i64, i: p };
+    }
+    if c != 11i64 { return 1i32; }
+    return 0i32;
+}

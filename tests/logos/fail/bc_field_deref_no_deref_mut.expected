@@ -1,1 +1,1 @@
-cannot borrow 'c' as mutable: 'c' is behind a `&` reference
+cannot mutate through '*C': 'C' implements `Deref` but not `DerefMut` (E0594/E0596)

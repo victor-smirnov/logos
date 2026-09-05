@@ -1,0 +1,16 @@
+// `*r = 5` and `rs.bump()` through `&mut` locals bound WITHOUT `mut`: legal (a reborrow), runs — the binding-mut question exempts a reference root.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_write_through_mutref_immut_binding;
+struct S { v: i64 }
+impl S { fn bump(&mut self) { self.v = self.v + 1i64; } }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let r: &mut i64 = &mut x;
+    *r = 5i64;
+    let mut s: S = S { v: 1i64 };
+    let rs: &mut S = &mut s;
+    rs.bump();
+    if x != 5i64 { return 1i32; }
+    if s.v != 2i64 { return 2i32; }
+    return 0i32;
+}

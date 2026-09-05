@@ -1,0 +1,8 @@
+// `*b = 7` on a `let b: Box<i64>` (no `mut`): E0594/E0596, the borrow checker's sentence (was 'write through raw pointer requires unsafe context'). ONE TOKEN from pass/bc_mutplace_box_deref_assign. Was soundness-queue row box_write_raw_ptr_diag (tier 4).
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_box_deref_assign_immut_fail;
+fn main() -> i32 {
+    let b: Box<i64> = Box::new(1i64);
+    *b = 7i64;
+    return 0i32;
+}

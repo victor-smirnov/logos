@@ -1,0 +1,14 @@
+package c21;
+use logos.lang.ops;
+struct W { inner: i64 }
+impl Deref<i64> for W { fn deref(&self) -> &i64 { return &self.inner; } }
+impl DerefMut<i64> for W { fn deref_mut(&mut self) -> &mut i64 { return &mut self.inner; } }
+struct W2 { inner: W }
+impl Deref<W> for W2 { fn deref(&self) -> &W { return &self.inner; } }
+impl DerefMut<W> for W2 { fn deref_mut(&mut self) -> &mut W { return &mut self.inner; } }
+fn main() -> i32 {
+    let mut w2: W2 = W2 { inner: W { inner: 1i64 } };
+    **w2 = 5i64;
+    if w2.inner.inner != 5i64 { return 1i32; }
+    return 0i32;
+}

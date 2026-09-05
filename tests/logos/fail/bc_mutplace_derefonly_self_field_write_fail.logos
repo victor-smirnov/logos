@@ -1,0 +1,13 @@
+// `*self.w = v` where W: Deref only, inside `&mut self`: E0594.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_derefonly_self_field_write_fail;
+use logos.lang.ops;
+struct W { inner: i64 }
+impl Deref<i64> for W { fn deref(&self) -> &i64 { return &self.inner; } }
+struct H { w: W }
+impl H { fn set(&mut self, v: i64) { *self.w = v; } }
+fn main() -> i32 {
+    let mut h: H = H { w: W { inner: 1i64 } };
+    h.set(5i64);
+    return 0i32;
+}

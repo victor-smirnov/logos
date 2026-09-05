@@ -1,0 +1,12 @@
+package d04;
+use logos.lang.ops;
+struct S { f: i64 }
+struct W { inner: S }
+impl Deref<S> for W { fn deref(&self) -> &S { return &self.inner; } }
+impl DerefMut<S> for W { fn deref_mut(&mut self) -> &mut S { return &mut self.inner; } }
+fn main() -> i32 {
+    let mut w: W = W { inner: S { f: 1i64 } };
+    w.f = 7i64;
+    if w.inner.f != 7i64 { return 1i32; }
+    return 0i32;
+}

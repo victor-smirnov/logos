@@ -1,1 +1,1 @@
-deref-write: '=' left side must be a pointer or mutable reference
+cannot mutate through '*MyBox': 'MyBox' implements `Deref` but not `DerefMut` (E0594/E0596)

@@ -1,0 +1,13 @@
+// `h.m[0] = 9` where M: Index only, reached through a FIELD receiver: E0594, refused (it compiled and RAN — only a bare-variable receiver was refused). Twin pass/bc_mutplace_indexmut_through_field_write adds the IndexMut impl.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_indexonly_through_field_write_fail;
+use logos.lang.ops;
+struct M { a: i64 }
+impl Index<i64, i64> for M { fn index(&self, i: i64) -> &i64 { return &self.a; } }
+struct H { m: M }
+fn main() -> i32 {
+    let mut h: H = H { m: M { a: 1i64 } };
+    h.m[0i64] = 9i64;
+    if h.m.a != 9i64 { return 1i32; }
+    return 0i32;
+}

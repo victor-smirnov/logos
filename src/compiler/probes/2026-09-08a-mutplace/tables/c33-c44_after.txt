@@ -1,0 +1,11 @@
+c33_box_mutref_payload_write_immut_box   cc=1   run=-        errs=1  error [fn main]: cannot borrow 'y' as mutable: not declared as mut
+c34_user_derefmut_mutref_payload_write_immut cc=4   run=-        errs=1  error near 'impl' at line 4 col 1
+c35_write_through_mutref_immut_binding   cc=0   run=0        errs=0  
+c37_vec_push_immut_binding               cc=1   run=-        errs=1  error [fn main]: cannot borrow 'v' as mutable: not declared as mut
+c38_vec_push_byval_param_immut           cc=1   run=-        errs=1  error [fn f]: cannot borrow 'v' as mutable: not declared as mut
+c39_vec_push_byval_param_mut             cc=0   run=0        errs=0  
+c40_vec_push_destructure_mut             cc=0   run=0        errs=0  
+c41_vec_push_closure_param_mut           cc=0   run=0        errs=0  
+c42_vec_push_self_field_in_mut_method    cc=0   run=0        errs=0  
+c43_vec_push_for_mut_binding             cc=0   run=0        errs=0  
+c44_static_mut_deref_write               cc=0   run=0        errs=0  

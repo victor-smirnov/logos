@@ -1,0 +1,7 @@
+package c08;
+fn main() -> i32 {
+    let mut ob: Option<Box<i64>> = Option::Some(Box::new(1i64));
+    if let Some(b) = &mut ob { **b = 3i64; }
+    if let Some(b) = &ob { if **b != 3i64 { return 1i32; } } else { return 2i32; }
+    return 0i32;
+}

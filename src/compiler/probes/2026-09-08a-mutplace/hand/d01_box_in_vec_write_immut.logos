@@ -1,0 +1,7 @@
+package d01;
+fn main() -> i32 {
+    let v: Vec<Box<i64>> = Vec::new();
+    v.push(Box::new(1i64));
+    *v[0] = 7i64;
+    return 0i32;
+}

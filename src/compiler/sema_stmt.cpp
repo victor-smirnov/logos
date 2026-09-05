@@ -665,7 +665,9 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             error("deref-compound: missing operand");
             return builder().stmt_expr(error_expr(), node_line_);
         }
-        auto ptr   = lower_expr(map_of(stmt.get(la::NAME.code)));
+        // The operand is a place in a mutable-use position (`**bb += v`).
+        auto ptr_node = map_of(stmt.get(la::NAME.code));
+        auto ptr   = lower_mut_place(ptr_node);
         auto rhs   = lower_expr(map_of(stmt.get(la::VALUE.code)));
         auto op_tok = str_of(stmt.get(la::OP.code));
         std::string base_op = (op_tok.size() >= 2 && op_tok.back() == '=')
@@ -677,14 +679,21 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         // desugar to `*(w.deref_mut()) = *(w.deref_mut()) op v` through the
         // canonical emit_generic_deref_call (shape-aware multi-impl + generic
         // wrappers; deref_mut treated as side-effect-free, as in the rest of
-        // the deref family). Adversarial #2 p06.
+        // the deref family). Adversarial #2 p06. A `Deref`-only step is not a
+        // write place (E0594).
         if (TypeRef(pt).kind() == LogosType::Kind::Struct ||
             TypeRef(pt).kind() == LogosType::Kind::ZonedStruct) {
-            auto wcall = emit_generic_deref_call(std::move(ptr), /*want_mut=*/true);
+            bool deref_only = false;
+            auto wcall = emit_generic_deref_call(std::move(ptr), /*want_mut=*/true,
+                                                 &deref_only);
+            if (wcall && deref_only) {
+                refuse_deref_only(pt);
+                return builder().stmt_expr(error_expr(), node_line_);
+            }
             if (wcall) {
                 TypeRef tgt = TypeRef(expr_type(*wcall)).pointee();
-                auto rcall = emit_generic_deref_call(
-                    lower_expr(map_of(stmt.get(la::NAME.code))), /*want_mut=*/true);
+                auto rcall = emit_generic_deref_call(lower_mut_place(ptr_node),
+                                                     /*want_mut=*/true);
                 if (rcall && tgt) {
                     auto cur_val = builder().deref(std::move(*rcall), tgt);
                     auto binop = builder().bin_op(base_op, std::move(cur_val),
@@ -693,7 +702,7 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                                                       std::move(binop), node_line_);
                 }
             } else {
-                ptr = lower_expr(map_of(stmt.get(la::NAME.code)));
+                ptr = lower_mut_place(ptr_node);
             }
         }
         if (!elem || (TypeRef(pt).kind() != LogosType::Kind::Ptr &&
@@ -708,16 +717,36 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             error("deref-compound: cannot write through *const pointer (use *mut)");
         // Build *p (read) op rhs.  Need to read ptr twice — clone the var-ref
         // by re-lowering.
-        auto ptr_again = lower_expr(map_of(stmt.get(la::NAME.code)));
+        auto ptr_again = lower_mut_place(ptr_node);
         auto cur_val   = builder().deref(std::move(ptr_again), elem);
         auto binop     = builder().bin_op(base_op, std::move(cur_val), std::move(rhs), elem);
         return builder().stmt_deref_write(std::move(ptr), std::move(binop), node_line_);
     }
     if (c == la::DEREF_WRITE) {
-        // *ptr = value;
+        // *ptr = value; — the operand is a place in a mutable-use position
+        // (`**bb = v`, `*v[i] = v`), and a struct operand takes the SAME
+        // generic `deref_mut` step as the read side (`lower_deref`) — the
+        // `&mut T` it returns then flows through the common tail below
+        // (unsafe / kind / variance / the T1.5 old-value drop / write-move).
+        // A `Deref`-only step is not a write place (E0594).
         lir::LExprPtr ptr = stmt.has_key(la::NAME)
-            ? lower_expr(map_of(stmt.get(la::NAME.code)))
+            ? lower_mut_place(map_of(stmt.get(la::NAME.code)))
             : error_expr();
+        if (ptr && (TypeRef(expr_type(ptr)).kind() == LogosType::Kind::Struct ||
+                    TypeRef(expr_type(ptr)).kind() == LogosType::Kind::ZonedStruct)) {
+            TypeRef st = expr_type(ptr);
+            bool deref_only = false;
+            if (auto dc = emit_generic_deref_call(std::move(ptr), /*want_mut=*/true,
+                                                  &deref_only)) {
+                if (deref_only) {
+                    refuse_deref_only(st);
+                    return builder().stmt_expr(error_expr(), node_line_);
+                }
+                ptr = std::move(*dc);
+            } else {
+                ptr = lower_mut_place(map_of(stmt.get(la::NAME.code)));
+            }
+        }
         // SL-sl-03: propagate `*p = Option::None`-style RHS hints from the
         // pointee type, so a bare `None` resolves to `Option<i32>` rather
         // than dropping to a discriminant-only constant (which then gets
@@ -740,34 +769,6 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         hint_enum_type_   = saved_enum_hint;
         hint_struct_type_ = saved_struct_hint;
         auto pt = expr_type(ptr);
-        // User-defined DerefMut dispatch: `*x = v` for struct x where
-        // x impls DerefMut<T> → call x.deref_mut() (returns &mut T),
-        // then emit `*<that &mut T> = v`. Mirrors the read-side path
-        // in sema_expr.cpp::lower_deref. Requires `let mut x`-style
-        // mutable binding for `&mut self` materialisation.
-        if (TypeRef(pt).kind() == LogosType::Kind::Struct) {
-            auto type_name = concrete_struct_name(pt);
-            auto base_name = std::string(TypeRef(pt).struct_name());
-            bool has_dm = impls_.count("DerefMut::" + type_name) ||
-                          (!base_name.empty() &&
-                           impls_.count("DerefMut::" + base_name));
-            if (has_dm) {
-                auto mangled = type_name + "__deref_mut";
-                auto mut_ref_t = make_ref(true, pt);
-                auto recv_ref = builder().addr_of_temp(std::move(ptr), true, mut_ref_t);
-                std::vector<lir::LExprPtr> args;
-                args.push_back(std::move(recv_ref));
-                auto fit = find_func_by_base_and_signature(mangled, {mut_ref_t}, false);
-                if (fit) {
-                    auto call_e = builder().call(
-                        fit->symbol_name.empty() ? mangled : fit->symbol_name,
-                        {}, std::move(args), fit->ret_type);
-                    track_write_move(val);
-                    return builder().stmt_deref_write(
-                        std::move(call_e), std::move(val), node_line_);
-                }
-            }
-        }
         // Writing through &mut T is safe; writing through raw *mut/*const T requires unsafe
         bool is_mut_ref = TypeRef(pt).kind() == LogosType::Kind::MutRef;
         if (!is_mut_ref && !inside_unsafe_)
@@ -3127,7 +3128,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                 if (!fit && !types_equal(rhs_ty, pt))
                     fit = find_func_by_base_and_signature(mangled, {mut_ref_t, pt}, false);
                 if (fit) {
-                    auto addr = builder().addr_of_temp(lower_expr(place_node),  // eval #2 — &mut place
+                    auto addr = builder().addr_of_temp(lower_mut_place(place_node),  // eval #2 — &mut place
                                                        /*is_mut=*/true, mut_ref_t);
                     std::vector<lir::LExprPtr> args;
                     args.push_back(std::move(addr));
@@ -3148,7 +3149,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
     widen_int_expr(rhs, pt, builder());
     auto newval = builder().bin_op(base_op, std::move(place_read), std::move(rhs),
                                    pt ? pt : error_t());
-    auto addr = builder().addr_of_temp(lower_expr(place_node), /*is_mut=*/true,  // eval #2
+    auto addr = builder().addr_of_temp(lower_mut_place(place_node), /*is_mut=*/true,  // eval #2
                                        make_ref(true, pt ? pt : error_t()));
     track_write_move(newval);
     return builder().stmt_deref_write(std::move(addr), std::move(newval), node_line_);
@@ -8201,7 +8202,7 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     // lower_field_read skips the union unsafe gate for this LHS.
     bool saved_place_write = in_place_write_lhs_;
     in_place_write_lhs_ = true;
-    auto place = lower_expr(place_node);
+    auto place = lower_mut_place(place_node);   // the LHS is a mutable-use position
     in_place_write_lhs_ = saved_place_write;
     TypeRef pt = expr_type(place);
     // Indexing through a raw-pointer place (e.g. a `*mut T` field `s.buf[i]`)

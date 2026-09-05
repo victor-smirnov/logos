@@ -1,0 +1,10 @@
+// `a.push(b)` on a `let (mut a, b)` destructured binding: legal, runs.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_vec_push_destructure_mut;
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    let (mut a, b): (Vec<i64>, i64) = (v, 1i64);
+    a.push(b);
+    if a.len() != 1i64 { return 1i32; }
+    return 0i32;
+}

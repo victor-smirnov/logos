@@ -1,0 +1,48 @@
+[soundness] canary: a clean program ran and exited 0, a wrong one exited 3, a refusal read as refused
+tests/logos/soundness_queue_gate.sh: line 88: 3038586 Aborted                 timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+FAIL: row 'boxbox_mut_deref' (tier 3) NO LONGER REPRODUCES — the program now compiles clean (cc=0 diag=0 run=0).
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/boxbox_mut_deref.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+tests/logos/soundness_queue_gate.sh: line 88: 3038940 Segmentation fault      (core dumped) "$LOGOSC" "$src" -o "$d/t.o" > "$d/cc.out" 2> "$O_ERR"
+FAIL: row 'box_deref_assign_mut_let' (tier 3) NO LONGER REPRODUCES — the program now compiles clean (cc=0 diag=0 run=0).
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/box_deref_assign_mut_let.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+FAIL: row 'box_write_raw_ptr_diag' (tier 4) NO LONGER REPRODUCES — stderr no longer carries 'write through raw pointer requires unsafe context' (cc=1 diag=1 run=-).
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/box_write_raw_ptr_diag.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+        error [fn main]: cannot borrow 'b' as mutable: not declared as mut
+FAIL: row 'derefonly_compound_write_admit' (tier 2) NO LONGER REPRODUCES — the compile is no longer silent (cc=1 diag=1).
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/derefonly_compound_write_admit.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+        /home/logos/devel/logos/tests/soundness/open/derefonly_compound_write_admit.logos:15: error [fn main]: cannot mutate through '*W': 'W' implements `Deref` but not `DerefMut` (E0594/E0596)
+FAIL: row 'user_derefmut_write_leaks_old' (tier 1) NO LONGER REPRODUCES — want cc=0 diag=0 run=1, read cc=0 diag=0 run=0.
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/user_derefmut_write_leaks_old.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+FAIL: row 'derefmut_compound_recv_immut_admit' (tier 2) NO LONGER REPRODUCES — the compile is no longer silent (cc=1 diag=1).
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/derefmut_compound_recv_immut_admit.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+        error [fn main]: cannot borrow 'b' as mutable: not declared as mut
+FAIL: row 'box_in_vec_deref_write' (tier 3) NO LONGER REPRODUCES — the program now compiles clean (cc=0 diag=0 run=0).
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/box_in_vec_deref_write.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.

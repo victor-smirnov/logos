@@ -1,0 +1,7 @@
+package c38;
+fn f(v: Vec<i64>) -> i64 { v.push(1i64); return v.len(); }
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    if f(v) != 1i64 { return 1i32; }
+    return 0i32;
+}

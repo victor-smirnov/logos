@@ -1,0 +1,52 @@
+c01	0	legal generic **b = v
+c02	0	legal closure
+c03	refuse	E0594 Deref-only (*w).f
+c04	refuse	E0594 Deref-only w.f
+c05	refuse	E0594 b not mut, b.f
+c06	0	legal IndexMut through Box
+c07	0	legal
+c08	0	legal
+c09	0	legal
+c10	0	legal
+c11	refuse	E0594 behind &
+c12	refuse	E0594 Deref-only self.w
+c13	0	legal
+c14	0	legal
+c15	refuse	E0596 Deref-only &mut *w
+c16	0	legal
+c17	refuse	E0594 Index-only h.m[0]
+c18	refuse	E0506
+c19	refuse	E0506
+c20	0	legal
+c21	0	legal
+c22	0	legal
+c23	refuse	E0596 b not mut
+c24	0	legal; 11
+c25	0	legal
+c26	refuse	E0594 Deref-only w.f +=
+c27	refuse	E0596 Deref-only &mut *w (untyped let)
+c28	refuse	E0506 y assigned while borrowed via p->q
+c29	refuse	E0506 *y assigned while borrowed via p->q
+c30	refuse	E0506 (issue-14498)
+c31	0	legal *b = Vec (Box<Vec>, sized)
+c32	0	legal
+c33	0	legal in Rust (Box built-in deref: non-mut y, write through payload &mut)
+c35	0	legal
+c37	refuse	E0596 v not mut
+c38	refuse	E0596 by-value param not mut
+c39	0	legal
+c40	0	legal
+c41	0	legal
+c42	0	legal
+c43	0	legal
+c44	0	legal
+d01	refuse	E0596 *v[0] = 7, v not mut
+d02	refuse	E0596 by-value param v not mut
+d03	0	legal (DerefMut twin of c03)
+d04	0	legal (DerefMut twin of c04)
+d05	0	legal (DerefMut twin of c26)
+d06	0	legal (IndexMut twin of c17)
+d07	0	legal (DerefMut twin of derefonly_compound_write_admit)
+d08	refuse	E0594 w[0] = 5 through a Deref-only step
+d09	0	legal reads through Deref-only
+d10	0	legal RHS index read

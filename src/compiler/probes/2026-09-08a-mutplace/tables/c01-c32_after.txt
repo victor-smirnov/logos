@@ -1,0 +1,32 @@
+c01_generic_boxref_write                 cc=0   run=0        errs=0  
+c02_closure_box_write                    cc=0   run=0        errs=0  
+c03_derefonly_paren_field_write          cc=1   run=-        errs=2  error [fn main]: cannot mutate through '*W': 'W' implements `Deref` but not `DerefMut` (E0594/E0596)
+c04_derefonly_autoderef_field_write      cc=1   run=-        errs=1  error [fn main]: cannot mutate through '*W': 'W' implements `Deref` but not `DerefMut` (E0594/E0596)
+c05_box_field_write_immut                cc=1   run=-        errs=1  error [fn main]: assignment to immutable variable 'b'
+c06_box_vec_index_write                  cc=0   run=0        errs=0  
+c07_box_write_reads_self                 cc=0   run=0        errs=0  
+c08_iflet_mutref_option_box              cc=0   run=0        errs=0  
+c09_loop_box_compound                    cc=0   run=0        errs=0  
+c10_box_in_tuple_write                   cc=0   run=0        errs=0  
+c11_shared_ref_box_param_write           cc=1   run=-        errs=2  error [fn f]: cannot assign to 'b': 'b' is behind a `&` reference
+c12_derefonly_self_field_write           cc=1   run=-        errs=1  error [fn H__set]: cannot mutate through '*W': 'W' implements `Deref` but not `DerefMut` (E0594/E0596)
+c13_boxbox_field_write_both_spellings    cc=0   run=0        errs=0  
+c14_mutref_local_to_box_write            cc=0   run=0        errs=0  
+c15_derefonly_addrof_mut                 cc=1   run=-        errs=1  error [fn main]: cannot mutate through '*W': 'W' implements `Deref` but not `DerefMut` (E0594/E0596)
+c16_field_vec_index_write                cc=0   run=0        errs=0  
+c17_indexonly_through_field_write        cc=1   run=-        errs=1  error [fn main]: cannot assign to index of 'M': type 'M' implements `Index` but not `IndexMut`
+c18_mutref_write_while_reborrowed        cc=1   run=-        errs=1  error [fn main]: cannot borrow 'y' as mutable: 'y' has shared borrows
+c19_box_mutref_write_while_reborrowed    cc=1   run=-        errs=2  error [fn main]: cannot borrow 'y' as mutable: 'y' has shared borrows
+c20_byval_mut_box_param_write            cc=0   run=0        errs=0  
+c21_user_derefmut_nested_write           cc=0   run=0        errs=0  
+c22_paren_deref_write                    cc=1   run=-        errs=1  error [fn main]: invalid assignment target: left side is not an assignable place
+c23_box_vec_index_write_immut            cc=1   run=-        errs=1  error [fn main]: assignment to immutable variable 'b'
+c24_boxbox_inner_replaced_drops_old      cc=0   run=0        errs=0  
+c25_deref_field_compound_box             cc=0   run=0        errs=0  
+c26_derefonly_field_compound             cc=1   run=-        errs=1  error [fn main]: cannot mutate through '*W': 'W' implements `Deref` but not `DerefMut` (E0594/E0596)
+c27_derefonly_addrof_mut_untyped         cc=1   run=-        errs=3  error [fn main]: cannot mutate through '*W': 'W' implements `Deref` but not `DerefMut` (E0594/E0596)
+c28_write_while_reborrow_via_sharedref   cc=1   run=-        errs=1  error [fn main]: cannot assign to 'y' because it is borrowed
+c29_box_write_while_reborrow_via_sharedref cc=1   run=-        errs=2  error [fn main]: cannot borrow 'y' as mutable: 'y' has shared borrows
+c30_box_mutref_write_via_sharedref_14498 cc=1   run=-        errs=1  error [fn main]: cannot borrow 'y' as mutable: not declared as mut
+c31_box_slice_unsized_assign             cc=0   run=0        errs=0  
+c32_derefmut_write_in_while_cond_body    cc=0   run=0        errs=0  

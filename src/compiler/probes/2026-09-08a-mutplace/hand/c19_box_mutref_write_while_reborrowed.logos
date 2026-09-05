@@ -1,0 +1,9 @@
+package c19;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let mut y: Box<&mut i64> = Box::new(&mut x);
+    let q: &i64 = &**y;
+    **y = 2i64;
+    let _ = *q;
+    return 0i32;
+}

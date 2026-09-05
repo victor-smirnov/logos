@@ -1,0 +1,11 @@
+package d08;
+use logos.lang.ops;
+struct W { inner: Vec<i64> }
+impl Deref<Vec<i64>> for W { fn deref(&self) -> &Vec<i64> { return &self.inner; } }
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    let mut w: W = W { inner: v };
+    w.inner.push(1i64);
+    w[0] = 5i64;
+    return 0i32;
+}

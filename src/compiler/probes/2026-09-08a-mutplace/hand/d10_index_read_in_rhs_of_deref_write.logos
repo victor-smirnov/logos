@@ -1,0 +1,9 @@
+package d10;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(3i64);
+    let mut b: Box<i64> = Box::new(0i64);
+    *b = v[0] + 1i64;
+    if *b != 4i64 { return 1i32; }
+    return 0i32;
+}

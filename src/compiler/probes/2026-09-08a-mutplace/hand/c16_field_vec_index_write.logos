@@ -1,0 +1,10 @@
+package c16;
+struct H { v: Vec<i64> }
+fn main() -> i32 {
+    let v0: Vec<i64> = Vec::new();
+    let mut h: H = H { v: v0 };
+    h.v.push(1i64);
+    h.v[0] = 7i64;
+    if h.v[0] != 7i64 { return 1i32; }
+    return 0i32;
+}

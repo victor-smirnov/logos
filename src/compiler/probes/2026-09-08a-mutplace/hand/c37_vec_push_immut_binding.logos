@@ -1,0 +1,6 @@
+package c37;
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    return 0i32;
+}

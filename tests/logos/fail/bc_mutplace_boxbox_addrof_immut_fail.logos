@@ -1,0 +1,9 @@
+// `&mut **bb` on a `let bb` (no `mut`): E0596. ONE TOKEN from pass/bc_mutplace_boxbox_addrof_mut.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_boxbox_addrof_immut_fail;
+fn main() -> i32 {
+    let bb: Box<Box<i64>> = Box::new(Box::new(1i64));
+    let r: &mut i64 = &mut **bb;
+    *r = 6i64;
+    return 0i32;
+}

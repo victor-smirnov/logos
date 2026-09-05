@@ -1,0 +1,12 @@
+// `self.v.push(x)` inside `&mut self`: legal, runs.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_vec_push_self_field;
+struct H { v: Vec<i64> }
+impl H { fn add(&mut self, x: i64) { self.v.push(x); } }
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    let mut h: H = H { v: v };
+    h.add(3i64);
+    if h.v.len() != 1i64 { return 1i32; }
+    return 0i32;
+}

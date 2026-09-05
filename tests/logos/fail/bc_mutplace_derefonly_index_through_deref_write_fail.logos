@@ -1,0 +1,13 @@
+// `w[0] = 5` where W: Deref<Vec<i64>> only (index through an auto-deref): E0594, refused.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_derefonly_index_through_deref_write_fail;
+use logos.lang.ops;
+struct W { inner: Vec<i64> }
+impl Deref<Vec<i64>> for W { fn deref(&self) -> &Vec<i64> { return &self.inner; } }
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    let mut w: W = W { inner: v };
+    w.inner.push(1i64);
+    w[0] = 5i64;
+    return 0i32;
+}

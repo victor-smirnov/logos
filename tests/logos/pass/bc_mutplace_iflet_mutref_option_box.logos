@@ -1,0 +1,9 @@
+// `if let Some(b) = &mut ob { **b = 3 }` over `Option<Box<i64>>`: legal, runs.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_iflet_mutref_option_box;
+fn main() -> i32 {
+    let mut ob: Option<Box<i64>> = Option::Some(Box::new(1i64));
+    if let Some(b) = &mut ob { **b = 3i64; }
+    if let Some(b) = &ob { if **b != 3i64 { return 1i32; } } else { return 2i32; }
+    return 0i32;
+}

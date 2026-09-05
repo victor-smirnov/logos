@@ -1,0 +1,10 @@
+package c13;
+struct S { f: i64 }
+fn main() -> i32 {
+    let mut bb: Box<Box<S>> = Box::new(Box::new(S { f: 1i64 }));
+    (**bb).f = 7i64;
+    if bb.f != 7i64 { return 1i32; }
+    bb.f = 9i64;
+    if (**bb).f != 9i64 { return 2i32; }
+    return 0i32;
+}

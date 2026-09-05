@@ -1,0 +1,13 @@
+// `let r = &mut *w; *r = 7` where W: Deref only: E0596 at the borrow (was 'write through raw pointer' at the write).
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_derefonly_addrof_mut_untyped_fail;
+use logos.lang.ops;
+struct W { inner: i64 }
+impl Deref<i64> for W { fn deref(&self) -> &i64 { return &self.inner; } }
+fn main() -> i32 {
+    let mut w: W = W { inner: 1i64 };
+    let r = &mut *w;
+    *r = 7i64;
+    if w.inner != 7i64 { return 1i32; }
+    return 0i32;
+}

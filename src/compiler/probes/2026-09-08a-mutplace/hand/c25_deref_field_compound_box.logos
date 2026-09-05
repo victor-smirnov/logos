@@ -1,0 +1,9 @@
+package c25;
+struct S { f: i64 }
+fn main() -> i32 {
+    let mut b: Box<S> = Box::new(S { f: 1i64 });
+    (*b).f += 6i64;
+    b.f += 1i64;
+    if b.f != 8i64 { return 1i32; }
+    return 0i32;
+}

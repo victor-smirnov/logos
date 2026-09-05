@@ -1,0 +1,7 @@
+package c11;
+fn f(b: &Box<i64>) { **b = 1i64; }
+fn main() -> i32 {
+    let b: Box<i64> = Box::new(0i64);
+    f(&b);
+    return 0i32;
+}

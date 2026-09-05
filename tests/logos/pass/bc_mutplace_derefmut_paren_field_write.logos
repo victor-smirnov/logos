@@ -1,0 +1,14 @@
+// `(*w).f = 7` where W: DerefMut: legal, runs. Twin of fail/bc_mutplace_derefonly_paren_field_write_fail.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_derefmut_paren_field_write;
+use logos.lang.ops;
+struct S { f: i64 }
+struct W { inner: S }
+impl Deref<S> for W { fn deref(&self) -> &S { return &self.inner; } }
+impl DerefMut<S> for W { fn deref_mut(&mut self) -> &mut S { return &mut self.inner; } }
+fn main() -> i32 {
+    let mut w: W = W { inner: S { f: 1i64 } };
+    (*w).f = 7i64;
+    if w.inner.f != 7i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+// `*b += i` in a for loop: legal, runs.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_loop_box_compound;
+fn main() -> i32 {
+    let mut b: Box<i64> = Box::new(1i64);
+    for i in 0i64..3i64 { *b += i; }
+    if *b != 4i64 { return 1i32; }
+    return 0i32;
+}

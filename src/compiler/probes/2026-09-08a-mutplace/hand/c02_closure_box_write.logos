@@ -1,0 +1,8 @@
+package c02;
+fn main() -> i32 {
+    let mut b: Box<i64> = Box::new(1i64);
+    let mut f = || { *b = 5i64; };
+    f();
+    if *b != 5i64 { return 1i32; }
+    return 0i32;
+}

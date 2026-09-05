@@ -1,0 +1,14 @@
+package d09;
+use logos.lang.ops;
+struct S { f: i64 }
+struct W { inner: S }
+impl Deref<S> for W { fn deref(&self) -> &S { return &self.inner; } }
+fn main() -> i32 {
+    let w: W = W { inner: S { f: 1i64 } };
+    let a: i64 = (*w).f;
+    let b: i64 = w.f;
+    let r: &S = &*w;
+    let q: &i64 = &w.f;
+    if a + b + r.f + *q != 4i64 { return 1i32; }
+    return 0i32;
+}

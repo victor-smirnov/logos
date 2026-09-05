@@ -1,0 +1,9 @@
+// `b[0] = 5` on a `let b: Box<Vec<i64>>` (no `mut`): E0594. ONE TOKEN from pass/bc_mutplace_box_vec_index_write.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_box_vec_index_write_immut_fail;
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    let b: Box<Vec<i64>> = Box::new(v);
+    b[0] = 5i64;
+    return 0i32;
+}

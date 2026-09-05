@@ -1,0 +1,9 @@
+// `v.push(1)` on a by-value `v: Vec<i64>` param without `mut`: E0596 (was ADMITTED). ONE TOKEN from pass/bc_mutplace_vec_push_byval_param_mut.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_vec_push_byval_param_immut_fail;
+fn f(v: Vec<i64>) -> i64 { v.push(1i64); return v.len(); }
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    if f(v) != 1i64 { return 1i32; }
+    return 0i32;
+}

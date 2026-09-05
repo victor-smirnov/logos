@@ -1,0 +1,11 @@
+// `(*b).f += 6` and `b.f += 1` on a `Box<S>`: legal, runs.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_deref_field_compound_box;
+struct S { f: i64 }
+fn main() -> i32 {
+    let mut b: Box<S> = Box::new(S { f: 1i64 });
+    (*b).f += 6i64;
+    b.f += 1i64;
+    if b.f != 8i64 { return 1i32; }
+    return 0i32;
+}

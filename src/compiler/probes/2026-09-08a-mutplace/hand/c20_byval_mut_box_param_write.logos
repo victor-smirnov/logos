@@ -1,0 +1,6 @@
+package c20;
+fn f(mut b: Box<i64>) -> i64 { *b = 3i64; return *b; }
+fn main() -> i32 {
+    if f(Box::new(1i64)) != 3i64 { return 1i32; }
+    return 0i32;
+}

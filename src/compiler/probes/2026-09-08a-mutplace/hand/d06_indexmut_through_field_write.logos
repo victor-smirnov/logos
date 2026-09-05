@@ -1,0 +1,12 @@
+package d06;
+use logos.lang.ops;
+struct M { a: i64 }
+impl Index<i64, i64> for M { fn index(&self, i: i64) -> &i64 { return &self.a; } }
+impl IndexMut<i64, i64> for M { fn index_mut(&mut self, i: i64) -> &mut i64 { return &mut self.a; } }
+struct H { m: M }
+fn main() -> i32 {
+    let mut h: H = H { m: M { a: 1i64 } };
+    h.m[0i64] = 9i64;
+    if h.m.a != 9i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,8 @@
+package c40;
+fn main() -> i32 {
+    let v: Vec<i64> = Vec::new();
+    let (mut a, b): (Vec<i64>, i64) = (v, 1i64);
+    a.push(b);
+    if a.len() != 1i64 { return 1i32; }
+    return 0i32;
+}

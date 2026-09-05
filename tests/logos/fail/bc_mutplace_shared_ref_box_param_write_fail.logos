@@ -1,0 +1,9 @@
+// `**b = 1` through `b: &Box<i64>`: E0594, behind a `&`.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_shared_ref_box_param_write_fail;
+fn f(b: &Box<i64>) { **b = 1i64; }
+fn main() -> i32 {
+    let b: Box<i64> = Box::new(0i64);
+    f(&b);
+    return 0i32;
+}

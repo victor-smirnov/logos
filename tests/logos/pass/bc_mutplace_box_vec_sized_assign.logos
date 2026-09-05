@@ -1,0 +1,12 @@
+// `*b = w` replacing the Vec inside a `Box<Vec<i64>>`: legal, runs.
+// PROBES.md 2026-09-08a: a place in a mutable-use position takes the DerefMut/IndexMut step at every level, a Deref-only/Index-only step is refused, and the bare `deref_mut()` receiver is asked the binding-mut question.
+package bc_mutplace_box_vec_sized_assign;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    let mut b: Box<Vec<i64>> = Box::new(v);
+    let w: Vec<i64> = Vec::new();
+    *b = w;
+    if b.len() != 0i64 { return 1i32; }
+    return 0i32;
+}
