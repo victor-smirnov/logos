@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row at_binding_top_addrof_nomut_admit (tier 2). `&mut n` on a
+// TOP-LEVEL at-binding written WITHOUT `mut` (`n @ 1..=5 => bump(&mut n)`) is
+// ILLEGAL (rustc E0596) and TODAY compiles rc 0 and runs: the LIR PatAt carries no
+// mode field, and borrow_check's At arm declares the name with no mutability at
+// all, so the binding-mut question is never asked. The plain-binding twin (`n =>`)
+// and the PAYLOAD at-binding twin (`E::N(n @ ..)`) are both refused "not declared
+// as mut". Found 2026-09-09a (hand a10, controls a11/a12). Rust: refused.
+package at_binding_top_addrof_nomut_admit;
+fn bump(r: &mut i64) { *r = *r + 100i64; }
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let mut out: i64 = 0i64;
+    match v {
+        n @ 1i64..=5i64 => { bump(&mut n); out = n; },
+        _ => { out = -1i64; }
+    }
+    if out != 104i64 { return 1i32; }
+    return 0i32;
+}

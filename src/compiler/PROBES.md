@@ -24365,3 +24365,230 @@ note: nest + wrdeleg + cmprefuse + dwptrmc under one name.
     ⚠ DUPLICATE SENTENCE (recorded, not fixed): a `match *x { ref mut … }` on a non-mut Box now prints "cannot borrow
     'x' as mutable: not declared as mut" (receiver arm) AND "cannot borrow 'x.0' as mutable: 'x' not declared as mut"
     (field arm) — two fixtures, both still match their pin.
+
+# ═══ ROUND 2026-09-09a (PRICING, soundness queue) — THE `mut`/`ref` BINDING MODIFIER AT BINDER SITES THAT ARE NOT
+# `let`: the range-for header and the `@`-binding have NO SPELLING for it, the by-reference default binding mode DROPS
+# it, and in each case an ARM THAT EXISTS (`assignment to immutable variable`, BC's `not declared as mut`, the by-value
+# `mut` mode 0x10, the 2024 sentence) is reachable only through the fact the code does not carry. 9 names in ONE build,
+# 4 target rows + 1 aside taken by name (predicted 6 closings by name, the gate named exactly those 6, both ways),
+# 59 hand programs in 4 families, 5 rows ADDED (23 -> 28), 0 closed, NOT landed; tree restored, hash read back. ═══
+
+## 0. STEP 1, RE-DERIVED (HEAD 1796ec906 = origin/main, clean; probe-log-lint 202 records; build b649acb79e093978 READ)
+    queue 23 rows = `# TOTAL 23` by direct listing; bc_admits 98 / bc_admits_blocked 25. Queue gate via ctest
+    (`logos_00_soundness_queue`): rc 0, 16.8 s. ⚠ CORRECTION TO THE PROMPT: the standalone invocation in the prompt
+    reads rc 4 = "GATE BROKEN … LINKFAIL" because it lacks LOGOS_LIB_DIR (ctest sets it to build/lib/logos); that rc is
+    the READER refusing, not a verdict. ⚠ The owner's 2024 match-ergonomics row already exists
+    (match_ergo_modifier_ref_mode_diag, tier 4) — none added for it. ⚠ match_tmp_wild_mut_addrof's header says
+    "TODAY refused not declared as mut"; TODAY it dies in codegen (`llvm.getelementptr` operand #0) — patmutbit landed,
+    the header's first face is stale, the row stays open on its second.
+
+## 1. TARGET ROWS, NAMED BEFORE ANY EDIT (probes/2026-09-09a-bindmut/TARGETS.md) — and the grouping test
+    for_range_mut_var_syntax (3 refuses) · for_range_var_assign_admit (2 admits) · at_binding_mut_syntax (3 refuses) ·
+    match_ergo_modifier_ref_mode_diag (4 diag); aside paren_place_assign_target (3 refuses, same batch, NOT the root).
+    09-07a rejected this block unmeasured ("two grammar holes + a refusal + a codegen slot = three mechanisms"). Measured:
+    it IS several sites — but one FACT, and the arms all exist. The range-for pair moves under ONE change
+    (formutbit: admits -> refused AND the `mut` program compiles) and is then in SERIES with the slot (rule 13).
+    ⚠ THE 09-06 RECORD'S CLAIM IS WRONG: "the assignment is silently lost at run time, acc = 3". MEASURED on HEAD:
+    `for i in 0..3 { i = i + 10; acc += i }` reads back 15 in the same iteration (h_for_readback) and exits acc = 10 —
+    the NAMED var IS the induction alloca (gen_for), so the write STEERS THE LOOP: one iteration, 11 < 3 fails. Both
+    row headers corrected (comment lines only). ⚠ A `refuses` ROW THAT STARTS TO COMPILE READS AS CLOSED IN THE GATE
+    EVEN WHEN IT RUNS WRONG: under the scaffold alone for_range_mut_var_syntax reads "NO LONGER REPRODUCES (run=1)".
+    A landing that only adds the spelling would delete a row whose program computes garbage; the row must become a
+    `run 1` row, not vanish. (Gate blind spot, recorded; tooling is frozen — the discipline is on the round.)
+
+## 2. THE SCAFFOLD (ungated by nature; a local WIP commit 7d8c415bb, RESET at the end — probe-batch refuses a dirty tree)
+    grammar: for_stmt `KW_FOR KW_MUT IDENT KW_IN expr_ns DOTDOT[EQ] expr_ns block_body` => FOR{IS_MUT} (after the two
+      IDENT range alts, before the for-each alts — `for mut i in 0..3` today reaches the PATTERN for-each alt, parses
+      `mut i`, then fails at `..`, hence "syntax error near '0i64'"); pat_single `KW_REF KW_MUT IDENT AT pat_single`
+      and `KW_MUT IDENT AT pat_single` => PAT_AT{IS_MUT[, IS_REF]} (before the `KW_MUT IDENT` wild alt).
+    SFor carriage: lir::SFor.var_mut, emit_for_direct puts sk::IS_MUT, SForView::var_mut(), mono_clone re-emits it,
+      lower_for reads the header's IS_MUT into hdr_mut (8 lines, 7 files). PatAt mint: build_pattern's PAT_AT arm
+      inserts the name into `current_pat_mut_names_` under pat_byval_mut (the side-set PAT_WILD already uses).
+    ⚠ THE SCAFFOLD'S OWN DEFECT, FOUND BY HAND SHAPE (rule 5): `'l: for mut i in 0..3` ABORTED the compiler —
+      LIR-MIRROR-005 "TinyObjectMap put failed" — VAR+LO+HI+INCLUSIVE+BODY+LABEL+VAR_SLOT+IS_MUT+LINE = 9 keys in a
+      cap-8 map; the ForEach emitter already says `make_map(…, 9);  // + sk::IS_MUT`. Same fix (second scaffold build
+      aaf32ab45092b34c): f06/f14 134 -> 0 under every arm. A landing without this line aborts on every labeled
+      `for mut`.
+    L1 unarmed on the scaffold: 754/754 + 172/173 — the one red is the queue gate on exactly for_range_mut_var_syntax
+      (compiles, run=1), the scaffold's predicted signature; probe-batch stopped there by design ("L1 IS RED WITH NO
+      PROBE ARMED"), so the per-name pricing loop was run by hand with the same `ceiling-probe.sh` per name.
+
+## 3. THE PROBES — 9 names, 9 sites (rule 3), spec1.txt beside this record; batch binary a4e09d1260502d78
+    formutbit    sema_stmt.cpp lower_for: define(var, t, hdr_mut) instead of define(var, t, true)
+    formutslot   mlir_gen_stmt.cpp gen_for: the named var gets its OWN alloca, stored from the induction slot at body entry
+    formutbc     borrow_check.cpp For arm: visit_loop_body(…, loop_var_mut = v.var_mut())
+    formutall    = the three (marker record)
+    atmutbit     sema_stmt.cpp bind_pattern payload path: binding_is_mut = pat_byval_mut(bnode) for a PAT_AT (was false)
+    atmuttop     sema_stmt.cpp bind_pattern_ref At arm: define(n, ty, current_pat_mut_names_->count(n)) (was false)
+    ergomut      sema_stmt.cpp bind_pattern default-mode branch: `mut` under default_ref -> the 2024 sentence, then the
+                 by-value mut mode 0x10 (2021 recovery: ONE error, not three)
+    ergoref      same branch, the other name of the inner predicate (rule 9): explicit `ref`/`ref mut` under default_ref
+    parenplace   sema_stmt.cpp lower_place_assign: unwrap_paren_node(place_node) (the helper exists, 2 callers)
+
+## 4. THE PRICE — every column (ceiling-probe per name on a4e09d1260502d78; run_oracle 6423 rows, ONE binary, base
+##    12:15 vs armed, cast-region-to-uint subtracted; queue gate per name = the ceiling THIS queue cares about)
+    name        fires   queue ceiling (BY NAME, gate diff both ways)         bc   pass  cfail(1410)  stdlib      runtime
+    formutbit      31   1  for_range_var_assign_admit                         0    0     0           ok          — (sema refusal only)
+    formutslot     30   0  (f01 RUNS RIGHT; the row reads closed under the scaffold already)  0  0  0  ok        ⊂ formutall
+    formutbc        0*  0                                                     —    —     —           —           —
+    formutall      61   2  for_range_var_assign_admit, for_range_mut_var_syntax  0  0    0           ok          0 of 6423
+    atmutbit        5   1  at_binding_mut_syntax                               0    0     0           ok          0 of 6423
+    atmuttop       12   0                                                     0    0     0           ok          —
+    ergomut         0*  1  match_ergo_modifier_ref_mode_diag                   —    —     —           —           0 of 6423
+    ergoref        16   0                                                     0    1     0           ⛔ lang     2 of 6423
+    parenplace   9153   1  paren_place_assign_target                           0    0     0           ok          0 of 6423
+    * "fired 0" = ZERO ARRIVALS AT on() OVER THE CORPUS, because on() sits behind the predicate (`v.var_mut() &&`,
+      `default_ref && wild_k && mut_k &&`) and no fixture has the shape; ceiling-probe correctly refuses to print a
+      zero for them (rule 1). LIVE by hand: formutbc flips f03 1/1 -> 0/0/1; ergomut flips e01/e06/e11 to the 2024
+      sentence with ONE error where HEAD prints three. Over the corpus their cost is exact 0 by construction (no
+      arrival = nothing changed), and it is the HAND column that prices them.
+    ergoref's cost is THE CENSUS THE OWNER DECISION NEEDS: 1 pass fixture in the pass column, 2 in the runtime column
+      (lifetime_match_ref_option, ref_struct_enum_payload — both `match <&scrutinee> { V(ref l, _) }`), and 12 stdlib
+      sites (option.logos:193/202, result.logos:202/203/210/211, cmp.logos:118/119/120/127/128×2/129 — every one is
+      `match self { … (ref v) … }` with self: &Self / &mut Self). All 2024-ILLEGAL by the owner decision; the repair
+      is `match *self` (e15 proves the shape compiles today). ⚠ TWO PASS FIXTURES ASSERT THE 2021 FORM: a corpus
+      decision with an owner — reported, not edited. The stdlib rewrite is the landing's debt, not a reason to decline.
+    ⚠ rule 13, measured: formutbit + formutslot are in SERIES for the `refuses` row (bit alone: compiles, exit 1;
+      slot alone: runs right; both: the pair). ergomut + atmutbit are in series for e13 (`Some(mut n @ 1..=5)` under
+      `&o`): neither name alone reaches the 2024 sentence — a landing carries both.
+
+## 5. HAND — 59 programs, 4 families, every arm × every program (tables/hand_table_final.txt, expected.tsv = Rust)
+    range-for (18): formutall takes f01 f03 f05 f06 f07 f08 f09 f12 f13 f14 to exit 0 (assignment, &mut, unused mut,
+      labeled break, `+=` with `..=`, shadowing, iteration count, continue, u64, labeled minimal) and REFUSES f02
+      (E0384) and f04 (E0596 `&mut i` on a plain `for i`) — Rust's verdict on all 12; f10/f11/f16 controls unchanged.
+    at-binding (14): atmutbit takes a01 a06 a08 (payload: assign, `@ _`, `&mut n` through BINDING_REF_MODES 0x10);
+      atmuttop takes a02 a05 (top-level match / if-let); a07 (no `mut`, assign) STAYS refused ✓; a09/a13 controls ✓;
+      a14 `ref p @ _` over a Drop payload counts 1 ✓.
+    2024 ergonomics (16): ergomut refuses e01 e06 e11 (match / if-let / `&` PARAM scrutinee) with the rule's own
+      sentence; ergoref refuses e02 e03 e07 (ref / ref mut under &mut / while-let); e04 (explicit `&Some(mut n)`),
+      e05 (move mode), e09 (the spec's repair), e12 (`n @` no modifier), e14 (`match self.o` — a PLACE, not a
+      reference), e15 (`match *o`) all LEGAL and pass ✓.
+    paren place (9): parenplace takes p01 p03 p04 p06 p07 p09 (deref / field / double paren / index / tuple / through
+      &mut); p02 `(*b) += 6` already passes (lower_place_compound_assign unwraps); p08 (immutable Box) STAYS refused
+      with the mutability sentence, not "not a place" ✓.
+    ⚠ WHAT NO ARM MOVES — five defects, all REPRODUCED on the restored HEAD binary and ROWED (§6):
+      a10 `n @ 1..=5 => bump(&mut n)` with NO `mut`, top level: ADMITTED (0/0/0) while a11 (payload at) and a12 (plain
+        `n =>`) are refused — the LIR PatAt has no mode field and BC's At arm never asks. So a03's green under
+        atmuttop is this permissiveness, not a carried fact: the top-level at-binding needs the mirror field
+        (pk::IS_MUT exists for PatRefBind) before a landing can claim `&mut` on it.
+      e10 `match &p { (Some(mut a), _) => }` ADMITTED under every arm: the nested tuple's payload never reaches the
+        branch ergomut guards — a second door of the 2024 rule.
+      e16 `let (a, b) = &t` REFUSED "right-hand side must be a tuple, got &(i64, i64)" — lower_let_pat has no default
+        binding mode at all; e08 (`let (mut a, b) = &t`, 2024-illegal) is refused for this wrong reason today.
+      f15/f17/f18 `'l: for x in v { break 'l }` REFUSED "label not in scope" — the label reaches the RANGE for and
+        not the for-each (IDENT and PATTERN forms alike); f16 control (labeled `..=`) passes.
+      p05 `(x) = 7` REFUSED "destructuring assignment: right-hand side must be a tuple" — the GRAMMAR reads `( … ) =`
+        as a destructuring assignment; not lower_place_assign's row.
+    a04 `E::N(ref mut n @ 1..=5)` (spelling added by the scaffold) refuses "write through raw pointer requires unsafe":
+      the payload path pushes binding_is_ref = false for a PAT_AT unconditionally — the `ref` twin of atmutbit's
+      fact, priced by no name here (one name per site; it is the same site's OTHER flag). Rowed with a10's fix.
+
+## 6. QUEUE — 0 closed (pricing round), 5 ADDED (23 -> 28), every one REPRODUCED by the gate on b649acb79e093978:
+    at_binding_top_addrof_nomut_admit    2 admits   a10 — top-level PatAt: BC never asks the binding-mut question
+    match_ergo_nested_tuple_mut_admit    2 admits   e10 — `mut` under a by-ref default, two levels down, admitted
+    labeled_foreach_label_lost           3 refuses  f17 — `'l: for x in v { break 'l }`
+    let_tuple_destructure_ref_scrutinee  3 refuses  e16 — `let (a, b) = &t` has no default binding mode
+    paren_var_assign_target              3 refuses  p05 — `(x) = 7` parsed as a destructuring assignment
+    Queue gate rc 0 on 28 (ctest). bc ledgers untouched (98 / 25; every arm's bc ceiling 0).
+
+## 7. WHAT DESERVES FUNDING, WITH THE NUMBER
+    ONE landing, `bindmut` = scaffold (grammar 4 alts + SFor carriage + PatAt mint + the cap-9 line) + formutall +
+    atmutbit + atmuttop + ergomut + parenplace: 5 queue rows by name (for_range_var_assign_admit,
+    for_range_mut_var_syntax, at_binding_mut_syntax, match_ergo_modifier_ref_mode_diag, paren_place_assign_target),
+    cost 0 on every column measured, runtime 0 of 6423 for each arm that touches codegen or types. Fixtures: the 5
+    row programs as pass/fail + the hand shapes (f/a/e/p) as pass/fail pairs; restore the two imported ports that
+    dropped `mut z @ 32` / `ref mut val @ (3|4|6)` (mut-in-ident-patterns, if-let-payload-or-b144) to upstream.
+    ergoref in the SAME landing (the owner decision is 2024, and an inner predicate with one name landed is the
+    "narrow one silently wins" shape): its price is the 12 stdlib rewrites `match self` -> `match *self` in
+    option/result/cmp and the two pass fixtures lifetime_match_ref_option / ref_struct_enum_payload — a corpus
+    decision for the owner: re-pin as 2024 fail fixtures + add the `*self` twins as pass.
+    NOT this landing, rowed: the PatAt mode field (a10 + a04, one carriage), the nested-tuple door of the 2024 rule
+    (e10), lower_let_pat's default mode (e16), the labeled for-each (f17), the `( … ) =` grammar (p05).
+
+## 8. THE TREE — RESTORED: `git reset --mixed 1796ec906` + checkout of the 10 touched files, rebuilt, build_hash
+##    b649acb79e093978 read back exactly; L1 rc in the commit message; probe-log-lint 211 (202 + 9); the hand set,
+##    spec, TARGETS.md, per-arm queue-gate outputs, the nine ceiling-probe outputs, run_oracle diffs (the 2.7 MB of
+##    per-row tsv deleted — the diff lines and the base row count are the record) archived under
+##    probes/2026-09-09a-bindmut/.
+
+## formutbit
+site: src/compiler/sema_stmt.cpp::lower_for
+build: a4e09d1260502d78
+measured: 2026-09-09
+fires: 31
+ceiling: 0 (bc) / 1 (queue: for_range_var_assign_admit)
+cost: 0 pass / cfail 0 / stdlib ok / hand: f02 refused E0384, f04 refused E0596; f01 compiles and exits 1 (series with formutslot)
+verdict: FUND inside formutall
+
+## formutslot
+site: src/compiler/mlir_gen_stmt.cpp::gen_for
+build: a4e09d1260502d78
+measured: 2026-09-09
+fires: 30
+ceiling: 0 (bc) / 0 (queue; f01 runs right — the row already reads closed under the ungated grammar)
+cost: 0 pass / cfail 0 / stdlib ok / runtime 0 of 6423 (inside formutall) / hand: f01 f07 f08 f09 f12 f13 all exit 0
+verdict: FUND inside formutall — the half without which the `refuses` row becomes a `run 1` row
+
+## formutbc
+site: src/compiler/borrow_check.cpp::visit_stmt
+build: a4e09d1260502d78
+measured: 2026-09-09
+fires: 0 over the corpus (on() is behind `v.var_mut() &&`; no fixture has `for mut i in a..b`); LIVE on f03 (1/1 -> 0/0/1)
+ceiling: 0 / 0
+cost: exact 0 over the corpus (no arrival); hand: f03 `bump(&mut i)` compiles (runs right only with the slot)
+verdict: FUND inside formutall
+
+## formutall
+site: src/compiler/sema_stmt.cpp::lower_for
+build: a4e09d1260502d78 (cap-9 rerun aaf32ab45092b34c)
+measured: 2026-09-09
+fires: 61
+ceiling: 0 (bc) / 2 (queue: for_range_var_assign_admit, for_range_mut_var_syntax)
+cost: 0 pass / cfail 0 / stdlib ok / runtime 0 of 6423 / hand: 12 of 12 range-for verdicts = Rust's, labeled `for mut` after the cap fix
+verdict: FUND — bit + slot + bc under one name; needs the grammar alts, the SFor carriage and the make_map cap 9
+note: the 09-06 "assignment lost, acc 3" claim is refuted: the write steers the induction slot (acc 10)
+
+## atmutbit
+site: src/compiler/sema_stmt.cpp::bind_pattern
+build: a4e09d1260502d78
+measured: 2026-09-09
+fires: 5
+ceiling: 0 (bc) / 1 (queue: at_binding_mut_syntax)
+cost: 0 pass / cfail 0 / stdlib ok / runtime 0 of 6423 / hand: a01 a06 a08 exit 0, a07 stays refused
+verdict: FUND — needs the two pat_single alts; its `ref` twin (binding_is_ref pushed false for PAT_AT, a04) is unpriced
+
+## atmuttop
+site: src/compiler/sema_stmt.cpp::bind_pattern_ref
+build: a4e09d1260502d78
+measured: 2026-09-09
+fires: 12
+ceiling: 0 (bc) / 0 (queue; the row's program is the payload shape)
+cost: 0 pass / cfail 0 / stdlib ok / hand: a02 a05 exit 0; a03's `&mut n` is green only because BC never asks (a10 ROWED)
+verdict: FUND with atmutbit — the same fact at the second door; the BC door needs a PatAt mode field first
+
+## ergomut
+site: src/compiler/sema_stmt.cpp::bind_pattern
+build: a4e09d1260502d78
+measured: 2026-09-09
+fires: 0 over the corpus (on() is behind `default_ref && wild_k && mut_k`); LIVE on e01 e06 e11
+ceiling: 0 (bc) / 1 (queue: match_ergo_modifier_ref_mode_diag — ONE error, the 2024 sentence, read)
+cost: exact 0 over the corpus / runtime 0 of 6423 / hand: e04 e05 e09 e12 e14 e15 legal and green
+verdict: FUND — with ergoref (rule 9: the narrow name alone is the 2021/2024 hybrid); e10 (nested tuple) is a second door, ROWED
+
+## ergoref
+site: src/compiler/sema_stmt.cpp::bind_pattern
+build: a4e09d1260502d78
+measured: 2026-09-09
+fires: 16
+ceiling: 0 (bc) / 0 (queue)
+cost: 1 pass (lifetime_match_ref_option) / cfail 0 / stdlib ⛔ lang: 12 sites in option/result/cmp (`match self { (ref v) }`) / runtime 2 of 6423 (+ ref_struct_enum_payload) — all 2024-ILLEGAL
+verdict: FUND as the owner's decision made concrete — the stdlib rewrite (`match *self`) and two fixture re-pins are its price; the two pass fixtures are a corpus decision, reported not edited
+
+## parenplace
+site: src/compiler/sema_stmt.cpp::lower_place_assign
+build: a4e09d1260502d78
+measured: 2026-09-09
+fires: 9153
+ceiling: 0 (bc) / 1 (queue: paren_place_assign_target)
+cost: 0 pass / cfail 0 / stdlib ok / runtime 0 of 6423 / hand: p01 p03 p04 p06 p07 p09 exit 0, p08 stays refused with the mutability sentence
+verdict: FUND — one line; `(x) = 7` is the grammar's (ROWED paren_var_assign_target)

@@ -1,0 +1,12 @@
+package f15_labeled_foreach_mut;
+fn main() -> i32 {
+    let v: [i64; 3] = [1i64, 2i64, 3i64];
+    let mut acc: i64 = 0i64;
+    'l: for mut x in v {
+        x = x * 10i64;
+        acc = acc + x;
+        if x == 20i64 { break 'l; }
+    }
+    if acc != 30i64 { return 1i32; }
+    return 0i32;
+}

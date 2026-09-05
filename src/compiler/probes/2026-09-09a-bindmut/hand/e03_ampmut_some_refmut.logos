@@ -1,0 +1,12 @@
+package e03_ampmut_some_refmut;
+fn main() -> i32 {
+    let mut o: Option<i64> = Option::Some(3i64);
+    match &mut o {
+        Option::Some(ref mut n) => { *n = *n + 1i64; },
+        Option::None => {}
+    }
+    let mut out: i64 = 0i64;
+    if let Option::Some(v) = o { out = v; }
+    if out != 4i64 { return 1i32; }
+    return 0i32;
+}

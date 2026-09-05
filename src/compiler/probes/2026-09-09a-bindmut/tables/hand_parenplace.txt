@@ -1,0 +1,46 @@
+a01_row_payload_mut_at                   1/1/-  assignment to immutable variable 'n'
+a02_top_mut_at_assign                    1/1/-  assignment to immutable variable 'n'
+a03_top_mut_at_addrof                    0/0/0  
+a04_payload_refmut_at                    1/1/-  write through raw pointer requires unsafe context
+a05_iflet_top_mut_at                     1/1/-  assignment to immutable variable 'n'
+a06_payload_mut_at_wild                  1/1/-  assignment to immutable variable 'n'
+a07_payload_at_nomut_assign              1/1/-  assignment to immutable variable 'n'
+a08_payload_mut_at_addrof                1/1/-  cannot borrow 'n' as mutable: not declared as mut
+a09_top_at_nomut_control                 0/0/0  
+e01_row_amp_some_mut                     1/1/-  assignment to immutable variable 'n'
+e02_amp_some_ref                         0/0/0  
+e03_ampmut_some_refmut                   0/0/0  
+e04_explicit_amp_pat_mut                 0/0/0  
+e05_move_mode_mut_control                0/0/0  
+e06_iflet_amp_mut                        1/1/-  assignment to immutable variable 'n'
+e07_whilelet_amp_ref                     0/0/0  
+e08_let_tuple_amp_mut                    1/1/-  let (...) = ...: right-hand side must be a tuple, got &(i64, i64)
+e09_amp_plain_copy_control               0/0/0  
+e10_nested_tuple_amp_mut                 0/0/0  
+e11_param_ref_scrut_mut                  1/1/-  assignment to immutable variable 'n'
+e12_amp_at_nomod_control                 0/0/0  
+e13_amp_at_mut_series                    1/1/-  assignment to immutable variable 'n'
+e14_self_ref_method_ref                  0/0/0  
+e15_deref_scrut_ref_control              0/0/0  
+f01_row_mut_assign                       0/0/1  
+f02_row_nomut_assign                     0/0/10  
+f03_mut_addrof                           1/1/-  cannot borrow 'i' as mutable: not declared as mut
+f04_nomut_addrof                         1/1/-  cannot borrow 'i' as mutable: not declared as mut
+f05_mut_unused                           0/0/0  
+f06_mut_labeled_break                    134/0/-  
+f07_mut_compound_inclusive               0/0/1  
+f08_mut_shadow_nested                    0/0/1  
+f09_mut_iterates_all                     0/0/1  
+f10_foreach_mut_control                  0/0/0  
+f11_plain_control                        0/0/0  
+f12_mut_continue                         0/0/1  
+f13_u64_mut                              0/0/1  
+p01_row_paren_deref_assign               0/0/0  
+p02_paren_deref_compound                 0/0/0  
+p03_paren_field_assign                   0/0/0  
+p04_double_paren_deref                   0/0/0  
+p05_paren_var_assign                     1/1/-  destructuring assignment: right-hand side must be a tuple, got i64
+p06_paren_index_assign                   0/0/0  
+p07_paren_tuple_assign                   0/0/0  
+p08_paren_deref_immut_box                1/1/-  cannot borrow 'b' as mutable: not declared as mut
+p09_paren_deref_ref_assign               0/0/0  

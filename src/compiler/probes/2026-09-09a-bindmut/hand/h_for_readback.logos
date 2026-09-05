@@ -1,0 +1,9 @@
+package h_for_readback;
+fn main() -> i32 {
+    for i in 5i64..6i64 {
+        i = i + 10i64;
+        if i == 15i64 { return 15i32; }
+        return 5i32;
+    }
+    return 0i32;
+}

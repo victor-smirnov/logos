@@ -1,0 +1,12 @@
+package f06b_labeled_break_nomut_control;
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    'outer: for i in 0i64..5i64 {
+        for j in 0i64..5i64 {
+            if j == 2i64 { break 'outer; }
+            acc = acc + i + j;
+        }
+    }
+    if acc != 1i64 { return 1i32; }
+    return 0i32;
+}

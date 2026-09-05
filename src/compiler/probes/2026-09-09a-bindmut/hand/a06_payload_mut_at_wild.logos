@@ -1,0 +1,12 @@
+package a06_payload_mut_at_wild;
+enum E { N(i64), Z }
+fn main() -> i32 {
+    let e: E = E::N(3i64);
+    let mut out: i64 = 0i64;
+    match e {
+        E::N(mut n @ _) => { n = n * 2i64; out = n; },
+        E::Z => {}
+    }
+    if out != 6i64 { return 1i32; }
+    return 0i32;
+}

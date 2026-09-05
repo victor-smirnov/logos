@@ -1,0 +1,16 @@
+at_binding_top_addrof_nomut_admit        0/0/0  
+labeled_foreach_label_lost               1/1/-  'break 'l': label not in scope
+let_tuple_destructure_ref_scrutinee      1/1/-  let (...) = ...: right-hand side must be a tuple, got &(i64, i64)
+match_ergo_nested_tuple_mut_admit        0/0/0  
+paren_var_assign_target                  1/1/-  destructuring assignment: right-hand side must be a tuple, got i64
+a11_payload_at_nomut_addrof              1/1/-  cannot borrow 'n' as mutable: not declared as mut
+a12_top_wild_nomut_addrof                1/1/-  cannot borrow 'n' as mutable: not declared as mut
+f16_labeled_inclusive_nomut              0/0/0  
+f15_labeled_foreach_mut                  1/1/-  'break 'l': label not in scope
+f18_labeled_foreach_tuple_pat            1/1/-  'continue 'l': label not in scope
+e15_deref_scrut_ref_control              0/0/0  
+e08_let_tuple_amp_mut                    1/1/-  let (...) = ...: right-hand side must be a tuple, got &(i64, i64)
+e01_row_amp_some_mut                     1/1/-  assignment to immutable variable 'n'
+p01_row_paren_deref_assign               1/1/-  invalid assignment target: left side is not an assignable place
+f02_row_nomut_assign                     0/0/10  
+h_for_readback                           0/0/15  

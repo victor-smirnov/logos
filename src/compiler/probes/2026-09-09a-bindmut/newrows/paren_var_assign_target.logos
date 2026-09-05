@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row paren_var_assign_target (tier 3). `(x) = 7` — a
+// PARENTHESISED variable on the left of `=` — is legal Rust (an assignee
+// expression may be parenthesised). TODAY refused "destructuring assignment:
+// right-hand side must be a tuple, got i64": the grammar reads `( … ) =` as a
+// destructuring assignment, so this is the parser's row, not lower_place_assign's
+// (row paren_place_assign_target covers `(*b) = 7`, a different site). Found
+// 2026-09-09a (hand p05). Rust: exit 0.
+package paren_var_assign_target;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    (x) = 7i64;
+    if x != 7i64 { return 1i32; }
+    return 0i32;
+}

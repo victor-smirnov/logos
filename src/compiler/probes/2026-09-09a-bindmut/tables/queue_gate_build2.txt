@@ -1,0 +1,2 @@
+== build aaf32ab45092b34c none rc=1: row 'for_range_mut_var_syntax' (tier 3) NO LONGER REPRODUCES ;
+== build aaf32ab45092b34c formutall rc=1: row 'for_range_var_assign_admit' (tier 2) NO LONGER REPRODUCES ;row 'for_range_mut_var_syntax' (tier 3) NO LONGER REPRODUCES ;

@@ -1,0 +1,59 @@
+# name	rust	note
+f01_row_mut_assign	0	the row; acc 33
+f02_row_nomut_assign	REFUSED	E0384 cannot assign twice to immutable `i`
+f03_mut_addrof	0	&mut on a `for mut` var
+f04_nomut_addrof	REFUSED	E0596 cannot borrow `i` as mutable
+f05_mut_unused	0	unused_mut is a warning
+f06_mut_labeled_break	0	label + mut header; acc = 0+0 + 0+1 = 1
+f07_mut_compound_inclusive	0	`+=` on the loop var, ..=
+f08_mut_shadow_nested	0	inner `for mut i` shadows outer `i`; 5+5+0 + 5+5+1 = 21
+f09_mut_iterates_all	0	a write to the binding does NOT steer the iteration
+f10_foreach_mut_control	0	for-each `for mut x in v` (control, existing spelling)
+f11_plain_control	0	plain range-for (control)
+f12_mut_continue	0	continue then write; 0+20+30 = 50
+f13_u64_mut	0	unsigned bounds
+a01_row_payload_mut_at	0	the row
+a02_top_mut_at_assign	0	top-level `mut n @ range`, assignment
+a03_top_mut_at_addrof	0	top-level `mut n @ range`, &mut n (BC arm; PatAt carries no mut in the LIR)
+a04_payload_refmut_at	0	`ref mut n @ range` in a payload (grammar spelling added; payload path drops is_ref: EXPECT wrong)
+a05_iflet_top_mut_at	0	if-let with a top-level `mut n @`
+a06_payload_mut_at_wild	0	`mut n @ _`
+a07_payload_at_nomut_assign	REFUSED	E0384 (control: must STAY refused)
+a08_payload_mut_at_addrof	0	payload `mut n @` + &mut n (BC via BINDING_REF_MODES 0x10)
+a09_top_at_nomut_control	0	control
+e01_row_amp_some_mut	REFUSED	2024: binding modifiers may only be written when the default binding mode is `move`
+e02_amp_some_ref	REFUSED	2024 (ref)
+e03_ampmut_some_refmut	REFUSED	2024 (ref mut under &mut)
+e04_explicit_amp_pat_mut	0	explicit `&Some(mut n)` resets to move mode: legal
+e05_move_mode_mut_control	0	move mode (control)
+e06_iflet_amp_mut	REFUSED	2024 through if-let
+e07_whilelet_amp_ref	REFUSED	2024 through while-let
+e08_let_tuple_amp_mut	REFUSED	2024 through a destructuring let
+e09_amp_plain_copy_control	0	the repair the spec names (control)
+e10_nested_tuple_amp_mut	REFUSED	2024, modifier two levels down
+e11_param_ref_scrut_mut	REFUSED	2024, the scrutinee is a `&` PARAM, not a written `&`
+e12_amp_at_nomod_control	0	`n @` with no modifier under by-ref default: legal
+e13_amp_at_mut_series	REFUSED	2024 via an @-binding (atmutbit + ergomut in SERIES)
+e14_self_ref_method_ref	0	`match self.o` with self: &W — the scrutinee is a PLACE of type Option, not a reference: default mode is move, `ref n` is legal (control)
+e15_deref_scrut_ref_control	0	`match *o { Some(ref n) }` — the 2024 repair for the stdlib shape (control)
+p01_row_paren_deref_assign	0	the row
+p02_paren_deref_compound	0	`(*b) += 6`
+p03_paren_field_assign	0	`(s.v) = 7`
+p04_double_paren_deref	0	`((*b)) = 7`
+p05_paren_var_assign	0	`(x) = 7` — a parenthesised bare variable is an assignee expression
+p06_paren_index_assign	0	`(a[0]) = 7`
+p07_paren_tuple_assign	0	`(t.0) = 7`
+p08_paren_deref_immut_box	REFUSED	E0594 (control: must STAY refused, with the mut sentence, not the "not a place" one)
+p09_paren_deref_ref_assign	0	`(*r) = 7` through &mut
+f06b_labeled_break_nomut_control	0	control for f06 (no mut)
+a10_top_at_nomut_addrof	REFUSED	E0596: &mut on a top-level at-binding without mut
+a11_payload_at_nomut_addrof	REFUSED	E0596: &mut on a payload at-binding without mut
+a12_top_wild_nomut_addrof	REFUSED	E0596: &mut on a top-level plain binding without mut
+e16_let_tuple_amp_nomod	0	`let (a, b) = &t` — default binding mode through a destructuring let (legal)
+a13_payload_ref_at	0	`ref n @ range` in a payload (spelling existed; is_ref dropped by the payload path?)
+f14_labeled_min_mut	0	label + `for mut` minimal
+f15_labeled_foreach_mut	0	label + for-each `mut` (control: PAT sub-map, not the FOR map)
+f16_labeled_inclusive_nomut	0	label + `..=` no mut (control: 7 keys w/o IS_MUT)
+f17_labeled_foreach_ident_control	0	label + for-each IDENT (control)
+f18_labeled_foreach_tuple_pat	0	label + for-each PATTERN (Rust: legal)
+a14_payload_ref_at_drop_count	1	`ref p @ _` over a Drop payload: exactly ONE destructor (exit = count)

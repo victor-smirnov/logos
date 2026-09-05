@@ -1,0 +1,10 @@
+package f01_row_mut_assign;
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    for mut i in 0i64..3i64 {
+        i = i + 10i64;
+        acc = acc + i;
+    }
+    if acc != 33i64 { return 1i32; }
+    return 0i32;
+}

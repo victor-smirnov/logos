@@ -1,0 +1,176 @@
+name: formutbit
+file: src/compiler/sema_stmt.cpp
+---
+    define(var_name, var_t, true);
+---
+    define(var_name, var_t, (logos::probe::on("formutbit") || logos::probe::on("formutall")) ? hdr_mut : true);
+===
+name: formutall
+file: src/compiler/sema_stmt.cpp
+---
+    sf.var_mut   = hdr_mut;
+---
+    sf.var_mut   = hdr_mut;  // probe formutall = formutbit + formutslot + formutbc
+===
+name: formutslot
+file: src/compiler/mlir_gen_stmt.cpp
+---
+    auto for_scope = snapshot_var_scope();
+    evict_var_shapes(s.var);
+    scope_[s.var] = i_alloca;
+    let_vars_.insert(s.var);
+    var_elem_types_[s.var] = loop_type;
+
+    auto* region     = builder_.getBlock()->getParent();
+    auto* cond_block = new mlir::Block();
+    auto* body_block = new mlir::Block();
+    auto* incr_block = new mlir::Block();   // increment i, then back to cond
+    auto* exit_block = new mlir::Block();
+    region->push_back(cond_block);
+    region->push_back(body_block);
+    region->push_back(incr_block);
+    region->push_back(exit_block);
+
+    builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
+
+    builder_.setInsertionPointToStart(cond_block);
+    auto i_val  = builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca);
+    bool hi_unsigned = hi_ty &&
+        LogosType::is_unsigned_repr_kind(TypeRef(hi_ty).kind());
+    mlir::Value hi_val;
+    if (hi_unsigned && hi.getType() != loop_type)
+        hi_val = builder_.create<mlir::arith::ExtUIOp>(loc_, loop_type, hi);
+    else
+        hi_val = coerce_int(hi, loop_type);
+    mlir::Value cond;
+    if (s.inclusive)
+        cond = builder_.create<mlir::arith::CmpIOp>(loc_,
+            hi_unsigned ? mlir::arith::CmpIPredicate::ule
+                        : mlir::arith::CmpIPredicate::sle,
+            i_val, hi_val);
+    else
+        cond = builder_.create<mlir::arith::CmpIOp>(loc_,
+            hi_unsigned ? mlir::arith::CmpIPredicate::ult
+                        : mlir::arith::CmpIPredicate::slt,
+            i_val, hi_val);
+    builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
+
+    builder_.setInsertionPointToStart(body_block);
+    // continue → incr_block
+---
+    auto for_scope = snapshot_var_scope();
+    evict_var_shapes(s.var);
+    // The NAMED binding is a per-iteration COPY of the induction slot (Rust: a
+    // fresh binding each iteration); a body write must not steer the loop.
+    const bool _own_slot = logos::probe::on("formutslot") || logos::probe::on("formutall");
+    auto v_alloca = _own_slot ? create_entry_alloca(loop_type) : i_alloca;
+    scope_[s.var] = v_alloca;
+    let_vars_.insert(s.var);
+    var_elem_types_[s.var] = loop_type;
+
+    auto* region     = builder_.getBlock()->getParent();
+    auto* cond_block = new mlir::Block();
+    auto* body_block = new mlir::Block();
+    auto* incr_block = new mlir::Block();   // increment i, then back to cond
+    auto* exit_block = new mlir::Block();
+    region->push_back(cond_block);
+    region->push_back(body_block);
+    region->push_back(incr_block);
+    region->push_back(exit_block);
+
+    builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
+
+    builder_.setInsertionPointToStart(cond_block);
+    auto i_val  = builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca);
+    bool hi_unsigned = hi_ty &&
+        LogosType::is_unsigned_repr_kind(TypeRef(hi_ty).kind());
+    mlir::Value hi_val;
+    if (hi_unsigned && hi.getType() != loop_type)
+        hi_val = builder_.create<mlir::arith::ExtUIOp>(loc_, loop_type, hi);
+    else
+        hi_val = coerce_int(hi, loop_type);
+    mlir::Value cond;
+    if (s.inclusive)
+        cond = builder_.create<mlir::arith::CmpIOp>(loc_,
+            hi_unsigned ? mlir::arith::CmpIPredicate::ule
+                        : mlir::arith::CmpIPredicate::sle,
+            i_val, hi_val);
+    else
+        cond = builder_.create<mlir::arith::CmpIOp>(loc_,
+            hi_unsigned ? mlir::arith::CmpIPredicate::ult
+                        : mlir::arith::CmpIPredicate::slt,
+            i_val, hi_val);
+    builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
+
+    builder_.setInsertionPointToStart(body_block);
+    if (_own_slot) {
+        auto _iv = builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, _iv, v_alloca);
+    }
+    // continue → incr_block
+===
+name: formutbc
+file: src/compiler/borrow_check.cpp
+---
+                    visit_loop_body(b, {std::string(v.var())}, v.label());
+---
+                    visit_loop_body(b, {std::string(v.var())}, v.label(), {}, {},
+                                    v.var_mut() && (logos::probe::on("formutbc") || logos::probe::on("formutall")));
+===
+name: atmutbit
+file: src/compiler/sema_stmt.cpp
+---
+                        if (!r.empty()) {
+                            bindings.push_back(atname);
+                            binding_is_ref.push_back(false);
+                            binding_is_mut.push_back(false);
+---
+                        if (!r.empty()) {
+                            bindings.push_back(atname);
+                            binding_is_ref.push_back(false);
+                            binding_is_mut.push_back(logos::probe::on("atmutbit") && pat_byval_mut(bnode));
+===
+name: atmuttop
+file: src/compiler/sema_stmt.cpp
+---
+        if (ty && n != "_") define(std::string(n), ty, false, v.bind_slot());  // Phase-1
+---
+        bool at_mut = logos::probe::on("atmuttop") && current_pat_mut_names_ &&
+                      current_pat_mut_names_->count(std::string(n));
+        if (ty && n != "_") define(std::string(n), ty, at_mut, v.bind_slot());  // Phase-1
+===
+name: ergomut
+file: src/compiler/sema_stmt.cpp
+---
+        bool explicit_ref = k < binding_is_ref.size() && binding_is_ref[k];
+        if (explicit_ref) {
+---
+        bool explicit_ref = k < binding_is_ref.size() && binding_is_ref[k];
+        bool wild_k = k < binding_from_wild.size() && binding_from_wild[k];
+        bool mut_k  = k < binding_is_mut.size() && binding_is_mut[k];
+        // Rust 2024 `pat.binding.modifier-requires-move-mode`: under a by-ref
+        // default binding mode a written `mut` / `ref` / `ref mut` is an error.
+        if (default_ref && wild_k &&
+            ((!explicit_ref && mut_k && logos::probe::on("ergomut")) ||
+             (explicit_ref && logos::probe::on("ergoref")))) {
+            error(std::format("binding modifiers may only be written when the default binding mode is `move`: '{}' is bound under a by-reference scrutinee (Rust 2024, pat.binding.modifier-requires-move-mode)", bindings[k]));
+            if (!explicit_ref) { bind_ref_modes[k] = 0x10u; continue; }  // recover as 2021 did: `mut` resets the mode to move
+        }
+        if (explicit_ref) {
+===
+name: ergoref
+file: src/compiler/sema_stmt.cpp
+---
+    bool default_ref = pat_scrut_by_ref;
+---
+    bool default_ref = pat_scrut_by_ref;  // probes ergomut / ergoref (Rust 2024 modifier rule) read this
+===
+name: parenplace
+file: src/compiler/sema_stmt.cpp
+---
+    auto place_node = map_of(node.get(la::RECEIVER.code));
+    int32_t pc = code_of(place_node);
+---
+    auto place_node = map_of(node.get(la::RECEIVER.code));
+    if (logos::probe::on("parenplace")) place_node = unwrap_paren_node(place_node);  // `(*b) = 7`
+    int32_t pc = code_of(place_node);

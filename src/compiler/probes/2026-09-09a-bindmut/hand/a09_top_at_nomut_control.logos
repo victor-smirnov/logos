@@ -1,0 +1,11 @@
+package a09_top_at_nomut_control;
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let mut out: i64 = 0i64;
+    match v {
+        n @ 1i64..=5i64 => { out = n + 1i64; },
+        _ => { out = -1i64; }
+    }
+    if out != 5i64 { return 1i32; }
+    return 0i32;
+}

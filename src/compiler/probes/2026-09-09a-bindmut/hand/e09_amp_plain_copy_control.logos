@@ -1,0 +1,11 @@
+package e09_amp_plain_copy_control;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let mut out: i64 = 0i64;
+    match &o {
+        Option::Some(n) => { let mut m: i64 = *n; m = m + 1i64; out = m; },
+        Option::None => {}
+    }
+    if out != 4i64 { return 1i32; }
+    return 0i32;
+}

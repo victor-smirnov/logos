@@ -1,0 +1,16 @@
+[soundness] canary: a clean program ran and exited 0, a wrong one exited 3, a refusal read as refused
+tests/logos/soundness_queue_gate.sh: line 88: 2196390 Aborted                 timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 88: 2206538 Segmentation fault      (core dumped) "$LOGOSC" "$src" -o "$d/t.o" > "$d/cc.out" 2> "$O_ERR"
+FAIL: row 'for_range_var_assign_admit' (tier 2) NO LONGER REPRODUCES — the compile is no longer silent (cc=1 diag=1).
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/for_range_var_assign_admit.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+        /home/logos/devel/logos/tests/soundness/open/for_range_var_assign_admit.logos:10: error [fn main]: assignment to immutable variable 'i'
+FAIL: row 'for_range_mut_var_syntax' (tier 3) NO LONGER REPRODUCES — the program now compiles clean (cc=0 diag=0 run=1).
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/for_range_mut_var_syntax.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.

@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row match_ergo_nested_tuple_mut_admit (tier 2). Match ergonomics
+// follow RUST 2024 (owner decision 2026-09-05, spec rule
+// pat.binding.modifier-requires-move-mode): `match &p { (Option::Some(mut a), _) =>
+// … }` — a `mut` modifier under a by-reference default binding mode, TWO pattern
+// levels down — is ILLEGAL. TODAY it compiles rc 0 and runs: the nested tuple's
+// payload binding never reaches bind_pattern's default-mode branch (the top-level
+// `Option::Some(mut n)` twin is at least refused, wrongly worded — row
+// match_ergo_modifier_ref_mode_diag). Found 2026-09-09a (hand e10). Rust: refused.
+package match_ergo_nested_tuple_mut_admit;
+fn main() -> i32 {
+    let p: (Option<i64>, i64) = (Option::Some(3i64), 9i64);
+    let mut out: i64 = 0i64;
+    match &p {
+        (Option::Some(mut a), _) => { a = a + 1i64; out = a; },
+        (Option::None, _) => {}
+    }
+    if out != 4i64 { return 1i32; }
+    return 0i32;
+}

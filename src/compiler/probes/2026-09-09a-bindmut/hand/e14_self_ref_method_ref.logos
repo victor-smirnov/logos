@@ -1,0 +1,15 @@
+package e14_self_ref_method_ref;
+struct W { o: Option<i64> }
+impl W {
+    fn peek(self: &W) -> i64 {
+        match self.o {
+            Option::Some(ref n) => { return *n; },
+            Option::None => { return 0i64; }
+        }
+    }
+}
+fn main() -> i32 {
+    let w: W = W { o: Option::Some(3i64) };
+    if w.peek() != 3i64 { return 1i32; }
+    return 0i32;
+}

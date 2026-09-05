@@ -1,0 +1,10 @@
+package h_for_addrmut;
+fn bump(r: &mut i64) { *r = *r + 100i64; }
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    for i in 0i64..2i64 {
+        bump(&mut i);
+        acc = acc + i;
+    }
+    return acc as i32;
+}

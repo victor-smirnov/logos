@@ -1,0 +1,13 @@
+package a04_payload_refmut_at;
+enum E { N(i64), Z }
+fn main() -> i32 {
+    let mut e: E = E::N(3i64);
+    let mut out: i64 = 0i64;
+    match e {
+        E::N(ref mut n @ 1i64..=5i64) => { *n = *n + 10i64; out = *n; },
+        E::N(_) => { out = -1i64; },
+        E::Z => {}
+    }
+    if out != 13i64 { return 1i32; }
+    return 0i32;
+}

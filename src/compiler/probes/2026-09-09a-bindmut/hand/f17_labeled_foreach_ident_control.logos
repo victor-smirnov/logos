@@ -1,0 +1,11 @@
+package f17_labeled_foreach_ident_control;
+fn main() -> i32 {
+    let v: [i64; 3] = [1i64, 2i64, 3i64];
+    let mut acc: i64 = 0i64;
+    'l: for x in v {
+        acc = acc + x;
+        if x == 2i64 { break 'l; }
+    }
+    if acc != 3i64 { return 1i32; }
+    return 0i32;
+}

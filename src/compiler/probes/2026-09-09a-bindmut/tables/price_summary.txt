@@ -1,0 +1,57 @@
+=== formutbit
+probe: fired 31 times
+probe: CEILING = 0 rows
+probe: COST    = 0 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe: COST-fail = 0 of 1410 `-L bc -L fail` fixtures changed (rc 0, .expected-match 0, text-only 0)
+probe: stdlib: all four layers compile under 'formutbit'
+=== formutslot
+probe: fired 30 times
+probe: CEILING = 0 rows
+probe: COST    = 0 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe: COST-fail = 0 of 1410 `-L bc -L fail` fixtures changed (rc 0, .expected-match 0, text-only 0)
+probe: stdlib: all four layers compile under 'formutslot'
+=== formutbc
+probe: fired 0 times
+=== formutall
+probe: fired 61 times
+probe: CEILING = 0 rows
+probe: COST    = 0 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe: COST-fail = 0 of 1410 `-L bc -L fail` fixtures changed (rc 0, .expected-match 0, text-only 0)
+probe: stdlib: all four layers compile under 'formutall'
+=== atmutbit
+probe: fired 5 times
+probe: CEILING = 0 rows
+probe: COST    = 0 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe: COST-fail = 0 of 1410 `-L bc -L fail` fixtures changed (rc 0, .expected-match 0, text-only 0)
+probe: stdlib: all four layers compile under 'atmutbit'
+=== atmuttop
+probe: fired 12 times
+probe: CEILING = 0 rows
+probe: COST    = 0 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe: COST-fail = 0 of 1410 `-L bc -L fail` fixtures changed (rc 0, .expected-match 0, text-only 0)
+probe: stdlib: all four layers compile under 'atmuttop'
+=== ergomut
+probe: fired 0 times
+=== ergoref
+probe: fired 16 times
+probe: CEILING = 0 rows
+probe: COST    = 1 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe: COST-fail = 0 of 1410 `-L bc -L fail` fixtures changed (rc 0, .expected-match 0, text-only 0)
+probe: stdlib: ⛔ REFUSED: lang — the hardest COST there is. The stdlib asserts
+probe: stdlib:   legality by being built; nothing downstream of it is meaningful.
+probe: stdlib:   lang: 0
+probe: COST-stdlib = REFUSED — this outranks every number above.
+probe:    downstream of a stdlib that does not build is meaningful.
+=== parenplace
+probe: fired 9153 times
+probe: CEILING = 0 rows
+probe: COST    = 0 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe: COST-fail = 0 of 1410 `-L bc -L fail` fixtures changed (rc 0, .expected-match 0, text-only 0)
+probe: stdlib: all four layers compile under 'parenplace'

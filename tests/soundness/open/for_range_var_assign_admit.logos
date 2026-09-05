@@ -1,8 +1,10 @@
 // SOUNDNESS QUEUE row for_range_var_assign_admit (tier 2). Assigning to a range-for
 // loop variable declared without 'mut' is ILLEGAL (rustc E0384). TODAY it compiles
-// rc 0 (sema defines the range-for var as mutable, lower_for) AND the assignment is
-// silently lost at run time: acc sums 0+1+2 = 3, not (1+10)+(2+10)+(0+10) = 33, so
-// the program exits 1 where rustc refuses it. Found 2026-09-06 (PROBES.md, hand h17).
+// rc 0 (sema defines the range-for var as mutable, lower_for) AND the write STEERS THE
+// LOOP at run time — the named var IS the induction slot (gen_for), so `i = i + 10`
+// makes the next test 11 < 3 fail: acc = 10, one iteration (MEASURED 2026-09-09a; the
+// 09-06 record's "lost, acc = 3" was wrong). Exits 1 where rustc refuses. Found
+// 2026-09-06 (PROBES.md, hand h17).
 package for_range_var_assign_admit;
 fn main() -> i32 {
     let mut acc: i64 = 0i64;

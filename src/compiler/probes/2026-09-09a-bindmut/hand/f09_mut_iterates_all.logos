@@ -1,0 +1,10 @@
+package f09_mut_iterates_all;
+fn main() -> i32 {
+    let mut count: i64 = 0i64;
+    for mut i in 0i64..3i64 {
+        i = 7i64;
+        count = count + 1i64;
+    }
+    if count != 3i64 { return 1i32; }
+    return 0i32;
+}

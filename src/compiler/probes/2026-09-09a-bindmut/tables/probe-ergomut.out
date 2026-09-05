@@ -1,0 +1,9 @@
+ceiling-probe: unarmed baseline (from the store where it is already there)
+ceiling-probe: armed run — LOGOS_PROBE=ergomut
+fail-oracle: 1410 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-a4e09d1260502d78-ergomut.tsv
+ceiling-probe: 'ergomut'  builds 814 (unarmed) -> 821 (armed)
+probe: fired 0 times
+probe: ✗ NEVER FIRED — the site was not reached by any compile in this run.
+  This is NOT ceiling 0. Either the name is mis-typed, the guard sits
+  upstream of the site, or the path is dead. Prove the site is live
+  before reading any zero off it.

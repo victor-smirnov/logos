@@ -1,0 +1,8 @@
+package f14_labeled_min_mut;
+fn main() -> i32 {
+    'l: for mut i in 0i64..3i64 {
+        i = i + 1i64;
+        if i == 2i64 { break 'l; }
+    }
+    return 0i32;
+}

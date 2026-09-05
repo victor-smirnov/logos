@@ -1,0 +1,11 @@
+package a12_top_wild_nomut_addrof;
+fn bump(r: &mut i64) { *r = *r + 100i64; }
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let mut out: i64 = 0i64;
+    match v {
+        n => { bump(&mut n); out = n; },
+    }
+    if out != 104i64 { return 1i32; }
+    return 0i32;
+}

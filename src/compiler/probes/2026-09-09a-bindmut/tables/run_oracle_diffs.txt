@@ -1,0 +1,7 @@
+[formutall] moved: 0 of 6423 (base rows) / 6423 (armed rows)
+[ergomut] moved: 0 of 6423 (base rows) / 6423 (armed rows)
+logos_02_semantic_core_pass_ref_struct_enum_payload	0	0	e3b0c44298fc1c14	1	-	-
+logos_03_ownership_pass_lifetime_match_ref_option	0	0	e3b0c44298fc1c14	1	-	-
+[ergoref] moved: 2 of 6423 (base rows) / 6423 (armed rows)
+[parenplace] moved: 0 of 6423 (base rows) / 6423 (armed rows)
+[atmutbit] moved: 0 of 6423 (base rows) / 6423 (armed rows)

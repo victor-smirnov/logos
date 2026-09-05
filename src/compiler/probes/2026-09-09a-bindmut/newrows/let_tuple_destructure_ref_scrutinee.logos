@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row let_tuple_destructure_ref_scrutinee (tier 3). `let (a, b) =
+// &t;` is legal Rust — default binding modes apply to a destructuring `let` as they
+// do to `match`, and `a: &i64`. TODAY refused "let (...) = ...: right-hand side
+// must be a tuple, got &(i64, i64)": lower_let_pat has no default-by-ref mode at
+// all (the `match` lowering has one). Found 2026-09-09a (hand e16; e08 is the
+// 2024-ILLEGAL twin `let (mut a, b) = &t`, refused today for this wrong reason).
+// Rust: exit 0.
+package let_tuple_destructure_ref_scrutinee;
+fn main() -> i32 {
+    let t: (i64, i64) = (1i64, 2i64);
+    let (a, b) = &t;
+    if *a + *b != 3i64 { return 1i32; }
+    return 0i32;
+}

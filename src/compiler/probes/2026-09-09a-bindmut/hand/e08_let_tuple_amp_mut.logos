@@ -1,0 +1,8 @@
+package e08_let_tuple_amp_mut;
+fn main() -> i32 {
+    let t: (i64, i64) = (1i64, 2i64);
+    let (mut a, b) = &t;
+    a = a + 10i64;
+    if a + *b != 13i64 { return 1i32; }
+    return 0i32;
+}

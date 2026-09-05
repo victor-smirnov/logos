@@ -1,0 +1,11 @@
+package f18_labeled_foreach_tuple_pat;
+fn main() -> i32 {
+    let v: [(i64, i64); 2] = [(1i64, 2i64), (3i64, 4i64)];
+    let mut acc: i64 = 0i64;
+    'l: for (a, b) in v {
+        acc = acc + a * b;
+        if a == 1i64 { continue 'l; }
+    }
+    if acc != 14i64 { return 1i32; }
+    return 0i32;
+}

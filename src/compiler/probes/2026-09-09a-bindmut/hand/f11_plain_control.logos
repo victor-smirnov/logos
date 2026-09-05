@@ -1,0 +1,10 @@
+package f11_plain_control;
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    for i in 0i64..4i64 {
+        let j: i64 = i * 2i64;
+        acc = acc + j;
+    }
+    if acc != 12i64 { return 1i32; }
+    return 0i32;
+}
