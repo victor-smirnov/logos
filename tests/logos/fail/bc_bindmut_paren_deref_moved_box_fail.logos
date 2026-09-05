@@ -1,0 +1,9 @@
+package bc_bindmut_paren_deref_moved_box_fail;
+fn take(b: Box<i64>) -> i64 { return *b; }
+fn main() -> i32 {
+    let mut b: Box<i64> = Box::new(1i64);
+    let v: i64 = take(b);
+    (*b) = 7i64;
+    if v != 1i64 { return 1i32; }
+    return 0i32;
+}

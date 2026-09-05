@@ -1,0 +1,11 @@
+package d01_at_mut_variant_sub;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(1i64);
+    let mut out: i64 = 0i64;
+    match o {
+        mut n @ Option::Some(_) => { n = Option::None; if n.is_none() { out = 3i64; } }
+        Option::None => {}
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

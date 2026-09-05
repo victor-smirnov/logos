@@ -1,0 +1,10 @@
+package bc_bindmut_for_range_nomut_addrmut_fail;
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    for i in 0i64..2i64 {
+        let r: &mut i64 = &mut i;
+        *r = *r + 1i64;
+        acc = acc + i;
+    }
+    return acc as i32;
+}

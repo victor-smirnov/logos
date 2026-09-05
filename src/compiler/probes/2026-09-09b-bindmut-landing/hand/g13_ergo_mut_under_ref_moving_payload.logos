@@ -1,0 +1,12 @@
+package g13_ergo_mut_under_ref_moving_payload;
+struct S { v: i64 }
+fn main() -> i32 {
+    let o: Option<S> = Option::Some(S { v: 3i64 });
+    let mut out: i64 = 0i64;
+    match &o {
+        Option::Some(mut s) => { s.v = s.v + 1i64; out = s.v; }
+        Option::None => {}
+    }
+    if out != 4i64 { return 1i32; }
+    return 0i32;
+}

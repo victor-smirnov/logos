@@ -2098,6 +2098,9 @@ lir_view::StmtRef SemaChecker::lower_let_else(TinyMapView node) {
     std::vector<lir::LExprPtr> refut_guards;
     auto* saved_pat_refut = current_pat_refutable_guards_;
     current_pat_refutable_guards_ = &refut_guards;
+    logos::compiler::StrSet mut_names;  // `let (mut a, b) = … else`: the side-set the match arms use
+    auto* saved_pat_muts = current_pat_mut_names_;
+    current_pat_mut_names_ = &mut_names;
     lir::Pattern pat = build_pattern(pat_node, scrut_type);
     current_pat_refutable_guards_ = saved_pat_refut;
 
@@ -2133,9 +2136,11 @@ lir_view::StmtRef SemaChecker::lower_let_else(TinyMapView node) {
                 v.each_binding([&](std::string_view n) { names.push_back(n); });
                 v.each_binding_type(pool, [&](TypeRef t) { types.push_back(t); });
                 auto _vd_slots = v.bind_slots();  // Phase-1: reuse reserved slots
+                auto _vd_muts  = v.bind_byval_muts();  // the carried by-value `mut`
                 for (size_t i = 0; i < names.size() && i < types.size(); ++i)
                     if (names[i] != "_")
-                        define(std::string(names[i]), types[i], false,
+                        define(std::string(names[i]), types[i],
+                               i < _vd_muts.size() && _vd_muts[i] != 0u,
                                i < _vd_slots.size() ? _vd_slots[i] : 0xFFFFFFFFu);
             } else if (pr.kind() == ps::Code::Tuple) {
                 lir_view::PatTupleView v{pr};
@@ -2146,13 +2151,13 @@ lir_view::StmtRef SemaChecker::lower_let_else(TinyMapView node) {
                 auto _tp_slots = v.bind_slots();  // Phase-1: reuse reserved slots
                 for (size_t i = 0; i < names.size() && i < types.size(); ++i)
                     if (names[i] != "_")
-                        define(std::string(names[i]), types[i], false,
+                        define(std::string(names[i]), types[i], pat_mut_name(names[i]),
                                i < _tp_slots.size() ? _tp_slots[i] : 0xFFFFFFFFu);
             } else if (pr.kind() == ps::Code::Wild) {
                 lir_view::PatWildView v{pr};
                 auto n = v.name();
                 if (n != "_")
-                    define(std::string(n), scrut_type, false, v.bind_slot());  // Phase-1
+                    define(std::string(n), scrut_type, pat_mut_name(n), v.bind_slot());  // Phase-1
             } else if (pr.kind() == ps::Code::Or) {
                 // G144-3a: `let A(x) | B(x) = v else …`. All alts bind the same
                 // names+types (build_pattern_or enforced this), so define from
@@ -2166,6 +2171,7 @@ lir_view::StmtRef SemaChecker::lower_let_else(TinyMapView node) {
         };
         define_bindings(pat_ref_of(pat));
     }
+    current_pat_mut_names_ = saved_pat_muts;
 
     // 5. Emit SLetElse
     lir::SLetElse sle;
@@ -4384,9 +4390,13 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                             subnode, pat_field_type(j),
                             std::format("{}", j), atname);
                         if (!r.empty()) {
+                            auto atflag = [&](const la::Key& k) {
+                                return bnode.has_key(k) && bnode.get(k.code).is_value() &&
+                                       bnode.get(k.code).as_value<uint8_t>() != 0;
+                            };
                             bindings.push_back(atname);
-                            binding_is_ref.push_back(false);
-                            binding_is_mut.push_back(false);
+                            binding_is_ref.push_back(false);  // `ref n @ sub` binds by value here (soundness queue)
+                            binding_is_mut.push_back(atflag(la::IS_MUT) && !atflag(la::IS_REF));
                             binding_from_wild.push_back(true);  // named binding
                             continue;
                         }
@@ -4574,6 +4584,16 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     for (size_t k = 0; k < binding_types.size(); ++k) {
         if (!binding_types[k]) continue;
         bool explicit_ref = k < binding_is_ref.size() && binding_is_ref[k];
+        // Rust 2024 pat.binding.modifier-requires-move-mode: a written `mut`
+        // under a by-reference default binding mode is an error (the written
+        // `ref` / `ref mut` half is 2021 today — soundness queue).
+        if (default_ref && !explicit_ref &&
+            k < binding_from_wild.size() && binding_from_wild[k] &&
+            k < binding_is_mut.size() && binding_is_mut[k]) {
+            modifier_under_ref_scrutinee(bindings[k], scrut_type, /*known_ref=*/true);
+            bind_ref_modes[k] = 0x10u;  // recover as 2021 did: `mut` resets the mode to move
+            continue;
+        }
         if (explicit_ref) {
             bool is_mut = k < binding_is_mut.size() && binding_is_mut[k];
             bind_ref_modes[k] = is_mut ? 2u : 1u;
@@ -5238,6 +5258,8 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             int32_t sc = code_of(sub);
             if (sc == la::PAT_WILD.code) {
                 auto nm = std::string(str_of(sub.get(la::NAME.code)));
+                if (nm != "_" && pat_byval_mut(sub) && current_pat_mut_names_)
+                    current_pat_mut_names_->insert(nm);  // `(mut a, b)`: the side-set the binder reads
                 pt.bindings.push_back(nm);
                 pt.subs.push_back(make_pat_wild(nm));
             } else if (sc == la::PAT_INT.code || sc == la::PAT_NEG_INT.code ||
@@ -5289,6 +5311,8 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             auto nm = inner.has_key(la::NAME)
                                 ? std::string(str_of(inner.get(la::NAME.code)))
                                 : std::string("_");
+                            if (nm != "_" && pat_byval_mut(inner) && current_pat_mut_names_)
+                                current_pat_mut_names_->insert(nm);  // `(mut a, b)` (the grammar wraps the element in PAT_OR)
                             pt.bindings.push_back(nm);
                             pt.subs.push_back(make_pat_wild(nm));
                             single = true;
@@ -5501,6 +5525,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         pa.sub.push_back(std::move(sub_pat));
         uint32_t _at_slot = (pa.name == "_" || pa.name.empty())  // Phase-1
                           ? 0xFFFFFFFFu : reserve_pat_slot(pa.name);
+        // `mut n @ sub`: the same side-channel PAT_WILD uses (PatAt's mirror
+        // carries no mode field); read by bind_pattern_ref's At arm.
+        if (current_pat_mut_names_ && pa.name != "_" && pat_byval_mut(pnode))
+            current_pat_mut_names_->insert(pa.name);
         auto mo = lir_mirror_emit_pat_at(*cur_prog_, pa.name, pa.sub, pa.type, _at_slot);
         lir::Pattern p_;
         p_.mirror_ptr_ = mo;
@@ -5669,6 +5697,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                         bool fld_is_mut = fnode.has_key(la::IS_MUT) &&
                             fnode.get(la::IS_MUT.code).is_value() &&
                             fnode.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
+                        if (fld_is_mut && !fld_is_ref && !fnode.has_key(la::VALUE) &&
+                            fname != "_" && current_pat_mut_names_)
+                            current_pat_mut_names_->insert(fname);
                         if (fld_is_ref && !fnode.has_key(la::VALUE) &&
                             fname != "_") {
                             TypeRef bt = make_ref(fld_is_mut,
@@ -6440,6 +6471,19 @@ void SemaChecker::bind_pattern(const lir::Pattern& pat,
     bind_pattern_ref(pat_ref_of(pat), scrut_type);
 }
 
+// Rust 2024 `pat.binding.modifier-requires-move-mode`: a written `mut` (the
+// `ref`/`ref mut` half is 2021 today — soundness queue) under a by-reference
+// scrutinee is an error, at every door: variant payload, struct field, tuple
+// element, nested variant. The sentence is minted once, here.
+void SemaChecker::modifier_under_ref_scrutinee(std::string_view name, TypeRef scrut_type, bool known_ref) {
+    if (!known_ref) {
+        if (!scrut_type) return;
+        auto sk = TypeRef(scrut_type).kind();
+        if (sk != LogosType::Kind::Ref && sk != LogosType::Kind::MutRef) return;
+    }
+    error(std::format("binding modifiers may only be written when the default binding mode is `move`: '{}' is bound under a by-reference scrutinee (Rust 2024, pat.binding.modifier-requires-move-mode)", name));
+}
+
 void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
     if (!pr) return;
     namespace ps = lir_schema::pat;
@@ -6459,10 +6503,12 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         // branch's filter below.
         auto _vd_muts = v.bind_byval_muts();  // the carried by-value `mut`
         for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-            if (names[i] != "_")
-                define(std::string(names[i]), types[i],
-                       i < _vd_muts.size() && _vd_muts[i] != 0u,
+            if (names[i] != "_") {
+                bool m = i < _vd_muts.size() && _vd_muts[i] != 0u;
+                if (m) modifier_under_ref_scrutinee(names[i], scrut_type);  // Rust 2024, nested door
+                define(std::string(names[i]), types[i], m,
                        i < _vd_slots.size() ? _vd_slots[i] : 0xFFFFFFFFu);
+            }
     } else if (k == ps::Code::Tuple) {
         lir_view::PatTupleView v{pr};
         std::vector<std::string_view> names;
@@ -6471,9 +6517,12 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         v.each_binding_type(pool, [&](TypeRef t) { types.push_back(t); });
         auto _tp_slots = v.bind_slots();  // Phase-1: reuse reserved slots
         for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-            if (names[i] != "_")
-                define(std::string(names[i]), types[i], false,
+            if (names[i] != "_") {
+                bool m = pat_mut_name(names[i]);
+                if (m) modifier_under_ref_scrutinee(names[i], scrut_type);  // Rust 2024, tuple door
+                define(std::string(names[i]), types[i], m,
                        i < _tp_slots.size() ? _tp_slots[i] : 0xFFFFFFFFu);
+            }
         // P4-pm-24 / G144-1: recurse into refutable sub-patterns so any nested
         // bindings (`(E::Foo { x }, _)`, `((true,y)|(y,true), z)`, `((a,b), w)`)
         // reach the outer arm scope. Codegen (pat_test/pat_bind) extracts them.
@@ -6499,9 +6548,7 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         auto n = v.name();
         if (n != "_" && scrut_type) {
             // P4-pm-12: `mut x` patterns flagged via current_pat_mut_names_.
-            bool is_mut = current_pat_mut_names_ &&
-                          current_pat_mut_names_->count(std::string(n));
-            define(std::string(n), scrut_type, is_mut, v.bind_slot());  // Phase-1
+            define(std::string(n), scrut_type, pat_mut_name(n), v.bind_slot());  // Phase-1
         }
     } else if (k == ps::Code::RefBind) {
         lir_view::PatRefBindView v{pr};
@@ -6510,7 +6557,7 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         lir_view::PatAtView v{pr};
         TypeRef ty = v.type(pool);
         auto n = v.name();
-        if (ty && n != "_") define(std::string(n), ty, false, v.bind_slot());  // Phase-1
+        if (ty && n != "_") define(std::string(n), ty, pat_mut_name(n), v.bind_slot());  // Phase-1
         if (auto sub = v.sub()) bind_pattern_ref(sub, ty);
     } else if (k == ps::Code::RefPat) {
         lir_view::PatRefPatView v{pr};
@@ -6645,7 +6692,12 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
                     TypeRef(ftype).kind() != LogosType::Kind::TypeVar &&
                     is_move_type(ftype))
                     bt = make_ref(default_mut, ftype);
-                define(std::string(fname), bt, false, fv.bind_slot());  // Phase-1
+                bool fmut = pat_mut_name(fname);
+                if (default_ref && fmut) {  // Rust 2024, struct door
+                    modifier_under_ref_scrutinee(fname, scrut_type, /*known_ref=*/true);
+                    bt = ftype;
+                }
+                define(std::string(fname), bt, fmut, fv.bind_slot());  // Phase-1
             }
             else bind_pattern_ref(sub, ftype);
         });
@@ -6978,6 +7030,9 @@ lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
         ~ForUninitGuard() { slot = std::move(saved); }
     } _uninit_guard(currently_uninit_vars_);
     auto var_name = str_of(node.get(la::NAME.code));
+    // `for mut i in lo..hi`: the header's binding modifier (grammar IS_MUT).
+    bool hdr_mut = node.has_key(la::IS_MUT) && node.get(la::IS_MUT.code).is_value() &&
+                   node.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
 
     lir::LExprPtr lo = node.has_key(la::LHS)
         ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
@@ -7032,7 +7087,7 @@ lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
     pending_loop_label_.clear();
 
     push_scope();
-    define(var_name, var_t, true);
+    define(var_name, var_t, hdr_mut);
     uint32_t _for_slot = lookup_slot(var_name);  // Phase-1: capture before pop_scope
     std::vector<lir_view::StmtRef> body;
     if (node.has_key(la::BODY)) {
@@ -7055,6 +7110,7 @@ lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
     sf.body      = lir_mirror_block(*cur_prog_, body);
     sf.label     = std::move(my_label);
     sf.slot      = _for_slot;
+    sf.var_mut   = hdr_mut;
     return make_stmt_emit(for_line, std::move(sf));
 }
 
@@ -8052,7 +8108,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
 }
 
 lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
-    auto place_node = map_of(node.get(la::RECEIVER.code));
+    auto place_node = unwrap_paren_node(map_of(node.get(la::RECEIVER.code)));  // `(*b) = 7`
     int32_t pc = code_of(place_node);
     // Only genuine lvalue shapes are assignable. A bare VarRef is handled by
     // assign_stmt; anything else (call result, literal, arithmetic, …) is not
@@ -8655,7 +8711,7 @@ void SemaChecker::emit_nested_variant_lets(
             v.each_binding_type(pool, [&](TypeRef t){ types.push_back(t); });
             auto _tp_slots = v.bind_slots();  // Phase-1: reuse reserved slots
             for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-                if (names[i] != "_") define(std::string(names[i]), types[i], false,
+                if (names[i] != "_") define(std::string(names[i]), types[i], pat_mut_name(names[i]),
                                             i < _tp_slots.size() ? _tp_slots[i] : 0xFFFFFFFFu);
         } else if (k == ps::Code::Wild) {
             lir_view::PatWildView wv{pr};

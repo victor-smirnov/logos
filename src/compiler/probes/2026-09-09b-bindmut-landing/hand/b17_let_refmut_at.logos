@@ -1,0 +1,8 @@
+package b17_let_refmut_at;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let ref mut r @ _ = x;
+    *r = *r + 2i64;
+    if x != 3i64 { return 1i32; }
+    return 0i32;
+}

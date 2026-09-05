@@ -1,0 +1,11 @@
+package g02_ergo_tuple_of_ref_mut;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let mut out: i64 = 0i64;
+    match (&o, 1i64) {
+        (Option::Some(mut n), _) => { n = n + 1i64; out = n; }
+        (Option::None, _) => {}
+    }
+    if out != 4i64 { return 1i32; }
+    return 0i32;
+}

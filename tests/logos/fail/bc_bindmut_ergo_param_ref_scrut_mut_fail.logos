@@ -1,0 +1,12 @@
+package bc_bindmut_ergo_param_ref_scrut_mut_fail;
+fn get(o: &Option<i64>) -> i64 {
+    match o {
+        Option::Some(mut n) => { n = n + 1i64; return n; },
+        Option::None => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    if get(&o) != 4i64 { return 1i32; }
+    return 0i32;
+}

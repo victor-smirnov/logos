@@ -1,0 +1,1 @@
+binding modifiers may only be written when the default binding mode is `move`: 'x' is bound under a by-reference scrutinee (Rust 2024, pat.binding.modifier-requires-move-mode)

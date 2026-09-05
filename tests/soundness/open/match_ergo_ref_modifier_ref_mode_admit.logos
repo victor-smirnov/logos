@@ -1,0 +1,20 @@
+// SOUNDNESS QUEUE row match_ergo_ref_modifier_ref_mode_admit (tier 2). Rust 2024
+// pat.binding.modifier-requires-move-mode (owner decision 2026-09-05): a written `ref` /
+// `ref mut` under a reference scrutinee's by-ref default mode is an ERROR, exactly like the
+// `mut` half landed 2026-09-09b. TODAY admitted (2021 behaviour) at every door: variant
+// payload (this program), struct field (`match &p { P { ref x, .. } }`), if-let / while-let.
+// ⚠ ITS PRICE IS A CORPUS DECISION (measured 2026-09-09a, ergoref): 12 stdlib sites write
+// `match self { Some(ref v) }` with self: &Self (option.logos:194/202, result.logos:203/204/
+// 211/212, cmp.logos:119/120/128/129) and 2 pass fixtures assert the 2021 form
+// (lifetime_match_ref_option, ref_struct_enum_payload) — the repair is `match *self`.
+package match_ergo_ref_modifier_ref_mode_admit;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let mut out: i64 = 0i64;
+    match &o {
+        Option::Some(ref v) => { out = *v + 1i64; }
+        Option::None => {}
+    }
+    if out != 4i64 { return 1i32; }
+    return 0i32;
+}

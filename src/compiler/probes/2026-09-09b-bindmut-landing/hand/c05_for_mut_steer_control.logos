@@ -1,0 +1,13 @@
+package c05_for_mut_steer_control;
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    let mut cnt: i64 = 0i64;
+    for mut i in 0i64..3i64 {
+        if i == 1i64 { i = 100i64; }
+        acc = acc + i;
+        cnt = cnt + 1i64;
+    }
+    if acc != 102i64 { return 1i32; }
+    if cnt != 3i64 { return 2i32; }
+    return 0i32;
+}

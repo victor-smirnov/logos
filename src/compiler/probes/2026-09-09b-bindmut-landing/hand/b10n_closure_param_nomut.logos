@@ -1,0 +1,6 @@
+package b10n_closure_param_nomut;
+fn main() -> i32 {
+    let f = |x: i64| -> i64 { x = x + 2i64; return x; };
+    if f(1i64) != 3i64 { return 1i32; }
+    return 0i32;
+}

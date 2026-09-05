@@ -4965,7 +4965,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         auto body = subst_child_block(v.body());
         std::string label(v.label());
         ns.mirror_ptr_ = lir_mirror_emit_for(
-            out_, ns.line, var, lo, hi, inclusive, body, label, v.var_slot());  // Phase-1
+            out_, ns.line, var, lo, hi, inclusive, body, label, v.var_slot(), v.var_mut());  // Phase-1
         break;
     }
     case SCode::Loop: {

@@ -1,0 +1,8 @@
+package bc_bindmut_letelse_nomut_fail;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(1i64);
+    let Option::Some(x) = o else { return 2i32; };
+    x = x + 2i64;
+    if x != 3i64 { return 1i32; }
+    return 0i32;
+}

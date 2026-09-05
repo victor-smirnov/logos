@@ -1,0 +1,12 @@
+package b09_top_at_mut_whilelet;
+fn main() -> i32 {
+    let mut o: Option<i64> = Option::Some(1i64);
+    let mut out: i64 = 0i64;
+    while let Option::Some(mut n @ 1i64..=5i64) = o {
+        n = n + 2i64;
+        out = n;
+        o = Option::None;
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

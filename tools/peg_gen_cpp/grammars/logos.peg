@@ -2308,6 +2308,12 @@
              => { CODE: FOR, NAME: $2, LHS: $4, RHS: $6, BODY: $7, INCLUSIVE: true }
               / KW_FOR IDENT KW_IN expr_ns DOTDOT   expr_ns block_body
              => { CODE: FOR, NAME: $2, LHS: $4, RHS: $6, BODY: $7, INCLUSIVE: false }
+              // `for mut i in lo..hi` — a mutable range binding (Rust: the loop
+              // variable is a fresh binding per iteration; `mut` is its modifier).
+              / KW_FOR KW_MUT IDENT KW_IN expr_ns DOTDOTEQ expr_ns block_body
+             => { CODE: FOR, NAME: $3, LHS: $5, RHS: $7, BODY: $8, INCLUSIVE: true, IS_MUT: true }
+              / KW_FOR KW_MUT IDENT KW_IN expr_ns DOTDOT   expr_ns block_body
+             => { CODE: FOR, NAME: $3, LHS: $5, RHS: $7, BODY: $8, INCLUSIVE: false, IS_MUT: true }
               / KW_FOR IDENT KW_IN expr_ns             block_body
              => { CODE: FOR_EACH, NAME: $2, ITER: $4, BODY: $5 }
               // Rust parity: `for PATTERN in iter` — a destructuring loop
@@ -2504,6 +2510,12 @@
         // leave `@ pat` unparsed.
         / KW_REF IDENT AT pat_single
         => { CODE: PAT_AT, NAME: $2, VALUE: $4, IS_REF: true }
+        // `ref mut x @ pat` / `mut x @ pat` — the two remaining binding-modifier
+        // spellings of an at-binding (Rust: IDENTIFIER_PATTERN = ref? mut? IDENT (@ pat)?).
+        / KW_REF KW_MUT IDENT AT pat_single
+        => { CODE: PAT_AT, NAME: $3, VALUE: $5, IS_REF: true, IS_MUT: true }
+        / KW_MUT IDENT AT pat_single
+        => { CODE: PAT_AT, NAME: $2, VALUE: $4, IS_MUT: true }
         // ref mut binding
         / KW_REF KW_MUT IDENT
         => { CODE: PAT_WILD, NAME: $3, IS_MUT: true, IS_REF: true }

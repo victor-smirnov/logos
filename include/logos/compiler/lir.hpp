@@ -519,6 +519,7 @@ struct SFor {
     LBlockPtr        body = {};
     std::string      label;  // optional loop label, empty = unlabeled
     uint32_t         slot = 0xFFFFFFFFu;  // Phase-1: loop var's dense slot
+    bool             var_mut = false;     // `for mut i in lo..hi`
 };
 
 struct SLoop {

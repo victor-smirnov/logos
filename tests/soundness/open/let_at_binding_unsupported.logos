@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row let_at_binding_unsupported (tier 3). `let n @ _ = 1;` (and
+// `let mut n @ _`, `let ref mut r @ _`) is legal Rust — an irrefutable at-pattern at `let`.
+// TODAY refused "'let <pattern> = expr;' currently supports struct patterns only" (a sentence
+// that is itself stale: tuple and slice patterns work at `let`). lower_let_pat has no At
+// arm. Found 2026-09-09b (hand b04/b04n/b17). Rust: exit 0.
+package let_at_binding_unsupported;
+fn main() -> i32 {
+    let n @ _ = 1i64;
+    if n != 1i64 { return 1i32; }
+    return 0i32;
+}

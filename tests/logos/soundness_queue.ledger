@@ -52,19 +52,19 @@ closure_in_generic_two_insts  3 tests/soundness/open/closure_in_generic_two_inst
 dyn_paren_region_bound        3 tests/soundness/open/dyn_paren_region_bound        refuses
 box_vec_new_infer             3 tests/soundness/open/box_vec_new_infer             refuses
 layout_verify_recursive_ref   3 tests/soundness/open/layout_verify_recursive_ref   refuses
-for_range_var_assign_admit    2 tests/soundness/open/for_range_var_assign_admit    admits
 match_tmp_wild_mut_addrof     3 tests/soundness/open/match_tmp_wild_mut_addrof     refuses
-for_range_mut_var_syntax      3 tests/soundness/open/for_range_mut_var_syntax      refuses
 enum_payload_partial_move_leak 1 tests/soundness/open/enum_payload_partial_move_leak run 1
 variant_payload_char_literal_nomatch 1 tests/soundness/open/variant_payload_char_literal_nomatch run 1
-at_binding_mut_syntax         3 tests/soundness/open/at_binding_mut_syntax         refuses
 typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike          diag expected &i64, got &i64
 sharedref_recv_mut_method_diag 4 tests/soundness/open/sharedref_recv_mut_method_diag diag 'S' has no method 'mget'
-match_ergo_modifier_ref_mode_diag 4 tests/soundness/open/match_ergo_modifier_ref_mode_diag diag assignment to immutable variable 'n'
-paren_place_assign_target     3 tests/soundness/open/paren_place_assign_target     refuses
 box_mutref_payload_write_immut_box 3 tests/soundness/open/box_mutref_payload_write_immut_box refuses
 at_binding_top_addrof_nomut_admit 2 tests/soundness/open/at_binding_top_addrof_nomut_admit admits
 match_ergo_nested_tuple_mut_admit 2 tests/soundness/open/match_ergo_nested_tuple_mut_admit admits
 labeled_foreach_label_lost    3 tests/soundness/open/labeled_foreach_label_lost    refuses
 let_tuple_destructure_ref_scrutinee 3 tests/soundness/open/let_tuple_destructure_ref_scrutinee refuses
 paren_var_assign_target       3 tests/soundness/open/paren_var_assign_target       refuses
+struct_field_at_binding_run   1 tests/soundness/open/struct_field_at_binding_run   run 1
+tuple_elem_at_binding_undefined 3 tests/soundness/open/tuple_elem_at_binding_undefined refuses
+match_ergo_ref_modifier_ref_mode_admit 2 tests/soundness/open/match_ergo_ref_modifier_ref_mode_admit admits
+at_binding_ref_mut_payload_refuses 3 tests/soundness/open/at_binding_ref_mut_payload_refuses refuses
+let_at_binding_unsupported    3 tests/soundness/open/let_at_binding_unsupported    refuses

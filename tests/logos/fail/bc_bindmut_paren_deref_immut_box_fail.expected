@@ -1,0 +1,1 @@
+cannot borrow 'b' as mutable: not declared as mut

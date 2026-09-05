@@ -1,0 +1,11 @@
+package b12_foreach_ident_mut;
+fn main() -> i32 {
+    let v: [i64; 3] = [1i64, 2i64, 3i64];
+    let mut acc: i64 = 0i64;
+    for mut x in v {
+        x = x + 10i64;
+        acc = acc + x;
+    }
+    if acc != 36i64 { return 1i32; }
+    return 0i32;
+}

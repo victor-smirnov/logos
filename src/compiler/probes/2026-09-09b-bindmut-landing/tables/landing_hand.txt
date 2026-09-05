@@ -1,0 +1,76 @@
+b01_let_tuple_mut                        0/0/0  
+b01n_let_tuple_nomut                     1/1/-  assignment to immutable variable 'a'
+b02_let_struct_mut                       0/0/0  
+b02n_let_struct_nomut                    1/1/-  assignment to immutable variable 'x'
+b03_letelse_mut                          0/0/0  
+b03n_letelse_nomut                       1/1/-  assignment to immutable variable 'x'
+b04_let_at_mut                           1/1/-  'let <pattern> = expr;' currently supports struct patterns only (other shapes are refutable; use 'match' or 'l
+b04n_let_at_nomut                        1/1/-  'let <pattern> = expr;' currently supports struct patterns only (other shapes are refutable; use 'match' or 'l
+b05b_iflet_tuple_mut                     0/0/0  
+b05c_match_tuple_lit_mut                 0/0/0  
+b05_match_tuple_mut                      0/0/0  
+b05n_match_tuple_nomut                   1/1/-  assignment to immutable variable 'a'
+b06_match_struct_mut                     0/0/0  
+b06n_match_struct_nomut                  1/1/-  assignment to immutable variable 'x'
+b07_match_slice_mut                      0/0/0  
+b07n_match_slice_nomut                   1/1/-  assignment to immutable variable 'a'
+b08_nested_payload_tuple_mut             0/0/0  
+b08n_nested_payload_tuple_nomut          1/1/-  assignment to immutable variable 'a'
+b09_top_at_mut_whilelet                  0/0/0  
+b10_closure_param_mut                    0/0/0  
+b10n_closure_param_nomut                 1/1/-  assignment to immutable variable 'x'
+b11_fn_param_mut                         0/0/0  
+b11n_fn_param_nomut                      1/1/-  assignment to immutable variable 'x'
+b12_foreach_ident_mut                    0/0/0  
+b12n_foreach_ident_nomut                 1/1/-  assignment to immutable variable 'x'
+b13_foreach_tuple_mut                    0/0/0  
+b13n_foreach_tuple_nomut                 1/1/-  assignment to immutable variable 'a'
+b14_iflet_payload_at_mut                 0/0/0  
+b15_match_expr_at_mut                    0/0/0  
+b16n_struct_field_at_nomut               0/0/1  
+b16_struct_field_at_mut                  0/0/1  
+b16v_struct_field_at_value               0/0/0  
+b16w_struct_field_at_wild                0/0/1  
+b17_let_refmut_at                        1/1/-  'let <pattern> = expr;' currently supports struct patterns only (other shapes are refutable; use 'match' or 'l
+c01_for_mut_call_bound                   0/0/0  
+c02_for_mut_nested_same_name             0/0/0  
+c03_for_mut_closure_capture              0/0/0  
+c04_for_mut_addrmut_write                0/0/0  
+c05_for_mut_steer_control                0/0/0  
+c06_for_inner_mut_outer_not              0/0/0  
+c08_for_mut_in_generic                   0/0/0  
+c10_for_mut_u8_inclusive                 0/0/0  
+c11n_for_nomut_compound                  1/1/-  compound assignment to immutable variable 'i'
+c12_for_mut_labeled_nested               0/0/0  
+c13_for_mut_generic_bound_T              0/0/0  
+c14n_for_nomut_addrmut_generic           1/1/-  cannot borrow 'i' as mutable: not declared as mut
+d01_at_mut_variant_sub                   0/0/0  
+d02_at_mut_or_sub_payload                0/0/0  
+d03_at_mut_tuple_elem                    1/1/-  assignment to undefined variable 'a'
+d03n_at_nomut_tuple_elem                 1/1/-  undefined variable 'a'
+d05_at_refmut_payload                    1/1/-  write through raw pointer requires unsafe context
+d06_at_mut_top_addrmut                   0/0/0  
+d09_at_nomut_under_ref                   0/0/0  
+d10_at_mut_drop_count                    1/1/-  call to undefined function 'println'
+e02b_ergo_ref_admit                      0/0/0  
+g01_ergo_struct_mut                      1/1/-  binding modifiers may only be written when the default binding mode is `move`: 'x' is bound under a by-referen
+g02_ergo_tuple_of_ref_mut                1/1/-  binding modifiers may only be written when the default binding mode is `move`: 'n' is bound under a by-referen
+g03_ergo_letelse_mut                     1/1/-  binding modifiers may only be written when the default binding mode is `move`: 'n' is bound under a by-referen
+g04_ergo_iflet_refmut_scrut_mut          1/1/-  binding modifiers may only be written when the default binding mode is `move`: 'n' is bound under a by-referen
+g06_ergo_deref_param_mut_legal           0/0/0  
+g08_ergo_closure_param_mut               1/1/-  binding modifiers may only be written when the default binding mode is `move`: 'n' is bound under a by-referen
+g10_ergo_double_ref_mut                  1/1/-  binding modifiers may only be written when the default binding mode is `move`: 'n' is bound under a by-referen
+g11_ergo_mut_nonwild_legal_move          0/0/0  
+g12_ergo_explicit_amp_mut_legal          0/0/0  
+g13_ergo_mut_under_ref_moving_payload    1/1/-  binding modifiers may only be written when the default binding mode is `move`: 's' is bound under a by-referen
+h01_paren_tuple_field                    0/0/0  
+h03_paren_double_deref_box               0/0/0  
+h04_paren_index                          0/0/0  
+h05_paren_field_compound                 0/0/0  
+h08_paren_deref_immut_ref                1/1/-  assignment through a shared reference `&` (need `&mut`)
+h09_paren_deref_param_mutref             0/0/0  
+h10_paren_deref_box_tuple_field          0/0/0  
+h11_paren_deref_moved_box_refused        1/1/-  use of moved variable 'b'
+t01_tuple_under_ref_nomod                0/0/0  
+t02_tuple_under_ref_mut                  1/1/-  binding modifiers may only be written when the default binding mode is `move`: 'a' is bound under a by-referen
+t03_struct_under_ref_ref                 0/0/0  

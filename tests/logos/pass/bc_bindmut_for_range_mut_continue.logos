@@ -1,0 +1,11 @@
+package bc_bindmut_for_range_mut_continue;
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    for mut i in 0i64..4i64 {
+        if i == 1i64 { continue; }
+        i = i * 10i64;
+        acc = acc + i;
+    }
+    if acc != 50i64 { return 1i32; }
+    return 0i32;
+}

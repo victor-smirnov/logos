@@ -1,0 +1,14 @@
+package c02_for_mut_nested_same_name;
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    for mut i in 0i64..3i64 {
+        i = i * 10i64;
+        for mut i in 0i64..2i64 {
+            i = i + 1i64;
+            acc = acc + i;
+        }
+        acc = acc + i;
+    }
+    if acc != 39i64 { return 1i32; }
+    return 0i32;
+}

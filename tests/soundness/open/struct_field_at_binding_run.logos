@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row struct_field_at_binding_run (tier 1). An at-binding as a struct
+// FIELD sub-pattern, `P { x: a @ _, y }`, compiles clean and the arm reads the wrong
+// value: out = a + y is not 3 (exit 1). The `mut` spelling of the same shape (2026-09-09b)
+// behaves identically, so the defect is the field at-binding, not the modifier. Found
+// 2026-09-09b (hand b16/b16w). Rust: exit 0.
+package struct_field_at_binding_run;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 1i64, y: 2i64 };
+    let mut out: i64 = 0i64;
+    match p {
+        P { x: a @ _, y } => { out = a + y; }
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

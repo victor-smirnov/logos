@@ -2976,6 +2976,7 @@ struct SForView {
         auto v = detail::read_i64_opt(self, sk::VAR_SLOT.code);
         return v ? static_cast<uint32_t>(*v) : 0xFFFFFFFFu;
     }
+    bool var_mut() const noexcept { return detail::read_bool(self, sk::IS_MUT.code); }  // `for mut i` (sparse)
 };
 
 struct SLoopView {

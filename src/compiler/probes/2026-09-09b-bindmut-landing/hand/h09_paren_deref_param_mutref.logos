@@ -1,0 +1,8 @@
+package h09_paren_deref_param_mutref;
+fn set(r: &mut i64) { (*r) = 7i64; }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    set(&mut x);
+    if x != 7i64 { return 1i32; }
+    return 0i32;
+}

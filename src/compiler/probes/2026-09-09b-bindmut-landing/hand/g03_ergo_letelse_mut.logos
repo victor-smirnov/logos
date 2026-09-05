@@ -1,0 +1,8 @@
+package g03_ergo_letelse_mut;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let Option::Some(mut n) = &o else { return 2i32; };
+    n = n + 1i64;
+    if n != 4i64 { return 1i32; }
+    return 0i32;
+}

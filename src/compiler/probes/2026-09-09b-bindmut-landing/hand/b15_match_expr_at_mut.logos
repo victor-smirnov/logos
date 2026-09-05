@@ -1,0 +1,10 @@
+package b15_match_expr_at_mut;
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let out: i64 = match x {
+        mut n @ 1i64..=5i64 => { n = n + 2i64; n }
+        _ => 0i64
+    };
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

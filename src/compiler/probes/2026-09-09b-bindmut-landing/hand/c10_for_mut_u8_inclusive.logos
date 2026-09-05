@@ -1,0 +1,10 @@
+package c10_for_mut_u8_inclusive;
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    for mut i in 0u8..=2u8 {
+        i = i + 1u8;
+        acc = acc + (i as i64);
+    }
+    if acc != 6i64 { return 1i32; }
+    return 0i32;
+}

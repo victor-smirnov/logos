@@ -1,0 +1,8 @@
+package bc_bindmut_paren_field_assign;
+struct S { v: i64 }
+fn main() -> i32 {
+    let mut s: S = S { v: 1i64 };
+    (s.v) = 7i64;
+    if s.v != 7i64 { return 1i32; }
+    return 0i32;
+}

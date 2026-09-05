@@ -1,0 +1,12 @@
+package c06_for_inner_mut_outer_not;
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    for i in 0i64..3i64 {
+        for mut j in 0i64..i {
+            j = j + 1i64;
+            acc = acc + j;
+        }
+    }
+    if acc != 4i64 { return 1i32; }
+    return 0i32;
+}

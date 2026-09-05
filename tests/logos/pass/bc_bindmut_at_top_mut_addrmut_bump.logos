@@ -1,0 +1,12 @@
+package bc_bindmut_at_top_mut_addrmut_bump;
+fn bump(r: &mut i64) { *r = *r + 10i64; }
+fn main() -> i32 {
+    let x: i64 = 3i64;
+    let mut out: i64 = 0i64;
+    match x {
+        mut n @ 1i64..=5i64 => { bump(&mut n); out = n; }
+        _ => { out = -1i64; }
+    }
+    if out != 13i64 { return 1i32; }
+    return 0i32;
+}

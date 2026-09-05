@@ -1,0 +1,13 @@
+package bc_bindmut_for_range_mut_labeled_break;
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    'outer: for mut i in 0i64..5i64 {
+        i = i * 2i64;
+        for j in 0i64..5i64 {
+            if j == 2i64 { break 'outer; }
+            acc = acc + i + j;
+        }
+    }
+    if acc != 1i64 { return 1i32; }
+    return 0i32;
+}

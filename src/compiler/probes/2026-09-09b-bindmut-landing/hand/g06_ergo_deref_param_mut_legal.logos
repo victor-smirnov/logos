@@ -1,0 +1,12 @@
+package g06_ergo_deref_param_mut_legal;
+fn f(r: &Option<i64>) -> i64 {
+    match *r {
+        Option::Some(mut n) => { n = n + 1i64; return n; }
+        Option::None => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    if f(&o) != 4i64 { return 1i32; }
+    return 0i32;
+}

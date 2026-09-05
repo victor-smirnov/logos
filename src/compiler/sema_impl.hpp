@@ -2391,7 +2391,7 @@ private:
             } else if constexpr (std::is_same_v<KT, lir::SWhile>) {
                 s.mirror_ptr_ = lir_mirror_emit_while(p, line, k.cond, k.body, k.label);
             } else if constexpr (std::is_same_v<KT, lir::SFor>) {
-                s.mirror_ptr_ = lir_mirror_emit_for(p, line, k.var, k.lo, k.hi, k.inclusive, k.body, k.label, k.slot);
+                s.mirror_ptr_ = lir_mirror_emit_for(p, line, k.var, k.lo, k.hi, k.inclusive, k.body, k.label, k.slot, k.var_mut);
             } else if constexpr (std::is_same_v<KT, lir::SLoop>) {
                 s.mirror_ptr_ = lir_mirror_emit_loop(p, line, k.body, k.label, k.break_slot, k.result_type);
             } else if constexpr (std::is_same_v<KT, lir::SBreak>) {
@@ -7650,6 +7650,9 @@ private:
     // build_pattern_impl appends to this side-channel and
     // bind_pattern_ref re-defines the binding as mutable.
     logos::compiler::StrSet* current_pat_mut_names_ = nullptr;
+    bool pat_mut_name(std::string_view n) const {  // written `mut n` (by value) in the current pattern
+        return current_pat_mut_names_ && current_pat_mut_names_->count(std::string(n)) != 0;
+    }
     // P4-pm-01 (refutable inner): synthesized `binding == value`
     // predicates collected from refutable sub-patterns inside variant
     // payloads (`E::Foo { f: 1 }`, `Option::Some(2)`). Each entry is a
@@ -7803,6 +7806,7 @@ private:
     bool place_recv_is_simple(writ::TinyMapView recv);
     bool place_field_base_ok(writ::TinyMapView recv);
     writ::TinyMapView unwrap_paren_node(writ::TinyMapView n);
+    void modifier_under_ref_scrutinee(std::string_view name, TypeRef scrut_type, bool known_ref = false);  // Rust 2024 sentence
     lir_view::StmtRef lower_match(writ::TinyMapView node);
     // ADR 0011 — desugar a `match` over a `schema enum` into an if-chain on the
     // pointee's schema_type_code. Assumes scrut_type is a schema-enum view.

@@ -1,0 +1,11 @@
+package b08_nested_payload_tuple_mut;
+fn main() -> i32 {
+    let o: Option<(i64, i64)> = Option::Some((1i64, 2i64));
+    let mut out: i64 = 0i64;
+    match o {
+        Option::Some((mut a, b)) => { a = a + b; out = a; }
+        Option::None => {}
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

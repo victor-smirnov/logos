@@ -1419,9 +1419,11 @@ PIN = {
     # round (bc_patown_*), all non-glob (`ls tests/logos/pass/*.logos | wc -l`).
     # 2026-09-08a: 2769 -> 2804. Thirty-five pass fixtures of the soundness-queue
     # round (bc_mutplace_*), all non-glob (`ls tests/logos/pass/*.logos | wc -l`).
-    'corpus'            : 2804,
+    # 2026-09-09b: 2804 -> 2855. Fifty-one pass fixtures of the soundness-queue
+    # landing (bc_bindmut_*), all non-glob.
+    'corpus'            : 2855,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2613,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2664,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

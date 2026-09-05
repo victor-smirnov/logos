@@ -13502,7 +13502,7 @@ private:
                 visit(v.lo(), /*consuming=*/true, ln);
                 visit(v.hi(), /*consuming=*/true, ln);
                 if (auto b = v.body())
-                    visit_loop_body(b, {std::string(v.var())}, v.label());
+                    visit_loop_body(b, {std::string(v.var())}, v.label(), {}, {}, v.var_mut());
                 break;
             }
 

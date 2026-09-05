@@ -1,0 +1,8 @@
+package bc_bindmut_paren_deref_shared_ref_fail;
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let r: &i64 = &x;
+    (*r) = 7i64;
+    if x != 7i64 { return 1i32; }
+    return 0i32;
+}

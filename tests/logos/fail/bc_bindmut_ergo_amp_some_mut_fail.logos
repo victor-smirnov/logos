@@ -1,0 +1,15 @@
+// Rust 2024 pat.binding.modifier-requires-move-mode: `mut` under a reference scrutinee's
+// by-ref default mode is refused with the rule's own sentence (was 'assignment to immutable
+// variable' + a type error). Twin: bc_bindmut_ergo_move_some_mut (`match o`). From
+// soundness-queue row match_ergo_modifier_ref_mode_diag.
+package bc_bindmut_ergo_amp_some_mut_fail;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let mut out: i64 = 0i64;
+    match &o {
+        Option::Some(mut n) => { n = n + 1i64; out = n; },
+        Option::None => {}
+    }
+    if out != 4i64 { return 1i32; }
+    return 0i32;
+}

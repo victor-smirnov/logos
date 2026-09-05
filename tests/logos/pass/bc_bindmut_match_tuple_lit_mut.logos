@@ -1,0 +1,11 @@
+package bc_bindmut_match_tuple_lit_mut;
+fn main() -> i32 {
+    let t: (i64, i64) = (1i64, 2i64);
+    let mut out: i64 = 0i64;
+    match t {
+        (mut a, 2i64) => { a = a + 2i64; out = a; }
+        (_, _) => { out = -1i64; }
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

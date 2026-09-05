@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row tuple_elem_at_binding_undefined (tier 3). An at-binding as a TUPLE
+// element, `(a @ 1..=5, b)`, is legal Rust; TODAY refused "undefined variable 'a'": the
+// tuple-pattern element path builds the sub-pattern but bind_pattern_ref's Tuple arm never
+// defines an At sub's name. Found 2026-09-09b (hand d03/d03n). Rust: exit 0.
+package tuple_elem_at_binding_undefined;
+fn main() -> i32 {
+    let t: (i64, i64) = (1i64, 2i64);
+    let mut out: i64 = 0i64;
+    match t {
+        (a @ 1i64..=5i64, b) => { out = a + b; }
+        (_, _) => { out = -1i64; }
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

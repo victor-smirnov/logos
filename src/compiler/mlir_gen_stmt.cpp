@@ -2893,7 +2893,10 @@ void MLIRGenImpl::gen_for(lir_view::SForView v) {
     // evict first — the loop var may shadow an outer name of another shape.
     auto for_scope = snapshot_var_scope();
     evict_var_shapes(s.var);
-    scope_[s.var] = i_alloca;
+    // The NAMED binding is a per-iteration COPY of the induction slot (Rust: a
+    // fresh binding each iteration); a body write must not steer the loop.
+    auto v_alloca = create_entry_alloca(loop_type);
+    scope_[s.var] = v_alloca;
     let_vars_.insert(s.var);
     var_elem_types_[s.var] = loop_type;
 
@@ -2932,6 +2935,8 @@ void MLIRGenImpl::gen_for(lir_view::SForView v) {
     builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
 
     builder_.setInsertionPointToStart(body_block);
+    builder_.create<mlir::LLVM::StoreOp>(loc_,
+        builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca), v_alloca);
     // continue → incr_block (so that i is incremented before re-checking)
     loop_stack_.push_back({incr_block, exit_block, {}, s.label});
     gen_block(s.body);

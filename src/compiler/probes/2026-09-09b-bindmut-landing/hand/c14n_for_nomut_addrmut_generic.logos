@@ -1,0 +1,14 @@
+package c14n_for_nomut_addrmut_generic;
+fn bump(r: &mut i64) { *r = *r + 5i64; }
+fn s<T>(x: T, n: i64) -> i64 {
+    let mut acc: i64 = 0i64;
+    for i in 0i64..n {
+        bump(&mut i);
+        acc = acc + i;
+    }
+    return acc;
+}
+fn main() -> i32 {
+    if s::<i64>(0i64, 3i64) != 18i64 { return 1i32; }
+    return 0i32;
+}

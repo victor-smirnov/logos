@@ -1,0 +1,22 @@
+// SOUNDNESS QUEUE row at_binding_ref_mut_payload_refuses (tier 3). `E::N(ref mut n @ 1..=5)`
+// — a by-reference at-binding in a variant payload — is legal Rust. TODAY refused "write
+// through raw pointer requires unsafe context": the payload path pushes binding_is_ref =
+// false for a PAT_AT (the spelling parses since 2026-09-09b; pushing the real flag instead
+// dies in codegen, 'arith.cmpi' on a pointer, because the range guard reads the binding by
+// value — so the `ref` half of the at-binding needs its own guard deref). The PatAt mirror
+// carries no mode field (see at_binding_top_addrof_nomut_admit). Found 2026-09-09a (hand a04).
+package at_binding_ref_mut_payload_refuses;
+enum E { N(i64), Z }
+fn main() -> i32 {
+    let mut e: E = E::N(3i64);
+    match e {
+        E::N(ref mut n @ 1i64..=5i64) => { *n = *n + 10i64; }
+        E::N(_) => { return 2i32; }
+        E::Z => { return 3i32; }
+    }
+    match e {
+        E::N(v) => { if v != 13i64 { return 1i32; } }
+        E::Z => { return 4i32; }
+    }
+    return 0i32;
+}

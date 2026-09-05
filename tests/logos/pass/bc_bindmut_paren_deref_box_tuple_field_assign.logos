@@ -1,0 +1,7 @@
+package bc_bindmut_paren_deref_box_tuple_field_assign;
+fn main() -> i32 {
+    let mut b: Box<(i64, i64)> = Box::new((1i64, 2i64));
+    ((*b).1) = 7i64;
+    if (*b).1 != 7i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,11 @@
+package b14_iflet_payload_at_mut;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(1i64);
+    let mut out: i64 = 0i64;
+    if let Option::Some(mut n @ 1i64..=5i64) = o {
+        n = n + 2i64;
+        out = n;
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

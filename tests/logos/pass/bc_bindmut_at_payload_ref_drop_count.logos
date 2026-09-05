@@ -1,0 +1,18 @@
+package bc_bindmut_at_payload_ref_drop_count;
+static mut DROPS: i64 = 0i64;
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) { unsafe { DROPS = DROPS + 1i64; } } }
+enum E { N(P), Z }
+fn main() -> i32 {
+    let mut out: i64 = 0i64;
+    {
+        let e: E = E::N(P { n: 3i64 });
+        match e {
+            E::N(ref p @ _) => { out = p.n; },
+            E::Z => {}
+        }
+    }
+    let d: i64 = unsafe { DROPS };
+    if out != 3i64 { return 1i32; }
+    return (d - 1i64) as i32;
+}

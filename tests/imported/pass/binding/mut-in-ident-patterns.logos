@@ -2,7 +2,7 @@
 // Original path: tests/ui/binding/mut-in-ident-patterns.rs
 // Modifications: `isize`→`i64`; the `mut x` trait-default-method arg rebinds into a
 // local; the local `Bar` enum + `check_bar` part dropped (incidental); the `mut z @ 32`
-// pattern kept; `assert_eq!`→return-code checks; `pub fn main()`→`fn main()->i32`.
+// pattern is upstream's (restored 2026-09-09b); `assert_eq!`→return-code checks; `pub fn main()`→`fn main()->i32`.
 // Exercises a `mut`-in-pattern let, a trait default method, and a `mut x @ lit` pattern.
 package binding_mut_in_ident_patterns;
 
@@ -30,11 +30,10 @@ fn main() -> i32 {
     if xv.foo(2i64) != 76i64 { return 4i32; }
 
     match 32i64 {
-        z @ 32i64 => {
-            let mut zm = z;
-            if zm != 32i64 { return 5i32; }
-            zm = 34i64;
-            if zm != 34i64 { return 6i32; }
+        mut z @ 32i64 => {
+            if z != 32i64 { return 5i32; }
+            z = 34i64;
+            if z != 34i64 { return 6i32; }
         }
         _ => {}
     }

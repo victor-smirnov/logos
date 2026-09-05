@@ -1,0 +1,17 @@
+package c13_for_mut_generic_bound_T;
+struct W { n: i64 }
+trait Bound { fn hi(self: &Self) -> i64; }
+impl Bound for W { fn hi(self: &Self) -> i64 { return self.n; } }
+fn s<T: Bound>(x: &T) -> i64 {
+    let mut acc: i64 = 0i64;
+    for mut i in 0i64..x.hi() {
+        i = i * 2i64;
+        acc = acc + i;
+    }
+    return acc;
+}
+fn main() -> i32 {
+    let w: W = W { n: 3i64 };
+    if s::<W>(&w) != 6i64 { return 1i32; }
+    return 0i32;
+}

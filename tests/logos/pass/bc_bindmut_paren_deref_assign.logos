@@ -1,0 +1,9 @@
+// `(*b) = 7`: a parenthesised place on the left of `=` (lower_place_assign unwraps the
+// paren). Twin: bc_bindmut_paren_deref_immut_box_fail. From soundness-queue row paren_place_assign_target.
+package bc_bindmut_paren_deref_assign;
+fn main() -> i32 {
+    let mut b: Box<i64> = Box::new(1i64);
+    (*b) = 7i64;
+    if *b != 7i64 { return 1i32; }
+    return 0i32;
+}

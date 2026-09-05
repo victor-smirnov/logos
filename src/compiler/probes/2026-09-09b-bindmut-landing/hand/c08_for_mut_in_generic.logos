@@ -1,0 +1,14 @@
+package c08_for_mut_in_generic;
+fn s<T>(x: T, n: i64) -> i64 {
+    let mut acc: i64 = 0i64;
+    for mut i in 0i64..n {
+        i = i + 1i64;
+        acc = acc + i;
+    }
+    return acc;
+}
+fn main() -> i32 {
+    if s::<i64>(0i64, 3i64) != 6i64 { return 1i32; }
+    if s::<bool>(true, 4i64) != 10i64 { return 2i32; }
+    return 0i32;
+}

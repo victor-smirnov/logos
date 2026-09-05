@@ -1,0 +1,7 @@
+package bc_bindmut_paren_double_deref_box_assign;
+fn main() -> i32 {
+    let mut b: Box<Box<i64>> = Box::new(Box::new(1i64));
+    (**b) = 7i64;
+    if **b != 7i64 { return 1i32; }
+    return 0i32;
+}

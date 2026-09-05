@@ -24592,3 +24592,124 @@ fires: 9153
 ceiling: 0 (bc) / 1 (queue: paren_place_assign_target)
 cost: 0 pass / cfail 0 / stdlib ok / runtime 0 of 6423 / hand: p01 p03 p04 p06 p07 p09 exit 0, p08 stays refused with the mutability sentence
 verdict: FUND — one line; `(x) = 7` is the grammar's (ROWED paren_var_assign_target)
+
+# ═══ ROUND 2026-09-09b (LANDING, soundness queue) — THE `mut` BINDING MODIFIER IS CARRIED FROM EVERY BINDER SITE:
+# the range-for header and the `@`-binding get their spelling, the binder family (tuple element, struct field, at-name,
+# let-else) reads ONE predicate (`pat_mut_name`, the side-set build_pattern mints), the range-for binding gets its own
+# per-iteration slot and BC learns the header's `mut`, the Rust 2024 modifier sentence is minted ONCE
+# (`modifier_under_ref_scrutinee`) and asked at the variant, struct, tuple and nested-variant doors, and
+# lower_place_assign unwraps a paren. 5 queue rows closed (predicted 5 by name, the gate named exactly those 5, both
+# ways), 5 added (28 -> 28), ergoref DECLINED by name; cost 0 in every column. ═══
+
+## 0. STEP 1, RE-DERIVED (HEAD ae0a04696 = origin/main, clean; build b649acb79e093978 READ = HEAD's recorded final)
+    queue 28 = `# TOTAL 28` by listing; bc 98 / blocked 25; probe-log-lint 211. Queue gate via ctest rc 0 (50 s).
+    gate-run -L bc: store build 813 (libs b649acb79e093978), all 2594 measured, 1 recorded red outside the label
+    (logos_02_semantic_core_pass_wql_domain_static_extremes — pre-existing, not this round's). run_oracle base 6423
+    rows; fail_text base 1410 rows; both taken on b649acb79e093978 BEFORE any edit.
+    ⚠ The 09-09a scaffold survives as dangling commit 7d8c415bb; its 8 source files were re-applied by diff
+    (grammar 4 alts, SFor var_mut carriage, lower_for hdr_mut, PatAt mint) — nothing re-typed.
+
+## 1. THE CLASS, ENUMERATED BY PROPERTY (probes/2026-09-09b-bindmut-landing/PREDICTION.md, written first)
+    Property: a binder position where Rust admits `mut`, tested on the HEAD binary with a `mut`+assign program and its
+    no-`mut` twin (hand b01–b17, tables/head_b649acb79e093978.txt). Members that FAILED on HEAD:
+      no spelling   range-for header (row) · `mut n @` / `ref mut n @` in match/if-let/while-let (row) ·
+                    `let n @ _` (let has no At arm at all — ROWED let_at_binding_unsupported)
+      dropped       match TUPLE element `(mut a, b)` (b05, if-let b05b, literal twin b05c) · match STRUCT field
+                    `P { mut x }` (b06) · let-else `let Some(mut x) = o else` (b03) — every one REFUSED
+                    "assignment to immutable variable", legal Rust; and the at-name at both doors (row)
+      2024 sentence variant door (row) + struct door (g01) + tuple door (t02) + let-else (g03) + `&mut` if-let (g04)
+                    + closure/fn `&` param (g08/e11) + `&&` (g10) + moving payload (g13)
+    Members that PASSED on HEAD (the carried set): let tuple/struct, slice `[mut a, ..]`, nested payload tuple
+    `Some((mut a, b))` (the synth-let path), closure/fn params, for-each ident/tuple, variant payload `Some(mut x)`.
+    Root, measured: the tuple element is read DIRECTLY from the AST twice (bare PAT_WILD, and PAT_OR-wrapped — the
+    grammar wraps every element; the first mint alone moved nothing, the fprintf proved the second site is the live
+    one), the struct field is a PAT_FIELD with IS_MUT (never a PAT_WILD), the At name has no mode field, and let-else
+    never installed the side-set. One predicate at every define; one mint per spelling.
+
+## 2. THE LANDING (10 source files, +108 −27 by numstat; budget was "scaffold 30 + ~60")
+    grammar: for_stmt `KW_FOR KW_MUT IDENT KW_IN … DOTDOT[EQ] …` => FOR{IS_MUT} (2 alts, before the for-each alts);
+      pat_single `KW_REF KW_MUT IDENT AT` / `KW_MUT IDENT AT` => PAT_AT{IS_MUT[,IS_REF]}.
+    SFor.var_mut (lir.hpp) → emit_for_direct puts sk::IS_MUT and the map cap is 9 (the 09-09a LIR-MIRROR-005 abort on
+      a labeled `for mut`) → SForView::var_mut() → mono_clone re-emits it (c08/c13: `for mut i` inside a generic fn) →
+      lower_for defines with hdr_mut → BC's For arm passes v.var_mut() to visit_loop_body (the ForEach arm already did).
+    gen_for: the NAMED binding is its own entry alloca, stored from the induction slot at body entry, ALWAYS (Rust: a
+      fresh binding per iteration; the 09-09a formutslot probe was unconditional too, so this is what was priced).
+    sema: `pat_mut_name(n)` (sema_impl.hpp) replaces the literal `false` at the Tuple / At / struct-field defines of
+      bind_pattern_ref, at let-else's define_bindings (Tuple/Wild; VariantData reads bind_byval_muts like
+      bind_pattern_ref does) and at emit_nested_variant_lets; mints: build_pattern PAT_AT, tuple element (both sites),
+      struct-field PAT_FIELD{IS_MUT, no IS_REF}; let-else installs the side-set. Payload PAT_AT pushes
+      binding_is_mut = IS_MUT && !IS_REF (binding_is_ref stays false — pushing the real flag REGRESSED a13
+      `ref n @ 1..=5`, 'arith.cmpi' on a pointer: the guard reads the name by value; ROWED at_binding_ref_mut_payload).
+    `modifier_under_ref_scrutinee(name, scrut_type, known_ref)`: the 2024 sentence, minted once; asked at the variant
+      door (known_ref = pat_scrut_by_ref, recovery = mode 0x10 as 2021 did, ONE error), the struct door
+      (known_ref = default_ref), the tuple door and the nested-variant door of bind_pattern_ref (scrut_type Ref/MutRef).
+    lower_place_assign: unwrap_paren_node on the place (the helper existed with 2 callers).
+
+## 3. COUNTER-EXAMPLES FIRST, IN SHAPES THE PRICING DID NOT USE (hand/, 77 programs; every one on HEAD and on the landing)
+    range-for: bound from a CALL (c01), nested same name with an inner `mut` (c02), a CLOSURE capturing the per-iteration
+      binding (c03), `bump(&mut i)` (c04), the steer control `if i == 1 { i = 100 }` → acc 102 and cnt 3 (c05), inner
+      mut / outer not (c06), `for mut` inside a GENERIC fn at two instantiations (c08, the mono_clone carriage) and
+      under a trait-bound `x.hi()` (c13), `0u8..=2u8` (c10), labeled nested `'l: for mut … 'm: for mut … break 'l`
+      (c12, the cap-9 map); refused: `i += 1` on a plain `for i` (c11n, the COMPOUND sentence), `&mut i` in a generic
+      (c14n). 12 of 12 at Rust's verdict.
+    at-binding: `mut n @ Some(_)` top-level with a variant sub (d01), `mut n @ (1|2|3)` or-sub in a payload (d02),
+      while-let payload at (b09), if-let payload at (b14), match-EXPRESSION arm (b15), `&mut n` on a top-level
+      `mut n @` (d06), `n @ 1..=5` under `&o` with no modifier (d09, legal, green).
+    2024: struct door (g01), tuple-of-refs `match (&o, 1)` (g02), let-else `= &o else` (g03), if-let `= &mut o` (g04),
+      closure param `&Option` (g08), `&&` (g10), a MOVING payload `Some(mut s)` (g13: was "assignment through a
+      shared reference", now the rule's sentence), `match &t { (mut a, b) }` (t02); legal and green: `match *r`
+      (g06), move mode (g11), explicit `&Some(mut n)` (g12), `(a, b)` under `&t` reading `*a` (t01).
+    paren: `(t.0) =` (h01), `(**b) =` (h03), `(a[1]) =` (h04), `(*r) =` in a `&mut` param (h09), `((*b).1) =` (h10);
+      refused: `(*r) =` through `&` (h08, the shared-reference sentence), `(*b) =` after `take(b)` (h11: "use of
+      moved variable 'b'" — before the landing the same program was refused for the WRONG reason, "not an
+      assignable place").
+    ⚠ FOUND BY SHAPE, NOT MOVED BY THE LANDING, ROWED: `P { x: a @ _, y }` compiles and reads the WRONG value (b16w,
+      run 1; the `mut` twin identical, so it is the field at-binding); `(a @ 1..=5, b)` → "undefined variable 'a'"
+      (d03n); `let n @ _ = 1` (b04n); `ref mut n @ 1..=5` payload (a04 → "write through raw pointer requires unsafe").
+    ⚠ NOT MOVED, ALREADY ROWED: e10 `(Some(mut a), _)` under `&p` — the nested variant's scrut_type at the recursion
+      is the ELEMENT type (Option<i64>, not a ref), so the door's own test is silent; a10 (BC's At arm); f15/f17/f18
+      (labeled for-each); e16 (`let (a,b) = &t`); p05 (`(x) = 7`).
+
+## 4. THE PRICE — every column, ONE binary (87553240428a0870, configured for the 75 new fixtures)
+    queue gate: the 5 predicted rows read NO LONGER REPRODUCES and no other (both ways); after the ledger edit rc 0 on
+      28 (5 deleted + 5 added, `# TOTAL` re-derived by listing).
+    fail_text_oracle: 1410 base rows IDENTICAL in rc, stderr sha AND `.expected` match; the only diff lines are the 24
+      new bc_bindmut_*_fail rows (cfail 0, text 0, un-refusals 0).
+    run_oracle: 6423 base rows, 0 changed (cast-region-to-uint subtracted by name); the 51 new pass rows added.
+    stdlib: the four archives rebuilt by the full build under the landing compiler (liblogos-lang/lcm/mem/std linked).
+    pass: L1 754/754 + 173/173 rc 0 after the two population pins were re-derived (+75 registry / +51 nonglob, the
+      predicted counts); L4 bc: see the commit message (detached, gate-run.sh, the store is the record).
+    bc ledgers: untouched, 98 / 25 (no bc row opened or closed; the closed queue rows' twins are new fixtures).
+    Imported port restored: mut-in-ident-patterns `mut z @ 32i64` (upstream's); if-let-payload-or-b144's
+      `ref mut val @ (3|4|6)` stays dropped (its shape is the new row at_binding_ref_mut_payload_refuses).
+
+## 5. DECLINED BY NAME, WITH THE NUMBER
+    ergoref (the written `ref` / `ref mut` half of the 2024 rule): 12 stdlib sites (`match self { … (ref v) … }`,
+      self: &Self — option.logos:194/202, result.logos:203/204/211/212, cmp.logos:119/120/128/129) + 2 pass fixtures
+      asserting the 2021 form (lifetime_match_ref_option, ref_struct_enum_payload). The two fixtures are a corpus
+      decision with an owner (reported, NOT edited) and the landing cannot go red on them — so the half is ROWED as
+      match_ergo_ref_modifier_ref_mode_admit (tier 2, admits) with the census in its header, and the tree is the
+      2021/2024 hybrid rule 9 warned of, NAMED rather than silent: `mut` refused, `ref` admitted, at every door
+      (struct door t03 measured admitted too).
+    at-binding `ref` mode field (a04/a10): unpriced this round; the a13 regression above is the measured reason the
+      flag cannot simply be pushed.
+
+## 6. QUEUE — 5 closed, 5 added, 28 -> 28, every added row REPRODUCED by the gate on 87553240428a0870:
+    closed  for_range_var_assign_admit · for_range_mut_var_syntax · at_binding_mut_syntax ·
+            match_ergo_modifier_ref_mode_diag · paren_place_assign_target
+    added   struct_field_at_binding_run (1, run 1) · tuple_elem_at_binding_undefined (3) ·
+            match_ergo_ref_modifier_ref_mode_admit (2) · at_binding_ref_mut_payload_refuses (3) ·
+            let_at_binding_unsupported (3)
+    Fixtures: +51 pass / +24 fail `bc_bindmut_*`, every pass half RUNS (exit 0, a destructor COUNT for
+      at_payload_ref_drop_count), every fail half pins its sentence (the 2024 ones in full).
+    Control: the five row programs and the whole hand set were measured on b649acb79e093978 BEFORE any edit
+      (queue gate rc 0 on 28 = each row reproduced; tables/head_b649acb79e093978.txt); no `run` row was closed.
+
+## bindmut
+site: src/compiler/sema_stmt.cpp::bind_pattern_ref (pat_mut_name / modifier_under_ref_scrutinee), lower_for, mlir_gen_stmt.cpp::gen_for, borrow_check.cpp::visit_stmt
+build: 87553240428a0870
+measured: 2026-09-09
+fires: n/a (landing, no probe name in the sources)
+ceiling: 0 (bc) / 5 (queue, by name, both ways)
+cost: 0 pass (L1 754 + 173) / cfail 0 rc + 0 text of 1410 / stdlib four layers built / runtime 0 of 6423
+verdict: LANDED 2026-09-09b — formutall + atmutbit + atmuttop + ergomut + parenplace + the class (tuple/struct/let-else `mut`, three more 2024 doors); ergoref DECLINED (12 stdlib sites + 2 owner fixtures, rowed)

@@ -1,0 +1,10 @@
+package bc_bindmut_match_expr_top_mut_at;
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let out: i64 = match x {
+        mut n @ 1i64..=5i64 => { n = n + 2i64; n }
+        _ => 0i64
+    };
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

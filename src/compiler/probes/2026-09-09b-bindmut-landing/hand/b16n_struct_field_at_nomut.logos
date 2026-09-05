@@ -1,0 +1,12 @@
+package b16n_struct_field_at_nomut;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 1i64, y: 2i64 };
+    let mut out: i64 = 0i64;
+    match p {
+        P { x: a @ 1i64..=5i64, y } => { out = a + y; }
+        P { x: _, y: _ } => { out = -1i64; }
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

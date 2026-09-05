@@ -1,0 +1,14 @@
+package d10_at_mut_drop_count;
+struct D { v: i64 }
+impl Drop for D { fn drop(self: &mut Self) { println("drop"); } }
+enum E { N(D), Z }
+fn main() -> i32 {
+    let e: E = E::N(D { v: 3i64 });
+    let mut out: i64 = 0i64;
+    match e {
+        E::N(mut d @ _) => { d.v = d.v + 10i64; out = d.v; }
+        E::Z => {}
+    }
+    if out != 13i64 { return 1i32; }
+    return 0i32;
+}

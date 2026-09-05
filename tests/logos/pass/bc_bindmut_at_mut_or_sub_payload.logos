@@ -1,0 +1,13 @@
+package bc_bindmut_at_mut_or_sub_payload;
+enum E { N(i64), Z }
+fn main() -> i32 {
+    let e: E = E::N(2i64);
+    let mut out: i64 = 0i64;
+    match e {
+        E::N(mut n @ (1i64 | 2i64 | 3i64)) => { n = n + 1i64; out = n; }
+        E::N(_) => { out = -1i64; }
+        E::Z => {}
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,8 @@
+package h05_paren_field_compound;
+struct P { f: i64 }
+fn main() -> i32 {
+    let mut p: P = P { f: 1i64 };
+    (p.f) += 6i64;
+    if p.f != 7i64 { return 1i32; }
+    return 0i32;
+}
