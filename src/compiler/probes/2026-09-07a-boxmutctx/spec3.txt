@@ -146,5 +146,7 @@ file: src/compiler/borrow_check.cpp
                 // probe dwptrmc: a `deref_mut()` ptr is a method call whose
                 // receiver is a place; visit it so the receiver questions are asked
                 if (ptr && ptr.kind() == EC::MethodCall &&
-                    (logos::probe::on("dwptrmc") || logos::probe::on("bxmutall")))
-                    visit(ptr, /*consuming=*/true, ln);
+                    (logos::probe::on("dwptrmc") || logos::probe::on("bxmutall"))) {
+                    take_ref_borrows(ptr, ln, "__dwrecv", /*record_only=*/true);
+                    release_borrows_held_by("__dwrecv");
+                }

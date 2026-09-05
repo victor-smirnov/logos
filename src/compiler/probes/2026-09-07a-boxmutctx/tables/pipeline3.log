@@ -1,0 +1,30 @@
+applied 11
+== build 08:24:25
+RC_BUILD=0
+4328d7bf4151125d 43
+== L1 08:28:53
+RC_L1=0
+100% tests passed, 0 tests failed out of 1
+100% tests passed, 0 tests failed out of 174
+754/754 tests passed, 0 failed  (level L1.1)
+== probe dwptrmc 08:31:36
+RC_PROBE_dwptrmc=0
+probe: fired 12 times
+probe: CEILING = 0 rows
+probe: COST    = 0 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe: COST-fail = 0 of 1389 `-L bc -L fail` fixtures changed (rc 0, .expected-match 0, text-only 0)
+probe: stdlib: all four layers compile under 'dwptrmc'
+probe: ⚠ a CEILING bounds the COUNT, not the SET: diff these names against what
+== probe bxmutall 08:39:12
+RC_PROBE_bxmutall=0
+probe: fired 2193 times
+probe: CEILING = 0 rows
+probe: COST    = 0 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe: COST-fail = 1 of 1389 `-L bc -L fail` fixtures changed (rc 1, .expected-match 0, text-only 0)
+probe: stdlib: all four layers compile under 'bxmutall'
+probe: ⚠ a CEILING bounds the COUNT, not the SET: diff these names against what
+== run_oracle base 08:43:36
+RC_RO_BASE=0
+== run_oracle bxmutall 08:53:42
+RC_RO_ALL=0
+RC=done 09:03:46

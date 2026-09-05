@@ -1,0 +1,20 @@
+h01_box_write                            cc=1   run=-        errs=2  error [fn main]: write through raw pointer requires unsafe context
+h02_box_compound                         cc=0   run=0        errs=0  
+h03_boxbox_addrof                        cc=1   run=-        errs=1  error [fn main]: cannot borrow 'bb' as mutable: 'bb' is behind a `&` reference
+h04_boxbox_write                         cc=1   run=-        errs=2  error [fn main]: write through raw pointer requires unsafe context
+h05_explicit_deref_field                 cc=1   run=-        errs=1  error [fn main]: cannot borrow 'b' as mutable: 'b' is behind a `&` reference
+h06_box_write_immut                      cc=1   run=-        errs=2  error [fn main]: write through raw pointer requires unsafe context
+h07_box_addrof_immut                     cc=1   run=-        errs=1  error [fn main]: cannot borrow 'b' as mutable: not declared as mut
+h08_mutref_to_box_write                  cc=1   run=-        errs=2  error [fn set]: write through raw pointer requires unsafe context
+h09_derefonly_write                      cc=1   run=-        errs=2  error [fn main]: write through raw pointer requires unsafe context
+h10_derefonly_compound                   cc=1   run=-        errs=1  error [fn main]: deref-compound: left side must be a pointer or mutable reference
+h11_user_derefmut_write                  cc=0   run=0        errs=0  
+h12_rc_write                             cc=1   run=-        errs=2  error [fn main]: write through raw pointer requires unsafe context
+h13_box_write_drops_old                  cc=1   run=-        errs=2  error [fn main]: write through raw pointer requires unsafe context
+h14_user_derefmut_write_drops_old        cc=0   run=10       errs=0  
+h15_box_field_write                      cc=1   run=-        errs=2  error [fn main]: write through raw pointer requires unsafe context
+h16_box_in_vec_write                     cc=1   run=-        errs=2  error [fn main]: write through raw pointer requires unsafe context
+h17_boxbox_write_immut                   cc=1   run=-        errs=2  error [fn main]: write through raw pointer requires unsafe context
+h18_box_addrof_field_mutref              cc=0   run=0        errs=0  
+h19_box_shared_borrow_then_write         cc=1   run=-        errs=2  error [fn main]: write through raw pointer requires unsafe context
+h20_box_write_through_sharedref          cc=1   run=-        errs=2  error [fn set]: write through raw pointer requires unsafe context

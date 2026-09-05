@@ -24028,3 +24028,208 @@ note: the Tuple case of declare_pat_bindings without the mut bit.
     (key_identity re-pinned, census_pin 9161, direct_door corpus 2769) · L4 bc 4725/4725 + 1538/1538 (gate-db build 792)
     · bc_admits 99 / blocked 25 unmoved. Diff in compiled sources: sema_stmt −295 net, sema_expr −135, sema_impl +33,
     sema +5, mlir_gen_expr +8. Tree: the four hand sets and predictions archived under probes/2026-09-06d-patown/.
+
+# ═══ ROUND 2026-09-07a (PRICING, soundness queue) — THE MUTABLE-PLACE CONTEXT DOES NOT REACH THE Deref STEP:
+# one fact (`mut_place_ctx_`) dropped at five doors and one write site asking a by-name table instead of the generic
+# step; the whole (`bxmutall`) takes 3 target rows + 2 rows this round ADDED to Rust's verdict on 36 hand shapes
+# (predicted by name, both ways), cost 0 pass / cfail 1 = an UN-REFUSAL of an E0506 program pinned for the wrong
+# reason / stdlib four layers / runtime 0 damaged of 6388. 5 rows ADDED (23 -> 28), NOT landed. ═══
+
+## 0. STEP 1, RE-DERIVED (HEAD 83fb3b2e4 = origin/main, clean; probe-log-lint 193 records; build 292d8b06b75c0344 READ)
+    ⚠ THE PROMPT'S GATE LINE IS WRONG: `bash tests/logos/soundness_queue_gate.sh build/bin/logosc <ledger> .` with no
+    LOGOS_LIB_DIR reads rc 4 "GATE BROKEN" (its own canary: 0/0/LINKFAIL). ctest sets LOGOS_LIB_DIR=build/lib/logos;
+    with it, rc 0, 23 rows hold (tier1=5 tier2=3 tier3=12 tier4=3). Corrections to the shelf headers, MEASURED:
+    match_tmp_wild_mut_addrof says "TODAY refused 'not declared as mut'" — today it DIES IN CODEGEN (cc 141, the
+    getelementptr sentence its own second paragraph names): the pattern bit is carried since 09-06d, the header decayed.
+    No row pinned the owner's 2024 match-ergonomics decision → ADDED (§5).
+
+## 1. TARGET ROWS, NAMED BEFORE ANY EDIT (probes/2026-09-07a-boxmutctx/TARGETS.md)
+    boxbox_mut_deref (t3 refuses) · box_deref_assign_mut_let (t3 refuses) · box_write_raw_ptr_diag (t4 diag).
+    Shared ROOT, by reading: `emit_generic_deref_call(want_mut=true)` is an ARM THAT EXISTS (`&mut *b`, `*b += 1`
+    compile today) reached through a fact the code does not carry —
+      (i)  `mut_place_ctx_` is CONSUMED by the first `lower_deref` / `lower_field_read` and cleared; a NESTED operand
+           (`&mut **bb`: the inner `*bb`; `&mut (*b).f`: the PAREN_EXPR-wrapped deref receiver; `**bb = v`) lowers
+           with it FALSE, so the inner step is `deref()` → `&Box<_>` and the outer `deref_mut` crosses a `&` →
+           "'bb' is behind a `&` reference" (borrow_check.cpp `bp.through_ref_type` refusal). sema_impl.hpp's own
+           comment on `mut_place_ctx_` says lower_field_read re-arms for a FIELD_READ receiver only.
+      (ii) sema_stmt.cpp DEREF_WRITE asks `impls_["DerefMut::<name>"]` + `find_func_by_base_and_signature`
+           (concrete symbols only — the comment in lower_deref says why Box needed a bespoke path) and falls to the
+           raw-pointer arm; DEREF_COMPOUND, twenty lines above, already delegates to emit_generic_deref_call.
+    Rejected blocks, with the reason: {for_range_mut_var_syntax, for_range_var_assign_admit, match_tmp_wild_mut_addrof,
+    at_binding_mut_syntax} — a plausible "by-value binding from a non-let binder is an SSA value, not a slot" root, but two
+    are grammar holes and the admit needs a refusal PLUS a codegen slot: three mechanisms. trait_default_body_* — priced
+    09-04 at cost 0, a LANDING candidate. Tier 1 — five roots (09-06c/d), none shared here.
+
+## 2. COUNTER-EXAMPLES FIRST — 36 hand programs, 12 SHAPES (hand/, expected.tsv = Rust's verdict), HEAD unarmed:
+    LEGAL, REFUSED (wrong reason in every case): h01 `*bb = 7` · h03 `&mut **bb` · h04 `**bb = 6` · h05 `&mut (*b).f`
+      · h08 `**r = 9` (r: &mut Box) · h13 `*b = S{..}` (drop count) · h15 `*h.b = 7` · h16 `*v[0] = 7` · h26 `&mut ***b3`
+      · h32 `*bb = Box::new(..)` · h33 `**bb += 6` · h35 `*self.b = x` in `&mut self`. All "raw pointer" or "behind a `&`".
+    ILLEGAL, ADMITTED (three, none had a row): h10 `*w += 6` with W: Deref ONLY (rc 0, w.inner = 7); h22 `*w += 6`
+      (W: DerefMut) and h24 `*b += 6` (Box) with the binding NOT `mut` (rc 0). h14 `*w = S{..}` through a user
+      DerefMut RUNS 10 where Rust counts 11: the old value is never dropped — the has_dm arm returns BEFORE the T1.5 tail.
+    RIGHT TODAY: h02 h11 h18 h29 h30 h31 (legal, run 0) · h07 h21 h23 h25 h36 h39 (refused, right sentence) · h09 h06
+      h17 h19 h20 h38 h40 (refused, wrong sentence: "raw pointer" for E0594/E0506/E0596).
+    ⚠ h12 `*r = 7` on Rc<i64> is legal HERE: stdlib/lang/rc/rc.logos carries `impl DerefMut for Rc` (rustc: E0594
+      "cannot assign to data in an `Rc`"). A stdlib divergence with an OWNER; not touched.
+
+## 3. THE PROBES — 13 sites, 12 names (Rule 3), specs spec1/2/3.txt beside this record; two batches + one by hand
+##    (spec2's helper failed to compile TWICE — `la::` needs `using namespace sema_detail` inside a sema_impl.hpp member —
+##    and the pipeline that ran on the STALE binary was killed, not read: RC_BUILD=1 with hash e5cb… unchanged).
+    bxnest_addr    sema_expr.cpp `&mut *<nested>` arm: arm ctx for a DEREF/FIELD_READ operand
+    bxnest_deref   sema_expr.cpp lower_deref: re-arm for a nested operand (the `***` door)
+    bxnest_field   sema_expr.cpp lower_field_read: re-arm for a DEREF receiver — ⚠ NEVER FIRED in batch 1: the receiver
+                   of `(*b).f` is a PAREN_EXPR; spec2 adds `nest_place_node()` which unwraps parens (fires 25, h05 closes)
+    bxnest_wr      sema_stmt.cpp DEREF_WRITE: arm ctx for a nested NAME       (priced only inside bxnestctx/bxmutall)
+    bxnest_cmp     sema_stmt.cpp DEREF_COMPOUND: the four re-lowerings of NAME through one `_lower_name` lambda
+    bxwrdeleg      sema_stmt.cpp DEREF_WRITE: a Struct ptr delegates to emit_generic_deref_call(want_mut) and REQUIRES
+                   the result to be `&mut` (a Deref-only degrade falls back to the old arms); the delegated `&mut`
+                   then flows through the COMMON tail (unsafe / kind / variance / T1.5 old-value drop / track_write_move)
+    bxcmprefuse    sema_stmt.cpp DEREF_COMPOUND: a step that degraded to `deref()` is not a write place
+    dwptrmc        borrow_check.cpp DerefWrite arm: a MethodCall `ptr` gets take_ref_borrows(ptr, ln, "__dwrecv",
+                   record_only) + release_borrows_held_by — the receiver's binding-mut question lives THERE (the
+                   09-03i "drf" site inside take_ref_borrows' MethodCall arm); ⚠ spec2's first form `visit(ptr)` FIRED
+                   (12) and refused NOTHING — visit's MethodCall arm asks conflicts, never binding-mut (Rule 11).
+    bxnestctx = the five nest sites · bxmutall = everything.
+
+## 4. THE PRICE — every column (build 166fda10e132e2e9 = spec2, 4328d7bf4151125d = spec3; batch-1 binary e5cb735e75232f27)
+    probe          fires  ceil(bc)  cost  cfail          stdlib  hand (Rust-verdict matches / shapes moved)
+    bxnest_addr       98      0       0    0 of 1389      ok     h03 ✓
+    bxnest_deref       0*     —       —    —              —      *never fired on the corpus; h26 (`&mut ***b3`) fires it by hand ✓
+    bxnest_field      25      0       0    0              ok     h05 h29 ✓ (spec2; 0 fires in spec1 = paren)
+    bxnest_cmp       102      0       0    0              ok     (h33 needs bxwrdeleg too — SERIES)
+    bxwrdeleg       1677      0       0    0              ok     h01 h08 h13(11) h14(11) h15 h32(11) ✓; h04 h17 "behind &" (series);
+                                                                 ⚠ h06 h17 h21 ADMITTED — the deref_mut receiver is never asked
+    bxcmprefuse        1      0       0    0              ok     h10 REFUSED ("deref-compound: left side must be…", wrong sentence)
+    dwptrmc           12      0       0    0              ok     h22 h24 REFUSED "not declared as mut" ✓; h06/h17/h21 unchanged (needs bxwrdeleg: series)
+    bxnestctx        501      0       0    1 rc           ok     h03 h05 h26 ✓; ⚠ cfail = borrowck-issue-14498--box-mut-ref UN-REFUSED (§4a)
+    bxmutall        2193      0       0    1 rc (same)    ok     36 shapes: every Rust verdict matches except h09/h10 (right verdict,
+                                                                 wrong sentence), h12 (stdlib), h16 (its own row) — and §4a
+    RUNTIME (run_oracle.py, spec3 binary, cast-region-to-uint subtracted): 0 of 6388 pass fixtures moved (ccrc / runrc / stdout sha identical, base 08:43 vs bxmutall 08:53, one binary 4328d7bf4151125d)
+    ADDITIVITY (Rule 13), measured: h04 `**bb = 6` and h33 `**bb += 6` close under NEITHER half (bxwrdeleg: "behind a
+    `&`"; bxnestctx: "raw pointer") and under the whole; h06/h17/h21 are ADMITTED by bxwrdeleg alone and REFUSED right
+    only with dwptrmc — the delegation OPENS a hole the borrow-check door must close in the same commit.
+ 4a. THE ONE cfail, READ: tests/imported/fail/borrowck/borrowck-issue-14498--box-mut-ref.logos — `let y: Box<&mut i64>
+    = Box::new(&mut x); let p = &y; let q: &i64 = &***p; **y = 2i64; let _ = *q;` is E0506 (q borrows x through p, y,
+    the inner `&mut`). Its .expected pins "cannot assign to 'y': 'y' is behind a `&` reference" — a WRONG-REASON PIN
+    (`y` is a `let` binding, not behind anything); the shelf note dates it to 08-27. Once the nested step is mutable the
+    wrong reason is gone and NOTHING refuses it: the loan `q` holds is rooted at `x` (the `&mut` referent), and a write
+    through `y.deref_mut()` is recorded against `y` only. h38 (`Box<i64>`, q via p) and h40 (direct) ARE refused under
+    bxmutall ("1 shared borrow(s) active"): the blind spot is the `Box<&mut T>` hop, not the `&y` hop. A landing OWES
+    this fixture its E0506 — without it, bxnestctx un-refuses an illegal program (⚠ NEVER BUY A ROW WITH AN UN-REFUSAL).
+
+## 5. QUEUE — 5 rows ADDED this round (23 -> 28), each REPRODUCED by the gate on 292d…, none closed (pricing round):
+    derefonly_compound_write_admit (t2) h10 · user_derefmut_write_leaks_old (t1 run 1) h14 · match_ergo_modifier_ref_mode_diag
+    (t4, the owner's 2024 decision; today "assignment to immutable variable 'n'" + two type mismatches) ·
+    derefmut_compound_recv_immut_admit (t2) h24, twin h22 in its header · box_in_vec_deref_write (t3) h16.
+    bxmutall's SET, predicted by name before spec3 ran and read after: CLOSES boxbox_mut_deref, box_deref_assign_mut_let,
+    box_write_raw_ptr_diag (h06 → "cannot borrow 'b' as mutable: not declared as mut" — rustc's E0594 names the
+    ASSIGNMENT, ours the borrow; the verdict and the property are right), user_derefmut_write_leaks_old (h14 = 11),
+    derefonly_compound_write_admit (h10 refused, sentence owed), derefmut_compound_recv_immut_admit (h24 refused).
+    Does NOT close box_in_vec_deref_write (INDEX_READ is not a nest node; `lower_index_place(is_mut)` is the door, reached
+    today only from `&mut v[i]`). bc ledger: ceiling 0 in every probe — 99 / 25 unmoved, both TOTALs re-derived.
+
+## 6. WHAT DESERVES FUNDING, WITH THE NUMBER
+    FUND `bxmutall` AS ONE LANDING — the four halves are in SERIES (h04/h33 need nest+deleg, h06/h17/h21 need
+    deleg+dwptrmc) so no half may land alone: nest_place_node() + the five ctx arms (paren-aware), DEREF_WRITE by
+    delegation with the `&mut`-result requirement and the has_dm arm DELETED (its early return is the h14 leak),
+    bxcmprefuse, and the DerefWrite-arm receiver question. Closes 6 queue rows (predicted by name), 36 shapes at Rust's
+    verdict, cost 0 pass / stdlib four layers / runtime 0 damaged of 6388. It OWES, in the same commit: (1) E0506 for
+    borrowck-issue-14498 (§4a) — a loan through a `Box<&mut T>` referent must reach the write through `deref_mut()`;
+    re-pin its .expected to the right sentence; (2) the sentences: h09/h10 "cannot assign through '*w': W implements
+    Deref but not DerefMut" instead of "raw pointer"/"deref-compound: left side"; (3) fixtures in PAIRS for every shape
+    in §2 (the drop-count ones assert 11); (4) `LOGOS_PROBE` names retired. Then box_in_vec_deref_write as its own door
+    (lower_index_place from the DEREF_WRITE/COMPOUND NAME position).
+    NOT this mechanism: Rc's DerefMut (stdlib, owner) · match_tmp_wild_mut_addrof's codegen slot · the grammar rows.
+
+## 7. THE TREE — RESTORED (4 files checked out), rebuilt, hash / L1 / queue gate in the commit message; hand set, specs,
+##    TARGETS.md and the four hand tables archived under probes/2026-09-07a-boxmutctx/.
+
+## bxnest_addr
+site: src/compiler/sema_expr.cpp::lower_expr_inner
+build: e5cb735e75232f27
+measured: 2026-09-07
+fires: 98
+ceiling: 0 (bc) / 1 (soundness queue: boxbox_mut_deref)
+cost: 0 pass / cfail 0 of 1389 / stdlib ok / hand h03 ✓
+verdict: live and cheap; one of five nest doors — see bxnestctx
+note: the `&mut *<operand>` arm arms mut_place_ctx_ for a DEREF/FIELD_READ operand before lowering it.
+
+## bxnest_deref
+site: src/compiler/sema_expr.cpp::lower_deref
+build: e5cb735e75232f27
+measured: 2026-09-07
+fires: 0 on the corpus; 1 by hand (h26 `&mut ***b3`)
+ceiling: 0 (bc)
+cost: — (never fired on the corpus; not a zero)
+verdict: the `***` door; priced only inside bxnestctx / bxmutall
+note: re-arms the consumed context for a nested operand.
+
+## bxnest_field
+site: src/compiler/sema_expr.cpp::lower_field_read
+build: 166fda10e132e2e9
+measured: 2026-09-07
+fires: 25 (spec2); 0 in spec1 — the receiver of `(*b).f` is a PAREN_EXPR, the predicate did not unwrap it
+ceiling: 0 (bc)
+cost: 0 pass / cfail 0 / stdlib ok / hand h05 h29 ✓
+verdict: live once paren-aware (nest_place_node)
+note: re-arms for a DEREF receiver, not only a FIELD_READ one.
+
+## bxnest_cmp
+site: src/compiler/sema_stmt.cpp::lower_stmt
+build: e5cb735e75232f27
+measured: 2026-09-07
+fires: 102
+ceiling: 0 (bc)
+cost: 0 pass / cfail 0 / stdlib ok
+verdict: half of a series — h33 `**bb += 6` needs bxwrdeleg's sibling too
+note: DEREF_COMPOUND's four re-lowerings of NAME go through one `_lower_name` lambda that arms the context.
+
+## bxwrdeleg
+site: src/compiler/sema_stmt.cpp::lower_stmt
+build: e5cb735e75232f27
+measured: 2026-09-07
+fires: 1677
+ceiling: 0 (bc) / 3 (soundness queue: box_deref_assign_mut_let, user_derefmut_write_leaks_old, box_write_raw_ptr_diag — the last only WITH dwptrmc)
+cost: 0 pass / cfail 0 of 1389 / stdlib ok / hand h01 h08 h13 h14 h15 h32 ✓ — ⚠ h06 h17 h21 ADMITTED alone (the deref_mut receiver is never asked)
+verdict: the write-side step is the read-side's generic one; must land WITH dwptrmc
+note: DEREF_WRITE delegates a Struct ptr to emit_generic_deref_call(want_mut=true), requires a `&mut` result, and lets it flow through the common tail (T1.5 drops the old value — h14 reads 11).
+
+## bxcmprefuse
+site: src/compiler/sema_stmt.cpp::lower_stmt
+build: e5cb735e75232f27
+measured: 2026-09-07
+fires: 1
+ceiling: 0 (bc) / 1 (soundness queue: derefonly_compound_write_admit)
+cost: 0 pass / cfail 0 / stdlib ok / hand h10 REFUSED, wrong sentence ("deref-compound: left side must be a pointer or mutable reference")
+verdict: closes the row; the sentence is owed
+note: a step that degraded to `deref()` (no DerefMut impl) is not a write place.
+
+## dwptrmc
+site: src/compiler/borrow_check.cpp::visit_stmt
+build: 4328d7bf4151125d
+measured: 2026-09-07
+fires: 12
+ceiling: 0 (bc) / 1 (soundness queue: derefmut_compound_recv_immut_admit) + closes bxwrdeleg's h06/h17/h21 hole
+cost: 0 pass / cfail 0 of 1389 / stdlib ok / hand h22 h24 REFUSED "not declared as mut"; h01 h02 h11 h19 unchanged
+verdict: the receiver question by delegation — take_ref_borrows(ptr, ln, "__dwrecv", record_only) + release_borrows_held_by; spec2's `visit(ptr)` form fired 12 and refused nothing
+note: the DerefWrite arm never walked a MethodCall ptr; the binding-mut question lives in take_ref_borrows' MethodCall arm.
+
+## bxnestctx
+site: src/compiler/sema_expr.cpp::lower_deref
+build: 166fda10e132e2e9
+measured: 2026-09-07
+fires: 501
+ceiling: 0 (bc) / 1 (soundness queue: boxbox_mut_deref)
+cost: 0 pass / cfail 1 of 1389 (rc 1 -> 0: borrowck-issue-14498--box-mut-ref UN-REFUSED, a wrong-reason E0506 pin) / stdlib ok
+verdict: the five nest doors together; the un-refusal is the landing's debt (§4a)
+note: one name over bxnest_addr/deref/field/wr/cmp.
+
+## bxmutall
+site: src/compiler/sema_stmt.cpp::lower_stmt
+build: 4328d7bf4151125d
+measured: 2026-09-07
+fires: 2193
+ceiling: 0 (bc) / 6 (soundness queue, by name: boxbox_mut_deref, box_deref_assign_mut_let, box_write_raw_ptr_diag, user_derefmut_write_leaks_old, derefonly_compound_write_admit, derefmut_compound_recv_immut_admit)
+cost: 0 pass / cfail 1 (the same un-refusal) / stdlib ok / runtime 0 damaged of 6388 / hand: 36 shapes at Rust's verdict except h09 h10 (sentence), h12 (stdlib Rc DerefMut), h16 (own row)
+verdict: FUND as one landing; halves are in series
+note: nest + wrdeleg + cmprefuse + dwptrmc under one name.

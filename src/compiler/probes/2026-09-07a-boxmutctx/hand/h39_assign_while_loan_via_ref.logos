@@ -1,0 +1,9 @@
+package h39;
+fn main() -> i32 {
+    let mut y: i64 = 1i64;
+    let p: &i64 = &y;
+    let q: &i64 = &*p;
+    y = 2i64;
+    let _ = *q;
+    return 0i32;
+}

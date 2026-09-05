@@ -23,3 +23,14 @@ h22	refuse	E0596
 h23	refuse	E0596
 h24	refuse	E0596
 h25	refuse	E0596
+h26	0	legal
+h29	0	legal
+h30	0	legal
+h31	0	legal
+h32	0	legal; old inner S dropped at the write: 11
+h33	0	legal
+h35	0	legal
+h36	refuse	E0594 cannot assign to `*self.b`, which is behind a `&` reference
+h38	refuse	E0506 cannot assign to `*y` because it is borrowed (q via p)
+h39	refuse	E0506 cannot assign to `y` because it is borrowed (q via p)
+h40	refuse	E0506 cannot assign to `*y` because it is borrowed

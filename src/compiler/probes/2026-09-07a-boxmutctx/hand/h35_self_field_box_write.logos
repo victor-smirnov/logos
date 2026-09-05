@@ -1,0 +1,9 @@
+package h35;
+struct H { b: Box<i64> }
+impl H { fn set(&mut self, x: i64) { *self.b = x; } }
+fn main() -> i32 {
+    let mut h: H = H { b: Box::new(1i64) };
+    h.set(7i64);
+    if *h.b != 7i64 { return 1i32; }
+    return 0i32;
+}

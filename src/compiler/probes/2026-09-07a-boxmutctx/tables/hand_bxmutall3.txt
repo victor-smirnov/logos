@@ -1,0 +1,33 @@
+h01_box_write                            cc=0   run=0        errs=0  
+h02_box_compound                         cc=0   run=0        errs=0  
+h03_boxbox_addrof                        cc=0   run=0        errs=0  
+h04_boxbox_write                         cc=0   run=0        errs=0  
+h05_explicit_deref_field                 cc=0   run=0        errs=0  
+h06_box_write_immut                      cc=1   run=-        errs=1  error [fn main]: cannot borrow 'b' as mutable: not declared as mut
+h07_box_addrof_immut                     cc=1   run=-        errs=1  error [fn main]: cannot borrow 'b' as mutable: not declared as mut
+h08_mutref_to_box_write                  cc=0   run=0        errs=0  
+h09_derefonly_write                      cc=1   run=-        errs=2  error [fn main]: write through raw pointer requires unsafe context
+h10_derefonly_compound                   cc=1   run=-        errs=1  error [fn main]: deref-compound: left side must be a pointer or mutable reference
+h11_user_derefmut_write                  cc=0   run=0        errs=0  
+h12_rc_write                             cc=0   run=0        errs=0  
+h13_box_write_drops_old                  cc=0   run=0        errs=0  
+h14_user_derefmut_write_drops_old        cc=0   run=11       errs=0  
+h15_box_field_write                      cc=0   run=0        errs=0  
+h16_box_in_vec_write                     cc=1   run=-        errs=2  error [fn main]: cannot borrow 'v' as mutable: 'v' is behind a `&` reference
+h17_boxbox_write_immut                   cc=1   run=-        errs=1  error [fn main]: cannot borrow 'bb' as mutable: not declared as mut
+h18_box_addrof_field_mutref              cc=0   run=0        errs=0  
+h19_box_shared_borrow_then_write         cc=1   run=-        errs=2  error [fn main]: cannot borrow 'b' as mutable: 1 shared borrow(s) active
+h20_box_write_through_sharedref          cc=1   run=-        errs=2  error [fn set]: cannot borrow 'r' as mutable: 'r' is behind a `&` reference
+h21_user_derefmut_write_immut            cc=1   run=-        errs=1  error [fn main]: cannot borrow 'w' as mutable: not declared as mut
+h22_user_derefmut_compound_immut         cc=1   run=-        errs=1  error [fn main]: cannot borrow 'w' as mutable: not declared as mut
+h23_explicit_deref_mut_call_immut        cc=1   run=-        errs=1  error [fn main]: cannot borrow 'w' as mutable: not declared as mut
+h24_box_compound_immut                   cc=1   run=-        errs=1  error [fn main]: cannot borrow 'b' as mutable: not declared as mut
+h25_mutself_method_immut_recv            cc=1   run=-        errs=1  error [fn main]: cannot borrow 's' as mutable: not declared as mut
+h26_boxboxbox_addrof                     cc=0   run=0        errs=0  
+h29_paren_deref_field_write              cc=0   run=0        errs=0  
+h30_autoderef_field_write                cc=0   run=0        errs=0  
+h31_autoderef_mut_method                 cc=0   run=0        errs=0  
+h32_boxbox_write_inner_box               cc=0   run=0        errs=0  
+h33_boxbox_compound                      cc=0   run=0        errs=0  
+h35_self_field_box_write                 cc=0   run=0        errs=0  
+h36_self_field_box_write_sharedself      cc=1   run=-        errs=2  error [fn H__set]: cannot borrow 'self.b' as mutable: 'self' is behind a `&` reference

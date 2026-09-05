@@ -1,0 +1,8 @@
+package h36;
+struct H { b: Box<i64> }
+impl H { fn set(&self, x: i64) { *self.b = x; } }
+fn main() -> i32 {
+    let h: H = H { b: Box::new(1i64) };
+    h.set(7i64);
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+ceiling-probe: unarmed baseline (from the store where it is already there)
+ceiling-probe: armed run — LOGOS_PROBE=bxnest_deref
+fail-oracle: 1389 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-e5cb735e75232f27-bxnest_deref.tsv
+ceiling-probe: 'bxnest_deref'  builds 793 (unarmed) -> 795 (armed)
+probe: fired 0 times
+probe: ✗ NEVER FIRED — the site was not reached by any compile in this run.
+  This is NOT ceiling 0. Either the name is mis-typed, the guard sits
+  upstream of the site, or the path is dead. Prove the site is live
+  before reading any zero off it.

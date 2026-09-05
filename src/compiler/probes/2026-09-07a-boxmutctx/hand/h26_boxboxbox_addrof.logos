@@ -1,0 +1,8 @@
+package h26;
+fn main() -> i32 {
+    let mut b3: Box<Box<Box<i64>>> = Box::new(Box::new(Box::new(1i64)));
+    let r: &mut i64 = &mut ***b3;
+    *r = 5i64;
+    if ***b3 != 5i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+package h31;
+struct P { f: i64 }
+impl P { fn bump(&mut self) { self.f = self.f + 4i64; } }
+fn main() -> i32 {
+    let mut b: Box<P> = Box::new(P { f: 1i64 });
+    b.bump();
+    if b.f != 5i64 { return 1i32; }
+    return 0i32;
+}

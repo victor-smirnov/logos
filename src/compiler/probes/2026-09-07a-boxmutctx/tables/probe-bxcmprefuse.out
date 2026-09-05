@@ -1,0 +1,15 @@
+ceiling-probe: unarmed baseline (from the store where it is already there)
+ceiling-probe: armed run — LOGOS_PROBE=bxcmprefuse
+fail-oracle: 1389 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-e5cb735e75232f27-bxcmprefuse.tsv
+ceiling-probe: 'bxcmprefuse'  builds 793 (unarmed) -> 802 (armed)
+probe: fired 1 times
+probe: CEILING = 0 rows
+probe: COST    = 0 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe:           write the counter-examples)
+probe: COST-fail = 0 of 1389 `-L bc -L fail` fixtures changed (rc 0, .expected-match 0, text-only 0)
+probe: stdlib: all four layers compile under 'bxcmprefuse'
+probe: no effect. ⚠ NOT a refutation until the site is proven live — check the
+probe:   fire count and the region's arrival count before recording a zero.
+probe: ⚠ a CEILING bounds the COUNT, not the SET: diff these names against what
+probe:   you predicted BY NAME. A matching count can be two errors cancelling.

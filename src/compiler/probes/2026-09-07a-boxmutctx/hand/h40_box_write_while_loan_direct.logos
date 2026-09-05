@@ -1,0 +1,8 @@
+package h40;
+fn main() -> i32 {
+    let mut y: Box<i64> = Box::new(1i64);
+    let q: &i64 = &*y;
+    *y = 2i64;
+    let _ = *q;
+    return 0i32;
+}
