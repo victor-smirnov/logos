@@ -1,0 +1,14 @@
+package t_iflet_option_ptrdrop_dd;
+struct R { i: *mut i64 }
+impl Drop for R { fn drop(self: &mut R) { unsafe { *self.i = *self.i + 1i64; } } }
+fn eat(r: R) -> i64 { return 1i64; }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let o: Option<R> = Option::Some(R { i: p });
+        if let Option::Some(r) = o { let _k: i64 = eat(r); }
+    }
+    if c != 1i64 { return 1i32; }
+    return 0i32;
+}

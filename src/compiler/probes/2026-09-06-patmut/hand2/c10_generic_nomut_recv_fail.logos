@@ -1,0 +1,14 @@
+package c10_generic_nomut_recv_fail;
+trait Bump { fn bump(&mut self); fn val(&self) -> i64; }
+struct A { v: i64 }
+impl Bump for A { fn bump(&mut self) { self.v = self.v + 1i64; } fn val(&self) -> i64 { return self.v; } }
+fn poke<T: Bump>(o: Option<T>) -> i64 {
+    match o {
+        Option::Some(s) => { s.bump(); return s.val(); },
+        Option::None => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    if poke(Option::Some(A { v: 1i64 })) != 2i64 { return 1i32; }
+    return 0i32;
+}

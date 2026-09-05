@@ -1,0 +1,11 @@
+PREDICTION (round 2026-09-06b landing, written BEFORE the build) — landing = patmutwhole spec minus probe names, pat_bound/declaring_pattern_ deleted
+QUEUE ROWS CLOSED: 2, by name:
+  pattern_mut_recv            refuses -> compiles, runs rc 0
+  match_nomut_boxderef_admit  admits  -> refused "cannot borrow 'bb' as mutable: not declared as mut" (E0596)
+QUEUE ROWS UNCHANGED (19): every other row; match_tmp_wild_mut_addrof stays `refuses` but the SENTENCE changes (codegen getelementptr)
+# TOTAL 21 -> 19
+bc_admits 99 / bc_admits_blocked 25 unmoved both ways
+cost: pass 0 / cfail 1 text-only (move-in-pattern-mut false line removed) / stdlib ok / runtime 0
+hand2 (base -> fix): c01 c02 c03 c05 c06 c07 c12 c13 c14 c15 c16 c17 c19 refused -> run 0 (c13: 1 DROP, c14: 2 DROP, c16: 2 DROP);
+  c04 (at-binding `mut n @`) refused on BOTH (sema pushes false at the PAT_AT arm) — a NEW over-refusal if so;
+  c08 (`mut` under `&` scrutinee, Copy payload) — measure; c09 c10 c11 c18 c20 refused on BOTH with the right sentence.

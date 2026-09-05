@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row box_deref_assign_mut_let (tier 3). '*bb = 7' through a
+// 'let mut bb: Box<i64>' is legal Rust (DerefMut assignment). TODAY refused
+// "write through raw pointer requires unsafe context" + "deref-write: '=' left side
+// must be a pointer or mutable reference" — the Box deref-write is typed as a raw
+// pointer write; '&mut *bb' then '*r = 7' is the accepted spelling
+// (bc_drfmut_deref_mut_local_admit). The ILLEGAL twin without 'mut' is
+// box_write_raw_ptr_diag (tier 4). Found 2026-09-06b (hand c12). Rust: exit 0.
+package box_deref_assign_mut_let;
+fn main() -> i32 {
+    let mut bb: Box<i64> = Box::new(1i64);
+    *bb = 7i64;
+    if *bb != 7i64 { return 1i32; }
+    return 0i32;
+}

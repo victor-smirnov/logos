@@ -1,0 +1,18 @@
+// DESTRUCTOR COUNT: `E::A(mut s)` then `s = S {..}`: the old value drops at the reassignment and the new one at arm exit (1 + 7 = 8). PROBES.md 2026-09-06b: the by-value pattern `mut` is carried into the LIR for match/if-let/while-let/for bindings.
+package bc_patmut_match_mut_reassign_drop_count;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+enum E { A(S), B }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let e: E = E::A(S { v: 1i64, i: p });
+        match e {
+            E::A(mut s) => { s = S { v: 2i64, i: p }; s.v = s.v + 5i64; },
+            E::B => {}
+        }
+    }
+    if c != 8i64 { return 1i32; }
+    return 0i32;
+}

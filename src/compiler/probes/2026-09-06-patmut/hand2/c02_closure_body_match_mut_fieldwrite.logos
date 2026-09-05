@@ -1,0 +1,13 @@
+package c02_closure_body_match_mut_fieldwrite;
+struct S { v: i64 }
+enum E { A(S), B }
+fn main() -> i32 {
+    let f = |e: E| -> i64 {
+        match e {
+            E::A(mut s) => { s.v = s.v + 5i64; return s.v; },
+            E::B => { return 0i64; }
+        }
+    };
+    if f(E::A(S { v: 3i64 })) != 8i64 { return 1i32; }
+    return 0i32;
+}

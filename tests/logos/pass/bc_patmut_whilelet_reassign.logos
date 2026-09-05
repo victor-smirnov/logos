@@ -1,0 +1,15 @@
+// `while let Some(mut x) = v.pop()` then `x = x + 1`: legal, runs. ONE TOKEN from fail/bc_patmut_whilelet_no_mut_reassign_fail. PROBES.md 2026-09-06b: the by-value pattern `mut` is carried into the LIR for match/if-let/while-let/for bindings.
+package bc_patmut_whilelet_reassign;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    v.push(2i64);
+    let mut acc: i64 = 0i64;
+    while let Option::Some(mut x) = v.pop() {
+        x = x + 1i64;
+        acc = acc + x;
+    }
+    if acc != 5i64 { return 1i32; }
+    return 0i32;
+}

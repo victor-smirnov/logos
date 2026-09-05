@@ -1,0 +1,14 @@
+// `E::A(mut s)` inside a CLOSURE body, field write: legal, runs. ONE TOKEN from fail/bc_patmut_closure_body_no_mut_fieldwrite_fail. PROBES.md 2026-09-06b: the by-value pattern `mut` is carried into the LIR for match/if-let/while-let/for bindings.
+package bc_patmut_closure_body_fieldwrite;
+struct S { v: i64 }
+enum E { A(S), B }
+fn main() -> i32 {
+    let f = |e: E| -> i64 {
+        match e {
+            E::A(mut s) => { s.v = s.v + 5i64; return s.v; },
+            E::B => { return 0i64; }
+        }
+    };
+    if f(E::A(S { v: 3i64 })) != 8i64 { return 1i32; }
+    return 0i32;
+}

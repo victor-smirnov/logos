@@ -1,0 +1,12 @@
+// `for (mut a, b) in arr` — the for-pattern prologue `let` site — then `a = a + b`: legal, runs. ONE TOKEN from fail/bc_patmut_for_tuple_pat_no_mut_reassign_fail. PROBES.md 2026-09-06b: the by-value pattern `mut` is carried into the LIR for match/if-let/while-let/for bindings.
+package bc_patmut_for_tuple_pat_reassign;
+fn main() -> i32 {
+    let arr: [(i64, i64); 2] = [(1i64, 10i64), (2i64, 20i64)];
+    let mut acc: i64 = 0i64;
+    for (mut a, b) in arr {
+        a = a + b;
+        acc = acc + a;
+    }
+    if acc != 33i64 { return 1i32; }
+    return 0i32;
+}

@@ -256,7 +256,7 @@ const uint8_t* lir_mirror_emit_index_write       (lir::LProgram& prog, uint32_t 
 const uint8_t* lir_mirror_emit_field_index_write (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view field, lir_view::ExprRef index, lir_view::ExprRef value);
 const uint8_t* lir_mirror_emit_expr_stmt         (lir::LProgram& prog, uint32_t line, lir_view::ExprRef expr);
 const uint8_t* lir_mirror_emit_match_stmt        (lir::LProgram& prog, uint32_t line, lir_view::ExprRef scrut, const std::vector<lir::LMatchArm>& arms);
-const uint8_t* lir_mirror_emit_for_each          (lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef iter, TypeRef elem_type, int64_t arr_size, bool is_slice, lir_view::BlockRef body, uint32_t slot = 0xFFFFFFFFu);
+const uint8_t* lir_mirror_emit_for_each          (lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef iter, TypeRef elem_type, int64_t arr_size, bool is_slice, lir_view::BlockRef body, uint32_t slot = 0xFFFFFFFFu, bool var_mut = false);
 const uint8_t* lir_mirror_emit_deref_write       (lir::LProgram& prog, uint32_t line, lir_view::ExprRef ptr, lir_view::ExprRef value, bool drop_old = false);
 const uint8_t* lir_mirror_emit_drop              (lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields, const std::vector<std::string>& moved_fields = {});
 const uint8_t* lir_mirror_emit_deref_field_write (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view type_name, std::string_view field, lir_view::ExprRef value);
@@ -285,7 +285,7 @@ const uint8_t* lir_mirror_emit_hv_type    (lir::LProgram& prog, uint32_t kind, u
 const uint8_t* lir_mirror_emit_pat_variant      (lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc);
 const uint8_t* lir_mirror_emit_pat_int          (lir::LProgram& prog, int64_t value);
 const uint8_t* lir_mirror_emit_pat_bool         (lir::LProgram& prog, bool value);
-const uint8_t* lir_mirror_emit_pat_wild         (lir::LProgram& prog, std::string_view name, uint32_t slot = 0xFFFFFFFFu);
+const uint8_t* lir_mirror_emit_pat_wild         (lir::LProgram& prog, std::string_view name, uint32_t slot = 0xFFFFFFFFu, bool is_mut = false);
 const uint8_t* lir_mirror_emit_pat_variant_data (lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<uint32_t>& bind_slots = {}, const std::vector<uint32_t>& bind_ref_modes = {});
 const uint8_t* lir_mirror_emit_pat_or           (lir::LProgram& prog, const std::vector<lir::Pattern>& alts);
 const uint8_t* lir_mirror_emit_pat_tuple        (lir::LProgram& prog, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<lir::Pattern>& subs, const std::vector<uint32_t>& bind_slots = {});

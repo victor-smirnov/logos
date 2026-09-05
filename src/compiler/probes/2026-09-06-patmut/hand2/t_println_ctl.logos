@@ -1,0 +1,3 @@
+package t_println_ctl;
+use logos.std.fmt;
+fn main() -> i32 { println!("-- end"); return 0i32; }

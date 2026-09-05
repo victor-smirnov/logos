@@ -1,0 +1,21 @@
+package c03_trait_default_iflet_mut;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+trait Take {
+    fn take(&self) -> Option<S>;
+    fn run(&self) -> i64 {
+        if let Option::Some(mut s) = self.take() {
+            let r: &mut i64 = s.get();
+            *r = *r + 4i64;
+            return s.v;
+        }
+        return 0i64;
+    }
+}
+struct T { k: i64 }
+impl Take for T { fn take(&self) -> Option<S> { return Option::Some(S { v: self.k }); } }
+fn main() -> i32 {
+    let t: T = T { k: 4i64 };
+    if t.run() != 8i64 { return 1i32; }
+    return 0i32;
+}

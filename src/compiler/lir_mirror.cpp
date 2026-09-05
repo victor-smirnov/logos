@@ -942,11 +942,12 @@ public:
                                                  int64_t arr_size,
                                                  bool is_slice,
                                                  lir_view::BlockRef body,
-                                                 uint32_t slot = 0xFFFFFFFFu) {
+                                                 uint32_t slot = 0xFFFFFFFFu,
+                                                 bool var_mut = false) {
         auto var_av  = put_string(var);
         auto iter_av = expr_av(iter);
         auto body_av = body ? mref_addr(body.addr()) : writ::AnyVal{};
-        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::ForEach));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::ForEach), 9);  // + sk::IS_MUT
         put(map_off, sk::VAR,       var_av);
         put(map_off, sk::ITER,      iter_av);
         put(map_off, sk::ELEM_TYPE, type_av(elem_type));
@@ -954,6 +955,7 @@ public:
         put(map_off, sk::IS_SLICE,  put_bool(is_slice));
         put(map_off, sk::BODY,      body_av);
         if (slot != 0xFFFFFFFFu) put(map_off, sk::VAR_SLOT, put_i64((int64_t)slot));
+        if (var_mut) put(map_off, sk::IS_MUT, put_bool(true));  // sparse: `for mut x`
         put_line(map_off, line);
         return map_off;
     }
@@ -1187,10 +1189,12 @@ public:
         return map_off;
     }
     const uint8_t* emit_pat_wild_direct(std::string_view name,
-                                                uint32_t slot = 0xFFFFFFFFu) {
+                                                uint32_t slot = 0xFFFFFFFFu,
+                                                bool is_mut = false) {
         auto name_av = name.empty() ? writ::AnyVal{} : put_string(name);
         auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::Wild));
         put(map_off, pk::NAME, name_av);
+        if (is_mut) put(map_off, pk::IS_MUT, put_bool(true));  // sparse: by-value `mut x`
         if (slot != 0xFFFFFFFFu) put(map_off, pk::BIND_SLOT, put_i64((int64_t)slot));
         return map_off;
     }
@@ -2330,10 +2334,10 @@ const uint8_t* lir_mirror_emit_match_stmt(lir::LProgram& prog, uint32_t line, li
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_match_stmt_direct(line, scrut, arms);
 }
-const uint8_t* lir_mirror_emit_for_each(lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef iter, TypeRef elem_type, int64_t arr_size, bool is_slice, lir_view::BlockRef body, uint32_t slot) {
+const uint8_t* lir_mirror_emit_for_each(lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef iter, TypeRef elem_type, int64_t arr_size, bool is_slice, lir_view::BlockRef body, uint32_t slot, bool var_mut) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_for_each_direct(line, var, iter, elem_type, arr_size, is_slice, body, slot);
+    return em.emit_for_each_direct(line, var, iter, elem_type, arr_size, is_slice, body, slot, var_mut);
 }
 const uint8_t* lir_mirror_emit_deref_write(lir::LProgram& prog, uint32_t line, lir_view::ExprRef ptr, lir_view::ExprRef value, bool drop_old) {
     auto& ctr = prog.type_pool.ctr_or_init();
@@ -2429,10 +2433,10 @@ const uint8_t* lir_mirror_emit_pat_bool(lir::LProgram& prog, bool value) {
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_bool_direct(value);
 }
-const uint8_t* lir_mirror_emit_pat_wild(lir::LProgram& prog, std::string_view name, uint32_t slot) {
+const uint8_t* lir_mirror_emit_pat_wild(lir::LProgram& prog, std::string_view name, uint32_t slot, bool is_mut) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_pat_wild_direct(name, slot);
+    return em.emit_pat_wild_direct(name, slot, is_mut);
 }
 const uint8_t* lir_mirror_emit_pat_variant_data(lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<uint32_t>& bind_slots, const std::vector<uint32_t>& bind_ref_modes) {
     auto& ctr = prog.type_pool.ctr_or_init();

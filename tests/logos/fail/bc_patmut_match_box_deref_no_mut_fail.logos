@@ -1,0 +1,11 @@
+// ex-soundness-queue row match_nomut_boxderef_admit (tier 2 ADMITS) — `&mut *bb` through a no-`mut` match binding is E0596; the pat_bound mask that admitted it is gone. Pass twin: bc_patmut_match_box_deref. PROBES.md 2026-09-06b.
+package bc_patmut_match_box_deref_no_mut_fail;
+enum E { A(Box<i64>), B }
+fn main() -> i32 {
+    let e: E = E::A(Box::new(1i64));
+    match e {
+        E::A(bb) => { let r: &mut i64 = &mut *bb; *r = 8i64; },
+        E::B => {}
+    }
+    return 0i32;
+}

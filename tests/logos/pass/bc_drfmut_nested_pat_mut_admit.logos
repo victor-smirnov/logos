@@ -1,10 +1,9 @@
-// THE MASK, half 2 of 2 — a DIFFERENT door to the same lost fact. A struct
-// pattern NESTED in a variant payload is lowered to a synthetic payload
-// binding (`__pat_pld_*`) plus a prologue destructure off it; the `mut` is
-// dropped there too. This half is what proves the mask must PROPAGATE along
-// the projection rather than test one temp-name prefix: `__pat_pld_*` is
-// itself a pattern binding, `__dst_*` is a plain `let`, and only the pair of
-// them covers both doors. LEGAL Rust; refused by the one-prefix spelling.
+// `Some(W { b: mut bb })` then `&mut *bb`: a struct pattern NESTED in a variant
+// payload is lowered to a synthetic payload binding (`__pat_pld_*`) plus a
+// prologue destructure `let` off it; that prologue carries the by-value `mut`
+// since 2026-09-06 (PROBES.md; until then a pat_bound MASK on the pattern-bound
+// root stood in for the fact, and this fixture pinned the mask's second half).
+// LEGAL Rust. ONE TOKEN from fail/bc_patmut_nested_struct_no_mut_box_deref_fail.
 package bc_drfmut_nested_pat_mut_admit;
 
 struct W { b: Box<i64> }

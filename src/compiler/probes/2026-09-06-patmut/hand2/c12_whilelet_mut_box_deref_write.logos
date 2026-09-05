@@ -1,0 +1,14 @@
+package c12_whilelet_mut_box_deref_write;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<Box<i64>> = Vec::new();
+    v.push(Box::new(1i64));
+    v.push(Box::new(2i64));
+    let mut acc: i64 = 0i64;
+    while let Option::Some(mut bb) = v.pop() {
+        *bb = *bb + 10i64;
+        acc = acc + *bb;
+    }
+    if acc != 23i64 { return 1i32; }
+    return 0i32;
+}

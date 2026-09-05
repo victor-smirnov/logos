@@ -1,0 +1,20 @@
+// `Some(mut s)` inside a GENERIC fn instantiated twice — mono_clone re-emits the pattern and must carry the `mut` bit (bind_ref_modes_raw). ONE TOKEN from fail/bc_patmut_generic_no_mut_recv_fail. PROBES.md 2026-09-06b: the by-value pattern `mut` is carried into the LIR for match/if-let/while-let/for bindings.
+package bc_patmut_generic_two_insts_recv;
+trait Bump { fn bump(&mut self); fn val(&self) -> i64; }
+struct A { v: i64 }
+struct B { w: i64 }
+impl Bump for A { fn bump(&mut self) { self.v = self.v + 1i64; } fn val(&self) -> i64 { return self.v; } }
+impl Bump for B { fn bump(&mut self) { self.w = self.w + 2i64; } fn val(&self) -> i64 { return self.w; } }
+fn poke<T: Bump>(o: Option<T>) -> i64 {
+    match o {
+        Option::Some(mut s) => { s.bump(); return s.val(); },
+        Option::None => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    let a: i64 = poke(Option::Some(A { v: 1i64 }));
+    let b: i64 = poke(Option::Some(B { w: 1i64 }));
+    if a != 2i64 { return 1i32; }
+    if b != 3i64 { return 2i32; }
+    return 0i32;
+}

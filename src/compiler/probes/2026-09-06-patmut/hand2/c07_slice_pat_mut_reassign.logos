@@ -1,0 +1,10 @@
+package c07_slice_pat_mut_reassign;
+fn main() -> i32 {
+    let arr: [i64; 2] = [1i64, 2i64];
+    let mut out: i64 = 0i64;
+    match arr {
+        [mut a, b] => { a = a + 10i64; out = a + b; }
+    }
+    if out != 13i64 { return 1i32; }
+    return 0i32;
+}

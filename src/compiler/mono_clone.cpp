@@ -4768,7 +4768,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         lir_view::PatWildView wv{pref};
         std::string name(wv.name());
         lir::Pattern p;
-        p.mirror_ptr_ = lir_mirror_emit_pat_wild(*prog_, name, wv.bind_slot());  // Phase-1
+        p.mirror_ptr_ = lir_mirror_emit_pat_wild(*prog_, name, wv.bind_slot(), wv.is_mut());  // Phase-1
         return p;
     }
     case pc::Code::Range: {
@@ -4789,7 +4789,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         auto off = lir_mirror_emit_pat_variant_data(
             *prog_, n.enum_name, n.variant, n.disc, n.bindings, n.binding_types,
             v.bind_slots(),        // Phase-1: carry slots
-            v.bind_ref_modes());   // and the binding modes
+            v.bind_ref_modes_raw());   // and the binding modes, `mut` bit included
         lir::Pattern p_;
         p_.mirror_ptr_ = off;
         return p_;
@@ -5241,7 +5241,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
             arr_size = (int64_t)iter_t.arr_size();
         auto body = subst_child_block(v.body());
         ns.mirror_ptr_ = lir_mirror_emit_for_each(
-            out_, ns.line, var, iter, elem_type, arr_size, is_slice, body, v.var_slot());  // Phase-1
+            out_, ns.line, var, iter, elem_type, arr_size, is_slice, body, v.var_slot(), v.var_mut());  // Phase-1
         break;
     }
     case SCode::LetElse: {

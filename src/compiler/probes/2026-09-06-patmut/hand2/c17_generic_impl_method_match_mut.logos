@@ -1,0 +1,17 @@
+package c17_generic_impl_method_match_mut;
+struct W<T> { o: Option<T> }
+impl<T> W<T> {
+    fn take_add(self: W<T>, k: i64) -> i64 {
+        match self.o {
+            Option::Some(mut n) => { return k; },
+            Option::None => { return 0i64; }
+        }
+    }
+}
+fn main() -> i32 {
+    let w: W<i64> = W { o: Option::Some(1i64) };
+    let w2: W<bool> = W { o: Option::Some(true) };
+    if w.take_add(5i64) != 5i64 { return 1i32; }
+    if w2.take_add(6i64) != 6i64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,13 @@
+// ILLEGAL twin of pass/bc_patmut_match_reassign (E0384). PROBES.md 2026-09-06b.
+package bc_patmut_match_no_mut_reassign_fail;
+enum E { A(i64), B }
+fn main() -> i32 {
+    let e: E = E::A(1i64);
+    let mut out: i64 = 0i64;
+    match e {
+        E::A(n) => { n = n + 10i64; out = n; },
+        E::B => {}
+    }
+    if out != 11i64 { return 1i32; }
+    return 0i32;
+}

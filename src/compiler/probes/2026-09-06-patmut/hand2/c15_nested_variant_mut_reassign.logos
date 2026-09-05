@@ -1,0 +1,12 @@
+package c15_nested_variant_mut_reassign;
+fn main() -> i32 {
+    let o: Option<Option<i64>> = Option::Some(Option::Some(1i64));
+    let mut out: i64 = 0i64;
+    match o {
+        Option::Some(Option::Some(mut n)) => { n = n + 10i64; out = n; },
+        Option::Some(Option::None) => { out = -1i64; },
+        Option::None => { out = -2i64; }
+    }
+    if out != 11i64 { return 1i32; }
+    return 0i32;
+}

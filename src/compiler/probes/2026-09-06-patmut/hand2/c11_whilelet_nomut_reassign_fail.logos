@@ -1,0 +1,13 @@
+package c11_whilelet_nomut_reassign_fail;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    let mut acc: i64 = 0i64;
+    while let Option::Some(x) = v.pop() {
+        x = x + 1i64;
+        acc = acc + x;
+    }
+    if acc != 2i64 { return 1i32; }
+    return 0i32;
+}

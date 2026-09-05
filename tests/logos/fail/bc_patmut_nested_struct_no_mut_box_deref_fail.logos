@@ -1,0 +1,11 @@
+// ILLEGAL twin of pass/bc_drfmut_nested_pat_mut_admit, ONE TOKEN apart (drop the `mut`): `Some(W { b: bb })` then `&mut *bb` is E0596 — admitted by the pat_bound mask until 2026-09-06b.
+package bc_patmut_nested_struct_no_mut_box_deref_fail;
+struct W { b: Box<i64> }
+fn main() -> i32 {
+    let o: Option<W> = Option::Some(W { b: Box::new(1i64) });
+    match o {
+        Option::Some(W { b: bb }) => { let r: &mut i64 = &mut *bb; *r = 8i64; },
+        Option::None => {}
+    }
+    return 0i32;
+}

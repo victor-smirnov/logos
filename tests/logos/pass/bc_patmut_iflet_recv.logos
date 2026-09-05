@@ -1,0 +1,13 @@
+// `if let Some(mut s)` then a `&mut self` method: legal, runs. ONE TOKEN from fail/bc_patmut_iflet_no_mut_recv_fail. PROBES.md 2026-09-06b: the by-value pattern `mut` is carried into the LIR for match/if-let/while-let/for bindings.
+package bc_patmut_iflet_recv;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+fn main() -> i32 {
+    let o: Option<S> = Option::Some(S { v: 1i64 });
+    if let Option::Some(mut s) = o {
+        let r: &mut i64 = s.get();
+        *r = 8i64;
+        if s.v != 8i64 { return 1i32; }
+    }
+    return 0i32;
+}

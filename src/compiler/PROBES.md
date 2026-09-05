@@ -23280,7 +23280,7 @@ fires: 8470
 ceiling: 0 (bc) / 0 (soundness queue)
 cost: 7 pass (exactly the new bc_patmut_* fixtures) / cfail 1 of 1367 (bc_patmut_struct_destructure_box_deref_fail RE-ADMITTED, rc 1 -> 0) / stdlib ok
 verdict: control twin of the LANDED root-B mechanism — sema stamps is_mut=false again AND the `__dst_*` half of the pat_bound mask returns (borrow_check.cpp, the `let` arm)
-note: one name for the two halves of one mechanism; both must revert together for the old behaviour to be the old behaviour.
+note: ⚠ STALE SINCE 2026-09-06b — the mask half is DELETED, not gated, so `patmutoff` now controls no-bit AND no-mask at once (re-measured in that round §8). one name for the two halves of one mechanism; both must revert together for the old behaviour to be the old behaviour.
 
 # ═══ ROUND 2026-09-06 (PRICING, soundness queue) — THE BY-VALUE PATTERN `mut` IS PARSED, RECORDED
 # IN SEMA, AND DROPPED AT TWO DOORS IN SERIES; CARRYING IT CLOSES pattern_mut_recv (predicted 1 by
@@ -23417,7 +23417,7 @@ measured: 2026-09-06
 fires: 6139
 ceiling: 0 (bc) / 1 (soundness queue: pattern_mut_recv)
 cost: 0 pass / 1 cfail text-only (move-in-pattern-mut: a FALSE `assignment to immutable variable` line removed) / stdlib ok / 42 hand shapes: no illegal admit
-verdict: ✓ FUND as half of patmutwhole — carries the by-value pattern `mut` (BINDING_REF_MODES bit 0x10, PatWild pk::IS_MUT, SForEach sk::IS_MUT) to sema's define and to declare_pat_bindings / visit_loop_body; the pat_bound masks stay
+verdict: ✓ LANDED 2026-09-06b (as half of patmutwhole, probe names dropped) — carries the by-value pattern `mut` (BINDING_REF_MODES bit 0x10, PatWild pk::IS_MUT, SForEach sk::IS_MUT) to sema's define and to declare_pat_bindings / visit_loop_body; the pat_bound masks stay
 note: spec src/compiler/probes/2026-09-06-patmut/patmut.spec (39 of its 43 edits); ⚠ the ForEach map needs capacity 9 or the 9th key aborts the compiler.
 
 ## patmutwhole
@@ -23427,7 +23427,7 @@ measured: 2026-09-06
 fires: 6189
 ceiling: 0 (bc) / 1 (soundness queue: pattern_mut_recv; + the new match_nomut_boxderef_admit row refuses E0596)
 cost: 0 pass / 1 cfail text-only (the same false line) / `-L fail` 2484 of 2484 / stdlib ok / runtime 0 of 6308 / hand: h03 h25 h33 refused with the right sentence, h11 h28 h30 die in codegen (a second defect behind the refusal, rowed)
-verdict: ✓ FUND — patmutbit + the two pat_bound masks retired + the three prologue `let` sites (nested struct/tuple sub, for-pattern); on build 1 without the prologue sites it cost 1 (bc_drfmut_nested_pat_mut_admit), rule 13
+verdict: ✓ LANDED 2026-09-06b (+ a fifth door, emit_nested_variant_lets, found by hand c15; pat_bound and declaring_pattern_ DELETED) — patmutbit + the two pat_bound masks retired + the three prologue `let` sites (nested struct/tuple sub, for-pattern); on build 1 without the prologue sites it cost 1 (bc_drfmut_nested_pat_mut_admit), rule 13
 note: the masks: `pat_root_ = pst_->pat_bound` at the deref_mut site and `(tst_ && tst_->pat_bound)` at the let-inherit site.
 
 ## patmutany
@@ -23439,3 +23439,145 @@ ceiling: 0 (bc) / 1 (soundness queue)
 cost: 0 pass / 1 cfail RC: fail_issue-33819 1 -> 0 (`&mut v` on a `ref v` binding ADMITTED) / stdlib ok / hand: ADMITS h02 h03 h06 h12 h21 h25 h33 h39; does not open sema's door (h13 h19 h22 h34 h36 h41 h42 stay refused)
 verdict: ⛔ crude twin — closes the row by declaring every pattern-bound name mutable; separates from the correct bit on nine hand programs and one corpus fixture
 note: is_mut_binding = true in declare_pat_bindings (VariantData, Wild) and both loop-var declarations.
+
+# ═══ ROUND 2026-09-06b (LANDING, soundness queue) — THE CARRIED PATTERN `mut` LANDS AS PRICED PLUS A
+# FIFTH DOOR THE PRICE DID NOT SEE (the nested-variant let-else re-extraction), THE pat_bound MASK AND
+# ITS `declaring_pattern_` STATE ARE DELETED; 2 ROWS CLOSED (predicted 2 by name, both ways) AT COST 0 /
+# cfail 1 text-only (the same FALSE LINE REMOVED) / stdlib four layers / RUNTIME 0 of 6308 / gate bc
+# 2470 of 2470; 20 counter-examples in shapes the price did not use, and FOUR ROWS ADDED (21 -> 23):
+# two tier-1 RUN defects (an if-let payload moved out is dropped TWICE; a while-let `mut` reassignment
+# LEAKS the new value — the second reachable only now), a grammar hole (`mut n @ 1..=5`) and a legal
+# Box deref-write refused. ═══
+
+## 0. STEP 1, RE-DERIVED
+    HEAD 4a9037fbf clean = origin/main. build_hash `cdde77be7fb503f2 43` (READ). soundness_queue `# TOTAL` 21 =
+    21 by listing (3/2/13/3 by tier) · bc_admits 99 · bc_admits_blocked 25 · probe-log-lint 185 records, every
+    site resolves. Queue gate with `LOGOS_LIB_DIR=build/lib/logos`: rc 0, 21 rows hold (the brief's bare line reads
+    LINKFAIL, as 2026-09-06 §0 said). The pricing report's numbers all re-derived exactly; one correction: it
+    says "4 rows ADDED (17 -> 21)" — true — and its `patmutwhole` verdict names TWO doors + three prologue sites;
+    the landing found a FIFTH door (§3).
+    Baseline oracles on the unarmed binary, ONE configure: `fail_text_oracle.py` 1367 rows, `run_oracle.py` 6308
+    rows, `gate-run.sh -L bc` = a READ from the store ("build 774: 6163 recorded, 0 failed").
+
+## 1. THE PREDICTION (file `src/compiler/probes/2026-09-06-patmut/predictions-2026-09-06b.txt`, before the build)
+    2 rows, by name: pattern_mut_recv (refuses -> runs 0), match_nomut_boxderef_admit (admits -> E0596 with
+    "cannot borrow 'bb' as mutable: not declared as mut"). Every other row unchanged; match_tmp_wild_mut_addrof
+    stays `refuses` with a changed sentence. bc ledgers 99/25 both ways. Cost 0 / cfail 1 text-only / stdlib ok /
+    runtime 0. HELD in every column (§4, §5).
+
+## 2. THE LANDING = the 43-edit spec minus its three `probe::on` names, and the dead state it retired
+    `patmut_carry()` deleted (the bit is always carried); `patmutany` removed from the four borrow-check sites;
+    the two `pat_bound` masks deleted OUTRIGHT rather than gated — and with no reader left, `VarState::pat_bound`,
+    `declaring_pattern_`, its DPRestore in `declare_pat_bindings`, the two loop-body set/clear pairs and the
+    `patmutoff` half of the let-inherit site all go (borrow_check.cpp −33 lines net). `patmutoff` therefore now
+    controls BOTH halves at once: no bit AND no mask (its record's cost of 7 is stale; re-measured §7).
+    Diff: 8 source files, 93 insertions / 75 deletions (`git diff --numstat`, before fixtures). Prose stays here;
+    every in-source line is a one-line marker (post-round grep of the `//` lines in `src/compiler` + `include`).
+
+## 3. THE FIFTH DOOR — found by counter-example c15, NOT by any corpus column
+    `Some(Some(mut n)) => n = n + 10`: base AND the priced whole both refuse "assignment to immutable variable 'n'".
+    The K4 nested-variant path re-extracts the inner bindings through `emit_nested_variant_lets` (a body
+    `let <sub> = __refut_* else { loop {} }`), whose `define_binds` lambda stamps `false` for every VariantData
+    and Wild binding — the same line-shape as the VariantData arm the spec fixed, one function away. Delegated the
+    same way: `v.bind_byval_muts()` / `wv.is_mut()` (2 sites; the Tuple branch there has no mode array and is
+    left `false` — `Some(Some((mut a, b)))` stays a refusal, not measured further). One rebuild
+    (`fd225170dfc55e5a`), c15 runs 0, the pair `bc_patmut_nested_variant_reassign` ↔ `_no_mut_reassign_fail` pins it.
+    Rule 2 again: doors in series — the price's "two doors + three prologue sites" was four of five.
+
+## 4. THE COST — every column, on the FINAL binary (fd225170dfc55e5a), vs the ONE-configure baseline
+    stdlib-cost.sh      four layers ok
+    fail_text_oracle    1383 rows = 1367 + the 16 new `bc_patmut_*_fail`; ONE pre-existing row moved and it is the
+                        text-only move-in-pattern-mut line of 2026-09-06 §5 (the FALSE "assignment to immutable
+                        variable 'x'" line removed; the pinned E0382 unchanged). No rc moved, no un-refusal.
+    run_oracle          6328 rows = 6308 + the 20 new `bc_patmut_*` pass (all ccrc 0 / run 0); minus
+                        cast-region-to-uint by name, NOTHING else moved.
+    gate-run -L bc      build 782: 2470 passed / 0 failed / 2 disabled.
+    L1                  752/752 + 174 gates rc 0 — after the two population pins were re-derived by direct listing
+                        (census: ALL 9059 -> 9095 = the 36 new fixtures, TIERCOMMIT 174; direct_door corpus
+                        2689 -> 2709 = `ls tests/logos/pass/*.logos | wc -l`, nonglob 2498 -> 2518).
+    queue gate          build 1: exactly the two predicted rows "NO LONGER REPRODUCES", nothing else; final: 23/23 rc 0.
+
+## 5. RULE 5 — 20 COUNTER-EXAMPLES IN SHAPES THE PRICE DID NOT USE (`probes/2026-09-06-patmut/hand2/`, run1.sh)
+    LEGAL, base REFUSED -> now RUN rc 0 (13): c01 GENERIC fn instantiated twice (mono_clone carries the raw
+      modes) · c02 CLOSURE body · c03 TRAIT DEFAULT body if-let · c13 match `mut` + DESTRUCTOR COUNT (1 drop,
+      the MUTATED value) · c14 if-let `mut` reassigned (2 drops — but see §6) · c15 nested variant (§3) · c16
+      `for mut s in vec` (2 drops, mutated values) · c17 generic impl method · c19 `mut` captured by a MOVE
+      closure and mutated inside · c05 c06 c07 top-level struct/tuple/slice patterns (RAN on base too — they go
+      through the `let`-prologue sites of 2026-09-05a; unchanged).
+    ILLEGAL, both REFUSE, sentence READ (5): c09 c10 c20 `not declared as mut` · c11 c18 `assignment to
+      immutable variable` (c18 = `mut s` SHADOWED by an immutable `let s`, the shadow wins: correct).
+    NEITHER — pre-existing, rowed or reported (3): c04 `mut n @ 1i64..=5i64` SYNTAX ERROR at `n` (grammar; ROWED
+      at_binding_mut_syntax) · c12 `*bb = *bb + 10` on a pattern-bound `mut bb: Box<i64>` refused "write through
+      raw pointer requires unsafe context" — and so is `let mut bb: Box<i64>; *bb = 7` (ROWED
+      box_deref_assign_mut_let; the ILLEGAL no-`mut` twin is the tier-4 box_write_raw_ptr_diag) · c08 `match &o {
+      Some(mut n) => n = n + 1 }` (Copy payload under a `&` scrutinee): refused as a type error, `n` is `&i64` —
+      LEGAL in Rust 2021 (the `mut` resets the binding mode to move) and an ERROR in Rust 2024 ("binding
+      modifiers may only be written when the default binding mode is `move`"): an EDITION decision with an owner,
+      NOT rowed.
+    The pricing's 42 hand shapes re-run on both builds: identical to 2026-09-06 §6, digit for digit.
+
+## 6. TWO RUN DEFECTS BEHIND THE CLOSED REFUSALS — found by destructor COUNT, invisible to every exit code
+    (a) `if let Some(r) = o { eat(r) }` — the binding MOVED OUT by value is dropped in the callee AND again at
+        the scrutinee's scope exit: counter 2, Rust 1. NO `mut` involved, so it is on the base binary too
+        (shown at the control revert, §7). `match o { Some(r) => eat(r) }` is correct (1) and a binding that is
+        only READ is correct (enum_payload_drop (4) pins that) — the if-let lowering does not treat the binding
+        as the payload's OWNER. The `mut` face of the same root: `if let Some(mut s) = o { s.v = s.v + 5 }` — the
+        scope-exit drop sees the UN-mutated payload (the binding is a COPY) and the mutated copy is never
+        dropped; with `s = S{..}` the old value is dropped twice and the new one leaked. ROWED tier 1 run 1:
+        iflet_payload_moveout_double_drop (the no-`mut` shape, so it reproduces on ANY binary).
+    (b) `while let Some(mut s) = v.pop() { s = S{..}; }` — the popped value drops once (correct) and the NEW value
+        assigned to `s` is never dropped at the iteration's end: counter 1, Rust 8. Reachable ONLY since this
+        landing (base refused it "assignment to immutable variable"). ROWED tier 1 run 1: whilelet_mut_reassign_leak.
+        The same shape under `match` drops both (bc_patmut_match_mut_reassign_drop_count pins 1 + 7 = 8).
+    Neither is this mechanism (the if-let / while-let lowerings' ownership of the payload binding), and neither
+    is bought back by refusing: the refusal that hid (b) was a wrong-reason refusal of a legal program.
+    ⚠ `println!` LEAKS ITS FORMAT STRING under valgrind (1 record for a bare `println!("-- end")`), so a
+    destructor-count fixture must count through a raw pointer, never through stdout + valgrind.
+
+## 7. QUEUE — 2 CLOSED, 4 ADDED, `# TOTAL` 21 -> 23 by direct listing (5/3/12/3 by tier); gate rc 0
+    CLOSED  pattern_mut_recv            -> pass bc_patmut_match_variant_recv ↔ fail bc_patmut_match_variant_no_mut_recv_fail
+            match_nomut_boxderef_admit  -> fail bc_patmut_match_box_deref_no_mut_fail ↔ pass bc_patmut_match_box_deref
+    ADDED   iflet_payload_moveout_double_drop 1 run 1 · whilelet_mut_reassign_leak 1 run 1 ·
+            at_binding_mut_syntax 3 refuses · box_deref_assign_mut_let 3 refuses
+    Fixtures: 20 pass + 16 fail, all `bc_patmut_*`, in pairs one token apart (for/if-let/while-let/or/nested
+    tuple/nested struct/nested variant/generic/closure/wild-over-variable; three destructor-COUNT passes through a
+    raw-pointer counter; trait-default and move-closure passes). bc_drfmut_nested_pat_mut_admit's comment
+    rewritten (the mask it documented is gone); its one-token fail twin is bc_patmut_nested_struct_no_mut_box_deref_fail.
+    bc ledgers 99 / 25 unmoved both ways. match_tmp_wild_mut_addrof stays open (`refuses`; its sentence is now
+    the codegen death its header already records).
+
+## 8. THE GATES, THE CONTROL REVERT, AND THE CONTROL TWIN
+    Final binary fd225170dfc55e5a: L1 752/752 + 174 gates rc 0 · `test-levels.sh L4 bc` (detached, LOGOS_L4_BG=1)
+    4197 of 4197 rc 0, store build 782 · run_oracle / fail_text_oracle / stdlib as §4 · queue gate 23/23 rc 0.
+    CONTROL REVERT (the 8 source files checked out to HEAD, the fixtures and ledger kept, rebuilt):
+      queue gate rc 1 with exactly ONE row not reproducing — whilelet_mut_reassign_leak (want run 1, read cc=1:
+        the old binary REFUSES it, as its header records); iflet_payload_moveout_double_drop REPRODUCES on the old
+        binary (run 1) — the double drop predates this round;
+      bc_patmut_match_variant_recv (the row) refused "cannot borrow 's' as mutable: not declared as mut";
+        bc_patmut_match_box_deref_no_mut_fail (the other row) COMPILES rc 0 — the admit is back;
+      ctest over the 49 `bc_patmut_*` + bc_drfmut_nested_pat_mut_admit: 21 RED = the 18 new `mut` pass shapes +
+        the 3 no-`mut` fails the mask admitted (match, if-let, nested struct) — every fixture of the round bites
+        the old binary and none of the 09-05a ones does (their doors were already open).
+      Re-applied (`git apply` of the saved diff), rebuilt: build_hash fd225170dfc55e5a EXACTLY = the priced final
+        binary; queue gate 23/23 rc 0; the 50 tests (49 + logos_00_soundness_queue) 50/50.
+    ⚠ TWO OBSERVATIONS ABOUT THE BUILD, not about the mechanism: (1) the REVERT build hashed 075d04575c0b7ccb,
+      not HEAD's cdde77be7fb503f2, with byte-identical sources — a compiler rebuild rebuilds the stdlib archives
+      and something in them moves (2026-09-06 §7's "restored exactly" was read on a build where the archives were
+      NOT rebuilt); a hash proves identity with the binary that was PRICED, not with an earlier configure.
+      (2) the RESTORE build returned rc 1: eight `examples/*.o` + `tools/docgen` compiled while
+      `liblogos-std.a` was still being written ("module_loader: cannot find package …", step 35 racing step 34)
+      — a ninja dependency hole in examples/, surfaced only because this round rebuilt the stdlib four times;
+      a second `cmake --build` completed rc 0 with the hash unchanged. Recorded, not fixed (off-ledger).
+    CONTROL TWIN `patmutoff` re-measured on the final binary (`ceiling-probe.sh`): fires 301, ceiling 0 bc,
+      COST 16 over its `-L bc -L pass` population — every name is a `bc_patmut_*` / `bc_drfmut_*pat_mut*` pass
+      (the five of this round's twenty that carry the bc label, plus the seven of 09-05a and the two drfmut
+      pat-mut admits) — cfail 0 of 1383 (the 09-05a re-admit is gone with the mask), stdlib ok. The old record's
+      "cost 7" is retired: the twin now removes the bit AND has no mask to fall back on.
+
+## 9. WHAT THIS ROUND CONTRADICTS
+    · 2026-09-06 §8 "the spec IS the diff": four of five doors. The fifth (emit_nested_variant_lets) had no
+      corpus fixture and no hand shape in the 42; it cost one build.
+    · 2026-09-06 §7 "build_hash back to cdde77be7fb503f2 exactly" after a source revert + rebuild: not
+      reproducible here (§8) — a revert build does not restore the hash when the archives are rebuilt.
+    · The if-let payload double drop (§6a) is a tier-1 hole that predates every round of this arc and was never
+      rowed; the `enum_payload_drop` fixture's if-let case (4) reads a field and so cannot see it.

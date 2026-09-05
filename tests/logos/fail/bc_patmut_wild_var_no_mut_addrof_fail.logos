@@ -1,0 +1,11 @@
+// ILLEGAL twin of pass/bc_patmut_wild_var_addrof (E0596). PROBES.md 2026-09-06b.
+package bc_patmut_wild_var_no_mut_addrof_fail;
+struct S { v: i64 }
+fn bump(p: &mut S) { p.v = p.v + 7i64; }
+fn main() -> i32 {
+    let s0: S = S { v: 1i64 };
+    match s0 {
+        s => { bump(&mut s); if s.v != 8i64 { return 1i32; } }
+    }
+    return 0i32;
+}

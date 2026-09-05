@@ -1,0 +1,17 @@
+// `E::A(mut s)` captured by a `move` closure and mutated inside it: legal, runs. PROBES.md 2026-09-06b: the by-value pattern `mut` is carried into the LIR for match/if-let/while-let/for bindings.
+package bc_patmut_match_mut_move_closure;
+struct S { v: i64 }
+enum E { A(S), B }
+fn main() -> i32 {
+    let e: E = E::A(S { v: 1i64 });
+    let mut out: i64 = 0i64;
+    match e {
+        E::A(mut s) => {
+            let mut f = move || -> i64 { s.v = s.v + 7i64; return s.v; };
+            out = f();
+        },
+        E::B => {}
+    }
+    if out != 8i64 { return 1i32; }
+    return 0i32;
+}

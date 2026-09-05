@@ -1,0 +1,13 @@
+// `E::A(mut n)` then `n = n + 10`: legal, runs (sema's own scope carried `false` here until 2026-09-06b). ONE TOKEN from fail/bc_patmut_match_no_mut_reassign_fail. PROBES.md 2026-09-06b: the by-value pattern `mut` is carried into the LIR for match/if-let/while-let/for bindings.
+package bc_patmut_match_reassign;
+enum E { A(i64), B }
+fn main() -> i32 {
+    let e: E = E::A(1i64);
+    let mut out: i64 = 0i64;
+    match e {
+        E::A(mut n) => { n = n + 10i64; out = n; },
+        E::B => {}
+    }
+    if out != 11i64 { return 1i32; }
+    return 0i32;
+}

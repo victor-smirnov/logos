@@ -1,0 +1,14 @@
+package c09_closure_body_match_nomut_addrof_fail;
+struct S { v: i64 }
+enum E { A(S), B }
+fn bump(p: &mut S) { p.v = p.v + 1i64; }
+fn main() -> i32 {
+    let f = |e: E| -> i64 {
+        match e {
+            E::A(s) => { bump(&mut s); return s.v; },
+            E::B => { return 0i64; }
+        }
+    };
+    if f(E::A(S { v: 3i64 })) != 4i64 { return 1i32; }
+    return 0i32;
+}

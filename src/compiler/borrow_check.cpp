@@ -602,9 +602,6 @@ struct VarState {
     // Phase 3 — binding mutability (`let mut x` vs `let x`).
     // Required for rejecting `&mut x` and `x = ...` against immutable bindings.
     bool     is_mut_binding = false;
-    // Introduced by a PATTERN or a loop header, not by a `let`: `is_mut_binding`
-    // is UNANSWERABLE there (PROBES.md 2026-09-03h §8).
-    bool     pat_bound = false;
     // Partial moves: name → line where field was moved out. Reading the
     // same field again, or the whole value, after a field move is rejected.
     std::unordered_map<std::string, uint32_t> moved_fields;
@@ -2093,7 +2090,6 @@ class BorrowChecker {
     // the desugared index_mut (returns 0 ⇒ would record a SHARED borrow ⇒ two
     // `&mut v[i]` alias undetected). The MethodCall recorder ORs this in.
     bool                                 reborrow_force_mut_ = false;
-    bool                                 declaring_pattern_ = false;
     // THE BASE OF A SLICE VIEW. The array→slice coercion is borrow-forming
     // (take_ref_borrows' SliceLit arm says so and delegates to record it), but
     // its base has two spellings: `&arr` -> AddrOf, which the AddrOf arm always
@@ -2975,7 +2971,6 @@ private:
 
     void declare_var(const std::string& name, uint32_t slot = NO_SLOT) {
         var_at(slot, name) = VarState{};  // Phase-1: real slot → dense slot_
-        if (declaring_pattern_) var_at(slot, name).pat_bound = true;
         if (in_closure_body_) closure_body_decls_.insert(name);
         if (!scopes_.empty()) {
             scopes_.back().declared.push_back(name);
@@ -5385,10 +5380,6 @@ private:
     // scope; PatWild may also bind (when name is non-empty and not "_").
     void declare_pat_bindings(lir_view::PatRef pr) {
         if (!pr) return;
-        const bool saved_dp_ = declaring_pattern_;
-        declaring_pattern_ = true;
-        struct DPRestore { bool* f; bool v; ~DPRestore() { *f = v; } }
-            dp_restore_{&declaring_pattern_, saved_dp_};
         using Code = lir_schema::pat::Code;
         // CENSUS (2026-09-01j): arrival by pattern kind at the DECLARATION
         // channel. See PROBES.md `patdecl*`.
@@ -5404,9 +5395,13 @@ private:
             case Code::VariantData: {
                 lir_view::PatVariantDataView v{pr};
                 auto slots = v.bind_slots();  // Phase-1
+                auto muts  = v.bind_byval_muts();  // the carried by-value `mut`
                 size_t i = 0;
                 v.each_binding([&](std::string_view b) {
-                    declare_var(std::string(b), i < slots.size() ? slots[i] : NO_SLOT);
+                    const uint32_t sl_ = i < slots.size() ? slots[i] : NO_SLOT;
+                    declare_var(std::string(b), sl_);
+                    if (i < muts.size() && muts[i] != 0u)
+                        var_at(sl_, b).is_mut_binding = true;
                     ++i;
                 });
                 break;
@@ -5414,7 +5409,11 @@ private:
             case Code::Wild: {
                 lir_view::PatWildView wv{pr};
                 std::string n(wv.name());
-                if (!n.empty() && n != "_") declare_var(n, wv.bind_slot());  // Phase-1
+                if (!n.empty() && n != "_") {
+                    declare_var(n, wv.bind_slot());  // Phase-1
+                    if (wv.is_mut())
+                        var_at(wv.bind_slot(), n).is_mut_binding = true;
+                }
                 break;
             }
             // A `ref`/`ref mut` binding IS a tracked local: declared under its
@@ -10148,16 +10147,12 @@ private:
                                     ? "drf.nomut.param" : "drf.nomut.local");
                         }
                         // LANDED 2026-09-03i — the binding-mut question, with
-                        // the AddrOfTemp sibling's own exemptions and the
-                        // unanswerable-binding mask. `drfmutoff` restores the
-                        // old blanket exemption. PROBES.md 2026-09-03i.
-                        bool pat_root_ = false;
-                        if (auto* pst_ = var_find(bp.root_slot, bp.root))
-                            pat_root_ = pst_->pat_bound;
-                        if (m && pat_root_) logos::probe::census("drf.patroot");
+                        // the AddrOfTemp sibling's own exemptions. `drfmutoff`
+                        // restores the old blanket exemption. The pattern-bound
+                        // mask retired 2026-09-06 (the `mut` is carried now).
                         const bool root_is_ref_ =
                             bp.root_type && is_ref_kind(bp.root_type);
-                        const bool ask_mb_ = m && !pat_root_ && !root_is_ref_ &&
+                        const bool ask_mb_ = m && !root_is_ref_ &&
                             !place_thru_mut_ref(bp) &&
                             !logos::probe::on("drfmutoff");
                         record_borrow(bp, m, line, holder,
@@ -11384,7 +11379,8 @@ private:
                          const std::vector<std::string>& loop_vars = {},
                          std::string_view label = {},
                          const std::vector<std::string>& var_loan_roots = {},
-                         std::string_view break_slot = {}) {
+                         std::string_view break_slot = {},
+                         bool loop_var_mut = false) {  // `for mut x`
         auto seed_loop_var_loans = [&]() {
             if (loop_vars.empty()) return;
             for (auto& r : var_loan_roots) inherit_loans(r, loop_vars.front(), 0);
@@ -11404,9 +11400,10 @@ private:
         bool saved_sup = suppress_reports_;
         suppress_reports_ = true;
         push_scope();
-        declaring_pattern_ = true;
-        for (auto& v : loop_vars) declare_var(v);
-        declaring_pattern_ = false;
+        for (auto& v : loop_vars) {
+            declare_var(v);
+            if (loop_var_mut) var_at(NO_SLOT, v).is_mut_binding = true;
+        }
         seed_loop_var_loans();
         bool saved_div = cur_diverged_;
         cur_diverged_ = false;
@@ -11493,9 +11490,10 @@ private:
         loop_stack_.back().outer_scope_count = scopes_.size();   // r11: frames that survive the loop
         cur_diverged_ = false;
         push_scope();
-        declaring_pattern_ = true;
-        for (auto& v : loop_vars) declare_var(v);
-        declaring_pattern_ = false;
+        for (auto& v : loop_vars) {
+            declare_var(v);
+            if (loop_var_mut) var_at(NO_SLOT, v).is_mut_binding = true;
+        }
         seed_loop_var_loans();
         walk_stmts_releasing(body, /*defer_release=*/false);
         cur_diverged_ = saved_div;
@@ -12491,23 +12489,6 @@ private:
                 note_closure_caps(name, val);     // H4
                 if (auto it = var_find(v.var_slot(), name); it != nullptr) {
                     it->is_mut_binding = v.is_mut();
-                    // A `let` PROJECTING OUT of a place whose own declared-mut
-                    // answer is unanswerable inherits that — sema's match/for/
-                    // if-let lowerings (`__pat_pld_*`) drop the pattern's `mut`
-                    // (2026-09-03i §4); the `__dst_*` half went 2026-09-05a.
-                    lir_view::ExprRef dst_term_;
-                    (void)value_local_root(val, pool, nullptr, &dst_term_);
-                    if (dst_term_ && val.kind() != lir_schema::expr::Code::VarRef &&
-                        dst_term_.kind() == lir_schema::expr::Code::VarRef) {
-                        auto tn_ = lir_view::EVarRefView{dst_term_}.name();
-                        auto* tst_ = var_find(
-                            lir_view::EVarRefView{dst_term_}.var_slot(),
-                            std::string(tn_));
-                        if ((tst_ && tst_->pat_bound) ||
-                            (logos::probe::on("patmutoff") &&
-                             is_destructure_temp_name(tn_)))
-                            it->pat_bound = true;
-                    }
                 }
                 if (is_ref_kind(t) || is_borrow_carrying_type(t)) {
                     RefProv vp = prov_of(val);
@@ -13628,7 +13609,7 @@ private:
                     // SForEachView carries no label accessor; unlabeled
                     // break/continue (the common case) still target it as the
                     // innermost frame.
-                    visit_loop_body(b, {std::string(v.var())});
+                    visit_loop_body(b, {std::string(v.var())}, {}, {}, {}, v.var_mut());
                 break;
             }
 

@@ -1,0 +1,15 @@
+// `E::A(mut s) | E::C(mut s)` then a `&mut self` method: legal, runs. ONE TOKEN (x2) from fail/bc_patmut_or_pattern_no_mut_recv_fail. PROBES.md 2026-09-06b: the by-value pattern `mut` is carried into the LIR for match/if-let/while-let/for bindings.
+package bc_patmut_or_pattern_recv;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+enum E { A(S), B, C(S) }
+fn main() -> i32 {
+    let e: E = E::C(S { v: 1i64 });
+    let mut out: i64 = 0i64;
+    match e {
+        E::A(mut s) | E::C(mut s) => { let r: &mut i64 = s.get(); *r = 8i64; out = s.v; },
+        E::B => {}
+    }
+    if out != 8i64 { return 1i32; }
+    return 0i32;
+}

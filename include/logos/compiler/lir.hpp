@@ -594,6 +594,7 @@ struct SForEach {
     TypeRef elem_type;   // element type
     int64_t          arr_size;    // static array size; 0 for slices
     bool             is_slice = false;  // true → iter is &[T] (dynamic length from fat pointer)
+    bool             var_mut  = false;  // `for mut x in …` (sk::IS_MUT, sparse)
     LBlockPtr        body = {};
     uint32_t         slot = 0xFFFFFFFFu;  // Phase-1: loop var's dense slot
 };

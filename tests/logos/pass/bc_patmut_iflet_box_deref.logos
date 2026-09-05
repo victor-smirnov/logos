@@ -1,0 +1,11 @@
+// `if let Some(mut bb)` then `&mut *bb`: legal, runs. ONE TOKEN from fail/bc_patmut_iflet_box_deref_no_mut_fail (the mask's former admit). PROBES.md 2026-09-06b: the by-value pattern `mut` is carried into the LIR for match/if-let/while-let/for bindings.
+package bc_patmut_iflet_box_deref;
+fn main() -> i32 {
+    let o: Option<Box<i64>> = Option::Some(Box::new(1i64));
+    if let Option::Some(mut bb) = o {
+        let r: &mut i64 = &mut *bb;
+        *r = 8i64;
+        if *bb != 8i64 { return 1i32; }
+    }
+    return 0i32;
+}

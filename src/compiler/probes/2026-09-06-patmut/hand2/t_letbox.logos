@@ -1,0 +1,7 @@
+package t_letbox;
+fn main() -> i32 {
+    let mut bb: Box<i64> = Box::new(1i64);
+    *bb = *bb + 10i64;
+    if *bb != 11i64 { return 1i32; }
+    return 0i32;
+}

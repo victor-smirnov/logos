@@ -24,8 +24,9 @@ using writ::AnyVal;
 using writ::MemHolder;
 
 // `mut x` in a pattern (IS_MUT without IS_REF; `ref mut` is another mode) binds
-// BY VALUE, mutable. Read at every `let PATTERN` lowering's SLet AND define —
-// all six stamped false until 2026-09-05a. `patmutoff` = the control twin.
+// BY VALUE, mutable. Read at every pattern lowering's SLet AND define, and
+// carried into the LIR for match/if-let/while-let/for bindings (PROBES.md
+// 2026-09-05a, 2026-09-06). `patmutoff` = the control twin.
 static bool pat_byval_mut(TinyMapView n) {
     auto flag = [&](const la::Key& k) {
         return n.has_key(k) && n.get(k.code).is_value() &&
@@ -4327,7 +4328,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         auto bname = std::string(str_of(bnode.get(la::NAME.code)));
                         bindings.push_back(bname);
                         binding_is_ref.push_back(is_ref);
-                        binding_is_mut.push_back(is_ref && is_mut);
+                        binding_is_mut.push_back(is_mut);
                         binding_from_wild.push_back(bname != "_");
                         continue;
                     }
@@ -4591,6 +4592,8 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             // default-mode binding names sits under the scrutinee's implicit
             // deref, which is not where a written `ref` puts it.
             bind_ref_modes[k] = default_mut ? 4u : 3u;
+        } else if (k < binding_is_mut.size() && binding_is_mut[k]) {
+            bind_ref_modes[k] = 0x10u;  // by value, written `mut`
         }
     }
     // Phase-1: reserve a dense slot per binding (NO_SLOT for `_`), parallel to
@@ -6006,7 +6009,8 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             current_pat_mut_names_->insert(wname);
     }
     lir::Pattern p_;
-    p_.mirror_ptr_ = lir_mirror_emit_pat_wild(*cur_prog_, wname);
+    p_.mirror_ptr_ = lir_mirror_emit_pat_wild(*cur_prog_, wname, 0xFFFFFFFFu,
+        wname != "_" && pat_byval_mut(pnode));
     return p_;
 }
 
@@ -6434,9 +6438,11 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         // then emits a drop on the payload (Vec.drop, String.drop, …)
         // even though the user wrote a wildcard. Mirrors the Tuple
         // branch's filter below.
+        auto _vd_muts = v.bind_byval_muts();  // the carried by-value `mut`
         for (size_t i = 0; i < names.size() && i < types.size(); ++i)
             if (names[i] != "_")
-                define(std::string(names[i]), types[i], false,
+                define(std::string(names[i]), types[i],
+                       i < _vd_muts.size() && _vd_muts[i] != 0u,
                        i < _vd_slots.size() ? _vd_slots[i] : 0xFFFFFFFFu);
     } else if (k == ps::Code::Tuple) {
         lir_view::PatTupleView v{pr};
@@ -7207,6 +7213,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
     bool for_has_pat = false;
     writ::TinyMapView for_pat{};
     std::string var_name;
+    bool for_var_mut = false;  // `for mut x in …`
     if (node.has_key(la::PAT)) {
         for_pat = map_of(node.get(la::PAT.code));
         auto p = for_pat;
@@ -7216,6 +7223,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         }
         if (code_of(p) == la::PAT_WILD && p.has_key(la::NAME)) {
             var_name = std::string(str_of(p.get(la::NAME.code)));  // bare binding
+            for_var_mut = pat_byval_mut(p);
         } else {
             for_has_pat = true;
             var_name = std::format("__fe_pat_{}", tmp_var_count_++);
@@ -7279,7 +7287,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         TypeRef elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
 
         push_scope();
-        define(var_name, elem_type, false);
+        define(var_name, elem_type, for_var_mut);
         uint32_t _fe_slot = lookup_slot(var_name);  // Phase-1: before pop_scope
         auto pat_pro = build_for_pat(elem_type);
         std::vector<lir_view::StmtRef> body;
@@ -7301,6 +7309,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         sfe.arr_size  = arr_size;
         sfe.body      = lir_mirror_block(*cur_prog_, body);
         sfe.slot      = _fe_slot;
+        sfe.var_mut   = for_var_mut;
         return make_stmt_emit(node_line_, std::move(sfe));
     }
 
@@ -7313,7 +7322,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         // binding is a reference; codegen binds the element address. The raw
         // `elem_type` still flows to sfe.elem_type for the GEP stride.
         // G161-2: `for x in &mut arr` yields `&mut T` (mutable element ref).
-        define(var_name, make_ref(for_mut_ref, elem_type), for_mut_ref);
+        define(var_name, make_ref(for_mut_ref, elem_type), for_mut_ref || for_var_mut);
         uint32_t _fe_slot = lookup_slot(var_name);  // Phase-1: before pop_scope
         auto pat_pro = build_for_pat(make_ref(for_mut_ref, elem_type));
         std::vector<lir_view::StmtRef> body;
@@ -7335,6 +7344,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         sfe.is_slice  = true;
         sfe.body      = lir_mirror_block(*cur_prog_, body);
         sfe.slot      = _fe_slot;
+        sfe.var_mut   = for_var_mut;
         return make_stmt_emit(node_line_, std::move(sfe));
     }
 
@@ -7382,7 +7392,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
                     {}, std::move(pargs), slice_ty);
 
             push_scope();
-            define(var_name, make_ref(false, elem_t), false);  // yields &T
+            define(var_name, make_ref(false, elem_t), for_var_mut);  // yields &T
             uint32_t _fe_slot = lookup_slot(var_name);  // Phase-1: before pop_scope
             auto pat_pro = build_for_pat(make_ref(false, elem_t));
             std::vector<lir_view::StmtRef> body;
@@ -7404,6 +7414,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
             sfe.is_slice  = true;
             sfe.body      = lir_mirror_block(*cur_prog_, body);
             sfe.slot      = _fe_slot;
+            sfe.var_mut   = for_var_mut;
             return make_stmt_emit(node_line_, std::move(sfe));
         }
     }
@@ -7706,7 +7717,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         define(iter_var, iter_type, true);
         push_scope();                          // frame B — the item binding
         scope_.back().loop_boundary = true;
-        define(std::string(var_name), elem_type, false);
+        define(std::string(var_name), elem_type, for_var_mut);
         auto pat_pro = build_for_pat(elem_type);
         std::vector<lir_view::StmtRef> then_body;
         if (node.has_key(la::BODY)) {
@@ -7730,7 +7741,8 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         sm.scrut = make_next_call();
         auto some_mo = lir_mirror_emit_pat_variant_data(
             *cur_prog_, some_pat.enum_name, some_pat.variant, some_pat.disc,
-            some_pat.bindings, some_pat.binding_types);
+            some_pat.bindings, some_pat.binding_types, {},
+            std::vector<uint32_t>{for_var_mut ? 0x10u : 0u});
         lir::Pattern some_pattern;
         some_pattern.mirror_ptr_ = some_mo;
         sm.arms.push_back({std::move(some_pattern), lir_mirror_block(*cur_prog_, then_body), std::nullopt});
@@ -8938,8 +8950,10 @@ void SemaChecker::emit_nested_variant_lets(
             v.each_binding([&](std::string_view n){ names.push_back(n); });
             v.each_binding_type(pool, [&](TypeRef t){ types.push_back(t); });
             auto _vd_slots = v.bind_slots();  // Phase-1: reuse reserved slots
+            auto _vd_muts  = v.bind_byval_muts();  // the carried by-value `mut`
             for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-                if (names[i] != "_") define(std::string(names[i]), types[i], false,
+                if (names[i] != "_") define(std::string(names[i]), types[i],
+                                            i < _vd_muts.size() && _vd_muts[i] != 0u,
                                             i < _vd_slots.size() ? _vd_slots[i] : 0xFFFFFFFFu);
         } else if (k == ps::Code::Tuple) {
             lir_view::PatTupleView v{pr};
@@ -8953,7 +8967,7 @@ void SemaChecker::emit_nested_variant_lets(
         } else if (k == ps::Code::Wild) {
             lir_view::PatWildView wv{pr};
             auto n = wv.name();
-            if (n != "_") define(std::string(n), synth_t, false, wv.bind_slot());  // Phase-1
+            if (n != "_") define(std::string(n), synth_t, wv.is_mut(), wv.bind_slot());  // Phase-1
         }
     };
     define_binds(pat_ref_of(lpat));
@@ -9156,12 +9170,13 @@ void SemaChecker::emit_nested_pat_destructure(
                     } else if (ec == la::PAT_WILD && en.has_key(la::NAME)) {
                         std::string nm(str_of(en.get(la::NAME.code)));
                         if (nm == "_") continue;
-                        define(nm, et);
+                        const bool emut_ = pat_byval_mut(en);
+                        define(nm, et, emut_);
                         // Binding moves the element OUT of stmp — mark stmp.<i>
                         // moved so stmp's scope-exit Drop skips it (else double).
                         if (is_move_type(et)) mark_moved_expr(expr_ref_of(elem_expr));
                         lir::SLet el; el.name = nm; el.type = et;
-                        el.is_mut = false; el.value = std::move(elem_expr);
+                        el.is_mut = emut_; el.value = std::move(elem_expr);
                         nested_destructure_stmts.push_back(
                             make_stmt_emit(node_line_, std::move(el)));
                     }
@@ -9204,11 +9219,14 @@ void SemaChecker::emit_nested_pat_destructure(
             TypeRef ftype = error_t();
             for (auto& sf : sinfo->fields)
                 if (sf.name == fname) { ftype = sf.type; break; }
-            define(bind, ftype);
+            const bool bmut_ =
+                (pat_byval_mut(fnode) ||
+                 (fnode.has_key(la::VALUE) && pat_byval_mut(map_of(fnode.get(la::VALUE.code)))));
+            define(bind, ftype, bmut_);
             auto sref = builder().var_ref(nsub.synth_name, synth_t);
             auto fr = builder().field_read(std::move(sref), fname, ftype);
             lir::SLet sl;
-            sl.name = bind; sl.type = ftype; sl.is_mut = false;
+            sl.name = bind; sl.type = ftype; sl.is_mut = bmut_;
             sl.value = std::move(fr);
             nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
@@ -9268,8 +9286,9 @@ bool SemaChecker::emit_for_pattern_destructure(
         } else if (ec == la::PAT_WILD && en.has_key(la::NAME)) {
             std::string nm(str_of(en.get(la::NAME.code)));
             if (nm == "_") continue;  // discard
-            define(nm, et);
-            lir::SLet s; s.name = nm; s.type = et; s.is_mut = false;
+            const bool fmut_ = pat_byval_mut(en);  // `for (mut a, b)`
+            define(nm, et, fmut_);
+            lir::SLet s; s.name = nm; s.type = et; s.is_mut = fmut_;
             s.value = std::move(elem_expr);
             out.push_back(make_stmt_emit(node_line_, std::move(s)));
         } else {

@@ -1,0 +1,20 @@
+// ILLEGAL twin of pass/bc_patmut_generic_two_insts_recv (E0596). PROBES.md 2026-09-06b.
+package bc_patmut_generic_no_mut_recv_fail;
+trait Bump { fn bump(&mut self); fn val(&self) -> i64; }
+struct A { v: i64 }
+struct B { w: i64 }
+impl Bump for A { fn bump(&mut self) { self.v = self.v + 1i64; } fn val(&self) -> i64 { return self.v; } }
+impl Bump for B { fn bump(&mut self) { self.w = self.w + 2i64; } fn val(&self) -> i64 { return self.w; } }
+fn poke<T: Bump>(o: Option<T>) -> i64 {
+    match o {
+        Option::Some(s) => { s.bump(); return s.val(); },
+        Option::None => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    let a: i64 = poke(Option::Some(A { v: 1i64 }));
+    let b: i64 = poke(Option::Some(B { w: 1i64 }));
+    if a != 2i64 { return 1i32; }
+    if b != 3i64 { return 2i32; }
+    return 0i32;
+}

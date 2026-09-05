@@ -1,0 +1,14 @@
+package t_drop_letpat;
+use logos.std.fmt;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("DROP v={}", self.v); } }
+fn main() -> i32 {
+    {
+        let t: (S, i64) = (S { v: 1i64 }, 2i64);
+        let (mut s, k) = t;
+        s = S { v: 2i64 };
+        s.v = s.v + 5i64;
+    }
+    println!("-- end");
+    return 0i32;
+}

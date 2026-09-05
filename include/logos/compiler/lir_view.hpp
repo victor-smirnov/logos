@@ -2479,6 +2479,7 @@ struct PatBoolView {
 struct PatWildView {
     PatRef self;
     std::string_view name() const noexcept { return detail::read_string(self, pk::NAME.code); }
+    bool is_mut() const noexcept { return detail::read_bool(self, pk::IS_MUT.code); }  // by-value `mut x` (sparse)
     uint32_t bind_slot() const noexcept {  // Phase-1 (0xFFFFFFFF = none)
         auto v = detail::read_i64_opt(self, pk::BIND_SLOT.code);
         return v ? static_cast<uint32_t>(*v) : 0xFFFFFFFFu;
@@ -2531,6 +2532,17 @@ struct PatVariantDataView {
     // 2 = `ref mut`. EMPTY when the key is absent — every consumer must read
     // an out-of-range index as 0 (by value), the pre-existing reading.
     std::vector<uint32_t> bind_ref_modes() const noexcept {
+        auto out = bind_ref_modes_raw();
+        for (auto& m : out) m &= 0xFu;
+        return out;
+    }
+    // Bit 0x10 of a mode: the BY-VALUE binding was written `mut` (PROBES.md 2026-09-06).
+    std::vector<uint32_t> bind_byval_muts() const noexcept {
+        auto out = bind_ref_modes_raw();
+        for (auto& m : out) m = (m >> 4) & 1u;
+        return out;
+    }
+    std::vector<uint32_t> bind_ref_modes_raw() const noexcept {
         std::vector<uint32_t> out;
         auto av = self.mirror()->get(pk::BINDING_REF_MODES.code);
         if (av.is_null()) return out;
@@ -2990,6 +3002,7 @@ struct SForEachView {
     ExprRef          iter() const noexcept { return detail::stmt_sub_expr(self, sk::ITER.code); }
     BlockRef         body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
     bool             is_slice() const noexcept { return detail::read_bool(self, sk::IS_SLICE.code); }
+    bool             var_mut() const noexcept { return detail::read_bool(self, sk::IS_MUT.code); }  // `for mut x` (sparse)
     int64_t          arr_size() const noexcept { return detail::read_i64(self, sk::ARR_SIZE.code); }
     TypeRef          elem_type(const TypePoolImpl* pool) const noexcept {
         return detail::stmt_type(self, sk::ELEM_TYPE.code, pool);

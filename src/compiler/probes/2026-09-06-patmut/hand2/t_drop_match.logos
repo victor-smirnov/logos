@@ -1,0 +1,14 @@
+package t_drop_match;
+use logos.std.fmt;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("DROP v={}", self.v); } }
+enum E { A(S), B }
+fn main() -> i32 {
+    let e: E = E::A(S { v: 1i64 });
+    match e {
+        E::A(mut s) => { s = S { v: 2i64 }; s.v = s.v + 5i64; },
+        E::B => {}
+    }
+    println!("-- end");
+    return 0i32;
+}

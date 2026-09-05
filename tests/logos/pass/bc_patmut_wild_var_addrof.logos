@@ -1,0 +1,11 @@
+// top-level `mut s =>` over a VARIABLE scrutinee (PatWild pk::IS_MUT), `&mut s`: legal, runs. ONE TOKEN from fail/bc_patmut_wild_var_no_mut_addrof_fail. (Over a TEMPORARY scrutinee the same program dies in codegen: queue row match_tmp_wild_mut_addrof.) PROBES.md 2026-09-06b: the by-value pattern `mut` is carried into the LIR for match/if-let/while-let/for bindings.
+package bc_patmut_wild_var_addrof;
+struct S { v: i64 }
+fn bump(p: &mut S) { p.v = p.v + 7i64; }
+fn main() -> i32 {
+    let s0: S = S { v: 1i64 };
+    match s0 {
+        mut s => { bump(&mut s); if s.v != 8i64 { return 1i32; } }
+    }
+    return 0i32;
+}

@@ -2411,7 +2411,7 @@ private:
             } else if constexpr (std::is_same_v<KT, lir::SMatch>) {
                 s.mirror_ptr_ = lir_mirror_emit_match_stmt(p, line, k.scrut, k.arms);
             } else if constexpr (std::is_same_v<KT, lir::SForEach>) {
-                s.mirror_ptr_ = lir_mirror_emit_for_each(p, line, k.var, k.iter, k.elem_type, k.arr_size, k.is_slice, k.body, k.slot);
+                s.mirror_ptr_ = lir_mirror_emit_for_each(p, line, k.var, k.iter, k.elem_type, k.arr_size, k.is_slice, k.body, k.slot, k.var_mut);
             } else if constexpr (std::is_same_v<KT, lir::SDerefWrite>) {
                 s.mirror_ptr_ = lir_mirror_emit_deref_write(p, line, k.ptr, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SDrop>) {
