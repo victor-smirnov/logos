@@ -1,0 +1,9 @@
+package h18;
+struct P { f: i64 }
+fn bump(b: &mut Box<P>) { let r: &mut i64 = &mut (**b).f; *r = *r + 4i64; }
+fn main() -> i32 {
+    let mut b: Box<P> = Box::new(P { f: 1i64 });
+    bump(&mut b);
+    if b.f != 5i64 { return 1i32; }
+    return 0i32;
+}

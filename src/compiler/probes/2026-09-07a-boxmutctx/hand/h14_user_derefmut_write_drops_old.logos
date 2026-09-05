@@ -1,0 +1,17 @@
+package h14;
+use logos.lang.ops;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+struct W { inner: S }
+impl Deref<S> for W { fn deref(&self) -> &S { return &self.inner; } }
+impl DerefMut<S> for W { fn deref_mut(&mut self) -> &mut S { return &mut self.inner; } }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let mut w: W = W { inner: S { v: 1i64, i: p } };
+        *w = S { v: 10i64, i: p };
+    }
+    return c as i32;
+    return 0i32;
+}

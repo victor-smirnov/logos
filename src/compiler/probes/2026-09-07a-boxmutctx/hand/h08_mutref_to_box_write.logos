@@ -1,0 +1,8 @@
+package h08;
+fn set(r: &mut Box<i64>) { **r = 9i64; }
+fn main() -> i32 {
+    let mut b: Box<i64> = Box::new(1i64);
+    set(&mut b);
+    if *b != 9i64 { return 1i32; }
+    return 0i32;
+}

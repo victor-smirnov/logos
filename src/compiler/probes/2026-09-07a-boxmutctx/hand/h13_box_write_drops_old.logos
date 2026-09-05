@@ -1,0 +1,13 @@
+package h13;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let mut b: Box<S> = Box::new(S { v: 1i64, i: p });
+        *b = S { v: 10i64, i: p };
+    }
+    if c != 11i64 { return 1i32; }
+    return 0i32;
+}

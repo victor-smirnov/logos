@@ -1,0 +1,112 @@
+name: bxnest_addr
+file: src/compiler/sema_expr.cpp
+---
+        // identical to what the sema peephole used to do.
+        if (code_of(child) == la::DEREF && child.has_key(la::VALUE)) {
+            auto operand = lower_expr(map_of(child.get(la::VALUE.code)));
+---
+        // identical to what the sema peephole used to do.
+        if (code_of(child) == la::DEREF && child.has_key(la::VALUE)) {
+            auto _on = map_of(child.get(la::VALUE.code));
+            mut_place_ctx_ = (code_of(_on) == la::DEREF || code_of(_on) == la::FIELD_READ) &&
+                (logos::probe::on("bxnest_addr") || (logos::probe::on("bxnestctx") || logos::probe::on("bxmutall")));
+            auto operand = lower_expr(_on);
+            mut_place_ctx_ = false;
+===
+name: bxnest_deref
+file: src/compiler/sema_expr.cpp
+---
+    bool mut_ctx = mut_place_ctx_;
+    mut_place_ctx_ = false;
+    auto operand = lower_expr(map_of(node.get(la::VALUE.code)));
+---
+    bool mut_ctx = mut_place_ctx_;
+    auto _dn = map_of(node.get(la::VALUE.code));
+    mut_place_ctx_ = mut_ctx && (code_of(_dn) == la::DEREF || code_of(_dn) == la::FIELD_READ) &&
+        (logos::probe::on("bxnest_deref") || (logos::probe::on("bxnestctx") || logos::probe::on("bxmutall")));
+    auto operand = lower_expr(_dn);
+    mut_place_ctx_ = false;
+===
+name: bxnest_field
+file: src/compiler/sema_expr.cpp
+---
+    mut_place_ctx_ = mut_ctx && code_of(recv_node) == la::FIELD_READ;
+---
+    mut_place_ctx_ = mut_ctx && (code_of(recv_node) == la::FIELD_READ ||
+        (code_of(recv_node) == la::DEREF && (logos::probe::on("bxnest_field") || (logos::probe::on("bxnestctx") || logos::probe::on("bxmutall")))));
+===
+name: bxwrdeleg
+file: src/compiler/sema_stmt.cpp
+---
+        lir::LExprPtr ptr = stmt.has_key(la::NAME)
+            ? lower_expr(map_of(stmt.get(la::NAME.code)))
+            : error_expr();
+---
+        lir::LExprPtr ptr;
+        if (stmt.has_key(la::NAME)) {
+            auto _pn = map_of(stmt.get(la::NAME.code));
+            mut_place_ctx_ = (code_of(_pn) == la::DEREF || code_of(_pn) == la::FIELD_READ) &&
+                (logos::probe::on("bxnest_wr") || (logos::probe::on("bxnestctx") || logos::probe::on("bxmutall")));
+            ptr = lower_expr(_pn);
+            mut_place_ctx_ = false;
+            if (ptr && (logos::probe::on("bxwrdeleg") || logos::probe::on("bxmutall"))) {
+                auto _k = TypeRef(expr_type(ptr)).kind();
+                if (_k == LogosType::Kind::Struct || _k == LogosType::Kind::ZonedStruct) {
+                    // probe bxwrdeleg: the write-side Deref step is the read-side's generic one
+                    auto _dc = emit_generic_deref_call(std::move(ptr), /*want_mut=*/true);
+                    if (_dc && TypeRef(expr_type(*_dc)).kind() == LogosType::Kind::MutRef) ptr = std::move(*_dc);
+                    else ptr = lower_expr(_pn);
+                }
+            }
+        } else ptr = error_expr();
+===
+name: bxnest_cmp
+file: src/compiler/sema_stmt.cpp
+---
+        auto ptr   = lower_expr(map_of(stmt.get(la::NAME.code)));
+        auto rhs   = lower_expr(map_of(stmt.get(la::VALUE.code)));
+---
+        auto _cn = map_of(stmt.get(la::NAME.code));
+        auto _lower_name = [&]() {
+            mut_place_ctx_ = (code_of(_cn) == la::DEREF || code_of(_cn) == la::FIELD_READ) &&
+                (logos::probe::on("bxnest_cmp") || (logos::probe::on("bxnestctx") || logos::probe::on("bxmutall")));
+            auto _e = lower_expr(_cn);
+            mut_place_ctx_ = false;
+            return _e;
+        };
+        auto ptr   = _lower_name();
+        auto rhs   = lower_expr(map_of(stmt.get(la::VALUE.code)));
+===
+name: bxnest_cmp_b
+file: src/compiler/sema_stmt.cpp
+---
+                auto rcall = emit_generic_deref_call(
+                    lower_expr(map_of(stmt.get(la::NAME.code))), /*want_mut=*/true);
+---
+                auto rcall = emit_generic_deref_call(_lower_name(), /*want_mut=*/true);
+===
+name: bxnest_cmp_c
+file: src/compiler/sema_stmt.cpp
+---
+                ptr = lower_expr(map_of(stmt.get(la::NAME.code)));
+---
+                ptr = _lower_name();
+===
+name: bxnest_cmp_d
+file: src/compiler/sema_stmt.cpp
+---
+        auto ptr_again = lower_expr(map_of(stmt.get(la::NAME.code)));
+---
+        auto ptr_again = _lower_name();
+===
+name: bxcmprefuse
+file: src/compiler/sema_stmt.cpp
+---
+            auto wcall = emit_generic_deref_call(std::move(ptr), /*want_mut=*/true);
+            if (wcall) {
+---
+            auto wcall = emit_generic_deref_call(std::move(ptr), /*want_mut=*/true);
+            if (wcall && (logos::probe::on("bxcmprefuse") || logos::probe::on("bxmutall")) &&
+                TypeRef(expr_type(*wcall)).kind() != LogosType::Kind::MutRef)
+                wcall = std::nullopt;   // probe bxcmprefuse: a Deref-only step is not a write place
+            if (wcall) {

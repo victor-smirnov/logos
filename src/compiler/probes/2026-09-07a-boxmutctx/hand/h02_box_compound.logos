@@ -1,0 +1,7 @@
+package h02;
+fn main() -> i32 {
+    let mut bb: Box<i64> = Box::new(1i64);
+    *bb += 6i64;
+    if *bb != 7i64 { return 1i32; }
+    return 0i32;
+}

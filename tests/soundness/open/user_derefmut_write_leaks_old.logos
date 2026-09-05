@@ -1,0 +1,24 @@
+// SOUNDNESS QUEUE row user_derefmut_write_leaks_old (tier 1). '*w = S {..}' through
+// a user DerefMut<S> impl: legal Rust, and the OLD value must drop at the assignment
+// (Rust: counter 1 + 10 = 11). TODAY the DEREF_WRITE lowering's user-DerefMut arm
+// returns its stmt_deref_write BEFORE the T1.5 "old value drops here" tail, so the
+// old S is never dropped — counter reads 10 (exit 1), a silent leak under a clean
+// build. The '&mut' and raw-pointer arms of the same statement drop the old value.
+// Found 2026-09-07a (hand h14). Rust: exit 0.
+package user_derefmut_write_leaks_old;
+use logos.lang.ops;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+struct W { inner: S }
+impl Deref<S> for W { fn deref(&self) -> &S { return &self.inner; } }
+impl DerefMut<S> for W { fn deref_mut(&mut self) -> &mut S { return &mut self.inner; } }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let mut w: W = W { inner: S { v: 1i64, i: p } };
+        *w = S { v: 10i64, i: p };
+    }
+    if c != 11i64 { return 1i32; }
+    return 0i32;
+}

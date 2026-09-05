@@ -1,0 +1,7 @@
+package h07;
+fn main() -> i32 {
+    let b: Box<i64> = Box::new(1i64);
+    let r: &mut i64 = &mut *b;
+    *r = 7i64;
+    return 0i32;
+}

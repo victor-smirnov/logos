@@ -1,0 +1,7 @@
+package h12;
+use logos.lang.rc;
+fn main() -> i32 {
+    let mut r: Rc<i64> = rc_new(1i64);
+    *r = 7i64;
+    return 0i32;
+}

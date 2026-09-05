@@ -1,0 +1,9 @@
+package h09;
+use logos.lang.ops;
+struct W { inner: i64 }
+impl Deref<i64> for W { fn deref(&self) -> &i64 { return &self.inner; } }
+fn main() -> i32 {
+    let mut w: W = W { inner: 1i64 };
+    *w = 7i64;
+    return 0i32;
+}

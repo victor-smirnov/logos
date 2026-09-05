@@ -1,0 +1,8 @@
+package h15;
+struct H { b: Box<i64> }
+fn main() -> i32 {
+    let mut h: H = H { b: Box::new(1i64) };
+    *h.b = 7i64;
+    if *h.b != 7i64 { return 1i32; }
+    return 0i32;
+}

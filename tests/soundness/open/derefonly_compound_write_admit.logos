@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row derefonly_compound_write_admit (tier 2). '*w += 6' where W
+// implements Deref<i64> but NOT DerefMut is ILLEGAL (rustc E0594: cannot assign to
+// data in dereference of 'W'). TODAY it compiles rc 0 and RUNS: the DEREF_COMPOUND
+// lowering asks emit_generic_deref_call(want_mut=true), which DEGRADES to the shared
+// 'deref' when there is no DerefMut impl, and the write goes through the '&i64' it
+// returns (w.inner reads 7). The '*w = 7' spelling of the same program is refused
+// (as a raw-pointer write — the box_write_raw_ptr_diag sentence). Found 2026-09-07a
+// (hand h10). Rust: refused.
+package derefonly_compound_write_admit;
+use logos.lang.ops;
+struct W { inner: i64 }
+impl Deref<i64> for W { fn deref(&self) -> &i64 { return &self.inner; } }
+fn main() -> i32 {
+    let mut w: W = W { inner: 1i64 };
+    *w += 6i64;
+    if w.inner != 7i64 { return 1i32; }
+    return 0i32;
+}

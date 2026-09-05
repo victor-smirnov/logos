@@ -1,0 +1,20 @@
+h01	0	legal
+h02	0	legal
+h03	0	legal
+h04	0	legal
+h05	0	legal
+h06	refuse	E0594 cannot assign to `*b`, as `b` is not declared as mutable
+h07	refuse	E0596 cannot borrow `*b` as mutable, as `b` is not declared as mutable
+h08	0	legal
+h09	refuse	E0594 cannot assign to data in dereference of `W` (no DerefMut)
+h10	refuse	E0594 (no DerefMut)
+h11	0	legal
+h12	refuse	E0594 cannot assign to data in an `Rc`
+h13	0	legal; old S dropped on assignment, both dropped: 11
+h14	0	legal; 11
+h15	0	legal
+h16	0	legal
+h17	refuse	E0594 `bb` not declared as mutable
+h18	0	legal
+h19	refuse	E0506 cannot assign to `*b` because it is borrowed
+h20	refuse	E0594 cannot assign to `**r`, which is behind a `&` reference

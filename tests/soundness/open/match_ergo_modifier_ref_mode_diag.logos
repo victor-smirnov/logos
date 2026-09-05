@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row match_ergo_modifier_ref_mode_diag (tier 4). Match ergonomics
+// follow RUST 2024 (owner decision 2026-09-05, spec rule
+// pat.binding.modifier-requires-move-mode): a 'mut' binding under a reference
+// scrutinee's by-ref default mode is ILLEGAL. The refusal is right; the SENTENCE is
+// the defect: TODAY it is a type error ("assignment to immutable variable 'n'" +
+// "type mismatch — expected &i64, got i64"), not the 2024 rule's own sentence,
+// "binding modifiers may only be written when the default binding mode is `move`".
+package match_ergo_modifier_ref_mode_diag;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let mut out: i64 = 0i64;
+    match &o {
+        Option::Some(mut n) => { n = n + 1i64; out = n; },
+        Option::None => {}
+    }
+    if out != 4i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,8 @@
+package h03;
+fn main() -> i32 {
+    let mut bb: Box<Box<i64>> = Box::new(Box::new(1i64));
+    let r: &mut i64 = &mut **bb;
+    *r = 6i64;
+    if **bb != 6i64 { return 1i32; }
+    return 0i32;
+}

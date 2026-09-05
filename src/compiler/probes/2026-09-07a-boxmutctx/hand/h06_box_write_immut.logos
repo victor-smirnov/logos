@@ -1,0 +1,6 @@
+package h06;
+fn main() -> i32 {
+    let b: Box<i64> = Box::new(1i64);
+    *b = 7i64;
+    return 0i32;
+}
