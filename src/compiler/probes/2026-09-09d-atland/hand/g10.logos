@@ -1,0 +1,16 @@
+// while-let over a variant payload at-binding, loop runs to exhaustion.
+package g10;
+fn main() -> i32 {
+    let mut i: i64 = 0i64;
+    let mut acc: i64 = 0i64;
+    while i < 3i64 {
+        let o: Option<i64> = Option::Some(i);
+        while let Option::Some(n @ 0i64..=9i64) = o {
+            acc = acc + n;
+            break;
+        }
+        i = i + 1i64;
+    }
+    if acc != 3i64 { return 1i32; }
+    return 0i32;
+}

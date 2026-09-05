@@ -1,0 +1,1 @@
+fail-oracle: 1434 fail fixtures recorded (rc, stderr sha, .expected match) -> src/compiler/probes/2026-09-09d-atland/tables/fail_base.tsv

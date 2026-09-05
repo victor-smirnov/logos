@@ -1,0 +1,46 @@
+round 2026-09-09d (LANDING) — declared BEFORE any compiler edit
+HEAD 96fdf6235, tree clean, build hash 87553240428a0870 43 (READ)
+queue gate rc 0 on 31 (tier1=8 tier2=5 tier3=16 tier4=2), probe-log-lint 218
+
+THE CLASS, ENUMERATED BY PROPERTY (not by spelling):
+  property = "a walker that must see every name a pattern introduces".
+  Census of every switch over lir_schema::pat::Code with brace matching
+  (probes/2026-09-09d-atland/tables/walkers.txt), plus the two AST-level
+  whitelists that are not switches. Members and their At coverage on HEAD:
+    W1 mlir_gen_stmt.cpp::pat_bind                     6/13 kinds, At ABSENT
+    W2 mlir_gen_stmt.cpp::collect_pat_bindings         4/13 kinds, At ABSENT
+    W3 mlir_gen_stmt.cpp::extract_payload Slice/bind_elem  Wild+RefBind only, At ABSENT
+    W4 sema_stmt.cpp::bind_pattern_ref Tuple-door whitelist {VariantData,Or,Tuple}, At ABSENT
+    W5 sema_stmt.cpp::lower_let_pat four-shape whitelist, At ABSENT
+    W6 borrow_check.cpp::declare_pat_bindings          4/13 kinds, At ABSENT
+  Not members (they already carry At): pat_test 13/13, extract_payload's own
+  At case, mono_clone::walk 13/13, pattern_moves_out, is_unowned_move_source.
+  W6 additionally needs W7: the PatAt MIRROR carries no IS_MUT, so BC cannot
+  ask the binding-mut question even once it has a case.
+
+PREDICTED CLOSED — 6 rows, by name (queue 31 -> 25):
+  at_binding_top_addrof_nomut_admit        W6+W7  (admits -> refused, E0596 sentence)
+  struct_field_at_binding_run              W1     (run 1 -> run 0)
+  tuple_elem_at_binding_undefined          W4+W1  (refuses -> run 0)
+  let_at_binding_unsupported               W5     (refuses -> run 0)
+  slice_elem_at_binding_run                W3     (run 1 -> run 0)
+  struct_field_at_binding_variant_sub_run  W1     (run 1 -> run 0)
+
+PREDICTED NOT CLOSED — by name and by reason:
+  at_binding_ref_mut_payload_refuses  — needs a ref/ref-mut MODE on the PatAt
+      mirror AND a guard that derefs the binding: a second door in series, and
+      IS_MUT alone is a by-value flag, not a mode.
+  let_at_binding_type_annot_syntax    — the PARSER refuses it at rc 4, before
+      sema; none of W1-W7 is reached.
+
+PREDICTED HAND VERDICTS (hand/g01-g20, HEAD readings in tables/hand_head.txt):
+  -> exit 0 after:  g01 g02 g03 g05 g06 g08 g09 g11 g13 g14 g15
+  -> unchanged 0:   g04 g10 g12 g16 g19
+  -> unchanged BAD: g07 (range pattern under a `&` scrutinee: a different root)
+                    g17 (array-typed field bound by a PLAIN name -> MLIR verify error)
+                    g18 g20 (enum-typed TUPLE ELEMENT bound by a PLAIN name -> SEGV)
+  g17/g18/g20 carry NO `@` at all: they are defects of the same walkers with a
+  different fact missing, and are NEW ROWS, not this change's business.
+
+COST PREDICTION: 0 on pass/cfail/stdlib/runtime. W1/W3 widen what binds; the
+risk is a name that used to bind by one convention now binding by another.

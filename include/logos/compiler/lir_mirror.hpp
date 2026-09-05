@@ -292,7 +292,7 @@ const uint8_t* lir_mirror_emit_pat_tuple        (lir::LProgram& prog, const std:
 const uint8_t* lir_mirror_emit_pat_range        (lir::LProgram& prog, __int128 lo, __int128 hi);
 const uint8_t* lir_mirror_emit_pat_struct       (lir::LProgram& prog, std::string_view struct_name, const std::vector<lir::PatFieldBinding>& fields, bool has_rest);
 const uint8_t* lir_mirror_emit_pat_slice        (lir::LProgram& prog, const std::vector<lir::Pattern>& prefix, const std::vector<lir::Pattern>& rest, const std::vector<lir::Pattern>& suffix);
-const uint8_t* lir_mirror_emit_pat_at           (lir::LProgram& prog, std::string_view name, const std::vector<lir::Pattern>& sub, TypeRef type, uint32_t slot = 0xFFFFFFFFu);
+const uint8_t* lir_mirror_emit_pat_at           (lir::LProgram& prog, std::string_view name, const std::vector<lir::Pattern>& sub, TypeRef type, uint32_t slot = 0xFFFFFFFFu, bool is_mut = false);
 const uint8_t* lir_mirror_emit_pat_ref_bind     (lir::LProgram& prog, std::string_view name, bool is_mut, TypeRef bind_type, uint32_t slot = 0xFFFFFFFFu);
 const uint8_t* lir_mirror_emit_pat_ref_pat      (lir::LProgram& prog, const std::vector<lir::Pattern>& inner, bool is_mut);
 

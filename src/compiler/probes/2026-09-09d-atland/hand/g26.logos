@@ -1,0 +1,10 @@
+// TYPE PROBE: what type does sema give the at-binding on an enum-typed field?
+package g26;
+struct Q { o: Option<i64>, y: i64 }
+fn main() -> i32 {
+    let q: Q = Q { o: Option::Some(4i64), y: 2i64 };
+    match q {
+        Q { o: a, y } => { let z: bool = a; }
+    }
+    return 0i32;
+}

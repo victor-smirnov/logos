@@ -1,0 +1,13 @@
+// CONTROL for g13: the same struct field with a VARIANT sub-pattern and NO `@`.
+package g21;
+struct Q { o: Option<i64>, y: i64 }
+fn main() -> i32 {
+    let q: Q = Q { o: Option::Some(4i64), y: 2i64 };
+    let mut out: i64 = 0i64;
+    match q {
+        Q { o: Option::Some(k), y } => { out = k + y; }
+        Q { o: _, y: _ } => { out = -1i64; }
+    }
+    if out != 6i64 { return 1i32; }
+    return 0i32;
+}

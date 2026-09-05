@@ -1421,9 +1421,17 @@ PIN = {
     # round (bc_mutplace_*), all non-glob (`ls tests/logos/pass/*.logos | wc -l`).
     # 2026-09-09b: 2804 -> 2855. Fifty-one pass fixtures of the soundness-queue
     # landing (bc_bindmut_*), all non-glob.
-    'corpus'            : 2855,
+    # 2026-09-09d: 2855 -> 2867. Twelve pass fixtures of the soundness-queue
+    # landing that gave the `@`-binding a case at every binder walker, all
+    # non-glob (`ls tests/logos/pass/*.logos | wc -l`): at_bind_struct_field,
+    # at_bind_struct_field_variant_sub, at_bind_struct_field_drop_count,
+    # at_bind_tuple_elem, at_bind_tuple_typed_field, at_bind_or_in_tuple_elem,
+    # at_bind_slice_elem, at_bind_let_irrefutable, at_bind_let_struct_sub,
+    # at_bind_let_drop_count, pat_bind_enum_tuple_elem,
+    # pat_bind_enum_tuple_elem_nested_match.
+    'corpus'            : 2867,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2664,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2676,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

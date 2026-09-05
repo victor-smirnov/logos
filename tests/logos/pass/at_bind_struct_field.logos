@@ -1,0 +1,11 @@
+package at_bind_struct_field;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 1i64, y: 2i64 };
+    let mut out: i64 = 0i64;
+    match p {
+        P { x: a @ _, y } => { out = a + y; }
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

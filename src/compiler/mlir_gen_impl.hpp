@@ -2077,6 +2077,11 @@ private:
     mlir::Value pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty);
     void        pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty,
                          const std::unordered_map<std::string, mlir::Value>* shared = nullptr);
+    // THE ONE PLACE a pattern's NAME is bound to a place. `n` (a PatWild) and
+    // `n @ sub` (a PatAt) name the same place by the same convention, so they
+    // must reach the same code.
+    void        bind_name_at_slot(const std::string& name, mlir::Value slot_ptr, TypeRef ty,
+                                 const std::unordered_map<std::string, mlir::Value>* shared);
     // Collect (name,type) pairs a pattern binds (first-alt for or). Used to
     // pre-create shared allocas for an or-pattern's bindings.
     void collect_pat_bindings(lir_view::PatRef pat, TypeRef ty,

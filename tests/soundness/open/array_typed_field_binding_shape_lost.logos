@@ -1,0 +1,20 @@
+// SOUNDNESS QUEUE row array_typed_field_binding_shape_lost (tier 3). An ARRAY-typed struct
+// field bound by a plain name is legal Rust; TODAY it is refused, and by an MLIR verifier
+// message rather than a diagnostic: "'arith.addi' op operand #0 must be signless-integer-like,
+// but got '!llvm.array<2 x i64>'". The binding loses its ARRAY SHAPE — `v[0]` yields the whole
+// array — because the field binder classifies a slot as struct / tuple / slice-closure /
+// scalar and an array is in none of those sets, so it is bound as a scalar with the array as
+// its element type. SAME WALKER as the `@`-binding work of 2026-09-09d (the binder's type
+// classification, not its kind list) and no `@` appears below. Found 2026-09-09d (hand g17).
+// Rust: exit 0.
+package array_typed_field_binding_shape_lost;
+struct R { a: [i64; 2], y: i64 }
+fn main() -> i32 {
+    let r: R = R { a: [3i64, 4i64], y: 2i64 };
+    let mut out: i64 = 0i64;
+    match r {
+        R { a: v, y } => { out = v[0] + v[1] + y; }
+    }
+    if out != 9i64 { return 1i32; }
+    return 0i32;
+}

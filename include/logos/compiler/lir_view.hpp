@@ -2770,10 +2770,11 @@ struct PatSliceView {
     PatRef rest() const noexcept { return detail::first_pat(self, pk::REST.code); }
 };
 
-// PatAt { name, sub: 0|1 pattern, type }
+// PatAt { name, is_mut, sub: 0|1 pattern, type }
 struct PatAtView {
     PatRef self;
     std::string_view name() const noexcept { return detail::read_string(self, pk::NAME.code); }
+    bool             is_mut() const noexcept { return detail::read_bool(self, pk::IS_MUT.code); }
     PatRef           sub()  const noexcept { return detail::first_pat(self, pk::SUB.code); }
     TypeRef          type(const TypePoolImpl* pool) const noexcept {
         return detail::pat_type(self, pk::TYPE.code, pool);

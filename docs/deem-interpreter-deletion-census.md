@@ -5266,8 +5266,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9216 -> 9291   +75
 #   NOIMPORTED   4779 -> 4854   +75
 #   TIERCOMMIT    173 ->  173     0
-REGISTRY-ALL         9291
-REGISTRY-NOIMPORTED  4854
+# 2026-09-09d (the soundness-queue landing that gave the `@`-binding a case at
+#   every binder walker: six rows closed, their programs landed as fixtures in
+#   pairs, plus the non-`@` closures of the same change pinned so the class
+#   cannot reopen quietly. +12 pass + +6 fail, none imported, none tier_commit.
+#   Predicted from the file count before the pin was read
+#   (`ls tests/logos/pass/{at_bind_*,pat_bind_enum_*}.logos | wc -l` -> 12,
+#   `ls tests/logos/fail/{at_bind_*,bc_bindmut_at_top_nomut_*}.logos` -> 6).
+#   ALL          9291 -> 9309   +18
+#   NOIMPORTED   4854 -> 4872   +18
+#   TIERCOMMIT    173 ->  173     0
+REGISTRY-ALL         9309
+REGISTRY-NOIMPORTED  4872
 REGISTRY-TIERCOMMIT  173
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

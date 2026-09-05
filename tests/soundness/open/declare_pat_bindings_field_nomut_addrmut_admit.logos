@@ -1,0 +1,26 @@
+// SOUNDNESS QUEUE row declare_pat_bindings_field_nomut_addrmut_admit (tier 2). `&mut a` on a
+// binding that is a STRUCT FIELD sub-pattern and is NOT written `mut` is ILLEGAL (rustc
+// E0596) and TODAY compiles rc 0 and runs. The top-level twin was closed 2026-09-09d by
+// giving borrow_check's `declare_pat_bindings` an `At` case; THIS one is the same walker's
+// OTHER hole and is not about `@` at all — the program below has none.
+// ⚠ THE HOLE IS A SWITCH, NOT A CASE. `declare_pat_bindings` enumerates 5 of the 13
+// `lir_schema::pat::Code` kinds (VariantData, Wild, RefBind, RefPat, At); Struct, Tuple,
+// Slice and Or all fall into `default: break`, and the arrival census over 6434 pass
+// fixtures (2026-09-09c) meets them Struct 191 / Tuple 310 / Slice 103 / Or 52 times. The
+// tuple-element spelling of this same program (`match t { (a, b) => bump(&mut a) }`) is
+// admitted too and is the same defect; one structural change closes the set, which is why
+// it is ONE row and not four.
+// Found 2026-09-09d (hand n1/n2, while pinning the fail half of at_bind_struct_field).
+// Rust: refused.
+package declare_pat_bindings_field_nomut_addrmut_admit;
+struct P { x: i64, y: i64 }
+fn bump(r: &mut i64) { *r = *r + 100i64; }
+fn main() -> i32 {
+    let p: P = P { x: 1i64, y: 2i64 };
+    let mut out: i64 = 0i64;
+    match p {
+        P { x: a, y } => { bump(&mut a); out = a + y; }
+    }
+    if out != 103i64 { return 1i32; }
+    return 0i32;
+}

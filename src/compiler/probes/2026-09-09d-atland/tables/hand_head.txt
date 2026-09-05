@@ -1,0 +1,15 @@
+g01.logos cc=0 diag=0 run=1 |  | 
+g02.logos cc=0 diag=0 run=1 |  | 
+g03.logos cc=0 diag=0 run=1 |  | 
+g04.logos cc=0 diag=0 run=0 |  | 
+g05.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-09d-atland/hand/g05.logos:6: error [fn main]: 'let <pattern> = expr;' currently supports struct patterns onl | 
+g06.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-09d-atland/hand/g06.logos:5: error [fn main]: 'let <pattern> = expr;' currently supports struct patterns onl | 
+g07.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-09d-atland/hand/g07.logos:6: error [fn main]: range pattern requires integer scrutinee, got '&i64' | 
+g08.logos cc=0 diag=0 run=1 |  | 
+g09.logos cc=0 diag=0 run=1 |  | 
+g10.logos cc=0 diag=0 run=0 |  | 
+g11.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-09d-atland/hand/g11.logos:7: error [fn main]: undefined variable 'a' | 
+g12.logos cc=0 diag=0 run=0 |  | 
+g13.logos cc=0 diag=0 run=1 |  | 
+g14.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-09d-atland/hand/g14.logos:6: error [fn main]: 'let <pattern> = expr;' currently supports struct patterns onl | 
+g15.logos cc=0 diag=0 run=1 |  | 

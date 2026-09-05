@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row let_at_binding_tuple_sub_unsupported (tier 3). `let w @ (a, b) = t;` is
+// legal Rust and TODAY is refused "'let <pattern> = expr;' currently supports struct patterns
+// only". ⚠ MEASURED DISTINCT from let_at_binding_unsupported, which 2026-09-09d closed: the
+// `let n @ SUB = e` delegation lands the name and then hands SUB to `lower_let_pat_bound`,
+// and THAT function's whitelist has no PAT_TUPLE — while the PLAIN `let (a, b) = t;` compiles
+// and runs (it is lowered by a different statement path entirely). So the sub-pattern reaches
+// a lowering the equivalent top-level pattern never uses. Found 2026-09-09d (hand g06, control
+// g24). Rust: exit 0.
+package let_at_binding_tuple_sub_unsupported;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    let w @ (a, b) = t;
+    if a + b != 7i64 { return 1i32; }
+    if w.0 != 3i64 { return 2i32; }
+    return 0i32;
+}

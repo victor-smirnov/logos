@@ -1,0 +1,11 @@
+// At in an ARRAY element whose sub-pattern is a wildcard, with a later element read.
+package g09;
+fn main() -> i32 {
+    let arr: [i64; 3] = [7i64, 2i64, 3i64];
+    let mut out: i64 = 0i64;
+    match arr {
+        [a @ _, _, c] => { out = a * 10i64 + c; }
+    }
+    if out != 73i64 { return 1i32; }
+    return 0i32;
+}

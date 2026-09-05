@@ -1,0 +1,11 @@
+package n2;
+fn bump(r: &mut i64) { *r = *r + 100i64; }
+fn main() -> i32 {
+    let t: (i64, i64) = (1i64, 2i64);
+    let mut out: i64 = 0i64;
+    match t {
+        (a, b) => { bump(&mut a); out = a + b; }
+    }
+    if out != 103i64 { return 1i32; }
+    return 0i32;
+}

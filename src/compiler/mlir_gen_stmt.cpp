@@ -3877,6 +3877,15 @@ void MLIRGenImpl::collect_pat_bindings(
         if (first) collect_pat_bindings(first, ty, out);
         break;
     }
+    // Same two halves as pat_bind's At case: without it `(a @ 1 | a @ 2, b)`
+    // got no shared alloca and the or-join read one storage per alt.
+    case pc::Code::At: {
+        lir_view::PatAtView av{pat};
+        auto n = av.name();
+        if (!n.empty() && n != "_") out.emplace_back(std::string(n), ty);
+        collect_pat_bindings(av.sub(), ty, out);
+        break;
+    }
     default: break;
     }
 }
@@ -4182,19 +4191,22 @@ void MLIRGenImpl::register_thin_ref_struct_binding(const std::string& name,
         var_local_ptrs_[name] = sit->second.llvm_type;
 }
 
-void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty,
-                           const std::unordered_map<std::string, mlir::Value>* shared) {
-    namespace pc = lir_schema::pat;
-    if (!pat || !slot_ptr) return;
-    switch (pat.kind()) {
-    case pc::Code::Wild: {
-        auto n = lir_view::PatWildView{pat}.name();
-        if (n.empty() || n == "_") return;
-        std::string name(n);
+// See mlir_gen_impl.hpp: the ONE place a pattern name is bound to a place.
+void MLIRGenImpl::bind_name_at_slot(const std::string& name, mlir::Value slot_ptr, TypeRef ty,
+                                    const std::unordered_map<std::string, mlir::Value>* shared) {
+    if (!slot_ptr || name.empty() || name == "_") return;
+    {
         evict_var_shapes(name);  // gap C: fresh binding drops stale peer shapes
         auto elem_mlir = ty ? logos_to_mlir(ty) : ptr_type();
         if (!elem_mlir) elem_mlir = ptr_type();
-        // Aggregate (struct/tuple/enum lowers to a struct/ptr): bind the slot
+        // ⚠ A tagged enum's VALUE repr is `ptr` while `slot_ptr` is its INLINE
+        // STORAGE, so `logos_to_mlir(ty)` is the wrong load type here: it binds
+        // the first payload word as the whole value (segfault at the next
+        // match). PROBES.md 2026-09-09d §3.
+        if (ty && TypeRef(ty).kind() == LogosType::Kind::Enum)
+            if (auto* te = resolve_tagged_enum(std::string(TypeRef(ty).enum_name()), ty))
+                elem_mlir = te->llvm_type;
+        // Aggregate (struct/tuple lowers to a struct/ptr): bind the slot
         // pointer directly. Scalars: load + store into a fresh/shared alloca.
         bool is_struct = ty && (TypeRef(ty).kind() == LogosType::Kind::Struct ||
             TypeRef(ty).kind() == LogosType::Kind::ZonedStruct);
@@ -4202,11 +4214,11 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         if (aggregate) {
             scope_[name] = slot_ptr;
             let_vars_.insert(name);
-            // Track struct shape so `name.field` GEPs through the bound place
-            // (matches extract_payload / gen_match's struct-element bind); a
-            // bare scope_ entry without var_struct_ makes field access read
-            // garbage (the G151-1-class silent miscompile).
+            // Track the SHAPE so `name.field` / `name.N` GEPs through the bound
+            // place; a bare scope_ entry without it reads garbage (the G151-1
+            // silent miscompile). BOTH halves: the tuple one was missing.
             if (is_struct) var_struct_[name] = mlir_struct_key(ty);
+            else           var_tuple_.insert(name);
             return;
         }
         // Slice/Closure are inline 16-byte fat pairs; their value convention is
@@ -4239,6 +4251,25 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         let_vars_.insert(name);
         var_elem_types_[name] = elem_mlir;
         register_thin_ref_struct_binding(name, ty);  // D3 (task #50)
+    }
+}
+
+void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty,
+                           const std::unordered_map<std::string, mlir::Value>* shared) {
+    namespace pc = lir_schema::pat;
+    if (!pat || !slot_ptr) return;
+    switch (pat.kind()) {
+    case pc::Code::Wild: {
+        bind_name_at_slot(std::string(lir_view::PatWildView{pat}.name()), slot_ptr, ty, shared);
+        break;
+    }
+    // `n @ sub` NAMES THE PLACE `sub` MATCHES: the name binds by the same
+    // convention a plain `n` uses, and every name `sub` introduces binds at the
+    // SAME slot. Spec pat.at.binds-at-every-position.
+    case pc::Code::At: {
+        lir_view::PatAtView av{pat};
+        bind_name_at_slot(std::string(av.name()), slot_ptr, ty, shared);
+        pat_bind(av.sub(), slot_ptr, ty, shared);
         break;
     }
     case pc::Code::Tuple: {
@@ -4786,37 +4817,19 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 auto arr_mlir  = logos_to_mlir(atype);
                 mlir::Value aptr = scrut_ptr ? scrut_ptr : gen_expr(v.scrut());
                 if (aptr && elem_mlir && arr_mlir) {
+                    // [UNIFY C-slice] Route the element bind through the single
+                    // pat_bind foundation, as the Tuple case already does; this
+                    // lambda was its own two-kind whitelist (Wild, RefBind) and
+                    // every other sub-pattern kind in element position bound
+                    // NOTHING. pat_bind's Wild case is a superset of the inline
+                    // logic it replaces. PROBES.md 2026-09-09d §2.
                     auto bind_elem = [&](lir_view::PatRef sp, int32_t idx) {
                         if (!sp) return;
                         // GEP element pointer for this index.
                         llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), idx};
                         auto ep = builder_.create<mlir::LLVM::GEPOp>(
                             loc_, ptr_type(), arr_mlir, aptr, gi);
-                        if (sp.kind() == pc::Code::Wild) {
-                            std::string pwn(lir_view::PatWildView{sp}.name());
-                            if (pwn == "_" || pwn.empty()) return;
-                            auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
-                            auto alloca = create_entry_alloca(elem_mlir);
-                            builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-                            evict_var_shapes(pwn);
-                            scope_[pwn] = alloca;
-                            let_vars_.insert(pwn);
-                            var_elem_types_[pwn] = elem_mlir;
-                            // D3 (task #50): a `[&mut S, ..]` slice-pattern
-                            // element is the same thin-ref-to-struct class.
-                            register_thin_ref_struct_binding(
-                                pwn, TypeRef(atype).elem());
-                        } else if (sp.kind() == pc::Code::RefBind) {
-                            // C4: ref x in slice pattern — bind name to pointer-to-element.
-                            std::string prbn(lir_view::PatRefBindView{sp}.name());
-                            if (prbn == "_" || prbn.empty()) return;
-                            auto alloca = create_entry_alloca(ptr_type());
-                            builder_.create<mlir::LLVM::StoreOp>(loc_, ep, alloca);
-                            evict_var_shapes(prbn);
-                            scope_[prbn] = alloca;
-                            let_vars_.insert(prbn);
-                            var_elem_types_[prbn] = ptr_type();
-                        }
+                        pat_bind(sp, ep, TypeRef(atype).elem());
                     };
                     lir_view::PatSliceView psl{p};
                     int32_t idx = 0;

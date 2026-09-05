@@ -264,6 +264,18 @@ An `name @ subpat` pattern binds `name` to the whole scrutinee value at the scru
 
 *Source: src/compiler/sema_stmt.cpp#L4724-L4740*
 
+### `pat.at.binds-at-every-position` — `name @ sub` binds wherever a pattern may appear
+
+An `@`-pattern introduces bindings — its own `name`, and every name its sub-pattern introduces — at EVERY position a pattern may occupy: a match arm's top level, a struct field, a tuple element, an array/slice element, a variant payload, an alternative of an or-pattern, and the pattern of a `let`. The position does not change what the pattern means; a binder that enumerates pattern kinds and omits `At` therefore binds nothing at that position and the arm reads an unwritten slot (a silent wrong answer, not a diagnostic). `let name @ sub = e` is `let name = e;` followed by `let sub = name;`: the source place is moved once, into `name`.
+
+*Source: src/compiler/mlir_gen_stmt.cpp (pat_bind, collect_pat_bindings, extract_payload's Slice element bind); src/compiler/sema_stmt.cpp (bind_pattern_ref's Tuple door, lower_let_pat); src/compiler/borrow_check.cpp (declare_pat_bindings)*
+
+### `pat.at.mut-modifier-carried` — `mut name @ sub` is a mutable binding to the borrow checker
+
+The by-value `mut` modifier on an `@`-binding is carried on the pattern's mirror, not only in sema's name side-set, because the borrow checker reads the mirror and never the AST. Without it `&mut name` on an at-binding written WITHOUT `mut` is accepted (rustc refuses it, E0596: `cannot borrow 'n' as mutable: not declared as mut`).
+
+*Source: src/compiler/lir_mirror.cpp (emit_pat_at_direct); src/compiler/borrow_check.cpp (declare_pat_bindings, case At)*
+
 ### `pat.bind.at-binding` — @ pattern binds whole value and recurses
 
 An `name @ subpat` pattern binds name to the whole matched value (or its place) and then binds the nested names of subpat against the same scrutinee.

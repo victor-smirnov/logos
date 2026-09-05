@@ -1,0 +1,14 @@
+// At binding a heap-owning payload (String) in a variant, then USED.
+package g04;
+use logos.mem.string;
+enum E { N(String), Z }
+fn main() -> i32 {
+    let e: E = E::N(String::from("abc"));
+    let mut out: i64 = 0i64;
+    match e {
+        E::N(s @ _) => { out = s.len(); }
+        E::Z => { out = -1i64; }
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

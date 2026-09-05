@@ -1,0 +1,12 @@
+// Two at-bindings on the SAME struct, one field-level and one whole-value.
+package g15;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 5i64, y: 2i64 };
+    let mut out: i64 = 0i64;
+    match p {
+        w @ P { x: a @ _, y } => { out = w.y + a + y; }
+    }
+    if out != 9i64 { return 1i32; }
+    return 0i32;
+}

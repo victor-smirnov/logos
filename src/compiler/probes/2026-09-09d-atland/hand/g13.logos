@@ -1,0 +1,13 @@
+// An at-binding on a struct field whose sub is a VARIANT with a BINDING inside.
+package g13;
+struct Q { o: Option<i64>, y: i64 }
+fn main() -> i32 {
+    let q: Q = Q { o: Option::Some(4i64), y: 2i64 };
+    let mut out: i64 = 0i64;
+    match q {
+        Q { o: a @ Option::Some(k), y } => { out = k + y; if let Option::Some(v) = a { out = out + v; } }
+        Q { o: _, y: _ } => { out = -1i64; }
+    }
+    if out != 10i64 { return 1i32; }
+    return 0i32;
+}

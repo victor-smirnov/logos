@@ -5442,6 +5442,20 @@ private:
                 }
                 break;
             }
+            // An `@`-binding IS a tracked local, under its own Phase-1 slot and
+            // its own IS_MUT (minted on the PatAt mirror, not inferable here).
+            // Spec pat.at.mut-modifier-carried.
+            case Code::At: {
+                lir_view::PatAtView av{pr};
+                std::string n(av.name());
+                if (!n.empty() && n != "_") {
+                    declare_var(n, av.bind_slot());
+                    if (av.is_mut())
+                        var_at(av.bind_slot(), n).is_mut_binding = true;
+                }
+                declare_pat_bindings(av.sub());
+                break;
+            }
             case Code::RefPat:
                 declare_pat_bindings(lir_view::PatRefPatView{pr}.inner());
                 break;

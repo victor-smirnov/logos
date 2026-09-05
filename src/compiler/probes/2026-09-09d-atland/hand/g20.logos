@@ -1,0 +1,11 @@
+// NARROWING g18: bind the enum tuple element, but only compare it, no `if let`.
+package g20;
+fn main() -> i32 {
+    let t: (Option<i64>, i64) = (Option::Some(4i64), 2i64);
+    let mut out: i64 = 0i64;
+    match t {
+        (a, y) => { out = y; match a { Option::Some(v) => { out = out + v; } Option::None => { out = -1i64; } } }
+    }
+    if out != 6i64 { return 1i32; }
+    return 0i32;
+}

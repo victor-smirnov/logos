@@ -24845,3 +24845,107 @@ verdict: FUND, BY DELEGATION, AND CARRY IS_MUT. `lower_let_pat` refuses everythi
     ⚠ THE WALKER-SUBSET HOLE IS BIGGER THAN THE `@`-BINDING. `declare_pat_bindings` handles 4 of 13 kinds and meets
     Tuple 310, Struct 191, Slice 103 and Or 52 times over the pass corpus; `pat_bind` handles 6 of 13. Neither hole
     can be seen by a green corpus, by construction. That is a census worth a round of its own.
+
+# ═══ ROUND 2026-09-09d (LANDING, soundness queue) — ONE BINDER FOR A NAME AT A PLACE: SIX ROWS CLOSED, AND THE
+#     CLASS'S NON-`@` MEMBERS CLOSED WITH THEM ══════════════════════════════════════════════════════════════════
+    HEAD at selection 96fdf6235, clean, build 87553240428a0870 43 READ; queue gate rc 0 on 31 (tier1=8 tier2=5
+    tier3=16 tier4=2), probe-log-lint 218, bc_admits 98, bc_admits_blocked 25 — all by direct listing.
+
+## 1. THE CLASS, ENUMERATED BY PROPERTY, AND THE PREDICTION DECLARED BEFORE THE FIRST EDIT
+    (probes/2026-09-09d-atland/PREDICTION.txt, tables/walkers.txt)
+    Property: "a walker that must see every name a pattern introduces" — NOT "a function mentioning PatAt", which
+    is a grep and certifies what it cannot see. Every switch over `lir_schema::pat::Code` was censused with BRACE
+    MATCHING (the first, forward-scanning attempt reported `collect_pat_bindings` as 13/13 — it had run past the
+    function's end into `pat_test`; a walker census read off an unbounded scan is not a census). Six members held
+    the hole, four of them the ones 09-09c priced and two it had not named:
+      W1 mlir_gen_stmt.cpp::pat_bind                        6/13 kinds, At ABSENT
+      W2 mlir_gen_stmt.cpp::collect_pat_bindings            4/13 kinds, At ABSENT  (NOT priced by 09-09c)
+      W3 mlir_gen_stmt.cpp::extract_payload Slice/bind_elem Wild+RefBind only     (the Slice door)
+      W4 sema_stmt.cpp::bind_pattern_ref Tuple-door whitelist {VariantData,Or,Tuple}
+      W5 sema_stmt.cpp::lower_let_pat four-shape whitelist
+      W6 borrow_check.cpp::declare_pat_bindings             4/13 kinds, At ABSENT
+      W7 (not a walker, the fact W6 needs) the PatAt MIRROR carries no IS_MUT.
+    Already carrying At and left alone: pat_test 13/13, extract_payload's own At case, mono_clone::walk 13/13,
+    pattern_moves_out, is_unowned_move_source.
+    PREDICTED: 6 rows closed, by name — at_binding_top_addrof_nomut_admit, struct_field_at_binding_run,
+    tuple_elem_at_binding_undefined, let_at_binding_unsupported, slice_elem_at_binding_run,
+    struct_field_at_binding_variant_sub_run. Predicted NOT closed, by name and reason:
+    at_binding_ref_mut_payload_refuses (needs a ref/ref-mut MODE plus a guard that derefs — a second door in
+    series; IS_MUT is a by-value flag, not a mode) and let_at_binding_type_annot_syntax (the PARSER, rc 4, before
+    any of W1–W7). MEASURED: exactly those 6, and the gate named exactly those 6, BOTH WAYS. 31 -> 25 closed,
+    +4 new rows -> 29.
+
+## 2. THE CHANGE — a DELEGATION at every site, never a second copy of a decision
+    W1 `bind_name_at_slot` is extracted from pat_bind's Wild case and Wild now calls it; the new At case calls it
+       for the name and recurses into the sub AT THE SAME SLOT. One binder, two kinds.
+    W3 the Slice element lambda — its own two-kind whitelist — is deleted and calls `pat_bind` ([UNIFY C-slice],
+       the same move the Tuple case made as [UNIFY C-tuple]).
+    W5 `lower_let_pat` splits into the rhs-lowering head and `lower_let_pat_bound`; `let n @ SUB = e` binds the
+       name and re-enters the body with `SUB` and a var_ref to it. No fifth branch in the whitelist.
+    W7 `emit_pat_at_direct` gains IS_MUT; sema's PAT_AT arm mints it from the same `pat_byval_mut` it already
+       read for the name side-set, and mono_clone carries it.
+
+## 3. ⚠ THE PRICING PHASE'S RECOMMENDATION WAS NOT A VERDICT — AND ITS OWN COUNTER-EXAMPLE WAS NOT THE WORST ONE
+    Fifteen NEW hand programs in shapes h01–h20 did not use (probes/2026-09-09d-atland/hand/g01–g28), measured on
+    the HEAD binary FIRST (tables/hand_head.txt): ELEVEN of fifteen were already wrong before a line was edited.
+    Three of the first-cut fixes were WRONG and the hand set said so, each time in a shape no ledger population
+    holds:
+      (a) g13/g22 SEGFAULTED under the first At case. ROOT: a tagged enum's VALUE repr is `ptr` while `slot_ptr`
+          IS its inline storage, so the scalar path loaded a pointer out of the payload. The struct-field door has
+          never had this bug because its load type comes off StructInfo, not off `logos_to_mlir` — TWO NOTIONS OF
+          ONE CONCEPT, and the narrow one was in the binder everyone delegates to.
+      (b) g14 ABORTED (134) under the first `let` delegation: `let w @ _ = s` over a String double-freed, because
+          the synthesised SLet did not `mark_moved_expr` the source. Exit code 0 cannot see this either way, which
+          is why g27/g28 are DESTRUCTOR-COUNT programs and are landed as fixtures.
+      (c) g03/g11 stayed run 1: the aggregate branch set `var_struct_` for a struct and NOTHING for a tuple, so
+          `q @ (u, v)` on a tuple-typed field read the wrong `q.0`. The struct-field shorthand door two hundred
+          lines below has always set both.
+    ⚠ AND (a)'s REPAIR CLOSED TWO DEFECTS WITH NO `@` IN THEM. g18/g20 — an enum-typed TUPLE ELEMENT bound by a
+    PLAIN NAME, `match t { (a, y) => … }` over `(Option<i64>, i64)` — SEGFAULT on HEAD, rc 139, and run 0 after.
+    No row ever named them; they are pinned now as pass fixtures (pat_bind_enum_tuple_elem*).
+
+## 4. COST, ALL COLUMNS, ONE-VARIABLE, WITH THE CONTROL REVERT PROVEN
+      runtime   0 of 6474 pass fixtures compiled + linked + RUN (run_oracle.py). The ONLY differing row is
+                `cast-region-to-uint`, which prints a stack address — subtracted by name.
+      fail text 0 of 1434 (fail_text_oracle.py): rc, normalised-stderr sha and `.expected` match all identical,
+                digit for digit. Both readings taken on the same configure.
+      stdlib    all four layers compile (stdlib-cost.sh).
+      L1        756 + 173 rc 0.
+    CONTROL REVERT: the change was stashed and the tree rebuilt, and `build_hash.py` read back 87553240428a0870
+    EXACTLY — the round-start value. The baselines above were taken on THAT binary, then the change was restored.
+
+## 5. FOUR ROWS ADDED (31 -> 25 -> 29, `# TOTAL` re-derived by direct listing; gate rc 0 on 29)
+    declare_pat_bindings_field_nomut_addrmut_admit (2, admits) — `&mut a` on a non-`mut` binding in STRUCT FIELD
+      position is admitted, AND THE PROGRAM HAS NO `@`. W6's At case closed the top-level door; Struct, Tuple,
+      Slice and Or are still `default: break` at that same switch (arrivals 191/310/103/52 over the pass corpus).
+      ONE row, not four: one structural change closes the set, and padding the ledger with facets makes the count
+      lie about the number of defects.
+    array_typed_field_binding_shape_lost (3, refuses) — an ARRAY-typed field bound by a plain name loses its
+      shape; `v[0]` yields the whole array and the refusal is an MLIR verifier message, not a diagnostic. The
+      binder's TYPE classification (struct/tuple/slice-closure/scalar) has no array set — the same walker, a
+      different missing fact. No `@`.
+    let_at_binding_tuple_sub_unsupported (3, refuses) — `let w @ (a, b) = t` is refused while the plain
+      `let (a, b) = t` compiles and runs: the delegation hands the sub-pattern to `lower_let_pat_bound`, and the
+      top-level spelling is lowered by a different statement path entirely.
+    range_pattern_under_ref_scrutinee (3, refuses) — `match &v { 1..=5 => … }` refused "range pattern requires
+      integer scrutinee, got '&i64'". Measured independent of `@` (control n3).
+
+## 6. WHAT THE NEXT ROUND SHOULD READ FIRST
+    The walker-subset hole 09-09c flagged is now MEASURED, not inferred: `declare_pat_bindings` is 5 of 13 after
+    this round and its Struct hole ADMITS AN ILLEGAL BORROW today (row above, with a program). That is the same
+    shape as the row this round closed, one door over, and it is the cheapest thing left in this family.
+
+## 7. ⚠ AN INHERITED RED THIS ROUND DID NOT CAUSE, DATED BY THE STORE
+    `L4 bc` is rc 8 at build 831 and it was rc 8 before this change: ONE test, `wql_domain_static_extremes`,
+    TIMES OUT (property 120 s), and three census gates read "Not Run" because they are its fixture dependents.
+    The gate DB dates it and the date is not mine — `tables/wql_timeout_history.txt`:
+      build 662 (980c0962a, 09-03)  28.6 s ... 756  39.8 ... 774  59.5 ... 782  53.1 ... 791  98.0 ...
+      build 792 (60d6cc398, 09-05)  100.7 s   build 813 (a9c7b67fd)  120.1 FAILED   830/831 (mine)  120.1/120.0
+    FIRST RED AT BUILD 813, WHOSE HEAD `a9c7b67fd` IS AN ANCESTOR OF THIS ROUND'S 96fdf6235 — three commits
+    before a line of this change existed. Alone on an idle box the same test takes 35 s and PASSES (measured
+    twice, and its three dependents pass with it, 2870/2870); it only crosses 120 s inside the -j32 suite. So
+    the shape is a COMPILE-TIME CLIMB — 28.6 -> 100.7 over two days of rounds, none of them about this fixture —
+    that crossed a fixed ceiling under contention. Not weakened, not touched, not adopted: reported, with the
+    build ids that bracket it. ⚠ AND IT IS ALSO A GATE THAT LIES BY OMISSION IN THE OTHER DIRECTION: a
+    timing-out fixture takes three census gates down with it, so `L4 bc` cannot currently distinguish "the
+    census gates are red" from "the box was slow".

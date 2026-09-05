@@ -1,0 +1,8 @@
+// CONTROL for g06: a plain tuple destructure at `let`, no `@`.
+package g24;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    let (a, b) = t;
+    if a + b != 7i64 { return 1i32; }
+    return 0i32;
+}

@@ -7538,6 +7538,11 @@ private:
     lir_view::BlockRef lower_block(writ::TinyMapView block);
     lir_view::StmtRef lower_let_destruct(writ::TinyMapView node);
     lir_view::StmtRef lower_let_pat(writ::TinyMapView node);
+    // The body of lower_let_pat once the source EXPRESSION is already lowered:
+    // the `let n @ SUB = e` delegation re-enters it with the sub-pattern and a
+    // reference to the name it just bound.
+    lir_view::StmtRef lower_let_pat_bound(writ::TinyMapView pat_node,
+                                          lir::LExprPtr rhs, TypeRef rhs_type);
     lir_view::StmtRef lower_let(writ::TinyMapView node);
     lir_view::StmtRef lower_let_else(writ::TinyMapView node);
     lir_view::StmtRef lower_nested_fn(writ::TinyMapView node);

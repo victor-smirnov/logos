@@ -1,0 +1,12 @@
+// CONTROL: an ARRAY-typed struct field bound by a plain rename (no `@`).
+package g17;
+struct R { a: [i64; 2], y: i64 }
+fn main() -> i32 {
+    let r: R = R { a: [3i64, 4i64], y: 2i64 };
+    let mut out: i64 = 0i64;
+    match r {
+        R { a: v, y } => { out = v[0] + v[1] + y; }
+    }
+    if out != 9i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,14 @@
+// An at-binding that SHADOWS an outer local of the same name and type.
+package g12;
+fn main() -> i32 {
+    let n: i64 = 100i64;
+    let v: i64 = 4i64;
+    let mut out: i64 = 0i64;
+    match v {
+        n @ 1i64..=5i64 => { out = n; }
+        _ => { out = -1i64; }
+    }
+    if out != 4i64 { return 1i32; }
+    if n != 100i64 { return 2i32; }
+    return 0i32;
+}

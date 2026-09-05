@@ -1,0 +1,13 @@
+// CONTROL for the aggregate set: an ENUM-typed struct field bound by a plain
+// rename (no `@`) — does the Wild binder handle an enum-typed slot today?
+package g16;
+struct Q { o: Option<i64>, y: i64 }
+fn main() -> i32 {
+    let q: Q = Q { o: Option::Some(4i64), y: 2i64 };
+    let mut out: i64 = 0i64;
+    match q {
+        Q { o: a, y } => { out = y; if let Option::Some(v) = a { out = out + v; } }
+    }
+    if out != 6i64 { return 1i32; }
+    return 0i32;
+}

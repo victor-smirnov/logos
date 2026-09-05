@@ -137,6 +137,17 @@
 #SCAN mlir_gen_dyn.cpp 1 fad58de7
 #SCAN mlir_gen_expr.cpp 2 077ff06b
 #SCAN mlir_gen_impl.hpp 2 0d0525bf
+# 2026-09-09d: mlir_gen_stmt.cpp enters the roster at 1. THE LITERAL IS `_`
+# (md5-8 of the one-line roster "_" is b14a7b80), the WILDCARD TOKEN, and it is
+# not an entity name: `bind_name_at_slot` refuses to bind a pattern name that is
+# `_` or empty. The site is not new — it is the guard the `pat_bind` Wild case
+# has always carried — but the extraction that made one binder out of two named
+# its parameter `name`, and `name == "…"` is in SCAN_LHS while the old `n` was
+# not. So the count moves for a spelling, which is the gate working as designed
+# (it refuses to classify; a human classifies at the pin move) and this is that
+# classification: a wildcard sentinel, not a name intercept, and no package can
+# qualify `_` because no package owns it.
+#SCAN mlir_gen_stmt.cpp 1 b14a7b80
 #SCAN mlir_gen_types.cpp 1 95c89e84
 #SCAN module_loader.cpp 1 dfda2a6a
 #SCAN mono_clone.cpp 97 64d05c85

@@ -1,0 +1,12 @@
+// At on a TUPLE-typed struct field, sub-pattern a tuple pattern that also binds.
+package g03;
+struct P { t: (i64, i64), y: i64 }
+fn main() -> i32 {
+    let p: P = P { t: (3i64, 4i64), y: 2i64 };
+    let mut out: i64 = 0i64;
+    match p {
+        P { t: q @ (u, v), y } => { out = q.0 + u + v + y; }
+    }
+    if out != 12i64 { return 1i32; }
+    return 0i32;
+}

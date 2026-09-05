@@ -1,0 +1,13 @@
+// At on a struct FIELD whose sub-pattern is itself a STRUCT pattern.
+package g02;
+struct Inner { a: i64 }
+struct Outer { i: Inner, y: i64 }
+fn main() -> i32 {
+    let o: Outer = Outer { i: Inner { a: 4i64 }, y: 2i64 };
+    let mut out: i64 = 0i64;
+    match o {
+        Outer { i: s @ Inner { .. }, y } => { out = s.a + y; }
+    }
+    if out != 6i64 { return 1i32; }
+    return 0i32;
+}

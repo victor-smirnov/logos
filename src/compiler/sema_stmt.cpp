@@ -1327,6 +1327,50 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
         return builder().stmt_expr(std::move(rhs), node_line_);
     }
     auto pat_node = map_of(pat_av);
+    // ── `let n @ SUB = e` IS `let n = e;` FOLLOWED BY `let SUB = n;` ──────
+    // A DELEGATION, not a fifth branch in the shape whitelist: bind the name,
+    // then hand SUB to the same lowering with that name as its source. The loop
+    // is a loop because `n @ m @ SUB` is a pattern too. Spec
+    // pat.at.binds-at-every-position.
+    std::vector<lir_view::StmtRef> at_pre;
+    while (code_of(pat_node) == la::PAT_AT && pat_node.has_key(la::VALUE)) {
+        std::string an(str_of(pat_node.get(la::NAME.code)));
+        bool amut = pat_byval_mut(pat_node);
+        if (!an.empty() && an != "_") {
+            // ⚠ The name TAKES the value: mark the source place moved or its
+            // scope-exit drop runs a SECOND time on storage this binding owns.
+            // mark_moved_expr self-gates to VarRef/FieldRead/TupleIndex.
+            if (is_move_type(rhs_type)) mark_moved_expr(expr_ref_of(rhs));
+            define(an, rhs_type, amut);
+            lir::SLet sl;
+            sl.name = an; sl.type = rhs_type; sl.is_mut = amut;
+            sl.value = std::move(rhs);
+            at_pre.push_back(make_stmt_emit(node_line_, std::move(sl)));
+            rhs = builder().var_ref(an, rhs_type);
+        }
+        pat_node = map_of(pat_node.get(la::VALUE.code));
+    }
+    if (!at_pre.empty()) {
+        // A wildcard sub is fully discharged by the bindings above; anything
+        // else is a let-pattern over the name we just bound.
+        bool sub_binds_nothing =
+            code_of(pat_node) == la::PAT_WILD &&
+            (!pat_node.has_key(la::NAME) ||
+             std::string(str_of(pat_node.get(la::NAME.code))) == "_" ||
+             std::string(str_of(pat_node.get(la::NAME.code))).empty());
+        if (!sub_binds_nothing)
+            at_pre.push_back(lower_let_pat_bound(pat_node, std::move(rhs), rhs_type));
+        lir::SBlock sb;
+        sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper
+        sb.body = lir_mirror_block(*cur_prog_, at_pre);
+        return make_stmt_emit(node_line_, std::move(sb));
+    }
+    return lower_let_pat_bound(pat_node, std::move(rhs), rhs_type);
+}
+
+lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
+                                                   lir::LExprPtr rhs,
+                                                   TypeRef rhs_type) {
     int32_t pc = code_of(pat_node);
     // B-ts-01: `let Foo(a, b) = …` over a tuple-struct lowers via the
     // PAT_STRUCT path with synth field names "0", "1", …. Rewrite the
@@ -5525,11 +5569,13 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         pa.sub.push_back(std::move(sub_pat));
         uint32_t _at_slot = (pa.name == "_" || pa.name.empty())  // Phase-1
                           ? 0xFFFFFFFFu : reserve_pat_slot(pa.name);
-        // `mut n @ sub`: the same side-channel PAT_WILD uses (PatAt's mirror
-        // carries no mode field); read by bind_pattern_ref's At arm.
-        if (current_pat_mut_names_ && pa.name != "_" && pat_byval_mut(pnode))
+        // `mut n @ sub`: carried BOTH ways — the name side-set sema's binder
+        // family reads, and pat_keys::IS_MUT on the mirror, which is the only
+        // thing borrow_check can see (it never has the AST).
+        pa.is_mut = pat_byval_mut(pnode);
+        if (current_pat_mut_names_ && pa.name != "_" && pa.is_mut)
             current_pat_mut_names_->insert(pa.name);
-        auto mo = lir_mirror_emit_pat_at(*cur_prog_, pa.name, pa.sub, pa.type, _at_slot);
+        auto mo = lir_mirror_emit_pat_at(*cur_prog_, pa.name, pa.sub, pa.type, _at_slot, pa.is_mut);
         lir::Pattern p_;
         p_.mirror_ptr_ = mo;
         return p_;
@@ -6527,9 +6573,13 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         // bindings (`(E::Foo { x }, _)`, `((true,y)|(y,true), z)`, `((a,b), w)`)
         // reach the outer arm scope. Codegen (pat_test/pat_bind) extracts them.
         size_t idx = 0;
+        // ⚠ At belongs here for the same reason the other three do: it is a
+        // sub-pattern kind that INTRODUCES NAMES, and each_binding() above sees
+        // only the direct element names.
         v.each_sub([&](lir_view::PatRef sp) {
             if (sp && (sp.kind() == ps::Code::VariantData ||
                        sp.kind() == ps::Code::Or ||
+                       sp.kind() == ps::Code::At ||
                        sp.kind() == ps::Code::Tuple)) {
                 TypeRef sub_t = idx < types.size() ? types[idx] : error_t();
                 bind_pattern_ref(sp, sub_t);

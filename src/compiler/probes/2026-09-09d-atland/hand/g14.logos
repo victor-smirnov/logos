@@ -1,0 +1,9 @@
+// A `let` at-binding over a String, then the binding is USED and DROPPED once.
+package g14;
+use logos.mem.string;
+fn main() -> i32 {
+    let s: String = String::from("hello");
+    let w @ _ = s;
+    if w.len() != 5i64 { return 1i32; }
+    return 0i32;
+}

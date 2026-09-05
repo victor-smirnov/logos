@@ -1,0 +1,9 @@
+// CONTROL for g14: a plain `let` move of a String (no `@` anywhere).
+package g23;
+use logos.mem.string;
+fn main() -> i32 {
+    let s: String = String::from("hello");
+    let w = s;
+    if w.len() != 5i64 { return 1i32; }
+    return 0i32;
+}

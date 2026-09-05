@@ -1,0 +1,28 @@
+g01.logos cc=0 diag=0 run=0 |  | 
+g02.logos cc=0 diag=0 run=0 |  | 
+g03.logos cc=0 diag=0 run=0 |  | 
+g04.logos cc=0 diag=0 run=0 |  | 
+g05.logos cc=0 diag=0 run=0 |  | 
+g06.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-09d-atland/hand/g06.logos:5: error [fn main]: 'let <pattern> = expr;' currently supports struct patterns onl | 
+g07.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-09d-atland/hand/g07.logos:6: error [fn main]: range pattern requires integer scrutinee, got '&i64' | 
+g08.logos cc=0 diag=0 run=0 |  | 
+g09.logos cc=0 diag=0 run=0 |  | 
+g10.logos cc=0 diag=0 run=0 |  | 
+g11.logos cc=0 diag=0 run=0 |  | 
+g12.logos cc=0 diag=0 run=0 |  | 
+g13.logos cc=0 diag=0 run=0 |  | 
+g14.logos cc=0 diag=0 run=0 |  | 
+g15.logos cc=0 diag=0 run=0 |  | 
+g16.logos cc=0 diag=0 run=0 |  | 
+g17.logos cc=1 diag=1 run=- | error: 'arith.addi' op operand #0 must be signless-integer-like, but got '!llvm.array<2 x i64>' | 
+g18.logos cc=0 diag=0 run=0 |  | 
+g19.logos cc=0 diag=0 run=0 |  | 
+g20.logos cc=0 diag=0 run=0 |  | 
+g21.logos cc=0 diag=0 run=0 |  | 
+g22.logos cc=0 diag=0 run=0 |  | 
+g23.logos cc=0 diag=0 run=0 |  | 
+g24.logos cc=0 diag=0 run=0 |  | 
+g25.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-09d-atland/hand/g25.logos:7: error [fn main]: let 'z': type mismatch — expected bool, got Option | 
+g26.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-09d-atland/hand/g26.logos:7: error [fn main]: let 'z': type mismatch — expected bool, got Option | 
+g27.logos cc=0 diag=0 run=0 |  | 
+g28.logos cc=0 diag=0 run=0 |  | 

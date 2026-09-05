@@ -1,0 +1,13 @@
+// At INSIDE an Or INSIDE a tuple element — the collect_pat_bindings door
+// (h11's or-shape was measured green at ARM level, which is a different walker).
+package g01;
+fn main() -> i32 {
+    let t: (i64, i64) = (2i64, 5i64);
+    let mut out: i64 = 0i64;
+    match t {
+        (a @ 1i64 | a @ 2i64, b) => { out = a * 10i64 + b; }
+        (_, _) => { out = -1i64; }
+    }
+    if out != 25i64 { return 1i32; }
+    return 0i32;
+}

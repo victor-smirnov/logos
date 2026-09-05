@@ -1,0 +1,9 @@
+// `let` at-binding whose sub-pattern is an irrefutable TUPLE pattern.
+package g06;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    let w @ (a, b) = t;
+    if a + b != 7i64 { return 1i32; }
+    if w.0 != 3i64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,10 @@
+// `let` at-binding whose sub-pattern is an irrefutable STRUCT pattern that binds.
+package g05;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 4i64, y: 2i64 };
+    let w @ P { x, y } = p;
+    if x + y != 6i64 { return 1i32; }
+    if w.x != 4i64 { return 2i32; }
+    return 0i32;
+}

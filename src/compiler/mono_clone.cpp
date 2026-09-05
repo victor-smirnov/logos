@@ -4850,8 +4850,9 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         lir::PatAt n;
         n.name = std::string(v.name());
         n.type = st_(v.type(pool_));
+        n.is_mut = v.is_mut();
         if (auto sub = v.sub()) n.sub.push_back(walk(sub));
-        auto off = lir_mirror_emit_pat_at(*prog_, n.name, n.sub, n.type, v.bind_slot());  // Phase-1
+        auto off = lir_mirror_emit_pat_at(*prog_, n.name, n.sub, n.type, v.bind_slot(), n.is_mut);  // Phase-1
         lir::Pattern p;
         p.mirror_ptr_ = off;
         return p;

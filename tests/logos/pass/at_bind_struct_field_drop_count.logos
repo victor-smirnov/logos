@@ -1,0 +1,18 @@
+package at_bind_struct_field_drop_count;
+static mut DROPS: i64 = 0i64;
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) { unsafe { DROPS = DROPS + 1i64; } } }
+struct Holder { p: P, y: i64 }
+fn main() -> i32 {
+    let mut out: i64 = 0i64;
+    {
+        let h: Holder = Holder { p: P { n: 3i64 }, y: 2i64 };
+        match h {
+            Holder { p: a @ _, y } => { out = a.n + y; }
+        }
+    }
+    let d: i64 = unsafe { DROPS };
+    if out != 5i64 { return 1i32; }
+    if d != 1i64 { return (10i64 + d) as i32; }
+    return 0i32;
+}
