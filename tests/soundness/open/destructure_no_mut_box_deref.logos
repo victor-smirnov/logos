@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row destructure_no_mut_box_deref (tier 2). A destructuring let
+// with NO 'mut' on the binding, then '&mut *bb' through it: rustc E0596. TODAY
+// admitted, rc 0 — the 2026-09-03i pat_bound mask ROUTES AROUND sema's missing
+// by-value pattern 'mut' bit by not asking the binding-mut question of any
+// pattern-introduced binding, so the legal `mut` twin (pass/bc_drfmut_destructure_
+// pat_mut_admit) and this illegal one are indistinguishable to borrow-check.
+// Repair = the sema bit (a per-binding by-value-mut flag read by
+// declare_pat_bindings), not a borrow-check rule (2026-09-04g).
+package destructure_no_mut_box_deref;
+struct W { b: Box<i64> }
+fn main() -> i32 {
+    let w: W = W { b: Box::new(1i64) };
+    let W { b: bb } = w;
+    let r: &mut i64 = &mut *bb;
+    *r = 5i64;
+    return 0i32;
+}

@@ -22942,3 +22942,182 @@ No row closed and none opened. Re-derived BY DIRECT LISTING: `bc_admits.ledger` 
 rows (`# TOTAL 99`), `bc_admits_blocked.ledger` **25** (`# TOTAL 25`), and
 `ctest -N -R '^logos_00_bc_admit_'` registers **124 = 99 + 25**. Defect 3 is a RUNTIME soundness
 hole with no ledger row and never had one; defect 2's repair closed its rows in 2026-09-03k.
+
+# ═══ ROUND 2026-09-04g — PRICING ONLY, NO FIX LANDED. THE SOUNDNESS QUEUE IS THE OBJECTIVE.
+# THE MethodCall ARM's **AddrOfTemp RECEIVER BRANCH** ASKS THE BINDING-MUT QUESTION WITH
+# NONE OF THE THREE EXEMPTIONS ITS BARE-PLACE SIBLING (09-03i `ask_mb_`) AND THE
+# visit/AddrOfTemp ARM ALREADY TAKE. ONE PREDICATE, DELEGATED, CLOSES **2 QUEUE ROWS**
+# (predicted 2 BY NAME, both ways): cost 0 / cfail 0 of 1360 by rc and .expected, **1 TEXT-ONLY
+# AND IT IS A FALSE LINE REMOVED** / full `-L fail` 2477 of 2477 / stdlib four layers /
+# RUNTIME 0 of 6296. ⚠ AND THE CRUDE TWIN IS INVISIBLE TO EVERY CORPUS COLUMN: it admits
+# three ILLEGAL hand programs and the WHOLE fail corpus (2477) does not pin one of them. ═══
+
+## 0. STEP 1, RE-DERIVED (one correction to the brief)
+    HEAD 7e22c23c9, tree clean = origin/main. build_hash `1cbf316ac3ef779a` (READ).
+    soundness_queue `# TOTAL` 18 = 18 by listing · bc_admits 99 · bc_admits_blocked 25 ·
+    probe records 176, every site resolves.
+⚠ CORRECTION: the brief's bare `soundness_queue_gate.sh build/bin/logosc … .` reads **rc 4**
+(GATE BROKEN: the planted clean program links `LINKFAIL`) because `LOGOS_LIB_DIR` is unset
+outside ctest. With `LOGOS_LIB_DIR=build/lib/logos` it is **rc 0**, 18 rows hold. The gate's
+self-check did exactly what it is for; the brief's invocation is the defect.
+AT CLOSE: queue `# TOTAL` **20** (two rows ADDED, §7; none closed — pricing only), bc ledgers
+unchanged (99 / 25). Probe records 180. Probe build `8cf7721cc3d2a138` (READ); L1 748 rc 0
+with nothing armed on that build (probe-batch), and again on the committed tree.
+Targets file, written BEFORE the compiler was touched: `build/round-2026-09-04g/targets-2026-09-04g.txt`.
+
+## 1. THE TARGET ROWS BY ID, AND WHY THIS BLOCK
+    mutref_recv_immut_binding   tier 3 refuses   `let sr: &mut S = &mut s; sr.get()`
+    destructure_mut_recv        tier 3 refuses   `let P { a: mut aa } = p; aa.get()`
+One SITE (borrow_check.cpp, `take_ref_borrows`'s MethodCall arm, the `recv.kind() ==
+AddrOfTemp && result_borrows_self(v)` branch): `record_borrow(bp, m, line, holder)` with the
+DEFAULT flags, so `take_borrow_whole_` asks `is_mut_binding` unmasked. Its bare-place SIBLING
+twenty lines down asks the SAME question through `ask_mb_ = m && !pat_root_ && !root_is_ref_ &&
+!place_thru_mut_ref(bp)` (landed 09-03i), and the visit/AddrOfTemp arm asks it with
+`root_is_ref`/`aot_thru_mut_ref`. THE ARM EXISTS (`RecordFlags::skip_mut_binding`), THE FACT IS
+NOT CARRIED — 09-03i §8.2 named both witnesses and declined to wire them ("a separate mechanism
+and a separate round"). Read entire, the other 16 rows are 14 roots: none shares a site with
+another (targets file lists each with its reason).
+PROVEN LIVE ON THE BASE BINARY BEFORE ANY EDIT (rule 17): both rows refuse with
+`mb.w.refuse=1` (take_borrow_whole_) and `mb.aot.*=0` — the visit arm's exemptions never see
+them. Grouping test: predicted ONE predicate moves BOTH; `ref` half moves only the first, `pat`
+half only the second; `boxbox_mut_deref` (shared-ref gate, "behind a `&` reference") moved by
+NONE. Every prediction held (§3, §4).
+
+## 2. THE CENSUS — 6253 pass programs + the 99 admits, one build, `LOGOS_CENSUS`
+    recvaot.mut 214 · recvaot.nomut 37 · recvaot.nomut.ref **37** · .thru 0 · .pat 0 · .param 0
+    · .local 0   (classified in that order; the 37 are `&mut`-typed roots, i.e. the param hatch)
+    mb.w.arrive 953 046 · mb.w.hatch 953 045 · mb.w.refuse 1 · drf.patroot 2
+So over the whole legal corpus the question at this branch is answered "not mut" 37 times and
+every one is a `&mut` root already hatched: the corpus CONTAINS no witness of either row's shape
+(rule 4 — a ceiling off a small population), and the cost columns below are 0 for that reason
+as much as for the predicate's correctness. The witnesses are the two rows and the hand ladder.
+
+## 3. THE PROBE TABLE — ALL COLUMNS, INCLUDING THE RUNTIME ONE
+Batch `build/batch-2026-09-04g.spec`, ONE build `8cf7721cc3d2a138`, L1 748 rc 0 inert.
+`fires` = arrivals at the branch over the 99+25 ledger compiles (equal by construction: every
+name is asked at the same site). `queue` = rows of soundness_queue.ledger that stop reproducing
+under the arm (the queue gate run with LOGOS_PROBE, then each row compiled+linked+RUN by hand).
+    probe        predicate for skip_mut_binding        fires queue bc-ceil cost cfail(1360)  -Lfail(2477) std RUNTIME(6296)
+    recvaotany   always (CRUDE, rule-18 control)        1018   2     0      0   1 text-only   2477/2477   ok   0
+    recvaotdel   pat_root || root_is_ref || thru_mut    1018   2     0      0   1 text-only   2477/2477   ok   0
+    recvaotref   root_is_ref || thru_mut                1018   1     0      0   1 text-only      —        ok   0
+    recvaotpat   pat_root                               1018   1     0      0   0               —        ok   0
+bc-ceil 0 for all four BY CONSTRUCTION (a permissive arm closes no admit row) — not a criterion
+here. Additivity (rule 13) MEASURED: queue(del) = queue(ref) ∪ queue(pat) = {mutref_recv_
+immut_binding} ∪ {destructure_mut_recv}, disjoint, and the hand ladder splits the same way.
+THE ONE TEXT ROW, READ: `fail/bc_d1r7_a1_family_next_batch_reborrow` — `let r = &mut s;
+r.next_batch()` printed a SECOND line `cannot borrow 'r' as mutable: not declared as mut`
+before the pinned `cannot borrow 'c' as mutable: 'c' has shared borrows`. `r` is an immutable
+binding holding a `&mut`: the removed line is THIS DEFECT stacked on a correct refusal. The
+`.expected` still matches; the fixture stays red for the right reason. Not a cost — an
+inherited false line (rule 14 in the other direction).
+RUNTIME: `scripts/run_oracle.py`, 6296 pass fixtures compiled + linked + RUN, base vs armed on
+the same build: **0 triples differ** for del/ref/pat (`cast-region-to-uint` did not even move).
+
+## 4. RULE 5 — THE HAND LADDER, 23 SHAPES, EVERY VERDICT READ (scratchpad hand09, build 8cf7721c…)
+`fires` 19 under every name (LOGOS_PROBE_FIRE), the site reached. base / any / del / ref / pat:
+    a01 `let sr: &mut S = &mut s; sr.mget()`        LEGAL   1 0 0 0 1   ← row mutref_recv_immut_binding
+    a13 `let sr: &mut S = lend(&mut s); sr.mget()`  LEGAL   1 0 0 0 1
+    a02 `let P { a: mut aa } = p; aa.mget()`        LEGAL   1 0 0 1 0   ← row destructure_mut_recv
+    a10 `match e { E::A(mut s) => s.mget() }`       LEGAL   1 0 0 1 0
+    a11 `for mut s in vs { s.mget() }`              LEGAL   1 0 0 1 0
+    a12 `if let Some(mut s) = o { s.mget() }`       LEGAL   1 0 0 1 0
+    a03 `let s: S; s.mget()`                        ILLEGAL 1 **0** 1 1 1   ← the crude twin's price
+    a07 `let b: Box<S>; b.mget()`                   ILLEGAL 1 **0** 1 1 1
+    a20 `let s: S; let t = s; s.mget()`             ILLEGAL 1 **0** 1 1 1
+    a17 `sr.mget()` twice, both live                ILLEGAL 1 1 1 1 1   (any/del/ref: the SENTENCE
+        changes from `not declared as mut` to `already mutably borrowed` — the RIGHT one, E0499;
+        exclusivity is still deposited when the binding question is skipped)
+    a19 `let P { a: aa } = p; aa.mget()` (no mut)   ILLEGAL 1 0 **0** 1 **0**   ← the mask's price, §5
+    a04 a05 a08 a09 a16 a18 a21 (owned mut, `&mut` param, mut Box, field through `&mut` field
+        of an immutable struct, unit `&mut self` method on an immutable `&mut` local, `&self`
+        method, same as a09 with `mut h`)          LEGAL   0 0 0 0 0
+    a06 a23 `sr: &S; sr.mget()`                     ILLEGAL 1 1 1 1 1  "'S' has no method 'mget'" (§7)
+    a22 `let W { b: bb } = w; &mut *bb` (no mut)    ILLEGAL **0** 0 0 0 0  admitted TODAY (§5, §7)
+    q   boxbox_mut_deref                            LEGAL   1 1 1 1 1  "'bb' is behind a `&` reference"
+a09 is admitted on the BASE with `recvaot.nomut.thru=1`: the FIELD tail (`take_field_borrow_path_`)
+already carries `place_thru_mut_ref`; only the WHOLE tail, reached when `bp.path` is empty, lacks
+it. That is the exact shape of the hole.
+⚠ RULE 9 IN FULL: `recvaotany` and `recvaotdel` are digit-identical in EVERY column the harness
+owns — fires, queue 2, cost 0, cfail 1 (the same row), the full 2477-fixture fail tier,
+stdlib, runtime — and separate on THREE ILLEGAL HAND PROGRAMS (a03 a07 a20). The whole fail
+corpus does not contain "an immutable owned local calling a `&mut self` method that returns a
+borrow"; the fix round owes a03 as a fail fixture, or the next crude arm at this site prices 0.
+
+## 5. ⚠ THE `pat` HALF BUYS ITS ROW WITH AN ADMIT — THE SAME TRADE 09-03i ALREADY MADE
+`pat_bound` cannot tell `let P { a: mut aa }` from `let P { a: aa }`: sema drops the pattern's
+`mut` (09-03i §4/§9). So `recvaotpat` (and `recvaotdel`) un-refuse a02 AND a19 together. That
+is not new: the landed bare-place rule already admits a22 (`&mut *bb` through a no-`mut`
+destructured Box) on the BASE binary — a tier-2 admit that had NO queue row until this round
+(§7). Funding the `pat` half at this site adds a19's shape to that hole; funding the `ref`
+half adds nothing. The honest repair of the `pat` half is the sema bit, unchanged since 08-28.
+
+## 6. `recvaotany` — THE CONTROL TWIN, KEPT
+Refuting hypothesis: "nothing but the two rows depends on this branch's question". FALSE by
+a03/a07/a20 and by NOTHING in the corpus. Kept installed as the rule-18 twin of `recvaotdel`.
+
+## 7. QUEUE — TWO ROWS ADDED, 18 -> 20, NONE CLOSED
+    destructure_no_mut_box_deref    2  admits  — a22, rustc E0596; the 09-03i mask's price, unrowed
+    sharedref_recv_mut_method_diag  4  diag 'S' has no method 'mget' — a06/a23: a `&mut self`
+                                       method through `&S` is E0596; sema says the method is absent
+Both re-run on the base binary and on the probe build (identical), both planted programs and
+all 18 prior rows re-verified by the gate: rc 0, `# TOTAL 20` by direct listing.
+
+## 8. WHAT DESERVES FUNDING
+ 1. **`recvaotref` as spelled — by DELEGATION**: the AddrOfTemp receiver branch passes
+    `skip_mut_binding = m && (root_is_ref || place_thru_mut_ref(bp))` — the two exemptions the
+    visit/AddrOfTemp arm and the field tail already take for the same question. Closes
+    `mutref_recv_immut_binding` (compiles, links, RUNS rc 0), removes one false line from a red
+    fixture, admits nothing illegal in 23 shapes. Owes: pass fixtures a01 + a13 (two spellings
+    of the root), fail fixture **a03** (the corpus hole), and the row's own program relanded as
+    a pass fixture. ⚠ RULE 7: the probe's `ref_a_` reads `is_ref_kind(bp.root_type)`, which
+    includes SHARED refs — safe only because record_borrow's shared-ref gate refuses first; the
+    landing should spell it `MutRef` or keep the gate order explicit.
+ 2. **`recvaotpat` / the `pat` half of `recvaotdel`: NOT as a borrow-check rule.** It closes
+    `destructure_mut_recv` by admitting a19 (§5). Fund the SEMA bit instead — a per-binding
+    by-value `mut` on PatVariantData/PatWild/destructure lowering, read by `declare_pat_bindings`
+    — which closes destructure_mut_recv, a10/a11/a12, q1/q2 of 09-03h, DELETES `pat_bound` and
+    its propagation, and closes the NEW row destructure_no_mut_box_deref in the same stroke.
+ 3. `boxbox_mut_deref` is a third root (extract_borrow_place's `cross` marks the inner
+    `deref_mut` result as crossed-shared); unmoved by all four, unpriced.
+ 4. `sharedref_recv_mut_method_diag` is SEMA's method lookup, not borrow-check; not priced.
+
+## recvaotany
+site: src/compiler/borrow_check.cpp::take_ref_borrows
+build: 8cf7721cc3d2a138
+measured: 2026-09-04
+fires: 1018
+ceiling: 0 (bc) / 2 (soundness queue: mutref_recv_immut_binding, destructure_mut_recv)
+cost: 0 pass / 1 cfail text-only (a false line removed) / 2477 of 2477 `-L fail` green / stdlib ok / runtime 0 of 6296
+verdict: ⛔ CONTROL TWIN — admits a03/a07/a20 (illegal, hand-only); kept as recvaotdel's rule-18 twin
+note: skip_mut_binding unconditionally at the AddrOfTemp receiver branch of the MethodCall arm.
+
+## recvaotdel
+site: src/compiler/borrow_check.cpp::take_ref_borrows
+build: 8cf7721cc3d2a138
+measured: 2026-09-04
+fires: 1018
+ceiling: 0 (bc) / 2 (soundness queue)
+cost: 0 pass / 1 cfail text-only (same false line) / 2477 of 2477 `-L fail` / stdlib ok / runtime 0 of 6296
+verdict: ✓ HALF — the `ref` half is fundable (see recvaotref); the `pat` half buys its row with an admit (a19)
+note: skip iff pat_bound || is_ref_kind(root_type) || place_thru_mut_ref — the sibling's ask_mb_ negated.
+
+## recvaotref
+site: src/compiler/borrow_check.cpp::take_ref_borrows
+build: 8cf7721cc3d2a138
+measured: 2026-09-04
+fires: 1018
+ceiling: 0 (bc) / 1 (soundness queue: mutref_recv_immut_binding)
+cost: 0 pass / 1 cfail text-only (same false line) / stdlib ok / runtime 0 of 6296 / 23 hand shapes: no illegal admit
+verdict: ✓ FUND by delegation; owes a01+a13 pass, a03 fail, the row relanded as pass
+note: skip iff is_ref_kind(root_type) || place_thru_mut_ref(bp).
+
+## recvaotpat
+site: src/compiler/borrow_check.cpp::take_ref_borrows
+build: 8cf7721cc3d2a138
+measured: 2026-09-04
+fires: 1018
+ceiling: 0 (bc) / 1 (soundness queue: destructure_mut_recv)
+cost: 0 pass / 0 cfail / stdlib ok / runtime 0 of 6296 / hand: ADMITS a19 (illegal, no-`mut` destructure)
+verdict: ⛔ NOT as a borrow-check rule — fund the sema by-value pattern `mut` bit instead
+note: skip iff pat_bound; indistinguishable from the no-`mut` twin until sema carries the bit.

@@ -10077,7 +10077,36 @@ private:
                         // the two siblings that already split on the path: the
                         // bare-place receiver arm below and the explicit
                         // `&mut place` AddrOf arm.
-                        record_borrow(bp, m, line, holder);
+                        // PROBES 2026-09-04g: this branch asks the binding-mut
+                        // question with NONE of the sibling's exemptions.
+                        bool pat_a_ = false;
+                        if (auto* pa_ = var_find(bp.root_slot, bp.root))
+                            pat_a_ = pa_->pat_bound;
+                        const bool ref_a_ = bp.root_type && is_ref_kind(bp.root_type);
+                        const bool thru_a_ = place_thru_mut_ref(bp);
+                        if (m) {
+                            logos::probe::census("recvaot.mut");
+                            if (auto* ma_ = var_find(bp.root_slot, bp.root);
+                                ma_ && !ma_->is_mut_binding) {
+                                logos::probe::census("recvaot.nomut");
+                                logos::probe::census(
+                                    ref_a_ ? "recvaot.nomut.ref"
+                                    : thru_a_ ? "recvaot.nomut.thru"
+                                    : pat_a_ ? "recvaot.nomut.pat"
+                                    : param_names_.count(bp.root)
+                                        ? "recvaot.nomut.param"
+                                        : "recvaot.nomut.local");
+                            }
+                        }
+                        const bool skip_a_ =
+                            logos::probe::on("recvaotany") ||
+                            (logos::probe::on("recvaotdel") &&
+                             (pat_a_ || ref_a_ || thru_a_)) ||
+                            (logos::probe::on("recvaotref") &&
+                             (ref_a_ || thru_a_)) ||
+                            (logos::probe::on("recvaotpat") && pat_a_);
+                        record_borrow(bp, m, line, holder,
+                                      {/*skip_mut_binding=*/skip_a_});  // recvaotdel recvaotref recvaotpat
                     }
                 } else if (recv && result_borrows_self(v)) {
                     // Bare VarRef / place receiver — sema didn't wrap it in

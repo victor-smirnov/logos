@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row sharedref_recv_mut_method_diag (tier 4). A '&mut self'
+// method called through a '&S' binding is ILLEGAL (rustc E0596: cannot borrow
+// '*sr' as mutable, as it is behind a '&' reference); the refusal is right, the
+// SENTENCE is the defect: TODAY sema says "'S' has no method 'mget'" — method
+// lookup through a shared reference does not find a '&mut self' method at all,
+// so the user is told the method does not exist (2026-09-04g, hand a06/a23).
+package sharedref_recv_mut_method_diag;
+struct S { v: i64 }
+impl S {
+    fn mget(&mut self) -> &mut i64 { return &mut self.v; }
+}
+fn main() -> i32 {
+    let mut s: S = S { v: 1i64 };
+    let sr: &S = &s;
+    let r: &mut i64 = sr.mget();
+    *r = 3i64;
+    return 0i32;
+}
