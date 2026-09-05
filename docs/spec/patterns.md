@@ -448,6 +448,14 @@ Under a `&`/`&mut` scrutinee, every plain named payload binding binds by-referen
 
 *Source: src/compiler/sema_stmt.cpp#L3252-L3265; src/compiler/sema_stmt.cpp#L3915-L3949*
 
+### `pat.binding.modifier-requires-move-mode` — A binding modifier is an error under a non-move default binding mode (Rust 2024)
+
+Once a reference scrutinee has set the default binding mode to `ref` or `ref mut` (`pat.binding.default-by-ref-mode`), a payload binding written with an explicit `mut`, `ref` or `ref mut` is an ERROR: `match &o { Some(mut n) => … }` is refused. The programmer either matches the reference explicitly (`&Some(mut n)`) or binds without a modifier and copies (`Some(n) => { let mut m: i64 = *n; … }`). The diagnostic names the rule: binding modifiers may only be written when the default binding mode is `move`.
+
+**Divergence from Rust:** none — this is the Rust **2024** edition rule (RFC 3627, "match ergonomics reservations"); Rust 2021 instead let `mut` reset the mode to `move` and copy the payload. Logos follows 2024 by decision of the owner, 2026-09-05, so that the by-value `mut` bit the LIR pattern node now carries (`BINDING_REF_MODES` bit `0x10`) is legal only where the default mode is `move`.
+
+*Source: decision 2026-09-05; the refusal exists today (a type error) and the sentence is owed — soundness queue, tier 4.*
+
 ### `pat.binding.explicit-ref-mut` — `ref`/`ref mut` payload binding wraps type in &/&mut
 
 An explicit `ref v` (resp. `ref mut v`) sub-pattern in a variant payload binds by reference: the binding type is wrapped in `&` (resp. `&mut`), binding the payload slot's address rather than a load. Explicit ref overrides default-binding-mode wrapping.
