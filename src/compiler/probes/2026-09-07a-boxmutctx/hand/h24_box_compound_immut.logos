@@ -1,0 +1,6 @@
+package h24;
+fn main() -> i32 {
+    let b: Box<i64> = Box::new(1i64);
+    *b += 6i64;
+    return 0i32;
+}

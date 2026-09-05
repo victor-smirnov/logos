@@ -1,0 +1,8 @@
+package h25;
+struct S { v: i64 }
+impl S { fn bump(&mut self) { self.v = self.v + 1i64; } }
+fn main() -> i32 {
+    let s: S = S { v: 1i64 };
+    s.bump();
+    return 0i32;
+}

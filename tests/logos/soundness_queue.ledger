@@ -39,7 +39,7 @@
 # `tier`:  1 memory corruption / wrong code runs      2 a class is not checked
 #          3 legal Rust refused                        4 diagnostics and hygiene
 #
-# TOTAL 26
+# TOTAL 28
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 drop_inherent_call_order      1 tests/soundness/open/drop_inherent_call_order      refuses
@@ -66,3 +66,5 @@ sharedref_recv_mut_method_diag 4 tests/soundness/open/sharedref_recv_mut_method_
 derefonly_compound_write_admit 2 tests/soundness/open/derefonly_compound_write_admit admits
 user_derefmut_write_leaks_old 1 tests/soundness/open/user_derefmut_write_leaks_old run 1
 match_ergo_modifier_ref_mode_diag 4 tests/soundness/open/match_ergo_modifier_ref_mode_diag diag assignment to immutable variable 'n'
+derefmut_compound_recv_immut_admit 2 tests/soundness/open/derefmut_compound_recv_immut_admit admits
+box_in_vec_deref_write        3 tests/soundness/open/box_in_vec_deref_write        refuses

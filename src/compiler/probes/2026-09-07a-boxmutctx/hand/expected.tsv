@@ -18,3 +18,8 @@ h17	refuse	E0594 `bb` not declared as mutable
 h18	0	legal
 h19	refuse	E0506 cannot assign to `*b` because it is borrowed
 h20	refuse	E0594 cannot assign to `**r`, which is behind a `&` reference
+h21	refuse	E0596 cannot borrow `w` as mutable, as it is not declared as mutable
+h22	refuse	E0596
+h23	refuse	E0596
+h24	refuse	E0596
+h25	refuse	E0596

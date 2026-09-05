@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row derefmut_compound_recv_immut_admit (tier 2). '*b += 6' through
+// a Box bound WITHOUT 'mut' is ILLEGAL (rustc E0596: cannot borrow '*b' as mutable, as
+// 'b' is not declared as mutable). TODAY it compiles rc 0 and runs: DEREF_COMPOUND
+// lowers to stmt_deref_write(b.deref_mut(), ...) and borrow_check's DerefWrite arm
+// never visits a MethodCall 'ptr', so the receiver's binding-mut question (asked for
+// 'let r = b.deref_mut();' and for 's.bump();') is never asked here. The user-DerefMut
+// twin ('*w += 6', W: DerefMut, 'let w') admits the same way. Found 2026-09-07a (hand
+// h24/h22). Rust: refused.
+package derefmut_compound_recv_immut_admit;
+fn main() -> i32 {
+    let b: Box<i64> = Box::new(1i64);
+    *b += 6i64;
+    if *b != 7i64 { return 1i32; }
+    return 0i32;
+}
