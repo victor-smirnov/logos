@@ -1,0 +1,17 @@
+package d14_match_loop_break_readonly_ctl;
+use logos.mem.collections.vec;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let mut vs: Vec<S> = Vec::new();
+        vs.push(S { v: 1i64, i: p });
+        vs.push(S { v: 2i64, i: p });
+        let mut k: i64 = 0i64;
+        loop { match vs.pop() { Option::Some(r) => { k = k + r.v; break; }, Option::None => { break; } } }
+        if k != 2i64 { return 99i32; }
+    }
+    return c as i32;
+}

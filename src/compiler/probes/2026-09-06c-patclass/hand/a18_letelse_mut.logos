@@ -1,0 +1,8 @@
+package a18_letelse_mut;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(2i64);
+    let Option::Some(mut x) = o else { return 2i32; };
+    x = x + 1i64;
+    if x != 3i64 { return 1i32; }
+    return 0i32;
+}

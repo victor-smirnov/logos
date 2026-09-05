@@ -1,0 +1,10 @@
+package a25_ifletchain_exclrange;
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let mut hit: i64 = 0i64;
+    if let 0i64..5i64 = x && x > 0i64 {
+        hit = 1i64;
+    }
+    if hit != 0i64 { return 1i32; }
+    return 0i32;
+}

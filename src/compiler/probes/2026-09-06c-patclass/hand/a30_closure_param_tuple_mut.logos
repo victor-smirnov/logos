@@ -1,0 +1,6 @@
+package a30_closure_param_tuple_mut;
+fn main() -> i32 {
+    let f = |(mut a, b): (i64, i64)| -> i64 { a = a + b; a };
+    if f((1i64, 2i64)) != 3i64 { return 1i32; }
+    return 0i32;
+}

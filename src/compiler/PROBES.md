@@ -23581,3 +23581,290 @@ note: is_mut_binding = true in declare_pat_bindings (VariantData, Wild) and both
       reproducible here (§8) — a revert build does not restore the hash when the archives are rebuilt.
     · The if-let payload double drop (§6a) is a tier-1 hole that predates every round of this arc and was never
       rowed; the `enum_payload_drop` fixture's if-let case (4) reads a field and so cannot see it.
+
+# ═══ ROUND 2026-09-06c (PRICING, soundness queue) — THE CLASS BEHIND THE PATTERN `mut`: THREE ENUMERATIONS
+# WITH NUMBERS (11 AST-attribute drop sites in 2 lowering doors; 4 lossy consumers + 1 AST re-derivation; and
+# the if-let / while-let / let-else / if-let-expr lowerings that build an SMatch WITHOUT lower_match's OWNERSHIP
+# PROTOCOL), AND ONE STRUCTURAL CHANGE PRICED THAT MOVES BOTH TIER-1 QUEUE ROWS (predicted 2 by name, both
+# ways) AT COST 0 pass / cfail 2 text-only (a coarser E0382 sentence) / stdlib four layers / RUNTIME 0 of 6328,
+# PLUS TWO PRE-EXISTING `match` DOUBLE DROPS FOUND BY THE CONTROLS (nested-struct sub-pattern; tuple scrutinee
+# with a nested variant) and ONE `match` LEAK (a `_` arm over an un-matched payload). NOT LANDED. ═══
+
+## 0. STEP 1, RE-DERIVED
+    HEAD c1922bcbb clean = origin/main. build_hash `fd225170dfc55e5a 43` (READ). soundness_queue `# TOTAL` 23 = 23 by
+    listing (5/3/12/3 by tier) · bc_admits 99 · bc_admits_blocked 25 · probe-log-lint 185 records, every site resolves.
+    Queue gate: the brief's bare line reads rc 4 "GATE BROKEN … '0/0/LINKFAIL'" (no LOGOS_LIB_DIR — the same
+    correction 2026-09-06 §0 and 06b §0 made); with `LOGOS_LIB_DIR=build/lib/logos`: rc 0, 23 rows hold.
+    THE LANDED FORM (diff 35173b3a3..c1922bcbb, src + include, read end to end): the by-value `mut` rides in the
+    ONE place binding mode lives where such a place exists — bit 0x10 of BINDING_REF_MODES on PatVariantData
+    (`bind_ref_modes()` masks `& 0xF`, `bind_byval_muts()` exposes, `bind_ref_modes_raw()` is what mono_clone
+    carries) — and as the pre-existing `pk::IS_MUT` key on PatWild (which has no mode array) and `sk::IS_MUT` on
+    SForEach (a loop var is not a pattern in the LIR). No sibling key beside a mode array; both pat_bound masks and
+    `declaring_pattern_` deleted; mono_clone copies every key of every kind (read end to end, §2b). ⚠ ONE parallel
+    channel survives in SEMA, not in the LIR: `current_pat_mut_names_` (a side-set of names) is what
+    `bind_pattern_ref`'s Wild arm reads, while the node now carries `is_mut()` — two carriers of one fact, and the
+    tuple element door (§1a) is exactly where the side-set is not consulted.
+    ⚠ `probe-batch.sh` prices ONE RUN PER `name:` RECORD, not per distinct name: 11 `ifletown` records = 11 identical
+    230 s pricings (the log shows them). A spec with N edits under one name costs N pricings; not fixed (tooling
+    frozen), recorded here so the next spec puts the edits of one name under ONE record where the anchors allow it.
+
+## 1. THE CLASS — ENUMERATED BY THE PROPERTY (the grammar's pattern productions, `tools/peg_gen_cpp/grammars/logos.peg`,
+##    against `lir_schema::pat` + every consumer by symbol: `probes/2026-09-06c-patclass/population.txt`), MEASURED
+##    ON HEAD (`hand/run_all.sh`, the gate's reader; 85 programs a01-a36 / c01-c34 / d01-d15, `hand/`)
+(a) FACTS A PATTERN CARRIES AT THE AST AND LOSES ON THE WAY INTO THE LIR — two lowering doors, not one:
+    door 1 = `build_pattern_impl` (AST -> LIR node); door 2 = `render_pat_src` (AST -> SOURCE TEXT -> re-parse), the
+    channel every `if let … && …` / `while let … && …` CHAIN goes through (`lower_if_let_chain`, `lower_while`).
+    attribute                 carried (LIR)                                  DROPPED at                              witness (HEAD)
+    PAT_WILD.IS_MUT           VariantData 0x10 · Wild IS_MUT · SForEach      tuple element (`make_pat_wild(nm)`)     a01 REFUSED "assignment to immutable variable 'a'" · a31 (or-alt) same
+                                                                             struct SHORTHAND `P { mut a }`          a04 REFUSED (PAT_FIELD.IS_MUT read, used only when IS_REF)
+                                                                             render_pat_src PAT_WILD (name only)     a13 if-let chain REFUSED · a16 while-let chain REFUSED
+                                                                             lower_let_else (`define(…, false)`)     a18 `let Some(mut x) = o else` REFUSED
+                                                                             fn / closure tuple-param prologue       a17 · a30 REFUSED
+    PAT_WILD.IS_REF(+IS_MUT)  RefBind (top / variant payload / field VALUE)  tuple element                           a02 `(ref a, b)` → a BOUND BY VALUE: "use of moved field 't.0'" · a03 `(ref mut a,_)` `*a=5` → "write through raw pointer"
+                                                                             render_pat_src                          a14 `if let Some(ref s) = o && …` — silently by value (invisible on HEAD only because if-let is a COPY, §1c)
+                                                                             nested tuple `Some((ref a, b))`         a11 REFUSED "use of moved variable 'o'"
+                              carried but MIS-BOUND in codegen               slice `[ref a, ref b]`                  a08 RUNS, a.v = 140733919571336 (a stack address) — TIER 1, silent
+                                                                             top-level `ref mut n => *n = 5`         a20 RUNS, x stays 1 — the write lands in a COPY — TIER 1, silent
+    PAT_AT.IS_REF             — (PatAt has no mode)                          build_pattern PAT_AT                    a06 `ref n @ S{..}` → n by value: "use of moved value 's'"
+    PAT_AT (any)              PatAt                                          render_pat_src (unsupported → comment)  a15 chain `Some(n @ 1..=5)` → "expected 1 bindings, got 0"
+    PAT_REST.NAME (`xs @ ..`) — (PatSlice.rest is a Pattern; name dropped)   slice lowering                          a09 COMPILES rc 0 with "mlir_gen: warning: undefined 'rest'", prints empty — TIER 1 (the 14th gate lie's shape)
+    PAT_FIELD.IS_REF shorthand RefBind ✓                                      mark_match_scrutinee_moved (AST re-derivation reads only `VALUE:PAT_WILD{IS_REF}`)  a22 `P { ref a, b }` → "use of moved variable 'pp'" (a21 `a: ref aa` passes)
+    PAT_RANGE exclusive `..`  Range (hi-1, legit)                            render_pat_src always `..=`             a25 chain → "arguments do not parse as an expression" (the `..` form does not even re-parse)
+    PAT_NEG_INT / PAT_CHAR    Int ✓                                          render_pat_src (unsupported)            a26 · a28 chain → "expected 1 bindings, got 0"
+    PAT_SLICE                 Slice ✓                                        render_pat_src (unsupported)            a27 chain → "do not parse as an expression"
+    PAT_STRUCT + ref field    Struct/RefBind ✓                               render_pat_src drops the field's ref    a29 chain → COMPILER CRASH rc 135, no diagnostic — TIER 1
+    grammar: `let (ref a, b)` — no spelling (pat_binding has KW_MUT IDENT | IDENT)                                    a19 "'let <pattern> = expr;' currently supports struct patterns only"
+    LEGITIMATELY RE-DERIVED (not defects, with the program): tuple `..` (expanded to `_` skips at fixed arity: a09's
+    tuple twin not needed — PatTuple keeps arity) · HAS_REST (PatStruct.has_rest carried) · PAT_REF.IS_MUT (RefPat.is_mut,
+    a20's `&mut` twin not measured further) · default binding modes 3/4 (a32 `match &t { (a, b) }` runs 0).
+    COUNT: 11 attribute×door drop sites (mut×5, ref×3, at-ref, rest-name, render×5 collapsed as ONE site each), 2
+    codegen mis-binds, 1 grammar hole, 1 crash. ⚠ Rule 5 held in the other direction too: 4 of the 36 hand programs
+    (a12 `for (ref a, b) in arr` + arr reused; a29's first spelling) were ILLEGAL Rust — a12 is kept as a non-witness.
+(b) PATTERN-NODE FIELDS A WALKER FAILS TO CARRY — per consumer, per kind (population.txt):
+    mono_clone PatSubstWalker::walk — COMPLETE: every key of all 13 kinds re-emitted (slots, raw modes, is_mut, LO_HI/HI_HI).
+    lir_mirror emit_pat_*_direct — complete for the keys the node HAS; PatTuple/PatStruct/PatFieldBinding/PatAt/PatSlice
+      have NO mode key to carry (the (a) drops are upstream of the mirror).
+    sema bind_pattern_ref — Tuple: `define(…, false)` ignores the subs' Wild.is_mut/RefBind (a01 a36) · At: false ·
+      Struct shorthand: false (a04) · Wild: reads the SIDE SET, not `is_mut()` (works by coincidence: the set is filled at
+      the same place the bit is minted).
+    borrow_check declare_pat_bindings — Tuple / Struct / Slice / At / Or: `default: break` — NOTHING declared, so every
+      binding-mut question on those names is UNANSWERABLE and the exit is PERMISSIVE: a33 `(a, b) => bump(&mut a)`
+      ADMITTED · a34 `P { a, b } => bump(&mut a)` ADMITTED · a24 `n @ S{..} => bump(&mut n)` ADMITTED (all three
+      illegal, rustc E0596) · a35 `[a, b] => bump(&mut a)` ADMITTED and SIGSEGVs at run (139) — the slice mis-bind of a08.
+    sema mark_match_scrutinee_moved — re-derives the by-value question from the AST instead of reading the LIR's modes:
+      misses the PAT_FIELD shorthand `ref` (a22) and nested variants inside a TUPLE scrutinee (c34, §1c) — one
+      ownership fact, two derivations, the AST one narrower.
+    mlir_gen pat_bind — Slice RefBind wrong place (a08, a35) · Slice rest name never bound (a09) · RefBind over a top-level
+      place binds a copy (a20).
+    COUNT: 4 lossy consumers (bind_pattern_ref ×3 kinds, declare_pat_bindings ×5 kinds, pat_bind ×3 shapes,
+      mark_match_scrutinee_moved ×2 shapes) + the sema side-set. 09-03i's `__pat_pld_*` mask and 09-05a's second-half
+      surprise were both the declare_pat_bindings hole seen from the `let`-prologue side.
+(c) DROP SCHEDULING FOR PATTERN-BOUND PAYLOADS — measured by DESTRUCTOR COUNT through a `*mut i64` (exit code = count;
+    `println!` leaks its format string under valgrind, 06b §6). Rust's count in brackets; HEAD:
+    if-let, PLACE scrutinee: c01 move-out 2 [1] (the row) · c08 nested tuple 2 [1] · c12 read + `return` in body 2 [1] ·
+      c13 `mut s` field write 1 [6] (the drop sees the un-mutated COPY) · c03 `mut r` reassigned 2 [3] · c16 with `else` 2 [1]
+      · c19 tuple scrutinee 2 [1] · c24 field place `h.o` 2 [1] · c27 OTHER variant matched by nothing 2 [2] ✓ · c29 runtime
+      cond 4 [3] · c02 read-only 1 [1] ✓ (correct BY ACCIDENT: the copy is never dropped and the scrutinee is).
+    if-let, TEMP scrutinee: c21 read-only 0 [1] LEAK · c06 move-out 1 [1] ✓ (the callee is the only dropper).
+    while-let: c05 `mut s` reassigned 1 [3] (the row) · c18 temp read-only 0 [3] LEAK · c04 temp move-out 3 [3] ✓ · d02
+      `break` after read 1 [3] · d03 `continue` 0 [3] · d01 break after move 3 [3] ✓.
+    let-else: c22 read-only 2 [1] · c10 move-out 2 [1] · c23 temp move-out 1 [1] ✓. if-let-EXPR: c11 move-out 2 [1].
+    chain (reparsed): c09 2 [1]. closure body: d05 2 [1]. else-if chain: d08 5 [3]. nested if-let: d09 2 [1]. `return r`:
+      d07 2 [1]. in a `loop` with break: d04 5 [3]. Copy payload d10, `&mut o` scrutinee d06, Box payload d12: correct.
+    CONTROLS (match): c07 c20 c25 c28 d14 d15 correct — AND THREE `match` DEFECTS THE CONTROLS EXPOSED, all on HEAD:
+      c26 `match e { E::A(r) => eat(r), _ => {} }` with e = E::B(s): 0 [2] — the scrutinee is marked moved BEFORE the
+        arms (unconditionally), the `_` arm's payload LEAKS; c28 (matching) 1 ✓.
+      c31 `match o { Some(W { b: bb, k }) => read }` 2 [1] · c32 same, `eat(bb)` 2 [1]: the nested-STRUCT sub-pattern
+        prologue (`emit_nested_pat_destructure`, struct branch) re-extracts `bb` from a synth temp WITHOUT marking the
+        synth's field moved — the tuple branch one screen above does (`mark_moved_expr(elem_expr)`); the synth's drop
+        glue and `bb`'s arm drop both fire. `Box<i64>` in that slot is a DOUBLE FREE (the `bc_drfmut_nested_pat_mut_admit`
+        shape under the probe, §3; on HEAD the if-let there has no arm drop, which is why the fixture is green).
+      c34 `match t { (Some(r), _) => eat(r), _ => {} }` 2 [1]: mark_match_scrutinee_moved's PAT_TUPLE arm reads only
+        PAT_WILD elements; the nested variant's by-value binding is not a recorded move.
+    VERDICT ON (c): NOT a member of (a)/(b). The if-let / while-let / let-else / if-let-expr lowerings build an SMatch
+    with the same pattern node the match gets, and the node carries every fact it needs; what they do not do is
+    lower_match's OWNERSHIP PROTOCOL — (i) hoist a TEMP scrutinee into an owned local (`__match_scrut_N`), (ii) mark the
+    scrutinee moved when the arm binds a move-type payload by value, (iii) drop the arm's own bindings on fall-through
+    ([[baghunt-match-arm-binding-no-drop]]), (iv) merge the arms as CondMoveBranches. The binding is a bitwise COPY and
+    the scrutinee stays the owner — a third class with one root (`lower_if` PAT branch, `lower_while` PAT branch,
+    `lower_let_else`, `lower_if_expr`), and both tier-1 rows are its members.
+
+## 2. THE TARGET ROWS BY NAME (`probes/2026-09-06c-patclass/targets.txt`, written before any edit)
+    iflet_payload_moveout_double_drop 1 run 1 · whilelet_mut_reassign_leak 1 run 1 — one root (c above). WHY THIS BLOCK:
+    the ledger's two tier-1 rows, an ARM THAT EXISTS (lower_match's protocol, CondMoveBranch / elaborate_cond_moves)
+    reached through a fact the lowering does not apply. Grouping test: ONE change must move BOTH (05a/06 refuted two
+    handed-down groupings this way). Predicted (predictions.txt): exactly these two close; no bc row; cost 0 / cfail 0.
+
+## 3. THE MECHANISM PRICED — `probes/2026-09-06c-patclass/patclass.spec` (17 edits, 3 files, ONE build `0177255d0b621fda`)
+##    + `apply_spec2.py` (5 edits on top, build 2 `1aec3641d967d168`, L1 752/752 + 174 gates rc 0 unarmed on both)
+    ifletown    lower_if / lower_while PAT branches take the protocol: temp hoist (lower_match's `__match_scrut_` shape,
+                finalize block with the frame's drops; for while-let INSIDE the loop body), the scrutinee marked moved
+                INSIDE the binding arm (so the else path keeps a FLAGGED drop — c27), arm drops on fall-through, then/else
+                as CondMoveBranches → elaborate_cond_moves. `mark_match_scrutinee_moved` gains `only_lhs` and reads the
+                IF/WHILE node's PAT as a one-arm list (the loop body untouched, its `break`s intact).
+    ifletmv     (i)+(ii)+(iv) only · ifletdr  (iii) only — rule 9/13 twins, one predicate each.
+    ifletown2   = ifletown + the while-let BINDING frame is the loop boundary (lower_for_each's frame B: `break`/`continue`
+                reach the arm bindings; `pending_loop_body_scope_` not armed) + substructmv.
+    substructmv the nested-struct prologue marks the synth's field moved when the binding takes it (the tuple branch's line).
+    matchcondmv lower_match: the pre-arm mark is skipped and each unguarded arm marks INSIDE (per-arm CondMoveBranch).
+    tuplemut    the tuple element sub carries the written `mut` (emit_pat_wild with the bit instead of make_pat_wild, 2
+                sites), bind_pattern_ref Tuple reads the subs, declare_pat_bindings declares Tuple bindings with the bit.
+    tupledecl   the borrow-check declaration only (no bit) — the inner predicate's control twin.
+
+## 4. THE PRICE — every column (bc population fires; build; cost = pass fixtures refused / cfail of 1383 / stdlib / runtime)
+    name         build              fires   bc-ceil  queue                                   cost  cfail                       stdlib  runtime
+    ifletown     0177255d0b621fda      20    0        BOTH rows close, nothing else (gate rc 1) 1     2 .expected LOST (text)     ok      —
+    ifletmv      0177255d0b621fda       1*   0        iflet row only                          —     —                           —       —
+    ifletdr      0177255d0b621fda       1*   0        whilelet row only                       —     —                           —       —
+    ifletown2    1aec3641d967d168      96    0        BOTH rows close, nothing else (gate rc 1) 0     2 .expected LOST (text)     ok      0 of 6328 (empty diff both ways, cast-region-to-uint subtracted)
+    substructmv  1aec3641d967d168       2    0        none (23 hold)                          0     0                           ok      —
+    matchcondmv  0177255d0b621fda   13200    0        none (23 hold)                          0     0                           ok      —
+    tuplemut     0177255d0b621fda      20    0        none (23 hold)                          0     0                           ok      —
+    tupledecl    0177255d0b621fda      (bc-only, not batch-priced)                            —     —                           —       —
+    * LOGOS_PROBE_FIRE on c01: ifletown 2, ifletmv 1, ifletdr 1, ifletown2 2; substructmv 2 on c31; matchcondmv 3 on c26;
+      tuplemut 5 on a01. tupledecl fires 0 on a01 (sema refuses first) — live on a33.
+    ifletown's ONE pass cost READ: `bc_drfmut_nested_pat_mut_admit` (`if let Some(W { b: mut bb }) = o { &mut *bb }`)
+      ABORTS 134 — valgrind: `Box<i64>__drop` freeing a block already freed by `Box<i64>__drop`, both from main. That is
+      c31's root (the struct-sub synth's field is dropped AND `bb` is) reached because the probe gave the if-let the arm
+      drop the match already has. Under the halves: ifletmv 0/0/0 (no arm drop, the temp's drop is suppressed — a LEAK
+      on this shape), ifletdr 134. `substructmv` alone: 0/0/0 and c31/c32 1 [1]; ifletown2 (both): 0/0/0, c30 1, c33 5 [5].
+    The TWO cfail rows READ (both names): `bc_patsubmove_second_use_fail` and `imported/fail/nll/issue-53807--c-iflet-noloop`
+      — `if let Some(a) = m {}; if let Some(b) = m {}` pinned "use of moved field 'm.0'"; armed prints "use of moved
+      variable 'm'". Same verdict, COARSER sentence: the probe marks the WHOLE var (mark_moved on a VarRef, lower_match's
+      own spelling) before borrow_check's partial-move record ("m.0") can speak. A landing owes the finer sentence —
+      mark the PAYLOAD place, not the var — and must not re-pin these two. Rule 14 on the old binary: unchanged texts.
+    Hand sets under ifletown2 (build 2), Rust's count in brackets — every (c) shape now correct: c01 1 · c03 3 · c05 3 ·
+      c08 1 · c09 1 · c12 1 · c13 6 · c16 1 · c18 3 · c21 1 · c24 1 · c27 2 · c29 3 · c30 1 · c31 1 · c32 1 · c33 5 ·
+      d02 3 · d03 3 · d04 3 · d05 1 · d07 1 · d08 3 · d09 1; controls unchanged (c02 c04 c06 c07 c14 c15 c17 c20 c25 c28
+      d01 d06 d10 d12 d14 d15). STILL WRONG under ifletown2, each with its root: c10 c22 (let-else — not touched) · c11
+      (if-let-expr — not touched) · c19 [1] stays 2 and c26 [2] stays 0 (mark_match_scrutinee_moved's own two holes:
+      the tuple-scrutinee arm, and the pre-arm mark that `matchcondmv` moves — matchcondmv: c26 0 -> 2 ✓, c28 1 ✓,
+      queue unmoved, cost 0/0/ok). d11 (illegal reuse) stays refused, sentence coarser (the cfail pair).
+    The (a) set under ifletown / ifletown2: IDENTICAL to HEAD except a14 — `if let Some(ref s) = o && s.v > 0` then
+      `if let Some(ref s2) = o`: HEAD runs (the reparse drops `ref`, the copy hides it); armed REFUSES "use of moved
+      variable 'o'". A LEGAL program refused = the price of enforcing ownership over a pattern the chain door has already
+      mis-rendered (§1a). A landing of the protocol must land WITH render_pat_src carrying IS_REF/IS_MUT (or with the
+      chain lowered without a re-parse), or a14's shape becomes a queue row of the expensive kind.
+    Rule 13, measured: ifletmv alone turns c02 (read-only if-let) 1 -> 0 (LEAK: the scrutinee stops dropping, nobody drops
+      the copy); ifletdr alone turns c02 1 -> 2 and c13 1 -> 7 (DOUBLE: the copy drops and the scrutinee still does).
+      Neither half is a safe landing; the halves are in SERIES for the SET while each closes one ROW.
+    tuplemut hand (build 1): a01 refused -> runs 0 · a31 -> runs 0 · a36 runs · a33 ADMIT -> refused "not declared as
+      mut" · a23 (illegal) stays refused. tupledecl: a33 refused, a01/a31 stay refused (sema's door), a36 (LEGAL `(mut a,
+      b)` + `&mut a`) REFUSED — separates from tuplemut on a01 a31 a36 (rule 9).
+
+## 5. QUEUE — 0 CLOSED (pricing round), 0 ADDED HERE; rows the census OWES (programs in `hand/`, each a `.logos` with the
+##    count in its exit code), for the landing round to row with `# TOTAL` re-derived:
+    tier 1 run: a08 slice `[ref a, ref b]` reads garbage · a09 `rest @ ..` compiles with a WARNING and binds nothing ·
+      a20 `ref mut n => *n = 5` writes a copy · a35 `[a, b] => &mut a` admitted AND SIGSEGV · c26 match `_`-arm leak ·
+      c31/c32 match nested-struct sub double drop · c34 match tuple-scrutinee nested-variant double drop · c22/c10
+      let-else double drop · c11 if-let-expr double drop · a29 chain + struct `ref` field: COMPILER CRASH rc 135.
+    tier 2 admits: a24 (at-binding), a33 (tuple), a34 (struct shorthand) — `&mut` on a no-`mut` binding, declare_pat_bindings'
+      `default: break`.
+    tier 3 refuses (legal): a01 a31 (tuple `mut`) · a02 a03 (tuple `ref`/`ref mut`) · a04 (struct shorthand `mut`) · a06
+      (`ref n @`) · a11 (nested tuple `ref`) · a13 a16 (chain `mut`) · a15 a25 a26 a27 a28 (chain at / `..` / neg-int /
+      slice / char) · a17 a30 (param tuple `mut`) · a18 (let-else `mut`) · a19 (grammar `let (ref a, b)`) · a22 (shorthand
+      `ref` + reuse).
+    ⚠ a08/a35 and a20 are silent WRONG VALUES, not counts; a09 is the 14th gate lie's shape (warning, rc 0, wrong output).
+
+## 6. WHAT DESERVES FUNDING, WITH THE NUMBER
+    FUND `ifletown2` as the landing of class (c) — spec + apply_spec2.py ARE the diff (22 edits); it closes BOTH queue
+    rows (predicted by name, both ways), 24 hand shapes go to Rust's count, cost 0 pass / runtime 0 of 6328 / stdlib ok,
+    and it OWES: (1) the payload-place mark so the two pinned "use of moved field 'm.0'" sentences stay (cfail 2 → 0);
+    (2) render_pat_src carrying IS_REF/IS_MUT — or a14's legal shape is refused; (3) the same protocol at `lower_let_else`
+    and `lower_if_expr` (c10 c11 c22, four more edits of the same shape); (4) fixtures in pairs for every (c) shape above
+    with a raw-pointer counter. Then `matchcondmv` (c26, cost 0) and the tuple-scrutinee arm (c19/c34) as the
+    mark_match_scrutinee_moved half — better: replace that AST re-derivation with a read of the LIR modes (`m == 0` +
+    move type), which also closes a22 (class (b)).
+    FUND `tuplemut` (cost 0, 4 edits) with the struct-shorthand and at-binding twins as ONE change: "every binding a
+    pattern introduces is declared in the borrow checker with its carried mode" — declare_pat_bindings gets the 5 missing
+    kinds (a24 a33 a34 refuse; a35 stops at E0596 instead of SIGSEGV), bind_pattern_ref reads the SUB's mode for Tuple /
+    Struct-shorthand / At (a01 a04 a31; then `mut n @` needs its grammar row), and the side-set `current_pat_mut_names_`
+    retires in favour of `is_mut()` (the last parallel carrier). Its `ref` half (a02 a03 a06 a11) needs PatTuple/PatAt to
+    carry a mode — the structural form is the tuple element being a SUB (RefBind/Wild) with `bindings` only naming, and
+    codegen binding from the sub; a08/a20/a35 say codegen's RefBind-in-container path is wrong first.
+    NOT this mechanism: render_pat_src (5 shapes + a crash) is a lowering-by-reparse that should not exist — the chain
+    should lower as nested SMatch directly (the same shape lower_if already builds); grammar rows (a19; at_binding_mut_syntax;
+    for_range_mut_var_syntax) are the grammar's.
+
+## 7. THE TREE — RESTORED (3 files checked out; probes/2026-09-06c-patclass/ added), rebuilt, hash / L1 / gate in the commit
+##    message; the probed binaries were 0177255d0b621fda (batch 1) and 1aec3641d967d168 (+spec2), both READ from build_hash.py.
+
+## ifletown
+site: src/compiler/sema_stmt.cpp::lower_if
+build: 0177255d0b621fda
+measured: 2026-09-06
+fires: 20
+ceiling: 0 (bc) / 2 (soundness queue: iflet_payload_moveout_double_drop, whilelet_mut_reassign_leak)
+cost: 1 pass (bc_drfmut_nested_pat_mut_admit ABORTS 134 — a Box double free, root = the nested-struct prologue, see substructmv) / cfail 2 of 1383 text-only (a COARSER E0382 sentence: "use of moved variable 'm'" for the pinned "use of moved field 'm.0'") / stdlib ok / hand: a14 (chain `ref`) REFUSED
+verdict: the protocol closes both rows; superseded by ifletown2 (the loop-edge frame + substructmv)
+note: temp hoist + in-arm mark + arm drops + CondMoveBranch merge at lower_if and lower_while PAT branches; mark_match_scrutinee_moved(…, only_lhs) reads a PAT node as a one-arm list.
+
+## ifletmv
+site: src/compiler/sema_stmt.cpp::lower_if
+build: 0177255d0b621fda
+measured: 2026-09-06
+fires: 1
+ceiling: 0 (bc) / 1 (soundness queue: iflet_payload_moveout_double_drop)
+cost: hand: c02 read-only if-let 1 -> 0 (LEAK), c13 1 -> 0, c18 c21 stay 0
+verdict: ⛔ half a mechanism — the mark without the arm drop trades every double drop for a leak
+note: hoist + mark + flags only.
+
+## ifletdr
+site: src/compiler/sema_stmt.cpp::lower_if
+build: 0177255d0b621fda
+measured: 2026-09-06
+fires: 1
+ceiling: 0 (bc) / 1 (soundness queue: whilelet_mut_reassign_leak)
+cost: hand: c02 1 -> 2 (DOUBLE), c13 1 -> 7, c03 2 -> 4; bc_drfmut_nested_pat_mut_admit aborts 134
+verdict: ⛔ half a mechanism — the arm drop without the mark doubles every read-only if-let over a place
+note: arm drops only.
+
+## ifletown2
+site: src/compiler/sema_stmt.cpp::lower_while
+build: 1aec3641d967d168
+measured: 2026-09-06
+fires: 96
+ceiling: 0 (bc) / 2 (soundness queue: iflet_payload_moveout_double_drop, whilelet_mut_reassign_leak; exactly these, gate rc 1)
+cost: 0 pass / cfail 2 of 1383 text-only (the coarser E0382 sentence, both names read) / stdlib ok / runtime 0 of 6328 (empty diff both ways) / hand: 24 (c)/(d) shapes to Rust's count, a14 (chain `ref`) REFUSED, c10 c11 c22 (let-else, if-let-expr) untouched, c19 c26 (mark_match_scrutinee_moved's own holes) untouched
+verdict: ✓ FUND — the landing candidate; owes the payload-place mark, render_pat_src's `ref`/`mut`, and the same protocol at lower_let_else / lower_if_expr
+note: = ifletown + the while-let binding frame is the loop boundary (lower_for_each's frame B; pending_loop_body_scope_ not armed) + substructmv. Spec: probes/2026-09-06c-patclass/{patclass.spec,apply_spec2.py}.
+
+## substructmv
+site: src/compiler/sema_stmt.cpp::emit_nested_pat_destructure
+build: 1aec3641d967d168
+measured: 2026-09-06
+fires: 2
+ceiling: 0 (bc) / 0 (soundness queue — the rows it fixes are unrowed: c31 c32 2 -> 1, c33 with ifletown2 5)
+cost: 0 pass / cfail 0 of 1383 / stdlib ok / hand: only c31 c32 move
+verdict: ✓ FUND (one line, the tuple branch's own `mark_moved_expr`) — a pre-existing match double drop with a Box double-FREE twin
+note: the site fires twice over the whole bc population: the nested-struct sub-pattern over a Drop-bearing field has no corpus program.
+
+## matchcondmv
+site: src/compiler/sema_stmt.cpp::lower_match
+build: 0177255d0b621fda
+measured: 2026-09-06
+fires: 13200
+ceiling: 0 (bc) / 0 (soundness queue; c26 match `_`-arm leak 0 -> 2 = Rust, unrowed)
+cost: 0 pass / cfail 0 of 1383 / stdlib ok / hand: c07 c20 c25 c28 unchanged, no (c) shape moves
+verdict: ✓ FUND with ifletown2 — the pre-arm unconditional mark becomes a per-arm CondMoveBranch move (a flagged drop for the arms that do not bind)
+note: mark_match_scrutinee_moved(smatch.scrut, …, node, arm LHS) after bind_pattern, the pre-arm call skipped.
+
+## tuplemut
+site: src/compiler/sema_stmt.cpp::build_pattern_impl
+build: 0177255d0b621fda
+measured: 2026-09-06
+fires: 20
+ceiling: 0 (bc) / 0 (soundness queue)
+cost: 0 pass / cfail 0 of 1383 / stdlib ok / hand: a01 a31 refused -> run 0, a33 ADMIT -> refused E0596, a36 runs, a23 stays refused
+verdict: ✓ FUND as one member of "every pattern binding is declared with its carried mode" (struct shorthand, at-binding, slice twins)
+note: emit_pat_wild(nm, NO_SLOT, pat_byval_mut(sub)) for the tuple element (2 sites) + bind_pattern_ref Tuple reads the subs + declare_pat_bindings Tuple.
+
+## tupledecl
+site: src/compiler/borrow_check.cpp::declare_pat_bindings
+build: 0177255d0b621fda
+measured: 2026-09-06
+fires: 0 on a01 (sema refuses first), live on a33
+ceiling: 0 (bc) / 0 (soundness queue)
+cost: hand: a36 (LEGAL `(mut a, b)` + `&mut a`) REFUSED — the declaration without the bit
+verdict: ⛔ control twin of tuplemut's inner predicate — separates on a01 a31 a36
+note: the Tuple case of declare_pat_bindings without the mut bit.

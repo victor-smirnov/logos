@@ -1,0 +1,9 @@
+package a03_tuple_refmut;
+fn main() -> i32 {
+    let mut t: (i64, i64) = (1i64, 2i64);
+    match t {
+        (ref mut a, _) => { *a = 5i64; }
+    }
+    if t.0 != 5i64 { return 1i32; }
+    return 0i32;
+}

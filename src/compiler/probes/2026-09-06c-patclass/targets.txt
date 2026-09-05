@@ -1,0 +1,16 @@
+# ROUND 2026-09-06c — TARGET ROWS BY NAME (written before any edit)
+iflet_payload_moveout_double_drop   1  run 1   `if let Some(r) = o { eat(r) }` — 2 drops (Rust 1)
+whilelet_mut_reassign_leak          1  run 1   `while let Some(mut s) = v.pop() { s = S{..} }` — the new value never dropped
+# WHY THIS BLOCK: both rows are one root — the if-let / while-let lowerings build an SMatch WITHOUT lower_match's
+# ownership protocol (temp hoist, scrutinee marked moved, arm-scope drops): the payload binding is a bitwise COPY and
+# the scrutinee stays the owner. The arm exists (lower_match: mark_match_scrutinee_moved + [[baghunt]] arm drops +
+# CondMoveBranch/elaborate_cond_moves); the if-let never reaches it. 8 unrowed hand witnesses share it (c03 c08-c13
+# c16 c18 c19 c21 c22 c24 c27 c29). Grouping test: ONE change (probe ifletown) must move BOTH rows.
+# NOT this block, censused with numbers (class (a)): tuple `mut`/`ref` element door (a01-a03, a31, a33 admit),
+# struct shorthand `mut` (a04, a34 admit), at-binding `ref`/undeclared (a06, a24 admit), slice RefBind/rest (a08 a09
+# a35 — RUN, tier 1), top-level `ref mut` write lost (a20 — RUN, tier 1), render_pat_src (a13 a15 a16 a25-a29;
+# a29 = compiler CRASH rc 135), let-else `mut` (a18), fn/closure tuple-param `mut` (a17 a30), grammar `let (ref a, b)`
+# (a19), mark_match_scrutinee_moved AST re-derivation (a11 a22). Priced alongside: tuplemut/tupledecl (a01 a31 a33 a36).
+# Predicted NOT moved by any probe here: every other queue row (box_*, trait_default_*, closure_*, dangle_*, dyn_*,
+# layout_*, outlives_*, struct_binder_*, typestr_*, sharedref_*, for_range_*, match_tmp_wild_mut_addrof,
+# at_binding_mut_syntax, box_deref_assign_mut_let, box_write_raw_ptr_diag, drop_inherent_call_order).

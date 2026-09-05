@@ -1,0 +1,17 @@
+# ROUND 2026-09-06c — PREDICTIONS BY NAME, before the build
+ifletown     queue: iflet_payload_moveout_double_drop -> run 0; whilelet_mut_reassign_leak -> run 0. No other row.
+             hand (c): c01 2->1 · c03 2->3 · c08 2->1 · c09 2 (chain reparse: same lowering -> 1) · c10 2 (let-else: NOT touched, stays 2)
+             · c11 2 (if-let-expr: NOT touched, stays 2) · c12 2->1 · c13 1->6 · c16 2->1 · c18 0->3 · c19 2->1 · c21 0->1
+             · c22 2 (let-else, stays) · c24 2->1 · c27 2->2 (flagged drop keeps the un-matched payload) · c29 4->3
+             · controls c02 c04 c06 c07 c14 c15 c17 c20 c25 c26(0, match's own leak, unchanged) c28 unchanged.
+             cost: pass 0 / cfail 0 / stdlib ok / runtime 0 predicted; ⚠ the drop-flag path on a hoisted while-let temp is
+             the least-exercised shape — a nonzero here is expected to be a `break` inside a while-let body.
+ifletdr      (arm drops only, no mark/hoist) c18 0->3, c21 0->1 (the binding is dropped; nobody else owns the temp), c13 1->6;
+             c01 stays 2 (o still dropped); c05 1->3 (the new value dropped at arm end) -> whilelet row CLOSES on this half alone;
+             iflet row does NOT. cost 0.
+ifletmv      (hoist+mark+flags only) c01 2->1, c12 2->1, c08/c16/c19/c24 2->1, c27 2; c18 stays 0 (nobody drops the copy);
+             c05 stays 1. iflet row closes, whilelet row does not.
+matchcondmv  queue: no row. c26 0->2 (the `_` arm's flagged drop), c28 1 unchanged, c07 c20 c25 unchanged. cost 0 pass /
+             cfail 0; runtime: fixtures with a `_` arm over a payload-bearing enum may change COUNTS — those are the ones to read.
+tuplemut     queue: no row. a01 refused -> runs 0; a31 -> runs 0; a36 runs; a33 (illegal) admit -> refused E0596; a23 stays refused.
+tupledecl    a33 admit -> refused; a01 stays refused (sema door); separates from tuplemut on a01/a31.

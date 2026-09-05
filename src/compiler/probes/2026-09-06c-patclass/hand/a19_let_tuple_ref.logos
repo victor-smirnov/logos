@@ -1,0 +1,9 @@
+package a19_let_tuple_ref;
+struct S { v: i64 }
+fn main() -> i32 {
+    let t: (S, i64) = (S { v: 1i64 }, 2i64);
+    let (ref a, b) = t;
+    if a.v + b != 3i64 { return 1i32; }
+    if t.0.v != 1i64 { return 2i32; }
+    return 0i32;
+}

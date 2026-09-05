@@ -1,0 +1,11 @@
+package a05_struct_field_mut;
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let p: P = P { a: 1i64, b: 2i64 };
+    let mut out: i64 = 0i64;
+    match p {
+        P { a: mut aa, b } => { aa = aa + b; out = aa; }
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

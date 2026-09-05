@@ -1,0 +1,15 @@
+package c26_match_wild_other_variant;
+
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+fn eat(s: S) -> i64 { return s.v; }
+enum E { A(S), B(S) }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let e: E = E::B(S { v: 2i64, i: p });
+        match e { E::A(r) => { let _k: i64 = eat(r); }, _ => {} }
+    }
+    return c as i32;
+}

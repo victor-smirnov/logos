@@ -1,0 +1,44 @@
+# ROUND 2026-09-06c — THE POPULATION (written before any edit). Every producer and consumer of the
+# LIR pattern node kinds (lir_schema::pat::Code, 13) and of BINDING_REF_MODES / pk::IS_MUT / sk::IS_MUT,
+# by symbol. grep the name; line numbers are not cited.
+## Schema
+include/logos/compiler/lir_schema.hpp   pat::Code (13 kinds) · pat_keys (28 keys; BINDING_REF_MODES on VariantData ONLY;
+                                        IS_MUT on Wild/RefBind/RefPat; BIND_SLOTS on VariantData/Tuple; no mode key on
+                                        Tuple/Struct/PatFieldBinding/At/Slice)
+include/logos/compiler/lir.hpp          lir::PatTuple/PatStruct/PatFieldBinding/PatSlice/PatAt/PatRefBind/PatRefPat (transient packs)
+## Producers (emit a pattern node)
+src/compiler/lir_mirror.cpp             LirMirrorEmitter::emit_pat_{variant,int,bool,wild,variant_data,or,tuple,range,struct,slice,at,ref_bind,ref_pat}_direct
+src/compiler/sema_stmt.cpp              SemaChecker::build_pattern · build_pattern_variant · build_pattern_variant_data (mints
+                                        BINDING_REF_MODES 1/2/3/4/0x10) · build_pattern_or · build_pattern_bytes · build_pattern_impl
+                                        (Int/NegInt/Char/CharRange/Bool/Tuple/Range/At/Ref/Wild+RefBind/Struct/Slice/Writ fallbacks)
+                                        · make_pat_wild (NO mode: the tuple element door) · lower_for_each (synth `Some(x)` VariantData,
+                                        modes {0x10|0}) · lower_if / lower_while / lower_if_expr / lower_match_expr (`_` arms)
+src/compiler/sema_render.cpp            SemaChecker::render_pat_src — AST -> SOURCE TEXT -> re-parse for if-let-chain / while-let-chain
+                                        (a second lowering door: PAT_WILD drops IS_MUT/IS_REF; PAT_AT/PAT_SLICE/PAT_NEG_INT/PAT_CHAR/
+                                        PAT_STR unsupported; PAT_FIELD ref/mut dropped; PAT_REST name dropped; PAT_RANGE always `..=`)
+src/compiler/sema_expr.cpp              SemaChecker::lower_if_let_chain (the reparse caller) · lower_if_expr (EMatchExpr from a PAT)
+src/compiler/mono_clone.cpp             PatSubstWalker::walk (re-emits all 13 kinds; carries slots, raw modes, is_mut — COMPLETE, read
+                                        end to end) · Mono::subst_stmt (SForEach var_mut)
+## Consumers (read a pattern node)
+include/logos/compiler/lir_view.hpp     Pat{Bool,Wild,VariantData,Variant,Int,Or,Tuple,Range,FieldBinding,Struct,Slice,At,RefBind,RefPat}View
+src/compiler/sema_stmt.cpp              SemaChecker::bind_pattern / bind_pattern_ref (VariantData: muts+slots · Tuple: bindings, define
+                                        false, subs NOT read for mode · Or: first alt · Wild: `current_pat_mut_names_` SIDE SET, not
+                                        is_mut() · RefBind · At: define false · RefPat: byval_ walker over modes · Struct: shorthand
+                                        define false · Slice: recurse) · emit_nested_variant_lets::define_binds · lower_match
+                                        (byval_name over modes; arm drops; mark_match_scrutinee_moved BEFORE the arms) ·
+                                        mark_match_scrutinee_moved (AST-keyed: MATCH_ARM/LHS; PAT_FIELD shorthand IS_REF not read) ·
+                                        lower_let_else (define false) · lower_if / lower_while PAT branches (SMatch, NO ownership protocol)
+                                        · emit_nested_pat_destructure · emit_for_pattern_destructure · is_synth_pat_name
+src/compiler/sema_expr.cpp              SemaChecker::lower_if_expr (bind_pattern, EMatchExpr, no protocol) · lower_match_expr (sema_stmt)
+src/compiler/sema.cpp                   collect_fn tuple-param prologue (`__tup_param_N`; PAT_WILD IS_MUT dropped) · closure params
+src/compiler/borrow_check.cpp           BorrowChecker::declare_pat_bindings (VariantData muts · Wild is_mut · RefBind · RefPat; Tuple/
+                                        Struct/Slice/At/Or: `default: break` — NOTHING declared) · each_pat_binding · each_pat_binding_place
+                                        (modes zip) · take_ref_borrows (3 `m == 0` move sites) · visit_loop_body (loop_var_mut)
+src/compiler/borrow_flow_summary.inc    bind_pat (summarizer; VariantData + Wild only, its own comment says so)
+src/compiler/mlir_gen_stmt.cpp          MLIRGenImpl::collect_pat_bindings · pat_test · pat_bind (Wild/Tuple/VariantData/Struct/At/Slice/
+                                        RefBind; slice RefBind binds a WRONG place — a08; slice rest name never bound — a09; top-level
+                                        RefBind over a place writes a COPY — a20)
+src/compiler/mlir_gen_expr.cpp          the match-expr twins of the above
+## Walkers of the STATEMENT that owns a pattern
+src/compiler/lir_mirror.cpp             emit_for_each_direct (sk::IS_MUT, capacity 9) · emit_match_stmt_direct · let_else
+src/compiler/mono_clone.cpp             Mono::subst_stmt ForEach/Match/LetElse

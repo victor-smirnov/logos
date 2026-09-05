@@ -1,0 +1,10 @@
+package a31_tuple_or_mut;
+fn main() -> i32 {
+    let t: (bool, i64) = (true, 2i64);
+    let mut out: i64 = 0i64;
+    match t {
+        (true | false, mut b) => { b = b + 1i64; out = b; }
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

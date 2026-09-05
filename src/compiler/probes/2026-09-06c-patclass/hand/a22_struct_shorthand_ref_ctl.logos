@@ -1,0 +1,18 @@
+package a22_struct_shorthand_ref_ctl;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+struct P { a: S, b: i64 }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let pp: P = P { a: S { v: 1i64, i: p }, b: 2i64 };
+        let mut out: i64 = 0i64;
+        match pp {
+            P { ref a, b } => { out = a.v + b; }
+        }
+        if out != 3i64 { return 9i32; }
+        if pp.a.v != 1i64 { return 8i32; }
+    }
+    return c as i32;
+}

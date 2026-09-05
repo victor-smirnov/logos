@@ -1,0 +1,11 @@
+package a34_struct_nomut_addrof_admit;
+struct S { v: i64 }
+struct P { a: S, b: i64 }
+fn bump(p: &mut S) { p.v = p.v + 1i64; }
+fn main() -> i32 {
+    let pp: P = P { a: S { v: 1i64 }, b: 2i64 };
+    match pp {
+        P { a, b } => { bump(&mut a); if a.v + b != 4i64 { return 1i32; } }
+    }
+    return 0i32;
+}

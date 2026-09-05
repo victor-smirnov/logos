@@ -1,0 +1,14 @@
+package c33_iflet_nested_struct_sub_mut_box;
+
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+struct W { b: S, k: i64 }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let o: Option<W> = Option::Some(W { b: S { v: 1i64, i: p }, k: 7i64 });
+        if let Option::Some(W { b: mut bb, k: _ }) = o { bb.v = bb.v + 4i64; }
+    }
+    return c as i32;
+}

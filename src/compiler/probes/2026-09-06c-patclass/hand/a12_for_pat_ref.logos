@@ -1,0 +1,17 @@
+package a12_for_pat_ref;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let arr: [(S, i64); 2] = [(S { v: 1i64, i: p }, 10i64), (S { v: 2i64, i: p }, 20i64)];
+        let mut out: i64 = 0i64;
+        for (ref a, b) in arr {
+            out = out + a.v + b;
+        }
+        if out != 33i64 { return 9i32; }
+        if arr[0].0.v != 1i64 { return 8i32; }
+    }
+    return c as i32;
+}

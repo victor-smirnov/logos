@@ -1,0 +1,16 @@
+package c22_letelse_readonly;
+
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+fn eat(s: S) -> i64 { return s.v; }
+fn body(p: *mut i64) -> i64 {
+    let o: Option<S> = Option::Some(S { v: 1i64, i: p });
+    let Option::Some(r) = o else { return 9i64; };
+    return r.v;
+}
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    if body(p) != 1i64 { return 99i32; }
+    return c as i32;
+}

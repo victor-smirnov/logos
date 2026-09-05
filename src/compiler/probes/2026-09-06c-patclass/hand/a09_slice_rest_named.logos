@@ -1,0 +1,10 @@
+package a09_slice_rest_named;
+fn main() -> i32 {
+    let arr: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    let mut out: i64 = 0i64;
+    match arr {
+        [first, rest @ ..] => { out = first + rest[0]; }
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

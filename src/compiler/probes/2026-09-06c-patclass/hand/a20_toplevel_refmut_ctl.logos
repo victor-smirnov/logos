@@ -1,0 +1,9 @@
+package a20_toplevel_refmut_ctl;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    match x {
+        ref mut n => { *n = 5i64; }
+    }
+    if x != 5i64 { return 1i32; }
+    return 0i32;
+}

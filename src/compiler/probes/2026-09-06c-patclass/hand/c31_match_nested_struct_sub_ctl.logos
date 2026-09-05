@@ -1,0 +1,16 @@
+package c31_match_nested_struct_sub_ctl;
+
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+struct W { b: S, k: i64 }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let o: Option<W> = Option::Some(W { b: S { v: 1i64, i: p }, k: 7i64 });
+        let mut out: i64 = 0i64;
+        match o { Option::Some(W { b: bb, k }) => { out = bb.v + k; }, Option::None => {} }
+        if out != 8i64 { return 99i32; }
+    }
+    return c as i32;
+}

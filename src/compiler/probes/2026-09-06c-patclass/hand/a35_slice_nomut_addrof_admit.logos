@@ -1,0 +1,10 @@
+package a35_slice_nomut_addrof_admit;
+struct S { v: i64 }
+fn bump(p: &mut S) { p.v = p.v + 1i64; }
+fn main() -> i32 {
+    let arr: [S; 2] = [S { v: 1i64 }, S { v: 2i64 }];
+    match arr {
+        [a, b] => { bump(&mut a); if a.v + b.v != 4i64 { return 1i32; } }
+    }
+    return 0i32;
+}

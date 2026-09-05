@@ -1,0 +1,10 @@
+package a36_tuple_mut_addrof;
+struct S { v: i64 }
+fn bump(p: &mut S) { p.v = p.v + 1i64; }
+fn main() -> i32 {
+    let t: (S, i64) = (S { v: 1i64 }, 2i64);
+    match t {
+        (mut a, b) => { bump(&mut a); if a.v + b != 4i64 { return 1i32; } }
+    }
+    return 0i32;
+}

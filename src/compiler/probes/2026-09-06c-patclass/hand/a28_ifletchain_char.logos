@@ -1,0 +1,10 @@
+package a28_ifletchain_char;
+fn main() -> i32 {
+    let o: Option<char> = Option::Some('x');
+    let mut hit: i64 = 0i64;
+    if let Option::Some('x') = o && hit == 0i64 {
+        hit = 1i64;
+    }
+    if hit != 1i64 { return 1i32; }
+    return 0i32;
+}
