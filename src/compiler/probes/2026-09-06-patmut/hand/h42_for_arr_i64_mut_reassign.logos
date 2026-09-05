@@ -1,0 +1,11 @@
+package h42_for_arr_i64_mut_reassign;
+fn main() -> i32 {
+    let arr: [i64; 2] = [1i64, 2i64];
+    let mut acc: i64 = 0i64;
+    for mut n in arr {
+        n = n + 10i64;
+        acc = acc + n;
+    }
+    if acc != 23i64 { return 1i32; }
+    return 0i32;
+}

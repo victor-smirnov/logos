@@ -1,0 +1,12 @@
+package h41_for_arr_mut_fieldwrite;
+struct S { v: i64 }
+fn main() -> i32 {
+    let arr: [S; 2] = [S { v: 1i64 }, S { v: 2i64 }];
+    let mut acc: i64 = 0i64;
+    for mut s in arr {
+        s.v = s.v + 10i64;
+        acc = acc + s.v;
+    }
+    if acc != 23i64 { return 1i32; }
+    return 0i32;
+}

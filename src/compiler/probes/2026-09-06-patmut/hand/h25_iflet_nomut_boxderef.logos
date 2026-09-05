@@ -1,0 +1,9 @@
+package h25_iflet_nomut_boxderef;
+fn main() -> i32 {
+    let o: Option<Box<i64>> = Option::Some(Box::new(1i64));
+    if let Option::Some(bb) = o {
+        let r: &mut i64 = &mut *bb;
+        *r = 8i64;
+    }
+    return 0i32;
+}

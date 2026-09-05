@@ -1,0 +1,11 @@
+package h23_match_nomut_fieldwrite;
+struct S { v: i64 }
+enum E { A(S), B }
+fn main() -> i32 {
+    let e: E = E::A(S { v: 1i64 });
+    match e {
+        E::A(s) => { s.v = 8i64; },
+        E::B => {}
+    }
+    return 0i32;
+}

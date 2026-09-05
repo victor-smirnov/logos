@@ -1,0 +1,11 @@
+package h37_for_tuple_pat_nomut_reassign;
+fn main() -> i32 {
+    let arr: [(i64, i64); 2] = [(1i64, 2i64), (3i64, 4i64)];
+    let mut acc: i64 = 0i64;
+    for (a, b) in arr {
+        a = a + b;
+        acc = acc + a;
+    }
+    if acc != 10i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+package h20_match_mut_addrof;
+struct S { v: i64 }
+enum E { A(S), B }
+fn bump(p: &mut S) { p.v = p.v + 7i64; }
+fn main() -> i32 {
+    let e: E = E::A(S { v: 1i64 });
+    match e {
+        E::A(mut s) => { bump(&mut s); if s.v != 8i64 { return 1i32; } },
+        E::B => {}
+    }
+    return 0i32;
+}

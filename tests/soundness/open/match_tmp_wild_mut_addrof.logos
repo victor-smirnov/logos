@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row match_tmp_wild_mut_addrof (tier 3). A top-level 'mut s'
+// binding over a TEMPORARY scrutinee ('match mk() { mut s => ... }') and '&mut s'
+// in the arm: legal Rust. TODAY refused "cannot borrow 's' as mutable: not declared
+// as mut" (the pattern 'mut' does not reach the borrow checker). BEHIND that
+// refusal is a second defect: with the bit carried (2026-09-06 patmutbit) the same
+// program dies in codegen, "'llvm.getelementptr' op operand #0 must be LLVM pointer
+// type" — the wild binding over an rvalue is an SSA value, not a slot. A VARIABLE
+// scrutinee ('let s0 = mk(); match s0 { mut s => ... }') is fine. Same for
+// 's.v = 8' and for a '&mut self' method call. Rust: exit 0.
+package match_tmp_wild_mut_addrof;
+struct S { v: i64 }
+fn mk() -> S { return S { v: 1i64 }; }
+fn bump(p: &mut S) { p.v = p.v + 7i64; }
+fn main() -> i32 {
+    match mk() {
+        mut s => { bump(&mut s); if s.v != 8i64 { return 1i32; } }
+    }
+    return 0i32;
+}

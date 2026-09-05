@@ -1,0 +1,17 @@
+ROUND 2026-09-06 (pricing) — TARGET QUEUE ROWS, named before any edit
+  pattern_mut_recv   tier 3  refuses   match E::A(mut s) => s.get()   (a10; for mut / if let Some(mut s) / while let are the same root)
+ROOT: the by-value pattern `mut` is PARSED (PAT_WILD IS_MUT) and RECORDED in sema (binding_is_mut, current_pat_mut_names_)
+      and then DROPPED at two doors in series: (1) sema's own define for VariantData bindings and the for-each var
+      (`assignment to immutable variable`, h13/h22/h19 on base), (2) the LIR carrier to borrow_check
+      (BINDING_REF_MODES 0 = by value either way; PatWild has no IS_MUT; SForEach has no var-mut) so
+      declare_pat_bindings / visit_loop_body cannot set is_mut_binding (`not declared as mut`, h01/h05/h07/h08/h11/h15/h20).
+      The same fact was carried for `let PATTERN` in 2026-09-05a; the pat_bound MASK (drf site + let-inherit) that
+      stands in for it ADMITS h03/h25 (no-`mut` Box deref in match / if let) — unrowed admits, twins of the closed
+      destructure_no_mut_box_deref.
+WHY THIS BLOCK: the only queue row whose mechanism is an ARM THAT EXISTS (is_mut_binding, read at every binding-mut
+      site) reached through a fact the code does not carry; 09-04g and 09-05a both named it as the prerequisite.
+NOT this block: trait_default_body_* (priced 09-04, its own round: needs the trait binders in scope); boxbox (extract_borrow_place cross,
+      third root); sharedref_recv (sema method lookup); the tier-1 three (five roots, refuted groupings).
+PREDICTION BY NAME (whole): closes pattern_mut_recv and nothing else on the queue; bc ledgers unmoved (99/25);
+      hand: h01 h04 h05 h07 h08 h11 h13 h15 h19 h20 h22 h24 -> run 0; h02 h03 h06 h12 h14 h18 h21 h23 h25 refused;
+      h09 h10 unchanged (run 0). `patmutbit` alone: same minus h03/h25 (still admitted).

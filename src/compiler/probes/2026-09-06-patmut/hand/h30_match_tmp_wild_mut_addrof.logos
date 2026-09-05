@@ -1,0 +1,10 @@
+package h30_match_tmp_wild_mut_addrof;
+struct S { v: i64 }
+fn mk() -> S { return S { v: 1i64 }; }
+fn bump(p: &mut S) { p.v = p.v + 7i64; }
+fn main() -> i32 {
+    match mk() {
+        mut s => { bump(&mut s); if s.v != 8i64 { return 1i32; } }
+    }
+    return 0i32;
+}

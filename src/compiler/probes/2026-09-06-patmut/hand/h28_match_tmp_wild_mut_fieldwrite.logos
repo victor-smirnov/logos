@@ -1,0 +1,9 @@
+package h28_match_tmp_wild_mut_fieldwrite;
+struct S { v: i64 }
+fn mk() -> S { return S { v: 1i64 }; }
+fn main() -> i32 {
+    match mk() {
+        mut s => { s.v = 8i64; if s.v != 8i64 { return 1i32; } }
+    }
+    return 0i32;
+}

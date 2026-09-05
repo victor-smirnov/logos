@@ -1,0 +1,10 @@
+package h29_match_tmp_wild_addrof_shared;
+struct S { v: i64 }
+fn mk() -> S { return S { v: 1i64 }; }
+fn rd(p: &S) -> i64 { return p.v; }
+fn main() -> i32 {
+    match mk() {
+        s => { if rd(&s) != 1i64 { return 1i32; } }
+    }
+    return 0i32;
+}

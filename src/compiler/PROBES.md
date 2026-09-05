@@ -23281,3 +23281,161 @@ ceiling: 0 (bc) / 0 (soundness queue)
 cost: 7 pass (exactly the new bc_patmut_* fixtures) / cfail 1 of 1367 (bc_patmut_struct_destructure_box_deref_fail RE-ADMITTED, rc 1 -> 0) / stdlib ok
 verdict: control twin of the LANDED root-B mechanism — sema stamps is_mut=false again AND the `__dst_*` half of the pat_bound mask returns (borrow_check.cpp, the `let` arm)
 note: one name for the two halves of one mechanism; both must revert together for the old behaviour to be the old behaviour.
+
+# ═══ ROUND 2026-09-06 (PRICING, soundness queue) — THE BY-VALUE PATTERN `mut` IS PARSED, RECORDED
+# IN SEMA, AND DROPPED AT TWO DOORS IN SERIES; CARRYING IT CLOSES pattern_mut_recv (predicted 1 by
+# name, both ways) AT COST 0 / cfail 1 text-only (a FALSE LINE REMOVED) / `-L fail` 2484 of 2484 /
+# stdlib four layers / RUNTIME 0 of 6308, AND TURNS THREE UNROWED ADMITS INTO E0596 REFUSALS.
+# FOUR ROWS ADDED (17 -> 21): two admits, two refusals, all found by hand shapes. NOT LANDED. ═══
+
+## 0. STEP 1, RE-DERIVED (two corrections to the brief)
+    HEAD 35173b3a3, clean = origin/main. build_hash `cdde77be7fb503f2 43` (READ; = the 09-05a commit's).
+    soundness_queue `# TOTAL` 17 = 17 by listing (3/2/9/3 by tier) · bc_admits 99 · bc_admits_blocked 25 ·
+    probe-log-lint 182 records, every site resolves. L1 751/751 + 174 gates rc 0 (re-run at close, §7).
+⚠ THE BRIEF'S GATE LINE IS WRONG: `bash tests/logos/soundness_queue_gate.sh build/bin/logosc … .` with
+no `LOGOS_LIB_DIR` reads rc 4 "GATE BROKEN … clean program … read '0/0/LINKFAIL'" — the reader has no
+archives on its link line. With `LOGOS_LIB_DIR=build/lib/logos` (what ctest sets): rc 0, 17 rows hold.
+⚠ A DETACHED JOB LAUNCHED IN THE SAME TOOL CALL THAT LATER TIMES OUT IS KILLED WITH IT (the 600 s cap
+sends TERM to the call's process group; `probe-batch.sh` traps TERM and REVERTS the tree mid-price).
+Measured once, batch 2, 43 edits applied and lost. `setsid nohup …` in its OWN call, block in the next.
+
+## 1. THE TARGET ROW BY ID (file `src/compiler/probes/2026-09-06-patmut/targets.txt`, before any edit)
+    pattern_mut_recv   tier 3  refuses   `match e { E::A(mut s) => s.get() }` (+ `for mut s`, `if let Some(mut s)`, `while let`)
+WHY THIS BLOCK: the one queue row whose mechanism is an ARM THAT EXISTS (`is_mut_binding`, read at every
+binding-mut site) reached through a FACT THE CODE DOES NOT CARRY; 09-04g §8.2 and 09-05a §7 both named it
+the prerequisite. Groupings tested by reading: boxbox_mut_deref (extract_borrow_place `cross`), sharedref_recv
+(sema method lookup), trait_default_body_* (needs the trait binders in scope, its own round), the tier-1
+three (five roots) — none moves with this bit. Predicted: exactly pattern_mut_recv closes; bc ledgers 99/25
+unmoved; the `-L fail` false line of 09-05a's kind may go. All held.
+
+## 2. THE ROOT — RULE 16: recorded, then discarded, at TWO doors in series
+The parser mints `PAT_WILD{NAME, IS_MUT}` for `mut x` everywhere. In sema the match-arm payload walk
+(`SemaChecker` match lowering, the `bc == la::PAT_WILD` arm) READS `is_mut` and pushes
+`binding_is_mut.push_back(is_ref && is_mut)` — the by-value `mut` is dropped on that line; the mode loop
+mints `BINDING_REF_MODES` 1/2 (`ref`/`ref mut`) and 3/4 (default modes) and 0 for BOTH `x` and `mut x`.
+`current_pat_mut_names_` (P4-pm-12) carries the top-level `mut n =>` into sema's own `define`, but the
+VariantData arm of `bind_pattern_ref` defines every payload binding `false`, and `lower_for_each` defines
+the loop var `false` at four sites (array, slice, `&Vec` desugar, iterator desugar's `Some(x)` synth).
+    door 1 (sema's scope):   `assignment to immutable variable` — h13 h19 h22 h34 h36 h41 h42 on base
+    door 2 (borrow check):   `cannot borrow 's' as mutable: not declared as mut` — h01 h05 h07 h08 h11 h15 h20 h26 h38
+    the MASK for door 2:     `pat_bound` (declare_var under declaring_pattern_) exempts the deref_mut site
+                             and any `let` projecting out of a pat-bound temp — which ADMITS h03 h25 h33
+                             (no-`mut` binding, `&mut *bb`): the match/if-let/nested twins of the CLOSED
+                             destructure_no_mut_box_deref, unrowed until today (§6).
+    door 3 (found by the price, §4): the nested-sub prologue (`emit_nested_pat_destructure`, `Some(W { b: mut bb })`
+                             and `Some((mut a, b))`) and the for-pattern prologue (`emit_for_pattern_destructure`,
+                             `for (mut a, b) in arr`) stamp `SLet.is_mut = false` — the 7th/8th/9th `let` sites
+                             09-05a's six did not include.
+
+## 3. THE MECHANISM PRICED (spec `src/compiler/probes/2026-09-06-patmut/patmut.spec`, 43 edits, ONE build each)
+Carrier, byte-identical unarmed: bit `0x10` in `BINDING_REF_MODES` = "by value, written `mut`" —
+`PatVariantDataView::bind_ref_modes()` masks it (`& 0xF`, so the three `m == 0` move consumers and
+`each_pat_binding_place`'s zip are untouched), `bind_byval_muts()` exposes it, `bind_ref_modes_raw()` is
+what mono_clone carries; `pk::IS_MUT` on PatWild (`PatWildView::is_mut`, emitter + mono_clone);
+`sk::IS_MUT` on SForEach (`SForEachView::var_mut`, `lir::SForEach::var_mut`, sema_impl.hpp) — ⚠ the
+ForEach map is `make_map(…)` at the DEFAULT capacity 8 and already holds 8 keys: the 9th ABORTED the
+compiler (`TinyObjectMap::put — map is full (capacity 8)`, LIR-MIRROR-005) on `for mut s in arr`, caught by
+hand h38/h40-h42 on build 1 and invisible to every corpus column (no pass fixture writes `for mut` over an
+array). Build 2 passes 9. Sema: `binding_is_mut.push_back(is_mut)`, the mode loop's third arm, the
+VariantData `define` reads the bit, the PatWild emit passes `pat_byval_mut(pnode)`, `for_var_mut` at the
+bare-binding read and its 4 defines + 3 `sfe.var_mut` + the desugar's modes vector, and (build 2) the three
+prologue sites. Borrow check: `declare_pat_bindings` VariantData/Wild set `is_mut_binding` from the bit,
+`visit_loop_body(…, loop_var_mut)` for the two loop-var declarations, ForEach passes `v.var_mut()`.
+    patmutbit    the carrier + both declares, the two `pat_bound` masks STAY
+    patmutwhole  = patmutbit + the masks retire (deref_mut site `pat_root_`, the `let`-inherit site)
+    patmutany    crude twin: `is_mut_binding = true` for EVERY pattern-bound and loop-var name (bc only)
+`patmut_carry()` = on(bit) || on(whole): one predicate for the two halves of one mechanism (09-05a's spelling).
+
+## 4. THE PRICE — every column
+    twin          build              fires    bc-ceil  queue  cost(pass)  cfail (1367)             `-L fail`   stdlib  runtime
+    patmutbit     d55cd7bcfc75f8d9    6139     0        1      0           1 text-only (§5)          —           ok      —
+    patmutwhole   d55cd7bcfc75f8d9    6186     0        1      1 = bc_drfmut_nested_pat_mut_admit   2484/2484   ok      1 of 6308 = the same fixture (ccrc 0 -> 1)
+    patmutany     d55cd7bcfc75f8d9  3908366    0        1      0           1 RC: fail_issue-33819 1 -> 0 (`&mut v` on a `ref v` ADMITTED)
+    patmutwhole   18bc2bec5fab4b94    6189     0        1      0           1 text-only (§5)          2484/2484   ok      0 of 6308 (vs the build-1 baseline; empty diff)
+Queue gate under bit AND whole, both builds: exactly `pattern_mut_recv` "NO LONGER REPRODUCES (cc=0 diag=0
+run=0)", rc 1, no other row moves. `bc_drfmut_nested_pat_mut_admit` (LEGAL, `Some(W { b: mut bb })`) is
+door 3: refused by `whole` on build 1 because the mask that hid the missing prologue `mut` retired; build 2
+carries the bit there and the cost is 0. Rule 13 held the other way: bit 0 + masks 1 -> whole 0 only with
+the third site. `-L fail` under whole: 2484 of 2484 on both builds. run_oracle.py: 6308 pass fixtures
+compiled + linked + RUN, baseline unarmed on build 1 (`scratchpad/rt_base.tsv`), armed whole on build 1 =
+1 row (the fixture, ccrc 0 -> 1), on build 2 = 0 rows; `cast-region-to-uint` subtracted by name.
+
+## 5. THE TEXT-ONLY cfail ROW, READ
+`tests/imported/fail/borrowck/move-in-pattern-mut.logos` (`E::Some(mut x) => { x = S{…}; }` then `foo(s)`,
+pinned `use of moved variable 's'`): base prints TWO lines — a FALSE `assignment to immutable variable 'x'`
+on the legal `mut x` reassignment, then the pinned E0382; armed prints only the pinned line. A false line
+REMOVED, the 09-05a kind. Rule 14 checked on the old binary: the pinned line is unchanged.
+
+## 6. RULE 5 — 42 HAND SHAPES (`probes/2026-09-06-patmut/hand/`, `run1.sh` = the gate's reader), base -> whole
+    LEGAL, base REFUSED -> whole RUNS rc 0 (18): h01 match `mut s` + `&mut self` (the row) · h05 `for mut s in vec`
+      · h07 `if let Some(mut s)` · h08 `while let Some(mut s) = v.pop()` · h13 match `mut n` REASSIGNED (door 1)
+      · h15 or-pattern `A(mut s) | C(mut s)` · h19 `for mut n in vec` reassigned (door 1) · h20 match `mut s` +
+      `&mut s` · h22 match `mut s` field write (door 1) · h26 top-level `mut s =>` over a VARIABLE · h34
+      `Some((mut s, k))` + method (door 3) · h36 `for (mut a, b) in arr` reassigned (door 3) · h38 `for mut s
+      in arr` + method · h41 the same, field write · h42 `for mut n in [i64]` reassigned
+    LEGAL, both RUN (8): h04 match `mut bb` `&mut *bb` (the mask, base) · h09 `match &mut e { A(s) }` default
+      mode · h10 `A(ref mut s)` · h24 if-let `mut bb` box deref · h27 top-level `mut n` reassigned over a temp
+      · h29/h31 shared uses over a temp · h32 `Some(W { b: mut bb })` (the fixture) · h40 `for mut s in arr` unused
+    ILLEGAL, both REFUSE, sentence READ (7): h02 h06 h12 h21 h35 h39 `not declared as mut` · h14 h18 h23 h37
+      `assignment to immutable variable`
+    ILLEGAL, base ADMITS -> whole REFUSES `cannot borrow 'bb' as mutable: not declared as mut` (3): h03 match,
+      h25 if-let, h33 nested `Some(W { b: bb })` — the mask's admits; ROWED (h03) below.
+    LEGAL, REFUSED ON BOTH, the sentence CHANGES (3): h11/h28/h30 top-level `mut s =>` over a TEMPORARY
+      scrutinee + `&mut s` / `s.v = …` / `s.get()`: base `not declared as mut`; whole reaches codegen and dies
+      `'llvm.getelementptr' op operand #0 must be LLVM pointer type` — a second defect BEHIND the refusal
+      (rule 2: the wild binding over an rvalue is an SSA value, not a slot). ROWED (h30) below.
+    NEITHER (2): h16 `for mut i in 0..3` SYNTAX ERROR (grammar: range-for takes IDENT) · h17 `for i in 0..3 {
+      i = i + 10 }` ADMITTED (rustc E0384) and the assignment is LOST at run time (acc 3, not 33). Both ROWED.
+    Rule 9 — crude vs correct separate BOTH ways: `patmutany` ADMITS h02 h03 h06 h12 h21 h25 h33 h39 and
+      fail_issue-33819, and does NOT open door 1 (h13 h19 h22 h34 h36 h41 h42 stay refused); the corpus
+      columns see one of those nine (issue-33819). Under a `&` scrutinee `mut x` keeps today's default-ref
+      mode (Rust 2021 would move) — unchanged, not measured further.
+
+## 7. QUEUE — 0 CLOSED (pricing round), 4 ADDED, 17 -> 21; gate rc 0 on the RESTORED binary
+    match_nomut_boxderef_admit   2 admits   h03 — the mask's admit (twin of the closed destructure row)
+    for_range_var_assign_admit   2 admits   h17 — sema defines the range-for var mut; the write is lost at run
+    match_tmp_wild_mut_addrof    3 refuses  h30 — wrong-reason refusal today, codegen getelementptr behind it
+    for_range_mut_var_syntax     3 refuses  h16 — `for mut i in a..b` has no grammar spelling
+Tree restored (`git checkout` of the 7 touched files + `cmake --build`): build_hash back to
+`cdde77be7fb503f2 43` exactly; L1 751/751 + 174 gates rc 0; queue gate 21/21 rc 0. bc ledgers 99/25 both ways.
+
+## 8. WHAT DESERVES FUNDING, WITH THE NUMBER
+FUND `patmutwhole` as landed (the spec IS the diff, 43 edits; drop the three `probe::on` names, keep
+`pat_byval_mut`'s control twin discipline): closes pattern_mut_recv AND the new match_nomut_boxderef_admit
+row (h03/h25/h33 all refuse E0596), costs 0 on every column, and removes a false line. It owes: pass fixtures
+for h01 h05 h07 h08 h13 h15 h19 h20 h22 h26 h32 h34 h36 h38 h41 h42 in `bc_patmut_*` pairs with fails h02 h03
+h06 h12 h14 h18 h21 h23 h25 h33 h35 h37 h39; `bc_drfmut_nested_pat_mut_admit`'s comment is then stale (the
+mask it documents is gone). It EXPOSES match_tmp_wild_mut_addrof's codegen half (a `refuses` row either way —
+the sentence changes from a borrow lie to a codegen death; land the row's program as-is, it stays open).
+NOT this mechanism: for_range_* (lower_for + grammar `for_stmt`), the two are one root (the range-for
+header is not a pattern) and a fifth shape of the same missing fact.
+
+## patmutbit
+site: src/compiler/sema_stmt.cpp::pat_byval_mut
+build: d55cd7bcfc75f8d9
+measured: 2026-09-06
+fires: 6139
+ceiling: 0 (bc) / 1 (soundness queue: pattern_mut_recv)
+cost: 0 pass / 1 cfail text-only (move-in-pattern-mut: a FALSE `assignment to immutable variable` line removed) / stdlib ok / 42 hand shapes: no illegal admit
+verdict: ✓ FUND as half of patmutwhole — carries the by-value pattern `mut` (BINDING_REF_MODES bit 0x10, PatWild pk::IS_MUT, SForEach sk::IS_MUT) to sema's define and to declare_pat_bindings / visit_loop_body; the pat_bound masks stay
+note: spec src/compiler/probes/2026-09-06-patmut/patmut.spec (39 of its 43 edits); ⚠ the ForEach map needs capacity 9 or the 9th key aborts the compiler.
+
+## patmutwhole
+site: src/compiler/borrow_check.cpp::declare_pat_bindings
+build: 18bc2bec5fab4b94
+measured: 2026-09-06
+fires: 6189
+ceiling: 0 (bc) / 1 (soundness queue: pattern_mut_recv; + the new match_nomut_boxderef_admit row refuses E0596)
+cost: 0 pass / 1 cfail text-only (the same false line) / `-L fail` 2484 of 2484 / stdlib ok / runtime 0 of 6308 / hand: h03 h25 h33 refused with the right sentence, h11 h28 h30 die in codegen (a second defect behind the refusal, rowed)
+verdict: ✓ FUND — patmutbit + the two pat_bound masks retired + the three prologue `let` sites (nested struct/tuple sub, for-pattern); on build 1 without the prologue sites it cost 1 (bc_drfmut_nested_pat_mut_admit), rule 13
+note: the masks: `pat_root_ = pst_->pat_bound` at the deref_mut site and `(tst_ && tst_->pat_bound)` at the let-inherit site.
+
+## patmutany
+site: src/compiler/borrow_check.cpp::declare_pat_bindings
+build: d55cd7bcfc75f8d9
+measured: 2026-09-06
+fires: 3908366
+ceiling: 0 (bc) / 1 (soundness queue)
+cost: 0 pass / 1 cfail RC: fail_issue-33819 1 -> 0 (`&mut v` on a `ref v` binding ADMITTED) / stdlib ok / hand: ADMITS h02 h03 h06 h12 h21 h25 h33 h39; does not open sema's door (h13 h19 h22 h34 h36 h41 h42 stay refused)
+verdict: ⛔ crude twin — closes the row by declaring every pattern-bound name mutable; separates from the correct bit on nine hand programs and one corpus fixture
+note: is_mut_binding = true in declare_pat_bindings (VariantData, Wild) and both loop-var declarations.

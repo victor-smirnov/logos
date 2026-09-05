@@ -1,0 +1,13 @@
+package h19_for_mut_reassign;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut vs: Vec<i64> = Vec::new();
+    vs.push(1i64);
+    let mut acc: i64 = 0i64;
+    for mut n in vs {
+        n = n + 7i64;
+        acc = acc + n;
+    }
+    if acc != 8i64 { return 1i32; }
+    return 0i32;
+}

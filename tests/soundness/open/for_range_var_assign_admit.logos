@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row for_range_var_assign_admit (tier 2). Assigning to a range-for
+// loop variable declared without 'mut' is ILLEGAL (rustc E0384). TODAY it compiles
+// rc 0 (sema defines the range-for var as mutable, lower_for) AND the assignment is
+// silently lost at run time: acc sums 0+1+2 = 3, not (1+10)+(2+10)+(0+10) = 33, so
+// the program exits 1 where rustc refuses it. Found 2026-09-06 (PROBES.md, hand h17).
+package for_range_var_assign_admit;
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    for i in 0i64..3i64 {
+        i = i + 10i64;
+        acc = acc + i;
+    }
+    if acc != 33i64 { return 1i32; }
+    return 0i32;
+}

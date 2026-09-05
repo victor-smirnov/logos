@@ -1,0 +1,13 @@
+package h09_match_refmut_scrut;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+enum E { A(S), B }
+fn main() -> i32 {
+    let mut e: E = E::A(S { v: 1i64 });
+    match &mut e {
+        E::A(s) => { let r: &mut i64 = s.get(); *r = 8i64; },
+        E::B => {}
+    }
+    match e { E::A(s2) => { if s2.v != 8i64 { return 1i32; } }, E::B => { return 2i32; } }
+    return 0i32;
+}

@@ -1,0 +1,10 @@
+package h11_match_wild_mut;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+fn mk() -> S { return S { v: 1i64 }; }
+fn main() -> i32 {
+    match mk() {
+        mut s => { let r: &mut i64 = s.get(); *r = 8i64; if s.v != 8i64 { return 1i32; } }
+    }
+    return 0i32;
+}

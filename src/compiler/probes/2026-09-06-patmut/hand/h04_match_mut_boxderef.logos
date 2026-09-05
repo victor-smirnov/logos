@@ -1,0 +1,10 @@
+package h04_match_mut_boxderef;
+enum E { A(Box<i64>), B }
+fn main() -> i32 {
+    let e: E = E::A(Box::new(1i64));
+    match e {
+        E::A(mut bb) => { let r: &mut i64 = &mut *bb; *r = 8i64; if *bb != 8i64 { return 1i32; } },
+        E::B => {}
+    }
+    return 0i32;
+}

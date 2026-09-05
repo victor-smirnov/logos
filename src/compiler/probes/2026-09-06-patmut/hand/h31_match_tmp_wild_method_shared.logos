@@ -1,0 +1,10 @@
+package h31_match_tmp_wild_method_shared;
+struct S { v: i64 }
+impl S { fn rd(&self) -> i64 { return self.v; } }
+fn mk() -> S { return S { v: 1i64 }; }
+fn main() -> i32 {
+    match mk() {
+        s => { if s.rd() != 1i64 { return 1i32; } }
+    }
+    return 0i32;
+}

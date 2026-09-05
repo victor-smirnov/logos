@@ -1,0 +1,10 @@
+package h27_match_wild_mut_reassign;
+fn mk() -> i64 { return 1i64; }
+fn main() -> i32 {
+    let mut out: i64 = 0i64;
+    match mk() {
+        mut n => { n = n + 7i64; out = n; }
+    }
+    if out != 8i64 { return 1i32; }
+    return 0i32;
+}
