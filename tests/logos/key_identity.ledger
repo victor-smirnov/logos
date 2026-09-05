@@ -157,7 +157,12 @@
 #SCAN sema_decl.cpp 2 ce09ff69
 #SCAN sema_expr.cpp 155 0f5c9f40
 #SCAN sema_impl.hpp 29 14d2f131
-#SCAN sema_stmt.cpp 15 fa9e12e1
+# 2026-09-06d, -4 (15 -> 11), roster fa9e12e1 -> 1ff7800a: four `nm == "_"`
+# discard-name tests vanished with mark_match_scrutinee_moved's AST re-derivation
+# (the move question is now read off the LIR pattern by `pattern_moves_out`, whose
+# own `!= "_"` tests are the 11 that remain — `_` is the grammar's discard spelling,
+# not an entity name, the same class as before). No new site.
+#SCAN sema_stmt.cpp 11 1ff7800a
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)
 mlir_gen_dyn.cpp	struct_types_	O	1	std::string(TypeRef(cur_t).struct_name())

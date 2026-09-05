@@ -1,0 +1,8 @@
+package ce13_copy_scrut_reused;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let mut n: i64 = 0i64;
+    if let Option::Some(v) = o { n = n + v; }
+    if let Option::Some(w) = o { n = n + w; }
+    return n as i32;
+}

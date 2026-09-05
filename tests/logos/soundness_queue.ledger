@@ -56,8 +56,8 @@ layout_verify_recursive_ref   3 tests/soundness/open/layout_verify_recursive_ref
 for_range_var_assign_admit    2 tests/soundness/open/for_range_var_assign_admit    admits
 match_tmp_wild_mut_addrof     3 tests/soundness/open/match_tmp_wild_mut_addrof     refuses
 for_range_mut_var_syntax      3 tests/soundness/open/for_range_mut_var_syntax      refuses
-iflet_payload_moveout_double_drop 1 tests/soundness/open/iflet_payload_moveout_double_drop run 1
-whilelet_mut_reassign_leak    1 tests/soundness/open/whilelet_mut_reassign_leak    run 1
+enum_payload_partial_move_leak 1 tests/soundness/open/enum_payload_partial_move_leak run 1
+variant_payload_char_literal_nomatch 1 tests/soundness/open/variant_payload_char_literal_nomatch run 1
 at_binding_mut_syntax         3 tests/soundness/open/at_binding_mut_syntax         refuses
 box_deref_assign_mut_let      3 tests/soundness/open/box_deref_assign_mut_let      refuses
 typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike          diag expected &i64, got &i64

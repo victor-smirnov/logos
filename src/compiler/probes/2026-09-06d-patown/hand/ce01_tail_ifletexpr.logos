@@ -1,0 +1,8 @@
+package ce01_tail_ifletexpr;
+fn f(o: Option<i64>) -> i64 {
+    if let Option::Some(x) = o { x } else { 0i64 }
+}
+fn main() -> i32 {
+    let r: i64 = f(Option::Some(5i64));
+    return r as i32;
+}

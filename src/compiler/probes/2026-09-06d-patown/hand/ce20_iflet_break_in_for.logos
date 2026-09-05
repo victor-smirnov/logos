@@ -1,0 +1,15 @@
+package ce20_iflet_break_in_for;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+fn eat(s: S) -> i64 { return s.v; }
+fn mk(p: *mut i64, v: i64) -> Option<S> { return Option::Some(S { v: v, i: p }); }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    for i in 0i64..3i64 {
+        if let Option::Some(s) = mk(p, 1i64) {
+            if i == 1i64 { break; }
+        }
+    }
+    return c as i32;
+}

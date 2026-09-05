@@ -1,0 +1,17 @@
+package ce22_whilelet_place_reinit_break;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+fn eat(s: S) -> i64 { return s.v; }
+fn mk(p: *mut i64, v: i64) -> Option<S> { return Option::Some(S { v: v, i: p }); }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let mut o: Option<S> = mk(p, 1i64);
+        while let Option::Some(s) = o {
+            o = Option::None;
+            break;
+        }
+    }
+    return c as i32;
+}

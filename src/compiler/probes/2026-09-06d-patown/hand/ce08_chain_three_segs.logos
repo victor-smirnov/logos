@@ -1,0 +1,18 @@
+package ce08_chain_three_segs;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+fn eat(s: S) -> i64 { return s.v; }
+fn mk(p: *mut i64, v: i64) -> Option<S> { return Option::Some(S { v: v, i: p }); }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    let mut n: i64 = 0i64;
+    {
+        let o: Option<S> = mk(p, 1i64);
+        let k: Option<S> = mk(p, 2i64);
+        if let Option::Some(a) = o && a.v > 0i64 && let Option::Some(b) = k {
+            n = a.v + b.v;
+        }
+    }
+    return (c * 10i64 + n) as i32;
+}

@@ -1,0 +1,11 @@
+// a negative int literal pattern in a let-chain lowers PROBES.md 2026-09-06d: `if let` / `while let` / let-chains lower BY DELEGATION to lower_match (temp hoist, per-arm scrutinee move, arm drops, cond-move merge); the count is a destructor tally through a raw pointer.
+package bc_patown_ifletchain_negint;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(-1i64);
+    let mut hit: i64 = 0i64;
+    if let Option::Some(-1i64) = o && hit == 0i64 {
+        hit = 1i64;
+    }
+    if hit != 1i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,17 @@
+// `if let Some(r) = h.o`: the payload moves out of the field place; `h` drops the rest PROBES.md 2026-09-06d: `if let` / `while let` / let-chains lower BY DELEGATION to lower_match (temp hoist, per-arm scrutinee move, arm drops, cond-move merge); the count is a destructor tally through a raw pointer.
+package bc_patown_field_place_readonly;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+fn eat(s: S) -> i64 { return s.v; }
+fn mk(p: *mut i64, v: i64) -> Option<S> { return Option::Some(S { v: v, i: p }); }
+struct H { o: Option<S>, k: i64 }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    let mut n: i64 = 0i64;
+    {
+        let h: H = H { o: mk(p, 1i64), k: 4i64 };
+        if let Option::Some(r) = h.o { n = r.v + h.k; }
+    }
+    return (c * 10i64 + n) as i32;
+}

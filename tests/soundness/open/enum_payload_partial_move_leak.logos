@@ -1,0 +1,25 @@
+// SOUNDNESS QUEUE row enum_payload_partial_move_leak (tier 1). 'match e { E::V(a, _)
+// => eat(a), .. }' over 'E::V(S, S)': the arm moves ONE payload field out and sema
+// marks the WHOLE scrutinee moved, so the enum's scope-exit drop is skipped
+// entirely and the second field (v = 2) is never dropped — the counter reads 1
+// where Rust reads 3 (exit 1). A partial move of an enum payload needs a per-field
+// record (moved_fields for a variant's fields), which sema's mark has no spelling
+// for. Same under 'if let E::V(a, _) = e'. Found 2026-09-06d (hand ce24). Rust: exit 0.
+package enum_payload_partial_move_leak;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+fn eat(s: S) -> i64 { return s.v; }
+enum E { V(S, S), W }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let e: E = E::V(S { v: 1i64, i: p }, S { v: 2i64, i: p });
+        match e {
+            E::V(a, _) => { let _k: i64 = eat(a); },
+            E::W => {}
+        }
+    }
+    if c != 3i64 { return 1i32; }
+    return 0i32;
+}

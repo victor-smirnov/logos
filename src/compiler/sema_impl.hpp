@@ -2768,6 +2768,29 @@ private:
     // lifetime by stashing here.
     std::vector<writ::Writ> blob_docs_;
 
+    // ── SYNTHESIZED AST — a desugaring lowers BY DELEGATION ─────────────
+    // `if let` is `match VALUE { PAT [if GUARD] => THEN, _ => ELSE }`,
+    // `while let` is `loop { match … { … , _ => break } }`, a let-chain is
+    // that nested once per segment. Each builds the node the ONE lowering
+    // that owns the ownership protocol reads (lower_match / lower_match_expr
+    // / lower_loop) and hands it over; the second copy of the arm shape had
+    // no temp hoist, no scrutinee move and no arm drop (PROBES.md 2026-09-06c
+    // §1c) and is gone. Nodes live in this never-move arena and reference
+    // the ORIGINAL subtrees by AnyVal — a self-relative ref resolves across
+    // arenas, so no source node is copied and a side table keyed on a source
+    // node's address (extending_borrow_nodes_) stays valid.
+    writ::Writ synth_doc_;
+    writ::AnyVal synth_node(int32_t code, uint32_t line,
+                            std::initializer_list<std::pair<uint8_t, writ::AnyVal>> keys);
+    writ::AnyVal synth_array(const std::vector<writ::AnyVal>& items);
+    writ::AnyVal synth_block(const std::vector<writ::AnyVal>& stmts, uint32_t line);
+    writ::AnyVal synth_match(writ::AnyVal scrut, writ::AnyVal pat, writ::AnyVal guard,
+                             writ::AnyVal then_body, writ::AnyVal else_body, uint32_t line);
+    writ::AnyVal synth_let_chain(writ::TinyMapView node, writ::AnyVal then_body,
+                                 writ::AnyVal else_body, uint32_t line);
+    // An arm body / else branch position that must hold a BLOCK.
+    writ::AnyVal synth_as_block(writ::AnyVal body, uint32_t line);
+
     int32_t code_of(writ::TinyMapView node) noexcept {
         using namespace sema_detail;
         if (node.is_null()) return -1;
@@ -4480,7 +4503,9 @@ private:
     // G167-4: drops for a `break`/`continue` — every frame from the innermost
     // down to AND INCLUDING the enclosing loop-body frame (loop_boundary), so a
     // break/continue nested in an `if` still runs the loop body's destructors.
-    std::vector<lir_view::StmtRef> collect_drops_to_loop() const;
+    // `cross` = how many loop-body frames a LABELED break/continue passes
+    // through before the one it leaves (0 = the innermost loop).
+    std::vector<lir_view::StmtRef> collect_drops_to_loop(size_t cross = 0) const;
 
     // Recursive variant of mark_moved_expr that descends into composite
     // producer expressions (Call args, StructLit fields, TupleLit elems,
@@ -7769,12 +7794,20 @@ private:
     lir_view::StmtRef lower_schema_enum_match(writ::TinyMapView node,
                                               lir::LExprPtr scrut, TypeRef scrut_type);
     lir::LExprPtr lower_match_expr(writ::TinyMapView node);
-    // G156-2: mark a by-value move-type match scrutinee var as moved when an
-    // unguarded arm binds+moves it (whole-binding / struct / tuple / variant
-    // payload). Shared by the statement and expression match paths so the
-    // enum's scope-exit Drop doesn't double-free a value a binding/result owns.
+    // G156-2: mark a by-value move-type match scrutinee (var or place) moved
+    // when THIS arm's pattern binds+moves out of it (whole-binding / struct /
+    // tuple / variant payload). Called PER ARM, inside the arm's own move
+    // state, by the statement and expression match paths (so an arm that binds
+    // nothing leaves the scrutinee a flagged drop — the `_ => {}` arm over an
+    // unmatched payload used to leak it) and once by let-else for its pattern.
     void mark_match_scrutinee_moved(const lir::LExprPtr& scrut, TypeRef scrut_type,
-                                    writ::TinyMapView node);
+                                    lir_view::PatRef pat);
+    // Does `pat`, matched against a value of type `ty`, bind a MOVE-TYPE part
+    // of it BY VALUE (mode 0, a real name)? Read off the LIR pattern — the one
+    // place the binding modes live — never re-derived from the AST: the AST
+    // re-derivation this replaces missed the shorthand `ref` field, the nested
+    // variant under a tuple, and the nested variant payload itself.
+    bool pattern_moves_out(lir_view::PatRef pat, TypeRef ty);
     // G156-1: mangle an impl's concrete trait type-args into a `$G<n>$<a1>$…`
     // suffix appended to a trait name in a qualified method base
     // (`X__Trait$G1$u64__m`). Uses the `$G` generic-marker scheme so

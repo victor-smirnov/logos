@@ -1,0 +1,22 @@
+// a droppable temp receiver in the while-let scrutinee is re-evaluated and dropped per iteration (was: leaked) PROBES.md 2026-09-06d: `if let` / `while let` / let-chains lower BY DELEGATION to lower_match (temp hoist, per-arm scrutinee move, arm drops, cond-move merge); the count is a destructor tally through a raw pointer.
+package bc_patown_whilelet_temp_receiver;
+use logos.mem.collections.vec;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+fn eat(s: S) -> i64 { return s.v; }
+fn mk(p: *mut i64, v: i64) -> Option<S> { return Option::Some(S { v: v, i: p }); }
+fn mkv(p: *mut i64) -> Vec<S> {
+    let mut v: Vec<S> = Vec::new();
+    v.push(S { v: 1i64, i: p });
+    return v;
+}
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    let mut n: i64 = 0i64;
+    while let Option::Some(s) = mkv(p).pop() {
+        n = n + s.v;
+        if n == 2i64 { break; }
+    }
+    return c as i32;
+}

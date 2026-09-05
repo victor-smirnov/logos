@@ -1,0 +1,17 @@
+package ce23_labeled_continue_leak;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i + self.v; } } }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    let mut k: i64 = 0i64;
+    'outer: loop {
+        let s: S = S { v: 1i64, i: p };
+        k = k + 1i64;
+        if k > 3i64 { break; }
+        loop {
+            continue 'outer;
+        }
+    }
+    return c as i32;
+}

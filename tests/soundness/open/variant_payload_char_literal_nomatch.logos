@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row variant_payload_char_literal_nomatch (tier 1). A char literal
+// as a variant payload pattern never matches: 'match o { Option::Some('x') => hit = 1,
+// _ => {} }' over 'Some('x')' takes the '_' arm (exit 1). The int twin 'Some(7i64)'
+// matches. The refutable-inner guard synthesised for a PAT_CHAR payload compares
+// wrong (or is dropped); 'if let Option::Some('x') = o' — the same lowering — the same.
+// Found 2026-09-06d (hand a28 of 2026-09-06c, previously hidden behind the chain
+// re-parse's "expected 1 bindings, got 0"). Rust: exit 0.
+package variant_payload_char_literal_nomatch;
+fn main() -> i32 {
+    let o: Option<char> = Option::Some('x');
+    let mut hit: i64 = 0i64;
+    match o {
+        Option::Some('x') => { hit = 1i64; },
+        _ => {}
+    }
+    if hit != 1i64 { return 1i32; }
+    return 0i32;
+}

@@ -453,11 +453,13 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     if (c == la::RETURN)       return lower_return(stmt);
     if (c == la::IF)           return lower_if(stmt);
     if (c == la::IF_LET_CHAIN) {
-        // §6.4: route to the expression-form desugar; wrap result
-        // as a stmt-expr so the chain works in statement position
-        // (the canonical port shape).
-        auto e = lower_if_let_chain(stmt);
-        return builder().stmt_expr(std::move(e), node_line_);
+        // §6.4: `if let P1 = e1 && … { THEN } else { ELSE }` is the nested
+        // MATCH/IF tree synth_let_chain builds; the first segment is a let,
+        // so the root is a MATCH statement.
+        writ::AnyVal else_body = stmt.has_key(la::ELSE)
+            ? stmt.get(la::ELSE.code) : synth_block({}, node_line_);
+        return lower_match(map_of(synth_let_chain(stmt, stmt.get(la::THEN.code),
+                                                  else_body, node_line_)));
     }
     if (c == la::LABELED_LOOP) {
         // 'label: for/while/loop { }
@@ -962,8 +964,18 @@ void SemaChecker::push_stmt_with_unwind(std::vector<lir_view::StmtRef>& out,
                         sref.kind() == lir_schema::stmt::Code::Continue)) {
         // G167-4: drop every frame down to AND INCLUDING the loop body — a
         // break/continue nested in an `if` exits via the loop edge, bypassing
-        // the body block's normal end drops.
-        for (auto& d : collect_drops_to_loop())
+        // the body block's normal end drops. A LABELED one leaves an OUTER
+        // loop: every inner loop body it passes through is left too, so the
+        // walk crosses one loop-body frame per enclosing loop below the target
+        // (`'a: loop { let s = …; loop { continue 'a; } }` leaked `s`).
+        std::string_view lbl = sref.kind() == lir_schema::stmt::Code::Break
+            ? lir_view::SBreakView{sref}.label() : lir_view::SContinueView{sref}.label();
+        size_t cross = 0;
+        if (!lbl.empty())
+            for (size_t k = loop_break_frames_.size(); k-- > 0; ++cross)
+                if (loop_break_frames_[k].label == lbl) break;
+        if (cross >= loop_break_frames_.size()) cross = 0;   // unknown label: diagnosed elsewhere
+        for (auto& d : collect_drops_to_loop(cross))
             out.push_back(std::move(d));
     }
     out.push_back(std::move(lowered));
@@ -2100,6 +2112,12 @@ lir_view::StmtRef SemaChecker::lower_let_else(TinyMapView node) {
         else_blk = lower_block(body_node);
     }
     pop_scope();
+
+    // The pattern's bindings OWN what they bind by value: the scrutinee (var or
+    // place) is marked moved so its scope-exit drop does not fire a second time
+    // over a payload a binding already dropped. After the else block, which
+    // may still read the scrutinee (no move happened on that path).
+    mark_match_scrutinee_moved(scrut, scrut_type, pat_ref_of(pat));
 
     // 4. Add pattern bindings to outer scope
     {
@@ -6649,120 +6667,99 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
     }
 }
 
+// ── SYNTHESIZED AST (see synth_doc_ in sema_impl.hpp) ─────────────────────
+writ::AnyVal SemaChecker::synth_node(int32_t code, uint32_t line,
+        std::initializer_list<std::pair<uint8_t, writ::AnyVal>> keys) {
+    if (synth_doc_.is_null()) synth_doc_ = writ::make_doc(1u << 20).get();  // MultiChunk: never moves
+    auto* m = synth_doc_.make_tiny_map(keys.size() + 2).get();
+    auto& ar = synth_doc_.arena();
+    m->put(la::CODE.code, writ::AnyVal::from_value(code), ar).get();
+    if (line) m->put(la::SRC_LINE.code, writ::AnyVal::from_value(line), ar).get();
+    for (const auto& kv : keys)
+        if (!kv.second.is_null()) m->put(kv.first, kv.second, ar).get();
+    writ::AnyVal a; a.set_ref(m); return a;
+}
+
+writ::AnyVal SemaChecker::synth_array(const std::vector<writ::AnyVal>& items) {
+    if (synth_doc_.is_null()) synth_doc_ = writ::make_doc(1u << 20).get();
+    auto arr = synth_doc_.make_array(items.empty() ? 1 : items.size()).get();
+    for (const auto& it : items) arr.push_back(it).get();
+    return arr.to_anyval();
+}
+
+writ::AnyVal SemaChecker::synth_block(const std::vector<writ::AnyVal>& stmts, uint32_t line) {
+    return synth_node(la::BLOCK.code, line, {{la::ITEMS.code, synth_array(stmts)}});
+}
+
+writ::AnyVal SemaChecker::synth_as_block(writ::AnyVal body, uint32_t line) {
+    return code_of(map_of(body)) == la::BLOCK ? body : synth_block({body}, line);
+}
+
+// match SCRUT { PAT [if GUARD] => THEN, _ => ELSE }
+writ::AnyVal SemaChecker::synth_match(writ::AnyVal scrut, writ::AnyVal pat, writ::AnyVal guard,
+                                      writ::AnyVal then_body, writ::AnyVal else_body,
+                                      uint32_t line) {
+    auto arm1 = synth_node(la::MATCH_ARM.code, line,
+                           {{la::LHS.code, pat}, {la::GUARD.code, guard}, {la::BODY.code, then_body}});
+    auto arm2 = synth_node(la::MATCH_ARM.code, line,
+                           {{la::LHS.code, synth_node(la::PAT_WILD.code, 0, {})},
+                            {la::BODY.code, else_body}});
+    // PAT on the MATCH node records that this match was WRITTEN as a let form:
+    // its `_` arm is the else branch, not a user arm (the arm-after-catchall
+    // lint reads it).
+    return synth_node(la::MATCH.code, line,
+                      {{la::VALUE.code, scrut}, {la::ITEMS.code, synth_array({arm1, arm2})},
+                       {la::PAT.code, pat}});
+}
+
+// §6.4 let-chain: `let P1 = e1 && c && let P2 = e2 …` → one MATCH per let
+// segment, one IF per bool segment, nested inside-out, ELSE at every
+// fall-through (the ELSE subtree is REFERENCED from each site and lowered at
+// each; a diverging ELSE is the port shape). The grammar guarantees the first
+// segment is a let, so the root is a MATCH.
+writ::AnyVal SemaChecker::synth_let_chain(TinyMapView node, writ::AnyVal then_body,
+                                          writ::AnyVal else_body, uint32_t line) {
+    auto wrapper = map_of(node.get(la::ITEMS.code));
+    if (wrapper.is_null() || !wrapper.has_key(la::ITEMS)) {
+        error("let-chain: wrapper has no ITEMS array");
+        return synth_block({}, line);
+    }
+    auto segs = arr_of(wrapper.get(la::ITEMS.code));
+    else_body = synth_as_block(else_body, line);
+    writ::AnyVal cur = synth_as_block(then_body, line);
+    for (uint64_t i = segs.size(); i-- > 0; ) {
+        auto seg = map_of(segs.get(i));
+        const uint32_t sl = get_line(seg) ? get_line(seg) : line;
+        if (code_of(seg) == la::LET_CHAIN_LET) {
+            cur = synth_match(seg.get(la::VALUE.code), seg.get(la::PAT.code), {},
+                              cur, else_body, sl);
+        } else if (code_of(seg) == la::LET_CHAIN_COND) {
+            cur = synth_node(la::IF.code, sl, {{la::COND.code, seg.get(la::VALUE.code)},
+                                               {la::THEN.code, cur},
+                                               {la::ELSE.code, else_body}});
+        } else {
+            error(std::format("let-chain: unexpected seg CODE {}", code_of(seg)));
+            return synth_block({}, line);
+        }
+        if (i > 0) cur = synth_block({cur}, sl);
+    }
+    return cur;
+}
+
 lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
     // Own source line — capture before lowering cond/branches moves node_line_
     // (else the SIf maps to a sub-statement's line; see lower_while).
     const uint32_t if_line = node_line_;
-    // ── if let pattern = expr { ... } ─────────────────────────────
+    // ── if let PAT = VALUE [&& GUARD] THEN [else ELSE] ────────────
+    //   ≡ match VALUE { PAT [if GUARD] => THEN, _ => ELSE }
+    // Lowered BY DELEGATION to lower_match (see synth_doc_).
     if (node.has_key(la::PAT)) {
-        auto scrut = node.has_key(la::VALUE)
-            ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
-        TypeRef scrut_type = expr_type(scrut);
-
-        // Wire the same nested-pattern + refutable-guard channels lower_match
-        // uses, so `if let Some(Some(v)) = o` / `if let E::V((a, b)) = e` lower
-        // their nested payload patterns instead of erroring "nested patterns …
-        // not yet supported".
-        std::vector<NestedPatSub> nested_subs;
-        std::vector<lir::LExprPtr> refut_guards;
-        auto* saved_subs = current_pat_nested_subs_;
-        auto* saved_refut = current_pat_refutable_guards_;
-        current_pat_nested_subs_ = &nested_subs;
-        current_pat_refutable_guards_ = &refut_guards;
-        auto pat = build_pattern(map_of(node.get(la::PAT.code)), scrut_type);
-        current_pat_nested_subs_ = saved_subs;
-        current_pat_refutable_guards_ = saved_refut;
-
-        // Then arm: pattern → then block. Define + emit the nested-payload
-        // destructures BEFORE the body so its bindings are in scope.
-        push_scope();
-        bind_pattern(pat, scrut_type);
-        std::vector<lir_view::StmtRef> nested_destructure;
-        emit_nested_pat_destructure(nested_subs, nested_destructure, /*for_guard=*/false);
-        // Let-chain trailing condition: `if let P = e && <cond>` desugars to
-        // `match e { P if <cond> => THEN, _ => ELSE }` — the chain cond becomes
-        // an arm guard (no else duplication). Lowered HERE so it sees the
-        // pattern's bindings (`if let Some(x) = o && x > 0`).
-        lir::LExprPtr chain_guard = nullptr;
-        if (node.has_key(la::GUARD)) {
-            chain_guard = lower_expr(map_of(node.get(la::GUARD.code)));
-            if (chain_guard && TypeRef(expr_type(chain_guard)).kind() != LogosType::Kind::Bool &&
-                TypeRef(expr_type(chain_guard)).kind() != LogosType::Kind::Error)
-                error(std::format("if-let chain condition must be bool, got {}",
-                      type_str(expr_type(chain_guard))));
-            // The guard runs BEFORE the arm body, so any nested-payload bindings
-            // it references (`if let Some((a,b)) = e && a > b`) must be
-            // re-extracted as a guard prologue (mirrors lower_match's B170-D/E).
-            // Tuple/struct nested subs are guard-safe; a nested ENUM-VARIANT sub
-            // can't be bound in a guard (its destructure is a refutable let-else)
-            // → reject cleanly instead of reading an unbound value.
-            if (chain_guard && !nested_subs.empty()) {
-                for (auto& ns : nested_subs)
-                    if (code_of(ns.sub_pat_node) == la::PAT_VARIANT_DATA) {
-                        error("let-chain condition cannot yet reference bindings "
-                              "from a nested enum-variant pattern; match in the "
-                              "body instead");
-                        break;
-                    }
-                std::vector<lir_view::StmtRef> gd;
-                emit_nested_pat_destructure(nested_subs, gd, /*for_guard=*/true);
-                if (!gd.empty()) {
-                    std::vector<lir_view::StmtRef> gblk;
-                    gblk = std::move(gd);
-                    TypeRef gt = expr_type(chain_guard);
-                    chain_guard = builder().block_expr(lir_mirror_block(*cur_prog_, gblk),
-                                      std::move(chain_guard), gt);
-                }
-            }
-        }
-        std::vector<lir_view::StmtRef> then_body;
-        if (node.has_key(la::THEN))
-            lower_block(map_of(node.get(la::THEN.code))).each_stmt([&](lir_view::StmtRef s){ then_body.push_back(s); });
-        if (!nested_destructure.empty()) {
-            std::vector<lir_view::StmtRef> merged = std::move(nested_destructure);
-            merged.insert(merged.end(),
-                          std::make_move_iterator(then_body.begin()),
-                          std::make_move_iterator(then_body.end()));
-            then_body = std::move(merged);
-        }
-        pop_scope();
-
-        // Else arm: wildcard → else block (or empty)
-        std::vector<lir_view::StmtRef> else_body;
-        if (node.has_key(la::ELSE)) {
-            auto else_node = map_of(node.get(la::ELSE.code));
-            if (code_of(else_node) == la::BLOCK) {
-                lower_block(else_node).each_stmt([&](lir_view::StmtRef s){ else_body.push_back(s); });
-            } else {
-                // else if: wrap in block
-                else_body.push_back(lower_if(else_node));
-            }
-        }
-
-        // Refutable-inner guards (nested variant/literal payload predicates)
-        // gate the then-arm; a failure falls through to the wildcard else-arm.
-        std::optional<lir::LExprPtr> guard;
-        for (auto& rg : refut_guards) {
-            if (!rg) continue;
-            if (guard)
-                guard = builder().bin_op("&&", std::move(*guard), std::move(rg), bool_t());
-            else
-                guard = std::move(rg);
-        }
-        // AND the let-chain trailing condition last (after the pattern's own
-        // refutable guards), so it runs only once the pattern matched.
-        if (chain_guard) {
-            if (guard)
-                guard = builder().bin_op("&&", std::move(*guard), std::move(chain_guard), bool_t());
-            else
-                guard = std::move(chain_guard);
-        }
-
-        lir::SMatch sm;
-        sm.scrut = std::move(scrut);
-        sm.arms.push_back({std::move(pat), lir_mirror_block(*cur_prog_, then_body), std::move(guard)});
-        sm.arms.push_back({make_pat_wild("_"), lir_mirror_block(*cur_prog_, else_body), std::nullopt});
-        return make_stmt_emit(node_line_, std::move(sm));
+        writ::AnyVal else_body = node.has_key(la::ELSE)
+            ? node.get(la::ELSE.code) : synth_block({}, if_line);
+        auto m = synth_match(node.get(la::VALUE.code), node.get(la::PAT.code),
+                             node.get(la::GUARD.code), node.get(la::THEN.code),
+                             else_body, if_line);
+        return lower_match(map_of(m));
     }
 
     // ── regular if cond { ... } ────────────────────────────────────
@@ -6915,161 +6912,23 @@ lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
     // stale node_line_ (else the loop header maps to the last body line → bad
     // breakpoints/stepping).
     const uint32_t while_line = node_line_;
-    // §6.4: while-let CHAIN (multi-seg). Desugar source-text to
-    // `loop { if-let-chain { BODY; } else { break; } }` and reparse
-    // — same channel as `lower_if_let_chain`. ITEMS is present only
-    // for the chain form (grammar alt #1); single-let / cond forms
-    // use PAT/COND and fall through to the existing handlers below.
-    if (node.has_key(la::ITEMS) && node.has_key(la::BODY)) {
-        auto wrapper = map_of(node.get(la::ITEMS.code));
-        if (wrapper.is_null() || !wrapper.has_key(la::ITEMS)) {
-            error("while-let-chain: wrapper has no ITEMS array");
-            return builder().stmt_expr(error_expr(), node_line_);
-        }
-        auto segs = arr_of(wrapper.get(la::ITEMS.code));
-        if (segs.size() < 2) {
-            error(std::format(
-                "while-let-chain: requires at least 2 segments, got {}",
-                segs.size()));
-            return builder().stmt_expr(error_expr(), node_line_);
-        }
-        std::string body_src = render_block_src(map_of(node.get(la::BODY.code)));
-        // Build the chain body inside-out: each seg wraps the running
-        // body in `if let P = e { body } else { break; }`.
-        std::string cur = body_src;
-        for (uint64_t i = segs.size(); i-- > 0; ) {
-            auto seg = map_of(segs.get(i));
-            int32_t sc = code_of(seg);
-            if (sc == la::LET_CHAIN_LET) {
-                std::string pat_src = render_pat_src(map_of(seg.get(la::PAT.code)));
-                std::string val_src = render_expr_src(map_of(seg.get(la::VALUE.code)));
-                cur = std::format("{{ if let {} = {} {} else {{ break; }} }}",
-                                  pat_src, val_src, cur);
-            } else if (sc == la::LET_CHAIN_COND) {
-                std::string cond_src = render_expr_src(map_of(seg.get(la::VALUE.code)));
-                cur = std::format("{{ if {} {} else {{ break; }} }}",
-                                  cond_src, cur);
-            } else {
-                error(std::format("while-let-chain: unexpected seg CODE {}", sc));
-                return builder().stmt_expr(error_expr(), node_line_);
-            }
-        }
-        std::string wrapped = std::format("loop {} 0i32", cur);
-        auto e = lower_reparsed_tail_expr(wrapped, "while-let-chain");
-        return builder().stmt_expr(std::move(e), node_line_);
-    }
-    // ── while let pattern = expr { ... } ──────────────────────────
-    // Desugars to: loop { match expr { PAT => body, _ => break } }
-    if (node.has_key(la::PAT)) {
-        // G152-16: capture the loop label BEFORE lowering scrut/body (a nested
-        // loop would otherwise steal pending_loop_label_), and thread it onto
-        // the desugared SLoop + the break-frame so `'a: while let … { break 'a }`
-        // resolves. Without this the label was dropped → "label not in scope".
-        std::string my_label = std::move(pending_loop_label_);
-        pending_loop_label_.clear();
-
-        // The while-let scrutinee is re-evaluated EVERY iteration (it becomes
-        // the SMatch scrut inside the desugared SLoop body) — same per-
-        // evaluation temporary scope as the regular while condition above.
-        auto scrut = node.has_key(la::VALUE)
-            ? lower_expr_temp_scoped(map_of(node.get(la::VALUE.code))) : error_expr();
-        TypeRef scrut_type = expr_type(scrut);
-
-        // Same nested-pattern + refutable-guard channels as lower_match / if-let.
-        std::vector<NestedPatSub> nested_subs;
-        std::vector<lir::LExprPtr> refut_guards;
-        auto* saved_subs = current_pat_nested_subs_;
-        auto* saved_refut = current_pat_refutable_guards_;
-        current_pat_nested_subs_ = &nested_subs;
-        current_pat_refutable_guards_ = &refut_guards;
-        auto pat = build_pattern(map_of(node.get(la::PAT.code)), scrut_type);
-        current_pat_nested_subs_ = saved_subs;
-        current_pat_refutable_guards_ = saved_refut;
-
-        // Then arm: pattern → loop body
-        push_scope();
-        bind_pattern(pat, scrut_type);
-        std::vector<lir_view::StmtRef> nested_destructure;
-        emit_nested_pat_destructure(nested_subs, nested_destructure, /*for_guard=*/false);
-        // Let-chain trailing condition: `while let P = e && <cond>` desugars to
-        // `loop { match e { P if <cond> => BODY, _ => break } }` — the chain cond
-        // becomes an arm guard. Lowered HERE so it sees the pattern's bindings
-        // (mirrors the if-let chain in lower_if).
-        lir::LExprPtr chain_guard = nullptr;
-        if (node.has_key(la::GUARD)) {
-            chain_guard = lower_expr(map_of(node.get(la::GUARD.code)));
-            if (chain_guard && TypeRef(expr_type(chain_guard)).kind() != LogosType::Kind::Bool &&
-                TypeRef(expr_type(chain_guard)).kind() != LogosType::Kind::Error)
-                error(std::format("while-let chain condition must be bool, got {}",
-                      type_str(expr_type(chain_guard))));
-            if (chain_guard && !nested_subs.empty()) {
-                for (auto& ns : nested_subs)
-                    if (code_of(ns.sub_pat_node) == la::PAT_VARIANT_DATA) {
-                        error("while-let chain condition cannot yet reference bindings "
-                              "from a nested enum-variant pattern; match in the body instead");
-                        break;
-                    }
-                std::vector<lir_view::StmtRef> gd;
-                emit_nested_pat_destructure(nested_subs, gd, /*for_guard=*/true);
-                if (!gd.empty()) {
-                    std::vector<lir_view::StmtRef> gblk;
-                    gblk = std::move(gd);
-                    TypeRef gt = expr_type(chain_guard);
-                    chain_guard = builder().block_expr(lir_mirror_block(*cur_prog_, gblk),
-                                      std::move(chain_guard), gt);
-                }
-            }
-        }
-        std::vector<lir_view::StmtRef> then_body;
-        if (node.has_key(la::BODY)) {
-            ++loop_depth_;
-            if (!my_label.empty()) active_loop_labels_.push_back(my_label);
-            loop_break_frames_.push_back({my_label, nullptr, false});
-        pending_loop_body_scope_ = true;  // G167-4: tag the body frame
-            lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ then_body.push_back(s); });
-            loop_break_frames_.pop_back();
-            if (!my_label.empty()) active_loop_labels_.pop_back();
-            --loop_depth_;
-        }
-        if (!nested_destructure.empty()) {
-            std::vector<lir_view::StmtRef> merged = std::move(nested_destructure);
-            merged.insert(merged.end(),
-                          std::make_move_iterator(then_body.begin()),
-                          std::make_move_iterator(then_body.end()));
-            then_body = std::move(merged);
-        }
-        pop_scope();
-
-        // Else arm: wildcard → break
-        std::vector<lir_view::StmtRef> else_body;
-        else_body.push_back(builder().stmt_break(nullptr, "", node_line_));
-
-        std::optional<lir::LExprPtr> guard;
-        for (auto& rg : refut_guards) {
-            if (!rg) continue;
-            if (guard)
-                guard = builder().bin_op("&&", std::move(*guard), std::move(rg), bool_t());
-            else
-                guard = std::move(rg);
-        }
-        // Fold the let-chain trailing condition into the arm guard.
-        if (chain_guard) {
-            if (guard)
-                guard = builder().bin_op("&&", std::move(*guard), std::move(chain_guard), bool_t());
-            else
-                guard = std::move(chain_guard);
-        }
-
-        lir::SMatch sm;
-        sm.scrut = std::move(scrut);
-        sm.arms.push_back({std::move(pat), lir_mirror_block(*cur_prog_, then_body), std::move(guard)});
-        sm.arms.push_back({make_pat_wild("_"), lir_mirror_block(*cur_prog_, else_body), std::nullopt});
-
-        std::vector<lir_view::StmtRef> loop_body;
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(sm)));
-        lir::SLoop sl; sl.body = lir_mirror_block(*cur_prog_, loop_body);
-        sl.label = std::move(my_label);
-        return make_stmt_emit(node_line_, std::move(sl));
+    // ── while let PAT = VALUE [&& GUARD] BODY ───────────────────────
+    //   ≡ loop { match VALUE { PAT [if GUARD] => BODY, _ => break } }
+    // and the chain form (`while let P1 = e1 && … BODY`, ITEMS = the
+    // segments) nests one MATCH / IF per segment with `break` at every
+    // fall-through. Lowered BY DELEGATION to lower_loop → lower_match (see
+    // synth_doc_); the scrutinee is re-evaluated per iteration because the
+    // match statement lives inside the loop body, and the label is taken by
+    // lower_loop from pending_loop_label_ exactly as a written loop's is.
+    if (node.has_key(la::PAT) || (node.has_key(la::ITEMS) && node.has_key(la::BODY))) {
+        auto brk = synth_block({synth_node(la::BREAK.code, while_line, {})}, while_line);
+        writ::AnyVal m = node.has_key(la::PAT)
+            ? synth_match(node.get(la::VALUE.code), node.get(la::PAT.code),
+                          node.get(la::GUARD.code), node.get(la::BODY.code), brk, while_line)
+            : synth_let_chain(node, node.get(la::BODY.code), brk, while_line);
+        auto lp = synth_node(la::LOOP.code, while_line,
+                             {{la::BODY.code, synth_block({m}, while_line)}});
+        return lower_loop(map_of(lp));
     }
 
     // ── regular while cond { ... } ─────────────────────────────────
@@ -8664,263 +8523,96 @@ void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef 
     }
 }
 
+bool SemaChecker::pattern_moves_out(lir_view::PatRef pr, TypeRef ty) {
+    namespace ps = lir_schema::pat;
+    if (!pr) return false;
+    const auto* pool = cur_prog_->type_pool.impl();
+    auto named = [](std::string_view n) { return !n.empty() && n != "_"; };
+    switch (pr.kind()) {
+        case ps::Code::Wild:
+            return named(lir_view::PatWildView{pr}.name()) && ty && is_move_type(ty);
+        case ps::Code::VariantData: {
+            lir_view::PatVariantDataView v{pr};
+            std::vector<std::string> ns; std::vector<TypeRef> tys;
+            v.each_binding([&](std::string_view n){ ns.emplace_back(n); });
+            v.each_binding_type(pool, [&](TypeRef t){ tys.push_back(t); });
+            auto ms = v.bind_ref_modes();   // absent = all by value (measured, see the E0507 arm)
+            for (size_t i = 0; i < ns.size(); ++i) {
+                uint32_t m = i < ms.size() ? ms[i] : 0u;
+                TypeRef bt = i < tys.size() ? tys[i] : TypeRef(nullptr);
+                if (m == 0 && named(ns[i]) && bt && is_move_type(bt)) return true;
+            }
+            return false;
+        }
+        case ps::Code::Tuple: {
+            lir_view::PatTupleView v{pr};
+            std::vector<TypeRef> elems;
+            if (ty && TypeRef(ty).kind() == LogosType::Kind::Tuple) elems = TypeRef(ty).tuple_elems();
+            bool any = false; size_t i = 0;
+            v.each_sub([&](lir_view::PatRef sp) {
+                TypeRef et = i < elems.size() ? elems[i] : TypeRef(nullptr);
+                if (!any && pattern_moves_out(sp, et)) any = true;
+                ++i;
+            });
+            return any;
+        }
+        case ps::Code::Struct: {
+            lir_view::PatStructView v{pr};
+            bool any = false;
+            v.each_field([&](lir_view::PatFieldBindingView f) {
+                if (any) return;
+                TypeRef ft = ty ? field_type_of_for_type(ty, f.field_name()) : TypeRef(nullptr);
+                auto sub = f.sub();
+                if (!sub) { any = ft && is_move_type(ft); return; }   // shorthand `{ f }` = by value
+                any = pattern_moves_out(sub, ft);
+            });
+            return any;
+        }
+        case ps::Code::Slice:
+            // An array / slice pattern moves ELEMENTS, and those are partial
+            // moves the slice-pattern lowering and the borrow checker already
+            // record per element (`a.2`): `[.., z]` then `[w, ..]` is legal.
+            // A whole-array mark here would refuse it and coarsen the sentence
+            // (measured: 1 pass + 4 fail fixtures).
+            return false;
+        case ps::Code::At: {
+            lir_view::PatAtView v{pr};
+            if (named(v.name()) && ty && is_move_type(ty)) return true;   // the whole value, by value
+            return pattern_moves_out(v.sub(), ty);
+        }
+        case ps::Code::Or: {
+            bool any = false;
+            lir_view::PatOrView{pr}.each_alt([&](lir_view::PatRef a){
+                if (!any && pattern_moves_out(a, ty)) any = true; });
+            return any;
+        }
+        default:
+            // RefBind / RefPat bind through a reference; Variant / Int / Bool /
+            // Range bind nothing.
+            return false;
+    }
+}
+
 void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                                               TypeRef scrut_type,
-                                              writ::TinyMapView node) {
+                                              lir_view::PatRef pat) {
     namespace ec = lir_schema::expr;
     // The scrutinee may be a plain VAR (`match o`) or a PLACE — a struct field
-    // (`match s.o`) / tuple element (`match a.1`). Enum value-repr makes the
-    // payload INLINE in the parent's storage, so moving a payload out of a place
-    // scrutinee must mark THAT place moved (mark_moved_expr records `s.o`/`a.1`
-    // in moved_fields) — else the parent's scope-exit Drop double-frees the
-    // moved-out payload (the issue-19367 double-free). A bare VarRef marks the
-    // var. mark_moved_target dispatches to the right form.
-    // #110 R2 — INDEXREAD BELONGS IN THIS LIST. `match a[0] { W { i: y } => … }`
-    // over a `[W; 1]` with a droppable element used to reach neither arm of the
-    // machinery: lower_match's `is_place` test (which DOES list IndexRead) kept
-    // it off the temp-hoist path, and this list's omission kept it off the
-    // mark-moved path — so the element was destructured into `y`, dropped at arm
-    // end, and dropped AGAIN by the array's scope-exit glue. MEASURED
-    // 2026-08-22: two `DROP n=7` for one value; the same match on a plain local
-    // (`match s { … }`) printed one.
-    //
-    // Adding it here routes the scrutinee into `mark_moved_expr`, whose
-    // IndexRead arm has refused this since the E0508 work: `cannot move out of
-    // type '[W; 1]', a non-copy array`. That is the SAME answer every other
-    // array-element move spelling already gives (`let d = a[0]`, `f(a[0])`,
-    // `return a[0]` — all refused), so the by-value match stops being the one
-    // hole in that rule instead of being the one shape that double-frees. The
-    // refusal is element-conditional (`needs_drop`), so `match a[0]` over a
-    // Copy-element array still compiles — pinned as the admit half.
-    // ⚠ THE THIRD COPY, and the comment above already records this exact class
-    // once: "#110 R2 — INDEXREAD BELONGS IN THIS LIST". That repair added ONE
-    // spelling. SliceIndex was the next one down the same list, and Deref the
-    // one after. Adding spellings one at a time is what produced three drifting
-    // copies; the list is now the predicate.
-    bool scrut_is_place = lir_view::is_place_expr(expr_ref_of(scrut));
-    auto mark_moved_target = [&]() {
-        if (expr_ref_of(scrut).kind() == ec::Code::VarRef)
-            mark_moved(std::string(lir_view::EVarRefView{expr_ref_of(scrut)}.name()));
-        else
-            mark_moved_expr(expr_ref_of(scrut));
-    };
-    if (scrut && scrut_type && is_move_type(scrut_type) &&
-        scrut_is_place && node.has_key(la::ITEMS)) {
-        std::string scrut_var =
-            expr_ref_of(scrut).kind() == ec::Code::VarRef
-                ? std::string(lir_view::EVarRefView{expr_ref_of(scrut)}.name())
-                : std::string("<place>");
-        if (!scrut_var.empty()) {
-            auto arms_mv = arr_of(node.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < arms_mv.size(); ++i) {
-                auto arm = map_of(arms_mv.get(i));
-                if (code_of(arm) != la::MATCH_ARM) continue;
-                if (arm.has_key(la::GUARD)) continue;
-                if (!arm.has_key(la::LHS)) continue;
-                auto lhs = map_of(arm.get(la::LHS.code));
-                // A bare-identifier arm parses as a single-alt PAT_OR wrapping
-                // the binding (mirrors is_catchall_pat) — unwrap it.
-                if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
-                    auto alts = arr_of(lhs.get(la::ITEMS.code));
-                    if (alts.size() == 1) lhs = map_of(alts.get(0));
-                }
-                // A whole-value binding is a PAT_WILD carrying a real NAME
-                // (anonymous `_` has no NAME key).
-                if (code_of(lhs) == la::PAT_WILD && lhs.has_key(la::NAME)) {
-                    auto nm = str_of(lhs.get(la::NAME.code));
-                    if (!nm.empty() && nm != "_") { mark_moved_target(); break; }
-                }
-                // An unguarded STRUCT-destructure arm (`match p { Pair{a,b} =>
-                // … }`) over a by-value scrutinee moves the bound fields into
-                // the bindings, consuming `p` — mark it moved so its scope-exit
-                // Drop doesn't double-free a field a binding already owns
-                // (mirrors the let-destructure fix). BUT only when the arm
-                // actually moves out a MOVE-ONLY field by value: an empty struct,
-                // an all-Copy-field struct, or a fully `ref`-bound destructure
-                // moves nothing and leaves `p` live (it may be matched again).
-                // (Reached only for a by-value struct scrutinee — is_move_type
-                // above is false for a `&Struct` ref scrutinee.)
-                if (code_of(lhs) == la::PAT_STRUCT) {
-                    auto psname = std::string(str_of(lhs.get(la::NAME.code)));
-                    auto si_ = find_struct_by_name(psname).second;
-                    if (!si_) si_ = find_datatype_by_name(psname).second;
-                    bool moves = false;
-                    if (si_ && lhs.has_key(la::ITEMS)) {
-                        auto fl = map_of(lhs.get(la::ITEMS.code));
-                        if (fl.has_key(la::ITEMS)) {
-                            auto fitems = arr_of(fl.get(la::ITEMS.code));
-                            for (uint64_t fi = 0; fi < fitems.size() && !moves; ++fi) {
-                                auto fn = map_of(fitems.get(fi));
-                                if (code_of(fn) != la::PAT_FIELD) continue;
-                                // A `ref`-bound field doesn't move.
-                                if (fn.has_key(la::VALUE)) {
-                                    auto sub = map_of(fn.get(la::VALUE.code));
-                                    if (code_of(sub) == la::PAT_WILD &&
-                                        sub.has_key(la::IS_REF) &&
-                                        sub.get(la::IS_REF.code).is_value() &&
-                                        sub.get(la::IS_REF.code).as_value<uint8_t>() != 0)
-                                        continue;
-                                }
-                                // §2 Wave 9 — an anonymous `_` field
-                                // sub-pattern (e.g. `S { v: _ }`) DISCARDS
-                                // the field instead of binding it; no value
-                                // moves out. Skip same as `ref`-bound. The
-                                // shorthand `S { v }` (no VALUE node) DOES
-                                // bind `v` and so still counts as a move.
-                                // PAT_WILD always carries a NAME key; the
-                                // literal `_` shape has NAME=="_".
-                                if (fn.has_key(la::VALUE)) {
-                                    auto sub = map_of(fn.get(la::VALUE.code));
-                                    if (code_of(sub) == la::PAT_WILD) {
-                                        if (!sub.has_key(la::NAME)) continue;
-                                        auto nm = str_of(sub.get(la::NAME.code));
-                                        if (nm == "_") continue;
-                                    }
-                                }
-                                auto fnm = std::string(str_of(fn.get(la::NAME.code)));
-                                for (auto& f : si_->fields)
-                                    if (f.name == fnm && is_move_type(f.type)) {
-                                        moves = true; break;
-                                    }
-                            }
-                        }
-                    }
-                    if (moves) { mark_moved_target(); break; }
-                }
-                // An unguarded TUPLE-destructure arm (`match p { (a, b) => … }`)
-                // over a by-value tuple scrutinee moves move-only elements into
-                // the bindings — mark `p` moved so its scope-exit Drop (tuple
-                // branch) doesn't double-free an element a binding already owns
-                // (G154-4 / G156-2). Only when an element is bound BY VALUE
-                // (not `_`, not `ref`) and is a move type; an all-Copy / fully
-                // `ref`-bound / all-`_` destructure moves nothing.
-                if (code_of(lhs) == la::PAT_TUPLE && lhs.has_key(la::ITEMS) &&
-                    scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Tuple) {
-                    auto subs = arr_of(lhs.get(la::ITEMS.code));
-                    auto telems = TypeRef(scrut_type).tuple_elems();
-                    bool moves = false;
-                    for (uint64_t si = 0; si < subs.size() && si < telems.size() && !moves; ++si) {
-                        auto sub = map_of(subs.get(si));
-                        // Each tuple-pattern element parses as a single-alt
-                        // PAT_OR wrapping the binding — unwrap it.
-                        if (code_of(sub) == la::PAT_OR && sub.has_key(la::ITEMS)) {
-                            auto alts = arr_of(sub.get(la::ITEMS.code));
-                            if (alts.size() == 1) sub = map_of(alts.get(0));
-                        }
-                        if (code_of(sub) != la::PAT_WILD) continue;  // binding slot
-                        if (!sub.has_key(la::NAME)) continue;        // anonymous `_`
-                        auto nm = str_of(sub.get(la::NAME.code));
-                        if (nm.empty() || nm == "_") continue;
-                        if (sub.has_key(la::IS_REF) && sub.get(la::IS_REF.code).is_value() &&
-                            sub.get(la::IS_REF.code).as_value<uint8_t>() != 0)
-                            continue;                                // `ref` binding
-                        if (telems[si] && is_move_type(telems[si])) moves = true;
-                    }
-                    if (moves) { mark_moved_target(); break; }
-                }
-                // An unguarded VARIANT-DATA arm (`match r { Ok(s) => … }`) over a
-                // by-value enum scrutinee moves the bound payload into the
-                // binding — mark `r` moved so the enum's scope-exit Drop (the
-                // SDrop Enum branch) doesn't double-free a payload a binding (or
-                // a value returned from the arm) already owns. Reached only for a
-                // droppable / move-type enum scrutinee (is_move_type gate above).
-                // A `_` or `ref` binding moves nothing. (G156-2 enum-half.)
-                if (code_of(lhs) == la::PAT_VARIANT_DATA) {
-                    bool moves = false;
-                    // Does a sub-pattern bind ANY value out by value (not `_`,
-                    // not `ref`)? Recurses through nested tuple / struct shapes:
-                    // `Some((r, n))` binds `r` by value through a PAT_TUPLE, so
-                    // the payload is consumed and the scrutinee must be marked
-                    // moved (else its scope-exit enum Drop double-frees the
-                    // moved-out element — the G154-4 double-free, enum+nested half).
-                    std::function<bool(writ::TinyMapView)> binds_by_value =
-                        [&](writ::TinyMapView sp) -> bool {
-                        auto c = code_of(sp);
-                        if (c == la::PAT_OR && sp.has_key(la::ITEMS)) {
-                            auto alts = arr_of(sp.get(la::ITEMS.code));
-                            if (alts.size() == 1) return binds_by_value(map_of(alts.get(0)));
-                            return false;
-                        }
-                        if (c == la::PAT_FIELD) {
-                            if (!sp.has_key(la::VALUE)) return true;  // `{ name }` shorthand
-                            return binds_by_value(map_of(sp.get(la::VALUE.code)));
-                        }
-                        if (c == la::PAT_WILD) {
-                            if (!sp.has_key(la::NAME)) return false;  // anonymous `_`
-                            auto nm = str_of(sp.get(la::NAME.code));
-                            if (nm.empty() || nm == "_") return false;
-                            if (sp.has_key(la::IS_REF) && sp.get(la::IS_REF.code).is_value() &&
-                                sp.get(la::IS_REF.code).as_value<uint8_t>() != 0)
-                                return false;                          // `ref` borrows
-                            return true;                               // by-value name binding
-                        }
-                        if (c == la::PAT_TUPLE && sp.has_key(la::ITEMS)) {
-                            auto items = arr_of(sp.get(la::ITEMS.code));
-                            for (uint64_t i = 0; i < items.size(); ++i)
-                                if (binds_by_value(map_of(items.get(i)))) return true;
-                            return false;
-                        }
-                        if (c == la::PAT_STRUCT && sp.has_key(la::ITEMS)) {
-                            auto fl = map_of(sp.get(la::ITEMS.code));
-                            if (fl.has_key(la::ITEMS)) {
-                                auto items = arr_of(fl.get(la::ITEMS.code));
-                                for (uint64_t i = 0; i < items.size(); ++i)
-                                    if (binds_by_value(map_of(items.get(i)))) return true;
-                            }
-                            return false;
-                        }
-                        return false;
-                    };
-                    auto scan_subs = [&](writ::AnyVal items_av) {
-                        if (items_av.is_null()) return;
-                        auto subs = arr_of(items_av);
-                        for (uint64_t si = 0; si < subs.size() && !moves; ++si) {
-                            auto sub = map_of(subs.get(si));
-                            if (code_of(sub) == la::PAT_OR && sub.has_key(la::ITEMS)) {
-                                auto alts = arr_of(sub.get(la::ITEMS.code));
-                                if (alts.size() == 1) sub = map_of(alts.get(0));
-                            }
-                            // struct-shape field binding (PAT_FIELD): a shorthand
-                            // `{ name }` (no VALUE) IS a by-value binding of the
-                            // field; `{ field: pat }` carries the sub in VALUE.
-                            if (code_of(sub) == la::PAT_FIELD) {
-                                if (!sub.has_key(la::VALUE)) { moves = true; continue; }
-                                sub = map_of(sub.get(la::VALUE.code));
-                            }
-                            // Nested tuple / struct sub-pattern (`V((a, b))`,
-                            // `V(S { x })`): a move out of any leaf consumes the
-                            // payload — recurse rather than skip it.
-                            if (code_of(sub) == la::PAT_TUPLE || code_of(sub) == la::PAT_STRUCT) {
-                                if (binds_by_value(sub)) moves = true;
-                                continue;
-                            }
-                            if (code_of(sub) != la::PAT_WILD || !sub.has_key(la::NAME)) continue;
-                            auto nm = str_of(sub.get(la::NAME.code));
-                            if (nm.empty() || nm == "_") continue;
-                            if (sub.has_key(la::IS_REF) && sub.get(la::IS_REF.code).is_value() &&
-                                sub.get(la::IS_REF.code).as_value<uint8_t>() != 0)
-                                continue;  // `ref` binding moves nothing
-                            moves = true;
-                        }
-                    };
-                    // tuple-shape `V(a, b)`: sub-patterns under ARGS→ITEMS;
-                    // struct-shape `V { x, y }`: PAT_FIELD list directly under ITEMS.
-                    if (lhs.has_key(la::ARGS)) {
-                        auto args = map_of(lhs.get(la::ARGS.code));
-                        if (args.has_key(la::ITEMS)) scan_subs(args.get(la::ITEMS.code));
-                    }
-                    if (lhs.has_key(la::ITEMS)) {
-                        // struct-shape ITEMS is a pat_field_list NODE wrapping its
-                        // own ITEMS array (same shape as PAT_STRUCT) — unwrap it,
-                        // else arr_of on the node SIGSEGVs (issue-19340-2).
-                        auto fl = map_of(lhs.get(la::ITEMS.code));
-                        if (fl.has_key(la::ITEMS)) scan_subs(fl.get(la::ITEMS.code));
-                    }
-                    if (moves) { mark_moved_target(); break; }
-                }
-            }
-        }
-    }
+    // (`match s.o`) / tuple element (`match a.1`) / an element behind an index
+    // or a deref. Enum value-repr makes the payload INLINE in the parent's
+    // storage, so moving a payload out of a place scrutinee must mark THAT
+    // place moved (mark_moved_expr records `s.o`/`a.1` in moved_fields, and
+    // REFUSES an array element the way every other move spelling does) — else
+    // the parent's scope-exit Drop double-frees the moved-out payload. A bare
+    // VarRef marks the var. A temporary has no owner to mark (lower_match hoists
+    // it into a synth local first, so it arrives here as a VarRef).
+    if (!(scrut && scrut_type && is_move_type(scrut_type) &&
+          lir_view::is_place_expr(expr_ref_of(scrut)) && pattern_moves_out(pat, scrut_type)))
+        return;
+    if (expr_ref_of(scrut).kind() == ec::Code::VarRef)
+        mark_moved(std::string(lir_view::EVarRefView{expr_ref_of(scrut)}.name()));
+    else
+        mark_moved_expr(expr_ref_of(scrut));
 }
 
 void SemaChecker::emit_nested_variant_lets(
@@ -8971,10 +8663,12 @@ void SemaChecker::emit_nested_variant_lets(
         }
     };
     define_binds(pat_ref_of(lpat));
-    // Emit the let-else.
+    // Emit the let-else. Its bindings OWN what they take by value: the synth
+    // is marked moved so the arm's end does not drop it a second time.
     lir::SLetElse sle;
-    sle.pat   = std::move(lpat);
     sle.scrut = builder().var_ref(synth_name, synth_t);
+    mark_match_scrutinee_moved(sle.scrut, synth_t, pat_ref_of(lpat));
+    sle.pat   = std::move(lpat);
     std::vector<lir_view::StmtRef> eblk;
     lir::SLoop lp; lp.body = lir_mirror_block(*cur_prog_, {});
     eblk.push_back(make_stmt_emit(node_line_, std::move(lp)));
@@ -9225,6 +8919,10 @@ void SemaChecker::emit_nested_pat_destructure(
             define(bind, ftype, bmut_);
             auto sref = builder().var_ref(nsub.synth_name, synth_t);
             auto fr = builder().field_read(std::move(sref), fname, ftype);
+            // The binding moves the field OUT of the synth — mark synth.<f>
+            // moved so the synth's scope-exit Drop skips it (the tuple branch
+            // above does the same for its elements; without it: double drop).
+            if (is_move_type(ftype)) mark_moved_expr(expr_ref_of(fr));
             lir::SLet sl;
             sl.name = bind; sl.type = ftype; sl.is_mut = bmut_;
             sl.value = std::move(fr);
@@ -9541,20 +9239,17 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true});
     };
 
-    // A whole-value binding arm (`x => …` — an UNGUARDED `PAT_WILD` that
-    // carries a real name, not `_`) moves an owned move-type scrutinee into
-    // the binding: Rust's by-value match move, `match v { x => … }` ≡
-    // `{ let x = v; … }`. Mark the scrutinee var moved so it is not dropped a
-    // SECOND time after the match — the binding's own drop already fires at arm
-    // end (match-arm bindings drop, a6a04330). Without this an owned Vec/String
-    // scrutinee is double-freed (SIGSEGV). Restricted to an unguarded binding
-    // arm (which always matches → unconditional move); guarded binding arms
-    // leave the scrutinee conditionally live for later arms.
-    mark_match_scrutinee_moved(scrut, scrut_type, node);
+    // A binding arm (`x => …`, `Some(r) => …`, `(a, b) => …`) moves an owned
+    // move-type scrutinee (or its payload) into the binding: Rust's by-value
+    // match move. The scrutinee is marked moved INSIDE each such arm (see the
+    // arm loop) so the binding's own arm-end drop is the only one on that path
+    // and an arm that binds nothing leaves a flagged scope-exit drop.
 
     // Sprint 5.2: arm-after-catchall lint (closes B-pt-07).  The first
-    // unguarded `_` arm makes every subsequent arm unreachable.
-    if (node.has_key(la::ITEMS)) {
+    // unguarded `_` arm makes every subsequent arm unreachable. Not for a
+    // desugared `if let` / `while let` (the node carries its PAT): its `_`
+    // arm is the else branch, and `if let _ = e {}` is legal (Rust warns).
+    if (node.has_key(la::ITEMS) && !node.has_key(la::PAT)) {
         auto arms_l = arr_of(node.get(la::ITEMS.code));
         bool seen_catchall = false;
         for (uint64_t i = 0; i < arms_l.size(); ++i) {
@@ -9874,7 +9569,12 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             // Build pattern. P4-pm-02: wire side channel so that
             // nested struct/tuple sub-patterns inside variant payload
             // register synth payload bindings + body-prologue lets.
-            in_match_writ_ctx_ = has_writ_pat;
+            // Spec rule pat.writ.match-only: a Writ scalar pattern is legal in
+            // a WRITTEN `match` arm only (the let forms carry PAT on the node),
+            // so build_pattern refuses it there with the rule's own sentence.
+            // The mechanism no longer needs the rule — the let form IS this
+            // match — lifting it is a spec decision (tests/spec pat_diag_2).
+            in_match_writ_ctx_ = has_writ_pat && !node.has_key(la::PAT);
             std::vector<NestedPatSub> nested_subs;
             auto* saved_pat_subs = current_pat_nested_subs_;
             current_pat_nested_subs_ = &nested_subs;
@@ -10209,6 +9909,13 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                 }
             }
 
+            // This arm OWNS what its pattern binds by value — on THIS arm's
+            // path only (the arm is one CondMoveBranch; an arm that binds
+            // nothing leaves the scrutinee a flagged drop). After the guard,
+            // which may still read the scrutinee.
+            if (arm.has_key(la::LHS))
+                mark_match_scrutinee_moved(smatch.scrut, scrut_type, pat_ref_of(pat));
+
             std::vector<lir_view::StmtRef> body;
             if (arm.has_key(la::BODY)) {
                 auto body_node = map_of(arm.get(la::BODY.code));
@@ -10470,14 +10177,13 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     };
     // G156-2: a match-EXPRESSION that binds+moves a payload out of a by-value
     // move-type enum/struct/tuple scrutinee (`let x = match body { Ok(s) => s }`)
-    // must mark the scrutinee moved so its scope-exit Drop doesn't double-free a
-    // value the result already owns. Same per-arm analysis as the statement
-    // match path (shared helper). (Was: lforge read_manifest / graph_cas
-    // double-free.)
-    mark_match_scrutinee_moved(scrut, scrut_type, node);
+    // marks the scrutinee moved inside each binding arm (see the arm loop) so
+    // its scope-exit Drop doesn't double-free a value the result already owns.
+    // (Was: lforge read_manifest / graph_cas double-free.)
 
     // Sprint 5.2: arm-after-catchall lint (closes B-pt-07, expr position).
-    if (node.has_key(la::ITEMS)) {
+    // Not for a desugared `if let` (PAT on the node) — see lower_match.
+    if (node.has_key(la::ITEMS) && !node.has_key(la::PAT)) {
         auto arms_l = arr_of(node.get(la::ITEMS.code));
         bool seen_catchall = false;
         for (uint64_t i = 0; i < arms_l.size(); ++i) {
@@ -10730,7 +10436,12 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
 
             // P4-pm-02: wire nested-pat side channel (same as stmt-form
             // lower_match above).
-            in_match_writ_ctx_ = has_writ_pat;
+            // Spec rule pat.writ.match-only: a Writ scalar pattern is legal in
+            // a WRITTEN `match` arm only (the let forms carry PAT on the node),
+            // so build_pattern refuses it there with the rule's own sentence.
+            // The mechanism no longer needs the rule — the let form IS this
+            // match — lifting it is a spec decision (tests/spec pat_diag_2).
+            in_match_writ_ctx_ = has_writ_pat && !node.has_key(la::PAT);
             std::vector<NestedPatSub> nested_subs;
             auto* saved_pat_subs = current_pat_nested_subs_;
             current_pat_nested_subs_ = &nested_subs;
@@ -10987,6 +10698,10 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             // diverge (every path returns) contribute error_t so they are
             // skipped during type unification; non-diverging block arms use
             // their last expression as the value.
+            // The arm owns what its pattern binds by value — see lower_match.
+            if (arm.has_key(la::LHS))
+                mark_match_scrutinee_moved(me.scrut, scrut_type, pat_ref_of(pat));
+
             lir::LExprPtr val = nullptr;
             bool arm_diverges = false;   // move/uninit merge below
             if (arm.has_key(la::EXPR)) {

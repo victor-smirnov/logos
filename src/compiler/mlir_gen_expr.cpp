@@ -563,6 +563,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
         // prints every time now, and the count is a ledger row, not a silence.
         // An arm whose ground quotes a number from one tier while the tree has
         // two is exactly the reading that let this channel stay quiet.
+        // A reference whose TYPE has no value representation (`!`, `()`, a
+        // zero-width aggregate) is value-less BY CONSTRUCTION — its `let` bound
+        // nothing for the same reason — so "no value" is correct and silent
+        // here, the same predicate SLet / SExprStmt / SReturn state. Measured:
+        // `Option<!>::unwrap_or`'s `return default` through a `__ret_tmp: !`
+        // (the None arm now drops `self` on its own path, so the return is
+        // hoisted through a temp) fired this on a correct program.
+        if (type && !logos_to_mlir(type)) return nullptr;
         std::fprintf(stderr, "mlir_gen: warning: undefined '%s' in fn '%s'"
                      " — no value emitted for this reference\n",
                      name.c_str(), cur_fn_name_.c_str());

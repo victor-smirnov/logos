@@ -1,0 +1,7 @@
+package ce10_definite_assignment;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(4i64);
+    let mut x: i64 = 99i64;
+    if let Option::Some(v) = o { x = v; } else { x = 0i64; }
+    return x as i32;
+}

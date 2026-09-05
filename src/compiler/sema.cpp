@@ -4229,15 +4229,17 @@ std::vector<lir_view::StmtRef> SemaChecker::collect_all_drops() const {
     return drops;
 }
 
-std::vector<lir_view::StmtRef> SemaChecker::collect_drops_to_loop() const {
+std::vector<lir_view::StmtRef> SemaChecker::collect_drops_to_loop(size_t cross) const {
     std::vector<lir_view::StmtRef> drops;
     for (auto fit = scope_.rbegin(); fit != scope_.rend(); ++fit) {
         emit_frame_drops(*fit, drops);
         // Stop AFTER dropping the loop-body frame: break/continue leaves the
         // loop via its edge, so the iteration's locals (incl. this frame's) are
-        // released here; outer (enclosing-fn) frames stay live. A closure
+        // released here; outer (enclosing-fn) frames stay live. A labeled
+        // break/continue crosses `cross` inner loop bodies first. A closure
         // boundary also stops the walk (a break can't cross it).
-        if (fit->loop_boundary || fit->closure_boundary) break;
+        if (fit->closure_boundary) break;
+        if (fit->loop_boundary) { if (cross == 0) break; --cross; }
     }
     return drops;
 }

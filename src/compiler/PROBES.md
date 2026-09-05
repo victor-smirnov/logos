@@ -23868,3 +23868,163 @@ ceiling: 0 (bc) / 0 (soundness queue)
 cost: hand: a36 (LEGAL `(mut a, b)` + `&mut a`) REFUSED — the declaration without the bit
 verdict: ⛔ control twin of tuplemut's inner predicate — separates on a01 a31 a36
 note: the Tuple case of declare_pat_bindings without the mut bit.
+
+# ═══ ROUND 2026-09-06d (LANDING, soundness queue) — CLASS (c) CLOSED BY DELEGATION: `if let` / `while let` /
+# if-let-expr / the let-chains LOWER THROUGH lower_match OVER A SYNTHESIZED AST NODE, the render→re-parse door
+# is gone, the scrutinee move is read off the LIR pattern PER ARM, the nested-struct/variant synths are marked,
+# and a labeled `continue` crosses inner loop bodies — 2 rows closed (predicted 2 by name, both ways), 2 rows
+# ADDED (23 -> 23), −395 lines of compiled source, cost 0 pass / cfail 3 sentences (2 coarser = `match`'s, 1 the
+# rustc-correct one for a wrong-reason pin) / stdlib four layers / runtime 0 of 6328 (final column in the commit). ═══
+
+## 0. STEP 1, RE-DERIVED (HEAD 60d6cc398 = origin/main, clean)
+    build_hash `fd225170dfc55e5a 43` (READ). Queue `# TOTAL` 23 = 23 by listing; bc_admits 99 / blocked 25; probe-log-lint
+    193 records, every site resolves. Queue gate with `LOGOS_LIB_DIR=build/lib/logos`: rc 0, 23 rows hold (the bare line
+    in the brief reads rc 4 — the same correction as 06/06b/06c §0). The 06b landing form re-read (35173b3a3..c1922bcbb):
+    one widened value (BINDING_REF_MODES bit 0x10) where a mode array exists, pk::IS_MUT where none does, no sibling key,
+    both masks deleted — the structural form asked for. The 06c pricing's paraphrase corrected: its "22 edits" spec is
+    a COPY of lower_match's protocol into two lowerings; this round lands the DELEGATION instead (§2), which the owner's
+    "fix the class" asks for and which 06c §6 itself named ("the chain should lower as nested SMatch directly").
+    Baselines on fd225170dfc55e5a, ONE configure: gate-run `-L bc` = the store's record ("nothing has changed that a
+    test run could see"); fail_text_oracle 1383 rows; run_oracle 6328 rows.
+
+## 1. COUNTER-EXAMPLES FIRST — 24 hand programs in shapes 06c did not use (`probes/2026-09-06d-patown/hand/`, exit
+##    = destructor count through a `*mut i64`, or count*10 + n; `expected.tsv` = Rust's number). HEAD, then the landing:
+    ce01 tail if-let-expr 5 ✓ · ce02 else-if chain 4 [3] · ce03 `'outer: while let` + `continue 'outer` from an inner
+    loop 2 [62] (c = 0: the popped value LEAKED on every continue) · ce04 droppable temp receiver in a while-let 0 [2]
+    LEAK · ce05 `&mut o` scrutinee 6 ✓ · ce06 then-branch returns, scrutinee reused after 2 [1] · ce07 if-let-expr
+    value 11 ✓ (by accident) · ce08 three-segment chain 33 ✓ · ce09 while-let chain, guard fails 60 ✓ · ce10 definite
+    assignment 4 ✓ · ce11 closure body 2 [1] · ce12 int-literal if-let in a match arm in a loop 3 ✓ · ce13 Copy scrutinee
+    reused 6 ✓ · ce14 chain `ref` then reuse 12 ✓ · ce15 `while let Some(n) = cur { cur = … }` 66 ✓ · ce16 chain guard
+    moves 61 ✓ · ce17 field place read-only 15 ✓ · ce18 temp scrutinee read-only 1 [11] LEAK · ce19 `Some(Some(s))`
+    move-out 2 [1] · ce20 if-let + `break` in a `for` 1 [2] LEAK · ce21 `ref` on `self.o` 44 ✓ · ce22 place re-inited
+    before `break` 1 ✓ · ce23 `'a: loop { let s; loop { continue 'a } }` (NO pattern) 1 [4] LEAK · ce24 `E::V(a, _)`
+    over two droppable payloads 1 [3] LEAK.
+    LANDING: every one at Rust's number except ce24 (a new row, §5). ce03 needed ce23's fix; ce19 needed §2(d).
+
+## 2. THE STRUCTURAL CHANGE (diff `git diff 60d6cc398 -- src/compiler/{sema,sema_expr,sema_stmt}.cpp sema_impl.hpp`:
+##    +319 / −714)
+    (a) DELEGATION. `if let PAT = V [&& G] THEN [else ELSE]` ≡ `match V { PAT [if G] => THEN, _ => ELSE }`;
+        `while let …` ≡ `loop { match V { … , _ => break } }`; an if-let-EXPR ≡ the match expression; a let-CHAIN ≡
+        one MATCH per let segment and one IF per bool segment nested inside-out with ELSE referenced at every
+        fall-through (the same duplication the text desugar did). Each builds the node the ONE lowering reads —
+        `synth_match` / `synth_let_chain` (sema_stmt.cpp, before lower_if) — in a sema-owned never-move arena
+        (`synth_doc_`, MultiChunk) whose nodes reference the ORIGINAL PAT / VALUE / THEN / ELSE subtrees by AnyVal
+        (a self-relative ref resolves across arenas; Views hold absolute pointers) — no source node is copied, so
+        `extending_borrow_nodes_` (keyed on a source node's address, marked BEFORE lowering by lower_let's walk into
+        an if-expr's THEN/ELSE) stays valid. The PAT branches of lower_if / lower_while / lower_if_expr, the while-let
+        chain's text render, and lower_if_let_chain's `render_pat_src` re-parse are DELETED: class (a)'s door 2 no
+        longer exists as a lowering (a13 a15 a16 a25 a26 a27 a29 run; a29 was a compiler crash). `render_pat_src`
+        survives as the --gen-dir renderer only.
+        PAT on the synthesized MATCH node records "written as a let form" — read by the arm-after-catchall lint, which
+        otherwise refused `if let _ = 5 {}` (irrefutable-let-patterns-b160, MEASURED on the first build).
+        `match_in_tail_position_` unaffected (a tail if-let is an if-EXPR → lower_match_expr, as before).
+    (b) PER-ARM SCRUTINEE MOVE. lower_match / lower_match_expr no longer mark the scrutinee moved BEFORE the arms;
+        each arm marks it inside its own move state (after its guard, which may still read the scrutinee) —
+        so an arm that binds nothing leaves a FLAGGED scope-exit drop (06c's matchcondmv: c26 `_`-arm leak 0 -> 2)
+        and a GUARDED binding arm marks too (the guard passing IS that arm's path). issue-31287-drop-in-guard's
+        pinned "use of moved variable 'a'" was the pre-arm mark firing INSIDE the guard — a wrong reason; it now
+        prints "cannot move 'a' while it is borrowed", rustc's E0505 for that test; `.expected` updated.
+    (c) THE MOVE QUESTION IS READ OFF THE LIR PATTERN. `pattern_moves_out(PatRef, TypeRef)` (Wild by name+type,
+        VariantData by mode 0 + binding type, Tuple/Struct/At/Or recursively with the element / field type from the
+        scrutinee type, RefBind/RefPat/literals never) replaces the 200-line AST re-derivation that missed the
+        shorthand `ref` field (a22), the nested variant under a tuple scrutinee (c34, c19) and the nested variant
+        PAYLOAD itself (ce19). ⚠ Slice returns FALSE deliberately: array element moves are per-element partial moves
+        the slice-pattern lowering + borrow checker record (`a.2`); a whole-array mark refused the LEGAL
+        bc_slicearr_suffix_prefix_twin and coarsened four pinned sentences (MEASURED on build 42cdaaccf8eb84d2, all
+        five back on def2f6c8935d7b91).
+    (d) THE TWO SYNTHS ARE MARKED. emit_nested_pat_destructure's struct branch marks `synth.<f>` moved when the
+        binding takes the field (the tuple branch's own line; 06c's substructmv: c31/c32 2 -> 1, the Box twin was a
+        double FREE); emit_nested_variant_lets marks its synth moved through the same predicate (ce19 3 -> 1 — with
+        arm drops the un-marked synth became a THIRD drop). lower_let_else marks its scrutinee after the else block
+        (c10 c22 2 -> 1).
+    (e) A LABELED `continue`/`break` CROSSES INNER LOOP BODIES. `collect_drops_to_loop(cross)` — `push_stmt_with_unwind`
+        counts the loop frames between the innermost and the labeled one (`loop_break_frames_`) — the walk used to
+        stop at the FIRST loop_boundary whatever the label, leaking every frame in between (ce23, no pattern at all;
+        ce03's 60 missing drops). Found by counter-example, fixed in the round because the fix is the walk's own
+        parameter; pinned pass/fail one token apart.
+
+    (f) A VALUE-LESS REFERENCE IS SILENT (mlir_gen_expr.cpp, the `undefined '%s'` warning): a VarRef whose TYPE has
+        no MLIR representation (`!`, `()`, zero-width) returns no value without the warning — the predicate SLet /
+        SExprStmt / SReturn already state (`logos_to_mlir(ty)`), stated once more at the reference. Surfaced by (b):
+        `Option<!>::unwrap_or`'s None arm no longer has `self` pre-marked, so `return default` is hoisted through a
+        `__ret_tmp: !` whose let binds nothing; the reference then printed the warning and run_oracle read ccrc 90 on
+        never_type_generic_arg (the FULL build's run column, m4 compiler-only did not show it). Fixed build
+        37b84e9b45e2a5fa: the fixture compiles silent and runs 0.
+    (g) SPEC RULE pat.writ.match-only KEPT. A Writ scalar pattern in a let form (`if let @true = rc`) is refused with
+        the rule's own sentence: lower_match arms the writ context only for a WRITTEN match (no PAT on the node).
+        Under delegation the mechanism accepts it (measured: tests/spec/fail/pat_diag_2__writ-match-only compiled rc 0
+        on 37b84e9b45e2a5fa, L4 bc 4724/4725) — LIFTING the rule is now a one-line + spec-text decision for Victor
+        (docs/spec/patterns.md `pat.writ.match-only`, divergences.md), not a compiler limitation; not taken here.
+    key_identity.ledger: `#SCAN sema_stmt.cpp 15 -> 11` — the four `== "_"` discard tests of the deleted AST
+        re-derivation (roster diffed on both trees: gone = `_` ×4, new = none); note in the ledger.
+
+## 3. THE PRICE — every column, on the compiler alone (build 0177… ≠; this round: m1 9ceb837652bd1914 = (a)+(b)+(d)
+##    with the AST predicate, m2 473cde1e65677af4 = +(c)+(e), m3 42cdaaccf8eb84d2 = +the lint exemption, m4
+##    def2f6c8935d7b91 = +Slice false; FINAL = the full build in the commit message)
+    queue: exactly iflet_payload_moveout_double_drop + whilelet_mut_reassign_leak close (gate rc 1 with the two FAIL
+      blocks, every other row holds) — predicted by name, both ways (predictions.txt).
+    pass (run_oracle, 6328 compiled+linked+run, cast-region-to-uint subtracted): m1 1 (irrefutable-let-patterns-b160:
+      the lint), m3 1 (bc_slicearr_suffix_prefix_twin: the Slice arm), m4 0.
+    cfail (fail_text_oracle, 1383): m4 = 4 rows moved, all read: bc_patsubmove_second_use_fail and
+      issue-53807--c-iflet-noloop "use of moved field 'm.0'" -> "use of moved variable 'm'" — sema's whole-var mark
+      speaks before the borrow checker's partial-move record, EXACTLY what a second `match m` prints today (the finer
+      sentence needs the per-field enum payload record that §5's enum_payload_partial_move_leak needs too — one fix,
+      recorded there); issue-31287-drop-in-guard -> the rustc-correct sentence (§2b); issue-53807--move-in-loop
+      text-only, still matches. The three `.expected` updated in the commit, each sentence read.
+    stdlib: all four layers compile (stdlib-cost.sh, m1 and m3).
+    bc ledgers: 99 / 25 unmoved (queue gate + fixtures; the `-L bc` label re-run in the commit's L4 bc).
+    06c hand set on m2/m4: every (c)/(d) shape at Rust's count — c01 1 c03 3 c05 3 c08 1 c09 1 c10 1 c11 1 c12 1 c13 6
+      c16 1 c18 3 c19 1 c21 1 c22 1 c24 1 c26 2 c27 2 c29 3 c30 1 c31 1 c32 1 c33 5 c34 1 d02 3 d03 3 d04 3 d05 1 d07 1
+      d08 3 d09 1; controls unchanged; d11 refused; d13 (`while let Some(r) = o` over a PLACE with a conditional break)
+      now REFUSED "use of moved field 'o.0'" — that is rustc's E0382 (the back edge re-reads the moved place), it was
+      an ADMIT on HEAD; pinned as fail/bc_patown_whilelet_place_scrut_loop_fail, its legal twin ce22 as a pass.
+      (a) set unchanged except the chain shapes above and a28 (§5).
+
+## 4. FIXTURES — 60 pass + 6 fail `bc_patown_*` (tests/logos/{pass,fail}); every pass asserts `exit: <count>`.
+    The two rows: pass/bc_patown_iflet_moveout ↔ fail/bc_patown_iflet_moveout_twice_fail (one token: a second
+    `eat(r)`), pass/bc_patown_whilelet_mut_reassign ↔ fail/bc_patown_whilelet_reassign_no_mut_fail (one token: `mut`).
+    Pairs: chain_ref_then_reuse ↔ chain_byval_then_reuse_fail (`ref`); labeled_continue_leak ↔
+    labeled_continue_unknown_fail (`'nope`); whilelet_place_reinit_break ↔ whilelet_place_scrut_loop_fail;
+    iflet_scrut_reused_fail. The 23 ce shapes and 35 of 06c's hand shapes as passes (c26 c31 c32 c34: `match`'s own
+    three defects; a13 a15 a16 a25 a26 a27 a29: the deleted re-parse door's shapes).
+    Census pins by direct listing: `ls tests/logos/pass/*.logos | wc -l` 2709 -> 2769 (direct_door corpus/nonglob
+    +60); REGISTRY-ALL 9095 -> 9161, NOIMPORTED 4659 -> 4725, TIERCOMMIT 174 (docs/deem-interpreter-deletion-census.md).
+    CONTROL REVERT (the four sources stashed, logosc rebuilt = HEAD's 9750890ea8e4ae8f): row programs run 1 / run 1
+    (the recorded wrong behaviour), 10 of the 24 ce wrong (ce02 ce03 ce04 ce06 ce11 ce18 ce19 ce20 ce23 ce24), 46 of
+    the 66 new fixtures RED on the old binary; restored and rebuilt -> def2f6c8935d7b91 exactly.
+
+## 5. QUEUE — 2 CLOSED, 2 ADDED (23 -> 23), both found by this round's controls, both REPRODUCED on m4 (run 1):
+    enum_payload_partial_move_leak (tier 1): `match e { E::V(a, _) => eat(a), .. }` over `E::V(S, S)` — the whole-var
+      mark suppresses the enum's drop and the SECOND payload field leaks (1 [3]). Root: sema has no per-field record
+      for a variant payload (moved_fields on `e.V.1`), and neither has the enum drop glue. The same record would give
+      the finer E0382 sentence back to the two coarsened fixtures (§3).
+    variant_payload_char_literal_nomatch (tier 1): `match o { Some('x') => … }` over `Some('x')` takes `_` (the int
+      twin matches) — a pre-existing `match` defect that a28's chain form hid behind the re-parse's refusal.
+    NOT rows, recorded: the labeled-continue leak (§2e) is FIXED and pinned; d13's admit is now a correct refusal.
+    Still owed from 06c §5 (unchanged, not this round's mechanism): a08 a09 a20 a35 (codegen's RefBind-in-container /
+    slice rest), a24 a33 a34 (declare_pat_bindings' `default: break`), a01-a04 a06 a11 a17 a18 a19 a22 a30 a31
+    (class (a)'s door 1: tuple / struct-shorthand / at / param `mut`+`ref`) — 06c §6's "every pattern binding is
+    declared with its carried mode" is the next block; this round's `pattern_moves_out` is its reader half.
+
+## 6. WHAT CONTRADICTS A RECORDED CLAIM
+    · 06c §3 "ifletown2 … the landing candidate" — landed as delegation, not as the 22-edit copy; the same two rows,
+      the same hand numbers, and −395 lines instead of +~150.
+    · 06c §1a "render_pat_src … a landing must land WITH render_pat_src carrying IS_REF/IS_MUT" — moot: the render is
+      no longer a lowering channel; a14 runs with its `ref` (12 ✓) and no renderer change.
+    · 06c §4 "d13 whilelet place scrut 1 [1]" as a hand shape — it is ILLEGAL Rust (E0382 on the back edge); its
+      admit was the defect.
+    · lower_if_expr's PAT branch IGNORED the chain GUARD (`let x = if let Some(v) = o && v > 0 {..} else {..}`
+      silently dropped the condition); lower_if_let_chain in expression position returned a dummy `0i32`. Both gone
+      with the delegation (the guard is the arm's guard; the chain expression is the match expression's value).
+    · build_hash.py on the SAME HEAD sources read fd225170dfc55e5a at STEP 1 and 9750890ea8e4ae8f after the control
+      rebuild (libraries unchanged, only logosc relinked) — the hash carries something a relink moves; recorded, not
+      chased (tooling frozen).
+
+## 7. FINAL — build 292d8b06b75c0344 (full `cmake --build`, the four stdlib layers rebuilt by this compiler), ONE configure:
+    queue gate rc 0 (23 rows hold, 2 closed + 2 added) · fail_text_oracle 1383 -> 1389: 4 rows moved (§3, all read) + 6
+    new · run_oracle 6328 -> 6388: 0 damaged; 296 fixtures moved ccrc 90 -> 0 (the `undefined '…'` stale-VarRef warning
+    over void payloads, §2f, no longer self-diagnoses a correct program; 295 run 0, test_harness_asserts runs its
+    registered `exit: 1`), every other triple identical, cast-region-to-uint subtracted · L1 754/754 + 174 gates rc 0
+    (key_identity re-pinned, census_pin 9161, direct_door corpus 2769) · L4 bc 4725/4725 + 1538/1538 (gate-db build 792)
+    · bc_admits 99 / blocked 25 unmoved. Diff in compiled sources: sema_stmt −295 net, sema_expr −135, sema_impl +33,
+    sema +5, mlir_gen_expr +8. Tree: the four hand sets and predictions archived under probes/2026-09-06d-patown/.

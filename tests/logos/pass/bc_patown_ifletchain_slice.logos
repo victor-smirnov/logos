@@ -1,0 +1,11 @@
+// a slice pattern in a let-chain lowers PROBES.md 2026-09-06d: `if let` / `while let` / let-chains lower BY DELEGATION to lower_match (temp hoist, per-arm scrutinee move, arm drops, cond-move merge); the count is a destructor tally through a raw pointer.
+package bc_patown_ifletchain_slice;
+fn main() -> i32 {
+    let arr: [i64; 2] = [1i64, 2i64];
+    let mut out: i64 = 0i64;
+    if let [a, b] = arr && a > 0i64 {
+        out = a + b;
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

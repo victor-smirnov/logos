@@ -1,0 +1,20 @@
+# ROUND 2026-09-06d — PREDICTIONS BY NAME, written before any edit (HEAD 60d6cc398, build fd225170dfc55e5a)
+# STRUCTURAL CHANGE: if-let / while-let / if-let-expr / if-let-chain / while-let-chain LOWER BY DELEGATION to
+# lower_match / lower_match_expr / lower_loop over a SYNTHESIZED AST node (a MATCH node built in a sema-owned
+# never-move arena that references the original PAT / VALUE / THEN / ELSE subtrees); the render->reparse door
+# (render_pat_src) is no longer a lowering channel; let-else gains the scrutinee-moved mark; lower_match's pre-arm
+# mark moves inside each unguarded arm (matchcondmv); the nested-struct sub prologue marks the synth field moved
+# (substructmv).
+queue rows CLOSED (exactly, both ways): iflet_payload_moveout_double_drop, whilelet_mut_reassign_leak  -> # TOTAL 23 -> 21
+queue rows NOT moved: every other row (21).
+bc ledger rows: 0 opened, 0 closed.
+hand ce (scratchpad/ce, exit = count or count*10+n): ce02 4->3 · ce03 2->62 · ce04 0->2 · ce06 2->1 · ce11 2->1 ·
+  ce18 1->11 · ce19 2->1 · ce20 1->2; ce01 ce05 ce07 ce08 ce09 ce10 ce12 ce13 ce14 ce15 ce16 ce17 ce21 ce22 unchanged (correct on HEAD).
+hand (c)/(d) of 06c: the 24 shapes ifletown2 moved reach Rust's count; PLUS c10 c22 (let-else mark) 2->1, c11 (if-let-expr) 2->1,
+  c26 (matchcondmv) 0->2, c31 c32 (substructmv) 2->1; c19 c34 (mark_match_scrutinee_moved's PAT_TUPLE arm) UNCHANGED unless
+  that arm is rewritten in this round; a14 (chain `ref`) RUNS 0 (no reparse door); a13 a15 a16 a25-a29 (chain render drops) go
+  to their non-chain twins' verdicts (a13/a16 run, a15/a26/a28 run, a25 run, a27 run, a29 no crash).
+cost: pass 0 predicted (risk: E0507 now asked at if-let over an unowned place, and str/writ-pattern diagnostics change for
+  if-let — any pass fixture that reds there is read, not masked) / cfail: 2 text-only expected (the coarser E0382 sentence at
+  bc_patsubmove_second_use_fail + issue-53807--c-iflet-noloop) unless the mark can name the payload place / stdlib 4 layers ok
+  / runtime 0 of ~6328 (cast-region-to-uint subtracted).
