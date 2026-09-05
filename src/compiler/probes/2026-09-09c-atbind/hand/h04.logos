@@ -1,0 +1,12 @@
+// h04 ILLEGAL (E0596): no `mut`, assignment to the at-binding. Rust: refused
+package h04;
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let mut out: i64 = 0i64;
+    match v {
+        n @ 1i64..=5i64 => { n = n + 1i64; out = n; },
+        _ => { out = -1i64; }
+    }
+    if out != 5i64 { return 1i32; }
+    return 0i32;
+}

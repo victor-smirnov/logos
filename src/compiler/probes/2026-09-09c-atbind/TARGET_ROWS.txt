@@ -1,0 +1,32 @@
+round 2026-09-09c (pricing) — TARGET QUEUE ROWS, named BEFORE any compiler edit
+build read at selection time: 87553240428a0870 43
+queue gate rc 0 on 28 (with LOGOS_LIB_DIR set — see corrections)
+
+PRIMARY BLOCK — the `@`-binding (AST PAT_AT / LIR PatAt), 5 rows of 28:
+  A1 at_binding_top_addrof_nomut_admit    tier 2  admits
+  A2 at_binding_ref_mut_payload_refuses   tier 3  refuses
+  A3 struct_field_at_binding_run          tier 1  run 1
+  A4 tuple_elem_at_binding_undefined      tier 3  refuses
+  A5 let_at_binding_unsupported           tier 3  refuses
+
+SECONDARY (2 rows, a decayed price to re-measure — rule 8):
+  B1 trait_default_body_type              tier 2  admits
+  B2 trait_default_body_call              tier 2  admits
+
+ADJACENT, priced only if the At work reaches it (shares lower_let_pat with A5):
+  C1 let_tuple_destructure_ref_scrutinee  tier 3  refuses
+
+WHY THIS BLOCK (the next round inherits this reasoning):
+ * It is the largest set in the queue sharing ONE AST node. Every other grouping in
+   the queue is 1-2 rows (region/outlives, dyn syntax, layout, diag) or is owner-blocked
+   (match_ergo_ref_modifier_ref_mode_admit's price IS a corpus decision).
+ * Every one of the 5 headers was written in the last two rounds (09-09a/09-09b), so the
+   records have not decayed; PROBES.md's own claims about them are one round old.
+ * Shape: three of the five are "an arm that EXISTS reached through a fact the code does
+   not carry" (the mirror has no mode field; the Tuple/Field/let doors have no At case) —
+   the shape the prompt says has paid every time.
+ * ⚠ IT IS NOT ASSUMED TO BE ONE ROOT. The stated hypothesis is TWO roots, and the round
+   must test that by the both-ways diff, not by the name:
+     R1 "PatAt's mirror carries no mode field"      -> predicted to move A1, A2 only
+     R2 "PAT_AT is not a case at a binder door"     -> predicted to move A3, A4, A5 only
+   If one candidate change moves a member of the other set, the partition is wrong.

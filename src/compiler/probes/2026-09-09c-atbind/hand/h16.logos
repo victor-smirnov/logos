@@ -1,0 +1,7 @@
+// h16 LEGAL: `let n @ _` with a type annotation. Rust: 0
+package h16;
+fn main() -> i32 {
+    let n @ _: i64 = 5i64;
+    if n != 5i64 { return 1i32; }
+    return 0i32;
+}

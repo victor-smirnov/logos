@@ -1,0 +1,20 @@
+// SOUNDNESS QUEUE row slice_elem_at_binding_run (tier 1). An at-binding as an ARRAY/SLICE
+// element, `[a @ 1..=5, b, c]`, is legal Rust; it compiles clean and the arm reads the
+// wrong value (out = a+b+c is not 6, exit 1). SAME CLASS as struct_field_at_binding_run
+// and tuple_elem_at_binding_undefined — codegen's `pat_bind` enumerates six of the
+// thirteen pattern kinds (Wild/Tuple/VariantData/Or/Struct/RefBind) and has NO `At` case,
+// so an At sub-pattern in element position binds nothing. ⚠ MEASURED DISTINCT from those
+// two rows (2026-09-09c): the `atsubbind` arm — sema's Tuple-door whitelist plus a crude
+// `pat_bind` At case — closes both of them and leaves THIS one at run 1, because the
+// Slice door never reaches pat_bind for its elements at all. Found 2026-09-09c (hand h12).
+// Rust: exit 0.
+package slice_elem_at_binding_run;
+fn main() -> i32 {
+    let arr: [i64; 3] = [1i64, 2i64, 3i64];
+    let mut out: i64 = 0i64;
+    match arr {
+        [a @ 1i64..=5i64, b, c] => { out = a + b + c; }
+    }
+    if out != 6i64 { return 1i32; }
+    return 0i32;
+}

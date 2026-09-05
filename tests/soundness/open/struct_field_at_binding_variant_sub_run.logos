@@ -1,0 +1,21 @@
+// SOUNDNESS QUEUE row struct_field_at_binding_variant_sub_run (tier 1). An at-binding as a
+// struct FIELD whose sub-pattern is a VARIANT pattern, `Q { o: a @ Option::Some(_), y }`,
+// is legal Rust; it compiles clean and the arm reads the wrong value (exit 1).
+// ⚠ IT IS THE COUNTER-EXAMPLE THAT MUST GATE struct_field_at_binding_run's REPAIR, and it
+// is why that repair may not be the crude one: MEASURED 2026-09-09c, the `atpatbind` arm
+// (a `pat_bind` At case that binds the slot for an aggregate and load/stores otherwise)
+// closes struct_field_at_binding_run and makes THIS program SEGFAULT at run (rc 139) —
+// an enum-typed field is neither Struct nor Tuple, so the crude arm loads it as a scalar.
+// Found 2026-09-09c (hand h20). Rust: exit 0.
+package struct_field_at_binding_variant_sub_run;
+struct Q { o: Option<i64>, y: i64 }
+fn main() -> i32 {
+    let q: Q = Q { o: Option::Some(4i64), y: 2i64 };
+    let mut out: i64 = 0i64;
+    match q {
+        Q { o: a @ Option::Some(_), y } => { out = y; if let Option::Some(v) = a { out = out + v; } }
+        Q { o: _, y: _ } => { out = -1i64; }
+    }
+    if out != 6i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,11 @@
+// h12 LEGAL: at-binding on a SLICE element. Rust: 0
+package h12;
+fn main() -> i32 {
+    let arr: [i64; 3] = [1i64, 2i64, 3i64];
+    let mut out: i64 = 0i64;
+    match arr {
+        [a @ 1i64..=5i64, b, c] => { out = a + b + c; }
+    }
+    if out != 6i64 { return 1i32; }
+    return 0i32;
+}

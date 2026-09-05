@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row let_at_binding_type_annot_syntax (tier 3). `let n @ _: i64 = 5;` is
+// legal Rust — a `let` statement is `let PatternNoTopAlt (: Type)? (= Expr)?` and `n @ _`
+// is a PatternNoTopAlt — and TODAY it is a SYNTAX ERROR, "syntax error near '_' at line 4
+// col 13" (rc 4, before sema): the grammar's `let` rule does not admit an at-pattern in
+// front of a type annotation. ⚠ MEASURED DISTINCT from let_at_binding_unsupported
+// (2026-09-09c): that row is lower_let_pat's missing At arm and is closed by the
+// `atletdel` delegation; THIS one is refused by the PARSER and atletdel never sees it.
+// Found 2026-09-09c (hand h16). Rust: exit 0.
+package let_at_binding_type_annot_syntax;
+fn main() -> i32 {
+    let n @ _: i64 = 5i64;
+    if n != 5i64 { return 1i32; }
+    return 0i32;
+}

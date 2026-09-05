@@ -1,0 +1,12 @@
+// h07 LEGAL: at-binding on BOTH tuple elements. Rust: 0
+package h07;
+fn main() -> i32 {
+    let t: (i64, i64) = (1i64, 2i64);
+    let mut out: i64 = 0i64;
+    match t {
+        (a @ 1i64..=5i64, b @ 1i64..=5i64) => { out = a * 10i64 + b; }
+        (_, _) => { out = -1i64; }
+    }
+    if out != 12i64 { return 1i32; }
+    return 0i32;
+}

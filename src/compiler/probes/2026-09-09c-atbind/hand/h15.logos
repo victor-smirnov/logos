@@ -1,0 +1,8 @@
+// h15 ILLEGAL (E0384): `let n @ _`, assigned twice. Rust: refused
+package h15;
+fn main() -> i32 {
+    let n @ _ = 1i64;
+    n = 2i64;
+    if n != 2i64 { return 1i32; }
+    return 0i32;
+}

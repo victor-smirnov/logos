@@ -1,0 +1,118 @@
+name: atbcdecl
+file: src/compiler/borrow_check.cpp
+---
+            case Code::RefPat:
+                declare_pat_bindings(lir_view::PatRefPatView{pr}.inner());
+                break;
+            default: break;
+---
+            case Code::At: {
+                // atbcdecl / atbcdeclmut — W3. `declare_pat_bindings` enumerates
+                // 4 of the 13 pattern kinds; At falls into `default: break;`, so
+                // a top-level `n @ …` binding is never a tracked local and the
+                // binding-mut question is never asked of it. The two names price
+                // the INNER predicate (rule 9): whether the At mirror needs a
+                // mode field, or `false` would do.
+                if (logos::probe::on("atbcdecl") || logos::probe::on("atbcdeclmut")) {
+                    lir_view::PatAtView _av{pr};
+                    std::string _an(_av.name());
+                    if (!_an.empty() && _an != "_") {
+                        declare_var(_an, _av.bind_slot());
+                        if (logos::probe::on("atbcdeclmut"))
+                            var_at(_av.bind_slot(), _an).is_mut_binding = true;
+                    }
+                    declare_pat_bindings(_av.sub());
+                }
+                break;
+            }
+            case Code::RefPat:
+                declare_pat_bindings(lir_view::PatRefPatView{pr}.inner());
+                break;
+            default: break;
+===
+name: atpatbind
+file: src/compiler/mlir_gen_stmt.cpp
+---
+        register_thin_ref_struct_binding(name, ty);  // D3 (task #50)
+        break;
+    }
+    case pc::Code::Tuple: {
+        auto ttype = ty ? tuple_llvm_type(ty) : mlir::Type();
+---
+        register_thin_ref_struct_binding(name, ty);  // D3 (task #50)
+        break;
+    }
+    case pc::Code::At: {
+        // atpatbind — W2. `pat_bind` has cases for Wild/Tuple/VariantData/Or/
+        // Struct/RefBind and NONE for At, so a field- or element-position
+        // `a @ sub` binds nothing in codegen and the arm reads a stale slot.
+        if (logos::probe::on("atpatbind")) {
+            lir_view::PatAtView _av{pat};
+            std::string _an(_av.name());
+            if (!_an.empty() && _an != "_") {
+                evict_var_shapes(_an);
+                bool _is_struct = ty && (TypeRef(ty).kind() == LogosType::Kind::Struct ||
+                                         TypeRef(ty).kind() == LogosType::Kind::ZonedStruct);
+                bool _agg = _is_struct || (ty && TypeRef(ty).kind() == LogosType::Kind::Tuple);
+                if (_agg) {
+                    scope_[_an] = slot_ptr;
+                    let_vars_.insert(_an);
+                    if (_is_struct) var_struct_[_an] = mlir_struct_key(ty);
+                } else {
+                    auto _em = ty ? logos_to_mlir(ty) : ptr_type();
+                    if (!_em) _em = ptr_type();
+                    auto _val = builder_.create<mlir::LLVM::LoadOp>(loc_, _em, slot_ptr);
+                    auto _al  = create_entry_alloca(_em);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, _val, _al);
+                    scope_[_an] = _al;
+                    let_vars_.insert(_an);
+                    var_elem_types_[_an] = _em;
+                }
+            }
+            if (auto _s = _av.sub()) pat_bind(_s, slot_ptr, ty, shared);
+        }
+        break;
+    }
+    case pc::Code::Tuple: {
+        auto ttype = ty ? tuple_llvm_type(ty) : mlir::Type();
+===
+name: atsubsema
+file: src/compiler/sema_stmt.cpp
+---
+            if (sp && (sp.kind() == ps::Code::VariantData ||
+                       sp.kind() == ps::Code::Or ||
+                       sp.kind() == ps::Code::Tuple)) {
+---
+            if (sp && (sp.kind() == ps::Code::VariantData ||
+                       sp.kind() == ps::Code::Or ||
+                       // atsubsema — W1. The Tuple door's sub-pattern recursion
+                       // is a WHITELIST of three kinds; an At element is skipped,
+                       // so its name is never defined ("undefined variable 'a'").
+                       (logos::probe::on("atsubsema") && sp.kind() == ps::Code::At) ||
+                       sp.kind() == ps::Code::Tuple)) {
+===
+name: atletdel
+file: src/compiler/sema_stmt.cpp
+---
+    if (c == la::LET_PAT)      return lower_let_pat(stmt);
+---
+    if (c == la::LET_PAT) {
+        // atletdel — W4. lower_let_pat dispatches on a whitelist (PAT_STRUCT /
+        // tuple-struct / array / single-variant) and refuses everything else;
+        // an irrefutable `let n @ _ = e` is a plain `let n = e`. REPAIR BY
+        // DELEGATION: rewrite the node, do not add a fifth branch.
+        if (logos::probe::on("atletdel") && stmt.has_key(la::PAT)) {
+            auto _pn = map_of(stmt.get(la::PAT.code));
+            if (!_pn.is_null() && code_of(_pn) == la::PAT_AT && _pn.has_key(la::VALUE)) {
+                auto _sub = map_of(_pn.get(la::VALUE.code));
+                if (!_sub.is_null() && code_of(_sub) == la::PAT_WILD) {
+                    auto _l = synth_node(la::LET.code, node_line_,
+                        {{la::NAME.code, _pn.get(la::NAME.code)},
+                         {la::VALUE.code, stmt.get(la::VALUE.code)},
+                         {la::TYPE.code, stmt.has_key(la::TYPE) ? stmt.get(la::TYPE.code) : writ::AnyVal{}}});
+                    return lower_let(map_of(_l));
+                }
+            }
+        }
+        return lower_let_pat(stmt);
+    }

@@ -24713,3 +24713,135 @@ fires: n/a (landing, no probe name in the sources)
 ceiling: 0 (bc) / 5 (queue, by name, both ways)
 cost: 0 pass (L1 754 + 173) / cfail 0 rc + 0 text of 1410 / stdlib four layers built / runtime 0 of 6423
 verdict: LANDED 2026-09-09b — formutall + atmutbit + atmuttop + ergomut + parenplace + the class (tuple/struct/let-else `mut`, three more 2024 doors); ergoref DECLINED (12 stdlib sites + 2 owner fixtures, rowed)
+
+# ═══ ROUND 2026-09-09c (PRICING, soundness queue) — THE `@`-BINDING IS ABSENT FROM THE CASE LIST OF FOUR PATTERN
+# WALKERS. `PAT_AT`/`PatAt` is one of the thirteen `lir_schema::pat::Code` kinds, and four walkers each enumerate a
+# SUBSET that omits it: BC's `declare_pat_bindings` (4 of 13 — At falls into `default: break`, so a top-level
+# `n @ …` is not a tracked local and the binding-mut question is never asked), codegen's `pat_bind` (6 of 13 — no At
+# case, so an At in field/element position binds NOTHING), sema's Tuple-door sub recursion (a whitelist of three
+# kinds), and `lower_let_pat`'s dispatch (four shapes, everything else refused). 5 arms in 2 builds; queue ceilings
+# by name 1/0/1/0(half)/1, the gate named exactly the predicted rows both ways; 3 rows ADDED (28 -> 31), 0 closed,
+# NOT landed; tree restored, hash 87553240428a0870 read back. ═══
+
+## 0. STEP 1, RE-DERIVED, WITH THE CORRECTIONS TO THE PROMPT
+    HEAD dfb34733a = origin/main, clean; build 87553240428a0870 43 READ (= HEAD's recorded final). queue 28 by direct
+    listing = `# TOTAL 28`; bc 98 / blocked 25; probe-log-lint 212 (the prompt's number would have been 211).
+    ⚠ CORRECTION 1 — THE PROMPT'S STEP-1 QUEUE-GATE COMMAND SELF-REPORTS `GATE BROKEN`, rc 4. `soundness_queue_gate.sh`
+      builds its link line from `LOGOS_LIB_DIR`, which CMake supplies via the test's ENVIRONMENT property and the
+      hand invocation does not; with it unset the planted clean program reads `0/0/LINKFAIL` and the gate refuses to
+      report ANY verdict — correctly. With `LOGOS_LIB_DIR=$PWD/build/lib/logos` the same command is rc 0 on 28
+      (tier1=6 tier2=5 tier3=15 tier4=2). A gate that says "I am broken" is not a red queue; do not read it as one.
+    ⚠ CORRECTION 2 — the prompt's owner-decision instruction ("if no queue row pins the Rust 2024 modifier sentence,
+      ADD one") is already satisfied: the `mut` half LANDED in dfb34733a and the `ref` half is row
+      match_ergo_ref_modifier_ref_mode_admit, with the spec rule `pat.binding.modifier-requires-move-mode` beside
+      `pat.binding.default-by-ref-mode` in docs/spec/patterns.md. Nothing to add.
+    ⚠ CORRECTION 3 — the header of row match_ergo_nested_tuple_mut_admit cites "row match_ergo_modifier_ref_mode_diag",
+      which is in no ledger: that row was CLOSED by 09-09b. A cross-reference to a deleted row is stale prose in a
+      program header; it is not load-bearing and was left for the round that touches that row.
+
+## 1. TARGET ROWS, NAMED BEFORE ANY EDIT (probes/2026-09-09c-atbind/TARGET_ROWS.txt)
+    A1 at_binding_top_addrof_nomut_admit (2, admits) · A2 at_binding_ref_mut_payload_refuses (3, refuses) ·
+    A3 struct_field_at_binding_run (1, run 1) · A4 tuple_elem_at_binding_undefined (3, refuses) ·
+    A5 let_at_binding_unsupported (3, refuses). Five of 28 rows, one AST node — the largest set in the queue sharing
+    one; every other grouping is 1-2 rows or owner-blocked (ergoref's price IS a corpus decision).
+    ⚠ THE GROUPING WAS DECLARED AS A HYPOTHESIS AND TESTED, NOT ASSUMED. Predicted TWO roots (R1 "the mirror has no
+    mode field" -> A1,A2; R2 "At is not a case at a binder door" -> A3,A4,A5). MEASURED: R2 is THREE walkers, not
+    one, and A3/A4 are in SERIES through two of them. Five rows, four roots. Both handed-down partitions of this
+    block would have been wrong; so was mine, in the safe direction.
+
+## 2. THE ARRIVAL, CENSUSED BEFORE ANY EDIT (rule 17)
+    `patdecl.arrive.*` over 6434 pass fixtures compiled under LOGOS_CENSUS (tables/, aggregated):
+      VariantData 15793294 · Variant 7832736 · Wild 3416 · Tuple 310 · Int 251 · Struct 191 · Bool 168 · Range 151 ·
+      Slice 103 · Or 52 · **At 47** · RefPat 38 · RefBind 35.
+    So BC's declaration channel MEETS an At pattern 47 times over the pass corpus — proven live before a line was
+    edited. It also meets Tuple 310, Struct 191, Slice 103 and Or 52 times, and all four of those are in
+    `default: break` too: the At hole is one member of a five-member permissive hole at that one walker.
+
+## atbcdecl
+site: src/compiler/borrow_check.cpp::declare_pat_bindings
+build: 65315c7e425e7ce3
+measured: 2026-09-09
+fires: 18
+ceiling: 0 (bc) / 1 (queue: at_binding_top_addrof_nomut_admit — diagnostic READ, "cannot borrow 'n' as mutable: not declared as mut", rustc's E0596 sentence)
+cost: 2 pass (bc_bindmut_at_top_mut_addrmut, _bump) / cfail 0 of 1434 / stdlib ok / runtime 0 of 6474 / hand h03 REFUSED (legal)
+verdict: FUND ONLY WITH A MODE FIELD. The crude arm declares every At binding immutable, and its whole cost is the `mut n @` shape — two fixtures by name and hand h03, all legal Rust.
+
+## atbcdeclmut
+site: src/compiler/borrow_check.cpp::declare_pat_bindings
+build: 65315c7e425e7ce3
+measured: 2026-09-09
+fires: 18 (same site, same arrivals)
+ceiling: 0 (bc) / 0 (queue)
+cost: 0 pass / cfail 0 of 1434 / stdlib ok / runtime 0 of 6474 / hand h03 green
+verdict: THE CONTROL TWIN, and it is the whole argument (rule 9). Two names at ONE site, identical in fires and in every population column, separating ONLY on the inner predicate "is this At binding written `mut`?": always-immutable buys 1 row and costs 2 legal programs, always-mutable buys 0 and costs 0. Neither is the fix; the DIFFERENCE is the price of minting IS_MUT on the PatAt mirror, which is exactly the mint 09-09b already made for the sema side (`build_pattern` PAT_AT) and did not carry into the mirror.
+
+## atpatbind
+site: src/compiler/mlir_gen_stmt.cpp::pat_bind
+build: 65315c7e425e7ce3 / ebffb99c83c7678f
+measured: 2026-09-09
+fires: 0 over the bc-admit ledger population (`ceiling-probe.sh` reported NEVER FIRED and measured NO cost column); LIVE on the queue and on hand h08/h20
+ceiling: — (bc, unreached) / 1 (queue: struct_field_at_binding_run, 0/0/1 -> 0/0/0)
+cost: 0 pass rc+stdout of 6474 (run_oracle; the only diff is cast-region-to-uint, a stack address, subtracted by name) / cfail 0 of 1434 / stdlib ok / ⚠ hand h20 SEGFAULTS at run (rc 139) where unarmed it merely computes 1
+verdict: FUND THE SITE, NOT THIS ARM. Rule 1 and rule 11 both: an arm the ledger population called NEVER FIRED closes a queue row. Rule 5 the other way: cost 0 on three populations and a CRASH on the twentieth hand program — the crude arm loads an enum-typed field as a scalar. The counter-example is ROWED (struct_field_at_binding_variant_sub_run) so the repair cannot land without it.
+
+## atsubsema
+site: src/compiler/sema_stmt.cpp::bind_pattern_ref
+build: 65315c7e425e7ce3
+measured: 2026-09-09
+fires: 83
+ceiling: 0 (bc) / 0 rows CLOSED (queue) — but it REDS the gate on tuple_elem_at_binding_undefined, which stops being refused (1/1/- -> 0/0/1) and starts computing the wrong answer
+cost: 0 pass / cfail 0 / stdlib ok / runtime 0 of 6474
+verdict: HALF A MECHANISM, AND THE GATE SAYS SO OUT LOUD (rule 2). The Tuple door's sub-pattern recursion is a whitelist of three kinds; adding At makes sema define the name and codegen still binds nothing. A row that stops reproducing is not a row that is fixed — the gate's RED here is the queue's own way of saying "half".
+
+## atsubbind
+site: src/compiler/sema_stmt.cpp::bind_pattern_ref + src/compiler/mlir_gen_stmt.cpp::pat_bind
+build: ebffb99c83c7678f
+measured: 2026-09-09
+fires: 83 + the pat_bind arm (one name arming both sites; `LOGOS_PROBE=a,b` arms neither)
+ceiling: 0 (bc) / 2 (queue: struct_field_at_binding_run AND tuple_elem_at_binding_undefined; the gate named exactly those two, both ways)
+cost: 0 pass of 6474 / cfail 0 of 1434 / stdlib ok / runtime 0 / ⚠ hand h20 SEGV, h18 compiles and computes 1
+verdict: THE ADDITIVITY MEASUREMENT, and it is 0 + 1 = 2. atsubsema alone closes 0, atpatbind alone closes 1, the two together close 2 — the increment is POSITIVE here where 2026-08-29's was negative, and for the same reason: the two are DOORS IN SERIES on tuple_elem_at_binding_undefined and independent on struct_field_at_binding_run. Cost is not additive downward either: both halves price 0 on every population and the pair crashes h20.
+
+## atletdel
+site: src/compiler/sema_stmt.cpp::lower_stmt
+build: 65315c7e425e7ce3
+measured: 2026-09-09
+fires: 62
+ceiling: 0 (bc) / 1 (queue: let_at_binding_unsupported, 1/1/- -> 0/0/0 — compiles AND runs 0)
+cost: 0 pass / cfail 0 / stdlib ok / runtime 0 of 6474 / ⚠ hand h14 (`let mut n @ _`) still refused "assignment to immutable variable 'n'" — legal Rust
+verdict: FUND, BY DELEGATION, AND CARRY IS_MUT. `lower_let_pat` refuses everything outside a four-shape whitelist; an irrefutable `let n @ _ = e` IS `let n = e`, so the repair rewrites the node and adds no fifth branch. This arm drops the `mut` spelling because it does not copy IS_MUT into the synthesised LET; h14 is the acceptance twin the landing must pass, not a separate defect.
+
+## 3. RULE 5 IN THE OTHER DIRECTION — 20 HAND PROGRAMS, 15 SHAPES, AND WHAT THE POPULATIONS COULD NOT SEE
+    Every arm above prices cost 0 on 6474 run-and-compare fixtures, 1434 fail fixtures read by text, and four stdlib
+    layers. The hand set (probes/2026-09-09c-atbind/hand/h01–h20, tables/hand_*.txt) found, in shapes the corpus does
+    not hold: a SEGFAULT (h20, atpatbind), a legal program refused (h03, atbcdecl; h14, atletdel), and THREE defects
+    with no arm and no row at all. The corpus is not a safety argument; it is a floor.
+    Members of the class that are already GREEN on HEAD (the diff the other way): top-level `n @` read-only (h01),
+    `mut n @` + assignment (h02), variant payload (h05), At over a whole struct with field reads (h09), if-let (h10),
+    or-sub (h11), guard reading the binding (h13), while-let (h19).
+    Members that are WRONG on HEAD: A1–A5 plus slice element (h12, run 1), struct field with a variant sub (h20,
+    run 1), nested-tuple sub in a tuple element (h18, refused), `let mut n @ _` (h14), `let n @ _: T` (h16, a PARSER
+    syntax error at rc 4 — before sema, so atletdel never sees it).
+
+## 4. THREE ROWS ADDED (28 -> 31, `# TOTAL` re-derived by direct listing; gate rc 0 on 31)
+    slice_elem_at_binding_run (1, run 1) — the Slice door never reaches pat_bind for its elements; atsubbind closes
+      the tuple and struct doors and leaves this one wrong, which is what makes it a row and not a facet.
+    struct_field_at_binding_variant_sub_run (1, run 1) — the counter-example that must gate struct_field_at_binding_run's
+      repair: the crude pat_bind arm closes that row and makes THIS program segfault.
+    let_at_binding_type_annot_syntax (3, refuses) — the parser, not lower_let_pat; measured distinct from
+      let_at_binding_unsupported because atletdel closes that row and never sees this one.
+    NOT rowed, deliberately: h14 and h18 are acceptance twins of let_at_binding_unsupported and
+    tuple_elem_at_binding_undefined — the same missing arm seen one spelling further out. Padding a ledger with
+    facets of a row makes the count lie about the number of defects.
+
+## 5. WHAT DESERVES FUNDING, IN ORDER
+    (a) atletdel + IS_MUT — one delegation, ceiling 1, cost 0, and h14 as its twin.
+    (b) the pat_bind At case done PROPERLY (bind the field slot for every aggregate kind including enums, not a
+        scalar load) + the Tuple-door whitelist — ceiling 2, and it must take h20 and h18 with it.
+    (c) IS_MUT on the PatAt mirror + BC's missing At case — ceiling 1 at cost 0; the mirror mint is the same one
+        `build_pattern` already makes for sema's side-channel.
+    A2 (at_binding_ref_mut_payload_refuses) is NOT priced by this round: it needs a `ref`/`ref mut` mode on the same
+    mirror field AND a guard that derefs, which is a second door in series and unmeasured.
+    ⚠ THE WALKER-SUBSET HOLE IS BIGGER THAN THE `@`-BINDING. `declare_pat_bindings` handles 4 of 13 kinds and meets
+    Tuple 310, Struct 191, Slice 103 and Or 52 times over the pass corpus; `pat_bind` handles 6 of 13. Neither hole
+    can be seen by a green corpus, by construction. That is a census worth a round of its own.

@@ -1,0 +1,12 @@
+// h17 LEGAL: at-binding of a MOVE type (String) in a match arm, used then dropped. Rust: 0
+package h17;
+use logos.mem.string;
+fn main() -> i32 {
+    let s: String = String::from("abcdefghijklmnop");
+    let mut out: i64 = 0i64;
+    match s {
+        a @ _ => { out = a.len(); }
+    }
+    if out != 16i64 { return 1i32; }
+    return 0i32;
+}

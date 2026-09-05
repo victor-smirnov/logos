@@ -1,0 +1,10 @@
+[soundness] canary: a clean program ran and exited 0, a wrong one exited 3, a refusal read as refused
+tests/logos/soundness_queue_gate.sh: line 88: 3216548 Aborted                 timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 88: 3216821 Segmentation fault      (core dumped) "$LOGOSC" "$src" -o "$d/t.o" > "$d/cc.out" 2> "$O_ERR"
+FAIL: row 'at_binding_top_addrof_nomut_admit' (tier 2) NO LONGER REPRODUCES — the compile is no longer silent (cc=1 diag=1).
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/at_binding_top_addrof_nomut_admit.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+        error [fn main]: cannot borrow 'n' as mutable: not declared as mut

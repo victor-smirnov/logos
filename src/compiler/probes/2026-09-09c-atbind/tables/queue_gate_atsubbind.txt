@@ -1,0 +1,15 @@
+[soundness] canary: a clean program ran and exited 0, a wrong one exited 3, a refusal read as refused
+tests/logos/soundness_queue_gate.sh: line 88: 3217375 Aborted                 timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 88: 3217654 Segmentation fault      (core dumped) "$LOGOSC" "$src" -o "$d/t.o" > "$d/cc.out" 2> "$O_ERR"
+FAIL: row 'struct_field_at_binding_run' (tier 1) NO LONGER REPRODUCES — want cc=0 diag=0 run=1, read cc=0 diag=0 run=0.
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/struct_field_at_binding_run.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+FAIL: row 'tuple_elem_at_binding_undefined' (tier 3) NO LONGER REPRODUCES — the program now compiles clean (cc=0 diag=0 run=0).
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/tuple_elem_at_binding_undefined.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.

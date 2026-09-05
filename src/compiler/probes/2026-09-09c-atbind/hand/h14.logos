@@ -1,0 +1,8 @@
+// h14 LEGAL: `let mut n @ _`, then assigned. Rust: 0
+package h14;
+fn main() -> i32 {
+    let mut n @ _ = 1i64;
+    n = 2i64;
+    if n != 2i64 { return 1i32; }
+    return 0i32;
+}

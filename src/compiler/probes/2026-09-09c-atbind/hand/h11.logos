@@ -1,0 +1,12 @@
+// h11 LEGAL: at-binding over an OR sub-pattern. Rust: 0
+package h11;
+fn main() -> i32 {
+    let v: i64 = 2i64;
+    let mut out: i64 = 0i64;
+    match v {
+        n @ 1i64 | n @ 2i64 => { out = n; },
+        _ => { out = -1i64; }
+    }
+    if out != 2i64 { return 1i32; }
+    return 0i32;
+}

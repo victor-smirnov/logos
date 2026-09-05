@@ -1,0 +1,29 @@
+at_binding_ref_mut_payload_refuses       1/1/-  /home/logos/devel/logos/tests/soundness/open/at_binding_ref_mut_payload_refuses.logos:13: error [fn main]: write through raw pointer requires unsafe context
+at_binding_top_addrof_nomut_admit        0/0/0  
+box_field_move                           0/0/LINKFAIL  
+box_mutref_payload_write_immut_box       1/1/-  error [fn main]: cannot borrow 'y' as mutable: not declared as mut
+box_vec_new_infer                        1/1/-  /home/logos/devel/logos/tests/soundness/open/box_vec_new_infer.logos:6: error [fn main]: let 'b': type mismatch — expected Box<Vec<i64>>, got Box<Vec<T>>
+closure_in_generic_two_insts             1/1/-  error: redefinition of symbol named '__closure_0'
+closure_owned_dyn_capture                0/0/LINKFAIL  
+dangle_join_diverging_arm                1/1/-  error [fn temp_arm]: temporary value dropped while borrowed: 'x' borrows into a temporary that is dropped at the end of the statement and is used here; bind the
+drop_inherent_call_order                 1/1/-  error: 'func.call' op incorrect number of operands for callee
+dyn_paren_region_bound                   4/1/-  error [/home/logos/devel/logos/tests/soundness/open/dyn_paren_region_bound.logos]: syntax error near 'fn' at line 8 col 1
+enum_payload_partial_move_leak           0/0/1  
+labeled_foreach_label_lost               1/1/-  /home/logos/devel/logos/tests/soundness/open/labeled_foreach_label_lost.logos:13: error [fn main]: 'break 'l': label not in scope
+/tmp/claude-1004/-home-logos-devel-logos/25aa8421-fce1-4a11-8a89-5d2ba5981c88/scratchpad/obs.sh: line 9: 2006279 Segmentation fault      (core dumped) "$LOGOSC" "$src" -o "$d/t.o" > "$d/cc.out" 2> "$d/cc.err"
+layout_verify_recursive_ref              139/0/-  
+let_at_binding_unsupported               1/1/-  /home/logos/devel/logos/tests/soundness/open/let_at_binding_unsupported.logos:8: error [fn main]: 'let <pattern> = expr;' currently supports struct patterns onl
+let_tuple_destructure_ref_scrutinee      1/1/-  /home/logos/devel/logos/tests/soundness/open/let_tuple_destructure_ref_scrutinee.logos:11: error [fn main]: let (...) = ...: right-hand side must be a tuple, go
+match_ergo_nested_tuple_mut_admit        0/0/0  
+match_ergo_ref_modifier_ref_mode_admit   0/0/0  
+match_tmp_wild_mut_addrof                1/1/-  error: 'llvm.getelementptr' op operand #0 must be LLVM pointer type or LLVM dialect-compatible vector of LLVM pointer type, but got '!llvm.struct<"match_tmp_wil
+outlives_call_instantiation              1/1/-  /home/logos/devel/logos/tests/soundness/open/outlives_call_instantiation.logos:10: error [fn foo]: call to 'outlives_dir': caller does not satisfy callee's outl
+paren_var_assign_target                  1/1/-  /home/logos/devel/logos/tests/soundness/open/paren_var_assign_target.logos:11: error [fn main]: destructuring assignment: right-hand side must be a tuple, got i
+sharedref_recv_mut_method_diag           1/1/-  /home/logos/devel/logos/tests/soundness/open/sharedref_recv_mut_method_diag.logos:15: error [fn main]: method call: 'S' has no method 'mget'
+struct_binder_result                     1/1/-  error [fn main]: cannot borrow 'w' as mutable: 'w' has shared borrows
+struct_field_at_binding_run              0/0/1  
+trait_default_body_call                  0/0/0  
+trait_default_body_type                  0/0/0  
+tuple_elem_at_binding_undefined          1/1/-  /home/logos/devel/logos/tests/soundness/open/tuple_elem_at_binding_undefined.logos:10: error [fn main]: undefined variable 'a'
+typestr_minted_alike                     1/1/-  /home/logos/devel/logos/tests/soundness/open/typestr_minted_alike.logos:7: error [fn store]: deref-write '*ptr = …': variance mismatch — expected &i64, got 
+variant_payload_char_literal_nomatch     0/0/1  

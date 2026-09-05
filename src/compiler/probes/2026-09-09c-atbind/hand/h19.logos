@@ -1,0 +1,12 @@
+// h19 LEGAL: at-binding under a `while let` over a variant payload. Rust: 0
+package h19;
+fn main() -> i32 {
+    let mut k: i64 = 0i64;
+    let mut o: Option<i64> = Option::Some(1i64);
+    while let Option::Some(n @ 1i64..=3i64) = o {
+        k = k + n;
+        if n >= 3i64 { o = Option::None; } else { o = Option::Some(n + 1i64); }
+    }
+    if k != 6i64 { return 1i32; }
+    return 0i32;
+}

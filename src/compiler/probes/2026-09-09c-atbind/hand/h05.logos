@@ -1,0 +1,14 @@
+// h05 LEGAL: at-binding in a VARIANT PAYLOAD. Rust: 0
+package h05;
+enum E { N(i64), Z }
+fn main() -> i32 {
+    let e: E = E::N(3i64);
+    let mut out: i64 = 0i64;
+    match e {
+        E::N(n @ 1i64..=5i64) => { out = n; },
+        E::N(_) => { out = -1i64; },
+        E::Z => { out = -2i64; }
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

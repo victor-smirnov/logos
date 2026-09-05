@@ -1,0 +1,21 @@
+h01                                      0/0/0  
+h02                                      0/0/0  
+h03                                      0/0/0  
+h04                                      1/1/-  /home/logos/devel/logos/src/compiler/probes/2026-09-09c-atbind/hand/h04.logos:7: error [fn main]: assignment to immutable variable 'n'
+h05                                      0/0/0  
+h06                                      0/0/0  
+h07                                      0/0/0  
+h08                                      0/0/0  
+h09                                      0/0/0  
+h10                                      0/0/0  
+h11                                      0/0/0  
+h12                                      0/0/1  
+h13                                      0/0/0  
+h14                                      1/1/-  /home/logos/devel/logos/src/compiler/probes/2026-09-09c-atbind/hand/h14.logos:4: error [fn main]: 'let <pattern> = expr;' currently supports struct patterns onl
+h15                                      1/1/-  /home/logos/devel/logos/src/compiler/probes/2026-09-09c-atbind/hand/h15.logos:4: error [fn main]: 'let <pattern> = expr;' currently supports struct patterns onl
+h16                                      4/1/-  error [/home/logos/devel/logos/src/compiler/probes/2026-09-09c-atbind/hand/h16.logos]: syntax error near '_' at line 4 col 13
+h17                                      0/0/LINKFAIL  
+h18                                      0/0/1  
+h19                                      0/0/0  
+/tmp/claude-1004/-home-logos-devel-logos/25aa8421-fce1-4a11-8a89-5d2ba5981c88/scratchpad/obs.sh: line 9: 2616587 Segmentation fault      timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+h20                                      0/0/139  
