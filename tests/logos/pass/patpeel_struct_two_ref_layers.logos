@@ -1,0 +1,45 @@
+// RFC 2005 (match ergonomics), the DEPTH half — WAS soundness-queue row
+// `struct_pattern_two_ref_layers_reads_address` (TIER 1: it compiled rc 0 and
+// READ A STACK ADDRESS, measured `x=140721330920408 y=140721330920408` where
+// Rust gives 3 and 4). The PAT_STRUCT door never peeled the scrutinee at all,
+// so under `& &p` the field GEP was taken on the pointer-to-pointer. The chain
+// is collapsed once by SemaChecker::pat_scrut_one_layer and, in the VALUE, by
+// gen_match's per-layer load.
+//
+// ⚠ THE ASSERTION IS A DESTRUCTOR COUNT AS WELL AS A VALUE. An exit code sees
+// neither a leak nor a double free, and a by-ref default binding mode exists
+// precisely so a field binding is not Drop-scheduled on top of the scrutinee's
+// own drop. `D` is dropped ONCE — matching through two reference layers must
+// move nothing. Twin one token apart:
+// fail/patpeel_struct_two_ref_layers_unknown.logos (`P` -> `Zed`).
+package patpeel_struct_two_ref_layers;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn print2(fmt: str, a: i64, b: i64) { unsafe { printf(fmt.as_ptr(), a, b); } }
+fn print1(fmt: str, a: i64) { unsafe { printf(fmt.as_ptr(), a); } }
+static mut DROPS: i64 = 0i64;
+struct D { v: i64 }
+impl Drop for D {
+    fn drop(&mut self) { unsafe { DROPS = DROPS + 1i64; } }
+}
+struct P { x: i64, y: i64 }
+struct Q { d: D }
+fn main() -> i32 {
+    let p: P = P { x: 3i64, y: 4i64 };
+    match &p {
+        P { x, y } => { print2("d1 %ld %ld\n", *x, *y); }
+    }
+    match & &p {
+        P { x, y } => { print2("d2 %ld %ld\n", *x, *y); }
+    }
+    match & & &p {
+        P { x: a, y: b } => { print2("d3 %ld %ld\n", *a, *b); }
+    }
+    {
+        let q: Q = Q { d: D { v: 9i64 } };
+        match & &q {
+            Q { d } => { print1("v %ld\n", d.v); }
+        }
+    }
+    unsafe { print1("drops %ld\n", DROPS); }
+    return 0i32;
+}

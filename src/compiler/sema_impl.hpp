@@ -7558,6 +7558,11 @@ private:
     // Internal: build_pattern's body without eager mirror emit. Recurses via
     // build_pattern (so sub-patterns get their own eager emit).
     lir::Pattern build_pattern_impl(writ::TinyMapView pnode, TypeRef scrut_type);
+    // RFC 2005 default binding modes: THE ONE PREDICATE FOR "what does a
+    // non-reference pattern door see". Collapses the scrutinee's whole
+    // &/&mut chain to a SINGLE layer (shared unless every layer is `&mut`).
+    // See src/compiler/PROBES.md, round 2026-09-05b.
+    TypeRef pat_scrut_one_layer(TypeRef scrut_type);
     // build_pattern_impl sub-handlers, factored out of its pc-keyed dispatch.
     // Each lowers one pattern kind; depends only on pnode/scrut_type/members
     // (recurses via build_pattern), no state shared across branches.

@@ -5276,8 +5276,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9291 -> 9309   +18
 #   NOIMPORTED   4854 -> 4872   +18
 #   TIERCOMMIT    173 ->  173     0
-REGISTRY-ALL         9309
-REGISTRY-NOIMPORTED  4872
+# 2026-09-05b (soundness queue, LANDING — ONE LAYER IS ALL A PATTERN DOOR WAS
+#   EVER WRITTEN FOR: the scrutinee's whole `&`/`&mut` chain is collapsed to a
+#   single layer by one predicate, asked at every non-reference pattern door and
+#   mirrored in the value by gen_match. Three rows closed, each landed as a PAIR
+#   one token apart, two of the three pass halves asserting a DESTRUCTOR COUNT.
+#   +3 pass + +3 fail, none imported, none tier_commit. Predicted from the file
+#   count before the pin was read (`ls tests/logos/pass/patpeel_*.logos` -> 3,
+#   `ls tests/logos/fail/patpeel_*.logos` -> 3).
+#   ALL          9309 -> 9315    +6
+#   NOIMPORTED   4872 -> 4878    +6
+#   TIERCOMMIT    173 ->  173     0
+REGISTRY-ALL         9315
+REGISTRY-NOIMPORTED  4878
 REGISTRY-TIERCOMMIT  173
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

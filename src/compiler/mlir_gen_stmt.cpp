@@ -4498,6 +4498,41 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
     // terminator — the arms are dead, stop.
     if (is_terminated(builder_.getBlock())) return;
 
+    // ── THE SECOND HALF OF RFC 2005'S PEEL, IN THE VALUE ──────────────────
+    // sema collapses the scrutinee's chain to ONE layer at every non-reference
+    // pattern door (SemaChecker::pat_scrut_one_layer); the VALUE must be
+    // collapsed with it or the arms below GEP a pointer-to-pointer. A depth-1
+    // reference is the form every arm here was written for — a `&Agg` IS the
+    // aggregate's base pointer — so each layer above the first is one load.
+    // Skipped when an arm binds the WHOLE scrutinee, which sema does not
+    // collapse either. `collapsed_scrut` is what the arms that RE-EVALUATE the
+    // scrutinee must use. PROBES.md 2026-09-05b.
+    mlir::Value collapsed_scrut = nullptr;
+    {
+        int chain = 0;
+        for (TypeRef t = scrut_ty;
+             t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
+                   TypeRef(t).kind() == LogosType::Kind::MutRef) && TypeRef(t).pointee();
+             t = TypeRef(t).pointee())
+            ++chain;
+        bool whole_scrut_binder = false;
+        for (auto& a : arm_refs) {
+            auto p = a.pat();
+            if (!p) continue;
+            if (p.kind() == pc::Code::RefBind || p.kind() == pc::Code::At ||
+                p.kind() == pc::Code::RefPat) whole_scrut_binder = true;
+            else if (p.kind() == pc::Code::Wild &&
+                     lir_view::PatWildView{p}.name() != "_") whole_scrut_binder = true;
+        }
+        if (chain >= 2 && !whole_scrut_binder) {
+            for (int i = 1; i < chain; ++i) {
+                scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), scrut);
+                scrut_ty = TypeRef(scrut_ty).pointee();
+            }
+            collapsed_scrut = scrut;
+        }
+    }
+
     // Detect tagged enum: scrut is a pointer, load discriminant.
     mlir::Value scrut_ptr = nullptr;  // non-null for tagged enums
     const TaggedEnumInfo* te_info = nullptr;
@@ -4670,7 +4705,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             // recurses per element (Wild→struct/scalar bind, VariantData→
             // bind_enum_payload, nested Tuple/Or). It loads the tuple ptr from
             // its slot, so hand it a slot (alloca) holding the tuple base ptr.
-            mlir::Value tptr = scrut_ptr ? scrut_ptr : gen_expr(v.scrut());
+            mlir::Value tptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
             if (!tptr) return;
             // A tuple value IS a pointer to its inline storage — pass it directly
             // (pat_bind's Tuple case GEPs into it, no load).
@@ -4704,7 +4739,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             if (sit == struct_types_.end() && pst) sit = struct_types_.find(sname);
             if (sit == struct_types_.end()) return;
             const StructInfo& sinfo = sit->second;
-            mlir::Value sptr = scrut_ptr ? scrut_ptr : gen_expr(v.scrut());
+            mlir::Value sptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
             if (!sptr) return;
             // P4-pm-08: scrut may arrive as a by-value struct (e.g. when
             // it came directly from a fn return); GEP needs a pointer, so
@@ -4812,10 +4847,21 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         // ── PatSlice: GEP-extract indexed elements ────────────────────────
         case pc::Code::Slice: {
             auto atype = scrut_ty;
+            // The SAME predicate the PAT_SLICE door and pat_test ask. Only the
+            // TYPE is peeled — the reference VALUE already IS the array base (or
+            // the fat-slice slot). ⚠ Without it neither branch below is reached
+            // and every element binding is SILENTLY ABSENT. PROBES.md 2026-09-05b.
+            if (atype &&
+                (TypeRef(atype).kind() == LogosType::Kind::Ref ||
+                 TypeRef(atype).kind() == LogosType::Kind::MutRef) &&
+                TypeRef(atype).pointee() &&
+                (TypeRef(TypeRef(atype).pointee()).kind() == LogosType::Kind::Array ||
+                 TypeRef(TypeRef(atype).pointee()).kind() == LogosType::Kind::Slice))
+                atype = TypeRef(atype).pointee();
             if (atype && TypeRef(atype).kind() == LogosType::Kind::Array && TypeRef(atype).elem()) {
                 auto elem_mlir = logos_to_mlir(TypeRef(atype).elem());
                 auto arr_mlir  = logos_to_mlir(atype);
-                mlir::Value aptr = scrut_ptr ? scrut_ptr : gen_expr(v.scrut());
+                mlir::Value aptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
                 if (aptr && elem_mlir && arr_mlir) {
                     // [UNIFY C-slice] Route the element bind through the single
                     // pat_bind foundation, as the Tuple case already does; this
@@ -4847,7 +4893,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 // built sub-slice {data + prefix*sizeof(T), len - prefix}.
                 auto elem_mlir = logos_to_mlir(TypeRef(atype).elem());
                 auto sdtype = slice_llvm_type();
-                mlir::Value sptr = scrut_ptr ? scrut_ptr : gen_expr(v.scrut());
+                mlir::Value sptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
                 if (sptr && elem_mlir) {
                     llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
                     auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sptr, di);
@@ -5235,7 +5281,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
-                mlir::Value tptr = scrut_ptr ? scrut_ptr : gen_expr(v.scrut());
+                mlir::Value tptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
                 mlir::Value cond = pat_test(arm_pat, tptr, scrut_ty);
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
@@ -5273,7 +5319,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
-                mlir::Value aptr = scrut_ptr ? scrut_ptr : gen_expr(v.scrut());
+                mlir::Value aptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
                 mlir::Value cond =
                     builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
                 auto chk_at = [&](lir_view::PatRef sp, int32_t idx) {
@@ -5324,7 +5370,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
-                mlir::Value sptr = scrut_ptr ? scrut_ptr : gen_expr(v.scrut());
+                mlir::Value sptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
                 // len = slot.1
                 llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
                 auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sptr, li);
@@ -5406,7 +5452,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
-                mlir::Value sptr = scrut_ptr ? scrut_ptr : gen_expr(v.scrut());
+                mlir::Value sptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
                 if (sptr && sptr.getType() != ptr_type()) {
                     auto a = create_entry_alloca(sptr.getType());
                     builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);

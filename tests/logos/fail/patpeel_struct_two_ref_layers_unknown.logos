@@ -1,0 +1,12 @@
+// FAIL TWIN of pass/patpeel_struct_two_ref_layers.logos, ONE TOKEN apart
+// (`P { x, y }` -> `Zed { x, y }`). Collapsing the scrutinee's `&`-chain must
+// not make the struct door stop looking the name up.
+package patpeel_struct_two_ref_layers_unknown;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 3i64, y: 4i64 };
+    match & &p {
+        Zed { x, y } => { if *x + *y != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

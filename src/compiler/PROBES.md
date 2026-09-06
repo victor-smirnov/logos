@@ -25044,3 +25044,111 @@ verdict: FUND, BY DELEGATION, AND CARRY IS_MUT. `lower_let_pat` refuses everythi
         doors; 14 lattice cells and one queue row are refused "write through raw pointer requires unsafe
         context" because a `ref mut` binding elsewhere is not typed `MutRef`. Same shape as (a), different
         fact, and it was NOT probed this round — it is the next round's cheapest ceiling.
+
+# ROUND 2026-09-05b — LANDING: ONE LAYER IS ALL A PATTERN DOOR WAS EVER WRITTEN FOR
+
+## 1. THE CLASS, ENUMERATED BY PROPERTY OVER EVERY DOOR — NOT BY GREP
+    Property: "a door that must see through the scrutinee's `&`/`&mut` chain (RFC 2005: a NON-REFERENCE
+    pattern matches the pointee) and sees at most ONE layer of it." Enumerated over all 16 `pc == la::PAT_*`
+    arms of `build_pattern_impl` plus every OTHER site that re-derives the same fact. 17 rows; 4 correct.
+
+      PAT_VARIANT / PAT_VARIANT_DATA .. ALL layers (the reference implementation, and the only one)
+      PAT_TUPLE ..................... exactly 1, and only when the pointee is a Tuple
+      PAT_STRUCT .................... 0 (and its name-MISMATCH check is guarded on Kind::Struct, so a
+                                      reference scrutinee skips the comparison entirely — still open,
+                                      now rowed as struct_pattern_name_check_skipped_under_ref)
+      PAT_SLICE ..................... 0
+      PAT_RANGE / PAT_INT / PAT_NEG_INT / PAT_CHAR / PAT_CHAR_RANGE / PAT_BOOL / PAT_BYTES .. 0
+      bare-name enum-variant recognizer .. 0
+      PAT_OR ........................ DELEGATES — and a single-alternative PAT_OR wraps EVERY top-level
+                                      match pattern, which is how the first cut of this change ate one `&`
+                                      before `&&P { x }`'s outer reference pattern ever saw it
+      PAT_WILD·NAME / PAT_REF / PAT_AT .. BINDER — must NOT peel; correct as written
+      bind_pattern_ref Struct case ... exactly 1
+      bind_pattern_ref Slice case .... 0 (every element binding Error-typed)
+      gen_match (the VALUE) .......... exactly 1
+      extract_payload Slice case ..... 0 (every element binding ABSENT)
+      pat_test Slice case ............ exactly 1
+
+## 2. THE CHANGE — ONE PREDICATE, MINTED ONCE, ASKED AT EVERY DOOR
+    `SemaChecker::pat_scrut_one_layer` collapses the whole chain to a SINGLE layer, shared unless EVERY
+    layer is `&mut` (Rust's rule: a shared layer anywhere fixes the mode at `ref`; the tree's old
+    any-layer-mut reading differs only at depth >= 2, which never compiled). Called at
+    `build_pattern_impl`'s entry, at `bind_pattern_ref`'s Struct and Slice cases; mirrored in the VALUE by
+    `gen_match`, one load per layer above the first, skipped when an arm binds the WHOLE scrutinee
+    (RefBind / At / RefPat / a named Wild) because those keep the un-collapsed chain in sema too.
+    The three binder doors and PAT_OR read `scrut_orig` BY NAME. The last layer is peeled by the SLICE
+    door — sema, `bind_pattern_ref`, and `extract_payload` — which had none.
+
+## 3. THE DOORS ARE IN SERIES AND EACH HOP WAS A DIFFERENT SHAPE OF SILENCE (rule 2, rule 11)
+    Peeling in the sema door ALONE admitted `match &arr { [a, b] => … }` and bound NOTHING:
+    extract_payload's Slice case reached neither of its two branches under a `&[T; N]` TYPE, and the
+    only trace was `mlir_gen: warning: undefined 'a' in fn 'main'` on stderr — rc 0, exit code 0.
+    ⚠ AND THE FIRST GREEN WAS FALSE. `match &arr { [a, b, c] => { if *a + *b + *c != 7 { return 1 } } }`
+    exited 0 with the bindings absent, because the comparison degenerated; the defect only became
+    visible when the arm ASSIGNED to an outer variable and the value was read after the match
+    (`n = *a` -> 0). Every cell in this round was re-read that way.
+    Third hop: with the bindings emitted, a MOVE-ONLY element bound BY VALUE and was Drop-scheduled on
+    top of the scrutinee's own drop — `match &arr { [a, b] => … }` over `[D; 2]` ran FOUR destructors
+    against the control's TWO. Fixed by the by-ref default binding mode the struct door already applied.
+    A leak and a double free are both invisible to an exit code: both new pass fixtures COUNT.
+
+## 4. THE ONE REGRESSION, AND WHAT FOUND IT
+    `tests/logos/pass/pattern_parse_batch_full` — `match p { &&P { x } => x }` over `p: &&P` — began
+    failing "reference pattern requires reference scrutinee, got 'P'". Found by run_oracle (6486 pass
+    fixtures compiled, linked and RUN), NOT by any hand program: none of the 30 counter-examples used a
+    double reference PATTERN. Cause, read off a door-entry trace: pc=139 (PAT_OR) at depth 1 with `&&P`,
+    pc=158 (PAT_REF) at depth 2 with `&P`. A single-alternative or-pattern wraps every top-level match
+    pattern and had been handed the COLLAPSED type. PAT_OR now delegates `scrut_orig`.
+
+## 5. ORACLES — every column, on the final build 6dd76d6d10202933
+    run_oracle    0 of 6486 pass fixtures changed (compiled + linked + RUN; cast-region-to-uint
+                  subtracted by name; the three new patpeel_* fixtures excluded as additions). The
+                  FIRST run, before the PAT_OR fix, is what showed the one regression.
+    fail_text     ⚠ `fail_text_oracle.py`'s SHA COLUMN SELF-INVALIDATES AND IT WAS RE-MEASURED HERE:
+                  all 1435 shas moved across the control revert, and the whole delta is the four
+                  `was built with logos …-gHHHHHHH-dirty.<timestamp>` ABI-freshness lines, which the
+                  script's normaliser does not strip. Its `.expected` column IS usable and is 1 for
+                  all 1435 under BOTH binaries. To read the TEXT column at all, the same 1435
+                  compiles were re-hashed with those four lines removed, on the reverted binary and
+                  on this one, against the SAME archives — a one-variable control:
+                      0 of 1435 differ, in rc AND in normalised stderr, byte for byte.
+                  That is the only column that can see an un-refusal or an added line (rule 15).
+    stdlib-cost   all four layers compile; the full build is green.
+    -L bc         2668 / 2668, gate-run build 840.
+    L1            758/758 + 12 684 generated + 173 gates, rc 0. On the FIRST L1 the gates tier's only
+                  failure was logos_00_soundness_queue going red on exactly the three rows below —
+                  the improvement direction, named by the gate before the ledger was touched. Pins
+                  re-derived by direct listing: population corpus 2867 -> 2870 / nonglob 2676 -> 2679,
+                  registry ALL 9309 -> 9315 / NOIMPORTED 4872 -> 4878 / TIERCOMMIT 173 unchanged.
+
+## 6. THREE ROWS CLOSED (predicted 3 by name, the gate named exactly those 3, both ways), THREE ADDED
+    CLOSED: tuple_pattern_two_ref_layers, struct_pattern_two_ref_layers_reads_address (tier 1),
+            slice_pattern_ref_array_scrutinee. Each lands as a PAIR one token apart:
+            pass/patpeel_tuple_two_ref_layers (+ fail twin `(a, b)` -> `(a, b, c)`),
+            pass/patpeel_struct_two_ref_layers (+ fail twin `P` -> `Zed`; asserts DROPS == 1),
+            pass/patpeel_slice_ref_array (+ fail twin `&arr` -> `&v`; asserts DROPS == 2).
+            The pass halves match through one, two and THREE reference layers and print every value.
+    ADDED:  struct_pattern_name_check_skipped_under_ref (tier 2, admits — the permissive exit above),
+            literal_patterns_under_ref_scrutinee (tier 3 — int/char/bool, siblings of the range row),
+            refpat_scalar_under_ref_mlir_abort (tier 3 — `match &v { &n => … }` aborts mlir-gen).
+    `# TOTAL` re-derived by direct listing: 39 rows, 39 programs, gate rc 0.
+
+## 7. DECLINED BY NAME, WITH THE NUMBER THAT CONDEMNS IT
+    range_pattern_under_ref_scrutinee + the two rows added above are ONE further root, not this one:
+    an AGGREGATE core needs the chain collapsed to ONE layer (a `&Agg` IS its base pointer, which is
+    what `gen_match` now does), a SCALAR core needs it collapsed to ZERO — one more load, at a site
+    that must first know that no arm binds the scrutinee whole. 2026-09-05 priced the sema half of it
+    at ceiling 0 while it FIRED, moving the refusal from sema to `'arith.cmpi' op operand #0 must be
+    signless-integer-like, but got '!llvm.ptr'`. Not bought here; rowed, with the mechanism named.
+    let_tuple_destructure_ref_scrutinee is untouched for the reason 2026-09-05 measured: patpeelall
+    never FIRED on it — `lower_let_pat` does not enter `build_pattern_impl` at all (rule 16).
+    match_ergo_ref_modifier_ref_mode_admit: OWNER DECISION, not touched.
+
+## 8. WHAT DESERVES FUNDING NEXT
+    (a) The SCALAR half of the value collapse in `gen_match` (three queue rows named above, plus the
+        three at_range lattice cells).
+    (b) `ref mut` outside the variant and struct-field doors — 14 lattice cells, six positions, one
+        queue row, all refused "write through raw pointer requires unsafe context". Still unprobed.
+    (c) The `let` position: its lowering never reaches the pattern doors at all, so NONE of this round
+        reaches it. That is a missing implementation, not a missing fact.

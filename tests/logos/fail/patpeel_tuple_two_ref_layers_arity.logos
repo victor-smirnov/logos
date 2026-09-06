@@ -1,0 +1,13 @@
+// FAIL TWIN of pass/patpeel_tuple_two_ref_layers.logos, ONE TOKEN apart
+// (`(a, b)` -> `(a, b, c)`). Collapsing the scrutinee's `&`-chain must not
+// also relax the tuple door's arity check: the pattern is still measured
+// against the POINTEE's arity, and a 3-element pattern over `&&(i64, i64)`
+// is still a refusal.
+package patpeel_tuple_two_ref_layers_arity;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    match & &t {
+        (a, b, c) => { if *a + *b + *c != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

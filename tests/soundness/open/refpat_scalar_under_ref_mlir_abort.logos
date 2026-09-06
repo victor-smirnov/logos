@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row refpat_scalar_under_ref_mlir_abort (tier 3). A reference pattern
+// over a SCALAR — `match &v { &n => … }` with `v: i64` — is legal Rust (`n: i64`) and
+// TODAY it reaches mlir-gen and aborts the module: "'llvm.icmp' op requires all
+// operands to have the same type". Sema accepts it (the PAT_REF door peels its own
+// layer and types `n` as `i64`); the match lowering then compares the un-loaded `&i64`
+// pointer against the arm. The AGGREGATE form is fine — the defect is exactly the
+// scalar one, which makes this the same second root as
+// literal_patterns_under_ref_scrutinee: `gen_match` collapses an aggregate scrutinee to
+// one reference layer and a scalar one needs zero. The by-value control `match v { n }`
+// and the aggregate control `match &p { &P { x } }` both compile and run.
+// Found by the pattern lattice, hand program c09. Rust: exit 0.
+package refpat_scalar_under_ref_mlir_abort;
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    match &v {
+        &n => { if n != 5i64 { return 1i32; } }
+    }
+    return 0i32;
+}

@@ -1,0 +1,43 @@
+// RFC 2005 (match ergonomics) — WAS soundness-queue row
+// `slice_pattern_ref_array_scrutinee`. A slice pattern is a NON-REFERENCE
+// pattern, so `match &arr { [a, b, c] => … }` is legal Rust; the PAT_SLICE door
+// read the scrutinee kind directly and accepted only Array/Slice, so a `&`
+// was the refusal "slice pattern requires array or slice scrutinee, got
+// '&[i64; 3]'".
+//
+// ⚠ THREE SITES ASKED THIS, NOT ONE, AND ONLY THE FIRST WAS A REFUSAL. Peeling
+// in the door alone ADMITTED the program and bound NOTHING: extract_payload's
+// Slice case reached neither of its two branches under a `&[T; N]` type
+// ("mlir_gen: warning: undefined 'a'"), and `bind_pattern_ref`'s Slice case
+// typed every element Error. And with those repaired, a MOVE-ONLY element bound
+// BY VALUE and ran FOUR destructors over `[D; 2]` against the control's two —
+// hence the by-ref default binding mode, and hence the destructor count below.
+// Twin one token apart: fail/patpeel_slice_ref_nonarray.logos (`arr` -> `v`).
+package patpeel_slice_ref_array;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn print1(fmt: str, a: i64) { unsafe { printf(fmt.as_ptr(), a); } }
+static mut DROPS: i64 = 0i64;
+struct D { v: i64 }
+impl Drop for D {
+    fn drop(&mut self) { unsafe { DROPS = DROPS + 1i64; } }
+}
+fn main() -> i32 {
+    let arr: [i64; 3] = [1i64, 2i64, 4i64];
+    match &arr {
+        [a, b, c] => { print1("d1 %ld\n", *a + *b + *c); }
+    }
+    match & &arr {
+        [a, b, c] => { print1("d2 %ld\n", *a + *b + *c); }
+    }
+    match &arr {
+        [a, .., c] => { print1("rest %ld\n", *a + *c); }
+    }
+    {
+        let darr: [D; 2] = [D { v: 3i64 }, D { v: 4i64 }];
+        match &darr {
+            [a, b] => { print1("dv %ld\n", a.v + b.v); }
+        }
+    }
+    unsafe { print1("drops %ld\n", DROPS); }
+    return 0i32;
+}

@@ -1,0 +1,23 @@
+// SOUNDNESS QUEUE row struct_pattern_name_check_skipped_under_ref (tier 2). A struct
+// pattern naming a DIFFERENT struct than the scrutinee — `match &p { Q { x } => … }`
+// over a `&P` — is a type error in Rust and TODAY it compiles rc 0 and RUNS, reading
+// P's first field under Q's name. The check is written (sema_stmt.cpp, PAT_STRUCT door,
+// "struct pattern: '{}' != scrutinee '{}'") but it is guarded on
+// `TypeRef(scrut_type).kind() == LogosType::Kind::Struct`, and a REFERENCE scrutinee is
+// not that kind, so the whole comparison is skipped — the guard is a permissive exit,
+// not a check. The by-value twin below IS refused, which is the shape of the defect.
+// ⚠ NOT closed by 2026-09-05b's peel: the door's chain-collapse leaves `&P`, still not
+// Kind::Struct. The unknown-NAME half of the same door does fire under a ref (pinned by
+// fail/patpeel_struct_two_ref_layers_unknown.logos) — it is only the MISMATCH half that
+// is unreachable behind a reference. Found by the pattern lattice, hand program c30.
+// Rust: refused ("mismatched types").
+package struct_pattern_name_check_skipped_under_ref;
+struct P { x: i64 }
+struct Q { x: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 3i64 };
+    match &p {
+        Q { x } => { if *x != 3i64 { return 1i32; } }
+    }
+    return 0i32;
+}

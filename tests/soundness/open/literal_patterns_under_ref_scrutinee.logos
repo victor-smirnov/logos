@@ -1,0 +1,37 @@
+// SOUNDNESS QUEUE row literal_patterns_under_ref_scrutinee (tier 3). An integer, char
+// or bool LITERAL pattern under a reference scrutinee — `match &v { 4i64 => … }` — is
+// legal Rust (the pattern is a non-reference pattern; the default binding mode shifts
+// and the literal is compared against the pointee) and TODAY each is refused
+// "integer pattern requires integer scrutinee, got '&i64'" / "char pattern requires
+// char or integer scrutinee, got '&char'" / "bool pattern requires bool scrutinee,
+// got '&bool'". SIBLING of range_pattern_under_ref_scrutinee and the SAME root: the
+// scalar-core doors of build_pattern_impl.
+// ⚠ THE SECOND HALF IS IN CODEGEN AND AN rc-DIFF CANNOT SEE IT. 2026-09-05 measured
+// the range door under a sema-side peel (probe patpeelrange): the refusal MOVES from
+// sema to "'arith.cmpi' op operand #0 must be signless-integer-like, but got
+// '!llvm.ptr'". `gen_match` collapses the scrutinee's chain to ONE layer (2026-09-05b,
+// which is all an AGGREGATE core needs — a `&Agg` IS its base pointer); a SCALAR core
+// needs it collapsed to ZERO, i.e. one further load, which is a second root and is not
+// bought by the depth collapse. Found by the pattern lattice, hand programs c13/c14/c29.
+// Rust: exit 0.
+package literal_patterns_under_ref_scrutinee;
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let c: char = 'q';
+    let b: bool = true;
+    let mut out: i64 = 0i64;
+    match &v {
+        4i64 => { out = out + 1i64; }
+        _ => { return 1i32; }
+    }
+    match &c {
+        'q' => { out = out + 1i64; }
+        _ => { return 2i32; }
+    }
+    match &b {
+        true => { out = out + 1i64; }
+        false => { return 3i32; }
+    }
+    if out != 3i64 { return 4i32; }
+    return 0i32;
+}

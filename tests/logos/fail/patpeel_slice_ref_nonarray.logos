@@ -1,0 +1,12 @@
+// FAIL TWIN of pass/patpeel_slice_ref_array.logos, ONE TOKEN apart
+// (`&arr` -> `&v`). The slice door peels the layer that points AT an array or
+// slice and no other, and the refusal still names the scrutinee's OWN type —
+// `&i64`, not the peeled `i64`.
+package patpeel_slice_ref_nonarray;
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    match &v {
+        [a, b, c] => { if *a + *b + *c != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

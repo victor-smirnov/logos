@@ -1,0 +1,26 @@
+// RFC 2005 (match ergonomics), the DEPTH half — WAS soundness-queue row
+// `tuple_pattern_two_ref_layers`. A tuple pattern is a NON-REFERENCE pattern:
+// it matches the pointee through the scrutinee's WHOLE `&`/`&mut` chain, and
+// `match & &t { (a, b) => … }` is legal Rust. Until 2026-09-05b the PAT_TUPLE
+// door peeled EXACTLY ONE layer, so one `&` was right and two were the type
+// error "tuple pattern requires tuple scrutinee, got &&(i64, i64)". The chain
+// is now collapsed to a single layer by SemaChecker::pat_scrut_one_layer, once,
+// at build_pattern_impl's entry, and in the VALUE by gen_match (one load per
+// layer above the first). Twin one token apart:
+// fail/patpeel_tuple_two_ref_layers_arity.logos (`(a, b)` -> `(a, b, c)`).
+package patpeel_tuple_two_ref_layers;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn print2(fmt: str, a: i64, b: i64) { unsafe { printf(fmt.as_ptr(), a, b); } }
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    match &t {
+        (a, b) => { print2("d1 %ld %ld\n", *a, *b); }
+    }
+    match & &t {
+        (a, b) => { print2("d2 %ld %ld\n", *a, *b); }
+    }
+    match & & &t {
+        (a, b) => { print2("d3 %ld %ld\n", *a, *b); }
+    }
+    return 0i32;
+}

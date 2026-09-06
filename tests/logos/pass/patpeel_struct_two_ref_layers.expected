@@ -1,0 +1,7 @@
+exit: 0
+stdout:
+d1 3 4
+d2 3 4
+d3 3 4
+v 9
+drops 1

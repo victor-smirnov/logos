@@ -5049,8 +5049,32 @@ void SemaChecker::check_or_alt_binding_consistency(TinyMapView pat_or) {
     }
 }
 
+// RFC 2005 (match ergonomics), the DEPTH half. See PROBES.md 2026-09-05b.
+TypeRef SemaChecker::pat_scrut_one_layer(TypeRef scrut_type) {
+    using K = LogosType::Kind;
+    int  depth = 0;
+    bool all_mut = true;
+    TypeRef core = scrut_type;
+    std::string lt;
+    while (core && (TypeRef(core).kind() == K::Ref || TypeRef(core).kind() == K::MutRef) &&
+           TypeRef(core).pointee()) {
+        if (TypeRef(core).kind() != K::MutRef) all_mut = false;
+        if (depth == 0) lt = std::string(TypeRef(core).lifetime());
+        ++depth;
+        core = TypeRef(core).pointee();
+    }
+    if (depth <= 1) return scrut_type;
+    return make_ref(all_mut, core, lt);
+}
+
 lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_type) {
     int32_t pc = code_of(pnode);
+    // ONE LAYER IS ALL A DOOR WAS EVER WRITTEN FOR — collapsed here, once, for
+    // every NON-REFERENCE pattern door. The binder doors (PAT_WILD/NAME,
+    // PAT_REF, PAT_AT) and the delegating PAT_OR read `scrut_orig` BY NAME.
+    // PROBES.md 2026-09-05b.
+    const TypeRef scrut_orig = scrut_type;
+    scrut_type = pat_scrut_one_layer(scrut_type);
     if (pc == la::PAT_VARIANT) return build_pattern_variant(pnode, scrut_type);
     if (pc == la::PAT_VARIANT_DATA) return build_pattern_variant_data(pnode, scrut_type);
     if (pc == la::PAT_FLOAT) {
@@ -5211,7 +5235,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         p_.mirror_ptr_ = lir_mirror_emit_pat_range(*cur_prog_, lo, hi);
         return p_;
     }
-    if (pc == la::PAT_OR) return build_pattern_or(pnode, scrut_type);
+    // An or-pattern matches nothing itself — it delegates, so it hands on the
+    // UN-COLLAPSED chain. ⚠ A single-alternative PAT_OR wraps EVERY top-level
+    // match pattern. PROBES.md 2026-09-05b §4.
+    if (pc == la::PAT_OR) return build_pattern_or(pnode, scrut_orig);
     if (pc == la::PAT_BOOL) {
         AnyVal bv = pnode.get(la::VALUE.code);
         bool bval = !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>();
@@ -5560,12 +5587,13 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     if (pc == la::PAT_AT) {
         auto bname = std::string(str_of(pnode.get(la::NAME.code)));
         auto sub_node = map_of(pnode.get(la::VALUE.code));
-        auto sub_pat = build_pattern(sub_node, scrut_type);
+        auto sub_pat = build_pattern(sub_node, scrut_orig);
         lir::PatAt pa;
         pa.name = bname;
         // NS3: scrut_type may be null for unknown types; fallback to error_t() so
         // bind_pattern can always define the variable (even with error type).
-        pa.type = scrut_type ? scrut_type : error_t();
+        // `n @ sub` binds the WHOLE scrutinee — the un-collapsed chain.
+        pa.type = scrut_orig ? scrut_orig : error_t();
         pa.sub.push_back(std::move(sub_pat));
         uint32_t _at_slot = (pa.name == "_" || pa.name.empty())  // Phase-1
                           ? 0xFFFFFFFFu : reserve_pat_slot(pa.name);
@@ -5587,18 +5615,20 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                       pnode.get(la::IS_MUT.code).is_value() &&
                       pnode.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
         TypeRef inner_type = error_t();
-        if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error) {
-            if (TypeRef(scrut_type).kind() == LogosType::Kind::Ref ||
-                TypeRef(scrut_type).kind() == LogosType::Kind::MutRef) {
+        // A `&`-pattern IS the deref: it reads the UN-COLLAPSED chain.
+        TypeRef rp_scrut = scrut_orig;
+        if (rp_scrut && TypeRef(rp_scrut).kind() != LogosType::Kind::Error) {
+            if (TypeRef(rp_scrut).kind() == LogosType::Kind::Ref ||
+                TypeRef(rp_scrut).kind() == LogosType::Kind::MutRef) {
                 // NS2: &mut pattern requires &mut scrutinee; & pattern accepts both.
-                if (is_mut && TypeRef(scrut_type).kind() != LogosType::Kind::MutRef)
+                if (is_mut && TypeRef(rp_scrut).kind() != LogosType::Kind::MutRef)
                     error(std::format("reference pattern: '&mut' requires '&mut' scrutinee, got '{}'",
-                          type_str(scrut_type)));
-                inner_type = TypeRef(scrut_type).pointee() ? TypeRef(scrut_type).pointee() : error_t();
+                          type_str(rp_scrut)));
+                inner_type = TypeRef(rp_scrut).pointee() ? TypeRef(rp_scrut).pointee() : error_t();
             } else {
                 // NS1: non-reference scrutinee with a reference pattern is always wrong.
                 error(std::format("reference pattern requires reference scrutinee, got '{}'",
-                      type_str(scrut_type)));
+                      type_str(rp_scrut)));
             }
         }
         auto sub_node = map_of(pnode.get(la::VALUE.code));
@@ -5624,7 +5654,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             auto bname = std::string(str_of(pnode.get(la::NAME.code)));
             LogosTypeBuilder ref_t;
             ref_t.kind    = is_mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
-            ref_t.pointee = scrut_type;
+            ref_t.pointee = scrut_orig;
             TypeRef btype = pool_->alloc(std::move(ref_t));
             uint32_t _rb_slot = (bname == "_" || bname.empty())  // Phase-1
                               ? 0xFFFFFFFFu : reserve_pat_slot(bname);
@@ -5867,6 +5897,15 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
 
     // ── PAT_SLICE: [a, b] or [first, .., last] ───────────────────────────
     if (pc == la::PAT_SLICE) {
+        // RFC 2005: peel the collapsed layer when it points AT the array/slice
+        // the pattern is about; a `&i64` keeps its refusal, naming `&i64`.
+        if (scrut_type &&
+            (TypeRef(scrut_type).kind() == LogosType::Kind::Ref ||
+             TypeRef(scrut_type).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(scrut_type).pointee() &&
+            (TypeRef(TypeRef(scrut_type).pointee()).kind() == LogosType::Kind::Array ||
+             TypeRef(TypeRef(scrut_type).pointee()).kind() == LogosType::Kind::Slice))
+            scrut_type = TypeRef(scrut_type).pointee();
         TypeRef elem_type = error_t();
         if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Array && TypeRef(scrut_type).elem())
             elem_type = TypeRef(scrut_type).elem();
@@ -6696,6 +6735,9 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         // Field-ACCESS `s.x` already resolves concretely; the pattern path
         // didn't. Deref a &Struct scrutinee for the type-args.
         SemaSubst struct_subst;
+        // The SAME predicate the doors ask, so a `& &S` scrutinee reaches the
+        // one-layer peel below instead of falling through as a non-struct.
+        scrut_type = pat_scrut_one_layer(scrut_type);
         {
             TypeRef sst = scrut_type;
             if (sst && (TypeRef(sst).kind() == LogosType::Kind::Ref ||
@@ -6753,12 +6795,38 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         });
     } else if (k == ps::Code::Slice) {
         lir_view::PatSliceView v{pr};
-        TypeRef elem_t = (scrut_type && TypeRef(scrut_type).elem())
-                          ? TypeRef(scrut_type).elem() : error_t();
+        // The SAME predicate the PAT_SLICE door asks; without it every element
+        // binding is Error-typed under a `&[T; N]`.
+        TypeRef sl_scrut = pat_scrut_one_layer(scrut_type);
+        if (sl_scrut &&
+            (TypeRef(sl_scrut).kind() == LogosType::Kind::Ref ||
+             TypeRef(sl_scrut).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(sl_scrut).pointee() &&
+            (TypeRef(TypeRef(sl_scrut).pointee()).kind() == LogosType::Kind::Array ||
+             TypeRef(TypeRef(sl_scrut).pointee()).kind() == LogosType::Kind::Slice))
+            sl_scrut = TypeRef(sl_scrut).pointee();
+        // Default binding modes, slice shape — the rule the struct door already
+        // applies: under a `&`/`&mut` scrutinee a MOVE-ONLY element binds BY
+        // REFERENCE, or it is Drop-scheduled on top of the scrutinee's own drop.
+        // ⚠ SOUNDNESS: this is a double-free guard. PROBES.md 2026-09-05b §3.
+        TypeRef sl_outer = pat_scrut_one_layer(scrut_type);
+        bool sl_default_ref = sl_outer && (TypeRef(sl_outer).kind() == LogosType::Kind::Ref ||
+                                           TypeRef(sl_outer).kind() == LogosType::Kind::MutRef);
+        bool sl_default_mut = sl_default_ref &&
+                              TypeRef(sl_outer).kind() == LogosType::Kind::MutRef;
+        TypeRef elem_raw = (sl_scrut && TypeRef(sl_scrut).elem())
+                            ? TypeRef(sl_scrut).elem() : error_t();
+        TypeRef elem_t = elem_raw;
+        if (sl_default_ref && elem_t &&
+            TypeRef(elem_t).kind() != LogosType::Kind::Error &&
+            TypeRef(elem_t).kind() != LogosType::Kind::TypeVar &&
+            is_move_type(elem_t))
+            elem_t = make_ref(sl_default_mut, elem_t);
         v.each_prefix([&](lir_view::PatRef p) { bind_pattern_ref(p, elem_t); });
         // G149-4: a named rest (`xs @ ..`) binds the sub-slice as `&[T]`
         // (Slice kind), not an element. Anonymous `_` rest binds nothing.
-        TypeRef rest_slice_t = make_slice_type(elem_t);
+        // Its ELEMENT type is the raw one: the mode wraps the element BINDING.
+        TypeRef rest_slice_t = make_slice_type(elem_raw);
         v.each_rest  ([&](lir_view::PatRef p) { bind_pattern_ref(p, rest_slice_t); });
         v.each_suffix([&](lir_view::PatRef p) { bind_pattern_ref(p, elem_t); });
     } else if (k == ps::Code::Or) {
