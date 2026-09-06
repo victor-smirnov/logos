@@ -25152,3 +25152,59 @@ verdict: FUND, BY DELEGATION, AND CARRY IS_MUT. `lower_let_pat` refuses everythi
         queue row, all refused "write through raw pointer requires unsafe context". Still unprobed.
     (c) The `let` position: its lowering never reaches the pattern doors at all, so NONE of this round
         reaches it. That is a missing implementation, not a missing fact.
+
+## dropq0
+site: src/compiler/mlir_gen_impl.hpp::resolve_method_symbol
+build: 6dd76d6d10202933
+measured: 2026-09-05
+fires: 29666
+ceiling: 0
+cost: 0
+verdict: the CRUDE control revert of 163f043bc — 1.90x on the red fixture, and it
+  re-opens the destructor-identity defect it paid for, so it is a PRICE not a fix
+note: skips the qualified `<T>__Drop__drop` pre-search that 163f043bc added ahead
+  of the plain one. Census on `wql_domain_static_extremes`: 29 666 arrivals, ALL
+  of them `method_name == "drop"`, and `rms.qhit` = **0** — the qualified probe
+  never once resolves, so it never exits early and always pays a full scan of
+  `prog_->structs` + `prog_->functions`. Arming it halves every scan column
+  exactly (pass2 17 820 -> 8 910, scan.fn 172 568 880 -> 86 284 440) and halves
+  `codegen+write` with them (26 782 ms -> 12 817 ms), which is the proof that the
+  phase IS this loop and nothing else. Interleaved in ONE binary, 5 runs each:
+  HEAD median 31.19 s (30.47-31.37), armed 16.43 s (16.21-16.58).
+
+## dropmemo
+site: src/compiler/mlir_gen_impl.hpp::resolve_method_symbol
+build: 6dd76d6d10202933
+measured: 2026-09-05
+fires: 29666
+ceiling: 0
+cost: 0
+verdict: THE FUNDABLE ARM — 4.41x on the red fixture at cost 0 on 2670 `-L bc`
+  tests, and it removes a quadratic that PREDATES the regression
+note: the lookup is a pure function of (struct_name, method_name, pkg) over an
+  immutable `prog_`; memoising it is semantics-preserving by construction. The
+  number that funds it: **29 666 calls behind 62 DISTINCT KEYS**. Interleaved in
+  ONE binary, 4 runs each — HEAD 30.72 s / dropq0 16.14 s / dropmemo **6.97 s**
+  (6.82-7.00). That is below the PRE-regression 28.6 s, because 163f043bc did not
+  create the quadratic, it doubled it: even the reverted arm still burns 86.3 M
+  scan iterations for 12.8 s. Cost columns: `ctest -L bc` rc 0 (2670 tests, 167 s),
+  soundness queue gate rc 0 on 39 (ceiling 0 — no row moves either way).
+  ⚠ NOT LANDED. This round prices. `memoria_showcase_deem` fails identically in
+  both arms (inherited, rule 14), and the arm has NOT been priced on the stdlib
+  or `fail` columns, which `-L bc` does not contain.
+
+## rmscan
+site: src/compiler/mlir_gen_impl.hpp::resolve_method_symbol
+build: 6dd76d6d10202933
+measured: 2026-09-05
+fires: 29666
+ceiling: 0
+cost: 0
+verdict: census only — the arrival, censused BEFORE any edit (rule 17)
+note: `rms.arrive` 29 666 / `rms.dropkey` 29 666 / `rms.qsearch` 29 666 /
+  `rms.qhit` 0 / `rms.pass2` 17 820 / `rms.scan.struct` 59 875 200 /
+  `rms.scan.fn` **172 568 880** on `wql_domain_static_extremes`. On a MEDIAN-cost
+  fixture (`variance-use-covariant-struct-2-b154`) every one of these is EMPTY:
+  the site is never entered at all, and `dropq0` there is 0.78 s vs 0.79 s. That
+  is why the regression is superlinear in program size with the corpus median
+  unchanged, and it is the measurement that separates phenomenon A from B.
