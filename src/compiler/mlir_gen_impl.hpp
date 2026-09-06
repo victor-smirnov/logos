@@ -459,11 +459,27 @@ private:
                                       std::string_view method_name,
                                       std::string_view pkg = {},
                                       bool* pkg_owns_struct = nullptr) const noexcept {
+        bool owns_out = false;
         if (pkg_owns_struct) *pkg_owns_struct = false;
         auto bare_struct = strip_struct_pkg(struct_name);
         std::string base; base.reserve(bare_struct.size() + 2 + method_name.size());
         base.append(bare_struct); base.append("__"); base.append(method_name);
         if (!prog_) return base;
+        // MEMO. The answer is a PAIR — the symbol and `pkg_owns_struct` — and
+        // both halves are cached; caching only the string loses the
+        // authoritative negative on every hit. PROBES.md 2026-09-06 dropmemo.
+        logos::probe::census("rms.arrive");
+        std::string mkey;
+        mkey.reserve(struct_name.size() + method_name.size() + pkg.size() + 2);
+        mkey.append(struct_name); mkey.push_back('\x1f');
+        mkey.append(method_name); mkey.push_back('\x1f');
+        mkey.append(pkg);
+        if (auto it = rms_memo_.find(mkey); it != rms_memo_.end()) {
+            logos::probe::census("rms.hit");
+            if (pkg_owns_struct) *pkg_owns_struct = it->second.second;
+            return it->second.first;
+        }
+        logos::probe::census("rms.miss");
         // After unification, method names may be `[pkg.]Base__method[__f__sig]`.
         // Match either bare base or a pkg-qualified form ending with `.base`.
         auto matches_base = [&](std::string_view nm, const std::string& b) -> bool {
@@ -516,7 +532,7 @@ private:
                 for (auto& sd : prog_->structs) {
                     if (sd.name() != bare_struct || sd.pkg() != pkg) continue;
                     owned = true;
-                    if (pkg_owns_struct) *pkg_owns_struct = true;
+                    owns_out = true;
                     if (auto found = scan_methods(sd); !found.empty()) return found;
                 }
                 // Free-function / trait-impl form, same package only. `matches`
@@ -548,12 +564,20 @@ private:
             }
             return stop_on_owned ? b : std::string{};
         };
+        auto keep = [&](std::string r) -> std::string {
+            rms_memo_.emplace(std::move(mkey), std::make_pair(r, owns_out));
+            if (pkg_owns_struct) *pkg_owns_struct = owns_out;
+            return r;
+        };
         if (!qbase.empty()) {
-            if (auto q = search(qbase, false); !q.empty()) return q;
-            if (pkg_owns_struct) *pkg_owns_struct = false;
+            if (auto q = search(qbase, false); !q.empty()) return keep(std::move(q));
+            owns_out = false;
         }
-        return search(base, true);
+        return keep(search(base, true));
     }
+    // Cleared in generate() when `prog_` is bound: the key is (struct, method,
+    // pkg) and its answer is a function of `prog_`, of nothing else.
+    mutable std::unordered_map<std::string, std::pair<std::string, bool>> rms_memo_;
 
     const TypePoolImpl* pool_impl() const noexcept {
         return prog_ ? prog_->type_pool.impl() : nullptr;

@@ -1,0 +1,18 @@
+// CONTROL for tests/soundness/open/homonym_field_drop_glue_segv.logos — the
+// identical program with the field type renamed from `String` (a homonym of
+// `logos.mem.string.String`) to `ZqStr`, which is in no stdlib table. ONE TOKEN
+// apart. This file exits 3; the homonym half SIGSEGVs (rc 139), because
+// `Holder`'s drop glue binds its field's destructor by BARE NAME and lands on
+// `logos.mem.string.String__drop__f__String`, which frees `a: i64`.
+//
+// The PAIR is the evidence. Alone, this control would pass on a compiler that
+// resolved nothing package-scoped anywhere.
+package test;
+struct ZqStr { pub a: i64 }
+struct Holder { pub s: ZqStr, pub t: ZqStr }
+fn main() -> i32 {
+    let mut ys: Vec<Holder> = Vec::<Holder>::new();
+    ys.push(Holder{ s: ZqStr{a:1i64}, t: ZqStr{a:2i64} });
+    let n: i64 = ys.borrow(0u64).s.a + ys.borrow(0u64).t.a;
+    return n as i32;
+}

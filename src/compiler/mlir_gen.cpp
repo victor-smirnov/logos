@@ -98,6 +98,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     attach_target_data_layout(mod);
 
     prog_   = &prog;
+    rms_memo_.clear();   // the memo answers for THIS `prog_` and no other
     mirror_ = prog.mirror_table.get();
 
     // Coexistence: module-qualify type-keyed symbol names (drop glue, vtables,

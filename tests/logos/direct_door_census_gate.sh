@@ -1434,9 +1434,12 @@ PIN = {
     # door, all non-glob (`ls tests/logos/pass/*.logos | wc -l`):
     # patpeel_tuple_two_ref_layers, patpeel_struct_two_ref_layers,
     # patpeel_slice_ref_array.
-    'corpus'            : 2870,
+    # 2026-09-06: 2870 -> 2871. ONE pass fixture, non-glob
+    # (`ls tests/logos/pass/*.logos | wc -l`): mlirgen_odr_drop_glue_field_ctl,
+    # the renamed control half of soundness-queue row homonym_field_drop_glue_segv.
+    'corpus'            : 2871,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2679,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2680,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

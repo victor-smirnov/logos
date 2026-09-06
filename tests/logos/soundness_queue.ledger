@@ -43,7 +43,7 @@ declare_pat_bindings_field_nomut_addrmut_admit 2 tests/soundness/open/declare_pa
 array_typed_field_binding_shape_lost 3 tests/soundness/open/array_typed_field_binding_shape_lost refuses
 let_at_binding_tuple_sub_unsupported 3 tests/soundness/open/let_at_binding_tuple_sub_unsupported refuses
 range_pattern_under_ref_scrutinee 3 tests/soundness/open/range_pattern_under_ref_scrutinee refuses
-# TOTAL 39
+# TOTAL 41
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 drop_inherent_call_order      1 tests/soundness/open/drop_inherent_call_order      refuses
@@ -79,3 +79,5 @@ match_tuple_door_nested_struct_binds_nothing 3 tests/soundness/open/match_tuple_
 struct_pattern_name_check_skipped_under_ref 2 tests/soundness/open/struct_pattern_name_check_skipped_under_ref admits
 literal_patterns_under_ref_scrutinee 3 tests/soundness/open/literal_patterns_under_ref_scrutinee refuses
 refpat_scalar_under_ref_mlir_abort 3 tests/soundness/open/refpat_scalar_under_ref_mlir_abort refuses
+homonym_field_drop_glue_segv  1 tests/soundness/open/homonym_field_drop_glue_segv  run 139
+both_drops_destructor_is_inherent 1 tests/soundness/open/both_drops_destructor_is_inherent run 2

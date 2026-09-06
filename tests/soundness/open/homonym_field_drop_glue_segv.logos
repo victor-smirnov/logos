@@ -1,0 +1,25 @@
+// SOUNDNESS QUEUE row homonym_field_drop_glue_segv (tier 1). PACKAGE-BLIND DROP
+// GLUE, REACHED THROUGH A FIELD. `mlirgen_odr_drop_glue_homonym` closed the
+// channel where the homonym is the ELEMENT (`Vec<String>`). This is the same
+// theft one level in: the element is `Holder`, which is not a homonym of
+// anything, and the bare-name binding happens when `Holder`'s own drop glue
+// resolves the destructor of its FIELD.
+//
+// The object file is the oracle, not the exit code. `nm -C` on this program:
+//     U logos_mem..logos.mem.string.String__drop__f__String
+// and on the control (this file with `String` renamed `ZqStr`, and nothing else
+// changed) that symbol is ABSENT. `logos.mem.string.String__drop` reads this
+// struct's `a: i64` as a heap pointer and frees it — rc 139, SIGSEGV.
+//
+// PAIR: tests/logos/pass/mlirgen_odr_drop_glue_field_ctl.logos is the renamed
+// half and exits 3 today. Repair = resolve the FIELD destructor package-scoped,
+// the same rule `resolve_method_symbol`'s pass 1 already applies to the element.
+package homonym_field_drop_glue_segv;
+struct String { pub a: i64 }
+struct Holder { pub s: String, pub t: String }
+fn main() -> i32 {
+    let mut ys: Vec<Holder> = Vec::<Holder>::new();
+    ys.push(Holder{ s: String{a:1i64}, t: String{a:2i64} });
+    let n: i64 = ys.borrow(0u64).s.a + ys.borrow(0u64).t.a;
+    return n as i32;
+}

@@ -1,0 +1,25 @@
+// CE5 — the NEGATIVE answer memoised. `Plain` has no `drop` of any kind, so
+// `resolve_method_symbol` returns the constructed base `Plain__drop` (a symbol
+// that does not exist) and the caller's emptiness test decides. Many locals of
+// the same type in one compile make every query after the first a memo HIT: if
+// the memo stored the wrong half of the (string, bool) pair, a call to a
+// non-existent destructor is emitted and the program does not link.
+package test;
+use logos.std.fmt;
+struct Plain { pub a: i64, pub b: i64 }
+fn f(k: i64) -> i64 {
+    let p: Plain = Plain{a:k, b:k+1i64};
+    let q: Plain = Plain{a:k+2i64, b:k+3i64};
+    let r: Plain = Plain{a:k+4i64, b:k+5i64};
+    return p.a + q.b + r.a;
+}
+fn main() -> i32 {
+    let mut s: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        s = s + f(i);
+        i = i + 1i64;
+    }
+    println!("s={}", s);
+    return (s % 100i64) as i32;
+}

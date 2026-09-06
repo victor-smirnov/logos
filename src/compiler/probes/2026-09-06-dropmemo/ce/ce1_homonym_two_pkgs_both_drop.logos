@@ -1,0 +1,19 @@
+// CE1 — the memo's WORST case: the SAME bare struct name `String` in the
+// user's package and in `logos.mem.string`, BOTH with drop glue, both asked
+// for `drop` in one compile. If the memo keyed on the bare name only, the
+// second query would answer with the first's symbol — the ODR theft that
+// mlirgen_odr_drop_glue_homonym measured as a SIGSEGV.
+package test;
+struct String { pub a: i64 }
+struct Holder { pub s: String, pub t: String }
+fn main() -> i32 {
+    let mut xs: Vec<String> = Vec::<String>::new();
+    xs.push(String{a:5i64});
+    xs.push(String{a:6i64});
+    let h: Holder = Holder{ s: String{a:1i64}, t: String{a:2i64} };
+    let mut ys: Vec<Holder> = Vec::<Holder>::new();
+    ys.push(h);
+    let n: i64 = xs.borrow(0u64).a + xs.borrow(1u64).a
+               + ys.borrow(0u64).s.a + ys.borrow(0u64).t.a;
+    return n as i32;
+}

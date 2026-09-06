@@ -1,0 +1,30 @@
+// CE2 — the qbase path. `D` has an INHERENT `drop` and a `Drop` impl whose
+// `drop` is filed under `D__Drop__drop`. The destructor must be the trait
+// one; the inherent must still be callable BY NAME, in the same compile,
+// with the same (struct, method) memo key. If the memo returned one answer
+// for both, either the wrong destructor runs or the explicit call vanishes.
+package test;
+use logos.std.fmt;
+static mut TRAIT_HITS: i64 = 0i64;
+static mut INHERENT_HITS: i64 = 0i64;
+struct D { pub v: i64 }
+impl D {
+    fn drop(&self) -> i64 { unsafe { INHERENT_HITS = INHERENT_HITS + 1i64; } return self.v; }
+}
+impl Drop for D {
+    fn drop(&mut self) { unsafe { TRAIT_HITS = TRAIT_HITS + 1i64; } }
+}
+fn make() -> i64 {
+    let a: D = D{v:7i64};
+    let b: D = D{v:9i64};
+    let x: i64 = a.drop();
+    let y: i64 = b.drop();
+    return x + y;
+}
+fn main() -> i32 {
+    let s: i64 = make();
+    let t: i64 = unsafe { TRAIT_HITS };
+    let i: i64 = unsafe { INHERENT_HITS };
+    println!("sum={} trait={} inherent={}", s, t, i);
+    return (t * 10i64 + i) as i32;
+}

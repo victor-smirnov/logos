@@ -5287,8 +5287,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9309 -> 9315    +6
 #   NOIMPORTED   4872 -> 4878    +6
 #   TIERCOMMIT    173 ->  173     0
-REGISTRY-ALL         9315
-REGISTRY-NOIMPORTED  4878
+# 2026-09-06 (dropmemo round): ONE pass fixture added,
+#   tests/logos/pass/mlirgen_odr_drop_glue_field_ctl.logos — the renamed control
+#   half of soundness-queue row `homonym_field_drop_glue_segv`. Counted by direct
+#   listing before the pin was read (`ls tests/logos/pass/mlirgen_odr_drop_glue_field_ctl.logos`
+#   -> 1); the queue's own program is under tests/soundness/open/ and registers nowhere.
+#   ALL          9315 -> 9316    +1
+#   NOIMPORTED   4878 -> 4879    +1
+#   TIERCOMMIT    173 ->  173     0
+REGISTRY-ALL         9316
+REGISTRY-NOIMPORTED  4879
 REGISTRY-TIERCOMMIT  173
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

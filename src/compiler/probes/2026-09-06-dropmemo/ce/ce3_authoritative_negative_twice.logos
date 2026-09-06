@@ -1,0 +1,25 @@
+// CE3 — the `pkg_owns_struct` OUT-PARAM, asked TWICE for the same key. A memo
+// that caches only the returned string leaves the caller's `bool` at its
+// initialised `false` on every hit, so the AUTHORITATIVE NEGATIVE that stops
+// the package-blind fallback is lost on the second and later queries. Two
+// same-named structs, one per package, each with its own drop glue, each
+// dropped more than once so the second query is a memo HIT.
+package test;
+use logos.std.fmt;
+static mut N: i64 = 0i64;
+struct Ident { pub k: i64 }
+impl Drop for Ident {
+    fn drop(&mut self) { unsafe { N = N + self.k; } }
+}
+fn cycle() {
+    let p: Ident = Ident{k:1i64};
+    let q: Ident = Ident{k:2i64};
+    let r: Ident = Ident{k:4i64};
+}
+fn main() -> i32 {
+    cycle();
+    cycle();
+    let n: i64 = unsafe { N };
+    println!("drops={}", n);
+    return n as i32;
+}

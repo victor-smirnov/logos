@@ -1,0 +1,46 @@
+// SOUNDNESS QUEUE row both_drops_destructor_is_inherent (tier 1). A type with an
+// INHERENT method named `drop` AND a `Drop` impl. Legal Rust: the inherent one is
+// an ordinary method, `Drop::drop` is the destructor, and scope exit runs the
+// destructor. There is NO explicit `.drop()` call in this program — the only
+// thing that can run either method is the drop glue.
+//
+// TODAY the glue calls the INHERENT method: this prints `trait=0 inherent=2` and
+// exits 2 where Rust gives `trait=2 inherent=0` and exit 20. `Drop::drop` never
+// runs at all, so a destructor that releases a resource silently does not.
+//
+// ⚠ THIS CONTRADICTS THIS LEDGER'S OWN HEADER, which records the "type with both
+// drops runs the inherent one" candidate as having "not survived re-running".
+// Re-measured 2026-09-06 on the binary of this commit AND on the pristine
+// pre-round binary (build 6dd76d6d10202933): identical, `trait=0 inherent=2`.
+// The 2026-09-04 re-run must have used a shape with an explicit `.drop()` call.
+//
+// ⚠ AND IT PRICES 163f043bc. That commit added a QUALIFIED `<T>__Drop__drop`
+// pre-search to resolve_method_symbol precisely to separate these two, and it is
+// what doubled the scan this round memoised. `nm -C` on this program's object:
+//     T test.D__drop__f__ref_D          (inherent)
+//     T test.D__drop__f__refmut_D       (trait)
+// and NO `D__Drop__drop` at all — `collect_fn`'s G156-5 never files the trait one
+// under the qualified key here, so the pre-search has nothing to find. Repair is
+// at the FILING site, not at the lookup.
+package both_drops_destructor_is_inherent;
+use logos.std.fmt;
+static mut TRAIT_HITS: i64 = 0i64;
+static mut INHERENT_HITS: i64 = 0i64;
+struct D { pub v: i64 }
+impl D {
+    fn drop(&self) -> i64 { unsafe { INHERENT_HITS = INHERENT_HITS + 1i64; } return self.v; }
+}
+impl Drop for D {
+    fn drop(&mut self) { unsafe { TRAIT_HITS = TRAIT_HITS + 1i64; } }
+}
+fn make() {
+    let a: D = D{v:7i64};
+    let b: D = D{v:9i64};
+}
+fn main() -> i32 {
+    make();
+    let t: i64 = unsafe { TRAIT_HITS };
+    let i: i64 = unsafe { INHERENT_HITS };
+    println!("trait={} inherent={}", t, i);
+    return (t * 10i64 + i) as i32;
+}

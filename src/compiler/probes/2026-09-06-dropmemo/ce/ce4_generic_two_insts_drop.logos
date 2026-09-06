@@ -1,0 +1,24 @@
+// CE4 — one GENERIC container instantiated at two element types, each with its
+// own destructor. The drop-glue query is issued once per instantiation with a
+// DIFFERENT concrete struct name; the memo must not let the first
+// instantiation's symbol answer for the second.
+package test;
+use logos.std.fmt;
+static mut A_DROPS: i64 = 0i64;
+static mut B_DROPS: i64 = 0i64;
+struct A { pub x: i64 }
+struct B { pub y: i64 }
+impl Drop for A { fn drop(&mut self) { unsafe { A_DROPS = A_DROPS + 1i64; } } }
+impl Drop for B { fn drop(&mut self) { unsafe { B_DROPS = B_DROPS + 1i64; } } }
+struct Cell<T> { pub v: T }
+fn hold<T>(v: T) -> i64 {
+    let c: Cell<T> = Cell::<T>{ v: v };
+    return 1i64;
+}
+fn main() -> i32 {
+    let n: i64 = hold::<A>(A{x:1i64}) + hold::<B>(B{y:2i64});
+    let a: i64 = unsafe { A_DROPS };
+    let b: i64 = unsafe { B_DROPS };
+    println!("n={} a={} b={}", n, a, b);
+    return (a * 10i64 + b) as i32;
+}

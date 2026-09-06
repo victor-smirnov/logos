@@ -25208,3 +25208,97 @@ note: `rms.arrive` 29 666 / `rms.dropkey` 29 666 / `rms.qsearch` 29 666 /
   the site is never entered at all, and `dropq0` there is 0.78 s vs 0.79 s. That
   is why the regression is superlinear in program size with the corpus median
   unchanged, and it is the measurement that separates phenomenon A from B.
+
+## dropmemo (LANDED 2026-09-06)
+site: src/compiler/mlir_gen_impl.hpp::resolve_method_symbol
+build: 596f7b385e46f0fe
+measured: 2026-09-06
+fires: 813818
+ceiling: 0
+cost: 0
+verdict: LANDED. 4.43x on the red fixture, interleaved, 5 runs each; cost 0 in
+  EVERY column including the two `-L bc` could not see (stdlib, `fail`)
+note: `resolve_method_symbol` is a pure function of (struct_name, method_name,
+  pkg) over the immutable `const LProgram* prog_`, and its ANSWER IS A PAIR —
+  the symbol and `pkg_owns_struct`. Both halves are memoised on that key;
+  caching only the string would leave the authoritative negative at its
+  initialised `false` on every hit, which is the ODR theft the qualified pass
+  exists to stop. `rms_memo_` is cleared in `generate()` where `prog_` is bound.
+  ⚠ CORRECTS THE PRICING ROUND'S OWN NUMBER. `rms.scan.fn` on
+  `wql_domain_static_extremes` is **597 210 024**, not the 172 568 880 recorded
+  2026-09-05c; `rms.scan.struct` is 213 066 851. Censused in the same build as
+  the fix, with the memo behind an env kill-switch so both arms are ONE binary:
+      memo OFF  arrive 29 666 · miss 29 666 · scan.fn 597 210 024 · scan.struct 213 066 851
+      memo ON   arrive 29 666 · hit  29 604 · miss 62 · scan.fn 1 051 825 · scan.struct 373 167
+  Over the WHOLE pass corpus (2870 programs, censused both ways):
+      memo OFF  arrive 813 818 · miss 813 818 · scan.fn 10 067 591 037 · scan.struct 4 012 956 320
+      memo ON   arrive 813 818 · hit  806 092 · miss 7 726 · scan.fn 75 543 648 · scan.struct 33 102 138
+  14.08 G scan iterations -> 108.6 M, a 130x cut, and 99.05% of the 813 818 calls
+  are answered from the memo. ⚠ `rms.arrive` is IDENTICAL in the two arms, digit
+  for digit, at every one of the 1342 processes that reach the site — the memo
+  changes no control flow, only how often the scan is paid for.
+timing: interleaved in ONE loop, the pristine pre-round binary (6dd76d6d10202933)
+  and this one, alternating:
+      wql_domain_static_extremes  HEAD median 31.24 s (31.11-31.87)
+                                  LAND median  7.06 s ( 6.96- 7.13)   4.43x
+  and as a ctest test, against its 120 s property: **7.14 s**, where build 813
+  (`a9c7b67fd`) read 120.1 FAILED and 830/831 (`96fdf6235`) 120.1 / 120.0 failed.
+  Its three `logos_09_*` FIXTURES_SETUP dependents run again: `ctest -R
+  'logos_09_|logos_00_'` 3075/3075 passed.
+  The 20 tests the store named as >1.5x and >3 s slower over builds 662->791
+  (list re-derived from `runs.db`, not carried): of the 17 that are pass
+  fixtures, 15 are 1.6x-4.4x faster and 2 are unchanged
+  (`writ_wany_ref_resolver_guard_as_array_on_string` 0.81 -> 0.81,
+  `memoria_showcase_deem` fails in 0.14 s in both arms — inherited, rule 14);
+  their total is 140.9 s -> 57.9 s, 2.43x.
+  ⚠ AND THE MEDIAN FIXTURE DOES NOT MOVE: over a 250-program random sample
+  timed interleaved, paired median LAND/HEAD = **0.994** (p10 0.924, p90 1.031,
+  min 0.334). That is the same shape the census predicts and it is the
+  measurement that says this fix does NOT touch phenomenon B, the global 20%
+  of `a9c7b67fd..96fdf6235`, which stays open.
+cost columns (all against the pristine pre-round binary, same configure):
+  `fail_text_oracle.py` 1435 fail fixtures — **0 rows differ**, stderr sha
+     identical for every one, so no un-refusal and no added line.
+  `run_oracle.py` 6489 pass fixtures compiled, linked and RUN — **1 row differs
+     and it is `cast-region-to-uint`**, subtracted by name (it prints a stack
+     address). 0 damaged.
+  `stdlib-cost.sh` all four layers compile; and the landing build rebuilt
+     `liblogos-{lang,lcm,mem,std}.a` from source under this compiler, rc 0.
+  `test-levels.sh L1` 758 + 173 rc 0. soundness queue gate rc 0.
+counter-examples: five shapes written BEFORE the edit, plus the two narrowing
+  halves, run on both binaries in one alternating loop —
+  ce1_homonym_two_pkgs_both_drop / ce2_inherent_drop_and_trait_drop /
+  ce3_authoritative_negative_twice / ce4_generic_two_insts_drop /
+  ce5_no_drop_at_all / n1_holder_only / n2_vec_holder / n3_ctl_no_homonym.
+  All EIGHT identical, cc / rc / stdout, digit for digit. Two of them are wrong
+  on BOTH binaries and are inherited, not this round's damage — see the two new
+  queue rows below. Sources: src/compiler/probes/2026-09-06-dropmemo/ce/.
+
+## rmsclass — THE CLASS, ENUMERATED BY THE PROPERTY
+site: src/compiler/mlir_gen_impl.hpp::pkg_owns_symbol_owner
+build: 596f7b385e46f0fe
+measured: 2026-09-06
+fires: 171
+ceiling: 0
+cost: 0
+verdict: the class is THREE members and two of them were already closed — but
+  the grep is not what says so, a census over 2870 programs is
+note: property — *a pure query over the immutable `prog_` implemented as a FULL
+  LINEAR SCAN of `prog_->structs` and/or `prog_->functions`, invoked from a
+  PER-NODE code path in mlir-gen*: O(program) work inside an O(program) loop.
+  86 loops over `prog[_].structs` / `prog[_].functions` exist in the compiler;
+  all but three are ONE-SHOT top-level passes (`generate`'s numbered passes,
+  `emit_module`, sema's collect phases, `borrow_check`'s registration). The
+  three reachable per node, and what the census says over the whole pass corpus:
+      resolve_method_symbol   mlir_gen_impl.hpp  813 818 arrivals / 1342 procs
+                              **14 080 547 357** scan iterations
+      pkg_owns_symbol_owner   mlir_gen_impl.hpp     171 arrivals /   78 procs
+                              index built ONCE behind `pkg_struct_names_built_`
+      gen_tagged_dispatch     mlir_gen_dyn.cpp        7 arrivals /    6 procs
+                              21 576 scan iterations, and only on a
+                              `lookupSymbol` MISS
+  650 000 : 1. `pkg_owns_symbol_owner` is already a member fixed the same
+  structural way this round fixes the first; `gen_tagged_dispatch` is reached
+  seven times in 2870 programs. ⚠ A GREP CERTIFIES WHAT IT CANNOT SEE — the
+  membership above is settled by arrival and iteration COUNTS taken in the same
+  build as the fix, not by the grep that nominated the candidates.
