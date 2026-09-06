@@ -1,0 +1,66 @@
+TARGET ROWS — round 2026-09-06k (valgrind arc, phase 1 repair)
+build hash READ at start: 10f55b7c2fa44145 43
+queue gate rc at start: 0, 57 rows (tier1=16 tier2=6 tier3=32 tier4=3)
+
+TARGET: no existing queue row. THE TARGET IS A DEFECT NO ROW COVERS, found by the
+instrument this round installs (valgrind over a run), and it must be repaired FIRST
+because it is a per-`println!` leak that would appear in every fixture of the phase-2
+sweep and drown every other finding.
+
+ROOT, BY SYMBOL — `SemaChecker::lower_block_expr`, src/compiler/sema_expr.cpp:16551.
+It does `push_scope()` … `pop_scope()` and NEVER calls `collect_drops()`. Its
+statement-position twin `SemaChecker::lower_block` (src/compiler/sema_stmt.cpp:~900)
+does, guarded on the block not ending in a terminator:
+      if (!ends_with_terminator) { for (auto& d : collect_drops()) result.push_back(...); }
+So: A BLOCK IN EXPRESSION POSITION NEVER RUNS ITS OWN LOCALS' DESTRUCTORS.
+
+WHY THIS BLOCK OVER THE OTHERS (the reasoning the next round inherits):
+ 1. It is upstream of the whole phase-2 sweep. Every `println!`/`print!`/`eprintln!`/
+    `eprint!`/`panic!`/`write!`/`writeln!` on a LITERAL format string is lowered by
+    sema_expr.cpp:22275 into exactly `lower_block_expr(blk_view)` over a synthesised
+    `{ let mut __buf: String = …; …; __fmt_println(__buf.as_str()) }`. `__buf` is that
+    block's local. Every printing program in the corpus leaks one block per call.
+ 2. The prompt handed down "the println arm forgets to drop __buf" as the root. THAT IS
+    ONE LAYER TOO LOW and one construct too narrow — MEASURED, see below. The `println`
+    arm is a MEMBER; a user-written `let t: String = { let a=…; let b=…; a };` leaks `b`
+    with no macro anywhere in the program.
+ 3. It is a SEVENTH root, not a member of C1–C6. C1 is `declare_var`'s name-keyed
+    `var_order`, C2 the place-assignment `field_old_live` predicate, C5 the Box-deref
+    move classifier. None of them is reached: the binding here is declared once, under
+    a unique name, never shadowed, never assigned over, and the drop list is BUILT
+    correctly — it is simply never EMITTED, because the one caller that would emit it
+    does not exist. That is a missing call, and a missing call has no spelling.
+ 4. ONE candidate change moves every member: emit `collect_drops()` in
+    `lower_block_expr` before `pop_scope()`, with the tail value bound to a temp first
+    so it is produced BEFORE the drops run (the shape `lower_expr_temp_scoped`,
+    sema_expr.cpp:326-334, already uses for exactly this ordering problem).
+
+MEASURED ON THE UNMODIFIED BINARY (build 10f55b7c2fa44145 43), valgrind lines:
+  println!("n={}", n)                  4 allocs, 1 frees   definitely lost 6 bytes/1 blk
+  print!("n={}\n", n)                  4 allocs, 1 frees   definitely lost 6 bytes/1 blk
+  eprintln!("n={}", n)                 4 allocs, 1 frees   definitely lost 6 bytes/1 blk
+  println!("no placeholder")           3 allocs, 0 frees   definitely lost 60 bytes/1 blk
+  println!("a={} b={} c={}", a,b,c)    7 allocs, 4 frees   definitely lost 18 bytes/1 blk
+  println! x10 in a while loop        22 allocs,10 frees   definitely lost 60 bytes/10 blks  ← UNBOUNDED
+CONTROL, the arm that MOVES its buffer out — clean, and it must STAY clean:
+  let s: String = format!("n={}", n)   2 allocs, 2 frees    ERROR SUMMARY: 0 errors
+CONTROLS THAT RULE OUT EVERY NARROWER ROOT (all on the same binary):
+  let s at fn-body level, dropped      1 alloc, 1 free      0 errors   ← not "String"
+  let s in a bare block STATEMENT      1 alloc, 1 free      0 errors   ← not "a block"
+  let s in an `if` STATEMENT body      1 alloc, 1 free      0 errors
+  let n: i64 = if c { let a=…; a.len() } else { 0 }   1/1, 0 errors    ← not "if-expr"
+  while body, 5 iterations             5 allocs, 5 frees    0 errors   ← not "a loop"
+  let _: () = { let mut s = …; };      1 alloc, 0 frees     LEAKS 12 bytes  ← block-EXPR
+  let t: String = { let a=…; let b=…; a };  2 allocs,1 free LEAKS 10 bytes  ← b, no macro
+The discriminator is BLOCK IN EXPRESSION POSITION and nothing else. Six correct
+controls bound where the fix must not reach.
+
+THE NON-LITERAL FALLBACK has the same shape and is checked separately: the
+`#[fn_macro]` bodies in stdlib/std/fmt/fmt.logos (println/print/eprintln/eprint at
+lines 162-192, write/writeln at 205-228) all expand to
+  { let __s: String = format_args_str(…); __fmt_println(__s.as_str()); }
+which is the same block-expression with the same un-dropped local, so the ONE fix must
+close it too — that is the test, not an assumption.
+
+WHAT WOULD REFUTE THE GROUPING: if the one change closes the literal arm and NOT the
+fn_macro fallback, they are two roots and are reported as two.
