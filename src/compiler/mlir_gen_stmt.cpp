@@ -3890,6 +3890,39 @@ void MLIRGenImpl::collect_pat_bindings(
     }
 }
 
+// See mlir_gen_impl.hpp. THE ONE PLACE a scrutinee's scalar core is loaded.
+bool MLIRGenImpl::scalar_core_scrut(mlir::Value scrut, TypeRef scrut_ty,
+                                    mlir::Value& out_val, TypeRef& out_ty) {
+    using K = LogosType::Kind;
+    if (!scrut || !scrut_ty) return false;
+    // An already-loaded scrutinee (a tagged enum's discriminant, a fieldless
+    // enum read through its ref) is not a chain and must never be loaded twice.
+    if (scrut.getType() != ptr_type()) return false;
+    int depth = 0;
+    TypeRef core = scrut_ty;
+    while (core && (TypeRef(core).kind() == K::Ref || TypeRef(core).kind() == K::MutRef) &&
+           TypeRef(core).pointee()) { core = TypeRef(core).pointee(); ++depth; }
+    if (depth == 0 || !core) return false;
+    switch (TypeRef(core).kind()) {
+    case K::Bool: case K::Char:
+    case K::I8: case K::I16: case K::I24: case K::I32: case K::I56:
+    case K::I64: case K::I128:
+    case K::U8: case K::U16: case K::U24: case K::U32: case K::U56:
+    case K::U64: case K::U128:
+        break;
+    default: return false;
+    }
+    auto cm = logos_to_mlir(core);
+    if (!cm || !mlir::isa<mlir::IntegerType>(cm)) return false;
+    mlir::Value v = scrut;
+    for (int i = 1; i < depth; ++i)
+        v = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), v);
+    v = builder_.create<mlir::LLVM::LoadOp>(loc_, cm, v);
+    out_val = v;
+    out_ty  = core;
+    return true;
+}
+
 // See mlir_gen_impl.hpp: the single range-pattern test emitter.
 mlir::Value MLIRGenImpl::emit_range_test(mlir::Value scrut, TypeRef scrut_ty,
                                          __int128 lo, __int128 hi) {
@@ -5017,8 +5050,43 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         }
         // ── PatRefPat: &pat or &mut pat — recurse into inner pattern ─────
         case pc::Code::RefPat: {
-            if (auto inner = lir_view::PatRefPatView{p}.inner())
-                extract_payload(inner);
+            auto inner = lir_view::PatRefPatView{p}.inner();
+            if (!inner) return;
+            // A `&`-PATTERN IS THE DEREF, AND OVER A SCALAR THAT DEREF IS A
+            // LOAD. `match &v { &n => … }` over `v: i64` types `n` as `i64` in
+            // sema (the PAT_REF door peels its own layer) while the binder below
+            // aliased the un-loaded `&i64`, so `n` held an ADDRESS: at depth 1
+            // that failed the verifier ('llvm.icmp' operands differ), at depth 2
+            // it compiled and computed garbage. Peel exactly as many layers as
+            // the pattern spells `&`, and only when that lands on the scalar
+            // core. PROBES.md 2026-09-06f.
+            {
+                int k = 0;
+                lir_view::PatRef q = p;
+                while (q && q.kind() == pc::Code::RefPat) {
+                    ++k;
+                    q = lir_view::PatRefPatView{q}.inner();
+                }
+                std::string bn;
+                if (q && q.kind() == pc::Code::Wild) bn = std::string(lir_view::PatWildView{q}.name());
+                int d = 0;
+                TypeRef core = scrut_ty;
+                while (core && (TypeRef(core).kind() == LogosType::Kind::Ref ||
+                                TypeRef(core).kind() == LogosType::Kind::MutRef) &&
+                       TypeRef(core).pointee()) { core = TypeRef(core).pointee(); ++d; }
+                mlir::Value cv; TypeRef ct;
+                if (!bn.empty() && bn != "_" && k == d && !scrut_ptr && !te_info &&
+                    scalar_core_scrut(scrut, scrut_ty, cv, ct)) {
+                    auto alloca = create_entry_alloca(cv.getType());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, cv, alloca);
+                    evict_var_shapes(bn);
+                    scope_[bn] = alloca;
+                    let_vars_.insert(bn);
+                    var_elem_types_[bn] = cv.getType();
+                    return;
+                }
+            }
+            extract_payload(inner);
             return;
         }
         // ── PatOr: extract bindings from first alternative ────────────────
@@ -5080,6 +5148,39 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             default:                    return std::numeric_limits<int64_t>::min();
         }
     };
+    // ── THE SCALAR CORE, ALONGSIDE THE CHAIN — PER ARM ───────────────────
+    // The depth collapse above is per MATCH and stops at ONE layer, which is
+    // what an AGGREGATE arm wants. A SCALAR arm compares a VALUE and needs
+    // ZERO. Answering that by MUTATING `scrut` makes the question per-match and
+    // breaks any match that also has a binder arm (`match &v { 4 => …, x => … }`,
+    // legal Rust). So the core is a SECOND value: the scalar comparison sites
+    // below read `sc_scrut`, every binder arm still reads `scrut`. Emitted here,
+    // in the block that dominates every test block, and only when some arm
+    // actually asks a scalar question. PROBES.md 2026-09-06f.
+    mlir::Value sc_scrut      = scrut;
+    TypeRef     sc_scrut_ty   = scrut_ty;
+    mlir::Type  sc_scrut_type = scrut_type;
+    if (!scrut_ptr && !te_info) {
+        std::function<bool(lir_view::PatRef)> asks_scalar = [&](lir_view::PatRef p) -> bool {
+            if (!p) return false;
+            switch (p.kind()) {
+            case pc::Code::Int: case pc::Code::Bool: case pc::Code::Range: return true;
+            case pc::Code::At:  return asks_scalar(lir_view::PatAtView{p}.sub());
+            case pc::Code::Or: {
+                bool any = false;
+                lir_view::PatOrView{p}.each_alt([&](lir_view::PatRef a){ if (asks_scalar(a)) any = true; });
+                return any;
+            }
+            default: return false;
+            }
+        };
+        bool asked = false;
+        for (auto& a : arm_refs) if (asks_scalar(a.pat())) { asked = true; break; }
+        mlir::Value cv; TypeRef ct;
+        if (asked && scalar_core_scrut(scrut, scrut_ty, cv, ct)) {
+            sc_scrut = cv; sc_scrut_ty = ct; sc_scrut_type = cv.getType();
+        }
+    }
     // Build if-else chain from last arm down to first.
     // gap C: each arm is its own lexical scope (like an if-branch) — its
     // pattern bindings must not leak into sibling arms or past the match.
@@ -5156,7 +5257,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
-                auto both = emit_range_test(scrut, scrut_ty, pr.lo(), pr.hi());
+                auto both = emit_range_test(sc_scrut, sc_scrut_ty, pr.lo(), pr.hi());
                 builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
             }
             else_block = test_block;
@@ -5192,9 +5293,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     builder_.create<mlir::cf::BranchOp>(loc_, cur_else);
                 } else {
                     auto disc_val = coerce_int(
-                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64), scrut_type);
+                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64), sc_scrut_type);
                     auto eq = builder_.create<mlir::arith::CmpIOp>(
-                        loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);
+                        loc_, mlir::arith::CmpIPredicate::eq, sc_scrut, disc_val);
                     builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, cur_else);
                 }
                 cur_else = test_block;
@@ -5220,7 +5321,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                         lir_view::PatOrView{sub}.each_alt([&](lir_view::PatRef alt) {
                             if (alt.kind() == pc::Code::Range) {
                                 lir_view::PatRangeView pr{alt};
-                                auto both = emit_range_test(scrut, scrut_ty, pr.lo(), pr.hi());
+                                auto both = emit_range_test(sc_scrut, sc_scrut_ty, pr.lo(), pr.hi());
                                 alt_or = builder_.create<mlir::arith::OrIOp>(loc_, alt_or, both);
                                 return;
                             }
@@ -5229,9 +5330,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             else if (alt.kind() == pc::Code::Bool) av = lir_view::PatBoolView{alt}.value() ? 1 : 0;
                             else return;  // skip unsupported alt kind
                             auto cv = coerce_int(
-                                builder_.create<mlir::arith::ConstantIntOp>(loc_, av, 64), scrut_type);
+                                builder_.create<mlir::arith::ConstantIntOp>(loc_, av, 64), sc_scrut_type);
                             auto eq = builder_.create<mlir::arith::CmpIOp>(
-                                loc_, mlir::arith::CmpIPredicate::eq, scrut, cv);
+                                loc_, mlir::arith::CmpIPredicate::eq, sc_scrut, cv);
                             alt_or = builder_.create<mlir::arith::OrIOp>(loc_, alt_or, eq);
                         });
                         builder_.create<mlir::cf::CondBranchOp>(loc_, alt_or, arm_entry, else_block);
@@ -5245,7 +5346,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     {
                         mlir::OpBuilder::InsertionGuard ig(builder_);
                         builder_.setInsertionPointToStart(test_block);
-                        auto both = emit_range_test(scrut, scrut_ty, pr.lo(), pr.hi());
+                        auto both = emit_range_test(sc_scrut, sc_scrut_ty, pr.lo(), pr.hi());
                         builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
                     }
                     else_block = test_block;
@@ -5259,9 +5360,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                         mlir::OpBuilder::InsertionGuard ig(builder_);
                         builder_.setInsertionPointToStart(test_block);
                         auto disc_val = coerce_int(
-                            builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64), scrut_type);
+                            builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64), sc_scrut_type);
                         auto eq = builder_.create<mlir::arith::CmpIOp>(
-                            loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);
+                            loc_, mlir::arith::CmpIPredicate::eq, sc_scrut, disc_val);
                         builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
                     }
                     else_block = test_block;
@@ -5479,9 +5580,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 } else {
                     auto disc_val = coerce_int(
                         builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64),
-                        scrut_type);
+                        sc_scrut_type);
                     auto eq = builder_.create<mlir::arith::CmpIOp>(
-                        loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);
+                        loc_, mlir::arith::CmpIPredicate::eq, sc_scrut, disc_val);
                     builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
                 }
             }
@@ -5664,21 +5765,32 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
         // like `let 4 = x else {…}` was silently accepted). Irrefutable
         // non-enum patterns (tuple / plain binding) keep the unconditional jump.
         mlir::Value lit_cond;
-        if (mlir::isa<mlir::IntegerType>(scrut_val.getType())) {
-            auto styp = scrut_val.getType();
+        // The SAME scalar core the match doors ask for: `let 4i64 = &v else {…}`
+        // hands this site a `&i64`, whose mlir type is a pointer — the test
+        // below then produced NO condition at all and the else branch became
+        // dead, so every value matched. PROBES.md 2026-09-06f.
+        mlir::Value sc_val = scrut_val;
+        TypeRef     sc_ty  = scrut_ty;
+        if (pat_kind == pc::Code::Int || pat_kind == pc::Code::Bool ||
+            pat_kind == pc::Code::Range) {
+            mlir::Value cv2; TypeRef ct2;
+            if (scalar_core_scrut(scrut_val, scrut_ty, cv2, ct2)) { sc_val = cv2; sc_ty = ct2; }
+        }
+        if (mlir::isa<mlir::IntegerType>(sc_val.getType())) {
+            auto styp = sc_val.getType();
             if (pat_kind == pc::Code::Int) {
                 auto cv = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(
                     loc_, lir_view::PatIntView{pat_ref}.value(), 64), styp);
                 lit_cond = builder_.create<mlir::arith::CmpIOp>(
-                    loc_, mlir::arith::CmpIPredicate::eq, scrut_val, cv);
+                    loc_, mlir::arith::CmpIPredicate::eq, sc_val, cv);
             } else if (pat_kind == pc::Code::Bool) {
                 auto cv = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(
                     loc_, lir_view::PatBoolView{pat_ref}.value() ? 1 : 0, 64), styp);
                 lit_cond = builder_.create<mlir::arith::CmpIOp>(
-                    loc_, mlir::arith::CmpIPredicate::eq, scrut_val, cv);
+                    loc_, mlir::arith::CmpIPredicate::eq, sc_val, cv);
             } else if (pat_kind == pc::Code::Range) {
                 lir_view::PatRangeView pr{pat_ref};
-                lit_cond = emit_range_test(scrut_val, scrut_ty, pr.lo(), pr.hi());
+                lit_cond = emit_range_test(sc_val, sc_ty, pr.lo(), pr.hi());
             }
         }
         if (lit_cond)

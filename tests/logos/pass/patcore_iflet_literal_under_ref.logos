@@ -1,0 +1,17 @@
+// PATTERN SCALAR CORE (soundness queue, closed 2026-09-06f). RFC 2005: a
+// NON-REFERENCE pattern matches the POINTEE, so a scalar door needs the chain
+// collapsed to ZERO layers where an aggregate door wants ONE. Spec:
+// pat.scalar.core-under-ref. The fail twin is ONE TOKEN away and pins that the
+// door still refuses on the CORE type, naming the core and not the reference.
+package patcore_iflet_literal_under_ref;
+fn main() -> i32 {
+    let b: bool = true;
+    let v: i64 = 4i64;
+    let mut out: i64 = 0i64;
+    if let 4i64 = &v { out = 1i64; } else { out = 2i64; }
+    if out != 1i64 { return 1i32; }
+    let w: i64 = 9i64;
+    if let 4i64 = &w { return 2i32; } else { out = 3i64; }
+    if out != 3i64 { return 3i32; }
+    return 0i32;
+}

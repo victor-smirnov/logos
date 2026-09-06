@@ -1,0 +1,32 @@
+// PATTERN SCALAR CORE, THE PER-ARM HALF (2026-09-06f). The question "does this
+// arm compare the scrutinee's scalar core" is asked PER ARM, never per match: a
+// literal or range arm and a whole-scrutinee BINDER arm in the same `match &v`
+// are both legal Rust and must both work. 2026-09-06e's priced arm answered it
+// per MATCH (a `whole_scrut_binder` exemption) and refused exactly this shape —
+// the measurement that condemned that arm. Both arms are taken here, and the
+// binder arm reads through its reference, so a fix that loads the core into the
+// binder would fail too.
+package patcore_perarm_scalar_and_binder;
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    let mut out: i64 = 0i64;
+    match &v {
+        4i64 => { out = 1i64; }
+        x => { out = *x + 100i64; }
+    }
+    if out != 107i64 { return 1i32; }
+    let w: i64 = 4i64;
+    match &w {
+        4i64 => { out = 1i64; }
+        x => { out = *x + 100i64; }
+    }
+    if out != 1i64 { return 2i32; }
+    let u: i64 = 3i64;
+    match &u {
+        1i64..=2i64 => { out = 8i64; }
+        n @ 3i64..=5i64 => { out = 9i64; }
+        y => { out = *y; }
+    }
+    if out != 9i64 { return 3i32; }
+    return 0i32;
+}

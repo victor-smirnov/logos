@@ -1,0 +1,11 @@
+package g08;
+fn main() -> i32 {
+    let v: i64 = 20i64;
+    let mut out: i64 = 0i64;
+    match &v {
+        1i64..=5i64 => { out = 1i64; }
+        ref r => { out = **r + 100i64; }
+    }
+    if out != 120i64 { return 1i32; }
+    return 0i32;
+}

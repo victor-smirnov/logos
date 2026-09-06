@@ -452,6 +452,18 @@ A bare identifier pattern that names a payload-less enum variant or a module-lev
 
 *Source: src/compiler/sema_stmt.cpp#L4174-L4194*
 
+### `pat.scalar.core-under-ref` — A scalar pattern under a reference scrutinee matches the CORE, at ZERO reference layers
+
+RFC 2005: a non-reference pattern matches the POINTEE. The scrutinee's `&`/`&mut` chain is therefore collapsed by pattern-door class, not once per match: an AGGREGATE door (tuple, struct, slice, variant) reads the chain collapsed to ONE layer, because a `&Agg` IS the aggregate's base pointer (`SemaChecker::pat_scrut_one_layer`); the six SCALAR doors — integer, negative integer, char, char range, bool, range — compare a VALUE and read it collapsed to ZERO, i.e. the core type itself. The collapse applies only when the core is an integer, `char` or `bool`; every other core keeps its layer, so the aggregate doors and their diagnostics are unchanged, and a door that still refuses names the CORE (`range pattern requires integer scrutinee, got 'bool'`), never the reference.
+
+The question is asked PER ARM. `match &v { 4i64 => …, x => … }` is legal: the literal arm compares the loaded `i64`, the binder arm still binds the `&i64`. A `&`-pattern over a scalar (`match &v { &n => … }`, `match rr { &&n => … }`) is the deref itself — `n` binds the loaded core, one load per `&` the pattern spells.
+
+All four doors that lower a scrutinee obey it: the match statement, the match expression, `if let` / `while let`, and `let … else`.
+
+**Divergence from Rust:** none — RFC 2005.
+
+*Source: src/compiler/sema_stmt.cpp `SemaChecker::pat_scrut_scalar_core`; src/compiler/mlir_gen_stmt.cpp `MLIRGenImpl::scalar_core_scrut`*
+
 ### `pat.binding.default-by-ref-mode` — Default binding modes wrap payload bindings by reference
 
 Under a `&`/`&mut` scrutinee, every plain named payload binding binds by-reference: the binding type is wrapped in `&`/`&mut` once per scrutinee ref-layer, with the outermost layer carrying mut iff any peeled layer was `&mut`. Bindings to `_` and synthesized slots are exempt.

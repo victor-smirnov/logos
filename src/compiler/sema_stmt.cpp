@@ -5067,6 +5067,24 @@ TypeRef SemaChecker::pat_scrut_one_layer(TypeRef scrut_type) {
     return make_ref(all_mut, core, lt);
 }
 
+// RFC 2005, the SCALAR half. A non-reference pattern matches the POINTEE, and a
+// SCALAR door compares a VALUE — so where `pat_scrut_one_layer` leaves the ONE
+// layer an AGGREGATE door wants (a `&Agg` IS the base pointer), a scalar door
+// needs ZERO. Peels only when the core is a scalar (integer/char/bool); every
+// other core is returned untouched so the aggregate doors keep their layer and
+// their diagnostics. See PROBES.md 2026-09-06f.
+TypeRef SemaChecker::pat_scrut_scalar_core(TypeRef scrut_type) {
+    using K = LogosType::Kind;
+    TypeRef core = scrut_type;
+    int depth = 0;
+    while (core && (TypeRef(core).kind() == K::Ref || TypeRef(core).kind() == K::MutRef) &&
+           TypeRef(core).pointee()) { core = TypeRef(core).pointee(); ++depth; }
+    if (depth == 0 || !core) return scrut_type;
+    K ck = TypeRef(core).kind();
+    if (ck == K::Bool || ck == K::Char || is_integer(core)) return core;
+    return scrut_type;
+}
+
 lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_type) {
     int32_t pc = code_of(pnode);
     // ONE LAYER IS ALL A DOOR WAS EVER WRITTEN FOR — collapsed here, once, for
@@ -5075,6 +5093,11 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     // PROBES.md 2026-09-05b.
     const TypeRef scrut_orig = scrut_type;
     scrut_type = pat_scrut_one_layer(scrut_type);
+    // THE SIX SCALAR DOORS NEED ZERO LAYERS, NOT ONE — the class, closed at the
+    // one entry every one of them is reached through. PROBES.md 2026-09-06f.
+    if (pc == la::PAT_INT || pc == la::PAT_NEG_INT || pc == la::PAT_CHAR ||
+        pc == la::PAT_CHAR_RANGE || pc == la::PAT_BOOL || pc == la::PAT_RANGE)
+        scrut_type = pat_scrut_scalar_core(scrut_type);
     if (pc == la::PAT_VARIANT) return build_pattern_variant(pnode, scrut_type);
     if (pc == la::PAT_VARIANT_DATA) return build_pattern_variant_data(pnode, scrut_type);
     if (pc == la::PAT_FLOAT) {

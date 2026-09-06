@@ -1,0 +1,9 @@
+   6490 src/compiler/probes/2026-09-06f-scalarland/tables/run_base.log
+   6490 src/compiler/probes/2026-09-06f-scalarland/tables/run_armed.log
+   1435 src/compiler/probes/2026-09-06f-scalarland/tables/fail_base.log
+   1435 src/compiler/probes/2026-09-06f-scalarland/tables/fail_armed.log
+  15850 total
+The four raw oracle logs above are NOT versioned (1.3 MB, and reproducible from
+the two binaries). What is kept is the DIFF of each, which is the evidence:
+  runtime_diff.txt  1 line  — cast-region-to-uint only, subtracted by name
+  fail_diff.txt     0 lines

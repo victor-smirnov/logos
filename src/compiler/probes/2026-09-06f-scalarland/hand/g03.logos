@@ -1,0 +1,8 @@
+package g03;
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    match &v {
+        &n => { if n != 5i64 { return 1i32; } }
+    }
+    return 0i32;
+}

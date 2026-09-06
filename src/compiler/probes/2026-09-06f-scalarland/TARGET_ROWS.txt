@@ -1,0 +1,15 @@
+ROUND 2026-09-06f — TARGET ROWS, NAMED BEFORE ANY EDIT
+base binary 9c95cb54f5729e61 / HEAD 2f289d34c / queue TOTAL 45, gate rc 0
+
+TARGETS (the scalar-core block, all six rows of it):
+  range_pattern_under_ref_scrutinee        3 refuses
+  literal_patterns_under_ref_scrutinee     3 refuses
+  refpat_scalar_under_ref_mlir_abort       3 refuses
+  match_expr_literal_under_ref_scrutinee   3 refuses
+  iflet_literal_under_ref_scrutinee        3 refuses
+  at_binding_range_under_ref_scrutinee     3 refuses
+
+DECLINED BY NAME, up front:
+  refbind_scalar_under_ref_segv  (tier 1, run 139) — a DIFFERENT root
+      (gen_match's RefBind alloca-wrap), not the scalar-core collapse; measured
+      2026-09-06e identical base and armed under all four arms.

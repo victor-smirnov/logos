@@ -1,0 +1,19 @@
+// PATTERN SCALAR CORE, DEPTH 2 (2026-09-06f). `match rr { &&n => … }` over
+// `rr: &&i64`. A `&`-PATTERN IS THE DEREF, and over a scalar that deref is a
+// LOAD: sema types `n` as `i64`, so binding the un-loaded pointer handed the arm
+// an ADDRESS. At depth 1 that failed the mlir verifier ('llvm.icmp' operands
+// differ) — the soundness-queue row refpat_scalar_under_ref_mlir_abort. At
+// depth 2 it COMPILED CLEAN AND COMPUTED GARBAGE, which no row pinned and no
+// exit-code oracle could see. Found as a CONTROL, hand c06, 2026-09-06f.
+package patcore_refpat_scalar_depth2;
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    let r: &i64 = &v;
+    let rr: &&i64 = &r;
+    let mut out: i64 = 0i64;
+    match rr {
+        &&n => { out = n; }
+    }
+    if out != 5i64 { return 1i32; }
+    return 0i32;
+}

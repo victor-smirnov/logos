@@ -317,6 +317,14 @@ public:
     // the language has. A 64-bit parameter truncated every i128/u128 bound.
     mlir::Value emit_range_test(mlir::Value scrut, TypeRef scrut_ty,
                                 __int128 lo, __int128 hi);
+    // RFC 2005, the SCALAR half, in the VALUE. Loads the scrutinee's scalar core
+    // out of its `&`/`&mut` chain and hands it back in `out_val`/`out_ty`;
+    // returns false (leaving both untouched) for every scrutinee that is not a
+    // reference chain over an integer/char/bool. The caller keeps `scrut` for
+    // the arms that BIND it — the question is per ARM, not per match.
+    // See PROBES.md 2026-09-06f.
+    bool scalar_core_scrut(mlir::Value scrut, TypeRef scrut_ty,
+                           mlir::Value& out_val, TypeRef& out_ty);
 private:
 
     // ── DWARF debug info (-g) ─────────────────────────────────────────────

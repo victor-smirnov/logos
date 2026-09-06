@@ -1,0 +1,30 @@
+c01    cc=0   diag=0 run=0        
+c02    cc=0   diag=0 run=0        
+c03    cc=0   diag=0 run=0        
+c04    cc=0   diag=0 run=139      
+c05    cc=0   diag=0 run=0        
+c06    cc=0   diag=0 run=1        
+c07    cc=0   diag=0 run=0        
+c08    cc=0   diag=0 run=0        
+c09    cc=0   diag=0 run=0        
+c10    cc=0   diag=0 run=0        
+g01    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g01.logos:5: error [fn main]: integer pattern requires integer scrut
+g02    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g02.logos:5: error [fn main]: range pattern requires integer scrutin
+g03    cc=1   diag=1 run=-        error: 'llvm.icmp' op requires all operands to have the same type
+g04    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g04.logos:4: error [fn main]: integer pattern requires integer scrut
+g05    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g05.logos:5: error [fn main]: integer pattern requires integer scrut
+g06    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g06.logos:5: error [fn main]: range pattern requires integer scrutin
+g07    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g07.logos:5: error [fn main]: integer pattern requires integer scrut
+g08    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g08.logos:5: error [fn main]: range pattern requires integer scrutin
+g09    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g09.logos:5: error [fn main]: integer pattern requires integer scrut
+g10    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g10.logos:5: error [fn main]: integer pattern requires integer scrut
+g11    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g11.logos:4: error [fn main]: integer pattern requires integer scrut
+g12    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g12.logos:7: error [fn main]: char pattern requires char or integer 
+g13    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g13.logos:5: error [fn main]: bool pattern requires bool scrutinee, 
+g14    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g14.logos:5: error [fn main]: integer pattern requires integer scrut
+g15    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g15.logos:7: error [fn main]: integer pattern requires integer scrut
+g16    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g16.logos:6: error [fn main]: integer pattern requires integer scrut
+g17    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g17.logos:3: error [fn pick]: integer pattern requires integer scrut
+g18    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g18.logos:6: error [fn main]: integer pattern requires integer scrut
+g19    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g19.logos:5: error [fn main]: integer pattern requires integer scrut
+g20    cc=1   diag=1 run=-        /home/logos/devel/logos/src/compiler/probes/2026-09-06f-scalarland/hand/g20.logos:5: error [fn main]: bool pattern requires bool scrutinee, 

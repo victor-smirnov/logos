@@ -5295,8 +5295,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9315 -> 9316    +1
 #   NOIMPORTED   4878 -> 4879    +1
 #   TIERCOMMIT    173 ->  173     0
-REGISTRY-ALL         9316
-REGISTRY-NOIMPORTED  4879
+# 2026-09-06f (scalar pattern core): FIFTEEN fixtures added — the six pass/fail
+#   PAIRS that replace the six soundness-queue rows closed by the scalar-core
+#   landing (patcore_range_under_ref, patcore_literal_under_ref,
+#   patcore_refpat_scalar_under_ref, patcore_match_expr_literal_under_ref,
+#   patcore_iflet_literal_under_ref, patcore_at_range_under_ref, each with its
+#   one-token fail twin), plus THREE pass fixtures that pin class members no row
+#   ever held: patcore_perarm_scalar_and_binder (the per-ARM shape),
+#   patcore_refpat_scalar_depth2 (compiled clean and computed garbage before),
+#   patcore_letelse_literal_under_ref (both directions of the let-else door).
+#   Counted by direct listing (`ls tests/logos/pass/patcore_*.logos` -> 9,
+#   `ls tests/logos/fail/patcore_*.logos` -> 6). The six deleted queue programs
+#   are under tests/soundness/open/ and register nowhere, so they move nothing.
+#   ALL          9316 -> 9331   +15
+#   NOIMPORTED   4879 -> 4894   +15
+#   TIERCOMMIT    173 ->  173     0
+REGISTRY-ALL         9331
+REGISTRY-NOIMPORTED  4894
 REGISTRY-TIERCOMMIT  173
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

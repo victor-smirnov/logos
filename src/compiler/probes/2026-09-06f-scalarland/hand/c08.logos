@@ -1,0 +1,13 @@
+package c08;
+enum Opt { N, S(i64) }
+fn main() -> i32 {
+    let o: Opt = Opt::S(4i64);
+    let mut out: i64 = 0i64;
+    match &o {
+        Opt::S(4i64) => { out = 1i64; }
+        Opt::S(k) => { out = *k; }
+        Opt::N => { out = 9i64; }
+    }
+    if out != 1i64 { return 1i32; }
+    return 0i32;
+}

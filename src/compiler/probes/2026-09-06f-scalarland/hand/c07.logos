@@ -1,0 +1,10 @@
+package c07;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    let mut out: i64 = 0i64;
+    match &t {
+        (a, b) => { out = a + b; }
+    }
+    if out != 7i64 { return 1i32; }
+    return 0i32;
+}

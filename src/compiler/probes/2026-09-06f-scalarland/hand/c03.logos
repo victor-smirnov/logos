@@ -1,0 +1,12 @@
+package c03;
+enum E { A, B(i64) }
+fn main() -> i32 {
+    let e: E = E::B(5i64);
+    let mut out: i64 = 0i64;
+    match &e {
+        E::A => { out = 1i64; }
+        E::B(k) => { out = *k; }
+    }
+    if out != 5i64 { return 1i32; }
+    return 0i32;
+}

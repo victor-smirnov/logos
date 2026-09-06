@@ -1437,9 +1437,17 @@ PIN = {
     # 2026-09-06: 2870 -> 2871. ONE pass fixture, non-glob
     # (`ls tests/logos/pass/*.logos | wc -l`): mlirgen_odr_drop_glue_field_ctl,
     # the renamed control half of soundness-queue row homonym_field_drop_glue_segv.
-    'corpus'            : 2871,
+    # 2026-09-06f: 2871 -> 2880. NINE pass fixtures of the scalar-pattern-core
+    # landing, all non-glob (`ls tests/logos/pass/patcore_*.logos | wc -l` -> 9):
+    # patcore_range_under_ref, patcore_literal_under_ref,
+    # patcore_refpat_scalar_under_ref, patcore_match_expr_literal_under_ref,
+    # patcore_iflet_literal_under_ref, patcore_at_range_under_ref,
+    # patcore_perarm_scalar_and_binder, patcore_refpat_scalar_depth2,
+    # patcore_letelse_literal_under_ref. Their six fail twins are not in this
+    # population (it is the `pass` corpus).
+    'corpus'            : 2880,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2680,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2689,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

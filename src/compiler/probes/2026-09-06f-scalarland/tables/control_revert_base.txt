@@ -1,0 +1,9 @@
+patcore_at_range_under_ref cc=1   diag=1 run=-        /tmp/claude-1004/-home-logos-devel-logos/25aa8421-fce1-4a11-8a89-5d2ba5981c88/scratchpad/ctl2/patcore_at_range_under_ref.logos:11: error [fn
+patcore_iflet_literal_under_ref cc=1   diag=1 run=-        /tmp/claude-1004/-home-logos-devel-logos/25aa8421-fce1-4a11-8a89-5d2ba5981c88/scratchpad/ctl2/patcore_iflet_literal_under_ref.logos:11: erro
+patcore_letelse_literal_under_ref cc=1   diag=1 run=-        /tmp/claude-1004/-home-logos-devel-logos/25aa8421-fce1-4a11-8a89-5d2ba5981c88/scratchpad/ctl2/patcore_letelse_literal_under_ref.logos:10: er
+patcore_literal_under_ref cc=1   diag=1 run=-        /tmp/claude-1004/-home-logos-devel-logos/25aa8421-fce1-4a11-8a89-5d2ba5981c88/scratchpad/ctl2/patcore_literal_under_ref.logos:14: error [fn 
+patcore_match_expr_literal_under_ref cc=1   diag=1 run=-        /tmp/claude-1004/-home-logos-devel-logos/25aa8421-fce1-4a11-8a89-5d2ba5981c88/scratchpad/ctl2/patcore_match_expr_literal_under_ref.logos:10:
+patcore_perarm_scalar_and_binder cc=1   diag=1 run=-        /tmp/claude-1004/-home-logos-devel-logos/25aa8421-fce1-4a11-8a89-5d2ba5981c88/scratchpad/ctl2/patcore_perarm_scalar_and_binder.logos:13: err
+patcore_range_under_ref cc=1   diag=1 run=-        /tmp/claude-1004/-home-logos-devel-logos/25aa8421-fce1-4a11-8a89-5d2ba5981c88/scratchpad/ctl2/patcore_range_under_ref.logos:12: error [fn ma
+patcore_refpat_scalar_depth2 cc=0   diag=0 run=1        
+patcore_refpat_scalar_under_ref cc=0   diag=0 run=1        

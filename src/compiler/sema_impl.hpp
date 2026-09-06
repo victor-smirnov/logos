@@ -7563,6 +7563,7 @@ private:
     // &/&mut chain to a SINGLE layer (shared unless every layer is `&mut`).
     // See src/compiler/PROBES.md, round 2026-09-05b.
     TypeRef pat_scrut_one_layer(TypeRef scrut_type);
+    TypeRef pat_scrut_scalar_core(TypeRef scrut_type);
     // build_pattern_impl sub-handlers, factored out of its pc-keyed dispatch.
     // Each lowers one pattern kind; depends only on pnode/scrut_type/members
     // (recurses via build_pattern), no state shared across branches.

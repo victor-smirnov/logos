@@ -1,0 +1,20 @@
+// PATTERN SCALAR CORE, THE let-else DOOR (2026-09-06f). `let 4i64 = &v else {…}`
+// was refused in sema; with the sema half alone it would have become a
+// PERMISSIVE hole instead, because that door's literal test is guarded on
+// `isa<IntegerType>(scrut_val.getType())` and a `&i64` is a POINTER — no
+// condition was emitted at all and the else branch went dead, so EVERY value
+// matched. BOTH DIRECTIONS are asserted here: the matching value falls through,
+// the non-matching one must take the else.
+package patcore_letelse_literal_under_ref;
+fn take_else(w: &i64) -> i64 {
+    let 4i64 = w else { return 77i64; };
+    return 1i64;
+}
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let 4i64 = &v else { return 1i32; };
+    let u: i64 = 9i64;
+    if take_else(&u) != 77i64 { return 2i32; }
+    if take_else(&v) != 1i64 { return 3i32; }
+    return 0i32;
+}

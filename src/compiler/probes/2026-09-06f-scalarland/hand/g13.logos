@@ -1,0 +1,11 @@
+package g13;
+fn main() -> i32 {
+    let mut v: bool = true;
+    let mut out: i64 = 0i64;
+    match &mut v {
+        true => { out = 1i64; }
+        false => { out = 2i64; }
+    }
+    if out != 1i64 { return 1i32; }
+    return 0i32;
+}

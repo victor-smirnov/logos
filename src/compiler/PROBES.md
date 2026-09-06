@@ -25465,3 +25465,114 @@ note: identical to scall in fires, bc ceiling, cost, cfail, stdlib and on 33 of
   36 hand programs; separates ONLY on h08, h09 and
   refpat_scalar_under_ref_mlir_abort. The difference IS the price of teaching the
   value door that `&n` over a SCALAR is not an address binder.
+
+---
+
+## ROUND 2026-09-06f (LANDING, soundness queue) — THE SCALAR CORE, PER ARM AND AT ALL FOUR DOORS
+
+Base binary `9c95cb54f5729e61`, HEAD `2f289d34c`, queue `# TOTAL` 45, gate rc 0.
+Landed build `2360377e8154b81c`. Predictions were written to
+`probes/2026-09-06f-scalarland/PREDICTION.md` BEFORE the first build of the fix.
+
+## 1. THE CLASS, AND HOW IT WAS ENUMERATED
+"An arm whose pattern asks a question about the scrutinee's SCALAR CORE, under a
+scrutinee typed as a `&`/`&mut` chain over that core." RFC 2005: a non-reference
+pattern matches the POINTEE. `pat_scrut_one_layer` (2026-09-05b) collapses to ONE
+layer, which is what an AGGREGATE door wants — a `&Agg` IS the base pointer. A
+scalar door compares a VALUE and needs ZERO.
+
+ENUMERATED BY PROPERTY, never by spelling:
+  (A) SEMA — the property is "refuses a scrutinee TYPE with `… pattern requires …
+      scrutinee, got '{}'`". Eight such sites in the tree; SIX are scalar (the
+      integer door, which serves PAT_INT and PAT_NEG_INT, plus PAT_CHAR,
+      PAT_CHAR_RANGE, PAT_BOOL, PAT_RANGE) and the other two (tuple, slice) are
+      aggregate and are NOT members, as are the byte-string and reference-pattern
+      doors. All six are reached through the ONE entry of `build_pattern_impl`.
+  (B) CODEGEN — the property is "a function holding its own match-scrutinee
+      lowering that feeds that value to `emit_range_test` or an `arith::CmpIOp`".
+      THREE functions, 14 sites: `gen_match` (6), `gen_stmt_kind(SLetElseView)`
+      (3), `gen_expr_kind(EMatchExprView)` (5). Plus the BIND side of the same
+      question — `&n` over a scalar — in each of the two payload extractors.
+  ⚠ `if let` / `while let` are NOT a fourth function: no such symbol exists in
+  mlir_gen_*. That was the falsifiable half of the enumeration and it HELD —
+  see section 4.
+
+## 2. THE FIX — TWO FOUNDATIONS, NOT FOURTEEN PATCHES
+  `SemaChecker::pat_scrut_scalar_core` — peels the whole chain at the six scalar
+  doors, and ONLY when the core is an integer, `char` or `bool`. Every other core
+  is returned untouched, so the aggregate doors and their diagnostics do not move
+  and a door that still refuses names the CORE, not the reference.
+  `MLIRGenImpl::scalar_core_scrut` — loads the core out of the chain and hands it
+  back as a SECOND value. `scrut` is never mutated.
+
+## 3. WHY PER ARM (rule 5, paid by 2026-09-06e)
+2026-09-06e's priced arm MUTATED `scrut` under a per-MATCH exemption
+(`whole_scrut_binder`) and refused h33/h34/h35 — a literal arm and a binder arm
+in the SAME match, legal Rust. Here the scalar sites read `sc_scrut` and every
+binder arm still reads `scrut`, so the exemption disappears. Pinned by
+`tests/logos/pass/patcore_perarm_scalar_and_binder.logos`.
+
+## 4. MEASURED — 30 HAND PROGRAMS IN 20 SHAPES, base and armed tables on disk
+  base   `probes/2026-09-06f-scalarland/tables/base_9c95cb54f5729e61.txt`
+  armed  `probes/2026-09-06f-scalarland/tables/armed_2360377e8154b81c.txt`
+  20 of 20 g-programs refused at base; NINETEEN now compile and run 0.
+  ⚠ THE PREDICTION MISSED ONE: g08 (`match &v { 1..=5 => …, ref r => **r }`) was
+  predicted run 0 and measured run 139. It is not a regression — at base it was
+  REFUSED, and now it compiles and lands on the pre-existing tier-1
+  `refbind_scalar_under_ref_segv`, which this round declined by name. The range
+  arm is correct; the binder arm segfaults on the OTHER root.
+  ⚠ CONTRADICTS A RECORDED CLAIM: the queue row `iflet_literal_under_ref_scrutinee`
+  says `if let` "does not reach gen_match's value collapse" and is a THIRD door.
+  Measured here: g05 (`if let`) and g10 (`while let`) close with the statement
+  door and no fourth site was touched. The row's SYMPTOM was real, its
+  mechanism claim was not.
+
+## 5. A DEFECT NO ROW PINNED, FOUND BY A CONTROL
+  c06 — `match rr { &&n => … }` over `rr: &&i64` — COMPILED CLEAN AND COMPUTED
+  GARBAGE at base (run 1, silently wrong). The depth-1 form is the queue row
+  `refpat_scalar_under_ref_mlir_abort`, which fails the mlir verifier and is
+  therefore VISIBLE; the depth-2 form is invisible to every exit-code oracle in
+  the tree. Both are the same defect — a `&`-pattern over a scalar is a LOAD —
+  and both are closed. Pinned by `pass/patcore_refpat_scalar_depth2.logos`.
+
+## 6. A PERMISSIVE HOLE THE SEMA HALF ALONE WOULD HAVE OPENED
+  `gen_stmt_kind(SLetElseView)` guards its literal test on
+  `isa<IntegerType>(scrut_val.getType())`. A `&i64` is a POINTER, so with the
+  sema half landed and the value half not, `let 4i64 = &v else { … }` would have
+  emitted NO condition, the else branch would have gone dead, and EVERY value
+  would have matched. 2026-09-06e recorded `let … else` as "closed by the sema
+  half alone (h16)" — measured by rc, which cannot see an un-refusal (rule 15).
+  Both directions are now asserted at run time by
+  `pass/patcore_letelse_literal_under_ref.logos`.
+
+## 7. ORACLES
+  queue gate       rc 0 on 39 rows (45 -> 39; SIX closed, predicted six BY NAME
+                   and the gate named exactly those six, diffed both ways)
+  `gate-run.sh -L bc`  rc 0 — build 847, 2668 passed / 0 failed of 2670
+                   (1235 pass + 1435 cfail). COST 0.
+  stdlib-cost.sh   all four layers compile
+  run_oracle.py    RUNTIME 0 of 6490. Base and armed measured from ONE configure
+                   by SWAPPING `build/bin/logosc` in place (the base binary was
+                   copied aside before the first build and read back at exactly
+                   `9c95cb54f5729e61`); identical 6490-name populations both
+                   sides, ONE differing row — `cast-region-to-uint`, subtracted
+                   by name because it prints a stack address.
+  fail_text_oracle 0 of 1435 changed, in rc, normalised-stderr sha AND
+                   `.expected` match — no un-refusal, no added line, no
+                   re-wording. Same swap, same configure.
+  bc ledger        no row opened or closed either way; both `# TOTAL`s unmoved
+                   (bc_admits 98, bc_admits_blocked 25).
+  L1               760/760 + 173 tier_commit, rc 0.
+
+## 8. CONTROL REVERT, ON THE LANDED FIXTURES
+`tables/control_revert_base.txt` — the BASE binary (in the build tree, hash read
+back `9c95cb54f5729e61`) run over the nine `pass/patcore_*.logos` files this
+round lands. SEVEN are REFUSED. The other two compile clean and are WRONG AT RUN
+TIME, exit 1: `patcore_refpat_scalar_under_ref` and
+`patcore_refpat_scalar_depth2`. Every one of the nine is rc 0 / run 0 under the
+landed binary. One variable moved — the compiler.
+⚠ A SEPARATE-WORKTREE control was ATTEMPTED first and is a WALL, unrelated to
+this change: a fresh `cmake -S . -B build` on a clean checkout of `2f289d34c`
+fails to compile the GENERATED `build/src/compiler/logos_parser.cpp`
+(`'na_fail_0' was not declared in this scope`, four sites). The bootstrap does
+not survive a from-scratch configure in a new directory. Recorded, not chased.

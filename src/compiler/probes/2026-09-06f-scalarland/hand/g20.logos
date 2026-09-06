@@ -1,0 +1,11 @@
+package g20;
+fn main() -> i32 {
+    let v: bool = false;
+    let mut out: i64 = 0i64;
+    match &v {
+        true => { out = 1i64; }
+        false => { out = 2i64; }
+    }
+    if out != 2i64 { return 1i32; }
+    return 0i32;
+}
