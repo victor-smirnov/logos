@@ -25868,3 +25868,153 @@ measured: 2026-09-06
     evidence the wrap happened: a `*` on a by-value binding degenerates to a no-op. Only the
     WRITE distinguishes the two readings, which is why the shape had to be varied and not
     merely repeated.
+
+# ROUND 2026-09-06h — PRICING, SOUNDNESS QUEUE: FIVE COPIES OF ONE WALKER, AND `pat_byval_mut` IS A FILE-STATIC
+
+## 0. STEP 1, AND THE CORRECTION THIS ROUND OWES THE PROMPT
+    HEAD 6c55e0d5b, tree clean. `# TOTAL` soundness_queue 39 / bc_admits 98 / bc_admits_blocked 25.
+    probe-log-lint 227 records, every site symbol resolves. build_hash READ: `4badd238f327bb5d 43`
+    (the previous round's record says `4e9526cb2d8f63d0 43` — that hash predates 6c55e0d5b; a hash is
+    a claim with a timestamp). Queue gate rc 0 on 39.
+    ⚠ THE CARRIED-FORWARD CORRECTION IS NOW STALE, AND CHECKING IT WAS THE POINT. Five consecutive
+    rounds recorded "the prompt's STEP-1 gate command omits LOGOS_LIB_DIR". The prompt handed to THIS
+    round carries `LOGOS_LIB_DIR=$PWD/build/lib/logos` in that command, and it self-documents the
+    failure mode besides. Re-verified against the text given, not against this file. NO correction is
+    owed on that point; repeating it would have been the sixth copy of a fact that stopped being true.
+    ONE correction is owed: the header of `tests/soundness/open/closure_param_struct_pattern_syntax`
+    claims the six pattern spellings are syntax errors "at the function-parameter position" too.
+    MEASURED: `fn probe(P { x, y }: P) -> i64` compiles clean and runs correctly today — `pat_param`
+    (logos.peg:1724) is an alternative of `param`. Header corrected in this commit; the row's
+    `observed` is untouched.
+
+## 1. THE BLOCK, NAMED BY ID BEFORE ANY EDIT — /home/logos/sandbox/lattice/TARGET_ROWS_2026-09-06h.txt
+    THE PARAMETER POSITION: closure_param_struct_pattern_syntax, fnparam_array_pattern_binds_nothing,
+    fnparam_tuple_mut_modifier_dropped, with for_header_pattern_tuple_only as the GROUPING CONTROL.
+    Chosen by a property enumerated over the tree, not by tier label: "a binding position that
+    destructures an IRREFUTABLE pattern by hand, shape by shape, instead of building a lir::Pattern".
+    FIVE copies of one walker:
+      sema_stmt.cpp:1429   `let` position               whitelist: struct / tuple-struct / array / 1-variant
+      sema_stmt.cpp:9030   emit_nested_pat_destructure  payload subs: tuple + struct
+      sema_stmt.cpp:9161   emit_for_pattern_destructure tuple ONLY
+      sema_decl.cpp:1076 + 1519   fn param              PAT_STRUCT only — `// PAT_SLICE: TODO`
+      sema_expr.cpp:17122 + 17303 closure param         tuple NAMES only
+    Population: the 2026-09-05 pattern lattice, RE-BASELINED on this build (rule 8): 223 correct /
+    97 refused / 1 wrong-run, against the recorded 201/115/5 — 18 cells moved in two rounds. 34 of
+    the 97 refused sit at the parameter position; the alternatives are thin (match PAT_TUPLE
+    sub-whitelist: 2 cells; the two let-position rows: 6).
+
+## 2. THE ROOT, NAMED BY SYMBOL — AND IT IS A TRANSLATION-UNIT BOUNDARY
+    `pat_byval_mut` (sema_stmt.cpp:30) is THE one predicate for "`mut` written in a pattern". It is
+    `static` — a file-local of sema_stmt.cpp. Both parameter positions live in OTHER translation
+    units (sema_decl.cpp, sema_expr.cpp) and therefore cannot ask it; all three of their prologues
+    write `sl.is_mut = false` as a literal. That is the prompt's paying shape exactly: AN ARM THAT
+    EXISTS, reached through a fact the code does not carry — here the fact cannot even be linked to.
+    The second such arm is in the grammar: `pat_param` is an alternative of `param` and is ABSENT
+    from `closure_param` (logos.peg:3489).
+
+## 3. THE PROBE TABLE, ALL COLUMNS. ceiling(bc) is the bc ledger; queue/cells are this round's objective.
+    probe        fires  bc  queue  cells+  cost  cfail    std   runtime      verdict
+    fnslicedef       2   0     0       0      0  0/1435    ok      —    series door 1: LINKFAIL, no value emitted
+    fnslicepro       1   0     0       0      0  0/1435    ok      —    series door 2: sema already refused
+    fnslice(whole)   3   0     1       3      0  0/1435    ok      —    ⚠ REFUTED BY HAND — see 5
+    fntupmutS        0   —     —       —      —      —      —      —    NEVER FIRED (a carrier field, not an arm)
+    fntupmutd        2   0     1       1      0  0/1435    ok      —    the SEMA half
+    fntupmutp        2   0     0       0      0  0/1435    ok      —    the BORROW-CHECK half
+    fntupmut(whole)  4   0     1       1      0  0/1435    ok  0/6500   FUNDABLE
+    cloparampat      —   —     0       0      —      —      —      —    GRAMMAR arm, ungated, own build dir
+    `cost/cfail/std` from probe-batch + ceiling-probe.sh on build `7da9b947772c3018 43`.
+    `runtime` = scripts/run_oracle.py over 6500 `-L pass` fixtures COMPILED, LINKED and RUN, base and
+    armed on ONE configure: exactly ONE triple differs and it is `cast-region-to-uint`, subtracted BY
+    NAME (it prints a stack address). 0 damaged of 6500 under `fntupmut`. Not measured for `fnslice`:
+    §5 refutes that arm on hand programs, so a 25-minute runtime pass would be pricing a non-candidate.
+    `queue`/`cells+` measured by hand over the 40-row shelf and the 321-cell lattice, DIFFED BOTH WAYS.
+
+## 4. RULE 13 AND RULE 9, BOTH PAID, AND IN OPPOSITE DIRECTIONS
+    THE SLICE PAIR IS IN SERIES. fnslicedef alone defines the names and emits no value: seven of eight
+    hand programs go from "undefined variable 'a'" to LINKFAIL. fnslicepro alone changes nothing (the
+    body was lowered, and refused, before the prologue is built). 0 + 0 = 1 queue row; the increment
+    is POSITIVE and additivity was CHECKED, not assumed.
+    THE TUPLE-MUT PAIR IS NOT IN SERIES — IT IS DISJOINT, AND ONLY A CHANGE OF HAND-PROGRAM SHAPE
+    SHOWS IT. One written `mut` is read by TWO independent consumers:
+      the SEMA SCOPE      -> "assignment to immutable variable 'a'"           closed by fntupmutd ALONE
+      the LIR SLet flag   -> "cannot borrow 'a' as mutable: not declared as mut"  closed by fntupmutp ALONE
+    t1/t2/t3 (`a = a + 1`) close under the define half; t9/t10 (`bump(&mut a)`, `let r: &mut i64 = &mut b`)
+    close under the PROLOGUE half and are still refused under the define half. The two halves are
+    identical in every column probe-batch owns — fires 2, bc 0, cost 0, cfail 0/1435, stdlib ok — and
+    separate only on hand programs of a DIFFERENT SHAPE (rule 5, rule 9). THE QUEUE ROW ITSELF CLOSES
+    AT DOOR 1 ALONE, because its program only assigns: THE ROW IS NOT THE CLASS.
+
+## 5. ⚠ COST 0, cfail 0/1435, STDLIB OK — AND THE ARM IS UNSHIPPABLE (rule 5, rule 7, rule 11)
+    `fnslice` prices ZERO in every column probe-batch and ceiling-probe.sh have, closes the queue row
+    it was aimed at, and adds three lattice cells. NINE hand programs in nine shapes say otherwise:
+      s1 s2 s3 s5   correct (plain, `_` element, `mut` element, arity 1)
+      s4            `[a, b]: [String; 2]`  -> compiles clean, ABORTS 134, valgrind "Invalid free()"
+      s6            `[a,b,c]: [i64; 2]`, an ILLEGAL arity mismatch -> ADMITTED, runs, exits 1
+      s9            `[.., a]: [i64; 3]`    -> compiles clean, WRONG VALUE (binds by syntactic index)
+      a_fnparam_arr_rest (lattice) -> the same: was refused, now compiles and exits 1
+      c_fnparam_arr_fixed_ref (lattice) -> a FALSE GREEN: `ref a` is bound BY VALUE and the cell
+                                            exits 0 only because the element is `i64`
+      s8            `[(a,b),(c,d)]`        -> still refused (non-PAT_WILD element skipped)
+    AND THE PROBE'S FIRST FORM WAS A BROKEN HOP (rule 11): it read PAT_SLICE's ITEMS as an ARRAY.
+    The grammar wraps it in a MAP, exactly as for PAT_STRUCT (`pat_slice_elems => { ITEMS: $... }`).
+    That form SIGSEGV'd logosc on its own target shape — and probe-batch priced it `fires 2, cost 0,
+    cfail 0, stdlib ok, "no effect"`, because 4086 fixtures contain no array-pattern fn parameter.
+
+## 6. THE GROUPING TEST — ONE CANDIDATE CHANGE, DOES IT MOVE BOTH MEMBERS? NO.
+    Under `fntupmut`, over all 321 lattice cells and all 40 queue programs, diffed BOTH ways:
+      MOVED:  c_fnparam_tuple_mut (refused -> 0|0|0) and the queue row fnparam_tuple_mut_modifier_dropped.
+      DID NOT MOVE: c_closure_tuple_mut — the SAME sentence, the SAME program shape, one position over,
+                    a separate copy in sema_expr.cpp; and c_fnparam_struct_sh_mut, a THIRD hard-coded
+                    `is_mut = false` in the PAT_STRUCT prologue; and a_fnparam_tuple_nest (the NAMES
+                    branch does not recurse).
+      NOTHING REGRESSED anywhere in 321 cells.
+    Predicted 1 cell + 1 row BY NAME before the run; measured exactly those, both directions.
+    THE ROOT IS ONE DESIGN REPLICATED FIVE TIMES, NOT ONE SITE. The handed-down "parameter position"
+    grouping survives as a property and dies as a code location.
+
+## 7. THE GRAMMAR ARM IS HALF A MECHANISM, AND THE MEASUREMENT SAYS SO (rule 2)
+    `cloparampat` — one alternative added to `closure_param`: `pat_param COLON type_ref`. Built in
+    its own worktree (/home/logos/sandbox/wt-cloparam) so it could not disturb the batch.
+    PREDICTED BEFORE THE RUN: the row is NOT closed; its diagnostic MOVES from "syntax error near 'P'"
+    (rc 4, before sema) to "undefined variable 'x'", because the closure's sema param loop
+    (sema_expr.cpp:17122) has no `p.has_key(la::PAT)` branch AT ALL — the fn-param position's branch
+    is in another translation unit. 11 lattice cells were predicted to move the same way, BY NAME:
+      a_closure_struct_{sh,nm,rest}, c_closure_struct_sh_{mut,ref,refmut},
+      a_closure_arr_{fixed,rest},    c_closure_arr_fixed_{mut,ref,refmut}
+    MEASURED over all 35 syntax-error cells: exactly those 11 moved, exactly the other 24 did not
+    (tstruct and `@` are not alternatives of `pat_param`; every a_fnparam_* syntax cell is a
+    `param`-rule gap, not a `closure_param` one). cells+ 0, queue 0. Half a mechanism is not one.
+    ⚠ the worktree's stdlib build fails at `vec_contains` monomorphisation on a FRESH configure;
+    the arm was measured with the main tree's `build/lib/logos` and an ABI-freshness warning, which
+    is sound for a compile-diagnostic column and for nothing else.
+
+## 8. THE ROUND'S REAL FIND — A TIER-1 DOUBLE FREE, FOUND BY ENUMERATING THE PROPERTY OVER THE FIVE COPIES
+    A copy that emits `let user = <source>.<k>;` must mark the source place MOVED, or the source's
+    scope-exit Drop runs on a payload the binding now owns. `emit_nested_pat_destructure` says so in
+    its own words ("without it: double drop") and the let-position destructure does it too. THE THREE
+    PARAMETER-POSITION PROLOGUES DO NOT, and all three abort:
+      fn-param TUPLE   `fn probe((s, b): (String, i64))`      exit 134, valgrind Invalid free()
+      fn-param STRUCT  `fn probe(P { s, n }: P)`              exit 134
+      closure TUPLE    `|(s, b): (String, i64)|`              exit 134
+    CONTROLS, the two copies that DO call mark_moved_expr, on the same shape: `for (s, b) in v` and
+    `let P { s, n } = p` — both exit 0, both valgrind-clean. The partition is exact: five copies,
+    two correct, three defective. ROWED as `destructure_param_move_elem_double_free` (tier 1,
+    `run 134`), one row for the missing call with the three prologues as its members.
+    `# TOTAL` 39 -> 40, re-derived by direct listing; queue gate rc 0 on 40.
+
+## 9. WHAT DESERVES FUNDING, IN ORDER
+    (a) `mark_moved_expr` at the three parameter prologues (sema_decl.cpp:1497 tuple, :1519 struct,
+        sema_expr.cpp:17303 closure). A tier-1 memory-safety hole, three lines, and the two correct
+        copies are the reference implementation. Nothing in this round is worth more.
+    (b) MAKE `pat_byval_mut` NON-STATIC and let the two parameter positions ask it — the `fntupmut`
+        pair, priced 0 in four columns, +1 queue row, +1 cell, no regression in 321 cells. But fund
+        BOTH halves: the sema half and the SLet half answer different questions (§4), and the third
+        `is_mut = false` (the PAT_STRUCT prologue) and the closure's copy must go in the same change
+        or the class stays open at three of four sites.
+    (c) NOT the crude `fnslice` shape. §5: it double-frees, admits an illegal arity, and mis-binds
+        `[.., a]`, and every automated column reads 0. The fn-param slice row wants the LET-position
+        destructure to be called, not re-typed: sema_stmt.cpp:1540-1633 already carries the arity
+        check, the `..`-rest refusal, the E0507 guard and `mark_moved_expr`.
+    (d) `closure_param` += `pat_param`, TOGETHER WITH a `p.has_key(la::PAT)` branch in the closure's
+        param loop. Neither half alone buys a cell (§7). Both halves are copies of code that exists
+        in sema_decl.cpp — which is the whole finding of this round restated.

@@ -2,11 +2,16 @@
 // CLOSURE PARAMETER — `|P { x, y }: P| -> i64` — is legal Rust and TODAY it is a SYNTAX
 // ERROR, "syntax error near 'P'" (rc 4, before sema): the closure-parameter grammar rule
 // admits a bare identifier and a tuple pattern and nothing else. The same is true of the
-// tuple-struct, array and `@` spellings at that position, and of ALL of them at the
-// function-parameter position (there the error is "syntax error near 'fn'"). ONE ROW for
-// the grammar rule; the six spellings are its members. Found by the pattern lattice,
-// cells a_closure_struct_sh / a_closure_tstruct / a_closure_arr_fixed / a_closure_at_wild
-// and their a_fnparam_* twins. Rust: exit 0.
+// tuple-struct, array and `@` spellings at that position. ONE ROW for the grammar rule;
+// those four spellings are its members. Found by the pattern lattice, cells
+// a_closure_struct_sh / a_closure_tstruct / a_closure_arr_fixed / a_closure_at_wild.
+// ⚠ CORRECTED 2026-09-06h, MEASURED: this header used to claim "and of ALL of them at the
+// function-parameter position". False for the struct spelling — `pat_param` (logos.peg:1724)
+// IS an alternative of `param`, so `fn probe(P { x, y }: P)` compiles clean and runs
+// correctly today. The fn-param position's own grammar gaps are tuple-struct and `@`
+// (cells a_fnparam_tstruct / a_fnparam_at_*); its array spelling PARSES and binds nothing,
+// which is the separate row fnparam_array_pattern_binds_nothing.
+// Rust: exit 0.
 package closure_param_struct_pattern_syntax;
 struct P { x: i64, y: i64 }
 fn main() -> i32 {
