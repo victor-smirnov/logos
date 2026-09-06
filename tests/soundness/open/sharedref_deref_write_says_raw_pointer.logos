@@ -1,0 +1,22 @@
+// SOUNDNESS QUEUE row sharedref_deref_write_says_raw_pointer (tier 4, diag).
+// RIGHT VERDICT, WRONG SENTENCE. A write through a binding of type `&i64` — a
+// SHARED REFERENCE, not a raw pointer — is refused with "write through raw
+// pointer requires unsafe context", followed by "deref-write: '=' left side
+// must be a pointer or mutable reference". Rust says E0594: "cannot assign to
+// `*a`, which is behind a `&` reference", and names the repair (`&mut`).
+// The first sentence is actively misleading: it invites the reader to reach for
+// `unsafe`, which does not make the program legal.
+// ⚠ PRE-EXISTING AND INHERITED, measured 2026-09-06j on the UNMODIFIED
+// 4e49687fb with an explicit `ref` binding (this program): the sentence is
+// identical base and armed, so the default-binding-mode mint landed that round
+// did not introduce it — it merely made the shape reachable without the `ref`
+// keyword. It is the pinned text of the three `dbm_*_default_shared_write_refused`
+// fail fixtures, which is why closing this row edits those three `.expected`s.
+package sharedref_deref_write_says_raw_pointer;
+fn main() -> i32 {
+    let mut t: (i64, i64) = (3i64, 4i64);
+    match t {
+        (ref a, b) => { *a = *a + 1i64; if b != 4i64 { return 2i32; } }
+    }
+    return 0i32;
+}

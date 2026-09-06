@@ -4487,10 +4487,17 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         bool ref_to_struct = ty &&
             (TypeRef(ty).kind() == LogosType::Kind::Struct ||
              TypeRef(ty).kind() == LogosType::Kind::ZonedStruct);
+        // The tuple is the SECOND aggregate shape; without it `p.0` GEPs
+        // through the alloca-wrap and the write lands nowhere. 2026-09-06j.
+        bool ref_to_tuple = ty && TypeRef(ty).kind() == LogosType::Kind::Tuple;
         if (ref_to_struct) {
             scope_[name] = slot_ptr;
             let_vars_.insert(name);
             var_struct_[name] = mlir_struct_key(ty);
+        } else if (ref_to_tuple) {
+            scope_[name] = slot_ptr;
+            let_vars_.insert(name);
+            var_tuple_.insert(name);
         } else {
             auto alloca = create_entry_alloca(ptr_type());
             builder_.create<mlir::LLVM::StoreOp>(loc_, slot_ptr, alloca);
@@ -4848,11 +4855,18 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             bool ref_to_struct = fty &&
                                 (TypeRef(fty).kind() == LogosType::Kind::Struct ||
                                  TypeRef(fty).kind() == LogosType::Kind::ZonedStruct);
+                            // Tuple shape — see pat_bind's RefBind case.
+                            bool ref_to_tuple = fty &&
+                                TypeRef(fty).kind() == LogosType::Kind::Tuple;
                             evict_var_shapes(prbn);
                             if (ref_to_struct) {
                                 scope_[prbn] = fp;
                                 let_vars_.insert(prbn);
                                 var_struct_[prbn] = mlir_struct_key(fty);
+                            } else if (ref_to_tuple) {
+                                scope_[prbn] = fp;
+                                let_vars_.insert(prbn);
+                                var_tuple_.insert(prbn);
                             } else {
                                 auto alloca = create_entry_alloca(ptr_type());
                                 builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);

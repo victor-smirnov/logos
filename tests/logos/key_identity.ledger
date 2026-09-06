@@ -178,7 +178,14 @@
 # element falls through to the by-value arm. `_` is the grammar's DISCARD
 # spelling and cannot be declared, so this is the same class as the 7 sites
 # already pinned here, not a new entity-name intercept. No new site.
-#SCAN sema_stmt.cpp 12 3b851609
+# 2026-09-06j: 12 -> 13. ONE new intercept, `nm == "_"` inside
+# `dbm_named_bind` (build_pattern_impl): the default-binding-mode mint must not
+# fire on a WILDCARD element, and `_` is the wildcard's spelling, not an entity
+# name — the same class as the `n != "_"` / `fname != "_"` filters this file
+# already holds at every binder door. NOT a package-qualified lookup and not a
+# carried decision; the sibling test in `mint_dbm_ref` was removed rather than
+# spelt twice.
+#SCAN sema_stmt.cpp 13 d8fbd320
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)
 mlir_gen_dyn.cpp	struct_types_	O	1	std::string(TypeRef(cur_t).struct_name())

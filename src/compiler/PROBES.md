@@ -26206,3 +26206,155 @@ note: all three doors at once. Rule 13 measured in a new direction: fires ARE
   STEP 1 gate command carries `LOGOS_LIB_DIR` and documents the failure mode, and
   the 2026-09-05 owner decision needs no action (both 2024-ergonomics rows and
   `pat.binding.modifier-requires-move-mode` are already in the tree).
+
+## ROUND 2026-09-06j — THE DEFAULT BINDING MODE MUST MINT A *NODE*; THE CODEGEN HALF WAS NEVER MISSING
+
+**Subject named before the compiler was touched** (`PREDICTIONS.txt`, written on
+build `b751532cca22cee3`): the three tier-3 `refuses` rows
+`match_tuple_copy_elem_no_default_mut_ref`, `struct_copy_field_no_default_mut_ref`,
+`slice_copy_elem_no_default_mut_ref`. Predicted 3 closed BY NAME. **3 closed, and
+the gate named exactly those three.** `# TOTAL` 43 -> 40 -> 42 (two rows opened),
+each re-derived by direct listing.
+
+### §1 THE RECORD I INHERITED WAS WRONG, AND ONE HAND PROGRAM PER DOOR REFUTED IT
+
+2026-09-06i concluded, from reading `mlir_gen_stmt.cpp`, that the codegen ref-bind
+half "EXISTS and has exactly one call site, `bind_enum_payload`", and that the
+tuple/struct/slice doors were **empty at codegen**. Measured on the UNMODIFIED
+`4e49687fb`, with an explicit `ref mut` under a BY-VALUE scrutinee — the shape that
+isolates the codegen half from the sema wrap:
+
+| hand | program | verdict |
+|---|---|---|
+| e2 | `match s { S { x: ref mut x, y: _ } => *x = *x + 1 }` | RUN rc 0 |
+| e3 | `match t { (ref mut a, b) => *a = *a + 1 }`           | RUN rc 0 |
+| e4 | `match arr { [ref mut a, b] => *a = *a + 1 }`         | RUN rc 0 |
+
+All three doors bind an address and deref correctly TODAY. `pat_bind`'s `RefBind`
+case, `bind_struct_field`'s NC3 branch and the slice element path are three live
+copies of the mechanism the reading said existed once. **What is absent is not
+codegen: it is that the default binding mode records itself only as a sema TYPE,
+and no door but the variant one reads a binding type.** Reading `mlir_gen_stmt.cpp`
+could not see this because the defect is in what `sema_stmt.cpp` EMITS.
+
+### §2 THE FIX — ONE PREDICATE, ONE MINT, THREE DOORS, ZERO NEW CONCEPTS
+
+In `build_pattern_impl`, `mint_dbm_ref` emits, for a plain named element/field
+under a `&`/`&mut` scrutinee, **the same `PatRefBind` a WRITTEN `ref`/`ref mut`
+already emits** (`push_ref_elem` at the tuple door, T2-27 at the struct door), with
+binding type `make_ref(default_mut, T)`. Three call sites: the PAT_TUPLE element
+loop, the PAT_STRUCT field loop (shorthand `{ x }` AND rename `{ x: nx }`), the
+PAT_SLICE element loop. `bind_pattern_ref` already routes a `RefBind` sub to
+`define(name, bind_type)` at all three.
+
+### §3 THE GRAMMAR WRAPS EVERY TUPLE ELEMENT IN A SINGLE-ALT `PAT_OR` — AND THAT IS WHY THE FIRST ARM PRICED ZERO AT THAT DOOR
+
+The first build fixed the struct and slice rows and left the tuple row refused,
+character for character. A type-reveal probe (`let z: Z = a;` — read the type out
+of the mismatch sentence) separated them: struct said `got &i64`, tuple said
+`got i64`. A temporary `LOGOS_DBM_TRACE` fprintf then named the cause in one run:
+
+```
+DBMTRACE tupledoor arity=2 expanded=2 hasITEMS=1 hasNAMES=0 default_ref=1
+DBMTRACE tupleelem i=0 sc=139     <- PAT_OR, not PAT_WILD (85)
+```
+
+Every tuple-pattern element arrives wrapped in a ONE-ALTERNATIVE `PAT_OR`, so the
+door's own `if (sc == la::PAT_WILD.code)` branch — which holds `push_ref_elem` and
+held my mint — is **dead for a plain `(a, b)`**. A written `(ref mut a, b)` works
+only because the generic path recurses and the `PAT_WILD`-with-`IS_REF` binder door
+mints there instead. `dbm_named_bind` now sees through a single-alt `PAT_OR`, as the
+`for`-header destructure already did, and the mint moved out of the dead branch.
+⚠ **A DOOR CAN BE UNREACHABLE BY ITS OWN NAME.** The 2026-09-06i probe `dbmtup`
+fired 11 times and priced ceiling 0 at a site the target shape never reaches; the
+fires were real and they were somewhere else.
+
+### §4 THE CLASS, ENUMERATED BY THE ELEMENT'S TYPE — 4 KINDS, NOT 3 DOORS
+
+The doors are not the class. Grouping by DOOR says three members and predicts one
+fix; grouping by the ELEMENT TYPE the binding carries says four, and two of them
+had a second defect behind the first. Base vs armed, one program per kind:
+
+| element type | base (4e49687fb) | after the sema mint alone | after the codegen half |
+|---|---|---|---|
+| scalar (`i64`/`bool`/`u8`)      | REFUSED (over-refusal) | RUN rc 0 | RUN rc 0 |
+| struct-typed, written through   | REFUSED                | RUN rc 0 | RUN rc 0 |
+| struct-typed, read              | RUN rc 0               | RUN rc 0 | RUN rc 0 |
+| tuple-typed, written through    | REFUSED                | **RUN rc 1 — WRONG ANSWER** | RUN rc 0 |
+| array-typed, written through    | REFUSED                | **RUN rc 1 — WRONG ANSWER** | REFUSED (held back) |
+| enum-typed, read                | RUN rc 0               | RUN rc 0 | RUN rc 0 |
+
+⚠ **AN OVER-REFUSAL REPAIRED HALFWAY IS A MISCOMPILE, AND THAT IS STRICTLY WORSE
+THAN THE REFUSAL.** The sema mint alone made `match &mut t { T { p, q } => p.0 = p.0 + 1 }`
+compile, run, exit 0 and write NOTHING. The codegen ref-bind path binds an aggregate
+place by ADDRESS and carries its SHAPE, and it carried exactly one shape:
+`ref_to_struct` (`Struct`/`ZonedStruct`), in two copies. The tuple shape
+(`var_tuple_`) was added beside it at both copies — `pat_bind`'s `RefBind` case and
+`bind_struct_field`'s NC3 branch. **There is no array shape to carry anywhere in the
+tree**, so `mint_dbm_ref` holds `Array`/`Slice` back BY MEASUREMENT and the member is
+rowed rather than half-fixed: `arrayelem_default_ref_mode_not_minted` (tier 3).
+
+### §4a THE PRICING PHASE'S NUMBERS DID NOT SURVIVE THE CORRECT FIX (Rule 7)
+
+2026-09-06i priced dbmtup cost 4 / dbmstr 1 / dbmslc 0 on a crude arm that died in
+the MLIR verifier. The correct fix's corpus cost is **0** — no `-L bc` test changed
+under the store's differential. The crude arm's cost measured a broken compiler, not
+this change; and its ceiling of 0 was measured at a door the shape cannot reach (§3).
+
+### §5 COUNTER-EXAMPLES IN SHAPES THE PRICING PHASE DID NOT USE (Rule 5, both directions)
+
+30 hand programs, none of them a member of the priced set's syntax: shared-`&` reads
+at all three doors; the struct RENAME form `S { x: nx }`; a slice with a rest
+`[a, .., d]`; a struct with `..`; a mixed-type tuple `(i64, bool, u8)`; a `&mut`
+tuple arriving as a FUNCTION PARAMETER (no `&mut t` expression in sight); a struct
+element inside a tuple; a tuple element inside a slice; a generic `fn first<T>(p: &(T,T))`;
+by-value controls at every door; a move-type field under `&` (`Vec` payload); an
+or-pattern over `&Enum`. **28 run rc 0 and the two refusals are the two that must be
+refused**: `r07` (`(mut a, b)` under `&t`) is the Rust-2024 modifier error, verbatim
+and unchanged, and `a6` is the array member held back on purpose.
+
+### §6 A SECOND DEFECT, INHERITED, MEASURED IN THE CONTROL DIRECTION (Rule 14)
+
+The fail halves pin `deref-write: '=' left side must be a pointer or mutable
+reference`, preceded by `write through raw pointer requires unsafe context` — for a
+write through a `&i64`, which is not a raw pointer. Rust says E0594 and names the
+repair. **The sentence is INHERITED**: identical on the base binary for an explicit
+`ref` binding (`match t { (ref a, b) => *a = … }`), so this change did not introduce
+it — it only made the shape reachable without the keyword. Rowed as
+`sharedref_deref_write_says_raw_pointer` (tier 4, `diag`), and the row's header says
+that closing it edits those three `.expected` files.
+
+### §7 WHAT IS PINNED
+
+Three one-token PAIRS. Pass halves RUN and assert both fields on stdout
+(`4\n4\n`); fail halves are the same program with `&mut` -> `&` and pin the refusal
+in full. Registered under `logos_02_semantic_core_pass_*` and
+`logos_06_diagnostics_fail_*` — ⚠ the fail halves needed a `cmake .` RECONFIGURE to
+register at all, and a fixture ctest has never heard of is not a pin.
+
+**COLUMNS.** stdlib: full `cmake --build`, zero errors — all four layers rebuilt.
+`-L bc` differential against the store: build 869 -> 875, 2670 measured, **0
+changed**. `L4 bc` 4399/4399 rc 0 (6453 recorded, 0 failed). L1 764 + 12 684 + 173
+rc 0. Queue gate rc 0 on 42. **RUNTIME: `run_oracle.py`, 6513 pass fixtures
+compiled + linked + RUN under the CONTROL-REVERTED binary and under the armed one,
+exactly FOUR triples differ** — the three new pass halves (base `cc 1`, refused;
+armed `0 0 1e5040b4db14ca67`, the same stdout digest at all three doors) and
+`cast-region-to-uint`, which prints a stack address, subtracted by name. Runtime
+cost **0**. **CONTROL REVERT** (both compiler files reverted, full rebuild, the
+fixtures and ledger left in place): all three pass halves are REFUSED again, at the
+`*x = *x + 1` line, with the sentence the deleted rows recorded.
+⚠ `fail_text_oracle.py` was NOT run this round: its base/armed pair and the
+run-oracle's are the same two builds, and the runtime differential was the one that
+could see the §4 miscompile. The un-refusal direction is covered by `L4 bc`'s 1435
+fail fixtures, which is weaker on an ADDED line and is named here rather than
+implied. Census pins re-derived in the gates that hold them: direct_door
+corpus 2891 -> 2894 / nonglob 2700 -> 2703 (+3 pass), REGISTRY-ALL 9343 -> 9349 /
+NOIMPORTED 4906 -> 4912 (+6, three pairs), key_identity `#SCAN sema_stmt.cpp`
+12 -> 13 (one `nm == "_"` wildcard filter; the sibling test was removed rather than
+spelt twice).
+
+**DIFF BUDGET** declared before the edit: <= 90 lines, sema only. Landed 73 in
+`sema_stmt.cpp` + 17 in `mlir_gen_stmt.cpp`. **The codegen 17 are an overrun of a
+budget that was wrong, not of the design**: the budget assumed the §4 class had one
+kind of member, and the measurement that found the tuple kind is the same one that
+forbade shipping without it.

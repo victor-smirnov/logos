@@ -1,0 +1,28 @@
+// SOUNDNESS QUEUE row arrayelem_default_ref_mode_not_minted (tier 3). The ONE
+// member of the default-binding-mode class that 2026-09-06j did not close, and
+// it is held back BY MEASUREMENT, not by doubt: `match &mut a { A { xs, n } =>
+// xs[0] = xs[0] + 1 }` over an ARRAY-typed field is legal Rust — the `&mut`
+// scrutinee sets the default binding mode to `ref mut`, so `xs : &mut [i64; 2]`
+// and the index-write lands in `a`. TODAY refused, "assignment to immutable
+// variable 'xs'".
+// ⚠ WHY IT IS NOT MINTED WITH ITS FOUR SIBLINGS (scalar, struct-typed,
+// tuple-typed at the tuple/struct/slice doors, all closed 2026-09-06j): the
+// codegen ref-bind path binds an aggregate place by ADDRESS and carries its
+// SHAPE — `var_struct_` for a struct, `var_tuple_` for a tuple — and there is
+// no array shape to carry, so a minted `&mut [i64; 2]` alloca-wraps and
+// `xs[0] = …` writes THROUGH THE WRAPPER: measured, the program then compiles,
+// runs, exits 0 having written nothing (a silent wrong answer, strictly worse
+// than this refusal). `mint_dbm_ref` (sema_stmt.cpp, build_pattern_impl) holds
+// Array/Slice back for exactly that reason. The fix is the array half of
+// `pat_bind`'s RefBind case + the NC3 struct-field branch, then dropping the
+// Array/Slice guard. Rust: exit 0.
+package arrayelem_default_ref_mode_not_minted;
+struct A { xs: [i64; 2], n: i64 }
+fn main() -> i32 {
+    let mut a: A = A { xs: [1i64, 2i64], n: 3i64 };
+    match &mut a {
+        A { xs, n } => { xs[0] = xs[0] + 1i64; if *n != 3i64 { return 2i32; } }
+    }
+    if a.xs[0] != 2i64 { return 1i32; }
+    return 0i32;
+}

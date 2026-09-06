@@ -1,0 +1,17 @@
+// PAIR (pass half) with fail/dbm_struct_default_shared_write_refused, ONE TOKEN
+// apart: `&mut s` here, `&s` there. Closes soundness-queue row
+// struct_copy_field_no_default_mut_ref. Spec pat.binding.default-by-ref-mode.
+package dbm_struct_default_ref_mut_writes;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct S { x: i64, y: i64 }
+fn main() -> i32 {
+    let mut s: S = S { x: 3i64, y: 4i64 };
+    match &mut s {
+        S { x, y } => { *x = *x + 1i64; if *y != 4i64 { return 2i32; } }
+    }
+    printi("%ld\n", s.x);
+    printi("%ld\n", s.y);
+    if s.x != 4i64 { return 1i32; }
+    return 0i32;
+}

@@ -5102,6 +5102,43 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     // PROBES.md 2026-09-05b.
     const TypeRef scrut_orig = scrut_type;
     scrut_type = pat_scrut_one_layer(scrut_type);
+    // Default binding mode: spec pat.binding.default-by-ref-mode. 2026-09-06j.
+    const bool dbm_ref = scrut_orig &&
+        (TypeRef(scrut_orig).kind() == LogosType::Kind::Ref ||
+         TypeRef(scrut_orig).kind() == LogosType::Kind::MutRef);
+    const bool dbm_mut = dbm_ref &&
+        TypeRef(scrut_orig).kind() == LogosType::Kind::MutRef;
+    // A plain named binder: PAT_WILD + NAME, neither modifier (`ref` has its own
+    // door; `mut` here is pat.binding.modifier-requires-move-mode).
+    auto dbm_named_bind = [&](writ::TinyMapView n) -> std::string {
+        // ⚠ the grammar wraps EVERY tuple element in a single-alt PAT_OR.
+        if (code_of(n) == la::PAT_OR && n.has_key(la::ITEMS)) {
+            auto alts_ = arr_of(n.get(la::ITEMS.code));
+            if (alts_.size() == 1) n = map_of(alts_.get(0));
+        }
+        if (code_of(n) != la::PAT_WILD.code || !n.has_key(la::NAME)) return {};
+        auto flag = [&](const la::Key& k) {
+            return n.has_key(k) && n.get(k.code).is_value() &&
+                   n.get(k.code).as_value<uint8_t>() != 0;
+        };
+        if (flag(la::IS_REF) || flag(la::IS_MUT)) return {};
+        auto nm = std::string(str_of(n.get(la::NAME.code)));
+        return (nm.empty() || nm == "_") ? std::string{} : nm;
+    };
+    auto mint_dbm_ref = [&](const std::string& nm, TypeRef bt,
+                            lir::Pattern& out) -> bool {
+        if (!dbm_ref || nm.empty()) return false;  // `_` is filtered by dbm_named_bind
+        if (!bt || TypeRef(bt).kind() == LogosType::Kind::Error ||
+            TypeRef(bt).kind() == LogosType::Kind::TypeVar) return false;
+        // ⚠ SOUNDNESS: Array/Slice held back — no codegen ref-bind carries an
+        // array shape, so minting here writes nowhere and exits 0 (measured).
+        // Soundness queue row arrayelem_default_ref_mode_not_minted.
+        if (TypeRef(bt).kind() == LogosType::Kind::Array ||
+            TypeRef(bt).kind() == LogosType::Kind::Slice) return false;
+        out.mirror_ptr_ = lir_mirror_emit_pat_ref_bind(
+            *cur_prog_, nm, dbm_mut, make_ref(dbm_mut, bt), reserve_pat_slot(nm));
+        return true;
+    };
     // THE SIX SCALAR DOORS NEED ZERO LAYERS, NOT ONE — the class, closed at the
     // one entry every one of them is reached through. PROBES.md 2026-09-06f.
     if (pc == la::PAT_INT || pc == la::PAT_NEG_INT || pc == la::PAT_CHAR ||
@@ -5380,6 +5417,14 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             }
             auto sub = *expanded[i];
             int32_t sc = code_of(sub);
+            {   // default binding mode, TUPLE door
+                lir::Pattern rp;
+                if (mint_dbm_ref(dbm_named_bind(sub), elem_ty, rp)) {
+                    pt.bindings.push_back("_");
+                    pt.subs.push_back(std::move(rp));
+                    continue;
+                }
+            }
             if (sc == la::PAT_WILD.code) {
                 if (push_ref_elem(sub, elem_ty)) continue;  // `(ref mut a, b)`
                 auto nm = std::string(str_of(sub.get(la::NAME.code)));
@@ -5848,9 +5893,26 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             ps.fields.push_back(std::move(pfb));
                             continue;
                         }
+                        // default binding mode, STRUCT door (shorthand `{ x }`)
+                        if (!fnode.has_key(la::VALUE) && !fld_is_mut && !fld_is_ref) {
+                            lir::Pattern rp;
+                            if (mint_dbm_ref(fname, ftype, rp)) {
+                                pfb.sub.push_back(std::move(rp));
+                                ps.fields.push_back(std::move(pfb));
+                                continue;
+                            }
+                        }
                         if (fnode.has_key(la::VALUE)) {
                             auto sub_node = map_of(fnode.get(la::VALUE.code));
                             int32_t sknode = code_of(sub_node);
+                            {   // default binding mode, STRUCT door (rename `{ x: nx }`)
+                                lir::Pattern rp;
+                                if (mint_dbm_ref(dbm_named_bind(sub_node), ftype, rp)) {
+                                    pfb.sub.push_back(std::move(rp));
+                                    ps.fields.push_back(std::move(pfb));
+                                    continue;
+                                }
+                            }
                             // Refutable LITERAL field sub-pattern (`A { v: 1 }`,
                             // `S { ok: true }`): bind the field to a synth name +
                             // gate the arm with a `synth == <literal>` guard
@@ -5995,7 +6057,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             psl.rest.push_back(make_pat_wild(rest_name));
                             continue;
                         }
-                        auto sub = build_pattern(enode, elem_type);
+                        lir::Pattern sub;   // default binding mode, SLICE door
+                        if (!mint_dbm_ref(dbm_named_bind(enode), elem_type, sub))
+                            sub = build_pattern(enode, elem_type);
                         if (!found_rest) psl.prefix.push_back(std::move(sub));
                         else             psl.suffix.push_back(std::move(sub));
                     }

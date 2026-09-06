@@ -1,0 +1,12 @@
+// PAIR (fail half) with pass/dbm_slice_default_ref_mut_writes, ONE TOKEN apart:
+// `&arr` here, `&mut arr` there. A shared `&` scrutinee binds `a : &i64`; the
+// write must be refused.
+package dbm_slice_default_shared_write_refused;
+fn main() -> i32 {
+    let mut arr: [i64; 2] = [3i64, 4i64];
+    match &arr {
+        [a, b] => { *a = *a + 1i64; if *b != 4i64 { return 2i32; } }
+    }
+    if arr[0] != 4i64 { return 1i32; }
+    return 0i32;
+}

@@ -1462,9 +1462,19 @@ PIN = {
     # destructure_fnparam_tuple_move_out_drop_once — plus the closed row's own
     # program, destructure_param_move_elem_no_double_free, moved here from
     # tests/soundness/open/.
-    'corpus'            : 2891,
+    # 2026-09-06j: 2891 -> 2894. THREE pass fixtures, all non-glob, of the
+    # default-binding-mode landing that closed three soundness-queue rows
+    # (match_tuple_copy_elem_no_default_mut_ref, struct_copy_field_no_default_mut_ref,
+    # slice_copy_elem_no_default_mut_ref): dbm_tuple_default_ref_mut_writes,
+    # dbm_struct_default_ref_mut_writes, dbm_slice_default_ref_mut_writes —
+    # `ls tests/logos/pass/dbm_*_default_ref_mut_writes.logos | wc -l` -> 3.
+    # Their one-token fail twins (dbm_*_default_shared_write_refused) are NOT in
+    # this population (it is `pass`), and the three closed rows' own programs did
+    # not move here — each pass half is a rewrite that asserts stdout, and the
+    # queue programs were deleted with their rows.
+    'corpus'            : 2894,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2700,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2703,  # +3, the same three (2026-09-06j).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

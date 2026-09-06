@@ -5322,8 +5322,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9331 -> 9333   +2
 #   NOIMPORTED   4894 -> 4896   +2
 #   TIERCOMMIT    173 ->  173    0
-REGISTRY-ALL         9343
-REGISTRY-NOIMPORTED  4906
+# 2026-09-06j (default binding modes mint a PatRefBind — three soundness-queue
+#   rows closed: match_tuple_copy_elem_no_default_mut_ref,
+#   struct_copy_field_no_default_mut_ref, slice_copy_elem_no_default_mut_ref).
+#   SIX registered fixtures, three one-token PAIRS, counted by direct listing
+#   (`ls tests/logos/pass/dbm_*.logos tests/logos/fail/dbm_*.logos` -> 6):
+#   pass/dbm_{tuple,struct,slice}_default_ref_mut_writes (each RUNS and asserts
+#   both fields on stdout) and fail/dbm_{tuple,struct,slice}_default_shared_write_refused
+#   (`&` instead of `&mut`, pinning "deref-write: '=' left side must be a
+#   pointer or mutable reference"). The three deleted queue programs and the two
+#   added ones (arrayelem_default_ref_mode_not_minted,
+#   sharedref_deref_write_says_raw_pointer) are under tests/soundness/open/ and
+#   register nowhere, so they move nothing.
+#   ALL          9343 -> 9349   +6
+#   NOIMPORTED   4906 -> 4912   +6
+#   TIERCOMMIT    173 ->  173    0
+REGISTRY-ALL         9349
+REGISTRY-NOIMPORTED  4912
 REGISTRY-TIERCOMMIT  173
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
