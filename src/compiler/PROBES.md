@@ -26885,3 +26885,187 @@ pre-existing behaviour and the sentence the fixtures pin.
 
 **This is what a batch gate buys that a per-mechanism one does not.** L1 was rc 0
 over 765 + 12 684 + 173 with the regression in the tree.
+
+
+# ============================================================================
+# ROUND 2026-09-06l — THE SWEEP RE-RUN ON THE COMMITTED BINARY, AND A SEVENTH
+# ROOT THE FIRST TRIAGE DID NOT REACH: A `move` CLOSURE'S OWNED CAPTURE IS
+# DELEGATED TO A DROP SITE THAT DOES NOT EXIST
+# ============================================================================
+
+NO COMPILER SOURCE WAS EDITED THIS ROUND. It is a verification-and-triage round:
+re-measure the handed-down fix, re-run the sweep on the binary that is actually
+committed, and turn what the sweep found into roots. So no runtime, `-L bc` or
+build-hash column is owed and none is claimed; the build hash is unchanged at
+`f29b1b7c50d1a470 43`.
+
+## 1. PHASE 1 RE-VERIFIED, NOT TRUSTED
+
+Four hand programs on the committed binary, `valgrind --leak-check=full`:
+
+  * `let n: i64 = 7i64; println!("n={}", n);`  ->  4 allocs, 2 frees, 0 errors.
+    The handed-down record's "after" line, digit for digit.
+  * ten `println!` in a `while` loop  ->  22 allocs, 20 frees, 0 errors. The
+    unbounded per-iteration leak is gone.
+  * `let t: String = { let a=…; let b=…; a };`  ->  6/4, 0 errors. THE
+    MACRO-FREE SHAPE, which is the one that shows the root is the block builder
+    and not the format family.
+  * `format!` control  ->  5/3, 0 errors, still moving its buffer out.
+
+V1 holds.
+
+## 2. THE SWEEP RE-RUN — AND THE COMMITTED BASELINE IS A MEASUREMENT OF A
+##    COMPILER THAT WAS NEVER COMMITTED
+
+`tests/lattice/valgrind/baseline/summary-2026-09-06k.txt` records its compiler as
+build hash **`1ae1a23a36db2a82 43`**. The tree's binary at `5295037d5` reads
+**`f29b1b7c50d1a470 43`**, and the round's own commit message claims that second
+number. The baseline was therefore taken MID-ROUND. A re-run on the committed
+binary is `tests/lattice/valgrind/baseline-2026-09-06l/`.
+
+| cell | 2026-09-06k | re-run on the committed binary |
+|---|---|---|
+| swept | 6524 | 6525 |
+| **allocated** | **1571** | **1572** |
+| zero-alloc (COVERAGE, NOT EVIDENCE) | 4762 | 4762 |
+| not run (the sweep's own missing flags) | 191 | 191 |
+| clean, of the allocating | 1478 | 1478 |
+| **LEAK** | **90** | **90** |
+| CORRUPT | 3 | 4 |
+| CFAIL / LINKFAIL / TIMEOUT | 64 / 124 / 3 | 63 / 124 / 4 |
+
+**THE LEAK SET REPRODUCES EXACTLY — 90 for 90, DIFFED BOTH WAYS, not one fixture
+in or out.** Three cells differ and each has a name:
+
+  * **CFAIL 64 -> 63, and it is A CLOSED HOLE.**
+    `tests/imported/pass/expr/block-generic.logos` no longer fails to compile —
+    it is OK here (2 allocs, 0 frees, 2 still reachable). A BLOCK-EXPRESSION
+    fixture closed by this round's own BLOCK-EXPRESSION fix, which landed after
+    the old baseline's binary. Its sibling `if-generic.logos` is still CFAIL, so
+    the imported red recorded in memory stands and only this one moved.
+  * **CORRUPT 3 -> 4 / TIMEOUT 3 -> 4.** `tests/logos/pass/fiber_thread_basic`
+    TIMED OUT in the old baseline and here COMPLETED with one invalid access.
+    NOT ROWED: a fiber fixture under valgrind is scheduling-dependent, and a run
+    that reaches a different point is not evidence of a different defect.
+  * 6525 vs 6524 is the round's own new fixtures; two thread fixtures wedged
+    past the 60 s timeout and were reaped.
+
+## 3. THE 90 ARE NOT 90 DEFECTS, AND THE PARTITION IS BY THE ALLOCATING FRAME
+
+254 `definitely lost` records across the 90. Partitioned by WHO ALLOCATED THE
+LOST BLOCK, read out of each record's own stack:
+
+  * **197 stdlib-allocated** — a `Vec`/`String`/`Box`/`Arc` block whose owner the
+    compiler owed a destructor. These are where the roots are.
+  * **28 a fixture's own named wrapper** — `bst`'s `new_node`, `fs_meta`'s
+    `cstr`, the two `layout_*` fixtures' `zeroed`, `rel_any_tagged_dispatch`'s
+    `arena_new`: `extern fn malloc` in the fixture's own text with no `free`
+    anywhere. **FIXTURE-OWNED, NOT COMPILER DEFECTS.**
+  * **29 ambiguous** — the allocating frame inlined away and the record's
+    innermost named frame is `main`.
+
+⚠ AND THE PREFIX RULE OVER-CAUGHT, WHICH IS WHY IT WAS CHECKED BY READING.
+`writ_buffer_i64`'s allocating frame is `i64__store_push__g__pmut_PrimVec…`,
+which carries no `logos_*` prefix and looks fixture-local — it is a MONOMORPHISED
+STDLIB generic (`stdlib/lang/fabric/fabric.logos`) and belongs in the first
+bucket. **A SYMBOL PREFIX CANNOT SAY WHO OWNS A MONOMORPHISED GENERIC.** The
+23-member grep over `extern fn malloc` and the 28-member frame rule agree on
+neither membership nor size; only per-fixture reading settles it.
+
+## 4. THE SEVENTH ROOT — A DELEGATION TO A DROP SITE THAT DOES NOT EXIST
+
+Reached from `tests/logos/pass/rfc2229_move_disjoint_field.logos`, a LEAK row the
+first triage did not attribute: 2 allocs / 1 free, 4 bytes definitely lost, and
+GREEN through `run_test.sh` today.
+
+**THE PROPERTY.** A `move` closure captures an owned droppable value; sema
+decides the closure will drop it and skips the source scope's destructor; the
+drop site sema names runs only if the closure is INVOKED. When the closure value
+dies without being called, NOBODY drops the capture.
+
+**THE ROOT, BY SYMBOL — TWO ARMS, THREE LINES APART**, both in `SemaChecker`'s
+closure-literal capture walk (`src/compiler/sema_expr.cpp`, the
+`is_move_type(move_check_t)` arm that fills `closure_owned_drop_` /
+`unskipped_captures`):
+
+  * `if (narrow_owned) continue;` — an RFC-2229 NARROW FIELD capture, delegated
+    by its own comment to "the closure drop-glue".
+  * `if (body_moved_outer.count(ec->captures[i])) continue;` — §7.1, delegated by
+    its own comment to "the body-local's scope-end drop".
+
+Neither site exists for a NON-ESCAPING closure. `MLIRGenImpl::emit_closure_env`
+computes `need_glue` false (the env only borrows the source's storage), so no
+`__closure_drop__` is emitted — **MEASURED: `nm` finds no such symbol in the
+object at all** — and `MLIRGenImpl::value_needs_drop` deliberately answers FALSE
+for `K::Closure` (its NOTE in `src/compiler/mlir_gen_stmt.cpp`), so the closure
+VALUE gets no scope-exit drop either. Sema stands down for codegen, codegen
+stands down for sema.
+
+**THE MEMBERS, each a destructor count through a raw `*mut i64` (`COUNT=` printed,
+correct value in brackets):**
+
+| shape | count |
+|---|---|
+| local `move` closure, body moves the capture, never called | 0 [1] |
+| conditional call, the un-taken path | 0 [1] |
+| TWO droppable captures | 0 [1001] |
+| `Box::new(move \|\| …)` | 0 [1] |
+| `Box<dyn Fn()>` | 0 [1] |
+| passed by value to a generic that never calls it | 0 [1] |
+| RFC-2229 narrow field capture `move \|\| { let _t = s.x; }` | 0 [1] |
+
+**THE CONTROLS, correct today, and they are what name the root:**
+
+  * **THE SAME CLOSURE, CALLED ONCE — COUNT=1.** The delegation is right exactly
+    when the body runs. So the fix is NOT "always drop at the source"; it is
+    "delegate only to a site that is guaranteed to run".
+  * **A `move` closure whose body only READS the capture — CLEAN.**
+    `body_moved_outer` does not contain it, sema puts it in
+    `closure_owned_drop_`, and the SOURCE scope drops it. The mechanism the
+    defect bypasses is live and correct next door.
+  * The same value moved to a plain local, no closure — clean.
+
+**ONE CHANGE CLOSES BOTH ARMS**: a delegation is valid only if the site it names
+is guaranteed to run. Rowed as two rows, not one, because fixing §7.1 alone
+leaves the narrow arm leaking and the gate must be able to say so.
+
+⚠ **CONTRADICTS A CLAIM RECORDED IN THE SOURCES.** `value_needs_drop`'s NOTE says
+the closure drop is "driven NARROWLY: only the owning `Box<Closure>` path …
+invokes `gen_drop_value(Closure)`". Measured on this binary that path does not
+fire for a hand program either: `Box::new(move || …)` reads COUNT=0, and so does
+`Box<dyn Fn()>`. The narrow path is not narrow — it is absent at these shapes.
+
+⚠ **A CLASS REFUTED BEFORE IT WAS ROWED.** The first hypothesis off the frame
+grouping was "a user `Drop::drop` runs and the struct's own droppable FIELDS are
+never dropped after it" — it would have explained the whole `rawdup_*` /
+`dupown_*` family at once. THREE hand programs refuted it: a struct with a user
+`Drop` and a `Vec` field reads 7 allocs / 5 frees and 0 errors, its no-`Drop`
+twin 5/3, a bare `Vec` local 5/3. The post-`Drop` field walk is correct. A
+grouping by allocating symbol is a POPULATION, never a root.
+
+## 5. ROWS
+
+`# TOTAL` 63 -> 65, re-derived by direct listing with 65 programs on the shelf;
+tier 1 22 -> 24. Queue gate rc 0 on 65.
+
+  * `closure_capture_body_moved_never_dropped` (tier 1, `run 1`) — the §7.1 arm.
+  * `closure_narrow_capture_never_dropped` (tier 1, `run 1`) — the narrow arm.
+
+Both are held by a destructor count, not by valgrind: today 0, exit 1; correct 1,
+exit 0.
+
+## 6. WHAT THE INSTRUMENT SHOWS CORRECT THAT A RECORD CALLS BROKEN
+
+  * `tests/imported/pass/expr/block-generic.logos` — CFAIL in the committed
+    baseline, **compiles and runs clean here**. Closed by V1. §2.
+  * `tests/logos/pass/box_into_raw.logos` leaks 4 bytes and is CORRECT: the
+    fixture's own `box_leak::<i32>` deliberately gives up the block, exactly as
+    Rust's `Box::leak` does. NOT a defect, and not rowed.
+  * `tests/logos/pass/bst`, `fs_meta`, `layout_clike_enum_backing`,
+    `layout_dst_prefix_and_offset_of`, `rel_any_tagged_dispatch` — every lost
+    block traced to the fixture's own `extern fn malloc` with no `free`. Read,
+    not grepped. NOT rowed.
+  * `tests/logos/pass/string_eq_empty` leaks 8 bytes from the temporary in
+    `s == String::from("hej")` — it is a corpus member of the EXISTING row
+    `operator_autoref_temp_never_dropped` (V2), which did not cite it. V2
+    confirmed independently.

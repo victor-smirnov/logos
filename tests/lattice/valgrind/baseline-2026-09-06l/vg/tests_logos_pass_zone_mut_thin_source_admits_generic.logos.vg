@@ -1,0 +1,27 @@
+==3956597== Memcheck, a memory error detector
+==3956597== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3956597== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3956597== Command: /tmp/tmp.Kly92hGwc6/f.bin
+==3956597== 
+==3956597== 
+==3956597== HEAP SUMMARY:
+==3956597==     in use at exit: 16 bytes in 2 blocks
+==3956597==   total heap usage: 3 allocs, 1 frees, 24 bytes allocated
+==3956597== 
+==3956597== 8 bytes in 1 blocks are definitely lost in loss record 1 of 2
+==3956597==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3956597==    by 0x1091ED: main (in /tmp/tmp.Kly92hGwc6/f.bin)
+==3956597== 
+==3956597== 8 bytes in 1 blocks are definitely lost in loss record 2 of 2
+==3956597==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3956597==    by 0x1092CB: main (in /tmp/tmp.Kly92hGwc6/f.bin)
+==3956597== 
+==3956597== LEAK SUMMARY:
+==3956597==    definitely lost: 16 bytes in 2 blocks
+==3956597==    indirectly lost: 0 bytes in 0 blocks
+==3956597==      possibly lost: 0 bytes in 0 blocks
+==3956597==    still reachable: 0 bytes in 0 blocks
+==3956597==         suppressed: 0 bytes in 0 blocks
+==3956597== 
+==3956597== For lists of detected and suppressed errors, rerun with: -s
+==3956597== ERROR SUMMARY: 2 errors from 2 contexts (suppressed: 0 from 0)

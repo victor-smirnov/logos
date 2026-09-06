@@ -1,0 +1,37 @@
+swept          6525
+  allocated    1572   (reached malloc at least once)
+  zero-alloc   4762   (COVERAGE, NOT EVIDENCE)
+  not run      191
+clean (of allocating)  1478
+
+by status:
+  LEAK           90
+  CFAIL          63
+  CORRUPT        4
+  LINKFAIL       124
+  OK             6240
+  TIMEOUT        4
+
+Compiler: build hash f29b1b7c50d1a470 43 — THE COMMITTED BINARY at 5295037d5.
+⚠ THIS IS A SECOND, INDEPENDENT SWEEP, and it exists because the round-2026-09-06k
+  baseline beside it records `1ae1a23a36db2a82 43` — a DIFFERENT binary. That
+  baseline was taken mid-round, before the round's final state; it is a
+  measurement of a compiler that was never committed.
+  RE-RUN ON THE COMMITTED BINARY: the LEAK set reproduces EXACTLY — 90 for 90,
+  diffed BOTH WAYS, not one fixture in or out — as do zero-alloc 4762,
+  not-run 191, clean 1478 and LINKFAIL 124. THREE cells differ:
+   * CFAIL 64 -> 63. tests/imported/pass/expr/block-generic.logos no longer
+     fails to compile; it is OK here (2 allocs, 0 frees, 2 still-reachable).
+     A BLOCK-EXPRESSION fixture closed by the round's own block-expression fix
+     (V1, SemaChecker::lower_block_expr) — which lands after the old baseline's
+     binary and is exactly why the two disagree. tests/imported/pass/expr/
+     if-generic.logos is still CFAIL, so the sibling red recorded in memory
+     stands.
+   * CORRUPT 3 -> 4, TIMEOUT 3 -> 4. tests/logos/pass/fiber_thread_basic.logos
+     TIMED OUT in the old baseline and here COMPLETED with one invalid access
+     (13 allocs / 11 frees, inv=1). A fiber fixture under valgrind is
+     SCHEDULING-DEPENDENT — it is not rowed, because a run that reaches a
+     different point is not evidence of a different defect.
+   * 6525 swept here vs 6524: the corpus grew by the round's own new fixtures,
+     and two thread fixtures (fiber_thread_future, http_workers_basic) wedged
+     under valgrind past their 60 s timeout and were reaped.

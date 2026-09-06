@@ -1,0 +1,49 @@
+// SOUNDNESS QUEUE row closure_narrow_capture_never_dropped (tier 1).
+// AN RFC-2229 NARROW FIELD CAPTURE MOVED INTO A `move` CLOSURE IS DROPPED BY
+// NOBODY — sema delegates to an env drop-glue that is never emitted.
+//
+// ROOT, by symbol: the narrow-capture exit in `SemaChecker`'s closure-literal
+// capture walk (src/compiler/sema_expr.cpp), three lines above the §7.1 arm
+// rowed as closure_capture_body_moved_never_dropped:
+//
+//     if (narrow_owned) continue;
+//
+// Its comment: "Phase-2 narrow capture: env owns just the field's value (the
+// closure drop-glue drops it); the root stays in the original scope." The
+// root's scope-exit drop then skips the moved field via `moved_vars_`, so the
+// FIELD's destructor is owed entirely to the env glue — and for a NON-ESCAPING
+// closure `MLIRGenImpl::emit_closure_env` computes `need_glue == false` and
+// emits none. MEASURED: no `__closure_drop__` symbol in the object.
+//
+// Both arms are one predicate: A DELEGATION IS VALID ONLY IF THE SITE IT NAMES
+// IS GUARANTEED TO RUN. Neither arm checks that; each names a different absent
+// site (this one the env glue, the other the body-local's scope end).
+//
+// CONTROLS ALREADY CORRECT: the same struct with NO closure (both fields drop,
+// COUNT=1); a `move` closure that only READS the field (source scope drops the
+// whole root); the whole-root capture form with the closure CALLED (COUNT=1).
+//
+// Found by tests/lattice/valgrind/sweep.sh; corpus member
+// tests/logos/pass/rfc2229_move_disjoint_field.logos, which is EXACTLY this
+// shape (`let c = move || { let _t = p.x; };`) — 4 bytes definitely lost and
+// GREEN through run_test.sh today, because no oracle in this tree sees a leak.
+// Rust: exit 0, `p.x` is dropped when the closure is.
+//
+// ⚠ THE ORACLE IS A DESTRUCTOR COUNT. Today 0, exit 1; correct 1, exit 0.
+package closure_narrow_capture_never_dropped;
+
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct P { x: D, y: i64 }
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let s: P = P { x: D { v: 1i64, c: p }, y: 5i64 };
+        let c = move || { let _t: D = s.x; };
+    }
+    let got: i64 = unsafe { n };
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}

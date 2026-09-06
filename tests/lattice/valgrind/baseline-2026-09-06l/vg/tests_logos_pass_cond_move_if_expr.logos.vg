@@ -1,0 +1,61 @@
+==3812722== Memcheck, a memory error detector
+==3812722== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3812722== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3812722== Command: /tmp/tmp.vSlqYsEMHG/f.bin
+==3812722== 
+==3812722== 
+==3812722== HEAP SUMMARY:
+==3812722==     in use at exit: 384 bytes in 6 blocks
+==3812722==   total heap usage: 26 allocs, 20 frees, 5,696 bytes allocated
+==3812722== 
+==3812722== 64 bytes in 1 blocks are definitely lost in loss record 1 of 6
+==3812722==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812722==    by 0x10A0DA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x10920A: cond_move_if_expr$mk__f__i64 (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x1098AE: cond_move_if_expr$cellN__f__bool (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x109EF8: main (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722== 
+==3812722== 64 bytes in 1 blocks are definitely lost in loss record 2 of 6
+==3812722==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812722==    by 0x10A0DA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x10920A: cond_move_if_expr$mk__f__i64 (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x1098AE: cond_move_if_expr$cellN__f__bool (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x109F4F: main (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722== 
+==3812722== 64 bytes in 1 blocks are definitely lost in loss record 3 of 6
+==3812722==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812722==    by 0x10A0DA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x10920A: cond_move_if_expr$mk__f__i64 (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x109ACC: cond_move_if_expr$cellO__f__bool (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x109FA9: main (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722== 
+==3812722== 64 bytes in 1 blocks are definitely lost in loss record 4 of 6
+==3812722==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812722==    by 0x10A0DA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x10920A: cond_move_if_expr$mk__f__i64 (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x109B4E: cond_move_if_expr$cellO__f__bool (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x109FA9: main (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722== 
+==3812722== 64 bytes in 1 blocks are definitely lost in loss record 5 of 6
+==3812722==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812722==    by 0x10A0DA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x10920A: cond_move_if_expr$mk__f__i64 (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x109B0C: cond_move_if_expr$cellO__f__bool (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x10A000: main (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722== 
+==3812722== 64 bytes in 1 blocks are definitely lost in loss record 6 of 6
+==3812722==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812722==    by 0x10A0DA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x10920A: cond_move_if_expr$mk__f__i64 (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x109B4E: cond_move_if_expr$cellO__f__bool (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722==    by 0x10A000: main (in /tmp/tmp.vSlqYsEMHG/f.bin)
+==3812722== 
+==3812722== LEAK SUMMARY:
+==3812722==    definitely lost: 384 bytes in 6 blocks
+==3812722==    indirectly lost: 0 bytes in 0 blocks
+==3812722==      possibly lost: 0 bytes in 0 blocks
+==3812722==    still reachable: 0 bytes in 0 blocks
+==3812722==         suppressed: 0 bytes in 0 blocks
+==3812722== 
+==3812722== For lists of detected and suppressed errors, rerun with: -s
+==3812722== ERROR SUMMARY: 6 errors from 6 contexts (suppressed: 0 from 0)

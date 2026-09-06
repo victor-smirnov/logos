@@ -1,0 +1,138 @@
+==3891935== Memcheck, a memory error detector
+==3891935== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3891935== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3891935== Command: /tmp/tmp.9pDVQR8fUH/f.bin
+==3891935== 
+==3891935== 
+==3891935== HEAP SUMMARY:
+==3891935==     in use at exit: 1,088 bytes in 17 blocks
+==3891935==   total heap usage: 18 allocs, 1 frees, 5,184 bytes allocated
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 1 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1092B2: no_auto_drop_sibling$c_local__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109D3A: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 2 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109322: no_auto_drop_sibling$c_sole__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109D7D: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 3 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1093B0: no_auto_drop_sibling$c_scalar__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109DC0: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 4 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109455: no_auto_drop_sibling$c_plain__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109E03: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 5 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109505: no_auto_drop_sibling$c_gen__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109E52: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 6 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1095C8: no_auto_drop_sibling$c_genfst__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109EA7: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 7 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109665: no_auto_drop_sibling$c_pay__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109EFC: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 8 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1096DC: no_auto_drop_sibling$c_pay__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109EFC: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 9 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109765: no_auto_drop_sibling$c_arr__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109F51: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 10 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1097DC: no_auto_drop_sibling$c_arr__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109F51: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 11 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109865: no_auto_drop_sibling$c_nested__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109FA6: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 12 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1098E8: no_auto_drop_sibling$c_nested__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109FA6: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 13 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109A45: no_auto_drop_sibling$c_iter_ok__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109FFB: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 14 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109A86: no_auto_drop_sibling$c_iter_ok__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109FFB: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 15 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109B85: no_auto_drop_sibling$c_iter_bad__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x10A050: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 16 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109BC8: no_auto_drop_sibling$c_iter_bad__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x10A050: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== 64 bytes in 1 blocks are definitely lost in loss record 17 of 17
+==3891935==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3891935==    by 0x10A11A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x1091FA: no_auto_drop_sibling$mk__f__i64 (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x109C89: no_auto_drop_sibling$c_iter_bad__f__void (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935==    by 0x10A050: main (in /tmp/tmp.9pDVQR8fUH/f.bin)
+==3891935== 
+==3891935== LEAK SUMMARY:
+==3891935==    definitely lost: 1,088 bytes in 17 blocks
+==3891935==    indirectly lost: 0 bytes in 0 blocks
+==3891935==      possibly lost: 0 bytes in 0 blocks
+==3891935==    still reachable: 0 bytes in 0 blocks
+==3891935==         suppressed: 0 bytes in 0 blocks
+==3891935== 
+==3891935== For lists of detected and suppressed errors, rerun with: -s
+==3891935== ERROR SUMMARY: 17 errors from 17 contexts (suppressed: 0 from 0)

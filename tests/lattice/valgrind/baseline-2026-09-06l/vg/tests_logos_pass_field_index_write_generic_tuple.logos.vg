@@ -1,0 +1,23 @@
+==3848760== Memcheck, a memory error detector
+==3848760== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3848760== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3848760== Command: /tmp/tmp.fAkpTOX033/f.bin
+==3848760== 
+==3848760== 
+==3848760== HEAP SUMMARY:
+==3848760==     in use at exit: 128 bytes in 1 blocks
+==3848760==   total heap usage: 1 allocs, 0 frees, 128 bytes allocated
+==3848760== 
+==3848760== 128 bytes in 1 blocks are definitely lost in loss record 1 of 1
+==3848760==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3848760==    by 0x1091AC: main (in /tmp/tmp.fAkpTOX033/f.bin)
+==3848760== 
+==3848760== LEAK SUMMARY:
+==3848760==    definitely lost: 128 bytes in 1 blocks
+==3848760==    indirectly lost: 0 bytes in 0 blocks
+==3848760==      possibly lost: 0 bytes in 0 blocks
+==3848760==    still reachable: 0 bytes in 0 blocks
+==3848760==         suppressed: 0 bytes in 0 blocks
+==3848760== 
+==3848760== For lists of detected and suppressed errors, rerun with: -s
+==3848760== ERROR SUMMARY: 1 errors from 1 contexts (suppressed: 0 from 0)

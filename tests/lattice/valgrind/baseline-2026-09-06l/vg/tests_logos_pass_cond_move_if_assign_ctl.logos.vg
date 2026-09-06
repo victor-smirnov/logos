@@ -1,0 +1,54 @@
+==3812443== Memcheck, a memory error detector
+==3812443== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3812443== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3812443== Command: /tmp/tmp.uyYP6vz1my/f.bin
+==3812443== 
+==3812443== 
+==3812443== HEAP SUMMARY:
+==3812443==     in use at exit: 320 bytes in 5 blocks
+==3812443==   total heap usage: 13 allocs, 8 frees, 4,864 bytes allocated
+==3812443== 
+==3812443== 64 bytes in 1 blocks are definitely lost in loss record 1 of 5
+==3812443==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812443==    by 0x10998A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x10920A: cond_move_if_assign_ctl$mk__f__i64 (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x109302: cond_move_if_assign_ctl$ctlBoth__f__bool (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x10978F: main (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443== 
+==3812443== 64 bytes in 1 blocks are definitely lost in loss record 2 of 5
+==3812443==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812443==    by 0x10998A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x10920A: cond_move_if_assign_ctl$mk__f__i64 (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x109302: cond_move_if_assign_ctl$ctlBoth__f__bool (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x1097D4: main (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443== 
+==3812443== 64 bytes in 1 blocks are definitely lost in loss record 3 of 5
+==3812443==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812443==    by 0x10998A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x10920A: cond_move_if_assign_ctl$mk__f__i64 (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x10944B: cond_move_if_assign_ctl$ctlNoBranch__f__void (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x109817: main (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443== 
+==3812443== 64 bytes in 1 blocks are definitely lost in loss record 4 of 5
+==3812443==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812443==    by 0x10998A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x10920A: cond_move_if_assign_ctl$mk__f__i64 (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x109570: cond_move_if_assign_ctl$ctlNoMove__f__bool (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x10985F: main (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443== 
+==3812443== 64 bytes in 1 blocks are definitely lost in loss record 5 of 5
+==3812443==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812443==    by 0x10998A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x10920A: cond_move_if_assign_ctl$mk__f__i64 (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x109570: cond_move_if_assign_ctl$ctlNoMove__f__bool (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443==    by 0x1098B0: main (in /tmp/tmp.uyYP6vz1my/f.bin)
+==3812443== 
+==3812443== LEAK SUMMARY:
+==3812443==    definitely lost: 320 bytes in 5 blocks
+==3812443==    indirectly lost: 0 bytes in 0 blocks
+==3812443==      possibly lost: 0 bytes in 0 blocks
+==3812443==    still reachable: 0 bytes in 0 blocks
+==3812443==         suppressed: 0 bytes in 0 blocks
+==3812443== 
+==3812443== For lists of detected and suppressed errors, rerun with: -s
+==3812443== ERROR SUMMARY: 5 errors from 5 contexts (suppressed: 0 from 0)

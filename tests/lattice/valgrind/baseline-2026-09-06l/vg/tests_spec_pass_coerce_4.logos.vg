@@ -1,0 +1,143 @@
+==3957931== Memcheck, a memory error detector
+==3957931== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3957931== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3957931== Command: /tmp/tmp.6FmBnQ8ALE/f.bin
+==3957931== 
+==3957931== Invalid read of size 4
+==3957931==    at 0x109186: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109943: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Address 0x4b810a0 is 0 bytes inside a block of size 16 free'd
+==3957931==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109443: coerce_4$take_rc_dyn__f__Rc$G1$udyn_Sp (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x10989C: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Block was alloc'd at
+==3957931==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109848: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931== 
+==3957931== Invalid write of size 4
+==3957931==    at 0x1091A5: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109943: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Address 0x4b810a0 is 0 bytes inside a block of size 16 free'd
+==3957931==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109443: coerce_4$take_rc_dyn__f__Rc$G1$udyn_Sp (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x10989C: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Block was alloc'd at
+==3957931==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109848: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931== 
+==3957931== Invalid read of size 4
+==3957931==    at 0x1091AA: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109943: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Address 0x4b810a0 is 0 bytes inside a block of size 16 free'd
+==3957931==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109443: coerce_4$take_rc_dyn__f__Rc$G1$udyn_Sp (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x10989C: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Block was alloc'd at
+==3957931==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109848: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931== 
+==3957931== Invalid read of size 4
+==3957931==    at 0x109186: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109A2B: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Address 0x4b810f0 is 0 bytes inside a block of size 16 free'd
+==3957931==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109A1E: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Block was alloc'd at
+==3957931==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x10995C: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931== 
+==3957931== Invalid write of size 4
+==3957931==    at 0x1091A5: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109A2B: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Address 0x4b810f0 is 0 bytes inside a block of size 16 free'd
+==3957931==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109A1E: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Block was alloc'd at
+==3957931==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x10995C: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931== 
+==3957931== Invalid read of size 4
+==3957931==    at 0x1091AA: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109A2B: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Address 0x4b810f0 is 0 bytes inside a block of size 16 free'd
+==3957931==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109A1E: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Block was alloc'd at
+==3957931==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x10995C: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931== 
+==3957931== Invalid read of size 4
+==3957931==    at 0x109186: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109F3E: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Address 0x4b81190 is 0 bytes inside a block of size 16 free'd
+==3957931==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109F31: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Block was alloc'd at
+==3957931==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109E6F: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931== 
+==3957931== Invalid write of size 4
+==3957931==    at 0x1091A5: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109F3E: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Address 0x4b81190 is 0 bytes inside a block of size 16 free'd
+==3957931==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109F31: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Block was alloc'd at
+==3957931==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109E6F: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931== 
+==3957931== Invalid read of size 4
+==3957931==    at 0x1091AA: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109F3E: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Address 0x4b81190 is 0 bytes inside a block of size 16 free'd
+==3957931==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109F31: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==  Block was alloc'd at
+==3957931==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957931==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931==    by 0x109E6F: main (in /tmp/tmp.6FmBnQ8ALE/f.bin)
+==3957931== 
+==3957931== 
+==3957931== HEAP SUMMARY:
+==3957931==     in use at exit: 0 bytes in 0 blocks
+==3957931==   total heap usage: 5 allocs, 5 frees, 80 bytes allocated
+==3957931== 
+==3957931== All heap blocks were freed -- no leaks are possible
+==3957931== 
+==3957931== For lists of detected and suppressed errors, rerun with: -s
+==3957931== ERROR SUMMARY: 9 errors from 9 contexts (suppressed: 0 from 0)

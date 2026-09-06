@@ -1,0 +1,69 @@
+// SOUNDNESS QUEUE row closure_capture_body_moved_never_dropped (tier 1).
+// A `move` CLOSURE'S OWNED CAPTURE IS DROPPED BY NOBODY WHEN THE CLOSURE IS
+// NEVER INVOKED — sema DELEGATES the drop to the closure BODY, and the body
+// does not run.
+//
+// ROOT, by symbol: the §7.1 exception in `SemaChecker`'s closure-literal
+// capture walk (src/compiler/sema_expr.cpp, the `is_move_type(move_check_t)`
+// arm that fills `closure_owned_drop_` / `unskipped_captures`):
+//
+//     if (body_moved_outer.count(ec->captures[i])) continue;
+//
+// Its own comment says the body-side drop "is already the canonical drop site
+// (callee fn-param drop, or body-local's scope-end drop)". THAT IS TRUE ONLY
+// ON THE PATHS WHERE THE CLOSURE IS CALLED. For a NON-ESCAPING (stack-env)
+// `move` closure the env merely borrows the source's storage, so mlir-gen
+// emits no env glue — `MLIRGenImpl::emit_closure_env`'s `need_glue` is false —
+// and `MLIRGenImpl::value_needs_drop` deliberately answers FALSE for
+// `K::Closure` (its NOTE in src/compiler/mlir_gen_stmt.cpp), so the closure
+// VALUE gets no scope-exit drop either. Sema skips the source-scope drop,
+// codegen emits no closure-side drop, and the value is destroyed by nobody.
+// MEASURED: `nm` finds NO `__closure_drop__` symbol in the object at all.
+//
+// ⚠ CONTRADICTS A RECORDED CLAIM IN THE SOURCES. That same NOTE says the
+// closure drop is "driven NARROWLY: only the owning `Box<Closure>` path
+// ... invokes gen_drop_value(Closure)". Measured on this binary, that path
+// does not fire for a hand program either: `Box::new(move || …)` reads
+// COUNT=0, and so does `Box<dyn Fn()>`.
+//
+// CONTROLS ALREADY CORRECT, bounding where a fix must not reach:
+//   * THE SAME CLOSURE, CALLED ONCE — COUNT=1. The delegation is correct
+//     exactly when the body runs, which is why the fix is not "always drop at
+//     the source" but "delegate only to a drop site that is guaranteed to run".
+//   * A `move` closure whose body only READS the capture (`s.len()`) — clean.
+//     `body_moved_outer` does not contain it, so sema inserts it into
+//     `closure_owned_drop_` and the SOURCE scope drops it. The mechanism the
+//     defect bypasses is live and correct next door.
+//   * The same value moved to a plain local with no closure — clean.
+//
+// THE CLASS HAS A SECOND ARM, three lines above this one and rowed separately
+// as closure_narrow_capture_never_dropped: `if (narrow_owned) continue;`
+// delegates an RFC-2229 narrow field capture to "the closure drop-glue", which
+// for a non-escaping closure is likewise never emitted. ONE predicate — a
+// delegation is valid only if the site it names is guaranteed to run — closes
+// both.
+//
+// Found by tests/lattice/valgrind/sweep.sh; corpus member
+// tests/logos/pass/rfc2229_move_disjoint_field.logos (2 allocs / 1 free,
+// 4 bytes definitely lost, GREEN through run_test.sh today).
+// Rust: exit 0, the capture is dropped when the closure is.
+//
+// ⚠ THE ORACLE IS A DESTRUCTOR COUNT, NOT valgrind and not an exit code alone.
+// `D`'s destructor adds its weight through a raw `*mut i64`. Today the counter
+// reads 0 and this program exits 1; correct is 1 and exit 0.
+package closure_capture_body_moved_never_dropped;
+
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let d: D = D { v: 1i64, c: p };
+        let c = move || { let _t: D = d; };
+    }
+    let got: i64 = unsafe { n };
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}

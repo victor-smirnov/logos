@@ -1,0 +1,45 @@
+==3843729== Memcheck, a memory error detector
+==3843729== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3843729== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3843729== Command: /tmp/tmp.ql23ZAyNpO/f.bin
+==3843729== 
+==3843729== 
+==3843729== HEAP SUMMARY:
+==3843729==     in use at exit: 299 bytes in 6 blocks
+==3843729==   total heap usage: 47 allocs, 41 frees, 2,173 bytes allocated
+==3843729== 
+==3843729== 64 bytes in 1 blocks are definitely lost in loss record 3 of 6
+==3843729==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3843729==    by 0x10C13A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.ql23ZAyNpO/f.bin)
+==3843729==    by 0x10979A: dupown_cmp_minmax_by_drop_once$mk__f__i64 (in /tmp/tmp.ql23ZAyNpO/f.bin)
+==3843729==    by 0x10A1EA: main (in /tmp/tmp.ql23ZAyNpO/f.bin)
+==3843729== 
+==3843729== 64 bytes in 1 blocks are definitely lost in loss record 4 of 6
+==3843729==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3843729==    by 0x10C13A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.ql23ZAyNpO/f.bin)
+==3843729==    by 0x10979A: dupown_cmp_minmax_by_drop_once$mk__f__i64 (in /tmp/tmp.ql23ZAyNpO/f.bin)
+==3843729==    by 0x10A2C0: main (in /tmp/tmp.ql23ZAyNpO/f.bin)
+==3843729== 
+==3843729== 64 bytes in 1 blocks are definitely lost in loss record 5 of 6
+==3843729==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3843729==    by 0x10C13A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.ql23ZAyNpO/f.bin)
+==3843729==    by 0x10979A: dupown_cmp_minmax_by_drop_once$mk__f__i64 (in /tmp/tmp.ql23ZAyNpO/f.bin)
+==3843729==    by 0x10A8BB: main (in /tmp/tmp.ql23ZAyNpO/f.bin)
+==3843729== 
+==3843729== 64 bytes in 1 blocks are definitely lost in loss record 6 of 6
+==3843729==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3843729==    by 0x10C13A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.ql23ZAyNpO/f.bin)
+==3843729==    by 0x10979A: dupown_cmp_minmax_by_drop_once$mk__f__i64 (in /tmp/tmp.ql23ZAyNpO/f.bin)
+==3843729==    by 0x10A98B: main (in /tmp/tmp.ql23ZAyNpO/f.bin)
+==3843729== 
+==3843729== LEAK SUMMARY:
+==3843729==    definitely lost: 256 bytes in 4 blocks
+==3843729==    indirectly lost: 0 bytes in 0 blocks
+==3843729==      possibly lost: 0 bytes in 0 blocks
+==3843729==    still reachable: 43 bytes in 2 blocks
+==3843729==         suppressed: 0 bytes in 0 blocks
+==3843729== Reachable blocks (those to which a pointer was found) are not shown.
+==3843729== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==3843729== 
+==3843729== For lists of detected and suppressed errors, rerun with: -s
+==3843729== ERROR SUMMARY: 4 errors from 4 contexts (suppressed: 0 from 0)

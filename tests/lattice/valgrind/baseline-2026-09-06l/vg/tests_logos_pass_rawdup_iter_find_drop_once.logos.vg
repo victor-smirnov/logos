@@ -1,0 +1,27 @@
+==3906077== Memcheck, a memory error detector
+==3906077== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3906077== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3906077== Command: /tmp/tmp.HDRNfYHWpP/f.bin
+==3906077== 
+==3906077== 
+==3906077== HEAP SUMMARY:
+==3906077==     in use at exit: 107 bytes in 3 blocks
+==3906077==   total heap usage: 19 allocs, 16 frees, 851 bytes allocated
+==3906077== 
+==3906077== 64 bytes in 1 blocks are definitely lost in loss record 3 of 3
+==3906077==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3906077==    by 0x10AE4A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.HDRNfYHWpP/f.bin)
+==3906077==    by 0x1098EA: rawdup_iter_find_drop_once$mk__f__i64 (in /tmp/tmp.HDRNfYHWpP/f.bin)
+==3906077==    by 0x109A88: main (in /tmp/tmp.HDRNfYHWpP/f.bin)
+==3906077== 
+==3906077== LEAK SUMMARY:
+==3906077==    definitely lost: 64 bytes in 1 blocks
+==3906077==    indirectly lost: 0 bytes in 0 blocks
+==3906077==      possibly lost: 0 bytes in 0 blocks
+==3906077==    still reachable: 43 bytes in 2 blocks
+==3906077==         suppressed: 0 bytes in 0 blocks
+==3906077== Reachable blocks (those to which a pointer was found) are not shown.
+==3906077== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==3906077== 
+==3906077== For lists of detected and suppressed errors, rerun with: -s
+==3906077== ERROR SUMMARY: 1 errors from 1 contexts (suppressed: 0 from 0)

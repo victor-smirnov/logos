@@ -1,0 +1,29 @@
+==3962388== Memcheck, a memory error detector
+==3962388== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3962388== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3962388== Command: /tmp/tmp.BEaPUxeXkN/f.bin
+==3962388== 
+==3962388== 
+==3962388== HEAP SUMMARY:
+==3962388==     in use at exit: 14 bytes in 2 blocks
+==3962388==   total heap usage: 5 allocs, 3 frees, 38 bytes allocated
+==3962388== 
+==3962388== 6 bytes in 1 blocks are definitely lost in loss record 1 of 2
+==3962388==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3962388==    by 0x109C0D: logos_mem..logos.mem.string.String__from__f__slice_u8 (in /tmp/tmp.BEaPUxeXkN/f.bin)
+==3962388==    by 0x1092D1: main (in /tmp/tmp.BEaPUxeXkN/f.bin)
+==3962388== 
+==3962388== 8 bytes in 1 blocks are definitely lost in loss record 2 of 2
+==3962388==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3962388==    by 0x1095E1: logos_mem.logos.mem.boxed$box_new__g__T__i64 (in /tmp/tmp.BEaPUxeXkN/f.bin)
+==3962388==    by 0x1094DF: main (in /tmp/tmp.BEaPUxeXkN/f.bin)
+==3962388== 
+==3962388== LEAK SUMMARY:
+==3962388==    definitely lost: 14 bytes in 2 blocks
+==3962388==    indirectly lost: 0 bytes in 0 blocks
+==3962388==      possibly lost: 0 bytes in 0 blocks
+==3962388==    still reachable: 0 bytes in 0 blocks
+==3962388==         suppressed: 0 bytes in 0 blocks
+==3962388== 
+==3962388== For lists of detected and suppressed errors, rerun with: -s
+==3962388== ERROR SUMMARY: 2 errors from 2 contexts (suppressed: 0 from 0)

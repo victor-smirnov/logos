@@ -48,7 +48,9 @@ closure_byvalue_param_never_dropped 1 tests/soundness/open/closure_byvalue_param
 self_call_in_return_kills_param_drops 1 tests/soundness/open/self_call_in_return_kills_param_drops run 1
 weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped      run 1
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
-# TOTAL 63
+closure_capture_body_moved_never_dropped 1 tests/soundness/open/closure_capture_body_moved_never_dropped run 1
+closure_narrow_capture_never_dropped 1 tests/soundness/open/closure_narrow_capture_never_dropped run 1
+# TOTAL 65
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 drop_inherent_call_order      1 tests/soundness/open/drop_inherent_call_order      refuses

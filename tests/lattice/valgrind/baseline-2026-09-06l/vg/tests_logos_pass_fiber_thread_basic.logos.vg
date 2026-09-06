@@ -1,0 +1,611 @@
+==3848848== Memcheck, a memory error detector
+==3848848== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3848848== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3848848== Command: /tmp/tmp.7d4K8Zq2oC/f.bin
+==3848848== 
+==3848848== Thread 2:
+==3848848== Invalid read of size 8
+==3848848==    at 0x10A377: logos_sched_get (/home/logos/devel/logos/stdlib/rt/fiber_ctx.S:120)
+==3848848==  Address 0x57816a0 is in a rw- anonymous segment
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x10A35A: logos_fiber_switch (/home/logos/devel/logos/stdlib/rt/fiber_ctx.S:44)
+==3848848==    by 0x4B8121F: ???
+==3848848==    by 0x5780E57: ???
+==3848848==    by 0x4B8242F: ???
+==3848848==    by 0xEFFFFFFFFFFFFFFF: ???
+==3848848==    by 0xF7FFFFFFFFFFFFFF: ???
+==3848848==    by 0x109B89: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x10D00D: logos_lcm.logos.lcm.fiber$sched_run__f__pmut_Scheduler (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x109B8F: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x109BA5: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x109958: logos_std.logos.std.rt.fiber$reactor_poll__f__pmut_Reactor__bool (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109BB1: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x1099AD: logos_std.logos.std.rt.fiber$reactor_poll__f__pmut_Reactor__bool (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109BB1: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x1099BE: logos_std.logos.std.rt.fiber$reactor_poll__f__pmut_Reactor__bool (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109BB1: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x10BA9A: __io_uring_get_cqe (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x1099C8: logos_std.logos.std.rt.fiber$reactor_poll__f__pmut_Reactor__bool (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109BB1: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A0563D: __pthread_enable_asynccancel (cancellation.c:33)
+==3848848==    by 0x4A88BB7: __libc_read (read.c:26)
+==3848848==    by 0x4A88BB7: read (read.c:24)
+==3848848==    by 0x109BD7: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A05651: __pthread_enable_asynccancel (cancellation.c:39)
+==3848848==    by 0x4A88BB7: __libc_read (read.c:26)
+==3848848==    by 0x4A88BB7: read (read.c:24)
+==3848848==    by 0x109BD7: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A05655: __pthread_enable_asynccancel (cancellation.c:42)
+==3848848==    by 0x4A88BB7: __libc_read (read.c:26)
+==3848848==    by 0x4A88BB7: read (read.c:24)
+==3848848==    by 0x109BD7: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A0565B: __pthread_enable_asynccancel (cancellation.c:42)
+==3848848==    by 0x4A88BB7: __libc_read (read.c:26)
+==3848848==    by 0x4A88BB7: read (read.c:24)
+==3848848==    by 0x109BD7: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A05666: __pthread_enable_asynccancel (cancellation.c:45)
+==3848848==    by 0x4A88BB7: __libc_read (read.c:26)
+==3848848==    by 0x4A88BB7: read (read.c:24)
+==3848848==    by 0x109BD7: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Syscall param read(buf) contains uninitialised byte(s)
+==3848848==    at 0x4A88BCA: __libc_read (read.c:26)
+==3848848==    by 0x4A88BCA: read (read.c:24)
+==3848848==    by 0x109BD7: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A056B7: __pthread_disable_asynccancel (cancellation.c:66)
+==3848848==    by 0x4A88BDD: __libc_read (read.c:26)
+==3848848==    by 0x4A88BDD: read (read.c:24)
+==3848848==    by 0x109BD7: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A056C9: __pthread_disable_asynccancel (cancellation.c:71)
+==3848848==    by 0x4A88BDD: __libc_read (read.c:26)
+==3848848==    by 0x4A88BDD: read (read.c:24)
+==3848848==    by 0x109BD7: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A056DD: __pthread_disable_asynccancel (cancellation.c:76)
+==3848848==    by 0x4A88BDD: __libc_read (read.c:26)
+==3848848==    by 0x4A88BDD: read (read.c:24)
+==3848848==    by 0x109BD7: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A056E1: __pthread_disable_asynccancel (cancellation.c:76)
+==3848848==    by 0x4A88BDD: __libc_read (read.c:26)
+==3848848==    by 0x4A88BDD: read (read.c:24)
+==3848848==    by 0x109BD7: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A056E9: __pthread_disable_asynccancel (cancellation.c:83)
+==3848848==    by 0x4A88BDD: __libc_read (read.c:26)
+==3848848==    by 0x4A88BDD: read (read.c:24)
+==3848848==    by 0x109BD7: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x109BDD: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x109BF1: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x109CAE: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x109CBA: logos_std.logos.std.rt.fiber$thread_reactor__f__pmut_Thread (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x3: ???
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A0563D: __pthread_enable_asynccancel (cancellation.c:33)
+==3848848==    by 0x4A8383F: close (close.c:27)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A05655: __pthread_enable_asynccancel (cancellation.c:42)
+==3848848==    by 0x4A8383F: close (close.c:27)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A0565B: __pthread_enable_asynccancel (cancellation.c:42)
+==3848848==    by 0x4A8383F: close (close.c:27)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A05666: __pthread_enable_asynccancel (cancellation.c:45)
+==3848848==    by 0x4A8383F: close (close.c:27)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A056B7: __pthread_disable_asynccancel (cancellation.c:66)
+==3848848==    by 0x4A8385D: close (close.c:27)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A056C9: __pthread_disable_asynccancel (cancellation.c:71)
+==3848848==    by 0x4A8385D: close (close.c:27)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A056DD: __pthread_disable_asynccancel (cancellation.c:76)
+==3848848==    by 0x4A8385D: close (close.c:27)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A056E1: __pthread_disable_asynccancel (cancellation.c:76)
+==3848848==    by 0x4A8385D: close (close.c:27)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A056E9: __pthread_disable_asynccancel (cancellation.c:83)
+==3848848==    by 0x4A8385D: close (close.c:27)
+==3848848==    by 0x109EE9: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x4A09B83: start_thread (pthread_create.c:447)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A83862: close (close.c:28)
+==3848848==    by 0x57816BF: ???
+==3848848==    by 0x5781CDB: ???
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x109EF6: logos_std.logos.std.rt.fiber$thread_entry__f__pmut_u8 (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x49B470A: __call_tls_dtors (cxa_thread_atexit_impl.c:149)
+==3848848==    by 0x4A0996A: start_thread (pthread_create.c:452)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A06380: __nptl_deallocate_tsd (nptl_deallocate_tsd.c:28)
+==3848848==    by 0x4A0996F: start_thread (pthread_create.c:455)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4AE4B8A: __rpc_thread_destroy (rpc_thread.c:24)
+==3848848==    by 0x4A1D5EC: __libc_thread_freeres (thread-freeres.c:33)
+==3848848==    by 0x4A09974: start_thread (pthread_create.c:458)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4ABC3BD: __resolv_context_freeres (resolv_context.c:246)
+==3848848==    by 0x4AB2E05: __res_thread_freeres (res-close.c:132)
+==3848848==    by 0x4A1D5F1: __libc_thread_freeres (thread-freeres.c:35)
+==3848848==    by 0x4A09974: start_thread (pthread_create.c:458)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4AB2E12: __res_thread_freeres (res-close.c:134)
+==3848848==    by 0x4A1D5F1: __libc_thread_freeres (thread-freeres.c:35)
+==3848848==    by 0x4A09974: start_thread (pthread_create.c:458)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4AB2E19: __res_thread_freeres (res-close.c:134)
+==3848848==    by 0x4A1D5F1: __libc_thread_freeres (thread-freeres.c:35)
+==3848848==    by 0x4A09974: start_thread (pthread_create.c:458)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A35966: __glibc_tls_internal_free (tls-internal.c:26)
+==3848848==    by 0x4A1D5F6: __libc_thread_freeres (thread-freeres.c:36)
+==3848848==    by 0x4A09974: start_thread (pthread_create.c:458)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4849845: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3848848==    by 0x4A35971: __glibc_tls_internal_free (tls-internal.c:26)
+==3848848==    by 0x4A1D5F6: __libc_thread_freeres (thread-freeres.c:36)
+==3848848==    by 0x4A09974: start_thread (pthread_create.c:458)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A35972: __glibc_tls_internal_free (tls-internal.c:27)
+==3848848==    by 0x4A1D5F6: __libc_thread_freeres (thread-freeres.c:36)
+==3848848==    by 0x4A09974: start_thread (pthread_create.c:458)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4849845: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3848848==    by 0x4A1D5F6: __libc_thread_freeres (thread-freeres.c:36)
+==3848848==    by 0x4A09974: start_thread (pthread_create.c:458)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A0556B: __libc_dlerror_result_free (libc_dlerror_result.c:30)
+==3848848==    by 0x4A1D5FB: __libc_thread_freeres (thread-freeres.c:37)
+==3848848==    by 0x4A09974: start_thread (pthread_create.c:458)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A1AF6F: tcache_thread_shutdown (malloc.c:3217)
+==3848848==    by 0x4A1AF6F: __malloc_arena_thread_freeres (arena.c:897)
+==3848848==    by 0x4A09974: start_thread (pthread_create.c:458)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A1B056: __malloc_arena_thread_freeres (arena.c:902)
+==3848848==    by 0x4A09974: start_thread (pthread_create.c:458)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A09975: start_thread (pthread_create.c:461)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A0997C: start_thread (pthread_create.c:461)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A09983: start_thread (pthread_create.c:461)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A09989: start_thread (pthread_create.c:492)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A09990: start_thread (pthread_create.c:492)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A099A6: internal_sigdelset (internal-sigset.h:102)
+==3848848==    by 0x4A099A6: start_thread (pthread_create.c:507)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A099C1: internal_sigdelset (internal-sigset.h:102)
+==3848848==    by 0x4A099C1: start_thread (pthread_create.c:507)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Syscall param rt_sigprocmask(set) contains uninitialised byte(s)
+==3848848==    at 0x4A099D6: start_thread (pthread_create.c:515)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A099E4: start_thread (pthread_create.c:515)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A099EA: start_thread (pthread_create.c:515)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A099F0: start_thread (pthread_create.c:516)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A099F7: start_thread (pthread_create.c:516)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A09A00: start_thread (pthread_create.c:517)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A09A0D: start_thread (pthread_create.c:552)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A09A14: start_thread (pthread_create.c:552)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A09A1B: start_thread (pthread_create.c:552)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A09A1D: start_thread (pthread_create.c:553)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A09A24: start_thread (pthread_create.c:553)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A09A4A: advise_stack_range (allocatestack.c:192)
+==3848848==    by 0x4A09A4A: start_thread (pthread_create.c:553)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A09A56: advise_stack_range (allocatestack.c:193)
+==3848848==    by 0x4A09A56: start_thread (pthread_create.c:553)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Syscall param madvise(start) contains uninitialised byte(s)
+==3848848==    at 0x4A921EB: madvise (syscall-template.S:117)
+==3848848==    by 0x4A09BEA: advise_stack_range (allocatestack.c:194)
+==3848848==    by 0x4A09BEA: start_thread (pthread_create.c:553)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Syscall param madvise(length) contains uninitialised byte(s)
+==3848848==    at 0x4A921EB: madvise (syscall-template.S:117)
+==3848848==    by 0x4A09BEA: advise_stack_range (allocatestack.c:194)
+==3848848==    by 0x4A09BEA: start_thread (pthread_create.c:553)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A09BEB: advise_stack_range (allocatestack.c:194)
+==3848848==    by 0x4A09BEB: start_thread (pthread_create.c:553)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A09A69: start_thread (pthread_create.c:556)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A09A70: start_thread (pthread_create.c:556)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A09A76: start_thread (pthread_create.c:573)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A09A7D: start_thread (pthread_create.c:573)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A09A84: start_thread (pthread_create.c:573)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A09A8A: start_thread (pthread_create.c:578)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A0973D: name_stack_maps (allocatestack.c:589)
+==3848848==    by 0x4A09A97: start_thread (pthread_create.c:578)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A097D6: name_stack_maps (allocatestack.c:596)
+==3848848==    by 0x4A09A97: start_thread (pthread_create.c:578)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A978A5: __set_vma_name (setvmaname.c:49)
+==3848848==    by 0x4A09A97: start_thread (pthread_create.c:578)
+==3848848==    by 0x4A96B63: clone (clone.S:100)
+==3848848== 
+==3848848== Thread 1:
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A064DD: __nptl_free_tcb (nptl_free_tcb.c:27)
+==3848848==    by 0x4A0B7F9: __pthread_clockjoin_ex (pthread_join_common.c:125)
+==3848848==    by 0x10A235: logos_std.logos.std.rt.fiber$thread_pool_join__f__pmut_ThreadPool (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x10989E: main (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A064F5: __nptl_free_tcb (nptl_free_tcb.c:31)
+==3848848==    by 0x4A064F5: __nptl_free_tcb (nptl_free_tcb.c:24)
+==3848848==    by 0x4A0B7F9: __pthread_clockjoin_ex (pthread_join_common.c:125)
+==3848848==    by 0x10A235: logos_std.logos.std.rt.fiber$thread_pool_join__f__pmut_ThreadPool (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x10989E: main (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A06249: list_del (list.h:55)
+==3848848==    by 0x4A06249: __nptl_stack_list_del (nptl-stack.c:33)
+==3848848==    by 0x4A06249: __nptl_deallocate_stack (nptl-stack.c:117)
+==3848848==    by 0x4A0B7F9: __pthread_clockjoin_ex (pthread_join_common.c:125)
+==3848848==    by 0x10A235: logos_std.logos.std.rt.fiber$thread_pool_join__f__pmut_ThreadPool (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x10989E: main (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4A0624D: list_del (list.h:56)
+==3848848==    by 0x4A0624D: __nptl_stack_list_del (nptl-stack.c:33)
+==3848848==    by 0x4A0624D: __nptl_deallocate_stack (nptl-stack.c:117)
+==3848848==    by 0x4A0B7F9: __pthread_clockjoin_ex (pthread_join_common.c:125)
+==3848848==    by 0x10A235: logos_std.logos.std.rt.fiber$thread_pool_join__f__pmut_ThreadPool (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x10989E: main (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A06264: __nptl_deallocate_stack (nptl-stack.c:123)
+==3848848==    by 0x4A0B7F9: __pthread_clockjoin_ex (pthread_join_common.c:125)
+==3848848==    by 0x10A235: logos_std.logos.std.rt.fiber$thread_pool_join__f__pmut_ThreadPool (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x10989E: main (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A062CC: queue_stack (nptl-stack.c:105)
+==3848848==    by 0x4A062CC: __nptl_deallocate_stack (nptl-stack.c:124)
+==3848848==    by 0x4A0B7F9: __pthread_clockjoin_ex (pthread_join_common.c:125)
+==3848848==    by 0x10A235: logos_std.logos.std.rt.fiber$thread_pool_join__f__pmut_ThreadPool (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848==    by 0x10989E: main (in /tmp/tmp.7d4K8Zq2oC/f.bin)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4014849: _dl_deallocate_tls (dl-tls.c:640)
+==3848848==    by 0x4A061C9: __nptl_free_stacks (nptl-stack.c:79)
+==3848848==    by 0x4A1D3A2: __libc_freeres (set-freeres.c:181)
+==3848848==    by 0x483D152: _vgnU_freeres (in /usr/libexec/valgrind/vgpreload_core-amd64-linux.so)
+==3848848==    by 0x49B4A35: __run_exit_handlers (exit.c:131)
+==3848848==    by 0x49B4BBD: exit (exit.c:138)
+==3848848==    by 0x49971D0: (below main) (libc_start_call_main.h:74)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x4014863: free (rtld-malloc.h:50)
+==3848848==    by 0x4014863: _dl_deallocate_tls (dl-tls.c:641)
+==3848848==    by 0x4A061C9: __nptl_free_stacks (nptl-stack.c:79)
+==3848848==    by 0x4A1D3A2: __libc_freeres (set-freeres.c:181)
+==3848848==    by 0x483D152: _vgnU_freeres (in /usr/libexec/valgrind/vgpreload_core-amd64-linux.so)
+==3848848==    by 0x49B4A35: __run_exit_handlers (exit.c:131)
+==3848848==    by 0x49B4BBD: exit (exit.c:138)
+==3848848==    by 0x49971D0: (below main) (libc_start_call_main.h:74)
+==3848848== 
+==3848848== Use of uninitialised value of size 8
+==3848848==    at 0x401486E: _dl_deallocate_tls (dl-tls.c:640)
+==3848848==    by 0x4A061C9: __nptl_free_stacks (nptl-stack.c:79)
+==3848848==    by 0x4A1D3A2: __libc_freeres (set-freeres.c:181)
+==3848848==    by 0x483D152: _vgnU_freeres (in /usr/libexec/valgrind/vgpreload_core-amd64-linux.so)
+==3848848==    by 0x49B4A35: __run_exit_handlers (exit.c:131)
+==3848848==    by 0x49B4BBD: exit (exit.c:138)
+==3848848==    by 0x49971D0: (below main) (libc_start_call_main.h:74)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x401487C: _dl_deallocate_tls (dl-tls.c:644)
+==3848848==    by 0x4A061C9: __nptl_free_stacks (nptl-stack.c:79)
+==3848848==    by 0x4A1D3A2: __libc_freeres (set-freeres.c:181)
+==3848848==    by 0x483D152: _vgnU_freeres (in /usr/libexec/valgrind/vgpreload_core-amd64-linux.so)
+==3848848==    by 0x49B4A35: __run_exit_handlers (exit.c:131)
+==3848848==    by 0x49B4BBD: exit (exit.c:138)
+==3848848==    by 0x49971D0: (below main) (libc_start_call_main.h:74)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4849845: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3848848==    by 0x4014888: free (rtld-malloc.h:50)
+==3848848==    by 0x4014888: _dl_deallocate_tls (dl-tls.c:645)
+==3848848==    by 0x4A061C9: __nptl_free_stacks (nptl-stack.c:79)
+==3848848==    by 0x4A1D3A2: __libc_freeres (set-freeres.c:181)
+==3848848==    by 0x483D152: _vgnU_freeres (in /usr/libexec/valgrind/vgpreload_core-amd64-linux.so)
+==3848848==    by 0x49B4A35: __run_exit_handlers (exit.c:131)
+==3848848==    by 0x49B4BBD: exit (exit.c:138)
+==3848848==    by 0x49971D0: (below main) (libc_start_call_main.h:74)
+==3848848== 
+==3848848== Syscall param munmap(start) contains uninitialised byte(s)
+==3848848==    at 0x4A92E7B: munmap (syscall-template.S:117)
+==3848848==    by 0x4A061DC: __nptl_free_stacks (nptl-stack.c:83)
+==3848848==    by 0x4A1D3A2: __libc_freeres (set-freeres.c:181)
+==3848848==    by 0x483D152: _vgnU_freeres (in /usr/libexec/valgrind/vgpreload_core-amd64-linux.so)
+==3848848==    by 0x49B4A35: __run_exit_handlers (exit.c:131)
+==3848848==    by 0x49B4BBD: exit (exit.c:138)
+==3848848==    by 0x49971D0: (below main) (libc_start_call_main.h:74)
+==3848848== 
+==3848848== Syscall param munmap(length) contains uninitialised byte(s)
+==3848848==    at 0x4A92E7B: munmap (syscall-template.S:117)
+==3848848==    by 0x4A061DC: __nptl_free_stacks (nptl-stack.c:83)
+==3848848==    by 0x4A1D3A2: __libc_freeres (set-freeres.c:181)
+==3848848==    by 0x483D152: _vgnU_freeres (in /usr/libexec/valgrind/vgpreload_core-amd64-linux.so)
+==3848848==    by 0x49B4A35: __run_exit_handlers (exit.c:131)
+==3848848==    by 0x49B4BBD: exit (exit.c:138)
+==3848848==    by 0x49971D0: (below main) (libc_start_call_main.h:74)
+==3848848== 
+==3848848== Conditional jump or move depends on uninitialised value(s)
+==3848848==    at 0x4A061EC: __nptl_free_stacks (nptl-stack.c:87)
+==3848848==    by 0x4A1D3A2: __libc_freeres (set-freeres.c:181)
+==3848848==    by 0x483D152: _vgnU_freeres (in /usr/libexec/valgrind/vgpreload_core-amd64-linux.so)
+==3848848==    by 0x49B4A35: __run_exit_handlers (exit.c:131)
+==3848848==    by 0x49B4BBD: exit (exit.c:138)
+==3848848==    by 0x49971D0: (below main) (libc_start_call_main.h:74)
+==3848848== 
+==3848848== 
+==3848848== HEAP SUMMARY:
+==3848848==     in use at exit: 43 bytes in 2 blocks
+==3848848==   total heap usage: 13 allocs, 11 frees, 5,051 bytes allocated
+==3848848== 
+==3848848== LEAK SUMMARY:
+==3848848==    definitely lost: 0 bytes in 0 blocks
+==3848848==    indirectly lost: 0 bytes in 0 blocks
+==3848848==      possibly lost: 0 bytes in 0 blocks
+==3848848==    still reachable: 43 bytes in 2 blocks
+==3848848==         suppressed: 0 bytes in 0 blocks
+==3848848== Reachable blocks (those to which a pointer was found) are not shown.
+==3848848== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==3848848== 
+==3848848== Use --track-origins=yes to see where uninitialised values come from
+==3848848== For lists of detected and suppressed errors, rerun with: -s
+==3848848== ERROR SUMMARY: 124 errors from 94 contexts (suppressed: 0 from 0)

@@ -1,0 +1,49 @@
+==3906645== Memcheck, a memory error detector
+==3906645== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3906645== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3906645== Command: /tmp/tmp.Sd1bX6zVY3/f.bin
+==3906645== 
+==3906645== 
+==3906645== HEAP SUMMARY:
+==3906645==     in use at exit: 299 bytes in 6 blocks
+==3906645==   total heap usage: 32 allocs, 26 frees, 1,773 bytes allocated
+==3906645== 
+==3906645== 64 bytes in 1 blocks are definitely lost in loss record 3 of 6
+==3906645==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3906645==    by 0x10BAAA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645==    by 0x109D7A: rawdup_iter_minmax_by_drop_once$mk__f__i64 (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645==    by 0x109E82: rawdup_iter_minmax_by_drop_once$src__f__void (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645==    by 0x10A16D: main (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645== 
+==3906645== 64 bytes in 1 blocks are definitely lost in loss record 4 of 6
+==3906645==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3906645==    by 0x10BAAA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645==    by 0x109D7A: rawdup_iter_minmax_by_drop_once$mk__f__i64 (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645==    by 0x109F40: rawdup_iter_minmax_by_drop_once$src__f__void (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645==    by 0x10A16D: main (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645== 
+==3906645== 64 bytes in 1 blocks are definitely lost in loss record 5 of 6
+==3906645==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3906645==    by 0x10BAAA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645==    by 0x109D7A: rawdup_iter_minmax_by_drop_once$mk__f__i64 (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645==    by 0x109EEB: rawdup_iter_minmax_by_drop_once$src__f__void (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645==    by 0x10A6EE: main (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645== 
+==3906645== 64 bytes in 1 blocks are definitely lost in loss record 6 of 6
+==3906645==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3906645==    by 0x10BAAA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645==    by 0x109D7A: rawdup_iter_minmax_by_drop_once$mk__f__i64 (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645==    by 0x109F40: rawdup_iter_minmax_by_drop_once$src__f__void (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645==    by 0x10A6EE: main (in /tmp/tmp.Sd1bX6zVY3/f.bin)
+==3906645== 
+==3906645== LEAK SUMMARY:
+==3906645==    definitely lost: 256 bytes in 4 blocks
+==3906645==    indirectly lost: 0 bytes in 0 blocks
+==3906645==      possibly lost: 0 bytes in 0 blocks
+==3906645==    still reachable: 43 bytes in 2 blocks
+==3906645==         suppressed: 0 bytes in 0 blocks
+==3906645== Reachable blocks (those to which a pointer was found) are not shown.
+==3906645== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==3906645== 
+==3906645== For lists of detected and suppressed errors, rerun with: -s
+==3906645== ERROR SUMMARY: 4 errors from 4 contexts (suppressed: 0 from 0)

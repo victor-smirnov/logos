@@ -1,0 +1,47 @@
+==3812227== Memcheck, a memory error detector
+==3812227== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3812227== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3812227== Command: /tmp/tmp.bsCt4PdRcB/f.bin
+==3812227== 
+==3812227== 
+==3812227== HEAP SUMMARY:
+==3812227==     in use at exit: 256 bytes in 4 blocks
+==3812227==   total heap usage: 11 allocs, 7 frees, 4,736 bytes allocated
+==3812227== 
+==3812227== 64 bytes in 1 blocks are definitely lost in loss record 1 of 4
+==3812227==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812227==    by 0x1098DA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227==    by 0x10920A: cond_move_dest_field_and_uninit$mk__f__i64 (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227==    by 0x1092CC: cond_move_dest_field_and_uninit$cellL__f__bool (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227==    by 0x10973F: main (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227== 
+==3812227== 64 bytes in 1 blocks are definitely lost in loss record 2 of 4
+==3812227==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812227==    by 0x1098DA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227==    by 0x10920A: cond_move_dest_field_and_uninit$mk__f__i64 (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227==    by 0x10934B: cond_move_dest_field_and_uninit$cellL__f__bool (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227==    by 0x10973F: main (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227== 
+==3812227== 64 bytes in 1 blocks are definitely lost in loss record 3 of 4
+==3812227==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812227==    by 0x1098DA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227==    by 0x10920A: cond_move_dest_field_and_uninit$mk__f__i64 (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227==    by 0x109309: cond_move_dest_field_and_uninit$cellL__f__bool (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227==    by 0x109784: main (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227== 
+==3812227== 64 bytes in 1 blocks are definitely lost in loss record 4 of 4
+==3812227==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812227==    by 0x1098DA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227==    by 0x10920A: cond_move_dest_field_and_uninit$mk__f__i64 (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227==    by 0x10934B: cond_move_dest_field_and_uninit$cellL__f__bool (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227==    by 0x109784: main (in /tmp/tmp.bsCt4PdRcB/f.bin)
+==3812227== 
+==3812227== LEAK SUMMARY:
+==3812227==    definitely lost: 256 bytes in 4 blocks
+==3812227==    indirectly lost: 0 bytes in 0 blocks
+==3812227==      possibly lost: 0 bytes in 0 blocks
+==3812227==    still reachable: 0 bytes in 0 blocks
+==3812227==         suppressed: 0 bytes in 0 blocks
+==3812227== 
+==3812227== For lists of detected and suppressed errors, rerun with: -s
+==3812227== ERROR SUMMARY: 4 errors from 4 contexts (suppressed: 0 from 0)

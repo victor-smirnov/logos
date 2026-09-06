@@ -1,0 +1,40 @@
+==3812269== Memcheck, a memory error detector
+==3812269== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3812269== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3812269== Command: /tmp/tmp.v1sSpQQnO4/f.bin
+==3812269== 
+==3812269== 
+==3812269== HEAP SUMMARY:
+==3812269==     in use at exit: 192 bytes in 3 blocks
+==3812269==   total heap usage: 7 allocs, 4 frees, 4,480 bytes allocated
+==3812269== 
+==3812269== 64 bytes in 1 blocks are definitely lost in loss record 1 of 3
+==3812269==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812269==    by 0x10968A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.v1sSpQQnO4/f.bin)
+==3812269==    by 0x10920A: cond_move_glue_name_admit$mk__f__i64 (in /tmp/tmp.v1sSpQQnO4/f.bin)
+==3812269==    by 0x10932C: cond_move_glue_name_admit$user_named_glue__f__void (in /tmp/tmp.v1sSpQQnO4/f.bin)
+==3812269==    by 0x109537: main (in /tmp/tmp.v1sSpQQnO4/f.bin)
+==3812269== 
+==3812269== 64 bytes in 1 blocks are definitely lost in loss record 2 of 3
+==3812269==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812269==    by 0x10968A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.v1sSpQQnO4/f.bin)
+==3812269==    by 0x10920A: cond_move_glue_name_admit$mk__f__i64 (in /tmp/tmp.v1sSpQQnO4/f.bin)
+==3812269==    by 0x109403: cond_move_glue_name_admit$real_glue__f__bool (in /tmp/tmp.v1sSpQQnO4/f.bin)
+==3812269==    by 0x10957F: main (in /tmp/tmp.v1sSpQQnO4/f.bin)
+==3812269== 
+==3812269== 64 bytes in 1 blocks are definitely lost in loss record 3 of 3
+==3812269==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3812269==    by 0x10968A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.v1sSpQQnO4/f.bin)
+==3812269==    by 0x10920A: cond_move_glue_name_admit$mk__f__i64 (in /tmp/tmp.v1sSpQQnO4/f.bin)
+==3812269==    by 0x109403: cond_move_glue_name_admit$real_glue__f__bool (in /tmp/tmp.v1sSpQQnO4/f.bin)
+==3812269==    by 0x1095C4: main (in /tmp/tmp.v1sSpQQnO4/f.bin)
+==3812269== 
+==3812269== LEAK SUMMARY:
+==3812269==    definitely lost: 192 bytes in 3 blocks
+==3812269==    indirectly lost: 0 bytes in 0 blocks
+==3812269==      possibly lost: 0 bytes in 0 blocks
+==3812269==    still reachable: 0 bytes in 0 blocks
+==3812269==         suppressed: 0 bytes in 0 blocks
+==3812269== 
+==3812269== For lists of detected and suppressed errors, rerun with: -s
+==3812269== ERROR SUMMARY: 3 errors from 3 contexts (suppressed: 0 from 0)

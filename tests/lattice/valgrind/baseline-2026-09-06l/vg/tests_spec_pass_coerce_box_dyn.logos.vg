@@ -1,0 +1,25 @@
+==3957929== Memcheck, a memory error detector
+==3957929== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3957929== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3957929== Command: /tmp/tmp.WIRXDBFogz/f.bin
+==3957929== 
+==3957929== 
+==3957929== HEAP SUMMARY:
+==3957929==     in use at exit: 8 bytes in 1 blocks
+==3957929==   total heap usage: 1 allocs, 0 frees, 8 bytes allocated
+==3957929== 
+==3957929== 8 bytes in 1 blocks are definitely lost in loss record 1 of 1
+==3957929==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3957929==    by 0x109292: logos_mem.logos.mem.boxed$box_new__g__T__A (in /tmp/tmp.WIRXDBFogz/f.bin)
+==3957929==    by 0x109186: coerce_box_dyn$make__f__void (in /tmp/tmp.WIRXDBFogz/f.bin)
+==3957929==    by 0x1091C8: main (in /tmp/tmp.WIRXDBFogz/f.bin)
+==3957929== 
+==3957929== LEAK SUMMARY:
+==3957929==    definitely lost: 8 bytes in 1 blocks
+==3957929==    indirectly lost: 0 bytes in 0 blocks
+==3957929==      possibly lost: 0 bytes in 0 blocks
+==3957929==    still reachable: 0 bytes in 0 blocks
+==3957929==         suppressed: 0 bytes in 0 blocks
+==3957929== 
+==3957929== For lists of detected and suppressed errors, rerun with: -s
+==3957929== ERROR SUMMARY: 1 errors from 1 contexts (suppressed: 0 from 0)

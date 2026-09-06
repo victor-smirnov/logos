@@ -1,0 +1,26 @@
+==3862085== Memcheck, a memory error detector
+==3862085== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3862085== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3862085== Command: /tmp/tmp.Ibe4BtPzBu/f.bin
+==3862085== 
+==3862085== 
+==3862085== HEAP SUMMARY:
+==3862085==     in use at exit: 107 bytes in 3 blocks
+==3862085==   total heap usage: 5 allocs, 2 frees, 131 bytes allocated
+==3862085== 
+==3862085== 64 bytes in 1 blocks are definitely lost in loss record 3 of 3
+==3862085==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3862085==    by 0x109E55: logos_std.logos.std.io.buffered$buf_reader_wrap__g__R__i64__FdReader (in /tmp/tmp.Ibe4BtPzBu/f.bin)
+==3862085==    by 0x109346: main (in /tmp/tmp.Ibe4BtPzBu/f.bin)
+==3862085== 
+==3862085== LEAK SUMMARY:
+==3862085==    definitely lost: 64 bytes in 1 blocks
+==3862085==    indirectly lost: 0 bytes in 0 blocks
+==3862085==      possibly lost: 0 bytes in 0 blocks
+==3862085==    still reachable: 43 bytes in 2 blocks
+==3862085==         suppressed: 0 bytes in 0 blocks
+==3862085== Reachable blocks (those to which a pointer was found) are not shown.
+==3862085== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==3862085== 
+==3862085== For lists of detected and suppressed errors, rerun with: -s
+==3862085== ERROR SUMMARY: 1 errors from 1 contexts (suppressed: 0 from 0)

@@ -1,0 +1,39 @@
+==3843696== Memcheck, a memory error detector
+==3843696== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3843696== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3843696== Command: /tmp/tmp.OnR9EH8Ota/f.bin
+==3843696== 
+==3843696== 
+==3843696== HEAP SUMMARY:
+==3843696==     in use at exit: 235 bytes in 5 blocks
+==3843696==   total heap usage: 36 allocs, 31 frees, 1,349 bytes allocated
+==3843696== 
+==3843696== 64 bytes in 1 blocks are definitely lost in loss record 3 of 5
+==3843696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3843696==    by 0x10B27A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.OnR9EH8Ota/f.bin)
+==3843696==    by 0x10970A: dupown_array_into_iter_drop_once$mk__f__i64 (in /tmp/tmp.OnR9EH8Ota/f.bin)
+==3843696==    by 0x1098E2: main (in /tmp/tmp.OnR9EH8Ota/f.bin)
+==3843696== 
+==3843696== 64 bytes in 1 blocks are definitely lost in loss record 4 of 5
+==3843696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3843696==    by 0x10B27A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.OnR9EH8Ota/f.bin)
+==3843696==    by 0x10970A: dupown_array_into_iter_drop_once$mk__f__i64 (in /tmp/tmp.OnR9EH8Ota/f.bin)
+==3843696==    by 0x109934: main (in /tmp/tmp.OnR9EH8Ota/f.bin)
+==3843696== 
+==3843696== 64 bytes in 1 blocks are definitely lost in loss record 5 of 5
+==3843696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3843696==    by 0x10B27A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.OnR9EH8Ota/f.bin)
+==3843696==    by 0x10970A: dupown_array_into_iter_drop_once$mk__f__i64 (in /tmp/tmp.OnR9EH8Ota/f.bin)
+==3843696==    by 0x109986: main (in /tmp/tmp.OnR9EH8Ota/f.bin)
+==3843696== 
+==3843696== LEAK SUMMARY:
+==3843696==    definitely lost: 192 bytes in 3 blocks
+==3843696==    indirectly lost: 0 bytes in 0 blocks
+==3843696==      possibly lost: 0 bytes in 0 blocks
+==3843696==    still reachable: 43 bytes in 2 blocks
+==3843696==         suppressed: 0 bytes in 0 blocks
+==3843696== Reachable blocks (those to which a pointer was found) are not shown.
+==3843696== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==3843696== 
+==3843696== For lists of detected and suppressed errors, rerun with: -s
+==3843696== ERROR SUMMARY: 3 errors from 3 contexts (suppressed: 0 from 0)
