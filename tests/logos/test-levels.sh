@@ -272,7 +272,7 @@ fi
 # so a run says what it actually ran.
 #
 # THE ACCEPTED COST, MEASURED HERE RATHER THAN ESTIMATED: 9.0 s of ctest wall,
-# three consecutive runs at 8.98 / 9.01 / 9.00 s (-j12, 32-core box at load ~6).
+# three consecutive runs at 8.98 / 9.01 / 9.00 s (32-core box at load ~6).
 # ⚠ THE SAME COMMAND MEASURED 21.1 s ON THE SAME TREE at load ~50 with a sibling
 # worktree running its own suite — so this number is a property of an idle box,
 # and a slow gates tier is evidence about the machine before it is evidence about
@@ -434,7 +434,7 @@ echo "[test-levels] $LEVEL.$VARIANT — $COUNT tests selected across groups"
 # ctest's -R regex engine (KWSys) caps the compiled expression size, so a
 # single `_(a|b|…)$` alternation over thousands of names fails ("Expression
 # too big"). Run in chunks under the cap and aggregate. Each chunk is a
-# separate `ctest -j12` invocation; failures are surfaced inline.
+# separate `ctest` invocation; failures are surfaced inline.
 # Chunk size: as large as KWSys's regex cap allows (a single ~811-name `-R`
 # compiles; ~2594 doesn't). Bigger chunks ⇒ fewer ctest invocations ⇒ less
 # tail-idle (each chunk waits for its slowest test before the next starts).
