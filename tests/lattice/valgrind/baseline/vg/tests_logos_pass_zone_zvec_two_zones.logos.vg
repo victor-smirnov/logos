@@ -1,0 +1,35 @@
+==1839970== Memcheck, a memory error detector
+==1839970== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1839970== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1839970== Command: /tmp/tmp.azZwvOgCES/f.bin
+==1839970== 
+==1839970== 
+==1839970== HEAP SUMMARY:
+==1839970==     in use at exit: 4,144 bytes in 3 blocks
+==1839970==   total heap usage: 3 allocs, 0 frees, 4,144 bytes allocated
+==1839970== 
+==1839970== 32 bytes in 1 blocks are indirectly lost in loss record 1 of 3
+==1839970==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1839970==    by 0x10953F: zvec.Heap__z_alloc__i64 (in /tmp/tmp.azZwvOgCES/f.bin)
+==1839970==    by 0x1091A7: zvec.ZVec$G2$i64$Heap__init_at__g__pmut_ZVec$G2$T$Z__Z::Ctx__i64 (in /tmp/tmp.azZwvOgCES/f.bin)
+==1839970==    by 0x10946F: zvec$run__g__Z::Ctx__pmut_ZVec$G2$i64$Z__Heap (in /tmp/tmp.azZwvOgCES/f.bin)
+==1839970==    by 0x10934A: main (in /tmp/tmp.azZwvOgCES/f.bin)
+==1839970== 
+==1839970== 48 (16 direct, 32 indirect) bytes in 1 blocks are definitely lost in loss record 2 of 3
+==1839970==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1839970==    by 0x10933D: main (in /tmp/tmp.azZwvOgCES/f.bin)
+==1839970== 
+==1839970== 4,096 bytes in 1 blocks are definitely lost in loss record 3 of 3
+==1839970==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1839970==    by 0x109268: zvec$arena_new__f__i64 (in /tmp/tmp.azZwvOgCES/f.bin)
+==1839970==    by 0x10936E: main (in /tmp/tmp.azZwvOgCES/f.bin)
+==1839970== 
+==1839970== LEAK SUMMARY:
+==1839970==    definitely lost: 4,112 bytes in 2 blocks
+==1839970==    indirectly lost: 32 bytes in 1 blocks
+==1839970==      possibly lost: 0 bytes in 0 blocks
+==1839970==    still reachable: 0 bytes in 0 blocks
+==1839970==         suppressed: 0 bytes in 0 blocks
+==1839970== 
+==1839970== For lists of detected and suppressed errors, rerun with: -s
+==1839970== ERROR SUMMARY: 3 errors from 3 contexts (suppressed: 0 from 0)

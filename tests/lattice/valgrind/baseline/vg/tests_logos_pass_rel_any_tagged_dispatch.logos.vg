@@ -1,0 +1,24 @@
+==1791307== Memcheck, a memory error detector
+==1791307== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1791307== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1791307== Command: /tmp/tmp.puTMH3Ocaq/f.bin
+==1791307== 
+==1791307== 
+==1791307== HEAP SUMMARY:
+==1791307==     in use at exit: 4,096 bytes in 1 blocks
+==1791307==   total heap usage: 1 allocs, 0 frees, 4,096 bytes allocated
+==1791307== 
+==1791307== 4,096 bytes in 1 blocks are definitely lost in loss record 1 of 1
+==1791307==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1791307==    by 0x109148: relany$arena_new__f__i64 (in /tmp/tmp.puTMH3Ocaq/f.bin)
+==1791307==    by 0x109342: main (in /tmp/tmp.puTMH3Ocaq/f.bin)
+==1791307== 
+==1791307== LEAK SUMMARY:
+==1791307==    definitely lost: 4,096 bytes in 1 blocks
+==1791307==    indirectly lost: 0 bytes in 0 blocks
+==1791307==      possibly lost: 0 bytes in 0 blocks
+==1791307==    still reachable: 0 bytes in 0 blocks
+==1791307==         suppressed: 0 bytes in 0 blocks
+==1791307== 
+==1791307== For lists of detected and suppressed errors, rerun with: -s
+==1791307== ERROR SUMMARY: 1 errors from 1 contexts (suppressed: 0 from 0)

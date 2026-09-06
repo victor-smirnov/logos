@@ -1,0 +1,25 @@
+==1709458== Memcheck, a memory error detector
+==1709458== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1709458== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1709458== Command: /tmp/tmp.4qXGc1MSaa/f.bin
+==1709458== 
+==1709458== 
+==1709458== HEAP SUMMARY:
+==1709458==     in use at exit: 1,472 bytes in 46 blocks
+==1709458==   total heap usage: 600 allocs, 554 frees, 36,504 bytes allocated
+==1709458== 
+==1709458== 1,472 bytes in 46 blocks are definitely lost in loss record 1 of 1
+==1709458==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1709458==    by 0x11549D: logos_lang..logos.lang.writ.dview.DView__new_store__f__void (in /tmp/tmp.4qXGc1MSaa/f.bin)
+==1709458==    by 0x499728A: __libc_start_main@@GLIBC_2.34 (libc-start.c:360)
+==1709458==    by 0x109194: (below main) (in /tmp/tmp.4qXGc1MSaa/f.bin)
+==1709458== 
+==1709458== LEAK SUMMARY:
+==1709458==    definitely lost: 1,472 bytes in 46 blocks
+==1709458==    indirectly lost: 0 bytes in 0 blocks
+==1709458==      possibly lost: 0 bytes in 0 blocks
+==1709458==    still reachable: 0 bytes in 0 blocks
+==1709458==         suppressed: 0 bytes in 0 blocks
+==1709458== 
+==1709458== For lists of detected and suppressed errors, rerun with: -s
+==1709458== ERROR SUMMARY: 1 errors from 1 contexts (suppressed: 0 from 0)

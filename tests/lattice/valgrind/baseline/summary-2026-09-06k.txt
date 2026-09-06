@@ -1,0 +1,25 @@
+swept          6524
+  allocated    1571   (reached malloc at least once)
+  zero-alloc   4762   (COVERAGE, NOT EVIDENCE)
+  not run      191
+clean (of allocating)  1478
+
+by status:
+  LEAK           90
+  CFAIL          64
+  CORRUPT        3
+  LINKFAIL       124
+  OK             6240
+  TIMEOUT        3
+
+Compiler: build hash 1ae1a23a36db2a82 43 (the round-2026-09-06k fixed binary).
+⚠ ALLOCATED, not SWEPT, is the denominator: a clean valgrind on a program that
+  never called malloc is coverage.
+⚠ `still reachable` is not a leak and is not counted here.
+⚠ The 191 not-run rows are this sweep's OWN limit — run_test.sh passes per-fixture
+  EXTRA flags (-I, -L, --test) that sweep.sh does not, so the 117
+  test_harness_coretest_* ports and their kin cannot link. Not compiler failures.
+⚠ The 90 LEAK rows are a POPULATION, not a blast radius. Some fixtures malloc by
+  hand and never free (bc_fatval_deferred_init_len is exactly that). Six roots were
+  isolated from this baseline in round 2026-09-06k; see PROBES.md §5 and the
+  soundness-queue rows V2-V7.

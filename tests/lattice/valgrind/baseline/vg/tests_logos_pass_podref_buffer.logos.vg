@@ -1,0 +1,26 @@
+==1779819== Memcheck, a memory error detector
+==1779819== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1779819== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1779819== Command: /tmp/tmp.wUb6nVEMzf/f.bin
+==1779819== 
+==1779819== 
+==1779819== HEAP SUMMARY:
+==1779819==     in use at exit: 96 bytes in 1 blocks
+==1779819==   total heap usage: 1 allocs, 0 frees, 96 bytes allocated
+==1779819== 
+==1779819== 96 bytes in 1 blocks are definitely lost in loss record 1 of 1
+==1779819==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1779819==    by 0x109252: logos_lang..logos.lang.fabric.PrimVec$G1$Vec3__push__g__refmut_PrimVec$G1$T__T (in /tmp/tmp.wUb6nVEMzf/f.bin)
+==1779819==    by 0x109555: podref_buffer.Vec3__store_push__g__pmut_PrimVec$G1$DT__pcst_DT (in /tmp/tmp.wUb6nVEMzf/f.bin)
+==1779819==    by 0x109345: logos_lang..logos.lang.fabric.Buffer$Mefd20ff29623aa38$G1$Vec3__push__g__refmut_Buffer$G1$DT__DT::ViewInStore (in /tmp/tmp.wUb6nVEMzf/f.bin)
+==1779819==    by 0x1093DC: main (in /tmp/tmp.wUb6nVEMzf/f.bin)
+==1779819== 
+==1779819== LEAK SUMMARY:
+==1779819==    definitely lost: 96 bytes in 1 blocks
+==1779819==    indirectly lost: 0 bytes in 0 blocks
+==1779819==      possibly lost: 0 bytes in 0 blocks
+==1779819==    still reachable: 0 bytes in 0 blocks
+==1779819==         suppressed: 0 bytes in 0 blocks
+==1779819== 
+==1779819== For lists of detected and suppressed errors, rerun with: -s
+==1779819== ERROR SUMMARY: 1 errors from 1 contexts (suppressed: 0 from 0)

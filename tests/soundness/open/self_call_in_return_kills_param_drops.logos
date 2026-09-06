@@ -1,0 +1,53 @@
+// SOUNDNESS QUEUE row self_call_in_return_kills_param_drops (tier 1). A
+// SELF-RECURSIVE CALL IN RETURN POSITION SUPPRESSES THE FUNCTION'S PARAMETER
+// DROPS ON EVERY PATH — INCLUDING THE PATH THAT NEVER TAKES IT.
+//
+// `fn inner(d: String, b: bool) { if b { return inner(d, false); } }` called with
+// `b = false` does not recurse at all, falls straight through, and still never
+// destroys `d`: 1 alloc / 0 frees, 22 bytes definitely lost, rc 0.
+//
+// TWO CONTROLS SEPARATE IT FROM EVERY WIDER CLAIM (both 1 alloc / 1 free, 0
+// errors, same binary):
+//   * NOT "a param moved on one branch": `fn inner(d: String, b: bool)
+//     { if b { sink(d); } }` — a DIFFERENT callee in the same branch, correct.
+//   * NOT "return position": `{ if b { return sink(d); } }` with a different
+//     callee, correct.
+//   * NOT "self-recursion": `{ if b { inner(d, false); } }` — the same self-call
+//     NOT in return position, correct.
+// The discriminator is exactly SELF-CALL + RETURN POSITION.
+//
+// ROOT, by symbol: `SemaChecker`'s function epilogue at src/compiler/sema_decl.cpp
+// `emit_frame_drops(frame, epilogue_drops, &body_ever_moved_)`. `body_ever_moved_`
+// is the conservative "a param moved on ANY branch gets no drop at all" skip
+// list, and that call's own comment names drop-flag elaboration as the proper
+// fix and its cost as exactly this leak. The two non-self controls above show
+// the skip list is NOT populated for an ordinary branch move, so the self-call
+// in return position is what puts `d` in it.
+//
+// Found by tests/lattice/valgrind/sweep.sh; corpus member
+// tests/imported/pass/recursion/recursion-tail-call-no-arg-leak.logos — a
+// fixture whose NAME says "no-arg-leak" and which leaks (1 alloc / 0 frees,
+// 6 bytes definitely lost), green through run_test.sh for as long as it has
+// existed. Rust: exit 0, no leak.
+//
+// ⚠ THE ORACLE IS A DESTRUCTOR COUNT: 1000 = the parameter was destroyed on
+// the fall-through path, 0 = it was not. `b` is FALSE here, so the recursive
+// call is never taken and the function does nothing but return. Today 0,
+// exit 1; correct 1000, exit 0.
+package self_call_in_return_kills_param_drops;
+
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+
+fn inner(d: D, b: bool) {
+    if b { return inner(d, false); }
+}
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    inner(D { v: 1000i64, c: p }, false);
+    let got: i64 = unsafe { n };
+    if got != 1000i64 { return 1i32; }
+    return 0i32;
+}

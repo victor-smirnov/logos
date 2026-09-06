@@ -5337,8 +5337,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9343 -> 9349   +6
 #   NOIMPORTED   4906 -> 4912   +6
 #   TIERCOMMIT    173 ->  173    0
-REGISTRY-ALL         9349
-REGISTRY-NOIMPORTED  4912
+# 2026-09-06k — the block-expression scope-drop repair adds TWO pass fixtures,
+#   blockexpr_scope_drop_valgrind and blockexpr_scope_drop_format_ctl, and each
+#   is registered TWICE: once in the logos_02 pass corpus and once as a
+#   logos_09 valgrind gate (tests/lattice/valgrind/leak_gate.sh). Hence +4 here
+#   against +2 on direct_door's corpus/nonglob. The six new soundness-queue
+#   programs are under tests/soundness/open/ and register nowhere. Both valgrind
+#   gates are tier_full, so TIERCOMMIT does not move.
+#   ALL          9349 -> 9353   +4
+#   NOIMPORTED   4912 -> 4916   +4
+#   TIERCOMMIT    173 ->  173    0
+REGISTRY-ALL         9353
+REGISTRY-NOIMPORTED  4916
 REGISTRY-TIERCOMMIT  173
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

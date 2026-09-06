@@ -1,0 +1,41 @@
+==1719428== Memcheck, a memory error detector
+==1719428== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1719428== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1719428== Command: /tmp/tmp.C7Qb27OW1T/f.bin
+==1719428== 
+==1719428== 
+==1719428== HEAP SUMMARY:
+==1719428==     in use at exit: 320 bytes in 4 blocks
+==1719428==   total heap usage: 4 allocs, 0 frees, 320 bytes allocated
+==1719428== 
+==1719428== 32 bytes in 1 blocks are indirectly lost in loss record 1 of 4
+==1719428==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1719428==    by 0x109591: logos_lang..logos.lang.fabric.PrimVec$G1$u64__push__g__refmut_PrimVec$G1$T__T (in /tmp/tmp.C7Qb27OW1T/f.bin)
+==1719428==    by 0x4B8103F: ???
+==1719428==    by 0x1FFEFFFCC7: ???
+==1719428== 
+==1719428== 32 bytes in 1 blocks are indirectly lost in loss record 2 of 4
+==1719428==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1719428==    by 0x109591: logos_lang..logos.lang.fabric.PrimVec$G1$u64__push__g__refmut_PrimVec$G1$T__T (in /tmp/tmp.C7Qb27OW1T/f.bin)
+==1719428==    by 0x4B811CF: ???
+==1719428==    by 0x1FFEFFFCC7: ???
+==1719428== 
+==1719428== 128 bytes in 1 blocks are indirectly lost in loss record 3 of 4
+==1719428==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1719428==    by 0x1094E7: logos_mem.logos.mem.collections.vec$vec_new__g__void__Arc$G1$udyn_BTreeNode (in /tmp/tmp.C7Qb27OW1T/f.bin)
+==1719428==    by 0x109188: logos_mem..logos.mem.collections.vec.Vec$G1$Arc$G1$udyn_BTreeNode__new__g__void (in /tmp/tmp.C7Qb27OW1T/f.bin)
+==1719428==    by 0x1091FC: main (in /tmp/tmp.C7Qb27OW1T/f.bin)
+==1719428== 
+==1719428== 320 (128 direct, 192 indirect) bytes in 1 blocks are definitely lost in loss record 4 of 4
+==1719428==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1719428==    by 0x1091C0: main (in /tmp/tmp.C7Qb27OW1T/f.bin)
+==1719428== 
+==1719428== LEAK SUMMARY:
+==1719428==    definitely lost: 128 bytes in 1 blocks
+==1719428==    indirectly lost: 192 bytes in 3 blocks
+==1719428==      possibly lost: 0 bytes in 0 blocks
+==1719428==    still reachable: 0 bytes in 0 blocks
+==1719428==         suppressed: 0 bytes in 0 blocks
+==1719428== 
+==1719428== For lists of detected and suppressed errors, rerun with: -s
+==1719428== ERROR SUMMARY: 4 errors from 4 contexts (suppressed: 0 from 0)

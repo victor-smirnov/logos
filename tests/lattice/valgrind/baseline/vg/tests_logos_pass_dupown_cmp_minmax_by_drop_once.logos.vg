@@ -1,0 +1,45 @@
+==1725148== Memcheck, a memory error detector
+==1725148== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1725148== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1725148== Command: /tmp/tmp.SmoKSfJt1F/f.bin
+==1725148== 
+==1725148== 
+==1725148== HEAP SUMMARY:
+==1725148==     in use at exit: 299 bytes in 6 blocks
+==1725148==   total heap usage: 47 allocs, 41 frees, 2,173 bytes allocated
+==1725148== 
+==1725148== 64 bytes in 1 blocks are definitely lost in loss record 3 of 6
+==1725148==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1725148==    by 0x10C13A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.SmoKSfJt1F/f.bin)
+==1725148==    by 0x10979A: dupown_cmp_minmax_by_drop_once$mk__f__i64 (in /tmp/tmp.SmoKSfJt1F/f.bin)
+==1725148==    by 0x10A1EA: main (in /tmp/tmp.SmoKSfJt1F/f.bin)
+==1725148== 
+==1725148== 64 bytes in 1 blocks are definitely lost in loss record 4 of 6
+==1725148==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1725148==    by 0x10C13A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.SmoKSfJt1F/f.bin)
+==1725148==    by 0x10979A: dupown_cmp_minmax_by_drop_once$mk__f__i64 (in /tmp/tmp.SmoKSfJt1F/f.bin)
+==1725148==    by 0x10A2C0: main (in /tmp/tmp.SmoKSfJt1F/f.bin)
+==1725148== 
+==1725148== 64 bytes in 1 blocks are definitely lost in loss record 5 of 6
+==1725148==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1725148==    by 0x10C13A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.SmoKSfJt1F/f.bin)
+==1725148==    by 0x10979A: dupown_cmp_minmax_by_drop_once$mk__f__i64 (in /tmp/tmp.SmoKSfJt1F/f.bin)
+==1725148==    by 0x10A8BB: main (in /tmp/tmp.SmoKSfJt1F/f.bin)
+==1725148== 
+==1725148== 64 bytes in 1 blocks are definitely lost in loss record 6 of 6
+==1725148==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1725148==    by 0x10C13A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.SmoKSfJt1F/f.bin)
+==1725148==    by 0x10979A: dupown_cmp_minmax_by_drop_once$mk__f__i64 (in /tmp/tmp.SmoKSfJt1F/f.bin)
+==1725148==    by 0x10A98B: main (in /tmp/tmp.SmoKSfJt1F/f.bin)
+==1725148== 
+==1725148== LEAK SUMMARY:
+==1725148==    definitely lost: 256 bytes in 4 blocks
+==1725148==    indirectly lost: 0 bytes in 0 blocks
+==1725148==      possibly lost: 0 bytes in 0 blocks
+==1725148==    still reachable: 43 bytes in 2 blocks
+==1725148==         suppressed: 0 bytes in 0 blocks
+==1725148== Reachable blocks (those to which a pointer was found) are not shown.
+==1725148== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==1725148== 
+==1725148== For lists of detected and suppressed errors, rerun with: -s
+==1725148== ERROR SUMMARY: 4 errors from 4 contexts (suppressed: 0 from 0)

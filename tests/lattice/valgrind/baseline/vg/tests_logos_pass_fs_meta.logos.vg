@@ -1,0 +1,46 @@
+==1736414== Memcheck, a memory error detector
+==1736414== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1736414== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1736414== Command: /tmp/tmp.MSgAS7DjiL/f.bin
+==1736414== 
+==1736414== 
+==1736414== HEAP SUMMARY:
+==1736414==     in use at exit: 156 bytes in 7 blocks
+==1736414==   total heap usage: 60 allocs, 53 frees, 311,505 bytes allocated
+==1736414== 
+==1736414== 5 bytes in 1 blocks are definitely lost in loss record 1 of 7
+==1736414==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1736414==    by 0x1093B9: fs_meta$cstr__f__slice_u8 (in /tmp/tmp.MSgAS7DjiL/f.bin)
+==1736414==    by 0x10946E: main (in /tmp/tmp.MSgAS7DjiL/f.bin)
+==1736414== 
+==1736414== 24 bytes in 1 blocks are definitely lost in loss record 3 of 7
+==1736414==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1736414==    by 0x1093B9: fs_meta$cstr__f__slice_u8 (in /tmp/tmp.MSgAS7DjiL/f.bin)
+==1736414==    by 0x10955A: main (in /tmp/tmp.MSgAS7DjiL/f.bin)
+==1736414== 
+==1736414== 24 bytes in 1 blocks are definitely lost in loss record 4 of 7
+==1736414==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1736414==    by 0x1093B9: fs_meta$cstr__f__slice_u8 (in /tmp/tmp.MSgAS7DjiL/f.bin)
+==1736414==    by 0x109738: main (in /tmp/tmp.MSgAS7DjiL/f.bin)
+==1736414== 
+==1736414== 30 bytes in 1 blocks are definitely lost in loss record 6 of 7
+==1736414==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1736414==    by 0x1093B9: fs_meta$cstr__f__slice_u8 (in /tmp/tmp.MSgAS7DjiL/f.bin)
+==1736414==    by 0x109508: main (in /tmp/tmp.MSgAS7DjiL/f.bin)
+==1736414== 
+==1736414== 30 bytes in 1 blocks are definitely lost in loss record 7 of 7
+==1736414==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1736414==    by 0x1093B9: fs_meta$cstr__f__slice_u8 (in /tmp/tmp.MSgAS7DjiL/f.bin)
+==1736414==    by 0x10967C: main (in /tmp/tmp.MSgAS7DjiL/f.bin)
+==1736414== 
+==1736414== LEAK SUMMARY:
+==1736414==    definitely lost: 113 bytes in 5 blocks
+==1736414==    indirectly lost: 0 bytes in 0 blocks
+==1736414==      possibly lost: 0 bytes in 0 blocks
+==1736414==    still reachable: 43 bytes in 2 blocks
+==1736414==         suppressed: 0 bytes in 0 blocks
+==1736414== Reachable blocks (those to which a pointer was found) are not shown.
+==1736414== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==1736414== 
+==1736414== For lists of detected and suppressed errors, rerun with: -s
+==1736414== ERROR SUMMARY: 5 errors from 5 contexts (suppressed: 0 from 0)

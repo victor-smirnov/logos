@@ -26572,3 +26572,316 @@ tuple-index place IS assignable at depth one); `x = x` refused "use of moved var
 
 Target rows for the repair round, by ID with the reasoning the next round inherits:
 `tests/lattice/drop/TARGET_ROWS_2026-09-06j.txt`.
+
+# ROUND 2026-09-06k — EVERY `println!` LEAKED, AND THE ROOT IS NOT IN THE FORMAT
+# FAMILY: A BLOCK IN EXPRESSION POSITION NEVER RAN ITS SCOPE-EXIT DROPS.
+# THEN THE WHOLE PASS CORPUS UNDER valgrind — 6524 SWEPT, 1571 ALLOCATING.
+
+## 1. THE CENSUS (STEP 1), and the one correction owed on the prompt
+
+queue gate rc **0**, 57 rows (tier1=16 tier2=6 tier3=32 tier4=3), `# TOTAL` 57 and
+57 by direct listing. `bc_admits` 98, `bc_admits_blocked` 25. probe-log-lint 231
+records, every site symbol resolves. Build hash READ BACK: `10f55b7c2fa44145 43`.
+Tree clean at `887752d17`.
+
+CORRECTION OWED ON THIS PROMPT: **none on the gate command.** Its STEP-1 invocation
+carries `LOGOS_LIB_DIR=$PWD/build/lib/logos` and its ⚠ note explains why. The four
+rounds that recorded the omission were right about the old text and the two after
+them copied the complaint from the journal without checking; this round checked and
+the correction is retired, not repeated.
+
+## 2. THE INSTRUMENT — a release oracle, because this tree had none
+
+`run_oracle` reads exit codes, `run_test.sh` matches `.expected`, ctest matches
+text. **A LEAK IS INVISIBLE TO ALL THREE.** `tests/lattice/valgrind/sweep.sh`
+compiles, links and RUNS the whole pass corpus under `valgrind --leak-check=full`
+and `tests/lattice/valgrind/leak_gate.sh` does one fixture as a ctest gate.
+
+Two facts the numbers depend on, both stated in the script and the README:
+  * **A CLEAN VALGRIND ON A PROGRAM THAT NEVER CALLED `malloc` IS COVERAGE, NOT
+    EVIDENCE.** 4762 of 6524 fixtures report `0 allocs, 0 frees`. `summary.txt`
+    prints SWEPT and ALLOCATED as separate numbers and the clean count is stated
+    OF THE ALLOCATING ONES.
+  * **`still reachable` IS NOT A LEAK** and is not rowed. It is why the balance
+    claim is `allocs - frees == still-reachable blocks` and not `allocs == frees`:
+    a program that prints leaves the runtime's stdout state reachable, so the
+    plain equality — which `cond_move_field_valgrind_gate.sh` asserts, correctly,
+    for its non-printing subjects — is false for every printing fixture.
+
+## 3. PHASE 1 — THE REPAIR. THE ROOT IS ONE LAYER ABOVE THE ARM THE PROMPT NAMED
+
+The prompt handed down "sema_expr.cpp's `println` arm forgets to drop `__buf`,
+`format!` moves it out and is correct". Both halves reproduce. The root does not.
+
+**ROOT, BY SYMBOL: `SemaChecker::lower_block_expr` (src/compiler/sema_expr.cpp).**
+It did `push_scope()` … `pop_scope()` and never called `collect_drops()`. Its two
+siblings always have: `SemaChecker::lower_block` (sema_stmt.cpp) guards on the
+block not ending in a terminator and appends `collect_drops()`, and the
+if-expression arm builder in the same file as the defect already carries the
+complete routine — `mark_moved_in_expr_recursive` on the tail, bind it to
+`__armtmp_N`, drop, yield — with a comment naming the double free that motivated
+it. This was the one block builder of the three that did not.
+
+**A BLOCK IN EXPRESSION POSITION NEVER RAN ITS OWN LOCALS' DESTRUCTORS.** The
+format family is a MEMBER, not the class: sema's literal-format-string intercept
+synthesises `{ let mut __buf: String = …; __fmt_println(__buf.as_str()) }` and
+lowers it through this builder, `format!` ends the same block WITH `__buf` so the
+moved-out arm was correct, and every arm that DISCARDS the block's value leaked
+one String per call.
+
+MEASURED, on the unmodified `10f55b7c2fa44145 43`, as valgrind lines — before → after:
+
+    println!("n={}", n)               4 allocs 1 free  6 B lost    →  4/2  0 errors
+    print!("n={}\n", n)               4 allocs 1 free  6 B lost    →  4/2  0 errors
+    eprintln!("n={}", n)              4 allocs 1 free  6 B lost    →  4/2  0 errors
+    println!("no placeholder")        3 allocs 0 frees 60 B lost   →  3/1  0 errors
+    println!("a={} b={} c={}",a,b,c)  7 allocs 4 frees 18 B lost   →  7/5  0 errors
+    println! x10 in a while loop     22 allocs 10 frees 60 B/10 blk→ 22/20 0 errors  UNBOUNDED
+    let _: () = { let mut s=…; };     1 alloc 0 frees 12 B lost    →  1/1  0 errors  NO MACRO
+    let t: String = {a; b; a}         2 allocs 1 free 10 B lost    →  2/2  0 errors  NO MACRO
+
+SIX CONTROLS ALREADY CORRECT, unchanged before and after, bounding where the fix
+must not reach — and each one rules out a narrower root by name:
+    let s at fn-body level              1/1  ← not "String"
+    let s in a bare block STATEMENT     1/1  ← not "a block"
+    let s in an `if` STATEMENT body     1/1
+    `if c { let a=…; a.len() } else {0}` 1/1  ← not "an if-expression"
+    while body, 5 iterations            5/5  ← not "a loop"
+    `let s: String = format!(…)`        2/2  ← THE MOVED-OUT ARM, and it must stay so
+
+**THE CLASS IS A SEVENTH, not a member of C1-C6.** C1 is `declare_var`'s name-keyed
+`var_order`, C2 the place-store `field_old_live` predicate, C3 the aggregate walk
+order, C4 `let _`, C5 the Box deref-move call site, C6 the `q[i]=v` GEP. None is
+reached here: the binding is declared once, under a unique name, never shadowed,
+never assigned over, and the drop list is BUILT correctly — it is never EMITTED,
+because the one call that would emit it does not exist. **A MISSING CALL HAS NO
+SPELLING**, which is why no grep-defined enumeration in six rounds found it and a
+release oracle did in one program.
+
+THE ONE CHANGE, 31 lines: in `lower_block_expr`, before `pop_scope()`, guard on the
+block not ending in a terminator, `mark_moved_in_expr_recursive` the tail so a
+moved-out value is not destroyed twice, bind it to `__btmp_N` so it is PRODUCED
+BEFORE the drops run, emit `collect_drops()`, yield the temp.
+
+RULE 5 PAID: 22 hand programs in shapes the repro never used — the non-literal
+`#[fn_macro]` fallback (`let p: str = "n={}"; println!(p, n)`), `write!`+`writeln!`
+into a String sink, a match-arm block, a nested block-expression, a block-expression
+in ARGUMENT position, a block-expression containing an early `return` on one path,
+`&`-argument temporaries, method-receiver temporaries — **all 22 clean after, all
+rc unchanged.** The fn_macro fallback closes with the SAME change, so the grouping
+held; had it not, it would have been reported as two roots.
+
+**THE CONTROL REVERT, a full rebuild with `sema_expr.cpp` reverted:**
+    logos_02_..._pass_blockexpr_scope_drop_valgrind      Passed   ← run_test.sh
+    logos_02_..._pass_blockexpr_scope_drop_format_ctl    Passed   ← run_test.sh
+    logos_09_blockexpr_scope_drop_valgrind               FAILED
+        definitely lost 246 bytes · 54 allocs - 27 frees = 27, 0 reachable
+    logos_09_blockexpr_scope_drop_format_ctl_valgrind    FAILED
+        definitely lost 30 bytes · 46 allocs - 43 frees = 3, 0 reachable
+**THE TWO `.expected` FIXTURES PASS ON THE BROKEN COMPILER.** That is the whole
+argument for the instrument, measured rather than asserted: the same two programs,
+the same two binaries, and only the valgrind oracle can tell them apart.
+
+## 4. PHASE 2 — THE GRID, on the FIXED binary
+
+    swept                6524
+      allocated          1571   (reached malloc at least once)
+      zero-alloc         4762   COVERAGE, NOT EVIDENCE
+      not run             191   (124 LINKFAIL + 64 CFAIL + 3 TIMEOUT)
+    clean, of the allocating ones                 1478
+    LEAK                   90
+    CORRUPT                 3
+    IMBALANCE               0
+
+⚠ THE 191 NOT-RUN ARE THE SWEEP'S OWN LIMIT, NOT FINDINGS: `run_test.sh` passes
+per-fixture EXTRA flags (`-I`, `-L`, `--test`) that this sweep does not, so the 117
+`test_harness_coretest_*` ports and their kin cannot link here. Carrying those flags
+is the next round's first improvement to the instrument.
+
+⚠ AND THE 90 LEAK ROWS ARE NOT 90 DEFECTS. A fixture that calls `malloc` by hand
+and never frees — `bc_fatval_deferred_init_len` is exactly that, its own
+`malloc(8i64)` — leaks by its own text, not the compiler's. Separating those is
+per-fixture reading, and this round did it for the six roots below and left the
+rest as a recorded baseline under `tests/lattice/valgrind/` that the next round can
+cite row by row. **THE COUNT IS A POPULATION, NEVER A BLAST RADIUS.**
+
+## 5. THE CLASSES — the property, the root BY SYMBOL, the members, the one change
+
+Each was isolated to a minimal program, and each carries a CONTROL that is correct
+today. Every one of the six also has a SECOND oracle: a destructor count reached
+through a raw `*mut i64`, so the queue rows are held by an exit code and not by
+valgrind alone.
+
+**V1 — A BLOCK IN EXPRESSION POSITION EMITS NO SCOPE-EXIT DROPS.** FIXED this
+round; §3. Root `SemaChecker::lower_block_expr`. Members: every `println!`,
+`print!`, `eprintln!`, `eprint!`, `panic!`, `write!`, `writeln!` in the corpus, plus
+every hand-written block-expression with a droppable local not moved out.
+
+**V2 — AN IMPLICIT AUTO-REF AT AN OPERATOR OPERAND NEVER REGISTERS ITS TEMPORARY.**
+Root: the `push_operand` lambda in `SemaChecker`'s operator-overload dispatch
+(sema_expr.cpp), its twin `push_pc` in the `partial_cmp` arm below it, and the
+tuple-Eq auto-ref (`lref_e`/`rref_e`) above it. All three call
+`builder().addr_of_temp(...)` DIRECTLY, bypassing `SemaChecker::materialize_recv_ref`
+— whose own header calls itself "ONE chokepoint for every implicit `&mut` producer"
+and which is the ONLY caller of `SemaChecker::hoist_stmt_temp`, the routine that
+gives an auto-ref'd droppable rvalue a named slot and therefore a destructor.
+**THE ARM EXISTS AND IS CORRECT NEXT DOOR** — the method-receiver door goes through
+it and is clean.
+  CONTROLS CORRECT: method receiver `String::from(…).len()`, explicit `&`-argument,
+  by-value argument, bare expression statement, `a == "literal"`.
+  POSITION IS NOT THE DISCRIMINATOR: identical in `return`, in `let`, in an `if`
+  condition. BOTH SIDES leak (2 allocs / 0 frees with a temp on each side).
+  Corpus member: `imported/pass/drop/field-replace-in-struct-with-drop-b154`.
+  ONE CHANGE: route all three through `materialize_recv_ref`. Row
+  `operator_autoref_temp_never_dropped`.
+
+**V3 — A TUPLE ELEMENT RE-INITIALISED AFTER A MOVE IS NEVER DROPPED.** The struct
+door is CORRECT with the same counter (1001 vs 1). Two spellings of one operation
+disagree — the same shape as C2 and a DIFFERENT predicate, with the doors SWAPPED:
+C2 is the OLD value at the store and leaks at the struct door; this is the NEW value
+at scope exit and leaks at the tuple door. Corpus member
+`imported/pass/match/issue-19367-b170`. Row
+`tuple_elem_reinit_after_move_never_dropped`.
+
+**V4 — A CLOSURE'S BY-VALUE PARAMETER IS NEVER DROPPED.** `fn eat(d: D) {}` with the
+same counter reads 1000; `|x: D| {}` reads 0. The epilogue exists
+(`emit_frame_drops(frame, epilogue_drops, &body_ever_moved_)` in sema_decl.cpp) and
+the closure-body lowering does not reach it. Corpus member
+`imported/pass/closures/old-closure-explicit-types`. Row
+`closure_byvalue_param_never_dropped`.
+
+**V5 — A SELF-RECURSIVE CALL IN RETURN POSITION SUPPRESSES THE FUNCTION'S PARAMETER
+DROPS ON EVERY PATH, INCLUDING THE PATH THAT NEVER TAKES IT.** `fn inner(d, b)
+{ if b { return inner(d,false); } }` called with `b = false` never recurses and
+still never destroys `d`. THREE CONTROLS separate it from every wider claim, all
+correct: a DIFFERENT callee in the same branch; a different callee in RETURN
+position; the SAME self-call NOT in return position. The discriminator is exactly
+self-call + return position, and the suspect is `body_ever_moved_` — the
+conservative "a param moved on ANY branch gets no drop at all" skip list, whose own
+comment names drop-flag elaboration as the fix and its cost as exactly this leak.
+Corpus member `imported/pass/recursion/recursion-tail-call-no-arg-leak` — **a
+fixture whose NAME says "no-arg-leak" and which leaks**, green for as long as it has
+existed. Row `self_call_in_return_kills_param_drops`.
+
+**V6 — A LOCAL OF TYPE `Weak<T>` IS NEVER DESTROYED.** `a.downgrade()` alone turns a
+clean Arc program into 1 alloc / 0 frees. `impl Drop for Arc<T>` DOES run (Arc alone
+is 1/1, and `a.clone()` is 1/1 — the refcount protocol closes); the structurally
+identical `impl Drop for Weak<T>` five declarations above it in the same stdlib file
+does not. Scope is not the discriminator (an inner block leaks identically) and
+neither is the boundary (a `Weak` returned from a function leaks too). ⚠ THE ROOT IS
+NOT ISOLATED BELOW "Weak's Drop does not run": three hand replicas of the shape (a
+raw-pointer struct with a user Drop, built by a free fn, by a method, generically)
+are all CORRECT. Corpus members `pass/arc_weak_upgrade`, `pass/rc_weak_upgrade`,
+`pass/rc_weak_dangling`. Row `weak_local_never_dropped`, whose oracle is the
+stdlib's own `weak_count()` — 1 today, 0 correct.
+
+**V7 — A BOXED `move` CLOSURE CAPTURING FAT VALUES WRITES PAST ITS ENVIRONMENT
+ALLOCATION.** With ONE `str` capture: `Invalid write of size 8`, `0 bytes after a
+block of size 16`, then an `Invalid read` from the same address, **2 allocs / 2
+frees, 0 bytes lost, ERROR SUMMARY 2, rc 0** — a heap buffer overflow with a clean
+leak summary. With TWO fat captures it reaches far enough to abort: rc 134.
+  CONTROLS CORRECT, zero invalid-access records: a SCALAR capture boxed the same way
+  (so it is the fat repr, not `Box<dyn Fn>`), and the SAME fat capture NOT boxed
+  (so it is the coercion, not the capture).
+  Corpus members `pass/bc_objlt_str_literal` (2 records — and that fixture is pinned
+  as "THE LEGAL TWIN", so it asserts the program is ACCEPTED while the accepted
+  program corrupts the heap), `pass/custom_dst_smartptr_owning_drop` (2),
+  `spec/pass/coerce_4` (9). Row
+  `boxed_move_closure_fat_capture_env_overflow`, `run 134`.
+
+## 6. WHAT THE INSTRUMENT SHOWS CORRECT THAT A RECORD CALLS BROKEN
+
+  * `tests/logos/pass/bc_fatval_deferred_init_len` reports 8 bytes definitely lost.
+    It is NOT a compiler defect: the fixture calls `malloc(8i64)` in its own text
+    for the `#[zone_mut]` cell and never frees it. Recorded so the next round does
+    not row it.
+  * The 191 CFAIL/LINKFAIL/TIMEOUT rows are the sweep's missing per-fixture flags,
+    not compiler failures — see §4.
+  * `q1`/`q2`/`q3`, three hand replicas of `Weak`'s shape, are CLEAN. So V6's class
+    is NARROWER than "a raw-pointer struct with a user `Drop`", and any fix aimed at
+    that description would be aimed at nothing.
+
+## 7. WHAT DESERVES FUNDING, IN ORDER
+
+  1. **V7, the corruption.** It is the only *write* out of bounds in the round, it
+     is silent at rc 0 in the one-capture form, and one of its three members is a
+     fixture that pins the corrupting program as legal. A write defect outranks
+     every leak here.
+  2. **V2**, because the fix is a call site: three `addr_of_temp` calls routed
+     through the chokepoint that already exists and already works. Cheapest correct
+     change in the list, and `==` on an owned type is not a rare shape.
+  3. **V4 and V5** together only if a measurement says one change moves both — they
+     are both "the parameter epilogue was not reached", but by different routes (a
+     door not wired vs a skip list over-populated), and this round did NOT test that
+     grouping. State it as two until it is.
+  4. **The sweep's own flags.** 191 fixtures unmeasured is 3% of the corpus and
+     includes the whole imported harness tier.
+  5. **V6 last**, not because it is small but because its root is not yet located
+     and the round that funds it should start from the Arc/Weak pair, not from the
+     symptom.
+
+## 8. COLUMNS
+
+  * **L1 rc 0** — 765/765 (L1.1), the enumerator's smoke tier 12 684 generated
+    cases, the gates tier 173/173. The FIRST L1 of this round was rc 1 on exactly
+    the two population pins the change moves, and the deltas were the predicted
+    ones: direct_door corpus 2894 -> 2896 and nonglob 2703 -> 2705 (+2, the two
+    new pass fixtures, both non-glob), census_pin REGISTRY-ALL 9349 -> 9353 and
+    NOIMPORTED 4912 -> 4916 (+4 — each fixture is registered TWICE, once in the
+    logos_02 corpus and once as a logos_09 valgrind gate), TIERCOMMIT 173
+    unchanged (both gates are tier_full). Re-derived in the gates that hold them,
+    with the arithmetic written beside each number; green after.
+  * **queue gate rc 0 on 63 rows** (tier1 22, tier2 6, tier3 32, tier4 3),
+    `# TOTAL` 57 -> 63 re-derived by direct listing, 63 programs on the shelf.
+    Six rows opened, none closed — the repair in §3 had no row, which is why the
+    round opened with the instrument and not with the ledger.
+  * **The four new registrations**, on the fixed binary: 4/4 passed.
+  * **probe-log-lint** 231 records, every site symbol resolves — unchanged.
+  * **`L4 bc` rc 0** — core+spec 4916/4916 (gate-db build 877, 4916 recorded, 0
+    failed), imported+bc 1539/1539 (1541 recorded, 2 other). The run on the FIRST
+    form of the fix was rc 8 with two real diagnostic reds — §9 — plus three
+    load-shaped timeouts at load average 54.87 on a 32-core box that a rerun at
+    load 33 did not reproduce. **THE BOX IS SHARED; CHECK IT BEFORE THE SUITE.**
+  * **build hash READ BACK: `f29b1b7c50d1a470 43`** (was `10f55b7c2fa44145 43`
+    at the round's start, `1ae1a23a36db2a82 43` for the first form of the fix).
+    It MOVED, and it had to: a compiled source changed.
+  * **The runtime column is the sweep itself** — 6524 fixtures compiled, linked
+    and RUN on the fixed binary under valgrind, §4. `run_oracle.py`'s base/armed
+    pair was NOT run and this says so rather than implying it: the base binary was
+    overwritten by the control-revert rebuild, and re-deriving that column costs
+    one more full build. What stands in its place is the control revert of §3,
+    which is the stronger direction for this change (the fixture reds), plus L1
+    and `L4 bc` on the fixed tree.
+  * ⚠ **NO PROBE WAS INSTALLED THIS ROUND.** The instrument is a script over a
+    stock binary; `src/compiler/probes/` is untouched and the only edit to a
+    compiled source is the 31-line repair, whose 4 comment lines are a marker
+    pointing here.
+
+## 9. THE FIRST FORM OF THE FIX MOVED A DIAGNOSTIC, AND `L4 bc` SAID SO
+
+The repair's first build was green at L1 and red at `L4 bc` on exactly two
+imported fail fixtures — `borrowck-loan-in-overloaded-op` and
+`issue-46099-move-in-macro` — and BOTH ARE MINE. Both programs are `{ x }`, a
+block expression whose tail moves an OUTER local out:
+
+    let y: Foo = { x } + x.dup();          // borrowck-loan-in-overloaded-op
+    let t1 = { b }; … let _ = sink({ b }); // issue-46099-move-in-macro
+
+`mark_moved_in_expr_recursive` on the tail is correct Rust semantics — the value
+IS moved — but leaving the mark in `moved_vars_` changed WHICH PASS reports it:
+sema's `use of moved variable 'x'` now fires where `borrow_check.cpp`'s richer
+`moved value 'x' (moved on line 11)` used to, and 45 `.expected` files in this
+tree pin that second sentence. **BOTH SPELLINGS REFUSE. NEITHER IS AN
+UN-REFUSAL.** That is precisely why it had to be caught by a text oracle and not
+by an exit code, and why "the verdict is still red" is not "the row is closed".
+
+⚠ THE FIX IS NOT TO EDIT THE TWO `.expected` FILES. A pinned diagnostic is the
+assertion; re-pointing it at whatever the new binary prints is the shape of
+weakening a test. The mark is instead SCOPED: it is taken for `collect_drops`'s
+benefit and then reverted for every entry whose ROOT variable is not declared in
+this block's own frame. A local the block yields still skips its destructor; an
+outer variable's move record is left exactly as it was, which is the tree's
+pre-existing behaviour and the sentence the fixtures pin.
+
+**This is what a batch gate buys that a per-mechanism one does not.** L1 was rc 0
+over 765 + 12 684 + 173 with the regression in the tree.

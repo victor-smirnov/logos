@@ -1,0 +1,49 @@
+// SOUNDNESS QUEUE row boxed_move_closure_fat_capture_env_overflow (tier 1). A
+// BOXED `move` CLOSURE CAPTURING FAT VALUES WRITES PAST ITS OWN ENVIRONMENT
+// ALLOCATION.
+//
+// `Box::new(move || …)` over captures of type `str` — a fat {ptr,len} pair —
+// sizes the environment block for fewer words than it then writes. valgrind on
+// the ONE-capture spelling, verbatim (tests/logos/pass/bc_objlt_str_literal):
+//
+//   Invalid write of size 8   at bc_objlt_str_literal$f__f__void
+//    Address 0x… is 0 bytes after a block of size 16 alloc'd
+//   Invalid read of size 8
+//    Address 0x… is 0 bytes after a block of size 16 alloc'd
+//   total heap usage: 2 allocs, 2 frees   ·   ERROR SUMMARY: 2 errors
+//
+// — a heap buffer overflow at rc 0, with a CLEAN leak summary, invisible to
+// every exit-code and stdout oracle in this tree.
+//
+// ⚠ THIS PROGRAM USES THE TWO-CAPTURE SPELLING BECAUSE IT IS THE ONE THAT
+// STOPS. With two fat captures the overflow reaches far enough to abort:
+// `free(): invalid next size` / core dumped, rc 134, so the queue gate's
+// exit-code reader can hold the row. The one-capture spelling is the SAME
+// defect one word smaller and exits 0.
+//
+// CONTROLS ALREADY CORRECT, same binary:
+//   * a SCALAR capture boxed the same way — `let k: i64 = 7; Box::new(move || k)`
+//     — rc 0, ZERO invalid-access records. So it is the fat repr, not `Box<dyn Fn>`.
+//   * the SAME fat capture NOT boxed — `let c = move || s.len();` used directly —
+//     rc 0, zero invalid-access records. So it is the coercion, not the capture.
+// The pair puts the defect exactly at the boxed-`dyn Fn` environment layout.
+//
+// Found by tests/lattice/valgrind/sweep.sh. Corpus members, all green today
+// and all silently corrupting: tests/logos/pass/bc_objlt_str_literal.logos
+// (2 invalid accesses — and that fixture is pinned as "THE LEGAL TWIN", so it
+// asserts the program is accepted while the accepted program corrupts the
+// heap), tests/logos/pass/custom_dst_smartptr_owning_drop.logos (2), and
+// tests/spec/pass/coerce_4.logos (9). Rust: exit 0, valgrind-clean.
+package boxed_move_closure_fat_capture_env_overflow;
+
+fn f() -> Box<dyn Fn() -> i64> {
+    let s = "abc";
+    let t = "de";
+    return Box::new(move || { return (s.len() + t.len()) as i64; });
+}
+
+fn main() -> i32 {
+    let a: Box<dyn Fn() -> i64> = f();
+    if a() != 5i64 { return 1i32; }
+    return 0i32;
+}

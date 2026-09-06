@@ -1,0 +1,69 @@
+==1709426== Memcheck, a memory error detector
+==1709426== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1709426== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1709426== Command: /tmp/tmp.9lEw2UOG2i/f.bin
+==1709426== 
+==1709426== 
+==1709426== HEAP SUMMARY:
+==1709426==     in use at exit: 456 bytes in 9 blocks
+==1709426==   total heap usage: 87 allocs, 78 frees, 6,944 bytes allocated
+==1709426== 
+==1709426== 64 bytes in 2 blocks are indirectly lost in loss record 1 of 6
+==1709426==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1709426==    by 0x112C37: logos_lang..logos.lang.fabric.PrimVec$G1$u64__insert_at__g__refmut_PrimVec$G1$T__u64__T (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x3: ???
+==1709426==    by 0x1FFEFFFCC7: ???
+==1709426== 
+==1709426== 64 bytes in 2 blocks are indirectly lost in loss record 2 of 6
+==1709426==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1709426==    by 0x113371: u64__store_push__g__pmut_PrimVec$G1$DT::Prim__DT::Prim (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x63: ???
+==1709426==    by 0x1FFEFFFCC7: ???
+==1709426== 
+==1709426== 64 bytes in 2 blocks are indirectly lost in loss record 3 of 6
+==1709426==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1709426==    by 0x113371: u64__store_push__g__pmut_PrimVec$G1$DT::Prim__DT::Prim (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0xC7: ???
+==1709426==    by 0x1FFEFFFCC7: ???
+==1709426== 
+==1709426== 152 (88 direct, 64 indirect) bytes in 1 blocks are definitely lost in loss record 4 of 6
+==1709426==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1709426==    by 0x10E062: logos_mem.logos.mem.sync$arc_new__g__T__LeafNode$G4$u64$u64$hs_f49c415ed1b236c9$hs_7f31d9b7dfa4b13b (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10DFF4: logos_lcm.logos.lcm.deem.data.bt.cow$leaf_alloc__g__<cfg-slot-type>__<cfg-slot-type>__u64__u64__@hs_f49c415ed1b236c9__@hs_7f31d9b7dfa4b13b (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10DE2F: logos_lcm.logos.lcm.deem.data.handle$create_ctr__g__refmut_Snap$G1$STORE_CFG__u64__@hs_7f31d9b7dfa4b13b__@hs_f49c415ed1b236c9 (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10B48B: persistent_dag_topology$commit_with__f__refmut_Store$G1$hs_f49c415ed1b236c9__u64__u64__u64 (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10B6CE: main (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426== 
+==1709426== 152 (88 direct, 64 indirect) bytes in 1 blocks are definitely lost in loss record 5 of 6
+==1709426==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1709426==    by 0x10E062: logos_mem.logos.mem.sync$arc_new__g__T__LeafNode$G4$u64$u64$hs_f49c415ed1b236c9$hs_7f31d9b7dfa4b13b (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10DFF4: logos_lcm.logos.lcm.deem.data.bt.cow$leaf_alloc__g__<cfg-slot-type>__<cfg-slot-type>__u64__u64__@hs_f49c415ed1b236c9__@hs_7f31d9b7dfa4b13b (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10A7F7: logos_lcm..logos.lcm.deem.data.bt.cow.LeafNode$G4$u64$u64$hs_f49c415ed1b236c9$hs_7f31d9b7dfa4b13b__cow_clone__g__ref_LeafNode$G4$K$V$STORE_CFG$CFG__<cfg-slot-type>__<cfg-slot-type> (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x112A53: logos_lcm.logos.lcm.deem.data.bt.node$make_unique__g__refmut_Arc$G1$udyn_BTreeNode__<cfg-slot-type>__pmut_<cfg-slot-type>__@hs_f49c415ed1b236c9 (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10F44C: logos_lcm.logos.lcm.deem.data.bt.mutate$insert_rec__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__V::ViewInStore__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__u64__u64__@hs_f49c415ed1b236c9__@hs_7f31d9b7dfa4b13b (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10E966: logos_lcm.logos.lcm.deem.data.bt.mutate$bt_insert__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__V::ViewInStore__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__u64__u64__@hs_f49c415ed1b236c9__@hs_7f31d9b7dfa4b13b (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10AADB: logos_lcm..logos.lcm.deem.data.handle.ContainerRef$G2$hs_f49c415ed1b236c9$hs_7f31d9b7dfa4b13b__insert__g__refmut_ContainerRef$G2$STORE_CFG$CFG__<cfg-slot-type>::ViewInStore__<cfg-slot-type>::ViewInStore (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10B660: persistent_dag_topology$commit_with__f__refmut_Store$G1$hs_f49c415ed1b236c9__u64__u64__u64 (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10B6F5: main (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426== 
+==1709426== 152 (88 direct, 64 indirect) bytes in 1 blocks are definitely lost in loss record 6 of 6
+==1709426==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1709426==    by 0x10E062: logos_mem.logos.mem.sync$arc_new__g__T__LeafNode$G4$u64$u64$hs_f49c415ed1b236c9$hs_7f31d9b7dfa4b13b (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10DFF4: logos_lcm.logos.lcm.deem.data.bt.cow$leaf_alloc__g__<cfg-slot-type>__<cfg-slot-type>__u64__u64__@hs_f49c415ed1b236c9__@hs_7f31d9b7dfa4b13b (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10A7F7: logos_lcm..logos.lcm.deem.data.bt.cow.LeafNode$G4$u64$u64$hs_f49c415ed1b236c9$hs_7f31d9b7dfa4b13b__cow_clone__g__ref_LeafNode$G4$K$V$STORE_CFG$CFG__<cfg-slot-type>__<cfg-slot-type> (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x112A53: logos_lcm.logos.lcm.deem.data.bt.node$make_unique__g__refmut_Arc$G1$udyn_BTreeNode__<cfg-slot-type>__pmut_<cfg-slot-type>__@hs_f49c415ed1b236c9 (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10F44C: logos_lcm.logos.lcm.deem.data.bt.mutate$insert_rec__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__V::ViewInStore__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__u64__u64__@hs_f49c415ed1b236c9__@hs_7f31d9b7dfa4b13b (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10E966: logos_lcm.logos.lcm.deem.data.bt.mutate$bt_insert__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__V::ViewInStore__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__u64__u64__@hs_f49c415ed1b236c9__@hs_7f31d9b7dfa4b13b (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10AADB: logos_lcm..logos.lcm.deem.data.handle.ContainerRef$G2$hs_f49c415ed1b236c9$hs_7f31d9b7dfa4b13b__insert__g__refmut_ContainerRef$G2$STORE_CFG$CFG__<cfg-slot-type>::ViewInStore__<cfg-slot-type>::ViewInStore (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10B660: persistent_dag_topology$commit_with__f__refmut_Store$G1$hs_f49c415ed1b236c9__u64__u64__u64 (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426==    by 0x10B71C: main (in /tmp/tmp.9lEw2UOG2i/f.bin)
+==1709426== 
+==1709426== LEAK SUMMARY:
+==1709426==    definitely lost: 264 bytes in 3 blocks
+==1709426==    indirectly lost: 192 bytes in 6 blocks
+==1709426==      possibly lost: 0 bytes in 0 blocks
+==1709426==    still reachable: 0 bytes in 0 blocks
+==1709426==         suppressed: 0 bytes in 0 blocks
+==1709426== 
+==1709426== For lists of detected and suppressed errors, rerun with: -s
+==1709426== ERROR SUMMARY: 6 errors from 6 contexts (suppressed: 0 from 0)

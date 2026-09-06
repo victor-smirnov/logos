@@ -1,0 +1,130 @@
+==1715696== Memcheck, a memory error detector
+==1715696== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1715696== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1715696== Command: /tmp/tmp.6wkW1zE4DE/f.bin
+==1715696== 
+==1715696== 
+==1715696== HEAP SUMMARY:
+==1715696==     in use at exit: 1,803 bytes in 16 blocks
+==1715696==   total heap usage: 252 allocs, 236 frees, 33,319 bytes allocated
+==1715696== 
+==1715696== 16 bytes in 1 blocks are indirectly lost in loss record 2 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x16675B: logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__i64__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x1666AF: logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__i64__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x161BFF: test$iq_apply__f__refmut_IqIncr__i32__i64__slice_I (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x162B22: test$iq_epoch__f__refmut_IqIncr__slice_I (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x133CB0: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== 16 bytes in 1 blocks are indirectly lost in loss record 3 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x16675B: logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__i64__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x1666AF: logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__i64__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x161C95: test$iq_apply__f__refmut_IqIncr__i32__i64__slice_I (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x162B22: test$iq_epoch__f__refmut_IqIncr__slice_I (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x133CB0: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== 64 bytes in 1 blocks are definitely lost in loss record 5 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x16800A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x1611C5: test$iq_incremental__f__void (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x13395F: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== 64 bytes in 1 blocks are definitely lost in loss record 6 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x16800A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x1611E2: test$iq_incremental__f__void (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x13395F: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== 64 bytes in 1 blocks are definitely lost in loss record 7 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x16800A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x16121C: test$iq_incremental__f__void (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x13395F: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== 64 bytes in 1 blocks are definitely lost in loss record 8 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x16800A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x161239: test$iq_incremental__f__void (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x13395F: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== 64 bytes in 1 blocks are definitely lost in loss record 9 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x16800A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x161256: test$iq_incremental__f__void (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x13395F: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== 64 bytes in 1 blocks are definitely lost in loss record 10 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x16800A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x161273: test$iq_incremental__f__void (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x13395F: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== 64 bytes in 1 blocks are definitely lost in loss record 11 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x16800A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x1612AD: test$iq_incremental__f__void (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x13395F: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== 256 bytes in 1 blocks are indirectly lost in loss record 12 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x1667E0: logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__i64__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x1666AF: logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__i64__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x161BFF: test$iq_apply__f__refmut_IqIncr__i32__i64__slice_I (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x162B22: test$iq_epoch__f__refmut_IqIncr__slice_I (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x133CB0: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== 256 bytes in 1 blocks are indirectly lost in loss record 13 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x1667E0: logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__i64__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x1666AF: logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__i64__i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x161C95: test$iq_apply__f__refmut_IqIncr__i32__i64__slice_I (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x162B22: test$iq_epoch__f__refmut_IqIncr__slice_I (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x133CB0: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== 256 bytes in 1 blocks are definitely lost in loss record 14 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x166BE9: logos_mem.logos.mem.collections.vec$vec_new__g__void__(i64, i64, i64, i64) (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x109DD8: logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$i64$i64$i64$i64__new__g__void (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x1611FF: test$iq_incremental__f__void (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x13395F: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== 528 (256 direct, 272 indirect) bytes in 1 blocks are definitely lost in loss record 15 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x166C67: logos_mem.logos.mem.collections.vec$vec_new__g__void__HashMap$G2$i64$i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10C108: logos_mem..logos.mem.collections.vec.Vec$G1$HashMap$G2$i64$i64__new__g__void (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x161290: test$iq_incremental__f__void (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x13395F: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== 528 (256 direct, 272 indirect) bytes in 1 blocks are definitely lost in loss record 16 of 16
+==1715696==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1715696==    by 0x166C67: logos_mem.logos.mem.collections.vec$vec_new__g__void__HashMap$G2$i64$i64 (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10C108: logos_mem..logos.mem.collections.vec.Vec$G1$HashMap$G2$i64$i64__new__g__void (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x1612CA: test$iq_incremental__f__void (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x13395F: test$assertions__f__refmut_Tally (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696==    by 0x10CAA8: main (in /tmp/tmp.6wkW1zE4DE/f.bin)
+==1715696== 
+==1715696== LEAK SUMMARY:
+==1715696==    definitely lost: 1,216 bytes in 10 blocks
+==1715696==    indirectly lost: 544 bytes in 4 blocks
+==1715696==      possibly lost: 0 bytes in 0 blocks
+==1715696==    still reachable: 43 bytes in 2 blocks
+==1715696==         suppressed: 0 bytes in 0 blocks
+==1715696== Reachable blocks (those to which a pointer was found) are not shown.
+==1715696== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==1715696== 
+==1715696== For lists of detected and suppressed errors, rerun with: -s
+==1715696== ERROR SUMMARY: 14 errors from 14 contexts (suppressed: 0 from 0)

@@ -1,0 +1,29 @@
+==1713501== Memcheck, a memory error detector
+==1713501== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1713501== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1713501== Command: /tmp/tmp.cS4nrOLyCe/f.bin
+==1713501== 
+==1713501== 
+==1713501== HEAP SUMMARY:
+==1713501==     in use at exit: 128 bytes in 2 blocks
+==1713501==   total heap usage: 10 allocs, 8 frees, 1,152 bytes allocated
+==1713501== 
+==1713501== 64 bytes in 1 blocks are definitely lost in loss record 1 of 2
+==1713501==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1713501==    by 0x10B75C: logos_mem.logos.mem.collections.btree$btreemap_new__g__void__i64__i64 (in /tmp/tmp.cS4nrOLyCe/f.bin)
+==1713501==    by 0x1099A3: main (in /tmp/tmp.cS4nrOLyCe/f.bin)
+==1713501== 
+==1713501== 64 bytes in 1 blocks are definitely lost in loss record 2 of 2
+==1713501==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1713501==    by 0x10B782: logos_mem.logos.mem.collections.btree$btreemap_new__g__void__i64__i64 (in /tmp/tmp.cS4nrOLyCe/f.bin)
+==1713501==    by 0x1099A3: main (in /tmp/tmp.cS4nrOLyCe/f.bin)
+==1713501== 
+==1713501== LEAK SUMMARY:
+==1713501==    definitely lost: 128 bytes in 2 blocks
+==1713501==    indirectly lost: 0 bytes in 0 blocks
+==1713501==      possibly lost: 0 bytes in 0 blocks
+==1713501==    still reachable: 0 bytes in 0 blocks
+==1713501==         suppressed: 0 bytes in 0 blocks
+==1713501== 
+==1713501== For lists of detected and suppressed errors, rerun with: -s
+==1713501== ERROR SUMMARY: 2 errors from 2 contexts (suppressed: 0 from 0)

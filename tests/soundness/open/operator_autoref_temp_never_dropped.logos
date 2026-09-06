@@ -1,0 +1,56 @@
+// SOUNDNESS QUEUE row operator_autoref_temp_never_dropped (tier 1). A DROPPABLE
+// TEMPORARY AUTO-REF'D AT AN OPERATOR OPERAND IS NEVER DROPPED.
+//
+// `a == String::from("…")` builds a String rvalue, takes its address to match
+// the `fn eq(&self, &other)` shape of the impl, and registers nothing. The
+// block is lost: 22 bytes definitely lost, 2 allocs / 1 free, rc 0.
+//
+// ROOT, by symbol: the `push_operand` lambda in `SemaChecker`'s operator-
+// overload dispatch (src/compiler/sema_expr.cpp, in the `find_func_by_base_and_
+// signature(mangled, …)` arm) calls `builder().addr_of_temp(...)` DIRECTLY. Its
+// twin `push_pc` in the `partial_cmp` arm below it and the tuple-Eq auto-ref
+// (`lref_e`/`rref_e`) do the same. All three bypass
+// `SemaChecker::materialize_recv_ref`, whose own header calls itself "ONE
+// chokepoint for every implicit `&mut` producer" and which is the ONLY caller of
+// `SemaChecker::hoist_stmt_temp` — the routine that gives an auto-ref'd
+// droppable rvalue a named slot in the statement's temp scope and therefore a
+// scope-exit destructor. THE ARM EXISTS AND IS CORRECT NEXT DOOR.
+//
+// CONTROLS ALREADY CORRECT, bounding where a fix must not reach (all measured
+// on build 10f55b7c2fa44145, 1 alloc / 1 free, 0 errors): the METHOD RECEIVER
+// `String::from("…").len()` (this is materialize_recv_ref's own door), an
+// explicit `&`-argument `g(&String::from("…"))`, a by-value argument
+// `g(String::from("…"))`, a bare expression statement `String::from("…");`, and
+// `a == "…"` against a str LITERAL (no temporary to own).
+// POSITION IS NOT THE DISCRIMINATOR: the same `==` leaks identically in a
+// `return`, in a `let`, and in an `if` condition. BOTH SIDES leak: with a
+// temporary on each side of `==`, 2 allocs / 0 frees, 44 bytes lost.
+//
+// Found by tests/lattice/valgrind/sweep.sh; corpus member
+// tests/imported/pass/drop/field-replace-in-struct-with-drop-b154.logos
+// (6 allocs / 4 frees, 16 bytes definitely lost, green through run_test.sh).
+// Rust: exit 0, no leak.
+//
+// ⚠ THE ORACLE HERE IS A DESTRUCTOR COUNT, NOT AN EXIT CODE AND NOT valgrind.
+// `D`'s destructor adds its own weight to a counter reached through a raw
+// `*mut i64`, so the number NAMES which owners ran: 1001 = both, 1 = only the
+// named local, 1000 = only the temporary. Today it reads 1 and this program
+// exits 1; correct is 1001 and exit 0. A leak is invisible to every other
+// oracle in this tree, which is why it needed its own.
+package operator_autoref_temp_never_dropped;
+
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+impl Eq for D { fn eq(&self, other: &D) -> bool { return self.v > 0i64 && other.v > 0i64; } }
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let a: D = D { v: 1i64, c: p };
+        if !(a == D { v: 1000i64, c: p }) { return 3i32; }
+    }
+    let got: i64 = unsafe { n };
+    if got != 1001i64 { return 1i32; }
+    return 0i32;
+}

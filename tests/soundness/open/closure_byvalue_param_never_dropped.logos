@@ -1,0 +1,38 @@
+// SOUNDNESS QUEUE row closure_byvalue_param_never_dropped (tier 1). A CLOSURE'S
+// BY-VALUE PARAMETER IS NEVER DROPPED AT THE CLOSURE BODY'S EXIT.
+//
+// `|foo: String| {}` receives ownership of the String and its body ends without
+// using it. Nothing destroys it: 1 alloc / 0 frees, 22 bytes definitely lost,
+// rc 0.
+//
+// THE FUNCTION DOOR IS CORRECT AND IS THE CONTROL: `fn eat(s: String) {}` called
+// with the same argument reads 1 alloc / 1 free, 0 errors. So the epilogue that
+// drops an unconsumed by-value parameter EXISTS — `SemaChecker` emits it at
+// sema_decl.cpp's `emit_frame_drops(frame, epilogue_drops, &body_ever_moved_)` —
+// and the closure-body lowering does not reach it. An arm that exists, missed at
+// one of two doors.
+//
+// Found by tests/lattice/valgrind/sweep.sh; corpus member
+// tests/imported/pass/closures/old-closure-explicit-types.logos (1 alloc /
+// 0 frees, 8 bytes definitely lost, green through run_test.sh). Rust: exit 0,
+// no leak — the closure parameter is dropped exactly like a function's.
+//
+// ⚠ THE ORACLE IS A DESTRUCTOR COUNT: 1000 = the closure parameter was
+// destroyed, 0 = it was not. Today 0, exit 1; correct 1000, exit 0. THE
+// FUNCTION CONTROL — `fn eat(d: D) {}` with the same counter — READS 1000
+// TODAY, so the epilogue that drops an unconsumed by-value parameter exists.
+package closure_byvalue_param_never_dropped;
+
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+
+fn as_buf<F>(d: D, f: F) where F: FnOnce(D) { f(d); }
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    as_buf(D { v: 1000i64, c: p }, |x: D| {});
+    let got: i64 = unsafe { n };
+    if got != 1000i64 { return 1i32; }
+    return 0i32;
+}

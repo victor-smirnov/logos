@@ -1,0 +1,27 @@
+==1789620== Memcheck, a memory error detector
+==1789620== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1789620== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1789620== Command: /tmp/tmp.0uCAWtcL9F/f.bin
+==1789620== 
+==1789620== 
+==1789620== HEAP SUMMARY:
+==1789620==     in use at exit: 107 bytes in 3 blocks
+==1789620==   total heap usage: 32 allocs, 29 frees, 1,571 bytes allocated
+==1789620== 
+==1789620== 64 bytes in 1 blocks are definitely lost in loss record 3 of 3
+==1789620==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1789620==    by 0x10C40A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.0uCAWtcL9F/f.bin)
+==1789620==    by 0x10A28A: rawdup_peekable_drop_once$mk__f__i64 (in /tmp/tmp.0uCAWtcL9F/f.bin)
+==1789620==    by 0x10A4F6: main (in /tmp/tmp.0uCAWtcL9F/f.bin)
+==1789620== 
+==1789620== LEAK SUMMARY:
+==1789620==    definitely lost: 64 bytes in 1 blocks
+==1789620==    indirectly lost: 0 bytes in 0 blocks
+==1789620==      possibly lost: 0 bytes in 0 blocks
+==1789620==    still reachable: 43 bytes in 2 blocks
+==1789620==         suppressed: 0 bytes in 0 blocks
+==1789620== Reachable blocks (those to which a pointer was found) are not shown.
+==1789620== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==1789620== 
+==1789620== For lists of detected and suppressed errors, rerun with: -s
+==1789620== ERROR SUMMARY: 1 errors from 1 contexts (suppressed: 0 from 0)

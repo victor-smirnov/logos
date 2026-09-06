@@ -1,0 +1,33 @@
+==1694094== Memcheck, a memory error detector
+==1694094== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1694094== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1694094== Command: /tmp/tmp.KeYIPPN6DU/f.bin
+==1694094== 
+==1694094== 
+==1694094== HEAP SUMMARY:
+==1694094==     in use at exit: 128 bytes in 2 blocks
+==1694094==   total heap usage: 11 allocs, 9 frees, 4,736 bytes allocated
+==1694094== 
+==1694094== 64 bytes in 1 blocks are definitely lost in loss record 1 of 2
+==1694094==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1694094==    by 0x1098FA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.KeYIPPN6DU/f.bin)
+==1694094==    by 0x10920A: cond_move_match$mk__f__i64 (in /tmp/tmp.KeYIPPN6DU/f.bin)
+==1694094==    by 0x109348: cond_move_match$cellD__f__Sel (in /tmp/tmp.KeYIPPN6DU/f.bin)
+==1694094==    by 0x10975C: main (in /tmp/tmp.KeYIPPN6DU/f.bin)
+==1694094== 
+==1694094== 64 bytes in 1 blocks are definitely lost in loss record 2 of 2
+==1694094==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1694094==    by 0x1098FA: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.KeYIPPN6DU/f.bin)
+==1694094==    by 0x10920A: cond_move_match$mk__f__i64 (in /tmp/tmp.KeYIPPN6DU/f.bin)
+==1694094==    by 0x109348: cond_move_match$cellD__f__Sel (in /tmp/tmp.KeYIPPN6DU/f.bin)
+==1694094==    by 0x1097A4: main (in /tmp/tmp.KeYIPPN6DU/f.bin)
+==1694094== 
+==1694094== LEAK SUMMARY:
+==1694094==    definitely lost: 128 bytes in 2 blocks
+==1694094==    indirectly lost: 0 bytes in 0 blocks
+==1694094==      possibly lost: 0 bytes in 0 blocks
+==1694094==    still reachable: 0 bytes in 0 blocks
+==1694094==         suppressed: 0 bytes in 0 blocks
+==1694094== 
+==1694094== For lists of detected and suppressed errors, rerun with: -s
+==1694094== ERROR SUMMARY: 2 errors from 2 contexts (suppressed: 0 from 0)

@@ -1,0 +1,39 @@
+==1725139== Memcheck, a memory error detector
+==1725139== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1725139== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1725139== Command: /tmp/tmp.YcDYyTKLjs/f.bin
+==1725139== 
+==1725139== 
+==1725139== HEAP SUMMARY:
+==1725139==     in use at exit: 235 bytes in 5 blocks
+==1725139==   total heap usage: 36 allocs, 31 frees, 1,349 bytes allocated
+==1725139== 
+==1725139== 64 bytes in 1 blocks are definitely lost in loss record 3 of 5
+==1725139==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1725139==    by 0x10B27A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.YcDYyTKLjs/f.bin)
+==1725139==    by 0x10970A: dupown_array_into_iter_drop_once$mk__f__i64 (in /tmp/tmp.YcDYyTKLjs/f.bin)
+==1725139==    by 0x1098E2: main (in /tmp/tmp.YcDYyTKLjs/f.bin)
+==1725139== 
+==1725139== 64 bytes in 1 blocks are definitely lost in loss record 4 of 5
+==1725139==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1725139==    by 0x10B27A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.YcDYyTKLjs/f.bin)
+==1725139==    by 0x10970A: dupown_array_into_iter_drop_once$mk__f__i64 (in /tmp/tmp.YcDYyTKLjs/f.bin)
+==1725139==    by 0x109934: main (in /tmp/tmp.YcDYyTKLjs/f.bin)
+==1725139== 
+==1725139== 64 bytes in 1 blocks are definitely lost in loss record 5 of 5
+==1725139==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1725139==    by 0x10B27A: logos_mem.logos.mem.collections.vec$vec_new__g__void__i64 (in /tmp/tmp.YcDYyTKLjs/f.bin)
+==1725139==    by 0x10970A: dupown_array_into_iter_drop_once$mk__f__i64 (in /tmp/tmp.YcDYyTKLjs/f.bin)
+==1725139==    by 0x109986: main (in /tmp/tmp.YcDYyTKLjs/f.bin)
+==1725139== 
+==1725139== LEAK SUMMARY:
+==1725139==    definitely lost: 192 bytes in 3 blocks
+==1725139==    indirectly lost: 0 bytes in 0 blocks
+==1725139==      possibly lost: 0 bytes in 0 blocks
+==1725139==    still reachable: 43 bytes in 2 blocks
+==1725139==         suppressed: 0 bytes in 0 blocks
+==1725139== Reachable blocks (those to which a pointer was found) are not shown.
+==1725139== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==1725139== 
+==1725139== For lists of detected and suppressed errors, rerun with: -s
+==1725139== ERROR SUMMARY: 3 errors from 3 contexts (suppressed: 0 from 0)

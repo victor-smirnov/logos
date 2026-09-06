@@ -1,0 +1,52 @@
+// SOUNDNESS QUEUE row weak_local_never_dropped (tier 1). A LOCAL OF TYPE
+// `Weak<T>` IS NEVER DESTROYED, SO THE `Arc` BLOCK IT KEEPS ALIVE IS LEAKED.
+//
+// `a.downgrade()` bumps the weak count to 2. At scope exit `w` must be dropped
+// first (reverse declaration order), taking the weak count back to 1, so that
+// `a`'s drop can take strong to 0 and then weak to 0 and `dealloc`. Measured:
+// 1 alloc / 0 frees, 12 bytes definitely lost, rc 0 — NOTHING was released, the
+// signature of `w`'s destructor never running and `a`'s therefore finding
+// weak = 2.
+//
+// CONTROLS ALREADY CORRECT, same binary, all 1 alloc / 1 free, 0 errors:
+//   * `let a = arc_new::<i32>(20);` alone — `impl Drop for Arc<T>` DOES run and
+//     its `drop_arc` reaches `dealloc`.
+//   * `let b = a.clone();` — two strong handles, the refcount protocol closes.
+// So the leak is not the allocator, not `arc_new`, and not the Drop machinery
+// for the structurally identical `Arc<T>` in the SAME stdlib file
+// (stdlib/mem/sync/arc.logos: `impl<T: ?Sized> Drop for Weak<T>` at the
+// declaration ABOVE `impl<T: ?Sized> Drop for Arc<T>`, same shape, one raw
+// pointer field each).
+// SCOPE IS NOT THE DISCRIMINATOR: `{ let w = a.downgrade(); }` in an inner block
+// leaks identically, and so does a `Weak` returned across a function boundary.
+//
+// ⚠ THE ROOT IS NOT YET ISOLATED BELOW "Weak's Drop does not run". Three hand
+// replicas of the shape (a raw-pointer struct with a user Drop, built by a free
+// fn, by a method, and generically) are all CORRECT, so the discriminator is
+// something narrower in `Weak`'s declaration or its `?Sized` bound. Named here
+// so the next round starts from the pair, not from the symptom.
+//
+// Found by tests/lattice/valgrind/sweep.sh. Corpus members, all green through
+// run_test.sh: tests/logos/pass/arc_weak_upgrade.logos,
+// tests/logos/pass/rc_weak_upgrade.logos, tests/logos/pass/rc_weak_dangling.logos
+// — 1 alloc / 0 frees, 12 bytes definitely lost, each. Rust: exit 0, no leak.
+//
+// ⚠ THE ORACLE IS THE WEAK COUNT ITSELF, read through `Arc::weak_count` — the
+// stdlib's own accessor, not a byte count and not valgrind. `w` is created and
+// destroyed inside an inner block, so by the time `weak_count()` is asked the
+// answer must be 0. Today it is 1 and this program exits 1; correct is 0 and
+// exit 0. valgrind on the same shape: 1 alloc / 0 frees, 12 bytes definitely
+// lost.
+package weak_local_never_dropped;
+use logos.mem.sync;
+
+fn main() -> i32 {
+    let a: Arc<i32> = arc_new::<i32>(20);
+    { let w: Weak<i32> = a.downgrade(); }
+    let wc: i32 = unsafe {
+        let q: *mut Arc<i32> = &a as *const Arc<i32> as *mut Arc<i32>;
+        q.weak_count()
+    };
+    if wc != 0i32 { return 1i32; }
+    return 0i32;
+}

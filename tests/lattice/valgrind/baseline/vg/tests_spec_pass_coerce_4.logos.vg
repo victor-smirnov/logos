@@ -1,0 +1,143 @@
+==1840713== Memcheck, a memory error detector
+==1840713== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1840713== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1840713== Command: /tmp/tmp.jSeLQAVCnV/f.bin
+==1840713== 
+==1840713== Invalid read of size 4
+==1840713==    at 0x109186: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109943: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Address 0x4b810a0 is 0 bytes inside a block of size 16 free'd
+==1840713==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109443: coerce_4$take_rc_dyn__f__Rc$G1$udyn_Sp (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x10989C: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Block was alloc'd at
+==1840713==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109848: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713== 
+==1840713== Invalid write of size 4
+==1840713==    at 0x1091A5: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109943: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Address 0x4b810a0 is 0 bytes inside a block of size 16 free'd
+==1840713==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109443: coerce_4$take_rc_dyn__f__Rc$G1$udyn_Sp (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x10989C: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Block was alloc'd at
+==1840713==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109848: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713== 
+==1840713== Invalid read of size 4
+==1840713==    at 0x1091AA: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109943: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Address 0x4b810a0 is 0 bytes inside a block of size 16 free'd
+==1840713==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109443: coerce_4$take_rc_dyn__f__Rc$G1$udyn_Sp (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x10989C: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Block was alloc'd at
+==1840713==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109848: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713== 
+==1840713== Invalid read of size 4
+==1840713==    at 0x109186: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109A2B: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Address 0x4b810f0 is 0 bytes inside a block of size 16 free'd
+==1840713==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109A1E: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Block was alloc'd at
+==1840713==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x10995C: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713== 
+==1840713== Invalid write of size 4
+==1840713==    at 0x1091A5: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109A2B: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Address 0x4b810f0 is 0 bytes inside a block of size 16 free'd
+==1840713==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109A1E: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Block was alloc'd at
+==1840713==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x10995C: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713== 
+==1840713== Invalid read of size 4
+==1840713==    at 0x1091AA: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109A2B: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Address 0x4b810f0 is 0 bytes inside a block of size 16 free'd
+==1840713==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109A1E: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Block was alloc'd at
+==1840713==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x10995C: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713== 
+==1840713== Invalid read of size 4
+==1840713==    at 0x109186: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109F3E: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Address 0x4b81190 is 0 bytes inside a block of size 16 free'd
+==1840713==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109F31: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Block was alloc'd at
+==1840713==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109E6F: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713== 
+==1840713== Invalid write of size 4
+==1840713==    at 0x1091A5: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109F3E: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Address 0x4b81190 is 0 bytes inside a block of size 16 free'd
+==1840713==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109F31: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Block was alloc'd at
+==1840713==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109E6F: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713== 
+==1840713== Invalid read of size 4
+==1840713==    at 0x1091AA: logos_lang..logos.lang.rc.Rc$G1$A__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109155: logos_lang..logos.lang.rc.Rc$G1$A__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109F3E: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Address 0x4b81190 is 0 bytes inside a block of size 16 free'd
+==1840713==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x10934B: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop_rc__g__pmut_Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109245: logos_lang..logos.lang.rc.Rc$G1$udyn_Sp__drop__g__Rc$G1$T (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109F31: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==  Block was alloc'd at
+==1840713==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1840713==    by 0x109F92: logos_lang.logos.lang.rc$rc_new__g__T__A (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713==    by 0x109E6F: main (in /tmp/tmp.jSeLQAVCnV/f.bin)
+==1840713== 
+==1840713== 
+==1840713== HEAP SUMMARY:
+==1840713==     in use at exit: 0 bytes in 0 blocks
+==1840713==   total heap usage: 5 allocs, 5 frees, 80 bytes allocated
+==1840713== 
+==1840713== All heap blocks were freed -- no leaks are possible
+==1840713== 
+==1840713== For lists of detected and suppressed errors, rerun with: -s
+==1840713== ERROR SUMMARY: 9 errors from 9 contexts (suppressed: 0 from 0)

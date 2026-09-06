@@ -1,0 +1,44 @@
+// THE CONTROL FOR `blockexpr_scope_drop_valgrind`: the arm that MOVES its
+// buffer out of the block, which was ALREADY CORRECT and must stay correct.
+//
+// `format!` / `format_args_str` lower to the same sema-synthesised block as
+// `println!` and end it with `__buf` as the block's tail value. Adding
+// scope-exit drops to `lower_block_expr` could destroy that buffer while the
+// caller still owns it — the fix marks the tail moved before collecting, and
+// this fixture is what proves it: an over-reaching fix frees the String here
+// and again at `s`'s own scope exit, which the valgrind gate reads as
+// `Invalid free`, rc 134.
+//
+// THE PAIR IS THE EVIDENCE. Alone, the leaking fixture would pass on a
+// compiler that dropped everything twice; alone, this control would pass on a
+// compiler that dropped nothing at all.
+//
+// Verdict: `tests/lattice/valgrind/leak_gate.sh`, ctest
+// `logos_09_blockexpr_scope_drop_format_ctl_valgrind`.
+package test;
+use logos.std.fmt;
+use logos.mem.string;
+
+fn main() -> i32 {
+    // The moved-out buffer, in a loop: each iteration's String must be freed
+    // exactly once, at the caller's binding, never at the block's exit.
+    let mut i: i64 = 0i64;
+    let mut total: i64 = 0i64;
+    while i < 20i64 {
+        let s: String = format!("v={}", i);
+        total = total + s.len();
+        i = i + 1i64;
+    }
+
+    // A hand-written block expression that moves its only local out — the
+    // same shape without any macro.
+    let h: String = {
+        let mut b: String = String::new();
+        b.push_str("moved-out-by-hand");
+        b
+    };
+
+    println!("total={} h={}", total, h.as_str());
+    if total == 70i64 { return 0i32; }
+    return 1i32;
+}

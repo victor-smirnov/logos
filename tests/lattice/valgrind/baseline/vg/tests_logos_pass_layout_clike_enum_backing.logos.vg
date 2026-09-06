@@ -1,0 +1,54 @@
+==1751628== Memcheck, a memory error detector
+==1751628== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1751628== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1751628== Command: /tmp/tmp.0dRvvz4GTp/f.bin
+==1751628== 
+==1751628== 
+==1751628== HEAP SUMMARY:
+==1751628==     in use at exit: 896 bytes in 7 blocks
+==1751628==   total heap usage: 7 allocs, 0 frees, 896 bytes allocated
+==1751628== 
+==1751628== 128 bytes in 1 blocks are definitely lost in loss record 1 of 7
+==1751628==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1751628==    by 0x1091BD: layout_clike_enum_backing$zeroed__f__i64 (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628==    by 0x1092A5: main (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628== 
+==1751628== 128 bytes in 1 blocks are definitely lost in loss record 2 of 7
+==1751628==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1751628==    by 0x1091BD: layout_clike_enum_backing$zeroed__f__i64 (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628==    by 0x1092E1: main (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628== 
+==1751628== 128 bytes in 1 blocks are definitely lost in loss record 3 of 7
+==1751628==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1751628==    by 0x1091BD: layout_clike_enum_backing$zeroed__f__i64 (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628==    by 0x109395: main (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628== 
+==1751628== 128 bytes in 1 blocks are definitely lost in loss record 4 of 7
+==1751628==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1751628==    by 0x1091BD: layout_clike_enum_backing$zeroed__f__i64 (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628==    by 0x1093D4: main (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628== 
+==1751628== 128 bytes in 1 blocks are definitely lost in loss record 5 of 7
+==1751628==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1751628==    by 0x1091BD: layout_clike_enum_backing$zeroed__f__i64 (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628==    by 0x1094BB: main (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628== 
+==1751628== 128 bytes in 1 blocks are definitely lost in loss record 6 of 7
+==1751628==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1751628==    by 0x1091BD: layout_clike_enum_backing$zeroed__f__i64 (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628==    by 0x109509: main (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628== 
+==1751628== 128 bytes in 1 blocks are definitely lost in loss record 7 of 7
+==1751628==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1751628==    by 0x1091BD: layout_clike_enum_backing$zeroed__f__i64 (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628==    by 0x109619: main (in /tmp/tmp.0dRvvz4GTp/f.bin)
+==1751628== 
+==1751628== LEAK SUMMARY:
+==1751628==    definitely lost: 896 bytes in 7 blocks
+==1751628==    indirectly lost: 0 bytes in 0 blocks
+==1751628==      possibly lost: 0 bytes in 0 blocks
+==1751628==    still reachable: 0 bytes in 0 blocks
+==1751628==         suppressed: 0 bytes in 0 blocks
+==1751628== 
+==1751628== For lists of detected and suppressed errors, rerun with: -s
+==1751628== ERROR SUMMARY: 7 errors from 7 contexts (suppressed: 0 from 0)

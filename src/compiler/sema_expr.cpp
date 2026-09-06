@@ -16614,6 +16614,57 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
         push_stmt_with_unwind(block, lower_stmt(s));  // #122
     }
     tail_as_return_ = saved_tail;
+    // A BLOCK IN EXPRESSION POSITION RUNS ITS OWN SCOPE-EXIT DROPS. Same
+    // routine as the if-expression arm above and as lower_block's non-terminator
+    // tail: mark the tail value moved, bind it while the locals live, drop them,
+    // then yield it. Detail + the six controls: PROBES.md 2026-09-06k.
+    bool blk_ends_with_terminator = false;
+    if (!block.empty()) {
+        auto br = stmt_ref_of(block.back());
+        if (br) {
+            auto k = br.kind();
+            blk_ends_with_terminator = (k == lir_schema::stmt::Code::Return ||
+                                        k == lir_schema::stmt::Code::Break ||
+                                        k == lir_schema::stmt::Code::Continue);
+        }
+    }
+    std::vector<lir_view::StmtRef> tail_drops;
+    if (!blk_ends_with_terminator) {
+        // ⚠ THE MARK IS SCOPED TO THIS FRAME AND REVERTED AFTERWARDS. It exists
+        // only so `collect_drops` below skips a local this block yields; leaving
+        // it in `moved_vars_` also moves WHICH PASS reports an outer variable
+        // consumed by a block tail (`let y = { x } + x.dup();`), and sema's
+        // "use of moved variable" then pre-empts borrow_check's richer
+        // "moved value 'x' (moved on line N)" that two imported fail fixtures
+        // pin. Both spellings refuse; only one is the recorded sentence.
+        std::set<std::string> moved_before;
+        if (result && TypeRef(expr_type(result)).kind() != LogosType::Kind::Error &&
+            TypeRef(expr_type(result)).kind() != LogosType::Kind::Never) {
+            moved_before = moved_vars_;
+            mark_moved_in_expr_recursive(expr_ref_of(result));
+        }
+        tail_drops = collect_drops();
+        if (!moved_before.empty() || !moved_vars_.empty()) {
+            for (auto it = moved_vars_.begin(); it != moved_vars_.end(); ) {
+                std::string root = *it;
+                if (auto dot = root.find('.'); dot != std::string::npos)
+                    root = root.substr(0, dot);
+                if (!moved_before.count(*it) && !scope_.back().vars.count(root))
+                    it = moved_vars_.erase(it);
+                else ++it;
+            }
+        }
+    }
+    if (!tail_drops.empty() && result) {
+        TypeRef vt0 = expr_type(result);
+        std::string vn = std::format("__btmp_{}", destruct_counter_++);
+        lir::SLet vl;
+        vl.name = vn; vl.type = vt0; vl.is_mut = false;
+        vl.value = std::move(result);
+        block.push_back(make_stmt_emit(node_line_, std::move(vl)));
+        result = builder().var_ref(vn, vt0);
+    }
+    for (auto& d : tail_drops) block.push_back(std::move(d));
     pop_scope();
     if (!result && divergent_ret_t)
         return builder().block_expr(lir_mirror_block(*cur_prog_, block), nullptr, divergent_ret_t);

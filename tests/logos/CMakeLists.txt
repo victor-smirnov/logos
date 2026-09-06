@@ -3061,6 +3061,57 @@ set_tests_properties(logos_09_cond_move_field_valgrind PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# 2026-09-06k — A BLOCK IN EXPRESSION POSITION RUNS ITS OWN SCOPE-EXIT DROPS.
+# `SemaChecker::lower_block_expr` push_scope()'d and pop_scope()'d and never
+# called `collect_drops()`, so every local of a block used as a VALUE leaked.
+# That is the leak every `println!` paid: sema's literal-format-string intercept
+# synthesises `{ let mut __buf: String = …; __fmt_println(__buf.as_str()) }` and
+# lowers it through this builder. `format!` ends the same block WITH `__buf`, so
+# the moved-out arm was already correct — hence the pair below.
+#
+# ⚠ THESE TWO NEED A GATE THAT DOES NOT ASSERT `allocs == frees`. A program that
+# prints leaves the runtime's stdout state reachable at exit, so the precedent
+# gate's equality is wrong here; `leak_gate.sh` states the same claim carrying
+# those blocks (`allocs - frees == still-reachable blocks`) and still demands
+# zero definitely/indirectly lost and zero invalid accesses. `still reachable`
+# is reported and is NOT a leak.
+#
+# ⚠ AND run_test.sh CANNOT SEE THIS. Both fixtures were GREEN through their
+# `.expected` while losing one String per iteration — a leak is invisible to an
+# exit code and to a stdout match. The valgrind gate is the only oracle here.
+add_test(
+    NAME logos_09_blockexpr_scope_drop_valgrind
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../lattice/valgrind/leak_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/blockexpr_scope_drop_valgrind.logos
+            ${LOGOS_BUILD_LIB_DIR}
+            40
+)
+set_tests_properties(logos_09_blockexpr_scope_drop_valgrind PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
+# THE CONTROL: the arm that MOVES its buffer out of the block. An over-reaching
+# fix — one that drops the tail value it just yielded — frees that String here
+# and again at the caller's binding, which this gate reads as `Invalid free`,
+# rc 134. The pair is the evidence: alone, the leaking fixture would pass on a
+# compiler that dropped everything twice.
+add_test(
+    NAME logos_09_blockexpr_scope_drop_format_ctl_valgrind
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../lattice/valgrind/leak_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/blockexpr_scope_drop_format_ctl.logos
+            ${LOGOS_BUILD_LIB_DIR}
+            40
+)
+set_tests_properties(logos_09_blockexpr_scope_drop_format_ctl_valgrind PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # #123 — THE SAME GATE SCRIPT over the `#[no_auto_drop]` storage-site sweep.
 # NOT a duplicate registration: `pass/no_auto_drop_container` asserts, through
 # run_test.sh, that twenty of twenty-nine values print NO destructor line and

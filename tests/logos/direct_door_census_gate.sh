@@ -1472,9 +1472,15 @@ PIN = {
     # this population (it is `pass`), and the three closed rows' own programs did
     # not move here — each pass half is a rewrite that asserts stdout, and the
     # queue programs were deleted with their rows.
-    'corpus'            : 2894,
+    # 2026-09-06k: 2894 -> 2896. TWO pass fixtures, both non-glob, of the
+    # block-expression scope-drop repair — blockexpr_scope_drop_valgrind and
+    # blockexpr_scope_drop_format_ctl (the moved-out-buffer control). Each is
+    # registered TWICE (the logos_02 corpus test and a logos_09 valgrind gate),
+    # which is the +4 on REGISTRY-ALL against the +2 here.
+    # `ls tests/logos/pass/blockexpr_scope_drop_*.logos | wc -l` -> 2.
+    'corpus'            : 2896,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2703,  # +3, the same three (2026-09-06j).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2705,  # +3 (2026-09-06j), +2 (2026-09-06k).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

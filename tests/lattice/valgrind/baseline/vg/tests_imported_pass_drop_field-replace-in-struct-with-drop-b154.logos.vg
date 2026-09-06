@@ -1,0 +1,31 @@
+==1452304== Memcheck, a memory error detector
+==1452304== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1452304== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1452304== Command: /tmp/tmp.dTiWFEZxkz/f.bin
+==1452304== 
+==1452304== 
+==1452304== HEAP SUMMARY:
+==1452304==     in use at exit: 16 bytes in 2 blocks
+==1452304==   total heap usage: 6 allocs, 4 frees, 48 bytes allocated
+==1452304== 
+==1452304== 8 bytes in 1 blocks are definitely lost in loss record 1 of 2
+==1452304==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1452304==    by 0x10941D: logos_mem..logos.mem.string.String__from__f__slice_u8 (in /tmp/tmp.dTiWFEZxkz/f.bin)
+==1452304==    by 0x10920C: field_replace_in_struct_with_drop_b154$test_inline_replacement__f__void (in /tmp/tmp.dTiWFEZxkz/f.bin)
+==1452304==    by 0x109395: main (in /tmp/tmp.dTiWFEZxkz/f.bin)
+==1452304== 
+==1452304== 8 bytes in 1 blocks are definitely lost in loss record 2 of 2
+==1452304==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1452304==    by 0x10941D: logos_mem..logos.mem.string.String__from__f__slice_u8 (in /tmp/tmp.dTiWFEZxkz/f.bin)
+==1452304==    by 0x109335: field_replace_in_struct_with_drop_b154$test_outline_replacement__f__void (in /tmp/tmp.dTiWFEZxkz/f.bin)
+==1452304==    by 0x1093AB: main (in /tmp/tmp.dTiWFEZxkz/f.bin)
+==1452304== 
+==1452304== LEAK SUMMARY:
+==1452304==    definitely lost: 16 bytes in 2 blocks
+==1452304==    indirectly lost: 0 bytes in 0 blocks
+==1452304==      possibly lost: 0 bytes in 0 blocks
+==1452304==    still reachable: 0 bytes in 0 blocks
+==1452304==         suppressed: 0 bytes in 0 blocks
+==1452304== 
+==1452304== For lists of detected and suppressed errors, rerun with: -s
+==1452304== ERROR SUMMARY: 2 errors from 2 contexts (suppressed: 0 from 0)

@@ -1,0 +1,61 @@
+// A BLOCK IN EXPRESSION POSITION RUNS ITS OWN SCOPE-EXIT DROPS.
+//
+// `SemaChecker::lower_block_expr` push_scope()'d and pop_scope()'d and never
+// called `collect_drops()`, so every local of a block used as a VALUE was
+// leaked. Its statement-position twin `SemaChecker::lower_block` has always
+// emitted them, and so has the if-expression arm builder — this was the one
+// block builder of the three that did not.
+//
+// It is the leak every `println!` paid. sema_expr.cpp intercepts the format
+// family on a LITERAL format string and synthesises
+//     { let mut __buf: String = String::new(); …; __fmt_println(__buf.as_str()) }
+// which it lowers through `lower_block_expr`. `format!` ends that same block
+// with `__buf` — moved out, so it was correct — and every arm that DISCARDS
+// the block's value leaked one String per call. In a loop it is unbounded.
+//
+// ⚠ THE ORACLE IS NOT THIS FILE'S stdout. A leak is invisible to an exit code
+// and to `.expected`: this program was GREEN through run_test.sh while losing
+// a block per iteration. The verdict is `tests/lattice/valgrind/leak_gate.sh`
+// (ctest `logos_09_blockexpr_scope_drop_valgrind`), which reads the release.
+package test;
+use logos.std.fmt;
+use logos.mem.string;
+
+fn main() -> i32 {
+    // (1) The literal-format arms, in a loop, so the loss would be unbounded
+    // and the allocation count is well clear of the gate's floor.
+    let mut i: i64 = 0i64;
+    while i < 20i64 {
+        println!("i={}", i);
+        i = i + 1i64;
+    }
+
+    // (2) A block expression at void type whose local is never moved out.
+    // No macro anywhere in it — this is the root, not the format family.
+    let _: () = {
+        let mut a: String = String::new();
+        a.push_str("aaaaaaaa");
+    };
+
+    // (3) A block expression with TWO locals, one moved out as the tail. The
+    // moved one must NOT be dropped here (that would be a double free the
+    // gate reads as "Invalid free") and the other one must be.
+    let t: String = {
+        let mut kept: String = String::new();
+        kept.push_str("kept");
+        let mut gone: String = String::new();
+        gone.push_str("gone-and-freed");
+        kept
+    };
+    println!("t={} len={}", t.as_str(), t.len());
+
+    // (4) The multi-placeholder arm and the no-placeholder arm — different
+    // synthesised block bodies, same builder.
+    let x: i64 = 1i64;
+    let y: i64 = 2i64;
+    println!("x={} y={} sum={}", x, y, x + y);
+    println!("no placeholders at all");
+
+    if t.len() == 4i64 { return 0i32; }
+    return 1i32;
+}
