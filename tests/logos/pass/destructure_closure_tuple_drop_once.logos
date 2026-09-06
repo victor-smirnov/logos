@@ -1,0 +1,19 @@
+// Member D of the class: the CLOSURE tuple-param prologue. Same emission, same
+// omission, one position over from the fn-param form — printed `2`.
+// PAIR: destructure_fnparam_tuple_drop_once (the fn-param spelling of the same
+// destructure) and destructure_fnparam_plain_drop_once (the always-green form).
+package destructure_closure_tuple_drop_once;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+trait Drop { fn drop(self: &mut Self); }
+struct Owner { i: *mut i64 }
+impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    let f = |(s, n): (Owner, i64)| -> i64 { return n + (s.i as i64) - (s.i as i64); };
+    let t: (Owner, i64) = (Owner { i: p }, 5i64);
+    let _x = f(t);
+    printi("%ld\n", c);
+    return 0i32;
+}

@@ -1,0 +1,21 @@
+// The binding is RETURNED out of the callee, so the element must be dropped by
+// the CALLER's binding and by nothing else — one drop, at the end of main's
+// inner block. Printed `2` on the unpatched tree.
+package destructure_fnparam_tuple_move_out_drop_once;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+trait Drop { fn drop(self: &mut Self); }
+struct Owner { i: *mut i64 }
+impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+fn probe((s, n): (Owner, i64)) -> Owner { let _z = n; return s; }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let t: (Owner, i64) = (Owner { i: p }, 5i64);
+        let r = probe(t);
+        let _y = r.i as i64;
+    }
+    printi("%ld\n", c);
+    return 0i32;
+}

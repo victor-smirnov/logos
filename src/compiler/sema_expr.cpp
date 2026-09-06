@@ -17270,8 +17270,15 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     for (auto& tp : tuple_params) {
         if (TypeRef(tp.ty).kind() == LogosType::Kind::Tuple) {
             auto elems = TypeRef(tp.ty).tuple_elems();
-            for (size_t k = 0; k < tp.users.size() && k < elems.size(); ++k)
+            for (size_t k = 0; k < tp.users.size() && k < elems.size(); ++k) {
                 define(tp.users[k], elems[k]);
+                // The prologue's `let <user> = <synth>.<k>;` MOVES the element
+                // out of the synth param — mark it so the synth's scope-exit Drop
+                // skips it (double-free else). HERE, before the body is lowered:
+                // that lowering is where the scope-exit drops are built.
+                if (tp.users[k] != "_" && is_move_type(elems[k]))
+                    mark_moved(std::format("{}.{}", tp.synth, k));
+            }
         }
     }
 

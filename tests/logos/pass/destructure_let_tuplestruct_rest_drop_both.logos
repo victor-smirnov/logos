@@ -1,0 +1,24 @@
+// THE OTHER DIRECTION, and the reason the fix marks ELEMENTS and not the whole
+// source: `let Q(o, ..)` binds one field and skips the other. The bound field
+// must be dropped once by its binding and the SKIPPED one once by the temp —
+// total 2. A fix that suppressed the source's drop wholesale (the shape the
+// `mut`-param desugar uses, which simply never registers its synth) would print
+// `1` here and LEAK. Printed `5` on the unpatched tree.
+package destructure_let_tuplestruct_rest_drop_both;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+trait Drop { fn drop(self: &mut Self); }
+struct Owner { i: *mut i64 }
+impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+struct Q(Owner, Owner);
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let q: Q = Q(Owner { i: p }, Owner { i: p });
+        let Q(o, ..) = q;
+        let _y = o.i as i64;
+    }
+    printi("%ld\n", c);
+    return 0i32;
+}

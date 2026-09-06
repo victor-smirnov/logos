@@ -326,6 +326,12 @@ An or-pattern's alternatives bind the same set of names with the same types; one
 
 *Source: src/compiler/mlir_gen_stmt.cpp#L3634-L3669*
 
+### `pat.bind.destructure-moves-its-element` — An irrefutable destructure's by-value binding marks its element moved out of the source
+
+Every irrefutable destructure gives a binding its user-visible name by emitting `let <user> = <source>.<k>;` against a source place (the `let` temp, a match synth, the `for`-header element, or the synthesized parameter of a pattern-typed fn/closure parameter). Where the element type is a move type, that emission MOVES the element and the site records `<source>.<k>` moved, so the source's scope-exit drop glue skips exactly that element. The record is per ELEMENT, not per source: a position bound to `_`, or one skipped by a `..` rest, keeps its destructor and is dropped by the source. A source place spilled wholesale into a destructure temp is itself marked moved.
+
+*Source: src/compiler/sema_stmt.cpp#L1076; src/compiler/sema_stmt.cpp#L1109; src/compiler/sema_stmt.cpp#L1597; src/compiler/sema_stmt.cpp#L1658; src/compiler/sema_stmt.cpp#L1713; src/compiler/sema_stmt.cpp#L9076; src/compiler/sema_stmt.cpp#L9107; src/compiler/sema_stmt.cpp#L9161; src/compiler/sema_decl.cpp#L1117; src/compiler/sema_decl.cpp#L1164; src/compiler/sema_expr.cpp#L17280*
+
 ### `pat.bind.ref-bind-binds-address` — `ref x` binds a borrow (the address), not a copy
 
 A `ref x` binding (and default-binding-mode ref) binds `x : &T` to the scrutinee place's address without loading or copying; a ref-to-struct binds the pointer and records struct shape for field access, a scalar ref alloca-wraps the address so `*x` derefs one level.

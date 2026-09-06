@@ -1450,9 +1450,21 @@ PIN = {
     # tupref_element_ref_mut_write, the pass half of soundness-queue row
     # refmut_binding_write_refused_outside_variant. Its one-token fail twin
     # (tupref_element_ref_mut_nomut) is not in this population (it is `pass`).
-    'corpus'            : 2881,
+    # 2026-09-06i: 2881 -> 2891. TEN pass fixtures, all non-glob, of the
+    # irrefutable-destructure drop-glue landing (soundness-queue row
+    # destructure_param_move_elem_double_free, closed): nine drop-COUNT halves
+    # (`ls tests/logos/pass/destructure_*_drop_*.logos | wc -l` -> 9)
+    # destructure_fnparam_tuple_drop_once, destructure_fnparam_plain_drop_once,
+    # destructure_fnparam_struct_drop_once, destructure_letstruct_drop_once,
+    # destructure_closure_tuple_drop_once, destructure_let_tuplestruct_drop_once,
+    # destructure_let_tuplestruct_rest_drop_both,
+    # destructure_fnparam_tuple_wild_drop_both,
+    # destructure_fnparam_tuple_move_out_drop_once — plus the closed row's own
+    # program, destructure_param_move_elem_no_double_free, moved here from
+    # tests/soundness/open/.
+    'corpus'            : 2891,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2690,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2700,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

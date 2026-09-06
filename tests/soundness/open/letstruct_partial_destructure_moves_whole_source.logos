@@ -1,0 +1,27 @@
+// SOUNDNESS QUEUE row letstruct_partial_destructure_moves_whole_source (tier 3,
+// `refuses`). A PARTIAL `let` destructure marks the WHOLE source place moved, so
+// a field the pattern did not bind is unusable afterwards. Rust accepts this: a
+// partial move leaves the un-moved fields readable, and `p.n` (an i64, Copy, not
+// named by the pattern) is one of them. Logos refuses with
+//   error [fn main]: use of moved variable 'p'
+// Rust: exit 0.
+// THE ROOT is the spill: `let P { s, .. } = p;` copies the whole source into a
+// `__dst_N` temp and both places would then run drop glue, so exactly one of them
+// must own each field — the tree resolves that by marking the SOURCE moved
+// wholesale and letting the temp drop the un-bound fields. Correct for drops,
+// over-strict for reads. The fix is per-field ownership, not a weaker mark.
+// SPELLINGS, MEASURED 2026-09-06i: struct (`let P { s, .. } = p;`) — this
+// program, pre-existing; array (`let [a] = arr;` then `arr[0]`) — the same, its
+// path calls `mark_moved(tmp)` as well; tuple-struct (`let Q(s, ..) = q;` then
+// `q.1`) — the same as of this round, when that path was given the marks it was
+// missing (it double-freed without them; see
+// destructure_param_move_elem_no_double_free). ONE row for the property.
+package letstruct_partial_destructure_moves_whole_source;
+struct P { s: String, n: i64 }
+fn main() -> i32 {
+    let p: P = P { s: String::from("abcde"), n: 4i64 };
+    let P { s, .. } = p;
+    let n: i64 = p.n;
+    if (s.len() as i64) + n != 9i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,26 @@
+// Member A of the class, and the one the 2026-09-06h enumeration MISSED: the
+// `let`-position TUPLE-STRUCT destructure `let Q(o, n) = q;`. It spills the rhs
+// into a temp and reads each field out of it, and marked NEITHER the rhs place
+// nor the temp's fields — so the payload was destroyed three times (`3` on the
+// unpatched tree; the sibling array and tuple `let` forms both marked, which is
+// why reading the walkers found three members and RUNNING found four).
+// PAIR: destructure_let_tuplestruct_rest_drop_both, the same statement with the
+// second binding replaced by `..`.
+package destructure_let_tuplestruct_drop_once;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+trait Drop { fn drop(self: &mut Self); }
+struct Owner { i: *mut i64 }
+impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+struct Q(Owner, i64);
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let q: Q = Q(Owner { i: p }, 5i64);
+        let Q(o, n) = q;
+        let _y = n + (o.i as i64) - (o.i as i64);
+    }
+    printi("%ld\n", c);
+    return 0i32;
+}

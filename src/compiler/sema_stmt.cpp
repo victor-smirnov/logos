@@ -1652,6 +1652,10 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         std::string tmp = std::format("__dst_{}", destruct_counter_++);
         define(tmp, rhs_type);
         {
+            // Spilling MOVES the rhs place into the temp — mark it so the source's
+            // scope-exit Drop is suppressed (double-free else), as the sibling
+            // tuple and array `let` destructures already do.
+            if (rhs && is_move_type(rhs_type)) mark_moved_expr(expr_ref_of(rhs));
             lir::SLet sl;
             sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
             sl.value = std::move(rhs);
@@ -1700,9 +1704,14 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
                             sl.name   = vname;
                             sl.type   = ftype;
                             sl.is_mut = pat_byval_mut(bnode);
-                            sl.value  = builder().field_read(
+                            auto fr_ = builder().field_read(
                                 builder().var_ref(tmp, rhs_type),
                                 std::to_string(fpos), ftype);
+                            // The binding moves the field OUT of the temp — mark
+                            // `tmp.<fpos>` so the temp's Drop skips it. Per FIELD,
+                            // so a `..`-skipped field still gets its destructor.
+                            if (is_move_type(ftype)) mark_moved_expr(expr_ref_of(fr_));
+                            sl.value  = std::move(fr_);
                             define(vname, ftype, pat_byval_mut(bnode));
                             blk.push_back(
                                 make_stmt_emit(node_line_, std::move(sl)));

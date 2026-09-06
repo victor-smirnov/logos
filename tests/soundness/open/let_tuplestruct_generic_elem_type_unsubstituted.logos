@@ -1,0 +1,23 @@
+// SOUNDNESS QUEUE row let_tuplestruct_generic_elem_type_unsubstituted (tier 3,
+// `refuses`). A `let` destructure of a GENERIC tuple-struct binds each element at
+// the field's DECLARED type parameter instead of the instantiated one:
+// `let Wrap(s, n) = w;` with `w: Wrap<i64>` gives `s` the type `T`, and the next
+// use is a type error —
+//   error [fn main]: operator '+': type mismatch (T vs i64)
+// (with `Wrap<String>` it reads "type parameter 'T' has no trait bound providing
+// method 'len'"). Rust: exit 0.
+// THE ROOT, by symbol: the `is_tuple_struct_pat` arm of
+// `SemaChecker::lower_let_pat_bound` reads `tsi_let->fields[fpos].type` raw. The
+// NAMED-struct `let` arm in the same function builds a `SemaSubst` from the
+// struct's type_params and the receiver's type_args and calls `subst_type_sema`
+// before defining the binding; this arm has no such step. Found 2026-09-06i while
+// varying the SHAPE of the drop-glue counter-examples; independent of that
+// change (the arm's type computation is untouched by it).
+package let_tuplestruct_generic_elem_type_unsubstituted;
+struct Wrap<T>(T, i64);
+fn main() -> i32 {
+    let w: Wrap<i64> = Wrap(5i64, 2i64);
+    let Wrap(s, n) = w;
+    if s + n != 7i64 { return 1i32; }
+    return 0i32;
+}

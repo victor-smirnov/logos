@@ -1,0 +1,25 @@
+// THE CLASS (2026-09-06i): a site that emits `let <user> = <source>.<k>;` to
+// give an irrefutable pattern binding its user-visible name MOVES the element
+// out of <source>, and must record `<source>.<k>` moved — else <source>'s
+// scope-exit drop glue destroys the payload a SECOND time. The fn-param TUPLE
+// prologue did not. On the unpatched tree this program printed `2`; with a
+// heap-owning payload the same shape aborted 134 (queue row
+// destructure_param_move_elem_double_free, closed this round).
+// PAIR: destructure_fnparam_plain_drop_once — the same body with the pattern
+// moved off the parameter and into the fn's first statement, which was always
+// correct because the `let` destructure already took this step.
+package destructure_fnparam_tuple_drop_once;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+trait Drop { fn drop(self: &mut Self); }
+struct Owner { i: *mut i64 }
+impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+fn probe((s, n): (Owner, i64)) -> i64 { return n + (s.i as i64) - (s.i as i64); }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    let t: (Owner, i64) = (Owner { i: p }, 5i64);
+    let _x = probe(t);
+    printi("%ld\n", c);
+    return 0i32;
+}

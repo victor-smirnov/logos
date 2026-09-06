@@ -1,0 +1,19 @@
+// Member C of the class: the fn-param STRUCT prologue (`fn f(P { o, n }: P)`)
+// emits `let o = <synth>.o;` and did not mark the field moved — printed `2`.
+// PAIR: destructure_letstruct_drop_once, the same destructure at `let`
+// position, which was already correct.
+package destructure_fnparam_struct_drop_once;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+trait Drop { fn drop(self: &mut Self); }
+struct Owner { i: *mut i64 }
+impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+struct P { o: Owner, n: i64 }
+fn probe(P { o, n }: P) -> i64 { return n + (o.i as i64) - (o.i as i64); }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    let _x = probe(P { o: Owner { i: p }, n: 5i64 });
+    printi("%ld\n", c);
+    return 0i32;
+}

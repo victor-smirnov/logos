@@ -1109,7 +1109,13 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                                             if (sinfo)
                                                 for (auto& f : sinfo->fields)
                                                     if (f.name == fname) { ftype = f.type; break; }
-                                            if (bname != "_") define(bname, ftype);
+                                            if (bname != "_") {
+                                                define(bname, ftype);
+                                                // Same step as the tuple form above: the prologue's
+                                                // `let <bname> = <synth>.<fname>;` moves the field out.
+                                                if (is_move_type(ftype))
+                                                    mark_moved(std::format("{}.{}", synth, fname));
+                                            }
                                         }
                                     }
                                 }
@@ -1147,8 +1153,16 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                                 if (TypeRef(pt).kind() == LogosType::Kind::Tuple) {
                                     auto elems = TypeRef(pt).tuple_elems();
                                     for (size_t k = 0; k < users.size() && k < elems.size(); ++k)
-                                        if (users[k] != "_")
+                                        if (users[k] != "_") {
                                             define(users[k], elems[k]);
+                                            // The prologue's `let <user> = <synth>.<k>;` MOVES the
+                                            // element out of the synth param — mark it so the synth's
+                                            // scope-exit Drop skips it (double-free else). HERE, not
+                                            // at the prologue: that runs after lower_block, which is
+                                            // where the scope-exit drops are built.
+                                            if (is_move_type(elems[k]))
+                                                mark_moved(std::format("{}.{}", synth, k));
+                                        }
                                 }
                                 fn_tuple_params.push_back({std::move(users), synth, pt});
                                 params.push_back({synth, pt, false});

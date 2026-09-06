@@ -1,0 +1,21 @@
+// The LEAK direction for the parameter half: `fn f((s, _): (Owner, Owner))`
+// binds one element and discards the other. The bound one drops with its
+// binding, the `_` one with the synth parameter — total 2. Element-granular
+// marking is what keeps this at 2 rather than 1; the unpatched tree printed 3.
+// PAIR: destructure_fnparam_tuple_drop_once, one token apart (`_` for `n`, and
+// the element type).
+package destructure_fnparam_tuple_wild_drop_both;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+trait Drop { fn drop(self: &mut Self); }
+struct Owner { i: *mut i64 }
+impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+fn probe((s, _): (Owner, Owner)) -> i64 { return s.i as i64; }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    let t: (Owner, Owner) = (Owner { i: p }, Owner { i: p });
+    let _x = probe(t);
+    printi("%ld\n", c);
+    return 0i32;
+}

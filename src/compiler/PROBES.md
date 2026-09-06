@@ -26018,3 +26018,91 @@ measured: 2026-09-06
     (d) `closure_param` += `pat_param`, TOGETHER WITH a `p.has_key(la::PAT)` branch in the closure's
         param loop. Neither half alone buys a cell (§7). Both halves are copies of code that exists
         in sema_decl.cpp — which is the whole finding of this round restated.
+
+# ROUND 2026-09-06i — THE CLASS WAS ENUMERATED BY RUNNING, NOT BY READING, AND IT HAD FOUR MEMBERS
+
+build: base `4badd238f327bb5d 43` (HEAD 703181c47, read back before any edit).
+Target row, named in `/home/logos/sandbox/lattice/TARGET_ROWS_2026-09-06i.txt` before the first
+compiler edit: `destructure_param_move_elem_double_free` (tier 1, `run 134`). Queue `# TOTAL` 40 at
+start, 41 at the commit (one row CLOSED, two OPENED by the over-refusal sweep in section 5), every
+count re-derived by direct listing; queue gate rc 0 at each.
+
+## 1. THE PROPERTY, AND WHY THE PREVIOUS ROUND'S ENUMERATION WAS ONE SHORT
+    Property: a site that emits `let <user> = <source>.<k>;` to give an irrefutable pattern binding
+    its user-visible name MOVES that element out of `<source>` and must record `<source>.<k>` moved,
+    or `<source>`'s scope-exit drop glue destroys the payload a second time.
+    2026-09-06h enumerated this by READING the five copies of the walker and found THREE defective
+    sites. This round enumerated it by RUNNING one program per (position x pattern kind) over a
+    move-type element — 20 hand programs, exit code and valgrind, on the unmodified 703181c47 —
+    and found FOUR. The extra member is
+      `let Q(o, n) = q;`  the LET-POSITION TUPLE-STRUCT destructure (sema_stmt.cpp `is_tuple_struct_pat`)
+    which the reading missed because it is not one of the five copies the header names: it spills the
+    rhs into a `__dst_N` temp and reads fields out of it, and marked NEITHER the rhs place NOR the
+    temp's fields. Its two siblings in the same function — the array form and the tuple form — both
+    mark. ⚠ A GREP-DEFINED OR HEADER-DEFINED CLASS CERTIFIES WHAT IT CANNOT SEE.
+
+## 2. THE ORACLE THAT SAW IT — A DESTRUCTOR COUNT, NOT AN EXIT CODE
+    The row's own program aborts 134 only because its payload is heap-owning. A `#[Drop]` counter
+    (`impl Drop for Owner { *self.i += 1 }`, count printed) prices every member and both failure
+    DIRECTIONS. MEASURED, base -> armed, Rust-correct count in the third column:
+
+      c01 fn-param `(s, _): (Owner, Owner)`      3 -> 2   (2)   member B, the LEAK direction
+      c02 fn-param `(s, n): (Owner, i64)`        2 -> 1   (1)   member B
+      c03 fn-param `P { o, n }: P`               2 -> 1   (1)   member C
+      c04 closure  `|(s, n): (Owner, i64)|`      2 -> 1   (1)   member D
+      c05 `let Q(o, n) = q;`                     3 -> 1   (1)   member A
+      c06 `let Q(o, ..) = q;`                    5 -> 2   (2)   member A, the LEAK direction
+      c07 fn-param tuple, binding RETURNED       2 -> 1   (1)   member B
+      c08 `let P { o, n } = x;`                  1 -> 1   (1)   CONTROL, already correct
+      c09 plain param + body `let (s, n) = t;`   1 -> 1   (1)   CONTROL, already correct
+      c10 fn-param `(a, b): (Owner, Owner)`      4 -> 2   (2)   member B
+
+    c01 and c06 are why the fix marks ELEMENTS and not the whole source. The `mut`-param desugar's
+    remedy (sema_decl.cpp: "deliberately do NOT define(synth)") suppresses the source's drop
+    WHOLESALE; applied here it would print 1 for both and LEAK the `_` element and the `..`-skipped
+    field. Both are pinned as pass fixtures at 2.
+
+## 3. THE FOUR SITES, AND WHY THE MARK IS NOT AT THE PROLOGUE
+    A  sema_stmt.cpp  `is_tuple_struct_pat`      mark the rhs place, then each `tmp.<fpos>` field read
+    B  sema_decl.cpp  fn_tuple_params collection  mark `<synth>.<k>`
+    C  sema_decl.cpp  fn_pat_params PAT_STRUCT    mark `<synth>.<fname>`
+    D  sema_expr.cpp  closure tuple_params loop   mark `<synth>.<k>`
+    B/C/D are marked at PARAMETER-COLLECTION time, not at the prologue that emits the lets
+    (sema_decl.cpp:1495+, sema_expr.cpp:17314+) where a reader would put them and where the previous
+    round's funding note pointed. The prologues run AFTER `lower_block(body_node)`, and scope-exit
+    drops are built inside that lowering — a mark written there is already too late to be read.
+
+## 4. THE COLUMNS
+    run_oracle.py, 6500 pass fixtures compiled + linked + RUN, base and armed: exactly ONE triple
+    differs, `cast-region-to-uint` (it prints a stack address), subtracted by name. RUNTIME COST 0.
+    stdlib-cost.sh: all four layers compile. L1, `ctest -L bc`, full build: green (rc quoted in the
+    commit message). Diff 40 added / 4 removed lines across three files.
+
+## 5. THE OVER-REFUSAL DIRECTION, MEASURED — 13 PROGRAMS IN SHAPES THE PRICING PHASE DID NOT USE
+    Nine of ten "does the mark refuse something legal" probes compile and run correctly: a Copy-field
+    tuple-struct destructured TWICE from the same source (no mark at all — `is_move_type` is false),
+    a Copy tuple fn-param called twice, a closure tuple param called on two different tuples, a
+    struct param whose BOTH fields are move types, a `(_, _)` param, a param binding re-moved into a
+    local, a nested struct element, a generic named-struct `let`.
+    THREE REFUSE, and all three are pre-existing — the diff touches no type computation and no other
+    destructure arm (`git diff` of sema_stmt.cpp is two hunks inside `is_tuple_struct_pat`):
+      `let P { s, .. } = p;` then `p.n`      "use of moved variable 'p'"   the STRUCT spelling
+      `let [a] = arr;`      then `arr[0]`    same, its path calls `mark_moved(tmp)` outright
+      `let Wrap(s, n) = w;` with `Wrap<i64>` "type mismatch (T vs i64)"    generic tuple-struct
+    The first two are one property — a PARTIAL `let` destructure spills the whole source into a
+    `__dst_N` temp, so exactly one of the two places may own each field, and the tree resolves that
+    by marking the SOURCE wholesale. Correct for drops, over-strict for reads; Rust keeps the
+    un-moved fields readable. As of this round the tuple-struct spelling joins them BY CONSTRUCTION
+    (it had no marks at all, which is why it double-freed). ROWED as
+    `letstruct_partial_destructure_moves_whole_source` (tier 3, `refuses`) in the spelling that is
+    independent of this change. The third is a missing `SemaSubst` in the same arm — the NAMED-struct
+    arm of the same function builds one and calls `subst_type_sema`, this one reads
+    `tsi_let->fields[fpos].type` raw — ROWED as
+    `let_tuplestruct_generic_elem_type_unsubstituted` (tier 3, `refuses`).
+    `# TOTAL` 40 -> 39 (one closed) -> 41 (two added), each re-derived by direct listing.
+
+## 6. WHAT THE ROW WAS, AND WHAT THE ROW WAS NOT
+    The row is closed by member B alone — its program is a fn-param tuple. Members A, C and D are the
+    class, and each has its own drop-count pass fixture. THE ROW IS NOT THE CLASS, for the third
+    consecutive round; the difference is that this time the class was enumerated before the edit and
+    every member landed in the same commit.

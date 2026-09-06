@@ -1,0 +1,23 @@
+// SOUNDNESS QUEUE row destructure_param_move_elem_double_free (tier 1, `run
+// 134`) — CLOSED 2026-09-06i, landed here as its pass half. Before the fix this
+// program compiled clean, printed nothing, and aborted with "free(): double free
+// detected in tcache 2" (exit 134; valgrind "Invalid free()" inside the callee).
+// THE CLASS, enumerated by RUNNING one program per (destructure position x
+// pattern kind) over a move-type element rather than by reading the walkers:
+// four sites emitted `let <user> = <source>.<k>;` without recording
+// `<source>.<k>` moved, so the source's scope-exit drop glue destroyed the
+// payload again — fn-param TUPLE and fn-param STRUCT prologues (sema_decl.cpp),
+// the closure TUPLE prologue (sema_expr.cpp), and the `let`-position
+// TUPLE-STRUCT destructure (sema_stmt.cpp, which the by-reading enumeration
+// missed). The drop-COUNT halves are destructure_*_drop_once / _drop_both; this
+// half is the heap-owning shape, where the same defect is an abort.
+// Spec: pat.bind.destructure-moves-its-element.
+package destructure_param_move_elem_double_free;
+fn probe((s, b): (String, i64)) -> i64 {
+    return (s.len() as i64) + b;
+}
+fn main() -> i32 {
+    let t: (String, i64) = (String::from("abcde"), 2i64);
+    if probe(t) != 7i64 { return 1i32; }
+    return 0i32;
+}

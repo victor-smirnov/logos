@@ -1,0 +1,20 @@
+// The CONTROL half of destructure_fnparam_struct_drop_once: the same struct
+// destructure at `let` position. Green before and after.
+package destructure_letstruct_drop_once;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+trait Drop { fn drop(self: &mut Self); }
+struct Owner { i: *mut i64 }
+impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+struct P { o: Owner, n: i64 }
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let x: P = P { o: Owner { i: p }, n: 5i64 };
+        let P { o, n } = x;
+        let _y = n + (o.i as i64) - (o.i as i64);
+    }
+    printi("%ld\n", c);
+    return 0i32;
+}
