@@ -1,0 +1,10 @@
+// LEGAL. `if let` over a tuple with a `ref mut` element.
+package h08;
+fn main() -> i32 {
+    let mut t: (i64, i64) = (3i64, 4i64);
+    if let (ref mut a, b) = t {
+        *a = *a + 1i64;
+        if *a + b != 8i64 { return 1i32; }
+    }
+    return 0i32;
+}

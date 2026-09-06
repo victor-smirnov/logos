@@ -1,0 +1,9 @@
+// LEGAL. match over an owned tuple, shared `ref` element, read only.
+package h02;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    match t {
+        (ref a, b) => { if *a + b != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

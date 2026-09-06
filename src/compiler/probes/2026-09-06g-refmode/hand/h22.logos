@@ -1,0 +1,12 @@
+// LEGAL. `ref mut` tuple element inside a FUNCTION taking the tuple by value.
+package h22;
+fn probe(mut t: (i64, i64)) -> i32 {
+    match t {
+        (ref mut a, b) => { *a = *a + 1i64; if *a + b != 8i64 { return 1i32; } }
+    }
+    return 0i32;
+}
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    return probe(t);
+}

@@ -1,0 +1,9 @@
+// CONTROL, DEFAULT BINDING MODE: `match &t` binds by reference already.
+package h16;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    match &t {
+        (a, b) => { if *a + *b != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

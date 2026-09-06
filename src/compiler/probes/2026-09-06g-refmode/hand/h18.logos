@@ -1,0 +1,10 @@
+// LEGAL. A move-only payload bound `ref` in a tuple: no move out, no double free.
+package h18;
+struct S { v: i64 }
+fn main() -> i32 {
+    let t: (S, i64) = (S { v: 3i64 }, 4i64);
+    match t {
+        (ref s, b) => { if s.v + b != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

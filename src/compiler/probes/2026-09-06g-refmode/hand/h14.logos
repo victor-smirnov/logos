@@ -1,0 +1,9 @@
+// CONTROL: plain tuple binding, no modifier — the common shape, must not move.
+package h14;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    match t {
+        (a, b) => { if a + b != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

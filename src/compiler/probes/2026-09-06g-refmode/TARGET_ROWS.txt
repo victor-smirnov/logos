@@ -1,0 +1,58 @@
+ROUND 2026-09-06f — TARGET ROWS, NAMED BEFORE THE COMPILER IS TOUCHED.
+
+TARGET ROWS (soundness_queue.ledger):
+  refmut_binding_write_refused_outside_variant   3  refuses
+  at_binding_ref_mut_payload_refuses             3  refuses
+
+SHARED ROOT (the claim this round prices):
+  The binding MODE fact — a WRITTEN `ref` / `ref mut` — is read at exactly the doors
+  that fill `binding_is_ref` in `build_pattern_variant_data` (sema_stmt.cpp ~4335-4470)
+  and in the struct-FIELD door. `make_ref(is_mut, binding_types[k])` + the
+  `pat_keys::BINDING_REF_MODES` mint at ~4630-4644 is AN ARM THAT ALREADY EXISTS.
+  Two binding positions never reach it, and neither is missing an arm:
+    * PAT_TUPLE element door (sema_stmt.cpp ~5276-5475) never asks `la::IS_REF` at
+      all — it asks only `pat_byval_mut`. The element's binding type stays the bare
+      element type, and the deref-write check (sema_stmt.cpp:770-775, `is_mut_ref =
+      kind()==MutRef`) therefore reads the binding as a raw pointer.
+    * The variant-payload door PUSHES A HARD-CODED `false` at sema_stmt.cpp:4442
+      (`binding_is_ref.push_back(false);  // 'ref n @ sub' binds by value here`)
+      for a PAT_AT. The fact is on the node (`atflag(la::IS_REF)`, read on the very
+      next line for the `mut` half) and is thrown away.
+  This is the shape the prompt says has paid every time: an arm that exists, reached
+  through a fact the code does not carry.
+
+WHY THIS BLOCK AND NOT THE OTHERS:
+  * Both rows are OVER-REFUSALS of legal Rust (tier 3) — the most expensive direction.
+  * MEASURED blast radius is the largest in the queue: the refmut row's header records
+    14 lattice cells refused with ONE sentence at SIX positions (let, match, if let,
+    while let, for, fn param).
+  * Both programs are refused TODAY with the IDENTICAL diagnostic pair (measured, see
+    the census below) — which is a shared SYMPTOM, not yet a shared defect, and is
+    exactly what this round's `allrefty` whole-arm is for.
+  * Declined this round, with reasons:
+    - `for_header_pattern_tuple_only` / `closure_param_struct_pattern_syntax` /
+      `fnparam_*` / `match_tuple_door_nested_struct_binds_nothing`: a family of
+      per-site KIND WHITELISTS. Same SHAPE, but each is a different function's list
+      and one candidate change moves at most one — a partition, not a root (rule 6).
+    - `declare_pat_bindings_field_nomut_addrmut_admit`: borrow_check's 5-of-13 switch.
+      A real root, but ONE row, and its fact is a different one (mut-ness known to
+      borrow_check, not the binding's TYPE).
+    - `match_ergo_*_admit`: the owner decision is ALREADY pinned by two rows; the
+      `ref`-modifier half's price is explicitly a CORPUS DECISION (12 stdlib sites).
+
+SERIES (rule 2 — half a mechanism is not one), declared before the run:
+  The tuple repair has TWO doors in series and they are in different files:
+    S1 sema  — mint `&mut T` as the binding type          → clears the two sema errors
+    S2 mlir_gen — `pat_bind`'s Tuple case recomputes the element type from the
+       SCRUTINEE (`elems[idx]`) and never reads the pattern's BINDING_TYPES, and
+       `bind_name_at_slot` LOADS a scalar into a fresh alloca. With S1 alone the
+       program compiles and writes to a COPY → run-wrong, not fixed.
+  The at-binding repair also has two doors: the mode fact, and a guard that reads the
+  binding by value (the row header records `arith.cmpi` on a pointer).
+
+PREDICTION BY NAME, before the run:
+  bc_admits ceiling: 0 for every arm (these are over-refusals; rule 10 — this harness
+  measures how often a refusal site is AVOIDED).
+  Queue: `tupboth` closes refmut_binding_write_refused_outside_variant and NOT
+  at_binding_ref_mut_payload_refuses; `atrefmode` closes NEITHER alone (its S2 is
+  unarmed) but MOVES at_binding's diagnostic off the deref-write sentence.

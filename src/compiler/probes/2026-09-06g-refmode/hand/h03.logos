@@ -1,0 +1,9 @@
+// ILLEGAL (rustc E0596): `ref mut` into a NON-mut local. Must stay refused.
+package h03;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    match t {
+        (ref mut a, b) => { *a = *a + 1i64; if *a + b != 8i64 { return 1i32; } }
+    }
+    return 0i32;
+}

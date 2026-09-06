@@ -1,0 +1,10 @@
+// CONTROL: an OR-pattern arm with plain tuple bindings — the PAT_OR sub-path.
+package h24;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    match t {
+        (1i64, b) => { if b != 4i64 { return 1i32; } }
+        (a, b) => { if a + b != 7i64 { return 2i32; } }
+    }
+    return 0i32;
+}

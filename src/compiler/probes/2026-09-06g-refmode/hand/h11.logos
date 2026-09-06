@@ -1,0 +1,16 @@
+// LEGAL. `ref mut` at-binding in a variant payload with a RANGE guard (queue row's shape).
+package h11;
+enum E { N(i64), Z }
+fn main() -> i32 {
+    let mut e: E = E::N(3i64);
+    match e {
+        E::N(ref mut n @ 1i64..=5i64) => { *n = *n + 10i64; }
+        E::N(_) => { return 2i32; }
+        E::Z => { return 3i32; }
+    }
+    match e {
+        E::N(v) => { if v != 13i64 { return 1i32; } }
+        E::Z => { return 4i32; }
+    }
+    return 0i32;
+}

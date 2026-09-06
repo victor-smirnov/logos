@@ -1,0 +1,18 @@
+ceiling-probe: unarmed baseline (from the store where it is already there)
+ceiling-probe: armed run — LOGOS_PROBE=allrefty
+fail-oracle: 1435 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-8ff6720329d96eb2-allrefty.tsv
+ceiling-probe: 'allrefty'  builds 849 (unarmed) -> 856 (armed)
+probe: fired 5 times
+probe: CEILING = 0 rows
+probe: COST    = 3 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe:           write the counter-examples)
+probe:   logos_02_semantic_core_pass_bc_bindmut_at_payload_ref_range
+probe:   logos_02_semantic_core_pass_bc_patmovebind_tuple_ref_element_twin
+probe:   logos_25_spec_pass_pat_6
+probe: COST-fail = 0 of 1435 `-L bc -L fail` fixtures changed (rc 0, .expected-match 0, text-only 0)
+probe: stdlib: all four layers compile under 'allrefty'
+probe: ⛔ COST >= CEILING — it refuses at least as many legal programs as it
+probe:    closes rows. Exemptions might rescue it; the burden is showing WHICH.
+probe: ⚠ a CEILING bounds the COUNT, not the SET: diff these names against what
+probe:   you predicted BY NAME. A matching count can be two errors cancelling.

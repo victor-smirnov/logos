@@ -1,0 +1,9 @@
+// LEGAL. NESTED tuple, `ref mut` two levels down.
+package h06;
+fn main() -> i32 {
+    let mut t: ((i64, i64), i64) = ((3i64, 4i64), 5i64);
+    match t {
+        ((ref mut a, b), c) => { *a = *a + 1i64; if *a + b + c != 13i64 { return 1i32; } }
+    }
+    return 0i32;
+}

@@ -25576,3 +25576,172 @@ this change: a fresh `cmake -S . -B build` on a clean checkout of `2f289d34c`
 fails to compile the GENERATED `build/src/compiler/logos_parser.cpp`
 (`'na_fail_0' was not declared in this scope`, four sites). The bootstrap does
 not survive a from-scratch configure in a new directory. Recorded, not chased.
+
+# ROUND 2026-09-06g (PRICING, soundness queue) — A WRITTEN `ref mut` ON A TUPLE ELEMENT
+# CROSSES **THREE** DOORS, AND THE THIRD IS THE ONE NO HEADER NAMED
+
+## 1. THE TARGET ROWS, NAMED BEFORE ANY EDIT
+    src/compiler/probes/2026-09-06g-refmode/TARGET_ROWS.txt, written against base
+    4e9526cb2d8f63d0 (43 files) with the queue gate rc 0 on 39 rows (tier1=9 tier2=6
+    tier3=22 tier4=2), bc_admits `# TOTAL` 98, blocked 25, probe-log-lint 227 records:
+        refmut_binding_write_refused_outside_variant   (tier 3, refuses)
+        at_binding_ref_mut_payload_refuses             (tier 3, refuses)
+    THE CLAIM: the binding MODE fact — a WRITTEN `ref` / `ref mut` — is read at exactly
+    the two doors that fill `binding_is_ref` (the variant payload's
+    `build_pattern_variant_data`, and the struct-FIELD door). `make_ref(is_mut, …)` plus
+    the `pat_keys::BINDING_REF_MODES` mint at sema_stmt.cpp ~4630-4644 IS AN ARM THAT
+    ALREADY EXISTS. Two binding positions never reach it, and neither is missing an arm:
+      · the PAT_TUPLE element door never asks `la::IS_REF` at all (only `pat_byval_mut`);
+      · the variant-payload door PUSHES A HARD-CODED `false` at sema_stmt.cpp:4442 for a
+        PAT_AT, reading `atflag(la::IS_REF)` on the very next line for the `mut` half.
+    ⚠ 2026-09-06e DECLINED THIS BLOCK BY NAME and handed it down as THREE rows
+    (+ box_mutref_payload_write_immut_box). The third is REFUTED as a member by reading:
+    its root is that Box is modelled through DerefMut instead of being a built-in place
+    projection — no binding mode is involved and no candidate change here moves it.
+    ⚠ CORRECTION TO THE PROMPT, FIFTH CONSECUTIVE ROUND: its STEP 1 queue-gate command
+    self-reports GATE BROKEN rc 4 without `LOGOS_LIB_DIR=$PWD/build/lib/logos`.
+    ⚠ The prompt's OWNER-DECISION item needs no action: Rust-2024 match ergonomics are
+    already pinned by two queue rows (match_ergo_ref_modifier_ref_mode_admit,
+    match_ergo_nested_tuple_mut_admit) and by the spec rule
+    `pat.binding.modifier-requires-move-mode` (docs/spec/patterns.md:475).
+
+## 2. THE ARMS, AND THE PREDICTION MADE BEFORE THE FIRST MEASUREMENT
+    tuprefty    sema: the tuple door mints `&T` / `&mut T` as the element's BINDING TYPE
+                from `la::IS_REF` / `la::IS_MUT`, the way the variant-payload door does.
+    tuprefbind  mlir_gen: `pat_bind`'s Tuple case binds the element's GEP ADDRESS when the
+                pattern's BINDING TYPE carries a reference layer the ELEMENT type does not.
+    tupboth     both (the whole of the tuple hypothesis).
+    atrefmode   sema: the PAT_AT payload binding carries its real `ref` flag.
+    allrefty    tupboth + atrefmode (the whole block).
+    PREDICTED queue ceilings, by name: tupboth closes
+    refmut_binding_write_refused_outside_variant and NOT at_binding_…; atrefmode closes
+    NEITHER but moves at_binding's diagnostic off the deref-write sentence; every bc
+    ceiling 0 (rule 10 — this harness measures how often a refusal site is AVOIDED).
+    MEASURED: exactly that, and the queue gate's own red list names that one row and no
+    other, in both directions.
+
+## 3. THE PROBE TABLE — ALL COLUMNS, ONE BUILD (bbbc… -> the armed identity of spec1.txt)
+    probe        fires  bc-ceil  cost  cfail  stdlib  QUEUE-ceil  RUNTIME (of 6499)
+    tuprefty         1        0     0      0    ok         0          not measured
+    tuprefbind       1        0     1      0    ok         0          not measured
+    tupboth          3        0     2      0    ok         1          3 damaged, ALL SILENT
+    atrefmode        2        0     1      0    ok         0          not measured
+    allrefty         5        0     3      0    ok         1          4 damaged (3 silent)
+    RUNTIME COLUMN — `run_oracle.py`, base and armed from ONE binary, 6499 pass fixtures
+    compiled, LINKED and RUN, `cast-region-to-uint` subtracted by name (it prints a stack
+    address). tables/runtime_diff.<arm>.tsv:
+        tupboth   bc_patmovebind_tuple_ref_element_twin  cc 0  run 0 -> 247
+                  spec/pat_6                             cc 0  run 0 -> 2
+                  default_binding_mode_ref_tuple         cc 0  run 0 -> 3
+        allrefty  the same three, plus bc_bindmut_at_payload_ref_range  cc 0 -> 1
+    ⚠ `default_binding_mode_ref_tuple` IS IN NO OTHER COLUMN. The compile-rc cost said 2
+    and the runtime column says 3; the third fixture compiles rc 0, exits 3, and is
+    invisible to every rc-based oracle (rule 15). That is the whole argument for this
+    column, paid again on this round.
+    ⚠ Damage is ADDITIVE across the block and the ceiling is not: 3 + 1 = 4, while
+    0 + 0 = 0 against the whole's queue ceiling of 1 (rule 13).
+    ⚠ `patmovebind`'s armed exit code is 247 under `tupboth` and 71 under `allrefty` —
+    unspecified garbage from a bad read, not a stable value. Do not key anything on it.
+    COST SETS, diffed BOTH WAYS, and COST IS ADDITIVE HERE:
+        tuprefty    { }
+        tuprefbind  { logos_25_spec_pass_pat_6 }
+        atrefmode   { logos_02_semantic_core_pass_bc_bindmut_at_payload_ref_range }
+        tupboth     { pat_6, logos_02_semantic_core_pass_bc_patmovebind_tuple_ref_element_twin }
+        allrefty    = tupboth ∪ atrefmode, 3 = 2 + 1, no member appears that is in neither.
+    CEILING IS NOT ADDITIVE (rule 13): 0 + 0 = 0 against the whole's 1 — the halves are in
+    SERIES and the increment is POSITIVE (+1). `tuprefty` alone closes nothing and is not
+    a zero: it moves four hand programs from a sema refusal to
+        'llvm.load' op operand #0 must be LLVM pointer type, but got 'i64'
+    — a hop no rc column can see (rule 15). `tuprefbind` alone closes nothing because
+    nothing mints the type it reads.
+
+## 4. THE ARRIVAL CENSUS, TAKEN BEFORE ANY CLAIM (rule 17) — AND IT FOUND A DEAD BRANCH
+    `census()` at the tuple door's two wild branches and at the PAT_AT payload site, over
+    4086 `tests/logos/**.logos` compiled (tables/census_all.tsv):
+        tupelem.orwild  108      tupelem.orref  1      tupelem.orrefmut  0
+        tupelem.wild      0      tupelem.ref    0      tupelem.refmut    0
+        atpld.at         14      atpld.atref    2
+    ⚠ THE PAT_WILD BRANCH OF THE TUPLE DOOR IS NEVER TAKEN. The grammar wraps EVERY tuple
+    element in a single-alt PAT_OR, so the live branch is the PAT_OR one — 108 arrivals —
+    and the branch a reader would arm first is dead. Both were armed, so nothing here
+    rests on it; a round that armed only the obvious one would have measured a false zero
+    and called the mechanism refuted (rule 1).
+    ⚠ AND THIS IS THE WHOLE EXPLANATION OF EVERY ZERO. In 4086 fixtures there is exactly
+    ONE written `ref` on a tuple element and NOT ONE `ref mut`. A bc ceiling of 0 over a
+    corpus that contains one instance of the shape is not a refutation and not a safety
+    claim (rules 1, 4, 5). The hand set is the only oracle this block has.
+
+## 5. THE THIRD DOOR — FOUND BY MEASUREMENT, NAMED BY NO HEADER
+    24 hand programs in 20 shapes (match / `let` / `if let` / `while let` / fn body over a
+    by-value param; owned, `&`, temporary; index 0 and index 1 of a 3-tuple; scalar,
+    STRUCT-typed and move-only elements; one write, two writes, a call taking `&mut i64`;
+    nested `((ref mut a, b), c)`; the two working controls — variant payload and struct
+    field; five ILLEGAL twins). tables/out.<arm>.tsv, hand/h01..h24.
+    Under `tupboth` FIVE programs move to correct (h03 h06 h08 h22 h23) and FOUR do not —
+    h01 h05 h19 h20 — with a diagnostic that exists in no row header:
+        error: use of moved field 't.0' (moved on line 5)
+    Every one of the four READS THE TUPLE AFTER THE MATCH. borrow_check reads the binding
+    as a MOVE out of the element because `lir_mirror_emit_pat_tuple` emits no
+    `pat_keys::BINDING_REF_MODES` array at all — the mirror the variant-payload door fills
+    (`lir_mirror_emit_pat_variant_data`, sema_stmt.cpp:4644) has no PatTuple counterpart,
+    and borrow_check.cpp:5783 says in its own words that the mode is read from that key
+    and "never inferred from a type comparison". So:
+        S1 sema type mint  → clears "write through raw pointer" / "expected &mut i64"
+        S2 mlir_gen bind   → clears 'llvm.load' … but got 'i64'
+        S3 LIR mode carry  → clears "use of moved field", and NOTHING IN THIS ROUND ARMED IT
+    The queue ROW closes at S2 only because its program happens not to touch the tuple
+    afterwards. THE ROW IS NOT THE CLASS (rules 6, 7).
+    ⚠ AND S2 AND S3 WANT THE SAME MISSING FACT. `tuprefbind`'s one cost is
+    `spec/pass/pat_6.logos`, whose `pat.tuple.default-ref-move-only` block binds a
+    move-only element through a `&`-tuple: its binding type is ALREADY `&String` by the
+    default binding mode, so a predicate written on the TYPE cannot tell a written `ref`
+    from a default-mode one. `BINDING_REF_MODES` encodes exactly that distinction (1/2 for
+    written, 3/4 for default — the comment at sema_stmt.cpp:4674 says why). One structural
+    change — give PatTuple the modes array the variant door already has, and read it in
+    mlir_gen and borrow_check — is what both remaining doors are asking for.
+    ⚠ THE OTHER COST IS A CASUALTY GUARD FIRING AS DESIGNED.
+    `pass/bc_patmovebind_tuple_ref_element_twin.logos` says in its header: "build_pattern's
+    PAT_WILD tuple-element arm rebuilds `ref a` as a bare named Wild, so the keyword is
+    GONE by the time the walk sees it", and "if this file ever reddens, the walk has
+    started claiming a fact the tree does not carry". `tupboth` reddens it, which is the
+    guard's own statement that a half-carried fact is worse than none.
+
+## 6. THE at-BINDING HALF IS A TWO-DOOR SERIES TOO, AND ITS COST IS THE SECOND DOOR
+    `atrefmode` closes no row and its ONE cost is `pass/bc_bindmut_at_payload_ref_range`
+    — `E::N(ref n @ 1..=5) => out = *n`. Armed, that fixture and the queue row's own
+    program h11 both move from
+        write through raw pointer requires unsafe context
+    to
+        'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
+    which is the range guard reading the binding by value — precisely the second door
+    at_binding_ref_mut_payload_refuses's header predicted, now MEASURED rather than read.
+    So the cost is not an over-refusal: it is the missing half of the same series (rule 2).
+
+## 7. RULE 5 PAID — AND THE PROBE'S OWN OVER-ADMISSION
+    h03 is h01 with the local NOT declared `mut`: illegal Rust (E0596) and ADMITTED under
+    `tupboth`, because the arm never asks whether the matched place is mutable. Declared
+    as crudeness in PREDICTION.md before the run, and it is the shape of the fix's next
+    obligation, not of the probe.
+    h18 — `(ref s, b)` over a MOVE-ONLY element, read only — compiles under `tupboth` and
+    EXITS 1. A run-wrong that no rc-of-the-compile column sees; found only because the
+    hand set is compiled, LINKED and RUN.
+    h04 (write through a shared `ref`) and h07 stay refused under every arm, h04 correctly.
+    h07 (`let (ref mut a, b) = t`) is refused by a DIFFERENT sentence entirely —
+    "'let <pattern> = expr;' currently supports struct patterns only" — which corrects the
+    target row's header: its six positions are NOT one sentence at six doors; the `let`
+    position is a whitelist refusal that this block does not touch.
+
+## 8. WHAT DESERVES FUNDING
+    (a) Give `lir_mirror_emit_pat_tuple` the `bind_ref_modes` array
+        `lir_mirror_emit_pat_variant_data` already takes, fill it at the tuple door's
+        PAT_OR wild branch (the live one), and read it in `MLIRGenImpl::pat_bind` and in
+        borrow_check. That is the one change S2 and S3 are both asking for, and it is
+        what the two casualty fixtures' headers say the tree is waiting for.
+    (b) The tuple door must also ask the place's mutability (h03) — the same question the
+        variant-payload door already answers.
+    (c) at_binding_ref_mut_payload_refuses needs the range guard to deref a ref-bound
+        at-binding. `atrefmode` is exactly half of it and lands ON that door.
+    NOT funded by this round's evidence: any arm predicated on the binding TYPE alone. The
+    corpus contains a legal program (`spec/pass/pat_6.logos`) where the type is identical
+    and the answer must differ, which is rule 9's twin found in the corpus rather than
+    invented.

@@ -1,0 +1,15 @@
+// CONTROL, works today: `ref mut` in a VARIANT PAYLOAD (the door that mints the mode).
+package h09;
+enum E { N(i64), Z }
+fn main() -> i32 {
+    let mut e: E = E::N(3i64);
+    match e {
+        E::N(ref mut n) => { *n = *n + 10i64; }
+        E::Z => { return 3i32; }
+    }
+    match e {
+        E::N(v) => { if v != 13i64 { return 1i32; } }
+        E::Z => { return 4i32; }
+    }
+    return 0i32;
+}

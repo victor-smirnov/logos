@@ -1,0 +1,10 @@
+// LEGAL. THREE-element tuple, `ref mut` in the MIDDLE (index is not 0).
+package h20;
+fn main() -> i32 {
+    let mut t: (i64, i64, i64) = (1i64, 3i64, 4i64);
+    match t {
+        (a, ref mut b, c) => { *b = *b + 1i64; if a + *b + c != 9i64 { return 1i32; } }
+    }
+    if t.1 != 4i64 { return 2i32; }
+    return 0i32;
+}

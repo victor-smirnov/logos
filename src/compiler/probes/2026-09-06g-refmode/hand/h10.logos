@@ -1,0 +1,11 @@
+// CONTROL, works today: `ref mut` on a STRUCT FIELD (the other minting door).
+package h10;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let mut p: P = P { x: 3i64, y: 4i64 };
+    match p {
+        P { x: ref mut a, y } => { *a = *a + 1i64; if *a + y != 8i64 { return 1i32; } }
+    }
+    if p.x != 4i64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+// LEGAL. SHARED `ref` at-binding in a variant payload, read only.
+package h12;
+enum E { N(i64), Z }
+fn main() -> i32 {
+    let e: E = E::N(3i64);
+    match e {
+        E::N(ref n @ 1i64..=5i64) => { if *n != 3i64 { return 1i32; } }
+        E::N(_) => { return 2i32; }
+        E::Z => { return 3i32; }
+    }
+    return 0i32;
+}

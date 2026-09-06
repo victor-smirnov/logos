@@ -1,0 +1,137 @@
+name: scaffold_tupcap
+file: src/compiler/sema_stmt.cpp
+---
+        for (size_t i = 0; i < expanded.size(); ++i) {
+            TypeRef elem_ty = nullptr;
+            if (i < tuple_arity)
+                elem_ty = TypeRef(tst).tuple_elems()[i];
+            if (!expanded[i].has_value()) {
+                // Synth `_` skip from rest expansion.
+                pt.bindings.push_back("_");
+                pt.subs.push_back(make_pat_wild("_"));
+                continue;
+            }
+            auto sub = *expanded[i];
+            int32_t sc = code_of(sub);
+            if (sc == la::PAT_WILD.code) {
+                auto nm = std::string(str_of(sub.get(la::NAME.code)));
+                if (nm != "_" && pat_byval_mut(sub) && current_pat_mut_names_)
+                    current_pat_mut_names_->insert(nm);  // `(mut a, b)`: the side-set the binder reads
+                pt.bindings.push_back(nm);
+---
+        std::vector<uint8_t> elem_refmode(expanded.size(), 0u);
+        for (size_t i = 0; i < expanded.size(); ++i) {
+            TypeRef elem_ty = nullptr;
+            if (i < tuple_arity)
+                elem_ty = TypeRef(tst).tuple_elems()[i];
+            if (!expanded[i].has_value()) {
+                // Synth `_` skip from rest expansion.
+                pt.bindings.push_back("_");
+                pt.subs.push_back(make_pat_wild("_"));
+                continue;
+            }
+            auto sub = *expanded[i];
+            int32_t sc = code_of(sub);
+            if (sc == la::PAT_WILD.code) {
+                auto nm = std::string(str_of(sub.get(la::NAME.code)));
+                if (nm != "_" && pat_byval_mut(sub) && current_pat_mut_names_)
+                    current_pat_mut_names_->insert(nm);  // `(mut a, b)`: the side-set the binder reads
+                logos::probe::census("tupelem.wild");
+                if (sub.has_key(la::IS_REF) && sub.get(la::IS_REF.code).is_value() &&
+                    sub.get(la::IS_REF.code).as_value<uint8_t>() != 0) {
+                    bool em_ = sub.has_key(la::IS_MUT) && sub.get(la::IS_MUT.code).is_value() &&
+                               sub.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
+                    elem_refmode[i] = em_ ? 2u : 1u;
+                    logos::probe::census(em_ ? "tupelem.refmut" : "tupelem.ref");
+                }
+                pt.bindings.push_back(nm);
+===
+name: scaffold_tupcapor
+file: src/compiler/sema_stmt.cpp
+---
+                            if (nm != "_" && pat_byval_mut(inner) && current_pat_mut_names_)
+                                current_pat_mut_names_->insert(nm);  // `(mut a, b)` (the grammar wraps the element in PAT_OR)
+                            pt.bindings.push_back(nm);
+---
+                            if (nm != "_" && pat_byval_mut(inner) && current_pat_mut_names_)
+                                current_pat_mut_names_->insert(nm);  // `(mut a, b)` (the grammar wraps the element in PAT_OR)
+                            logos::probe::census("tupelem.orwild");
+                            if (inner.has_key(la::IS_REF) && inner.get(la::IS_REF.code).is_value() &&
+                                inner.get(la::IS_REF.code).as_value<uint8_t>() != 0) {
+                                bool em_ = inner.has_key(la::IS_MUT) && inner.get(la::IS_MUT.code).is_value() &&
+                                           inner.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
+                                elem_refmode[i] = em_ ? 2u : 1u;
+                                logos::probe::census(em_ ? "tupelem.orrefmut" : "tupelem.orref");
+                            }
+                            pt.bindings.push_back(nm);
+===
+name: tuprefty
+file: src/compiler/sema_stmt.cpp
+---
+            if (default_ref && et && TypeRef(et).kind() != LogosType::Kind::Error &&
+                TypeRef(et).kind() != LogosType::Kind::TypeVar && is_move_type(et))
+                et = make_ref(default_mut, et);
+            pt.binding_types.push_back(et);
+---
+            if (default_ref && et && TypeRef(et).kind() != LogosType::Kind::Error &&
+                TypeRef(et).kind() != LogosType::Kind::TypeVar && is_move_type(et))
+                et = make_ref(default_mut, et);
+            if (i < elem_refmode.size() && elem_refmode[i] && et &&
+                (logos::probe::on("tuprefty") || logos::probe::on("tupboth") ||
+                 logos::probe::on("allrefty")))
+                et = make_ref(elem_refmode[i] == 2u, et);
+            pt.binding_types.push_back(et);
+===
+name: atrefmode
+file: src/compiler/sema_stmt.cpp
+---
+                            binding_is_ref.push_back(false);  // `ref n @ sub` binds by value here (soundness queue)
+                            binding_is_mut.push_back(atflag(la::IS_MUT) && !atflag(la::IS_REF));
+---
+                            logos::probe::census("atpld.at");
+                            if (atflag(la::IS_REF)) logos::probe::census("atpld.atref");
+                            bool at_ref_ = atflag(la::IS_REF) &&
+                                (logos::probe::on("atrefmode") || logos::probe::on("allrefty"));
+                            binding_is_ref.push_back(at_ref_);  // `ref n @ sub` binds by value here (soundness queue)
+                            binding_is_mut.push_back(at_ref_ ? atflag(la::IS_MUT)
+                                                             : (atflag(la::IS_MUT) && !atflag(la::IS_REF)));
+===
+name: tuprefbind
+file: src/compiler/mlir_gen_stmt.cpp
+---
+        lir_view::PatTupleView{pat}.each_sub([&](lir_view::PatRef sp){
+            size_t idx = i++;
+            if (!sp || idx >= elems.size()) return;
+            llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(idx)};
+            auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, gi);
+            pat_bind(sp, fp, elems[idx], shared);
+        });
+---
+        std::vector<TypeRef> bts_;
+        lir_view::PatTupleView{pat}.each_binding_type(pool_impl(), [&](TypeRef t){ bts_.push_back(t); });
+        lir_view::PatTupleView{pat}.each_sub([&](lir_view::PatRef sp){
+            size_t idx = i++;
+            if (!sp || idx >= elems.size()) return;
+            llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(idx)};
+            auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, gi);
+            if (idx < bts_.size() && bts_[idx] && elems[idx] &&
+                (TypeRef(bts_[idx]).kind() == LogosType::Kind::Ref ||
+                 TypeRef(bts_[idx]).kind() == LogosType::Kind::MutRef) &&
+                TypeRef(elems[idx]).kind() != LogosType::Kind::Ref &&
+                TypeRef(elems[idx]).kind() != LogosType::Kind::MutRef &&
+                sp.kind() == pc::Code::Wild &&
+                (logos::probe::on("tuprefbind") || logos::probe::on("tupboth") ||
+                 logos::probe::on("allrefty"))) {
+                auto nmw_ = std::string(lir_view::PatWildView{sp}.name());
+                if (!nmw_.empty() && nmw_ != "_") {
+                    evict_var_shapes(nmw_);
+                    auto a_ = create_entry_alloca(ptr_type());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, fp, a_);
+                    scope_[nmw_] = a_; let_vars_.insert(nmw_);
+                    var_elem_types_[nmw_] = ptr_type();
+                    return;
+                }
+            }
+            pat_bind(sp, fp, elems[idx], shared);
+        });
+===
