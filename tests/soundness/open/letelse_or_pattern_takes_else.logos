@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row letelse_or_pattern_takes_else (tier 1). `let 3 | 7 = v else { … };`
+// is legal Rust — an or-pattern is a pattern, and the scrutinee 7 matches its second
+// alternative — and TODAY it compiles clean and TAKES THE ELSE BRANCH: the value is 7,
+// the alternative `7i64` is present, and the diverging arm runs anyway. Measured with a
+// print 2026-09-05: "took else". The `match` twin over the identical or-pattern
+// (cell a_match_or_lit) is correct, so the defect is in the let-else lowering's
+// refutability test, not in the or-pattern door. Found by the pattern lattice, cell
+// a_letelse_or_lit. Rust: exit 0.
+package letelse_or_pattern_takes_else;
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    match v {
+        3i64 | 7i64 => {}
+        _ => { return 2i32; }
+    }
+    let 3i64 | 7i64 = v else { return 1i32; };
+    return 0i32;
+}

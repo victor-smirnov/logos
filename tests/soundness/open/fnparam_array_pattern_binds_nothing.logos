@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row fnparam_array_pattern_binds_nothing (tier 3). An array pattern in a
+// FUNCTION PARAMETER — `fn probe([a, b, c]: [i64; 3]) -> i32` — is legal Rust and TODAY is
+// refused "undefined variable 'a'": the parameter pattern PARSES (no syntax error, unlike
+// the struct and tuple-struct spellings at the same position) and then binds NOTHING, so
+// the body's first use of a binder is an undefined name. The identical array pattern in a
+// `match` arm binds correctly, so the defect is the parameter position's own binder walk,
+// not the slice door. Found by the pattern lattice, cell a_fnparam_arr_fixed.
+// Rust: exit 0.
+package fnparam_array_pattern_binds_nothing;
+fn probe([a, b, c]: [i64; 3]) -> i32 {
+    if a + b + c != 7i64 { return 1i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let arr: [i64; 3] = [1i64, 2i64, 4i64];
+    return probe(arr);
+}

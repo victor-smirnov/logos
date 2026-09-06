@@ -43,7 +43,7 @@ declare_pat_bindings_field_nomut_addrmut_admit 2 tests/soundness/open/declare_pa
 array_typed_field_binding_shape_lost 3 tests/soundness/open/array_typed_field_binding_shape_lost refuses
 let_at_binding_tuple_sub_unsupported 3 tests/soundness/open/let_at_binding_tuple_sub_unsupported refuses
 range_pattern_under_ref_scrutinee 3 tests/soundness/open/range_pattern_under_ref_scrutinee refuses
-# TOTAL 29
+# TOTAL 39
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 drop_inherent_call_order      1 tests/soundness/open/drop_inherent_call_order      refuses
@@ -69,3 +69,13 @@ paren_var_assign_target       3 tests/soundness/open/paren_var_assign_target    
 match_ergo_ref_modifier_ref_mode_admit 2 tests/soundness/open/match_ergo_ref_modifier_ref_mode_admit admits
 at_binding_ref_mut_payload_refuses 3 tests/soundness/open/at_binding_ref_mut_payload_refuses refuses
 let_at_binding_type_annot_syntax 3 tests/soundness/open/let_at_binding_type_annot_syntax refuses
+struct_pattern_two_ref_layers_reads_address 1 tests/soundness/open/struct_pattern_two_ref_layers_reads_address run 1
+letelse_or_pattern_takes_else 1 tests/soundness/open/letelse_or_pattern_takes_else run 1
+slice_pattern_ref_array_scrutinee 3 tests/soundness/open/slice_pattern_ref_array_scrutinee refuses
+tuple_pattern_two_ref_layers  3 tests/soundness/open/tuple_pattern_two_ref_layers  refuses
+fnparam_array_pattern_binds_nothing 3 tests/soundness/open/fnparam_array_pattern_binds_nothing refuses
+fnparam_tuple_mut_modifier_dropped 3 tests/soundness/open/fnparam_tuple_mut_modifier_dropped refuses
+closure_param_struct_pattern_syntax 3 tests/soundness/open/closure_param_struct_pattern_syntax refuses
+for_header_pattern_tuple_only 3 tests/soundness/open/for_header_pattern_tuple_only refuses
+refmut_binding_write_refused_outside_variant 3 tests/soundness/open/refmut_binding_write_refused_outside_variant refuses
+match_tuple_door_nested_struct_binds_nothing 3 tests/soundness/open/match_tuple_door_nested_struct_binds_nothing refuses

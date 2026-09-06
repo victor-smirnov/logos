@@ -1,0 +1,27 @@
+// SOUNDNESS QUEUE row struct_pattern_two_ref_layers_reads_address (tier 1). A struct
+// pattern under a DOUBLE reference — `match & &p { P { x, y } => … }` — is legal Rust
+// (the pattern peels every reference layer and the bindings are `&i64`) and TODAY it
+// compiles clean, rc 0, and READS A STACK ADDRESS: measured 2026-09-05 with a print,
+// `x=140721330920408 y=140721330920408` where Rust gives 3 and 4. The one-layer twin
+// (`match &p`) in the same program is CORRECT, which is the whole shape of the defect:
+// the PAT_STRUCT door of build_pattern_impl (sema_stmt.cpp, `if (pc == la::PAT_STRUCT)`)
+// never peels the scrutinee at all — it only compares the struct NAME, and a Ref
+// scrutinee skips even that check — so the second layer is never dereferenced and the
+// field GEP is taken on the pointer. The full-depth peel exists ONCE in the tree, as a
+// local block inside build_pattern_variant_data (`pat_scrut_ref_depth`). Found by the
+// pattern lattice, cell b_match_struct_sh_refref. ⚠ A sema-side peel probe (patpeelstruct,
+// fires 74) closed NOTHING: the doors are in SERIES and the second half is in codegen.
+// Rust: exit 0.
+package struct_pattern_two_ref_layers_reads_address;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 3i64, y: 4i64 };
+    let r: &P = &p;
+    match r {
+        P { x, y } => { if *x + *y != 7i64 { return 2i32; } }
+    }
+    match & &p {
+        P { x, y } => { if *x + *y != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

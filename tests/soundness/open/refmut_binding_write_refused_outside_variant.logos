@@ -1,0 +1,22 @@
+// SOUNDNESS QUEUE row refmut_binding_write_refused_outside_variant (tier 3). A `ref mut`
+// binding on a TUPLE element — `match t { (ref mut a, b) => { *a = *a + 1; } }` — is legal
+// Rust and TODAY the write is refused "write through raw pointer requires unsafe context":
+// the binding's TYPE is not `&mut i64`, so sema's deref-write check (sema_stmt.cpp, the
+// `is_mut_ref` test) reads it as a raw pointer. The `&mut` binding type IS minted, in the
+// VARIANT-payload door (`make_ref(is_mut, …)` beside pat_keys::BINDING_REF_MODES) and in
+// the struct-FIELD door — and in no other door and at no other binding position. MEASURED
+// 2026-09-05 over the pattern lattice: 14 cells refused with this one sentence, at six
+// positions (let, match, if let, while let, for, fn param); `match` over a variant payload
+// and over a struct field are the two that work. Found by the pattern lattice, cell
+// c_match_tuple_refmut. Rust: exit 0.
+package refmut_binding_write_refused_outside_variant;
+fn main() -> i32 {
+    let mut t: (i64, i64) = (3i64, 4i64);
+    match t {
+        (ref mut a, b) => {
+            *a = *a + 1i64;
+            if *a + b != 8i64 { return 1i32; }
+        }
+    }
+    return 0i32;
+}

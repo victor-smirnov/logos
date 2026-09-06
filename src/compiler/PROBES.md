@@ -24949,3 +24949,98 @@ verdict: FUND, BY DELEGATION, AND CARRY IS_MUT. `lower_let_pat` refuses everythi
     build ids that bracket it. ⚠ AND IT IS ALSO A GATE THAT LIES BY OMISSION IN THE OTHER DIRECTION: a
     timing-out fixture takes three census gates down with it, so `L4 bc` cannot currently distinguish "the
     census gates are red" from "the box was slow".
+
+═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+# ROUND 2026-09-05a (PRICING, soundness queue) — THE PATTERN-BINDING LATTICE, SWEPT WHOLE: 321 CELLS RUN,
+#     120 WRONG, AND THE DEFAULT BINDING MODE IS RE-DERIVED AT EVERY DOOR
+═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+    build read back after the revert: `978d056506af30d9 43` (probe build `6e0c4f19569f54e5 43`).
+    queue gate rc 0 on 29 before, rc 0 on 39 after (10 rows ADDED, none closed — this was a pricing round).
+
+## 1. THE POPULATION IS A GRID, NOT A LIST — and it was written before any edit
+    binding POSITION (8: let, let-else, match arm, if let, while let, for header, fn param, closure param)
+    x pattern KIND (26: name, `_`, `@`, `@`-with-sub, tuple, nested tuple, tuple-struct, struct named /
+    shorthand / with `..`, variant payload, variant-with-tuple, variant-with-struct, int, negative int, bool,
+    char, string, range inclusive / exclusive / char, or-literal, or-binding, array fixed, array with `..`)
+    x MODIFIER (none, `mut`, `ref`, `ref mut`) x DEFAULT BINDING MODE (value, `&`, `&mut`, `& &`),
+    filtered by refutability, plus a two-deep nesting block. 321 programs, each LEGAL RUST returning 0 when the
+    value read back is Rust's; generator + driver: /home/logos/sandbox/lattice (gen/gen.py, run.sh).
+    ⚠ EVERY CELL WAS COMPILED, LINKED AND **RUN**: 201 correct, 115 refused, 5 compile clean and are WRONG AT
+    RUN TIME. The five are the ones no compile-only reading could have found.
+
+## 2. THE ROOT, NAMED BY SYMBOL — one fact, minted in one door, and the other doors re-derive it by hand
+    `pat_scrut_ref_depth` / `pat_scrut_by_ref` / `pat_scrut_by_mut` (sema_stmt.cpp, in
+    `SemaChecker::build_pattern_variant_data`) is the FULL-DEPTH peel of the scrutinee's `&`/`&mut` chain
+    with its mutability. It is a LOCAL BLOCK inside that one door. Every other door of `build_pattern_impl`:
+      PAT_TUPLE   peels EXACTLY ONE layer, by hand      -> `& &t` is "tuple pattern requires tuple scrutinee"
+      PAT_RANGE   does not peel                          -> `&v` is "range pattern requires integer scrutinee"
+      PAT_SLICE   does not peel                          -> `&arr` is "slice pattern requires array or slice"
+      PAT_STRUCT  does not peel and does not even CHECK   -> `& &p` COMPILES AND READS A STACK ADDRESS
+      the `let` lowering never reaches `build_pattern_impl` at all (probe patpeelall did not fire on
+      `let_tuple_destructure_ref_scrutinee`: NOT a zero, a site that is never entered — rule 16).
+
+## 3. THE PROBE TABLE, ALL COLUMNS. ceiling here = LATTICE CELLS + QUEUE ROWS, not the bc ledger.
+    probe          fires  cells+  cells-  queue  cost  cfail  std  runtime(6486)  verdict
+    patpeelall      491      9      3       0     15     7     ⛔      —        crude whole-peel: breaks stdlib
+    patpeelin        —       3      1       0      —     —     —       —        inner twin of patpeelall (rule 9)
+    patpeelrange     28      0      0       0      0     0     ok      0        SERIES — see 4
+    patpeelslice     40      6      0       0      0     0     ok      0        ok
+    patpeelstruct    74      0      0       0      0     0     ok      0        fires on the program, buys 0
+    patpeeltuple     43      3      0       0      0     0     ok      0        ok
+    `cost`/`cfail`/`std` are probe-batch's three columns (pass through the store; `-L bc -L fail` by TEXT;
+    four stdlib layers). `runtime` is scripts/run_oracle.py over 6486 pass fixtures compiled+linked+RUN,
+    `cast-region-to-uint` subtracted BY NAME (it prints a stack address and its stdout hash moves every run).
+    ADDITIVITY CHECKED, NOT ASSUMED (rule 13): patpeelall's +9 is exactly patpeelslice's 6 + patpeeltuple's 3,
+    and its −3 (b_match_at_wild_{ref,refmut,refref}) is the price of DESTROYING the fact instead of carrying
+    it: peeling the type makes `n @ _` under `&i64` bind by value where Rust binds `&i64`.
+    RULE 9, the inner predicate at ONE site: patpeelall (peel every layer) vs patpeelin (peel every layer but
+    the outermost) are identical in fires and in every population column and separate only there — +9/−3
+    against +3/−1.
+
+## 4. ⚠ THE DOORS ARE IN SERIES, AND AN rc-DIFF CANNOT SEE IT (rule 2, rule 15)
+    patpeelrange reads ceiling 0 on both populations. It is NOT a refutation: armed, it FIRES on
+    `range_pattern_under_ref_scrutinee` (fires 1, proven per-program) and the row's DIAGNOSTIC CHANGES from
+      "range pattern requires integer scrutinee, got '&i64'"        (sema, the door)
+    to
+      "'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'"   (codegen)
+    The sema peel opens the door and the match codegen then compares a POINTER. My first diff compared
+    (cc, diag, run) only and reported "no change" for all six arms; the text column found four programs whose
+    refusal MOVED. One queue row + three lattice cells sit behind ONE further deref in gen_match.
+    patpeelstruct is the same shape one hop further out: it fires on `b_match_struct_sh_refref`, changes
+    nothing, and the garbage is minted in codegen — the field GEP is taken on the outer pointer.
+
+## 5. THE ARRIVAL CENSUS, TAKEN BEFORE ANY CLAIM (rule 17) — and the corpus is THIN here
+    LOGOS_CENSUS over 2867 `tests/logos/pass` fixtures, unarmed, same build as the arms:
+      16572 pattern-door arrivals; by ref-depth  d0 15749 | d1 801 (43 of them `&mut`) | d2 14 | d3 8
+      at d>=1: OR 386, VARIANT_DATA 180, VARIANT 142, WILD 29, REF 18, STRUCT 5, TUPLE 4; SLICE and RANGE: 0.
+    So the whole `&`-mode half of the grid is exercised by the corpus 823 times out of 16572 (5.0%) and the
+    two-layer case 22 times. That is WHY the tier-1 cells were never seen, and why the corpus cannot be the
+    oracle for this block — the lattice is.
+
+## 6. TEN ROWS ADDED (29 -> 39, `# TOTAL` re-derived by direct listing; gate rc 0 on 39). NONE CLOSED.
+    tier 1: struct_pattern_two_ref_layers_reads_address (measured with a print: `x=140721330920408
+            y=140721330920408` where Rust gives 3 and 4; the one-layer twin in the same program is correct)
+            letelse_or_pattern_takes_else (`let 3 | 7 = v else` takes the else on v = 7; the `match` twin
+            over the identical or-pattern is correct)
+    tier 3: slice_pattern_ref_array_scrutinee, tuple_pattern_two_ref_layers (both PRICED: cost 0 in all four
+            columns, 6 and 3 cells), refmut_binding_write_refused_outside_variant (14 cells, six positions),
+            for_header_pattern_tuple_only (5 spellings, one whitelist), closure_param_struct_pattern_syntax
+            (6 spellings across two positions, one grammar rule), fnparam_array_pattern_binds_nothing,
+            fnparam_tuple_mut_modifier_dropped, match_tuple_door_nested_struct_binds_nothing.
+    NOT rowed, deliberately: the `let`-position whitelist (`'let <pattern> = expr;' currently supports struct
+    patterns only`, 8 cells) — it is already rowed twice, as `let_at_binding_tuple_sub_unsupported` and
+    `let_tuple_destructure_ref_scrutinee`. NOT touched: `match_ergo_ref_modifier_ref_mode_admit` (owner).
+
+## 7. WHAT DESERVES FUNDING NEXT, IN ORDER
+    (a) CARRY THE FACT: hoist the `pat_scrut_ref_depth` block out of build_pattern_variant_data to
+        build_pattern_impl's entry and let every door ASK it (peel + default_ref + default_mut), rather than
+        peeling the type. Priced upper half: patpeelslice + patpeeltuple = 9 cells at cost 0 in four columns;
+        the crude whole-peel's −3 is exactly what carrying-instead-of-peeling avoids.
+    (b) THE SECOND HALF OF THE SERIES, in gen_match: deref through the scrutinee's ref chain before the
+        integer compare and before the struct field GEP. That is what unlocks the range row, the three
+        at_range cells, the variant/or_bind `&&` cells and the two tier-1 struct cells — none of which any
+        sema-side arm can buy alone.
+    (c) `ref mut` OUTSIDE THE VARIANT AND STRUCT-FIELD DOORS: the `&mut` binding type is minted at exactly two
+        doors; 14 lattice cells and one queue row are refused "write through raw pointer requires unsafe
+        context" because a `ref mut` binding elsewhere is not typed `MutRef`. Same shape as (a), different
+        fact, and it was NOT probed this round — it is the next round's cheapest ceiling.

@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row closure_param_struct_pattern_syntax (tier 3). A struct pattern as a
+// CLOSURE PARAMETER — `|P { x, y }: P| -> i64` — is legal Rust and TODAY it is a SYNTAX
+// ERROR, "syntax error near 'P'" (rc 4, before sema): the closure-parameter grammar rule
+// admits a bare identifier and a tuple pattern and nothing else. The same is true of the
+// tuple-struct, array and `@` spellings at that position, and of ALL of them at the
+// function-parameter position (there the error is "syntax error near 'fn'"). ONE ROW for
+// the grammar rule; the six spellings are its members. Found by the pattern lattice,
+// cells a_closure_struct_sh / a_closure_tstruct / a_closure_arr_fixed / a_closure_at_wild
+// and their a_fnparam_* twins. Rust: exit 0.
+package closure_param_struct_pattern_syntax;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 3i64, y: 4i64 };
+    let f = |P { x, y }: P| -> i64 { return x + y; };
+    if f(p) != 7i64 { return 1i32; }
+    return 0i32;
+}

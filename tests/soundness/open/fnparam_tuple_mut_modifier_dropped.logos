@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row fnparam_tuple_mut_modifier_dropped (tier 3). `fn probe((mut a, b):
+// (i64, i64))` is legal Rust — a parameter is a pattern and `mut` on a tuple element makes
+// that binding mutable — and TODAY the modifier is DROPPED: the parameter pattern is
+// accepted and the body's `a = a + 1;` is refused "assignment to immutable variable 'a'".
+// The same `(mut a, b)` pattern in a `let` and in a `match` arm carries its `mut`
+// (2026-09-09b landed those); the parameter position does not. The closure-parameter twin
+// (`|(mut a, b): (i64, i64)|`) is refused with the identical sentence. Found by the
+// pattern lattice, cells c_fnparam_tuple_mut and c_closure_tuple_mut. Rust: exit 0.
+package fnparam_tuple_mut_modifier_dropped;
+fn probe((mut a, b): (i64, i64)) -> i32 {
+    a = a + 1i64;
+    if a + b != 8i64 { return 1i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    return probe(t);
+}

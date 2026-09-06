@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row for_header_pattern_tuple_only (tier 3). `for P { x, y } in arr` is
+// legal Rust — a `for` header takes any irrefutable pattern — and TODAY it is refused
+// "for-loop pattern: only tuple patterns `for (a, b) in …` are supported here"
+// (sema_stmt.cpp, the for-header door). The refusal is a WHITELIST, not a shape check:
+// the struct, tuple-struct, array, array-with-rest and `@` spellings are all refused with
+// this one sentence, while `for (a, b) in …` works. ONE ROW for the whitelist; measured
+// members are those five. Found by the pattern lattice, cells a_for_struct_sh,
+// a_for_tstruct, a_for_arr_fixed, a_for_arr_rest, a_for_at_wild. Rust: exit 0.
+package for_header_pattern_tuple_only;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let arr: [P; 1] = [P { x: 3i64, y: 4i64 }];
+    let mut acc: i64 = 0i64;
+    for P { x, y } in arr {
+        acc = acc + x + y;
+    }
+    if acc != 7i64 { return 1i32; }
+    return 0i32;
+}
