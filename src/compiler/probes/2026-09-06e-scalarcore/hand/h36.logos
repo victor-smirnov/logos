@@ -1,0 +1,10 @@
+// a scalar core reached through a &mut chain of depth 2
+package h36;
+fn main() -> i32 {
+    let mut v: i64 = 4i64;
+    let mut r: &mut i64 = &mut v;
+    let mut out: i64 = 0i64;
+    match &mut r { 4i64 => { out = 1i64; } _ => { out = 2i64; } }
+    if out != 1i64 { return 1i32; }
+    return 0i32;
+}

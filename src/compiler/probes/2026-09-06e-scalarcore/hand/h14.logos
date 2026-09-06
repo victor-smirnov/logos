@@ -1,0 +1,8 @@
+// int literal under & in a match EXPRESSION (a different lowering door)
+package h14;
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let out: i64 = match &v { 4i64 => 1i64, _ => 2i64 };
+    if out != 1i64 { return 1i32; }
+    return 0i32;
+}

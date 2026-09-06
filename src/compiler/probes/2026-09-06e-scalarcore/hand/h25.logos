@@ -1,0 +1,10 @@
+// CONTROL: an ENUM under a reference scrutinee (the via_ref disc load)
+package h25;
+enum E { A(i64), B(i64) }
+fn main() -> i32 {
+    let e: E = E::B(9i64);
+    let mut out: i64 = 0i64;
+    match &e { E::A(n) => { out = n; } E::B(n) => { out = n + 1i64; } }
+    if out != 10i64 { return 1i32; }
+    return 0i32;
+}

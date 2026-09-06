@@ -1,0 +1,7 @@
+run_oracle.py, 6490 pass fixtures compiled + linked + RUN, base vs LOGOS_PROBE=scall,
+ONE binary (bbbc042bc7d8a03d), one variable apart:
+  changed: 1 of 6490
+  logos_02_semantic_core_pass_cast-region-to-uint  sha 9f4d93cad2e0aa4e -> 1086e7f7ed4ccf46
+  (subtracted BY NAME — it prints a stack address; the prompt names it)
+The two 452K .tsv files were deleted after the diff; re-derive with
+  python3 scripts/run_oracle.py <out>   and   LOGOS_PROBE=scall python3 scripts/run_oracle.py <out>

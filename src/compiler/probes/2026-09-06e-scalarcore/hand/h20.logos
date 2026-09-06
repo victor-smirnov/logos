@@ -1,0 +1,9 @@
+// literal element in a SLICE pattern over a reference-to-array
+package h20;
+fn main() -> i32 {
+    let arr: [i64; 2] = [4i64, 7i64];
+    let mut out: i64 = 0i64;
+    match &arr { [4i64, b] => { out = b; } _ => { out = 2i64; } }
+    if out != 7i64 { return 1i32; }
+    return 0i32;
+}

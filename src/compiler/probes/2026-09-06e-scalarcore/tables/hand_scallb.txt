@@ -1,0 +1,33 @@
+h01.logos cc=0 diag=0 run=0 |  | 
+h02.logos cc=0 diag=0 run=0 |  | 
+h03.logos cc=0 diag=0 run=0 |  | 
+h04.logos cc=0 diag=0 run=0 |  | 
+h05.logos cc=0 diag=0 run=0 |  | 
+h06.logos cc=0 diag=0 run=0 |  | 
+h07.logos cc=0 diag=0 run=0 |  | 
+h08.logos cc=0 diag=0 run=1 |  | 
+h09.logos cc=0 diag=0 run=1 |  | 
+h10.logos cc=0 diag=0 run=0 |  | 
+h11.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h11.logos:6: error [fn main]: assignment to 'out': type mismatch — expected i64, got & | 
+h12.logos cc=0 diag=0 run=0 |  | 
+h13.logos cc=0 diag=0 run=0 |  | 
+h14.logos cc=1 diag=1 run=- | error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr' | 
+h15.logos cc=1 diag=1 run=- | error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr' | 
+h16.logos cc=0 diag=0 run=0 |  | 
+h17.logos cc=0 diag=0 run=0 |  | 
+h18.logos cc=0 diag=0 run=0 |  | 
+h19.logos cc=0 diag=0 run=0 |  | 
+h20.logos cc=0 diag=0 run=0 |  | 
+h21.logos cc=0 diag=0 run=0 |  | 
+h22.logos cc=0 diag=0 run=0 |  | 
+h23.logos cc=0 diag=0 run=0 |  | 
+h24.logos cc=0 diag=0 run=0 |  | 
+h25.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h25.logos:7: error [fn main]: assignment to 'out': type mismatch — expected i64, got & | 
+h26.logos cc=0 diag=0 run=0 |  | 
+h27.logos cc=0 diag=0 run=0 |  | 
+h28.logos cc=1 diag=1 run=- | error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr' | 
+h29.logos cc=0 diag=0 run=0 |  | 
+h30.logos cc=0 diag=0 run=0 |  | 
+range_pattern_under_ref_scrutinee.logos cc=0 diag=0 run=0 |  | 
+literal_patterns_under_ref_scrutinee.logos cc=0 diag=0 run=0 |  | 
+refpat_scalar_under_ref_mlir_abort.logos cc=1 diag=1 run=- | error: 'llvm.icmp' op requires all operands to have the same type | 

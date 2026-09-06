@@ -1,0 +1,10 @@
+// a C-LIKE (fieldless) enum under a reference scrutinee — the G165-1 disc load
+package h26;
+enum C { A, B }
+fn main() -> i32 {
+    let c: C = C::B;
+    let mut out: i64 = 0i64;
+    match &c { C::A => { out = 1i64; } C::B => { out = 2i64; } }
+    if out != 2i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,10 @@
+// literal in an ENUM VARIANT PAYLOAD under a reference scrutinee
+package h19;
+enum E { A(i64), B(i64) }
+fn main() -> i32 {
+    let e: E = E::A(4i64);
+    let mut out: i64 = 0i64;
+    match &e { E::A(4i64) => { out = 1i64; } _ => { out = 2i64; } }
+    if out != 1i64 { return 1i32; }
+    return 0i32;
+}

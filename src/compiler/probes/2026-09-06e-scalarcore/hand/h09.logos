@@ -1,0 +1,9 @@
+// reference pattern over a scalar behind &mut
+package h09;
+fn main() -> i32 {
+    let mut v: i64 = 5i64;
+    let mut out: i64 = 0i64;
+    match &mut v { &n => { out = n; } }
+    if out != 5i64 { return 1i32; }
+    return 0i32;
+}

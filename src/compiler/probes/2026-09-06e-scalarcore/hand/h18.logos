@@ -1,0 +1,9 @@
+// literal in a TUPLE ELEMENT sub-pattern under a reference scrutinee
+package h18;
+fn main() -> i32 {
+    let t: (i64, i64) = (4i64, 7i64);
+    let mut out: i64 = 0i64;
+    match &t { (4i64, b) => { out = b; } _ => { out = 2i64; } }
+    if out != 7i64 { return 1i32; }
+    return 0i32;
+}

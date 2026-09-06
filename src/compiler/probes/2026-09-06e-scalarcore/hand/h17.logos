@@ -1,0 +1,10 @@
+// literal in a STRUCT FIELD sub-pattern under a reference scrutinee
+package h17;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 4i64, y: 7i64 };
+    let mut out: i64 = 0i64;
+    match &p { P { x: 4i64, y } => { out = y; } _ => { out = 2i64; } }
+    if out != 7i64 { return 1i32; }
+    return 0i32;
+}

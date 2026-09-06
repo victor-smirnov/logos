@@ -1,0 +1,7 @@
+h31.logos cc=0 diag=0 run=0 |  | 
+src/compiler/probes/2026-09-06e-scalarcore/obs.sh: line 12: 2126073 Segmentation fault      timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+h32.logos cc=0 diag=0 run=139 |  | 
+h33.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h33.logos:7: error [fn main]: integer pattern requires integer scrutinee, got '&i64' | 
+h34.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h34.logos:6: error [fn main]: integer pattern requires integer scrutinee, got '&i64' | 
+h35.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h35.logos:6: error [fn main]: range pattern requires integer scrutinee, got '&i64' | 
+h36.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h36.logos:7: error [fn main]: integer pattern requires integer scrutinee, got '&mut i64' | 

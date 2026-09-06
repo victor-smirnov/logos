@@ -1,0 +1,7 @@
+// int literal under & in a let-else
+package h16;
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let 4i64 = &v else { return 1i32; };
+    return 0i32;
+}

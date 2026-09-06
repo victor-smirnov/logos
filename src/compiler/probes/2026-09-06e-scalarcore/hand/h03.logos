@@ -1,0 +1,10 @@
+// int literal under && (depth 2)
+package h03;
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let r: &i64 = &v;
+    let mut out: i64 = 0i64;
+    match &r { 4i64 => { out = 1i64; } _ => { out = 2i64; } }
+    if out != 1i64 { return 1i32; }
+    return 0i32;
+}

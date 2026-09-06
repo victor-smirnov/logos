@@ -1,0 +1,33 @@
+h01.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h01.logos:6: error [fn main]: integer pattern requires integer scrutinee, got '&i64' | 
+h02.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h02.logos:6: error [fn main]: integer pattern requires integer scrutinee, got '&mut i64' | 
+h03.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h03.logos:7: error [fn main]: integer pattern requires integer scrutinee, got '&i64' | 
+h04.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h04.logos:6: error [fn main]: char pattern requires char or integer scrutinee, got '&cha | 
+h05.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h05.logos:6: error [fn main]: bool pattern requires bool scrutinee, got '&bool' | 
+h06.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h06.logos:6: error [fn main]: range pattern requires integer scrutinee, got '&i64' | 
+h07.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h07.logos:6: error [fn main]: range pattern requires integer scrutinee, got '&mut i64' | 
+h08.logos cc=0 diag=0 run=1 |  | 
+h09.logos cc=0 diag=0 run=1 |  | 
+h10.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h10.logos:6: error [fn main]: integer pattern requires integer scrutinee, got '&i64' | 
+h11.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h11.logos:6: error [fn main]: range pattern requires integer scrutinee, got '&i64' | 
+h12.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h12.logos:6: error [fn main]: integer pattern requires integer scrutinee, got '&i64' | 
+h13.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h13.logos:6: error [fn main]: range pattern requires integer scrutinee, got '&u64' | 
+h14.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h14.logos:5: error [fn main]: integer pattern requires integer scrutinee, got '&i64' | 
+h15.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h15.logos:6: error [fn main]: integer pattern requires integer scrutinee, got '&i64' | 
+h16.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h16.logos:5: error [fn main]: integer pattern requires integer scrutinee, got '&i64' | 
+h17.logos cc=0 diag=0 run=0 |  | 
+h18.logos cc=0 diag=0 run=0 |  | 
+h19.logos cc=0 diag=0 run=0 |  | 
+h20.logos cc=0 diag=0 run=0 |  | 
+h21.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h21.logos:6: error [fn main]: integer pattern requires integer scrutinee, got '&i32' | 
+h22.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h22.logos:7: error [fn main]: integer pattern requires integer scrutinee, got '&i64' | 
+h23.logos cc=0 diag=0 run=0 |  | 
+h24.logos cc=0 diag=0 run=0 |  | 
+h25.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h25.logos:7: error [fn main]: assignment to 'out': type mismatch — expected i64, got & | 
+h26.logos cc=0 diag=0 run=0 |  | 
+h27.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h27.logos:4: error [fn pick]: integer pattern requires integer scrutinee, got '&i64' | 
+h28.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h28.logos:6: error [fn main]: integer pattern requires integer scrutinee, got '&i64' | 
+h29.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h29.logos:6: error [fn main]: char range pattern requires char or integer scrutinee, got | 
+h30.logos cc=1 diag=1 run=- | /home/logos/devel/logos/src/compiler/probes/2026-09-06e-scalarcore/hand/h30.logos:6: error [fn main]: bool pattern requires bool scrutinee, got '&bool' | 
+range_pattern_under_ref_scrutinee.logos cc=1 diag=1 run=- | /home/logos/devel/logos/tests/soundness/open/range_pattern_under_ref_scrutinee.logos:11: error [fn main]: range pattern requires integer scrutinee, got '&i64' | 
+literal_patterns_under_ref_scrutinee.logos cc=1 diag=1 run=- | /home/logos/devel/logos/tests/soundness/open/literal_patterns_under_ref_scrutinee.logos:23: error [fn main]: integer pattern requires integer scrutinee, got '&i | 
+refpat_scalar_under_ref_mlir_abort.logos cc=1 diag=1 run=- | error: 'llvm.icmp' op requires all operands to have the same type | 

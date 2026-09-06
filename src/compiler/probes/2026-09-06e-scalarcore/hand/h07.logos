@@ -1,0 +1,9 @@
+// range under &mut, value NOT in range (the else side must be taken)
+package h07;
+fn main() -> i32 {
+    let mut v: i64 = 9i64;
+    let mut out: i64 = 0i64;
+    match &mut v { 1i64..=5i64 => { out = 1i64; } _ => { out = 2i64; } }
+    if out != 2i64 { return 1i32; }
+    return 0i32;
+}

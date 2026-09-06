@@ -1,0 +1,20 @@
+// SOUNDNESS QUEUE row refbind_scalar_under_ref_segv (tier 1). `match &v { ref r => …
+// **r … }` over `v: i64` is legal Rust — the scrutinee is a VALUE of type `&i64`, the
+// default binding mode is `move`, `ref r` binds `r: &&i64` and `**r` is the i64 — and
+// TODAY it compiles clean and SEGFAULTS (run 139). Found 2026-09-06e as a CONTROL for
+// the scalar-core probes (hand h32) and it is NOT theirs: the base binary and both
+// armed binaries produce the identical 139, so no arm of that round causes it or fixes
+// it. gen_match's RefBind case alloca-wraps the scrutinee value and binds the ALLOCA,
+// so `*r` yields the alloca's contents and the second `*` dereferences an i64 as a
+// pointer. The named-binder twin `match &v { x => { out = *x; } }` (hand h31) is
+// CORRECT, which is the pair that names the site. Rust: exit 0.
+package refbind_scalar_under_ref_segv;
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    let mut out: i64 = 0i64;
+    match &v {
+        ref r => { out = **r; }
+    }
+    if out != 5i64 { return 1i32; }
+    return 0i32;
+}

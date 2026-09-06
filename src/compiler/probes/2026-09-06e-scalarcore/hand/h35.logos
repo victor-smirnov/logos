@@ -1,0 +1,9 @@
+// a range arm beside a `ref` binder arm under a reference scrutinee
+package h35;
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    let mut out: i64 = 0i64;
+    match &v { 1i64..=5i64 => { out = 1i64; } ref r => { out = **r; } }
+    if out != 7i64 { return 1i32; }
+    return 0i32;
+}

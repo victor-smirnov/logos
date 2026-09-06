@@ -1,0 +1,40 @@
+ROUND 2026-09-06e (pricing, soundness queue) — TARGET ROWS, NAMED BEFORE ANY EDIT
+build at selection: 9c95cb54f5729e61 (read from scripts/build_hash.py)
+queue gate at selection: rc 0, 41 rows (tier1=8 tier2=6 tier3=25 tier4=2)
+
+TARGETS (3 rows, one declared root):
+  range_pattern_under_ref_scrutinee        3 refuses
+  literal_patterns_under_ref_scrutinee     3 refuses
+  refpat_scalar_under_ref_mlir_abort       3 refuses
+
+DECLARED ROOT (to be TESTED, not assumed — both handed-down groupings in tier 1
+were refuted this way): "a pattern whose core is a SCALAR needs the scrutinee's
+&/&mut chain collapsed to ZERO layers, in BOTH doors — sema's PAT_RANGE /
+PAT_INT / PAT_NEG_INT / PAT_CHAR / PAT_CHAR_RANGE / PAT_BOOL (which peel none and
+refuse '<k> pattern requires <t> scrutinee, got &T') and the VALUE in gen_match
+(2026-09-05b collapses to ONE layer, which is what an AGGREGATE core needs
+because a &Agg IS its base pointer; a scalar core needs one further load)."
+Test of the grouping: does ONE candidate change move ALL THREE rows? The rows
+differ in WHICH sema door admits: refpat_scalar already passes sema (PAT_REF
+peels its own layer) and dies only in the value; the other two are refused in
+sema first. So the prediction is: the VALUE arm alone moves refpat_scalar and
+NEITHER of the other two; the SEMA arm alone moves none to green (2026-09-05
+measured patpeelrange firing at ceiling 0, the refusal MOVING to
+'arith.cmpi' op operand #0 ... got '!llvm.ptr'); the two TOGETHER move all three.
+That is a SERIES (rule 2, rule 13) and additivity is to be CHECKED, not assumed.
+
+WHY THIS BLOCK OVER THE OTHERS
+ - It is the (a) item of 2026-09-05b's own "what deserves funding next", written
+   by the round that closed the aggregate half; the mechanism is named by SYMBOL
+   (gen_match) and half of it is ALREADY MEASURED to fire (patpeelrange).
+ - Shape that has paid every time: an ARM THAT EXISTS (the scalar compare) reached
+   through a fact the code does not carry (the scrutinee's ref depth).
+ - The three rows are the only `refuses` rows on the shelf whose headers name the
+   SAME symbol; every other tier-3 block is a missing implementation (the `let`
+   position never enters build_pattern_impl at all — rule 16, a site never entered
+   is not a zero) or an unrelated root.
+ - NOT chosen, with the reason: (b) `ref mut` outside the variant/struct doors
+   (refmut_binding_write_refused_outside_variant + at_binding_ref_mut_payload_refuses
+   + box_mutref_payload_write_immut_box) is unprobed and is the next-cheapest, but
+   its 14 lattice cells are one row here; (c) the `let`/fn-param/closure-param/
+   for-header whitelist rows (7 of them) are ONE missing lowering, not a fact.

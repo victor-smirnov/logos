@@ -1,0 +1,9 @@
+// int literal under & in an if-let
+package h15;
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let mut out: i64 = 0i64;
+    if let 4i64 = &v { out = 1i64; } else { out = 2i64; }
+    if out != 1i64 { return 1i32; }
+    return 0i32;
+}

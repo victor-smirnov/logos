@@ -1,0 +1,90 @@
+name: scsema
+file: src/compiler/sema_stmt.cpp
+---
+    const TypeRef scrut_orig = scrut_type;
+    scrut_type = pat_scrut_one_layer(scrut_type);
+    if (pc == la::PAT_VARIANT) return build_pattern_variant(pnode, scrut_type);
+---
+    const TypeRef scrut_orig = scrut_type;
+    scrut_type = pat_scrut_one_layer(scrut_type);
+    // ── scsema / scall / scallb — THE SCALAR CORE NEEDS ZERO LAYERS ──────
+    // RFC 2005: a non-reference pattern matches the POINTEE. One layer is what
+    // an AGGREGATE door wants (a `&Agg` IS the base pointer); the six SCALAR
+    // doors below compare a VALUE and refuse `&i64` outright. PROBES.md
+    // 2026-09-06e.
+    {
+        bool _sc_door = (pc == la::PAT_INT || pc == la::PAT_NEG_INT ||
+                         pc == la::PAT_CHAR || pc == la::PAT_CHAR_RANGE ||
+                         pc == la::PAT_BOOL || pc == la::PAT_RANGE);
+        if (_sc_door) {
+            int _d = 0;
+            TypeRef _c = scrut_type;
+            while (_c && (TypeRef(_c).kind() == LogosType::Kind::Ref ||
+                          TypeRef(_c).kind() == LogosType::Kind::MutRef) &&
+                   TypeRef(_c).pointee()) { _c = TypeRef(_c).pointee(); ++_d; }
+            logos::probe::census(std::format("scdoor.pc{}.d{}", pc, _d));
+            if (_d > 0 && (logos::probe::on("scsema") || logos::probe::on("scall") ||
+                           logos::probe::on("scallb")))
+                scrut_type = _c;
+        }
+    }
+    if (pc == la::PAT_VARIANT) return build_pattern_variant(pnode, scrut_type);
+===
+name: scvalstmt
+file: src/compiler/mlir_gen_stmt.cpp
+---
+        if (chain >= 2 && !whole_scrut_binder) {
+            for (int i = 1; i < chain; ++i) {
+                scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), scrut);
+                scrut_ty = TypeRef(scrut_ty).pointee();
+            }
+            collapsed_scrut = scrut;
+        }
+    }
+---
+        if (chain >= 2 && !whole_scrut_binder) {
+            for (int i = 1; i < chain; ++i) {
+                scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), scrut);
+                scrut_ty = TypeRef(scrut_ty).pointee();
+            }
+            collapsed_scrut = scrut;
+        }
+        // ── scvalstmt / scall / scallb — THE SCALAR HALF OF THE COLLAPSE ──
+        // The collapse above stops at ONE layer, which is what an aggregate arm
+        // wants. A SCALAR core needs ZERO: without the further load every
+        // scalar arm cmpi's the raw pointer ('llvm.icmp' / 'arith.cmpi' operand
+        // must be integer-like) or, where it does not verify-crash, compares an
+        // ADDRESS. The `b` twin prices the INNER PREDICATE (rule 9): whether a
+        // `&n` reference pattern counts as a whole-scrutinee binder (and so
+        // keeps the address) or not. PROBES.md 2026-09-06e.
+        if (logos::probe::on("scvalstmt") || logos::probe::on("scall") ||
+            logos::probe::on("scallb")) {
+            bool _bnd = false;
+            for (auto& a : arm_refs) {
+                auto p = a.pat();
+                if (!p) continue;
+                if (p.kind() == pc::Code::RefBind || p.kind() == pc::Code::At) _bnd = true;
+                else if (p.kind() == pc::Code::RefPat && logos::probe::on("scallb")) _bnd = true;
+                else if (p.kind() == pc::Code::Wild &&
+                         lir_view::PatWildView{p}.name() != "_") _bnd = true;
+            }
+            TypeRef _st(scrut_ty);
+            if (!_bnd && _st &&
+                (_st.kind() == LogosType::Kind::Ref || _st.kind() == LogosType::Kind::MutRef) &&
+                _st.pointee()) {
+                TypeRef _core = _st;
+                int _n = 0;
+                while (_core && (TypeRef(_core).kind() == LogosType::Kind::Ref ||
+                                 TypeRef(_core).kind() == LogosType::Kind::MutRef) &&
+                       TypeRef(_core).pointee()) { _core = TypeRef(_core).pointee(); ++_n; }
+                auto _cm = logos_to_mlir(_core);
+                if (_cm && mlir::isa<mlir::IntegerType>(_cm)) {
+                    for (int i = 1; i < _n; ++i)
+                        scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), scrut);
+                    scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, _cm, scrut);
+                    scrut_ty = _core;
+                    collapsed_scrut = nullptr;
+                }
+            }
+        }
+    }

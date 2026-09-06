@@ -1,0 +1,9 @@
+[soundness] canary: a clean program ran and exited 0, a wrong one exited 3, a refusal read as refused
+tests/logos/soundness_queue_gate.sh: line 88: 1155113 Aborted                 timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 88: 1169407 Segmentation fault      (core dumped) "$LOGOSC" "$src" -o "$d/t.o" > "$d/cc.out" 2> "$O_ERR"
+tests/logos/soundness_queue_gate.sh: line 88: 1200018 Segmentation fault      timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+OK: soundness queue holds — 41 open row(s) ( tier1=8 tier2=6 tier3=25 tier4=2), '# TOTAL' says 41;
+    every row's program still exhibits its recorded wrong behaviour, every
+    program on the shelf has a row, and the three planted programs prove the
+    reader can tell a clean run from a wrong exit code from a refusal.
+GATE_RC=0

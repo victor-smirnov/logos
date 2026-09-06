@@ -1,0 +1,10 @@
+// a scalar match arm reached through a FUNCTION PARAMETER of reference type
+package h27;
+fn pick(r: &i64) -> i64 {
+    match r { 4i64 => { return 1i64; } _ => { return 2i64; } }
+}
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    if pick(&v) != 1i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,7 @@
+h31.logos cc=0 diag=0 run=0 |  | 
+src/compiler/probes/2026-09-06e-scalarcore/obs.sh: line 12: 2126251 Segmentation fault      timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+h32.logos cc=0 diag=0 run=139 |  | 
+h33.logos cc=1 diag=1 run=- | error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr' | 
+h34.logos cc=1 diag=1 run=- | error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr' | 
+h35.logos cc=1 diag=1 run=- | error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr' | 
+h36.logos cc=0 diag=0 run=0 |  | 

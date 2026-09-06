@@ -1,0 +1,9 @@
+// int literal under &mut
+package h02;
+fn main() -> i32 {
+    let mut v: i64 = 4i64;
+    let mut out: i64 = 0i64;
+    match &mut v { 4i64 => { out = 1i64; } _ => { out = 2i64; } }
+    if out != 1i64 { return 1i32; }
+    return 0i32;
+}

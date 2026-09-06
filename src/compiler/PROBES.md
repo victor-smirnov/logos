@@ -25302,3 +25302,166 @@ note: property — *a pure query over the immutable `prog_` implemented as a FUL
   seven times in 2870 programs. ⚠ A GREP CERTIFIES WHAT IT CANNOT SEE — the
   membership above is settled by arrival and iteration COUNTS taken in the same
   build as the fix, not by the grep that nominated the candidates.
+
+# ROUND 2026-09-06e (PRICING, soundness queue) — A SCALAR CORE NEEDS **ZERO** REFERENCE
+# LAYERS, AND THE DOORS THAT MUST SAY SO ARE FOUR, NOT ONE
+
+## 1. THE TARGET ROWS, NAMED BEFORE ANY EDIT
+    probes/2026-09-06e-scalarcore/TARGET_ROWS.txt, written against base
+    9c95cb54f5729e61 with the queue gate rc 0 on 41 rows (tier1=8 tier2=6 tier3=25
+    tier4=2):
+        range_pattern_under_ref_scrutinee
+        literal_patterns_under_ref_scrutinee
+        refpat_scalar_under_ref_mlir_abort
+    Chosen because they are the only `refuses` rows on the shelf whose HEADERS name the
+    same symbol (`gen_match`), and because they are item (a) of 2026-09-05b's own funding
+    list — the round that closed the AGGREGATE half of the same collapse. Declined by
+    name: the `ref mut` block (refmut_binding_write_refused_outside_variant +
+    at_binding_ref_mut_payload_refuses + box_mutref_payload_write_immut_box), and the
+    seven `let`/fn-param/closure-param/for-header whitelist rows, which are ONE missing
+    lowering rather than a fact the code fails to carry (rule 16).
+    ⚠ CORRECTION TO THE PROMPT: its STEP 1 queue-gate command self-reports GATE BROKEN
+    rc 4 — the canary's clean program reads `0/0/LINKFAIL` — because it omits
+    `LOGOS_LIB_DIR`, which CMake supplies through the test's ENVIRONMENT property. With
+    `LOGOS_LIB_DIR=$PWD/build/lib/logos` the same command is rc 0. This is the SECOND
+    round to hit it (2026-09-09c recorded it too, and 2026-09-05a before that).
+
+## 2. THE ARMS, AND THE PREDICTION MADE BEFORE THE FIRST MEASUREMENT (PREDICTION.md)
+    scsema     the six SCALAR doors of `build_pattern_impl` (PAT_INT 87 / PAT_NEG_INT 138
+               / PAT_CHAR 228 / PAT_CHAR_RANGE 229 / PAT_BOOL 88 / PAT_RANGE 156) collapse
+               the scrutinee's `&`/`&mut` chain to the CORE, at the same entry where
+               `pat_scrut_one_layer` collapses it to ONE for the aggregate doors.
+    scvalstmt  `gen_match` loads the scalar core — zero layers — unless an arm binds the
+               whole scrutinee.
+    scall      both.
+    scallb     both, with a `&n` RefPat counted as a whole-scrutinee binder: the rule-9
+               twin, one predicate apart from scall.
+    PREDICTED queue ceilings 0 / 1 / 3 / 2, every row named. MEASURED 0 / 1 / 3 / 2, and
+    the gate's own red list names exactly those rows and no others, in both directions.
+    ADDITIVITY CHECKED, NOT ASSUMED (rule 13): 0 + 1 = 1 against the whole's 3 — the
+    halves are in SERIES and the increment is POSITIVE (+2).
+
+## 3. THE SERIES, AND ITS FIRST HOP IS INVISIBLE TO EVERY rc COLUMN (rule 2, rule 15)
+    `scsema` ALONE closes NOTHING, and that zero is not a refutation: it fires 28 times
+    over the hand set and moves NINETEEN programs from a sema refusal ("integer / char /
+    bool / range pattern requires … scrutinee, got '&i64'") to
+        error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
+    The queue gate reads both as a reproducing `refuses` row, an rc diff sees nothing, and
+    only the DIAGNOSTIC separates them. `scvalstmt` alone closes exactly the one row that
+    already passes sema. Neither half is a fix; both together are.
+    ⚠ AND THE bc POPULATION CALLED THE SEMA HALF **NEVER FIRED** — `ceiling-probe.sh
+    scsema` exits 3 over the ledger + 1435 `-L bc -L fail` fixtures. The site is live
+    (28 fires); the zero belongs to the population, not to the mechanism (rule 1).
+
+## 4. THE ARRIVAL CENSUS, TAKEN BEFORE ANY CLAIM (rule 17) — THE CORPUS IS BLIND HERE
+    `census("scdoor.pc<code>.d<ref-depth>")` at `build_pattern_impl`'s entry, over the
+    6490 pass fixtures `run_oracle.py` compiles, LINKS and RUNS:
+        PAT_INT (87) 248   PAT_BOOL (88) 160   PAT_RANGE (156) 27
+        PAT_NEG_INT (138) 6   PAT_CHAR_RANGE (229) 1   PAT_CHAR (228) ZERO
+        442 arrivals in total, and NOT ONE at ref-depth >= 1
+        (tables/census_scdoor.tsv).
+    ⚠ THE SAME FILE READ TWICE GAVE TWO TOTALS AND I CANNOT EXPLAIN THE SECOND.
+    An aggregation taken the moment `run_oracle` printed its summary read 253
+    (PAT_BOOL 148 / PAT_INT 95 / PAT_RANGE 10, no PAT_NEG_INT, no PAT_CHAR_RANGE);
+    the same file re-read ten minutes later — after the probes were reverted and the
+    binary rebuilt, so nothing in the tree could still be appending — read 442. The
+    claim below therefore rests on the DEPTH DISTRIBUTION, which is identical in both
+    reads (every arrival at depth 0), and NOT on the totals. The totals are recorded
+    as the second, larger read because it is the file's final state.
+    That is the whole explanation of every zero below — runtime 0 of 6490, fail-text
+    0 of 1435, stdlib four layers, bc ceiling 0. A zero over a population that cannot
+    hold the shape is not a safety claim; here the hand programs are the only oracle.
+
+## 5. RULE 5 PAID AGAIN — THE EXEMPTION IS PER-MATCH AND THE QUESTION IS PER-ARM
+    36 hand programs in 20 shapes (by-value / `&` / `&mut` / `&&` / `&mut &mut`; int,
+    negative int, char, bool, char-range, unsigned range; statement match, match
+    EXPRESSION, `if let`, `while let`, `let … else`, fn parameter; literal in a struct
+    field, a tuple element, a variant payload, a slice element; a guard; exhaustive bool).
+    THREE of them are the shape the other 33 could not see: h33 / h34 / h35 put a LITERAL
+    or RANGE arm and a WHOLE-SCRUTINEE BINDER (`x`, `ref r`) in the SAME match — legal
+    Rust — and under `scall` they are still refused, now with the codegen sentence,
+    because the arm's whole-match exemption suppresses the load for EVERY arm. So the
+    priced arm is NOT the shape of the fix: the collapse has to be decided PER ARM.
+    ⚠ AND A CONTROL PROGRAM FOUND A DEFECT OF ITS OWN, ON THE BASE BINARY, WITH NO ROW:
+    h32 — `match &v { ref r => { out = **r; } }` over `v: i64` — compiles clean and
+    SEGFAULTS, identically on the base binary and on both armed ones. Its named-binder
+    twin h31 (`match &v { x => { out = *x; } }`) is correct. Rowed below.
+
+## 6. FOUR ROWS ADDED (41 -> 45, `# TOTAL` re-derived by direct listing; gate rc 0 on 45)
+    tier 1: refbind_scalar_under_ref_segv (run 139)
+    tier 3: match_expr_literal_under_ref_scrutinee — the match EXPRESSION door
+            (`gen_expr_kind(EMatchExprView)`) peels a reference chain only for an ENUM
+            core; under `scall` the statement form runs and this one moves to the
+            'arith.cmpi' abort, which is what proves it is a SEPARATE door.
+            iflet_literal_under_ref_scrutinee — a THIRD door, same proof; the `while let`
+            spelling has the same signature and is deliberately NOT rowed separately
+            (one door, one row). `let … else` is NOT a defect: the sema half alone
+            closes it (hand h16).
+            at_binding_range_under_ref_scrutinee — `match &v { n @ 1..=5 => … }` is
+            UNCHANGED, sentence for sentence, under all three arms: the PAT_AT door does
+            not route its sub-pattern through the entry that collapses the chain.
+    NONE CLOSED — this round prices.
+
+## 7. WHAT DESERVES FUNDING NEXT, IN ORDER
+    (a) THE PER-ARM COLLAPSE. Both halves of `scall` are right in mechanism and wrong in
+        granularity: teach `gen_match` to load the scalar core for the arms that TEST a
+        scalar and to hand the un-collapsed address to the arms that BIND the whole
+        scrutinee, rather than one exemption for the whole match. Buys the three target
+        rows plus h33/h34/h35, and costs nothing any column here can see.
+    (b) THE OTHER THREE DOORS, each already rowed by this round: the match expression,
+        `if let`/`while let`, and PAT_AT's sub-pattern. Same fact, three more sites; a
+        landing that stops at `gen_match` leaves three rows standing.
+    (c) refbind_scalar_under_ref_segv — a `ref` binding over a `&scalar` scrutinee binds
+        the ALLOCA and the second deref reads an i64 as a pointer. Tier 1, unrelated to
+        the collapse, found by a control.
+
+## scsema
+site: src/compiler/sema_stmt.cpp::build_pattern_impl
+build: bbbc042bc7d8a03d
+measured: 2026-09-06
+fires: 28
+ceiling: 0
+cost: NOT MEASURED — ceiling-probe exits 3 (NEVER FIRED on that population)
+verdict: LIVE and NECESSARY, and closes nothing alone — the first hop of a series
+note: 19 of 33 hand programs move from the sema sentence to
+  'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'.
+  Also closes `let … else` (h16) outright, which needs no value-side change.
+
+## scvalstmt
+site: src/compiler/mlir_gen_stmt.cpp::gen_match
+build: bbbc042bc7d8a03d
+measured: 2026-09-06
+fires: 14558
+ceiling: 0
+cost: 0
+verdict: closes 1 queue row (refpat_scalar_under_ref_mlir_abort); the second hop
+note: bc ceiling 0, COST 0 (gate-run build 842 -> 844), COST-fail 0 of 1435,
+  stdlib all four layers. It also takes h08/h09 from a SILENT wrong run (the
+  address, exit 1) to a correct one — the row's abort is only one of that
+  defect's two symptoms.
+
+## scall
+site: src/compiler/mlir_gen_stmt.cpp::gen_match
+build: bbbc042bc7d8a03d
+measured: 2026-09-06
+fires: 14558
+ceiling: 0
+cost: 0
+verdict: closes 3 queue rows — PREDICTED 3 BY NAME, the gate named exactly those
+note: bc ceiling 0 (gate-run 842 -> 845), COST 0, COST-fail 0 of 1435, stdlib
+  four layers, RUNTIME 0 of 6490 (run_oracle, baseline and armed from ONE binary,
+  cast-region-to-uint subtracted by name). 22 of 36 hand programs correct;
+  h33/h34/h35 still refused — the per-match exemption, section 5.
+
+## scallb
+site: src/compiler/mlir_gen_stmt.cpp::gen_match
+build: bbbc042bc7d8a03d
+measured: 2026-09-06
+fires: 14566
+ceiling: 0
+cost: 0
+verdict: the rule-9 twin of `scall` — 2 rows instead of 3, at cost 0 either way
+note: identical to scall in fires, bc ceiling, cost, cfail, stdlib and on 33 of
+  36 hand programs; separates ONLY on h08, h09 and
+  refpat_scalar_under_ref_mlir_abort. The difference IS the price of teaching the
+  value door that `&n` over a SCALAR is not an address binder.

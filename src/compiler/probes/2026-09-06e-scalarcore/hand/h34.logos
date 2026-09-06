@@ -1,0 +1,9 @@
+// the same two-arm shape, taking the BINDER arm (v is out of the literal)
+package h34;
+fn main() -> i32 {
+    let v: i64 = 9i64;
+    let mut out: i64 = 0i64;
+    match &v { 4i64 => { out = 1i64; } x => { out = *x; } }
+    if out != 9i64 { return 1i32; }
+    return 0i32;
+}

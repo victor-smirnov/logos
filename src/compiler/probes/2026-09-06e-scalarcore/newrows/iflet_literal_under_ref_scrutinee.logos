@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row iflet_literal_under_ref_scrutinee (tier 3). `if let 4i64 = &v`
+// over `v: i64` is legal Rust (a non-reference pattern matches the pointee) and is
+// refused today "integer pattern requires integer scrutinee, got '&i64'". It is a
+// THIRD door, distinct from the match statement and from the match expression:
+// MEASURED 2026-09-06e under probe `scall`, which takes the statement form to a
+// clean run, this program moves to "'arith.cmpi' op operand #0 must be
+// signless-integer-like, but got '!llvm.ptr'" — the if-let lowering does not reach
+// `gen_match`'s value collapse. The `while let 0i64 = &v` spelling (hand h28) has the
+// same signature under the same probe and is NOT rowed separately: one door, one row.
+// The `let 4i64 = &v else { … }` spelling is NOT a defect — it is closed by the sema
+// half alone (hand h16). Hand shape h15. Rust: exit 0.
+package iflet_literal_under_ref_scrutinee;
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let mut out: i64 = 0i64;
+    if let 4i64 = &v { out = 1i64; } else { out = 2i64; }
+    if out != 1i64 { return 1i32; }
+    return 0i32;
+}

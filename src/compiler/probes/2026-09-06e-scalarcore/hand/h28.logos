@@ -1,0 +1,9 @@
+// while-let over a literal pattern under a reference scrutinee
+package h28;
+fn main() -> i32 {
+    let mut v: i64 = 0i64;
+    let mut n: i64 = 0i64;
+    while let 0i64 = &v { n = n + 1i64; v = 1i64; }
+    if n != 1i64 { return 1i32; }
+    return 0i32;
+}

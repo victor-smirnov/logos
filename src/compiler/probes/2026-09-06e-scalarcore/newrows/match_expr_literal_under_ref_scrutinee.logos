@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row match_expr_literal_under_ref_scrutinee (tier 3). The same
+// legal-Rust program as literal_patterns_under_ref_scrutinee, written as a match
+// EXPRESSION instead of a match STATEMENT — `let out = match &v { 4i64 => 1, _ => 2 };`
+// — and it is a DIFFERENT DOOR. Today both are refused in sema ("integer pattern
+// requires integer scrutinee, got '&i64'"), which is why one row looked like it
+// covered both; MEASURED 2026-09-06e under probe `scall` (sema's six scalar doors
+// collapse the chain AND `gen_match` loads the scalar core): the statement form
+// compiles and runs, and this one moves to "'arith.cmpi' op operand #0 must be
+// signless-integer-like, but got '!llvm.ptr'". The value half of the collapse is in
+// `MLIRGenImpl::gen_match` (mlir_gen_stmt.cpp) and the match EXPRESSION has its own
+// scrutinee lowering in mlir_gen_expr.cpp (`gen_expr_kind(EMatchExprView)`), which
+// peels a `&`/`&mut` chain only for an ENUM core. Hand shape h14. Rust: exit 0.
+package match_expr_literal_under_ref_scrutinee;
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let out: i64 = match &v { 4i64 => 1i64, _ => 2i64 };
+    if out != 1i64 { return 1i32; }
+    return 0i32;
+}

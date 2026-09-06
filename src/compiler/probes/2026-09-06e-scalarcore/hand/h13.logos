@@ -1,0 +1,9 @@
+// unsigned range under & (the unsigned-predicate path)
+package h13;
+fn main() -> i32 {
+    let v: u64 = 4u64;
+    let mut out: i64 = 0i64;
+    match &v { 1u64..=5u64 => { out = 1i64; } _ => { out = 2i64; } }
+    if out != 1i64 { return 1i32; }
+    return 0i32;
+}
