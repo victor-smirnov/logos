@@ -1,0 +1,13 @@
+// EXPECT rc 0 -- an IndexMut type. try_index_mut_assign returns BEFORE the
+// predicate, so an INDEX arm must be invisible here. If this moves, the arm is
+// reaching a site it was proven not to reach.
+package I6_indexmut_vec;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    v.push(2i64);
+    v[0] = 77i64;
+    if v[0] != 77i64 { return 91i32; }
+    if v[1] != 2i64 { return 92i32; }
+    return 0i32;
+}

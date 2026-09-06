@@ -1,0 +1,23 @@
+// EXPECT 1001 and CORRECT TODAY -- the FIELD twin of T2. eat() drops the moved-out
+// field (1), the new value drops at scope end (1000), and the overlap check must
+// SUPPRESS drop_old or this double-frees. This is the control proving the overlap
+// machinery works at the door the arm reuses; T2 shows the TUPLE door never gets
+// there because the reinit itself is refused.
+package T2b_field_reinit_after_move;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { d: D, k: i64 }
+fn eat(d: D) -> i64 { return d.v; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut w: W = W { d: D { v: 1i64, c: p }, k: 5i64 };
+        let g: i64 = eat(w.d);
+        if g != 1i64 { return 90i32; }
+        w.d = D { v: 1000i64, c: p };
+    }
+    unsafe { printf("COUNT=%ld\n".as_ptr(), n); }
+    return 0i32;
+}

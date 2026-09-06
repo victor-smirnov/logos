@@ -1,0 +1,22 @@
+// EXPECT REFUSED -- "cannot move out of index". THE INDEX ARM'S WHOLE SAFETY
+// ARGUMENT RESTS ON THIS REFUSAL: a subscript has no static path, so the arm coarsens
+// to the container root, and that coarsening can only be safe if a Drop-bearing element
+// can never be moved out in the first place. sema_impl.hpp says it is refused. RULE 1 --
+// that is a claim, and this program is what proves the site live rather than assumed.
+package I7_array_elem_move_out;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn eat(d: D) -> i64 { return d.v; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut a: [D; 2] = [D { v: 1i64, c: p }, D { v: 10i64, c: p }];
+        let g: i64 = eat(a[0]);
+        if g != 1i64 { return 90i32; }
+        a[0] = D { v: 1000i64, c: p };
+    }
+    unsafe { printf("COUNT=%ld\n".as_ptr(), n); }
+    return 0i32;
+}

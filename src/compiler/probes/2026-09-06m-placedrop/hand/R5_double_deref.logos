@@ -1,0 +1,21 @@
+// EXPECT 1001 -- a DEREF root one hop deeper. resolve_place_type peels one pointee
+// per DEREF, so this says whether the root rule generalises or was fitted to one hop.
+// FIXED 2026-09-06m: the first version wrote `let q` and was refused "cannot borrow
+// 'q' as mutable: not declared as mut" -- MY bug, not the compiler's.
+package R5_double_deref;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { d: D, k: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut w: W = W { d: D { v: 1i64, c: p }, k: 5i64 };
+        let mut q: &mut W = &mut w;
+        let qq: &mut &mut W = &mut q;
+        (**qq).d = D { v: 1000i64, c: p };
+    }
+    unsafe { printf("COUNT=%ld\n".as_ptr(), n); }
+    return 0i32;
+}

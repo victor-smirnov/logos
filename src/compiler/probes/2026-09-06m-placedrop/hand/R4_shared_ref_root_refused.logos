@@ -1,0 +1,17 @@
+// EXPECT REFUSED -- assignment through a shared reference. check_place_writable
+// owns this refusal; an arm that sets field_old_live before it must not turn the
+// refusal into an acceptance.
+package R4_shared_ref_root_refused;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { d: D, k: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut w: W = W { d: D { v: 1i64, c: p }, k: 5i64 };
+    let q: &W = &w;
+    (*q).d = D { v: 1000i64, c: p };
+    unsafe { printf("COUNT=%ld\n".as_ptr(), n); }
+    return 0i32;
+}

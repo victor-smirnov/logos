@@ -1,0 +1,11 @@
+// EXPECT rc 0 -- non-droppable elements, the populous shape in the corpus.
+// Nothing may change here; this is where an INDEX arm would show up as cost.
+package I5_scalar_array_elem;
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    a[1] = 77i64;
+    if a[0] != 1i64 { return 91i32; }
+    if a[1] != 77i64 { return 92i32; }
+    if a[2] != 3i64 { return 93i32; }
+    return 0i32;
+}

@@ -1,0 +1,10 @@
+// EXPECT rc 0 -- a NON-droppable tuple element. drop_old_place is gated on the
+// type being droppable, so nothing may change here.
+package T4_tuple_elem_scalar;
+fn main() -> i32 {
+    let mut t: (i64, i64) = (1i64, 2i64);
+    t.0 = 77i64;
+    if t.0 != 77i64 { return 91i32; }
+    if t.1 != 2i64 { return 92i32; }
+    return 0i32;
+}

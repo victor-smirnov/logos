@@ -1,0 +1,17 @@
+// EXPECT 1015 -- a MIXED chain: TUPLE_INDEX over FIELD_READ over VAR_REF.
+// move_path_of already walks mixed chains; the assign site does not.
+package T3_mixed_field_then_tuple;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { t: (D, D), n: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut w: W = W { t: (D { v: 4i64, c: p }, D { v: 1i64, c: p }), n: 5i64 };
+        w.t.1 = D { v: 1010i64, c: p };
+    }
+    unsafe { printf("COUNT=%ld\n".as_ptr(), n); }
+    return 0i32;
+}

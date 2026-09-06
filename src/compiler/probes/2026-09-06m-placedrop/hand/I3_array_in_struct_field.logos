@@ -1,0 +1,17 @@
+// EXPECT 1011 -- INDEX_READ over FIELD_READ over VAR_REF: the index link is
+// in the MIDDLE of the chain, not at the top.
+package I3_array_in_struct_field;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { a: [D; 2] }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut w: W = W { a: [D { v: 1i64, c: p }, D { v: 10i64, c: p }] };
+        w.a[0] = D { v: 1000i64, c: p };
+    }
+    unsafe { printf("COUNT=%ld\n".as_ptr(), n); }
+    return 0i32;
+}

@@ -1,0 +1,21 @@
+// EXPECT 1011 -- t.0 is MOVED OUT first, eat() drops it (1), then the new
+// value (1000) and t.1 (10) drop at scope end. A crude arm that ALSO drops the
+// place before the store double-frees the moved-out element and reads 1012.
+// This is the control that prices the overlap check on the TUPLE axis.
+package T2_tuple_elem_after_move;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn eat(d: D) -> i64 { return d.v; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut t: (D, D) = (D { v: 1i64, c: p }, D { v: 10i64, c: p });
+        let k: i64 = eat(t.0);
+        if k != 1i64 { return 90i32; }
+        t.0 = D { v: 1000i64, c: p };
+    }
+    unsafe { printf("COUNT=%ld\n".as_ptr(), n); }
+    return 0i32;
+}

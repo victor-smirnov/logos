@@ -1,0 +1,24 @@
+// EXPECT 1000 -- a RAW `*mut` root stays MANUAL: writing into memory whose
+// old contents the compiler does not own is the whole point of a raw pointer, and
+// the source says so. A root arm that keys on "the root is a DEREF" rather than on
+// "the root is a DEREF of a &mut" drops here and reads 1001 -- an EXTRA drop of a
+// value the compiler never owned. This is the arm's sharpest control.
+package R3_raw_ptr_root;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { d: D, k: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut acc: i64 = 0i64;
+    {
+        let mut w: W = W { d: D { v: 1i64, c: p }, k: 5i64 };
+        let r: *mut W = &mut w;
+        unsafe { (*r).d = D { v: 1000i64, c: p }; }
+        acc = 1i64;
+    }
+    if acc != 1i64 { return 90i32; }
+    unsafe { printf("COUNT=%ld\n".as_ptr(), n); }
+    return 0i32;
+}

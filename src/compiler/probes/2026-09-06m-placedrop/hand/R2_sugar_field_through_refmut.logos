@@ -1,0 +1,19 @@
+// EXPECT 1001 and CORRECT TODAY -- the sugared spelling of R1. This is the
+// control that says the arm exists next door: the two spellings of one assignment
+// disagree, and this is the half that is right.
+package R2_sugar_field_through_refmut;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { d: D, k: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut w: W = W { d: D { v: 1i64, c: p }, k: 5i64 };
+        let q: &mut W = &mut w;
+        q.d = D { v: 1000i64, c: p };
+    }
+    unsafe { printf("COUNT=%ld\n".as_ptr(), n); }
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+// EXPECT 1011 -- FIELD_READ over INDEX_READ: the top link IS a FIELD_READ, so
+// the site is already entered today, and it is the ROOT walk that stops at the
+// INDEX. Lattice cell f_assign_field_of_indexed reads 1014 for 1015.
+package I4_field_of_indexed_elem;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { d: D, k: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut a: [W; 2] = [W { d: D { v: 1i64, c: p }, k: 0i64 },
+                             W { d: D { v: 10i64, c: p }, k: 0i64 }];
+        a[0].d = D { v: 1000i64, c: p };
+    }
+    unsafe { printf("COUNT=%ld\n".as_ptr(), n); }
+    return 0i32;
+}

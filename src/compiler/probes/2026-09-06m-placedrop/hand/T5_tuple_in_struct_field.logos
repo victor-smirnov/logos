@@ -1,0 +1,16 @@
+// EXPECT 1011 -- the tuple is reached through a struct FIELD first.
+package T5_tuple_in_struct_field;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { t: (D, D) }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut w: W = W { t: (D { v: 1i64, c: p }, D { v: 10i64, c: p }) };
+        w.t.0 = D { v: 1000i64, c: p };
+    }
+    unsafe { printf("COUNT=%ld\n".as_ptr(), n); }
+    return 0i32;
+}

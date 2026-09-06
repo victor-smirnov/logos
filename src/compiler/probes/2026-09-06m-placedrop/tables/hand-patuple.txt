@@ -1,0 +1,26 @@
+=== ARM='patuple'  logosc=build/bin/logosc ===
+I1_array_elem                                  rc=0    COUNT=1010
+I2_array_elem_runtime_index                    rc=0    COUNT=1001
+I3_array_in_struct_field                       rc=0    COUNT=1010
+I4_field_of_indexed_elem                       rc=0    COUNT=1010
+I5_scalar_array_elem                           rc=0    
+I6_indexmut_vec                                rc=0    
+I7_array_elem_move_out                         REFUSED   /home/logos/devel/logos/src/compiler/probes/2026-09-06m-placedrop/hand/I7_array_elem_move_
+R1_deref_field                                 rc=0    COUNT=1000
+R2_sugar_field_through_refmut                  rc=0    COUNT=1001
+R3_raw_ptr_root                                rc=0    COUNT=1000
+R4_shared_ref_root_refused                     REFUSED   /home/logos/devel/logos/src/compiler/probes/2026-09-06m-placedrop/hand/R4_shared_ref_root_
+R5_double_deref                                rc=0    COUNT=1000
+R6_deref_self_in_method                        rc=0    COUNT=1000
+T1_tuple_elem                                  rc=0    COUNT=1011
+T2b_field_reinit_after_move                    rc=0    COUNT=1001
+T2_tuple_elem_after_move                       REFUSED   error [fn main]: use of moved field 't.0' (moved on line 15)
+T3_mixed_field_then_tuple                      REFUSED   /home/logos/devel/logos/src/compiler/probes/2026-09-06m-placedrop/hand/T3_mixed_field_then
+T4_tuple_elem_scalar                           rc=0    
+T5_tuple_in_struct_field                       REFUSED   /home/logos/devel/logos/src/compiler/probes/2026-09-06m-placedrop/hand/T5_tuple_in_struct_
+X1_deref_tuple_elem                            rc=0    COUNT=1010
+X2_deref_array_elem                            rc=0    COUNT=1010
+--- TARGET ROWS (rc 0 = the defect is GONE; rc 1 = still wrong) ---
+assign_tuple_elem_no_drop_old                  rc=0    
+assign_index_elem_no_drop_old                  rc=1    
+assign_field_path_not_var_rooted_no_drop_old   rc=1    

@@ -1,0 +1,10 @@
+pasgn.kind.deref                    7
+pasgn.kind.field                 4024
+pasgn.kind.index                  427
+pasgn.kind.tuple                   55
+pasgn.live.var.field.no           222
+pasgn.live.var.field.yes         3668
+pasgn.live.var.no                 222
+pasgn.live.var.yes               3668
+pasgn.root.other                  134
+pasgn.root.var                   3890

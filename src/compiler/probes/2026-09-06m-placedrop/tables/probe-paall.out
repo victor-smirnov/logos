@@ -1,0 +1,17 @@
+ceiling-probe: unarmed baseline (from the store where it is already there)
+ceiling-probe: armed run — LOGOS_PROBE=paall
+fail-oracle: 1435 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-602fb43487f4074a-paall.tsv
+ceiling-probe: 'paall'  builds 878 (unarmed) -> 882 (armed)
+probe: fired 27441 times
+probe: CEILING = 0 rows
+probe: COST    = 0 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe:           write the counter-examples)
+probe: COST-fail = 1 of 1435 `-L bc -L fail` fixtures changed (rc 0, .expected-match 1, text-only 0)
+probe:   MATCH logos_06_diagnostics_fail_move-into-dead-array-2  .expected LOST
+probe: stdlib: all four layers compile under 'paall'
+probe: ⛔ it changes MORE pinned diagnostics (1)
+probe:    than it closes rows (0). Read every one before funding it — a
+probe:    branch that only re-words an already-red diagnostic buys nothing.
+probe: ⚠ a CEILING bounds the COUNT, not the SET: diff these names against what
+probe:   you predicted BY NAME. A matching count can be two errors cancelling.

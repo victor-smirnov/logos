@@ -27069,3 +27069,227 @@ exit 0.
     `s == String::from("hej")` — it is a corpus member of the EXISTING row
     `operator_autoref_temp_never_dropped` (V2), which did not cite it. V2
     confirmed independently.
+
+# ── ROUND 2026-09-06m — THE PLACE-ASSIGN `drop_old` PREDICATE, PRICED ────────
+# A PRICING ROUND: nothing was fixed, the probes were reverted, and the tree's
+# compiled sources are byte-identical to `2d988aa76`. Target rows were named BY
+# ID in src/compiler/probes/2026-09-06m-placedrop/TARGETS.md before the compiler
+# was touched, and that file also records the block that was DECLINED and why.
+
+    THE SITE      src/compiler/sema_stmt.cpp::lower_place_assign, the `field_old_live` block
+    THE BUILDS    probe 602fb43487f4074a 43 (READ) · pristine f29b1b7c50d1a470 43 (READ before AND after)
+    THE TARGETS   assign_tuple_elem_no_drop_old, assign_index_elem_no_drop_old,
+                  assign_field_path_not_var_rooted_no_drop_old — predicted by name, in a file, first
+
+## THE ARRIVAL, CENSUSED ON THE SAME BINARY THAT CARRIES THE ARMS (rule 17)
+
+Unarmed, `LOGOS_CENSUS` over 9367 `.logos` files (all of tests/ except the lattice):
+
+    pasgn.kind.field   4024      pasgn.root.var          3890   pasgn.live.var.yes  3668
+    pasgn.kind.index    427      pasgn.root.other         134   pasgn.live.var.no    222
+    pasgn.kind.tuple     55      pasgn.root.deref           0
+    pasgn.kind.deref      7                                     (4024 = 3890 + 134)
+
+4513 place assignments arrive. The predicate is COMPUTED at 4024 of them and ANSWERS
+YES at 3668. It is DENIED at 616 arrivals — 427 index + 55 tuple + 134 non-VAR_REF
+root — 13.7% of every place assignment in the tree. So the bc CEILING of 0 below is
+not "an unpopulous site" (the verdict line's question, rule 4); it is that the bc
+ledger holds no drop-glue rows.
+
+⚠ AND `pasgn.root.deref` IS ZERO WHILE `pasgn.root.other` IS 134. `(*q).d` parses as
+FIELD_READ(PAREN_EXPR(DEREF)), so the root the walk reaches is a PAREN_EXPR and a rule
+that matches on `code_of(cur) == la::DEREF` sees NOTHING. `unwrap_paren_node` is not a
+tidy-up here, it is the difference between the arm firing and never arriving — which
+is the same helper the 2026-09-06 `parenplace` round found two callers for.
+
+## THE ARMS AND THE FULL COST LINE
+
+    probe      fires   bc-ceil  queue-ceil  cost  cfail  stdlib  runtime      verdict
+    patuple     9147         0           2     0      0      ok  0 of 6515    ok
+    paindex     9147         0           1     0      1      ok  (⊂ paall)    one .expected moves
+    paroot      9147         0           1     0      0      ok  (⊂ paall)    ok
+    paall      27441         0           4     0      1      ok  0 of 6515    ok
+
+`fires` 27441 = 3 x 9147: `paall` is read at three `probe::on` gates, one per axis.
+`cost` is `ceiling-probe.sh`'s pass column; `cfail` its `-L bc -L fail` TEXT column;
+`stdlib` all four layers. The RUNTIME column is `run_oracle.py`, base vs `paall`
+armed, 6515 pass fixtures COMPILED, LINKED and RUN — the worst case, because
+`paall`'s behaviour is a superset of every single arm's at every site (it enters the
+`if` for more kinds, peels more links, and admits a root the singles do not).
+
+⚠ THE ONE RUNTIME DIFFERENCE WAS PROVEN TO BE THE FIXTURE'S OWN NONDETERMINISM, NOT
+THE ARM. `logos_02_semantic_core_pass_cast-region-to-uint` changed stdout sha with
+ccrc and runrc identical; three runs of that program on the UNARMED binary give
+0ef95ff8f51a3a13, e5bd73540e5864e8, 6c8fbaa26f529877 — it prints a stack address.
+Subtracted BY MEASUREMENT, not by the name the protocol hands down. Runtime cost 0.
+
+## THE SETS, DIFFED BOTH WAYS, BY THE QUEUE GATE ITSELF
+
+The oracle is `soundness_queue_gate.sh` armed: a row it reports as NO LONGER
+REPRODUCING is a row the arm closes. Not the hand programs — the gate.
+
+    patuple  assign_tuple_elem_no_drop_old · tuple_elem_reinit_after_move_never_dropped
+    paindex  assign_index_elem_no_drop_old
+    paroot   assign_field_path_not_var_rooted_no_drop_old
+    paall    all four of the above, and nothing else
+
+PREDICTED-NOT-MEASURED: empty. MEASURED-NOT-PREDICTED: ONE, and it is the round's
+finding — **`tuple_elem_reinit_after_move_never_dropped` (tier 1) is closed by
+`patuple`, and it is a DIFFERENT PREDICATE riding in the same block.** The block does
+TWO coupled things and its own comment says so: (a) compute `field_old_live` so the
+OLD value drops at the store, and (b) ERASE the covered entries from `moved_vars_` so
+the scope-end drop releases the NEW one. The three target rows are (a); this fourth
+row is (b), and admitting TUPLE_INDEX into the walk buys both at once because both
+read the same peeled path. Its own header calls it "the same shape as C2 but a
+DIFFERENT predicate ... the two doors are swapped" — correct, and they are
+nevertheless ONE EDIT.
+
+ADDITIVITY (rule 13), measured rather than assumed: 2 + 1 + 1 = 4. The queue rows ARE
+additive here. THE SHAPES ARE NOT — see X1/X2 below, which no single arm closes.
+
+⚠ AND A READING ERROR OF MINE, RECORDED BECAUSE IT IS THE SHAPE THAT BITES: the first
+`paall` gate run was read through `tail -20` and I reported THREE rows. The gate had
+printed four; the fourth was the first line and my own pipe cut it. Caught by
+measuring the row directly, one program at a time. A truncated read of a correct gate
+looks exactly like a smaller ceiling.
+
+## THE HAND TABLE — 22 PROGRAMS, FIVE SHAPES (rule 5)
+
+Destructor count through a raw `*mut i64`, printed on stdout. ⚠ NOT an exit code: the
+accumulator reaches 1011 and a status is eight bits (1011 & 0xFF = 243), so an rc
+oracle would have reported the right answer and the wrong one as one wrong number.
+
+    program                         none  patuple  paindex  paroot  paall   want
+    T1_tuple_elem                   1010     1011     1010    1010   1011   1011
+    I1_array_elem                   1010     1010     1011    1010   1011   1011
+    I2_array_elem_runtime_index     1001     1001     1011    1001   1011   1011
+    I3_array_in_struct_field        1010     1010     1011    1010   1011   1011
+    I4_field_of_indexed_elem        1010     1010     1011    1010   1011   1011
+    R1_deref_field                  1000     1000     1000    1001   1001   1001
+    R5_double_deref                 1000     1000     1000    1001   1001   1001
+    R6_deref_self_in_method         1000     1000     1000    1001   1001   1001
+    X1_deref_tuple_elem             1010     1010     1010    1010   1011   1011
+    X2_deref_array_elem             1010     1010     1010    1010   1011   1011
+    ── correct today, and correct under every arm ──────────────────────────────
+    R2_sugar_field_through_refmut   1001     1001     1001    1001   1001   1001
+    R3_raw_ptr_root                 1000     1000     1000    1000   1000   1000
+    T2b_field_reinit_after_move     1001     1001     1001    1001   1001   1001
+    T4_tuple_elem_scalar / I5 / I6    ok       ok       ok      ok     ok     ok
+    ── refused, under every arm ───────────────────────────────────────────────
+    T2_tuple_elem_after_move         REF      REF      REF     REF    REF
+    T3 / T5 (`w.t.N = new`)          REF      REF      REF     REF    REF
+    I7_array_elem_move_out           REF      REF      REF     REF    REF
+    R4_shared_ref_root_refused       REF      REF      REF     REF    REF
+
+  * **X1 AND X2 ARE THE ADDITIVITY QUESTION MADE INTO PROGRAMS.** `(*q).0 = new` and
+    `(*q)[0] = new` need the KIND axis to enter the block at all AND the ROOT axis to
+    answer yes once inside; no single arm moves either, and `paall` moves both. Eight
+    shapes fall to the three singles, ten to their union: the shape set is
+    SUPER-additive by exactly these two, while the row set is merely additive.
+  * **R3_raw_ptr_root IS THE ROOT ARM'S SHARPEST CONTROL AND IT HOLDS.** `(*r).d = new`
+    through a `*mut W` reads 1000 under every arm. A root rule keyed on "the root is a
+    DEREF" instead of "a DEREF of a `&mut`" would drop a value the compiler never
+    owned; `resolve_place_type` returning Ptr rather than MutRef is what stops it.
+  * **R6 IS THE SHAPE THE RULE WAS WRITTEN FOR.** The comment at the defect site names
+    `(*self).f = new` — "through a unique borrow overwrites a LIVE field ... without
+    this, `self.f = x` leaked f's old value" — and `(*self).d = nd` inside a method
+    reads 1000 for 1001 today. The rule is written, and the walk does not reach it.
+  * **I2 IS WHY THE INDEX COARSENING IS NOT CRUDE.** A RUNTIME subscript has no static
+    path at all; the arm falls back to the CONTAINER root and lets the existing overlap
+    check answer. I7 is what licenses that: `let g = eat(a[0]);` is REFUSED,
+    "cannot move out of a value behind a reference / out of an index (E0507)". Rule 1 —
+    the safety argument is a measured refusal, not a read one.
+  * **T2b IS THE OVERLAP MACHINERY'S OWN CONTROL** and reads 1001 under every arm: a
+    moved-out FIELD re-initialised does not double-free. T2, its TUPLE twin, never gets
+    there — see the unrowed finding below.
+
+## THE ONE COST, READ AS TEXT
+
+`paindex` (and therefore `paall`) moves ONE of 1435 `-L bc -L fail` fixtures:
+`logos_06_diagnostics_fail_move-into-dead-array-2`, `.expected LOST`, rc unchanged.
+READ, not counted:
+
+    unarmed  error [fn foo]: use of moved variable 'a'
+    paindex  error [fn foo]: use of moved value 'a' (moved on line 11)
+
+BOTH REFUSE. It is not an un-refusal — it is the 2026-09-06k pattern exactly: erasing
+the covered path from `moved_vars_` changes WHICH PASS reports the move, and
+borrow_check's richer sentence pre-empts sema's. rustc's own text for this program is
+"use of moved value: `a`", so the armed spelling is the CLOSER one. ⚠ But the cause is
+real and a fix must answer it: for an INDEX place, action (b) must NOT run. Writing
+`a[i]` does not re-initialise `a`, and the crude arm erases the whole root. **(a) and
+(b) are coupled in the source and must be DECOUPLED on the index axis** — that is the
+one design decision this pricing hands the next round, and it is why `paindex` is the
+only arm with a non-zero column.
+
+## THREE FINDINGS THAT ARE NOT THIS BLOCK'S, RECORDED SO THEY ARE NOT REDISCOVERED
+
+  1. **`w.t.0 = new` IS REFUSED, AND CLOSING THAT REFUSAL WOULD LAND A LEAK.** T3/T5
+     both die on "assignment target too deeply nested to assign in place yet" — the
+     existing tier-3 row `nested_tuple_field_assign_unimplemented`, whose root is
+     `place_recv_is_simple` inside `place_write_supported`, a DIFFERENT symbol from
+     this block's. THE TWO ARE COUPLED: that row's program is a tuple-element
+     assignment, so repairing the refusal alone admits a program this block's defect
+     then leaks. Whoever takes that row must take `patuple` with it, or the queue trades
+     a `refuses` row for a `run` row.
+  2. **A TUPLE ELEMENT RE-INITIALISED AFTER A MOVE IS REFUSED, AND THE FIELD TWIN IS
+     NOT — UNROWED.** T2 (`let k = eat(t.0); t.0 = D{…};`) reads
+     "error [fn main]: use of moved field 't.0' (moved on line 15)". T2b, the identical
+     program over a struct field, COMPILES AND READS 1001. Legal Rust in both spellings.
+     It is not in the queue under any id and it is not this block's predicate — the
+     refusal is upstream of `lower_place_assign` entirely. Candidate tier-3 `refuses`
+     row for an owner to add.
+  3. `R5_double_deref`'s first version was refused "cannot borrow 'q' as mutable: not
+     declared as mut" and that was MY program's bug, not the compiler's — `let mut q`
+     is required to take `&mut q`. Fixed in place; the corrected program reads 1000 for
+     1001 and is a genuine ROOT-axis member at depth two.
+
+## WHAT DESERVES FUNDING
+
+`paall`, as ONE change, at the price measured here: FOUR tier-1 queue rows, ten hand
+shapes across five syntaxes, runtime cost 0 of 6515, pass cost 0, stdlib clean, and
+ONE `.expected` sentence that moves TOWARD rustc's wording and whose cause is
+understood and localised. The bc ceiling is 0 and that is not an argument either way —
+the bc ledger holds no drop-glue rows, and a previous round declined a soundness
+repair on exactly that criterion.
+
+The correct form is NOT this probe. It is: compute the same liveness for every
+admitted place kind and for any root the compiler exclusively owns, decoupling (b)
+from (a) at the INDEX door, and unwrapping the paren before matching the root. Three
+of the four rows are (a), the fourth is (b), and one walk feeds both.
+
+## patuple
+site: src/compiler/sema_stmt.cpp::lower_place_assign
+build: 602fb43487f4074a
+measured: 2026-09-06
+fires: 9147
+ceiling: 0 (bc) / 2 (queue, by name: assign_tuple_elem_no_drop_old, tuple_elem_reinit_after_move_never_dropped)
+cost: 0 pass / cfail 0 / stdlib ok / runtime 0 of 6515 (subset of paall's armed run) / hand: T1 1010 -> 1011, T2b R2 R3 T4 I5 I6 unchanged, X1 NOT closed
+verdict: FUND, as part of the union — it alone buys both halves of the block, (a) drop_old and (b) the moved-suppression lift
+
+## paindex
+site: src/compiler/sema_stmt.cpp::lower_place_assign
+build: 602fb43487f4074a
+measured: 2026-09-06
+fires: 9147
+ceiling: 0 (bc) / 1 (queue: assign_index_elem_no_drop_old)
+cost: 0 pass / cfail 1 (logos_06_diagnostics_fail_move-into-dead-array-2, `.expected` LOST, rc unchanged, BOTH spellings refuse) / stdlib ok / runtime 0 of 6515 (subset of paall) / hand: I1 I2 I3 I4 1010 -> 1011, I5 I6 I7 unchanged
+verdict: FUND WITH A DESIGN CHANGE — the crude form runs action (b) for an index place and erases the whole container root from `moved_vars_`; a correct fix decouples (b) from (a) at this door. I7 (E0507 "cannot move out of an index") is what licenses the coarsening to the root.
+
+## paroot
+site: src/compiler/sema_stmt.cpp::lower_place_assign
+build: 602fb43487f4074a
+measured: 2026-09-06
+fires: 9147
+ceiling: 0 (bc) / 1 (queue: assign_field_path_not_var_rooted_no_drop_old)
+cost: 0 pass / cfail 0 / stdlib ok / runtime 0 of 6515 (subset of paall) / hand: R1 R5 R6 1000 -> 1001, R3 (raw `*mut` root) HOLDS at 1000, R2 R4 unchanged
+verdict: FUND — and it needs `unwrap_paren_node` to arrive at all: `pasgn.root.deref` censused ZERO while `pasgn.root.other` censused 134, because `(*q).d` is FIELD_READ(PAREN_EXPR(DEREF))
+
+## paall
+site: src/compiler/sema_stmt.cpp::lower_place_assign
+build: 602fb43487f4074a
+measured: 2026-09-06
+fires: 27441 (= 3 x 9147; read at three `probe::on` gates, one per axis)
+ceiling: 0 (bc) / 4 (queue, by name: assign_tuple_elem_no_drop_old, assign_index_elem_no_drop_old, assign_field_path_not_var_rooted_no_drop_old, tuple_elem_reinit_after_move_never_dropped — the gate named exactly these four, diffed both ways)
+cost: 0 pass / cfail 1 (paindex's, inherited) / stdlib ok / runtime 0 of 6515 pass fixtures compiled, linked and RUN (the one diff, cast-region-to-uint, proven nondeterministic on the UNARMED binary: three runs, three shas) / hand: 10 of 22 shapes move, X1 and X2 move ONLY here
+verdict: FUND — one edit, four tier-1 rows, ten shapes in five syntaxes, every cost column zero but one understood sentence. Rows additive (2+1+1=4); SHAPES super-additive by X1 and X2, which need the KIND axis to enter the block and the ROOT axis to answer once inside.
