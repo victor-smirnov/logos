@@ -1,0 +1,20 @@
+// N5 — an INDEX place whose container is reached THROUGH a `&mut` deref:
+// `(*q).a[0] = new`. Both axes in one place expression, a shape the singles
+// cannot answer. Expected 1 (old) + 1000 + 10 = 1011.
+package N5_index_under_deref_root;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct S { a: [D; 2] }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut s: S = S { a: [D { v: 1i64, c: p }, D { v: 10i64, c: p }] };
+        let q: &mut S = &mut s;
+        (*q).a[0] = D { v: 1000i64, c: p };
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("COUNT=%ld\n".as_ptr(), got); }
+    return 0i32;
+}

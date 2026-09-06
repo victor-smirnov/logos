@@ -1,0 +1,17 @@
+// N10 — MUST STILL REFUSE. The whole array is moved away and then an element is
+// written. Rust: E0382, use of moved value. This is the shape whose DIAGNOSTIC
+// the pricing round measured moving, so the sentence is the assertion here, not
+// only the rc.
+package N10_moved_container_index_write_refused;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn take(a: [D; 2]) -> i64 { return a[0].v; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut a: [D; 2] = [D { v: 1i64, c: p }, D { v: 10i64, c: p }];
+    let k: i64 = take(a);
+    a[0] = D { v: 1000i64, c: p };
+    return k as i32;
+}

@@ -1,0 +1,15 @@
+// N11 — MUST STILL REFUSE. The whole tuple is moved away and then an element of
+// it is written. The ancestor leg of the overlap check, on the tuple axis.
+package N11_moved_ancestor_tuple_write_refused;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn take(t: (D, i64)) -> i64 { return t.1; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut t: (D, i64) = (D { v: 1i64, c: p }, 7i64);
+    let k: i64 = take(t);
+    t.0 = D { v: 1000i64, c: p };
+    return k as i32;
+}

@@ -1,0 +1,18 @@
+// N6 — a MIXED chain the other way round from the pricing round's T3: TUPLE
+// first, then a named field. `t.0.d = new`. Expected 1 + 1000 + 10 = 1011.
+package N6_tuple_then_field_chain;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { d: D }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut t: (W, D) = (W { d: D { v: 1i64, c: p } }, D { v: 10i64, c: p });
+        t.0.d = D { v: 1000i64, c: p };
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("COUNT=%ld\n".as_ptr(), got); }
+    return 0i32;
+}

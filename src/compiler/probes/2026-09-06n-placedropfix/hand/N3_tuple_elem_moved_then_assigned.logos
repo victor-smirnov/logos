@@ -1,0 +1,23 @@
+// N3 — ABUSE DIRECTION, the one that would be a DOUBLE FREE. The element is
+// MOVED OUT first, so at the store there is nothing to drop; if the overlap
+// check spells the tuple path differently from `move_path_of` it will not see
+// the move and will drop a value that is gone.
+// Expected: 1 (the moved-out x, at ITS scope end) + 1000 (the new t.0) = 1001,
+// each exactly once.
+package N3_tuple_elem_moved_then_assigned;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut t: (D, i64) = (D { v: 1i64, c: p }, 7i64);
+        let x: D = t.0;
+        if x.v != 1i64 { return 4i32; }
+        t.0 = D { v: 1000i64, c: p };
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("COUNT=%ld\n".as_ptr(), got); }
+    return 0i32;
+}

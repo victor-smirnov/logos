@@ -1,0 +1,14 @@
+// N12 — MUST STILL REFUSE. A shared `&` is not a writable place, and the root
+// axis must not turn a DEREF of a shared reference into an exclusive one.
+package N12_shared_ref_deref_index_refused;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let a: [D; 2] = [D { v: 1i64, c: p }, D { v: 10i64, c: p }];
+    let q: &[D; 2] = &a;
+    (*q)[0] = D { v: 1000i64, c: p };
+    return 0i32;
+}

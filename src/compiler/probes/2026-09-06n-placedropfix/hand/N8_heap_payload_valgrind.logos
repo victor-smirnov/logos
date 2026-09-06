@@ -1,0 +1,15 @@
+// N8 — a DIFFERENT ORACLE. The element payload is a heap `String`, so the
+// evidence is valgrind's alloc/free ledger, not an arithmetic counter: a
+// counter that is right can still sit on top of a leaked block. Prints the
+// lengths so the program also proves it read the new value.
+package N8_heap_payload_valgrind;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let mut t: (String, i64) = (String::from("aaaa"), 1i64);
+    t.0 = String::from("bbbbbbbb");
+    let mut a: [String; 2] = [String::from("cccc"), String::from("dddd")];
+    a[0] = String::from("eeeeeeee");
+    let s: i64 = (t.0.len() + a[0].len()) as i64;
+    unsafe { printf("COUNT=%ld\n".as_ptr(), s); }
+    return 0i32;
+}

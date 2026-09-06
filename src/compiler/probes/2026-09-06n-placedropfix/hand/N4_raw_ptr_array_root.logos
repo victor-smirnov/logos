@@ -1,0 +1,21 @@
+// N4 — ABUSE DIRECTION. `(*pa)[0] = new` through a RAW `*mut [D; 2]`. A raw
+// pointer place stays MANUAL: the compiler never owned that memory and must NOT
+// drop what was there. The array `a` still drops both its own elements at scope
+// end, so the correct digit counts the OLD element once (from a's own scope
+// exit it is now the NEW one) — expected 1000 + 10 = 1010, NOT 1011.
+package N4_raw_ptr_array_root;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut a: [D; 2] = [D { v: 1i64, c: p }, D { v: 10i64, c: p }];
+        let pa: *mut [D; 2] = &mut a as *mut [D; 2];
+        unsafe { (*pa)[0] = D { v: 1000i64, c: p }; }
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("COUNT=%ld\n".as_ptr(), got); }
+    return 0i32;
+}
