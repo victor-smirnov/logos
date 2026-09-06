@@ -42,7 +42,7 @@
 declare_pat_bindings_field_nomut_addrmut_admit 2 tests/soundness/open/declare_pat_bindings_field_nomut_addrmut_admit admits
 array_typed_field_binding_shape_lost 3 tests/soundness/open/array_typed_field_binding_shape_lost refuses
 let_at_binding_tuple_sub_unsupported 3 tests/soundness/open/let_at_binding_tuple_sub_unsupported refuses
-# TOTAL 56
+# TOTAL 57
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 drop_inherent_call_order      1 tests/soundness/open/drop_inherent_call_order      refuses
@@ -101,3 +101,4 @@ box_deref_move_refused_outside_let 3 tests/soundness/open/box_deref_move_refused
 nested_tuple_field_assign_unimplemented 3 tests/soundness/open/nested_tuple_field_assign_unimplemented refuses
 self_assign_refused_as_moved 3 tests/soundness/open/self_assign_refused_as_moved refuses
 boxed_closure_to_dyn_fn_cast_internal 3 tests/soundness/open/boxed_closure_to_dyn_fn_cast_internal refuses
+tuple_index_write_through_local_refmut_clobbers_binding 1 tests/soundness/open/tuple_index_write_through_local_refmut_clobbers_binding run 1

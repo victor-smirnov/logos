@@ -31,6 +31,30 @@
 // ...)` — the "real element GEP" the comment describes is taken on the receiver's
 // SLOT with no load of the pointer it holds.
 //
+// ⚠ CORRECTION 2026-09-06 (triage round), measured, supersedes the ROOT and the
+// CONTROL reading above on two points:
+//   1. THE ROOT IS ONE LAYER DOWN. Sema is correct here: lower_place_assign emits
+//      `AddrOfTemp(IndexRead(VarRef q))`, the right shape. The mis-addressing is in
+//      MLIRGenImpl::gen_lvalue_addr, `case ec::Code::VarRef`
+//      (src/compiler/mlir_gen_expr.cpp): it consults `var_local_ptrs_`, which holds
+//      only RAW `*mut`/`*const` locals, and otherwise returns `get_subscript_ptr(vn)`
+//      under the comment "or the pointer value (ref/ptr params)" — true of a ref
+//      PARAMETER, false of a reference-typed LOCAL, whose slot is an alloca holding
+//      the pointer. One missing load. That is also why the parameter control passes.
+//   2. "SO IT IS EXACTLY AN INDEX WRITE" IS TOO NARROW. gen_expr_kind(EAddrOfTempView)
+//      routes `IndexRead` AND `is_mut && TupleIndex` into that same call, and
+//      `q.0 = 77` through a local `&mut (i64,i64)` is clobbered identically — rowed
+//      as tuple_index_write_through_local_refmut_clobbers_binding. A `&mut [i64]`
+//      SLICE index is CORRECT (SliceIndex loads the descriptor's data pointer in its
+//      own branch), and so is a FieldRead. The class is exactly
+//      {IndexRead, TupleIndex} x reference-typed LOCAL binding.
+//   3. NOT REPRODUCED: the "[i64; 4] ... two words PAST the pointer's slot, an
+//      out-of-bounds write into the frame, silent, rc 0" claim above. With two i64
+//      canaries declared before the array and `q[0] = 77`, both canaries survive
+//      intact (111/222) and the array is merely unchanged. The demonstrated harm is
+//      a LOST STORE plus the wild deref this program shows; the frame-corruption
+//      claim is unverified and should not be cited until someone reproduces it.
+//
 // Measured 2026-09-06 on the ownership/drop lattice (g_idxwrite_local_refmut,
 // g_idxwrite_struct_elem, g_idxwrite_local_ref_to_array_in_struct, and
 // f_assign_index_through_refmut, which loses the store AND leaks the RHS).

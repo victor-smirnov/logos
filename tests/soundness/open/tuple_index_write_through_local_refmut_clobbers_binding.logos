@@ -1,0 +1,46 @@
+// SOUNDNESS QUEUE row tuple_index_write_through_local_refmut_clobbers_binding (tier 1).
+// `q.N = v` WHERE `q` IS A LOCAL `&mut (T, U)` WRITES INTO `q`'s OWN STORAGE.
+//
+// The TUPLE-INDEX twin of index_write_through_local_refmut_clobbers_binding, and
+// the two are ONE root, not two: gen_expr_kind(EAddrOfTempView) routes BOTH
+// `IndexRead` and `is_mut && TupleIndex` into the same call, MLIRGenImpl::gen_lvalue_addr
+// (src/compiler/mlir_gen_expr.cpp), and that is where the address is wrong.
+//
+// ROOT, by symbol: MLIRGenImpl::gen_lvalue_addr, `case ec::Code::VarRef`
+// (src/compiler/mlir_gen_expr.cpp). It consults `var_local_ptrs_` — which holds
+// only RAW `*mut`/`*const` locals — and, missing there, returns
+// `get_subscript_ptr(vn)` under the comment "or the pointer value (ref/ptr params)".
+// That comment states the assumption that fails: for a ref/ptr PARAMETER the scope_
+// entry really is the caller's address, so the GEP lands on the referent; for a
+// reference-typed LOCAL the scope_ entry is an alloca HOLDING the pointer, and the
+// GEP lands on that alloca. One missing load.
+//
+// ⚠ THE RECORDED ROOT OF THE INDEX ROW IS AT THE WRONG LAYER. That row's header
+// names the `pc == la::INDEX_READ` branch of SemaChecker::lower_place_assign
+// (sema_stmt.cpp) and its `addr_of_temp` call. Sema is CORRECT there: it emits
+// `AddrOfTemp(IndexRead(VarRef q))`, which is the right shape. The mis-addressing
+// is one layer down, in codegen.
+//
+// CONTROLS, measured 2026-09-06 on this binary — the class is exactly
+// {IndexRead, TupleIndex} x reference-typed LOCAL:
+//     (*q).0 = 77             explicit deref, tuple                  -> 77  correct
+//     q.a = 77                FieldRead through a local &mut S       -> 77  correct
+//     s[0] = 77               `&mut [i64]` SLICE through a local     -> 77  correct
+//     fn f(q: &mut [i64;2])   index write through a PARAMETER        -> 77  correct
+//     let q = &mut *s; q[0]=  index write through a REBORROW to a
+//                             LOCAL, inside a fn with a &mut param   ->  1  WRONG
+// The reborrow control is what rules out "parameter vs local function-argument" as
+// the discriminator: what matters is that the BINDING is a local slot holding a
+// pointer, however that pointer was obtained.
+//
+// Rust: exit 0 (t.0 becomes 77).
+package tuple_index_write_through_local_refmut_clobbers_binding;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let mut t: (i64, i64) = (1i64, 2i64);
+    let q: &mut (i64, i64) = &mut t;
+    q.0 = 77i64;
+    unsafe { printf("t0=%ld\n".as_ptr(), t.0); }
+    if t.0 != 77i64 { return 1i32; }
+    return 0i32;
+}
