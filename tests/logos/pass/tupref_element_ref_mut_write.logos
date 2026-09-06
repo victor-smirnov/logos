@@ -1,0 +1,17 @@
+// A written `ref mut` on a TUPLE ELEMENT binds the element's ADDRESS: the write
+// lands in the scrutinee and the tuple is readable afterwards. The one-token-apart
+// fail twin is fail/tupref_element_ref_mut_nomut.logos (`let` instead of `let mut`).
+// Soundness queue row refmut_binding_write_refused_outside_variant, closed 2026-09-06h.
+package tupref_element_ref_mut_write;
+fn main() -> i32 {
+    let mut t: (i64, i64) = (3i64, 4i64);
+    match t {
+        (ref mut a, b) => {
+            *a = *a + 1i64;
+            if *a + b != 8i64 { return 1i32; }
+        }
+    }
+    if t.0 != 4i64 { return 2i32; }
+    if t.1 != 4i64 { return 3i32; }
+    return 0i32;
+}

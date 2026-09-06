@@ -173,7 +173,12 @@
 # (the move question is now read off the LIR pattern by `pattern_moves_out`, whose
 # own `!= "_"` tests are the 11 that remain — `_` is the grammar's discard spelling,
 # not an entity name, the same class as before). No new site.
-#SCAN sema_stmt.cpp 11 1ff7800a
+# 2026-09-06h, +1 (11 -> 12), roster 1ff7800a -> 3b851609: `push_ref_elem`'s
+# `nm == "_"` guard at the PAT_TUPLE door — a `ref _` names nothing, so the
+# element falls through to the by-value arm. `_` is the grammar's DISCARD
+# spelling and cannot be declared, so this is the same class as the 7 sites
+# already pinned here, not a new entity-name intercept. No new site.
+#SCAN sema_stmt.cpp 12 3b851609
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)
 mlir_gen_dyn.cpp	struct_types_	O	1	std::string(TypeRef(cur_t).struct_name())

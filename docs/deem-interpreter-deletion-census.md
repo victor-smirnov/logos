@@ -5310,8 +5310,20 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9316 -> 9331   +15
 #   NOIMPORTED   4879 -> 4894   +15
 #   TIERCOMMIT    173 ->  173     0
-REGISTRY-ALL         9331
-REGISTRY-NOIMPORTED  4894
+# 2026-09-06h — +2. The tuple-element `ref`/`ref mut` landing registers a PAIR
+#   one token apart: pass/tupref_element_ref_mut_write (RUNS, asserts exit 0 and
+#   that the write reached `t.0`) and fail/tupref_element_ref_mut_nomut (`let`
+#   instead of `let mut`, pinning "cannot borrow 't.0' as mutable: 't' not
+#   declared as mut"). Counted by direct listing (`ls tests/logos/*/tupref_*` ->
+#   2 .logos + 2 .expected). The deleted queue program
+#   (refmut_binding_write_refused_outside_variant) and the added one
+#   (match_tuple_copy_elem_no_default_mut_ref) are under tests/soundness/open/
+#   and register nowhere, so they move nothing.
+#   ALL          9331 -> 9333   +2
+#   NOIMPORTED   4894 -> 4896   +2
+#   TIERCOMMIT    173 ->  173    0
+REGISTRY-ALL         9333
+REGISTRY-NOIMPORTED  4896
 REGISTRY-TIERCOMMIT  173
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

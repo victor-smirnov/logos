@@ -5280,6 +5280,27 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // tuple base). Under a shared `&`, a move-only element binds by
         // reference; Copy elements stay by-value. Mirrors the enum/struct gates.
         lir::PatTuple pt;
+        // A written `ref`/`ref mut` element mints the PatRefBind the struct-field
+        // door mints (T2-27); the name leaves `pt.bindings` as `_` so the
+        // by-value zip claims no move. Spec pat.binding.ref-modifier-at-tuple-element.
+        auto push_ref_elem = [&](writ::TinyMapView en, TypeRef et) -> bool {
+            auto flag = [&](const la::Key& k) {
+                return en.has_key(k) && en.get(k.code).is_value() &&
+                       en.get(k.code).as_value<uint8_t>() != 0;
+            };
+            if (!flag(la::IS_REF) || !en.has_key(la::NAME)) return false;
+            auto nm = std::string(str_of(en.get(la::NAME.code)));
+            if (nm.empty() || nm == "_") return false;
+            bool im = flag(la::IS_MUT);
+            TypeRef bt = make_ref(im,
+                (et && TypeRef(et).kind() != LogosType::Kind::Error) ? et : error_t());
+            lir::Pattern rp;
+            rp.mirror_ptr_ = lir_mirror_emit_pat_ref_bind(
+                *cur_prog_, nm, im, bt, reserve_pat_slot(nm));
+            pt.bindings.push_back("_");
+            pt.subs.push_back(std::move(rp));
+            return true;
+        };
         TypeRef tst = scrut_type;
         bool default_ref = false, default_mut = false;
         if (tst &&
@@ -5351,6 +5372,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             auto sub = *expanded[i];
             int32_t sc = code_of(sub);
             if (sc == la::PAT_WILD.code) {
+                if (push_ref_elem(sub, elem_ty)) continue;  // `(ref mut a, b)`
                 auto nm = std::string(str_of(sub.get(la::NAME.code)));
                 if (nm != "_" && pat_byval_mut(sub) && current_pat_mut_names_)
                     current_pat_mut_names_->insert(nm);  // `(mut a, b)`: the side-set the binder reads
@@ -5402,13 +5424,17 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                         auto inner = map_of(arr.get(0));
                         int32_t isc = code_of(inner);
                         if (isc == la::PAT_WILD.code) {
-                            auto nm = inner.has_key(la::NAME)
-                                ? std::string(str_of(inner.get(la::NAME.code)))
-                                : std::string("_");
-                            if (nm != "_" && pat_byval_mut(inner) && current_pat_mut_names_)
-                                current_pat_mut_names_->insert(nm);  // `(mut a, b)` (the grammar wraps the element in PAT_OR)
-                            pt.bindings.push_back(nm);
-                            pt.subs.push_back(make_pat_wild(nm));
+                            // The grammar wraps every element in a single-alt
+                            // PAT_OR, so this is where the keyword arrives.
+                            if (!push_ref_elem(inner, elem_ty)) {
+                                auto nm = inner.has_key(la::NAME)
+                                    ? std::string(str_of(inner.get(la::NAME.code)))
+                                    : std::string("_");
+                                if (nm != "_" && pat_byval_mut(inner) && current_pat_mut_names_)
+                                    current_pat_mut_names_->insert(nm);  // `(mut a, b)` (the grammar wraps the element in PAT_OR)
+                                pt.bindings.push_back(nm);
+                                pt.subs.push_back(make_pat_wild(nm));
+                            }
                             single = true;
                         } else if (isc == la::PAT_INT.code ||
                                    isc == la::PAT_NEG_INT.code ||
@@ -6639,9 +6665,12 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         // sub-pattern kind that INTRODUCES NAMES, and each_binding() above sees
         // only the direct element names.
         v.each_sub([&](lir_view::PatRef sp) {
+            // ⚠ RefBind for the same reason: a `ref` element's name is in the
+            // SUB, not in `each_binding`, so without this arm it never defines.
             if (sp && (sp.kind() == ps::Code::VariantData ||
                        sp.kind() == ps::Code::Or ||
                        sp.kind() == ps::Code::At ||
+                       sp.kind() == ps::Code::RefBind ||
                        sp.kind() == ps::Code::Tuple)) {
                 TypeRef sub_t = idx < types.size() ? types[idx] : error_t();
                 bind_pattern_ref(sp, sub_t);

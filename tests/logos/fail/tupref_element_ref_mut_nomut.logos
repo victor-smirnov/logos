@@ -1,0 +1,15 @@
+// ONE TOKEN from pass/tupref_element_ref_mut_write.logos: `let` instead of `let mut`.
+// `(ref mut a, b)` over a non-`mut` local is rustc E0596, and until 2026-09-06h it
+// was ADMITTED here — the tuple door dropped the keyword, so no mutable loan on
+// `t.0` was ever raised and the mut-binding check had nothing to ask about.
+package tupref_element_ref_mut_nomut;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    match t {
+        (ref mut a, b) => {
+            *a = *a + 1i64;
+            if *a + b != 8i64 { return 1i32; }
+        }
+    }
+    return 0i32;
+}

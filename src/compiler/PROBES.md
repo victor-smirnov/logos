@@ -25745,3 +25745,126 @@ not survive a from-scratch configure in a new directory. Recorded, not chased.
     corpus contains a legal program (`spec/pass/pat_6.logos`) where the type is identical
     and the answer must differ, which is rule 9's twin found in the corpus rather than
     invented.
+
+# ROUND 2026-09-06h — THE TUPLE DOOR HAND-ROLLS ITS WILD ELEMENT, AND THAT IS THE WHOLE DEFECT
+
+build: 4badd238f327bb5d 43 (armed, after the comment trim; the oracle columns above were taken at 9fb6729ef5a0ccc4 43, same sources) / 4e9526cb2d8f63d0 43 (base, `eae0b48d5`)
+measured: 2026-09-06
+
+## 1. THE CLASS, ENUMERATED BY PROPERTY AND DECIDED BY MEASUREMENT
+    Property: "a door in `SemaChecker::build_pattern` that constructs a NAMED binding from
+    a sub-pattern node and does not carry the written `ref` / `ref mut` modifier." Six
+    binding-producing doors; each decided by RUNNING a hand program, never by reading:
+
+      PAT_WILD, top level        carries    mints PatRefBind
+      PAT_SLICE element          carries    h11 `[ref mut p, q, r]` cc 0 rc 0
+      PAT_STRUCT field           carries    h09 cc 0 rc 0; h15 refused "cannot borrow
+                                            's.x' as mutable: 's' not declared as mut"
+      PAT_VARIANT_DATA payload   carries    h06 cc 0 rc 0; h16 refused likewise
+      PAT_VARIANT_DATA @-arm     DROPS      h07 (row at_binding_ref_mut_payload_refuses)
+      PAT_TUPLE element          DROPS      h01 h02 h03 h10 h12 h13 h18 h20
+
+    CLASS SIZE 2, TWO ROOTS. The slice door carries the keyword WITHOUT CODE OF ITS OWN:
+    it RECURSES into `build_pattern`, so the top-level `ref` arm does the work. The tuple
+    door is the only aggregate door that hand-rolls its wild element
+    (`pt.bindings.push_back(nm); pt.subs.push_back(make_pat_wild(nm))`) and therefore the
+    only one that can drop a modifier. The @-arm's `binding_is_ref.push_back(false)` is
+    deliberate and sits in front of a SECOND door (its range guard reads the binding by
+    value); that is a series, not this root, and it is DECLINED BY NAME below.
+
+## 2. WHERE THE FIX DIFFERS FROM ITS PROBE — AND IT IS THE WHOLE DESIGN
+    2026-09-06g §8(a) funded "give `lir_mirror_emit_pat_tuple` the `bind_ref_modes` array
+    `lir_mirror_emit_pat_variant_data` already takes, and read it in `MLIRGenImpl::pat_bind`
+    and borrow_check" — a new key on a second pattern kind plus three new readers. THAT IS
+    NOT WHAT LANDED, and the probe's own measurement is why: `tupboth` moved four of nine
+    hand programs to `use of moved field 't.0'`, i.e. a modes array on PatTuple still needs
+    every downstream consumer taught. The node that already carries name + is_mut + bind
+    type + slot, and that pat_bind, mono_clone, borrow_check's `each_pat_binding_place`,
+    `collect_names` and `bind_pattern_ref` ALL already read, is `PatRefBind` — which the
+    struct-field door mints for exactly this (sema_stmt.cpp, T2-27). So the tuple door now
+    mints one too, the element's name leaves `pt.bindings` as `_`, and the LIR gains no key
+    and no reader. Three edits: `push_ref_elem` at the two PAT_TUPLE wild arms;
+    `ps::Code::RefBind` added to `bind_pattern_ref`'s Tuple sub whitelist; and the RefBind
+    sub given its INDEX place in borrow_check's Tuple arm instead of the container's.
+
+## 3. THE THIRD DOOR CLOSED WITHOUT BEING TOUCHED
+    2026-09-06g §5 found a third door by measurement — `lir_mirror_emit_pat_tuple` emits no
+    modes array, so a `ref mut` element still read `use of moved field 't.0'` afterwards.
+    It has no separate fix here: the by-value move claim comes from the zip over
+    `each_binding`, and a `_` there claims nothing. h02 h10 h20 s02 s13 all read the
+    scrutinee AFTER the arm and all go correct. `use of moved variable 't'` on `(ref s, b)`
+    over a `(String, i64)` and a `(Vec<i64>, i64)` (s02, s13) is gone for the same reason.
+
+## 4. THE CONTROL REVERT, 24 HAND PROGRAMS IN 20 SHAPES
+    Base = `$SC/base` (the `eae0b48d5` binary + its libs, snapshotted before the edit).
+    12 of 14 varied shapes move refused -> cc 0 rc 0; s03 s09 s14 s18 unchanged green.
+    NOT over-refused (checked because a mut loan on the wrong place would refuse them):
+      s04  `(ref mut a, b)` writing `*a = *a + b` — reads the by-value sibling INSIDE the arm
+      s06  `(ref mut a, ..)` with a rest
+      s07  `(ref mut p, c)` over a STRUCT element, `p.x = p.x + 1`
+      s11  a guard arm `(ref mut a, b) if b > 0`
+      s12  the same arm inside a `for`
+      s13  `xs.push(k)` through a `ref mut` on a `Vec<i64>` element
+    CORRECTLY refused, and the sentence READ:
+      h03  `ref mut` over a NON-mut local -> "cannot borrow 't.0' as mutable: 't' not
+           declared as mut" (rustc E0596). This is 2026-09-06g §7's rule-5 payment: the
+           probe ADMITTED it. It is the pass/fail pair's one-token twin.
+      s05  writing `t.0` while `ref mut a` is live -> "cannot borrow 't.0': 't.0' is already
+           mutably borrowed" (rustc E0503). The place is the ELEMENT, not the tuple.
+
+## 5. ORACLES, ALL FOUR, ONE CONFIGURE
+    The base column was taken by SWAPPING `build/bin/logosc` + `build/lib/logos` for the
+    snapshot and running the same script against the same registry — so both columns come
+    from one configure, which is what `fail_text_oracle.py`'s self-invalidation warning asks.
+      run_oracle    6500 pass fixtures compiled, linked and RUN. DIFF = 2, both accounted:
+                    `cast-region-to-uint` (prints a stack address, subtracted by name) and
+                    the new fixture itself, ('1','-','-') -> ('0','0',<empty stdout>) — the
+                    control revert on the RUN side.
+      fail_text     1435 fail fixtures, rc + stderr sha + `.expected` match. DIFF = 0.
+      gate-run -L bc   2668/2668 passed, build 857.
+      gate-run full    7272 passed / 4 failed / 3 disabled. The four reds
+                    (box-concrete-as-box-dyn-return, blanket-impl-box-to-dyn-b172,
+                    blanket-impl-generic-struct-dyn, generic-struct-method-chain-b162) are
+                    PRE-EXISTING: `gate_db history` shows `failed` on every recorded build
+                    back to 2026-09-04, none of them under the `bc` label.
+      stdlib-cost   all four layers compile.
+
+## 6. DECLINED, BY NAME, WITH THE NUMBER
+    at_binding_ref_mut_payload_refuses — NOT a member of this root and not closed by this
+      change (h07 unchanged, byte for byte, base and armed). 2026-09-06g priced its first
+      half (`atrefmode`) at queue ceiling 0 and its one cost is the SECOND door showing
+      itself: `pass/bc_bindmut_at_payload_ref_range` moves to `'arith.cmpi' op operand #0
+      must be signless-integer-like, but got '!llvm.ptr'`. Doors in series (rule 2); half a
+      mechanism is not one.
+    box_mutref_payload_write_immut_box — refuted as a member by reading in 2026-09-06g and
+      not re-opened here: its root is Box-as-DerefMut versus a built-in place.
+    let_tuple_destructure_ref_scrutinee / fnparam_tuple_mut_modifier_dropped — the `let` and
+      parameter doors refuse EARLIER with their own sentence ("'let <pattern> = expr;'
+      currently supports struct patterns only"), measured on both binaries (h05, h14).
+
+## 7. TWO RECORDED CLAIMS REFUTED, AND ONE ROW WIDENED
+    (a) borrow_check's Tuple arm said the mode is zero because "build_pattern's PAT_WILD
+        tuple-element arm pushes the bare NAME … so `(ref a, b)` reaches the LIR as a
+        by-value binding". True until this round; corrected in place.
+    (b) `pass/bc_patmovebind_tuple_ref_element_twin.logos` says "if this file ever reddens,
+        the walk has started claiming a fact the tree does not carry". It stayed GREEN
+        across the landing, which is the guard reading correctly in the other direction:
+        what it forbade was a HALF-carried fact. Its first bullet is now false and is
+        marked so; the fixture's assertion is untouched.
+    (c) `match_ergo_ref_modifier_ref_mode_admit` (tier 2, `admits`) lists the doors that
+        admit a written modifier under a by-ref default mode. MEASURED here on BOTH
+        binaries: variant payload, struct field AND slice element all admit it already
+        (s15 s16 s17, cc 0 rc 0 base and armed). The tuple door joining them is that row
+        widening — refusing at one door while three siblings admit would be an asymmetry
+        no rule states. Header updated; observable and tier unchanged.
+
+## 8. ONE NEW ROW, FOUND BY A COUNTER-EXAMPLE THE PRICING PHASE DID NOT WRITE
+    `match_tuple_copy_elem_no_default_mut_ref` (tier 3, `refuses`), hand h17:
+    `match &mut t { (a, b) => { *a = *a + 1; } }` over `(i64, i64)` is legal Rust and is
+    refused on BOTH binaries. The PAT_TUPLE door's default-binding-mode wrap is gated on
+    `is_move_type(et)` — a carve-out the variant door dropped in logos-core 4.3 — so a COPY
+    element under a reference scrutinee never binds `&mut`. ⚠ The shared-`&` twin
+    (`match &t { (a, b) => *a + *b }`) COMPILES AND ANSWERS CORRECTLY, and that is NOT
+    evidence the wrap happened: a `*` on a by-value binding degenerates to a no-op. Only the
+    WRITE distinguishes the two readings, which is why the shape had to be varied and not
+    merely repeated.

@@ -498,6 +498,12 @@ Within one top-level pattern, repeated binding names across or-pattern alternati
 
 *Source: src/compiler/sema_stmt.cpp#L3012-L3023; src/compiler/sema_stmt.cpp#L3951-L3956*
 
+### `pat.binding.ref-modifier-at-tuple-element` — `ref`/`ref mut` on a tuple element binds that element's place
+
+A written `ref v` / `ref mut v` at a TUPLE-pattern element position binds by reference exactly as it does at a variant-payload, struct-field or slice-element position: the element is minted as a `PatRefBind` sub whose bind type is `&T` / `&mut T` over the element type, the element name does NOT appear in the pattern's by-value binding list, and borrow_check reads the mode (1 / 2) off that node and raises a shared / mutable loan on the element's SUB-PLACE `<scrutinee>.<index>`, not on the whole tuple. Consequences, all three of which the by-value reading got wrong: the write `*v = …` type-checks (the binding is a `&mut`, not a raw pointer); `ref mut` over a non-`mut` scrutinee is refused (`cannot borrow 't.0' as mutable: 't' not declared as mut`, rustc E0596); and a move-typed element bound `ref` is NOT moved out, so the tuple stays usable after the arm.
+
+*Source: src/compiler/sema_stmt.cpp (build_pattern's PAT_TUPLE door, `push_ref_elem`; bind_pattern_ref's Tuple sub whitelist); src/compiler/borrow_check.cpp (each_pat_binding_place, case PC::Tuple / PC::RefBind); src/compiler/mlir_gen_stmt.cpp (pat_bind, case RefBind)*
+
 ### `pat.binding.scope-limited-to-arm` — Pattern bindings are scoped to their arm
 
 Names bound by an arm's pattern (and guard) are visible only within that arm's guard and body; they are removed from scope when the arm completes and are not visible to other arms.

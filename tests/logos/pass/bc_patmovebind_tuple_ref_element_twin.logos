@@ -1,10 +1,17 @@
 // PAIR 4 of 6, CASUALTY GUARD — `(ref a, b)` under a deref scrutinee is LEGAL,
 // and the first correct spelling of arm 4 refused it (MEASURED rc=1). Two
 // separate reasons, both measured with the walk instrumented rather than read:
-//  · build_pattern's PAT_WILD tuple-element arm rebuilds `ref a` as a bare named
-//    Wild, so the keyword is GONE by the time the walk sees it — `(ref a, b)`
-//    and `(a, b)` are the same nodes. The Wild claim is therefore trusted only
+//  · build_pattern's PAT_WILD tuple-element arm rebuilt `ref a` as a bare named
+//    Wild, so the keyword was GONE by the time the walk saw it — `(ref a, b)`
+//    and `(a, b)` were the same nodes. The Wild claim is therefore trusted only
 //    at the arm's ROOT, never under a Tuple.
+//    ⚠ CORRECTED 2026-09-06h: that first bullet is no longer true of the tree.
+//    The tuple door now mints a PatRefBind sub for a written `ref`/`ref mut`,
+//    so the keyword DOES survive and the walk reads its mode off that node.
+//    This file stayed GREEN across that landing, which is the guard doing its
+//    job in the other direction: what it forbade was a HALF-carried fact, and
+//    the fact is now whole. The Wild-claim rule above is unchanged and is still
+//    what keeps a by-VALUE tuple element from being read as a borrow.
 //  · `bind_ref_modes()` is minted ONLY where a mode is spelled: `E::A(d)` walks
 //    with modes=0 and `E::A(ref d)` with modes=1. An EMPTY vector means "all by
 //    value", not "unknown" — reading it as unknown silenced all three rows.

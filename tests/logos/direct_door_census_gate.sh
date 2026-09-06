@@ -1445,9 +1445,14 @@ PIN = {
     # patcore_perarm_scalar_and_binder, patcore_refpat_scalar_depth2,
     # patcore_letelse_literal_under_ref. Their six fail twins are not in this
     # population (it is the `pass` corpus).
-    'corpus'            : 2880,
+    # 2026-09-06h: 2880 -> 2881. ONE pass fixture, non-glob
+    # (`ls tests/logos/pass/tupref_*.logos | wc -l` -> 1):
+    # tupref_element_ref_mut_write, the pass half of soundness-queue row
+    # refmut_binding_write_refused_outside_variant. Its one-token fail twin
+    # (tupref_element_ref_mut_nomut) is not in this population (it is `pass`).
+    'corpus'            : 2881,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2689,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2690,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

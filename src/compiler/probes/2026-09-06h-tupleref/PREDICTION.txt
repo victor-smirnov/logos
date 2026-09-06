@@ -1,0 +1,67 @@
+ROUND 2026-09-06h — PREDICTION, WRITTEN BEFORE ANY EDIT
+======================================================
+Baseline read from the store: gate-run -L bc build 848, 6435 recorded, 0 failed.
+Queue gate rc 0 on 39 rows. build_hash 4e9526cb2d8f63d0 43. probe-log-lint 227.
+
+THE CLASS, BY PROPERTY (not by spelling)
+----------------------------------------
+"A door in SemaChecker::build_pattern that constructs a NAMED binding from a
+sub-pattern node and does not carry the written `ref` / `ref mut` modifier."
+Every binding-producing door, and how it was decided (measurement, not reading):
+
+  door                         carries?  evidence
+  PAT_WILD top level (5670)    YES       mints PatRefBind
+  PAT_SLICE element            YES       h11 `[ref mut p, q, r]` cc 0 rc 0
+                                         (it RECURSES build_pattern, so the
+                                          5670 door does the work)
+  PAT_STRUCT field (5793)      YES       h09 cc 0 rc 0; h15 correctly refused
+                                         "cannot borrow 's.x' as mutable"
+  PAT_VARIANT_DATA payload     YES       h06 cc 0 rc 0; h16 correctly refused
+    (4391, PAT_WILD arm)
+  PAT_VARIANT_DATA payload     NO        h07 refused (row
+    (4442, PAT_AT arm:                   at_binding_ref_mut_payload_refuses)
+     hard-coded false)
+  PAT_TUPLE element            NO        h01 h02 h03 h10 h12 h13 h18 h20 all
+    (both the direct PAT_WILD            refused "write through raw pointer
+     arm and the single-alt              requires unsafe context"
+     PAT_OR arm)
+
+CLASS SIZE = 2 MEMBERS. They are two DIFFERENT roots, not one:
+  * PAT_TUPLE hand-rolls its wild element (`make_pat_wild(nm)`) instead of
+    recursing into build_pattern the way PAT_SLICE does — so the 5670 `ref`
+    door is BYPASSED. The repair is to mint the PatRefBind the struct-field
+    door already mints (sema_stmt.cpp:5789).
+  * PAT_AT-in-payload pushes `binding_is_ref = false` deliberately, and its
+    header states the second door (the range guard reads the binding BY VALUE
+    and dies at `arith.cmpi` on a pointer). That is a SERIES, not this root.
+
+THIS ROUND LANDS THE PAT_TUPLE MEMBER ONLY, AND DECLINES THE OTHER BY NAME.
+
+PREDICTED CLOSED SET = 1 ROW
+----------------------------
+  refmut_binding_write_refused_outside_variant
+
+PREDICTED NOT CLOSED (declined by name)
+---------------------------------------
+  at_binding_ref_mut_payload_refuses      — second door in series (range guard)
+  box_mutref_payload_write_immut_box      — Box-as-DerefMut, refuted as a member
+                                            by the 2026-09-06g reading
+  let_tuple_destructure_ref_scrutinee     — the `let` door refuses EARLIER with
+                                            its own sentence ("'let <pattern> =
+                                            expr;' currently supports struct
+                                            patterns only") — h05/h14 measured
+  fnparam_tuple_mut_modifier_dropped      — parameter door, `mut` not `ref`
+
+PREDICTED BEHAVIOUR CHANGES OUTSIDE THE LEDGER
+----------------------------------------------
+  h03 (`ref mut` on a NON-mut tuple local, illegal Rust E0596) must go from
+  ADMITTED to REFUSED with the sentence the struct/variant doors already print
+  ("cannot borrow 't.0' as mutable: 't' not declared as mut"). That is the
+  mut-place check arriving through the carried mode; it is the rule-5 half.
+
+NEW DEFECT FOUND WHILE COUNTER-EXAMPLING (to be added as a queue row if no row
+pins it): h17 `match &mut t { (a, b) => { *a = *a + 1; } }` is legal Rust and is
+refused "write through raw pointer requires unsafe context" + "deref-write: '='
+left side must be a pointer or mutable reference" — the tuple door's
+default-binding-mode wrap is gated on `is_move_type(et)`, so a Copy element
+under a `&mut` scrutinee stays by value. DISTINCT from the written-`ref` root.

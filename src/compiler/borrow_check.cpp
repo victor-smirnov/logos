@@ -5839,19 +5839,27 @@ private:
             }
             case PC::Tuple: {
                 PatTupleView v{pr};
-                // ⚠ ZERO, AND NOT BECAUSE A TUPLE ELEMENT CANNOT BE `ref`.
-                // build_pattern's PAT_WILD tuple-element arm pushes the bare
-                // NAME and a `make_pat_wild`, dropping IS_REF — so `(ref a, b)`
-                // reaches the LIR as a by-value binding and no mode survives
-                // for this walk to read. Recording 1/2 here would be inventing
-                // a fact the tree does not carry; the dropped keyword is a
-                // sema defect one door over, with its own paired fixture.
+                // ⚠ ZERO, AND STILL NOT BECAUSE A TUPLE ELEMENT CANNOT BE
+                // `ref`. The zip below covers only the BY-VALUE element list:
+                // since 2026-09-06h a written `ref`/`ref mut` element is minted
+                // as a PatRefBind SUB (its name is `_` in `bindings`), so its
+                // mode is read from that node's own `is_mut` by the PC::RefBind
+                // arm — not from a modes array this pattern does not carry.
+                // Recording 1/2 in THIS zip would still be inventing a fact.
                 zip([&](auto&& g){ v.each_binding(g); },
                     [&](auto&& g){ v.each_binding_type(pool, g); },
                     std::vector<uint32_t>{});
-                // The sub-patterns' positions are not zipped with the binding
-                // list, so they take the container's place (coarse).
-                v.each_sub([&](PatRef s){ each_pat_binding_place(s, base, f); });
+                // ⚠ A RefBind sub's INDEX is known — `pt.subs` is pushed in
+                // lockstep with `pt.bindings`, so sub i names element i. The
+                // container's place would make `(ref mut a, b)` a loan on the
+                // whole tuple and refuse the by-value `b`. Every OTHER sub keeps
+                // the coarse place; refining those is its own question.
+                uint64_t si = 0;
+                v.each_sub([&](PatRef s){
+                    const bool refined = s && s.kind() == PC::RefBind;
+                    each_pat_binding_place(s, refined ? sub(std::to_string(si)) : base, f);
+                    ++si;
+                });
                 return;
             }
             case PC::Struct: {

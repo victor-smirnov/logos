@@ -2,7 +2,12 @@
 // pat.binding.modifier-requires-move-mode (owner decision 2026-09-05): a written `ref` /
 // `ref mut` under a reference scrutinee's by-ref default mode is an ERROR, exactly like the
 // `mut` half landed 2026-09-09b. TODAY admitted (2021 behaviour) at every door: variant
-// payload (this program), struct field (`match &p { P { ref x, .. } }`), if-let / while-let.
+// payload (this program), struct field (`match &p { P { ref x, .. } }`), if-let / while-let,
+// slice element (`match &mut a { [ref mut p, q] }`), and — since 2026-09-06h, which made the
+// tuple door carry the keyword at all — tuple element (`match &mut t { (ref mut a, b) }`).
+// MEASURED 2026-09-06h on both binaries: all four sibling doors admit it, so the tuple door
+// joining them is this row widening, not a new hole; refusing at ONE door would be an
+// asymmetry no rule states.
 // ⚠ ITS PRICE IS A CORPUS DECISION (measured 2026-09-09a, ergoref): 12 stdlib sites write
 // `match self { Some(ref v) }` with self: &Self (option.logos:194/202, result.logos:203/204/
 // 211/212, cmp.logos:119/120/128/129) and 2 pass fixtures assert the 2021 form
