@@ -474,7 +474,7 @@ All four doors that lower a scrutinee obey it: the match statement, the match ex
 
 Under a `&`/`&mut` scrutinee, every plain named payload binding binds by-reference: the binding type is wrapped in `&`/`&mut` once per scrutinee ref-layer, with the outermost layer carrying mut iff any peeled layer was `&mut`. Bindings to `_` and synthesized slots are exempt.
 
-**Divergence from Rust:** Rust-conformant (RFC 2005); historical move-only-type restriction now lifted
+**Divergence from Rust:** the move-only-type restriction is lifted AT THE VARIANT-PAYLOAD DOOR ONLY. Measured 2026-09-06i: the wrap is still gated on `is_move_type` at the tuple, struct and slice doors (`pat.tuple.default-ref-move-only`, `pat.struct.default-ref-move-only`, `pat.slice.default-ref-move-only`), so a Copy element under a `&`/`&mut` scrutinee binds by value there and a write through it is refused.
 
 *Source: src/compiler/sema_stmt.cpp#L3252-L3265; src/compiler/sema_stmt.cpp#L3915-L3949*
 
@@ -686,7 +686,25 @@ After rest expansion, the number of tuple pattern elements must equal the tuple 
 
 When the tuple scrutinee is reached through a `&`/`&mut` (default binding mode), each tuple element binding whose element type is move-only (non-Copy, non-error, non-typevar) is bound by reference `&et`/`&mut et`; Copy elements are bound by value.
 
+**Divergence from Rust:** DIVERGENT. Rust binds every element by reference under a reference scrutinee. Soundness queue row `match_tuple_copy_elem_no_default_mut_ref`.
+
 *Source: src/compiler/sema_stmt.cpp#L4456-L4461; src/compiler/sema_stmt.cpp#L4635-L4642*
+
+### `pat.struct.default-ref-move-only` — Default-ref binding for move-only struct fields under a reference scrutinee
+
+When the struct scrutinee is reached through a `&`/`&mut`, a plain shorthand field binding whose field type is move-only (non-Copy, non-error, non-typevar) is bound by reference `&ft`/`&mut ft`; Copy fields are bound by value. `match &mut s { S { x, .. } => *x = … }` over a Copy `x` is therefore refused.
+
+**Divergence from Rust:** DIVERGENT. Rust binds every field by reference under a reference scrutinee (RFC 2005). The carve-out was installed as a double-free guard, and it is sufficient for that purpose and wrong as a mode rule. Soundness queue row `struct_copy_field_no_default_mut_ref`.
+
+*Source: src/compiler/sema_stmt.cpp, `bind_pattern_ref` Struct arm, the `if (!sub)` shorthand branch*
+
+### `pat.slice.default-ref-move-only` — Default-ref binding for move-only slice elements under a reference scrutinee
+
+When the array/slice scrutinee is reached through a `&`/`&mut`, a prefix or suffix element binding whose element type is move-only is bound by reference; Copy elements are bound by value. `match &mut arr { [a, ..] => *a = … }` over a Copy element is therefore refused.
+
+**Divergence from Rust:** DIVERGENT, same carve-out and same reason as `pat.struct.default-ref-move-only`. Soundness queue row `slice_copy_elem_no_default_mut_ref`.
+
+*Source: src/compiler/sema_stmt.cpp, `bind_pattern_ref` Slice arm*
 
 ### `pat.tuple.elem-rest` — Tuple-pattern rest element
 

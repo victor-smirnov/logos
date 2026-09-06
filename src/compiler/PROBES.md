@@ -26106,3 +26106,103 @@ count re-derived by direct listing; queue gate rc 0 at each.
     class, and each has its own drop-count pass fixture. THE ROW IS NOT THE CLASS, for the third
     consecutive round; the difference is that this time the class was enumerated before the edit and
     every member landed in the same commit.
+
+## dbmtup
+site: src/compiler/sema_stmt.cpp::build_pattern_impl
+build: b751532cca22cee3
+measured: 2026-09-06
+fires: 11
+ceiling: 0
+cost: 4
+verdict: HALF A MECHANISM — the sema wrap alone turns a refusal into an MLIR verifier failure
+note: ROUND 2026-09-06i, root found by CENSUS not by header. The
+  default-binding-mode wrap `make_ref(default_mut, T)` is gated on
+  `is_move_type(T)` at THREE aggregate doors — `build_pattern_impl`'s PAT_TUPLE
+  binding-type loop, `bind_pattern_ref`'s Struct shorthand branch and its Slice
+  element branch — and the VARIANT-payload door dropped the same carve-out in
+  logos-core 4.3. One predicate written four times, corrected in one copy.
+  The carve-out was installed as a DOUBLE-FREE guard: sufficient for that,
+  wrong as a mode rule.
+  This arm drops it at the TUPLE door. COST 4:
+  logos_02_semantic_core_pass_bc_bindmut_ergo_tuple_door_nomod,
+  logos_25_spec_pass_layout_5, logos_25_spec_pass_pat_2, logos_25_spec_pass_pat_6;
+  COST-fail 1, text-only (logos_06_diagnostics_fail_bc_bindmut_ergo_tuple_door_mut_fail);
+  stdlib four layers ok. CEILING is measured against `bc_admits` and is 0 by
+  construction — this is a soundness-queue root, not a borrow-check one, and the
+  `logos_00_soundness_queue` gate stayed GREEN under every arm, i.e. NO queue row
+  was closed.
+
+## dbmstr
+site: src/compiler/sema_stmt.cpp::bind_pattern_ref
+build: b751532cca22cee3
+measured: 2026-09-06
+fires: 2
+ceiling: 0
+cost: 1
+verdict: same half-mechanism, STRUCT door; corpus cost 1, hand cost 2 more
+note: same carve-out at the Struct shorthand branch. COST 1 =
+  logos_25_spec_pass_pat_6, a SUBSET of dbmtup's set; COST-fail 0; stdlib ok.
+  ⚠ RULE 5: cost 1 is not a safety claim. Hand programs h02 (`match &mut s {
+  S { x, y } => *x = *x + 1 }`) and h17 (`match &s { S { x, y } => acc = x + y }`)
+  are both damaged and the corpus contains neither.
+
+## dbmslc
+site: src/compiler/sema_stmt.cpp::bind_pattern_ref
+build: b751532cca22cee3
+measured: 2026-09-06
+fires: 3
+ceiling: 0
+cost: 0
+verdict: cost 0 on three populations and TWO hand programs damaged — rule 5, again
+note: same carve-out at the Slice element branch. Fires derived: dbmall 16 minus
+  dbmtup 11 minus dbmstr 2. Its corpus cost is 0 (dbmall's cost set is exactly
+  dbmtup's), and hand h03 and h16 are both damaged by it. A zero here means the
+  corpus has no `match &arr { [a, b] => … }` over a Copy element at all.
+
+## dbmall
+site: src/compiler/sema_stmt.cpp::bind_pattern_ref
+build: b751532cca22cee3
+measured: 2026-09-06
+fires: 16
+ceiling: 0
+cost: 4
+verdict: the WHOLE — and COST IS NOT ADDITIVE UPWARD EITHER
+note: all three doors at once. Rule 13 measured in a new direction: fires ARE
+  additive (11 + 2 + 3 = 16) and cost is NOT — 4 + 1 + 0 = 5 while the whole is
+  4, because `logos_25_spec_pass_pat_6` is damaged by two doors and a cost is a
+  count of DISTINCT damaged fixtures. A per-door cost cannot be summed and a
+  whole-arm cost cannot be apportioned.
+  DOOR 2 IS IN SERIES AND IT IS EMPTY AT THREE OF FOUR DOORS. Predicted BY NAME
+  before the run, from reading `mlir_gen_stmt.cpp`, and confirmed at every door:
+  under the arm h01/h02/h03 stop being refused and die in the MLIR verifier —
+  "'llvm.load' op operand #0 must be LLVM pointer type, but got 'i64'" — because
+  `pat_bind`'s Tuple case binds the RAW element type off `tuple_elems()` and
+  `bind_struct_field` binds a LoadOp+alloca COPY; neither reads the binding type
+  sema just wrapped. The codegen half already exists: `MLIRGenImpl::ref_bind_kind`
+  translates a wrapped binding type into a ref bind, and it has EXACTLY ONE call
+  site — `bind_enum_payload`, the variant door. Hand h15 (`match &mut e {
+  E::N(n) => *n = *n + 1 }`) runs rc 0 today: the one door where BOTH halves are
+  present is the one door that is correct. So the repair is a PAIR per door, and
+  `match_tuple_copy_elem_no_default_mut_ref` is NOT closable by the sema edit alone.
+  GROUPING REFUTED, predicted NO by name: `let (a, b) = &t;`
+  (row let_tuple_destructure_ref_scrutinee) is UNCHANGED under dbmall — hand h13,
+  same sentence base and armed. lower_let_pat never reaches these doors; a missing
+  mechanism and a mis-gated arm are two roots.
+  ALSO REFUTED WITHIN THE TUPLE DOOR: a NESTED element `((a, b), c)` under `&mut`
+  (hand h11) is unchanged by dbmtup — the nested sub-pattern's binding types come
+  from a path the binding-type loop does not write.
+  ROWS ADDED: struct_copy_field_no_default_mut_ref, slice_copy_elem_no_default_mut_ref
+  (tier 3, `refuses`), 41 -> 43 by direct listing. Spec: the global claim in
+  `pat.binding.default-by-ref-mode` that the move-only restriction is "now lifted"
+  was FALSE for three doors and now names the one door where it holds;
+  `pat.struct.default-ref-move-only` and `pat.slice.default-ref-move-only` state
+  the two unstated carve-outs, and all three now carry a DIVERGENT marker.
+  ⚠ NOT ROWED, MEASURED AND NEEDS AN OWNER READ: hand h12,
+  `match &mut o { Out { i, y } => { i.v = i.v + 1; } }` over a STRUCT-typed field,
+  is refused today "assignment to immutable variable 'i'". It is the same door
+  (dbmstr moves its message) but a different half — the aggregate branch already
+  binds the GEP address, so only the mutability flag is missing.
+  ⚠ NO CORRECTION IS OWED ON THE PROMPT for the third consecutive round: its
+  STEP 1 gate command carries `LOGOS_LIB_DIR` and documents the failure mode, and
+  the 2026-09-05 owner decision needs no action (both 2024-ergonomics rows and
+  `pat.binding.modifier-requires-move-mode` are already in the tree).

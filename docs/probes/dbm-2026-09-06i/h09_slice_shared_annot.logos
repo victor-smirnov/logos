@@ -1,0 +1,8 @@
+package h09;
+fn main() -> i32 {
+    let arr: [i64; 2] = [3i64, 4i64];
+    match &arr {
+        [a, b] => { let q: &i64 = a; if *q + *b != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

@@ -1,0 +1,27 @@
+// SOUNDNESS QUEUE row struct_copy_field_no_default_mut_ref (tier 3). `match &mut s {
+// S { x, y } => { *x = *x + 1; } }` over `s: S { x: i64, y: i64 }` is legal Rust — the
+// `&mut` scrutinee sets the default binding mode to `ref mut`, so `x: &mut i64` and the
+// write lands in `s`. TODAY refused, two sentences: "write through raw pointer requires
+// unsafe context" and "deref-write: '=' left side must be a pointer or mutable reference".
+// SAME ROOT as match_tuple_copy_elem_no_default_mut_ref, DIFFERENT DOOR: the
+// default-binding-mode wrap in bind_pattern_ref's STRUCT arm is gated on
+// `is_move_type(ftype)` (sema_stmt.cpp, the `if (!sub)` shorthand branch), so a Copy field
+// under a reference scrutinee still binds by value. Found 2026-09-06i by census of the
+// three `is_move_type` carve-outs (tuple / struct / slice); the VARIANT-payload door
+// dropped the same carve-out in logos-core 4.3 and its twin runs correctly today.
+// ⚠ THE SEMA WRAP IS HALF THE MECHANISM, MEASURED: probe `dbmstr` drops the carve-out and
+// the program stops being refused and dies in the MLIR verifier instead — "'llvm.load' op
+// operand #0 must be LLVM pointer type, but got 'i64'" — because codegen's
+// `bind_struct_field` binds a LOAD+alloca COPY and never reads the binding type. The
+// codegen half exists at exactly one door: `ref_bind_kind` (mlir_gen_stmt.cpp) has ONE
+// call site, the variant-payload binder. Rust: exit 0.
+package struct_copy_field_no_default_mut_ref;
+struct S { x: i64, y: i64 }
+fn main() -> i32 {
+    let mut s: S = S { x: 3i64, y: 4i64 };
+    match &mut s {
+        S { x, y } => { *x = *x + 1i64; if *y != 4i64 { return 2i32; } }
+    }
+    if s.x != 4i64 { return 1i32; }
+    return 0i32;
+}

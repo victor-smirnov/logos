@@ -1,0 +1,9 @@
+// h13: THE GROUPING TEST — soundness row let_tuple_destructure_ref_scrutinee.
+// Predicted NOT moved by dbmall.
+package h13;
+fn main() -> i32 {
+    let t: (i64, i64) = (1i64, 2i64);
+    let (a, b) = &t;
+    if *a + *b != 3i64 { return 1i32; }
+    return 0i32;
+}

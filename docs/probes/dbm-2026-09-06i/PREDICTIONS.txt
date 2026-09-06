@@ -1,0 +1,33 @@
+PREDICTIONS 2026-09-06i — written BEFORE any armed run, from reading codegen.
+
+DOOR 2 IS IN SERIES WITH DOOR 1 (Rule 2). Sema wraps the BINDING TYPE; codegen
+never reads it at these doors:
+  * mlir_gen_stmt.cpp:4308 pat_bind Tuple — binds `elems[idx]`, the RAW tuple
+    element type off `tt.tuple_elems()`, and hands `bind_name_at_slot` the GEP
+    ADDRESS as the variable's slot. `pt.binding_types` is not consulted.
+  * mlir_gen_stmt.cpp:4793 bind_struct_field — for a non-aggregate field it does
+    LoadOp + create_entry_alloca + Store, i.e. the binding is a COPY in a fresh
+    alloca. Its own comment says the copy "didn't persist mutation through a
+    `&mut` binding (the change hit a local alloca, not the scrutinee)".
+
+SO, BY NAME:
+  dbmtup — h01 (`match &mut t { (a,b) => *a = *a+1 }`) STOPS BEING REFUSED and is
+           WRONG OR CRASHES at run: sema types `a: &mut i64` so `*a` loads a
+           pointer out of a slot that holds the i64 VALUE.
+  dbmstr — h02 (struct twin) STOPS BEING REFUSED and the write is LOST: returns 1.
+  dbmslc — h03 (slice twin) STOPS BEING REFUSED; same class as dbmtup.
+  ALL THREE — the shared-`&` half (h07/h08/h09, `let q: &i64 = a;`) COMPILES,
+           because that half needs only the TYPE, not a place.
+  COST — NONZERO and large at each door: every `match &t { (a,b) => a + b }` over
+         Copy elements changes the binding type i64 -> &i64.
+  CEILING (bc_admits, which is what ceiling-probe measures) — 0 at all three;
+         this root is a soundness-queue root, not a borrow-check one.
+  match_tuple_copy_elem_no_default_mut_ref IS NOT CLOSED BY dbmtup ALONE.
+
+GROUPING TEST, predicted NO:
+  let_tuple_destructure_ref_scrutinee (`let (a,b) = &t;`) is NOT moved by dbmall.
+  It is lowered by lower_let_pat, which never reaches build_pattern's PAT_TUPLE
+  door; a missing mechanism, not a mis-gated arm.
+
+ADDITIVITY (Rule 13): dbmall's cost is predicted GREATER than the sum of the
+three, because a nested `&`-scrutinee pattern reaches two doors in one compile.

@@ -1,0 +1,11 @@
+// h16: COST SHAPE at the SLICE door — Copy element under shared `&`, arithmetic.
+package h16;
+fn main() -> i32 {
+    let arr: [i64; 2] = [3i64, 4i64];
+    let mut s: i64 = 0i64;
+    match &arr {
+        [a, b] => { s = a + b; }
+    }
+    if s != 7i64 { return 1i32; }
+    return 0i32;
+}

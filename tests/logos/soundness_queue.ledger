@@ -42,7 +42,7 @@
 declare_pat_bindings_field_nomut_addrmut_admit 2 tests/soundness/open/declare_pat_bindings_field_nomut_addrmut_admit admits
 array_typed_field_binding_shape_lost 3 tests/soundness/open/array_typed_field_binding_shape_lost refuses
 let_at_binding_tuple_sub_unsupported 3 tests/soundness/open/let_at_binding_tuple_sub_unsupported refuses
-# TOTAL 41
+# TOTAL 43
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 drop_inherent_call_order      1 tests/soundness/open/drop_inherent_call_order      refuses
@@ -81,3 +81,5 @@ refbind_scalar_under_ref_segv 1 tests/soundness/open/refbind_scalar_under_ref_se
 match_tuple_copy_elem_no_default_mut_ref 3 tests/soundness/open/match_tuple_copy_elem_no_default_mut_ref refuses
 letstruct_partial_destructure_moves_whole_source 3 tests/soundness/open/letstruct_partial_destructure_moves_whole_source refuses
 let_tuplestruct_generic_elem_type_unsubstituted 3 tests/soundness/open/let_tuplestruct_generic_elem_type_unsubstituted refuses
+struct_copy_field_no_default_mut_ref 3 tests/soundness/open/struct_copy_field_no_default_mut_ref refuses
+slice_copy_elem_no_default_mut_ref 3 tests/soundness/open/slice_copy_elem_no_default_mut_ref refuses

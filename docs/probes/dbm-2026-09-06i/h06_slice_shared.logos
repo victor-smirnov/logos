@@ -1,0 +1,10 @@
+// h06: SLICE door, Copy element under shared &, binding passed where &i64 required.
+package h06;
+fn take(p: &i64) -> i64 { return *p; }
+fn main() -> i32 {
+    let arr: [i64; 2] = [3i64, 4i64];
+    match &arr {
+        [a, b] => { if take(a) + take(b) != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

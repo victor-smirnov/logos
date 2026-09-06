@@ -1,0 +1,11 @@
+// h05: STRUCT door, Copy field under shared &, binding passed where &i64 required.
+package h05;
+struct S { x: i64, y: i64 }
+fn take(p: &i64) -> i64 { return *p; }
+fn main() -> i32 {
+    let s: S = S { x: 3i64, y: 4i64 };
+    match &s {
+        S { x, y } => { if take(x) + take(y) != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

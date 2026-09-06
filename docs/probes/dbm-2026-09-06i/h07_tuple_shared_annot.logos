@@ -1,0 +1,10 @@
+// h07: shared-& tuple door. Carrier = a TYPE ANNOTATION, not a call.
+// Rust: `a: &i64`, so `let q: &i64 = a;` is legal.
+package h07;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    match &t {
+        (a, b) => { let q: &i64 = a; if *q + *b != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+// h04: PAT_TUPLE door, Copy element under SHARED & — the row's header says this
+// answers correctly today only because `*` on a by-value binding is a no-op.
+// The SHAPE that separates them: pass the binding where a &i64 is REQUIRED.
+package h04;
+fn take(p: &i64) -> i64 { return *p; }
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    match &t {
+        (a, b) => { if take(a) + take(b) != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

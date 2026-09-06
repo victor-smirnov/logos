@@ -1,0 +1,9 @@
+package h08;
+struct S { x: i64, y: i64 }
+fn main() -> i32 {
+    let s: S = S { x: 3i64, y: 4i64 };
+    match &s {
+        S { x, y } => { let q: &i64 = x; if *q + *y != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

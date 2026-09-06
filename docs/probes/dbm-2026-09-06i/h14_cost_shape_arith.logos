@@ -1,0 +1,13 @@
+// h14: THE COST SHAPE — a Copy element under a shared `&` used in ARITHMETIC
+// with no `*`. Legal and correct TODAY (binds i64). Any probe that types it
+// `&i64` breaks it unless `&i64 + &i64` is defined.
+package h14;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    let mut s: i64 = 0i64;
+    match &t {
+        (a, b) => { s = a + b; }
+    }
+    if s != 7i64 { return 1i32; }
+    return 0i32;
+}
