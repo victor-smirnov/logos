@@ -1,0 +1,44 @@
+// SOUNDNESS QUEUE row struct_fields_dropped_reverse_order (tier 3). A STRUCT'S
+// FIELDS ARE DROPPED IN REVERSE DECLARATION ORDER.
+//
+// Rust drops a struct's fields in DECLARATION order (a, b, c). The counter here
+// records the SEQUENCE, not a count: each destructor does `*c = *c * 10 + v`, so
+// Rust's answer is 123 and today's is 321.
+//
+// A count oracle cannot see this: every field is dropped exactly once either way.
+// It is observable to any program whose destructors interact — a field that
+// unregisters itself from a sibling, a buffer freed before the index into it.
+//
+// ROOT, by symbol: `MLIRGenImpl::gen_drop_value` (src/compiler/mlir_gen_stmt.cpp),
+// the `k == K::Struct || k == K::ZonedStruct` branch:
+//     for (int i = (int)fields.size() - 1; i >= 0; --i)
+// The ARRAY branch of the same function walks FORWARD —
+//     for (uint64_t i = 0; i < n; ++i)
+// — and its cells are correct (lattice f_array_order_ctl, 12), as is the enum
+// payload branch (f_enum_payload_order, 12). So the reverse walk is an anomaly
+// against two siblings in one function, not a house convention. Locals and
+// parameters ARE reverse-order in Rust and are correct here (d_locals_reverse 321,
+// f_param_drop_order 21).
+//
+// PAIR: tuple_elems_dropped_reverse_order is the second loop with the same defect.
+// Measured 2026-09-06, lattice cells d_struct_fields_declorder, f_field_order_two,
+// f_field_order_four (4321 for 1234), f_nested_struct_order,
+// d_struct_with_drop_then_fields (321 for 312 — the user Drop impl runs first,
+// correctly, and only the field walk is reversed). Rust: exit 0.
+package struct_fields_dropped_reverse_order;
+struct O { v: i64, c: *mut i64 }
+impl Drop for O { fn drop(self: &mut O) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct T3 { a: O, b: O, c: O }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let w: T3 = T3 { a: O { v: 1i64, c: p }, b: O { v: 2i64, c: p }, c: O { v: 3i64, c: p } };
+        r = w.a.v;
+    }
+    if r != 1i64 { return 2i32; }
+    let got: i64 = unsafe { n };
+    if got != 123i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,45 @@
+// SOUNDNESS QUEUE row shadowed_binding_never_dropped (tier 1). A SECOND `let` OF
+// THE SAME NAME IN THE SAME FRAME LEAKS THE FIRST VALUE.
+//
+// Rust: `let x = A; let x = B;` does not end A's storage. Both values live to the
+// end of the block and both are dropped there, B first (reverse declaration
+// order). Expected count 1 + 1000 = 1001.
+//
+// TODAY the count is 1000: the first binding's destructor is never emitted. With
+// a heap-owning payload this is a leak of the whole object graph, and it is
+// invisible to an exit code — this program returns 1 only because it reads the
+// counter and compares.
+//
+// ROOT, by symbol: `SemaImpl::declare_var` (src/compiler/sema_impl.hpp, the
+// `if (!scope_.back().vars.count(sname)) scope_.back().var_order.push_back(sname)`
+// / `scope_.back().vars[sname] = {t, is_mut, false, slot}` pair). `var_order` is
+// the frame's scope-exit drop list and it records a NAME ONCE; `vars` is then
+// OVERWRITTEN. The comment two lines above says "fresh dense slot per binding
+// (shadowing -> new slot)", so the first binding's storage exists and is
+// reachable — only the frame's record of it is gone. Keying the drop list by
+// SLOT rather than by name is the one change.
+//
+// Measured 2026-09-06 on the ownership/drop lattice: this fires at all FOURTEEN
+// payload kinds (a_*_shadow), at three bindings as well as two (f_shadow_three
+// leaks 1 and 10), with `mut` on the first binding (f_shadow_mut_first), and on
+// every iteration of a loop body (f_shadow_loop_body, 20 for 22). The nested-block
+// spelling `{ let x = A; { let x = B; } }` is CORRECT (f_shadow_nested_block_ctl,
+// 1001) — a different frame — and two distinct names in one frame are correct
+// (f_shadow_distinct_names_ctl, 1001). Rust: exit 0.
+package shadowed_binding_never_dropped;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let x: D = D { v: 1i64, c: p };
+        let x: D = D { v: 1000i64, c: p };
+        r = x.v;
+    }
+    if r != 1000i64 { return 2i32; }
+    let got: i64 = unsafe { n };
+    if got != 1001i64 { return 1i32; }
+    return 0i32;
+}

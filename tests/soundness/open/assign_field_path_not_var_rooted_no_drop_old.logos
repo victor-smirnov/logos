@@ -1,0 +1,38 @@
+// SOUNDNESS QUEUE row assign_field_path_not_var_rooted_no_drop_old (tier 1). A FIELD
+// ASSIGNMENT WHOSE PATH DOES NOT BOTTOM OUT AT A BARE VARIABLE DOES NOT DROP THE OLD
+// FIELD VALUE.
+//
+// Rust: `(*q).d = new`, q: &mut W1, drops the old field at the assignment. Expected
+// 1 (old d) + 1000 (new d, at w's scope end) = 1001. TODAY the count is 1000.
+//
+// ROOT: the second half of the same predicate as assign_index_elem_no_drop_old. Even
+// inside `if (pc == la::FIELD_READ)` the walk peels FIELD_READ links and then
+// requires the root to be a VAR_REF:
+//     if (!cur.is_null() && code_of(cur) == la::VAR_REF) { ...compute field_old_live... }
+// so a chain rooted at a DEREF (`(*q).d`) or at an INDEX (`a[0].d`) leaves
+// `field_old_live` false. The SUGARED spelling of this very program, `q.d = new`,
+// IS correct (lattice cell c_assign_field_through_refmut, 1001) because its place
+// node is a FIELD_READ over a VAR_REF — so the two spellings of one assignment
+// disagree.
+//
+// Measured 2026-09-06, lattice cells f_assign_deref_field_ctl (1000 for 1001) and
+// f_assign_field_of_indexed (1014 for 1015). Rust: exit 0.
+package assign_field_path_not_var_rooted_no_drop_old;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W1 { d: D, n: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let mut w: W1 = W1 { d: D { v: 1i64, c: p }, n: 5i64 };
+        let q: &mut W1 = &mut w;
+        (*q).d = D { v: 1000i64, c: p };
+        r = w.d.v;
+    }
+    if r != 1000i64 { return 2i32; }
+    let got: i64 = unsafe { n };
+    if got != 1001i64 { return 1i32; }
+    return 0i32;
+}

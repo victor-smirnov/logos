@@ -1,0 +1,41 @@
+// SOUNDNESS QUEUE row let_underscore_defers_drop_to_block_end (tier 3). `let _ = e`
+// KEEPS THE VALUE ALIVE TO THE END OF THE BLOCK.
+//
+// Rust: `let _ = e` binds NOTHING. The value is dropped at the end of that
+// statement. Here `let _ = O(1); let a = O(2);` gives the sequence 1 then 2 = 12.
+// TODAY it is 21 — the value behaves like an ordinary local named `_` and dies in
+// reverse declaration order with the rest.
+//
+// This is the ONE spelling of "discard a value now" and it is the documented way to
+// end a guard's life early; deferring it is a semantic change to every RAII pattern
+// written with it.
+//
+// ROOT, by symbol: `SemaChecker::lower_let` (src/compiler/sema_stmt.cpp) has NO
+// wildcard case — grep the function for `"_"` and there is none. The name `_`
+// reaches `define()` / `SemaImpl::declare_var` as an ordinary binding, takes a
+// dense slot and joins the frame's `var_order`, so the scope-exit walk drops it
+// with the block. The CONTROL is a bare expression statement, which is correct
+// (lattice e_expr_stmt_temp_dies_now, 12) — so the statement-scope temporary
+// machinery exists and `let _` simply does not reach it.
+//
+// ⚠ A CELL THAT PASSES FOR THE WRONG REASON: with `let _` written LAST
+// (`let a = O(1); let _ = O(2);`) both orderings answer 21, so that arrangement
+// certifies nothing. Measured 2026-09-06, lattice cells e_let_underscore_drops_now
+// and f_let_underscore_call. Rust: exit 0.
+package let_underscore_defers_drop_to_block_end;
+struct O { v: i64, c: *mut i64 }
+impl Drop for O { fn drop(self: &mut O) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let _ = O { v: 1i64, c: p };
+        let a: O = O { v: 2i64, c: p };
+        r = a.v;
+    }
+    if r != 2i64 { return 2i32; }
+    let got: i64 = unsafe { n };
+    if got != 12i64 { return 1i32; }
+    return 0i32;
+}

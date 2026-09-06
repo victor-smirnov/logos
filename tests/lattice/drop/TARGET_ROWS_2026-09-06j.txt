@@ -1,0 +1,53 @@
+TARGET ROWS FOR THE NEXT (REPAIR) ROUND — named BY ID before any compiler edit,
+2026-09-06j, build 10f55b7c2fa44145 43, queue gate rc 0 on 56.
+
+THE BLOCK, in order of what it buys:
+
+ 1. shadowed_binding_never_dropped          tier 1  run 1
+ 2. shadow_over_param_double_drop           tier 1  run 1   (valgrind: Invalid free)
+ 3. shadow_rebind_after_move_refused        tier 3  refuses
+    ONE ROOT: SemaImpl::declare_var (src/compiler/sema_impl.hpp) records the frame's
+    scope-exit drop list `var_order` BY NAME and overwrites `vars[sname]`; the
+    name-keyed `moved_vars_` is the third face of the same key. The slot already
+    exists per binding ("fresh dense slot per binding (shadowing -> new slot)") —
+    the storage is reachable, only the frame's record of it is gone. ONE change
+    (key the drop list by SLOT) is predicted to move all three, and it moves them in
+    BOTH directions: two wrong-run rows and one over-refusal.
+    LATTICE SUPPORT: 19 cells, at all fourteen payload kinds, and SIX controls that
+    are already correct (nested block, distinct names, `mut` first, loop body,
+    parameter, three bindings) bound where the fix must NOT reach.
+
+ 4. assign_index_elem_no_drop_old           tier 1  run 1   (valgrind: 34 bytes lost)
+ 5. assign_tuple_elem_no_drop_old           tier 1  run 1
+ 6. assign_field_path_not_var_rooted_no_drop_old  tier 1  run 1
+    ONE ROOT: sema_stmt.cpp's place-assignment path admits FOUR place kinds
+    (INDEX_READ, FIELD_READ, TUPLE_INDEX, DEREF) and computes `field_old_live`
+    under `if (pc == la::FIELD_READ)` alone, and even there only when the chain
+    bottoms out at a `VAR_REF`; `drop_old_place` then rides
+    `builder().stmt_deref_write(..., drop_old_place)`.
+    THIS IS THE SHAPE THAT HAS PAID EVERY TIME: an ARM THAT EXISTS (the named-field
+    spelling is correct today, count 1001) reached through a fact the code does not
+    carry. Predicted: one predicate, four place kinds, three rows.
+
+ 7. index_write_through_local_refmut_clobbers_binding  tier 1  run 139
+    A SEPARATE ROOT and the most dangerous single row in the batch: no Drop is
+    involved, the store is mis-addressed onto the reference's own slot, and with a
+    larger array it writes PAST it into the frame. Six controls in the lattice
+    (block G) pin the shape to exactly INDEX + auto-deref sugar + LOCAL binding.
+    Take it FIRST if only one row is funded.
+
+WHY THIS BLOCK OVER THE OTHERS: rows 1-6 are two roots covering seven of the
+fifteen tier-1 rows in the queue, both roots are one predicate at a site the
+compiler already reaches, both have a CORRECT SIBLING in the same function or the
+same statement to copy from, and both were found by a lattice with 459 cells and
+443 controls rather than by accident. Row 7 is a different kind of buy: it is
+memory corruption a user meets on the first `&mut` to an array.
+
+DELIBERATELY NOT IN THE BLOCK:
+  struct_fields_dropped_reverse_order / tuple_elems_dropped_reverse_order — ONE flip
+    of two loops in MLIRGenImpl::gen_drop_value, but it changes the observable drop
+    ORDER of every aggregate in the tree at once. Cheap to write, expensive to
+    price; it wants its own round with the runtime column.
+  self_assign_refused_as_moved — the one row whose Rust verdict was not checked
+    against rustc (there is none on this box). Owner read first.
+  boxed_closure_to_dyn_fn_cast_internal — a missing lowering, not a wrong one.

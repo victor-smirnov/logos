@@ -1,0 +1,31 @@
+// SOUNDNESS QUEUE row nested_tuple_field_assign_unimplemented (tier 3, `refuses`).
+// A TUPLE-INDEX PLACE ONE HOP UNDER A FIELD IS REFUSED AS "TOO DEEPLY NESTED".
+//
+// Legal Rust: `w.t.0 = new` assigns the first element of a tuple field.
+// TODAY: "assignment target too deeply nested to assign in place yet; bind an
+// intermediate" — a stated unimplemented, so the refusal is honest, but it is a
+// refusal of legal Rust and belongs in this queue rather than in a fail fixture.
+//
+// The comparable NAMED-field path at the same depth is fine (`o.i.d = new`, lattice
+// cell c_assign_nested_field, 1001), and the tuple-index place is assignable at
+// depth one (`t.0 = new` compiles — it only forgets to drop the old value; see
+// assign_tuple_elem_no_drop_old). So the limit is on the tuple-index link
+// specifically, at depth two.
+//
+// Measured 2026-09-06, lattice cell f_assign_tuple_in_struct. Rust: exit 0.
+package nested_tuple_field_assign_unimplemented;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct Wt { t: (D, D), n: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let mut w: Wt = Wt { t: (D { v: 1i64, c: p }, D { v: 2i64, c: p }), n: 5i64 };
+        w.t.0 = D { v: 1000i64, c: p };
+        r = w.t.0.v;
+    }
+    if r != 1000i64 { return 2i32; }
+    return 0i32;
+}

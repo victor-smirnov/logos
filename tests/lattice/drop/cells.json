@@ -1,0 +1,4001 @@
+[
+ {
+  "id": "a_plain_none",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "plain",
+  "move": "none"
+ },
+ {
+  "id": "a_plain_callee",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "plain",
+  "move": "callee"
+ },
+ {
+  "id": "a_plain_return",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "plain",
+  "move": "return"
+ },
+ {
+  "id": "a_plain_reassign",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "plain",
+  "move": "reassign"
+ },
+ {
+  "id": "a_plain_shadow",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "plain",
+  "move": "shadow"
+ },
+ {
+  "id": "a_plain_branch_taken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "plain",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_plain_branch_nottaken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "plain",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_plain_loopmove",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "plain",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_plain_loopcreate",
+  "block": "A",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "plain",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_plain_closure",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "plain",
+  "move": "closure"
+ },
+ {
+  "id": "a_plain_byref",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "lent by shared reference and never moved: the owner still drops once at the end of the block",
+  "payload": "plain",
+  "move": "byref"
+ },
+ {
+  "id": "a_plain_never",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "plain",
+  "move": "never"
+ },
+ {
+  "id": "a_field_none",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "field",
+  "move": "none"
+ },
+ {
+  "id": "a_field_callee",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "field",
+  "move": "callee"
+ },
+ {
+  "id": "a_field_return",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "field",
+  "move": "return"
+ },
+ {
+  "id": "a_field_reassign",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "field",
+  "move": "reassign"
+ },
+ {
+  "id": "a_field_shadow",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "field",
+  "move": "shadow"
+ },
+ {
+  "id": "a_field_branch_taken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "field",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_field_branch_nottaken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "field",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_field_loopmove",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "field",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_field_loopcreate",
+  "block": "A",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "field",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_field_closure",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "field",
+  "move": "closure"
+ },
+ {
+  "id": "a_field_byref",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "lent by shared reference and never moved: the owner still drops once at the end of the block",
+  "payload": "field",
+  "move": "byref"
+ },
+ {
+  "id": "a_field_partial",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "one component moved out by projection: the moved part drops in the callee, every OTHER component still drops at scope end -- the total is unchanged, so a whole-source move mark shows up as a MISSING part",
+  "payload": "field",
+  "move": "partial"
+ },
+ {
+  "id": "a_field_never",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "field",
+  "move": "never"
+ },
+ {
+  "id": "a_two_none",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "two",
+  "move": "none"
+ },
+ {
+  "id": "a_two_callee",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "two",
+  "move": "callee"
+ },
+ {
+  "id": "a_two_return",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "two",
+  "move": "return"
+ },
+ {
+  "id": "a_two_reassign",
+  "block": "A",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "two",
+  "move": "reassign"
+ },
+ {
+  "id": "a_two_shadow",
+  "block": "A",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "two",
+  "move": "shadow"
+ },
+ {
+  "id": "a_two_branch_taken",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "two",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_two_branch_nottaken",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "two",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_two_loopmove",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "two",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_two_loopcreate",
+  "block": "A",
+  "expect_count": 33,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "two",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_two_closure",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "two",
+  "move": "closure"
+ },
+ {
+  "id": "a_two_byref",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "lent by shared reference and never moved: the owner still drops once at the end of the block",
+  "payload": "two",
+  "move": "byref"
+ },
+ {
+  "id": "a_two_partial",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "one component moved out by projection: the moved part drops in the callee, every OTHER component still drops at scope end -- the total is unchanged, so a whole-source move mark shows up as a MISSING part",
+  "payload": "two",
+  "move": "partial"
+ },
+ {
+  "id": "a_two_never",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "two",
+  "move": "never"
+ },
+ {
+  "id": "a_tuple_none",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "tuple",
+  "move": "none"
+ },
+ {
+  "id": "a_tuple_callee",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "tuple",
+  "move": "callee"
+ },
+ {
+  "id": "a_tuple_return",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "tuple",
+  "move": "return"
+ },
+ {
+  "id": "a_tuple_reassign",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "tuple",
+  "move": "reassign"
+ },
+ {
+  "id": "a_tuple_shadow",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "tuple",
+  "move": "shadow"
+ },
+ {
+  "id": "a_tuple_branch_taken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "tuple",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_tuple_branch_nottaken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "tuple",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_tuple_loopmove",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "tuple",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_tuple_loopcreate",
+  "block": "A",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "tuple",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_tuple_closure",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "tuple",
+  "move": "closure"
+ },
+ {
+  "id": "a_tuple_byref",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "lent by shared reference and never moved: the owner still drops once at the end of the block",
+  "payload": "tuple",
+  "move": "byref"
+ },
+ {
+  "id": "a_tuple_partial",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "one component moved out by projection: the moved part drops in the callee, every OTHER component still drops at scope end -- the total is unchanged, so a whole-source move mark shows up as a MISSING part",
+  "payload": "tuple",
+  "move": "partial"
+ },
+ {
+  "id": "a_tuple_never",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "tuple",
+  "move": "never"
+ },
+ {
+  "id": "a_tuple2_none",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "tuple2",
+  "move": "none"
+ },
+ {
+  "id": "a_tuple2_callee",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "tuple2",
+  "move": "callee"
+ },
+ {
+  "id": "a_tuple2_return",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "tuple2",
+  "move": "return"
+ },
+ {
+  "id": "a_tuple2_reassign",
+  "block": "A",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "tuple2",
+  "move": "reassign"
+ },
+ {
+  "id": "a_tuple2_shadow",
+  "block": "A",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "tuple2",
+  "move": "shadow"
+ },
+ {
+  "id": "a_tuple2_branch_taken",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "tuple2",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_tuple2_branch_nottaken",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "tuple2",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_tuple2_loopmove",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "tuple2",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_tuple2_loopcreate",
+  "block": "A",
+  "expect_count": 33,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "tuple2",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_tuple2_closure",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "tuple2",
+  "move": "closure"
+ },
+ {
+  "id": "a_tuple2_byref",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "lent by shared reference and never moved: the owner still drops once at the end of the block",
+  "payload": "tuple2",
+  "move": "byref"
+ },
+ {
+  "id": "a_tuple2_partial",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "one component moved out by projection: the moved part drops in the callee, every OTHER component still drops at scope end -- the total is unchanged, so a whole-source move mark shows up as a MISSING part",
+  "payload": "tuple2",
+  "move": "partial"
+ },
+ {
+  "id": "a_tuple2_never",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "tuple2",
+  "move": "never"
+ },
+ {
+  "id": "a_array_none",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "array",
+  "move": "none"
+ },
+ {
+  "id": "a_array_callee",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "array",
+  "move": "callee"
+ },
+ {
+  "id": "a_array_return",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "array",
+  "move": "return"
+ },
+ {
+  "id": "a_array_reassign",
+  "block": "A",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "array",
+  "move": "reassign"
+ },
+ {
+  "id": "a_array_shadow",
+  "block": "A",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "array",
+  "move": "shadow"
+ },
+ {
+  "id": "a_array_branch_taken",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "array",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_array_branch_nottaken",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "array",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_array_loopmove",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "array",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_array_loopcreate",
+  "block": "A",
+  "expect_count": 33,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "array",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_array_closure",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "array",
+  "move": "closure"
+ },
+ {
+  "id": "a_array_byref",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "lent by shared reference and never moved: the owner still drops once at the end of the block",
+  "payload": "array",
+  "move": "byref"
+ },
+ {
+  "id": "a_array_never",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "array",
+  "move": "never"
+ },
+ {
+  "id": "a_arr3_none",
+  "block": "A",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "arr3",
+  "move": "none"
+ },
+ {
+  "id": "a_arr3_callee",
+  "block": "A",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "arr3",
+  "move": "callee"
+ },
+ {
+  "id": "a_arr3_return",
+  "block": "A",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "arr3",
+  "move": "return"
+ },
+ {
+  "id": "a_arr3_reassign",
+  "block": "A",
+  "expect_count": 111111,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "arr3",
+  "move": "reassign"
+ },
+ {
+  "id": "a_arr3_shadow",
+  "block": "A",
+  "expect_count": 111111,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "arr3",
+  "move": "shadow"
+ },
+ {
+  "id": "a_arr3_branch_taken",
+  "block": "A",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "arr3",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_arr3_branch_nottaken",
+  "block": "A",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "arr3",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_arr3_loopmove",
+  "block": "A",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "arr3",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_arr3_loopcreate",
+  "block": "A",
+  "expect_count": 333,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "arr3",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_arr3_closure",
+  "block": "A",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "arr3",
+  "move": "closure"
+ },
+ {
+  "id": "a_arr3_byref",
+  "block": "A",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "lent by shared reference and never moved: the owner still drops once at the end of the block",
+  "payload": "arr3",
+  "move": "byref"
+ },
+ {
+  "id": "a_arr3_never",
+  "block": "A",
+  "expect_count": 111,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "arr3",
+  "move": "never"
+ },
+ {
+  "id": "a_vec_none",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "vec",
+  "move": "none"
+ },
+ {
+  "id": "a_vec_callee",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "vec",
+  "move": "callee"
+ },
+ {
+  "id": "a_vec_return",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "vec",
+  "move": "return"
+ },
+ {
+  "id": "a_vec_reassign",
+  "block": "A",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "vec",
+  "move": "reassign"
+ },
+ {
+  "id": "a_vec_shadow",
+  "block": "A",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "vec",
+  "move": "shadow"
+ },
+ {
+  "id": "a_vec_branch_taken",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "vec",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_vec_branch_nottaken",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "vec",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_vec_loopmove",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "vec",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_vec_loopcreate",
+  "block": "A",
+  "expect_count": 33,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "vec",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_vec_closure",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "vec",
+  "move": "closure"
+ },
+ {
+  "id": "a_vec_byref",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "lent by shared reference and never moved: the owner still drops once at the end of the block",
+  "payload": "vec",
+  "move": "byref"
+ },
+ {
+  "id": "a_vec_never",
+  "block": "A",
+  "expect_count": 11,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "vec",
+  "move": "never"
+ },
+ {
+  "id": "a_box_none",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "box",
+  "move": "none"
+ },
+ {
+  "id": "a_box_callee",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "box",
+  "move": "callee"
+ },
+ {
+  "id": "a_box_return",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "box",
+  "move": "return"
+ },
+ {
+  "id": "a_box_reassign",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "box",
+  "move": "reassign"
+ },
+ {
+  "id": "a_box_shadow",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "box",
+  "move": "shadow"
+ },
+ {
+  "id": "a_box_branch_taken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "box",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_box_branch_nottaken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "box",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_box_loopmove",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "box",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_box_loopcreate",
+  "block": "A",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "box",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_box_closure",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "box",
+  "move": "closure"
+ },
+ {
+  "id": "a_box_byref",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "lent by shared reference and never moved: the owner still drops once at the end of the block",
+  "payload": "box",
+  "move": "byref"
+ },
+ {
+  "id": "a_box_never",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "box",
+  "move": "never"
+ },
+ {
+  "id": "a_enum_none",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "enum",
+  "move": "none"
+ },
+ {
+  "id": "a_enum_callee",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "enum",
+  "move": "callee"
+ },
+ {
+  "id": "a_enum_return",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "enum",
+  "move": "return"
+ },
+ {
+  "id": "a_enum_reassign",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "enum",
+  "move": "reassign"
+ },
+ {
+  "id": "a_enum_shadow",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "enum",
+  "move": "shadow"
+ },
+ {
+  "id": "a_enum_branch_taken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "enum",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_enum_branch_nottaken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "enum",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_enum_loopmove",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "enum",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_enum_loopcreate",
+  "block": "A",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "enum",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_enum_closure",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "enum",
+  "move": "closure"
+ },
+ {
+  "id": "a_enum_byref",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "lent by shared reference and never moved: the owner still drops once at the end of the block",
+  "payload": "enum",
+  "move": "byref"
+ },
+ {
+  "id": "a_enum_never",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "enum",
+  "move": "never"
+ },
+ {
+  "id": "a_nested_none",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "nested",
+  "move": "none"
+ },
+ {
+  "id": "a_nested_callee",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "nested",
+  "move": "callee"
+ },
+ {
+  "id": "a_nested_return",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "nested",
+  "move": "return"
+ },
+ {
+  "id": "a_nested_reassign",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "nested",
+  "move": "reassign"
+ },
+ {
+  "id": "a_nested_shadow",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "nested",
+  "move": "shadow"
+ },
+ {
+  "id": "a_nested_branch_taken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "nested",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_nested_branch_nottaken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "nested",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_nested_loopmove",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "nested",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_nested_loopcreate",
+  "block": "A",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "nested",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_nested_closure",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "nested",
+  "move": "closure"
+ },
+ {
+  "id": "a_nested_byref",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "lent by shared reference and never moved: the owner still drops once at the end of the block",
+  "payload": "nested",
+  "move": "byref"
+ },
+ {
+  "id": "a_nested_partial",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "one component moved out by projection: the moved part drops in the callee, every OTHER component still drops at scope end -- the total is unchanged, so a whole-source move mark shows up as a MISSING part",
+  "payload": "nested",
+  "move": "partial"
+ },
+ {
+  "id": "a_nested_never",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "nested",
+  "move": "never"
+ },
+ {
+  "id": "a_generic_none",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "generic",
+  "move": "none"
+ },
+ {
+  "id": "a_generic_callee",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "generic",
+  "move": "callee"
+ },
+ {
+  "id": "a_generic_return",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "generic",
+  "move": "return"
+ },
+ {
+  "id": "a_generic_reassign",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "generic",
+  "move": "reassign"
+ },
+ {
+  "id": "a_generic_shadow",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "generic",
+  "move": "shadow"
+ },
+ {
+  "id": "a_generic_branch_taken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "generic",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_generic_branch_nottaken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "generic",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_generic_loopmove",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "generic",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_generic_loopcreate",
+  "block": "A",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "generic",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_generic_closure",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "generic",
+  "move": "closure"
+ },
+ {
+  "id": "a_generic_byref",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "lent by shared reference and never moved: the owner still drops once at the end of the block",
+  "payload": "generic",
+  "move": "byref"
+ },
+ {
+  "id": "a_generic_partial",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "one component moved out by projection: the moved part drops in the callee, every OTHER component still drops at scope end -- the total is unchanged, so a whole-source move mark shows up as a MISSING part",
+  "payload": "generic",
+  "move": "partial"
+ },
+ {
+  "id": "a_generic_never",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "generic",
+  "move": "never"
+ },
+ {
+  "id": "a_dyn_none",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "dyn",
+  "move": "none"
+ },
+ {
+  "id": "a_dyn_callee",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "dyn",
+  "move": "callee"
+ },
+ {
+  "id": "a_dyn_return",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "dyn",
+  "move": "return"
+ },
+ {
+  "id": "a_dyn_reassign",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "dyn",
+  "move": "reassign"
+ },
+ {
+  "id": "a_dyn_shadow",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "dyn",
+  "move": "shadow"
+ },
+ {
+  "id": "a_dyn_branch_taken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "dyn",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_dyn_branch_nottaken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "dyn",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_dyn_loopmove",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "dyn",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_dyn_loopcreate",
+  "block": "A",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "dyn",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_dyn_closure",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "dyn",
+  "move": "closure"
+ },
+ {
+  "id": "a_dyn_never",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "dyn",
+  "move": "never"
+ },
+ {
+  "id": "a_boxfield_none",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "one owner built and never moved: its whole tree drops once at the end of the block",
+  "payload": "boxfield",
+  "move": "none"
+ },
+ {
+  "id": "a_boxfield_callee",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved by value into a callee: the callee's frame drops it exactly once, the caller must not",
+  "payload": "boxfield",
+  "move": "callee"
+ },
+ {
+  "id": "a_boxfield_return",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "returned out of the fn that built it: the producer must not drop it, the consumer must",
+  "payload": "boxfield",
+  "move": "return"
+ },
+ {
+  "id": "a_boxfield_reassign",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "assignment over a live owner drops the OLD value at the assignment; the new one at scope end",
+  "payload": "boxfield",
+  "move": "reassign"
+ },
+ {
+  "id": "a_boxfield_shadow",
+  "block": "A",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a shadowing let does NOT end the first binding's storage: both drop at the end of the block",
+  "payload": "boxfield",
+  "move": "shadow"
+ },
+ {
+  "id": "a_boxfield_branch_taken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch that IS taken: the drop flag must be off at scope end, so exactly one drop",
+  "payload": "boxfield",
+  "move": "branch_taken"
+ },
+ {
+  "id": "a_boxfield_branch_nottaken",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in the branch NOT taken: the drop flag must be on at scope end, so exactly one drop",
+  "payload": "boxfield",
+  "move": "branch_nottaken"
+ },
+ {
+  "id": "a_boxfield_loopmove",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved inside a loop whose body breaks unconditionally: the move is reachable once, one drop",
+  "payload": "boxfield",
+  "move": "loopmove"
+ },
+ {
+  "id": "a_boxfield_loopcreate",
+  "block": "A",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "an owner built and dropped on every one of three iterations: three whole drops",
+  "payload": "boxfield",
+  "move": "loopcreate"
+ },
+ {
+  "id": "a_boxfield_closure",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved into a `move` closure: the closure owns it and drops it when the closure dies",
+  "payload": "boxfield",
+  "move": "closure"
+ },
+ {
+  "id": "a_boxfield_byref",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "lent by shared reference and never moved: the owner still drops once at the end of the block",
+  "payload": "boxfield",
+  "move": "byref"
+ },
+ {
+  "id": "a_boxfield_never",
+  "block": "A",
+  "expect_count": 1,
+  "expect_value": 42,
+  "why": "built and never read at all: it still drops once at the end of the block",
+  "payload": "boxfield",
+  "move": "never"
+ },
+ {
+  "id": "b_plain_block",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "plain",
+  "scope": "block"
+ },
+ {
+  "id": "b_plain_earlyret",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "plain",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_plain_break",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "plain",
+  "scope": "break"
+ },
+ {
+  "id": "b_plain_lblbreak",
+  "block": "B",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "plain",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_plain_continue",
+  "block": "B",
+  "expect_count": 2,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "plain",
+  "scope": "continue"
+ },
+ {
+  "id": "b_plain_divarm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "plain",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_plain_nestblk",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "plain",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_plain_matcharm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "plain",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_plain_loopback",
+  "block": "B",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "plain",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_plain_iflet",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "plain",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_plain_ifelse",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "plain",
+  "scope": "ifelse"
+ },
+ {
+  "id": "b_field_block",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "field",
+  "scope": "block"
+ },
+ {
+  "id": "b_field_earlyret",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "field",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_field_break",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "field",
+  "scope": "break"
+ },
+ {
+  "id": "b_field_lblbreak",
+  "block": "B",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "field",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_field_continue",
+  "block": "B",
+  "expect_count": 2,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "field",
+  "scope": "continue"
+ },
+ {
+  "id": "b_field_divarm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "field",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_field_nestblk",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "field",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_field_matcharm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "field",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_field_loopback",
+  "block": "B",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "field",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_field_iflet",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "field",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_field_ifelse",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "field",
+  "scope": "ifelse"
+ },
+ {
+  "id": "b_two_block",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "two",
+  "scope": "block"
+ },
+ {
+  "id": "b_two_earlyret",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "two",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_two_break",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "two",
+  "scope": "break"
+ },
+ {
+  "id": "b_two_lblbreak",
+  "block": "B",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "two",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_two_continue",
+  "block": "B",
+  "expect_count": 22,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "two",
+  "scope": "continue"
+ },
+ {
+  "id": "b_two_divarm",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "two",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_two_nestblk",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "two",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_two_matcharm",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "two",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_two_loopback",
+  "block": "B",
+  "expect_count": 33,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "two",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_two_iflet",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "two",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_two_ifelse",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "two",
+  "scope": "ifelse"
+ },
+ {
+  "id": "b_tuple_block",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "tuple",
+  "scope": "block"
+ },
+ {
+  "id": "b_tuple_earlyret",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "tuple",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_tuple_break",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "tuple",
+  "scope": "break"
+ },
+ {
+  "id": "b_tuple_lblbreak",
+  "block": "B",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "tuple",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_tuple_continue",
+  "block": "B",
+  "expect_count": 2,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "tuple",
+  "scope": "continue"
+ },
+ {
+  "id": "b_tuple_divarm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "tuple",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_tuple_nestblk",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "tuple",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_tuple_matcharm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "tuple",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_tuple_loopback",
+  "block": "B",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "tuple",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_tuple_iflet",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "tuple",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_tuple_ifelse",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "tuple",
+  "scope": "ifelse"
+ },
+ {
+  "id": "b_tuple2_block",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "tuple2",
+  "scope": "block"
+ },
+ {
+  "id": "b_tuple2_earlyret",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "tuple2",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_tuple2_break",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "tuple2",
+  "scope": "break"
+ },
+ {
+  "id": "b_tuple2_lblbreak",
+  "block": "B",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "tuple2",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_tuple2_continue",
+  "block": "B",
+  "expect_count": 22,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "tuple2",
+  "scope": "continue"
+ },
+ {
+  "id": "b_tuple2_divarm",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "tuple2",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_tuple2_nestblk",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "tuple2",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_tuple2_matcharm",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "tuple2",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_tuple2_loopback",
+  "block": "B",
+  "expect_count": 33,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "tuple2",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_tuple2_iflet",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "tuple2",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_tuple2_ifelse",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "tuple2",
+  "scope": "ifelse"
+ },
+ {
+  "id": "b_array_block",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "array",
+  "scope": "block"
+ },
+ {
+  "id": "b_array_earlyret",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "array",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_array_break",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "array",
+  "scope": "break"
+ },
+ {
+  "id": "b_array_lblbreak",
+  "block": "B",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "array",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_array_continue",
+  "block": "B",
+  "expect_count": 22,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "array",
+  "scope": "continue"
+ },
+ {
+  "id": "b_array_divarm",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "array",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_array_nestblk",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "array",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_array_matcharm",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "array",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_array_loopback",
+  "block": "B",
+  "expect_count": 33,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "array",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_array_iflet",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "array",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_array_ifelse",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "array",
+  "scope": "ifelse"
+ },
+ {
+  "id": "b_arr3_block",
+  "block": "B",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "arr3",
+  "scope": "block"
+ },
+ {
+  "id": "b_arr3_earlyret",
+  "block": "B",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "arr3",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_arr3_break",
+  "block": "B",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "arr3",
+  "scope": "break"
+ },
+ {
+  "id": "b_arr3_lblbreak",
+  "block": "B",
+  "expect_count": 111111,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "arr3",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_arr3_continue",
+  "block": "B",
+  "expect_count": 222,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "arr3",
+  "scope": "continue"
+ },
+ {
+  "id": "b_arr3_divarm",
+  "block": "B",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "arr3",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_arr3_nestblk",
+  "block": "B",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "arr3",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_arr3_matcharm",
+  "block": "B",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "arr3",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_arr3_loopback",
+  "block": "B",
+  "expect_count": 333,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "arr3",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_arr3_iflet",
+  "block": "B",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "arr3",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_arr3_ifelse",
+  "block": "B",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "arr3",
+  "scope": "ifelse"
+ },
+ {
+  "id": "b_vec_block",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "vec",
+  "scope": "block"
+ },
+ {
+  "id": "b_vec_earlyret",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "vec",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_vec_break",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "vec",
+  "scope": "break"
+ },
+ {
+  "id": "b_vec_lblbreak",
+  "block": "B",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "vec",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_vec_continue",
+  "block": "B",
+  "expect_count": 22,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "vec",
+  "scope": "continue"
+ },
+ {
+  "id": "b_vec_divarm",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "vec",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_vec_nestblk",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "vec",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_vec_matcharm",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "vec",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_vec_loopback",
+  "block": "B",
+  "expect_count": 33,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "vec",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_vec_iflet",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "vec",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_vec_ifelse",
+  "block": "B",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "vec",
+  "scope": "ifelse"
+ },
+ {
+  "id": "b_box_block",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "box",
+  "scope": "block"
+ },
+ {
+  "id": "b_box_earlyret",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "box",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_box_break",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "box",
+  "scope": "break"
+ },
+ {
+  "id": "b_box_lblbreak",
+  "block": "B",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "box",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_box_continue",
+  "block": "B",
+  "expect_count": 2,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "box",
+  "scope": "continue"
+ },
+ {
+  "id": "b_box_divarm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "box",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_box_nestblk",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "box",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_box_matcharm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "box",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_box_loopback",
+  "block": "B",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "box",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_box_iflet",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "box",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_box_ifelse",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "box",
+  "scope": "ifelse"
+ },
+ {
+  "id": "b_enum_block",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "enum",
+  "scope": "block"
+ },
+ {
+  "id": "b_enum_earlyret",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "enum",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_enum_break",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "enum",
+  "scope": "break"
+ },
+ {
+  "id": "b_enum_lblbreak",
+  "block": "B",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "enum",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_enum_continue",
+  "block": "B",
+  "expect_count": 2,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "enum",
+  "scope": "continue"
+ },
+ {
+  "id": "b_enum_divarm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "enum",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_enum_nestblk",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "enum",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_enum_matcharm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "enum",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_enum_loopback",
+  "block": "B",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "enum",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_enum_iflet",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "enum",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_enum_ifelse",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "enum",
+  "scope": "ifelse"
+ },
+ {
+  "id": "b_nested_block",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "nested",
+  "scope": "block"
+ },
+ {
+  "id": "b_nested_earlyret",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "nested",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_nested_break",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "nested",
+  "scope": "break"
+ },
+ {
+  "id": "b_nested_lblbreak",
+  "block": "B",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "nested",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_nested_continue",
+  "block": "B",
+  "expect_count": 2,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "nested",
+  "scope": "continue"
+ },
+ {
+  "id": "b_nested_divarm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "nested",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_nested_nestblk",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "nested",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_nested_matcharm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "nested",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_nested_loopback",
+  "block": "B",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "nested",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_nested_iflet",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "nested",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_nested_ifelse",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "nested",
+  "scope": "ifelse"
+ },
+ {
+  "id": "b_generic_block",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "generic",
+  "scope": "block"
+ },
+ {
+  "id": "b_generic_earlyret",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "generic",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_generic_break",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "generic",
+  "scope": "break"
+ },
+ {
+  "id": "b_generic_lblbreak",
+  "block": "B",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "generic",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_generic_continue",
+  "block": "B",
+  "expect_count": 2,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "generic",
+  "scope": "continue"
+ },
+ {
+  "id": "b_generic_divarm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "generic",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_generic_nestblk",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "generic",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_generic_matcharm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "generic",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_generic_loopback",
+  "block": "B",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "generic",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_generic_iflet",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "generic",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_generic_ifelse",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "generic",
+  "scope": "ifelse"
+ },
+ {
+  "id": "b_dyn_block",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "dyn",
+  "scope": "block"
+ },
+ {
+  "id": "b_dyn_earlyret",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "dyn",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_dyn_break",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "dyn",
+  "scope": "break"
+ },
+ {
+  "id": "b_dyn_lblbreak",
+  "block": "B",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "dyn",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_dyn_continue",
+  "block": "B",
+  "expect_count": 2,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "dyn",
+  "scope": "continue"
+ },
+ {
+  "id": "b_dyn_divarm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "dyn",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_dyn_nestblk",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "dyn",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_dyn_matcharm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "dyn",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_dyn_loopback",
+  "block": "B",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "dyn",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_dyn_iflet",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "dyn",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_dyn_ifelse",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "dyn",
+  "scope": "ifelse"
+ },
+ {
+  "id": "b_boxfield_block",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at the closing brace of a plain block",
+  "payload": "boxfield",
+  "scope": "block"
+ },
+ {
+  "id": "b_boxfield_earlyret",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an early `return` taken before the fn's last statement: the local still drops",
+  "payload": "boxfield",
+  "scope": "earlyret"
+ },
+ {
+  "id": "b_boxfield_break",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "scope ends at an unlabelled `break`: the loop-body local drops on the way out, once",
+  "payload": "boxfield",
+  "scope": "break"
+ },
+ {
+  "id": "b_boxfield_lblbreak",
+  "block": "B",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a labelled `break` leaves TWO scopes: the inner local and the outer local both drop, once each",
+  "payload": "boxfield",
+  "scope": "lblbreak"
+ },
+ {
+  "id": "b_boxfield_continue",
+  "block": "B",
+  "expect_count": 2,
+  "expect_value": 1,
+  "why": "`continue` ends the body scope on each of two iterations: two whole drops",
+  "payload": "boxfield",
+  "scope": "continue"
+ },
+ {
+  "id": "b_boxfield_divarm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm that DIVERGES (returns) must still drop the local the arm built",
+  "payload": "boxfield",
+  "scope": "divarm"
+ },
+ {
+  "id": "b_boxfield_nestblk",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "the inner block ends before the outer one: the drop happens at the INNER brace",
+  "payload": "boxfield",
+  "scope": "nestblk"
+ },
+ {
+  "id": "b_boxfield_matcharm",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm's block is a scope: the arm-local drops when the arm ends",
+  "payload": "boxfield",
+  "scope": "matcharm"
+ },
+ {
+  "id": "b_boxfield_loopback",
+  "block": "B",
+  "expect_count": 3,
+  "expect_value": 1,
+  "why": "the loop back edge ends the body scope: one whole drop per iteration, three in all",
+  "payload": "boxfield",
+  "scope": "loopback"
+ },
+ {
+  "id": "b_boxfield_iflet",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if let` body is a scope: the local built inside it drops at its end",
+  "payload": "boxfield",
+  "scope": "iflet"
+ },
+ {
+  "id": "b_boxfield_ifelse",
+  "block": "B",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "an `if` arm is a scope of its own: the local drops at the end of the taken arm",
+  "payload": "boxfield",
+  "scope": "ifelse"
+ },
+ {
+  "id": "c_assign_local",
+  "block": "C",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "assignment to a local drops the old value at the assignment; the new one at scope end",
+  "path": "direct"
+ },
+ {
+  "id": "c_assign_through_refmut",
+  "block": "C",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "`*q = v` through a `&mut` drops the pointee that was there, then the new one at scope end",
+  "path": "&mut"
+ },
+ {
+  "id": "c_assign_field",
+  "block": "C",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "assigning a field drops the OLD field value only; the enclosing struct drops the new one at scope end",
+  "path": "field"
+ },
+ {
+  "id": "c_assign_field_other_live",
+  "block": "C",
+  "expect_count": 1011,
+  "expect_value": 1000,
+  "why": "assigning ONE droppable field of two drops only that field; the sibling still drops at scope end",
+  "path": "field"
+ },
+ {
+  "id": "c_assign_index",
+  "block": "C",
+  "expect_count": 1011,
+  "expect_value": 1000,
+  "why": "assigning an array element drops the OLD element; the new one and the untouched sibling drop at scope end",
+  "path": "index"
+ },
+ {
+  "id": "c_assign_box_deref",
+  "block": "C",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "`*b = v` through a Box drops the boxed value that was there; the new one dies with the Box",
+  "path": "box"
+ },
+ {
+  "id": "c_assign_nested_field",
+  "block": "C",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a two-hop field path names one place: only the value at that place is dropped",
+  "path": "field.field"
+ },
+ {
+  "id": "c_assign_tuple_elem",
+  "block": "C",
+  "expect_count": 1011,
+  "expect_value": 1000,
+  "why": "assigning one tuple element drops that element only; the sibling drops at scope end",
+  "path": "tuple.0"
+ },
+ {
+  "id": "c_assign_whole_struct",
+  "block": "C",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "assigning the WHOLE struct drops both old fields, then the two new ones at scope end",
+  "path": "direct"
+ },
+ {
+  "id": "c_assign_index_var",
+  "block": "C",
+  "expect_count": 1011,
+  "expect_value": 1000,
+  "why": "an index that is not a literal names the same place: the old element is still dropped",
+  "path": "index[var]"
+ },
+ {
+  "id": "c_assign_field_through_refmut",
+  "block": "C",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a field assignment reached through a `&mut` to the struct drops the old field value",
+  "path": "&mut .field"
+ },
+ {
+  "id": "c_assign_self_move",
+  "block": "C",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "moving out of one local into another leaves the source with no value: exactly one whole drop",
+  "path": "direct"
+ },
+ {
+  "id": "c_swap_three",
+  "block": "C",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a three-step swap moves each value exactly once: two owners, two drops",
+  "path": "direct"
+ },
+ {
+  "id": "c_read_after_partial",
+  "block": "C",
+  "expect_count": 11,
+  "expect_value": 10,
+  "why": "after one field is moved out, the OTHER field is still readable and still drops",
+  "path": "field"
+ },
+ {
+  "id": "c_move_out_of_box",
+  "block": "C",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moving the boxed value out of a Box (Box is the one type with DerefMove) leaves the Box empty: one drop",
+  "path": "box"
+ },
+ {
+  "id": "c_move_field_out_of_box",
+  "block": "C",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moving a droppable FIELD out of a Box: the field drops in the callee, nothing else is droppable",
+  "path": "box.field"
+ },
+ {
+  "id": "c_temp_argument",
+  "block": "C",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a temporary built directly as an argument is owned by the callee and dropped there, once",
+  "path": "temp"
+ },
+ {
+  "id": "c_temp_unbound",
+  "block": "C",
+  "expect_count": 1,
+  "expect_value": 42,
+  "why": "a temporary whose value is discarded still drops at the end of the enclosing statement",
+  "path": "temp"
+ },
+ {
+  "id": "c_nested_temp_in_ctor",
+  "block": "C",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a temporary consumed by a constructor is not dropped separately: it IS the field",
+  "path": "temp"
+ },
+ {
+  "id": "c_vec_push_then_drop",
+  "block": "C",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "a Vec drops every element it holds: three pushes, three element drops",
+  "path": "vec"
+ },
+ {
+  "id": "c_vec_reassign",
+  "block": "C",
+  "expect_count": 11011,
+  "expect_value": 1000,
+  "why": "assigning over a Vec drops the old Vec AND every element it held",
+  "path": "vec"
+ },
+ {
+  "id": "c_array_of_struct",
+  "block": "C",
+  "expect_count": 1111,
+  "expect_value": 1,
+  "why": "an array of two-owner structs drops all four owners",
+  "path": "index.field"
+ },
+ {
+  "id": "c_patbind_move_out",
+  "block": "C",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a destructuring `let` moves each element into its binder: each binder drops once, the source not at all",
+  "path": "pattern"
+ },
+ {
+  "id": "c_patbind_one_moved",
+  "block": "C",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "`W2{ d: dd, .. }` moves ONE field into a binder and leaves the other in the source: both still drop once",
+  "path": "pattern"
+ },
+ {
+  "id": "c_patbind_ref",
+  "block": "C",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "`ref` binders move nothing: the source keeps both owners and drops both at scope end",
+  "path": "pattern"
+ },
+ {
+  "id": "c_match_move_payload",
+  "block": "C",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm that moves the payload out of an enum: the payload drops once, the enum shell holds nothing",
+  "path": "pattern"
+ },
+ {
+  "id": "c_match_ref_payload",
+  "block": "C",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm that binds the payload by `ref`: the enum still owns it and drops it at scope end",
+  "path": "pattern"
+ },
+ {
+  "id": "d_locals_reverse",
+  "block": "D",
+  "expect_count": 321,
+  "expect_value": 6,
+  "why": "locals are dropped in REVERSE declaration order: c, b, a -> 3, 2, 1",
+  "order": "locals"
+ },
+ {
+  "id": "d_struct_fields_declorder",
+  "block": "D",
+  "expect_count": 123,
+  "expect_value": 1,
+  "why": "struct fields are dropped in DECLARATION order: a, b, c -> 1, 2, 3",
+  "order": "fields"
+ },
+ {
+  "id": "d_tuple_elems_order",
+  "block": "D",
+  "expect_count": 123,
+  "expect_value": 1,
+  "why": "tuple elements are dropped left to right: .0, .1, .2",
+  "order": "tuple"
+ },
+ {
+  "id": "d_array_elems_order",
+  "block": "D",
+  "expect_count": 123,
+  "expect_value": 1,
+  "why": "array elements are dropped in index order: 0, 1, 2",
+  "order": "array"
+ },
+ {
+  "id": "d_nested_outer_then_inner",
+  "block": "D",
+  "expect_count": 12,
+  "expect_value": 1,
+  "why": "a struct's own Drop::drop runs BEFORE its fields' -- here the outer struct has no Drop, so the field order is all there is",
+  "order": "nested"
+ },
+ {
+  "id": "d_locals_and_temps",
+  "block": "D",
+  "expect_count": 21,
+  "expect_value": 2,
+  "why": "a temporary argument dies at the end of its statement, BEFORE the local declared before it",
+  "order": "temps"
+ },
+ {
+  "id": "d_loop_iterations_order",
+  "block": "D",
+  "expect_count": 123,
+  "expect_value": 3,
+  "why": "each iteration's local dies at the end of that iteration, so the order is the iteration order",
+  "order": "loop"
+ },
+ {
+  "id": "d_moved_out_order",
+  "block": "D",
+  "expect_count": 231,
+  "expect_value": 2,
+  "why": "b is moved into the callee and dies there FIRST (2); then the two survivors die in reverse declaration order, c then a (3, 1)",
+  "order": "move"
+ },
+ {
+  "id": "d_vec_elem_order",
+  "block": "D",
+  "expect_count": 123,
+  "expect_value": 1,
+  "why": "a Vec drops its elements front to back",
+  "order": "vec"
+ },
+ {
+  "id": "d_assign_drops_before_new",
+  "block": "D",
+  "expect_count": 12,
+  "expect_value": 2,
+  "why": "the old value dies at the assignment, so it dies BEFORE the value that replaced it",
+  "order": "assign"
+ },
+ {
+  "id": "d_nested_block_first",
+  "block": "D",
+  "expect_count": 21,
+  "expect_value": 1,
+  "why": "the inner block's local dies at the inner brace, before the outer block's local",
+  "order": "nested"
+ },
+ {
+  "id": "d_struct_with_drop_then_fields",
+  "block": "D",
+  "expect_count": 312,
+  "expect_value": 1,
+  "why": "a type with its own Drop::drop runs the impl FIRST (3), then its fields in declaration order (1, 2)",
+  "order": "dropimpl"
+ },
+ {
+  "id": "e_let_underscore_drops_now",
+  "block": "E",
+  "expect_count": 12,
+  "expect_value": 2,
+  "why": "`let _ = e` binds nothing: e is dropped AT THAT STATEMENT (1), before the later local (2)",
+  "shape": "let _"
+ },
+ {
+  "id": "e_let_underscore_named_lives",
+  "block": "E",
+  "expect_count": 21,
+  "expect_value": 2,
+  "why": "`let _x = e` IS a binding: it lives to the end of the block, so it dies after the later local (2, then 1)",
+  "shape": "let _x"
+ },
+ {
+  "id": "e_temp_in_if_condition",
+  "block": "E",
+  "expect_count": 21,
+  "expect_value": 1,
+  "why": "a temporary in an `if` condition dies at the end of the condition, before the block runs and before the outer local",
+  "shape": "temp"
+ },
+ {
+  "id": "e_temp_in_while_condition",
+  "block": "E",
+  "expect_count": 221,
+  "expect_value": 1,
+  "why": "a temporary in a `while` condition is built and dropped on every test of the condition -- twice here, then the local",
+  "shape": "temp"
+ },
+ {
+  "id": "e_method_self_by_value",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a method taking `self` by value owns it: it drops in the method, once",
+  "shape": "method"
+ },
+ {
+  "id": "e_generic_fn_consumes",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 42,
+  "why": "a generic fn taking T by value must run T's drop glue at its own scope end",
+  "shape": "generic"
+ },
+ {
+  "id": "e_generic_fn_consumes_copy",
+  "block": "E",
+  "expect_count": 0,
+  "expect_value": 42,
+  "why": "the same generic fn at T = i64 has no drop glue at all: zero drops",
+  "shape": "generic"
+ },
+ {
+  "id": "e_trait_default_consumes",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a trait DEFAULT body taking `self` by value drops it at the default body's scope end",
+  "shape": "trait"
+ },
+ {
+  "id": "e_for_over_vec",
+  "block": "E",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "a `for` over a Vec consumes it and drops each of the three items exactly once",
+  "shape": "for"
+ },
+ {
+  "id": "e_boxbox",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a Box of a Box drops the inner value exactly once",
+  "shape": "box"
+ },
+ {
+  "id": "e_vec_of_box",
+  "block": "E",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a Vec of Boxes drops every boxed value once",
+  "shape": "vec"
+ },
+ {
+  "id": "e_array_of_box",
+  "block": "E",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "an array of Boxes drops every boxed value once",
+  "shape": "array"
+ },
+ {
+  "id": "e_vec_of_vec",
+  "block": "E",
+  "expect_count": 1111,
+  "expect_value": 1,
+  "why": "a Vec of Vecs drops every element of every inner Vec",
+  "shape": "vec"
+ },
+ {
+  "id": "e_reinit_after_move",
+  "block": "E",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a local moved out and then RE-ASSIGNED is live again: the moved value drops in the callee, the new one at scope end",
+  "shape": "reinit"
+ },
+ {
+  "id": "e_reinit_field_after_move",
+  "block": "E",
+  "expect_count": 1011,
+  "expect_value": 1000,
+  "why": "a FIELD moved out and then re-assigned: the moved field drops in the callee (1), and the new field (1000) and the sibling (10) at scope end -- the assignment must NOT drop the moved-out place again",
+  "shape": "reinit"
+ },
+ {
+  "id": "e_both_fields_moved",
+  "block": "E",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "BOTH droppable fields moved out one at a time: each drops in its callee and the shell drops nothing",
+  "shape": "partial"
+ },
+ {
+  "id": "e_partial_then_early_return",
+  "block": "E",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "one field moved out and then an early return: the moved one drops in the callee, the survivor on the return path",
+  "shape": "partial"
+ },
+ {
+  "id": "e_move_into_struct_literal",
+  "block": "E",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a local moved into a struct literal is owned by the struct: one drop each, none at the source",
+  "shape": "ctor"
+ },
+ {
+  "id": "e_move_into_vec_push",
+  "block": "E",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "locals moved into a Vec by push are owned by the Vec: two drops when the Vec dies",
+  "shape": "vec"
+ },
+ {
+  "id": "e_closure_boxed_dyn",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a `move` closure stored behind Box<dyn Fn> owns its capture and drops it when the box dies",
+  "shape": "closure"
+ },
+ {
+  "id": "e_closure_by_ref_capture",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a non-`move` closure borrows its capture: the OWNER still drops it, once",
+  "shape": "closure"
+ },
+ {
+  "id": "e_closure_called_twice",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a `move` closure called twice still owns ONE capture and drops it once",
+  "shape": "closure"
+ },
+ {
+  "id": "e_zero_sized_drop",
+  "block": "E",
+  "expect_count": 0,
+  "expect_value": 1,
+  "why": "a field-less struct with a Drop impl still has its destructor run once; the count here is kept in a static because the value carries no pointer",
+  "shape": "zst"
+ },
+ {
+  "id": "e_match_scrutinee_temp",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a temporary built as the match scrutinee lives for the whole match and dies at its end, once",
+  "shape": "temp"
+ },
+ {
+  "id": "e_match_arm_moves_scrutinee_local",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a match arm that moves the scrutinee local out: one drop, in the arm's callee",
+  "shape": "match"
+ },
+ {
+  "id": "e_match_one_arm_moves",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "the arm that moves is NOT taken, so the local is still live at the end of the match and drops there",
+  "shape": "match"
+ },
+ {
+  "id": "e_while_let_body_local",
+  "block": "E",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a `while let` body is a scope: the local built inside it drops on each of the two iterations",
+  "shape": "whilelet"
+ },
+ {
+  "id": "e_nested_fn_returns_field",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a fn that builds a struct and returns ONE field: the returned field drops in the caller, nothing else is droppable",
+  "shape": "return"
+ },
+ {
+  "id": "e_struct_update_rest",
+  "block": "E",
+  "expect_count": 1011,
+  "expect_value": 1000,
+  "why": "functional-update `W2{ d: new, ..old }` moves old's e into the new struct; old's d is NOT moved and dies with old (1), the new d (1000) and the moved e (10) die with the new struct",
+  "shape": "fru"
+ },
+ {
+  "id": "e_array_elem_move_refused",
+  "block": "E",
+  "expect_count": 0,
+  "expect_value": 0,
+  "why": "moving out of an array INDEX is illegal in Rust (E0507): this cell must be REFUSED",
+  "shape": "index"
+ },
+ {
+  "id": "e_vec_elem_move_refused",
+  "block": "E",
+  "expect_count": 0,
+  "expect_value": 0,
+  "why": "moving out of a Vec index is illegal in Rust (E0507): this cell must be REFUSED",
+  "shape": "index"
+ },
+ {
+  "id": "e_use_after_move_refused",
+  "block": "E",
+  "expect_count": 0,
+  "expect_value": 0,
+  "why": "reading a local after it was moved is illegal in Rust (E0382): this cell must be REFUSED",
+  "shape": "moved"
+ },
+ {
+  "id": "e_double_move_refused",
+  "block": "E",
+  "expect_count": 0,
+  "expect_value": 0,
+  "why": "moving the same local twice is illegal in Rust (E0382): this cell must be REFUSED",
+  "shape": "moved"
+ },
+ {
+  "id": "e_move_in_loop_refused",
+  "block": "E",
+  "expect_count": 0,
+  "expect_value": 0,
+  "why": "a move in a loop body reachable on a back edge is illegal in Rust (E0382): this cell must be REFUSED",
+  "shape": "loop"
+ },
+ {
+  "id": "e_partial_then_whole_move_refused",
+  "block": "E",
+  "expect_count": 0,
+  "expect_value": 0,
+  "why": "moving the whole struct after one field was moved out is illegal in Rust (E0382): this cell must be REFUSED",
+  "shape": "partial"
+ },
+ {
+  "id": "e_generic_struct_drop_impl",
+  "block": "E",
+  "expect_count": 3,
+  "expect_value": 5,
+  "why": "a Drop impl on a GENERIC struct runs at T = D: the impl adds 2 and the field's own drop adds 1",
+  "shape": "generic"
+ },
+ {
+  "id": "e_two_type_params_one_droppable",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a two-parameter generic with only one droppable argument drops exactly that one",
+  "shape": "generic"
+ },
+ {
+  "id": "e_tuple_struct_payload",
+  "block": "E",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a tuple struct with two droppable fields drops both",
+  "shape": "tuplestruct"
+ },
+ {
+  "id": "e_enum_two_payload_read",
+  "block": "E",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "an enum variant with two droppable payload fields, read only: both drop with the enum",
+  "shape": "enum"
+ },
+ {
+  "id": "e_enum_two_payload_move_both",
+  "block": "E",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "both payload fields moved out by the arm: each drops once in the arm, the shell drops nothing",
+  "shape": "enum"
+ },
+ {
+  "id": "e_enum_other_variant",
+  "block": "E",
+  "expect_count": 0,
+  "expect_value": 7,
+  "why": "a variant carrying no payload has nothing to drop",
+  "shape": "enum"
+ },
+ {
+  "id": "e_self_assign",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "`x = x` moves a value onto itself: it must still be dropped exactly once",
+  "shape": "assign"
+ },
+ {
+  "id": "e_drop_order_across_return",
+  "block": "E",
+  "expect_count": 21,
+  "expect_value": 1,
+  "why": "an inner block's local dies at the inner brace even when the outer fn returns right after",
+  "shape": "order"
+ },
+ {
+  "id": "e_cond_move_both_branches",
+  "block": "E",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moved in BOTH branches: exactly one drop whichever branch runs, and none at scope end",
+  "shape": "branch"
+ },
+ {
+  "id": "e_cond_move_then_read_refused",
+  "block": "E",
+  "expect_count": 0,
+  "expect_value": 0,
+  "why": "reading after a move that happened on only ONE path is illegal in Rust (E0382): this cell must be REFUSED",
+  "shape": "branch"
+ },
+ {
+  "id": "e_recursive_box_list",
+  "block": "E",
+  "expect_count": 111,
+  "expect_value": 1,
+  "why": "a Box-linked list drops every node's payload exactly once",
+  "shape": "box"
+ },
+ {
+  "id": "f_shadow_three",
+  "block": "F",
+  "expect_count": 1011,
+  "expect_value": 1000,
+  "why": "three bindings of ONE name in ONE frame: all three values die at the end of the block",
+  "edge": "shadow"
+ },
+ {
+  "id": "f_shadow_nested_block_ctl",
+  "block": "F",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "CONTROL: the same two bindings in NESTED frames -- both die, the inner one first",
+  "edge": "shadow"
+ },
+ {
+  "id": "f_shadow_distinct_names_ctl",
+  "block": "F",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "CONTROL: two bindings of DIFFERENT names in one frame -- both die",
+  "edge": "shadow"
+ },
+ {
+  "id": "f_shadow_mut_first",
+  "block": "F",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "the shadowed binding being `mut` changes nothing: both values still die",
+  "edge": "shadow"
+ },
+ {
+  "id": "f_shadow_after_move",
+  "block": "F",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "the first binding is MOVED OUT before being shadowed: it dies in the callee, the second at scope end",
+  "edge": "shadow"
+ },
+ {
+  "id": "f_shadow_fn_param",
+  "block": "F",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a parameter shadowed by a local of the same name: the argument still dies with the frame",
+  "edge": "shadow"
+ },
+ {
+  "id": "f_shadow_loop_body",
+  "block": "F",
+  "expect_count": 22,
+  "expect_value": 1000,
+  "why": "shadowing inside a loop body: on each of two iterations BOTH values die at the end of the body -- 2 * (1 + 10)",
+  "edge": "shadow"
+ },
+ {
+  "id": "f_assign_field_of_indexed",
+  "block": "F",
+  "expect_count": 1015,
+  "expect_value": 1000,
+  "why": "a field path ROOTED AT AN INDEX names a place like any other: `a[0].d = new` must drop the old field",
+  "edge": "assign-place"
+ },
+ {
+  "id": "f_assign_indexed_of_field",
+  "block": "F",
+  "expect_count": 1013,
+  "expect_value": 1000,
+  "why": "an index path rooted at a FIELD is still a place: `w.a[0] = new` must drop the old element",
+  "edge": "assign-place"
+ },
+ {
+  "id": "f_assign_tuple_in_struct",
+  "block": "F",
+  "expect_count": 1013,
+  "expect_value": 1000,
+  "why": "a tuple-index path rooted at a field: `w.t.0 = new` must drop the old element",
+  "edge": "assign-place"
+ },
+ {
+  "id": "f_assign_index_through_refmut",
+  "block": "F",
+  "expect_count": 1011,
+  "expect_value": 1000,
+  "why": "an element assignment reached through a `&mut` to the array must drop the old element",
+  "edge": "assign-place"
+ },
+ {
+  "id": "f_assign_deref_field_ctl",
+  "block": "F",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "CONTROL for the same predicate at the DEREF place kind: `(*q).d = new` drops the old field",
+  "edge": "assign-place"
+ },
+ {
+  "id": "f_box_deref_move_in_arg",
+  "block": "F",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "moving the boxed value out of a Box in an ARGUMENT position is the same move the `let` position already lowers",
+  "edge": "box-move"
+ },
+ {
+  "id": "f_box_deref_move_in_let_ctl",
+  "block": "F",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "CONTROL: the same move at the `let` position, which `try_lower_box_deref_move` already handles",
+  "edge": "box-move"
+ },
+ {
+  "id": "f_box_deref_move_in_return",
+  "block": "F",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "the same move in a RETURN position",
+  "edge": "box-move"
+ },
+ {
+  "id": "f_box_deref_move_in_ctor",
+  "block": "F",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "the same move into a struct literal field",
+  "edge": "box-move"
+ },
+ {
+  "id": "f_let_underscore_after",
+  "block": "F",
+  "expect_count": 21,
+  "expect_value": 1,
+  "why": "`let _ = e` after a local: e dies at ITS statement (2), the local at the block end (1)",
+  "edge": "let _"
+ },
+ {
+  "id": "f_let_underscore_call",
+  "block": "F",
+  "expect_count": 12,
+  "expect_value": 2,
+  "why": "`let _ = f()` discards a returned owner at the statement, before the later local",
+  "edge": "let _"
+ },
+ {
+  "id": "f_expr_stmt_temp_dies_now",
+  "block": "F",
+  "expect_count": 12,
+  "expect_value": 2,
+  "why": "CONTROL: a bare expression statement's value dies at that statement, before the later local",
+  "edge": "temp"
+ },
+ {
+  "id": "f_field_order_two",
+  "block": "F",
+  "expect_count": 12,
+  "expect_value": 1,
+  "why": "two fields, declaration order: a then b",
+  "edge": "order"
+ },
+ {
+  "id": "f_field_order_four",
+  "block": "F",
+  "expect_count": 1234,
+  "expect_value": 1,
+  "why": "four fields, declaration order",
+  "edge": "order"
+ },
+ {
+  "id": "f_tuple_order_two",
+  "block": "F",
+  "expect_count": 12,
+  "expect_value": 1,
+  "why": "two tuple elements, left to right",
+  "edge": "order"
+ },
+ {
+  "id": "f_array_order_ctl",
+  "block": "F",
+  "expect_count": 12,
+  "expect_value": 1,
+  "why": "CONTROL: array elements already go in index order -- the sibling branch of the same walk",
+  "edge": "order"
+ },
+ {
+  "id": "f_enum_payload_order",
+  "block": "F",
+  "expect_count": 12,
+  "expect_value": 1,
+  "why": "an enum variant's payload fields go in declaration order",
+  "edge": "order"
+ },
+ {
+  "id": "f_nested_struct_order",
+  "block": "F",
+  "expect_count": 123,
+  "expect_value": 1,
+  "why": "a struct whose FIRST field is itself a struct: the inner pair goes before the outer's later field",
+  "edge": "order"
+ },
+ {
+  "id": "f_param_drop_order",
+  "block": "F",
+  "expect_count": 21,
+  "expect_value": 1,
+  "why": "function parameters are dropped in REVERSE declaration order, like locals",
+  "edge": "order"
+ },
+ {
+  "id": "f_vec_push_order",
+  "block": "F",
+  "expect_count": 12,
+  "expect_value": 1,
+  "why": "CONTROL: a Vec drops front to back",
+  "edge": "order"
+ },
+ {
+  "id": "f_compound_assign_no_drop",
+  "block": "F",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a compound assignment on a plain i64 field of an owner drops nothing extra",
+  "edge": "assign"
+ },
+ {
+  "id": "f_for_over_array",
+  "block": "F",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a `for` over an array by value consumes it and drops each element once",
+  "edge": "for"
+ },
+ {
+  "id": "f_drop_impl_moves_field",
+  "block": "F",
+  "expect_count": 12,
+  "expect_value": 1,
+  "why": "a Drop impl body that reads a field runs BEFORE the fields' own drops",
+  "edge": "dropimpl"
+ },
+ {
+  "id": "f_two_owners_one_moved_early_return",
+  "block": "F",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "one of two owners moved out, then an early return: exactly one drop each",
+  "edge": "branch"
+ },
+ {
+  "id": "f_owner_moved_into_returned_struct",
+  "block": "F",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "two owners moved into a struct that is then returned: two drops, in the caller",
+  "edge": "return"
+ },
+ {
+  "id": "f_closure_fnonce_consumes",
+  "block": "F",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a `move` closure whose body MOVES the capture into a callee: one drop, in that callee",
+  "edge": "closure"
+ },
+ {
+  "id": "f_nested_closure_capture",
+  "block": "F",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "a capture carried through TWO closure layers is still dropped exactly once",
+  "edge": "closure"
+ },
+ {
+  "id": "f_match_mutref_scrutinee",
+  "block": "F",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "matching a `&mut` to an owner binds by reference and moves nothing: one drop at the owner's scope end",
+  "edge": "match"
+ },
+ {
+  "id": "f_generic_vec_of_generic",
+  "block": "F",
+  "expect_count": 11,
+  "expect_value": 1,
+  "why": "a Vec of a generic struct at T = D drops each instance's payload once",
+  "edge": "generic"
+ },
+ {
+  "id": "f_owner_in_static_slot",
+  "block": "F",
+  "expect_count": 1001,
+  "expect_value": 1000,
+  "why": "a local declared uninitialised and assigned twice drops the first value at the second assignment",
+  "edge": "assign"
+ },
+ {
+  "id": "f_owner_assigned_once_after_decl",
+  "block": "F",
+  "expect_count": 1,
+  "expect_value": 1,
+  "why": "CONTROL: a local declared uninitialised and assigned ONCE drops nothing at the assignment",
+  "edge": "assign"
+ },
+ {
+  "id": "g_idxwrite_local_refmut",
+  "block": "G",
+  "expect_count": 77,
+  "expect_value": 2,
+  "why": "`q[0] = v` through a LOCAL `&mut [i64; 2]` must store into the referent",
+  "write": "index"
+ },
+ {
+  "id": "g_idxwrite_local_refmut_explicit",
+  "block": "G",
+  "expect_count": 77,
+  "expect_value": 2,
+  "why": "CONTROL: the same store written with an explicit deref, `(*q)[0] = v`",
+  "write": "index"
+ },
+ {
+  "id": "g_idxwrite_param_refmut",
+  "block": "G",
+  "expect_count": 77,
+  "expect_value": 2,
+  "why": "CONTROL: the same store through a `&mut [i64; 2]` PARAMETER",
+  "write": "index"
+ },
+ {
+  "id": "g_idxwrite_direct",
+  "block": "G",
+  "expect_count": 77,
+  "expect_value": 2,
+  "why": "CONTROL: the same store straight to the local array",
+  "write": "index"
+ },
+ {
+  "id": "g_idxwrite_struct_elem",
+  "block": "G",
+  "expect_count": 77,
+  "expect_value": 2,
+  "why": "the same store through a local `&mut` where the element is a struct",
+  "write": "index"
+ },
+ {
+  "id": "g_idxread_local_refmut",
+  "block": "G",
+  "expect_count": 1,
+  "expect_value": 2,
+  "why": "CONTROL: READING `q[0]` through the same local `&mut` binding",
+  "write": "index"
+ },
+ {
+  "id": "g_fieldwrite_local_refmut",
+  "block": "G",
+  "expect_count": 77,
+  "expect_value": 2,
+  "why": "CONTROL for the same sugar at a FIELD place: `q.a = v` through a local `&mut`",
+  "write": "field"
+ },
+ {
+  "id": "g_idxwrite_vec_local_refmut",
+  "block": "G",
+  "expect_count": 77,
+  "expect_value": 2,
+  "why": "CONTROL: a Vec reached through a local `&mut`, written by its own method",
+  "write": "index"
+ },
+ {
+  "id": "g_idxwrite_local_ref_to_array_in_struct",
+  "block": "G",
+  "expect_count": 77,
+  "expect_value": 2,
+  "why": "a local `&mut` to an ARRAY FIELD, written through the index",
+  "write": "index"
+ }
+]

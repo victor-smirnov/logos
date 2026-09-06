@@ -42,7 +42,7 @@
 declare_pat_bindings_field_nomut_addrmut_admit 2 tests/soundness/open/declare_pat_bindings_field_nomut_addrmut_admit admits
 array_typed_field_binding_shape_lost 3 tests/soundness/open/array_typed_field_binding_shape_lost refuses
 let_at_binding_tuple_sub_unsupported 3 tests/soundness/open/let_at_binding_tuple_sub_unsupported refuses
-# TOTAL 42
+# TOTAL 56
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 drop_inherent_call_order      1 tests/soundness/open/drop_inherent_call_order      refuses
@@ -82,3 +82,22 @@ letstruct_partial_destructure_moves_whole_source 3 tests/soundness/open/letstruc
 let_tuplestruct_generic_elem_type_unsubstituted 3 tests/soundness/open/let_tuplestruct_generic_elem_type_unsubstituted refuses
 arrayelem_default_ref_mode_not_minted 3 tests/soundness/open/arrayelem_default_ref_mode_not_minted refuses
 sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_write_says_raw_pointer diag write through raw pointer requires unsafe context
+# ── 2026-09-06 OWNERSHIP AND DROP LATTICE (459 cells, generator tests/lattice/drop) ──
+# Read on the binary of build 10f55b7c2fa44145 43 (HEAD 69210911f): every cell
+# compiled, linked, RUN, and its DESTRUCTOR COUNT read off a raw-pointer counter —
+# a count for "how many", a `*c = *c * 10 + v` sequence counter for "in what order".
+# Six roots, named by symbol in each program's header, not by spelling.
+shadowed_binding_never_dropped 1 tests/soundness/open/shadowed_binding_never_dropped run 1
+shadow_over_param_double_drop 1 tests/soundness/open/shadow_over_param_double_drop run 1
+shadow_rebind_after_move_refused 3 tests/soundness/open/shadow_rebind_after_move_refused refuses
+assign_index_elem_no_drop_old 1 tests/soundness/open/assign_index_elem_no_drop_old run 1
+assign_tuple_elem_no_drop_old 1 tests/soundness/open/assign_tuple_elem_no_drop_old run 1
+assign_field_path_not_var_rooted_no_drop_old 1 tests/soundness/open/assign_field_path_not_var_rooted_no_drop_old run 1
+index_write_through_local_refmut_clobbers_binding 1 tests/soundness/open/index_write_through_local_refmut_clobbers_binding run 139
+struct_fields_dropped_reverse_order 3 tests/soundness/open/struct_fields_dropped_reverse_order run 1
+tuple_elems_dropped_reverse_order 3 tests/soundness/open/tuple_elems_dropped_reverse_order run 1
+let_underscore_defers_drop_to_block_end 3 tests/soundness/open/let_underscore_defers_drop_to_block_end run 1
+box_deref_move_refused_outside_let 3 tests/soundness/open/box_deref_move_refused_outside_let refuses
+nested_tuple_field_assign_unimplemented 3 tests/soundness/open/nested_tuple_field_assign_unimplemented refuses
+self_assign_refused_as_moved 3 tests/soundness/open/self_assign_refused_as_moved refuses
+boxed_closure_to_dyn_fn_cast_internal 3 tests/soundness/open/boxed_closure_to_dyn_fn_cast_internal refuses

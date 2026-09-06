@@ -1,0 +1,48 @@
+// SOUNDNESS QUEUE row index_write_through_local_refmut_clobbers_binding (tier 1).
+// `q[i] = v` WHERE `q` IS A LOCAL `&mut [T; N]` WRITES INTO `q`'s OWN STORAGE.
+//
+// THERE IS NO `Drop` IN THIS PROGRAM. The write is simply mis-addressed: the store
+// lands on the slot that holds the REFERENCE, not on the element it points at.
+// After `q[0] = 77i64` the array is unchanged (`a[0]` still reads 1) and `q` now
+// holds the integer 77, so the next read through it dereferences address 77 —
+// rc 139, SIGSEGV. This program returns that.
+//
+// AND THE WRITE IS NOT EVEN CONFINED TO `q`: with a `[i64; 4]` and `q[2] = 77`
+// the store goes two words PAST the pointer's slot and the array is still
+// unchanged — an out-of-bounds write into the caller's frame, silent, rc 0.
+//
+// SIX CONTROLS SEPARATE IT, all correct on this binary (lattice block G):
+//     (*q)[0] = 77            explicit deref                         -> 77
+//     fn f(q: &mut [i64;2])   the same type as a PARAMETER           -> 77
+//     a[0] = 77               straight to the local array            -> 77
+//     q.a = 77                the same auto-deref sugar at a FIELD   -> 77
+//     q.set(0, 77)            a Vec through a local &mut, by method  -> 77
+//     n = q[0]                READING through the same binding       -> 1
+// So it is exactly: an INDEX WRITE, through the auto-deref sugar, on a LOCAL
+// binding of reference type. The parameter control is what rules the TYPE out as
+// the discriminator — a parameter's slot already holds the caller's array address,
+// so the same GEP lands correctly there by coincidence.
+//
+// ROOT, by symbol: the `pc == la::INDEX_READ` place branch of `SemaChecker`'s
+// place-assignment path (src/compiler/sema_stmt.cpp). `try_index_mut_assign` returns
+// nullopt (the receiver's type is a MutRef, not a struct with an `IndexMut` impl),
+// the `Index`-without-`IndexMut` refusal below it does not apply either, and the
+// fall-through reaches `builder().addr_of_temp(std::move(place), /*is_mut=*/true,
+// ...)` — the "real element GEP" the comment describes is taken on the receiver's
+// SLOT with no load of the pointer it holds.
+//
+// Measured 2026-09-06 on the ownership/drop lattice (g_idxwrite_local_refmut,
+// g_idxwrite_struct_elem, g_idxwrite_local_ref_to_array_in_struct, and
+// f_assign_index_through_refmut, which loses the store AND leaks the RHS).
+// Rust: exit 0.
+package index_write_through_local_refmut_clobbers_binding;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    let q: &mut [i64; 2] = &mut a;
+    q[0] = 77i64;
+    let k: i64 = q[0];
+    unsafe { printf("q0=%ld\n".as_ptr(), k); }
+    if a[0] != 77i64 { return 1i32; }
+    return 0i32;
+}

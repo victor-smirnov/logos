@@ -1,0 +1,35 @@
+// SOUNDNESS QUEUE row shadow_over_param_double_drop (tier 1). A LOCAL SHADOWING A
+// PARAMETER OF THE SAME NAME RUNS THE LOCAL'S DESTRUCTOR TWICE AND THE ARGUMENT'S
+// NEVER. This is the double-free direction of shadowed_binding_never_dropped, and
+// it is memory corruption, not a leak.
+//
+// Rust: the argument (weight 1) dies with the frame and the local (weight 1000)
+// dies with the frame — 1 + 1000 = 1001, one destructor call each.
+//
+// TODAY the count is 2000: 1000 TWICE and 1 not at all. The frame holds one entry
+// under the name `x`; the parameter registered it, the local overwrote it, and the
+// scope-exit walk emits the drop for whatever the name now denotes — once for the
+// parameter's registration and once for the local's, both pointing at the local's
+// slot. With a heap-owning payload that is a double free.
+//
+// ROOT: the same `SemaImpl::declare_var` name-keyed frame record as
+// shadowed_binding_never_dropped. Same one change closes both; they are separate
+// rows because one leaks and one corrupts.
+//
+// Measured 2026-09-06, lattice cell f_shadow_fn_param. Rust: exit 0.
+package shadow_over_param_double_drop;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn g(x: D, p: *mut i64) -> i64 {
+    let x: D = D { v: 1000i64, c: p };
+    return x.v;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(D { v: 1i64, c: p }, p);
+    if r != 1000i64 { return 2i32; }
+    let got: i64 = unsafe { n };
+    if got != 1001i64 { return 1i32; }
+    return 0i32;
+}

@@ -26358,3 +26358,217 @@ spelt twice).
 budget that was wrong, not of the design**: the budget assumed the §4 class had one
 kind of member, and the measurement that found the tuple kind is the same one that
 forbade shipping without it.
+
+# ROUND 2026-09-06j (SURVEY, soundness queue) — THE OWNERSHIP-AND-DROP LATTICE, 459 CELLS RUN,
+# 46 WRONG, SIX ROOTS, AND THE WORST ONE HAS NO `Drop` IN IT AT ALL
+
+NO COMPILER SOURCE WAS EDITED. This round prices nothing and fixes nothing; it
+LOOKS. Owner's instruction: find as many defects as possible now, group them into
+classes, repair by class later.
+
+## 1. THE CENSUS (STEP 1), and no correction is owed on the prompt
+
+  git log HEAD 69210911f, tree clean at the start.
+  `# TOTAL`: soundness_queue 42, bc_admits 98, bc_admits_blocked 25.
+  `probe-log-lint.py` — 231 records, every site symbol resolves.
+  `build_hash.py` — READ BACK: **10f55b7c2fa44145 43**.
+  queue gate (with `LOGOS_LIB_DIR`) — **rc 0 on 42** (tier1=9 tier2=6 tier3=24 tier4=3).
+
+⚠ THE PROMPT'S STEP-1 GATE COMMAND CARRIES `LOGOS_LIB_DIR` AND DOCUMENTS THE FAILURE
+MODE. Checked against the text actually given, not against the journal — that is the
+correction three rounds ago recorded and two rounds after it repeated wrongly. No
+correction is owed, for the fourth consecutive round.
+
+## 2. THE INSTRUMENT
+
+`tests/lattice/drop/{gen.py,run.sh,score.py,cells.json,README.md}` — committed, so the
+next round re-baselines in one command. 459 cells over four axes derived from the tree
+by hand-probing what the compiler accepts BEFORE the generator was written:
+
+  WHAT IS DROPPED (14 payloads)  a bare Drop struct · a droppable FIELD · two
+    droppable fields · a tuple · a tuple of two owners · [D;2] · [D;3] · Vec<D> ·
+    Box<D> · an enum payload · a nested struct · a generic G<T> at T=D ·
+    Box<dyn Tr> · Box of a struct with a droppable field
+  HOW OWNERSHIP LEAVES (13)  never · to a callee by value · returned · re-assigned
+    over · shadowed · moved in the branch taken · in the branch NOT taken · in a loop
+    body · built per iteration · into a `move` closure · lent by `&` · partially
+    moved · never read
+  WHERE THE SCOPE ENDS (11)  block · early return · break · labelled break ·
+    continue · a diverging arm · a nested block · a match arm · a loop back edge ·
+    an `if let` body · an `if` arm
+  THROUGH WHAT + ORDER + the shapes the product misses (blocks C, D, E, F, G)
+
+THE ORACLE IS A DESTRUCTOR COUNT, NOT AN EXIT CODE. Each owner carries a distinct
+power-of-ten weight and a raw `*mut i64`; its destructor ADDS its weight, so the number
+is a SIGNATURE naming which owners ran. The order cells use a second counter whose
+destructor does `*c = *c * 10 + v`, so the number is the SEQUENCE — and it is what saw
+the two order defects, which every count in the lattice is blind to. Every cell also
+reads a value out of the construct into a variable declared OUTSIDE it and prints it,
+so a cell whose bindings are absent cannot pass.
+
+⚠ A HAND-WRITTEN EXPECTATION IS A CLAIM AND FIVE OF MINE WERE WRONG. There is no rustc
+on this box. Five cells "failed" on the first run because my arithmetic, not the
+compiler, was wrong (c_assign_whole_struct, c_vec_reassign, d_moved_out_order,
+e_reinit_field_after_move, e_struct_update_rest — every one of them the compiler's
+answer was Rust's). Three more "failures" were generator bugs. A lattice's first red
+list is an ERROR LIST FOR THE LATTICE; only the second is data.
+
+## 3. THE GRID
+
+    total 459 · correct 413 · wrong-count 39 · refused 7
+    (of the 7 refusals, 6 are defects and 1 — a_dyn_byref — was withdrawn as a
+     generator artefact; 7 cells that MUST be refused are scored as correct
+     refusals and their diagnostics were READ, 5 of the 7 for the right reason,
+     e_vec_elem_move_refused refuses on a TYPE error instead and certifies nothing.)
+
+Blocks: A 181 cells (payload x move), B 154 (payload x scope end), C 27 (assignment
+paths), D 12 (drop order), E 45 (shapes the product misses), F 38 (the roots' edges),
+G 9 (the write itself, no Drop in the picture).
+
+## 4. THE CLASSES — the property, the root BY SYMBOL, the members, the one change
+
+**C1 — A FRAME'S DROP LIST IS KEYED BY NAME, SO A SECOND `let` OF ONE NAME ERASES THE
+FIRST. 19 cells, three directions.**
+Root: `SemaImpl::declare_var` (src/compiler/sema_impl.hpp):
+    if (!scope_.back().vars.count(sname)) scope_.back().var_order.push_back(sname);
+    uint32_t slot = (reuse_slot == 0xFFFFFFFFu) ? next_slot_++ : reuse_slot;
+    scope_.back().vars[sname] = {t, is_mut, false, slot};
+`var_order` is the scope-exit drop list and records a NAME once; `vars` is overwritten.
+The comment on the line above says "fresh dense slot per binding (shadowing -> new
+slot)" — the first binding's storage EXISTS; only the frame's record of it is gone.
+`moved_vars_` is the same key, third face.
+  LEAK (17): a_{plain,field,two,tuple,tuple2,array,arr3,vec,box,enum,nested,generic,
+    dyn,boxfield}_shadow, f_shadow_three (leaks 1 AND 10), f_shadow_mut_first,
+    f_shadow_loop_body (20 for 22). valgrind on the String form: 34 bytes definitely lost.
+  DOUBLE FREE (1): f_shadow_fn_param — a local shadowing a PARAMETER reads 2000 where
+    Rust reads 1001: the local's destructor runs TWICE and the argument's never.
+    valgrind on the String form: **Invalid free()**, rc 134.
+  OVER-REFUSAL (1): f_shadow_after_move — re-binding a moved name is "use of moved
+    variable 'x'".
+  CONTROLS ALREADY CORRECT, bounding where a fix must not reach: nested-block shadow
+    (1001), two distinct names (1001), the parameter form's argument, an `if` arm.
+  ONE CHANGE: key the frame's drop list by SLOT. Rows 1-3.
+
+**C2 — `drop_old` AT A PLACE STORE IS COMPUTED FOR ONE OF FOUR PLACE KINDS, AND ONLY
+WHEN THE PATH BOTTOMS OUT AT A BARE VARIABLE. 6 cells, all leaks.**
+Root: sema_stmt.cpp's place-assignment path. The four assignable kinds are admitted
+together — `if (pc != la::INDEX_READ && pc != la::FIELD_READ && pc != la::TUPLE_INDEX
+&& pc != la::DEREF) error(...)` — then
+    bool field_old_live = false;   // -> emit drop_old at the place store
+    if (pc == la::FIELD_READ) { ...peel FIELD_READ links...
+        if (!cur.is_null() && code_of(cur) == la::VAR_REF) { ...compute... } }
+feeding `bool drop_old_place = field_old_live && ...` and
+`builder().stmt_deref_write(std::move(addr), std::move(val), node_line_, drop_old_place)`.
+  MEMBERS: c_assign_index, c_assign_index_var (INDEX_READ), c_assign_tuple_elem
+    (TUPLE_INDEX), f_assign_indexed_of_field, f_assign_field_of_indexed (a FIELD chain
+    rooted at an index), f_assign_deref_field_ctl (`(*q).d = new`, rooted at a DEREF).
+  THE ARM EXISTS AND IS CORRECT NEXT DOOR: `w.d = new` reads 1001, and the SUGARED
+    twin of the failing `(*q).d = new` — `q.d = new` — also reads 1001. Two spellings
+    of one assignment disagree.
+  DEREF as a whole is answered elsewhere (`drop_old_referent` for `*q = v`) and is right.
+  ONE CHANGE: compute the same liveness for every admitted place kind and for any
+    owned root, not only VAR_REF. Rows 4-6.
+
+**C3 — AN AGGREGATE'S CHILDREN ARE DROPPED IN REVERSE DECLARATION ORDER. 8 cells.**
+Root: `MLIRGenImpl::gen_drop_value` (mlir_gen_stmt.cpp), two loops:
+    K::Struct  : for (int i = (int)fields.size() - 1; i >= 0; --i)
+    K::Tuple   : for (int i = (int)elems.size()  - 1; i >= 0; --i)
+Their SIBLINGS in the same function walk forward and are correct: the K::Array branch
+(`for (uint64_t i = 0; i < n; ++i)`, cells f_array_order_ctl / d_array_elems_order) and
+the enum payload branch (f_enum_payload_order). So the reverse walk is an anomaly
+against two neighbours, not a house convention — and locals/parameters, which ARE
+reverse in Rust, are correct here (d_locals_reverse 321, f_param_drop_order 21).
+  MEMBERS: d_struct_fields_declorder, d_tuple_elems_order, d_nested_outer_then_inner,
+    d_struct_with_drop_then_fields (321 for 312 — the user Drop impl runs first,
+    correctly; only the field walk is reversed), f_field_order_two, f_field_order_four
+    (4321 for 1234), f_tuple_order_two, f_nested_struct_order.
+  ⚠ INVISIBLE TO A COUNT: every field drops exactly once either way. Only the sequence
+    counter sees it.
+  ONE CHANGE: flip both loops. Two rows (one per loop) so closing one does not read as
+    closing both.
+
+**C4 — `let _ = e` IS LOWERED AS AN ORDINARY BINDING. 2 cells.**
+Root: `SemaChecker::lower_let` (sema_stmt.cpp) has NO wildcard case — grep the function
+for `"_"` and there is none. The name reaches `define()` / `declare_var`, takes a slot,
+joins `var_order`, and dies with the block instead of with its statement.
+  CONTROL: a bare expression statement is correct (e_expr_stmt_temp_dies_now, 12) — the
+  statement-scope temporary machinery exists and `let _` does not reach it.
+  ⚠ A CELL THAT PASSES FOR THE WRONG REASON: with `let _` written LAST, both orderings
+  answer 21 (f_let_underscore_after). It is a FALSE GREEN and is marked as one.
+
+**C5 — Box DerefMove IS LOWERED AT THE `let` RHS AND NOWHERE ELSE. 3 cells + one
+existing row, and THE GROUPING WAS REFUTED.**
+Root: `try_lower_box_deref_move` (sema_stmt.cpp) has ONE call site, `lower_let`'s RHS.
+The comment beside the E0507 that follows names the gap outright: "raw-ptr deref/index,
+Box deref-move, Vec-index (method-deref), field-out-of-self, and return/arg positions
+are NOT caught here".
+  Measured one program per position: `let` COMPILES (count 1), RETURN compiles
+  (count 1), ARGUMENT is refused (c_move_out_of_box, f_box_deref_move_in_arg),
+  STRUCT-LITERAL FIELD is refused with a different sentence ("behind a shared
+  reference", f_box_deref_move_in_ctor).
+  ⚠ TESTED, AND IT IS TWO ROOTS: the queue's existing `box_field_move` is the same
+  property in the OTHER direction — a FIELD moved out of a Box is ADMITTED and
+  DOUBLE-FREES (lattice c_move_field_out_of_box reads count 2 for 1). One candidate
+  change does NOT move both: the refusal lives in the move classifier, the double free
+  in codegen. Reported as two, not merged.
+
+**C6 — `q[i] = v` WHERE `q` IS A LOCAL `&mut [T; N]` WRITES INTO `q`'s OWN SLOT.
+4 cells, NO `Drop` ANYWHERE IN IT.**
+The store is mis-addressed onto the storage that holds the REFERENCE. After
+`q[0] = 77i64` the array is unchanged and `q` holds 77, so the next read through it
+dereferences address 77 — rc 139. With `[i64; 4]` and `q[2] = 77` the store lands two
+words PAST the pointer's slot: a silent out-of-bounds write into the frame, rc 0.
+  SIX CONTROLS, all correct, pin the shape: `(*q)[0] = 77` (explicit deref), the same
+  type as a PARAMETER, `a[0] = 77` direct, `q.a = 77` (the same sugar at a FIELD),
+  `q.set(0,77)` on a Vec through a local `&mut`, and READING `q[0]`. So it is exactly
+  INDEX + auto-deref sugar + LOCAL binding. The parameter control rules the TYPE out as
+  the discriminator: a parameter's slot already holds the caller's array address, so
+  the same GEP lands right there by coincidence.
+Root: the `pc == la::INDEX_READ` place branch of sema_stmt.cpp's place-assignment path.
+`try_index_mut_assign` returns nullopt (the receiver is a MutRef, not a struct with an
+`IndexMut` impl), the Index-without-IndexMut refusal below it does not apply, and the
+fall-through reaches `builder().addr_of_temp(place, /*is_mut=*/true, ...)` — the "real
+element GEP" is taken on the receiver's SLOT with no load of the pointer it holds.
+Also the reason f_assign_index_through_refmut loses the store AND leaks the RHS.
+
+**C7 — SINGLETONS.** `w.t.0 = new` refused "assignment target too deeply nested to
+assign in place yet" (the named-field path at the same depth is fine, and the
+tuple-index place IS assignable at depth one); `x = x` refused "use of moved variable"
+(⚠ the one row not checked against rustc — evidence for legality is that clippy has a
+`self_assignment` LINT, which fires on compiling code; owner read first);
+`Box::new(f) as Box<dyn Fn() -> i64>` dies with "mlir_gen: internal: unsupported cast".
+
+## 5. WHAT THE LATTICE SHOWS CORRECT THAT A RECORD CALLS BROKEN
+
+  * `enum_payload_partial_move_leak` (tier 1) says a partial move of an enum payload
+    marks the WHOLE scrutinee moved. The lattice's partial-move cells at the STRUCT
+    door are all correct (a_two_partial, a_field_partial, e_both_fields_moved,
+    e_partial_then_early_return, c_read_after_partial, e_reinit_field_after_move — six
+    cells, every count Rust's), and so is `e_enum_two_payload_move_both`, which moves
+    BOTH payload fields out. The queue row's own shape (one field moved, one left)
+    still reproduces — the gate says so — so the class is narrower than "partial move
+    of an aggregate": it is the enum door with a SURVIVING field, and the struct door
+    does not share it.
+  * `closure_owned_dyn_capture` (tier 1) sits beside a closure story that is otherwise
+    clean: a `move` closure owning a Drop capture is correct at all fourteen payloads,
+    called twice (e_closure_called_twice), consuming its capture into a callee
+    (f_closure_fnonce_consumes), through two closure layers (f_nested_closure_capture),
+    and non-`move` by reference (e_closure_by_ref_capture). Only the `dyn` coercion is
+    missing, and it does not even lower (C7).
+  * Everything the product's own axes cover is overwhelmingly right: 154 of 154 scope-end
+    cells, 181 of 181 payload-x-move cells outside C1, every `Vec`, `Box<dyn>`, generic
+    and recursive-Box drop, `for` over a Vec and over an array, drop flags in both
+    branch directions, and the six illegal programs that must be refused are refused
+    with move diagnostics that were READ.
+
+## 6. COLUMNS
+
+  build hash READ BACK 10f55b7c2fa44145 43 · queue gate rc 0 on 56 (was 42;
+  tier1 9 -> 15), `# TOTAL` re-derived by direct listing, 56 rows and 56 programs on
+  the shelf · L1 rc 0 · probe-log-lint 231 · NO compiler source changed, so no runtime
+  or `-L bc` column is owed and none is claimed. valgrind run on the three heap-payload
+  forms: Invalid free (C1 double-drop), 34 bytes definitely lost (C1 leak), 34 bytes
+  definitely lost (C2 leak).
+
+Target rows for the repair round, by ID with the reasoning the next round inherits:
+`tests/lattice/drop/TARGET_ROWS_2026-09-06j.txt`.

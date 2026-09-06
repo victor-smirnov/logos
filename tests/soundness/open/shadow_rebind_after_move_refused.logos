@@ -1,0 +1,31 @@
+// SOUNDNESS QUEUE row shadow_rebind_after_move_refused (tier 3, `refuses`). A NAME
+// THAT WAS MOVED OUT MAY BE RE-BOUND BY A NEW `let`, AND READING THE NEW BINDING IS
+// NOT A USE OF THE OLD ONE.
+//
+// Legal Rust: `let x = A; eat(x); let x = B; x.v` — the second `let` introduces a
+// NEW binding; the move of the first is irrelevant to it.
+//
+// TODAY: "use of moved variable 'x'". This is the over-refusal direction of the
+// same name-keyed frame state as shadowed_binding_never_dropped: `moved_vars_` is
+// keyed by the NAME, and a fresh binding of that name does not clear it.
+//
+// ROOT: `SemaImpl::declare_var` (the frame's `vars` / `var_order` name key) plus
+// the name-keyed `moved_vars_` set consulted by the use check. Measured 2026-09-06,
+// lattice cell f_shadow_after_move. Rust: compiles, exit 0.
+package shadow_rebind_after_move_refused;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn eatd(x: D) -> i64 { return x.v; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let x: D = D { v: 1i64, c: p };
+        let k: i64 = eatd(x);
+        let x: D = D { v: 1000i64, c: p };
+        r = x.v + k - 1i64;
+    }
+    if r != 1000i64 { return 2i32; }
+    return 0i32;
+}

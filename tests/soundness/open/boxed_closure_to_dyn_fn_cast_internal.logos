@@ -1,0 +1,40 @@
+// SOUNDNESS QUEUE row boxed_closure_to_dyn_fn_cast_internal (tier 3, `refuses`).
+// CASTING A BOXED CLOSURE TO `Box<dyn Fn() -> i64>` DIES IN mlir-gen.
+//
+// Legal Rust: a `move` closure boxed and coerced to `Box<dyn Fn() -> i64>` owns its
+// capture and drops it when the box dies.
+// TODAY: "mlir_gen: internal: unsupported cast: no lowering from
+// '!llvm.struct<"logos.mem.boxed.Box$G1$...". It is an INTERNAL message, not a
+// diagnostic about the program — the compiler is saying it has no lowering, and the
+// row records the sentence so a repair that merely reworded it does not read as a
+// close.
+//
+// It sits next to the tier-1 row `closure_owned_dyn_capture` (a boxed `dyn`
+// capture computing garbage at run time); this one never gets that far. The
+// non-boxed forms are all correct on this binary: a plain `move` closure owning a
+// Drop capture (lattice a_*_closure, count 1 at every payload), one called twice
+// (e_closure_called_twice), one whose body MOVES the capture into a callee
+// (f_closure_fnonce_consumes), and a capture carried through two closure layers
+// (f_nested_closure_capture). So the closure's own ownership is right and only the
+// dyn coercion is missing.
+//
+// Measured 2026-09-06, lattice cell e_closure_boxed_dyn. Rust: compiles, exit 0.
+package boxed_closure_to_dyn_fn_cast_internal;
+use logos.mem.boxed;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let x: D = D { v: 1i64, c: p };
+        let f = move || -> i64 { return x.v; };
+        let g: Box<dyn Fn() -> i64> = Box::new(f) as Box<dyn Fn() -> i64>;
+        r = g();
+    }
+    if r != 1i64 { return 2i32; }
+    let got: i64 = unsafe { n };
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}

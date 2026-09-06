@@ -1,0 +1,30 @@
+// SOUNDNESS QUEUE row tuple_elems_dropped_reverse_order (tier 3). A TUPLE'S ELEMENTS
+// ARE DROPPED IN REVERSE INDEX ORDER.
+//
+// Rust drops tuple elements left to right (.0, .1, .2). The counter records the
+// SEQUENCE: Rust's answer is 123, today's is 321.
+//
+// ROOT: `MLIRGenImpl::gen_drop_value`, the `k == K::Tuple` branch:
+//     for (int i = (int)elems.size() - 1; i >= 0; --i)
+// the twin of the struct branch's loop. The two are one property at two sites and
+// one flip closes both; they are separate rows so that closing one does not read
+// as closing the other.
+//
+// Measured 2026-09-06, lattice cells d_tuple_elems_order, f_tuple_order_two.
+// Rust: exit 0.
+package tuple_elems_dropped_reverse_order;
+struct O { v: i64, c: *mut i64 }
+impl Drop for O { fn drop(self: &mut O) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let t: (O, O, O) = (O { v: 1i64, c: p }, O { v: 2i64, c: p }, O { v: 3i64, c: p });
+        r = t.0.v;
+    }
+    if r != 1i64 { return 2i32; }
+    let got: i64 = unsafe { n };
+    if got != 123i64 { return 1i32; }
+    return 0i32;
+}

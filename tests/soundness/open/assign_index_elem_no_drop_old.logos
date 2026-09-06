@@ -1,0 +1,42 @@
+// SOUNDNESS QUEUE row assign_index_elem_no_drop_old (tier 1). ASSIGNING AN ARRAY
+// ELEMENT DOES NOT DROP THE VALUE THAT WAS THERE.
+//
+// Rust: `a[0] = new` drops a[0]'s old value at the assignment. Expected
+// 1 (old a[0]) + 1000 (new a[0], at scope end) + 10 (a[1], at scope end) = 1011.
+// TODAY the count is 1010 — the old element leaks. With a heap-owning element that
+// is a leak of the whole element, invisible to an exit code.
+//
+// ROOT, by symbol: the place-assignment path in `SemaChecker` (sema_stmt.cpp). The
+// four assignable place kinds are admitted together —
+//     if (pc != la::INDEX_READ && pc != la::FIELD_READ &&
+//         pc != la::TUPLE_INDEX && pc != la::DEREF) { error(...) }
+// — but the liveness that decides the drop is computed under ONE of them:
+//     bool field_old_live = false;   // -> emit drop_old at the place store
+//     if (pc == la::FIELD_READ) { ...walk the chain... }
+// and it feeds `bool drop_old_place = field_old_live && ...;` at the
+// `builder().stmt_deref_write(std::move(addr), std::move(val), node_line_,
+// drop_old_place)` that ends the function. An INDEX_READ place therefore always
+// stores with drop_old = false. The DEREF kind is answered elsewhere and is
+// correct (sema_stmt.cpp's `drop_old_referent` for `*q = v`).
+//
+// PAIRS: assign_tuple_elem_no_drop_old is the TUPLE_INDEX member and
+// assign_field_path_not_var_rooted_no_drop_old the second half of the same
+// predicate. Measured 2026-09-06, lattice cells c_assign_index, c_assign_index_var,
+// f_assign_indexed_of_field. Rust: exit 0.
+package assign_index_elem_no_drop_old;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let mut a: [D; 2] = [D { v: 1i64, c: p }, D { v: 10i64, c: p }];
+        a[0] = D { v: 1000i64, c: p };
+        r = a[0].v;
+    }
+    if r != 1000i64 { return 2i32; }
+    let got: i64 = unsafe { n };
+    if got != 1011i64 { return 1i32; }
+    return 0i32;
+}

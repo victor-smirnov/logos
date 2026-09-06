@@ -1,0 +1,49 @@
+// SOUNDNESS QUEUE row box_deref_move_refused_outside_let (tier 3, `refuses`).
+// MOVING THE BOXED VALUE OUT OF A `Box` IS LOWERED AT THE `let` RHS AND NOWHERE
+// ELSE.
+//
+// Legal Rust: `Box` is the one type with DerefMove, so `eat(*b)` moves the boxed
+// value into the callee. TODAY: "cannot move out of a value behind a reference /
+// out of an index (E0507)".
+//
+// ROOT, by symbol: `try_lower_box_deref_move` (src/compiler/sema_stmt.cpp) has ONE
+// call site — the RHS of `lower_let`:
+//     rhs = try_lower_box_deref_move(rhs_node);
+//     if (!rhs) rhs = lower_expr(rhs_node);
+// and the comment beside the E0507 that follows it names the gap outright: "raw-ptr
+// deref/index, Box deref-move, Vec-index (method-deref), field-out-of-self, and
+// return/arg positions are NOT caught here". Every other value position runs
+// `is_unowned_move_source` with no Box exemption. Measured, one program per
+// position on this binary: the `let` position COMPILES and drops once (lattice
+// f_box_deref_move_in_let_ctl, count 1), the RETURN position compiles
+// (f_box_deref_move_in_return, count 1), the ARGUMENT position is refused (this
+// program, and c_move_out_of_box) and the STRUCT-LITERAL FIELD position is refused
+// with a second sentence, "cannot move out of a value behind a shared reference
+// (E0507)" (f_box_deref_move_in_ctor).
+//
+// ⚠ THE OTHER HALF OF THIS PROPERTY IS ALREADY ROWED AND IT FAILS THE OTHER WAY:
+// `box_field_move` moves a FIELD out of a Box, is ADMITTED, and double-frees
+// (lattice cell c_move_field_out_of_box reads count 2 where Rust reads 1). One
+// helper answers "may this Box be moved through" and three positions consume the
+// answer; the refusal and the double free are two roots, not one, and the grouping
+// was tested by asking whether one candidate change moves both — it does not: this
+// one is in the move classifier, that one in codegen.
+// Rust: compiles, exit 0.
+package box_deref_move_refused_outside_let;
+use logos.mem.boxed;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn eatd(x: D) -> i64 { return x.v; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let b: Box<D> = Box::new(D { v: 1i64, c: p });
+        r = eatd(*b);
+    }
+    if r != 1i64 { return 2i32; }
+    let got: i64 = unsafe { n };
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}
