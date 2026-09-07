@@ -1,0 +1,73 @@
+PREDICTED CLOSED SET FOR ROUND 2026-09-07s — WRITTEN BEFORE THE COMPILER IS TOUCHED.
+Base commit 0a39e1a59, build febd1aa6e49ae30c 43, queue # TOTAL 67, queue gate rc 0,
+closure lattice re-baselined by hand this round and REPRODUCED digit for digit:
+TOTAL 228 OK 192 WRONGCOUNT 26 REFUSED 7 RUNRC 2 WRONGVALUE 1.
+
+⚠ THE HANDED-DOWN ROOT FOR BLOCK 1 IS ONE LAYER TOO HIGH — CORRECTED BY READING.
+The survey named `if (body_moved_outer.count(...)) continue;` and the `capture_drops[i]`
+loop as "one missing bit, opposite signs". Both lines are real, but the fact they are
+missing is not a codegen bit: it is Rust's rule that A CALL CONSUMES AN `FnOnce`
+CALLABLE. That rule IS IMPLEMENTED in this tree — `fn_once_consume` in
+`SemaChecker::lower_call` (src/compiler/sema_expr.cpp), which does `mark_moved(callee)`
+— and it is applied at EXACTLY ONE of the forms in which a callable can be named:
+
+    guard, verbatim:  fn_once_consume && !callee_is_ref_fn && !callee_is_box_closure &&
+                      TypeRef(fn_bound_recv_type).kind() == LogosType::Kind::TypeVar
+
+FOUR NEW DEFECTS MEASURED ON THE BASE BINARY, none of them in the queue, each a
+program Rust REFUSES that this compiler compiles and runs with a destructor count
+GREATER than the number of values (a double free, not a leak):
+
+  cx1_consume_called_twice    `let f = move || { let t: D = x; … }; f(); f();`  count 2 [1]
+  cx4_consume_in_loop         the same closure called in a `while` loop         count 3 [1]
+  cx12_narrow_called_twice    the RFC-2229 narrow spelling `let t: D = x.d;`    count 2 [1]
+  cx14_reuse_after_pass       `apply(f); apply(f);` with `F: FnOnce`            D consumed twice
+  (control) cx13_move_read_called_twice — a `Fn` closure called twice — count 1, CORRECT.
+
+CLASS A — THE FORM THE RULE IS NAMED AT.  Property: a callable value whose only
+Fn-family capability is `FnOnce` is consumed by its call and by being passed by value.
+Members, by naming form, enumerated from lower_call's own taxonomy (NOT by grep):
+  1 generic `F: FnOnce` local, CALLED ............... implemented (TypeVar guard)
+  2 `&F` / `&mut F` ................................. correctly excluded (cannot move a referent)
+  3 a local bound to a closure LITERAL of kind 2 .... OPEN  (cx1, cx4, cx12)
+  4 `Box<dyn FnOnce>` (callee_is_box_closure) ....... OPEN  (queue row, lattice cell)
+  5 generic `F: FnOnce` local, PASSED BY VALUE ...... OPEN  (cx14)
+  6 a kind-2 closure local, PASSED BY VALUE ......... OPEN
+  7 a bare fn pointer ............................... never consumes (Copy) — correct
+ONE CHANGE closes 3,4,5,6: the fact `is this callable FnOnce?` read per-LITERAL
+(a new `closure_kind_by_id_`, keyed on the id `VarInfo::closure_id` already carries —
+NOT the signature-keyed `closure_kind_`, which is open defect #90) and from the dyn
+form's own family name, applied at the call AND at `mark_moved_expr`'s VarRef arm.
+
+PREDICTED CLOSED BY CLASS A, BY NAME:
+  queue row  boxed_escaping_fnonce_capture_double_free   run 2 -> correct, count 1
+  lattice    l_boxed_fnonce_escape_consume               WRONGCOUNT(2) -> OK
+  refused (illegal in Rust, admitted today): cx1, cx4, cx12, cx14 — landed as fail fixtures.
+  NOT ONE legal program newly refused: every member above is refused by rustc.
+
+CLASS B — WHEN THE BODY'S MOVE HAPPENS.  Property: a closure body's move of an outer
+capture is recorded in the ENCLOSING function's move set at the LITERAL, as though the
+body ran exactly once; its real execution count is 0 or 1. Root by symbol:
+`auto outer_ever_moved_pre = body_ever_moved_;` / `StrSet body_moved_outer;` in the
+closure-literal lowering — the snapshot is DIFFED and never RETRACTED.
+  whole-var form  -> sema skips the source drop      -> LEAK  (a_move_nocall_consume_*, 14 cells)
+  narrow-path form-> the root's drop skips the field -> LEAK  (b_narrow_consume_nocall_*, 6 cells)
+CLASS B IS IN SERIES BEHIND CLASS A (rule 2): retracting is only sound once every
+shape that runs the body marks the closure moved, which is exactly what Class A adds.
+PREDICTED CLOSED BY CLASS B, BY NAME (attempted second, on top of a green Class A):
+  queue rows closure_capture_body_moved_never_dropped, closure_narrow_capture_never_dropped
+  lattice a_move_nocall_consume_{plain,field,two,tuple,tuple2,array,arr3,vec,box,enum,
+          nested,generic,dyn,boxfield} and b_narrow_consume_nocall_{field,two,tuple,
+          tuple2,nested,generic}  — 20 cells, WRONGCOUNT -> OK
+  with the CALLED twins a_move_consume_* / b_narrow_consume_call_* held UNCHANGED at OK.
+
+PREDICTED NOT CLOSED — rowed, not attempted:
+  cx3 (an FnOnce closure called in ONE branch: the untaken path leaks; `closure_owned_drop_`
+      is a plain set with no branch merge)     -> NEW ROW
+  impl_fn_return_stack_env_dangles, closure_byvalue_param_never_dropped,
+  boxed_move_closure_fat_capture_env_overflow, str_annot_loses_static_for_dyn_fn,
+  boxed_closure_struct_field_not_callable, box_dyn_fn_shared_ref_arg_refused,
+  boxed_closure_to_dyn_fn_cast_internal, closure_in_generic_two_insts — untouched.
+
+NUMBERS: queue # TOTAL 67 -> 64 if both classes land (3 rows deleted, 1 opened = 65),
+-> 66 if only Class A lands (1 deleted, 1 opened). Re-derived by direct listing either way.
