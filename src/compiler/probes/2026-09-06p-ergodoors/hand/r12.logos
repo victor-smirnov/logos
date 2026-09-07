@@ -1,0 +1,8 @@
+package r12;
+fn main() -> i32 {
+    let arr: [i64; 2] = [1i64, 2i64];
+    let mut out: i64 = 0i64;
+    match arr { [ref p, q] => { out = *p + q; } }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

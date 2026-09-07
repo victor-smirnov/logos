@@ -1,0 +1,8 @@
+package r08;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let mut out: i64 = 0i64;
+    match o { Option::Some(ref v) => { out = *v + 1i64; } Option::None => {} }
+    if out != 4i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+package n08;
+use logos.std.fmt;
+struct S { pub n: i64, pub v: Vec<i64> }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+fn mk(n: i64) -> S {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(n);
+    return S { n: n, v: v };
+}
+fn main() -> i32 {
+    let p: (Option<S>, i64) = (Option::Some(mk(5i64)), 9i64);
+    let mut out: i64 = 0i64;
+    match &p {
+        (Option::Some(a), b) => { out = a.n + *b; },
+        (Option::None, _) => {}
+    }
+    if out != 14i64 { return 1i32; }
+    return 0i32;
+}

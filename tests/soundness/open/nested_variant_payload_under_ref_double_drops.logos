@@ -1,0 +1,47 @@
+// SOUNDNESS QUEUE row nested_variant_payload_under_ref_double_drops (tier 1). A variant
+// payload of a MOVE type, bound inside a TUPLE pattern under a by-reference scrutinee —
+// `match &p { (Option::Some(a), b) => … }` — has its destructor run TWICE: once for the
+// binding at arm exit and once for the scrutinee at scope end. Rust runs it ONCE (the
+// default binding mode makes `a : &S`, which owns nothing).
+// ⚠ THIS IS THE DOUBLE FREE THE DEFAULT-BINDING-MODE GATE EXISTS TO PREVENT, at the doors
+// that do not carry the mode. `build_pattern_impl`'s TUPLE door computes `default_ref` /
+// `default_mut` from the scrutinee and then hands the sub-pattern the BARE element type;
+// `build_pattern_variant_data` re-derives the mode from the type it is given, sees no
+// reference, and binds the payload BY VALUE. The comment at that door's own
+// default-binding-mode branch states the reason the mode exists: "the field binding would
+// otherwise be Drop-scheduled and double-free the scrutinee's buffer at arm exit".
+// ⚠ ENUMERATED BY PROPERTY, NOT BY SPELLING (measured 2026-09-06p on 95d01d3ae0a1858d,
+// destructor count on stdout, Rust = 1 for every one):
+//     tuple door      `match &p { (Option::Some(a), b) }`        2   (hand n07/n08)
+//     struct door     `match &w { W { o: Option::Some(a), k } }` 2   (hand n10)
+//     slice door      `match &arr { [Option::Some(a)] }`         2   (hand n11)
+//     if-let, tuple   `if let (Option::Some(a), b) = &p`         2   (hand n13)
+//     variant door    `match &e { Outer::W(Option::Some(a)) }`   1   CORRECT
+//     top level       `match &o { Option::Some(a) }`             1   CORRECT
+// The property is "a CONTAINER door that builds a sub-pattern from an element/field type";
+// the variant door is the one that already carries the mode, which is why it is right.
+// SAME ROOT as match_ergo_nested_tuple_mut_admit — that row is this same lost fact showing
+// up as a missing DIAGNOSTIC; this one is the memory-safety half.
+// The counter makes the wrong count an EXIT CODE: `NDROP` is read after the value's scope
+// has ended, so today the program exits 2 and Rust exits 0.
+// Found 2026-09-06p by an abuse-direction hand program (rule 5: vary the SHAPE).
+// Rust: exit 0.
+package nested_variant_payload_under_ref_double_drops;
+static mut NDROP: i64 = 0i64;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { NDROP = NDROP + 1i64; } } }
+fn inner() -> i64 {
+    let p: (Option<S>, i64) = (Option::Some(S { n: 5i64 }), 9i64);
+    let mut out: i64 = 0i64;
+    match &p {
+        (Option::Some(a), b) => { out = a.n + *b; },
+        (Option::None, _) => {}
+    }
+    return out;
+}
+fn main() -> i32 {
+    let out: i64 = inner();
+    if out != 14i64 { return 3i32; }
+    unsafe { if NDROP != 1i64 { return NDROP as i32; } }
+    return 0i32;
+}

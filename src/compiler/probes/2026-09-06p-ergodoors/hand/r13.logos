@@ -1,0 +1,7 @@
+package r13;
+fn main() -> i32 {
+    let mut t: (i64, i64) = (3i64, 4i64);
+    match t { (ref mut a, b) => { *a = *a + 1i64; if b != 4i64 { return 2i32; } } }
+    if t.0 != 4i64 { return 1i32; }
+    return 0i32;
+}

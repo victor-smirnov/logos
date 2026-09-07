@@ -1,0 +1,34 @@
+src/compiler/probes/2026-09-06p-ergodoors/obs.sh: line 8: 3847477 Segmentation fault      (core dumped) "${env_pre[@]}" "$LC" "$f" -o "$OUT/$n.o" > "$OUT/$n.err" 2>&1
+n01 REFUSED :: 
+src/compiler/probes/2026-09-06p-ergodoors/obs.sh: line 8: 3847492 Segmentation fault      (core dumped) "${env_pre[@]}" "$LC" "$f" -o "$OUT/$n.o" > "$OUT/$n.err" 2>&1
+n02 REFUSED :: 
+n04 rc=0 stdout=''
+src/compiler/probes/2026-09-06p-ergodoors/obs.sh: line 8: 3847600 Segmentation fault      (core dumped) "${env_pre[@]}" "$LC" "$f" -o "$OUT/$n.o" > "$OUT/$n.err" 2>&1
+n05 REFUSED :: 
+src/compiler/probes/2026-09-06p-ergodoors/obs.sh: line 8: 3847634 Segmentation fault      (core dumped) "${env_pre[@]}" "$LC" "$f" -o "$OUT/$n.o" > "$OUT/$n.err" 2>&1
+n06 REFUSED :: 
+src/compiler/probes/2026-09-06p-ergodoors/obs.sh: line 8: 3847648 Segmentation fault      (core dumped) "${env_pre[@]}" "$LC" "$f" -o "$OUT/$n.o" > "$OUT/$n.err" 2>&1
+n07 REFUSED :: 
+src/compiler/probes/2026-09-06p-ergodoors/obs.sh: line 8: 3847694 Segmentation fault      (core dumped) "${env_pre[@]}" "$LC" "$f" -o "$OUT/$n.o" > "$OUT/$n.err" 2>&1
+n08 REFUSED :: 
+n09 rc=0 stdout='D5'
+n10 rc=0 stdout='D5|D5'
+n11 rc=0 stdout='D5|D5'
+n12 rc=0 stdout='D5'
+src/compiler/probes/2026-09-06p-ergodoors/obs.sh: line 8: 3847921 Segmentation fault      (core dumped) "${env_pre[@]}" "$LC" "$f" -o "$OUT/$n.o" > "$OUT/$n.err" 2>&1
+n13 REFUSED :: 
+src/compiler/probes/2026-09-06p-ergodoors/obs.sh: line 8: 3847945 Segmentation fault      (core dumped) "${env_pre[@]}" "$LC" "$f" -o "$OUT/$n.o" > "$OUT/$n.err" 2>&1
+n14 REFUSED :: 
+r01 rc=0 stdout=''
+r02 rc=0 stdout=''
+r03 rc=0 stdout=''
+r04 rc=0 stdout=''
+r05 rc=0 stdout=''
+r06 rc=0 stdout=''
+r08 rc=0 stdout=''
+r09 rc=0 stdout=''
+r10 rc=0 stdout=''
+r11 rc=0 stdout=''
+r12 rc=0 stdout=''
+r13 rc=0 stdout=''
+r14 rc=0 stdout='D5'

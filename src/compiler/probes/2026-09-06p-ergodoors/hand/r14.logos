@@ -1,0 +1,11 @@
+package r14;
+use logos.std.fmt;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+fn main() -> i32 {
+    let o: Option<S> = Option::Some(S { n: 5i64 });
+    let mut out: i64 = 0i64;
+    match &o { Option::Some(ref v) => { out = v.n; } Option::None => {} }
+    if out != 5i64 { return 1i32; }
+    return 0i32;
+}

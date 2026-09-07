@@ -49,7 +49,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 closure_capture_body_moved_never_dropped 1 tests/soundness/open/closure_capture_body_moved_never_dropped run 1
 closure_narrow_capture_never_dropped 1 tests/soundness/open/closure_narrow_capture_never_dropped run 1
-# TOTAL 62
+# TOTAL 63
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 drop_inherent_call_order      1 tests/soundness/open/drop_inherent_call_order      refuses
@@ -107,3 +107,4 @@ self_assign_refused_as_moved 3 tests/soundness/open/self_assign_refused_as_moved
 boxed_closure_to_dyn_fn_cast_internal 3 tests/soundness/open/boxed_closure_to_dyn_fn_cast_internal refuses
 tuple_index_write_through_local_refmut_clobbers_binding 1 tests/soundness/open/tuple_index_write_through_local_refmut_clobbers_binding run 1
 tuple_elem_reinit_after_move_refused 3 tests/soundness/open/tuple_elem_reinit_after_move_refused refuses
+nested_variant_payload_under_ref_double_drops 1 tests/soundness/open/nested_variant_payload_under_ref_double_drops run 2

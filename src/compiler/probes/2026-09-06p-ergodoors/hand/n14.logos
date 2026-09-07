@@ -1,0 +1,19 @@
+package n14;
+static mut NDROP: i64 = 0i64;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { NDROP = NDROP + 1i64; } } }
+fn inner() -> i64 {
+    let p: (Option<S>, i64) = (Option::Some(S { n: 5i64 }), 9i64);
+    let mut out: i64 = 0i64;
+    match &p {
+        (Option::Some(a), b) => { out = a.n + *b; },
+        (Option::None, _) => {}
+    }
+    return out;
+}
+fn main() -> i32 {
+    let out: i64 = inner();
+    if out != 14i64 { return 3i32; }
+    unsafe { if NDROP != 1i64 { return NDROP as i32; } }
+    return 0i32;
+}

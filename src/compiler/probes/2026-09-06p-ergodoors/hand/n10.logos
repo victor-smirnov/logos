@@ -1,0 +1,15 @@
+package n10;
+use logos.std.fmt;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+struct W { pub o: Option<S>, pub k: i64 }
+fn main() -> i32 {
+    let w: W = W { o: Option::Some(S { n: 5i64 }), k: 9i64 };
+    let mut out: i64 = 0i64;
+    match &w {
+        W { o: Option::Some(a), k } => { out = a.n + *k; },
+        W { o: Option::None, k: _ } => {}
+    }
+    if out != 14i64 { return 1i32; }
+    return 0i32;
+}

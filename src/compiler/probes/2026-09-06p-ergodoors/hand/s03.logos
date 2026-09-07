@@ -1,0 +1,16 @@
+package s03;
+enum Opt2<T> { S(T), N }
+impl<T> Opt2<T> {
+    fn eqv(self: &Opt2<T>, other: &Opt2<T>) -> bool {
+        match self {
+            Opt2::S(a) => { match other { Opt2::S(b) => { return true; } Opt2::N => { return false; } } }
+            Opt2::N => { return false; }
+        }
+    }
+}
+fn main() -> i32 {
+    let o: Opt2<i64> = Opt2::S(3i64);
+    let q: Opt2<i64> = Opt2::S(3i64);
+    if !o.eqv(&q) { return 1i32; }
+    return 0i32;
+}

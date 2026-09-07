@@ -1,0 +1,15 @@
+package s02;
+enum Opt2<T> { S(T), N }
+impl<T> Opt2<T> {
+    fn as_ref(self: &Opt2<T>) -> Opt2<&T> {
+        match *self {
+            Opt2::S(ref v) => { return Opt2::<&T>::S(v); }
+            Opt2::N => { return Opt2::<&T>::N; }
+        }
+    }
+}
+fn main() -> i32 {
+    let o: Opt2<i64> = Opt2::S(3i64);
+    match o.as_ref() { Opt2::S(p) => { if *p != 3i64 { return 1i32; } } Opt2::N => { return 2i32; } }
+    return 0i32;
+}

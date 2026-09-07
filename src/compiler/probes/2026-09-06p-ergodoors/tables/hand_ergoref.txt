@@ -1,0 +1,26 @@
+n01 rc=0 stdout=''
+n02 rc=0 stdout=''
+n04 rc=0 stdout=''
+n05 rc=0 stdout=''
+n06 rc=0 stdout=''
+n07 rc=0 stdout='D5|D5'
+n08 rc=0 stdout='D5|D5'
+n09 rc=0 stdout='D5'
+n10 rc=0 stdout='D5|D5'
+n11 rc=0 stdout='D5|D5'
+n12 REFUSED :: /home/logos/devel/logos/src/compiler/probes/2026-09-06p-ergodoors/hand/n12.logos:9: error [fn main]: binding modifiers may only be written when the default binding mode is `move`: '__refut_W_0_0' is b
+n13 rc=0 stdout='D5|D5'
+n14 rc=2 stdout=''
+r01 REFUSED :: /home/logos/devel/logos/src/compiler/probes/2026-09-06p-ergodoors/hand/r01.logos:5: error [fn main]: binding modifiers may only be written when the default binding mode is `move`: 'v' is bound under a
+r02 REFUSED :: /home/logos/devel/logos/src/compiler/probes/2026-09-06p-ergodoors/hand/r02.logos:4: error [fn main]: binding modifiers may only be written when the default binding mode is `move`: 'v' is bound under a
+r03 rc=0 stdout=''
+r04 rc=0 stdout=''
+r05 rc=0 stdout=''
+r06 REFUSED :: /home/logos/devel/logos/src/compiler/probes/2026-09-06p-ergodoors/hand/r06.logos:5: error [fn main]: binding modifiers may only be written when the default binding mode is `move`: 'v' is bound under a
+r08 rc=0 stdout=''
+r09 rc=0 stdout=''
+r10 rc=0 stdout=''
+r11 rc=0 stdout=''
+r12 rc=0 stdout=''
+r13 rc=0 stdout=''
+r14 REFUSED :: /home/logos/devel/logos/src/compiler/probes/2026-09-06p-ergodoors/hand/r14.logos:8: error [fn main]: binding modifiers may only be written when the default binding mode is `move`: 'v' is bound under a
