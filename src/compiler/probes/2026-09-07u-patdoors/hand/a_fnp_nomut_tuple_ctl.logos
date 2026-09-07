@@ -1,0 +1,9 @@
+package a_fnp_nomut_tuple_ctl;
+fn probe((a, b): (i64, i64)) -> i32 {
+    if a + b != 7i64 { return 1i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    return probe(t);
+}

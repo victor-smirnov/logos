@@ -1,0 +1,13 @@
+package e_struct_with_dropimpl;
+struct O { v: i64, c: *mut i64 }
+impl Drop for O { fn drop(self: &mut O) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct T2 { a: O, b: O }
+impl Drop for T2 { fn drop(self: &mut T2) { unsafe { *self.a.c = *self.a.c * 10i64 + 9i64; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    { let w: T2 = T2 { a: O { v: 1i64, c: p }, b: O { v: 2i64, c: p } }; let r: i64 = w.a.v; if r != 1i64 { return 2i32; } }
+    let got: i64 = unsafe { n };
+    if got != 912i64 { return 1i32; }
+    return 0i32;
+}

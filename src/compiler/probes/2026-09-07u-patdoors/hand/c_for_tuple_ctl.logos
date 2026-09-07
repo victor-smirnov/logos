@@ -1,0 +1,8 @@
+package c_for_tuple_ctl;
+fn main() -> i32 {
+    let arr: [(i64, i64); 2] = [(1i64, 2i64), (3i64, 4i64)];
+    let mut acc: i64 = 0i64;
+    for (a, b) in arr { acc = acc + a + b; }
+    if acc != 10i64 { return 1i32; }
+    return 0i32;
+}

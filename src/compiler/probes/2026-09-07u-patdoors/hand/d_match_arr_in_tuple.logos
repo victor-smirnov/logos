@@ -1,0 +1,8 @@
+package d_match_arr_in_tuple;
+fn main() -> i32 {
+    let sv: ([i64; 2], i64) = ([3i64, 2i64], 2i64);
+    match sv {
+        ([a, b], c) => { if a + b + c != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

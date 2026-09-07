@@ -28526,3 +28526,234 @@ CONTROL REVERT, and what the old binary DOES AT RUN TIME (a `run` row demands th
     "several BUILDS at once, in SEPARATE build dirs" is safe; that is true of separate
     dirs and NOT of one from-scratch build's own parallelism, and the failure mode is a
     silently truncated archive caught only by emit_module's own check.
+
+## 2026-09-07u — FOUR COPIES OF ONE PATTERN WALK, AND A DROP ORDER THE SPEC PINS AS A RULE
+
+PRICING ROUND. Nothing landed. Base binary `5a38bfbe7301f583 43` (READ), HEAD
+`26eacf7bf`, tree clean at STEP 1: queue gate **rc 0** on **65** rows
+(tier1=21 tier2=5 tier3=36 tier4=3), `# TOTAL 65` agreeing with a direct listing
+and with 65 programs on the shelf; `bc_admits` 97, `bc_admits_blocked` 25;
+`probe-log-lint` 244 records, every site symbol resolves.
+
+⚠ CORRECTION TO THE PROMPT, RE-VERIFIED AGAINST THE TEXT ACTUALLY GIVEN (the
+instruction that this must be checked and not copied from the journal): the
+STEP-1 gate command **does** carry `LOGOS_LIB_DIR`. The four-round correction is
+spent. It ran rc 0 first time.
+
+### The block, and why this one
+
+Target rows, written to a file BEFORE the compiler was touched
+(`probes/2026-09-07u-patdoors/PREDICTION.txt`):
+
+    fnparam_tuple_mut_modifier_dropped            arm fnparmut
+    fnparam_array_pattern_binds_nothing           arm fnparslice
+    for_header_pattern_tuple_only                 arm forgeneral
+    match_tuple_door_nested_struct_binds_nothing  arm tupstruct (CONDEMNED, see below)
+    closure_param_struct_pattern_syntax           NOT PROBED (grammar, rc 4 before sema)
+    struct_fields_dropped_reverse_order           arm dropfwd
+    tuple_elems_dropped_reverse_order             arm dropfwd
+
+The first block is the shape that has paid every time: AN ARM THAT EXISTS, not
+reached. `SemaChecker::emit_nested_pat_destructure` carries `mut` through
+`pat_byval_mut`, marks the source moved so the synth's scope-exit Drop skips the
+field, and recurses. `SemaChecker::lower_fn`'s two parameter prologues
+(sema_decl.cpp) are a POORER COPY of it — `sl.is_mut = false` written as a
+literal at both, and `PAT_SLICE` a `// TODO —` comment — and
+`SemaChecker::emit_for_pattern_destructure` is a THIRD copy whose refusal is a
+whitelist. FOUR copies of one walk, none delegating.
+
+### The probe table — all cost columns, the runtime one included
+
+    probe        fires  queue-ceiling  bc-ceiling  cost  cfail   std  runtime
+    dropfwd      28324      2 rows          0        4     0     ok   (below)
+    fnparmut        10      1 row           0        0     0     ok    —
+    fnparslice       3      1 row           0        0     0     ok    —
+    forgeneral      12      1 row           0        0     0     ok    —
+
+`cost` = `ceiling-probe.sh`'s pass column (rc + `.expected` match, so a fixture
+with an `stdout:` line IS a run comparison); `cfail` = 0 of 1436 `-L bc -L fail`
+fixtures changed in rc, `.expected`-match or text, on all four.
+
+⚠ RULE 4 ON THREE OF THE FOUR. `fnparmut` fired 10 times over the whole corpus,
+`fnparslice` 3, `forgeneral` 12. Those sites are LIVE — each closes its row, and
+the hand programs move — but a cost of 0 over a dozen arrivals is a statement
+about what the corpus CONTAINS, not a safety claim. The counter-examples below
+are what the numbers are worth.
+
+### The queue ceiling, and the grouping test
+
+Predicted BY NAME before the run: each arm moves ONLY its own row. Read back by
+running the queue gate once per arm; **the predicted set and the read set are
+equal, and the diff is empty in both directions**:
+
+    dropfwd     -> struct_fields_dropped_reverse_order, tuple_elems_dropped_reverse_order
+    fnparmut    -> fnparam_tuple_mut_modifier_dropped
+    fnparslice  -> fnparam_array_pattern_binds_nothing
+    forgeneral  -> for_header_pattern_tuple_only
+
+So **H1 IS REFUTED, AS PREDICTED: the pattern doors are one SHAPE and four
+ROOTS.** No arm moved a row other than its own — not the neighbouring door, not
+the `let` door, not the match door. That is the third handed-down grouping in
+three rounds to fail its own test.
+
+**H2 HOLDS**: one candidate change moves BOTH drop-order rows.
+
+⚠ AND H2's RECORDED ROOT IS INCOMPLETE — measured by reading, not assumed. Both
+row headers name `MLIRGenImpl::gen_drop_value` and its two loops. There are
+**FOUR** reverse walks in `mlir_gen_stmt.cpp`: the Struct and Tuple loops of
+`gen_drop_value`, and TWO MORE in the scope-exit drop emitter further down the
+same file — which is the one a block-scoped local goes through, i.e. the one both
+row programs actually use. A probe that flipped only the two named loops would
+have priced a mechanism the rows do not reach.
+
+### ⛔ THE FINDING THAT DECIDES dropfwd: THE SPEC PINS THE DIVERGENCE AS A RULE
+
+`dropfwd`'s four-program cost is not four legal programs refused. It is:
+
+    tests/logos/pass/drop_nested_fields.logos        .expected  "d2 d1"
+    tests/logos/pass/drop_glue_mixed_fields.logos    .expected  "d2 d1"
+    tests/logos/pass/drop_nested_explicit.logos      .expected  "o9 i2 i1"
+    tests/spec/pass/expr_3.logos                     returns 27/28 unless buf[0]==2
+
+All four ASSERT THE DIVERGENCE. Their own comments say so — "fields b then a
+should be auto-dropped (reverse field order)", "higher index drops first". And
+it is not only fixtures:
+
+  * `docs/spec/expressions.md` carries it as the rule
+    **`expr.drop.tuple-array-reverse`** — "Dropping a tuple drops its droppable
+    elements in reverse index order".
+  * `docs/spec/divergences.md` registers that rule, and its Divergence field
+    says **"tuple reverse-order is conformant"**.
+
+That claim is false — Rust drops tuple elements and struct fields in
+DECLARATION order — and the two queue rows say the opposite of the spec. So the
+tree holds a direct contradiction between the soundness queue and the rule
+corpus, pinned in four fixtures and two spec documents.
+
+**THIS IS A CORPUS DECISION WITH AN OWNER AND IT IS REPORTED, NOT EDITED.**
+Nothing here weakens a fixture or a rule. What the round can say is what it
+measured: with the walks flipped, five hand programs go from wrong to right and
+the two controls that MUST NOT move (a fixed array, which is already forward and
+correct; locals at scope exit, which are reverse in Rust too) do not move.
+
+### The counter-examples — rule 5, varied by SHAPE and not by count
+
+29 hand programs, read on the BASE binary first, then unarmed on the probe build
+(identical line for line), then once per arm. Full table:
+`probes/2026-09-07u-patdoors/tables/hand.txt`. What they bought:
+
+  * ⚠ **A CRUDE ARM AND A CORRECT FIX DO NOT CLOSE THE SAME PROGRAMS — TWICE IN
+    ONE ROUND.** `fnparslice` compiles `fn probe([a, b]: [O; 2])` for a MOVE
+    type and the destructor sequence reads **64** where Rust's is 12 — a value
+    neither 1 nor 2 can produce through `n = n*10 + v`, so a destructor ran over
+    a moved-from or uninitialised element. The row's own program is all-`i64`
+    and closes clean; the defect is one element type away from it. The landing
+    must carry the `mark_moved` the let door already does.
+  * `forgeneral`'s STRUCT half — the row's program — runs correctly; its ARRAY
+    half **SEGFAULTS (139)**. Same arm, two spellings, one is memory-unsafe.
+  * `fnparmut` closes the tuple door AND the fn-param STRUCT door
+    (`fn probe(P { mut x, y }: P)`), which had the same literal `false`. It does
+    NOT close two further members of the same class that have no row:
+    the NESTED tuple (`(mut a, (b, mut c))`, the collect walk is flat) and the
+    CLOSURE twin (`|(mut a, b): (i64,i64)|`, a fourth copy of the walk in
+    sema_expr.cpp).
+  * ⚠ AND THE FOR-HEADER ALREADY CARRIES `mut` (`for (mut a, b) in arr` compiles
+    and runs today). So the four copies do not even fail the same way: the door
+    with the WHITELIST is the one that got the modifier right, and the door that
+    accepts the shape is the one that drops it.
+
+### tupstruct — condemned by census, not by a run
+
+`match_tuple_door_nested_struct_binds_nothing` was NOT probed, and the reason is
+a measurement. Kind coverage of the four binder walkers, extracted by brace
+matching each function and reading `Code::<Kind>` inside it
+(`tables/walkers.py`, output in `tables/walkers.txt`):
+
+    pat_bind             At Or RefBind Struct Tuple VariantData Wild
+    collect_pat_bindings At Or Tuple VariantData Wild            (Struct ABSENT)
+    bind_pattern_ref     At Or RefBind RefPat Slice Struct Tuple VariantData Wild
+    declare_pat_bindings At RefBind RefPat VariantData Wild      (Struct, Tuple, Or, Slice ABSENT)
+
+⚠ AND THE COVERAGE THAT MATTERS IS NOT THE SWITCH, IT IS THE RECURSION.
+`bind_pattern_ref` HAS a Struct arm and still cannot bind `(P { x, y }, z)`,
+because its Tuple case recurses into `each_sub` only for
+`{VariantData, Or, At, RefBind, Tuple}` — Struct and Slice absent. That is
+doors in SERIES (rule 2) across sema, mlir-gen and borrow_check; a one-hunk
+widen of the sema whitelist binds nothing. It is priced as a multi-walker job,
+which is the same class round 2026-09-09d enumerated for `At`.
+
+### A DOOR WITH ITS OWN SENTENCE AND NO ROW
+
+Found while varying the shape, not looked for: `let (P { x, y }, z) = sv;` is
+legal Rust and is refused with a THIRD sentence, from a THIRD whitelist —
+
+    error [fn main]: 'let <pattern> = expr;' currently supports struct patterns
+    only (other shapes are a follow-up)
+
+— which is neither the match door's "undefined variable 'x'" nor the for
+header's "only tuple patterns". Program kept at
+`probes/2026-09-07u-patdoors/hand/d_let_struct_in_tuple.logos`. It has no queue
+row; opening one is a ledger edit and belongs to the round that prices it.
+
+### THE RUNTIME COLUMN — AND IT IS 3× THE PASS COLUMN
+
+`run_oracle.py`, both directions from ONE configure, **6537 pass fixtures
+compiled, linked and RUN** in each pass (unarmed control first, then
+`LOGOS_PROBE=dropfwd`). Full diff:
+`probes/2026-09-07u-patdoors/tables/runtime_dropfwd.diff`.
+
+**13 differing triples, 12 after subtracting `cast-region-to-uint` by name** (it
+prints a stack address; recorded nondeterministic three rounds running). The
+pass column said FOUR:
+
+    EXIT CODE moved (2)
+      logos_02_semantic_core_pass_field-destruction-order-b136   0 -> 1
+      logos_25_spec_pass_expr_3                                  0 -> 27
+    STDOUT moved, rc unchanged (10)
+      cond_move_field_overlap          cond_move_field_source
+      no_auto_drop_container_ctl       no_auto_drop_sibling_ctl
+      rawdup_intersperse_drop_once     rawdup_partition_vec_drop_once
+      rawdup_take_skip_while_drop_once
+      drop_glue_mixed_fields           drop_nested_explicit  drop_nested_fields
+
+Every one of the twelve is a destructor TRANSCRIPT or an order assertion, and
+every one PINS THE CURRENT ORDER. `field-destruction-order-b136` is the clearest
+statement of the tree's position, in its own header:
+
+    NOTE (divergence): rustc drops fields top-to-bottom (a then b); Logos drops
+    [bottom-to-top] … order is implementation-defined, so the asserted invariant
+    here is "both ran once", expressed as the Logos-observed order 21.
+
+⚠ **AND THE POPULATION IS WHY THE TWO NUMBERS DIFFER.** `ceiling-probe.sh`
+prices over `-L bc -L pass` — 1047 of 6468 registered pass tests — so eight of
+these twelve were never in its population at all, and `cond_move_field_overlap`'s
+40-line destructor transcript is exactly the kind of oracle it cannot see. A
+rc-and-selected-corpus cost of 4 was a 3× underestimate of a change whose only
+observable IS a sequence.
+
+### WHAT DESERVES FUNDING
+
+  * **fnparmut — FUND.** Queue ceiling 1 row, cost 0 in every column including
+    the runtime one, stdlib ok, and it closes a SECOND site (the fn-param struct
+    door) with no row. Carry the flag rather than the crude widen, and open rows
+    for the two members it does not reach (nested tuple; the closure copy).
+  * **fnparslice — FUND WITH THE MOVE-MARKING, NOT AS PROBED.** Ceiling 1, cost
+    0, but the probe form is memory-unsafe for a move element type (destructor
+    sequence 64 for 12). The landing owes a `mark_moved` per bound element, the
+    way `emit_nested_pat_destructure` already does, and a destructor-count
+    fixture with a `Drop` element as its oracle.
+  * **forgeneral — FUND THE STRUCT HALF ONLY.** Ceiling 1, cost 0, and the row's
+    program is the struct spelling. The array spelling SEGFAULTS as probed and
+    must not ride along; it is its own row when someone opens one.
+  * **dropfwd — DO NOT FUND. IT IS AN OWNER DECISION, NOT A REPAIR.** The change
+    is two rows for a 12-fixture runtime cost, and every one of the twelve, plus
+    `docs/spec/expressions.md`'s rule `expr.drop.tuple-array-reverse` and
+    `docs/spec/divergences.md`'s register entry, pins the ORDER the rows call a
+    defect. Either the divergence is blessed — and then
+    `struct_fields_dropped_reverse_order` and `tuple_elems_dropped_reverse_order`
+    are rows that should be retired, exactly as three E0716 rows were on the bc
+    ledger — or it is a defect, and then the spec entry's "tuple reverse-order is
+    conformant" is false and twelve fixtures change with the compiler. Both
+    branches are Victor's.
+  * **tupstruct — not funded this round.** Doors in series across four walkers;
+    price it as the multi-walker job the census shows it to be.

@@ -1,0 +1,11 @@
+package e_tuple3;
+struct O { v: i64, c: *mut i64 }
+impl Drop for O { fn drop(self: &mut O) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    { let t: (O, O, O) = (O { v: 1i64, c: p }, O { v: 2i64, c: p }, O { v: 3i64, c: p }); let r: i64 = t.0.v; if r != 1i64 { return 2i32; } }
+    let got: i64 = unsafe { n };
+    if got != 123i64 { return 1i32; }
+    return 0i32;
+}

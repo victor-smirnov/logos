@@ -1,0 +1,12 @@
+package e_struct3;
+struct O { v: i64, c: *mut i64 }
+impl Drop for O { fn drop(self: &mut O) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct T3 { a: O, b: O, c: O }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    { let w: T3 = T3 { a: O { v: 1i64, c: p }, b: O { v: 2i64, c: p }, c: O { v: 3i64, c: p } }; let r: i64 = w.a.v; if r != 1i64 { return 2i32; } }
+    let got: i64 = unsafe { n };
+    if got != 123i64 { return 1i32; }
+    return 0i32;
+}

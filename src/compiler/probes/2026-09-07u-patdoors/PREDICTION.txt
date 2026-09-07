@@ -1,0 +1,75 @@
+round 2026-09-07u (PRICING) — declared BEFORE any pricing run, AFTER the arms were installed
+HEAD 26eacf7bf, tree clean at STEP 1, base build hash 5a38bfbe7301f583 43 (READ)
+queue gate rc 0 on 65 rows (tier1=21 tier2=5 tier3=36 tier4=3); probe-log-lint 244 records
+bc_admits # TOTAL 97, bc_admits_blocked # TOTAL 25
+
+TARGET ROWS (named in scratchpad targets.md before the compiler was touched):
+  fnparam_tuple_mut_modifier_dropped            arm fnparmut
+  fnparam_array_pattern_binds_nothing           arm fnparslice
+  for_header_pattern_tuple_only                 arm forgeneral
+  match_tuple_door_nested_struct_binds_nothing  arm tupstruct
+  closure_param_struct_pattern_syntax           NOT PROBED (grammar, rc 4 before sema)
+  struct_fields_dropped_reverse_order           arm dropfwd
+  tuple_elems_dropped_reverse_order             arm dropfwd
+
+WHY THIS BLOCK, AND NOT A TIER-1 ONE: the tier-1 rows are five roots at five
+deep mechanisms (DerefMove, closure env ownership, drop-glue identity) with no
+shared arm; measured twice already. This block is the shape the prompt says has
+paid every time — AN ARM THAT EXISTS, not reached. `emit_nested_pat_destructure`
+(sema_stmt.cpp) carries `mut` via pat_byval_mut, marks the source moved and
+recurses; the fn-parameter prologues in `lower_fn` (sema_decl.cpp) are a POORER
+COPY of it — `sl.is_mut = false` hardcoded at both, and PAT_SLICE a `// TODO`
+comment — and the for-header (`emit_for_pattern_destructure`) is a third copy
+with a WHITELIST refusal. Four copies of one walk, none delegating.
+
+PREDICTED, BY NAME, BEFORE THE RUNS:
+  H1 "the pattern doors are ONE root" — REFUTED. Predict each arm moves ONLY
+     its own row: fnparmut does not move fnparam_array_pattern_binds_nothing,
+     fnparslice does not move for_header_pattern_tuple_only, and so on. Four
+     doors, four roots, one SHAPE.
+  H2 "struct + tuple reverse order are one property at two sites" — HOLDS.
+     Predict dropfwd moves BOTH rows.
+  ⚠ H2's recorded root is INCOMPLETE and this was measured by reading, not
+     assumed: the two row headers name `MLIRGenImpl::gen_drop_value` and its
+     two loops. There are FOUR reverse walks — two in gen_drop_value (Struct,
+     Tuple) and TWO MORE in the scope-exit drop emitter further down the same
+     file, which is the one a block-scoped local goes through. dropfwd flips
+     all four; a probe that flipped only the two named would have priced a
+     mechanism the rows do not use.
+
+PREDICTED COST, BY COLUMN:
+  dropfwd    — pass/cfail cost is rc-blind by construction (rule 15): drop
+               ORDER changes no exit code unless destructors interact. The
+               column that can see it is the RUNTIME one. Predict pass 0,
+               cfail 0, stdlib ok, and the runtime column the only real number.
+  fnparmut   — carries a fact (`mut` on a tuple-param element) that is dropped
+               today; strictly WIDENS what is mutable. Predict cost 0 on pass,
+               and a cfail hit ONLY if some fixture pins "assignment to
+               immutable variable" on a `(mut a, b)` fn param.
+  fnparslice — fills a `// TODO`; a shape that is refused today cannot be in a
+               pass fixture. Predict 0 in every column.
+  forgeneral — same shape, at the for-header whitelist. Predict 0 everywhere.
+  tupstruct  — a MULTI-WALKER change and priced as one. Census of the four
+               binder walkers (tables/walkers.txt) on this tree:
+                 pat_bind             At Or RefBind Struct Tuple VariantData Wild
+                 collect_pat_bindings At Or Tuple VariantData Wild      (Struct ABSENT)
+                 bind_pattern_ref     ...Struct present, but its TUPLE each_sub
+                                      recursion whitelist is {VariantData, Or,
+                                      At, RefBind, Tuple} — Struct ABSENT
+                 declare_pat_bindings At RefBind RefPat VariantData Wild (Struct,
+                                      Tuple, Or, Slice ABSENT)
+               so it is doors in SERIES (rule 2) and a one-hunk widen binds
+               nothing.
+
+── READ BACK (the same file, after the runs; nothing above was edited) ────────
+QUEUE CEILINGS, both directions, diff of predicted vs read EMPTY on all four:
+  dropfwd     2  struct_fields_dropped_reverse_order, tuple_elems_dropped_reverse_order
+  fnparmut    1  fnparam_tuple_mut_modifier_dropped
+  fnparslice  1  fnparam_array_pattern_binds_nothing
+  forgeneral  1  for_header_pattern_tuple_only
+H1 REFUTED as predicted (four doors, four roots). H2 HOLDS as predicted.
+COST: dropfwd pass 4 / cfail 0 / stdlib ok / RUNTIME 12 (13 minus
+cast-region-to-uint by name), 6537 fixtures RUN in each direction.
+The other three: 0 in every column, stdlib ok.
+TREE RESTORED: build hash back to 5a38bfbe7301f583 43 EXACTLY, L1 rc 0
+(774/774, gates 172/172), queue gate rc 0 on 65, probe-log-lint 244.

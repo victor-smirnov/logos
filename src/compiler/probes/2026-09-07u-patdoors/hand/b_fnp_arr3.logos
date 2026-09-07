@@ -1,0 +1,9 @@
+package b_fnp_arr3;
+fn probe([a, b, c]: [i64; 3]) -> i32 {
+    if a + b + c != 7i64 { return 1i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let arr: [i64; 3] = [1i64, 2i64, 4i64];
+    return probe(arr);
+}

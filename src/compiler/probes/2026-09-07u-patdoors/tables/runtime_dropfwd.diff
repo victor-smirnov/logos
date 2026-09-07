@@ -1,0 +1,48 @@
+1022c1022
+< logos_02_semantic_core_pass_cast-region-to-uint	0	0	7a317e76b8d52469
+---
+> logos_02_semantic_core_pass_cast-region-to-uint	0	0	81a373962395904b
+1335,1336c1335,1336
+< logos_02_semantic_core_pass_cond_move_field_overlap	0	0	45b85600d3570160
+< logos_02_semantic_core_pass_cond_move_field_source	0	0	de940f5176669842
+---
+> logos_02_semantic_core_pass_cond_move_field_overlap	0	0	e233e09d34d95f89
+> logos_02_semantic_core_pass_cond_move_field_source	0	0	ce176813928704b8
+2112c2112
+< logos_02_semantic_core_pass_field-destruction-order-b136	0	0	e3b0c44298fc1c14
+---
+> logos_02_semantic_core_pass_field-destruction-order-b136	0	1	e3b0c44298fc1c14
+3867c3867
+< logos_02_semantic_core_pass_no_auto_drop_container_ctl	0	0	556918810dd00af5
+---
+> logos_02_semantic_core_pass_no_auto_drop_container_ctl	0	0	4b61acdc4db5ff67
+3869c3869
+< logos_02_semantic_core_pass_no_auto_drop_sibling_ctl	0	0	c6e5448ea52a7857
+---
+> logos_02_semantic_core_pass_no_auto_drop_sibling_ctl	0	0	1e1bad0d06e55f8f
+4241c4241
+< logos_02_semantic_core_pass_rawdup_intersperse_drop_once	0	0	f40d9b006bb0ee32
+---
+> logos_02_semantic_core_pass_rawdup_intersperse_drop_once	0	0	c7112bfd6fb2888c
+4253c4253
+< logos_02_semantic_core_pass_rawdup_partition_vec_drop_once	0	0	717a7e22db172277
+---
+> logos_02_semantic_core_pass_rawdup_partition_vec_drop_once	0	0	72140416e64c0c6a
+4257c4257
+< logos_02_semantic_core_pass_rawdup_take_skip_while_drop_once	0	0	4b62d2d06543bf8a
+---
+> logos_02_semantic_core_pass_rawdup_take_skip_while_drop_once	0	0	0dd65e7e54e3f8d4
+5987c5987
+< logos_03_ownership_pass_drop_glue_mixed_fields	0	42	5b35b405dae2ea7a
+---
+> logos_03_ownership_pass_drop_glue_mixed_fields	0	42	e4240ecf06a64245
+6002,6003c6002,6003
+< logos_03_ownership_pass_drop_nested_explicit	0	42	af0695fe6198baae
+< logos_03_ownership_pass_drop_nested_fields	0	42	5b35b405dae2ea7a
+---
+> logos_03_ownership_pass_drop_nested_explicit	0	42	4489b2c1c82a502f
+> logos_03_ownership_pass_drop_nested_fields	0	42	e4240ecf06a64245
+6445c6445
+< logos_25_spec_pass_expr_3	0	0	e3b0c44298fc1c14
+---
+> logos_25_spec_pass_expr_3	0	27	e3b0c44298fc1c14

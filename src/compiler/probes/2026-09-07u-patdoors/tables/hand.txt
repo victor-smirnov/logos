@@ -1,0 +1,53 @@
+# HAND PROGRAMS — READ ON THE BASE BINARY FIRST (5a38bfbe7301f583 43), then
+# unarmed on the probe build (977cb22651349335 43, IDENTICAL line for line),
+# then once per arm. Reader = obs.sh, the queue gate's own observe().
+# Columns: CC / DIAG / RUN.
+#
+#                              base/unarmed        dropfwd  fnparmut  fnparslice  forgeneral
+# ── A: the `mut` modifier at a pattern parameter ───────────────────────────
+a_fnp_mut_tuple              1/1/-  refused           .       0/0/0        .          .     <- ROW
+a_fnp_mut_struct             1/1/-  refused           .       0/0/0        .          .     second site, same arm
+a_fnp_mut_nested             1/1/-  refused           .         .          .          .     STILL REFUSED (nested tuple: collect is flat)
+a_clo_mut_tuple              1/1/-  refused           .         .          .          .     STILL REFUSED (closure door, not armed)
+a_fnp_nomut_tuple_ctl        0/0/0  ok                .         .          .          .     control
+a_let_mut_tuple_ctl          0/0/0  ok                .         .          .          .     control: the LET door already carries `mut`
+# ── B: an array pattern at the fn-param position ───────────────────────────
+b_fnp_arr3                   1/1/-  undefined 'a'     .         .        0/0/0        .     <- ROW
+b_fnp_arr_rest               1/1/-  undefined 'a'     .         .        0/0/0        .     `[a, ..]`
+b_fnp_arr_drop               1/1/-  undefined 'a'     .         .        0/0/1        .     ⚠ COMPILES AND IS WRONG AT RUN
+b_match_arr_ctl              0/0/0  ok                .         .          .          .     control (the match door binds)
+b_let_arr_ctl                0/0/0  ok                .         .          .          .     control (the let door binds)
+b_fnp_struct_ctl             0/0/0  ok                .         .          .          .     control (pat_param's struct half)
+# ── C: the for-header whitelist ────────────────────────────────────────────
+c_for_struct                 1/1/-  whitelist         .         .          .        0/0/0   <- ROW
+c_for_arr                    1/1/-  whitelist         .         .          .        0/0/139 ⚠ SEGFAULT
+c_for_tuple_ctl              0/0/0  ok                .         .          .          .     control
+c_for_name_ctl               0/0/0  ok                .         .          .          .     control
+c_for_mut_tuple              0/0/0  ok                .         .          .          .     ⚠ the for door DOES carry `mut` — the fn door is the poorer copy
+# ── D: a struct pattern nested in a tuple pattern (NOT PROBED) ─────────────
+d_match_struct_in_tuple      1/1/-  undefined 'x'     .         .          .          .     row, arm condemned by the walker census
+d_match_arr_in_tuple         1/1/-  undefined 'a'     .         .          .          .     twin
+d_let_struct_in_tuple        1/1/-  "'let <pattern> = expr;' currently supports struct patterns only"
+#                                       ⚠ A THIRD DOOR WITH ITS OWN SENTENCE AND NO ROW.
+d_match_tuple_in_tuple_ctl   0/0/0  ok                .         .          .          .     control
+d_match_struct_top_ctl       0/0/0  ok                .         .          .          .     control
+# ── E: component drop ORDER (the oracle is a SEQUENCE, not a count) ────────
+e_struct3                    0/0/1  321 (want 123)  0/0/0       .          .          .     <- ROW's shape
+e_tuple3                     0/0/1  321 (want 123)  0/0/0       .          .          .     <- ROW's shape
+e_struct4                    0/0/1  4321 (want 1234) 0/0/0      .          .          .
+e_nested_struct              0/0/1                  0/0/0       .          .          .
+e_struct_with_dropimpl       0/0/1  the user Drop runs FIRST (correct) and only the field walk was reversed
+e_array_ctl                  0/0/0  123, correct    0/0/0       .          .          .     control, must not move
+e_locals_reverse_ctl         0/0/0  321, correct    0/0/0       .          .          .     control: LOCALS are reverse in Rust too
+
+# ⚠ RULE 7, MEASURED TWICE IN ONE ROUND: a crude arm and a correct fix do not
+# close the same programs.
+#   fnparslice compiles `fn probe([a, b]: [O; 2])` for a MOVE type and the
+#   destructor sequence reads 64 where Rust's is 12 — a value neither 1 nor 2
+#   can produce by `n = n*10 + v`, so a destructor ran over a moved-from or
+#   uninitialised element. The row's own program (i64 elements, Copy) closes
+#   clean; the defect is one type away from it.
+#   forgeneral's ARRAY half SEGFAULTS (139) while its STRUCT half — the row's
+#   program — runs correctly.
+# Both are why the cost columns below are the price of a CRUDE arm, and the
+# landing has to carry the move-marking the let door already does.

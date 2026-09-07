@@ -1,0 +1,11 @@
+package a_fnp_mut_struct;
+struct P { x: i64, y: i64 }
+fn probe(P { mut x, y }: P) -> i32 {
+    x = x + 1i64;
+    if x + y != 8i64 { return 1i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let p: P = P { x: 3i64, y: 4i64 };
+    return probe(p);
+}

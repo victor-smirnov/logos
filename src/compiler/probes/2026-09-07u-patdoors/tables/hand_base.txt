@@ -1,0 +1,29 @@
+a_clo_mut_tuple CC=1 DIAG=1 RUN=- | /home/logos/sandbox/r07u/hand/a_clo_mut_tuple.logos:4: error [fn main]: assignment to immutable variable 'a'
+a_fnp_mut_nested CC=1 DIAG=1 RUN=- | /home/logos/sandbox/r07u/hand/a_fnp_mut_nested.logos:3: error [fn probe]: assignment to immutable variable 'a'
+a_fnp_mut_struct CC=1 DIAG=1 RUN=- | /home/logos/sandbox/r07u/hand/a_fnp_mut_struct.logos:4: error [fn probe]: assignment to immutable variable 'x'
+a_fnp_mut_tuple CC=1 DIAG=1 RUN=- | /home/logos/sandbox/r07u/hand/a_fnp_mut_tuple.logos:3: error [fn probe]: assignment to immutable variable 'a'
+a_fnp_nomut_tuple_ctl CC=0 DIAG=0 RUN=0 | out=
+a_let_mut_tuple_ctl CC=0 DIAG=0 RUN=0 | out=
+b_fnp_arr3 CC=1 DIAG=1 RUN=- | /home/logos/sandbox/r07u/hand/b_fnp_arr3.logos:3: error [fn probe]: undefined variable 'a'
+b_fnp_arr_drop CC=1 DIAG=1 RUN=- | /home/logos/sandbox/r07u/hand/b_fnp_arr_drop.logos:4: error [fn probe]: undefined variable 'a'
+b_fnp_arr_rest CC=1 DIAG=1 RUN=- | /home/logos/sandbox/r07u/hand/b_fnp_arr_rest.logos:3: error [fn probe]: undefined variable 'a'
+b_fnp_struct_ctl CC=0 DIAG=0 RUN=0 | out=
+b_let_arr_ctl CC=0 DIAG=0 RUN=0 | out=
+b_match_arr_ctl CC=0 DIAG=0 RUN=0 | out=
+c_for_arr CC=1 DIAG=1 RUN=- | /home/logos/sandbox/r07u/hand/c_for_arr.logos:5: error [fn main]: for-loop pattern: only tuple patterns `for (a, b) in …` are supported here; bind a name and 
+c_for_mut_tuple CC=0 DIAG=0 RUN=0 | out=
+c_for_name_ctl CC=0 DIAG=0 RUN=0 | out=
+c_for_struct CC=1 DIAG=1 RUN=- | /home/logos/sandbox/r07u/hand/c_for_struct.logos:6: error [fn main]: for-loop pattern: only tuple patterns `for (a, b) in …` are supported here; bind a name a
+c_for_tuple_ctl CC=0 DIAG=0 RUN=0 | out=
+d_let_struct_in_tuple CC=1 DIAG=1 RUN=- | /home/logos/sandbox/r07u/hand/d_let_struct_in_tuple.logos:5: error [fn main]: 'let <pattern> = expr;' currently supports struct patterns only (other shapes are 
+d_match_arr_in_tuple CC=1 DIAG=1 RUN=- | /home/logos/sandbox/r07u/hand/d_match_arr_in_tuple.logos:5: error [fn main]: undefined variable 'a'
+d_match_struct_in_tuple CC=1 DIAG=1 RUN=- | /home/logos/sandbox/r07u/hand/d_match_struct_in_tuple.logos:6: error [fn main]: undefined variable 'x'
+d_match_struct_top_ctl CC=0 DIAG=0 RUN=0 | out=
+d_match_tuple_in_tuple_ctl CC=0 DIAG=0 RUN=0 | out=
+e_array_ctl CC=0 DIAG=0 RUN=0 | out=
+e_locals_reverse_ctl CC=0 DIAG=0 RUN=0 | out=
+e_nested_struct CC=0 DIAG=0 RUN=1 | out=
+e_struct3 CC=0 DIAG=0 RUN=1 | out=
+e_struct4 CC=0 DIAG=0 RUN=1 | out=
+e_struct_with_dropimpl CC=0 DIAG=0 RUN=1 | out=
+e_tuple3 CC=0 DIAG=0 RUN=1 | out=

@@ -1,0 +1,19 @@
+[soundness] canary: a clean program ran and exited 0, a wrong one exited 3, a refusal read as refused
+tests/logos/soundness_queue_gate.sh: line 88: 3246368 Aborted                 timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 88: 3246418 Aborted                 timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 88: 3246701 Segmentation fault      (core dumped) "$LOGOSC" "$src" -o "$d/t.o" > "$d/cc.out" 2> "$O_ERR"
+tests/logos/soundness_queue_gate.sh: line 88: 3247131 Segmentation fault      timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 88: 3247235 Segmentation fault      timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+FAIL: row 'struct_fields_dropped_reverse_order' (tier 3) NO LONGER REPRODUCES — want cc=0 diag=0 run=1, read cc=0 diag=0 run=0.
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/struct_fields_dropped_reverse_order.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+FAIL: row 'tuple_elems_dropped_reverse_order' (tier 3) NO LONGER REPRODUCES — want cc=0 diag=0 run=1, read cc=0 diag=0 run=0.
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/tuple_elems_dropped_reverse_order.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+tests/logos/soundness_queue_gate.sh: line 88: 3247661 Segmentation fault      timeout 60 "$d/t" > "$d/stdout" 2> /dev/null

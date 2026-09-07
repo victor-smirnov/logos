@@ -1,0 +1,16 @@
+# Binder-walk kind coverage, MEASURED on 26eacf7bf by brace-matched extraction
+# of each function and a regex over `Code::<Kind>` inside it (not a grep of the
+# file). Reproduce: tables/walkers.py.
+pat_bind             (mlir_gen_stmt.cpp)  At Or RefBind Struct Tuple VariantData Wild
+collect_pat_bindings (mlir_gen_stmt.cpp)  At Or Tuple VariantData Wild
+bind_pattern_ref     (sema_stmt.cpp)      At Or RefBind RefPat Slice Struct Tuple VariantData Wild
+declare_pat_bindings (borrow_check.cpp)   At RefBind RefPat VariantData Wild
+
+# AND THE COVERAGE THAT MATTERS IS NOT THE SWITCH, IT IS THE RECURSION.
+# bind_pattern_ref HAS a Struct arm and still cannot bind `(P { x, y }, z)`:
+# its Tuple case recurses into each_sub only for
+#     {VariantData, Or, At, RefBind, Tuple}
+# — Struct and Slice absent. That is the whitelist the row
+# match_tuple_door_nested_struct_binds_nothing names, and it is in SERIES with
+# collect_pat_bindings (no Struct) and declare_pat_bindings (no Struct, no
+# Tuple). A one-hunk widen of the sema whitelist binds nothing.

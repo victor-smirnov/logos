@@ -1,0 +1,9 @@
+package c_for_name_ctl;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let arr: [P; 1] = [P { x: 3i64, y: 4i64 }];
+    let mut acc: i64 = 0i64;
+    for p in arr { acc = acc + p.x + p.y; }
+    if acc != 7i64 { return 1i32; }
+    return 0i32;
+}

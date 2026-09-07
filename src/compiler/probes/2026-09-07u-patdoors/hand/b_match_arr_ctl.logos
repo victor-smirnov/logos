@@ -1,0 +1,8 @@
+package b_match_arr_ctl;
+fn main() -> i32 {
+    let arr: [i64; 3] = [1i64, 2i64, 4i64];
+    match arr {
+        [a, b, c] => { if a + b + c != 7i64 { return 1i32; } }
+    }
+    return 0i32;
+}

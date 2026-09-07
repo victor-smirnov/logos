@@ -1,0 +1,13 @@
+[soundness] canary: a clean program ran and exited 0, a wrong one exited 3, a refusal read as refused
+tests/logos/soundness_queue_gate.sh: line 88: 3250299 Aborted                 timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 88: 3250360 Aborted                 timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 88: 3250633 Segmentation fault      (core dumped) "$LOGOSC" "$src" -o "$d/t.o" > "$d/cc.out" 2> "$O_ERR"
+FAIL: row 'fnparam_array_pattern_binds_nothing' (tier 3) NO LONGER REPRODUCES — the program now compiles clean (cc=0 diag=0 run=0).
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/fnparam_array_pattern_binds_nothing.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+tests/logos/soundness_queue_gate.sh: line 88: 3251125 Segmentation fault      timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 88: 3251218 Segmentation fault      timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 88: 3251647 Segmentation fault      timeout 60 "$d/t" > "$d/stdout" 2> /dev/null

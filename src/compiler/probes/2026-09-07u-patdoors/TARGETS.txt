@@ -1,0 +1,17 @@
+# ROUND 2026-09-07u — TARGET ROWS, NAMED BEFORE THE COMPILER IS TOUCHED
+# base binary 5a38bfbe7301f583 43 ; queue gate rc 0 ; 65 rows (t1=21 t2=5 t3=36 t4=3)
+
+## BLOCK: THE NON-MATCH PATTERN DOORS EACH HAND-ROLL THEIR OWN DESTRUCTURE WALK
+fnparam_tuple_mut_modifier_dropped        3 refuses   arm fnparmut
+fnparam_array_pattern_binds_nothing       3 refuses   arm fnparslice
+for_header_pattern_tuple_only             3 refuses   arm forgeneral
+match_tuple_door_nested_struct_binds_nothing 3 refuses arm tupstruct
+closure_param_struct_pattern_syntax       3 refuses   NOT PROBED - condemned by reading (grammar, rc 4 before sema; doors in SERIES, rule 2)
+
+## SECOND BLOCK (two characters, one function, runtime-only cost)
+struct_fields_dropped_reverse_order       3 run 1     arm dropfwd
+tuple_elems_dropped_reverse_order         3 run 1     arm dropfwd
+
+# GROUPING UNDER TEST (rule 17 - the headers' own claim is a hypothesis):
+#  H1 "the pattern doors are one root": does ONE arm move more than its own row?  PREDICT NO.
+#  H2 "struct+tuple reverse order are one property at two sites": does dropfwd move BOTH? PREDICT YES.

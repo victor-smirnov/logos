@@ -1,0 +1,21 @@
+ceiling-probe: unarmed baseline (from the store where it is already there)
+ceiling-probe: armed run — LOGOS_PROBE=dropfwd
+ceiling-probe: fail-text baseline for build 977cb22651349335 not yet measured
+fail-oracle: 1436 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-977cb22651349335.tsv
+fail-oracle: 1436 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-977cb22651349335-dropfwd.tsv
+ceiling-probe: 'dropfwd'  builds 905 (unarmed) -> 906 (armed)
+probe: fired 28324 times
+probe: CEILING = 0 rows
+probe: COST    = 4 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe:           write the counter-examples)
+probe:   logos_03_ownership_pass_drop_glue_mixed_fields
+probe:   logos_03_ownership_pass_drop_nested_explicit
+probe:   logos_03_ownership_pass_drop_nested_fields
+probe:   logos_25_spec_pass_expr_3
+probe: COST-fail = 0 of 1436 `-L bc -L fail` fixtures changed (rc 0, .expected-match 0, text-only 0)
+probe: stdlib: all four layers compile under 'dropfwd'
+probe: ⛔ COST >= CEILING — it refuses at least as many legal programs as it
+probe:    closes rows. Exemptions might rescue it; the burden is showing WHICH.
+probe: ⚠ a CEILING bounds the COUNT, not the SET: diff these names against what
+probe:   you predicted BY NAME. A matching count can be two errors cancelling.
