@@ -89,3 +89,121 @@
     THE STDLIB REPAIR IS PROVEN, NOT ASSERTED: s01 (`match self { S(ref v) }`, `self: &Opt2<T>`, the
         exact stdlib shape) is refused by ergoref; s02, the same function written `match *self`,
         compiles clean and runs — so the 12-site rewrite the owner decision costs has a working form.
+
+## 6. BATCH 2 — THE CORRECTED PREDICATE AND THE CLASS'S OTHER TWO DOORS
+    (build 70a76153b16e562c 43, three probes, ONE build; L1 rc 0 inert)
+    probe        site                                          fires  ceil(bc)  pass  cfail  stdlib   runtime
+    ergorefw     payload door + `binding_from_wild[k]`            16       0      1     0     ⛔lang   n/m (see below)
+    ergonestst   STRUCT door -> VARIANT_DATA sub                   4       0      0     0     ok      0 of 6521
+    ergonestsl   SLICE door -> VARIANT_DATA sub                    0       0      0     0     ok      0 by construction
+    FULL COST LINE READ for both ref arms: `1 legal programs refused`, and the name is
+    `logos_03_ownership_pass_lifetime_match_ref_option`; `COST-fail = 0 of 1435`; `stdlib ⛔ lang`.
+    ⚠ THE TWO REF ARMS ARE IDENTICAL IN EVERY COLUMN THE HARNESS OWNS, DIGIT FOR DIGIT —
+      16 / 0 / 1 / 0 / ⛔ — and separate ONLY on a hand program (n12). That is rule 9 stated
+      literally, and it is the reason the round wrote counter-examples of a SHAPE the row's own
+      program does not have. A round that had read the columns alone would have landed the arm
+      that refuses legal code.
+    ⚠ ergorefw's RUNTIME column is NOT MEASURED and cannot honestly be: the tool's own verdict is
+      that nothing downstream of a stdlib that does not build is meaningful. The runtime column
+      for this arm becomes measurable only AFTER the 12 stdlib sites are rewritten `match *self`.
+    HANDS, batch 2 (26 programs, diffed both ways against base):
+      ergorefw   REFUSES r01 r02 r06 r14 s01 — five, all 2024-illegal, all carrying the minted
+                 sentence — and NOT n12. The false refusal is gone; nothing else moves.
+      ergonestst n10 destructor count 2 -> 1. Nothing else moves.
+      ergonestsl n11 destructor count 2 -> 1. Nothing else moves.
+    ⚠ THE PER-DOOR SETS ARE DISJOINT, MEASURED AND NOT ASSUMED (rule 13): ergonest moves
+      {n01 n02 n07 n08 n13 n14}, ergonestst moves {n10}, ergonestsl moves {n11}, and no program
+      moves under two. So for THIS class the credit IS additive — stated because it was measured,
+      and the three arms together take the six-cell table of §2 from four wrong cells to none.
+
+## 7. WHAT DESERVES FUNDING, IN ORDER, WITH ITS PRICE
+    1. ergonest + ergonestst + ergonestsl — THE CONTAINER-DOOR CLASS, one hunk per door.
+       Closes match_ergo_nested_tuple_mut_admit (queue gate's own reading) AND the new tier-1
+       nested_variant_payload_under_ref_double_drops, and takes the six-cell class table to zero
+       wrong cells. PRICE, MEASURED: stdlib all four layers under each; L1 767/767 + 12 684 smoke
+       under ergonest; cfail 0; runtime 0 of 6521 for ergonest and 0 of 6521 for ergonestst, each
+       with only `cast-region-to-uint` differing (the stack-address printer, subtracted by name);
+       28 abuse-direction hand programs unchanged. There is no cheaper repair of a double
+       destructor call in this queue.
+       ⚠ WHAT A FIX MUST DO THAT THESE ARMS DO NOT (rule 7): the arms carry the mode only into a
+       PAT_VARIANT_DATA sub. A correct fix carries it into every sub-pattern kind a container door
+       builds, and the round did NOT price the wider carriage — a nested TUPLE-in-tuple or
+       STRUCT-in-tuple payload of a move type was not measured and may hold the same defect.
+    2. ergorefw — the WRITTEN `ref`/`ref mut` half of the 2024 rule, at the payload door.
+       PRICE: 1 pass fixture (logos_03_ownership_pass_lifetime_match_ref_option), 0 of 1435
+       fail-text, and ⛔ the stdlib `lang` layer — 12 sites in option/result/cmp whose repair is
+       proven by construction (s01 refused, s02 = the same function as `match *self` compiles and
+       runs). Its blocker was a corpus decision; the owner made it (this round's prompt: "a
+       `mut`/`ref` binding modifier under a non-move default binding mode is an ERROR"), and the
+       spec ALREADY states it — `pat.binding.modifier-requires-move-mode`, docs/spec/patterns.md,
+       names `mut`, `ref` and `ref mut` together. So the gap the two tier-2 rows record is between
+       the SPEC and the implementation, not an open language question, and no tier-4 `diag` row
+       needs adding: `match &o { Some(mut n) }` already prints the 2024 sentence verbatim.
+       ⚠ FUND ONLY WITH `binding_from_wild`. The uncorrected `ergoref` refuses `match &e {
+          Outer::W(Option::Some(a)) }` — no modifier written anywhere — naming a SYNTH binding
+          `'__refut_W_0_0'`, and its harness columns are identical to the correct arm's.
+    3. ergoreftup / ergorefst / ergorefsl — the same 2024 rule at the tuple, struct and slice
+       doors. fires 0, cost 0, cfail 0, stdlib ok, each closing exactly its own hand twin (r04,
+       r03, r05) and moving nothing else. Free, and the row names these doors, so leaving them
+       out re-creates the 2021/2024 hybrid the last landing warned about. They should land in the
+       SAME commit as ergorefw or not at all.
+    NOT FUNDED THIS ROUND: ergonestchk. Its instrument segfaults (§4); the narrow/crude question
+    it was built to answer is still open, and the crude arm's 28-program abuse set is the only
+    evidence standing in its place.
+
+## ergoref
+site: src/compiler/sema_stmt.cpp::build_pattern_variant_data (payload door, `if (explicit_ref)`)
+build: 3f8fd1ddb67aedee
+measured: 2026-09-06
+fires: 16
+ceiling: 0 (bc) / 0 (queue)
+cost: 1 pass (logos_03_ownership_pass_lifetime_match_ref_option) / cfail 0 of 1435 / stdlib ⛔ lang (12 sites, option/result/cmp) / runtime not measurable behind a stdlib that does not build
+verdict: DO NOT FUND THIS FORM — it refuses n12, a legal program with no modifier written, naming the synth binding '__refut_W_0_0'. Superseded by ergorefw, which is identical in every harness column.
+
+## ergorefw
+site: same, plus `binding_from_wild[k]` — the fact the landed `mut` half already asks
+build: 70a76153b16e562c
+measured: 2026-09-06
+fires: 16
+ceiling: 0 (bc) / 0 (queue — the row names five doors, this is one; PREDICTED P1, confirmed)
+cost: 1 pass (logos_03_ownership_pass_lifetime_match_ref_option) / cfail 0 of 1435 / stdlib ⛔ lang / runtime n/m
+hands: refuses r01 r02 r06 r14 s01 (all 2024-illegal, sentence read in full); n12 NOT refused; 21 negatives unchanged
+verdict: FUND with ergoreftup + ergorefst + ergorefsl in ONE commit; the price is the 12-site `match *self` rewrite (proven by s01/s02) and one fixture re-pin, which the owner decision has authorised
+
+## ergoreftup / ergorefst / ergorefsl
+site: build_pattern_impl — TUPLE `push_ref_elem`, STRUCT `fld_is_ref`, SLICE element
+build: 3f8fd1ddb67aedee
+measured: 2026-09-06
+fires: 0 / 0 / 0 — an unreached POPULATION, not a dead site: r04 / r03 / r05 each move under exactly one of them
+ceiling: 0 (bc) / 0 (queue)
+cost: 0 pass / cfail 0 / stdlib ok (four layers, three separate runs) / runtime 0 by construction
+verdict: FUND — free, and required for the row not to leave a 2021/2024 hybrid across doors
+
+## ergonest
+site: src/compiler/sema_stmt.cpp::build_pattern_impl (TUPLE door, the PAT_VARIANT_DATA element branch)
+build: 3f8fd1ddb67aedee
+measured: 2026-09-06
+fires: 0 (the corpus contains no nested variant payload under a reference scrutinee)
+ceiling: 0 (bc) / 2 (queue: match_ergo_nested_tuple_mut_admit, read by the GATE itself as no longer reproducing; nested_variant_payload_under_ref_double_drops, n14 exit 2 -> 0 by hand)
+cost: 0 pass (L1 767/767 + 12 684 generated smoke cases, armed) / cfail 0 / stdlib ok / runtime 0 of 6521 (one differing triple, cast-region-to-uint, subtracted by name)
+hands: n01 n02 refused with the 2024 sentence; n07 n08 n13 destructor count 2 -> 1; n14 exit 2 -> 0; n10 n11 UNCHANGED (the class's other two doors); 20 negatives byte-identical
+verdict: FUND — the cheapest repair of a double destructor call in this queue
+
+## ergonestst / ergonestsl
+site: build_pattern_impl — STRUCT field sub-pattern, SLICE element sub-pattern
+build: 70a76153b16e562c
+measured: 2026-09-06
+fires: 4 / 0
+ceiling: 0 (bc) / 0 (queue — the class's other two doors have no row of their own; they are members of nested_variant_payload_under_ref_double_drops' header table)
+cost: 0 pass / cfail 0 / stdlib ok / runtime 0 of 6521 for ergonestst (cast-region-to-uint only), 0 by construction for ergonestsl
+hands: n10 2 -> 1 / n11 2 -> 1; nothing else moves under either; the three arms' moved sets are DISJOINT (measured)
+verdict: FUND with ergonest — one class, three doors
+
+## ergonestchk
+site: same as ergonest, narrow twin (walk the payload ARGS for a WRITTEN `mut`)
+build: 3f8fd1ddb67aedee
+measured: 2026-09-06
+fires: 0
+ceiling: — / —
+cost: — (NOT MEASURED)
+verdict: BROKEN INSTRUMENT, reported not hidden (rule 18): the ARGS walk SEGFAULTS the compiler on 8 of 26 hand programs. The narrow/crude separation this pair existed to make was NOT made; what stands in its place is the crude arm's 20 unchanged negatives.
