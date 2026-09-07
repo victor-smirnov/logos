@@ -1,0 +1,12 @@
+// ILLEGAL under Rust 2024: the IF-LET door, written `ref` under a by-ref
+// default binding mode.
+package cx11;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let mut out: i64 = 0i64;
+    if let Option::Some(ref v) = &o {
+        out = *v;
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

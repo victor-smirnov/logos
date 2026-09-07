@@ -1,0 +1,8 @@
+// Top-level `ref w` over a reference-typed scrutinee, READ through **w.
+package cx15d;
+fn main() -> i32 {
+    let n: i64 = 3i64;
+    match &n {
+        ref w => { if **w != 3i64 { return 1i32; } return 0i32; }
+    }
+}

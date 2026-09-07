@@ -1,0 +1,11 @@
+// LEGAL IN RUST 2024 (control for the landed `mut` half): a top-level `mut w`
+// against a reference-typed scrutinee. The default binding mode at the TOP
+// LEVEL is `move`, so the modifier is legal and `w` is `&Option<i64>`.
+package cx16;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    match &o {
+        mut w => { w = &o; }
+    }
+    return 0i32;
+}

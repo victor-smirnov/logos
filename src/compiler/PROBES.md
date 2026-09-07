@@ -28880,3 +28880,82 @@ rows, 66 programs on the shelf).
     OWNER DECISION, unchanged from 2026-09-07u: `docs/spec/expressions.md` carries
     the divergence as the rule `expr.drop.tuple-array-reverse` and TWELVE run
     fixtures assert it.
+
+---
+
+## 2026-09-09e `ergoref` — THE `ref` / `ref mut` HALF OF `pat.binding.modifier-requires-move-mode`, PRICED; THE CORPUS REPAIR LANDED ALONE FIRST
+
+site: src/compiler/sema_stmt.cpp::build_pattern_impl (dbm_sub_ty, push_ref_elem, the struct-field IS_REF door), sema_stmt.cpp::modifier_under_ref_scrutinee, sema_stmt.cpp::build_pattern_variant_data
+fires: `ergorefvd` 0 · `ergorefvd2` 0 · `ergorefsf` 0 · `ergorefleaf` 4 · `ergorefall` 4 ·
+`ergorefall2` 4 (ledger+legal population, `ceiling-probe.sh`)
+build: 6e10b5ffbceba8b4 43 (arms installed, unarmed = base); corpus-repair commit
+`06835bf24` read back 77beab6f631806d5 43
+
+Row: `match_ergo_ref_modifier_ref_mode_admit` (tier 2, `admits`). The spec rule
+`pat.binding.modifier-requires-move-mode` covers all three modifiers; only `mut` is
+enforced, so the tree is a **2021/2024 hybrid** whose asymmetry no rule states.
+
+### THE CORPUS REPAIR IS COMMITTED SEPARATELY AND ON AN UNTOUCHED COMPILER
+
+`06835bf24`: ten stdlib lines and two pass fixtures re-spelled `match *self` / `match *other`
+/ `match *opt` / `match *m`. `stdlib-cost.sh` four layers, `L1` rc 0 777/777, `L4 bc` rc 0
+1540/0. Every one of the ten illegal hand shapes still compiles and exits 0 on that build —
+the commit refuses NOTHING, which is what makes the cost columns below readable.
+
+### RULE 17 — THE HANDED-DOWN CORPUS LIST WAS WRONG THREE WAYS
+
+  * "12 stdlib sites" is TEN LINES / FIFTEEN written binders / TEN scrutinees.
+  * "two of those sites are `ref mut`" is THREE lines (option 202, result 211, 212).
+  * A THIRD corpus site is absent from the list and is the mechanism's ENTIRE measured
+    cost: `tests/spec/pass/pat_4`, the SPEC CONFORMANCE fixture for `pat.struct.field` and
+    `pat.ref.binding-mode`, four written-`ref` sites under `&Pt`/`&mut Pt` at lines 40, 41,
+    63, 64. ⚠ OWNER DECISION, NOT EDITED: it is the fixture that LOCKS the spec's own
+    pattern chapter, and its `@rule` comments assert the 2021 spelling of two rules the
+    2024 rule now contradicts. The repair is the same `*` and is PRICED HERE, not landed:
+    `match *p` at those four sites passes armed AND unarmed, rc 0 both ways.
+
+### THE ARMS, AND THE ONE DOOR WHERE THE FACT IS NOT CARRIED
+
+  `ergorefvd`/`vd2`  variant payload — `explicit_ref` and `default_ref` are adjacent lines
+  `ergorefsf`        struct-field SHORTHAND `{ ref x }` + tuple element `(ref a, b)`
+  `ergorefleaf`      the LEAF binder — `{ x: ref v }`, `[ref v]`, tuple-element sub.
+                     ⚠ `dbm_sub_ty` hands a leaf binder the BARE component type BY DESIGN
+                     ("a leaf binder consumes the mode at this door"), so
+                     `build_pattern_impl`'s own `dbm_ref` is FALSE at the leaf's door.
+                     Asked at the CONTAINER, which still knows the mode.
+
+### RULE 9 — TWO NAMES FOR ONE PREDICATE, AND NO COLUMN SEPARATES THEM
+
+`binding_is_ref` at the variant door has TWO producers: a written `ref` (`la::IS_REF`,
+pushed with `binding_from_wild = true`) and the compiler's own nested-variant synthesis
+(`synth_wants_ref`, pushed `false`). The crude `explicit_ref` arm refuses the LEGAL
+`match &e { Outer::W(Option::Some(a)) }` — no modifier written anywhere — blaming
+`'__refut_W_0_0'`. `binding_from_wild[k]` separates them and is the guard the landed `mut`
+half already asks. ⚠ `ergorefvd` and `ergorefvd2` are IDENTICAL in every harness column
+(ceiling 0, cost 0, fail-text 0/1436, stdlib green) because that door FIRED ZERO TIMES over
+the whole ledger+legal population. Only a hand program of a different SHAPE told them apart.
+
+### RULE 1 — THREE OF FOUR ZEROS ARE "NEVER ASKED"
+
+`ergorefvd`, `ergorefvd2` and `ergorefsf` all report `fired 0 times`. Their sites are proven
+LIVE by hand (cx04/05/11/19/20; cx06/08/09). The zero describes the CORPUS.
+
+### RULE 13 — ADDITIVITY CHECKED, NOT ASSUMED
+
+whole 4 fires / cost 1 = 0 + 0 + 4 fires and 0 + 0 + 1 cost. Additive, and the whole cost
+sits at the one door where the fact is not carried.
+
+### NEW ROW, FOUND BY A LEGAL CONTROL PROGRAM — `toplevel_refbind_over_ref_scrutinee_segv` (tier 1, `run 139`)
+
+Written as the "must stay legal" control for the top-level binder, it turned out to be a
+SIGSEGV on legal code, with the compiler untouched:
+
+    let n: i64 = 3i64;
+    match &n { ref w => { let b: &i64 = *w; let a: i64 = *b; … } }
+
+Sema types `w` as `&&i64` and PROVES it (`let a: i64 = *w` is refused "expected i64, got
+&i64"); codegen binds `w` to the reference VALUE, so `**w` dereferences the payload 3 as an
+address. `match n { ref w => *w }` over a non-reference scrutinee is correct, and
+`match &o { ref w => }` that never reads is correct — the read through a ref-bind whose
+pointee is itself a reference is the defect. Same family as `26eacf7bf`. `# TOTAL` 66 -> 67,
+re-derived BY DIRECT LISTING (67 rows, 67 programs on the shelf); queue gate rc 0.

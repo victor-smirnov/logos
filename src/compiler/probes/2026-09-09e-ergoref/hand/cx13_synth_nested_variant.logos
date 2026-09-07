@@ -1,0 +1,17 @@
+// LEGAL: NO modifier is written anywhere. The inner `a` is a plain binder that
+// the compiler itself gives the by-ref default mode. This is the shape an
+// earlier price REFUSED — `binding_is_ref` is true for the compiler's own
+// synthesis as well as for a written `ref`.
+package cx13;
+enum Outer { W(Option<i64>), Z }
+fn main() -> i32 {
+    let e: Outer = Outer::W(Option::Some(5i64));
+    let mut out: i64 = 0i64;
+    match &e {
+        Outer::W(Option::Some(a)) => { out = *a; }
+        Outer::W(Option::None) => {}
+        Outer::Z => {}
+    }
+    if out != 5i64 { return 1i32; }
+    return 0i32;
+}

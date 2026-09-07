@@ -1,0 +1,13 @@
+// ILLEGAL under Rust 2024: written `ref` at the STRUCT-FIELD shorthand door
+// under a by-ref default binding mode.
+package cx06;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 1i64, y: 2i64 };
+    let mut out: i64 = 0i64;
+    match &p {
+        P { ref x, y } => { out = *x + *y; }
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

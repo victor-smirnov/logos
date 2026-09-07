@@ -1,0 +1,14 @@
+// ILLEGAL under Rust 2024: `ref l` over a STRUCT-typed enum payload under a
+// by-ref default binding mode (this is the shape ref_struct_enum_payload used).
+package cx20;
+struct LM { size: i64, cap: i64 }
+enum HM { Inner(LM, i64) }
+fn main() -> i32 {
+    let m: HM = HM::Inner(LM { size: 3i64, cap: 4i64 }, 7i64);
+    let mut out: i64 = 0i64;
+    match &m {
+        HM::Inner(ref l, _) => { out = l.size + l.cap; }
+    }
+    if out != 7i64 { return 1i32; }
+    return 0i32;
+}

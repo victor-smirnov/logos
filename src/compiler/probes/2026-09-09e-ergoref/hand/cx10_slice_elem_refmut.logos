@@ -1,0 +1,10 @@
+// ILLEGAL under Rust 2024: written `ref mut` at the SLICE/ARRAY-ELEMENT door
+// under a `&mut` scrutinee.
+package cx10;
+fn main() -> i32 {
+    let mut arr: [i64; 2] = [1i64, 2i64];
+    match &mut arr {
+        [ref mut p, q] => { *p = *p + 1i64; }
+    }
+    return 0i32;
+}

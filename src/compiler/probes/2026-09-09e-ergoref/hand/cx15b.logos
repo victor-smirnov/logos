@@ -1,0 +1,10 @@
+// Minimal: a TOP-LEVEL `ref w` binder over a reference-typed scrutinee. Rust
+// 2024 keeps the top-level default binding mode `move`, so this is LEGAL and
+// `w` is `&&Option<i64>`. Nothing is matched through the reference.
+package cx15b;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    match &o {
+        ref w => { return 0i32; }
+    }
+}

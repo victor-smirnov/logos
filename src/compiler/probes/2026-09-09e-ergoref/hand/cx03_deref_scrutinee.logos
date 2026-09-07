@@ -1,0 +1,14 @@
+// LEGAL: the stdlib repair shape — deref the reference so the default mode is
+// `move`, then the written `ref` is what makes the binding a borrow.
+package cx03;
+fn get(o: &Option<i64>) -> i64 {
+    match *o {
+        Option::Some(ref v) => { return *v; }
+        Option::None => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(41i64);
+    if get(&o) != 41i64 { return 1i32; }
+    return 0i32;
+}

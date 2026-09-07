@@ -1,0 +1,14 @@
+// ILLEGAL under Rust 2024: written `ref` in BOTH alternatives of an
+// or-pattern, under a by-ref default binding mode.
+package cx19;
+enum E { A(i64), B(i64) }
+fn main() -> i32 {
+    let e: E = E::A(3i64);
+    let mut out: i64 = 0i64;
+    match &e {
+        E::A(ref v) => { out = *v; }
+        E::B(ref v) => { out = *v; }
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

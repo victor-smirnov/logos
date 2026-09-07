@@ -4653,6 +4653,21 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         }
         if (explicit_ref) {
             bool is_mut = k < binding_is_mut.size() && binding_is_mut[k];
+            // PROBE 2026-09-09e ergorefvd: the `ref` / `ref mut` two thirds of
+            // pat.binding.modifier-requires-move-mode at the variant-payload door.
+            // ⚠ RULE 9, TWO NAMES FOR ONE PREDICATE. `explicit_ref` alone is the CRUDE
+            // form and it refuses LEGAL code: `binding_is_ref` is also set by the
+            // compiler's OWN nested-variant synthesis (`synth_wants_ref`), so
+            // `match &e { Outer::W(Option::Some(a)) }` — no modifier written anywhere —
+            // is blamed under the synthesized name `__refut_W_0_0`. The separating fact
+            // is `binding_from_wild[k]`: only a real written binder sets it, the synth
+            // pushes false, and the landed `mut` half already asks it.
+            const bool _from_wild = k < binding_from_wild.size() && binding_from_wild[k];
+            if (default_ref && (logos::probe::on("ergorefvd") || logos::probe::on("ergorefall")))
+                modifier_under_ref_scrutinee(bindings[k], scrut_type, /*known_ref=*/true);
+            if (default_ref && _from_wild &&
+                (logos::probe::on("ergorefvd2") || logos::probe::on("ergorefall2")))
+                modifier_under_ref_scrutinee(bindings[k], scrut_type, /*known_ref=*/true);
             bind_ref_modes[k] = is_mut ? 2u : 1u;
             binding_types[k] = make_ref(is_mut, binding_types[k]);
         } else if (default_ref &&
@@ -5144,7 +5159,26 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             auto alts_ = arr_of(sub.get(la::ITEMS.code));
             if (alts_.size() == 1) sub = map_of(alts_.get(0));
         }
-        if (code_of(sub) == la::PAT_WILD.code) return t;
+        if (code_of(sub) == la::PAT_WILD.code) {
+            // PROBE 2026-09-09e ergorefleaf. ⚠ THE FACT IS NOT CARRIED PAST THIS
+            // POINT: a leaf binder is deliberately handed the BARE component type,
+            // so `build_pattern_impl`'s own `dbm_ref` is FALSE at the leaf's door
+            // and a written `ref` there cannot see the by-ref default mode. Asked
+            // HERE, at the container, which still knows it.
+            if (dbm_ref && (logos::probe::on("ergorefleaf") || logos::probe::on("ergorefall") ||
+                                logos::probe::on("ergorefall2"))) {
+                auto lf = [&](const la::Key& kk) {
+                    return sub.has_key(kk) && sub.get(kk.code).is_value() &&
+                           sub.get(kk.code).as_value<uint8_t>() != 0;
+                };
+                if (lf(la::IS_REF) && sub.has_key(la::NAME)) {
+                    auto nm = std::string(str_of(sub.get(la::NAME.code)));
+                    if (!nm.empty() && nm != "_")
+                        modifier_under_ref_scrutinee(nm, scrut_orig, /*known_ref=*/true);
+                }
+            }
+            return t;
+        }
         auto k = TypeRef(t).kind();
         if (k == LogosType::Kind::Error || k == LogosType::Kind::TypeVar) return t;
         // Array/Slice held back for mint_dbm_ref's reason: no codegen ref-bind
@@ -5364,6 +5398,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             if (!flag(la::IS_REF) || !en.has_key(la::NAME)) return false;
             auto nm = std::string(str_of(en.get(la::NAME.code)));
             if (nm.empty() || nm == "_") return false;
+            // PROBE 2026-09-09e ergorefsf: written `ref` at the TUPLE-ELEMENT door.
+            if (dbm_ref && (logos::probe::on("ergorefsf") || logos::probe::on("ergorefall") ||
+                                logos::probe::on("ergorefall2")))
+                modifier_under_ref_scrutinee(nm, scrut_orig, /*known_ref=*/true);
             bool im = flag(la::IS_MUT);
             TypeRef bt = make_ref(im,
                 (et && TypeRef(et).kind() != LogosType::Kind::Error) ? et : error_t());
@@ -5908,6 +5946,12 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             current_pat_mut_names_->insert(fname);
                         if (fld_is_ref && !fnode.has_key(la::VALUE) &&
                             fname != "_") {
+                            // PROBE 2026-09-09e ergorefsf: written `ref` at the
+                            // STRUCT-FIELD shorthand door.
+                            if (dbm_ref && (logos::probe::on("ergorefsf") ||
+                                            logos::probe::on("ergorefall") ||
+                                            logos::probe::on("ergorefall2")))
+                                modifier_under_ref_scrutinee(fname, scrut_orig, /*known_ref=*/true);
                             TypeRef bt = make_ref(fld_is_mut,
                                 (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
                                     ? ftype : error_t());
