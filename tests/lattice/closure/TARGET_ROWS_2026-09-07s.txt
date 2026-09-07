@@ -1,0 +1,46 @@
+TARGET ROWS FOR THE NEXT ROUND, NAMED AFTER THE 2026-09-07s LANDING.
+Build 337164757523a8c9 43, closure lattice OK 216/228 (was 192), queue # TOTAL 66.
+
+BLOCK 1 — FREE AT THE CONSUMING CALL (1 row, 1 cell, 1 candidate change)
+  boxed_escaping_fnonce_capture_double_free      tier 1  run 2   1 cell
+  THE RULE IS ALREADY WRITTEN AND PROVEN TO CLOSE THIS ROW: dropping
+  `!callee_is_box_closure` from `consumes_callee`'s guard in
+  `SemaChecker::lower_call` takes the destructor count 2 -> 1 and the exit code to 0.
+  What stops it is that the callable's DROP GLUE holds BOTH `free`s — the heap env's
+  and, through the Box binding's own drop, the box block's — so consuming the callable
+  orphans 40 bytes: MEASURED, `g_box_dyn_fnonce` valgrind-CLEAN -> 6 records and this
+  cell -> 7, both with the count RIGHT. The candidate change is to emit the release at
+  the consuming call (Rust's boxed `call_once` frees the box after invoking), or to
+  split the glue into "drop captures" and "free storage" and run only the second.
+  ⚠ DO NOT TAKE THE COUNT AS THE ORACLE HERE. Four of this lattice's memory-unsafe
+  cells exit 0 with the right count; this one would too.
+
+BLOCK 2 — THE SECOND MOVE ANALYSIS (1 row, 1 candidate change)
+  closure_fnonce_call_in_loop_multi_free         tier 1  run 1   [NEW 2026-09-07s]
+  Sema now consumes an `FnOnce` callee and the straight-line double call is refused
+  (fail/closure_fnonce_called_twice_fail). The LOOP spelling is not: sema reverts
+  `moved_vars_` around a loop body and the loop-aware refusal lives in
+  borrow_check.cpp's own move record, which does not treat an `EClosureCall`'s callee
+  as a move of the callee. MEASURED SEPARATION on this build: the same loop over a
+  plain `fn eat(d: D)` IS refused with `use of moved value 'x' (moved on line N)`.
+  This is the shape the queue has met before — two analyses, one taught.
+
+BLOCK 3 — THE DEFERRED SUBSET NEEDS A DROP FLAG (1 row)
+  closure_fnonce_cond_call_untaken_leak          tier 1  run 1   [NEW 2026-09-07s]
+  The handover installed this round is set-based: `closure_owned_drop_` is a plain
+  `std::set` with no branch merge, so a release made while lowering the TAKEN arm
+  stands on the untaken one. #118's `cond_move_flags` / `guard_with_flag` is the arm
+  that exists and is proven live on the plain spelling. `emit_frame_drops`' flag arm
+  deliberately yields to `closure_owned_drop_` for a reason its own comment measures,
+  so the repair is to make the DEFERRED SUBSET flag-bearing — it is the only member of
+  `closure_owned_drop_` whose release is a conditional move — not to drop that
+  precedence.
+
+BLOCK 4 — `escapes` IS MINTED FROM THE HINT'S SHAPE (1 row, 7 cells) — UNTOUCHED
+  impl_fn_return_stack_env_dangles               tier 1  run 139  7 cells
+BLOCK 5 — THE HEAP ENV IS SIZED WRONG FOR FAT CAPTURES (1 row, 3 cells) — UNTOUCHED
+  boxed_move_closure_fat_capture_env_overflow    tier 1  run 134  3 cells
+  Both carried forward verbatim from TARGET_ROWS_2026-09-07r; neither was attempted.
+
+NOT IN ANY BLOCK
+  j_closure_shadowed is NOT a closure defect (refuted by the survey and unchanged here).

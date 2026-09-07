@@ -27971,3 +27971,235 @@ returned; nested closures and a closure capturing a closure; a closure in a `Vec
 1..5 scalar and 1..3 fat unboxed; `FnMut` mutation of an outer local (borrowed) versus a
 `move` copy (not borrowed); a closure moved to a second local; a closure ASSIGNED OVER
 (1001, correct — only the SHADOWED spelling is wrong).
+
+# ═══ ROUND 2026-09-07s (LANDING, soundness queue) — A CALL CONSUMES AN `FnOnce`, AND THE
+#     RULE WAS ALREADY HERE: APPLIED AT ONE OF THE SEVEN FORMS IN WHICH A CALLABLE
+#     CAN BE NAMED ══════════════════════════════════════════════════════════════════════
+
+Base `0a39e1a59`, build `febd1aa6e49ae30c 43`, queue `# TOTAL` 67, queue gate rc 0,
+bc_admits 98, probe-log-lint 238 records. Landed at `337164757523a8c9 43`.
+
+## 1. THE HANDED-DOWN ROOT WAS ONE LAYER TOO HIGH, AND THE GROUPING IS REFUTED
+
+The survey (2026-09-07r) named two lines — `if (body_moved_outer.count(...)) continue;`
+in the closure-literal capture walk and the `capture_drops[i]` loop in
+`MLIRGenImpl::emit_closure_env` — and grouped three rows on the claim that they are
+"one missing bit, opposite signs: no glue ⇒ leak, heap env ⇒ double free", with ONE
+candidate change moving all three. **One change moved two of the three.** The third
+(`boxed_escaping_fnonce_capture_double_free`) is still open for a reason the grouping
+never named, and it is not a codegen bit.
+
+The missing fact is Rust's rule that `call_once` takes self BY VALUE — **and that rule
+is already implemented in this tree**, as `fn_once_consume` in `SemaChecker::lower_call`
+(`src/compiler/sema_expr.cpp`), which does `mark_moved(callee)`. Its guard asked for a
+TypeVar receiver twice:
+
+    fn_once_consume && !callee_is_ref_fn && !callee_is_box_closure &&
+    TypeRef(fn_bound_recv_type).kind() == LogosType::Kind::TypeVar
+
+**THE CLASS, ENUMERATED FROM `lower_call`'s OWN TAXONOMY** — every form in which a
+callable can be named at a call site, not a grep over spellings:
+
+| # | form | before |
+|---|---|---|
+| 1 | generic `F: FnOnce` local, CALLED | implemented |
+| 2 | `&F` / `&mut F` | correctly excluded — a call through a reference cannot move its referent |
+| 3 | local bound to a closure LITERAL whose body moves a capture out | **OPEN** |
+| 4 | `Box<dyn FnOnce>` | **OPEN** |
+| 5 | generic `F: FnOnce` local PASSED BY VALUE | **OPEN** |
+| 6 | kind-2 closure local passed by value | **OPEN** |
+| 7 | bare fn pointer | never consumes (Copy) — correct |
+
+**FOUR NEW DEFECTS, measured on the base binary before a line was edited.** Each is a
+program rustc refuses that this compiler compiled and ran with a destructor count
+GREATER than the number of values — a double free, not a missing diagnostic:
+
+| hand program | shape | count [correct] |
+|---|---|---|
+| cx1 | `let f = move \|\| { let t: D = x; … }; f(); f();` | 2 [1] |
+| cx4 | the same closure called in a `while` loop | 3 [1] |
+| cx12 | the RFC-2229 narrow spelling `let t: D = x.d;`, called twice | 2 [1] |
+| cx14 | `apply(f); apply(f);` with `F: FnOnce` | D consumed twice |
+| **control** cx13 | a `Fn` closure called twice | **1, correct** |
+
+## 2. THE FIX, AND THE TWO THINGS IT IS NOT ALLOWED TO USE
+
+`closure_kind_by_id_` — the per-LITERAL Fn-family kind, keyed on the id
+`VarInfo::closure_id` already carries. **NOT** the signature-keyed `closure_kind_`,
+which is a max over every literal of one shape and is open defect #90: answering "is
+THIS callable an FnOnce?" from it consumes a sibling `Fn` closure and refuses legal
+code. Pinned by a hand program in a shape the survey did not use — two same-signature
+literals in one fn, one `Fn` called twice and one `FnOnce` called once: count 11,
+value 21, correct.
+
+The kind is computed SEGMENT-WISE. Moving a FIELD out of a capture is moving out of the
+capture; the bare set-membership test against the capture ROOT classified
+`move || { let t: D = x.d; }` as `Fn` while its whole-var twin one token away was right.
+
+⚠ **FORM 4 IS NOT LANDED AND VALGRIND IS WHY.** Consuming a `Box<dyn FnOnce>` DOES close
+its double free — count 2 → 1, exit 0, measured — but the `free` of the box block AND of
+the heap env both live in the callable's DROP glue, so suppressing that drop orphans
+them: `g_box_dyn_fnonce` went from valgrind-CLEAN to 6 records and
+`l_boxed_fnonce_escape_consume` to 7, **both with the destructor count now RIGHT**.
+Trading a double free for a leak is not closing a row. `!callee_is_box_closure` stays,
+with that measurement at the site and in the row's header. The complete fix frees at the
+consuming call, which is what Rust's boxed `call_once` does.
+
+## 3. WHEN THE BODY'S MOVE HAPPENS — the second half, in series behind the first
+
+A closure body's move of an outer capture was recorded in the ENCLOSING function's move
+set AT THE LITERAL, as though the body ran exactly once. It runs zero or one time. Sema
+then stood the source scope down and delegated to a body-side drop site that **does not
+exist** for a non-escaping closure: `need_glue` is false for a stack env and `nm` finds
+no `__closure_drop__` symbol in the object at all.
+
+The source now KEEPS the obligation — `closure_owned_drop_`, whose un-skip already
+existed for a NAME in `emit_frame_drops`' `eligible` and now exists for a dotted PATH in
+`make_drop_stmt` — and hands it over where Rust hands it over.
+
+⚠ **THE HANDOVER IS DELIBERATELY THE WIDEST HOOK, NOT THE MOST PRECISE ONE.** Every
+read of the binding releases it (`lower_var_ref` → `mark_moved_deferred_only`), because
+a release the compiler MISSES is a DOUBLE FREE — measured: `let g = f; g();` read 2 for
+1 while the store sites were being widened one at a time — whereas one it makes too
+eagerly is at worst today's leak (a closure handed to a callee that never invokes it).
+
+**TWO GUARDS BOUGHT BY A MEASUREMENT, each with the cell that bought it named at the
+site.** The obligation is taken only when
+
+  * a `let` CLAIMS the literal as its direct RHS. `Box::new(move || …)` and a closure
+    passed straight as an argument have no binding that can RELEASE it; unconditional,
+    `g_box_dyn_fnonce` went 1 → 2.
+  * no INNER closure's binding already owns that capture's destructor
+    (`capture_owner_` already set). `move || { let g = move || x.v; g() }` "moves" `x`
+    only by handing it to a nested literal whose own `let` is a drop site INSIDE the
+    body; unconditional, `g_nested_closure` went 1 → 0.
+
+The path form is enumerated **BY THE PROPERTY** — "the body moved a path rooted at a
+capture" — and not by the RFC-2229 narrow spelling, which is minted for a STRUCT root
+only: a TUPLE root's element (`x.0`) is captured whole-var and vanished identically
+(cells `b_narrow_consume_nocall_tuple` / `_tuple2` separate the two).
+
+## 4. A CLOSURE BODY IS A FUNCTION BODY AND ENDS THE SAME WAY
+
+`lower_fn` runs an epilogue over its PARAMS scope when the body falls off the end
+(`if (!body_terminated) … emit_frame_drops(frame, …, &body_ever_moved_)`,
+`src/compiler/sema_decl.cpp`). The closure-literal lowering did `lower_block(body_node)`
+then `pop_scope()` with nothing in between. The body block's own collect_drops walks only
+the INNER scope, so an unused BY-VALUE owner parameter — which lives in the params frame
+— was never destroyed. **The discriminator was the RETURN TYPE**: a `-> i64` body ends in
+`return`, which reaches `collect_all_drops`, and was always correct; a void body reached
+nothing. Same arm, same conservative `body_ever_moved_` skip. It also repairs
+`g_nested_closure`, whose inner closure's captures die with the body.
+
+## 5. THE GRID
+
+Re-baselined by hand and REPRODUCED digit for digit before the first edit:
+TOTAL 228 · OK 192 · WRONGCOUNT 26 · REFUSED 7 · RUNRC 2 · WRONGVALUE 1. After:
+
+    TOTAL 228   OK 216   WRONGCOUNT 2   REFUSED 7   RUNRC 2   WRONGVALUE 1
+
+The two survivors are `l_boxed_fnonce_escape_consume` (form 4, §2) and
+`j_closure_shadowed`, which the survey already refuted as not a closure defect.
+
+**VALGRIND DIFFED BOTH WAYS over all 228 cells.** Clean that were dirty:
+`a_move_nocall_consume_{box,boxfield,dyn,vec}` and `l_param_string_void` — the last a
+heap `String` by-value parameter that leaked its buffer with NO destructor count to show
+for it, visible to valgrind alone. **Newly dirty: ZERO.**
+
+## 6. ROWS
+
+`# TOTAL` 67 → 66 re-derived BY DIRECT LISTING (66 rows, 66 programs), tier1 23 → 22.
+
+CLOSED, each landed as a PAIR one call apart; the pass halves RUN and assert a destructor
+count, the fail halves pin the refusal in full, and ⚠ **TWO of the three fail halves are
+NEW refusals and the third is INHERITED** — checked on the base binary, as rule 14
+demands, and the check corrected a claim this record first made:
+
+  * `closure_capture_body_moved_never_dropped` → pass/`closure_fnonce_capture_drop_never_called`
+    + fail/`closure_fnonce_called_twice_fail` (base: COMPILED and ran rc 2, `D::drop` twice)
+  * `closure_narrow_capture_never_dropped` → pass/`closure_fnonce_narrow_capture_drop_never_called`
+    + fail/`closure_fnonce_narrow_called_twice_fail` (base: COMPILED and ran rc 2)
+  * `closure_byvalue_param_never_dropped` → pass/`closure_void_body_param_epilogue`
+    + fail/`closure_void_body_param_moved_twice_fail` (base: refused, SAME sentence —
+    this half buys a pin on the abuse direction, not a new refusal)
+
+OPENED, both verified to reproduce and both INHERITED (rc 1 on the base binary too):
+
+  * `closure_fnonce_cond_call_untaken_leak` (tier 1, `run 1`) — the handover is set-based
+    and has NO BRANCH MERGE. `closure_owned_drop_` is a plain `std::set` that
+    `elaborate_cond_moves` never saves or reverts, so the release made on the taken arm
+    stands on the untaken one. #118's `cond_move_flags` is the arm that exists and is
+    proven live on the plain spelling (`if c { eat(x); } else { … }` reads 1 on BOTH
+    arms); `emit_frame_drops`' flag arm deliberately yields to `closure_owned_drop_`, for
+    a reason its own comment measures, so the repair is to make the DEFERRED SUBSET
+    flag-bearing rather than to drop that precedence.
+  * `closure_fnonce_call_in_loop_multi_free` (tier 1, `run 1`) — **THERE ARE TWO MOVE
+    ANALYSES AND ONLY SEMA WAS TAUGHT THE RULE.** The straight-line second call is refused
+    by `moved_vars_.count(callee)` at the head of `lower_call`'s closure arm; the LOOP
+    spelling is not, because sema reverts `moved_vars_` around a loop body (its own
+    `mark_moved` comment says so) and the loop-aware refusal lives in borrow_check.cpp's
+    move record (`use of moved value '{}' (moved on line {})`), which does not treat an
+    `EClosureCall`'s callee as a move. MEASURED SEPARATION: the same loop over a plain
+    `fn eat(d: D)` IS refused with that sentence.
+
+## 7. BC LEDGER — ONE ROW CLOSED, NOT SOUGHT
+
+`nll/issue-52663-span-decl-captured-variable` (`# TOTAL` 98 → 97): a NON-`move` closure
+that moves `x.0` out and is called twice. rustc infers exactly that capture, makes the
+closure `FnOnce` and refuses the second call. Relanded under `tests/imported/fail/nll/`
+with the diagnostic pinned. On the base binary it COMPILED and ran rc 0.
+
+⚠ **TWO PINNED DIAGNOSTICS MOVED, AND THE SUBJECT OF THE SENTENCE CHANGED.**
+`borrowck-in-static--move-captured-out-of-fn-closure` and its `--r-runtime` twin were
+pinned on borrow_check's `use of moved value 'x' (moved on line N)` — the CAPTURE. The
+refusal now fires one step earlier, in sema, and names the CALLABLE. Both binaries refuse;
+the sentence moved TOWARD rustc, which for these programs as ported answers E0382 "use of
+moved value: `g`" with the note "closure cannot be invoked more than once because it moves
+the variable `x` out of its environment" (the upstream E0507 in their headers belongs to
+the static context the port dropped). This is a corpus edit, made deliberately, with the
+reason written into both fixtures. It is also the ONLY thing `gate-run -L bc` saw change:
+build 883 → 896, 2670 measured under both, 2 changed.
+
+## 7b. THE CONTROL REVERT, AND WHAT IT SHOWED THE OLD BINARY DOING AT RUN TIME
+
+`src/compiler/` checked out at `e2296c806` and rebuilt in place, then restored and rebuilt
+again — **the restore is verified, not assumed: the build hash came back to
+`337164757523a8c9 43` exactly.** The reverted compiler hashed `f03879ecc15d8746 43`, which
+is NOT the round's opening `febd1aa6e49ae30c 43`, because `build_hash.py` covers inputs
+beyond `src/compiler/` and this round's fixture and ledger edits were in the tree; the
+COMPILER SOURCES were byte-for-byte `e2296c806`'s.
+
+⚠ **A FROM-SCRATCH WORKTREE BUILD OF THIS TREE DOES NOT WORK**, and that is why the
+control is an in-place revert rather than a whole second compiler: `cmake -S <fresh
+worktree>` then build fails in the GENERATED parser with `'na_fail_0' was not declared in
+this scope` at four sites in `logos_parser.cpp`, under BOTH Make and Ninja, on two
+attempts. Reported here rather than worked around.
+
+| program | BASE | ARMED |
+|---|---|---|
+| pass/closure_fnonce_capture_drop_never_called | rc 1 — capture never destroyed | rc 0 |
+| pass/closure_fnonce_narrow_capture_drop_never_called | rc 1 | rc 0 |
+| pass/closure_void_body_param_epilogue | rc 1 | rc 0 |
+| fail/closure_fnonce_called_twice_fail | **COMPILED, ran, rc 2 — `D::drop` twice** | refused |
+| fail/closure_fnonce_narrow_called_twice_fail | **COMPILED, ran, rc 2 — `D::drop` twice** | refused |
+| fail/closure_void_body_param_moved_twice_fail | refused, same sentence | refused — INHERITED |
+| imported/fail/nll/issue-52663-… | **COMPILED, ran rc 0** | refused |
+| open/closure_fnonce_cond_call_untaken_leak | rc 1 | rc 1 — INHERITED |
+| open/closure_fnonce_call_in_loop_multi_free | rc 1 | rc 1 — INHERITED |
+
+⚠ **THE `fail_text_oracle.py` COLUMN WAS NOT TAKEN, AND THE REASON IS THE TOOL'S OWN.**
+It SELF-INVALIDATES across a rebuild (its ABI-freshness warning names the build timestamp),
+so a base-vs-armed comparison needs both binaries from ONE configure; the in-place control
+cannot supply that, and the from-scratch worktree that could does not build (above). What
+stands in its place is the `-L bc` store read, which compares rc AND `.expected` match over
+1436 registered `fail` fixtures and reported exactly the two deliberate pins.
+
+## 8. WHAT A RECORD CALLS BROKEN AND THE INSTRUMENT CALLS CORRECT
+
+`value_needs_drop`'s NOTE — that the closure drop is "driven NARROWLY: only the owning
+`Box<Closure>` path invokes `gen_drop_value(Closure)`" — was recorded as CONTRADICTED by
+the survey (`Box::new(move || …)` read COUNT=0). It is contradicted for a different
+reason than the survey gave: the path is LIVE, and what was missing was an OWNER for the
+capture, not the glue. `g_box_dyn_fnonce` reads 1 and is valgrind-clean on both binaries,
+and the `Box<dyn FnOnce>` row's remaining double free comes from the glue RUNNING when the
+call should already have consumed the callable — the glue firing, not failing to.

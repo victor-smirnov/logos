@@ -29,7 +29,24 @@ definitely-lost leaks as well as invalid accesses.
 
 A LATTICE DECAYS. Do not carry a result forward: re-run it.
 
-## Baseline, build febd1aa6e49ae30c 43, 2026-09-07
+## Baseline, build 337164757523a8c9 43, 2026-09-07s (AFTER the repair round)
+
+    TOTAL 228   OK 216   WRONGCOUNT 2   REFUSED 7   RUNRC 2   WRONGVALUE 1
+    valgrind-dirty among the OK: 0 that were not dirty before; 5 cells went CLEAN
+    (a_move_nocall_consume_{box,boxfield,dyn,vec}, l_param_string_void)
+
+Twenty-four cells moved OK. The two remaining WRONGCOUNT:
+
+  * `l_boxed_fnonce_escape_consume` — row boxed_escaping_fnonce_capture_double_free.
+    Consuming the `Box<dyn FnOnce>` at its call closes the double free (2 -> 1, exit 0)
+    and ORPHANS the box block and the heap env, because both `free`s live in the drop
+    glue: measured, this cell 0 -> 7 valgrind records and `g_box_dyn_fnonce` CLEAN -> 6.
+    Not landed. The complete fix frees at the consuming call.
+  * `j_closure_shadowed` — not a closure defect (see below).
+
+The seven REFUSED, the two RUNRC and the WRONGVALUE are unchanged and rowed.
+
+## Baseline, build febd1aa6e49ae30c 43, 2026-09-07r (the survey round)
 
     TOTAL 228   OK 192   WRONGCOUNT 26   REFUSED 7   RUNRC 2   WRONGVALUE 1
     valgrind-dirty among the OK: 4   (see above)

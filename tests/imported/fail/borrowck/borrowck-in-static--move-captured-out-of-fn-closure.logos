@@ -1,6 +1,16 @@
 // rustc borrowck/borrowck-in-static.rs — upstream E0507
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
+// ⚠ PIN MOVED 2026-09-07s, AND THE SUBJECT OF THE SENTENCE CHANGED. This was
+// pinned on borrow_check's `use of moved value 'x' (moved on line N)` — the
+// CAPTURE. The refusal now fires one step earlier, in sema, and names the
+// CALLABLE: a non-`move` closure whose body moves `x` out is `FnOnce` (rustc
+// infers exactly that capture), so the second `g()` is a use-after-move of `g`.
+// That is rustc's own answer for this program as ported — E0382 "use of moved
+// value: `g`", with the note "closure cannot be invoked more than once because
+// it moves the variable `x` out of its environment". The upstream E0507 in the
+// file's header belongs to the STATIC context the port dropped. Both binaries
+// refuse; only the sentence moved, and it moved toward rustc.
 // upstream: borrowck/borrowck-in-static.rs  E0507 cannot move out of `x`, a captured variable in an `Fn` closure
 package borrowck_in_static_move_captured_out_of_fn_closure;
 struct S { n: i64 }
