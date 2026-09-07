@@ -1,0 +1,15 @@
+package c12;
+use logos.std.fmt;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+enum Outer { V((S, i64)), Z }
+fn main() -> i32 {
+    let e: Outer = Outer::V((S { n: 5i64 }, 1i64));
+    let mut out: i64 = 0i64;
+    match &e {
+        Outer::V((s, k)) => { out = s.n + *k; },
+        Outer::Z => {}
+    }
+    if out != 6i64 { return 1i32; }
+    return 0i32;
+}

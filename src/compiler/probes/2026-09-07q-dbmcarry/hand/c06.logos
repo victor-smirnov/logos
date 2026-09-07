@@ -1,0 +1,14 @@
+package c06;
+use logos.std.fmt;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+struct W { pub t: (S, i64), pub k: i64 }
+fn main() -> i32 {
+    let w: W = W { t: (S { n: 5i64 }, 1i64), k: 9i64 };
+    let mut out: i64 = 0i64;
+    match &w {
+        W { t: (s, m), k } => { out = s.n + *m + *k; }
+    }
+    if out != 15i64 { return 1i32; }
+    return 0i32;
+}

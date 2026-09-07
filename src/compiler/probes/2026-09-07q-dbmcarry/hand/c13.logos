@@ -1,0 +1,15 @@
+package c13;
+use logos.std.fmt;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+enum E { V { f: S }, Z }
+fn main() -> i32 {
+    let p: (E, i64) = (E::V { f: S { n: 5i64 } }, 9i64);
+    let mut out: i64 = 0i64;
+    match &p {
+        (E::V { f }, b) => { out = f.n + *b; },
+        (E::Z, _) => {}
+    }
+    if out != 14i64 { return 1i32; }
+    return 0i32;
+}

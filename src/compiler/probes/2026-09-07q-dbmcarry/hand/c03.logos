@@ -1,0 +1,13 @@
+package c03;
+use logos.std.fmt;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+fn main() -> i32 {
+    let p: ((S, i64), i64) = ((S { n: 5i64 }, 1i64), 9i64);
+    let mut out: i64 = 0i64;
+    match &p {
+        ((s, k), b) => { out = s.n + *k + *b; }
+    }
+    if out != 15i64 { return 1i32; }
+    return 0i32;
+}
