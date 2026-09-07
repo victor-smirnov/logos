@@ -1,0 +1,129 @@
+name: shadowdrop
+file: src/compiler/sema_stmt.cpp
+---
+            auto lowered = lower_stmt(s);
+---
+            // ── ROUND 2026-09-07t CEILING PROBES (env-gated) ──────────────
+            // A SECOND `let` OF THE SAME NAME IN THE SAME FRAME: SemaImpl::define
+            // pushes the name onto `var_order` only when absent and then
+            // OVERWRITES `vars[name]`, so the frame's scope-exit walk
+            // (SemaChecker::emit_frame_drops) can only ever see the LAST
+            // binding of a name. Crude arms, both DELIBERATELY WRONG:
+            //   shadowdrop  — emit the displaced binding's destructor HERE
+            //                 (Rust drops it at scope exit, not at the
+            //                 shadowing `let`; the COUNT is what the rows read)
+            //   shadowmoved — clear the name-keyed `moved_vars_` state a fresh
+            //                 binding of the name should not inherit
+            //   shadowboth  — both, for rule 13 (additivity is measured)
+            if (code_of(s) == la::LET && s.has_key(la::NAME) && !scope_.empty()) {
+                std::string sh_nm_(str_of(s.get(la::NAME.code)));
+                auto sh_it_ = scope_.back().vars.find(sh_nm_);
+                if (sh_it_ != scope_.back().vars.end()) {
+                    logos::probe::census("shadow.samefr.let");
+                    if (moved_vars_.count(sh_nm_))
+                        logos::probe::census("shadow.samefr.let.moved");
+                    const bool sh_drop_ = logos::probe::on("shadowdrop") ||
+                                          logos::probe::on("shadowboth");
+                    const bool sh_mv_   = logos::probe::on("shadowmoved") ||
+                                          logos::probe::on("shadowboth");
+                    if (sh_drop_ && !moved_vars_.count(sh_nm_))
+                        if (auto sh_d_ = make_drop_stmt(sh_nm_, sh_it_->second))
+                            result.push_back(std::move(*sh_d_));
+                    if (sh_mv_) moved_vars_.erase(sh_nm_);
+                }
+            }
+            auto lowered = lower_stmt(s);
+===
+name: dropunshadow
+file: src/compiler/mlir_gen_stmt.cpp
+---
+void MLIRGenImpl::gen_stmt_kind(lir_view::SLetView v)        { gen_let(v); }
+---
+// ── ROUND 2026-09-07t CEILING PROBE `dropunshadow` (env-gated) ──────────────
+// mlir-gen's `scope_` is a FLAT name -> Value map and a function body is ONE
+// statement list: sema appends the PARAM frame's epilogue drops to the body
+// block's own statements (sema_decl.cpp, lower_fn), so a body-level `let x`
+// shadowing a PARAM named `x` leaves BOTH `drop x` statements resolving to the
+// local's alloca. Record what a shadowing `let` displaced; the SDrop hunk puts
+// it back after the FIRST drop of that name.
+std::unordered_map<std::string, mlir::Value>& logos_probe_shadow_prev() {
+    static std::unordered_map<std::string, mlir::Value> m;
+    return m;
+}
+void MLIRGenImpl::gen_stmt_kind(lir_view::SLetView v)        {
+    std::string sh_nm_(v.name());
+    mlir::Value sh_prev_{};
+    bool sh_had_ = false;
+    if ((logos::probe::on("dropunshadow") || logos::probe::on("dropunshadow2")) &&
+        !sh_nm_.empty()) {
+        auto pit_ = scope_.find(sh_nm_);
+        if (pit_ != scope_.end()) { sh_prev_ = pit_->second; sh_had_ = true; }
+    }
+    gen_let(v);
+    if (sh_had_) {
+        auto nit_ = scope_.find(sh_nm_);
+        if (nit_ != scope_.end() && nit_->second != sh_prev_)
+            logos_probe_shadow_prev()[sh_nm_] = sh_prev_;
+    }
+}
+===
+name: dropunshadow2
+file: src/compiler/mlir_gen_stmt.cpp
+---
+void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
+    std::string var_name(v.var_name());
+    auto it = scope_.find(var_name);
+    if (it == scope_.end()) return;
+---
+void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
+    std::string var_name(v.var_name());
+    // ROUND 2026-09-07t probe `dropunshadow` — the RESTORE half (this record
+    // and the SLetView record are ONE mechanism; either name arms both).
+    std::unordered_map<std::string, mlir::Value>& logos_probe_shadow_prev();
+    struct ShRestore_ {
+        std::unordered_map<std::string, mlir::Value>* m;
+        std::unordered_map<std::string, mlir::Value>* sc;
+        std::string n;
+        bool armed;
+        ~ShRestore_() {
+            if (!armed) return;
+            auto i = m->find(n);
+            if (i == m->end()) return;
+            (*sc)[n] = i->second;
+            m->erase(i);
+        }
+    } sh_restore_{&logos_probe_shadow_prev(), &scope_, var_name,
+                  logos::probe::on("dropunshadow") ||
+                  logos::probe::on("dropunshadow2")};
+    auto it = scope_.find(var_name);
+    if (it == scope_.end()) return;
+===
+name: reflocaladdr
+file: src/compiler/mlir_gen_expr.cpp
+---
+        // Aggregate / scalar local or ref/ptr param: scope_ entry is the
+        // storage address (arrays/structs/tuples) or the pointer value
+        // (ref/ptr params) — either way it is the address to GEP from.
+        return get_subscript_ptr(vn);
+---
+        // ── ROUND 2026-09-07t CEILING PROBE `reflocaladdr` (env-gated) ─────
+        // The comment below states the assumption that fails: for a ref/ptr
+        // PARAMETER the scope_ entry IS the caller's address, but a
+        // reference-typed LOCAL's entry is an alloca HOLDING the pointer, so
+        // the GEP built on it lands on the binding's own slot. `let_vars_`
+        // already carries the distinction; this site never asks. The READ path
+        // (gen_expr_kind(EIndexReadView), same file) has the missing load.
+        {
+            TypeRef vt_ = e.type(pool_impl());
+            const bool is_ref_ = vt_ && (TypeRef(vt_).kind() == LogosType::Kind::Ref ||
+                                         TypeRef(vt_).kind() == LogosType::Kind::MutRef);
+            if (is_ref_ && let_vars_.count(vn))
+                logos::probe::census("lvaddr.varref.reflocal");
+            if (is_ref_ && let_vars_.count(vn) && logos::probe::on("reflocaladdr"))
+                return builder_.create<mlir::LLVM::LoadOp>(
+                    loc_, ptr_type(), get_subscript_ptr(vn));
+        }
+        // Aggregate / scalar local or ref/ptr param: scope_ entry is the
+        // storage address (arrays/structs/tuples) or the pointer value
+        // (ref/ptr params) — either way it is the address to GEP from.
+        return get_subscript_ptr(vn);

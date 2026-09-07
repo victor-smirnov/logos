@@ -1,0 +1,124 @@
+ROUND 2026-09-07t — TARGET ROWS, NAMED BEFORE THE COMPILER IS TOUCHED
+build read at selection time: 337164757523a8c9 43
+queue gate rc at selection time: 0 (66 rows, tier1=22 tier2=5 tier3=36 tier4=3)
+
+BLOCK A — THE FRAME'S RECORD OF A BINDING IS KEYED BY ITS NAME (3 rows)
+  shadowed_binding_never_dropped        tier 1  run 1   (leak)
+  shadow_over_param_double_drop         tier 1  run 1   (double free)
+  shadow_rebind_after_move_refused      tier 3  refuses (over-refusal)
+
+  ROOT, by symbol, read in the sources this round and not taken from the headers:
+    SemaImpl::define (src/compiler/sema_impl.hpp) — `if (!scope_.back().vars.count(sname))
+      var_order.push_back(sname); ... vars[sname] = {...}`. `var_order` is the frame's
+      scope-exit drop list and holds a NAME ONCE; `vars` is a StrMap<VarInfo> and the
+      second binding OVERWRITES the first's VarInfo (its slot included).
+    SemaChecker::emit_frame_drops (src/compiler/sema.cpp) — walks var_order and re-reads
+      frame.vars.find(n), so it can only ever see the LAST binding of a name.
+    MLIRGenImpl::gen_stmt_kind(SDropView) (src/compiler/mlir_gen_stmt.cpp) — `scope_.find(
+      var_name)`; mlir-gen's scope_ is name-keyed too and is snapshot/restored only at a
+      REAL block boundary (gen_stmt_kind(SBlockView)), which is exactly why the
+      nested-block control is correct and the same-frame spelling is not.
+    SemaImpl::moved_vars_ (name-keyed set) + sema_expr.cpp `use of moved variable '{}'`
+      — the over-refusal half: a fresh binding of the name does not clear it.
+
+  GROUPING TEST (the thing the last two rounds used to refute handed-down groupings):
+    ONE candidate change — make the frame's record of a binding per-BINDING rather than
+    per-NAME — moves rows 1 and 2 by construction (one emits the lost drop, the other
+    stops emitting the surviving binding's drop twice). Row 3 is the SAME state read by a
+    DIFFERENT consumer (moved_vars_), so it is priced as its OWN arm and additivity is
+    measured, not assumed (rule 13).
+
+BLOCK B — A REFERENCE-TYPED LOCAL'S SLOT HOLDS THE POINTER, AND THE WRITE PATH NEVER
+LOADS IT (2 rows)
+  index_write_through_local_refmut_clobbers_binding        tier 1  run 139
+  tuple_index_write_through_local_refmut_clobbers_binding  tier 1  run 1
+
+  ROOT, by symbol, read this round:
+    MLIRGenImpl::gen_lvalue_addr, `case ec::Code::VarRef` (src/compiler/mlir_gen_expr.cpp):
+    consults `var_local_ptrs_` (RAW *mut/*const locals only) and otherwise returns
+    `get_subscript_ptr(vn)` under the comment "or the pointer value (ref/ptr params)".
+    THE FACT THE CODE HAS AND DOES NOT CARRY HERE: `let_vars_` (mlir_gen_impl.hpp) already
+    distinguishes a `let` binding from a parameter, and the READ path
+    (gen_expr_kind(EIndexReadView), same file) already has the missing branch — it tests
+    Ref/MutRef/Ptr-to-Array and calls gen_expr(recv), which loads. So this is an ARM THAT
+    EXISTS on the read side, absent on the write side.
+
+WHY THIS BLOCK OVER THE OTHERS
+  · The pattern-door family (fnparam_array_pattern_binds_nothing,
+    fnparam_tuple_mut_modifier_dropped, closure_param_struct_pattern_syntax,
+    for_header_pattern_tuple_only, match_tuple_door_nested_struct_binds_nothing) FAILS the
+    grouping test by reading: one member is a GRAMMAR gap (logos.peg closure-param rule),
+    one is a WHITELIST sentence in sema_stmt's for-header door, one is the PAT_TUPLE
+    recursion's sub-kind whitelist, and two are the fn-param binder walk in sema_decl. No
+    single candidate change moves them; that is four roots wearing one symptom (rule:
+    a shared symptom is not a shared defect). It is a good LATER round, per door.
+  · Block A is three rows at ONE state, and the two directions of one defect (a leak and a
+    double free) plus its over-refusal — the shape that has paid every round.
+  · Block B is two tier-1 memory-corruption rows at ONE call site whose corrected form
+    already exists ten lines away on the read path.
+
+────────────────────────────────────────────────────────────────────────────────
+MEASURED ON THE BASE BINARY (337164757523a8c9 43) BEFORE A LINE WAS EDITED
+────────────────────────────────────────────────────────────────────────────────
+The five target programs, through the queue gate's own reader:
+  shadowed_binding_never_dropped                 cc 0, run 1     (reproduces)
+  shadow_over_param_double_drop                  cc 0, run 1     (reproduces)
+  shadow_rebind_after_move_refused               refused, "use of moved variable 'x'"
+  index_write_through_local_refmut_clobbers…     cc 0, run 139   (reproduces)
+  tuple_index_write_through_local_refmut…        cc 0, run 1, "t0=1"
+
+⚠ THE GROUPING PRINTED IN BOTH SHADOW ROW HEADERS IS REFUTED, BY MEASUREMENT,
+BEFORE THE COMPILER WAS TOUCHED. Both headers say "the same `SemaImpl::declare_var`
+name-keyed frame record… Same one change closes both". Hand program h1, the
+param-shadow with the local moved into an INNER BLOCK:
+
+    fn g(x: D, p: *mut i64) -> i64 { let mut r = 0; { let x: D = D{v:1000,c:p}; r = x.v; } return r; }
+                                                      -> n = 1001  CORRECT
+
+The param case is WRONG only when the shadowing local sits at the FN BODY's top
+level. Sema puts params and the body block in DIFFERENT frames (lower_block
+pushes its own scope) and emits BOTH drops correctly; what collides is
+mlir-gen's FLAT name-keyed `scope_`, because sema_decl's lower_fn appends the
+param-frame epilogue drops INTO the body block's own statement list — there is
+no codegen scope boundary at the fn body at all, while a real `{ }` block gets
+one (gen_stmt_kind(SBlockView)'s snapshot/restore), which is exactly why h1 and
+the recorded nested-block control are correct. TWO ROOTS, one symptom.
+
+Other hand facts on the base binary (rule 5: the shapes vary, not the count):
+  h3 three same-frame bindings 1/10/100 -> 100      (both earlier ones leaked)
+  h4 shadow AFTER the first was moved  -> 1         (the NEW binding never drops
+      either: `moved_vars_` is name-keyed, so `eligible` skips the fresh one —
+      a FOURTH symptom of the same state, with no row)
+  h5 shadow in a loop body (2 iters)   -> 20 for 22
+  h6 first binding non-droppable i64   -> 1000  correct
+  h7 second let's RHS reads the first  -> 1000  (1001 in Rust)
+  h8 two distinct names                -> 1001  correct
+  g1 `q[i] = v`, VARIABLE index, local &mut [i64;3]      -> store LOST (a1=2)
+  g9 `q[1][0] = 77`, local &mut [[i64;2];2]              -> store LOST (a10=3)
+  g3 reborrow-to-LOCAL inside a fn with a &mut param     -> store LOST
+  g2/g11 the same writes through a PARAMETER             -> 77  correct
+  g5 `(*q)[0]`, g4 `q.a`, g12 `q.a[0]`, g6 raw-ptr local -> 77  correct
+  g7/g8/g10 READS through the same bindings              -> correct
+
+────────────────────────────────────────────────────────────────────────────────
+PREDICTIONS, BY NAME, BEFORE THE PRICING RUN
+────────────────────────────────────────────────────────────────────────────────
+⚠ `ceiling-probe.sh`'s CEILING column is the BC-ADMITS ledger. This round's
+subject is the SOUNDNESS QUEUE, so I predict bc-ceiling 0 for every probe and
+read the queue ceiling from the queue gate run armed, per name. A 0 in the
+ceiling column here is NOT a refutation of the hypothesis.
+
+  shadowdrop    queue: closes shadowed_binding_never_dropped. Does NOT close
+                shadow_over_param_double_drop (different frame — h1) and does
+                NOT close shadow_rebind_after_move_refused.
+  shadowmoved   queue: closes shadow_rebind_after_move_refused only.
+  shadowboth    queue: closes exactly those two. Additivity is the measurement,
+                not the assumption (rule 13).
+  dropunshadow  queue: closes shadow_over_param_double_drop only.
+  reflocaladdr  queue: closes BOTH index_write_through_local_refmut_clobbers_binding
+                and tuple_index_write_through_local_refmut_clobbers_binding.
+                ⚠ NAMED HAZARD: gen_let has branches that ALIAS `scope_[r]` to
+                the TARGET address for some `let r = &p` forms (mlir_gen_stmt.cpp,
+                "Aliasing scope_[r] to the target"). For those the entry is
+                already the pointee address and the added load is WRONG, so a
+                non-zero cost here is expected and is the thing being priced.
