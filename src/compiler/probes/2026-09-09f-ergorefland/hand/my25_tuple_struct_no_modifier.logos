@@ -1,0 +1,12 @@
+// LEGAL: tuple-struct pattern under `&`, no modifier.
+package my25;
+struct TS(i64, i64);
+fn main() -> i32 {
+    let t: TS = TS(5i64, 6i64);
+    let mut out: i64 = 0i64;
+    match &t {
+        TS(a, b) => { out = a + b; }
+    }
+    if out != 11i64 { return 1i32; }
+    return 0i32;
+}

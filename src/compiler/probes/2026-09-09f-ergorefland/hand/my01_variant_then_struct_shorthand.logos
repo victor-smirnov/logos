@@ -1,0 +1,14 @@
+// ILLEGAL 2024: written `ref` two levels down — variant payload, then STRUCT
+// SHORTHAND. The pricing set never nested a container inside a container.
+package my01;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let o: Option<P> = Option::Some(P { x: 3i64, y: 4i64 });
+    let mut out: i64 = 0i64;
+    match &o {
+        Option::Some(P { ref x, y }) => { out = *x + *y; }
+        Option::None => {}
+    }
+    if out != 7i64 { return 1i32; }
+    return 0i32;
+}

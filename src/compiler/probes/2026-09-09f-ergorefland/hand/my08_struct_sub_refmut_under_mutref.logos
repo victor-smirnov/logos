@@ -1,0 +1,12 @@
+// ILLEGAL 2024: `ref mut` at a struct-field SUB-PATTERN under `&mut` — the
+// pricing set used the shared `&` spelling at this door.
+package my08;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let mut p: P = P { x: 3i64, y: 4i64 };
+    match &mut p {
+        P { x: ref mut v, .. } => { *v = *v + 1i64; }
+    }
+    if p.x != 4i64 { return 1i32; }
+    return 0i32;
+}

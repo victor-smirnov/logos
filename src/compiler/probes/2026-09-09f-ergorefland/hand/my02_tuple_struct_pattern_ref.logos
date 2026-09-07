@@ -1,0 +1,13 @@
+// ILLEGAL 2024: written `ref` at a TUPLE-STRUCT pattern door (`TS(ref a, b)`),
+// a spelling the pricing set did not use at all.
+package my02;
+struct TS(i64, i64);
+fn main() -> i32 {
+    let t: TS = TS(5i64, 6i64);
+    let mut out: i64 = 0i64;
+    match &t {
+        TS(ref a, b) => { out = *a + *b; }
+    }
+    if out != 11i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,13 @@
+// LEGAL: BY-VALUE scrutinee, written `ref` at a leaf TWO levels down.
+package my29;
+struct Q { v: i64 }
+struct P { q: Q, k: i64 }
+fn main() -> i32 {
+    let p: P = P { q: Q { v: 3i64 }, k: 4i64 };
+    let mut out: i64 = 0i64;
+    match p {
+        P { q: Q { v: ref r }, k } => { out = *r + k; }
+    }
+    if out != 7i64 { return 1i32; }
+    return 0i32;
+}

@@ -37,8 +37,8 @@ fn sf_shorthand(p: Pt) -> i64 { match p { Pt { x, y } => x + y } }
 fn sf_named(p: Pt) -> i64 { match p { Pt { x: a, y: b } => a * b } }
 fn sf_rest(p: Pt) -> i64 { match p { Pt { x, .. } => x } }
 fn sf_tsindex(t: TS) -> i64 { match t { TS { 0: a, 1: b } => a + b } }
-fn sf_refname(p: &Pt) -> i64 { match p { Pt { x: ref rx, .. } => *rx } }
-fn sf_refmut(p: &mut Pt) -> i64 { match p { Pt { x: ref mut rx, .. } => { *rx = *rx + 1i64; *rx } } }
+fn sf_refname(p: &Pt) -> i64 { match *p { Pt { x: ref rx, .. } => *rx } }
+fn sf_refmut(p: &mut Pt) -> i64 { match *p { Pt { x: ref mut rx, .. } => { *rx = *rx + 1i64; *rx } } }
 
 // ── pat.slice.elem-rest ──────────────────────────────────────────────────────
 // `name @ ..` binds the trailing/middle sub-slice; `..` anonymous rest; or a
@@ -60,8 +60,8 @@ fn at_ref(x: i64) -> i64 { match x { ref r @ 1i64..=10i64 => *r, _ => -1i64 } }
 
 // ── pat.ref.binding-mode ─────────────────────────────────────────────────────
 // `ref x` shared ref; `ref mut x` mut ref; `mut x` fresh mutable by-value binding.
-fn bm_ref(p: &Pt) -> i64 { match p { Pt { y: ref ry, .. } => *ry } }
-fn bm_refmut(p: &mut Pt) -> i64 { match p { Pt { y: ref mut ry, .. } => { *ry = *ry + 2i64; *ry } } }
+fn bm_ref(p: &Pt) -> i64 { match *p { Pt { y: ref ry, .. } => *ry } }
+fn bm_refmut(p: &mut Pt) -> i64 { match *p { Pt { y: ref mut ry, .. } => { *ry = *ry + 2i64; *ry } } }
 fn bm_mut(x: i64) -> i64 { match x { mut m => { m = m + 1i64; m } } }
 
 // ── pat.ref.reference-pattern ────────────────────────────────────────────────

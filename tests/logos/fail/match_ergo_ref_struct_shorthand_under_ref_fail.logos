@@ -1,0 +1,15 @@
+// Rust 2024 pat.binding.modifier-requires-move-mode at the STRUCT-FIELD SHORTHAND door
+// (`P { ref x, y }`). Admitted before 2026-09-09f: it compiled and exited 0. ONE TOKEN
+// from its pass twin match_ergo_ref_struct_shorthand_byvalue_pass, whose scrutinee is `p`
+// rather than `&p`.
+package match_ergo_ref_struct_shorthand_under_ref_fail;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 3i64, y: 4i64 };
+    let mut out: i64 = 0i64;
+    match &p {
+        P { ref x, y } => { out = *x + *y; }
+    }
+    if out != 7i64 { return 1i32; }
+    return 0i32;
+}

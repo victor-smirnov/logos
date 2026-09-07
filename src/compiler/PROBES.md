@@ -28959,3 +28959,155 @@ address. `match n { ref w => *w }` over a non-reference scrutinee is correct, an
 `match &o { ref w => }` that never reads is correct — the read through a ref-bind whose
 pointee is itself a reference is the defect. Same family as `26eacf7bf`. `# TOTAL` 66 -> 67,
 re-derived BY DIRECT LISTING (67 rows, 67 programs on the shelf); queue gate rc 0.
+
+## 2026-09-09f `ergorefland` — THE `ref` / `ref mut` HALF LANDED, AND TWO `mut` LEAF HOLES THE ROW DID NOT NAME
+
+site: src/compiler/sema_stmt.cpp::build_pattern_impl (dbm_sub_ty's leaf arm, push_ref_elem, the struct-field IS_REF door), sema_stmt.cpp::build_pattern_variant_data, sema_stmt.cpp::modifier_under_ref_scrutinee
+fires: LANDED UNCONDITIONALLY — there is no arm to count. The priced arms fired 0 · 0 · 0 · 4
+(vd · vd2 · sf · leaf) over the ledger+legal population, and rule 1 applies: three of those
+zeros are "never asked", their sites proven LIVE by 25 hand programs (§6). The four fires at
+the leaf door were the four corpus sites, all repaired before this landed. The refusal count
+on the corpus after landing is therefore 0, and that is a statement about the CORPUS.
+build: d903fbec773d7d16 43 (landed); base 6e10b5ffbceba8b4 43 (HEAD e8a4c58b1, probes present and unarmed)
+
+### 1. WHAT WAS WRONG, BY SYMBOL
+
+`SemaChecker::modifier_under_ref_scrutinee` mints the Rust-2024 sentence
+(`pat.binding.modifier-requires-move-mode`) and the `mut` third of the rule asked it. The
+`ref` / `ref mut` two thirds asked it NOWHERE, so the tree stood as a 2021/2024 HYBRID whose
+asymmetry no rule states: `match &o { Some(mut n) }` refused, `match &o { Some(ref n) }`
+admitted, from one spec paragraph that covers all three modifiers.
+
+### 2. THE CLASS, ENUMERATED BY THE PROPERTY
+
+PROPERTY: *a modifier the PROGRAMMER WROTE, reached while the default binding mode is
+by-reference.* Deliberately NOT "a node with `la::IS_REF` set" — that is a spelling, and it
+certifies what it cannot see: the compiler's own refutable-sub synthesis (`synth_wants_ref`)
+sets the same bit for `match &e { Outer::W(Option::Some(a)) }`, where no modifier is written
+anywhere. The doors come from `build_pattern_impl`'s own `pc == la::PAT_*` dispatch plus
+`build_pattern_variant_data`, not from a grep:
+
+    door                                       written `ref`/`ref mut`   written `mut`
+    VARIANT payload  Some(ref v)                admitted (the row)        refused (landed 09-09b)
+    STRUCT field SHORTHAND  { ref x }           admitted                  refused
+    TUPLE element  (ref a, b)                   admitted                  refused
+    STRUCT field SUB  { x: ref v }   LEAF       admitted                  ⚠ ADMITTED
+    TUPLE element SUB                LEAF       admitted                  refused
+    SLICE/array element  [ref a]     LEAF       admitted                  ⚠ ADMITTED
+    struct-pattern TUPLE INDEX { 0: ref a } LEAF admitted                 (same leaf arm)
+    nested `@` BINDING  Some(ref w @ 1..=9)     ⚠ ADMITTED, and DISCARDED   refused
+    PAT_REF `&pat`                              mode RESET — legal, must stay legal
+    PAT_AT / PAT_WILD at TOP LEVEL              mode is `move` — legal, must stay legal
+    `let` / fn-param / closure-param doors      NOT members: those doors refuse a reference
+                                                scrutinee outright today (rows
+                                                letstruct_*, fnparam_*), so no by-ref
+                                                default mode exists there to violate.
+
+⚠ TWO MEMBERS BELONG TO THE ALREADY-LANDED THIRD. A written `mut` at a LEAF binder was
+admitted, because `dbm_named_bind` rejects `IS_MUT` and no other site sees a leaf. Closing
+only the row would have been the instance fixed and the class open.
+
+⚠ AND A FIFTH DOOR WAS FOUND BY WALKING THE DISPATCH, NOT BY THE ROW: the nested
+`@`-binding arm of the payload loop pushes `binding_is_ref = false` for `ref n @ sub`
+("binds by value here"), so a written `ref` there is not merely unchecked — it is
+DISCARDED, and nothing downstream can see the keyword at all. Its `mut` spelling was
+already refused, because `binding_is_mut` IS carried. One more asymmetry inside one rule.
+
+### 3. THE FIX, AND WHERE IT DIFFERS FROM THE PROBE
+
+The three container doors funnel every sub-pattern through ONE lambda, `dbm_sub_ty`. The
+rule is asked at FOUR sites: that lambda's leaf arm (struct-field sub,
+struct-pattern tuple index, tuple-element sub, slice/array element), the two SHORTHAND
+spellings consumed at their own door (`S { ref x }`, `(ref a, b)`), the variant-payload
+loop, and that loop's nested `@`-binding arm. Differences from the priced arms:
+
+  * `ergorefvd`, the CRUDE variant guard, is NOT landed: it asks `explicit_ref` alone and
+    refuses the LEGAL `match &e { Outer::W(Option::Some(a)) }`, blaming `'__refut_W_0_0'`.
+    The landed form is `ergorefall2`'s `explicit_ref && binding_from_wild`.
+  * `ergorefleaf` asked `IS_REF` only. The landed form asks `IS_REF || IS_MUT` — the class
+    extension above, closing two shapes no probe in the pricing round measured.
+
+### 4. ROWS — ONE CLOSED, ONE OPENED, SET DIFFED BOTH WAYS
+
+CLOSED: `match_ergo_ref_modifier_ref_mode_admit` (tier 2, `admits`) — its program is now
+`tests/logos/fail/match_ergo_ref_variant_payload_under_ref_fail`.
+OPENED: `tuplestruct_door_default_ref_mode_not_carried` (tier 1, `run 2`) — see §7.
+PREDICTED NOT TO MOVE and measured not to: `arrayelem_default_ref_mode_not_minted`,
+`struct_pattern_name_check_skipped_under_ref`, `match_tuple_door_nested_struct_binds_nothing`,
+`let_tuple_destructure_ref_scrutinee`, `fnparam_struct_ref_mut_field_binds_byvalue`,
+`toplevel_refbind_over_ref_scrutinee_segv`. `# TOTAL` 67 -> 66 -> 67, re-derived BY DIRECT
+LISTING at each step (67 rows, 67 programs on the shelf); queue gate rc 0 in both directions.
+
+### 5. RULE 2 — TWO PREDICTED REFUSALS DID NOT HAPPEN, AND THE DOORS ARE IN SERIES
+
+`match &o { Option::Some(P { ref x, y }) }` and `match &t { TS(ref a, b) }` still compile
+rc 0. Neither is a gap in this rule: at both doors the default binding mode NEVER SHIFTS, so
+there is no shifted mode for a modifier to violate, and refusing there would be a sentence
+about a mode the compiler does not have. CONTROLS, both measured: the LANDED `mut` third
+misses both doors identically (`Some(P { mut x, y })` and `TS(mut a, b)` compile). The first
+is `pat.binding.default-mode-carried-into-subpatterns`' own recorded divergence (row
+`variant_payload_nested_struct_sub_double_drops`); the second had no row at all.
+
+### 6. RULE 5 — THE COUNTER-EXAMPLES ARE MINE, AND THEY VARY THE SHAPE
+
+26 hand programs written for THIS round, in shapes the pricing phase did not use, under
+`src/compiler/probes/2026-09-09f-ergorefland/hand/`; verdicts in `RESULTS.md`. ELEVEN LEGAL
+shapes measured rc 0 on both binaries — the `&`-pattern reset with a struct shorthand under
+it, a `&mut`-pattern reset with `ref mut`, `match *self` inside a GENERIC impl, THREE
+synthesized container levels with no modifier anywhere, a by-value scrutinee with `ref` two
+levels down, `match *mp` through a `&mut` still writing through, a top-level `ref w @
+Some(_)`, a match GUARD, a for-header `(ref a, b)`, and the three no-modifier container
+doors. Ten illegal shapes went rc 0 -> refused, including a DOUBLE reference scrutinee, the two
+`mut` LEAF holes and the nested `@` binding. Three programs were refused on the BASE binary already and are
+unchanged (rule 14).
+
+⚠ ONE SENTENCE CHANGED WITHOUT AN UN-REFUSAL: `match &t { (P { ref x, y }, z) }` was refused
+as "undefined variable 'x'" (row `match_tuple_door_nested_struct_binds_nothing`) and is now
+refused as the modifier rule, which runs earlier. The row's OWN program still reproduces.
+
+### 7. THE NEW ROW — A DOUBLE FREE FOUND BY A MODIFIER COUNTER-EXAMPLE
+
+`tuplestruct_door_default_ref_mode_not_carried` (tier 1, `run 2`). The TUPLE-STRUCT pattern
+door implements no default binding mode at all: `match &t { TS(a, b) => { let x: i64 = a; } }`
+COMPILES, so `a` is `i64` BY VALUE where every other container door binds `&i64`. With a
+move-only element the by-value binding is Drop-scheduled at arm exit AND the scrutinee drops
+it at scope end — `D::drop` runs TWICE, exit 2 where Rust exits 1, read through a `static
+mut` AFTER the scope ends so the wrong answer is an EXIT CODE. TWO SPELLINGS OF ONE PATTERN
+DISAGREE: `match &t { TS { 0: d, 1: k } }` over the SAME tuple struct exits 1, and a
+named-field struct exits 1. INHERITED — exit 2 on 6e10b5ffbceba8b4 and on d903fbec773d7d16.
+
+### 8. THE CORPUS — PAID BEFORE THE COMPILER WAS TOUCHED, IN TWO COMMITS
+
+`06835bf24` paid ten stdlib lines and two fixtures on an untouched compiler. THREE MORE
+sites here, each verified rc 0 on the BASE binary so no half hides inside the other:
+`tests/spec/pass/pat_4.logos` (lines 40, 41, 63, 64 -> `match *p`, all four sites and both
+`@rule` groups still exercised with the same exit codes), `tests/logos/pass/match_struct_
+move_field_drop.logos` (line 12 -> `match *p`, header comment corrected), and
+`tests/imported/pass/binding/match-ref-binding-mut.logos` (line 16 -> `match *x`), which
+RESTORES the rust-lang/rust source — its own header recorded that the import had rewritten
+`match *x` to `match x`, i.e. the imported-Rust corpus had been edited AWAY from Rust into a
+shape Rust itself forbids.
+
+### 9. THE COLUMNS, AND THE CONTROL REVERT
+
+  * `stdlib-cost.sh` — all four layers compile.
+  * **L1 rc 0** — 777/777, 12 684 generated smoke cases, 172 tier_commit gates.
+  * **`test-levels.sh L4 bc` rc 0** — 4971 passed / 0 failed, then 1540 passed / 0 failed
+    (gate-db build 920). That first phase is the WHOLE non-imported registry compiled,
+    LINKED and RUN against each fixture's own `.expected`, which is the runtime column here:
+    the change is unconditional, so there is no arm for `run_oracle.py` to toggle.
+  * **imported tier** — `ctest -L imported`: 4429 passed / **4 FAILED, ALL INHERITED**:
+    box-concrete-as-box-dyn-return, blanket-impl-box-to-dyn-b172,
+    blanket-impl-generic-struct-dyn, generic-struct-method-chain-b162. Each fails
+    IDENTICALLY on the base binary 6e10b5ffbceba8b4 — one sentence, unrelated to patterns:
+    "coercion to `dyn Hax` requires `T: 'static` — lifetime `T (no bound reaching 'static)`
+    may not live long enough (object lifetime bound)".
+  * **CONTROL REVERT, per program.** The base binary (`6e10b5ffbceba8b4 43`, HEAD e8a4c58b1,
+    with its own stdlib archives) was kept and run against every artefact of this round: all
+    FIVE fail halves COMPILE AND EXIT 0 on it, all five pass halves are already green on it,
+    the three repaired corpus fixtures are green on it, and all eleven legal hand shapes are
+    green on it. On the landed binary the five fail halves print the sentence in full and
+    nothing legal moved.
+  * queue gate rc 0 at `# TOTAL` 67 · probe-log-lint 246 · build hash read back
+    `4c4cc6a9cad1138c 43` · population pin 2923 -> 2928 / 2732 -> 2737 · registry pin
+    9399 -> 9409 / 4961 -> 4971, +10 for ten fixtures each registered once.

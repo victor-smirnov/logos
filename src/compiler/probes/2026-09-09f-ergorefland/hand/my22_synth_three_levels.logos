@@ -1,0 +1,16 @@
+// LEGAL: NO modifier written anywhere, THREE container levels. Every inner
+// binder is the compiler's own by-ref synthesis; a rule that reads
+// `binding_is_ref` without the separating fact refuses this.
+package my22;
+enum Inner { A(i64), B }
+enum Outer { W(Option<Inner>), Z }
+fn main() -> i32 {
+    let e: Outer = Outer::W(Option::Some(Inner::A(5i64)));
+    let mut out: i64 = 0i64;
+    match &e {
+        Outer::W(Option::Some(Inner::A(a))) => { out = *a; }
+        _ => {}
+    }
+    if out != 5i64 { return 1i32; }
+    return 0i32;
+}

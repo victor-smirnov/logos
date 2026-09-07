@@ -1,0 +1,15 @@
+// LEGAL: the `&`-pattern resets the default binding mode to `move`, so a
+// written `ref` BELOW it is legal — here with a struct shorthand under it,
+// a shape the pricing set did not use.
+package my20;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let o: Option<P> = Option::Some(P { x: 3i64, y: 4i64 });
+    let mut out: i64 = 0i64;
+    match &o {
+        &Option::Some(P { ref x, y }) => { out = *x + y; }
+        &Option::None => {}
+    }
+    if out != 7i64 { return 1i32; }
+    return 0i32;
+}

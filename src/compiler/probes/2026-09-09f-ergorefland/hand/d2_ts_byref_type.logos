@@ -1,0 +1,9 @@
+// does the default binding mode even shift at the TUPLE-STRUCT door?
+package d2;
+struct TS(i64, i64);
+fn main() -> i32 {
+    let t: TS = TS(5i64, 6i64);
+    match &t {
+        TS(a, b) => { let x: i64 = a; return 0i32; }
+    }
+}

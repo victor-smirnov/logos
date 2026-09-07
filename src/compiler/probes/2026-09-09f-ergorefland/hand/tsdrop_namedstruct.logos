@@ -1,0 +1,26 @@
+// A TUPLE-STRUCT pattern under a SHARED `&` scrutinee, with a MOVE-ONLY element.
+// If the default binding mode does not shift at this door, `s` binds BY VALUE out of a
+// borrow the scrutinee still owns, and the payload is destructed TWICE.
+package tsdrop3;
+use logos.std.fmt;
+
+struct D { v: i64 }
+impl Drop for D {
+    fn drop(&mut self) { unsafe { COUNT = COUNT + 1i64; } }
+}
+struct TS { a: D, b: i64 }
+
+static mut COUNT: i64 = 0i64;
+
+fn main() -> i32 {
+    {
+        let t: TS = TS { a: D { v: 7i64 }, b: 5i64 };
+        match &t {
+            TS { a: d, b: k } => { let _z: i64 = d.v; }
+        }
+    }
+    unsafe {
+        println!("drops={}", COUNT);
+        return COUNT as i32;
+    }
+}

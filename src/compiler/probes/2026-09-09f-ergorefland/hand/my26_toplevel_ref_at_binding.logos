@@ -1,0 +1,13 @@
+// LEGAL: Rust 2024 leaves the TOP-LEVEL default binding mode `move`, so a
+// top-level `ref` — here spelled as an `@` binding — is legal over a `&`.
+package my26;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let mut out: i64 = 0i64;
+    match &o {
+        ref w @ Option::Some(_) => { out = 1i64; }
+        _ => { out = 2i64; }
+    }
+    if out != 1i64 { return 1i32; }
+    return 0i32;
+}

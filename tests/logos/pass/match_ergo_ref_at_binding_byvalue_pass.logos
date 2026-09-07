@@ -1,0 +1,16 @@
+// The legal twin of match_ergo_ref_at_binding_under_ref_fail, ONE TOKEN apart: the
+// scrutinee is `o`, not `&o`. Under a `move` default binding mode the written `ref` on an
+// `@` binding is legal, the range sub-pattern still gates the arm, and it RUNS.
+package match_ergo_ref_at_binding_byvalue_pass;
+use logos.std.fmt;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let mut out: i64 = 0i64;
+    match o {
+        Option::Some(ref w @ 1i64..=9i64) => { out = *w; }
+        _ => { out = -1i64; }
+    }
+    println!("out={}", out);
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

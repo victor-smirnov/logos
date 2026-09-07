@@ -1,0 +1,12 @@
+// ILLEGAL 2024: `ref mut` at a variant payload nested inside another variant,
+// under `&mut`.
+package my05;
+enum Inner { A(i64), B }
+fn main() -> i32 {
+    let mut o: Option<Inner> = Option::Some(Inner::A(3i64));
+    match &mut o {
+        Option::Some(Inner::A(ref mut v)) => { *v = *v + 1i64; }
+        _ => {}
+    }
+    return 0i32;
+}

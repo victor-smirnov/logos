@@ -1,0 +1,12 @@
+// ILLEGAL 2024: written `ref` at an ARRAY element under a SHARED `&`. The
+// pricing set only used the `&mut` spelling at this door.
+package my04;
+fn main() -> i32 {
+    let arr: [i64; 2] = [7i64, 8i64];
+    let mut out: i64 = 0i64;
+    match &arr {
+        [ref p, q] => { out = *p + *q; }
+    }
+    if out != 15i64 { return 1i32; }
+    return 0i32;
+}

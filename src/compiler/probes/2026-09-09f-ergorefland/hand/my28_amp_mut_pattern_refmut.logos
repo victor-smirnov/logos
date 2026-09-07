@@ -1,0 +1,10 @@
+// LEGAL: `&mut` PATTERN resets the mode, so `ref mut` below it is legal.
+package my28;
+fn main() -> i32 {
+    let mut o: Option<i64> = Option::Some(3i64);
+    match &mut o {
+        &mut Option::Some(ref mut v) => { *v = *v + 1i64; }
+        &mut Option::None => {}
+    }
+    return 0i32;
+}

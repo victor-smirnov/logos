@@ -1,0 +1,51 @@
+// SOUNDNESS QUEUE row tuplestruct_door_default_ref_mode_not_carried (tier 1, `run 2`).
+// A DOUBLE FREE. Found 2026-09-09f by a counter-example written for the Rust-2024
+// binding-modifier round, not by any probe: `match &t { TS(ref a, b) }` was NOT refused by
+// a rule that refuses the same thing at every other container door, and the reason turned
+// out to be upstream — THE TUPLE-STRUCT PATTERN DOOR DOES NOT IMPLEMENT DEFAULT BINDING
+// MODES AT ALL (spec pat.binding.default-by-ref-mode /
+// pat.binding.default-mode-carried-into-subpatterns).
+//
+// PROVEN DIRECTLY, with no destructor involved: under `match &t`, `TS(a, b) => { let x:
+// i64 = a; }` COMPILES — `a` is `i64` by value, where every other door binds `&i64`.
+//
+// THE COST, measured here: with a MOVE-ONLY element the by-value binding is Drop-scheduled
+// at arm exit AND the scrutinee — which still owns `t` — drops it again at scope end.
+// `D::drop` runs TWICE where Rust runs it once. The count is read through a `static mut`
+// AFTER the value's scope has ended, so the wrong answer is an EXIT CODE (2 today, 1 in
+// Rust) and not a stdout string a reader could mis-parse.
+//
+// TWO SPELLINGS OF ONE PATTERN DISAGREE, which is what makes this a defect and not a
+// design: measured on the same binary, `match &t { TS { 0: d, 1: k } }` — the struct
+// spelling of the SAME tuple struct — runs the destructor ONCE (exit 1), and so does the
+// named-field struct `S { a: D, b: i64 }` with `S { a: d, b: k }`. Only the CALL spelling
+// `TS(d, k)` double-frees.
+//
+// INHERITED, NOT INTRODUCED: exit 2 on the base binary 6e10b5ffbceba8b4 (HEAD e8a4c58b1)
+// and exit 2 on d903fbec773d7d16, the binary that landed the modifier rule. The modifier
+// rule cannot reach this door — rule 2, the doors are in SERIES: the mode must SHIFT
+// before "a modifier under a shifted mode" can be an error, and here it never shifts.
+// SAME EVIDENCE for the LANDED `mut` third: `match &t { TS(mut a, b) }` also compiles.
+package tuplestruct_door_default_ref_mode_not_carried;
+use logos.std.fmt;
+
+struct D { v: i64 }
+impl Drop for D {
+    fn drop(&mut self) { unsafe { COUNT = COUNT + 1i64; } }
+}
+struct TS(D, i64);
+
+static mut COUNT: i64 = 0i64;
+
+fn main() -> i32 {
+    {
+        let t: TS = TS(D { v: 7i64 }, 5i64);
+        match &t {
+            TS(d, k) => { let _z: i64 = d.v; }
+        }
+    }
+    unsafe {
+        println!("drops={}", COUNT);
+        return COUNT as i32;
+    }
+}

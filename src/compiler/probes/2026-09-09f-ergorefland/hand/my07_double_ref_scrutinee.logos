@@ -1,0 +1,15 @@
+// ILLEGAL 2024: written `ref` under a DOUBLE reference scrutinee (`&&Option<i64>`).
+package my07;
+fn take(r: &Option<i64>) -> i64 {
+    let mut out: i64 = 0i64;
+    match &r {
+        Option::Some(ref v) => { out = **v; }
+        Option::None => {}
+    }
+    return out;
+}
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(4i64);
+    if take(&o) != 4i64 { return 1i32; }
+    return 0i32;
+}

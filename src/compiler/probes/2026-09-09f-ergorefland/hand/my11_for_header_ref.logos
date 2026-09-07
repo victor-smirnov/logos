@@ -1,0 +1,11 @@
+// CLASS PROBE: a FOR-HEADER pattern with a written `ref` over a tuple element.
+package my11;
+fn main() -> i32 {
+    let arr: [(i64, i64); 2] = [(1i64, 2i64), (3i64, 4i64)];
+    let mut s: i64 = 0i64;
+    for (ref a, b) in arr {
+        s = s + *a + b;
+    }
+    if s != 10i64 { return 1i32; }
+    return 0i32;
+}

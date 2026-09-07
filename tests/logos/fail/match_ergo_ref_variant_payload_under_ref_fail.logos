@@ -1,0 +1,17 @@
+// Rust 2024 pat.binding.modifier-requires-move-mode, the `ref` two thirds, at the
+// VARIANT-PAYLOAD door. This was soundness-queue row
+// match_ergo_ref_modifier_ref_mode_admit (tier 2, `admits`): it compiled and exited 0.
+// ONE TOKEN from its pass twin match_ergo_ref_variant_payload_deref_pass, which spells
+// the scrutinee `*o` instead of `&o` — that makes the default binding mode `move`, where
+// the written `ref` is legal.
+package match_ergo_ref_variant_payload_under_ref_fail;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let mut out: i64 = 0i64;
+    match &o {
+        Option::Some(ref v) => { out = *v + 1i64; }
+        Option::None => {}
+    }
+    if out != 4i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,18 @@
+// Rust 2024 pat.binding.modifier-requires-move-mode at a LEAF binder — a written `mut` in
+// a struct-field SUB-PATTERN under a `&` scrutinee.
+// ⚠ THIS IS A CLASS MEMBER THE ROW DID NOT NAME. The `mut` third of this rule landed
+// 2026-09-09b at the variant, tuple and struct-SHORTHAND doors; a `mut` at a LEAF was
+// still admitted, because `dbm_named_bind` rejects IS_MUT and no other site saw it. The
+// `ref` two thirds and this hole are one predicate at one site (`dbm_sub_ty`'s leaf arm).
+// ONE TOKEN from its pass twin match_ergo_mut_leaf_byvalue_pass: `p` instead of `&p`.
+package match_ergo_mut_leaf_under_ref_fail;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 3i64, y: 4i64 };
+    let mut out: i64 = 0i64;
+    match &p {
+        P { x: mut v, .. } => { v = v + 1i64; out = v; }
+    }
+    if out != 4i64 { return 1i32; }
+    return 0i32;
+}

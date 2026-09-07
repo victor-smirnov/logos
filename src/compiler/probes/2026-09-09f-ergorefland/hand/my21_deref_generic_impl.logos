@@ -1,0 +1,16 @@
+// LEGAL: the stdlib repair's shape inside a GENERIC trait impl over `&self` —
+// `match *self` makes the default mode `move` and the written `ref` legal.
+package my21;
+struct Box2<T> { v: T }
+impl<T> Box2<T> {
+    fn peek(&self) -> &T {
+        match *self {
+            Box2 { v: ref r } => { return r; }
+        }
+    }
+}
+fn main() -> i32 {
+    let b: Box2<i64> = Box2 { v: 9i64 };
+    if *b.peek() != 9i64 { return 1i32; }
+    return 0i32;
+}

@@ -1521,11 +1521,20 @@ PIN = {
     # one-token fail twins are NOT in this population (it is `pass`), and the
     # queue shelf is net zero (one program left, one arrived).
     # `ls tests/logos/pass/patparammut_*.logos | wc -l` -> 5.
-    # RE-DERIVED BY DIRECT LISTING: `ls tests/logos/pass/*.logos | wc -l` -> 2923,
-    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2923 = 191 + 2732.
-    'corpus'            : 2923,
+    # 2026-09-09f: 2923 -> 2928. FIVE pass fixtures, all non-glob, the legal halves
+    # of the Rust-2024 binding-modifier rule's `ref`/`ref mut` two thirds and of
+    # the two `mut` LEAF holes the same site closes —
+    # match_ergo_ref_variant_payload_deref_pass, match_ergo_ref_struct_shorthand_byvalue_pass,
+    # match_ergo_mut_leaf_byvalue_pass, match_ergo_mut_array_elem_byvalue_pass and
+    # match_ergo_ref_at_binding_byvalue_pass.
+    # Their five one-token fail twins are NOT in this population (it is `pass`),
+    # and the queue shelf is net zero (one program left, one arrived).
+    # `ls tests/logos/pass/match_ergo_*.logos | wc -l` -> 5.
+    # RE-DERIVED BY DIRECT LISTING: `ls tests/logos/pass/*.logos | wc -l` -> 2928,
+    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2928 = 191 + 2737.
+    'corpus'            : 2928,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2732,  # +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2737,  # +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

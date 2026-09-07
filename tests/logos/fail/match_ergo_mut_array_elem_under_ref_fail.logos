@@ -1,0 +1,15 @@
+// Rust 2024 pat.binding.modifier-requires-move-mode at an ARRAY ELEMENT — a written `mut`
+// under a `&[i64; 2]` scrutinee. The SECOND class member the row did not name: the slice
+// door funnels its elements through the same `dbm_sub_ty` leaf arm as the struct door, so
+// one site answers both. ONE TOKEN from its pass twin
+// match_ergo_mut_array_elem_byvalue_pass: `arr` instead of `&arr`.
+package match_ergo_mut_array_elem_under_ref_fail;
+fn main() -> i32 {
+    let arr: [i64; 2] = [7i64, 8i64];
+    let mut out: i64 = 0i64;
+    match &arr {
+        [mut a, b] => { a = a + 1i64; out = a + b; }
+    }
+    if out != 16i64 { return 1i32; }
+    return 0i32;
+}

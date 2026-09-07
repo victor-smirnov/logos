@@ -1,0 +1,19 @@
+// Rust 2024 pat.binding.modifier-requires-move-mode at the NESTED `@`-BINDING door —
+// `Some(ref w @ 1..=9)` under a `&` scrutinee.
+// ⚠ A FIFTH CLASS MEMBER, and the only one where the keyword is not merely unchecked but
+// DISCARDED: the payload loop pushes `binding_is_ref = false` for an `@` binding
+// ("`ref n @ sub` binds by value here"), so nothing downstream can see the written `ref` at
+// all. The `mut` spelling of the same shape was already refused, since `binding_is_mut` IS
+// carried — one more asymmetry inside one rule. ONE TOKEN from its pass twin
+// match_ergo_ref_at_binding_byvalue_pass: `o` instead of `&o`.
+package match_ergo_ref_at_binding_under_ref_fail;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let mut out: i64 = 0i64;
+    match &o {
+        Option::Some(ref w @ 1i64..=9i64) => { out = *w; }
+        _ => {}
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

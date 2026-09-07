@@ -5426,8 +5426,24 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9389 -> 9399  +10
 #   NOIMPORTED   4951 -> 4961  +10
 #   TIERCOMMIT    172 ->  172    0
-REGISTRY-ALL         9399
-REGISTRY-NOIMPORTED  4961
+# 2026-09-09f (the Rust-2024 binding-modifier rule's `ref`/`ref mut` two thirds,
+#   plus the two `mut` LEAF holes and the nested `@`-binding door the same rule
+#   reaches). TEN fixtures, in FIVE pairs one token apart: match_ergo_ref_variant_payload_{under_ref_fail,deref_pass},
+#   match_ergo_ref_struct_shorthand_{under_ref_fail,byvalue_pass},
+#   match_ergo_mut_leaf_{under_ref_fail,byvalue_pass},
+#   match_ergo_mut_array_elem_{under_ref_fail,byvalue_pass},
+#   match_ergo_ref_at_binding_{under_ref_fail,byvalue_pass}. Each registers ONCE
+#   (no valgrind gate; the oracle is an exit code plus one stdout line for the
+#   pass halves and the diagnostic in full for the fail halves). All ten are
+#   under tests/logos, so both counts move by the same +10. The soundness shelf is
+#   net zero: match_ergo_ref_modifier_ref_mode_admit's program left it and
+#   tuplestruct_door_default_ref_mode_not_carried arrived, and neither is
+#   registered.
+#   ALL          9399 -> 9409  +10
+#   NOIMPORTED   4961 -> 4971  +10
+#   TIERCOMMIT    172 ->  172    0
+REGISTRY-ALL         9409
+REGISTRY-NOIMPORTED  4971
 REGISTRY-TIERCOMMIT  172
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

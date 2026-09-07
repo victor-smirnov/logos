@@ -68,7 +68,6 @@ box_mutref_payload_write_immut_box 3 tests/soundness/open/box_mutref_payload_wri
 labeled_foreach_label_lost    3 tests/soundness/open/labeled_foreach_label_lost    refuses
 let_tuple_destructure_ref_scrutinee 3 tests/soundness/open/let_tuple_destructure_ref_scrutinee refuses
 paren_var_assign_target       3 tests/soundness/open/paren_var_assign_target       refuses
-match_ergo_ref_modifier_ref_mode_admit 2 tests/soundness/open/match_ergo_ref_modifier_ref_mode_admit admits
 at_binding_ref_mut_payload_refuses 3 tests/soundness/open/at_binding_ref_mut_payload_refuses refuses
 let_at_binding_type_annot_syntax 3 tests/soundness/open/let_at_binding_type_annot_syntax refuses
 letelse_or_pattern_takes_else 1 tests/soundness/open/letelse_or_pattern_takes_else run 1
@@ -112,3 +111,4 @@ closure_fnonce_cond_call_untaken_leak 1 tests/soundness/open/closure_fnonce_cond
 closure_fnonce_call_in_loop_multi_free 1 tests/soundness/open/closure_fnonce_call_in_loop_multi_free run 1
 index_place_through_refmut_never_drops_old 1 tests/soundness/open/index_place_through_refmut_never_drops_old run 1
 toplevel_refbind_over_ref_scrutinee_segv 1 tests/soundness/open/toplevel_refbind_over_ref_scrutinee_segv run 139
+tuplestruct_door_default_ref_mode_not_carried 1 tests/soundness/open/tuplestruct_door_default_ref_mode_not_carried run 2

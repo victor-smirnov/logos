@@ -1,0 +1,12 @@
+// CLASS PROBE for the LANDED `mut` half: a written `mut` at an ARRAY element
+// under a `&` scrutinee.
+package my13;
+fn main() -> i32 {
+    let arr: [i64; 2] = [7i64, 8i64];
+    let mut out: i64 = 0i64;
+    match &arr {
+        [mut a, b] => { a = a + 1i64; out = a + b; }
+    }
+    if out != 16i64 { return 1i32; }
+    return 0i32;
+}

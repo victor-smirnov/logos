@@ -1,0 +1,16 @@
+// The legal twin of match_ergo_mut_leaf_under_ref_fail, ONE TOKEN apart: the scrutinee is
+// `p`, not `&p`. Under a `move` default binding mode a written `mut` is legal and makes a
+// fresh mutable by-value binding. It RUNS: the copy is incremented and the SOURCE is not.
+package match_ergo_mut_leaf_byvalue_pass;
+use logos.std.fmt;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 3i64, y: 4i64 };
+    let mut out: i64 = 0i64;
+    match p {
+        P { x: mut v, .. } => { v = v + 1i64; out = v; }
+    }
+    println!("out={}", out);
+    if out != 4i64 { return 1i32; }
+    return 0i32;
+}

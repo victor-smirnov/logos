@@ -1,7 +1,11 @@
 // Imported from rust-lang/rust tests/ui/binding/match-ref-binding-mut.rs
-// Modifications: isize → i64; `match *x` over `&mut Rec` → `match x` (Logos
-// auto-derefs the reference); literals suffixed. Tests a `ref mut` field
+// Modifications: isize → i64; literals suffixed. Tests a `ref mut` field
 // binding in a struct pattern, mutating through it.
+// ⚠ `match *x` is the UPSTREAM spelling and is restored here. An earlier import
+// rewrote it to `match x` ("Logos auto-derefs the reference"); under Rust 2024
+// that makes the default binding mode by-reference, where a written `ref mut`
+// is an error (spec pat.binding.modifier-requires-move-mode) — i.e. the import
+// had edited Rust code AWAY from Rust to reach a shape Rust itself forbids.
 package match_ref_binding_mut_test;
 
 use logos.std.fmt;
@@ -13,7 +17,7 @@ struct Rec {
 }
 
 fn destructure(x: &mut Rec) {
-    match x {
+    match *x {
         Rec { f: ref mut f } => { *f += 1i64; }
     }
 }

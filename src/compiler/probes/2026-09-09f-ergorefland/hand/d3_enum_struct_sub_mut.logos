@@ -1,0 +1,10 @@
+package d3;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let o: Option<P> = Option::Some(P { x: 3i64, y: 4i64 });
+    match &o {
+        Option::Some(P { mut x, y }) => { x = x + 1i64; }
+        Option::None => {}
+    }
+    return 0i32;
+}

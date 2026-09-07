@@ -4451,6 +4451,15 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                                 return bnode.has_key(k) && bnode.get(k.code).is_value() &&
                                        bnode.get(k.code).as_value<uint8_t>() != 0;
                             };
+                            // Rust 2024 pat.binding.modifier-requires-move-mode at the
+                            // nested `@`-BINDING door. The `mut` spelling is already
+                            // refused downstream (`binding_is_mut` below feeds the
+                            // `bind_ref_modes` ask), but a written `ref` is not: the
+                            // push below forces `binding_is_ref` to false, so nothing
+                            // downstream can see the keyword at all. Asked here, where
+                            // the AST node still carries it.
+                            if (pat_scrut_by_ref && atflag(la::IS_REF))
+                                modifier_under_ref_scrutinee(atname, scrut_type, /*known_ref=*/true);
                             bindings.push_back(atname);
                             binding_is_ref.push_back(false);  // `ref n @ sub` binds by value here (soundness queue)
                             binding_is_mut.push_back(atflag(la::IS_MUT) && !atflag(la::IS_REF));
@@ -4653,20 +4662,19 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         }
         if (explicit_ref) {
             bool is_mut = k < binding_is_mut.size() && binding_is_mut[k];
-            // PROBE 2026-09-09e ergorefvd: the `ref` / `ref mut` two thirds of
-            // pat.binding.modifier-requires-move-mode at the variant-payload door.
-            // ⚠ RULE 9, TWO NAMES FOR ONE PREDICATE. `explicit_ref` alone is the CRUDE
-            // form and it refuses LEGAL code: `binding_is_ref` is also set by the
-            // compiler's OWN nested-variant synthesis (`synth_wants_ref`), so
-            // `match &e { Outer::W(Option::Some(a)) }` — no modifier written anywhere —
-            // is blamed under the synthesized name `__refut_W_0_0`. The separating fact
-            // is `binding_from_wild[k]`: only a real written binder sets it, the synth
-            // pushes false, and the landed `mut` half already asks it.
-            const bool _from_wild = k < binding_from_wild.size() && binding_from_wild[k];
-            if (default_ref && (logos::probe::on("ergorefvd") || logos::probe::on("ergorefall")))
-                modifier_under_ref_scrutinee(bindings[k], scrut_type, /*known_ref=*/true);
-            if (default_ref && _from_wild &&
-                (logos::probe::on("ergorefvd2") || logos::probe::on("ergorefall2")))
+            // Rust 2024 pat.binding.modifier-requires-move-mode, the `ref` /
+            // `ref mut` two thirds, at the VARIANT-PAYLOAD door.
+            // ⚠ TWO NAMES FOR ONE PREDICATE. `explicit_ref` alone REFUSES LEGAL
+            // CODE: `binding_is_ref` is also set by the compiler's OWN
+            // nested-variant synthesis (`synth_wants_ref`), so
+            // `match &e { Outer::W(Option::Some(a)) }` — no modifier written
+            // anywhere — would be blamed under the synthesized name
+            // `__refut_W_0_0`. The separating fact is `binding_from_wild[k]`:
+            // only a real WRITTEN binder sets it, the synth pushes false, and
+            // the `mut` third already asks it. Measured: no cost column in the
+            // harness separates the two forms — only a hand program does.
+            if (default_ref &&
+                k < binding_from_wild.size() && binding_from_wild[k])
                 modifier_under_ref_scrutinee(bindings[k], scrut_type, /*known_ref=*/true);
             bind_ref_modes[k] = is_mut ? 2u : 1u;
             binding_types[k] = make_ref(is_mut, binding_types[k]);
@@ -5149,9 +5157,16 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     // is then Drop-scheduled twice. Spec pat.binding.default-mode-carried-into-subpatterns.
     // ⚠ A LEAF BINDER CONSUMES THE MODE AT THIS DOOR AND MUST NOT BE HANDED IT
     // AGAIN: `S { x: ref mut rx }` wraps by itself, and wrapping the type too
-    // binds `&mut &mut T` (measured: pat_4, match-ref-binding-mut,
-    // match_struct_move_field_drop). Only a sub-pattern that RE-DERIVES the mode
-    // from the type it is given needs it carried.
+    // binds `&mut &mut T`. Only a sub-pattern that RE-DERIVES the mode from the
+    // type it is given needs it carried.
+    // ⚠ THE THREE FIXTURES THAT MEASUREMENT NAMED — `tests/spec/pass/pat_4`,
+    // `tests/imported/pass/binding/match-ref-binding-mut`,
+    // `tests/logos/pass/match_struct_move_field_drop` — WERE ALL THE 2021
+    // SPELLING and are now `match *p` / `match *x`, because a written modifier
+    // under a by-reference default mode is an ERROR (Rust 2024, asked below).
+    // A leaf still reaching this arm is either such a modifier binder (refused)
+    // or a plain binder `mint_dbm_ref` declined (Array/Slice/TypeVar/Error), and
+    // both want the BARE component type.
     auto dbm_sub_ty = [&](writ::TinyMapView sub, TypeRef t) -> TypeRef {
         if (!dbm_ref || !t) return t;
         // the grammar wraps a single sub-pattern in a one-alt PAT_OR
@@ -5160,18 +5175,29 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             if (alts_.size() == 1) sub = map_of(alts_.get(0));
         }
         if (code_of(sub) == la::PAT_WILD.code) {
-            // PROBE 2026-09-09e ergorefleaf. ⚠ THE FACT IS NOT CARRIED PAST THIS
-            // POINT: a leaf binder is deliberately handed the BARE component type,
-            // so `build_pattern_impl`'s own `dbm_ref` is FALSE at the leaf's door
-            // and a written `ref` there cannot see the by-ref default mode. Asked
-            // HERE, at the container, which still knows it.
-            if (dbm_ref && (logos::probe::on("ergorefleaf") || logos::probe::on("ergorefall") ||
-                                logos::probe::on("ergorefall2"))) {
+            // Rust 2024 pat.binding.modifier-requires-move-mode at the LEAF
+            // binder — `S { x: ref v }`, `[ref v]`, `(a, ref b)`'s sub, and a
+            // struct-pattern tuple index `TS { 0: ref a }`.
+            // ⚠ THE FACT IS NOT CARRIED PAST THIS POINT: a leaf binder is
+            // deliberately handed the BARE component type (see the comment
+            // above), so `build_pattern_impl`'s own `dbm_ref` is FALSE at the
+            // leaf's own door and a written modifier there cannot see the
+            // by-reference default mode. It is therefore asked HERE, at the
+            // CONTAINER, which still knows the mode — the three container doors
+            // (struct, tuple, slice) all funnel their sub-patterns through this
+            // lambda, so this one site answers all four spellings.
+            // ⚠ ALL THREE MODIFIERS, not just `ref`: a written `mut` at a leaf
+            // reaches this door too (`dbm_named_bind` rejects IS_MUT, so no
+            // other site sees it), and `match &p { P { x: mut v } }` /
+            // `match &arr { [mut a, b] }` were admitted while the `mut` third
+            // of the same rule was refused at the variant, tuple and struct
+            // SHORTHAND doors. One rule, one predicate, every door.
+            {
                 auto lf = [&](const la::Key& kk) {
                     return sub.has_key(kk) && sub.get(kk.code).is_value() &&
                            sub.get(kk.code).as_value<uint8_t>() != 0;
                 };
-                if (lf(la::IS_REF) && sub.has_key(la::NAME)) {
+                if ((lf(la::IS_REF) || lf(la::IS_MUT)) && sub.has_key(la::NAME)) {
                     auto nm = std::string(str_of(sub.get(la::NAME.code)));
                     if (!nm.empty() && nm != "_")
                         modifier_under_ref_scrutinee(nm, scrut_orig, /*known_ref=*/true);
@@ -5398,9 +5424,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             if (!flag(la::IS_REF) || !en.has_key(la::NAME)) return false;
             auto nm = std::string(str_of(en.get(la::NAME.code)));
             if (nm.empty() || nm == "_") return false;
-            // PROBE 2026-09-09e ergorefsf: written `ref` at the TUPLE-ELEMENT door.
-            if (dbm_ref && (logos::probe::on("ergorefsf") || logos::probe::on("ergorefall") ||
-                                logos::probe::on("ergorefall2")))
+            // Rust 2024 pat.binding.modifier-requires-move-mode at the
+            // TUPLE-ELEMENT door. A written `ref` element never reaches
+            // `dbm_sub_ty` (it is consumed here), so the ask belongs here.
+            if (dbm_ref)
                 modifier_under_ref_scrutinee(nm, scrut_orig, /*known_ref=*/true);
             bool im = flag(la::IS_MUT);
             TypeRef bt = make_ref(im,
@@ -5946,11 +5973,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             current_pat_mut_names_->insert(fname);
                         if (fld_is_ref && !fnode.has_key(la::VALUE) &&
                             fname != "_") {
-                            // PROBE 2026-09-09e ergorefsf: written `ref` at the
-                            // STRUCT-FIELD shorthand door.
-                            if (dbm_ref && (logos::probe::on("ergorefsf") ||
-                                            logos::probe::on("ergorefall") ||
-                                            logos::probe::on("ergorefall2")))
+                            // Rust 2024 pat.binding.modifier-requires-move-mode
+                            // at the STRUCT-FIELD SHORTHAND door (`{ ref x }`).
+                            // Consumed here, so it never reaches `dbm_sub_ty`.
+                            if (dbm_ref)
                                 modifier_under_ref_scrutinee(fname, scrut_orig, /*known_ref=*/true);
                             TypeRef bt = make_ref(fld_is_mut,
                                 (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)

@@ -1,0 +1,12 @@
+// LEGAL: a match GUARD over a by-ref default binding, no modifier written.
+package my27;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(3i64);
+    let mut out: i64 = 0i64;
+    match &o {
+        Option::Some(v) if *v > 1i64 => { out = *v; }
+        _ => { out = 0i64; }
+    }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

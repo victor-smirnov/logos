@@ -1,0 +1,15 @@
+// LEGAL: `match *mp` through a `&mut` — the mode is `move`, so `ref mut` is
+// legal and still writes through.
+package my30;
+struct P { x: i64, y: i64 }
+fn bump(mp: &mut P) {
+    match *mp {
+        P { x: ref mut v, .. } => { *v = *v + 1i64; }
+    }
+}
+fn main() -> i32 {
+    let mut p: P = P { x: 3i64, y: 4i64 };
+    bump(&mut p);
+    if p.x != 4i64 { return 1i32; }
+    return 0i32;
+}
