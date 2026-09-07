@@ -1,0 +1,51 @@
+// SOUNDNESS QUEUE row variant_payload_nested_struct_sub_double_drops (tier 1). An
+// ENUM-VARIANT payload matched with a nested STRUCT or TUPLE pattern under a
+// by-reference scrutinee — `match &e { Outer::V(W { s }) => … }` — runs the payload's
+// destructor TWICE. Rust runs it once.
+// ROOT (read, not guessed): `build_pattern_variant_data`'s payload loop treats a
+// PAT_STRUCT / PAT_TUPLE sub as "irrefutable" and synths a payload binding with
+// `binding_from_wild = false` — which is exactly the flag the default-binding-mode
+// branch requires — so the synth binds BY VALUE and the arm body then destructures it
+// with `let W { s } = __synth;`. The mode is lost at the SYNTH, not at a type.
+// ⚠ THIS IS THE HALF OF THE 2026-09-07q CONTAINER-DOOR CLASS THAT IS BLOCKED, NOT
+// DECLINED: its repair needs the body destructure to run over a REFERENCE, and
+// `let (s, b) = &p;` is refused today — soundness queue row
+// let_tuple_destructure_ref_scrutinee ("right-hand side must be a tuple, got &(S, i64)").
+// That row must close first.
+// ⚠ IT ALSO REFUTES A RECORDED CLAIM. The header of the row this one was split from
+// (nested_variant_payload_under_ref_double_drops) recorded
+//     variant door `match &e { Outer::W(Option::Some(a)) }`  1  CORRECT
+// as a class-table cell. Measured 2026-09-07q on the same binary 95d01d3ae0a1858d, the
+// variant door is correct at ONE of its four sub paths — the nested VARIANT_DATA one,
+// which ref-wraps `rt` before recursing. Its STRUCT sub, its TUPLE sub and a nested
+// STRUCT-SHAPED VARIANT sub reached through a container door all read 2:
+//     variant door x nested VARIANT_DATA   `Outer::W(Option::Some(a))`   1  CORRECT
+//     variant door x nested STRUCT         `Outer::V(W { s })`           2  THIS ROW
+//     variant door x nested TUPLE          `Outer::V((s, k))`            2  THIS ROW
+//     tuple door  x struct-shaped VARIANT  `(E::V { f }, b)`             2  THIS ROW
+// A door does not "carry the mode"; a SUB PATH does.
+// Found 2026-09-07q by a 24-program container-door x sub-pattern-kind matrix.
+// The count is read through a `static mut` AFTER the value's scope has ended, so the
+// wrong count is an EXIT CODE: 2 today, 0 in Rust.
+// Rust: exit 0.
+package variant_payload_nested_struct_sub_double_drops;
+static mut NDROP: i64 = 0i64;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { NDROP = NDROP + 1i64; } } }
+struct W { pub s: S }
+enum Outer { V(W), Z }
+fn inner() -> i64 {
+    let e: Outer = Outer::V(W { s: S { n: 5i64 } });
+    let mut out: i64 = 0i64;
+    match &e {
+        Outer::V(W { s }) => { out = s.n; },
+        Outer::Z => {}
+    }
+    return out;
+}
+fn main() -> i32 {
+    let out: i64 = inner();
+    if out != 5i64 { return 3i32; }
+    unsafe { if NDROP != 1i64 { return NDROP as i32; } }
+    return 0i32;
+}

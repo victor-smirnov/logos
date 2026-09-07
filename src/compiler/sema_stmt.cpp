@@ -5125,6 +5125,29 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         auto nm = std::string(str_of(n.get(la::NAME.code)));
         return (nm.empty() || nm == "_") ? std::string{} : nm;
     };
+    // ⚠ SOUNDNESS: a container door that hands its sub-pattern the BARE component
+    // type loses the default binding mode, and a payload the scrutinee still owns
+    // is then Drop-scheduled twice. Spec pat.binding.default-mode-carried-into-subpatterns.
+    // ⚠ A LEAF BINDER CONSUMES THE MODE AT THIS DOOR AND MUST NOT BE HANDED IT
+    // AGAIN: `S { x: ref mut rx }` wraps by itself, and wrapping the type too
+    // binds `&mut &mut T` (measured: pat_4, match-ref-binding-mut,
+    // match_struct_move_field_drop). Only a sub-pattern that RE-DERIVES the mode
+    // from the type it is given needs it carried.
+    auto dbm_sub_ty = [&](writ::TinyMapView sub, TypeRef t) -> TypeRef {
+        if (!dbm_ref || !t) return t;
+        // the grammar wraps a single sub-pattern in a one-alt PAT_OR
+        if (code_of(sub) == la::PAT_OR && sub.has_key(la::ITEMS)) {
+            auto alts_ = arr_of(sub.get(la::ITEMS.code));
+            if (alts_.size() == 1) sub = map_of(alts_.get(0));
+        }
+        if (code_of(sub) == la::PAT_WILD.code) return t;
+        auto k = TypeRef(t).kind();
+        if (k == LogosType::Kind::Error || k == LogosType::Kind::TypeVar) return t;
+        // Array/Slice held back for mint_dbm_ref's reason: no codegen ref-bind
+        // carries an array shape (queue row arrayelem_default_ref_mode_not_minted).
+        if (k == LogosType::Kind::Array || k == LogosType::Kind::Slice) return t;
+        return make_ref(dbm_mut, t);
+    };
     auto mint_dbm_ref = [&](const std::string& nm, TypeRef bt,
                             lir::Pattern& out) -> bool {
         if (!dbm_ref || nm.empty()) return false;  // `_` is filtered by dbm_named_bind
@@ -5435,7 +5458,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             } else if (sc == la::PAT_INT.code || sc == la::PAT_NEG_INT.code ||
                        sc == la::PAT_BOOL.code || sc == la::PAT_RANGE.code) {
                 pt.bindings.push_back("_");
-                pt.subs.push_back(build_pattern(sub, elem_ty));
+                pt.subs.push_back(build_pattern(sub, dbm_sub_ty(sub, elem_ty)));
             } else if (sc == la::PAT_VARIANT_DATA.code) {
                 // P4-pm-24: variant pattern at tuple-pattern element
                 // (e.g. `(Enum::Foo {..}, Enum::Bar { bar: _ })`).
@@ -5446,7 +5469,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 // to outer scope by bind_pattern_ref's recursive Tuple
                 // case below.
                 pt.bindings.push_back("_");
-                pt.subs.push_back(build_pattern(sub, elem_ty));
+                pt.subs.push_back(build_pattern(sub, dbm_sub_ty(sub, elem_ty)));
             } else if (sc == la::PAT_STR.code && current_pat_refutable_guards_) {
                 // G172-1b: string-literal tuple element (`("foo", _)`). The
                 // tuple-arm codegen has no str_eq dispatch, so instead bind the
@@ -5495,11 +5518,11 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                                    isc == la::PAT_BOOL.code ||
                                    isc == la::PAT_RANGE.code) {
                             pt.bindings.push_back("_");
-                            pt.subs.push_back(build_pattern(inner, elem_ty));
+                            pt.subs.push_back(build_pattern(inner, dbm_sub_ty(inner, elem_ty)));
                             single = true;
                         } else if (isc == la::PAT_VARIANT_DATA.code) {
                             pt.bindings.push_back("_");
-                            pt.subs.push_back(build_pattern(inner, elem_ty));
+                            pt.subs.push_back(build_pattern(inner, dbm_sub_ty(inner, elem_ty)));
                             single = true;
                         } else if (isc == la::PAT_STR.code &&
                                    current_pat_refutable_guards_) {
@@ -5523,7 +5546,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 }
                 if (!single) {
                     pt.bindings.push_back("_");
-                    pt.subs.push_back(build_pattern(sub, elem_ty));
+                    pt.subs.push_back(build_pattern(sub, dbm_sub_ty(sub, elem_ty)));
                 }
             } else {
                 error("tuple pattern element: only _, name, integer, bool, range, "
@@ -5944,7 +5967,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                                 ps.fields.push_back(std::move(pfb));
                                 continue;
                             }
-                            auto sub = build_pattern(sub_node, ftype);
+                            auto sub = build_pattern(sub_node, dbm_sub_ty(sub_node, ftype));
                             // G148-1: refutable field sub-patterns (variant /
                             // tuple / range / or) are tested+bound by the
                             // recursive matcher (pat_test/pat_bind) in struct-arm
@@ -6059,7 +6082,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                         }
                         lir::Pattern sub;   // default binding mode, SLICE door
                         if (!mint_dbm_ref(dbm_named_bind(enode), elem_type, sub))
-                            sub = build_pattern(enode, elem_type);
+                            sub = build_pattern(enode, dbm_sub_ty(enode, elem_type));
                         if (!found_rest) psl.prefix.push_back(std::move(sub));
                         else             psl.suffix.push_back(std::move(sub));
                     }

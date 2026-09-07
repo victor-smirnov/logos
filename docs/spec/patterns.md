@@ -486,7 +486,21 @@ Once a reference scrutinee has set the default binding mode to `ref` or `ref mut
 
 **Divergence from Rust:** none — this is the Rust **2024** edition rule (RFC 3627, "match ergonomics reservations"); Rust 2021 instead let `mut` reset the mode to `move` and copy the payload. Logos follows 2024 by decision of the owner, 2026-09-05, so that the by-value `mut` bit the LIR pattern node now carries (`BINDING_REF_MODES` bit `0x10`) is legal only where the default mode is `move`.
 
-*Source: decision 2026-09-05; the refusal exists today (a type error) and the sentence is owed — soundness queue, tier 4.*
+*Source: decision 2026-09-05; `SemaChecker::modifier_under_ref_scrutinee` mints the sentence, asked at the variant-payload, struct-field, tuple-element and slice-element doors and — since `pat.binding.default-mode-carried-into-subpatterns` — at every nested position those doors reach.*
+
+### `pat.binding.default-mode-carried-into-subpatterns` — The default binding mode is a property of the walk, not of a component's type
+
+A container door (tuple, struct, slice) that builds a SUB-PATTERN from a component of its scrutinee gives that sub-pattern a scrutinee type of `&C`/`&mut C` — a reference to the component — whenever the door's own scrutinee was reached through a `&`/`&mut`. It is not enough to wrap the binding TYPE at the door: the mode has to reach the sub-pattern's own door, because that door re-derives the mode from the type it is handed and otherwise re-derives `move`. The wrap composes: `match &p { ((Option::Some(a), k), b) }` carries at each level.
+
+Consequences, both of them measured: a nested variant payload of a move type binds by reference and is dropped ONCE (binding it by value Drop-schedules it at arm exit AND leaves the scrutinee to drop it at scope end — a double free); and `pat.binding.modifier-requires-move-mode` is asked at nested positions, so `match &p { (Option::Some(mut a), _) }` is refused.
+
+A LEAF BINDER is the one sub-pattern kind that is NOT given the reference: `S { x: ref mut rx }`, `[ref a]` and a plain named element already consume the mode where they are written, and handing them a reference too binds `&mut &mut T` (measured: it broke `pat_4`, `match-ref-binding-mut` and `match_struct_move_field_drop`). The carry applies to a sub-pattern that RE-DERIVES the mode from the type it is handed, never to one that answers it directly.
+
+An explicit `&`-pattern is the exception in the other direction: `&pat` RESETS the mode to `move`, so the PAT_REF door passes the bare pointee and `match &o { &Some(ref v) }` stays legal.
+
+**Divergence from Rust:** ARRAY- and SLICE-typed components are exempt for the reason `pat.binding.default-by-ref-mode` gives. And the ENUM-VARIANT payload door carries the mode into a nested VARIANT_DATA sub only: a nested STRUCT or TUPLE sub is synthesized as a by-value payload binding plus a body destructure, and repairing it needs `let <pat> = &expr` to destructure through a reference — soundness queue rows `variant_payload_nested_struct_sub_double_drops` and `let_tuple_destructure_ref_scrutinee`.
+
+*Source: src/compiler/sema_stmt.cpp `SemaChecker::build_pattern_impl`, `dbm_sub_ty`, applied at every component recursion of the PAT_TUPLE, PAT_STRUCT and PAT_SLICE doors.*
 
 ### `pat.binding.explicit-ref-mut` — `ref`/`ref mut` payload binding wraps type in &/&mut
 

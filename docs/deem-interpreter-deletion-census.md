@@ -5364,8 +5364,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9353 -> 9364  +11
 #   NOIMPORTED   4916 -> 4927  +11
 #   TIERCOMMIT    173 ->  173    0
-REGISTRY-ALL         9364
-REGISTRY-NOIMPORTED  4927
+# 2026-09-07q (the default binding mode carried into container-door sub-patterns).
+#   TEN fixtures, five pairs one token apart: six `pass` halves that RUN and assert a
+#   destructor COUNT on stdout (dbmcarry_tuple/struct/slice_nested_payload_drop_once,
+#   dbmcarry_nested_payload_drop_count_exit — the closed tier-1 row's own program,
+#   dbmcarry_ergo_tuple_scalar_nomut — the closed tier-2 row's pass twin, and
+#   dbmcarry_mutref_tuple_nested_payload_write — a `&mut` over-refusal the same carry
+#   repairs) and four `fail` halves pinning the Rust-2024 modifier sentence in full.
+#   Each is registered ONCE — no valgrind gate, the oracle is a destructor count —
+#   hence +10 here against direct_door's +6, which counts the `pass` half only.
+#   The two deleted queue programs were under tests/soundness/open/ and registered
+#   nowhere; the one new queue row (variant_payload_nested_struct_sub_double_drops)
+#   likewise.
+#   ALL          9364 -> 9374  +10
+#   NOIMPORTED   4927 -> 4937  +10
+#   TIERCOMMIT    173 ->  173    0
+REGISTRY-ALL         9374
+REGISTRY-NOIMPORTED  4937
 REGISTRY-TIERCOMMIT  173
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

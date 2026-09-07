@@ -1,0 +1,11 @@
+package d01;
+use logos.std.fmt;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+struct P { pub x: i64 }
+fn main() -> i32 {
+    let mut p: P = P { x: 3i64 };
+    match &mut p { P { x: ref mut rx } => { *rx = *rx + 1i64; } }
+    if p.x != 4i64 { return 1i32; }
+    return 0i32;
+}

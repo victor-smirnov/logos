@@ -1,0 +1,23 @@
+// THE SAME LOST FACT AT THE SLICE DOOR: an element sub-pattern was built from
+// the BARE element type. Was a cell of soundness-queue row
+// nested_variant_payload_under_ref_double_drops' class table (slice door, 2).
+// COUNT = 1. PAIR: fail/dbmcarry_slice_nested_payload_mut_fail (`a` -> `mut a`).
+package dbmcarry_slice_nested_payload_drop_once;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let arr: [Option<D>; 1] = [Option::Some(D { v: 1i64, c: p })];
+        match &arr {
+            [Option::Some(a)] => { r = a.v; },
+            [Option::None] => {}
+        }
+    }
+    if r != 1i64 { return 2i32; }
+    unsafe { printf("%ld\n".as_ptr(), n); }
+    return 0i32;
+}

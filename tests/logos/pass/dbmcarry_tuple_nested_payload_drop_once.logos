@@ -1,0 +1,27 @@
+// A NESTED VARIANT PAYLOAD UNDER A REFERENCE SCRUTINEE IS DROPPED ONCE. Was
+// soundness-queue row nested_variant_payload_under_ref_double_drops (tier 1,
+// `run 2`): `build_pattern_impl`'s TUPLE door handed its PAT_VARIANT_DATA
+// element the BARE element type, so `build_pattern_variant_data` re-derived the
+// default binding mode as `move` and bound the payload BY VALUE — its
+// destructor then ran at arm exit AND again for the scrutinee at scope end.
+// COUNT = 1: the payload's own drop, once. Rust runs it once.
+// PAIR: fail/dbmcarry_tuple_nested_payload_mut_fail, one token apart (`a` -> `mut a`).
+package dbmcarry_tuple_nested_payload_drop_once;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let t: (Option<D>, i64) = (Option::Some(D { v: 1i64, c: p }), 9i64);
+        match &t {
+            (Option::Some(a), b) => { r = a.v + *b; },
+            (Option::None, _) => {}
+        }
+    }
+    if r != 10i64 { return 2i32; }
+    unsafe { printf("%ld\n".as_ptr(), n); }
+    return 0i32;
+}

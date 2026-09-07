@@ -27751,3 +27751,127 @@ fires: 0
 ceiling: — / —
 cost: — (NOT MEASURED)
 verdict: BROKEN INSTRUMENT, reported not hidden (rule 18): the ARGS walk SEGFAULTS the compiler on 8 of 26 hand programs. The narrow/crude separation this pair existed to make was NOT made; what stands in its place is the crude arm's 20 unchanged negatives.
+
+# ═══ ROUND 2026-09-07q (LANDING, soundness queue) — THE DEFAULT BINDING MODE IS A FACT OF
+#     THE WALK, AND SEVEN OF THE TWELVE PATTERN RECURSIONS THREW IT AWAY ═══════════════════
+
+## 0. STEP 1, RE-DERIVED (HEAD 0cdb8e22c = origin/main, clean)
+    queue `# TOTAL` 63 = 63 by direct listing (tier1=21 tier2=6 tier3=33 tier4=3);
+    bc_admits 98 / bc_admits_blocked 25; probe-log-lint 237 records, every site symbol resolves;
+    build hash READ 95d01d3ae0a1858d 43; queue gate rc 0 in BOTH directions;
+    `gate-run.sh -L bc` rc 0, READ from the store, with the inherited
+    logos_05_integration_pass_http_workers_basic failure.
+    ⚠ NOTHING TO CORRECT IN THE PROMPT. The STEP-1 gate command carries `LOGOS_LIB_DIR`;
+    2026-09-06p already re-verified that and this round re-verified it against the text given.
+
+## 1. THE CLASS, ENUMERATED BY PROPERTY — AND THE PRICING ROUND'S TABLE WAS TOO SMALL
+    PROPERTY: "a recursion into `build_pattern` whose TYPE ARGUMENT is a COMPONENT of the
+    door's own scrutinee". The default binding mode has no representation of its own: the
+    only thing that carries it is "the scrutinee type is a reference". A door that hands a
+    sub-pattern the BARE element/field type therefore destroys it, and the sub-pattern's own
+    door re-derives `move` — which Drop-schedules a payload the scrutinee still owns.
+    The 12 recursion sites in sema_stmt.cpp, classified BEFORE the edit (PREDICTION.md):
+      component, DOES NOT CARRY, FIXED (7): TUPLE door 5438/5449/5498/5502/5526,
+                                            STRUCT door 5947, SLICE door 6062
+      component, carries already (1):       variant_data 4025 (`rt` wrapped at 4008)
+      component, MUST NOT carry (1):        PAT_REF 5738 — an explicit `&` RESETS the mode
+      component, out of scope (2):          variant_data 3829 / 4095 — see §5
+      whole scrutinee, carries by construction (3): 4813 4816 5693
+    ONE helper (`dbm_sub_ty`), seven call sites, +14 net lines.
+
+    ⚠ A 24-PROGRAM MATRIX (container door × sub-pattern kind), MEASURED ON THE BASE BINARY
+    95d01d3ae0a1858d BEFORE ANYTHING WAS ARMED, found ELEVEN wrong cells where the pricing
+    round's six-cell table had four — and REFUTED ONE OF ITS ROWS. The recorded claim
+    "variant door `match &e { Outer::W(Option::Some(a)) }`  1  CORRECT" is true of ONE of
+    that door's four sub paths:
+        variant door × nested VARIANT_DATA  `Outer::W(Option::Some(a))`  1  correct
+        variant door × nested STRUCT        `Outer::V(W { s })`          2  WRONG
+        variant door × nested TUPLE         `Outer::V((s, k))`           2  WRONG
+        tuple door  × struct-shaped VARIANT `(E::V { f }, b)`            2  WRONG
+    A DOOR does not carry the mode; a SUB PATH does.
+
+## 2. THE CLOSED SET, DIFFED BOTH WAYS, DIAGNOSTICS READ
+    PREDICTED (a4482b8d1, before the compiler was touched): exactly two rows, by name.
+    MEASURED: the queue gate names exactly those two and no others.
+      match_ergo_nested_tuple_mut_admit  (tier 2, admits) — now refused, and the sentence is
+        the Rust-2024 one read in full: "binding modifiers may only be written when the
+        default binding mode is `move`: 'a' is bound under a by-reference scrutinee
+        (Rust 2024, pat.binding.modifier-requires-move-mode)".
+      nested_variant_payload_under_ref_double_drops (tier 1, run 2) — gate reads
+        "want cc=0 diag=0 run=2, read cc=0 diag=0 run=0".
+    `# TOTAL` 63 -> 62 BY DIRECT LISTING (62 rows, 62 programs on the shelf), tier1 21
+    (-1 closed, +1 opened), tier2 6 -> 5.
+
+    HAND MATRIX, base -> armed, 24 programs, oracle = destructor COUNT:
+      2 -> 1 (nine):  c01 tuple×variant · c03 tuple×tuple · c04 struct×variant ·
+                      c05 struct×struct · c06 struct×tuple · c07 slice×variant ·
+                      c14 if-let tuple · c15 while-let tuple · c19 two levels of nesting
+      REFUSED -> 1 (one, a GAIN NOT PREDICTED): c18 `match &mut p { (Option::Some(a), b) =>
+                      { a.n = a.n + 1 } }` — refused "assignment to immutable variable 'a'"
+                      on base, compiles and writes through the scrutinee now. No queue row
+                      had this; pinned as pass/dbmcarry_mutref_tuple_nested_payload_write.
+      MY PREDICTION WAS WRONG BY ONE: c13 `(E::V { f }, b)` was predicted closed and reads
+                      2 still. It is a §5 cell, not a tuple-door one — rowed, not lost.
+      unchanged, 2:   c11 c12 (§5)
+      unchanged, 1:   c08 slice×struct (correct before and after) · c10 · c21 · a01 · a02
+      unchanged, 0:   a03 `match &t { &(a, b) }` (the explicit `&` reset — the shape rule 5
+                      was bought with) · a04
+      unchanged, REFUSED: c02 c16 c17 c20 (four other open rows' shapes, untouched)
+
+## 3. RULE 14 PAID AGAINST ME, IN THE MEASUREMENT, NOT AFTERWARDS
+    Of the four `mut` fail halves, TWO print the same sentence on the BASE binary and are
+    therefore INHERITED, not bought: dbmcarry_tuple_nested_payload_mut_fail and
+    dbmcarry_slice_nested_payload_mut_fail. Their payload is a MOVE type, and `bind_pattern`'s
+    own 2024 door already refused those. Only dbmcarry_struct_nested_payload_mut_fail is a new
+    refusal from this change — which is why the closed tier-2 row's OWN program (an `i64`
+    payload, which `bind_pattern`'s door does not reach) was landed as a fifth fail fixture,
+    dbmcarry_ergo_tuple_scalar_mut_fail: base wrote the object rc 0, armed refuses.
+
+## 4. ⚠ THE FIRST FORM OF THE CARRY BROKE THREE FIXTURES AND `run_oracle.py` IS WHAT SAID SO
+    L1 was GREEN over it: 769/769 pass, 12 684 generated smoke cases, gates 173/173. The
+    runtime column over all 6527 registered `pass` fixtures, compiled + linked + RUN, was not:
+        logos_02_semantic_core_pass_match-ref-binding-mut   ccrc 0 -> 1
+            "cannot move out of a value behind a mutable reference (E0507)"
+        logos_25_spec_pass_pat_4                            ccrc 0 -> 1
+            "return type mismatch — expected i64, got &mut i64" at sf_refmut AND bm_refmut
+        logos_02_semantic_core_pass_match_struct_move_field_drop   runrc 0 -> 2
+            (compiles clean, `by_ref(&q)` returns the wrong number)
+    ROOT: A LEAF BINDER CONSUMES THE MODE AT THE DOOR AND MUST NOT BE HANDED IT AGAIN.
+    `S { x: ref mut rx }` in the RENAME form has a VALUE node, so it does not take the
+    struct door's `fld_is_ref` shorthand branch; it recurses, and PAT_WILD's own ref-binder
+    door wraps a type this change had already wrapped — `rx : &mut &mut i64`. The same
+    latency was at the SLICE door (`[ref a, ref b]`), which `dbm_named_bind` excludes from
+    `mint_dbm_ref` for having IS_REF. The tuple door was safe only because `push_ref_elem`
+    intercepts `(ref mut a, b)` first.
+    THE FIX IS A PREDICATE ON THE SUB-PATTERN, NOT ON THE TYPE: `dbm_sub_ty` now takes the
+    NODE, unwraps the grammar's one-alt PAT_OR, and returns the bare type for a PAT_WILD.
+    Only a sub-pattern that RE-DERIVES the mode from the type it is given needs it carried.
+    ⚠ AND THE HAND MATRIX COULD NOT SEE THIS. All 24 of its cells are byte-identical before
+    and after the repair — nine still close, the `&mut` gain still lands, eleven negatives
+    still unchanged. Rule 5 again, from the other side: hand programs of one shape (a
+    binding with NO modifier written) are blind to the shape that breaks (an explicit
+    `ref`/`ref mut` in the rename spelling). Three hand programs d01/d02/d03 were added for
+    it after the fact, all three compiling on the control compiler and all three correct here.
+
+## 5. COLUMNS
+    see the round record in the commit message.
+
+## 6. WHAT IS BLOCKED, NAMED, WITH THE NUMBER
+    `build_pattern_variant_data`'s own sub sites (3829, 4095) hold three wrong cells
+    (c11 c12 c13). Their repair is NOT a type wrap: the payload loop classifies a PAT_STRUCT /
+    PAT_TUPLE sub as "irrefutable", synths a payload binding with `binding_from_wild = false`
+    — the very flag the default-binding-mode branch requires — and emits a body
+    `let <sub> = __synth;`. Making that binding by-reference needs the body destructure to run
+    over a reference, and `let (s, b) = &p;` is REFUSED today ("right-hand side must be a
+    tuple, got &(S, i64)") — soundness queue row `let_tuple_destructure_ref_scrutinee`, which
+    must close first. BLOCKED, not declined; opened as
+    `variant_payload_nested_struct_sub_double_drops` (tier 1, run 2, reproduces exit 2).
+
+## dbm_sub_ty
+site: src/compiler/sema_stmt.cpp::build_pattern_impl
+build: febd1aa6e49ae30c
+measured: 2026-09-07
+fires: n/a — LANDED, not a probe
+ceiling: 2 (queue: match_ergo_nested_tuple_mut_admit, nested_variant_payload_under_ref_double_drops) / 0 (bc)
+cost: 0 IN THE FINAL FORM — the first form cost THREE fixtures (see §4). L1 769/769 + 12 684 generated smoke cases; full `cmake --build` rc 0, which rebuilds all four stdlib archives with the changed compiler (a stronger stdlib column than stdlib-cost.sh, which only compiles the layers)
+verdict: LANDED. Nine hand cells 2 -> 1, one over-refusal repaired, 11 abuse-direction programs byte-identical, and three cells left to a BLOCKED row.

@@ -1,0 +1,24 @@
+// THE SAME LOST FACT AT THE STRUCT DOOR: a field sub-pattern was built from the
+// BARE field type. Was a cell of soundness-queue row
+// nested_variant_payload_under_ref_double_drops' class table (struct door, 2).
+// COUNT = 1. PAIR: fail/dbmcarry_struct_nested_payload_mut_fail (`a` -> `mut a`).
+package dbmcarry_struct_nested_payload_drop_once;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { pub o: Option<D>, pub k: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let w: W = W { o: Option::Some(D { v: 1i64, c: p }), k: 9i64 };
+        match &w {
+            W { o: Option::Some(a), k } => { r = a.v + *k; },
+            W { o: Option::None, k: _ } => {}
+        }
+    }
+    if r != 10i64 { return 2i32; }
+    unsafe { printf("%ld\n".as_ptr(), n); }
+    return 0i32;
+}
