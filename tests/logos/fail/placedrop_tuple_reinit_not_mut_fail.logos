@@ -1,0 +1,22 @@
+// ONE TOKEN from placedrop_tuple_reinit_after_move (the `mut` on `a` is gone):
+// re-initialising a moved-out tuple element still requires the container to be a
+// mutable place. The lift of the move suppression happens at the store, so the
+// store must be legal first.
+package placedrop_tuple_reinit_not_mut_fail;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let a: (Option<D>, Option<D>) = (Some(D { v: 1i64, c: p }), Some(D { v: 10i64, c: p }));
+        let b: D = match a.1 {
+            Some(v) => { a.1 = Some(D { v: 1000i64, c: p }); v }
+            None => { return 3i32; }
+        };
+        if b.v != 10i64 { return 4i32; }
+    }
+    unsafe { printf("%ld\n".as_ptr(), n); }
+    return 0i32;
+}

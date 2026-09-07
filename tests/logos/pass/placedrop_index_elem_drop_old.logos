@@ -1,0 +1,22 @@
+// `a[0] = new` DROPS THE OLD ELEMENT. Was soundness-queue row
+// assign_index_elem_no_drop_old (tier 1, `run 1`): an INDEX_READ place never
+// entered the liveness walk and always stored with drop_old = false.
+// COUNT = 1 (old a[0], at the store) + 1000 (new a[0]) + 10 (a[1]) = 1011.
+// PAIR: placedrop_index_moved_container_fail, one token apart (`b` -> `a`).
+package placedrop_index_elem_drop_old;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let mut a: [D; 2] = [D { v: 1i64, c: p }, D { v: 10i64, c: p }];
+        a[0] = D { v: 1000i64, c: p };
+        r = a[0].v;
+    }
+    if r != 1000i64 { return 2i32; }
+    unsafe { printf("%ld\n".as_ptr(), n); }
+    return 0i32;
+}

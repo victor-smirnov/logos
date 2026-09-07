@@ -1,0 +1,16 @@
+// THE ABUSE DIRECTION of placedrop_tuple_elem_drop_old, one token apart (`u` ->
+// `t` in the `take` call): the whole tuple is moved away and then one of its
+// elements is written. Admitting the store would drop a value that is gone.
+package placedrop_tuple_elem_moved_container_fail;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn take(t: (D, D)) -> i64 { return t.0.v; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut t: (D, D) = (D { v: 1i64, c: p }, D { v: 10i64, c: p });
+    let u: (D, D) = (D { v: 2i64, c: p }, D { v: 20i64, c: p });
+    let k: i64 = take(t);
+    t.0 = D { v: 1000i64, c: p };
+    return k as i32;
+}

@@ -1,0 +1,16 @@
+// ONE TOKEN from placedrop_deref_field_drop_old (`&mut` -> `&` at `q`): a shared
+// reference is not a writable place, and the root axis must not turn a DEREF of
+// a `&` into an exclusive one. The liveness rule reads the deref operand's type
+// and answers only for `&mut`.
+package placedrop_deref_field_shared_ref_fail;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W1 { d: D, n: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut w: W1 = W1 { d: D { v: 1i64, c: p }, n: 5i64 };
+    let q: &W1 = &w;
+    (*q).d = D { v: 1000i64, c: p };
+    return 0i32;
+}

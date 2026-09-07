@@ -1,0 +1,19 @@
+// AN ELEMENT STORE DOES NOT RE-INITIALISE ITS CONTAINER. One token apart from
+// placedrop_index_elem_drop_old's shape (`b` -> `a` in the `take` call): the
+// array is moved away and then an element is written. The liveness walk
+// coarsens an index link to the CONTAINER, so this must stay refused — and the
+// move-suppression lift that a FIELD or TUPLE store performs must NOT run
+// through an index link, or `a` would silently become live again.
+package placedrop_index_moved_container_fail;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn take(a: [D; 2]) -> i64 { return a[0].v; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut a: [D; 2] = [D { v: 1i64, c: p }, D { v: 10i64, c: p }];
+    let b: [D; 2] = [D { v: 2i64, c: p }, D { v: 20i64, c: p }];
+    let k: i64 = take(a);
+    a[0] = D { v: 1000i64, c: p };
+    return k as i32;
+}

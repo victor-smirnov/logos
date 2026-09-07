@@ -8414,14 +8414,64 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     //       AND deeper — writing `o.i` refills `o.i.s`) so the scope-end
     //       drop releases the NEW value.
     bool field_old_live = false;   // → emit drop_old at the place store
-    if (pc == la::FIELD_READ) {
+    // Every place kind whose store re-initialises a statically named part of a
+    // value we exclusively own. See PROBES.md, round 2026-09-06n.
+    if (pc == la::FIELD_READ || pc == la::TUPLE_INDEX || pc == la::INDEX_READ) {
         std::vector<std::string> segs;
         auto cur = place_node;
-        while (!cur.is_null() && code_of(cur) == la::FIELD_READ &&
-               cur.has_key(la::FIELD) && cur.has_key(la::RECEIVER)) {
-            segs.emplace_back(str_of(cur.get(la::FIELD.code)));
-            cur = map_of(cur.get(la::RECEIVER.code));
+        bool through_index = false;
+        for (;;) {
+            if (cur.is_null()) break;
+            const int32_t cc = code_of(cur);
+            if ((cc == la::FIELD_READ || cc == la::TUPLE_INDEX) &&
+                cur.has_key(la::FIELD) && cur.has_key(la::RECEIVER)) {
+                // A TUPLE_INDEX segment must normalise to the decimal text
+                // `move_path_of` records, or the overlap check below compares
+                // against a path nothing ever marks.
+                std::string seg(str_of(cur.get(la::FIELD.code)));
+                if (cc == la::TUPLE_INDEX)
+                    seg = std::to_string((uint64_t)parse_int_literal(
+                              str_of(cur.get(la::FIELD.code))));
+                segs.emplace_back(std::move(seg));
+                cur = unwrap_paren_node(map_of(cur.get(la::RECEIVER.code)));
+                continue;
+            }
+            if (cc == la::INDEX_READ && cur.has_key(la::RECEIVER)) {
+                // ONLY a fixed-size ARRAY. Its elements are inline storage of the
+                // container, so the root's ownership answers for them. Every
+                // other indexable — a `Vec`, a slice, a raw-pointer buffer —
+                // holds its elements behind a POINTER the root does not own, and
+                // coarsening to the root there drops uninitialised memory: the
+                // wider rule aborted `no_auto_drop_container` and segfaulted
+                // `zz_btree_dyn_probe` at `Vec::push`. A subscript has no static
+                // path, so the array case falls back to the CONTAINER and lets
+                // the overlap check answer for the whole root.
+                auto recv_n = unwrap_paren_node(map_of(cur.get(la::RECEIVER.code)));
+                TypeRef recv_t = resolve_place_type(recv_n);
+                if (!recv_t || TypeRef(recv_t).kind() != LogosType::Kind::Array)
+                    break;
+                through_index = true;
+                segs.clear();
+                cur = recv_n;
+                continue;
+            }
+            if (cc == la::DEREF && cur.has_key(la::VALUE)) {
+                // `(*q).d` IS `q.d`. An explicit deref of a named place adds no
+                // path segment — the auto-deref sugar and the written one must
+                // reach the same root and the same path text, or two spellings
+                // of one assignment answer differently. What the root IS decides
+                // ownership, below: a raw pointer and a shared `&` are excluded
+                // there, so this collapse never widens to memory we do not own.
+                auto inner = unwrap_paren_node(map_of(cur.get(la::VALUE.code)));
+                if (!inner.is_null() && code_of(inner) == la::VAR_REF) {
+                    cur = inner;
+                    continue;
+                }
+                break;
+            }
+            break;
         }
+        cur = unwrap_paren_node(cur);
         if (!cur.is_null() && code_of(cur) == la::VAR_REF) {
             std::string root(str_of(cur.get(la::NAME.code)));
             std::string path(root);
@@ -8462,8 +8512,11 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
             }
             field_old_live = root_owned && !decl_uninit_vars_.count(root) &&
                              !any_overlap;
-            // (b) lift suppression for the covered paths.
-            for (auto it = moved_vars_.begin(); it != moved_vars_.end(); ) {
+            // (b) lift suppression for the covered paths — only where the
+            // store re-initialises the path itself. `a[i] = v` re-initialises
+            // ONE element, never the container, so an index link suppresses it.
+            for (auto it = moved_vars_.begin();
+                 !through_index && it != moved_vars_.end(); ) {
                 bool covered = *it == path ||
                     (it->size() > pre.size() &&
                      it->compare(0, pre.size(), pre) == 0);

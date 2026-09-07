@@ -2453,10 +2453,10 @@ Rules whose `divergence` field carries a Rust-conformance or spec-citation note 
 - **Rule**: `* p = v ;` writes value `v` through dereferenced place `p` (a `unary_expr`). `* p OP v ;` performs compound assignment through a bare dereference and is defined to lower to `*p = *p OP v`.
 - **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2335-L2340`
 
-### `expr.assign.drop-before-replace` — Field assignment drops old value first
+### `expr.assign.drop-before-replace` — A place assignment drops the old value first
 - **Divergence**: Rust-conformant (expr.assign.drop-target / B8)
-- **Rule**: Assigning to a field place over an owned local root drops the place's prior value before the store, provided the value is live (root owned, definitely-initialized, no overlapping moved-out path) and droppable; assigning to a path also lifts drop-suppression for the covered (equal-or-deeper) moved paths so the scope-end drop releases the new value.
-- **Source**: `src/compiler/sema_stmt.cpp#L7386-L7436`, `src/compiler/sema_stmt.cpp#L7592-L7604`
+- **Rule**: Assigning to a place drops the place's prior value before the store, provided that value is live and droppable. The place kinds are FIELD_READ, TUPLE_INDEX and INDEX_READ, in any mixed chain; parenthesised receivers are unwrapped as the chain is walked, so `(*q).d` and the sugared `q.d` are one place. The chain's root is either a VAR_REF — live iff the root is an owned or `&mut`-typed local (never a raw `*mut`/`*const`, whose memory the compiler does not own), is definitely-initialized, and has no overlapping moved-out path — or a DEREF of a `&mut`, whose referent is always fully initialized and so always live. A subscript link is admitted ONLY over a fixed-size array `[T; N]`, whose elements are inline storage of the container; it then has no static path, so it coarsens to the container and the liveness question is answered for the whole root. Every other indexable — a `Vec`, a slice, a raw-pointer buffer — holds its elements behind a pointer the root does not own, and its element store stays manual. Assigning to a place ALSO lifts drop-suppression for the covered (equal-or-deeper) moved paths so the scope-end drop releases the new value; that lift does NOT happen through a subscript link, because `a[i] = v` re-initializes one element and not `a`.
+- **Source**: `SemaChecker::lower_place_assign` (`field_old_live`, `through_index`, `drop_old_place`) in `src/compiler/sema_stmt.cpp`
 
 ### `expr.assign.union-field-safe` — Writing a union field is safe
 - **Divergence**: Rust-conformant (items.union.fields.write-safety)

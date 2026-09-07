@@ -1,0 +1,19 @@
+// THE SUPPRESSION LIFT IS KEYED ON THE PATH THE STORE RE-INITIALISES. `t.0` is
+// moved out and `t.1` — a DIFFERENT element — is written, so `t.0` stays moved
+// and reading it is refused. ONE TOKEN (`t.0 =` -> `t.1 =`) from the program of
+// soundness-queue row tuple_elem_reinit_after_move_refused, which is the same
+// text with the store on the moved element and which is LEGAL RUST refused by
+// borrow_check today; that row is why this half has no pass twin in the tree.
+package placedrop_tuple_reinit_wrong_elem_fail;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut t: (D, D) = (D { v: 1i64, c: p }, D { v: 10i64, c: p });
+    let x: D = t.0;
+    t.1 = D { v: 1000i64, c: p };
+    let y: i64 = t.0.v;
+    if x.v != 1i64 { return 3i32; }
+    return y as i32;
+}

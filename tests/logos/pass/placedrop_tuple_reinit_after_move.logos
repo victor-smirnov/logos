@@ -1,0 +1,29 @@
+// A TUPLE ELEMENT RE-INITIALISED AFTER ITS PAYLOAD WAS MOVED OUT IS DROPPED, AND
+// IS DROPPED AT THE CONTAINER'S SCOPE END. Was soundness-queue row tuple_elem_reinit_after_move_never_dropped
+// (tier 1, `run 1`). The place-assign walk that decides whether the OLD value
+// drops at the store also lifts the move suppression for the paths the store
+// re-initialises, and it never reached a TUPLE_INDEX place: `a.1` stayed recorded
+// as moved, so the NEW value's destructor never ran (2 allocs / 1 free with a
+// heap payload; here the counter reads 11 for 1011).
+// COUNT = 1 (a.0) + 10 (the moved-out b) + 1000 (the re-initialised a.1, at the
+//         container's scope end — THE DROP THAT NEVER RAN) = 1011. The base binary
+//         reads 11: `a.1` stayed recorded as moved, so its new value was never dropped.
+// PAIR: placedrop_tuple_reinit_wrong_elem_fail, one token apart (`a.1 =` -> `a.0 =`).
+package placedrop_tuple_reinit_after_move;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut a: (Option<D>, Option<D>) = (Some(D { v: 1i64, c: p }), Some(D { v: 10i64, c: p }));
+        let b: D = match a.1 {
+            Some(v) => { a.1 = Some(D { v: 1000i64, c: p }); v }
+            None => { return 3i32; }
+        };
+        if b.v != 10i64 { return 4i32; }
+    }
+    unsafe { printf("%ld\n".as_ptr(), n); }
+    return 0i32;
+}

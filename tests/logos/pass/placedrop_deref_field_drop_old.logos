@@ -1,0 +1,27 @@
+// `(*q).d = new` THROUGH A `&mut` DROPS THE OLD FIELD. Was soundness-queue row
+// assign_field_path_not_var_rooted_no_drop_old (tier 1, `run 1`): the liveness
+// walk required its chain to bottom out at a bare VAR_REF, so the DESUGARED
+// spelling leaked while the sugared `q.d = new` was already correct — two
+// spellings of one assignment disagreeing. `(*q).d` parses as
+// FIELD_READ(PAREN_EXPR(DEREF)), so the root match must unwrap the paren.
+// COUNT = 1 (old d, at the store) + 1000 (new d, at w's scope end) = 1001.
+// PAIR: placedrop_deref_field_shared_ref_fail, one token apart (`&mut` -> `&`).
+package placedrop_deref_field_drop_old;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W1 { d: D, n: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let mut w: W1 = W1 { d: D { v: 1i64, c: p }, n: 5i64 };
+        let q: &mut W1 = &mut w;
+        (*q).d = D { v: 1000i64, c: p };
+        r = w.d.v;
+    }
+    if r != 1000i64 { return 2i32; }
+    unsafe { printf("%ld\n".as_ptr(), n); }
+    return 0i32;
+}

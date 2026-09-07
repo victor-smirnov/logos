@@ -1,0 +1,55 @@
+// SOUNDNESS QUEUE row tuple_elem_reinit_after_move_refused (tier 3, `refuses`). A
+// TUPLE ELEMENT MOVED OUT BY A `let` AND THEN RE-INITIALISED IS REFUSED, THOUGH IT
+// IS LEGAL RUST.
+//
+//     let mut t: (D, i64) = (D { … }, 0i64);
+//     let x: D = t.0;                 // partial move out of a tuple
+//     t.0 = D { … };                  // re-initialises it — Rust: OK
+//     let y: i64 = t.0.v;             // Rust: OK, t.0 is live again
+//
+// TODAY: `error [fn main]: use of moved field 't.0' (moved on line 13)`, TWICE.
+// Rust: exit 0. rustc accepts this — a moved-out field of a local becomes live
+// again when it is assigned, and the tuple is not itself a `Drop` type.
+//
+// THE STRUCT TWIN IS CORRECT. `let x: D = w.d; w.d = D { … }; let y = w.d.v;` over
+// `struct W { d: D }` compiles and runs. Two spellings of one operation disagree.
+//
+// ROOT, by property, and NOT the one closed in round 2026-09-06n: sema's own
+// move bookkeeping (`moved_vars_`, lifted at the place-assign door for FIELD_READ
+// and — since 2026-09-06n — TUPLE_INDEX as well) is no longer the refusing party.
+// The sentence is borrow_check's: `use of moved field '{}.{}' (moved on line {})`
+// has four emit sites in src/compiler/borrow_check.cpp, and that pass has its own
+// move record which no place-assign re-initialisation clears. The MATCH spelling
+// of the same move does NOT trip it — `match a.1 { Some(v) => { a.1 = Some(…); v } }`
+// followed by `let z = a.1;` compiles and runs correctly on the same binary — so
+// the defect is specific to the record borrow_check makes for a `let`-position
+// move of a tuple element.
+//
+// PAIRS WITH the fail fixture tests/logos/fail/placedrop_tuple_reinit_wrong_elem_fail,
+// which is this program ONE TOKEN apart (`t.0 =` -> `t.1 =`, re-initialising a
+// DIFFERENT element) and whose refusal is CORRECT.
+//
+// Found 2026-09-06n by a hand counter-example written against the fix for
+// tuple_elem_reinit_after_move_never_dropped; it reproduces on that row's fixed
+// binary (ab9f504b1d6f4ad6 43) and on the pricing binary before it
+// (f29b1b7c50d1a470 43), so it is INHERITED, not introduced.
+package tuple_elem_reinit_after_move_refused;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut t: (D, i64) = (D { v: 1i64, c: p }, 0i64);
+        let x: D = t.0;
+        t.0 = D { v: 1000i64, c: p };
+        let y: i64 = t.0.v;
+        if y != 1000i64 { return 4i32; }
+        if x.v != 1i64 { return 5i32; }
+    }
+    let got: i64 = unsafe { n };
+    if got != 1001i64 { return 1i32; }
+    unsafe { printf("%ld\n".as_ptr(), got); }
+    return 0i32;
+}

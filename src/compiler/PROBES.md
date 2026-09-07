@@ -27293,3 +27293,252 @@ fires: 27441 (= 3 x 9147; read at three `probe::on` gates, one per axis)
 ceiling: 0 (bc) / 4 (queue, by name: assign_tuple_elem_no_drop_old, assign_index_elem_no_drop_old, assign_field_path_not_var_rooted_no_drop_old, tuple_elem_reinit_after_move_never_dropped — the gate named exactly these four, diffed both ways)
 cost: 0 pass / cfail 1 (paindex's, inherited) / stdlib ok / runtime 0 of 6515 pass fixtures compiled, linked and RUN (the one diff, cast-region-to-uint, proven nondeterministic on the UNARMED binary: three runs, three shas) / hand: 10 of 22 shapes move, X1 and X2 move ONLY here
 verdict: FUND — one edit, four tier-1 rows, ten shapes in five syntaxes, every cost column zero but one understood sentence. Rows additive (2+1+1=4); SHAPES super-additive by X1 and X2, which need the KIND axis to enter the block and the ROOT axis to answer once inside.
+
+# ROUND 2026-09-06n — THE PLACE-ASSIGN `drop_old` CLASS, FIXED AND ENUMERATED BY ITS ROOT
+
+FIX ROUND for the block priced by 2026-09-06m. Base `546cb165b`, build hash at
+selection `f29b1b7c50d1a470 43`; armed build hash `95d01d3ae0a1858d 43`. The
+prediction — four rows BY NAME, the twelve counter-examples and their readings on
+the OLD binary — was committed in `6cc7f4337` BEFORE the compiler was touched, in
+`src/compiler/probes/2026-09-06n-placedropfix/PREDICTION.md`.
+
+## THE CLASS, BY THE PROPERTY AND NOT BY THE SPELLING
+
+    A store into a PLACE that re-initialises a statically named part of a value
+    the compiler exclusively owns must drop what was there.
+
+`SemaChecker::lower_place_assign` answered that question for ONE spelling of the
+place — a `FIELD_READ` chain bottoming out at a bare `VAR_REF` — and stored
+`drop_old = false` for every other. Enumerating the property gives the members as
+a product of TWO axes, the KIND of each link and what the chain's ROOT IS:
+
+| # | member | spelling | base | correct | rowed as |
+|---|---|---|---|---|---|
+| 1 | TUPLE_INDEX link | `t.0 = new` | 1010 | 1011 | assign_tuple_elem_no_drop_old |
+| 2 | INDEX_READ link | `a[0] = new` | 1010 | 1011 | assign_index_elem_no_drop_old |
+| 3 | DEREF root, `&mut` | `(*q).d = new` | 1000 | 1001 | assign_field_path_not_var_rooted_no_drop_old |
+| 4 | the (b) half at a TUPLE_INDEX place | `a.1 = Some(..)` after a move | 11 | 1011 | tuple_elem_reinit_after_move_never_dropped |
+| 5 | DEREF root, OWNED (`Box<W>`) | `(*b).d = new` | 1000 | 1001 | **not rowed — found by this round's enumeration** |
+
+Member 5 is the one the handed-down block did not contain and the pricing round's
+`paroot` arm could not have closed: its rule was `the deref operand's type is
+`&mut``, and a `Box` is neither. It was found by asking what the ROOT IS over the
+four root kinds a place chain can reach (owned local, `&mut`, owned smart
+pointer, raw pointer) rather than by grepping for a spelling, and it reproduces
+as the same "two spellings of one assignment disagree" shape as member 3:
+`b.d = new` reads 1001 and `(*b).d = new` reads 1000 on the base binary.
+
+⚠ AND THE FOURTH ROOT KIND IS A MEMBER OF NOTHING — it is the CONTROL. A raw
+`*mut W` root must NOT drop: the compiler never owned that memory. It reads 1000
+before and after, and it is pinned as a pass fixture, because for a root rule the
+abuse direction is not a refusal but a WRONG DROP and only a running program sees
+it.
+
+## THE FIX — ONE STRUCTURAL CHANGE, four hunks in one block
+
+  1. The walk is entered for `TUPLE_INDEX` and `INDEX_READ` as well as
+     `FIELD_READ`, and a `TUPLE_INDEX` link normalises to the DECIMAL segment
+     `SemaChecker::move_path_of` records (`t.0`), or the overlap check below
+     would compare against a path nothing ever marks — which is not a missed
+     drop but a DOUBLE FREE, since a moved-out element would read as live.
+  2. An `INDEX_READ` link is admitted ONLY over a fixed-size array `[T; N]`; it
+     then has no static path, so it coarsens to the CONTAINER and the liveness
+     question is answered for the whole root. ⚠ THE FIRST FORM OF THIS HUNK HAD
+     NO ARRAY TEST AND IT WAS A DOUBLE FREE — see below.
+  3. A `DEREF` of a named place collapses to that place, adding no segment.
+     `(*q).d` and `q.d` then reach one root and one path text by construction,
+     and WHAT THE ROOT IS decides ownership at the existing predicate — which
+     already excludes `Ref` and `Ptr`. This is what closes members 3 AND 5 with
+     one rule instead of a type test for `&mut`.
+  4. Receivers are unwrapped as the walk descends: `(*q).d` parses as
+     FIELD_READ(PAREN_EXPR(DEREF)), and the pricing round censused
+     `pasgn.root.deref` at ZERO against `pasgn.root.other` at 134 — a root rule
+     that does not unwrap sees nothing at all.
+
+And ONE DECOUPLING the crude probe did not have: action (b) — erasing covered
+paths from `moved_vars_`, which is what lets the scope-end drop release the NEW
+value — does NOT run when the chain passed through an index link, because
+`a[i] = v` re-initialises one element and not `a`. This is exactly the probe's
+single measured cost (`move-into-dead-array-2`'s diagnostic moved), and it is
+gone: with the decoupling, `-L bc` and the fail-text oracle both read 0.
+
+## WHERE THE FIX DIFFERS FROM ITS PROBE (rule 7)
+
+| | `paall` | the landed fix |
+|---|---|---|
+| root axis | `resolve_place_type(operand).kind() == MutRef` | the deref COLLAPSES; the existing root predicate answers |
+| Box root | not a member | member 5, closed |
+| (b) at the index door | runs | suppressed |
+| measured cost | 1 (`move-into-dead-array-2` text) | 0 |
+| queue rows | 4 | 4 + one unrowed member |
+
+## RULE 5 PAID — TWELVE COUNTER-EXAMPLES IN SHAPES THE PRICING ROUND DID NOT USE
+
+Written and read on the OLD binary BEFORE the edit (`hand/`, `run_hand.sh`).
+
+| program | shape | base | armed | correct |
+|---|---|---|---|---|
+| N1 | `[W;2]` — droppable FIELDS, NO `Drop` impl (the `has_droppable_fields` leg) | 1010 | **1011** | 1011 |
+| N2 | one tuple element assigned THREE times in a `while` | 4 | **10** | 10 |
+| N3 | element moved out, then assigned (the double-free direction) | REFUSED | REFUSED | should compile |
+| N4 | `(*pa)[0]` through a RAW `*mut [D;2]` — MUST NOT DROP | 1010 | 1010 | 1010 |
+| N5 | `(*q).a[0]` — both axes in ONE place expression | 1010 | **1011** | 1011 |
+| N6 | mixed chain TUPLE-then-FIELD, `t.0.d` | 1010 | **1011** | 1011 |
+| N7 | the RHS READS the place it overwrites | 1001 | **1002** | 1002 |
+| N8 | heap `String` payload — the oracle is VALGRIND | 6 allocs / **4** frees, 20 B lost in 2 blocks | 6 allocs / **6** frees, 0 errors | no leak |
+| N9 | move out, re-init, USE AGAIN — legal Rust | REFUSED | REFUSED | should compile |
+| N10 | whole array moved, then `a[0] = …` | `use of moved variable 'a'` | same | refuse |
+| N11 | whole tuple moved, then `t.0 = …` | `use of moved variable 't'` | same | refuse |
+| N12 | `(*q)[0]` through a SHARED `&` | `assignment through a shared reference` | same | refuse |
+
+Four programs are in the ABUSE direction and all four are unchanged: N4 (a raw
+root), N10, N11, N12. N8's oracle is not a counter but valgrind, and it is the
+one that shows the repair on the heap rather than on an accumulator.
+
+## THE TWO THAT DID NOT MOVE, AND THE PREDICTION THEY REFUTED — A NEW ROW
+
+⚠ MY OWN PREDICTION WAS WRONG AND THE COUNTER-EXAMPLES ARE WHY I KNOW. PREDICTION.md
+said N3 and N9 would be closed as a consequence of (b) reaching the tuple door,
+reasoning that the lift runs BEFORE `lower_mut_place` reads the LHS and that this
+is why the FIELD spelling survives. They are still refused, character for
+character, on the armed binary. The reason is that the refusing party is not
+sema's `moved_vars_` at all: `use of moved field '{}.{}' (moved on line {})` has
+four emit sites in `src/compiler/borrow_check.cpp`, and that pass keeps its own
+move record which no place-assign re-initialisation clears.
+
+THE MATCH SPELLING OF THE SAME MOVE DOES NOT TRIP IT, measured on the armed
+binary: `match a.1 { Some(v) => { a.1 = Some(…); v } }` followed by `let z = a.1;`
+compiles and runs correctly. So the defect is specific to the record borrow_check
+makes for a `let`-position move of a tuple element, the STRUCT twin
+(`let x = w.d; w.d = D{…}; let y = w.d.v;` — COUNT 1001, rc 0) is correct, and it
+is INHERITED, not introduced: it refuses identically on `f29b1b7c50d1a470 43`.
+
+ROWED as `tuple_elem_reinit_after_move_refused` (tier 3, `refuses`), with the
+fail fixture `placedrop_tuple_reinit_wrong_elem_fail` as its ONE-TOKEN twin
+(`t.0 =` -> `t.1 =`, re-initialising a DIFFERENT element), whose refusal is
+CORRECT and which is why that fail half has no pass twin in the tree.
+
+## THE PAIRS — six pass halves, five fail halves, and what each pin is worth
+
+    placedrop_tuple_elem_drop_old            1011   <-> placedrop_tuple_elem_moved_container_fail   (`u` -> `t`)
+    placedrop_index_elem_drop_old            1011   <-> placedrop_index_moved_container_fail        (`b` -> `a`)
+    placedrop_deref_field_drop_old           1001   <-> placedrop_deref_field_shared_ref_fail       (`&mut` -> `&`)
+    placedrop_tuple_reinit_after_move        1011   <-> placedrop_tuple_reinit_not_mut_fail         (`mut` dropped)
+    placedrop_box_deref_field_drop_old       1001   <-> placedrop_rawptr_deref_field_no_drop_old    (`Box<W>` -> `*mut W`)
+                                                    <-> placedrop_tuple_reinit_wrong_elem_fail      (`t.0` -> `t.1`)
+
+⚠ THE FIVE FAIL HALVES ARE INHERITED REFUSALS AND THIS SAYS SO RATHER THAN
+IMPLYING OTHERWISE (rule 14): all five print the SAME sentence on the base
+binary. They buy a pin on the abuse direction, not a new refusal. What this
+change actually moves is on the pass side, and there the base binary is wrong on
+FIVE of the six: 1010, 1010, 1000, 11, 1000 against 1011, 1011, 1001, 1011, 1001.
+The sixth, the raw-pointer control, reads 1000 on both — which is the point of it.
+
+## ⚠ THE FIRST FORM OF THE INDEX HUNK WAS A DOUBLE FREE, AND `L1` IS WHAT SAID SO
+
+The index coarsening as the pricing probe wrote it — "a subscript has no static
+path, fall back to the CONTAINER" — is WRONG for every indexable whose elements
+live behind a POINTER. `stdlib/mem/collections/vec/vec.logos:63`, `self.ptr[self.len] = val;` inside
+`Vec::push` — `self.ptr` is a `*mut T` — parses as
+INDEX_READ(FIELD_READ(VAR_REF self)); coarsening to `self` answers "the root is a
+`&mut` struct, so the element is live", and the store then drops UNINITIALISED
+memory. MEASURED on `a17bbb4f9827d50f 43`: **10 of 767 L1.1 pass fixtures**
+failed, `no_auto_drop_container` aborting rc 134 with a destructor printing
+`D26721624630` — a `Pay` read out of raw memory — and `zz_btree_dyn_probe`
+segfaulting rc 139, both inside a `Vec` call. All ten PASS on the base binary,
+which is what makes them a regression and not a pre-existing red.
+
+THE FIX IS TO ASK WHAT THE CONTAINER IS: only a fixed-size array `[T; N]` holds
+its elements as inline storage of the root, so only an array admits the
+coarsening. A `Vec`'s `IndexMut` place never reaches here anyway
+(`try_index_mut_assign` returns first). Ten for ten green afterwards, with the
+eleven new fixtures green in the same run.
+
+⚠ AND THIS CONTRADICTS A RECORDED CLAIM — the pricing round's runtime column.
+2026-09-06m reports `paall` as "0 of 6515 compiled, linked and RUN", and `paall`
+carried this same coarsening with no array test. The reason it saw nothing is
+structural and worth more than the row: **`run_oracle.py` links PREBUILT stdlib
+archives**. `logos::probe::on` arms the compiler PROCESS, so an armed sweep
+recompiles the fixtures and NOT `liblstdlib*.a` — and this defect is emitted into
+`Vec::push`, i.e. into the stdlib, where an armed runtime sweep cannot look. The
+same blindness is already recorded for `ceiling-probe.sh`'s cost column
+("COST 0 … EXCLUDES THE STDLIB"); this round measures that it applies to the
+RUNTIME column too, which was believed to be the one that could see everything.
+The oracle that caught it was a full `cmake --build` followed by L1 — the stdlib
+rebuilt by the changed compiler.
+
+## THE LEDGER — 4 rows closed, 1 opened, `# TOTAL` re-derived BY DIRECT LISTING
+
+    closed   assign_tuple_elem_no_drop_old                 1  run 1
+    closed   assign_index_elem_no_drop_old                 1  run 1
+    closed   assign_field_path_not_var_rooted_no_drop_old  1  run 1
+    closed   tuple_elem_reinit_after_move_never_dropped    1  run 1
+    opened   tuple_elem_reinit_after_move_refused          3  refuses
+
+PREDICTED FOUR BY NAME in `PREDICTION.md` before the edit, and the closed set
+diffed BOTH ways is exactly those four: predicted-not-closed EMPTY,
+closed-not-predicted EMPTY. `# TOTAL` 65 -> 62, re-derived by
+`awk '!/^#/ && NF' … | wc -l` -> 62, with 62 programs on the shelf; the gate's own
+tier split reads tier1=20 (was 24) tier2=6 tier3=33 (was 32) tier4=3.
+
+Rule 13 held on the SETS as the pricing round measured them (2+1+1 = 4, additive),
+and the fifth member says what a ceiling cannot: A CEILING BOUNDS THE COUNT, NOT
+THE SET. The queue ceiling was 4 and the fix closes 4 ROWS plus one member that had
+no row, because the ceiling could only count what the ledger already named.
+
+NO bc-ledger row opened or closed: `bc_admits` 98 and `bc_admits_blocked` 25 are
+unchanged and both ledger gates are in the L1 `tier_commit` set that passed 173/173.
+
+## THE COLUMNS
+
+    queue gate            rc 0   — 62 rows, `# TOTAL` 62, 62 programs, both directions
+    L1                    rc 0   — 767/767, 12 684 generated smoke cases, gates 173/173
+    L4 bc                        — 4412 passed / 1 failed (see below), 6468 recorded
+    gate-run -L bc        rc 0   — build 883: 2668 passed / 0 failed / 2 disabled
+    gate store, READ             — `compare 877 883`: 2670 measured under both, 0 CHANGED
+    run_oracle.py                — armed 6521 / base 6515, common 6515, ONE differing
+    fail text, normalised        — 1435 fixtures, base vs armed, ZERO differing
+    stdlib                       — all four layers compile
+    build hash READ BACK         — 95d01d3ae0a1858d 43
+
+⚠ THE ONE RUN-ORACLE DIFFERENCE IS THE FIXTURE'S OWN NONDETERMINISM, SUBTRACTED BY
+MEASUREMENT AND NOT BY THE NAME THE PROTOCOL HANDS DOWN:
+`logos_02_semantic_core_pass_cast-region-to-uint` changed stdout sha with ccrc and
+runrc identical, and THREE runs of that one binary give 96f3331dfe45a640,
+9d631959a7763c36, 5282669c2c3c1edc — it prints a stack address. RUNTIME COST 0.
+The six only-armed rows are this round's own new pass fixtures; only-base is EMPTY.
+
+⚠ THE FAIL-TEXT COLUMN HAD TO BE RE-TAKEN, and the first form of it would have
+reported 614 changes that are not there. `fail_text_oracle.py` run in the base
+WORKTREE differs from the armed run on 614 of 1435 stderr shas with rc and
+`.expected`-match identical on all 1435 — the diagnostics print the TREE PATH, and
+the two trees have different roots. Pointing the base compiler at MY tree instead
+made it WORSE, 1435 of 1435, and the diff names why: four `logosc: warning: … was
+built with logos 0.42.0-preview+main-g6cc7f433… but this compiler is
+0.42.0-preview+snapshot…` lines, the ABI-freshness self-invalidation the protocol
+records. The column that means something is both compilers on their OWN libraries
+with the tree root and those warnings normalised away: 1435 compared, **0
+differing**, so no un-refusal, no added line and no reworded sentence.
+
+⚠ ONE L4 FAILURE, AND IT IS INHERITED (rule 14, checked on the old binary first):
+`logos_05_integration_pass_http_workers_basic` TIMES OUT at 120 s — and it times
+out on the BASE build too, run alone on an idle box. Not this change's, not rowed
+here, recorded so the next round does not rediscover it.
+
+## THE CONTROL REVERT — the base binary DOING THE WRONG THING AT RUN TIME
+
+Not a reverted file but a separate worktree at `546cb165b`, configured and built
+with the same compiler and generator (`7ebc68013301580d 43`), so the control is a
+whole second compiler rather than an edit undone. It reproduces the defect exactly:
+N1 1010, N2 4, N5 1010, N6 1010, N7 1001, N4 1010 (correct), N3/N9 refused.
+
+    fixture                                    base    armed   expected
+    placedrop_tuple_elem_drop_old              1010    1011    1011
+    placedrop_index_elem_drop_old              1010    1011    1011
+    placedrop_deref_field_drop_old             1000    1001    1001
+    placedrop_tuple_reinit_after_move            11    1011    1011
+    placedrop_box_deref_field_drop_old         1000    1001    1001
+    placedrop_rawptr_deref_field_no_drop_old   1000    1000    1000   ← the control
+
+Five of six wrong on the base binary at RUN TIME, each by a destructor count, and
+the sixth is the raw-pointer root that must not move and does not.

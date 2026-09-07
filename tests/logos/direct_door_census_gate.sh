@@ -1478,9 +1478,20 @@ PIN = {
     # registered TWICE (the logos_02 corpus test and a logos_09 valgrind gate),
     # which is the +4 on REGISTRY-ALL against the +2 here.
     # `ls tests/logos/pass/blockexpr_scope_drop_*.logos | wc -l` -> 2.
-    'corpus'            : 2896,
+    # 2026-09-06n: 2896 -> 2902. SIX pass fixtures, all non-glob, of the
+    # place-assign drop_old repair — placedrop_tuple_elem_drop_old,
+    # placedrop_index_elem_drop_old, placedrop_deref_field_drop_old and
+    # placedrop_tuple_reinit_after_move. Their five one-token fail twins are NOT
+    # in this population (it is `pass`), and the four closed rows' own programs
+    # did not move here — each pass half is a rewrite that asserts stdout, and the
+    # queue programs were deleted with their rows.
+    # plus the fifth class member's pair, placedrop_box_deref_field_drop_old and
+    # placedrop_rawptr_deref_field_no_drop_old (a raw-pointer root, which must NOT
+    # drop — pass/pass because that abuse direction is a wrong drop, not a refusal).
+    # `ls tests/logos/pass/placedrop_*.logos | wc -l` -> 6.
+    'corpus'            : 2902,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2705,  # +3 (2026-09-06j), +2 (2026-09-06k).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2711,  # +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

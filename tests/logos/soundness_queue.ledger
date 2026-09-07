@@ -43,14 +43,13 @@ declare_pat_bindings_field_nomut_addrmut_admit 2 tests/soundness/open/declare_pa
 array_typed_field_binding_shape_lost 3 tests/soundness/open/array_typed_field_binding_shape_lost refuses
 let_at_binding_tuple_sub_unsupported 3 tests/soundness/open/let_at_binding_tuple_sub_unsupported refuses
 operator_autoref_temp_never_dropped 1 tests/soundness/open/operator_autoref_temp_never_dropped run 1
-tuple_elem_reinit_after_move_never_dropped 1 tests/soundness/open/tuple_elem_reinit_after_move_never_dropped run 1
 closure_byvalue_param_never_dropped 1 tests/soundness/open/closure_byvalue_param_never_dropped run 1
 self_call_in_return_kills_param_drops 1 tests/soundness/open/self_call_in_return_kills_param_drops run 1
 weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped      run 1
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 closure_capture_body_moved_never_dropped 1 tests/soundness/open/closure_capture_body_moved_never_dropped run 1
 closure_narrow_capture_never_dropped 1 tests/soundness/open/closure_narrow_capture_never_dropped run 1
-# TOTAL 65
+# TOTAL 62
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 drop_inherent_call_order      1 tests/soundness/open/drop_inherent_call_order      refuses
@@ -98,9 +97,6 @@ sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_wr
 shadowed_binding_never_dropped 1 tests/soundness/open/shadowed_binding_never_dropped run 1
 shadow_over_param_double_drop 1 tests/soundness/open/shadow_over_param_double_drop run 1
 shadow_rebind_after_move_refused 3 tests/soundness/open/shadow_rebind_after_move_refused refuses
-assign_index_elem_no_drop_old 1 tests/soundness/open/assign_index_elem_no_drop_old run 1
-assign_tuple_elem_no_drop_old 1 tests/soundness/open/assign_tuple_elem_no_drop_old run 1
-assign_field_path_not_var_rooted_no_drop_old 1 tests/soundness/open/assign_field_path_not_var_rooted_no_drop_old run 1
 index_write_through_local_refmut_clobbers_binding 1 tests/soundness/open/index_write_through_local_refmut_clobbers_binding run 139
 struct_fields_dropped_reverse_order 3 tests/soundness/open/struct_fields_dropped_reverse_order run 1
 tuple_elems_dropped_reverse_order 3 tests/soundness/open/tuple_elems_dropped_reverse_order run 1
@@ -110,3 +106,4 @@ nested_tuple_field_assign_unimplemented 3 tests/soundness/open/nested_tuple_fiel
 self_assign_refused_as_moved 3 tests/soundness/open/self_assign_refused_as_moved refuses
 boxed_closure_to_dyn_fn_cast_internal 3 tests/soundness/open/boxed_closure_to_dyn_fn_cast_internal refuses
 tuple_index_write_through_local_refmut_clobbers_binding 1 tests/soundness/open/tuple_index_write_through_local_refmut_clobbers_binding run 1
+tuple_elem_reinit_after_move_refused 3 tests/soundness/open/tuple_elem_reinit_after_move_refused refuses

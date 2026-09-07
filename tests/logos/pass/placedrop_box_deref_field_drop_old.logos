@@ -1,0 +1,27 @@
+// `(*b).d = new` THROUGH AN OWNED `Box<W>` DROPS THE OLD FIELD. The fifth member
+// of the class closed in round 2026-09-06n, found by enumerating the ROOT
+// property rather than the spelling: the walk's root rule collapses an explicit
+// deref of a named place into that place, so `(*b).d` and the sugared `b.d` reach
+// the same root and the same path text. Before the collapse the sugared spelling
+// read 1001 here and the written one 1000.
+// COUNT = 1 (old d, at the store) + 1000 (new d, with the box) = 1001.
+// PAIR: placedrop_rawptr_deref_field_no_drop_old, one token apart
+// (`Box<W>` -> `*mut W`). That twin is a PASS half too, deliberately: the abuse
+// direction for a root rule is not a refusal but a WRONG DROP of memory the
+// compiler never owned, and only a running program can see it.
+package placedrop_box_deref_field_drop_old;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { d: D, n: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut b: Box<W> = Box::new(W { d: D { v: 1i64, c: p }, n: 0i64 });
+        (*b).d = D { v: 1000i64, c: p };
+        if (*b).d.v != 1000i64 { return 2i32; }
+    }
+    unsafe { printf("%ld\n".as_ptr(), n); }
+    return 0i32;
+}

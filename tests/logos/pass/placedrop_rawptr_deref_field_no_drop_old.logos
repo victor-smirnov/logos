@@ -1,0 +1,24 @@
+// ONE TOKEN from placedrop_box_deref_field_drop_old (`Box<W>` -> `*mut W`): a
+// write through a RAW pointer stays MANUAL. The compiler never owned that memory
+// — writing into uninitialised storage is the point of a raw pointer — so the old
+// value must NOT be dropped here. `w` still drops its own (now new) field at its
+// scope end.
+// COUNT = 1000 only. A root rule that answered "a DEREF is live" instead of
+// asking what the root IS would read 1001 and would be a double free the moment
+// the pointee was uninitialised.
+package placedrop_rawptr_deref_field_no_drop_old;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { d: D, n: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut w: W = W { d: D { v: 1i64, c: p }, n: 0i64 };
+        let b: *mut W = &mut w as *mut W;
+        unsafe { (*b).d = D { v: 1000i64, c: p }; }
+    }
+    unsafe { printf("%ld\n".as_ptr(), n); }
+    return 0i32;
+}

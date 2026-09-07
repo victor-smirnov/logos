@@ -5347,8 +5347,25 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9349 -> 9353   +4
 #   NOIMPORTED   4912 -> 4916   +4
 #   TIERCOMMIT    173 ->  173    0
-REGISTRY-ALL         9353
-REGISTRY-NOIMPORTED  4916
+# 2026-09-06n — the place-assign drop_old repair closes FOUR tier-1 soundness
+#   rows and lands NINE fixtures: four pass halves (placedrop_tuple_elem_drop_old,
+#   placedrop_index_elem_drop_old, placedrop_deref_field_drop_old,
+#   placedrop_tuple_reinit_after_move) and five fail halves
+#   (placedrop_tuple_elem_moved_container_fail, placedrop_index_moved_container_fail,
+#   placedrop_deref_field_shared_ref_fail, placedrop_tuple_reinit_not_mut_fail,
+#   placedrop_tuple_reinit_wrong_elem_fail). Each is registered ONCE — no valgrind
+#   gate this time, the oracle is a destructor count on stdout — hence +9 here
+#   against direct_door's +4, which counts the `pass` half only. The four deleted
+#   queue programs were under tests/soundness/open/ and registered nowhere; the one
+#   new queue row (tuple_elem_reinit_after_move_refused) likewise.
+#   The class enumeration then found a FIFTH member (a `Box` root) and its pair
+#   is two more pass halves, placedrop_box_deref_field_drop_old and
+#   placedrop_rawptr_deref_field_no_drop_old — eleven fixtures in all, +11.
+#   ALL          9353 -> 9364  +11
+#   NOIMPORTED   4916 -> 4927  +11
+#   TIERCOMMIT    173 ->  173    0
+REGISTRY-ALL         9364
+REGISTRY-NOIMPORTED  4927
 REGISTRY-TIERCOMMIT  173
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
