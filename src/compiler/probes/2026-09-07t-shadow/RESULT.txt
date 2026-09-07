@@ -1,0 +1,88 @@
+ROUND 2026-09-07t — RESULT. PRICED, NOT FIXED.
+
+BUILDS READ:      base 337164757523a8c9 43   armed (all 4 hunks) d7312337d4216c76 43
+QUEUE GATE (base, LOGOS_LIB_DIR set): rc 0, 66 rows (tier1=22 tier2=5 tier3=36 tier4=3)
+BC LEDGERS at selection: bc_admits 97, bc_admits_blocked 25 — UNTOUCHED this round.
+PROBE LOG: 238 records before, 244 after; probe-log-lint green both times.
+
+THE TABLE (all six columns; `queue` is the column that answers this round)
+  probe          fires    queue  bc-ceil  cost  cfail  stdlib  runtime
+  shadowdrop       181      1       0       0    0/1436   ok      —
+  shadowmoved      181      1       0       0    0/1436   ok      —
+  shadowboth       362      2       0       0    0/1436   ok    0 of 6530
+  dropunshadow   90152      1       0       0    0/1436   ok      —
+  dropunshadow2  90152      1       0       0    0/1436   ok      —   (same mechanism)
+  reflocaladdr       0      2       0       0    0/1436   ok    0 of 6530
+  runtime = scripts/run_oracle.py, 6530 pass fixtures compiled + LINKED + RUN,
+  triples (ccrc, runrc, stdout-sha) against one unarmed baseline from the SAME
+  build. Each armed run differs on exactly ONE fixture and it is
+  `cast-region-to-uint` by name, which prints a stack address — three runs of
+  this population gave three shas (d4c4a59e9d3c231f, e0bbe7900db33036,
+  a17dc8ac4f8fc9e8), so it is subtracted and the column is 0.
+
+THE SETS, DIFFED BOTH WAYS AGAINST THE NAMES PREDICTED AT dbb9abffa (BEFORE ANY EDIT):
+  shadowdrop    predicted {shadowed_binding_never_dropped}        read the same. empty both ways.
+  shadowmoved   predicted {shadow_rebind_after_move_refused}      read the same. empty both ways.
+  shadowboth    predicted the union of those two                  read the same. ADDITIVE.
+  dropunshadow  predicted {shadow_over_param_double_drop}         read the same. empty both ways.
+  reflocaladdr  predicted {index_write_through_local_refmut_clobbers_binding,
+                           tuple_index_write_through_local_refmut_clobbers_binding}
+                                                                  read the same. empty both ways.
+  Every row's reading was taken from tests/logos/soundness_queue_gate.sh's own
+  verdict line ("NO LONGER REPRODUCES — …"), which prints the cc/diag/run triple
+  it judged, so no row is claimed on an exit code alone.
+
+TWO ROOTS WHERE THE HEADERS SAID ONE — REFUTED TWICE, ONE OF THEM BEFORE THE EDIT
+  shadowed_binding_never_dropped and shadow_over_param_double_drop both carry
+  "the same `SemaImpl::declare_var` name-keyed frame record… Same one change
+  closes both".
+  (1) BEFORE the compiler was touched: move the shadowing local into an INNER
+      BLOCK and the param case is ALREADY CORRECT (1001). Sema puts params and
+      the body block in different frames and emits both drops; the collision is
+      mlir-gen's flat name-keyed `scope_` plus `lower_fn` appending the param
+      frame's epilogue drops INTO the body block's statement list, with no
+      codegen scope boundary at a fn body (a real `{ }` block has one).
+  (2) AFTER: shadowdrop and shadowboth leave the param row reproducing;
+      dropunshadow closes it and neither of the others.
+  The two ARE one design question — A BINDING'S IDENTITY IS ITS SLOT, NOT ITS
+  NAME — asked of two different consumers, sema's frame record and mlir-gen's
+  `scope_`. That is a shared MECHANISM to fund, not a shared defect to fix once.
+
+WHAT THE ARMS FOUND THAT HAS NO ROW
+  · `let x = D; eat(x); let x = D;` — the SECOND binding is never dropped either
+    (1 for 1001), because `emit_frame_drops`'s `eligible` asks the name-keyed
+    `moved_vars_` and the fresh binding inherits the dead one's state. Closed by
+    shadowmoved. A leak with no row; it belongs in the queue if it is not closed
+    with the block.
+  · FOUR more members of the place-write class, all closed by reflocaladdr and
+    all wrong on the base binary: a VARIABLE index `q[i] = v` (store lost), a
+    NESTED array `q[1][0]`, a reborrow-to-a-local inside a fn with a `&mut`
+    param, and a local `&mut` initialised from another local `&mut`.
+
+RULE 5 — THE SHAPES VARY, NOT THE COUNT
+  Shadow arms: 12 hand programs (three bindings; a loop body; an RHS that reads
+  the displaced binding; a shadow of a BORROWED binding; a shadow inside an `if`;
+  a first binding already MOVED; a non-droppable first binding; a reference
+  binding; two distinct names; a nested-block shadow; a param shadowed from an
+  inner block). Every abuse-direction one is unchanged.
+  Place-write arm: 20 hand programs across index/tuple/field/deref/raw-pointer x
+  local/param/reborrow x read/write. 14 unchanged and correct, including the
+  hazard NAMED IN ADVANCE (rebinding a `mut` reference local, `q = &mut b`,
+  against gen_let's "Aliasing scope_[r] to the target" branches) — it does not bite.
+
+⚠ WHAT THESE NUMBERS DO NOT SAY
+  · A CRUDE ARM AND A CORRECT FIX DO NOT CLOSE THE SAME PROGRAMS (rule 7).
+    `shadowdrop` runs the displaced destructor AT THE SHADOWING `let`; Rust runs
+    it at SCOPE EXIT, after the shadowing binding's. The rows read a COUNT, so
+    the crude order passes them — and the queue already holds three ORDER rows
+    (struct_fields_dropped_reverse_order, tuple_elems_dropped_reverse_order,
+    let_underscore_defers_drop_to_block_end), so the harness can see the
+    difference and a landing must be measured against them.
+  · `reflocaladdr`'s cost 0 is bounded by ARRIVALS, and arrivals are 0 over every
+    population this tree has: the bc ledger, `-L bc -L pass`, the three
+    spec/ownership/advanced pass dirs, 1436 `-L bc -L fail` fixtures, all four
+    stdlib layers, and all 6530 run_oracle fixtures. Nothing in this tree writes
+    through the index or tuple place of a reference-typed LOCAL. The site IS live
+    (census `lvaddr.varref.reflocal` = 1 on each row program). So the cost column
+    is uninformative here BY CONSTRUCTION and the 20 hand programs are the only
+    evidence that exists — which is exactly rule 5's warning, met head-on.

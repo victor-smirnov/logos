@@ -28203,3 +28203,126 @@ reason than the survey gave: the path is LIVE, and what was missing was an OWNER
 capture, not the glue. `g_box_dyn_fnonce` reads 1 and is valgrind-clean on both binaries,
 and the `Box<dyn FnOnce>` row's remaining double free comes from the glue RUNNING when the
 call should already have consumed the callable — the glue firing, not failing to.
+
+## 2026-09-07t — THE SOUNDNESS QUEUE'S SHADOW ROWS ARE TWO ROOTS, AND THE PLACE-WRITE PAIR IS ONE MISSING LOAD
+
+Round subject: `tests/logos/soundness_queue.ledger`, five rows named before the
+compiler was touched (`src/compiler/probes/2026-09-07t-shadow/TARGET_ROWS.txt`,
+committed at `dbb9abffa`, BEFORE any edit).
+
+⚠ `ceiling-probe.sh`'s `ceiling` column is the BC-ADMITS ledger and this round's
+subject is the QUEUE, so every `ceiling:` below is 0 BY CONSTRUCTION and is not a
+refutation of anything. The number that answers this round is `queue:` — the rows
+`tests/logos/soundness_queue_gate.sh` reads as NO LONGER REPRODUCING under the arm,
+run with `LOGOS_LIB_DIR` set.
+
+## shadowdrop
+site: src/compiler/sema_stmt.cpp::lower_block
+build: d7312337d4216c76
+measured: 2026-09-07
+fires: 181
+ceiling: 0
+cost: 0
+verdict: queue 1 — shadowed_binding_never_dropped, exactly as predicted by name
+note: emits the DISPLACED binding's destructor at the shadowing `let` (Rust drops
+  it at scope exit; the rows read a COUNT, so a crude arm can move them — rule 7:
+  the correct fix and this do not close the same programs). cfail 0 of 1436,
+  stdlib all four layers. Hand programs, base -> armed: three same-frame bindings
+  100 -> 111; a shadow in a loop body 20 -> 22; a second `let` whose RHS reads the
+  first 1000 -> 1001; a first binding that is BORROWED before the shadow
+  1000 -> 1001. ABUSE DIRECTION, unchanged: a first binding already MOVED stays at
+  1 (no drop of a moved value), a non-droppable first binding, two distinct names,
+  a nested-block shadow and a param shadowed from an inner block all unchanged and
+  correct.
+
+## shadowmoved
+site: src/compiler/sema_stmt.cpp::lower_block
+build: d7312337d4216c76
+measured: 2026-09-07
+fires: 181
+ceiling: 0
+cost: 0
+verdict: queue 1 — shadow_rebind_after_move_refused, exactly as predicted
+note: clears the name-keyed `moved_vars_` entry when a fresh binding of that name
+  is declared in the same frame. cfail 0 of 1436, stdlib ok. It ALSO closes a
+  symptom with NO ROW: `let x = D; eat(x); let x = D;` leaked the SECOND binding
+  too (n=1 for 1001), because `emit_frame_drops`'s `eligible` asks `moved_vars_`
+  by name and the fresh binding inherits the dead one's state — 1 -> 1001 armed.
+
+## shadowboth
+site: src/compiler/sema_stmt.cpp::lower_block
+build: d7312337d4216c76
+measured: 2026-09-07
+fires: 362
+ceiling: 0
+cost: 0
+verdict: queue 2 = the UNION. ADDITIVITY MEASURED, not assumed (rule 13)
+note: 362 = 181 x 2 (both `probe::on` calls answer at each arrival). The two arms
+  do not interfere: every hand program reads the union of the two single-arm
+  readings, digit for digit.
+
+## dropunshadow
+site: src/compiler/mlir_gen_stmt.cpp::gen_stmt_kind
+build: d7312337d4216c76
+measured: 2026-09-07
+fires: 90152
+ceiling: 0
+cost: 0
+verdict: queue 1 — shadow_over_param_double_drop, AND IT IS A DIFFERENT ROOT FROM
+  THE OTHER TWO SHADOW ROWS
+note: ⚠ THE GROUPING PRINTED IN BOTH SHADOW ROW HEADERS IS REFUTED TWICE. Both
+  say "the same `SemaImpl::declare_var` name-keyed frame record… Same one change
+  closes both". (1) BEFORE any edit: a param shadowed by a local inside an INNER
+  BLOCK already answers 1001 — sema puts params and the body block in DIFFERENT
+  frames and emits both drops; what collides is mlir-gen's FLAT name-keyed
+  `scope_`, because `lower_fn` (sema_decl.cpp) appends the param frame's epilogue
+  drops INTO the body block's own statement list and there is no codegen scope
+  boundary at a fn body, while a real `{ }` block gets one
+  (`gen_stmt_kind(SBlockView)`'s snapshot/restore). (2) AFTER: `shadowdrop` and
+  `shadowboth` leave this row reproducing, and `dropunshadow` closes THIS row and
+  neither of the others. Two roots, one symptom. The arm records what a shadowing
+  `let` displaced in `scope_` and restores it after the FIRST drop of that name;
+  it is two hunks in one file under one mechanism (the `dropunshadow2` record is
+  the restore half — either name arms both, which is why the two rows are
+  identical digit for digit).
+
+## dropunshadow2
+site: src/compiler/mlir_gen_stmt.cpp::gen_stmt_kind
+build: d7312337d4216c76
+measured: 2026-09-07
+fires: 90152
+ceiling: 0
+cost: 0
+verdict: the same mechanism as `dropunshadow`, priced twice by construction
+note: the spec's second record; both halves gate on either name. Kept in the
+  table because a duplicate that is IDENTICAL digit for digit is evidence the two
+  hunks are one mechanism, and a difference would have been evidence they are not.
+
+## reflocaladdr
+site: src/compiler/mlir_gen_expr.cpp::gen_lvalue_addr
+build: d7312337d4216c76
+measured: 2026-09-07
+fires: 0 over the corpus, 1 per program by hand — SEE THE NOTE
+ceiling: 0
+cost: 0
+verdict: queue 2 — index_write_through_local_refmut_clobbers_binding AND
+  tuple_index_write_through_local_refmut_clobbers_binding, both predicted by name
+note: ⚠ `ceiling-probe.sh` reported NEVER FIRED, and that is a fact about the
+  POPULATION, not about the site. Arrivals are ZERO over the bc ledger, `-L bc -L
+  pass`, the three spec/ownership/advanced pass dirs, the 1436 `-L bc -L fail`
+  fixtures AND all four stdlib layers (fire log empty, stdlib compiles) — nothing
+  in this tree writes through the index or tuple place of a reference-typed LOCAL.
+  The site is live: the census bucket `lvaddr.varref.reflocal` counts 1 on each of
+  the two row programs unarmed, and armed both compile and RUN CORRECTLY (q0=77
+  rc 0; t0=77 rc 0) where the base binary segfaults and loses the store.
+  THE CLASS IS WIDER THAN THE TWO ROWS — four more members, no row, all fixed by
+  the same arm: a VARIABLE index (`q[i] = v`, store lost, a1 2 -> 77), a NESTED
+  array (`q[1][0]`, 3 -> 77), a reborrow-to-a-local inside a fn with a `&mut`
+  param (1 -> 77), and a local `&mut` initialised FROM another local `&mut`
+  (`let r: &mut [i64;2] = q;`, 1 -> 77).
+  ABUSE DIRECTION, 14 hand programs unchanged and correct under the arm: the same
+  writes through a PARAMETER (index and tuple), an explicit `(*q)[0]`, a FieldRead
+  (`q.a`), a field-then-index (`q.a[0]`), a raw-pointer local, a `*q = v` deref
+  write, REBINDING a `mut` reference local (`q = &mut b`, the named hazard from
+  gen_let's "Aliasing scope_[r] to the target" branches — it does NOT bite),
+  passing the local on to a fn, and every READ spelling.
