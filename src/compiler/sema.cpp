@@ -4031,6 +4031,17 @@ std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(
         for (auto& mv : moved_vars_) {
             if (mv.size() <= prefix.size()) continue;
             if (mv.compare(0, prefix.size(), prefix) != 0) continue;
+            // A PATH THE SOURCE STILL OWNS IS NOT A MOVED FIELD. The same
+            // un-skip `emit_frame_drops`'s `eligible` applies to whole-var
+            // captures of a `move` closure applies to an RFC-2229 NARROW
+            // capture, which is spelled as a dotted path and so never reached
+            // that test: the body of an uncalled `move || { let t = x.d; }`
+            // is no drop site at all, and suppressing the container's field
+            // drop on its say-so leaked `x.d` at six payload kinds
+            // (closure_narrow_capture_never_dropped). The path leaves
+            // `closure_owned_drop_` when the callable is actually consumed —
+            // see the cascade in mark_moved.
+            if (closure_owned_drop_.count(mv)) continue;
             std::string path = mv.substr(prefix.size());
             bool seen = false;
             for (auto& f : moved_fields) if (f == path) { seen = true; break; }

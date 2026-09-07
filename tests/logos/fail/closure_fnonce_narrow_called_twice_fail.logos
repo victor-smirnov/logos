@@ -1,0 +1,24 @@
+// Twin of pass/closure_fnonce_narrow_capture_drop_never_called, one CALL apart.
+// Moving a FIELD out of a capture is moving out of the capture, so this closure
+// is `FnOnce` too. The per-literal kind was computed with a bare set-membership
+// test against the capture's ROOT name while the body's move set holds the
+// PATH, so this spelling was classified `Fn` and its second call ran `D::drop`
+// twice — the whole-var spelling one token away was classified correctly.
+package closure_fnonce_narrow_called_twice_fail;
+
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct P { x: D, y: i64 }
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let s: P = P { x: D { v: 1i64, c: p }, y: 5i64 };
+        let c = move || -> i64 { let t: D = s.x; return t.v; };
+        r = c();
+        r = r + c();
+    }
+    return r as i32;
+}

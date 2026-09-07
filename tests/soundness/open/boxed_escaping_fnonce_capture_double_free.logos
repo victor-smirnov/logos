@@ -9,7 +9,28 @@
 // `logos_mem..logos.mem.boxed.Box$G1$|| -> i64__drop`, i.e. the closure env's
 // own drop glue.
 //
-// ROOT, by symbol: the `capture_drops[i]` loop in
+// ⚠ ROOT CORRECTED 2026-09-07s — THE HEADER BELOW NAMED IT ONE LAYER TOO HIGH,
+// AND THE CORRECTION WAS MEASURED, NOT REASONED. The missing fact is not a
+// codegen bit: it is Rust's rule that A CALL CONSUMES AN `FnOnce` CALLABLE,
+// which EXISTS in this tree as `fn_once_consume` in `SemaChecker::lower_call`
+// (src/compiler/sema_expr.cpp) and was applied at exactly one of the forms in
+// which a callable can be named. Applying it to the `Box<dyn FnOnce>` form
+// CLOSES this double free — measured: destructor count 2 -> 1, exit 0 — and it
+// was NOT LANDED, because the `free` of the box block AND of the heap env both
+// live in the callable's DROP (the env glue), so suppressing that drop orphans
+// them: the closure lattice's `g_box_dyn_fnonce` went from valgrind-CLEAN to 6
+// records and this program's own cell `l_boxed_fnonce_escape_consume` to 7,
+// both with the destructor count now RIGHT. Trading a double free for a leak is
+// not closing a row, so `!callee_is_box_closure` stays in the guard with that
+// measurement beside it. THE COMPLETE FIX FREES AT THE CONSUMING CALL, which is
+// what Rust's `call_once` for a boxed `FnOnce` does; the sibling rows that this
+// header groups it with (closure_capture_body_moved_never_dropped,
+// closure_narrow_capture_never_dropped) closed WITHOUT it, by the same rule at
+// the non-box forms, so THE GROUPING BELOW IS REFUTED: one change moved two of
+// the three and left this one standing for a reason the grouping never named.
+//
+// ROOT AS FIRST RECORDED (kept for the argument it makes, not as the answer):
+// the `capture_drops[i]` loop in
 // `MLIRGenImpl::emit_closure_env` (src/compiler/mlir_gen_dyn.cpp). It decides
 // per capture:
 //

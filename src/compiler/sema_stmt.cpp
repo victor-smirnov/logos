@@ -2511,6 +2511,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         decl_uninit_vars_.erase(std::string(name));
         currently_uninit_vars_.erase(std::string(name));  // logos-core 2.7
         pending_closure_capture_drops_.clear();  // claim only OUR direct closure RHS
+        pending_closure_deferred_moves_.clear();
         auto rhs_node = map_of(node.get(la::VALUE.code));
         // Box DerefMove: `let s = *b` over a move-typed Box<T> moves the content
         // out (consuming b) and frees the block without dropping the content —
@@ -2878,6 +2879,21 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         closure_drop_group_[std::string(name)] =
             std::move(pending_closure_capture_drops_);
     }
+    // The hand-over list travels with the BINDING: consuming `f` releases the
+    // source's obligation for exactly the captures f's body moves out.
+    if (node.has_key(la::VALUE) &&
+        code_of(map_of(node.get(la::VALUE.code))) == la::CLOSURE_EXPR &&
+        !pending_closure_deferred_moves_.empty()) {
+        // CLAIMED. From here the SOURCE owns these captures' destructors
+        // (`closure_owned_drop_` un-skips a root in emit_frame_drops' `eligible`
+        // and a dotted path in make_drop_stmt) and hands them over when this
+        // binding is consumed — mark_moved's cascade.
+        for (const auto& nm : pending_closure_deferred_moves_)
+            closure_owned_drop_.insert(nm);
+        closure_deferred_moves_[std::string(name)] =
+            std::move(pending_closure_deferred_moves_);
+    }
+    pending_closure_deferred_moves_.clear();
     pending_closure_capture_drops_.clear();
     // Mark an owning `Box<dyn Trait>` binding so collect_drops emits its
     // drop_in_place + free sequence (the type collapsed to bare TraitObject).

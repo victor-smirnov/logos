@@ -1489,6 +1489,13 @@ PIN = {
     # placedrop_rawptr_deref_field_no_drop_old (a raw-pointer root, which must NOT
     # drop — pass/pass because that abuse direction is a wrong drop, not a refusal).
     # `ls tests/logos/pass/placedrop_*.logos | wc -l` -> 6.
+    # 2026-09-07s: 2908 -> 2911. THREE pass fixtures, all non-glob, landed with
+    # the three soundness-queue rows this round closed — pass/
+    # closure_fnonce_capture_drop_never_called,
+    # closure_fnonce_narrow_capture_drop_never_called and
+    # closure_void_body_param_epilogue. Their three fail halves are not in this
+    # population (the `pass` half only), and the two programs that left
+    # tests/soundness/open were never in it either.
     # 2026-09-07q: 2902 -> 2908. SIX pass fixtures, all non-glob, of the
     # default-binding-mode carry at the container doors — three door halves
     # (dbmcarry_tuple/struct/slice_nested_payload_drop_once), the closed tier-2
@@ -1497,9 +1504,9 @@ PIN = {
     # over-refusal the same carry repairs (dbmcarry_mutref_tuple_nested_payload_write).
     # Their four one-token fail twins are NOT in this population (it is `pass`).
     # `ls tests/logos/pass/dbmcarry_*.logos | wc -l` -> 6.
-    'corpus'            : 2908,
+    'corpus'            : 2911,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2717,  # +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2720,  # +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

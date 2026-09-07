@@ -1,0 +1,46 @@
+// SOUNDNESS QUEUE row closure_fnonce_call_in_loop_multi_free (tier 1). AN
+// `FnOnce` CLOSURE CALLED IN A LOOP DESTROYS ITS CAPTURE ONCE PER ITERATION.
+//
+// `while i < 3 { r = f(); i = i + 1; }` over a closure whose body moves the
+// capture out runs `D::drop` THREE times on one value. Rust refuses the program
+// ("use of moved value: `f`, value moved here, in previous iteration of loop").
+//
+// ROOT, by symbol: THERE ARE TWO MOVE ANALYSES AND ONLY ONE OF THEM WAS TAUGHT
+// THE RULE. `SemaChecker::lower_call` now marks an `FnOnce` callee moved
+// (`consumes_callee` -> `mark_moved`), and the straight-line second call is
+// refused by the `moved_vars_.count(callee)` test at the head of its
+// `is_closure || is_fn_ptr` arm — proven by fail/closure_fnonce_called_twice_fail.
+// The LOOP spelling is not, because sema's per-branch save/restore reverts
+// `moved_vars_` around a loop body (stated in `mark_moved`'s own comment) and
+// the loop-aware refusal lives in the OTHER analysis: borrow_check.cpp's move
+// record, whose diagnostic is "use of moved value '{}' (moved on line {})".
+// That analysis walks the LIR and does not treat an `EClosureCall`'s callee as
+// a move of the callee. MEASURED SEPARATION on this build: the same loop over a
+// plain `fn eat(d: D)` IS refused with that sentence, and the closure spelling
+// is not — one analysis, two answers, same program shape.
+//
+// ⚠ INHERITED, NOT INTRODUCED: the base binary febd1aa6e49ae30c 43 reads the
+// same count 3.
+//
+// ⚠ THE ORACLE IS A DESTRUCTOR COUNT: today 3, exit 1; correct is a REFUSAL
+// (observed would become `refuses`, i.e. the program must not compile) — the
+// program is illegal Rust and the fix is the diagnostic, not an exit code.
+package closure_fnonce_call_in_loop_multi_free;
+
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = -1i64;
+    {
+        let x: D = D { v: 1i64, c: p };
+        let f = move || -> i64 { let t: D = x; return t.v; };
+        let mut i: i64 = 0i64;
+        while i < 3i64 { r = f(); i = i + 1i64; }
+    }
+    let got: i64 = unsafe { n };
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}

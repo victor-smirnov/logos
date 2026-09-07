@@ -1,0 +1,23 @@
+// Twin of pass/closure_fnonce_capture_drop_never_called, one CALL apart. A
+// closure whose body moves a capture out is `FnOnce`; `call_once` takes self by
+// value, so the second call is a use-after-move. Before 2026-09-07s this
+// compiled and ran `D::drop` TWICE on one value — a double free, not a missing
+// diagnostic. The rule already existed in lower_call (`fn_once_consume`) and
+// was applied only to a generic `F: FnOnce` receiver.
+package closure_fnonce_called_twice_fail;
+
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let d: D = D { v: 1i64, c: p };
+        let c = move || -> i64 { let t: D = d; return t.v; };
+        r = c();
+        r = r + c();
+    }
+    return r as i32;
+}

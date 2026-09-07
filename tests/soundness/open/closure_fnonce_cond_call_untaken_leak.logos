@@ -1,0 +1,59 @@
+// SOUNDNESS QUEUE row closure_fnonce_cond_call_untaken_leak (tier 1). AN
+// `FnOnce` CLOSURE CALLED IN ONE BRANCH LOSES ITS CAPTURE ON THE OTHER.
+//
+// `let f = move || -> i64 { let t: D = x; return t.v; }; if c { r = f(); }`
+// destroys `x` exactly once when the branch is taken and NOT AT ALL when it is
+// not. Rust destroys it once either way: the closure owns the capture, the call
+// consumes the closure, and a conditionally-consumed local carries a drop flag.
+//
+// ROOT, by symbol: the handover this round installed is set-based and has NO
+// BRANCH MERGE. `SemaChecker::mark_moved_deferred_only` (src/compiler/
+// sema_impl.hpp) releases the source's obligation by erasing the capture from
+// `closure_owned_drop_` — a plain `std::set<std::string>` that
+// `elaborate_cond_moves` never saves, reverts or merges — so the release made
+// while lowering the TAKEN arm stands on the untaken arm too, and the drop the
+// source was still holding is emitted nowhere.
+//
+// THE ARM THAT ALREADY EXISTS: #118's conditional-move elaboration
+// (`SemaChecker::elaborate_cond_moves` / `Frame::cond_move_flags` /
+// `guard_with_flag`, src/compiler/sema.cpp) gives a local moved on SOME
+// reaching path a runtime flag and emits its destructor GUARDED. It is proven
+// live on the plain spelling: `let x: D = …; if c { eat(x); } else { … }`
+// reads 1 on BOTH arms today (hand programs cx7/cx8, this build). It is not
+// reached here because `emit_frame_drops`' flag arm is written
+// `cf != frame.cond_move_flags.end() && !closure_owned_drop_.count(n)` — the
+// closure arm is DELIBERATELY given precedence, with a measured reason in its
+// own comment (a `move` closure inside ANY branch, `if true` included, cleared
+// its flag on the taken path and LOST the capture). So the fix is not to drop
+// that precedence but to make the DEFERRED subset flag-bearing: the release is
+// a conditional move of the capture, and it is the only member of
+// `closure_owned_drop_` for which that is true.
+//
+// ⚠ NOT A REGRESSION. Measured identically (count 0) on the base binary
+// febd1aa6e49ae30c 43, where the leak came from the OLD delegation instead —
+// sema's `if (body_moved_outer.count(...)) continue;` stood the source down on
+// both arms. The unconditional spellings moved 0 -> 1 this round; this one did
+// not move at all.
+//
+// ⚠ THE ORACLE IS A DESTRUCTOR COUNT: today 0, exit 1; correct is 1, exit 0.
+// The taken twin is pass/closure_fnonce_capture_drop_never_called's sibling
+// shape and reads 1 on this build.
+package closure_fnonce_cond_call_untaken_leak;
+
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = -1i64;
+    {
+        let x: D = D { v: 1i64, c: p };
+        let f = move || -> i64 { let t: D = x; return t.v; };
+        if n == 7i64 { r = f(); } else { r = 5i64; }
+    }
+    let got: i64 = unsafe { n };
+    if got != 1i64 { return 1i32; }
+    if r != 5i64 { return 3i32; }
+    return 0i32;
+}

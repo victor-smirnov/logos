@@ -2021,6 +2021,59 @@ private:
     // fixes it. That is a type-identity change with mono/mangling reach and is
     // filed as its own task rather than patched here.
     std::unordered_map<std::string, int> closure_kind_;
+    // PER-LITERAL Fn-family kind, keyed on the closure id that `VarInfo::
+    // closure_id` already carries. Deliberately NOT the signature-keyed
+    // `closure_kind_` above: that map is a MAX over every literal of one
+    // signature (open defect #90) and answering "is THIS callable an FnOnce?"
+    // from it would consume a sibling `Fn` closure — an over-refusal of legal
+    // code. Written once, where `kind` is computed, in the closure-literal
+    // lowering.
+    std::unordered_map<std::string, int> closure_kind_by_id_;
+    // Does this type variable's bound set give it the Fn family and ONLY the
+    // FnOnce member of it? Extracted from lower_call's `fn_once_consume`
+    // computation so the by-value-argument site can ask the same question.
+    bool typevar_only_fn_once(TypeRef t) const {
+        if (!t) return false;
+        if (TypeRef(t).kind() != LogosType::Kind::TypeVar) return false;
+        // KEY-IDENTITY: a TYPE-VARIABLE name is scoped to the signature that
+        // declares it and is never an entity name, so there is no package to
+        // qualify it with — the same carried decision as the sibling row for
+        // this registry, and the same lookup lower_call's own `fn_once_consume`
+        // computation makes three hundred lines away. `current_type_bounds_` is
+        // saved and restored around each fn/method (where_saved_bounds), so the
+        // map holds exactly the bounds in scope at this call.
+        auto bit = current_type_bounds_.find(std::string(TypeRef(t).type_var_name()));
+        if (bit == current_type_bounds_.end()) return false;
+        bool has_fn_family = false, has_multi_call = false;
+        for (auto& b : bit->second) {
+            if (!b.is_fn_family) continue;
+            has_fn_family = true;
+            if (b.trait_name == "Fn" || b.trait_name == "FnMut") has_multi_call = true;
+        }
+        return has_fn_family && !has_multi_call;
+    }
+    // A callable value whose ONLY Fn-family capability is `FnOnce`. Rust
+    // consumes such a value BOTH by calling it (`call_once` takes self by
+    // value) and by passing it by value, so a second use of either kind is a
+    // use-after-move — and, when the body moves a capture out, a DOUBLE FREE
+    // rather than a diagnostic. The fact reaches this predicate by three
+    // routes, one per naming form; `lower_call` applied it to the first only.
+    //   (a) the dyn/boxed form carries its family in the Closure type's own
+    //       trait name (`Box<dyn FnOnce()->i64>`);
+    //   (b) a local bound to a closure LITERAL is answered per literal;
+    //   (c) a generic `F: FnOnce` parameter is answered by its bound set.
+    bool callable_is_fn_once(std::string_view name, TypeRef t) const {
+        if (t && TypeRef(t).kind() == LogosType::Kind::Closure &&
+            TypeRef(t).trait_name() == "FnOnce")
+            return true;
+        if (typevar_only_fn_once(t)) return true;
+        if (!name.empty())
+            if (const VarInfo* vi = lookup_var_info(name); vi && !vi->closure_id.empty())
+                if (auto it = closure_kind_by_id_.find(vi->closure_id);
+                    it != closure_kind_by_id_.end() && it->second == 2)
+                    return true;
+        return false;
+    }
     // Phase 2-3: predicate match against the active cfg-key set + features.
     // Lightweight wrappers around the file-static match_cfg_key_value /
     // match_cfg_flag so sema_collect's cfg_attr handling can call them
@@ -3796,6 +3849,18 @@ private:
     // created in a conditional inner block must not hoist the outer
     // capture's drop into branch-only code).
     std::vector<std::string> pending_closure_capture_drops_;
+    // WHEN A CLOSURE BODY'S MOVE HAPPENS. A `move` closure whose BODY moves a
+    // capture out is an `FnOnce`: the move it performs happens AT THE CALL, and
+    // the call runs zero or one time. Sema recorded it at the LITERAL instead
+    // and stood the source scope down, so a closure that is never called leaked
+    // the capture (rows closure_capture_body_moved_never_dropped /
+    // closure_narrow_capture_never_dropped). The drop obligation is therefore
+    // left with the source (`closure_owned_drop_`, which un-skips it) and
+    // handed over HERE, at the point the callable is consumed — which is exactly
+    // where Rust hands it over. Keyed by the closure BINDING; the entries are
+    // capture ROOTS (whole-var capture) and dotted PATHS (RFC-2229 narrow).
+    std::unordered_map<std::string, std::vector<std::string>> closure_deferred_moves_;
+    std::vector<std::string> pending_closure_deferred_moves_;
     std::unordered_map<std::string, std::vector<std::string>> closure_drop_group_;
     std::unordered_map<std::string, std::string> capture_owner_;
     // Shared per-frame drop emission (group-aware) — the single inner loop
@@ -3972,8 +4037,31 @@ private:
     // is a Copy type and which have no `impl Drop`. Called after
     // check_supertrait_impls so manual `impl Copy` entries are already in.
     void compute_auto_copy_types();
+    // The cascade alone: release the deferred drop obligations a callable
+    // binding is holding, WITHOUT marking the binding itself moved. Called on
+    // every read of a name (lower_var_ref) — reading a callable is the one
+    // observable act that can make its body run.
+    void mark_moved_deferred_only(const std::string& name) {
+        auto dm = closure_deferred_moves_.find(name);
+        if (dm == closure_deferred_moves_.end()) return;
+        for (const auto& nm : dm->second) {
+            moved_vars_.insert(nm);
+            body_ever_moved_.insert(nm);
+            closure_owned_drop_.erase(nm);
+        }
+    }
     void mark_moved(const std::string& name) {
         moved_vars_.insert(name);
+        // CONSUMING THE CALLABLE CONSUMES WHAT ITS BODY MOVES OUT. Until the
+        // closure is called (or passed by value, or rebound), the source keeps
+        // the drop obligation for those captures — see closure_deferred_moves_.
+        // The moment it is consumed the BODY becomes the drop site, so the
+        // source's obligation is released: a whole-var capture leaves
+        // `closure_owned_drop_` (its scope-exit drop is skipped again) and a
+        // narrow PATH re-enters the container's `moved_fields` the same way.
+        // Direct set writes, not a recursive mark_moved: a capture is not a
+        // callable and carries no deferred set of its own.
+        mark_moved_deferred_only(name);
         // §7.1 follow-up: track EVER-moved across branches. per-branch
         // save/restore (lower_if / lower_match) reverts moved_vars_ on
         // diverging branches, but Logos's mlir-gen merges branches into a
@@ -4364,7 +4452,16 @@ private:
             // issue-83924) have to be priced at those CALLER GATES; the
             // correction itself is already written once, at
             // `SemaChecker::struct_type_is_copy`. Recorded 2026-08-30.
-            if (is_move_type(vt_) || lookup_owning_dyn(nm))
+            // A callable whose only Fn-family capability is `FnOnce` is
+            // affine for the same reason an owning `Box<dyn>` is: `call_once`
+            // takes self BY VALUE, so passing it by value hands the callee the
+            // sole right to run the body — and the body destroys a capture.
+            // `is_move_type` answers FALSE for Kind::Closure, which is why
+            // `apply(f); apply(f);` with `F: FnOnce` compiled and ran the
+            // capture's destructor TWICE on the base binary. Same rule, same
+            // predicate, as the call form in lower_call.
+            if (is_move_type(vt_) || lookup_owning_dyn(nm) ||
+                callable_is_fn_once(nm, vt_))
                 mark_moved(nm);
             return;
         }

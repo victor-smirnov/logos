@@ -167,7 +167,19 @@
 #SCAN sema_collect.cpp 41 c7be1d14
 #SCAN sema_decl.cpp 2 ce09ff69
 #SCAN sema_expr.cpp 155 0f5c9f40
-#SCAN sema_impl.hpp 29 14d2f131
+# sema_impl.hpp 29 -> 32, 2026-09-07s. THREE new comparisons of a trait name
+# against a literal, all inside `typevar_only_fn_once` / `callable_is_fn_once`,
+# the predicate that answers "is this callable consumed by its call?":
+#   b.trait_name == "Fn"   and   == "FnMut"   — reached ONLY under
+#     `if (!b.is_fn_family) continue;`, i.e. on a bound the resolver has ALREADY
+#     classified as Fn-family, so the literal separates the three members of a
+#     closed lang-item family and cannot intercept a user trait that merely
+#     shares the spelling. Same two comparisons, verbatim, as lower_call's
+#     `fn_once_consume` computation, from which this predicate was extracted.
+#   TypeRef(t).trait_name() == "FnOnce" — the family name a `dyn Fn(..)`
+#     destination carries on its Kind::Closure type. That string is MINTED by
+#     the compiler when the dyn form is built, never read from user source.
+#SCAN sema_impl.hpp 32 2afd7639
 # 2026-09-06d, -4 (15 -> 11), roster fa9e12e1 -> 1ff7800a: four `nm == "_"`
 # discard-name tests vanished with mark_match_scrutinee_moved's AST re-derivation
 # (the move question is now read off the LIR pattern by `pattern_moves_out`, whose
@@ -223,7 +235,7 @@ sema_expr.cpp	closure_kind_	B#90	2	type_str(ctype)
 sema_expr.cpp	datatypes_	B#98	1	TypeRef(elem).struct_name()
 sema_expr.cpp	enums_	O	1	TypeRef(inner_t).enum_name()
 sema_expr.cpp	impls_	B#88	1	b.trait_name + "::" + std::string(TypeRef(actual).struct_name())
-sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(t).type_var_name())
+sema_impl.hpp	current_type_bounds_	D	2	std::string(TypeRef(t).type_var_name())
 sema_impl.hpp	datatypes_	O	1	tr.struct_name()
 sema_impl.hpp	enums_	O	1	tr.enum_name()
 sema_impl.hpp	structs_	O	1	tr.struct_name()

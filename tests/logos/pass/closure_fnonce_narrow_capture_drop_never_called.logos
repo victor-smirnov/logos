@@ -1,0 +1,34 @@
+// SOUNDNESS QUEUE closure_narrow_capture_never_dropped, CLOSED 2026-09-07s.
+// The same handover, spelled as a PATH. `move || { let _t: D = s.x; }` records
+// `s.x` in the enclosing function's move set at the LITERAL, so the root's own
+// scope-exit drop put "x" in `moved_fields` and skipped it — and the body that
+// was supposed to destroy it never ran. `make_drop_stmt` now yields a moved
+// path back to the container while the callable still holds it
+// (`closure_owned_drop_`), exactly as `emit_frame_drops`' `eligible` already
+// yielded a moved NAME. Enumerated by the property "the body moved a path
+// rooted at a capture", not by the RFC-2229 narrow spelling: a TUPLE root
+// (`x.0`) is captured whole-var and lost its element the same way.
+// Destructor count: 0 before, 1 after.
+package closure_fnonce_narrow_capture_drop_never_called;
+
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct P { x: D, y: i64 }
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let s: P = P { x: D { v: 1i64, c: p }, y: 5i64 };
+        let c = move || { let _t: D = s.x; };
+    }
+    let got: i64 = unsafe { n };
+    if got != 1i64 { return 1i32; }
+    {
+        let t: (D, i64) = (D { v: 10i64, c: p }, 7i64);
+        let c2 = move || { let _u: D = t.0; };
+    }
+    let got2: i64 = unsafe { n };
+    if got2 != 11i64 { return 2i32; }
+    return 0i32;
+}

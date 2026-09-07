@@ -1,0 +1,27 @@
+// SOUNDNESS QUEUE closure_capture_body_moved_never_dropped, CLOSED 2026-09-07s.
+// A `move` closure whose BODY moves the capture out is an `FnOnce`: the move it
+// performs happens AT THE CALL, and a closure that is never called never runs
+// it. Sema recorded that move at the LITERAL and stood the source scope's
+// destructor down, delegating to a body-side drop site — which does not exist
+// for a non-escaping closure (`need_glue` is false for a stack env, and `nm`
+// finds no `__closure_drop__` symbol in the object at all). The source now
+// KEEPS the obligation and hands it over at the point the callable is read
+// (closure_deferred_moves_ / mark_moved_deferred_only). Destructor count: 0
+// before, 1 after. Twin: fail/closure_fnonce_called_twice_fail, which adds the
+// second `c()` the same rule now refuses.
+package closure_fnonce_capture_drop_never_called;
+
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let d: D = D { v: 1i64, c: p };
+        let c = move || { let _t: D = d; };
+    }
+    let got: i64 = unsafe { n };
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}

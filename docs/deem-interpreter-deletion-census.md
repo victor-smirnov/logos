@@ -5379,9 +5379,28 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9364 -> 9374  +10
 #   NOIMPORTED   4927 -> 4937  +10
 #   TIERCOMMIT    173 ->  173    0
-REGISTRY-ALL         9374
-REGISTRY-NOIMPORTED  4937
-REGISTRY-TIERCOMMIT  173
+# 2026-09-07s (the closure round — the FnOnce-consumes rule at the forms it was
+#   never applied to, plus the closure body's missing params epilogue). SIX new
+#   fixtures in three PAIRS, each registered once (the oracle is a destructor
+#   count on stdout; no valgrind gate): pass/closure_fnonce_capture_drop_never_called,
+#   pass/closure_fnonce_narrow_capture_drop_never_called,
+#   pass/closure_void_body_param_epilogue and their fail halves
+#   fail/closure_fnonce_called_twice_fail, fail/closure_fnonce_narrow_called_twice_fail,
+#   fail/closure_void_body_param_moved_twice_fail. ONE imported program moved
+#   shelves — the nll program `issue-52663-span-decl-captured-variable` left the
+#   admit shelf for tests/imported/fail/nll/ — because the bc_admits hole it
+#   pinned CLOSED: its
+#   `logos_00_bc_admit_*` test is gone (that test declares tier_commit and is
+#   NOT labelled imported) and one `logos_00_imported_fail_*` test replaces it.
+#   ALL -1+1+6 = +6; NOIMPORTED -1+6 = +5; TIERCOMMIT -1.
+#   The three deleted queue programs were under tests/soundness/open/ and
+#   registered nowhere; the two new queue rows likewise.
+#   ALL          9374 -> 9380  +6
+#   NOIMPORTED   4937 -> 4942  +5
+#   TIERCOMMIT    173 ->  172  -1
+REGISTRY-ALL         9380
+REGISTRY-NOIMPORTED  4942
+REGISTRY-TIERCOMMIT  172
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

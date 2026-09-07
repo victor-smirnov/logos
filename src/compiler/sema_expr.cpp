@@ -913,6 +913,20 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                                       make_ptr(smut, t));
         return builder().deref(std::move(addr), t);
     }
+    // ANY USE OF A DEFERRING CALLABLE RELEASES THE SOURCE'S OBLIGATION, and
+    // this is deliberately the WIDEST hook rather than the most precise one.
+    // A `move` closure whose body consumes a capture leaves that capture's
+    // destructor with the source until the callable is consumed (see
+    // closure_deferred_moves_); the routes that consume it are calling it,
+    // passing it by value, rebinding it, storing it into a container and
+    // returning it, and EVERY one of them reads the binding through here. A
+    // release the compiler misses is a DOUBLE FREE (measured: `let g = f;
+    // g();` read 2 for 1 while the enumerated store sites were being widened
+    // one at a time), whereas a release it makes too eagerly is at worst
+    // today's leak — a closure handed to a callee that never invokes it. The
+    // safe direction is therefore "release on any read", not "release on the
+    // stores I could name".
+    if (!closure_deferred_moves_.empty()) mark_moved_deferred_only(std::string(name));
     // Phase-1: attach the resolved dense variable slot (shadowing-correct via
     // the scope stack). NO_SLOT for anything not a current local binding.
     return builder().var_ref(std::string(name), t, lookup_slot(name));
@@ -3658,8 +3672,34 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // through a reference can't move the referent — but the elided-lifetime
         // FnOnce-by-ref form isn't a call-consume in Rust either, so skip when
         // the receiver is a reference.)
-        if (fn_once_consume && !callee_is_ref_fn && !callee_is_box_closure &&
-            TypeRef(fn_bound_recv_type).kind() == LogosType::Kind::TypeVar)
+        // THE RULE IS ONE RULE; THE GUARD NAMED ONE FORM. `fn_once_consume` is
+        // computed only for a TypeVar receiver, and the guard then asked for a
+        // TypeVar receiver again — so the two other ways of naming an FnOnce
+        // callable never reached it: a LOCAL bound to a closure literal whose
+        // body moves a capture out, and a `Box<dyn FnOnce>` (excluded by name).
+        // Both are consumed by the call in Rust, and admitting the second call
+        // is not a missing diagnostic but a DOUBLE FREE: measured on the base
+        // binary, `let f = move || { let t: D = x; … }; f(); f();` runs `D::drop`
+        // twice, the `while` spelling three times, and the RFC-2229 narrow
+        // spelling twice. `callee_is_ref_fn` stays excluded — calling through a
+        // reference cannot move its referent.
+        bool consumes_callee =
+            (fn_once_consume &&
+             TypeRef(fn_bound_recv_type).kind() == LogosType::Kind::TypeVar) ||
+            callable_is_fn_once(callee, callee_type);
+        // ⚠ `callee_is_box_closure` STAYS EXCLUDED, AND VALGRIND IS WHY. A
+        // `Box<dyn FnOnce>` is consumed by its call in Rust too, and marking it
+        // moved does close the double free the queue rows it — but the `free`
+        // of the box block AND of the heap env both live in the callable's DROP
+        // (the env glue), so suppressing the drop orphans them: measured on the
+        // closure lattice as `g_box_dyn_fnonce` going from valgrind-CLEAN to 6
+        // records and `l_boxed_fnonce_escape_consume` from a double free to 7,
+        // both with the destructor count now RIGHT. Trading a double free for a
+        // leak is not closing a row. The complete fix frees at the consuming
+        // call (Rust's `call_once` for a boxed FnOnce does exactly that);
+        // until then the row boxed_escaping_fnonce_capture_double_free stays
+        // open with this measurement in its header.
+        if (consumes_callee && !callee_is_ref_fn && !callee_is_box_closure)
             mark_moved(std::string(callee));
         return closure_call_e;
     }
@@ -17398,6 +17438,34 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                         std::make_move_iterator(body.end()));
         body = std::move(prologue);
     }
+    // A CLOSURE BODY IS A FUNCTION BODY AND ENDS THE SAME WAY. `lower_fn` runs
+    // an epilogue over its PARAMS scope when the body falls off the end
+    // (`if (!body_terminated) … emit_frame_drops(frame, …, &body_ever_moved_)`,
+    // src/compiler/sema_decl.cpp) — the body block's own collect_drops walks
+    // only the INNER scope, so by-value params live in the outer frame and are
+    // destroyed there. The closure-literal lowering had `lower_block` then
+    // `pop_scope()` with nothing in between, so an unused by-value owner
+    // parameter of a VOID closure body was never destroyed: measured 0 for 1
+    // at four spellings (`h_bv_void_*`) while the `-> i64` twins were correct,
+    // because a `return` reaches `collect_all_drops` and a void body reaches
+    // nothing. Same arm, same conservative `body_ever_moved_` skip.
+    {
+        bool body_terminated = false;
+        if (!body.empty()) {
+            auto br = stmt_ref_of(body.back());
+            if (br) {
+                auto k = br.kind();
+                body_terminated = (k == lir_schema::stmt::Code::Return ||
+                                   k == lir_schema::stmt::Code::Break ||
+                                   k == lir_schema::stmt::Code::Continue);
+            }
+        }
+        if (!body_terminated && !scope_.empty()) {
+            std::vector<lir_view::StmtRef> epilogue_drops;
+            emit_frame_drops(scope_.back(), epilogue_drops, &body_ever_moved_);
+            for (auto& d : epilogue_drops) body.push_back(d);
+        }
+    }
     ret_type_ = saved_ret;
     inside_unsafe_ = saved_unsafe;
     pop_scope();
@@ -18007,6 +18075,9 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     ec->body          = lir_mirror_block(*cur_prog_, body);
     ec->is_move       = is_move;
     std::vector<std::string> unskipped_captures;  // capture order (drop group)
+    // Capture roots / narrow PATHS whose drop this closure's own CALL takes
+    // over (see closure_deferred_moves_). Until then the source keeps them.
+    std::vector<std::string> deferred_moves;
     // G167-3b: a closure lowered where the expected type is `Box<…Fn…>` is
     // being BOXED — its captured env must live on the heap (boxing confers
     // heap lifetime; a stack env would dangle once the creating fn returns).
@@ -18106,13 +18177,49 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 // SOURCE scope still drops it. Keep it moved (use-after-move
                 // enforced) but record it so collect_drops un-skips the dtor.
                 //
-                // §7.1: EXCEPT — if the closure body itself moved this
-                // capture (into a callee that drops, or rebound via
-                // `let x = capture`), the body-side drop is already the
-                // canonical drop site (callee fn-param drop, or body-
-                // local's scope-end drop). Adding source-scope drop
-                // double-frees. Skip the insertion.
-                if (body_moved_outer.count(ec->captures[i])) continue;
+                // §7.1, CORRECTED: if the closure body itself moves this
+                // capture out, the body IS the canonical drop site — but only
+                // WHEN THE BODY RUNS, and a closure that is never called never
+                // runs it. The historical `continue` here stood the source
+                // scope down unconditionally and delegated to a site that does
+                // not exist for a non-escaping closure: measured 0 destructor
+                // calls for 1 value at all fourteen payload kinds of the
+                // lattice's `a_move_nocall_consume_*` row, and `nm` finds no
+                // `__closure_drop__` symbol in the object at all (need_glue is
+                // false for a stack env). So the source KEEPS the obligation
+                // and hands it over at the point the callable is consumed —
+                // Rust's own handover point, since a body that moves a capture
+                // out makes the closure `FnOnce` and `call_once` takes self by
+                // value. `deferred_moves` is that hand-over list; the cascade
+                // in mark_moved applies it.
+                // ⚠ AN INNER CLOSURE'S BINDING IS ALREADY A DROP SITE, AND IT
+                // IS INSIDE THE BODY. `move || { let g = move || x.v; g() }`
+                // "moves" x only by handing it to a NESTED literal, whose own
+                // `let` already claimed x's destructor (`capture_owner_[x] =
+                // "g"`, a binding in the body's frame). Deferring it to the
+                // OUTER binding overwrites that owner and the cascade then
+                // releases a drop nobody re-takes — measured as g_nested_closure
+                // 1 -> 0 while every other cell moved the right way. An owner
+                // already recorded is the historical skip's one correct case.
+                if (body_moved_outer.count(ec->captures[i]) &&
+                    capture_owner_.count(ec->captures[i]))
+                    continue;
+                if (body_moved_outer.count(ec->captures[i])) {
+                    // CANDIDATE, not a decision: the obligation can only be
+                    // handed over to a site that can also RELEASE it, and that
+                    // site is the closure's BINDING. `lower_let` claims this
+                    // list when the literal is its direct RHS and only then
+                    // enters the capture in `closure_owned_drop_`. Anything
+                    // else — `Box::new(move || …)`, a closure passed straight
+                    // as an argument, a nested literal — keeps the historical
+                    // skip exactly, because there is no binding to consume and
+                    // dropping at the source would DOUBLE-FREE what the body
+                    // destroys (measured: lattice g_box_dyn_fnonce went 1 -> 2
+                    // and g_nested_closure 1 -> 0 when this was unconditional).
+                    deferred_moves.push_back(ec->captures[i]);
+                    unskipped_captures.push_back(ec->captures[i]);
+                    continue;
+                }
                 closure_owned_drop_.insert(ec->captures[i]);
                 unskipped_captures.push_back(ec->captures[i]);
             }
@@ -18124,6 +18231,35 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // closure binding's slot, in capture order — not at their own
     // var_order slots. Publish this closure's list; lower_let claims it
     // when the closure is the let's direct RHS.
+    // RFC-2229 NARROW, NON-ESCAPING: the walk above `continue`s before the
+    // move check (the env borrows a pointer to the outer root and the root
+    // keeps ownership of the field), so a body that moves `x.d` out leaves the
+    // path in `moved_vars_` and the root's own drop then SKIPS the field —
+    // 0 destructor calls for 1 value at six payload kinds
+    // (`b_narrow_consume_nocall_*`). Same handover, spelled as a path: the
+    // root keeps the field's drop (make_drop_stmt's `closure_owned_drop_`
+    // un-skip) until the callable is consumed.
+    if (is_move && !ec->escapes) {
+        // Enumerated by the PROPERTY — "the body moved a PATH rooted at a
+        // capture" — and not by the RFC-2229 narrow spelling. The first form of
+        // this walk asked `capture_field_types[i]`, which is minted for a
+        // STRUCT root only, so `move || { let t: D = x.0; }` over a tuple root
+        // was captured whole-var and its element still vanished: make_drop_stmt
+        // read `x.0` out of moved_vars_ and put "0" in `moved_fields`, so the
+        // root's drop skipped the element that nothing else destroys. Two cells
+        // (b_narrow_consume_nocall_tuple / _tuple2) separated the two
+        // spellings; the property covers both.
+        for (const auto& mv : body_moved_outer) {
+            auto dot = mv.find('.');
+            if (dot == std::string::npos) continue;
+            std::string root = mv.substr(0, dot);
+            bool is_cap = false;
+            for (const auto& c : ec->captures) if (c == root) { is_cap = true; break; }
+            if (!is_cap) continue;
+            deferred_moves.push_back(mv);   // claimed by lower_let, as above
+        }
+    }
+    pending_closure_deferred_moves_ = std::move(deferred_moves);
     pending_closure_capture_drops_ = std::move(unskipped_captures);
 
     auto ctype = make_closure_type(std::move(param_types), ret_type);
@@ -18168,8 +18304,24 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // captures is still Fn (Rust: kind is set by USE, not capture mode).
     {
         int kind = 0;
+        // MOVING A FIELD OUT OF A CAPTURE IS MOVING OUT OF THE CAPTURE. The
+        // body's move set records a PATH (`x.d`) for the RFC-2229 narrow
+        // spelling, and the capture is spelled by its ROOT (`x`), so a bare
+        // set membership test answered "not FnOnce" for
+        // `move || { let t: D = x.d; }` — measured on the base binary as a
+        // DOUBLE FREE at the second call, while the whole-var spelling one
+        // token away was classified correctly. Segment-wise prefix, so `x.dq`
+        // is not a prefix of `x.d` (same test as elaborate_cond_moves').
+        auto body_consumed = [&](const std::string& root) {
+            if (body_moved_outer.count(root)) return true;
+            for (const auto& m : body_moved_outer)
+                if (m.size() > root.size() && m[root.size()] == '.' &&
+                    m.compare(0, root.size(), root) == 0)
+                    return true;
+            return false;
+        };
         for (size_t i = 0; i < ec->captures.size(); ++i) {
-            if (body_moved_outer.count(ec->captures[i])) { kind = 2; break; }
+            if (body_consumed(ec->captures[i])) { kind = 2; break; }
             if (i < ec->mut_captures.size() && ec->mut_captures[i]) kind = 1;
         }
         // KEY-IDENTITY: OPEN #90 — the WRITE side. `type_str(ctype)` is the
@@ -18182,6 +18334,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         auto it = closure_kind_.find(type_str(ctype));
         if (it == closure_kind_.end() || kind > it->second)
             closure_kind_[type_str(ctype)] = kind;
+        // PER-LITERAL, keyed on the id the binding carries (VarInfo::closure_id).
+        // This is the identity #90's note above says is missing; it is minted
+        // here for the ONE question that must not be answered by a max over a
+        // signature — "does calling THIS callable consume it?" (see
+        // callable_is_fn_once). No max: a literal has exactly one kind.
+        closure_kind_by_id_[closure_id] = kind;
     }
     return builder().closure_box(std::move(ec), ctype);
 }
