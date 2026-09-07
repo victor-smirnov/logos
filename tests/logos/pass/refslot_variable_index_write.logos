@@ -1,0 +1,18 @@
+// A VARIABLE index through a local `&mut [T; N]`, in a loop — the same class
+// member as the closed index row with the constant index replaced by an induction
+// variable, so the repair cannot be a constant-fold coincidence. On the base
+// binary every store was lost and the array read back 1 2 3.
+package refslot_variable_index_write;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let q: &mut [i64; 3] = &mut a;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        q[i] = i * 10i64;
+        i = i + 1i64;
+    }
+    unsafe { printf("a=%ld %ld %ld\n".as_ptr(), a[0i64], a[1i64], a[2i64]); }
+    if a[2i64] != 20i64 { return 1i32; }
+    return 0i32;
+}

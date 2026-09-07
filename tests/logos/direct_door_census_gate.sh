@@ -1504,9 +1504,17 @@ PIN = {
     # over-refusal the same carry repairs (dbmcarry_mutref_tuple_nested_payload_write).
     # Their four one-token fail twins are NOT in this population (it is `pass`).
     # `ls tests/logos/pass/dbmcarry_*.logos | wc -l` -> 6.
-    'corpus'            : 2911,
+    # 2026-09-07u: 2911 -> 2918. SEVEN pass fixtures, all non-glob, of the
+    # reference-local place-write repair — refslot_index_write_local_refmut and
+    # refslot_tuple_write_local_refmut (the two closed rows' programs, rewritten
+    # to assert stdout), four more members of the same class with no row of their
+    # own (variable index, nested array, reborrow-to-local, struct element field)
+    # and refslot_shape_controls_ctl. Their two one-token fail twins are NOT in
+    # this population (it is `pass`).
+    # `ls tests/logos/pass/refslot_*.logos | wc -l` -> 7.
+    'corpus'            : 2918,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2720,  # +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2727,  # +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

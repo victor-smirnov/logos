@@ -28326,3 +28326,203 @@ note: ⚠ `ceiling-probe.sh` reported NEVER FIRED, and that is a fact about the
   write, REBINDING a `mut` reference local (`q = &mut b`, the named hazard from
   gen_let's "Aliasing scope_[r] to the target" branches — it does NOT bite),
   passing the local on to a fn, and every READ spelling.
+
+# ═══ ROUND 2026-09-07u (LANDING, soundness queue) — A PLACE BUILT ON A REFERENCE-TYPED
+#     LOCAL ADDRESSED THE BINDING INSTEAD OF THE REFERENT, AND THE CLASS IS SIX MEMBERS
+#     WEARING TWO ROWS ═══════════════════════════════════════════════════════════════
+
+## 1. WHAT WAS WRONG, BY SYMBOL
+
+`MLIRGenImpl::gen_lvalue_addr`'s `VarRef` case (src/compiler/mlir_gen_expr.cpp) had
+exactly two answers: a RAW pointer local (`var_local_ptrs_`) → load the slot; anything
+else → `get_subscript_ptr(vn)`, under the comment "the pointer value (ref/ptr params)".
+That comment is the assumption that fails. A ref/ptr PARAMETER's `scope_` entry IS the
+caller's address, so the GEP lands on the referent. A reference-typed LOCAL's entry is an
+alloca HOLDING the pointer (gen_let's scalar path: `create_entry_alloca(ptr_type())`,
+store, `scope_[name] = alloca`), so the GEP lands on the binding's own eight bytes: the
+store is lost, the binding now holds the written integer, and the next read through it
+dereferences that integer.
+
+## 2. THE CLASS, ENUMERATED BY THE PROPERTY (not by the place kind two rows named)
+
+The property is "the base address of a place comes from `gen_lvalue_addr(VarRef)` where
+the variable is a reference-typed local". Every place kind that routes its base through
+that call is a member; every kind that computes its base another way is not. MEASURED,
+one program per shape, on the base binary and again on the repaired one:
+
+  MEMBERS (wrong on the base binary, correct now)
+    q[0] = v          local `&mut [i64;2]`      rc 139 (SIGSEGV)  -> q0=77 rc 0   [ROW]
+    q.0 = v           local `&mut (i64,i64)`    t0=1              -> t0=77        [ROW]
+    q[i] = v          VARIABLE index, in a loop a=1 2 3           -> a=0 10 20
+    q[1][0] = v       local `&mut [[i64;2];2]`  a10=3             -> a10=77
+    let q = s; q[0]=v reborrow to a LOCAL       rc 139 (SIGSEGV)  -> k=77 a0=77
+    q[1].a = v        FIELD OF AN ELEMENT       a1=3              -> a1=77
+    q2 = q1; q2[0]=v  local `&mut` from a local `&mut`, 1         -> 77
+  NON-MEMBERS (correct before and after — a different base path, checked in one program)
+    the same writes through a `&mut [T;N]` PARAMETER   (entry IS the referent)
+    `(*q)[0] = v`, `*q = v`                            (Deref case: the operand IS it)
+    `q.a = v` through a local `&mut S`                 (gen_recv_struct loads it)
+    `s[1] = v` through a local `&mut [i64]`            (SliceIndex loads the descriptor)
+    a raw `*mut [T;N]` local                           (var_local_ptrs_ already loads)
+    every READ spelling, and every read through a shared `&`
+
+Six members, two rows. The two rows are the two place kinds someone happened to write a
+program for; the property covers four more shapes with no row, and one of those (the
+reborrow) is the second SIGSEGV in the class.
+
+## 3. THE FIX, AND WHERE IT DIFFERS FROM THE PROBE
+
+The pricing probe (`reflocaladdr`, round 2026-09-07t) tested `TypeRef.kind() is Ref/MutRef
+&& let_vars_.count(vn)` at the consuming site. That predicate is an INFERENCE and it is
+wrong on two shapes it never met: the immutable `&Struct` local, which gen_let ALIASES to
+the pointee with no slot of its own, and the `&mut [T]` slice local, whose slot holds a
+16-byte descriptor rather than a pointer. Both are reference-typed and both are in
+`let_vars_`.
+
+The landing records the fact at the MINTING SITE instead — gen_let's scalar path, the one
+place where "this binding's slot holds a pointer" is a fact rather than a guess, guarded
+by `var_type == ptr_type()` so the fat-descriptor shapes stay out — and consumes it in
+`gen_lvalue_addr`. One new name, `ref_slot_vars_`, one producer, one consumer, plumbed
+through `VarScopeSnapshot`/`restore_var_scope`/`evict_var_shapes` (lexical scoping and
+peer-shape eviction) and cleared per function in `mlir_gen_fn.cpp` and at the two closure
+body-generation sites in `mlir_gen_dyn.cpp`.
+
+Rule expr.place.ref-local-slot-load, docs/spec/expressions.md.
+
+## 4. ROWS — TWO CLOSED, ONE OPENED, AND THE SET DIFFED BOTH WAYS
+
+CLOSED (deleted, programs landed as fixtures in the same commit):
+  index_write_through_local_refmut_clobbers_binding        tier 1  run 139
+  tuple_index_write_through_local_refmut_clobbers_binding  tier 1  run 1
+Predicted at `dbb9abffa`, BEFORE the compiler was touched, by exactly those two names.
+The armed gate read exactly those two "NO LONGER REPRODUCES" and nothing else: 2 FAIL
+lines over 66 rows, each printing the cc/diag/run triple it judged (`want cc=0 diag=0
+run=139, read cc=0 diag=0 run=0` and `want … run=1, read … run=0`). Empty both ways.
+
+OPENED, found by this round's own drop-count program and NOT closed by it:
+  index_place_through_refmut_never_drops_old               tier 1  run 1
+`q[i] = v` through a `&mut [D; N]` overwrites a live element without running its
+destructor. It is SEPARABLE from this round's repair by measurement: it reproduces at the
+PARAMETER spelling, which this repair never touches (110 for 111, base and armed alike),
+and the local spelling read 11 before (store lost AND no drop) and 110 after. The two
+CONTROLS that bound the class: the same overwrite through a `&mut` at a TUPLE place and
+at a FIELD place both DO drop the old value (101). So the index link is the discriminator,
+not the reference root, and the root is sema's `lower_place_assign` liveness walk, whose
+root predicate excludes Ref and Ptr — correct for a raw pointer (an existing pass fixture
+pins that it must NOT drop) and wrong for an owning `&mut`.
+
+`# TOTAL` 66 -> 65, re-derived BY DIRECT LISTING (65 rows, 65 programs on the shelf;
+tier1 22 -> 21, tier2 5, tier3 36, tier4 3). Queue gate rc 0 at the commit.
+
+BC LEDGER: untouched — bc_admits 97, bc_admits_blocked 25, both re-read, no row opened or
+closed. `ceiling-probe`'s ceiling column was 0 for this arm by construction and was stated
+so before the pricing run; a soundness repair with a bc ceiling of 0 is still a repair.
+
+## 5. FIXTURES — NINE, IN PAIRS ONE TOKEN APART WHERE A PAIR EXISTS
+
+pass/refslot_index_write_local_refmut          the closed index row, asserting `q0=77`
+pass/refslot_tuple_write_local_refmut          the closed tuple row, asserting `t0=77 t1=2`
+pass/refslot_variable_index_write              variable index in a loop, `a=0 10 20`
+pass/refslot_nested_array_write                `q[1][0]`, `a10=77 a11=4`
+pass/refslot_reborrow_local_write              reborrow to a local, `k=77 a0=77` (was 139)
+pass/refslot_struct_elem_field_write           `q[1].a`, `a1=77 b1=4 a0=1`
+pass/refslot_shape_controls_ctl                the seven-shape control, `ctl=11 22 …`
+fail/refslot_index_write_not_mut_fail          `let mut a` -> `let a`
+fail/refslot_tuple_write_not_mut_fail          `let mut t` -> `let t`
+
+⚠ RULE 14 ON THE FAIL HALVES: both print `cannot borrow 'x' as mutable: not declared as
+mut` on the BASE binary too — they are INHERITED refusals and buy a pin on the abuse
+direction (a codegen load may not turn an illegal borrow legal), not a new refusal.
+
+## 6. THE COLUMNS, AND THE CONTROL REVERT
+
+BUILDS. armed (this tree, after the fixtures landed) `5a38bfbe7301f583 43`. CONTROL: a
+SEPARATE WORKTREE at `81cf937d8`, configured and built the same way — a whole second
+compiler, not an edit undone — `03eeaa5fcd16e12e 43`.
+⚠ THE TWO CONTROL HASHES OF ONE COMMIT DIFFER, and that is not a defect in either: the
+first pricing round read `337164757523a8c9 43` for 81cf937d8 in THIS directory. The key
+hashes the built binaries, RelWithDebInfo embeds absolute paths, so a build of one commit
+in a second directory is a different byte string. A build hash identifies A BUILD, never a
+commit — and `scripts/build_hash.py` is UNTRACKED, so a fresh worktree does not even have
+it (copied in by hand to take the reading above).
+
+  queue gate            rc 0 before (66 rows), rc 1 armed with EXACTLY the two predicted
+                        rows reading NO LONGER REPRODUCES, rc 0 after the ledger edit (65)
+  L1                    rc 0 — 774/774, 12 684 generated smoke cases, gates 172
+  L4 bc                 rc 0 — 4951/4951 and 1540/1540 (2 other), no inherited red this time
+  gate-run -L bc        rc 0, and the store READ rather than re-measured: build 904,
+                        "all 2671 tests in this filter are ALREADY MEASURED under this
+                        build", 6493 recorded / 0 failed, libs 5a38bfbe7301f583
+  RUNTIME (run_oracle)  armed 6537 vs control 6530 fixtures compiled + LINKED + RUN. The 7
+                        extra are this round's own pass fixtures; over the 6530 SHARED
+                        ones exactly ONE triple differs and it is `cast-region-to-uint`,
+                        proven nondeterministic HERE by three runs of one binary
+                        (7ffc1245ca10 / 7ffcec8cd1e0 / 7ffef4951200 — it prints a stack
+                        address). RUNTIME COST 0, only-control EMPTY.
+  FAIL TEXT             ⚠ THE TWO-WORKTREE FORM WOULD HAVE LIED, exactly as it did last
+                        round: 617 of 1436 stderr shas differ with rc and `.expected`-match
+                        identical on every one, because the diagnostics print the TREE
+                        PATH. Re-taken with ONE tree and TWO compilers (both run on this
+                        tree's sources, tree root and `logosc: warning:` ABI-freshness
+                        lines normalised): 1436 compared, ZERO differing. No un-refusal,
+                        no added line, no reworded sentence.
+  stdlib                all four layers compile
+  probe-log-lint        244 records, every site symbol resolves (no probe installed; the
+                        pricing round's four hunks were reverted with its tree)
+  census pins           re-derived in the gates that hold them, with the arithmetic beside
+                        each: REGISTRY-ALL 9380 -> 9389 and NOIMPORTED 4942 -> 4951 (nine
+                        fixtures, each registered once — the oracle is stdout + an exit
+                        code, no valgrind gate); direct_door corpus 2911 -> 2918 and
+                        nonglob 2720 -> 2727 (the seven `pass` halves only); TIERCOMMIT 172
+                        unchanged. `logos_00_census_pin` and the direct-door gate both green
+                        inside L4.
+
+CONTROL REVERT, and what the old binary DOES AT RUN TIME (a `run` row demands this):
+  refslot_index_write_local_refmut       rc 139 SIGSEGV   -> q0=77 rc 0
+  refslot_reborrow_local_write           rc 139 SIGSEGV   -> k=77 a0=77 rc 0
+  refslot_variable_index_write           a=1 2 3   rc 1   -> a=0 10 20 rc 0
+  refslot_nested_array_write             a10=3     rc 1   -> a10=77 a11=4 rc 0
+  refslot_struct_elem_field_write        a1=3      rc 1   -> a1=77 b1=4 a0=1 rc 0
+  refslot_tuple_write_local_refmut       t0=1 t1=2 rc 1   -> t0=77 t1=2 rc 0
+  refslot_shape_controls_ctl             rc 8             -> ctl=11 22 33 44 55 66 77 rc 0
+  ⚠ the control fixture is rc 8 on the old binary, not rc 0: its REBIND block writes
+  through a reference-typed local before and after `rq = &mut b`, so six of its seven
+  shapes are the abuse direction and the seventh is the hazard itself. Recorded rather
+  than quietly renamed.
+  index_place_through_refmut_never_drops_old   n=110 rc 1 on BOTH — the opened row, and
+  the proof that it is not this repair's business.
+
+## 7. WHAT CONTRADICTS A RECORDED CLAIM
+
+  · WHERE THE FIX DIFFERS FROM ITS PROBE, AND HOW MUCH OF THAT DIFFERENCE IS MEASURABLE.
+    The probe inferred the shape at the CONSUMING site (`kind() is Ref/MutRef &&
+    let_vars_.count(vn)`); the landing records it at the MINTING site. By READING gen_let
+    those two disagree on real bindings: an immutable `&Struct` / `&mut Struct` local
+    takes the branch whose else-arm is `scope_[s.name] = val` — ALIASED to the pointee,
+    no slot at all — and is Ref-typed and in `let_vars_`, so the probe's predicate would
+    add a load that reads the struct's first field as an address.
+    ⚠ AND THE COUNT IS ZERO. Instrumented (a temporary `PROBEDIFF` print at the VarRef
+    case, exactly where the two predicates are both evaluated) and swept over all 2918
+    `tests/logos/pass` fixtures plus a hand program holding all three shapes at once:
+    ZERO arrivals. Nothing in this tree reaches gen_lvalue_addr's VarRef case with a
+    binding the two predicates classify differently — a place on an aliased struct-ref
+    local is always a FieldRead, which routes through `gen_recv_struct` instead, and a
+    `&mut [T]` slice place routes through SliceIndex. So the probe form is unsound BY
+    CONSTRUCTION and indistinguishable BY MEASUREMENT on this corpus; the minting-site
+    form is chosen on rule 16 (only the minting site distinguishes "no fact recorded"
+    from "the fact is absent"), not on a number. The instrument was removed and the build
+    hash came back to `5a38bfbe7301f583 43` exactly.
+  · THE CLASS IS SIX MEMBERS, NOT THE TWO THE ROWS NAME — including a second SIGSEGV
+    (reborrow-to-local) that no row had.
+  · TWO BUILDS OF ONE COMMIT HAVE DIFFERENT BUILD HASHES (see §6), and `build_hash.py` is
+    not in git.
+  · A FROM-SCRATCH BUILD IN A SECOND WORKTREE RACED WITH ITSELF and failed rc 2:
+    `emit_module` stages every stdlib layer through the FIXED path
+    `/tmp/logos_emit_<layer>`, several targets build `liblogos-lang.a` concurrently under
+    `-j32`, and the log says `objcopy: the input file '/tmp/logos_emit_logos-lang/
+    logos-lang.writ0' is empty` / `emit_module: ar failed` / `carries no readable .pkgi
+    member after ar — 63 package(s) would have been lost silently`. A second
+    `cmake --build` in the same directory then succeeded. The load-profile table says
+    "several BUILDS at once, in SEPARATE build dirs" is safe; that is true of separate
+    dirs and NOT of one from-scratch build's own parallelism, and the failure mode is a
+    silently truncated archive caught only by emit_module's own check.

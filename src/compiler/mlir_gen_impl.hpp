@@ -708,6 +708,12 @@ private:
     // Local let-bound pointer variables (*mut T / *const T): maps name → pointee MLIR type.
     // Needed because scope_[name] is an alloca(ptr), so indexing requires a load first.
     std::unordered_map<std::string, mlir::Type>   var_local_ptrs_;
+    // Reference-typed LOCALS whose scope_ entry is an alloca HOLDING the pointer
+    // (as a raw-pointer local's is). Recorded at gen_let's minting site — a ref
+    // PARAMETER's entry is the referent's address and an immutable `&Struct`
+    // local aliases the pointee, so the TYPE cannot say which shape a name has.
+    // Consumed by gen_lvalue_addr(VarRef): rule expr.place.ref-local-slot-load.
+    std::unordered_set<std::string>               ref_slot_vars_;
 
     // Full snapshot of the name-keyed variable-classification state, for correct
     // LEXICAL scoping of if-branches / loop bodies / match arms. These maps are
@@ -731,12 +737,13 @@ private:
         std::unordered_set<std::string>               dyn_ptr_handle;
         std::unordered_set<std::string>               ref_params;
         std::unordered_set<std::string>               ptr_family;
+        std::unordered_set<std::string>               ref_slot_vars;
     };
     VarScopeSnapshot snapshot_var_scope() const {
         return { scope_, var_dyn_trait_, var_struct_, var_elem_types_, var_subscript_,
                  var_local_ptrs_, var_slice_, let_vars_, var_tuple_, var_tagged_enum_,
                  var_tagged_enum_ptr_, var_raw_dyn_, dyn_ptr_to_handle_vars_,
-                 ref_param_names_, ptr_family_param_ };
+                 ref_param_names_, ptr_family_param_, ref_slot_vars_ };
     }
     // Restore by full assignment: erases bindings introduced inside the scope AND
     // re-instates any shadowed outer bindings — exact lexical-scope semantics.
@@ -756,6 +763,7 @@ private:
         dyn_ptr_to_handle_vars_ = s.dyn_ptr_handle;
         ref_param_names_        = s.ref_params;
         ptr_family_param_       = s.ptr_family;
+        ref_slot_vars_          = s.ref_slot_vars;
     }
     // Peer-shape eviction — THE binder foundation (gap C, 2026-07). All the
     // per-var classification maps above are keyed by BARE name; a fresh binding
@@ -783,6 +791,7 @@ private:
         dyn_ptr_to_handle_vars_.erase(n);
         ref_param_names_.erase(n);
         ptr_family_param_.erase(n);
+        ref_slot_vars_.erase(n);
     }
     // Names of fn parameters whose type is Ref/MutRef. `&p` for such a
     // param means "address of param storage" — we must spill the SSA

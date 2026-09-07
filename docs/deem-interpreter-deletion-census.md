@@ -5398,8 +5398,21 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9374 -> 9380  +6
 #   NOIMPORTED   4937 -> 4942  +5
 #   TIERCOMMIT    173 ->  172  -1
-REGISTRY-ALL         9380
-REGISTRY-NOIMPORTED  4942
+# 2026-09-07u (the place-write repair — a place built on a reference-typed LOCAL
+#   loads the pointer out of its slot). NINE new fixtures, each registered ONCE
+#   (the oracle is stdout + an exit code; no valgrind gate): seven pass halves
+#   pass/refslot_index_write_local_refmut, refslot_tuple_write_local_refmut,
+#   refslot_variable_index_write, refslot_nested_array_write,
+#   refslot_reborrow_local_write, refslot_struct_elem_field_write and the shape
+#   control refslot_shape_controls_ctl, plus two fail halves
+#   fail/refslot_index_write_not_mut_fail and refslot_tuple_write_not_mut_fail.
+#   The two closed queue programs left tests/soundness/open (registered nowhere)
+#   and one new queue program arrived there, so neither count moves for them.
+#   ALL          9380 -> 9389  +9
+#   NOIMPORTED   4942 -> 4951  +9
+#   TIERCOMMIT    172 ->  172   0
+REGISTRY-ALL         9389
+REGISTRY-NOIMPORTED  4951
 REGISTRY-TIERCOMMIT  172
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

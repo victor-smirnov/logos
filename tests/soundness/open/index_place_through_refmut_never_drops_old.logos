@@ -1,0 +1,54 @@
+// SOUNDNESS QUEUE row index_place_through_refmut_never_drops_old (tier 1).
+// `q[i] = v` WHERE `q` IS `&mut [D; N]` OVERWRITES A LIVE ELEMENT WITHOUT
+// RUNNING ITS DESTRUCTOR — A LEAK, silent, at both the parameter and the local
+// spelling.
+//
+// FOUND 2026-09-07u, by the pair the index/tuple place-write repair was measured
+// with, and it is NOT that repair's root: it reproduces identically at the
+// PARAMETER spelling this program uses, which that repair never touches (a ref
+// parameter's scope_ entry was always the caller's address). The two are
+// SEPARABLE by measurement — on the base binary 337164757523a8c9 the local
+// spelling read 11 (the store lost AND the old element not dropped) and this
+// parameter spelling read 110 (the store lands, the old element still not
+// dropped); after the repair the local spelling reads 110 too, and this program
+// is unmoved.
+//
+// COUNT. `n` is the sum of the `v` of every D actually destructed:
+//   1   the old a[0], at the store            ← MISSING, this is the defect
+//   10  a[1], at scope exit
+//   100 the new a[0], at scope exit
+// Rust runs all three: 111. This binary prints 110 and returns 1.
+//
+// ROOT, by symbol, read this round: SemaChecker::lower_place_assign
+// (src/compiler/sema_stmt.cpp). The liveness walk that decides `drop_old`
+// bottoms out at a ROOT and its root predicate excludes Ref and Ptr — correct
+// for a raw pointer (pinned by pass/placedrop_rawptr_deref_field_no_drop_old,
+// which must NOT drop) and WRONG for an owning `&mut`, through which Rust drops
+// the overwritten place.
+//
+// THE CLASS IS THE INDEX LINK, NOT THE REFERENCE ROOT — measured, two controls
+// that are CORRECT on this binary and separate it:
+//     let q: &mut (D, i64) = &mut t; q.0 = D{…}   -> 101, the old D dropped
+//     let q: &mut S        = &mut s; q.d = D{…}   -> 101, the old D dropped
+// So a TUPLE and a FIELD place through a `&mut` do drop; only the INDEX place
+// does not. Any repair must keep the raw-pointer abuse direction refusing to
+// drop, and must not coarsen a subscript to its container (a `*mut T` receiver
+// there was the 2026-09-06n round's measured double free).
+package index_place_through_refmut_never_drops_old;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn put(q: &mut [D; 2], p: *mut i64) -> i64 { q[0i64] = D { v: 100i64, c: p }; return 0i64; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut a: [D; 2] = [D { v: 1i64, c: p }, D { v: 10i64, c: p }];
+        let k: i64 = put(&mut a, p);
+        if k != 0i64 { return 3i32; }
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("n=%ld\n".as_ptr(), got); }
+    if got != 111i64 { return 1i32; }
+    return 0i32;
+}

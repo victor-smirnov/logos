@@ -1505,6 +1505,14 @@ When the index-place receiver is a plain variable, its address is taken from the
 
 *Source:* `src/compiler/sema_expr.cpp#L10286-L10296`
 
+### `expr.place.ref-local-slot-load` — A place built on a reference-typed LOCAL loads its pointer first
+
+A place expression whose base is a variable of reference type (`q[i] = v`, `q.N = v`, `q[i].f = v`, and every chain built on them) addresses the REFERENT, never the binding. The distinction is a fact of how the binding was created, not of its type: a ref/ptr PARAMETER's codegen entry already IS the referent's address, and an immutable `&Struct` local aliases the pointee with no storage of its own, while a `let` of reference type gets its own slot HOLDING the pointer — that slot must be loaded before the place is GEPed, exactly as a `*mut T` local's is. `gen_let` records the shape at the binding site (`ref_slot_vars_`) and `gen_lvalue_addr`'s `VarRef` case consults it; a reference whose slot holds a fat descriptor (`&mut [T]`, `&dyn`) is not in that set and its own place path loads the descriptor. Without the load the store lands on the binding's own slot: the write is lost, the binding then holds the written integer, and the next use of it dereferences that value.
+
+*Divergence:* Rust-conformant
+
+*Source:* `src/compiler/mlir_gen_expr.cpp` (`MLIRGenImpl::gen_lvalue_addr`, `VarRef` case), `src/compiler/mlir_gen_stmt.cpp` (`MLIRGenImpl::gen_let`, scalar path — the minting site), `src/compiler/mlir_gen_impl.hpp` (`ref_slot_vars_`)
+
 ### `expr.index.user-index-read` — Index read dispatches to user Index impl as *recv.index(i)
 
 `a[i]` for a struct `a` that impls `Index<Idx, Output>` lowers to `*(a.index(i))`: the impl's `__index` method (unique 2-param candidate) is called with a materialized `&a` receiver and the index, and the result reference is dereferenced to yield the element place. The integer-literal index is widened to the formal index parameter type. User `Index` dispatch is attempted before the built-in integer-index check, so an impl may accept non-integer keys.

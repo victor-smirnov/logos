@@ -1,0 +1,19 @@
+// `q[i] = v` THROUGH A LOCAL `&mut [T; N]` REACHES THE ARRAY. Was soundness-queue
+// row index_write_through_local_refmut_clobbers_binding (tier 1, `run 139`): the
+// store landed on the slot holding the REFERENCE, `a` was unchanged, and the next
+// read through `q` dereferenced the integer 77 — SIGSEGV.
+// gen_lvalue_addr's VarRef case now loads a reference-typed LOCAL's pointer out of
+// its slot before GEPing (ref_slot_vars_, minted in gen_let).
+// PAIR: fail/refslot_index_write_not_mut_fail, one token apart (`let mut a` -> `let a`).
+package refslot_index_write_local_refmut;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    let q: &mut [i64; 2] = &mut a;
+    q[0i64] = 77i64;
+    let k: i64 = q[0i64];
+    unsafe { printf("q0=%ld\n".as_ptr(), k); }
+    if a[0i64] != 77i64 { return 1i32; }
+    if a[1i64] != 2i64 { return 2i32; }
+    return 0i32;
+}

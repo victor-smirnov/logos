@@ -1,0 +1,15 @@
+// ONE TOKEN FROM pass/refslot_tuple_write_local_refmut (`let mut t` -> `let t`):
+// the tuple is not declared `mut`, so `&mut t` is refused. The TupleIndex half of
+// the same pin — the place kind differs from the index fail half, the refusal does
+// not, and neither may be reached by the codegen repair.
+package refslot_tuple_write_not_mut_fail;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let t: (i64, i64) = (1i64, 2i64);
+    let q: &mut (i64, i64) = &mut t;
+    q.0 = 77i64;
+    unsafe { printf("t0=%ld t1=%ld\n".as_ptr(), t.0, t.1); }
+    if t.0 != 77i64 { return 1i32; }
+    if t.1 != 2i64 { return 2i32; }
+    return 0i32;
+}

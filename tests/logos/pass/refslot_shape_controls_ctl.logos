@@ -1,0 +1,71 @@
+// THE ABUSE DIRECTION OF ref_slot_vars_, IN ONE PROGRAM. Every shape whose scope_
+// entry is NOT an alloca holding a pointer, or whose place path already loads one,
+// and which therefore must be untouched by the load added at gen_lvalue_addr's
+// VarRef case: an index write through a `&mut [T; N]` PARAMETER (its entry IS the
+// caller's address); an explicit `(*q)[i]`; a FIELD write through a local `&mut S`
+// (gen_recv_struct loads it); a `&mut [T]` SLICE local (its slot holds a 16-byte
+// descriptor, which is exactly what the `var_type == ptr_type()` guard at the
+// minting site keeps out); a rebound `let mut q` (the hazard named in advance —
+// gen_let's "Aliasing scope_[r] to the target" branches); a raw `*mut [T; N]`
+// local (already loaded, via var_local_ptrs_); and READS through immutable
+// references.
+// ⚠ NOT ALL OF IT IS THE ABUSE DIRECTION, and the control revert said so: this
+// program returns 8 on the base binary, at the REBIND block, because
+// `rq[0] = 55` is itself a write through a reference-typed local and was lost
+// there. Six shapes here were correct before the repair; the rebind block is the
+// hazard NAMED IN ADVANCE (gen_let's "Aliasing scope_[r] to the target"
+// branches) measured on BOTH sides of the rebind — the write before it and the
+// write after it must each land in their own array, and they do.
+package refslot_shape_controls_ctl;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { a: i64, b: i64 }
+fn set_param(q: &mut [i64; 2]) -> i64 { q[0i64] = 11i64; return q[0i64]; }
+fn peek(s: &[i64]) -> i64 { return s[1i64]; }
+fn main() -> i32 {
+    let mut pa: [i64; 2] = [1i64, 2i64];
+    if set_param(&mut pa) != 11i64 { return 1i32; }
+    if pa[0i64] != 11i64 { return 2i32; }
+
+    let mut da: [i64; 2] = [1i64, 2i64];
+    let dq: &mut [i64; 2] = &mut da;
+    (*dq)[0i64] = 22i64;
+    if da[0i64] != 22i64 { return 3i32; }
+
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    let sq: &mut S = &mut s;
+    sq.a = 33i64;
+    if s.a != 33i64 { return 4i32; }
+    if s.b != 2i64 { return 5i32; }
+
+    let mut sl: [i64; 3] = [1i64, 2i64, 3i64];
+    let sr: &mut [i64] = &mut sl;
+    sr[1i64] = 44i64;
+    if sr[1i64] != 44i64 { return 6i32; }
+    if peek(sr) != 44i64 { return 7i32; }
+
+    let mut ra: [i64; 2] = [1i64, 2i64];
+    let mut rb: [i64; 2] = [3i64, 4i64];
+    let mut rq: &mut [i64; 2] = &mut ra;
+    rq[0i64] = 55i64;
+    rq = &mut rb;
+    rq[0i64] = 66i64;
+    if ra[0i64] != 55i64 { return 8i32; }
+    if rb[0i64] != 66i64 { return 9i32; }
+
+    let mut xa: [i64; 2] = [1i64, 2i64];
+    let xp: *mut [i64; 2] = &mut xa as *mut [i64; 2];
+    unsafe { xp[0i64] = 77i64; }
+    if xa[0i64] != 77i64 { return 10i32; }
+
+    let ia: [i64; 2] = [8i64, 9i64];
+    let ir: &[i64; 2] = &ia;
+    let it: (i64, i64) = (3i64, 4i64);
+    let irt: &(i64, i64) = &it;
+    let is: S = S { a: 5i64, b: 6i64 };
+    let irs: &S = &is;
+    if ir[0i64] + irt.1 + irs.a != 17i64 { return 11i32; }
+
+    unsafe { printf("ctl=%ld %ld %ld %ld %ld %ld %ld\n".as_ptr(),
+                    pa[0i64], da[0i64], s.a, sr[1i64], ra[0i64], rb[0i64], xa[0i64]); }
+    return 0i32;
+}

@@ -1,0 +1,15 @@
+// A NESTED index chain `q[1][0] = v` through a local `&mut [[T; M]; N]`: the outer
+// GEP is built on the reference-typed VarRef and the inner one on its result, so
+// this is the member that proves the load is at the BOTTOM of the chain and not a
+// per-write patch. Base binary: the store was lost (a[1][0] still 3).
+package refslot_nested_array_write;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let mut a: [[i64; 2]; 2] = [[1i64, 2i64], [3i64, 4i64]];
+    let q: &mut [[i64; 2]; 2] = &mut a;
+    q[1i64][0i64] = 77i64;
+    unsafe { printf("a10=%ld a11=%ld\n".as_ptr(), a[1i64][0i64], a[1i64][1i64]); }
+    if a[1i64][0i64] != 77i64 { return 1i32; }
+    if a[0i64][0i64] != 1i64 { return 2i32; }
+    return 0i32;
+}

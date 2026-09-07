@@ -1408,6 +1408,15 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
             auto slot = get_subscript_ptr(vn);
             return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot);
         }
+        // Reference-typed LOCAL: scope_ entry is an alloca HOLDING the pointer
+        // (like the raw-pointer local above) — load it, else every place built
+        // here GEPs into the binding's own slot and the store is lost. Only the
+        // minting site knows; it says so in ref_slot_vars_.
+        // Rule expr.place.ref-local-slot-load.
+        if (ref_slot_vars_.count(vn)) {
+            auto slot = get_subscript_ptr(vn);
+            return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot);
+        }
         // Aggregate / scalar local or ref/ptr param: scope_ entry is the
         // storage address (arrays/structs/tuples) or the pointer value
         // (ref/ptr params) — either way it is the address to GEP from.

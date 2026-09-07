@@ -2334,6 +2334,13 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
     evict_var_shapes(s.name);
     scope_[s.name] = alloca;
     let_vars_.insert(s.name);
+    // MINTING SITE for ref_slot_vars_: a reference-typed local holds its pointer
+    // IN THIS SLOT, as the `*mut T` local below does. The ptr_type() guard keeps
+    // the fat-descriptor shapes (`&mut [T]`, `&dyn`) out — their slot holds a
+    // descriptor. Rule expr.place.ref-local-slot-load.
+    if (TypeRef st(s.type); st && var_type == ptr_type() &&
+        (st.kind() == LogosType::Kind::Ref || st.kind() == LogosType::Kind::MutRef))
+        ref_slot_vars_.insert(s.name);
     // For array-typed variables (assigned from expressions, not array literals),
     // subscript_elem_type must return the element type (i32), NOT the array type
     // (!llvm.array<N x i32>). Setting var_elem_types_ to the array type causes

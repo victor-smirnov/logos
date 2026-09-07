@@ -1,0 +1,20 @@
+// A REBORROW TO A LOCAL inside a function that already has a `&mut` parameter:
+// `let q: &mut [T; N] = s;`. This is what rules "parameter vs local argument" out
+// as the discriminator — what matters is that the BINDING is a slot holding a
+// pointer, however the pointer was obtained. On the base binary this program
+// SIGSEGVs (rc 139): the store clobbers `q`, and the read back through it
+// dereferences 77.
+package refslot_reborrow_local_write;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn poke(s: &mut [i64; 2]) -> i64 {
+    let q: &mut [i64; 2] = s;
+    q[0i64] = 77i64;
+    return q[0i64];
+}
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    let k: i64 = poke(&mut a);
+    unsafe { printf("k=%ld a0=%ld\n".as_ptr(), k, a[0i64]); }
+    if a[0i64] != 77i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,17 @@
+// A FIELD of an ELEMENT: `q[1].a = v` through a local `&mut [S; N]`. The field GEP
+// is correct and the ELEMENT address under it was not, so this member has no row
+// of its own and was wrong on the base binary all the same (arr[1].a stayed 3) —
+// which is why the repair is at gen_lvalue_addr's VarRef case and not at either
+// place kind that a row happened to name.
+package refslot_struct_elem_field_write;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut arr: [S; 2] = [S { a: 1i64, b: 2i64 }, S { a: 3i64, b: 4i64 }];
+    let q: &mut [S; 2] = &mut arr;
+    q[1i64].a = 77i64;
+    unsafe { printf("a1=%ld b1=%ld a0=%ld\n".as_ptr(), arr[1i64].a, arr[1i64].b, arr[0i64].a); }
+    if arr[1i64].a != 77i64 { return 1i32; }
+    if arr[0i64].a != 1i64 { return 2i32; }
+    return 0i32;
+}

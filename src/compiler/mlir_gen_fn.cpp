@@ -497,6 +497,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
     var_tagged_enum_.clear();
     var_tagged_enum_ptr_.clear();
     var_local_ptrs_.clear();
+    ref_slot_vars_.clear();
     var_dyn_trait_.clear();
     var_raw_dyn_.clear();
     dyn_ptr_to_handle_vars_.clear();
