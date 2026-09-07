@@ -114,6 +114,26 @@ def rate_windows(rows: list[dict], n: int = 6) -> list[dict]:
     return win
 
 
+def backlog_rows(path: str = "tests/logos/unrowed_backlog.ledger") -> dict:
+    """The third counted list: findings that are not yet rows. An ENTRY here is not
+    a row and is never priced as one — it names the one measurement that would turn
+    it into a row, or throw it away. Counted the same way: direct listing."""
+    by_kind: dict[str, int] = {}
+    total = 0
+    try:
+        with open(path) as fh:
+            for ln in fh:
+                body = ln.split("#", 1)[0].split()
+                if len(body) < 4:
+                    continue
+                total += 1
+                by_kind[body[1]] = by_kind.get(body[1], 0) + 1
+    except FileNotFoundError:
+        pass
+    return {"total": total, "declared": declared_total(path),
+            "by_kind": {k: by_kind[k] for k in sorted(by_kind)}}
+
+
 def main() -> int:
     rows = landings()
     actionable = count_rows("tests/logos/bc_admits.ledger")
@@ -130,6 +150,7 @@ def main() -> int:
         "rate": rate_windows(rows),
         "head": sh("git", "rev-parse", "--short", "HEAD").strip(),
         "soundness": soundness_rows(),
+        "backlog": backlog_rows(),
     }
 
     if "--json" in sys.argv:
@@ -143,6 +164,20 @@ def main() -> int:
                                ("blocked", blocked, data["blocked_declared"])):
         if decl is not None and listed != decl:
             print(f"  ⚠ {name}: listing says {listed}, '# TOTAL' says {decl}")
+    q, b = data["soundness"], data["backlog"]
+    print(f"queue    open       {q['total']:>4}   "
+          + " ".join(f"tier{k}={v}" for k, v in q["by_tier"].items())
+          + f"   (declared {q['declared']})")
+    print(f"backlog  entries    {b['total']:>4}   "
+          + " ".join(f"{k}={v}" for k, v in b["by_kind"].items())
+          + f"   (declared {b['declared']})")
+    for name, listed, decl in (("queue", q["total"], q["declared"]),
+                               ("backlog", b["total"], b["declared"])):
+        if decl is not None and listed != decl:
+            print(f"  \u26a0 {name}: listing says {listed}, '# TOTAL' says {decl}")
+    print(f"{'':9}{'':11}{'-' * 4}")
+    print(f"ALL      countable  {actionable + q['total'] + b['total']:>4}"
+          "   (blocked rows excluded: no compiler fix closes them)")
     print()
     print(f"{'date':16}  {'closed':>6}  {'left':>5}  subject")
     for r in rows[-14:]:

@@ -1,0 +1,76 @@
+# unrowed_backlog.ledger — FINDINGS THAT ARE NOT YET ROWS, AND WHAT EACH NEEDS TO BECOME ONE.
+#
+# WHY THIS FILE EXISTS. `bc_admits.ledger` and `soundness_queue.ledger` are the
+# two files an agent may take work from, and a round is priced against a row.
+# A finding that has no row is therefore invisible to the round machinery, and
+# for several rounds the only place these lived was prose in a report or in
+# memory. Prose does not survive its round. This file is the third counted
+# list: 97 + 66 + this file's TOTAL is the whole of the remaining work.
+#
+# ⚠ AN ENTRY HERE IS NOT A ROW AND MUST NOT BE PRICED AS ONE. Each entry names
+# the ONE thing that must be measured before it can become a row (or be thrown
+# away). That measurement is the entry's whole content. An entry whose gate
+# says "verify the harness first" may turn out to be zero defects; an entry
+# that says "group by allocation site" may turn out to be several rows.
+# Promoting an entry means DELETING it here and adding the row(s) there.
+#
+# ⚠ RE-MEASURE, DO NOT CARRY. Same rule as bc_admits_blocked.ledger: every
+# entry carries the DATE its evidence was taken. A recorded defect is a
+# measurement with a timestamp, and the oracle is the emitted artifact, not
+# this file. An entry that cannot be re-checked today is stale, not open.
+#
+# Format:  <id> <kind> <count-if-known> <where the evidence lives>
+#          # <date measured> — <what must be measured to make it a row>
+#
+# kind:  sweep     a batch reading from one instrument run, count = raw hits
+#        defect    one reproduced misbehaviour, seen but never rowed
+#        recorded  carried in memory as open; needs re-measure before rowing
+#        perf      a timing regression, not a correctness defect
+
+vg_leak_records            sweep     90  sandbox/vg-sweep-fixed/results.tsv
+    # 2026-09-07 — 90 fixtures LEAK, but 197 of 254 loss records are STDLIB-allocated:
+    # 90 hits is NOT 90 defects. Group the loss records by ALLOCATION SITE, then one
+    # row per site. Until that grouping exists the population is unknown, not large.
+vg_corrupt_objlt_str       defect     1  tests/logos/pass/bc_objlt_str_literal
+    # 2026-09-07 — valgrind reports memory corruption on a passing fixture. rc is
+    # GREEN, so no gate in the tree can see it. Needs a reduced program + the
+    # destructor-count or valgrind oracle, then a tier-1 row.
+vg_corrupt_custom_dst      defect     1  tests/logos/pass/custom_dst_smartptr_owning_drop
+    # 2026-09-07 — as above, on the owning-drop custom-DST path.
+vg_corrupt_coerce_4        defect     1  tests/spec/pass/coerce_4
+    # 2026-09-07 — as above, on a spec coercion fixture.
+vg_harness_linkfail_cfail  sweep    188  sandbox/vg-sweep-fixed/results.tsv
+    # 2026-09-07 — 124 LINKFAIL + 64 CFAIL. SUSPECTED to be the sweep's OWN missing
+    # link flags (the sweep does not carry the per-fixture `-l` archives the CMake
+    # glob passes). ⚠ VERIFY THE HARNESS BEFORE ROWING ANY OF THEM: if the flags are
+    # the cause this entry closes at ZERO defects. Prove the channel is live first.
+vg_timeout_memoria         sweep      3  sandbox/vg-sweep-fixed/results.tsv
+    # 2026-09-07 — memoria_btfl_multimap, memoria_ssrle_ops, memoria_gen_fse, all rc
+    # 124, cut by the sweep's own timeout under valgrind. Re-run the three alone with
+    # a generous timeout: either they finish (harness, zero defects) or they hang.
+let_tuple_struct_sub_diag  defect     1  round 2026-09-07u pricing report
+    # 2026-09-07 — `let (P { x, y }, z) = sv;` is refused with a THIRD sentence,
+    # "'let <pattern> = expr;' currently supports struct patterns only". Reproduced on
+    # the base compiler. Needs a fixture pair and a tier-3 row; check first whether it
+    # is the same missing Struct arm as match_tuple_door_nested_struct_binds_nothing
+    # (doors in SERIES) or a fourth door.
+compile_time_phenomenon_b  perf       1  bug_resolve_method_symbol_quadratic (memory)
+    # 2026-09-07 — ~19% global median compile-time slowdown across
+    # a9c7b67fd..96fdf6235, still unattributed after the quadratic
+    # `resolve_method_symbol` fix took the other half. Needs the verdict store's
+    # per-fixture seconds bisected over that range, not a profile of HEAD.
+o2_drops_presence_bit      recorded   1  bug_o2_drops_store_into_writ_node (memory)
+    # DORMANT — clang-21 only, this box builds clang-20. ⚠ RETURNS ON LLVM 22.
+    # Re-measure on a clang-21 build before rowing; do not row a dormant defect.
+lforge_stale_archive_link  recorded   1  bug_lforge_test_stale_archive_link (memory)
+    # OPEN, workaround known (`lforge clean` before test). Needs a re-measure: does
+    # `lforge test` still link a stale archive on today's tree?
+zonemut_fatdyn_tuple_segv  recorded   1  bug_zone_mut_reborrow_thin (memory)
+    # FatDyn in a tuple literal SIGSEGVs. Recorded LOUD, never rowed. Re-measure,
+    # then a tier-1 `run` row.
+zonemut_fatzonemut_field   recorded   1  bug_zone_mut_reborrow_thin (memory)
+    # FatZoneMut as a struct FIELD aborts on layout. Re-measure, then row.
+zonemut_fatslice_pattern   recorded   1  bug_zone_mut_reborrow_thin (memory)
+    # FatSlice-typed field crossed with a pattern. Re-measure, then row.
+
+# TOTAL 13
