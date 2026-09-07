@@ -1,0 +1,1 @@
+borrowed data escapes the closure: 'y' is stored into 'x', which outlives the closure call (E0521)

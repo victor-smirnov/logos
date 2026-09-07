@@ -1,0 +1,29 @@
+// rustc regions/regions-assoc-type-in-supertrait-outlives-container.rs — upstream "lifetime may not live long enough"
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — RE-PORTED AS-IS 2026-09-07 (stage 3). Was bc_admits_blocked
+// LEGAL-AS-PORTED / lifereg.L6: the old port replaced upstream's parameterless
+// `let _: &'a WithAssoc<TheType<'b>> = loop { };` with a parameter
+// `p: &'a WithAssoc<TheType<'b>>`, supplying `'b: 'a` as an implied bound.
+// The point of THIS file (vs its two siblings) is that the associated type is
+// reached through a SUPERTRAIT (`WithAssoc<T: TheSubTrait>`, `TheSubTrait:
+// TheTrait`) — kept verbatim.
+// Original path: tests/ui/regions/regions-assoc-type-in-supertrait-outlives-container.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: line 36 — `let _: &'a WithAssoc<TheType<'b>> = loop { };` //~ ERROR
+// Modifications:
+//   · `TheType<'b>`'s field `m: [fn(&'b()); 0]` -> `m: &'b i64` and `WithAssoc`'s
+//     `m: [T; 0]` -> `m: T`
+//   · `&'b ()` -> `&'b i64`
+//   · `let _` -> `let x` (see the sibling files' note on upstream FIXME #54943)
+//   · assert -> exit code: `fn main() -> i32`
+package regions_assoc_type_in_supertrait_outlives_container;
+trait TheTrait { type TheAssocType; }
+trait TheSubTrait: TheTrait { }
+struct TheType<'b> { m: &'b i64 }
+impl<'b> TheTrait for TheType<'b> { type TheAssocType = &'b i64; }
+impl<'b> TheSubTrait for TheType<'b> { }
+struct WithAssoc<T: TheSubTrait> { m: T }
+fn with_assoc<'a, 'b>() {
+    let x: &'a WithAssoc<TheType<'b>> = loop { };
+}
+fn main() -> i32 { return 0i32; }

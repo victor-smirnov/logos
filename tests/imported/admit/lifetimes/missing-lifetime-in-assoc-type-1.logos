@@ -1,16 +1,41 @@
 // rustc lifetimes/missing-lifetime-in-assoc-type-1.rs — upstream E0207 unconstrained lifetime parameter
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.R17
-// port of rust ui/lifetimes/missing-lifetime-in-assoc-type-1.rs (E0207)
+// shelf: admit · root lifereg.NEW-E0207
+// RE-PORTED AS-IS 2026-09-07 (stage 3). The old port DROPPED THE ASSOCIATED TYPE
+// — it kept `impl<'a> ... for &S` but gave the impl no associated type mentioning
+// `'a`, so `'a` was merely unused rather than UNCONSTRAINED and E0207 legitimately
+// did not fire. It sat in bc_admits_blocked as LEGAL-AS-PORTED. The associated
+// type that names `'a` while `'a` appears in neither the trait nor the self type
+// is the whole subject of E0207, and it is restored here.
+// Original path: tests/ui/lifetimes/missing-lifetime-in-assoc-type-1.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 4-14 —
+//     impl<'a> IntoIterator for &S {     //~ ERROR E0207 unconstrained lifetime parameter
+//         type Item = &T;                //~ ERROR missing lifetime in associated type
+//         type IntoIter = std::collections::btree_map::Values<'a, i32, T>;
+// Modifications:
+//   · `IntoIterator` -> a local `Tr` with the same two associated types and one
+//     method. The stdlib's `IntoIterator<Item>` takes the item as a TYPE PARAMETER,
+//     not an associated type, so it cannot carry this test; what E0207 is about is
+//     the impl's own lifetime parameter, which is unchanged.
+//   · `std::collections::btree_map::Values<'a, i32, T>` -> `&'a i64`. The only thing
+//     upstream's `Values` contributes is a SECOND mention of `'a` in an associated
+//     type; the concrete container is irrelevant to E0207.
+//   · `type Item = &T` (an elided reference upstream reports separately as "missing
+//     lifetime in associated type") -> `type Item = &'a T3`, which is the shape that
+//     makes `'a` UNCONSTRAINED — the E0207 half, and the half this shelf is about.
+//   · the SELF TYPE `&S` is verbatim, with no lifetime written: that is what
+//     distinguishes this file from `-5` (`&'_ S`).
+//   · struct S/T are unit structs upstream -> one-field structs (`T` is renamed `T3`:
+//     `T` alone reads as a type parameter here)
+//   · `todo!()` body -> a constant return; assert -> exit code
 package missing_lifetime_in_assoc_type_1;
-
-struct S { a: i64 }
-struct T { b: i64 }
-
-trait Give { fn give(self: &Self) -> i64; }
-
-impl<'a> Give for &S {
-    fn give(self: &Self) -> i64 { return 1i64; }
+struct S { n: i64 }
+struct T3 { n: i64 }
+trait Tr { type Item; type IntoIter; fn into_iter(self: Self) -> i64; }
+impl<'a> Tr for &S {                // THE DEFECT: admitted, upstream E0207
+    type Item = &'a T3;
+    type IntoIter = &'a i64;
+    fn into_iter(self: Self) -> i64 { return 1i64; }
 }
-
 fn main() -> i32 { return 0i32; }

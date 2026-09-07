@@ -3,6 +3,25 @@
 // shelf: admit · root bck.E
 // upstream: borrowck/borrowck-move-out-of-struct-with-dtor.rs (E0509 cannot move out of a
 // type which implements Drop)
+// ── BUCKET 3, BLESSED DIVERGENCE — NOT RE-PORTED, AND NOT A DEFECT. 2026-09-07.
+// Original path: tests/ui/borrowck/borrowck-move-out-of-struct-with-dtor.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 8-22 — three doors (match / let / fn-arg) onto `S {f:_s}` where `impl Drop for S`; //~ ERROR [E0509] at each
+// Modifications: none — NOT PORTED AS-IS AND NOT PORTABLE AS-IS. The construct
+//   cannot be made illegal here: Logos deliberately ADMITS a move out of a field
+//   of a value with a user `Drop`, and defines what its destructor then does —
+//   `intrinsic.drop.skip-moved-out-paths` (docs/spec/expressions.md), "Drop of a
+//   value suppresses sub-values that were moved out: a dotted path whose segment
+//   exactly matches a child skips that child's drop entirely". E0509 exists in
+//   Rust precisely because Rust has no such rule.
+// ⚠ THE CLAUSE WAS RE-VERIFIED BY RUNNING IT, 2026-09-07, not by reading it: a
+//   program with `struct S { f: Inner }`, `impl Drop` on BOTH, `let g = s.f;`
+//   and a static drop counter per type prints INNER_DROPS=1 S_DROPS=1 —
+//   `S::drop` runs once, the moved-out field is dropped once through `g`, and
+//   the owner skips it. No leak, no double free. The divergence is implemented,
+//   not merely declared.
+// The file stays on the admit shelf and keeps its row in
+// tests/logos/bc_admits_blocked.ledger; it is not a hole and never was.
 package borrowck_move_out_of_struct_with_dtor;
 struct Inner { v: i64, s: str }
 impl Drop for Inner { fn drop(self: &mut Inner) {} }

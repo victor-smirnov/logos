@@ -1277,13 +1277,42 @@
 # Rust) were refused until `!in_closure_body_` was added. Both tokens are
 # pinned in PAIRS: fail/bc_capmovemut_{mutref_capture,sibling_closures} vs
 # pass/bc_capmovemut_{sharedref_capture,nested_closures}. PROBES.md 2026-09-03p.
-# TOTAL 97
+# TOTAL 105
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
+# ── 2026-09-07, STAGE 3 OF THE RE-PORT: 97 -> 105, AND THE GROWTH IS THE RESULT ──
+# EIGHT ROWS ARRIVED FROM bc_admits_blocked.ledger, none of them by a compiler
+# change: each was filed there as LEGAL-AS-PORTED or OWNER-CORPUS because the
+# PORT had lost the construct its upstream test exists to exercise. Re-ported
+# as-is from rustc @ 4b0c9d76a, all eight are ADMITTED where rustc refuses. A
+# real defect hidden behind a bad port is worth more than a smaller number.
+# ⚠ NO COMPILER SOURCE WAS TOUCHED. Every verdict is the unmodified binary's.
+# THE THREE NEW ROOTS, and how each was separated rather than assumed:
+#   bck.NEW-BCS  a temporary's borrow carried out inside a STRUCT loses the
+#     temporary's provenance. MEASURED with a one-variable control pair, both
+#     returning a bare `&i64` from a method on a temporary receiver: ONE hop
+#     (`mkv().peek()`) is REFUSED — "temporary value dropped while borrowed" —
+#     and TWO hops through a borrow-carrying struct (`mkv().guard().get()`) is
+#     ADMITTED. Three rows, three doors: a free call (`defer(&mk())`), a method
+#     on a temporary receiver (`mkv().iter()`), and a `RefCell` guard
+#     (`x.borrow().get()`).
+#   lifereg.NEW-E0207  an impl's lifetime parameter that appears in NEITHER the
+#     trait NOR the self type but IS named by an associated type is accepted
+#     (`impl<'a> Tr for &S { type Item = &'a T3; }`). Three rows.
+#   lifereg.NEW-E0226  more than one explicit lifetime bound on a trait object
+#     (`&'a dyn Is<'a> + 'b + 'c`) parses and is accepted; docs/spec/types.md
+#     says `+ 'lt` is "recorded but not yet enforced". One row.
+# `borrowck-borrowed-uniq-rvalue` keeps the EXISTING bck.D and is NOT grouped
+# with the three above: its door is a temporary borrowed in METHOD-ARGUMENT
+# position with no borrow-carrying struct anywhere, and nothing measured this
+# round says one change moves both.
+#
 anonymous-region-in-apit--closure-param-escapes bck.C tests/imported/admit/borrowck/anonymous-region-in-apit--closure-param-escapes
 augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments
 borrow-immutable-upvar-mutation-impl-trait bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait
+borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
+borrowck-borrowed-uniq-rvalue-2 bck.NEW-BCS tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2
 borrowck-escaping-closure-error-2 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-2
 borrowck-lend-flow-loop bck.NEW-2 tests/imported/admit/borrowck/borrowck-lend-flow-loop
 borrowck-loan-blocks-move-cc--r10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10
@@ -1297,6 +1326,7 @@ borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/im
 borrowck-unboxed-closures bck.A tests/imported/admit/borrowck/borrowck-unboxed-closures
 borrowed-data-escapes-closure-148392 bck.C tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
+issue-36082 bck.NEW-BCS tests/imported/admit/borrowck/issue-36082
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
 issue-58776-borrowck-scans-children bck.C tests/imported/admit/borrowck/issue-58776-borrowck-scans-children
 issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure
@@ -1313,16 +1343,23 @@ var-matching-lifetime-but-unused-not-mentioned bck.C tests/imported/admit/borrow
 
 # ── tests/ui/drop ─────────────────────────────────────────
 
+
 # ── tests/ui/dropck ─────────────────────────────────────────
+
 dropck-only-error lifereg.R18 tests/imported/admit/dropck/dropck-only-error
 
 # ── tests/ui/lifetimes ─────────────────────────────────────────
+
+borrowck-let-suggestion bck.NEW-BCS tests/imported/admit/lifetimes/borrowck-let-suggestion
 constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error
 e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 iterator-next-extra-named-lifetime lifereg.R18 tests/imported/admit/lifetimes/iterator-next-extra-named-lifetime
 lifetime-mismatch-between-trait-and-impl lifereg.R18 tests/imported/admit/lifetimes/lifetime-mismatch-between-trait-and-impl
+missing-lifetime-in-assoc-type-1 lifereg.NEW-E0207 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-1
+missing-lifetime-in-assoc-type-5 lifereg.NEW-E0207 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-5
+missing-lifetime-in-assoc-type-6 lifereg.NEW-E0207 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-6
 mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17
 mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17
 temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor
@@ -1331,10 +1368,12 @@ trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/t
 trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch
 
 # ── tests/ui/moves ─────────────────────────────────────────
+
 issue-75904-move-closure-loop nllmoves.C tests/imported/admit/moves/issue-75904-move-closure-loop
 move-of-addr-of-mut nllmoves.R5 tests/imported/admit/moves/move-of-addr-of-mut
 
 # ── tests/ui/nll ─────────────────────────────────────────
+
 adt-tuple-enums--t33 nllmoves.NEW-L1 tests/imported/admit/nll/adt-tuple-enums--t33
 borrowed-temporary-error--t08 nllmoves.D tests/imported/admit/nll/borrowed-temporary-error--t08
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
@@ -1371,11 +1410,13 @@ type-check-pointer-comparisons nllmoves.R2 tests/imported/admit/nll/type-check-p
 var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
 
 # ── tests/ui/regions ─────────────────────────────────────────
+
 better-blame-constraint-for-outlives-static lifereg.NEW-N1 tests/imported/admit/regions/better-blame-constraint-for-outlives-static
 explicit-static-bound-on-trait lifereg.NEW-4 tests/imported/admit/regions/explicit-static-bound-on-trait
 impl-trait-lifetime-conflict-hashmap-keys--sig-only lifereg.R18 tests/imported/admit/regions/impl-trait-lifetime-conflict-hashmap-keys--sig-only
 issue-101280 lifereg.NEW-N4 tests/imported/admit/regions/issue-101280
 outlives-with-missing lifereg.R17 tests/imported/admit/regions/outlives-with-missing
+region-bounds-on-objects-and-type-parameters lifereg.NEW-E0226 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
 regions-adjusted-lvalue-op--c26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--c26
 regions-adjusted-lvalue-op--t26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26
 regions-creating-enums3 lifereg.NEW-N1 tests/imported/admit/regions/regions-creating-enums3

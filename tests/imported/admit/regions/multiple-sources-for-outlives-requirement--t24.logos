@@ -1,6 +1,29 @@
 // rustc regions/multiple-sources-for-outlives-requirement.rs — upstream temporary value dropped while borrowed
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.N1
+// ── BUCKET 4, IMPLEMENTATION HOLE — NOT RE-PORTABLE TODAY. 2026-09-07.
+// Original path: tests/ui/regions/multiple-sources-for-outlives-requirement.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: line 5 —
+//     outlives_indir::<'_, 'b, _>(&mut 1u32); //~ ERROR temporary value dropped while borrowed
+//   against `fn outlives_indir<'a: 'b, 'b, T: 'a>(_x: T) {}`. THE TURBOFISH IS THE
+//   TEST: it is what pins the second lifetime argument to the caller's `'b` so that
+//   `'a: 'b` cannot be satisfied by shrinking.
+// Modifications: none — NOT PORTED AS-IS AND NOT PORTABLE AS-IS.
+// MISSING FEATURE: explicit LIFETIME arguments in a turbofish. MEASURED 2026-09-07:
+//   `f::<'_>(&v)` reports "error [fn main]: unexpected type node code 131"; the same
+//   call with a TYPE argument (`call::<i64>()`) compiles, so it is the lifetime
+//   argument specifically that has no path through the parser/type-args reader.
+//   Backlog: `lt_turbofish_absent` in tests/logos/unrowed_backlog.ledger.
+// ⚠ WHY THE ROW IS NOT SIMPLY REWRITTEN AROUND IT. The file's present port drops the
+//   turbofish and supplies `'b` through a covariant `w: &'b i64` parameter, which
+//   lets inference SHRINK `'b` into the statement — that is why it is legal, and the
+//   ledger's LEGAL-AS-PORTED reading is correct. Two probes written this round pin
+//   `'b` INVARIANTLY instead (`w: &mut &'b i64`, and a `struct Inv<'b> { f: fn(&'b i64)
+//   -> &'b i64 }`) and are ADMITTED where rustc refuses — so there IS a defect behind
+//   this row. It is recorded in the backlog entry rather than landed here, because
+//   substituting invariance for the turbofish substitutes the CONSTRUCT, which a
+//   re-port may not do.
 package multiple_sources_for_outlives_requirement_t24;
 fn outlives_indir<'a, 'b, T>(x: T, w: &'b i64) -> i32 where 'a: 'b, T: 'a { return 0i32; }
 fn foo<'b>(k: &'b i64) -> i32 { return outlives_indir(&mut 1i64, k); }

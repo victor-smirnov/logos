@@ -1,0 +1,29 @@
+// rustc nll/move-errors.rs — upstream E0507/E0508
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — RE-PORTED AS-IS 2026-09-07 (stage 3). Was bc_admits_blocked
+// LEGAL-AS-PORTED / nllmoves.B: the old port gave `A` an `i64` field, which is
+// auto-Copy (DIVERGENCES A16), so `let A{s:v} = *r` was a COPY and legal. The
+// upstream field is `String` — NOT Copy — and that is the whole subject.
+// Original path: tests/ui/nll/move-errors.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: `fn suggest_borrow5()`, lines 36-40 —
+//     let a = &A("".to_string());
+//     let A(s) = *a;   //~ ERROR
+// Modifications:
+//   · `String` stays `String` (logos.mem.string) — the non-Copy field IS the subject
+//   · tuple struct `A(String)` -> braced `A { s: String }`; Logos has no tuple-struct
+//     pattern in a `let`, and the pattern position (a by-value binder under a
+//     dereferenced shared reference) is unchanged
+//   · `"".to_string()` -> `String::from("")`
+//   · only `suggest_borrow5` is ported; the file's other 13 annotated sites are
+//     separate ports (`move-errors--a` … `--n`)
+//   · assert -> exit code: `fn main() -> i32`
+package move_errors_d;
+use logos.mem.string;
+struct A { s: String }
+fn main() -> i32 {
+  let a: A = A { s: String::from("") };
+  let r: &A = &a;
+  let A { s: v } = *r;
+  return v.len() as i32;
+}

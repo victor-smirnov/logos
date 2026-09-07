@@ -1,0 +1,43 @@
+// rustc regions/regions-outlives-projection-container.rs — upstream "lifetime may not live long enough" (x4)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — RE-PORTED AS-IS 2026-09-07 (stage 3). Was bc_admits_blocked
+// LEGAL-AS-PORTED / lifereg.NEW-N1: the old port replaced upstream's
+// parameterless `let _x: &'a WithAssoc<TheType<'b>> = loop { };` with a function
+// PARAMETER `v: &'a WithAssoc<TheType<'b>>`, which supplies `'b: 'a` as an
+// implied bound — the exact bound the test exists to show is missing.
+// Original path: tests/ui/regions/regions-outlives-projection-container.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 36, 54, 63, 71 — all four annotated sites, restored.
+// Modifications:
+//   · `TheType<'b>`'s field `m: [fn(&'b()); 0]` -> `m: &'b i64`; a zero-length
+//     array of fn pointers is only upstream's way of naming 'b in a field, and
+//     `WithAssoc<T>`'s `m: [T; 0]` likewise -> `m: T`. The lifetime structure
+//     under test (`'b` reachable from the container, `TheAssocType = &'b ...`)
+//     is unchanged.
+//   · `&'b ()` -> `&'b i64` (no unit type in this position)
+//   · `with_assoc1` (the `where 'b: 'a` control, which upstream expects to PASS)
+//     is kept, so the fixture also shows the bound making the same body legal.
+//   · assert -> exit code: `fn main() -> i32`
+package regions_outlives_projection_container;
+trait TheTrait { type TheAssocType; }
+struct TheType<'b> { m: &'b i64 }
+impl<'b> TheTrait for TheType<'b> { type TheAssocType = &'b i64; }
+struct WithAssoc<T: TheTrait> { m: T }
+struct WithoutAssoc<T> { m: T }
+fn call<T>() { }
+fn with_assoc<'a, 'b>() {
+    let x: &'a WithAssoc<TheType<'b>> = loop { };
+}
+fn with_assoc1<'a, 'b>() where 'b: 'a {
+    let x: &'a WithAssoc<TheType<'b>> = loop { };
+}
+fn without_assoc<'a, 'b>() {
+    let x: &'a WithoutAssoc<TheType<'b>> = loop { };
+}
+fn call_with_assoc<'a, 'b>() {
+    call::<&'a WithAssoc<TheType<'b>>>();
+}
+fn call_without_assoc<'a, 'b>() {
+    call::<&'a WithoutAssoc<TheType<'b>>>();
+}
+fn main() -> i32 { return 0i32; }

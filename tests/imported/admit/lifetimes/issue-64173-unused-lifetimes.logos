@@ -1,6 +1,30 @@
 // rustc lifetimes/issue-64173-unused-lifetimes.rs — upstream E0392 parameter `'s` is never used
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.L4
+// ── BUCKET 4, IMPLEMENTATION HOLE — NOT RE-PORTABLE TODAY. 2026-09-07.
+// Original path: tests/ui/lifetimes/issue-64173-unused-lifetimes.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 3-6 and 15-17 —
+//     struct Foo<'s> {                    //~ ERROR: parameter `'s` is never used
+//         array: [(); size_of::<&Self>()],//~^ ERROR: generic `Self` in an anon const
+//     }
+//     struct Bar<'a> {                    //~ ERROR: parameter `'a` is never used
+//         beta: [(); foo::<&'a ()>()],    //~ ERROR: generic params in const operations
+//     }
+// Modifications: none — NOT PORTED AS-IS AND NOT PORTABLE AS-IS.
+// MISSING FEATURE: a CONST-EXPRESSION array length. MEASURED 2026-09-07:
+//   `struct Foo<'s> { array: [i64; size_of_t::<i64>()] }` reports
+//   "syntax error near 'struct'" — an array length must be a literal, so neither
+//   the `size_of::<&Self>()` half nor the `foo::<&'a ()>()` half has a shape here.
+//   Backlog: `const_expr_array_len_absent` in tests/logos/unrowed_backlog.ledger.
+// ⚠ THE E0392 HALF IS SEPARATELY WALLED, AND THE WALL WAS RE-VERIFIED TODAY BY
+//   DIRECT LISTING, not carried: 6559 pass fixtures scanned for a struct/enum
+//   declaring a lifetime parameter that its body never mentions — FIVE, in five
+//   files (tests/logos/pass/struct_lifetime_param `View<'z>`,
+//   .../struct_lifetime_generic `Slice<'z>`, .../zoned_storage_pin_acceptance
+//   `WritView<'a>`, tests/imported/pass/variance/variance-bivariant-unused
+//   `Marker<'a>`, tests/spec/pass/generic_2 `LtMarker<'a>`). The recorded
+//   "five pass fixtures" wall has NOT decayed. It is an owner corpus decision.
 package issue_64173_unused_lifetimes;
 struct Foo<'s> { n: i64 }
 fn main() -> i32 { let f = Foo { n: 1i64 }; if f.n != 1i64 { return 1i32; } return 0i32; }

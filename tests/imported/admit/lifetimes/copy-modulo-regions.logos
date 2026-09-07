@@ -2,6 +2,24 @@
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.NEW-L5
 // port of rust ui/lifetimes/copy_modulo_regions.rs, without the lifetime turbofish
+// ── BUCKET 3, BLESSED DIVERGENCE — NOT RE-PORTED, AND NOT A DEFECT. 2026-09-07.
+// Original path: tests/ui/lifetimes/copy_modulo_regions.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: line 12 — `[mk_foo::<'a>(); 100]` //~ ERROR lifetime may not
+//   live long enough. `struct Foo<'a>(fn(&'a ()) -> &'a ())` is `Copy` ONLY at
+//   `'static` (`impl Copy for Foo<'static> {}`), and an array repeat expression
+//   requires `Copy`, so the region must be forced to `'static`.
+// Modifications: none — NOT PORTED AS-IS AND NOT PORTABLE AS-IS. "Copy at one
+//   region and not another" cannot be expressed here: DIVERGENCES.md A16
+//   (structural auto-Copy, CANONISED BY VICTOR 2026-08-24) makes a struct
+//   implicitly Copy iff it has no `impl Drop` and every field type is Copy — a
+//   `&T` field qualifies, at EVERY region. `Foo<'a>` is therefore Copy for all
+//   `'a` and the written `impl Copy for Foo<'static>` restricts nothing.
+// ⚠ A16 IS LOAD-BEARING, NOT INCIDENTAL: its own row records that reverting it
+//   reds 106 of 2534 pass tests, 246 diagnostics of one kind, because
+//   `Vec::get -> T` (A17) only compiles under it. The two are one knot.
+// The file stays on the admit shelf and keeps its row in
+// tests/logos/bc_admits_blocked.ledger; it is not a hole and never was.
 package copy_modulo_regions;
 
 struct Foo<'a> { f: &'a i64 }

@@ -1,11 +1,42 @@
-// rustc regions/region-bounds-on-objects-and-type-parameters.rs — upstream E0392 parameter `'c` is never used (+E0226, unportable half)
+// rustc regions/region-bounds-on-objects-and-type-parameters.rs — upstream E0226 + E0392
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-N4
+// shelf: admit · root lifereg.NEW-E0226
+// RE-PORTED AS-IS 2026-09-07 (stage 3). The old port kept ONLY the E0392 half
+// (`struct Foo<'a,'b,'c>` with `'c` unused) and DELETED the field the test is
+// named for — `z: Box<dyn Is<'a>+'b+'c>` — so it sat in bc_admits_blocked as
+// OWNER-CORPUS against the E0392 wall. The E0226 field is restored here.
+// ⚠ AN EARLIER PROBE THIS ROUND CONCLUDED THE SYNTAX WAS UNSUPPORTED AND WROTE
+// BUCKET 4. It was wrong: the probe wrapped the type in PARENTHESES
+// (`&'a (dyn Isx<'a> + 'b + 'c)`), which is what the parser rejected. Unparenthesised,
+// `&'a dyn Isx<'a> + 'b + 'c` parses and is ADMITTED. docs/spec/types.md (trait-object
+// types) says `+ 'lt` is "accepted after the trait/args ... recorded but not yet
+// enforced" — that is the arity rule E0226 states, and nothing enforces it.
+// Original path: tests/ui/regions/region-bounds-on-objects-and-type-parameters.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 21-23 —
+//     z: Box<dyn Is<'a>+'b+'c>,
+//     //~^ ERROR only a single explicit lifetime bound is permitted
+//     //~| ERROR lifetime bound not satisfied
+// Modifications:
+//   · `Box<dyn T>` -> `&'a dyn T` in the fields; the E0226 rule is about the bound
+//     LIST on the trait object, not about the pointer that holds it, and `Box<dyn>`
+//     collapses to the same trait object here (layout.dyn.box-dyn-collapses-to-trait-object)
+//   · `IsStatic : 'static` / `IsSend : Send` / the `fn test<...>()` half are the
+//     file's LEGAL controls and are kept, minus the ones needing supertrait bounds
+//     Logos does not parse; the two `Is`/`Is2` traits and the `Foo` fields are verbatim
+//   · `'c` stays unused — the E0392 half of the upstream test is unchanged and is
+//     still walled by the owner-corpus decision on unused lifetime parameters
+//   · assert -> exit code: `fn main() -> i32`
 package region_bounds_on_objects_and_type_parameters;
-trait Isx<'a> {}
-trait SomeTrait {}
+trait Is<'a> { }
+trait Is2<'a> { }
+trait SomeTrait { }
 struct Foo<'a, 'b, 'c> {
-    c: &'a dyn Isx<'a>,
-    f: &'b dyn SomeTrait,
+    // All of these are ok, because we can derive exactly one bound:
+    c: &'a dyn Is<'a>,
+    f: &'a dyn SomeTrait,
+    g: &'a dyn SomeTrait + 'a,
+
+    z: &'a dyn Is<'a> + 'b + 'c,   // THE DEFECT: admitted, upstream E0226
 }
 fn main() -> i32 { return 0i32; }

@@ -1,0 +1,21 @@
+// rustc borrowck/regions-escape-unboxed-closure.rs — upstream E0521 borrowed data escapes closure
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — RE-PORTED AS-IS 2026-09-07 (stage 3). Was bc_admits_blocked
+// LEGAL-AS-PORTED / bck.B: the old port DROPPED THE CLOSURE and wrote a plain
+// block-scoped borrow instead, which NLL legitimately accepts. The closure is
+// the entire subject of the upstream test.
+// Original path: tests/ui/borrowck/regions-escape-unboxed-closure.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: line 5 — `with_int(&mut |y| x = Some(y));` //~ ERROR
+// Modifications:
+//   · isize -> i64
+//   · the closure parameter carries its type (`|y: &i64|`); Logos does not infer
+//     a closure parameter type from the `&mut dyn FnMut(&i64)` it is coerced to
+//   · assert -> exit code: `fn main() -> i32`
+package regions_escape_unboxed_closure;
+fn with_int(f: &mut dyn FnMut(&i64)) { }
+fn main() -> i32 {
+    let mut x: Option<&i64> = Option::None;
+    with_int(&mut |y: &i64| { x = Option::Some(y); });
+    return 0i32;
+}

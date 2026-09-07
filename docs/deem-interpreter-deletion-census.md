@@ -5442,9 +5442,24 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9399 -> 9409  +10
 #   NOIMPORTED   4961 -> 4971  +10
 #   TIERCOMMIT    172 ->  172    0
+# 2026-09-07 (STAGE 3 OF THE RE-PORT — the 25 rows of bc_admits_blocked.ledger
+#   re-ported as-is from upstream rustc; NO COMPILER SOURCE TOUCHED). FIVE ports
+#   re-ported to a REFUSAL at the same construct and MOVED off the admit shelf to
+#   tests/imported/fail/ with the diagnostic pinned: move-errors--d (nll),
+#   regions-escape-unboxed-closure (borrowck), and the three region-projection
+#   ones (regions-outlives-projection-container, -wc, and
+#   regions-assoc-type-in-supertrait-outlives-container).
+#   THE DELTA IS A SWAP AND ITS TWO HALVES ARE LABELLED DIFFERENTLY, which is why
+#   the counts move the way they do: each leaving program was registered as
+#   `logos_00_bc_admit_<dir>_<name>` (labels logos;pass;suite_semantic_core;
+#   tier_commit — NOT `imported`, so it counted in NOIMPORTED), and each arriving
+#   fixture is an imported fail fixture (labelled `imported`, so it does not).
+#   ALL          9409 -> 9409    0   (-5 admit tests, +5 imported fail fixtures)
+#   NOIMPORTED   4971 -> 4966   -5
+#   TIERCOMMIT    172 ->  167   -5
 REGISTRY-ALL         9409
-REGISTRY-NOIMPORTED  4971
-REGISTRY-TIERCOMMIT  172
+REGISTRY-NOIMPORTED  4966
+REGISTRY-TIERCOMMIT  167
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

@@ -1,0 +1,29 @@
+// rustc regions/regions-outlives-projection-container-wc.rs — upstream "lifetime may not live long enough"
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — RE-PORTED AS-IS 2026-09-07 (stage 3). Was bc_admits_blocked
+// LEGAL-AS-PORTED / lifereg.NEW-L3: the old port replaced upstream's
+// parameterless `let _: &'a WithAssoc<TheType<'b>> = loop { };` with a parameter
+// `x: &'a WithAssoc<TheType<'b>>`, which supplies `'b: 'a` as an implied bound.
+// The point of THIS file (vs its non-`-wc` sibling) is that the `T: TheTrait`
+// constraint sits in a WHERE CLAUSE, not in the parameter list — kept verbatim.
+// Original path: tests/ui/regions/regions-outlives-projection-container-wc.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: line 30 — `let _: &'a WithAssoc<TheType<'b>> = loop { };` //~ ERROR
+// Modifications:
+//   · `TheType<'b>`'s field `m: [fn(&'b()); 0]` -> `m: &'b i64` and `WithAssoc`'s
+//     `m: [T; 0]` -> `m: T`; upstream uses zero-length arrays only to name the
+//     parameters in a field. The `where T: TheTrait` clause is verbatim.
+//   · `&'b ()` -> `&'b i64`
+//   · `let _` -> `let x` (upstream's own FIXME #54943 notes NLL does not enforce
+//     the WF condition for a wildcard binding; the sibling file uses `_x` for the
+//     same reason)
+//   · assert -> exit code: `fn main() -> i32`
+package regions_outlives_projection_container_wc;
+trait TheTrait { type TheAssocType; }
+struct TheType<'b> { m: &'b i64 }
+impl<'b> TheTrait for TheType<'b> { type TheAssocType = &'b i64; }
+struct WithAssoc<T> where T: TheTrait { m: T }
+fn with_assoc<'a, 'b>() {
+    let x: &'a WithAssoc<TheType<'b>> = loop { };
+}
+fn main() -> i32 { return 0i32; }

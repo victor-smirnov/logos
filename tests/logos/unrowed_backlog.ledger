@@ -73,4 +73,24 @@ zonemut_fatzonemut_field   recorded   1  bug_zone_mut_reborrow_thin (memory)
 zonemut_fatslice_pattern   recorded   1  bug_zone_mut_reborrow_thin (memory)
     # FatSlice-typed field crossed with a pattern. Re-measure, then row.
 
-# TOTAL 13
+lt_turbofish_absent        defect     2  tests/imported/admit/regions/multiple-sources-for-outlives-requirement--{c24b,t24}
+    # 2026-09-07 — MISSING FEATURE, blocking a re-port. `f::<'_>(&v)` reports "unexpected
+    # type node code 131" while `call::<i64>()` compiles: a turbofish takes TYPE arguments
+    # only, no LIFETIME arguments. Both `multiple-sources-*` rows sit in
+    # bc_admits_blocked as BUCKET-4 because upstream's whole test IS
+    # `outlives_indir::<'_, 'b, _>(&mut 1u32)`. ⚠ A ROW IS ALREADY WAITING BEHIND IT:
+    # two probes written this round that pin `'b` INVARIANTLY instead of with a turbofish
+    # (`w: &mut &'b i64`, and `struct Inv<'b> { f: fn(&'b i64) -> &'b i64 }`, each against
+    # `fn outlives_indir<'a,'b>(x: &'a mut i64, w: ..) where 'a: 'b` called with
+    # `&mut 1i64`) are BOTH ADMITTED where rustc refuses. To make it a row: decide whether
+    # the invariant form is a re-port (it is not — it substitutes the construct) or its own
+    # finding, and if the latter, write it as a native fixture with its own root.
+const_expr_array_len_absent defect     1  tests/imported/admit/lifetimes/issue-64173-unused-lifetimes
+    # 2026-09-07 — MISSING FEATURE, blocking a re-port. An array length must be a literal:
+    # `struct Foo<'s> { array: [i64; size_of_t::<i64>()] }` reports "syntax error near
+    # 'struct'". Upstream's test is `[(); size_of::<&Self>()]` / `[(); foo::<&'a ()>()]`,
+    # so neither annotated half has a shape here. To make it a row: it is a LANGUAGE
+    # feature request, not a defect — decide with the owner whether const-expression array
+    # lengths are wanted at all before this is priced.
+
+# TOTAL 15

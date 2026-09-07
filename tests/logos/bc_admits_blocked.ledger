@@ -62,29 +62,51 @@
 #     substituted at the conformance site) LANDED in round 2026-09-04y after the
 #     rejection. A partially-landed compiler direction is a queue row.
 
-borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue  # LEGAL-AS-PORTED 2026-09-04 — &mk().v in a let init: the borrow, the field expr and mk() are all extending
-borrowck-borrowed-uniq-rvalue-2 bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2  # LEGAL-AS-PORTED 2026-09-04 — &mk() bound directly by a let: the textbook temporary-lifetime extension
-borrowck-let-suggestion lifereg.D tests/imported/admit/lifetimes/borrowck-let-suggestion  # LEGAL-AS-PORTED 2026-09-04 — Holder{p:&mk()} — a braced-struct operand in a let init is extending
-borrowck-move-out-of-struct-with-dtor bck.E tests/imported/admit/borrowck/borrowck-move-out-of-struct-with-dtor  # DIVERGENCE-DROP 2026-09-04 — let g = s.f out of a Drop S — the shape intrinsic.drop.skip-moved-out-paths is written for
-borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13  # DIVERGENCE-DROP 2026-09-04 — let S{f:inner} = s out of a Drop S, same clause
-borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13  # DIVERGENCE-DROP 2026-09-04 — let S{f:inner} = s out of a Drop S, same clause
-borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--b  # DIVERGENCE-DROP 2026-09-04 — T{a:2,b:s0.b} moves one field out of a Drop T, same clause
-borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--t17  # DIVERGENCE-DROP 2026-09-04 — T{a:2,..s0} FRU out of a Drop T, same clause
-copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions  # DIVERGENCE-A16 2026-09-04 — [x;4] needs Copy; Foo{f:&i64} is auto-Copy at every region
-do-not-ignore-lifetime-bounds-in-copy nllmoves.NEW-S7-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy  # DIVERGENCE-A16 2026-09-04 — Foo{v:&i64} is auto-Copy at every region; impl Copy for Foo<'static> is not a restriction here
-issue-36082 bck.D tests/imported/admit/borrowck/issue-36082  # LEGAL-AS-PORTED 2026-09-04 — &mk().a in a let init, same extension as borrowck-borrowed-uniq-rvalue
-issue-64173-unused-lifetimes lifereg.L4 tests/imported/admit/lifetimes/issue-64173-unused-lifetimes  # OWNER-CORPUS 2026-09-04 — struct Foo<'s>{n:i64}: E0392 would red five pass fixtures that declare unused lifetime params
-missing-lifetime-in-assoc-type-1 lifereg.R17 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-1  # LEGAL-AS-PORTED 2026-09-04 — impl<'a> Give for &S — no assoc type mentions 'a, so E0207 does not fire
-missing-lifetime-in-assoc-type-5 lifereg.N2 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-5  # LEGAL-AS-PORTED 2026-09-04 — impl<'a> Get for S — no assoc type at all, so E0207 does not fire
-missing-lifetime-in-assoc-type-6 lifereg.L4 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-6  # LEGAL-AS-PORTED 2026-09-04 — type Item = i64 does not mention 'a, so E0207 does not fire
-move-errors--d nllmoves.B tests/imported/admit/nll/move-errors--d  # LEGAL-AS-PORTED 2026-09-04 — let A{s:v} = *r with s: i64 is a COPY, not a move; upstream's field is not Copy
-multiple-sources-for-outlives-requirement--c24b lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--c24b  # LEGAL-AS-PORTED 2026-09-04 — no turbofish: 'b is only in the covariant &'b i64 arg and shrinks into the body
-multiple-sources-for-outlives-requirement--t24 lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--t24  # LEGAL-AS-PORTED 2026-09-04 — no turbofish: same covariant shrink, and the &mut 1i64 temp lives to the end of the statement
-region-bounds-on-objects-and-type-parameters lifereg.NEW-N4 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters  # OWNER-CORPUS 2026-09-04 — struct Foo<'a,'b,'c> with 'c unused: the same five-fixture E0392 wall
-regions-assoc-type-in-supertrait-outlives-container lifereg.L6 tests/imported/admit/regions/regions-assoc-type-in-supertrait-outlives-container  # LEGAL-AS-PORTED 2026-09-04 — same: the port's p: &'a WithAssoc<TheType<'b>> parameter supplies the implied bound
-regions-escape-unboxed-closure bck.B tests/imported/admit/borrowck/regions-escape-unboxed-closure  # LEGAL-AS-PORTED 2026-09-04 — the port dropped the closure; NLL accepts a stored borrow never used after its referent dies
-regions-in-enums-anon lifereg.R17 tests/imported/admit/regions/regions-in-enums-anon  # OWNER-CORPUS 2026-09-04 — elided & in an enum payload, pinned by pass/bc_enumpldlt_placeholder_payload_lifetime E1
-regions-in-structs-anon lifereg.NEW-L1 tests/imported/admit/regions/regions-in-structs-anon  # OWNER-CORPUS 2026-09-04 — elided & in a struct field is the Logos idiom: 134 legal declaration sites in 101 files
-regions-outlives-projection-container lifereg.NEW-N1 tests/imported/admit/regions/regions-outlives-projection-container  # LEGAL-AS-PORTED 2026-09-04 — upstream writes let _: .. = loop{} with NO parameter; the port takes v: &'a .. and gets implied bounds
-regions-outlives-projection-container-wc lifereg.NEW-L3 tests/imported/admit/regions/regions-outlives-projection-container-wc  # LEGAL-AS-PORTED 2026-09-04 — same: the port's x: &'a WithAssoc<TheType<'b>> parameter supplies the implied bound
-# TOTAL 25
+# ── 2026-09-07, STAGE 3 OF THE RE-PORT: 25 -> 12 ────────────────────────────
+# EVERY ONE OF THE 25 ROWS WAS RE-PORTED AS-IS FROM ITS UPSTREAM TEST at the
+# commit its port cites (scripts/report-worksheet.py, rustc checkout at
+# 4b0c9d76a). THIRTEEN ROWS LEFT THIS FILE, and the split of the thirteen is the
+# finding: EIGHT of them were not blocked at all — the PORT had moved the
+# construct to where the rule flips, and restoring the construct makes them
+# ordinary admitted DEFECTS, now rows in bc_admits.ledger. FIVE re-ported to a
+# REFUSAL at the same construct and are fail fixtures with the sentence pinned.
+# ⚠ NO COMPILER SOURCE WAS TOUCHED IN THAT ROUND. `git diff --stat` over src/
+# and include/ is empty; every verdict below is the unmodified compiler's.
+# What each surviving row now carries: the BUCKET it landed in, and the file
+# itself carries the full audit trail (`// Original path:`, the upstream
+# construct with its line numbers, and `// Modifications:`).
+#   BUCKET 3, blessed divergence (7) — the construct cannot exist here, and the
+#     clause is cited BY ID in the port. Five E0509 rows against
+#     `intrinsic.drop.skip-moved-out-paths` (docs/spec/expressions.md), and the
+#     clause was RE-VERIFIED BY RUNNING IT: a two-Drop struct with `let g = s.f`
+#     prints INNER_DROPS=1 S_DROPS=1 — no leak, no double free. Two A16 rows
+#     against DIVERGENCES.md A16 (structural auto-Copy, canonised 2026-08-24).
+#   BUCKET 4, implementation hole (3) — the re-port needs something the language
+#     does not have. Both `multiple-sources-*` rows need an explicit LIFETIME
+#     argument in a turbofish (`f::<'_>(..)` -> "unexpected type node code 131",
+#     while `call::<i64>()` compiles); `issue-64173-unused-lifetimes` needs a
+#     const-expression array length. Both are entries in unrowed_backlog.ledger.
+#   OWNER-CORPUS (2) — the two `regions-*-anon` ports are FAITHFUL as they stand
+#     (an elided `&` in a declaration, verbatim) and their wall was re-measured
+#     by direct listing: 195 bare-`&` declaration sites in 124 files (was
+#     recorded as 134 in 101 — it GREW), plus the explicit pass pin
+#     `bc_enumpldlt_placeholder_payload_lifetime`. ⚠ NOT a blessed divergence:
+#     no clause canonises it, searched 2026-09-07.
+# ⚠ WHERE THE E0392 WALL STANDS, RE-MEASURED 2026-09-07 rather than carried:
+#   6559 pass fixtures scanned for a struct/enum declaring a lifetime parameter
+#   its body never mentions — FIVE, in five files. The recorded "five pass
+#   fixtures" has NOT decayed.
+
+borrowck-move-out-of-struct-with-dtor bck.E tests/imported/admit/borrowck/borrowck-move-out-of-struct-with-dtor  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — E0509; clause intrinsic.drop.skip-moved-out-paths, RE-VERIFIED BY RUNNING (INNER_DROPS=1 S_DROPS=1)
+borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — same clause, same run evidence
+borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — same clause, same run evidence
+borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--b  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — T{a:2,b:s0.b} out of a Drop T, same clause
+borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--t17  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — T{a:2,..s0} FRU out of a Drop T, same clause
+copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions  # BUCKET-3 DIVERGENCE-A16 2026-09-07 — DIVERGENCES.md A16 structural auto-Copy: Foo{f:&i64} is Copy at EVERY region
+do-not-ignore-lifetime-bounds-in-copy nllmoves.NEW-S7-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy  # BUCKET-3 DIVERGENCE-A16 2026-09-07 — same clause; impl Copy for Foo<'static> restricts nothing here
+issue-64173-unused-lifetimes lifereg.L4 tests/imported/admit/lifetimes/issue-64173-unused-lifetimes  # BUCKET-4 HOLE 2026-09-07 — needs a const-expression array length ([(); size_of::<&Self>()]); backlog const_expr_array_len_absent. E0392 wall re-measured: still 5 fixtures
+multiple-sources-for-outlives-requirement--c24b lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--c24b  # BUCKET-4 HOLE 2026-09-07 — needs an explicit LIFETIME turbofish arg; backlog lt_turbofish_absent (an invariance probe IS admitted — a row waits behind it)
+multiple-sources-for-outlives-requirement--t24 lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--t24  # BUCKET-4 HOLE 2026-09-07 — same missing feature, same backlog entry
+regions-in-enums-anon lifereg.R17 tests/imported/admit/regions/regions-in-enums-anon  # OWNER-CORPUS 2026-09-07 — port is FAITHFUL; wall re-measured 195 bare-& sites in 124 files (was 134/101), pinned by pass/bc_enumpldlt_placeholder_payload_lifetime E1
+regions-in-structs-anon lifereg.NEW-L1 tests/imported/admit/regions/regions-in-structs-anon  # OWNER-CORPUS 2026-09-07 — port is FAITHFUL; same re-measured wall, 174 of the 195 sites are struct fields
+# TOTAL 12

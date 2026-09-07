@@ -1,12 +1,36 @@
 // rustc lifetimes/missing-lifetime-in-assoc-type-6.rs — upstream E0207 unconstrained lifetime parameter
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.L4
+// shelf: admit · root lifereg.NEW-E0207
+// RE-PORTED AS-IS 2026-09-07 (stage 3). The old port DROPPED THE ASSOCIATED TYPE
+// — it kept `impl<'a> ... for &S` but gave the impl no associated type mentioning
+// `'a`, so `'a` was merely unused rather than UNCONSTRAINED and E0207 legitimately
+// did not fire. It sat in bc_admits_blocked as LEGAL-AS-PORTED. The associated
+// type that names `'a` while `'a` appears in neither the trait nor the self type
+// is the whole subject of E0207, and it is restored here.
+// Original path: tests/ui/lifetimes/missing-lifetime-in-assoc-type-6.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 11-20 —
+//     impl<'a> Trait for &'_ S {         //~ ERROR E0207 unconstrained lifetime parameter
+//         type Item = &T;                //~ ERROR missing lifetime in associated type
+//         type IntoIter = std::collections::btree_map::Values<'a, i32, T>;
+// Modifications:
+//   · this is the one of the three where upstream itself declares the trait in the
+//     file (`trait Trait { type Item; type IntoIter; fn into_iter(self) -> ...; }`)
+//     rather than implementing `IntoIterator`, so THIS port is the closest to
+//     upstream of the three: only the trait's NAME changes (`Trait` -> `Tr`, to keep
+//     it out of the way of the keyword-adjacent name).
+//   · `Values<'a, i32, T>` -> `&'a i64` (a second mention of `'a`, nothing more)
+//   · `type Item = &T` -> `type Item = &'a T3` (what makes `'a` unconstrained)
+//   · unit structs -> one-field structs, `T` -> `T3`, `todo!()` -> a constant return
+//   · `fn into_iter(self) -> Self::IntoIter` -> `-> i64`: an associated-type return
+//     is not what E0207 is about and it keeps the fixture to one claim
 package missing_lifetime_in_assoc_type_6;
 struct S { n: i64 }
 struct T3 { n: i64 }
-trait Tr { type Item; fn get(self: Self) -> i64; }
-impl<'a> Tr for &S {
-  type Item = i64;
-  fn get(self: Self) -> i64 { return 1i64; }
+trait Tr { type Item; type IntoIter; fn into_iter(self: Self) -> i64; }
+impl<'a> Tr for &'_ S {             // THE DEFECT: admitted, upstream E0207
+    type Item = &'a T3;
+    type IntoIter = &'a i64;
+    fn into_iter(self: Self) -> i64 { return 1i64; }
 }
 fn main() -> i32 { return 0i32; }

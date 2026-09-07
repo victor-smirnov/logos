@@ -29111,3 +29111,169 @@ shape Rust itself forbids.
   * queue gate rc 0 at `# TOTAL` 67 · probe-log-lint 246 · build hash read back
     `4c4cc6a9cad1138c 43` · population pin 2923 -> 2928 / 2732 -> 2737 · registry pin
     9399 -> 9409 / 4961 -> 4971, +10 for ten fixtures each registered once.
+
+---
+
+## ROUND 2026-09-07 — STAGE 3 OF THE RE-PORT: THE 25 "BLOCKED" ROWS, RE-PORTED AS-IS. NO COMPILER TOUCHED.
+
+`git diff --stat -- src include` is EMPTY for this round. Every verdict below is the
+unmodified binary's; the only reason a build ran at all is that five test FILES moved and
+the CMake glob had to re-register them.
+
+### 1. THE CENSUS, FIRST
+
+  * soundness queue gate rc **0**, `# TOTAL` 67 (67 rows by direct listing).
+  * `bc_admits.ledger` 97 · `bc_admits_blocked.ledger` 25 · `unrowed_backlog.ledger` 13.
+  * probe-log-lint: 246 records, every site symbol resolves.
+  * build hash at the start: `4c4cc6a9cad1138c 43`.
+  * ⚠ THE STEP-1 GATE COMMAND IN THIS ROUND'S PROMPT **DOES** CARRY `LOGOS_LIB_DIR`. The
+    correction recorded for four rounds and then re-reported for two more after it was
+    fixed is now stale in the OTHER direction; it was checked against the prompt text in
+    front of this round, not against the journal.
+
+### 2. THE RESULT — 25 -> 12, AND THE SPLIT IS THE FINDING
+
+Thirteen rows left `bc_admits_blocked.ledger`, and only five of them left because a
+re-port is REFUSED. **EIGHT were never blocked at all**: the port had moved the construct
+to where the rule flips, and restoring the construct makes them ordinary admitted defects.
+The actionable ledger GREW 97 -> 105 and that is the round succeeding.
+
+    BUCKET 1  REFUSED at the same construct, moved to the fail shelf, row RETIRED   5
+    BUCKET 2  ADMITTED — a real defect, row moved to bc_admits.ledger                8
+    BUCKET 3  BLESSED DIVERGENCE, cited by clause ID, not ported                     7
+    BUCKET 4  IMPLEMENTATION HOLE, backlog entry naming the missing feature          3
+    OWNER-CORPUS (port already faithful, wall re-measured, stays)                    2
+
+### 3. THE FIVE THAT NOW REFUSE (bucket 1), WITH THE SENTENCE READ
+
+  * `move-errors--d` — the old port gave `A` an `i64` field, **auto-Copy under A16**, so
+    `let A{s:v} = *r` was a COPY. With upstream's `String` it is
+    "cannot move out of a value behind a reference / out of an index (E0507): the pattern
+    binds 'v' by value". Upstream E0507.
+  * `regions-escape-unboxed-closure` — the old port DROPPED THE CLOSURE. With it:
+    "borrowed data escapes the closure: 'y' is stored into 'x', which outlives the closure
+    call (E0521)".
+  * `regions-outlives-projection-container` — the old port replaced upstream's
+    parameterless `let _x: &'a WithAssoc<TheType<'b>> = loop { };` with a PARAMETER, which
+    supplies `'b: 'a` as an implied bound. Restored, **ALL FOUR** annotated sites refuse —
+    including the two `call::<&'a WithAssoc<TheType<'b>>>()` ones, reported as "turbofish
+    type argument of 'call': ... is not well-formed". Upstream's `with_assoc1` control
+    (`where 'b: 'a`) is kept IN the fixture and still compiles silently.
+  * `regions-outlives-projection-container-wc` and
+    `regions-assoc-type-in-supertrait-outlives-container` — same repair, one site each.
+
+### 4. THE EIGHT REAL DEFECTS (bucket 2), AND THREE ROOTS SEPARATED BY MEASUREMENT
+
+**`bck.NEW-BCS` — a temporary's borrow carried out inside a STRUCT loses the temporary's
+provenance.** Separated with a ONE-VARIABLE CONTROL PAIR, both returning a bare `&i64`
+from a method on a temporary receiver:
+
+    mkv().peek()            ->  REFUSED "temporary value dropped while borrowed"
+    mkv().guard().get()     ->  ADMITTED
+
+Three rows, three doors: a free call (`defer(&mk())` -> `Defer<'r>`,
+`borrowck-borrowed-uniq-rvalue-2`), a method on a temporary receiver (`mkv().iter()` ->
+`Iter<'s>`, `borrowck-let-suggestion`), and a `RefCell` guard (`x.borrow().get()`,
+`issue-36082`).
+
+**`lifereg.NEW-E0207`** — `impl<'a> Tr for &S { type Item = &'a T3; }`: the impl's lifetime
+parameter is in NEITHER the trait NOR the self type, and an associated type names it.
+Three rows (`missing-lifetime-in-assoc-type-1/5/6`).
+
+**`lifereg.NEW-E0226`** — `&'a dyn Is<'a> + 'b + 'c` parses and is accepted; upstream is
+"only a single explicit lifetime bound is permitted". docs/spec/types.md says `+ 'lt` is
+"recorded but not yet enforced". One row.
+
+`borrowck-borrowed-uniq-rvalue` keeps the EXISTING `bck.D` and is deliberately NOT grouped
+with the three BCS rows: its door is `h.insert(42i64, &*Box::new(1i64))` — a temporary
+borrowed in METHOD-ARGUMENT position with no borrow-carrying struct anywhere — and nothing
+measured this round says one change moves both.
+
+### 5. ⚠ RULE 5 EARNED ITS KEEP, AND IT COST A WRONG BUCKET FOR TWENTY MINUTES
+
+`region-bounds-on-objects-and-type-parameters` was written down as BUCKET 4 on the strength
+of a probe that reported `syntax error near ''c'`. The probe was
+`&'a (dyn Isx<'a> + 'b + 'c)` — **the PARENTHESES are what the parser rejected**.
+Unparenthesised, `&'a dyn Isx<'a> + 'b + 'c` compiles clean. One hand program of one syntax
+had produced a confident "missing feature" verdict about a live defect. Vary the SHAPE.
+
+### 6. THE TWO CLAUSES, RE-VERIFIED RATHER THAN CITED
+
+  * `intrinsic.drop.skip-moved-out-paths` — RE-VERIFIED BY RUNNING IT, not by reading it.
+    `struct S { f: Inner }`, `impl Drop` on BOTH, `let g = s.f;`, a `static mut` counter per
+    type: **INNER_DROPS=1 S_DROPS=1**. `S::drop` runs once, the moved-out field is dropped
+    once through `g`, the owner skips it. No leak, no double free. The five E0509 rows are a
+    divergence that is IMPLEMENTED, not merely declared.
+  * DIVERGENCES.md **A16** (structural auto-Copy, canonised by Victor 2026-08-24) — the two
+    `Copy`-at-`'static` rows cannot exist here: `Foo<'a>{ f: &'a i64 }` is Copy at every
+    region, so the written `impl Copy for Foo<'static>` restricts nothing.
+
+### 7. THE WALLS, RE-MEASURED BY DIRECT LISTING (a decline decays)
+
+  * **E0392** (unused lifetime parameter): 6559 pass fixtures scanned for a struct/enum
+    declaring a lifetime parameter its body never mentions — **FIVE, in five files**
+    (`tests/logos/pass/struct_lifetime_param` `View<'z>`, `.../struct_lifetime_generic`
+    `Slice<'z>`, `.../zoned_storage_pin_acceptance` `WritView<'a>`,
+    `tests/imported/pass/variance/variance-bivariant-unused` `Marker<'a>`,
+    `tests/spec/pass/generic_2` `LtMarker<'a>`). The recorded "five" has NOT decayed.
+  * **elided `&` in a declaration**: recorded as "134 legal declaration sites in 101 files";
+    re-measured over 6784 pass/stdlib sources it is **195 sites in 124 files** (174 struct
+    fields, 21 enum payloads) — it GREW. Plus the explicit pass pin
+    `bc_enumpldlt_placeholder_payload_lifetime` `enum E1 { V(&i64) }`.
+    ⚠ THIS IS NOT A BLESSED DIVERGENCE. No clause in DIVERGENCES.md or docs/spec/ canonises
+    it (searched 2026-09-07). It is a corpus decision with an owner, and the two
+    `regions-*-anon` rows stay OWNER-CORPUS on that basis, not on a clause.
+
+### 8. PREDICTION vs OUTCOME — 20 of 25 right, and the five wrong all have one cause
+
+Predicted before writing anything, diffed both ways afterwards:
+
+    predicted  1:1   2:11  3:7  4:4  S:2
+    actual     1:5   2:8   3:7  4:3  S:2
+
+    issue-36082                                 pred 4 -> actual 2   (assumed a stdlib hole)
+    regions-escape-unboxed-closure              pred 2 -> actual 1
+    regions-outlives-projection-container       pred 2 -> actual 1
+    regions-outlives-projection-container-wc    pred 2 -> actual 1
+    regions-assoc-type-in-supertrait-...        pred 2 -> actual 1
+
+Every error is a GUESS AT CAPABILITY where a two-line probe was available. Four times the
+guess was "this checker is permissive" and the region-WF checker is not; once it was
+"the stdlib does not have RefCell" and it does (`logos.lang.cell`, with `Ref<T>::get`
+standing in for `Deref`). ⚠ The two directions cost differently: predicting 2 where the
+truth is 1 merely under-claims coverage; predicting 4 where the truth is 2 FILES A REAL
+DEFECT AS A MISSING FEATURE and hides it.
+
+### 9. THE BACKLOG GAINS TWO, AND ONE OF THEM HAS A ROW WAITING BEHIND IT
+
+  * `lt_turbofish_absent` — `f::<'_>(&v)` reports "unexpected type node code 131" while
+    `call::<i64>()` compiles: no LIFETIME arguments in a turbofish. ⚠ Two probes that pin
+    `'b` INVARIANTLY instead (`w: &mut &'b i64`; `struct Inv<'b> { f: fn(&'b i64) -> &'b i64 }`)
+    against `fn outlives_indir<'a,'b>(x: &'a mut i64, w: ..) where 'a: 'b` called with
+    `&mut 1i64` are BOTH ADMITTED where rustc refuses. That is a defect, and it is in the
+    backlog rather than in the ledger because substituting invariance for the turbofish
+    substitutes the CONSTRUCT, which a re-port may not do.
+  * `const_expr_array_len_absent` — an array length must be a literal.
+
+### 10. THE AUDIT TRAIL IS THE DURABLE FIX, AND IT IS NOW MEASURABLE
+
+Before: all 122 admit-shelf ports declared NO modifications while 1481 ports elsewhere
+carried a `// Modifications:` block. After: `scripts/imported-provenance.py` reports
+`port_declares_modifications: yes=1506` (+25, exactly the 25 files this round touched).
+Every one of the 25 now carries `// Original path:`, the upstream commit, the upstream
+construct WITH ITS LINE NUMBERS, and either `Modifications: none — ...` with the reason it
+is not portable, or an exact list.
+
+### 11. THE COLUMNS
+
+  * **L1 rc 0** — 777/777, 12 684 generated smoke cases, 167 tier_commit gates.
+  * **`bc_admits_ledger_gate.sh` rc 0** — 117 rows over 2 ledgers, 105 + 12, each `# TOTAL`
+    held against its own row count.
+  * **soundness queue gate rc 0** at `# TOTAL` 67, unchanged by this round.
+  * census pin 9409/4971/172 -> 9409/**4966**/**167**. The delta is a SWAP whose halves are
+    labelled differently: each leaving admit test was `tier_commit` and NOT `imported`, each
+    arriving fail fixture is `imported`. ALL is flat, the other two drop 5.
+  * build hash `4c4cc6a9cad1138c 43` -> `f812a8b998ecde2b 43`. ⚠ READ, AND EXPLAINED: NO
+    compiler source changed; the hash covers `bin/logosc` and `lib/logos/**`, and those were
+    RELINKED by the reconfigure the five moved test files forced. `git diff --stat -- src
+    include` is empty, which is the claim the hash cannot make.

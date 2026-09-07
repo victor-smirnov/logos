@@ -1,0 +1,1 @@
+let annotation: type `&'a WithAssoc<TheType<'b>>` is not well-formed — the reference under `'a` requires `'b: 'a` and no such bound is declared

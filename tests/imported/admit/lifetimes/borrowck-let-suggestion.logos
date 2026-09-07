@@ -1,12 +1,35 @@
 // rustc lifetimes/borrowck-let-suggestion.rs — upstream E0716
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.D
+// RE-PORTED AS-IS 2026-09-07 (stage 3). The old port was
+// `let h: Holder = Holder { p: &mk() };` — a braced-struct OPERAND in a `let`
+// initializer, an extending expression in Rust, so it was legal and sat in
+// bc_admits_blocked as LEGAL-AS-PORTED. Upstream calls a METHOD ON A TEMPORARY
+// RECEIVER and binds the borrow-carrying result; extension does not reach there.
+// Original path: tests/ui/lifetimes/borrowck-let-suggestion.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 2-4 —
+//     let mut x = vec![1].iter();
+//     //~^ ERROR temporary value dropped while borrowed
+//     x.use_mut();
+// Modifications:
+//   · `vec![1]` -> `mkv() -> Vecish`, `.iter()` -> an inherent `iter(&'s self) ->
+//     Iter<'s>`; upstream's `Vec`/`slice::Iter` pair is exactly this shape (a
+//     receiver temporary and an iterator STRUCT carrying a borrow of it), and the
+//     borrow-carrying return type is the whole subject.
+//   · the `Fake` blanket-impl trait (`use_mut`) exists upstream only to give the
+//     iterator a later use -> `*x.p` reads through the dangling borrow instead
+//   · assert -> exit code: `fn main() -> i32`
+// ⚠ MEASURED 2026-09-07: the SAME method-on-a-temporary shape IS refused when the
+// method returns a bare `&T` ("temporary value dropped while borrowed"); it is
+// admitted only when the borrow is carried inside a returned STRUCT. That
+// difference is the root, and it is what the old port could not show.
 package borrowck_let_suggestion;
-// port of lifetimes/borrowck-let-suggestion.rs — temporary dropped while borrowed
-struct Holder { p: &i64 }
-fn mk() -> i64 { return 7i64; }
+struct Vecish { n: i64 }
+struct Iter<'a> { p: &'a i64 }
+impl Vecish { fn iter<'s>(self: &'s Vecish) -> Iter<'s> { return Iter { p: &self.n }; } }
+fn mkv() -> Vecish { return Vecish { n: 1i64 }; }
 fn main() -> i32 {
-  let h: Holder = Holder { p: &mk() };
-  if *h.p != 7i64 { return 1i32; }
-  return 0i32;
+    let mut x: Iter = mkv().iter();   // THE DEFECT: admitted, upstream E0716
+    return *x.p as i32;
 }

@@ -1,6 +1,20 @@
 // rustc nll/do-not-ignore-lifetime-bounds-in-copy.rs — upstream E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.NEW-S7-1
+// ── BUCKET 3, BLESSED DIVERGENCE — NOT RE-PORTED, AND NOT A DEFECT. 2026-09-07.
+// Original path: tests/ui/nll/do-not-ignore-lifetime-bounds-in-copy.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: line 8 — `let a = Foo(&s);` //~ ERROR `s` does not live long
+//   enough [E0597]. `struct Foo<'a>(&'a u32)` with `impl Copy for Foo<'static> {}`:
+//   the two `drop(a)` calls need `Foo<'_>: Copy`, which holds only at `'static`,
+//   which forces `&s` to be `'static` — and `s` is a local.
+// Modifications: none — NOT PORTED AS-IS AND NOT PORTABLE AS-IS, for exactly the
+//   reason `copy-modulo-regions` is not: DIVERGENCES.md A16 (structural auto-Copy,
+//   CANONISED BY VICTOR 2026-08-24) makes `Foo<'a> { v: &'a i64 }` Copy at EVERY
+//   region, so the `impl Copy for Foo<'static>` the test turns on is not a
+//   restriction here and the second use of `a` is an ordinary copy.
+// The file stays on the admit shelf and keeps its row in
+// tests/logos/bc_admits_blocked.ledger; it is not a hole and never was.
 package do_not_ignore_lifetime_bounds_in_copy;
 struct Foo<'a> { v: &'a i64 }
 impl Copy for Foo<'static> {}
