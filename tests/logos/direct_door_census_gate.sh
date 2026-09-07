@@ -1512,9 +1512,20 @@ PIN = {
     # and refslot_shape_controls_ctl. Their two one-token fail twins are NOT in
     # this population (it is `pass`).
     # `ls tests/logos/pass/refslot_*.logos | wc -l` -> 7.
-    'corpus'            : 2918,
+    # 2026-09-07v: 2918 -> 2923. FIVE pass fixtures, all non-glob, of the
+    # parameter-position `mut`-modifier class — the closed row's own program
+    # (patparammut_fn_tuple_param), the two unrowed fn-param struct siblings
+    # (patparammut_fn_struct_param, patparammut_fn_struct_rename_param), the
+    # unrowed closure sibling (patparammut_closure_tuple_param) and the
+    # destructor-count member (patparammut_fn_tuple_movetype). Their five
+    # one-token fail twins are NOT in this population (it is `pass`), and the
+    # queue shelf is net zero (one program left, one arrived).
+    # `ls tests/logos/pass/patparammut_*.logos | wc -l` -> 5.
+    # RE-DERIVED BY DIRECT LISTING: `ls tests/logos/pass/*.logos | wc -l` -> 2923,
+    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2923 = 191 + 2732.
+    'corpus'            : 2923,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2727,  # +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2732,  # +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

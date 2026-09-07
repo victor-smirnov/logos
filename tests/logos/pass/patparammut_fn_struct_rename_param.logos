@@ -1,0 +1,19 @@
+// The RENAMED spelling of the same field binder — `P { x: mut xx, y }` — carries
+// its `mut` on the sub-pattern node, not on the PAT_FIELD, so the fn-param struct
+// door has to ask BOTH (the match/let doors already did). The one-token twin
+// patparammut_fn_struct_rename_other_fail assigns `y` instead of `xx` and pins
+// that the modifier is per binder: `y` in this very pattern stays immutable.
+package patparammut_fn_struct_rename_param;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { x: i64, y: i64 }
+fn probe(P { x: mut xx, y }: P) -> i64 {
+    xx = xx + 1i64;
+    return xx + y;
+}
+fn main() -> i32 {
+    let p: P = P { x: 3i64, y: 4i64 };
+    let r: i64 = probe(p);
+    unsafe { printf("%ld\n".as_ptr(), r); }
+    if r != 8i64 { return 1i32; }
+    return 0i32;
+}

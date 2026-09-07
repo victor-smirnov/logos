@@ -1,0 +1,20 @@
+// The fn-param STRUCT door is the second site of the same class: `P { mut x, y }`
+// at a parameter position built its prologue `let` with `is_mut` a literal false,
+// so `x = x + 1` was refused "assignment to immutable variable 'x'". No queue row
+// named this sibling — it was found by enumerating the class BY THE PROPERTY (a
+// parameter-position pattern binder that hardcodes mutability) rather than by the
+// spelling in the row that did exist (the tuple door).
+package patparammut_fn_struct_param;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { x: i64, y: i64 }
+fn probe(P { mut x, y }: P) -> i64 {
+    x = x + 1i64;
+    return x + y;
+}
+fn main() -> i32 {
+    let p: P = P { x: 3i64, y: 4i64 };
+    let r: i64 = probe(p);
+    unsafe { printf("%ld\n".as_ptr(), r); }
+    if r != 8i64 { return 1i32; }
+    return 0i32;
+}

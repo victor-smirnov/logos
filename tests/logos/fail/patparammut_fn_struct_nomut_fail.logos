@@ -1,0 +1,13 @@
+// ONE TOKEN from patparammut_fn_struct_param (the `mut` on `x` is gone): a
+// shorthand struct-pattern field binder in a parameter is immutable.
+package patparammut_fn_struct_nomut_fail;
+struct P { x: i64, y: i64 }
+fn probe(P { x, y }: P) -> i64 {
+    x = x + 1i64;
+    return x + y;
+}
+fn main() -> i32 {
+    let p: P = P { x: 3i64, y: 4i64 };
+    if probe(p) != 8i64 { return 1i32; }
+    return 0i32;
+}

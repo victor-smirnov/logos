@@ -1,0 +1,60 @@
+ROUND 2026-09-07v — PREDICTION, written BEFORE the compiler is touched.
+
+CLASS (by the PROPERTY, not a spelling): a PARAMETER-POSITION pattern binder
+materialisation site that constructs the binding's mutability as a literal
+`false` instead of reading the binder's `mut` modifier off the pattern node.
+
+Enumerated by reading every site outside sema_stmt.cpp that pairs a `define()`
+with a `lir::SLet` built from a pattern SUB-NODE. Three sites, four measured
+member programs:
+
+  S1 sema_decl.cpp fn TUPLE param   collect define(users[k], elems[k])   ~1158
+                                    prologue sl.is_mut = false           ~1521
+  S2 sema_decl.cpp fn STRUCT param  collect define(bname, ftype)         ~1113
+                                    prologue sl.is_mut = false           ~1569
+  S3 sema_expr.cpp closure TUPLE    collect define(tp.users[k], elems[k]) ~17364
+                                    prologue sl.is_mut = false           ~17429
+
+Not members (checked, correct today): `fn f(mut x: T)` (fn_mut_params, is_mut
+true), `|mut x|` (mut_binds, is_mut true), `|ref x|` (ref_binds, a &T alias),
+the for-header (emit_for_pattern_destructure already calls pat_byval_mut), and
+all 21 pattern-binder sites inside sema_stmt.cpp (each already calls it).
+Census: `grep -n "is_mut *= *false"` over sema_decl.cpp + sema_expr.cpp = 24
+hits, of which exactly 3 are pattern-param binder sites (1521, 1569, 17429);
+17417 is the ref-bind alias and the other 20 are synthesised temps.
+
+PREDICTED CLOSED SET — 1 SOUNDNESS-QUEUE ROW, BY NAME:
+  fnparam_tuple_mut_modifier_dropped
+
+PREDICTED to move but HAVE NO ROW (siblings of the same class, measured
+refusing on 5a38bfbe7301f583 43):
+  fn STRUCT param shorthand   `fn probe(P { mut x, y }: P)`     -> compiles, exit 0
+  fn STRUCT param rename      `fn probe(P { x: mut xx, y }: P)` -> compiles, exit 0
+  closure TUPLE param         `|(mut a, b): (i64,i64)|`         -> compiles, exit 0
+
+PREDICTED NOT to move (abuse direction — must STAY refused, same sentence):
+  `fn probe((a, b): (i64,i64))` with `a = a + 1;`   "assignment to immutable variable 'a'"
+  `fn probe(P { x, y }: P)`     with `x = x + 1;`   "assignment to immutable variable 'x'"
+
+PREDICTED unaffected: every other queue row.
+
+DECLINED THIS ROUND, BY NAME:
+  fnparam_array_pattern_binds_nothing  — probed arm gives destructor sequence 64
+                                         where Rust's is 12; needs move-marking.
+  for_header_pattern_tuple_only        — the row is a WHITELIST of five spellings;
+                                         the struct half alone closes the row and
+                                         leaves four members open, and the array
+                                         half SEGFAULTs (139) under the probed arm.
+  match_tuple_door_nested_struct_binds_nothing — doors in SERIES (bind_pattern_ref,
+                                         collect_pat_bindings, declare_pat_bindings
+                                         all lack a Struct sub-arm).
+  closure_param_struct_pattern_syntax  — grammar, rc 4 before sema.
+  struct_fields_dropped_reverse_order / tuple_elems_dropped_reverse_order
+                                       — OWNER DECISION (spec rule
+                                         expr.drop.tuple-array-reverse + 12 fixtures).
+
+NEW DEFECT found while writing counter-examples, no row today:
+  fn TUPLE param with a NESTED tuple sub-pattern — `fn probe(((a,b),c): ((i64,i64),i64))`
+  is refused "undefined variable 'a'". Same shape as
+  match_tuple_door_nested_struct_binds_nothing but at the fn-param door.
+  -> add as a queue row (tier 3, refuses) in this commit.

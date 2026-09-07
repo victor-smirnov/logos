@@ -5411,8 +5411,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9380 -> 9389  +9
 #   NOIMPORTED   4942 -> 4951  +9
 #   TIERCOMMIT    172 ->  172   0
-REGISTRY-ALL         9389
-REGISTRY-NOIMPORTED  4951
+# 2026-09-07v (the `mut` modifier at the PARAMETER-position pattern doors). TEN
+#   new fixtures, each registered ONCE, none carrying the `imported` label and
+#   none in tier_commit (the oracle is stdout + an exit code, and for the
+#   move-typed member a DESTRUCTOR COUNT on stdout; no valgrind gate): five pass
+#   halves pass/patparammut_fn_tuple_param, patparammut_fn_struct_param,
+#   patparammut_fn_struct_rename_param, patparammut_closure_tuple_param and
+#   patparammut_fn_tuple_movetype, plus their five one-token fail twins
+#   fail/patparammut_fn_tuple_nomut_fail, patparammut_fn_struct_nomut_fail,
+#   patparammut_fn_struct_rename_other_fail, patparammut_closure_tuple_nomut_fail
+#   and patparammut_fn_tuple_movetype_nomut_fail.
+#   The closed queue program left tests/soundness/open and one new queue program
+#   arrived there; both are registered nowhere, so neither count moves for them.
+#   ALL          9389 -> 9399  +10
+#   NOIMPORTED   4951 -> 4961  +10
+#   TIERCOMMIT    172 ->  172    0
+REGISTRY-ALL         9399
+REGISTRY-NOIMPORTED  4961
 REGISTRY-TIERCOMMIT  172
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

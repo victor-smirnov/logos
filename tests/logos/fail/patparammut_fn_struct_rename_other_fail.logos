@@ -1,0 +1,14 @@
+// ONE TOKEN from patparammut_fn_struct_rename_param (`xx` -> `y` on the assigned
+// place): `mut` on ONE field binder does not make the pattern's other binders
+// mutable. A per-pattern reading of the modifier would compile this.
+package patparammut_fn_struct_rename_other_fail;
+struct P { x: i64, y: i64 }
+fn probe(P { x: mut xx, y }: P) -> i64 {
+    y = y + 1i64;
+    return xx + y;
+}
+fn main() -> i32 {
+    let p: P = P { x: 3i64, y: 4i64 };
+    if probe(p) != 8i64 { return 1i32; }
+    return 0i32;
+}

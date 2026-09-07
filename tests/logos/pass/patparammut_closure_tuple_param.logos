@@ -1,0 +1,21 @@
+// The CLOSURE tuple-param door is the third site of the same class, in a
+// different translation unit (sema_expr.cpp's lower_closure_expr) and with its
+// own copy of the walk. `|(mut a, b): (i64, i64)|` dropped the modifier exactly
+// as the fn door did. The closure is called TWICE so the prologue's mutable
+// local is proven to be re-materialised per call, not shared.
+package patparammut_closure_tuple_param;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let f = |(mut a, b): (i64, i64)| -> i64 {
+        a = a * 2i64;
+        return a + b;
+    };
+    let t1: (i64, i64) = (3i64, 4i64);
+    let t2: (i64, i64) = (5i64, 1i64);
+    let r1: i64 = f(t1);
+    let r2: i64 = f(t2);
+    unsafe { printf("%ld %ld\n".as_ptr(), r1, r2); }
+    if r1 != 10i64 { return 1i32; }
+    if r2 != 11i64 { return 2i32; }
+    return 0i32;
+}

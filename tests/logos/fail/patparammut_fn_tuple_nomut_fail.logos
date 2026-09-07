@@ -1,0 +1,13 @@
+// ONE TOKEN from patparammut_fn_tuple_param (the `mut` on `a` is gone): a bare
+// tuple-element binder in a parameter pattern is IMMUTABLE, and the assignment
+// must still be refused. The modifier is read per binder, never per pattern.
+package patparammut_fn_tuple_nomut_fail;
+fn probe((a, b): (i64, i64)) -> i64 {
+    a = a + 1i64;
+    return a + b;
+}
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    if probe(t) != 8i64 { return 1i32; }
+    return 0i32;
+}

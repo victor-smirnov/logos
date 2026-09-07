@@ -113,6 +113,20 @@ namespace sema_detail {
     using writ::MemHolder;
 }
 
+// `mut x` in a pattern (IS_MUT without IS_REF; `ref mut` is another mode) binds
+// BY VALUE, mutable. THE ONE READER — every pattern binder's SLet AND define
+// asks it, at the match/if-let/while-let/for doors (sema_stmt.cpp) and at the
+// fn-param and closure-param doors (sema_decl.cpp / sema_expr.cpp).
+// `patmutoff` = the control twin.
+inline bool pat_byval_mut(writ::TinyMapView n) {
+    auto flag = [&](const ast::Key& k) {
+        return n.has_key(k) && n.get(k.code).is_value() &&
+               n.get(k.code).as_value<uint8_t>() != 0;
+    };
+    return !logos::probe::on("patmutoff") &&
+           flag(ast::IS_MUT) && !flag(ast::IS_REF);
+}
+
 // M5 step 3b: snapshot of all collect()-mutated symbol tables + the
 // "already collected" holder set. Held by SemaCacheImpl across the
 // 5+ sema_lower invocations per compile session. Defined in

@@ -1,0 +1,21 @@
+// THE ASSERTION IS A DESTRUCTOR COUNT, because making a parameter binder mutable
+// is a change to what the prologue `let` OWNS: a `mut` element binder still moves
+// the element out of the synth parameter exactly once, so each of the two values
+// must be destroyed exactly once. An exit code cannot tell a leak from a double
+// free; the stdout below is one line per `drop` call, in order.
+package patparammut_fn_tuple_movetype;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+trait Drop { fn drop(self: Self); }
+struct D { v: i64 }
+impl Drop for D { fn drop(self: D) { printi("d%d ", self.v as i32); } }
+fn probe((mut a, b): (D, D)) -> i64 {
+    a.v = a.v + 1i64;
+    return a.v + b.v;
+}
+fn main() -> i32 {
+    let t: (D, D) = (D { v: 3i64 }, D { v: 4i64 });
+    let r: i64 = probe(t);
+    if r != 8i64 { return 1i32; }
+    return 0i32;
+}

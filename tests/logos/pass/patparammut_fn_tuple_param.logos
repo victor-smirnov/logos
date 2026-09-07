@@ -1,0 +1,20 @@
+// THE `mut` MODIFIER IS A PROPERTY OF THE BINDER, AND A PARAMETER IS A PATTERN.
+// `fn probe((mut a, b): (i64, i64))` makes `a` a mutable binding; the fn-param
+// tuple door used to build its prologue `let` with `is_mut` a literal false and
+// `define()` with no mutability at all, so the body's `a = a + 1` was refused
+// "assignment to immutable variable 'a'" (soundness-queue row
+// fnparam_tuple_mut_modifier_dropped, closed here). `b` stays immutable — the
+// one-token twin patparammut_fn_tuple_nomut_fail pins the other direction.
+package patparammut_fn_tuple_param;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn probe((mut a, b): (i64, i64)) -> i64 {
+    a = a + 1i64;
+    return a + b;
+}
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    let r: i64 = probe(t);
+    unsafe { printf("%ld\n".as_ptr(), r); }
+    if r != 8i64 { return 1i32; }
+    return 0i32;
+}

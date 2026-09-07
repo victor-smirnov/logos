@@ -1,0 +1,12 @@
+// ONE TOKEN from patparammut_closure_tuple_param (the `mut` on `a` is gone): a
+// closure tuple-param element binder without the modifier stays immutable.
+package patparammut_closure_tuple_nomut_fail;
+fn main() -> i32 {
+    let f = |(a, b): (i64, i64)| -> i64 {
+        a = a * 2i64;
+        return a + b;
+    };
+    let t1: (i64, i64) = (3i64, 4i64);
+    if f(t1) != 10i64 { return 1i32; }
+    return 0i32;
+}

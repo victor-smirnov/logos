@@ -1,0 +1,28 @@
+// SOUNDNESS QUEUE row fnparam_struct_ref_mut_field_binds_byvalue (tier 3). A
+// `ref mut` field binder in a FUNCTION-PARAMETER struct pattern —
+// `fn probe(P { ref mut x, y }: P)` — is legal Rust: `x` binds `&mut i64` at the
+// field's place, so `*x = *x + 1` is a write through a mutable reference. TODAY
+// the parameter position's own struct walk (sema_decl.cpp `lower_fn`, the
+// `PatFnParam` collect and its body prologue) reads only the field NAME and the
+// optional rename; it never looks at IS_REF, so `x` is bound BY VALUE at the
+// field type and the body is refused with two sentences that are both about a
+// binding it does not have:
+//     write through raw pointer requires unsafe context
+//     deref-write: '=' left side must be a pointer or mutable reference
+// The same `ref mut` field binder in a `let`, a `match` arm and an `if let`
+// carries its mode (`pat.binding.explicit-ref-mut`), so this is the parameter
+// door, not the modifier. `ref` (shared) at the same position is the same gap.
+// MEASURED 2026-09-07v identically on the base compiler e045ad449 and on the
+// `mut`-modifier landing — the modifier fix is orthogonal, `pat_byval_mut`
+// excludes IS_REF by construction. Rust: exit 0.
+package fnparam_struct_ref_mut_field_binds_byvalue;
+struct P { x: i64, y: i64 }
+fn probe(P { ref mut x, y }: P) -> i32 {
+    *x = *x + 1i64;
+    if *x + y != 8i64 { return 1i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let p: P = P { x: 3i64, y: 4i64 };
+    return probe(p);
+}

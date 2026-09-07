@@ -1020,6 +1020,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // C5-cl-07).
     struct TupleFnParam {
         std::vector<std::string> users;
+        std::vector<uint8_t>     muts;   // `(mut a, b)` — per-element byval-mut
         std::string              synth;
         TypeRef                  ty;
     };
@@ -1111,8 +1112,12 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                                             if (sinfo)
                                                 for (auto& f : sinfo->fields)
                                                     if (f.name == fname) { ftype = f.type; break; }
+                                            const bool fbmut =
+                                                pat_byval_mut(fnode) ||
+                                                (fnode.has_key(la::VALUE) &&
+                                                 pat_byval_mut(map_of(fnode.get(la::VALUE.code))));
                                             if (bname != "_") {
-                                                define(bname, ftype);
+                                                define(bname, ftype, fbmut);
                                                 // Same step as the tuple form above: the prologue's
                                                 // `let <bname> = <synth>.<fname>;` moves the field out.
                                                 if (is_move_type(ftype))
@@ -1140,6 +1145,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                             if (nmap.has_key(la::ITEMS)) {
                                 auto narr = arr_of(nmap.get(la::ITEMS.code));
                                 std::vector<std::string> users;
+                                std::vector<uint8_t> umuts;
                                 for (uint64_t k = 0; k < narr.size(); ++k) {
                                     auto sub = map_of(narr.get(k));
                                     if (code_of(sub) == la::PAT_WILD &&
@@ -1148,6 +1154,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                                             str_of(sub.get(la::NAME.code)));
                                     else
                                         users.emplace_back("_");
+                                    umuts.push_back(pat_byval_mut(sub) ? 1 : 0);
                                 }
                                 std::string synth = std::format(
                                     "__tup_param_{}__{}", mangled, i);
@@ -1156,7 +1163,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                                     auto elems = TypeRef(pt).tuple_elems();
                                     for (size_t k = 0; k < users.size() && k < elems.size(); ++k)
                                         if (users[k] != "_") {
-                                            define(users[k], elems[k]);
+                                            define(users[k], elems[k], umuts[k] != 0);
                                             // The prologue's `let <user> = <synth>.<k>;` MOVES the
                                             // element out of the synth param — mark it so the synth's
                                             // scope-exit Drop skips it (double-free else). HERE, not
@@ -1166,7 +1173,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                                                 mark_moved(std::format("{}.{}", synth, k));
                                         }
                                 }
-                                fn_tuple_params.push_back({std::move(users), synth, pt});
+                                fn_tuple_params.push_back({std::move(users), std::move(umuts), synth, pt});
                                 params.push_back({synth, pt, false});
                                 continue;
                             }
@@ -1518,7 +1525,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                     lir::SLet sl;
                     sl.name   = tp.users[k];
                     sl.type   = elems[k];
-                    sl.is_mut = false;
+                    sl.is_mut = k < tp.muts.size() && tp.muts[k] != 0;
                     sl.value  = builder().tuple_index(
                         builder().var_ref(tp.synth, tp.ty),
                         (uint32_t)k, elems[k]);
@@ -1566,7 +1573,10 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                         lir::SLet sl;
                         sl.name   = bname;
                         sl.type   = ftype;
-                        sl.is_mut = false;
+                        sl.is_mut =
+                            pat_byval_mut(fnode) ||
+                            (fnode.has_key(la::VALUE) &&
+                             pat_byval_mut(map_of(fnode.get(la::VALUE.code))));
                         sl.value  = builder().field_read(
                             builder().var_ref(pp.synth, pp.ty), fname, ftype);
                         prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));

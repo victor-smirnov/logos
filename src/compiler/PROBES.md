@@ -28757,3 +28757,126 @@ observable IS a sequence.
     branches are Victor's.
   * **tupstruct — not funded this round.** Doors in series across four walkers;
     price it as the multi-walker job the census shows it to be.
+
+## 2026-09-07v — THE `mut` MODIFIER IS A PROPERTY OF ONE BINDER, AND THREE PARAMETER-POSITION DOORS ANSWERED IT WITH A LITERAL `false`
+
+**LANDED.** One soundness-queue row closed (`fnparam_tuple_mut_modifier_dropped`),
+one new row opened (`fnparam_tuple_nested_sub_binds_nothing`, found while writing
+the counter-examples), `# TOTAL` 65 -> 65 re-derived BY DIRECT LISTING with 65
+programs on the shelf.
+
+### The class, enumerated BY THE PROPERTY
+
+The property is: *a site that materialises a pattern binder (a sema `define()`
+paired with an emitted `lir::SLet`) from a pattern sub-node and constructs its
+mutability as a constant instead of reading the binder's own modifier.*
+
+`pat_byval_mut` was a `static` in `sema_stmt.cpp`, so the twenty-one binder sites
+in that translation unit all asked it and NO site outside it could. It is now an
+`inline` in `sema_impl.hpp` in namespace `logos::compiler` — ONE reader, visible
+to every sema TU, `patmutoff` still its control twin.
+
+Members, found by reading every `define()`/`SLet` pair built from a pattern
+sub-node outside `sema_stmt.cpp` — three sites, four measured programs:
+
+| # | door | collect site | prologue site | row |
+|---|------|--------------|---------------|-----|
+| S1 | fn-param TUPLE `(mut a, b): (T,U)` | `sema_decl.cpp` `lower_fn`, `p.has_key(la::NAMES)` branch | `fn_tuple_params` prologue | `fnparam_tuple_mut_modifier_dropped` |
+| S2 | fn-param STRUCT `P { mut x, y }: P` (shorthand AND renamed) | `sema_decl.cpp` `lower_fn`, `PatFnParam` collect | `fn_pat_params` prologue | none — unrowed sibling |
+| S3 | closure TUPLE `\|(mut a, b): (T,U)\|` | `sema_expr.cpp` `lower_closure_expr`, `TupleParam` collect | `tuple_params` prologue | none — unrowed sibling |
+
+⚠ The census that bounds the enumeration: `grep -n "is_mut *= *false"` over
+`sema_decl.cpp` + `sema_expr.cpp` returns 24 hits. Exactly THREE are pattern-param
+binder sites (1521, 1569, 17429 on the pre-change tree); one more (17417) is the
+`ref`-bind alias, which is a `&T` and correctly not `mut`; the remaining twenty are
+synthesized temporaries with no user-visible name. That grep is a check on the
+reading, not the definition of the class — the collect sites it does NOT see
+(`define(users[k], elems[k])` with no third argument) are half of each defect, and
+a name that is `define`d immutable is refused even when the `SLet` says otherwise.
+
+NOT members, checked and correct before the change: `fn f(mut x: T)`
+(`fn_mut_params`, `is_mut` true), `|mut x|` (`mut_binds`, true), `|ref x|`
+(`ref_binds`, a `&T` alias), the `for` header (`emit_for_pattern_destructure`
+already called `pat_byval_mut`), and all twenty-one sites in `sema_stmt.cpp`.
+
+### Counter-examples, written BEFORE the edit, read on the OLD binary first
+
+Base binary `5a38bfbe7301f583 43`, armed binary `c4e72a573cfb1cbe 43`.
+
+Moving (refused -> compiles, exit 0): the fn tuple form; the fn struct shorthand
+`P { mut x, y }`; the fn struct RENAMED form `P { x: mut xx, y }` (its modifier
+lives on the sub-pattern node, not on the `PAT_FIELD` — the struct door has to ask
+both); the closure tuple form. Also moving, in shapes the pricing phase did not
+use: an impl-block METHOD with a struct-pattern parameter; a GENERIC fn with a
+tuple-pattern parameter; a `mut` binder that is never assigned; a closure called
+TWICE (the prologue's mutable local is re-materialised per call); a move-typed
+`(mut a, b): (D, D)` whose oracle is a DESTRUCTOR COUNT, `d4 d4` — two destructors
+for two values, unchanged by the modifier.
+
+NOT moving, and that is the point (abuse direction, same sentence on both
+binaries): `(a, b)` with `a = a + 1`; `P { x, y }` with `x = x + 1`; and the two
+that separate PER-BINDER from PER-PATTERN — `(mut a, b)` assigning `b`, and
+`P { x: mut xx, y }` assigning `y`. A per-pattern reading of the modifier compiles
+those last two; it does not.
+
+⚠ INHERITED, NOT MOVED BY THIS CHANGE (rule 14): all five fail halves print the
+same sentence on the base binary. They buy a pin on the abuse direction, not a new
+refusal.
+
+### Two things that CONTRADICT a recorded claim
+
+  * The `fnparam_tuple_mut_modifier_dropped` header says "the closure-parameter
+    twin is refused with the identical sentence" and treats that as one row's
+    footnote. It is a SECOND SITE in a SECOND translation unit with its own copy
+    of the walk, and a third — the fn-param STRUCT door — had no mention anywhere.
+    One row, three sites.
+  * The pricing round (2026-09-07u) recorded `fnparmut` as "1 row, closes a second
+    unrowed site (fn-param struct door)". Measured here: it closes TWO unrowed
+    programs at that door (shorthand and renamed) plus the closure door, four
+    programs at three sites.
+
+### NEW ROW — `fnparam_tuple_nested_sub_binds_nothing` (tier 3, `refuses`)
+
+Found while writing the counter-examples, orthogonal to the modifier (it refuses
+with or without a `mut`): `fn probe(((a, b), c): ((i64,i64), i64))` is refused
+`undefined variable 'a'`. The fn-param tuple door's binder walk takes a name only
+from a bare `PAT_WILD` and records `"_"` for every other sub-kind, so a `PAT_TUPLE`
+element binds nothing. The grammar DOES produce the nested node
+(`pat_binding <- LPAREN pat_binding_list RPAREN => PAT_TUPLE{NAMES}`) and the `let`
+door recurses into it. The closure twin
+`|((a, b), c): ((i64,i64), i64)|` is refused identically. Same shape as
+`match_tuple_door_nested_struct_binds_nothing` at a different door.
+
+### SECOND NEW ROW — `fnparam_struct_ref_mut_field_binds_byvalue` (tier 3, `refuses`)
+
+The same parameter-position struct walk ignores `IS_REF` entirely, so
+`fn probe(P { ref mut x, y }: P)` binds `x` BY VALUE at the field type and the
+body's `*x = *x + 1` is refused twice — `write through raw pointer requires unsafe
+context` and `deref-write: '=' left side must be a pointer or mutable reference` —
+two sentences about a binding the program does not have. Identical on the base
+compiler and on this landing: `pat_byval_mut` excludes `IS_REF` by construction, so
+the modifier repair is orthogonal to it. The `let` / `match` / `if let` spellings of
+the same binder carry their mode (`pat.binding.explicit-ref-mut`).
+
+`# TOTAL` 65 -> 66: one row deleted, two opened, re-derived BY DIRECT LISTING (66
+rows, 66 programs on the shelf).
+
+### DECLINED THIS ROUND, BY NAME, WITH THE NUMBER
+
+  * `fnparam_array_pattern_binds_nothing` — the priced arm compiles
+    `fn probe([a,b]: [O;2])` for a move type with destructor sequence **64** where
+    Rust's is 12. A count neither 1 nor 2 can make: a destructor ran over a
+    moved-from element. Needs the move-marking the probe did not have.
+  * `for_header_pattern_tuple_only` — the row is ONE WHITELIST with FIVE measured
+    members (struct, tuple-struct, array, array-with-rest, `@`). The struct half
+    alone closes the row's program and leaves four members refusing the same way:
+    the instance fixed, the class open. And the array half SEGFAULTs (139) under
+    the priced arm.
+  * `match_tuple_door_nested_struct_binds_nothing` — doors in SERIES:
+    `bind_pattern_ref`'s Tuple `each_sub` whitelist, `collect_pat_bindings` and
+    `declare_pat_bindings` all lack a Struct arm (rule 2).
+  * `closure_param_struct_pattern_syntax` — grammar, rc 4 before sema.
+  * `struct_fields_dropped_reverse_order` / `tuple_elems_dropped_reverse_order` —
+    OWNER DECISION, unchanged from 2026-09-07u: `docs/spec/expressions.md` carries
+    the divergence as the rule `expr.drop.tuple-array-reverse` and TWELVE run
+    fixtures assert it.

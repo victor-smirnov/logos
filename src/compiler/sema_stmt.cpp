@@ -23,18 +23,6 @@ using writ::StringView;
 using writ::AnyVal;
 using writ::MemHolder;
 
-// `mut x` in a pattern (IS_MUT without IS_REF; `ref mut` is another mode) binds
-// BY VALUE, mutable. Read at every pattern lowering's SLet AND define, and
-// carried into the LIR for match/if-let/while-let/for bindings (PROBES.md
-// 2026-09-05a, 2026-09-06). `patmutoff` = the control twin.
-static bool pat_byval_mut(TinyMapView n) {
-    auto flag = [&](const la::Key& k) {
-        return n.has_key(k) && n.get(k.code).is_value() &&
-               n.get(k.code).as_value<uint8_t>() != 0;
-    };
-    return !logos::probe::on("patmutoff") && flag(la::IS_MUT) && !flag(la::IS_REF);
-}
-
 // Statement lowering methods
 
 // ── Does a `break` TARGET this loop? — the one predicate ──────────────────

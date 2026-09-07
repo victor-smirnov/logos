@@ -17114,7 +17114,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // The param itself takes a synth tuple-typed name; a body prologue
     // emits `let (a, b, …) = __tup_param_*;` so user code sees the
     // destructured names.
-    struct TupleParam { std::vector<std::string> users; std::string synth; TypeRef ty; };
+    struct TupleParam { std::vector<std::string> users; std::vector<uint8_t> muts;
+                        std::string synth; TypeRef ty; };
     std::vector<TupleParam> tuple_params;
     std::vector<lir::LParam> params;
     std::vector<TypeRef> param_types;
@@ -17222,6 +17223,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                             if (nmap.has_key(la::ITEMS)) {
                                 auto narr = arr_of(nmap.get(la::ITEMS.code));
                                 std::vector<std::string> users;
+                                std::vector<uint8_t> umuts;
                                 for (uint64_t k = 0; k < narr.size(); ++k) {
                                     // Each sub-node is a PAT_WILD with
                                     // NAME (or PAT_UNIT for `()`).
@@ -17232,10 +17234,11 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                                             str_of(sub.get(la::NAME.code)));
                                     else
                                         users.emplace_back("_");
+                                    umuts.push_back(pat_byval_mut(sub) ? 1 : 0);
                                 }
                                 std::string synth = std::format(
                                     "__tup_param_{}__{}", closure_id, i);
-                                tuple_params.push_back({std::move(users), synth, ptype});
+                                tuple_params.push_back({std::move(users), std::move(umuts), synth, ptype});
                                 params.push_back({synth, ptype});
                                 param_types.push_back(ptype);
                                 continue;
@@ -17362,7 +17365,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         if (TypeRef(tp.ty).kind() == LogosType::Kind::Tuple) {
             auto elems = TypeRef(tp.ty).tuple_elems();
             for (size_t k = 0; k < tp.users.size() && k < elems.size(); ++k) {
-                define(tp.users[k], elems[k]);
+                define(tp.users[k], elems[k], k < tp.muts.size() && tp.muts[k] != 0);
                 // The prologue's `let <user> = <synth>.<k>;` MOVES the element
                 // out of the synth param — mark it so the synth's scope-exit Drop
                 // skips it (double-free else). HERE, before the body is lowered:
@@ -17426,7 +17429,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 lir::SLet sl;
                 sl.name   = tp.users[k];
                 sl.type   = elems[k];
-                sl.is_mut = false;
+                sl.is_mut = k < tp.muts.size() && tp.muts[k] != 0;
                 sl.value  = builder().tuple_index(
                     builder().var_ref(tp.synth, tp.ty),
                     (uint32_t)k, elems[k]);

@@ -458,6 +458,20 @@ A bare identifier pattern that names a payload-less enum variant or a module-lev
 
 *Source: src/compiler/sema_stmt.cpp#L4174-L4194*
 
+### `pat.binding.byval-mut-modifier` — `mut` is a property of ONE binder, at EVERY pattern door, parameter positions included
+
+A `mut` written on a pattern binder (`IS_MUT` without `IS_REF`; `ref mut` is the separate mode of `pat.binding.explicit-ref-mut`) binds BY VALUE and makes that one binding mutable. The modifier is read per BINDER, never per pattern: in `P { x: mut xx, y }` the name `xx` is mutable and `y` is not, and in `(mut a, b)` the same holds for `a` and `b`.
+
+A FUNCTION PARAMETER AND A CLOSURE PARAMETER ARE PATTERNS, so the rule holds at their doors too. Both are lowered as a synthesized by-value parameter plus a body-prologue `let` per binder, and BOTH halves carry the modifier — the sema `define()` that answers "is this name assignable" and the emitted `SLet`'s `is_mut`. The doors are: the match / `if let` / `while let` arms, `let`, the `for` header, the fn-param tuple form `(mut a, b): (T, U)`, the fn-param struct form `P { mut x, y }: P` (shorthand and renamed alike), and the closure tuple form `|(mut a, b): (T, U)|`. `fn f(mut x: T)` and `|mut x|` are the degenerate spelling of the same thing.
+
+The three parameter-position doors used to construct the binding's mutability as a literal `false`, so a legal program was refused `assignment to immutable variable '<name>'` — soundness-queue row `fnparam_tuple_mut_modifier_dropped` plus two siblings that had no row.
+
+The modifier changes MUTABILITY ONLY. A `mut` element binder still moves its element out of the synthesized parameter exactly once, so drop scheduling is unmoved: the destructor count of a move-typed parameter pattern is the same with and without the token.
+
+**Divergence from Rust:** none.
+
+*Source: src/compiler/sema_impl.hpp `logos::compiler::pat_byval_mut` — the ONE reader; called at every binder site in src/compiler/sema_stmt.cpp, at the fn-param tuple and struct doors in src/compiler/sema_decl.cpp `SemaChecker::lower_fn`, and at the closure tuple door in src/compiler/sema_expr.cpp `SemaChecker::lower_closure_expr`. `patmutoff` is the control twin.*
+
 ### `pat.scalar.core-under-ref` — A scalar pattern under a reference scrutinee matches the CORE, at ZERO reference layers
 
 RFC 2005: a non-reference pattern matches the POINTEE. The scrutinee's `&`/`&mut` chain is therefore collapsed by pattern-door class, not once per match: an AGGREGATE door (tuple, struct, slice, variant) reads the chain collapsed to ONE layer, because a `&Agg` IS the aggregate's base pointer (`SemaChecker::pat_scrut_one_layer`); the six SCALAR doors — integer, negative integer, char, char range, bool, range — compare a VALUE and read it collapsed to ZERO, i.e. the core type itself. The collapse applies only when the core is an integer, `char` or `bool`; every other core keeps its layer, so the aggregate doors and their diagnostics are unchanged, and a door that still refuses names the CORE (`range pattern requires integer scrutinee, got 'bool'`), never the reference.
