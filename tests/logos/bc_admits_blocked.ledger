@@ -92,14 +92,33 @@
 #     recorded as 134 in 101 — it GREW), plus the explicit pass pin
 #     `bc_enumpldlt_placeholder_payload_lifetime`. ⚠ NOT a blessed divergence:
 #     no clause canonises it, searched 2026-09-07.
+# ⚠ THE BUCKET-3 DROP EVIDENCE WAS TAKEN AT ONE DOOR, AND FIVE PORTS WERE BLESSED
+#   ON IT. Re-measured later the same day with a per-type destructor-counter sweep
+#   over SEVEN doors (build f812a8b998ecde2b): the clause
+#   `intrinsic.drop.skip-moved-out-paths` is implemented at the DOTTED-PATH door
+#   (`let g = s.f;` -> 111, the shape the original verification ran), at the
+#   TUPLE-STRUCT-PATTERN door (`let S(x, _) = s;` -> 111) and at the FRU door
+#   (`T { f: .., ..s0 }` -> 212, two T values) — and it is NOT implemented at the
+#   STRUCT-PATTERN door, in a `let` or in a `match`: the user `Drop::drop` never
+#   runs at all, and any field the pattern discards leaks (110 / 100 where the
+#   clause requires 111). The discriminator is measured both ways — the identical
+#   programs with NO `impl Drop` on the owner print 110, i.e. the discarded field
+#   DOES drop. Three of the five ports (-with-dtor, --b, --t17) use doors that are
+#   correct and their rows are untouched; the two `--r13`/`--t13` rows carry the
+#   correction. ⚠ NO ROW MOVED BETWEEN FILES FOR THIS: what bucket 3 blesses is the
+#   ADMISSION (no E0509), which is unchanged and still correct. The RUN-TIME
+#   misbehaviour is a different defect and is now counted where the queue can see
+#   it — soundness_queue.ledger row `letstruct_destructure_skips_user_drop` (tier 1,
+#   run 100), same class as the already-open `enum_payload_partial_move_leak`,
+#   which is the same failure at the enum-variant door.
 # ⚠ WHERE THE E0392 WALL STANDS, RE-MEASURED 2026-09-07 rather than carried:
 #   6559 pass fixtures scanned for a struct/enum declaring a lifetime parameter
 #   its body never mentions — FIVE, in five files. The recorded "five pass
 #   fixtures" has NOT decayed.
 
 borrowck-move-out-of-struct-with-dtor bck.E tests/imported/admit/borrowck/borrowck-move-out-of-struct-with-dtor  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — E0509; clause intrinsic.drop.skip-moved-out-paths, RE-VERIFIED BY RUNNING (INNER_DROPS=1 S_DROPS=1)
-borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — same clause, same run evidence
-borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — same clause, same run evidence
+borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13  # BUCKET-3 DIVERGENCE-DROP 2026-09-07, EVIDENCE CORRECTED SAME DAY — the admission stands; the "same run evidence" did NOT cover this port's door. This program uses the STRUCT-PATTERN door and its own body exits 1 (DROPS=0): `impl Drop for S` never runs. Run-time defect rowed separately as soundness_queue letstruct_destructure_skips_user_drop
+borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13  # BUCKET-3 DIVERGENCE-DROP 2026-09-07, EVIDENCE CORRECTED SAME DAY — the admission stands; the "same run evidence" did NOT cover this port's door. This program uses the STRUCT-PATTERN door and its own body exits 1 (DROPS=0): `impl Drop for S` never runs. Run-time defect rowed separately as soundness_queue letstruct_destructure_skips_user_drop
 borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--b  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — T{a:2,b:s0.b} out of a Drop T, same clause
 borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--t17  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — T{a:2,..s0} FRU out of a Drop T, same clause
 copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions  # BUCKET-3 DIVERGENCE-A16 2026-09-07 — DIVERGENCES.md A16 structural auto-Copy: Foo{f:&i64} is Copy at EVERY region

@@ -1,0 +1,86 @@
+// SOUNDNESS QUEUE row letstruct_destructure_skips_user_drop (tier 1). A by-value
+// STRUCT-PATTERN destructure of a value whose type has a user `Drop` impl —
+// `let S { f: x, k: _ } = s;` — loses the owner's ENTIRE drop obligation: the user
+// `Drop::drop` never runs, and the field the pattern discards is never dropped
+// either. Exit code is A*100 + B*10 + S_DROPS: this prints 100 where the correct
+// answer is 111.
+//
+// ⚠ THE ORACLE IS LOGOS'S OWN DIVERGENCE, NOT RUSTC, AND THAT IS THE POINT.
+// Rust refuses this program outright (E0509, cannot move out of a type which
+// implements Drop). Logos DELIBERATELY admits it, and the clause that blesses the
+// admission also states what must then happen —
+// `intrinsic.drop.skip-moved-out-paths` (docs/spec/expressions.md): "Drop of a
+// value suppresses sub-values that were moved out ... so only the moved leaf is
+// suppressed while its siblings still drop". The value is still DROPPED; only the
+// moved-out path is skipped. So the divergence's own text requires 111 here, and
+// the door that implements it agrees: the DOTTED-PATH form of exactly this program
+// (`let g = s.f;`, everything else identical) prints 111 on this same binary.
+// One divergence, two doors, two different answers — this row is the door that
+// disagrees with the spec.
+//
+// CLASS, ENUMERATED BY THE PROPERTY (a by-value move-out of a sub-value from a
+// value with a user `Drop`), measured 2026-09-07 on build f812a8b998ecde2b, seven
+// doors, each with per-type destructor counters and its own no-Drop control:
+//     dotted path        `let g = s.f;`             111  CORRECT
+//     tuple-struct pat   `let S(x, _) = s;`         111  CORRECT
+//     tuple pattern      `let (x, _) = t;`           11  CORRECT
+//     FRU                `T { f: .., ..s0 }`        212  CORRECT (two T values)
+//     struct pat, let    `let S { f: x, k: z } = s;`110  THIS ROW — Drop::drop skipped
+//     struct pat + `_`   `let S { f: x, k: _ } = s;`100  THIS ROW — and B leaks
+//     struct pat + `..`  `let S { f: x, .. } = s;`  100  THIS ROW — and B leaks
+//     match door         `match s { S { f: x, k: _ } => .. }` 100  THIS ROW
+//     enum payload `_`   `match e { E::V(x, _) => .. }`       100  ALREADY ROWED as
+//                        enum_payload_partial_move_leak (same class, other door)
+// The DISCRIMINATOR is the user `Drop` impl, measured both ways: the identical
+// struct-pattern programs with NO `impl Drop for S` print 110 — the discarded field
+// DOES drop. So this is not "patterns forget fields"; it is the owner-drop path
+// being dropped on the floor exactly when there is a user destructor to run.
+//
+// ⚠ IT REFUTES A CLAIM MADE THIS ARC, IN THE TREE. Five ports were moved to
+// bc_admits_blocked.ledger on 2026-09-07 as BUCKET-3 blessed divergences under this
+// clause, and each carries the note "THE CLAUSE WAS RE-VERIFIED BY RUNNING IT ...
+// prints INNER_DROPS=1 S_DROPS=1 ... No leak, no double free." That run used the
+// DOTTED-PATH door. Two of the five ports
+// (borrowck-move-out-of-tuple-struct-with-dtor--{r13,t13}) use the STRUCT-PATTERN
+// door instead, and their own programs return `DROPS*10 + x` = 1 on this binary —
+// DROPS = 0, `impl Drop for S` never ran. The evidence was taken at a door the
+// blessed programs do not use.
+//
+// ROOT: not read. This round was forbidden from touching the compiler, so the
+// discriminator above is measured and the site is left for the fixing round.
+// The natural suspect is the same one `enum_payload_partial_move_leak` names — the
+// destructure marks the WHOLE source moved with no per-field record — but that row
+// is the enum door and this is the struct door; they are one class, not one site.
+//
+// ⚠ CONFIRMED ON A SECOND, INDEPENDENT OBSERVATION CHANNEL, because one channel of
+// one shape is what this round was sent to distrust. Re-run with the destructors
+// accumulating through a RAW POINTER instead of a `static mut` counter (A adds 1,
+// B adds 2, S adds 4, so the total names exactly which destructors ran): the
+// dotted-path control exits 7 — all three ran — and the struct-pattern door exits
+// 1, only A's. Same verdict, different mechanism. The exit code is stable over
+// three consecutive runs.
+//
+// Found 2026-09-07 by a shape sweep written to test the blessing, not the port.
+// Rust: refuses (E0509). Logos per its own clause: exit 111. Today: exit 100.
+package letstruct_destructure_skips_user_drop;
+static mut A_DROPS: i64 = 0i64;
+static mut B_DROPS: i64 = 0i64;
+static mut S_DROPS: i64 = 0i64;
+struct A { n: i64 }
+impl Drop for A { fn drop(self: &mut A) { unsafe { A_DROPS = A_DROPS + 1i64; } } }
+struct B { n: i64 }
+impl Drop for B { fn drop(self: &mut B) { unsafe { B_DROPS = B_DROPS + 1i64; } } }
+struct S { f: A, k: B }
+impl Drop for S { fn drop(self: &mut S) { unsafe { S_DROPS = S_DROPS + 1i64; } } }
+fn go() {
+    let s: S = S { f: A { n: 1i64 }, k: B { n: 2i64 } };
+    let S { f: x, k: _ } = s;
+    let _y: i64 = x.n;
+}
+fn main() -> i32 {
+    go();
+    let a: i64 = unsafe { A_DROPS };
+    let b: i64 = unsafe { B_DROPS };
+    let s: i64 = unsafe { S_DROPS };
+    return (a * 100i64 + b * 10i64 + s) as i32;
+}

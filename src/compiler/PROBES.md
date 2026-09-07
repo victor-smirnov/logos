@@ -29277,3 +29277,90 @@ is not portable, or an exact list.
     compiler source changed; the hash covers `bin/logosc` and `lib/logos/**`, and those were
     RELINKED by the reconfigure the five moved test files forced. `git diff --stat -- src
     include` is empty, which is the claim the hash cannot make.
+
+## ROUND 2026-09-07z — THE BLESSING WAS VERIFIED AT ONE DOOR AND APPLIED TO FIVE PORTS; AT TWO OF THEM THE CLAUSE IS NOT IMPLEMENTED
+
+NO COMPILER SOURCE CHANGED. `git diff --numstat -- src include` is `src/compiler/PROBES.md`
+and nothing else — no `.cpp`, no `.hpp`.
+
+### 1. WHAT WAS ATTACKED, AND WHY THAT AND NOT THE FUNDED MECHANISM
+
+The previous round closed by recommending `bck.NEW-BCS` (3 rows) for funding. That is a
+COMPILER landing, and this stage forbids one, so it is DECLINED BY NAME below with its
+number rather than half-started. What is in scope is the standing instruction that the
+pricing phase's own verdict is not a verdict, and rule 5: **hand programs all of one shape
+are not a safety claim.** The previous round blessed SEVEN rows as divergences, five of them
+on ONE clause, and recorded the clause as "RE-VERIFIED BY RUNNING IT". So the thing to
+attack was the verification, in shapes it did not use.
+
+### 2. THE CLAUSE NAMES A DOOR, AND THE VERIFICATION USED THAT DOOR ONLY
+
+`intrinsic.drop.skip-moved-out-paths` (docs/spec/expressions.md) is explicitly scoped:
+"a **dotted path** (relative to the value) whose segment exactly matches a child skips that
+child's drop entirely". The verification program was `let g = s.f;` — a dotted path. Of the
+five ports blessed under it, two use a STRUCT-PATTERN destructure and one uses FRU.
+
+### 3. SEVEN DOORS, PER-TYPE DESTRUCTOR COUNTERS, EACH WITH ITS OWN NO-DROP CONTROL
+
+Exit code = `A_DROPS*100 + B_DROPS*10 + OWNER_DROPS`; the clause requires 111.
+Build `f812a8b998ecde2b`, unmodified compiler.
+
+| door | owner `Drop` | rc | owner `drop` | discarded field | verdict |
+|---|---|---|---|---|---|
+| dotted path `let g = s.f;` | yes | 111 | 1 | drops | CORRECT (the shape that was run) |
+| tuple-struct pat `let S(x, _) = s;` | yes | 111 | 1 | drops | CORRECT |
+| tuple pat `let (x, _) = t;` | n/a | 11 | — | drops | CORRECT |
+| FRU `T { f: .., ..s0 }` | yes | 212 | 2 (two T values) | drops | CORRECT |
+| struct pat `let S { f: x, k: z } = s;` | yes | **110** | **0** | drops | **DEFECT** |
+| struct pat `let S { f: x, k: _ } = s;` | yes | **100** | **0** | **LEAKS** | **DEFECT** |
+| struct pat `let S { f: x, .. } = s;` | yes | **100** | **0** | **LEAKS** | **DEFECT** |
+| match `match s { S { f: x, k: _ } => .. }` | yes | **100** | **0** | **LEAKS** | **DEFECT** |
+| struct pat `{ k: _ }` / `{ .. }` | **no** | 110 | — | drops | CORRECT (the control) |
+| enum `match e { E::V(x, _) => .. }` | no | **100** | — | **LEAKS** | ALREADY ROWED |
+
+⚠ THE DISCRIMINATOR IS MEASURED BOTH WAYS AND IT IS NOT THE PATTERN. The identical
+struct-pattern programs with NO `impl Drop` on the owner print 110 — the discarded field DOES
+drop. So this is not "patterns forget fields"; the owner-drop path is dropped on the floor
+exactly when there is a user destructor to run. A grep-defined class ("patterns with `_`")
+would have certified four correct doors as broken and is why the class was enumerated by the
+PROPERTY (a by-value move-out of a sub-value from a value with a user `Drop`) instead.
+
+### 4. THE CLASS IS NOT NEW — ITS ENUM DOOR WAS ALREADY ROWED, ITS STRUCT DOOR WAS NOT
+
+`enum_payload_partial_move_leak` (tier 1, open) records the same failure at the
+enum-variant door and even names the root shape: "sema marks the WHOLE scrutinee moved, so
+the enum's scope-exit drop is skipped entirely". My enum measurement REPRODUCES that row
+rather than adding one. The struct-pattern door is the unrowed member of the same class, and
+it is what this round adds. Two doors, one class, one structural fix — the fixing round
+should close both and pin each with its own pair.
+
+### 5. THE PORTS' OWN PROGRAMS DEMONSTRATE IT
+
+`borrowck-move-out-of-tuple-struct-with-dtor--{r13,t13}` were blessed with the note "No leak,
+no double free". Each returns `DROPS * 10 + x` from its own body and each **exits 1** on this
+binary: `DROPS = 0`, `impl Drop for S` never ran. The evidence in the file contradicted the
+file. Both headers and both ledger rows now carry the correction; the other three ports
+(`-with-dtor` and `--b` are dotted-path, `--t17` is FRU) use doors that measure CORRECT and
+their rows are untouched.
+
+### 6. NO ROW MOVED BETWEEN FILES, AND THAT IS DELIBERATE
+
+What bucket 3 blesses is the ADMISSION — Logos does not raise E0509 — and that is unchanged
+and still correct. The run-time misbehaviour is a DIFFERENT defect, so it goes where the
+queue can see it rather than laundering a blocked row into the actionable ledger. Both
+bc ledgers are byte-identical in their row sets: 105 + 12 = 117, before and after.
+
+⚠ AND THE ORACLE FOR THE NEW ROW IS LOGOS'S OWN SPEC, NOT RUSTC — STATED, NOT HIDDEN. Every
+shape in the table is E0509 in Rust, so "Rust: exit N" does not exist for any of them. The
+row is held to `intrinsic.drop.skip-moved-out-paths` and to the dotted-path door that
+implements it. Either the struct door is fixed to 111, or the divergence must be narrowed to
+refuse a destructure of a `Drop` type — and that second option is an OWNER decision, named
+here, not taken here.
+
+### 7. THE COLUMNS
+
+  * soundness queue gate rc 0 at `# TOTAL` **68** (was 67), tier1 24 (was 23). One row
+    ADDED: `letstruct_destructure_skips_user_drop 1 ... run 100`. None closed.
+  * `bc_admits_ledger_gate.sh` rc 0 — 117 rows over 2 ledgers, 105 + 12, unchanged.
+  * `tests/imported/PROVENANCE.tsv` unchanged (`git diff --stat` empty): the two port edits
+    touch a `⚠` paragraph only, not `Original path:`, the commit, or `Modifications:`.

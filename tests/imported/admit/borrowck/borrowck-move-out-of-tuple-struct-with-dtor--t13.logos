@@ -12,12 +12,22 @@
 //   value suppresses sub-values that were moved out: a dotted path whose segment
 //   exactly matches a child skips that child's drop entirely". E0509 exists in
 //   Rust precisely because Rust has no such rule.
-// ⚠ THE CLAUSE WAS RE-VERIFIED BY RUNNING IT, 2026-09-07, not by reading it: a
-//   program with `struct S { f: Inner }`, `impl Drop` on BOTH, `let g = s.f;`
-//   and a static drop counter per type prints INNER_DROPS=1 S_DROPS=1 —
-//   `S::drop` runs once, the moved-out field is dropped once through `g`, and
-//   the owner skips it. No leak, no double free. The divergence is implemented,
-//   not merely declared.
+// ⚠ CORRECTED 2026-09-07 (same day, later round). The paragraph that stood here
+//   claimed the clause was "RE-VERIFIED BY RUNNING IT ... prints INNER_DROPS=1
+//   S_DROPS=1 ... No leak, no double free". THAT RUN USED THE DOTTED-PATH DOOR
+//   (`let g = s.f;`). THIS PORT USES THE STRUCT-PATTERN DOOR (`let S { f: inner }
+//   = s;`), and at that door the clause is NOT implemented: this program's own
+//   body returns `DROPS * 10 + x`, and it exits 1 on build f812a8b998ecde2b —
+//   DROPS = 0, `impl Drop for S` NEVER RAN. A struct-pattern destructure of a
+//   value with a user `Drop` also leaks any field the pattern discards, while the
+//   dotted-path and tuple-struct-pattern doors are both correct (111 vs 100 on a
+//   per-type destructor-counter sweep of seven doors).
+//   THE ROW BELOW STILL STANDS AND STILL BELONGS HERE: what is blessed is the
+//   ADMISSION (Logos deliberately does not raise E0509), and that is unchanged.
+//   What was wrong was the EVIDENCE, which was taken at a door this program does
+//   not use. The run-time defect is now its own tier-1 row —
+//   `letstruct_destructure_skips_user_drop` in tests/logos/soundness_queue.ledger
+//   — so the divergence is blessed and the misbehaviour is counted, separately.
 // The file stays on the admit shelf and keeps its row in
 // tests/logos/bc_admits_blocked.ledger; it is not a hole and never was.
 package borrowck_move_out_of_tuple_struct_with_dtor_t13;
