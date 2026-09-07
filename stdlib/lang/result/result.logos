@@ -199,7 +199,7 @@ impl<T, E> Result<T, E> {
     // Borrowing introspectors — Rust shape.
     /// Converts from `&Result<T, E>` to `Result<&T, &E>`, borrowing the contained value.
     pub fn as_ref(self: &Result<T, E>) -> Result<&T, &E> {
-        match self {
+        match *self {
             Result::Ok(ref v)  => { return Result::<&T, &E>::Ok(v); }
             Result::Err(ref e) => { return Result::<&T, &E>::Err(e); }
         }
@@ -207,7 +207,7 @@ impl<T, E> Result<T, E> {
 
     /// Converts from `&mut Result<T, E>` to `Result<&mut T, &mut E>`.
     pub fn as_mut(self: &mut Result<T, E>) -> Result<&mut T, &mut E> {
-        match self {
+        match *self {
             Result::Ok(ref mut v)  => { return Result::<&mut T, &mut E>::Ok(v); }
             Result::Err(ref mut e) => { return Result::<&mut T, &mut E>::Err(e); }
         }

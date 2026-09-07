@@ -184,13 +184,14 @@ impl<T> Option<T> {
         return replace_ref(self, Option::Some(value));
     }
 
-    // Converts `&Option<T>` → `Option<&T>`. Unsafe because the body uses
-    // raw-pointer arithmetic to lift a `&T` out of the Some payload —
-    // Logos's `ref v` binding inside `Option::Some(ref v)` doesn't yet
-    // produce a payload-typed reference through variant-data patterns.
+    // Converts `&Option<T>` → `Option<&T>` with an explicit `ref v`, which
+    // binds the payload SLOT (`v: &T`) instead of loading it. The scrutinee is
+    // `*self`, not `self`: under `pat.binding.modifier-requires-move-mode`
+    // (Rust 2024) a written `ref` is legal only where the default binding mode
+    // is `move`, and dereferencing the `&Self` receiver is what makes it so.
     /// Converts `&Option<T>` to `Option<&T>`.
     pub fn as_ref(self: &Option<T>) -> Option<&T> {
-        match self {
+        match *self {
             Option::Some(ref v) => { return Option::Some(v); }
             Option::None        => { return Option::None; }
         }
@@ -198,7 +199,7 @@ impl<T> Option<T> {
 
     /// Converts `&mut Option<T>` to `Option<&mut T>`.
     pub fn as_mut(self: &mut Option<T>) -> Option<&mut T> {
-        match self {
+        match *self {
             Option::Some(ref mut v) => { return Option::Some(v); }
             Option::None            => { return Option::None; }
         }

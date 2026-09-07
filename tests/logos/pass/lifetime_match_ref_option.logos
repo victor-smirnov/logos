@@ -1,15 +1,19 @@
-// L5 regression: `match &Option<T>` with `Option::Some(ref v) => *v`
-// shape. Auto-deref through `&Enum<T>` for type-arg propagation in
-// pattern binding types — previously `v` ended up typed `T` (typevar)
-// instead of concrete after auto-deref + ref-bind, leading to a
-// codegen ABI mismatch at runtime. Now the binding resolves to `T`'s
-// concrete instantiation (e.g. `i64` here).
+// L5 regression: a `&Option<T>` parameter matched with `Option::Some(ref v)
+// => *v`. Type-arg propagation into pattern binding types through the
+// reference — previously `v` ended up typed `T` (typevar) instead of concrete,
+// leading to a codegen ABI mismatch at runtime. Now the binding resolves to
+// `T`'s concrete instantiation (`i64` here).
+// ⚠ The scrutinee is `*opt`, not `opt`: `pat.binding.modifier-requires-move-mode`
+// (Rust 2024) forbids a written `ref` under a by-reference default binding
+// mode, so the deref is what keeps the modifier legal. The SUBJECT is
+// unchanged — the payload still arrives through a `&Option<i64>` parameter and
+// `v` must still be `&i64` over the concrete instantiation, which `*v` reads.
 package lifetime_match_ref_option;
 
 use logos.lang.option;
 
 fn get(opt: &Option<i64>) -> i64 {
-    match opt {
+    match *opt {
         Option::Some(ref v) => { return *v; }
         Option::None => { return 0i64; }
     }
