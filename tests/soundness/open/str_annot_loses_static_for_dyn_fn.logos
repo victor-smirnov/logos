@@ -1,0 +1,46 @@
+// SOUNDNESS QUEUE row str_annot_loses_static_for_dyn_fn (tier 3, `refuses`). A
+// `str` TYPE ANNOTATION ON A STRING-LITERAL BINDING LOSES ITS `'static` REGION,
+// SO A CLOSURE CAPTURING IT WILL NOT COERCE TO `dyn Fn`.
+//
+// `let s: str = "abc";` then `Box::new(move || s.len()) : Box<dyn Fn() -> i64>`
+// is refused:
+//
+//   error [fn mk]: coercion to `dyn Fn` requires `|| -> i64: 'static` —
+//   lifetime `'_` may not live long enough (object lifetime bound)
+//
+// THE SAME PROGRAM WITHOUT THE ANNOTATION COMPILES AND RUNS CORRECTLY. That is
+// the whole finding: `let s = "abc";` mints the literal's `'static` region on
+// the binding, and writing the type out replaces it with the empty spelling,
+// which the object-lifetime bound then reads as "may not live long enough". A
+// type ascription that names the SAME type must not change what the program
+// means.
+//
+// Legal Rust: a `&'static str` in a `move` closure makes the closure `'static`,
+// and `Box::new(move || s.len()) as Box<dyn Fn() -> i64>` is accepted.
+//
+// PAIR, one token apart, both measured 2026-09-07 on build febd1aa6e49ae30c 43
+// (closure lattice cells e_fat_boxed_1/2/3 against i_fat_boxed_noannot_1/2/3):
+// with the annotation, refused at all three capture counts; without it,
+// accepted at all three. The non-boxed spelling `let s: str = "abc"; let f =
+// move || s.len(); f();` is ACCEPTED with the annotation (cells e_fat_1/2/3),
+// so the annotation is not itself rejected — only the `dyn Fn` object-lifetime
+// bound reads the lost region.
+//
+// ⚠ THE ACCEPTED HALF IS NOT SOUND EITHER, AND IT IS A DIFFERENT ROW: the
+// unannotated spelling compiles and then overflows its environment
+// (boxed_move_closure_fat_capture_env_overflow). Repairing THIS row must not be
+// scored against that one.
+package str_annot_loses_static_for_dyn_fn;
+
+use logos.mem.boxed;
+
+fn mk() -> Box<dyn Fn() -> i64> {
+    let s: str = "abc";
+    return Box::new(move || -> i64 { return s.len() as i64; });
+}
+
+fn main() -> i32 {
+    let f: Box<dyn Fn() -> i64> = mk();
+    if f() != 3i64 { return 1i32; }
+    return 0i32;
+}

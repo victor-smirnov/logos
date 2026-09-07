@@ -34,6 +34,23 @@
 // asserts the program is accepted while the accepted program corrupts the
 // heap), tests/logos/pass/custom_dst_smartptr_owning_drop.logos (2), and
 // tests/spec/pass/coerce_4.logos (9). Rust: exit 0, valgrind-clean.
+//
+// ⚠ THE CAPTURE-COUNT SWEEP, MEASURED 2026-09-07 on build febd1aa6e49ae30c 43
+// (closure lattice cells i_fat_boxed_noannot_1/2/3). The defect is monotone in
+// the count and its SYMPTOM changes at each step, which is why an exit-code
+// oracle sees it only at two:
+//   ONE fat capture   — rc 0, the RIGHT value (3), valgrind 16 records with
+//                       "Invalid write of size 8" and "Invalid read of size 8".
+//   TWO fat captures  — rc 134, `free(): invalid next size` (this program).
+//   THREE fat captures— rc 0 and a GARBAGE VALUE: 213218621825027 where Rust
+//                       says 6, so the wrong answer is now VISIBLE to a stdout
+//                       oracle and no fixture in the corpus reads it.
+// CONTROLS on the same sweep: two SCALAR captures behind the same returned
+// `Box<dyn Fn>` (i_fat_boxed_scalar_2) — correct, valgrind-clean; the same two
+// fat captures NOT boxed (i_fat_local_noannot_2) — correct, clean; a `String`
+// capture behind a returned `Box<dyn Fn>` (i_string_boxed_escape) — correct,
+// clean. So it is the fat {ptr,len} pair in a HEAP env, and the env's size is
+// the suspect: `MLIRGenImpl::emit_closure_env` mallocs `sizeof_struct(cap_struct)`.
 package boxed_move_closure_fat_capture_env_overflow;
 
 fn f() -> Box<dyn Fn() -> i64> {

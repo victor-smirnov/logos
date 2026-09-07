@@ -1,0 +1,61 @@
+// SOUNDNESS QUEUE row impl_fn_return_stack_env_dangles (tier 1). A CLOSURE
+// RETURNED AS `impl Fn() -> i64` KEEPS ITS ENVIRONMENT IN THE DEAD FRAME.
+//
+// `fn mk() -> impl Fn() -> i64 { let k: i64 = 7i64; return move || k; }` returns
+// a `{fn, env}` pair whose env is an `alloca` in mk's frame — and the pair
+// itself is the address of another alloca in that frame. Calling the returned
+// closure reads freed stack. Here it SIGSEGVs on the second call (rc 139,
+// valgrind "Invalid read of size 8"); the single-call spelling exits 0 with the
+// RIGHT answer and 37 uninitialised-value records, which is why no oracle in
+// this tree has ever seen it.
+//
+// ROOT, by symbol: the `ec->escapes = true` arm in `SemaChecker`'s closure-
+// literal lowering (src/compiler/sema_expr.cpp), guarded by
+//
+//     TypeRef hk(hint_closure_formal_);
+//     if ((hk.kind() == LogosType::Kind::Struct ||
+//          hk.kind() == LogosType::Kind::ZonedStruct) &&
+//         peel_to_callable(hint_closure_formal_))
+//         ec->escapes = true;
+//
+// Its own comment says a closure "lowered where the expected type is
+// `Box<…Fn…>` is being BOXED — its captured env must live on the heap (boxing
+// confers heap lifetime; a stack env would dangle once the creating fn
+// returns)". THE PREDICATE ANSWERS "DOES THIS CLOSURE OUTLIVE THE FRAME?" FROM
+// THE SHAPE OF THE HINT TYPE — a Struct wrapper — AND RETURN POSITION IS A
+// SECOND ESCAPING DOOR IT CANNOT SEE. `MLIRGenImpl::gen_closure` then computes
+// `bool heap_env = v.escapes() && !captures.empty();` and allocates the env
+// with `create_entry_alloca(cap_struct)`. The arm exists and is correct next
+// door; the fact that reaches it is missing.
+//
+// CONTROLS ALREADY CORRECT ON THIS BINARY, bounding where a fix must not reach
+// (lattice cells k_boxed_escape_twice, k_fnptr_escape, and the whole
+// c_box_dyn_escape_* family): the SAME escaping closure through
+// `Box<dyn Fn() -> i64>` — 7+7=14, valgrind-clean, because that hint IS a
+// Struct wrapper; a NON-capturing closure returned as a bare `fn() -> i64` —
+// clean, there is no env; and the same closure NOT returned but called in
+// place — clean.
+//
+// ⚠ THE NON-CAPTURING `impl Fn` RETURN IS DIRTY TOO AND IS PART OF THIS ROW:
+// `fn mk() -> impl Fn() -> i64 { return || -> i64 { return 5i64; }; }` exits 0
+// with the right value and 6 valgrind records, because the returned `{fn, env}`
+// pair is itself a pointer into the dead frame.
+//
+// Measured 2026-09-07 on the closure lattice (cells k_impl_fn_called_twice,
+// k_impl_fn_arg_ret, k_impl_fn_nocap_twice, i_impl_fn_scalar,
+// i_impl_fn_owner_two, i_impl_fn_nocap, g_returned_impl_fn), build
+// febd1aa6e49ae30c 43. Rust: exit 0, `f() + f() == 14`.
+package impl_fn_return_stack_env_dangles;
+
+fn mk() -> impl Fn() -> i64 {
+    let k: i64 = 7i64;
+    return move || -> i64 { return k; };
+}
+
+fn main() -> i32 {
+    let f = mk();
+    let a: i64 = f();
+    let b: i64 = f();
+    if a + b != 14i64 { return 1i32; }
+    return 0i32;
+}

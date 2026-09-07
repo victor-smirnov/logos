@@ -27875,3 +27875,99 @@ fires: n/a — LANDED, not a probe
 ceiling: 2 (queue: match_ergo_nested_tuple_mut_admit, nested_variant_payload_under_ref_double_drops) / 0 (bc)
 cost: 0 IN THE FINAL FORM — the first form cost THREE fixtures (see §4). L1 769/769 + 12 684 generated smoke cases; full `cmake --build` rc 0, which rebuilds all four stdlib archives with the changed compiler (a stronger stdlib column than stdlib-cost.sh, which only compiles the layers)
 verdict: LANDED. Nine hand cells 2 -> 1, one over-refusal repaired, 11 abuse-direction programs byte-identical, and three cells left to a BLOCKED row.
+
+## 2026-09-07r — THE CLOSURE LATTICE: 228 CELLS, FIVE ROOTS, AND FOUR MEMORY-UNSAFE CELLS THAT EXIT 0 WITH THE RIGHT ANSWER
+
+SURVEY ROUND. **No compiler source was touched**; build hash `febd1aa6e49ae30c 43` read
+before and after, identical. Queue gate rc 0 at 62 rows before, rc 0 at 67 after. L1 rc 0
+(769/769, 12 684 generated smoke cases, gates 173/173). probe-log-lint 238.
+
+Generator, runner, scorer, valgrind reader and `cells.json` are committed under
+`tests/lattice/closure/`; the baseline and the per-root breakdown are in its README.
+
+**GRID.** 228 cells: OK 192, WRONGCOUNT 26, REFUSED 7, RUNRC 2, WRONGVALUE 1.
+
+⚠ **THE COUNT ORACLE ALONE WOULD HAVE MISSED FOUR OF THE SEVEN MEMORY-UNSAFE CELLS.**
+`i_impl_fn_scalar`, `i_impl_fn_owner_two`, `i_impl_fn_nocap` and `i_fat_boxed_noannot_1`
+exit 0 with the CORRECT destructor count and the CORRECT value and are valgrind-dirty
+(37 / 49 / 3 / 16 records; the last two carry `Invalid write of size 8`). This is the
+concrete form of "a leak and a double free are both invisible to an exit code", and it
+is why the lattice ships `vg.sh` beside `score.py`.
+
+**FIVE ROOTS, BY SYMBOL.** Three were already rowed and two were not:
+
+1. `if (body_moved_outer.count(ec->captures[i])) continue;` and, three lines above,
+   `if (narrow_owned) continue;` — `SemaChecker`'s closure-literal capture walk
+   (sema_expr.cpp). 20 cells: `a_move_nocall_consume_*` at all fourteen payload kinds
+   and `b_narrow_consume_nocall_*` at all six that have a droppable field. Rows
+   closure_capture_body_moved_never_dropped / closure_narrow_capture_never_dropped.
+2. **NEW — the same missing fact with the opposite sign.** The `capture_drops[i]` loop in
+   `MLIRGenImpl::emit_closure_env` (mlir_gen_dyn.cpp) never asks whether the BODY moves
+   the capture, and its own comment says "the predicate here MUST match that sema
+   decision". When the env has no glue the fact's absence LEAKS; when the env is HEAP
+   (escaping → glue emitted) it DOUBLE-FREES. `Box<dyn FnOnce() -> i64>` returned out of
+   a fn, body `let t = x;`, called once: `D::drop` runs TWICE (cell
+   `l_boxed_fnonce_escape_consume`), and the `String` spelling aborts rc 134 with
+   valgrind `Invalid free()` from `Box$G1$|| -> i64__drop`. The non-escaping twin
+   (`g_box_dyn_fnonce`) is CORRECT. Row boxed_escaping_fnonce_capture_double_free.
+3. **ROOT NARROWED, not new.** closure_byvalue_param_never_dropped is not "the closure
+   door" — it is **closure bodies that fall off the end**. Void bodies leak the by-value
+   parameter under `Fn`, `FnMut` and `FnOnce` bounds and at a direct call, with or
+   without a capture, at one and at two parameters, and with a heap `String`; the SAME
+   parameter on a `-> i64` closure is correct, as is a void body that moves the parameter
+   into a local, as is a plain void `fn`. The closure lowering does `lower_block(...)`
+   then `pop_scope()`; `lower_fn` (sema_decl.cpp) has the missing epilogue,
+   `if (!body_terminated) { … emit_frame_drops(frame, epilogue_drops, &body_ever_moved_); … }`,
+   and its comment already states the rule the measurement re-derives.
+4. **NEW — `escapes` is minted from the SHAPE OF THE HINT TYPE.** `ec->escapes = true`
+   fires only when `hint_closure_formal_` peels to a callable through a `Struct` /
+   `ZonedStruct` wrapper, i.e. `Box<…Fn…>`. **RETURN POSITION IS A SECOND ESCAPING DOOR
+   AND IT IS NOT CARRIED**, so a closure returned as `impl Fn() -> i64` keeps its env in
+   `create_entry_alloca` in the dying frame. Called twice: SIGSEGV rc 139. Called once:
+   rc 0, right answer, 37 valgrind records. Non-capturing: rc 0, right answer, 6 records —
+   the returned `{fn, env}` pair is itself a dead-frame address. Controls clean: the same
+   closure through `Box<dyn Fn>`, and a non-capturing one returned as a bare `fn() -> i64`.
+   Row impl_fn_return_stack_env_dangles.
+5. `sizeof_struct(cap_struct)` for a heap env holding fat `{ptr,len}` captures. **The
+   symptom is monotone in the capture count and changes at every step**: one capture =
+   silent overflow at rc 0 with the right value; two = abort rc 134; three = rc 0 with a
+   GARBAGE value (213218621825027 for 6). Scalar-capture and `String`-capture controls
+   behind the same returned `Box<dyn Fn>` are clean. Row
+   boxed_move_closure_fat_capture_env_overflow, header extended with the sweep.
+
+**THREE OVER-REFUSALS OF LEGAL RUST, all with the sentence read:**
+`let s: str = "abc";` + `Box::new(move || s.len())` coerced to `Box<dyn Fn>` — "coercion
+to `dyn Fn` requires `|| -> i64: 'static` — lifetime `'_` may not live long enough";
+**the same program WITHOUT the annotation compiles**, so a type ascription naming the same
+type changed what the program means (row str_annot_loses_static_for_dyn_fn).
+`(h.f)()` on `struct H { f: Box<dyn Fn() -> i64> }` — "expression-as-callee: receiver type
+'Box<|| -> i64>' is not callable", while the same value in a LOCAL is callable (row
+boxed_closure_struct_field_not_callable). `call_dyn(&b)` into `f: &dyn Fn() -> i64` —
+"expected || -> i64, got &Box<|| -> i64>", and note the formal side has lost both the `&`
+and the `dyn`, so the repair is in the COMPARISON (row box_dyn_fn_shared_ref_arg_refused).
+
+**A GROUPING CLAIM, STATED SO THE NEXT ROUND CAN REFUTE IT.** Roots 1 and 2 are ONE
+missing fact — "does the closure body move this capture out?" — computed in sema, never
+written onto the LIR closure record, read at neither codegen site. Three rows
+(closure_capture_body_moved_never_dropped, closure_narrow_capture_never_dropped,
+boxed_escaping_fnonce_capture_double_free) fail in OPPOSITE directions from it. If one
+candidate change does not move all three, the grouping is refuted and that is the round's
+result. The last two rounds refuted both handed-down groupings this way.
+
+**A RECORD REFUTED BY MEASUREMENT.** `j_closure_shadowed` (a shadowed closure binding
+leaks its capture) is NOT a closure defect: `let x: D = a; let x: D = b;` with no closure
+anywhere reads count 1000 for 1001 on the same binary. It belongs to
+shadowed_binding_never_dropped (`SemaImpl::declare_var`'s name-keyed `var_order`), and a
+closure repair must not be scored against it.
+
+**WHAT THE LATTICE SHOWS CORRECT.** `boxed_closure_to_dyn_fn_cast_internal` and
+`closure_in_generic_two_insts` both still reproduce, exactly as rowed. Everything else on
+the closure surface that the queue's headers call out as a control is correct and stayed
+correct: `move` closures owning a droppable capture at all fourteen payload kinds when the
+closure is CALLED; narrow captures at all six field-bearing kinds when called; `Fn`/`FnMut`/
+`FnOnce` bounds by value, by `&F` and by `&mut F`; `Box<dyn Fn>` in the same frame and
+returned; nested closures and a closure capturing a closure; a closure in a `Vec` and in an
+`Option`; loop, `break`, `continue`, `match`-arm and early-`return` scope ends; env widths
+1..5 scalar and 1..3 fat unboxed; `FnMut` mutation of an outer local (borrowed) versus a
+`move` copy (not borrowed); a closure moved to a second local; a closure ASSIGNED OVER
+(1001, correct — only the SHADOWED spelling is wrong).

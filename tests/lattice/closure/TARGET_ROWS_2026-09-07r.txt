@@ -1,0 +1,54 @@
+TARGET ROWS FOR THE NEXT ROUND, NAMED BEFORE THE COMPILER IS TOUCHED.
+Survey round 2026-09-07r fixed nothing (owner's instruction). Build febd1aa6e49ae30c 43,
+closure lattice 228 cells + valgrind. Blocks are ordered by "an arm that EXISTS, reached
+through a fact the code does not carry" — the shape that has paid every time.
+
+BLOCK 1 — THE DELEGATION FACT (3 rows, 21 lattice cells, 1 candidate change)
+  closure_capture_body_moved_never_dropped      tier 1  run 1    14 cells
+  closure_narrow_capture_never_dropped          tier 1  run 1     6 cells
+  boxed_escaping_fnonce_capture_double_free     tier 1  run 2     1 cell   [NEW this round]
+  THE FACT: "does the closure BODY itself move this capture out?" It is COMPUTED in
+  sema (`body_moved_outer`, src/compiler/sema_expr.cpp) and is never written onto the
+  LIR closure record, so `MLIRGenImpl::emit_closure_env`'s `capture_drops[i]` loop
+  cannot read it — and that loop's own comment says "the predicate here MUST match
+  that sema decision". Sema's decision has THREE outcomes (source scope / body /
+  env glue); the codegen predicate carries two.
+  WHY THIS BLOCK: it is the only grouping in the queue that the "does ONE change move
+  BOTH members?" test can be run on with the members failing in OPPOSITE directions —
+  two leaks and one double free from one missing bit. If one change does not move all
+  three, the grouping is refuted and that is worth as much as the fix.
+  ⚠ TEST THE GROUPING, DO NOT INHERIT IT. Both handed-down groupings were refuted in
+  tier 1 in earlier rounds: five defects, five roots.
+
+BLOCK 2 — THE CLOSURE BODY HAS NO EPILOGUE (1 row, 5 cells, 1 candidate change)
+  closure_byvalue_param_never_dropped           tier 1  run 1     5 cells
+  THE ARM EXISTS: `lower_fn` (src/compiler/sema_decl.cpp) runs
+  `if (!body_terminated) { … emit_frame_drops(frame, epilogue_drops, &body_ever_moved_); … }`
+  over the params scope. The closure-literal lowering (src/compiler/sema_expr.cpp)
+  does `lower_block(body_node)` then `pop_scope()` with nothing in between. Measured
+  discriminator: the closure body's RETURN TYPE. Void bodies leak at four bound
+  spellings and at a direct call; `-> i64` bodies are correct because they end in
+  `return`, which reaches `collect_all_drops`. Smallest diff in the set.
+
+BLOCK 3 — `escapes` IS MINTED FROM THE HINT'S SHAPE (1 row, 7 cells)
+  impl_fn_return_stack_env_dangles              tier 1  run 139   7 cells  [NEW this round]
+  `ec->escapes = true` fires only when `hint_closure_formal_` peels to a callable
+  THROUGH a Struct wrapper (i.e. `Box<…Fn…>`). RETURN POSITION under an `impl Trait`
+  return type is a second escaping door and is not carried, so the env stays a
+  `create_entry_alloca` in the dying frame. Worth funding because it is the only
+  tier-1 row here whose symptom is a SIGSEGV and whose one-call spelling is silent.
+  ⚠ A ZERO IS NOT AN ANSWER UNTIL THE SITE IS PROVEN LIVE: prove `escapes` reaches
+  `heap_env` for the `impl Fn` shape before believing any cost column.
+
+BLOCK 4 — THE HEAP ENV IS SIZED IN WORDS, NOT BYTES (1 row, 3 cells)
+  boxed_move_closure_fat_capture_env_overflow   tier 1  run 134   3 cells
+  `sizeof_struct(cap_struct)` for a heap env with fat {ptr,len} captures. Monotone in
+  the capture count: 1 = silent overflow at rc 0, 2 = abort, 3 = garbage value at rc 0.
+  Scalar and String controls are clean, so the suspect is the fat member's contribution
+  to `cap_struct`, not the malloc call.
+
+NOT IN ANY BLOCK, DELIBERATELY
+  j_closure_shadowed is NOT a closure defect: `let x: D = a; let x: D = b;` with no
+  closure anywhere leaks identically (hand program, count 1000 for 1001). It belongs to
+  shadowed_binding_never_dropped, root `SemaImpl::declare_var`'s name-keyed `var_order`.
+  Do not score a closure repair against it.

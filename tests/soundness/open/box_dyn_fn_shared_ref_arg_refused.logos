@@ -1,0 +1,34 @@
+// SOUNDNESS QUEUE row box_dyn_fn_shared_ref_arg_refused (tier 3, `refuses`). A
+// `&Box<dyn Fn…>` DOES NOT REACH A `&dyn Fn…` PARAMETER.
+//
+// `fn call_dyn(f: &dyn Fn() -> i64) -> i64 { return f(); }` called as
+// `call_dyn(&b)` with `b: Box<dyn Fn() -> i64>` is refused:
+//
+//   error [fn main]: call to 'call_dyn' arg 1: expected || -> i64, got
+//   &Box<|| -> i64>
+//
+// Legal Rust: `&Box<dyn Fn()>` deref-coerces to `&dyn Fn()` at a call argument.
+// Note what the sentence says the parameter type is — `|| -> i64`, with the `&`
+// and the `dyn` both gone — so the formal side has lost the reference as well;
+// a repair must fix the COMPARISON, not just add a coercion, and the row
+// records the sentence so a reworded refusal does not read as a close.
+//
+// CONTROLS ALREADY CORRECT: calling the box directly, `b()` (lattice
+// c_box_dyn_local_*); lending a NON-boxed closure as `&F` to a generic
+// `F: Fn() -> i64` parameter (c_pass_ref_*, l_closure_arg_to_two_calls, all
+// correct); and passing the box BY VALUE.
+//
+// Measured 2026-09-07 on the closure lattice, cell g_dyn_fn_behind_ref, build
+// febd1aa6e49ae30c 43. Rust: exit 0.
+package box_dyn_fn_shared_ref_arg_refused;
+
+use logos.mem.boxed;
+
+fn call_dyn(f: &dyn Fn() -> i64) -> i64 { return f(); }
+
+fn main() -> i32 {
+    let k: i64 = 7i64;
+    let b: Box<dyn Fn() -> i64> = Box::new(move || -> i64 { return k; });
+    if call_dyn(&b) != 7i64 { return 1i32; }
+    return 0i32;
+}

@@ -325,6 +325,23 @@ NOT_GATES = {
                                "question, printing where the answer landed. It "
                                "asserts NOTHING — the question holds the verdict "
                                "and none of them is a gate yet",
+    # THE SECOND HALF OF THE CLOSURE LATTICE'S ORACLE, and a hand-run reader.
+    # It runs `valgrind --leak-check=full` over an output directory the lattice
+    # runner just produced and PRINTS one line per program: exit code, error-line
+    # count, definitely-lost bytes, invalid-access kinds. It pronounces no
+    # verdict — the lattice's expected answers live in cells.json and score.py,
+    # and a nonzero line here is a leak OR an overflow OR an uninitialised read,
+    # three findings with three different responses. It also has no population of
+    # its own: its argument is a scratch directory, so there is nothing standing
+    # for ctest to re-run. Registering it would assert that today's valgrind
+    # residue is the correct state of the world, which is exactly the claim the
+    # soundness queue exists to keep OPEN.
+    "vg.sh":                   "the closure lattice's valgrind reader: it prints "
+                               "per-program valgrind residue over a scratch "
+                               "output directory the runner made, pronounces no "
+                               "verdict, and has no standing population — the "
+                               "lattice's answers live in cells.json/score.py",
+
     "sweep.sh":                "runs tools/dlog over every compiler TU and prints "
                                "a REPORT to read, not a verdict; minutes of clang "
                                "and its rules are graded by selftest.sh",

@@ -1,0 +1,33 @@
+// SOUNDNESS QUEUE row boxed_closure_struct_field_not_callable (tier 3,
+// `refuses`). A BOXED CLOSURE HELD IN A STRUCT FIELD CANNOT BE CALLED.
+//
+// `struct H { f: Box<dyn Fn() -> i64> }` … `(h.f)()` is refused:
+//
+//   error [fn main]: expression-as-callee: receiver type 'Box<|| -> i64>' is
+//   not callable
+//
+// The same value is callable through a LOCAL — `let g: Box<dyn Fn() -> i64> =
+// …; g()` compiles and runs (lattice cells c_box_dyn_local_*, all correct at
+// three payload kinds) — so the callee walk knows how to call a boxed closure
+// and only the FIELD-PROJECTION spelling of the receiver does not reach it. The
+// diagnostic's own text says the receiver type IS `Box<|| -> i64>`, i.e. the
+// type is right and the callability question is being asked at a site that
+// answers it differently.
+//
+// This is the ordinary way a callback is stored in Rust (`struct H { f: Box<dyn
+// Fn() -> i64> }` and `(self.f)()`), and it is legal: exit 0.
+//
+// Measured 2026-09-07 on the closure lattice, cell g_closure_struct_field,
+// build febd1aa6e49ae30c 43.
+package boxed_closure_struct_field_not_callable;
+
+use logos.mem.boxed;
+
+struct H { f: Box<dyn Fn() -> i64> }
+
+fn main() -> i32 {
+    let k: i64 = 7i64;
+    let h: H = H { f: Box::new(move || -> i64 { return k; }) };
+    if (h.f)() != 7i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,81 @@
+// SOUNDNESS QUEUE row boxed_escaping_fnonce_capture_double_free (tier 1). AN
+// ESCAPING BOXED CLOSURE WHOSE BODY CONSUMES ITS CAPTURE DESTROYS IT TWICE.
+//
+// `fn mko() -> Box<dyn FnOnce() -> i64> { let x = …; Box::new(move || { let t =
+// x; return t.v; }) }`, called once, runs `D::drop` TWICE. With a heap payload
+// it is a plain double free: the `String` spelling aborts rc 134 and valgrind
+// prints "Invalid free() … Address … is 0 bytes inside a block of size 12
+// free'd", the second free coming from
+// `logos_mem..logos.mem.boxed.Box$G1$|| -> i64__drop`, i.e. the closure env's
+// own drop glue.
+//
+// ROOT, by symbol: the `capture_drops[i]` loop in
+// `MLIRGenImpl::emit_closure_env` (src/compiler/mlir_gen_dyn.cpp). It decides
+// per capture:
+//
+//     if (!v.is_move()) continue;
+//     if (!capture_own_inline[i]) { if (capture_is_pointer_repr[i] || capture_is_mut_ref[i]) continue; }
+//     TypeRef drop_t = capture_field_ts[i] ? capture_field_ts[i] : capture_types[i];
+//     if (drop_t && value_needs_drop(drop_t)) { capture_drops[i] = true; need_glue = true; }
+//
+// and its own comment says "the predicate here MUST match that sema decision"
+// (`closure_owned_drop_`). IT DOES NOT. Sema's §7.1 arm in
+// `SemaChecker`'s closure-literal capture walk (src/compiler/sema_expr.cpp)
+//
+//     if (body_moved_outer.count(ec->captures[i])) continue;
+//
+// has THREE outcomes — the source scope drops it, the BODY drops it, or the env
+// glue drops it — and the codegen predicate carries only two. The fact "the
+// closure BODY itself moves this capture out" is computed in sema, is never put
+// on the LIR closure record, and so cannot be read here. The env glue drops the
+// capture and the body's local drops it again.
+//
+// ⚠ SAME MISSING FACT AS THE TWO LEAK ROWS, OPPOSITE SIGN. When the env has NO
+// glue (a non-escaping stack `move` closure that is never called) the same
+// missing fact LEAKS — that is closure_capture_body_moved_never_dropped and
+// closure_narrow_capture_never_dropped. When the env DOES have glue (escaping →
+// heap) it DOUBLE-FREES. One candidate change — carry `body_moved_outer` per
+// capture onto the closure record and consult it at both sites — moves all
+// three rows, and that is the grouping claim this row exists to be tested
+// against.
+//
+// CONTROLS ALREADY CORRECT ON THIS BINARY: the SAME closure NOT escaping —
+// `let f: Box<dyn FnOnce() -> i64> = Box::new(move || { let t = x; … });` in the
+// caller's own frame — reads COUNT 1 (lattice cell g_box_dyn_fnonce); an
+// escaping boxed closure whose body only READS the capture reads COUNT 1
+// (c_box_dyn_escape_plain); and a non-escaping stack closure whose body
+// consumes, CALLED, reads COUNT 1 at all fourteen payload kinds
+// (a_move_consume_*).
+//
+// ⚠ THE ORACLE IS A DESTRUCTOR COUNT: 1 = destroyed once, 2 = destroyed twice.
+// Today it reads 2 and this program exits 2; correct is 1 and exit 0. The
+// heap-payload spelling is the one that aborts, and it is recorded above rather
+// than used here so the gate's reader sees a deterministic exit code.
+//
+// Measured 2026-09-07 on the closure lattice (cell l_boxed_fnonce_escape_consume),
+// build febd1aa6e49ae30c 43. Rust: exit 0, one destruction.
+package boxed_escaping_fnonce_capture_double_free;
+
+use logos.mem.boxed;
+
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+
+fn mko(p: *mut i64) -> Box<dyn FnOnce() -> i64> {
+    let x: D = D { v: 1i64, c: p };
+    return Box::new(move || -> i64 { let t: D = x; return t.v; });
+}
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = -1i64;
+    {
+        let f: Box<dyn FnOnce() -> i64> = mko(p);
+        r = f();
+    }
+    if r != 1i64 { return 3i32; }
+    let got: i64 = unsafe { n };
+    if got != 1i64 { return 2i32; }
+    return 0i32;
+}
