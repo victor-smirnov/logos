@@ -33,11 +33,24 @@ let_tuple_struct_sub_diag  defect     1  round 2026-09-07u pricing report
     # the base compiler. Needs a fixture pair and a tier-3 row; check first whether it
     # is the same missing Struct arm as match_tuple_door_nested_struct_binds_nothing
     # (doors in SERIES) or a fourth door.
-compile_time_phenomenon_b  perf       1  bug_resolve_method_symbol_quadratic (memory)
-    # 2026-09-07 — ~19% global median compile-time slowdown across
-    # a9c7b67fd..96fdf6235, still unattributed after the quadratic
-    # `resolve_method_symbol` fix took the other half. Needs the verdict store's
-    # per-fixture seconds bisected over that range, not a profile of HEAD.
+compile_time_phenomenon_b  perf       1  build/gate-state/runs.db
+    # 2026-09-08 — BISECTED IN THE VERDICT STORE, AND THERE IS NOTHING AT HEAD TO
+    # BISECT. Median over a FIXED set of 6166 test names present in all 26 full
+    # runs from 09-05 05:41 to 09-08 07:07 (a fixed set, so a suite that changes
+    # size cannot explain a move): flat at 2.24-2.29 s, 22 of 26 within +/-1.5%,
+    # and HEAD today (2.2387) is BELOW the recorded range's start (2.2825).
+    # Two excursions, each back on the shelf at the next reading: 830/831
+    # (96fdf6235) 2.585 = +13.7%, and 876 (ffe9a2cbb) 4.102 = +81%.
+    # ⚠ NOT ATTRIBUTED, AND THIS COLUMN CANNOT ATTRIBUTE IT. These are wall-clock
+    # seconds under `ctest -j32` on a shared box, i.e. two SEPARATELY measured
+    # columns; the same instrument shows +81% one row away. A code cause is not
+    # excluded either — a9c7b67fd..96fdf6235 does carry 305/171 lines of real
+    # compiler source over ten files. 876 vs 877 share a head AND a build
+    # timestamp but differ in lib_hash, so they are probably armed vs unarmed
+    # and are NOT a clean same-binary control; I do not lean on them.
+    # The measurement that would settle it is not a bisect: compile a fixed
+    # program set with both binaries INTERLEAVED IN ONE PROCESS. Until someone
+    # names a commit worth that, the honest state is: not present at HEAD.
 o2_drops_presence_bit      recorded   1  bug_o2_drops_store_into_writ_node (memory)
     # DORMANT — clang-21 only, this box builds clang-20. ⚠ RETURNS ON LLVM 22.
     # Re-measure on a clang-21 build before rowing; do not row a dormant defect.
