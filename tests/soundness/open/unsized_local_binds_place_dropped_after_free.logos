@@ -1,0 +1,64 @@
+// SOUNDNESS QUEUE row unsized_local_binds_place_dropped_after_free (tier 2).
+// A LOCAL WHOSE TYPE IS AN UNSIZED TYPE PARAMETER — `let _v: T = p.val;` under
+// `T: ?Sized` — IS ADMITTED, AND IT IS NOT A MOVE: no value is copied out, the
+// binding aliases the ORIGINAL PLACE and the drop it schedules runs there at
+// the END OF THE BLOCK, which is after the block has freed that memory.
+//
+// Measured 2026-09-08 on build 8e5f92705b285d29 43, reducing the CORRUPT
+// verdict on tests/logos/pass/custom_dst_smartptr_owning_drop (2 invalid
+// accesses, rc 42, GREEN) from the valgrind sweep — unrowed_backlog entry
+// `vg_corrupt_custom_dst`. THIS PROGRAM reproduces both records verbatim:
+//
+//   Invalid read of size 8  at __drop_in_place__A
+//     by MyRc$G1$udyn_Tr__drop_me   — Address is 16 bytes inside a block free'd
+//     by MyRc$G1$udyn_Tr__drop_me   (the `free(self.inner ...)` on the line above)
+//   Invalid read of size 8  at A__drop  by __drop_in_place__A  — same block
+//
+// rustc REFUSES the line outright: E0277, "the size for values of type `T`
+// cannot be known at compilation time" / "all local variables must have a
+// statically known size". So the fixture's own comment — "the move-out is
+// re-lowered per-instance to a vtable[0] drop-in-place" — describes a construct
+// that has no Rust meaning, and the compiler's lowering of it schedules a
+// destructor against memory the same function frees two lines later.
+//
+// ⚠ THE FIXTURE tests/logos/pass/custom_dst_smartptr_owning_drop IS PINNED
+// GREEN AND COMMITS THIS USE-AFTER-FREE. That is a CORPUS DECISION with an
+// owner, not something this round may edit: either the unsized local is
+// refused (and the fixture must be rewritten around a real move-out), or it is
+// a supported construct and its drop must be scheduled BEFORE the free.
+//
+// `admits` and not `run`, for the same reason as the row above: the program
+// exits 0 with the right answer while corrupting the heap, so the queue gate's
+// exit-code reader cannot hold the runtime spelling; the compile-time half is
+// the same root and it is readable.
+package unsized_local_binds_place_dropped_after_free;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+
+trait Tr { fn v(&self) -> i64; }
+struct A { x: i64, c: *mut i64 }
+impl Tr for A { fn v(&self) -> i64 { return self.x; } }
+impl Drop for A { fn drop(self: A) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
+
+struct Inner<T: ?Sized> { strong: i32, val: T }
+struct MyRc<T: ?Sized> { inner: *mut Inner<T> }
+
+impl<T: ?Sized> MyRc<T> {
+    fn drop_me(&mut self) {
+        unsafe {
+            let _v: T = self.inner.val;      // UNSIZED LOCAL — rustc: E0277
+            free(self.inner as *mut u8);     // ... and `_v` is dropped after this
+        }
+    }
+}
+
+unsafe fn main() -> i32 {
+    let cb: *mut u8 = malloc(8); let c: *mut i64 = cb as *mut i64; c[0] = 0i64;
+    let raw: *mut u8 = malloc(64);
+    let ic: *mut Inner<A> = raw as *mut Inner<A>;
+    ic.strong = 1; ic.val = A { x: 5i64, c: c };
+    let mut r: MyRc<dyn Tr> = MyRc::<A> { inner: ic } as MyRc<dyn Tr>;
+    r.drop_me();
+    free(cb);
+    return 0i32;
+}

@@ -27,27 +27,6 @@
 #        recorded  carried in memory as open; needs re-measure before rowing
 #        perf      a timing regression, not a correctness defect
 
-vg_leak_records            sweep     90  sandbox/vg-sweep-fixed/results.tsv
-    # 2026-09-07 — 90 fixtures LEAK, but 197 of 254 loss records are STDLIB-allocated:
-    # 90 hits is NOT 90 defects. Group the loss records by ALLOCATION SITE, then one
-    # row per site. Until that grouping exists the population is unknown, not large.
-vg_corrupt_objlt_str       defect     1  tests/logos/pass/bc_objlt_str_literal
-    # 2026-09-07 — valgrind reports memory corruption on a passing fixture. rc is
-    # GREEN, so no gate in the tree can see it. Needs a reduced program + the
-    # destructor-count or valgrind oracle, then a tier-1 row.
-vg_corrupt_custom_dst      defect     1  tests/logos/pass/custom_dst_smartptr_owning_drop
-    # 2026-09-07 — as above, on the owning-drop custom-DST path.
-vg_corrupt_coerce_4        defect     1  tests/spec/pass/coerce_4
-    # 2026-09-07 — as above, on a spec coercion fixture.
-vg_harness_linkfail_cfail  sweep    188  sandbox/vg-sweep-fixed/results.tsv
-    # 2026-09-07 — 124 LINKFAIL + 64 CFAIL. SUSPECTED to be the sweep's OWN missing
-    # link flags (the sweep does not carry the per-fixture `-l` archives the CMake
-    # glob passes). ⚠ VERIFY THE HARNESS BEFORE ROWING ANY OF THEM: if the flags are
-    # the cause this entry closes at ZERO defects. Prove the channel is live first.
-vg_timeout_memoria         sweep      3  sandbox/vg-sweep-fixed/results.tsv
-    # 2026-09-07 — memoria_btfl_multimap, memoria_ssrle_ops, memoria_gen_fse, all rc
-    # 124, cut by the sweep's own timeout under valgrind. Re-run the three alone with
-    # a generous timeout: either they finish (harness, zero defects) or they hang.
 let_tuple_struct_sub_diag  defect     1  round 2026-09-07u pricing report
     # 2026-09-07 — `let (P { x, y }, z) = sv;` is refused with a THIRD sentence,
     # "'let <pattern> = expr;' currently supports struct patterns only". Reproduced on
@@ -167,4 +146,52 @@ closure_move_of_refmut_local_over_refusal  defect  1  round 2026-09-08 (stage 7 
     # no stage1 under /home/logos/cxx/rust). To make it a row: run these two programs
     # through a real rustc; if rustc accepts them this is a tier-3 `refuses` row for
     # soundness_queue.ledger, and an over-refusal is the most expensive kind here.
-# TOTAL 23
+vg_leak_records            sweep     87  sandbox/vg-round2/{leaks.tsv,recs2.pkl}
+    # 2026-09-08 RE-MEASURED on build 8e5f92705b285d29 43 with the per-fixture CMake
+    # flags the first sweep dropped. 87 of the 90 still leak (old-closure-explicit-types,
+    # issue-19367-b170 and rfc2229_move_disjoint_field are now CLEAN — fixed since the
+    # vgfix build, which no longer exists). THE GROUPING THE ENTRY ASKED FOR, over 270
+    # loss records / 90 fixtures, 202 of them stdlib-allocated:
+    #     39  distinct IMMEDIATE allocation sites   <- the coarsest honest row unit
+    #     75  distinct (site, caller) pairs
+    #    110  distinct full allocation stacks
+    # So 90 hits is AT MOST 39 rows, not 90. The largest class is `vec$vec_new` reached
+    # from the fixture's own `mk` — 141 records over 32 fixtures — and ONE root inside it
+    # is now proven and rowed (soundness_queue `replace_site_skips_field_drop_glue`): the
+    # field drop glue is emitted only for a top-level local at scope exit, never at an
+    # assignment/replace site nor through a struct field. HOW MANY OF THE 32 THAT ROOT
+    # ACCOUNTS FOR IS NOT MEASURED and must not be claimed. ⚠ Two negative controls that
+    # cost this round real time: a plain `struct{Vec} + impl Drop` local does NOT leak,
+    # and a `Vec<T>` ELEMENT with a user Drop does NOT leak — so neither "user drop
+    # replaces glue" nor "container element glue" is the shape. What remains unattributed:
+    # 28 records allocated in `main`, 14 in `String__grow`, 8 in `buf_reader_wrap`, and
+    # ~15 one-fixture sites in writ/fabric/zvec arenas that may well be deliberate.
+
+red_pass_fixtures_objlt_static  defect   4  ctest, measured 2026-09-08
+    # ⚠ BLOCKER-CLASS, FOUND AS A SIDE EFFECT OF PROVING THE SWEEP'S CHANNEL. FOUR pass
+    # fixtures are RED on today's build and are NOT disabled:
+    #   logos_02_semantic_core_pass_box-concrete-as-box-dyn-return
+    #   logos_02_semantic_core_pass_blanket-impl-box-to-dyn-b172
+    #   logos_02_semantic_core_pass_blanket-impl-generic-struct-dyn
+    #   logos_02_semantic_core_pass_generic-struct-method-chain-b162
+    # The first three carry ONE sentence — "coercion to `dyn X` requires `T: 'static` —
+    # lifetime `T (no bound reaching 'static)` may not live long enough (object lifetime
+    # bound)"; the fourth is E0507 "cannot move out of a value behind a reference". None
+    # of the four .logos files has been touched since it was imported, so the COMPILER
+    # moved under them. MEMORY records five imported reds (if-generic,
+    # ref-mut-binding-stable-across-guard-m2, poll-problem-case-3, dropck-shadow-rebind,
+    # call-through-ref-to-fn-bound-b158) — those five are DISABLED in ctest and are not
+    # these. To make it a row: bisect the object-lifetime-bound sentence over the last
+    # ~8 commits (9548e8e49 `lifereg.L7` and fc0740e06 `bck.A-REFPARAM` are the
+    # candidates) and decide whether the refusal is legal-Rust-correct; if it is not,
+    # it is an OVER-REFUSAL, the most expensive kind. ⚠ This round did not touch the
+    # compiler, so nothing here was attempted.
+
+orphan_fixture_no_expected  defect     1  tests/imported/pass/closures/hrtb-deep-bound-chain.logos
+    # 2026-09-08 — a `.logos` in the pass corpus with NO `.expected` beside it and NO
+    # add_test entry anywhere in build/tests/logos/CTestTestfile.cmake. CMake globs
+    # `.expected`, so this file is compiled by nothing and asserted by nothing while
+    # sitting in the corpus. To make it a row: decide whether it is an unfinished port
+    # (write the `.expected`) or dead (delete it) — it is one line either way.
+
+# TOTAL 20

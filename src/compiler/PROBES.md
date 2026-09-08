@@ -30258,3 +30258,65 @@ of a different function). So the admit shelf holds ONE member and the ceiling ag
 with the enumeration — 1. The fix is still structural rather than per-row: it replaces
 an identity test with the property the hatch was always trying to express, and the
 `fail` shelf's four moved pins are the rest of the class showing itself.
+
+## ROUND 2026-09-08v — THE VALGRIND ENTRIES OF `unrowed_backlog.ledger`, MEASURED
+
+Build read: `8e5f92705b285d29 43`. Compiler untouched (`git diff --stat` shows zero
+lines under `src/` and `include/`; this file is markdown).
+
+**THE SWEEP'S POPULATION WAS NOT SOUND, AND THAT IS THE ROUND'S FIRST RESULT.**
+`sandbox/vg-sweep-fixed` compiled every fixture with a fixed 7-archive link line and no
+per-fixture flags. Reading `build/tests/logos/CTestTestfile.cmake` for all 188 LINKFAIL+CFAIL
+fixtures: **173 of them are registered with flags the sweep dropped** — 123 with `--test`
+(the harness tier, which has no `main` of its own, hence LINKFAIL) and 50 with `-l <archive>`
+(hence CFAIL at symbol discovery, not at link). Re-run with the flags: **169 OK**. So
+`vg_harness_linkfail_cfail` closes at **ZERO defects**, and — the part that matters — a sweep
+that silently lost 188 programs had not yet earned its silence about the other 6240.
+
+**AND THE HARNESS DEFECT DID NOT LAUNDER EVERYTHING.** The 188 split cleanly:
+173 flags · 14 genuine CFAIL · 1 unregistered file. Of the 14, **five are ctest-DISABLED**
+(the recorded imported reds), **five pass under ctest and failed only in my own reproduction**
+(which omitted the `LOGOS_MLIRGEN_BUG_LEDGER` / `LOGOS_VERIFY_LAYOUT` environment CMake sets
+— a second harness defect, mine), and **four are LIVE RED pass fixtures** that no memory entry
+names → new backlog entry `red_pass_fixtures_objlt_static`. The 1 unregistered file →
+`orphan_fixture_no_expected`.
+
+**`vg_timeout_memoria` closes at ZERO defects.** All four memoria fixtures finish clean under
+a 3600 s timeout (6.97 M allocs = 6.97 M frees on `memoria_gen_fse`). No survivors left.
+
+**`vg_leak_records`: 90 hits are at most 39 rows.** 270 loss records over 90 fixtures, 202
+stdlib-allocated; 39 distinct immediate allocation sites, 75 (site,caller) pairs, 110 full
+stacks. ONE root proven and rowed. ⚠ Two negative controls saved this from a wrong claim:
+a plain `struct{Vec}+impl Drop` local does NOT leak, and a `Vec<T>` element with a user `Drop`
+does NOT leak — so the obvious "user drop replaces field glue" story is false as stated.
+
+**THE SHAPE THAT DOES LEAK, and the objdump that names it.** One binary, one control per
+line, destructor count CORRECT on every one; counting `call` targets per function:
+
+| shape | `Pay__drop` | `Vec__drop` | leak |
+|---|---|---|---|
+| local at scope exit | 1 | 1 | clean |
+| `if`-expression arms | 3 | 3 | clean |
+| moved into a callee | — | — | clean |
+| `Vec<Pay>` element | — | — | clean |
+| assignment over a local | 2 | **1** | 64 B |
+| assignment over a field | 2 | **0** | 128 B |
+| struct field at scope exit | 1 | **0** | 64 B |
+
+The recursion into a value's fields after its user `Drop::drop` is emitted at exactly one
+site and at no other. ⚠ Whether the failing sites are one root or two is NOT measured —
+nothing this round could prove one candidate change moves both (rule 13).
+
+**THE THREE CORRUPT FIXTURES ARE THREE DIFFERENT MECHANISMS, NOT ONE.** The standing row
+`boxed_move_closure_fat_capture_env_overflow` names all three as its corpus members; their
+valgrind stacks say otherwise. `bc_objlt_str_literal` IS that row (its cited one-capture
+spelling) → 0 new rows. `custom_dst_smartptr_owning_drop` is an unsized local aliasing a
+place freed two lines later. `coerce_4` is an `Rc<T>→Rc<dyn Tr>` unsize that does not consume
+its source. **That row's prose overclaims and should be corrected by whoever owns it.**
+
+Rows minted: `replace_site_skips_field_drop_glue` (1, run 11),
+`rc_coerce_unsized_source_not_moved` (2, admits),
+`unsized_local_binds_place_dropped_after_free` (2, admits). Queue 70 → 73, gate rc 0.
+Backlog 23 → 20 (six entries deleted, `vg_leak_records` rewritten, two new).
+Both runtime spellings exit 0 with the right answer, so the `admits` half is what a gate can
+hold — stated in each program's header rather than left for the next reader to rediscover.
