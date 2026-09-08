@@ -30781,3 +30781,52 @@ of an unchanged tree: base 2c5a33ef99e94fc9 -> aca6d8a5fef7d705 (root 1) ->
 change). The embedded version string carries `git describe` and a build
 TIMESTAMP, so the hash moves whenever the libs are relinked. Any round that
 reads it as "the tree is back where it started" is reading a timestamp.
+
+## 2026-09-08 — THE DROP-EMISSION DESIGN DECISION, PRICED BOTH WAYS, NOTHING LANDED
+
+Two arms, one build, env-gated (`dropbody` = the BODY owns its fields;
+`dropsite` = the CALL SITE recurses after the user drop), plus a corrected
+`dropsite2` in a second build dir. Four sites in `mlir_gen_stmt.cpp`; the tree
+today is design B at a scope-exit STRUCT local and design A everywhere else,
+including a scope-exit ENUM (`k == K::Enum && drop_fn.empty()`) — that guard is
+in the SCOPE-EXIT emitter, NOT in `gen_drop_value` as the row header says.
+
+    probe      fires   ceiling  pass  cfail  stdlib  RUNTIME(6557)
+    dropbody   15777      0       4     0      ok        12
+    dropsite   15746      0       2     0      ok         2
+    dropsite2   (build2, same edits + one-shot enum fix)  2      2
+
+DESIGN A IS ANSWERED BY MEASUREMENT, NOT PREFERENCE. A struct with an EMPTY
+`Drop::drop` and one droppable field reads 0 under A: the drop body does not
+drop `self`'s fields, so the spec sentence A rests on
+(`intrinsic.drop.owner-drops-fields-after-user-drop`, second half) is false. And
+A is impossible for `fn drop(self: &mut T)` — the receiver the SPEC's own pinned
+fixture `tests/spec/pass/intrinsic_1.logos` uses, which A moves runrc 0 -> 31.
+
+DESIGN B closes `replace_site_skips_field_drop_glue` and
+`enum_user_drop_skips_payload_glue` and 14 unrowed shapes, and is wrong on
+exactly one property: a by-value drop body that MOVES ITS OWN FIELD OUT
+(`drop_body_moving_field_double_drops_local`, and the stdlib's `DropGuard`,
+whose move-out is CONDITIONAL so no fixed answer serves it). Both of B's costs
+are fixtures whose own text disagrees with what they pin: `drop_glue_three_levels`
+(comment "b3 a7", pin "b3"; B prints the comment) and `drop-trait-enum-b154`
+(header says the impl "matches &Self", code is `fn drop(self: Foo)` and its body
+moves the payload out). REPORTED, NOT EDITED.
+
+RULE 7 AGAIN, MEASURED: the crude B calls the enum's user drop TWICE (a hand
+program reads 2003 where the correct answer is 1001); `dropsite2` fixes that and
+reads 1002 — and `drop-trait-enum-b154` still fails, one check later. A crude
+arm's cost was neither an over- nor an under-count; it was a DIFFERENT failure.
+
+RULE 17: the prompt's 14-row "cluster" is a grouping by SYMPTOM. Eleven of the
+fourteen name eleven different roots in their own headers and are unmoved by
+BOTH arms over all 80 queue programs.
+
+UNROWED, AND PRESENT UNARMED: a conditional move-out inside a drop body
+(`if self.armed { let f = self.f; }`) is dropped UNCONDITIONALLY at the body's
+epilogue — the counter reads 2 in both the armed and the disarmed spelling,
+while the same conditional move in a plain function reads 1 on all three
+binaries. A double free with no row.
+
+Full record, the 23-shape table and the two-design decision table:
+`docs/probes/dropdesign-2026-09-08/ROUND.md`.

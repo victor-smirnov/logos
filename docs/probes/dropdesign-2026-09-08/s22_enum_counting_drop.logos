@@ -1,0 +1,16 @@
+package s22_enum_counting_drop;
+extern fn malloc(n: i64) -> *mut u8;
+trait Drop { fn drop(self: Self); }
+struct N { w: i64, c: *mut i64 }
+impl Drop for N { fn drop(self: N) { unsafe { self.c[0] = self.c[0] + self.w; } } }
+enum E { V(N), Z }
+impl Drop for E { fn drop(self: E) { unsafe { } } }
+struct Ctr { c: *mut i64 }
+enum F { V(N, *mut i64), Z }
+impl Drop for F { fn drop(self: F) { match self { F::V(a, p) => { unsafe { *p = *p + 1000i64; } } F::Z => { } } } }
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+    c[0] = 0i64;
+    { let f: F = F::V(N { w: 1i64, c: c }, c); }
+    return c[0] as i32;
+}

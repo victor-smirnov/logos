@@ -1,0 +1,57 @@
+TARGET ROWS — round 2026-09-08, PRICING the drop-emission design decision.
+Written BEFORE the compiler was touched. Build read: eaac8e4b73c1fe24 43.
+Queue gate rc 0 (80 rows, tier1=27 tier2=7 tier3=41 tier4=5), '# TOTAL' 80.
+
+THE HANDED-DOWN LIST IS A HYPOTHESIS (rule 17). The prompt names 14 tier-1 rows
+as "the drop-emission cluster". Grouping them by SYMPTOM (a destructor count is
+wrong) is not a grouping by ROOT. Each row header already names a root, read
+this round:
+
+  GOVERNED BY THE DESIGN QUESTION (the user-Drop / field-recursion interaction
+  in MLIRGenImpl::gen_drop_value + the scope-exit emitter, mlir_gen_stmt.cpp):
+    replace_site_skips_field_drop_glue            run 11
+    drop_body_moving_field_double_drops_local     run 1
+    enum_user_drop_skips_payload_glue             run 1
+  PLAUSIBLY GOVERNED, second door (a partial move + a user Drop):
+    letstruct_destructure_skips_user_drop         run 100
+    enum_payload_partial_move_leak                run 1
+
+  NOT GOVERNED — different roots, named in their own headers:
+    shadowed_binding_never_dropped      SemaImpl::declare_var, name-keyed var_order
+    shadow_over_param_double_drop       ditto (same root as the line above)
+    homonym_field_drop_glue_segv        package-blind resolve_method_symbol at a FIELD
+    both_drops_destructor_is_inherent   collect_fn G156-5 filing site
+    weak_local_never_dropped            Weak<T>'s Drop does not run (root not isolated)
+    operator_autoref_temp_never_dropped push_operand bypasses materialize_recv_ref
+    self_call_in_return_kills_param_drops  body_ever_moved_ epilogue skip list
+    index_place_through_refmut_never_drops_old  lower_place_assign root predicate
+    variant_payload_nested_struct_sub_double_drops  build_pattern_variant_data synth
+
+WHY THIS BLOCK. It is the only block in tier 1 whose members are moved by ONE
+candidate change: the two arms below are single-predicate flips at four sites in
+one function pair, and the question they answer is written in the spec
+(`intrinsic.drop.owner-drops-fields-after-user-drop`) rather than in a row. The
+other eleven rows each name a distinct site; no arm here can move them, and a
+round that priced them together would be reporting a per-site sum as a per-set
+result (rule 13).
+
+THE TWO ARMS.
+  A  "dropbody"  — the drop BODY owns its fields. After a user `Drop::drop`
+                   runs, NEVER recurse the value's fields, at any site.
+  B  "dropsite"  — the CALL SITE owns them. After a user `Drop::drop` runs,
+                   ALWAYS recurse the fields (minus recorded moved paths).
+Today the tree is NEITHER: B at a scope-exit STRUCT local, A everywhere else,
+and A for a scope-exit ENUM (the `drop_fn.empty()` guard).
+
+PREDICTION, BY NAME, before the run (17-shape sweep, destructor counts):
+  base today: s01 1 s02 2 s03 1 s04 0 s05 0 s06 0 s07 1 s08 0 s09 0 s10 1
+              s11 0 s12 1 s13 0 s14 2 s15 3 s16 1 s17 2   (MEASURED)
+  arm A predicted: every shape whose count comes from a post-user-drop recursion
+              falls to 0 — s01 0, s03 0, s04 0, s05 0, s06 0, s08 0, s09 0,
+              s11 0, s12 0, s13 0, s14 0, s15 0; s02 1, s16 1, s07 1, s10 ?,
+              s17 2.  A is predicted to be a LEAK MACHINE unless the drop body
+              also drops `self`'s fields, which the compiler does not emit.
+  arm B predicted: s01 1 s02 2 s03 2 s04 1 s05 1 s06 1 s07 1 s08 1 s09 2
+              s10 1 s11 1 s12 1 s13 1 s14 2 s15 4 s16 2 s17 2.
+              B is predicted to close 8 shapes and BREAK 2 (s15 3->4, s16 1->2)
+              and to leave s02 wrong.

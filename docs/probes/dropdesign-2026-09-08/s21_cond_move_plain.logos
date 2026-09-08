@@ -1,0 +1,13 @@
+package s21_cond_move_plain;
+extern fn malloc(n: i64) -> *mut u8;
+trait Drop { fn drop(self: Self); }
+struct N { w: i64, c: *mut i64 }
+impl Drop for N { fn drop(self: N) { unsafe { self.c[0] = self.c[0] + self.w; } } }
+struct G { armed: bool, f: N }
+fn eat(g: G, b: bool) -> i64 { if b { let q: N = g.f; } return 0i64; }
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+    c[0] = 0i64;
+    { let r: i64 = eat(G { armed: false, f: N { w: 1i64, c: c } }, false); }
+    return c[0] as i32;
+}
