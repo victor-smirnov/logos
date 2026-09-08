@@ -73,15 +73,12 @@ tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime	tests/ui/l
 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn	tests/ui/lifetimes/elided-self-lifetime-in-trait-fn.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/admit/lifetimes/issue-64173-unused-lifetimes	tests/ui/lifetimes/issue-64173-unused-lifetimes.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/admit/lifetimes/issue-74400	tests/ui/lifetimes/lifetime-errors/issue_74400.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
-tests/imported/admit/lifetimes/iterator-next-extra-named-lifetime	tests/ui/lifetimes/lifetime-errors/iterator-next-extra-named-lifetime.rs	da5114692c9ebe46b869488c5f34f92eb10b98c1	header-path	high	yes
-tests/imported/admit/lifetimes/lifetime-mismatch-between-trait-and-impl	tests/ui/lifetimes/lifetime-mismatch-between-trait-and-impl.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-1	tests/ui/lifetimes/missing-lifetime-in-assoc-type-1.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-5	tests/ui/lifetimes/missing-lifetime-in-assoc-type-5.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-6	tests/ui/lifetimes/missing-lifetime-in-assoc-type-6.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17	tests/ui/lifetimes/lifetime-errors/mut-slice-struct-lifetime-transmute.rs	da5114692c9ebe46b869488c5f34f92eb10b98c1	header-path	high	no
 tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17	tests/ui/lifetimes/lifetime-errors/mut-slice-struct-lifetime-transmute.rs	da5114692c9ebe46b869488c5f34f92eb10b98c1	header-path	high	no
 tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor	tests/ui/lifetimes/temporary-lifetime-extension-tuple-ctor.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
-tests/imported/admit/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866	tests/ui/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion	tests/ui/lifetimes/trait-method-lifetime-suggestion.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch	tests/ui/lifetimes/lifetime-errors/trait-method-return-lifetime-mismatch.rs	da5114692c9ebe46b869488c5f34f92eb10b98c1	header-path	high	no
 tests/imported/admit/moves/issue-75904-move-closure-loop	tests/ui/moves/issue-75904-move-closure-loop.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
@@ -123,7 +120,6 @@ tests/imported/admit/nll/type-check-pointer-comparisons	tests/ui/nll/type-check-
 tests/imported/admit/nll/var-appears-twice	tests/ui/nll/relate_tys/var-appears-twice.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/admit/regions/better-blame-constraint-for-outlives-static	tests/ui/regions/better-blame-constraint-for-outlives-static.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/admit/regions/explicit-static-bound-on-trait	tests/ui/regions/explicit-static-bound-on-trait.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
-tests/imported/admit/regions/impl-trait-lifetime-conflict-hashmap-keys--sig-only	tests/ui/regions/impl-trait-lifetime-conflict-hashmap-keys.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/admit/regions/issue-101280	tests/ui/regions/issue-101280.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--c24b	tests/ui/regions/multiple-sources-for-outlives-requirement.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--t24	tests/ui/regions/multiple-sources-for-outlives-requirement.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
@@ -144,7 +140,6 @@ tests/imported/admit/regions/regions-nested-fns-2	tests/ui/regions/regions-neste
 tests/imported/admit/regions/regions-normalize-in-where-clause-list	tests/ui/regions/regions-normalize-in-where-clause-list.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/admit/regions/regions-pattern-typing-issue-19552	tests/ui/regions/regions-pattern-typing-issue-19552.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/admit/regions/regions-static-bound	tests/ui/regions/regions-static-bound.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
-tests/imported/admit/regions/resolve-re-error-ice	tests/ui/regions/resolve-re-error-ice.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/fail/borrowck/access-mode-in-closures	tests/ui/borrowck/access-mode-in-closures.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/borrowck/accidentally-cloning-ref-borrow-error	tests/ui/borrowck/accidentally-cloning-ref-borrow-error.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/borrowck/already-borrowed-as-mutable-if-let-133941	tests/ui/borrowck/already-borrowed-as-mutable-if-let-133941.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
@@ -588,7 +583,7 @@ tests/imported/fail/lifetimes/ex3-both-anon-regions-one-is-struct-5	tests/ui/lif
 tests/imported/fail/lifetimes/ex3-both-anon-regions-return-type-is-anon	tests/ui/lifetimes/lifetime-errors/ex3-both-anon-regions-return-type-is-anon.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/ex3-both-anon-regions-self-is-anon	tests/ui/lifetimes/lifetime-errors/ex3-both-anon-regions-self-is-anon.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/ex3-both-anon-regions-using-fn-items	tests/ui/lifetimes/lifetime-errors/ex3-both-anon-regions-using-fn-items.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
-tests/imported/fail/lifetimes/ex3-both-anon-regions-using-impl-items	tests/ui/lifetimes/lifetime-errors/ex3-both-anon-regions-using-impl-items.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
+tests/imported/fail/lifetimes/ex3-both-anon-regions-using-impl-items	tests/ui/lifetimes/lifetime-errors/ex3-both-anon-regions-using-impl-items.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/fail/lifetimes/ex3-both-anon-regions-using-trait-objects	tests/ui/lifetimes/lifetime-errors/ex3-both-anon-regions-using-trait-objects.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/explicit-lifetime-required-14285	tests/ui/lifetimes/explicit-lifetime-required-14285.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/explicit-self-lifetime-mismatch	tests/ui/lifetimes/explicit-self-lifetime-mismatch.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
@@ -607,10 +602,12 @@ tests/imported/fail/lifetimes/issue-83907-invalid-fn-like-path--d-static-nobody	
 tests/imported/fail/lifetimes/issue-90170-elision-mismatch	tests/ui/lifetimes/issue-90170-elision-mismatch.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/issue-97193	tests/ui/lifetimes/issue-97193.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/issue-97194	tests/ui/lifetimes/issue-97194.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
+tests/imported/fail/lifetimes/iterator-next-extra-named-lifetime	tests/ui/lifetimes/lifetime-errors/iterator-next-extra-named-lifetime.rs	da5114692c9ebe46b869488c5f34f92eb10b98c1	header-path	high	yes
 tests/imported/fail/lifetimes/iterator-trait-lifetime-error-13058	tests/ui/lifetimes/iterator-trait-lifetime-error-13058.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/keyword-self-lifetime-error-10412	tests/ui/lifetimes/keyword-self-lifetime-error-10412.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/lifetime-doesnt-live-long-enough	tests/ui/lifetimes/lifetime-doesnt-live-long-enough.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/lifetime-elision-return-type-requires-explicit-lifetime	tests/ui/lifetimes/lifetime-elision-return-type-requires-explicit-lifetime.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
+tests/imported/fail/lifetimes/lifetime-mismatch-between-trait-and-impl	tests/ui/lifetimes/lifetime-mismatch-between-trait-and-impl.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/fail/lifetimes/lifetime-no-keyword	tests/ui/lifetimes/lifetime-no-keyword.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/liveness-assign-imm-local-notes	tests/ui/lifetimes/lifetime-errors/liveness-assign-imm-local-notes.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/missing-lifetime-in-assoc-type-2	tests/ui/lifetimes/missing-lifetime-in-assoc-type-2.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
@@ -629,6 +626,7 @@ tests/imported/fail/lifetimes/shadow	tests/ui/lifetimes/shadow.rs	4b0c9d76ae7d38
 tests/imported/fail/lifetimes/static-typos	tests/ui/lifetimes/static-typos.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/suggest-introducing-and-adding-missing-lifetime--param-may-not-live	tests/ui/lifetimes/suggest-introducing-and-adding-missing-lifetime.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/tail-expr-in-nested-expr	tests/ui/lifetimes/tail-expr-in-nested-expr.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
+tests/imported/fail/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866	tests/ui/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/fail/lifetimes/undeclared-lifetime-used-in-debug-macro-issue-70152	tests/ui/lifetimes/undeclared-lifetime-used-in-debug-macro-issue-70152.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/unit-struct-as-rvalue	tests/ui/lifetimes/unit-struct-as-rvalue.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/lifetimes/unnamed-closure-doesnt-life-long-enough-issue-67634	tests/ui/lifetimes/unnamed-closure-doesnt-life-long-enough-issue-67634.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
@@ -935,6 +933,7 @@ tests/imported/fail/regions/gat-lt-arg-mismatch			native	not-a-port	no
 tests/imported/fail/regions/gat-lt-divergent			native	not-a-port	no
 tests/imported/fail/regions/gat-lt-propagation			native	not-a-port	no
 tests/imported/fail/regions/impl-trait-lifetime-conflict-hashmap-keys	tests/ui/regions/impl-trait-lifetime-conflict-hashmap-keys.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
+tests/imported/fail/regions/impl-trait-lifetime-conflict-hashmap-keys--sig-only	tests/ui/regions/impl-trait-lifetime-conflict-hashmap-keys.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/fail/regions/issue-102374	tests/ui/regions/issue-102374.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/regions/issue-102392	tests/ui/regions/issue-102392.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/regions/issue-12470	tests/ui/regions/issue-12470.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
@@ -1036,6 +1035,7 @@ tests/imported/fail/regions/regions-variance-contravariant-use-covariant-in-seco
 tests/imported/fail/regions/regions-variance-covariant-use-contravariant	tests/ui/regions/regions-variance-covariant-use-contravariant.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/regions/regions-variance-invariant-use-contravariant	tests/ui/regions/regions-variance-invariant-use-contravariant.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/regions/regions-variance-invariant-use-covariant	tests/ui/regions/regions-variance-invariant-use-covariant.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
+tests/imported/fail/regions/resolve-re-error-ice	tests/ui/regions/resolve-re-error-ice.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/fail/regions/tuple-of-refs-cant-lengthen			native	not-a-port	no
 tests/imported/fail/regions/wf-bound-region-in-local-issue-115175--b-static-bound-call	tests/ui/regions/wf-bound-region-in-local-issue-115175.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/regions/wf-bound-region-in-local-issue-115175--wf-bound-local	tests/ui/regions/wf-bound-region-in-local-issue-115175.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no

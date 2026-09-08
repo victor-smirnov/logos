@@ -35,8 +35,21 @@ RE_SUFFIX = re.compile(r"(--[a-z0-9_]+|-b1[0-9]{2}|-[a-z]?[0-9]{1,3})$")
 
 
 def resolve(path):
+    # Read the WHOLE leading comment block, not a fixed line count. Measured
+    # 2026-09-07: a 25-line window recorded eleven ports that DO declare their
+    # modifications as declaring none, because the block sat below line 25 — the
+    # exact measurement this table exists to make mechanical, defeated by the
+    # reader. Stop at the first line that is neither a comment nor blank, and
+    # keep a floor so a file whose provenance sits after the `package` line is
+    # still seen.
+    head = []
     with open(path, errors="replace") as fh:
-        head = [next(fh, "") for _ in range(25)]
+        for i, ln in enumerate(fh):
+            if i >= 200:
+                break
+            if i >= 40 and ln.strip() and not ln.lstrip().startswith("//"):
+                break
+            head.append(ln)
     text = "".join(head)
     commit = None
     m = RE_BATCH.search(text)
