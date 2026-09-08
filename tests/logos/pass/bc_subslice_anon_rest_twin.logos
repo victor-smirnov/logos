@@ -1,0 +1,20 @@
+// PAIR 1 of 3, root bck.NEW-SUBSLICE — THE ADMIT HALF. ONE TOKEN from
+// fail/bc_subslice_rest_moves_covered_elem: the rest is ANONYMOUS (`..`, no
+// `x @`), it binds no name, and the arm's gate skips a binding named `_` or
+// empty — so nothing is consumed and the later indexed assignment is legal.
+package bc_subslice_anon_rest_twin;
+use logos.mem.string;
+
+fn arr() -> [String; 3] {
+    return [String::from("a"), String::from("b"), String::from("c")];
+}
+
+fn main() -> i32 {
+    let mut a: [String; 3] = arr();
+    match a {
+        [_, _, ..] => { }
+    }
+    a[0u64] = String::from("z");
+    if a[0u64].len() != 1i64 { return 1i32; }
+    return 0i32;
+}

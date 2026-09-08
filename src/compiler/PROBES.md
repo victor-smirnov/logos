@@ -29786,3 +29786,163 @@ RUN, twice — and the diff of the two tsvs is ONE ROW:**
 address and which the harness subtracts by name. **Runtime damage 0 of 6547,
 diffed both ways**, which is the column an rc-based COST 0 cannot supply and the
 one that matters for a change that only ever DECIDES A REFUSAL.
+
+# ── ROUND 2026-09-08 · THE SUBSLICE BINDER CONSUMED NOTHING · THE LANDING ────
+
+## subslicecover — LANDED. bc_admits.ledger 95 -> 94.
+site: src/compiler/borrow_check.cpp::each_pat_binding_place — the PC::Slice
+      arm's `each_rest` call, which handed the rest sub-pattern the CONTAINER's
+      place and NO type. It now walks the sub-pattern once per index it covers,
+      [prefix_count, n - suffix_count), with the element type — the same two
+      facts the prefix and suffix elements have carried since `slicearr`
+      (2026-08-30). An unknown array length or an EMPTY cover keeps the old
+      coarse call, so nothing is invented where the length is not known.
+build: b74842a0d915249f (base, READ) -> ef4828fa08eaa9c3 (source only)
+measured: 2026-09-08
+fires: 19 over the population that can reach it at all — the 13 corpus programs
+      containing `@ ..` plus this round's 5 fixtures and 13 hand programs —
+      counted EXACTLY and without a control binary, by asking `LOGOS_PBSM_TRACE`
+      for the deposits whose BINDING NAME is the program's own rest binder
+      (every compile carries a 20-deposit prelude baseline, which is why a raw
+      line count would have read 476). FIVE of the 19 are corpus: ONE is the
+      closed row, and FOUR are tests/imported/pass/array-slice-vec/vec-matching,
+      which fires four times and stays GREEN in `L4 bc` and in run_oracle —
+      the site is live, and firing is not refusing (rule 10 in the direction
+      this harness usually cannot show).
+ceiling: 1   PREDICTED BY NAME BEFORE THE ARMED BINARY EXISTED.
+cost: 0 over `-L bc` (2681/0), 0 over 1448 fail fixtures in all three columns of
+      fail_text_oracle, 0 over 6547 run_oracle fixtures. Predicted 0, measured 0,
+      and the population was named before the measurement.
+diff: 16 insertions, 2 deletions, one file, no probe gate (the landed arm is
+      held by its fixtures; nothing here is armed by `probe::on`).
+
+### THE CLASS, ENUMERATED BY THE PROPERTY AND NOT BY THE SPELLING
+The property: *a by-value binder in a slice pattern over an OWNED `[T; N]`
+that consumes elements and deposits no move record.* Enumerated by compiling
+the cross-product of binder form x door on the BASE binary, each program
+"move, then `a[0u64] = …`" over `[String; 3]`:
+
+    binder form            match door      if-let door
+    [x, _, _]  prefix      refused ✓       refused ✓
+    [_, .., x] suffix      refused ✓       refused ✓
+    [_, _, x @ ..] rest    ADMITTED ✗      ADMITTED ✗
+    [x @ ..]   full cover  ADMITTED ✗      (same producer)
+    [_, x @ .., _] middle  ADMITTED ✗      (same producer)
+
+FIVE members, one missing fact, one structural change. Two forms are NOT
+members and each was measured rather than assumed:
+  · the `let` door — `let [x, _, _] = a;` consumes the WHOLE array ("use of
+    moved variable 'a'"), which is COARSER than rustc, not permissive. Its
+    rest forms refuse for the same reason; nothing to close.
+  · `ref x @ ..` — a SYNTAX ERROR on this tree (rc 4, "syntax error near
+    '..'"). The rest slot cannot hold a PatRefBind, so the arm has no
+    by-reference member to decline, and `mode` is 0 for every rest binding.
+
+### THE ROOT THE ROW CARRIED NAMED THE WRONG SITE — A RECORDED CLAIM, REFUTED
+The 2026-08-30 record and bc_admits.ledger both say `--t13` is "a whole-value
+use of a partially-moved array at a match SCRUTINEE", "at a site
+`take_borrow_whole_` already touches", and `hp_disjoint` is recorded there as
+ADMITTED. On the base binary b74842a0d915249f, `match a { [_, _, x] => … }`
+followed by `a[0u64] = …` — a DISJOINT index, `hp_disjoint`'s shape — is
+REFUSED: "use of partially moved value 'a' (field '2' moved on line 6)". The
+whole-value reader is live and correct; the PRODUCER deposited nothing. A
+recorded verdict is a measurement with a timestamp.
+
+### RULE 5, DISCHARGED BY HAND, IN SHAPES THE RE-PORT DID NOT USE
+Nine legal programs, all rc 0 on the armed binary (and rc 0 on the base):
+    ce1_rest_unused                  rest binder, array never used again
+    ce3_ref_slice_scrut              `&[P]` scrutinee (ergonomic by-ref bind)
+    ce4_copy_elems                   `[i64; 3]` — is_move_type false
+    ce5_disjoint_move                rest covers 2, later pattern moves 0
+    ce6_anon_rest                    bare `..`
+    ce7_wild_rest_underscore         `_ @ ..`
+    ce8_reinit_after_rest            whole-array reassignment before the use
+    ce9_prefix_rest_prefix_only_used two disjoint const-index moves
+    ce2_ref_rest                     NOT a verdict — syntax error, both builds
+ce5 is the one that decides the SHAPE: give the rest the container's place
+instead of index segments and it refuses, and it is legal Rust. It is pinned
+as pass/bc_subslice_disjoint_elem_legal.
+
+### RULE 10, DISCHARGED — THE REFUSAL IS REACHED, AND EACH DIAGNOSTIC WAS READ
+    hp_t13         "use of partially moved value 'a' (field '2' moved on line 6)"
+    hp_full_rest   "use of partially moved value 'a' (field '2' moved on line 8)"
+    hp_mid_rest    "use of moved field 'a.1' (moved on line 7)"   ← the index
+    hp_rest_twice  "use of moved field 'a.2' (moved on line 7)"
+    hp_iflet_rest  "use of moved field 'a.2' (moved on line 7)"   ← the if-let door
+hp_mid_rest is what proves the cover arithmetic: a MIDDLE rest over `[P; 3]`
+names `a.1` and nothing else.
+
+### THE COST, MEASURED IN THREE COLUMNS AND DIFFED BOTH WAYS
+    `-L bc` (gate-run)   armed build 927: 2681 passed / 0 failed / 2 disabled.
+                         Base build 926 held 6513 recorded, 0 failed, and
+                         reported every test in the filter ALREADY MEASURED.
+    fail_text_oracle     1448 fail fixtures on the armed binary and 1451 on the
+                         control (the control ran after the reconfigure that
+                         registered this round's three new fail fixtures — a
+                         POPULATION difference, and the only difference). On the
+                         1448 shared rows the two tsvs are IDENTICAL in all three
+                         columns: 0 rc changes, 0 stderr-sha changes, 0 `.expected`
+                         match changes. The three rows present only on the control
+                         side are this round's own fixtures, each rc 0 / no match
+                         there — the base binary ADMITTING them, which is the
+                         control revert stated as data.
+    run_oracle           6547 pass fixtures compiled, LINKED and RUN on the armed
+                         binary. Diffed against the base column measured on
+                         b74842a0d915249f (scratchpad/runoracle-landed.tsv, the
+                         2026-09-07b round's own landed run on the build this
+                         round started from): the diff is ONE row,
+                         logos_02_semantic_core_pass_cast-region-to-uint, whose
+                         stdout is a stack address and which the harness
+                         subtracts by name. RUNTIME DAMAGE 0 of 6547.
+COST 0 in every column, and the population that could have paid it was named
+first: the 13 corpus programs containing `@ ..`, twelve of them `&[T]` or
+dynamic-slice scrutinees (the container gate declines a reference) or i64
+elements (`is_move_type` false), and the thirteenth is the row itself.
+
+### CONTROL REVERT, RUN AS A REVERT
+`borrow_check.cpp` was checked out from HEAD (md5 f3cf0c6d009cab84ace659a72390a005,
+`git diff --numstat -- src include` empty) and rebuilt. ON THE CONTROL BINARY all
+NINE programs of the landing compile SILENTLY, rc 0:
+    hp_t13 hp_full_rest hp_mid_rest hp_rest_twice hp_iflet_rest
+    fail/bc_subslice_rest_moves_covered_elem
+    fail/bc_subslice_rest_elem_moved_twice
+    imported/fail/borrowck/borrowck-move-out-from-array-use-match--t13
+and the three pass halves compile on BOTH binaries. The armed source was then
+restored and rebuilt.
+⚠ THE BUILD HASH DOES NOT COME BACK TO ITS OLD VALUE, AND THAT IS NOT THE REVERT.
+b74842a0d915249f (base) -> ef4828fa08eaa9c3 (armed) -> 3c4bb5c53c13269d (control)
+-> 10a507efa95812c8 (armed, restored). The CONTROL for that is in this round:
+`touch src/compiler/borrow_check.cpp && cmake --build` with the source unchanged
+left `bin/logosc` and all seven stdlib archives md5-IDENTICAL and the hash at
+10a507efa95812c8 — the build IS byte-reproducible. What moved the hash is the
+RECONFIGURE this round's five new fixtures forced: the version string logosc
+embeds is stamped at CMake CONFIGURE time (build_hash.py's own note says so), so
+any round that adds a fixture cannot compare a hash across the reconfigure. The
+revert is proven by the SOURCE md5 and by the nine verdicts above.
+
+### THE 16th GATE LIE, MET AGAIN AND CONFIRMED RATHER THAN CONTRADICTED
+Two `.expected` files were pinned from a program's output and then the program's
+own header comment grew, moving every line number in it by one; `L4 bc` reported
+the two fixtures red. After re-deriving both `.expected` from the compiler, the
+NEXT `L4 bc` printed rc 0 while its own summary still named the two failures:
+`gate-run` keys a recorded verdict on `scripts/build_hash.py`, and a `.expected`
+file is in NEITHER logosc nor the stdlib. The record was replayed. `FORCE=1`
+re-measures, and that is the only reading of this round's final `L4 bc`.
+
+## COLUMNS AND THE FINAL LADDER (2026-09-08)
+    L1                        rc 0 — 777/777, 12 684 generated cases, gates
+                              tier 159 (was 160: the closed row's
+                              `logos_00_bc_admit_*` test left the registry)
+    `-L bc` (gate-run)        rc 0 — build 927, 2681 passed / 0 failed
+    `L4 bc` FORCE=1           rc 0 — build 928, 4963 passed / 0 failed, and
+                              1553/0 on the second tier
+    soundness queue gate      rc 0 — `# TOTAL` 68 -> 69 (one row ARRIVED:
+                              slice_rest_ref_binder_syntax)
+    bc_admits_ledger_gate     rc 0 — both files, 109 rows (94 + 15)
+    census_pin                re-derived: REGISTRY-ALL 9414 / NOIMPORTED 4963 /
+                              TIERCOMMIT 159
+    population_pin_lint       re-derived by direct listing: corpus 2931 =
+                              glob 191 + nonglob 2740
+    probe-log-lint            247 records, every site symbol resolves
+    full `cmake --build`      rc 0
+    build hash                10a507efa95812c8 (see the reconfigure note above)

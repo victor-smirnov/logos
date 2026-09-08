@@ -1,0 +1,31 @@
+// PAIR 2 of 3, root bck.NEW-SUBSLICE — THE NARROWING THAT DECIDES THE SHAPE.
+// A trailing rest `[_, _, x @ ..]` covers index 2 ONLY, so moving index 0 out
+// afterwards is legal — disjoint move paths, legal in Rust and admitted at HEAD.
+// The whole-array spelling (give the rest the CONTAINER's place, which makes it
+// a whole-value consume) refuses this one; index segments are what keep it.
+// ONE TOKEN from fail/bc_subslice_rest_elem_moved_twice: the second match binds
+// `[y, _, _]` here and `[_, y, _]` there, and index 1 IS covered by that rest.
+package bc_subslice_disjoint_elem_legal;
+
+// ⚠ THE BINDINGS ARE NEVER READ, and the payload is an i64 `Drop` struct rather
+// than a `String`: reading a field of an array-pattern element binding is a
+// CODEGEN defect on this tree (`[_, _, x] => x.n` SEGFAULTs), measured
+// 2026-08-30 and unrelated to borrow checking. This fixture pins the SHAPE as
+// legal, admitted and RUNNING.
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+
+fn arr() -> [P; 3] {
+    return [P { n: 1i64 }, P { n: 2i64 }, P { n: 3i64 }];
+}
+
+fn main() -> i32 {
+    let a: [P; 3] = arr();
+    match a {
+        [_, _, x @ ..] => { }
+    }
+    match a {
+        [y, _, _] => { }
+    }
+    return 0i32;
+}

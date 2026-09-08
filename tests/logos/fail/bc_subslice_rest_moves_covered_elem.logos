@@ -1,0 +1,23 @@
+// PAIR 1 of 3, root bck.NEW-SUBSLICE — A SUBSLICE BINDER CONSUMED NOTHING.
+// `each_pat_binding_place`'s PC::Slice arm gave `xs @ ..` the CONTAINER's place
+// and a NULL type (the prefix and suffix elements had carried an index place and
+// the element type since 2026-08-30), so `is_move_type` was false and the
+// by-value sub-place move rule deposited no record for the elements the binder
+// covers. The rest now names the indices [prefix, n - suffix).
+// ONE TOKEN from pass/bc_subslice_anon_rest_twin: `x @ ..` there is `..`, an
+// anonymous rest, which binds nothing and therefore moves nothing.
+package bc_subslice_rest_moves_covered_elem;
+use logos.mem.string;
+
+fn arr() -> [String; 3] {
+    return [String::from("a"), String::from("b"), String::from("c")];
+}
+
+fn main() -> i32 {
+    let mut a: [String; 3] = arr();
+    match a {
+        [_, _, x @ ..] => { }
+    }
+    a[0u64] = String::from("z");
+    return 0i32;
+}

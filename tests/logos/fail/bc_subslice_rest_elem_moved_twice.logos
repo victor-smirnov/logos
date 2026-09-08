@@ -1,0 +1,26 @@
+// PAIR 2 of 3, root bck.NEW-SUBSLICE — THE MOVE IS PER ELEMENT, AND THIS HALF
+// PROVES IT NAMES THE RIGHT ONE. A MIDDLE rest `[_, x @ .., _]` over a `[P; 3]`
+// covers exactly index 1, so a later pattern that moves index 1 again is a
+// second move of the same element and is refused NAMING `a.1` — not `a.0`, not
+// the whole array.
+// ONE TOKEN from pass/bc_subslice_disjoint_elem_legal: the second match binds
+// `[_, y, _]` here and `[y, _, _]` there, and index 0 was never covered.
+package bc_subslice_rest_elem_moved_twice;
+
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+
+fn arr() -> [P; 3] {
+    return [P { n: 1i64 }, P { n: 2i64 }, P { n: 3i64 }];
+}
+
+fn main() -> i32 {
+    let a: [P; 3] = arr();
+    match a {
+        [_, x @ .., _] => { }
+    }
+    match a {
+        [_, y, _] => { }
+    }
+    return 0i32;
+}

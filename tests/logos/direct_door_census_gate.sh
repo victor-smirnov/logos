@@ -1530,11 +1530,19 @@ PIN = {
     # Their five one-token fail twins are NOT in this population (it is `pass`),
     # and the queue shelf is net zero (one program left, one arrived).
     # `ls tests/logos/pass/match_ergo_*.logos | wc -l` -> 5.
-    # RE-DERIVED BY DIRECT LISTING: `ls tests/logos/pass/*.logos | wc -l` -> 2928,
-    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2928 = 191 + 2737.
-    'corpus'            : 2928,
+    # 2026-09-08: 2928 -> 2931. THREE pass fixtures, all non-glob, the legal
+    # halves of the `bck.NEW-SUBSLICE` landing — bc_subslice_anon_rest_twin
+    # (the anonymous rest binds nothing), bc_subslice_disjoint_elem_legal (a
+    # rest covering index 2, a later move of index 0: the program that condemns
+    # the whole-array spelling) and bc_subslice_ref_slice_scrutinee_legal (the
+    # `&[P]` container the arm declines). Their fail twins are NOT in this
+    # population (it is `pass`).
+    # `ls tests/logos/pass/bc_subslice_*.logos | wc -l` -> 3.
+    # RE-DERIVED BY DIRECT LISTING: `ls tests/logos/pass/*.logos | wc -l` -> 2931,
+    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2931 = 191 + 2740.
+    'corpus'            : 2931,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2737,  # +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2740,  # +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

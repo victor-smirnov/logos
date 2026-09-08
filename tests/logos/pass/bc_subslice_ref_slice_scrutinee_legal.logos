@@ -1,0 +1,27 @@
+// PAIR 3 of 3, root bck.NEW-SUBSLICE — THE DECLINE, PINNED. Under match
+// ergonomics a `&[P]` scrutinee binds `x @ ..` BY REFERENCE, so nothing is
+// moved and `s` is still live afterwards. The arm is gated on an OWNED
+// `[T; N]` container (`elem_arr` declines a reference), exactly as the element
+// half has been since 2026-08-30: it fires ZERO times here.
+// ONE TOKEN from fail/bc_subslice_rest_moves_covered_elem: the scrutinee is a
+// `&[P]` slice there instead of an owned array.
+package bc_subslice_ref_slice_scrutinee_legal;
+
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+
+fn arr() -> [P; 3] {
+    return [P { n: 1i64 }, P { n: 2i64 }, P { n: 3i64 }];
+}
+
+fn use_s(v: &[P]) -> i64 { return v.len(); }
+
+fn main() -> i32 {
+    let a: [P; 3] = arr();
+    let s: &[P] = &a[..];
+    match s {
+        [_, _, x @ ..] => { }
+    }
+    if use_s(s) != 3i64 { return 1i32; }
+    return 0i32;
+}

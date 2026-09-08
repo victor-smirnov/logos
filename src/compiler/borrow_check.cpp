@@ -5925,12 +5925,26 @@ private:
                 // the container's place and no type -- coarse, never invented.
                 const TypeRef aty = elem_arr(cty);
                 if (aty) {
+                    const uint64_t n = arr_n(cty);
+                    const uint64_t pcn = v.prefix_count();
+                    const uint64_t sc = v.suffix_count();
                     uint64_t i = 0;
                     v.each_prefix([&](PatRef s){
                         each_pat_binding_place(s, sub(std::to_string(i)), f, aty, aty);
                         ++i; });
-                    v.each_rest  ([&](PatRef s){ each_pat_binding_place(s, base, f); });
-                    const uint64_t n = arr_n(cty); const uint64_t sc = v.suffix_count();
+                    // `xs @ ..` CONSUMES THE ELEMENTS IT COVERS, [pcn, n-sc).
+                    // With the container's place and a null type it consumed
+                    // nothing (`bck.NEW-SUBSLICE`). Index segments, so the move
+                    // stays per element and a disjoint sibling stays usable;
+                    // an unknown length or an empty cover keeps the old place.
+                    v.each_rest  ([&](PatRef s){
+                        if (n >= pcn + sc && n - sc > pcn) {
+                            for (uint64_t k = pcn; k < n - sc; ++k)
+                                each_pat_binding_place(
+                                    s, sub(std::to_string(k)), f, aty, aty);
+                        } else {
+                            each_pat_binding_place(s, base, f);
+                        } });
                     uint64_t j = 0;
                     v.each_suffix([&](PatRef s){
                         if (n >= sc)

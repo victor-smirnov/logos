@@ -5480,9 +5480,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9409 -> 9409    0   (-5 admit tests, +5 imported fail fixtures)
 #   NOIMPORTED   4964 -> 4959   -5
 #   TIERCOMMIT    165 ->  160   -5
-REGISTRY-ALL         9409
-REGISTRY-NOIMPORTED  4959
-REGISTRY-TIERCOMMIT  160
+# 2026-09-08 — `bck.NEW-SUBSLICE` LANDS: ONE `logos_00_bc_admit_*` test leaves the
+#   registry (its row is deleted), ONE `imported` fail fixture arrives in its place,
+#   and FIVE native fixtures are added (3 pass + 2 fail, the landing's pairs).
+#   ALL          9409 -> 9414   +5   (-1 admit test, +1 imported fail, +5 native)
+#   NOIMPORTED   4959 -> 4963   +4   (the imported fail fixture is labelled imported)
+#   TIERCOMMIT    160 ->  159   -1   (only the admit test declared tier_commit)
+REGISTRY-ALL         9414
+REGISTRY-NOIMPORTED  4963
+REGISTRY-TIERCOMMIT  159
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

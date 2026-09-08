@@ -1413,7 +1413,64 @@
 #     separating pair attempted (no candidate change exists to test one with).
 # 2026-09-07 (stage 5, second line) — the sixteen surviving rows are worth MORE
 # than before this round, not less: re-ported as-is, still admitted, still defects.
-# TOTAL 95
+# 2026-09-08 — 95 -> 94. `bck.NEW-SUBSLICE` CLOSES, AND THE ROOT THE ROW CARRIED
+# FOR EIGHT DAYS NAMED THE WRONG SITE. The 2026-08-30 note above says this row is
+# "a whole-value use of a partially-moved array at a match SCRUTINEE ... at a site
+# `take_borrow_whole_` already touches". MEASURED TODAY, it is neither: the
+# whole-value reader is LIVE and correct — `match a { [_, _, x] => … } a[0] = …`
+# (a DISJOINT index, base build b74842a0d915249f) is already refused with "use of
+# partially moved value 'a' (field '2' moved on line 6)", which is what
+# `hp_disjoint` was recorded as ADMITTING on 2026-08-30. What deposited nothing
+# was the PRODUCER: `each_pat_binding_place`'s PC::Slice arm handed the `xs @ ..`
+# rest the CONTAINER's place and a NULL type, so `is_move_type` was false and the
+# by-value sub-place move rule skipped it. Prefix and suffix elements had carried
+# an index place and the element type since 2026-08-30; the rest had not.
+# THE CLASS, ENUMERATED BY THE PROPERTY ("a by-value slice-pattern binder that
+# consumes elements of an OWNED array"), not by spelling. Three binder forms x
+# three doors, each compiled on the base binary with the same probe (move, then
+# `a[0u64] = …`):
+#   prefix element `[x, _, _]`      match ✓ refused   if-let ✓ refused
+#   suffix element `[_, .., x]`     match ✓ refused   if-let ✓ refused
+#   rest binder    `[_, _, x @ ..]` match ✗ ADMITTED  if-let ✗ ADMITTED
+#   rest binder    `[x @ ..]`       match ✗ ADMITTED  (full cover)
+#   rest binder    `[_, x @ .., _]` match ✗ ADMITTED  (middle cover)
+# The `let` door is not a member in either direction: `let [x, _, _] = a;`
+# consumes the WHOLE array ("use of moved variable 'a'"), which is coarser than
+# rustc, not permissive. `ref x @ ..` is not a member either — it is a SYNTAX
+# ERROR on this tree (rc 4, "syntax error near '..'"), so the rest slot cannot
+# hold a RefBind and the arm has no by-reference case to decline. So the class is
+# THREE cover shapes at TWO doors, one missing fact, and one structural change
+# closes all five: the rest names the indices [prefix, n - suffix) with the
+# element type. All five refuse on the armed build, each with its own diagnostic
+# read (hp_t13, hp_full_rest, hp_mid_rest, hp_rest_twice, hp_iflet_rest).
+# ⚠ THE PLACE MUST STAY PER-ELEMENT. Giving the rest the CONTAINER's place with
+# a type makes it a whole-value consume and refuses `match a { [_, _, x @ ..] =>
+# … } match a { [y, _, _] => … }` — disjoint move paths, legal in Rust, admitted
+# at HEAD. Pinned as pass/bc_subslice_disjoint_elem_legal against
+# fail/bc_subslice_rest_elem_moved_twice, whose middle rest DOES cover the index
+# the second pattern moves and which names `a.1`, not `a.0` and not the array.
+# PREDICTED BY NAME BEFORE THE ARMED BINARY EXISTED, closed exactly:
+# predicted∖closed = ∅, closed∖predicted = ∅ (one row).
+# ⚠ AND A DECLINE, WITH THE READING THAT CONDEMNS IT — `bck.D` + `nllmoves.D`,
+# the 7-row block this round was pointed at first. READ, NOT MEASURED: the seven
+# ports carry their own upstream annotation, and by ERROR CODE they are two
+# populations, not one.
+#   E0502/E0499, a loan conflict INSIDE one expression (3):
+#     two-phase-nonrecv-autoref--a-fnmut-twice   `f(f(10))` through `&mut F`
+#     two-phase-nonrecv-autoref--c-mut-and-shared-args  `double_access(&mut a, &a)`
+#     two-phase-nonrecv-autoref--d-index-two-phase      `i[i[3]] = 4`
+#   E0716/E0597, a TEMPORARY's lifetime or drop order (4):
+#     borrowck-borrowed-uniq-rvalue      `&*Box::new(1)` in argument position
+#     borrowed-temporary-error--t08      `&(v,)` in a block tail passed to a fn
+#     issue-54382-use-span-of-tail-of-block  `D(3).next(&_thing1).end()` in a tail
+#     issue-54556-temps-in-tail-diagnostic   `D(&_thing1).end()` in a tail
+# The 2026-09-07 merge rests on TWO pairs, one per block letter, and a pair
+# speaks for the row it was written from. "A temporary has no owner to key a loan
+# on" is a SYMPTOM the two populations share, and a shared symptom is not a
+# shared defect (2026-08-27: 10 rows grouped by one instrument reading, the fix
+# closed 1). Whoever prices this block prices it as 3 + 4, or measures the merge
+# with a pair per row.
+# TOTAL 94
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1455,7 +1512,6 @@ borrowck-loan-blocks-move-cc--t10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/
 borrowck-loan-vec-content bck.B tests/imported/admit/borrowck/borrowck-loan-vec-content
 borrowck-move-by-capture bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-move-by-capture  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
-borrowck-move-out-from-array-use-match--t13 bck.NEW-SUBSLICE tests/imported/admit/borrowck/borrowck-move-out-from-array-use-match--t13
 borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed
 borrowck-unboxed-closures bck.A tests/imported/admit/borrowck/borrowck-unboxed-closures
 borrowed-data-escapes-closure-148392 bck.NEW-CESC tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)

@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row slice_rest_ref_binder_syntax (tier 3). `[_, _, ref x @ ..]` is legal
+// Rust — a slice pattern's rest may carry a binding, and that binding may be written `ref`
+// (`[_, _, ref x @ ..]` binds `x: &[i64; 1]`) — and TODAY it is a SYNTAX ERROR, rc 4,
+// "syntax error near '..'" (before sema). The parser admits `x @ ..` and refuses `ref x @ ..`.
+// ⚠ CORROBORATED BY THE CORPUS, not only by hand: tests/imported/pass/pattern/
+// slice-pattern-recursion-15104-b149.logos declares the modification `ref xs @ .. -> xs @ ..`
+// in its own header — a port that had to drop the keyword to land.
+// Found 2026-09-08 while writing the by-reference counter-example for the
+// bck.NEW-SUBSLICE landing: the rest slot cannot hold a PatRefBind, which is WHY that arm
+// has no by-reference member to decline. Rust: exit 0.
+package slice_rest_ref_binder_syntax;
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    match a {
+        [_, _, ref x @ ..] => { }
+    }
+    return 0i32;
+}
