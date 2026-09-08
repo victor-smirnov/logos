@@ -29544,3 +29544,245 @@ either widen it or keep hoisting.
   * `tests/imported/PROVENANCE.tsv` regenerated; 24 ports flipped
     `port_declares_modifications` no -> yes; the 2 retired ports moved admit/ -> fail/.
   * `git diff --stat` under `src/` and `include/`: **0 lines outside this file.**
+
+# ═══ ROUND 2026-09-07b — M-SIG LANDS AT THE FIFTH ATTEMPT: THE WALL FOUR ROUNDS
+# NAMED WAS DIAGNOSED WRONG, ITS RECORDED CURE HAD ALREADY LANDED AT A SITE THE
+# FAILING CALL DOES NOT READ, AND ALL FIVE `lifereg.NEW-SIGARITY` ROWS CLOSE AT
+# CEILING 5 / COST 0 ═══════════════════════════════════════════════════════════
+
+opening tree ff66d654f clean · opening build **f812a8b998ecde2b 43** (READ)
+closing build **b74842a0d915249f 43** (READ)
+predictions `build/predictions-2026-09-07b.txt`, written BEFORE any edit and
+extended once mid-round, before the second build.
+probe-log-lint 246 records at the open, every site symbol resolving.
+soundness queue gate rc 0, `# TOTAL` 68 — **tier1=24 tier2=4 tier3=37 tier4=3**.
+
+CORRECTION TO THE BRIEF, ONE: its census line reads "24 tier-1, 3 tier-2, 33
+tier-3, 3 tier-4". That sums to 63, not 68. The gate's own breakdown is the one
+above and it is the one that holds. Everything else in the brief re-measured
+true (bc_admits 102, blocked 13, hash, probe count).
+
+## 1. THE RECORDED WALL, RE-MEASURED — AND IT HAD NOT MOVED FOR THE WRONG REASON
+
+2026-09-03x §2 declined the three alpha arms at cost 1099, diagnosed the cause
+as "`Self` is an UNSUBSTITUTED TypeVar at the sig_match site", and §6.1/§7.3
+named its substitution as *the* prerequisite worth a round. 2026-09-04y LANDED
+that substitution (`trait_arg_subst["Self"] = impl_self_ty`). 2026-09-06a then
+rejected M-SIG for the fourth time, citing 09-03x.
+
+**Measured today on the OPENING binary, no rebuild — probes are env-armed:**
+`sigalphapar`/`sigalphaw`/`sigalphas` still print the identical prelude refusal.
+The cure had landed and the wall had not moved.
+
+THE REASON IS NOT THE ONE ON RECORD, and it is one line: the k>=1 parameter loop
+substitutes (`tp = subst_type_sema(tp, trait_arg_subst)`) and **the SLOT-0 call
+`_alpha_ok(m.param_types[0], c->param_types[0])` passes the trait's receiver
+RAW.** `&Self` therefore stays `Ref -> TypeVar` = ONE lifetime slot against the
+impl's `&&i32` / `&str` / `&Q<'a>` = TWO. 09-04y's fix is correct and lands at a
+site the failing call does not read. **A LANDED PREREQUISITE IS NOT A REACHED
+ONE**; only the failing call site says which.
+
+FOUR SHAPES ON THE OPENING BINARY, before any edit:
+    m1  impl<'a> Get for Q<'a> { fn get(self: &Q<'a>) }   REFUSED
+    m2  impl<'a> Get for Q<'a> { fn get(self: &Self)  }   REFUSED
+    m3  impl Get  for Q        { fn get(self: &Q) }       ok
+    m4  impl Get2 for R        { fn take(self:&R,o:&R) }  ok
+**m2 is the shape none of 09-03x's nine hand programs had: the impl signature is
+character-for-character the trait's, no lifetime is written anywhere in it, and
+the comparator refuses it.** The pricing phase's population was all
+lifetime-SPELLING programs, so its 1099 could only ever be read as "the prelude".
+
+## 2. THE ARM, AND THE CLASS IT TURNED OUT TO BE
+
+`sigsubs` (strict) / `sigsubpar` (non-strict) = the existing comparator with the
+trait's slot 0 substituted first. First pricing, build 80c86491c9023d25, gate
+builds 922 -> 923: fires 2 805 158 · **CEILING 5** · COST 71 · COST-fail 9 of
+1443 · **COST-stdlib ⛔ REFUSED**, one refusal in all four layers:
+
+    impl WritField for str: method 'from_wany' ... the return type is declared
+    '[u8]' and the impl declares '&[u8]'
+
+**THAT IS THE SAME ARTEFACT ONE SLOT OVER, AND IT IS THE INSTANCE/CLASS FAILURE
+IN ITS PUREST FORM.** The class is not "the receiver"; it is *the substituted
+`Self` and the impl's written `Self` disagreeing about SHAPE*, and enumerated BY
+THE PROPERTY the comparator reads three slots: receiver, parameter, return. I
+had guarded ONE. One predicate, `_self_shape_artefact`, now guards all three, and
+its test is not a spelling but the property itself — `!types_equal(sub, impl_t)`:
+when the two sides are not even the same type modulo lifetimes, every sentence a
+LIFETIME comparator could print about that slot is false, so it declines and
+leaves the verdict to the type compare that owns it. Two earlier forms of that
+test (a `kind()` inequality, then a null-`Self` check) each fixed one member and
+left another: `&mut Self` with Self := `&mut i64` collapses to `&mut i64`, which
+is MutRef on both sides and differs by a whole reference layer.
+
+SECOND PRICING, build ec5577eee912e803, gate builds 924 -> 925:
+
+| column | value |
+|---|---|
+| fires | 2 833 514 |
+| CEILING | **5** — and the five names ARE the five target rows, diffed both ways |
+| COST | **0** legal programs |
+| COST-fail | 3 of 1443 (2 `.expected` LOST, 1 text-only) |
+| COST-stdlib | **all four layers compile** |
+
+## 3. THE COST COLUMNS SAW ZERO AND THE TEXT SAW THREE (RULE 15, TWICE)
+
+Every one of the three had to be READ; not one is visible in an rc.
+
+**(a) `ex3-both-anon-regions-using-impl-items` — OUR PORT IS WRONG, not the arm.**
+Upstream is `trait Foo { fn foo<'a>(x: &mut Vec<&u8>, y: &u8); }` — `<'a>` is
+DECLARED AND NEVER USED, both parameters elided, impl identical; rustc accepts
+the signature and errors in the BODY. Our port had written the trait's two
+parameters as `&'a i64`, USING the binder upstream leaves unused, which makes
+the two signatures differ. The arm was right and the fixture was mis-ported.
+Re-ported as-is; it now refuses IDENTICALLY armed and unarmed, with its pinned
+sentence untouched. **A stage-4 finding on the `fail` shelf, found by a
+compiler round — the mirror of the four the re-port stages have been finding.**
+
+**(b) `impl-trait-lifetime-conflict-hashmap-keys` — the fixture asked for this.**
+Its own header, written 2026-09-02w, says it is refused *"NOT for the upstream
+reason: the impl-vs-trait signature comparator still admits the `Subject<'static,
+K>` vs `Subject<'a, K>` mismatch (M-SIG, its row is …--sig-only)"*. It now
+refuses FOR the upstream reason (E0308) and the `.expected` is re-pinned to it,
+with the old note kept. This is NOT the owner block of 09-03x §5: those three
+`.expected` files pin `missing method` on programs whose method is PRESENT, and
+**none of the nine files pinning "missing method" changes under this landing** —
+predicted by name (P5) and true, because the alpha check runs only on candidates
+that already matched by arity and type.
+
+**(c) `drop-on-non-struct` — the arm's own false sentence, and it is gone.**
+`impl Drop for &mut i64` (already illegal, E0120) gained a SECOND error saying
+the receiver "is declared `&mut i64`" when the trait declares `&mut Self`. The
+statement is false and `.expected` still matched as a substring, so ctest was
+green either way. The property test in §2 removes it: the file emits ONE error
+again. **This is the round's own rule-15 instance and it was found by reading,
+not by any column.**
+
+## 4. WHAT LANDED, AND WHAT IT REFUSES
+
+`sema_collect.cpp`, the `sig_match` loop. `_asub` is now `const bool true`
+(control revert = `git revert`), `_astrict` ORs it, and the three slots share one
+artefact predicate. On a mismatch the arm sets `self_mismatch_note`, so the
+sentence comes from the EXISTING precise branch and names the slot and both
+spellings — the route past 09-03x §5's owner block, which needed none of it.
+
+⚠ ONE BUG OF MY OWN, CAUGHT BY A SENSOR AND NOT BY A GATE: landing by replacing
+`on("sigsubs")` with `true` at the `_asub` definition left `_astrict`'s own
+`on("sigsubs")` disarmed, so the strict half silently died. Two of the five
+`.expected` files came out EMPTY because I generate them from the compiler's
+actual output. Generating a pin by hand would have hidden it.
+
+## 5. THE FIVE ROWS, EACH WITH THE SENTENCE IT NOW PINS
+
+    iterator-next-extra-named-lifetime
+      the receiver is declared '&mut RepeatMut<'a, T>' and the impl declares
+      '&'a mut RepeatMut<'a, T>'
+    lifetime-mismatch-between-trait-and-impl
+      the receiver is declared '&i64' and the impl declares '&'a i64'
+    trait-impl-mismatch-elided-lifetime-issue-65866
+      the receiver is declared '&Foo' and the impl declares '&'a Foo'
+    impl-trait-lifetime-conflict-hashmap-keys--sig-only
+      the return type is declared 'Subject<Keys<K, V>, void, R>' and the impl
+      declares 'Subject<'static, Keys<K, V>, void, R>'
+    resolve-re-error-ice
+      … and the impl declares 'Subject<'a, Keys<K, V>, void, R>'
+
+NOT ONE CHARACTER OF ANY OF THE FIVE PROGRAMS MOVED. What moved is the compiler.
+
+## 6. COUNTER-EXAMPLES — MINE, IN SHAPES THE PRICING PHASE DID NOT USE (RULE 5)
+
+Seventeen multi-line legal programs, all rc 0 on the landed binary and all rc 0
+under the arm before it landed: no lifetimes at all · elided on both sides ·
+a legal ALPHA-RENAME of a method binder (`<'a>` vs `<'b>`, rule 12) · an
+associated type · an overridden DEFAULT (the `sigdefuniq` interaction) · a
+generic trait parameter · `&mut self` on a lifetime-parametric struct · a
+`'static` parameter · a slice parameter · two named method lifetimes where only
+one appears in the return · a shared-ref impl target (`impl Peek2 for &i64`) ·
+a mut-ref impl target (`impl Poke for &mut i64`) · and m1–m4.
+COST 0 is still not a safety claim; these are what stands behind it.
+
+## 7. PREDICTION vs OUTCOME — 8 of 10
+
+    P1  prelude compiles under the arm        ⛔ FALSE at first, TRUE at the second
+                                                 build — and the failure is §2's
+                                                 whole finding, so it is the most
+                                                 valuable wrong prediction here
+    P2  CEILING(sigsubpar) = 0                ⛔ it is 3 (R3/R4/R5 differ by slot
+                                                 COUNT, which a bijection sees)
+    P3  CEILING(sigsubs) >= 3, = {R1,R2,R3}   ✓ and it is 5; R4/R5 explicitly
+                                                 not predicted, and they close
+    P4  COST > 0                              ⛔ 0 on all three populations
+    P5  zero of the nine "missing method"
+        `.expected` files flip                ✓ exact
+    P6  unarmed L1 rc 0                       ✓
+    P7  stdlib ok after the all-slot guard    ✓
+    P8  COST 71 -> <= 5                       ✓ 0
+    P9  CEILING stays 5, same names           ✓
+    P10 COST-fail 9 -> <= 2                   ⛔ 3
+
+## 8. LEDGER ARITHMETIC
+
+    bc_admits.ledger        102 -> **97**, by direct listing, `# TOTAL` re-derived
+    bc_admits_blocked       13, untouched
+    admitted set            115 -> 110; five programs LEFT the shelf for
+                            tests/imported/fail/, each with its own `.expected`
+    soundness queue         68 -> 68, untouched
+    census pin              ALL 9409 -> 9409 · NOIMPORTED 4964 -> 4959 ·
+                            TIERCOMMIT 165 -> 160 (-5 admit tests, +5 imported
+                            fail fixtures), re-derived and re-pinned
+    root `lifereg.NEW-SIGARITY` — CLOSED, all five members, in one change.
+
+## 9. OPEN
+
+ 1. `sigalphaw` / `sigalphapar` / `sigalphas` / `sigalpharet` / `sigselflt` /
+    `sigparamlt` / `sigretlt` are now DEAD ARMS — the landed comparator subsumes
+    every one of them. They are left in place because probe-log-lint resolves
+    their site symbols; retiring them is a separate, mechanical round.
+ 2. `sigdiagmm` (09-03x §5) is STILL blocked on three `.expected` files and this
+    landing did not touch it. Its subject is arity/type mismatches that never
+    reach the alpha check.
+ 3. The DST-alias `Self` shape disagreement is DECLINED-AROUND, not fixed:
+    `str` substitutes to `[u8]` where the written `str` resolves to `&[u8]`, and
+    `&mut Self` with Self := `&mut i64` collapses a reference layer. The
+    comparator now declines wherever that happens, which is correct for a
+    LIFETIME check and is a permissive hole for any future TYPE check at this
+    site. It is a substitution defect, not a conformance one.
+ 4. E0195 is checked (`early_bound_lts_`) only on a candidate that already
+    MATCHED; a signature that fails the alpha check never reaches it.
+
+## 10. COLUMNS AND THE CONTROL REVERT
+
+    L1                       rc 0 — 777/777, gates tier 160
+    `-L bc` (gate-run)       rc 0 — build 926, 2681 passed / 0 failed
+    `L4 bc` (detached)       rc 0 — 632 s, 4446 passed / 0 failed; build 926
+                                    holds 6513 recorded, 0 failed
+    soundness queue gate     rc 0 — `# TOTAL` 68, unchanged
+    bc_admits_ledger_gate    rc 0 — both ledgers, 110 rows (97 + 13)
+    census_pin               re-derived and re-pinned 9409 / 4959 / 160
+    probe-log-lint           246 records, every site symbol resolves
+    key_identity_lint        rc 0 — it caught `trait_arg_subst.count("Self")` as
+                             a bare entity-name key on its first run; replaced
+                             with `!impl_self_ty`, which is the same fact from
+                             the site that owns it
+    full `cmake --build`     rc 0
+    every fixture this round touched, by name (26 tests): 100% passed
+
+**CONTROL REVERT, RUN AS A REVERT AND NOT AS AN ARGUMENT.** `sema_collect.cpp`
+was checked out from HEAD and rebuilt (control build **f294d6df05a77dab**), the
+landed file restored and rebuilt again — back to **b74842a0d915249f**, byte for
+byte the tested build, which is itself the proof the swap was exact.
+
+    ON THE CONTROL BINARY, all five programs COMPILE SILENTLY:
+      iterator-next-extra-named-lifetime                   rc 0, 0 errors
+      lifetime-mismatch-between-trait-and-impl             rc 0, 0 errors
+      trait-impl-mismatch-elided-lifetime-issue-65866      rc 0, 0 errors
+      impl-trait-lifetime-conflict-hashmap-keys--sig-only  rc 0, 0 errors
+      resolve-re-error-ice                                 rc 0, 0 errors
+    ON THE LANDED BINARY all five refuse, each matching its own `.expected`.
+
+**`run_oracle.py` RAN ON BOTH BINARIES — 6547 pass fixtures compiled, linked and
+RUN, twice — and the diff of the two tsvs is ONE ROW:**
+`logos_02_semantic_core_pass_cast-region-to-uint`, whose stdout is a stack
+address and which the harness subtracts by name. **Runtime damage 0 of 6547,
+diffed both ways**, which is the column an rc-based COST 0 cannot supply and the
+one that matters for a change that only ever DECIDES A REFUSAL.

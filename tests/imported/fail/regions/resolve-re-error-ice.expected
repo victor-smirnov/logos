@@ -1,0 +1,1 @@
+error [fn Subject__key_set]: impl MapAssertion for Subject: method 'key_set' does not match the trait declaration: the return type is declared 'Subject<Keys<K, V>, void, R>' and the impl declares 'Subject<'a, Keys<K, V>, void, R>'

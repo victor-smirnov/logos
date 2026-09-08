@@ -89,10 +89,14 @@
 #   ("cannot assign to 'g' because it is borrowed"). bck.C as written was wrong
 #   about the mechanism, not only about the grouping.
 # `lifereg.R18` is TWO, and NEITHER IS A REGION ROOT:
-#   NEW-SIGARITY impl-vs-trait method signature compatibility is checked BY ARITY
-#                ONLY. Measured triple on one trait: arity REFUSED, return type
-#                `i64`->`u64` ADMITTED, lifetime-param count ADMITTED. 5 rows.
-#                A region fix closes none of them.
+#   NEW-SIGARITY ⛔ CLOSED 2026-09-07b, ALL FIVE ROWS. impl-vs-trait method
+#                signature compatibility was checked BY ARITY ONLY; it now
+#                compares the LIFETIME STRUCTURE of the receiver, every
+#                parameter and the return, with the trait's `Self` substituted
+#                first and elided pairing only with elided. The five programs
+#                are ordinary fail fixtures under tests/imported/fail/ and each
+#                pins its own sentence. CEILING 5 / COST 0 over three
+#                populations / stdlib 4-of-4. PROBES.md 2026-09-07b.
 #   NEW-PROJBOUND `dropck-only-error` alone — E0277 on a projection, no region at
 #                all. ONE-ROW root, NO separating pair measured; do not group it.
 # ⚠ TWO PAIRS OF ROWS ARE THE SAME CONSTRUCT TWICE, recorded and NOT merged
@@ -1332,7 +1336,7 @@
 # Rust) were refused until `!in_closure_body_` was added. Both tokens are
 # pinned in PAIRS: fail/bc_capmovemut_{mutref_capture,sibling_closures} vs
 # pass/bc_capmovemut_{sharedref_capture,nested_closures}. PROBES.md 2026-09-03p.
-# TOTAL 102
+# TOTAL 97
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1408,15 +1412,12 @@ constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifeti
 e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
-iterator-next-extra-named-lifetime lifereg.NEW-SIGARITY tests/imported/admit/lifetimes/iterator-next-extra-named-lifetime  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was lifereg.R18)
-lifetime-mismatch-between-trait-and-impl lifereg.NEW-SIGARITY tests/imported/admit/lifetimes/lifetime-mismatch-between-trait-and-impl  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was lifereg.R18)
 missing-lifetime-in-assoc-type-1 lifereg.NEW-E0207 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-1
 missing-lifetime-in-assoc-type-5 lifereg.NEW-E0207 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-5
 missing-lifetime-in-assoc-type-6 lifereg.NEW-E0207 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-6
 mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17
 mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17
 temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor
-trait-impl-mismatch-elided-lifetime-issue-65866 lifereg.NEW-SIGARITY tests/imported/admit/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was lifereg.R18)
 trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion
 trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch
 
@@ -1465,7 +1466,6 @@ var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
 
 better-blame-constraint-for-outlives-static lifereg.NEW-N1 tests/imported/admit/regions/better-blame-constraint-for-outlives-static
 explicit-static-bound-on-trait lifereg.NEW-4 tests/imported/admit/regions/explicit-static-bound-on-trait
-impl-trait-lifetime-conflict-hashmap-keys--sig-only lifereg.NEW-SIGARITY tests/imported/admit/regions/impl-trait-lifetime-conflict-hashmap-keys--sig-only  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was lifereg.R18)
 issue-101280 lifereg.NEW-N4 tests/imported/admit/regions/issue-101280
 outlives-with-missing lifereg.R17 tests/imported/admit/regions/outlives-with-missing
 region-bounds-on-objects-and-type-parameters lifereg.NEW-E0226 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
@@ -1482,4 +1482,3 @@ regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
 regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/regions-pattern-typing-issue-19552
 regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-bound
-resolve-re-error-ice lifereg.NEW-SIGARITY tests/imported/admit/regions/resolve-re-error-ice  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was lifereg.R18)

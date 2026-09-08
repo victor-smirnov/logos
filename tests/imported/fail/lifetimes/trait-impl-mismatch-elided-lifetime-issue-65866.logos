@@ -1,7 +1,9 @@
 // rustc lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866.rs — upstream `impl`
 // item signature doesn't match `trait` item signature
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-SIGARITY — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// shelf: fail (was admit) · root lifereg.NEW-SIGARITY — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// Original path: tests/ui/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Modifications:
 //   · only the `plain` module is ported; `with_type_args` is upstream's second annotated
 //     site and would be a separate port
@@ -21,8 +23,6 @@
 //      impl fn foo<'a,'b>(x:&'a i64) -> &'a i64  (LIFETIME PARAM COUNT) -> ADMITS
 //    So the site exists and is live, and it compares nothing but the parameter count.
 //    A region fix would close none of these rows.
-// Original path: tests/ui/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866.rs
-// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // upstream construct: mod `plain`, lines 10-23 —
 //     trait Bar {
 //         fn bar(&self, r: &mut Re);            //~ NOTE `Re` here is elided as `Re<'_>`
@@ -31,6 +31,15 @@
 //         fn bar<'a, 'b>(&'a self, _r: &'b mut Re<'a>) {}
 //         //~^ ERROR `impl` item signature doesn't match `trait` item signature
 //     }
+// ── SHELF CHANGE 2026-09-07b: admit -> fail. The row `lifereg.NEW-SIGARITY` is
+//    DELETED from tests/logos/bc_admits.ledger (105 -> 102 -> 97 over two rounds)
+//    and this program is now an ordinary fail fixture pinning its own sentence.
+//    THE PORT IS UNCHANGED — not one character of the program moved; what moved
+//    is the compiler. impl-vs-trait signature compatibility now compares the
+//    LIFETIME STRUCTURE of the receiver, every parameter and the return, with
+//    the trait's `Self` substituted first. CEILING 5 (these five rows, by name,
+//    over the whole 115-row admit shelf) / COST 0 on all three populations /
+//    stdlib 4-of-4. PROBES.md 2026-09-07b.
 package trait_impl_mismatch_elided_lifetime_issue_65866;
 struct Foo;
 struct Re<'a> { data: &'a u16 }

@@ -1,0 +1,1 @@
+error [fn Foo__bar]: impl Bar for Foo: method 'bar' does not match the trait declaration: the receiver is declared '&Foo' and the impl declares '&'a Foo'

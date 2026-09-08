@@ -1,0 +1,1 @@
+error [fn RepeatMut__next]: impl Itr for RepeatMut: method 'next' does not match the trait declaration: the receiver is declared '&mut RepeatMut<'a, T>' and the impl declares '&'a mut RepeatMut<'a, T>'

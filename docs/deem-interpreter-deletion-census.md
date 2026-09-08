@@ -5475,9 +5475,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   went from bc_admits.ledger to bc_admits_blocked.ledger (bucket 3, docs/DIVERGENCES.md
 #   A16). Its PROGRAM stays on the admit shelf and keeps its test — a row moving
 #   between ledgers is not a test leaving the registry.
+# 2026-09-07b — M-SIG LANDS: five `logos_00_bc_admit_*` tests leave the registry
+#   and five `imported` fail fixtures arrive, exactly as on 2026-09-07 above.
+#   ALL          9409 -> 9409    0   (-5 admit tests, +5 imported fail fixtures)
+#   NOIMPORTED   4964 -> 4959   -5
+#   TIERCOMMIT    165 ->  160   -5
 REGISTRY-ALL         9409
-REGISTRY-NOIMPORTED  4964
-REGISTRY-TIERCOMMIT  165
+REGISTRY-NOIMPORTED  4959
+REGISTRY-TIERCOMMIT  160
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

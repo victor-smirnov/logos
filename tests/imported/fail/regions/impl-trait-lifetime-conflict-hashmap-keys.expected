@@ -1,1 +1,1 @@
-error [fn M__key_set]: return type mismatch: variance mismatch — expected Subject<'static, K>, got Subject<'a, K> — lifetime structure incompatible (check &mut invariance / contravariance rules)
+error [fn M__key_set]: impl MapAssertion for M: method 'key_set' does not match the trait declaration: the return type is declared 'Subject<'a, K>' and the impl declares 'Subject<'static, K>'

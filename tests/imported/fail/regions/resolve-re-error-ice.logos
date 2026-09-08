@@ -1,6 +1,8 @@
 // rustc regions/resolve-re-error-ice.rs — upstream E0495/E0308 (impl vs trait signature)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-SIGARITY — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// shelf: fail (was admit) · root lifereg.NEW-SIGARITY — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// Original path: tests/ui/regions/resolve-re-error-ice.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Modifications:
 //   · `HashMap` / `Keys` / `PhantomData` -> local `struct MyMap<K,V>` / `struct Keys<K,V>`
 //     / `Option<&'a T>` fields. There is no HashMap here, and the collection is not the
@@ -24,14 +26,21 @@
 //    So the site exists and is live, and it compares nothing but the parameter count.
 //    A region fix would close none of these rows.
 // (no split: this port has always been signature-only, upstream's body is `todo!()`.)
-// Original path: tests/ui/regions/resolve-re-error-ice.rs
-// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // upstream construct: the impl's `key_set` return type vs the trait's —
 //     trait MapAssertion<'a, K, V, R> { fn key_set(&self) -> Subject<Keys<K,V>, (), R>; }
 //     impl<'a, K, V, R> MapAssertion<'a, K, V, R> for Subject<'a, HashMap<K,V>, (), R> {
 //         fn key_set(&self) -> Subject<'a, Keys<K, V>, (), R> {
 //     //~^ ERROR cannot infer an appropriate lifetime for lifetime parameter '_ in generic
 //     //   type due to conflicting requirements
+// ── SHELF CHANGE 2026-09-07b: admit -> fail. The row `lifereg.NEW-SIGARITY` is
+//    DELETED from tests/logos/bc_admits.ledger (105 -> 102 -> 97 over two rounds)
+//    and this program is now an ordinary fail fixture pinning its own sentence.
+//    THE PORT IS UNCHANGED — not one character of the program moved; what moved
+//    is the compiler. impl-vs-trait signature compatibility now compares the
+//    LIFETIME STRUCTURE of the receiver, every parameter and the return, with
+//    the trait's `Self` substituted first. CEILING 5 (these five rows, by name,
+//    over the whole 115-row admit shelf) / COST 0 on all three populations /
+//    stdlib 4-of-4. PROBES.md 2026-09-07b.
 package resolve_re_error_ice;
 struct Keys<K, V> { k: K, v: V }
 struct MyMap<K, V> { k: K, v: V }

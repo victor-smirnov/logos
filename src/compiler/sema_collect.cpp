@@ -4499,13 +4499,17 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     bool sig_match = true;
                     // PROBE sigalphaw/sigalphas/sigalphapar/sigalpharet — M-SIG step 2. PROBES.md.
                     std::vector<std::pair<std::string,std::string>> _amap;
-                    bool _astrict = logos::probe::on("sigalphas");
+                    // LANDED 2026-09-07b (was PROBE sigsubs): the trait's slot 0
+                    // is SUBSTITUTED before the alpha compare, and elided pairs
+                    // only with elided. Control revert = `git revert`. PROBES.md.
+                    const bool _asub = true;
+                    bool _astrict = logos::probe::on("sigalphas") || _asub;
                     bool _apar = logos::probe::on("sigalphaw") ||
                                  logos::probe::on("sigalphas") ||
-                                 logos::probe::on("sigalphapar");
+                                 logos::probe::on("sigalphapar") || _asub;
                     bool _aret = logos::probe::on("sigalphaw") ||
                                  logos::probe::on("sigalphas") ||
-                                 logos::probe::on("sigalpharet");
+                                 logos::probe::on("sigalpharet") || _asub;
                     auto _acollect = [](TypeRef t, std::vector<std::string>& o,
                                         auto& self) -> void {
                         if (!t) return;
@@ -4564,6 +4568,38 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         }
                         return true;
                     };
+                    // A DST-alias `Self` (`str` resolves to `[u8]` here while the
+                    // impl's WRITTEN `str` resolves to `&[u8]`) makes the two
+                    // sides differ by a reference layer at WHATEVER slot it
+                    // appears in — receiver, parameter or return. A
+                    // representation difference, never a lifetime fact: the
+                    // alpha check declines to speak. PROBES.md 2026-09-07b.
+                    auto _self_shape_artefact = [&](TypeRef raw, TypeRef sub,
+                                                    TypeRef impl_t) -> bool {
+                        using K3 = LogosType::Kind;
+                        if (!raw || !sub || !impl_t) return false;
+                        TypeRef bare = raw;
+                        while (bare && (TypeRef(bare).kind() == K3::Ref ||
+                                        TypeRef(bare).kind() == K3::MutRef))
+                            bare = TypeRef(bare).pointee();
+                        if (!bare || TypeRef(bare).kind() != K3::TypeVar ||
+                            std::string_view(TypeRef(bare).type_var_name()) != "Self")
+                            return false;
+                        // No `Self` to substitute (a non-nominal impl target the
+                        // chain above cannot rebuild) — the trait slot is a
+                        // TypeVar the impl slot can never equal, and a comparator
+                        // that speaks here states a FALSEHOOD. It declines.
+                        if (!impl_self_ty) return true;   // nothing to substitute
+                        // The alpha comparator's subject is LIFETIMES. When the
+                        // substituted `Self` and the impl's written slot are not
+                        // even the same type modulo lifetimes, the substitution
+                        // and the impl's spelling disagree about the SHAPE of
+                        // Self (`str` -> `[u8]` vs the written `&str` -> `&[u8]`;
+                        // `&mut Self` -> `&mut i64` vs the written `&mut &mut i64`)
+                        // and every sentence this check could print is false. The
+                        // type compare owns that verdict; this one declines.
+                        return !types_equal(sub, impl_t);
+                    };
                     size_t check_end = has_pack
                         ? (size_t)variadic_pos
                         : m.param_types.size();
@@ -4592,9 +4628,23 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     }
                     if (_apar && sig_match && !m.param_types.empty() &&
                         !c->param_types.empty() && m.param_types[0] &&
-                        c->param_types[0] &&
-                        !_alpha_ok(m.param_types[0], c->param_types[0]))
-                        sig_match = false;
+                        c->param_types[0]) {
+                        TypeRef _t0 = m.param_types[0];
+                        bool _t0_collapsed = false;
+                        if (_asub && !trait_arg_subst.empty()) {
+                            _t0 = subst_type_sema(m.param_types[0], trait_arg_subst);
+                            _t0_collapsed = _self_shape_artefact(
+                                m.param_types[0], _t0, c->param_types[0]);
+                        }
+                        if (!_t0_collapsed && !_alpha_ok(_t0, c->param_types[0])) {
+                            if (_asub && self_mismatch_note.empty())
+                                self_mismatch_note = std::format(
+                                    "the receiver is declared '{}' and the impl "
+                                    "declares '{}'", type_str(_t0),
+                                    type_str(c->param_types[0]));
+                            sig_match = false;
+                        }
+                    }
                     for (size_t k = 1; sig_match && k < check_end; ++k) {
                         auto tp = m.param_types[k];
                         auto cp = c->param_types[k];
@@ -4620,7 +4670,14 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                     "declares '{}'", k, type_str(tp), type_str(cp));
                             sig_match = false; break;
                         }
-                        if (_apar && !_alpha_ok(tp, cp)) { sig_match = false; break; }
+                        if (_apar && !(_asub && _self_shape_artefact(m.param_types[k], tp, cp))
+                            && !_alpha_ok(tp, cp)) {
+                            if (_asub && self_mismatch_note.empty())
+                                self_mismatch_note = std::format(
+                                    "parameter {} is declared '{}' and the impl "
+                                    "declares '{}'", k, type_str(tp), type_str(cp));
+                            sig_match = false; break;
+                        }
                     }
                     // Per-element check past the pack position: each
                     // impl-method param at index k (where k >=
@@ -4673,8 +4730,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             tra = subst_type_sema(tra, trait_arg_subst);
                         if (!is_generic_param(tra) &&
                             !is_generic_param(c->ret_type) &&
-                            !_alpha_ok(tra, c->ret_type))
+                            !(_asub && _self_shape_artefact(m.ret_type, tra, c->ret_type)) &&
+                            !_alpha_ok(tra, c->ret_type)) {
+                            if (_asub && self_mismatch_note.empty())
+                                self_mismatch_note = std::format(
+                                    "the return type is declared '{}' and the "
+                                    "impl declares '{}'", type_str(tra),
+                                    type_str(c->ret_type));
                             sig_match = false;
+                        }
                     }
                     if (sig_match) { matching = c; break; }
                 }

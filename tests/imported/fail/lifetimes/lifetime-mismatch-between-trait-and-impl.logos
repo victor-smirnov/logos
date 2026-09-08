@@ -1,7 +1,9 @@
 // rustc lifetimes/lifetime-mismatch-between-trait-and-impl.rs — upstream `impl` item
 // signature doesn't match `trait` item signature
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-SIGARITY — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// shelf: fail (was admit) · root lifereg.NEW-SIGARITY — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// Original path: tests/ui/lifetimes/lifetime-mismatch-between-trait-and-impl.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Modifications:
 //   · i32 -> i64
 //   · `impl Foo for ()` -> `impl Foo for U` with `struct U;` — Logos has no unit type;
@@ -24,8 +26,6 @@
 //    A region fix would close none of these rows. ⚠ This is the same by-arity mangling
 //    named in the recorded miscompilation `sigdefarity`; the connection is stated, not
 //    measured, and is not a claim of this round.
-// Original path: tests/ui/lifetimes/lifetime-mismatch-between-trait-and-impl.rs
-// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // upstream construct: lines 1-9 —
 //     trait Foo { fn foo<'a>(x: &i32, y: &'a i32) -> &'a i32; }
 //     impl Foo for () {
@@ -34,6 +34,15 @@
 //             if x > y { x } else { y }
 //         }
 //     }
+// ── SHELF CHANGE 2026-09-07b: admit -> fail. The row `lifereg.NEW-SIGARITY` is
+//    DELETED from tests/logos/bc_admits.ledger (105 -> 102 -> 97 over two rounds)
+//    and this program is now an ordinary fail fixture pinning its own sentence.
+//    THE PORT IS UNCHANGED — not one character of the program moved; what moved
+//    is the compiler. impl-vs-trait signature compatibility now compares the
+//    LIFETIME STRUCTURE of the receiver, every parameter and the return, with
+//    the trait's `Self` substituted first. CEILING 5 (these five rows, by name,
+//    over the whole 115-row admit shelf) / COST 0 on all three populations /
+//    stdlib 4-of-4. PROBES.md 2026-09-07b.
 package lifetime_mismatch_between_trait_and_impl;
 trait Foo { fn foo<'a>(x: &i64, y: &'a i64) -> &'a i64; }
 struct U;

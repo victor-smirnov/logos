@@ -1,8 +1,24 @@
 // rustc lifetimes/lifetime-errors/ex3-both-anon-regions-using-impl-items.rs — upstream lifetime may not live long enough (impl drops `<'a>`)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: fail · was lifereg.R18
+// Original path: tests/ui/lifetimes/lifetime-errors/ex3-both-anon-regions-using-impl-items.rs
+// upstream commit: da5114692c9ebe46b869488c5f34f92eb10b98c1
+// upstream construct: lines 1-9 —
+//     trait Foo { fn foo<'a>(x: &mut Vec<&u8>, y: &u8); }
+//     impl Foo for () {
+//         fn foo(x: &mut Vec<&u8>, y: &u8) { x.push(y); }  //~ ERROR lifetime may not live long enough
+//     }
+// Modifications:
+//   · u8 -> i64
+//   · `impl Foo for ()` -> `impl Foo for U` with `struct U;` — Logos has no unit type
+//   · `fn main() {}` -> `fn main() -> i32 { return 0i32; }`
+// ⚠ REPAIRED 2026-09-07b: the trait's two parameters were ported as `&'a i64` /
+//   `&'a i64` where UPSTREAM ELIDES BOTH and declares `<'a>` WITHOUT USING IT.
+//   That made the trait and the impl signatures differ, which upstream's program
+//   does not — rustc accepts the signature here and errors in the BODY. Restored
+//   as-is; the fixture still refuses for the body reason its .expected pins.
 package ex3_both_anon_regions_using_impl_items;
-trait Foo { fn foo<'a>(x: &mut Vec<&'a i64>, y: &'a i64); }
+trait Foo { fn foo<'a>(x: &mut Vec<&i64>, y: &i64); }
 struct U;
 impl Foo for U { fn foo(x: &mut Vec<&i64>, y: &i64) { x.push(y); } }
 fn main() -> i32 { return 0i32; }
