@@ -30320,3 +30320,123 @@ Rows minted: `replace_site_skips_field_drop_glue` (1, run 11),
 Backlog 23 → 20 (six entries deleted, `vg_leak_records` rewritten, two new).
 Both runtime spellings exit 0 with the right answer, so the `admits` half is what a gate can
 hold — stated in each program's header rather than left for the next reader to rediscover.
+
+## 2026-09-08c — THE "OVER-REFUSAL, THE MOST EXPENSIVE KIND" WAS FOUR ILLEGAL PROGRAMS
+The 2026-09-08b round found four RED pass fixtures as a side effect of proving the
+valgrind sweep's channel, filed them as `red_pass_fixtures_objlt_static`, and called
+them "the single most fundable thing found … an OVER-REFUSAL, the most expensive kind",
+prescribing a bisect over ~8 commits. It named two candidate commits and said the
+compiler had moved under four untouched `.logos` files. Every one of those sentences is
+true. The CONCLUSION drawn from them is wrong, and the thing that refuted it cost four
+minutes: **read the upstream source**, which has been at `/home/logos/cxx/rust@da5114692c9`
+the whole time, and write six hand programs.
+
+    upstream tests/ui/drop/issue-2734.rs:11
+        fn perform_hax<T: 'static>(x: Box<T>) -> Box<dyn hax+'static>
+    the port, blanket-impl-box-to-dyn-b172.logos:16, and its own Modifications block
+        fn perform_hax<T>(x: Box<T>) -> Box<dyn Hax>
+        // … `T: 'static` bound dropped; …
+
+The port DECLARED the modification that made it illegal Rust, in the audit-trail block
+the arc added for exactly this purpose, and five rounds read past it. `Box<T>` unsize-
+coerced to `Box<dyn Trait>` requires `T: 'static` (E0310); dropping the bound does not
+"adapt the test to Logos", it changes the program into one rustc refuses. The refusal
+that appeared when `lifereg.L7`'s variance arm landed is the compiler becoming RIGHT.
+Same for `blanket-impl-generic-struct-dyn` (same shape) and for
+`box-concrete-as-box-dyn-return`, whose `fn make_generic<T>(x: T) -> Box<dyn Shape>`
+lacks `T: Shape` as well (E0277 + E0310). The fourth, `generic-struct-method-chain-b162`,
+substituted upstream's `meow_count(&mut self) -> usize` — a CONCRETE Copy field — with a
+generic `get(&self) -> T`, which is E0507 without `T: Copy`.
+
+⚠ **THE LANGUAGE COULD EXPRESS EVERY BOUND THE PORTS DROPPED, AND NOBODY CHECKED.** Six
+hand programs on the unmodified binary: `<T: 'static>` compiles; `<T: Shape + 'static>`
+compiles; `impl<T: Copy>` compiles; two impl blocks for one type with different bounds
+compile; and `Copy` is ENFORCED, not decorative — `Wrapper<NonCopy>` under a `T: Copy`
+impl is refused with "type 'NonCopy' does not implement trait 'Copy' required by
+parameter 'T'". The port note "Logos has no `+'static` on dyn" is true of the DYN side
+and was silently generalised to the TYPE PARAMETER, where it is false.
+
+### THE CLASS, ENUMERATED BY THE PROPERTY, TWICE, AND BOTH ARE NOW CLOSED
+Not by grepping for `'static` — a grep certifies what it cannot see. Class B is the
+PROPERTY "a generic fn whose body performs an unsize coercion to `dyn`", found by
+brace-matching every `fn NAME<...>(...)` body in `tests/**/*.logos` and testing it for
+`as Box<dyn` / `as &dyn`. **The whole corpus holds THREE such functions, and they are
+the three repaired here.** The complement is empty in both directions.
+
+Class C is the PROPERTY "a method taking `self` by SHARED reference that returns a field
+whose declared type is a type parameter of the impl". **17 members corpus-wide; 16
+already carried `T: Copy`** — including `tests/logos/pass/move_copy_getters.logos`, which
+states the rule in a comment ("T:Copy → copy"). `generic-struct-method-chain-b162` was
+the single outlier. The class is one token from closed and is now 17/17.
+
+### WHAT LANDED, AND WHAT DID NOT
+Four one-token corpus repairs, four RED fixtures GREEN, **zero lines under `src/` or
+`include/`**. No bisect was run and none is owed: the entry asked "decide whether the
+refusal is legal-Rust-correct", the upstream oracle answers YES for all four, and which
+commit made the compiler correct is not a defect to attribute.
+
+⚠ `orphan_fixture_no_expected` was minted last round and is a DUPLICATE. Its subject,
+`tests/imported/pass/closures/hrtb-deep-bound-chain.logos`, is line 53 of
+`tests/logos/unregistered.ledger` — a counted list with a both-directions gate that has
+tracked it since 2026-07-31. The backlog header says "97 + 66 + this file's TOTAL is the
+whole of the remaining work"; an entry double-counted across two lists breaks that sum.
+It was deleted here as a duplicate, NOT as resolved — the file is still registered
+nowhere, and it is still a line in the ledger that owns it. (For the record, it cannot be
+finished as written: `run<F> where F: for<'a> Fn(&'a i32) -> &'a i32, F: OK` has no
+inhabitant, because the file's only `impl OK` is for a struct and a closure cannot be
+given one.)
+
+### THE STANDING LESSON, WHICH IS ABOUT WHERE THE ORACLE WAS
+The 2026-09-08a round recorded "the upstream oracle has been on this box the whole time"
+and the 2026-09-08b round, one commit later, prescribed an eight-commit compiler bisect
+for a question that `cat` answers. A recorded correction does not propagate by being
+committed; it propagates by being APPLIED at the next site of the same shape.
+
+### THE STORE DATES THE EVENT, AND IT REFUTES BOTH NAMED CANDIDATES
+The entry named `9548e8e49` (09-08 01:51) and `fc0740e06` (09-08 03:49) and prescribed a
+bisect "over the last ~8 commits". `gate_db.py history` on all four names, which costs one
+command:
+
+    last PASS   build 153   2026-08-30 04:21   6eb072b74
+    first FAIL  build 746   2026-09-04 17:29   374a7f185
+
+All four flipped TOGETHER and they flipped on or before **2026-09-04**, four days and
+**122 commits** before the earlier of the two candidates. The prescribed 8-commit bisect
+could not have found it. The candidates were nominated by "what landed recently that
+sounds related"; the store was never asked.
+
+### WHY FOUR RED PASS FIXTURES SURVIVED FOUR DAYS AND 122 COMMITS
+Measured, not inferred:
+
+    ctest -N -L bc -R '<the four>'          →  Total Tests: 0
+    the four in test-levels.sh L1's 777     →  0
+    the four in run_oracle.py's population  →  4
+
+Neither gate a round actually runs — `L1` and `L4 bc` — selects any of them. `L4 bc`
+additionally answers from the verdict store keyed on (build, test), so a change to a
+FIXTURE SOURCE moves nothing it can see. The one column whose population contains them is
+`run_oracle.py`, and it was not run between 08-30 and 09-06. This is the same shape as
+the sweep finding one commit ago: an instrument's silence is evidence only about its own
+population, and nobody had asked what these gates' populations were.
+
+### THE RUNTIME ORACLE'S OWN POPULATION HOLE, FOUND WHILE USING IT AS A GATE
+`run_oracle.py` reports 6553 fixtures; it LINKS AND RUNS 6533. Twenty get `ccrc=90`
+("exited 0 after self-diagnosing", the 14th bug kind) from `re.search(r'^(mlir_gen|sema|
+mono): ', ...)` — a regex that does not exclude `warning:` — and `if cc != 0: return`
+then skips link and run entirely. Re-run by hand: **16 of the 20 match only on a warning**
+(`mlir_gen: warning: no MLIR type for TypeVar 'X'`) and compile rc 0. The remaining four
+print `mlir_gen: internal:` and exit rc 1 BY HAND, which ccrc=90 cannot represent — so
+under run_oracle's own argv/env/cwd they exited 0 with that line, and that is either the
+14th kind alive in four places or an artefact of the invocation. Filed as
+`run_oracle_c90_population_hole` with that exact measurement owed. TOOLING IS FROZEN; the
+regex was not touched.
+
+### GATES, THIS ROUND
+    test-levels.sh L1                        rc 0   777/777, 12 684 generated, 156 gates
+    test-levels.sh L4 bc                     rc 0   6524 recorded, 0 failed (⚠ store read)
+    soundness_queue_gate.sh                  rc 0   73 rows, # TOTAL 73, unchanged
+    bc_admits_ledger_gate.sh (both files)    rc 0   91 / 15, unchanged
+    run_oracle.py                            6553 fixtures, 20 ccrc=90 (all pre-existing,
+                                             none of them the four repaired here, which
+                                             report ccrc 0 / rc 0 / empty-stdout hash)
+    git diff --stat -- src/ include/         PROBES.md only. ZERO compiled lines.

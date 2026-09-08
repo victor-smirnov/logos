@@ -2,7 +2,9 @@
 // Original path: tests/ui/drop/issue-2734.rs
 // Modifications: `hax`→`Hax`; `Box::new`→`box_new`; the explicit `as Box<dyn
 // Hax+'static>` lifetime bound dropped (Logos has no `+'static` on dyn);
-// `T: 'static` bound dropped; `pub fn main()`→`fn main()->i32`. Exercises a
+// upstream's `T: 'static` is KEPT (an earlier port dropped it, which made this
+// program illegal Rust, E0310; restored 2026-09-08 against
+// /home/logos/cxx/rust@da5114692c9's own source); `pub fn main()`→`fn main()->i32`. Exercises a
 // blanket `impl<A> Hax for A {}` whose instance is moved out of a generic
 // `Box<T>` and unsize-coerced to `Box<dyn Hax>` — the blanket method must be
 // instantiated for the concrete payload so the trait-object vtable resolves.
@@ -13,7 +15,7 @@ trait Hax {
 }
 impl<A> Hax for A {}
 
-fn perform_hax<T>(x: Box<T>) -> Box<dyn Hax> {
+fn perform_hax<T: 'static>(x: Box<T>) -> Box<dyn Hax> {
     return x as Box<dyn Hax>;
 }
 

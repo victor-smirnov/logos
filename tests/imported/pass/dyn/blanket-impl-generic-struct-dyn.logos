@@ -5,12 +5,17 @@
 // now collects the actual coerced concrete TypeRef (matching the ECast Self-type
 // derivation: ref-source → pointee, box-value source → unwrap one Box) and
 // instantiates the blanket for it after the worklist drain.
+// Original path: tests/ui/drop/issue-2734.rs (shape only; hand-written).
+// Upstream commit rust-lang/rust@da5114692c9.
+// Modifications: `Box<T> as Box<dyn Hax>` needs upstream's `T: 'static`, which
+//   an earlier version of this file omitted (illegal Rust, E0310); added
+//   2026-09-08. Otherwise as written.
 package blanket_impl_generic_struct_dyn;
 use logos.mem.boxed;
 trait Hax { fn dummy(self: &Self) -> i64 { return 7i64; } }
 impl<A> Hax for A {}
 fn dispatch(h: &dyn Hax) -> i64 { return h.dummy(); }
-fn perform<T>(x: Box<T>) -> Box<dyn Hax> { return box_new(x) as Box<dyn Hax>; }
+fn perform<T: 'static>(x: Box<T>) -> Box<dyn Hax> { return box_new(x) as Box<dyn Hax>; }
 fn main() -> i32 {
     let b: Box<i64> = box_new(42i64);
     if dispatch(&b as &dyn Hax) != 7i64 { return 1i32; }   // &Box<i64> as &dyn

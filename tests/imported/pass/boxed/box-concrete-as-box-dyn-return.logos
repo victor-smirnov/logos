@@ -6,6 +6,11 @@
 // the raw box pointer and dispatch crashed. Covers struct + i64 payloads and a
 // generic `fn<T>` boxing site.
 // Distilled from rust-lang/rust drop/issue-2734.rs (the trait-object boxing form).
+// Original path: tests/ui/drop/issue-2734.rs (boxing shape only; hand-written).
+// Upstream commit rust-lang/rust@da5114692c9.
+// Modifications: `make_generic`'s `T` carries `Shape + 'static` — without them
+//   `box_new(x) as Box<dyn Shape>` is illegal Rust (E0277 + E0310); the bounds
+//   were missing until 2026-09-08. Otherwise as written.
 package box_concrete_as_box_dyn_return;
 use logos.mem.boxed;
 
@@ -14,7 +19,7 @@ struct Sq { s: i64 }
 impl Shape for Sq { fn area(self: &Sq) -> i64 { return self.s * self.s; } }
 
 fn make(n: i64) -> Box<dyn Shape> { return box_new(Sq { s: n }) as Box<dyn Shape>; }
-fn make_generic<T>(x: T) -> Box<dyn Shape> { return box_new(x) as Box<dyn Shape>; }
+fn make_generic<T: Shape + 'static>(x: T) -> Box<dyn Shape> { return box_new(x) as Box<dyn Shape>; }
 
 fn main() -> i32 {
     let b = make(5i64);

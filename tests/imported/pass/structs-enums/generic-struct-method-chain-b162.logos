@@ -1,6 +1,9 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/structs-enums/class-typarams.rs shape.
-// Modifications: isize->i64; assert->if-return sentinels. A generic struct
+// Modifications: isize->i64; assert->if-return sentinels; upstream's
+//   `meow_count(&mut self) -> usize` reads a CONCRETE Copy field, so the
+//   generic `get(&self) -> T` this port substituted needs `T: Copy` to be legal
+//   Rust (E0507 without it); bound added 2026-09-08. A generic struct
 //   `Wrapper<T>` with inherent methods: a constructor, a `map`-style method that
 //   builds a new `Wrapper<T>` from a transform, and a getter — chained.
 // Tests generic-struct inherent methods returning `Self`-typed values + method
@@ -11,7 +14,7 @@ struct Wrapper<T> {
     value: T,
 }
 
-impl<T> Wrapper<T> {
+impl<T: Copy> Wrapper<T> {
     fn new(v: T) -> Wrapper<T> {
         return Wrapper { value: v };
     }

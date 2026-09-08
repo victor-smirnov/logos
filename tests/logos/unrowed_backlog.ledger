@@ -167,31 +167,29 @@ vg_leak_records            sweep     87  sandbox/vg-round2/{leaks.tsv,recs2.pkl}
     # 28 records allocated in `main`, 14 in `String__grow`, 8 in `buf_reader_wrap`, and
     # ~15 one-fixture sites in writ/fabric/zvec arenas that may well be deliberate.
 
-red_pass_fixtures_objlt_static  defect   4  ctest, measured 2026-09-08
-    # ⚠ BLOCKER-CLASS, FOUND AS A SIDE EFFECT OF PROVING THE SWEEP'S CHANNEL. FOUR pass
-    # fixtures are RED on today's build and are NOT disabled:
-    #   logos_02_semantic_core_pass_box-concrete-as-box-dyn-return
-    #   logos_02_semantic_core_pass_blanket-impl-box-to-dyn-b172
-    #   logos_02_semantic_core_pass_blanket-impl-generic-struct-dyn
-    #   logos_02_semantic_core_pass_generic-struct-method-chain-b162
-    # The first three carry ONE sentence — "coercion to `dyn X` requires `T: 'static` —
-    # lifetime `T (no bound reaching 'static)` may not live long enough (object lifetime
-    # bound)"; the fourth is E0507 "cannot move out of a value behind a reference". None
-    # of the four .logos files has been touched since it was imported, so the COMPILER
-    # moved under them. MEMORY records five imported reds (if-generic,
-    # ref-mut-binding-stable-across-guard-m2, poll-problem-case-3, dropck-shadow-rebind,
-    # call-through-ref-to-fn-bound-b158) — those five are DISABLED in ctest and are not
-    # these. To make it a row: bisect the object-lifetime-bound sentence over the last
-    # ~8 commits (9548e8e49 `lifereg.L7` and fc0740e06 `bck.A-REFPARAM` are the
-    # candidates) and decide whether the refusal is legal-Rust-correct; if it is not,
-    # it is an OVER-REFUSAL, the most expensive kind. ⚠ This round did not touch the
-    # compiler, so nothing here was attempted.
+run_oracle_c90_population_hole  defect  20  scripts/run_oracle.py, measured 2026-09-08c
+    # THE RUNTIME ORACLE'S RUN POPULATION IS 6533, NOT 6553, AND ITS SILENCE ABOUT THE
+    # OTHER 20 HAS BEEN READ AS COVERAGE. `run_oracle.py:65` sets ccrc=90 ("exited 0
+    # after self-diagnosing", the 14th bug kind) when logosc exits 0 AND stderr matches
+    # `^(mlir_gen|sema|mono): ` — and then `if cc != 0: return` NEVER LINKS AND NEVER
+    # RUNS the program. The regex does not exclude `warning:`. Re-run by hand on all 20
+    # sources (WITHOUT run_oracle's per-fixture flags and env): 16 of them match only on
+    # a `warning:` line (e.g. hrtb-double-quantifier prints "mlir_gen: warning: no MLIR
+    # type for TypeVar 'X'") and compile rc 0 — instrument false positives, and 16
+    # programs the runtime column has never executed.
+    # ⚠ THE OTHER 4 ARE NOT EXPLAINED AND ARE THE MEASUREMENT THIS ENTRY OWES:
+    #   imported/pass/match/issue-41888-b170            mlir_gen: internal: unknown tagged enum 'Result__void__<error>'
+    #   imported/pass/match/nested-tuple-in-variant-payload-b170  same, 'Result__(i64, (i64, i64))__<error>'
+    #   imported/pass/option-result/res-and-or-comb-or  same, 'Result__i32__F'
+    #   spec/pass/intrinsic_2                           mlir_gen: internal: unsupported cast: no lowering from 'i32' to metaprog Type array
+    # BY HAND ALL FOUR EXIT rc 1 — an honest refusal, NOT the 14th kind. But ccrc=90 is
+    # only reachable when rc IS 0, so under run_oracle's own invocation (cwd=build,
+    # per-fixture `extra` flags and env from the cmake registry) they exited 0 WITH that
+    # line. THE MEASUREMENT: reproduce all four under run_oracle's exact argv/env/cwd and
+    # say whether the exit code really differs. If it does, the 14th kind — recorded
+    # CLOSED 2026-08-22 by `0f4083f7` — has four live instances and each is a tier-1 row.
+    # If it does not, the entry is 20 instrument false positives and closes at zero.
+    # ⚠ TOOLING IS FROZEN: this entry records the hole, it does not authorise fixing the
+    # regex. Do not "fix" run_oracle to make the number go away.
 
-orphan_fixture_no_expected  defect     1  tests/imported/pass/closures/hrtb-deep-bound-chain.logos
-    # 2026-09-08 — a `.logos` in the pass corpus with NO `.expected` beside it and NO
-    # add_test entry anywhere in build/tests/logos/CTestTestfile.cmake. CMake globs
-    # `.expected`, so this file is compiled by nothing and asserted by nothing while
-    # sitting in the corpus. To make it a row: decide whether it is an unfinished port
-    # (write the `.expected`) or dead (delete it) — it is one line either way.
-
-# TOTAL 20
+# TOTAL 19
