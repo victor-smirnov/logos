@@ -1,22 +1,51 @@
 // SOUNDNESS QUEUE row fatslice_field_match_binder_invalid_mlir (tier 3).
-// A struct field of FatSlice repr — `&[T]` or `str`, a {data, len} pair — BOUND
-// by a name in a MATCH struct pattern emits invalid MLIR and the compile dies
-// (rc 1, no source-located diagnostic):
+// A FatSlice-repr struct field — `&[T]` or `str`, a {data, len} pair — reached
+// through a BY-VALUE binder of a MATCH struct pattern and then PROJECTED emits
+// invalid MLIR and the compile dies (rc 1, no source-located diagnostic):
 //   error: 'llvm.getelementptr' op operand #0 must be LLVM pointer type ...
 //          but got '!llvm.struct<(ptr, i64)>'
 //   mlir_gen: module verification failed
-// The binder GEPs into the field's 16-byte VALUE as if it were the address of
+// The projection GEPs the field's 16-byte VALUE as if it were the address of
 // one. Legal Rust; legal Logos everywhere else.
 //
-// ⚠ MEASURED NARROWLY 2026-09-08 on build 2c5a33ef99e94fc9 43. Clean on the
-// same binary, all five measured this round:
-//   * the SAME field bound by a `let` struct pattern (`let H { s, n } = h;`);
-//   * the same match door with the slice field bound to `_`, or elided by `..`;
-//   * a THIN `&i64` field bound the same way at the same door;
-//   * a FatDyn `&dyn Tr` field bound the same way at the same door — so it is
-//     the FatSlice repr, not fatness as such;
-//   * field projection `h.s[1]` with no pattern anywhere.
-// `str` in the field's place fails identically, so both FatSlice spellings.
+// ⚠ THE CLASS, ENUMERATED BY THE PROPERTY 2026-09-08 on build 2c5a33ef99e94fc9
+// 43: 21 shapes compiled, and each that compiled was also linked and RUN. Every
+// failing shape prints the SAME sentence, so this is ONE lowering site. The
+// property is not "a binder" and not "a struct pattern" — it is A FATSLICE
+// PROJECTION WHOSE OPERAND IS A BY-VALUE PATTERN BINDER.
+//   FAIL (8), all rc 1, all the same message:
+//     * `match h { H { s, n } => s[2] }` — this program;
+//     * the same arm with `s.len()` in place of `s[2]`;
+//     * `if let H { s, n } = h`;  `while let H { s, n } = h`;
+//     * `match &h { H { s, n } => ... }`;
+//     * a GUARDED arm, `H { s, n } if n == 7i64 => s[2]`;
+//     * the same field on a GENERIC struct `W<T>` instantiated at `&[i64]`;
+//     * `str` in the field's place, PROVIDED the binder is projected (`s.len()`).
+//   OK (13), each compiled AND RUN rc 0:
+//     * THE SAME MATCH WITH THE BINDER NEVER PROJECTED — `H { s, n } => n` —
+//       for the `&[i64]` field and for the `str` field. Binding is not the
+//       defect; projecting through the binder is.
+//     * a `ref` binder — `H { s: ref q, n } => q[2]`. Its operand is an address.
+//     * the binder REBOUND before use: `let t: &[i64] = s; t[2]`;
+//     * the binder passed to a fn, `third(s)`, and stored into another struct,
+//       `G { s: s }`, then projected there;
+//     * a TUPLE pattern binder, `match t { (s, n) => s[2] }` (and `s.len()`);
+//     * an ENUM PAYLOAD binder, `match e { E::S(s) => s[2] }` — other pattern
+//       kinds are clean, it is the struct pattern;
+//     * the NESTED case `match o { Out { i, n } => i.s[2] }`: the outer binder
+//       is a thin struct, so the projection happens off a place;
+//     * the same field bound by a `let` struct pattern, `let H { s, n } = h;`;
+//     * a THIN `&i64` field, and a FatDyn `&dyn Tr` field with a method called
+//       through the binder, at the same door — so it is the FatSlice repr and
+//       not fatness as such;
+//     * field projection `h.s[1]` with no pattern anywhere.
+//
+// ⚠ CORRECTS THE ROW AS MINTED EARLIER THE SAME DAY (commit db2fa5f96). Both of
+// its claims are measured FALSE by this enumeration: "BOUND by a name ... emits
+// invalid MLIR" — a bound-but-never-projected binder is clean — and "`str` in
+// the field's place fails identically, so both FatSlice spellings" — `str`
+// fails only when projected, exactly like `&[i64]`, so the spellings agree but
+// not for the recorded reason. The program is UNCHANGED; only the reading is.
 //
 // Provenance: recorded 2026-08-18 in memory bug_zone_mut_reborrow_thin as
 // "FatSlice field x struct pattern (compile error)", never rowed; the note did

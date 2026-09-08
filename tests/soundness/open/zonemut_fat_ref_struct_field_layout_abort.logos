@@ -9,12 +9,38 @@
 // DECLARATION alone aborts, which is why this shape cannot be a fail fixture
 // either (a fail fixture asserts a diagnostic, and the compiler dies instead).
 //
-// ⚠ MEASURED NARROWLY 2026-09-08 on build 2c5a33ef99e94fc9 43. It is the FIELD
-// position alone. Clean on the same binary, all four measured this round:
-//   * the same fat `&mut Box2` as a TUPLE element and as an ARRAY element
-//     (pinned by tests/logos/pass/zone_mut_tupleidx_fat_recv.logos);
-//   * a SHARED `&Box2` field (a shared ref to a #[zone_mut] type stays thin);
-//   * the same struct with `#[zone_mut]` removed (thin `&mut` field).
+// ⚠ THE CLASS, ENUMERATED BY THE PROPERTY 2026-09-08 on build 2c5a33ef99e94fc9
+// 43: 12 declaration shapes plus 3 runtime programs. The property is "a Fat
+// ZoneMut `&mut` reaching the LLVM STRUCT TYPE BUILDER as a member". Every
+// failing shape prints the same two-engine disagreement, so it is ONE site.
+//   FAIL (5), all rc 134:
+//     * a named struct field, `struct H { r: &mut Box2 }` — this program;
+//     * a TUPLE-STRUCT field, `struct H(&mut Box2);`;
+//     * a NESTED field, `struct Inner { r: &mut Box2 } struct Outer { i: Inner }`
+//       — the abort names `Inner`, the innermost carrier;
+//     * a GENERIC struct instantiated at it, `struct W<T> { r: T }` used at
+//       `W<&mut Box2>` — the abort names the mono'd `W$G1$refmut_Box2`;
+//     * the same field inside a `#[zone_mut]` struct.
+//   OK (7):
+//     * an ENUM PAYLOAD, `enum E { N, S(&mut Box2) }`, and the generic enum
+//       `Opt<&mut Box2>` — the enum lowering path does not disagree. ⚠ AND IT
+//       IS NOT SILENTLY THIN: built, matched, `zone_of` read back through the
+//       payload binder, RUN rc 0, `LOGOS_VERIFY_LAYOUT=1` 0 disagreements
+//       (the enum is given a NICHE layout over the 16-byte payload). So the
+//       enum path is correct, not merely quiet — this is the shape that would
+//       have been a tier-1 row had it dropped the zone half, and it does not.
+//     * a TUPLE local `(&mut Box2, i64)` and an ARRAY local `[&mut Box2; 1]`,
+//       both also RUN with `zone_of` read back: rc 0.
+//     * a bare fn parameter `fn take(r: &mut Box2)`;
+//     * a SHARED `&Box2` field (a shared ref to a #[zone_mut] type stays thin);
+//     * the same struct with `#[zone_mut]` removed (thin `&mut` field).
+//
+// ⚠ EXTENDS THE ROW AS MINTED EARLIER THE SAME DAY (commit db2fa5f96), which
+// said "It is the FIELD position alone" off four clean shapes. The verdict
+// stands and is now positive rather than residual: four MORE aggregate-field
+// spellings abort (tuple-struct, nested, generic instantiation, zone_mut
+// struct), and the nearest un-measured neighbour — the enum payload — is
+// correct at compile AND at run. The program is UNCHANGED; only the reading is.
 //
 // Provenance: recorded 2026-08-18 in memory bug_zone_mut_reborrow_thin as one
 // of three "still-open LOUD neighbors" of the D3 arc, never rowed; its evidence

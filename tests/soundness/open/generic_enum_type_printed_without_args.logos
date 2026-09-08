@@ -1,0 +1,25 @@
+// SOUNDNESS QUEUE row generic_enum_type_printed_without_args (tier 4).
+// Right verdict, useless sentence. A `let` type mismatch between two
+// instantiations of the same generic ENUM prints both sides with their type
+// ARGUMENTS DROPPED, so the message says the two types are the same:
+//   error [fn main]: let 'b': type mismatch — expected Opt, got Opt
+//
+// ⚠ MEASURED 2026-09-08 on build 2c5a33ef99e94fc9 43, with the control that
+// separates the printer from the checker: the SAME `let` mismatch over a
+// generic STRUCT prints the arguments correctly —
+//   struct W<T> { v: T }   let a: W<i64> = ...; let b: W<i32> = a;
+//   error [fn main]: let 'b': type mismatch — expected W<i32>, got W<i64>
+// so it is the generic-ENUM spelling of the type printer, not the `let` site
+// and not generics as such. The defect is reachable with no coercion anywhere
+// in the program (this one), which is what separates it from the row
+// enum_variant_ctor_arg_no_unsize_coercion, where the same nonsense sentence
+// also appears (`Opt::S(&a)` at `Opt<&[i64]>`).
+//
+// Provenance: found 2026-09-08 varying the shape of the enum-ctor coercion row.
+package generic_enum_type_printed_without_args;
+enum Opt<T> { N, S(T) }
+fn main() -> i32 {
+    let a: Opt<i64> = Opt::S(1i64);
+    let b: Opt<i32> = a;
+    return 0i32;
+}

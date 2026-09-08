@@ -1,0 +1,39 @@
+// SOUNDNESS QUEUE row enum_variant_ctor_arg_no_unsize_coercion (tier 3).
+// The `&[T; N] -> &[T]` unsize coercion is applied at every argument position
+// the compiler has EXCEPT the ENUM VARIANT CONSTRUCTOR's, where a legal Rust
+// program is refused:
+//   error [fn main]: E::S arg 0: expected &[i64], got &[i64; 3]
+// rustc compiles `enum E<'a> { N, S(&'a [i64]) } ... E::S(&a)` with `a: [i64;3]`.
+//
+// ⚠ MEASURED 2026-09-08 on build 2c5a33ef99e94fc9 43 by ENUMERATING THE CLASS BY
+// THE PROPERTY — "a position where an operand of type `&[T; N]` is checked
+// against a declared `&[T]`". EIGHT sibling positions carry the coercion and RUN
+// (rc 0), one does not:
+//   ok  fn call arg  `third(&a)`            ok  method arg `c.f(&a)`
+//   ok  struct literal field `H { s: &a }`  ok  tuple-STRUCT ctor `H(&a)`
+//   ok  `return a;` at `-> &[i64]`          ok  tuple element `(&a, 7i64)`
+//   ok  `let sl: &[i64] = &a;`              ok  array element
+//   BAD enum variant ctor, all four spellings, all one sentence:
+//       tuple variant `E::S(&a)`; STRUCT variant `E::S { s: &a }`; a non-zero
+//       arg INDEX `E::S(1i64, &a)`; a different element type `&[u8; 2]`.
+// It is the ARRAY->SLICE unsize specifically, not "enum ctor args are
+// unchecked": the `&A -> &dyn Tr` unsize at the SAME position compiles clean
+// (`enum E { N, S(&dyn Tr) } ... E::S(&a)`), and routing this program's operand
+// through an annotated `let` first (`let sl: &[i64] = &a; E::S(sl)`) compiles
+// and runs. So the fix is at the enum-variant argument CHECK, and the pass half
+// that pins it is the `let`-routed twin.
+//
+// Provenance: found 2026-09-08 while enumerating the doors of row
+// fatslice_field_match_binder_invalid_mlir; its `match` on an enum payload could
+// not be written at all until the operand was routed through a `let`.
+package enum_variant_ctor_arg_no_unsize_coercion;
+enum E { N, S(&[i64]) }
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let e: E = E::S(&a);
+    match e {
+        E::N => { return 1i32; }
+        E::S(s) => { if s[2] != 3i64 { return 10i32; } }
+    }
+    return 0i32;
+}
