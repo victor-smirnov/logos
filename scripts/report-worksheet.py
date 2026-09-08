@@ -56,6 +56,26 @@ def main(port):
     print(f"\n─── THE CONSTRUCT ({len(ann)} annotated line(s)) ───")
     for n, l in ann:
         print(f"  {n:>4}: {l.rstrip()}")
+    # ⚠ THE UPSTREAM ORACLE IS ON THIS BOX AND IT IS NOT A COMPILER.
+    # There is no rustc binary here, and five re-port rounds judged "is this
+    # legal Rust?" by READING. They did not have to: the checkout carries the
+    # expected diagnostic for every ui test as a `.stderr` next to the `.rs`,
+    # recorded by rustc itself at the cited commit. It says what rustc refuses,
+    # with which code and which sentence. Read it before pinning anything.
+    stderr_paths = [up[:-3] + s for s in (".stderr", ".nll.stderr", ".migrate.stderr")]
+    shown = False
+    for sp in stderr_paths:
+        r = subprocess.run(["git", "-C", RUST, "show", f"{commit}:{sp}"],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            print(f"\n─── RUSTC'S OWN ANSWER  {os.path.basename(sp)} ───")
+            for l in r.stdout.splitlines():
+                print(f"  | {l.rstrip()}")
+            shown = True
+    if not shown:
+        print("\n─── RUSTC'S OWN ANSWER ───\n  (no .stderr at that commit — the "
+              "test may be check-pass, or the diagnostic is inline only)")
+
     print(f"\n─── UPSTREAM SOURCE ({len(lines)} lines) ───")
     for i, l in enumerate(lines, 1):
         print(f"  {i:>4}| {l.rstrip()}")
