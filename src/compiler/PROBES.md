@@ -30532,3 +30532,69 @@ do still compile and run clean: the coercion of a temporary, the no-coercion `Rc
 `unsized_local_binds_place_dropped_after_free`. `coerce_4` faults in `Rc$G1$A__drop` on a
 block freed by `Rc$G1$udyn_Sp__drop_rc` — that is the Rc row, and the rcunsz probe repairing
 it to zero errors settles the attribution. Recorded for that row's owner; not re-scoped here.
+
+## 2026-09-08b — COERCION REWRITES LOSE THE MOVE: ONE CLASS, THREE SITES, EIGHT POSITIONS
+
+`rc_coerce_unsized_source_not_moved` is CLOSED, and it was never an `Rc` defect. The class,
+by the PROPERTY: a sema coercion rewrite replaces a by-value operand `e` with a SYNTHESIZED
+node — `StructLit(FieldRead(e))` for the smart-pointer CoerceUnsized, `Cast(e)` for the dyn
+upcast — and `mark_moved_expr` self-gates to VarRef / FieldRead / TupleIndex / IndexRead, so
+after the rewrite the operand is invisible to it. The move is never recorded: use-after-move
+is admitted and the source's scope-exit drop runs on storage the coercion result owns.
+
+THE TREE ALREADY HELD ONE MEMBER FIXED, AND ITS COMMENT NAMES THE FAILURE. `expect_type`,
+CoercePos::Return, `Box<C> -> Box<dyn Tr>`: `mark_moved_expr(...)` then `builder().cast(...)`,
+"else codegen gets a mis-keyed vtable AND an un-consumed Box (a double free)". Mark-before-
+rebuild is this tree's own idiom; it had been written at ONE position out of four.
+
+Sites, enumerated by the property rather than by grepping `Rc`: R1 `try_struct_unsize_coerce`
+(six call sites — sema_expr.cpp 1001, 5294, 5354, 15090, 15455 AND sema_stmt.cpp:4945, which
+the pricing round's list missed), R2 `coerce_dyn_upcast`, R3 `coerce_arg_to_dyn`, R4 the
+already-correct return/Box path. The change is one named step, `mark_coercion_source_moved`,
+called immediately before the rebuild at R1/R2/R3. Self-gating is what makes it safe in a
+by-REFERENCE coercion position: `&Concrete -> &dyn` has a non-move operand, so nothing is
+marked.
+
+EIGHT ILLEGAL PROGRAMS, ONE PER COERCION POSITION, ALL ADMITTED BEFORE. Explicit `as` in a
+let; a fn-call argument; a typed `let` with no `as`; a struct-literal field value; an enum
+payload; an assignment rhs; a `dyn` UPCAST; a struct-FIELD source. Seven now print "use of
+moved variable '<src>'" — READ, and identical to the sentence the Box control already printed.
+
+TWO RESULTS THE PRICING ROUND'S THREE ZERO COLUMNS COULD NOT SEE, both from programs written
+for THIS round in shapes the probe never used:
+
+  * `c12` — `Box<dyn Ext>` upcast to `Box<dyn Base>` at a call argument, source reused. No
+    `Rc`, no smart pointer, no `try_struct_unsize_coerce`: it goes through R2. On the base
+    binary it compiles silently and ABORTS, "free(): double free detected in tcache 2", rc
+    134. A fix scoped to R1 — which is exactly what the priced `rcunsz` arm was — leaves it.
+  * `n7` — written as an OVER-REFUSAL CONTROL, a LEGAL program that must keep compiling:
+    `fn mk(rc: Rc<A>) -> Rc<dyn Sp> { return rc; }`. It kept compiling on both binaries, and
+    the BASE binary RAN IT WRONG: rc 1, 4 valgrind errors. After the change: rc 0, 0 errors.
+    A legal-program control caught a live wrong-answer defect that no illegal program in the
+    set could reach.
+
+THE ONE POSITION THAT DID NOT CLOSE, AND BOTH ITS HALVES. A struct-FIELD source: the MEMORY
+half closed (3 valgrind errors before, 0 after, with no re-read) and the DIAGNOSTIC half did
+not (4 errors / rc 2 before, 1 error / rc 2 after, still silent). Two controls on the
+post-fix binary localise it to (FIELD source) x (coercion): the same field WITHOUT a coercion
+is refused, "use of moved field 'h.r' (moved on line 13)", and a VarRef source THROUGH the
+coercion is refused. The recorded move reaches the drop bookkeeping and not the use check.
+Row `coerce_unsize_field_source_use_admitted`. 8 of 8 on memory, 7 of 8 on the diagnostic —
+stated that way rather than "the class is closed".
+
+### `replace_site_skips_field_drop_glue` — DECLINED, AND THE NUMBER THAT DOES IT
+
+Every arm that closes any of the row's shapes takes the P2-as-a-FIELD shape from 1 to 2
+destructor calls: a DOUBLE DROP, created by the fix. Re-measured on today's base binary,
+want 1 each: P1 local 1, P2 local 2, P1 as field 0, P2 as field 1. The corpus holds no
+program of the P2-as-a-field shape, which is the only reason `cost 1` and `runtime 1 of 6553`
+look cheap. COST IS NOT A SAFETY CLAIM. The row's real price is the design decision — does
+the drop BODY own its fields' drops, or does the call site recurse minus what the body
+consumed — and it has an owner. Two of its consequences now carry their own rows
+(`drop_body_moving_field_double_drops_local`, `enum_user_drop_skips_payload_glue`) so the
+queue holds them instead of prose.
+
+### `unsized_local_binds_place_dropped_after_free` — DECLINED, unchanged
+
+Closing it reds `tests/logos/pass/custom_dst_smartptr_owning_drop`, pinned green over a
+use-after-free. Corpus decision, owner's call, not edited. Re-verified this round.

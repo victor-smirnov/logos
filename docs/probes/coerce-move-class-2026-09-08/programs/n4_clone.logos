@@ -1,0 +1,17 @@
+package P;
+use logos.lang.rc;
+
+trait Sp { fn v(&self) -> i64; }
+trait Sq { fn w(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+impl Sq for A { fn w(&self) -> i64 { return self.x + 1i64; } }
+
+fn sinkrc(r: Rc<dyn Sp>) -> i64 { return r.v(); }
+fn main() -> i64 {
+    let rc: Rc<A> = rc_new(A { x: 12i64 });
+    let a: i64 = sinkrc(rc.clone_ref());
+    if a != 12i64 { return 1i64; }
+    if rc.v() != 12i64 { return 2i64; }
+    return 0i64;
+}

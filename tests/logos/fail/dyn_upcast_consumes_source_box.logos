@@ -1,0 +1,24 @@
+// PAIR HALF (fail) — a `dyn` UPCAST (Box<dyn Ext> -> Box<dyn Base>) consumes
+// its source, exactly as the smart-pointer unsize does. ONE TOKEN apart from
+// tests/logos/pass/dyn_upcast_consumes_source_box.logos: the last read is
+// `e` here.
+// This is the SIBLING that proves the closed row's class is a PROPERTY and not
+// `Rc` by name — on the pre-fix compiler this program compiled silently and
+// aborted with "free(): double free detected in tcache 2", rc 134.
+package dyn_upcast_consumes_source_box;
+
+trait Base { fn v(&self) -> i64; }
+trait Ext: Base { fn w(&self) -> i64; }
+struct A { x: i64 }
+impl Base for A { fn v(&self) -> i64 { return self.x; } }
+impl Ext for A { fn w(&self) -> i64 { return self.x + 1i64; } }
+
+fn sinkb(b: Box<dyn Base>) -> i64 { return b.v(); }
+
+fn main() -> i64 {
+    let e: Box<dyn Ext> = box_new(A { x: 19i64 }) as Box<dyn Ext>;
+    let g: Box<dyn Ext> = box_new(A { x: 19i64 }) as Box<dyn Ext>;
+    if sinkb(e) != 19i64 { return 1i64; }
+    if e.w() != 20i64 { return 2i64; }
+    return 7i64;
+}

@@ -1543,11 +1543,18 @@ PIN = {
     # (`fn g(mut b: &mut i64) { h2(&mut b); }`, which compiles AND runs, the
     # write arriving through two levels of reference). Its one-token fail twin
     # bc_refparam_addrof_nonmut is NOT in this population (it is `pass`).
-    # RE-DERIVED BY DIRECT LISTING: `ls tests/logos/pass/*.logos | wc -l` -> 2932,
-    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2932 = 191 + 2741.
-    'corpus'            : 2932,
+    # 2026-09-08c: 2932 -> 2934. TWO pass fixtures, both non-glob, the legal
+    # halves of the coercion-consumes-its-source landing —
+    # coerce_unsize_consumes_source_rc (the coercion result is read, not the
+    # source) and dyn_upcast_consumes_source_box (a second Box is read, not the
+    # upcast one). Their one-token fail twins are NOT in this population (it is
+    # `pass`).
+    # `ls tests/logos/pass/{coerce_unsize_consumes_source_rc,dyn_upcast_consumes_source_box}.logos | wc -l` -> 2.
+    # RE-DERIVED BY DIRECT LISTING: `ls tests/logos/pass/*.logos | wc -l` -> 2934,
+    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2934 = 191 + 2743.
+    'corpus'            : 2934,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2741,  # +1 (2026-09-08b), +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2743,  # +2 (2026-09-08c), +1 (2026-09-08b), +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

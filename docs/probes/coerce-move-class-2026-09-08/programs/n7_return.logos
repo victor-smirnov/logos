@@ -1,0 +1,16 @@
+package P;
+use logos.lang.rc;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn mk(rc: Rc<A>) -> Rc<dyn Sp> {
+    return rc;
+}
+
+fn main() -> i64 {
+    let d: Rc<dyn Sp> = mk(rc_new(A { x: 6i64 }));
+    if d.v() != 6i64 { return 1i64; }
+    return 0i64;
+}

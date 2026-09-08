@@ -1,0 +1,16 @@
+package P;
+
+trait Base { fn v(&self) -> i64; }
+trait Ext: Base { fn w(&self) -> i64; }
+struct A { x: i64 }
+impl Base for A { fn v(&self) -> i64 { return self.x; } }
+impl Ext for A { fn w(&self) -> i64 { return self.x + 1i64; } }
+
+fn sinkb(b: Box<dyn Base>) -> i64 { return b.v(); }
+
+fn main() -> i64 {
+    let e: Box<dyn Ext> = box_new(A { x: 19i64 }) as Box<dyn Ext>;
+    if sinkb(e) != 19i64 { return 1i64; }
+    if e.w() != 20i64 { return 2i64; }
+    return 0i64;
+}

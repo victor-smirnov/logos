@@ -4618,6 +4618,13 @@ private:
     // through before the one it leaves (0 = the innermost loop).
     std::vector<lir_view::StmtRef> collect_drops_to_loop(size_t cross = 0) const;
 
+    // A coercion that REBUILDS its operand must record the move first — the
+    // rebuilt node is not a place, so mark_moved_expr cannot see it. PROBES.md
+    // "COERCION REWRITES LOSE THE MOVE".
+    void mark_coercion_source_moved(const lir::LExprPtr& e) {
+        if (e) mark_moved_expr(expr_ref_of(e));
+    }
+
     // Recursive variant of mark_moved_expr that descends into composite
     // producer expressions (Call args, StructLit fields, TupleLit elems,
     // EnumLitData payloads, BlockExpr result). Used by lower_return and

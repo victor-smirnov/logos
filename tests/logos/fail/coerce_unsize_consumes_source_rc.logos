@@ -1,0 +1,19 @@
+// PAIR HALF (fail) — an unsize coercion CONSUMES its source. One token apart
+// from tests/logos/pass/coerce_unsize_consumes_source_rc.logos: this half
+// re-reads `rc` after the coercion, that half re-reads `d`.
+// Closed soundness-queue row rc_coerce_unsized_source_not_moved (tier 2,
+// `admits`). rustc: E0382.
+package coerce_unsize_consumes_source_rc;
+use logos.lang.rc;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn main() -> i64 {
+    let rc: Rc<A> = rc_new(A { x: 3i64 });
+    let d: Rc<dyn Sp> = rc as Rc<dyn Sp>;
+    if d.v() != 3i64 { return 1i64; }
+    if rc.v() != 3i64 { return 2i64; }
+    return 0i64;
+}

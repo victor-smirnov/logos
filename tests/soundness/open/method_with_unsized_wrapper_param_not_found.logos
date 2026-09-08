@@ -1,0 +1,39 @@
+// SOUNDNESS QUEUE row method_with_unsized_wrapper_param_not_found (tier 3,
+// `refuses`). A LEGAL PROGRAM IS REFUSED: an inherent METHOD whose by-value
+// parameter is a smart-pointer struct over a trait object — `r: Rc<dyn Sp>` —
+// IS NOT FOUND AT ALL. `h.eat(rc)` reports
+//     method call: 'Holder' has no method 'eat'
+// on a method that is declared four lines above it.
+//
+// Measured 2026-09-08 on build 8e5f92705b285d29 43 and again on the binary of
+// this commit. TWO CONTROLS on the same binary separate the parameter type from
+// every other variable:
+//   * the byte-identical method with `r: Rc<A>` (sized payload) IS found, and
+//     correctly reports "use of moved variable 'rc'" for the same body — so it
+//     is not the receiver, the `pub`, the impl block, or the name.
+//   * the same signature as a FREE function, `fn sinkrc(r: Rc<dyn Sp>) -> i64`,
+//     IS found and compiles — so it is not the parameter type on its own, it is
+//     the parameter type IN AN INHERENT METHOD.
+// rustc accepts the program; Rust has no rule that hides a method by its
+// parameter type.
+//
+// Found while enumerating the coercion-consumes-its-source class by POSITION
+// (the method-argument position was the one position of eight that could not be
+// measured at all, because the method does not exist). It is NOT a member of
+// that class — no coercion happens, because resolution fails first.
+package method_with_unsized_wrapper_param_not_found;
+use logos.lang.rc;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+struct Holder { n: i64 }
+impl Holder { pub fn eat(&self, r: Rc<dyn Sp>) -> i64 { return r.v() + self.n; } }
+
+fn main() -> i64 {
+    let h: Holder = Holder { n: 1i64 };
+    let rc: Rc<A> = rc_new(A { x: 17i64 });
+    if h.eat(rc) != 18i64 { return 1i64; }
+    return 0i64;
+}

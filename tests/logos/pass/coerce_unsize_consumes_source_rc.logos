@@ -1,0 +1,18 @@
+// PAIR HALF (pass) — the legal twin, ONE TOKEN apart from
+// tests/logos/fail/coerce_unsize_consumes_source_rc.logos: `rc.v()` there,
+// `d.v()` here. The coercion consumes `rc`; reading the RESULT is legal, and
+// the program must RUN with exactly one refcount and exit 7.
+package coerce_unsize_consumes_source_rc;
+use logos.lang.rc;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn main() -> i64 {
+    let rc: Rc<A> = rc_new(A { x: 3i64 });
+    let d: Rc<dyn Sp> = rc as Rc<dyn Sp>;
+    if d.v() != 3i64 { return 1i64; }
+    if d.v() != 3i64 { return 2i64; }
+    return 7i64;
+}

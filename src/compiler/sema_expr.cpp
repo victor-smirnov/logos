@@ -977,6 +977,7 @@ bool SemaChecker::try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target) {
     // it to the target field type (the ptr→DstRef/TraitObject unsize is handled
     // in mlir-gen's cast), repack into the target struct.
     std::string fname0(ssi->fields[0].name);
+    mark_coercion_source_moved(e);   // see mark_coercion_source_moved (R1)
     auto fr = builder().field_read(std::move(e), fname0, sft[0]);
     lir::LExprPtr fv = (sft[0] != tft[0])
         ? builder().cast(std::move(fr), tft[0]) : std::move(fr);
@@ -15441,6 +15442,7 @@ bool SemaChecker::coerce_dyn_upcast(lir::LExprPtr& arg, TypeRef pt) {
             return false;
         };
     if (sub == super || !reaches(sub)) return false;
+    mark_coercion_source_moved(arg);   // see mark_coercion_source_moved (R2)
     arg = builder().cast(std::move(arg), pt);
     return true;
 }
@@ -15461,6 +15463,7 @@ bool SemaChecker::coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt) {
         pdyn = TypeRef(pt).pointee();
     if (TypeRef(pdyn).kind() != LogosType::Kind::TraitObject) return false;
     if (!ref_arg_satisfies_dyn(expr_type(arg), pdyn)) return false;
+    mark_coercion_source_moved(arg);   // see mark_coercion_source_moved (R3)
     arg = builder().cast(std::move(arg), pt);
     return true;
 }

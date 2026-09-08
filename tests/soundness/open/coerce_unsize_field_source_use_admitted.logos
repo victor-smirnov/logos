@@ -1,0 +1,42 @@
+// SOUNDNESS QUEUE row coerce_unsize_field_source_use_admitted (tier 2,
+// `admits`). AN UNSIZE COERCION WHOSE SOURCE IS A STRUCT FIELD CONSUMES THE
+// FIELD — correctly, since 2026-09-08 — BUT RE-READING THAT FIELD AFTERWARDS
+// IS STILL ADMITTED. The compile is silent; rustc gives E0382.
+//
+// This is the ONE POSITION OF EIGHT that the coercion-consumes-its-source class
+// fix did not close, and the halves it did and did not close are measured
+// separately on the two binaries:
+//   MEMORY HALF, CLOSED. `let d: Rc<dyn Sp> = h.r as Rc<dyn Sp>;` with no
+//   re-read: 3 valgrind errors before, 0 after. The field IS recorded moved,
+//   so the container's scope-exit glue no longer double-drops it.
+//   DIAGNOSTIC HALF, OPEN. This program: 4 valgrind errors and rc 2 before,
+//   1 valgrind error and rc 2 after — the remaining error is this program's
+//   own read of storage it no longer owns, and no diagnostic is printed.
+//
+// TWO CONTROLS on the SAME (post-fix) binary say the gap is the COERCION path,
+// not the field:
+//   * NO coercion — `fn sinkrca(r: Rc<A>)`, `sinkrca(h.r)`, then `h.r.v()` —
+//     IS refused: "use of moved field 'h.r' (moved on line 13)". So the
+//     use-after-move check for a moved FIELD exists and fires.
+//   * a VARIABLE source through the same coercion — `sinkrc(rc)` then `rc.v()`
+//     — IS refused: "use of moved variable 'rc'". So the coercion's move IS
+//     recorded for a VarRef source.
+// Only the pair (FIELD source) × (coercion) escapes. The recorded move reaches
+// the drop bookkeeping and not the use check.
+package coerce_unsize_field_source_use_admitted;
+use logos.lang.rc;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+struct H { r: Rc<A> }
+
+fn sinkrc(r: Rc<dyn Sp>) -> i64 { return r.v(); }
+
+fn main() -> i64 {
+    let h: H = H { r: rc_new(A { x: 7i64 }) };
+    let a: i64 = sinkrc(h.r);
+    if a != 7i64 { return 1i64; }
+    if h.r.v() != 7i64 { return 2i64; }   // USE AFTER MOVE — rustc: E0382
+    return 0i64;
+}

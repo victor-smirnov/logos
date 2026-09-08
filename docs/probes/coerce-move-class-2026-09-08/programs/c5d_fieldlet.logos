@@ -1,0 +1,15 @@
+package P;
+use logos.lang.rc;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+struct H { r: Rc<A> }
+
+fn main() -> i64 {
+    let h: H = H { r: rc_new(A { x: 7i64 }) };
+    let d: Rc<dyn Sp> = h.r as Rc<dyn Sp>;
+    if d.v() != 7i64 { return 1i64; }
+    if h.r.v() != 7i64 { return 2i64; }
+    return 0i64;
+}

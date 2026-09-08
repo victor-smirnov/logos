@@ -1,0 +1,46 @@
+// SOUNDNESS QUEUE row drop_body_moving_field_double_drops_local (tier 1).
+// A USER `Drop::drop` BODY THAT MOVES ITS OWN FIELD OUT DROPS THAT FIELD
+// TWICE when the value is a plain TOP-LEVEL LOCAL. The compile is silent, the
+// program exits 0 on its own terms, and the only oracle that sees it is a
+// DESTRUCTOR COUNT — which this program takes itself and turns into an exit
+// code, so the queue gate's reader can hold it.
+//
+// Measured 2026-09-08 on build 8e5f92705b285d29 43 (and again on the binary of
+// this commit): the counter reads 2 where exactly 1 destructor is owed.
+// `P2::drop(self)` takes `self` BY VALUE and binds `self.inner` to a local `q`;
+// `q` drops at the drop body's scope end — that is the ONE call. The caller's
+// scope-exit glue then runs the field recursion as well.
+//
+// THIS IS THE OTHER DIRECTION OF replace_site_skips_field_drop_glue, and it is
+// why that row must NOT be closed by flipping `gen_drop_value`'s `top_level`
+// default. That row's shapes LEAK because the recursion is skipped; this shape
+// DOUBLE-DROPS because the recursion is not skipped where the drop body already
+// consumed the field. Arming the recursion unconditionally converts the
+// `P2`-as-a-FIELD shape from correct (1) to a double drop (2) — measured, four
+// probe arms, docs/probes/dropglue-rcunsize-2026-09-08/ROUND.md §4. The two rows
+// together are the design question: does the drop BODY own its fields' drops, or
+// does the call site recurse minus what the body consumed?
+//
+// CONTROL on the same binary: the byte-identical struct whose drop body is
+// EMPTY (`impl Drop for P1 { fn drop(self: P1) { } }`) reads 1 as a local —
+// correct — and 0 as a struct field. So the double drop is a property of the
+// BODY consuming the field, not of the shape of the value.
+package drop_body_moving_field_double_drops_local;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn printf(f: *const u8, a: i64, b: i64) -> i32;
+
+trait Drop { fn drop(self: Self); }
+struct Noisy { n: i64, c: *mut i64 }
+impl Drop for Noisy { fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
+
+struct P2 { n: i64, inner: Noisy }
+impl Drop for P2 { fn drop(self: P2) { let q: Noisy = self.inner; } }
+
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+    c[0] = 0i64;
+    { let x: P2 = P2 { n: 1i64, inner: Noisy { n: 1i64, c: c } }; }
+    printf("P2 local, drop body moves its field out (want 1): %ld\n".as_ptr(), c[0], 0i64);
+    if c[0] != 1i64 { return 1i32; }
+    return 0i32;
+}

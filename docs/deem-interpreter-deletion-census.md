@@ -5509,8 +5509,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9418 -> 9420   +2   (the two native fixtures; the moves are +0)
 #   NOIMPORTED   4960 -> 4962   +2   (both new fixtures are NOT labelled imported)
 #   TIERCOMMIT    156 ->  156    0   (admit tests are tier_commit: -1 +1 = 0)
-REGISTRY-ALL         9420
-REGISTRY-NOIMPORTED  4962
+# 2026-09-08c (the coercion-consumes-its-source landing). FOUR native tests,
+#   two one-token fixture PAIRS: tests/logos/{pass,fail}/
+#   coerce_unsize_consumes_source_rc (the closed row
+#   rc_coerce_unsized_source_not_moved) and tests/logos/{pass,fail}/
+#   dyn_upcast_consumes_source_box (the `dyn`-upcast sibling that DOUBLE-FREED
+#   on the pre-fix binary and contains no smart pointer at all).
+#   ALL          9420 -> 9424   +4   (four native fixtures)
+#   NOIMPORTED   4962 -> 4966   +4   (none is labelled imported)
+#   TIERCOMMIT    156 ->  156    0   (none declares tier_commit)
+REGISTRY-ALL         9424
+REGISTRY-NOIMPORTED  4966
 REGISTRY-TIERCOMMIT  156
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
