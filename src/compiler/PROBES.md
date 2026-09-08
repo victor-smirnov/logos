@@ -30830,3 +30830,62 @@ binaries. A double free with no row.
 
 Full record, the 23-shape table and the two-design decision table:
 `docs/probes/dropdesign-2026-09-08/ROUND.md`.
+
+## 2026-09-08(b) — THE ENUM HALF, MEASURED ALONE: ONE QUEUE ROW FOR ONE FIXTURE, DECLINED
+
+The previous round priced "the BODY owns" against "the SITE recurses" as ONE
+choice. They are TWO edits in two arms, and separating them changes the price.
+
+    arm  what it changes                                   queue  RUNTIME(6557)  cfail(1457)  stdlib
+    E1   scope-exit emitter: `k == K::Enum && drop_fn       +1        1            —           ok
+         .empty()` -> `k == K::Enum`, payload-only
+    E2   E1 + gen_drop_value's ENUM branch: delete          +1        1            0           ok
+         `if (!top_level) return;` after the user drop
+
+THE CLASS, ENUMERATED BY THE PROPERTY, NOT BY A GREP. Class = an ENUM value with
+a user `impl Drop` and an owning payload; members = the SITES such a value can
+occupy. Fifteen programs, destructor counts (`docs/probes/dropenum-2026-09-08/`):
+local · moved into a callee · returned · loop body · early return · assigned
+over · struct FIELD · ARRAY element · TUPLE element · another enum's PAYLOAD ·
+plus two controls and the b154 shape. **BASE READS 0 AT EVERY ONE OF THEM** —
+the row `enum_user_drop_skips_payload_glue` says "three sites"; there are twelve.
+E1 closes the scope-exit site alone; E2 closes ELEVEN of the twelve. The twelfth
+is a payload that is a user-Drop STRUCT and belongs to the struct class.
+
+PREDICTION FILE WRITTEN BEFORE THE RUN: 14 of 15 correct for E1. The miss (n05,
+assignment over a local) was predicted "not closed" and measured half-closed —
+the scope-exit drop of the FINAL value is itself a site, and the prediction
+forgot a site in a round whose subject is a list of sites.
+
+E2'S WHOLE COST IN THE TREE IS ONE FIXTURE: `drop-trait-enum-b154`, runrc 0 -> 2.
+0 of 1457 in the fail column, 0 of 81 queue programs, 4 stdlib layers built,
+6556 of 6557 runtime triples identical (`cast-region-to-uint` subtracted by
+name). DECLINED ON THAT ONE NUMBER — not edited.
+
+⚠ AND THAT FIXTURE'S PORT DIVERGENCE IS WHAT MAKES TODAY'S COMPILER LOOK CORRECT
+ON THE VERY TEST WRITTEN TO CATCH THIS DEFECT. Upstream is `fn drop(&mut self)`;
+the port wrote `fn drop(self: Foo)` whose `match self` MOVES the payload out.
+One file, two receivers, two binaries:
+
+    receiver          base binary                    E2 binary
+    `self: Foo`       rc 0 (passes)                  rc 2 (payload dropped twice)
+    `self: &mut Foo`  rc 2 (nested drop never runs)  rc 0 (101 — upstream's assertion)
+
+⚠ `tests/logos/pass/drop_glue_three_levels` BLOCKS EVERY DESIGN, NOT JUST ONE.
+RUN on the base binary: stdout `b3`, exit 42 — `A::drop` runs ZERO times, while
+the A value is owned, reachable and destroyed. `A::drop`'s only effect is
+printing `a7 `, and `run_test.sh` compares the whole stdout for EQUALITY. So
+every answer to the owner's question in which that destructor runs at all prints
+`b3 a7 ` and reds the fixture — "the body owns", implemented properly, no less
+than "the site recurses". The struct half of the cluster cannot be tested behind
+this pin under ANY design. NOT EDITED.
+
+NEW QUEUE ROW `drop_body_conditional_move_double_drops_both_paths` (tier 1,
+run 1): a by-value drop body that moves a field of `self` out UNDER AN `if`
+double-drops it on BOTH paths. SHARPENING the previous round's claim about this
+shape — the second destructor call prints the CORRECT `w` (7, twice, total 14),
+so it is a genuine second release of a live value, not a garbage read of an
+unwritten slot; and the plain-function control is correct in BOTH the armed and
+the disarmed spelling, not just one.
+
+Record: `docs/probes/dropenum-2026-09-08/ROUND.md`.

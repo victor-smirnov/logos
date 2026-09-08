@@ -1,0 +1,15 @@
+package n13_payload_two_levels;
+extern fn malloc(n: i64) -> *mut u8;
+trait Drop { fn drop(self: Self); }
+struct N { w: i64, c: *mut i64 }
+impl Drop for N { fn drop(self: N) { unsafe { self.c[0] = self.c[0] + self.w; } } }
+struct P { inner: N }
+impl Drop for P { fn drop(self: P) { } }
+enum E { V(P), Nil }
+impl Drop for E { fn drop(self: E) { } }
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+    c[0] = 0i64;
+    { let e: E = E::V(P { inner: N { w: 1i64, c: c } }); }
+    return c[0] as i32;
+}

@@ -1,0 +1,18 @@
+package n12_enum_early_return;
+extern fn malloc(n: i64) -> *mut u8;
+trait Drop { fn drop(self: Self); }
+struct N { w: i64, c: *mut i64 }
+impl Drop for N { fn drop(self: N) { unsafe { self.c[0] = self.c[0] + self.w; } } }
+enum E { V(N), Nil }
+impl Drop for E { fn drop(self: E) { } }
+unsafe fn f(c: *mut i64, b: bool) -> i64 {
+    let e: E = E::V(N { w: 1i64, c: c });
+    if b { return 1i64; }
+    return 0i64;
+}
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+    c[0] = 0i64;
+    let r: i64 = f(c, true);
+    return c[0] as i32;
+}

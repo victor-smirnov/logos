@@ -1,0 +1,43 @@
+PREDICTION — written BEFORE the 15 programs below were compiled or run, and
+before any of them was seen on either binary. Round 2026-09-08(b).
+
+SUBJECT: arm E1 — the scope-exit drop emitter's enum arm, which was guarded
+`else if (k == K::Enum && drop_fn.empty())`, now recurses the payload for an
+enum WITH a user `Drop::drop` too, asking for the PAYLOAD ONLY
+(gen_drop_enum_payload) so the user drop is not called twice.
+
+RULE 5: the pricing round's 23 shapes were written by the same hand that wrote
+the arm and all 23 enum cases were ONE spelling (a top-level local). These 15
+vary the SITE, the payload shape, the variant taken, the drop body and the
+control flow. `want` is the Rust-correct destructor count.
+
+  name                        want  base(pred)  E1(pred)   note
+  n01 two droppable variants    11      0          11
+  n02 nested enum payload        1      0           0      NOT closed: the
+                                                           payload's own user
+                                                           drop stops at the
+                                                           nested arm
+  n03 enum as a struct field     1      0           0      NOT closed (nested)
+  n04 array of enums            11      0           0      NOT closed (nested)
+  n05 assignment over a local   11      0           0      NOT closed (replace)
+  n06 moved into a callee        1      0           1      callee epilogue is a
+                                                           scope exit too
+  n07 returned then bound        1      0           1
+  n08 body reads, never moves    1      0           1
+  n09 non-droppable variant      0      0           0      CONTROL
+  n10 no droppable payload       0      0           0      CONTROL, must not
+                                                           crash or emit a
+                                                           switch
+  n11 loop body, ten times      10      0          10
+  n12 early return               1      0           1
+  n13 payload owns a field       1      0           0      NOT closed (nested)
+  n14 body destructures `self`   1      1           2      THE COST: a by-value
+                                                           drop body that MOVES
+                                                           the payload out
+  n15 enum in a tuple            1      0           0      NOT closed (nested)
+
+So the prediction is: E1 closes the SCOPE-EXIT site of the enum class and NO
+other site of it (n02 n03 n04 n05 n13 n15 stay leaking), and breaks exactly one
+property — a by-value drop body that consumes its own payload (n14). If any
+control (n09 n10) moves, or if any not-closed line closes, the arm is not what
+its diff says it is.
