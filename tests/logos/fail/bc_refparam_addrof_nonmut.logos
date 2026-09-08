@@ -1,0 +1,14 @@
+// PAIR (fail half) — `&mut b` where `b` is a REFERENCE-TYPED PARAMETER not
+// declared `mut`. E0596 upstream. The pass half
+// (tests/logos/pass/bc_refparam_addrof_mut.logos) differs by ONE TOKEN: `mut b`.
+//
+// The hatch in refuse_not_mut_binding exempts parameters because "a `&mut`
+// through a reference param is a REBORROW". A borrow that names the BINDING
+// ITSELF is not a reborrow, and until 2026-09-08 this compiled silently
+// (bc_admits.ledger row `mut-borrow-of-mut-ref`, root bck.A-REFPARAM).
+package bc_refparam_addrof_nonmut;
+fn h2(x: &mut &mut i64) { **x = 9i64; }
+fn g(b: &mut i64) {
+    h2(&mut b);
+}
+fn main() -> i32 { let mut v: i64 = 0i64; g(&mut v); return 0i32; }

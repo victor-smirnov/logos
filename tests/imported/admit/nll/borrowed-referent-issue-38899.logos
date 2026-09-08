@@ -1,0 +1,34 @@
+// rustc nll/borrowed-referent-issue-38899.rs — upstream E0502
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW-BLOCKREF
+// Original path: tests/ui/nll/borrowed-referent-issue-38899.rs @ da5114692c9
+// Modifications: u8 -> i64; `println!("{}", x.current)` and the two `drop()`
+//   calls -> plain reads (`let a: i64 = *x.current;` … `let b: i64 = *x.current;`)
+//   that keep the same USE ORDER, which is what makes the loan live across the
+//   shared borrow; explicit lifetimes dropped; `fn main` added.
+// ⚠ REPAIR 2026-09-08, AND IT MOVED SHELF. The port had dropped upstream's
+//   `mut block`. Without it the program is E0596 in rustc (borrowing a non-mut
+//   reference param as mutable), and this file sat on the FAIL shelf pinning
+//   "cannot use 'block' while it is mutably borrowed" — a sentence that
+//   answered a question upstream never asks here. With `mut` restored it is
+//   upstream's construct, upstream reports E0502 "cannot borrow
+//   `*block.current` as immutable because it is also borrowed as mutable", and
+//   logosc COMPILES IT SILENTLY. Measured on both the unarmed and the armed
+//   build of 2026-09-08. A hole, so: admit shelf, one ledger row.
+// ⚠ SINGLE-ROW ROOT — no separating pair was measured, so `bck.NEW-BLOCKREF`
+//   makes NO grouping claim.
+package borrowed_referent_issue_38899;
+struct Block { current: &i64, unrelated: &i64 }
+fn bump(mut block: &mut Block) -> i64 {
+    let x: &mut &mut Block = &mut block;
+    let a: i64 = *x.current;
+    let p: &i64 = &*block.current;
+    let b: i64 = *x.current;
+    return a + b + *p;
+}
+fn main() -> i32 {
+    let u: i64 = 1i64;
+    let v: i64 = 2i64;
+    let mut blk: Block = Block { current: &u, unrelated: &v };
+    return bump(&mut blk) as i32;
+}

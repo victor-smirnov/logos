@@ -5500,8 +5500,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9416 -> 9418   +2   (-1 admit test, +3 imported fail fixtures)
 #   NOIMPORTED   4961 -> 4960   -1   (all three new fixtures are labelled imported)
 #   TIERCOMMIT    157 ->  156   -1   (only the admit test declared tier_commit)
-REGISTRY-ALL         9418
-REGISTRY-NOIMPORTED  4960
+# 2026-09-08b — bck.A-REFPARAM CLOSED. Two NATIVE fixtures added (the one-token
+#   pair tests/logos/pass/bc_refparam_addrof_mut.logos and
+#   tests/logos/fail/bc_refparam_addrof_nonmut.logos),
+#   and TWO IMPORTED SHELF MOVES THAT CANCEL: mut-borrow-of-mut-ref went admit ->
+#   fail (-1 admit test, +1 imported fail) and borrowed-referent-issue-38899 went
+#   fail -> admit (-1 imported fail, +1 admit test).
+#   ALL          9418 -> 9420   +2   (the two native fixtures; the moves are +0)
+#   NOIMPORTED   4960 -> 4962   +2   (both new fixtures are NOT labelled imported)
+#   TIERCOMMIT    156 ->  156    0   (admit tests are tier_commit: -1 +1 = 0)
+REGISTRY-ALL         9420
+REGISTRY-NOIMPORTED  4962
 REGISTRY-TIERCOMMIT  156
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

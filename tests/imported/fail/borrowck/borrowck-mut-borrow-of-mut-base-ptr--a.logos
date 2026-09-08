@@ -1,8 +1,17 @@
 // rustc borrowck/borrowck-mut-borrow-of-mut-base-ptr.rs — upstream E0502/E0499
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
+// Original path: tests/ui/borrowck/borrowck-mut-borrow-of-mut-base-ptr.rs @ da5114692c9 (fn foo)
+// Modifications: isize -> i64; the unused second param `t1` and the `Fake`
+//   trait's `p.use_ref()` spelling dropped (a later USE of `p` is what keeps the
+//   loan live, and `let _ = *p;` is that use); `fn main` added.
+// ⚠ REPAIR 2026-09-08: the port had dropped upstream's `mut t0` — WITHOUT it the
+//   program is E0596 in rustc, not the E0502 this fixture exists to pin, and its
+//   pinned sentence was only reachable because Logos did not refuse `&mut t0` on
+//   a non-mut reference param at all. `mut` restored; the pinned diagnostic is
+//   unchanged, measured before and after.
 package borrowck_mut_borrow_of_mut_base_ptr_a;
-fn foo(t0: &mut i64) {
+fn foo(mut t0: &mut i64) {
     let p: &i64 = &*t0;
     let t2: &mut &mut i64 = &mut t0;
     **t2 = **t2 + 1i64;

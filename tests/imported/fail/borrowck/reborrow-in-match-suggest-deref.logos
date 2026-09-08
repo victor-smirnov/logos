@@ -1,6 +1,15 @@
 // rustc borrowck/reborrow-in-match-suggest-deref.rs — upstream E0596
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: fail · root bck.A
+// Original path: tests/ui/borrowck/reborrow-in-match-suggest-deref.rs @ da5114692c9
+// Modifications: i32 -> i64; `Some` -> `Option::Some`; the `#![allow(unused)]`
+//   attribute and rustfix directives dropped; `fn main` returns i32.
+// ⚠ RE-PIN 2026-09-08: upstream's .stderr for this file is E0596 "cannot borrow
+//   `outer` as mutable, as it is not declared as mutable" — the ONLY error it
+//   reports. The `.expected` had pinned "cannot use 'outer' while it is mutably
+//   borrowed": the right VERDICT reached by the wrong sentence, because the
+//   binding-mut question was never asked of a reference param. Now pinned to the
+//   sentence that answers the same question upstream does.
 package reborrow_in_match_suggest_deref;
 fn test(outer: &mut Option<i64>) {
     match (&mut outer, 23i64) {

@@ -1538,11 +1538,16 @@ PIN = {
     # `&[P]` container the arm declines). Their fail twins are NOT in this
     # population (it is `pass`).
     # `ls tests/logos/pass/bc_subslice_*.logos | wc -l` -> 3.
-    # RE-DERIVED BY DIRECT LISTING: `ls tests/logos/pass/*.logos | wc -l` -> 2931,
-    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2931 = 191 + 2740.
-    'corpus'            : 2931,
+    # 2026-09-08b: 2931 -> 2932. ONE pass fixture, non-glob:
+    # bc_refparam_addrof_mut — the LEGAL half of the `bck.A-REFPARAM` landing
+    # (`fn g(mut b: &mut i64) { h2(&mut b); }`, which compiles AND runs, the
+    # write arriving through two levels of reference). Its one-token fail twin
+    # bc_refparam_addrof_nonmut is NOT in this population (it is `pass`).
+    # RE-DERIVED BY DIRECT LISTING: `ls tests/logos/pass/*.logos | wc -l` -> 2932,
+    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2932 = 191 + 2741.
+    'corpus'            : 2932,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2740,  # +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2741,  # +1 (2026-09-08b), +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

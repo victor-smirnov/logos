@@ -1,0 +1,16 @@
+// PAIR (pass half) — the fail half
+// (tests/logos/fail/bc_refparam_addrof_nonmut.logos) one token away: `mut b`.
+// A reference-typed parameter DECLARED `mut` may be `&mut`-borrowed as a
+// binding, and the borrow must still WORK — `h2` writes through two levels of
+// reference, so the run asserts the effect and not merely the compile.
+package bc_refparam_addrof_mut;
+fn h2(x: &mut &mut i64) { **x = 9i64; }
+fn g(mut b: &mut i64) {
+    h2(&mut b);
+}
+fn main() -> i32 {
+    let mut v: i64 = 0i64;
+    g(&mut v);
+    if v != 9i64 { return 1; }
+    return 0;
+}

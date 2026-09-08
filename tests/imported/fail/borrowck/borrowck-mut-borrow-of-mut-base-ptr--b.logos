@@ -1,8 +1,15 @@
 // rustc borrowck/borrowck-mut-borrow-of-mut-base-ptr.rs — upstream E0502/E0499
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
+// Original path: tests/ui/borrowck/borrowck-mut-borrow-of-mut-base-ptr.rs @ da5114692c9 (fn bar)
+// Modifications: isize -> i64; the unused second param `t1` and the `Fake`
+//   trait's `p.use_mut()` spelling dropped (`*p = *p + 1i64;` is the later use
+//   that keeps the loan live); `fn main` added.
+// ⚠ REPAIR 2026-09-08: the port had dropped upstream's `mut t0` — see the `--a`
+//   half. `mut` restored; the pinned diagnostic (E0499's analogue) is unchanged,
+//   measured before and after.
 package borrowck_mut_borrow_of_mut_base_ptr_b;
-fn bar(t0: &mut i64) {
+fn bar(mut t0: &mut i64) {
     let p: &mut i64 = &mut *t0;
     let t2: &mut &mut i64 = &mut t0;
     **t2 = **t2 + 1i64;

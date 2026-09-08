@@ -1,6 +1,6 @@
 // rustc borrowck/mut-borrow-of-mut-ref.rs — upstream E0596
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.A-REFPARAM
+// shelf: fail · was admit · root bck.A-REFPARAM, CLOSED 2026-09-08
 // Original path: tests/ui/borrowck/mut-borrow-of-mut-ref.rs @ 4b0c9d76a
 // Modifications: i32 -> i64; `#![crate_type = "rlib"]` dropped (no crate attributes,
 //   and a `main` is needed to link); `fn main` added.
@@ -13,8 +13,13 @@
 //   `pub fn baz` and `impl Foo for &mut String` are not ported — an inherent impl on a
 //   REFERENCE type; that third is upstream's method-call spelling of the same E0596
 //   and adds no construct this file does not already carry.
-// 2026-09-08 re-port: STILL ADMITTED, at BOTH doors — `h2(&mut b)` in `f` and the
-//   doubled `&mut &mut b` in `g`.
+// ⚠ CLOSED 2026-09-08 — bc_admits.ledger row `mut-borrow-of-mut-ref` DELETED,
+//   91 -> 90, and the program moved admit -> fail in the same commit. logosc now
+//   refuses at BOTH doors, `h2(&mut b)` in `f` and the doubled `&mut &mut b` in
+//   `g`, with the sentence upstream's .stderr gives (E0596 "cannot borrow `b` as
+//   mutable, as it is not declared as mutable"). The one-token pair that pins the
+//   rule is tests/logos/fail/bc_refparam_addrof_nonmut.logos and
+//   tests/logos/pass/bc_refparam_addrof_mut.logos.
 package mut_borrow_of_mut_ref;
 fn h2(x: &mut &mut i64) { }
 fn g(b: &mut i64) {

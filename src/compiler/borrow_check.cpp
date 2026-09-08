@@ -1029,6 +1029,18 @@ struct RecordFlags {
     // price is that `match-guards-always-borrow`, whose guard mutates through
     // its own `ref mut` binding, stays admitted (see the guard site).
     bool implicit         = false;
+    // ⚠ THE HATCH'S OWN PROPERTY, MADE ASKABLE. `param_names_` exempts a
+    // reference param from the binding-mut check because "a `&mut` through one
+    // is a REBORROW". This bit says the borrow is NOT a reborrow: it names the
+    // BINDING ITSELF. Set only by the `Code::AddrOf` arms — `&mut b` on a bare
+    // variable — which is the one lowering that borrows the binding rather than
+    // its pointee; the reborrow lowering is `AddrOfTemp(Deref(VarRef))` and the
+    // projection lowerings carry a path. NOT derivable from BorrowPlace:
+    // MEASURED 2026-09-08, `bp.path.empty() && !bp.through_ref` is ALSO true
+    // for `&mut *b` and for the implicit reborrow at a call arg (the Deref arm
+    // roots the place at the reference VARIABLE on purpose), and an arm keyed
+    // on it refused the stdlib and all eight legal hand shapes.
+    bool of_binding       = false;
 };
 
 struct MutBindBypass {
@@ -4379,13 +4391,19 @@ private:
     // returns true; the callers are take_borrow_whole_ (AddrOf/AddrOfTemp) and
     // check_recv_conflict (the bare-place `&mut self` receiver, `b.deref_mut()`).
     bool refuse_not_mut_binding(const VarState& it, const std::string& target,
-                                uint32_t line) {
+                                uint32_t line, bool of_binding = false) {
         if (it.is_mut_binding) return false;
         logos::probe::census("mb.w.arrive");
         if (param_names_.count(target)) {
             logos::probe::census("mb.w.hatch");
             logos::probe::census(param_byval_.count(target)
                 ? "mb.w.hatch.byval" : "mb.w.hatch.ref");
+            // The REFPARAM half of the hatch, split by the property the
+            // hatch's own comment names. LANDED 2026-09-08 (was ceiling probe
+            // `mbrefself`; control revert = `git revert` of that commit).
+            if (!param_byval_.count(target))
+                logos::probe::census(of_binding ? "mb.w.hatch.ref.self"
+                                               : "mb.w.hatch.ref.reborrow");
         } else logos::probe::census("mb.w.refuse");
         // CEILING PROBES (C) — see PROBES.md. `mbsite` is the arrival
         // population with the mut bit absent; `mbhatch` is the subset
@@ -4395,7 +4413,17 @@ private:
         const bool hatched = param_names_.count(target) > 0;
         if (hatched) (void)logos::probe::on("mbhatch");
         const bool byval_w = hatched && param_byval_.count(target) > 0;
-        if (!hatched || byval_w || logos::probe::on("mbnoparam")) {
+        // LANDED 2026-09-08 (ceiling probe `mbrefself`: fired 6, CEILING 1,
+        // COST 0 over pass+fail-text+stdlib). Close the hatch for a borrow OF
+        // the reference-param binding, leaving every reborrow THROUGH it
+        // exempt. `mbnoparam` — the WHOLE hatch — is the degenerate pole by
+        // contrast: 177 798 fires, 1037 legal programs refused, the stdlib
+        // stops compiling (PROBES.md 2026-08-29c). The difference between the
+        // two is `of_binding`, and it is a property of the LOWERING, not of
+        // BorrowPlace: see RecordFlags::of_binding.
+        const bool self_w = hatched && !byval_w && of_binding;
+        if (!hatched || byval_w || self_w ||
+            logos::probe::on("mbnoparam")) {
             if (!hatched) (void)logos::probe::on("mbrefuse");
             report(line, std::format(
                 "cannot borrow '{}' as mutable: not declared as mut", target));
@@ -4409,7 +4437,8 @@ private:
                      bool is_mut, uint32_t line,
                      const std::string& holder = "",
                      bool skip_mut_binding_check = false,
-                     bool implicit = false) {
+                     bool implicit = false,
+                     bool of_binding = false) {
         auto it = var_find(target_slot, target);
         if (it == nullptr) return;  // unknown / extern
         if (it->moved) {
@@ -4444,7 +4473,7 @@ private:
             // receivers stays the (permissive) status quo, the stdlib's
             // `arc.deref_mut()` on a non-mut Arc binding relies on it.
             if (!skip_mut_binding_check &&
-                refuse_not_mut_binding(*it, target, line))
+                refuse_not_mut_binding(*it, target, line, of_binding))
                 return;
             // B83: any tracked field-path borrow blocks a whole-value mut.
             if (!it->mut_field_borrows.empty() ||
@@ -4645,7 +4674,8 @@ private:
         }
         if (whole) {
             take_borrow_whole_(bp.root, bp.root_slot, is_mut, line, holder,
-                               fl.skip_mut_binding, fl.implicit);
+                               fl.skip_mut_binding, fl.implicit,
+                               fl.of_binding);
         } else {
             assert(!bp.path.empty() &&
                    "record_borrow: the field tail may never receive an empty "
@@ -9559,7 +9589,9 @@ private:
                 BorrowPlace abp;
                 abp.root = std::string(v.var_name());
                 abp.root_slot = NO_SLOT;
-                record_borrow(abp, is_mut_ref(e.type(pool)), line, holder);
+                RecordFlags afl;
+                afl.of_binding = true;   // `&mut b` — the BINDING, not a reborrow
+                record_borrow(abp, is_mut_ref(e.type(pool)), line, holder, afl);
                 break;
             }
             // B81/B83: `&o.field.chain` lowers to AddrOfTemp(FieldRead*).

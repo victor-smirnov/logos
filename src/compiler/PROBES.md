@@ -30181,3 +30181,80 @@ different mechanism. Predicting it would have been wrong and it was checked, not
     bc_admits_ledger_gate     rc 0 — 92 + 15 = 107, both totals re-derived by listing
     soundness queue gate      rc 0 — `# TOTAL` 69, untouched by this round
     bc_admits.ledger          94 -> 92; root `lifereg.L7` RETIRED (0 rows remain)
+
+---
+
+# ROUND 2026-09-08b — `bck.A-REFPARAM` CLOSED: THE HATCH'S OWN COMMENT WAS THE PREDICATE
+
+The `param_names_` hatch in `refuse_not_mut_binding` says why it exists: "a `&mut`
+through a reference param is a REBORROW". It then exempts the param by IDENTITY, so a
+borrow that is not a reborrow at all — one that names the BINDING ITSELF — was exempt
+too. The by-VALUE half of that hatch was closed 2026-08-31p by exactly this argument;
+this round closes its reference half, and the hatch now has no unconditional exit.
+
+## mbrefself
+site: src/compiler/borrow_check.cpp::refuse_not_mut_binding
+build: armed 931 (unarmed baseline 930); build hash 8fbf24410bfb3b70
+measured: 2026-09-08
+fires: 6
+ceiling: 1
+cost: 0   [saw: pass(ledger+legal) fail(text) stdlib(4 layers)]
+verdict: ✅ LANDED — ceiling 1, closed 1, predicted∖closed = ∅, closed∖predicted = ∅
+note: the arm refuses when the hatch would exempt a REFERENCE param and the borrow
+  is `of_binding`. LANDED, so the probe name is gone from the tree and the control
+  revert is `git revert` of the landing commit, as with `arm_inst`.
+
+## ⚠ THE FIRST DISCRIMINATOR WAS WRONG, AND IT LOOKED RIGHT
+`bp.path.empty() && !bp.through_ref` reads as "the place IS the binding". It is not:
+the Deref arm roots `&mut *b` at the reference VARIABLE on purpose (its own comment
+says so), so a reborrow arrives with an empty path and no crossing recorded. Built and
+measured: that arm refused the STDLIB (`Option__Alignment__take`) and all eight legal
+hand programs then written. The property is a fact about the LOWERING —
+`Code::AddrOf` on a bare variable is the borrow of the binding, `AddrOfTemp(Deref(
+VarRef))` is the reborrow — and it is carried in `RecordFlags::of_binding`, set at the
+`Code::AddrOf` record arm only. Two builds, and the first one is the finding.
+
+## RULE 5 — 18 PROGRAMS IN 14 SHAPES, NOT ONE SYNTAX REPEATED
+MUST COMPILE (14, all do, on both binaries): implicit reborrow at a call arg · `*b = 5`
+· field write `b.f = 5` · a `&mut self` method on a `&mut S` param · explicit `&mut *b`
+· a `&mut self` -> `&mut self` method chain · index write through a `&mut [i64;4]` param
+· `&mut b.f` into a let · a generic `fn g<T>(b: &mut T) { h(b) }` · returning `&mut b.f`
+· a closure capturing a `&mut i64` param and writing through it · a struct literal
+holding the param · `&mut *b` passed twice · a `&mut [i64]` slice param indexed in a
+loop.
+MUST BE REFUSED (4, all are): `&mut b` with `b: &mut i64`, with `b: &i64`, with `b: &S`,
+and `&mut b` bound into a `let r: &mut &mut i64`.
+
+## ⚠ THE UPSTREAM ORACLE IS ON THIS BOX, AND A CARRIED CLAIM SAID IT WAS NOT
+The 2026-09-08a re-port report recorded: "there is no rustc on this box (`which rustc`
+empty; no stage1 under /home/logos/cxx/rust) … five re-port rounds have now judged 'is
+this legal Rust?' by reading". Half of that is true and the wrong half was the one acted
+on. There is no rustc BINARY — and `/home/logos/cxx/rust` IS a checkout at
+`da5114692c9`, the very commit every port cites, with `tests/ui/**/<name>.stderr` beside
+each source. That file gives the ERROR CODE, the SENTENCE and the SPAN. It is not a
+compiler, so it cannot answer about a program we WROTE; for every ported test it answers
+about the program upstream wrote, which is exactly the question a re-port asks. All four
+diagnostics this round moved were adjudicated with it, and three turned out to be
+MIS-PORTS rather than regressions. Read the `.stderr` before pinning or re-pinning.
+
+## THE FOUR MOVED PINS, EACH READ
+    borrowck-mut-borrow-of-mut-base-ptr--a   port dropped upstream's `mut t0`   REPAIRED
+    borrowck-mut-borrow-of-mut-base-ptr--b   port dropped upstream's `mut t0`   REPAIRED
+    reborrow-in-match-suggest-deref          upstream .stderr IS E0596          RE-PINNED
+    borrowed-referent-issue-38899            port dropped upstream's `mut block`  REPAIRED
+The two `--base-ptr` halves keep their pinned sentences EXACTLY, before and after, on
+both builds — the repair restores the construct and changes no verdict. The third had
+pinned the right verdict by the wrong sentence. The fourth, once repaired, is ADMITTED,
+so it moved fail -> admit and is a new ledger row: a row moved between shelves is not a
+row closed, and this one is OPENED.
+
+## THE CLASS, AND WHAT WAS ENUMERATED TO SAY IT HAS ONE MEMBER
+Enumerated by the PROPERTY, not the spelling: every arrival at the hatch with the borrow
+taken of the binding. Over the three shelves (admit, imported fail, soundness open) a
+mechanical scan for `&mut <name>` where `<name>` is a reference-typed parameter matched
+27 files, 2 on the admit shelf, and one of those two is a per-FILE false positive
+(`borrowck-lend-flow-loop`'s `&mut v` is on a `mut` LOCAL in `main`; `v` is a parameter
+of a different function). So the admit shelf holds ONE member and the ceiling agrees
+with the enumeration — 1. The fix is still structural rather than per-row: it replaces
+an identity test with the property the hatch was always trying to express, and the
+`fail` shelf's four moved pins are the rest of the class showing itself.

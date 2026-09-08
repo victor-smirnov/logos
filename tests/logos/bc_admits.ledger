@@ -49,6 +49,56 @@
 # ⚠ A ROW IS NOT AN EXCUSE. It is a defect with a name, and the intended way for
 # this file to change is to SHRINK: a class fix reds this gate BECAUSE IT
 # IMPROVED, and the count is then edited down in the same change.
+# 2026-09-08b — 91 -> 91 (ONE ROW CLOSED, ONE ROW OPENED, and they are different
+# programs). `bck.A-REFPARAM` is CLOSED: `mut-borrow-of-mut-ref` is deleted and
+# its program is now a `fail` fixture at tests/imported/fail/borrowck/.
+#   THE CLASS, ENUMERATED BY THE PROPERTY. The hatch in `refuse_not_mut_binding`
+#   exempts a PARAMETER from the binding-mut check, and its own comment says why:
+#   "a `&mut` through a reference param is a REBORROW". A borrow that names the
+#   BINDING ITSELF is not a reborrow. So the class is not "rows about &mut on a
+#   param" — it is every arrival at that hatch with the borrow taken OF the
+#   binding, and the fix is to ask that property instead of asking the identity
+#   `param_names_`. The by-VALUE half of the same hatch was closed 2026-08-31p by
+#   the same argument; this is its reference half, and the hatch now has no
+#   unconditional exit left.
+#   ⚠ THE PROPERTY IS A FACT ABOUT THE LOWERING, NOT ABOUT BorrowPlace, AND THAT
+#   WAS MEASURED THE WRONG WAY FIRST. `bp.path.empty() && !bp.through_ref` LOOKS
+#   like "the place is the binding"; it is also true for `&mut *b` and for the
+#   implicit reborrow at a call arg, because the Deref arm roots such a place at
+#   the reference VARIABLE on purpose. An arm keyed on it refused the stdlib and
+#   all eight legal hand programs. `Code::AddrOf` — `&mut b` on a bare variable —
+#   is the one lowering that borrows the binding; the reborrow lowering is
+#   `AddrOfTemp(Deref(VarRef))`. RecordFlags::of_binding carries it.
+#   MEASURED (ceiling probe `mbrefself`, build 931): fires 6, CEILING 1 row,
+#   COST 0 legal programs over pass(ledger+legal) + fail(text) + stdlib(4 layers).
+#   Predicted BY NAME before the build: {mut-borrow-of-mut-ref}. predicted∖closed
+#   = ∅, closed∖predicted = ∅.
+#   HAND ORACLE, 18 programs in 14 shapes (rule 5 — not all of one syntax): 14
+#   legal still compile (implicit reborrow at a call, `*b = 5`, field write, a
+#   `&mut self` method on a ref param, explicit `&mut *b`, a `&mut self` ->
+#   `&mut self` chain, index write through `&mut [i64;4]`, `&mut b.f`, a generic
+#   `&mut T` param, returning `&mut b.f`, a closure capturing a ref param, a
+#   struct literal holding it, `&mut *b` twice, a `&mut [i64]` slice param); 4
+#   illegal are refused (`&mut b` on `&mut i64`, on `&i64`, on `&S`, and into a
+#   `&mut &mut i64` let).
+#
+# ⚠ THE FOUR PINNED DIAGNOSTICS IT MOVED WERE ALL MIS-PORTS OR MIS-PINS, AND THE
+# UPSTREAM .stderr FILES ARE ON THIS BOX. The 2026-09-08a report recorded "there
+# is no rustc on this box … five re-port rounds have judged 'is this legal Rust?'
+# by reading". There is no rustc BINARY, but /home/logos/cxx/rust IS checked out
+# at da5114692c9 — the cited commit — and every ported test's EXPECTED STDERR is
+# beside its source. That is an oracle for the verdict AND the sentence, and it
+# was used for all four here:
+#   borrowck-mut-borrow-of-mut-base-ptr--a / --b — the ports had dropped
+#     upstream's `mut t0`. Restored; both pinned sentences are unchanged,
+#     measured before and after, on both builds.
+#   reborrow-in-match-suggest-deref — upstream's .stderr is E0596 and NOTHING
+#     else. Its `.expected` had pinned "cannot use 'outer' while it is mutably
+#     borrowed": right verdict, wrong sentence, reachable only because the
+#     binding-mut question was never asked. RE-PINNED to the upstream sentence.
+#   borrowed-referent-issue-38899 — the port had dropped upstream's `mut block`.
+#     Restored, it is admitted, so it moved fail -> admit and is the row OPENED
+#     above. A row moved between shelves is not a row closed; this one is OPENED.
 # 2026-09-08 — 92 -> 91, STAGE 7 OF THE RE-PORT: THE LAST UN-RE-PORTED BLOCK. The 12
 # rows whose root is `bck.A` or begins `nllmoves.` and carries no `NEW`/`B`/`D`/`E` —
 # derived from this file by root, not selected — were re-ported AS-IS from their
@@ -1691,7 +1741,6 @@ issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
 issue-58776-borrowck-scans-children bck.NEW-CAPLOAN tests/imported/admit/borrowck/issue-58776-borrowck-scans-children  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 issue-95079-missing-move-in-nested-closure bck.NEW-CESC tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 mut-borrow-conflict-in-closures-vec--bounded bck.NEW-CAPLOAN tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec--bounded  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
-mut-borrow-of-mut-ref bck.A-REFPARAM tests/imported/admit/borrowck/mut-borrow-of-mut-ref
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error
 reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow
 slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck/slice-index-bounds-check-invalidation--t35
@@ -1730,6 +1779,7 @@ move-of-addr-of-mut nllmoves.R5 tests/imported/admit/moves/move-of-addr-of-mut
 # ── tests/ui/nll ─────────────────────────────────────────
 
 adt-tuple-enums--t33 nllmoves.NEW-L1 tests/imported/admit/nll/adt-tuple-enums--t33
+borrowed-referent-issue-38899 bck.NEW-BLOCKREF tests/imported/admit/nll/borrowed-referent-issue-38899  # OPENED 2026-09-08: the port had dropped upstream's `mut block`; with it restored the program is upstream's construct, rustc reports E0502 `cannot borrow *block.current as immutable because it is also borrowed as mutable` (tests/ui/nll/borrowed-referent-issue-38899.stderr @ da5114692c9) and logosc compiles it silently. SINGLE-ROW ROOT, no separating pair measured, no grouping claim.
 borrowed-temporary-error--t08 nllmoves.D tests/imported/admit/nll/borrowed-temporary-error--t08
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
