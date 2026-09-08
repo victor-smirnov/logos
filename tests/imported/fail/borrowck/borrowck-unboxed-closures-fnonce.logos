@@ -1,0 +1,13 @@
+// rustc borrowck/borrowck-unboxed-closures.rs — upstream E0382 (`fn c`)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail · split off the admit-shelf port of the same upstream file 2026-09-08
+// Original path: tests/ui/borrowck/borrowck-unboxed-closures.rs @ 4b0c9d76a (fn c)
+// Modifications: isize -> i64; `fn main() {}` -> `fn main() -> i32 { return 0i32; }`.
+//   The construct — an `FnOnce`-bound parameter called TWICE — is unchanged.
+//   rustc: E0382 "use of moved value".
+package borrowck_unboxed_closures_fnonce;
+fn c<F: FnOnce(i64, i64) -> i64>(f: F) {
+    f(1i64, 2i64);
+    f(1i64, 2i64);
+}
+fn main() -> i32 { return 0i32; }

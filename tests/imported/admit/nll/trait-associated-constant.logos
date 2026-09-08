@@ -1,11 +1,23 @@
-// rustc nll/trait-associated-constant.rs — upstream const not compatible with trait
+// rustc nll/trait-associated-constant.rs — upstream "const not compatible with trait"
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.R18
-// port of nll/trait-associated-constant.rs FailStruct
+// Original path: tests/ui/nll/trait-associated-constant.rs @ 4b0c9d76a
+// Modifications: `#![feature(rustc_attrs)]` and the `use std::option::Option` dropped
+//   (`Option` is in scope; the attribute is compiler-internal); `None` -> `Option::None`;
+//   `fn main() {}` -> `fn main() -> i32 { return 0i32; }`.
+//   All THREE impls are present as upstream writes them, with the `'a: 'b` bounds:
+//   OKStruct1 (`&'b str`, matches), FailStruct (`&'c str`, a region the trait never
+//   names — the annotated case), OKStruct2 (`&'a str`, admissible because `'a: 'b`).
+//   The previous port kept only FailStruct and dropped both `'a: 'b` bounds, so the
+//   thing that makes OKStruct2 legal and FailStruct illegal was not in the file.
+// 2026-09-08 re-port: STILL ADMITTED — FailStruct's `const AC: Option<&'c str>` is
+//   accepted against a trait declaring `Option<&'b str>`.
 package trait_associated_constant;
-trait Anything<'a, 'b> { const AC: Option<&'b str>; }
+trait Anything<'a: 'b, 'b> { const AC: Option<&'b str>; }
+struct OKStruct1 { }
+impl<'a: 'b, 'b> Anything<'a, 'b> for OKStruct1 { const AC: Option<&'b str> = Option::None; }
 struct FailStruct { }
-impl<'a, 'b, 'c> Anything<'a, 'b> for FailStruct {
-    const AC: Option<&'c str> = Option::None;   // ERROR const not compatible with trait
-}
+impl<'a: 'b, 'b, 'c> Anything<'a, 'b> for FailStruct { const AC: Option<&'c str> = Option::None; }
+struct OKStruct2 { }
+impl<'a: 'b, 'b> Anything<'a, 'b> for OKStruct2 { const AC: Option<&'a str> = Option::None; }
 fn main() -> i32 { return 0i32; }

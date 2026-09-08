@@ -1,12 +1,25 @@
 // rustc nll/issue-27868.rs — upstream E0506
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.R11
+// shelf: admit · root nllmoves.R11-ASSIGN
+// Original path: tests/ui/nll/issue-27868.rs @ 4b0c9d76a
+// Modifications: `MyVec<T>(Vec<T>)` -> a one-field struct `MyVec { v: i64 }` and
+//   `vec![vec]` -> a `[MyVec; 1]` array (no `Vec` of user structs is needed for the
+//   construct, which is an INDEX place); the `println!`s in `drop` and `add_assign`
+//   dropped (assert -> exit code, and neither is observed).
+//   `impl<T> AddAssign<T> for MyVec<T>` -> `impl AddAssign for MyVec`: the stdlib's
+//   `AddAssign` is single-type (Self = Rhs), so the right-hand expression yields a
+//   `MyVec` instead of a `T`. The construct — a compound assignment through an
+//   OVERLOADED `+=` whose right-hand block REASSIGNS the very base the left-hand
+//   place is projected from, while a `Drop` impl keeps the old value observable — is
+//   unchanged. rustc: E0506 "cannot assign to `vecvec` because it is borrowed".
+//   (Backlog: generic_rhs_op_assign.)
+// 2026-09-08 re-port: STILL ADMITTED.
 package issue_27868;
 struct MyVec { v: i64 }
-impl Drop for MyVec { fn drop(self: &mut MyVec) {} }
-fn add_assign(m: &mut MyVec, e: i64) { m.v = m.v + e; }
+impl Drop for MyVec { fn drop(self: &mut MyVec) { } }
+impl AddAssign for MyVec { fn add_assign(self: &mut MyVec, rhs: MyVec) { } }
 fn main() -> i32 {
     let mut vecvec: [MyVec; 1] = [MyVec { v: 0i64 }];
-    add_assign(&mut vecvec[0], { vecvec = [MyVec { v: 9i64 }]; 0i64 });
+    vecvec[0] += { vecvec = [MyVec { v: 1i64 }]; MyVec { v: 0i64 } };
     return 0i32;
 }

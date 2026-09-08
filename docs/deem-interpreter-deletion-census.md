@@ -5492,9 +5492,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9414 -> 9416   +2   (-2 admit tests, +4 imported fixtures)
 #   NOIMPORTED   4963 -> 4961   -2   (all four new fixtures are labelled imported)
 #   TIERCOMMIT    159 ->  157   -2   (only the two admit tests declared tier_commit)
-REGISTRY-ALL         9416
-REGISTRY-NOIMPORTED  4961
-REGISTRY-TIERCOMMIT  157
+# 2026-09-08 (STAGE 7 OF THE RE-PORT — `issue-27282-move-match-input-into-guard` was
+#   never a defect: its as-is re-port is REFUSED at the upstream construct, so its row
+#   left bc_admits.ledger (92 -> 91) and the program landed on the fail shelf. The
+#   upstream file of `borrowck-unboxed-closures` also split: two of its three thirds
+#   are correctly refused and are now fail fixtures of their own.
+#   ALL          9416 -> 9418   +2   (-1 admit test, +3 imported fail fixtures)
+#   NOIMPORTED   4961 -> 4960   -1   (all three new fixtures are labelled imported)
+#   TIERCOMMIT    157 ->  156   -1   (only the admit test declared tier_commit)
+REGISTRY-ALL         9418
+REGISTRY-NOIMPORTED  4960
+REGISTRY-TIERCOMMIT  156
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

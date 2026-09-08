@@ -1,8 +1,22 @@
 // rustc borrowck/borrowck-unboxed-closures.rs — upstream E0596 `f` not declared as mutable
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.A
+// shelf: admit · root bck.A-FNMUT
+// Original path: tests/ui/borrowck/borrowck-unboxed-closures.rs @ 4b0c9d76a
+// Modifications: the upstream file is THREE independent tests in one file and only
+//   ONE of them is still admitted. `fn a` (`let g = &mut f; f(1,2);`) is REFUSED here
+//   with "cannot use 'f' while it is mutably borrowed" and `fn c` (an `FnOnce` called
+//   twice) is REFUSED with "use of moved value 'f' ... an `FnOnce` is consumed by the
+//   call and cannot be called again"; both are landed as fail fixtures beside this
+//   file (tests/imported/fail/borrowck/borrowck-unboxed-closures-a{,-fnonce}.logos).
+//   Keeping them here would put a DIAGNOSTIC on an admit-shelf program, which reds
+//   the ledger gate. So this file is upstream's `fn b` verbatim, plus:
+//     isize -> i64; `fn main() {}` -> `fn main() -> i32 { return 0i32; }`.
+//   The construct — calling an `FnMut`-bound parameter that is NOT declared `mut` —
+//   is unchanged. rustc: E0596 "cannot borrow `f` as mutable, as it is not declared
+//   as mutable".
+// 2026-09-08 re-port: STILL ADMITTED.
 package borrowck_unboxed_closures;
-fn b<F: FnMut(i64) -> i64>(f: F) -> i64 {
-    return f(1i64);
+fn b<F: FnMut(i64, i64) -> i64>(f: F) {
+    f(1i64, 2i64);
 }
-fn main() -> i32 { return b(|x: i64| -> i64 { return x; }) as i32; }
+fn main() -> i32 { return 0i32; }

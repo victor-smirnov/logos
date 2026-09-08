@@ -126,4 +126,45 @@ lifetime_supertrait_bound   defect     1  tests/imported/admit/regions/regions-i
     # syntax, then check whether `check_bound(x, self)` is refused in the four
     # inheriting traits and admitted in the fifth. Until then the row has no control
     # and the `A: 'a` bound is exercised in one direction only.
-# TOTAL 18
+raw_ref_expression          defect     1  tests/imported/admit/moves/move-of-addr-of-mut
+    # 2026-09-08 — a RAW-REFERENCE EXPRESSION does not parse: `let p: *mut S = &raw mut x;`
+    # answers `syntax error near 'raw' at line N col 22`. MISSING FEATURE: `&raw const` /
+    # `&raw mut` (what `core::ptr::addr_of{,_mut}!` expands to). It blocks the upstream
+    # construct of tests/ui/moves/move-of-addr-of-mut.rs — "taking a mutable RAW ptr to an
+    # uninitialised variable does not change its initializedness" — which is a rule about
+    # raw references SPECIFICALLY. The row stands today on `&mut x` over the same
+    # uninitialised binding, which rustc also refuses but by the ordinary borrow rule. To
+    # make it a row: land the syntax, re-port the upstream line, and see whether the
+    # `let y = x;` that follows is still admitted.
+refmut_refmut_deref_coercion  defect   1  tests/imported/admit/borrowck/mut-borrow-of-mut-ref
+    # 2026-09-08 — no deref coercion from `&mut &mut T` down to `&mut T` at a call:
+    # `fn h(x: &mut i64) {} fn f(mut b: &mut i64) { h(&mut b); }` answers `call to 'h' arg
+    # 1: expected &mut i64, got &mut &mut i64`. rustc accepts. MISSING FEATURE: deref
+    # coercion through `&mut`. It forces the port of mut-borrow-of-mut-ref.rs to give the
+    # callee the un-coerced type `&mut &mut i64`; the borrow site `&mut b` is unchanged, so
+    # the row is not blocked, only the callee's spelling. To make it a row: land the
+    # coercion, then check whether the E0596 at `&mut b` still goes unreported.
+box_deref_coercion_at_assignment  defect  1  tests/imported/admit/nll/issue-62007-assign-differing-fields--c
+    # 2026-09-08 — no deref coercion from `&mut Box<T>` to `&mut T` at an assignment:
+    # `let mut r: &mut L; r = &mut bb;` with `bb: Box<L>` answers `assignment to 'r': type
+    # mismatch — expected &mut L, got &mut Box<L>`. rustc accepts. MISSING FEATURE: Box
+    # deref coercion in assignment position. The port writes `&mut **n` instead; same
+    # place, same assignment. To make it a row: land the coercion and re-check.
+doubled_ampersand_type_lexing  defect  1  tests/imported/admit/nll/type-check-pointer-coercions
+    # 2026-09-08 — `&&` is one token in TYPE position: `fn f<'a,'b>(x: &&'a i64) -> *const
+    # &'b i64` answers `syntax error near 'fn' at line 2 col 1`, while `& &'a i64` with a
+    # space parses and compiles. MISSING FEATURE: splitting `&&` into two `&` in a type.
+    # Cosmetic for the corpus (the space is written) but it silently mis-locates the error
+    # to the previous line, which cost a bisect here. To make it a row: decide whether a
+    # parse-only defect belongs in bc_admits at all.
+closure_move_of_refmut_local_over_refusal  defect  1  round 2026-09-08 (stage 7 re-port controls)
+    # 2026-09-08 — SUSPECTED OVER-REFUSAL of legal Rust, found as a control while
+    # re-porting issue-27282. `let b: &mut bool = &mut t; let c = || { let bar = b; *bar =
+    # false; }; c();` is REFUSED with "use of moved value 'b' (moved on line 5)". The
+    # closure captures `b` by move and is called ONCE, which is an FnOnce call rustc
+    # accepts. Same shape with a second `&mut` local (`d`) gives the same refusal. ⚠ NOT
+    # CONFIRMED AGAINST rustc: there is NO rustc binary on this box (`which rustc` empty,
+    # no stage1 under /home/logos/cxx/rust). To make it a row: run these two programs
+    # through a real rustc; if rustc accepts them this is a tier-3 `refuses` row for
+    # soundness_queue.ledger, and an over-refusal is the most expensive kind here.
+# TOTAL 23

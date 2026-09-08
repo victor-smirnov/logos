@@ -1,8 +1,36 @@
-// rustc nll/type-check-pointer-coercions.rs — upstream (region)
+// rustc nll/type-check-pointer-coercions.rs — upstream "lifetime may not live long enough"
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.R14
+// Original path: tests/ui/nll/type-check-pointer-coercions.rs @ 4b0c9d76a
+// Modifications: i32 -> i64; the `let z = &[x; 3]` / `let y = z as *const ...` pairs
+//   carry explicit types because there is no inference for them here; `& &'a i64` is
+//   written with a space, because `&&` is lexed as one token in type position
+//   (backlog: doubled_ampersand_type_lexing); `fn main() {}` ->
+//   `fn main() -> i32 { return 0i32; }`.
+//   ⚠ WHAT THE PREVIOUS PORT DID: it wrote `return x as *const &'b i64;` — an EXPLICIT
+//   cast — at every door, and dropped four of the seven functions. An explicit cast is
+//   a different subject: upstream's whole test is that the IMPLICIT coercion
+//   `&mut &'a T -> *const &'b T` must still relate the regions. All seven functions
+//   are restored, and every one returns `x` / `y` with no cast at the coercion site.
+// 2026-09-08 re-port: STILL ADMITTED, at all seven doors.
 package type_check_pointer_coercions;
-fn unique_to_const<'a,'b>(x: &mut &'a i64) -> *const &'b i64 { return x as *const &'b i64; }
-fn unique_to_mut<'a,'b>(x: &mut &'a i64) -> *mut &'b i64 { return x as *mut &'b i64; }
-fn mut_to_const<'a,'b>(x: *mut &'a i64) -> *const &'b i64 { return x as *const &'b i64; }
+fn shared_to_const<'a, 'b>(x: & &'a i64) -> *const &'b i64 { return x; }
+fn unique_to_const<'a, 'b>(x: &mut &'a i64) -> *const &'b i64 { return x; }
+fn unique_to_mut<'a, 'b>(x: &mut &'a i64) -> *mut &'b i64 { return x; }
+fn mut_to_const<'a, 'b>(x: *mut &'a i64) -> *const &'b i64 { return x; }
+fn array_elem<'a, 'b>(x: &'a i64) -> *const &'b i64 {
+    let z: &[&i64; 3] = &[x; 3];
+    let y: *const &i64 = z as *const &i64;
+    return y;
+}
+fn array_coerce<'a, 'b>(x: &'a i64) -> *const [&'b i64; 3] {
+    let z: &[&i64; 3] = &[x; 3];
+    let y: *const [&i64; 3] = z as *const [&i64; 3];
+    return y;
+}
+fn nested_array<'a, 'b>(x: &'a i64) -> *const [&'b i64; 2] {
+    let z: &[[&i64; 2]; 3] = &[[x; 2]; 3];
+    let y: *const [&i64; 2] = z as *const [&i64; 2];
+    return y;
+}
 fn main() -> i32 { return 0i32; }

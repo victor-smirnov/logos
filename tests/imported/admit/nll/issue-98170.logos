@@ -1,9 +1,24 @@
-// rustc nll/issue-98170.rs — upstream (region)
+// rustc nll/issue-98170.rs — upstream "lifetime may not live long enough"
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.R13
+// Original path: tests/ui/nll/issue-98170.rs @ 4b0c9d76a
+// Modifications: `&'a [u32]` -> `&'a i64` (no slice needed; the region structure is
+//   the subject); upstream's method name `new` -> `make` on the inherent impl, because
+//   `new` on the trait and `new` on the inherent impl would collide in the same scope
+//   here — the trait's method keeps a distinct name `tmake`; `fn main() {}` ->
+//   `fn main() -> i32 { return 0i32; }`.
+//   BOTH halves are present as upstream writes them: the inherent `impl MyStruct<'_>`
+//   and the `impl<'a> Trait<'a> for MyStruct<'_>`. In each, `Self` is `MyStruct<'_>` —
+//   the impl's own anonymous region — and NOT `MyStruct<'a>`, so `Self { field }`
+//   demands the wrong region. rustc errors twice in each body.
+// 2026-09-08 re-port: STILL ADMITTED, at both halves.
 package issue_98170;
 struct MyStruct<'a> { field: &'a i64 }
 impl MyStruct<'_> {
     fn make<'a>(field: &'a i64) -> MyStruct<'a> { return Self { field: field }; }
+}
+trait Trait<'a> { fn tmake(field: &'a i64) -> MyStruct<'a>; }
+impl<'a> Trait<'a> for MyStruct<'_> {
+    fn tmake(field: &'a i64) -> MyStruct<'a> { return Self { field: field }; }
 }
 fn main() -> i32 { return 0i32; }

@@ -1,8 +1,19 @@
 // rustc moves/move-of-addr-of-mut.rs — upstream E0381
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.R5
-// FINDING reduction from tests/ui/moves/move-of-addr-of-mut.rs
-// taking &mut of an UNINITIALISED binding is not a use (rustc: E0381)
+// Original path: tests/ui/moves/move-of-addr-of-mut.rs @ 4b0c9d76a
+// Modifications: `struct S;` -> `struct S { v: i64 }` (no unit structs needed here);
+//   `drop(y)` -> the exit code.
+//   ⚠ THE UPSTREAM CONSTRUCT IS NOT PORTABLE TODAY, and this file does not claim to
+//   be it. Upstream's line is `std::ptr::addr_of_mut!(x)` on an UNINITIALISED `x` —
+//   a RAW-REFERENCE expression (`&raw mut x`), which Logos has no syntax for at all:
+//   `&raw mut x` answers `syntax error near 'raw'`. What is written here is the
+//   nearest legal-Rust-illegal neighbour, `&mut x` on the same uninitialised binding,
+//   which rustc also refuses with E0381 — but by the ORDINARY borrow rule, not by the
+//   raw-reference rule the upstream test exists to pin. The row stands on THIS
+//   program; the upstream one is filed as `raw_ref_expression` in
+//   tests/logos/unrowed_backlog.ledger and re-ported when the syntax lands.
+// 2026-09-08 re-port: STILL ADMITTED (bucket 4 — the upstream construct is blocked).
 package move_of_addr_of_mut;
 struct S { v: i64 }
 fn main() -> i32 {

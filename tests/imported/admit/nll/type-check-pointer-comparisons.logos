@@ -1,6 +1,18 @@
-// rustc nll/type-check-pointer-comparisons.rs — upstream (region)
+// rustc nll/type-check-pointer-comparisons.rs — upstream "lifetime may not live long enough"
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.R2
+// Original path: tests/ui/nll/type-check-pointer-comparisons.rs @ 4b0c9d76a
+// Modifications: i32 -> i64; `fn main() {}` -> `fn main() -> i32 { return 0i32; }`.
+//   All FIVE functions are present, including upstream's two `// OK` controls
+//   (`compare_hr_fn_ptr`, `compare_const_fn_ptr`) — the previous port kept only
+//   `compare_mut`, so the row had no legal contrast at all. The three annotated
+//   comparisons demand a common subtype across two unrelated regions under
+//   INVARIANT carriers (`*const &mut &'a`, `*mut &'a`, `fn(&'c mut &'a)`).
+// 2026-09-08 re-port: STILL ADMITTED, at all three annotated doors.
 package type_check_pointer_comparisons;
-fn compare_mut<'a, 'b>(x: *mut &'a i64, y: *mut &'b i64) -> bool { return x == y; }
+fn compare_const<'a, 'b>(x: *const &mut &'a i64, y: *const &mut &'b i64) { x == y; }
+fn compare_mut<'a, 'b>(x: *mut &'a i64, y: *mut &'b i64) { x == y; }
+fn compare_fn_ptr<'a, 'b, 'c>(f: fn(&'c mut &'a i64), g: fn(&'c mut &'b i64)) { f == g; }
+fn compare_hr_fn_ptr<'a>(f: fn(&'a i64), g: fn(&i64)) { f == g; }
+fn compare_const_fn_ptr<'a>(f: *const fn(&'a i64), g: *const fn(&i64)) { f == g; }
 fn main() -> i32 { return 0i32; }

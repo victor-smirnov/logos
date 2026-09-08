@@ -1,0 +1,31 @@
+// rustc nll/issue-27282-move-match-input-into-guard.rs — upstream E0382
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail · was nllmoves.R11 on the admit shelf; RETIRED 2026-09-08 as never
+//   having been a defect — the as-is re-port is REFUSED at the upstream construct.
+// Original path: tests/ui/nll/issue-27282-move-match-input-into-guard.rs @ 4b0c9d76a
+// Modifications: the `println!`/`panic!` arm bodies become distinct exit codes
+//   (assert -> exit code); the SECOND half of upstream's `main` (the same construct
+//   spelled with `_ if let Some(()) = { ... }`) is not ported — `if let` in a match
+//   guard is not a form Logos has, and it is upstream's second spelling of the very
+//   construct the first half already carries.
+//   The construct — a match on a `&mut bool` whose GUARD moves the scrutinee `b` into
+//   a closure and writes through it — is unchanged. rustc: E0382 "use of moved value:
+//   `b`" reported at the `match b` line.
+// ⚠ WHAT THE PREVIOUS PORT DID: it deleted the closure and the `&mut bool` scrutinee
+//   and matched a `struct B` by value with a guard calling `eat(b)`. It was ADMITTED,
+//   and that admission was the row. With the closure and the reference scrutinee put
+//   back, logosc refuses. Controls taken the same day: the match with a guard that
+//   moves NOTHING compiles (so the refusal is not the match), and the same guard
+//   spelled WITHOUT the closure (`_ if { let bar = b; *bar = false; false }`) gives
+//   the identical sentence (so the refusal is the scrutinee loan, not the closure).
+package issue_27282_move_match_input_into_guard;
+fn main() -> i32 {
+    let mut t: bool = true;
+    let b: &mut bool = &mut t;
+    match b {
+        &mut false => { return 0i32; }
+        _ if { let c = || { let bar = b; *bar = false; }; c(); false } => { return 1i32; }
+        &mut true => { return 2i32; }
+        _ => { return 3i32; }
+    }
+}

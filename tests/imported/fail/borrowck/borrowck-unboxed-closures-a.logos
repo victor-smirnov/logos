@@ -1,0 +1,16 @@
+// rustc borrowck/borrowck-unboxed-closures.rs — upstream E0596 (`fn a`)
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail · split off the admit-shelf port of the same upstream file 2026-09-08
+// Original path: tests/ui/borrowck/borrowck-unboxed-closures.rs @ 4b0c9d76a (fn a, fn use_mut)
+// Modifications: isize -> i64; `fn main() {}` -> `fn main() -> i32 { return 0i32; }`.
+//   The construct — a `&mut` loan of a closure parameter, then a CALL of that
+//   parameter while the loan is still live — is unchanged. rustc: E0596
+//   "cannot borrow `f` as immutable".
+package borrowck_unboxed_closures_a;
+fn use_mut<T>(x: &mut T) { }
+fn a<F: Fn(i64, i64) -> i64>(mut f: F) {
+    let g = &mut f;
+    f(1i64, 2i64);
+    use_mut(g);
+}
+fn main() -> i32 { return 0i32; }
