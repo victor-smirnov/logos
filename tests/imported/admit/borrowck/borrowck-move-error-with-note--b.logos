@@ -1,12 +1,52 @@
 // rustc borrowck/borrowck-move-error-with-note.rs — upstream E0507 + E0509
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: admit · root bck.E (was bck.B — RE-ROOTED, see below)
+// ── BUCKET 3, BLESSED DIVERGENCE. 2026-09-07 (stage 5). RE-PORTED AS-IS FIRST, then
+// classified: the port below IS upstream's construct, it IS admitted, and the
+// admission is LICENSED — so the row is not a defect and leaves bc_admits.ledger.
+// CLAUSE: docs/spec/expressions.md `intrinsic.drop.skip-moved-out-paths` —
+//   "Drop of a value suppresses sub-values that were moved out". Rust's E0509
+//   exists because `Drop::drop(&mut self)` needs the whole value intact; Logos
+//   deliberately permits the move-out and skips the moved path at drop. The four
+//   `*-with-dtor*` ports already in bc_admits_blocked.ledger sit under this same
+//   clause, and they carry root `bck.E`, not `bck.B` — this row's `bck.B`
+//   ("bookkeeping is ROOT-keyed and does not follow a projection") was assigned to a
+//   program that has no projection in it. RE-ROOTED to `bck.E`.
+// ⚠ RUN EVIDENCE, TAKEN AT THIS PORT'S OWN DOOR AND NOT INHERITED — 2026-09-07,
+//   build b74842a0d915249f. `S`'s destructor was given a `putchar` body and `main`
+//   printed a marker either side of `move_in_match()`. Output: `AB` — the user
+//   `impl Drop for S` NEVER RAN. So the admission is blessed but the RUN is not
+//   what the clause's own text requires (the value is still dropped; only the moved
+//   leaf is skipped). That is NOT a new finding: this exact door is already
+//   enumerated inside soundness_queue row `letstruct_destructure_skips_user_drop`
+//   ("match door `match s { S { f: x, k: _ } => .. }` 100 THIS ROW"). The row for
+//   the run-time half exists; this port adds no second one.
+// Original path: tests/ui/borrowck/borrowck-move-error-with-note.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 29-36 (the `--b` suffix names upstream's SECOND
+// annotated construct, `move_in_match`; its sibling `--a`, upstream's `blah2` at
+// line 48, is already on the fail shelf) —
+//     fn move_in_match() {
+//         match (S {f: "foo".to_string(), g: "bar".to_string()}) {
+//             //~^ ERROR cannot move out of type `S`, which implements the `Drop` trait
+//             S { f: _s, g: _t } => {}
+//         }
+//     }
+// Modifications:
+//   · `"foo".to_string()` / `"bar".to_string()` -> `String::from("foo")` / `String::from("bar")`
+//   · `Drop::drop` prints `self.f` upstream; here it clears it — a side effect on the
+//     same field, with no formatting machinery
+//   · assert -> exit code: `fn main() -> i32`
 package borrowck_move_error_with_note_b;
+use logos.mem.string;
 struct S { f: String, g: String }
 impl Drop for S { fn drop(self: &mut S) { self.f.clear(); } }
-fn main() -> i32 {
-    match (S { f: String::new(), g: String::new() }) {
-        S { f: _s, g: _t } => {}
+fn move_in_match() {
+    match (S { f: String::from("foo"), g: String::from("bar") }) {
+        S { f: _s, g: _t } => { }      // LEGAL LOGOS: intrinsic.drop.skip-moved-out-paths
     }
+}
+fn main() -> i32 {
+    move_in_match();
     return 0i32;
 }

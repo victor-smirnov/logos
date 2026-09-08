@@ -1,15 +1,56 @@
 // rustc nll/issue-54382-use-span-of-tail-of-block.rs — upstream E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.D
+// RE-PORTED AS-IS 2026-09-07 (stage 5). The previous port was a DIFFERENT
+// construct: `let h = { let thing2 = D {..}; Holder { r: &thing2 } };` — a borrow
+// of a block-LOCAL escaping through the block's value, which is an ordinary
+// E0597 with an owner to key it on. Upstream's construct is the one this row's
+// root is about: the tail of an INNER block is a temporary `D<&D<..>>` borrowing
+// `_thing1` from the OUTER block, and it is that temporary, not a named local,
+// that carries the loan past the point `_thing1` is live for.
+// Original path: tests/ui/nll/issue-54382-use-span-of-tail-of-block.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 2-10 —
+//     {
+//         let mut _thing1 = D(Box::new("thing1"));
+//         {
+//             let _thing2 = D("thing2");
+//             side_effects();
+//             D("other").next(&_thing1)
+//     //~^ ERROR does not live long enough
+//         }
+//     }
+// Modifications:
+//   · upstream's OUTER BARE BLOCK inside `main` -> a function body. MEASURED
+//     2026-09-07: a bare block used as a statement whose tail carries a value is a
+//     syntax error here, and binding it to a `let` drives mlir_gen into an internal
+//     error (rc 141). A function body is the SAME drop-order position and it is the
+//     position the language has. The INNER block is kept as a block, verbatim.
+//   · `.end()` is appended to the inner tail so the body's value is an `i64`
+//     rather than the `D<&D<..>>` itself — returning the `D<&D<..>>` out of the
+//     function would be a genuine ESCAPE and a different (and refused) program;
+//     upstream DISCARDS the value, and appending `.end()` discards it here without
+//     moving the temporary out of tail position.
+//   · `Box::new("thing1")` / `D("thing2")` / `D("other")` carry &str payloads
+//     upstream; here they carry `i64` (no &str literal into Box, and the payload is
+//     scenery — what matters is that every D has drop glue)
+//   · `#[derive(Debug)]` and the `std::fmt::Debug` bounds -> dropped; the
+//     `println!` in `Drop::drop` -> an empty body. Both are scenery.
+//   · assert -> exit code: `fn main() -> i32`
 package issue_54382_use_span_of_tail_of_block;
-struct D { n: i64 }
-impl Drop for D { fn drop(self: &mut D) {} }
-struct Holder { r: &D }
-fn main() -> i32 {
-    let h: Holder = {
-        let thing2 = D { n: 2i64 };
-        Holder { r: &thing2 }
-    };
-    let _ = h.r.n;
-    return 0i32;
+struct D<T>(T);
+impl<T> Drop for D<T> { fn drop(self: &mut D<T>) { } }
+impl<T> D<T> {
+    fn next<U>(self: &D<T>, _other: U) -> D<U> { return D(_other); }
+    fn end(self: &D<T>) -> i64 { return 0i64; }
 }
+fn side_effects() { }
+fn scope() -> i64 {
+    let mut _thing1: D<Box<i64>> = D(Box::new(1i64));
+    {
+        let _thing2: D<i64> = D(2i64);
+        side_effects();
+        D(3i64).next(&_thing1).end()   // THE DEFECT: admitted, upstream E0597
+    }
+}
+fn main() -> i32 { return scope() as i32; }

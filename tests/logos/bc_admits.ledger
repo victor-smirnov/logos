@@ -1336,7 +1336,84 @@
 # Rust) were refused until `!in_closure_body_` was added. Both tokens are
 # pinned in PAIRS: fail/bc_capmovemut_{mutref_capture,sibling_closures} vs
 # pass/bc_capmovemut_{sharedref_capture,nested_closures}. PROBES.md 2026-09-03p.
-# TOTAL 97
+# 2026-09-07 (stage 5) — 97 -> 95. THE FIVE OLDEST UN-RE-PORTED ROOTS
+# (`nllmoves.E` 4, `bck.D` 4, `bck.B` 4, `nllmoves.D` 3, `lifereg.NEW-N1` 3 = 18
+# rows) were re-ported AS-IS from their upstream test at the commit each port
+# cites. The question was stage 4's: is the row a defect, or is the ADMIT an
+# artefact of the port? Per row:
+#   BUCKET 1  REFUSED at the same construct -> fail shelf, row RETIRED         0
+#   BUCKET 2  RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT                 16
+#   BUCKET 3  BLESSED DIVERGENCE -> bc_admits_blocked.ledger                   1
+#   BUCKET 4  IMPLEMENTATION HOLE -> bc_admits_blocked.ledger + backlog        1
+# SIXTEEN ROWS ARE NOW MEASURED RATHER THAN BELIEVED: re-ported as-is, still
+# admitted, still a defect. NOT ONE of the eighteen turned out to be refused at
+# the restored construct — the mirror of stage 3, which found 8 of 25 "blocked"
+# rows were never blocked, does NOT hold in this direction for these five roots.
+# THE ONE BUCKET 3: `borrowck-move-error-with-note--b`. Upstream's `move_in_match`
+#   moves both fields out of a `Drop` type (E0509); docs/spec/expressions.md
+#   `intrinsic.drop.skip-moved-out-paths` blesses exactly that. Its four
+#   `*-with-dtor*` siblings already sit in the blocked file under the same clause
+#   and carry root `bck.E`; this row carried `bck.B` ("does not follow a
+#   projection") on a program with no projection in it. RE-ROOTED and moved.
+# THE ONE BUCKET 4: `enum-drop-access`. Upstream is
+#   `DropOption::Some(&mut ref mut r)` — a NESTED pattern inside an enum-variant
+#   payload, which is the test. MEASURED: "nested patterns inside enum-variant
+#   payloads are not yet supported; bind to a name and match in the body". The
+#   compiler's own suggestion substitutes the construct, so it is not a re-port.
+#   Backlog `enum_payload_nested_pattern_absent`.
+#
+# ⚠ WHAT THE RE-PORT FOUND ABOUT THE PORTS THEMSELVES — the reason this stage
+# exists. THREE of `nllmoves.E`'s four ports had been reduced to ONE program:
+# "return a `&mut` field out of a by-value struct that implements `Drop`",
+# character for character the same in `enum-drop-access`, `issue-52059` and
+# `issue-53773` modulo names. The root looked like one mechanism partly because
+# the PORTS were one program. Restored, they are three doors (a by-value
+# parameter's field; a `for`-loop binding pushed into a vector that outlives the
+# loop; an iterator-adapter temporary that outlives the local it borrows).
+# `borrowck-move-out-from-array-use-match--t13` was upstream's t1, not t13, and
+# duplicated its own fail-shelf sibling. `two-phase-nonrecv-autoref--d-index-two-phase`
+# had replaced the user `Index`/`IndexMut` pair with free functions.
+# `issue-54382-use-span-of-tail-of-block` and `issue-54556-stephaneyfx` had each
+# been replaced by a different construct entirely.
+#
+# ⚠ ROOTS RE-CHECKED AGAINST THE RESTORED CONSTRUCTS, EACH WITH A ONE-VARIABLE PAIR
+# COMPILED TODAY (build b74842a0d915249f):
+#   `nllmoves.E` SURVIVES, and it is the first handed-down grouping in four rounds
+#     that does. Discriminator, measured on all three portable members: delete the
+#     `impl Drop` and NOTHING changes — all three still admit. Since each program is
+#     LEGAL Rust without the `Drop` impl and refused with it, the drop obligation is
+#     the only fact rustc reads and it is not read at any of the three doors.
+#   `bck.B` SURVIVES on two of its three remaining rows, with pairs:
+#     issue-51117 — two `&mut foo` at the ROOT are refused ("already mutably
+#       borrowed"); the loan minted by the match arm's default-binding-mode binder
+#       `baz` (a projection through `*bar`) deposits nothing. Exactly the gloss.
+#     borrowck-loan-vec-content — removing the closure changes nothing: the direct
+#       `let e = &v[0]; v[1] = 4;` is ALSO admitted, so the closure is not the
+#       discriminator and this is not a `NEW-CAPLOAN` row.
+#   `bck.B` SPLITS on the third. `borrowck-move-out-from-array-use-match--t13`,
+#     restored to upstream's t13, separates from its own fail-shelf sibling by ONE
+#     TOKEN: `match a { [_, _, x] => .. }; a[0] = ..` is REFUSED ("use of partially
+#     moved value 'a' (field '2' moved on line 6)"), and
+#     `match a { [_, _, _x @ ..] => .. }; a[0] = ..` is ADMITTED. It is not
+#     root-keyed bookkeeping in general; it is the SUBSLICE binder specifically,
+#     which deposits no move record where the const-index element pattern does.
+#     RE-ROOTED `bck.NEW-SUBSLICE`.
+#   `bck.D` AND `nllmoves.D` ARE THE SAME MECHANISM, and the block-qualified names
+#     hide it. Pair on the `nllmoves.D` side: a NAMED local's borrow escaping is
+#     refused ("cannot return reference to local variable 'v'"), the same borrow of
+#     a TEMPORARY in a block tail is admitted. Pair on the `bck.D` side: sequencing
+#     `double_access(&mut a, &a)` into `let m = &mut a; let s = &a;` is REFUSED
+#     ("already mutably borrowed"), the same two loans minted as ARGUMENT temporaries
+#     in one call list are admitted. Both are "a temporary has no owner to key a loan
+#     on", digit for digit. ⚠ AND `bck.D`'s two-phase trio is NOT about two-phase
+#     borrows at all — nothing in the mechanism needs a receiver autoref; the roots
+#     are left unrenamed here because merging two blocks' letters is a bigger call
+#     than one round's evidence, but a round that prices either must price both.
+#   `lifereg.NEW-N1` — three rows, all three re-ported, all three admitted, no
+#     separating pair attempted (no candidate change exists to test one with).
+# 2026-09-07 (stage 5, second line) — the sixteen surviving rows are worth MORE
+# than before this round, not less: re-ported as-is, still admitted, still defects.
+# TOTAL 95
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1377,9 +1454,8 @@ borrowck-loan-blocks-move-cc--r10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/
 borrowck-loan-blocks-move-cc--t10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--t10  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --r10; merging is an owner decision
 borrowck-loan-vec-content bck.B tests/imported/admit/borrowck/borrowck-loan-vec-content
 borrowck-move-by-capture bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-move-by-capture  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
-borrowck-move-error-with-note--b bck.B tests/imported/admit/borrowck/borrowck-move-error-with-note--b
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
-borrowck-move-out-from-array-use-match--t13 bck.B tests/imported/admit/borrowck/borrowck-move-out-from-array-use-match--t13
+borrowck-move-out-from-array-use-match--t13 bck.NEW-SUBSLICE tests/imported/admit/borrowck/borrowck-move-out-from-array-use-match--t13
 borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed
 borrowck-unboxed-closures bck.A tests/imported/admit/borrowck/borrowck-unboxed-closures
 borrowed-data-escapes-closure-148392 bck.NEW-CESC tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
@@ -1430,7 +1506,6 @@ move-of-addr-of-mut nllmoves.R5 tests/imported/admit/moves/move-of-addr-of-mut
 adt-tuple-enums--t33 nllmoves.NEW-L1 tests/imported/admit/nll/adt-tuple-enums--t33
 borrowed-temporary-error--t08 nllmoves.D tests/imported/admit/nll/borrowed-temporary-error--t08
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
-enum-drop-access nllmoves.E tests/imported/admit/nll/enum-drop-access
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
 issue-27282-move-match-input-into-guard nllmoves.R11 tests/imported/admit/nll/issue-27282-move-match-input-into-guard
 issue-27868 nllmoves.R11 tests/imported/admit/nll/issue-27868

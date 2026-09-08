@@ -1,8 +1,40 @@
 // rustc nll/issue-52059-report-when-borrow-and-drop-conflict.rs — upstream E0713
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.E
+// RE-PORTED AS-IS 2026-09-07 (stage 5). The previous port carried only upstream's
+// `finish_1`. All four of upstream's constructs were restored and compiled, and
+// THE ROW SPLITS: `finish_1` (return the `&mut` field directly, E0713) and
+// `finish_4` (move the field out of a `Drop` type, E0509) are ADMITTED and stay
+// here; `finish_2` (`&mut *s.url` through a local) and `finish_3` (the same with
+// a type annotation) are REFUSED today — with the WRONG SENTENCE:
+//     error [fn finish_2]: cannot return reference to local variable 'p': dangling reference
+// upstream's reason is "borrow may still be in use when destructor runs", and `p`
+// is a reference, not a local whose address escapes. The verdict is right and the
+// sentence is not, so they are NOT landed on the fail shelf here (that would pin a
+// wrong sentence as coverage) and they are not left in this file either (the file
+// must compile silently for its row to mean anything). Control, measured
+// 2026-09-07: `fn passthru(x: &mut i64) -> &mut i64 { let p: &mut i64 = x; return p; }`
+// compiles clean, so the refusal is specific to the field of the by-value `S`,
+// not a general over-refusal of reference passthrough.
+// Original path: tests/ui/nll/issue-52059-report-when-borrow-and-drop-conflict.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 10-13 —
+//     fn finish_1(s: S) -> &mut String { s.url }
+//     //~^^ ERROR borrow may still be in use when destructor runs
+// Modifications:
+//   · `String` -> `i64` (the payload is scenery; `S` is the `Drop` type under test)
+//   · the explicit `<'a>` on `S` and its `Drop` impl -> elided (this port needs no
+//     second lifetime to name)
+//   · the tail expressions are `return`s
+//   · assert -> exit code: `fn main() -> i32`
+//   · finish_2 / finish_3 are held out — see the split above
+//   · finish_4 is held out for a DIFFERENT reason: it is upstream's E0509 (move out
+//     of a type that implements `Drop`), which is a BLESSED DIVERGENCE here —
+//     docs/spec/expressions.md `intrinsic.drop.skip-moved-out-paths`. It is admitted,
+//     and correctly so; keeping it in this file would make part of the row's
+//     admission licensed, which is exactly the confusion this stage exists to remove.
 package issue_52059_report_when_borrow_and_drop_conflict;
 struct S { url: &mut i64 }
-impl Drop for S { fn drop(self: &mut Self) { } }
-fn finish_1(s: S) -> &mut i64 { return s.url; }
+impl Drop for S { fn drop(self: &mut S) { } }
+fn finish_1(s: S) -> &mut i64 { return s.url; }            // THE DEFECT: admitted, upstream E0713
 fn main() -> i32 { return 0i32; }

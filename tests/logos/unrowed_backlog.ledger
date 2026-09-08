@@ -93,4 +93,15 @@ const_expr_array_len_absent defect     1  tests/imported/admit/lifetimes/issue-6
     # feature request, not a defect — decide with the owner whether const-expression array
     # lengths are wanted at all before this is priced.
 
-# TOTAL 15
+enum_payload_nested_pattern_absent defect 1  tests/imported/admit/nll/enum-drop-access
+    # 2026-09-07 — MISSING FEATURE, blocking a re-port. `match opt { DropOption::Some(&mut ref mut r) => .. }`
+    # reports "pattern DropOption::Some: nested patterns inside enum-variant payloads are not
+    # yet supported; bind to a name and match in the body". The generic enum with a `Drop` impl
+    # compiles on its own, so it is the nested pattern alone that has no path. The row
+    # `enum-drop-access` sits in bc_admits_blocked as BUCKET-4 because upstream's whole test IS
+    # the reborrow-through-the-payload `&mut ref mut r`. To make it a row: decide whether this is
+    # the same missing Struct/Ref arm as soundness_queue `match_tuple_door_nested_struct_binds_nothing`
+    # and `let_at_binding_tuple_sub_unsupported` (doors in SERIES on ONE reader) or a third door —
+    # if one reader, these are one row, not three.
+
+# TOTAL 16

@@ -1,16 +1,31 @@
 // rustc borrowck/issue-51117.rs — upstream E0499 cannot borrow
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root bck.B
+// RE-PORTED AS-IS 2026-09-07 (stage 5). The construct is upstream's whole point:
+// `baz` is bound by a MATCH DEFAULT BINDING MODE through `bar: &mut Option<_>`,
+// so it holds a mutable loan of `*bar`, and `bar.take()` in the same arm is a
+// second mutable use of the same place while that loan is still live (it is used
+// after, on the next line).
+// Original path: tests/ui/borrowck/issue-51117.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: line 10 —
+//     bar.take(); //~ ERROR cannot borrow
+// Modifications:
+//   · `"foo".to_string()` -> `String::from("foo")`
+//   · `unreachable!()` in the None arm -> an empty block (no macro here); the arm
+//     is not reached and carries no part of the subject
+//   · `drop(baz)` -> a read of `baz` (`baz.len()`), which is what makes the loan
+//     live across `bar.take()` — the same role `drop(baz)` plays upstream
+//   · assert -> exit code: `fn main() -> i32`
 package issue_51117;
-struct Own { v: i64 }
-impl Drop for Own { fn drop(self: &mut Own) { } }
+use logos.mem.string;
 fn main() -> i32 {
-    let mut foo: Option<Own> = Option::Some(Own { v: 1i64 });
-    let bar: &mut Option<Own> = &mut foo;
+    let mut foo: Option<String> = Option::Some(String::from("foo"));
+    let bar: &mut Option<String> = &mut foo;
     match bar {
         Option::Some(baz) => {
-            let t: Option<Own> = bar.take();
-            let _q: i64 = baz.v;
+            let _t: Option<String> = bar.take();   // THE DEFECT: admitted, upstream E0499
+            let _n: i64 = baz.len();
         }
         Option::None => { }
     }

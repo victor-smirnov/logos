@@ -1,7 +1,19 @@
 // rustc regions/regions-creating-enums3.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.NEW-N1
-// port of rust tests/ui/regions/regions-creating-enums3.rs
+// RE-PORTED AS-IS 2026-09-07 (stage 5) — verified against the upstream worksheet:
+// the construct was already carried verbatim; only the audit trail was missing.
+// Original path: tests/ui/regions/regions-creating-enums3.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 6-8 —
+//     fn mk_add_bad1<'a,'b>(x: &'a Ast<'a>, y: &'b Ast<'b>) -> Ast<'a> {
+//         Ast::Add(x, y)
+//         //~^ ERROR lifetime may not live long enough
+//     }
+// Modifications:
+//   · usize -> u64
+//   · the tail expression is a `return` (Logos has no tail expressions here)
+//   · assert -> exit code: `fn main() -> i32`
 package regions_creating_enums3;
 enum Ast<'a> { Num(u64), Add(&'a Ast<'a>, &'a Ast<'a>) }
 fn mk_add_bad1<'a, 'b>(x: &'a Ast<'a>, y: &'b Ast<'b>) -> Ast<'a> { return Ast::Add(x, y); }

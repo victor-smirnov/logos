@@ -1,6 +1,21 @@
 // rustc lifetimes/trait-method-lifetime-suggestion.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.NEW-N1
+// RE-PORTED AS-IS 2026-09-07 (stage 5) — verified against the upstream worksheet:
+// the construct was already carried verbatim; only the audit trail was missing.
+// Original path: tests/ui/lifetimes/trait-method-lifetime-suggestion.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 5-11 —
+//     trait Foo<'a> {
+//         fn foo(&'a self);
+//         fn bar(&self) {
+//             self.foo();
+//             //~^ ERROR lifetime may not live long enough
+//         }
+//     }
+// Modifications:
+//   · `&'a self` / `&self` -> the explicit `self: &'a Self` / `self: &Self` spelling
+//   · assert -> exit code: `fn main() -> i32`
 package trait_method_lifetime_suggestion;
 trait Foo<'a> {
     fn foo(self: &'a Self);

@@ -1,17 +1,30 @@
 // rustc nll/borrowed-temporary-error.rs — upstream E0716 temporary dropped while borrowed
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.D
-// port of rust tests/ui/nll/borrowed-temporary-error.rs
-// the argument block's tail is `&tmp` where tmp is a block-local temporary;
-// the returned reference outlives it.  rustc: E0716 temporary value dropped
-// while borrowed.
+// RE-PORTED AS-IS 2026-09-07 (stage 5). The previous port had substituted a
+// struct literal `&W { a: v }` for upstream's one-element TUPLE `&(v,)`. Tuples
+// exist here (measured 2026-09-07), so the substitution buys nothing and is
+// reverted: the construct is a borrow of a temporary produced by a BLOCK TAIL
+// that is itself a call ARGUMENT — the one position, unlike a `let` initializer,
+// where Rust does not extend.
+// Original path: tests/ui/nll/borrowed-temporary-error.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 6-10 —
+//     let x = gimme({
+//         let v = 22;
+//         &(v,)
+//         //~^ ERROR temporary value dropped while borrowed [E0716]
+//     });
+// Modifications:
+//   · the tail expressions are `return`s (Logos has no tail expressions here);
+//     the block-tail argument is unchanged
+//   · `println!("{:?}", x)` -> the exit code reads `*x` (assert -> exit code)
 package borrowed_temporary_error_t08;
-struct W { a: u32 }
-fn gimme(x: &W) -> &u32 { return &x.a; }
+fn gimme(x: &(u32,)) -> &u32 { return &x.0; }
 fn main() -> i32 {
     let x: &u32 = gimme({
         let v: u32 = 22u32;
-        &W { a: v }
+        &(v,)                  // THE DEFECT: admitted, upstream E0716
     });
-    return *x as i32;
+    return *x as i32 - 22i32;
 }

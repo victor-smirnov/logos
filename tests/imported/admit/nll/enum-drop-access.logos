@@ -1,9 +1,42 @@
 // rustc nll/enum-drop-access.rs — upstream E0713
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.E
+// ── BUCKET 4, IMPLEMENTATION HOLE — NOT RE-PORTABLE TODAY. 2026-09-07 (stage 5).
+// Original path: tests/ui/nll/enum-drop-access.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 11-18 —
+//     fn drop_enum(opt: DropOption<&mut i32>) -> Option<&mut i32> {
+//         match opt {
+//             DropOption::Some(&mut ref mut r) => { //~ ERROR
+//                 Some(r)
+//             },
+//             DropOption::None => None,
+//         }
+//     }
+//   THE NESTED PATTERN IS THE TEST. `&mut ref mut r` REBORROWS through the `&mut`
+//   the enum payload holds, rather than moving it out, and upstream's point is that
+//   `DropOption`'s destructor can still reach that payload while `r` is live. The
+//   two OK cases in the same upstream file (`optional_tuple`, `different_variants`)
+//   differ from it only in whether the dropped value can reach the reference — so a
+//   port that flattens the pattern is testing a different question.
+// Modifications: none — NOT PORTED AS-IS AND NOT PORTABLE AS-IS.
+// MISSING FEATURE: nested patterns inside enum-variant payloads. MEASURED
+//   2026-09-07 on the upstream shape, generic enum and `Drop` impl and all:
+//     error [fn drop_enum]: pattern DropOption::Some: nested patterns inside
+//       enum-variant payloads are not yet supported; bind to a name and match in
+//       the body
+//   The generic enum with a `Drop` impl compiles on its own; it is the nested
+//   `&mut ref mut` inside `Some(..)` that has no path. Following the compiler's own
+//   suggestion — bind a name and match in the body — SUBSTITUTES the construct, and
+//   a re-port may not do that.
+//   Backlog: `enum_payload_nested_pattern_absent` in tests/logos/unrowed_backlog.ledger.
+// ⚠ WHAT IS BELOW IS THE OLD PORT, KEPT SO THE SHELF ENTRY STILL HAS A PROGRAM. It
+//   is `fn drop_enum(opt: DropOpt) -> &mut i64 { return opt.r; }` — returning a
+//   `&mut` field out of a by-value struct that implements `Drop`. That is a real
+//   admission, but it is NOT this test: it is character for character the same
+//   program as `issue-52059-report-when-borrow-and-drop-conflict`'s `finish_1`, and
+//   the duplication is why the `nllmoves.E` grouping looked like one mechanism.
 package enum_drop_access;
-// nll/enum-drop-access.rs (reshaped: no nested pattern) — E0713 borrow may still
-// be in use when destructor runs: the Drop impl can observe the &mut the value holds.
 struct DropOpt { r: &mut i64 }
 impl Drop for DropOpt { fn drop(self: &mut DropOpt) { *self.r = 9i64; } }
 fn drop_enum(opt: DropOpt) -> &mut i64 { return opt.r; }

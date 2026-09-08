@@ -138,4 +138,32 @@ multiple-sources-for-outlives-requirement--t24 lifereg.N1 tests/imported/admit/r
 regions-in-enums-anon lifereg.R17 tests/imported/admit/regions/regions-in-enums-anon  # OWNER-CORPUS 2026-09-07 — port is FAITHFUL; wall re-measured 195 bare-& sites in 124 files (was 134/101), pinned by pass/bc_enumpldlt_placeholder_payload_lifetime E1
 regions-in-structs-anon lifereg.NEW-L1 tests/imported/admit/regions/regions-in-structs-anon  # OWNER-CORPUS 2026-09-07 — port is FAITHFUL; same re-measured wall, 174 of the 195 sites are struct fields
 issue-75904-move-closure-loop nllmoves.C tests/imported/admit/moves/issue-75904-move-closure-loop  # BUCKET-3 DIVERGENCE-A16 2026-09-07 (stage 4) — docs/DIVERGENCES.md A16 structural auto-Copy: upstream's `struct NotCopy;` is field-less with no `impl Drop`, so it IS Copy here and `let m = a;` is a COPY. LEGAL Logos as written. ONE-VARIABLE PAIR: adding `impl Drop` to the SAME loop program REFUSES ("use of moved value 'a'") — the closure-in-a-loop move IS checked, only this port's TYPE is Copy
-# TOTAL 13
+
+# 2026-09-07 (stage 5) — 13 -> 15. TWO rows ARRIVED from bc_admits.ledger, neither
+# by a compiler change, both after being RE-PORTED AS-IS first:
+# `borrowck-move-error-with-note--b`, BUCKET 3 against docs/spec/expressions.md
+#   `intrinsic.drop.skip-moved-out-paths` — upstream's `move_in_match` moves both
+#   fields out of a `Drop` type (E0509) and this clause blesses exactly that. Its
+#   four `*-with-dtor*` siblings are already here under the same clause; the row had
+#   carried `bck.B` ("does not follow a projection") on a program with no projection
+#   in it, RE-ROOTED `bck.E`. RUN EVIDENCE TAKEN AT THIS PORT'S OWN DOOR, not
+#   inherited: with a `putchar` body in `Drop::drop` and markers either side of the
+#   call the program prints `AB` — the destructor NEVER RAN, which is not what the
+#   clause's own text requires. That half is already rowed: soundness_queue
+#   `letstruct_destructure_skips_user_drop` enumerates this exact match door.
+# `enum-drop-access`, BUCKET 4 — needs NESTED PATTERNS INSIDE ENUM-VARIANT PAYLOADS.
+#   Upstream is `DropOption::Some(&mut ref mut r)` and the nested pattern IS the
+#   test (the two OK cases in the same upstream file differ from it only in whether
+#   the dropped value can reach the reference). MEASURED 2026-09-07 on the upstream
+#   shape, generic enum and `Drop` impl and all: "pattern DropOption::Some: nested
+#   patterns inside enum-variant payloads are not yet supported; bind to a name and
+#   match in the body". The generic enum with a `Drop` impl compiles on its own, so
+#   it is the nested pattern alone that has no path; following the compiler's own
+#   suggestion substitutes the construct. Backlog `enum_payload_nested_pattern_absent`.
+#   ⚠ THE FILE BELOW IS STILL THE OLD PORT, kept so the shelf entry has a program,
+#   and its header says so: it is `finish_1` from `issue-52059` under another name.
+#   A ROW MOVED, NOT A ROW CLOSED — both times.
+
+borrowck-move-error-with-note--b bck.E tests/imported/admit/borrowck/borrowck-move-error-with-note--b  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 (stage 5) — E0509 via the MATCH struct-pattern door; clause intrinsic.drop.skip-moved-out-paths; re-ported as-is first, RE-ROOTED from bck.B. Run evidence at THIS door: `AB`, S's destructor never ran (already rowed as soundness_queue letstruct_destructure_skips_user_drop)
+enum-drop-access nllmoves.E tests/imported/admit/nll/enum-drop-access  # BUCKET-4 HOLE 2026-09-07 (stage 5) — needs nested patterns inside enum-variant payloads (`Some(&mut ref mut r)`); backlog enum_payload_nested_pattern_absent. The file still holds the OLD port, which duplicates issue-52059's finish_1
+# TOTAL 15

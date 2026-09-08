@@ -1,8 +1,30 @@
 // rustc regions/better-blame-constraint-for-outlives-static.rs — upstream lifetime may not live long enough ('1 outlive 'static)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.NEW-N1
-// port of rust tests/ui/regions/better-blame-constraint-for-outlives-static.rs
+// RE-PORTED AS-IS 2026-09-07 (stage 5). The construct — a value of the elided
+// input lifetime `'1` stored into a field declared `&'static [u8]` — was already
+// carried; what the previous port had dropped is the TUPLE RETURN, which is the
+// thing that makes `'1` the lifetime rustc blames (it is the return type's other
+// half that ties `'1` to the signature). It is restored here.
+// Original path: tests/ui/regions/better-blame-constraint-for-outlives-static.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 6-10 —
+//     fn deserialize_simple_string(buf: &[u8]) -> (Bytes, &[u8]) {
+//         let (s, rest) = buf.split_at(2);
+//         (Bytes(s), rest) //~ ERROR lifetime may not live long enough
+//     }
+// Modifications:
+//   · `struct Bytes(&'static [u8]);` -> `struct Bytes { b: &'static [u8] }`
+//     (a named field instead of a tuple field)
+//   · `buf.split_at(2)` -> `buf` used directly for both halves. MEASURED
+//     2026-09-07: `slice has no method 'split_at'` — the stdlib does not carry it.
+//     The split is SCENERY: it only manufactures two sub-slices of `buf`, both of
+//     lifetime `'1`, which is exactly what `buf` itself is. The subject — a `'1`
+//     slice reaching a `&'static [u8]` field — is unchanged.
+//   · assert -> exit code: `fn main() -> i32`
 package better_blame_constraint_for_outlives_static;
 struct Bytes { b: &'static [u8] }
-fn deserialize_simple_string(buf: &[u8]) -> Bytes { return Bytes { b: buf }; }
+fn deserialize_simple_string(buf: &[u8]) -> (Bytes, &[u8]) {
+    return (Bytes { b: buf }, buf);   // THE DEFECT: admitted, upstream "'1 must outlive 'static"
+}
 fn main() -> i32 { return 0i32; }

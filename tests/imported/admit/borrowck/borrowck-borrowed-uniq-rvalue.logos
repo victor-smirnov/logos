@@ -23,6 +23,8 @@
 //     and assigns later; Logos has no deferred-init `let` of that shape, so `tmp` is
 //     initialised at its declaration — still before the map, so it still outlives it.
 //   · assert -> exit code: `fn main() -> i32`
+// RE-VERIFIED 2026-09-07 (stage 5): this port was already re-ported as-is by stage 3
+// and is unchanged here; compiled today, STILL ADMITTED, still a defect.
 package borrowck_borrowed_uniq_rvalue;
 struct Holder<'a> { p: &'a i64 }
 impl<'a> Holder<'a> {

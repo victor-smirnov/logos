@@ -2,13 +2,44 @@
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root bck.D
 // upstream: borrowck/two-phase-nonrecv-autoref.rs coerce_index_op (E0502)
-// Reshape: the overloaded Index/IndexMut pair -> plain array indexing with a
-// mutable-borrowing helper, keeping the nested-use-of-the-same-place property.
+// RE-PORTED AS-IS 2026-09-07 (stage 5). The previous port had REPLACED the
+// user `Index`/`IndexMut` pair with plain array indexing behind two free
+// functions (`put(&mut a, 0, get(&a, 3))`) — that is an ordinary two-argument
+// call, not the overloaded-index coercion the upstream test is about, and the
+// two-phase question does not arise for it in the same place. `logos.lang.ops`
+// DOES carry `Index<Idx, Output>` / `IndexMut<Idx, Output>`, and `a[i] = v`
+// DOES dispatch to `index_mut` for a user type (measured 2026-09-07: the same
+// program with the `IndexMut` impl removed is refused with "type 'I' implements
+// `Index` but not `IndexMut`"), so the construct is portable and is restored.
+// Original path: tests/ui/borrowck/two-phase-nonrecv-autoref.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 131-141 —
+//     fn coerce_index_op() {
+//         let mut i = I(10);
+//         i[i[3]] = 4;
+//         //~^ ERROR cannot borrow `i` as immutable because it is also borrowed as mutable [E0502]
+//         i[3] = i[4];
+//         i[i[3]] = i[4];
+//         //~^ ERROR cannot borrow `i` as immutable because it is also borrowed as mutable [E0502]
+//     }
+// Modifications:
+//   · `struct I(i32);` -> `struct I { v: i64 }` (a named field instead of a tuple
+//     field; `self.0` -> `self.v`)
+//   · i32 -> i64
+//   · `type Output = i32;` -> the stdlib trait's SECOND type parameter
+//     (`Index<i64, i64>`), which is how `logos.lang.ops` spells the same thing
+//   · assert -> exit code: `fn main() -> i32`
 package two_phase_nonrecv_autoref_d_index_two_phase;
-fn put(a: &mut [i64; 4], i: i64, v: i64) { a[i] = v; }
-fn get(a: &[i64; 4], i: i64) -> i64 { return a[i]; }
+struct I { v: i64 }
+impl Index<i64, i64> for I { fn index(self: &I, i: i64) -> &i64 { return &self.v; } }
+impl IndexMut<i64, i64> for I { fn index_mut(self: &mut I, i: i64) -> &mut i64 { return &mut self.v; } }
+fn coerce_index_op() {
+    let mut i: I = I { v: 10i64 };
+    i[i[3i64]] = 4i64;         // THE DEFECT: admitted, upstream E0502
+    i[3i64] = i[4i64];         // legal control: no nesting, admitted upstream too
+    i[i[3i64]] = i[4i64];      // THE DEFECT, second form: admitted, upstream E0502
+}
 fn main() -> i32 {
-    let mut a: [i64; 4] = [0i64, 1i64, 2i64, 3i64];
-    put(&mut a, 0i64, get(&a, 3i64));
+    coerce_index_op();
     return 0i32;
 }

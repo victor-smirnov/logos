@@ -1,10 +1,57 @@
 // rustc nll/issue-53773.rs — upstream E0713
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.E
+// RE-PORTED AS-IS 2026-09-07 (stage 5). The previous port had reduced upstream to
+// `fn error(c: C) -> &mut Child { return c.raw; }` — which is character for
+// character the SAME program as this row's neighbour
+// `issue-52059-report-when-borrow-and-drop-conflict`'s `finish_1`, modulo names.
+// The `nllmoves.E` grouping was in part an artefact of that: three of the root's
+// four ports had been reduced to one shape. Upstream's construct here is not a
+// return at all — it is `members.push(child.raw)` INSIDE A `for` LOOP, where
+// `child` is the loop's binding, is dropped at the end of each iteration, and its
+// `Drop` impl can observe the `&mut` that was just pushed into a vector that
+// outlives the loop. The loop, the vector and the `Iterator` impl are restored.
+// Original path: tests/ui/nll/issue-53773.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 38-45 —
+//     fn error(archive: &A) {
+//         let mut members: Vec<&mut ArchiveChild<'_>> = vec![];
+//         for child in archive.iter() {
+//             members.push(child.raw);
+//             //~^ ERROR borrow may still be in use when destructor runs [E0713]
+//         }
+//         members.len();
+//     }
+// Modifications:
+//   · upstream's `A`/`ArchiveIterator`/`Iter` chain (`archive.iter()` returns an
+//     `Iter<'_>` whose `next` is `panic!()`) -> a one-shot `Iter { c: Option<C> }`
+//     whose `next` is `self.c.take()`. `panic!()` has no shape here and an
+//     iterator that never yields cannot show the loop body at all; a one-shot
+//     iterator yields exactly the `child` the construct is about.
+//   · `struct C<'a>` -> `struct Cr<'a>`: with the name `C` the stdlib's own
+//     `Iterator::collect` default method reports "type parameter 'C' shadows an
+//     existing type / trait", which would put a diagnostic on an admit-shelf file.
+//     A rename, nothing more.
+//   · `type Item = C<'a>;` -> the stdlib trait's type PARAMETER (`Iterator<Cr<'a>>`)
+//   · `vec![]` -> `Vec::new()`
+//   · assert -> exit code: `fn main() -> i32`
 package issue_53773;
-// nll/issue-53773.rs — E0713 borrow may still be in use when destructor runs
 struct Child { n: i64 }
-struct C { raw: &mut Child }
-impl Drop for C { fn drop(self: &mut C) { self.raw.n = 99i64; } }
-fn error(c: C) -> &mut Child { return c.raw; }
-fn main() -> i32 { let mut ch = Child { n: 1i64 }; let c = C { raw: &mut ch }; let m = error(c); m.n = 2i64; return 0i32; }
+struct Cr<'a> { raw: &'a mut Child }
+impl<'a> Drop for Cr<'a> { fn drop(self: &mut Cr<'a>) { self.raw.n = 99i64; } }
+struct Iter<'a> { c: Option<Cr<'a>> }
+impl<'a> Iterator<Cr<'a>> for Iter<'a> {
+    fn next(self: &mut Iter<'a>) -> Option<Cr<'a>> { return self.c.take(); }
+}
+fn error(it: Iter) {
+    let mut members: Vec<&mut Child> = Vec::new();
+    for child in it {
+        members.push(child.raw);     // THE DEFECT: admitted, upstream E0713
+    }
+    let _n: i64 = members.len();
+}
+fn main() -> i32 {
+    let mut ch: Child = Child { n: 1i64 };
+    error(Iter { c: Option::Some(Cr { raw: &mut ch }) });
+    return 0i32;
+}

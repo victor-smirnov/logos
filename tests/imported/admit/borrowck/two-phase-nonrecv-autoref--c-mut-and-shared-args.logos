@@ -3,6 +3,23 @@
 // shelf: admit · root bck.D
 // upstream: borrowck/two-phase-nonrecv-autoref.rs coerce_unsized
 // (E0502 cannot borrow `a` as immutable because it is also borrowed as mutable)
+// RE-PORTED AS-IS 2026-09-07 (stage 5) — verified against the upstream worksheet:
+// `double_access(&mut a, &a)` is carried verbatim; only the audit trail was missing.
+// Original path: tests/ui/borrowck/two-phase-nonrecv-autoref.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 100-109 —
+//     fn double_access<X: Copy>(m: &mut [X], s: &[X]) { m[0] = s[1]; }
+//     let mut a = [1, 2, 3];
+//     double_access(&mut a, &a);
+//     //~^ ERROR cannot borrow `a` as immutable because it is also borrowed as mutable [E0502]
+// Modifications:
+//   · `<X: Copy>` over `&mut [X]` / `&[X]` -> the monomorphic `&mut [i64; 3]` / `&[i64; 3]`.
+//     The upstream test's own point is that the ARRAY-to-SLICE coercion at the call is
+//     not two-phase; the coercion is dropped here, and what remains is the plainer
+//     `&mut a` and `&a` in one argument list — a STRICTLY EASIER case for the checker,
+//     which still admits it.
+//   · i32 -> i64
+//   · assert -> exit code: `fn main() -> i32`
 package two_phase_nonrecv_autoref_c_mut_and_shared_args;
 fn double_access(m: &mut [i64; 3], s: &[i64; 3]) { m[0] = s[1]; }
 fn main() -> i32 {

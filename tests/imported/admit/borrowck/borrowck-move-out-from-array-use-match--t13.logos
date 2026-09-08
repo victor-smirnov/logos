@@ -1,12 +1,36 @@
 // rustc borrowck/borrowck-move-out-from-array-use-match.rs — upstream E0382
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root bck.B
+// RE-PORTED AS-IS 2026-09-07 (stage 5). The `--t13` suffix names upstream's
+// THIRTEENTH `//~ ERROR [E0382]` annotation (line 139, `move_out_slice_and_assign_end`):
+// a SUBSLICE pattern `[_, _, _x @ ..]` moves the tail, then `a[0] = …` assigns into
+// the array. The previous port was `match a { [_,_,x] }` followed by
+// `match a { [_,_,ref y] }` — a const-index move re-read through `ref`, which is
+// upstream's t1 (line 13), not t13, and t13's sibling `--b` on the fail shelf is
+// already the const-index-then-assign form. The port had duplicated the wrong
+// sub-case; the subslice move is restored here.
+// Original path: tests/ui/borrowck/borrowck-move-out-from-array-use-match.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 134-140 —
+//     fn move_out_slice_and_assign_end() {
+//         let mut a = array();
+//         match a {
+//             [_, _, _x @ ..] => {}
+//         }
+//         a[0] = Default::default(); //~ ERROR [E0382]
+//     }
+// Modifications:
+//   · `[(String, String); 3]` -> `[String; 3]` (no tuple element; the moved thing
+//     still has a destructor and is still not Copy, which is what the rule reads)
+//   · `Default::default()` -> `String::from(..)` (no Default trait bound here)
+//   · `a[0]` -> `a[0u64]` (index type)
+//   · assert -> exit code: `fn main() -> i32`
 package borrowck_move_out_from_array_use_match_t13;
 use logos.mem.string;
 fn arr() -> [String; 3] { return [String::from("a"), String::from("b"), String::from("c")]; }
 fn main() -> i32 {
-    let a: [String; 3] = arr();
-    match a { [_, _, x] => { let _n = x.len(); } }
-    match a { [_, _, ref y] => { let _m = y.len(); } }  // ERROR E0382: use of moved value
+    let mut a: [String; 3] = arr();
+    match a { [_, _, _x @ ..] => { } }
+    a[0u64] = String::from("z");     // THE DEFECT: admitted, upstream E0382
     return 0i32;
 }

@@ -1,12 +1,41 @@
 // rustc nll/issue-54556-stephaneyfx.rs — upstream E0597 (does not live long enough)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.E
+// RE-PORTED AS-IS 2026-09-07 (stage 5). The previous port had replaced the whole
+// construct with a deferred-init ordering (`let a: A; let b: i64; a = A { r: &b };`)
+// — a plain declaration-order drop conflict, which has nothing to do with what this
+// test is named for. Upstream's construct is: an ITERATOR ADAPTER moves `rows` into
+// a temporary that lives to the end of the TAIL expression, and that temporary has
+// drop glue (`Rows: Drop`), so it is dropped AFTER `stmt`, which it borrows. The
+// upstream comment says so in the file: removing the `map`, or removing the `Drop`
+// impl, makes it compile. Both `Iterator` and `map` exist here (measured 2026-09-07),
+// so the construct is restored.
+// Original path: tests/ui/nll/issue-54556-stephaneyfx.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 25-28 —
+//     fn get_names() -> Option<String> {
+//         let stmt = Statement;
+//         let rows = Rows(&stmt); //~ ERROR does not live long enough
+//         rows.map(|row| row).next()
+//     }
+// Modifications:
+//   · `struct Statement;` (unit) -> `struct Statement { n: i64 }`, and
+//     `struct Rows<'stmt>(&'stmt Statement)` -> a named field. A field-less struct
+//     is Copy here under docs/DIVERGENCES.md A16, which would change the subject.
+//   · `type Item = String;` -> the stdlib trait's type PARAMETER (`Iterator<String>`)
+//   · `let rows` -> `let mut rows` (`next` takes `&mut self`)
+//   · assert -> exit code: `fn main() -> i32`
 package issue_54556_stephaneyfx;
-struct A { r: &i64 }
-impl Drop for A { fn drop(self: &mut A) { let _ = *self.r; } }
-fn main() -> i32 {
-    let a: A;
-    let b: i64 = 5i64;
-    a = A { r: &b };
-    return *a.r as i32;
+use logos.mem.string;
+struct Statement { n: i64 }
+struct Rows<'stmt> { s: &'stmt Statement }
+impl<'stmt> Drop for Rows<'stmt> { fn drop(self: &mut Rows<'stmt>) { } }
+impl<'stmt> Iterator<String> for Rows<'stmt> {
+    fn next(self: &mut Rows<'stmt>) -> Option<String> { return Option::None; }
 }
+fn get_names() -> Option<String> {
+    let stmt: Statement = Statement { n: 1i64 };
+    let mut rows: Rows = Rows { s: &stmt };     // THE DEFECT: admitted, upstream E0597
+    rows.map(|row| { return row; }).next()
+}
+fn main() -> i32 { let _ = get_names(); return 0i32; }
