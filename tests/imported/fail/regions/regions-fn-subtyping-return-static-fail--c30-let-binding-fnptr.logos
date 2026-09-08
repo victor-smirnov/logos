@@ -1,12 +1,13 @@
 // rustc regions/regions-fn-subtyping-return-static-fail.rs — upstream E0308 mismatched types
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.L7
-// RE-PORTED AS-IS 2026-09-08 (stage 6). This is the importer's SECOND door for the
-// same upstream subtyping check: the coercion happens at a `let` with an annotated
-// fn-pointer type instead of at a call argument. Upstream has no such line — the
-// door is ours, and the pair `--fn-subtyping` / `--c30-let-binding-fnptr` exists to
-// ask whether the two coercion SITES behave alike. That is declared below rather
-// than hidden, and the legal contrast is added so the door is not one program.
+// shelf: fail (was: admit · root lifereg.L7 — CLOSED 2026-09-08)
+// This is the importer's SECOND door for the same upstream subtyping check: the
+// coercion happens at a `let` with an annotated fn-pointer type instead of at a
+// call argument. Upstream has no such line — the door is ours, declared below
+// rather than hidden — and the pair `--fn-subtyping` / `--c30-let-binding-fnptr`
+// exists to ask whether the two coercion SITES behave alike. They do: one fix at
+// `subtype()`'s cross-kind early exit closed both on the same build, which is the
+// evidence that this is ONE mechanism and not two.
 // Original path: tests/ui/regions/regions-fn-subtyping-return-static-fail.rs
 // upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // upstream construct: line 48 —
@@ -26,6 +27,6 @@ fn foo<'a>(x: &'a S) -> &'static S { return &GS; }   // meets both
 fn baz<'a>(x: &'a S) -> &'a S { return x; }          // meets F, but not G
 fn supply_G() {
   let ok: fn(&S) -> &'static S = foo;   // legal: `foo` really does return 'static
-  let g: fn(&S) -> &'static S = baz;    // THE DEFECT: admitted, upstream E0308
+  let g: fn(&S) -> &'static S = baz;    // THE DEFECT: upstream E0308 — now REFUSED
 }
 fn main() -> i32 { return 0i32; }

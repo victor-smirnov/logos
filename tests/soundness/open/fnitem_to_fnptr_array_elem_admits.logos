@@ -1,0 +1,30 @@
+// SOUNDNESS QUEUE — tier 2, observed `admits`.
+// FOUND 2026-09-08 while closing `lifereg.L7`, and recorded rather than rounded off.
+//
+// `subtype()`'s cross-kind early exit made EVERY FnItem -> FnPtr coercion skip the
+// variance check. Seven positions were measured admitting; the 2026-09-08 fix
+// (is_fn_value_kind at that exit + `case K::FnItem` on the FnPtr arm) closes SIX of
+// them — call argument, let-init, struct-literal field, fn return, tuple element,
+// and the contravariant parameter direction.
+//
+// THIS IS THE SEVENTH, AND IT STILL ADMITS. An ARRAY-LITERAL element is not routed
+// through `check_variance` at all, so the repaired variance arm never sees it. The
+// defect is therefore NOT the one that was fixed: it is a missing CALL, at the
+// array-literal element site, and it needs its own round.
+//
+// rustc refuses this program: `baz` is `for<'a> fn(&'a S) -> &'a S`, and the array's
+// declared element type demands `fn(&S) -> &'static S`. Supplying it is E0308.
+// The one-token legal contrast is `foo`, which really does return a `'static` —
+// tests/imported/pass/regions/regions-fn-subtyping-return-static-fail--fn-subtyping-ok
+// carries that shape at the sites that ARE checked.
+package fnitem_to_fnptr_array_elem_admits;
+struct S { n: i64 }
+static GS: S = S { n: 0i64 };
+fn foo<'a>(x: &'a S) -> &'static S { return &GS; }   // legal in this slot
+fn baz<'a>(x: &'a S) -> &'a S { return x; }          // NOT legal in this slot
+fn main() -> i32 {
+  // upstream-illegal, admitted here: the element type is checked for TYPE
+  // structure and never for LIFETIME structure.
+  let a: [fn(&S) -> &'static S; 1] = [baz];
+  return 0i32;
+}

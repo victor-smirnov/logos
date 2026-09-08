@@ -1,0 +1,37 @@
+// rustc regions/regions-fn-subtyping-return-static-fail.rs — the LEGAL half
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pass — the ONE-TOKEN PAIR of
+//   tests/imported/fail/regions/regions-fn-subtyping-return-static-fail--fn-subtyping.logos
+// The two files differ in exactly one token: `want_G(baz)` there, `want_G(foo)`
+// here. `foo` really does return a `'static`, so supplying it where a
+// `fn(&S) -> &'static S` is wanted is upstream-legal and must keep compiling —
+// this is what stops the 2026-09-08 FnItem->FnPtr variance fix from being an
+// over-refusal of the whole fn-item-to-fn-pointer shape.
+// It RUNS: each supply is called through the fn pointer and its result is
+// summed, so an erased or mis-substituted signature shows up as a wrong exit
+// code and not merely as a clean compile.
+// Original path: tests/ui/regions/regions-fn-subtyping-return-static-fail.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 37-47 — the supplies upstream accepts:
+//     fn supply_F() { want_F(foo); want_F(bar); want_F(baz); }   // all OK
+//     fn supply_G() { want_G(foo);                               // OK
+// Modifications:
+//   · unit struct `struct S;` -> `struct S { n: i64 }`
+//   · the `type F` / `type G` aliases -> fn pointer types written inline
+//   · `panic!()` bodies -> real returns
+//   · upstream's `bar<'a,'b>` omitted (see the fail half's note)
+//   · assert -> exit code: the fn pointers are CALLED and their results guard
+//     the return value (the corpus idiom for `println!` in this directory)
+package regions_fn_subtyping_return_static_fail_fn_subtyping_ok;
+struct S { n: i64 }
+static GS: S = S { n: 20i64 };
+fn want_F(f: fn(&S) -> &S) -> i64 { let r: &S = f(&GS); return r.n; }
+fn want_G(f: fn(&S) -> &'static S) -> i64 { let r: &S = f(&GS); return r.n; }
+fn foo<'a>(x: &'a S) -> &'static S { return &GS; }   // meets both
+fn baz<'a>(x: &'a S) -> &'a S { return x; }          // meets F, but not G
+fn main() -> i32 {
+  let a: i64 = want_F(foo);   // legal upstream and here
+  let b: i64 = want_F(baz);   // legal upstream and here
+  let c: i64 = want_G(foo);   // THE TOKEN: `foo`, not `baz`
+  return (a + b + c) as i32 - 60i32;
+}

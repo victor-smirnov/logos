@@ -115,10 +115,28 @@
 #              THE VARIABLE. trait-method-return-lifetime-mismatch is a DECLARATION-site
 #              elision in a trait method's return, where writing `BVH<'a, R>` out gives
 #              a legal program that also admits — there elision IS the variable.
-#   lifereg.L7 SURVIVES as one mechanism, RE-NAMED: fn-item -> fn-pointer coercion
-#              compares the signature's TYPE structure (a wrong return type refuses,
-#              naming `fn ITEM<..>`) and ERASES its LIFETIME structure. BOTH directions
-#              admit: `fn(&S)->&S` for `fn(&S)->&'static S` and the reverse.
+#   lifereg.L7 SURVIVED stage 6 as one mechanism, RE-NAMED: fn-item -> fn-pointer
+#              coercion compares the signature's TYPE structure (a wrong return type
+#              refuses, naming `fn ITEM<..>`) and ERASES its LIFETIME structure.
+#              ✅ CLOSED 2026-09-08 — THE ROOT IS RETIRED, both rows gone, 94 -> 92.
+#              The erasure was ONE line: `subtype()`'s cross-kind early exit
+#              (`if (sub.kind() != sup.kind()) return true;`) swallowed FnItem->FnPtr,
+#              so the FnPtr variance arm — contra in params, co in ret, already
+#              written and 20 lines below — was DEAD for every fn-item value in the
+#              language. sema.hpp:215 had already declared the rule that exit broke
+#              (`is_fn_value_kind`: "every Kind::FnPtr check in sema/mono/mlir-gen
+#              also accepts Kind::FnItem"); subtype() was the one site that never
+#              got it. CLASS ENUMERATED BY THE PROPERTY, not by spelling: seven
+#              positions measured admitting on the unmodified binary (call arg,
+#              let-init, struct-literal field, fn return, tuple elem, array elem,
+#              and the CONTRAVARIANT param direction); six flip with the one change.
+#              The three siblings that share that exit were enumerated and are NOT
+#              members — MutRef->Ref, Array->Slice and Closure->FnPtr are each
+#              already refused by another rule on the unmodified binary.
+#              ⚠ ONE RESIDUAL HOLE, MEASURED NOT ASSUMED: an ARRAY-LITERAL element
+#              (`let a: [fn(&S)->&'static S; 1] = [baz];`) still admits — that site
+#              does not route through check_variance at all. It has no row because
+#              no imported port exercises it; it is recorded here and in PROBES.md.
 #   lifereg.R17 SPLITS, AND NEITHER HALF IS A REGION ROOT: constructor-lifetime-early-
 #              binding-error is a lifetime-ARGUMENT-COUNT check that does not exist
 #              (E0107); outlives-with-missing is E0412, an undeclared type NAME in a
@@ -136,6 +154,11 @@
 #   `regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr` moves upstream's
 #   annotated call ARGUMENT to a `let` initializer. It is declared in the file's own
 #   `// Modifications:` block; the sibling `--fn-subtyping` carries upstream's site.
+#   BOTH LEFT THE ADMIT SHELF 2026-09-08 and now live under tests/imported/fail/regions/
+#   with their diagnostics pinned in full, each beside a ONE-TOKEN pass half under
+#   tests/imported/pass/regions/ (`--fn-subtyping-ok`, `--c30-let-binding-fnptr-ok`,
+#   `baz` -> `foo`) that RUNS and guards its exit code. That the two doors closed on
+#   ONE build is the evidence they are one mechanism and not two.
 # EVERY ONE OF THE 16 FILES NOW CARRIES `// Original path:`, the upstream commit, the
 # annotated construct quoted, and a `// Modifications:` block.
 # 2026-09-07 — 105 -> 102, STAGE 4 OF THE RE-PORT. The 24 rows rooted `bck.C`,
@@ -1559,7 +1582,7 @@
 # shared defect (2026-08-27: 10 rows grouped by one instrument reading, the fix
 # closed 1). Whoever prices this block prices it as 3 + 4, or measures the merge
 # with a pair per row.
-# TOTAL 94
+# TOTAL 92
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1693,8 +1716,6 @@ regions-adjusted-lvalue-op--c26 lifereg.R2 tests/imported/admit/regions/regions-
 regions-adjusted-lvalue-op--t26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. INDEX place-op door. Same root and same pairs as --c26, and the two are now two different doors rather than one program twice
 regions-creating-enums3 lifereg.NEW-N1 tests/imported/admit/regions/regions-creating-enums3
 regions-escape-method lifereg.C tests/imported/admit/regions/regions-escape-method  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had ANNOTATED the closure, which is the one thing upstream leaves to inference; annotation removed. ROOT RE-CHECKED, lifereg.C SPLITS: this row is the closure's return region flowing into a CALLER-CHOSEN generic `B`. PAIR: the same escape written as a FN ITEM signature is REFUSED (`variance mismatch — expected &'static i64, got &'p i64`)
-regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr lifereg.L7 tests/imported/admit/regions/regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ⚠ THIS DOOR IS OURS, NOT UPSTREAM'S — a `let` with an annotated fn-pointer type; the sibling carries upstream's own argument site. Both admit, so the two coercion sites agree. ROOT lifereg.L7 RE-CHECKED and RE-NAMED: fn-item -> fn-pointer coercion compares the signature's TYPE structure (a wrong return TYPE is refused, naming `fn ITEM<..>`) and ERASES its LIFETIME structure — BOTH directions admit
-regions-fn-subtyping-return-static-fail--fn-subtyping lifereg.L7 tests/imported/admit/regions/regions-fn-subtyping-return-static-fail--fn-subtyping  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Upstream's own door, plus its legal contrast (`want_F(baz)`, `want_G(foo)`) so a future refusal must SEPARATE them. Same root as --c30
 regions-free-region-ordering-caller1 lifereg.D tests/imported/admit/regions/regions-free-region-ordering-caller1  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.D REFUTED for this row too, and NOT for the same reason as the other D row: replacing the temporary `&(&y)` with a NAMED local still admits, so no temporary is involved. PAIR: `let z: &'a u64 = &y;` inside `call1<'a>` ADMITS, and only adding `return z;` refuses — and by a SYNTACTIC dangling-local rule, not by the annotation. Propose lifereg.NEW-LETANNOT: a let annotation naming a free region is not a constraint on its initializer
 regions-glb-free-free--glb-free-free lifereg.NEW-R19 tests/imported/admit/regions/regions-glb-free-free--glb-free-free
 regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ONE-ROW root, no separating pair measured — do not group it. Upstream's four LEGAL contrast traits need a lifetime SUPERTRAIT bound (`trait T: 'static`), which does not parse here -> unrowed_backlog lifetime_supertrait_bound

@@ -355,7 +355,22 @@ inline bool subtype(TypeRef sub, TypeRef sup,
     // Different kinds: caller's compat check handles legitimate cross-kind
     // coercions (e.g. IntLit → i32, &mut → &, Vec → slice). Don't impose a
     // variance constraint there.
-    if (sub.kind() != sup.kind()) return true;
+    //
+    // EXCEPT FnItem → FnPtr. sema.hpp declares the rule this exit broke:
+    // "every Kind::FnPtr check in sema/mono/mlir-gen also accepts
+    // Kind::FnItem" (is_fn_value_kind), because a FnItem carries the very
+    // same closure_params / closure_ret. This function was the one site that
+    // never got it, so a fn ITEM auto-coerced to a fn POINTER left through
+    // this `return true` and the FnPtr arm below — contra in params, co in
+    // ret, already written — was dead for every fn-item value in the
+    // language. Measured 2026-09-08 on the unmodified binary: SEVEN
+    // positions (call arg, let-init, struct field, fn return, tuple elem,
+    // array elem, and the contravariant param direction) all admitted
+    // `fn(&'a S) -> &'a S` where `fn(&S) -> &'static S` was demanded.
+    if (!(LogosType::is_fn_value_kind(sub.kind()) &&
+          LogosType::is_fn_value_kind(sup.kind())) &&
+        sub.kind() != sup.kind())
+        return true;
 
     switch (sub.kind()) {
         case K::Ref: {
@@ -479,9 +494,11 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             return true;
         }
         case K::FnPtr:
+        case K::FnItem:
         case K::Closure: {
             // Contra in params, Co in ret. Closure shares the same variance
-            // shape as FnPtr — param/ret accessors are uniform.
+            // shape as FnPtr — param/ret accessors are uniform, and FnItem
+            // carries the same two slots (sema.hpp Kind::FnItem).
             auto sp = sub.closure_params();
             auto pp = sup.closure_params();
             if (sp.size() != pp.size()) return true;

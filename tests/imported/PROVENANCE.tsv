@@ -128,8 +128,6 @@ tests/imported/admit/regions/regions-adjusted-lvalue-op--c26	tests/ui/regions/re
 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26	tests/ui/regions/regions-adjusted-lvalue-op.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/admit/regions/regions-creating-enums3	tests/ui/regions/regions-creating-enums3.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/admit/regions/regions-escape-method	tests/ui/regions/regions-escape-method.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
-tests/imported/admit/regions/regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr	tests/ui/regions/regions-fn-subtyping-return-static-fail.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
-tests/imported/admit/regions/regions-fn-subtyping-return-static-fail--fn-subtyping	tests/ui/regions/regions-fn-subtyping-return-static-fail.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/admit/regions/regions-free-region-ordering-caller1	tests/ui/regions/regions-free-region-ordering-caller1.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/admit/regions/regions-glb-free-free--glb-free-free	tests/ui/regions/regions-glb-free-free.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/admit/regions/regions-in-enums-anon	tests/ui/regions/regions-in-enums-anon.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
@@ -978,6 +976,8 @@ tests/imported/fail/regions/regions-creating-enums4	tests/ui/regions/regions-cre
 tests/imported/fail/regions/regions-double-where-mismatch			native	not-a-port	no
 tests/imported/fail/regions/regions-early-bound-error	tests/ui/regions/regions-early-bound-error.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/regions/regions-fn-return-via-let-mismatch			native	not-a-port	no
+tests/imported/fail/regions/regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr	tests/ui/regions/regions-fn-subtyping-return-static-fail.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
+tests/imported/fail/regions/regions-fn-subtyping-return-static-fail--fn-subtyping	tests/ui/regions/regions-fn-subtyping-return-static-fail.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/fail/regions/regions-free-region-ordering-callee	tests/ui/regions/regions-free-region-ordering-callee.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/regions/regions-free-region-ordering-callee-4	tests/ui/regions/regions-free-region-ordering-callee-4.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/regions/regions-free-region-ordering-caller	tests/ui/regions/regions-free-region-ordering-caller.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
@@ -3904,6 +3904,8 @@ tests/imported/pass/regions/regions-escape-into-other-fn-b153	tests/ui/regions/r
 tests/imported/pass/regions/regions-expl-self	tests/ui/regions/regions-expl-self.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/pass/regions/regions-expl-self-b142	tests/ui/regions/regions-expl-self.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/pass/regions/regions-fn-returning-shorter			native	not-a-port	no
+tests/imported/pass/regions/regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr-ok	tests/ui/regions/regions-fn-subtyping-return-static-fail.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
+tests/imported/pass/regions/regions-fn-subtyping-return-static-fail--fn-subtyping-ok	tests/ui/regions/regions-fn-subtyping-return-static-fail.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/pass/regions/regions-generic-struct-lifetime			native	not-a-port	no
 tests/imported/pass/regions/regions-impl-elided-lt			native	not-a-port	no
 tests/imported/pass/regions/regions-impl-method-elided-lt			native	not-a-port	no
@@ -4618,4 +4620,4 @@ tests/imported/pass/where-clauses/where-clauses-method-b146	tests/ui/where-claus
 tests/imported/pass/where-clauses/where-clauses-method-b149	tests/ui/where-clauses/where-clauses-method.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/pass/where-clauses/where-clauses-method-b151	tests/ui/where-clauses/where-clauses-method.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/pass/where-clauses/where-clauses-method-wc4	tests/ui/where-clauses/where-clauses-method.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
-# TOTAL 4588
+# TOTAL 4590

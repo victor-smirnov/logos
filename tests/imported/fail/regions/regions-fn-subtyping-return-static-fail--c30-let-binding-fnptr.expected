@@ -1,0 +1,1 @@
+let 'g': variance mismatch — expected fn(&S) -> &'static S, got fn ITEM<regions_fn_subtyping_return_static_fail_c30_let_binding_fnptr$baz__f__ref_S>(&'a S) -> &'a S — lifetime structure incompatible (check &mut invariance / contravariance rules)

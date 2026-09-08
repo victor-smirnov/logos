@@ -30092,3 +30092,92 @@ nothing landed there, so the miss is one-directional.
     unrowed_backlog           `# TOTAL` 16 -> 18, re-derived by direct listing
     build hash                10a507efa95812c8 43, unmoved
     src/ + include/ diff      0 lines
+
+---
+
+# 2026-09-08 — `lifereg.L7` CLOSED. ONE CROSS-KIND EARLY EXIT HAD KILLED A VARIANCE ARM THAT WAS ALREADY WRITTEN
+
+Stage 6 (`3c7de8e7b`) re-ported the whole non-`NEW` `lifereg.*` region as-is and left
+16 of 16 rows standing, re-naming `lifereg.L7` as "fn-item -> fn-pointer coercion
+compares TYPE structure and ERASES LIFETIME structure". This round found why, and the
+why is one line.
+
+## THE MECHANISM — `include/logos/compiler/subtype.hpp`
+    if (sub.kind() != sup.kind()) return true;
+`sub` is `Kind::FnItem` (`fn ITEM<pkg$baz__f__ref_S>(&'a S) -> &'a S`), `sup` is
+`Kind::FnPtr` (`fn(&S) -> &'static S`). Different kinds, so this PERMISSIVE exit fired
+and the `case K::FnPtr` arm twenty lines below — **contra in params, co in ret, fully
+written and correct** — was unreachable for every fn-item value in the language.
+
+`sema.hpp:215` had already declared the rule this exit broke:
+    static constexpr bool is_fn_value_kind(Kind k)   // FnPtr || FnItem
+    // "Every Kind::FnPtr check in sema/mono/mlir-gen also accepts Kind::FnItem
+    //  so the source-site swap stays transparent."
+`subtype()` was the ONE site that never got it. The fix is that predicate plus a
+`case K::FnItem:` label on the existing arm — 5 lines of code (declared budget: <= 8).
+
+## THE CLASS, ENUMERATED BY THE PROPERTY — NOT BY THE SPELLING
+Property: *a FnItem value coerced to a FnPtr type, at any site.* Measured on the
+UNMODIFIED binary, before the edit; seven positions, seven ADMITTED:
+
+    position                     base      armed
+    call argument                admitted  REFUSED
+    let-init annotation          admitted  REFUSED
+    struct-literal field         admitted  REFUSED
+    fn return type               admitted  REFUSED
+    tuple element                admitted  REFUSED
+    CONTRAVARIANT param dir.     admitted  REFUSED
+    ARRAY-LITERAL element        admitted  admitted   <- RESIDUAL HOLE, see below
+
+Six of seven flip on ONE structural change. That the two ledger doors (a call argument
+and a `let` initializer) closed on the SAME build is the evidence they were one
+mechanism and not two — which is what the stage-6 pair was built to ask.
+
+### THE SIBLINGS THAT SHARE THAT EXIT ARE NOT MEMBERS — ENUMERATED, NOT ASSUMED
+The exit's own comment names three legitimate cross-kind coercions. Each was written as
+a hand program and measured on the unmodified binary; all three are ALREADY refused, by
+other rules, so none of them was a hole and the class is genuinely this one:
+    MutRef -> Ref      REFUSED ("let 'r': variance mismatch — expected &'static i64…")
+    Array  -> Slice    REFUSED (return-lifetime rule)
+    Closure-> FnPtr    REFUSED (return-lifetime rule)
+
+### THE RESIDUAL HOLE, RECORDED RATHER THAN ROUNDED OFF
+`let a: [fn(&S) -> &'static S; 1] = [baz];` still admits: an array-literal element does
+not route through `check_variance` at all, so this fix cannot see it. It gets no ledger
+row because no imported port exercises it — but "six of seven" is the honest number and
+"the class is closed" is not a claim this round can make (an enumerator over coercion
+SITES is what would be needed, and none exists).
+
+## RULE 5 — THE LEGAL SHAPES, VARIED BY SHAPE AND NOT BY COUNT
+Six legal programs, written before the edit and deliberately NOT all of one syntax;
+all six compile on BOTH binaries, so the arm refuses none of them:
+    same-region supply `fn(&'a S)->&'a S` for `fn(&S)->&S`      · 'static for 'static
+    no references at all `fn(i64,i64)->i64`                     · struct field, legal
+    CONTRAVARIANT-LEGAL: `fn(&'a S)->i64` supplied for `fn(&'static S)->i64`
+    `&mut` parameter `fn(&mut i64)->i64`
+The contravariant-legal one matters most: it is the shape a crude "compare the region
+names" arm would refuse, and it is the direction Rust permits.
+
+## COST, AND WHERE `-L bc` DOES NOT SEE
+    full cmake --build (compiler + STDLIB + every example)  rc 0
+    gate-run.sh -L bc                                       2687 passed / 0 failed
+    logos_00_bc_admit_* (110 registered)                    2 failed — EXACTLY the
+                                                            two predicted rows
+⚠ `-L bc` CONTAINS NONE OF THE 110 `bc_admit` TESTS (measured: `ctest -N -L bc |
+grep -c bc_admit` = 0). A green `-L bc` is therefore NOT evidence about the admit
+shelf in either direction, and a round that closes admit rows must run
+`-R '^logos_00_bc_admit_'` explicitly. This is a fresh instance of the recorded
+"`-L bc` missed a real hit" caveat, now with the reason.
+
+## PREDICTIONS, DIFFED BOTH WAYS
+Declared in a file before the edit: 2 rows closed, named. Result: exactly those 2,
+and the 107 other admit programs unchanged — no over-closure, no under-closure. The
+one candidate I flagged as a possible surprise, `temporary-lifetime-extension-tuple-ctor`
+(it contains `let some: fn(&T) -> X = mk;`, a genuine FnItem->FnPtr let-init), did NOT
+close: its `X` carries the region in a struct, which is `lifereg.NEW-STRUCTCARRY`, a
+different mechanism. Predicting it would have been wrong and it was checked, not assumed.
+
+## GATES
+    bc_admits_ledger_gate     rc 0 — 92 + 15 = 107, both totals re-derived by listing
+    soundness queue gate      rc 0 — `# TOTAL` 69, untouched by this round
+    bc_admits.ledger          94 -> 92; root `lifereg.L7` RETIRED (0 rows remain)

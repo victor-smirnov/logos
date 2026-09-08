@@ -1,10 +1,17 @@
 // rustc regions/regions-fn-subtyping-return-static-fail.rs — upstream E0308 mismatched types
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.L7
-// RE-PORTED AS-IS 2026-09-08 (stage 6). This is upstream's own door — `want_G(baz)`
-// at a call ARGUMENT. The old port had the illegal line but none of upstream's
-// LEGAL contrast; the three legal supplies are restored, so a future refusal here
-// has to separate `baz` from `foo` and is not an over-refusal of the whole shape.
+// shelf: fail (was: admit · root lifereg.L7 — CLOSED 2026-09-08, see below)
+// RE-PORTED AS-IS 2026-09-08 (stage 6): this is upstream's own door — `want_G(baz)`
+// at a call ARGUMENT — carrying upstream's LEGAL contrast supplies alongside it, so
+// a refusal here has to SEPARATE `baz` from `foo` and is not an over-refusal.
+//
+// CLOSED 2026-09-08. `subtype()` returned true for every FnItem->FnPtr coercion
+// because of its cross-kind early exit (`sub.kind() != sup.kind()`), so the FnPtr
+// variance arm — contra in params, co in ret, already written — was dead for every
+// fn-item value in the language. sema.hpp already declared the rule that exit broke
+// (`is_fn_value_kind`: "every Kind::FnPtr check also accepts Kind::FnItem").
+// The three legal supplies below are the pair that proves this is not an
+// over-refusal; `--fn-subtyping-ok` is the one-token pass half.
 // Original path: tests/ui/regions/regions-fn-subtyping-return-static-fail.rs
 // upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // upstream construct: lines 37-48 —
@@ -33,6 +40,6 @@ fn baz<'a>(x: &'a S) -> &'a S { return x; }          // meets F, but not G
 fn supply_F() { want_F(foo); want_F(baz); }          // OK upstream too
 fn supply_G() {
   want_G(foo);        // OK upstream too
-  want_G(baz);        // THE DEFECT: admitted, upstream E0308
+  want_G(baz);        // THE DEFECT: upstream E0308 — now REFUSED here
 }
 fn main() -> i32 { return 0i32; }
