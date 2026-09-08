@@ -1,0 +1,14 @@
+// E7 (enumunsize) — the `let`-routed twin that already compiles and runs; it is
+// the pass half that pins the row and must not move.
+package e7;
+enum E { N, S(&[i64]) }
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let sl: &[i64] = &a;
+    let e: E = E::S(sl);
+    match e {
+        E::N => { return 1i32; }
+        E::S(s) => { if s[2] != 3i64 { return 10i32; } }
+    }
+    return 0i32;
+}

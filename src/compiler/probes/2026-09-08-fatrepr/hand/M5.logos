@@ -1,0 +1,13 @@
+// M5 (dispunsize) — the FREE-FUNCTION control: the same coercion at the same
+// argument shape already works there. It must keep working.
+package m5;
+use logos.lang.rc;
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+fn sinkrc(r: Rc<dyn Sp>) -> i64 { return r.v(); }
+fn main() -> i64 {
+    let rc: Rc<A> = rc_new(A { x: 17i64 });
+    if sinkrc(rc) != 17i64 { return 1i64; }
+    return 0i64;
+}

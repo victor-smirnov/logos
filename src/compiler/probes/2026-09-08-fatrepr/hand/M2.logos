@@ -1,0 +1,16 @@
+// M2 (dispunsize) — the TRAIT-method spelling of the same call. Measured today
+// to fail identically, which the row's header does not say.
+package m2;
+use logos.lang.rc;
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+trait Eater { fn eat(&self, r: Rc<dyn Sp>) -> i64; }
+struct Holder { n: i64 }
+impl Eater for Holder { fn eat(&self, r: Rc<dyn Sp>) -> i64 { return r.v() + self.n; } }
+fn main() -> i64 {
+    let h: Holder = Holder { n: 1i64 };
+    let rc: Rc<A> = rc_new(A { x: 17i64 });
+    if h.eat(rc) != 18i64 { return 1i64; }
+    return 0i64;
+}

@@ -1,0 +1,15 @@
+// B6 (fatbind) — the `ref` binder spelling, legal and correct today: its
+// operand is already an address, so the arm must leave it alone.
+package b6;
+struct H { s: &[i64], n: i64 }
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let h: H = H { s: &a, n: 7i64 };
+    match h {
+        H { s: ref q, n } => {
+            if q[2] != 3i64 { return 10i32; }
+            if n != 7i64 { return 11i32; }
+        }
+    }
+    return 0i32;
+}

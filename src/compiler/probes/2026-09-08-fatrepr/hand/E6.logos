@@ -1,0 +1,14 @@
+// E6 (enumunsize) — an ILLEGAL enum ctor arg that must STILL be refused: the
+// element type differs (`&[u8;2]` into `&[i64]`). If the probe makes this
+// compile, the arm bought its row with an un-refusal.
+package e6;
+enum E { N, S(&[i64]) }
+fn main() -> i32 {
+    let a: [u8; 2] = [1u8, 2u8];
+    let e: E = E::S(&a);
+    match e {
+        E::N => { return 1i32; }
+        E::S(s) => { if s[1] != 2i64 { return 10i32; } }
+    }
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+// B2 (fatbind) — the same field bound and NEVER projected. Legal and RUNNING
+// rc 0 today; the arm must not change its answer.
+package b2;
+struct H { s: &[i64], n: i64 }
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let h: H = H { s: &a, n: 7i64 };
+    match h {
+        H { s, n } => { if n != 7i64 { return 11i32; } }
+    }
+    return 0i32;
+}

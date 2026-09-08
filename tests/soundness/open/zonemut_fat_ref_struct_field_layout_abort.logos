@@ -45,6 +45,23 @@
 // Provenance: recorded 2026-08-18 in memory bug_zone_mut_reborrow_thin as one
 // of three "still-open LOUD neighbors" of the D3 arc, never rowed; its evidence
 // file sandbox/d3diag/p09*.logos no longer exists. Re-measured and rowed here.
+// ⚠ PRICED 2026-09-08 (round 2026-09-08-fatrepr): THE ROW IS THREE ENGINES, NOT
+// ONE SITE. A ceiling probe that gives `register_struct`'s ptr-to-struct field
+// branch the fact it lacks (`ref_repr_of(field) == FatZoneMut` -> the 16B
+// storage type, the arm four sibling branches already use) makes this program
+// compile rc 0 and makes five constructed-and-RUN neighbours correct in both
+// halves (`zone_of` read back through a named field, a tuple-struct field, a
+// nested field, a write-through, and a `self: &mut` method receiver). But under
+// `LOGOS_VERIFY_LAYOUT=1` it STILL aborts (5 disagreements -> 4), now naming the
+// other two engines:
+//     [product] H: size — mono_abi_layout says 8, llvm::DataLayout says 16
+//     [product] H: size — sema_abi_layout says 8, llvm::DataLayout says 16
+// `layout_of` is the only one of four engines that counts the field fat. Doors
+// in SERIES: closing this row means carrying the same fact into
+// `mono_abi_layout` and `sema_abi_layout` as well, with LOGOS_VERIFY_LAYOUT=1 as
+// the acceptance oracle — the always-on cross-check alone would pass at one
+// third of the work. Corpus radius: 3173 arrivals at the branch, none of them
+// fat; no struct under tests/ or stdlib/ holds a `&mut` to a #[zone_mut] type.
 package zonemut_fat_ref_struct_field_layout_abort;
 #[zone_mut] struct Box2 { v: i64 }
 struct H { r: &mut Box2 }

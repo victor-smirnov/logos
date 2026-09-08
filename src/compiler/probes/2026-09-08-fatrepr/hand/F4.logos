@@ -1,0 +1,21 @@
+// F4 (fatfield) — the ENUM PAYLOAD neighbour the row's header calls correct at
+// compile AND at run. Same construction, same two reads, through a payload
+// binder instead of a field.
+package f4;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Box2 { v: i64 }
+enum E { N, S(&mut Box2) }
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 21i64;
+    let r: &mut Box2 = zone_mut_ref::<Box2>(p, 777i64 as *mut u8);
+    let e: E = E::S(r);
+    match e {
+        E::N => { return 1i32; }
+        E::S(q) => {
+            if q.v != 21i64 { return 10i32; }
+            if (zone_of(q) as i64) != 777i64 { return 11i32; }
+        }
+    }
+    return 0i32;
+}

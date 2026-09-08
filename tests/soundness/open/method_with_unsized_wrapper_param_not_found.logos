@@ -21,6 +21,26 @@
 // (the method-argument position was the one position of eight that could not be
 // measured at all, because the method does not exist). It is NOT a member of
 // that class — no coercion happens, because resolution fails first.
+// ⚠ CORRECTED 2026-09-08 (round 2026-09-08-fatrepr), 15 hand programs on build
+// `2c5a33ef99e94fc9 43`. BOTH of the readings above are too narrow, and the
+// third one is wrong:
+//   * the method DECLARED and never called compiles rc 0 — it IS registered;
+//   * the SAME call with the argument already typed `Rc<dyn Sp>` (routed through
+//     `let rd: Rc<dyn Sp> = rc;`) compiles and RUNS rc 0 — it IS found;
+//   * the TRAIT-method spelling fails identically, so "an inherent method" is
+//     not the property; `&Rc<dyn Sp>` fails too, so "by-value" is not either;
+//   * `Box<A>` -> `Box<dyn Sp>` and `&A` -> `&dyn Sp` at the SAME method-argument
+//     position compile and run.
+// THE PROPERTY IS: an argument that must UNSIZE to reach the parameter is
+// rejected by the method-candidate SELECTOR before any coercion runs, and the
+// rejection is reported as "has no method". The site is
+// `SemaChecker::arg_compatible_for_dispatch`, whose own comment states the rule
+// ("The selector must accept what the coercion pipeline can produce, or the
+// candidate is rejected before the coercion ever runs and the call reports
+// 'no method' instead of coercing") and then implements it for `&[E;N]` ->
+// `&[E]` alone. The wrong SENTENCE is a class, not this program: an ill-typed
+// `W<bool>` at a `W<i64>` parameter prints "has no method" too.
+// The program is UNCHANGED; only the reading is.
 package method_with_unsized_wrapper_param_not_found;
 use logos.lang.rc;
 

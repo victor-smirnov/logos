@@ -1,0 +1,16 @@
+// F7 (fatfield) — a METHOD call through the fat field: `self: &mut Box2` must
+// receive BOTH halves (the layout_6 "zone cascades" property) when the receiver
+// is read out of a struct field rather than a local.
+package f7;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Box2 { v: i64 }
+impl Box2 { fn zone_i(self: &mut Box2) -> i64 { return zone_of(self) as i64; } }
+struct H { r: &mut Box2 }
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 3i64;
+    let r: &mut Box2 = zone_mut_ref::<Box2>(p, 99i64 as *mut u8);
+    let h: H = H { r: r };
+    if h.r.zone_i() != 99i64 { return 10i32; }
+    return 0i32;
+}

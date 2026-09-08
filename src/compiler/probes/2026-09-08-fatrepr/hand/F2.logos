@@ -1,0 +1,12 @@
+// F2 (fatfield) — the SHARED-ref control: `&Box2` in the same field position
+// stays THIN. This program is legal today and must stay byte-identical in
+// verdict; if the probe widens it, the arm is over-broad.
+package f2;
+#[zone_mut] struct Box2 { v: i64 }
+struct H { r: &Box2 }
+fn main() -> i32 {
+    let b: Box2 = Box2 { v: 17i64 };
+    let h: H = H { r: &b };
+    if h.r.v != 17i64 { return 10i32; }
+    return 0i32;
+}

@@ -1,0 +1,15 @@
+// B5 (fatbind) — a THIN `&i64` field through the same binder. The common case;
+// it must not move.
+package b5;
+struct H { p: &i64, n: i64 }
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let h: H = H { p: &x, n: 7i64 };
+    match h {
+        H { p, n } => {
+            if *p != 5i64 { return 10i32; }
+            if n != 7i64 { return 11i32; }
+        }
+    }
+    return 0i32;
+}

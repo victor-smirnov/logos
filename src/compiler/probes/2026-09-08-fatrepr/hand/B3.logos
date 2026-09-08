@@ -1,0 +1,14 @@
+// B3 (fatbind) — `str` in the field's place, PROJECTED (`.len()`), the second
+// FatSlice spelling.
+package b3;
+struct H { s: str, n: i64 }
+fn main() -> i32 {
+    let h: H = H { s: "abc", n: 7i64 };
+    match h {
+        H { s, n } => {
+            if s.len() != 3i64 { return 10i32; }
+            if n != 7i64 { return 11i32; }
+        }
+    }
+    return 0i32;
+}

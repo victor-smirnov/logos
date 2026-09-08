@@ -1,0 +1,17 @@
+// F6 (fatfield) — a WRITE through the fat field, then a read of the underlying
+// object through the raw pointer: the data half must still address the object
+// after a round trip through the field slot.
+package f6;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Box2 { v: i64 }
+struct H { r: &mut Box2 }
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 1i64;
+    let r: &mut Box2 = zone_mut_ref::<Box2>(p, 31i64 as *mut u8);
+    let h: H = H { r: r };
+    h.r.v = 42i64;
+    if (*p).v != 42i64 { return 10i32; }
+    if (zone_of(h.r) as i64) != 31i64 { return 11i32; }
+    return 0i32;
+}

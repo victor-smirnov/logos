@@ -1,0 +1,12 @@
+// M4 (dispunsize) — an ILLEGAL call that must STILL be refused: the wrapper
+// base matches but the payloads are unrelated and neither unsizes to the other.
+package m4;
+struct W<T> { p: T }
+struct Holder { n: i64 }
+impl Holder { pub fn eat(&self, w: W<i64>) -> i64 { return w.p; } }
+fn main() -> i64 {
+    let a: W<bool> = W { p: true };
+    let h: Holder = Holder { n: 0i64 };
+    if h.eat(a) != 1i64 { return 1i64; }
+    return 0i64;
+}

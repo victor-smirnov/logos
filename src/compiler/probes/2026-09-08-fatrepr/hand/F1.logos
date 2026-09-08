@@ -1,0 +1,19 @@
+// F1 (fatfield) — the ROW's shape CONSTRUCTED and USED. A fat `&mut` to a
+// #[zone_mut] type is built the only legal way (zone_mut_ref, as
+// tests/spec/pass/layout_6.logos does), put in a STRUCT FIELD, and BOTH halves
+// are read back through the field: the data half (`v`) and the zone half
+// (`zone_of`). A field that silently kept the thin 8-byte slot answers the
+// first and loses the second.
+package f1;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Box2 { v: i64 }
+struct H { r: &mut Box2 }
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 42i64;
+    let r: &mut Box2 = zone_mut_ref::<Box2>(p, 12345i64 as *mut u8);
+    let h: H = H { r: r };
+    if h.r.v != 42i64 { return 10i32; }
+    if (zone_of(h.r) as i64) != 12345i64 { return 11i32; }
+    return 0i32;
+}

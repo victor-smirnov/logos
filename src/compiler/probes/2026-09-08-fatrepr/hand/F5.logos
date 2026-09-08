@@ -1,0 +1,15 @@
+// F5 (fatfield) — the TUPLE-STRUCT field spelling, one of the four the
+// enumeration added to the class, constructed and read through `.0`.
+package f5;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Box2 { v: i64 }
+struct H(&mut Box2);
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 9i64;
+    let r: &mut Box2 = zone_mut_ref::<Box2>(p, 55i64 as *mut u8);
+    let h: H = H(r);
+    if h.0.v != 9i64 { return 10i32; }
+    if (zone_of(h.0) as i64) != 55i64 { return 11i32; }
+    return 0i32;
+}

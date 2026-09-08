@@ -1,0 +1,13 @@
+// B8 (fatbind) — a SLICE field bound in a `let` struct pattern, the door the
+// row's own enumeration measured CLEAN. The arm changes bind_struct_field, so
+// this says whether the let door shares that site.
+package b8;
+struct H { s: &[i64], n: i64 }
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let h: H = H { s: &a, n: 7i64 };
+    let H { s, n } = h;
+    if s[2] != 3i64 { return 10i32; }
+    if n != 7i64 { return 11i32; }
+    return 0i32;
+}

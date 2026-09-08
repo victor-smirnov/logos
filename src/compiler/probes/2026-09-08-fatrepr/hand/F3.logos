@@ -1,0 +1,11 @@
+// F3 (fatfield) — a PLAIN (non-zone_mut) struct behind `&mut` in a field. The
+// most common shape in the corpus; it must not move at all.
+package f3;
+struct P { v: i64 }
+struct H { r: &mut P }
+fn main() -> i32 {
+    let mut p: P = P { v: 5i64 };
+    let h: H = H { r: &mut p };
+    if h.r.v != 5i64 { return 10i32; }
+    return 0i32;
+}

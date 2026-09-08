@@ -1,0 +1,17 @@
+// F8 (fatfield) — the NESTED-field spelling: the abort names the innermost
+// carrier, so the outer struct's own layout is only correct if the inner one is.
+package f8;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Box2 { v: i64 }
+struct Inner { r: &mut Box2 }
+struct Outer { i: Inner, k: i64 }
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 8i64;
+    let r: &mut Box2 = zone_mut_ref::<Box2>(p, 64i64 as *mut u8);
+    let o: Outer = Outer { i: Inner { r: r }, k: 5i64 };
+    if o.i.r.v != 8i64 { return 10i32; }
+    if o.k != 5i64 { return 11i32; }
+    if (zone_of(o.i.r) as i64) != 64i64 { return 12i32; }
+    return 0i32;
+}

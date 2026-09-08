@@ -30598,3 +30598,75 @@ queue holds them instead of prose.
 
 Closing it reds `tests/logos/pass/custom_dst_smartptr_owning_drop`, pinned green over a
 use-after-free. Corpus decision, owner's call, not edited. Re-verified this round.
+
+## 2026-09-08-fatrepr — THE FAT-REPRESENTATION BLOCK OF THE SOUNDNESS QUEUE, PRICED: FOUR ROWS, FOUR ROOTS, ONE OF THEM THREE ENGINES DEEP
+
+build: `2c5a33ef99e94fc9 43` (base, read from `scripts/build_hash.py`), HEAD `8edce4409`, tree
+clean at declaration. Queue gate rc 0 — 80 rows, t1=27 t2=7 t3=42 t4=4, `# TOTAL` 80.
+bc_admits 91 · bc_admits_blocked 15 · probe-log-lint 248 records. Targets declared BEFORE any
+edit in `src/compiler/probes/2026-09-08-fatrepr/TARGETS.md`; all four rows re-verified on
+today's binary before pricing and all four still reproduce.
+
+ONE BUILD, FOUR EDITS, FIVE ARMS, and the full cost line for each:
+
+    probe          site                                       fires ceiling cost cfail stdlib runtime
+    fatfield       mlir_gen_types.cpp  register_struct          3173    0     0     0    ok     0/6555
+    fatbind        mlir_gen_stmt.cpp   bind_struct_field          27    0     0     0    ok     0/6555
+    enumunsize     sema_expr.cpp       mask_for(CoercePos::Operand) 210 0     0     0    ok     0/6555
+    dispunsize     sema_impl.hpp       arg_compatible_for_dispatch 1898 0     0     0    ok     0/6555
+    dispunsizeagg  same site, the `aggregate_unsize_pending` twin  —    —     —     —     —      —
+
+`fires` is the ARRIVAL count, so every site is proven live. The runtime column is
+`scripts/run_oracle.py` over 6555 pass fixtures compiled, linked and RUN, diffed against an
+unarmed baseline from the same binary, `cast-region-to-uint` subtracted by name.
+
+EACH ARM CLOSES EXACTLY ITS OWN ROW AND NOTHING ELSE. 29 hand programs x 5 arms plus the four
+row programs (`hand/`, `run_hand.sh`): no candidate change moves two rows, so the prompt's
+warning holds and is now MEASURED — four defects, four roots, no additivity to claim.
+
+THE FINDING THAT CHANGES WHAT A FIX COSTS. `zonemut_fat_ref_struct_field_layout_abort` is not
+one site. With the LLVM struct type builder repaired, the always-on cross-check passes and the
+program compiles — but `LOGOS_VERIFY_LAYOUT=1` still aborts, now naming two OTHER engines:
+`mono_abi_layout` says 8 and `sema_abi_layout` says 8 where `layout_of` says 16 (5
+disagreements unarmed -> 4 armed; the arm removes exactly the two `[emitted]` ones). Doors in
+SERIES: the row is bought only by carrying `ref_repr_of(field) == FatZoneMut` into all three.
+
+WHAT THE COST COLUMNS COULD NOT SEE, AGAIN. `fatbind` reads 0 in every column — ceiling, cost,
+cfail, stdlib, and 0 of 6555 at run — and it SEGFAULTS a legal program: a `&dyn Tr` field whose
+method is called through a by-value struct-pattern binder (hand B4) runs rc 0 on the base
+binary and rc 139 under the arm. The corpus contains no program of that shape. A fix must be
+narrower than the crude arm: the FatSlice spellings only, or a FatDyn case that also carries
+the method-receiver convention.
+
+TWO ROW HEADERS FALSIFIED BY THEIR OWN CLASS, ONE DAY OLD.
+  * `method_with_unsized_wrapper_param_not_found` says the method "IS NOT FOUND AT ALL"
+    because of its parameter type. Measured: the method declared and never called compiles;
+    the same call with the argument already typed `Rc<dyn Sp>` compiles and RUNS; the TRAIT
+    method spelling fails identically (so not "inherent"); `&Rc<dyn Sp>` fails too (so not
+    "by-value"); `Box<A>`->`Box<dyn Sp>` and `&A`->`&dyn Sp` at the same position pass. The
+    property is AN ARGUMENT THAT MUST UNSIZE IS REJECTED BY THE CANDIDATE SELECTOR BEFORE ANY
+    COERCION RUNS, and reported as "has no method" — `arg_compatible_for_dispatch`, whose own
+    comment states the rule and then implements it for `&[E;N]`->`&[E]` alone.
+  * the same row's diagnostic is wrong for the whole class, not just this program: an
+    ill-typed `W<bool>` at a `W<i64>` parameter also prints "has no method" (hand M4).
+
+RULE 9, PAID. The twin arm at the same site — ask the question through
+`aggregate_unsize_pending` instead of a wrapper-base test — closes NOTHING. The two names were
+not interchangeable, and a fix cannot lean on that predicate.
+
+WHAT DESERVES FUNDING, in order, with the reason each order was measured rather than guessed:
+`enum_variant_ctor_arg_no_unsize_coercion` first (one mask at one position, the careful fix is
+strictly narrower than the arm that was priced); `method_with_unsized_wrapper_param_not_found`
+second (same shape one level earlier, and it repairs a wrong diagnostic for a whole class);
+`zonemut_fat_ref_struct_field_layout_abort` third — the prompt recommended it first and the
+measurement moves it DOWN, because the fix is three engines, not one; and
+`fatslice_field_match_binder_invalid_mlir` last, because the cheap convention swap buys the row
+with a SEGV in a legal neighbour and every cost column reads zero.
+
+The five arms, the 29 hand programs and the full matrix are in
+`src/compiler/probes/2026-09-08-fatrepr/` (TARGETS.md declared before the edits, FINDINGS.md
+with the numbers, run_hand.sh re-runs the matrix against any binary).
+
+fires: fatfield 3173 · fatbind 27 · enumunsize 210 · dispunsize 1898 (arrivals, so every site
+is proven live). Post-revert the tree is back on `2c5a33ef99e94fc9 43` — the same hash the round
+opened on, read again after the rebuild — queue gate rc 0, L1 rc 0 (779/779).

@@ -1,0 +1,17 @@
+// M3 (dispunsize) — OVERLOAD SAFETY. Two methods of the SAME NAME whose
+// parameters are two instantiations of ONE generic wrapper. The crude arm
+// accepts any same-base struct, so if it picks the wrong candidate this
+// program returns the other method's answer.
+package m3;
+struct W<T> { p: T }
+struct Holder { n: i64 }
+impl Holder {
+    pub fn eat(&self, w: W<i64>) -> i64 { return 100i64; }
+    pub fn eat(&self, w: W<i32>) -> i64 { return 200i64; }
+}
+fn main() -> i64 {
+    let a: W<i64> = W { p: 1i64 };
+    let h: Holder = Holder { n: 0i64 };
+    if h.eat(a) != 100i64 { return 1i64; }
+    return 0i64;
+}

@@ -1,0 +1,11 @@
+// E4 (enumunsize) — the COMPOUND-ASSIGN RHS, the OTHER user of
+// CoercePos::Operand. The crude arm widens the whole position, so this is the
+// blast-radius control: it must still compute the same number.
+package e4;
+fn main() -> i32 {
+    let mut n: i64 = 10i64;
+    n += 5i64;
+    n -= 3i64;
+    if n != 12i64 { return 10i32; }
+    return 0i32;
+}

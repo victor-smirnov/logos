@@ -1,0 +1,17 @@
+// B7 (fatbind) — the binder ESCAPES the arm: bound by value, then RETURNED
+// through a length read after the scrutinee's own block ends. Aliasing the
+// scrutinee's storage (what the crude arm does) is only safe while that
+// storage lives; this program says whether the arm's aliasing is visible.
+package b7;
+struct H { s: &[i64], n: i64 }
+fn pick(h: H) -> i64 {
+    match h {
+        H { s, n } => { return s[1] + n; }
+    }
+}
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let h: H = H { s: &a, n: 7i64 };
+    if pick(h) != 9i64 { return 10i32; }
+    return 0i32;
+}

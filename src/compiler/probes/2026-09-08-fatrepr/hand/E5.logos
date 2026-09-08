@@ -1,0 +1,7 @@
+// E5 (enumunsize) — a CONST INITIALIZER, the third user of the same position.
+package e5;
+const K: i64 = 7i64;
+fn main() -> i32 {
+    if K != 7i64 { return 10i32; }
+    return 0i32;
+}

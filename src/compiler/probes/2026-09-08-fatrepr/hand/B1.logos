@@ -1,0 +1,15 @@
+// B1 (fatbind) — the ROW's shape: project a `&[i64]` field through a by-value
+// struct-pattern binder.
+package b1;
+struct H { s: &[i64], n: i64 }
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let h: H = H { s: &a, n: 7i64 };
+    match h {
+        H { s, n } => {
+            if s[2] != 3i64 { return 10i32; }
+            if n != 7i64 { return 11i32; }
+        }
+    }
+    return 0i32;
+}
