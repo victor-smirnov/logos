@@ -1,0 +1,11 @@
+// X6 ILLEGAL — a SHARED ref where the payload wants a MUTABLE slice:
+// `&[i64;3]` into `&mut [i64]`. The unsize exists but the mutability does not.
+package x6;
+enum E { N, S(&mut [i64]) }
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let e: E = E::S(&a);
+    match e { E::N => { return 1i32; } E::S(s) => { s[1] = 42i64; } }
+    if a[1] != 42i64 { return 10i32; }
+    return 0i32;
+}

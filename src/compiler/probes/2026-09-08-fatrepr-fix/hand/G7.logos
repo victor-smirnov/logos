@@ -1,0 +1,14 @@
+// G7 LEGAL — the ctor inside a GENERIC FUNCTION, so the variant is resolved
+// through the from-static lowering path with a substitution in flight.
+package g7;
+enum E { N, S(&[i64]) }
+fn mk<T>(t: T, p: &[i64; 3]) -> E { return E::S(p); }
+fn main() -> i32 {
+    let a: [i64; 3] = [5i64, 6i64, 7i64];
+    let e: E = mk::<i64>(1i64, &a);
+    match e {
+        E::N => { return 1i32; }
+        E::S(s) => { if s[1] != 6i64 { return 10i32; } }
+    }
+    return 0i32;
+}

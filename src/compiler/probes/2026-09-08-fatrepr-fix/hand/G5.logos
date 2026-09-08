@@ -1,0 +1,13 @@
+// G5 LEGAL — CLOSURE -> FN-POINTER in an enum payload. This coercion is a
+// SECOND member of the mask the fix installs, not the one the row names, so it
+// is the shape that says whether the fix is the position or the flag.
+package g5;
+enum E { N, S(fn(i64) -> i64) }
+fn main() -> i32 {
+    let e: E = E::S(|x: i64| -> i64 { return x + 1i64; });
+    match e {
+        E::N => { return 1i32; }
+        E::S(f) => { if f(41i64) != 42i64 { return 10i32; } }
+    }
+    return 0i32;
+}

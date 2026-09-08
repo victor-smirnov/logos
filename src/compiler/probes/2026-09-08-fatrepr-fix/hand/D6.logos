@@ -1,0 +1,13 @@
+// D6 — ILLEGAL, the abuse direction for any selector widening: `W<bool>` at a
+// `W<i64>` parameter is NOT an unsize (both field types are sized), so it must
+// STAY refused. A selector that accepts "same base struct" admits this.
+package d6;
+struct W<T> { v: T }
+struct H { n: i64 }
+impl H { pub fn eat(&self, w: W<i64>) -> i64 { return w.v + self.n; } }
+fn main() -> i32 {
+    let h: H = H { n: 1i64 };
+    let w: W<bool> = W { v: true };
+    if h.eat(w) != 18i64 { return 10i32; }
+    return 0i32;
+}

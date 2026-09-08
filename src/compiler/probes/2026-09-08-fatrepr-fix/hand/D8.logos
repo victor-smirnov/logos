@@ -1,0 +1,19 @@
+// D8 — the wrapper unsize at an OVERLOADED method name: two candidates, one
+// `Rc<dyn Sp>` and one `i64`. A selector that admits too much picks wrong.
+package d8;
+use logos.lang.rc;
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+struct H { n: i64 }
+impl H {
+    pub fn eat(&self, k: i64) -> i64 { return k * 2i64; }
+    pub fn eat(&self, r: Rc<dyn Sp>) -> i64 { return r.v() + self.n; }
+}
+fn main() -> i32 {
+    let h: H = H { n: 1i64 };
+    let rc: Rc<A> = rc_new(A { x: 17i64 });
+    if h.eat(rc) != 18i64 { return 10i32; }
+    if h.eat(5i64) != 10i64 { return 11i32; }
+    return 0i32;
+}

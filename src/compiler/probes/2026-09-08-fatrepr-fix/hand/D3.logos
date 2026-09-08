@@ -1,0 +1,11 @@
+// D3 — CLASS PROBE: CFLAG_IMPLICIT_REBORROW is in the MethodArg mask. Does the
+// selector admit a `&mut [i64;3]` at a `&[i64]` parameter (reborrow + unsize)?
+package d3;
+struct H { n: i64 }
+impl H { pub fn sum(&self, s: &[i64]) -> i64 { return s[0] + s[2]; } }
+fn main() -> i32 {
+    let h: H = H { n: 0i64 };
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    if h.sum(&mut a) != 4i64 { return 10i32; }
+    return 0i32;
+}

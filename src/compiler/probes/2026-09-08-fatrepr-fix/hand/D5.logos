@@ -1,0 +1,16 @@
+// D5 — CLASS PROBE: the wrapper unsize at a TRAIT method (not inherent), so
+// "inherent" is separated from "selector" once more, on today's binary.
+package d5;
+use logos.lang.rc;
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+trait Eater { fn eat(&self, r: Rc<dyn Sp>) -> i64; }
+struct H { n: i64 }
+impl Eater for H { fn eat(&self, r: Rc<dyn Sp>) -> i64 { return r.v() + self.n; } }
+fn main() -> i32 {
+    let h: H = H { n: 1i64 };
+    let rc: Rc<A> = rc_new(A { x: 17i64 });
+    if h.eat(rc) != 18i64 { return 10i32; }
+    return 0i32;
+}

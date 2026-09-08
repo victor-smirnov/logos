@@ -1,0 +1,10 @@
+// A3 — CLASS PROBE: an `&[i64;3]` at a STRUCT-literal field, the position whose
+// mask the fix copies onto the enum ctor. It must already work at base.
+package a3;
+struct H { s: &[i64] }
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let h: H = H { s: &a };
+    if h.s[2] != 3i64 { return 10i32; }
+    return 0i32;
+}

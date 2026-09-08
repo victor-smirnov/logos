@@ -1,0 +1,16 @@
+// S1 — the SLICE_TO_ARRAY direction the new mask also turns on: a real `&[i64]`
+// at an `&[i64;3]` payload. Not the row's coercion; measured because the fix
+// installs the flag. Whatever the verdict, it must be the SAME as the
+// structurally identical tuple-STRUCT ctor field one token away.
+package s1;
+enum E { N, S(&[i64; 3]) }
+struct H(&[i64; 3]);
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let sl: &[i64] = &a;
+    let h: H = H(sl);
+    let e: E = E::S(sl);
+    match e { E::N => { return 1i32; } E::S(s) => { if s[2] != 3i64 { return 10i32; } } }
+    if h.0[0] != 1i64 { return 11i32; }
+    return 0i32;
+}

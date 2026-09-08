@@ -1,0 +1,10 @@
+// X7 ILLEGAL — a wholly unrelated type at the payload: `bool` into `&[i64]`.
+// The control that says the position still REFUSES at all.
+package x7;
+enum E { N, S(&[i64]) }
+fn main() -> i32 {
+    let b: bool = true;
+    let e: E = E::S(b);
+    match e { E::N => { return 1i32; } E::S(s) => { if s[0] != 1i64 { return 10i32; } } }
+    return 0i32;
+}

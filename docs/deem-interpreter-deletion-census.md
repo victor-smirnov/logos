@@ -5518,8 +5518,21 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9420 -> 9424   +4   (four native fixtures)
 #   NOIMPORTED   4962 -> 4966   +4   (none is labelled imported)
 #   TIERCOMMIT    156 ->  156    0   (none declares tier_commit)
-REGISTRY-ALL         9424
-REGISTRY-NOIMPORTED  4966
+# 2026-09-08d (the fat-representation queue block). FOUR native tests, two
+#   one-token fixture PAIRS, one per closed soundness-queue row:
+#   tests/logos/pass/enum_ctor_arg_array_to_slice_unsize.logos and
+#   tests/logos/fail/enum_ctor_arg_array_to_slice_unsize.logos (the closed row
+#   enum_variant_ctor_arg_no_unsize_coercion — an enum variant ctor argument
+#   takes the `&[T;N] -> &[T]` unsize; the fail half passes the array BY VALUE)
+#   and tests/logos/pass/method_arg_wrapper_unsize_dispatch.logos with
+#   tests/logos/fail/method_arg_wrapper_unsize_dispatch.logos (the closed row
+#   method_with_unsized_wrapper_param_not_found — the method-candidate selector
+#   admits the single-field wrapper unsize; the fail half passes an `i64`).
+#   ALL          9424 -> 9428   +4   (four native fixtures)
+#   NOIMPORTED   4966 -> 4970   +4   (none is labelled imported)
+#   TIERCOMMIT    156 ->  156    0   (none declares tier_commit)
+REGISTRY-ALL         9428
+REGISTRY-NOIMPORTED  4970
 REGISTRY-TIERCOMMIT  156
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

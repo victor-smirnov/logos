@@ -1,0 +1,10 @@
+// D2 — CLASS PROBE: CFLAG_CLOSURE_TO_FNPTR is in the MethodArg mask. Does the
+// candidate SELECTOR admit a closure at an `fn(i64)->i64` parameter?
+package d2;
+struct H { n: i64 }
+impl H { pub fn ap(&self, f: fn(i64) -> i64) -> i64 { return f(self.n); } }
+fn main() -> i32 {
+    let h: H = H { n: 41i64 };
+    if h.ap(|x: i64| -> i64 { return x + 1i64; }) != 42i64 { return 10i32; }
+    return 0i32;
+}

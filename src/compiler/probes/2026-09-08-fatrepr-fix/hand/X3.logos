@@ -1,0 +1,11 @@
+// X3 ILLEGAL — array LENGTH mismatch at a fixed-size payload: `&[i64;3]` into
+// `&[i64;4]`. Must STAY refused (the fix adds SLICE_TO_ARRAY; this is the
+// program that says it did not become "any array fits any array").
+package x3;
+enum E { N, S(&[i64; 4]) }
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let e: E = E::S(&a);
+    match e { E::N => { return 1i32; } E::S(s) => { if s[1] != 2i64 { return 10i32; } } }
+    return 0i32;
+}

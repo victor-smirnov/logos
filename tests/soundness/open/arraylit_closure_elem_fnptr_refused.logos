@@ -1,0 +1,31 @@
+// SOUNDNESS QUEUE row arraylit_closure_elem_fnptr_refused (tier 3, `refuses`).
+// A LEGAL PROGRAM IS REFUSED: an ARRAY LITERAL of non-capturing closures at a
+// declared `[fn(i64) -> i64; 2]` does not compile —
+//     error [fn main]: let 'fs': type mismatch — expected [fn(i64) -> i64; 2],
+//                      got [closure; 2]
+// rustc compiles and runs it (a non-capturing closure coerces to a fn pointer
+// at every position that has a fn-pointer expectation).
+//
+// MEASURED 2026-09-08 by ENUMERATING BY THE PROPERTY "a position that checks an
+// element of an aggregate being CONSTRUCTED against its declared element type",
+// on build 2c5a33ef99e94fc9 43 and again on 69440e4620b32dcb 43 (this commit's
+// binary, which repairs the ENUM CTOR member of that same class and does NOT
+// move this one — the control that says the two are separate roots):
+//   ok   TUPLE literal element   `let t: (fn(i64)->i64, i64) = (|x| .., 7i64);`
+//        CoercePos::TupleElem carries CFLAG_CLOSURE_TO_FNPTR — compiles, runs
+//   ok   STRUCT literal field, tuple-STRUCT ctor arg  (CoercePos::StructLitField)
+//   ok   ENUM variant ctor arg   — repaired by this commit
+//   BAD  ARRAY literal element   — `mask_for(CoercePos::ArrayElem)` is
+//        `CFLAG_ARRAY_TO_SLICE | CFLAG_WIDEN_INT`, with no CLOSURE_TO_FNPTR.
+// ⚠ THE MASK IS A HYPOTHESIS, NOT THE MEASURED ROOT: the diagnostic printed is
+// the `let`-LEVEL one ("let 'fs': type mismatch"), not an element-level one, so
+// the array literal may be judged as a WHOLE before any element position is
+// reached. Whoever funds this row must find the site before changing a mask.
+package arraylit_closure_elem_fnptr_refused;
+fn main() -> i32 {
+    let fs: [fn(i64) -> i64; 2] = [|x: i64| -> i64 { return x + 1i64; },
+                                   |x: i64| -> i64 { return x + 2i64; }];
+    if fs[0](41i64) != 42i64 { return 10i32; }
+    if fs[1](40i64) != 42i64 { return 11i32; }
+    return 0i32;
+}

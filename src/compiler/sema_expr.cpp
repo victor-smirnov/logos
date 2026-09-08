@@ -932,9 +932,15 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
     return builder().var_ref(std::string(name), t, lookup_slot(name));
 }
 
-bool SemaChecker::try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target) {
-    if (!e || !expr_type(e) || !target) return false;
-    TypeRef et(expr_type(e));
+// The SHAPE half of try_struct_unsize_coerce, split out so the method-candidate
+// SELECTOR can ask the same question the coercion pipeline answers. Only a
+// GENUINE unsize passes: EXACTLY ONE field whose substituted type goes from a
+// sized/thin form to a fat one. A type-arg difference that is NOT an unsize —
+// a lifetime-only variance diff `Foo<&'a>` vs `Foo<&'b>` — must fall through to
+// the variance/compat machinery, not be rebuilt (that broke 19 variance tests).
+bool SemaChecker::struct_unsize_shape_ok(TypeRef src, TypeRef target) {
+    TypeRef et(src);
+    if (!src || !target) return false;
     if (!((TypeRef(target).kind() == LogosType::Kind::Struct ||
            TypeRef(target).kind() == LogosType::Kind::ZonedStruct) &&
           (et.kind() == LogosType::Kind::Struct ||
@@ -945,7 +951,7 @@ bool SemaChecker::try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target) {
         return false;
     std::string sname(TypeRef(target).struct_name());
     auto [spkg, ssi] = find_struct_by_name(sname);
-    if (!ssi || ssi->fields.empty()) return false;
+    if (!ssi || ssi->fields.size() != 1) return false;
     SemaSubst src_s, tgt_s;
     auto sa = et.type_args();
     auto ta = TypeRef(target).type_args();
@@ -953,26 +959,37 @@ bool SemaChecker::try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target) {
         if (i < sa.size()) src_s[ssi->type_params[i].name] = sa[i];
         if (i < ta.size()) tgt_s[ssi->type_params[i].name] = ta[i];
     }
-    // Only a GENUINE unsize fires here: a field whose substituted type goes from
-    // a sized/thin form to a fat unsized form (DstRef, or TraitObject/Slice the
-    // source isn't). A type-arg difference that is NOT an unsize — e.g. a
-    // lifetime-only variance diff `Foo<&'a>` vs `Foo<&'b>` — must fall through to
-    // the variance/compat machinery, NOT be rebuilt here (that broke 19 variance
-    // tests). Require EXACTLY one unsizing field and all others identical;
-    // restricted to the single-field smart-pointer shape (Rc/Arc/user).
-    if (ssi->fields.size() != 1) return false;
+    TypeRef sf = src_s.empty() ? TypeRef(ssi->fields[0].type)
+                               : subst_type_sema(ssi->fields[0].type, src_s);
+    TypeRef tf = tgt_s.empty() ? TypeRef(ssi->fields[0].type)
+                               : subst_type_sema(ssi->fields[0].type, tgt_s);
+    if (!sf || !tf || sf == tf) return false;
+    auto sk = sf.kind(), tk = tf.kind();
+    return tk == LogosType::Kind::DstRef ||
+           (tk == LogosType::Kind::TraitObject && sk != LogosType::Kind::TraitObject) ||
+           (tk == LogosType::Kind::Slice && sk != LogosType::Kind::Slice);
+}
+
+bool SemaChecker::try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target) {
+    if (!e || !expr_type(e) || !target) return false;
+    // The whole shape test lives in ONE place (rule 18: a twin instrument needs
+    // its own control twin — so there is no twin).
+    if (!struct_unsize_shape_ok(expr_type(e), target)) return false;
+    TypeRef et(expr_type(e));
+    std::string sname(TypeRef(target).struct_name());
+    auto [spkg, ssi] = find_struct_by_name(sname);
+    SemaSubst src_s, tgt_s;
+    auto sa = et.type_args();
+    auto ta = TypeRef(target).type_args();
+    for (size_t i = 0; i < ssi->type_params.size(); ++i) {
+        if (i < sa.size()) src_s[ssi->type_params[i].name] = sa[i];
+        if (i < ta.size()) tgt_s[ssi->type_params[i].name] = ta[i];
+    }
     std::vector<TypeRef> sft(1), tft(1);
     sft[0] = src_s.empty() ? TypeRef(ssi->fields[0].type)
                            : subst_type_sema(ssi->fields[0].type, src_s);
     tft[0] = tgt_s.empty() ? TypeRef(ssi->fields[0].type)
                            : subst_type_sema(ssi->fields[0].type, tgt_s);
-    if (!sft[0] || !tft[0] || sft[0] == tft[0]) return false;
-    auto sk = sft[0].kind(), tk = tft[0].kind();
-    bool is_unsize =
-        tk == LogosType::Kind::DstRef ||
-        (tk == LogosType::Kind::TraitObject && sk != LogosType::Kind::TraitObject) ||
-        (tk == LogosType::Kind::Slice && sk != LogosType::Kind::Slice);
-    if (!is_unsize) return false;  // not a sized→fat unsize (e.g. lifetime diff)
     // Single-field smart-pointer shape (Rc/Arc/user): read the field, coerce
     // it to the target field type (the ptr→DstRef/TraitObject unsize is handled
     // in mlir-gen's cast), repack into the target struct.
@@ -14256,7 +14273,9 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 // hoisted value is REFUSED.
                 (!types_compatible(expr_type(payload[i]), resolved_payload_types[i]) ||
                  aggregate_unsize_pending(resolved_payload_types[i], expr_type(payload[i]))))
-                expect_type(payload[i], resolved_payload_types[i], CoercePos::Operand,
+                // An enum payload is a constructed aggregate's FIELD, like the
+                // tuple-struct ctor arm above — not a CoercePos::Operand.
+                expect_type(payload[i], resolved_payload_types[i], CoercePos::StructLitField,
                             std::format("{}::{} arg {}:", ename, vname, i));
             // Check IntLit payload value fits in the declared payload type.
             if (resolved_payload_types[i] && TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::IntLit)
@@ -14339,7 +14358,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 if (TypeRef(expr_type(payload[i])).kind() != LogosType::Kind::Error &&
                     TypeRef(pack_t).kind() != LogosType::Kind::Error &&
                     !types_compatible(expr_type(payload[i]), pack_t))
-                    expect_type(payload[i], pack_t, CoercePos::Operand,
+                    expect_type(payload[i], pack_t, CoercePos::StructLitField,
                                 std::format("{}::{} variadic arg {}:", ename, vname, i));
             }
         }
@@ -14625,7 +14644,9 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                 // hoisted value is REFUSED.
                 (!types_compatible(expr_type(payload[i]), resolved_payload_types[i]) ||
                  aggregate_unsize_pending(resolved_payload_types[i], expr_type(payload[i]))))
-                expect_type(payload[i], resolved_payload_types[i], CoercePos::Operand,
+                // An enum payload is a constructed aggregate's FIELD, like the
+                // tuple-struct ctor arm above — not a CoercePos::Operand.
+                expect_type(payload[i], resolved_payload_types[i], CoercePos::StructLitField,
                             std::format("{}::{} arg {}:", ename, vname, i));
             if (resolved_payload_types[i] &&
                 TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::IntLit)
@@ -14708,7 +14729,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                 if (TypeRef(expr_type(payload[i])).kind() != LogosType::Kind::Error &&
                     TypeRef(pack_t).kind() != LogosType::Kind::Error &&
                     !types_compatible(expr_type(payload[i]), pack_t))
-                    expect_type(payload[i], pack_t, CoercePos::Operand,
+                    expect_type(payload[i], pack_t, CoercePos::StructLitField,
                                 std::format("{}::{} variadic arg {}:", ename, vname, i));
                 if (TypeRef(pack_t).kind() != LogosType::Kind::Error &&
                     TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::IntLit)

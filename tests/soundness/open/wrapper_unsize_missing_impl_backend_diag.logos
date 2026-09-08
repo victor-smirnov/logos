@@ -1,0 +1,36 @@
+// SOUNDNESS QUEUE row wrapper_unsize_missing_impl_backend_diag (tier 4, `diag`).
+// The VERDICT is right and the SENTENCE is not sema's: an ill-typed single-field
+// wrapper unsize — `Rc<A>` to `Rc<dyn Other>` where `A` does NOT implement
+// `Other` — passes the sema coercion pipeline and is caught by the BACKEND:
+//     mlir_gen: internal: no vtable for 'A' as '&dyn Other' — the fat pointer's
+//     vtable half would be left uninitialised and the first dispatch would jump
+//     through stack garbage
+//     mlir_gen: 1 self-diagnosed malfunction(s) — COMPILE FAILED
+// rustc says E0277 ("the trait bound `A: Other` is not satisfied") at the
+// coercion, and the object file is not written either way — so this is a
+// SENTENCE defect, not an admission. `try_struct_unsize_coerce` tests the
+// SHAPE of the unsize (one field, sized -> DstRef/TraitObject/Slice) and never
+// asks whether the trait is implemented; the analogous check exists for
+// AGGREGATE elements ("aggregate element {}: slot type {} needs an unsize
+// from {}, but the type does not implement the trait…", sema_expr.cpp) and is
+// not reached from this path.
+//
+// MEASURED 2026-09-08 on the BASE binary 2c5a33ef99e94fc9 43 at the `let` door
+// exactly as written below — i.e. THIS ROW PREDATES the method-selector repair
+// landed in the same commit; that repair only routes the METHOD-ARGUMENT door
+// into the same pre-existing hole, and the two doors print the identical
+// sentence. Re-measured on 69440e4620b32dcb 43: unchanged.
+package wrapper_unsize_missing_impl_backend_diag;
+use logos.lang.rc;
+
+trait Sp { fn v(&self) -> i64; }
+trait Other { fn w(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn main() -> i32 {
+    let rc: Rc<A> = rc_new(A { x: 17i64 });
+    let d: Rc<dyn Other> = rc;
+    if d.w() != 17i64 { return 10i32; }
+    return 0i32;
+}

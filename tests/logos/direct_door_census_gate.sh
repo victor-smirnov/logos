@@ -1550,11 +1550,18 @@ PIN = {
     # upcast one). Their one-token fail twins are NOT in this population (it is
     # `pass`).
     # `ls tests/logos/pass/{coerce_unsize_consumes_source_rc,dyn_upcast_consumes_source_box}.logos | wc -l` -> 2.
-    # RE-DERIVED BY DIRECT LISTING: `ls tests/logos/pass/*.logos | wc -l` -> 2934,
-    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2934 = 191 + 2743.
-    'corpus'            : 2934,
+    # 2026-09-08d (fat-representation queue block, two rows closed): +2 pass
+    # fixtures, both NON-glob, both the pass half of a one-token pair —
+    # enum_ctor_arg_array_to_slice_unsize (an enum variant ctor argument takes
+    # the `&[T;N] -> &[T]` unsize) and method_arg_wrapper_unsize_dispatch (the
+    # method-candidate selector admits the single-field wrapper unsize). Their
+    # fail twins are NOT in this population (it is `pass`). No door is declared
+    # by either, so `doors`/`glob`/`nonglob_doors` are unmoved.
+    # RE-DERIVED BY DIRECT LISTING: `ls tests/logos/pass/*.logos | wc -l` -> 2936,
+    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2936 = 191 + 2745.
+    'corpus'            : 2936,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2743,  # +2 (2026-09-08c), +1 (2026-09-08b), +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2745,  # +2 (2026-09-08d), +2 (2026-09-08c), +1 (2026-09-08b), +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

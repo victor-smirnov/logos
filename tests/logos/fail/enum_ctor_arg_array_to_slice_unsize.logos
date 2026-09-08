@@ -1,0 +1,19 @@
+// PAIR HALF (fail) — the unsize needs a REFERENCE. One token apart from
+// tests/logos/pass/enum_ctor_arg_array_to_slice_unsize.logos: `E::S(a)` here,
+// `E::S(&a)` there. The position must still REFUSE an array passed by value at
+// an `&[i64]` payload; the row was closed by widening the coercion set at this
+// position, not by making it stop checking.
+package enum_ctor_arg_array_to_slice_unsize;
+enum E { N, S(&[i64]) }
+fn main() -> i64 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let e: E = E::S(a);
+    match e {
+        E::N => { return 1i64; }
+        E::S(s) => {
+            if s[0] != 1i64 { return 2i64; }
+            if s[2] != 3i64 { return 3i64; }
+        }
+    }
+    return 7i64;
+}

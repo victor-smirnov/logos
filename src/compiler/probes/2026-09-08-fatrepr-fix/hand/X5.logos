@@ -1,0 +1,11 @@
+// X5 ILLEGAL — a NARROWING int at a payload: an `i64` variable into an `i32`
+// payload. WIDEN_INT was already on at this position; this pins that the new
+// mask did not turn the widening into a two-way conversion.
+package x5;
+enum E { N, S(i32) }
+fn main() -> i32 {
+    let big: i64 = 5i64;
+    let e: E = E::S(big);
+    match e { E::N => { return 1i32; } E::S(v) => { if v != 5i32 { return 10i32; } } }
+    return 0i32;
+}

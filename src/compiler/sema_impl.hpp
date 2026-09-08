@@ -1560,6 +1560,8 @@ private:
     // applied. Shared by explicit `as` (lower_cast) and the implicit coercion
     // points (arg / let / return). Single-field shape only.
     bool try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target);
+    // Its SHAPE half, asked by the method-candidate selector too.
+    bool struct_unsize_shape_ok(TypeRef src, TypeRef target);
     bool try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,
                                    bool allow_downgrade = true);
 
@@ -8098,7 +8100,7 @@ private:
     }
     bool arg_compatible_for_dispatch(lir_view::ExprRef arg,
                                      TypeRef at,
-                                     TypeRef pt) const noexcept {
+                                     TypeRef pt) {
         if (types_equal(at, pt)) return true;
         if (types_compatible(at, pt)) return true;
         // A `&[E; N]` argument dispatches against a `&[E]` slice param: the
@@ -8132,6 +8134,26 @@ private:
             if (auto v = get_intlit_value(arg))
                 if (intlit_fits(*v, TypeRef(pt).kind()))
                     return true;
+        // The SECOND clause of the rule stated above, and the THIRD: the
+        // pipeline's CFLAG_CLOSURE_TO_FNPTR (try_coerce_closure_to_fnptr) and
+        // its single-field wrapper unsize (try_struct_unsize_coerce) can both
+        // produce `pt` from `at`, so the selector must admit them or the call
+        // reports "has no method" on a legal program.
+        if (arg && at && pt &&
+            TypeRef(pt).kind() == LogosType::Kind::FnPtr &&
+            TypeRef(at).kind() == LogosType::Kind::Closure &&
+            arg.kind() == lir_schema::expr::Code::ClosureBox &&
+            lir_view::EClosureBoxView{arg}.capture_count() == 0 &&
+            TypeRef(at).closure_params().size() ==
+                TypeRef(pt).closure_params().size()) {
+            bool all = true;
+            for (size_t i = 0; i < TypeRef(at).closure_params().size(); ++i)
+                if (!types_compatible(TypeRef(at).closure_params()[i],
+                                      TypeRef(pt).closure_params()[i]))
+                    all = false;
+            if (all) return true;
+        }
+        if (struct_unsize_shape_ok(at, pt)) return true;
         return false;
     }
 };

@@ -1,0 +1,10 @@
+// X2 ILLEGAL — the array BY VALUE at a `&[i64]` payload: no reference at all,
+// so no unsize is available. Must STAY refused.
+package x2;
+enum E { N, S(&[i64]) }
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let e: E = E::S(a);
+    match e { E::N => { return 1i32; } E::S(s) => { if s[1] != 2i64 { return 10i32; } } }
+    return 0i32;
+}

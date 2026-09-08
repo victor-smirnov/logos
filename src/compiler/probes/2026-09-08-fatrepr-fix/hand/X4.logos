@@ -1,0 +1,9 @@
+// X4 ILLEGAL — a closure of the WRONG SIGNATURE at an `fn(i64)->i64` payload.
+// The fix turns CLOSURE_TO_FNPTR on at this position; this says it still checks.
+package x4;
+enum E { N, S(fn(i64) -> i64) }
+fn main() -> i32 {
+    let e: E = E::S(|x: bool| -> i64 { if x { return 1i64; } return 0i64; });
+    match e { E::N => { return 1i32; } E::S(f) => { if f(41i64) != 42i64 { return 10i32; } } }
+    return 0i32;
+}

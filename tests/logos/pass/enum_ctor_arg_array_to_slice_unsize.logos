@@ -1,0 +1,21 @@
+// PAIR HALF (pass) — an enum variant ctor argument takes the `&[T; N] -> &[T]`
+// unsize, like every other position that constructs an aggregate. ONE TOKEN
+// apart from tests/logos/fail/enum_ctor_arg_array_to_slice_unsize.logos: `&a`
+// here, `a` there. Closed soundness-queue row
+// enum_variant_ctor_arg_no_unsize_coercion (tier 3, `refuses`). rustc compiles
+// and runs this. The program RUNS and its exit code is the oracle: 7 only if
+// the payload was read back through the slice correctly.
+package enum_ctor_arg_array_to_slice_unsize;
+enum E { N, S(&[i64]) }
+fn main() -> i64 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let e: E = E::S(&a);
+    match e {
+        E::N => { return 1i64; }
+        E::S(s) => {
+            if s[0] != 1i64 { return 2i64; }
+            if s[2] != 3i64 { return 3i64; }
+        }
+    }
+    return 7i64;
+}

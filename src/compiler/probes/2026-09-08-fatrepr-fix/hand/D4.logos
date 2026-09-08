@@ -1,0 +1,15 @@
+// D4 — CLASS PROBE: CFLAG_ARG_TO_DYN, the `&A` -> `&dyn Sp` member. The round
+// before measured this as WORKING; re-measured here as the control that says
+// the selector is not simply blind to every unsize.
+package d4;
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+struct H { n: i64 }
+impl H { pub fn eat(&self, r: &dyn Sp) -> i64 { return r.v() + self.n; } }
+fn main() -> i32 {
+    let h: H = H { n: 1i64 };
+    let a: A = A { x: 41i64 };
+    if h.eat(&a) != 42i64 { return 10i32; }
+    return 0i32;
+}

@@ -1,0 +1,25 @@
+// PAIR HALF (fail) — the selector was widened to admit the wrapper unsize, NOT
+// to stop checking. ONE TOKEN apart from
+// tests/logos/pass/method_arg_wrapper_unsize_dispatch.logos: `h.eat(5i64)` here,
+// `h.eat(rc)` there. An `i64` reaches `Rc<dyn Sp>` by no coercion the pipeline
+// has, so there is no candidate and the call is refused.
+// ⚠ THE SENTENCE IS COARSE ON PURPOSE and it is the tree's, not this pair's:
+// every method-arg mismatch is reported as "has no method". That is a separate
+// soundness-queue row (method_arg_mismatch_reported_as_no_method, `diag`), and
+// pinning the current sentence here is what makes changing it visible.
+package method_arg_wrapper_unsize_dispatch;
+use logos.lang.rc;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+struct Holder { n: i64 }
+impl Holder { pub fn eat(&self, r: Rc<dyn Sp>) -> i64 { return r.v() + self.n; } }
+
+fn main() -> i64 {
+    let h: Holder = Holder { n: 1i64 };
+    let rc: Rc<A> = rc_new(A { x: 17i64 });
+    if h.eat(5i64) != 18i64 { return 1i64; }
+    return 7i64;
+}

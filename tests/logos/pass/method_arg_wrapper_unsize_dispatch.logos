@@ -1,0 +1,24 @@
+// PAIR HALF (pass) — a method-candidate SELECTOR must admit what the coercion
+// pipeline can produce. `Rc<A>` reaches an `Rc<dyn Sp>` by-value parameter
+// through the single-field wrapper unsize (try_struct_unsize_coerce), so the
+// candidate must not be rejected before the coercion runs. ONE TOKEN apart from
+// tests/logos/fail/method_arg_wrapper_unsize_dispatch.logos: `h.eat(rc)` here,
+// `h.eat(5i64)` there. Closed soundness-queue row
+// method_with_unsized_wrapper_param_not_found (tier 3, `refuses`). The program
+// RUNS; exit 7 only if the unsized receiver dispatched to A::v.
+package method_arg_wrapper_unsize_dispatch;
+use logos.lang.rc;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+struct Holder { n: i64 }
+impl Holder { pub fn eat(&self, r: Rc<dyn Sp>) -> i64 { return r.v() + self.n; } }
+
+fn main() -> i64 {
+    let h: Holder = Holder { n: 1i64 };
+    let rc: Rc<A> = rc_new(A { x: 17i64 });
+    if h.eat(rc) != 18i64 { return 1i64; }
+    return 7i64;
+}

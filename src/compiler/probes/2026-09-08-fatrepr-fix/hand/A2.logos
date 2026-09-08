@@ -1,0 +1,8 @@
+// A2 — CLASS PROBE: the TUPLE-literal element position (TupleElem) carries the
+// full mask; the same closure at that position is the control for A1.
+package a2;
+fn main() -> i32 {
+    let t: (fn(i64) -> i64, i64) = (|x: i64| -> i64 { return x + 1i64; }, 7i64);
+    if t.0(41i64) != 42i64 { return 10i32; }
+    return 0i32;
+}

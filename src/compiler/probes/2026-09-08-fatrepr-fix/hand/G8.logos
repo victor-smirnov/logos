@@ -1,0 +1,13 @@
+// G8 LEGAL — a NON-ZERO argument index, with a thin arg BEFORE and AFTER the
+// fat one, so a fix that only looks at arg 0 shows here.
+package g8;
+enum E { N, S(i64, &[i64], i64) }
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let e: E = E::S(11i64, &a, 22i64);
+    match e {
+        E::N => { return 1i32; }
+        E::S(x, s, y) => { if x != 11i64 { return 10i32; } if s[2] != 3i64 { return 11i32; } if y != 22i64 { return 12i32; } }
+    }
+    return 0i32;
+}

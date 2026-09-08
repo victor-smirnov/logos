@@ -30670,3 +30670,114 @@ with the numbers, run_hand.sh re-runs the matrix against any binary).
 fires: fatfield 3173 · fatbind 27 · enumunsize 210 · dispunsize 1898 (arrivals, so every site
 is proven live). Post-revert the tree is back on `2c5a33ef99e94fc9 43` — the same hash the round
 opened on, read again after the rebuild — queue gate rc 0, L1 rc 0 (779/779).
+
+## 2026-09-08d — TWO SOUNDNESS-QUEUE ROWS CLOSED AT TWO ROOTS; THE SECOND CLASS WAS ONE MEMBER LONGER THAN ITS ROW SAID, AND THE OVER-REFUSAL CONTROL THAT MISSED FOUND A THIRD DEFECT
+
+CLOSED: `enum_variant_ctor_arg_no_unsize_coercion` (3, refuses) and
+`method_with_unsized_wrapper_param_not_found` (3, refuses).
+MINTED: `arraylit_closure_elem_fnptr_refused` (3, refuses),
+`wrapper_unsize_missing_impl_backend_diag` (4, diag).
+DECLINED BY NAME: `zonemut_fat_ref_struct_field_layout_abort` (three engines,
+4 layout disagreements REMAIN under the repair that closes the abort);
+`fatslice_field_match_binder_invalid_mlir` (the cheap swap buys the row with rc
+139 on a legal neighbour, every cost column reading zero).
+`# TOTAL` 80 -> 80 by direct listing (80 rows, 80 programs, ROWS == PROGRAMS
+diffed both ways; tier1=27 tier2=7 tier3=41 tier4=5). Queue gate rc 0.
+
+ROOT 1 — A POSITION, NOT A MASK. The class, by the property "an expression
+checked against the DECLARED type of an element or field of an aggregate being
+CONSTRUCTED": 8 sites. The struct-literal field (4) and the tuple-STRUCT ctor
+argument (2) already carry `CoercePos::StructLitField`; the ENUM VARIANT CTOR
+carried `CoercePos::Operand` at 4 (`lower_enum_lit_data` and
+`lower_enum_lit_data_from_static`, each with its VARIADIC twin), and
+`mask_for(Operand)` is `CFLAG_WIDEN_INT` alone — a mask whose own comment says
+it is for `place op rhs`. The fix names the position the tuple-struct ctor one
+token away already names; `mask_for` is untouched, so the three compound-assign
+sites keep theirs. STRICTLY NARROWER than the priced arm `enumunsize`.
+
+ROOT 2 — THE SELECTOR'S OWN RULE, SECOND AND THIRD CLAUSE. Class, by the
+property "a coercion the MethodArg pipeline can produce that
+`arg_compatible_for_dispatch` does not admit", one hand program per flag of
+`mask_for(MethodArg)` on the BASE binary: ARRAY_TO_SLICE and WIDEN_INT
+implemented; IMPLICIT_REBORROW (D3) and ARG_TO_DYN (D4) admitted, rc 0;
+CLOSURE_TO_FNPTR (D2) REFUSED; the pipeline's `try_struct_unsize_coerce`
+(D1/D5/D8, inherent / TRAIT method / OVERLOADED name) REFUSED. TWO live
+members, and the row named one — D2 contains no smart pointer and no `dyn`,
+it is a non-capturing closure at an `fn(i64)->i64` method parameter.
+`struct_unsize_shape_ok` is SPLIT OUT of `try_struct_unsize_coerce` so the
+selector asks the pipeline's own question rather than a twin; the closure test
+is the one in `try_coerce_closure_to_fnptr`. NARROWER than the priced arm
+`dispunsize` (any two structs sharing a mangled base name).
+
+THE PREDICTION THAT MISSED IS THE ONE THAT PAID. D7 — `Rc<A>` at an
+`Rc<dyn Other>` parameter where A does NOT implement Other — was predicted to
+stay refused with the same sentence. It stays refused and the SENTENCE moves to
+`mlir_gen: internal: no vtable for 'A' as '&dyn Other' … COMPILE FAILED`.
+CONTROL, on the BASE binary, at a `let` door with no method in the program:
+that sentence ALREADY. So the hole is pre-existing — `try_struct_unsize_coerce`
+tests the SHAPE and never asks whether the trait is implemented, while the
+analogous check exists for AGGREGATE elements — and this landing only routes the
+method-argument door into it. Rowed, with the program written at the `let` door
+so the row does not depend on the repair that exposed it.
+
+SETS, DIFFED BOTH WAYS, 27 hand programs written for this round in shapes the
+pricing phase did not use (`src/compiler/probes/2026-09-08-fatrepr-fix/`,
+PREDICTION.md declared before each edit, RESULT.md with the matrix, run_hand.sh
+re-runs it against any binary):
+  ROOT 1 closes G1-G8 (generic enum · `&mut` unsize written through · CALL-ARG
+  door · RETURN door with a PARAM operand · closure->fn ptr · an ARRAY of enums
+  of two lengths · a GENERIC fn · argument index 1) and the row program; leaves
+  X1-X7 refused for the right reason, each diagnostic READ (`&[u8;2]`, array by
+  value, `&[i64;3]`->`&[i64;4]`, wrong closure signature, `i64`->`i32`,
+  `&`->`&mut`, `bool`), and leaves S1 refused at the tuple-STRUCT ctor exactly
+  as before — the two positions agree, which is the point of copying the
+  position instead of inventing a mask.
+  ROOT 2 closes D1 D2 D5 D8 and the row program; leaves D3 D4 rc 0 and D6
+  (`W<bool>` at `W<i64>`) refused.
+  ADDITIVITY CHECKED, NOT ASSUMED: the D/A programs are byte-identical on the
+  base binary and on the ROOT-1-only build; the G/X programs are unmoved by
+  ROOT 2. Neither set contains a member of the other.
+
+THE COST COLUMNS, ON THE FINAL TREE. Queue gate rc 0 (80 rows, ROWS ==
+PROGRAMS both ways). L1 rc 0, 780/780, gates 156/156, 12 684 generated smoke
+cases. `L4 bc` rc 0 — 4970/4970 then 1560/1562 on the `bc` filter (gate-db build 947).
+`gate-run -L bc` rc 0, 2696 passed / 0 failed (build 946;
+ROOT 1 alone was build 945, same numbers; the store's opening baseline was build
+939, "all 2698 in this filter ALREADY MEASURED"). stdlib-cost: all four layers.
+`run_oracle.py`: 6555 fixtures shared with the base column, ONE changed and it
+is `cast-region-to-uint`, subtracted BY NAME — and it differed between two runs
+of the SAME binary, which is the proof rather than the excuse. Population pins
+re-derived BY DIRECT LISTING for the four new fixtures: direct_door corpus 2934
+-> 2936 = 191 + 2745 (both new PASS halves are non-glob, no door declared),
+census REGISTRY-ALL 9424 -> 9428 / NOIMPORTED 4966 -> 4970 / TIERCOMMIT 156.
+
+THE run_oracle BASELINE COST A LESSON. A copy of `logosc` outside `build/bin`
+cannot resolve `logos.std.prelude` and answers CCFAIL rc 4 to EVERY program — a
+control that changes nothing, caught before it was believed; and the same binary
+left in `build/bin` beside newer archives warns on every compile. The baseline
+was taken from a `git worktree` at e14eae50d configured with the SAME toolchain
+as the main build (clang-20 + Ninja — cmake's default pick is gcc and the
+GENERATED parser does not compile under it, `'na_fail_0' was not declared`).
+CONTROL REVERT on that build: both new PASS fixtures are REFUSED by it
+("E::S arg 0: expected &[i64], got &[i64; 3]" and "method call: 'Holder' has no
+method 'eat'") and both RUN to exit 7 now.
+
+FIXTURE PAIRS, ONE TOKEN APART, BOTH HALVES LANDED:
+`tests/logos/{pass,fail}/enum_ctor_arg_array_to_slice_unsize` (`E::S(&a)` vs
+`E::S(a)`; the pass half RUNS and exits 7) and
+`tests/logos/{pass,fail}/method_arg_wrapper_unsize_dispatch` (`h.eat(rc)` vs
+`h.eat(5i64)`; the pass half RUNS and exits 7).
+
+AN OWNER'S CALL, REPORTED NOT EDITED. The closed row's header called
+"method call: 'H' has no method 'eat'" a wrong sentence for an ill-typed
+argument (D6). It is NOT rowed: Logos has method OVERLOADING, so "no candidate
+accepts this argument" is a defensible verdict, and whether it should name the
+argument is a language decision. The fail half of the second pair pins the
+current sentence so a change to it is visible.
+
+A CONTRADICTION WORTH RECORDING. `build_hash.py` is NOT stable across a rebuild
+of an unchanged tree: base 2c5a33ef99e94fc9 -> aca6d8a5fef7d705 (root 1) ->
+69440e4620b32dcb (root 2) -> 24acd0ed03879129 (a re-CONFIGURE with NO source
+change). The embedded version string carries `git describe` and a build
+TIMESTAMP, so the hash moves whenever the libs are relinked. Any round that
+reads it as "the tree is back where it started" is reading a timestamp.

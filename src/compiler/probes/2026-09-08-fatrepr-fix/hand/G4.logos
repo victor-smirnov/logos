@@ -1,0 +1,15 @@
+// G4 LEGAL — the ctor at a RETURN position inside a function whose result is
+// matched by the caller; the array outlives the call through a parameter.
+package g4;
+enum E { N, S(&[i64]) }
+fn wrap(p: &[i64]) -> E { return E::S(p); }
+fn wrap2(p: &[i64; 3]) -> E { return E::S(p); }
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 30i64];
+    let e: E = wrap2(&a);
+    match e {
+        E::N => { return 1i32; }
+        E::S(s) => { if s[2] != 30i64 { return 10i32; } }
+    }
+    return 0i32;
+}

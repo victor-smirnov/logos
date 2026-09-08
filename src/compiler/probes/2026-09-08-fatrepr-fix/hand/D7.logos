@@ -1,0 +1,16 @@
+// D7 — ILLEGAL: `Rc<A>` at an `Rc<dyn Other>` parameter where A does NOT
+// implement Other. The unsize SHAPE matches; the trait bound does not.
+package d7;
+use logos.lang.rc;
+trait Sp { fn v(&self) -> i64; }
+trait Other { fn w(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+struct H { n: i64 }
+impl H { pub fn eat(&self, r: Rc<dyn Other>) -> i64 { return r.w() + self.n; } }
+fn main() -> i32 {
+    let h: H = H { n: 1i64 };
+    let rc: Rc<A> = rc_new(A { x: 17i64 });
+    if h.eat(rc) != 18i64 { return 10i32; }
+    return 0i32;
+}
