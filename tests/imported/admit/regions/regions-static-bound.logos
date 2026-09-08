@@ -1,9 +1,34 @@
 // rustc regions/regions-static-bound.rs — upstream E0521 borrowed data escapes outside of function
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.L2
+// RE-PORTED AS-IS 2026-09-08 (stage 6). The old port carried the construct; the
+// provenance and the reason the rest of upstream's file cannot join it are added.
+// Original path: tests/ui/regions/regions-static-bound.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 3 and 17-19 —
+//     fn static_id<'a,'b>(t: &'a ()) -> &'static () where 'a: 'static { t }
+//     fn error(u: &(), v: &()) {
+//         static_id(&u);
+//         //~^ ERROR borrowed data escapes outside of function [E0521]
+// Modifications:
+//   · `()` -> i64 (no unit type here)
+//   · the unused `'b` parameter is dropped (it exists upstream only to carry a
+//     `WARN lifetime parameter 'b never used`, which is not this row's subject)
+//   · `static_id(&u)` -> `static_id(u)`: upstream passes `&u` where `u: &()` and
+//     relies on `impl Deref for &T` to coerce `&&()` to `&()`. Logos has no such
+//     coercion (`expected &'a i64, got &&i64`), and the extra reference is not the
+//     subject — the caller's non-'static region reaching a `'a: 'static` bound is.
+//   · UPSTREAM'S `static_id_wrong_way` (line 12, `where 'static: 'a`) IS OMITTED
+//     because logosc ALREADY REFUSES IT, correctly: `return type mismatch: variance
+//     mismatch — expected &'static i64, got &'a i64`. Keeping it here would make
+//     this admit-shelf program emit a diagnostic and red its own gate. It belongs
+//     on the fail shelf, not in this file.
+//   · assert -> exit code: `fn main() -> i32`
+//   The `where 'a: 'static` bound and the call from a caller whose region is not
+//   'static are kept.
 package regions_static_bound;
 fn static_id<'a>(t: &'a i64) -> &'static i64 where 'a: 'static { return t; }
 fn error(u: &i64) {
-  let r = static_id(u);
+  let r = static_id(u);      // THE DEFECT: admitted, upstream E0521
 }
 fn main() -> i32 { let n = 1i64; error(&n); return 0i32; }

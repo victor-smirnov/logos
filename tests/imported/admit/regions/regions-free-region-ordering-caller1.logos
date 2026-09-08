@@ -1,9 +1,24 @@
 // rustc regions/regions-free-region-ordering-caller1.rs — upstream E0716 temporary value dropped while borrowed + E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.D
+// shelf: admit · root lifereg.D  (root RE-CHECKED 2026-09-08, see below)
+// RE-PORTED AS-IS 2026-09-08 (stage 6). The old port already carried the construct
+// verbatim; only the provenance and the annotation of what is illegal are added.
+// Original path: tests/ui/regions/regions-free-region-ordering-caller1.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 5-11 —
+//     fn call1<'a>(x: &'a usize) {
+//         let y: usize = 3;
+//         let z: &'a & usize = &(&y);
+//         //~^ ERROR temporary value dropped while borrowed
+//         //~^^ ERROR `y` does not live long enough
+// Modifications:
+//   · usize -> u64
+//   · assert -> exit code: `fn main() -> i32`
+//   The nested-reference annotation `&'a &u64` over `&(&y)` — which is what forces
+//   `'a <= 'z` and is the whole subject — is kept exactly.
 package regions_free_region_ordering_caller1;
 fn call1<'a>(x: &'a u64) {
     let y: u64 = 3u64;
-    let z: &'a &u64 = &(&y);
+    let z: &'a &u64 = &(&y);   // THE DEFECT: admitted, upstream E0716 + E0597
 }
 fn main() -> i32 { return 0i32; }

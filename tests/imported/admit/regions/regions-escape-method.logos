@@ -1,11 +1,27 @@
 // rustc regions/regions-escape-method.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.C
+// RE-PORTED AS-IS 2026-09-08 (stage 6). The old port had ANNOTATED the closure
+// (`|p: &i64| -> &i64 { return p; }`), which is the one thing upstream leaves to
+// inference: the test exists because `B` would be INFERRED to a region bound in the
+// method argument. The annotation is removed here.
+// Original path: tests/ui/regions/regions-escape-method.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: line 16 —
+//     s.f(|p| p) //~ ERROR lifetime may not live long enough
+// Modifications:
+//   · unit struct `struct S;` -> `struct S { n: i64 }` (no unit-struct form here)
+//   · `&self` -> the explicit `self: &S` receiver form
+//   · i32 -> i64
+//   · `|p| p` -> `|p| { return p; }` (no tail-expression closure body here)
+//   · assert -> exit code: `fn main() -> i32`
+//   The generic `B` inferred from the closure's return, the `FnOnce(&i64) -> B`
+//   bound, and the un-annotated closure are all kept.
 package regions_escape_method;
 struct S { n: i64 }
 impl S { fn f<B, F: FnOnce(&i64) -> B>(self: &S, g: F) { } }
 fn main() -> i32 {
   let s: S = S{n:0i64};
-  s.f(|p: &i64| -> &i64 { return p; });
+  s.f(|p| { return p; });     // THE DEFECT: admitted, upstream "lifetime may not live long enough"
   return 0i32;
 }

@@ -1,12 +1,33 @@
 // rustc regions/regions-adjusted-lvalue-op.rs — upstream E0502 cannot borrow `v` as immutable
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.R2
+// shelf: admit · root lifereg.R2  (root RE-CHECKED 2026-09-08, see below)
+// RE-PORTED AS-IS 2026-09-08 (stage 6). THE OLD PORT HAD NO PLACE-OP ADJUSTMENT AT
+// ALL: it wrote `v.oh_no(&v)` straight on the vector, which is a plain receiver, so
+// this file and its `--t26` sibling were the same door under two names. Upstream's
+// second annotated line — which is what `--c26` names — is the DEREF place op.
+// Original path: tests/ui/regions/regions-adjusted-lvalue-op.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: line 15 —
+//     (*v).oh_no(&v); //~ ERROR cannot borrow `v` as immutable because
+// Modifications:
+//   · tuple struct `Data(i32)` -> a named field `v: i64`
+//   · the trait's DEFAULT body `{ loop {} }` -> a required method with an `impl` body
+//   · upstream's `*v` is `Vec<Data>` deref-coercing to `[Data]` with `impl OhNo for
+//     [Data]`; Logos has no Deref coercion from `Vec` to a slice, so the DEREF is
+//     written through a `Box<Vec<Data>>` and the impl is on `Vec<Data>`. The
+//     ADJUSTMENT — a `&mut` autoref of a receiver that is a DEREF place — is the
+//     subject and is kept; only the smart pointer it derefs through differs.
+//   · `Box::new(Vec::new())` needs the `Vec` bound to a local first: inline it and
+//     the compiler answers `expected Box<Vec<Data>>, got Box<Vec<T>>`
+//   · `vec![Data(0)]` -> `Vec::new()` (no vec! macro here)
+//   · assert -> exit code: `fn main() -> i32`
 package regions_adjusted_lvalue_op_c26;
 struct Data { v: i64 }
 trait OhNo { fn oh_no(self: &mut Self, other: &Vec<Data>) -> i64; }
 impl OhNo for Vec<Data> { fn oh_no(self: &mut Self, other: &Vec<Data>) -> i64 { return 1i64; } }
 fn main() -> i32 {
-  let mut v: Vec<Data> = Vec::new();
-  v.oh_no(&v);
+  let inner: Vec<Data> = Vec::new();
+  let mut v: Box<Vec<Data>> = Box::new(inner);
+  (*v).oh_no(&*v);            // THE DEFECT: admitted, upstream E0502
   return 0i32;
 }

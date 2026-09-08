@@ -1,14 +1,37 @@
 // rustc lifetimes/temporary-lifetime-extension-tuple-ctor.rs — upstream E0716 temporary value dropped while borrowed
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.D
-// port of rust tests/ui/lifetimes/temporary-lifetime-extension-tuple-ctor.rs — E0716 temporary dropped while borrowed
+// shelf: admit · root lifereg.D  (root RE-CHECKED 2026-09-08, see below)
+// RE-PORTED AS-IS 2026-09-08 (stage 6). The old port kept the illegal line but had
+// dropped upstream's CONTRAST — the legal constructor forms that DO extend. The
+// contrast is the whole test: extension applies through a constructor path and NOT
+// through a call to an ordinary function value.
+// Original path: tests/ui/lifetimes/temporary-lifetime-extension-tuple-ctor.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 22-34 —
+//     let a = &temp();                    // OK  (extension)
+//     let e = X(&temp());                 // OK  (extension through a ctor)
+//     let some = Some;                    // Turn the ctor into a regular function.
+//     let g = some(&temp()); //~ERROR temporary value dropped while borrowed
+// Modifications:
+//   · `String`/`String::from` -> a local struct `T { n: i64 }` and `temp() -> T`
+//     (no String here); the subject is the temporary's scope, not its type
+//   · `Some`/`Option` -> the local `X<'a>` + `mk` pair, so that the ctor-vs-fn-value
+//     contrast can be written without the prelude
+//   · `println!` -> exit code: `fn main() -> i32`
+//   The three doors are kept exactly: a bare `&temp()` initializer, a `&temp()`
+//   inside a constructor expression, and a `&temp()` passed to a FUNCTION VALUE.
 package temporary_lifetime_extension_tuple_ctor;
 struct T { n: i64 }
 struct X<'a> { r: &'a T }
 fn temp() -> T { return T { n: 5i64 }; }
-fn mk(r: &T) -> X { return X { r: r }; }
+fn mk<'a>(r: &'a T) -> X<'a> { return X { r: r }; }
 fn main() -> i32 {
-    let g = mk(&temp());
+    let a: &T = &temp();                 // OK upstream too (extension)
+    let e: X = X { r: &temp() };         // OK upstream too (extension through a ctor)
+    let some: fn(&T) -> X = mk;          // turn the ctor into a regular function
+    let g = some(&temp());               // THE DEFECT: admitted, upstream E0716
+    if a.n != 5i64 { return 1i32; }
+    if e.r.n != 5i64 { return 1i32; }
     if g.r.n != 5i64 { return 1i32; }
     return 0i32;
 }

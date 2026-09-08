@@ -104,4 +104,26 @@ enum_payload_nested_pattern_absent defect 1  tests/imported/admit/nll/enum-drop-
     # and `let_at_binding_tuple_sub_unsupported` (doors in SERIES on ONE reader) or a third door —
     # if one reader, these are one row, not three.
 
-# TOTAL 16
+tuplestruct_ctor_turbofish  defect     1  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error
+    # 2026-09-08 — a turbofish on a TUPLE-STRUCT CONSTRUCTOR CALL does not parse:
+    # `struct S<'a,'b>(&'a i64, &'b i64); let s = S::<'static>(&x, &x);` answers
+    # `error [fn main]: unexpected type node code 131`. MISSING FEATURE: explicit
+    # type/lifetime arguments on a tuple-struct constructor path expression. The SAME
+    # turbofish on a struct LITERAL (`S::<'static> { .. }`) and on an ENUM VARIANT
+    # constructor (`E::V::<'static>(&x)`) both parse and both ADMIT, so this is a
+    # parser hole, not the arity hole. It blocks the STRUCT half of upstream
+    # constructor-lifetime-early-binding-error.rs; the enum half is ported and is that
+    # row. To make it a row: land the syntax, then re-port the struct half and see
+    # whether it admits like the enum half does (predicted yes — same missing check).
+lifetime_supertrait_bound   defect     1  tests/imported/admit/regions/regions-infer-bound-from-trait-self
+    # 2026-09-08 — a LIFETIME SUPERTRAIT BOUND is a syntax error: `trait
+    # InheritsFromStatic: 'static { .. }` answers `syntax error near 'trait' at line N
+    # col 1`. MISSING FEATURE: a lifetime in a trait's supertrait list. It blocks the
+    # four LEGAL CONTRAST traits of upstream regions-infer-bound-from-trait-self.rs
+    # (InheritsFromStatic, InheritsFromStaticIndirectly, InheritsFromIs<'a>,
+    # InheritsFromIsIndirectly<'a>); only the trait that inherits NOTHING — the
+    # annotated case, and the row — is portable today. To make it a row: land the
+    # syntax, then check whether `check_bound(x, self)` is refused in the four
+    # inheriting traits and admitted in the fifth. Until then the row has no control
+    # and the `A: 'a` bound is exercised in one direction only.
+# TOTAL 18

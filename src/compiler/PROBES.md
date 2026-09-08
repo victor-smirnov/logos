@@ -29946,3 +29946,149 @@ re-measures, and that is the only reading of this round's final `L4 bc`.
     probe-log-lint            247 records, every site symbol resolves
     full `cmake --build`      rc 0
     build hash                10a507efa95812c8 (see the reconfigure note above)
+
+# 2026-09-08 — STAGE 6 OF THE RE-PORT: THE WHOLE `lifereg.*` NON-`NEW` REGION, 16 OF 16 SURVIVE, AND FOUR OF NINE ROOTS SPLIT OR ARE REFUTED
+
+NO COMPILER SOURCE WAS TOUCHED. `git diff --numstat -- src include` = 0 lines and
+`scripts/build_hash.py` reads `10a507efa95812c8 43` before and after. Every verdict
+below is a hand program compiled on that binary.
+
+## THE BATCH, AND WHY IT IS A REGION AND NOT A SELECTION
+The target set was DERIVED from `tests/logos/bc_admits.ledger`: every row whose root
+begins `lifereg.` and contains no `NEW` — 16 rows over nine roots
+(B ×2, C ×2, D ×2, L1 ×2, L7 ×2, R2 ×2, R17 ×2, L2 ×1, N1 ×1). That is the entire
+remaining un-re-ported region/lifetime region of the file, so no row could be
+self-selected out of it. The brief said "about 16"; the ledger says 16.
+
+    BUCKET 1  REFUSED at the same construct                     0
+    BUCKET 2  RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT   16
+    BUCKET 3  BLESSED DIVERGENCE                                 0
+    BUCKET 4  IMPLEMENTATION HOLE                                0
+
+94 -> 94. NOT ONE ROW MOVED, and that is the result: all sixteen are now MEASURED
+rather than believed.
+
+## THE PORTS WERE WRONG FOUR TIMES, AND TWICE THAT MADE A PAIR ONE PROGRAM
+  · `mut-slice-struct-lifetime-transmute--c17` wrote upstream's ARRAY door a second
+    time, without even the `&mut [_]` reborrow hop, so it and `--t17` were near
+    copies. `--c17` is now upstream's STRUCT door (`&mut Struct` reborrow,
+    `dst.head = y`); `--t17` keeps the slice door.
+  · `regions-adjusted-lvalue-op--c26` had NO place-op adjustment at all — plain
+    `v.oh_no(&v)` on the vector — so it and `--t26` were one door under two names.
+    `--c26` is now the DEREF door, `--t26` the INDEX door.
+  · `constructor-lifetime-early-binding-error` was a struct LITERAL where upstream's
+    whole subject is a CONSTRUCTOR PATH.
+  · `regions-escape-method` had ANNOTATED the closure upstream deliberately leaves to
+    inference; `regions-nested-fns-2` had dropped upstream's `for<'z>` HRTB.
+
+## THE ROOT RE-CHECK — ONE-VARIABLE PAIRS, COMPILED TODAY
+Only two of the nine handed-down roots survive intact.
+
+    lifereg.B   SURVIVES AND IS NOW MEASURED. `let mut out: &i64 = x; out = y;` at the
+                ROOT local: REFUSED (`lifetime mismatch: return type has lifetime 'a
+                but 'y' has lifetime (elided)`). The identical store through an INDEX
+                (`out[0u64] = y`) or a FIELD (`dst.head = y`): ADMITTED. "Bookkeeping
+                is root-keyed and does not follow a projection", digit for digit, on
+                both rows.
+    lifereg.R2  SURVIVES as one mechanism — and it is bck.D/nllmoves.D's, not a region
+                root. `let a = &mut v; let b = &v; a.oh_no(b);` REFUSED. Shared loan
+                taken FIRST as a named local, then the receiver autoref: REFUSED
+                (`cannot borrow 'v' as mutable: 'v' has shared borrows`). Both loans
+                minted inside ONE call (`v[0].oh_no(&v)`, `(*v).oh_no(&*v)`, and the
+                plain `double_access(&mut v, &v)`): ADMITTED. A MERGE CANDIDATE ACROSS
+                BLOCKS — recorded, NOT merged; merging rows is an owner decision.
+    lifereg.D   REFUTED ON BOTH ROWS, AND FOR TWO DIFFERENT REASONS.
+                NEW-STRUCTCARRY (`temporary-lifetime-extension-tuple-ctor`): the
+                temporary HAS a loan — `let g: &T = keep(&temp());` is REFUSED with the
+                right E0716 sentence. Vary ONLY the return type: `-> &'a T` REFUSED,
+                `-> X<'a>` ADMITTED. The loan is not followed into a struct that
+                carries the region as a parameter. (Controls: `let r: &T = &temp();`
+                and `let e: X = X { r: &temp() };` are LEGAL Rust and correctly admit —
+                that is temporary lifetime extension, not the defect.)
+                NEW-LETANNOT (`regions-free-region-ordering-caller1`): no temporary is
+                involved at all — replace `&(&y)` with a named local and it still
+                admits. `let z: &'a u64 = &y;` inside `call1<'a>` ADMITS; adding
+                `return z;` refuses, and by a SYNTACTIC dangling-local rule (`cannot
+                return reference to local variable 'z'`), not by the annotation. A let
+                annotation naming a free region is not a constraint on its initializer.
+                ⚠ The arm EXISTS and is reached: `sema_stmt.cpp` calls
+                `check_variance(rhs_type, ann, "let '{}'")`. It is `permissive` and the
+                minted region of `&y` carries no relation to `'a`.
+    lifereg.C   SPLITS INTO TWO, each with its own pair.
+                NEW-CAPFRAME (`regions-nested-fns-2`): a closure returning a borrow of
+                its OWN local is REFUSED (`cannot return reference to local variable
+                'w'`); the same closure returning a borrow of the ENCLOSING fn's local
+                is ADMITTED. The dangling check is frame-local. Restoring `for<'z>`
+                changed nothing, so the bound is not read in either form.
+                NEW-CRETGEN (`regions-escape-method`): the closure's return region
+                flows into a caller-chosen generic `B`; the same escape written as a FN
+                ITEM signature is REFUSED (`variance mismatch — expected &'static i64,
+                got &'p i64`). Possibly doors in SERIES on one reader; NOT measured as
+                one, so do not group them on this evidence.
+    lifereg.L1  SPLITS INTO TWO SITES. `elided-self-lifetime-in-trait-fn` is a METHOD
+                CALL whose receiver-region demand is never checked: the same escape
+                through two FREE fns REFUSES, and writing the receiver's `'s` out
+                changes nothing — ELISION IS NOT THE VARIABLE there.
+                `trait-method-return-lifetime-mismatch` is a DECLARATION-site elision in
+                a trait method's return, where writing `BVH<'a, R>` out gives a legal
+                program that also admits — there elision IS the variable.
+    lifereg.L7  SURVIVES as one mechanism, RE-NAMED. A fn item coerced to a fn pointer
+                is compared STRUCTURALLY on types — `fn(&S) -> S` for `fn(&S) -> i64`
+                refuses, naming `fn ITEM<pkg$wrong__f__ref_S>(&S) -> S`, and `fn(i64)`
+                for `fn(&S)` refuses — and its LIFETIME structure is ERASED: both
+                `fn(&S)->&S` for `fn(&S)->&'static S` and the reverse ADMIT.
+                ⚠ THE ARM EXISTS AND IS REACHED: `sema_expr.cpp` calls
+                `check_variance(expr_type(fval), ft_cmp, ..)` on fn values, and
+                `check_variance` is the same comparator that emits `variance mismatch —
+                … — lifetime structure incompatible` at 22 sites. This is the shape
+                that has paid every time: an ARM THAT EXISTS reached through a FACT the
+                code does not carry (the fn-item type's region slots). It is also the
+                SAME missing comparison that `lifereg.NEW-SIGARITY` closed on
+                2026-09-07b at the impl-vs-trait method site, five rows for cost 0.
+                ⚠ NOT overclaimed: `fn(&S) -> i32` supplied for `fn(&S) -> i64` also
+                admits, so there is an integer laxity here too. That is a SECOND fact,
+                unmeasured, and it is not evidence for this root.
+    lifereg.R17 SPLITS, AND NEITHER HALF IS A REGION ROOT.
+                `constructor-lifetime-early-binding-error`: a lifetime-ARGUMENT-COUNT
+                check that does not exist. `E::V::<'static>(&x)` and
+                `E::V::<'static,'static,'static>(&x)` both admit for a 2-parameter enum,
+                as does `S::<'static> { .. }` and `S::<'static,'static,'static> { .. }`.
+                `outlives-with-missing`: E0412, an undeclared type NAME in a where
+                clause. Name resolution; no region anywhere.
+    lifereg.N1, lifereg.L2 — one row each, NO separating pair measured. Do not group.
+
+## THREE THINGS THIS BATCH COULD NOT WRITE, DECLARED RATHER THAN DROPPED
+  · a turbofish on a TUPLE-STRUCT constructor call (`S::<'static>(&0, &0)`) answers
+    `error [fn main]: unexpected type node code 131` — it does not parse. The same
+    turbofish on a struct LITERAL and on an ENUM VARIANT constructor parses and admits,
+    so this is a parser hole and not the arity hole. `unrowed_backlog.ledger` entry
+    `tuplestruct_ctor_turbofish`.
+  · a lifetime SUPERTRAIT bound (`trait InheritsFromStatic: 'static`) is a syntax
+    error, which costs `regions-infer-bound-from-trait-self` all four of upstream's
+    LEGAL contrast traits. `unrowed_backlog.ledger` entry `lifetime_supertrait_bound`.
+  · upstream's `static_id_wrong_way` (`where 'static: 'a`) is ALREADY REFUSED here,
+    correctly and with the right sentence. It cannot live on an admit-shelf program, so
+    it is fail-shelf coverage nobody has landed.
+
+## A STALE GENERATED TABLE, FOUND BY REGENERATING IT
+`tests/imported/PROVENANCE.tsv` moved 33 rows, not 16: STAGE 5 (`65d097335`) landed
+seventeen `// Modifications:` blocks and one admit->fail move and never regenerated
+the table that MEASURES declarations. The generator takes its output path as argv[1]
+and crashes with `IndexError` when called bare, which is presumably how it was missed.
+`port_declares_modifications` is now no=2542 / yes=1564 / distilled=482 over 4588 ports.
+
+## PREDICTIONS, DIFFED BOTH WAYS
+Written before any re-port was compiled (15 x bucket 2, 1 x bucket 4). ONE WRONG:
+`constructor-lifetime-early-binding-error` was predicted bucket 4 because the
+tuple-struct ctor turbofish does not parse — but upstream's ENUM half is the same
+construct, ports verbatim, and admits. Predicting a hole from ONE of a test's annotated
+lines is predicting from a sample of one. Nothing was predicted bucket 1 or 3 and
+nothing landed there, so the miss is one-directional.
+
+## GATES
+    bc_admits_ledger_gate     rc 0 — both files, 109 rows (94 + 15), both totals held
+    per-program admit tests   16/16 of the batch still admitted (bc_admit_one.sh)
+    soundness queue gate      rc 0 — `# TOTAL` 69, unchanged
+    unrowed_backlog           `# TOTAL` 16 -> 18, re-derived by direct listing
+    build hash                10a507efa95812c8 43, unmoved
+    src/ + include/ diff      0 lines

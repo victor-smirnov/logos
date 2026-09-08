@@ -1,10 +1,31 @@
 // rustc regions/regions-nested-fns-2.rs — upstream `y` does not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.C
+// RE-PORTED AS-IS 2026-09-08 (stage 6). The old port had dropped upstream's
+// `for<'z>` HRTB from the bound, which is what forces the closure's return to be
+// the ARGUMENT's region and so makes `&y` illegal. Logos parses `for<'z>`, so it is
+// restored.
+// Original path: tests/ui/regions/regions-nested-fns-2.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 5-9 —
+//     ignore(
+//         |z| {
+//             if false { &y } else { z }
+//             //~^ ERROR `y` does not live long enough
+//         });
+// Modifications:
+//   · isize -> i64
+//   · the closure's tail `if false { &y } else { z }` -> explicit `return`s (no
+//     tail-expression closure body here)
+//   · `fn ignore<F>(_f: F)` -> `-> i32` so main can return through it
+//   · assert -> exit code: `fn main() -> i32`
+//   The `for<'z> FnOnce(&'z isize) -> &'z isize` bound and the closure that may
+//   return a borrow of the enclosing local `y` are kept.
 package regions_nested_fns_2;
-fn ignore<F>(f: F) -> i32 where F: FnOnce(&i64) -> &i64 { return 0i32; }
+fn ignore<F>(f: F) -> i32 where F: for<'z> FnOnce(&'z i64) -> &'z i64 { return 0i32; }
 fn nested() -> i32 {
   let y: i64 = 3i64;
+  // THE DEFECT: admitted, upstream E0597 `y` does not live long enough
   return ignore(|z| { if false { return &y; } else { return z; } });
 }
 fn main() -> i32 { return nested(); }

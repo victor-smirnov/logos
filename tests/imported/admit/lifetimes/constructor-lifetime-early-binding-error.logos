@@ -1,10 +1,33 @@
-// rustc lifetimes/constructor-lifetime-early-binding-error.rs — upstream struct takes 2 lifetime arguments
+// rustc lifetimes/constructor-lifetime-early-binding-error.rs — upstream E0107 enum takes 2 lifetime arguments
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.R17
+// RE-PORTED AS-IS 2026-09-08 (stage 6). The OLD port had moved the construct off
+// upstream's door: it wrote a struct LITERAL `S::<'static> { a: .., b: .. }` where
+// upstream's whole subject is a CONSTRUCTOR PATH — the point of the test is that a
+// tuple-struct/enum-variant constructor's lifetime parameters are EARLY bound, so a
+// turbofish on the constructor is checked against the type's arity.
+// Original path: tests/ui/lifetimes/constructor-lifetime-early-binding-error.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 18-21 —
+//     E::V::<'static>(&0);                    //~ ERROR enum takes 2 lifetime arguments
+//     E::V::<'static, 'static, 'static>(&0);  //~ ERROR enum takes 2 lifetime arguments
+// Modifications:
+//   · u8 -> i64
+//   · `&0` -> `&x` over a named local (no rvalue-to-`&'static` promotion here)
+//   · assert -> exit code: `fn main() -> i32`
+//   · UPSTREAM'S STRUCT HALF (lines 13/15, `S::<'static>(&0, &0)` on a TUPLE-STRUCT
+//     constructor) IS OMITTED — it is not writable in Logos today: the compiler
+//     answers `error [fn main]: unexpected type node code 131`, i.e. it does not
+//     parse a turbofish on a tuple-struct constructor call at all. That is an
+//     implementation hole, recorded in tests/logos/unrowed_backlog.ledger as
+//     `tuplestruct_ctor_turbofish`, NOT a refusal for the upstream reason.
+//     The ENUM half above is upstream's construct verbatim and is what this row is.
 package constructor_lifetime_early_binding_error;
-struct S<'a, 'b> { a: &'a i64, b: &'b i64 }
+enum E<'a, 'b> { V(&'a i64), U(&'b i64) }
 fn main() -> i32 {
   let x: i64 = 0i64;
-  let s = S::<'static> { a: &x, b: &x };
+  let ok = E::V(&x);                                  // OK upstream too
+  let e1 = E::V::<'static>(&x);                       // THE DEFECT: admitted, upstream E0107
+  let e2 = E::V::<'static, 'static, 'static>(&x);     // THE DEFECT: admitted, upstream E0107
   return 0i32;
 }

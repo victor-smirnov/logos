@@ -1,10 +1,33 @@
 // rustc lifetimes/lifetime-errors/mut-slice-struct-lifetime-transmute.rs — upstream E0621 explicit lifetime required
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.B
+// RE-PORTED AS-IS 2026-09-08 (stage 6). THE OLD PORT WAS THE WRONG HALF OF THE
+// UPSTREAM FILE: it wrote the ARRAY door again (`out[0] = y` on `[&i64; 1]`), and
+// without the reborrow hop, so this file and its `--t17` sibling were two
+// near-copies of one program. Upstream line 17 onwards — which is what `--c17`
+// names — is the STRUCT door: a `&mut Struct<_, _>` reborrow, and the `y` store
+// through a FIELD rather than through an index.
+// Original path: tests/ui/lifetimes/lifetime-errors/mut-slice-struct-lifetime-transmute.rs
+// upstream commit: da5114692c9ebe46b869488c5f34f92eb10b98c1
+// upstream construct: lines 22-30 —
+//     fn lifetime_transmute_struct<'a, T: ?Sized>(x: &'a T, y: &T) -> &'a T {
+//         let mut out = Struct { head: x, _tail: [()] };
+//         { let dst: &mut Struct<_, [()]> = &mut out; dst.head = y; }
+//         out.head
+//         //~^ ERROR explicit lifetime required in the type of `y` [E0621]
+// Modifications:
+//   · `T: ?Sized` generic -> concrete `i64` (no `?Sized` here)
+//   · `_tail: [()]` -> `_tail: i64` (no unit type / unsized tail field here); the
+//     tail exists upstream only to make `Struct` unsized, which is not the subject
+//   · `out.head` tail expression -> `return out.head;`
+//   · assert -> exit code: `fn main() -> i32`
+//   The struct local, the `&mut Struct` reborrow, the FIELD store of `y` through it
+//   and the read-back at `'a` are all kept.
 package mut_slice_struct_lifetime_transmute_c17;
-fn lifetime_transmute_direct<'a>(x: &'a i64, y: &i64) -> &'a i64 {
-  let mut out: [&i64; 1] = [x];
-  out[0u64] = y;
-  return out[0u64];
+struct Struct<T> { head: T, _tail: i64 }
+fn lifetime_transmute_struct<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+  let mut out: Struct<&i64> = Struct { head: x, _tail: 0i64 };
+  { let dst: &mut Struct<&i64> = &mut out; dst.head = y; }  // THE DEFECT: admitted, upstream E0621
+  return out.head;
 }
 fn main() -> i32 { return 0i32; }

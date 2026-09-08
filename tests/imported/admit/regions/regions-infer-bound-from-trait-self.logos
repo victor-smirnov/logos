@@ -1,8 +1,37 @@
 // rustc regions/regions-infer-bound-from-trait-self.rs — upstream parameter type `Self` may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.N1
+// RE-PORTED AS-IS 2026-09-08 (stage 6). The old port already carried the annotated
+// trait; the provenance is restored and the missing contrast is DECLARED rather
+// than silently absent.
+// Original path: tests/ui/regions/regions-infer-bound-from-trait-self.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 44-48 —
+//     trait InheritsFromNothing<'a> : Sized {
+//         fn foo(self, x: Inv<'a>) {
+//             check_bound(x, self)
+//                 //~^ ERROR parameter type `Self` may not live long enough
+// Modifications:
+//   · isize -> i64; `Option<&'a mut &'a isize>` -> `&'a mut i64` (no Option needed;
+//     the field exists upstream only to make `Inv<'a>` INVARIANT in `'a`, and a
+//     `&'a mut` field is invariant here too)
+//   · `Sized` supertrait dropped (implicit here)
+//   · `self` receiver -> the explicit `self: Self` form
+//   · `check_bound(x, self)` tail -> `return check_bound(x, self);`
+//   · assert -> exit code: `fn main() -> i32`
+//   · UPSTREAM'S FOUR LEGAL CONTRAST TRAITS ARE OMITTED — `InheritsFromStatic :
+//     Sized + 'static`, `InheritsFromStaticIndirectly : Sized + Static`,
+//     `InheritsFromIs<'a> : Sized + 'a` and `InheritsFromIsIndirectly<'a>` all need
+//     a LIFETIME SUPERTRAIT BOUND, which Logos does not parse: `trait T: 'static {}`
+//     answers `syntax error near 'trait'`. Recorded in
+//     tests/logos/unrowed_backlog.ledger as `lifetime_supertrait_bound`. The
+//     annotated case — the trait that inherits NOTHING — is portable and is this row.
+//   The `A: 'a` bound on `check_bound` and the invariant `Inv<'a>` are kept.
 package regions_infer_bound_from_trait_self;
 struct Inv<'a> { x: &'a mut i64 }
 fn check_bound<'a, A>(x: Inv<'a>, a: A) -> i32 where A: 'a { return 0i32; }
-trait InheritsFromNothing<'a> { fn foo(self: Self, x: Inv<'a>) -> i32 { return check_bound(x, self); } }
+trait InheritsFromNothing<'a> {
+  // THE DEFECT: admitted, upstream "parameter type `Self` may not live long enough"
+  fn foo(self: Self, x: Inv<'a>) -> i32 { return check_bound(x, self); }
+}
 fn main() -> i32 { return 0i32; }

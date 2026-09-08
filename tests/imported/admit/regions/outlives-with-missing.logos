@@ -1,10 +1,33 @@
 // rustc regions/outlives-with-missing.rs — upstream E0412 cannot find type `T` in this scope
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.R17
+// shelf: admit · root lifereg.R17  (root RE-CHECKED 2026-09-08 — IT IS NOT A REGION ROOT, see below)
+// RE-PORTED AS-IS 2026-09-08 (stage 6). The old port already carried the construct;
+// this pass restores the associated type upstream uses in the parameter position
+// (`&H::Target`) so that the where-clause is the ONLY thing wrong with the program.
+// ⚠ THE UPSTREAM ERROR IS E0412 — NAME RESOLUTION. `T` in the where clause is
+// declared nowhere. This row is a defect (we accept a program naming an undeclared
+// type) but it is NOT a lifetime/region defect, and the `lifereg.R17` root is a
+// hypothesis about the wrong subsystem.
+// Original path: tests/ui/regions/outlives-with-missing.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 8-12 —
+//     pub fn set_handler(&self, handler: &H::Target)
+//     where
+//         T: Send + Sync + 'static,
+//         //~^ ERROR cannot find type `T` in this scope
+// Modifications:
+//   · `HandlerFamily` is an associated-type-only trait upstream; it carries one
+//     method here (Logos has no empty-trait form in this position) and the
+//     associated type is kept as `Target`
+//   · `Send + Sync + 'static` -> `HandlerFamily` (those marker traits do not exist
+//     here); the bound's CONTENT is not the subject — the undeclared `T` is
+//   · tuple struct `HandlerWrapper<H>(H)` -> a named field `h: H`
+//   · assert -> exit code: `fn main() -> i32`
 package outlives_with_missing;
-trait HandlerFamily { fn tag(self: &Self) -> i64; }
+trait HandlerFamily { type Target; fn tag(self: &Self) -> i64; }
 struct HandlerWrapper<H: HandlerFamily> { h: H }
 impl<H: HandlerFamily> HandlerWrapper<H> {
-  fn set_handler(self: &Self, handler: &H) where T: HandlerFamily { }
+  // THE DEFECT: admitted, upstream E0412 — `T` is declared nowhere.
+  fn set_handler(self: &Self, handler: &H::Target) where T: HandlerFamily { }
 }
 fn main() -> i32 { return 0i32; }

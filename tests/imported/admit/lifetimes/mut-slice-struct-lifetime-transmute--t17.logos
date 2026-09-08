@@ -1,10 +1,28 @@
 // rustc lifetimes/lifetime-errors/mut-slice-struct-lifetime-transmute.rs — upstream E0621 explicit lifetime required
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.B
+// RE-PORTED AS-IS 2026-09-08 (stage 6). This is the SLICE door — upstream's
+// `lifetime_transmute_slice`. The old port already had the `&mut [_]` reborrow hop;
+// it is kept and the provenance restored.
+// Original path: tests/ui/lifetimes/lifetime-errors/mut-slice-struct-lifetime-transmute.rs
+// upstream commit: da5114692c9ebe46b869488c5f34f92eb10b98c1
+// upstream construct: lines 7-15 —
+//     fn lifetime_transmute_slice<'a, T: ?Sized>(x: &'a T, y: &T) -> &'a T {
+//         let mut out = [x];
+//         { let slice: &mut [_] = &mut out; slice[0] = y; }
+//         out[0]
+//         //~^ ERROR explicit lifetime required in the type of `y` [E0621]
+// Modifications:
+//   · `T: ?Sized` generic -> concrete `i64` (no `?Sized` here); the subject is the
+//     REGION, not the generic
+//   · `out[0]` tail expression -> `return out[0u64];` (index type, explicit return)
+//   · assert -> exit code: `fn main() -> i32`
+//   The array local, the `&mut [_]` reborrow through which `y` is stored, and the
+//   read-back at `'a` are all kept.
 package mut_slice_struct_lifetime_transmute_t17;
 fn lifetime_transmute_slice<'a>(x: &'a i64, y: &i64) -> &'a i64 {
   let mut out: [&i64; 1] = [x];
-  { let s: &mut [&i64] = &mut out; s[0u64] = y; }
+  { let s: &mut [&i64] = &mut out; s[0u64] = y; }   // THE DEFECT: admitted, upstream E0621
   return out[0u64];
 }
 fn main() -> i32 { return 0i32; }

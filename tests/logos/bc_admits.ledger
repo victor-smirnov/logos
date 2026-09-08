@@ -49,6 +49,95 @@
 # ⚠ A ROW IS NOT AN EXCUSE. It is a defect with a name, and the intended way for
 # this file to change is to SHRINK: a class fix reds this gate BECAUSE IT
 # IMPROVED, and the count is then edited down in the same change.
+# 2026-09-08 — 94 -> 94, STAGE 6 OF THE RE-PORT, AND NOT ONE ROW MOVED. The 16 rows
+# whose root begins `lifereg.` and carries no `NEW` — the WHOLE remaining
+# un-re-ported region/lifetime region of this file, derived from the ledger by root
+# rather than selected — were re-ported AS-IS from their upstream test at the commit
+# each port cites (worksheets via scripts/report-worksheet.py against the local rustc
+# checkout at /home/logos/cxx/rust). The question was stage 4's: is the row a defect,
+# or is the ADMIT an artefact of the port?
+#   BUCKET 1  REFUSED at the same construct -> fail shelf, row RETIRED         0
+#   BUCKET 2  RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT                 16
+#   BUCKET 3  BLESSED DIVERGENCE                                               0
+#   BUCKET 4  IMPLEMENTATION HOLE                                              0
+# SIXTEEN OF SIXTEEN SURVIVE. Every one is now MEASURED rather than believed, and each
+# is worth MORE than it was, not less. No compiler source was touched.
+#
+# FOUR PORTS WERE NOT THE UPSTREAM CONSTRUCT, and two PAIRS were one program twice:
+#   `mut-slice-struct-lifetime-transmute--c17` wrote the ARRAY door again, without the
+#     reborrow hop, so it and `--t17` were near-copies. `--c17` is now upstream's
+#     STRUCT door (`&mut Struct` reborrow, `dst.head = y`), `--t17` the slice door.
+#   `regions-adjusted-lvalue-op--c26` had NO place-op adjustment at all — plain
+#     `v.oh_no(&v)` on the vector — so it and `--t26` were one door under two names.
+#     `--c26` is now the DEREF door, `--t26` the INDEX door.
+#   `constructor-lifetime-early-binding-error` was a struct LITERAL where upstream's
+#     whole subject is a CONSTRUCTOR PATH.
+#   `regions-escape-method` had ANNOTATED the closure that upstream deliberately
+#     leaves to inference; `regions-nested-fns-2` had dropped upstream's `for<'z>`.
+#
+# ⚠ THE ROOTS WERE RE-CHECKED AGAINST THE RESTORED CONSTRUCTS WITH ONE-VARIABLE PAIRS
+# COMPILED TODAY (build hash 10a507efa95812c8 43). FOUR of the nine roots SPLIT or
+# were REFUTED; only ONE handed-down grouping survives intact:
+#   lifereg.B  SURVIVES, and is now measured. `let mut out: &i64 = x; out = y;` at the
+#              ROOT local is REFUSED; the identical store through an INDEX (`out[0]=y`)
+#              or a FIELD (`dst.head=y`) is ADMITTED. "Bookkeeping is root-keyed and
+#              does not follow a projection", digit for digit, on both rows.
+#   lifereg.R2 SURVIVES as one mechanism — and it is bck.D/nllmoves.D's, not a region
+#              root: two loans minted inside ONE call's own evaluation deposit nothing.
+#              Sequenced into `let`s: REFUSED. Shared loan taken first as a named local,
+#              then the receiver autoref: REFUSED. Both inside the call: ADMITTED. A
+#              MERGE CANDIDATE ACROSS BLOCKS, recorded and NOT merged (owner decision).
+#   lifereg.D  REFUTED ON BOTH ROWS, AND FOR TWO DIFFERENT REASONS — it is not one root
+#              and neither half is "a temporary has no owner":
+#     NEW-STRUCTCARRY (temporary-lifetime-extension-tuple-ctor) the temporary HAS a
+#              loan: `let g: &T = keep(&temp());` is REFUSED with the right E0716
+#              sentence. Vary ONLY the return type: `-> &'a T` REFUSED, `-> X<'a>`
+#              ADMITTED. The loan is not followed into a struct that carries the region.
+#     NEW-LETANNOT (regions-free-region-ordering-caller1) no temporary is involved at
+#              all: replace `&(&y)` with a named local and it still admits. `let z: &'a
+#              u64 = &y;` inside `call1<'a>` ADMITS; only `return z;` refuses, and by a
+#              SYNTACTIC dangling-local rule. A let annotation naming a free region is
+#              not a constraint on its initializer.
+#   lifereg.C  SPLITS INTO TWO, each with its own pair:
+#     NEW-CAPFRAME (regions-nested-fns-2) a closure returning a borrow of its OWN local
+#              is REFUSED (`cannot return reference to local variable 'w'`); the same
+#              closure returning a borrow of the ENCLOSING fn's local is ADMITTED. The
+#              dangling check is frame-local. Restoring `for<'z>` changed nothing, so
+#              the bound is not read in either form.
+#     NEW-CRETGEN (regions-escape-method) the closure's return region flows into a
+#              caller-chosen generic `B`; the same escape written as a FN ITEM signature
+#              is REFUSED. Two facts, two doors — possibly in SERIES on one reader, not
+#              measured as one.
+#   lifereg.L1 SPLITS INTO TWO SITES:
+#              elided-self-lifetime-in-trait-fn is a METHOD CALL whose receiver-region
+#              demand is never checked — the same escape through two FREE fns REFUSES,
+#              and writing the receiver's `'s` out changes nothing, so ELISION IS NOT
+#              THE VARIABLE. trait-method-return-lifetime-mismatch is a DECLARATION-site
+#              elision in a trait method's return, where writing `BVH<'a, R>` out gives
+#              a legal program that also admits — there elision IS the variable.
+#   lifereg.L7 SURVIVES as one mechanism, RE-NAMED: fn-item -> fn-pointer coercion
+#              compares the signature's TYPE structure (a wrong return type refuses,
+#              naming `fn ITEM<..>`) and ERASES its LIFETIME structure. BOTH directions
+#              admit: `fn(&S)->&S` for `fn(&S)->&'static S` and the reverse.
+#   lifereg.R17 SPLITS, AND NEITHER HALF IS A REGION ROOT: constructor-lifetime-early-
+#              binding-error is a lifetime-ARGUMENT-COUNT check that does not exist
+#              (E0107); outlives-with-missing is E0412, an undeclared type NAME in a
+#              where clause — name resolution, no region anywhere.
+#   lifereg.N1, lifereg.L2 — one row each, NO separating pair measured. Do not group.
+#
+# ⚠ TWO UPSTREAM HALVES COULD NOT BE WRITTEN AND ARE DECLARED, NOT DROPPED SILENTLY:
+#   a turbofish on a TUPLE-STRUCT constructor call (`S::<'static>(&0,&0)`) answers
+#   `error: unexpected type node code 131`, and a lifetime SUPERTRAIT bound
+#   (`trait T: 'static`) is a syntax error. Both are in tests/logos/unrowed_backlog.ledger.
+# ⚠ ONE PIECE OF FAIL-SHELF COVERAGE IS SITTING UNCOLLECTED: upstream's
+#   `static_id_wrong_way` (`where 'static: 'a`) is ALREADY REFUSED here, correctly. It
+#   cannot live on an admit-shelf program, so nobody has landed it.
+# ⚠ ONE DOOR IN THIS BATCH IS OURS, NOT UPSTREAM'S:
+#   `regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr` moves upstream's
+#   annotated call ARGUMENT to a `let` initializer. It is declared in the file's own
+#   `// Modifications:` block; the sibling `--fn-subtyping` carries upstream's site.
+# EVERY ONE OF THE 16 FILES NOW CARRIES `// Original path:`, the upstream commit, the
+# annotated construct quoted, and a `// Modifications:` block.
 # 2026-09-07 — 105 -> 102, STAGE 4 OF THE RE-PORT. The 24 rows rooted `bck.C`,
 # `nllmoves.C` or `lifereg.R18` were re-ported AS-IS from their upstream test at
 # the commit each port cites (worksheets via scripts/report-worksheet.py against
@@ -1540,18 +1629,18 @@ dropck-only-error lifereg.NEW-PROJBOUND tests/imported/admit/dropck/dropck-only-
 # ── tests/ui/lifetimes ─────────────────────────────────────────
 
 borrowck-let-suggestion bck.NEW-BCS tests/imported/admit/lifetimes/borrowck-let-suggestion
-constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error
+constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port was a struct LITERAL; upstream is a CONSTRUCTOR PATH. The enum half `E::V::<'static>(&x)` ports verbatim and admits (1 and 3 args for 2 params). ROOT RE-CHECKED: not a region root — a lifetime-ARG-COUNT check that does not exist. Tuple-struct ctor turbofish is unparseable (node code 131) -> unrowed_backlog tuplestruct_ctor_turbofish
 e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
-elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn
+elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a METHOD CALL whose receiver-region demand is never checked. PAIR: the same escape through two FREE fns REFUSES (`return type mismatch: variance mismatch — expected &'static bool, got &'s bool`); through `self.a()` it admits. Writing 's explicitly changes nothing, so elision is NOT the variable
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 missing-lifetime-in-assoc-type-1 lifereg.NEW-E0207 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-1
 missing-lifetime-in-assoc-type-5 lifereg.NEW-E0207 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-5
 missing-lifetime-in-assoc-type-6 lifereg.NEW-E0207 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-6
-mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17
-mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17
-temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor
+mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port was the ARRAY door again (a near-copy of --t17); restored to upstream's STRUCT door (`&mut Struct` reborrow, `dst.head = y`). ROOT lifereg.B CONFIRMED by a one-variable pair: the same store to the ROOT local (`let mut out: &i64 = x; out = y;`) is REFUSED, through a FIELD it is admitted
+mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT lifereg.B CONFIRMED by the same pair as --c17: root-local store REFUSED, through an INDEX admitted. The two rows are one mechanism at two projections and are now two DIFFERENT programs (field vs index), which they were not before
+temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.D REFUTED for this row: the temporary DOES have a loan — `let g: &T = keep(&temp());` is REFUSED with the right E0716 sentence. ONE-VARIABLE PAIR: same call, same temporary, only the RETURN TYPE varies — `-> &'a T` REFUSED, `-> X<'a>` (a struct carrying the region) ADMITTED. Propose lifereg.NEW-STRUCTCARRY
 trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion
-trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch
+trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a DECLARATION-site elision (a trait method's elided return lifetime), not a call. CONTROL: writing `BVH<'a, R>` explicitly is legal Rust and also admits, so the ELIDED slot is the variable
 
 # ── tests/ui/moves ─────────────────────────────────────────
 
@@ -1598,18 +1687,18 @@ var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
 better-blame-constraint-for-outlives-static lifereg.NEW-N1 tests/imported/admit/regions/better-blame-constraint-for-outlives-static
 explicit-static-bound-on-trait lifereg.NEW-4 tests/imported/admit/regions/explicit-static-bound-on-trait
 issue-101280 lifereg.NEW-N4 tests/imported/admit/regions/issue-101280
-outlives-with-missing lifereg.R17 tests/imported/admit/regions/outlives-with-missing
+outlives-with-missing lifereg.R17 tests/imported/admit/regions/outlives-with-missing  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.R17 REFUTED: upstream's error is E0412 `cannot find type T in this scope` — NAME RESOLUTION in a where clause, no region anywhere. Does not group with the other R17 row. Propose a resolver root, not a lifereg one
 region-bounds-on-objects-and-type-parameters lifereg.NEW-E0226 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
-regions-adjusted-lvalue-op--c26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--c26
-regions-adjusted-lvalue-op--t26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26
+regions-adjusted-lvalue-op--c26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--c26  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had NO place-op adjustment (`v.oh_no(&v)` on the vector itself) and duplicated --t26; restored to upstream's DEREF door. ROOT lifereg.R2 = the SAME mechanism as bck.D/nllmoves.D: two loans minted inside ONE call's own evaluation deposit nothing. PAIRS: sequenced into lets REFUSED; the shared loan taken FIRST as a named local then the receiver autoref REFUSED; both inside the call ADMITTED
+regions-adjusted-lvalue-op--t26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. INDEX place-op door. Same root and same pairs as --c26, and the two are now two different doors rather than one program twice
 regions-creating-enums3 lifereg.NEW-N1 tests/imported/admit/regions/regions-creating-enums3
-regions-escape-method lifereg.C tests/imported/admit/regions/regions-escape-method
-regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr lifereg.L7 tests/imported/admit/regions/regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr
-regions-fn-subtyping-return-static-fail--fn-subtyping lifereg.L7 tests/imported/admit/regions/regions-fn-subtyping-return-static-fail--fn-subtyping
-regions-free-region-ordering-caller1 lifereg.D tests/imported/admit/regions/regions-free-region-ordering-caller1
+regions-escape-method lifereg.C tests/imported/admit/regions/regions-escape-method  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had ANNOTATED the closure, which is the one thing upstream leaves to inference; annotation removed. ROOT RE-CHECKED, lifereg.C SPLITS: this row is the closure's return region flowing into a CALLER-CHOSEN generic `B`. PAIR: the same escape written as a FN ITEM signature is REFUSED (`variance mismatch — expected &'static i64, got &'p i64`)
+regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr lifereg.L7 tests/imported/admit/regions/regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ⚠ THIS DOOR IS OURS, NOT UPSTREAM'S — a `let` with an annotated fn-pointer type; the sibling carries upstream's own argument site. Both admit, so the two coercion sites agree. ROOT lifereg.L7 RE-CHECKED and RE-NAMED: fn-item -> fn-pointer coercion compares the signature's TYPE structure (a wrong return TYPE is refused, naming `fn ITEM<..>`) and ERASES its LIFETIME structure — BOTH directions admit
+regions-fn-subtyping-return-static-fail--fn-subtyping lifereg.L7 tests/imported/admit/regions/regions-fn-subtyping-return-static-fail--fn-subtyping  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Upstream's own door, plus its legal contrast (`want_F(baz)`, `want_G(foo)`) so a future refusal must SEPARATE them. Same root as --c30
+regions-free-region-ordering-caller1 lifereg.D tests/imported/admit/regions/regions-free-region-ordering-caller1  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.D REFUTED for this row too, and NOT for the same reason as the other D row: replacing the temporary `&(&y)` with a NAMED local still admits, so no temporary is involved. PAIR: `let z: &'a u64 = &y;` inside `call1<'a>` ADMITS, and only adding `return z;` refuses — and by a SYNTACTIC dangling-local rule, not by the annotation. Propose lifereg.NEW-LETANNOT: a let annotation naming a free region is not a constraint on its initializer
 regions-glb-free-free--glb-free-free lifereg.NEW-R19 tests/imported/admit/regions/regions-glb-free-free--glb-free-free
-regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self
-regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
+regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ONE-ROW root, no separating pair measured — do not group it. Upstream's four LEGAL contrast traits need a lifetime SUPERTRAIT bound (`trait T: 'static`), which does not parse here -> unrowed_backlog lifetime_supertrait_bound
+regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had dropped upstream's `for<'z>` HRTB; restored (it parses) and nothing changed, so the BOUND is not read either way. ROOT RE-CHECKED, lifereg.C SPLITS: this row is a CAPTURED enclosing local escaping through the closure's return. PAIR: a closure returning a borrow of its OWN local is REFUSED (`cannot return reference to local variable 'w'`); the same closure returning a borrow of the ENCLOSING fn's local is ADMITTED — the dangling check is frame-local
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
 regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/regions-pattern-typing-issue-19552
-regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-bound
+regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-bound  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ONE-ROW root, no separating pair measured. ⚠ Upstream's `static_id_wrong_way` (`where 'static: 'a`) is ALREADY REFUSED here, correctly, and is therefore left off this admit-shelf program; it is fail-shelf coverage nobody has landed
