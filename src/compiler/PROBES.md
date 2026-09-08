@@ -30440,3 +30440,95 @@ regex was not touched.
                                              none of them the four repaired here, which
                                              report ccrc 0 / rc 0 / empty-stdout hash)
     git diff --stat -- src/ include/         PROBES.md only. ZERO compiled lines.
+
+---
+
+## 2026-09-08 — THE THREE VALGRIND-MINTED ROWS, PRICED: ONE PREDICATE AT FIVE SITES, AND ONE LINE THAT CLOSES A ROW FOR NOTHING
+
+Build read `8e5f92705b285d29 43` at the start AND at the end — the revert plus rebuild
+restored the binary byte for byte, so every number below is on one binary. Queue gate rc 0
+(73 rows / 73 programs / `# TOTAL 73`) before and after. L1 rc 0. Full round record and the
+probe spec: `docs/probes/dropglue-rcunsize-2026-09-08/`.
+
+    probe    fires  ceiling  cost  cfail  stdlib  runtime (6553 pass fixtures RUN)
+    dgall    15729     0        1     0     ok    1  (+cast-region-to-uint)
+    dgrepl     552     0        0     0     ok    —  (bounded by dgall)
+    dgnest    4022     0        1     0     ok    —  (bounded by dgall)
+    rcunsz      43     0        0     0     ok    0  (+cast-region-to-uint)
+
+⚠ THE `ceiling` COLUMN IS 0 FOR ALL FOUR AND THAT IS NOT A REFUTATION, it is a column
+meeting a ledger it cannot see: `ceiling` counts `bc_admits.ledger` rows and all four of
+these are `soundness_queue.ledger` rows. probe-batch's "STOP cost>=ceiling" fired on dgall
+and dgnest for that reason alone. All four are PROVEN LIVE (552 … 15729 fires).
+
+### `replace_site_skips_field_drop_glue` IS ONE DEFAULTED PARAMETER, NOT A MISSING ARM
+
+`gen_drop_value(value_ptr, ty, bool top_level = false, …)` — the recursion into a value's
+fields after its user `Drop::drop` is already written and already correct; the DEFAULT is
+false and only two callers in the tree pass true. Its own neighbouring comment at the B8
+drop-before-replace site claims "gen_drop_value runs the full destructor (user Drop impl +
+owned children)" while the three calls beneath it pass no third argument.
+
+⚠ AND THE FAILING POPULATION IS TWICE WHAT THE ROW SAYS. A destructor-COUNT oracle over
+eight shapes (a leak undercounts, a double drop overcounts, so one oracle reads both
+directions) found four more leaking shapes the row does not mention: a TUPLE element and an
+ARRAY element at scope exit, two levels of nesting, and an assignment over a two-level
+field. Only the top-level local and the moved-out field are correct. Separately, an ENUM
+with a user Drop and an owning payload leaks at EVERY site including the top-level local —
+the scope-exit enum branch is guarded `k == K::Enum && drop_fn.empty()`, so a user drop_fn
+disables the payload recursion before `top_level` is ever consulted. That one has no row.
+
+### ADDITIVITY, MEASURED AGAIN, AND AGAIN NOT ADDITIVE
+
+Shapes closed of the six wrong ones: dgrepl 0, dgnest 3, dgall 6. `dgrepl + dgnest = 3`
+against `dgall = 6`; the +3 comes from sites neither site-probe touches. On the row's own
+objdump table each site-probe moves a DISJOINT half and neither moves all three. So the
+minting round's open question — one root or two — has a third answer: ONE PREDICATE reaching
+at least FIVE emission sites, and no single site-fix moves any two of the row's shapes
+together.
+
+### THE PREMISE TEST — WHY THE ONE-LINE FLIP IS THE WRONG FIX EVEN AT COST 1
+
+The `top_level` gate is justified by "a by-value `self` drop consumes the fields, which drop
+at the drop body's scope end". Two drop bodies, one empty and one that moves the field out,
+each owing exactly one inner destructor call:
+
+    P1 local  1 / P2 local  2 / P1 as field  0 / P2 as field  1      BASE
+    P1 local  1 / P2 local  2 / P1 as field  1 / P2 as field  2      dgall
+
+P2-as-a-local ALREADY double-drops unarmed — a new unrowed tier-1 defect — and arming the
+recursion turns P2-as-a-field from correct into a double drop. The corpus contains no
+program of that shape, which is why cost 1 and runtime 1 look so cheap. COST 0 IS NOT A
+SAFETY CLAIM, and neither is cost 1: the counter-example had to be written by hand.
+
+### A PINNED PASS FIXTURE ASSERTS THE DEFECT, AGAINST ITS OWN COMMENT
+
+`tests/logos/pass/drop_glue_three_levels` is the ENTIRE cost of dgall and of dgnest, in the
+`pass` column and in the runtime column alike. Its comment says "c drops via glue →
+B::drop(b3) → A::drop(a7)"; its `.expected` says `b3`. Same program, one binary: BASE `b3`,
+dgrepl `b3`, dgall `b3 a7`, dgnest `b3 a7`. Its sibling `drop_nested_explicit` pins the
+CORRECT behaviour one level up, where `top_level` is true. Two green pass fixtures in one
+family with contradictory expectations. NOT EDITED — corpus decision, owner's call; the
+repair is the `.expected` its own comment already asks for.
+
+### `rc_coerce_unsized_source_not_moved` — FUND IT: ONE LINE, EVERY COLUMN ZERO
+
+`try_struct_unsize_coerce` rebuilds `Rc<A> as Rc<dyn Tr>` as a FIELD READ plus a struct
+literal and never records the move of its operand, so the source stays live and drops a
+second time. Box is the control and it already refuses: `b as Box<dyn Sp>` then `b.v()`
+prints "use of moved variable 'b'" on the unmodified compiler, while the Rc spelling
+compiles silently. Marking the operand moved at that one shared helper (all five coercion
+points inherit it) closes the row with the same sentence — "use of moved variable 'rc'",
+READ — and repairs `tests/spec/pass/coerce_4` from 9 valgrind errors to 0. cost 0, cfail 0,
+stdlib ok, and 0 of 6553 executed pass fixtures changed. Over-refusal controls that must and
+do still compile and run clean: the coercion of a temporary, the no-coercion `Rc` call, the
+`Box` unsize.
+
+### A STANDING ROW'S MEMBER LIST IS WRONG, MEASURED BY STACK
+
+`boxed_move_closure_fat_capture_env_overflow` claims three corpus members. Only
+`bc_objlt_str_literal` has stacks inside its own boxed-closure function.
+`custom_dst_smartptr_owning_drop` reads a block freed by the same `drop_me` — that is
+`unsized_local_binds_place_dropped_after_free`. `coerce_4` faults in `Rc$G1$A__drop` on a
+block freed by `Rc$G1$udyn_Sp__drop_rc` — that is the Rc row, and the rcunsz probe repairing
+it to zero errors settles the attribution. Recorded for that row's owner; not re-scoped here.

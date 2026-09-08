@@ -1,0 +1,37 @@
+// THE PREMISE TEST for gen_drop_value's comment at mlir_gen_stmt.cpp:977 —
+// "A user `impl Drop` OWNS the value: calling its drop runs the destructor and
+//  (for a by-value `self` drop) consumes the fields, which drop at the drop
+//  body's scope end. So call it and STOP."
+// If that premise is TRUE for some drop body, then removing the `top_level`
+// gate DOUBLE-DROPS. Shape P1 has an EMPTY drop body; P2's drop body MOVES the
+// field out into a local, which in Rust is where the field's drop then runs.
+// Each shape creates one Pay and owes exactly ONE Noisy destructor call.
+package premise;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn printf(f: *const u8, a: i64, b: i64) -> i32;
+
+trait Drop { fn drop(self: Self); }
+struct Noisy { n: i64, c: *mut i64 }
+impl Drop for Noisy { fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
+
+struct P1 { n: i64, inner: Noisy }
+impl Drop for P1 { fn drop(self: P1) { } }
+
+struct P2 { n: i64, inner: Noisy }
+impl Drop for P2 { fn drop(self: P2) { let q: Noisy = self.inner; } }
+
+struct H1 { p: P1 }
+struct H2 { p: P2 }
+
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+    c[0] = 0i64; { let x: P1 = P1 { n: 1i64, inner: Noisy { n: 1i64, c: c } }; }
+    printf("P1 local (want 1): %ld\n".as_ptr(), c[0], 0i64);
+    c[0] = 0i64; { let x: P2 = P2 { n: 1i64, inner: Noisy { n: 1i64, c: c } }; }
+    printf("P2 local, drop body moves field (want 1): %ld\n".as_ptr(), c[0], 0i64);
+    c[0] = 0i64; { let h: H1 = H1 { p: P1 { n: 1i64, inner: Noisy { n: 1i64, c: c } } }; }
+    printf("P1 as field (want 1): %ld\n".as_ptr(), c[0], 0i64);
+    c[0] = 0i64; { let h: H2 = H2 { p: P2 { n: 1i64, inner: Noisy { n: 1i64, c: c } } }; }
+    printf("P2 as field, drop body moves field (want 1): %ld\n".as_ptr(), c[0], 0i64);
+    return 0i32;
+}

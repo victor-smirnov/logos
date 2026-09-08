@@ -1,0 +1,58 @@
+// RULE 5: vary the SHAPE. Every shape creates N Pay values; Rust owes exactly
+// N Noisy destructor calls. A LEAK undercounts, a DOUBLE DROP overcounts, so
+// one oracle sees both directions. Return code = 10*shape + (got-want) + 5.
+package shapes2;
+
+trait Drop { fn drop(self: Self); }
+
+struct Noisy { n: i64, c: *mut i64 }
+impl Drop for Noisy { fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
+
+struct Pay  { n: i64, inner: Noisy }
+impl Drop for Pay { fn drop(self: Pay) { } }
+
+struct Wrap { p: Pay }
+struct Deep { w: Wrap }
+struct TwoF { a: Pay, b: Pay }
+
+fn mk(n: i64, c: *mut i64) -> Pay { return Pay { n: n, inner: Noisy { n: n, c: c } }; }
+
+// A: struct field at scope exit, TWO droppable fields (owes 2)
+unsafe fn a_twofields(c: *mut i64) -> i64 { let h: TwoF = TwoF { a: mk(1i64,c), b: mk(2i64,c) }; return h.a.n; }
+// B: TWO levels of nesting (owes 1)
+unsafe fn b_deep(c: *mut i64) -> i64 { let d: Deep = Deep { w: Wrap { p: mk(1i64,c) } }; return d.w.p.n; }
+// C: tuple element at scope exit (owes 1)
+unsafe fn c_tuple(c: *mut i64) -> i64 { let t: (i64, Pay) = (7i64, mk(1i64,c)); return t.0; }
+// D: array element at scope exit (owes 2)
+unsafe fn d_array(c: *mut i64) -> i64 { let a: [Pay; 2] = [mk(1i64,c), mk(2i64,c)]; return a[0].n; }
+// E: assignment over a nested field two levels down (owes 2)
+unsafe fn e_deepassign(c: *mut i64) -> i64 { let mut d: Deep = Deep { w: Wrap { p: mk(1i64,c) } }; d.w.p = mk(2i64,c); return d.w.p.n; }
+// F: assignment over a tuple element (owes 2)
+unsafe fn f_tupassign(c: *mut i64) -> i64 { let mut t: (i64, Pay) = (7i64, mk(1i64,c)); t.1 = mk(2i64,c); return t.0; }
+// G: struct field, moved OUT before scope exit (owes 1, must NOT double)
+unsafe fn g_movedout(c: *mut i64) -> i64 { let h: Wrap = Wrap { p: mk(1i64,c) }; let q: Pay = h.p; return q.n; }
+// H: a struct with a user Drop but NO droppable field (owes 0 Noisy)
+unsafe fn h_nofield(c: *mut i64) -> i64 { let p: Pay = mk(1i64,c); return p.n; }
+
+extern fn printf(f: *const u8, a: i64, b: i64) -> i32;
+unsafe fn chk(c: *mut i64, want: i64, code: i64) -> i64 {
+    let got: i64 = c[0]; c[0] = 0i64;
+    printf("shape %ld: got %ld\n".as_ptr(), code, got);
+    if got != want { return 1i64; }
+    return 0i64;
+}
+
+extern fn malloc(n: i64) -> *mut u8;
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64; c[0] = 0i64;
+    let mut r: i64 = 0i64;
+    a_twofields(c); r = r + chk(c, 2i64, 1i64);
+    b_deep(c);      r = r + chk(c, 1i64, 2i64);
+    c_tuple(c);     r = r + chk(c, 1i64, 3i64);
+    d_array(c);     r = r + chk(c, 2i64, 4i64);
+    e_deepassign(c);r = r + chk(c, 2i64, 5i64);
+    f_tupassign(c); r = r + chk(c, 2i64, 6i64);
+    g_movedout(c);  r = r + chk(c, 1i64, 7i64);
+    h_nofield(c);   r = r + chk(c, 1i64, 8i64);
+    return r as i32;
+}

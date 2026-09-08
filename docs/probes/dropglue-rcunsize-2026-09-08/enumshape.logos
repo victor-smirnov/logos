@@ -1,0 +1,21 @@
+// SHAPE VARIATION: the same predicate on the ENUM arm (mlir_gen_stmt.cpp:1057).
+// Each shape creates one E::V(Noisy) and owes exactly ONE Noisy destructor call.
+package enumshape;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn printf(f: *const u8, a: i64, b: i64) -> i32;
+trait Drop { fn drop(self: Self); }
+struct Noisy { n: i64, c: *mut i64 }
+impl Drop for Noisy { fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
+enum E { V(Noisy), N }
+impl Drop for E { fn drop(self: E) { } }
+struct HE { e: E }
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+    c[0] = 0i64; { let e: E = E::V(Noisy { n: 1i64, c: c }); }
+    printf("enum local (want 1): %ld\n".as_ptr(), c[0], 0i64);
+    c[0] = 0i64; { let h: HE = HE { e: E::V(Noisy { n: 1i64, c: c }) }; }
+    printf("enum as struct field (want 1): %ld\n".as_ptr(), c[0], 0i64);
+    c[0] = 0i64; { let mut e: E = E::V(Noisy { n: 1i64, c: c }); e = E::N; }
+    printf("enum assigned over (want 1): %ld\n".as_ptr(), c[0], 0i64);
+    return 0i32;
+}

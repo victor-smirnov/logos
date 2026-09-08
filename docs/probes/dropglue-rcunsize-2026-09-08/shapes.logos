@@ -1,0 +1,63 @@
+package shapes;
+use logos.mem.collections.vec;
+
+trait Drop { fn drop(self: Self); }
+
+struct Pay { n: i64, v: Vec<i64> }
+impl Drop for Pay { fn drop(self: Pay) { } }
+
+struct Holder { p: Pay }
+
+fn mk(n: i64) -> Pay {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    v.push(n);
+    return Pay { n: n, v: v };
+}
+
+fn consume(p: Pay) -> i64 { return p.n; }
+
+fn s_scope() -> i64 { let a: Pay = mk(1i64); return a.n; }
+
+fn s_callee() -> i64 { let a: Pay = mk(1i64); return consume(a); }
+
+fn s_ifexpr(c: bool) -> i64 {
+    let a: Pay = mk(1i64);
+    let b: Pay = mk(2i64);
+    let k: Pay = if c { a } else { b };
+    return k.n;
+}
+
+fn s_assign() -> i64 {
+    let mut k: Pay = mk(1i64);
+    k = mk(2i64);
+    return k.n;
+}
+
+fn s_field() -> i64 {
+    let mut h: Holder = Holder { p: mk(1i64) };
+    h.p = mk(2i64);
+    return h.p.n;
+}
+
+fn s_nested() -> i64 {
+    let h: Holder = Holder { p: mk(1i64) };
+    return h.p.n;
+}
+
+fn s_vecelem() -> i64 {
+    let mut vv: Vec<Pay> = vec_new::<Pay>();
+    vv.push(mk(1i64));
+    return vv.len();
+}
+
+fn main() -> i64 {
+    let mut t: i64 = 0i64;
+    t = t + s_scope();
+    t = t + s_callee();
+    t = t + s_ifexpr(true);
+    t = t + s_assign();
+    t = t + s_field();
+    t = t + s_nested();
+    t = t + s_vecelem();
+    return t - 9i64;
+}
