@@ -1,10 +1,35 @@
 // rustc nll/issue-48697.rs — upstream E0515
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.C
+// shelf: admit · root nllmoves.NEW-CESC — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// ── BUCKET 2: re-ported as-is, still admitted, still a defect. The port is UNCHANGED
+//    by this round apart from restoring upstream's `&|y| y` (the closure is taken by
+//    REFERENCE, which is how upstream forces one region for both call sites); the old
+//    port had bound the closure directly. Both are admitted.
+// ── ROOT RE-CHECKED: the closure's inferred signature ties `y`'s region to the return
+//    region; `f(&z)` pins it to `z`'s, so `f(x)` returns a `&i64` carrying a local's
+//    region out of `foo`. Nothing constrains a closure's region except a `dyn`
+//    coercion — measured pair 2026-09-07, boxed -> REFUSED, plain generic -> ADMITS.
+// Original path: tests/ui/nll/issue-48697.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 3-8 —
+//     fn foo(x: &i32) -> &i32 {
+//         let z = 4;
+//         let f = &|y| y;
+//         let k = f(&z);
+//         f(x) //~ ERROR cannot return value referencing local variable
+//     }
+// Modifications:
+//   · i32 -> i64
+//   · the closure's parameter and return types are written out (`|y: &i64| -> &i64`);
+//     Logos does not infer a closure signature from its call sites. THIS WEAKENS THE
+//     PORT and it is recorded rather than hidden: with the types spelled out the two
+//     call sites no longer SHARE one inference variable, so the port asks the narrower
+//     question "is the returned region checked at all". It is not.
+//   · assert -> exit code: `fn main() -> i32`
 package issue_48697_t16;
 fn foo(x: &i64) -> &i64 {
     let z: i64 = 4i64;
-    let f = |y: &i64| -> &i64 { return y; };
+    let f = &|y: &i64| -> &i64 { return y; };
     let k = f(&z);
     return f(x);
 }

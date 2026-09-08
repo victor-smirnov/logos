@@ -5457,9 +5457,27 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9409 -> 9409    0   (-5 admit tests, +5 imported fail fixtures)
 #   NOIMPORTED   4971 -> 4966   -5
 #   TIERCOMMIT    172 ->  167   -5
+# 2026-09-07 (STAGE 4 OF THE RE-PORT — the 24 `bck.C`/`nllmoves.C`/`lifereg.R18`
+#   rows re-ported as-is). THE SAME SWAP AS 09-07 ABOVE, HALF THE SIZE: TWO admit
+#   programs left the shelf because their re-port is REFUSED at the upstream
+#   construct (borrowck-escaping-closure-error-2, whose old port returned the
+#   closure through a BARE closure type instead of `Box<dyn FnMut() + 'a>`, and
+#   var-matching-lifetime-but-unused-not-mentioned, whose old port had DROPPED
+#   upstream's `consume<T: 'static>`), and both landed as imported fail fixtures
+#   under tests/imported/fail/borrowck/ with their sentences pinned.
+#   Each leaving program was `logos_00_bc_admit_<dir>_<name>` (labels logos;pass;
+#   suite_semantic_core;tier_commit — NOT `imported`, so it counted in NOIMPORTED);
+#   each arriving fixture is labelled `imported`, so it does not.
+#   ALL          9409 -> 9409    0   (-2 admit tests, +2 imported fail fixtures)
+#   NOIMPORTED   4966 -> 4964   -2
+#   TIERCOMMIT    167 ->  165   -2
+#   ⚠ A THIRD ROW MOVED THIS ROUND AND MOVES NO COUNT: issue-75904-move-closure-loop
+#   went from bc_admits.ledger to bc_admits_blocked.ledger (bucket 3, docs/DIVERGENCES.md
+#   A16). Its PROGRAM stays on the admit shelf and keeps its test — a row moving
+#   between ledgers is not a test leaving the registry.
 REGISTRY-ALL         9409
-REGISTRY-NOIMPORTED  4966
-REGISTRY-TIERCOMMIT  167
+REGISTRY-NOIMPORTED  4964
+REGISTRY-TIERCOMMIT  165
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

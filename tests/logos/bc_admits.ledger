@@ -49,6 +49,61 @@
 # ⚠ A ROW IS NOT AN EXCUSE. It is a defect with a name, and the intended way for
 # this file to change is to SHRINK: a class fix reds this gate BECAUSE IT
 # IMPROVED, and the count is then edited down in the same change.
+# 2026-09-07 — 105 -> 102, STAGE 4 OF THE RE-PORT. The 24 rows rooted `bck.C`,
+# `nllmoves.C` or `lifereg.R18` were re-ported AS-IS from their upstream test at
+# the commit each port cites (worksheets via scripts/report-worksheet.py against
+# the local rustc checkout). The question was the mirror of stage 3's: is the row
+# a defect, or is the ADMIT an artefact of the port? The answer, per row:
+#   BUCKET 1  REFUSED at the same construct -> fail shelf, row RETIRED         2
+#   BUCKET 2  RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT                 21
+#   BUCKET 3  BLESSED DIVERGENCE (A16), row -> bc_admits_blocked.ledger        1
+#   BUCKET 4  IMPLEMENTATION HOLE                                             0
+# THE TWO THAT NOW REFUSE, both because the port had moved the construct OFF the
+# door where the rule lives — the same failure stage 3 found, in the other
+# direction. `borrowck-escaping-closure-error-2` returned its closure through a
+# BARE closure type (`fn mk() -> || -> i64`), which is not a Rust type and carries
+# no object-lifetime bound; through upstream's `Box<dyn FnMut() + 'a>` it is
+# refused. `var-matching-lifetime-but-unused-not-mentioned` had DROPPED upstream's
+# `consume<T: 'static>` — the bound that is the whole subject — for an unbounded
+# generic; restored, it is refused. Both refusals carry TWO legal-program controls
+# each, in the file, so neither is an over-refusal.
+# THE ONE A16 ROW: `issue-75904-move-closure-loop`. Upstream's `struct NotCopy;`
+# is field-less with no `impl Drop`, so under docs/DIVERGENCES.md A16 it is Copy here
+# and `let m = a;` is a COPY. One-variable pair: adding `impl Drop` to the SAME
+# program refuses.
+# ⚠ THE ROOTS WERE RE-CHECKED AGAINST THE RESTORED CONSTRUCTS AND ALL THREE
+# HANDED-DOWN GROUPINGS SPLIT. `bck.C`/`nllmoves.C` ("the closure boundary
+# deposits nothing") is FOUR mechanisms, each with its own one-variable pair:
+#   NEW-CAPLOAN  a loan CROSSING the boundary deposits nothing. `id(&g)` REFUSED
+#                vs `(|| &g)()` ADMITTED; and `c.push(&mut y)` twice REFUSED vs
+#                the same two loans minted by captures ADMITTED.
+#   NEW-CAPMOVE  a `move` capture's move-ness comes from the USE FORM inside the
+#                body, not the keyword. On ONE program: `move || { *v }` ADMITS,
+#                `move || { eat(v) }` REFUSED "cannot move 'v' while it is borrowed".
+#   NEW-CESC     an escaping closure's region is constrained ONLY by a `dyn`
+#                coercion. Boxed REFUSED vs a plain generic `keep<F>(f:F)->F`
+#                ADMITTED. This is also why the two bucket-1 rows refuse.
+#   NEW-CMUT     Fn/FnMut/FnOnce constrains CONSUMPTION (an FnOnce called twice
+#                is REFUSED) but not MUTATION of a capture.
+# ⚠ A closure body is NOT opaque: a loan minted and used inside one is tracked
+#   ("cannot assign to 'g' because it is borrowed"). bck.C as written was wrong
+#   about the mechanism, not only about the grouping.
+# `lifereg.R18` is TWO, and NEITHER IS A REGION ROOT:
+#   NEW-SIGARITY impl-vs-trait method signature compatibility is checked BY ARITY
+#                ONLY. Measured triple on one trait: arity REFUSED, return type
+#                `i64`->`u64` ADMITTED, lifetime-param count ADMITTED. 5 rows.
+#                A region fix closes none of them.
+#   NEW-PROJBOUND `dropck-only-error` alone — E0277 on a projection, no region at
+#                all. ONE-ROW root, NO separating pair measured; do not group it.
+# ⚠ TWO PAIRS OF ROWS ARE THE SAME CONSTRUCT TWICE, recorded and NOT merged
+#   (merging rows is an owner decision): `borrowck-loan-blocks-move-cc--r10`/`--t10`
+#   (upstream's box_imm and box_imm_explicit are textually identical at this
+#   commit) and `issue-42574-...--b`/`--t15` (one upstream fn, one annotated site;
+#   as-is the two ports differ only in a package name).
+# ⚠ `issue-42574-...--b`'s OLD port was LEGAL RUST — under NLL the capture's loan
+#   ends at the last use of `c`, so its trailing `eat(data)` is fine. A row had
+#   been opened against a program rustc does not reject.
+# NO COMPILER SOURCE WAS TOUCHED.
 # 2026-09-04 — 124 -> 99. NOT A FIX AND NOT A SHRINK OF THE HOLE SET: 25 rows
 # moved to `bc_admits_blocked.ledger`, all 124 programs still on the shelf and
 # still tested. Every moved row was re-verified that day by opening the PORT,
@@ -1277,7 +1332,7 @@
 # Rust) were refused until `!in_closure_body_` was added. Both tokens are
 # pinned in PAIRS: fail/bc_capmovemut_{mutref_capture,sibling_closures} vs
 # pass/bc_capmovemut_{sharedref_capture,nested_closures}. PROBES.md 2026-09-03p.
-# TOTAL 105
+# TOTAL 102
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1308,29 +1363,28 @@
 # position with no borrow-carrying struct anywhere, and nothing measured this
 # round says one change moves both.
 #
-anonymous-region-in-apit--closure-param-escapes bck.C tests/imported/admit/borrowck/anonymous-region-in-apit--closure-param-escapes
+anonymous-region-in-apit--closure-param-escapes bck.NEW-CESC tests/imported/admit/borrowck/anonymous-region-in-apit--closure-param-escapes  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments
-borrow-immutable-upvar-mutation-impl-trait bck.C tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait
+borrow-immutable-upvar-mutation-impl-trait bck.NEW-CMUT tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
 borrowck-borrowed-uniq-rvalue-2 bck.NEW-BCS tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2
-borrowck-escaping-closure-error-2 bck.C tests/imported/admit/borrowck/borrowck-escaping-closure-error-2
 borrowck-lend-flow-loop bck.NEW-2 tests/imported/admit/borrowck/borrowck-lend-flow-loop
-borrowck-loan-blocks-move-cc--r10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10
-borrowck-loan-blocks-move-cc--t10 bck.C tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--t10
+borrowck-loan-blocks-move-cc--r10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --t10 (upstream box_imm/box_imm_explicit are textually identical); merging is an owner decision
+borrowck-loan-blocks-move-cc--t10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--t10  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --r10; merging is an owner decision
 borrowck-loan-vec-content bck.B tests/imported/admit/borrowck/borrowck-loan-vec-content
-borrowck-move-by-capture bck.C tests/imported/admit/borrowck/borrowck-move-by-capture
+borrowck-move-by-capture bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-move-by-capture  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 borrowck-move-error-with-note--b bck.B tests/imported/admit/borrowck/borrowck-move-error-with-note--b
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
 borrowck-move-out-from-array-use-match--t13 bck.B tests/imported/admit/borrowck/borrowck-move-out-from-array-use-match--t13
 borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed
 borrowck-unboxed-closures bck.A tests/imported/admit/borrowck/borrowck-unboxed-closures
-borrowed-data-escapes-closure-148392 bck.C tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392
+borrowed-data-escapes-closure-148392 bck.NEW-CESC tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
 issue-36082 bck.NEW-BCS tests/imported/admit/borrowck/issue-36082
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
-issue-58776-borrowck-scans-children bck.C tests/imported/admit/borrowck/issue-58776-borrowck-scans-children
-issue-95079-missing-move-in-nested-closure bck.C tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure
-mut-borrow-conflict-in-closures-vec--bounded bck.C tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec--bounded
+issue-58776-borrowck-scans-children bck.NEW-CAPLOAN tests/imported/admit/borrowck/issue-58776-borrowck-scans-children  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
+issue-95079-missing-move-in-nested-closure bck.NEW-CESC tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
+mut-borrow-conflict-in-closures-vec--bounded bck.NEW-CAPLOAN tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec--bounded  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 mut-borrow-of-mut-ref bck.A tests/imported/admit/borrowck/mut-borrow-of-mut-ref
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error
 reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow
@@ -1339,14 +1393,13 @@ two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-l
 two-phase-nonrecv-autoref--a-fnmut-twice bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--a-fnmut-twice
 two-phase-nonrecv-autoref--c-mut-and-shared-args bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--c-mut-and-shared-args
 two-phase-nonrecv-autoref--d-index-two-phase bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--d-index-two-phase
-var-matching-lifetime-but-unused-not-mentioned bck.C tests/imported/admit/borrowck/var-matching-lifetime-but-unused-not-mentioned
 
 # ── tests/ui/drop ─────────────────────────────────────────
 
 
 # ── tests/ui/dropck ─────────────────────────────────────────
 
-dropck-only-error lifereg.R18 tests/imported/admit/dropck/dropck-only-error
+dropck-only-error lifereg.NEW-PROJBOUND tests/imported/admit/dropck/dropck-only-error  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. The OLD port had NO CONSTRUCT LEFT (field -> i64, `User = Self` dropped). Root is NOT a region root: E0277 on a projection. ONE-ROW root, no separating pair measured
 
 # ── tests/ui/lifetimes ─────────────────────────────────────────
 
@@ -1355,21 +1408,20 @@ constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifeti
 e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
-iterator-next-extra-named-lifetime lifereg.R18 tests/imported/admit/lifetimes/iterator-next-extra-named-lifetime
-lifetime-mismatch-between-trait-and-impl lifereg.R18 tests/imported/admit/lifetimes/lifetime-mismatch-between-trait-and-impl
+iterator-next-extra-named-lifetime lifereg.NEW-SIGARITY tests/imported/admit/lifetimes/iterator-next-extra-named-lifetime  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was lifereg.R18)
+lifetime-mismatch-between-trait-and-impl lifereg.NEW-SIGARITY tests/imported/admit/lifetimes/lifetime-mismatch-between-trait-and-impl  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was lifereg.R18)
 missing-lifetime-in-assoc-type-1 lifereg.NEW-E0207 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-1
 missing-lifetime-in-assoc-type-5 lifereg.NEW-E0207 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-5
 missing-lifetime-in-assoc-type-6 lifereg.NEW-E0207 tests/imported/admit/lifetimes/missing-lifetime-in-assoc-type-6
 mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17
 mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17
 temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor
-trait-impl-mismatch-elided-lifetime-issue-65866 lifereg.R18 tests/imported/admit/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866
+trait-impl-mismatch-elided-lifetime-issue-65866 lifereg.NEW-SIGARITY tests/imported/admit/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was lifereg.R18)
 trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion
 trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch
 
 # ── tests/ui/moves ─────────────────────────────────────────
 
-issue-75904-move-closure-loop nllmoves.C tests/imported/admit/moves/issue-75904-move-closure-loop
 move-of-addr-of-mut nllmoves.R5 tests/imported/admit/moves/move-of-addr-of-mut
 
 # ── tests/ui/nll ─────────────────────────────────────────
@@ -1381,12 +1433,12 @@ enum-drop-access nllmoves.E tests/imported/admit/nll/enum-drop-access
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
 issue-27282-move-match-input-into-guard nllmoves.R11 tests/imported/admit/nll/issue-27282-move-match-input-into-guard
 issue-27868 nllmoves.R11 tests/imported/admit/nll/issue-27868
-issue-40510-1 nllmoves.C tests/imported/admit/nll/issue-40510-1
-issue-40510-3 nllmoves.C tests/imported/admit/nll/issue-40510-3
-issue-42574-diagnostic-in-nested-closure--b nllmoves.C tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--b
-issue-42574-diagnostic-in-nested-closure--t15 nllmoves.C tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--t15
-issue-48697--t16 nllmoves.C tests/imported/admit/nll/issue-48697--t16
-issue-51268 nllmoves.C tests/imported/admit/nll/issue-51268
+issue-40510-1 nllmoves.NEW-CESC tests/imported/admit/nll/issue-40510-1  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)
+issue-40510-3 nllmoves.NEW-CESC tests/imported/admit/nll/issue-40510-3  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)
+issue-42574-diagnostic-in-nested-closure--b nllmoves.NEW-CESC tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--b  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED. The OLD port was LEGAL RUST (NLL ends the capture loan at the last use of `c`); as-is it is upstream's construct and is the SAME PROGRAM as --t15
+issue-42574-diagnostic-in-nested-closure--t15 nllmoves.NEW-CESC tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--t15  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --b; merging is an owner decision
+issue-48697--t16 nllmoves.NEW-CESC tests/imported/admit/nll/issue-48697--t16  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)
+issue-51268 nllmoves.NEW-CAPLOAN tests/imported/admit/nll/issue-51268  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)
 issue-52059-report-when-borrow-and-drop-conflict nllmoves.E tests/imported/admit/nll/issue-52059-report-when-borrow-and-drop-conflict
 issue-53773 nllmoves.E tests/imported/admit/nll/issue-53773
 issue-54124 nllmoves.NEW-L1 tests/imported/admit/nll/issue-54124
@@ -1413,7 +1465,7 @@ var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
 
 better-blame-constraint-for-outlives-static lifereg.NEW-N1 tests/imported/admit/regions/better-blame-constraint-for-outlives-static
 explicit-static-bound-on-trait lifereg.NEW-4 tests/imported/admit/regions/explicit-static-bound-on-trait
-impl-trait-lifetime-conflict-hashmap-keys--sig-only lifereg.R18 tests/imported/admit/regions/impl-trait-lifetime-conflict-hashmap-keys--sig-only
+impl-trait-lifetime-conflict-hashmap-keys--sig-only lifereg.NEW-SIGARITY tests/imported/admit/regions/impl-trait-lifetime-conflict-hashmap-keys--sig-only  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was lifereg.R18)
 issue-101280 lifereg.NEW-N4 tests/imported/admit/regions/issue-101280
 outlives-with-missing lifereg.R17 tests/imported/admit/regions/outlives-with-missing
 region-bounds-on-objects-and-type-parameters lifereg.NEW-E0226 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
@@ -1430,4 +1482,4 @@ regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
 regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/regions-pattern-typing-issue-19552
 regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-bound
-resolve-re-error-ice lifereg.R18 tests/imported/admit/regions/resolve-re-error-ice
+resolve-re-error-ice lifereg.NEW-SIGARITY tests/imported/admit/regions/resolve-re-error-ice  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was lifereg.R18)

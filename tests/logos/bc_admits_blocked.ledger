@@ -80,7 +80,7 @@
 #     `intrinsic.drop.skip-moved-out-paths` (docs/spec/expressions.md), and the
 #     clause was RE-VERIFIED BY RUNNING IT: a two-Drop struct with `let g = s.f`
 #     prints INNER_DROPS=1 S_DROPS=1 — no leak, no double free. Two A16 rows
-#     against DIVERGENCES.md A16 (structural auto-Copy, canonised 2026-08-24).
+#     against docs/DIVERGENCES.md A16 (structural auto-Copy, canonised 2026-08-24).
 #   BUCKET 4, implementation hole (3) — the re-port needs something the language
 #     does not have. Both `multiple-sources-*` rows need an explicit LIFETIME
 #     argument in a turbofish (`f::<'_>(..)` -> "unexpected type node code 131",
@@ -116,16 +116,26 @@
 #   its body never mentions — FIVE, in five files. The recorded "five pass
 #   fixtures" has NOT decayed.
 
+# 2026-09-07 (stage 4) — 12 -> 13. ONE row ARRIVED from bc_admits.ledger:
+# `issue-75904-move-closure-loop`, BUCKET 3 against docs/DIVERGENCES.md A16. Re-ported
+# as-is it keeps upstream's `struct NotCopy;`, which is field-less and carries no
+# `impl Drop` — implicitly Copy under A16 — so `let m = a;` is a COPY and the
+# program is LEGAL Logos. Measured one-variable pair, only the `impl Drop` differs:
+# with it the SAME loop program REFUSES ("use of moved value 'a'"). The
+# closure-in-a-loop move IS checked; only this port's TYPE is Copy, and swapping
+# the type would change the subject. A ROW MOVED, NOT A ROW CLOSED.
+
 borrowck-move-out-of-struct-with-dtor bck.E tests/imported/admit/borrowck/borrowck-move-out-of-struct-with-dtor  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — E0509; clause intrinsic.drop.skip-moved-out-paths, RE-VERIFIED BY RUNNING (INNER_DROPS=1 S_DROPS=1)
 borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13  # BUCKET-3 DIVERGENCE-DROP 2026-09-07, EVIDENCE CORRECTED SAME DAY — the admission stands; the "same run evidence" did NOT cover this port's door. This program uses the STRUCT-PATTERN door and its own body exits 1 (DROPS=0): `impl Drop for S` never runs. Run-time defect rowed separately as soundness_queue letstruct_destructure_skips_user_drop
 borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13  # BUCKET-3 DIVERGENCE-DROP 2026-09-07, EVIDENCE CORRECTED SAME DAY — the admission stands; the "same run evidence" did NOT cover this port's door. This program uses the STRUCT-PATTERN door and its own body exits 1 (DROPS=0): `impl Drop for S` never runs. Run-time defect rowed separately as soundness_queue letstruct_destructure_skips_user_drop
 borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--b  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — T{a:2,b:s0.b} out of a Drop T, same clause
 borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--t17  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — T{a:2,..s0} FRU out of a Drop T, same clause
-copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions  # BUCKET-3 DIVERGENCE-A16 2026-09-07 — DIVERGENCES.md A16 structural auto-Copy: Foo{f:&i64} is Copy at EVERY region
+copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions  # BUCKET-3 DIVERGENCE-A16 2026-09-07 — docs/DIVERGENCES.md A16 structural auto-Copy: Foo{f:&i64} is Copy at EVERY region
 do-not-ignore-lifetime-bounds-in-copy nllmoves.NEW-S7-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy  # BUCKET-3 DIVERGENCE-A16 2026-09-07 — same clause; impl Copy for Foo<'static> restricts nothing here
 issue-64173-unused-lifetimes lifereg.L4 tests/imported/admit/lifetimes/issue-64173-unused-lifetimes  # BUCKET-4 HOLE 2026-09-07 — needs a const-expression array length ([(); size_of::<&Self>()]); backlog const_expr_array_len_absent. E0392 wall re-measured: still 5 fixtures
 multiple-sources-for-outlives-requirement--c24b lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--c24b  # BUCKET-4 HOLE 2026-09-07 — needs an explicit LIFETIME turbofish arg; backlog lt_turbofish_absent (an invariance probe IS admitted — a row waits behind it)
 multiple-sources-for-outlives-requirement--t24 lifereg.N1 tests/imported/admit/regions/multiple-sources-for-outlives-requirement--t24  # BUCKET-4 HOLE 2026-09-07 — same missing feature, same backlog entry
 regions-in-enums-anon lifereg.R17 tests/imported/admit/regions/regions-in-enums-anon  # OWNER-CORPUS 2026-09-07 — port is FAITHFUL; wall re-measured 195 bare-& sites in 124 files (was 134/101), pinned by pass/bc_enumpldlt_placeholder_payload_lifetime E1
 regions-in-structs-anon lifereg.NEW-L1 tests/imported/admit/regions/regions-in-structs-anon  # OWNER-CORPUS 2026-09-07 — port is FAITHFUL; same re-measured wall, 174 of the 195 sites are struct fields
-# TOTAL 12
+issue-75904-move-closure-loop nllmoves.C tests/imported/admit/moves/issue-75904-move-closure-loop  # BUCKET-3 DIVERGENCE-A16 2026-09-07 (stage 4) — docs/DIVERGENCES.md A16 structural auto-Copy: upstream's `struct NotCopy;` is field-less with no `impl Drop`, so it IS Copy here and `let m = a;` is a COPY. LEGAL Logos as written. ONE-VARIABLE PAIR: adding `impl Drop` to the SAME loop program REFUSES ("use of moved value 'a'") — the closure-in-a-loop move IS checked, only this port's TYPE is Copy
+# TOTAL 13

@@ -1,18 +1,34 @@
 // rustc moves/issue-75904-move-closure-loop.rs — upstream E0382 use of moved value
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.C
-// port of rust tests/ui/moves/issue-75904-move-closure-loop.rs
+// shelf: admit · root nllmoves.C — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// ── BUCKET 3: BLESSED DIVERGENCE, docs/DIVERGENCES.md A16 (structural auto-Copy,
+//    canonised by Victor 2026-08-24). NOT A BORROW-CHECK DEFECT.
+//    Upstream's `struct NotCopy;` is field-less and carries no `impl Drop`, so under
+//    A16 ("implicitly Copy iff no `impl Drop` AND every field type is Copy" — vacuous
+//    for a field-less struct) it IS Copy here, and `let m = a;` is a COPY. The program
+//    is LEGAL Logos as written. Row moved to bc_admits_blocked.ledger.
+//    MEASURED ONE-VARIABLE PAIR, 2026-09-07 — the ONLY difference is the `impl Drop`:
+//      struct NotCopy;                          + `loop { || { let m = a; }; }`  ADMITS
+//      struct NotCopy{z:i64} impl Drop for ..   + the same loop body              REFUSES
+//        "error [fn main]: use of moved value 'a' (moved on line 6)"
+//    So the closure-in-a-loop move IS checked; only this port's TYPE is Copy. Swapping
+//    the type would change the subject, which is why this is bucket 3 and not a re-port.
+// Original path: tests/ui/moves/issue-75904-move-closure-loop.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 7-14 —
+//     let mut a = NotCopy;
+//     loop { || { //~ ERROR use of moved value
+//         &mut a;
+//         a;
+//     }; }
+// Modifications:
+//   · assert -> exit code: `fn main() -> i32`. NOTHING ELSE — the type, the `loop`, the
+//     closure, the `&mut a` and the by-value `a` are upstream's, verbatim.
 package issue_75904_move_closure_loop;
-struct NotCopy { x: i64 }
+struct NotCopy;
 fn main() -> i32 {
-    let mut a: NotCopy = NotCopy { x: 1i64 };
-    let mut i: i64 = 0i64;
-    while i < 2i64 {
-        let f = || {
-            let r: &mut NotCopy = &mut a;
-            let m: NotCopy = a;
-        };
-        i = i + 1i64;
+    let mut a: NotCopy = NotCopy;
+    loop {
+        || { let r = &mut a; let m = a; };
     }
-    return 0i32;
 }

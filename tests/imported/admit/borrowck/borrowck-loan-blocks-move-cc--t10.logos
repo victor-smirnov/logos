@@ -1,14 +1,48 @@
 // rustc borrowck/borrowck-loan-blocks-move-cc.rs — upstream E0505
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: admit · root bck.NEW-CAPMOVE — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// Modifications:
+//   · `Box::new(3)` -> `Box::new(3i64)`; upstream's `Box<_>` inference is spelled out
+//   · `thread::spawn` -> a local `fn spawn<F>(f: F)`; there is no thread plane here and
+//     the subject is the MOVE INTO THE CLOSURE, not what the callee does with it
+//   · `println!("v={}", *v)` -> `let _ = *v;` — the same deref READ of the capture
+//   · `w.use_ref()` -> `use_ref(w)` (the upstream blanket-impl `Fake` trait exists only
+//     to give `w` a later use; a free fn is the same later use)
+//   · assert -> exit code: `fn main() -> i32`
+// ── BUCKET 2: re-ported as-is, still admitted, still a defect.
+// ── ROOT RE-CHECKED AGAINST THE RESTORED CONSTRUCT, and it is NOT bck.C. The capture
+//    is not invisible: what decides whether a `move` capture counts as a MOVE of the
+//    captured local is the USE FORM INSIDE THE BODY, not the `move` keyword.
+//    MEASURED ONE-VARIABLE PAIR on THIS program, 2026-09-07 — only the closure body
+//    differs, everything else identical:
+//      spawn(move || { let _ = *v; });   (deref READ)      -> ADMITS
+//      spawn(move || { eat(v); });       (by-value use)    -> REFUSED,
+//         "error [fn box_imm]: cannot move 'v' while it is borrowed"
+//    So the loan on `v` IS live and the move check IS reached; the capture whose only
+//    use is a read deposits no move. Upstream's body is `println!("v={}", *v)` — a
+//    read — which is why the upstream program lands on the admitting side.
+// ── ⚠ THIS ROW AND `borrowck-loan-blocks-move-cc--r10` ARE THE SAME CONSTRUCT TWICE.
+//    Upstream's `box_imm` and `box_imm_explicit` are textually identical at this
+//    commit (both `let v: Box<_> = Box::new(3);`), so the two ports differ only in a
+//    package name. Recorded here rather than merged: merging rows is a ledger decision
+//    with an owner, and both are still individually held by the gate.
+// Original path: tests/ui/borrowck/borrowck-loan-blocks-move-cc.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 21-29 — `fn box_imm_explicit()` —
+//     let v: Box<_> = Box::new(3);
+//     let w = &v;
+//     thread::spawn(move|| {   //~ ERROR cannot move out of `v` because it is borrowed
+//         println!("v={}", *v);
+//     });
+//     w.use_ref();
 package borrowck_loan_blocks_move_cc_t10;
-struct B { v: i64 }
-impl Drop for B { fn drop(self: &mut B) {} }
-fn spawn<F>(f: F) {}
-fn main() -> i32 {
-    let v = B { v: 3i64 };
-    let w: &B = &v;
-    spawn(move || { return v.v; });
-    let _ = w.v;
-    return 0i32;
+use logos.mem.boxed;
+fn spawn<F>(f: F) { }
+fn use_ref(w: &Box<i64>) { }
+fn box_imm_explicit() {
+    let v: Box<i64> = Box::new(3i64);
+    let w: &Box<i64> = &v;
+    spawn(move || { let _ = *v; });
+    use_ref(w);
 }
+fn main() -> i32 { return 0i32; }

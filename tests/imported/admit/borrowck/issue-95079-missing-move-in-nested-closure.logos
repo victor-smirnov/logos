@@ -1,15 +1,43 @@
-// rustc borrowck/issue-95079-missing-move-in-nested-closure.rs — upstream captured variable cannot escape `FnMut` body
+// rustc borrowck/issue-95079-missing-move-in-nested-closure.rs — upstream captured
+// variable cannot escape `FnMut` closure body
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
+// shelf: admit · root bck.NEW-CESC — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// ── BUCKET 2: re-ported as-is, still admitted, still a defect. The old port returned
+//    the inner closure through a BARE closure type (`fn foo(s:&i64) -> || -> i64`),
+//    which is not a Rust type at all; routed through upstream's own boxed/impl-Trait
+//    return with its `+ 'a` bound it is STILL admitted, so the shortcut was not the cause.
+// ── ROOT RE-CHECKED. The escape channel decides, and only one channel constrains
+//    anything — MEASURED PAIR 2026-09-07:
+//      Box::new(|| -> i64 { x }) coerced to Box<dyn Fn() -> i64>  -> REFUSED
+//      keep(|| -> &i64 { &x }) through a plain generic `keep<F>(f:F)->F` -> ADMITS
+//    Here the inner closure IS boxed, but its captured `s` comes from the OUTER
+//    closure's environment, and the object-lifetime bound is checked against the
+//    enclosing FN's `'a`, not against the outer closure's body — so it passes.
+// Original path: tests/ui/borrowck/issue-95079-missing-move-in-nested-closure.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 17-24, `foo3` —
+//     pub fn foo3<'a>(bar: &'a X) -> impl Iterator<Item = ()> + 'a {
+//         Some(()).iter().flat_map(move |()| {
+//             Some(()).iter().map(|()| { bar; }) //~ ERROR captured variable cannot escape
+//         })
+//     }
+// Modifications:
+//   · the iterator plane (`Some(()).iter().flat_map(..).map(..)`) -> a plain nested
+//     closure pair. Logos has no `Iterator` adaptors; the SUBJECT is the non-`move`
+//     INNER closure that borrows the OUTER `move` closure's own capture and then
+//     escapes the outer body, and that is kept exactly.
+//   · `impl Iterator<Item=()> + 'a` -> `Box<dyn Fn() -> i64 + 'a>` — the `+ 'a` bound,
+//     which is what upstream's error is measured against, is kept
+//   · `foo1`/`foo2` are separate annotated sites and are not this port
+//   · assert -> exit code: `fn main() -> i32`
 package issue_95079_missing_move_in_nested_closure;
-// nested closure: the inner closure captures `s`, which the OUTER closure only borrows,
-// and the inner closure escapes the outer body. rustc: captured variable cannot escape
-// `FnMut` closure body.
-fn foo(s: &i64) -> || -> i64 {
-    let mut h = || {
-        let g = || { return *s; };
-        return g;
+use logos.mem.boxed;
+struct X { a: i64 }
+fn foo3<'a>(bar: &'a X) -> Box<dyn Fn() -> i64 + 'a> {
+    let outer = move || -> Box<dyn Fn() -> i64 + 'a> {
+        let inner = || -> i64 { return bar.a; };
+        return Box::new(inner);
     };
-    return h();
+    return outer();
 }
-fn main() -> i32 { let a: i64 = 3i64; let c = foo(&a); return c() as i32; }
+fn main() -> i32 { return 0i32; }

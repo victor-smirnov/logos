@@ -1,0 +1,37 @@
+// rustc borrowck/var-matching-lifetime-but-unused-not-mentioned.rs — upstream escapes-fn
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — RE-PORTED AS-IS 2026-09-07 (stage 4). Was bc_admits.ledger root bck.C.
+// NEVER A DEFECT: the old port had SUBSTITUTED A DIFFERENT CONSTRUCT. Upstream's whole
+// subject is the `T: 'static` bound on `consume`, which is what makes the `&'a`-capturing
+// closure illegal; the old port dropped `consume` entirely and wrote a plain
+// return-a-reference-to-a-local escape through an unbounded generic `call_it<F>` instead —
+// a channel that constrains nothing (see the CONTROL below). With `consume<T: 'static>`
+// restored, logosc REFUSES for the upstream reason.
+// Original path: tests/ui/borrowck/var-matching-lifetime-but-unused-not-mentioned.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 5-14 —
+//     fn consume<T: 'static>(_: T) {}
+//     fn foo<'a>(used_arg: &'a u8, unused_arg: &'static u16) {
+//         let unused_var: &'static u32 = &42;
+//         let c = move || used_arg;
+//         consume(c);   //~ ERROR: borrowed data escapes outside of function
+//     }
+// Modifications:
+//   · u8/u16/u32 -> i64 (the widths are not the subject; the REGIONS are)
+//   · the closure's return type is written out (`-> &'a i64`); Logos does not infer a
+//     closure return type here. The capture and the bound are unchanged.
+//   · assert -> exit code: `fn main() -> i32`
+//   · `unused_arg` / `unused_var` are KEPT — upstream's point is that they must NOT be
+//     mentioned by the diagnostic, and dropping them would drop half the test.
+// CONTROLS, run 2026-09-07, both COMPILE — the refusal is about the escaping REGION and
+// not about `T: 'static` refusing every closure:
+//   · `consume(move || -> i64 { 7 })`, a closure capturing NOTHING     -> compiles
+//   · `consume(move || -> &'static i64 { unused_arg })`, the 'static arg -> compiles
+package var_matching_lifetime_but_unused_not_mentioned;
+fn consume<T: 'static>(t: T) { }
+fn foo<'a>(used_arg: &'a i64, unused_arg: &'static i64) {
+    let unused_var: &'static i64 = &42i64;
+    let c = move || -> &'a i64 { return used_arg; };
+    consume(c);
+}
+fn main() -> i32 { return 0i32; }

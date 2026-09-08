@@ -1,14 +1,37 @@
 // rustc borrowck/borrowck-move-by-capture.rs — upstream E0507
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
-// upstream: borrowck/borrowck-move-by-capture.rs  E0507
+// shelf: admit · root bck.NEW-CAPMOVE — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// ── BUCKET 2: re-ported as-is, still admitted, still a defect. The old port had
+//    substituted `String` for upstream's `Box<_>` and `bar.len()` for `*bar`; with
+//    upstream's own `Box` and `*bar` restored it is still admitted.
+// ── ROOT RE-CHECKED, and the substitution mattered — it just did not change the
+//    verdict. MEASURED 2026-09-07, one variable, the inner closure's USE of the capture:
+//      let h = move || { eat(bar); };        (by-value)  -> REFUSED, "use of moved value 'bar'"
+//      let h = move || -> i64 { *bar };      (deref read) -> ADMITS
+//      let h = move || -> i64 { bar.len() }; (autoref method call) -> ADMITS
+//    Same root as borrowck-loan-blocks-move-cc: a `move` capture whose only use inside
+//    the body is a READ deposits no move of the captured local. Upstream's use is `*bar`.
+// Original path: tests/ui/borrowck/borrowck-move-by-capture.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 7-10 —
+//     let bar: Box<_> = Box::new(3);
+//     let _g = to_fn_mut(|| {
+//         let _h = to_fn_once(move || -> isize { *bar }); //~ ERROR cannot move out of
+//     });
+// Modifications:
+//   · isize -> i64; `Box<_>` inference spelled out as `Box<i64>`
+//   · `to_fn_mut` / `to_fn_once` keep their upstream role (identity fns that PIN the
+//     closure's trait kind); their `A: Tuple, F: FnMut<A>` bounds are dropped because
+//     Logos has no unboxed-closure bounds — the nesting, which IS the subject, is kept
+//   · assert -> exit code: `fn main() -> i32`
 package borrowck_move_by_capture;
-use logos.mem.string;
+use logos.mem.boxed;
+fn to_fn_mut<F>(f: F) -> F { return f; }
+fn to_fn_once<F>(f: F) -> F { return f; }
 fn main() -> i32 {
-    let bar = String::from("abc");
-    let g = || -> i64 {
-        let h = move || -> i64 { return bar.len(); };
-        return h() + h();
-    };
-    return g() as i32;
+    let bar: Box<i64> = Box::new(3i64);
+    let g = to_fn_mut(|| {
+        let h = to_fn_once(move || -> i64 { return *bar; });
+    });
+    return 0i32;
 }

@@ -16993,7 +16993,7 @@ measured: 2026-09-02
 fires: 332683
 ceiling: 0
 cost: 0 (cfail 0, stdlib ok)
-verdict: NOT a refutation and not fundable: the three target rows are A16 auto-Copy (DIVERGENCES.md, canonised 2026-08-24) — `Foo<'a> { v: &'a i64 }` is Copy with or without the impl. Retire the rows (owner).
+verdict: NOT a refutation and not fundable: the three target rows are A16 auto-Copy (docs/DIVERGENCES.md, canonised 2026-08-24) — `Foo<'a> { v: &'a i64 }` is Copy with or without the impl. Retire the rows (owner).
 
 ## cpysema
 site: src/compiler/sema.cpp::struct_type_is_copy
@@ -29204,7 +29204,7 @@ had produced a confident "missing feature" verdict about a live defect. Vary the
     type: **INNER_DROPS=1 S_DROPS=1**. `S::drop` runs once, the moved-out field is dropped
     once through `g`, the owner skips it. No leak, no double free. The five E0509 rows are a
     divergence that is IMPLEMENTED, not merely declared.
-  * DIVERGENCES.md **A16** (structural auto-Copy, canonised by Victor 2026-08-24) — the two
+  * docs/DIVERGENCES.md **A16** (structural auto-Copy, canonised by Victor 2026-08-24) — the two
     `Copy`-at-`'static` rows cannot exist here: `Foo<'a>{ f: &'a i64 }` is Copy at every
     region, so the written `impl Copy for Foo<'static>` restricts nothing.
 
@@ -29220,7 +29220,7 @@ had produced a confident "missing feature" verdict about a live defect. Vary the
     re-measured over 6784 pass/stdlib sources it is **195 sites in 124 files** (174 struct
     fields, 21 enum payloads) — it GREW. Plus the explicit pass pin
     `bc_enumpldlt_placeholder_payload_lifetime` `enum E1 { V(&i64) }`.
-    ⚠ THIS IS NOT A BLESSED DIVERGENCE. No clause in DIVERGENCES.md or docs/spec/ canonises
+    ⚠ THIS IS NOT A BLESSED DIVERGENCE. No clause in docs/DIVERGENCES.md or docs/spec/ canonises
     it (searched 2026-09-07). It is a corpus decision with an owner, and the two
     `regions-*-anon` rows stay OWNER-CORPUS on that basis, not on a clause.
 
@@ -29364,3 +29364,183 @@ here, not taken here.
   * `bc_admits_ledger_gate.sh` rc 0 — 117 rows over 2 ledgers, 105 + 12, unchanged.
   * `tests/imported/PROVENANCE.tsv` unchanged (`git diff --stat` empty): the two port edits
     touch a `⚠` paragraph only, not `Original path:`, the commit, or `Modifications:`.
+
+---
+
+## STAGE 4 OF THE RE-PORT — 2026-09-07. THE 24 `bck.C` / `nllmoves.C` / `lifereg.R18` ROWS, RE-PORTED AS-IS. NO COMPILER SOURCE TOUCHED.
+
+build: f812a8b998ecde2b 43 (READ from `scripts/build_hash.py`; unchanged across the round —
+nothing under `src/` or `include/` was edited, so no rebuild identity moved)
+
+### 0. THE QUESTION, AND WHY IT IS THE EXPENSIVE ONE
+
+Stage 3 asked of 25 BLOCKED rows "was it ever blocked?" and found 8 that were not. This stage
+asks the mirror of it over the 24 ACTIONABLE rows whose root is `bck.C`, `nllmoves.C` or
+`lifereg.R18`: **is the row a defect, or is the ADMIT an artefact of the port?** A root shared
+by 11 rows that turns out to be a shared porting habit is 11 rows of priced work standing on
+nothing. The ledger says 24, not "about 24"; derived by root, not from the prompt.
+
+### 1. THE SPLIT
+
+    BUCKET 1  REFUSED at the same construct -> fail shelf, row RETIRED          2
+    BUCKET 2  RE-PORTED AS-IS, STILL ADMITTED, STILL A DEFECT                  21
+    BUCKET 3  BLESSED DIVERGENCE (docs/DIVERGENCES.md A16), row -> blocked ledger    1
+    BUCKET 4  IMPLEMENTATION HOLE                                               0
+
+**21 of 24 rows are worth MORE than they were this morning, not less**: each was re-written
+from its upstream test at the commit it cites, with the construct restored, and each is still
+admitted. They are measured now, not believed.
+
+### 2. THE TWO THAT WERE NEVER DEFECTS — THE PORT HAD MOVED THE CONSTRUCT OFF THE DOOR
+
+`borrowck-escaping-closure-error-2` — upstream returns the closure as
+`Box<dyn FnMut() + 'a>`. The port wrote `fn mk() -> || -> i64`, a BARE closure return type,
+which is not a Rust type at all and carries no object-lifetime bound for anything to check.
+Restored: `coercion to `dyn FnMut` requires `|| -> void: 'a` — lifetime `'_` may not live
+long enough (object lifetime bound)`.
+
+`var-matching-lifetime-but-unused-not-mentioned` — upstream's whole subject is
+`fn consume<T: 'static>(_: T)`, the bound that makes the `&'a`-capturing closure illegal. The
+port DROPPED `consume` and substituted a plain return-a-reference-to-a-local escape through
+an unbounded generic — a channel that constrains nothing (§4). Restored: `call to 'consume':
+type argument '|| -> &'a i64' has lifetime 'a' but the type parameter 'T' requires
+`T: 'static``.
+
+⚠ NEITHER IS AN OVER-REFUSAL, AND THE CONTROLS ARE IN THE FILES, TWO SHAPES EACH. For the
+first: the same program with `move ||` (the closure OWNS `books`) compiles, and the same
+program capturing the `'a` PARAMETER instead compiles. For the second: `consume` of a closure
+capturing NOTHING compiles, and `consume` of a closure capturing the `'static` argument
+compiles. Four legal programs, four clean compiles.
+
+### 3. THE ONE A16 ROW, AND THE PAIR THAT FOUND IT
+
+`issue-75904-move-closure-loop`. Upstream's `struct NotCopy;` is field-less and carries no
+`impl Drop`, so under `docs/DIVERGENCES.md` A16 (structural auto-Copy, canonised 2026-08-24) it is
+implicitly Copy here and `let m = a;` is a COPY. The program is LEGAL Logos as written.
+
+    struct NotCopy;                             loop { || { let m = a; }; }   ADMITS
+    struct NotCopy{z:i64} + impl Drop           the SAME loop body            REFUSED
+        "error [fn main]: use of moved value 'a' (moved on line 6)"
+
+One variable, the `impl Drop`. So the closure-in-a-loop move IS checked; only this port's
+TYPE is Copy. Swapping the type would change the subject, which is why this is bucket 3 and
+not a re-port. Row MOVED to `bc_admits_blocked.ledger` (12 -> 13), not closed.
+
+### 4. ALL THREE HANDED-DOWN ROOTS SPLIT — AND `bck.C` WAS WRONG ABOUT THE MECHANISM, NOT ONLY THE GROUPING
+
+`bck.C` reads "the CLOSURE BOUNDARY deposits nothing". It does not: a loan minted AND used
+inside one closure body is tracked (`cannot assign to 'g' because it is borrowed`), and an
+`FnOnce` called twice is refused. Four mechanisms, each with its own ONE-VARIABLE pair:
+
+  * **NEW-CAPLOAN** — a loan that CROSSES the boundary deposits nothing in the enclosing body.
+    Pair, only the minting callee differs:
+    `let r = id(&g)` via `fn id(x:&i64)->&i64` REFUSED / `let r = (|| &g)()` ADMITTED.
+    Second door, outward: `c.push(&mut y)` twice REFUSED
+    (`cannot borrow 'y' as mutable: already mutably borrowed`) / the same two loans minted by
+    closure CAPTURES ADMITTED.
+    Rows: `issue-58776-borrowck-scans-children`, `mut-borrow-conflict-in-closures-vec--bounded`,
+    `issue-51268`.
+
+  * **NEW-CAPMOVE** — a `move` capture's move-ness comes from the USE FORM inside the body,
+    not from the keyword. Pair on ONE program, everything else identical:
+    `spawn(move || { let _ = *v; })` ADMITS / `spawn(move || { eat(v); })` REFUSED
+    (`cannot move 'v' while it is borrowed`). Third form: `bar.len()` (autoref method call)
+    also ADMITS. Upstream's bodies are `println!("v={}", *v)` and `*bar` — reads — which is
+    why the upstream programs land on the admitting side.
+    Rows: `borrowck-loan-blocks-move-cc--{r10,t10}`, `borrowck-move-by-capture`.
+
+  * **NEW-CESC** — an escaping closure's region is constrained ONLY by a `dyn` coercion. Pair,
+    one variable, the escape channel:
+    `Box::new(|| -> i64 { x })` to `Box<dyn Fn() -> i64>` REFUSED
+    (`coercion to `dyn Fn` requires `|| -> i64: 'static` … (object lifetime bound)`) /
+    `keep(|| -> &i64 { &x })` through `fn keep<F>(f:F)->F` ADMITTED.
+    This is the same arm that refuses BOTH bucket-1 rows — the two that refuse are exactly the
+    two whose upstream construct routes through a constrained channel.
+    Rows: `anonymous-region-in-apit--closure-param-escapes`,
+    `borrowed-data-escapes-closure-148392`, `issue-95079-missing-move-in-nested-closure`,
+    `issue-40510-{1,3}`, `issue-42574-…--{b,t15}`, `issue-48697--t16`.
+
+  * **NEW-CMUT** — Fn/FnMut/FnOnce constrains CONSUMPTION but not MUTATION. An `FnOnce`
+    called twice is REFUSED (`use of moved value 'c': … an `FnOnce` is consumed by the call
+    and cannot be called again`); nothing makes a closure returned as `Fn` illegal for
+    assigning to its own upvar. Row: `borrow-immutable-upvar-mutation-impl-trait`.
+
+`lifereg.R18` is TWO roots, and **NEITHER IS A REGION ROOT**:
+
+  * **NEW-SIGARITY** — impl-vs-trait method signature compatibility is checked BY ARITY ONLY.
+    Measured triple, one trait `Foo { fn foo(x:&i64) -> i64; }`, three impls differing in one
+    thing each:
+
+        impl fn foo(x:&i64, y:&i64) -> i64        ARITY                 REFUSED
+            "impl Foo for U: missing method 'foo'"   (the by-arity name mangle)
+        impl fn foo(x:&i64) -> u64                RETURN TYPE           ADMITS
+        impl fn foo<'a,'b>(x:&'a i64) -> &'a i64  LIFETIME PARAM COUNT  ADMITS
+
+    The site exists and is LIVE, and it compares nothing but the parameter count. **A region
+    fix closes none of these five rows.** Rows: `iterator-next-extra-named-lifetime`,
+    `lifetime-mismatch-between-trait-and-impl`,
+    `trait-impl-mismatch-elided-lifetime-issue-65866`,
+    `impl-trait-lifetime-conflict-hashmap-keys--sig-only`, `resolve-re-error-ice`.
+    ⚠ The by-arity mangle is the same one named in the recorded `sigdefarity` miscompilation.
+    STATED, NOT MEASURED — not a claim of this round.
+
+  * **NEW-PROJBOUND** — `dropck-only-error` alone. Upstream is E0277 `the trait bound
+    `User: AuthUser` is not satisfied`: NO REGION AT ALL, and not the SIGARITY mechanism
+    either. ⚠ **NO SEPARATING PAIR WAS MEASURED.** A one-row root, named from the upstream
+    diagnostic and from the fact that it is not SIGARITY. Do not group it until a control says
+    so. (Rule: a partition is not a root.)
+
+### 5. TWO PAIRS OF ROWS ARE THE SAME CONSTRUCT TWICE — RECORDED, NOT MERGED
+
+`borrowck-loan-blocks-move-cc--r10` / `--t10`: upstream's `box_imm` and `box_imm_explicit` are
+TEXTUALLY IDENTICAL at this commit (both `let v: Box<_> = Box::new(3);`), so the two ports
+differ only in a package name. `issue-42574-…--b` / `--t15`: upstream's file has ONE function
+and ONE annotated site; re-ported as-is the two programs are identical but for the package
+name. Merging rows is a ledger decision with an OWNER; both pairs stay, both still held.
+
+⚠ AND `issue-42574-…--b`'S OLD PORT WAS LEGAL RUST. It wrote `let c = || { eat(data); };
+c(); eat(data);` — under NLL the capture's loan ends at the last use of `c`, so the trailing
+`eat(data)` is fine and rustc accepts it. A row had been opened against a program rustc does
+not reject. Re-ported as-is it becomes upstream's construct, is admitted, and the row
+survives — but on new evidence, and as the twin of `--t15`.
+
+### 6. PREDICTION vs OUTCOME, DIFFED BOTH WAYS — 18 of 24
+
+All six errors are the SAME error, and it is the one stage 3 recorded: **a guess at
+capability where a two-line probe was available.** Three rows were written down as bucket 4
+("the language can't express this") and all three are bucket 2 — `impl Trait` in argument
+position parses, `T: 'static` bounds exist, and a nested associated-type projection resolves
+in its one-level-qualified spelling. One (`--b`) was called bucket 1 from reasoning about
+NLL instead of compiling it. Two were guessed 2 and are 1 and 3.
+
+    predicted 4, actual 2   anonymous-region-in-apit--closure-param-escapes, dropck-only-error
+    predicted 4, actual 1   var-matching-lifetime-but-unused-not-mentioned
+    predicted 2, actual 1   borrowck-escaping-closure-error-2
+    predicted 2, actual 3   issue-75904-move-closure-loop
+    predicted 1, actual 2   issue-42574-diagnostic-in-nested-closure--b
+
+The 4-where-2 direction is the expensive one: it files a real defect as a missing feature and
+takes it off the queue.
+
+### 7. THE ONE TOOL DEFECT, AND WHY IT MATTERED HERE
+
+`scripts/imported-provenance.py` reads only the FIRST 25 LINES of a port
+(`head = [next(fh,"") for _ in range(25)]`). Eleven of the 24 re-ports carried their
+`// Modifications:` label below line 25 and were recorded as declaring NO modifications —
+the exact measurement this whole stage exists to make mechanical. The label was hoisted to sit
+immediately after `// shelf:` in every file; all 24 now read `yes`. The port headers were
+changed, not the script — but the 25-line window is a real limit and the next stage should
+either widen it or keep hoisting.
+
+### 8. THE COLUMNS
+
+  * soundness queue gate rc **0**, `# TOTAL` 68, unchanged — this round opened no queue row.
+  * `bc_admits_ledger_gate.sh` rc **0** — 115 rows over 2 ledgers, 102 + 13 (was 105 + 12).
+    Two rows RETIRED to the fail shelf (the shelf lost two programs); one row MOVED between
+    the two files. Said which, per row, in both headers.
+  * every one of the remaining 115 admit programs re-checked with `bc_admit_one.sh`: all still
+    admitted, 0 red.
+  * both new fail fixtures re-checked against their pinned `.expected`: both match.
+  * `tests/imported/PROVENANCE.tsv` regenerated; 24 ports flipped
+    `port_declares_modifications` no -> yes; the 2 retired ports moved admit/ -> fail/.
+  * `git diff --stat` under `src/` and `include/`: **0 lines outside this file.**

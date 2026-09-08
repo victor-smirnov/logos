@@ -1,8 +1,32 @@
 // rustc nll/issue-42574-diagnostic-in-nested-closure.rs — upstream (region)+E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.C
+// shelf: admit · root nllmoves.NEW-CESC — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// ── BUCKET 2: re-ported as-is, still admitted, still a defect.
+// ── The old port of this row was ALREADY upstream's construct; only the audit trail
+//    and the root are new.
+// ── ⚠ THIS ROW AND `issue-42574-diagnostic-in-nested-closure--b` ARE THE SAME
+//    CONSTRUCT TWICE. Upstream's file has ONE function and ONE annotated site
+//    (lines 6-9); both rows cite it, and re-ported as-is the two programs are identical
+//    but for the package name. Recorded, not merged: merging rows is a ledger decision
+//    with an owner, and both are still individually held by the gate.
+// ── ROOT RE-CHECKED: `data` is a `&'static mut`, the closure captures it, and the
+//    closure's own region is not required to outlive 'static. Nothing constrains an
+//    escaping closure region except a `dyn` coercion — measured pair 2026-09-07:
+//    boxed -> REFUSED, plain generic -> ADMITS. This port passes through neither.
+// Original path: tests/ui/nll/issue-42574-diagnostic-in-nested-closure.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 6-9 —
+//     fn doit(data: &'static mut ()) {
+//         || doit(data);
+//         //~^ ERROR lifetime may not live long enough
+//         //~| ERROR `data` does not live long enough
+//     }
+// Modifications:
+//   · `&'static mut ()` -> `&'static mut i64`; Logos has no unit type, and the referent
+//     type is not the subject — the 'static region on a `&mut` capture is
+//   · assert -> exit code: `fn main() -> i32`
 package issue_42574_diagnostic_in_nested_closure_t15;
 fn doit(data: &'static mut i64) {
-    let c = || { doit(data); };
+    || { doit(data); };
 }
 fn main() -> i32 { return 0i32; }

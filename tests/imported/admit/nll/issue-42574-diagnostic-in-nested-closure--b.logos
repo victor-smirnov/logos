@@ -1,11 +1,35 @@
 // rustc nll/issue-42574-diagnostic-in-nested-closure.rs — upstream (region)+E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.C
+// shelf: admit · root nllmoves.NEW-CESC — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// Modifications:
+//   · `&'static mut ()` -> `&'static mut i64`; Logos has no unit type, and the referent
+//     type is not the subject — the 'static region on a `&mut` capture is
+//   · assert -> exit code: `fn main() -> i32`
+// ── BUCKET 2: re-ported as-is, still admitted, still a defect.
+// ── ⚠ THE OLD PORT OF THIS ROW WAS LEGAL RUST. It wrote `let c = || { eat(data); };
+//    c(); eat(data);` — under NLL the capture's loan ends at the last use of `c`, so the
+//    later `eat(data)` is fine and rustc accepts it. A row was opened against a program
+//    rustc does not reject. Re-ported as-is it becomes upstream's construct, which IS
+//    rejected and IS admitted here — so the row survives, but on new evidence.
+// ── ⚠ THIS ROW AND `issue-42574-diagnostic-in-nested-closure--t15` ARE THE SAME
+//    CONSTRUCT TWICE. Upstream's file has ONE function and ONE annotated site
+//    (lines 6-9); both rows cite it, and re-ported as-is the two programs are identical
+//    but for the package name. Recorded, not merged: merging rows is a ledger decision
+//    with an owner, and both are still individually held by the gate.
+// ── ROOT RE-CHECKED: `data` is a `&'static mut`, the closure captures it, and the
+//    closure's own region is not required to outlive 'static. Nothing constrains an
+//    escaping closure region except a `dyn` coercion — measured pair 2026-09-07:
+//    boxed -> REFUSED, plain generic -> ADMITS. This port passes through neither.
+// Original path: tests/ui/nll/issue-42574-diagnostic-in-nested-closure.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 6-9 —
+//     fn doit(data: &'static mut ()) {
+//         || doit(data);
+//         //~^ ERROR lifetime may not live long enough
+//         //~| ERROR `data` does not live long enough
+//     }
 package issue_42574_diagnostic_in_nested_closure_b;
-fn eat(d: &mut i64) { }
-fn f(data: &mut i64) {
-    let c = || { eat(data); };
-    c();
-    eat(data);
+fn doit(data: &'static mut i64) {
+    || { doit(data); };
 }
-fn main() -> i32 { let mut n: i64 = 1i64; f(&mut n); return 0i32; }
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,31 @@
+// rustc borrowck/borrowck-escaping-closure-error-2.rs — upstream E0373
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: fail — RE-PORTED AS-IS 2026-09-07 (stage 4). Was bc_admits.ledger root bck.C.
+// NEVER A DEFECT: the old port had moved the construct off the door where the rule
+// lives. Upstream returns the closure as `Box<dyn FnMut() + 'a>`; the old port wrote
+// `fn mk() -> || -> i64` — a BARE closure return type, which is not Rust at all and
+// which carries no object-lifetime bound for anything to check. Restored to upstream's
+// boxed trait object, logosc REFUSES for the upstream reason.
+// Original path: tests/ui/borrowck/borrowck-escaping-closure-error-2.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 9-12 —
+//     fn foo<'a>(x: &'a i32) -> Box<dyn FnMut() + 'a> {
+//         let mut books = vec![1,2,3];
+//         Box::new(|| books.push(4))   //~^ ERROR E0373
+//     }
+// Modifications:
+//   · `vec![1,2,3]` + `books.push(4)` -> `let mut books: i64` + `books += 1i64`. The
+//     subject is that the closure BORROWS a LOCAL and is then coerced to an object
+//     bounded by `'a`; the element type of the borrowed local is not the subject.
+//   · assert -> exit code: `fn main() -> i32`
+// CONTROLS, run 2026-09-07, both COMPILE — the refusal is about this construct and is
+// not an over-refusal of the `Box<dyn FnMut() + 'a>` shape itself:
+//   · the same program with `move ||` (the closure OWNS `books`)      -> compiles
+//   · the same program capturing the `'a` PARAMETER `x` instead       -> compiles
+package borrowck_escaping_closure_error_2;
+use logos.mem.boxed;
+fn foo<'a>(x: &'a i64) -> Box<dyn FnMut() + 'a> {
+    let mut books: i64 = 3i64;
+    return Box::new(|| { books += 1i64; });
+}
+fn main() -> i32 { return 0i32; }

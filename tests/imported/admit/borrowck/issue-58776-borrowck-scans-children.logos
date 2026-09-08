@@ -1,11 +1,38 @@
 // rustc borrowck/issue-58776-borrowck-scans-children.rs — upstream E0506
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
-// upstream: issue-58776-borrowck-scans-children.rs E0506 (nested closures return &greeting)
+// shelf: admit · root bck.NEW-CAPLOAN — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// ── BUCKET 2: re-ported as-is, still admitted, still a defect. The old port had
+//    substituted `i64` for `String`; with upstream's `String` (so the assignment is a
+//    real replace of an owning local, not a scalar store) it is still admitted.
+// ── ROOT RE-CHECKED, and it is sharper than bck.C. The loan is not lost because the
+//    closure is opaque — a loan minted AND used inside one closure body IS tracked
+//    ("cannot assign to 'g' because it is borrowed", measured 2026-09-07). What is lost
+//    is a loan that CROSSES the boundary. MEASURED ONE-VARIABLE PAIR, only the minting
+//    callee differs:
+//      let r: &i64 = id(&g);            via `fn id(x:&i64)->&i64`  -> REFUSED
+//         "cannot assign to 'g' because it is borrowed"
+//      let r: &i64 = (|| { &g })();     via an immediately-invoked closure -> ADMITS
+//    Same root, second door: a capture that MUTABLY borrows an upvar also deposits no
+//    loan — see mut-borrow-conflict-in-closures-vec--bounded, whose pair is the same
+//    program with `&mut y` written directly (REFUSED) instead of captured (ADMITS).
+// Original path: tests/ui/borrowck/issue-58776-borrowck-scans-children.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 2-7 —
+//     let mut greeting = "Hello world!".to_string();
+//     let res = (|| (|| &greeting)())();
+//     greeting = "DEALLOCATED".to_string();   //~^ ERROR cannot assign
+//     drop(greeting);
+// Modifications:
+//   · `"...".to_string()` -> `String::from("...")` (logos.mem.string spelling)
+//   · `drop(greeting)` is dropped: Logos drops at scope exit and the upstream `drop` is
+//     only there to make the assignment's target definitely dead. `res` is still USED
+//     afterwards, which is what keeps the loan live.
+//   · assert -> exit code: `fn main() -> i32`
 package issue_58776_borrowck_scans_children;
+use logos.mem.string;
 fn main() -> i32 {
-    let mut greeting: i64 = 1i64;
-    let res: &i64 = (|| { return (|| { return &greeting; })(); })();
-    greeting = 2i64;    // E0506: assign while borrowed by `res`
-    return *res as i32;
+    let mut greeting = String::from("Hello world!");
+    let res: &String = (|| { return (|| { return &greeting; })(); })();
+    greeting = String::from("DEALLOCATED");
+    return res.len() as i32;
 }

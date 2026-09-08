@@ -1,10 +1,45 @@
 // rustc dropck/dropck-only-error.rs — upstream E0277
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.R18
+// shelf: admit · root lifereg.NEW-PROJBOUND — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// Modifications:
+//   · `<<Backend as AuthnBackend>::User as AuthUser>::Id` -> `<B::User as AuthUser>::Id`.
+//     SPELLING ONLY — the same projection. The fully-qualified NESTED form does not
+//     parse here ("syntax error"); the one-level-qualified form does, and resolves to
+//     the same associated type (verified 2026-09-07: `B::User::Id` is rejected with
+//     "no associated type 'Id' found for 'B::User'", `<B::User as AuthUser>::Id` compiles).
+//   · `Backend` -> `B`, `User` -> `U` as parameter names (upstream reuses `User` as both
+//     an associated type and a type parameter; the shadowing is not the subject)
+//   · `pub` dropped; `: Sized` dropped (implicit here)
+//   · assert -> exit code: `fn main() -> i32`
+// ── BUCKET 2: re-ported as-is, still admitted, still a defect. The old port HAD NO
+//    CONSTRUCT LEFT IN IT — it replaced `AuthSession`'s field
+//    `Option<<Backend::User as AuthUser>::Id>` with a plain `data: i64` and dropped
+//    `AuthnBackend<User = Self>` from `Authz` entirely. Both are restored here; the
+//    program is still admitted, so the row survives, but everything it used to assert
+//    was about a different program.
+// ── ROOT RE-CHECKED, AND lifereg.R18 IS THE WRONG ROOT — TWICE OVER. Upstream's error
+//    is E0277 `the trait bound `User: AuthUser` is not satisfied`: NO REGION IS
+//    INVOLVED AT ALL, and this is not even the impl-vs-trait signature mechanism the
+//    other five R18 rows in this batch share (measured separately, see
+//    lifereg.NEW-SIGARITY). What is missing is that `run_query`'s parameter type names
+//    the projection `<U::AuthnBackend::User as AuthUser>::Id`, which is well-formed only
+//    if `U: AuthUser` holds, and nothing requires it at the use site.
+// ── ⚠ NO SEPARATING PAIR WAS MEASURED FOR THIS ROOT. It is a ONE-ROW root, named from
+//    the upstream diagnostic and from the fact that it is not SIGARITY, and it should
+//    not be grouped with anything until a control says so.
+// Original path: tests/ui/dropck/dropck-only-error.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 12-21 —
+//     pub struct AuthSession<Backend: AuthnBackend> {
+//         data: Option<<<Backend as AuthnBackend>::User as AuthUser>::Id>,
+//     }
+//     pub trait Authz: Sized { type AuthnBackend: AuthnBackend<User = Self>; }
+//     pub fn run_query<User: Authz>(auth: AuthSession<User::AuthnBackend>) {}
+//     //~^ ERROR the trait bound `User: AuthUser` is not satisfied [E0277]
 package dropck_only_error;
 trait AuthUser { type Id; }
 trait AuthnBackend { type User: AuthUser; }
-struct AuthSession<B: AuthnBackend> { data: i64 }
-trait Authz { type AB: AuthnBackend; }
-fn run_query<U: Authz>(auth: AuthSession<U::AB>) { }
+struct AuthSession<B: AuthnBackend> { data: Option<<B::User as AuthUser>::Id> }
+trait Authz { type AuthnBackend: AuthnBackend<User = Self>; }
+fn run_query<U: Authz>(auth: AuthSession<U::AuthnBackend>) { }
 fn main() -> i32 { return 0i32; }

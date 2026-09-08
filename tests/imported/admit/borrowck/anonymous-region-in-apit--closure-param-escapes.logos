@@ -1,21 +1,25 @@
 // rustc borrowck/anonymous-region-in-apit.rs — upstream escapes-closure
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.C
-// upstream: borrowck/anonymous-region-in-apit.rs (borrowed data escapes outside of closure:
-// the closure's own `&` parameter is handed to a callee that keeps it for longer).
-// Reshape: `impl Foo<&str>` -> an explicit sink struct the callee stores into.
+// shelf: admit · root bck.NEW-CESC — RE-PORTED AS-IS 2026-09-07 (stage 4)
+// ── BUCKET 2: re-ported as-is, still admitted, still a defect. The old port had
+//    RESHAPED `impl Foo<&str>` into an explicit sink struct; the reshape was not needed
+//    — `impl Foo<&i64>` in argument position parses and type-checks here — and the
+//    upstream form is admitted too.
+// Original path: tests/ui/borrowck/anonymous-region-in-apit.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 7-9 —
+//     fn qux(foo: impl Foo<&str>) {
+//         |baz: &str| foo.bar(baz);
+//         //~^ ERROR borrowed data escapes outside of closure
+//     }
+// Modifications:
+//   · `&str` -> `&i64` (Logos has no `&str`; the subject is the ANONYMOUS REGION in the
+//     APIT type argument, not the referent type)
+//   · `fn bar(self, baz: T)` -> `fn bar(self: Self, baz: T)` (Logos spells the receiver)
+//   · assert -> exit code: `fn main() -> i32`
 package anonymous_region_in_apit_closure_param_escapes;
-struct Sink { r: &i64 }
-fn bar(s: &mut Sink, baz: &i64) { s.r = baz; }
-fn qux(s: &mut Sink) {
-    let c = |baz: &i64| { bar(s, baz); };
-    let local: i64 = 5i64;
-    c(&local);
+trait Foo<T> { fn bar(self: Self, baz: T); }
+fn qux(foo: impl Foo<&i64>) {
+    let c = |baz: &i64| { foo.bar(baz); };
 }
-fn main() -> i32 {
-    let anchor: i64 = 1i64;
-    let mut s = Sink { r: &anchor };
-    qux(&mut s);
-    let _ = *s.r;
-    return 0i32;
-}
+fn main() -> i32 { return 0i32; }
