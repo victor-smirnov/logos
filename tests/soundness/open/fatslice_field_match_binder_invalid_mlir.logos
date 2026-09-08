@@ -1,0 +1,36 @@
+// SOUNDNESS QUEUE row fatslice_field_match_binder_invalid_mlir (tier 3).
+// A struct field of FatSlice repr — `&[T]` or `str`, a {data, len} pair — BOUND
+// by a name in a MATCH struct pattern emits invalid MLIR and the compile dies
+// (rc 1, no source-located diagnostic):
+//   error: 'llvm.getelementptr' op operand #0 must be LLVM pointer type ...
+//          but got '!llvm.struct<(ptr, i64)>'
+//   mlir_gen: module verification failed
+// The binder GEPs into the field's 16-byte VALUE as if it were the address of
+// one. Legal Rust; legal Logos everywhere else.
+//
+// ⚠ MEASURED NARROWLY 2026-09-08 on build 2c5a33ef99e94fc9 43. Clean on the
+// same binary, all five measured this round:
+//   * the SAME field bound by a `let` struct pattern (`let H { s, n } = h;`);
+//   * the same match door with the slice field bound to `_`, or elided by `..`;
+//   * a THIN `&i64` field bound the same way at the same door;
+//   * a FatDyn `&dyn Tr` field bound the same way at the same door — so it is
+//     the FatSlice repr, not fatness as such;
+//   * field projection `h.s[1]` with no pattern anywhere.
+// `str` in the field's place fails identically, so both FatSlice spellings.
+//
+// Provenance: recorded 2026-08-18 in memory bug_zone_mut_reborrow_thin as
+// "FatSlice field x struct pattern (compile error)", never rowed; the note did
+// not say which pattern door, and the `let` door is the one that works.
+package fatslice_field_match_binder_invalid_mlir;
+struct H { s: &[i64], n: i64 }
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let h: H = H { s: &a, n: 7i64 };
+    match h {
+        H { s, n } => {
+            if s[2] != 3i64 { return 10i32; }
+            if n != 7i64 { return 11i32; }
+        }
+    }
+    return 0i32;
+}

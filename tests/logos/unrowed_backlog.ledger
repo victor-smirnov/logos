@@ -5,7 +5,8 @@
 # A finding that has no row is therefore invisible to the round machinery, and
 # for several rounds the only place these lived was prose in a report or in
 # memory. Prose does not survive its round. This file is the third counted
-# list: 97 + 66 + this file's TOTAL is the whole of the remaining work.
+# list: 91 + 78 + this file's TOTAL is the whole of the remaining work (counts
+# re-derived by direct listing 2026-09-08).
 #
 # ⚠ AN ENTRY HERE IS NOT A ROW AND MUST NOT BE PRICED AS ONE. Each entry names
 # the ONE thing that must be measured before it can become a row (or be thrown
@@ -52,19 +53,14 @@ compile_time_phenomenon_b  perf       1  build/gate-state/runs.db
     # program set with both binaries INTERLEAVED IN ONE PROCESS. Until someone
     # names a commit worth that, the honest state is: not present at HEAD.
 o2_drops_presence_bit      recorded   1  bug_o2_drops_store_into_writ_node (memory)
-    # DORMANT — clang-21 only, this box builds clang-20. ⚠ RETURNS ON LLVM 22.
-    # Re-measure on a clang-21 build before rowing; do not row a dormant defect.
-lforge_stale_archive_link  recorded   1  bug_lforge_test_stale_archive_link (memory)
-    # OPEN, workaround known (`lforge clean` before test). Needs a re-measure: does
-    # `lforge test` still link a stale archive on today's tree?
-zonemut_fatdyn_tuple_segv  recorded   1  bug_zone_mut_reborrow_thin (memory)
-    # FatDyn in a tuple literal SIGSEGVs. Recorded LOUD, never rowed. Re-measure,
-    # then a tier-1 `run` row.
-zonemut_fatzonemut_field   recorded   1  bug_zone_mut_reborrow_thin (memory)
-    # FatZoneMut as a struct FIELD aborts on layout. Re-measure, then row.
-zonemut_fatslice_pattern   recorded   1  bug_zone_mut_reborrow_thin (memory)
-    # FatSlice-typed field crossed with a pattern. Re-measure, then row.
-
+    # 2026-09-08 CANNOT BE MEASURED HERE, re-checked. The highest clang on this box
+    # is 20 (`ls /usr/bin/clang-*` -> 15,17,18,19,20; no 21 anywhere), and
+    # build/CMakeCache.txt builds with /usr/bin/clang++-20. The defect's own record
+    # MEASURED clang-19 -O2 and g++-14 -O2 green, so a clang-20 reading is not
+    # evidence either way. The canary logos_06_diagnostics_fail_deem_diag_located
+    # was RUN today and PASSES — that is the dormancy, not a fix.
+    # ⚠ RETURNS ON LLVM 22. Re-measure on a clang-21 build before rowing; do not
+    # row a dormant defect, and do not manufacture a clang-21 build to chase it.
 lt_turbofish_absent        defect     2  tests/imported/admit/regions/multiple-sources-for-outlives-requirement--{c24b,t24}
     # 2026-09-07 — MISSING FEATURE, blocking a re-port. `f::<'_>(&v)` reports "unexpected
     # type node code 131" while `call::<i64>()` compiles: a turbofish takes TYPE arguments
@@ -205,4 +201,4 @@ run_oracle_c90_population_hole  defect  20  scripts/run_oracle.py, measured 2026
     # ⚠ TOOLING IS FROZEN: this entry records the hole, it does not authorise fixing the
     # regex. Do not "fix" run_oracle to make the number go away.
 
-# TOTAL 19
+# TOTAL 15

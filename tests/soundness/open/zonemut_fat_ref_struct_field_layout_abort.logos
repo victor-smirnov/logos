@@ -1,0 +1,27 @@
+// SOUNDNESS QUEUE row zonemut_fat_ref_struct_field_layout_abort (tier 3).
+// A `&mut T` to a `#[zone_mut]` T is a FAT {data, zone} pair (16 B). Put that
+// type in a STRUCT FIELD and logosc ABORTS — rc 134, core dumped, before any
+// codegen — because layout_of counts the field fat and llvm::DataLayout builds
+// it thin:
+//   LLVM ERROR: the compiler's layout engines disagree ...
+//     [emitted] q.H: size — layout_of says 16, llvm::DataLayout says 8
+// NO construction, no use, no LOGOS_VERIFY_LAYOUT is needed: the struct
+// DECLARATION alone aborts, which is why this shape cannot be a fail fixture
+// either (a fail fixture asserts a diagnostic, and the compiler dies instead).
+//
+// ⚠ MEASURED NARROWLY 2026-09-08 on build 2c5a33ef99e94fc9 43. It is the FIELD
+// position alone. Clean on the same binary, all four measured this round:
+//   * the same fat `&mut Box2` as a TUPLE element and as an ARRAY element
+//     (pinned by tests/logos/pass/zone_mut_tupleidx_fat_recv.logos);
+//   * a SHARED `&Box2` field (a shared ref to a #[zone_mut] type stays thin);
+//   * the same struct with `#[zone_mut]` removed (thin `&mut` field).
+//
+// Provenance: recorded 2026-08-18 in memory bug_zone_mut_reborrow_thin as one
+// of three "still-open LOUD neighbors" of the D3 arc, never rowed; its evidence
+// file sandbox/d3diag/p09*.logos no longer exists. Re-measured and rowed here.
+package zonemut_fat_ref_struct_field_layout_abort;
+#[zone_mut] struct Box2 { v: i64 }
+struct H { r: &mut Box2 }
+fn main() -> i32 {
+    return 0i32;
+}
