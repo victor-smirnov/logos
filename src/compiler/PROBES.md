@@ -31689,3 +31689,111 @@ budgets against is 123 files / 251 sites, stated with its unit.
 
 The stdlib zero is confirmed in BOTH units: the 2026-09-08 conversion left no
 by-value `drop` receiver anywhere under `stdlib/`.
+
+---
+
+## sigelide
+site: src/compiler/sema_collect.cpp::_alpha_ok
+build: 3c9c03a806bd1e3a           (armed);  base 0d72ee9795c644d3 43, restored EXACTLY after
+measured: 2026-09-09
+fires: 1086789
+ceiling: 0                        BC ledger rows.  SOUNDNESS-QUEUE ceiling = 2 (below)
+cost: 0                           pass(ledger+legal) 0 · cfail 2 (BOTH still refuse) · stdlib 4/4
+verdict: FUND THE ROOT, NOT THIS ARM — queue ceiling 2/2, cost 0, but it is name-collapsing
+note:
+  SUBJECT — the two over-refusal rows the M-SIG landing (2026-09-07b) shipped:
+  impl_names_elided_receiver_lifetime_refused and impl_elides_named_receiver_lifetime_refused.
+  `_astrict` pairs an ELIDED lifetime only with an ELIDED one and compares lifetime NAMES
+  against the empty string, so elision is never expanded.  The arm treats an elided position
+  as a BINDER: both sides get the synthetic name `#e` and the existing `_amap` enforces
+  consistency, so elided-vs-named is admitted exactly when the BINDING STRUCTURES agree.
+
+  QUEUE CEILING = 2, predicted BY NAME before the run and diffed BOTH WAYS over all 79 rows:
+  exactly impl_names_elided_receiver_lifetime_refused and impl_elides_named_receiver_lifetime_refused
+  move (rc 1 -> 0); no other row moves in either direction.  Both then LINK, RUN exit 0 and
+  are valgrind-clean — a compile rc alone is not a legal verdict.
+
+  LEGALITY IS UPSTREAM'S, NOT MY READING.  Both directions have a recorded rustc answer:
+    · trait ELIDES / impl NAMES  -> tests/ui/regions/regions-trait-1.rs  (`//@ check-pass`,
+      trait `fn get_ctxt(&self) -> &Ctxt`, impl `fn get_ctxt<'b>(&'b self) -> &'a Ctxt`), and
+      tests/ui/overloaded/fixup-deref-mut.rs (`//@ run-pass`, `Deref::deref` implemented as
+      `fn deref<'a>(&'a self) -> &'a T`).
+    · trait NAMES / impl ELIDES  -> tests/ui/associated-types/cache/elision.rs (`//@ check-pass`),
+      whose own header says "Check that you are allowed to implement using elision but write
+      trait without elision".  That is this row's shape verbatim.
+
+  THE TWO `cfail` FIXTURES ARE THE ROUND'S SHARPEST FINDING, AND THEY ARE NOT DAMAGE.
+  imported/fail/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866 and
+  imported/fail/lifetimes/lifetime-mismatch-between-trait-and-impl both stay rc 1 armed; only
+  the SENTENCE moves, and it moves TOWARD upstream:
+    65866 unarmed: "the receiver is declared '&Foo' and the impl declares '&'a Foo'"
+          armed:   "parameter 1 is declared '&mut Re' and the impl declares '&'b mut Re<'a>'"
+    upstream .stderr blames `Re<'3>` vs `Re<'1>` in parameter 1 and says nothing about the
+    receiver.  So these two fail fixtures are today PINNED ON THE OVER-REFUSAL: the same
+    `_astrict` rule that refuses the two queue rows is what makes them refuse, and it refuses
+    them for a reason rustc does not give.  A round that closes the queue rows MUST re-pin
+    both `.expected`.  The second one armed prints two IDENTICAL strings ("'&'a i64' and the
+    impl declares '&'a i64'") — the `typestr_minted_alike` tier-4 family, a separate row.
+    ⚠ `lifetime-mismatch-between-trait-and-impl` has NO receiver (`fn foo<'a>(x:&i64,y:&'a i64)`)
+    and the unarmed sentence calls parameter 0 "the receiver".  Also a diag defect, unrowed.
+
+  COST, SHAPE-VARIED (rule 5), 6 hand programs, 4 distinct type shapes, each run unarmed then armed:
+    ADMITTED + RUN 0 armed:  s7_mut_recv (`&mut Self` receiver) · s12_generic_trait (`Hold<T>`,
+      trait type-param) · s13_slice_recv (`-> &[i64]`).  With the two rows: 5 legal programs.
+    STILL REFUSED armed, and they are LEGAL RUST — the arm's real limit:
+      s5_two_elided  trait `fn pick(&self, x:&i64) -> &i64` / impl `<'a,'b>(&'a self, x:&'b i64) -> &'a i64`
+      s9_param_only  trait `fn take(&self, o:&R) -> i64`     / impl `<'a,'b>(&'a self, o:&'b R) -> i64`
+      Rust elision gives each elided INPUT its OWN fresh binder; this arm collapses all of them
+      to one `#e`, so two distinct elided inputs are wrongly forced equal.  RULE 7: the crude
+      probe and the correct fix do not close the same programs.  THE CORRECT FIX is a per-
+      signature elision EXPANSION — fresh binder per elided input, the output taking the
+      receiver's — done ONCE before `_alpha_ok`, not inside it.  It closes these two as well.
+    CORRECTLY REFUSED armed: s4_65866 (the upstream shape, whose .stderr is an error).
+    The alpha-rename pass fixture bc_sigretty_alpha_rename_receiver_pass compiles armed and unarmed.
+  ⚠ The arm is MONOTONE — `_alpha_ok` returning true more often can only turn refusals into
+    admissions — so its risk is an ADMISSION, which rc-based cost columns cannot see (rule 15).
+    The fail-text oracle is what covers that here: 1469 fixtures, 0 un-refusals, 2 re-wordings.
+  ⚠ `ceiling-probe: builds 968 -> 969` is a pair of gate-DB BUILD IDs, not a count of programs
+    that started compiling.  I nearly reported it as a phantom un-refusal.
+
+## patslice
+site: src/compiler/sema_decl.cpp::lower_fn      (the `PAT_SLICE: TODO` in the fn_pat_params prologue)
+build: 3c9c03a806bd1e3a           (armed);  base 0d72ee9795c644d3 43, restored EXACTLY after
+measured: 2026-09-09
+fires: 3
+ceiling: 0                        BC ledger rows.  SOUNDNESS-QUEUE ceiling = 1 (below)
+cost: 0                           pass(ledger+legal) 0 · cfail 0 · stdlib 4/4
+verdict: FUND — 1 queue row, 6 further legal shapes, cost 0 in every column
+note:
+  `fn probe([a, b, c]: [i64; 3])` is legal Rust and is refused "undefined variable 'a'".
+  ⚠ NOT the "arm exists, fact missing" shape I expected: the arm DOES NOT EXIST.  The param
+  already reaches `fn_pat_params` and already synthesises a name; the prologue's PAT_SLICE
+  branch was never written and the file says so in a TODO.  Row fnparam_array_pattern_binds_nothing.
+  DOORS IN SERIES (rule 2): the fix is TWO halves under one name — a `define()` in the param
+  walk (lower_block refuses before the prologue ever runs) and the index-read prologue.  Either
+  half alone buys nothing, which is why the batch carries both under the name `patslice`.
+  QUEUE CEILING = 1, predicted BY NAME and diffed both ways over all 79 rows: only
+  fnparam_array_pattern_binds_nothing moves.  It links, RUNS exit 0, valgrind-clean.
+  ⚠ IT DOES **NOT** MOVE fnparam_tuple_nested_sub_binds_nothing, and that was PREDICTED:
+  the nested-tuple row is the OTHER half of the same door — the `p.has_key(la::NAMES)` walk,
+  which records "_" for every sub-node that is not a bare PAT_WILD, and whose prologue can
+  only project one level through a tuple index.  Same door, different arm.  A separating pair
+  is now measured; do not group these two.
+  COST, SHAPE-VARIED, 7 hand programs: p1_arr2 · p2_arr_wild (`[a, _, c]`) · p3_arr_mut
+  (`[mut a, b]`) · p4_arr_struct_elem (`[P; 2]`) · p6_arr_second_param (not slot 0) ·
+  p7_arr_method (an impl method) all go REFUSED -> RUN 0.  p5_arr_rest (`[a, ..]`) stays
+  refused: the crude arm excludes PAT_REST by construction, and a real fix owes it a sentence.
+
+## patslice_def
+site: src/compiler/sema_decl.cpp::lower_fn
+build: 3c9c03a806bd1e3a
+measured: 2026-09-09
+fires: 0
+ceiling: —
+cost: —
+verdict: THE CONTROL TWIN (rule 18) — behaved exactly as predicted
+note:
+  The second of `patslice`'s two edits is armed by the name `patslice`, so pricing the NAME
+  `patslice_def` arms NOTHING.  Predicted before the run: fires 0, identical to unarmed in
+  every column.  Measured: "NEVER FIRED — not a zero, an unreached site".  A non-zero here
+  would have said the harness, not the compiler, was answering.
