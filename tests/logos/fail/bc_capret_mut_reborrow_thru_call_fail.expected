@@ -1,0 +1,1 @@
+error [fn f]: captured variable 't' cannot escape `FnMut` closure body: a mutable reborrow of a capture is bounded by the closure call

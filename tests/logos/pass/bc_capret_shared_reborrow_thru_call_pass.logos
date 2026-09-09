@@ -1,0 +1,14 @@
+// §CAPRET pair C, PASS half. The `mut` keyword apart from
+// fail/bc_capret_mut_reborrow_thru_call_fail, and the SAME recursive walk into
+// the call's arguments — taken in the exempt direction. A shared reborrow of a
+// capture reaches the capture's own region (tests/ui/nll/issue-40510-2.rs is
+// `//@ check-pass`); the `&mut` twin is bounded by `FnMut::call_mut`.
+package bc_capret_shared_reborrow_thru_call_pass;
+fn thru(q: &i64) -> &i64 { return q; }
+fn f() -> i64 {
+    let t: i64 = 5i64;
+    let c = || -> &i64 { return thru(&t); };
+    let v: &i64 = c();
+    return *v;
+}
+fn main() -> i32 { return (f() - 5i64) as i32; }

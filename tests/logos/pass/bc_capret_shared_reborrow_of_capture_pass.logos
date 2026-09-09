@@ -1,0 +1,11 @@
+// §CAPRET pair A, PASS half. ONE TOKEN from fail/bc_capret_mut_reborrow_of_capture_fail:
+// a SHARED reborrow of a capture reaches the capture's own region through
+// `Fn::call(&self)` and is legal — tests/ui/nll/issue-40510-2.rs is `//@ check-pass`.
+package bc_capret_shared_reborrow_of_capture_pass;
+fn f() -> i64 {
+    let t: i64 = 7i64;
+    let c = || -> &i64 { return &t; };
+    let v: &i64 = c();
+    return *v;
+}
+fn main() -> i32 { return (f() - 7i64) as i32; }

@@ -2589,6 +2589,7 @@ private:
     // The closure's OWN return contract is simply not modelled here; skipping
     // the check is the UNDER-refusing direction, which is the safe one.
     bool in_closure_body_ = false;
+    bool in_move_closure_ = false;
 
     // ONE body walk, called from BOTH ClosureBox arms. The class here is "a
     // ClosureBox arm", it has exactly two members, and a walk that drifts
@@ -2632,6 +2633,7 @@ private:
         auto saved_cpf        = closure_param_frame_;
         auto saved_cbd        = closure_body_decls_;
         bool saved_icb        = in_closure_body_;
+        bool saved_imc        = in_move_closure_;
         TypeRef saved_ret     = ret_type_;
         // ── LANDED 2026-08-31, and the exemption is SCOPED ─────────────────
         // What lands is `capretsc`: the gate on, `ret_type_` and
@@ -2657,10 +2659,12 @@ private:
         // and only the third asked the question. So the fact goes in a set of
         // its own. INVERTED for a `move` closure: a moved capture is the
         // closure's own local.
-        if (!is_move_)
-            cbv.each_capture_name([&](std::string_view cn) {
-                if (!cn.empty()) closure_capture_names_.insert(std::string(cn));
-            });
+        // §CAPRET: move captures go in too — the PREDICATE at the report gate
+        // decides, not the closure kind. A moved reference capture's VALUE is
+        // legal to return; the ADDRESS of a moved capture still dangles.
+        cbv.each_capture_name([&](std::string_view cn) {
+            if (!cn.empty()) closure_capture_names_.insert(std::string(cn));
+        });
         {
             // CAUSE A. Clearing the enclosing fn's param lifetimes is only
             // half of it: without the REBIND a closure signature's own
@@ -2679,6 +2683,7 @@ private:
             });
         }
         in_closure_body_ = true;
+        in_move_closure_ = is_move_;
         // The body was never scanned either: scan_uses_expr's ClosureBox arm
         // stops at the capture names exactly as the loan channel did, so body
         // locals had no last-use line and NLL could not retire their loans.
@@ -2703,6 +2708,7 @@ private:
         visit_block(cbb);
         pop_scope();
         in_closure_body_  = saved_icb;
+        in_move_closure_  = saved_imc;
         ret_type_         = saved_ret;
         param_lifetimes_  = std::move(saved_plt);
         param_names_      = std::move(saved_params);
@@ -2723,6 +2729,22 @@ private:
         }
         return false;
     }
+    // §CAPRET: is `e` the ADDRESS of a captured place rather than a captured
+    // reference's own value? PROBES.md 2026-09-09j-capret.
+    bool returns_addr_of_capture(lir_view::ExprRef e, int depth = 0) const {
+        using Code = lir_schema::expr::Code;
+        if (!e || depth > 4) return false;
+        if (e.kind() == Code::AddrOf) {
+            std::string n(lir_view::EAddrOfView{e}.var_name());
+            return !n.empty() && closure_capture_names_.count(n) != 0;
+        }
+        bool hit = false;
+        lir_view::detail::for_each_arg(e, [&](lir_view::ExprRef a) {
+            if (!hit) hit = returns_addr_of_capture(a, depth + 1);
+        });
+        return hit;
+    }
+
     bool next_scope_is_bare_block_ = false;
     void push_scope() {
         scopes_.push_back({});
@@ -9269,8 +9291,20 @@ private:
             // is not dangling. Read HERE and nowhere else — the escape /
             // dangling channel keeps its verdict, which is the whole
             // difference between this and `capretcaps`.
-            if (!is_temp && !src.empty() && closure_capture_names_.count(src))
-                return;
+            // §CAPRET (PROBES.md 2026-09-09j-capret): upstream nll/issue-40510-1
+            // vs -2 is the one-variable pair — `&mut x` errors, `&x` check-passes.
+            if (!is_temp && !src.empty() && closure_capture_names_.count(src)) {
+                if (!returns_addr_of_capture(er)) return;
+                if (!in_move_closure_) {
+                    if (!(ret_type_ &&
+                          ret_type_.kind() == LogosType::Kind::MutRef)) return;
+                    report(line, std::format(
+                        "captured variable '{}' cannot escape `FnMut` closure "
+                        "body: a mutable reborrow of a capture is bounded by "
+                        "the closure call", src));
+                    return;
+                }
+            }
             if (!is_temp && !src.empty() && ts_.frame_consts.count(src) &&
                 !var_has(NO_SLOT, src))
                 report(line, std::format(

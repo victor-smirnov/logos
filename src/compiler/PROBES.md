@@ -32408,3 +32408,176 @@ arguments; CMake passes `bc_admits_blocked.ledger` as the fourth. A hand
 invocation with three reports `FAIL: … is on the admit shelf with NO ledger row`
 rc 1 — a FALSE RED, the blocked file simply unread. This is the `LOGOS_LIB_DIR`
 lesson in a second instrument, and it cost one gate run here.
+
+## 2026-09-09j-capret — THE CAPTURE-RETURN EXEMPTION WAS KEYED ON A NAME SET, AND A NAME SET CANNOT SAY WHICH REGION THE RETURNED REFERENCE CARRIES
+site: src/compiler/borrow_check.cpp::check_return_value (the cause-B exemption)
+      + ::walk_closure_body (the deposit) + ::returns_addr_of_capture (new)
+build: base 06f0c66be0400a1d 43 (READ) → armed 07b14ece6e01ce20 43 (READ)
+fires: ARRIVALS, not probe fires — this record is a LANDED FIX, not a ceiling
+       probe. The population is the `LOGOS_DUMP_RETGATE` census below: 1 of the
+       8 `*.NEW-CESC` rows reaches the exemption with local provenance, and the
+       new report arm fires on exactly that one plus the 3 native fail halves.
+ledger: bc_admits.ledger `# TOTAL` 92 → 91 — `issue-40510-1` (nllmoves.NEW-CESC) CLOSED
+
+### THE CENSUS ANSWERED THE BLOCK WITHOUT A BUILD
+
+The prompt handed down "D-RET — three rows" (`issue-40510-1`, `issue-40510-3`,
+`issue-48697--t16`: "a closure's return region is checked by nothing"). The
+compiler's OWN `LOGOS_DUMP_RETGATE`, on the unmodified binary, over all EIGHT
+`*.NEW-CESC` rows:
+
+    issue-40510-1                         prov{loc=1} srcs=[x]    ← ARRIVES
+    issue-40510-3                         no arrival — it returns a CLOSURE
+    issue-48697--t16                      np=1 at BOTH returns, loc=0
+    issue-42574-…--t15 / --b              no arrival
+    issue-95079-missing-move-…            typed=0 mcb=0 — the gate never opens
+    borrowed-data-escapes-closure-148392  no arrival
+    anonymous-region-in-apit--closure-…   no arrival
+
+ONE row of the eight arrives (rule 17: a handed-down list is a hypothesis). It
+is also the third round running in which a `NEW-CESC` grouping split under a
+census; the root now stands at 7 rows and none of them is this mechanism.
+
+### THE FIRST PREDICATE WAS WRONG, AND THE TREE HELD THE COUNTER-EXAMPLE
+
+`issue-40510-1` is `|| { &mut x }` and reaches the return check with local
+provenance; it is silent because of
+
+    if (!is_temp && !src.empty() && closure_capture_names_.count(src)) return;
+
+A NAME SET. So the first candidate was "exempt the capture's VALUE, report the
+ADDRESS of a captured place". Before a binary existed, that predicate was checked
+against `tests/logos/pass/bc_capretsc_closure_returns_capture.logos`, a PINNED
+pass fixture that returns `&u` — the address of a capture — at exit 0. The
+candidate would have refused it.
+
+⚠ AND THE ORACLE THAT SETTLES IT IS UPSTREAM'S OWN NEXT FILE, ON THE BOX
+(/home/logos/cxx/rust @ da5114692c9):
+
+    tests/ui/nll/issue-40510-1.rs   `|| { &mut x }`   ERROR captured variable cannot escape `FnMut` closure body
+    tests/ui/nll/issue-40510-2.rs   `|| { &x }`       //@ check-pass
+    tests/ui/nll/issue-40510-3.rs   inner closure MUTATES the capture   ERROR
+    tests/ui/nll/issue-40510-4.rs   inner closure only READS it         //@ check-pass
+
+**THE DISCRIMINATOR IS MUTABILITY, NOT THE ADDRESS.** A shared reborrow reaches
+the capture's own region through `Fn::call(&self)`; a mutable one is bounded by
+`FnMut::call_mut(&mut self)`.
+
+⚠ AND THE IMPORT ITSELF IS WHY THIS WAS EASY TO GET WRONG: the rustc import took
+COMPILE-FAIL tests only, so for each of upstream's two pairs the corpus holds the
+ERRORING half and not the `check-pass` half. `issue-40510-2` and `-4` are in no
+shelf, in no ledger and in no PROVENANCE row. A corpus of refusals cannot tell
+you where a refusal stops being correct. Both legal halves are now native
+fixtures.
+
+### THE CLASS, ENUMERATED BY PROPERTY, MEASURED ON THE BASE BINARY
+
+Property: *a `return`, out of a closure body, of a reference whose region is the
+capture's PLACE rather than its referent.* Every shape, base binary, one per line:
+
+    &mut <capture>          rc 0 ← the hole (bare stmt closure = the ledger row)
+    &mut <capture>, bound and CALLED   rc 1, but by an unrelated loan conflict at the call
+    thru(&mut <capture>)    rc 0 ← the hole, one spelling on
+    &<capture>              rc 0   ✓ correct (upstream check-pass)
+    thru(&<capture>)        rc 0   ✓ correct
+    &<capture>.field        rc 1   refused — but the sentence says "temporary value" for a NAMED local (filed below)
+    &<capture>[0]           rc 1   same wrong sentence
+    let q = &<capture>; return q;   rc 1  ✓ correct
+    move || { return &<capture>; }  rc 1  ✓ correct (dangling on the closure's own env)
+    move || { return <ref capture>; }  rc 1 ← AN OVER-REFUSAL OF LEGAL RUST
+    || { return <ref capture>; }       rc 0  ✓ correct — this is what the exemption is FOR
+
+The set is wrong in BOTH directions and for one reason: it is keyed on a NAME.
+Non-`move` names went in, so every `&mut <capture>` was exempted by spelling;
+`move` names never went in, so a moved reference capture's own VALUE — legal —
+was refused as a dangling local.
+
+### THE CHANGE — ONE PREDICATE, ONE SITE, BOTH DIRECTIONS
+
+`move` captures are deposited too; the report gate asks the predicate, not the
+closure kind:
+
+    report iff the returned reference is the ADDRESS of a captured place AND
+      · the closure is `move`  → it dangles on the closure's own env: the
+        EXISTING "cannot return reference to local variable" sentence, unchanged
+      · else the return type is `&mut` → the `FnMut` escape, a new sentence
+    exempt otherwise — the capture's VALUE, and every SHARED reborrow.
+
+`closure_capture_names_` still has exactly ONE reader, which is the 2026-08-31
+scoping that made this reachable at all. 40 lines added, 6 removed; the declared
+budget was 60.
+
+### PREDICTION vs MEASUREMENT, DIFFED BOTH WAYS
+
+    predicted closed  {issue-40510-1}
+    measured  closed  {issue-40510-1}     ctest -R logos_00_bc_admit: 100/100
+    predicted ∖ measured  ∅        measured ∖ predicted  ∅
+
+Diagnostic READ, not inferred:
+    error [fn f]: captured variable 'x' cannot escape `FnMut` closure body: a
+    mutable reborrow of a capture is bounded by the closure call
+
+### ⚠ RULE 14, ON THE ROUND'S OWN FIXTURES
+
+Of the three NATIVE fail halves, TWO are rewordings, not verdict changes, and the
+control revert is what says so: `bc_capret_mut_reborrow_of_capture_fail` and
+`…_thru_call_fail` bind the closure to a `let` and CALL it, and that call already
+produced "cannot borrow 't' as shared: already mutably borrowed" before this
+round. They pin the SENTENCE. The rc FLIP is the imported row alone
+(`tests/imported/fail/nll/issue-40510-1.logos`, upstream's bare
+statement-expression closure — no binding, no call, no loan conflict). The third,
+`bc_capret_move_addr_of_capture_fail`, prints the SAME message before and after
+BY DESIGN: it is the abuse direction of the `move` deposit, and an unchanged
+verdict there is the whole evidence that the deposit did not open a hole.
+
+### WHERE THE FIX DIFFERS FROM ITS CANDIDATE (rule 7)
+
+The candidate closed the same one row and would have cost a pinned pass fixture
+plus every legal `&<capture>` in the language. The landed fix closes the row,
+costs nothing, and REPAIRS an over-refusal the candidate did not touch
+(`move || -> &i64 { return r; }`, rc 1 → rc 0).
+
+### EVERY ORACLE, WITH ITS rc
+
+    bc_admits_ledger_gate.sh (4 args)     rc 0 — 91 + 8 rows, roster closes
+    ctest -R logos_00_bc_admit -j32       100/100 (99 rows + the roster gate; was 100 = 100 rows + gate)
+    soundness_queue_gate.sh               rc 0 — 77 rows (t1=21 t2=7 t3=42 t4=7), '# TOTAL' 77
+    test-levels.sh L1                     788/788, 12 684 generated cases, gates tier GREEN
+    test-levels.sh L4 bc (detached)       rc 0 — 5030/5030 and 1567/1567, gate-db build 986
+    fail_text_oracle.py                   1477 fail fixtures, 0 `.expected` mismatches, 0 rc flips
+                                          (1473 + 4 = the round's three native fail halves and the moved imported row)
+    run_oracle.py, base vs armed          6599 fixtures compiled + linked + RUN.
+                                          ONE row differs, and in the REPAIR direction:
+                                          bc_capret_move_capture_value_pass  cc 1 -> cc 0, run 0.
+                                          `cast-region-to-uint` differs in stdout sha as always (a stack address).
+    stdlib                                all four layers rebuilt by the armed compiler, build rc 0
+    census pins                           REGISTRY-ALL 9489->9495 (+6), NOIMPORTED 5025->5030 (+5),
+                                          TIERCOMMIT 150->149 (-1: the vanished admit gate), each re-derived
+                                          direct_door corpus 2975->2978, nonglob 2784->2787
+
+CONTROL REVERT (compiler at HEAD, the round's corpus in place, its own build):
+    tests/imported/fail/nll/issue-40510-1        rc 0 SILENT   ← the defect, reproduced
+    bc_capret_move_capture_value_pass            rc 1 "cannot return reference to local variable 'r'"  ← the over-refusal, reproduced
+    bc_capret_shared_reborrow_of_capture_pass    rc 0          unchanged
+    bc_capretsc_closure_returns_capture          rc 0          unchanged
+⚠ The build hash does NOT return to the base value across the revert and that is
+not a failed revert: `build_hash.py` hashes `tests/logos/*.a` too, and the round
+moves fixtures. base 06f0c66be0400a1d / armed 07b14ece6e01ce20 / reverted-with-
+this-corpus c2a2897fe512c69c, all 43 files, all READ.
+
+### WHAT IS STILL OPEN, WITH ITS NUMBER
+
+`issue-40510-3` is the SAME upstream class under a different CARRIER — a returned
+CLOSURE that contains a reference to a capture, upstream's own wording. It has
+ZERO arrivals at this site because the return gate never opens on it
+(`typed=0 retention=0 mcb=0`): a closure type is not asked whether it carries a
+borrow. That is a gate question, not this predicate's, and it is one row.
+DECLINED here BY NAME with that number, and it is the honest half of "fix the
+class": the reference carrier is closed at every spelling measured above, the
+closure carrier is one row behind a gate that does not open.
+
+### A DIAGNOSTIC DEFECT FOUND WHILE WRITING COUNTER-EXAMPLES
+
+`|| -> &i64 { return &s.f; }` and `|| -> &i64 { return &a[0]; }` are refused —
+right verdict — with *"cannot return reference to temporary value"*, for a NAMED
+local `s`/`a`. Filed as a soundness-queue tier-4 `diag` row.

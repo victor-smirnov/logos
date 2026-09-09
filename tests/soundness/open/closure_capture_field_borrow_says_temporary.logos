@@ -1,0 +1,22 @@
+// SOUNDNESS QUEUE row closure_capture_field_borrow_says_temporary (tier 4).
+// The program is ILLEGAL and the refusal is right: a closure returns a MUTABLE
+// reborrow of a FIELD of a capture, which is upstream's E0521 shape
+// (tests/ui/nll/issue-40510-1.rs, one projection on). The SENTENCE is the
+// defect — `s` is a NAMED local, not a temporary, and the reader is sent looking
+// for a temporary that is in no source line:
+//     error [fn f]: cannot return reference to temporary value: dangling reference
+// The whole-variable spelling one projection away prints the right sentence
+// (`captured variable 's' cannot escape `FnMut` closure body`, landed
+// 2026-09-09j-capret), so the two spellings of one defect print two verdicts'
+// worth of sentence. The index spelling `&mut a[0]` prints the same wrong one.
+// FOUND while writing counter-examples for 2026-09-09j-capret; reproduces on the
+// base binary 06f0c66be0400a1d and on the armed 07b14ece6e01ce20 alike.
+package closure_capture_field_borrow_says_temporary;
+struct S { f: i64 }
+fn f() -> i64 {
+    let mut s: S = S { f: 3i64 };
+    let c = || -> &mut i64 { return &mut s.f; };
+    let v: &mut i64 = c();
+    return *v;
+}
+fn main() -> i32 { return f() as i32; }

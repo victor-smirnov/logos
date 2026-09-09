@@ -1,0 +1,6 @@
+package h2;
+fn f() {
+    let x: i64 = 0i64;
+    || { return &x; };
+}
+fn main() -> i32 { return 0i32; }

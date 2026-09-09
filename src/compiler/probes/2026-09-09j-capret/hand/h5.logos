@@ -1,0 +1,6 @@
+package h5;
+fn f() {
+    let c = || -> &i64 { let t: i64 = 1i64; return &t; };
+    let _r: &i64 = c();
+}
+fn main() -> i32 { return 0i32; }

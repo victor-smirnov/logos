@@ -1,0 +1,1 @@
+error [fn f]: cannot return reference to local variable 't': dangling reference

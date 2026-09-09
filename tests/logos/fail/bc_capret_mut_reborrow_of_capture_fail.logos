@@ -1,0 +1,20 @@
+// §CAPRET pair A, FAIL half. ONE TOKEN from pass/bc_capret_shared_reborrow_of_capture_pass:
+// `&mut t` for `&t`. This is upstream's own one-variable pair — tests/ui/nll/
+// issue-40510-1.rs errors "captured variable cannot escape `FnMut` closure body"
+// and tests/ui/nll/issue-40510-2.rs, the shared spelling, is `//@ check-pass`.
+//
+// ⚠ RULE 14, STATED RATHER THAN HIDDEN: this program was ALREADY refused before
+// 2026-09-09j-capret, by an unrelated loan conflict the CALL creates — "cannot
+// borrow 't' as shared: already mutably borrowed" (measured on the control
+// revert). What this file buys is the SENTENCE, not the verdict. The rc FLIP
+// lives in tests/imported/fail/nll/issue-40510-1.logos, which is upstream's bare
+// statement-expression closure: no binding, no call, no loan conflict, silent
+// before and refused after.
+package bc_capret_mut_reborrow_of_capture_fail;
+fn f() -> i64 {
+    let mut t: i64 = 7i64;
+    let c = || -> &mut i64 { return &mut t; };
+    let v: &mut i64 = c();
+    return *v;
+}
+fn main() -> i32 { return f() as i32; }

@@ -1,0 +1,9 @@
+package a10;
+fn f() -> i64 {
+    let t: i64 = 5i64;
+    let p: &i64 = &t;
+    let c = move || -> &i64 { return p; };
+    let r: &i64 = c();
+    return *r;
+}
+fn main() -> i32 { return 0i32; }

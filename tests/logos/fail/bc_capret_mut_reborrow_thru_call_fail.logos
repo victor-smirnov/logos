@@ -1,0 +1,15 @@
+// §CAPRET pair C, FAIL half. The `mut` keyword apart from
+// pass/bc_capret_shared_reborrow_thru_call_pass, and the same recursive walk
+// into the call's arguments taken in the reporting direction.
+//
+// ⚠ RULE 14, as for its pair-A sibling: already refused before this round by the
+// call's own loan conflict; this file pins the SENTENCE.
+package bc_capret_mut_reborrow_thru_call_fail;
+fn thru(q: &mut i64) -> &mut i64 { return q; }
+fn f() -> i64 {
+    let mut t: i64 = 5i64;
+    let c = || -> &mut i64 { return thru(&mut t); };
+    let v: &mut i64 = c();
+    return *v;
+}
+fn main() -> i32 { return f() as i32; }

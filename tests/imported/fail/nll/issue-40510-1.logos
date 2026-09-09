@@ -1,0 +1,27 @@
+// rustc nll/issue-40510-1.rs — upstream E0521 captured var escapes FnMut
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: FAIL — the ledger row `issue-40510-1 nllmoves.NEW-CESC` was DELETED
+//   2026-09-09j-capret. logosc now refuses it, and the sentence is pinned in
+//   full in the sibling .expected.
+// Original path: tests/ui/nll/issue-40510-1.rs
+// upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// upstream construct: lines 4-9 —
+//     let mut x: Box<()> = Box::new(());
+//     || { &mut x };
+//     //~^^ ERROR captured variable cannot escape `FnMut` closure body
+// ⚠ ITS LEGAL TWIN IS UPSTREAM'S OWN NEXT FILE AND WAS NEVER IMPORTED:
+//   tests/ui/nll/issue-40510-2.rs is the same program with `&x` for `&mut x`
+//   and carries `//@ check-pass`. The import took compile-fail tests only, so
+//   the corpus held the erroring half of the pair and not the legal half. The
+//   legal half now lives as tests/logos/pass/bc_capret_shared_reborrow_of_capture_pass.
+// Modifications:
+//   · `Box<()>` -> `Box<i64>`; Logos has no unit type to put in a Box, and the
+//     referent type is not the subject — the escaping `&mut` to a CAPTURE is
+//   · assert -> exit code: `fn main() -> i32`
+package issue_40510_1;
+use logos.mem.boxed;
+fn f() {
+    let mut x: Box<i64> = Box::new(0i64);
+    || { return &mut x; };
+}
+fn main() -> i32 { return 0i32; }

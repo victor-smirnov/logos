@@ -1,0 +1,7 @@
+package h4;
+fn f(p: &i64) -> i64 {
+    let c = || -> &i64 { return p; };
+    let r: &i64 = c();
+    return *r;
+}
+fn main() -> i32 { return 0i32; }

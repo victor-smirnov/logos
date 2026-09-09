@@ -1732,7 +1732,7 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # UNREACHABLE THROUGH THIS PROGRAM and needs a carrier that does not move a field
 # out of a Drop value — unrowed_backlog entry
 # `e0713_mutref_past_destructor_needs_a_new_carrier`. 93 -> 92.
-# TOTAL 92
+# TOTAL 91
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1826,7 +1826,6 @@ borrowed-temporary-error--t08 nllmoves.D tests/imported/admit/nll/borrowed-tempo
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
 issue-27868 nllmoves.R11-ASSIGN tests/imported/admit/nll/issue-27868
-issue-40510-1 nllmoves.NEW-CESC tests/imported/admit/nll/issue-40510-1  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)
 issue-40510-3 nllmoves.NEW-CESC tests/imported/admit/nll/issue-40510-3  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)
 issue-42574-diagnostic-in-nested-closure--b nllmoves.NEW-CESC tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--b  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED. The OLD port was LEGAL RUST (NLL ends the capture loan at the last use of `c`); as-is it is upstream's construct and is the SAME PROGRAM as --t15
 issue-42574-diagnostic-in-nested-closure--t15 nllmoves.NEW-CESC tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--t15  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --b; merging is an owner decision

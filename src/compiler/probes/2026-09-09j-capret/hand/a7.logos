@@ -1,0 +1,7 @@
+package a7;
+fn f() {
+    let x: i64 = 0i64;
+    let c = || -> &i64 { &x };
+    let _r: &i64 = c();
+}
+fn main() -> i32 { return 0i32; }

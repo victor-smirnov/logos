@@ -5649,9 +5649,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9476 -> 9489  +13  (seven fail, six pass, all native)
 #   NOIMPORTED   5012 -> 5025  +13  (all thirteen are native)
 #   TIERCOMMIT    150 ->  150   0
-REGISTRY-ALL         9489
-REGISTRY-NOIMPORTED  5025
-REGISTRY-TIERCOMMIT  150
+# 2026-09-09j-capret (§CAPRET — the closure-capture return exemption keyed on a
+#   NAME SET replaced by a predicate on the returned reference. bc_admits row
+#   `issue-40510-1` CLOSED and its program moved to the imported FAIL shelf;
+#   three new native pairs pin the predicate in both directions.)
+#   ALL          9489 -> 9495  +6   (+3 native pass, +3 native fail, and the
+#                                    moved row: -1 admit gate, +1 imported fail)
+#   NOIMPORTED   5025 -> 5030  +5   (+6 native, -1 the vanished admit gate)
+#   TIERCOMMIT    150 ->  149  -1   (the vanished admit gate was tier_commit;
+#                                    none of the six new fixtures is)
+REGISTRY-ALL         9495
+REGISTRY-NOIMPORTED  5030
+REGISTRY-TIERCOMMIT  149
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

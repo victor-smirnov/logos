@@ -1,0 +1,12 @@
+// §CAPRET pair B, PASS half. A `move` closure copies the reference `r` into its
+// environment; returning it yields `t`'s region, which outlives the closure.
+// THIS PROGRAM WAS REFUSED before 2026-09-09j — an over-refusal of legal Rust.
+package bc_capret_move_capture_value_pass;
+fn f() -> i64 {
+    let t: i64 = 9i64;
+    let r: &i64 = &t;
+    let c = move || -> &i64 { return r; };
+    let v: &i64 = c();
+    return *v;
+}
+fn main() -> i32 { return (f() - 9i64) as i32; }
