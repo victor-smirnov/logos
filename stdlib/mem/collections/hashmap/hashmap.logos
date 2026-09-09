@@ -338,7 +338,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
 // POD/Copy), then the states + entries buffers are freed. No manual free. Drop
 // needs no Hash/Eq bound — it only moves out, never probes.
 impl<K, V> Drop for HashMap<K, V> {
-    fn drop(self: HashMap<K, V>) {
+    fn drop(self: &mut HashMap<K, V>) {
         unsafe {
             if self.states != 0 as *mut u8 {
                 let mut i: i64 = 0;

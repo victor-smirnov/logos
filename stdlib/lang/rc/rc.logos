@@ -173,9 +173,9 @@ impl<T: ?Sized> Weak<T> {
 // Weak auto-Drop: releases this weak handle's count (and frees the block if it
 // was the very last reference of either kind).
 impl<T: ?Sized> Drop for Weak<T> {
-    fn drop(self: Weak<T>) {
+    fn drop(self: &mut Weak<T>) {
         unsafe {
-            let p: *mut Weak<T> = &self as *const Weak<T> as *mut Weak<T>;
+            let p: *mut Weak<T> = self as *const Weak<T> as *mut Weak<T>;
             p.drop_weak();
         }
     }
@@ -198,9 +198,9 @@ impl<T: ?Sized> Clone for Weak<T> {
 // goes out of scope unmoved. At the last strong reference, T's destructor
 // runs (the inner `val` is moved out and dropped) before the block is freed.
 impl<T: ?Sized> Drop for Rc<T> {
-    fn drop(self: Rc<T>) {
+    fn drop(self: &mut Rc<T>) {
         unsafe {
-            let p: *mut Rc<T> = &self as *const Rc<T> as *mut Rc<T>;
+            let p: *mut Rc<T> = self as *const Rc<T> as *mut Rc<T>;
             p.drop_rc();
         }
     }

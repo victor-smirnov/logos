@@ -8,7 +8,7 @@ package logos.lang.drop;
 /// Types with custom cleanup logic run automatically when a value goes out of scope.
 pub trait Drop {
     /// Runs cleanup for `self`, called automatically by the compiler at scope exit.
-    fn drop(self: Self);
+    fn drop(self: &mut Self);
 }
 
 /// Takes ownership of `value` and drops it immediately (mirrors `core::mem::drop`).

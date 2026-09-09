@@ -108,7 +108,7 @@ impl<T> VecDeque<T> {
 // [head .. head+len) in the ring is moved out and dropped (firing T's Drop if it
 // has one; no-op for POD/Copy T), then the ring buffer is freed. No manual free.
 impl<T> Drop for VecDeque<T> {
-    fn drop(self: VecDeque<T>) {
+    fn drop(self: &mut VecDeque<T>) {
         unsafe {
             let p: *mut T = self.buf;
             if p != 0 as *mut T {

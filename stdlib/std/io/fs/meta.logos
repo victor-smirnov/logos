@@ -295,7 +295,7 @@ impl Iterator<DirEntry> for ReadDir {
 }
 
 impl Drop for ReadDir {
-    fn drop(self: ReadDir) {
+    fn drop(self: &mut ReadDir) {
         if self.handle != 0 as *mut u8 {
             unsafe { logos_closedir(self.handle); }
         }

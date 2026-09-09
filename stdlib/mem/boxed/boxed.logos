@@ -106,7 +106,7 @@ impl<T> DerefMut<T> for Box<T> {
 // (defensive — a moved-from box is not dropped, and box_new of a 0-byte alloc
 // could yield null).
 impl<T: ?Sized> Drop for Box<T> {
-    fn drop(self: Box<T>) {
+    fn drop(self: &mut Box<T>) {
         unsafe {
             let p: *mut T = self.ptr;
             if p != 0 as *mut T {

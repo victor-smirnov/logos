@@ -173,7 +173,7 @@ pub unsafe fn allocator_free(a: *mut Allocator) {
 // `head`, so this drop then walks an empty list (idempotent — no double-free).
 impl Drop for Allocator {
     /// Frees all segments en masse; a no-op if `allocator_free` already ran (idempotent).
-    fn drop(self: Allocator) {
+    fn drop(self: &mut Allocator) {
         unsafe {
             let mut seg: *mut Segment = self.head;
             while !seg.is_null() {

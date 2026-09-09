@@ -235,7 +235,7 @@ impl<DT: Container> Buffer<DT> {
 }
 
 impl<DT: Container> Drop for Buffer<DT> {
-    fn drop(self: Buffer<DT>) {
+    fn drop(self: &mut Buffer<DT>) {
         unsafe {
             let sp: *mut DT::Store =
                 (&self.storage as *const DT::Store) as *mut DT::Store;
@@ -439,9 +439,9 @@ impl<T> PrimVec<T> {
 // the Buffer-wrapped case: Buffer::drop's drop_store clears first, then this
 // field-drop sees a null buffer and no-ops — no double free.
 impl<T> Drop for PrimVec<T> {
-    fn drop(self: PrimVec<T>) {
+    fn drop(self: &mut PrimVec<T>) {
         unsafe {
-            let sp: *mut PrimVec<T> = (&self as *const PrimVec<T>) as *mut PrimVec<T>;
+            let sp: *mut PrimVec<T> = (self as *const PrimVec<T>) as *mut PrimVec<T>;
             sp.clear();
         }
     }

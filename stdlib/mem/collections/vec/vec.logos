@@ -354,7 +354,7 @@ impl<T> ExactSizeIterator<T> for VecIntoIter<T> {
 }
 
 impl<T> Drop for VecIntoIter<T> {
-    fn drop(self: VecIntoIter<T>) {
+    fn drop(self: &mut VecIntoIter<T>) {
         unsafe {
             let p: *mut T = self.data as *mut T;
             if p != 0 as *mut T {
@@ -499,7 +499,7 @@ impl<T: Eq> Vec<T> {
 // buffer ownership by nulling `ptr`, which the null-guard below honors; it was
 // also the shallow `vec_free`'s job, now gone — Drop frees elements too.)
 impl<T> Drop for Vec<T> {
-    fn drop(self: Vec<T>) {
+    fn drop(self: &mut Vec<T>) {
         unsafe {
             let p: *mut T = self.ptr;
             if p != 0 as *mut T {

@@ -358,7 +358,7 @@ impl<T> RefMut<T> {
 }
 
 impl<T> Drop for Ref<T> {
-    fn drop(self: Ref<T>) {
+    fn drop(self: &mut Ref<T>) {
         unsafe {
             *self.state = *self.state - 1i32;
         }
@@ -366,7 +366,7 @@ impl<T> Drop for Ref<T> {
 }
 
 impl<T> Drop for RefMut<T> {
-    fn drop(self: RefMut<T>) {
+    fn drop(self: &mut RefMut<T>) {
         unsafe {
             *self.state = 0i32;
         }

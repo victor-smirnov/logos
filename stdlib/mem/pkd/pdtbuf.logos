@@ -3887,7 +3887,7 @@ pub struct PdtHolder {
 }
 
 impl Drop for PdtHolder {
-    fn drop(self: PdtHolder) {
+    fn drop(self: &mut PdtHolder) {
         unsafe {
             dealloc(self.mem);
         }

@@ -173,7 +173,7 @@ pub fn drop_guard_disarm_into<F: FnOnce() -> ()>(g: DropGuard<F>) -> F {
 }
 
 impl<F: FnOnce() -> ()> Drop for DropGuard<F> {
-    fn drop(self: DropGuard<F>) {
+    fn drop(self: &mut DropGuard<F>) {
         if self.armed {
             // `ManuallyDrop::take`: read the closure out through a pointer
             // rather than moving it out of `self`. `f` carries no drop glue

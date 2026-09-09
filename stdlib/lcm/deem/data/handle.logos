@@ -700,7 +700,7 @@ pub struct ContainerRef<const STORE_CFG: WritStatic, const CFG: WritStatic> {
 
 impl<const STORE_CFG: WritStatic, const CFG: WritStatic> Drop for ContainerRef<STORE_CFG, CFG> {
     /// Releases the snap's open-container claim; no writeback (mutators write back eagerly).
-    fn drop(self: ContainerRef<STORE_CFG, CFG>) {
+    fn drop(self: &mut ContainerRef<STORE_CFG, CFG>) {
         // Release this snap's open-container claim (the commit guard).
         // self.arc auto-drops after this body, releasing its rc.
         unsafe { self.ctx.release(); }

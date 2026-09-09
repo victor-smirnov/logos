@@ -277,7 +277,7 @@ impl Iterator<String> for LineReader {
 }
 
 impl Drop for LineReader {
-    fn drop(self: LineReader) {
+    fn drop(self: &mut LineReader) {
         if self.buf != 0 as *mut u8 {
             unsafe { dealloc(self.buf); }
         }

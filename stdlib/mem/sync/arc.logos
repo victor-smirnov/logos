@@ -241,9 +241,9 @@ impl<T: ?Sized> Weak<T> {
 }
 
 impl<T: ?Sized> Drop for Weak<T> {
-    fn drop(self: Weak<T>) {
+    fn drop(self: &mut Weak<T>) {
         unsafe {
-            let p: *mut Weak<T> = &self as *const Weak<T> as *mut Weak<T>;
+            let p: *mut Weak<T> = self as *const Weak<T> as *mut Weak<T>;
             p.drop_weak();
         }
     }
@@ -264,9 +264,9 @@ impl<T: ?Sized> Clone for Weak<T> {
 // Auto-Drop. Mirrors Rc's contract: decrements + frees if last,
 // without calling T's destructor.
 impl<T: ?Sized> Drop for Arc<T> {
-    fn drop(self: Arc<T>) {
+    fn drop(self: &mut Arc<T>) {
         unsafe {
-            let p: *mut Arc<T> = &self as *const Arc<T> as *mut Arc<T>;
+            let p: *mut Arc<T> = self as *const Arc<T> as *mut Arc<T>;
             p.drop_arc();
         }
     }

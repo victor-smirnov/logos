@@ -104,7 +104,7 @@ pub unsafe fn mutex_destroy<T: Send>(m: *mut Mutex<T>) {
 // explicit mutex_destroy followed by this drop is a safe no-op (no double
 // free / double pthread_mutex_destroy).
 impl<T> Drop for Mutex<T> {
-    fn drop(self: Mutex<T>) {
+    fn drop(self: &mut Mutex<T>) {
         unsafe {
             if self.raw != 0 as *mut u8 {
                 pthread_mutex_destroy(self.raw);
@@ -187,7 +187,7 @@ pub unsafe fn rwlock_destroy<T: Send + Sync>(rw: *mut RwLock<T>) {
 // Same idempotent guard (rwlock_destroy nulls raw → drop-after-destroy is a
 // no-op).
 impl<T> Drop for RwLock<T> {
-    fn drop(self: RwLock<T>) {
+    fn drop(self: &mut RwLock<T>) {
         unsafe {
             if self.raw != 0 as *mut u8 {
                 pthread_rwlock_destroy(self.raw);

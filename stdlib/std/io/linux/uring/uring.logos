@@ -170,7 +170,7 @@ impl IoRing {
 
 // Destructor: tear down the ring and release the backing allocation.
 impl Drop for IoRing {
-    fn drop(self: IoRing) {
+    fn drop(self: &mut IoRing) {
         unsafe {
             if self.ring == 0 as *mut u8 { return; }
             logos_io_uring_exit(self.ring);

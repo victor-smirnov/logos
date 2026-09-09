@@ -76,7 +76,7 @@ pub fn oview_module_ast() -> OView {
 }
 
 impl Drop for OView {
-    fn drop(self: OView) {
+    fn drop(self: &mut OView) {
         if self.holder != (0 as *mut u8) {
             unsafe { logos_holder_release(self.holder); }
         }
