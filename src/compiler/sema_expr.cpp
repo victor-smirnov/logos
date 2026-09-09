@@ -17138,7 +17138,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // The param itself takes a synth tuple-typed name; a body prologue
     // emits `let (a, b, …) = __tup_param_*;` so user code sees the
     // destructured names.
-    struct TupleParam { std::vector<std::string> users; std::vector<uint8_t> muts;
+    struct TupleParam { std::vector<ParamPatBind> binds;
+                        std::vector<std::string>  moved;
                         std::string synth; TypeRef ty; };
     std::vector<TupleParam> tuple_params;
     std::vector<lir::LParam> params;
@@ -17240,29 +17241,27 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     // and TYPE = tuple type. Synthesise a single param,
                     // collect the binding names + tuple type for the
                     // body-prologue rewrite below.
+                    // THE SAME recursive binder walk the fn-parameter door
+                    // runs (sema_decl.cpp walk_param_pat): a closure parameter
+                    // is a parameter, and its door was a verbatim copy of the
+                    // one-level whitelist that bound a nested sub-pattern to
+                    // nothing. PROBES.md 2026-09-09c.
                     if (p.has_key(la::NAMES)) {
                         auto nav = p.get(la::NAMES.code);
                         if (!nav.is_null() && nav.is_pointer()) {
                             auto nmap = map_of(nav);
                             if (nmap.has_key(la::ITEMS)) {
-                                auto narr = arr_of(nmap.get(la::ITEMS.code));
-                                std::vector<std::string> users;
-                                std::vector<uint8_t> umuts;
-                                for (uint64_t k = 0; k < narr.size(); ++k) {
-                                    // Each sub-node is a PAT_WILD with
-                                    // NAME (or PAT_UNIT for `()`).
-                                    auto sub = map_of(narr.get(k));
-                                    if (code_of(sub) == la::PAT_WILD &&
-                                        sub.has_key(la::NAME))
-                                        users.emplace_back(
-                                            str_of(sub.get(la::NAME.code)));
-                                    else
-                                        users.emplace_back("_");
-                                    umuts.push_back(pat_byval_mut(sub) ? 1 : 0);
-                                }
                                 std::string synth = std::format(
                                     "__tup_param_{}__{}", closure_id, i);
-                                tuple_params.push_back({std::move(users), std::move(umuts), synth, ptype});
+                                std::vector<ParamPatStep> ppath;
+                                std::vector<ParamPatBind> binds;
+                                std::vector<std::string>  moved;
+                                walk_param_pat(nmap, ptype, true, ppath, binds,
+                                               moved, false, synth,
+                                               std::format("#{}", i));
+                                tuple_params.push_back({std::move(binds),
+                                                        std::move(moved),
+                                                        synth, ptype});
                                 params.push_back({synth, ptype});
                                 param_types.push_back(ptype);
                                 continue;
@@ -17386,18 +17385,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // C5-cl-07: register tuple-destructure parameter user-names with
     // their element types.
     for (auto& tp : tuple_params) {
-        if (TypeRef(tp.ty).kind() == LogosType::Kind::Tuple) {
-            auto elems = TypeRef(tp.ty).tuple_elems();
-            for (size_t k = 0; k < tp.users.size() && k < elems.size(); ++k) {
-                define(tp.users[k], elems[k], k < tp.muts.size() && tp.muts[k] != 0);
-                // The prologue's `let <user> = <synth>.<k>;` MOVES the element
-                // out of the synth param — mark it so the synth's scope-exit Drop
-                // skips it (double-free else). HERE, before the body is lowered:
-                // that lowering is where the scope-exit drops are built.
-                if (tp.users[k] != "_" && is_move_type(elems[k]))
-                    mark_moved(std::format("{}.{}", tp.synth, k));
-            }
-        }
+        for (auto& b : tp.binds) define(b.name, b.ty, b.is_mut);
+        // The prologue's `let <name> = <synth><projection>;` MOVES the place
+        // out of the synth param — mark it so the synth's scope-exit Drop skips
+        // it (double-free else). HERE, before the body is lowered: that
+        // lowering is where the scope-exit drops are built.
+        for (auto& m : tp.moved) mark_moved(m);
     }
 
     // Collect current scope variables (for capture detection)
@@ -17446,17 +17439,25 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
         for (auto& tp : tuple_params) {
-            if (TypeRef(tp.ty).kind() != LogosType::Kind::Tuple) continue;
-            auto elems = TypeRef(tp.ty).tuple_elems();
-            for (size_t k = 0; k < tp.users.size() && k < elems.size(); ++k) {
-                if (tp.users[k] == "_") continue;
+            for (auto& b : tp.binds) {
+                lir::LExprPtr e = builder().var_ref(tp.synth, tp.ty);
+                for (auto& st : b.path) {
+                    if (st.kind == 0)
+                        e = builder().field_read(std::move(e), st.field, st.ty);
+                    else if (st.kind == 1)
+                        e = builder().tuple_index(std::move(e), st.idx, st.ty);
+                    else
+                        e = builder().index_read(
+                            std::move(e),
+                            builder().lit_int((int64_t)st.idx,
+                                              prim(LogosType::Kind::I64)),
+                            st.ty);
+                }
                 lir::SLet sl;
-                sl.name   = tp.users[k];
-                sl.type   = elems[k];
-                sl.is_mut = k < tp.muts.size() && tp.muts[k] != 0;
-                sl.value  = builder().tuple_index(
-                    builder().var_ref(tp.synth, tp.ty),
-                    (uint32_t)k, elems[k]);
+                sl.name   = b.name;
+                sl.type   = b.ty;
+                sl.is_mut = b.is_mut;
+                sl.value  = std::move(e);
                 prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
             }
         }

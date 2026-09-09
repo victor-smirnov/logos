@@ -1,0 +1,17 @@
+// An UNDER-ARITY tuple pattern at a function parameter. This program COMPILED
+// CLEAN AND RAN on b917cf69ace435e6 — the parameter door never compared the
+// pattern's arity to the type, so `(a, b)` against a 3-tuple simply bound the
+// first two elements' names to nothing. Rust refuses it: E0308, "expected a
+// tuple with 3 elements, found one with 2 elements"
+// (tests/ui/pattern/issue-72574-1.stderr). Found while writing counter-examples
+// for the 2026-09-09c walk, closed in the same commit, so it never became a
+// soundness-queue row.
+package fnparam_tuple_pattern_arity_admitted;
+fn probe((a, b): (i64, i64, i64)) -> i32 {
+    if a + b != 3i64 { return 1i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let t: (i64, i64, i64) = (1i64, 2i64, 4i64);
+    return probe(t);
+}

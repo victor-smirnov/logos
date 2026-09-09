@@ -1,0 +1,24 @@
+// The DESTRUCTOR COUNT for the 2026-09-09c fn-parameter binder walk. An exit
+// code cannot tell a leak from a double free, so both are asserted by counting
+// `Drop::drop` lines: each of the three payloads must print EXACTLY ONCE, and
+// all three before "after". The walk records a move path per move-typed leaf
+// (`__tup_param__0.0.0`, `.1`) and, for an ARRAY, the whole array place —
+// a single array slot has no dotted path, which is why an array of a droppable
+// element type is refused when a `..` or a `_` would leave a slot unbound
+// (fail/fnparam_array_drop_rest_unbound).
+package fnparam_pattern_walk_drop_count;
+use logos.std.fmt;
+struct D { pub n: i64 }
+impl Drop for D { fn drop(self: &mut D) { println!("DROP {}", self.n); } }
+fn by_array([a, b]: [D; 2]) -> i64 { return a.n + b.n; }
+fn by_tuple(((p, q), r): ((D, i64), D)) -> i64 { return p.n + q + r.n; }
+fn main() -> i32 {
+    let arr: [D; 2] = [D { n: 1i64 }, D { n: 2i64 }];
+    let s: i64 = by_array(arr);
+    println!("array sum={}", s);
+    let t: ((D, i64), D) = ((D { n: 3i64 }, 10i64), D { n: 4i64 });
+    let u: i64 = by_tuple(t);
+    println!("tuple sum={}", u);
+    println!("after");
+    return 0i32;
+}

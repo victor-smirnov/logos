@@ -1,0 +1,26 @@
+// The REST-POSITION repair of the 2026-09-09c fn-parameter binder walk. A
+// crude walk that numbers a slice pattern's elements 0,1,2,… binds the WRONG
+// SLOT for every element after a `..`: measured on the probe arm, `[.., a]`
+// on a [i64;3] bound index 0 and `[a, .., b]` on a [i64;4] bound index 1, both
+// compiling clean and running with a silently wrong answer. `[a, ..]` alone is
+// the one spelling that stays correct under the crude rule, so a fixture that
+// tested only it would certify the mechanism wrong in both other positions.
+// All four positions are asserted here, on lengths where the suffix index and
+// the pattern index differ.
+package fnparam_array_rest_positions;
+use logos.std.fmt;
+fn head([a, ..]: [i64; 4]) -> i64 { return a; }
+fn tail([.., z]: [i64; 4]) -> i64 { return z; }
+fn ends([a, .., z]: [i64; 4]) -> i64 { return a * 100i64 + z; }
+fn two_two([a, b, .., y, z]: [i64; 6]) -> i64 {
+    return a * 1000i64 + b * 100i64 + y * 10i64 + z;
+}
+fn main() -> i32 {
+    let q: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    let s: [i64; 6] = [1i64, 2i64, 3i64, 4i64, 5i64, 6i64];
+    println!("head={}", head(q));
+    println!("tail={}", tail(q));
+    println!("ends={}", ends(q));
+    println!("two_two={}", two_two(s));
+    return 0i32;
+}

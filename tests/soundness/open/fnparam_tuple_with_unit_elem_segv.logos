@@ -1,0 +1,34 @@
+// SOUNDNESS QUEUE row fnparam_tuple_with_unit_elem_segv (tier 3). A FUNCTION
+// PARAMETER whose type is a TUPLE CONTAINING `()` SEGFAULTS THE COMPILER —
+// rc 139, no diagnostic, no object file. The fn need never be called: the
+// three-line program below, whose `main` does nothing at all, is enough.
+//
+// LEGALITY — UPSTREAM'S, NOT MY READING. `tests/ui/coercion/fudge-inference/
+// fn-ret-trait-object-propagated-to-inputs-issue-149379-1.rs` is `//@ check-pass`
+// with no `.stderr` and its body is literally
+//     fn foo<T>(x: (T, ())) -> Box<T> { Box::new(x.0) }
+// — a parameter of a tuple type with a `()` element, the exact shape here.
+// `tests/ui/explicit-tail-calls/closure.rs` carries the denser
+// `fn v((): (), ((), ()): ((), ()))` at the same position.
+//
+// NOT A PATTERN DEFECT, and measured so: this parameter is a PLAIN NAME, so
+// the 2026-09-09c recursive fn-parameter binder walk never runs on it. The
+// same tuple type is fine everywhere else that was probed — as a LOCAL
+// (`let t: (i64, ()) = (7i64, ()); t.0` compiles and runs) and in RETURN
+// position (`fn make() -> (i64, ())` compiles clean). Only the parameter dies.
+//
+// ⚠ A NEIGHBOUR MEASURED THE SAME DAY, DELIBERATELY NOT GROUPED WITH THIS ROW
+// AND NOT ROWED: `let (a, ()) = t;` over the same type is refused with
+// "mlir_gen: internal: `let a` initializer produced no value (expr kind 22) —
+// statement DROPPED". That is the `let` door, a different site, and NO
+// SEPARATING PAIR WAS MEASURED — do not assume one fix closes both. Its
+// legality also rests on MY READING: no upstream test pins a `let` with a unit
+// sub-pattern, and I said so rather than let it be inherited as an upstream
+// fact.
+//
+// FOUND 2026-09-09c while writing counter-examples in shapes the pricing phase
+// did not use, for the fn-parameter binder walk landed the same day. Rust:
+// exit 0.
+package fnparam_tuple_with_unit_elem_segv;
+fn probe(t: (i64, ())) -> i64 { return t.0; }
+fn main() -> i32 { return 0i32; }

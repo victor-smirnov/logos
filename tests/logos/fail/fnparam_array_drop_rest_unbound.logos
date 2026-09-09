@@ -1,0 +1,17 @@
+// A `..` in an array pattern whose ELEMENT TYPE IS DROPPABLE. A single array
+// slot has no dotted move path, so the walk marks the WHOLE array place moved
+// — which is sound only when every element is bound. Under a `..` the skipped
+// elements would be dropped by nobody: a LEAK, invisible to an exit code. The
+// walk refuses with a sentence that names `..` and the element type rather than
+// emitting the leak. Pair partner: pass/fnparam_pattern_walk_drop_count, whose
+// `[a, b]: [D; 2]` names every element and drops each exactly once.
+package fnparam_array_drop_rest_unbound;
+use logos.std.fmt;
+struct D { pub n: i64 }
+impl Drop for D { fn drop(self: &mut D) { println!("DROP {}", self.n); } }
+fn probe([a, ..]: [D; 3]) -> i64 { return a.n; }
+fn main() -> i32 {
+    let arr: [D; 3] = [D { n: 1i64 }, D { n: 2i64 }, D { n: 4i64 }];
+    if probe(arr) != 1i64 { return 1i32; }
+    return 0i32;
+}

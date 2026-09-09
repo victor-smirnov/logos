@@ -1,0 +1,7 @@
+exit: 0
+stdout:
+arr_of_arr=15
+arr_of_struct=7
+struct_in_struct=15
+arr_in_struct=7
+tuple_three=15

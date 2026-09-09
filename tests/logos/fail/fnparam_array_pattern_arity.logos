@@ -1,0 +1,14 @@
+// PAIR PARTNER of pass/fnparam_array_pattern_binds_nothing, ONE TOKEN apart:
+// the parameter type's length is 2, the pattern still names three elements.
+// Rust refuses this (E0527, "pattern requires 3 elements but array has 2");
+// before 2026-09-09c the parameter position bound nothing and so could not
+// see the arity at all, and the only diagnostic was "undefined variable 'a'".
+package fnparam_array_pattern_arity;
+fn probe([a, b, c]: [i64; 2]) -> i32 {
+    if a + b + c != 7i64 { return 1i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let arr: [i64; 2] = [1i64, 2i64];
+    return probe(arr);
+}

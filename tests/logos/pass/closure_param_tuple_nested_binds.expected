@@ -1,0 +1,8 @@
+exit: 0
+stdout:
+nested=7
+captured=112
+DROP 2
+DROP 1
+drops=13
+after

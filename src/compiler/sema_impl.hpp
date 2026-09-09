@@ -7998,6 +7998,20 @@ private:
     // builder is complete on return.
     DeclBuilder lower_fn(writ::TinyMapView node, std::string_view struct_ctx = {},
                          std::vector<TypeParam>* out_type_params = nullptr);
+    // ONE recursive binder walk for every destructuring FUNCTION-PARAMETER
+    // pattern, at any depth. Rationale + the shape lattice: PROBES.md 2026-09-09c.
+    struct ParamPatStep { uint8_t kind; std::string field; uint32_t idx; TypeRef ty; };
+    struct ParamPatBind { std::string name; TypeRef ty; bool is_mut;
+                          std::vector<ParamPatStep> path; };
+    static std::string param_pat_path(const std::string& root,
+                                      const std::vector<ParamPatStep>& p,
+                                      size_t upto);
+    bool walk_param_pat(writ::TinyMapView pat, TypeRef ty, bool tuple_list,
+                        std::vector<ParamPatStep>& path,
+                        std::vector<ParamPatBind>& out,
+                        std::vector<std::string>& moved,
+                        bool suppress, const std::string& root,
+                        const std::string& pname);
     // Derive `lifetime_outlives` from the fn's params/return implied bounds
     // plus its where-clause (and merge where-clause type-param lifetime
     // bounds). Reads `node` + the fn's signature locals; appends to

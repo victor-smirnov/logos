@@ -32142,3 +32142,181 @@ FUND, in this order, and NOT as one commit:
 DO NOT fund them as "one shared walk landed once": the walk is shared as an algorithm and the
 INSTALLATIONS are independent — measured, three times, by a cross-door control that moved
 nothing.
+
+## 2026-09-09c — LANDED: ONE RECURSIVE BINDER WALK AT EVERY PARAMETER DOOR; TWO ROWS CLOSED, FOUR SILENT `admits` CLOSED WITH THEM, AND THE CLOSURE DOOR WAS THE SIBLING THAT WOULD HAVE LEFT THE CLASS OPEN
+site: src/compiler/sema_decl.cpp::walk_param_pat (the walk itself)
+      src/compiler/sema_decl.cpp::lower_fn (declare phase + body prologue, BOTH fn-param doors)
+      src/compiler/sema_expr.cpp (the closure-param door, same walk)
+build: BASE b917cf69ace435e6 43 (HEAD 97f91695c) -> ARMED dbba03ec947a58c7 43 (the fn-param half alone read a726287fabbf7fe8 43)
+measured: 2026-09-09
+fires: n/a — THIS IS A LANDING, NOT A PROBE. No `probe::on` name was installed; the walk is
+       unconditional and every door calls it on every compile. The fire count that licensed it
+       is 2026-09-09b's `patwalk` = 5 with its control twin `patwalk_def` = 0.
+rows closed: fnparam_array_pattern_binds_nothing, fnparam_tuple_nested_sub_binds_nothing
+queue `# TOTAL` 77 -> 75 (tier3 43 -> 41), re-derived by direct listing
+
+### THE ROOT, AND WHY IT IS ONE
+2026-09-09b priced `patwalk` at the two fn-param doors and `forwalk` at the for-header door and
+measured that the CROSS-DOOR CONTROLS MOVE NOTHING: three installations of one algorithm, not
+one root. This round landed the two that share a door KIND — a CALLABLE'S FORMAL PARAMETER —
+and left the for-header alone, which is what that measurement says to do.
+
+The root is narrower than "the walk is one level deep". It is: **the parameter doors read the
+PATTERN'S KIND and never the PARAMETER'S TYPE.** That single sentence predicts both directions
+at once, and both were measured on the base binary b917cf69ace435e6:
+
+  refuses  fn probe([a, b, c]: [i64; 3])          undefined variable 'a'   (row, closed)
+  refuses  fn probe(((a, b), c): ((i64,i64),i64)) undefined variable 'a'   (row, closed)
+  ADMITS   fn probe((a, b): (i64, i64, i64))      cc 0, RUNS 0   Rust: E0308
+  ADMITS   fn probe((a, b, c): (i64, i64))        cc 0, RUNS 0   Rust: E0308
+  ADMITS   fn probe(((a, b), c): (i64, i64))      cc 0, RUNS 0   Rust: E0308
+  ADMITS   fn probe([a, b]: (i64, i64))           cc 0, RUNS 0   Rust: E0529
+
+A door that never looks at the type cannot bind a nested sub-pattern AND cannot notice a shape
+that cannot match. The four `admits` had NO ROW and were found only by writing counter-examples
+in the illegal direction; they close in the same commit and land as `fail` fixtures, so they
+never became rows.
+
+### THE CLASS, ENUMERATED BY THE PROPERTY
+Property: *a door that introduces bindings for a CALLABLE'S FORMAL PARAMETER from a pattern.*
+Enumerated from the grammar (logos.peg `param`, `pat_param`, `closure_param`), not by grep:
+
+  1  fn-param PAT door    `S { x }: S` / `[a, b]: [T; 2]`   sema_decl.cpp   FIXED
+  2  fn-param NAMES door  `(a, b): (T, U)`                  sema_decl.cpp   FIXED
+  3  closure NAMES door   `|(a, b): (T, U)|`                sema_expr.cpp   FIXED
+  4  closure PAT door     `|S { x }: S|`                    DOES NOT EXIST — the grammar has no
+     `pat_param` alternative for a closure parameter, so this is a SYNTAX error before sema
+     (`syntax error near 'P'`, rc 4, MEASURED today). It is soundness-queue row
+     `closure_param_struct_pattern_syntax` and stays open: a grammar gap is a different
+     mechanism from a binder walk.
+
+Members 1 and 2 were the two rows. **Member 3 was NOT in any row and was NOT in the handed-down
+list of five**: `sema_expr.cpp`'s closure door is a VERBATIM COPY of door 2's one-level
+whitelist, and on the fn-param-only build it still bound nothing:
+
+  |((a, b), c): ((i64, i64), i64)|   undefined variable 'a'   (still refused)
+  |(a, b): (i64, i64, i64)|          cc 0, RUNS 0             (still admitted)
+
+Landing 1 and 2 alone would have been THE INSTANCE FIXED AND THE CLASS OPEN, with the sibling
+failing in both directions in a file the diff never touched. It is now the same call.
+
+The `for` header (`for_header_pattern_tuple_only`) and the `match` door
+(`match_tuple_door_nested_struct_binds_nothing`) are NOT members: neither binds a formal
+parameter, both were measured in 2026-09-09b to be untouched by an arm at the parameter doors,
+and the 19-cell lattice of that round refuted grouping doors by their user-visible symptom.
+
+### WHAT THE PROBE'S COST 0 COULD NOT SEE, AND WHAT THE LANDING DOES INSTEAD
+2026-09-09b's `patwalk` read cost 0 in FIVE columns and its own report named five ways the crude
+arm was still wrong. Each is a repair here, and each has a fixture:
+
+  * REST-POSITION INDEXING. The crude walk numbered elements 0,1,2,…: `[.., a]` bound index 0
+    and `[a, .., b]` bound index 1, both compiling clean and RUNNING WRONG. `[a, ..]` — the one
+    spelling the round's own prompt named — is CORRECT under the crude rule, so a fixture that
+    tested only it would have certified the mechanism wrong in the two other positions. The
+    walk computes a suffix element's index from the TYPE's length; all four positions are
+    asserted in pass/fnparam_array_rest_positions on lengths where the two numbers differ.
+  * DOUBLE FREE. The crude walk omitted `mark_moved`. The walk records a dotted move path per
+    move-typed leaf (`__tup_param__0.0.0`), and for an ARRAY the whole array place, because a
+    single array slot has NO dotted path — the same rule lower_let already applies to `arr[i]`.
+    pass/fnparam_pattern_walk_drop_count asserts a DESTRUCTOR COUNT, not an exit code.
+  * THE LEAK THE COUNT WOULD NOT SHOW. Marking the whole array place moved is sound only when
+    every element is bound, so a `..` or a `_` in an array pattern of a droppable element type
+    is REFUSED by name (fail/fnparam_array_drop_rest_unbound) rather than silently leaking.
+  * THE UN-REFUSAL. `[a, b]: [i64; 3]` compiled clean under the arm; it is now
+    fail/fnparam_array_pattern_arity, the one-token pair partner of the row's own program.
+  * `xs @ ..`. Refused by name (fail/fnparam_array_named_rest): the sub-slice it would bind is
+    a `&[T]` view into a by-value parameter, a different mechanism from a projection read.
+
+### COUNTER-EXAMPLES — MY OWN, IN SHAPES THE PRICING PHASE DID NOT USE
+55 programs, written by me, compiled + linked + RUN on the base binary and again on the
+landing. NOT the pricing round's set: its 21 were built to exercise the two rows' shapes, and
+rule 5 says vary the SHAPE, not the count.
+
+  22 LEGAL SHAPES, every one refused "undefined variable" on b917cf69ace435e6, every one now
+  cc 0 / RUN 0: `[a,b,c]`, `((a,b),c)`, `(((a,b),c),d)`, `[[a,b],[c,d]]`, `[P{x,y}]`,
+  `Q{p:P{x,y},z}`, `P{v:[a,b],z}`, `[a,..]`, `[..,z]`, `[a,..,z]`, `[a,b,..,y,z]`, `[..]`,
+  `((a,_),c)`, `((mut a,b),c)`, `[mut a,b]`, `[D;2]`, `((D,i64),D)`, a non-slot-0 parameter,
+  an impl method, a generic fn, a shadowing body, two pattern parameters in one signature.
+
+  9 ILLEGAL SHAPES, each refused with a sentence I READ (they are the .expected of this
+  round's fail fixtures). FOUR OF THE NINE COMPILED CLEAN AND RAN ON THE BASE BINARY.
+
+  13 MORE, in shapes the first batch did not use, on the landing: a trait method signature and
+  a trait DEFAULT BODY, a pattern fn taken as a `fn` POINTER, tuple `..` in both positions, a
+  struct `..` rest field, a generic instantiated TWICE, `_` before a rest, four CLOSURE shapes
+  (nested, captured environment, drop count, arity), `mut` taken by `&mut`, an EMPTY array
+  `[]: [i64; 0]`, and a `()` element. Twelve are cc 0 / RUN 0 with the right stdout.
+
+  THE THIRTEENTH SEGFAULTED THE COMPILER, and it is not mine. `fn probe((a, ()): (i64, ()))`
+  died rc 139 — and so does `fn probe(t: (i64, ()))`, a PLAIN NAMED parameter that the walk
+  never touches, in a program whose `main` is `return 0i32;`. The same type is fine as a LOCAL
+  and in RETURN position. It is a new soundness-queue row,
+  `fnparam_tuple_with_unit_elem_segv`, attested legal by upstream's own `//@ check-pass`
+  `fn foo<T>(x: (T, ())) -> Box<T>`, and it is why `# TOTAL` is 76 and not 75.
+
+  6 ISOLATION PROGRAMS narrowed that crash to the parameter position: uncalled, called-and-
+  unused, local-only, return-position, and the `let (a, ())` neighbour that fails differently
+  (an mlir_gen internal) and is deliberately NOT grouped with it — no separating pair measured.
+
+
+### GATES
+  L1                     rc 0  — 788/788, 12 684 generated cases, 150 tier_commit gates
+                               (key_identity_lint, one_scheduler_lint, separator_split_lint,
+                                probe_log_lint, corpus_registration, soundness_queue: all green)
+  L4 bc                  rc 0  — 5025/5025 core+spec, 1566/1566 imported
+  gate-run -L bc         rc 0  — 2731 passed / 0 failed. BASE read 2731 / 0 (build 978);
+                               landing 2731 / 0 (builds 979 and 981). COST 0.
+  run_oracle             6590 shared rows, **0 changed**; the only diff line is
+                         `cast-region-to-uint`, subtracted by name (it prints a stack
+                         address, and its sha moved between two runs of the BASE binary too).
+                         Plus 6 NEW rows — this round's six pass fixtures — all cc 0 / RUN 0.
+  fail_text_oracle       1473 fixtures, **0 changed** in rc, stderr sha, or `.expected` match.
+                         This is the column that sees an UN-REFUSAL and an ADDED LINE, and the
+                         one that rc-based cost is blind to. Base and landing both 1473: the
+                         round's seven fail halves carry no `bc` label and are not in this
+                         population — they are covered by L4's `-L fail` half, which passed.
+  stdlib-cost            all four layers compile
+  valgrind               clean, 0 errors, 0 leaks, on all four drop-bearing new fixtures
+  census pins            RE-DERIVED BY DIRECT LISTING, not by addition: REGISTRY-ALL
+                         9476 -> 9489 (+13, exactly the 13 fixtures added), NOIMPORTED
+                         5012 -> 5025, direct_door corpus 2969 -> 2975 (+6 pass), nonglob
+                         2778 -> 2784, partition closes 2975 = 191 + 2784.
+  soundness queue gate   rc 0 at 76 rows (tier1 21 / tier2 7 / tier3 42 / tier4 6)
+
+### CONTROL REVERT, AND A TOOL FACT IT TURNED UP
+`git stash -u` -> reconfigure -> full rebuild -> the tree CLEAN at 97f91695c. On that binary:
+both closed rows refuse "undefined variable 'a'"; all FOUR illegal shapes compile clean and
+RUN 0; and `fn probe(t: (i64, ()))` — the new row — SEGFAULTS, rc 139. **The new row is
+therefore PRE-EXISTING and not this round's regression**, which is the whole reason the revert
+was worth two builds: the structural argument (a plain named parameter never reaches the walk)
+is not a measurement.
+
+⚠ **`build_hash.py` IS NOT STABLE ACROSS A `cmake .` RECONFIGURE, AND CANNOT VERIFY A CONTROL
+REVERT THAT CROSSES ONE.** The base was b917cf69ace435e6 43 at the start of the round; after
+stashing to the identical tree, reconfiguring (needed so the new fixtures register) and
+rebuilding, the SAME SOURCES read f59e795c414390b3 43. The cause is in the file's own header:
+`logosc --version` carries CMake's CONFIGURE timestamp, so a reconfigure changes bytes inside
+the binary the hash covers. The landing read dbba03ec947a58c7 43 before the revert and
+06f0c66be0400a1d 43 after it, again on identical sources. Earlier rounds' "restored EXACTLY,
+hash re-read" held only because they never reconfigured. **The identity of a revert is
+`git status` clean at the named commit, which is what was checked here; the hash is an
+annotation.**
+
+### WHAT WAS DECLINED, BY NAME AND WITH THE NUMBER
+  fnparam_struct_ref_mut_field_binds_byvalue  STANDS. The walk has to decide what a `ref`
+    field means at a parameter and it now REFUSES BY NAME instead of silently binding by value
+    and letting the body fail with two sentences about a binding it does not have. The row's
+    observed-kind is `refuses`, judged by refusal and not by text, so it is unmoved; its header
+    was rewritten to record the new sentence and to say the DEFECT did not change. `ref mut`
+    wants a REFERENCE TO THE PLACE (`lir_mirror_emit_pat_ref_bind`), not the projection read
+    the walk emits — a MEASURED separating pair, since the walk closed its two neighbours and
+    left this one standing.
+  for_header_pattern_tuple_only               a different DOOR. 2026-09-09b measured its arm
+    SEGFAULTING two of four shapes (rc 139) and found a SECOND whitelist in series inside the
+    same function. Not re-proposed without new evidence.
+  match_tuple_door_nested_struct_binds_nothing  sema_stmt's own site; the cross-door controls
+    of 2026-09-09b moved it by zero.
+  closure_param_struct_pattern_syntax         GRAMMAR: logos.peg has no `pat_param` alternative
+    for a closure parameter, so `|P { x, y }: P|` is `syntax error near 'P'`, rc 4, BEFORE
+    sema. Re-measured today on the landing: still rc 4. A grammar gap is not a binder walk.
+

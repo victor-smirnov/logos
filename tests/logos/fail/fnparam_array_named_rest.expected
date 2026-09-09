@@ -1,0 +1,1 @@
+parameter pattern '#0': `xs @ ..` sub-slice binding is not supported at a function parameter

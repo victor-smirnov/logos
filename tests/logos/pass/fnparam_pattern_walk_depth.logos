@@ -1,0 +1,27 @@
+// DEPTH and CROSS-KIND nesting for the 2026-09-09c fn-parameter binder walk.
+// One walk handles every container kind at every depth, so the shapes that
+// mix them are the ones that separate a real recursion from a second one-level
+// door: an array of arrays, an array of structs, a struct inside a struct, an
+// array inside a struct field, and a three-deep tuple. Each was refused
+// "undefined variable" on b917cf69ace435e6.
+package fnparam_pattern_walk_depth;
+use logos.std.fmt;
+struct P { x: i64, y: i64 }
+struct Q { p: P, z: i64 }
+struct R { v: [i64; 2], w: i64 }
+fn arr_of_arr([[a, b], [c, d]]: [[i64; 2]; 2]) -> i64 { return a + b + c + d; }
+fn arr_of_struct([P { x, y }]: [P; 1]) -> i64 { return x + y; }
+fn struct_in_struct(Q { p: P { x, y }, z }: Q) -> i64 { return x + y + z; }
+fn arr_in_struct(R { v: [a, b], w }: R) -> i64 { return a + b + w; }
+fn tuple_three(((( a, b), c), d): (((i64, i64), i64), i64)) -> i64 {
+    return a + b + c + d;
+}
+fn main() -> i32 {
+    println!("arr_of_arr={}", arr_of_arr([[1i64, 2i64], [4i64, 8i64]]));
+    println!("arr_of_struct={}", arr_of_struct([P { x: 3i64, y: 4i64 }]));
+    println!("struct_in_struct={}",
+             struct_in_struct(Q { p: P { x: 3i64, y: 4i64 }, z: 8i64 }));
+    println!("arr_in_struct={}", arr_in_struct(R { v: [1i64, 2i64], w: 4i64 }));
+    println!("tuple_three={}", tuple_three((((1i64, 2i64), 4i64), 8i64)));
+    return 0i32;
+}

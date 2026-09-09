@@ -1,0 +1,9 @@
+exit: 0
+stdout:
+DROP 2
+DROP 1
+array sum=3
+DROP 4
+DROP 3
+tuple sum=17
+after

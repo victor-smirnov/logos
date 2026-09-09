@@ -1,0 +1,15 @@
+// `name @ ..` at a function parameter. The 2026-09-09c walk refuses it BY NAME
+// rather than reproducing the defect it closes one spelling over: the sub-slice
+// it would bind is a `&[T]` view into a by-value parameter, which is a
+// different mechanism from a projection read, and silently binding nothing (or
+// binding index 1) is exactly what the row said was wrong. The plain `..`
+// spellings work and are asserted in pass/fnparam_array_rest_positions.
+package fnparam_array_named_rest;
+fn probe([a, xs @ ..]: [i64; 3]) -> i32 {
+    if a != 1i64 { return 1i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let arr: [i64; 3] = [1i64, 2i64, 4i64];
+    return probe(arr);
+}

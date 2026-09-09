@@ -5632,8 +5632,25 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9468 -> 9476  +8   (four fail, four pass, all native)
 #   NOIMPORTED   5004 -> 5012  +8   (all eight are native)
 #   TIERCOMMIT    150 ->  150   0
-REGISTRY-ALL         9476
-REGISTRY-NOIMPORTED  5012
+# 2026-09-09c (ONE RECURSIVE BINDER WALK AT EVERY PARAMETER DOOR. The two
+#   fn-param doors and the closure-param door read the PATTERN'S KIND and never
+#   the PARAMETER'S TYPE, which is one root with two directions: a nested
+#   sub-pattern bound NOTHING, and a shape that cannot match at all was ADMITTED.
+#   Six pass fixtures (the two closed rows' own programs with stdout asserted;
+#   the rest-position indexing on lengths where the suffix index and the pattern
+#   index differ; a DESTRUCTOR COUNT, because an exit code cannot tell a leak
+#   from a double free; the depth/cross-kind shapes; and the closure door's own
+#   pair) and seven fail halves, each one token from its pass half or pinning a
+#   defect that COMPILED CLEAN AND RAN on b917cf69ace435e6 (the tuple-arity and
+#   array-pattern-on-a-tuple admits, which had no row and closed in the commit
+#   that found them). Ledger side: two tier-3 rows CLOSED and ONE MINTED (a
+#   fn parameter of a tuple type containing `()` segfaults the compiler, found
+#   while writing counter-examples and unrelated to patterns); # TOTAL 77 -> 76.
+#   ALL          9476 -> 9489  +13  (seven fail, six pass, all native)
+#   NOIMPORTED   5012 -> 5025  +13  (all thirteen are native)
+#   TIERCOMMIT    150 ->  150   0
+REGISTRY-ALL         9489
+REGISTRY-NOIMPORTED  5025
 REGISTRY-TIERCOMMIT  150
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

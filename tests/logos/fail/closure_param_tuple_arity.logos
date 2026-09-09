@@ -1,0 +1,13 @@
+// PAIR PARTNER of pass/closure_param_tuple_nested_binds, ONE TOKEN apart: the
+// closure parameter's TUPLE TYPE gained a third element while the pattern still
+// names two. This COMPILED CLEAN AND RAN on b917cf69ace435e6 and on the
+// fn-param-only build in between — the closure door, like the fn-param door it
+// was copied from, read the pattern's kind and never the type's. Rust refuses
+// it (E0308, "expected a tuple with 3 elements, found one with 2 elements").
+package closure_param_tuple_arity;
+fn main() -> i32 {
+    let f = |(a, b): (i64, i64, i64)| -> i64 { return a + b; };
+    let t: (i64, i64, i64) = (1i64, 2i64, 4i64);
+    if f(t) != 3i64 { return 1i32; }
+    return 0i32;
+}

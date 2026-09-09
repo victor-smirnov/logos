@@ -1,0 +1,20 @@
+// Was SOUNDNESS QUEUE row fnparam_tuple_nested_sub_binds_nothing (tier 3),
+// closed 2026-09-09c by the one recursive fn-parameter binder walk
+// (sema_decl.cpp walk_param_pat). A NESTED tuple sub-pattern in a FUNCTION
+// PARAMETER is legal Rust (tests/ui/async-await/argument-patterns.rs is
+// `//@ check-pass` and carries `((ref a, ref mut b), (ref mut c, ref d))` at
+// exactly this position); the parameter door's own walk took a name from a
+// sub-node only when it was a bare PAT_WILD and recorded "_" for every other
+// kind, so a PAT_TUPLE element bound NOTHING. The fail half one token away is
+// fail/fnparam_tuple_nested_sub_arity.
+package fnparam_tuple_nested_sub_binds_nothing;
+use logos.std.fmt;
+fn probe(((a, b), c): ((i64, i64), i64)) -> i32 {
+    println!("a={} b={} c={}", a, b, c);
+    if a + b + c != 7i64 { return 1i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let t: ((i64, i64), i64) = ((1i64, 2i64), 4i64);
+    return probe(t);
+}

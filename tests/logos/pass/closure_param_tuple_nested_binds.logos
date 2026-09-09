@@ -1,0 +1,25 @@
+// THE CLOSURE HALF of the 2026-09-09c fn-parameter binder walk, pinned with its
+// own pair. `sema_expr.cpp`'s closure-parameter door was a VERBATIM COPY of the
+// fn-param tuple door's one-level whitelist — it took a name from a sub-node
+// only when that node was a bare PAT_WILD — so `|((a, b), c)|` bound NOTHING and
+// the body was refused "undefined variable 'a'", exactly like the fn-param row
+// closed in the same commit. Landing the fn-param doors alone would have left
+// this sibling failing the same way in a file the diff never touched. Both doors
+// now call the SAME walk. The destructor count is here too: each payload prints
+// once and only once, which an exit code cannot tell from a leak or a double
+// free. Fail half one token apart: fail/closure_param_tuple_arity.
+package closure_param_tuple_nested_binds;
+use logos.std.fmt;
+struct D { pub n: i64 }
+impl Drop for D { fn drop(self: &mut D) { println!("DROP {}", self.n); } }
+fn main() -> i32 {
+    let f = |((a, b), c): ((i64, i64), i64)| -> i64 { return a + b + c; };
+    println!("nested={}", f(((1i64, 2i64), 4i64)));
+    let base: i64 = 100i64;
+    let g = |(p, q): (i64, i64)| -> i64 { return base + p * q; };
+    println!("captured={}", g((3i64, 4i64)));
+    let h = |((s, k), t): ((D, i64), D)| -> i64 { return s.n + k + t.n; };
+    println!("drops={}", h(((D { n: 1i64 }, 10i64), D { n: 2i64 })));
+    println!("after");
+    return 0i32;
+}

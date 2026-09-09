@@ -1,0 +1,19 @@
+// Was SOUNDNESS QUEUE row fnparam_array_pattern_binds_nothing (tier 3), closed
+// 2026-09-09c by the one recursive fn-parameter binder walk (sema_decl.cpp
+// walk_param_pat). An array pattern in a FUNCTION PARAMETER is legal Rust
+// (tests/ui/consts/const_let_irrefutable.rs, `//@ build-pass`, is literally
+// `const fn array([a, b]: [i32; 2])`), and until that landing the parameter
+// position PARSED it and bound NOTHING, so the body's first use of a binder
+// was "undefined variable 'a'". The fail half one token away is
+// fail/fnparam_array_pattern_arity (`[i64; 3]` -> `[i64; 2]`).
+package fnparam_array_pattern_binds_nothing;
+use logos.std.fmt;
+fn probe([a, b, c]: [i64; 3]) -> i32 {
+    println!("a={} b={} c={}", a, b, c);
+    if a + b + c != 7i64 { return 1i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let arr: [i64; 3] = [1i64, 2i64, 4i64];
+    return probe(arr);
+}

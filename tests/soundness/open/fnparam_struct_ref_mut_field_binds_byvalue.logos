@@ -2,16 +2,27 @@
 // `ref mut` field binder in a FUNCTION-PARAMETER struct pattern —
 // `fn probe(P { ref mut x, y }: P)` — is legal Rust: `x` binds `&mut i64` at the
 // field's place, so `*x = *x + 1` is a write through a mutable reference. TODAY
-// the parameter position's own struct walk (sema_decl.cpp `lower_fn`, the
-// `PatFnParam` collect and its body prologue) reads only the field NAME and the
-// optional rename; it never looks at IS_REF, so `x` is bound BY VALUE at the
-// field type and the body is refused with two sentences that are both about a
-// binding it does not have:
+// it is REFUSED BY NAME:
+//     parameter pattern '#0': field 'x': `ref` / `ref mut` binding modes are
+//     not supported at a function parameter — take the parameter by reference
+//     instead
+// ⚠ THE SENTENCE CHANGED 2026-09-09c AND THE DEFECT DID NOT. Before that commit
+// the parameter door read only the field NAME and the optional rename, never
+// IS_REF, so `x` was bound BY VALUE at the field type and the body was refused
+// with two sentences that were both about a binding it did not have:
 //     write through raw pointer requires unsafe context
 //     deref-write: '=' left side must be a pointer or mutable reference
-// The same `ref mut` field binder in a `let`, a `match` arm and an `if let`
-// carries its mode (`pat.binding.explicit-ref-mut`), so this is the parameter
-// door, not the modifier. `ref` (shared) at the same position is the same gap.
+// The recursive binder walk that closed fnparam_array_pattern_binds_nothing and
+// fnparam_tuple_nested_sub_binds_nothing has to DECIDE what a `ref` field means
+// at a parameter, and it refuses rather than silently binding the wrong thing —
+// which is the very class those two rows were. What `ref mut` wants is a
+// REFERENCE TO THE PLACE (`lir_mirror_emit_pat_ref_bind`, a pattern-level node
+// that does not exist at a body prologue), not the projection READ the walk
+// emits, so it is a different mechanism and stays open: a MEASURED separating
+// pair, not an assumption. The same `ref mut` field binder in a `let`, a
+// `match` arm and an `if let` carries its mode
+// (`pat.binding.explicit-ref-mut`), so this is the parameter door, not the
+// modifier. `ref` (shared) at the same position is the same gap.
 // MEASURED 2026-09-07v identically on the base compiler e045ad449 and on the
 // `mut`-modifier landing — the modifier fix is orthogonal, `pat_byval_mut`
 // excludes IS_REF by construction. Rust: exit 0.
