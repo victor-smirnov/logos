@@ -1,0 +1,15 @@
+// THE INTERACTION CELL — the one shape that needs BOTH probes: a FAT capture
+// in a closure returned as `impl Fn`. Neither probe alone can make it right
+// (capfat needs the env to be heap; capretesc makes it heap but with an
+// 8-byte slot for a 16-byte value). Rule 2: doors in series.
+package R6;
+fn mk(s: &str) -> impl Fn() -> i64 {
+    return move || -> i64 { return s.len() as i64; };
+}
+fn main() -> i32 {
+    let f = mk("abcd");
+    let a: i64 = f();
+    let b: i64 = f();
+    if a + b != 8i64 { return 1i32; }
+    return 0i32;
+}

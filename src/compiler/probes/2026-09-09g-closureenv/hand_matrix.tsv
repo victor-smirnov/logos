@@ -1,0 +1,95 @@
+base	F1	CC=0 DIAG=0	RUN=0	errs=2	
+base	F3	CC=0 DIAG=0	RUN=1	errs=2	
+base	F4	CC=1 DIAG=1	RUN=-	errs=na	
+base	F5	CC=0 DIAG=0	RUN=0	errs=0	
+base	F7	CC=0 DIAG=0	RUN=0	errs=0	
+base	F8	CC=0 DIAG=0	RUN=0	errs=0	
+base	F9	CC=0 DIAG=0	RUN=0	errs=0	
+base	R2	CC=0 DIAG=0	RUN=0	errs=2	
+base	R3	CC=0 DIAG=0	RUN=0	errs=0	
+base	R5	CC=0 DIAG=0	RUN=0	errs=0	
+base	R6	CC=0 DIAG=0	RUN=139	errs=6	
+base	boxed_move_closure_fat_capture_env_overflow	CC=0 DIAG=0	RUN=134	errs=2	
+base	closure_owned_dyn_capture	CC=0 DIAG=0	RUN=1	errs=1	
+base	boxed_escaping_fnonce_capture_double_free	CC=0 DIAG=0	RUN=2	errs=0	
+base	closure_fnonce_cond_call_untaken_leak	CC=0 DIAG=0	RUN=1	errs=0	
+base	closure_fnonce_call_in_loop_multi_free	CC=0 DIAG=0	RUN=1	errs=0	
+base	impl_fn_return_stack_env_dangles	CC=0 DIAG=0	RUN=139	errs=5	
+base	generic_drop_body_calling_closure_param_corrupts_callers_closure	CC=0 DIAG=0	RUN=139	errs=2	definitely lost: 0 bytes
+base	bc_objlt_str_literal	CC=0 DIAG=0	RUN=0	errs=2	
+unarmed	F1	CC=0 DIAG=0	RUN=0	errs=2	
+unarmed	F3	CC=0 DIAG=0	RUN=1	errs=2	
+unarmed	F4	CC=1 DIAG=1	RUN=-	errs=na	
+unarmed	F5	CC=0 DIAG=0	RUN=0	errs=0	
+unarmed	F7	CC=0 DIAG=0	RUN=0	errs=0	
+unarmed	F8	CC=0 DIAG=0	RUN=0	errs=0	
+unarmed	F9	CC=0 DIAG=0	RUN=0	errs=0	
+unarmed	R2	CC=0 DIAG=0	RUN=0	errs=2	
+unarmed	R3	CC=0 DIAG=0	RUN=0	errs=0	
+unarmed	R5	CC=0 DIAG=0	RUN=0	errs=0	
+unarmed	R6	CC=0 DIAG=0	RUN=139	errs=6	
+unarmed	boxed_move_closure_fat_capture_env_overflow	CC=0 DIAG=0	RUN=134	errs=2	
+unarmed	closure_owned_dyn_capture	CC=0 DIAG=0	RUN=1	errs=1	
+unarmed	boxed_escaping_fnonce_capture_double_free	CC=0 DIAG=0	RUN=2	errs=0	
+unarmed	closure_fnonce_cond_call_untaken_leak	CC=0 DIAG=0	RUN=1	errs=0	
+unarmed	closure_fnonce_call_in_loop_multi_free	CC=0 DIAG=0	RUN=1	errs=0	
+unarmed	impl_fn_return_stack_env_dangles	CC=0 DIAG=0	RUN=139	errs=5	
+unarmed	generic_drop_body_calling_closure_param_corrupts_callers_closure	CC=0 DIAG=0	RUN=139	errs=2	definitely lost: 0 bytes
+unarmed	bc_objlt_str_literal	CC=0 DIAG=0	RUN=0	errs=2	
+capfat	F1	CC=0 DIAG=0	RUN=0	errs=2	
+capfat	F3	CC=0 DIAG=0	RUN=1	errs=2	
+capfat	F4	CC=1 DIAG=1	RUN=-	errs=na	
+capfat	F5	CC=0 DIAG=0	RUN=0	errs=0	
+capfat	F7	CC=0 DIAG=0	RUN=0	errs=0	
+capfat	F8	CC=1 DIAG=1	RUN=-	errs=na	
+capfat	F9	CC=0 DIAG=0	RUN=0	errs=0	
+capfat	R2	CC=0 DIAG=0	RUN=0	errs=2	
+capfat	R3	CC=0 DIAG=0	RUN=0	errs=0	
+capfat	R5	CC=0 DIAG=0	RUN=0	errs=0	
+capfat	R6	CC=1 DIAG=1	RUN=-	errs=na	
+capfat	boxed_move_closure_fat_capture_env_overflow	CC=0 DIAG=0	RUN=134	errs=2	
+capfat	closure_owned_dyn_capture	CC=0 DIAG=0	RUN=1	errs=1	
+capfat	boxed_escaping_fnonce_capture_double_free	CC=0 DIAG=0	RUN=2	errs=0	
+capfat	closure_fnonce_cond_call_untaken_leak	CC=0 DIAG=0	RUN=1	errs=0	
+capfat	closure_fnonce_call_in_loop_multi_free	CC=0 DIAG=0	RUN=1	errs=0	
+capfat	impl_fn_return_stack_env_dangles	CC=0 DIAG=0	RUN=139	errs=5	
+capfat	generic_drop_body_calling_closure_param_corrupts_callers_closure	CC=0 DIAG=0	RUN=139	errs=2	definitely lost: 0 bytes
+capfat	bc_objlt_str_literal	CC=0 DIAG=0	RUN=0	errs=2	
+capretesc	F1	CC=0 DIAG=0	RUN=0	errs=2	
+capretesc	F3	CC=0 DIAG=0	RUN=1	errs=2	
+capretesc	F4	CC=1 DIAG=1	RUN=-	errs=na	
+capretesc	F5	CC=0 DIAG=0	RUN=0	errs=0	
+capretesc	F7	CC=0 DIAG=0	RUN=0	errs=0	
+capretesc	F8	CC=0 DIAG=0	RUN=0	errs=0	
+capretesc	F9	CC=0 DIAG=0	RUN=0	errs=0	
+capretesc	R2	CC=0 DIAG=0	RUN=0	errs=2	
+capretesc	R3	CC=0 DIAG=0	RUN=0	errs=1	definitely lost: 16 bytes
+capretesc	R5	CC=0 DIAG=0	RUN=0	errs=0	
+capretesc	R6	CC=0 DIAG=0	RUN=139	errs=6	
+capretesc	boxed_move_closure_fat_capture_env_overflow	CC=0 DIAG=0	RUN=134	errs=2	
+capretesc	closure_owned_dyn_capture	CC=0 DIAG=0	RUN=1	errs=1	
+capretesc	boxed_escaping_fnonce_capture_double_free	CC=0 DIAG=0	RUN=2	errs=0	
+capretesc	closure_fnonce_cond_call_untaken_leak	CC=0 DIAG=0	RUN=1	errs=0	
+capretesc	closure_fnonce_call_in_loop_multi_free	CC=0 DIAG=0	RUN=1	errs=0	
+capretesc	impl_fn_return_stack_env_dangles	CC=0 DIAG=0	RUN=139	errs=5	
+capretesc	generic_drop_body_calling_closure_param_corrupts_callers_closure	CC=0 DIAG=0	RUN=139	errs=2	definitely lost: 0 bytes
+capretesc	bc_objlt_str_literal	CC=0 DIAG=0	RUN=0	errs=2	
+both F1 SKIPPED_TWO_PROBES_ONE_PROCESS
+both F3 SKIPPED_TWO_PROBES_ONE_PROCESS
+both F4 SKIPPED_TWO_PROBES_ONE_PROCESS
+both F5 SKIPPED_TWO_PROBES_ONE_PROCESS
+both F7 SKIPPED_TWO_PROBES_ONE_PROCESS
+both F8 SKIPPED_TWO_PROBES_ONE_PROCESS
+both F9 SKIPPED_TWO_PROBES_ONE_PROCESS
+both R2 SKIPPED_TWO_PROBES_ONE_PROCESS
+both R3 SKIPPED_TWO_PROBES_ONE_PROCESS
+both R5 SKIPPED_TWO_PROBES_ONE_PROCESS
+both R6 SKIPPED_TWO_PROBES_ONE_PROCESS
+both boxed_move_closure_fat_capture_env_overflow SKIPPED_TWO_PROBES_ONE_PROCESS
+both closure_owned_dyn_capture SKIPPED_TWO_PROBES_ONE_PROCESS
+both boxed_escaping_fnonce_capture_double_free SKIPPED_TWO_PROBES_ONE_PROCESS
+both closure_fnonce_cond_call_untaken_leak SKIPPED_TWO_PROBES_ONE_PROCESS
+both closure_fnonce_call_in_loop_multi_free SKIPPED_TWO_PROBES_ONE_PROCESS
+both impl_fn_return_stack_env_dangles SKIPPED_TWO_PROBES_ONE_PROCESS
+both generic_drop_body_calling_closure_param_corrupts_callers_closure SKIPPED_TWO_PROBES_ONE_PROCESS
+both bc_objlt_str_literal SKIPPED_TWO_PROBES_ONE_PROCESS

@@ -1,0 +1,13 @@
+// A SLICE capture, not a str — the same fat {ptr,len} kind reached by a
+// different syntax. Two of them so the write reaches past the env.
+package F4;
+fn f(x: &[i64], y: &[i64]) -> Box<dyn Fn() -> i64> {
+    return Box::new(move || { return (x.len() + y.len()) as i64; });
+}
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let b: [i64; 2] = [4i64, 5i64];
+    let c: Box<dyn Fn() -> i64> = f(&a, &b);
+    if c() != 5i64 { return 1i32; }
+    return 0i32;
+}

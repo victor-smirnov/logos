@@ -1,0 +1,12 @@
+// The SAME two fat captures NOT boxed — a stack env, so valgrind cannot see an
+// overflow at all. Read BOTH lengths back so a corrupted second field shows up
+// as a wrong VALUE rather than as silence.
+package F7;
+fn main() -> i32 {
+    let s = "abcd";
+    let t = "ef";
+    let c = move || -> i64 { return (s.len() * 100i64 + t.len()) as i64; };
+    let g: i64 = c();
+    if g != 402i64 { return 1i32; }
+    return 0i32;
+}

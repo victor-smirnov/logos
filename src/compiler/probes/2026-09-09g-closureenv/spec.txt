@@ -1,0 +1,41 @@
+name: capfat
+file: src/compiler/mlir_gen_dyn.cpp
+---
+        } else if (capture_is_pointer_repr[i] || capture_is_mut_ref[i])
+            ft = ptr_type();
+        else
+            ft = logos_to_mlir(ct);
+        if (!ft) ft = builder_.getI32Type();
+---
+        } else if (capture_is_pointer_repr[i] || capture_is_mut_ref[i])
+            ft = ptr_type();
+        else if (logos::probe::on("capfat") && ct &&
+                 (TypeRef(ct).kind() == LogosType::Kind::Slice ||
+                  TypeRef(ct).kind() == LogosType::Kind::TraitObject ||
+                  TypeRef(ct).kind() == LogosType::Kind::Closure ||
+                  TypeRef(ct).kind() == LogosType::Kind::DstRef))
+            ft = repr_storage_type(ref_repr_of(TypeRef(ct)));
+        else
+            ft = logos_to_mlir(ct);
+        if (!ft) ft = builder_.getI32Type();
+===
+name: capretesc
+file: src/compiler/sema_expr.cpp
+---
+    if (hint_closure_formal_) {
+        TypeRef hk(hint_closure_formal_);
+        if ((hk.kind() == LogosType::Kind::Struct ||
+             hk.kind() == LogosType::Kind::ZonedStruct) &&
+            peel_to_callable(hint_closure_formal_))
+            ec->escapes = true;
+    }
+---
+    if (hint_closure_formal_) {
+        TypeRef hk(hint_closure_formal_);
+        if ((logos::probe::on("capretesc") ||
+             hk.kind() == LogosType::Kind::Struct ||
+             hk.kind() == LogosType::Kind::ZonedStruct) &&
+            peel_to_callable(hint_closure_formal_))
+            ec->escapes = true;
+    }
+===

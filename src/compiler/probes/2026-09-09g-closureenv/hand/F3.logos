@@ -1,0 +1,14 @@
+// THREE str captures, boxed. Recorded: rc 0 and a GARBAGE value (want 6).
+package F3;
+fn f() -> Box<dyn Fn() -> i64> {
+    let s = "abc";
+    let t = "de";
+    let u = "f";
+    return Box::new(move || { return (s.len() + t.len() + u.len()) as i64; });
+}
+fn main() -> i32 {
+    let a: Box<dyn Fn() -> i64> = f();
+    let g: i64 = a();
+    if g != 6i64 { return 1i32; }
+    return 0i32;
+}

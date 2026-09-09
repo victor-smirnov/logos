@@ -1,0 +1,13 @@
+// A CLOSURE captured by a closure — Kind::Closure, the fourth fat kind, and
+// the one the struct-field arm also inlines. Boxed so the env is heap.
+package F8;
+fn f(inner: ||->i64, other: ||->i64) -> Box<dyn Fn() -> i64> {
+    return Box::new(move || { return inner() + other(); });
+}
+fn main() -> i32 {
+    let a = || -> i64 { return 4i64; };
+    let b = || -> i64 { return 5i64; };
+    let c: Box<dyn Fn() -> i64> = f(a, b);
+    if c() != 9i64 { return 1i32; }
+    return 0i32;
+}

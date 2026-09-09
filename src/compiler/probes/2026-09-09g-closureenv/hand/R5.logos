@@ -1,0 +1,14 @@
+// CONTROL, recorded correct: the SAME escaping closure through Box<dyn Fn>.
+// 7 + 7 = 14, valgrind-clean today, must be unchanged by either probe.
+package R5;
+fn mk() -> Box<dyn Fn() -> i64> {
+    let k: i64 = 7i64;
+    return Box::new(move || -> i64 { return k; });
+}
+fn main() -> i32 {
+    let f: Box<dyn Fn() -> i64> = mk();
+    let a: i64 = f();
+    let b: i64 = f();
+    if a + b != 14i64 { return 1i32; }
+    return 0i32;
+}

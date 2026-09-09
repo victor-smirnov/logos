@@ -1,0 +1,16 @@
+// A NON-capturing closure returned as `impl Fn`. The row's header says this is
+// dirty too (6 valgrind records) and is part of the row. With no captures the
+// codegen takes the `captures.empty()` NULL-env path, so `escapes` cannot
+// matter — this is the control that separates "the env dangles" from "the
+// {fn,env} PAIR dangles".
+package R2;
+fn mk() -> impl Fn() -> i64 {
+    return || -> i64 { return 5i64; };
+}
+fn main() -> i32 {
+    let f = mk();
+    let a: i64 = f();
+    let b: i64 = f();
+    if a + b != 10i64 { return 1i32; }
+    return 0i32;
+}

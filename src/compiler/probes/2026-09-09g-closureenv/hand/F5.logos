@@ -1,0 +1,13 @@
+// CONTROL: two SCALAR captures behind the same returned Box<dyn Fn>.
+// Recorded correct and valgrind-clean. Must stay correct.
+package F5;
+fn f() -> Box<dyn Fn() -> i64> {
+    let k: i64 = 7i64;
+    let m: i64 = 9i64;
+    return Box::new(move || { return k + m; });
+}
+fn main() -> i32 {
+    let a: Box<dyn Fn() -> i64> = f();
+    if a() != 16i64 { return 1i32; }
+    return 0i32;
+}

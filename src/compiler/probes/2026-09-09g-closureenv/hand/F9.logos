@@ -1,0 +1,14 @@
+// A `&dyn Tr` capture — TraitObject, the fat {data,vtable} pair. Note this is
+// ALREADY classified pointer_repr (var_dyn_trait_), so it must be UNCHANGED by
+// the probe: it is the control that says the probe's arm is narrow.
+package F9;
+trait Tr { fn m(self: &Self) -> i64; }
+struct S { v: i64 }
+impl Tr for S { fn m(self: &Self) -> i64 { return self.v; } }
+fn main() -> i32 {
+    let s: S = S { v: 11i64 };
+    let d: &dyn Tr = &s;
+    let c = move || -> i64 { return d.m(); };
+    if c() != 11i64 { return 1i32; }
+    return 0i32;
+}

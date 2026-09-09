@@ -1,0 +1,12 @@
+// ONE str capture, boxed. bc_objlt_str_literal's shape. Today: rc 0, RIGHT
+// value, 2 valgrind invalid accesses (8 bytes past a 16-byte env).
+package F1;
+fn f() -> Box<dyn Fn() -> i64> {
+    let s = "abc";
+    return Box::new(move || { return s.len() as i64; });
+}
+fn main() -> i32 {
+    let a: Box<dyn Fn() -> i64> = f();
+    if a() != 3i64 { return 1i32; }
+    return 0i32;
+}
