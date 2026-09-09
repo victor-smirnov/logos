@@ -1,0 +1,75 @@
+// DROP GLUE IS: RUN `Drop::drop`, THEN DROP THE FIELDS — AT EVERY DEPTH AND AT
+// EVERY SITE. `@rule intrinsic.drop.owner-drops-fields-after-user-drop`.
+//
+// THIS IS THE CONTROL HALF OF A PAIR. The arm half,
+// `drop_glue_recurses_after_user_drop`, is this program with `impl Drop for Pay`
+// PRESENT. That half moved from a leak to a correct count on 2026-09-08;
+// this half read the same counts before and after and does not move.
+//
+// Was soundness_queue row `replace_site_skips_field_drop_glue` (tier 1,
+// run 11), closed 2026-09-08 by the owner's Rust-canonical drop decision.
+// Before: the recursion into a value's fields after its user `Drop::drop` was
+// emitted at exactly ONE site — a top-level local at scope exit — so an
+// assignment over a local, an assignment over a field, and a struct field at
+// scope exit each ran `Pay::drop` and LEAKED the `Noisy` inside it. The
+// destructor count for `Pay` stayed exactly right, which is why no oracle in
+// the tree saw it: only valgrind did, and now an exit code does.
+//
+// The counter is taken by the program itself so a LEAK reads too low and a
+// DOUBLE FREE too high; an exit code alone cannot tell those apart, and the
+// return values below say which site and which direction.
+package drop_glue_recurses_after_user_drop_ctl;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn printf(f: *const u8, a: i64) -> i32;
+
+trait Drop { fn drop(self: Self); }
+
+struct Noisy { n: i64, c: *mut i64 }
+impl Drop for Noisy { fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
+
+struct Pay { n: i64, inner: Noisy }
+// THE ONE TOKEN: `impl Drop for Pay` is ABSENT here. A drop-LESS owner always
+// recursed into its fields, at every one of the four sites, before the fix and
+// after it — so this half is what proves the arm half asserts something the
+// compiler did not already do.
+
+struct Holder { p: Pay }
+
+fn mk(n: i64, c: *mut i64) -> Pay { return Pay { n: n, inner: Noisy { n: n, c: c } }; }
+
+unsafe fn main() -> i32 {
+    let buf: *mut u8 = malloc(8);
+    let c: *mut i64 = buf as *mut i64;
+
+    // 1. TOP-LEVEL LOCAL AT SCOPE EXIT — the one site that was already correct.
+    c[0] = 0i64;
+    { let k: Pay = mk(1i64, c); }
+    printf("local at scope exit (want 1): %ld\n".as_ptr(), c[0]);
+    if c[0] != 1i64 { return (10i64 + c[0]) as i32; }
+
+    // 2. ASSIGNMENT OVER A LOCAL — two Pay values built, two owed.
+    c[0] = 0i64;
+    {
+        let mut k: Pay = mk(1i64, c);
+        k = mk(2i64, c);
+    }
+    printf("assignment over a local (want 2): %ld\n".as_ptr(), c[0]);
+    if c[0] != 2i64 { return (20i64 + c[0]) as i32; }
+
+    // 3. STRUCT FIELD AT SCOPE EXIT — the `Pay` is a field of a drop-less owner.
+    c[0] = 0i64;
+    { let h: Holder = Holder { p: mk(3i64, c) }; }
+    printf("struct field at scope exit (want 1): %ld\n".as_ptr(), c[0]);
+    if c[0] != 1i64 { return (30i64 + c[0]) as i32; }
+
+    // 4. ASSIGNMENT OVER A FIELD — two Pay values built, two owed.
+    c[0] = 0i64;
+    {
+        let mut h: Holder = Holder { p: mk(4i64, c) };
+        h.p = mk(5i64, c);
+    }
+    printf("assignment over a field (want 2): %ld\n".as_ptr(), c[0]);
+    if c[0] != 2i64 { return (40i64 + c[0]) as i32; }
+
+    return 0i32;
+}

@@ -201,4 +201,24 @@ run_oracle_c90_population_hole  defect  20  scripts/run_oracle.py, measured 2026
     # ⚠ TOOLING IS FROZEN: this entry records the hole, it does not authorise fixing the
     # regex. Do not "fix" run_oracle to make the number go away.
 
-# TOTAL 15
+custom_dst_smartptr_owning_drop_uaf valgrind 2 tests/logos/pass/custom_dst_smartptr_owning_drop
+    # 2026-09-08. THE FIXTURE IS PINNED GREEN OVER A USE-AFTER-FREE. `exit: 42` holds on
+    # the base binary and under the Rust-canonical drop landing of this round; NEITHER
+    # HALF MOVES IT, in either direction, so it is not evidence for or against them.
+    # It is here because it was READ this round, with valgrind, and it reproduces:
+    #   Invalid read of size 8 at `__drop_in_place__A`, 16 bytes inside a 64-byte block
+    #   free'd by `MyRc$G1$udyn_Tr__drop_me__g__refmut_MyRc$G1$T`
+    #   Invalid read of size 8 at `test.A__drop__f__A`, same block
+    # i.e. `MyRc::drop_me` FREES the block and the owning-custom-DST drop glue then reads
+    # the prefix field and runs `A::drop` through the freed storage. Two invalid reads,
+    # exit code 42 both times — the strongest oracle the corpus has (a destructor COUNT)
+    # cannot see it either, because the destructor does run, once, on dead memory.
+    # ⚠ NOT A SOUNDNESS-QUEUE ROW, and the reason is the queue's own oracle: `observed`
+    # is `admits`/`refuses`/`run <rc>`/`diag`, and this program's rc is RIGHT. A row
+    # would have to lie to be held. What it owes is either a queue `observed` kind that
+    # a memory checker can answer, or a program that makes the same free observable to
+    # an exit code (write a sentinel into the block before the free and read it after).
+    # A previous round recorded "its recorded UAF is NOT reproduced by either arm". That
+    # is CONTRADICTED here: it was not reproduced because it was not run under valgrind.
+
+# TOTAL 16

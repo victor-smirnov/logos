@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+local at scope exit (want 1): 1
+assignment over a local (want 2): 2
+struct field at scope exit (want 1): 1
+assignment over a field (want 2): 2

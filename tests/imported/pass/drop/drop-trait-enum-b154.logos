@@ -6,6 +6,19 @@
 //   and only the single-thread, in-scope drop cases are kept (threads/panic variant
 //   dropped). The enum `Drop` impl matches `&Self` and writes the counter; nested
 //   SendOnDrop's own Drop is also observed. local distilled-drop `trait Drop`.
+// ⚠ RE-PORT CORRECTION 2026-09-08, ONE ARM PATTERN. The `Nested` arm was ported
+//   `Foo::Nested(s, c)`, binding the `SendOnDrop` payload BY VALUE. Upstream's
+//   arm is `Foo::NestedVariant(_, _, ref f)` — it does NOT bind the payload —
+//   and the by-value spelling is E0509 here now (a move out of `self`, which
+//   implements `Drop`), as well as being what double-drops the payload once the
+//   call site recurses into the fields after the user drop. Restored to `_`,
+//   which is upstream's own token: this is a re-port TOWARDS the original.
+// ⚠ WHAT IS **NOT** REPAIRED HERE, and is the header's remaining falsehood: the
+//   line above claims the impl "matches `&Self`". It does not — the receiver is
+//   `fn drop(self: Foo)`, by value, where upstream has `fn drop(&mut self)`.
+//   The by-value receiver is canonically illegal, but refusing it is 176 impl
+//   sites in 136 files AND the stdlib `Drop` trait's own `fn drop(self: Self)`
+//   signature. It is its own round; this fixture is not the place to smuggle it.
 // Tests: Drop impl on an enum, dispatched by variant inside the drop body via
 //   `match self { ... }`; nested field with its own Drop also runs.
 package drop_trait_enum_b154;
@@ -24,7 +37,7 @@ impl Drop for Foo {
     fn drop(self: Foo) {
         match self {
             Foo::Simple(c) => { unsafe { *c = *c + 1i64; } }
-            Foo::Nested(s, c) => { unsafe { *c = *c + 1i64; } }
+            Foo::Nested(_, c) => { unsafe { *c = *c + 1i64; } }   // upstream: `NestedVariant(_, _, ref f)`
         }
     }
 }

@@ -5531,8 +5531,30 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9424 -> 9428   +4   (four native fixtures)
 #   NOIMPORTED   4966 -> 4970   +4   (none is labelled imported)
 #   TIERCOMMIT    156 ->  156    0   (none declares tier_commit)
-REGISTRY-ALL         9428
-REGISTRY-NOIMPORTED  4970
+# 2026-09-08e/f (the Rust-canonical drop landing). FIVE native pass fixtures.
+#   tests/logos/pass/drop_guard_instantiated.logos (commit e) — the first program in
+#   the tree that INSTANTIATES the stdlib's `DropGuard<F>`, added with its
+#   Rust-canonical repair; it was DECLARED, documented and instantiated nowhere,
+#   which is why its two E0509 sites were invisible (a generic body is checked at
+#   its mono instance). ⚠ THIS PIN WAS NOT MOVED IN COMMIT e AND SHOULD HAVE
+#   BEEN: cmake had not re-globbed at the time the gate ran, so the registry
+#   still read 9428 and the gate passed on a stale count. It is corrected here,
+#   with the delta split by commit rather than merged.
+#   tests/logos/pass/drop_glue_recurses_after_user_drop.logos with
+#   tests/logos/pass/drop_glue_recurses_after_user_drop_ctl.logos, and
+#   tests/logos/pass/drop_glue_enum_payload_after_user_drop.logos with
+#   tests/logos/pass/drop_glue_enum_payload_after_user_drop_ctl.logos (commit f) —
+#   two one-token fixture PAIRS, one per closed soundness-queue row
+#   (replace_site_skips_field_drop_glue, enum_user_drop_skips_payload_glue).
+#   Each control half is the arm with the user `impl Drop` DELETED, which read
+#   the same destructor counts before the fix and after it.
+#   ⚠ The two soundness-queue PROGRAMS deleted in the same commit cost ZERO
+#   registered tests: the whole shelf is held by one gate, `logos_00_soundness_queue`.
+#   ALL          9428 -> 9433   +5   (five native fixtures)
+#   NOIMPORTED   4970 -> 4975   +5   (none is labelled imported)
+#   TIERCOMMIT    156 ->  156    0   (none declares tier_commit)
+REGISTRY-ALL         9433
+REGISTRY-NOIMPORTED  4975
 REGISTRY-TIERCOMMIT  156
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

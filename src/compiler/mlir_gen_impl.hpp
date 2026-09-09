@@ -1962,15 +1962,20 @@ private:
     // (struct → user drop + fields; tuple → elements; enum → variant-switched
     // payload; array → each element; ref/ptr/scalar → nothing). Handles
     // arbitrary nesting (array-of-struct, struct-with-array-field, …).
-    // `top_level=true` mirrors SDrop's owner semantics: after a user `impl
-    // Drop` runs, the value's FIELDS/payload are ALSO dropped (the owner drops
-    // both). `top_level=false` (nested) calls the user drop and stops (the
-    // by-value `self` consumes its own fields at the drop body's scope end).
+    // DROP GLUE IS: RUN `Drop::drop`, THEN DROP THE FIELDS — AT EVERY DEPTH
+    // (`@rule intrinsic.drop.owner-drops-fields-after-user-drop`; owner decision
+    // 2026-09-08, Rust-canonical). The old `top_level` parameter selected
+    // between that and "a nested value's user drop consumes its own fields and
+    // the call site stops"; the second reading is retired, because a
+    // `Drop::drop` body may not move a sub-value of `self` out at all (E0509).
+    // `run_user_drop=false` is NOT that old behaviour: it says the CALLER HAS
+    // ALREADY EMITTED this value's user `Drop::drop` and only the field/payload
+    // recursion is wanted — the scope-exit arm, which runs `drop_fn` itself.
     // skip_paths (T1-10/B78): dotted paths RELATIVE to this value whose
     // sub-values were moved out — an exact segment match skips that
     // child entirely; a deeper path recurses with the stripped remainder
     // so only the moved leaf is suppressed and its siblings still drop.
-    void gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_level = false,
+    void gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_user_drop = true,
                         const std::set<std::string>* skip_paths = nullptr);
     // Drop an OWNING `Box<dyn Trait>` whose binding storage `handle` IS the
     // 8-byte heap handle to a 16-byte {data,vtable} fat pair. Sequence (null-

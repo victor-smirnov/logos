@@ -1,0 +1,64 @@
+// AN ENUM WITH A USER `impl Drop` DROPS ITS PAYLOAD TOO — the same rule as the
+// struct branch, `@rule intrinsic.drop.owner-drops-fields-after-user-drop`.
+//
+// THIS IS THE CONTROL HALF OF A PAIR. The arm half,
+// `drop_glue_enum_payload_after_user_drop`, is this program with `impl Drop for E`
+// PRESENT. That half moved from a leak (0/0/0) to correct counts on 2026-09-08;
+// this half read the same counts before and after and does not move.
+//
+// Was soundness_queue row `enum_user_drop_skips_payload_glue` (tier 1, run 1),
+// closed 2026-09-08. Before: the scope-exit arm's enum case was guarded
+// `else if (k == K::Enum && drop_fn.empty())`, so a user `drop_fn` disabled the
+// payload recursion outright and the payload LEAKED at every site — including
+// the plain top-level local, which is the one site where the struct spelling of
+// the same shape was already correct. Counts were 0 / 0 / 0.
+//
+// The counter is taken by the program so a LEAK reads low and a DOUBLE FREE
+// high; the return value says which site and which direction.
+package drop_glue_enum_payload_after_user_drop_ctl;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn printf(f: *const u8, a: i64) -> i32;
+
+trait Drop { fn drop(self: Self); }
+struct Noisy { n: i64, c: *mut i64 }
+impl Drop for Noisy { fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
+
+enum E { V(Noisy), N }
+// THE ONE TOKEN: `impl Drop for E` is ABSENT here. A drop-LESS enum always
+// walked its payload, at every site, before the fix and after it — so this half
+// is what proves the arm half asserts something the compiler did not already do.
+
+struct Owner { e: E }
+
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+
+    // 1. TOP-LEVEL LOCAL.
+    c[0] = 0i64;
+    { let e: E = E::V(Noisy { n: 1i64, c: c }); }
+    printf("enum local (want 1): %ld\n".as_ptr(), c[0]);
+    if c[0] != 1i64 { return (10i64 + c[0]) as i32; }
+
+    // 2. ENUM AS A STRUCT FIELD.
+    c[0] = 0i64;
+    { let o: Owner = Owner { e: E::V(Noisy { n: 2i64, c: c }) }; }
+    printf("enum as a struct field (want 1): %ld\n".as_ptr(), c[0]);
+    if c[0] != 1i64 { return (20i64 + c[0]) as i32; }
+
+    // 3. ENUM ASSIGNED OVER — two payloads built, two owed.
+    c[0] = 0i64;
+    {
+        let mut e: E = E::V(Noisy { n: 3i64, c: c });
+        e = E::V(Noisy { n: 4i64, c: c });
+    }
+    printf("enum assigned over (want 2): %ld\n".as_ptr(), c[0]);
+    if c[0] != 2i64 { return (30i64 + c[0]) as i32; }
+
+    // 4. THE PAYLOAD-FREE VARIANT still runs the user drop and adds nothing.
+    c[0] = 0i64;
+    { let e: E = E::N; }
+    printf("payload-free variant (want 0): %ld\n".as_ptr(), c[0]);
+    if c[0] != 0i64 { return (40i64 + c[0]) as i32; }
+
+    return 0i32;
+}

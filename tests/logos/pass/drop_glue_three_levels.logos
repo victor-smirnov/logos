@@ -1,4 +1,13 @@
 // Test: three levels of nesting — C contains B contains A, explicit Drop on A and B, glue on C
+//
+// ⚠ RE-PINNED 2026-09-08. This fixture used to assert `b3` — i.e. it pinned
+// `A::drop` NOT RUNNING, against its own comment three lines below, which says
+// what the program is for: `c drops via glue -> B::drop(b3) -> A::drop(a7)`.
+// Under the owner's Rust-canonical drop decision (drop glue is: run
+// `Drop::drop`, THEN drop the fields, at every depth) it prints `b3 a7 `, which
+// is what the comment always asked for. The exit code is unchanged at 42 and
+// the subject still runs — it runs MORE of itself: `A::drop` goes from zero
+// calls to one. Loosening it back to `b3` would be pinning a leak.
 package drop_glue_three_levels;
 
 extern fn printf(fmt: *const u8, ...) -> i32;

@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+enum local (want 1): 1
+enum as a struct field (want 1): 1
+enum assigned over (want 2): 2
+payload-free variant (want 0): 0

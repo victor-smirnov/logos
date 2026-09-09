@@ -1015,7 +1015,7 @@ std::string MLIRGenImpl::emit_drop_in_place_glue(std::string_view type_name,
     fn->setAttr("sym_visibility", mlir::StringAttr::get(ctx, "private"));
     auto* entry = fn.addEntryBlock();
     builder_.setInsertionPointToStart(entry);
-    if (ty) gen_drop_value(entry->getArgument(0), ty, /*top_level=*/true);
+    if (ty) gen_drop_value(entry->getArgument(0), ty, /*run_user_drop=*/true);
     builder_.create<mlir::func::ReturnOp>(loc_);
     return sym;
 }
@@ -1064,7 +1064,7 @@ std::string MLIRGenImpl::emit_closure_drop_glue(
             loc_, ptr_type(), cap_struct, env_ptr, gi);
         TypeRef drop_t = (i < capture_field_types.size() && capture_field_types[i])
             ? capture_field_types[i] : capture_types[i];
-        gen_drop_value(fp, drop_t, /*top_level=*/true);
+        gen_drop_value(fp, drop_t, /*run_user_drop=*/true);
     }
     // Free the heap env (escaping closure).
     if (heap_env) call_free(env_ptr);

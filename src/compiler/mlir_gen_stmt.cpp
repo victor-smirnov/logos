@@ -932,7 +932,7 @@ static bool split_skip_paths(const std::set<std::string>* paths,
     return false;
 }
 
-void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_level,
+void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_user_drop,
                                  const std::set<std::string>* skip_paths) {
     using K = LogosType::Kind;
     if (!value_ptr || !ty) return;
@@ -974,24 +974,16 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
     };
     if (k == K::Struct || k == K::ZonedStruct) {
         std::string name = concrete_struct_name(ty);
-        // A user `impl Drop` OWNS the value: calling its drop runs the destructor
-        // and (for a by-value `self` drop) consumes the fields, which drop at the
-        // drop body's scope end. So call it and STOP — recursing the fields here
-        // too would double-drop them (drop_glue_three_levels). Only a DROP-LESS
-        // struct recurses its fields. Mirrors the enum branch.
+        // DROP GLUE IS: RUN `Drop::drop`, THEN DROP THE FIELDS — AT EVERY DEPTH.
+        // `@rule intrinsic.drop.owner-drops-fields-after-user-drop`.
         // Resolve through find_func_op (THE chokepoint) so the module-qualified
         // link form binds — resolve_method_symbol returns a BARE name, but the
         // drop FuncOp is emitted module-qualified; a direct lookupSymbol(bare)
         // would miss and SILENTLY SKIP the destructor (Rc/Box/RAII drop holes).
-        if (auto ds = resolve_method_symbol(name, "drop", TypeRef(ty).pkg_name()); !ds.empty())
-            if (auto fn = find_func_op(mod, ds)) {
-                builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
-                // Owner (top_level) also drops the fields after the user drop
-                // (mirrors SDrop). Nested: stop (by-value self consumes them).
-                // CEILING PROBE `dropbstruct` — design B: the CALL SITE always
-                // recurses into the fields after the user drop, at every depth.
-                if (!top_level && !logos::probe::on("dropbstruct")) return;
-            }
+        if (run_user_drop)
+            if (auto ds = resolve_method_symbol(name, "drop", TypeRef(ty).pkg_name()); !ds.empty())
+                if (auto fn = find_func_op(mod, ds))
+                    builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
         // #103 / #98 — A LOOKUP KEY IS NOT AN IDENTITY, and here the order was
         // INVERTED: `all_struct_defs_.find(name)` asked the BARE first-
         // registered-wins alias (mlir_gen.cpp pass 0) before the pkg-qualified
@@ -1024,7 +1016,7 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
                 auto fp = gep_field(value_ptr, info, fname);
                 if (!fp) continue;
                 // Enum value-repr: a nested enum field is inline — drop on the GEP.
-                gen_drop_value(fp, ft, /*top_level=*/false,
+                gen_drop_value(fp, ft, /*run_user_drop=*/true,
                                child_skips.empty() ? nullptr : &child_skips);
             }
         }
@@ -1042,23 +1034,23 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
                 std::set<std::string> child_skips;
                 if (split_skip_paths(skip_paths, std::to_string(i), child_skips)) continue;
                 gen_drop_value(child_value_ptr(value_ptr, ttype, i, ek), et,
-                               /*top_level=*/false,
+                               /*run_user_drop=*/true,
                                child_skips.empty() ? nullptr : &child_skips);
             }
         return;
     }
     if (k == K::Enum) {
         std::string ename(TypeRef(ty).enum_name());
-        // A REAL user enum Drop (by-value self) consumes the payload itself —
-        // call it and stop. resolve_method_symbol can return a non-existent
-        // symbol for an enum with NO user Drop (false positive), so require the
-        // symbol to actually EXIST before treating it as a user drop; otherwise
-        // fall through to the variant-switched payload recursion (G158-4 fix).
-        if (auto ds = resolve_method_symbol(ename, "drop", TypeRef(ty).pkg_name()); !ds.empty())
-            if (auto fn = find_func_op(mod, ds)) {  // chokepoint: bare→qualified
-                builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
-                if (!top_level) return;
-            }
+        // Same rule as the struct branch: run the user `Drop::drop`, THEN drop
+        // the payload, at every depth. resolve_method_symbol can return a
+        // non-existent symbol for an enum with NO user Drop (false positive), so
+        // require the symbol to actually EXIST before emitting the call;
+        // otherwise fall straight through to the variant-switched payload
+        // recursion (G158-4 fix).
+        if (run_user_drop)
+            if (auto ds = resolve_method_symbol(ename, "drop", TypeRef(ty).pkg_name()); !ds.empty())
+                if (auto fn = find_func_op(mod, ds))  // chokepoint: bare→qualified
+                    builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
         auto* te = resolve_tagged_enum(ename, ty);
         if (!te) return;
         std::vector<const TaggedEnumInfo::VariantPayload*> dvs;
@@ -1339,7 +1331,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
                     auto fp = gep_field(it->second, info, fname);
                     if (!fp) continue;
                     // Enum value-repr: a nested enum field is inline — drop on the GEP.
-                    gen_drop_value(fp, ft, /*top_level=*/false,
+                    gen_drop_value(fp, ft, /*run_user_drop=*/true,
                                    child_skips.empty() ? nullptr : &child_skips);
                 }
             }
@@ -1357,14 +1349,20 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
                     llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(i)};
                     auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, it->second, gi);
                     // Enum value-repr: a nested enum element is inline — drop on the GEP.
-                    gen_drop_value(gep, et, /*top_level=*/false,
+                    gen_drop_value(gep, et, /*run_user_drop=*/true,
                                    child_skips.empty() ? nullptr : &child_skips);
                 }
-        } else if (k == K::Enum && drop_fn.empty()) {
+        } else if (k == K::Enum) {
             // Enum value-repr: the slot IS the inline {disc,payload} storage
             // (one level, like a Struct). gen_drop_value does the variant-switch
             // + payload recursion directly on it — no ptr load.
-            gen_drop_value(it->second, st);
+            // ⚠ `run_user_drop = drop_fn.empty()`: step 1 above already emitted
+            // this value's own user `Drop::drop`, so asking for it again here
+            // would call the destructor twice. This arm used to be guarded
+            // `&& drop_fn.empty()` instead, which skipped the PAYLOAD recursion
+            // entirely for every enum with a user Drop — soundness_queue row
+            // `enum_user_drop_skips_payload_glue`, a leak at every site.
+            gen_drop_value(it->second, st, /*run_user_drop=*/drop_fn.empty());
         } else if (k == K::Array) {
             // Inline array: it->second points at the `[T; N]` storage.
             gen_drop_value(it->second, st);
