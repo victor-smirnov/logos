@@ -1,0 +1,1 @@
+impl Emit for R: method 'emit' does not match the trait declaration: the return type is declared 'Small' and the impl declares 'Big'

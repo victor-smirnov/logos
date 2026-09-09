@@ -1584,9 +1584,25 @@ PIN = {
     # The EIGHTH file, bc_dropident_diffsig_arity_rettype, is a FAIL fixture and is
     # not in this population. No door is declared by any of them, so `doors`,
     # `glob` and `nonglob_doors` are unmoved.
-    'corpus'            : 2957,
+    # RE-DERIVED BY DIRECT LISTING (2026-09-09sigland, the return-slot
+    # conformance landing): `ls tests/logos/pass/*.logos | wc -l` -> 2965,
+    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2965 = 191 + 2774
+    # — never by adding 8 to the line below. The EIGHT that moved, all nonglob,
+    # all pass halves of the return-type conformance class:
+    #   bc_sigretty_return_{bool,signedness,nominal_struct}_agree_pass
+    #   bc_sigretty_return_{default_present,dyn_dispatch}_agree_pass
+    #       (the five one-token twins of the five new fail fixtures)
+    #   bc_sigretty_legal_return_shapes_pass        (alias / `-> Self` / assoc type /
+    #       trait type param / `Pair<Self>` / unit — the check's exemptions)
+    #   bc_sigretty_generic_impl_return_self_pass   (substituted Self carrying a
+    #       type VARIABLE)
+    #   bc_sigretty_alpha_rename_receiver_pass      (the localising control for the
+    #       two new soundness-queue rows)
+    # The FIVE new fail fixtures are not in this population. No door is declared
+    # by any of them, so `doors`, `glob` and `nonglob_doors` are unmoved.
+    'corpus'            : 2965,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2766,  # +6 (2026-09-09h, fatret return-ABI: fatret_closure_impl_fn_pair_survives, fatret_fnptr_thin_return, fatret_customdst_ref_returned, fatret_customdst_selfdescribing_thin, fatret_closure_returning_closure, generic_drop_body_calling_closure_param), +7 (2026-09-09, G156-5b drop-identity pass halves), +3 (2026-09-08g, E0509 pass halves), +4 (2026-09-08f, drop-glue pairs), +1 (2026-09-08e, drop_guard_instantiated), +2 (2026-09-08d), +2 (2026-09-08c), +1 (2026-09-08b), +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2774,  # +8 (2026-09-09sigland, return-slot conformance pass halves), +6 (2026-09-09h, fatret return-ABI: fatret_closure_impl_fn_pair_survives, fatret_fnptr_thin_return, fatret_customdst_ref_returned, fatret_customdst_selfdescribing_thin, fatret_closure_returning_closure, generic_drop_body_calling_closure_param), +7 (2026-09-09, G156-5b drop-identity pass halves), +3 (2026-09-08g, E0509 pass halves), +4 (2026-09-08f, drop-glue pairs), +1 (2026-09-08e, drop_guard_instantiated), +2 (2026-09-08d), +2 (2026-09-08c), +1 (2026-09-08b), +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

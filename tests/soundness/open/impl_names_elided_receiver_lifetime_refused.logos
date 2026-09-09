@@ -1,0 +1,49 @@
+// SOUNDNESS QUEUE row impl_names_elided_receiver_lifetime_refused (tier 3, refuses).
+// The trait ELIDES the receiver's lifetime, the impl NAMES it. Rust's elision
+// rules expand `fn peek(&self) -> &i64` to exactly `fn peek<'a>(&'a self) ->
+// &'a i64`, so the declaration and the impl are the SAME signature and this
+// program is legal Rust.
+//
+// TODAY logosc refuses it:
+//   impl Peek for R: method 'peek' does not match the trait declaration:
+//   the receiver is declared '&R' and the impl declares '&'a R'
+//
+// This is a cost the 2026-09-07b M-SIG landing shipped and nothing in the tree
+// holds: `_astrict` in the `_alpha_ok` comparator of src/compiler/sema_collect.cpp
+// pairs an ELIDED lifetime only with an ELIDED one, and compares lifetime NAMES
+// against the empty string rather than expanding elision first. Its twin
+// impl_elides_named_receiver_lifetime_refused is the same pair the other way
+// round; a THIRD program in which both sides name the lifetime with DIFFERENT
+// names — a legal alpha-rename — is correctly ADMITTED, which is what says the
+// defect is exactly the elided/named pairing and not the alpha comparator. That
+// third program is landed as the pass fixture
+// tests/logos/pass/bc_bc_sigretty_alpha_rename_receiver_pass.
+//
+// FOUND 2026-09-09 by hand while landing the return-type half of the same
+// check; MEASURED on the round's base binary (build a97470ba38503305 43) and on
+// the post-round one: IDENTICAL, so the return-type landing neither caused nor
+// repairs it.
+package impl_names_elided_receiver_lifetime_refused;
+
+struct R {
+    v: i64,
+}
+
+trait Peek {
+    fn peek(self: &Self) -> &i64;
+}
+
+impl Peek for R {
+    fn peek<'a>(self: &'a R) -> &'a i64 {
+        return &self.v;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 42i64 };
+    let p: &i64 = r.peek();
+    if *p == 42i64 {
+        return 0;
+    }
+    return 1;
+}

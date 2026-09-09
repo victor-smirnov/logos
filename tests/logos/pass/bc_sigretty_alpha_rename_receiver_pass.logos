@@ -1,0 +1,32 @@
+// The receiver's lifetime is NAMED on both sides with DIFFERENT names — a
+// legal alpha-renaming, correctly admitted. This fixture is the control that
+// localises the two OPEN queue rows
+// impl_names_elided_receiver_lifetime_refused and
+// impl_elides_named_receiver_lifetime_refused: the alpha comparator itself is
+// right, and what those rows record is `_astrict` pairing an ELIDED lifetime
+// only with an elided one. If a future round makes elision expand before the
+// compare, this program must still compile and still print 42.
+package bc_sigretty_alpha_rename_receiver_pass;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Peek {
+    fn peek<'a>(self: &'a Self) -> &'a i64;
+}
+
+impl Peek for R {
+    fn peek<'b>(self: &'b R) -> &'b i64 {
+        return &self.v;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 42i64 };
+    let p: &i64 = r.peek();
+    pr(*p);
+    return 0;
+}

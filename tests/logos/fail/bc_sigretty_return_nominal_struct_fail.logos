@@ -1,0 +1,47 @@
+// The trait declares `-> Small`; the impl declares `-> Big`, a different
+// nominal struct of a different size. Illegal Rust (E0053). Neither type
+// collects a lifetime, so the pre-2026-09-09sigland comparator called them
+// alpha-equal; the caller then read a one-field return slot filled by a
+// three-field return and the program SIGSEGV'd — rc 139 on the base binary,
+// which is why this member of the class is worth its own pair.
+// Its twin one token apart is
+// tests/logos/pass/sigretty_return_nominal_struct_agree_pass (`-> Big` in the
+// DECLARATION too).
+package bc_sigretty_return_nominal_struct_fail;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct Small {
+    a: i64,
+}
+
+struct Big {
+    a: i64,
+    b: i64,
+    c: i64,
+}
+
+struct R {
+    v: i64,
+}
+
+trait Emit {
+    fn emit(self: &Self) -> Small;
+}
+
+impl Emit for R {
+    fn emit(self: &R) -> Big {
+        return Big { a: 1i64, b: 2i64, c: 3i64 };
+    }
+}
+
+fn use_it<T: Emit>(t: &T) -> i64 {
+    let s: Small = t.emit();
+    return s.a;
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 0i64 };
+    pr(use_it::<R>(&r));
+    return 0;
+}

@@ -31444,3 +31444,212 @@ and weakening the check are both refused.
     false sentence, the same complaint M-SIG recorded in 2026-09-02w and still
     standing.
  5. ⛔ **`sigrecvty` as written — DO NOT LAND.**
+
+# ═══ ROUND 2026-09-09sigland — THE RETURN SLOT OF THE IMPL-VS-TRAIT CHECK NOW
+# COMPARES THE TYPE, NOT ONLY ITS LIFETIME STRINGS ════════════════════════════
+
+Base build `a97470ba38503305 43`, HEAD `15bc8389f`, tree clean. Baseline read
+from the store: `gate-run.sh -L bc` build **965**, 2712 tests, 2710 passed / 0
+failed / 2 disabled, rc 0. Queue gate rc 0, 77 rows. Prediction file written
+before the compiler was edited: `PREDICTION_2026-09-09-sigland.txt`.
+
+## 1. THE LANDING — ONE PREDICATE, ONE LINE
+
+site: `src/compiler/sema_collect.cpp`, the `_aret` block of the `sig_match`
+candidate loop. The block already substituted `Self`, already carried the
+`_self_shape_artefact` DST exemption, and already produced the right sentence.
+What it did NOT do is look at the type: `_alpha_ok` collects LIFETIME STRINGS
+and compares those lists, and `i64`, `u64`, `bool` and an unrelated struct all
+collect the empty list. The landing adds `|| !types_equal(tra, c->ret_type)`
+to the same condition — same substitution, same exemption, same diagnostic.
+
+## 2. COUNTER-EXAMPLES WRITTEN BEFORE THE EDIT, IN SHAPES THE PRICING PHASE
+##    DID NOT USE — twenty programs, all multi-line, all compiled AND RUN on
+##    the base binary first
+
+TWELVE LEGAL programs, chosen for the ways a return spelling may legally differ
+from its declaration — the shapes that would condemn the landing if it were
+comparing syntax instead of types. All rc 0 and correct output on the base
+binary AND on the armed one, digit for digit:
+
+    L01 impl writes `-> ()` where the declaration writes no return type
+    L02 impl returns a TYPE ALIAS of the declared return type
+    L03 declaration `-> Self`, impl `-> R`
+    L04 declaration `-> &Self`, impl `-> &R`, elided both sides
+    L05 GENERIC impl — the substituted `Self` carries a type VARIABLE
+    L06 declaration `-> Self::Item`, impl `-> i64`
+    L07 a TRAIT type parameter in return position, instantiated by the impl
+    L08 a METHOD-level generic in return position, a fresh binder each side
+    L09 `Pair<Self>` against `Pair<R>` — `Self` below the top level
+    L10 default body present, override AGREES
+    L11 `&dyn` dispatch, returns identical
+    L12 both sides `bool` (the control for X01)
+
+EIGHT ILLEGAL programs. Six were ADMITTED on the base binary and are REFUSED
+after, with a sentence naming both types, which was read in each case:
+
+    X01 `-> i64` vs `-> bool`, generic bound       base rc 0, printed 1
+    X02 `-> i64` vs `-> u64`                       base rc 0, printed -1
+    X03 `-> Small` vs `-> Big` (different SIZES)   base rc 139, SIGSEGV ×3
+    X05 default body present, override disagrees   base rc 0, printed 1
+    X06 the same mismatch through `&dyn`           base rc 0, printed 1
+    X08 the mismatched method is NEVER CALLED      base rc 0
+
+⚠ **X03 IS THE ROUND'S SHARPEST HAND RESULT AND IT IS NOT IN THE 09-09sig
+CENSUS.** That census recorded the return-type family as "prints a different
+number on every execution". A return-type mismatch between two nominal structs
+of DIFFERENT SIZE does not print a wrong number: the caller reads a one-field
+return slot that a three-field return filled and the program SIGSEGVs, rc 139,
+three runs out of three. A wrong return type is not only an information leak,
+it is a stack smash, and the difference is invisible to every column that reads
+a COMPILE's exit code.
+
+TWO were already refused on the base binary:
+
+    X04 `-> &i64` vs `-> i64` — the ref/non-ref difference IS visible to the
+        lifetime-string comparator (one lifetime against none). Sentence
+        unchanged by the landing.
+    X07 the same mismatch under a DIRECT call. ⚠ THE PREDICTION SAID "must not
+        change" AND IT CHANGED. Base: refused at the CALL SITE by ordinary type
+        checking, `call to 'pr' arg 1: expected i64, got bool`. Armed: refused
+        at the conformance site, naming the impl and both types. The VERDICT is
+        the same and the new sentence is the better one, but the prediction was
+        wrong in one column of one program and this is where that is recorded.
+
+## 3. EVERY ORACLE
+
+    queue gate ................. rc 0 before (77 rows) and after (79 rows)
+    full `cmake --build` ....... rc 0 — the stdlib column, all four layers,
+                                 plus every example, built by the armed compiler
+    fail_text_oracle.py ........ 1464 fail fixtures, base vs armed, **0 lines
+                                 differ** across all three columns (rc, stderr
+                                 sha, `.expected` match). Not "no rc change":
+                                 no TEXT-ONLY change either (rule 15).
+    run_oracle.py .............. see §5
+    gate-run.sh -L bc .......... see §5
+    L1 ......................... see §5
+
+## 4. THE CLASS, ENUMERATED BY THE PROPERTY — AND WHAT IS DECLINED, BY NAME
+
+The property is "a fact of the trait's declared signature that the impl may
+contradict". The 2026-09-09sig census enumerated it; this round prices each
+member and lands the one member that is free.
+
+    receiver / `self` type ....... NOT compared. ⛔ DECLINED, and the number is
+        **251 corpus files** declaring `fn drop(self: <non-reference>)` against
+        a `&mut Self` declaration (143 `tests/logos/pass`, 67
+        `tests/imported/pass/drop`, 23 `tests/logos/fail`, 18 scattered, 0 in
+        `stdlib/`). The probe as written (`sigrecvty`) additionally breaks the
+        stdlib at four `str` sites. Half-converting the corpus and weakening
+        the check are both refused; this is the owner's call.
+    parameter COUNT .............. refused today, WRONG SENTENCE
+        (`missing method 'f'`). ⛔ DECLINED this round: a diagnostic-only
+        change with no soundness content, and it is M-SIG's own 2026-09-02w
+        complaint, still standing.
+    parameter TYPES .............. refused today, same wrong sentence. Same.
+    RETURN TYPE .................. ✅ LANDED, this round.
+    lifetime binders ............. compared, and it OVER-REFUSES. Two new queue
+        rows, §5.
+    method generic parameters .... refused, but by the BACKEND (invalid MLIR),
+        not by sema. Not repaired here.
+    where-clauses ................ not reached this round; named so the next
+        round has a denominator rather than a blank.
+
+⚠ WITHIN the landed member the class was enumerated by DOOR and every door is
+pinned: generic bound (X01), `&dyn` vtable (X06), default body present (X05),
+and the method NEVER CALLED (X08). The last is the one that says the check is a
+property of the DECLARATION and not of a resolved call — and X07 is the
+counter-shape that shows a direct call was already refused for a different
+reason, so the door census is complete in both directions.
+
+## 5. FIXTURES — FIVE PAIRS ONE TOKEN APART, PLUS THREE LEGAL-SHAPE PINS
+
+    fail/bc_sigretty_return_bool_vs_i64_fail        pass/bc_sigretty_return_bool_agree_pass
+    fail/bc_sigretty_return_signedness_fail         pass/bc_sigretty_return_signedness_agree_pass
+    fail/bc_bc_sigretty_return_nominal_struct_fail     pass/bc_sigretty_return_nominal_struct_agree_pass
+    fail/bc_sigretty_return_default_present_fail    pass/bc_sigretty_return_default_present_agree_pass
+    fail/bc_sigretty_return_dyn_dispatch_fail       pass/bc_sigretty_return_dyn_dispatch_agree_pass
+    pass/bc_bc_sigretty_legal_return_shapes_pass       (alias · `-> Self` · assoc type ·
+                                                  trait type param · `Pair<Self>` · unit)
+    pass/bc_bc_sigretty_generic_impl_return_self_pass
+    pass/bc_bc_sigretty_alpha_rename_receiver_pass
+
+Every pass half RUNS and pins its stdout, never only an exit code: the
+`nominal_struct` half asserts the SUM of the three fields, so a return slot
+that silently changed size reads low or high rather than exiting 0.
+
+CONTROL REVERT, run on the saved base binary: all five fail fixtures COMPILE
+CLEAN and print nothing (red without the landing), all eight pass fixtures rc 0
+(green both ways). And for the `run` evidence the base binary was shown DOING
+THE WRONG THING AT RUN TIME: `bc_sigretty_return_nominal_struct_fail`'s program
+exits 139 on it, three runs of three.
+
+## 6. TWO NEW QUEUE ROWS — A LEGAL-RUST OVER-REFUSAL THE 09-07b LANDING SHIPPED
+
+Verified by hand this round on both binaries, not carried from a report:
+
+    impl_names_elided_receiver_lifetime_refused   3  refuses
+    impl_elides_named_receiver_lifetime_refused   3  refuses
+
+The trait elides the receiver's lifetime and the impl names it (and the other
+way round). Rust's elision rules expand `fn peek(&self) -> &i64` to exactly
+`fn peek<'a>(&'a self) -> &'a i64`, so both programs are legal and both are
+refused: "the receiver is declared '&R' and the impl declares '&'a R'". The
+root is `_astrict` in `_alpha_ok`, which pairs an elided lifetime only with an
+elided one and compares lifetime NAMES against the empty string instead of
+expanding elision first. TWO rows and not one because the two directions
+travel different halves of the same test (`x.empty()` vs `y.empty()`) and a
+one-sided repair would close one and leave the other.
+
+The LOCALISING control is landed as the pass fixture
+`bc_bc_sigretty_alpha_rename_receiver_pass`: both sides NAME the lifetime with
+DIFFERENT names — a legal alpha-rename — and that is correctly admitted. So the
+alpha comparator is right and the defect is exactly the elided/named pairing.
+
+## 7. ⚠ A NAME COLLISION IN THIS FILE — RULE 3
+
+`sigretty` names TWO DIFFERENT PREDICATES in PROBES.md. The 2026-09-04y record
+prices `sigretty` at ceiling 256 / cost 1099 / cfail 1103 / stdlib ⛔ and
+DECLINES it; that probe was "the return type compared WITHOUT the Self
+substitution", and its record's own neighbour `sigrettyself` — the same compare
+WITH the substitution — priced 0 / 71 / 6 / ⛔. The 2026-09-09sig record prices
+`sigretty` at 0 / 0 / 0 / ok. The three numbers are reconcilable — the 09-09
+predicate keeps the `_self_shape_artefact` exemption that landed 2026-09-07b,
+which is what removes the residual `str` refusal that condemned `sigrettyself`
+— but a reader who greps the name gets two contradictory verdicts for one
+spelling. ONE NAME PER SITE was bought with a real mistake and this file broke
+it. The landed arm is named for what it does in the source comment, not for a
+probe.
+
+## 8. THE NUMBERS AS LANDED
+
+    diff, compiler ............. `git diff --numstat src/compiler/sema_collect.cpp`
+                                 = **4 added / 1 removed** — two lines of
+                                 predicate and a two-line marker. The record is
+                                 here, not in the compiled source.
+    fixtures ................... 13 (5 fail + 8 pass), all `bc_`-prefixed so
+                                 they enter the `-L bc` label the gate selects;
+                                 a fixture named outside that prefix would have
+                                 been pinned by nothing the next round runs.
+    population pin ............. re-derived BY DIRECT LISTING:
+                                 `ls tests/logos/pass/*.logos` = 2965,
+                                 `ls tests/logos/pass/{wql_*,deem_*}.logos` = 191,
+                                 2965 = 191 + 2774. Never by adding 8.
+    census pin ................. ALL 9455 -> 9468, NOIMPORTED 4991 -> 5004,
+                                 TIERCOMMIT 150 -> 150, +13 all native.
+    soundness_queue `# TOTAL` .. 77 -> **79**, re-derived by direct listing
+                                 (`awk '!/^#/ && NF' | wc -l` = 79).
+    bc_admits / bc_admits_blocked ... unmoved, 92 and 8. No row closed and none
+                                 opened: `bc_admits.ledger` is a BORROW-CHECK
+                                 admission ledger and this is trait conformance,
+                                 which is why the 09-09sig ceiling of 0 was the
+                                 expected number and not a refutation (rule 4).
+
+⚠ THE TWO-LINE COMMENT MOVED THE BINARY. The round's first armed build carried
+a seven-line comment at the site; trimming it to a two-line marker — PROSE GOES
+OUTSIDE THE COMPILED SOURCES — produced a DIFFERENT `sha256` for `bin/logosc`
+and a different `build_hash.py` (`a97470ba38503305 43` base, `0d72ee9795c644d3 43`
+final). Behaviour cannot depend on a comment, but the store's identity does, so
+`L4 bc` was re-run with `FORCE=1` on the FINAL binary rather than reported from
+the pre-trim record. This is the 2026-08-29 finding again, in a `.cpp` rather
+than a header: a comment is not free.

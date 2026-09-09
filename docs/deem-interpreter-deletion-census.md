@@ -5609,8 +5609,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   exit code), and fatret_closure_returning_closure — the three-site agreement
 #   pin, written natively because the three IMPORTED fixtures that caught that
 #   site are not run by `L4 bc`.
-REGISTRY-ALL         9455
-REGISTRY-NOIMPORTED  4991
+# 2026-09-09sigland — THE RETURN SLOT OF THE IMPL-VS-TRAIT CONFORMANCE CHECK.
+#   Thirteen native fixtures: five FAIL halves pinning the new diagnostic in
+#   full and eight PASS halves — the five one-token twins plus three
+#   legal-shape pins (the check's exemptions, a generic impl's substituted
+#   `Self`, and the alpha-rename control that localises the two new
+#   soundness_queue rows). The ledger side is a NET +2: two tier-3 rows MINTED
+#   (a legal-Rust receiver over-refusal, both directions), none closed.
+#   ALL          9455 -> 9468  +13   (five fail, eight pass, all native)
+#   NOIMPORTED   4991 -> 5004  +13   (all thirteen are native)
+#   TIERCOMMIT    150 ->  150    0
+REGISTRY-ALL         9468
+REGISTRY-NOIMPORTED  5004
 REGISTRY-TIERCOMMIT  150
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

@@ -1,0 +1,100 @@
+// THE EXEMPTIONS OF THE RETURN-SLOT CONFORMANCE CHECK, IN ONE PROGRAM.
+// Every trait here is legal Rust and every impl's return spelling DIFFERS from
+// the declaration's while naming the same type. A comparator that compares
+// written syntax, or that forgets to substitute, refuses one of these.
+//   Alias   — the impl returns a type ALIAS of the declared return type.
+//   SelfRet — the declaration says `-> Self`, the impl says `-> R`.
+//   Assoc   — the declaration says `-> Self::Item`, the impl says `-> i64`.
+//   Param   — the TRAIT carries a type parameter in return position.
+//   Nested  — `Pair<Self>` against `Pair<R>`: Self below the top level.
+//   Unit    — the declaration writes no return type, the impl writes `-> ()`.
+// Landed with the 2026-09-09sigland return-type landing; the numbers it prints
+// are what says each impl was actually SELECTED rather than merely admitted.
+package bc_sigretty_legal_return_shapes_pass;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+type MyInt = i64;
+
+struct R {
+    v: i64,
+}
+
+struct Pair<T> {
+    a: T,
+    b: T,
+}
+
+trait Alias {
+    fn get(self: &Self) -> i64;
+}
+
+impl Alias for R {
+    fn get(self: &R) -> MyInt {
+        return self.v;
+    }
+}
+
+trait SelfRet {
+    fn twin(self: &Self) -> Self;
+}
+
+impl SelfRet for R {
+    fn twin(self: &R) -> R {
+        return R { v: self.v + 1i64 };
+    }
+}
+
+trait Assoc {
+    type Item;
+    fn one(self: &Self) -> Self::Item;
+}
+
+impl Assoc for R {
+    type Item = i64;
+    fn one(self: &R) -> i64 {
+        return self.v + 2i64;
+    }
+}
+
+trait Conv<X> {
+    fn to(self: &Self) -> X;
+}
+
+impl Conv<i64> for R {
+    fn to(self: &R) -> i64 {
+        return self.v + 3i64;
+    }
+}
+
+trait Nested {
+    fn twice(self: &Self) -> Pair<Self>;
+}
+
+impl Nested for R {
+    fn twice(self: &R) -> Pair<R> {
+        return Pair::<R> { a: R { v: self.v }, b: R { v: self.v } };
+    }
+}
+
+trait Unit {
+    fn poke(self: &Self);
+}
+
+impl Unit for R {
+    fn poke(self: &R) -> () {
+        return;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 10i64 };
+    pr(r.get());
+    pr(r.twin().v);
+    pr(r.one());
+    pr(r.to());
+    let p: Pair<R> = r.twice();
+    pr(p.a.v + p.b.v);
+    r.poke();
+    return 0;
+}

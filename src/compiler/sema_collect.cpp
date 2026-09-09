@@ -4724,6 +4724,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             !detail::types_equal_with_lifetimes(tr, c->ret_type))
                             sig_match = false;
                     }
+                    // LANDED 2026-09-09sigland: the return slot is compared BY
+                    // TYPE, not only by `_alpha_ok`'s lifetime strings. PROBES.md.
                     if (sig_match && _aret && m.ret_type && c->ret_type) {
                         TypeRef tra = m.ret_type;
                         if (!trait_arg_subst.empty())
@@ -4731,7 +4733,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         if (!is_generic_param(tra) &&
                             !is_generic_param(c->ret_type) &&
                             !(_asub && _self_shape_artefact(m.ret_type, tra, c->ret_type)) &&
-                            !_alpha_ok(tra, c->ret_type)) {
+                            (!_alpha_ok(tra, c->ret_type) ||
+                             !types_equal(tra, c->ret_type))) {
                             if (_asub && self_mismatch_note.empty())
                                 self_mismatch_note = std::format(
                                     "the return type is declared '{}' and the "

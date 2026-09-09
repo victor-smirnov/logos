@@ -1,0 +1,34 @@
+// The trait declares `-> i64`; the impl declares `-> bool`. Illegal Rust
+// (E0053). Until 2026-09-09sigland the conformance check compared the return
+// slot's LIFETIME STRINGS only, and `i64` and `bool` both collect the empty
+// list, so this compiled and `use_it` read a one-byte bool out of an i64
+// return slot: it printed `1` on the base binary.
+// Its twin one token apart is tests/logos/pass/sigretty_return_bool_agree_pass
+// (`-> bool` in the DECLARATION too).
+package bc_sigretty_return_bool_vs_i64_fail;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Ask {
+    fn ask(self: &Self) -> i64;
+}
+
+impl Ask for R {
+    fn ask(self: &R) -> bool {
+        return self.v > 0i64;
+    }
+}
+
+fn use_it<T: Ask>(t: &T) -> i64 {
+    return t.ask();
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 1i64 };
+    pr(use_it::<R>(&r));
+    return 0;
+}

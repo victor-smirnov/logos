@@ -1,0 +1,38 @@
+// The same return-type mismatch at the OTHER door: the trait method carries a
+// DEFAULT BODY, which reaches the conformance check by its own arm (the
+// `m.has_default` branch). Illegal Rust. Admitted on the base binary, printing
+// `1`. The pair exists because a fix that closed only the no-default door
+// would leave this member of the class open, and the recorded precedent
+// bug_missigned_default_impl_miscompiles is exactly a mis-signed impl of a
+// method WITH a default.
+// Its twin one token apart is
+// tests/logos/pass/sigretty_return_default_present_agree_pass.
+package bc_sigretty_return_default_present_fail;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Val {
+    fn val(self: &Self) -> i64 {
+        return 0i64;
+    }
+}
+
+impl Val for R {
+    fn val(self: &R) -> bool {
+        return true;
+    }
+}
+
+fn use_it<T: Val>(t: &T) -> i64 {
+    return t.val();
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 1i64 };
+    pr(use_it::<R>(&r));
+    return 0;
+}

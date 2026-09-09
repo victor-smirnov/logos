@@ -1,0 +1,33 @@
+// The twin of tests/logos/fail/sigretty_return_bool_vs_i64_fail, one token
+// apart: the DECLARATION says `-> bool` too. Agreement at the return slot is
+// not disturbed by the 2026-09-09sigland landing, and the program runs.
+package bc_sigretty_return_bool_agree_pass;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Ask {
+    fn ask(self: &Self) -> bool;
+}
+
+impl Ask for R {
+    fn ask(self: &R) -> bool {
+        return self.v > 0i64;
+    }
+}
+
+fn use_it<T: Ask>(t: &T) -> bool {
+    return t.ask();
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 1i64 };
+    if use_it::<R>(&r) {
+        pr(1i64);
+        return 0;
+    }
+    return 1;
+}

@@ -1,0 +1,33 @@
+// The twin of tests/logos/fail/sigretty_return_default_present_fail, one token
+// apart: the override returns `i64`, agreeing with the declaration that
+// carries the default body. The override must still be selected over the
+// default, which the printed value asserts (12, not the default's 0).
+package bc_sigretty_return_default_present_agree_pass;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Val {
+    fn val(self: &Self) -> i64 {
+        return 0i64;
+    }
+}
+
+impl Val for R {
+    fn val(self: &R) -> i64 {
+        return self.v;
+    }
+}
+
+fn use_it<T: Val>(t: &T) -> i64 {
+    return t.val();
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 12i64 };
+    pr(use_it::<R>(&r));
+    return 0;
+}

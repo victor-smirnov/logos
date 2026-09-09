@@ -1,0 +1,30 @@
+// The twin of tests/logos/fail/sigretty_return_signedness_fail, one token
+// apart: the DECLARATION says `-> u64` too, so the u64 travels a u64 slot the
+// whole way and the program prints the value it computed.
+package bc_sigretty_return_signedness_agree_pass;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pru(v: u64) { unsafe { printf("%llu\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Get {
+    fn get(self: &Self) -> u64;
+}
+
+impl Get for R {
+    fn get(self: &R) -> u64 {
+        return 18446744073709551615u64;
+    }
+}
+
+fn use_it<T: Get>(t: &T) -> u64 {
+    return t.get();
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 0i64 };
+    pru(use_it::<R>(&r));
+    return 0;
+}

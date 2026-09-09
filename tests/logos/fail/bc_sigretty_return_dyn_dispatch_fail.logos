@@ -1,0 +1,29 @@
+// The same return-type mismatch reached through a TRAIT OBJECT rather than a
+// generic bound: the vtable slot is typed by the DECLARATION and filled by the
+// impl. Illegal Rust; admitted on the base binary, printing `1`.
+// Its twin one token apart is
+// tests/logos/pass/sigretty_return_dyn_dispatch_agree_pass.
+package bc_sigretty_return_dyn_dispatch_fail;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Ask {
+    fn ask(self: &Self) -> i64;
+}
+
+impl Ask for R {
+    fn ask(self: &R) -> bool {
+        return self.v > 0i64;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 1i64 };
+    let d: &dyn Ask = &r;
+    pr(d.ask());
+    return 0;
+}

@@ -1,0 +1,29 @@
+// A GENERIC impl: the declared return `Self` substitutes to `Wrap<T>`, whose
+// spelling carries a TYPE VARIABLE. The return-slot type compare must accept
+// it, and the twin of this program on the other side is the whole
+// sigretty_return_* family: a mismatch here has to stay refused while this
+// stays admitted. Landed 2026-09-09sigland.
+package bc_sigretty_generic_impl_return_self_pass;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct Wrap<T> {
+    v: T,
+}
+
+trait Dup {
+    fn dup(self: &Self) -> Self;
+}
+
+impl<T> Dup for Wrap<T> {
+    fn dup(self: &Wrap<T>) -> Wrap<T> {
+        return Wrap::<T> { v: self.v };
+    }
+}
+
+fn main() -> i32 {
+    let a: Wrap<i64> = Wrap::<i64> { v: 4i64 };
+    let b: Wrap<i64> = a.dup();
+    pr(b.v);
+    return 0;
+}

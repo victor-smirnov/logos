@@ -1,0 +1,74 @@
+ROUND 2026-09-09sigland — PREDICTION, WRITTEN BEFORE THE COMPILER WAS EDITED
+Base build hash a97470ba38503305 43, HEAD 15bc8389f, tree clean.
+Baseline read from the store: gate-run.sh -L bc, build 965, 2712 tests,
+2710 passed / 0 failed / 2 disabled, rc 0. Queue gate rc 0, 77 rows.
+
+THE LANDING: the return slot of the impl-vs-trait conformance check compares
+the TYPE (`types_equal`) after substitution, in addition to the lifetime-string
+compare it already does, keeping the `_self_shape_artefact` DST exemption.
+src/compiler/sema_collect.cpp, the `_aret` block.
+
+PREDICTED NUMBERS
+  bc_admits rows closed ............ 0   (no row names a return-type defect;
+                                          ceiling 0 was measured 2026-09-09sig)
+  soundness_queue rows closed ...... 0
+  soundness_queue rows OPENED ...... 2   (the two legal-Rust over-refusals
+                                          below), # TOTAL 77 -> 79
+  corpus cost, pass ................ 0
+  corpus cost, fail (cfail) ........ 0 of 1464
+  run_oracle.py differing rows ..... 1, and it is `cast-region-to-uint`,
+                                     subtracted by name by standing instruction
+  stdlib .......................... all four layers compile
+  gate-run.sh -L bc ................ 2712 -> 2712+N new fixtures, 0 failed
+
+PREDICTED PER-PROGRAM VERDICTS (my own counter-examples, written before the
+edit, in shapes the 09-09sig pricing phase did not use; all compiled and RUN on
+the base binary first)
+
+  MUST STAY ADMITTED AND RUN rc 0 — twelve legal programs, base rc 0 all:
+    L01 impl writes `-> ()` where the trait declares no return
+    L02 impl returns a TYPE ALIAS of the trait's declared return
+    L03 trait `-> Self`, impl `-> R`
+    L04 trait `-> &Self`, impl `-> &R`, elided both sides
+    L05 GENERIC impl, substituted Self carries a type variable
+    L06 trait `-> Self::Item`, impl `-> i64`
+    L07 trait TYPE PARAMETER in return position, impl instantiates it
+    L08 METHOD-level generic in return position, fresh binder each side
+    L09 `Pair<Self>` vs `Pair<R>` — Self nested below the top level
+    L10 default body present, override AGREES
+    L11 `&dyn` dispatch, return identical
+    L12 both sides `bool` (control for X01)
+
+  MUST BECOME REFUSED — illegal Rust, all ADMITTED on the base binary:
+    X01 trait `-> i64`, impl `-> bool`, generic bound      base: rc 0, prints 1
+    X02 trait `-> i64`, impl `-> u64`                      base: rc 0, prints -1
+    X03 trait `-> Small`, impl `-> Big` (different sizes)  base: rc 139 SIGSEGV
+    X05 default body present, override DISAGREES           base: rc 0, prints 1
+    X06 the same mismatch through `&dyn`                   base: rc 0, prints 1
+    X08 the mismatched method is NEVER CALLED              base: rc 0
+
+  ALREADY REFUSED ON THE BASE BINARY, must not change:
+    X04 trait `-> &i64`, impl `-> i64` — the ref/non-ref difference is visible
+        to the lifetime-string comparator (one lifetime against none)
+    X07 the same mismatch under a DIRECT call — refused by ordinary type
+        checking at the call site, not by conformance
+
+NEW QUEUE ROWS OWED (verified by hand on the base binary this round, not
+carried from the 09-09sig report):
+    O01 trait `fn peek(self: &Self) -> &i64` / impl `fn peek<'a>(self: &'a R)
+        -> &'a i64` — LEGAL Rust, REFUSED:
+        "the receiver is declared '&R' and the impl declares '&'a R'"
+    O02 the same pair the other way round — LEGAL Rust, REFUSED
+    O03 both sides NAMED, different names (a legal alpha-rename) — correctly
+        ADMITTED, which is what says the defect is exactly `_astrict`'s
+        "elided pairs only with elided" and not the alpha comparator.
+
+DECLINED BY NAME, WITH THE NUMBER
+  * the RECEIVER half (`sigrecvty`): 251 corpus files declare
+    `fn drop(self: <non-reference>)` against a `&mut Self` declaration, and the
+    probe as written breaks the stdlib at four `str` sites. Owner's call.
+  * the three `missing method 'f'` sentences for parameter count/type: right
+    verdict, wrong sentence; a diagnostic-only change, no soundness content.
+
+WHAT WOULD CONDEMN THIS ROUND: any of the twelve L programs refused, any
+run_oracle row other than `cast-region-to-uint`, any stdlib layer failing.

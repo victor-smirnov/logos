@@ -1,0 +1,34 @@
+// The trait declares `-> i64`; the impl declares `-> u64`. Illegal Rust
+// (E0053), and the difference is invisible to a lifetime-string comparator:
+// neither type collects a lifetime. On the base binary this compiled and
+// printed `-1` for `u64::MAX`.
+// Its twin one token apart is
+// tests/logos/pass/sigretty_return_signedness_agree_pass (`-> u64` in the
+// DECLARATION too).
+package bc_sigretty_return_signedness_fail;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Get {
+    fn get(self: &Self) -> i64;
+}
+
+impl Get for R {
+    fn get(self: &R) -> u64 {
+        return 18446744073709551615u64;
+    }
+}
+
+fn use_it<T: Get>(t: &T) -> i64 {
+    return t.get();
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 0i64 };
+    pr(use_it::<R>(&r));
+    return 0;
+}

@@ -1,0 +1,42 @@
+// The twin of tests/logos/fail/sigretty_return_nominal_struct_fail, one token
+// apart: the DECLARATION says `-> Big` too. The three-field return travels a
+// three-field slot and the sum is asserted on stdout, so a return slot that
+// silently changed size would read low or high rather than merely exiting 0.
+package bc_sigretty_return_nominal_struct_agree_pass;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct Small {
+    a: i64,
+}
+
+struct Big {
+    a: i64,
+    b: i64,
+    c: i64,
+}
+
+struct R {
+    v: i64,
+}
+
+trait Emit {
+    fn emit(self: &Self) -> Big;
+}
+
+impl Emit for R {
+    fn emit(self: &R) -> Big {
+        return Big { a: 1i64, b: 2i64, c: 3i64 };
+    }
+}
+
+fn use_it<T: Emit>(t: &T) -> i64 {
+    let s: Big = t.emit();
+    return s.a + s.b + s.c;
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 0i64 };
+    pr(use_it::<R>(&r));
+    return 0;
+}
