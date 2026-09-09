@@ -30958,3 +30958,137 @@ above needs it.
 
 Record: `docs/probes/dropcanon-2026-09-08/ROUND.md`. Predictions written before
 the armed binary existed: 8 of 8 correct by name.
+
+## dropdecl_* — SEVEN NAMES OVER FOUR REVERSE WALKS: THE TWO DROP-ORDER ROWS ARE ONE SHAPE AND **TWO** ROOTS, EACH ROOT IS **TWO SITES IN SERIES**, AND THE SITE BOTH ROW HEADERS NAME CLOSES NEITHER ROW
+site: src/compiler/mlir_gen_stmt.cpp::gen_drop_value
+build: a440722a531c9492 43
+measured: 2026-09-09
+fires: 204588 over 1443 logosc processes (dropdecl_all, whole run-oracle population)
+ceiling: 2 queue rows (dropdecl_all) — 1 + 1, NOT one root
+cost: 4 pass fixtures, 0 of 1463 `-L bc -L fail`, stdlib ok, **12 runtime triples**
+verdict: PRICED, NOT LANDED. Owner decision — the divergence is spec-canonised.
+note: PRICING ONLY. The probe was reverted and the compiler rebuilt; the queue
+  gate is back to rc 0 with both rows reproducing.
+
+  ⚠ FOUR WALKS, NOT TWO, AND THE ROW HEADERS NAME THE WRONG PAIR. Both row
+  programs' comments say the root is `MLIRGenImpl::gen_drop_value`'s Struct and
+  Tuple loops. `mlir_gen_stmt.cpp` holds FOUR reverse walks: those two, and two
+  more in the scope-exit local emitter further down the same file. Measured per
+  site, one probe name each:
+
+      arm                struct row   tuple row   fires on the two row programs
+      dropdecl_s_gdv       run 1        run 1      6   ← LIVE, closes NEITHER
+      dropdecl_t_gdv       run 1        run 1      0   (not reached by these two)
+      dropdecl_s_var       run 0        run 1      1
+      dropdecl_t_var       run 1        run 0      1
+      dropdecl_struct      run 0        run 1      7   (s_gdv + s_var)
+      dropdecl_tuple       run 1        run 0      1   (t_gdv + t_var)
+      dropdecl_all         run 0        run 0      8
+
+  `dropdecl_s_gdv` FIRED SIX TIMES on the very programs it fails to close — a
+  zero with the site proven live (rule 1), not a dead hypothesis. What the rows
+  actually reach is the scope-exit emitter, because both bind a top-level local.
+
+  ⚠ ONE ROOT OR TWO — THE GROUPING TEST, RUN THE WAY THE LAST THREE ROUNDS RAN
+  IT. Predicted BY NAME before the run; the queue gate read back per arm, and
+  the diff is empty in BOTH directions over all 77 rows:
+
+      dropdecl_struct -> struct_fields_dropped_reverse_order   (and nothing else)
+      dropdecl_tuple  -> tuple_elems_dropped_reverse_order     (and nothing else)
+      dropdecl_all    -> both, and nothing else
+
+  So 2026-09-07u's H2 — "one candidate change moves BOTH drop-order rows" —
+  HOLDS ONLY FOR AN ARM THAT FLIPS ALL FOUR WALKS. Decomposed by AGGREGATE the
+  rows separate cleanly: a struct and a tuple are different aggregates and each
+  has its own pair of loops. **Two roots, four sites.** That is the fourth
+  handed-down grouping in four rounds to fail its own test — and this one failed
+  in the direction the earlier record did not test.
+
+  ⚠ RULE 13, MEASURED RATHER THAN ASSUMED: THE SITES ARE IN SERIES AND THE
+  INCREMENT IS NOT ADDITIVE. `g1_nested_struct` (`Out{x:In,y:In}`, `In{a:O,b:O}`,
+  sequence oracle 1234):
+
+      dropdecl_s_gdv  run 1  (fires 6)
+      dropdecl_s_var  run 1  (fires 1)
+      dropdecl_struct run 0  (fires 7)
+
+  0 + 0 = 1 fixed. Neither struct site alone repairs a NESTED struct; the outer
+  aggregate is walked by the scope-exit emitter and the inner one by
+  `gen_drop_value`, so a landing that flips one loop and not its twin produces a
+  sequence that is neither the old answer nor Rust's. Both loops of a root ship
+  together or neither does.
+
+  THE HAND PROGRAMS — VARIED BY SHAPE (rule 5), NINE, ALL READ UNARMED FIRST:
+
+      g1_nested_struct          1234   wrong -> right
+      g2_tuple_in_struct          12   wrong -> right   (t_gdv is the site)
+      g3_struct_in_tuple          12   wrong -> right   (s_gdv is the site)
+      g4_user_drop_then_fields   912   wrong -> right   (user Drop still first)
+      g6_four_fields            1234   wrong -> right
+      c1_locals_reverse          321   right -> right   CONTROL, must not move
+      c2_array_forward           123   right -> right   CONTROL, must not move
+      g5_enum_payload             12   right -> right   CONTROL, enum already fwd
+
+  The two controls are the ones that make the arm a hypothesis rather than a
+  blanket flip: locals ARE reverse in Rust and the array branch of the same
+  function ALREADY walks forward.
+
+  THE RUNTIME COLUMN, RE-MEASURED TODAY AND NOT CARRIED. `run_oracle.py`, 6565
+  pass fixtures compiled, linked and RUN, both directions from ONE configure,
+  the unarmed control taken on the PROBE BUILD and separately checked identical
+  to the committed tree (1 triple differs and it is `cast-region-to-uint`):
+
+      13 triples differ, **12** after subtracting `cast-region-to-uint` by name.
+
+      EXIT CODE moved (2)
+        logos_02_semantic_core_pass_field-destruction-order-b136   0 -> 1
+        logos_25_spec_pass_expr_3                                  0 -> 27
+      STDOUT moved, rc unchanged (10)
+        cond_move_field_overlap        cond_move_field_source
+        no_auto_drop_container_ctl     no_auto_drop_sibling_ctl
+        rawdup_intersperse_drop_once   rawdup_partition_vec_drop_once
+        rawdup_take_skip_while_drop_once
+        drop_glue_mixed_fields         drop_nested_explicit   drop_nested_fields
+
+  ⚠ THE PROMPT SAID "RE-MEASURE, DO NOT CARRY THE 12". Re-measured on a tree
+  that has since taken `1979d72f4` (drop glue at every depth), `48cc71ae7`
+  (E0509 at twelve doors) and `7a4f5fbec` (`&mut self` in the stdlib): the set
+  is the SAME TWELVE, name for name. The count did not decay. `ceiling-probe.sh`
+  still says FOUR, for the population reason recorded in 2026-09-07u: eight of
+  the twelve are outside `-L bc -L pass`.
+
+  WHAT THE FLIP WOULD COST IN THE SPEC — read, with the rule ids:
+
+    * `expr.drop.struct-user-drop-then-fields` (docs/spec/expressions.md) —
+      "recurses its droppable fields in REVERSE declaration order". Rewritten.
+      ⚠ AND THIS CLAUSE IS ALREADY STALE INDEPENDENTLY OF THE ORDER QUESTION:
+      it still says "A nested (non-top-level) struct then STOPS — the by-value
+      self of the user drop already consumed the fields", which `1979d72f4`
+      DELETED. Two facts in one sentence, one of them already false.
+    * `expr.drop.tuple-array-reverse` (docs/spec/expressions.md +
+      docs/spec/divergences.md) — the divergence is IN THE RULE ID. A flip
+      renames the rule, which is a census/spec_path_lint event, not a text edit.
+      Its Divergence field says "tuple reverse-order is conformant"; that is
+      FALSE of Rust, which drops tuple elements in index order. The ARRAY half
+      of the same rule is separate and already correct, so the entry splits
+      rather than disappears.
+    * Not affected, checked: `expr.drop.scope-order-user-then-children`
+      (user drop first — `g4` proves it survives), the array walk, locals.
+
+  ⚠ AND THE STRUCT ROW HAS NO SPEC DIVERGENCE ENTRY AT ALL. Only the TUPLE half
+  is registered in `divergences.md`. The struct half is stated as the plain rule
+  in `expressions.md` with no divergence marker — so the tree does not even
+  record that struct field order diverges from Rust. That is a gap in the
+  divergence register, not a defect in the compiler, and it is why the two rows
+  cannot be retired or blessed by one decision: one of them is a registered
+  divergence and the other is an unregistered one.
+
+  VERDICT — UNCHANGED FROM 2026-09-07u AND NOW WITH THE DECOMPOSITION UNDER IT:
+  DO NOT FUND WITHOUT THE OWNER. Two rows for twelve runtime fixtures, two spec
+  rules, and one divergence-register entry whose conformance claim is false.
+  Victor's decision of 2026-09-08 was "Rust-canonical" about `Drop::drop`'s
+  RECEIVER and move-out; extending it to a spec-canonised aggregate drop order
+  is a second decision. What this round adds to the price: the change is TWO
+  independent landings (struct, tuple), each of which must flip TWO loops at
+  once, and `field-destruction-order-b136`'s own header — an imported re-port —
+  states the tree's current position as an asserted invariant.
