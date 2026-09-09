@@ -1,0 +1,29 @@
+ROUND 2026-09-09 (sig) — TARGET ROWS, WRITTEN BEFORE TOUCHING THE COMPILER
+Subject fixed by the prompt: an impl signature is never checked against its trait
+declaration. Census first; the census is the deliverable.
+
+PRIMARY (the subject's own site, sema_collect.cpp, the `sig_match` candidate loop):
+  NO QUEUE ROW EXISTS FOR THE SUBJECT. That is itself the finding — the receiver,
+  the return type and the `self:` type are all admitted today and none of the 77
+  rows holds any of them. New rows are owed.
+
+QUEUE ROWS IN THE SAME FAMILY, re-read this round (all three written 2026-09-09,
+one round old; the queue gate re-verifies them mechanically, rc 0):
+  two_traits_same_method_diff_arity_refused   (3, refuses) — bound dispatch by NAME
+  inherent_clash_bound_dispatch_refused       (3, refuses) — same sentence, its own
+        header says NOT measured to share a root; do not group.
+  method_arity_mismatch_says_no_such_method   (4, diag)    — 'R' has no method 'thing'
+  trait_default_body_type / trait_default_body_call (2, admits) — the OTHER missing
+        check on a trait declaration; same file, different site.
+
+WHY THIS BLOCK OVER THE OTHERS: the prompt fixes the subject. Within it, the
+shape that has paid every time — AN ARM THAT EXISTS reached through a fact the
+code does not carry — is present literally: `_apar`/`_aret`/`_astrict` are all
+unconditionally TRUE since 2026-09-07b, the comparator is wired to slot 0, to
+every parameter and to the return type, and it compares ONLY LIFETIMES
+(`_alpha_ok` collects lifetime strings and compares those lists). The type is
+never looked at in slot 0 or in the return slot. The receiver arm additionally
+has an exemption, `_self_shape_artefact`, whose own condition is
+`!types_equal(sub, impl_t)` — it declines EXACTLY WHEN THERE IS A MISMATCH, so
+the receiver arm cannot fire for any `Self`-shaped trait slot, which is every
+receiver. That is a gate exemption unchecked in the abuse direction.

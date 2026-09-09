@@ -31336,3 +31336,111 @@ so every "before" figure is a binary and not a memory.
       sites moved: SIGSEGV.
   Both thin-row halves read rc 0 / 0 vg on the base binary AND after, which is
   what says the repair reached the fat row only.
+
+# ═══ ROUND 2026-09-09sig — THE IMPL-VS-TRAIT SIGNATURE CENSUS: THE ARM EXISTS,
+# IT IS WIRED TO EVERY SLOT, AND IT COMPARES ONLY LIFETIMES ═══════════════════
+
+Subject fixed by the prompt: an impl signature is never checked against its trait
+declaration. Base build `a97470ba38503305 43`; armed tree `d0a569aeb4eac5af`;
+restored build hash re-read after the revert: `a97470ba38503305 43`, digit for
+digit. Queue gate rc 0 before and after, 77 rows. L1 rc 0.
+
+## 1. WHAT THE SITE ACTUALLY DOES
+
+site: `src/compiler/sema_collect.cpp`, the `sig_match` candidate loop (the
+`_alpha_ok` / `_self_shape_artefact` / `_apar` / `_aret` block).
+
+Since 2026-09-07b `_asub` is a hard `true`, so `_apar`, `_aret` and `_astrict`
+are all unconditionally on: the comparator IS wired to slot 0, to every
+parameter and to the return type. **`_alpha_ok` collects LIFETIME STRINGS and
+compares those lists.** `i64` and `bool` both collect the empty list, so they
+are alpha-equal. The receiver arm additionally carries `_self_shape_artefact`,
+whose own condition is `!types_equal(sub, impl_t)` — it declines EXACTLY WHEN
+THERE IS A MISMATCH, so for any `Self`-shaped trait slot (i.e. every receiver)
+that arm cannot fire on a type difference at all. An exemption never checked in
+the abuse direction.
+
+## 2. CENSUS BY THE PROPERTY — one hand program per fact, all MULTI-LINE, RUN
+
+ADMITTED (illegal Rust, compiles here):
+  receiver `&Self` vs by-value            c01 (generic bound) · c22 (`&dyn`)
+  receiver `&mut Self` vs `&Self`         c02
+  receiver `&Self` vs `&mut Self`         c03
+  `Drop::drop` receiver by value          c18 (drop COUNT correct: 2)
+  `self:` a DIFFERENT nominal type        c17 (generic) · c23 (`&dyn`)
+  return `i64` vs `u64`                   c07  r=-1
+  return `i64` vs `bool`                  c08  r=1 · c11 (`&dyn`)
+  return `bool` vs `i64` (256)            c09  r=false
+  return type with a DEFAULT present      c15  r=1
+REFUSED, correct:
+  parameter under a trait type-parameter  c12, and the sentence is right
+REFUSED, WRONG SENTENCE ("missing method 'f'" — the method is present):
+  parameter COUNT c04 · parameter TYPE c05 · `&i64` vs `&mut i64` c06
+REFUSED BY THE BACKEND, not by sema (invalid MLIR / self-diagnosis):
+  return vs no return c10 · method generic param added c13 ·
+  arity mismatch with a DEFAULT present c16
+REFUSED AND LEGAL RUST — a live over-refusal shipped by the 09-07b landing:
+  c14 trait `fn g(&self) -> &i64` / impl `fn g<'a>(&'a self) -> &'a i64`
+  c21 the same pair the other way round
+  (c19 both-named alpha-rename and c20 both-elided are correctly ADMITTED, so
+   the defect is exactly "elided pairs only with elided", `_astrict`.)
+
+**THREE OF THE ADMITTED PROGRAMS PRINT A DIFFERENT NUMBER ON EVERY EXECUTION** —
+c11 (`&dyn` return `bool` read as `i64`), c17 and c23 (`self:` a different
+struct, field read past the end of the receiver). valgrind is quiet: the bytes
+are stale frame, not unaddressable. The oracle here is a RUN, three times.
+
+## 3. PRICED — two probes, ONE build
+
+probe      fires     ceiling  cost  cfail  runtime  stdlib  verdict
+sigretty   1420072   0        0     0      0        ok      FREE, and correct
+sigrecvty  1561784   100*     1453  1457   —        ⛔      STOP
+
+`sigretty` = the return type compared by `types_equal` after substitution,
+keeping the `_self_shape_artefact` exemption. Full cost line read: `COST-fail =
+0 of 1464 ... (rc 0, .expected-match 0, text-only 0)`, `stdlib: all four layers
+compile`. Runtime column = `run_oracle.py` over **6578** pass fixtures compiled,
+linked and RUN, unarmed vs armed: **one** differing row, `cast-region-to-uint`,
+which the standing instruction subtracts by name (it prints a stack address).
+Armed by hand it refuses exactly c07, c08, c11 and c15 and admits the other
+eleven including the control, with a sentence that names both types:
+`method 'g' does not match the trait declaration: the return type is declared
+'i64' and the impl declares 'bool'`.
+
+⚠ *THE 100 IS NOT A CEILING.* `sigrecvty` broke the stdlib, so every
+`bc_admit` fixture failed to compile and the ceiling counted 100 "closed" rows.
+A ceiling through a hop that is itself broken measures the break (rule 11).
+
+`sigrecvty` = the receiver by type with the DST exemption narrowed to
+`impl_self_ty` being Slice/DstRef/TraitObject/Array. **That narrowing is wrong**,
+and the stdlib says so at exactly FOUR sites, counted not guessed:
+`impl Pattern for str` (`find_in`, `match_len`), `impl ToString for str`,
+`impl WritField for str` — all one shape, "declared `[u8]`, impl declares
+`&[u8]`". The exemption must be keyed on the SHAPE OF THE DIFFERENCE (one
+reference layer over an identical DST pointee), not on the kind of `Self`.
+
+## 4. THE CORPUS COST OF THE RECEIVER HALF, BY DIRECT COUNT
+
+`fn drop(self: <non-reference>)` against a trait that declares `&mut Self`:
+**251 files**, 0 of them in `stdlib/` (the stdlib was converted 2026-09-08; all
+29 of its `Drop` impls are `&mut`). 143 `tests/logos/pass`, 67
+`tests/imported/pass/drop`, 23 `tests/logos/fail`, 18 scattered. A receiver
+check with the exemption keyed correctly refuses all 251. **That number is the
+deliverable and the landing is the owner's call**; half-converting the corpus
+and weakening the check are both refused.
+
+## 5. WHAT DESERVES FUNDING
+
+ 1. **`sigretty`, unchanged.** 1.42 M arrivals, zero on five cost columns
+    including the runtime one, and it is the only measured arm that closes the
+    `&dyn` garbage (c11). Its ceiling of 0 is expected — no `bc_admits` row
+    names a return-type conformance defect — and by rule 4 that is not a
+    refutation of a site proven live four ways.
+ 2. **The two LEGAL-RUST refusals c14/c21 are owed queue rows** (`refuses`,
+    tier 3). They are a cost the 09-07b landing shipped and nothing holds them.
+ 3. **The receiver arm, with the exemption re-keyed**, and the 251 as its price,
+    to the owner.
+ 4. **The three `missing method` sentences (c04/c05/c06)** — right verdict,
+    false sentence, the same complaint M-SIG recorded in 2026-09-02w and still
+    standing.
+ 5. ⛔ **`sigrecvty` as written — DO NOT LAND.**
