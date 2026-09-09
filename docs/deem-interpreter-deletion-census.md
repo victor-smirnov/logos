@@ -5595,8 +5595,22 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   non-regression pin that turned out to be a PRE-EXISTING defect, and it is now
 #   the soundness_queue row `inherent_clash_bound_dispatch_refused` (its program
 #   lives on the queue's shelf, which this census does not index).
-REGISTRY-ALL         9449
-REGISTRY-NOIMPORTED  4985
+# 2026-09-09h — THE FAT-REFERENCE RETURN ABI. Six native pass fixtures, and the
+#   ledger side is a NET -1 (one tier-1 soundness_queue row closed, none minted;
+#   the queue's shelf is not indexed here).
+#   ALL          9449 -> 9455   +6   (six native pass, no fail half: a `run` row
+#                                     has no diagnostic to pin)
+#   NOIMPORTED   4985 -> 4991   +6   (all six are native)
+#   TIERCOMMIT    150 ->  150    0
+#   The six: fatret_closure_impl_fn_pair_survives / fatret_fnptr_thin_return
+#   (the fat/thin PAIR, one token apart), fatret_customdst_ref_returned /
+#   fatret_customdst_selfdescribing_thin (the second pair), the closed row
+#   generic_drop_body_calling_closure_param (a firing COUNT on stdout, not an
+#   exit code), and fatret_closure_returning_closure — the three-site agreement
+#   pin, written natively because the three IMPORTED fixtures that caught that
+#   site are not run by `L4 bc`.
+REGISTRY-ALL         9455
+REGISTRY-NOIMPORTED  4991
 REGISTRY-TIERCOMMIT  150
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

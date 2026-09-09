@@ -1,0 +1,20 @@
+// PAIR HALF, ONE TOKEN FROM `fatret_closure_impl_fn_pair_survives`:
+// `impl Fn() -> i64` spelled `fn() -> i64`. A non-capturing closure coerced to
+// a fn POINTER is `RefReprKind::ThinPtr` — the other row of `repr_return_type`
+// — so it is genuinely 8 bytes and is returned as a value, not as the address
+// of a frame slot. It was correct before the FatClosure move and must stay so:
+// this half is what says the change did not widen the thin row by accident.
+package fatret_fnptr_thin_return;
+
+fn mk() -> fn() -> i64 {
+    return || -> i64 { return 5i64; };
+}
+
+fn main() -> i32 {
+    let f = mk();
+    let a: i64 = f();
+    let b: i64 = f();
+    let c: i64 = f();
+    if a + b + c != 15i64 { return 1i32; }
+    return 0i32;
+}

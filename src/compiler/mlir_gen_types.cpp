@@ -951,17 +951,14 @@ MLIRGenImpl::Layout MLIRGenImpl::repr_storage_layout(RefReprKind k) {
 }
 
 mlir::Type MLIRGenImpl::repr_return_type(RefReprKind k) {
-    // The by-VALUE return ABI. dyn/slice are materialized as their 16B storage
-    // pair in the caller's frame (return-by-value leak fix); closure/custom-DST
-    // are returned as the 8B value pointer (their fat storage is not return-
-    // materialized — matches the pre-RefRepr behavior where these fell through
-    // to logos_to_mlir = ptr). Thin → 8B value.
+    // The by-VALUE return ABI, keyed on STORAGE WIDTH: 16B fat pair by value,
+    // thin repr as its 8B pointer. PROBES.md 2026-09-09h-fatret.
     switch (k) {
         case RefReprKind::FatDyn:
         case RefReprKind::FatSlice:
-        case RefReprKind::FatZoneMut:   return repr_storage_type(k);  // 16B by value
+        case RefReprKind::FatZoneMut:
         case RefReprKind::FatClosure:
-        case RefReprKind::FatCustomDst:
+        case RefReprKind::FatCustomDst: return repr_storage_type(k);  // 16B by value
         case RefReprKind::ThinPtr:
         case RefReprKind::RelOffset:    return repr_value_type(k);    // 8B ptr value
         case RefReprKind::NotARef:      return nullptr;

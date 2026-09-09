@@ -31234,3 +31234,105 @@ note: PRICING ONLY. The probe was reverted and the compiler rebuilt; the queue
   ⚠ A "non-regression pin" that was never measured on the OLD binary is not one:
   it can only tell you the new binary's answer, and this one's old answer was the
   interesting half.
+
+---
+
+## 2026-09-09h-fatret — A FAT REFERENCE RETURNED AS A POINTER TO THE FRAME THAT IS ABOUT TO DIE
+
+Record: `src/compiler/probes/2026-09-09h-fatret/` (PREDICTION.md, RESULT.md,
+eight hand programs). Base `30683596ac68fda8 43`, HEAD `7a137f7ae`, with the
+base tree kept as a git worktree at `/tmp/logos-base09h` and separately built,
+so every "before" figure is a binary and not a memory.
+
+  THE SITE IS A TWO-ROW TABLE, `repr_return_type` (mlir_gen_types.cpp). The
+  class is stated over the CLOSED `RefReprKind` enumeration as a property, never
+  as a grep: a repr whose STORAGE is 16 bytes but whose RETURN ABI is an 8-byte
+  pointer necessarily hands back the address of a `create_entry_alloca` slot in
+  the callee's frame. Five reprs have 16-byte storage; three (FatDyn, FatSlice,
+  FatZoneMut) were already returned by value. **The class is the other two, and
+  both were live:**
+    * `FatClosure` — a closure returned from a function. rc 139 on three of four
+      fresh hand shapes; the fourth exits 0 with the RIGHT answer and three
+      valgrind records, which is why no rc-based column in this tree has ever
+      seen it.
+    * `FatCustomDst` — a `&CustomDst` returned from a function. rc 139 / 2 vg,
+      and it had **no row in any ledger**. Found by walking the enumeration.
+  The control is the property, not a hunch: `FatZoneMut` built by the callee
+  (`zone_mut_ref`) and returned is clean, and its IR returns `{ptr,i64}`.
+
+  ⚠ HALF A MECHANISM IS NOT ONE, MEASURED AGAIN AND IN THE SAME WORDS. With
+  only the return-type half landed, six programs stopped compiling with
+  `'llvm.getelementptr' op operand #0 must be LLVM pointer type ... but got
+  '!llvm.struct<(ptr, ptr)>'` — the identical diagnostic `2026-09-09g`'s
+  `capfat` produced from the identical omission, one file over. The consumer
+  half is `spill_slice_call_result`, whose predicate was a LIST OF KINDS
+  (`Slice || FatZoneMut`) and is now the return ABI itself,
+  `repr_return_type(rk) == repr_storage_type(rk)`. The two halves had already
+  drifted: FatZoneMut was in the spill's list and in no branch of the older
+  return-type function.
+
+  ⚠ AND IT WAS NOT TWO HALVES, IT WAS THREE, AND THE THIRD COST A RUN_ORACLE
+  PASS TO FIND. There are THREE functions that answer "what LLVM type does this
+  return position have": `make_fn_type` (the fn definition),
+  `fn_call_ret_llvm_type` (the call site) — both already reading
+  `repr_return_type` — and `llvm_fn_ret_type`, which `gen_closure` uses for a
+  CLOSURE's own return type and which hand-rolled its own two-kind table
+  (TraitObject, Slice, else `logos_to_mlir`). With the descriptor moved and that
+  third site left alone, a CLOSURE RETURNING A CLOSURE was DEFINED `-> ptr` and
+  CALLED `-> {ptr,ptr}`: the caller read two words out of a one-word return, and
+  three green imported pass fixtures went `runrc 0 -> -11` (SIGSEGV).
+  `nested-closure-call`, `nested-closure-call-b141`,
+  `closure-returning-closure-b161`. **Every compile-time column called the
+  change free** — L1 had not been run yet, but ceiling, cost, cfail and the
+  stdlib column are all rc-on-a-COMPILE and the compile succeeded. Only
+  `run_oracle.py`, which links and RUNS 6572 fixtures, could see it. Rule 15 and
+  rule 2 in one finding, and the reason the prediction file named this exact
+  direction as the thing that would condemn the round.
+  The third site now reads the same descriptor, and the shape is pinned
+  natively as `fatret_closure_returning_closure` (the three that caught it are
+  imported tier, which `L4 bc` does not run).
+
+  ⚠ A ONE-TOKEN CONTROL LOCALISES; IT DOES NOT EXPLAIN. The closed row
+  `generic_drop_body_calling_closure_param_corrupts_callers_closure` named its
+  root as "the presence of a CALL to `F` inside the drop body", with a one-token
+  control and five further controls all agreeing. Nothing in the drop mechanism
+  was touched to close it. Its real root is that `a_out<F>(a) -> F` RETURNS A
+  CLOSURE; deleting `g();` moved it only by changing the frame layout the
+  dangling pointer landed in. I predicted this row would NOT close, by name,
+  because I read its header and not its code.
+
+  ⚠ AND THE ROUND RETIRED ANOTHER ROW'S INSTRUMENT INSIDE ITS OWN COMMIT.
+  `impl_fn_return_stack_env_dangles` was `run 139`; after the pair fix its
+  program exits 0 with the right answer and two valgrind uninitialised-read
+  records, its ENV still dangling. Re-armed in the same commit with a carrier
+  that two closures from two functions clobber (`run 1`, 4 vg, deterministic),
+  the original spelling kept inside it so the evidence still executes.
+
+  ⚠ THE ROW'S NAMED ROOT IS NOW REFUTED AT THE INTERACTION CELL, WHICH IS THE
+  MEASUREMENT `2026-09-09g` COULD NOT REACH. With the pair fix landed, the crude
+  `escapes` arm re-installed on top of it moved the row 0/2 -> 0/2 and N2
+  1/2 -> 1/2, digit for digit, while making R3 lose 16 bytes. `escapes` is not
+  that row's root and opening it is not free. The remaining work is three doors
+  in SERIES and the third — freeing an unboxed closure's heap env — has no
+  implementation anywhere in the tree.
+
+  FIXTURES — six, all pass, landed as two PAIRS one token apart plus the
+  closed row plus the three-site agreement pin:
+    * `fatret_closure_impl_fn_pair_survives` / `fatret_fnptr_thin_return` —
+      `impl Fn() -> i64` against `fn() -> i64`, the fat and thin rows of the same
+      table. Base: 3 valgrind records against 0.
+    * `fatret_customdst_ref_returned` / `fatret_customdst_selfdescribing_thin` —
+      the same `&CustomDst` return with and without `#[self_describing]`, which
+      `ref_repr_of` classifies THIN and whose own comment already called out
+      "what lets a `&Foo` to it be RETURNED safely (no stack-local metadata pair
+      to dangle)" — the workaround, written down years before the defect it
+      works around was measured. Base: rc 139 against rc 0.
+    * `generic_drop_body_calling_closure_param` — the closed row, asserting a
+      FIRING COUNT on stdout (a leak reads low, a double fire high) rather than
+      an exit code. Base: rc 139 with no stdout at all.
+    * `fatret_closure_returning_closure` — a closure whose return type is a
+      closure, holding the three return-type sites in agreement. Base: rc 0 with
+      2 valgrind records; the intermediate binary that had only two of the three
+      sites moved: SIGSEGV.
+  Both thin-row halves read rc 0 / 0 vg on the base binary AND after, which is
+  what says the repair reached the fat row only.

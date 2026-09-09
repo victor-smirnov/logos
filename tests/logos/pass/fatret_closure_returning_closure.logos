@@ -1,0 +1,23 @@
+// A CLOSURE WHOSE OWN RETURN TYPE IS A CLOSURE — the shape that found the THIRD
+// site of this mechanism.
+//
+// `gen_closure` types the synthesized closure function's return with
+// `llvm_fn_ret_type`, while the CALL site types the same call with
+// `fn_call_ret_llvm_type`. While only the latter read the `repr_return_type`
+// descriptor and the former hand-rolled its own two-kind table, `outer` was
+// defined `-> ptr` and called `-> {ptr,ptr}`: the caller read two words out of
+// a one-word return. Three imported pass fixtures went rc 0 -> SIGSEGV and no
+// column except `run_oracle.py` could see it — a compile that succeeds and a
+// program that crashes is invisible to every compile-time oracle in the tree.
+//
+// Pinned natively (the three that caught it are imported tier) so the three
+// return-type sites are held in agreement by a fixture and not by a comment.
+package fatret_closure_returning_closure;
+
+fn main() -> i32 {
+    let outer = || -> (|| -> i64) { return || -> i64 { return 42i64; }; };
+    let inner = outer();
+    if inner() != 42i64 { return 1i32; }
+    if inner() != 42i64 { return 2i32; }
+    return 0i32;
+}

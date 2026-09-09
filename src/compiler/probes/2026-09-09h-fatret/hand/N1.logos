@@ -1,0 +1,14 @@
+// N1: non-capturing closure returned as `impl Fn`, called THREE times.
+// The returned {fn,env} pair is an alloca in mk's dead frame.
+package N1;
+fn mk() -> impl Fn() -> i64 {
+    return || -> i64 { return 5i64; };
+}
+fn main() -> i32 {
+    let f = mk();
+    let a: i64 = f();
+    let b: i64 = f();
+    let c: i64 = f();
+    if a + b + c != 15i64 { return 1i32; }
+    return 0i32;
+}

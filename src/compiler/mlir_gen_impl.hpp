@@ -942,8 +942,11 @@ private:
         // the usual ptr-to-{data,meta} pair (repr_data/repr_meta gep). Without this
         // a returned fat ref is a struct value and field access geps it directly.
         if (!v || !ty) return v;
-        bool fat_returnable = (ty.kind() == LogosType::Kind::Slice) ||
-                              (ref_repr_of(ty) == RefReprKind::FatZoneMut);
+        // The predicate is the RETURN ABI itself, not a list of kinds, so this
+        // spill cannot drift from repr_return_type. PROBES.md 2026-09-09h-fatret.
+        auto rrk = ref_repr_of(ty);
+        bool fat_returnable = rrk != RefReprKind::NotARef &&
+                              repr_return_type(rrk) == repr_storage_type(rrk);
         // A tagged/niche enum is RETURNED by value (an aggregate; mlir_gen_fn.cpp),
         // but its value-repr is by-POINTER (logos_to_mlir(Enum) == ptr). Spill the
         // aggregate result to a slot so consumers (method `self`, match scrutinee,
@@ -1074,25 +1077,11 @@ private:
             if (auto* te = resolve_tagged_enum(std::string(rt.enum_name()), rt))
                 return te->llvm_type;
         }
-        // Trait-object value-fat-pair: return the 16-byte {data,vtable} pair BY
-        // VALUE (mirrors how we'd return a slice's {ptr,len}). Without this a
-        // `-> &dyn T` returned a single ptr and the callee had to malloc a
-        // surviving fat slot (a leak). Covers bare `dyn`, `&dyn`/`&mut dyn`,
-        // `*const dyn`/`*mut dyn`.
-        // Only a BARE `dyn`/`&dyn`/`&mut dyn` (sema flattens these to a single
-        // TraitObject node) returns by-value as the 16-byte fat pair. A
-        // `Ref/MutRef<TraitObject>` (i.e. `&T` where T is itself `&dyn`, as in
-        // `Vec<&dyn>::index -> &T`) is a genuine POINTER into storage — keep it
-        // thin. Raw `*const/*mut dyn` likewise stays a thin handle.
-        if (rt.kind() == LogosType::Kind::TraitObject)
-            return dyn_llvm_type();
-        // Slice/str fat-pair: return the 16-byte {ptr,len} BY VALUE (mirrors the
-        // TraitObject fat-pair above). logos_to_mlir(Slice)=ptr, which forced
-        // gen_return to malloc(16)+memcpy a surviving heap slot (a leak, A3/A4).
-        // `str` IS Slice<u8> so it gets the same treatment. The caller spills the
-        // returned value back to a stack slot (slices are consumed by-pointer).
-        if (rt.kind() == LogosType::Kind::Slice)
-            return slice_llvm_type();
+        // Reference return ABI: ONE descriptor, shared with make_fn_type and
+        // fn_call_ret_llvm_type. This is the site gen_closure uses for a
+        // CLOSURE's own return type. PROBES.md 2026-09-09h-fatret.
+        if (auto rk = ref_repr_of(rt); rk != RefReprKind::NotARef)
+            return repr_return_type(rk);
         return logos_to_mlir(ret_t);
     }
 

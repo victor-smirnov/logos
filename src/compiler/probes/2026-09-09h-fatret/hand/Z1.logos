@@ -1,0 +1,13 @@
+// Z1: CLASS MEMBER PROBE — FatZoneMut in RETURN position. ref_repr_of says
+// FatZoneMut (16B {data,zone}); llvm_fn_ret_type has no branch for it.
+package Z1;
+#[zone_mut] struct Box2 { v: i64 }
+fn get(r: &mut Box2) -> &mut Box2 {
+    return r;
+}
+fn main() -> i32 {
+    let mut o: Box2 = Box2 { v: 42i64 };
+    let q: &mut Box2 = get(&mut o);
+    if q.v != 42i64 { return 1i32; }
+    return 0i32;
+}

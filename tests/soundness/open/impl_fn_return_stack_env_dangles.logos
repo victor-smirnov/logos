@@ -1,61 +1,81 @@
-// SOUNDNESS QUEUE row impl_fn_return_stack_env_dangles (tier 1). A CLOSURE
-// RETURNED AS `impl Fn() -> i64` KEEPS ITS ENVIRONMENT IN THE DEAD FRAME.
+// SOUNDNESS QUEUE row impl_fn_return_stack_env_dangles (tier 1).
+// A CLOSURE RETURNED AS `impl Fn` KEEPS ITS CAPTURED ENVIRONMENT IN THE DEAD
+// FRAME. The `{fn,env}` PAIR now survives the return; the ENV does not.
 //
-// `fn mk() -> impl Fn() -> i64 { let k: i64 = 7i64; return move || k; }` returns
-// a `{fn, env}` pair whose env is an `alloca` in mk's frame — and the pair
-// itself is the address of another alloca in that frame. Calling the returned
-// closure reads freed stack. Here it SIGSEGVs on the second call (rc 139,
-// valgrind "Invalid read of size 8"); the single-call spelling exits 0 with the
-// RIGHT answer and 37 uninitialised-value records, which is why no oracle in
-// this tree has ever seen it.
+// ⚠ RE-ARMED 2026-09-09, SAME COMMIT AS THE LANDING THAT RETIRED ITS OLD
+// INSTRUMENT — read this before trusting anything the previous header said.
 //
-// ROOT, by symbol: the `ec->escapes = true` arm in `SemaChecker`'s closure-
-// literal lowering (src/compiler/sema_expr.cpp), guarded by
+// The row was recorded `run 139` against the single-fn spelling now kept below
+// as PART 1. That spelling no longer SIGSEGVs: `repr_return_type` moved
+// FatClosure into the by-value return row, so `mk` hands back the 16-byte
+// {fn,env} pair instead of a pointer to its own frame slot, and PART 1 exits 0
+// with the RIGHT answer. Its defect did not move — it still reads
+// `k` out of a dead frame, which valgrind reports as two "Conditional jump or
+// move depends on uninitialised value(s)" records in `main` and no exit code
+// reports at all. A stronger rule upstream retired this row's INSTRUMENT and
+// left its DEFECT where it was.
 //
-//     TypeRef hk(hint_closure_formal_);
-//     if ((hk.kind() == LogosType::Kind::Struct ||
-//          hk.kind() == LogosType::Kind::ZonedStruct) &&
-//         peel_to_callable(hint_closure_formal_))
-//         ec->escapes = true;
+// PART 2 is the replacement carrier, and it restores a RUN-VISIBLE oracle:
+// two closures built by two different functions and held alive at once. Both
+// envs are `create_entry_alloca` slots at the same depth, so the second call's
+// frame reuses the first's env and `f()` reads `40` instead of `3`.
+//   want   f() + g() == 43, exit 0
+//   today  wrong sum, exit 1, plus 2 valgrind uninitialised-read records
 //
-// Its own comment says a closure "lowered where the expected type is
-// `Box<…Fn…>` is being BOXED — its captured env must live on the heap (boxing
-// confers heap lifetime; a stack env would dangle once the creating fn
-// returns)". THE PREDICATE ANSWERS "DOES THIS CLOSURE OUTLIVE THE FRAME?" FROM
-// THE SHAPE OF THE HINT TYPE — a Struct wrapper — AND RETURN POSITION IS A
-// SECOND ESCAPING DOOR IT CANNOT SEE. `MLIRGenImpl::gen_closure` then computes
-// `bool heap_env = v.escapes() && !captures.empty();` and allocates the env
-// with `create_entry_alloca(cap_struct)`. The arm exists and is correct next
-// door; the fact that reaches it is missing.
+// ROOT, MEASURED, AND IT IS NOT THE ONE THE OLD HEADER NAMED. The old header
+// named the `ec->escapes = true` arm in `SemaChecker`'s closure-literal
+// lowering (src/compiler/sema_expr.cpp) as the root. On 2026-09-09 that arm was
+// widened to fire for ANY callable hint AND MEASURED ON TOP OF THE PAIR FIX:
+// PART 1 read 0 / 2 valgrind records and PART 2 read 1 / 2 valgrind records
+// ARMED AND UNARMED, digit for digit. `escapes` is not this row's root. The
+// hint does not even reach a `-> impl Fn` return: a returned `|x| ...` with an
+// untyped param infers `void`, which is the same hint failing at its other
+// consumer.
 //
-// CONTROLS ALREADY CORRECT ON THIS BINARY, bounding where a fix must not reach
-// (lattice cells k_boxed_escape_twice, k_fnptr_escape, and the whole
-// c_box_dyn_escape_* family): the SAME escaping closure through
-// `Box<dyn Fn() -> i64>` — 7+7=14, valgrind-clean, because that hint IS a
-// Struct wrapper; a NON-capturing closure returned as a bare `fn() -> i64` —
-// clean, there is no env; and the same closure NOT returned but called in
-// place — clean.
+// SO THE REMAINING WORK IS THREE DOORS IN SERIES, NOT ONE:
+//   1. the fact that a closure literal is in RETURN POSITION must reach the
+//      escape decision at all (today `hint_closure_formal_` does not carry it);
+//   2. `gen_closure` must then take the heap-env path (`heap_env = escapes &&
+//      !captures.empty()`);
+//   3. and something must FREE that heap env. Nothing does today for a closure
+//      that is not boxed: measured 2026-09-09g, the crude escape arm leaks
+//      `definitely lost: 16 bytes` at the iterator-adapter shape while still
+//      exiting 0. Opening doors 1 and 2 without door 3 trades a dangle for a
+//      leak, and a leak has no exit code.
 //
-// ⚠ THE NON-CAPTURING `impl Fn` RETURN IS DIRTY TOO AND IS PART OF THIS ROW:
-// `fn mk() -> impl Fn() -> i64 { return || -> i64 { return 5i64; }; }` exits 0
-// with the right value and 6 valgrind records, because the returned `{fn, env}`
-// pair is itself a pointer into the dead frame.
-//
-// Measured 2026-09-07 on the closure lattice (cells k_impl_fn_called_twice,
-// k_impl_fn_arg_ret, k_impl_fn_nocap_twice, i_impl_fn_scalar,
-// i_impl_fn_owner_two, i_impl_fn_nocap, g_returned_impl_fn), build
-// febd1aa6e49ae30c 43. Rust: exit 0, `f() + f() == 14`.
+// CONTROLS CORRECT ON THIS BINARY, bounding where a fix must not reach:
+// the same escaping closure through `Box<dyn Fn() -> i64>` (Box::new copies the
+// pair AND heap-allocates the env — clean, 7+7=14); a NON-capturing closure
+// returned as `impl Fn` (clean since the pair fix — pinned as the pass fixture
+// `fatret_closure_impl_fn_pair_survives`); and the same closure not returned
+// but called in place.
 package impl_fn_return_stack_env_dangles;
 
+// ── PART 1: the row's original spelling. Exits 0 today with the right answer
+// and two valgrind uninitialised-read records. Kept so the evidence runs.
 fn mk() -> impl Fn() -> i64 {
     let k: i64 = 7i64;
     return move || -> i64 { return k; };
 }
 
+// ── PART 2: the replacement carrier. Two envs at the same frame depth.
+fn mk_a() -> impl Fn() -> i64 {
+    let k: i64 = 3i64;
+    return move || -> i64 { return k; };
+}
+fn mk_b() -> impl Fn() -> i64 {
+    let k: i64 = 40i64;
+    return move || -> i64 { return k; };
+}
+
 fn main() -> i32 {
-    let f = mk();
-    let a: i64 = f();
-    let b: i64 = f();
-    if a + b != 14i64 { return 1i32; }
+    let h = mk();
+    let a: i64 = h();
+    let b: i64 = h();
+    if a + b != 14i64 { return 2i32; }
+
+    let f = mk_a();
+    let g = mk_b();
+    if f() + g() != 43i64 { return 1i32; }
     return 0i32;
 }

@@ -1,0 +1,25 @@
+// A CLOSURE RETURNED FROM A FUNCTION IS RETURNED AS ITS 16-BYTE {fn,env} PAIR
+// BY VALUE, NOT AS A POINTER TO THE DEFINING FRAME'S SLOT.
+//
+// Before `repr_return_type` put FatClosure in the by-value row, `mk` compiled to
+//     %1 = alloca { ptr, ptr } ; ... ; ret ptr %1
+// and every caller GEP'd through a pointer into a frame that had already died.
+// Called three times so the reads are spread past the point where the dead
+// frame is reused.
+//
+// PAIR: `fatret_fnptr_thin_return` is this program with `impl Fn` spelled `fn`
+// — the THIN row of the same table, which must stay exactly as correct.
+package fatret_closure_impl_fn_pair_survives;
+
+fn mk() -> impl Fn() -> i64 {
+    return || -> i64 { return 5i64; };
+}
+
+fn main() -> i32 {
+    let f = mk();
+    let a: i64 = f();
+    let b: i64 = f();
+    let c: i64 = f();
+    if a + b + c != 15i64 { return 1i32; }
+    return 0i32;
+}

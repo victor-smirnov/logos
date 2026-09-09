@@ -1,0 +1,24 @@
+// Z3: CLASS MEMBER PROBE, sharper — the callee CREATES the fat {data,zone}
+// pair (zone_mut_ref) and returns it. If llvm_fn_ret_type has no FatZoneMut
+// branch the pair is a frame alloca and the returned pointer dangles.
+package Z3;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Cell { v: i64 }
+unsafe fn mk(p: *mut Cell) -> &mut Cell {
+    return zone_mut_ref::<Cell>(p, 12345i64 as *mut u8);
+}
+unsafe fn churn(n: i64) -> i64 {
+    let a: i64 = n * 3i64;
+    let b: i64 = a + 7i64;
+    return b * 2i64;
+}
+unsafe fn main() -> i32 {
+    let p: *mut Cell = malloc(8i64) as *mut Cell;
+    (*p).v = 42i64;
+    let q: &mut Cell = mk(p);
+    let junk: i64 = churn(5i64);
+    if junk == 0i64 { return 4i32; }
+    if q.v != 42i64 { return 1i32; }
+    if (zone_of(q) as i64) != 12345i64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,46 @@
+// THE SECOND MEMBER OF THE SAME CLASS: A `&CustomDst` RETURNED FROM A FUNCTION.
+//
+// `&Buf` for a non-`#[self_describing]` DST is `RefReprKind::FatCustomDst` —
+// 16-byte {data,len} storage. `repr_return_type` used to hand it back as an
+// 8-byte pointer to `create_entry_alloca`'s slot in the callee's frame, so this
+// program SIGSEGV'd (rc 139, 2 valgrind records) with `churn` between the
+// return and the read. It had NO ledger row anywhere; it was found by
+// enumerating the RefReprKind table rather than by grepping for a symptom.
+//
+// PAIR: `fatret_customdst_selfdescribing_thin` is the same shape with the DST
+// `#[self_describing]`, which `ref_repr_of` classifies THIN — the tree's own
+// comment says self-describing is "what lets a `&Foo` to it be RETURNED
+// safely (no stack-local metadata pair to dangle)", i.e. the workaround for
+// exactly this defect. Both halves must now run.
+package fatret_customdst_ref_returned;
+
+struct Buf { hdr: i32, tail: [u8] }
+
+unsafe fn mk(raw: *const u8) -> &Buf {
+    return dst_from_raw_parts::<Buf>(raw, 4 as i64);
+}
+
+// Reuses the dead callee frame before the returned reference is read.
+unsafe fn churn(n: i64) -> i64 {
+    let a: i64 = n * 3i64;
+    let b: i64 = a + 7i64;
+    return b * 2i64;
+}
+
+unsafe fn read_buf(b: &Buf) -> i32 {
+    let mut acc: i32 = b.hdr;
+    let s: &[u8] = b.tail;
+    let mut i: i64 = 0;
+    while i < s.len() { acc = acc + (s[i] as i32); i = i + 1; }
+    return acc;
+}
+
+unsafe fn main() -> i32 {
+    let buf: [u8; 8] = [100u8,0u8,0u8,0u8, 1u8,2u8,3u8,4u8];
+    let raw: *const u8 = &buf as *const [u8] as *const u8;
+    let f: &Buf = mk(raw);
+    let junk: i64 = churn(5i64);
+    if junk == 0i64 { return 9i32; }
+    if read_buf(f) != 110i32 { return 1i32; }
+    return 0i32;
+}

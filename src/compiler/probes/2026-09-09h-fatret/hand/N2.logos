@@ -1,0 +1,18 @@
+// N2: TWO different closures returned from two fns, alive at once. If each
+// pair is a frame alloca, the second call clobbers the first.
+package N2;
+fn mk_a() -> impl Fn() -> i64 {
+    let k: i64 = 3i64;
+    return move || -> i64 { return k; };
+}
+fn mk_b() -> impl Fn() -> i64 {
+    let k: i64 = 40i64;
+    return move || -> i64 { return k; };
+}
+fn main() -> i32 {
+    let f = mk_a();
+    let g = mk_b();
+    let s: i64 = f() + g();
+    if s != 43i64 { return 1i32; }
+    return 0i32;
+}

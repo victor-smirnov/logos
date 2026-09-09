@@ -1,0 +1,15 @@
+// N3: the returned closure is passed ON to another function that calls it.
+package N3;
+fn mk() -> impl Fn() -> i64 {
+    let k: i64 = 11i64;
+    return move || -> i64 { return k; };
+}
+fn use_it(g: ||->i64) -> i64 {
+    return g() + g();
+}
+fn main() -> i32 {
+    let f = mk();
+    let r: i64 = use_it(f);
+    if r != 22i64 { return 1i32; }
+    return 0i32;
+}

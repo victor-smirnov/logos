@@ -1,0 +1,22 @@
+// N4: an intervening deep call between mk() and the invocation, so the dead
+// frame is definitely overwritten before the closure is used.
+package N4;
+fn mk() -> impl Fn() -> i64 {
+    let k: i64 = 9i64;
+    return move || -> i64 { return k; };
+}
+fn churn(n: i64) -> i64 {
+    let a: i64 = n * 3i64;
+    let b: i64 = a + 7i64;
+    let c: i64 = b * 2i64;
+    if c > 1000i64 { return 0i64; }
+    return c;
+}
+fn main() -> i32 {
+    let f = mk();
+    let junk: i64 = churn(5i64);
+    if junk == 0i64 { return 3i32; }
+    let a: i64 = f();
+    if a != 9i64 { return 1i32; }
+    return 0i32;
+}

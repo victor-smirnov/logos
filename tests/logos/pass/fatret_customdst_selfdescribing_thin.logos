@@ -1,0 +1,44 @@
+// PAIR HALF: the same `&CustomDst` return with the DST `#[self_describing]`.
+// `ref_repr_of` then classifies it `ThinPtr` (the length is recovered in-band
+// by `dst_len`), so there is no stack-local metadata pair to dangle and this
+// half was already correct before the FatCustomDst move. It is the control
+// that says the repair went to the FAT row of `repr_return_type` and did not
+// disturb the thin one.
+package fatret_customdst_selfdescribing_thin;
+
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+
+#[self_describing]
+struct Buf { count: i64, tail: [i64] }
+
+impl SelfDescribing for Buf {
+    fn dst_len(self: *const Buf) -> i64 { return unsafe { (*self).count }; }
+}
+
+unsafe fn mk(raw: *mut Buf) -> &Buf { return &*raw; }
+
+unsafe fn churn(n: i64) -> i64 {
+    let a: i64 = n * 3i64;
+    return a + 7i64;
+}
+
+unsafe fn sum(b: &Buf) -> i64 {
+    return b.tail[0] + b.tail[1] + b.tail[2];
+}
+
+unsafe fn main() -> i32 {
+    let raw: *mut u8 = malloc(8i64 + 3i64 * 8i64);
+    let b: *mut Buf = raw as *mut Buf;
+    (*b).count = 3i64;
+    let sm: &mut Buf = &mut *b;
+    sm.tail[0] = 10i64;
+    sm.tail[1] = 20i64;
+    sm.tail[2] = 12i64;
+    let f: &Buf = mk(b);
+    let junk: i64 = churn(5i64);
+    if junk == 0i64 { return 9i32; }
+    if sum(f) != 42i64 { free(raw); return 1i32; }
+    free(raw);
+    return 0i32;
+}

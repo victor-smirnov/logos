@@ -1,0 +1,4 @@
+stdout:
+arm: before call, firings (want 0): 0
+arm: after call, firings (want 1): 1
+control: after call, firings (want 1): 1

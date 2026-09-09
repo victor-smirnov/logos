@@ -1,35 +1,22 @@
-// SOUNDNESS QUEUE row generic_drop_body_calling_closure_param_corrupts_callers_closure
-// (tier 1). A GENERIC `Drop` BODY THAT **CALLS** ITS CLOSURE TYPE PARAMETER
-// CORRUPTS A SEPARATE VALUE OF THAT SAME CLOSURE TYPE HELD BY THE CALLER —
-// the caller's call SIGSEGVs, and the drop body's own call never executed.
+// CLOSED SOUNDNESS-QUEUE ROW `generic_drop_body_calling_closure_param_corrupts_
+// callers_closure` (tier 1, `run 139`), closed 2026-09-09 by the FatClosure
+// return-ABI move in `repr_return_type`.
 //
-// Found 2026-09-08 while repairing `stdlib/mem/manually_drop`'s `DropGuard`,
-// which is this shape (it is Rust's `scopeguard`). It is NOT the drop defect
-// that repair is about, and the repair does not fix it or cause it.
+// ⚠ THE ROW'S RECORDED ROOT IS REFUTED, AND THIS FIXTURE IS WHY IT IS PINNED
+// WITH ITS ORIGINAL PROSE BELOW. The header said the discriminator was "the
+// presence of a CALL to `F` inside the drop body" and offered five controls.
+// The actual root is neither the drop body nor the call: `a_out<F>(a) -> F`
+// RETURNS A CLOSURE, and a returned closure was handed back as a POINTER to
+// the callee's frame slot instead of as its 16-byte {fn,env} pair. Deleting
+// `g();` moved the arm only because it changed that frame's layout — a
+// one-token control can separate two programs without naming their cause.
+// Nothing in the drop mechanism was touched to close this row.
 //
-// The discriminator is ONE TOKEN, measured on build 3bd2c3af1c114227 43:
-//   * drop body `if self.armed { let g: F = read::<F>(&self.f.value); g(); }`
-//     -> the caller's later `f()` SIGSEGVs (rc 139)
-//   * the SAME drop body with `g();` deleted (`let g: F = read::<F>(..);`)
-//     -> the caller's `f()` runs, count 1, rc 0
-// So the presence of a CALL to `F` inside the drop body is the cause. The guard
-// is DISARMED in both runs, so the drop body's own `if` never fires — the
-// corruption is not the drop body executing, it is the drop body EXISTING.
-//
-// FIVE CONTROLS, each one variable away, all correct on the same binary:
-//   1. no `impl Drop` at all, everything else identical            -> 1, rc 0
-//   2. `impl Drop` whose body does NOT mention F                   -> 1, rc 0
-//   3. the closure taken out of the field by a plain MOVE, no ptr::read,
-//      owner not `Drop`                                            -> 1, rc 0
-//   4. `read::<F>` through a NON-generic path (`grab<T>(p) -> T`)  -> 1, rc 0
-//   5. the drop receiver written `&mut self` instead of by value   -> STILL SIGSEGVs,
-//      so it is not the by-value receiver either.
-//
-// The program runs the DEFECT arm first and the one-token control second, and
-// takes the firing count itself so a LEAK reads low and a DOUBLE FIRE high:
-//   want   arm 1, control 1, exit 0
-//   today  SIGSEGV in the arm before it can print anything (rc 139)
-package generic_drop_body_calling_closure_param_corrupts_callers_closure;
+// THE ASSERTION IS A FIRING COUNT, NOT AN EXIT CODE: a leak reads low and a
+// double fire high, and both are invisible to rc alone. Both halves of the
+// original one-token pair are kept in the program, so the fixture still
+// carries its own control.
+package generic_drop_body_calling_closure_param;
 use logos.lang.ptr;
 extern fn malloc(n: i64) -> *mut u8;
 extern fn printf(f: *const u8, a: i64) -> i32;

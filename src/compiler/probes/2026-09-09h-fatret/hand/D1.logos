@@ -1,0 +1,31 @@
+// D1: CLASS MEMBER PROBE — FatCustomDst in RETURN position. `&Buf` for a
+// non-#[self_describing] DST is FatCustomDst: 16B {data,len} storage,
+// 8B pointer-to-frame-alloca return ABI. The callee BUILDS the pair
+// (dst_from_raw_parts) and returns it, so the pair is its own frame's alloca.
+package D1;
+struct Buf { hdr: i32, tail: [u8] }
+
+unsafe fn mk(raw: *const u8) -> &Buf {
+    return dst_from_raw_parts::<Buf>(raw, 4 as i64);
+}
+unsafe fn churn(n: i64) -> i64 {
+    let a: i64 = n * 3i64;
+    let b: i64 = a + 7i64;
+    return b * 2i64;
+}
+unsafe fn read(b: &Buf) -> i32 {
+    let mut acc: i32 = b.hdr;
+    let s: &[u8] = b.tail;
+    let mut i: i64 = 0;
+    while i < s.len() { acc = acc + (s[i] as i32); i = i + 1; }
+    return acc;
+}
+unsafe fn main() -> i32 {
+    let buf: [u8; 8] = [100u8,0u8,0u8,0u8, 1u8,2u8,3u8,4u8];
+    let raw: *const u8 = &buf as *const [u8] as *const u8;
+    let f: &Buf = mk(raw);
+    let junk: i64 = churn(5i64);
+    if junk == 0i64 { return 9i32; }
+    if read(f) != 110i32 { return 1i32; }
+    return 0i32;
+}
