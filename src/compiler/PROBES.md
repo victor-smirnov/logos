@@ -32581,3 +32581,166 @@ closure carrier is one row behind a gate that does not open.
 `|| -> &i64 { return &s.f; }` and `|| -> &i64 { return &a[0]; }` are refused —
 right verdict — with *"cannot return reference to temporary value"*, for a NAMED
 local `s`/`a`. Filed as a soundness-queue tier-4 `diag` row.
+
+## 2026-09-09k-bcs — `bck.NEW-BCS`'S GLOSS SAYS "ONE ROOT, THREE DOORS"; THE CENSUS SAYS THREE ROWS IN THREE DIFFERENT STATES, AND THE ONE PREDICATE THAT CLOSES TWO OF THEM IS REFUSED BY THE STDLIB PROGRAM ITS OWN GATE COMMENT NAMES BY NAME
+site: src/compiler/borrow_check.cpp::visit_stmt — the `let` E0716 report gate (the
+      `if (is_ref_kind(t) || is_borrow_carrying_type(t))` chain that sits
+      immediately above the `struct<'z> borrows through lifetime` sibling), and
+      `BorrowChecker::prov_of`'s `Code::MethodCall` arm at BOTH its gates:
+      the entry gate `if (!plain && !fat && !m_bc) return {};` and the inner
+      receiver clause `is_plain_ref_kind(m_rt) && …peel_recv_base…`.
+build: BASE cb42ff07dca840b8 43 (HEAD e17c307b1, READ) -> ARMED d6493a555123437d 43 (READ)
+       plus a CENSUS-ONLY build in a separate dir (`build-census`, base sources
+       otherwise) whose print is in no committed source.
+measured: 2026-09-09
+fires: ⚠ TWO KINDS OF NUMBER IN ONE COLUMN, AND ONLY ONE OF THEM MEANS ANYTHING.
+       `aggtemp`/`abser`/`mcagg2` read 417k-420k because their `probe::on` sits on
+       a gate ASKED AT EVERY `let` in every compiled file, stdlib included: that is
+       an ASKED count, not a new-routing count. The numbers that license anything
+       here are the PER-PROGRAM ones below. `mcaggprov` 2676 and `rtmptemp` 2 are
+       real routing counts.
+ledger: NOTHING CLOSED — this is a pricing round. bc_admits `# TOTAL` stays 91.
+
+### THE CENSUS ANSWERED THE BLOCK BEFORE ANY ARM DID (rule 17)
+The ledger's own 2026-09-07 gloss for `bck.NEW-BCS` is "a temporary's borrow carried
+out inside a STRUCT loses the temporary's provenance … three rows, three doors".
+An `LOGOS_BCS_CENSUS` print at the `let` door — every binding, its type, and
+`prov_of(init)` — on the unmodified checker, over the three rows:
+
+    row                              arrives  refkind  prov.is_temp  state
+    borrowck-borrowed-uniq-rvalue-2    yes       no        1         FACT PRESENT, ARM UNREACHED
+    borrowck-let-suggestion            yes       no        0         FACT ABSENT,  ARM UNREACHED
+    issue-36082                        yes      YES        0         FACT ABSENT,  ARM ALREADY REACHED
+
+Three rows, three states. Row 1 needs no new fact at all — `prov_of` already says
+`is_temp`, and the report is skipped only because the gate asks `is_ref_kind ||
+is_borrow_carrying_type` of the BINDING'S TYPE and an `Iter<'a>`/`Defer<'a>` is
+neither. Row 3 (`issue-36082`) already runs the report arm and is silent because
+`prov_of` answers `is_temp=0`. Row 2 is missing both halves. A single change cannot
+move all three, and the "three doors of one root" reading is refuted the way the
+last two rounds' handed-down groupings were: by asking each member separately.
+
+### THE CLASS, ENUMERATED BY THE PROPERTY, ON THE BASE BINARY (rule 5: vary the SHAPE)
+Property: *a `let` whose type carries a borrow through an AGGREGATE, initialised
+from a call that borrows a temporary.* Not "a struct" — the ledger's word is too
+narrow, and four spellings prove it. Every line compiled on base cb42ff07dca840b8:
+
+    free fn -> bare &T          peek(&mk())                rc 1  ✓ already refused
+    method on temp -> bare &T   mkv().peek()               rc 1  ✓ already refused
+    free fn -> struct           defer(&mk())               rc 0  ← row 1's shape
+    method on temp -> struct    mkv().iter()               rc 0  ← row 3's shape
+    trait method -> struct      mkv().it()                 rc 0  ← unrowed
+    free fn -> TUPLE            pair(&mk()).0              rc 0  ← unrowed
+    free fn -> ENUM             wrap(&mk())                rc 0  ← unrowed
+    free fn -> GENERIC struct   wrap(&mk()) : W<&i64>      rc 0  ← unrowed, and lifeargs=0
+    free fn -> ARRAY of &T      wrap(&mk()) : [&i64;1]     rc 0  ← unrowed
+    free fn -> struct in struct wrap(&mk()) : Outer<Inner> rc 0  ← unrowed
+    ASSIGN door (not `let`)     d = defer(&mk())           rc 0  ← unrowed
+  LEGAL, and every one of them must stay rc 0:
+    struct LITERAL in the initializer   Defer { x: &mk() }      rc 0  (Rust EXTENDS it)
+    owner bound first                   let v = mk(); defer(&v) rc 0
+    receiver bound first                let v = mkv(); v.iter() rc 0
+    param-rooted receiver               v: &Vecish; v.iter()    rc 0
+    value result on a temp receiver     mkv().size()            rc 0
+    owned struct result, no borrow      mkv().dup()             rc 0
+    named RefCell guard                 let g = x.borrow(); g.get() rc 0
+The generic-struct line matters on its own: `W<&'r i64>` has ZERO lifetime args, so
+the `!t.lifetime_args().empty()` sibling branch does not see it either. Any predicate
+written on `lifetime_args` is already wrong before it is priced.
+
+### THE PROBE TABLE, EVERY COST COLUMN, INCLUDING THE RUNTIME ONE
+    probe        fires    ceiling  cost  cfail  std  runtime
+    aggtemp     417661       1       0     4    ok    n/s
+    mcaggprov     2676       0       0     0    ⛔    n/s
+    abser       420695       1       0     3    ok    n/s
+    mcagg2      420630       2       0     3    ⛔    n/s
+    rtmptemp         2       0       0     0    ok    n/s
+`n/s` = NOT MEASURED AND SAID SO: every arm above is a STOP on an rc-visible column
+already (an un-refused `fail` fixture, or a stdlib that does not build), and
+`run_oracle.py` is a 50-minute saturating pass that can only deepen a decline. A
+round that FUNDS any of these shapes must price the runtime column before landing.
+
+    aggtemp    the `let` report gate widened to `type_may_carry_borrow(t)`
+    mcaggprov  prov_of/MethodCall ENTRY gate widened the same way
+    abser      both of the above at once (a SERIES probe: one name, two sites)
+    mcagg2     both of the above PLUS the inner receiver clause
+    rtmptemp   prov_of/VarRef: a `__rtmp_N` name with no prov_ entry answers is_temp
+
+### PREDICTED BY NAME BEFORE THE BINARY EXISTED, DIFFED BOTH WAYS
+    aggtemp    predicted {borrowck-borrowed-uniq-rvalue-2}           measured the same.  ∖ both ways = ∅
+    mcaggprov  predicted {}                                          measured {}.        ∖ both ways = ∅
+    mcagg2     predicted {rvalue-2, borrowck-let-suggestion}         measured the same.  ∖ both ways = ∅
+    abser      predicted {rvalue-2, borrowck-let-suggestion}   MEASURED {rvalue-2} — REFUTED
+    rtmptemp   predicted {issue-36082}                         MEASURED {}        — REFUTED
+Diagnostic READ on every claimed row, not inferred from rc:
+    "temporary value dropped while borrowed: this reference borrows into a temporary
+     that is dropped at the end of the statement; bind the owning value to a variable
+     first so it outlives the borrow"
+
+### THE TWO REFUTATIONS ARE THE ROUND'S TWO FINDINGS
+**1. `prov_of`'s MethodCall arm has TWO gates in series, and both ask the same wrong
+question.** `abser` opens the entry gate and buys NOTHING (1 + 0 = 1, not 2). The
+census says why, and it is not a dead site: `borrowck-let-suggestion` fires the
+entry-gate probe exactly ONCE — it ARRIVES — and is still admitted, because forty
+lines below, the clause that actually sets `rp.is_temp` asks `is_plain_ref_kind(m_rt)`
+a second time. Widening BOTH (`mcagg2`) closes the row. Rule 2, measured rather than
+assumed: proven live is necessary, not sufficient; half a mechanism is not one.
+
+**2. `rtmptemp`'s zero is an UNREACHED SITE, and the two kinds of zero are visible
+in the same table.** `rtmptemp` fires 2 times in the whole corpus and ZERO times on
+all three rows — the `__rtmp_N` VarRef never reaches `prov_of` in these programs, so
+its 0 says nothing about the hypothesis. `mcaggprov`'s zero on `issue-36082` is a
+THIRD kind: the probe is short-circuited because that row's result type is already
+`plain`, so the gate never had to decide. Neither is a refutation of a mechanism;
+both are the harness declining to answer.
+
+### THE COST THAT CONDEMNS THE CRUDE FORM, AND IT WAS WRITTEN DOWN IN ADVANCE
+`mcagg2` refuses the stdlib: `logos.mem` fails to build, ONE refusal, in
+`stdlib/mem/wql/srcloc.logos::resolve`. That is the function the receiver clause's
+OWN COMMENT names as the program that bought gate (i): "`WRef<S>::any(&self) -> WAny`
+returns BY VALUE, so nothing can dangle (stdlib/mem/wql/srcloc.logos, `fn resolve`)".
+The crude widening re-opens exactly the over-refusal the gate exists to prevent, and
+the source said so before the price did. ⚠ WHICH BINDING in `resolve` is refused was
+NOT isolated — that needs another instrumented build — and is left unmeasured rather
+than guessed.
+⚠ AND THE COST IS NOT MONOTONE IN THE ARMED SITES: `abser` (two sites) builds all
+four stdlib layers; `mcagg2` (those two sites plus one) does not, and `mcaggprov`
+(ONE site, a strict subset of both) does not either — with a DIFFERENT sentence
+("cannot return reference to local variable '__out'", `lcm` ×2 + `mem` ×1). Cost is
+not additive downward and it is not additive upward either (rule 13).
+Every arm also UN-REFUSES `fail` fixtures — 4 for `aggtemp`, 3 for the others, all
+`rc 1 -> 0`, three of them shared:
+    bc_esc_holder_residency_pershare_dangle · bc_tmcb_erased_closure_local ·
+    do-not-suggest-adding-move-move (+ bc_esc_holder_return_dyn_dangle, `aggtemp` only,
+    and REPAIRED by adding the `mcaggprov` half — the two arms partially cancel).
+That is a property of the CRUDE form, not of the hypothesis: the widened gate does not
+merely report, it STEALS the branch, so the `#86` sub-site below it that records
+erased-carry provenance never runs. A correct fix ADDS a report where the sibling
+branch already stores the provenance; it does not re-route the binding. Rule 7.
+
+### WHAT THE CORRECT PREDICATE HAS TO ASK, NAMED
+The gate asks the result's KIND. What separates `Vecish::iter<'s>(&'s self) -> Iter<'s>`
+(row 3, the borrow IS the receiver's) from `WRef<S>::any(&self) -> WAny` (the stdlib,
+the borrow is NOT) is that the first names the RECEIVER'S OWN LIFETIME in the result
+type and the second names no lifetime at all. That fact is in the signature and the
+flow summary; neither gate consults it. Until it does, every widening of these gates
+prices as "closes two ledger rows, refuses the stdlib".
+
+### THREE TOOL / DOCUMENT CORRECTIONS, EACH RE-VERIFIED AGAINST THE TEXT IN FRONT OF ME
+⚠ **`probe-log-lint.py` SILENTLY SKIPS A RECORD WHOSE `site:` HAS NO `::`.** A block
+is treated as a record only if its first `site:` line matches `path::symbol`; mine
+began `site: src/compiler/borrow_check.cpp — the let E0716 report gate`, and the
+count stayed at 258 across the append. Adding `::visit_stmt` moved it to 259. This is
+the third reading in three rounds about the same lint: it does not attest that a
+`site:` names a real symbol (2026-09-09j), it does not attest that a record was SEEN
+at all, and only the count moving proves either. Grep your own symbols; I grepped
+`visit_stmt` 9, `prov_of` 59, `peel_recv_base` 2, `is_plain_ref_kind` 20.
+⚠ **THE PROMPT'S STEP-1 GATE COMMAND CARRIES `LOGOS_LIB_DIR` — the correction four
+rounds recorded is LANDED, and repeating it would be the 2026-09-06 mistake again.**
+Verified against the text handed to me this round, not against the journal.
+⚠ **A LEDGER COMMENT CITES A SOUNDNESS-QUEUE ROW THAT NO LONGER EXISTS.**
+`bc_admits.ledger`'s `borrowck-move-out-of-tuple-struct-with-dtor--r13` row ends
+"rowed as soundness_queue letstruct_destructure_skips_user_drop"; that row is gone
+from `soundness_queue.ledger` (77 rows, direct listing) and the program is now
+`tests/logos/fail/letstruct_destructure_drop_owner_e0509.logos`, whose own header
+says "Was soundness_queue row …". One day old, and no gate holds a citation.
