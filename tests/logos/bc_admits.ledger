@@ -1710,14 +1710,29 @@
 #
 # 91 -> 97. THE ACTIONABLE LEDGER GROWING HERE IS THE CORRECT RESULT: these are
 # real defects again, and a ledger that hid them would be lying about the language.
-borrowck-move-out-of-struct-with-dtor bck.E tests/imported/admit/borrowck/borrowck-move-out-of-struct-with-dtor  # 2026-09-08 RETURNED from bc_admits_blocked (was BUCKET-3 DIVERGENCE-DROP). E0509 at the DOTTED-PATH door (`let g = s.f` out of a `Drop` S). Run evidence recorded at the move: INNER_DROPS=1 S_DROPS=1
-borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--b  # 2026-09-08 RETURNED from bc_admits_blocked (was BUCKET-3 DIVERGENCE-DROP). E0509 at the FIELD-INIT door: `T { a: 2, b: s0.b }` reads a field out of a `Drop` T
-borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--t17  # 2026-09-08 RETURNED from bc_admits_blocked (was BUCKET-3 DIVERGENCE-DROP). E0509 at the FRU door: `T { a: 2, ..s0 }` out of a `Drop` T
-borrowck-move-error-with-note--b bck.E-match tests/imported/admit/borrowck/borrowck-move-error-with-note--b  # 2026-09-08 RETURNED from bc_admits_blocked (was BUCKET-3 DIVERGENCE-DROP). E0509 via the MATCH struct-pattern door. ⚠ SECOND BLOCKER, and it is the reason for the separate root: the `moving` branch in borrow_check.cpp is NEVER REACHED at a match door — measured 2026-09-08, ZERO trace lines under the E0509 arm, a STRUCTURAL hole, not a predicate answering wrong. Run evidence at THIS door: `AB`, S's destructor never ran (also rowed as soundness_queue letstruct_destructure_skips_user_drop)
 borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW-A16 tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13  # 2026-09-08 RETURNED from bc_admits_blocked (was BUCKET-3 DIVERGENCE-DROP). ⚠ SECOND BLOCKER, unchanged from the 2026-08-28 record and re-verified 2026-09-08: the moved field has type `struct Inner { a: i64 }`, which DIVERGENCES A16 structural auto-Copy makes `Copy`, so the checker sees NO MOVE at all (zero E0509 fires). Retiring the drop clause does not reach it; A16 does. Its own body also exits 1 with DROPS=0 (`impl Drop for S` never runs) — rowed as soundness_queue letstruct_destructure_skips_user_drop
 borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13  # 2026-09-08 RETURNED from bc_admits_blocked (was BUCKET-3 DIVERGENCE-DROP). Twin of --r13: same A16 second blocker, same zero-fire measurement, same run-time DROPS=0
 
-# TOTAL 97
+# ── 2026-09-08 — FOUR OF THE SIX CLOSED THE SAME DAY THEY RETURNED ──────────
+# The E0509 landing refuses all four, at three separate doors (dotted path,
+# field-init from a base, FRU) plus the `match` struct-pattern door, and each is
+# now a FAIL fixture under tests/imported/fail/borrowck/ with its sentence pinned
+# in full. 97 -> 93. The two `--r13`/`--t13` rows stay, with root `bck.NEW-A16`
+# and the number that condemns them: ZERO fires, because their moved field is
+# `struct Inner { a: i64 }` and structural auto-Copy calls it Copy, so the
+# checker sees no move at all. A16 is what must move, not the E0509 rule.
+# ── 2026-09-08, AN UNPREDICTED CLOSING, REPORTED AS ONE ─────────────────────
+# `issue-52059-report-when-borrow-and-drop-conflict` is REFUSED by the E0509
+# landing and is now a fail fixture under tests/imported/fail/nll/. It was NOT in
+# that landing's prediction file. Its construct is
+# `fn finish_1(s: S) -> &mut i64 { return s.url; }`, which rustc also refuses as
+# E0509 before E0713 applies — so the refusal is correct and the port is illegal.
+# ⚠ ITS ROOT IS NOT CLOSED. The row was nllmoves.E, an E0713 hole: a `&mut`
+# handed out PAST a destructor that then writes through it. That hole is now
+# UNREACHABLE THROUGH THIS PROGRAM and needs a carrier that does not move a field
+# out of a Drop value — unrowed_backlog entry
+# `e0713_mutref_past_destructor_needs_a_new_carrier`. 93 -> 92.
+# TOTAL 92
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1817,7 +1832,6 @@ issue-42574-diagnostic-in-nested-closure--b nllmoves.NEW-CESC tests/imported/adm
 issue-42574-diagnostic-in-nested-closure--t15 nllmoves.NEW-CESC tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--t15  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --b; merging is an owner decision
 issue-48697--t16 nllmoves.NEW-CESC tests/imported/admit/nll/issue-48697--t16  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)
 issue-51268 nllmoves.NEW-CAPLOAN tests/imported/admit/nll/issue-51268  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)
-issue-52059-report-when-borrow-and-drop-conflict nllmoves.E tests/imported/admit/nll/issue-52059-report-when-borrow-and-drop-conflict
 issue-53773 nllmoves.E tests/imported/admit/nll/issue-53773
 issue-54124 nllmoves.NEW-L1 tests/imported/admit/nll/issue-54124
 issue-54382-use-span-of-tail-of-block nllmoves.D tests/imported/admit/nll/issue-54382-use-span-of-tail-of-block

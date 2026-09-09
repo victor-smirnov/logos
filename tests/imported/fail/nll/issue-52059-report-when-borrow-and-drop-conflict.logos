@@ -1,5 +1,19 @@
 // rustc nll/issue-52059-report-when-borrow-and-drop-conflict.rs — upstream E0713
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// ⚠ MOVED FROM THE ADMIT SHELF TO THE FAIL SHELF 2026-09-08, AND **NOT** FOR THE
+//   DEFECT IT WAS ROWED FOR. The E0509 landing of that day refuses this program:
+//   `fn f(x: DropStruct) -> &mut T { return x.field; }` moves a sub-value out of
+//   a value that implements `Drop`, which rustc ALSO refuses as E0509, before
+//   E0713 is ever reached. So the refusal is CORRECT and the program is
+//   genuinely illegal — but the row's own root was the E0713 hole (a `&mut`
+//   handed out PAST a destructor that then writes through it), and THAT HOLE IS
+//   NOT CLOSED. It is now invisible here, because this program can no longer
+//   reach it. Re-rowing it needs a program that gets the `&mut` out WITHOUT
+//   moving a field out of a Drop value; filed in unrowed_backlog.ledger as
+//   `e0713_mutref_past_destructor_needs_a_new_carrier`.
+//   THIS WAS NOT PREDICTED. The prediction file for the E0509 half named 7 rows
+//   and these two were not among them; they closed in the correct direction and
+//   are reported as an unpredicted closing, not folded into the count.
 // shelf: admit · root nllmoves.E
 // RE-PORTED AS-IS 2026-09-07 (stage 5). The previous port carried only upstream's
 // `finish_1`. All four of upstream's constructs were restored and compiled, and

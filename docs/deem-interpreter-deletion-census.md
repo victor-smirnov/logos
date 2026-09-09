@@ -5553,9 +5553,40 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9428 -> 9433   +5   (five native fixtures)
 #   NOIMPORTED   4970 -> 4975   +5   (none is labelled imported)
 #   TIERCOMMIT    156 ->  156    0   (none declares tier_commit)
-REGISTRY-ALL         9433
-REGISTRY-NOIMPORTED  4975
-REGISTRY-TIERCOMMIT  156
+# 2026-09-08g (the E0509 half of the Rust-canonical drop landing). THREE native
+#   fixture PAIRS, one per closed soundness-queue row, plus SIX admit-shelf tests
+#   that stopped existing because their programs became fail fixtures.
+#   The three pairs (a fail half pinning the sentence in full, a pass half ONE
+#   TOKEN apart that RUNS and asserts a destructor count):
+#   tests/logos/fail/drop_body_moves_own_field_e0509.logos with
+#   tests/logos/pass/drop_body_moves_own_field_e0509_ok.logos;
+#   tests/logos/fail/drop_body_conditional_move_e0509.logos with
+#   tests/logos/pass/drop_body_conditional_move_e0509_ok.logos;
+#   tests/logos/fail/letstruct_destructure_drop_owner_e0509.logos with
+#   tests/logos/pass/letstruct_destructure_drop_owner_e0509_ok.logos.
+#   The six that left the admit shelf, each now an imported FAIL fixture with its
+#   E0509 sentence pinned: borrowck-move-out-of-struct-with-dtor,
+#   borrowck-struct-update-with-dtor--b, borrowck-struct-update-with-dtor--t17,
+#   borrowck-move-error-with-note--b, nll/enum-drop-access,
+#   nll/issue-52059-report-when-borrow-and-drop-conflict.
+#   Plus TWO more native FAIL fixtures the same commit had to add, each because a
+#   stronger rule landing upstream of an older one retired that older rule's only
+#   observation: tests/logos/fail/partial_move_root_use_ctl.logos (the E0382
+#   partial-move sentence, whose two imported carriers now report E0509 first,
+#   exactly as rustc does) and
+#   tests/logos/fail/cond_move_field_overlap_userdrop_e0509.logos (the
+#   `ov_userdrop` subject of the #121-A corpus, which pinned a divergence the
+#   owner retired; kept byte for byte, asserting the refusal instead of a count).
+#   ALL          9433 -> 9441   +8   (+6 native pairs, +2 native controls,
+#                                     +6 imported fail, -6 admit)
+#   NOIMPORTED   4975 -> 4977   +2   (+6 native pairs and -6 admit cancel; the two
+#                                     controls are the net. `logos_00_bc_admit_*`
+#                                     is not labelled imported)
+#   TIERCOMMIT    156 ->  150   -6   (the admit tests declare tier_commit; the new
+#                                     corpus fixtures do not)
+REGISTRY-ALL         9441
+REGISTRY-NOIMPORTED  4977
+REGISTRY-TIERCOMMIT  150
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

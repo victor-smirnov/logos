@@ -1,0 +1,34 @@
+// THE PASS HALF of the conditional-move pair. One token from
+// tests/logos/fail/drop_body_conditional_move_e0509: the move statement inside
+// the `if` is gone. The guard shape itself is legal; only taking the field away
+// from the destructor is not.
+//
+// BOTH PATHS ARE RUN and both are counted, because the defect this pair closed
+// was wrong on the path where the move never executed. Want 7 each; a LEAK
+// reads 0 and a DOUBLE FREE 14.
+package drop_body_conditional_move_e0509_ok;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn printf(f: *const u8, a: i64) -> i32;
+
+trait Drop { fn drop(self: Self); }
+struct N { w: i64, c: *mut i64 }
+impl Drop for N { fn drop(self: N) { unsafe { self.c[0] = self.c[0] + self.w; } } }
+
+struct G { armed: bool, f: N }
+impl Drop for G { fn drop(self: G) { if self.armed { } } }
+
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+
+    c[0] = 0i64;
+    { let g: G = G { armed: false, f: N { w: 7i64, c: c } }; }
+    printf("guard DISARMED, N destroyed once (want 7): %ld\n".as_ptr(), c[0]);
+    if c[0] != 7i64 { return 1i32; }
+
+    c[0] = 0i64;
+    { let g: G = G { armed: true, f: N { w: 7i64, c: c } }; }
+    printf("guard ARMED, N destroyed once (want 7): %ld\n".as_ptr(), c[0]);
+    if c[0] != 7i64 { return 2i32; }
+
+    return 0i32;
+}

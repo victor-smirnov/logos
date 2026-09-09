@@ -1,0 +1,27 @@
+// THE PASS HALF of the E0509 drop-body pair. One token from
+// tests/logos/fail/drop_body_moves_own_field_e0509: the drop body READS a Copy
+// field of `self.inner` instead of MOVING `self.inner` out. Nothing leaves the
+// value, so the rule does not fire and the program runs.
+//
+// This half is what proves the refusal is a rule about MOVING and not a blanket
+// ban on touching `self`'s fields inside a destructor: the count is 7, taken by
+// the program, so a LEAK would read 0 and a DOUBLE FREE 14.
+package drop_body_moves_own_field_e0509_ok;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn printf(f: *const u8, a: i64) -> i32;
+
+trait Drop { fn drop(self: Self); }
+struct N { w: i64, c: *mut i64 }
+impl Drop for N { fn drop(self: N) { unsafe { self.c[0] = self.c[0] + self.w; } } }
+
+struct P2 { inner: N }
+impl Drop for P2 { fn drop(self: P2) { let q: i64 = self.inner.w; } }
+
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+    c[0] = 0i64;
+    { let p: P2 = P2 { inner: N { w: 7i64, c: c } }; }
+    printf("N destroyed exactly once (want 7): %ld\n".as_ptr(), c[0]);
+    if c[0] != 7i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,1 @@
+cannot move out of 's.url': type 'S' implements the Drop trait, so its destructor must see the whole value (E0509). Wrap the field in ManuallyDrop<T> and take it with ptr::read, or move the whole value

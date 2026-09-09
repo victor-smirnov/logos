@@ -179,5 +179,14 @@ issue-75904-move-closure-loop nllmoves.C tests/imported/admit/moves/issue-75904-
 #   and its header says so: it is `finish_1` from `issue-52059` under another name.
 #   A ROW MOVED, NOT A ROW CLOSED — both times.
 
-enum-drop-access nllmoves.E tests/imported/admit/nll/enum-drop-access  # BUCKET-4 HOLE 2026-09-07 (stage 5) — needs nested patterns inside enum-variant payloads (`Some(&mut ref mut r)`); backlog enum_payload_nested_pattern_absent. The file still holds the OLD port, which duplicates issue-52059's finish_1
-# TOTAL 9
+# ── 2026-09-08 — `enum-drop-access` LEFT THIS FILE BY BEING REFUSED ──────────
+# It was BUCKET-4 HOLE (the port needed nested patterns inside enum-variant
+# payloads, and the file still held the OLD port, which duplicates issue-52059's
+# `finish_1`). That old port is `fn drop_enum(opt: DropOpt) -> &mut i64 { return
+# opt.r; }` — a move out of a `Drop` value — and the E0509 landing of 2026-09-08
+# refuses it, correctly and as rustc does. It is now a fail fixture under
+# tests/imported/fail/nll/ with the sentence pinned. ⚠ NEITHER the E0713 hole nor
+# the nested-enum-pattern hole is closed by that; both are recorded where they
+# can be seen (unrowed_backlog `e0713_mutref_past_destructor_needs_a_new_carrier`
+# and `enum_payload_nested_pattern_absent`). 9 -> 8.
+# TOTAL 8

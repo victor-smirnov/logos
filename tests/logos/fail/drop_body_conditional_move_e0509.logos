@@ -1,0 +1,37 @@
+// E0509 AT A CONDITIONAL MOVE — the `if` does not make it legal, and that is
+// the point. `@rule intrinsic.drop.move-out-of-drop-type-refused`.
+//
+// FAIL half of a pair. The pass half,
+// tests/logos/pass/drop_body_conditional_move_e0509_ok, is the SAME program
+// with the move statement DELETED (`if self.armed { }`), and it runs.
+//
+// Was soundness_queue row `drop_body_conditional_move_double_drops_both_paths`
+// (tier 1, run 1), closed 2026-09-08. Before: the field was destroyed twice on
+// BOTH paths — including the disarmed one, where the move never executes —
+// because the caller's field recursion has no record of what the body consumed,
+// and the drop flag that would carry it does not cross the call boundary. That
+// is why no static skip could have been the answer: on the disarmed path a
+// static skip turns the double free into a LEAK. The canonical rule removes the
+// question by refusing the program.
+//
+// ⚠ THIS IS THE STDLIB'S OWN SHAPE. `stdlib/mem/manually_drop`'s `DropGuard`
+// was written exactly like this, and was repaired the same day with Rust's
+// escape hatch (`ManuallyDrop<F>` + `ptr::read`) — see
+// tests/logos/pass/drop_guard_instantiated.
+package drop_body_conditional_move_e0509;
+extern fn malloc(n: i64) -> *mut u8;
+
+trait Drop { fn drop(self: Self); }
+struct N { w: i64, c: *mut i64 }
+impl Drop for N { fn drop(self: N) { unsafe { self.c[0] = self.c[0] + self.w; } } }
+
+struct G { armed: bool, f: N }
+impl Drop for G { fn drop(self: G) { if self.armed { let q: N = self.f; } } }
+
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+    c[0] = 0i64;
+    { let g: G = G { armed: false, f: N { w: 7i64, c: c } }; }
+    if c[0] != 7i64 { return 1i32; }
+    return 0i32;
+}

@@ -34,7 +34,5 @@ rein+   M34 M35 D34 M36 D35 D36
 rein-   M34 M35 D35 D34 
 arr+    M37 M38 t D37 D38 
 arr-    M37 M38 D37 D38 
-udrop+  M39 M40 D39 Xdi D40 
-udrop-  M39 M40 Xdi D40 D39 
 ctl+    M41 M42 D41 D42 
 ctl-    M41 M42 D42 D41 

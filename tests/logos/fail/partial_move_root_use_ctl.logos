@@ -1,0 +1,26 @@
+// THE E0382 PARTIAL-MOVE SENTENCE, KEPT OBSERVED. One token from
+// tests/imported/fail/nll/move-subpaths-moves-root: `impl Drop for T2` is
+// DELETED, so E0509 does not apply and the partial-move rule is the one that
+// answers.
+//
+// ⚠ WHY THIS FILE EXISTS AT ALL, AND IT IS THE ROUND'S SHARPEST LESSON. The
+// E0509 landing of 2026-09-08 refuses the two imported fixtures that used to
+// pin this sentence — correctly, and as rustc does, because their owners
+// implement `Drop`. Their re-pinning would have left the partial-move rule with
+// ZERO observations in the corpus while looking like nothing had changed: a
+// stronger rule landing upstream of an older one RETIRES THE OLDER ONE'S
+// INSTRUMENT without touching the older rule. The same thing happened to an
+// E0713 hole in the same landing (unrowed_backlog
+// `e0713_mutref_past_destructor_needs_a_new_carrier`), where no control was
+// available and the hole is now unobserved. Here one was, so here it is.
+package partial_move_root_use_ctl;
+use logos.mem.string;
+struct T2 { a: String }
+fn eat_s(s: String) { }
+fn eat_t(t: T2) { }
+fn main() -> i32 {
+    let x = T2{a:String::from("q")};
+    eat_s(x.a);
+    eat_t(x);
+    return 0i32;
+}

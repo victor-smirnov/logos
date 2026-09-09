@@ -221,4 +221,23 @@ custom_dst_smartptr_owning_drop_uaf valgrind 2 tests/logos/pass/custom_dst_smart
     # A previous round recorded "its recorded UAF is NOT reproduced by either arm". That
     # is CONTRADICTED here: it was not reproduced because it was not run under valgrind.
 
-# TOTAL 16
+e0713_mutref_past_destructor_needs_a_new_carrier carrier 2 tests/imported/fail/nll/
+    # 2026-09-08. TWO ROWS LOST THEIR CARRIER, NOT THEIR DEFECT. `enum-drop-access` and
+    # `issue-52059-report-when-borrow-and-drop-conflict` were rowed for an E0713 hole: a
+    # `&mut` handed OUT of a function past a destructor which then writes through it
+    # (`DropOpt::drop` stores 9 through `self.r`, the caller then stores 5 through the
+    # returned `&mut`). Both programs express it the same way — `fn f(x: DropStruct) ->
+    # &mut T { return x.field; }` — and the E0509 landing of 2026-09-08 refuses exactly
+    # that, correctly: rustc refuses it as E0509 too, before E0713 is ever consulted.
+    # ⚠ SO THE PROGRAMS ARE ILLEGAL AND THE ROWS COULD NOT STAND, BUT THE HOLE IS OPEN AND
+    # IS NOW UNOBSERVED. Nothing in the tree tests whether a `&mut` that outlives a
+    # destructor is caught. What this owes is a CARRIER: a legal-but-for-E0713 program
+    # that gets the reference out without moving a field out of a `Drop` value — e.g. a
+    # `&mut self` method returning a reborrow (`fn take(&mut self) -> &mut i64 { &mut
+    # *self.r }`) whose result is used after the owner is dropped, or a Drop-less wrapper
+    # holding the Drop value. Write it, check whether logosc admits it, and row it.
+    # ⚠ IT IS ALSO A LESSON ABOUT COVERAGE: a refusal landed for one rule DELETED the
+    # only two observations of another. A row's program is its instrument, and a stronger
+    # rule upstream of it can silently retire the instrument while leaving the defect.
+
+# TOTAL 17

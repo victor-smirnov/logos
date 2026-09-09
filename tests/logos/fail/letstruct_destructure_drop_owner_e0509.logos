@@ -1,0 +1,40 @@
+// E0509 AT THE DESTRUCTURING-`let` DOOR — `let S { f: x, k: _ } = s;` where `S`
+// implements `Drop`. `@rule intrinsic.drop.move-out-of-drop-type-refused`.
+//
+// FAIL half of a pair. The pass half,
+// tests/logos/pass/letstruct_destructure_drop_owner_e0509_ok, is this program
+// with `impl Drop for S` DELETED — one token — and it runs, asserting that all
+// the field destructors still fire.
+//
+// Was soundness_queue row `letstruct_destructure_skips_user_drop` (tier 1,
+// run 100), closed 2026-09-08. Before: the program compiled and `S::drop` NEVER
+// RAN — the discarded field `k` leaked with it. Measured on two independent
+// channels (a `static mut` counter and a raw-pointer accumulator), 100 where
+// even the retired divergence clause required 111. The identical program with
+// no `impl Drop for S` printed 110, i.e. the discarded field DOES drop, so the
+// defect was the owner-drop path being dropped on the floor exactly when there
+// was a user destructor to run.
+//
+// ⚠ NOTE THE DIAGNOSTIC'S PLACE. Sema rewrites this into
+// `let __dst_0 = s; let x = __dst_0.f;`, so the checker's `root` here is a
+// compiler temporary. The sentence names the FIELD and the TYPE rather than
+// printing `__dst_0.f`, which is a binding in no source file.
+package letstruct_destructure_drop_owner_e0509;
+static mut A_DROPS: i64 = 0i64;
+static mut B_DROPS: i64 = 0i64;
+static mut S_DROPS: i64 = 0i64;
+struct A { n: i64 }
+impl Drop for A { fn drop(self: &mut A) { unsafe { A_DROPS = A_DROPS + 1i64; } } }
+struct B { n: i64 }
+impl Drop for B { fn drop(self: &mut B) { unsafe { B_DROPS = B_DROPS + 1i64; } } }
+struct S { f: A, k: B }
+impl Drop for S { fn drop(self: &mut S) { unsafe { S_DROPS = S_DROPS + 1i64; } } }
+fn go() {
+    let s: S = S { f: A { n: 1i64 }, k: B { n: 2i64 } };
+    let S { f: x, k: _ } = s;
+    let _y: i64 = x.n;
+}
+fn main() -> i32 {
+    go();
+    unsafe { return (A_DROPS * 100i64 + B_DROPS * 10i64 + S_DROPS) as i32; }
+}

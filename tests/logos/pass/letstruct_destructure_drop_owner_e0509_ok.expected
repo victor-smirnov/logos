@@ -1,0 +1,4 @@
+exit: 0
+stdout:
+A destroyed (want 1): 1
+B destroyed (want 1): 1

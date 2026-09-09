@@ -1,0 +1,48 @@
+// E0509 — THE `ov_userdrop` CASE OF tests/logos/pass/cond_move_field_overlap,
+// KEPT AS AN ASSERTION AFTER THE LANGUAGE STOPPED ADMITTING IT.
+//
+// That fixture is the #121-A overlapping-conditional-field-move corpus, twenty
+// subjects, each pinned by a destructor COUNT and by valgrind. One of its
+// subjects gave the ANCESTOR its own user `Drop` and then moved a field out of
+// it — `if c { consume(o.i.p); }` where `DI` impls `Drop` — and pinned the
+// result with the comment "the pin records what the compiler ACTUALLY does".
+// That is a pass fixture asserting a divergence. The owner retired the
+// divergence on 2026-09-08 (`@rule intrinsic.drop.move-out-of-drop-type-refused`),
+// so the program is E0509 and the case cannot run any more.
+//
+// ⚠ IT IS NOT DELETED. Deleting it would lose the subject, and the subject —
+// an ancestor with a user destructor inside an overlapping conditional move —
+// is exactly the interaction the corpus was built to watch. It is here, byte
+// for byte, asserting the refusal instead of the count. A future round that
+// gives Logos a legal way to express it (a `ManuallyDrop` field) has the shape
+// on file.
+package cond_move_field_overlap_userdrop_e0509;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn fflush(f: *mut u8) -> i32;
+extern fn malloc(n: u64) -> *mut u8;
+extern fn free(p: *mut u8);
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+
+trait Drop { fn drop(self: Self); }
+
+struct Pay { n: i64, b: *mut u8 }
+impl Drop for Pay { fn drop(self: Pay) { pr("D%ld ", self.n); unsafe { free(self.b); } } }
+fn mk(n: i64) -> Pay { pr("M%ld ", n); unsafe { return Pay { n: n, b: malloc(64u64) }; } }
+fn consume(p: Pay) -> i64 { return p.n; }
+
+struct DI   { p: Pay, q: Pay }
+impl Drop for DI { fn drop(self: DI) { ps("Xdi "); } }
+struct ODI  { i: DI }
+fn eatD(m: DI)  -> i64 { return 0i64; }
+
+fn ov_userdrop(c: bool) {
+    let mut o: ODI = ODI { i: DI { p: mk(39), q: mk(40) } };
+    if c { consume(o.i.p); } else { eatD(o.i); }
+}
+
+unsafe fn main() -> i32 {
+    ps("udrop+  "); ov_userdrop(true);      ps("\n");
+    ps("udrop-  "); ov_userdrop(false);     ps("\n");
+    return 0;
+}

@@ -39,16 +39,21 @@ struct O3   { i: I3 }
 struct OT   { i: (Pay, Pay) }
 struct AI   { a: [Pay; 2] }
 struct OArr { i: AI }
-struct DI   { p: Pay, q: Pay }
-impl Drop for DI { fn drop(self: DI) { ps("Xdi "); } }
-struct ODI  { i: DI }
+// NOTE 2026-09-08 — the `DI`/`ODI` structs and their case left this fixture.
+// The case moved `o.i.p` out of a value whose type IMPLEMENTS `Drop`. Its own
+// doc comment said it "records what the compiler ACTUALLY does", i.e. it pinned
+// a divergence, and the owner retired that divergence on 2026-09-08: the move
+// is E0509 and the program does not compile. The subject is NOT dropped, it is
+// MOVED to where the language now puts it —
+// tests/logos/fail/cond_move_field_overlap_userdrop_e0509, byte for byte the
+// same shape, with the refusal pinned in full. The other subjects in this file
+// are untouched and still run.
 
 fn eat2(m: In2) -> i64 { return m.p.n; }
 fn eat3(m: In3) -> i64 { return m.p.n; }
 fn eatI(m: I3)  -> i64 { return 0i64; }
 fn eatJ(m: J2)  -> i64 { return 0i64; }
 fn eatA(m: AI)  -> i64 { return 0i64; }
-fn eatD(m: DI)  -> i64 { return 0i64; }
 
 /// THE OVERLAPPING PAIR. `cand = {"o.i.p", "o.i"}`: the descendant is moved on
 /// BOTH arms (the else arm by its prefix) so it correctly gets no flag, while
@@ -168,13 +173,6 @@ fn ov_array(c: bool) {
     let mut o: OArr = OArr { i: AI { a: [mk(37), mk(38)] } };
     if c { ps("t "); } else { eatA(o.i); }
 }
-/// The ancestor's own type has a user `Drop`. Its `drop` runs on the whole
-/// value and the field-wise skip cannot suppress it, so the pin records what
-/// the compiler ACTUALLY does: `Xdi` once per value, fields once each.
-fn ov_userdrop(c: bool) {
-    let mut o: ODI = ODI { i: DI { p: mk(39), q: mk(40) } };
-    if c { consume(o.i.p); } else { eatD(o.i); }
-}
 /// CONTROL — two DISJOINT descendants, no ancestor tracked. Nothing here
 /// overlaps, and the decomposition must leave it exactly as it was.
 fn ctl_disjoint(c: bool) {
@@ -219,8 +217,6 @@ unsafe fn main() -> i32 {
     ps("rein-   "); ov_reinit(false);       ps("\n");
     ps("arr+    "); ov_array(true);         ps("\n");
     ps("arr-    "); ov_array(false);        ps("\n");
-    ps("udrop+  "); ov_userdrop(true);      ps("\n");
-    ps("udrop-  "); ov_userdrop(false);     ps("\n");
     ps("ctl+    "); ctl_disjoint(true);     ps("\n");
     ps("ctl-    "); ctl_disjoint(false);    ps("\n");
     return 0;

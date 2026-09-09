@@ -1,0 +1,4 @@
+exit: 0
+stdout:
+guard DISARMED, N destroyed once (want 7): 7
+guard ARMED, N destroyed once (want 7): 7

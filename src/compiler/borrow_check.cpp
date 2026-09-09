@@ -13756,46 +13756,86 @@ private:
                     cur_diverged_ = false;
                     push_scope();
                     declare_pat_bindings(arm.pat());
-                    // ── CEILING PROBE `patdropdestr` — E0509. A by-value
-                    // pattern binding cannot move a field OUT of a value whose
-                    // own type impls Drop; the destructor still owes a call on
-                    // the whole value. `needs_drop` exists and is consulted for
-                    // dropck liveness, never for destructuring, so
-                    // `let S { v } = s;` over a Drop-impl S compiles today.
+                    // ── E0509 AT THE `match` DOOR. Same rule as the field
+                    // site (`@rule intrinsic.drop.move-out-of-drop-type-refused`):
+                    // a by-value pattern binding may not move a sub-value out of
+                    // a scrutinee whose own type impls `Drop`. This is a SEPARATE
+                    // SITE, not a second predicate — measured 2026-09-08, a match
+                    // door produces ZERO fires at the field site, because the
+                    // `moving` branch there is never reached from an arm pattern.
+                    // Without this arm the class is 10 doors of 12 and
+                    // `borrowck-move-error-with-note--b` stays admitted.
                     // Gated on the SCRUTINEE'S OWN Drop impl (ts_.drop_types),
-                    // not has_droppable_fields: a struct that does not impl
-                    // Drop but whose FIELD does may be partially moved legally.
-                    if (logos::probe::on("patdropdestr")) {
+                    // not has_droppable_fields: a struct that does not impl Drop
+                    // but whose FIELD does may be partially moved legally.
+                    // `_` and Copy bindings do not move and are not reported —
+                    // which is how upstream's own `NestedVariant(_, _, ref f)`
+                    // is spelled.
+                    {
                         TypeRef sct = v.scrut().type(pool);
-                        bool own_drop =
-                            sct && ((sct.kind() == LogosType::Kind::Struct &&
-                                     ts_.drop_types.count(std::string(sct.struct_name()))) ||
-                                    (sct.kind() == LogosType::Kind::Enum &&
-                                     ts_.drop_types.count(std::string(sct.enum_name()))));
-                        if (own_drop) {
-                            bool byval = false;
+                        std::string owner;
+                        if (sct) {
+                            if (sct.kind() == LogosType::Kind::Struct)
+                                owner = std::string(sct.struct_name());
+                            else if (sct.kind() == LogosType::Kind::Enum)
+                                owner = std::string(sct.enum_name());
+                        }
+                        if (!owner.empty() && ts_.drop_types.count(owner)) {
+                            std::string moved_binding;
                             each_pat_binding(arm.pat(), [&](std::string_view b, TypeRef t) {
-                                if (!b.empty() && b != "_" &&
-                                    is_move_type(t, prog_, ts_, &copy_tvs_)) byval = true;
+                                if (moved_binding.empty() && !b.empty() && b != "_" &&
+                                    is_move_type(t, prog_, ts_, &copy_tvs_))
+                                    moved_binding = std::string(b);
                             });
-                            // ── MEASURED 2026-08-28: CEILING 0, COST 1
-                            // (logos_02_semantic_core_pass_drop-trait-enum-b154).
-                            // A stop sign — but READ WHY. All four target rows
-                            // were compiled with the probe armed and DO reach
-                            // this site (2692-2693 fires each, rc=0), yet none
-                            // closes: their destructuring is not in a match arm
-                            // at all. `let S { f: inner } = s;`
-                            // (borrowck-move-out-of-tuple-struct-with-dtor--t13)
-                            // and `let S { v: inner } = *s;`
-                            // (access-mode-in-closures) are LET PATTERNS. The
-                            // E0509 predicate is one type test and is probably
-                            // right; THE SITE IS WRONG. Whoever funds it next
-                            // installs it at the let-destructuring site, not
-                            // here, and prices the cost against
-                            // drop-trait-enum-b154 first.
-                            if (byval)
-                                report(ln, "ceiling-probe patdropdestr: cannot move out of "
-                                           "a type which implements Drop (E0509)");
+                            // ⚠ AND THE STRUCT-PATTERN ARM NEEDS ITS OWN WALK,
+                            // because `each_pat_binding`'s `PC::Struct` case
+                            // hands every binder a NULL TypeRef (there is no
+                            // type on a PatFieldBinding) and `is_move_type`
+                            // answers false for null — so the loop above sees
+                            // `match s { S { f: x } => .. }` as binding nothing
+                            // that moves. MEASURED 2026-09-08: zero fires, even
+                            // with `String` fields, while the ENUM arm one token
+                            // away fires correctly. That null is deliberate and
+                            // four other consumers read it, so it is resolved
+                            // HERE from the pattern's own `struct_name()` rather
+                            // than changed under them.
+                            if (moved_binding.empty() &&
+                                arm.pat() && arm.pat().kind() == lir_schema::pat::Code::Struct) {
+                                lir_view::PatStructView psv{arm.pat()};
+                                auto sit = ts_.struct_by_name.find(std::string(psv.struct_name()));
+                                if (sit != ts_.struct_by_name.end()) {
+                                    const auto* pl = prog_.type_pool.impl();
+                                    psv.each_field([&](lir_view::PatFieldBindingView fb) {
+                                        if (!moved_binding.empty()) return;
+                                        // The binder name: `S { f }` shorthand
+                                        // carries none, `S { f: x }` puts it on
+                                        // a named Wild sub-pattern. `_` and a
+                                        // nested pattern are not a by-value
+                                        // binder of the FIELD and are skipped.
+                                        std::string_view bname;
+                                        auto sub = fb.sub();
+                                        if (!sub) bname = fb.field_name();
+                                        else if (sub.kind() == lir_schema::pat::Code::Wild)
+                                            bname = lir_view::PatWildView{sub}.name();
+                                        else return;
+                                        if (bname.empty() || bname == "_") return;
+                                        TypeRef ft(nullptr);
+                                        sit->second.each_field([&](lir_view::LFieldView fv) {
+                                            if (!ft && fv.name() == fb.field_name())
+                                                ft = TypeRef(fv.type(pl));
+                                        });
+                                        if (ft && is_move_type(ft, prog_, ts_, &copy_tvs_))
+                                            moved_binding = std::string(bname);
+                                    });
+                                }
+                            }
+                            if (!moved_binding.empty())
+                                report(ln, std::format(
+                                    "cannot move out of '{}' into pattern binding '{}': "
+                                    "type '{}' implements the Drop trait, so its destructor "
+                                    "must see the whole value (E0509). Bind by reference or "
+                                    "use '_'",
+                                    owner, moved_binding, owner));
                         }
                     }
                     propagate_pat_sources(arm.pat(), scrut_sources, ln);  // §B6
@@ -14694,63 +14734,71 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                                                moving ? "move" : "use"))
                         break;
                     if (moving) {
-                        // ── CEILING PROBE `fldmovedrop` — E0509. `moving`
-                        // already answers "this read moves a non-Copy field";
-                        // the missing conjunct is "and the RECEIVER's own type
-                        // impls Drop". Sema rewrites every `let S{f:x} = s;`
-                        // into `let __dst = s; let x = __dst.f;`, so this is
-                        // where all three spellings (destructuring let, `s.f`,
-                        // `..base` update) actually land.
-                        // ── MEASURED 2026-08-28: 11 fires over 393 ledger
-                        // compiles, CEILING 6, COST 1. The `if (moving)` branch
-                        // is REACHED 140,066 times and TRUE 551 times in 8060
-                        // runs, so the site is live and the population is the
-                        // whole E0509 domain.
-                        // CLOSED: borrowck-move-out-of-struct-with-dtor ·
-                        //   borrowck-struct-update-with-dtor--b · --t17 ·
-                        //   nll_enum-drop-access ·
-                        //   nll_issue-52059-report-when-borrow-and-drop-conflict ·
-                        //   nll_issue-53773
-                        // ⚠ THE SET IS NOT THE PREDICTED SET (rule 6: a count
-                        // near the prediction is not the prediction). THREE
-                        // rows nobody nominated closed, and all three are ONE
-                        // shape the aiming report never enumerated:
-                        // `fn f(x: DropStruct) -> &mut T { return x.field; }` —
-                        // a `&mut` field moved out of a Drop owner and returned.
-                        // TWO PREDICTED ROWS DID NOT CLOSE, and the trace says
-                        // why in one line: borrowck-move-out-of-tuple-struct-
-                        // with-dtor--t13/--r13 produce NO fldmovedrop line at
-                        // all, because their moved field is
+                        // ── E0509 — A SUB-VALUE MAY NOT BE MOVED OUT OF A
+                        // VALUE THAT IMPLEMENTS `Drop`.
+                        // `@rule intrinsic.drop.move-out-of-drop-type-refused`
+                        // (docs/spec/expressions.md; owner decision 2026-09-08,
+                        // the drop semantics are Rust-canonical). The owner's
+                        // destructor is guaranteed to observe the WHOLE value,
+                        // so nothing may be taken away from it first.
+                        //
+                        // `moving` already answers "this read moves a non-Copy
+                        // sub-value"; the second conjunct is "and the RECEIVER's
+                        // own type impls Drop". Sema rewrites every
+                        // `let S{f:x} = s;` into `let __dst = s; let x = __dst.f;`,
+                        // so five spellings land HERE: a dotted path, a
+                        // destructuring `let`, a tuple-struct pattern, a
+                        // functional-update base and a field-init read from a
+                        // base — plus the `self` of a `Drop::drop` body, at any
+                        // depth and inside a generic. The `match` doors do NOT
+                        // reach this branch at all (measured 2026-09-08: ZERO
+                        // fires from an arm pattern) and are closed at the arm
+                        // site in visit_stmt's `Code::Match`.
+                        //
+                        // ⚠ WHAT THIS DOES NOT REACH, MEASURED, NOT ASSUMED:
+                        // borrowck-move-out-of-tuple-struct-with-dtor--t13/--r13
+                        // produce NO fire, because their moved field is
                         // `struct Inner { a: i64 }` and `is_move_type` calls an
-                        // all-scalar struct Copy. That is a Copy-inference
-                        // question (DIVERGENCES §B1), not a site question, and
-                        // no E0509 rule can reach those two until it is settled.
-                        // ⚠⚠ THE COST ROW IS A SPEC RULE, NOT AN EXEMPTION.
-                        // logos_25_spec_pass_intrinsic_1 line 227 is
-                        // `let moved: Noisy = h.inner;` under the heading
-                        // `@rule intrinsic.drop.skip-moved-out-paths` —
-                        // "Moving a field out of an owner suppresses that
-                        // field's drop; siblings still drop." The Logos spec
-                        // DELIBERATELY admits what rustc calls E0509. So this
-                        // mechanism is not one exemption away from shipping: it
-                        // contradicts a written language rule, and funding it
-                        // is a DESIGN decision (PAIR), not a checker round.
-                        // Recorded, not fixed.
-                        if (logos::probe::on("fldmovedrop")) {
+                        // all-scalar struct Copy (DIVERGENCES A16). That is a
+                        // Copy-inference question, not a site question, and both
+                        // rows stay in bc_admits.ledger with root `bck.NEW-A16`.
+                        //
+                        // ⚠ THE ESCAPE HATCH IS RUST'S, AND IT IS LOAD-BEARING
+                        // IN THE STDLIB: wrap the sub-value in `ManuallyDrop<T>`
+                        // (`#[no_auto_drop]`, so the owner's glue does not
+                        // recurse into it) and take it with `ptr::read`. That is
+                        // what `stdlib/mem/manually_drop`'s `DropGuard` does, and
+                        // it is why this rule costs the stdlib nothing.
+                        {
                             TypeRef rt = recv ? recv.type(pool) : TypeRef(nullptr);
-                            bool own_drop =
-                                rt && ((rt.kind() == LogosType::Kind::Struct &&
-                                        ts_.drop_types.count(std::string(rt.struct_name()))) ||
-                                       (rt.kind() == LogosType::Kind::Enum &&
-                                        ts_.drop_types.count(std::string(rt.enum_name()))));
-                            if (std::getenv("LOGOS_FLDMOVEDROP_TRACE"))
-                                fprintf(stderr, "[fldmovedrop] line=%u place=%s.%s "
-                                        "recv_kind=%d drop=%d\n", line,
-                                        root.c_str(), path.c_str(),
-                                        rt ? (int)rt.kind() : -1, (int)own_drop);
-                            if (own_drop)
-                                report(line, "ceiling-probe fldmovedrop: cannot move out of "
-                                             "a type which implements Drop (E0509)");
+                            std::string owner;
+                            if (rt) {
+                                if (rt.kind() == LogosType::Kind::Struct)
+                                    owner = std::string(rt.struct_name());
+                                else if (rt.kind() == LogosType::Kind::Enum)
+                                    owner = std::string(rt.enum_name());
+                            }
+                            if (!owner.empty() && ts_.drop_types.count(owner)) {
+                                // ⚠ THE PLACE IS NAMED BY THE USER'S SPELLING OR
+                                // NOT AT ALL. Sema rewrites `let S{f:x} = s;`
+                                // into `let __dst_0 = s; let x = __dst_0.f;`, so
+                                // `root` at a destructuring `let` is a compiler
+                                // temporary. Printing `__dst_0.f` at the user
+                                // would be a diagnostic naming a binding that is
+                                // in no source file.
+                                std::string place =
+                                    (root.rfind("__", 0) == 0)
+                                        ? std::format("field '{}' of the destructured value",
+                                                      path)
+                                        : std::format("'{}.{}'", root, path);
+                                report(line, std::format(
+                                    "cannot move out of {}: type '{}' implements the "
+                                    "Drop trait, so its destructor must see the whole "
+                                    "value (E0509). Wrap the field in ManuallyDrop<T> and "
+                                    "take it with ptr::read, or move the whole value",
+                                    place, owner));
+                                break;
+                            }
                         }
                         it->moved_fields[path] = line;
                         break;

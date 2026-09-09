@@ -1,6 +1,17 @@
 // rustc nll/move-subpaths-moves-root.rs — upstream E0382
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
+// ⚠ RE-PINNED 2026-09-08, AND THE SENTENCE MOVED TOWARDS rustc, NOT AWAY.
+//   This fixture pinned Logos's E0382 partial-move sentence. `T2` implements
+//   `Drop`, so rustc's FIRST error on this program is E0509 ("cannot move out
+//   of type `T2`, which implements the `Drop` trait"), not the partial-move
+//   note — and after the Rust-canonical drop landing of 2026-09-08 logosc
+//   reports the same thing, at the same statement. The refusal is unchanged;
+//   the sentence is now the upstream one.
+//   ⚠ THE E0382 COVERAGE IS NOT LOST WITH IT. `tests/logos/fail/partial_move_root_use_ctl`
+//   is this program ONE TOKEN apart — `impl Drop for T2` deleted — and pins the
+//   partial-move sentence in full. A stronger rule upstream of an old one can
+//   silently retire that old rule's only observation; the control is what stops it.
 package move_subpaths_moves_root;
 use logos.mem.string;
 struct T2 { a: String }

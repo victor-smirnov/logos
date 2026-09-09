@@ -1,0 +1,31 @@
+// THE PASS HALF of the destructuring-`let` pair. One token from
+// tests/logos/fail/letstruct_destructure_drop_owner_e0509: `impl Drop for S` is
+// GONE, so `S` is an ordinary aggregate and destructuring it is legal — which
+// is `@rule intrinsic.drop.skip-moved-out-paths`, the surviving half of the
+// clause the owner scoped on 2026-09-08.
+//
+// It asserts the count the whole pair is about: `A` (moved out, dropped through
+// `x`) once, `B` (discarded by `_`) once. 110 would be a leak of one of them and
+// 220 a double free.
+package letstruct_destructure_drop_owner_e0509_ok;
+extern fn printf(f: *const u8, a: i64) -> i32;
+static mut A_DROPS: i64 = 0i64;
+static mut B_DROPS: i64 = 0i64;
+struct A { n: i64 }
+impl Drop for A { fn drop(self: &mut A) { unsafe { A_DROPS = A_DROPS + 1i64; } } }
+struct B { n: i64 }
+impl Drop for B { fn drop(self: &mut B) { unsafe { B_DROPS = B_DROPS + 1i64; } } }
+struct S { f: A, k: B }
+fn go() {
+    let s: S = S { f: A { n: 1i64 }, k: B { n: 2i64 } };
+    let S { f: x, k: _ } = s;
+    let _y: i64 = x.n;
+}
+unsafe fn main() -> i32 {
+    go();
+    printf("A destroyed (want 1): %ld\n".as_ptr(), A_DROPS);
+    printf("B destroyed (want 1): %ld\n".as_ptr(), B_DROPS);
+    if A_DROPS != 1i64 { return 1i32; }
+    if B_DROPS != 1i64 { return 2i32; }
+    return 0i32;
+}

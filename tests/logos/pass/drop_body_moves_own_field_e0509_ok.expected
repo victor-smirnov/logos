@@ -1,0 +1,2 @@
+exit: 0
+stdout: N destroyed exactly once (want 7): 7
