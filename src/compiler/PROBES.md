@@ -30889,3 +30889,72 @@ unwritten slot; and the plain-function control is correct in BOTH the armed and
 the disarmed spelling, not just one.
 
 Record: `docs/probes/dropenum-2026-09-08/ROUND.md`.
+
+## dropbstruct + fldmovedrop — THE OWNER'S DROP DECISION PRICED IN BOTH HALVES, AND B'S "ONE REMAINING PROPERTY" IS FIVE SHAPES THAT E0509 REFUSES EXACTLY
+site: src/compiler/mlir_gen_stmt.cpp::gen_drop_value — the STRUCT branch's
+      `if (!top_level) return;` after the user `Drop::drop` call, now
+      `if (!top_level && !probe::on("dropbstruct")) return;` (design B: the CALL
+      SITE recurses into the fields at EVERY depth, not only at a top-level
+      local's scope exit); and src/compiler/borrow_check.cpp::visit_expr_place —
+      the pre-existing `probe::on("fldmovedrop")` E0509 arm, re-priced, not written.
+build: eaac8e4b73c1fe24 43 (base, READ) -> 3bd2c3af1c114227 43 (dropbstruct source installed)
+fires: fldmovedrop 101 · dropbstruct 15729
+
+PRICING ONLY. Nothing landed. Victor decided 2026-09-08 "делаем Rust-канонично":
+`Drop::drop` takes `&mut self`, moving out of a `Drop` value is E0509, and drop
+glue is user-drop-then-fields. That retires `intrinsic.drop.skip-moved-out-paths`.
+
+⚠ THE E0509 ARM WAS ALREADY IN THE TREE AND ITS 2026-08-28 DECLINE NAMED THAT
+CLAUSE AS THE REASON ("it contradicts a written language rule ... funding it is a
+DESIGN decision (PAIR)"). The decline is overturned by name, and re-pricing it
+cost no build.
+
+    column                                fldmovedrop      dropbstruct
+    CEILING, bc_admits ledger             5                0  ⚠ WRONG POPULATION
+    CEILING, soundness queue (81, RUN)    3                1
+    COST, pass (1047)                     1 intrinsic_1    1 drop_glue_three_levels
+    COST-fail (1457, rc/sha/.expected)    2 text-only, 0 rc  0
+    COST, stdlib four layers              clean            clean
+    RUNTIME oracle (6557, compiled+RUN)   n/a              2 changed, 1 after
+                                                           subtracting cast-region-to-uint
+
+⚠ `dropbstruct` CEILING 0 IS THE POPULATION, NOT A REFUTATION: ceiling-probe
+counts over `logos_00_bc_admit_*`, a shelf whose oracle is a silent COMPILE. A
+codegen arm cannot move it. Measured where it lives — all 81 queue programs
+compiled, linked and RUN, both ways — it closes `replace_site_skips_field_drop_glue`
+(rc 11 -> 0) and moves nothing else in either direction.
+
+THE CENTRAL MEASUREMENT. The previous round's 23-shape table has design B wrong
+in FIVE cells (s02, s15, s16, s20-armed, s20-disarmed), all of them "a drop body
+that moves its own field out". Compiled under `fldmovedrop` today: 5 of 5
+REFUSED, and 0 of the 3 shapes where B is correct (s01, s03, s17). The
+intersection is exact — B's remaining wrongness IS the E0509 class, which is why
+the two halves must land together and why B's "cost" is not a cost.
+
+E0509 DOOR CENSUS, ten doors, hand programs of varied shape, trace armed:
+fires at the dotted path, the destructuring `let`, the tuple-struct pattern, FRU,
+an unconditional drop-body move, a conditional one, a GENERIC drop body, a
+generic plain fn, and a nested `a.b.inner`. TWO HOLES, both MATCH doors
+(`match s { S{f:a} => }` and `match e { E::V(x) => }`) — NO trace line at all, so
+the `moving` branch is never reached there, a structural hole and not a wrong
+predicate. That hole is why `borrowck-move-error-with-note--b` does not close and
+why `drop-trait-enum-b154` (ported body `match self`) is NOT refused. Six legal
+controls silent: Drop-less owner · whole-value move · Copy field · `&s.f` ·
+`#[no_auto_drop]` wrapper · a drop body that only reads.
+
+⚠ THE STDLIB `DropGuard` REPAIR IS NOT A BLOCKER, AND THE REASON IS A SECOND
+DEFECT. `stdlib/mem/manually_drop` has TWO E0509 sites (`drop_guard_disarm_into`
+line 158 and the drop body line 164) and compiles SILENT under the arm, because
+NOTHING IN THE TREE INSTANTIATES `DropGuard` — a generic body is checked at its
+mono instance (the same shape with an explicit instantiation refuses, naming
+`W$G1$N__drop`). The repair is still owed and must come with a fixture that
+instantiates the guard, or nothing will ever check it.
+
+BY-VALUE DROP RECEIVER, PRICED SEPARATELY AS INSTRUCTED: 176 impl sites in 136
+files, against 496 files using `&mut` — and `stdlib/lang/drop` DECLARES
+`fn drop(self: Self)`, so the by-value form is the trait's signature, not a
+fixture's spelling. Refusing it is its own round and its own row; neither half
+above needs it.
+
+Record: `docs/probes/dropcanon-2026-09-08/ROUND.md`. Predictions written before
+the armed binary existed: 8 of 8 correct by name.

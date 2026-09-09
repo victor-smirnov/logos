@@ -3,6 +3,7 @@
 // mlir_gen_stmt.cpp — Statement code generation.
 
 #include "mlir_gen_impl.hpp"
+#include "logos/compiler/probe.hpp"
 #include <set>
 
 namespace logos::compiler {
@@ -987,7 +988,9 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
                 builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
                 // Owner (top_level) also drops the fields after the user drop
                 // (mirrors SDrop). Nested: stop (by-value self consumes them).
-                if (!top_level) return;
+                // CEILING PROBE `dropbstruct` — design B: the CALL SITE always
+                // recurses into the fields after the user drop, at every depth.
+                if (!top_level && !logos::probe::on("dropbstruct")) return;
             }
         // #103 / #98 — A LOOKUP KEY IS NOT AN IDENTITY, and here the order was
         // INVERTED: `all_struct_defs_.find(name)` asked the BARE first-
