@@ -125,11 +125,26 @@
 # closure-in-a-loop move IS checked; only this port's TYPE is Copy, and swapping
 # the type would change the subject. A ROW MOVED, NOT A ROW CLOSED.
 
-borrowck-move-out-of-struct-with-dtor bck.E tests/imported/admit/borrowck/borrowck-move-out-of-struct-with-dtor  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — E0509; clause intrinsic.drop.skip-moved-out-paths, RE-VERIFIED BY RUNNING (INNER_DROPS=1 S_DROPS=1)
-borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13  # BUCKET-3 DIVERGENCE-DROP 2026-09-07, EVIDENCE CORRECTED SAME DAY — the admission stands; the "same run evidence" did NOT cover this port's door. This program uses the STRUCT-PATTERN door and its own body exits 1 (DROPS=0): `impl Drop for S` never runs. Run-time defect rowed separately as soundness_queue letstruct_destructure_skips_user_drop
-borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13  # BUCKET-3 DIVERGENCE-DROP 2026-09-07, EVIDENCE CORRECTED SAME DAY — the admission stands; the "same run evidence" did NOT cover this port's door. This program uses the STRUCT-PATTERN door and its own body exits 1 (DROPS=0): `impl Drop for S` never runs. Run-time defect rowed separately as soundness_queue letstruct_destructure_skips_user_drop
-borrowck-struct-update-with-dtor--b bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--b  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — T{a:2,b:s0.b} out of a Drop T, same clause
-borrowck-struct-update-with-dtor--t17 bck.E tests/imported/admit/borrowck/borrowck-struct-update-with-dtor--t17  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 — T{a:2,..s0} FRU out of a Drop T, same clause
+
+# ── 2026-09-08 — THE `DIVERGENCE-DROP` BUCKET IS GONE, ALL SIX ROWS MOVED OUT ──
+#
+# The owner decided on 2026-09-08 that Logos's drop semantics are Rust-canonical:
+# `Drop::drop` takes `&mut self`, and moving a sub-value out of a value that
+# implements `Drop` is E0509 and REFUSED. That retires the spec clause
+# `intrinsic.drop.skip-moved-out-paths` in the form that blessed these six rows
+# (the clause survives, scoped to NON-`Drop` owners, which is Rust's own drop-flag
+# behaviour and not a divergence — see docs/spec/expressions.md and the new
+# `intrinsic.drop.move-out-of-drop-type-refused`).
+#
+# So the divergence is not a divergence any more and the six rows are DEFECTS
+# again. Every one of them moved BECAUSE OF THE CLAUSE — none had a second
+# reason to be filed here — and all six are now in bc_admits.ledger with a root.
+# Three of them carry an ADDITIONAL blocker which the clause's retirement does
+# not remove (a `match`-pattern door, and A16 structural auto-Copy); that is
+# recorded on the rows themselves, in the actionable file, where it belongs.
+#
+# 15 -> 9. THE ACTIONABLE LEDGER GROWING BY SIX IS THE CORRECT RESULT.
+
 copy-modulo-regions lifereg.NEW-L5 tests/imported/admit/lifetimes/copy-modulo-regions  # BUCKET-3 DIVERGENCE-A16 2026-09-07 — docs/DIVERGENCES.md A16 structural auto-Copy: Foo{f:&i64} is Copy at EVERY region
 do-not-ignore-lifetime-bounds-in-copy nllmoves.NEW-S7-1 tests/imported/admit/nll/do-not-ignore-lifetime-bounds-in-copy  # BUCKET-3 DIVERGENCE-A16 2026-09-07 — same clause; impl Copy for Foo<'static> restricts nothing here
 issue-64173-unused-lifetimes lifereg.L4 tests/imported/admit/lifetimes/issue-64173-unused-lifetimes  # BUCKET-4 HOLE 2026-09-07 — needs a const-expression array length ([(); size_of::<&Self>()]); backlog const_expr_array_len_absent. E0392 wall re-measured: still 5 fixtures
@@ -164,6 +179,5 @@ issue-75904-move-closure-loop nllmoves.C tests/imported/admit/moves/issue-75904-
 #   and its header says so: it is `finish_1` from `issue-52059` under another name.
 #   A ROW MOVED, NOT A ROW CLOSED — both times.
 
-borrowck-move-error-with-note--b bck.E tests/imported/admit/borrowck/borrowck-move-error-with-note--b  # BUCKET-3 DIVERGENCE-DROP 2026-09-07 (stage 5) — E0509 via the MATCH struct-pattern door; clause intrinsic.drop.skip-moved-out-paths; re-ported as-is first, RE-ROOTED from bck.B. Run evidence at THIS door: `AB`, S's destructor never ran (already rowed as soundness_queue letstruct_destructure_skips_user_drop)
 enum-drop-access nllmoves.E tests/imported/admit/nll/enum-drop-access  # BUCKET-4 HOLE 2026-09-07 (stage 5) — needs nested patterns inside enum-variant payloads (`Some(&mut ref mut r)`); backlog enum_payload_nested_pattern_absent. The file still holds the OLD port, which duplicates issue-52059's finish_1
-# TOTAL 15
+# TOTAL 9

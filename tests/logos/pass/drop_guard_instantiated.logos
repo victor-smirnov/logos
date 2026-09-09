@@ -1,0 +1,68 @@
+// stdlib `DropGuard<F>` INSTANTIATED, which nothing in the tree did until
+// 2026-09-08 — and that is why its two E0509 sites were invisible.
+//
+// A generic body is borrow-checked at its MONO instance. `DropGuard` was
+// declared, documented and never instantiated anywhere in `tests/` or
+// `stdlib/`, so `logos.mem.manually_drop` compiled silent while its drop body
+// moved a field out of `self` (`if self.armed { let f = self.f; f(); }`) —
+// the shape rowed as soundness_queue `drop_body_conditional_move_double_drops_both_paths`,
+// which double-drops on BOTH paths including the disarmed one.
+//
+// The repair is Rust's own: `f` lives in a `ManuallyDrop<F>` and the destructor
+// TAKES it by `ptr::read` instead of moving it out of `self`
+// (`core::mem::ManuallyDrop::take`; the `scopeguard` crate uses this exact
+// shape for this exact type). `drop_guard_disarm_into` sinks the whole guard
+// into a `ManuallyDrop` first, which is Rust's `ScopeGuard::into_inner`.
+//
+// THIS FIXTURE IS THE CHECK. It instantiates the guard three ways and counts
+// the closure's firings — a LEAK reads too low, a DOUBLE FIRE too high, and an
+// exit code alone could not tell those apart.
+package drop_guard_instantiated;
+
+use logos.mem.manually_drop;
+
+extern fn printf(f: *const u8, a: i64) -> i32;
+
+static mut FIRED: i64 = 0i64;
+
+unsafe fn main() -> i32 {
+    // ── 1. ARMED: the closure fires EXACTLY ONCE at scope exit. ──────────
+    FIRED = 0i64;
+    {
+        let g: DropGuard<||->()> = drop_guard_new::<||->()>(|| { unsafe { FIRED = FIRED + 1i64; } });
+    }
+    printf("armed guard, firings (want 1): %ld\n".as_ptr(), FIRED);
+    if FIRED != 1i64 { return 1i32; }
+
+    // ── 2. DISARMED: the closure does NOT fire. This is the path the old
+    //      spelling double-dropped even though its move never executed. ───
+    FIRED = 0i64;
+    {
+        let mut g: DropGuard<||->()> = drop_guard_new::<||->()>(|| { unsafe { FIRED = FIRED + 1i64; } });
+        g.disarm();
+    }
+    printf("disarmed guard, firings (want 0): %ld\n".as_ptr(), FIRED);
+    if FIRED != 0i64 { return 2i32; }
+
+    // ── 3. `drop_guard_disarm_into`: the guard is consumed and its `Drop`
+    //      does NOT fire. The closure comes back as a value.
+    //
+    // ⚠ THE RETURNED CLOSURE IS NOT CALLED HERE, AND THAT IS NOT AN OVERSIGHT.
+    //    Calling it SIGSEGVs, on a defect that has nothing to do with this repair
+    //    and is not fixed by it: a generic `Drop` body that CALLS its closure type
+    //    parameter corrupts a separate value of that same closure type held by the
+    //    caller. Rowed 2026-09-08 as soundness_queue
+    //    `generic_drop_body_calling_closure_param_corrupts_callers_closure`, with
+    //    the one-token control (delete the call from the drop body -> correct) in
+    //    the program. What THIS fixture pins is the half the repair owns: the
+    //    guard did not fire on the way out.
+    FIRED = 0i64;
+    {
+        let g: DropGuard<||->()> = drop_guard_new::<||->()>(|| { unsafe { FIRED = FIRED + 1i64; } });
+        let f: ||->() = drop_guard_disarm_into::<||->()>(g);
+    }
+    printf("disarm_into, firings (want 0): %ld\n".as_ptr(), FIRED);
+    if FIRED != 0i64 { return 3i32; }
+
+    return 0i32;
+}

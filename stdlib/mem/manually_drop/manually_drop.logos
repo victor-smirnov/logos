@@ -130,16 +130,23 @@ impl Alignment {
 // closure doesn't fire (e.g. when the work succeeded and cleanup
 // isn't needed).
 /// Runs the closure `f` at scope-exit (drop) unless defused via `disarm`.
+///
+/// `f` is held in a `ManuallyDrop` so that the destructor can TAKE it without
+/// moving a field out of `self` — moving out of a type that implements `Drop`
+/// is E0509 and is refused (see `intrinsic.drop.move-out-of-drop-type-refused`).
+/// This is the shape `core::mem::ManuallyDrop::take` exists for, and the shape
+/// the `scopeguard` crate uses for exactly this type.
 pub struct DropGuard<F: FnOnce() -> ()> {
     /// Cleanup closure; called exactly once at drop while `armed`.
-    pub f:     F,
+    /// Wrapped so the drop body can take it out by `ptr::read` rather than by move.
+    pub f:     ManuallyDrop<F>,
     /// Whether the closure fires on drop; cleared by `disarm`.
     pub armed: bool,
 }
 
 /// Creates an armed `DropGuard` that runs `f` on drop.
 pub fn drop_guard_new<F: FnOnce() -> ()>(f: F) -> DropGuard<F> {
-    return DropGuard::<F> { f: f, armed: true };
+    return DropGuard::<F> { f: ManuallyDrop::<F> { value: f }, armed: true };
 }
 
 impl<F: FnOnce() -> ()> DropGuard<F> {
@@ -150,18 +157,29 @@ impl<F: FnOnce() -> ()> DropGuard<F> {
 // Manual fire — pre-emptively run the cleanup closure and disarm.
 // Rust's pattern: `ScopeGuard::into_inner` returns the F without
 // firing; here we expose the moral equivalent.
+//
+// It may NOT be written `return g.f;`: `DropGuard` implements `Drop`, and
+// moving a field out of such a value is E0509. Rust's `into_inner` wraps the
+// guard in a `ManuallyDrop` (which suppresses the guard's own destructor) and
+// then `ptr::read`s the closure out of it. This does the same.
 /// Consumes the guard, returning the closure `f` without running it.
-/// Extracting `f` by value suppresses the guard's `Drop`.
+/// The guard's `Drop` does not fire: the guard is sunk into a `ManuallyDrop` first.
 pub fn drop_guard_disarm_into<F: FnOnce() -> ()>(g: DropGuard<F>) -> F {
-    // Move semantics: `g` is consumed here; its `Drop` doesn't fire
-    // because we extract `f` by value below.
-    return g.f;
+    let sunk: ManuallyDrop<DropGuard<F>> = ManuallyDrop::<DropGuard<F>> { value: g };
+    // `sunk` is `#[no_auto_drop]`: neither `DropGuard::drop` nor the field glue
+    // runs for it, so the closure below is read exactly once and never dropped twice.
+    let p: *const F = &sunk.value.f.value as *const F;
+    return unsafe { read::<F>(p) };
 }
 
 impl<F: FnOnce() -> ()> Drop for DropGuard<F> {
     fn drop(self: DropGuard<F>) {
         if self.armed {
-            let f = self.f;
+            // `ManuallyDrop::take`: read the closure out through a pointer
+            // rather than moving it out of `self`. `f` carries no drop glue
+            // (the wrapper is `#[no_auto_drop]`), so the caller's field
+            // recursion cannot drop it a second time.
+            let f: F = unsafe { read::<F>(&self.f.value as *const F) };
             f();
         }
     }

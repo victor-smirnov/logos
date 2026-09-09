@@ -24,6 +24,12 @@ impl Drop for Holder {
     fn drop(self: &mut Holder) { log_drop(self.mark); }
 }
 
+// Owner with NO `impl Drop`, for `intrinsic.drop.skip-moved-out-paths`. The
+// clause is scoped to non-`Drop` owners (owner decision 2026-09-08): a partial
+// move out of a `Drop` value is E0509 and is refused, so it cannot be pinned
+// here. Two droppable fields so the "siblings still drop" half is asserted too.
+struct Pair { a: Noisy, b: Noisy }
+
 // ---- dyn-reconstruct scaffolding -------------------------------------------
 trait Speak { fn says(self: &Self) -> i32; }
 struct Dog { tag: i64 }
@@ -216,25 +222,26 @@ unsafe fn main() -> i64 {
 
     // ===================================================================
     // intrinsic.drop.skip-moved-out-paths
-    // Moving a field out of an owner suppresses that field's drop; siblings
-    // still drop. Move `inner` out (its drop happens at the new binding's
-    // scope end), so the owner does NOT re-drop it.
+    // Moving a field out of a NON-`Drop` owner suppresses that field's drop;
+    // siblings still drop. The owner MUST NOT implement `Drop` — a partial move
+    // out of a `Drop` value is E0509 and refused
+    // (`intrinsic.drop.move-out-of-drop-type-refused`), which is why this block
+    // uses `Pair` and not `Holder`. It asserted the `Holder` (i.e. `Drop`-owner)
+    // form until 2026-09-08, when the owner retired that divergence.
     // @rule intrinsic.drop.skip-moved-out-paths
     {
         DROP_LOG = 0i64;
         {
-            let h: Holder = Holder { inner: Noisy { id: 4i64 }, mark: 9i64 };
-            let moved: Noisy = h.inner;     // move field out
-            // `moved` drops here (4) at end of this block; Holder::drop (9) too,
-            // but the moved-out `inner` is NOT double-dropped.
+            let p: Pair = Pair { a: Noisy { id: 4i64 }, b: Noisy { id: 5i64 } };
+            let moved: Noisy = p.a;         // move field out of a non-Drop owner
             log_drop(0i64);                 // separator marker = 0
         }
         // Drops at scope end run in reverse declaration order: `moved`(4)
-        // first, then `h` -> Holder::drop(9) [owner], and the moved-out
-        // `inner` is NOT re-dropped by the owner (skip-moved-out-paths).
-        // Sequence: separator 0 -> moved 4 -> Holder 9 => 49.
-        // A double-drop of the moved field would make the 4 appear twice.
-        if DROP_LOG != 49i64 { return 32i64; }
+        // first, then `p`'s structural glue, which drops `b`(5) and SKIPS the
+        // moved-out `a`. Sequence: separator 0 -> moved 4 -> b 5 => 45.
+        // A double-drop of the moved field would make the 4 appear twice (445);
+        // a suppressed SIBLING would drop the 5 (4).
+        if DROP_LOG != 45i64 { return 32i64; }
     }
 
     // ===================================================================

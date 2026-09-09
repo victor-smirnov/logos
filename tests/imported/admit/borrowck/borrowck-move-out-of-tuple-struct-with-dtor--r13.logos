@@ -1,6 +1,17 @@
 // rustc borrowck/borrowck-move-out-of-tuple-struct-with-dtor.rs — upstream E0509
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root bck.NEW
+// ⚠ CORRECTION 2026-09-08 — THE BLESSING IS WITHDRAWN, THIS ROW IS A DEFECT AGAIN.
+//   Everything above about `intrinsic.drop.skip-moved-out-paths` licensing this
+//   admission was true when it was written and is FALSE NOW. The owner decided on
+//   2026-09-08 that Logos's drop semantics are Rust-canonical: `Drop::drop` takes
+//   `&mut self`, and moving a sub-value out of a value that implements `Drop` is
+//   E0509 and REFUSED. The clause was rewritten the same day and now covers only
+//   NON-`Drop` owners; the rule for this program is the new
+//   `intrinsic.drop.move-out-of-drop-type-refused` (docs/spec/expressions.md).
+//   The "RE-VERIFIED BY RUNNING IT" evidence above is not withdrawn — it is
+//   accurate about what the compiler DOES; it is no longer an argument that what
+//   the compiler does is CORRECT. The row moved back to tests/logos/bc_admits.ledger.
 // ── BUCKET 3, BLESSED DIVERGENCE — NOT RE-PORTED, AND NOT A DEFECT. 2026-09-07.
 // Original path: tests/ui/borrowck/borrowck-move-out-of-tuple-struct-with-dtor.rs
 // upstream commit: 4b0c9d76ae7d387229caea55cfa73c280b08b8a7

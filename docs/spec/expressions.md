@@ -4886,13 +4886,25 @@ At the top level (owner semantics), after a value's user `impl Drop` runs, its f
 
 *Source:* `src/compiler/mlir_gen_impl.hpp#L1186-L1193`
 
-### `intrinsic.drop.skip-moved-out-paths` — Moved-out sub-values are skipped during drop
+### `intrinsic.drop.skip-moved-out-paths` — Moved-out sub-values of a NON-`Drop` owner are skipped during drop
 
-Drop of a value suppresses sub-values that were moved out: a dotted path (relative to the value) whose segment exactly matches a child skips that child's drop entirely; a deeper path recurses into the child with the remainder so only the moved leaf is suppressed while its siblings still drop.
+Drop of a value **whose type does not implement `Drop`** suppresses sub-values that were moved out: a dotted path (relative to the value) whose segment exactly matches a child skips that child's drop entirely; a deeper path recurses into the child with the remainder so only the moved leaf is suppressed while its siblings still drop.
 
-*Related:* `intrinsic.drop.recursive-by-type`
+⚠ **SCOPE, NARROWED 2026-09-08 BY OWNER DECISION.** This clause previously carried no owner-type condition, and in that form it blessed a partial move out of a value that DOES implement `Drop` — which Rust refuses as E0509. The owner's decision of 2026-09-08 is that Logos's drop semantics are Rust-canonical, so that reading is retired: see `intrinsic.drop.move-out-of-drop-type-refused`. What survives is the non-`Drop` case, which is Rust's own drop-flag behaviour and is not a divergence.
 
-*Source:* `src/compiler/mlir_gen_impl.hpp#L1190-L1195`
+*Related:* `intrinsic.drop.recursive-by-type`, `intrinsic.drop.move-out-of-drop-type-refused`
+
+*Source:* `src/compiler/mlir_gen_impl.hpp` — `drop_value_recursive`, moved-path suppression
+
+### `intrinsic.drop.move-out-of-drop-type-refused` — Moving a sub-value out of a value that implements `Drop` is refused (E0509)
+
+A move whose place is a sub-value (a field, a tuple element, an enum payload, a struct- or tuple-pattern binding, a functional-update base) of a value whose type implements `Drop` is REFUSED at compile time with Rust's E0509 diagnostic, at every door that can express it: a dotted path, a destructuring `let`, a tuple-struct pattern, a `match` pattern, a functional-update base, and the `self` of the `Drop::drop` body itself. The owner's destructor is guaranteed to observe the whole value, so no sub-value of it may be taken away first.
+
+The escape hatch is Rust's: wrap the sub-value in `ManuallyDrop<T>` (`#[no_auto_drop]`, so the owner's glue does not recurse into it) and take it with `ptr::read`, or sink the whole owner into a `ManuallyDrop` before taking a field out of it. `stdlib/mem/manually_drop`'s `DropGuard` is written that way.
+
+*Related:* `intrinsic.drop.skip-moved-out-paths`, `intrinsic.drop.owner-drops-fields-after-user-drop`
+
+*Source:* `src/compiler/borrow_check.cpp` — the E0509 door in the `moving` branch
 
 ### `intrinsic.drop.owning-dyn-handle` — Drop of owning Box&lt;dyn&gt; calls vtable[0], frees data, frees handle
 

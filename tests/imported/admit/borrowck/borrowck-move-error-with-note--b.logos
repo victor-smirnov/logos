@@ -1,6 +1,17 @@
 // rustc borrowck/borrowck-move-error-with-note.rs — upstream E0507 + E0509
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root bck.E (was bck.B — RE-ROOTED, see below)
+// ⚠ CORRECTION 2026-09-08 — THE BLESSING IS WITHDRAWN, THIS ROW IS A DEFECT AGAIN.
+//   Everything above about `intrinsic.drop.skip-moved-out-paths` licensing this
+//   admission was true when it was written and is FALSE NOW. The owner decided on
+//   2026-09-08 that Logos's drop semantics are Rust-canonical: `Drop::drop` takes
+//   `&mut self`, and moving a sub-value out of a value that implements `Drop` is
+//   E0509 and REFUSED. The clause was rewritten the same day and now covers only
+//   NON-`Drop` owners; the rule for this program is the new
+//   `intrinsic.drop.move-out-of-drop-type-refused` (docs/spec/expressions.md).
+//   The "RE-VERIFIED BY RUNNING IT" evidence above is not withdrawn — it is
+//   accurate about what the compiler DOES; it is no longer an argument that what
+//   the compiler does is CORRECT. The row moved back to tests/logos/bc_admits.ledger.
 // ── BUCKET 3, BLESSED DIVERGENCE. 2026-09-07 (stage 5). RE-PORTED AS-IS FIRST, then
 // classified: the port below IS upstream's construct, it IS admitted, and the
 // admission is LICENSED — so the row is not a defect and leaves bc_admits.ledger.
