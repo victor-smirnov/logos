@@ -31979,7 +31979,17 @@ note:
       a three-line marker pointing here, and every gate was RE-RUN on the trimmed build,
       because a comment-only edit still moves the hash and a verdict is a measurement WITH A
       TIMESTAMP.
-  (2) The handed-down pricing report's STEP-1 census was stale by one commit: it named HEAD
+  (2) THE CONTROL BINARY'S `--version` NAMES A COMMIT THREE BEHIND THE SOURCE IT WAS BUILT
+      FROM, and I nearly reported the control as invalid on that string alone.  The base
+      `build/bin/logosc` says `0.42.0-preview+main-g15bc8389-dirty.20260909T120848Z`, and
+      `git diff 15bc8389 fc39ff38c -- src/compiler/sema_collect.cpp` is NOT empty — it
+      carries the whole 2026-09-09sigland return-slot landing.  The binary was built while
+      the tree was DIRTY on top of 15bc8389 and those changes were only afterwards committed
+      as c3b73ae29/fe50e8d0f, so `git describe` froze at the older tag.  PROVED BY BEHAVIOUR,
+      not by the string: the base binary refuses bc_sigretty_return_bool_vs_i64_fail and
+      bc_sigretty_return_signedness_fail with sigland's own pinned sentences, character for
+      character.  A VERSION STRING IS NOT A SOURCE IDENTITY; only what the binary DOES is.
+  (3) The handed-down pricing report's STEP-1 census was stale by one commit: it named HEAD
       `fe50e8d0f` when the tree was already at `fc39ff38c` — its own commit, landed after it
       was written.  Its build hash, its `# TOTAL 79` and its 42-tier-3-`refuses` correction
       all re-measured TRUE.
