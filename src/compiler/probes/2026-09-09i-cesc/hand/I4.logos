@@ -1,0 +1,10 @@
+// ILLEGAL: a `Box<dyn Fn + 'a>` built from a closure capturing a LOCAL, whose
+// region is strictly shorter than 'a.
+package cesc_I4;
+use logos.mem.boxed;
+fn mk<'a>(r: &'a i64) -> Box<dyn Fn() -> i64 + 'a> {
+    let local: i64 = 9i64;
+    let p: &i64 = &local;
+    return Box::new(|| -> i64 { return *p; });
+}
+fn main() -> i32 { let v: i64 = 3i64; let b = mk(&v); return 0i32; }

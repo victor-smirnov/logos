@@ -1,0 +1,8 @@
+// LEGAL: a `Box<dyn Fn + 'a>` whose closure captures a `&'a i64`. The bound IS
+// discharged by the capture. Rust accepts.
+package cesc_L1;
+use logos.mem.boxed;
+fn mk<'a>(r: &'a i64) -> Box<dyn Fn() -> i64 + 'a> {
+    return Box::new(|| -> i64 { return *r; });
+}
+fn main() -> i32 { let v: i64 = 3i64; let b = mk(&v); return 0i32; }

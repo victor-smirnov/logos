@@ -32320,3 +32320,91 @@ annotation.**
     for a closure parameter, so `|P { x, y }: P|` is `syntax error near 'P'`, rc 4, BEFORE
     sema. Re-measured today on the landing: still rc 4. A grammar gap is not a binder walk.
 
+
+## 2026-09-09i-cesc — `NEW-CESC`'S OWN DOOR IS REACHED BY ONE OF ITS EIGHT ROWS, AND THE CENSUS SAID SO BEFORE EITHER ARM DID
+
+site: src/compiler/sema_expr.cpp::check_object_lifetime_bound   (the `K::Closure` case, which is the ONLY reader of `closure_caps_by_id_`)
+site: src/compiler/sema_expr.cpp::lower_closure_expr            (the caps deposit — `closure_caps_by_id_[closure_id]`)
+
+build: 06f0c66be0400a1d 43 (HEAD 02c79cfba), READ not assumed. Tree restored, base binary
+re-installed and its hash re-read as the same value. Full round record in
+`src/compiler/probes/2026-09-09i-cesc/` (TARGETS.md written before the compiler
+was touched, PREDICTION.md before the armed binary existed, RESULT.md after).
+
+TARGET: `bck.NEW-CESC` (3) + `nllmoves.NEW-CESC` (5), the ledger's largest root.
+Chosen because the arm EXISTS and the fact IS deposited and has exactly ONE
+reader — three textual hits for `closure_caps_by_id_` in the whole compiler.
+
+fires: cescbound 39 · cesccapmut 28 · cescarr 0 (census-only, no `probe::on`
+call — the table's "NEVER FIRED" line is wrong for that one probe by
+construction; its census fired 4 times).
+
+    probe        ceiling  cost  cfail                        stdlib  runtime
+    cescbound          1     3  3/1473 (match 1, text 2)     4 of 4  not run
+    cesccapmut         4     4  12/1473 (match 11, text 1)   4 of 4  not run
+
+THE CENSUS IS THE RESULT. `cesc.olb.enter` — arrivals at the object-lifetime
+door — is 2 for `issue-95079` and **ZERO for the other six programs**. Six of
+eight rows never reach the door their root is named after, so a ceiling or a
+cost measured there is an unreached site for them and not a zero (rule 1).
+
+AND THE DOOR IS NOT MISSING ITS FACT. Hand pair, one variable, both compiled on
+the base binary: `Box<dyn Fn + 'a>` over a capture that IS the `&'a` — ADMITTED
+(correct); the same bound over a LOCAL's borrow — REFUSED with the object
+lifetime sentence (correct). The arm already carries the capture's region.
+
+SETS, DIFFED BOTH WAYS. `cescbound` closed {issue-95079}, predicted
+{issue-95079}, both differences empty — and it refuses the legal `dyn Fn + 'a`
+shape (hand L1 plus `pass_bc_objlt_closure_move_ref`,
+`pass_bc_objlt_closure_reborrow`, `pass_bc_objlt_same_sig_twins`), and breaks
+`fail_borrowck-escaping-closure-error-2`'s pinned `.expected` — a row this same
+arm retired correctly on 2026-09-07, now refused for the wrong reason. Rule 14.
+`cesccapmut` closed FOUR where two were predicted; the two unpredicted rows are
+rooted `nllmoves.NEW-CAPLOAN` and `nllmoves.B`. One crude arm reaching into
+three roots is a SYMPTOM instrument, not a root (rule 6). It also refuses the
+most ordinary legal closure in the language (`fn bump(r: &mut i64) { let mut c =
+|| { *r = *r + 1; }; c(); }`) and costs ELEVEN pinned `borrowck-closures-*`
+diagnostics.
+
+⚠ RUNTIME COLUMN NOT MEASURED, on purpose and stated rather than omitted: both
+arms are STOP on an rc-visible column already, and `run_oracle.py` is a
+50-minute saturating pass that can only deepen a decline. A round that FUNDS
+either shape must price it before landing.
+
+VERDICT: `NEW-CESC` is at least four mechanisms under one name — D-DYNNEST
+(issue-95079, the one arrival), D-CAPRB (issue-42574 --b/--t15, which are ONE
+program under two row ids, diffed today), D-RET (issue-40510-1, issue-40510-3,
+issue-48697--t16), D-STORE (borrowed-data-escapes-closure-148392), D-SIG
+(anonymous-region-in-apit, one row, no separating pair — do not group it).
+The 2026-09-07 minting pair still reproduces; it was written from issue-95079,
+the single member that reaches the door, and speaks only for it.
+
+FUND NEXT: D-RET, three rows, a closure's RETURN region checked by nothing —
+the same shape NEW-CESC was believed to be and measurably is not. The function
+door's own rule fires today (`fn f() -> &i64 { let v = 3i64; return &v; }` →
+"cannot return reference to local variable 'v': dangling reference"); the
+closure door has no counterpart.
+
+⚠ ALSO RE-VERIFIED TODAY, because the prompt recommends it and a control is a
+measurement with a timestamp: the `bck.D` / `nllmoves.D` pairs BOTH still
+reproduce digit for digit ("cannot borrow 'a' as shared: already mutably
+borrowed" sequenced vs admitted as argument temporaries; "cannot return
+reference to local variable 'v'" named vs admitted from a block tail). They have
+not decayed. What condemns that merge is the ledger's own 2026-09-08 note — the
+seven ports are two populations by upstream error code — not staleness.
+
+⚠ SECOND TOOL CORRECTION, AND THIS ONE IS A GATE LIE. `probe-log-lint.py`
+reported "257 records, every site symbol resolves" over a record whose `site:`
+named `lower_closure_literal_` — a symbol that occurs ZERO times in
+sema_expr.cpp. The real enclosing function of the caps deposit is
+`lower_closure_expr`, and the record now names it. The lint's own header says a
+record whose link has rotted is worse than no record; it does not catch a link
+that was never good. Whatever it matches, it is not "this symbol is in the named
+file". Not repaired here — the tooling is frozen — but a `site:` line is now
+known to be UNCHECKED for a name that never existed.
+
+⚠ TOOL CORRECTION, MEASURED. `tests/logos/bc_admits_ledger_gate.sh` takes FOUR
+arguments; CMake passes `bc_admits_blocked.ledger` as the fourth. A hand
+invocation with three reports `FAIL: … is on the admit shelf with NO ledger row`
+rc 1 — a FALSE RED, the blocked file simply unread. This is the `LOGOS_LIB_DIR`
+lesson in a second instrument, and it cost one gate run here.

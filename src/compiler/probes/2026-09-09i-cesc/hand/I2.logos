@@ -1,0 +1,9 @@
+// ILLEGAL (rustc E0521): a `move` closure stores a borrow of one capture into
+// another capture that outlives the closure frame.
+package cesc_I2;
+fn main() -> i32 {
+    let a: i64 = 0i64;
+    let mut b: Option<&i64> = Option::None;
+    move || { b = Option::Some(&a); };
+    return 0i32;
+}

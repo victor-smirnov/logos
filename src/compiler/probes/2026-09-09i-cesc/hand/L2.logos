@@ -1,0 +1,8 @@
+// LEGAL: a 'static boxed closure over an OWNED capture. No region anywhere.
+package cesc_L2;
+use logos.mem.boxed;
+fn mk() -> Box<dyn Fn() -> i64> {
+    let x: i64 = 7i64;
+    return Box::new(move || -> i64 { return x; });
+}
+fn main() -> i32 { let b = mk(); return 0i32; }

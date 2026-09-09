@@ -1,0 +1,18 @@
+# program	base	cescbound	cesccapmut	note
+L1	admit	REFUSED	admit	LEGAL — cost of cescbound
+L2	admit	admit	admit	LEGAL
+L3	admit	admit	REFUSED	LEGAL — cost of cesccapmut
+L4	admit	admit	admit	LEGAL
+L5	admit	admit	admit	LEGAL
+I1	admit	admit	admit	DEFECT, untouched by both
+I2	admit	admit	admit	DEFECT, untouched by both
+I3	admit	admit	REFUSED	DEFECT closed by cesccapmut
+I4	REFUSED	REFUSED	REFUSED	already red at base — INHERITED (rule 14)
+anonymous-region-in-apit--closure-param-escapes	admit	admit	admit	row, untouched
+borrowed-data-escapes-closure-148392	admit	admit	admit	row, untouched
+issue-95079-missing-move-in-nested-closure	admit	REFUSED	admit	row closed by cescbound
+issue-40510-1	admit	admit	admit	row, untouched
+issue-40510-3	admit	admit	admit	row, untouched
+issue-42574-...--b	admit	admit	REFUSED	row closed by cesccapmut
+issue-42574-...--t15	admit	admit	REFUSED	row closed by cesccapmut
+issue-48697--t16	admit	admit	admit	row, untouched

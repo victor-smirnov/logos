@@ -1,0 +1,8 @@
+// LEGAL: a non-move closure capturing a `&mut i64` BY REFERENCE and calling it
+// in place. Nothing escapes. Rust accepts.
+package cesc_L3;
+fn bump(r: &mut i64) {
+    let mut c = || { *r = *r + 1i64; };
+    c();
+}
+fn main() -> i32 { let mut v: i64 = 0i64; bump(&mut v); return 0i32; }

@@ -1,0 +1,49 @@
+name: cescarr
+file: src/compiler/sema_expr.cpp
+---
+                                              const std::function<TypeRef(TypeRef)>& peel) {
+    using K = LogosType::Kind;
+    bool via_ref = false;
+---
+                                              const std::function<TypeRef(TypeRef)>& peel) {
+    using K = LogosType::Kind;
+    logos::probe::census("cesc.olb.enter");
+    bool via_ref = false;
+===
+name: cescbound
+file: src/compiler/sema_expr.cpp
+---
+            auto ce = closure_caps_by_id_.find(cid);
+            if (ce == closure_caps_by_id_.end()) return;
+            for (auto& [ct, ccid] : ce->second) walk(ct, ccid, d + 1);
+            return;
+---
+            auto ce = closure_caps_by_id_.find(cid);
+            if (ce == closure_caps_by_id_.end()) return;
+            logos::probe::census("cesc.olb.closure_src");
+            if (logos::probe::on("cescbound") && !ce->second.empty() && R != "'static") {
+                bad.push_back("'_ (a capture cannot discharge " + R + ")");
+                return;
+            }
+            for (auto& [ct, ccid] : ce->second) walk(ct, ccid, d + 1);
+            return;
+===
+name: cesccapmut
+file: src/compiler/sema_expr.cpp
+---
+            caps.emplace_back((by_ref && !(TypeRef(ct).kind() == LogosType::Kind::Ref && !mut_cap))
+                                  ? make_ref(mut_cap, ct) : ct,
+                              cvi ? cvi->closure_id : std::string());
+        }
+---
+            caps.emplace_back((by_ref && !(TypeRef(ct).kind() == LogosType::Kind::Ref && !mut_cap))
+                                  ? make_ref(mut_cap, ct) : ct,
+                              cvi ? cvi->closure_id : std::string());
+            if (TypeRef(ct).kind() == LogosType::Kind::MutRef) {
+                logos::probe::census("cesc.cap.mutref");
+                if (logos::probe::on("cesccapmut") && by_ref)
+                    error("borrowed data escapes outside of closure: capture `" +
+                          ec->captures[i] + "` is a `&mut` held by reference");
+            }
+        }
+===

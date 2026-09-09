@@ -1,0 +1,8 @@
+// ILLEGAL (rustc: `data` does not live long enough / lifetime may not live long
+// enough): a NON-move closure captures a `&'static mut` by reference and passes
+// it on where 'static is required.
+package cesc_I3;
+fn doit(data: &'static mut i64) {
+    || { doit(data); };
+}
+fn main() -> i32 { return 0i32; }

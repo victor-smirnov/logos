@@ -1,0 +1,9 @@
+// LEGAL: a closure with a REFERENCE PARAMETER returning a scalar; the param
+// region never leaves the call.
+package cesc_L5;
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    let f = |y: &i64| -> i64 { return *y; };
+    let n = f(&v);
+    return 0i32;
+}

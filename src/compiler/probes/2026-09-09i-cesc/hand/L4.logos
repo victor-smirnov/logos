@@ -1,0 +1,8 @@
+// LEGAL: a `move` closure capturing a `&'static mut i64`, boxed as 'static.
+package cesc_L4;
+use logos.mem.boxed;
+static mut G: i64 = 0i64;
+fn wrap(d: &'static mut i64) -> Box<dyn FnMut() + 'static> {
+    return Box::new(move || { *d = *d + 1i64; });
+}
+fn main() -> i32 { return 0i32; }
