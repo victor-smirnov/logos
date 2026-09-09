@@ -31993,3 +31993,152 @@ note:
       `fe50e8d0f` when the tree was already at `fc39ff38c` — its own commit, landed after it
       was written.  Its build hash, its `# TOTAL 79` and its 42-tier-3-`refuses` correction
       all re-measured TRUE.
+
+## 2026-09-09b — THE PATTERN-DOOR CLASS, PRICED AT THREE DOORS: NOT ONE ROOT, THREE ARMS
+site: src/compiler/sema_decl.cpp::lower_fn (the fn-param PAT and NAMES doors, both halves)
+      src/compiler/sema_stmt.cpp::emit_for_pattern_destructure (the for-header door)
+build: ac9bcf239063eda8 (armed, all three probes);  base b917cf69ace435e6 43 (HEAD 48cc71ae7),
+       restored EXACTLY after — `git checkout` of both files, rebuilt, hash re-read.
+measured: 2026-09-09
+fires: 5 (patwalk) · 0 (patwalk_def, the control twin — NEVER FIRED, as predicted) · 6 (forwalk)
+target rows, named BEFORE the compiler was touched:
+       /home/logos/sandbox/patclass/TARGET_ROWS_2026-09-09b.txt
+
+  probe          fires  bc-ceil  QUEUE-ceil  cost  cfail  stdlib  runtime  verdict
+  patwalk          5       0         2         0    0/1473  4/4  0/6590    FUND, with three owed repairs
+  patwalk_def      0       —         —         —      —      —     —       CONTROL TWIN — never fired
+  forwalk          6       0         1         0    0/1473  4/4    —       DECLINE AS PRICED — it miscompiles
+
+  Full cost lines, read: `COST = 0 legal programs refused [saw: pass(ledger+legal) fail(text)
+  stdlib]`, `COST-fail = 0 of 1473 -L bc -L fail fixtures changed (rc 0, .expected-match 0,
+  text-only 0)`, `stdlib: all four layers compile`.  builds 974 (unarmed) -> 975/976/977.
+
+### WHAT WAS ASKED
+2026-09-09elide declined `patslice` BY NAME as an INSTANCE and named a class of five open
+rows — "a pattern door that recurses into a WHITELIST of sub-pattern kinds instead of all of
+them, or omits a kind entirely" — saying "the class fix is ONE recursive binder walk shared by
+the four doors; it is NOT priced, and pricing it is the next round's job".  This is that
+pricing.  One recursive binder walk was written ONCE and installed at THREE doors under two
+names, so the question "is this one root or several" is answered by measurement instead of by
+the shape of the code.
+
+### THE ANSWER: THE WALK IS ONE ALGORITHM AND IT IS NOT ONE ROOT
+Diffed BOTH WAYS over all 77 queue rows, base binary vs each armed name, same command and the
+same LOGOS_VERIFY_LAYOUT=1 the gate uses.  EXACTLY the predicted lines move and nothing else:
+    patwalk  fnparam_array_pattern_binds_nothing        rc 1 -> 0
+             fnparam_tuple_nested_sub_binds_nothing     rc 1 -> 0
+    forwalk  for_header_pattern_tuple_only              rc 1 -> 0
+All three then LINK, RUN exit 0 and are valgrind-clean (`--leak-check=full`, rc 0).
+CROSS-DOOR CONTROL, measured: `forwalk` does NOT move either fn-param row (h1 and h4 stay
+"undefined variable"), and `patwalk` does not move the for row.  The two arms share every line
+of their recursion and separate completely on the population — SEPARATING PAIRS at the door
+level, three times.  A door is the root; the walk is only the algorithm each root needs.
+
+The class's other three members were NOT moved by either arm, each for a reason that is a
+different mechanism wearing the same user-visible symptom:
+  · fnparam_struct_ref_mut_field_binds_byvalue — `ref mut` wants a REFERENCE TO THE PLACE, not
+    a projection READ.  Every other door mints it with `lir_mirror_emit_pat_ref_bind`, a
+    PATTERN-level node that does not exist at a body prologue.  Named as NOT ARMED in the
+    target file before the build, and measured NOT to move.
+  · match_tuple_door_nested_struct_binds_nothing — sema_stmt::build_pattern, its own site.
+  · closure_param_struct_pattern_syntax — GRAMMAR, rc 4 before sema.
+⚠ AND A FOURTH DOOR-IN-SERIES WAS FOUND INSIDE ONE FUNCTION.  `for (P { x, y }, z) in …`
+(hand f3) is STILL REFUSED under `forwalk`, with the OTHER for-door sentence ("for-loop tuple
+pattern: element must be a name or nested tuple"): the arm fires only when the TOP pattern is
+not PAT_TUPLE, and the element loop below it has a whitelist of its own.  ONE function, TWO
+whitelists, in series (rule 2).
+
+### THE COST COLUMNS ARE ZERO AND THE ARM IS STILL WRONG — FIVE WAYS, ALL FOUND BY HAND
+THE RUNTIME COLUMN, MEASURED IN FULL AND NOT ASSUMED: `scripts/run_oracle.py` over all
+6590 `-L pass` fixtures compiled, LINKED and RUN, once unarmed and once under
+`LOGOS_PROBE=patwalk` on the same binary.  The two files are IDENTICAL row for row except
+`cast-region-to-uint`, which prints a stack address and is subtracted by name.  Zero damaged.
+COST 0 here is nearly tautological and says so: every program either arm can touch is REFUSED
+today, so it cannot be in the pass corpus, cannot be in `-L fail` with a text to change, and
+cannot be in the runtime oracle's population.  RULE 5 in the letter — 21 hand programs in 14
+shapes, each run unarmed then armed, compiled, LINKED and RUN:
+  CLOSED, REFUSED -> RUN 0 (7 shapes): h1 `[a,b]` · h2 `[a,_,c]` · h3 `[mut a,b]` ·
+    h4 `(a,(b,c))` the other nesting order · h6 `[P{x,y}]` struct inside an array param ·
+    h7 not slot 0 · h8 an impl method.
+  ⚠ SILENT WRONG ANSWERS, cc 0, NO diagnostic (these are the reason the arm is not landable):
+    r1  `fn probe([.., a]: [i64;3])`   RUN 1 — `a` is bound to index 0, not the last element
+    r2  `fn probe([a, .., b]: [i64;4])` RUN 2 — `b` is bound to index 1, not index 3
+    The walk skips PAT_REST and numbers the remaining elements from 0.  THE PROMPT'S OWED
+    SENTENCE IS SHARPER THAN IT LOOKED: h9 `[a, ..]` compiles AND RUNS CORRECTLY (a leading
+    rest happens to agree with left-to-right numbering), so testing only that spelling would
+    have certified a mechanism that is wrong in the other two rest positions.  One shape hid
+    two defects — rule 5, measured again.
+  ⚠ DOUBLE FREE ON MOVE-TYPED ELEMENTS: h10 `((String,i64),i64)` and h12 `[String;2]` both
+    go REFUSED -> cc 0, RUN 134.  The existing doors call `mark_moved` on the synth's
+    projection when the bound type is a move type; the crude walk does not.  A landing owes
+    `mark_moved` at every leaf, and its oracle is a DESTRUCTOR COUNT, not an exit code.
+  ⚠ A NEW UN-REFUSAL: n1 `fn probe([a, b]: [i64; 3])` — an arity mismatch — goes REFUSED ->
+    cc 0, RUN 0 under the arm.  Rust refuses it (E0527/E0308).  No rc-based column can see an
+    un-refusal (rule 15); it was found only because the hand set carried illegal shapes.
+  ⚠ forwalk MISCOMPILES TWO OF ITS FOUR SHAPES: f2 `for [a, b] in [[i64;2];2]` and
+    f5 `for [a, ..] in …` go REFUSED -> cc 0, RUN 139 (SEGFAULT).  Only f1, the row's own
+    struct shape, is right.  THAT IS WHY forwalk IS DECLINED AS PRICED even at ceiling 1 and
+    cost 0: a ceiling-1 arm that segfaults two neighbouring legal shapes is rule 7 in the
+    letter, and its ceiling was bought with an instrument that is wrong.
+
+### TWO DEFECTS THAT ARE ALREADY IN THE TREE, UNARMED AND UNROWED
+Found while building the hand set on the BASE binary (b917cf69ace435e6), not by any arm:
+  · `fn probe((a, b): (i64, i64, i64))` — an UNDER-ARITY tuple pattern at a fn parameter —
+    COMPILES CLEAN and RUNS 0 today.  Upstream refuses it: E0308, "expected a tuple with 3
+    elements, found one with 2 elements" (tests/ui/pattern/issue-72574-1.stderr).  That is an
+    `admits` row nobody has written, at the NAMES door, and it is the exact inverse of the two
+    `refuses` rows the same door owns.  Program kept at
+    /home/logos/sandbox/patclass/hand/n4.logos.
+  · `fn probe((P { x, y }, z): (P, i64))` is a SYNTAX ERROR (rc 4, "error near 'fn'") — a
+    struct pattern nested inside a TUPLE pattern at a fn parameter does not parse, while the
+    same struct pattern DIRECTLY at a fn parameter does (`pat_param` is an alternative of
+    `param`).  A grammar member of the class, alongside closure_param_struct_pattern_syntax.
+    Program at /home/logos/sandbox/patclass/hand/h5.logos.
+⚠ NEITHER WAS ROWED THIS ROUND — this is a pricing round and a new row is a ledger edit with
+an owner; they are recorded here BY NAME with their programs so the next round can add them.
+
+### LEGALITY IS UPSTREAM'S, NOT MY READING, FOR EVERY CLOSED ROW
+There is no rustc binary on this box; these are upstream's own recorded verdicts, read at
+/home/logos/cxx/rust:
+  · tests/ui/consts/const_let_irrefutable.rs — `//@ build-pass`, and its body is literally
+    `const fn array([a, b]: [i32; 2]) -> i32 { a + b }` and `const fn tup((a, b): (i32, i32))`.
+    That is rows 1 and 2's exact shapes, attested passing, with no `.stderr`.
+  · tests/ui/async-await/argument-patterns.rs — `//@ check-pass`, no `.stderr`, and it
+    contains `async fn g(((ref a, ref mut b), (ref mut c, ref d)): ((A, A), (A, A))) {}` —
+    a NESTED tuple pattern at a fn parameter carrying `ref`/`ref mut` field binders.  It
+    attests row 2 AND the legality of row 4 (fnparam_struct_ref_mut_field_binds_byvalue),
+    which is therefore NOT one of the "the row says refuses and the program is illegal" cases.
+  ⚠ for_header_pattern_tuple_only RESTS ON MY READING: I searched tests/ui for a `for` header
+    with a struct or array pattern and found ZERO.  The `for` header takes a Pattern in the
+    grammar and the tuple spelling is attested, but no upstream test pins the struct spelling.
+    Said here so the next round does not inherit it as an upstream fact.
+
+### THE LINT THE CLASS FIX WILL MEET, MEASURED TWICE
+The first two batches were REFUSED by L1 — `logos_00_key_identity_lint`, +2 sites in
+sema_decl.cpp and +1 in sema_stmt.cpp — for two DIFFERENT reasons, and both are facts about
+the class fix, not about the probe:
+  (1) `find_struct_by_name(std::string(TypeRef(ty).struct_name()))`.  A recursive binder walk
+      needs a field type at EVERY nested level, and the existing one-level doors get it with a
+      bare-name struct lookup.  The type-keyed accessor `field_type_of_for_type(TypeRef,
+      std::string_view)` answers the same question with no name key; the walk uses it and the
+      lint goes green.  **A class fix that copies the existing door's lookup would add one
+      pinned bare-name intercept per door.**
+  (2) `if (nm == "_")`.  FACT 4's SCAN_LHS regex lists `nm` among the identifiers whose
+      comparison to a string literal is a name intercept, so a local named `nm` reds the lint
+      wherever it is compared to `"_"`.  Renamed to `bnd`.  A lint that reads identifiers is a
+      naming constraint on new code, and it is invisible until the build is spent.
+⚠ Both were caught by APPLYING THE SPEC TO A COPY of src/ + include/ and running
+`key_identity_lint.sh <copy> tests/logos/key_identity.ledger` — 30 s, against ~4 min for a
+build-and-L1 round trip.  Two round trips were paid before doing that; the third was free.
+
+### WHAT DESERVES FUNDING
+FUND, in this order, and NOT as one commit:
+  1. The fn-param recursive binder walk (`patwalk`'s two halves), WITH the three repairs the
+     hand set priced: rest-position-aware indexing (or a refusal naming `..`), `mark_moved` at
+     every move-typed leaf, and an ARITY CHECK that refuses n1 with a sentence.  Queue ceiling
+     2, and h1/h2/h3/h4/h6/h7/h8 are seven further legal shapes it closes.
+  2. The for-header door SECOND and separately, because the arm as priced segfaults two of its
+     four shapes and its element-level whitelist is a second door in series.  It is one row.
+DO NOT fund them as "one shared walk landed once": the walk is shared as an algorithm and the
+INSTALLATIONS are independent — measured, three times, by a cross-door control that moved
+nothing.
