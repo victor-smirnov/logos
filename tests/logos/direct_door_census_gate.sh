@@ -215,6 +215,15 @@ fail = []
 PIN = {
     # ⚠ RE-DERIVED at the 2026-09-09j-capret stage, BY DIRECT FILE LISTING and
     # never by adding to the previous line:
+    # ⚠ RE-DERIVED AGAIN at the 2026-09-09l-bcs stage, BY DIRECT FILE LISTING:
+    #   ls tests/logos/pass/*.logos | wc -l              -> 2981
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l ->  191
+    # partition closes: 2981 = 191 + 2790. Three pass fixtures joined `nonglob`
+    # — bcs_temp_struct_let_e0716_ok, bcs_temp_enum_let_e0716_ok,
+    # bcs_temp_struct_assign_e0716_ok; the round's three FAIL halves and the
+    # imported fail fixture are not in this population, and none of the six
+    # declares a container family or a `direct` door, so `doors`, `glob` and
+    # `nonglob_doors` are unmoved.
     #   ls tests/logos/pass/*.logos | wc -l              -> 2978
     #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l ->  191
     # partition closes: 2978 = 191 + 2787. Three pass fixtures joined `nonglob`
@@ -1624,9 +1633,9 @@ PIN = {
     #       two new soundness-queue rows)
     # The FIVE new fail fixtures are not in this population. No door is declared
     # by any of them, so `doors`, `glob` and `nonglob_doors` are unmoved.
-    'corpus'            : 2978,
+    'corpus'            : 2981,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2787,  # +3 (2026-09-09j-capret, the §CAPRET closure-capture-return pass halves: bc_capret_shared_reborrow_of_capture_pass, bc_capret_shared_reborrow_thru_call_pass, bc_capret_move_capture_value_pass — all three joined `nonglob`; the round's three fail halves do not live in this population), +6 (2026-09-09c, the parameter-door binder walk: fnparam_array_pattern_binds_nothing, fnparam_tuple_nested_sub_binds_nothing, fnparam_array_rest_positions, fnparam_pattern_walk_depth, fnparam_pattern_walk_drop_count, closure_param_tuple_nested_binds — the round's SEVEN fail halves do not live in this population), +4 (2026-09-09elide, elision-expansion pass halves), +8 (2026-09-09sigland, return-slot conformance pass halves), +6 (2026-09-09h, fatret return-ABI: fatret_closure_impl_fn_pair_survives, fatret_fnptr_thin_return, fatret_customdst_ref_returned, fatret_customdst_selfdescribing_thin, fatret_closure_returning_closure, generic_drop_body_calling_closure_param), +7 (2026-09-09, G156-5b drop-identity pass halves), +3 (2026-09-08g, E0509 pass halves), +4 (2026-09-08f, drop-glue pairs), +1 (2026-09-08e, drop_guard_instantiated), +2 (2026-09-08d), +2 (2026-09-08c), +1 (2026-09-08b), +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2790,  # +3 (2026-09-09l-bcs, the E0716 door pass halves: bcs_temp_struct_let_e0716_ok, bcs_temp_enum_let_e0716_ok, bcs_temp_struct_assign_e0716_ok — all three joined `nonglob`; the round's three fail halves and its imported fail fixture do not live in this population), +3 (2026-09-09j-capret, the §CAPRET closure-capture-return pass halves: bc_capret_shared_reborrow_of_capture_pass, bc_capret_shared_reborrow_thru_call_pass, bc_capret_move_capture_value_pass — all three joined `nonglob`; the round's three fail halves do not live in this population), +6 (2026-09-09c, the parameter-door binder walk: fnparam_array_pattern_binds_nothing, fnparam_tuple_nested_sub_binds_nothing, fnparam_array_rest_positions, fnparam_pattern_walk_depth, fnparam_pattern_walk_drop_count, closure_param_tuple_nested_binds — the round's SEVEN fail halves do not live in this population), +4 (2026-09-09elide, elision-expansion pass halves), +8 (2026-09-09sigland, return-slot conformance pass halves), +6 (2026-09-09h, fatret return-ABI: fatret_closure_impl_fn_pair_survives, fatret_fnptr_thin_return, fatret_customdst_ref_returned, fatret_customdst_selfdescribing_thin, fatret_closure_returning_closure, generic_drop_body_calling_closure_param), +7 (2026-09-09, G156-5b drop-identity pass halves), +3 (2026-09-08g, E0509 pass halves), +4 (2026-09-08f, drop-glue pairs), +1 (2026-09-08e, drop_guard_instantiated), +2 (2026-09-08d), +2 (2026-09-08c), +1 (2026-09-08b), +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

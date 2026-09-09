@@ -1,0 +1,2 @@
+exit: 0
+stdout: read after the reassignment (want 7): 7

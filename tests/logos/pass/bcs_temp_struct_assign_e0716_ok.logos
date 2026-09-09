@@ -1,0 +1,21 @@
+// THE PASS HALF of the ASSIGN-door pair. ONE TOKEN from
+// tests/logos/fail/bcs_temp_struct_assign_e0716: `defer(&w)` here,
+// `defer(&mk())` there. The reassignment takes a borrow of a named local, so
+// nothing dangles and the reassignment itself stays legal — which is what
+// proves the new report is about the TEMPORARY and not about reassigning a
+// borrow-carrying binding at all.
+package bcs_temp_struct_assign_e0716_ok;
+extern fn printf(f: *const u8, a: i64) -> i32;
+struct Defer<'a> { x: &'a i64 }
+fn defer<'r>(x: &'r i64) -> Defer<'r> { return Defer { x: x }; }
+fn mk() -> i64 { return 7i64; }
+
+unsafe fn main() -> i32 {
+    let base: i64 = 3i64;
+    let w: i64 = mk();
+    let mut d: Defer = defer(&base);
+    d = defer(&w);
+    printf("read after the reassignment (want 7): %ld\n".as_ptr(), *d.x);
+    if *d.x != 7i64 { return 1i32; }
+    return 0i32;
+}

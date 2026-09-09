@@ -32744,3 +32744,166 @@ Verified against the text handed to me this round, not against the journal.
 from `soundness_queue.ledger` (77 rows, direct listing) and the program is now
 `tests/logos/fail/letstruct_destructure_drop_owner_e0509.logos`, whose own header
 says "Was soundness_queue row …". One day old, and no gate holds a citation.
+
+## 2026-09-09l-bcs — E0716 WAS OWED AT FOUR DOORS AND EMITTED AT ONE; THE CLASS IS "A DOOR THAT RECORDS A TEMPORARY PROVENANCE AND SAYS NOTHING", IT HAS EXACTLY FOUR MEMBERS BY DIRECT ENUMERATION, AND THE CENSUS PUT THREE OF THE BLOCK'S ROWS IN THREE DIFFERENT STATES BEFORE ANY ARM EXISTED
+site: src/compiler/borrow_check.cpp::record_prov — the one report site the four
+      doors now share; the doors are `visit_stmt`'s `let` provenance chain
+      (branch A `is_ref_kind || is_borrow_carrying_type`, branch B
+      `lifetime_args non-empty && Struct/ZonedStruct`, branch C the `#86`
+      sub-site `type_may_carry_borrow_erased`) and `visit_stmt`'s ASSIGN arm
+      `if (is_ref_assign)`.
+build: BASE cb42ff07dca840b8 43 (HEAD 70e7ed1ec, READ) -> CENSUS f50448c8b5ce981c 43
+       (prints only, never armed) -> PROBE cdabf9df0cba2cfc 43 -> LANDED
+       d9e0900cf8c7e502 43, and after the reconfigure the six new fixtures
+       needed, 58fd3c9773b9c475 43 — THE SAME COMPILER SOURCES; see the control
+       section for why the two differ. All five READ.
+measured: 2026-09-09
+fires: letsibrep 1 (a real routing count, not an ASKED count: `probe::on` is
+       last, after `vp.is_temp`). letc86rep 0 and assgtemprep 0 — and BOTH are
+       the corpus-has-no-instance kind of zero, NOT dead sites: each was proven
+       live by hand programs that the SAME binary refuses (three for letc86rep,
+       two for assgtemprep) and by an `LOGOS_BCS2` census that reads `tmp=1` at
+       the door on each of them.
+ledger: bc_admits 91 -> 90. CLOSED: borrowck-borrowed-uniq-rvalue-2.
+        DECLINED BY NAME: issue-36082, borrowck-let-suggestion.
+
+### THE CLASS, ENUMERATED BY THE PROPERTY AND BY DIRECT LISTING (not by a grep)
+Property: **a door that computes a provenance for a NAMED binding, stores it in
+`prov_`, and emits no E0716 when that provenance is `is_temp`.** The enumeration
+is `grep -n 'prov_\[' src/compiler/borrow_check.cpp` read at every hit — seven
+hits, four of them binding doors:
+
+    12596  let, branch A  is_ref_kind || is_borrow_carrying_type   REPORTED   (correct)
+    12611  let, branch B  lifetime_args non-empty && Struct/Zoned  SILENT     (defect)
+    12649  let, branch C  #86 sub-site, may_carry_borrow_erased    SILENT     (defect)
+    12757  ASSIGN         if (is_ref_assign)                       SILENT     (defect)
+    5790   propagate_pat_sources — a MATCH BINDER, not a `let`/assign door
+    7142   note_holder_escape_prov — an OR-MERGE hop, no fresh provenance
+    15351  a closure-capture merge, likewise
+Four members, three defective. The three non-doors are named rather than
+silently excluded: they merge or propagate an EXISTING provenance and mint none,
+so "the binding's own initializer roots in a temporary" is not a question they
+are ever asked. THE FIX IS ONE FUNCTION — `record_prov` — and branch A was
+REWIRED THROUGH IT rather than left alone, so the tree has exactly one E0716
+sentence for four doors and a fifth door cannot be added without meeting it.
+
+### THE CENSUS ANSWERED THE BLOCK BEFORE ANY ARM EXISTED, AND CORRECTED THE PRIOR ONE
+`LOGOS_BCS2` printed the branch taken, `is_temp` and `is_local` at every door,
+on a binary with the probes present and NEVER ARMED (f50448c8b5ce981c):
+
+    row                              branch  tmp  state
+    borrowck-borrowed-uniq-rvalue-2    B      1   fact PRESENT, door SILENT   -> CLOSED
+    borrowck-let-suggestion            B      0   fact ABSENT                 -> DECLINED
+    issue-36082                        A      0   fact ABSENT, door reports   -> DECLINED
+
+⚠ THIS CORRECTS 2026-09-09k's CENSUS ON ONE COLUMN. That record read
+`borrowck-let-suggestion` as `refkind=no`, which is right, and then reasoned
+about it as if it needed the branch-C door; it does not — its `Iter`
+annotation DOES carry a lifetime argument, so it takes branch B, the SAME door
+that closes row 1, and it is still admitted for one reason only: `prov_of`
+answers `is_temp=0`. The two rows differ in the FACT, not in the door.
+
+### RULE 5: THE SHAPE WAS VARIED PAST EVERY SPELLING EITHER PROMPT NAMED
+27 hand programs, all multi-line, ALL rc 0 on base cb42ff07dca840b8. Nine
+illegal, eighteen legal. The illegal nine were chosen to cross the doors, not
+to repeat one syntax:
+
+    i01 free fn -> struct<'a>          B   tmp=1   REFUSED by the landing
+    i06 struct-in-struct               B   tmp=1   REFUSED
+    i02 free fn -> TUPLE               C   tmp=1   REFUSED
+    i03 free fn -> ENUM                C   tmp=1   REFUSED
+    i04 generic struct, ZERO lifeargs  C   tmp=1   REFUSED
+    i07 ASSIGN door, struct            ASSIGN      REFUSED
+    i09 ASSIGN door, tuple             ASSIGN      REFUSED
+    i05 trait method on a temp recv    B   tmp=0   STILL ADMITTED — the prov_of half
+    i08 method on a temp recv          B   tmp=0   STILL ADMITTED — the prov_of half
+The eighteen legal ones INCLUDE the three shapes that would have condemned this
+landing and did not fire: Rust's temporary-lifetime EXTENSION of a struct
+literal (L02), of a TUPLE literal (L14), of an ARRAY literal (L15) and of a
+generic struct literal (L16) — every one reads `tmp=0` at its door, because
+`prov_of`/`prov_of_retained` answer `is_local` for an aggregate materialised in
+this frame and reserve `is_temp` for a statement-scoped `__rtmp`. Also legal and
+unmoved: an ALPHA-RENAMED lifetime pair (rule 12), a param-rooted receiver, a
+`static`-rooted borrow, a chain of two borrow-carrying bindings, a borrow of a
+FIELD of a local, and a nested-scope owner.
+
+### THE PROBE TABLE, AND TWO ZEROS THAT ARE NOT THE SAME ZERO
+    probe        fires  ceiling  cost  cost-fail        stdlib
+    letsibrep      1       1       0   0 of 1477        all four layers build
+    letc86rep      0       -       -   0 of 1477        (never fired)
+    assgtemprep    0       -       -   0 of 1477        (never fired)
+`letsibrep`'s CEILING names one row and it is the predicted one:
+`logos_00_bc_admit_borrowck_borrowck-borrowed-uniq-rvalue-2`. Set diffed BOTH
+ways against the prediction written before the armed binary existed: ∅ / ∅.
+
+⚠ `letc86rep` and `assgtemprep` read "NEVER FIRED", and `ceiling-probe.sh` says
+in as many words that this is NOT ceiling 0. It is right, and the kind of zero
+is nameable: **the corpus contains no instance**, not a dead site. Both sites are
+PROVEN LIVE on the SAME binary — three hand programs refused under `letc86rep`,
+two under `assgtemprep`, each with the E0716 sentence READ, and the census reads
+`tmp=1` at the door on all five. A permissive defect is invisible to a green
+corpus by construction; the landing converts five invisible holes into three
+pinned pairs.
+
+### WHERE THE FIX DIFFERS FROM ITS PROBES (rule 7)
+The probes ADDED a report and left `prov_[name] = …` where it was; the landing
+routes all four doors through one `record_prov`, which means branch A's report
+moved too. That is a refactor, not a behaviour change, and it is measured as
+one: the landed binary refuses the same nine and admits the same eighteen hand
+programs as the three probes did between them, and `-L bc -L fail` text is
+unchanged over 1477 fixtures.
+
+### WHAT IS DECLINED, BY NAME AND BY THE NUMBER
+`issue-36082` and `borrowck-let-suggestion` are NOT closed. Both need
+`prov_of`'s `MethodCall` arm to answer `is_temp` for a borrow carried out of a
+temporary receiver, and 2026-09-09k priced every crude form of that: `mcagg2`
+(the only arm that closes `borrowck-let-suggestion`) FAILS TO BUILD
+`logos.mem` at `stdlib/mem/wql/srcloc.logos::resolve` — the function the gate's
+own comment names as the program that bought the gate. The number that condemns
+it is ONE stdlib refusal, and it is the same number this round did not try to
+argue away. The predicate that would separate them is named in that record and
+is unpriced: whether the result type names the RECEIVER'S OWN LIFETIME.
+
+### EVERY ORACLE, rc FIRST, ON THE LANDED SOURCES (58fd3c9773b9c475 at the commit)
+    L1                         rc 0   790/790 + 12 684 generated cases + 148 tier_commit
+    bc_admits_ledger_gate.sh   rc 0   FOUR ARGS (bc_admits_blocked.ledger fourth)
+    soundness_queue_gate.sh    rc 0   77 rows, LOGOS_LIB_DIR supplied
+    stdlib-cost.sh             rc 0   all four layers
+    fail_text_oracle.py        rc 0   0 of 1477 `-L bc -L fail` fixtures changed in rc,
+                                      stderr SHA or .expected-match; +1 NEW row
+                                      (the moved fixture) rc 1, .expected matches
+    run_oracle.py              rc 0   6602 fixtures compiled, linked and RUN; +3 new
+                                      rows (the three pass halves, exit 0, stdout as
+                                      pinned) and ONE difference against /tmp/ro_base.tsv
+    L4 bc                      see below
+
+⚠ THE ONE run_oracle DIFFERENCE IS THE BASELINE'S, NOT THIS ROUND'S, AND IT IS
+SAID SO RATHER THAN DROPPED: `bc_capret_move_capture_value_pass` reads `1 - -`
+in /tmp/ro_base.tsv (did not compile, so never ran) and `0 0 e3b0c442…` on the
+landed binary. That fixture is the previous round's own, its baseline file was
+written at 16:39 while that round was still moving, and the landed direction is
+the GREEN one. A baseline taken mid-round is not a control; the honest reading
+is "the only row that moved, moved from red to green, and the file it moved
+against is not a clean base".
+
+### THE CONTROL REVERT IS PROVEN BY BEHAVIOUR, AND THE HASH SAYS WHY IT CANNOT BE PROVEN BY A HASH HERE
+Reverting `borrow_check.cpp` alone and rebuilding RE-ADMITS all eight illegal
+programs, the ledger row's own included:
+
+    borrowck-borrowed-uniq-rvalue-2  rc 1 -> rc 0    i01 i02 i03 i04 i06 i07 i09  rc 1 -> rc 0
+
+⚠ AND THE BUILD HASH DID **NOT** RETURN TO cb42ff07dca840b8 — it read
+f05ae6d749a72d14 over identical compiler sources. That is not a mystery and it
+is not a defect in the revert: **`build_hash.py` moves across a RECONFIGURE even
+when nothing in any source changed**, because the version string CMake stamps at
+configure time is inside `bin/logosc`, which the hash covers. Measured both ways
+this round: a `cmake -S . -B build` (needed to register six new fixtures) moved
+the landed hash d9e0900cf8c7e502 -> 58fd3c9773b9c475 with the compiler source
+byte-identical, while a `touch src/compiler/borrow_check.cpp && cmake --build`
+with no reconfigure left it at 58fd3c9773b9c475 -> 58fd3c9773b9c475.
+⚠ SO A RECORDED CLAIM IS NARROWER THAN IT READS. 2026-09-09k says "Base hash
+returned **exactly** to cb42ff07dca840b8 43 after the revert (a proven control
+revert)". That is only available to a round that never reconfigures — a round
+that ADDS A FIXTURE cannot have it, by construction, and reading its absence as
+a failed revert would be a false red. The control that survives is the
+BEHAVIOURAL one above.

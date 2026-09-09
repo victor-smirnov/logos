@@ -1,0 +1,28 @@
+// THE PASS HALF of the bck.NEW-BCS `let` pair. ONE TOKEN from
+// tests/logos/fail/bcs_temp_struct_let_e0716: `defer(&v, c)` here,
+// `defer(&mk(), c)` there. The owner is bound to `v` first, so the borrow the
+// returned `Defer<'a>` carries outlives its referent and the program is legal.
+//
+// It RUNS, and the assertion is a DESTRUCTOR COUNT, not an exit code: `Defer`
+// has a `Drop` impl that adds 7, so a LEAK reads 0 and a DOUBLE DROP reads 14.
+package bcs_temp_struct_let_e0716_ok;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn printf(f: *const u8, a: i64) -> i32;
+
+struct Defer<'a> { x: &'a i64, c: *mut i64 }
+impl<'a> Drop for Defer<'a> { fn drop(self: &mut Defer<'a>) { unsafe { self.c[0] = self.c[0] + 7i64; } } }
+fn defer<'r>(x: &'r i64, c: *mut i64) -> Defer<'r> { return Defer { x: x, c: c }; }
+fn mk() -> i64 { return 7i64; }
+
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+    c[0] = 0i64;
+    let v: i64 = mk();
+    {
+        let d: Defer = defer(&v, c);
+        if *d.x != 7i64 { return 1i32; }
+    }
+    printf("Defer destroyed exactly once (want 7): %ld\n".as_ptr(), c[0]);
+    if c[0] != 7i64 { return 1i32; }
+    return 0i32;
+}

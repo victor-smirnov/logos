@@ -5658,9 +5658,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   NOIMPORTED   5025 -> 5030  +5   (+6 native, -1 the vanished admit gate)
 #   TIERCOMMIT    150 ->  149  -1   (the vanished admit gate was tier_commit;
 #                                    none of the six new fixtures is)
-REGISTRY-ALL         9495
-REGISTRY-NOIMPORTED  5030
-REGISTRY-TIERCOMMIT  149
+#   2026-09-09 (bck.NEW-BCS: E0716 at every door that records a temporary
+#   provenance. One bc_admits row closed; three native pairs pin the three
+#   doors.)
+#   ALL          9495 -> 9501  +6   (+3 native pass, +3 native fail, and the
+#                                    moved row: -1 admit gate, +1 imported fail)
+#   NOIMPORTED   5030 -> 5035  +5   (+6 native, -1 the vanished admit gate)
+#   TIERCOMMIT    149 ->  148  -1   (the vanished admit gate was tier_commit;
+#                                    none of the six new fixtures is)
+REGISTRY-ALL         9501
+REGISTRY-NOIMPORTED  5035
+REGISTRY-TIERCOMMIT  148
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

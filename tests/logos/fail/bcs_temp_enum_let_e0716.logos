@@ -1,0 +1,21 @@
+// THE FAIL HALF of the branch-C pair. Branch C of the `let` provenance chain is
+// the door for a type that carries a borrow but is NOT ref-kind, NOT
+// #[borrow_carrying], and has NO lifetime ARGUMENT on the binding's type — a
+// tuple, an enum, or a generic struct instantiated at a reference. This is the
+// ENUM spelling; the lifetime-argument spelling is
+// tests/logos/fail/bcs_temp_struct_let_e0716.
+// ONE TOKEN from tests/logos/pass/bcs_temp_enum_let_e0716_ok: `wrap(&mk())`
+// here, `wrap(&v)` there.
+package bcs_temp_enum_let_e0716;
+enum Wrap<'a> { Some(&'a i64), None }
+fn wrap<'r>(x: &'r i64) -> Wrap<'r> { return Wrap::Some(x); }
+fn mk() -> i64 { return 7i64; }
+
+fn main() -> i32 {
+    let v: i64 = mk();
+    let w = wrap(&mk());
+    match w {
+        Wrap::Some(q) => { return *q as i32; },
+        Wrap::None    => { return 0i32; }
+    }
+}

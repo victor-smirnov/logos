@@ -1710,7 +1710,7 @@
 #
 # 91 -> 97. THE ACTIONABLE LEDGER GROWING HERE IS THE CORRECT RESULT: these are
 # real defects again, and a ledger that hid them would be lying about the language.
-borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW-A16 tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13  # 2026-09-08 RETURNED from bc_admits_blocked (was BUCKET-3 DIVERGENCE-DROP). ⚠ SECOND BLOCKER, unchanged from the 2026-08-28 record and re-verified 2026-09-08: the moved field has type `struct Inner { a: i64 }`, which DIVERGENCES A16 structural auto-Copy makes `Copy`, so the checker sees NO MOVE at all (zero E0509 fires). Retiring the drop clause does not reach it; A16 does. Its own body also exits 1 with DROPS=0 (`impl Drop for S` never runs) — rowed as soundness_queue letstruct_destructure_skips_user_drop
+borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW-A16 tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13  # 2026-09-08 RETURNED from bc_admits_blocked (was BUCKET-3 DIVERGENCE-DROP). ⚠ SECOND BLOCKER, unchanged from the 2026-08-28 record and re-verified 2026-09-08: the moved field has type `struct Inner { a: i64 }`, which DIVERGENCES A16 structural auto-Copy makes `Copy`, so the checker sees NO MOVE at all (zero E0509 fires). Retiring the drop clause does not reach it; A16 does. Its own body also exits 1 with DROPS=0 (`impl Drop for S` never runs) — that soundness_queue row (letstruct_destructure_skips_user_drop) was CLOSED 2026-09-08 and its program is now tests/logos/fail/letstruct_destructure_drop_owner_e0509.logos; the DROPS=0 residual here is A16's, not that row's
 borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13  # 2026-09-08 RETURNED from bc_admits_blocked (was BUCKET-3 DIVERGENCE-DROP). Twin of --r13: same A16 second blocker, same zero-fire measurement, same run-time DROPS=0
 
 # ── 2026-09-08 — FOUR OF THE SIX CLOSED THE SAME DAY THEY RETURNED ──────────
@@ -1732,7 +1732,7 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # UNREACHABLE THROUGH THIS PROGRAM and needs a carrier that does not move a field
 # out of a Drop value — unrowed_backlog entry
 # `e0713_mutref_past_destructor_needs_a_new_carrier`. 93 -> 92.
-# TOTAL 91
+# TOTAL 90
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1767,7 +1767,6 @@ anonymous-region-in-apit--closure-param-escapes bck.NEW-CESC tests/imported/admi
 augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments
 borrow-immutable-upvar-mutation-impl-trait bck.NEW-CMUT tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
-borrowck-borrowed-uniq-rvalue-2 bck.NEW-BCS tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue-2
 borrowck-lend-flow-loop bck.NEW-2 tests/imported/admit/borrowck/borrowck-lend-flow-loop
 borrowck-loan-blocks-move-cc--r10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --t10 (upstream box_imm/box_imm_explicit are textually identical); merging is an owner decision
 borrowck-loan-blocks-move-cc--t10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--t10  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --r10; merging is an owner decision

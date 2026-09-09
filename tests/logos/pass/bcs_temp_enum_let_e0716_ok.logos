@@ -1,0 +1,25 @@
+// THE PASS HALF of the branch-C pair. ONE TOKEN from
+// tests/logos/fail/bcs_temp_enum_let_e0716: `wrap(&v)` here, `wrap(&mk())`
+// there. The owner is a named local, so the borrow the enum payload carries
+// outlives its referent.
+//
+// It RUNS and asserts the VALUE READ THROUGH THE CARRIED BORROW, not merely a
+// clean compile: a dangling read here would print anything but 7.
+package bcs_temp_enum_let_e0716_ok;
+extern fn printf(f: *const u8, a: i64) -> i32;
+enum Wrap<'a> { Some(&'a i64), None }
+fn wrap<'r>(x: &'r i64) -> Wrap<'r> { return Wrap::Some(x); }
+fn mk() -> i64 { return 7i64; }
+
+unsafe fn main() -> i32 {
+    let v: i64 = mk();
+    let w = wrap(&v);
+    match w {
+        Wrap::Some(q) => {
+            printf("read through the carried borrow (want 7): %ld\n".as_ptr(), *q);
+            if *q != 7i64 { return 1i32; }
+            return 0i32;
+        },
+        Wrap::None => { return 1i32; }
+    }
+}

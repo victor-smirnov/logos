@@ -1,0 +1,21 @@
+// THE FAIL HALF of the bck.NEW-BCS `let` pair (branch B of the provenance
+// chain: a binding whose type carries a lifetime argument). ONE TOKEN from
+// tests/logos/pass/bcs_temp_struct_let_e0716_ok: `defer(&mk(), c)` here,
+// `defer(&v, c)` there. The owner is a TEMPORARY dropped at the end of the
+// statement while `Defer<'a>` carries a borrow of it past the statement.
+// Upstream rustc: E0716 (tests/ui/borrowck/borrowck-borrowed-uniq-rvalue-2.rs).
+package bcs_temp_struct_let_e0716;
+extern fn malloc(n: i64) -> *mut u8;
+
+struct Defer<'a> { x: &'a i64, c: *mut i64 }
+impl<'a> Drop for Defer<'a> { fn drop(self: &mut Defer<'a>) { unsafe { self.c[0] = self.c[0] + 7i64; } } }
+fn defer<'r>(x: &'r i64, c: *mut i64) -> Defer<'r> { return Defer { x: x, c: c }; }
+fn mk() -> i64 { return 7i64; }
+
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+    c[0] = 0i64;
+    let v: i64 = mk();
+    let d: Defer = defer(&mk(), c);
+    return *d.x as i32;
+}

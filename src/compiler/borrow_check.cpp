@@ -5343,6 +5343,18 @@ private:
         return "cannot move out of a dereference (E0507)";
     }
 
+    // ONE REPORT SITE FOR EVERY DOOR THAT RECORDS A PROVENANCE FOR A NAMED
+    // BINDING. See src/compiler/PROBES.md 2026-09-09l-bcs.
+    void record_prov(const std::string& name, uint32_t ln, const RefProv& vp) {
+        if (vp.is_temp)
+            report(ln,
+                "temporary value dropped while borrowed: this "
+                "reference borrows into a temporary that is dropped "
+                "at the end of the statement; bind the owning value "
+                "to a variable first so it outlives the borrow");
+        prov_[name] = vp;
+    }
+
     void check_live(const std::string& name, uint32_t line, uint32_t slot = NO_SLOT) {
         // §B6 (E0597): using a reference whose referent has gone out of scope.
         if (auto dit = dangling_.find(name); dit != dangling_.end()) {
@@ -12583,17 +12595,12 @@ private:
                     // statement (`let v = make().view();`) → dangling. The owner
                     // must be bound to a variable first (`let h = make(); let v =
                     // h.view();`) so it lives as long as the borrow.
-                    if (vp.is_temp)
-                        report(ln,
-                            "temporary value dropped while borrowed: this "
-                            "reference borrows into a temporary that is dropped "
-                            "at the end of the statement; bind the owning value "
-                            "to a variable first so it outlives the borrow");
-                    prov_[name] = vp;
+                    record_prov(name, ln, vp);
                 } else if (t && !t.lifetime_args().empty() &&
                          (t.kind() == LogosType::Kind::Struct ||
                           t.kind() == LogosType::Kind::ZonedStruct))
-                    prov_[name] = prov_of(val);  // struct<'z> borrows through lifetime
+                    // struct<'z> borrows through lifetime
+                    record_prov(name, ln, prov_of(val));
                 // ── #86 SUB-SITE 2: the LET side of the same wrong question ──
                 // `let w: W = W { v: o.as_str() };` — W is neither ref-kind nor
                 // #[borrow_carrying], so NOTHING above records provenance for
@@ -12620,7 +12627,7 @@ private:
                             fprintf(stderr, "[#86trace-let] fn=%s line=%u var=%s "
                                     "loc=%d tmp=%d\n", fn_name_.c_str(), ln,
                                     name.c_str(), (int)vp2.is_local, (int)vp2.is_temp);
-                        prov_[name] = RefProv{{}, vp2.is_local, vp2.is_temp};
+                        record_prov(name, ln, RefProv{{}, vp2.is_local, vp2.is_temp});
                     }
                 }
                 // B87 dropck: record local borrow sources for Drop-lt bindings.
@@ -12728,7 +12735,7 @@ private:
                     st = VarState{};
                     st.is_mut_binding = was_mut;
                 }
-                if (is_ref_assign) prov_[name] = prov_of(val);
+                if (is_ref_assign) record_prov(name, ln, prov_of(val));
                 // #86 MISS 1 / SITE a — THE WHOLE-VALUE REASSIGN.
                 //   `let mut w: W = W{v:""}; w = W{v:o.as_str()}; return w;`
                 // was rc 0: `is_ref_assign` is false (W is not a ref kind and

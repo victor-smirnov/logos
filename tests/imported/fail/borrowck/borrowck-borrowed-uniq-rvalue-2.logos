@@ -1,6 +1,6 @@
 // rustc borrowck/borrowck-borrowed-uniq-rvalue-2.rs — upstream E0716 temporary dropped while borrowed
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.D
+// shelf: fail · was bck.NEW-BCS (bc_admits row deleted 2026-09-09, closed)
 // RE-PORTED AS-IS 2026-09-07 (stage 3). The old port was `let d: &String = &mk();`
 // — a bare borrow in a `let` INITIALIZER, which Rust extends, and it sat in
 // bc_admits_blocked as LEGAL-AS-PORTED. Upstream passes the borrow of the
@@ -25,6 +25,6 @@ impl<'a> Drop for Defer<'a> { fn drop(self: &mut Defer<'a>) { } }
 fn defer<'r>(x: &'r i64) -> Defer<'r> { return Defer { x: x }; }
 fn mk() -> i64 { return 7i64; }
 fn main() -> i32 {
-    let d = defer(&mk());        // THE DEFECT: admitted, upstream E0716
+    let d = defer(&mk());        // REFUSED since 2026-09-09: E0716, as upstream
     return *d.x as i32;
 }
