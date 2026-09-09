@@ -3302,6 +3302,16 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
                     pt = TypeRef(pt).pointee();
                     pk = TypeRef(pt).kind();
                 }
+                // ENUMS TOO: `type_name` above is the ENUM name for an enum,
+                // so `E__Drop__drop` is minted for enums as it is for structs —
+                // but this arm accepted only Struct/ZonedStruct, so a qualified
+                // enum `Drop` resolved to NOTHING and the destructor was skipped.
+                // Unreachable until G156-5b. PROBES.md 2026-09-09drop.
+                if (pk == LogosType::Kind::Enum) {
+                    if (TypeRef(pt).enum_name() == TypeRef(t).enum_name())
+                        return cand->symbol_name.empty() ? qual : cand->symbol_name;
+                    continue;
+                }
                 if (pk != LogosType::Kind::Struct && pk != LogosType::Kind::ZonedStruct)
                     continue;
                 if (TypeRef(pt).struct_name() == TypeRef(t).struct_name() && pkg_matches(pt))

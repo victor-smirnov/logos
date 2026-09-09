@@ -1,0 +1,23 @@
+// G156-5b on a value MOVED into a callee: the destructor runs ONCE, in the
+// callee, and it is the TRAIT one. Before the filing change this printed
+// ".I,|END" -- right place, right count, wrong function.
+package bc_dropident_diffsig_moved;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct R { id: i32 }
+impl R {
+    fn drop(self: &Self) -> i32 { say("I"); return 0i32; }
+}
+impl Drop for R {
+    fn drop(self: &mut Self) { say("T"); }
+}
+fn eat(r: R) { say("."); }
+fn main() -> i32 {
+    {
+        let r: R = R { id: 1i32 };
+        eat(r);
+        say(",");
+    }
+    say("|END");
+    return 0i32;
+}

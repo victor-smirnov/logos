@@ -31092,3 +31092,145 @@ note: PRICING ONLY. The probe was reverted and the compiler rebuilt; the queue
   independent landings (struct, tuple), each of which must flip TWO loops at
   once, and `field-destruction-order-b136`'s own header — an imported re-port —
   states the tree's current position as an asserted invariant.
+
+## 2026-09-09drop — G156-5b: THE INHERENT/TRAIT COEXISTENCE WAS GATED ON SIGNATURE EQUALITY, AND THE DROP GLUE IS THE ONE CONSUMER THAT CANNOT DISAMBIGUATE BY SIGNATURE
+
+  TARGETS (named before the round, both tier 1, both from the destructor-identity
+  arc whose first four doors `4a307b156` closed): soundness_queue rows
+  `both_drops_destructor_is_inherent` (`run 2`) and `drop_inherent_call_order`
+  (`refuses`). Both CLOSED. Queue `# TOTAL` 77 -> 77 by direct listing: two rows
+  deleted, two NEW rows opened from counter-examples this round found
+  (tier1 24 -> 22, tier3 41 -> 42, tier4 5 -> 6).
+
+  THE CLASS, BY PROPERTY. A type has an INHERENT method and a TRAIT-impl method
+  of the same bare NAME whose PARAM LISTS DIFFER (arity, or receiver
+  mutability — `function_signature_key` does not read the return type, which is
+  why `bc_dropident_inherent_first` with its `-> i32` inherent was already
+  correct). `collect_fn`'s G156-5 coexistence machinery required
+  `esig == plain_sig` before it would re-key the trait method to
+  `<T>__<Trait>__<m>`. On a differing param list it re-keyed NOTHING: both
+  functions sat on the plain base `<T>__m`, and every consumer that looks up by
+  NAME ALONE answered by REGISTRATION ORDER.
+
+  Only ONE consumer looks up by name alone, which is why the class is small and
+  entirely about `Drop`: `MLIRGenImpl::resolve_method_symbol`, whose
+  `<T>__Drop__drop` pre-search (site C of 2026-09-04drop) finds nothing when
+  nothing was ever filed under that key, and falls back to `search(base)`.
+  An EXPLICIT call disambiguates by signature and was always right — MEASURED,
+  two ways, `ce1_nondrop_arity` and `ce2_nondrop_recv`.
+
+  THE VARIABLE IS DECLARATION ORDER, and that is what the pre-round binary says:
+
+      inherent first, `impl Drop` second      -> WRONG   (both rows)
+      `impl Drop` first, inherent second      -> CORRECT (ce3, ce4)
+
+  objdump on the pre-round object of `both_drops_destructor_is_inherent`: BOTH of
+  `make`'s drop relocations are `D__drop__f__ref_D`, the INHERENT symbol.
+  `Drop::drop` was never called at all. In `drop_inherent_call_order` the same
+  resolution sent the GLUE at the 2-parameter inherent and emitted a one-operand
+  call: "'func.call' op incorrect number of operands for callee", module
+  verification failed — the arity mismatch is the only thing that made the wrong
+  callee visible rather than silent.
+
+  THE CHANGE — TWO SITES, and the second one only exists because a counter-example
+  found it:
+
+    1. `sema_collect.cpp`, G156-5 block 1: an INHERENT method holding the plain
+       base qualifies an arriving `Drop::drop` whatever the signature. The
+       trait-vs-trait branch (`clash_sym`, G156-1) KEEPS its signature test.
+       ⚠ RESTRICTED TO `Drop` BY MEASUREMENT, NOT BY TASTE. The general form was
+       written first, and `run_oracle.py` over 6573 pass fixtures, base vs armed
+       in one configure, priced it at SIX DAMAGED:
+         `inherent-method-order-b147` (tests/imported/pass/traits) — upstream's
+           own method-resolution-order test. A by-value inherent `val(self: Foo)`
+           and a by-ref trait `val(self: &Foo)`, called through `&f`. Rust picks
+           the TRAIT method at the `&Foo` autoderef step, where the by-value
+           inherent is not a candidate at all; re-keying the trait method off the
+           plain base made the call return 100 instead of 9. run rc 0 -> 1.
+         `memoria_{ctr_meta,dyn_boundary,example_multimap,gen_multimap,showcase_deem}`
+           — ccrc 0 -> 1. Stopped compiling.
+       So "an inherent method shadows a same-named trait method" is FALSE as a
+       general rule: it holds only where the two are candidates at the same
+       receiver step. `Drop::drop` is the one method no legal program calls by
+       name (rustc E0040), so taking it off the plain base can shadow nothing.
+       The narrow form re-measured: 0 damaged, both oracle columns.
+    2. `sema.cpp`, `drop_fn_for`'s qualified pre-search: it accepted only
+       `Struct` / `ZonedStruct`, so an ENUM whose `Drop` had just become
+       qualified resolved to NOTHING and its destructor was silently skipped.
+       This arm was UNREACHABLE before site 1 — no enum `Drop` had ever been
+       qualified — so site 1 did not break the enum case so much as reach a hole
+       that had been sitting behind it. `bc_dropident_diffsig_enum` printed
+       `|END` (neither drop) with site 1 alone and `T|END` with both.
+
+  THE OTHER DECLARATION ORDER IS DELIBERATELY NOT CHANGED, and a MEASUREMENT is
+  what keeps it that way. Relaxing the identical signature test in G156-5's
+  second block (an inherent arriving after a trait method) fires **9536 times**
+  over the 5205-file corpus — every inherent method that merely shares a name
+  with some trait method of its type — and closes NOTHING: both rows in that
+  declaration order were already correct on the pre-round binary. Block 1's
+  relaxed branch fires **16 times**. A 9536-site change for a closed set of zero
+  was written, measured, and reverted; the census that priced it is quoted in the
+  comment that now stands where it was.
+
+  CLASS ENUMERATION, BY THE PROPERTY, over all 5205 `.logos` files in the tree
+  (4148 corpus + 1057 stdlib/tools/examples), census `g156.inherent.diffsig` —
+  measured on the GENERAL form, so it counts every trait, not only `Drop`:
+  **9 files, 18 fires** — the eight new drop-identity files, plus ONE
+  pre-existing file, and it is not a corpus fixture at all:
+  `src/compiler/probes/2026-09-06-dropmemo/ce/ce2_inherent_drop_and_trait_drop.logos`.
+  THE STDLIB CONTAINS ZERO INSTANCES. That is the whole cost story: the relaxed
+  branch is unreachable from every pre-existing compiled artefact.
+
+  ⚠ AND THAT PROBE FILE CONTRADICTS ITS OWN HEADER. It says "The destructor must
+  be the trait one; the inherent must still be callable BY NAME, in the same
+  compile". MEASURED both ways today:
+
+      pre-round  `sum=16 trait=0 inherent=4`  rc 4
+      post-round `sum=16 trait=2 inherent=2`  rc 22   (Rust's answer)
+
+  The 2026-09-06 round wrote the requirement as a counter-example and did not run
+  it. A counter-example that is never executed is prose.
+
+  THREE NEW ROWS, all found as counter-examples and all measured
+  IDENTICAL on the pre-round and post-round binaries, so neither is this round's
+  doing and neither is repaired by it:
+    * `inherent_clash_bound_dispatch_refused` (tier 3, `refuses`) — see above.
+    * `two_traits_same_method_diff_arity_refused` (tier 3, `refuses`) — TWO traits
+      declaring a method of the same name with different param lists, one type
+      implementing both, each called through its OWN bound. Legal Rust; dies in
+      codegen with the same "incorrect number of operands". This is the
+      trait-vs-trait branch whose signature test block 1 deliberately keeps —
+      naming the price of that decision rather than leaving it unpriced.
+    * `method_arity_mismatch_says_no_such_method` (tier 4, `diag`) — an ordinary
+      inherent method called with the wrong number of arguments reports
+      "'R' has no method 'thing'". The CONTROL uses a name with no trait and no
+      `Drop` anywhere, which is what makes it general rather than a drop defect.
+      It matters here because the same sentence appears for `r.drop()` and reads
+      as "the type has no destructor".
+
+  FIXTURES — nine, eight pass and one fail, the two rows landed as PAIRS one
+  token apart:
+    * `bc_dropident_diffsig_recv` / `_samesig` — the closed `run 2` row, asserting
+      a DESTRUCTOR COUNT (`trait=2 inherent=0`, exit 20), and its twin with the
+      inherent receiver written `&mut self` so the two signatures are EQUAL. Same
+      count either way: the token that used to decide is inert.
+    * `bc_dropident_diffsig_arity` (pass, `IT|END`) / `..._rettype` (fail, pins
+      `expected bool, got i32` — `i32` is the INHERENT's return type, so the
+      sentence names which function the explicit call resolved to). ⚠ The fail
+      half reads IDENTICALLY on both binaries and its header says so: an explicit
+      call with an argument always disambiguated. The pair's separating token is
+      in the PASS half, in the glue.
+    * `bc_dropident_diffsig_{enum,generic,nested_field,moved}` — the other four
+      members, each measured wrong on the pre-round binary (`|END`, a module
+      verification failure, `I|END`, `.I,|END`).
+  ⚠ THE NON-REGRESSION PIN BECAME A ROW. `bc_dropident_diffsig_bound_dispatch`
+  was written to prove a non-Drop trait method stays reachable from a `X: Tr`
+  bound after re-keying. The CONTROL REVERT read it as REFUSED on the pre-round
+  binary too — "incorrect number of operands for callee" — so it was never a
+  regression to prevent, it is a PRE-EXISTING defect that the general form would
+  have closed as a side effect and the narrow form deliberately does not. It is
+  now the third new row, `inherent_clash_bound_dispatch_refused` (tier 3), and
+  it is what PRICES the Drop-only restriction instead of leaving it unpriced.
+  ⚠ A "non-regression pin" that was never measured on the OLD binary is not one:
+  it can only tell you the new binary's answer, and this one's old answer was the
+  interesting half.

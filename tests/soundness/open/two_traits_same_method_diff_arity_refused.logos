@@ -1,0 +1,29 @@
+// SOUNDNESS QUEUE row two_traits_same_method_diff_arity_refused (tier 3, refuses).
+// TWO traits declare a method of the SAME NAME with DIFFERENT param lists, one
+// type implements both, and each is called through its OWN bound so there is no
+// ambiguity at any call site. This is legal Rust: inside `fa` only `A` is in
+// scope for `X`, so `x.m()` names `A::m` and nothing else.
+//
+// TODAY logosc dies in codegen: "'func.call' op incorrect number of operands for
+// callee" + module verification failed. Both `S__m` overloads sit on the plain
+// base and the bound dispatch answers by name.
+//
+// FOUND 2026-09-09 as a NON-MEMBER counter-example while fixing G156-5b (an
+// INHERENT method clashing with a trait method). MEASURED on the pre-round
+// binary (build 32c88e8fa76e0a9f) and on the post-round one: IDENTICAL, so this
+// is a pre-existing defect that the G156-5b change neither caused nor repairs —
+// the trait-vs-trait branch deliberately kept its signature test.
+package two_traits_same_method_diff_arity_refused;
+use logos.std.fmt;
+struct S { pub v: i64 }
+trait A { fn m(self: &Self) -> i64; }
+trait B { fn m(self: &Self, k: i64) -> i64; }
+impl A for S { fn m(self: &Self) -> i64 { return 1i64; } }
+impl B for S { fn m(self: &Self, k: i64) -> i64 { return 2i64 + k; } }
+fn fa<X: A>(x: &X) -> i64 { return x.m(); }
+fn fb<X: B>(x: &X) -> i64 { return x.m(7i64); }
+fn main() -> i32 {
+    let s: S = S { v: 0i64 };
+    println!("a={} b={}", fa(&s), fb(&s));
+    return 0i32;
+}

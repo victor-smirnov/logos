@@ -1,0 +1,39 @@
+// SOUNDNESS QUEUE row inherent_clash_bound_dispatch_refused (tier 3, refuses).
+// A type has an INHERENT method and a NON-Drop trait method of the SAME NAME with
+// DIFFERENT param lists, and the trait method is reached through a `X: Tr` BOUND.
+// Legal Rust: inside `viabound` only `Tr` is in scope for `X`, so `x.m()` is
+// `Tr::m` and the inherent 2-param `m` is not a candidate at all.
+//
+// TODAY logosc dies in codegen: "'func.call' op incorrect number of operands for
+// callee" + module verification failed. Both `S__m` overloads sit on the plain
+// base and the bound dispatch answers by NAME.
+//
+// WRITTEN 2026-09-09 as the NON-REGRESSION pin for G156-5b and MEASURED to be a
+// pre-existing defect instead: identical on the pre-round binary and on the
+// post-round one. G156-5b's relaxation is restricted to the `Drop` trait BY
+// MEASUREMENT — relaxing it for every trait damaged six pass fixtures at run
+// time — so this shape is deliberately left where it was, and this row is what
+// prices that decision rather than leaving it unpriced.
+//
+// ⚠ SHARES A SENTENCE with two_traits_same_method_diff_arity_refused and NOT
+// measured to share a ROOT: that row has TWO TRAITS and no inherent method, this
+// one an inherent method and one trait. No separating pair was measured. Do not
+// group them.
+package inherent_clash_bound_dispatch_refused;
+use logos.std.fmt;
+struct S { pub v: i64 }
+impl S {
+    fn m(self: &Self, k: i64) -> i64 { return self.v + k; }
+}
+trait Tr { fn m(self: &Self) -> i64; }
+impl Tr for S {
+    fn m(self: &Self) -> i64 { return 100i64; }
+}
+fn viabound<X: Tr>(x: &X) -> i64 { return x.m(); }
+fn main() -> i32 {
+    let s: S = S { v: 5i64 };
+    let a: i64 = s.m(1i64);
+    let b: i64 = viabound(&s);
+    println!("inherent={} bound={}", a, b);
+    return 0i32;
+}

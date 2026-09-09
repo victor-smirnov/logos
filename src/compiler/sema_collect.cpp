@@ -6432,7 +6432,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         bool already = trait_method_registry_.count(plain_base) > 0;
         std::string clash_sym;
         bool clash_inherent = false;   // G156-5: an INHERENT method of the same
-                                       // name+sig already holds the plain base.
+                                       // NAME already holds the plain base.
         if (!already) {
             if (auto oit = ov.find(plain_base); oit != ov.end()) {
                 for (auto& sym : oit->second) {
@@ -6440,13 +6440,27 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
                     if (fit == tbl.end()) continue;
                     std::string esig = function_signature_key(
                         plain_base, fit->second.param_types, fit->second.is_vararg);
-                    if (esig != plain_sig) continue;
+                    const bool same_sig = (esig == plain_sig);
                     if (fit->second.trait_name.empty()) {
+                        // G156-5b. same_sig here left a trait method on the
+                        // plain base when it differed from the inherent one in
+                        // arity or receiver, and the by-NAME-only consumers then
+                        // answered by DECLARATION ORDER — the drop glue among them.
+                        // KEY-IDENTITY: the bare name `Drop`, the carried decision
+                        // `drop_fn_for` and `explicit_destructor_call` also use.
+                        // ⚠ `Drop` ONLY, and a MEASUREMENT keeps it that way: the
+                        // general form cost SIX pass fixtures at RUN time.
+                        // PROBES.md 2026-09-09drop.
+                        if (!same_sig) {
+                            if (info.trait_name != "Drop") continue;
+                            logos::probe::census("g156.inherent.diffsig");
+                        }
                         clash_inherent = true;   // keep inherent; qualify trait
-                    } else if (fit->second.trait_name != info.trait_name ||
-                               // G156-1: same trait NAME, distinct trait type-args.
-                               args_differ(fit->second.trait_type_args,
-                                           info.trait_type_args)) {
+                    } else if (same_sig &&
+                               (fit->second.trait_name != info.trait_name ||
+                                // G156-1: same trait NAME, distinct trait type-args.
+                                args_differ(fit->second.trait_type_args,
+                                            info.trait_type_args))) {
                         clash_sym = sym; break;
                     }
                 }
@@ -6514,6 +6528,10 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         auto& tbl = generic ? generic_funcs_     : funcs_;
         const std::string plain_sig =
             function_signature_key(base_name, info.param_types, info.is_vararg);
+        // ⚠ THE SIGNATURE TEST STAYS HERE, and a MEASUREMENT keeps it: relaxing
+        // it in THIS declaration order fires 9536 times over the 5205-file tree
+        // and closes nothing — both drop-identity rows were already correct with
+        // `impl Drop` declared first. PROBES.md 2026-09-09drop.
         std::string sitting;
         if (auto oit = ov.find(base_name); oit != ov.end()) {
             for (auto& sym : oit->second) {

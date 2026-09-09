@@ -1,0 +1,27 @@
+// FAIL TWIN of pass/bc_dropident_diffsig_arity, ONE TOKEN apart: the `let`'s
+// annotation is `bool` instead of `i32`. The refusal says `got i32` -- the
+// INHERENT method's return type -- which pins that the explicit `r.drop(0i32)`
+// resolves to the inherent and NOT to the trait's `fn drop(&mut self)`, whose
+// return type is `void`.
+// MEASURED, so the pin is not overclaimed: this half reads IDENTICALLY on the
+// pre-2026-09-09 binary. An EXPLICIT call with an argument always disambiguated
+// by signature; it is the by-NAME-only drop GLUE in the pass half that did not,
+// and that is the token the pair separates.
+package bc_dropident_diffsig_arity_rettype;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct R { id: i32 }
+impl R {
+    fn drop(self: &mut Self, k: i32) -> i32 { say("I"); return k; }
+}
+impl Drop for R {
+    fn drop(self: &mut Self) { say("T"); }
+}
+fn main() -> i32 {
+    {
+        let mut r: R = R { id: 1i32 };
+        let n: bool = r.drop(0i32);
+    }
+    say("|END");
+    return 0i32;
+}

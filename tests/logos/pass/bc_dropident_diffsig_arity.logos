@@ -1,0 +1,27 @@
+// G156-5b. A type with an INHERENT `fn drop(&mut self, k)` and an `impl Drop`
+// declared SECOND, plus an EXPLICIT call to the inherent one. Rust prints "I",
+// then the destructor prints "T" at scope exit. Was soundness_queue row
+// `drop_inherent_call_order` (tier 1, `refuses`): with the two param lists
+// differing in ARITY the trait method was never re-keyed off the plain base, so
+// the drop GLUE resolved `R__drop` to the 2-param INHERENT method and emitted a
+// call with one operand -- "'func.call' op incorrect number of operands for
+// callee" and module verification failed. The arity mismatch is the only thing
+// that made the wrong callee visible.
+package bc_dropident_diffsig_arity;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct R { id: i32 }
+impl R {
+    fn drop(self: &mut Self, k: i32) -> i32 { say("I"); return k; }
+}
+impl Drop for R {
+    fn drop(self: &mut Self) { say("T"); }
+}
+fn main() -> i32 {
+    {
+        let mut r: R = R { id: 1i32 };
+        let n: i32 = r.drop(0i32);
+    }
+    say("|END");
+    return 0i32;
+}

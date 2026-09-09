@@ -1,0 +1,22 @@
+// G156-5b, the GENERIC member. TWIN of pass/bc_dropident_generic_struct with the
+// inherent method given an EXTRA PARAM, which is the only difference and is what
+// used to take it out of the coexistence machinery: this spelling was REFUSED
+// outright ("'func.call' op incorrect number of operands for callee", module
+// verification failed) while the same-param-list twin compiled and printed "T".
+package bc_dropident_diffsig_generic;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct G<T> { v: T }
+impl<T> G<T> {
+    fn drop(self: &mut Self, k: i32) -> i32 { say("I"); return k; }
+}
+impl<T> Drop for G<T> {
+    fn drop(self: &mut Self) { say("T"); }
+}
+fn main() -> i32 {
+    {
+        let mut g: G<i32> = G { v: 7i32 };
+    }
+    say("|END");
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// G156-5b reached through a FIELD's drop glue rather than a local's -- a
+// different consumer of `resolve_method_symbol`. Before the filing change this
+// printed "I|END": the outer struct's glue called the INNER type's inherent
+// method as its destructor.
+package bc_dropident_diffsig_nested_field;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+struct Inner { id: i32 }
+impl Inner {
+    fn drop(self: &Self) -> i32 { say("I"); return 0i32; }
+}
+impl Drop for Inner {
+    fn drop(self: &mut Self) { say("T"); }
+}
+struct Outer { a: Inner }
+fn main() -> i32 {
+    {
+        let o: Outer = Outer { a: Inner { id: 1i32 } };
+    }
+    say("|END");
+    return 0i32;
+}

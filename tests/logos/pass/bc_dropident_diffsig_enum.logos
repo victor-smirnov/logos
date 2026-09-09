@@ -1,0 +1,24 @@
+// G156-5b, the ENUM member of the class. An enum with an inherent `drop(&self)`
+// and an `impl Drop` taking `&mut self`. This is the counter-example that caught
+// a SECOND defect: `SemaChecker::drop_fn_for`'s qualified pre-search accepted
+// only Struct / ZonedStruct, so as soon as the trait method was re-keyed to
+// `E__Drop__drop` the enum resolved to NOTHING and the destructor was silently
+// skipped (it printed `|END`, no "T" and no "I"). That arm was unreachable
+// before the filing change, because an enum's `Drop` had never been qualified.
+package bc_dropident_diffsig_enum;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+enum E { A(i64), B }
+impl E {
+    fn drop(self: &Self) -> i64 { say("I"); return 1i64; }
+}
+impl Drop for E {
+    fn drop(self: &mut Self) { say("T"); }
+}
+fn main() -> i32 {
+    {
+        let mut e: E = E::A(3i64);
+    }
+    say("|END");
+    return 0i32;
+}

@@ -1,0 +1,27 @@
+// TWIN of bc_dropident_diffsig_recv, ONE TOKEN apart: the inherent receiver is
+// `&mut self` here instead of `&self`, so the two `drop`s have EQUAL param
+// lists and the pre-2026-09-09 G156-5 machinery already qualified the trait
+// method. Same destructor count either way -- which IS the pin: the signature
+// token no longer decides which function the drop glue calls.
+package bc_dropident_diffsig_recv_samesig;
+use logos.std.fmt;
+static mut TRAIT_HITS: i64 = 0i64;
+static mut INHERENT_HITS: i64 = 0i64;
+struct D { pub v: i64 }
+impl D {
+    fn drop(&mut self) -> i64 { unsafe { INHERENT_HITS = INHERENT_HITS + 1i64; } return self.v; }
+}
+impl Drop for D {
+    fn drop(&mut self) { unsafe { TRAIT_HITS = TRAIT_HITS + 1i64; } }
+}
+fn make() {
+    let a: D = D{v:7i64};
+    let b: D = D{v:9i64};
+}
+fn main() -> i32 {
+    make();
+    let t: i64 = unsafe { TRAIT_HITS };
+    let i: i64 = unsafe { INHERENT_HITS };
+    println!("trait={} inherent={}", t, i);
+    return (t * 10i64 + i) as i32;
+}

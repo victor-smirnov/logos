@@ -1,0 +1,31 @@
+// G156-5b. A type with an INHERENT `drop` and an `impl Drop` whose PARAM LISTS
+// DIFFER (`&self` vs `&mut self`), inherent declared FIRST. Legal Rust: the
+// destructor is the trait's; the inherent method is an ordinary method nothing
+// here calls. Was soundness_queue row `both_drops_destructor_is_inherent`
+// (tier 1, `run 2`): the coexistence machinery was gated on SIGNATURE EQUALITY,
+// so the trait method was never re-keyed to `D__Drop__drop`, both sat on the
+// plain base `D__drop`, and the drop glue answered by DECLARATION ORDER --
+// `trait=0 inherent=2`, exit 2, with `Drop::drop` never running at all.
+// The assertion is a DESTRUCTOR COUNT, not an exit code alone.
+package bc_dropident_diffsig_recv;
+use logos.std.fmt;
+static mut TRAIT_HITS: i64 = 0i64;
+static mut INHERENT_HITS: i64 = 0i64;
+struct D { pub v: i64 }
+impl D {
+    fn drop(&self) -> i64 { unsafe { INHERENT_HITS = INHERENT_HITS + 1i64; } return self.v; }
+}
+impl Drop for D {
+    fn drop(&mut self) { unsafe { TRAIT_HITS = TRAIT_HITS + 1i64; } }
+}
+fn make() {
+    let a: D = D{v:7i64};
+    let b: D = D{v:9i64};
+}
+fn main() -> i32 {
+    make();
+    let t: i64 = unsafe { TRAIT_HITS };
+    let i: i64 = unsafe { INHERENT_HITS };
+    println!("trait={} inherent={}", t, i);
+    return (t * 10i64 + i) as i32;
+}

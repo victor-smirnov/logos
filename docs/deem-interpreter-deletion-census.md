@@ -5584,8 +5584,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                     is not labelled imported)
 #   TIERCOMMIT    156 ->  150   -6   (the admit tests declare tier_commit; the new
 #                                     corpus fixtures do not)
-REGISTRY-ALL         9441
-REGISTRY-NOIMPORTED  4977
+# 2026-09-09 (G156-5b, the drop-identity class). Nine native fixtures land with
+#   the two soundness_queue rows they close, and NOTHING is removed: the queue's
+#   programs are not ctest tests, so deleting two of them moves no registry count.
+#   ALL          9441 -> 9449   +8   (7 native pass + 1 native fail)
+#   NOIMPORTED   4977 -> 4985   +8   (all eight are native)
+#   TIERCOMMIT    150 ->  150    0   (corpus fixtures do not declare tier_commit)
+# ⚠ EIGHT, NOT NINE. An eighth pass fixture was written and then MOVED to the
+#   soundness queue instead: bc_dropident_diffsig_bound_dispatch was a
+#   non-regression pin that turned out to be a PRE-EXISTING defect, and it is now
+#   the soundness_queue row `inherent_clash_bound_dispatch_refused` (its program
+#   lives on the queue's shelf, which this census does not index).
+REGISTRY-ALL         9449
+REGISTRY-NOIMPORTED  4985
 REGISTRY-TIERCOMMIT  150
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

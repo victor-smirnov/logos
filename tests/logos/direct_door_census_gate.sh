@@ -1572,9 +1572,21 @@ PIN = {
     # The four 09-08f files are the two soundness-queue rows this round closed,
     # landed as pass PAIRS: each arm's control is the same program with the user
     # `impl Drop` deleted, which read the same counts before the fix and after.
-    'corpus'            : 2944,
+    # RE-DERIVED BY DIRECT LISTING (2026-09-09, G156-5b drop-identity class):
+    # `ls tests/logos/pass/*.logos | wc -l` -> 2951,
+    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2951 = 191 + 2760.
+    # The SEVEN that moved, all nonglob, all pass halves:
+    #   bc_dropident_diffsig_recv{,_samesig}   (the closed row both_drops_destructor_is_inherent
+    #                                           and its ONE-TOKEN twin, `&self` vs `&mut self`)
+    #   bc_dropident_diffsig_arity              (the closed row drop_inherent_call_order)
+    #   bc_dropident_diffsig_{enum,generic,nested_field,moved}
+    #                                           (the other four members of the class)
+    # The EIGHTH file, bc_dropident_diffsig_arity_rettype, is a FAIL fixture and is
+    # not in this population. No door is declared by any of them, so `doors`,
+    # `glob` and `nonglob_doors` are unmoved.
+    'corpus'            : 2951,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2753,  # +3 (2026-09-08g, E0509 pass halves), +4 (2026-09-08f, drop-glue pairs), +1 (2026-09-08e, drop_guard_instantiated), +2 (2026-09-08d), +2 (2026-09-08c), +1 (2026-09-08b), +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2760,  # +7 (2026-09-09, G156-5b drop-identity pass halves), +3 (2026-09-08g, E0509 pass halves), +4 (2026-09-08f, drop-glue pairs), +1 (2026-09-08e, drop_guard_instantiated), +2 (2026-09-08d), +2 (2026-09-08c), +1 (2026-09-08b), +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a
