@@ -31653,3 +31653,39 @@ final). Behaviour cannot depend on a comment, but the store's identity does, so
 `L4 bc` was re-run with `FORCE=1` on the FINAL binary rather than reported from
 the pre-trim record. This is the 2026-08-29 finding again, in a `.cpp` rather
 than a header: a comment is not free.
+
+## 9. ⚠ A RECORDED NUMBER CONTRADICTED: THE RECEIVER COST IS 251 **SITES** IN
+##    **123 FILES**, NOT 251 FILES
+
+The 2026-09-09sig record and this round's own commit message both say "**251
+corpus files** declare `fn drop(self: <non-reference>)`", with a per-directory
+split of 143 / 67 / 23 / 18. RE-DERIVED HERE BY DIRECT LISTING, and the split
+is right while the unit is wrong:
+
+    grep -rlE "fn +drop *\( *self *(:[^&)]*)?\)" --include=*.logos
+        tests/ stdlib/ examples/ src/ | wc -l           ->  **123 FILES**
+    the same grep with -o | wc -l                        ->  **251 SITES**
+    the same grep with -c, summed per directory          ->  143 tests/logos/pass
+                                                             67 tests/imported/pass/drop
+                                                             23 tests/logos/fail
+                                                              5 imported/notes/b167-repros
+                                                              4 imported/pass/structs
+                                                              2 tests/spec/pass
+                                                              2 imported/pass/issues
+                                                              2 imported/pass/borrowck
+                                                              1 tests/spec/fail
+                                                              1 tests/soundness/open
+                                                              1 imported/pass/manually_drop
+    stdlib/                                              ->  **0**, both units
+
+So 143/67/23 are SITE counts and the "18 scattered" is the tail above, also
+sites. Both units matter and they answer different questions: 251 is how many
+`impl Drop` bodies a receiver check would refuse, **123** is how many FIXTURES
+would go red, and a fixture is red at its FIRST error whether it holds one
+mis-signed drop or nine. The 09-09sig report priced the corpus in the unit that
+makes the cost look twice as large as the number of tests that would break; the
+verdict — ⛔ decline, owner's call — is unchanged, but the number a future round
+budgets against is 123 files / 251 sites, stated with its unit.
+
+The stdlib zero is confirmed in BOTH units: the 2026-09-08 conversion left no
+by-value `drop` receiver anywhere under `stdlib/`.
