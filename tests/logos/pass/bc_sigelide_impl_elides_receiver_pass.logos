@@ -1,0 +1,38 @@
+// CLOSES soundness-queue row impl_elides_named_receiver_lifetime_refused
+// (deleted 2026-09-09elide). The other direction of
+// bc_sigelide_trait_elides_receiver_pass: the trait NAMES the receiver's
+// lifetime and the impl ELIDES it. Upstream's own recorded answer is
+// tests/ui/associated-types/cache/elision.rs (`//@ check-pass`), whose header
+// says "Check that you are allowed to implement using elision but write trait
+// without elision" — this program's shape verbatim.
+//
+// TWO fixtures rather than one because the comparator's rule was symmetric in
+// FORM but the two directions travelled different halves of it (`x.empty()`
+// versus `y.empty()`), and a repair that expanded elision on only one side
+// would have closed one and left the other standing.
+//
+// ONE TOKEN from tests/logos/fail/bc_sigelide_impl_elides_receiver_static_fail.
+package bc_sigelide_impl_elides_receiver_pass;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Peek {
+    fn peek<'a>(self: &'a Self) -> &'a i64;
+}
+
+impl Peek for R {
+    fn peek(self: &R) -> &i64 {
+        return &self.v;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 42i64 };
+    let p: &i64 = r.peek();
+    pr(*p);
+    return 0;
+}

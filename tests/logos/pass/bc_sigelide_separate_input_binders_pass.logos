@@ -1,0 +1,34 @@
+// The trait elides a NON-receiver parameter's lifetime and the impl names it.
+// `fn f(&self, x: &i64) -> i64` expands to `fn f<'a, 'b>(&'a self, x: &'b i64)
+// -> i64`, which is what the impl writes; legal Rust. This is the third slot
+// the conformance comparator reads (receiver, PARAMETER, return) and the one
+// the two closed queue rows did not exercise — the class is "every slot that
+// compared a lifetime SPELLING", not "the receiver".
+//
+// ONE TOKEN from tests/logos/fail/bc_sigelide_tied_input_binders_fail, where
+// the impl writes `'a` for the parameter and so ties two binders the trait's
+// elision keeps apart.
+package bc_sigelide_separate_input_binders_pass;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Add2 {
+    fn f(self: &Self, x: &i64) -> i64;
+}
+
+impl Add2 for R {
+    fn f<'a, 'b>(self: &'a R, x: &'b i64) -> i64 {
+        return self.v + *x;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 40i64 };
+    let q: i64 = 2i64;
+    pr(r.f(&q));
+    return 0;
+}

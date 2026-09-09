@@ -6,6 +6,11 @@
 // right, and what those rows record is `_astrict` pairing an ELIDED lifetime
 // only with an elided one. If a future round makes elision expand before the
 // compare, this program must still compile and still print 42.
+// ── 2026-09-09elide: that round happened. Both rows are CLOSED — elision is
+// now expanded per signature before the compare — and this program still
+// compiles and still prints 42, which is the invariant it was landed for. The
+// two closed rows are now the pass fixtures bc_sigelide_trait_elides_receiver_pass
+// and bc_sigelide_impl_elides_receiver_pass, each with a one-token fail twin.
 package bc_sigretty_alpha_rename_receiver_pass;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }

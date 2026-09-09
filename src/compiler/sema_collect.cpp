@@ -4543,15 +4543,49 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                 break;
                         }
                     };
-                    auto _alpha_ok = [&](TypeRef ta, TypeRef tb) -> bool {
+                    // Rust ELISION, expanded per signature before the alpha
+                    // compare: fresh binder per elided input, an elided output
+                    // takes the receiver's. LANDED 2026-09-09elide. PROBES.md.
+                    auto _esyn = [](size_t slot, size_t idx) -> std::string {
+                        return std::format("#e{}_{}", slot, idx);
+                    };
+                    // Filled once `check_end` is known; "" = not expandable.
+                    std::string _eout_a, _eout_b;
+                    auto _eout_of = [&](const std::vector<TypeRef>& ps,
+                                        size_t upto) -> std::string {
+                        using K5 = LogosType::Kind;
+                        if (m.has_self_receiver && !ps.empty() && ps[0] &&
+                            (TypeRef(ps[0]).kind() == K5::Ref ||
+                             TypeRef(ps[0]).kind() == K5::MutRef)) {
+                            std::vector<std::string> ls;
+                            _acollect(ps[0], ls, _acollect);
+                            if (!ls.empty())
+                                return ls[0].empty() ? _esyn(0, 0) : ls[0];
+                        }
+                        std::string only; size_t n = 0;
+                        for (size_t k = 0; k < upto && k < ps.size(); ++k) {
+                            std::vector<std::string> ls;
+                            _acollect(ps[k], ls, _acollect);
+                            for (size_t i = 0; i < ls.size(); ++i) {
+                                ++n;
+                                only = ls[i].empty() ? _esyn(k, i) : ls[i];
+                            }
+                        }
+                        return n == 1 ? only : std::string();
+                    };
+                    auto _alpha_ok = [&](TypeRef ta, TypeRef tb, size_t slot,
+                                         bool is_ret) -> bool {
                         std::vector<std::string> la, lb;
                         _acollect(ta, la, _acollect);
                         _acollect(tb, lb, _acollect);
                         if (la.size() != lb.size()) return false;
                         for (size_t i = 0; i < la.size(); ++i) {
-                            const std::string& x = la[i];
-                            const std::string& y = lb[i];
+                            std::string x = la[i];
+                            std::string y = lb[i];
+                            if (x.empty()) x = is_ret ? _eout_a : _esyn(slot, i);
+                            if (y.empty()) y = is_ret ? _eout_b : _esyn(slot, i);
                             if (x.empty() || y.empty()) {
+                                // Elision not expandable here — the old rule stands.
                                 if (_astrict && !(x.empty() && y.empty())) return false;
                                 continue;
                             }
@@ -4603,6 +4637,16 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     size_t check_end = has_pack
                         ? (size_t)variadic_pos
                         : m.param_types.size();
+                    // The elided-output binder per side, over the compared
+                    // INPUT slots, the trait's substituted first. PROBES.md.
+                    {
+                        std::vector<TypeRef> _etr(m.param_types);
+                        if (!trait_arg_subst.empty())
+                            for (auto& _t : _etr)
+                                if (_t) _t = subst_type_sema(_t, trait_arg_subst);
+                        _eout_a = _eout_of(_etr, check_end);
+                        _eout_b = _eout_of(c->param_types, check_end);
+                    }
                     // PROBE sigselflt — M-SIG(a), the k=0 slot the loop below
                     // skips. DECLINED 2026-09-02w: it refuses a legal
                     // ALPHA-RENAMING of a method binder. See PROBES.md.
@@ -4636,7 +4680,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             _t0_collapsed = _self_shape_artefact(
                                 m.param_types[0], _t0, c->param_types[0]);
                         }
-                        if (!_t0_collapsed && !_alpha_ok(_t0, c->param_types[0])) {
+                        if (!_t0_collapsed &&
+                            !_alpha_ok(_t0, c->param_types[0], 0, false)) {
                             if (_asub && self_mismatch_note.empty())
                                 self_mismatch_note = std::format(
                                     "the receiver is declared '{}' and the impl "
@@ -4671,7 +4716,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             sig_match = false; break;
                         }
                         if (_apar && !(_asub && _self_shape_artefact(m.param_types[k], tp, cp))
-                            && !_alpha_ok(tp, cp)) {
+                            && !_alpha_ok(tp, cp, k, false)) {
                             if (_asub && self_mismatch_note.empty())
                                 self_mismatch_note = std::format(
                                     "parameter {} is declared '{}' and the impl "
@@ -4733,7 +4778,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         if (!is_generic_param(tra) &&
                             !is_generic_param(c->ret_type) &&
                             !(_asub && _self_shape_artefact(m.ret_type, tra, c->ret_type)) &&
-                            (!_alpha_ok(tra, c->ret_type) ||
+                            (!_alpha_ok(tra, c->ret_type, check_end, true) ||
                              !types_equal(tra, c->ret_type))) {
                             if (_asub && self_mismatch_note.empty())
                                 self_mismatch_note = std::format(

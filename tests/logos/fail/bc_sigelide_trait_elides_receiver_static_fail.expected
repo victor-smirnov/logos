@@ -1,0 +1,1 @@
+error [fn R__peek]: impl Peek for R: method 'peek' does not match the trait declaration: the return type is declared '&'static i64' and the impl declares '&'a i64'

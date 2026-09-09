@@ -1,0 +1,39 @@
+// Rust gives each elided INPUT lifetime its OWN fresh binder, and an elided
+// OUTPUT takes the `&self` receiver's. The trait here declares
+// `fn pick(&self, x: &i64) -> &i64`, which expands to
+// `fn pick<'a, 'b>(&'a self, x: &'b i64) -> &'a i64`; the impl writes that
+// expansion out by hand, so the two are alpha-equal and this is legal Rust.
+//
+// THIS IS THE PROGRAM THAT SEPARATES THE ROOT FIX FROM THE CRUDE ARM. The
+// priced probe `sigelide` (PROBES.md 2026-09-09) collapsed every elided
+// position to ONE synthetic binder and so wrongly forced the two distinct
+// elided inputs equal — it closed the two queue rows and still refused this
+// program. The landed fix mints a fresh binder PER elided input position.
+//
+// ONE TOKEN from tests/logos/fail/bc_sigelide_two_elided_inputs_fail, where the
+// impl returns `&'b i64` — the parameter's binder, not the receiver's.
+package bc_sigelide_two_elided_inputs_pass;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Pick {
+    fn pick(self: &Self, x: &i64) -> &i64;
+}
+
+impl Pick for R {
+    fn pick<'a, 'b>(self: &'a R, x: &'b i64) -> &'a i64 {
+        return &self.v;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 42i64 };
+    let q: i64 = 7i64;
+    let p: &i64 = r.pick(&q);
+    pr(*p);
+    return 0;
+}

@@ -31797,3 +31797,189 @@ note:
   `patslice_def` arms NOTHING.  Predicted before the run: fires 0, identical to unarmed in
   every column.  Measured: "NEVER FIRED — not a zero, an unreached site".  A non-zero here
   would have said the harness, not the compiler, was answering.
+
+## 2026-09-09elide — LANDED: per-signature ELISION EXPANSION in the impl-vs-trait check
+site: src/compiler/sema_collect.cpp::_alpha_ok  (`_esyn` / `_eout_of` / the 3 live call sites)
+build: d59bfd3925aead33 43   (landed, FINAL);  base 0d72ee9795c644d3 43 (HEAD fc39ff38c)
+  ⚠ 1f93e497792c24da 43 is the SAME code with a twelve-line comment block still in it; every
+  gate below was re-run on d59bfd3925aead33 after the trim, because a comment-only edit moves
+  the hash and a verdict is a measurement WITH A TIMESTAMP (2026-08-29, 58 703 verdicts).
+measured: 2026-09-09
+fires: 1086789 — the `_alpha_ok` call count over the corpus, measured at THIS site by the
+  priced arm `sigelide` earlier the same day. The landed code carries NO probe guard, so it
+  runs on every impl-vs-trait method comparison; the number is quoted from the arm's own
+  fire log, not re-instrumented, and it is here to say the site is LIVE, not to price it.
+queue rows CLOSED: 2 — impl_names_elided_receiver_lifetime_refused,
+                        impl_elides_named_receiver_lifetime_refused.  # TOTAL 79 -> 77.
+verdict: LANDED — the ROOT the pricing round said to fund, not the arm it priced.
+note:
+  THE DEFECT.  `_astrict` (the 2026-09-07b M-SIG landing) compared lifetime SPELLINGS with
+  "" standing for "elided", so an elided position could pair only with another elided one.
+  Rust's elision rules expand `fn peek(&self) -> &i64` to exactly `fn peek<'a>(&'a self) ->
+  &'a i64`, so two signatures Rust makes IDENTICAL were refused.  We shipped that
+  over-refusal on 2026-09-07b and it stood for two days.
+
+  THE FIX IS THE ROOT, NOT THE PRICED ARM (rule 7 in the letter).  The probe `sigelide`
+  collapsed every elided position to ONE synthetic binder `#e`; it closed both rows and
+  STILL refused two legal programs, because Rust gives each elided INPUT its own fresh
+  binder.  What landed mints `#e<slot>_<idx>` PER POSITION on both sides, and gives an
+  elided OUTPUT the `&self` receiver's binder — or, with no `&self`, the single input
+  lifetime when there is exactly one, else "" and the old strict rule stands for that slot.
+  The comparison is then pure alpha-equivalence, decided by the `_amap` that was already
+  there.  `#` cannot occur in a written lifetime, so a synthetic binder never collides.
+  The two programs the priced arm got wrong are now the landed fixtures
+  bc_sigelide_two_elided_inputs_pass and bc_sigelide_separate_input_binders_pass.
+
+  THE CLASS, ENUMERATED BY THE PROPERTY (owner's instruction 2026-09-05).  The class is
+  "a slot of the impl-vs-trait conformance check that reads a lifetime SPELLING and treats
+  "" as a value rather than as `expand me`".  Enumerated by call site, not by grep:
+    · the receiver slot (k=0)          `_alpha_ok(_t0, c->param_types[0], 0, false)`
+    · the parameter loop (k>=1)        `_alpha_ok(tp, cp, k, false)`
+    · the return slot                  `_alpha_ok(tra, c->ret_type, check_end, true)`
+  THREE members, all fixed by the one change, each pinned with its own one-token pair.
+  The two other lifetime-spelling comparators in the file are `sigparamlt`/`sigretlt`/
+  `sigselflt`, all DECLINED probes and off in production; and sema_collect.cpp:4153 (the
+  INHERENT-impl `self:` type check) is a different check that already expands elision by
+  declining ("compare the lifetime arguments only when some were written", 2026-09-04a).
+  So the class has three members and it is closed.
+
+  MONOTONICITY, AND WHY THE FAIL-TEXT ORACLE IS THE ONE THAT COVERS IT.  Making `_alpha_ok`
+  return true more often can only turn refusals into admissions, so the risk is an
+  ADMISSION and no rc-based column can see it (rule 15).  It is not unconditionally more
+  permissive: a both-elided position now MINTS a binder where it used to `continue` without
+  recording one, so an impl that TIES two binders the trait's elision keeps apart is now
+  refused by `_amap`'s injectivity — which is upstream 65866's own verdict, and is the
+  fixture bc_sigelide_tied_input_binders_fail.
+
+  COUNTER-EXAMPLES, WRITTEN BEFORE THE EDIT AND IN SHAPES THE PRICING PHASE DID NOT USE
+  (rule 5 / "the recommendation is not a verdict"), each measured on the base binary FIRST:
+    e1_param_only      trait elides a NON-receiver param        rc 1 -> rc 0, links, RUNS 0
+    e2_two_elided      two elided inputs, output = receiver's   rc 1 -> rc 0, links, RUNS 0
+    e3_no_receiver     trait ASSOCIATED fn, no self at all      rc 1 -> rc 0, links, RUNS 0
+    e6_mut_recv_ret    `&mut self`, trait NAMES / impl ELIDES   rc 1 -> rc 0, links, RUNS 0
+    e4_ret_wrong_binder  impl returns the PARAM's lifetime      rc 1 -> rc 1, NEW sentence:
+       "the return type is declared '&i64' and the impl declares '&'b i64'"  (was: the
+        receiver — the base binary blamed a slot that AGREES)
+    e5_impl_less_general impl ties two elision-distinct inputs  rc 1 -> rc 1, NEW sentence:
+       "parameter 1 is declared '&i64' and the impl declares '&'a i64'"
+    e7_static_both     'static on both sides                    rc 0 -> rc 0, unchanged
+  LEGALITY IS UPSTREAM'S, NOT MY READING, for five of the seven: regions-trait-1.rs
+  (check-pass) and overloaded/fixup-deref-mut.rs (run-pass) for trait-elides/impl-names;
+  associated-types/cache/elision.rs (check-pass, its header says "you are allowed to
+  implement using elision but write trait without elision") for the other direction;
+  lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866.stderr for e4/e5's illegality
+  ("the lifetime requirements from the `impl` do not correspond to the requirements in the
+  `trait`").  ⚠ e3_no_receiver RESTS ON MY READING of the elision rules: I searched every
+  check-pass/run-pass test under tests/ui in /home/logos/cxx/rust for a no-receiver trait fn
+  with an elided output and got ZERO hits.  It is a counter-example, not a landed fixture.
+
+  DIFFED BOTH WAYS OVER ALL 79 ROWS (rule 6), base binary vs landed, same command, same
+  LOGOS_VERIFY_LAYOUT=1 the gate uses: EXACTLY TWO lines move, both rc 1 -> rc 0, and both
+  were named in the prediction file before the compiler was touched.  Nothing else moves in
+  either direction.  Both closed programs then LINK, RUN exit 0 and are valgrind-clean
+  (`--leak-check=full`, rc 0) — a compile rc alone is not a legal verdict.
+
+  THE TWO IMPORTED FAIL FIXTURES WERE PINNED ON THE OVER-REFUSAL, AND BOTH MOVE TOWARD
+  UPSTREAM.  Predicted by name; measured:
+    trait-impl-mismatch-elided-lifetime-issue-65866
+      was: "the receiver is declared '&Foo' and the impl declares '&'a Foo'"
+      now: "parameter 1 is declared '&mut Re' and the impl declares '&'b mut Re<'a>'"
+      upstream's .stderr blames parameter 1 (`Re<'3>` vs `Re<'1>`) and says NOTHING about
+      the receiver.  The fixture was green because of the defect; it is now green for
+      upstream's own reason.
+    lifetime-mismatch-between-trait-and-impl
+      was: "the receiver is declared '&i64' …" — in a method that HAS NO RECEIVER
+      now: "parameter 1 is declared '&'a i64' and the impl declares '&'a i64'"
+      ⚠ TWO IDENTICAL STRINGS.  The mismatch is not in that slot's SPELLING but in how the
+      binders correspond across the whole signature.  That residue is the OPEN tier-4 row
+      `typestr_minted_alike` ("two minted regions print alike", FOUR type_str sites) at a
+      fourth site.  DECLINED BY NAME rather than repaired at one site of a four-site class:
+      repairing it here would be the instance, and would leave the row's own three sites and
+      its five pinned imported fixtures exactly where they are.
+
+  DECLINED THIS ROUND, BY NAME AND BY NUMBER:
+    · `patslice` (fnparam_array_pattern_binds_nothing).  Priced FUND at queue-ceiling 1 /
+      cost 0, and the arm is correct as far as it goes — but it is an INSTANCE.  The class,
+      enumerated by the property "a pattern door that recurses into a WHITELIST of
+      sub-pattern kinds instead of all of them, or omits a kind entirely", has FIVE measured
+      members among the 77 open rows, read from their own headers:
+        fnparam_array_pattern_binds_nothing        (fn-param door, PAT_SLICE arm absent)
+        fnparam_tuple_nested_sub_binds_nothing     (fn-param door, sub-kind whitelist)
+        fnparam_struct_ref_mut_field_binds_byvalue (fn-param door, IS_REF never read)
+        match_tuple_door_nested_struct_binds_nothing (match tuple door, PAT_STRUCT absent)
+        closure_param_struct_pattern_syntax        (the same gap one layer down, in the
+                                                    GRAMMAR — rc 4 before sema)
+      The priced arm closes 1 of 5 and the pricing round's own separating pair says the
+      other fn-param row does not move with it.  The class fix is ONE recursive binder walk
+      shared by the four doors; it is NOT priced, and pricing it is the next round's job.
+      Landing the arm alone would be the instance fixed and the class open.
+    · The two rows carrying an explicit "no separating pair measured, do not group" in their
+      headers (two_traits_same_method_diff_arity_refused, inherent_clash_bound_dispatch_refused)
+      were not touched.
+    · zonemut_fat_ref_struct_field_layout_abort and fatslice_field_match_binder_invalid_mlir
+      were not re-proposed; no new evidence was measured against their recorded numbers.
+
+  ORACLES.  Marked (t) = re-run on the FINAL trimmed build d59bfd3925aead33 43;
+  the rest were measured on 1f93e497792c24da 43, the same code before the comment trim:
+    soundness-queue gate                rc 0, 77 rows (tier1 21 / tier2 7 / tier3 43 / tier4 6)
+    gate-run.sh -L bc                   rc 0 — build 972, 2731 passed / 0 failed / 2 other
+                                        (the 2 are the two long-DISABLED tests, unchanged);
+                                        baseline was READ from the store: build 967,
+                                        6572 recorded / 0 failed, "all 2725 tests in this
+                                        filter are ALREADY MEASURED under this build"
+    fail_text_oracle.py                 1473 fail fixtures — 0 un-refusals (rc 0 count = 0),
+                                        0 `.expected` mismatches
+    fail-text DIFF, base vs landed      EXACTLY 6 fixtures' text moves: the 4 new
+                                        bc_sigelide_* fail fixtures (which did not exist on
+                                        the base) and the 2 imported ones predicted BY NAME.
+                                        Zero unpredicted re-wordings.
+    stdlib-cost.sh                      4/4 layers
+    scripts/run_oracle.py               see below
+    L1                                  rc 0 — 786/786, the enumerator's 12 684 generated
+                                        cases, and the 150 tier_commit gates all green
+    test-levels.sh L4 bc                rc 0 — build 973, TWO phases: 5012 native passed /
+                                        0 failed, then 1568 imported (1566 passed / 0 failed
+                                        / 2 the long-disabled), 6580 recorded / 0 failed
+  RE-RUN ON THE FINAL TRIMMED BUILD d59bfd3925aead33 43 AND UNCHANGED: the queue gate (rc 0,
+  77 rows), the both-ways sweep over the 77 SURVIVING rows (base vs landed: NO line moves at
+  all — the only two that ever moved are the two now landed as fixtures, and they still go
+  base rc 1 -> landed rc 0), fail_text_oracle (1473 / 0 un-refusals / 0 mismatches), the
+  fail-text diff (still EXACTLY 6), L1 (786/786), L4 bc (build 973), and run_oracle — whose
+  compile-rc and run-rc columns are IDENTICAL, row for row, to the pre-trim run.
+  ⚠ THE RECORDED "fail_text_oracle SELF-INVALIDATES ACROSS A REBUILD" CAVEAT IS TRUE AND I
+    RE-MEASURED IT: a first base-vs-landed diff called ALL 1473 fixtures changed.  The whole
+    difference on a sampled fixture was four `logosc: warning: … was built with logos …`
+    ABI-freshness lines naming the build timestamp.  Stripping exactly those lines takes the
+    population from 1473 to 6.  A second false population came from my own script omitting
+    `LOGOS_LIB_DIR`, which makes the base binary answer "module_loader: cannot find package
+    'logos.std.prelude'" on every fixture — the same shape as the queue gate's own
+    "GATE BROKEN" canary, and the reader refusing, not the corpus moving.
+
+  THE RUNTIME COLUMN, AND WHAT IT CAN AND CANNOT SAY HERE.  `scripts/run_oracle.py` on the
+  landed build: 6590 pass fixtures compiled, linked and RUN.  Compile column: ZERO hard
+  failures and 20 rows at cc=90 (logosc exited 0 after self-diagnosing — the 14th kind of
+  gate lie, `bug_mlirgen_exit_code_lie`).  THE 20 ARE NOT MINE: three of them
+  (hrtb-double-quantifier, autobind-g2, typeof_container_field_admit) were diffed base vs
+  landed by hand and their stderr is IDENTICAL apart from the four ABI-freshness lines.
+  ⚠ A FULL base-vs-landed run_oracle DIFF IS NOT AVAILABLE FROM THIS TREE and I did not
+  fake one: the base binary against the REBUILT libs prints the ABI warning on every
+  fixture, which the oracle's own cc=90 rule reads as "self-diagnosed", so all 6590 rows
+  would come back changed for a reason that is not the compiler.  A real base column needs
+  the base compiler AND its libs in a SEPARATE build dir.  What stands in its place, and is
+  the property that actually matters: the change can only make `_alpha_ok` say true more
+  often plus mint binders at both-elided positions, so the risks are (a) a NEWLY REFUSED
+  pass fixture — refuted by 0 compile failures over 6590 and by `-L bc` 2731/0 — and (b) a
+  DIFFERENT impl selected as `matching`, which would move a pass fixture's exit code or
+  stdout and is exactly what L1 (786/786) and `L4 bc` assert.
+
+  ⚠ TWO CORRECTIONS AGAINST MYSELF, BOTH RECORDED RATHER THAN QUIETLY FIXED.
+  (1) I wrote a TWELVE-LINE comment block into `sema_collect.cpp` — a compiled source — and
+      caught it only at the review pass, which is the same shape as the 2026-08-29 finding
+      that moved the binary hash and invalidated 58 703 recorded verdicts.  It is trimmed to
+      a three-line marker pointing here, and every gate was RE-RUN on the trimmed build,
+      because a comment-only edit still moves the hash and a verdict is a measurement WITH A
+      TIMESTAMP.
+  (2) The handed-down pricing report's STEP-1 census was stale by one commit: it named HEAD
+      `fe50e8d0f` when the tree was already at `fc39ff38c` — its own commit, landed after it
+      was written.  Its build hash, its `# TOTAL 79` and its 42-tier-3-`refuses` correction
+      all re-measured TRUE.

@@ -1,1 +1,1 @@
-error [fn U__foo]: impl Foo for U: method 'foo' does not match the trait declaration: the receiver is declared '&i64' and the impl declares '&'a i64'
+error [fn U__foo]: impl Foo for U: method 'foo' does not match the trait declaration: parameter 1 is declared '&'a i64' and the impl declares '&'a i64'

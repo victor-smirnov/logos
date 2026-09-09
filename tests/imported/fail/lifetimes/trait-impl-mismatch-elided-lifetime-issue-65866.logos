@@ -40,6 +40,16 @@
 //    the trait's `Self` substituted first. CEILING 5 (these five rows, by name,
 //    over the whole 115-row admit shelf) / COST 0 on all three populations /
 //    stdlib 4-of-4. PROBES.md 2026-09-07b.
+// ── RE-PINNED 2026-09-09elide, AND THE SENTENCE MOVED *TOWARD* UPSTREAM. The port
+//    is unchanged; what moved is the compiler. Until today this fixture was pinned on an
+//    OVER-REFUSAL: the same `_astrict` rule that refused the two legal-Rust queue rows
+//    impl_names_elided_receiver_lifetime_refused / impl_elides_named_receiver_lifetime_refused
+//    made this program refuse AT THE RECEIVER --
+//      "the receiver is declared '&Foo' and the impl declares '&'a Foo'"
+//    -- a slot upstream's own `.stderr` says nothing about. With elision EXPANDED per
+//    signature the receiver slot now agrees (both sides expand to one fresh binder) and the
+//    refusal lands where rustc puts it: parameter 1, `Re<'3>` vs `Re<'1>`. So this fixture
+//    is no longer green because of a defect. PROBES.md 2026-09-09elide.
 package trait_impl_mismatch_elided_lifetime_issue_65866;
 struct Foo;
 struct Re<'a> { data: &'a u16 }

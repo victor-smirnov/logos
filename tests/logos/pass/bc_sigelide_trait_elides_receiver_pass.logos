@@ -1,0 +1,43 @@
+// CLOSES soundness-queue row impl_names_elided_receiver_lifetime_refused
+// (deleted 2026-09-09elide). The trait ELIDES the receiver's lifetime and the
+// impl NAMES it. Rust expands `fn peek(&self) -> &i64` to exactly
+// `fn peek<'a>(&'a self) -> &'a i64`, so the two signatures are the SAME and
+// this program is legal Rust. Upstream's own recorded answer for this
+// direction: tests/ui/regions/regions-trait-1.rs (`//@ check-pass`, trait
+// `fn get_ctxt(&self) -> &Ctxt`, impl `fn get_ctxt<'b>(&'b self) -> &'a Ctxt`)
+// and tests/ui/overloaded/fixup-deref-mut.rs (`//@ run-pass`).
+//
+// It was REFUSED between 2026-09-07b and 2026-09-09 —
+//   "the receiver is declared '&R' and the impl declares '&'a R'"
+// — because the conformance comparator compared lifetime SPELLINGS with ""
+// standing for "elided", so an elided position could pair only with another
+// elided one. Elision is now EXPANDED per signature before the compare.
+//
+// ONE TOKEN from tests/logos/fail/bc_sigelide_trait_elides_receiver_static_fail:
+// there the trait's return is `&'static i64`, which the impl's `&'a i64` does
+// not satisfy (a return type is covariant, so the impl may return a LONGER
+// lifetime, never a shorter one).
+package bc_sigelide_trait_elides_receiver_pass;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Peek {
+    fn peek(self: &Self) -> &i64;
+}
+
+impl Peek for R {
+    fn peek<'a>(self: &'a R) -> &'a i64 {
+        return &self.v;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 42i64 };
+    let p: &i64 = r.peek();
+    pr(*p);
+    return 0;
+}

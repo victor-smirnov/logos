@@ -5619,8 +5619,21 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   ALL          9455 -> 9468  +13   (five fail, eight pass, all native)
 #   NOIMPORTED   4991 -> 5004  +13   (all thirteen are native)
 #   TIERCOMMIT    150 ->  150    0
-REGISTRY-ALL         9468
-REGISTRY-NOIMPORTED  5004
+# 2026-09-09elide — PER-SIGNATURE ELISION EXPANSION IN THE SAME CONFORMANCE
+#   CHECK, one landing further up. Eight native fixtures in FOUR one-token
+#   pairs: the two closed soundness_queue rows landed as their own programs
+#   (bc_sigelide_trait_elides_receiver_pass / bc_sigelide_impl_elides_receiver_pass,
+#   the two directions of elided-vs-named on the receiver), plus the two shapes
+#   the priced arm `sigelide` got WRONG and the landed root gets right
+#   (bc_sigelide_two_elided_inputs_pass — a fresh binder per elided INPUT — and
+#   bc_sigelide_separate_input_binders_pass — the parameter slot). Each fail
+#   half is one token from its pass half and pins the diagnostic in full. The
+#   ledger side is a NET -2: two tier-3 rows CLOSED, none minted; # TOTAL 79 -> 77.
+#   ALL          9468 -> 9476  +8   (four fail, four pass, all native)
+#   NOIMPORTED   5004 -> 5012  +8   (all eight are native)
+#   TIERCOMMIT    150 ->  150   0
+REGISTRY-ALL         9476
+REGISTRY-NOIMPORTED  5012
 REGISTRY-TIERCOMMIT  150
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

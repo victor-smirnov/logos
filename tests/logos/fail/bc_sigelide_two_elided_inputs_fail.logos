@@ -1,0 +1,27 @@
+// The FAIL half of tests/logos/pass/bc_sigelide_two_elided_inputs_pass, ONE
+// TOKEN apart: the impl returns `&'b i64`, the PARAMETER's binder, where the
+// trait's elided output means the RECEIVER's. This is upstream 65866's verdict
+// in miniature — "the lifetime requirements from the `impl` do not correspond
+// to the requirements in the `trait`"
+// (tests/ui/lifetimes/trait-impl-mismatch-elided-lifetime-issue-65866.stderr).
+// It is the fixture that says elision expansion did not make the output slot
+// unconditionally agreeable: the two programs differ in ONE character of the
+// return type and get opposite verdicts.
+package bc_sigelide_two_elided_inputs_fail;
+struct R {
+    v: i64,
+}
+
+trait Pick {
+    fn pick(self: &Self, x: &i64) -> &i64;
+}
+
+impl Pick for R {
+    fn pick<'a, 'b>(self: &'a R, x: &'b i64) -> &'b i64 {
+        return x;
+    }
+}
+
+fn main() -> i32 {
+    return 0;
+}

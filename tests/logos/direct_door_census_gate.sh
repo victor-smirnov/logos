@@ -1584,9 +1584,23 @@ PIN = {
     # The EIGHTH file, bc_dropident_diffsig_arity_rettype, is a FAIL fixture and is
     # not in this population. No door is declared by any of them, so `doors`,
     # `glob` and `nonglob_doors` are unmoved.
-    # RE-DERIVED BY DIRECT LISTING (2026-09-09sigland, the return-slot
-    # conformance landing): `ls tests/logos/pass/*.logos | wc -l` -> 2965,
-    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2965 = 191 + 2774
+    # RE-DERIVED BY DIRECT LISTING (2026-09-09elide, the elision-expansion
+    # conformance landing): `ls tests/logos/pass/*.logos | wc -l` -> 2969,
+    # `ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l` -> 191, 2969 = 191 + 2778
+    # — never by adding 4 to the line below. The FOUR that moved, all nonglob,
+    # all pass halves of the elision-expansion class:
+    #   bc_sigelide_trait_elides_receiver_pass   (the closed queue row
+    #       impl_names_elided_receiver_lifetime_refused, landed as its own program)
+    #   bc_sigelide_impl_elides_receiver_pass    (the closed queue row
+    #       impl_elides_named_receiver_lifetime_refused, likewise)
+    #   bc_sigelide_two_elided_inputs_pass       (a fresh binder PER elided input —
+    #       the program the priced arm `sigelide` still refused)
+    #   bc_sigelide_separate_input_binders_pass  (the PARAMETER slot of the class)
+    # The FOUR new fail fixtures are their one-token twins and are not in this
+    # population. No door is declared by any of them, so `doors`, `glob` and
+    # `nonglob_doors` are unmoved.
+    # PREVIOUSLY (2026-09-09sigland, the return-slot conformance landing):
+    # `ls tests/logos/pass/*.logos | wc -l` -> 2965, glob 191, 2965 = 191 + 2774
     # — never by adding 8 to the line below. The EIGHT that moved, all nonglob,
     # all pass halves of the return-type conformance class:
     #   bc_sigretty_return_{bool,signedness,nominal_struct}_agree_pass
@@ -1600,9 +1614,9 @@ PIN = {
     #       two new soundness-queue rows)
     # The FIVE new fail fixtures are not in this population. No door is declared
     # by any of them, so `doors`, `glob` and `nonglob_doors` are unmoved.
-    'corpus'            : 2965,
+    'corpus'            : 2969,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2774,  # +8 (2026-09-09sigland, return-slot conformance pass halves), +6 (2026-09-09h, fatret return-ABI: fatret_closure_impl_fn_pair_survives, fatret_fnptr_thin_return, fatret_customdst_ref_returned, fatret_customdst_selfdescribing_thin, fatret_closure_returning_closure, generic_drop_body_calling_closure_param), +7 (2026-09-09, G156-5b drop-identity pass halves), +3 (2026-09-08g, E0509 pass halves), +4 (2026-09-08f, drop-glue pairs), +1 (2026-09-08e, drop_guard_instantiated), +2 (2026-09-08d), +2 (2026-09-08c), +1 (2026-09-08b), +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2778,  # +4 (2026-09-09elide, elision-expansion pass halves), +8 (2026-09-09sigland, return-slot conformance pass halves), +6 (2026-09-09h, fatret return-ABI: fatret_closure_impl_fn_pair_survives, fatret_fnptr_thin_return, fatret_customdst_ref_returned, fatret_customdst_selfdescribing_thin, fatret_closure_returning_closure, generic_drop_body_calling_closure_param), +7 (2026-09-09, G156-5b drop-identity pass halves), +3 (2026-09-08g, E0509 pass halves), +4 (2026-09-08f, drop-glue pairs), +1 (2026-09-08e, drop_guard_instantiated), +2 (2026-09-08d), +2 (2026-09-08c), +1 (2026-09-08b), +3 (2026-09-08), +3 (2026-09-06j), +2 (2026-09-06k), +6 (2026-09-06n), +6 (2026-09-07q), +7 (2026-09-07u), +5 (2026-09-07v), +5 (2026-09-09f).  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

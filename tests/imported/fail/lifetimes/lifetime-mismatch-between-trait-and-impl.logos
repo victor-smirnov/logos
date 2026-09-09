@@ -43,6 +43,16 @@
 //    the trait's `Self` substituted first. CEILING 5 (these five rows, by name,
 //    over the whole 115-row admit shelf) / COST 0 on all three populations /
 //    stdlib 4-of-4. PROBES.md 2026-09-07b.
+// ── RE-PINNED 2026-09-09elide. Same cause as its sibling 65866: this fixture was
+//    pinned on the elided-vs-named OVER-REFUSAL, and its old sentence called parameter 0
+//    "the receiver" in a method that HAS NO RECEIVER. With elision expanded the refusal is
+//    at parameter 1, which is where the two signatures really diverge (upstream:
+//    `expected fn(&'1 i32, &'2 i32) -> &'2 i32`, `found fn(&'1 i32, &'1 i32) -> &'1 i32`).
+//    ⚠ THE NEW SENTENCE PRINTS THE TWO SIDES ALIKE ('&'a i64' and '&'a i64'), because the
+//    mismatch is not in this slot's SPELLING but in how the method's lifetimes correspond
+//    across the whole signature. That residue is the open tier-4 queue row
+//    `typestr_minted_alike` at a fourth site, and it is DECLINED here by name rather than
+//    repaired at one site of a four-site class. PROBES.md 2026-09-09elide.
 package lifetime_mismatch_between_trait_and_impl;
 trait Foo { fn foo<'a>(x: &i64, y: &'a i64) -> &'a i64; }
 struct U;

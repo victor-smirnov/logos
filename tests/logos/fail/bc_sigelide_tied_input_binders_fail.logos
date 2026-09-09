@@ -1,0 +1,26 @@
+// The FAIL half of
+// tests/logos/pass/bc_sigelide_separate_input_binders_pass, ONE TOKEN apart:
+// the impl writes `'a` for the parameter, tying it to the receiver's binder.
+// The trait's elision gives the receiver and the parameter SEPARATE binders,
+// so the impl is LESS general than the declaration and rustc refuses it —
+// upstream tests/ui/lifetimes/lifetime-mismatch-between-trait-and-impl.rs is
+// this exact shape (`expected fn(&'1 i32, &'2 i32) -> &'2 i32`, `found
+// fn(&'1 i32, &'1 i32) -> &'1 i32`).
+package bc_sigelide_tied_input_binders_fail;
+struct R {
+    v: i64,
+}
+
+trait Add2 {
+    fn f(self: &Self, x: &i64) -> i64;
+}
+
+impl Add2 for R {
+    fn f<'a>(self: &'a R, x: &'a i64) -> i64 {
+        return self.v + *x;
+    }
+}
+
+fn main() -> i32 {
+    return 0;
+}

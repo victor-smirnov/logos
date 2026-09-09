@@ -1,0 +1,1 @@
+error [fn R__f]: impl Add2 for R: method 'f' does not match the trait declaration: parameter 1 is declared '&i64' and the impl declares '&'a i64'
