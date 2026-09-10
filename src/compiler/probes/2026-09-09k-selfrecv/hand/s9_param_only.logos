@@ -1,0 +1,16 @@
+package s9_param_only;
+struct R { v: i64 }
+trait Take {
+    fn take(self: &Self, o: &R) -> i64;
+}
+impl Take for R {
+    fn take<'a, 'b>(self: &'a R, o: &'b R) -> i64 {
+        return self.v + o.v;
+    }
+}
+fn main() -> i32 {
+    let a: R = R { v: 40i64 };
+    let b: R = R { v: 2i64 };
+    if a.take(&b) != 42i64 { return 1i32; }
+    return 0i32;
+}

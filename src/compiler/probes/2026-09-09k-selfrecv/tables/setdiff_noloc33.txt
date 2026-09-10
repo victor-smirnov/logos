@@ -1,0 +1,34 @@
+file                                                            unarm  armed  diagnostic
+tests/spec/fail/borrow_diag_2__ref-from-temp.logos                  1      1  
+tests/spec/pass/type_4.logos                                        0      1  does not match the trait declaration: the receiver is declared '&mut Res' and the impl declares 'Res'
+tests/imported/pass/manually_drop/test_harness_coretest_manually_drop.logos      0      1  does not match the trait declaration: the receiver is declared '&mut Tracked' and the impl declares 'Tracked'
+tests/logos/fail/auto_trait_fst_drop.logos                          1      1  
+tests/logos/fail/borrow_temp_dropped_while_borrowed.logos           1      1  
+tests/logos/pass/destruct_field_rest_owned.logos                    0      1  does not match the trait declaration: the receiver is declared '&mut Owner' and the impl declares 'Owner'
+tests/logos/pass/box_slice_elem_drop.logos                          0      1  does not match the trait declaration: the receiver is declared '&mut Noisy' and the impl declares 'Noisy'
+tests/logos/pass/drop_question_mark.logos                           0      1  does not match the trait declaration: the receiver is declared '&mut Noisy' and the impl declares 'Noisy'
+tests/logos/pass/box_dst_owning_drop.logos                          0      1  does not match the trait declaration: the receiver is declared '&mut Noisy' and the impl declares 'Noisy'
+tests/logos/pass/drop_temp_field_base.logos                         0      1  does not match the trait declaration: the receiver is declared '&mut H' and the impl declares 'H'
+tests/logos/pass/drop_temp_recv_return.logos                        0      1  does not match the trait declaration: the receiver is declared '&mut H' and the impl declares 'H'
+tests/logos/pass/destruct_field_rest_through_deref.logos            0      1  does not match the trait declaration: the receiver is declared '&mut Owner' and the impl declares 'Owner'
+tests/logos/pass/zz_btree_dyn_probe.logos                           0      1  does not match the trait declaration: the receiver is declared '&mut LeafN<STORE_CFG>' and the impl declares '
+tests/logos/pass/custom_dst_smartptr_owning_drop.logos              0      1  does not match the trait declaration: the receiver is declared '&mut A' and the impl declares 'A'
+tests/logos/pass/rc_drop_inner.logos                                0      1  does not match the trait declaration: the receiver is declared '&mut Noisy' and the impl declares 'Noisy'
+tests/logos/pass/destruct_field_nested_ref.logos                    0      1  does not match the trait declaration: the receiver is declared '&mut Owner' and the impl declares 'Owner'
+tests/logos/pass/destruct_field_wild_through_deref.logos            0      1  does not match the trait declaration: the receiver is declared '&mut Owner' and the impl declares 'Owner'
+tests/logos/pass/rc_weak_dangling.logos                             0      1  does not match the trait declaration: the receiver is declared '&mut Noisy' and the impl declares 'Noisy'
+tests/logos/pass/drop_mut_self_and_enum.logos                       0      1  does not match the trait declaration: the receiver is declared '&mut E' and the impl declares 'E'
+tests/logos/pass/destruct_field_ref_through_deref.logos             0      1  does not match the trait declaration: the receiver is declared '&mut Owner' and the impl declares 'Owner'
+tests/logos/pass/zz_vec_drop_probe.logos                            0      1  does not match the trait declaration: the receiver is declared '&mut Bumper' and the impl declares 'Bumper'
+tests/logos/pass/drop_deref_assign_referent.logos                   0      1  does not match the trait declaration: the receiver is declared '&mut Marked' and the impl declares 'Marked'
+tests/logos/pass/b8_uninit_drop_matrix.logos                        0      1  does not match the trait declaration: the receiver is declared '&mut Noisy' and the impl declares 'Noisy'
+tests/logos/pass/tuple_destruct_drop_move.logos                     0      1  does not match the trait declaration: the receiver is declared '&mut Res' and the impl declares 'Res'
+tests/logos/pass/zoned_storage_pin_acceptance.logos                 0      1  does not match the trait declaration: the receiver is declared '&mut HeapBlock' and the impl declares 'HeapBlo
+tests/logos/pass/box_drop_raii.logos                                0      1  does not match the trait declaration: the receiver is declared '&mut Noisy' and the impl declares 'Noisy'
+tests/logos/pass/drop_temp_receiver.logos                           0      1  does not match the trait declaration: the receiver is declared '&mut Noisy' and the impl declares 'Noisy'
+tests/logos/pass/sema_assign_move_track.logos                       0      1  does not match the trait declaration: the receiver is declared '&mut Owner' and the impl declares 'Owner'
+tests/logos/pass/destruct_field_nested_owned.logos                  0      1  does not match the trait declaration: the receiver is declared '&mut Owner' and the impl declares 'Owner'
+tests/logos/pass/generic_drop_body_calling_closure_param.logos      0      1  does not match the trait declaration: the receiver is declared '&mut A<F>' and the impl declares 'A<F>'
+tests/logos/pass/drop_generic_struct.logos                          0      1  does not match the trait declaration: the receiver is declared '&mut ByVal<T>' and the impl declares 'ByVal<T>
+tests/logos/pass/field_reassign_drops_old.logos                     0      1  does not match the trait declaration: the receiver is declared '&mut Noisy' and the impl declares 'Noisy'
+tests/soundness/open/unsized_local_binds_place_dropped_after_free.logos      0      1  does not match the trait declaration: the receiver is declared '&mut A' and the impl declares 'A'

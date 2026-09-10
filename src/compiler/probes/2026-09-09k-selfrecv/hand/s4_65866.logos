@@ -1,0 +1,18 @@
+package s4_65866;
+struct Re<'a> { d: &'a i64 }
+struct Foo { z: i64 }
+trait Bar {
+    fn bar(self: &Self, r: &Re) -> i64;
+}
+impl Bar for Foo {
+    fn bar<'a, 'b>(self: &'a Foo, r: &'b Re<'a>) -> i64 {
+        return *r.d;
+    }
+}
+fn main() -> i32 {
+    let k: i64 = 7i64;
+    let re: Re = Re { d: &k };
+    let f: Foo = Foo { z: 1i64 };
+    if f.bar(&re) != 7i64 { return 1i32; }
+    return 0i32;
+}

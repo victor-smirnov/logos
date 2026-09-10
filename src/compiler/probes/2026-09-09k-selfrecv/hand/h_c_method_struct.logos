@@ -1,0 +1,9 @@
+package h_c_method_struct;
+struct Vecish { n: i64 }
+struct Iter<'a> { p: &'a i64 }
+impl Vecish { fn iter<'s>(self: &'s Vecish) -> Iter<'s> { return Iter { p: &self.n }; } }
+fn mkv() -> Vecish { return Vecish { n: 1i64 }; }
+fn main() -> i32 {
+    let x: Iter = mkv().iter();
+    return *x.p as i32;
+}

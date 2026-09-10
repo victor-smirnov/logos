@@ -1,0 +1,8 @@
+package h_b_method_bare;
+struct Vecish { n: i64 }
+impl Vecish { fn peek<'s>(self: &'s Vecish) -> &'s i64 { return &self.n; } }
+fn mkv() -> Vecish { return Vecish { n: 1i64 }; }
+fn main() -> i32 {
+    let x: &i64 = mkv().peek();
+    return *x as i32;
+}

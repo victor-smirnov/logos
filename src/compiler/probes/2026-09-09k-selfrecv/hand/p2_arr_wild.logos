@@ -1,0 +1,3 @@
+package p2_arr_wild;
+fn probe([a, _, c]: [i64; 3]) -> i32 { if a + c != 7i64 { return 1i32; } return 0i32; }
+fn main() -> i32 { let x: [i64; 3] = [3i64, 99i64, 4i64]; return probe(x); }

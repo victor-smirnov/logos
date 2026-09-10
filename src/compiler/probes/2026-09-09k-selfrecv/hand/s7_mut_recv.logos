@@ -1,0 +1,17 @@
+package s7_mut_recv;
+struct R { v: i64 }
+trait Bump {
+    fn bump(self: &mut Self) -> &mut i64;
+}
+impl Bump for R {
+    fn bump<'a>(self: &'a mut R) -> &'a mut i64 {
+        return &mut self.v;
+    }
+}
+fn main() -> i32 {
+    let mut r: R = R { v: 41i64 };
+    let p: &mut i64 = r.bump();
+    *p = *p + 1i64;
+    if r.v == 42i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,6 @@
+// h12: RETURN type mismatch on an otherwise-conformant method.
+package h12;
+pub trait Tick { fn tick(self: &mut Self) -> i64; }
+struct S { v: i64 }
+impl Tick for S { fn tick(self: &mut S) -> bool { return true; } }
+fn main() -> i32 { let mut s: S = S { v: 7i64 }; if s.tick() { return 7i32; } return 0i32; }

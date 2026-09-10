@@ -1,0 +1,11 @@
+// h7: RULE 9 TWIN — a NON-Drop trait declaring `&mut self`, impl'd by value.
+package h7;
+pub trait Tick { fn tick(self: &mut Self) -> i64; }
+struct S { v: i64 }
+impl Tick for S {
+    fn tick(self: S) -> i64 { return self.v; }
+}
+fn main() -> i32 {
+    let mut s: S = S { v: 3i64 };
+    return s.tick() as i32;
+}

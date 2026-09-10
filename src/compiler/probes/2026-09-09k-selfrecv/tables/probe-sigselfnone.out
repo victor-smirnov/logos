@@ -1,0 +1,163 @@
+ceiling-probe: unarmed baseline (from the store where it is already there)
+ceiling-probe: armed run — LOGOS_PROBE=sigselfnone
+ceiling-probe: fail-text baseline for build ebe93d7ff05f3832 not yet measured
+fail-oracle: 1478 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-ebe93d7ff05f3832.tsv
+fail-oracle: 1478 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-ebe93d7ff05f3832-sigselfnone.tsv
+ceiling-probe: 'sigselfnone'  builds 1006 (unarmed) -> 1007 (armed)
+probe: fired 1626006 times
+probe: CEILING = 98 rows
+probe:   logos_00_bc_admit_borrowck_anonymous-region-in-apit--closure-param-escapes
+probe:   logos_00_bc_admit_borrowck_augmented-assignments
+probe:   logos_00_bc_admit_borrowck_borrow-immutable-upvar-mutation-impl-trait
+probe:   logos_00_bc_admit_borrowck_borrowck-borrowed-uniq-rvalue
+probe:   logos_00_bc_admit_borrowck_borrowck-lend-flow-loop
+probe:   logos_00_bc_admit_borrowck_borrowck-loan-blocks-move-cc--r10
+probe:   logos_00_bc_admit_borrowck_borrowck-loan-blocks-move-cc--t10
+probe:   logos_00_bc_admit_borrowck_borrowck-loan-vec-content
+probe:   logos_00_bc_admit_borrowck_borrowck-move-by-capture
+probe:   logos_00_bc_admit_borrowck_borrowck-move-from-unsafe-ptr
+probe:   logos_00_bc_admit_borrowck_borrowck-move-out-of-tuple-struct-with-dtor--r13
+probe:   logos_00_bc_admit_borrowck_borrowck-move-out-of-tuple-struct-with-dtor--t13
+probe:   logos_00_bc_admit_borrowck_borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed
+probe:   logos_00_bc_admit_borrowck_borrowck-unboxed-closures
+probe:   logos_00_bc_admit_borrowck_borrowed-data-escapes-closure-148392
+probe:   logos_00_bc_admit_borrowck_buffer-reuse-pattern-issue-147694
+probe:   logos_00_bc_admit_borrowck_issue-36082
+probe:   logos_00_bc_admit_borrowck_issue-51117
+probe:   logos_00_bc_admit_borrowck_issue-58776-borrowck-scans-children
+probe:   logos_00_bc_admit_borrowck_issue-95079-missing-move-in-nested-closure
+probe:   logos_00_bc_admit_borrowck_mut-borrow-conflict-in-closures-vec--bounded
+probe:   logos_00_bc_admit_borrowck_ownership-struct-update-moved-error
+probe:   logos_00_bc_admit_borrowck_reborrow-sugg-move-then-borrow
+probe:   logos_00_bc_admit_borrowck_slice-index-bounds-check-invalidation--t35
+probe:   logos_00_bc_admit_borrowck_two-phase-across-loop
+probe:   logos_00_bc_admit_borrowck_two-phase-nonrecv-autoref--a-fnmut-twice
+probe:   logos_00_bc_admit_borrowck_two-phase-nonrecv-autoref--c-mut-and-shared-args
+probe:   logos_00_bc_admit_borrowck_two-phase-nonrecv-autoref--d-index-two-phase
+probe:   logos_00_bc_admit_dropck_dropck-only-error
+probe:   logos_00_bc_admit_lifetimes_borrowck-let-suggestion
+probe:   logos_00_bc_admit_lifetimes_constructor-lifetime-early-binding-error
+probe:   logos_00_bc_admit_lifetimes_copy-modulo-regions
+probe:   logos_00_bc_admit_lifetimes_e0621-mut-ref-aliases-pointee-lifetime
+probe:   logos_00_bc_admit_lifetimes_elided-self-lifetime-in-trait-fn
+probe:   logos_00_bc_admit_lifetimes_issue-64173-unused-lifetimes
+probe:   logos_00_bc_admit_lifetimes_issue-74400
+probe:   logos_00_bc_admit_lifetimes_missing-lifetime-in-assoc-type-1
+probe:   logos_00_bc_admit_lifetimes_missing-lifetime-in-assoc-type-5
+probe:   logos_00_bc_admit_lifetimes_missing-lifetime-in-assoc-type-6
+probe:   logos_00_bc_admit_lifetimes_mut-slice-struct-lifetime-transmute--c17
+probe:   logos_00_bc_admit_lifetimes_mut-slice-struct-lifetime-transmute--t17
+probe:   logos_00_bc_admit_lifetimes_temporary-lifetime-extension-tuple-ctor
+probe:   logos_00_bc_admit_lifetimes_trait-method-lifetime-suggestion
+probe:   logos_00_bc_admit_lifetimes_trait-method-return-lifetime-mismatch
+probe:   logos_00_bc_admit_moves_issue-75904-move-closure-loop
+probe:   logos_00_bc_admit_moves_move-of-addr-of-mut
+probe:   logos_00_bc_admit_nll_adt-tuple-enums--t33
+probe:   logos_00_bc_admit_nll_borrowed-referent-issue-38899
+probe:   logos_00_bc_admit_nll_borrowed-temporary-error--t08
+probe:   logos_00_bc_admit_nll_capture-ref-in-struct--t08
+probe:   logos_00_bc_admit_nll_do-not-ignore-lifetime-bounds-in-copy
+probe:   logos_00_bc_admit_nll_impl-trait-captures
+probe:   logos_00_bc_admit_nll_issue-27868
+probe:   logos_00_bc_admit_nll_issue-40510-3
+probe:   logos_00_bc_admit_nll_issue-42574-diagnostic-in-nested-closure--b
+probe:   logos_00_bc_admit_nll_issue-42574-diagnostic-in-nested-closure--t15
+probe:   logos_00_bc_admit_nll_issue-48697--t16
+probe:   logos_00_bc_admit_nll_issue-51268
+probe:   logos_00_bc_admit_nll_issue-53773
+probe:   logos_00_bc_admit_nll_issue-54124
+probe:   logos_00_bc_admit_nll_issue-54382-use-span-of-tail-of-block
+probe:   logos_00_bc_admit_nll_issue-54556-stephaneyfx
+probe:   logos_00_bc_admit_nll_issue-54556-temps-in-tail-diagnostic
+probe:   logos_00_bc_admit_nll_issue-55394--b
+probe:   logos_00_bc_admit_nll_issue-62007-assign-differing-fields--c
+probe:   logos_00_bc_admit_nll_issue-69114-static-mut-ty
+probe:   logos_00_bc_admit_nll_issue-98170
+probe:   logos_00_bc_admit_nll_match-guards-always-borrow
+probe:   logos_00_bc_admit_nll_method-ufcs-inherent-3
+probe:   logos_00_bc_admit_nll_method-ufcs-inherent-4
+probe:   logos_00_bc_admit_nll_projection-two-region-trait-bound-closure
+probe:   logos_00_bc_admit_nll_projection-where-clause-none--b
+probe:   logos_00_bc_admit_nll_projection-where-clause-none--c
+probe:   logos_00_bc_admit_nll_propagate-fail-to-approximate-longer-no-bounds
+probe:   logos_00_bc_admit_nll_trait-associated-constant
+probe:   logos_00_bc_admit_nll_type-check-pointer-coercions
+probe:   logos_00_bc_admit_nll_type-check-pointer-comparisons
+probe:   logos_00_bc_admit_nll_var-appears-twice
+probe:   logos_00_bc_admit_regions_better-blame-constraint-for-outlives-static
+probe:   logos_00_bc_admit_regions_explicit-static-bound-on-trait
+probe:   logos_00_bc_admit_regions_issue-101280
+probe:   logos_00_bc_admit_regions_multiple-sources-for-outlives-requirement--c24b
+probe:   logos_00_bc_admit_regions_multiple-sources-for-outlives-requirement--t24
+probe:   logos_00_bc_admit_regions_outlives-with-missing
+probe:   logos_00_bc_admit_regions_region-bounds-on-objects-and-type-parameters
+probe:   logos_00_bc_admit_regions_regions-adjusted-lvalue-op--c26
+probe:   logos_00_bc_admit_regions_regions-adjusted-lvalue-op--t26
+probe:   logos_00_bc_admit_regions_regions-creating-enums3
+probe:   logos_00_bc_admit_regions_regions-escape-method
+probe:   logos_00_bc_admit_regions_regions-free-region-ordering-caller1
+probe:   logos_00_bc_admit_regions_regions-glb-free-free--glb-free-free
+probe:   logos_00_bc_admit_regions_regions-in-enums-anon
+probe:   logos_00_bc_admit_regions_regions-in-structs-anon
+probe:   logos_00_bc_admit_regions_regions-infer-bound-from-trait-self
+probe:   logos_00_bc_admit_regions_regions-nested-fns-2
+probe:   logos_00_bc_admit_regions_regions-normalize-in-where-clause-list
+probe:   logos_00_bc_admit_regions_regions-pattern-typing-issue-19552
+probe:   logos_00_bc_admit_regions_regions-static-bound
+probe: COST    = 1468 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe:           write the counter-examples)
+probe:   logos_02_semantic_core_pass_anon-lt-return-type
+probe:   logos_02_semantic_core_pass_array-of-refs-read-lt
+probe:   logos_02_semantic_core_pass_array-of-refs-shorten
+probe:   logos_02_semantic_core_pass_basic-closure-syntax
+probe:   logos_02_semantic_core_pass_basic-closure-syntax-b139
+probe:   logos_02_semantic_core_pass_bc_aggscrutpair_tuple_literal_scrut_twin
+probe:   logos_02_semantic_core_pass_bc_aggscrutpair_use_after_match_twin
+probe:   logos_02_semantic_core_pass_bc_argcomp_aggr_lit_admit
+probe:   logos_02_semantic_core_pass_bc_argcomp_nested_call_admit
+probe:   logos_02_semantic_core_pass_bc_argcomp_replace_admit
+probe:   logos_02_semantic_core_pass_bc_argcomp_tvbuild_byvalue_fat_admit
+probe:   logos_02_semantic_core_pass_bc_argretlet_call_arg_dead_admit
+probe: COST-fail = 1471 of 1478 `-L bc -L fail` fixtures changed (rc 0, .expected-match 1402, text-only 69)
+probe:   MATCH logos_06_diagnostics_fail_42701-one-named-and-one-anonymous  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_access-mode-in-closures  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_accidentally-cloning-ref-borrow-error  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_account-for-lifetimes-in-closure-suggestion  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_adt-brace-enums  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_adt-brace-structs  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_adt-tuple-enums--ctl  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_adt-tuple-struct  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_adt-tuple-struct-calls  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_already-borrowed-as-mutable-if-let-133941  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_anonymous-region-in-apit--ctl-return-channel  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_apit-not-targeted-by-lifetime-suggestion--apit  .expected LOST
+probe:   ⚠ the text-only rows are INVISIBLE TO ctest: run_test.sh matches
+probe:     .expected as a grep -F SUBSTRING, so those fixtures stay GREEN.
+probe: stdlib: ⛔ REFUSED: lang lcm mem std — the hardest COST there is. The stdlib asserts
+probe: stdlib:   legality by being built; nothing downstream of it is meaningful.
+probe: stdlib:   lang: 4 refusals; first four:
+probe: stdlib:     error [fn str__match_len]: impl Pattern for str: method 'find_in' does not match the trait declaration: the receiver is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:     error [fn str__match_len]: impl Pattern for str: method 'match_len' does not match the trait declaration: the receiver is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:     error [fn str__to_wany]: impl WritField for str: method 'from_wany' does not match the trait declaration: the return type is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:     error [fn str__to_wany]: impl WritField for str: method 'to_wany' does not match the trait declaration: the receiver is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:   lcm: 5 refusals; first four:
+probe: stdlib:     error [fn str__match_len]: impl Pattern for str: method 'find_in' does not match the trait declaration: the receiver is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:     error [fn str__match_len]: impl Pattern for str: method 'match_len' does not match the trait declaration: the receiver is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:     error [fn str__to_wany]: impl WritField for str: method 'from_wany' does not match the trait declaration: the return type is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:     error [fn str__to_wany]: impl WritField for str: method 'to_wany' does not match the trait declaration: the receiver is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:   mem: 5 refusals; first four:
+probe: stdlib:     error [fn str__match_len]: impl Pattern for str: method 'find_in' does not match the trait declaration: the receiver is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:     error [fn str__match_len]: impl Pattern for str: method 'match_len' does not match the trait declaration: the receiver is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:     error [fn str__to_wany]: impl WritField for str: method 'from_wany' does not match the trait declaration: the return type is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:     error [fn str__to_wany]: impl WritField for str: method 'to_wany' does not match the trait declaration: the receiver is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:   std: 5 refusals; first four:
+probe: stdlib:     error [fn str__match_len]: impl Pattern for str: method 'find_in' does not match the trait declaration: the receiver is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:     error [fn str__match_len]: impl Pattern for str: method 'match_len' does not match the trait declaration: the receiver is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:     error [fn str__to_string]: impl ToString for str: method 'to_string' does not match the trait declaration: the receiver is declared '[u8]' and the impl declares '&[u8]'
+probe: stdlib:     error [fn str__to_wany]: impl WritField for str: method 'from_wany' does not match the trait declaration: the return type is declared '[u8]' and the impl declares '&[u8]'
+probe: COST-stdlib = REFUSED — this outranks every number above.
+probe: ⛔ THE STDLIB DID NOT COMPILE — whatever ceiling 98 says, nothing
+probe:    downstream of a stdlib that does not build is meaningful.
+probe: ⚠ a CEILING bounds the COUNT, not the SET: diff these names against what
+probe:   you predicted BY NAME. A matching count can be two errors cancelling.

@@ -1,0 +1,8 @@
+package h_d_freefn_struct;
+struct Defer<'a> { x: &'a i64 }
+fn defer<'r>(x: &'r i64) -> Defer<'r> { return Defer { x: x }; }
+fn mk() -> i64 { return 7i64; }
+fn main() -> i32 {
+    let d: Defer = defer(&mk());
+    return *d.x as i32;
+}

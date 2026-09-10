@@ -1,0 +1,36 @@
+name: sigselfnone
+file: src/compiler/sema_collect.cpp
+---
+                        return !types_equal(sub, impl_t);
+---
+                        // CRUDE TWIN (rule 18): the artefact escape hatch is
+                        // removed outright once a `Self`-shaped trait slot is
+                        // substitutable. Refuses every legitimate Self-shape
+                        // disagreement too; it exists to bound the other arm.
+                        if (logos::probe::on("sigselfnone")) return false;
+                        // TARGETED ARM: the INDIRECTION PREFIX of the substituted
+                        // trait slot vs the impl's written slot. A different
+                        // prefix (`&mut S` declared, `S` written) is the receiver
+                        // defect; an equal prefix over a different pointee
+                        // (`&str` vs `&[u8]`) is the Self-shape artefact this
+                        // hatch was written for.
+                        if (logos::probe::on("sigselfdepth")) {
+                            auto _pfx = [](TypeRef t) {
+                                std::string s;
+                                while (t && (TypeRef(t).kind() == K3::Ref ||
+                                             TypeRef(t).kind() == K3::MutRef)) {
+                                    s += (TypeRef(t).kind() == K3::MutRef) ? 'm' : 'r';
+                                    t = TypeRef(t).pointee();
+                                }
+                                return s;
+                            };
+                            if (_pfx(sub) != _pfx(impl_t)) return false;
+                        }
+                        return !types_equal(sub, impl_t);
+===
+name: sigselfdepth
+file: src/compiler/sema.cpp
+---
+        return c && c->trait_name == "Drop";
+---
+        return c && c->trait_name == "Drop";  // probe sigselfdepth armed in sema_collect.cpp::_self_shape_artefact

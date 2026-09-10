@@ -1,0 +1,17 @@
+package s5_two_elided;
+struct R { v: i64 }
+trait Peek {
+    fn pick(self: &Self, x: &i64) -> &i64;
+}
+impl Peek for R {
+    fn pick<'a, 'b>(self: &'a R, x: &'b i64) -> &'a i64 {
+        return &self.v;
+    }
+}
+fn main() -> i32 {
+    let r: R = R { v: 42i64 };
+    let k: i64 = 1i64;
+    let p: &i64 = r.pick(&k);
+    if *p == 42i64 { return 0i32; }
+    return 1i32;
+}

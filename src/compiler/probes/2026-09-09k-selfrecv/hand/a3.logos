@@ -1,0 +1,8 @@
+package a3;
+struct S { f: i64 }
+fn f() {
+    let s: S = S { f: 3i64 };
+    let c = || -> &i64 { return &s.f; };
+    let _r: &i64 = c();
+}
+fn main() -> i32 { return 0i32; }

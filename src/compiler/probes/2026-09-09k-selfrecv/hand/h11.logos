@@ -1,0 +1,6 @@
+// h11: LIVE-SITE PROOF — a NON-receiver param type mismatch must be refused.
+package h11;
+pub trait Tick { fn tick(self: &mut Self, x: i64) -> i64; }
+struct S { v: i64 }
+impl Tick for S { fn tick(self: &mut S, x: bool) -> i64 { return self.v; } }
+fn main() -> i32 { let mut s: S = S { v: 6i64 }; return s.tick(1i64) as i32; }

@@ -1,0 +1,25 @@
+name: sigselfty
+file: src/compiler/sema_collect.cpp
+---
+                        if (!_t0_collapsed &&
+                            !_alpha_ok(_t0, c->param_types[0], 0, false)) {
+---
+                        // SERIES-COMPLETING ARM. `sigselfdepth` alone removes
+                        // the tautological artefact exemption; `_alpha_ok`
+                        // then still compares LIFETIME STRINGS only, so
+                        // `&S` vs `&mut S` collects two empty lists and reads
+                        // as conformant. This is the receiver twin of the
+                        // `|| !types_equal(tra, c->ret_type)` that landed for
+                        // the RETURN slot in 2026-09-09sigland.
+                        if (!_t0_collapsed &&
+                            (!_alpha_ok(_t0, c->param_types[0], 0, false) ||
+                             (logos::probe::on("sigselfty") &&
+                              !types_equal(_t0, c->param_types[0])))) {
+===
+name: sigselfdepth2
+file: src/compiler/sema_collect.cpp
+---
+                        if (logos::probe::on("sigselfdepth")) {
+---
+                        if (logos::probe::on("sigselfdepth") ||
+                            logos::probe::on("sigselfty")) {

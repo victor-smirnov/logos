@@ -1,0 +1,9 @@
+package h_i_named_local_struct;
+struct Defer<'a> { x: &'a i64 }
+fn defer<'r>(x: &'r i64) -> Defer<'r> { return Defer { x: x }; }
+fn mk() -> i64 { return 7i64; }
+fn main() -> i32 {
+    let v: i64 = mk();
+    let d: Defer = defer(&v);
+    return *d.x as i32;
+}

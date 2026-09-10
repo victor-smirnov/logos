@@ -1,0 +1,16 @@
+package s13_slice_recv;
+struct R { v: [i64; 3] }
+trait Span {
+    fn span(self: &Self) -> &[i64];
+}
+impl Span for R {
+    fn span<'a>(self: &'a R) -> &'a [i64] {
+        return &self.v;
+    }
+}
+fn main() -> i32 {
+    let r: R = R { v: [1i64, 2i64, 39i64] };
+    let s: &[i64] = r.span();
+    if s[2] == 39i64 { return 0i32; }
+    return 1i32;
+}

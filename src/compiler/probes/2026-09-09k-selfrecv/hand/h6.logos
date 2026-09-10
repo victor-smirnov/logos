@@ -1,0 +1,17 @@
+// h6: by-value receiver whose BODY moves a field out (E0509 shape).
+package h6;
+struct Inner { c: *mut i64 }
+impl Drop for Inner {
+    fn drop(self: &mut Inner) { unsafe { *self.c = *self.c + 10i64; } }
+}
+struct Outer { i: Inner, c: *mut i64 }
+impl Drop for Outer {
+    fn drop(self: Outer) { let taken: Inner = self.i; unsafe { *self.c = *self.c + 1i64; } }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    { let o: Outer = Outer { i: Inner { c: p }, c: p }; }
+    let got: i64 = unsafe { n };
+    return got as i32;
+}

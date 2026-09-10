@@ -1,0 +1,16 @@
+package s12_generic_trait;
+struct R { v: i64 }
+trait Hold<T> {
+    fn held(self: &Self) -> &T;
+}
+impl Hold<i64> for R {
+    fn held<'a>(self: &'a R) -> &'a i64 {
+        return &self.v;
+    }
+}
+fn main() -> i32 {
+    let r: R = R { v: 42i64 };
+    let p: &i64 = r.held();
+    if *p == 42i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,16 @@
+package s11_static_vs_elided;
+struct R { v: i64 }
+static G: i64 = 42i64;
+trait Get {
+    fn get(self: &Self) -> &'static' i64;
+}
+impl Get for R {
+    fn get(self: &R) -> &i64 {
+        return &G;
+    }
+}
+fn main() -> i32 {
+    let r: R = R { v: 1i64 };
+    if *r.get() != 42i64 { return 1i32; }
+    return 0i32;
+}
