@@ -1,0 +1,45 @@
+// SOUNDNESS QUEUE row user_trait_named_drop_drives_glue (tier 1, run 1). THE
+// DESTRUCTOR TRAIT IS CHOSEN BY NAME. `sema_collect.cpp` `collect_impl` sets
+// `builtin_marker_ = trait_name == "Copy" || trait_name == "Drop"`, which merges
+// ANY package's `trait Drop` into the lang item (and skips the `traits_`
+// existence check); `sema.cpp` `drop_fn_for`'s `is_drop_impl_` then says
+// `c->trait_name == "Drop"`. So an ORDINARY user trait that happens to be spelled
+// `Drop` silently acquires scope-exit glue.
+//
+// ⚠ ONE-VARIABLE CONTROL, MEASURED 2026-09-10: this program with the trait and
+// method renamed `Dropp`/`dropp` — every other token identical — exits 0. As
+// written it exits 1. The ONLY difference is the name.
+//
+// Rust: exit 0. A locally-declared `trait Drop` SHADOWS the prelude's
+// `core::ops::Drop` at the item level, so `impl Drop for N` here implements an
+// ordinary trait and nothing runs at scope exit; `Drop` is a LANG ITEM, selected
+// by `#[lang = "drop"]` and never by spelling — rustc's own
+// borrowck-describe-field-generic-param-owned-box (upstream ui/borrowck) declares
+// `#[lang = "drop"] pub trait Drop { fn drop(&mut self); }` to get one at all.
+// ⚠ THERE IS NO rustc BINARY ON THIS BOX: the exit-0 claim rests on reading, not
+// on a run. What IS measured here is the Logos side and the rename control.
+//
+// The oracle is the destructor COUNT returned as the exit code: 0 = the trait is
+// ordinary (correct), 1 = it drove glue (today). A leak reads low and a double
+// free high, so rc alone would not be admissible; here rc IS the count.
+//
+// Sibling one level down: bug_destructor_keyed_on_mangled_name keyed the
+// destructor METHOD by mangled name and was closed by trait IDENTITY (3478f9298).
+// This keys the destructor TRAIT by name. The qualifier the fix needs already
+// exists — `explicit_destructor_call` reads `kv.second.package !=
+// "logos.lang.drop"` off `SemaTraitInfo` — but `is_drop_impl_` reads a
+// `SemaFuncInfo`, which does not carry it.
+package user_trait_named_drop_drives_glue;
+extern fn malloc(n: i64) -> *mut u8;
+
+trait Drop { fn drop(self: Self); }
+
+struct N { c: *mut i64 }
+impl Drop for N { fn drop(self: N) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
+
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+    c[0] = 0i64;
+    { let n: N = N { c: c }; }
+    return c[0] as i32;
+}

@@ -34517,3 +34517,64 @@ commit every one of them counted destructors driven by a trait declared in its
 own file. After it they count the destructors a user gets. Nothing about the
 compiler changed, which is the point: the arm that follows cannot hide a corpus
 repair inside its own cost.
+
+## 7. A THIRD CORRECTION, MEASURED AFTER THE CORPUS COMMIT — THE TWO `bc_dropcall_user_trait_*` FIXTURES ARE RUST-CORRECT
+
+The handed-down report called them "pass fixtures asserting the defect", and the
+corpus commit's own message repeats that. **Read, they do not.** Both declare
+`trait Drop { fn drop(self: Self) -> i64; }` — arity 1, return `i64` — and assert
+that `s.drop()` and `Drop::drop(s)` call THAT trait's method and return its value.
+In Rust an explicit item shadows a prelude import, so a module-local `trait Drop`
+shadows `core::ops::Drop`, `impl Drop for S` implements the local trait, and
+`s.drop()` is an ordinary method call, not E0040. That is exactly what these two
+assert.
+
+They are therefore **not a corpus decision and not a defect assertion — they are
+the pins the compiler fix must KEEP GREEN.** They stay on their local `trait
+Drop` deliberately: converting them to the stdlib lang item would delete their
+subject. The right reason to leave them out of the conversion is that they test a
+USER trait named `Drop`, which is the whole point.
+
+Note also why they do not drive glue TODAY: `drop_fn_for` requires arity 1 with
+the receiver shapes it knows, and `-> i64` is not one of them — the same arity /
+shape gate that shape `I` and my `trait Drop<T>` program found. So they pass
+today by the selector's accident, and under a package-qualified selector they
+would pass by its rule. Same verdict, different reason, which is the only kind of
+"already green" worth anything.
+
+## 8. THE COMPILER HALF IS DECLINED THIS ROUND, BY NAME, WITH WHAT IT NEEDS
+
+Not attempted, and not because the analysis is missing — §1 names the three sites
+and the fact that the qualifier already exists on `SemaTraitInfo`. Declined on
+TWO numbers:
+
+  1. **`SemaFuncInfo` has no trait PACKAGE field and I could not find its
+     `trait_name` write site in four greps.** `sema_impl.hpp:4926` declares
+     `std::string trait_name;` with no package beside it, and the assignment is
+     not at any of the eleven `.trait_name =` sites in `src/compiler/*.cpp` (all
+     eleven are `TraitBound`/`SourceRelBind`/type-var writes). Threading a fact
+     whose minting site is not yet located is exactly the "NO FACT RECORDED vs
+     THE FACT IS ABSENT" distinction (rule 16), and only the minting site settles
+     it.
+  2. **`builtin_marker_`'s merge is load-bearing and its own comment says so**:
+     "not always visible through the dependency-graph (pub trait + use isn't
+     enough when the target type's own package re-imports a different non-pub
+     Drop, e.g. std.string and writ.zone both used to declare local `trait
+     Drop`)". Narrowing it to the stdlib declaration risks `impl: unknown trait
+     'Drop'` across package boundaries, and the population that would prove it
+     safe is the stdlib's four layers — a measurement that needs its own build
+     and its own control revert.
+
+**What exists for the next round, so it does not re-derive it:** the mechanism is
+pinned by soundness-queue row `user_trait_named_drop_drives_glue` (tier 1,
+`run 1`) with a ONE-VARIABLE rename control in its header; the corpus no longer
+hides it (123 files converted); the blast radius of the arm is now **5 files, not
+126** — the two `bc_dropcall_user_trait_*` pins above, the one declined
+`drop-uninhabited-enum-b154`, and the two E0507 drop-body fixtures — and the
+arm's own new defect is already a row. The order in the prompt was corpus first
+precisely so that this number would be small, and it is.
+
+⚠ `sigselfty` needs no round: it landed as `176170b6d`, and the prompt's measured
+claim that `fn drop(self: S)` against the implicit `Drop` "compiles and runs
+today" is FALSE on today's binary — it is refused with `the receiver is declared
+'&mut N' and the impl declares 'N'`. Re-verified, not copied.
