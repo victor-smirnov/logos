@@ -1,0 +1,1 @@
+error [fn main]: method 'H__eat' arg 1: expected bool, got i64

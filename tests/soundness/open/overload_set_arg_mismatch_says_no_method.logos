@@ -1,0 +1,33 @@
+// SOUNDNESS QUEUE row overload_set_arg_mismatch_says_no_method (tier 4, diag).
+// RIGHT VERDICT, WRONG SENTENCE — the OVERLOAD-SET residue of the class closed
+// on 2026-09-10b (`expr.method.candidate-rejection-reason`). `C` DOES have
+// `put`, twice; neither overload accepts a `u64`, and the tree still answers
+// "method call: 'C' has no method 'put'".
+//
+// ⚠ THE ROOT IS A DISAGREEMENT BETWEEN TWO JUDGMENTS, MEASURED 2026-09-10 and
+// not inferred. The dispatch selector rejects the argument
+// (`arg_compatible_for_dispatch`, u64 vs u8 and u64 vs i64) — that is why no
+// candidate survives. The reason-reporting arm then routes the verdict through
+// `SemaChecker::expect_type`, which is the mismatch diagnostic's single owner
+// (`scripts/lint-mismatch-monopoly.sh` makes that a build failure), and
+// expect_type ACCEPTS the same argument under the `CoercePos::MethodArg` mask.
+// So the arm has nothing to say and falls back to the old sentence. Closing
+// this row means reconciling the two judgments, not re-spelling the message:
+// a direct `std::format` here is exactly what the monopoly lint refuses.
+//
+// The SINGLE-candidate cases of the same class are closed and pinned —
+// tests/logos/fail/method_{arity_too_few,recv_shared_needs_mut,arg_type_mismatch,
+// trait_impl_arity}_refused, each with a passing twin one token apart.
+// Rust has no analogue: Rust has no type-based overloading, so the standing
+// "do what Rust does" rule cannot decide the sentence's shape here either.
+// Carrier in the corpus: tests/spec/fail/coerce_diag_1__intlit-dispatch-unsuffixed-fits-narrower.
+package overload_set_arg_mismatch_says_no_method;
+struct C { v: i64 }
+impl C {
+    fn put(&self, _x: u8) -> i32 { return 1i32; }
+    fn put(&self, _x: i64) -> i32 { return 2i32; }
+}
+fn main() -> i32 {
+    let c: C = C { v: 1i64 };
+    return c.put(9u64);
+}

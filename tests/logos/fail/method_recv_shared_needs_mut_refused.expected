@@ -1,0 +1,1 @@
+error [fn main]: method 'S__mget' receiver: expected &mut S, got &S

@@ -1,0 +1,16 @@
+// CLASS "the name WAS found, and the sentence said it was not" — the SHAPE
+// control that proves the door is not inherent-only. `tick` arrives through an
+// `impl Tick for C`, not an inherent impl, and the same candidate loop rejects
+// it on arity and reached the same false sentence.
+// rustc: E0061.
+// PAIR: pass/method_trait_impl_arity_runs supplies the argument — one token.
+package method_trait_impl_arity_refused;
+trait Tick { fn tick(self: &Self, k: i64) -> i64; }
+struct C { v: i64 }
+impl Tick for C { fn tick(self: &Self, k: i64) -> i64 { return self.v + k; } }
+fn main() -> i32 {
+    let c: C = C { v: 1i64 };
+    let n: i64 = c.tick();
+    if n != 1i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+// THE ABUSE DIRECTION OF THE CLASS, PINNED. Widening the "has no method"
+// sentence into three reason-specific ones is only correct if a name that is
+// GENUINELY ABSENT still gets the original sentence. `Z` has a method — just
+// not this one — so the candidate set for `Z__totally_missing` is EMPTY and the
+// reason recorder has nothing to say. This fixture is what reds if the new arm
+// ever answers for a name it did not find.
+// PAIR: pass/method_name_truly_absent_present_runs calls the name that IS there
+// — one token apart.
+package method_name_truly_absent_no_method;
+struct Z { a: i64 }
+impl Z {
+    fn present(self: &Self) -> i64 { return self.a; }
+}
+fn main() -> i32 {
+    let z: Z = Z { a: 1i64 };
+    let n: i64 = z.totally_missing();
+    if n != 1i64 { return 1i32; }
+    return 0i32;
+}

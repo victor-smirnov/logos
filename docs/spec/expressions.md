@@ -2166,7 +2166,27 @@ Calling a trait method declared `unsafe` outside an `unsafe` context is an error
 
 A method call must supply exactly `param_count - 1` explicit arguments (excluding the implicit `self` receiver); for a zero-parameter signature the expected count is 0. A mismatch between supplied and expected explicit argument counts is an error ('expected N args, got M').
 
-*Source:* `src/compiler/sema_expr.cpp#L7492-L7497`, `src/compiler/sema_expr.cpp#L8867-L8871`
+*Related:* `expr.method.candidate-rejection-reason`
+
+*Source:* `SemaChecker::lower_method_call` (`src/compiler/sema_expr.cpp`), the `expected {} args, got {}` sites. Both line ranges previously cited here (`#L7492-L7497`, `#L8867-L8871`) had drifted onto an ambiguous-blanket-impl diagnostic and a tuple-literal argument walk respectively; symbols are cited instead. Measured 2026-09-10, and both were already stale before that round's edit.
+
+### `expr.method.candidate-rejection-reason` — A method that exists reports WHICH slot disagreed, never "has no method"
+
+Method dispatch on a struct receiver collects the candidates registered under `<Type>__<method>` and rejects each on exactly one of three tests, in this order: explicit argument COUNT, then the RECEIVER type, then argument `i`'s type. When no candidate survives, the diagnostic names the test that rejected them:
+
+- every candidate rejected on count — `method call '<mangled>': expected N args, got M` (rustc E0061)
+- some candidate matched the count and was rejected on its receiver — `method '<mangled>' receiver: expected <formal>, got <actual>` (rustc reaches E0596 here for the shared-vs-`&mut` case)
+- some candidate matched the count and its receiver, and was rejected on argument `i` — `method '<mangled>' arg i: expected <formal>, got <actual>` (rustc E0308)
+
+`method call: '<Type>' has no method '<name>'` is reserved for two cases: the candidate set for that name on that type is EMPTY, or the reporting judgment does not reject after all (below).
+
+The receiver and argument verdicts are emitted by `SemaChecker::expect_type`, which owns the type-mismatch diagnostic (`scripts/lint-mismatch-monopoly.sh` makes a second emitter a build failure); only the arity verdict, which is not a type mismatch, is emitted directly. ⚠ **The dispatch selector and `expect_type` are not the same judgment.** `arg_compatible_for_dispatch` can reject an argument that `expect_type` then accepts under the `CoercePos::MethodArg` mask — measured on an OVERLOAD SET (`fn put(&self,u8)` / `fn put(&self,i64)` called with `9u64`), where no candidate survives dispatch and the reporting judgment has nothing to say, so the "has no method" sentence still stands there. That residue is soundness-queue row `overload_set_arg_mismatch_says_no_method`; reconciling the two judgments is what closes it, and re-spelling the message is what the monopoly lint refuses.
+
+The three sentences are the ones the trait, dyn and generic method paths in this same file already emit for the same three facts; before 2026-09-10 the struct-inherent overload path alone discarded the rejection reason and answered "has no method", which made `expr.method.arity-check` above false for that path — the spec was right and the implementation was not.
+
+*Related:* `expr.method.arity-check`, `expr.method.autoref-ladder`
+
+*Source:* `SemaChecker::lower_method_call` (`src/compiler/sema_expr.cpp`) — the `find_func_candidates` candidate loops and their single failure exit.
 
 ### `expr.method.unsafe-context` — Calling an unsafe method requires an unsafe context
 

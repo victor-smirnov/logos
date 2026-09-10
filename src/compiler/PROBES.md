@@ -34087,3 +34087,279 @@ the key is computed from, so **a reconfigure moves the key with no source
 change**. Adding fixtures forces a reconfigure (the corpus is globbed), which is
 why a fixture-adding round meets this and a probe round does not. Recorded, not
 repaired: tooling is frozen.
+
+# ROUND 2026-09-10b — "HAS NO METHOD" WAS SAID ABOUT A METHOD THAT EXISTS
+
+## 1. THE CLASS, BY PROPERTY
+
+`SemaChecker::lower_method_call` collects the candidates registered under
+`<Type>__<method>` and rejects each on exactly one of three tests — explicit
+argument COUNT, then the RECEIVER type, then argument `i`'s type. When none
+survived it threw the reason away and answered
+`method call: '<Type>' has no method '<name>'`. **The property is "the name WAS
+found and the diagnostic says it was not."**
+
+CENSUS OF THAT LOOP'S OWN REJECTION EXITS, BY DIRECTION — every one of them is a
+`continue`/`ok = false` and every one landed on that same sentence:
+
+| exit | rejects on | queue row |
+|---|---|---|
+| `cand->param_types.size() != types.size()` | ARITY | `method_arity_mismatch_says_no_such_method` |
+| `!types_compatible(actual0, formal0)` | RECEIVER | `sharedref_recv_mut_method_diag` |
+| `!arg_compatible_for_dispatch(...)` | ARGUMENT i | none — see §5 |
+
+There is no fourth: a candidate carrying `type_params` is handed to
+`find_generic_func_for_args`, which ALREADY reports the right sentence (hand
+program m09 below, unchanged base and armed).
+
+## 2. THE FIX IS NOT A NEW SENTENCE
+
+All three correct sentences ALREADY EXISTED in this same file, on the trait, dyn
+and generic method paths. The struct-inherent overload path alone discarded the
+reason it had just computed:
+
+    arity     `method call '{}': expected {} args, got {}`
+    argument  `method '<m>' arg <i>:` routed through `expect_type`
+    receiver  `method '<m>' receiver:` routed through `expect_type`
+
+So the landing is: report the rejection reason, in the words the siblings use.
+**`expr.method.arity-check` in `docs/spec/expressions.md` already asserted the
+arity sentence — the spec was right and the implementation was not.** Both line
+ranges that clause cited had drifted (onto an ambiguous-blanket-impl diagnostic
+and a tuple-literal argument walk); repaired to symbols with the landing.
+
+Rust-canonical by the standing rule: E0061 for the count, E0308 for the
+argument, and for the receiver rustc reaches E0596 — the sentence now names both
+receiver types instead of claiming absence. Upstream's own fixture for this rule
+is `compare-method/bad-self-type.rs`, still NOT ported.
+
+## 3. THE SET, DIFFED BOTH WAYS — TWELVE HAND PROGRAMS, VARIED IN SHAPE
+
+Predicted in `probes/2026-09-10b-methodwhy/TARGETS.md` BEFORE the edit: six move,
+six do not. Read on the armed binary — **empty both ways**, and every sentence
+READ rather than inferred.
+
+| # | shape | base | armed |
+|---|---|---|---|
+| m01 | arity, too few, 1 param | `'R' has no method 'thing'` | `method call 'R__thing': expected 1 args, got 0` |
+| m02 | arity, too many | `'R' has no method 'one'` | `method call 'R__one': expected 0 args, got 2` |
+| m03 | receiver `&S` vs `&mut self` | `'S' has no method 'mget'` | `method 'S__mget' receiver: expected &mut S, got &S` |
+| m04 | argument `bool` vs `i64` | `'H' has no method 'eat'` | `method 'H__eat' arg 1: expected bool, got i64` |
+| m08 | trait-IMPL method, arity | `'C' has no method 'tick'` | `method call 'C__tick': expected 1 args, got 0` |
+| m12 | arity, too few, 2 params | `'P' has no method 'two'` | `method call 'P__two': expected 2 args, got 1` |
+| m05 | name truly absent, type HAS methods | `has no method` | UNCHANGED |
+| m06 | name truly absent, no impl block | `has no method` | UNCHANGED |
+| m07 | by-value `self` through `&T`, POD | rc 0 | UNCHANGED — see §6 |
+| m09 | GENERIC method, arg mismatch | already correct | UNCHANGED |
+| m10 | two methods, both called right | rc 0 | UNCHANGED |
+| m11 | struct FIELD holding a fn-ptr, `h.f(4)` | rc 0 | UNCHANGED |
+
+m05/m06 are the ABUSE DIRECTION and they are the whole safety argument: the new
+arm answers only when `find_func_candidates` returned at least one candidate, so
+a name that really is absent keeps the sentence that asserts absence. m11 is the
+other guard — the field-fn-pointer fallback below the error site still runs,
+because an empty candidate set leaves the recorder silent.
+
+## 3b. THE GATE THAT CAUGHT MY OWN FIRST IMPLEMENTATION
+
+The first version of the arm `std::format`-ed all three sentences at the failure
+site. `L4 bc` came back **1 test failed out of 5070**, and the test was
+`lint_mismatch_monopoly` (`scripts/lint-mismatch-monopoly.sh`):
+
+    lint: the mismatch verdict may only be emitted by expect_type; found 5 emitters
+
+The rule is architectural, not stylistic — `SemaChecker::expect_type` owns the
+the mismatch verdict template (`expected <T>, got <U>`), so a position that wants to reject an expression
+must route through the JUDGMENT rather than re-implement the verdict, and the
+gate exists because "the sieve of per-site special cases grew back three times".
+My arm was copy #37, and two of the five emitters it counted were in this very
+file's round record — the lint scans `src` and `include` whole, PROBES.md
+included, which is why the record above spells the templates with `<m>`/`<i>`.
+
+Re-implemented: the RECEIVER and ARGUMENT verdicts now call
+`expect_type(recv, …, CoercePos::Operand, "method '<m>' receiver:")` and
+`expect_type(arg_exprs[i-1], …, CoercePos::MethodArg, "method '<m>' arg <i>:")`,
+with a `mwhy_said_` flag so that a judgment which UNEXPECTEDLY ACCEPTS still
+falls back to the old sentence rather than letting the call fall through with no
+diagnostic at all. Only the arity verdict is emitted directly — it is not a type
+mismatch and `expect_type` does not own it.
+
+⚠ **RULE 7 IN ITS OWN WORDS, AND IT BIT — a crude arm and a correct fix do not
+close the same programs.** All twelve hand programs, both queue-row programs and
+all ten fixtures came back on the rebuilt binary **identical to v1, character for
+character**. The hand table said the two implementations were the same. **They
+were not**, and the whole-corpus sweep is what found the one program that
+separates them:
+
+    tests/spec/fail/coerce_diag_1__intlit-dispatch-unsuffixed-fits-narrower
+      v1  method 'C__put' arg 1: expected u8, got u64
+      v2  method call: 'C' has no method 'put'      (= unchanged from HEAD)
+
+An OVERLOAD SET — `fn put(&self,u8)` and `fn put(&self,i64)`, called with `9u64`.
+`arg_compatible_for_dispatch` rejects the argument against both candidates, which
+is why no candidate survives; `expect_type` then **ACCEPTS** the same argument
+under the `CoercePos::MethodArg` mask, so the reporting judgment has nothing to
+say and the `mwhy_said_` fallback restores the old sentence. **The dispatch
+selector and the mismatch judgment are not the same judgment**, and that
+disagreement — not the message — is the residue.
+
+Filed rather than papered over: soundness-queue row
+**`overload_set_arg_mismatch_says_no_method`** (tier 4, `diag`) with its own
+program, and the spec clause says so. That is the deliberate opposite of what
+this round found in §5, where a fixture cited a row nobody had ever created. The
+v1 `.expected` re-pin was REVERTED (`git checkout`), so that fixture is untouched
+by this landing. **Had I priced only the hand table and the default oracle
+population, I would have shipped a pin for a sentence the landed compiler does
+not emit.**
+
+⚠ TWELVE HAND PROGRAMS AGREEING IS NOT A CONTROL: the twelve were all
+single-candidate. The separating program has TWO candidates. Rule 5's "vary the
+SHAPE, not the count", failed and then met.
+
+## 4. THE COST, AND A ZERO THAT WAS A POPULATION HOLE
+
+| column | number |
+|---|---|
+| `run_oracle.py`, 6615 triples, base vs armed from ONE configure | **1**, and it is `cast-region-to-uint` by name → **0** |
+| `fail_text_oracle.py` default population | **0 of 1478, every column** |
+| direct sweep over the WHOLE fail corpus | **1 of 2673** (v2; v1 was 2 — see §3b) |
+| `stdlib-cost.sh`, four layers | clean |
+
+⚠ **THE `0 of 1478` IS A FALSE ZERO AND MY OWN PREDICTION IS WHAT CAUGHT IT.**
+`TARGETS.md` predicted exactly one fixture would re-pin —
+`tests/logos/fail/method_arg_wrapper_unsize_dispatch`, whose header says its
+sentence is pinned "so that changing it is visible". The oracle reported ZERO
+rows differing. Compiling that fixture by hand on the armed binary:
+
+    method 'Holder__eat' arg 1: expected Rc<dyn Sp>, got i64
+
+The sentence DID move; the fixture is simply **not in the oracle's population**.
+`fail_text_oracle.py`'s default selector is `LOGOS_FAIL_ORACLE_SEL="-L bc -L fail"`,
+and ctest ANDs labels — so it prices the INTERSECTION: **1478 of the 2668
+`fail`-labelled tests, 55%**. The remaining 1190 are invisible to it, and one of
+them was the fixture written specifically to make this change visible. This is
+`feedback_cost_population_excludes_stdlib_and_fail` in a new column, and it is
+why a prediction naming FIXTURES BY NAME is worth more than a diff of two TSVs.
+
+⚠ `-L fail` alone does not fix it: the oracle raises `IndexError` on the first
+`fail` test whose registered command has a different argument shape. Tooling is
+frozen, so the honest column was taken by a DIRECT SWEEP over all **2673** fail
+fixtures on disk (compile, ask whether the fixture's own `.expected` is still a
+substring). 2646 MATCH / 20 MISS / 7 no `.expected`. **Nineteen of the twenty
+misses are artefacts of my sweep, not regressions**, and each was proven so under
+the real runner (`ctest`, 19 tests, 100% passed): ten need an `-l <archive>`
+argument `logos_fail_extra_args` supplies, nine pin a multi-line `exit:`/`stderr:`
+header a substring matcher cannot see.
+
+**So the true fail-corpus cost of what LANDED is 1 of 2673** — a single
+re-pinned fixture, a diagnostic improvement with the VERDICT unchanged:
+  · `tests/logos/fail/method_arg_wrapper_unsize_dispatch` — the ARGUMENT member,
+    now `method 'Holder__eat' arg 1: expected Rc<dyn Sp>, got i64`.
+The second fixture v1 would have moved is the overload set of §3b; v2 leaves it
+byte-identical and its residue is a queue row instead.
+
+⚠ The two rows this round CLOSES are both SINGLE-candidate cases, where the
+sentence is complete and was read. The OVERLOAD case is not closed and is not
+claimed to be: it is now row `overload_set_arg_mismatch_says_no_method`. Rust
+cannot arbitrate its sentence either — Rust has no type-based overloading — so
+the standing rule's first branch does not reach it.
+
+## 5. WHAT THE ROUND FOUND THAT NOBODY HAD FILED
+
+**A fixture pinned a sentence against a soundness-queue row that never existed.**
+`tests/logos/fail/method_arg_wrapper_unsize_dispatch.logos:8` cites "a separate
+soundness-queue row (method_arg_mismatch_reported_as_no_method, `diag`)". That
+row has **0 hits in `soundness_queue.ledger`, 0 programs under
+`tests/soundness/open/`, and no commit in the history ever added it**
+(`git log -S`, empty). The ARGUMENT member of this class was therefore carried
+for rounds as "filed elsewhere" when it was filed nowhere. Header repaired with
+the landing.
+
+## 6. THE SIDE FINDING THAT IS NOT A DEFECT — BOTH REGISTRIES CHECKED BY CONSTRUCT
+
+Hand program m07: `struct T { v: i64 }`, `fn consume(self: T)`, called through a
+`&T` binding — compiles rc 0, where rustc gives E0507. **It is a blessed
+divergence and the standing rule's second branch answers it**:
+`docs/DIVERGENCES.md` row **A16, "structural auto-Copy for structs"**, canonised
+by Victor 2026-08-24 — a struct with no `impl Drop` and all-Copy fields IS
+implicitly Copy, so the by-value receiver is a COPY, not a move. Its own opt-out
+holds under measurement: m07b is the same program with a `Drop`-carrying field
+and it IS refused, `cannot move out of a value behind a shared reference (E0507)`.
+No row opened. Searched by CONSTRUCT in both registries, not by guessed id.
+
+## 7. WHAT IS DECLINED, BY NAME, WITH THE NUMBER
+
+**THE SHADOW BLOCK — `shadowed_binding_never_dropped` (tier 1, leak),
+`shadow_over_param_double_drop` (tier 1, double free),
+`shadow_rebind_after_move_refused` (tier 3, over-refusal).**
+
+It was already PRICED and never landed: `probes/2026-09-07t-shadow/RESULT.txt`
+records crude arms at cost 0 in every column with the sets diffed both ways. Its
+sibling half — `reflocaladdr`, two place-write rows — DID land, in `26eacf7bf`,
+and those two rows are gone from the queue. The shadow half is what is left, and
+it is not declined for taste. Its own RESULT.txt states the reason (rule 7): the
+crude arm runs the displaced destructor AT THE SHADOWING `let`; Rust runs it at
+SCOPE EXIT, after the shadowing binding's. The rows read a COUNT, so the crude
+order passes them and a correct fix is a different change.
+
+The correct change is ONE design question — **a binding's identity is its SLOT,
+not its name** — and the numbers say where it has to be answered:
+
+  · `SemaChecker::emit_frame_drops` is 87 lines and consults **FOUR** distinct
+    name-keyed side tables — `capture_owner_`, `closure_drop_group_`,
+    `closure_owned_drop_`, `moved_vars_` — plus `frame.vars`. Every one is blind
+    to which of two same-named bindings is meant.
+  · `moved_vars_` alone: **93** references across 6 files.
+  · mlir-gen's flat `scope_`: **203** mentions across 7 files, **91** of them
+    writes. Sema emitting two drops for one name resolves BOTH to the last
+    alloca, which is the second root, measured in the 09-07 round.
+  · LIR already carries `var_slot` on `SLet` and `EVarRef` — but **not on
+    `SDrop`, and not on parameters** — and mlir-gen consumes `var_slot` at
+    **ZERO** sites today.
+
+So the mechanism needs two new LIR schema fields and a first slot consumer in a
+file that has never seen one, against 4 side tables and 203 sites. Compare the
+class this round DID land: **51 lines added, 3 removed, one function, and three
+sentences that already existed.** That ratio is the number that condemns it for
+a single round — not the hypothesis, which is priced and sound. What the block
+needs is a round of its own, and its first commit is the LIR schema, not the fix.
+
+⚠ AND ONE MEMBER OF IT HAS NO ROW, from the same RESULT.txt: `let x = D;
+eat(x); let x = D;` leaks the SECOND binding too (1 for 1001), because
+`emit_frame_drops`'s `eligible` asks the name-keyed `moved_vars_` and the fresh
+binding inherits the dead one's state. Not filed as a queue row here because it
+belongs with the block, not ahead of it.
+
+## 8. CENSUS, AND THE CORRECTIONS TO THE HANDED-DOWN REPORT
+
+Each re-verified against the text I was actually given, not copied from a journal.
+
+  · **The STEP-1 gate command carries `LOGOS_LIB_DIR`.** Nothing to correct. This
+    is the third consecutive round for which that is true.
+  · **The prompt's subject had ALREADY LANDED.** It orders "LAND `sigselfty`";
+    `git log` at open shows it landed in four commits ending `9c3bb5b3a`, and the
+    report following the prompt says so itself. A prompt is a hypothesis (rule
+    17) and STEP 1 is what dates it.
+  · **Build hash: `afdc542ff6b5460b 43`, not the report's `911811129fca26d5 43`,
+    and it AGREED WITH ITSELF** across two consecutive calls on an untouched
+    tree. The report's "`build_hash.py` disagrees with itself with no source
+    change" is real but is NOT non-determinism, and this round reproduced its
+    actual mechanism: the key moved `afdc542ff6b5460b` → `95f273432f74154d` (the
+    compiler edit, expected) → `6ac4ac6161c1ef3c` (adding FIXTURES, which forces
+    a glob reconfigure, which rewrites the CONFIGURE timestamp baked into
+    `logosc --version`, which lives inside the artefact the key hashes). A
+    compiler-only rebuild did NOT move the version string — measured, both sides
+    read `...20260910T065656Z` — which is why the cost columns above are a valid
+    pair from ONE configure.
+  · `-L bc` is **2739 passed / 0 failed / 2 disabled**, confirming the report's
+    correction of the older 1685.
+  · probe-log-lint **264 records / 43 live probes**, at open AND at close: this
+    round installed no probe and needed none. The class was decidable by reading
+    the loop's own rejection exits and by twelve hand programs.
+
+QUEUE: **75 → 74**. Two rows CLOSED (`method_arity_mismatch_says_no_such_method`,
+`sharedref_recv_mut_method_diag`), one row OPENED
+(`overload_set_arg_mismatch_says_no_method`, §3b). `# TOTAL` re-derived BY DIRECT
+LISTING: 74 rows, 74 programs on the shelf, tier1=19 tier2=9 tier3=40 tier4=**6**
+(was 7). Queue gate rc 0 before, at 73, and after. bc_admits 90 and
+bc_admits_blocked 8 UNTOUCHED — this round opened and closed no bc-ledger row.

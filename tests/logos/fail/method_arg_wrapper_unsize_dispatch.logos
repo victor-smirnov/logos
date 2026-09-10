@@ -3,10 +3,15 @@
 // tests/logos/pass/method_arg_wrapper_unsize_dispatch.logos: `h.eat(5i64)` here,
 // `h.eat(rc)` there. An `i64` reaches `Rc<dyn Sp>` by no coercion the pipeline
 // has, so there is no candidate and the call is refused.
-// ⚠ THE SENTENCE IS COARSE ON PURPOSE and it is the tree's, not this pair's:
-// every method-arg mismatch is reported as "has no method". That is a separate
-// soundness-queue row (method_arg_mismatch_reported_as_no_method, `diag`), and
-// pinning the current sentence here is what makes changing it visible.
+// THE SENTENCE WAS COARSE AND IS NOT ANY MORE. This fixture used to pin
+// "method call: 'Holder' has no method 'eat'" — false, since `Holder` DOES have
+// `eat` — and its header cited "soundness-queue row
+// method_arg_mismatch_reported_as_no_method". THAT ROW NEVER EXISTED: 0 hits in
+// soundness_queue.ledger, 0 programs on the shelf, and no commit in the history
+// ever added it (measured 2026-09-10). Pinning the sentence here is what made
+// changing it visible, which is exactly what happened: the ARGUMENT member of
+// the class is now reported as an argument mismatch. See spec clause
+// `expr.method.candidate-rejection-reason`.
 package method_arg_wrapper_unsize_dispatch;
 use logos.lang.rc;
 

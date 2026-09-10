@@ -1,0 +1,14 @@
+// PASS half of the ABUSE-DIRECTION pair — one token from
+// fail/method_name_truly_absent_no_method (`totally_missing` -> `present`).
+package method_name_truly_absent_present_runs;
+use logos.std.fmt;
+struct Z { a: i64 }
+impl Z {
+    fn present(self: &Self) -> i64 { return self.a; }
+}
+fn main() -> i32 {
+    let z: Z = Z { a: 6i64 };
+    let n: i64 = z.present();
+    println!("n={}", n);
+    return n as i32;
+}

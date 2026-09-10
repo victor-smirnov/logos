@@ -1,1 +1,1 @@
-method call: 'Holder' has no method 'eat'
+method 'Holder__eat' arg 1: expected Rc<dyn Sp>, got i64

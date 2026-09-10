@@ -1,0 +1,13 @@
+// PASS half of the TRAIT-IMPL ARITY pair — one token from
+// fail/method_trait_impl_arity_refused (`c.tick()` -> `c.tick(4i64)`).
+package method_trait_impl_arity_runs;
+use logos.std.fmt;
+trait Tick { fn tick(self: &Self, k: i64) -> i64; }
+struct C { v: i64 }
+impl Tick for C { fn tick(self: &Self, k: i64) -> i64 { return self.v + k; } }
+fn main() -> i32 {
+    let c: C = C { v: 1i64 };
+    let n: i64 = c.tick(4i64);
+    println!("n={}", n);
+    return n as i32;
+}

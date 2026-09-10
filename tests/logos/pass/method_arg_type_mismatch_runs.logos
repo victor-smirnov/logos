@@ -1,0 +1,14 @@
+// PASS half of the ARGUMENT pair — one token from
+// fail/method_arg_type_mismatch_refused (`h.eat(5i64)` -> `h.eat(true)`).
+package method_arg_type_mismatch_runs;
+use logos.std.fmt;
+struct H { n: i64 }
+impl H {
+    fn eat(self: &Self, flag: bool) -> i64 { if flag { return self.n; } return 0i64; }
+}
+fn main() -> i32 {
+    let h: H = H { n: 4i64 };
+    let k: i64 = h.eat(true);
+    println!("k={}", k);
+    return k as i32;
+}

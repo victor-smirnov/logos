@@ -1,0 +1,15 @@
+// PASS half of the ARITY pair — one token from fail/method_arity_too_few_refused
+// (`r.thing()` -> `r.thing(7i32)`). The method exists and, called with its one
+// argument, resolves and RUNS.
+package method_arity_too_few_runs;
+use logos.std.fmt;
+struct R { id: i32 }
+impl R {
+    fn thing(self: &mut Self, k: i32) -> i32 { return k; }
+}
+fn main() -> i32 {
+    let mut r: R = R { id: 1i32 };
+    let n: i32 = r.thing(7i32);
+    println!("n={}", n);
+    return n;
+}

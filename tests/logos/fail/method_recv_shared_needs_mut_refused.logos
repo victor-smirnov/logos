@@ -1,0 +1,23 @@
+// CLASS "the name WAS found, and the sentence said it was not" — the RECEIVER
+// member. Was soundness_queue row `sharedref_recv_mut_method_diag` (tier 4,
+// `diag`). A `&mut self` method called through a `&S` binding is ILLEGAL and
+// the refusal was already right; the SENTENCE was the defect — method lookup
+// did not find a `&mut self` method through a shared reference at all, so the
+// user was told the method does not exist.
+// rustc: E0596, "cannot borrow `*sr` as mutable, as it is behind a `&`
+// reference". The sentence pinned here names the two receiver types instead of
+// claiming absence.
+// PAIR: pass/method_recv_shared_needs_mut_runs is this program with the binding
+// spelled `&mut S` — one token apart.
+package method_recv_shared_needs_mut_refused;
+struct S { v: i64 }
+impl S {
+    fn mget(&mut self) -> &mut i64 { return &mut self.v; }
+}
+fn main() -> i32 {
+    let mut s: S = S { v: 1i64 };
+    let sr: &S = &s;
+    let r: &mut i64 = sr.mget();
+    *r = 3i64;
+    return 0i32;
+}

@@ -1,0 +1,18 @@
+// PASS half of the RECEIVER pair — one token from
+// fail/method_recv_shared_needs_mut_refused (`let sr: &S` -> `let sr: &mut S`).
+// The same method, reached through a receiver that does satisfy it, RUNS.
+package method_recv_shared_needs_mut_runs;
+use logos.std.fmt;
+struct S { v: i64 }
+impl S {
+    fn mget(&mut self) -> &mut i64 { return &mut self.v; }
+}
+fn main() -> i32 {
+    let mut s: S = S { v: 1i64 };
+    let sr: &mut S = &mut s;
+    let r: &mut i64 = sr.mget();
+    *r = 3i64;
+    let got: i64 = s.v;
+    println!("v={}", got);
+    return got as i32;
+}

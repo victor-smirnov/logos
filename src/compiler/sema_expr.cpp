@@ -9682,6 +9682,29 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     }
 
     auto mangled = std::string(sname) + "__" + std::string(method_name);
+    // The name WAS found; remember WHY every candidate was rejected.
+    // Spec: `expr.method.candidate-rejection-reason`.
+    int mwhy_cands_ = 0;
+    enum { MWHY_NONE, MWHY_ARITY, MWHY_RECV, MWHY_ARG } mwhy_ = MWHY_NONE;
+    size_t mwhy_want_ = 0, mwhy_got_ = 0, mwhy_argi_ = 0;
+    TypeRef mwhy_exp_{}, mwhy_act_{};
+    auto mwhy_arity_ = [&](size_t want, size_t got) {
+        ++mwhy_cands_;
+        if (mwhy_ != MWHY_NONE) return;
+        mwhy_ = MWHY_ARITY;
+        mwhy_want_ = want ? want - 1 : 0;
+        mwhy_got_  = got  ? got  - 1 : 0;
+    };
+    auto mwhy_recv_ = [&](TypeRef exp, TypeRef act) {
+        ++mwhy_cands_;
+        if (mwhy_ == MWHY_RECV || mwhy_ == MWHY_ARG) return;
+        mwhy_ = MWHY_RECV; mwhy_exp_ = exp; mwhy_act_ = act;
+    };
+    auto mwhy_arg_ = [&](size_t i, TypeRef exp, TypeRef act) {
+        ++mwhy_cands_;
+        if (mwhy_ == MWHY_RECV || mwhy_ == MWHY_ARG) return;
+        mwhy_ = MWHY_ARG; mwhy_argi_ = i; mwhy_exp_ = exp; mwhy_act_ = act;
+    };
     // If receiver is `&T` / `&mut T`, prefer `$ref_T__method` /
     // `$mut_ref_T__method` (impls declared with `impl Trait for &T`) over
     // the auto-deref'd `T__method`. Fall back to the bare form below if
@@ -9823,7 +9846,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         const SemaFuncInfo* deref_fallback = nullptr;
         for (auto* cand : find_func_candidates(mangled)) {
             if (!cand || !cand->type_params.empty()) continue;
-            if (cand->param_types.size() != types.size()) continue;
+            if (cand->param_types.size() != types.size()) {
+                mwhy_arity_(cand->param_types.size(), types.size());
+                continue;
+            }
             bool ok = true;
             bool needs_ref = false;
             bool needs_mut = false;
@@ -9895,6 +9921,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     // compatible — thin one-repr receiver forms.
                 } else if (!types_compatible(actual0, formal0)) {
                     ok = false;
+                    mwhy_recv_(formal0, actual0);
                 }
             }
             for (size_t i = 1; ok && i < cand->param_types.size(); ++i) {
@@ -9904,6 +9931,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     pt = subst_type_sema(pt, recv_struct_subst);
                 if (!at || !pt || !arg_compatible_for_dispatch(arg_exprs[i - 1], at, pt)) {
                     ok = false;
+                    mwhy_arg_(i, pt, at);
                     break;
                 }
             }
@@ -9959,7 +9987,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             for (auto& a : arg_exprs) types.push_back(expr_type(a));
             for (auto* cand : find_func_candidates(base_mangled)) {
                 if (!cand || !cand->type_params.empty()) continue;
-                if (cand->param_types.size() != types.size()) continue;
+                if (cand->param_types.size() != types.size()) {
+                    mwhy_arity_(cand->param_types.size(), types.size());
+                    continue;
+                }
                 bool ok = true;
                 bool needs_ref = false;
                 bool needs_mut = false;
@@ -9992,6 +10023,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         // compatible — thin one-repr receiver forms.
                     } else if (!types_compatible(actual0, formal0)) {
                         ok = false;
+                        mwhy_recv_(formal0, actual0);
                     }
                 }
                 for (size_t i = 1; ok && i < cand->param_types.size(); ++i) {
@@ -10001,6 +10033,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         pt = subst_type_sema(pt, recv_struct_subst);
                     if (!at || !pt || !arg_compatible_for_dispatch(arg_exprs[i - 1], at, pt)) {
                         ok = false;
+                        mwhy_arg_(i, pt, at);
                         break;
                     }
                 }
@@ -10105,7 +10138,26 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                           "the container item's handler");
             return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
         }
-        error(std::format("method call: '{}' has no method '{}'", sname, method_name));
+        // Name found, every candidate rejected: name the slot that disagreed.
+        // Only an EMPTY candidate set keeps "has no method". The receiver and
+        // argument verdicts route through expect_type — the mismatch
+        // diagnostic's single foundation — rather than re-spelling it.
+        bool mwhy_said_ = false;
+        if (mwhy_cands_ > 0 && mwhy_ == MWHY_ARITY) {
+            error(std::format("method call '{}': expected {} args, got {}",
+                              mangled, mwhy_want_, mwhy_got_));
+            mwhy_said_ = true;
+        } else if (mwhy_cands_ > 0 && mwhy_ == MWHY_RECV) {
+            mwhy_said_ = !expect_type(recv, mwhy_exp_, CoercePos::Operand,
+                                      std::format("method '{}' receiver:", mangled));
+        } else if (mwhy_cands_ > 0 && mwhy_ == MWHY_ARG &&
+                   mwhy_argi_ >= 1 && mwhy_argi_ <= arg_exprs.size()) {
+            mwhy_said_ = !expect_type(arg_exprs[mwhy_argi_ - 1], mwhy_exp_,
+                                      CoercePos::MethodArg,
+                                      std::format("method '{}' arg {}:", mangled, mwhy_argi_));
+        }
+        if (!mwhy_said_)
+            error(std::format("method call: '{}' has no method '{}'", sname, method_name));
         return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
     }
 

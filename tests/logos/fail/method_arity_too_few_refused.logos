@@ -1,0 +1,18 @@
+// CLASS "the name WAS found, and the sentence said it was not" — the ARITY
+// member. Was soundness_queue row `method_arity_mismatch_says_no_such_method`
+// (tier 4, `diag`): the verdict was already right, the SENTENCE was false —
+// `R` DOES have a method `thing`, it takes one argument and got none, and the
+// tree answered "'R' has no method 'thing'".
+// rustc: E0061, "this method takes 1 argument but 0 arguments were supplied".
+// PAIR: pass/method_arity_too_few_runs is this program with the argument
+// supplied — one token apart.
+package method_arity_too_few_refused;
+struct R { id: i32 }
+impl R {
+    fn thing(self: &mut Self, k: i32) -> i32 { return k; }
+}
+fn main() -> i32 {
+    let mut r: R = R { id: 1i32 };
+    let n: i32 = r.thing();
+    return n;
+}

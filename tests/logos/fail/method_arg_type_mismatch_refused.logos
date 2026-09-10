@@ -1,0 +1,19 @@
+// CLASS "the name WAS found, and the sentence said it was not" — the ARGUMENT
+// member. This member had NO soundness-queue row: the fail fixture
+// method_arg_wrapper_unsize_dispatch pinned the false sentence and its header
+// cites "soundness-queue row (method_arg_mismatch_reported_as_no_method)",
+// WHICH NEVER EXISTED — 0 hits in the ledger, 0 programs on the shelf, and no
+// commit in the history ever added it. Measured 2026-09-10.
+// rustc: E0308, mismatched types, at the argument.
+// PAIR: pass/method_arg_type_mismatch_runs supplies a `bool` — one token apart.
+package method_arg_type_mismatch_refused;
+struct H { n: i64 }
+impl H {
+    fn eat(self: &Self, flag: bool) -> i64 { if flag { return self.n; } return 0i64; }
+}
+fn main() -> i32 {
+    let h: H = H { n: 1i64 };
+    let k: i64 = h.eat(5i64);
+    if k != 1i64 { return 1i32; }
+    return 0i32;
+}
