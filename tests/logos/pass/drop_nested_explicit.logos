@@ -4,12 +4,10 @@ package drop_nested_explicit;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
-trait Drop { fn drop(self: Self); }
-
 struct Inner { id: i32, }
 
 impl Drop for Inner {
-    fn drop(self: Inner) { printi("i%d ", self.id); }
+    fn drop(self: &mut Self) { printi("i%d ", self.id); }
 }
 
 struct Outer {
@@ -19,7 +17,7 @@ struct Outer {
 }
 
 impl Drop for Outer {
-    fn drop(self: Outer) { printi("o%d ", self.tag); }
+    fn drop(self: &mut Self) { printi("o%d ", self.tag); }
 }
 
 unsafe fn main() -> i32 {

@@ -5,8 +5,6 @@ use logos.lang.cmp.Ordering.{Less, Equal, Greater};
 
 // ── helper types ────────────────────────────────────────────────────────────
 
-trait Drop { fn drop(self: &mut Self); }
-
 // A value whose drop bumps a counter through a raw pointer, so drops are
 // observable at runtime.
 struct Tracked { c: *mut i64 }

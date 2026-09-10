@@ -4,7 +4,6 @@ use logos.lang.ops;
 use logos.lang.result;
 
 // --- Drop counter helpers (drop-before-replace / temp-scrutinee-dropped) ---
-trait Drop { fn drop(self: &mut Self); }
 struct Owner { i: *mut i64 }
 impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
 struct Holder { o: Owner }

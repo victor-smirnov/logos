@@ -12,7 +12,6 @@ package stmt_1;
 
 // User Drop that bumps a counter through a raw pointer so we can observe drop
 // timing/counts at runtime.
-trait Drop { fn drop(self: &mut Self); }
 struct Own { tag: i64, c: *mut i64 }
 impl Drop for Own { fn drop(self: &mut Self) { unsafe { *self.c += 1i64; } } }
 

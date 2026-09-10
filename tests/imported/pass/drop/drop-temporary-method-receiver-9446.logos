@@ -7,9 +7,8 @@
 //   the enclosing statement (not leaked). The #9446 ICE was about dropping such
 //   a non-box temporary; here we assert the destructor actually runs.
 package drop_temporary_method_receiver_9446;
-trait Drop { fn drop(self: Self); }
 struct W { v: i64, c: *mut i64 }
-impl Drop for W { fn drop(self: W) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for W { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
 impl W {
     fn mk(v: i64, c: *mut i64) -> W { return W { v: v, c: c }; }
     fn get(self: &W) -> i64 { return self.v; }

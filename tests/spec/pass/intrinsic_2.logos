@@ -11,7 +11,6 @@ use logos.mem.sync;
 // ── Drop-observing helper types ──────────────────────────────────────────────
 // A user `Drop` that bumps a counter through a raw pointer, so the runtime
 // drop glue is observable from the language level.
-trait Drop { fn drop(self: &mut Self); }
 
 struct R { i: *mut i64 }
 impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }

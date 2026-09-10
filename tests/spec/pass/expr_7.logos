@@ -22,7 +22,6 @@ struct Foo { header: i64, tail: [u8] }
 union Pair { a: i32, b: i32 }
 
 // ---- droppable rvalue base (hoist temp; Drop runs at scope exit) ----
-trait Drop { fn drop(self: &mut Self); }
 struct Owner { i: *mut i64, x: i64 }
 impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
 fn make_owner(p: *mut i64) -> Owner { return Owner { i: p, x: 77i64 }; }

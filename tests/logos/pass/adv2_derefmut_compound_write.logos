@@ -5,9 +5,8 @@ package adv2_derefmut_compound_write;
 use logos.lang.ops;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
-trait Drop { fn drop(self: Self); }
 struct R { id: i32 }
-impl Drop for R { fn drop(self: R) { printi("d%d ", self.id); } }
+impl Drop for R { fn drop(self: &mut Self) { printi("d%d ", self.id); } }
 struct W<T> { inner: T, tag: R }
 impl<T> Deref<T> for W<T> { fn deref(&self) -> &T { return &self.inner; } }
 impl<T> DerefMut<T> for W<T> { fn deref_mut(&mut self) -> &mut T { return &mut self.inner; } }

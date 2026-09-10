@@ -23,7 +23,6 @@ impl Counter {
 
 // A droppable value: drop() bumps a counter through a raw pointer, so we can
 // observe destructor runs at the language level.
-trait Drop { fn drop(self: &mut Self); }
 struct Own { tag: i64, c: *mut i64 }
 impl Drop for Own { fn drop(self: &mut Self) { unsafe { *self.c += 1i64; } } }
 

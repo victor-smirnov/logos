@@ -9,12 +9,10 @@ package let_array_destructure_drop;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(v: i32) { unsafe { printf("d%d ".as_ptr(), v); } }
 
-trait Drop { fn drop(self: Self); }
-
 struct Res { id: i32, }
 
 impl Drop for Res {
-    fn drop(self: Res) { printi(self.id); }
+    fn drop(self: &mut Self) { printi(self.id); }
 }
 
 unsafe fn main() -> i32 {

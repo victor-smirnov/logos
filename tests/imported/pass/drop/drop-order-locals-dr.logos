@@ -5,14 +5,12 @@
 // sequence is observable. `static mut`→`*mut i64` counter idiom; by-value Drop.
 package m_drop_order_locals;
 
-trait Drop { fn drop(self: Self); }
-
 // `tick` is a shared monotonically-increasing clock; each drop stamps its `out`
 // slot with the current tick so we can read back the order.
 struct Foo { tick: *mut i64, out: *mut i64 }
 
 impl Drop for Foo {
-    fn drop(self: Foo) {
+    fn drop(self: &mut Self) {
         unsafe {
             *self.tick = *self.tick + 1i64;
             *self.out = *self.tick;

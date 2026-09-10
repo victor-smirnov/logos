@@ -14,7 +14,6 @@ package region_3;
 // enum lifetime-arg inference) are reported under "untestable".
 
 // ── Drop-counting helper (Rust-parity Drop via a *mut i64 tick counter) ──────
-trait Drop { fn drop(self: &mut Self); }
 struct R { i: *mut i64 }
 impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
 fn mk(i: *mut i64) -> R { return R { i: i }; }

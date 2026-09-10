@@ -7,7 +7,6 @@
 package destructure_let_tuplestruct_rest_drop_both;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
-trait Drop { fn drop(self: &mut Self); }
 struct Owner { i: *mut i64 }
 impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
 struct Q(Owner, Owner);

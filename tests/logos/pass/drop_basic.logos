@@ -4,16 +4,12 @@ package drop_basic;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
-trait Drop {
-    fn drop(self: Self);
-}
-
 struct Resource {
     id: i32,
 }
 
 impl Drop for Resource {
-    fn drop(self: Resource) {
+    fn drop(self: &mut Self) {
         printi("dropped %d\n", self.id);
     }
 }

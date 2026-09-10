@@ -13,13 +13,11 @@
 //   (issue #4734), for two distinct types A and B.
 package destructor_run_for_expression_4734_b140;
 
-trait Drop { fn drop(self: Self); }
-
 struct A { n: i64, c: *mut i64 }
-impl Drop for A { fn drop(self: A) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for A { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
 
 struct B { c: *mut i64 }
-impl Drop for B { fn drop(self: B) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for B { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
 
 fn main() -> i32 {
     let mut counter: i64 = 0i64;

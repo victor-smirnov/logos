@@ -7,8 +7,6 @@ extern fn free(p: *mut u8);
 fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
 fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
 
-trait Drop { fn drop(self: Self); }
-
 /// CONTROL TWIN of `no_auto_drop_container` — THE ADMIT SIDE.
 ///
 /// Byte-for-byte the same twenty-five storage sites with `#[no_auto_drop]`
@@ -26,14 +24,14 @@ trait Drop { fn drop(self: Self); }
 /// `U` (the user destructor) AND `D<n>` (the field glue for its `Pay`) — the
 /// two halves `item.struct.no-auto-drop` suppresses together.
 struct Pay { n: i64, b: *mut u8 }
-impl Drop for Pay { fn drop(self: Pay) { pr("D%ld ", self.n); unsafe { free(self.b); } } }
+impl Drop for Pay { fn drop(self: &mut Self) { pr("D%ld ", self.n); unsafe { free(self.b); } } }
 fn mk(n: i64) -> Pay { pr("M%ld ", n); unsafe { return Pay { n: n, b: malloc(64u64) }; } }
 
 struct NAD { p: Pay }
 
 /// The admit side of the user-drop half: `U` prints on every NADD value.
 struct NADD { p: Pay }
-impl Drop for NADD { fn drop(self: NADD) { ps("U "); } }
+impl Drop for NADD { fn drop(self: &mut Self) { ps("U "); } }
 
 struct Sib  { n: NAD, real: Pay }     // suppressed field beside a droppable one
 struct Wrap { n: NAD }

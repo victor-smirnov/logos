@@ -6,7 +6,6 @@
 // closure_owned_drop_ so collect_drops un-skips its destructor → dropped once.
 package move_closure_capture_drop_once;
 
-trait Drop { fn drop(self: &mut Self); }
 struct Owner { i: *mut i64 }
 impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
 

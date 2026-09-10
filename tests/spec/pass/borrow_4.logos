@@ -15,7 +15,6 @@ package borrow_4;
 // name across sibling blocks by the checker, so each rule uses unique names.
 
 // ── Drop-counting helper (Rust-parity Drop via a *mut i64 tick counter) ──────
-trait Drop { fn drop(self: &mut Self); }
 struct R { i: *mut i64 }
 impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
 fn mk(i: *mut i64) -> R { return R { i: i }; }

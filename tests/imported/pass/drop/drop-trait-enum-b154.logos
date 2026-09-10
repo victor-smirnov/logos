@@ -23,10 +23,8 @@
 //   `match self { ... }`; nested field with its own Drop also runs.
 package drop_trait_enum_b154;
 
-trait Drop { fn drop(self: Self); }
-
 struct SendOnDrop { c: *mut i64 }
-impl Drop for SendOnDrop { fn drop(self: SendOnDrop) { unsafe { *self.c = *self.c + 100i64; } } }
+impl Drop for SendOnDrop { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 100i64; } } }
 
 enum Foo {
     Simple(*mut i64),
@@ -34,10 +32,10 @@ enum Foo {
 }
 
 impl Drop for Foo {
-    fn drop(self: Foo) {
+    fn drop(self: &mut Self) {
         match self {
-            Foo::Simple(c) => { unsafe { *c = *c + 1i64; } }
-            Foo::Nested(_, c) => { unsafe { *c = *c + 1i64; } }   // upstream: `NestedVariant(_, _, ref f)`
+            Foo::Simple(c) => { unsafe { **c = **c + 1i64; } }
+            Foo::Nested(_, c) => { unsafe { **c = **c + 1i64; } }   // upstream: `NestedVariant(_, _, ref f)`
         }
     }
 }

@@ -11,8 +11,6 @@ package drop_through_option_b161;
 
 use logos.lang.option;
 
-trait Drop { fn drop(self: &mut Self); }
-
 struct R { b: *mut i64 }
 impl Drop for R {
     fn drop(self: &mut Self) { unsafe { *self.b = *self.b + 1i64; } }

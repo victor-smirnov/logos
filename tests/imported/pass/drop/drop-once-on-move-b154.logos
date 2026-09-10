@@ -12,10 +12,8 @@
 //   (counter == 1, no double-drop, no leak).
 package drop_once_on_move_b154;
 
-trait Drop { fn drop(self: Self); }
-
 struct R { i: *mut i64 }
-impl Drop for R { fn drop(self: R) { unsafe { *self.i = *self.i + 1i64; } } }
+impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i = *self.i + 1i64; } } }
 
 fn r(i: *mut i64) -> R { return R { i: i }; }
 

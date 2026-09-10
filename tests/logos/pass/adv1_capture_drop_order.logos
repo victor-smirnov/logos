@@ -5,9 +5,8 @@
 package adv1_capture_drop_order;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
-trait Drop { fn drop(self: Self); }
 struct R { id: i32 }
-impl Drop for R { fn drop(self: R) { printi("d%d ", self.id); } }
+impl Drop for R { fn drop(self: &mut Self) { printi("d%d ", self.id); } }
 unsafe fn main() -> i32 {
     let a = R { id: 1i32 };
     let b = R { id: 2i32 };

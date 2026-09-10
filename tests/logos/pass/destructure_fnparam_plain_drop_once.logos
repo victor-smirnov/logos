@@ -4,7 +4,6 @@
 package destructure_fnparam_plain_drop_once;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
-trait Drop { fn drop(self: &mut Self); }
 struct Owner { i: *mut i64 }
 impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
 fn probe(t: (Owner, i64)) -> i64 {

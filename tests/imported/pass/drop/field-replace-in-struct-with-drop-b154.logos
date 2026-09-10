@@ -12,10 +12,8 @@ package field_replace_in_struct_with_drop_b154;
 
 use logos.mem.string;
 
-trait Drop { fn drop(self: Self); }
-
 struct Foo { s: String }
-impl Drop for Foo { fn drop(self: Foo) {} }
+impl Drop for Foo { fn drop(self: &mut Self) {} }
 
 fn test_inline_replacement() -> bool {
     let mut f = Foo { s: String::from("foo") };

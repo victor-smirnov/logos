@@ -1,0 +1,34 @@
+// SOUNDNESS QUEUE row stdlib_drop_uninhabited_enum_byvalue_consumer (tier 3). An
+// UNINHABITED enum with an `impl Drop` and a by-value consumer fn is legal Rust —
+// upstream tests/ui/drop/drop-uninhabited-enum.rs is `//@ run-pass` and is this
+// program token for token. TODAY logosc refuses it, and not with a diagnostic:
+//   error: 'func.call' op operand type mismatch: expected operand type '!llvm.ptr',
+//          but provided 'i32' for operand number 0
+//   mlir_gen: module verification failed
+// Same family as fatslice_field_match_binder_invalid_mlir: an invalid module, not a
+// judgment.
+//
+// ⚠ WHAT MAKES THIS A ROW RATHER THAN A CURIOSITY — THE ONE-VARIABLE CONTROL. Write
+// `trait Drop { fn drop(self: Self); }` in this file and change the receiver to
+// `fn drop(self: Foo)`, and the SAME program compiles rc 0. The only difference is
+// WHICH `Drop` the impl binds. So the mechanism a user actually gets is broken here
+// and the local by-value trait the corpus used to declare hid it. Found 2026-09-10
+// by converting tests/imported/pass/drop/drop-uninhabited-enum-b154 off the local
+// trait; that fixture is the ONE file of 126 the conversion could not carry, and it
+// is left declaring its own `trait Drop` until this row closes.
+//
+// BOTH HALVES ARE LOAD-BEARING, measured: delete `fn foo` and it compiles clean;
+// give `Foo` a variant (`enum Foo { A(i64) }`) and it compiles clean. Only the pair
+// of an uninhabited enum and a by-value consumer reaches the bad lowering.
+// Rust: exit 0.
+package stdlib_drop_uninhabited_enum_byvalue_consumer;
+
+enum Foo {}
+
+impl Drop for Foo {
+    fn drop(self: &mut Self) {}
+}
+
+fn foo(x: Foo) {}
+
+fn main() -> i32 { return 0i32; }

@@ -17,7 +17,6 @@ struct Outer { inner: Inner }
 impl Deref<Inner> for Outer { fn deref(&self) -> &Inner { return &self.inner; } }
 
 // --- drop-count helpers for escaping-env-owns-captures ---
-trait Drop { fn drop(self: &mut Self); }
 struct Owner { i: *mut i64 }
 impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
 

@@ -20,14 +20,12 @@ package temp_scope_extend_vs_argument;
 
 static mut DROPS: i32 = 0i32;
 
-trait Drop { fn drop(self: Self); }
-
 struct R {
     id: i32,
 }
 
 impl Drop for R {
-    fn drop(self: R) {
+    fn drop(self: &mut Self) {
         unsafe {
             DROPS = DROPS + 1i32;
         }

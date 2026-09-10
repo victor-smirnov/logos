@@ -6,9 +6,8 @@
 package patparammut_fn_tuple_movetype;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
-trait Drop { fn drop(self: Self); }
 struct D { v: i64 }
-impl Drop for D { fn drop(self: D) { printi("d%d ", self.v as i32); } }
+impl Drop for D { fn drop(self: &mut Self) { printi("d%d ", self.v as i32); } }
 fn probe((mut a, b): (D, D)) -> i64 {
     a.v = a.v + 1i64;
     return a.v + b.v;

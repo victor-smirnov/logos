@@ -13,12 +13,10 @@ package drop_glue_three_levels;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
-trait Drop { fn drop(self: Self); }
-
 struct A { id: i32, }
 
 impl Drop for A {
-    fn drop(self: A) { printi("a%d ", self.id); }
+    fn drop(self: &mut Self) { printi("a%d ", self.id); }
 }
 
 // B has explicit Drop and a droppable field A
@@ -28,7 +26,7 @@ struct B {
 }
 
 impl Drop for B {
-    fn drop(self: B) { printi("b%d ", self.tag); }
+    fn drop(self: &mut Self) { printi("b%d ", self.tag); }
 }
 
 // C has NO explicit Drop but has droppable field B — drop glue fires

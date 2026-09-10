@@ -6,8 +6,6 @@ extern fn free(p: *mut u8);
 fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
 fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
 
-trait Drop { fn drop(self: Self); }
-
 /// #121-A — TWO ORACLES, AND THE PAYLOAD IS CHOSEN SO THAT BOTH CAN SEE.
 ///
 /// Oracle 1 is the destructor COUNT against values created: every line below
@@ -25,7 +23,7 @@ trait Drop { fn drop(self: Self); }
 /// `definitely lost` and a doubled drop into `Invalid free` — two directions,
 /// one instrument, independent of the printing.
 struct Pay { n: i64, b: *mut u8 }
-impl Drop for Pay { fn drop(self: Pay) { pr("D%ld ", self.n); unsafe { free(self.b); } } }
+impl Drop for Pay { fn drop(self: &mut Self) { pr("D%ld ", self.n); unsafe { free(self.b); } } }
 fn mk(n: i64) -> Pay { pr("M%ld ", n); unsafe { return Pay { n: n, b: malloc(64u64) }; } }
 fn consume(p: Pay) -> i64 { return p.n; }
 

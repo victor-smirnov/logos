@@ -7,7 +7,6 @@
 // marked moved BEFORE arm lowering, so collect_all_drops there skips it).
 package enum_payload_drop;
 
-trait Drop { fn drop(self: &mut Self); }
 struct R { i: *mut i64 }
 impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
 fn mk(i: *mut i64) -> R { return R { i: i }; }

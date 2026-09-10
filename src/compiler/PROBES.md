@@ -34407,3 +34407,113 @@ The version string is `...20260910T082726Z` on both sides of this revert, which
 is what says no reconfigure happened and therefore that §8's mechanism was not
 in play. Recorded because a wrong attribution to a known bug is worse than no
 attribution: it makes the bug look bigger than the measurement supports.
+
+---
+
+# 2026-09-10b — THE DESTRUCTOR TRAIT IS CHOSEN BY NAME. THE CORPUS THAT HID IT IS CONVERTED FIRST.
+
+Subject: `impl Drop for T` binds whatever trait is *spelled* `Drop`, so 126 of
+the tree's 590 `impl Drop` files declared their own `trait Drop` and exercised a
+mechanism no user gets. This round is the CORPUS half, on the UNMODIFIED
+compiler, exactly as the order requires.
+
+## 1. THE MECHANISM, RE-MEASURED, PLUS TWO SHAPES THE PRICING PHASE DID NOT USE
+
+The handed-down report's shapes A–K all reproduce. Two more, mine:
+
+  * `struct Cell<T>` with a local by-value `trait Drop` and `impl<T> Drop for
+    Cell<T>` — glue runs for BOTH instantiations (counter 2). The selector is not
+    defeated by genericity.
+  * `trait Drop<T> { fn drop(self: Self, t: T); }` with `impl Drop<i64> for N` —
+    glue does NOT run (counter 0). So the selector wants the trait spelled
+    `Drop`, the method spelled `drop`, AND arity 1; a type-parameterised `Drop`
+    falls out with the arity, not with the name.
+
+Root, unchanged and in the open: `sema_collect.cpp` `collect_impl`'s
+`builtin_marker_` (any package's `trait Drop` is merged into the lang item and
+skips the `traits_` existence check), `sema.cpp` `drop_fn_for`'s `is_drop_impl_`
+(`c->trait_name == "Drop"`), and `sema_expr.cpp` `explicit_destructor_call` —
+which is already package-aware and in the OPPOSITE direction: it DISARMS E0040
+whenever a non-`logos.lang.drop` `Drop` exists. The qualifier the fix needs is
+already computed on `SemaTraitInfo`; `SemaFuncInfo` does not carry it.
+
+## 2. THE CORRECTION THAT CHANGES WHAT THE ROUND LANDS — E0509 IS NOT RETIRED
+
+The handed-down report called the two drop-body E0509 fixtures a coverage
+decision with an owner: under `&mut Self` the move is refused earlier (E0507) and
+"the E0509 arm is never reached". The refusal reproduces. **The conclusion does
+not.** Rust does the same thing, and the upstream `.stderr` is on this box:
+`borrowck-describe-field-generic-param-owned-box` (rust-lang/rust @ da5114692c9,
+ui/borrowck) moves `self.0` inside a `fn drop(&mut self)` body and rustc says
+`error[E0507]: cannot move out of `self.0` which is behind a mutable reference`.
+That same file declares `#[lang = "drop"] pub trait Drop { fn drop(&mut self); }`
+— `Drop` is a LANG ITEM upstream, chosen by attribute, never by name.
+
+So E0509-in-a-drop-body was reachable in Logos **only because of the by-value
+receiver, which is the defect**. The instrument was measuring the defect. E0509's
+Rust-canonical carrier is the move-out-of-a-`Drop`-type pattern binding
+(upstream `disallowed-deconstructing-destructing-struct-match`), which this tree
+produces today against the stdlib `Drop` — verified by hand on four shapes
+(named struct field, enum payload, `String` fields, a temporary receiver) — and
+which TEN fixtures still pin. The two files are therefore renamed `_e0509` →
+`_e0507` with their pass halves, headers rewritten, `.expected` repinned. **A
+name is a claim**; leaving `_e0509` on a fixture pinning E0507 is the
+self-invalidating-label defect this tree has already paid for.
+
+## 3. WHAT ELSE IN THE HANDED-DOWN REPORT DID NOT SURVIVE RE-MEASUREMENT
+
+  * "**seven** stderr triples moved". Only **THREE** `.expected` files actually
+    stop matching. Four of the five claimed "line-number shifts" do not pin a
+    line number at all, so ctest never sees them; one does
+    (`cond_move_glue_name_move_fail`, 17 → 16). A stderr SHA moving is not a
+    fixture moving — rule 15 read in the other direction.
+  * "`stmt_expr_temp_drop` and `item_5` are refused by the landed receiver
+    arm". **False.** Both convert mechanically and compile clean. They are IN the
+    landed prefix, which is 123 files, not 119.
+  * "`intrinsic_2` is a mover". It is not. It fails only under a hand invocation
+    that omits ctest's `-I` flags; `logos_25_spec_pass_intrinsic_2` passes on
+    both binaries. My own harness was the defect — a refusal count read as a
+    count again.
+  * The census is 590 / 126 / 6 explicit-import, not 588 / 125 / 4.
+
+## 4. WHAT IS DECLINED, BY NAME, WITH THE NUMBER
+
+**THREE of 126 are not converted, and none of the three is a chore.**
+
+  * `tests/imported/pass/drop/drop-uninhabited-enum-b154` — **1 file, blocked by
+    a compiler defect this conversion FOUND.** Converted, it fails MLIR
+    verification. That is now soundness-queue row
+    `stdlib_drop_uninhabited_enum_byvalue_consumer` (tier 3, `refuses`); the
+    fixture is left declaring its own `trait Drop` until the row closes, and the
+    row's program says so. This is the prompt's thesis MEASURED rather than
+    argued: the corpus exercises a path that works while the shipped mechanism is
+    broken underneath it.
+  * `tests/logos/pass/bc_dropcall_user_trait_method`, `…_path` — **2 files, a
+    corpus decision with an owner.** Their headers say "LEGAL: a user `trait
+    Drop` shadows the prelude's". Under the standing rule that sentence is false
+    about Rust — `Drop` is a lang item, a user trait named `Drop` shadows nothing
+    — so these are pass fixtures ASSERTING the defect. **Reported, not edited.**
+    They must become the pins for the repaired behaviour when the arm lands.
+
+## 5. THE TWO BODY CHANGES, AND WHY EACH IS A RE-PORT TOWARDS THE ORIGINAL
+
+121 of the 123 are signature-only (36 delete one line; 85 delete one line and
+rewrite the receiver). Two needed the body:
+
+  * `drop-trait-enum-b154` — `match self` with `self: &mut Self` binds the
+    payload by reference, so the deref depth changes: `*c = *c + 1i64` becomes
+    `**c = **c + 1i64`. Same counts (1 and 101).
+  * `issue-3220-consume-self-drop-is` — its `Thing::f` body called `self.drop()`,
+    which is E0040 against the lang item and compiled only because the local
+    by-value trait DISARMS E0040. Upstream's body is EMPTY (`pub fn f(self) {}`)
+    and the count comes from the scope-exit glue. Deleting the line is a re-port
+    towards the original, not a repair of the fixture.
+
+## 6. WHY THIS COMMIT IS THE ONE THAT MAKES THE CORPUS AN ORACLE
+
+The 126 include the tree's destructor-COUNT fixtures — the only instruments that
+can tell a leak from a double free, since an exit code sees neither. Before this
+commit every one of them counted destructors driven by a trait declared in its
+own file. After it they count the destructors a user gets. Nothing about the
+compiler changed, which is the point: the arm that follows cannot hide a corpus
+repair inside its own cost.

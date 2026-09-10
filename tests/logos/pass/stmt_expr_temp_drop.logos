@@ -1,10 +1,8 @@
 package stmt_expr_temp_drop;
 
-trait Drop { fn drop(self: &Self); }
-
 struct Noisy { cell: *mut i64 }
 impl Drop for Noisy {
-    fn drop(self: &Self) {
+    fn drop(self: &mut Self) {
         unsafe { *self.cell = *self.cell + 1i64; }
     }
 }

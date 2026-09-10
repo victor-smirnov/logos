@@ -28,7 +28,6 @@ use logos.lang.str;
 
 struct S { v: i64 }                                  // move (non-Copy) payload
 
-trait Drop { fn drop(self: &mut Self); }
 struct Own { tag: i64, c: *mut i64 }
 impl Drop for Own { fn drop(self: &mut Self) { unsafe { *self.c += 1i64; } } }
 

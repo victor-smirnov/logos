@@ -19,13 +19,11 @@
 // assertion is upstream's own: log == 12.
 package field_destruction_order_b136;
 
-trait Drop { fn drop(self: Self); }
-
 struct A { log: *mut i64 }
 struct B { log: *mut i64 }
 
-impl Drop for A { fn drop(self: A) { unsafe { *self.log = *self.log * 10i64 + 1i64; } } }
-impl Drop for B { fn drop(self: B) { unsafe { *self.log = *self.log * 10i64 + 2i64; } } }
+impl Drop for A { fn drop(self: &mut Self) { unsafe { *self.log = *self.log * 10i64 + 1i64; } } }
+impl Drop for B { fn drop(self: &mut Self) { unsafe { *self.log = *self.log * 10i64 + 2i64; } } }
 
 struct C { a: A, b: B }
 

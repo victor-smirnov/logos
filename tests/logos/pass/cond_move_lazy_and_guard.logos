@@ -4,14 +4,12 @@ extern fn fflush(f: *mut u8) -> i32;
 fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
 fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
 
-trait Drop { fn drop(self: Self); }
-
 /// HEAP-OWNING payload — the oracle is a destructor COUNT. One of the cells
 /// below (`gfail`) was a LIVE ABORT (`free(): double free detected in tcache
 /// 2`, rc 134) and the rest were silent leaks at rc 0; a printing-only payload
 /// answers neither direction reliably.
 struct Pay { n: i64, v: Vec<i64> }
-impl Drop for Pay { fn drop(self: Pay) { pr("D%ld ", self.n); } }
+impl Drop for Pay { fn drop(self: &mut Self) { pr("D%ld ", self.n); } }
 fn mk(n: i64) -> Pay {
     let mut v: Vec<i64> = Vec::new();
     v.push(n);

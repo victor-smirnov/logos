@@ -5558,10 +5558,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   that stopped existing because their programs became fail fixtures.
 #   The three pairs (a fail half pinning the sentence in full, a pass half ONE
 #   TOKEN apart that RUNS and asserts a destructor count):
-#   tests/logos/fail/drop_body_moves_own_field_e0509.logos with
-#   tests/logos/pass/drop_body_moves_own_field_e0509_ok.logos;
-#   tests/logos/fail/drop_body_conditional_move_e0509.logos with
-#   tests/logos/pass/drop_body_conditional_move_e0509_ok.logos;
+#   tests/logos/fail/drop_body_moves_own_field_e0507.logos with
+#   tests/logos/pass/drop_body_moves_own_field_e0507_ok.logos;
+#   tests/logos/fail/drop_body_conditional_move_e0507.logos with
+#   tests/logos/pass/drop_body_conditional_move_e0507_ok.logos;
+#   ⚠ RENAMED `_e0509` -> `_e0507` on 2026-09-10, when the corpus was converted
+#   off the local by-value `trait Drop` onto the stdlib lang item. The SUBJECT is
+#   unchanged — a `Drop::drop` body may not move a field of `self` out — but with
+#   the canonical `&mut Self` receiver the move is refused for the REFERENCE, and
+#   that is E0507, exactly as rustc's own `.stderr` for the upstream ui test
+#   `borrowck-describe-field-generic-param-owned-box` says inside a
+#   `fn drop(&mut self)` body (rust-lang/rust @ da5114692c9, ui/borrowck; it is
+#   UPSTREAM, not a path in this tree). The pair count and the file count are
+#   unmoved; only the four names are. E0509 keeps its ten other carriers.
 #   tests/logos/fail/letstruct_destructure_drop_owner_e0509.logos with
 #   tests/logos/pass/letstruct_destructure_drop_owner_e0509_ok.logos.
 #   The six that left the admit shelf, each now an imported FAIL fixture with its

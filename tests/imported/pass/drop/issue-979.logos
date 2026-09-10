@@ -9,14 +9,12 @@
 // instead); `assert_eq!`→return-code check; `pub fn main()`→`fn main()->i32`.
 package m_drop_issue_979;
 
-trait Drop { fn drop(self: Self); }
-
 struct R {
     b: *mut i64,
 }
 
 impl Drop for R {
-    fn drop(self: R) {
+    fn drop(self: &mut Self) {
         unsafe { *self.b = *self.b + 1i64; }
     }
 }

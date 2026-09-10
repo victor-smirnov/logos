@@ -11,10 +11,8 @@
 // G158-4 — array-element Drop glue (closed 2026-05-23, 449a5421).
 package zero_size_type_destructors_b158;
 
-trait Drop { fn drop(self: Self); }
-
 struct Foo { c: *mut i64 }
-impl Drop for Foo { fn drop(self: Foo) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for Foo { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
 
 fn foo(c: *mut i64) {
     let _x = [Foo { c: c }, Foo { c: c }, Foo { c: c }];

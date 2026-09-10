@@ -9,7 +9,6 @@ package drop_ident_other_trait_named_drop;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 static mut I: i64 = 0i64;
-trait Drop { fn drop(self: &mut Self); }
 struct S { k: i64 }
 impl Drop for S { fn drop(self: &mut Self) { unsafe { I = I + 1i64; } } }
 fn main() -> i32 {

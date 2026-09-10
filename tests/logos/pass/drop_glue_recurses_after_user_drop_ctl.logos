@@ -22,10 +22,8 @@ package drop_glue_recurses_after_user_drop_ctl;
 extern fn malloc(n: i64) -> *mut u8;
 extern fn printf(f: *const u8, a: i64) -> i32;
 
-trait Drop { fn drop(self: Self); }
-
 struct Noisy { n: i64, c: *mut i64 }
-impl Drop for Noisy { fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
+impl Drop for Noisy { fn drop(self: &mut Self) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
 
 struct Pay { n: i64, inner: Noisy }
 // THE ONE TOKEN: `impl Drop for Pay` is ABSENT here. A drop-LESS owner always

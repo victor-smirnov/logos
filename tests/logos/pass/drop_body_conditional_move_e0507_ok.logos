@@ -1,21 +1,20 @@
 // THE PASS HALF of the conditional-move pair. One token from
-// tests/logos/fail/drop_body_conditional_move_e0509: the move statement inside
+// tests/logos/fail/drop_body_conditional_move_e0507: the move statement inside
 // the `if` is gone. The guard shape itself is legal; only taking the field away
 // from the destructor is not.
 //
 // BOTH PATHS ARE RUN and both are counted, because the defect this pair closed
 // was wrong on the path where the move never executed. Want 7 each; a LEAK
 // reads 0 and a DOUBLE FREE 14.
-package drop_body_conditional_move_e0509_ok;
+package drop_body_conditional_move_e0507_ok;
 extern fn malloc(n: i64) -> *mut u8;
 extern fn printf(f: *const u8, a: i64) -> i32;
 
-trait Drop { fn drop(self: Self); }
 struct N { w: i64, c: *mut i64 }
-impl Drop for N { fn drop(self: N) { unsafe { self.c[0] = self.c[0] + self.w; } } }
+impl Drop for N { fn drop(self: &mut Self) { unsafe { self.c[0] = self.c[0] + self.w; } } }
 
 struct G { armed: bool, f: N }
-impl Drop for G { fn drop(self: G) { if self.armed { } } }
+impl Drop for G { fn drop(self: &mut Self) { if self.armed { } } }
 
 unsafe fn main() -> i32 {
     let c: *mut i64 = malloc(8) as *mut i64;

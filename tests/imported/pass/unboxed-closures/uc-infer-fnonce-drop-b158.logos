@@ -8,8 +8,6 @@
 //   called once — the captured value's destructor runs exactly once.
 package uc_infer_fnonce_drop_b158;
 
-trait Drop { fn drop(self: &mut Self); }
-
 struct DropMe { c: *mut i64 }
 impl Drop for DropMe {
     fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } }

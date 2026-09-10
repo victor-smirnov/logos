@@ -7,13 +7,12 @@ package item_5;
 // run and are reported untestable below.
 
 // ── Drop side-effect channel: a static mut counter ─────────────────────────
-trait Drop { fn drop(self: &Self); }
 
 static mut DROPS: i64 = 0i64;
 
 struct Move { tag: i64 }
 impl Drop for Move {
-    fn drop(self: &Self) {
+    fn drop(self: &mut Self) {
         unsafe { DROPS = DROPS + 1i64; }
     }
 }
@@ -67,7 +66,7 @@ struct TPair(i64, i64);
 // ── #[no_auto_drop]: ManuallyDrop shape — no compiler-emitted Drop ─────────
 struct Manual { tag: i64 }
 impl Drop for Manual {
-    fn drop(self: &Self) {
+    fn drop(self: &mut Self) {
         unsafe { DROPS = DROPS + 1000i64; }
     }
 }

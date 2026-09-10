@@ -1593,7 +1593,8 @@ PIN = {
     # 2944 = 191 + 2753.  (The two extra 09-08g files are FAIL fixtures and are
     # not in this population.) The three 09-08g files are the PASS halves of the three
     # E0509 pairs (drop_body_moves_own_field_e0509_ok,
-    # drop_body_conditional_move_e0509_ok,
+    # drop_body_conditional_move_e0509_ok,   -- both renamed to `_e0507_ok`
+    # on 2026-09-10 by the stdlib-Drop corpus conversion; the count is unmoved,
     # letstruct_destructure_drop_owner_e0509_ok); their FAIL halves live under
     # tests/logos/fail/ and are not in this population.
     # The EIGHT fixtures that moved before them, all nonglob:

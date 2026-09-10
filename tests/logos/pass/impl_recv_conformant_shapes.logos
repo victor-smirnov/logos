@@ -57,9 +57,8 @@ struct E { v: i64 }
 impl Eat for E { fn eat(self: E) -> i64 { return self.v; } }
 
 // 7 — a LOCAL `trait Drop` declaring the by-value receiver.
-trait Drop { fn drop(self: Self); }
 struct F { c: *mut i64 }
-impl Drop for F { fn drop(self: F) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for F { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
 
 fn main() -> i32 {
     let mut b: B = B { v: 1i64 };

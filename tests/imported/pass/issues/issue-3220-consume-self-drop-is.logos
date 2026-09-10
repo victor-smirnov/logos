@@ -6,19 +6,19 @@
 // idiom, since `&mut self` Drop fires no glue).
 package issue_3220_consume_self_drop_is;
 
-trait Drop { fn drop(self: Self); }
-
 struct Thing { x: i64, ctr: *mut i64 }
 
 impl Drop for Thing {
-    fn drop(self: Thing) {
+    fn drop(self: &mut Self) {
         unsafe { *self.ctr = *self.ctr + 1i64; }
     }
 }
 
 impl Thing {
+    // Upstream's body is EMPTY (`pub fn f(self) {}`); the count comes from the
+    // scope-exit glue on the by-value `self`. The port had added `self.drop()`,
+    // which only compiled because a local by-value `trait Drop` disarms E0040.
     fn f(self: Thing) {
-        self.drop();
     }
 }
 

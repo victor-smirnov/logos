@@ -5,10 +5,8 @@
 // caller's binding goes out of scope (counter 1). By-value Drop idiom.
 package m_drop_returned_value_not_in_fn;
 
-trait Drop { fn drop(self: Self); }
-
 struct G { c: *mut i64 }
-impl Drop for G { fn drop(self: G) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for G { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
 
 fn make(c: *mut i64) -> G {
     let g = G { c: c };

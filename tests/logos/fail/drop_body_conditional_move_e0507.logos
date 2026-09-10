@@ -1,8 +1,19 @@
-// E0509 AT A CONDITIONAL MOVE — the `if` does not make it legal, and that is
+// E0507 — A `Drop::drop` BODY MAY NOT MOVE A FIELD OF `self` OUT.
+// ⚠ RENAMED FROM `_e0509` 2026-09-10 WITH THE STDLIB-`Drop` CORPUS CONVERSION,
+//   AND THE NEW CODE IS THE RUST-CANONICAL ONE. The subject is unchanged. This
+//   file used to declare its own by-value `trait Drop { fn drop(self: Self); }`;
+//   it now binds the stdlib lang item, whose receiver is `&mut Self`, so the move
+//   is refused for the REFERENCE and never reaches the E0509 arm. That is exactly
+//   what rustc does: tests/ui/borrowck/borrowck-describe-field-generic-param-owned-box
+//   moves `self.0` inside a `fn drop(&mut self)` body and its `.stderr` reads
+//   `error[E0507]: cannot move out of `self.0` which is behind a mutable reference`.
+//   E0509 is NOT lost: its Rust-canonical carrier is the move-out-of-a-Drop-type
+//   pattern binding (upstream disallowed-deconstructing-destructing-struct-match),
+//   and TEN fixtures in this tree still pin that sentence.
 // the point. `@rule intrinsic.drop.move-out-of-drop-type-refused`.
 //
 // FAIL half of a pair. The pass half,
-// tests/logos/pass/drop_body_conditional_move_e0509_ok, is the SAME program
+// tests/logos/pass/drop_body_conditional_move_e0507_ok, is the SAME program
 // with the move statement DELETED (`if self.armed { }`), and it runs.
 //
 // Was soundness_queue row `drop_body_conditional_move_double_drops_both_paths`
@@ -18,15 +29,14 @@
 // was written exactly like this, and was repaired the same day with Rust's
 // escape hatch (`ManuallyDrop<F>` + `ptr::read`) — see
 // tests/logos/pass/drop_guard_instantiated.
-package drop_body_conditional_move_e0509;
+package drop_body_conditional_move_e0507;
 extern fn malloc(n: i64) -> *mut u8;
 
-trait Drop { fn drop(self: Self); }
 struct N { w: i64, c: *mut i64 }
-impl Drop for N { fn drop(self: N) { unsafe { self.c[0] = self.c[0] + self.w; } } }
+impl Drop for N { fn drop(self: &mut Self) { unsafe { self.c[0] = self.c[0] + self.w; } } }
 
 struct G { armed: bool, f: N }
-impl Drop for G { fn drop(self: G) { if self.armed { let q: N = self.f; } } }
+impl Drop for G { fn drop(self: &mut Self) { if self.armed { let q: N = self.f; } } }
 
 unsafe fn main() -> i32 {
     let c: *mut i64 = malloc(8) as *mut i64;

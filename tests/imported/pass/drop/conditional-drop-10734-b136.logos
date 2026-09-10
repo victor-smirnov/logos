@@ -10,10 +10,8 @@
 // bare `{ expr }` block.
 package conditional_drop_10734_b136;
 
-trait Drop { fn drop(self: Self); }
-
 struct Foo { c: *mut i64 }
-impl Drop for Foo { fn drop(self: Foo) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for Foo { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
 
 fn main() -> i32 {
     let mut counter: i64 = 0i64;

@@ -9,17 +9,13 @@
 //   first => digits read 321).
 package drop_order_locals_b162;
 
-trait Drop {
-    fn drop(self: Self);
-}
-
 struct Marker {
     id: i64,
     c: *mut i64,
 }
 
 impl Drop for Marker {
-    fn drop(self: Marker) {
+    fn drop(self: &mut Self) {
         unsafe { *self.c = *self.c * 10i64 + self.id; }
     }
 }

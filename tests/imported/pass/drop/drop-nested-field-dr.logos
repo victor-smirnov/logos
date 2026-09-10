@@ -5,13 +5,11 @@
 // via a shared `*mut i64`: outer adds 100, inner adds 1 ⇒ 101. By-value Drop idiom.
 package m_drop_nested_field;
 
-trait Drop { fn drop(self: Self); }
-
 struct Inner { c: *mut i64 }
-impl Drop for Inner { fn drop(self: Inner) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for Inner { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
 
 struct Outer { inner: Inner }
-impl Drop for Outer { fn drop(self: Outer) { unsafe { *self.inner.c = *self.inner.c + 100i64; } } }
+impl Drop for Outer { fn drop(self: &mut Self) { unsafe { *self.inner.c = *self.inner.c + 100i64; } } }
 
 fn main() -> i32 {
     let mut counter: i64 = 0i64;

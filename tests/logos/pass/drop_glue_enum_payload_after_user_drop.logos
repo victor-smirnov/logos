@@ -19,12 +19,11 @@ package drop_glue_enum_payload_after_user_drop;
 extern fn malloc(n: i64) -> *mut u8;
 extern fn printf(f: *const u8, a: i64) -> i32;
 
-trait Drop { fn drop(self: Self); }
 struct Noisy { n: i64, c: *mut i64 }
-impl Drop for Noisy { fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
+impl Drop for Noisy { fn drop(self: &mut Self) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
 
 enum E { V(Noisy), N }
-impl Drop for E { fn drop(self: E) { } }
+impl Drop for E { fn drop(self: &mut Self) { } }
 
 struct Owner { e: E }
 

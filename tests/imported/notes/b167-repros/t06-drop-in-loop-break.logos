@@ -11,10 +11,8 @@
 //   Drop × loop/break.
 package t06_drop_loop_break;
 
-trait Drop { fn drop(self: Self); }
-
 struct Guard { c: *mut i64 }
-impl Drop for Guard { fn drop(self: Guard) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for Guard { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
 
 fn main() -> i32 {
     let mut counter: i64 = 0i64;

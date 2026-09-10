@@ -7,10 +7,8 @@
 // Tests that `let _ = e;` (binding to `_`) runs e's destructor at end of statement.
 package issue_2735_2_b154;
 
-trait Drop { fn drop(self: Self); }
-
 struct Defer { b: *mut i64 }
-impl Drop for Defer { fn drop(self: Defer) { unsafe { *self.b = 1i64; } } }
+impl Drop for Defer { fn drop(self: &mut Self) { unsafe { *self.b = 1i64; } } }
 
 fn defer(b: *mut i64) -> Defer { return Defer { b: b }; }
 

@@ -14,15 +14,13 @@
 // `pub fn main()`→`fn main()->i32`.
 package m_drop_destructor_run_for_let_ignore;
 
-trait Drop { fn drop(self: Self); }
-
 struct Foo { c: *mut i64 }
 struct Bar { c: *mut i64, x: i64 }
 struct Baz { c: *mut i64, f0: i64 }
 
-impl Drop for Foo { fn drop(self: Foo) { unsafe { *self.c = *self.c + 1i64; } } }
-impl Drop for Bar { fn drop(self: Bar) { unsafe { *self.c = *self.c + 1i64; } } }
-impl Drop for Baz { fn drop(self: Baz) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for Foo { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for Bar { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for Baz { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
 
 fn main() -> i32 {
     let mut counter: i64 = 0i64;

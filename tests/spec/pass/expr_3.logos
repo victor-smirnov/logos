@@ -6,7 +6,6 @@ use logos.mem.string;
 
 // Drop probe: increments a shared counter through a raw pointer, so the number
 // and order of destructor runs is observable from main.
-trait Drop { fn drop(self: &mut Self); }
 
 struct R { i: *mut i64 }
 impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }

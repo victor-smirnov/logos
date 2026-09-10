@@ -5,9 +5,8 @@
 //   (the destructor still runs at scope exit and writes through the pointer).
 // Tests that a struct's Drop destructor runs when the value goes out of scope.
 package newtype_struct_drop_run;
-trait Drop { fn drop(self: Self); }
 struct Foo { i: *mut i64 }
-impl Drop for Foo { fn drop(self: Foo) { unsafe { *self.i = 23i64; } } }
+impl Drop for Foo { fn drop(self: &mut Self) { unsafe { *self.i = 23i64; } } }
 fn main() -> i32 {
     let mut cell: i64 = 32i64;
     let p = &mut cell as *mut i64;

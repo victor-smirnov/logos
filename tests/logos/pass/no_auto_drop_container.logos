@@ -7,8 +7,6 @@ extern fn free(p: *mut u8);
 fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
 fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
 
-trait Drop { fn drop(self: Self); }
-
 /// #123 — `#[no_auto_drop]` MEANS THE SAME THING AT EVERY STORAGE SITE.
 ///
 /// The attribute reached ONE of the compiler's drop-glue deciders at a time.
@@ -37,7 +35,7 @@ trait Drop { fn drop(self: Self); }
 /// over-reached is `definitely lost`. The count oracle alone is blind here —
 /// task #133 — because a printing destructor proves a CALL, not a release.
 struct Pay { n: i64, b: *mut u8 }
-impl Drop for Pay { fn drop(self: Pay) { pr("D%ld ", self.n); unsafe { free(self.b); } } }
+impl Drop for Pay { fn drop(self: &mut Self) { pr("D%ld ", self.n); unsafe { free(self.b); } } }
 fn mk(n: i64) -> Pay { pr("M%ld ", n); unsafe { return Pay { n: n, b: malloc(64u64) }; } }
 /// THE HAND RECLAIM. The half of the contract that makes the suppression legal:
 /// a `ManuallyDrop`-shaped value is the CALLER's to destroy.
@@ -52,7 +50,7 @@ struct NAD { p: Pay }
 /// REFUSAL WITNESS, not a release.
 #[no_auto_drop]
 struct NADD { p: Pay }
-impl Drop for NADD { fn drop(self: NADD) { ps("U "); } }
+impl Drop for NADD { fn drop(self: &mut Self) { ps("U "); } }
 
 struct Sib  { n: NAD, real: Pay }     // suppressed field beside a droppable one
 struct Wrap { n: NAD }

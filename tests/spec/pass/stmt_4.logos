@@ -10,8 +10,6 @@ use logos.lang.ops;
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
-trait Drop { fn drop(self: &mut Self); }
-
 // A droppable that records the order in which it is destroyed by writing an
 // increasing tick into a shared cell at *c == its tag, exposing drop ORDER and
 // drop COUNT to the test.

@@ -1,8 +1,7 @@
 package g7_vec_drop_elem;
 use logos.mem.collections.vec;
-trait Drop { fn drop(self: &mut Self); }
 struct Guard { c: *mut i64 }
-impl Drop for Guard { fn drop(self: &mut Guard) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for Guard { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
 fn build(counter: *mut i64) -> i64 {
     let mut v: Vec<Guard> = vec_new::<Guard>();
     v.push(Guard { c: counter });

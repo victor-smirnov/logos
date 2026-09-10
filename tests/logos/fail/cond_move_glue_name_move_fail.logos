@@ -7,9 +7,8 @@ package cond_move_glue_name_move_fail;
 // at rc 0, and the same program with the binding named `zz_9` was refused with
 // the message below. Two abuse directions, one root: the exemption was granted
 // on evidence the attacker writes.
-trait Drop { fn drop(self: Self); }
 struct Pay { n: i64 }
-impl Drop for Pay { fn drop(self: Pay) { } }
+impl Drop for Pay { fn drop(self: &mut Self) { } }
 struct H { p: Pay }
 fn eatH(x: H) -> i64 { return x.p.n; }
 fn f() -> i64 {

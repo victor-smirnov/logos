@@ -10,8 +10,6 @@
 // top level; assert → ret sentinel.
 package init_res_into_things_b156;
 
-trait Drop { fn drop(self: &mut Self); }
-
 struct R { i: *mut i64 }
 impl Drop for R {
     fn drop(self: &mut Self) { unsafe { *self.i = *self.i + 1i64; } }

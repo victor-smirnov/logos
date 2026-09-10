@@ -4,10 +4,8 @@
 // callee, not again in the caller (no double-drop). Counter ends at 1. By-value Drop.
 package m_drop_move_into_fn_once;
 
-trait Drop { fn drop(self: Self); }
-
 struct R { c: *mut i64 }
-impl Drop for R { fn drop(self: R) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } } }
 
 fn consume(r: R) { let _x = r; }
 

@@ -1,7 +1,6 @@
 // Conformance: `let (a,b) = tup;` marks the named source `tup` moved so it is
 // not double-dropped (fixed double-free). Drop counter must read exactly 2.
 package stmt_let_destruct_move;
-trait Drop { fn drop(self: &mut Self); }
 struct Own { i: *mut i64 }
 impl Drop for Own { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
 fn mk(i: *mut i64) -> Own { return Own { i: i }; }

@@ -9,12 +9,10 @@
 // `pub fn main()`→`fn main()->i32`.
 package m_drop_conditional_10734;
 
-trait Drop { fn drop(self: Self); }
-
 struct Foo { c: *mut i64 }
 
 impl Drop for Foo {
-    fn drop(self: Foo) { unsafe { *self.c = *self.c + 1i64; } }
+    fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } }
 }
 
 fn main() -> i32 {

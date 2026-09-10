@@ -4,14 +4,12 @@ extern fn fflush(f: *mut u8) -> i32;
 fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
 fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
 
-trait Drop { fn drop(self: Self); }
-
 /// HEAP-OWNING payload — the oracle is a destructor COUNT. `#[no_auto_drop]`
 /// is a SUPPRESSION, so the two directions here are "0 for the suppressed
 /// value" and "exactly 1 for every value that is not suppressed". A
 /// printing-only payload would answer the first and be blind to the second.
 struct Pay { n: i64, v: Vec<i64> }
-impl Drop for Pay { fn drop(self: Pay) { pr("D%ld ", self.n); } }
+impl Drop for Pay { fn drop(self: &mut Self) { pr("D%ld ", self.n); } }
 fn mk(n: i64) -> Pay {
     let mut v: Vec<i64> = Vec::new();
     v.push(n);
@@ -67,10 +65,10 @@ struct Buf { a: Pay, b: Pay }
 struct IterOk  { buf: Buf, idx: i64 }
 struct IterBad { buf: Buf, idx: i64, tag: Pay }
 impl Drop for IterOk {
-    fn drop(self: IterOk) { pr("i%ld ", self.idx); }
+    fn drop(self: &mut Self) { pr("i%ld ", self.idx); }
 }
 impl Drop for IterBad {
-    fn drop(self: IterBad) { pr("j%ld ", self.idx); }
+    fn drop(self: &mut Self) { pr("j%ld ", self.idx); }
 }
 fn c_iter_ok()  {
     let it: IterOk = IterOk { buf: Buf { a: mk(13), b: mk(14) }, idx: 0i64 };

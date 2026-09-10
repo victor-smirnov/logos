@@ -3,7 +3,6 @@
 // tuple-of-array, array-of-tuple) — via the unified recursive gen_drop_value.
 package array_and_nested_drop;
 
-trait Drop { fn drop(self: &mut Self); }
 struct R { i: *mut i64 }
 impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
 fn mk(i: *mut i64) -> R { return R { i: i }; }

@@ -11,8 +11,6 @@
 // from the base rather than moving the whole base, even for Drop types.
 package m_borrowck_fsu_moves_and_copies;
 
-trait Drop { fn drop(self: Self); }
-
 struct Ncint { v: i64 }
 fn ncint_new(v: i64) -> Ncint { return Ncint { v: v }; }
 
@@ -21,7 +19,7 @@ fn nofoo_new(x: i64, y: i64) -> NoFoo { return NoFoo { copied: x, nocopy: ncint_
 
 struct DropNoFoo { inner: NoFoo }
 fn dropnofoo_new(x: i64, y: i64) -> DropNoFoo { return DropNoFoo { inner: nofoo_new(x, y) }; }
-impl Drop for DropNoFoo { fn drop(self: DropNoFoo) { } }
+impl Drop for DropNoFoo { fn drop(self: &mut Self) { } }
 
 fn test0() -> i32 {
     let f = dropnofoo_new(1i64, 2i64);
