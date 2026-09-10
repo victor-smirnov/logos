@@ -3499,15 +3499,15 @@ An owning trait-object handle (inline {data,vtable} fat pair, e.g. Box&lt;dyn&gt
 
 ### `expr.drop.struct-user-drop-then-fields` — Struct drop: user Drop runs first, then field recursion governed by ownership
 
-Dropping a struct/zoned-struct value first calls its user `impl Drop` (if one exists) which owns the value. A nested (non-top-level) struct then STOPS — the by-value self of the user drop already consumed the fields, so recursing them would double-drop. A top-level owner, or a struct with NO user Drop, recurses its droppable fields in REVERSE declaration order (skipping ref/ptr/non-droppable fields and statically moved-out field paths).
+Dropping a struct/zoned-struct value first calls its user `impl Drop` (if one exists), then recurses its droppable fields — AT EVERY DEPTH. A nested (non-top-level) struct does NOT stop: the drop receiver does not consume the fields, so the owner drops them after the user drop has run. Fields recurse in REVERSE declaration order (skipping ref/ptr/non-droppable fields and statically moved-out field paths).
 
-*Source:* `src/compiler/mlir_gen_stmt.cpp#L880-L920`, `src/compiler/mlir_gen_stmt.cpp#L891-L897`, `src/compiler/mlir_gen_stmt.cpp#L905-L918`
+*Source:* `src/compiler/mlir_gen_stmt.cpp#L1047-L1096`, `src/compiler/mlir_gen_stmt.cpp#L1056-L1059`, `src/compiler/mlir_gen_stmt.cpp#L1368-L1409`
 
 ### `expr.drop.enum-user-drop-then-variant` — Enum drop: user Drop runs first, else variant-switched payload recursion
 
-Dropping an enum value first calls its user `impl Drop` if a drop symbol actually exists (a by-value self that consumes the payload; nested enums then stop). Absent a real user Drop, drop switches on the loaded discriminant and, for each variant carrying a droppable payload field, recurses into that field. Variants whose payload needs no drop emit no work; a wholly drop-less enum drops nothing.
+Dropping an enum value first calls its user `impl Drop` if a drop symbol actually exists, then switches on the loaded discriminant and, for each variant carrying a droppable payload field, recurses into that field — AT EVERY DEPTH. A nested enum does NOT stop: the user drop runs and the payload is still dropped after it. Variants whose payload needs no drop emit no work; a wholly drop-less enum drops nothing.
 
-*Source:* `src/compiler/mlir_gen_stmt.cpp#L939-L983`, `src/compiler/mlir_gen_stmt.cpp#L946-L950`, `src/compiler/mlir_gen_stmt.cpp#L951-L982`
+*Source:* `src/compiler/mlir_gen_stmt.cpp#L1114-L1159`, `src/compiler/mlir_gen_stmt.cpp#L1121-L1126`, `src/compiler/mlir_gen_stmt.cpp#L1137-L1155`
 
 ### `expr.drop.tuple-array-reverse` — Tuple and array element drop in reverse order
 
