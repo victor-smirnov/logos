@@ -1,21 +1,38 @@
 // SOUNDNESS QUEUE row localvec_for_ref_names_stdlib_as_slice (tier 4, `diag`).
 // THE RIGHT VERDICT, THROUGH THE WRONG TYPE, PRINTED AS TWO IDENTICAL STRINGS.
 //
-// FOUND 2026-09-10c. `for x in &v` in src/compiler/sema_stmt.cpp desugars to
-// `v.as_slice()` for any struct whose bare name is `Vec`, then resolves
-// `Vec__as_slice` — the STDLIB one — by name. This package's `Vec` has no
-// `as_slice`, so the refusal is correct; the SENTENCE is not:
+// ⚠ RE-MEASURED AND RE-POINTED 2026-09-10d. The door this row was FILED against
+// is gone and the row is NOT: `sema_stmt.cpp`'s `&Vec<T>` -> `as_slice()`
+// desugar was qualified with `is_stdlib_vec` in that round and no longer fires
+// for a package-local `Vec`. The scrutinee then falls through to the
+// IntoIterator desugar three blocks below, which resolves
+// `find_func_candidates(base + "__into_iter")` where `base` is the BARE struct
+// name — so it finds the stdlib's `ref_Vec__into_iter` for exactly the same
+// reason, and prints exactly the same shape:
 //
-//   error [fn main]: call to 'logos.mem.collections.vec.Vec__as_slice' arg 1:
+//   error [fn main]: call to 'ref_Vec__into_iter' arg 1:
 //   expected &Vec<i64>, got &Vec<i64>
 //
-// It names a stdlib function the program never mentions, and its two type
-// strings are character-identical because neither is package-qualified — the
-// `typestr_minted_alike` shape (tier 4) reached through a different door.
+// The recorded `observed` text is unchanged, which is why the gate stayed green
+// across the repair — that is the row doing its job, not a stale record.
 //
-// FIX = the diagnostic a user can act on: either the coercion/desugar does not
-// fire for a non-stdlib `Vec` (leaving "no method 'as_slice'"/"not iterable"),
-// or the two types print qualified.
+// THE MECHANISM IS NOW NAMED, AND IT IS WIDER THAN THIS ROW'S ORIGINAL SITE.
+// The 2026-09-10d enumeration covered the class "a decision keyed on the bare
+// TYPE name `Vec`" — 11 consumers and 8 producers, all repaired. This row is a
+// TWELFTH member the enumeration could not see, because it contains no `"Vec"`
+// literal at all: the name is CONCATENATED into a method symbol
+// (`base + "__into_iter"`). A sibling door measured the same round:
+// `for x in &mut v` over a package-local `Vec` prints
+// `call to 'logos.mem.collections.vec.Vec__iter_mut' arg 1: expected
+// &mut Vec<i64>, got &mut Vec<i64>`. Both are the same defect as
+// `bug_destructor_keyed_on_mangled_name`: an IMPL is selected by a mangled bare
+// name rather than by the declaration's identity. Fixing it is a change to
+// method-symbol resolution, not another call-site predicate, and that is why
+// this row was NOT bought with the eleven.
+//
+// FIX = the diagnostic a user can act on: either the by-name impl lookup is
+// keyed on the declaration's identity (leaving "no method"/"not iterable"), or
+// the two types print package-qualified.
 package localvec_for_ref_names_stdlib_as_slice;
 
 pub struct Vec<T> {

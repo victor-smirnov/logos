@@ -1,0 +1,23 @@
+// PAIR B, pass half. `for x in &v` desugars to `v.as_slice()` for the STDLIB
+// `logos.mem.collections.vec.Vec` and for nothing else. The module declares a
+// homonym; the loop iterates the STDLIB value. The fail half
+// `vec_pkg_for_ref_local` is this program with the scrutinee switched to the
+// homonym — before 2026-09-10d the desugar fired on the bare NAME, resolved the
+// stdlib `Vec__as_slice` by name and refused with two character-identical type
+// strings, `expected &Vec<i64>, got &Vec<i64>`.
+package vec_pkg_for_ref_stdlib;
+use logos.mem.collections.vec;
+
+pub struct Vec<T> { a: i64, b: i64 }
+
+fn main() -> i32 {
+    let lv: Vec<i64> = Vec { a: 1i64, b: 2i64 };
+    let mut sv = vec_new::<i64>();
+    sv.push(2i64);
+    sv.push(3i64);
+    let mut t: i64 = 0i64;
+    for x in &sv { t = t + *x; }
+    if t != 5i64 { return 1i32; }
+    if lv.b != 2i64 { return 2i32; }
+    return 0i32;
+}

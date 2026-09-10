@@ -1,0 +1,27 @@
+// PAIR A, pass half. `&Vec<T>` -> `&[T]` is a coercion for the STDLIB
+// `logos.mem.collections.vec.Vec` and for nothing else. This module declares a
+// homonym `Vec` of its own AND imports the stdlib one; `total` is handed the
+// STDLIB value. The fail half `vec_pkg_slice_coerce_local` is this program with
+// the argument switched to the local homonym — before 2026-09-10d the coercion
+// was keyed on the bare NAME, so the local one was accepted too, its two i64
+// counters were reinterpreted as {ptr,len} and the program SEGV'd (rc 139).
+package vec_pkg_slice_coerce_stdlib;
+use logos.mem.collections.vec;
+
+pub struct Vec<T> { a: i64, b: i64 }
+
+fn total(s: &[i64]) -> i64 {
+    let mut t: i64 = 0i64;
+    for x in s { t = t + *x; }
+    return t;
+}
+
+fn main() -> i32 {
+    let lv: Vec<i64> = Vec { a: 7i64, b: 3i64 };
+    let mut sv = vec_new::<i64>();
+    sv.push(4i64);
+    sv.push(5i64);
+    if total(&sv) != 9i64 { return 1i32; }
+    if lv.a != 7i64 { return 2i32; }
+    return 0i32;
+}

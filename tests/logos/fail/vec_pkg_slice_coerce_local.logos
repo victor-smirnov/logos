@@ -1,0 +1,26 @@
+// PAIR A, fail half — ONE TOKEN from `vec_pkg_slice_coerce_stdlib`: `&sv`
+// (the stdlib Vec) becomes `&lv` (this package's homonym). A package-local
+// `struct Vec` has no relationship to `logos.mem.collections.vec.Vec` and no
+// coercion to `&[T]`, exactly as a crate-local `Vec` has none to `[T]` in Rust.
+// Soundness-queue row `localvec_ref_coerces_to_slice_admits`, closed
+// 2026-09-10d: this compiled clean and SEGV'd, rc 139.
+package vec_pkg_slice_coerce_local;
+use logos.mem.collections.vec;
+
+pub struct Vec<T> { a: i64, b: i64 }
+
+fn total(s: &[i64]) -> i64 {
+    let mut t: i64 = 0i64;
+    for x in s { t = t + *x; }
+    return t;
+}
+
+fn main() -> i32 {
+    let lv: Vec<i64> = Vec { a: 7i64, b: 3i64 };
+    let mut sv = vec_new::<i64>();
+    sv.push(4i64);
+    sv.push(5i64);
+    if total(&lv) != 9i64 { return 1i32; }
+    if lv.a != 7i64 { return 2i32; }
+    return 0i32;
+}

@@ -35978,3 +35978,281 @@ controls. Nothing available exercises the `pkg.empty()` tolerance at these five
 sites, so it is neither justified nor refuted by measurement — carried because
 `is_stdlib_box`'s own comment gives the reason (internal paths that strip the
 package) and narrowing there is an OVER-REFUSAL.
+
+# 2026-09-10d — THE STDLIB `Vec` WAS DECIDED BY ITS BARE NAME IN BOTH DIRECTIONS, AND THE TWELFTH MEMBER OF THE CLASS IS ONE NEITHER THE CENSUS NOR `dlog` CAN SEE, BECAUSE ITS `Vec` IS CONCATENATED INTO A SYMBOL
+
+base `b7df0866e`, build_hash `f70bdf961b18b9e1 43`.
+
+## 1. STEP 1, RUN AS GIVEN
+
+| measurement | value |
+|---|---|
+| soundness queue gate | **rc 0** — `OK: soundness queue holds — 79 open row(s) ( tier1=19 tier2=10 tier3=42 tier4=8), '# TOTAL' says 79` |
+| `# TOTAL` | soundness_queue **79**, bc_admits **90**, bc_admits_blocked **8** |
+| direct listing | **79** rows |
+| `probe-log-lint.py` | **266** records, every site symbol resolves |
+| `build_hash.py` | `f70bdf961b18b9e1 43` |
+| git | `b7df0866e`, clean |
+
+CORRECTIONS TO THE HANDED-DOWN REPORT, checked against the tree rather than
+copied (rule 17):
+
+* The report says `probe-log-lint` reads 264 and `build_hash` `6f9c16bc77c96dae`
+  and git `827dc89b0`. All three are the PRE-COMMIT numbers of the round that
+  wrote it, which is what it warned about itself. On `b7df0866e` they are 266,
+  `f70bdf961b18b9e1`, `b7df0866e`.
+* The queue is at **79**, not 76 — the three rows the pricing round opened are
+  already in the tree.
+* The STEP-1 gate line carries `LOGOS_LIB_DIR` and ran rc 0 as written. FIFTH
+  consecutive round in which that correction is stale.
+
+## 2. THE CLASS, ENUMERATED BY PROPERTY — AND A NAME IS READ IN TWO DIRECTIONS
+
+Property: **a compiler decision that intends the stdlib container
+`logos.mem.collections.vec.Vec<T>` but is keyed on the BARE STRUCT NAME `Vec`.**
+
+The handed-down list is five sites. The pricing round widened it to eleven by
+per-site read plus `tools/dlog`. Both halves of that enumeration ask the same
+question — *who COMPARES a type's name against `"Vec"`* — and that question has
+a mirror image nobody had asked: *who MINTS a `Vec` type by bare name*. The
+answer is the `key_identity` ledger's own FACT 5, the census of bare entity-name
+ARGUMENTS, which has been in the tree since #106 and reads
+`#ARGSCAN make_generic_struct 8` — and seven of those eight are `"Vec"`.
+
+| half | sites | mechanism |
+|---|---|---|
+| CONSUMERS | **11** | a predicate asks "is this `Vec`?" |
+| PRODUCERS | **8** | the compiler mints a `Vec` and lets `resolve_struct_pkg_` name its package |
+
+CONSUMERS (all repaired): `sema_expr.cpp` 8407, 19028, 19035, 19049, 20067,
+20078, 21727, 22097, 25166; `sema_stmt.cpp` 7614; `sema.cpp` 2322.
+
+PRODUCERS (all repaired): `sema_expr.cpp` 13096, 19636, 19638, 19640, 20438,
+20456, 20492 as `make_generic_struct("Vec", …)`, plus 13084's
+`find_struct_by_name("Vec")` availability probe (left as-is, see §7).
+
+**WHY THE PRODUCER HALF IS THE SAME DEFECT.** `make_generic_struct` with an
+empty `pkg` calls `resolve_struct_pkg_`, and `sema_impl.hpp`'s own comment says
+what that does: *"lookup_qualified_, whose FIRST tier is
+sema_key(cur_package_, name) — the package of the MODULE BEING COMPILED, ahead
+of every import."* That is task #102's documented root, and the fix #102 shipped
+is `synth_owner_pkg_`, a fixed table consulted by `make_synth_*`. `Vec` was not
+in the table.
+
+## 3. COUNTER-EXAMPLES ON THE UNMODIFIED COMPILER, SHAPES THE PRICING PHASE DID NOT USE
+
+The pricing round's nine hand programs are all metaprog-door. These fourteen are
+the three NON-metaprog doors plus their controls: four `Vec` field shapes
+(`{a,b}`, `{head:T,n}`, `{only}`, and the stdlib's own), both reference kinds,
+a homonym-with-import, a generic instantiation, and both producer doors.
+
+| # | shape | base `b7df0866e` | armed |
+|---|---|---|---|
+| k1 | stdlib `&Vec<i64>` -> `&[i64]` | rc 0 | rc 0 — CONTROL |
+| k2 | stdlib `for x in &v` | rc 0 | rc 0 — CONTROL |
+| k3 | stdlib `Vec::get` non-Copy | REFUSED (A16/A17) | REFUSED, **same sentence** — CONTROL |
+| n1 | local `Vec`, Copy elem, own `get` | rc 0 | rc 0 — CONTROL |
+| n6 | local `Vec` through a generic param | refused, correct | unchanged — CONTROL |
+| p1, p1b | `vec![…]` beside a local homonym | rc 0 | rc 0 — CONTROL |
+| p1c, p2c | the same without the homonym | rc 0 | rc 0 — CONTROL |
+| **n2** | homonym import + local, `&v` as `&[i64]` | **rc 139** | refused: `call to 'total' arg 1: expected &[i64], got &Vec<i64>` |
+| **n3** | `&mut v` as `&[i64]` (the MutRef arm) | **rc 139** | refused, same |
+| **n4** | one-field local `Vec` as `&[i64]` | **rc 139** | refused, same |
+| **p2** | list comprehension beside a local homonym | **`error: 'func.call' op 'Vec$G1$i64__push' does not reference a valid function`** — an internal MLIR verification failure, no user diagnostic | **rc 0, RUNS** |
+| **n5** | `for x in &mut v`, local `Vec` | `call to 'logos.mem.collections.vec.Vec__as_slice' arg 1: expected &Vec<i64>, got &mut Vec<i64>` | `call to 'logos.mem.collections.vec.Vec__iter_mut' arg 1: expected &mut Vec<i64>, got &mut Vec<i64>` — **STILL wrong, see §5** |
+
+Every prediction in `PREDICTION.md` held except p2, which is BETTER than
+predicted (a clean run rather than a clean diagnostic), and n5, which did not
+move — the finding of the round.
+
+## 4. THE FIX
+
+One free predicate, `is_stdlib_vec` (`sema_impl.hpp`), the `is_stdlib_box`
+idiom: bare name PLUS `pkg.empty() || pkg == "logos.mem.collections.vec"`. Free
+rather than a class member because one of its eleven call sites is the free
+`types_compatible` in `sema.cpp`. Plus one row in `synth_owner_pkg_`'s table and
+seven `make_generic_struct` -> `make_synth_generic_struct`.
+
+`git diff --numstat`: **4 compiler files, +41/-28.**
+
+⚠ **RULE 9, AND THE TWIN IS STILL UNSEPARATED.** The pricing round measured
+`vecqual` (with the `pkg.empty()` tolerance) against `vecqualx` (without) and
+found them identical digit for digit in every column and on all nine hand
+programs. This round's fourteen do not separate them either. The tolerance is
+carried for `is_stdlib_box`'s stated reason and NOT because anything measured
+justifies it; that is written at the site.
+
+## 5. THE FINDING — A TWELFTH MEMBER, AND NEITHER THE CENSUS NOR `dlog` CAN SEE IT
+
+Row `localvec_for_ref_names_stdlib_as_slice` (tier 4, `diag`, observed
+`expected &Vec<i64>, got &Vec<i64>`) was **NOT closed**, and the gate stayed
+green across the repair — which is the row doing its job.
+
+`sema_stmt.cpp:7614`'s `as_slice` desugar no longer fires for a package-local
+`Vec`. The scrutinee then falls three blocks down to the **IntoIterator**
+desugar, which resolves `find_func_candidates(base + "__into_iter")` where
+`base` is `TypeRef(iter_type).struct_name()` — the BARE NAME. It finds the
+stdlib's `ref_Vec__into_iter` for exactly the same reason, and prints exactly
+the same shape:
+
+    error [fn main]: call to 'ref_Vec__into_iter' arg 1:
+    expected &Vec<i64>, got &Vec<i64>
+
+n5 is its sibling through `Vec__iter_mut`.
+
+**THIS IS WHY BOTH INSTRUMENTS MISSED IT.** The site contains no `"Vec"` literal
+at all: the name is CONCATENATED into a method symbol. `dlog`'s
+`name_intercept` asks about the operands of a `==`/`!=` node — nothing to see.
+`key_identity` FACT 4 matches comparisons and FACT 5 matches literal ARGUMENTS —
+nothing to see. A grep for `"Vec"` — nothing to see. The class was enumerated
+correctly for the question asked, and the question had a third direction:
+**a name COMPARED, a name PASSED, and a name BUILT INTO A KEY.**
+
+It is the same defect as `bug_destructor_keyed_on_mangled_name`: an impl
+selected by a mangled bare name rather than by the declaration's identity.
+Fixing it is a change to method-symbol resolution, not another call-site
+predicate, which is why it was NOT bought with the eleven. The row is **kept and
+RE-POINTED** at the door it now lives behind, with the sibling named.
+
+## 6. ROWS
+
+`# TOTAL` **79 -> 77** on the two closures, then **77 -> 78** on the defect §8
+found; re-derived by direct listing at each step; gate **rc 0**
+(`tier1=19 tier2=9 tier3=42 tier4=8`).
+
+CLOSED, 2:
+
+* **`localvec_ref_coerces_to_slice_admits`** (2, `admits`) — was: compiles clean
+  and SEGVs, rc 139, on `b7df0866e`'s binary. Now refused, diagnostic READ:
+  `call to 'total' arg 1: expected &[i64], got &Vec<i64>`. Pinned by
+  pass/`vec_pkg_slice_coerce_stdlib` + fail/`vec_pkg_slice_coerce_local`, ONE
+  TOKEN apart (`&sv` -> `&lv`; both `Vec`s live in the same module).
+* **`localvec_get_refused_by_stdlib_rule`** (3, `refuses`) — was: a legal
+  program refused with the A16/A17 sentence. Now **compiles, links and RUNS,
+  exit 0**. Pinned by pass/`vec_pkg_get_local_own_method` +
+  fail/`vec_pkg_get_stdlib_noncopy` — and the fail half is the reason the row
+  could not be closed by weakening the rule: the SAME `Own` payload and the SAME
+  `get(0i64)` call through the STDLIB `Vec` still refuses, verbatim.
+
+KEPT: `localvec_for_ref_names_stdlib_as_slice` (§5), re-pointed.
+
+The producer defect measured in §3 (p2) is fixed in the same commit rather than
+filed, and pinned by pass/`vec_pkg_listcomp_local_homonym` +
+fail/`vec_pkg_listcomp_annot_local`, one token apart (the binding gains
+`: Vec<i64>`, which in that module names the package's OWN `Vec`) — and the fail
+half's diagnostic is package-qualified on both sides:
+`type mismatch — expected vec_pkg_listcomp_annot_local.Vec<i64>, got
+logos.mem.collections.vec.Vec<i64>`.
+
+pass/`vec_pkg_for_ref_stdlib` is landed WITHOUT a fail twin, deliberately: its
+twin would have to pin `expected &Vec<i64>, got &Vec<i64>`, which is the defect
+§5 keeps open. A fixture may not ratchet a diagnostic the queue is holding open.
+
+## 7. WHAT WAS LEFT, BY NAME
+
+* **`sema_expr.cpp:13084`, `find_struct_by_name("Vec")`** — the list
+  comprehension's availability probe. Left bare. With the MINT qualified it no
+  longer decides anything: the real requirement is `vec_new`, checked two lines
+  below, and making the probe package-strict would REFUSE a module that both
+  declares a homonym and imports the stdlib — an over-refusal, in the direction
+  this queue prices highest. MEASURED: the stdlib `Vec` is reachable without an
+  explicit `use`, so the probe's error arm is unreachable in this tree anyway.
+* **The `base + "__into_iter"` / `Vec__iter_mut` family** — §5, a row not a fix.
+
+## 8. THE PRODUCER PIN COST TWO WRONG FIXTURES, AND THE SECOND ONE FOUND A THIRD DEFECT
+
+The first draft of the producer pass fixture compiled rc 0 on the CONTROL
+binary — a pass fixture green on the broken compiler and on the fixed one, which
+asserts nothing. Nothing in the harness would have said so: `run_oracle` showed
+the row IDENTICAL in both columns, which reads exactly like "no collateral
+damage". It was written from the counter-example p2, which DOES fail there, and
+differed from it only in its package name and two assertions.
+
+Measured on the reverted compiler over **twelve name/body combinations**:
+
+| package | body | control |
+|---|---|---|
+| `p2_localvec_listcomp` | bare comprehension | **reproduces** |
+| `a`, `b`, `d`, `f` | four bodies | clean |
+| `c`, `e` | `len()` + a local-`Vec` field read | **reproduce** |
+| `vec_pkg_listcomp_local_homonym` | all seven subsets of three assertions | clean, 7/7 |
+| `vec_pkg_listcomp_homonym`, `vec_listcomp_homonym`, `localvec_listcomp`, `vec_pkg_lc` | the `c` body | clean |
+| **`vec_pkg_listcomp`** | the `c` body | **reproduces** |
+
+So the fixture was renamed to `vec_pkg_listcomp` — and on the LANDED binary it
+**still failed**, with the same internal `mlir_gen` message. That is the third
+finding of the round and it is a defect the fix does not reach:
+
+**BOTH `Vec`S MANGLE TO `Vec$G1$i64`.** The producer repair fixes the TYPE's
+identity in sema; mono's symbol stem is still the bare struct name. When a
+module instantiates BOTH its own `Vec<i64>` and the stdlib's, mono clones one
+under that stem and the other's methods are looked up on it. Isolated by
+bisection on the landed binary: the local `Vec<i64>` alone — clean; the
+comprehension alone — clean; **both — `'func.call' op 'Vec$G1$i64__push' does
+not reference a valid function`.**
+
+Filed as **`localvec_mangled_collision_listcomp_internal`** (tier 3, `refuses`),
+`# TOTAL` 77 -> **78**. It is the SAME third direction as §5: a name BUILT INTO
+A KEY. The pass half landed is the shape that does NOT instantiate the local
+`Vec<i64>`, and its header says why, and the queue program's header says that
+renaming it silently retires it.
+
+## 9. EVERY ORACLE, BOTH DIRECTIONS
+
+| oracle | control (reverted, `e8602b52be0f132e`) | landed (`dff89684a1bee6e6`) |
+|---|---|---|
+| soundness queue gate | — | **rc 0**, 78 rows, `# TOTAL` 78 |
+| `test-levels.sh L1` | — | **rc 0**, 803/803, smoke 12 684, **148/148** tier_commit gates |
+| `gate-run.sh -L bc` | build **1022** — 2741 passed / 0 failed / 2 other, 2743 recorded | build **1023** — 2741 passed / **0 failed** / 2 other, 2743 recorded |
+| `test-levels.sh L4 bc` (detached) | — | **rc 0**, build 1023 — 4567 passed / 0 failed; store: 6666 recorded, 0 failed |
+| `run_oracle.py` | 6638 rows | 6638 rows, **2 differ** |
+| `fail_text_oracle.py` (`-L bc -L fail`, 1478) | 1478 rows | **0 rows changed** |
+| `stdlib-cost.sh` | — | rc 0, all four layers compile |
+| full `cmake --build` | rc 0 | rc 0, stdlib + 53 examples |
+
+The two `run_oracle` rows that differ are **both accounted for**:
+`cast-region-to-uint` (the by-name subtraction — it prints a stack address) and
+`vec_pkg_get_local_own_method`, this round's own closed row (`ccrc 1` on the
+control, `0/0` and running on the landed binary). **0 of 6638 collateral.**
+
+⚠ `fail_text_oracle`'s population is `-L bc -L fail`, ANDed — the three new fail
+fixtures are not bc-labelled and are therefore NOT in its 1478. They are
+covered by ctest's own `.expected` match under L4.
+
+## 10. THE CONTROL REVERT
+
+The four compiler files were reverted, rebuilt (rc 0), and the fourteen
+counter-examples re-run: **every verdict reproduced digit for digit**, including
+`rc 139` on n2/n3/n4 and `'func.call' op 'Vec$G1$i64__push' does not reference a
+valid function` on p2. Each fixture was then run against that binary:
+
+| fixture | control | landed |
+|---|---|---|
+| pass/`vec_pkg_slice_coerce_stdlib` | rc 0 | rc 0 — a control, must not move |
+| pass/`vec_pkg_for_ref_stdlib` | rc 0 | rc 0 — a control, must not move |
+| fail/`vec_pkg_get_stdlib_noncopy` | REFUSED | REFUSED, same sentence — the no-weakening pin |
+| **pass/`vec_pkg_get_local_own_method`** | REFUSED | **rc 0, RUNS** |
+| **fail/`vec_pkg_slice_coerce_local`** | compiles clean (then SEGVs) | **REFUSED** |
+| pass/`vec_pkg_listcomp` | (the landed shape; see §8) | rc 0, RUNS |
+| **fail/`vec_pkg_listcomp_annot`** | **compiles clean rc 0** | **REFUSED, package-qualified** |
+
+⚠ **`build_hash.py` DID NOT RETURN TO ITS OWN VALUE AGAIN — SECOND CONSECUTIVE
+ROUND.** Pre-round `f70bdf961b18b9e1 43`; landed `dff89684a1bee6e6`; the
+CONTROL REVERT, with the four compiler files byte-identical to `b7df0866e`,
+reads **`e8602b52be0f132e 43`**, not `f70bdf961b18b9e1`. `827dc89b0`'s round
+recorded the same thing and attributed it to rebuilt stdlib archives. Recorded,
+not diagnosed, and now with two data points: **a build key that cannot come back
+to its own value cannot certify a control revert, which is the one job it has.**
+Restoration is asserted behaviourally instead — every control fixture, both
+oracle columns, the queue gate and L1 — and that is weaker, and is said so here.
+
+## 11. PINS MOVED, WITH THEIR ARITHMETIC
+
+* `key_identity.ledger` FACT 4: sema.cpp 49 -> 48, sema_expr.cpp 160 -> 152,
+  sema_impl.hpp 32 -> 33, sema_stmt.cpp 22 -> 21 (rosters re-derived, not edited).
+  FACT 5: `make_generic_struct` 8 -> 1, `make_synth_generic_struct` 8 -> 15.
+* `direct_door_census_gate.sh`: corpus 3013 -> 3017, nonglob 2822 -> 2826, glob
+  unmoved at 191 — re-derived BY DIRECT LISTING, partition closes.
+* `census_pin`: ALL 9555 -> 9562 (+7 = 4 pass + 3 fail), NOIMPORTED 5089 ->
+  5096, TIERCOMMIT 148 unmoved.
+* `soundness_queue.ledger`: `# TOTAL` 79 -> 77 -> 78 by direct listing (-2 closed, +1 opened).

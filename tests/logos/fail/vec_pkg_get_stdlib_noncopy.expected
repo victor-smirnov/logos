@@ -1,0 +1,1 @@
+cannot move a non-Copy element out of `Vec` via `get` (element type `Own` is not `Copy`)

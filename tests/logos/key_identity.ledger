@@ -229,7 +229,52 @@
 # words. What the test replaces is worse than a bare name: keying the destructor on
 # the MANGLED SYMBOL `<T>__drop`, which ran any inherent or other-trait `drop` at
 # scope exit (PROBES.md 2026-09-04land, root 3).
-#SCAN sema.cpp 49 cd0aa04c
+# ── 2026-09-10d — THE BARE TYPE NAME `Vec`, BOTH DIRECTIONS ─────────────────
+# FACT 4 moves in three files and FACT 5 in two, from ONE structural change: the
+# stdlib container `logos.mem.collections.vec.Vec<T>` was decided by its BARE
+# NAME at nineteen sites, and now is not.
+#
+# CONSUMERS, -11 comparisons (sema_expr.cpp -8 by this class + the two-line
+# lambda form collapsing to one line, sema_stmt.cpp -1, sema.cpp -1), all
+# replaced by the free `is_stdlib_vec` in sema_impl.hpp (+1 there): the
+# is_stdlib_box idiom, bare name PLUS `pkg.empty() || pkg ==
+# "logos.mem.collections.vec"`. sema_expr.cpp 8407 (the A16/A17 `Vec::get`
+# move-out refusal), 19028/19035/19049 (quote_item! cursors), 20067/20078
+# (quote_expr! cursors), 21727 (the `vec!` element hint), 22097 and 25166 (the
+# `#[fn_macro]` / item-macro signatures); sema_stmt.cpp 7614 (`for x in &v` ->
+# `as_slice`); sema.cpp 2322 (`&Vec<T>` -> `&[T]`).
+#
+# PRODUCERS, FACT 5: make_generic_struct 8 -> 1, make_synth_generic_struct
+# 8 -> 15. All seven `make_generic_struct("Vec", …)` mints became
+# `make_synth_generic_struct`, and `Vec` joined `synth_owner_pkg_`'s table —
+# #102's own fix applied to the one type it had missed. Before it, the mint went
+# through `resolve_struct_pkg_`, whose first tier is `sema_key(cur_package_,
+# name)`, so a module declaring its own `Vec` had the COMPILER'S synthesised
+# type handed the USER'S package.
+#
+# MEASURED on the unmodified compiler, three shapes: a package-local
+# `struct Vec<T> { a: i64, b: i64 }` passed as `&[i64]` compiled clean and
+# SEGV'd (rc 139, 7 read as the data pointer and 3 as the length); a package's
+# own `Vec` with its own `get` returning i64 was REFUSED with the stdlib
+# sentence, prescribing `.borrow`/`.remove`/`.pop`, which that type lacks; and a
+# list comprehension in such a module emitted `'func.call' op
+# 'Vec$G1$i64__push' does not reference a valid function`, an internal MLIR
+# verification failure with no user diagnostic. Soundness-queue rows
+# `localvec_ref_coerces_to_slice_admits` and `localvec_get_refused_by_stdlib_rule`
+# closed; pinned in PAIRS one token apart (pass/vec_pkg_slice_coerce_stdlib +
+# fail/vec_pkg_slice_coerce_local, pass/vec_pkg_get_local_own_method +
+# fail/vec_pkg_get_stdlib_noncopy, pass/vec_pkg_listcomp_local_homonym +
+# fail/vec_pkg_listcomp_annot_local, and pass/vec_pkg_for_ref_stdlib).
+#
+# ⚠ WHAT THIS DOES NOT CLOSE, AND IT IS A TWELFTH MEMBER THIS CENSUS CANNOT SEE:
+# `for x in &v` over a package-local `Vec` now falls through to the IntoIterator
+# desugar, which resolves `find_func_candidates(base + "__into_iter")` on the
+# BARE struct name and finds the stdlib's `ref_Vec__into_iter`. The name is
+# CONCATENATED into a method symbol, so it is neither a comparison (FACT 4) nor
+# a literal argument (FACT 5). Soundness-queue row
+# `localvec_for_ref_names_stdlib_as_slice` stays open and was RE-POINTED at it.
+# PROBES.md 2026-09-10d.
+#SCAN sema.cpp 48 ff909cb5
 #SCAN sema_auto_trait.cpp 16 a2c3b0b4
 #SCAN sema_collect.cpp 40 0f9e28cc
 #SCAN sema_decl.cpp 2 ce09ff69
@@ -253,7 +298,7 @@
 # logos.lang.ops, RUNS, asserts got42) and
 # fail/deref_bound_local_homonym_no_autoderef (declares its own homonym).
 # PROBES.md 2026-09-10h.
-#SCAN sema_expr.cpp 160 d5ee5128
+#SCAN sema_expr.cpp 152 d9b99169
 # sema_impl.hpp 29 -> 32, 2026-09-07s. THREE new comparisons of a trait name
 # against a literal, all inside `typevar_only_fn_once` / `callable_is_fn_once`,
 # the predicate that answers "is this callable consumed by its call?":
@@ -266,7 +311,7 @@
 #   TypeRef(t).trait_name() == "FnOnce" — the family name a `dyn Fn(..)`
 #     destination carries on its Kind::Closure type. That string is MINTED by
 #     the compiler when the dyn form is built, never read from user source.
-#SCAN sema_impl.hpp 32 2afd7639
+#SCAN sema_impl.hpp 33 c58f7625
 # 2026-09-06d, -4 (15 -> 11), roster fa9e12e1 -> 1ff7800a: four `nm == "_"`
 # discard-name tests vanished with mark_match_scrutinee_moved's AST re-derivation
 # (the move question is now read off the LIR pattern by `pattern_moves_out`, whose
@@ -284,7 +329,7 @@
 # already holds at every binder door. NOT a package-qualified lookup and not a
 # carried decision; the sibling test in `mint_dbm_ref` was removed rather than
 # spelt twice.
-#SCAN sema_stmt.cpp 22 a6a4715e
+#SCAN sema_stmt.cpp 21 9e2b7684
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)
 mlir_gen_dyn.cpp	struct_types_	O	1	std::string(TypeRef(cur_t).struct_name())
@@ -364,10 +409,10 @@ sema_stmt.cpp	enums_	O	2	TypeRef(scrut_type).enum_name()
 #ARGSCAN find_struct_by_name 2 d4135532
 #ARGSCAN has_any_ 3 87d658f1
 #ARGSCAN make_generic_enum 3 d49e815d
-#ARGSCAN make_generic_struct 8 9c59a2d0
+#ARGSCAN make_generic_struct 1 063a5bc4
 #ARGSCAN make_synth_datatype 2 63094128
 #ARGSCAN make_synth_enum 10 c24a7b9e
-#ARGSCAN make_synth_generic_struct 8 57869d2d
+#ARGSCAN make_synth_generic_struct 15 ef92b993
 #ARGSCAN make_synth_struct 42 06543857
 #ARGSCAN make_typevar 3 7a506430
 #ARGSCAN mk 1 bd8ed301

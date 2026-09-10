@@ -1,0 +1,19 @@
+// PAIR C, fail half — the SAME `Own` payload and the SAME `get(0i64)` call as
+// `vec_pkg_get_local_own_method`, with the receiver's `Vec` coming from
+// `logos.mem.collections.vec` instead of this package. That is the type A16/A17
+// is about, and the refusal must survive the 2026-09-10d qualification: a
+// by-value read of a non-Copy element behind `&self` aliases the Vec's storage
+// and double-frees on drop. This half exists so closing
+// `localvec_get_refused_by_stdlib_rule` cannot be done by weakening the rule.
+package vec_pkg_get_stdlib_noncopy;
+use logos.mem.collections.vec;
+
+pub struct Own { p: *mut u8 }
+impl Drop for Own { fn drop(&mut self) { } }
+
+fn main() -> i32 {
+    let mut v = vec_new::<Own>();
+    v.push(Own { p: (0 as *mut u8) });
+    let e: Own = v.get(0i64);
+    return 0i32;
+}

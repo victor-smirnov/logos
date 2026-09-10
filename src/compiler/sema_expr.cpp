@@ -8402,9 +8402,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if ((rvt.kind() == LogosType::Kind::Ref ||
              rvt.kind() == LogosType::Kind::MutRef) && rvt.pointee())
             rvt = TypeRef(rvt.pointee());
-        if ((rvt.kind() == LogosType::Kind::Struct ||
-             rvt.kind() == LogosType::Kind::ZonedStruct) &&
-            rvt.struct_name() == "Vec" && rvt.type_args().size() == 1) {
+        if (is_stdlib_vec(rvt) && rvt.type_args().size() == 1) {
             TypeRef elem = rvt.type_args()[0];
             if (elem && is_move_type(elem)) {
                 error(std::format(
@@ -13095,7 +13093,7 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
         return error_expr();
     }
 
-    TypeRef vec_t = make_generic_struct("Vec", {elem_type});
+    TypeRef vec_t = make_synth_generic_struct("Vec", {elem_type});
 
     std::string vec_var = "__lc_v_" + std::to_string(tmp_var_count_++);
 
@@ -19024,15 +19022,13 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
             && is_exprblob(t);
     };
     auto is_vec_ident_qi = [&](TypeRef t) -> bool {
-        if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
-        if (TypeRef(t).struct_name() != "Vec") return false;
+        if (!is_stdlib_vec(t)) return false;
         auto args = TypeRef(t).type_args();
         if (args.size() != 1) return false;
         return is_ident_type(args[0]);
     };
     auto is_vec_exprblob_qi = [&](TypeRef t) -> bool {
-        if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
-        if (TypeRef(t).struct_name() != "Vec") return false;
+        if (!is_stdlib_vec(t)) return false;
         auto args = TypeRef(t).type_args();
         if (args.size() != 1) return false;
         return is_expr_blob_type_qi(args[0]);
@@ -19045,8 +19041,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     auto cursor_nesting_depth = [&](TypeRef t) -> int {
         if (is_vec_ident_qi(t)) return 1;
         if (is_vec_exprblob_qi(t)) return 3;
-        if (TypeRef(t).kind() == LogosType::Kind::Struct
-            && TypeRef(t).struct_name() == "Vec") {
+        if (is_stdlib_vec(t)) {
             auto args = TypeRef(t).type_args();
             if (args.size() == 1 && is_vec_ident_qi(args[0])) return 2;
         }
@@ -19638,11 +19633,11 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         TypeRef vec_ident_t, vec_vec_ident_t, vec_exprblob_t;
         {
             std::vector<TypeRef> a1; a1.push_back(ident_t);
-            vec_ident_t = make_generic_struct("Vec", std::move(a1));
+            vec_ident_t = make_synth_generic_struct("Vec", std::move(a1));
             std::vector<TypeRef> a2; a2.push_back(vec_ident_t);
-            vec_vec_ident_t = make_generic_struct("Vec", std::move(a2));
+            vec_vec_ident_t = make_synth_generic_struct("Vec", std::move(a2));
             std::vector<TypeRef> a3; a3.push_back(expr_blob_t);
-            vec_exprblob_t = make_generic_struct("Vec", std::move(a3));
+            vec_exprblob_t = make_synth_generic_struct("Vec", std::move(a3));
         }
         auto u8p = u8_ptr_t;
         auto arr_t = make_array(u8p, N_cursors);
@@ -20063,8 +20058,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     };
     // Recognise Vec<Ident> as a dynamic-length cursor source.
     auto is_vec_ident_type = [&](TypeRef t) -> bool {
-        if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
-        if (TypeRef(t).struct_name() != "Vec") return false;
+        if (!is_stdlib_vec(t)) return false;
         auto args = TypeRef(t).type_args();
         if (args.size() != 1) return false;
         return is_ident_type(args[0]);
@@ -20074,8 +20068,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     // 8-byte `*const u8` blob_ptrs (Vec<ExprBlob>.ptr layout); no IdentPod
     // stride. The splice path reads slots[cursor_i] per iteration.
     auto is_vec_exprblob_type = [&](TypeRef t) -> bool {
-        if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
-        if (TypeRef(t).struct_name() != "Vec") return false;
+        if (!is_stdlib_vec(t)) return false;
         auto args = TypeRef(t).type_args();
         return args.size() == 1 && is_exprblob(args[0]);
     };
@@ -20442,7 +20435,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             // (8-byte stride array of *const u8 blob_ptrs — same as
             // Vec<ExprBlob>'s inline storage), count = Vec.len.
             kind = 2;
-            TypeRef vec_eb_t = make_generic_struct("Vec", {eb_struct_t});
+            TypeRef vec_eb_t = make_synth_generic_struct("Vec", {eb_struct_t});
             auto v_ref = builder().var_ref(ph.var_name, vec_eb_t);
             TypeRef eb_mut_ptr_t = make_ptr(true, eb_struct_t);
             auto raw_ptr = builder().field_read(
@@ -20460,7 +20453,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         } else if (ph.is_cursor && ph.is_vec_cursor) {
             // Dynamic cursor — read xs.ptr (cast *mut Ident → *const Ident)
             // and xs.len (cast i64 → u64). Vec<Ident> shape verified at sema.
-            TypeRef vec_ident_t = make_generic_struct("Vec", {ident_t});
+            TypeRef vec_ident_t = make_synth_generic_struct("Vec", {ident_t});
             auto v_ref       = builder().var_ref(ph.var_name, vec_ident_t);
             TypeRef ident_mut_ptr_t = make_ptr(true, ident_t);
             auto raw_ptr     = builder().field_read(
@@ -20496,7 +20489,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             // count = xs.len cast to u64. Element type matches the cursor
             // flavor: Vec<ExprBlob> for kind=2, Vec<Ident> for kind=0.
             TypeRef vec_elem_t = ph.is_expr_blob ? eb_struct_t : ident_t;
-            TypeRef vec_t2 = make_generic_struct("Vec", {vec_elem_t});
+            TypeRef vec_t2 = make_synth_generic_struct("Vec", {vec_elem_t});
             auto v_ref2 = builder().var_ref(ph.var_name, vec_t2);
             auto raw_len = builder().field_read(
                 std::move(v_ref2), "len", prim(LogosType::Kind::I64));
@@ -21724,7 +21717,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
             // we lower via a PUSH-BLOCK; otherwise fall back to vec_from_arr.
             TypeRef elem_hint = nullptr;
             if (hint_call_return_type_ &&
-                is_named_struct(hint_call_return_type_, "Vec") &&
+                is_stdlib_vec(hint_call_return_type_) &&
                 TypeRef(hint_call_return_type_).type_args().size() == 1)
                 elem_hint = TypeRef(hint_call_return_type_).type_args()[0];
             std::string elem_str = elem_hint ? type_str(elem_hint) : std::string{};
@@ -22093,8 +22086,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
     //   #[token_macro] (slice 3b):
     //     (c) (str) -> ExprBlob                   — raw bytes as `str`
     auto is_vec_exprblob = [](TypeRef t) -> bool {
-        if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
-        if (TypeRef(t).struct_name() != "Vec") return false;
+        if (!is_stdlib_vec(t)) return false;
         auto args = TypeRef(t).type_args();
         return args.size() == 1 && is_exprblob(args[0]);
     };
@@ -25162,8 +25154,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
 
     bool sig_vec = !sig_str && !sig_str2 && !sig_str3 && !sig_ir6
         && macro_info->param_types.size() == 1
-        && TypeRef(macro_info->param_types[0]).kind() == LogosType::Kind::Struct
-        && TypeRef(macro_info->param_types[0]).struct_name() == "Vec"
+        && is_stdlib_vec(macro_info->param_types[0])
         && TypeRef(macro_info->param_types[0]).type_args().size() == 1
         && is_exprblob(TypeRef(macro_info->param_types[0]).type_args()[0]);
     bool sig_zero = macro_info->param_types.empty();

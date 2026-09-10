@@ -1,0 +1,24 @@
+// PAIR D, fail half — ONE TOKEN from `vec_pkg_listcomp`: the comprehension's
+// binding gains the annotation `: Vec<i64>`, which in THIS module names the
+// package's OWN `Vec`. The comprehension mints
+// `logos.mem.collections.vec.Vec<i64>`, so the two are different types and the
+// mismatch must be REPORTED — package-qualified on both sides, since the two
+// bare names are character-identical.
+//
+// MEASURED on the unmodified compiler (the 2026-09-10d control revert): this
+// program compiles rc 0. The mint went through `resolve_struct_pkg_`, took the
+// module's own package, and the annotation "matched" a type whose methods the
+// emitted code then could not call into.
+package vec_pkg_listcomp_annot;
+use logos.mem.collections.vec;
+
+pub struct Vec<T> { a: i64, b: i64 }
+
+fn main() -> i32 {
+    let src: [i64; 3] = [1i64, 2i64, 3i64];
+    let v: Vec<i64> = [x * 2i64 for x in src];
+    if v.len() != 3i64 { return 1i32; }
+    if v[0i64] != 2i64 { return 2i32; }
+    if v[2i64] != 6i64 { return 3i32; }
+    return 0i32;
+}

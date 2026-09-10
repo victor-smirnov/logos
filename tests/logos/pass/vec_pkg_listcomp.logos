@@ -1,0 +1,31 @@
+// PAIR D, pass half — the PRODUCER half of the bare-name `Vec` class. A list
+// comprehension MINTS its result type. Before 2026-09-10d it minted by bare
+// name through `resolve_struct_pkg_`, whose first tier is `sema_key(
+// cur_package_, name)` — the module being compiled, ahead of every import — so
+// in a module declaring its own `Vec` the compiler's synthesised type was
+// handed the USER's package. `Vec` is now a row in `synth_owner_pkg_`'s table,
+// which is #102's own fix applied to the one type it had missed.
+//
+// The discriminating half of this pair is the FAIL one: on the unmodified
+// compiler `vec_pkg_listcomp_annot` compiles rc 0, because the mint took the
+// module's own package and the annotation "matched". This half asserts the
+// other direction — that a homonym DECLARATION does not disturb the
+// comprehension at all.
+//
+// ⚠ THIS MODULE DELIBERATELY DOES NOT INSTANTIATE ITS OWN `Vec<i64>`. Doing so
+// still breaks, and not for this reason: both types mangle to `Vec$G1$i64`, so
+// mono instantiates one of them under a name the other's methods are looked up
+// by. Soundness-queue row `localvec_mangled_collision_listcomp_internal`.
+package vec_pkg_listcomp;
+use logos.mem.collections.vec;
+
+pub struct Vec<T> { a: i64, b: i64 }
+
+fn main() -> i32 {
+    let src: [i64; 3] = [1i64, 2i64, 3i64];
+    let v = [x * 2i64 for x in src];
+    if v.len() != 3i64 { return 1i32; }
+    if v[0i64] != 2i64 { return 2i32; }
+    if v[2i64] != 6i64 { return 3i32; }
+    return 0i32;
+}

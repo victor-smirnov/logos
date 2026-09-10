@@ -1,0 +1,52 @@
+// SOUNDNESS QUEUE row localvec_mangled_collision_listcomp_internal (tier 3,
+// `refuses`). A LEGAL PROGRAM DIES INSIDE mlir_gen BECAUSE TWO DIFFERENT TYPES
+// MANGLE TO ONE NAME.
+//
+// FOUND 2026-09-10d, by the acceptance test of that round's own fix. The
+// bare-name `Vec` class was repaired in both directions — eleven CONSUMER
+// predicates now ask `is_stdlib_vec` (name PLUS package), and the seven
+// PRODUCER mints now go through `synth_owner_pkg_`, so a list comprehension in
+// a module declaring its own `Vec` mints
+// `logos.mem.collections.vec.Vec<i64>` and no longer the user's. Sema is right.
+//
+// MONO IS NOT. Both `vec_pkg.Vec<i64>` and `logos.mem.collections.vec.Vec<i64>`
+// monomorphise to the SAME symbol stem, `Vec$G1$i64`. When BOTH are
+// instantiated in one module — this program instantiates the local one at
+// `lv` and the stdlib one as the comprehension's result — mono clones one of
+// them under that stem and the other's methods are then looked up on it:
+//
+//   error: 'func.call' op 'Vec$G1$i64__push' does not reference a valid function
+//   mlir_gen: module verification failed
+//
+// OBSERVED (`refuses`): rc 1, an INTERNAL `mlir_gen:` malfunction where a user
+// diagnostic belongs. The program is legal — in Rust a crate-local `Vec` and
+// `std::vec::Vec` coexist in one function with no relationship at all.
+// FIX = it compiles AND RUNS, exit 0.
+//
+// ⚠ IT IS THE THIRD DIRECTION OF THE SAME CLASS, and the one no census in this
+// tree can see. `key_identity` FACT 4 matches a name COMPARED and FACT 5 a name
+// PASSED as a literal; `tools/dlog`'s name_intercept asks about the operands of
+// a comparison. Here the name is BUILT INTO A KEY — concatenated into a mangled
+// symbol — exactly as in `localvec_for_ref_names_stdlib_as_slice`
+// (`base + "__into_iter"`) and in `bug_destructor_keyed_on_mangled_name`.
+//
+// ⚠ THE PACKAGE NAME IS LOAD-BEARING. Measured over twelve name/body
+// combinations on the 2026-09-10d control binary: this body reproduces under
+// `vec_pkg_listcomp` and under `c`/`e`, and NOT under
+// `vec_pkg_listcomp_local_homonym`, `vec_pkg_listcomp_homonym`,
+// `vec_listcomp_homonym`, `localvec_listcomp` or `vec_pkg_lc`. Which mangled
+// symbol the collision lands on depends on the package, so RENAMING THIS
+// PROGRAM SILENTLY RETIRES IT.
+package vec_pkg_listcomp;
+use logos.mem.collections.vec;
+
+pub struct Vec<T> { a: i64, b: i64 }
+
+fn main() -> i32 {
+    let lv: Vec<i64> = Vec { a: 8i64, b: 9i64 };
+    let src: [i64; 3] = [1i64, 2i64, 3i64];
+    let v = [x * 2i64 for x in src];
+    if v.len() != 3i64 { return 1i32; }
+    if lv.a != 8i64 { return 4i32; }
+    return 0i32;
+}

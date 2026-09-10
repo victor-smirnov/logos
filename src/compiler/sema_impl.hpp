@@ -95,6 +95,23 @@ type_str_pair(TypeRef expected, TypeRef got) {
 std::string concrete_struct_name(TypeRef t);
 bool types_compatible(TypeRef from, TypeRef to) noexcept;
 
+// The stdlib container `logos.mem.collections.vec.Vec<T>` — the is_stdlib_box
+// idiom (bare name PLUS owner package). Free, not a class member, because one
+// of its eleven call sites is the free `types_compatible` in sema.cpp.
+// ⚠ RULE 9: the `pkg.empty()` tolerance is UNSEPARATED — the strict twin
+// measured identical in every column; it is carried for is_stdlib_box's stated
+// reason (an internal path may strip the package), not because anything
+// available justifies it. See PROBES.md 2026-09-10d.
+inline bool is_stdlib_vec(TypeRef t) noexcept {
+    if (!t) return false;
+    auto k = TypeRef(t).kind();
+    if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct)
+        return false;
+    if (TypeRef(t).struct_name() != "Vec") return false;
+    auto pkg = TypeRef(t).pkg_name();
+    return pkg.empty() || pkg == "logos.mem.collections.vec";
+}
+
 // Inline (defined below, after class, so visible in all TUs):
 inline bool is_integer_kind(LogosType::Kind k) noexcept;
 inline int64_t parse_int_literal(std::string_view sv) noexcept;
@@ -365,6 +382,12 @@ private:
             {"WAny",          "logos.lang.writ.anyval"},
             {"Writ",          "logos.lang.writ.container"},
             {"Allocator",     "logos.lang.writ.allocator"},
+            // stdlib/mem/collections/vec/vec.logos. Every
+            // make_synth_generic_struct("Vec", …) in sema_expr.cpp means THIS
+            // type; without the row a module declaring its own `Vec` got the
+            // compiler's synthesised type handed the USER's package (#102's
+            // root). See PROBES.md 2026-09-10d.
+            {"Vec",           "logos.mem.collections.vec"},
             // compiler-owned, declared nowhere: AnyVal, WritArr, WritMap —
             // deliberately ABSENT, so they get the empty package.
         };

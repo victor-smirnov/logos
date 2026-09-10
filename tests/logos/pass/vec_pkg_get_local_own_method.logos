@@ -1,0 +1,25 @@
+// PAIR C, pass half. The A16/A17 refusal "cannot move a non-Copy element out of
+// `Vec` via `get`" is ABOUT THE STDLIB CONTAINER. This package's own `Vec` has
+// its own `get`, which returns `i64` and never touches the element, so the call
+// is legal and RUNS. The fail half `vec_pkg_get_stdlib_noncopy` keeps the rule
+// pinned on the type it is about. Before 2026-09-10d the rule was keyed on the
+// bare name and refused THIS program, prescribing `.borrow`/`.remove`/`.pop`,
+// which this type does not have — soundness-queue row
+// `localvec_get_refused_by_stdlib_rule`, closed 2026-09-10d.
+package vec_pkg_get_local_own_method;
+
+pub struct Own { p: *mut u8 }
+impl Drop for Own { fn drop(&mut self) { } }
+
+pub struct Vec<T> { head: T, n: i64 }
+
+impl<T> Vec<T> {
+    fn get(&self, i: i64) -> i64 { return self.n; }
+}
+
+fn main() -> i32 {
+    let v = Vec { head: Own { p: (0 as *mut u8) }, n: 4i64 };
+    let k: i64 = v.get(0i64);
+    if k != 4i64 { return 1i32; }
+    return 0i32;
+}

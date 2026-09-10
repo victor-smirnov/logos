@@ -5689,8 +5689,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                    neither tier_commit, neither imported. No
 #                                    soundness-queue row closed, so `# TOTAL` is
 #                                    unmoved at 76.)
-REGISTRY-ALL         9555
-REGISTRY-NOIMPORTED  5089
+# 2026-09-10d (stdlib-`Vec` identity, both directions:
+#   ALL          9555 -> 9562  +7    four pass halves (vec_pkg_slice_coerce_stdlib,
+#   NOIMPORTED   5089 -> 5096  +7    vec_pkg_for_ref_stdlib, vec_pkg_get_local_own_method,
+#   TIERCOMMIT    148 ->  148   0    vec_pkg_listcomp_local_homonym — all four RUN and
+#                                    assert exit 0) and three fail halves
+#                                    (vec_pkg_slice_coerce_local, vec_pkg_get_stdlib_noncopy,
+#                                    vec_pkg_listcomp_annot_local, each pinning its
+#                                    diagnostic). All seven native, none tier_commit, none
+#                                    imported. TWO soundness-queue rows closed, `# TOTAL`
+#                                    79 -> 77; their programs were never registered tests,
+#                                    so they move none of these three.)
+REGISTRY-ALL         9562
+REGISTRY-NOIMPORTED  5096
 REGISTRY-TIERCOMMIT  148
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

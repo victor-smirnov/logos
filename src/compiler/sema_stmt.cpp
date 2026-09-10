@@ -7611,7 +7611,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
     if ((TypeRef(iter_type).kind() == LogosType::Kind::Ref ||
          TypeRef(iter_type).kind() == LogosType::Kind::MutRef) &&
         TypeRef(iter_type).pointee() &&
-        TypeRef(TypeRef(iter_type).pointee()).struct_name() == "Vec") {
+        is_stdlib_vec(TypeRef(iter_type).pointee())) {
         TypeRef vec_ty = TypeRef(iter_type).pointee();
         if (auto fit = find_func_candidates("Vec__as_slice"); fit.size() == 1) {
             const SemaFuncInfo* as_slice_fn = fit[0];

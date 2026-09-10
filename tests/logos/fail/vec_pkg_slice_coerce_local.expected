@@ -1,0 +1,1 @@
+call to 'total' arg 1: expected &[i64], got &Vec<i64>

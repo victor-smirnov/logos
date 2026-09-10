@@ -2318,8 +2318,7 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if ((TypeRef(from).kind() == LogosType::Kind::Ref || TypeRef(from).kind() == LogosType::Kind::MutRef) &&
         TypeRef(to).kind() == LogosType::Kind::Slice &&
         TypeRef(from).pointee() &&
-        TypeRef(from).pointee().kind() == LogosType::Kind::Struct &&
-        TypeRef(from).pointee().struct_name() == "Vec" &&
+        is_stdlib_vec(TypeRef(from).pointee()) &&
         !TypeRef(from).pointee().type_args().empty() &&
         TypeRef(to).elem())
         return types_compatible(TypeRef(from).pointee().type_args()[0],

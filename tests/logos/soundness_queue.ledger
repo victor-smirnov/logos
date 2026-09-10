@@ -46,7 +46,7 @@ operator_autoref_temp_never_dropped 1 tests/soundness/open/operator_autoref_temp
 self_call_in_return_kills_param_drops 1 tests/soundness/open/self_call_in_return_kills_param_drops run 1
 weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped      run 1
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
-# TOTAL 79
+# TOTAL 78
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -121,6 +121,5 @@ deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_ad
 overload_set_arg_mismatch_says_no_method 4 tests/soundness/open/overload_set_arg_mismatch_says_no_method diag 'C' has no method 'put'
 stdlib_drop_uninhabited_enum_byvalue_consumer 3 tests/soundness/open/stdlib_drop_uninhabited_enum_byvalue_consumer refuses
 e0184_blame_header_names_unrelated_impl 4 tests/soundness/open/e0184_blame_header_names_unrelated_impl diag impl Hash for $tuple$8
-localvec_ref_coerces_to_slice_admits 2 tests/soundness/open/localvec_ref_coerces_to_slice_admits admits
-localvec_get_refused_by_stdlib_rule 3 tests/soundness/open/localvec_get_refused_by_stdlib_rule refuses
 localvec_for_ref_names_stdlib_as_slice 4 tests/soundness/open/localvec_for_ref_names_stdlib_as_slice diag expected &Vec<i64>, got &Vec<i64>
+localvec_mangled_collision_listcomp_internal 3 tests/soundness/open/localvec_mangled_collision_listcomp_internal refuses
