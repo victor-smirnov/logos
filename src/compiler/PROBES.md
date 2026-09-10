@@ -36256,3 +36256,40 @@ oracle columns, the queue gate and L1 — and that is weaker, and is said so her
 * `census_pin`: ALL 9555 -> 9562 (+7 = 4 pass + 3 fail), NOIMPORTED 5089 ->
   5096, TIERCOMMIT 148 unmoved.
 * `soundness_queue.ledger`: `# TOTAL` 79 -> 77 -> 78 by direct listing (-2 closed, +1 opened).
+
+## 12. THE `dlog` CROSS-CHECK AFTER THE FIX, AND THE TWO NUMBERS SIDE BY SIDE
+
+`tools/dlog/selftest.sh` run again on the LANDED tree, rc 0, reading
+identically: `19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty
+discriminates across 756aed65 (1 -> 0)`. No extractor change and no new rule
+this round.
+
+`name_intercept.dl` over `sema_expr.cpp` (which inlines `sema_impl.hpp`):
+
+| | pricing round, pristine | landed |
+|---|---|---|
+| `==` | 141 | **138** |
+| `!=` | 6 | **2** |
+| rows naming `Vec` | **8** | **1** |
+
+The arithmetic closes exactly: `==` loses 3 (8407, 19049, 25166) and `!=` loses
+5 (19028, 19035, 20067, 20078, 22097) and gains 1 — `is_stdlib_vec`'s own bare
+half at `sema_impl.hpp:110`, which the tool then shows in `residual` two lines
+later as `logos.mem.collections.vec`, i.e. the qualified probe the cell `O`
+means. That single surviving row IS the fix, seen by the instrument.
+
+**THE PER-SITE CROSS-CHECK, AS ORDERED, AND IT DISAGREES IN BOTH DIRECTIONS.**
+
+* dlog reports one more `Vec`-adjacent row this round's class does NOT contain:
+  `21697 lower_builtin_macro callee_name == "vec"`. That is the MACRO's
+  spelling, not a type's name — a different question, and correctly outside.
+  (`24023 reconstruct_container_clauses != "vector"` is the C++ word.)
+* the per-site read reports what dlog still cannot: `13084`'s
+  `find_struct_by_name("Vec")` (an ARGUMENT), and the whole third direction of
+  §5 and §8 — `base + "__into_iter"`, `Vec__iter_mut`, and mono's `Vec$G1$i64`
+  stem, where the name is neither compared nor passed but CONCATENATED.
+
+**1 by dlog, 3 by a per-site read in that TU, and 2 open queue rows outside
+both.** Neither number is the class, and this round is the third consecutive one
+in which the enumeration that closed the rows was not the enumeration that found
+the next defect.
