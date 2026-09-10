@@ -1952,3 +1952,85 @@ regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-boun
 # closed by a wrong diagnostic is not closed": `argresvact` says "cannot borrow 'a' as
 # mutable: N shared borrow(s) active"; upstream's E0502 blames the SHARED side.
 # DO NOT FUND `argresvsibshared` in any crude form.
+#
+# ── 2026-09-09 — DECLINE, AND THE CLASS IS ONE RULE WITH FOUR MEMBERS, THREE ──
+#    OF WHICH NEVER REACH THE ARM. NO COMPILER SOURCE TOUCHED THIS ROUND.
+#
+# The previous round recommended funding `argresvact` + the receiver-frame fix as a
+# pair. The recommendation is DECLINED here, on a number that was already in this
+# file and is re-verified below, not on a new measurement of the mechanism.
+#
+# THE CLASS, ENUMERATED BY PROPERTY — "a `&mut` reservation on root R activates at
+# a call while a shared borrow of R is still live" (rustc E0502). NOT by spelling:
+# every member below was found by asking where a mut reservation can come from, and
+# each was compiled on HEAD 7f8ac5902 with LOGOS_CENSUS reading the arm's buckets.
+#   1. explicit `&mut` argument + shared argument   two-phase-nonrecv-autoref--c
+#      ARRIVES: argresvact/shared_live_at_call 1. Closed by the arm.
+#   2. BARE-place receiver autoref                  NO ROW HERE — filed 2026-09-09 as
+#      soundness_queue row `method_bare_recv_mut_resv_shared_arg_admits`.
+#      0 arrivals (128 = the empty-program prelude baseline). UNREACHED SITE.
+#   3. receiver through a DEREF place op            regions-adjusted-lvalue-op--c26
+#      0 arrivals. UNREACHED SITE.
+#   4. receiver through an INDEX place op           regions-adjusted-lvalue-op--t26
+#      0 arrivals. UNREACHED SITE.
+# Members 2-4 are ONE bookkeeping defect, already diagnosed in the note above: the
+# receiver's reservation is deposited in the scope OUTSIDE the call-args frame the
+# arm iterates. The rule that decides all four is the same rule, so implementing it
+# for the receiver only and not for the explicit argument would be a fix BY SPELLING
+# — refused under the owner's 2026-09-05 "fix the class, not the instance".
+#
+# ⚠ MEMBER 2 IS A DOOR THAT LOST ITS CARRIER TO AN AS-IS RE-PORT. Until the
+# 2026-09-08 stage-6 re-port, `regions-adjusted-lvalue-op--c26` was written
+# `v.oh_no(&v)` — the bare-place spelling. The re-port to upstream's DEREF door was
+# CORRECT (upstream's tests/ui/regions/regions-adjusted-lvalue-op.rs, READ on the box
+# at da5114692c9, contains only `v[0].oh_no(&v)` and `(*v).oh_no(&v)`), and nothing
+# was filed for the door the old port had been occupying. Re-measured 2026-09-09:
+# both `v.oh_no(&v)` (Vec receiver) and `s.bump(&s)` (struct receiver) compile rc 0.
+#
+# THE NUMBER THAT CONDEMNS THE LANDING, RE-VERIFIED ON HEAD 7f8ac5902 BY HAND:
+#   tests/imported/pass/nll/tpb-mut-with-shared-ref-arg.logos      base rc 0, armed rc 1
+#     "cannot borrow 'x' as mutable: 1 shared borrow(s) active"
+#   tests/imported/pass/cmp/test_harness_coretest_cmp.logos        base rc 0, armed rc 1
+#     "cannot borrow 'a' as mutable: 1 shared borrow(s) active" in test_mut_int_totalord
+# TWO green pass fixtures, both asserting constructs rustc refuses with E0502 (the
+# first read at the source: two-phase-nonrecv-autoref.rs lines 105-108 mark
+# `double_access(&mut a, &a)` `//~ ERROR ... [E0502]` and the NEXT line `a.m(a.i(10))`
+# "But this is okay"; the second is `(&mut a).cmp(&a)` on one named local at line 125,
+# where upstream's test_mut_int_totalord uses TEMPORARIES). Both are corpus decisions
+# with an owner and may not be edited to buy a row. While they stand, the class is
+# blocked — not for want of a mechanism.
+#
+# ⚠ RULE 5 IS DISCHARGED FOR `argresvact` ON THE LEGAL SIDE, AND THE PRICING ROUND'S
+# NINE HAND PROGRAMS WERE NOT ENOUGH TO SAY SO. Fifteen fresh legal programs, in
+# shapes neither prompt named — disjoint struct fields `f(&mut s.a, &s.b)`; a shared
+# borrow dead before the call; a shared borrow scoped to a closed inner block; two
+# roots; `wr(&mut a, rd(&a))`; a Copy argument; a reborrow passed through a `&mut`
+# parameter; the same call in a `while` loop; `&self` receiver with a shared argument;
+# `&mut` receiver with a shared argument of ANOTHER root; the shared borrow consumed by
+# the FIRST argument with `&mut` second; a live shared borrow of another root across the
+# call; `s.add(s.a)`; two sequential `&mut` calls; `&mut *b` through a Box deref.
+# ALL FIFTEEN: base rc 0, armed rc 0. NO false refusal.
+# ⚠ FOUR OF THE FIFTEEN ARE UNREACHED-SITE ZEROS AND PROVE NOTHING ABOUT THE ARM —
+# the disjoint-fields, `&self`-receiver, other-root-receiver and `s.add(s.a)` programs
+# all read 128 = baseline (field borrows live in `field_borrows`, which the arm does
+# not iterate; receivers are in the wrong frame). The other ELEVEN reach
+# argresvact/reserved at +1 or +2 over baseline and are correctly admitted.
+# On the illegal side five fresh programs: `g(&mut a, &a)` and `h(&a, &mut a, &a)` are
+# NEWLY refused by the arm (2 and 1 arrivals at shared_live_at_call); `f(&mut s.a, &s)`
+# and `(&mut s).cmpish(&s)` were ALREADY refused unarmed, by other rules, so the arm
+# INHERITS them and buys nothing there; `s.bump(&s)` is member 2 and is missed.
+#
+# STILL DECLINED, AND FOR A DIFFERENT REASON — NOT THIS CLASS AT ALL:
+#   two-phase-nonrecv-autoref--a-fnmut-twice     0 arrivals at either door
+#   two-phase-nonrecv-autoref--d-index-two-phase 0 arrivals at either door
+# Both need a PRODUCER first (a call through a `FnMut` value; a user `Index::index`
+# receiver), as the 2026-09-09m note already said. Re-verified 2026-09-09: both still
+# admit, armed and unarmed.
+#
+# WHAT THE BLOCK NEEDS, IN ORDER: (1) the owner's ruling on the two pass fixtures —
+# both are mis-ports of programs upstream refuses, and NEITHER is a deliberate
+# divergence anyone recorded a reason for; (2) then the receiver reservation moved into
+# the call-args frame, which is the one change that turns members 2-4 from unreached
+# sites into arrivals; (3) then the diagnostic rewritten to blame the SHARED side, as
+# E0502 does, since a row closed by a wrong sentence is not closed. Steps 2 and 3 are
+# cheap and already understood. Step 1 is not mine.

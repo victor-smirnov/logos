@@ -33106,3 +33106,100 @@ was decided upstream in another frame, the gate never asked.
         and its cheapest carrier is not the ledger program at all but three lines:
         `let mut c = |x: i64| { return x + 1i64; }; let r = c(c(10i64));`, which is E0499
         upstream and compiles silently here with ZERO borrow records minted.
+
+## 2026-09-09n-tpbclass — THE CLASS IS **ONE** RULE WITH **FOUR** MEMBERS AND THREE OF THEM NEVER ARRIVE AT THE ARM; RULE 5 IS DISCHARGED FOR `argresvact` OVER FIFTEEN FRESH LEGAL SHAPES AND THE LANDING IS DECLINED ANYWAY ON A NUMBER THAT IS TWO PASS FIXTURES; AND THE BARE-PLACE RECEIVER DOOR, WHOSE ONLY CARRIER AN AS-IS RE-PORT CORRECTLY REMOVED, IS NOW A SOUNDNESS-QUEUE ROW
+
+site: src/compiler/borrow_check.cpp::visit_args (the `argresvact` activation check that
+iterates the call-args frame after `each_arg`), src/compiler/borrow_check.cpp::record_borrow
+(the `__recv_resv` bare-place receiver reservation, deposited in the OUTER scope),
+src/compiler/borrow_check.cpp::method_self_kind (the `sk >= 1` gate on that deposit),
+src/compiler/borrow_check.cpp::take_borrow (the `in_call_args_ > 0` reservation arm)
+fires: `argresvact` 2 on the ledger population; `argresvact/shared_live_at_call` 1 on --c,
+2 on the hand program `g(&mut a, &a)`, 1 on `h(&a, &mut a, &a)`, and **0** on all four
+receiver-door programs
+build: 58fd3c9773b9c475 43 (READ, before and after — **NO COMPILER SOURCE WAS TOUCHED THIS
+ROUND**; `argresvact` is a `probe::on` env gate that was already at HEAD, so every number
+here is the unmodified binary's). Symbol counts grepped by hand, not taken from
+`probe-log-lint.py`: `visit_args` 16, `record_borrow` 43, `take_borrow` 22,
+`method_self_kind` 19 occurrences in `src/compiler/borrow_check.cpp`.
+
+### THE CLASS, BY PROPERTY
+
+"A `&mut` reservation on root R activates at a call while a shared borrow of R is still
+live" — rustc E0502. Four members, found by asking where a mut reservation can come from,
+each compiled on HEAD with `LOGOS_CENSUS` reading the arm's own buckets:
+
+| member | carrier | arrivals at `argresvact` | kind of zero |
+|---|---|---|---|
+| explicit `&mut` arg + shared arg | `two-phase-nonrecv-autoref--c` | `shared_live_at_call` 1 | — |
+| BARE-place receiver autoref | **no carrier anywhere** → now a queue row | 0 (128 = prelude baseline) | UNREACHED SITE |
+| receiver through a DEREF place op | `regions-adjusted-lvalue-op--c26` | 0 | UNREACHED SITE |
+| receiver through an INDEX place op | `regions-adjusted-lvalue-op--t26` | 0 | UNREACHED SITE |
+
+The empty-program prelude baseline for `argresvact/frame_mut` and `argresvact/reserved` is
+**128**; a program's own contribution is the excess over it. Members 2-4 read exactly 128,
+so they contribute zero — and the same binary reads `shared_live_at_call` 1 on member 1, so
+the site is PROVEN LIVE and these are unreached sites, not dead ones and not harness zeros.
+
+One rule decides all four. Implementing it for the receiver source and not for the explicit
+argument would be a fix BY SPELLING, which the owner's 2026-09-05 instruction refuses.
+
+### RULE 5, DISCHARGED — AND FOUR OF THE FIFTEEN PROVE NOTHING
+
+Fifteen fresh legal programs, multi-line, in shapes neither the previous round's nine nor
+either prompt named: disjoint struct fields `f(&mut s.a, &s.b)`; a shared borrow dead before
+the call; a shared borrow scoped to a closed inner block; two roots; `wr(&mut a, rd(&a))`; a
+Copy argument; a reborrow passed on through a `&mut` parameter; the same call inside a
+`while` loop; a `&self` receiver with a shared argument of the same root; a `&mut` receiver
+with a shared argument of ANOTHER root; the shared borrow consumed by the FIRST argument with
+`&mut` second; a live shared borrow of another root across the call; `s.add(s.a)`; two
+sequential `&mut` calls on one root; `&mut *b` through a `Box` deref place.
+**All fifteen: base rc 0, armed rc 0. No false refusal.**
+
+⚠ FOUR OF THEM ARE UNREACHED-SITE ZEROS AND SAY NOTHING ABOUT THE ARM — the disjoint-fields,
+`&self`-receiver, other-root-receiver and `s.add(s.a)` programs all read 128 = baseline.
+Field borrows live in `field_borrows`, which the arm does not iterate; receivers are in the
+wrong frame. The other **eleven** reach `argresvact/reserved` at +1 or +2 over baseline and
+are correctly admitted. A count of legal programs is not a safety claim unless each one
+ARRIVES, and a third of mine did not.
+
+Five fresh illegal programs, to see what the arm actually buys: `g(&mut a, &a)` and
+`h(&a, &mut a, &a)` are NEWLY refused (2 and 1 arrivals at `shared_live_at_call`);
+`f(&mut s.a, &s)` and `(&mut s).cmpish(&s)` were ALREADY refused on the UNARMED binary by
+other rules, so the arm INHERITS those and buys nothing there (rule 14, checked on the old
+binary first); `s.bump(&s)` is member 2 and is missed.
+
+### THE NUMBER THAT CONDEMNS THE LANDING, RE-VERIFIED BY HAND
+
+    tests/imported/pass/nll/tpb-mut-with-shared-ref-arg.logos   base rc 0 -> armed rc 1
+    tests/imported/pass/cmp/test_harness_coretest_cmp.logos     base rc 0 -> armed rc 1
+
+Two green pass fixtures, both asserting constructs rustc refuses with E0502. The first was
+read at the source, not cited: `tests/ui/borrowck/two-phase-nonrecv-autoref.rs` @ da5114692c9
+marks `double_access(&mut a, &a)` `//~ ERROR ... [E0502]` and marks the NEXT line
+`a.m(a.i(10))` "But this is okay". The second is `(&mut a).cmp(&a)` on ONE NAMED LOCAL at
+line 125, where upstream's `test_mut_int_totalord` uses temporaries. Both are corpus
+decisions with an owner. **DECLINED**: the class cannot be closed without redding both, and
+a ledger row may not be bought by editing a pin.
+
+### THE FINDING — A DOOR LOST ITS CARRIER TO A CORRECT RE-PORT, AND NOBODY FILED THE REPLACEMENT
+
+Until the 2026-09-08 stage-6 as-is re-port, `regions-adjusted-lvalue-op--c26` was written
+`v.oh_no(&v)` — a BARE-place receiver. The re-port to upstream's DEREF door was right:
+upstream's file, READ on the box, contains only `v[0].oh_no(&v)` and `(*v).oh_no(&v)`, both
+annotated E0502. But the bare-place spelling then had no carrier in the entire corpus, and
+`bck.D`'s remaining rows do not cover it. Re-measured 2026-09-09: `v.oh_no(&v)` (Vec
+receiver) and `s.bump(&s)` (struct receiver) both compile rc 0, armed and unarmed.
+FILED as soundness_queue row `method_bare_recv_mut_resv_shared_arg_admits` (tier 2,
+`admits`), `# TOTAL` 77 -> 78 by direct listing. This is the general shape memory already
+records in the other direction — a stronger rule upstream retires an older row's INSTRUMENT
+and not its DEFECT; here an as-is RE-PORT did the same thing to a door.
+
+### ORACLES
+
+`soundness_queue_gate.sh` rc **0**, 78 rows (tier1=21 tier2=8 tier3=42 tier4=7), `# TOTAL`
+78 by direct listing · `bc_admits_ledger_gate.sh` rc **0** with all FOUR arguments as
+`tests/logos/CMakeLists.txt:1500-1507` passes them, 90 rows, `# TOTAL 90` unchanged ·
+`gate-run.sh -L bc` rc **0**, 1478/1478 in 75.86 s, recorded to the store as build 999 ·
+`test-levels.sh L1` rc **0**. `build_hash.py` **unchanged** at 58fd3c9773b9c475 43 across
+the whole round, which is the control: no compiled source moved.

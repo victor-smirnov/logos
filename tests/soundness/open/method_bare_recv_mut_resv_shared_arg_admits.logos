@@ -1,0 +1,47 @@
+// SOUNDNESS QUEUE row method_bare_recv_mut_resv_shared_arg_admits (tier 2). A method
+// whose receiver is a BARE PLACE and whose `&mut self` autoref is a B82 reservation is
+// called with a SHARED borrow of the same root in its argument list. The shared borrow is
+// still LIVE when the reservation activates at the call, which is rustc E0502; today this
+// compiles rc 0 with no diagnostic.
+// ⚠ THE DOOR HAS NO ROW ANYWHERE, AND IT USED TO HAVE ONE. `bc_admits.ledger`'s
+// `regions-adjusted-lvalue-op--c26` was, until the 2026-09-08 stage-6 as-is re-port,
+// written `v.oh_no(&v)` — this exact bare-place spelling. The re-port replaced it with
+// upstream's DEREF place op (upstream's own file, tests/ui/regions/
+// regions-adjusted-lvalue-op.rs, has only `v[0].oh_no(&v)` and `(*v).oh_no(&v)`, both
+// annotated E0502), correctly, and nothing was filed for the door the old port had been
+// standing in. So the bare-place receiver lost its only carrier in the whole corpus.
+// ⚠ ONE MEMBER OF FOUR, NOT AN ISOLATED PROGRAM. The class is "a `&mut` reservation on
+// root R activates at a call while a shared borrow of R is live". Its four members and
+// where each stands, measured 2026-09-09 on HEAD 7f8ac5902:
+//     explicit `&mut` argument + shared argument   bc_admits two-phase-nonrecv-autoref--c
+//     BARE-place receiver autoref                  THIS ROW — no carrier anywhere
+//     receiver through a DEREF place op            bc_admits regions-adjusted-lvalue-op--c26
+//     receiver through an INDEX place op           bc_admits regions-adjusted-lvalue-op--t26
+// All four admit. Only the first ARRIVES at the arm that asks the question
+// (`argresvact`, borrow_check.cpp, census bucket argresvact/shared_live_at_call): the
+// other three deposit their reservation in `record_borrow`'s own `in_call_args_` bracket,
+// which runs BEFORE visit_args pushes the call-args frame the arm iterates. Census on this
+// program: argresvact/frame_mut 128, argresvact/reserved 128 — the 128 is the empty-program
+// prelude baseline, so this program contributes ZERO arrivals. That is an UNREACHED SITE,
+// not a dead one: the same binary reads shared_live_at_call 1 on --c.
+// ⚠ THE CLASS IS BLOCKED ON THE OWNER, NOT ON A MISSING MECHANISM. Closing it reds two
+// green pass fixtures that assert E0502 constructs — tests/imported/pass/nll/
+// tpb-mut-with-shared-ref-arg.logos (`write_then_read(&mut x, &x)`) and
+// tests/imported/pass/cmp/test_harness_coretest_cmp.logos:125 (`(&mut a).cmp(&a)`).
+// Reported, not edited. See bc_admits.ledger's 2026-09-09 note.
+// Found 2026-09-09 (hand x1, while writing counter-examples against `argresvact`).
+// Rust: refused, E0502 "cannot borrow `s` as immutable because it is also borrowed as mutable".
+package method_bare_recv_mut_resv_shared_arg_admits;
+struct S { a: i64 }
+impl S {
+    fn bump(self: &mut Self, o: &S) -> i64 {
+        self.a = self.a + o.a;
+        return self.a;
+    }
+}
+fn main() -> i32 {
+    let mut s: S = S { a: 1i64 };
+    let n: i64 = s.bump(&s);
+    if n != 2i64 { return 1i32; }
+    return 0i32;
+}
