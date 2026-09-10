@@ -33203,3 +33203,239 @@ and not its DEFECT; here an as-is RE-PORT did the same thing to a door.
 `gate-run.sh -L bc` rc **0**, 1478/1478 in 75.86 s, recorded to the store as build 999 ·
 `test-levels.sh L1` rc **0**. `build_hash.py` **unchanged** at 58fd3c9773b9c475 43 across
 the whole round, which is the control: no compiled source moved.
+
+## 2026-09-09f-tlrefbind — A TOP-LEVEL `ref` BINDER OVER A REFERENCE-TYPED SCRUTINEE IS BOUND ONE INDIRECTION SHORT, AT TWO COPIES OF ONE SITE; THE DOOR HAS **SIX** ARRIVALS IN THE WHOLE 6602-FIXTURE PASS CORPUS AND **NONE OF THEM IS TOP-LEVEL**, WHICH IS BOTH WHY THE DEFECT IS INVISIBLE AND WHY THE CRUDE ARM BREAKS THREE GREEN FIXTURES THE REFINED ONE DOES NOT
+
+site: src/compiler/mlir_gen_stmt.cpp::gen_match (the `case pc::Code::RefBind` of its
+`extract_payload` walker), src/compiler/mlir_gen_expr.cpp::gen_expr_kind (the
+`EMatchExprView` overload's `extract_arm_payload` twin of the same case),
+src/compiler/mlir_gen_stmt.cpp::ref_bind_kind (the arm that ALREADY computes the owed
+indirection depth and that neither match door reaches)
+fires: `tlrbtop` 4, `tlrbtopx` 1, `tlrbtopboth` 6, `tlrbspill` 4, `tlrbspillx` 1,
+`tlrbshape` 1 over the same four programs — no arm reads NEVER FIRED
+build: base 58fd3c9773b9c475 43 (READ) · census+crude arms 0158e823a73f6ba1 43 (READ) ·
+refined arms 4fa881839306e7b1 43 (READ). Symbols grepped BY HAND, not from
+`probe-log-lint.py`: `gen_match` 4 and `ref_bind_kind` 2 occurrences in
+src/compiler/mlir_gen_stmt.cpp, `gen_expr_kind` 89 in src/compiler/mlir_gen_expr.cpp.
+
+### THE BLOCK, AND WHY IT IS TWO ROWS AND NOT THREE
+
+Target rows, written to a file before the compiler was touched
+(`/home/logos/sandbox/refbind/TARGET_ROWS.txt`):
+
+    refbind_scalar_under_ref_segv              tier 1  run 139
+    toplevel_refbind_over_ref_scrutinee_segv   tier 1  run 139
+
+`homonym_field_drop_glue_segv` shares the recorded exit code 139 and NOTHING else —
+its root is `resolve_method_symbol`'s package scoping of a FIELD destructor. The
+"three run-139 rows" reading is the handed-down-grouping shape the last two rounds
+refuted in tier 1, and reading the three programs refutes it again. The grouping test
+is the one those rounds used: **does ONE candidate change move BOTH members?** It does,
+and it moves nothing else in the queue — measured, both directions, below.
+
+### THE ROOT: A BINDING DECIDED BY MLIR REPRESENTATION, NOT BY LOGOS TYPE
+
+Both doors read
+
+    if (scrut_ptr)                        bind_val = scrut_ptr;
+    else if (scrut.getType() == ptr_type()) bind_val = scrut;      // ← the defect
+    else { spill scrut; bind_val = tmp; }
+
+`scrut.getType() == ptr_type()` is a test on the OPAQUE POINTER REPRESENTATION. It
+cannot separate "scrut is the ADDRESS of the matched place" (a by-value struct: alias
+is right) from "scrut is a reference VALUE that IS the matched place" (`&i64`: the
+binder owes the address OF THAT VALUE). In the second case the binding is one
+indirection short, sema types it `&&T`, and the first deref through it reads the
+payload as an address.
+
+The arm that answers this correctly is ALREADY IN THE TREE and is not reached from
+either match door: `MLIRGenImpl::ref_bind_kind` computes exactly the indirection
+`ref` ADDS (binding layers minus the payload's own thin layers), and
+`bind_enum_payload` materialises the N-1 intermediate slots. The fact the code does
+not carry to the match doors is `scrut_ty`'s KIND. That is the prompt's preferred
+shape, and it paid again.
+
+### THE CLASS, BY HAND — 12 WRONG PROGRAMS, 11 OF THEM UNROWED
+
+Every one compiles rc 0 with no diagnostic on base 58fd3c9773b9c475 43:
+
+| program | shape | base |
+|---|---|---|
+| `refbind_scalar_under_ref_segv` (ROW) | `match &v { ref r => **r }` | 139 |
+| `toplevel_refbind_over_ref_scrutinee_segv` (ROW) | `ref w`, read via `&i64` | 139 |
+| h1 | `match &mut n { ref w => **w }` | 139 |
+| h3 | `&Struct` scrutinee, `let q: &S = *w` | 139 |
+| h4 | `&&i64` scrutinee, depth 2 | 139 |
+| h5 | the EXPRESSION-match twin (`let x = match &v { ref r => **r };`) | 139 |
+| h6 | `ref mut w` binder | 139 |
+| h7 | `&(i64,i64)` scrutinee | 139 |
+| h10 | `bool` core, not `i64` | 139 |
+| h12 | the deref in a GUARD (`ref r if **r > 1`) | 139 |
+| h16 | scrutinee is a `&i64` FN PARAMETER — no `&` written at the match | 139 |
+| h2 | `match s { ref w => w.a }`, by-value struct | **rc 1, a WRONG ANSWER** |
+
+h2 is a second defect at the same site and is NOT a segfault: the alias branch is right
+for a by-value aggregate but carries no `var_struct_` shape, so `w.a` GEPs through the
+wrap. `pat_bind`'s RefBind case already carries the shape; the match door does not.
+It has no queue row.
+
+Correct on base, and still correct under every arm (the shape controls, rule 5 — these
+vary the SHAPE, not the count): a named binder over `&v` (c1); `ref` over a NON-reference
+scrutinee (c2, and the three `pat_*` spec fixtures); a `ref` binder never read through
+(c3/h15/h17 array/h14 enum); a by-value TUPLE with `w.0` (h18 — correct today, so the
+shape gap is struct-only); `let q: &S = w;` then `q.a` (h19 — correct today, so h2 is
+specifically field access THROUGH the binder). `h13` (`Pair{ a: ref x }` over `&p`) is
+REFUSED, correctly, by the landed Rust-2024 modifier rule.
+
+### THE CENSUS — 6602 REGISTERED PASS FIXTURES, `LOGOS_CENSUS` RIDING THE BASELINE RUN
+
+    tlrefbind/stmt/arrive          23      tlrefbind/expr/arrive           7
+      ty_refval                     7        ty_refval                     0
+      ty_other                     16        ty_other                      7
+      br_ptrvalue                   7        br_ptrvalue                   0
+      br_spill                     15        br_spill                      7
+      br_scrutptr                   1        br_scrutptr                   0
+      ty_agg (by-value struct/tuple) 0       —
+
+Read it in three parts.
+
+1. **The defective branch has SEVEN arrivals in the entire pass corpus**, all at the
+   statement door, and **all seven are `&ref a` under a `&`-PATTERN** — the three
+   `tests/imported/pass/binding/borrowed-ptr-pattern*.logos` fixtures. There is not one
+   TOP-LEVEL `ref` binder over a reference-typed scrutinee anywhere in the corpus. That
+   is why two rows sat here: the door's only carriers are the queue programs themselves.
+2. **The expression door's `ty_refval` count is 0 — an UNREACHED-SITE zero for that
+   sub-door, inside a site that is LIVE** (7 arrivals, and `tlrbtopx` fires 1 and turns
+   h5 from 139 to 0). Not a harness zero, not a dead site: a door whose only carrier is a
+   hand program nobody has filed.
+3. **`ty_agg` is 0**: the by-value aggregate shape (h2) has no corpus carrier either, and
+   its arm's queue ceiling of 0 is that same "no carrier" zero — `tlrbshape` fires 1 and
+   fixes h2, so the site is proven live.
+
+### THE PROBE TABLE — ALL COST COLUMNS, THE RUNTIME ONE INCLUDED
+
+`ceiling` here is the SOUNDNESS QUEUE's, not the bc ledger's: rows that
+`soundness_queue_gate.sh` reports as NO LONGER REPRODUCING under the arm. `runtime` is
+`scripts/run_oracle.py` over 6602 pass fixtures compiled, linked and RUN, diffed triple
+by triple against the unarmed baseline, `cast-region-to-uint` subtracted BY NAME.
+
+| probe | fires | queue ceiling | runtime cost | hand-carriers closed | hand regressions |
+|---|---|---|---|---|---|
+| `tlrbspill`   (stmt, no depth guard) | 4 | **2** | not run | 9 | 3 |
+| `tlrbspillx`  (expr, no depth guard) | 1 | 0 (unrowed door, site LIVE) | not run | 1 (h5) | 0 |
+| `tlrbshape`   (by-value aggregate)   | 1 | 0 (unrowed door, site LIVE) | 1 (h2) | 0 |
+| `tlrbboth`    (all three, crude)     | — | **2** | **3 GREEN FIXTURES BROKEN** | 12 | 3 |
+| `tlrbtop`     (stmt, depth-guarded)  | 4 | **2** | — | 9 | 0 |
+| `tlrbtopx`    (expr, depth-guarded)  | 1 | 0 (unrowed door, site LIVE) | — | 1 | 0 |
+| `tlrbtopboth` (the refined whole)    | 6 | **2** | **0 / 6602** | **12** | **0** |
+
+Both compound arms move EXACTLY the two predicted rows and no others — the prediction was
+written by name before the run and the diff is empty in BOTH directions.
+
+### THE COST THE FIRST FORM PAID, AND WHY IT IS A RUNTIME NUMBER
+
+    tests/imported/pass/binding/borrowed-ptr-pattern.logos       base 0 -> tlrbboth 1
+    tests/imported/pass/binding/borrowed-ptr-pattern-b139.logos  base 0 -> tlrbboth 1
+    tests/imported/pass/binding/borrowed-ptr-pattern-b152.logos  base 0 -> tlrbboth 134
+
+`match x { &ref a => *a }` over `x: &i32` reaches the SAME `case pc::Code::RefBind` —
+the `&`-pattern's own case recurses into it WITHOUT peeling the scrutinee type — so the
+crude predicate ("scrut_ty is a reference") fires on a binder that is not top-level and
+adds an indirection the pattern already spent. **Every one of these three compiles rc 0
+under the crude arm**: no compile-exit-code column, no `.expected` text column and no
+stdlib column can see them. They are visible only in the RUN.
+
+The refinement is one counter: `extract_payload` / `extract_arm_payload` increment a
+`tlrb_refpat_depth` around the RefPat recursion, and the arm fires only at depth 0. That
+is the same accounting `ref_bind_kind` already does with `payload_thin_layers`, which is
+the third argument for routing the real fix through that function rather than re-deriving
+it at two doors.
+
+### THE FINDING — THE THREE COLUMNS `ceiling-probe.sh` PRINTS ALL READ ZERO ON THE ARM THAT MISCOMPILES THREE GREEN FIXTURES
+
+    probe        fires  bcCEIL  COST  COST-fail  stdlib
+    tlrbtopboth     20       0     0    0/1478   all four layers ok
+    tlrbboth        20       0     0    0/1478   all four layers ok      ← breaks 3 fixtures
+
+The two arms are IDENTICAL in every column that tool prints, digit for digit, and one of
+them turns `borrowed-ptr-pattern` from 0 into 1, `-b139` from 0 into 1 and `-b152` from 0
+into 134. This is rule 9 met in its purest form — two names, identical in every column the
+harness owns, separating only on the RUN — and it is the FOURTH time in this arc that an
+arm read zero in every cheap column and was wrong. The reason is structural, not a tool
+defect: `COST` is compile rc over the bc/legal population, `COST-fail` is diagnostic TEXT,
+`stdlib` is a compile. **A codegen change that keeps compiling is invisible to all three by
+construction.** The three fixtures ARE in `run_oracle.py`'s population (`-L pass`,
+registered as `logos_02_semantic_core_pass_borrowed-ptr-pattern*`), so the runtime column
+is the one that sees it — and it is the column a probe table without `run_oracle.py` does
+not have.
+
+### WHAT DESERVES FUNDING
+
+**FUND the refined arm, at BOTH doors, routed through `ref_bind_kind`.** Priced:
+queue ceiling 2 (both rows, predicted by name, diff empty both ways), bc ceiling 0,
+COST 0, COST-fail 0/1478, stdlib all four layers, **runtime 0 of 6602**, 12 hand
+programs of 12 distinct shapes repaired, 0 regressions in a battery that includes the
+three fixtures the crude form breaks. The landing round should NOT re-derive the depth
+arithmetic at the two match doors: `MLIRGenImpl::ref_bind_kind` already computes
+`binding_depth - payload_thin_layers`, which is the same subtraction the
+`tlrb_refpat_depth` counter approximates, and the two doors are the third and fourth
+copies of a walk that has already drifted twice (its own comments say so).
+
+**Two new queue rows, filed this round** (`# TOTAL` 78 -> 80 by direct listing,
+tier1 21 -> 23):
+
+  * `exprmatch_refbind_over_ref_scrutinee_segv` (tier 1, `run 139`) — the EXPRESSION-match
+    door. It is a separate defect and the separation is measured, not asserted: the
+    statement-only arm leaves it at 139 and the expression-only arm leaves the two
+    statement rows at 139.
+  * `refbind_byvalue_struct_field_read_wrong` (tier 1, `run 1`) — a SILENT WRONG ANSWER,
+    not a segfault, at the same door: the by-value-aggregate branch is right and carries
+    no `var_struct_` shape. `pat_bind` carries it; `gen_match` does not.
+
+Both were found by varying the SHAPE of hand programs past what the prompt named, both
+have ZERO carriers in the 6602-fixture corpus (census `ty_refval` at the expression door
+= 0, `ty_agg` = 0), and neither is closed by the arm that closes the rows this round
+targeted — which is the test that says they are rows and not spellings.
+
+**NOT funded: the crude form.** It is not "cheaper minus a refinement"; it is wrong in a
+direction three green fixtures already pin, and its wrongness is invisible to every column
+short of a run.
+
+### ORACLES, AND THE CONTROL REVERT
+
+  * `soundness_queue_gate.sh` (with `LOGOS_LIB_DIR`, as CMake's ENVIRONMENT property
+    supplies it) rc **0** on the reverted tree at `# TOTAL` **80** by direct listing
+    (tier1 **23** tier2 8 tier3 42 tier4 7) — 78 rows carried in, 2 filed by this round.
+  * Armed, the SAME gate is rc 1 naming exactly `refbind_scalar_under_ref_segv` and
+    `toplevel_refbind_over_ref_scrutinee_segv` and nothing else. That is the ceiling.
+  * `test-levels.sh L1` rc 0 with the probes installed and nothing armed (the inertness
+    proof), and rc 0 again after the revert.
+  * `ceiling-probe.sh` on both compound arms: bc CEILING 0, COST 0, COST-fail 0/1478,
+    stdlib all four layers — see the finding above for why those four zeros are worth
+    nothing here.
+  * `run_oracle.py` twice over 6602 fixtures compiled, linked and RUN:
+    `tlrbtopboth` **0 changed** (`cast-region-to-uint` subtracted by name),
+    `tlrbboth` **3 changed** — and the census predicted the number and the FILES before
+    either run (7 arrivals, 3 files).
+  * CONTROL REVERT: `build_hash.py` READ at every step — 58fd3c9773b9c475 43 on the base,
+    0158e823a73f6ba1 43 with the census + crude arms, 4fa881839306e7b1 43 with the refined
+    arms, and back to 58fd3c9773b9c475 43 after `git checkout` of the two compiler files
+    and a rebuild. No compiled source is left changed by this round.
+
+### CORRECTIONS TO THE PROMPT (a complaint is a claim with a timestamp — checked against
+### the text actually given, not against the journal)
+
+  1. The STEP-1 gate command **does** carry `LOGOS_LIB_DIR` in the prompt as written, and
+     it works as written: rc 0, no `GATE BROKEN`. The correction four rounds recorded is
+     LANDED; do not repeat it.
+  2. "RE-VERIFY THE THREE ROWS' RECORDED CONTROLS … two of these rows are one day old"
+     names no three rows, and nothing in the tree does either: the newest tier-1 row is
+     `2026-09-07` (`git log -S` on the ledger, all 21 dated), so no tier-1 row is one day
+     old. The handed-down triple is a hypothesis with no referent (rule 17). What was
+     re-verified instead is stated: the queue gate re-runs every row's recorded control on
+     today's binary and was rc 0, and the two target rows' own header controls were
+     re-measured by hand (the named-binder twin, the non-reference scrutinee, the
+     never-read binder — all still exit 0; the rows still exit 139).
+  3. `probe-log-lint.py`: 262 records before this record, 263 after — the count went up by
+     the ONE record written. Its "every site symbol resolves" line is not cited; the three
+     site symbols were grepped by hand and the counts are in the `build:` line.
