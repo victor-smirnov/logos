@@ -9105,8 +9105,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         bool deref_bound_fallthrough = false;
         if (bit != current_type_bounds_.end()) {
             for (auto& bound : bit->second) {
-                bool is_mut_deref = bound.trait_name == "DerefMut";
-                if (bound.trait_name != "Deref" && !is_mut_deref) continue;
+                // KEY-IDENTITY: the lang item, not the spelling. PROBES.md 2026-09-10h.
+                bool is_mut_deref = bound_is_deref_lang_item(
+                    bound.trait_name, bound.canonical_trait, "DerefMut");
+                if (!is_mut_deref &&
+                    !bound_is_deref_lang_item(bound.trait_name,
+                                              bound.canonical_trait, "Deref"))
+                    continue;
                 if (bound.type_args.empty() || !bound.type_args[0]) continue;
                 TypeRef tgt{bound.type_args[0]};
                 lir::EMethodCall dc;

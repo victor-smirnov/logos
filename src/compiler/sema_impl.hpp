@@ -5977,6 +5977,7 @@ private:
     // 2026-09-10f.
     static constexpr std::string_view kCopyLangPkg = "logos.lang.clone";
     static constexpr std::string_view kDropLangPkg = "logos.lang.drop";
+    static constexpr std::string_view kDerefLangPkg = "logos.lang.ops";
     static std::string_view trait_last_seg(std::string_view s) noexcept {
         auto p = s.find_last_of(":.");
         return p == std::string_view::npos ? s : s.substr(p + 1);
@@ -6003,6 +6004,16 @@ private:
             trait_last_seg(canonical) != "Copy") return false;
         return trait_key_is_lang_item(canonical.empty() ? written : canonical,
                                       "Copy", kCopyLangPkg);
+    }
+
+    // `logos.lang.ops::Deref`/`DerefMut`. PROBES.md 2026-09-10h.
+    bool bound_is_deref_lang_item(std::string_view written,
+                                  std::string_view canonical,
+                                  std::string_view item) const {
+        if (trait_last_seg(written) != item &&
+            trait_last_seg(canonical) != item) return false;
+        return trait_key_is_lang_item(canonical.empty() ? written : canonical,
+                                      item, kDerefLangPkg);
     }
 
     std::string canonical_trait_name(std::string_view name) {

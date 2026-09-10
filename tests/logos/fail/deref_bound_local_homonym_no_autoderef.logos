@@ -1,0 +1,20 @@
+// PAIR-B (fail half). Identical to pass/deref_bound_lang_item_autoderef.logos
+// except that `Deref` is this package's OWN trait, not logos.lang.ops::Deref.
+// A crate-local homonym confers no operator-deref power in Rust, so `t.get()`
+// is provided by no bound and the call is an error.
+// Before 2026-09-10h the fallback was chosen by the bare name: this compiled
+// and RAN, printing got42.
+package deref_bound_local_homonym_no_autoderef;
+trait Deref<T> { fn deref(&self) -> &T; }
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+struct C { n: i32 }
+impl C { fn get(&self) -> i32 { return self.n; } }
+struct W { c: C }
+impl Deref<C> for W { fn deref(&self) -> &C { return &self.c; } }
+fn via_bound<T: Deref<C>>(t: &T) -> i32 { return t.get(); }
+fn main() -> i32 {
+    let w = W { c: C { n: 42i32 } };
+    printi("got%d ", via_bound(&w));
+    return 0i32;
+}

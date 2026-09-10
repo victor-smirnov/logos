@@ -233,7 +233,27 @@
 #SCAN sema_auto_trait.cpp 16 a2c3b0b4
 #SCAN sema_collect.cpp 40 0f9e28cc
 #SCAN sema_decl.cpp 2 ce09ff69
-#SCAN sema_expr.cpp 162 287f788d
+# sema_expr.cpp 162 -> 160, 2026-09-10h. The Deref/DerefMut bound-autoderef
+# fallback (`lower_method_call`) is the LAST lang-item trait decision in this
+# file that was keyed on a bare spelling, and it was one decision policed
+# asymmetrically: the `== "DerefMut"` arm was always visible to FACT 4, the
+# `!= "Deref"` arm was not until 2026-09-10g widened the matcher. Both literals
+# are gone, replaced by `bound_is_deref_lang_item`, which resolves the bound's
+# canonical registry key through `trait_key_is_lang_item` against
+# kDerefLangPkg = "logos.lang.ops" — the same instrument `bound_is_copy_lang_item`
+# uses for kCopyLangPkg. MEASURED on the unmodified compiler before the change:
+# a package-local `trait Deref<T> { fn deref(&self) -> &T; }` gave a type
+# parameter operator-deref power, so `t.get()` — provided by NO bound —
+# compiled, linked and RAN, printing got42 with exit 0; a local `Deref` with no
+# `deref` method at all reached mlir-gen and died there ("'func.call' op
+# 'W__deref' does not reference a valid function"), an internal failure where a
+# user diagnostic belongs. Both now refuse with the sentence
+# `trait.method-dispatch.no-bound-provides-method` specifies. Pinned in PAIRS
+# one token apart: pass/deref_bound_lang_item_autoderef (imports
+# logos.lang.ops, RUNS, asserts got42) and
+# fail/deref_bound_local_homonym_no_autoderef (declares its own homonym).
+# PROBES.md 2026-09-10h.
+#SCAN sema_expr.cpp 160 d5ee5128
 # sema_impl.hpp 29 -> 32, 2026-09-07s. THREE new comparisons of a trait name
 # against a literal, all inside `typevar_only_fn_once` / `callable_is_fn_once`,
 # the predicate that answers "is this callable consumed by its call?":

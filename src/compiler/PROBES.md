@@ -35533,3 +35533,184 @@ Ranked by "an arm that exists, reached through a fact the code does not carry":
    twin needs its own control twin.
 4. `sema_collect` `Copy`/`Drop` — read the two prior rounds' records FIRST; these
    may already be the residual those landings deliberately left.
+
+---
+
+# 2026-09-10h — THE DEREF BOUND-AUTODEREF FALLBACK WAS THE LAST LANG-ITEM TRAIT DECISION IN `sema_expr.cpp` CHOSEN BY A SPELLING, AND IT COMPILED AND *RAN* A PROGRAM NO BOUND PROVIDES A METHOD FOR
+
+base `f9b6db073`, build_hash `3913eca704c4eaaa 43` -> `6f9c16bc77c96dae 43`.
+
+## 1. STEP 1, RUN AS GIVEN
+
+| measurement | value |
+|---|---|
+| soundness queue gate | **rc 0** — `OK: soundness queue holds — 76 open row(s) (tier1=19 tier2=9 tier3=41 tier4=7), '# TOTAL' says 76` |
+| `# TOTAL` | soundness_queue **76**, bc_admits **90**, bc_admits_blocked **8** |
+| direct listing | **76** rows |
+| `probe-log-lint.py` | 264 records, every site symbol resolves |
+| `build_hash.py` | `3913eca704c4eaaa 43` |
+| git | `f9b6db073`, clean |
+
+The prompt's STEP-1 gate line carries `LOGOS_LIB_DIR`. It ran rc 0 as written.
+Re-verified against the text given, not copied from the journal — this is the
+third round in which that correction is STALE and the second in which saying so
+is the correction.
+
+## 2. THE SUBJECT, AND WHY IT IS ONE MEMBER
+
+Round `f9b6db073` widened FACT 4 to see `!=` and left four funding candidates.
+Rule 5 says a recommendation is not a verdict, so each was met with hand
+programs of its OWN shape before anything was funded.
+
+**The class, enumerated BY PROPERTY with `tools/dlog`, not by grep.**
+`name_intercept.dl` (the rule `f9b6db073` added) run over **20 TUs** —
+`sema{,_collect,_decl,_expr,_stmt,_auto_trait,_fmt,_render}.cpp`,
+`mono{,_clone,_scan,_subst}.cpp`, `trait_engine.cpp`,
+`mlir_gen{,_expr,_stmt,_dyn,_fn}.cpp`, `borrow_check.cpp`,
+`reflection_emit.cpp` — answers **370 intercepts (329 `==`, 41 `!=`), 916
+residual**. Intersected with the **93 trait names declared under
+`stdlib/lang/`**, the population is **58 sites**:
+
+```
+Fst 15 · Unpin 6 · Drop 6 · FnMut 5 · Fn 5 · Sized 4 · Send 4 · Sync 3
+FnOnce 3 · Copy 3 · PartialOrd 1 · PartialEq 1 · DerefMut 1 · Deref 1
+```
+
+The enumeration reaches `sema_impl.hpp` — three sites in `typevar_only_fn_once`
+/ `callable_is_fn_once` that the previous round's 9-file regex census does not
+list, because a header is not one of its files. `#include` is a property of the
+translation unit; a file list is not.
+
+**The discriminating property is not the spelling — it is whether an identity
+check stands UPSTREAM of the literal.** By that property the 58 split:
+
+* **34 are dispatcher PARAMETERS** — `sema_auto_trait.cpp` (13) and
+  `mono_clone.cpp::is_auto_satisfied` (8) compare their own `trait_name`
+  argument, and the only door into them is `sema_collect.cpp:1156`
+  `traits_.find(btn)->second.is_auto`, a REGISTRY lookup on the canonical key.
+  Plus `Fn`/`FnMut`/`FnOnce` (11) behind `b.is_fn_family`, and `Sized` (4).
+* **12 are the residual of the `Copy`/`Drop` landings** (`8b49a203f`,
+  `4013c21a8`, `1979d72f4`, `48cc71ae7`), named here and out of scope.
+* **2 — `sema_expr.cpp` 9108/9109 — stand behind nothing at all.** One
+  decision, two arms, and until `f9b6db073` the gate could see only the `==`
+  one.
+
+## 3. COUNTER-EXAMPLES, WRITTEN BEFORE THE EDIT, ON THE UNMODIFIED COMPILER
+
+All multi-line, all varied in shape, all four run on `f9b6db073`'s binary:
+
+| # | shape | pre-fix verdict |
+|---|---|---|
+| CE1 | package-local `trait Deref<T>` whose method is `fetch`, NOT `deref` | **`error: 'func.call' op 'W__deref' does not reference a valid function` / `mlir_gen: module verification failed`** — an internal MLIR failure where a user diagnostic belongs, plus a `logos-mlir-verify-fail.mlir` dropped in cwd |
+| CE2 | package-local `trait Deref<T>` that does declare `deref` | **compiles, links, RUNS, prints `got42`, exit 0** |
+| CE3 | package-local `trait DerefMut<T>` (the `==` arm) | **compiles, links, RUNS, prints `got10`, exit 0** |
+| CE5 | package imports `logos.lang.ops` AND declares a homonym `Deref` | **compiles, links, RUNS, prints `got13`, exit 0** |
+
+In every one of them the called method (`get`, `bump`) is provided by NO bound
+on the type parameter. Rust gives a crate-local trait named `Deref` no
+operator-deref power whatever; `docs/DIVERGENCES.md` has no row for it (17 rows,
+`A1`..`A17`, searched by construct) and `docs/spec/divergences.md` carries no
+clause for it either. The governing clause is
+`trait.method-dispatch.deref-bound-fallback` (`docs/spec/traits-generics.md`),
+which says "carries a `Deref<Target>` or `DerefMut<Target>` bound" and names no
+identity — under-specified, not blessed. Standing rule: the answer is Rust, and
+it is not escalated.
+
+**CE3 also turned up a separate finding, recorded not fixed:** written with a
+bare `t.bump()` the `deref_mut` rewrite CONSUMES the receiver —
+`error [fn via_bound]: cannot borrow moved value 't' (moved on line 17)`. It
+needs an explicit `&mut *t` reborrow. That is the `&mut` arm of the same
+fallback and it is orthogonal to identity; no row opened, named here.
+
+## 4. WHAT WAS DECLINED, BY NAME AND BY NUMBER
+
+* **`sema_expr.cpp` 19023/19030/20062/20073/22092, `struct_name() != "Vec"`** —
+  the previous round's **#1** recommendation. **0 wrong verdicts in 2 shapes.**
+  CE8 puts a package-local `struct Vec<T>` in a `#[fn_macro]` parameter
+  position: the bare-name recogniser does accept the signature, and a
+  downstream QUALIFIED type-identity check refuses it —
+  `type mismatch — expected ce8_vec_user.Vec<ExprBlob>, got
+  logos.mem.collections.vec.Vec<ExprBlob>`. CE9 puts a package-local
+  `struct Vec<T>` with a different field ORDER in a `quote_expr!` repeat group:
+  it never becomes a cursor (`REPEAT_GROUP body has no cursor`) and the program
+  compiles clean. ⚠ CE9 is inconclusive about whether `is_vec_ident_qi`
+  returned true — the doors are in SERIES and only the outer one was observed.
+  Declined on 0/2 and on that stated limit, NOT proven safe.
+* **`mono_clone.cpp:232` + `sema_auto_trait.cpp:104`, `trait_name != "Fst"`** —
+  the previous round's **#3**, and rule 18's twin. **0 wrong verdicts, with a
+  LIVE control pair one token apart.** CE6 declares the package's own
+  `pub auto trait Fst {}` over a struct holding a `fn(i32)->i32` field: **rc 0,
+  admitted**. CE6b is the same program with the declaration replaced by
+  `use logos.lang.marker;`: **rc 1**, `'take': type 'Holder' does not satisfy
+  auto trait 'Fst' (field 'f' of type 'fn(i32) -> i32' is not Fst)`. Opposite
+  verdicts, both CORRECT, which is what proves the entry gate at
+  `sema_collect.cpp:1156` is already keyed on identity and the 21 literals
+  inside are pins on a closed vocabulary. Declined.
+* **`Fn`/`FnMut`/`FnOnce` (11) and `Sized` (4)** — not measured this round.
+  Named, not cleared.
+* **`sema_collect` 3777/3778/6546 `Copy`/`Drop`, `sema.cpp:3227`** — the
+  previous round's **#4**; the residual the four `Copy`/`Drop` landings left
+  deliberately. Out of scope, named.
+
+## 5. THE CHANGE
+
+`bound_is_deref_lang_item(written, canonical, item)` beside
+`bound_is_copy_lang_item` in `sema_impl.hpp`, over the same
+`trait_key_is_lang_item` with `kDerefLangPkg = "logos.lang.ops"`; both arms at
+`sema_expr.cpp` 9108/9109 go through it. **18 lines added, 2 removed** —
+`git diff --numstat`: `7 2 sema_expr.cpp`, `11 0 sema_impl.hpp`. The wildcard
+direction is inherited unchanged: an unresolvable key still matches on the last
+segment, because narrowing there is an OVER-REFUSAL and that is the direction
+this change must never take.
+
+## 6. AFTER
+
+| counter-example | after |
+|---|---|
+| CE1 | `error [fn via_bound]: type parameter 'T' has no trait bound providing method 'get'`, rc 1 — the sentence `trait.method-dispatch.no-bound-provides-method` specifies. The internal MLIR failure is gone. |
+| CE2 / CE5 | refused with the same sentence |
+| `pass/deref_bound_lang_item_autoderef` | compiles, links, **RUNS**, `got42`, exit 0 |
+
+**PINNED IN PAIRS, ONE TOKEN APART.** The two fixtures are the same program;
+the only difference is whether `Deref` is `use logos.lang.ops` or a
+package-local `trait Deref<T> { fn deref(&self) -> &T; }`. The pass half RUNS
+and asserts exit + stdout (`exit: 0 / stdout: got42 `); the fail half pins the
+diagnostic in full.
+
+**CONTROL REVERT, on the pre-fix binary saved before the build.** The fail
+half's exact source, given to `f9b6db073`'s `logosc`: `cc rc=0`, linked against
+the same seven archives the queue gate links, **ran and printed `got42`,
+exit 0**. The illegal program was not merely admitted — it executed.
+
+## 7. GATES
+
+Three tier_commit pins moved, each re-derived in the gate that HOLDS it and
+each in the expected direction:
+
+* `key_identity.ledger` `#SCAN sema_expr.cpp` **162 `287f788d` -> 160
+  `d5ee5128`** — the two literals this change removed. The gate red first and
+  named the delta.
+* `direct_door_census_gate.sh` `corpus` **3012 -> 3013**, `nonglob`
+  **2821 -> 2822** — the pass half. The fail half does not live in that
+  population.
+* `docs/deem-interpreter-deletion-census.md` `REGISTRY-ALL` **9553 -> 9555**,
+  `REGISTRY-NOIMPORTED` **5087 -> 5089**, `REGISTRY-TIERCOMMIT` **148 -> 148**
+  — both halves, native, neither tier_commit.
+
+## 8. THE TOOL
+
+`tools/dlog/selftest.sh` was run BEFORE relying on the tool and passes:
+`19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty discriminates
+across 756aed65 (1 -> 0)`. No extractor change and no new rule this round —
+`name_intercept.dl` and `binop`/`str_lit` are `f9b6db073`'s, used as shipped.
+
+⚠ **The dlog verdict was cross-checked against a per-site read, and they
+disagree in the direction that matters.** dlog's 58 rows are a POPULATION, not
+a verdict: 34 of them are behind an identity gate dlog's rule cannot see,
+because `name_intercept.dl` asks about a comparison's operands and says nothing
+about what dominates the comparison. The per-site read is what split the 58, and
+the counter-examples are what proved the split — CE6/CE6b in particular is a
+population member the rule reports and a defect it is not. This is the
+`ctx_of`-coarsening failure from the other side: the rule under-claims rather
+than over-claims, which is the safe direction, and the honest report is the two
+numbers side by side — **58 sites in the class, 2 defects in it.**

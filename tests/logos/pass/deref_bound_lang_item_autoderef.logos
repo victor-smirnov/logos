@@ -1,0 +1,21 @@
+// PAIR-A (pass half) of the Deref lang-item identity pin. `T: Deref<C>` names
+// logos.lang.ops::Deref, so the bound-autoderef fallback of
+// `trait.method-dispatch.deref-bound-fallback` applies and `t.get()` resolves
+// on C through `t.deref()`.
+// The fail half fail/deref_bound_local_homonym_no_autoderef.logos is this
+// program with the `use` replaced by a package-local `trait Deref` of the same
+// shape; before 2026-09-10h the bare NAME decided and both compiled and RAN.
+package deref_bound_lang_item_autoderef;
+use logos.lang.ops;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+struct C { n: i32 }
+impl C { fn get(&self) -> i32 { return self.n; } }
+struct W { c: C }
+impl Deref<C> for W { fn deref(&self) -> &C { return &self.c; } }
+fn via_bound<T: Deref<C>>(t: &T) -> i32 { return t.get(); }
+fn main() -> i32 {
+    let w = W { c: C { n: 42i32 } };
+    printi("got%d ", via_bound(&w));
+    return 0i32;
+}

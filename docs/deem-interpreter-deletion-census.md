@@ -5681,8 +5681,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   TIERCOMMIT    148 ->  148   0    fixtures, none tier_commit, none imported.
 #                                    The two closed soundness-queue programs were
 #                                    never registered tests, so they move neither.)
-REGISTRY-ALL         9553
-REGISTRY-NOIMPORTED  5087
+# 2026-09-10h (Deref/DerefMut lang-item identity:
+#   ALL          9553 -> 9555  +2    one pass half (deref_bound_lang_item_autoderef,
+#   NOIMPORTED   5087 -> 5089  +2    RUNS and asserts got42) and one fail half
+#   TIERCOMMIT    148 ->  148   0    (deref_bound_local_homonym_no_autoderef, which
+#                                    pins the diagnostic in full). Both native,
+#                                    neither tier_commit, neither imported. No
+#                                    soundness-queue row closed, so `# TOTAL` is
+#                                    unmoved at 76.)
+REGISTRY-ALL         9555
+REGISTRY-NOIMPORTED  5089
 REGISTRY-TIERCOMMIT  148
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
