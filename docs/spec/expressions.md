@@ -3497,25 +3497,25 @@ An owning trait-object handle (inline {data,vtable} fat pair, e.g. Box&lt;dyn&gt
 
 *Source:* `src/compiler/mlir_gen_stmt.cpp#L846-L855`, `src/compiler/mlir_gen_stmt.cpp#L1049-L1052`
 
-### `expr.drop.struct-user-drop-then-fields` — Struct drop: user Drop runs first, then field recursion governed by ownership
+### `expr.drop.struct-user-drop-then-fields` — Struct drop: user Drop runs first, then fields in declaration order
 
-Dropping a struct/zoned-struct value first calls its user `impl Drop` (if one exists), then recurses its droppable fields — AT EVERY DEPTH. A nested (non-top-level) struct does NOT stop: the drop receiver does not consume the fields, so the owner drops them after the user drop has run. Fields recurse in REVERSE declaration order (skipping ref/ptr/non-droppable fields and statically moved-out field paths).
+Dropping a struct/zoned-struct value first calls its user `impl Drop` (if one exists), then recurses its droppable fields — AT EVERY DEPTH. A nested (non-top-level) struct does NOT stop: the drop receiver does not consume the fields, so the owner drops them after the user drop has run. Fields recurse in DECLARATION order, front to back, matching Rust (it is LOCALS that drop in reverse, and they still do); ref/ptr/non-droppable fields and statically moved-out field paths are skipped. The rule holds at both emission sites — the recursive `gen_drop_value` walk and the `SDrop` variable walk — which are in SERIES for a nested struct, so neither alone decides it.
 
-*Source:* `src/compiler/mlir_gen_stmt.cpp#L1047-L1096`, `src/compiler/mlir_gen_stmt.cpp#L1056-L1059`, `src/compiler/mlir_gen_stmt.cpp#L1368-L1409`
+*Source:* `src/compiler/mlir_gen_stmt.cpp#L1047-L1098`, `src/compiler/mlir_gen_stmt.cpp#L1056-L1059`, `src/compiler/mlir_gen_stmt.cpp#L1372-L1415`
 
 ### `expr.drop.enum-user-drop-then-variant` — Enum drop: user Drop runs first, else variant-switched payload recursion
 
 Dropping an enum value first calls its user `impl Drop` if a drop symbol actually exists, then switches on the loaded discriminant and, for each variant carrying a droppable payload field, recurses into that field — AT EVERY DEPTH. A nested enum does NOT stop: the user drop runs and the payload is still dropped after it. Variants whose payload needs no drop emit no work; a wholly drop-less enum drops nothing.
 
-*Source:* `src/compiler/mlir_gen_stmt.cpp#L1114-L1159`, `src/compiler/mlir_gen_stmt.cpp#L1121-L1126`, `src/compiler/mlir_gen_stmt.cpp#L1137-L1155`
+*Source:* `src/compiler/mlir_gen_stmt.cpp#L1118-L1163`, `src/compiler/mlir_gen_stmt.cpp#L1125-L1130`, `src/compiler/mlir_gen_stmt.cpp#L1141-L1159`
 
-### `expr.drop.tuple-array-reverse` — Tuple and array element drop in reverse order
+### `expr.drop.tuple-array-index-order` — Tuple and array element drop in index order
 
-Dropping a tuple drops its droppable elements in reverse index order; dropping a fixed array [T;N] drops each of the N elements when T is droppable. Ref/ptr elements and non-droppable elements are skipped, and statically moved-out tuple element positions are suppressed.
+Dropping a tuple drops its droppable elements in INDEX order (.0, then .1, …); dropping a fixed array [T;N] drops each of the N elements in index order when T is droppable. Ref/ptr elements and non-droppable elements are skipped, and statically moved-out tuple element positions are suppressed. The rule holds at both emission sites — the recursive `gen_drop_value` walk and the `SDrop` variable walk — which are in SERIES for a nested aggregate, so neither alone decides it.
 
-*Divergence:* Rust drops array elements in forward (index-ascending) order; tuple reverse-order is conformant. Array order here is N forward but element-by-element; flagged as possibly observable only via Drop side effects.
+*Divergence:* Rust-conformant. ⚠ The previous text of this rule asserted that "tuple reverse-order is conformant", which is FALSE of Rust — Rust drops tuple elements in index order, exactly as it drops array elements — and the rule id encoded that error. Corrected 2026-09-10 with the compiler; the two soundness-queue rows it blessed (tuple_elems_dropped_reverse_order, struct_fields_dropped_reverse_order) are closed in the same commit.
 
-*Source:* `src/compiler/mlir_gen_stmt.cpp#L922-L938`, `src/compiler/mlir_gen_stmt.cpp#L985-L995`
+*Source:* `src/compiler/mlir_gen_stmt.cpp#L1099-L1117`, `src/compiler/mlir_gen_stmt.cpp#L1164-L1174`, `src/compiler/mlir_gen_stmt.cpp#L1416-L1434`
 
 ### `expr.drop.closure-env-glue` — Closure drop runs the captured environment's drop glue
 

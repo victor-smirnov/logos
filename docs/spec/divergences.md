@@ -2488,10 +2488,10 @@ Rules whose `divergence` field carries a Rust-conformance or spec-citation note 
 - **Rule**: For a place of struct type S, if an impl of the operator's *Assign trait exists for S (matched by concrete or base struct name), `place op= rhs` lowers to the in-place call `op_assign(&mut place, rhs)` (void result, no assign-back). The trait method's Rhs parameter need not equal Self: the impl is selected by the actual rhs operand type, falling back to the Self-Rhs signature if the rhs-typed one does not resolve.
 - **Source**: `src/compiler/sema_stmt.cpp#L2318-L2360`, `src/compiler/sema_stmt.cpp#L2493-L2518`
 
-### `expr.drop.tuple-array-reverse` — Tuple and array element drop in reverse order
-- **Divergence**: Rust drops array elements in forward (index-ascending) order; tuple reverse-order is conformant. Array order here is N forward but element-by-element; flagged as possibly observable only via Drop side effects.
-- **Rule**: Dropping a tuple drops its droppable elements in reverse index order; dropping a fixed array [T;N] drops each of the N elements when T is droppable. Ref/ptr elements and non-droppable elements are skipped, and statically moved-out tuple element positions are suppressed.
-- **Source**: `src/compiler/mlir_gen_stmt.cpp#L922-L938`, `src/compiler/mlir_gen_stmt.cpp#L985-L995`
+### `expr.drop.tuple-array-index-order` — Tuple and array element drop in index order
+- **Divergence**: Rust-conformant. ⚠ The previous text of this rule asserted that "tuple reverse-order is conformant", which is FALSE of Rust — Rust drops tuple elements in index order, exactly as it drops array elements — and the rule id encoded that error. Corrected 2026-09-10 with the compiler; the two soundness-queue rows it blessed (tuple_elems_dropped_reverse_order, struct_fields_dropped_reverse_order) are closed in the same commit.
+- **Rule**: Dropping a tuple drops its droppable elements in INDEX order (.0, then .1, …); dropping a fixed array [T;N] drops each of the N elements in index order when T is droppable. Ref/ptr elements and non-droppable elements are skipped, and statically moved-out tuple element positions are suppressed. The rule holds at both emission sites — the recursive `gen_drop_value` walk and the `SDrop` variable walk — which are in SERIES for a nested aggregate, so neither alone decides it.
+- **Source**: `src/compiler/mlir_gen_stmt.cpp#L1099-L1117`, `src/compiler/mlir_gen_stmt.cpp#L1164-L1174`, `src/compiler/mlir_gen_stmt.cpp#L1416-L1434`
 
 ### `expr.match.fnitem-arms-lub-fnptr` — distinct fn-item arms LUB to the common fn-pointer type
 - **Divergence**: Rust-conformant: matches Rust LUB for fn-item match arms.

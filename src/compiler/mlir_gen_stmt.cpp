@@ -1077,7 +1077,9 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_use
             auto& info = sit->second;
             auto def   = sdit->second;
             auto fields = def.fields();
-            for (int i = (int)fields.size() - 1; i >= 0; --i) {
+            // Rust: a struct's fields drop in DECLARATION order (locals are what
+            // drop in reverse). @rule expr.drop.struct-user-drop-then-fields
+            for (int i = 0; i < (int)fields.size(); ++i) {
                 TypeRef ft(fields[i].type(pool_impl()));
                 auto fk = ft ? TypeRef(ft).kind() : K::Error;
                 if (!ft || fk == K::Ref || fk == K::MutRef || fk == K::Ptr) continue;
@@ -1098,7 +1100,9 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_use
         auto ttype = tuple_llvm_type(ty);
         auto elems = TypeRef(ty).tuple_elems();
         if (ttype)
-            for (int i = (int)elems.size() - 1; i >= 0; --i) {
+            // Rust: tuple elements drop in INDEX order (.0, .1, .2).
+            // @rule expr.drop.tuple-array-index-order
+            for (int i = 0; i < (int)elems.size(); ++i) {
                 TypeRef et(elems[i]);
                 auto ek = et ? TypeRef(et).kind() : K::Error;
                 if (!et || ek == K::Ref || ek == K::MutRef || ek == K::Ptr) continue;
@@ -1392,7 +1396,9 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
                 auto& info = sit->second;
                 auto def   = sdit->second;
                 auto fields = def.fields();
-                for (int i = (int)fields.size() - 1; i >= 0; --i) {
+                // Declaration order — the twin of gen_drop_value's Struct loop.
+                // @rule expr.drop.struct-user-drop-then-fields
+                for (int i = 0; i < (int)fields.size(); ++i) {
                     std::string fname(fields[i].name());
                     std::set<std::string> child_skips;
                     if (split_skip_paths(&moved, fname, child_skips)) continue;
@@ -1411,7 +1417,9 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             auto ttype = tuple_llvm_type(st);
             auto elems = st.tuple_elems();
             if (ttype)
-                for (int i = (int)elems.size() - 1; i >= 0; --i) {
+                // Index order — the twin of gen_drop_value's Tuple loop.
+                // @rule expr.drop.tuple-array-index-order
+                for (int i = 0; i < (int)elems.size(); ++i) {
                     std::set<std::string> child_skips;
                     if (split_skip_paths(&moved, std::to_string(i), child_skips)) continue;
                     TypeRef et(elems[i]);

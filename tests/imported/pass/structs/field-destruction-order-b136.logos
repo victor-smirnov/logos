@@ -7,10 +7,16 @@
 // Tests that when a struct C{a:A, b:B} goes out of scope BOTH its fields run
 // their destructor exactly once. The log accumulates each field's tag as a
 // decimal digit so the final value records both that-they-ran AND the order.
-// NOTE (divergence): rustc drops fields top-to-bottom (a then b); Logos drops
-// them bottom-to-top (b then a) — log == 21. Upstream's own comment says the
-// order is implementation-defined, so the asserted invariant here is "both ran
-// once", expressed as the Logos-observed order 21. See B136 notes.
+// ⚠ RE-POINTED 2026-09-10, AND THE OLD NOTE WAS WRONG ABOUT UPSTREAM. It said
+// "upstream's own comment says the order is implementation-defined, so the
+// asserted invariant here is 'both ran once', expressed as the Logos-observed
+// order 21". Upstream's PROSE muses about the order; upstream's PROGRAM asserts
+// it — `A::drop` runs `assert!(!hit); hit = true;` and `B::drop` runs
+// `assert!(hit)`, so `tests/ui/structs/field-destruction-order.rs` is a
+// `run-pass` test that PANICS unless `a` drops before `b`. Re-pointed to 21 for
+// a divergence, this port stopped catching exactly what upstream wrote it to
+// catch. Logos now drops fields in declaration order like rustc, so the
+// assertion is upstream's own: log == 12.
 package field_destruction_order_b136;
 
 trait Drop { fn drop(self: Self); }
@@ -29,7 +35,7 @@ fn main() -> i32 {
     {
         let _c = C { a: A { log: s }, b: B { log: s } };
     }
-    // both fields dropped once; Logos order is b-then-a → 21
-    unsafe { if *s != 21i64 { return 1i32; } }
+    // both fields dropped once, a-then-b, exactly as upstream asserts → 12
+    unsafe { if *s != 12i64 { return 1i32; } }
     return 0i32;
 }

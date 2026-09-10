@@ -9,7 +9,7 @@ nest-  M5 D5
 tup+   M6 D6 
 tup-   M6 D6 
 whole+ M7 M8 D7 D8 
-whole- M7 M8 h7 D8 D7 
+whole- M7 M8 h7 D7 D8 
 mat+   M9 D9 
 mat-   M9 f D9 
 and++  M10 M11 D10 D11 

@@ -1,0 +1,44 @@
+// DROP ORDER, STRUCT FIELDS — TWIN of `drop_struct_fields_decl_order`, ONE
+// TOKEN apart: the field DECLARATION is `b, a, c` and the struct LITERAL is
+// unchanged, so the sequence is 213.
+//
+// Neither half alone pins the direction. This one separates DECLARATION order
+// from LITERAL order and from reverse; pre-fix it printed 312 and exited 90.
+package drop_struct_fields_decl_order_swapped;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+// Each destructor appends its id to a decimal SEQUENCE and bumps a COUNT, so
+// this fixture pins WHICH ORDER the fields drop in (stdout + the `seq` check)
+// AND that each field drops exactly once (the exit code IS the destructor
+// count: 2 would be a leak, 4 a double drop, and neither moves the sequence).
+struct O { id: i32, seq: *mut i32, n: *mut i32 }
+impl Drop for O {
+    fn drop(self: &mut O) {
+        unsafe {
+            *self.seq = *self.seq * 10 + self.id;
+            *self.n = *self.n + 1;
+            printf("%d".as_ptr(), self.id);
+        }
+    }
+}
+struct T3 { b: O, a: O, c: O }
+
+fn main() -> i32 {
+    let mut seq: i32 = 0;
+    let mut cnt: i32 = 0;
+    let ps: *mut i32 = &mut seq;
+    let pn: *mut i32 = &mut cnt;
+    let mut probe: i32 = 0;
+    {
+        let t: T3 = T3 { a: O { id: 1, seq: ps, n: pn },
+                         b: O { id: 2, seq: ps, n: pn },
+                         c: O { id: 3, seq: ps, n: pn } };
+        probe = t.a.id;
+    }
+    unsafe { printf("\n".as_ptr()); }
+    if probe != 1 { return 91; }
+    let got: i32 = unsafe { seq };
+    if got != 213 { return 90; }
+    return unsafe { cnt };
+}

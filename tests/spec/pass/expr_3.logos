@@ -193,8 +193,9 @@ fn main() -> i64 {
         if p[0] != 1i64 { return 23; }
 
         // @rule expr.drop.struct-user-drop-then-fields
-        // Dropping a struct first runs its user Drop; a top-level struct with a
-        // user Drop runs only that drop (fields consumed by self), no double-drop.
+        // Dropping a struct first runs its user Drop, then its droppable fields
+        // in declaration order, at every depth. UserDrop's fields are not
+        // droppable, so the counter sees the user drop exactly once.
         p[0] = 0i64;
         { let _u: UserDrop = UserDrop { i: p, tag: 1i64 }; }
         if p[0] != 100i64 { return 24; }   // user drop fired exactly once
@@ -209,18 +210,18 @@ fn main() -> i64 {
         { let _e2: E = E::None; }          // no payload -> nothing
         if p[0] != 0i64 { return 26; }
 
-        // @rule expr.drop.tuple-array-reverse
-        // Tuple drops elements in reverse index order; arrays drop each element.
+        // @rule expr.drop.tuple-array-index-order
+        // Tuple drops elements in INDEX order; arrays drop each element.
         let mut buf: [i64; 4] = [-1i64; 4];
         let mut pos: i64 = 0i64;
         let pb: *mut i64 = &mut buf as *mut i64;
         let pp: *mut i64 = &mut pos;
         {
-            // tuple of two Ord: dropped in reverse index order => id 2 then id 1.
+            // tuple of two Ord: dropped in index order => id 1 then id 2.
             let _t: (Ord, Ord) = (mko(1i64, pb, pp), mko(2i64, pb, pp));
         }
-        if buf[0] != 2i64 { return 27; }   // higher index drops first
-        if buf[1] != 1i64 { return 28; }
+        if buf[0] != 1i64 { return 27; }   // .0 drops first
+        if buf[1] != 2i64 { return 28; }
         // fixed array: every element dropped.
         p[0] = 0i64;
         { let _a: [R; 3] = [mk(p), mk(p), mk(p)]; }

@@ -33823,3 +33823,143 @@ absent, not exempted.
     recorded blocker was the owner's decision, which now exists.
  7. ⛔ **`sigselfnone` — DO NOT LAND**, for the reason `sigrecvty` was stopped:
     it breaks the stdlib at the four `str` DST sites.
+
+# 2026-09-10dropord — AGGREGATE FIELD/ELEMENT DROP ORDER: THE CLASS IS FOUR LOOPS, TWO ROOTS, AND THE CORPUS COST IS TWELVE FIXTURES THAT ALL PRESERVE THEIR DESTRUCTOR COUNT
+
+Base `a5f458f318529f21 43` (HEAD `6e36f0c8e`), armed `75c72e52ece38759 43`.
+
+## 1. THE CLASS, ENUMERATED BY PROPERTY, NOT BY THE ROW HEADERS
+
+The two row headers name `gen_drop_value`'s Struct branch as "the root". It is
+not a root; it is one of FOUR sites, and it cannot close either row by itself.
+The property is "a loop that emits component drops for ONE aggregate value".
+Every such loop in the compiler, with its direction read off the source:
+
+    mlir_gen_stmt.cpp:878   DST-box prefix fields     FORWARD
+    mlir_gen_stmt.cpp:905   DST tail elements         forward
+    mlir_gen_stmt.cpp:972   owning Box<[T]> elements  forward
+    mlir_gen_stmt.cpp:1080  gen_drop_value Struct     REVERSE   <- member
+    mlir_gen_stmt.cpp:1101  gen_drop_value Tuple      REVERSE   <- member
+    mlir_gen_stmt.cpp:1149  enum variant payload      forward
+    mlir_gen_stmt.cpp:1167  array elements            forward
+    mlir_gen_stmt.cpp:1395  SDrop variable Struct     REVERSE   <- member
+    mlir_gen_stmt.cpp:1414  SDrop variable Tuple      REVERSE   <- member
+    mlir_gen_dyn.cpp:1063   closure captures          forward
+
+Four members, two roots, and **forward was already the house answer at six of
+the ten** — including `expr.drop.owning-box-dst`, whose spec text says "in
+declaration order" in as many words. The reverse walk was the anomaly, not the
+convention. NOT members: locals at scope end and fn parameters, which Rust does
+drop in reverse and which this tree already did (measured, c7/c8 below).
+
+## 2. THE TWO LOOPS PER ROOT ARE IN SERIES, MEASURED
+
+`c2` — `Out { m: In, n: In }`, `In { x: O, y: O }` — is the discriminator. The
+outer walk is the `SDrop` variable loop, the inner is `gen_drop_value`'s. Base
+prints `4321`; a fix at either site alone leaves a nested struct half-reversed.
+Both flipped: `1234`.
+
+## 3. SEVENTEEN HAND PROGRAMS, VARIED BY SHAPE, ALL SEVENTEEN AS PREDICTED
+
+Declared as numbers in a file BEFORE the edit; every one matched, including all
+five controls, which is the half that could have refuted the change:
+
+    c1  struct, 3 fields             321   -> 123
+    c2  nested struct (both loops)   4321  -> 1234
+    c3  struct of two tuples         4321  -> 1234
+    c4  user Drop on the OUTER       u921  -> u912
+    c5  array elements    CONTROL    123   -> 123   unmoved
+    c6  enum payload      CONTROL    12    -> 12    unmoved
+    c7  locals            CONTROL    321   -> 321   unmoved (Rust: reverse)
+    c8  fn parameters     CONTROL    321   -> 321   unmoved (Rust: reverse)
+    c9  moved-out field b            31    -> 13    (skip list still correct)
+    c10 Box<struct> glue             321   -> 123
+    c11 nested tuple                 4321  -> 1234
+    c12 droppable/non-droppable mix  321   -> 123
+    c13 struct { [O;2], O }          312   -> 123
+    c14 struct returned from a fn    21    -> 12
+    c15 Box<dyn> vtable[0] glue      21    -> 12
+    c16 nested enum + user Drop      e912  -> e912  unmoved
+    c17 nested struct + user Drop    3n921 -> n9123
+
+## 4. THE COST IS TWELVE, AND EVERY ONE PRESERVES ITS DESTRUCTOR MULTISET
+
+`run_oracle.py`, 6610 fixtures compiled + linked + RUN, base vs armed: **13 rows
+moved, 12 after subtracting `cast-region-to-uint`** (it prints a stack address).
+Ten moved only their stdout sha; two moved an exit code.
+
+The oracle that matters here is not the sha, it is the COUNT. For each of the
+ten, the multiset of tokens in the recorded stdout is IDENTICAL before and
+after — same destructor lines, same number of each, different order. A leak
+would have dropped a token and a double free would have added one; neither
+happened in any of the ten.
+
+`cond_move_field_overlap` is the sharpest of them: 38 lines, 11 changed, every
+one of the 11 multiset-identical. Its `rein+` line is the one worth reading —
+`M34 M35 D34 M36 D35 D36` becomes `... D36 D35`, which LOOKS like reverse order
+and is not: after `o.i.p` is moved and re-initialised to `mk(36)`, the field
+`p` holds 36 and `q` holds 35, so declaration order p-then-q IS 36 before 35.
+
+`rawdup_partition_vec_drop_once` is the second: `1 2 3` becomes `2 3 1`, also
+not ascending and also right — `ZipPair { first, second }` with first=[2,3].
+
+## 5. TWO FIXTURES ASSERTED THE DIVERGENCE BY NAME, AND ONE OF THEM MISREAD ITS OWN UPSTREAM
+
+`tests/spec/pass/expr_3` cites `@rule expr.drop.tuple-array-reverse` and asserts
+`buf[0] == 2` with the comment "higher index drops first". Rule renamed,
+comment and both assertions re-pointed. (Its `expr.drop.struct-user-drop-then-
+fields` comment was ALSO stale — it still said a top-level struct with a user
+Drop "runs only that drop (fields consumed by self)", which `1979d72f4`
+deleted; repaired in the same edit.)
+
+`tests/imported/pass/structs/field-destruction-order-b136` is the finding.
+It is a PORT of `tests/ui/structs/field-destruction-order.rs`, re-pointed at
+import to `log == 21` under a NOTE that says *"upstream's own comment says the
+order is implementation-defined, so the asserted invariant here is 'both ran
+once'"*. **That note is false about upstream.** Upstream's prose muses about
+the order; upstream's PROGRAM asserts it:
+
+    impl Drop for A { fn drop(&mut self) { unsafe { assert!(!hit); hit = true; } } }
+    impl Drop for B { fn drop(&mut self) { unsafe { assert!(hit); } } }
+
+— a `run-pass` test that PANICS unless `a` drops before `b`. Read at
+`/home/logos/cxx/rust/tests/ui/structs/field-destruction-order.rs`; there is no
+`.stderr` (it is run-pass). So the port was re-pointed to the divergence and
+stopped catching the one thing upstream wrote it to catch — the same failure as
+`drop-trait-enum-b154`, in a different column. Re-pointed to upstream's own 12.
+
+## 6. THE SPEC WORK WAS ASYMMETRIC, AND IT WAS A CONFORMANCE CLAIM, NOT A BLESSED DIVERGENCE
+
+`expr.drop.tuple-array-reverse` sits in `docs/spec/divergences.md` under
+**"Conformance notes (no divergence)"**, not under any `A`/`B` row — and
+`docs/DIVERGENCES.md`'s 17 letter rows contain nothing about aggregate drop
+order (checked by grepping `drop` across all of them: A7 panic, A16 auto-Copy,
+B1/B2/B3/B7/B8, B6, none of them this). So the standing rule's exception did
+not apply: this was a clause CLAIMING conformance while being false about Rust,
+which is a report-and-repair, not a licence. The id encoded the error, so the
+rule is renamed `expr.drop.tuple-array-index-order`.
+
+The struct half had no divergence entry at all and needed only its statement
+changed.
+
+## 7. WHAT WAS LANDED, AND IN WHAT ORDER
+
+  * `e6a13b523` — SPEC ONLY, on the unmodified compiler: the two clauses that
+    still said a nested aggregate's drop STOPS after the user `Drop::drop`.
+    That staleness is from `1979d72f4` and has nothing to do with order; it was
+    committed alone so neither half could hide inside the other.
+  * the compiler commit — four loops, the two queue rows, the twelve fixtures,
+    the two rule statements, four new pass fixtures in two PAIRS.
+
+## 8. THE PAIRS
+
+    drop_struct_fields_decl_order          fields a,b,c, literal a,b,c -> 123
+    drop_struct_fields_decl_order_swapped  fields b,a,c, literal a,b,c -> 213
+    drop_tuple_elems_index_order           ids 1,2,3                   -> 123
+    drop_tuple_elems_index_order_reversed  ids 3,2,1                   -> 321
+
+Each half exits with the DESTRUCTOR COUNT (3), so a leak reads 2 and a double
+free 4 without moving the sequence. The struct pair separates DECLARATION order
+from LITERAL order and from reverse; the tuple pair separates index order from
+reverse (a reverse compiler swaps the two answers and fails both halves). On
+the base binary all four printed the reversed sequence and exited 90.

@@ -5666,8 +5666,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   NOIMPORTED   5030 -> 5035  +5   (+6 native, -1 the vanished admit gate)
 #   TIERCOMMIT    149 ->  148  -1   (the vanished admit gate was tier_commit;
 #                                    none of the six new fixtures is)
-REGISTRY-ALL         9517
-REGISTRY-NOIMPORTED  5051
+# 2026-09-10 (dropord — aggregate field/element drop order flipped to Rust's).
+#   ALL          9517 -> 9521  +4   (the two drop-order PAIRS: two struct halves,
+#   NOIMPORTED   5051 -> 5055  +4    two tuple halves; all four native pass
+#   TIERCOMMIT    148 ->  148   0    fixtures, none tier_commit, none imported.
+#                                    The two closed soundness-queue programs were
+#                                    never registered tests, so they move neither.)
+REGISTRY-ALL         9521
+REGISTRY-NOIMPORTED  5055
 REGISTRY-TIERCOMMIT  148
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
