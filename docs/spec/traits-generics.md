@@ -532,11 +532,23 @@ A trait impl must supply an implementation for every trait method lacking a defa
 
 *Source:* `src/compiler/sema_collect.cpp#L3363-L3373`, `src/compiler/sema_collect.cpp#L3502-L3503`, `src/compiler/sema_collect.cpp#L3610-L3613`
 
+### `trait.impl.method-receiver-conforms` — Impl method receiver must equal the trait's declared receiver
+
+The receiver slot (param 0) of an impl method must be TYPE-EQUAL to the trait method's declared receiver after `Self` is substituted with the impl target. `fn m(self: &mut Self)` declared and `fn m(self: S)`, `fn m(self: &S)` or `fn m(self: Box<S>)` written are all refusals, reported as `impl <Trait> for <T>: method '<m>' does not match the trait declaration's signature` with the note `the receiver is declared '<trait>' and the impl declares '<impl>'`. Rust reports the same disagreement as E0053 — rustc's own UI test `compare-method/bad-self-type.rs` (upstream checkout at `/home/logos/cxx/rust`) carries both directions in one file; this rule is Rust-canonical by the owner's decision of 2026-09-09 and is not a divergence — neither `docs/DIVERGENCES.md` (17 A-rows) nor any `docs/spec/` clause covers impl-vs-trait receiver conformance.
+
+Two conditions are in SERIES and neither alone decides it. (1) The `Self`-shape escape hatch — written for a DST alias, where the trait's substituted `Self` and the impl's written slot differ by a representation layer (`str` → `[u8]` vs the written `&str` → `&[u8]`) — declines only when the two sides carry the SAME reference-indirection prefix; a different prefix (`&mut S` declared, `S` written) is the defect itself, not the artefact. Without this the hatch is true exactly when the check would have something to say. (2) The comparison is by TYPE, not only by the lifetime-string alpha check, which collects the empty list for both `&S` and `&mut S` and so reads them as conformant. Condition (2) is the receiver twin of the return-slot rule.
+
+Consequence for `Drop`: the stdlib lang-item declares `fn drop(self: &mut Self)` (`stdlib/lang/drop/drop.logos`), so an `impl Drop` written `fn drop(self: T)` or `fn drop(self: &T)` is refused. A package that DECLARES its own `trait Drop { fn drop(self: Self); }` still admits the by-value form — such a declaration is merged into the lang item for drop-glue purposes (keyed on the bare trait name `Drop`) while its own signature governs conformance. See `type.drop.receiver-shapes`.
+
+*Source:* `src/compiler/sema_collect.cpp` — `SemaChecker::collect_impl`, `_self_shape_artefact` and the param-0 comparison guarded by `_t0_collapsed`
+
 ### `trait.impl.method-signature-match` — Impl method signature matched against trait by arity and non-receiver param types
 
-An impl method satisfies a trait method when arities agree and each non-receiver parameter type is equal, where a trait parameter that is a type variable or associated-type projection (possibly under &/&mut/*) is treated as polymorphic and matches any concrete impl type; the receiver (param 0) is always skipped.
+An impl method satisfies a trait method when arities agree and each non-receiver parameter type is equal, where a trait parameter that is a type variable or associated-type projection (possibly under &/&mut/*) is treated as polymorphic and matches any concrete impl type.
 
-*Source:* `src/compiler/sema_collect.cpp#L3389-L3458`
+⚠ **THE RECEIVER IS NO LONGER SKIPPED, 2026-09-10.** This clause said "the receiver (param 0) is always skipped". It is now checked by `trait.impl.method-receiver-conforms`.
+
+*Source:* `src/compiler/sema_collect.cpp` — `SemaChecker::collect_impl`, the `sig_match` loop over `check_end`
 
 ### `trait.impl.method-template-attach` — Generic-impl methods attach to a matching spec or struct template, not free functions
 

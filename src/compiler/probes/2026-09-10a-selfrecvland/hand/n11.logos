@@ -1,0 +1,13 @@
+// n11: ADMIT — stdlib `Drop` with the Rust-canonical receiver, the shape the
+// whole corpus conversion moves to; destructor must still RUN (rc 1).
+package n11;
+struct Foo { c: *mut i64 }
+impl Drop for Foo {
+    fn drop(self: &mut Foo) { unsafe { *self.c = *self.c + 1i64; } }
+}
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    { let f = Foo { c: c }; }
+    return counter as i32;
+}

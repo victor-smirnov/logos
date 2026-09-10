@@ -1,0 +1,10 @@
+// n4: ADMIT — an associated fn with NO receiver at all.
+package n4;
+pub trait Make { fn make(v: i64) -> i64; }
+struct S { }
+impl Make for S {
+    fn make(v: i64) -> i64 { return v + 1i64; }
+}
+fn main() -> i32 {
+    return S::make(8i64) as i32;
+}

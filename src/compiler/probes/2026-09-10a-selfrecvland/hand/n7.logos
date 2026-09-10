@@ -1,0 +1,14 @@
+// n7: ADMIT — a trait method with a DEFAULT body, not overridden by the impl.
+package n7;
+pub trait Def {
+    fn base(self: &Self) -> i64;
+    fn twice(self: &Self) -> i64 { return self.base() + self.base(); }
+}
+struct S { v: i64 }
+impl Def for S {
+    fn base(self: &S) -> i64 { return self.v; }
+}
+fn main() -> i32 {
+    let s: S = S { v: 5i64 };
+    return s.twice() as i32;
+}

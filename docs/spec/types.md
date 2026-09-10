@@ -1293,6 +1293,8 @@ A DST-backed value — `dyn Trait`, a slice, or a custom unsized struct (`DstRef
 
 The drop method for type `T` is matched whether its single parameter is `T` by value, `&T`, or `&mut T` (`fn drop(&mut self)` / `fn drop(&self)` are the canonical stdlib shapes); the by-reference forms are accepted by peeling one reference level. A generic `impl<T> Drop for Foo<T>` is matched against a concrete `Foo<C>` by struct base-name (re-mangled to the concrete name at monomorphization).
 
+⚠ **SCOPE — this is the GLUE MATCHER, not a conformance rule.** It says which method the destructor lookup will FIND, not which receiver an `impl` may write. For the stdlib lang-item `Drop`, whose declaration is `fn drop(self: &mut Self)` (`stdlib/lang/drop/drop.logos`), the by-value and `&T` shapes are refused from 2026-09-10 by `trait.impl.method-receiver-conforms`, so only `&mut T` reaches this matcher. The by-value shape stays reachable through a package that DECLARES its own `trait Drop { fn drop(self: Self); }`: such a declaration is merged into the lang item for glue purposes (`src/compiler/sema.cpp`, `is_drop_impl_`, keyed on the bare trait name `Drop`) while its own signature governs conformance. Measured 2026-09-10 on build `911811129fca26d5 43`, three programs differing in one line: a local `trait Drop` + by-value impl runs the destructor (rc 1), the same program with no local declaration (stdlib `Drop`) runs it (rc 1), and the same program with the trait renamed `Kill` does NOT (rc 0). 90 corpus files rely on this; whether a user trait may be named `Drop` at all is an open corpus decision.
+
 **Source:** `src/compiler/sema.cpp#L2742-L2780`
 
 ### `type.drop.references-never-drop` — References and raw pointers never need drop

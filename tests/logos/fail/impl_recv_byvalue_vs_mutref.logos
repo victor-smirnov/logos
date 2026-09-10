@@ -1,0 +1,22 @@
+// LANDING PIN 2026-09-10 (`trait.impl.method-receiver-conforms`), refusal half.
+// The trait declares `fn tick(self: &mut Self)`; the impl writes `self: S`.
+// Before the landing this compiled AND RAN — the receiver conformance check was
+// dead by tautology, because the `Self`-shape escape hatch it is guarded by is
+// TRUE exactly when the check would have something to say. Rust: E0053
+// (`/home/logos/cxx/rust/tests/ui/compare-method/bad-self-type.rs`).
+// NOT a `Drop` defect: `Tick` is an ordinary trait, and its ADMIT twin is
+// tests/logos/pass/impl_recv_conformant_shapes.
+package impl_recv_byvalue_vs_mutref;
+
+pub trait Tick { fn tick(self: &mut Self) -> i64; }
+
+struct S { v: i64 }
+
+impl Tick for S {
+    fn tick(self: S) -> i64 { return self.v; }
+}
+
+fn main() -> i32 {
+    let mut s: S = S { v: 3i64 };
+    return s.tick() as i32;
+}

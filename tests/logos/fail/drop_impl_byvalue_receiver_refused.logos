@@ -1,0 +1,22 @@
+// LANDING PIN 2026-09-10 (`trait.impl.method-receiver-conforms`), the `Drop`
+// INSTANCE of the general rule. The stdlib lang-item declares
+// `fn drop(self: &mut Self)` (stdlib/lang/drop/drop.logos), so an `impl Drop`
+// written by value does not conform. 33 corpus files carried this shape and
+// were converted in the commit before this one; 90 more files declare their
+// OWN `trait Drop { fn drop(self: Self); }` and are untouched — that local
+// declaration governs conformance while still driving drop glue, which is
+// pinned by the ADMIT twin tests/logos/pass/impl_recv_conformant_shapes.
+package drop_impl_byvalue_receiver_refused;
+
+struct Foo { c: *mut i64 }
+
+impl Drop for Foo {
+    fn drop(self: Foo) { unsafe { *self.c = *self.c + 1i64; } }
+}
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    { let f = Foo { c: c }; }
+    return counter as i32;
+}

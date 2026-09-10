@@ -1,0 +1,5 @@
+# run_oracle: unarmed 6614 fixtures vs armed 6615, diffed BOTH ways.
+# only in BASE: 0 []
+# only in ARMED: 1 ['logos_04_advanced_features_pass_impl_recv_conformant_shapes']
+logos_02_semantic_core_pass_cast-region-to-uint	base=('0', '0', 'b4167591cbd62be3')	armed=('0', '0', '4422ea3fcce1713b')
+# triples that MOVED: 1

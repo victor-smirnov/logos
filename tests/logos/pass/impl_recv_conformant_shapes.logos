@@ -1,0 +1,87 @@
+// LANDING PIN 2026-09-10 (`trait.impl.method-receiver-conforms`), the ADMIT
+// half. A refusal rule is only as good as the programs it must NOT refuse, and
+// an over-refusal here is the most expensive thing in this area to get wrong:
+// its four refusal twins live at tests/logos/fail/impl_recv_*.logos and
+// tests/logos/fail/drop_impl_byvalue_receiver_refused.logos.
+//
+// Seven shapes, deliberately varied by SYNTAX and not only by count — the
+// previous round in this arc had seven correct verdicts drawn from ONE syntax
+// and four legal programs refused underneath them:
+//   1  `&mut self` shorthand declared, `self: &mut S` explicit written
+//   2  `Self` substituted to a GENERIC impl target, written out in full
+//   3  a LIFETIME-annotated declared receiver vs a bare impl receiver
+//      (an alpha-rename is never a shape difference)
+//   4  an associated fn with NO receiver at all
+//   5  a trait method with a DEFAULT body, not overridden
+//   6  a by-value receiver DECLARED and a by-value receiver written
+//   7  a LOCAL `trait Drop` declaring by value — the 90-file corpus shape:
+//      such a declaration is merged into the lang item for GLUE (drop still
+//      runs, see the counter below) while its own signature governs
+//      conformance. Renaming that trait to anything but `Drop` stops the glue,
+//      which is what makes this line a drop assertion and not a spelling one.
+// Exit code is the destructor COUNT of shape 7 folded onto the arithmetic, so a
+// leak and a double free are both visible rather than hiding behind an rc 0.
+package impl_recv_conformant_shapes;
+
+// 1 — shorthand declared, explicit written.
+pub trait Bump { fn bump(&mut self) -> i64; }
+struct B { v: i64 }
+impl Bump for B { fn bump(self: &mut B) -> i64 { self.v = self.v + 1i64; return self.v; } }
+
+// 2 — Self substituted to a generic target.
+pub trait Pair { fn p(self: &mut Self) -> i64; }
+struct W<T> { v: T, n: i64 }
+impl<T> Pair for W<T> { fn p(self: &mut W<T>) -> i64 { return self.n; } }
+
+// 3 — lifetime-annotated declared receiver, bare impl receiver.
+pub trait Look<'a> { fn look(self: &'a Self) -> i64; }
+struct L { v: i64 }
+impl<'a> Look<'a> for L { fn look(self: &'a L) -> i64 { return self.v; } }
+
+// 4 — associated fn, no receiver.
+pub trait Make { fn make(v: i64) -> i64; }
+struct M { }
+impl Make for M { fn make(v: i64) -> i64 { return v + 1i64; } }
+
+// 5 — default body, not overridden.
+pub trait Def {
+    fn base(self: &Self) -> i64;
+    fn twice(self: &Self) -> i64 { return self.base() + self.base(); }
+}
+struct D { v: i64 }
+impl Def for D { fn base(self: &D) -> i64 { return self.v; } }
+
+// 6 — by value declared, by value written.
+pub trait Eat { fn eat(self: Self) -> i64; }
+struct E { v: i64 }
+impl Eat for E { fn eat(self: E) -> i64 { return self.v; } }
+
+// 7 — a LOCAL `trait Drop` declaring the by-value receiver.
+trait Drop { fn drop(self: Self); }
+struct F { c: *mut i64 }
+impl Drop for F { fn drop(self: F) { unsafe { *self.c = *self.c + 1i64; } } }
+
+fn main() -> i32 {
+    let mut b: B = B { v: 1i64 };
+    if b.bump() != 2i64 { return 21i32; }
+
+    let mut w: W<bool> = W { v: true, n: 7i64 };
+    if w.p() != 7i64 { return 22i32; }
+
+    let l: L = L { v: 6i64 };
+    if l.look() != 6i64 { return 23i32; }
+
+    if M::make(8i64) != 9i64 { return 24i32; }
+
+    let d: D = D { v: 5i64 };
+    if d.twice() != 10i64 { return 25i32; }
+
+    let e: E = E { v: 9i64 };
+    if e.eat() != 9i64 { return 26i32; }
+
+    let mut counter: i64 = 0i64;
+    let c: *mut i64 = &mut counter as *mut i64;
+    { let f: F = F { c: c }; }
+    // EXACTLY one destructor run: 0 is a lost glue, 2 a double free.
+    return counter as i32;
+}

@@ -1,0 +1,11 @@
+// n2: ADMIT — Self substituted to a GENERIC impl target, written out in full.
+package n2;
+pub trait Pair { fn p(self: &mut Self) -> i64; }
+struct W<T> { v: T, n: i64 }
+impl<T> Pair for W<T> {
+    fn p(self: &mut W<T>) -> i64 { return self.n; }
+}
+fn main() -> i32 {
+    let mut w: W<bool> = W { v: true, n: 7i64 };
+    return w.p() as i32;
+}

@@ -1,0 +1,19 @@
+// LANDING PIN 2026-09-10 (`trait.impl.method-receiver-conforms`), the REVERSE
+// direction of impl_recv_sharedref_vs_mutref: the trait declares the SHARED
+// reference and the impl widens it to the exclusive one. Upstream's
+// `compare-method/bad-self-type.rs` carries both directions in one file, so a
+// rule that only refuses one of them is not the rule.
+package impl_recv_mutref_vs_sharedref;
+
+pub trait Peek { fn peek(self: &Self) -> i64; }
+
+struct S { v: i64 }
+
+impl Peek for S {
+    fn peek(self: &mut S) -> i64 { return self.v; }
+}
+
+fn main() -> i32 {
+    let mut s: S = S { v: 2i64 };
+    return s.peek() as i32;
+}

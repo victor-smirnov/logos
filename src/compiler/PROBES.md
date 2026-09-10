@@ -33963,3 +33963,105 @@ free 4 without moving the sequence. The struct pair separates DECLARATION order
 from LITERAL order and from reverse; the tuple pair separates index order from
 reverse (a reverse compiler swaps the two answers and fails both halves). On
 the base binary all four printed the reversed sequence and exited 90.
+
+# ═══ 2026-09-10a-selfrecvland — THE RECEIVER SLOT OF THE IMPL-VS-TRAIT CHECK IS
+# LANDED, AND ITS COST IS **0 OF 6614** BECAUSE THE 29 WERE A CORPUS CONVERSION
+# THAT WENT IN FIRST, ALONE, WITH ITS RUNTIME TRIPLES PROVEN UNMOVED ═══════════
+
+Full record: `src/compiler/probes/2026-09-10a-selfrecvland/ROUND.md`.
+STEP 1 build `911811129fca26d5 43`, HEAD `1fad68657`, queue gate rc 0 / 75 rows,
+probe-log-lint 264. Armed build `70933411074df20c 43`; 43 live probes at the
+open AND at the close — this round installs none. Landed as two commits:
+`176170b6d` (corpus + spec, unmodified compiler) and the arm.
+
+## 1. THE THREE NUMBERS, AND WHY THEY ARE DIFFERENT NUMBERS
+
+    ceiling-probe.sh                       cost  8
+    run_oracle.py, priced 2026-09-09k      cost 29   (30 minus cast-region-to-uint)
+    run_oracle.py, the LANDED arm           cost  0   of 6614
+
+The 3.6× gap between the first two is the one the pricing round recorded: 21 of
+the 29 are outside `-L bc -L pass`, so the cost column cannot see them. The gap
+between the second and the third is the point of this round: **the 29 were not a
+cost, they were a corpus conversion**, and doing it first — alone, on the
+unmodified compiler — leaves the arm itself costing nothing.
+
+    unarmed 6614 fixtures vs armed 6615, diffed BOTH ways
+      only in base   0
+      only in armed  1   impl_recv_conformant_shapes (this round's own pin)
+      triples moved  1   cast-region-to-uint, which prints a STACK ADDRESS and
+                         is the name that column is documented to subtract
+
+And the conversion itself, measured the same way against the pricing round's
+pre-conversion base columns: **29 of 30 triples identical digit for digit**, the
+30th again `cast-region-to-uint`. A destructor lost or run twice moves a stdout
+sha or an exit code; none moved. `tables/conversion_triples_preserved.txt`.
+
+fires: the site is proven live three ways rather than by an arrival count this
+round did not re-measure — 1 632 950 / 3 128 198 arrivals recorded on
+`e0f73c54f3a0dfdc 43` by 2026-09-09k; ten hand programs that now refuse with the
+sentence READ; and four new fail fixtures verified RED (rc 1) on the unarmed
+binary before the arm existed. `-L bc` 1685 tests and `fail_text_oracle.py` over
+1478 fail fixtures both unchanged.
+
+## 2. THE MECHANISM — TWO DOORS IN SERIES, AND THE PROOF NEITHER IS THE WHOLE
+
+`sema_collect.cpp`, `SemaChecker::collect_impl`. Door 1 (`_self_shape_artefact`):
+the DST-alias escape hatch declines only when both sides carry the SAME
+reference-indirection PREFIX — before it, the hatch ended
+`return !types_equal(sub, impl_t);` and was TRUE exactly when the check would
+have something to say, so the receiver conformance check was **dead by
+tautology** for every trait method whose declared receiver mentions `Self`, and
+its sentence had sat in the tree unreached. Door 2 (the param-0 compare):
+`|| !types_equal(_t0, c->param_types[0])`, because `_alpha_ok` compares LIFETIME
+STRINGS only and `&S`/`&mut S` both collect the empty list. Door 2 is the
+receiver twin of the return-slot line landed in `2026-09-09sigland`.
+
+RULE 2, not assumed: h2, h9, n9, n10 are the four programs door 1 alone cannot
+refuse (both prefixes one level deep). `sigselfdepth` was measured to be half a
+mechanism for exactly them, and `sigselfnone` stays REFUSED — it breaks the
+stdlib at the four `str` DST sites.
+
+## 3. THE 90-FILE ESCALATION IS REAL, AND HERE IS THE MEASUREMENT THAT DECIDES IT
+
+The prompt's test: if a LOCAL `trait Drop` does not drive drop glue, those 90
+files are not a drop question. Three programs differing in ONE line, exit code =
+the destructor's counter: local `trait Drop` + by-value impl **rc 1**; no local
+declaration (stdlib lang item) **rc 1**; the same trait renamed `Kill` **rc 0**.
+It drives glue — `sema.cpp` `is_drop_impl_` is `c->trait_name == "Drop"`, a bare
+NAME, and its own comment says `collect_impl`'s `builtin_marker_` merges any
+package's `trait Drop`. So 213 by-value sites in 90 files are live `Drop` impls
+whose LOCAL declaration governs conformance while the lang item governs glue.
+**Owner's, reported with the number, not edited** — 26 imported ports depend on
+the answer. ⚠ RULE 12 in a new column: a lookup KEY is not an IDENTITY, and
+`3478f9298` re-keyed drop glue to the trait's NAME.
+
+## 4. THE ONE THING THAT WOULD HAVE CORRUPTED A LEDGER ROW
+
+`tests/soundness/open/unsized_local_binds_place_dropped_after_free.logos`
+(tier 2, `admits`) carried an `fn drop(self: A)` INCIDENTAL to its defect. Armed,
+it is refused for the RECEIVER; the queue gate only asks whether an `admits` row
+still admits, so it would have read the row as CLOSED by a landing that never
+touched it. Rewritten in the corpus commit, gate re-run either side: rc 0.
+
+## 5. ONE FACT HAD THREE COPIES IN THE SPEC AND THE ROUND THAT REPAIRED TWO OF
+##    THEM DID NOT GREP FOR THE THIRD
+
+`1979d72f4` deleted "a nested drop stops after the user `Drop::drop`".
+`e6a13b523` repaired `expr.drop.struct-user-drop-then-fields` and its enum twin.
+`intrinsic.drop.owner-drops-fields-after-user-drop` still said it — including the
+REASON, *"because the by-value `self` consumes its own fields"*, which this
+landing deletes outright. Repaired with its own measurement: a three-deep
+`Top { Mid { Leaf } }` folding 100/10/1 into one counter exits **111**.
+
+Also repaired: `trait.impl.method-signature-match` said "the receiver (param 0)
+is always skipped" and cited a line range that no longer holds the code (SYMBOL
+citation now); `type.drop.receiver-shapes` blessed by-value drop receivers and is
+now scoped to the GLUE MATCHER it actually describes. NEW clause:
+`trait.impl.method-receiver-conforms`.
+
+Both divergence registries re-checked by CONSTRUCT on today's tree: nothing in
+`docs/DIVERGENCES.md`'s 17 letter rows, and no `docs/spec/*.md` clause named
+impl-vs-trait receiver conformance before this one. Rust's answer is E0053
+(`compare-method/bad-self-type.rs` upstream, both directions in one file, still
+NOT ported), which is also the owner's 2026-09-09 decision.

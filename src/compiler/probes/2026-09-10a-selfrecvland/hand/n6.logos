@@ -1,0 +1,11 @@
+// n6: ADMIT — a by-value receiver DECLARED and a by-value receiver written.
+package n6;
+pub trait Eat { fn eat(self: Self) -> i64; }
+struct S { v: i64 }
+impl Eat for S {
+    fn eat(self: S) -> i64 { return self.v; }
+}
+fn main() -> i32 {
+    let s: S = S { v: 9i64 };
+    return s.eat() as i32;
+}

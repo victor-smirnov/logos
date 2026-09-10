@@ -1,0 +1,1 @@
+the receiver is declared '&mut S' and the impl declares '&S'

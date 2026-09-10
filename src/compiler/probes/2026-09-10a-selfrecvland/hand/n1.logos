@@ -1,0 +1,11 @@
+// n1: ADMIT — generic trait with its own type parameter, receiver conformant.
+package n1;
+pub trait Conv<T> { fn go(self: &Self, t: T) -> T; }
+struct S { v: i64 }
+impl Conv<i64> for S {
+    fn go(self: &S, t: i64) -> i64 { return t + self.v; }
+}
+fn main() -> i32 {
+    let s: S = S { v: 3i64 };
+    return s.go(4i64) as i32;
+}

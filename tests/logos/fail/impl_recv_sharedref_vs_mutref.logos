@@ -1,0 +1,18 @@
+// LANDING PIN 2026-09-10 (`trait.impl.method-receiver-conforms`), the half the
+// indirection-prefix door alone CANNOT see: both sides are one reference level
+// deep, so the prefix compare agrees and only the by-TYPE compare separates
+// them. `sigselfdepth` was measured to be half a mechanism for exactly this.
+package impl_recv_sharedref_vs_mutref;
+
+pub trait Poke { fn poke(self: &mut Self) -> i64; }
+
+struct S { v: i64 }
+
+impl Poke for S {
+    fn poke(self: &S) -> i64 { return self.v; }
+}
+
+fn main() -> i32 {
+    let mut s: S = S { v: 2i64 };
+    return s.poke() as i32;
+}

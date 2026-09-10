@@ -1,0 +1,31 @@
+h10	COMPILE=1	-	impl Eat for S: method 'eat' does not match the trait declaration: the receiver is declared 'S' and the impl d
+h11	COMPILE=1	-	impl Tick for S: missing method 'tick'
+h12	COMPILE=1	-	impl Tick for S: method 'tick' does not match the trait declaration: the return type is declared 'i64' and the
+h13	COMPILE=1	-	impl Drop for S: method 'drop' does not match the trait declaration: the receiver is declared '&mut S' and the
+h1	COMPILE=1	-	impl Drop for S: method 'drop' does not match the trait declaration: the receiver is declared '&mut S' and the
+h2	COMPILE=1	-	impl Drop for S: method 'drop' does not match the trait declaration: the receiver is declared '&mut S' and the
+h3	COMPILE=0	rc=1	stdout=[]
+h4	COMPILE=0	rc=1	stdout=[]
+h5	COMPILE=1	-	impl Drop for G: method 'drop' does not match the trait declaration: the receiver is declared '&mut G<T>' and 
+h6	COMPILE=1	-	impl Drop for Outer: method 'drop' does not match the trait declaration: the receiver is declared '&mut Outer'
+h7	COMPILE=1	-	impl Tick for S: method 'tick' does not match the trait declaration: the receiver is declared '&mut S' and the
+h8	COMPILE=0	rc=1	stdout=[]
+h9	COMPILE=1	-	impl Tick for S: method 'tick' does not match the trait declaration: the receiver is declared '&mut S' and the
+h_a_freefn_bare	COMPILE=1	-	temporary value dropped while borrowed: this reference borrows into a temporary that is dropped at the end of 
+h_b_method_bare	COMPILE=1	-	temporary value dropped while borrowed: this reference borrows into a temporary that is dropped at the end of 
+h_c_method_struct	COMPILE=0	rc=1	stdout=[]
+h_d_freefn_struct	COMPILE=1	-	temporary value dropped while borrowed: this reference borrows into a temporary that is dropped at the end of 
+h_e_tuple_carrier	COMPILE=1	-	temporary value dropped while borrowed: this reference borrows into a temporary that is dropped at the end of 
+h_i_named_local_struct	COMPILE=0	rc=7	stdout=[]
+n10	COMPILE=1	-	impl Poke for S: method 'poke' does not match the trait declaration: the receiver is declared '&mut S' and the
+n11	COMPILE=0	rc=1	stdout=[]
+n12	COMPILE=1	-	impl Drop for Foo: method 'drop' does not match the trait declaration: the receiver is declared '&mut Foo' and
+n13	COMPILE=0	rc=1	stdout=[]
+n1	COMPILE=0	rc=7	stdout=[]
+n2	COMPILE=0	rc=7	stdout=[]
+n3	COMPILE=0	rc=6	stdout=[]
+n4	COMPILE=0	rc=9	stdout=[]
+n6	COMPILE=0	rc=9	stdout=[]
+n7	COMPILE=0	rc=10	stdout=[]
+n8	COMPILE=0	rc=6	stdout=[]
+n9	COMPILE=1	-	impl Peek for S: method 'peek' does not match the trait declaration: the receiver is declared '&S' and the imp

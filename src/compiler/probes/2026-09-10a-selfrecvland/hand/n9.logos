@@ -1,0 +1,12 @@
+// n9: REFUSE — trait declares `&Self`, impl writes `&mut S`. The half
+// `sigselfdepth` alone cannot see (both prefixes are one level deep).
+package n9;
+pub trait Peek { fn peek(self: &Self) -> i64; }
+struct S { v: i64 }
+impl Peek for S {
+    fn peek(self: &mut S) -> i64 { return self.v; }
+}
+fn main() -> i32 {
+    let mut s: S = S { v: 2i64 };
+    return s.peek() as i32;
+}

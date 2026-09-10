@@ -1,0 +1,11 @@
+// n3: ADMIT — `&mut self` shorthand DECLARED, `self: &mut S` explicit in the impl.
+package n3;
+pub trait Bump { fn bump(&mut self) -> i64; }
+struct S { v: i64 }
+impl Bump for S {
+    fn bump(self: &mut S) -> i64 { self.v = self.v + 1i64; return self.v; }
+}
+fn main() -> i32 {
+    let mut s: S = S { v: 5i64 };
+    return s.bump() as i32;
+}

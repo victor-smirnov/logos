@@ -1,0 +1,12 @@
+// n8: ADMIT — a LIFETIME-annotated declared receiver against a bare impl
+// receiver: an alpha-rename, never a shape difference (rule 12).
+package n8;
+pub trait Look<'a> { fn look(self: &'a Self) -> i64; }
+struct S { v: i64 }
+impl<'a> Look<'a> for S {
+    fn look(self: &'a S) -> i64 { return self.v; }
+}
+fn main() -> i32 {
+    let s: S = S { v: 6i64 };
+    return s.look() as i32;
+}

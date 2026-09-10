@@ -1,0 +1,11 @@
+// n10: REFUSE — the reverse of n9: trait declares `&mut Self`, impl writes `&S`.
+package n10;
+pub trait Poke { fn poke(self: &mut Self) -> i64; }
+struct S { v: i64 }
+impl Poke for S {
+    fn poke(self: &S) -> i64 { return self.v; }
+}
+fn main() -> i32 {
+    let mut s: S = S { v: 2i64 };
+    return s.poke() as i32;
+}

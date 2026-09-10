@@ -1,0 +1,14 @@
+// n13: ADMIT — a LOCAL `trait Drop` declaring the by-value receiver. The 90
+// files' shape: conformant to its OWN declaration, and drop glue still runs.
+package n13;
+trait Drop { fn drop(self: Self); }
+struct Foo { c: *mut i64 }
+impl Drop for Foo {
+    fn drop(self: Foo) { unsafe { *self.c = *self.c + 1i64; } }
+}
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    { let f = Foo { c: c }; }
+    return counter as i32;
+}
