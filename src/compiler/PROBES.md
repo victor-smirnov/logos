@@ -34065,3 +34065,25 @@ Both divergence registries re-checked by CONSTRUCT on today's tree: nothing in
 impl-vs-trait receiver conformance before this one. Rust's answer is E0053
 (`compare-method/bad-self-type.rs` upstream, both directions in one file, still
 NOT ported), which is also the owner's 2026-09-09 decision.
+
+## 6. THE CONTROL REVERT, AND A KEY THAT MOVED WITH NO SOURCE CHANGE
+
+Arm alone reverted, corpus/spec/pins/fixtures left as landed, rebuilt
+(`db84de12f8f489fa 43`): **all four refusal fixtures RED**, the admit fixture
+still green, and the 31 hand programs IDENTICAL to the original unarmed baseline
+in every column. `fail_text_oracle.py` on that build vs the armed run: **1478 fail
+fixtures, 0 rows differing in ANY column** — rc, normalised stderr sha, and
+`.expected` match all unmoved, including the text-only shape ctest cannot see.
+Restored and the restore proven: five fixtures green again.
+
+⚠ **`build_hash.py` DISAGREED WITH ITSELF AND IT IS NOT NON-DETERMINISM.** The
+same sources rebuilt gave `70933411074df20c` → `975b6cac446d26be`; a no-op
+rebuild right after left it unchanged, so codegen is deterministic. The mover is
+the CONFIGURE timestamp baked into `logosc --version`
+(`0.43.0-preview+main-g176170b6-dirty.20260910T065656Z`), and `build_hash.py`
+hashes `bin/logosc` byte for byte. Its docstring warns the version string is not
+an identity; the finding is the converse — that string lives INSIDE the artefact
+the key is computed from, so **a reconfigure moves the key with no source
+change**. Adding fixtures forces a reconfigure (the corpus is globbed), which is
+why a fixture-adding round meets this and a probe round does not. Recorded, not
+repaired: tooling is frozen.

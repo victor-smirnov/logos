@@ -1,0 +1,31 @@
+h10	COMPILE=0	rc=5	stdout=[]
+h11	COMPILE=1	-	impl Tick for S: missing method 'tick'
+h12	COMPILE=1	-	impl Tick for S: method 'tick' does not match the trait declaration: the return type is declared 'i64' and the
+h13	COMPILE=0	rc=1	stdout=[]
+h1	COMPILE=0	rc=1	stdout=[]
+h2	COMPILE=0	rc=1	stdout=[]
+h3	COMPILE=0	rc=1	stdout=[]
+h4	COMPILE=0	rc=1	stdout=[]
+h5	COMPILE=0	rc=1	stdout=[]
+h6	COMPILE=1	-	cannot move out of 'self.i': type 'Outer' implements the Drop trait, so its destructor must see the whole valu
+h7	COMPILE=0	rc=3	stdout=[]
+h8	COMPILE=0	rc=1	stdout=[]
+h9	COMPILE=0	rc=4	stdout=[]
+h_a_freefn_bare	COMPILE=1	-	temporary value dropped while borrowed: this reference borrows into a temporary that is dropped at the end of 
+h_b_method_bare	COMPILE=1	-	temporary value dropped while borrowed: this reference borrows into a temporary that is dropped at the end of 
+h_c_method_struct	COMPILE=0	rc=1	stdout=[]
+h_d_freefn_struct	COMPILE=1	-	temporary value dropped while borrowed: this reference borrows into a temporary that is dropped at the end of 
+h_e_tuple_carrier	COMPILE=1	-	temporary value dropped while borrowed: this reference borrows into a temporary that is dropped at the end of 
+h_i_named_local_struct	COMPILE=0	rc=7	stdout=[]
+n10	COMPILE=0	rc=2	stdout=[]
+n11	COMPILE=0	rc=1	stdout=[]
+n12	COMPILE=0	rc=1	stdout=[]
+n13	COMPILE=0	rc=1	stdout=[]
+n1	COMPILE=0	rc=7	stdout=[]
+n2	COMPILE=0	rc=7	stdout=[]
+n3	COMPILE=0	rc=6	stdout=[]
+n4	COMPILE=0	rc=9	stdout=[]
+n6	COMPILE=0	rc=9	stdout=[]
+n7	COMPILE=0	rc=10	stdout=[]
+n8	COMPILE=0	rc=6	stdout=[]
+n9	COMPILE=0	rc=2	stdout=[]

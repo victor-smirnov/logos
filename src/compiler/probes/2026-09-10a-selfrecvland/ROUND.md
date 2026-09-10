@@ -203,3 +203,50 @@ receivers (A7 panic/Drop-on-unwind, A16 auto-Copy, B1/B2/B3/B6/B7/B8 — read),
 and no `docs/spec/*.md` clause named impl-vs-trait receiver conformance before
 this one. So the standing rule applies and the answer is Rust's, which is also
 the owner's decision of 2026-09-09.
+
+## 7. THE CONTROL REVERT — MEASURED AFTER THE LANDING, ON ITS OWN BUILD
+
+The arm alone was reverted (`git show 176170b6d:src/compiler/sema_collect.cpp`),
+the corpus, the spec, the pins and the five fixtures left exactly as landed, and
+the tree rebuilt: control build `db84de12f8f489fa 43`.
+
+    the four refusal fixtures          ALL FOUR RED   (20% of 5 passed)
+    pass/impl_recv_conformant_shapes   still green    (it must pass either way —
+                                       it is the over-refusal guard, not a pin)
+    the 31 hand programs               IDENTICAL to the original unarmed
+                                       baseline, every column
+                                       (tables/hand_control_revert.txt vs
+                                        tables/hand_base.txt — empty diff)
+
+So the four pins are held by the ARM and by nothing else in the two commits, and
+every armed difference in §4 was caused by the arm alone.
+
+`fail_text_oracle.py` was taken on the control build and diffed against the armed
+run: **1478 fail fixtures, 0 rows differing in ANY column** — not the exit code,
+not the normalised stderr sha, not the `.expected` match. The text-only column
+`ctest` cannot produce is empty too. (The two runs came from DIFFERENT builds and
+still agree on every sha, which is itself the evidence that the ABI-freshness
+warning that makes this oracle self-invalidate did not fire.)
+
+RESTORED, and the restore PROVEN: the arm re-applied, rebuilt, all five fixtures
+green again.
+
+## 8. ⚠ `build_hash.py` DISAGREED WITH ITSELF, AND IT IS NOT NON-DETERMINISM
+
+Same sources, `git checkout` of the identical file, rebuilt: `70933411074df20c`
+became `975b6cac446d26be`. A no-op `cmake --build` immediately after leaves it at
+`975b6cac446d26be`, so codegen is deterministic. The mover is the CONFIGURE
+timestamp baked into the binary — `logosc --version` reads
+`0.43.0-preview+main-g176170b6-dirty.20260910T065656Z` — and `build_hash.py`
+hashes `bin/logosc` byte for byte. Its own docstring warns that the version
+STRING is not an identity; the finding is the other direction: that string lives
+INSIDE the artefact the key is computed from, so **a reconfigure moves the key
+with no source change**. Adding five fixtures forces a reconfigure (the corpus is
+globbed), which is why a fixture-adding round sees this and a probe round does
+not. The version string's commit id is stale too (`g176170b6`, one commit back).
+Recorded, not repaired — tooling is frozen.
+
+    STEP 1 build      911811129fca26d5 43
+    armed build       70933411074df20c 43   (§4, §6 measurements)
+    control revert    db84de12f8f489fa 43   (§7)
+    restored build    975b6cac446d26be 43   (identical sources to the armed one)
