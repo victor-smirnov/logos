@@ -1,0 +1,10 @@
+# THE COUNT IS THE ORACLE, and rc 0 is the second half of it (pre-fix this
+# program did not run at all — it was refused as a false E0184).
+# 1 = `s` was moved into `eat` and its destructor ran exactly once (correct,
+# and what Rust does). 0 = the local `trait Copy` seeded the Copy set and the
+# glue was suppressed — a LEAK, which no exit code can see. 2 = a double free.
+# The twin fail/copy_lang_item_user_trait_named_copy_move_refused is this file
+# with one more `eat(s)`, and it is the DIFFERENCE that pins the rule.
+exit: 0
+stdout:
+DROPS=1

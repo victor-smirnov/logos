@@ -1,0 +1,20 @@
+// The refusing half of the pair whose pass half is
+// pass/copy_supertrait_user_trait_named_copy_is_in_the_vtable — this file with
+// `impl Copy for Sq` DELETED. `trait Sh: Copy` names the user's own `Copy`, so
+// `impl Sh for Sq` requires `impl Copy for Sq` (Rust: E0277).
+//
+// Pre-fix (`ac6f342a01c2affb 43`) this was ADMITTED, rc 0 — the per-impl
+// supertrait parity loop skipped any supertrait spelled `Copy` before reading
+// its identity. Row `copy_named_supertrait_impl_parity_skipped`, tier 2.
+package copy_supertrait_user_trait_named_copy_needs_an_impl;
+
+trait Copy { fn dup(&self) -> i32; }
+trait Sh: Copy { fn area(&self) -> i32; }
+
+struct Sq { s: i32 }
+impl Sh for Sq { fn area(&self) -> i32 { return self.s * self.s; } }
+
+fn main() -> i32 {
+    let q: Sq = Sq { s: 3i32 };
+    return q.area() - 9i32;
+}

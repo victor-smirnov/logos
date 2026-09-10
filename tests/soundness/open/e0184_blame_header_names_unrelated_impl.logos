@@ -1,0 +1,27 @@
+// SOUNDNESS QUEUE row e0184_blame_header_names_unrelated_impl (tier 4, diag).
+// The E0184 Copy/Drop refusal is CORRECT about this program — `impl Copy` +
+// `impl Drop` for the same type is a genuine conflict — but its blame HEADER
+// names a trait and a type that appear nowhere in it:
+//   error [impl Hash for $tuple$8]: impl Copy for M: the type also implements
+//   Drop (E0184) — Copy types are duplicated bitwise, so each copy would run
+//   the destructor; remove one of the impls
+// `$tuple$8` is not a type in this file and `Hash` is not implemented here.
+// The arm runs post-collection, in a loop over `impls_`, and reports through
+// `error()` while `ctx_` still holds whatever the LAST impl collected set it
+// to — the diagnostic's context is a leftover, not a fact about the program.
+// MEASURED 2026-09-10 on `ac6f342a01c2affb 43` and re-measured after the
+// `Copy` lang-item identity landing: the header is unchanged, and it is false
+// for `tests/logos/fail/copy_drop_e0184` and
+// `tests/spec/fail/type_diag_1__copy-drop-exclusive` too — both pinned fail
+// fixtures whose `.expected` matches only the SENTENCE. The verdict is right;
+// only the sentence's header is wrong, hence tier 4. PROBES.md 2026-09-10f.
+package e0184_blame_header_names_unrelated_impl;
+use logos.lang.clone;
+use logos.lang.drop;
+struct M { v: i32 }
+impl Copy for M {}
+impl Drop for M { fn drop(self: &mut M) { } }
+fn main() -> i32 {
+    let m: M = M { v: 7i32 };
+    return m.v - 7i32;
+}

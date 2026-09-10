@@ -145,6 +145,13 @@ struct TypeSets {
     std::unordered_set<std::string> frame_consts;
 };
 
+// `Copy` at the LIR layer is the LANG ITEM `logos.lang.clone::Copy`. The bare
+// spelling is `identity_trait()`'s pre-identity fallback and stays a WILDCARD,
+// so this predicate may only ever NARROW. PROBES.md 2026-09-10f.
+static bool lir_is_copy_lang_item(std::string_view id) noexcept {
+    return id == "logos.lang.clone::Copy" || id == "Copy";
+}
+
 static TypeSets build_type_sets(const lir::LProgram& prog) {
     TypeSets ts;
     // `prog.consts` holds BOTH kinds (sema pushes CONST_DEF and STATIC_DEF into
@@ -240,8 +247,10 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         sd.each_method([&](lir_view::FunctionView m) {
             register_drop_symbol(m.name());
         });
+    // THE BORROW CHECKER'S OWN COPY SET — `is_move_type` asks THIS one, not
+    // sema's, so it is a second door IN SERIES with the seeding site.
     for (auto& impl : prog.impls)
-        if (impl.trait_name() == "Copy")
+        if (lir_is_copy_lang_item(impl.identity_trait()))
             ts.copy_types.insert(std::string(impl.target_type()));
     // strip_generic: ONLY for DIRECT (attribute) marks — the spec's flag is
     // a verbatim copy of the template's (mono_clone), so registering the
@@ -14258,7 +14267,9 @@ public:
         fn.each_type_param([&](lir_view::FnTParamView tp) {
             std::string tpname(tp.name());
             tp.each_bound([&](lir_view::FnTraitBoundView b) {
-                if (b.trait_name() == "Copy") copy_tvs_.insert(tpname);
+                // BY IDENTITY: a user trait spelled `Copy` is not the marker.
+                if (lir_is_copy_lang_item(b.identity_trait()))
+                    copy_tvs_.insert(tpname);
             });
         });
         fn_lifetime_params_.clear();

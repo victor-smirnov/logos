@@ -1,0 +1,28 @@
+// A MEMBER OF THE CLASS THAT WAS ON NO LIST, found by asking which fact each
+// layer reads rather than by grepping `"Copy"`. `&T`, `*T`, `[T]`, fn pointers
+// and trait-object fat pointers satisfy a `Copy` BOUND with no impl at all —
+// they are bitwise-copyable handles. That exemption belongs to the `Copy` LANG
+// ITEM. Here `Copy` is the file's own trait, `&i32` implements it nowhere, and
+// the bound must be refused (Rust: E0277).
+//
+// MEASURED on `ac6f342a01c2affb 43`: ADMITTED, rc 0, printed `s=7`. No queue
+// row named this door; `sema_collect.cpp`'s bound-satisfaction arm read
+// `bound.trait_name == "Copy"` and now reads the bound's `canonical_trait`.
+//
+// PAIR: pass/copy_bound_lang_item_handle_kind_exempt — this file with the
+// `trait Copy { … }` declaration replaced by `use logos.lang.clone;`, which
+// must keep compiling and printing `s=7`.
+package copy_bound_handle_kind_needs_user_trait_impl;
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Copy { fn dup(&self) -> i32; }
+
+fn pick<T: Copy>(t: T) -> T { return t; }
+
+unsafe fn main() -> i32 {
+    let n: i32 = 7i32;
+    let r: &i32 = &n;
+    let s: &i32 = pick::<&i32>(r);
+    printf("s=%d\n".as_ptr(), *s);
+    return *s - 7i32;
+}

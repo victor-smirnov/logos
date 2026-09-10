@@ -35256,3 +35256,143 @@ The probe patch (+69/−6, four files) is preserved at
 `copy_probes_0910e.patch` in this round's scratchpad; it is NOT in the tree,
 for the reason in §11. The armed build dir `build-copy` (`8cafa19930190406 43`)
 is the artefact every number above was read from.
+
+---
+
+# 2026-09-10f — THE `Copy` MARKER WAS CHOSEN BY A SPELLING AT **FIVE** LAYERS, ELEVEN DECISION SITES; FOUR QUEUE ROWS CLOSE, A DOOR ON NO LIST ADMITTED A `Copy` BOUND OVER A TYPE THAT IMPLEMENTS NOTHING, AND THE BUILD SYSTEM'S OWN FIXED `/tmp` PATH TURNED OUT TO RACE WITHIN A SINGLE BUILD DIR
+
+Base `ac6f342a01c2affb 43` (HEAD `8b49a203f`), queue gate rc 0 at 79 rows on
+arrival, `-L bc` baseline READ from the store: build 1016, 6647 recorded, 0
+failed, all 2743 tests in the filter already measured. Armed
+`ef25925c7c3e4b29 43` in `build-copy`.
+
+## 1. THE CLASS, BY PROPERTY
+
+**A `Copy` FACT — "is this type Copy", "is this supertrait the marker", "does
+this impl collide with `Drop`", "does this bound make a TypeVar non-move",
+"does this handle kind satisfy the bound" — IS DECIDED BY THE SPELLING `Copy`
+RATHER THAN BY THE IDENTITY OF THE `logos.lang.clone::Copy` LANG ITEM.**
+
+Enumerated by asking, at every layer that ANSWERS a Copy question, WHICH FACT IT
+READS — not by grepping `"Copy"`, which cannot tell a decision from a pin.
+Eleven decision sites in five layers:
+
+| door | site | fact read | direction |
+|---|---|---|---|
+| **A′** | `sema_collect.cpp` `collect_impl` `copy_types_` insert (+ its inner conditional-`Copy` bound scan) | the TRAIT's NAME | admits |
+| **B′** | `borrow_check.cpp` `build_type_sets` `ts.copy_types` | the LIR IMPL's TRAIT NAME | admits |
+| **C′** | five BOUND readers: `sema.cpp` `is_move_type`'s TypeVar arm + `is_copy_tv`, `sema_impl.hpp` `typevar_param_is_copy_bounded`, `sema_collect.cpp`'s handle-kind bound satisfaction, `borrow_check.cpp` `copy_tvs_` | the BOUND's NAME | admits |
+| **D′** | four SUPERTRAIT skips: the vtable walk, `check_supertrait_impls` ×2, `sema_decl.cpp`'s emitted list | the SUPERTRAIT's NAME | **both** |
+| **E′** | `sema.cpp` E0184 | the `impls_` KEY prefix `"Copy::"` | **refuses** |
+
+⚠ **A′ AND B′ ARE IN SERIES.** The borrow checker keeps its OWN copy set, built
+from the LIR impl blocks, and `is_move_type` asks THAT one — narrowing sema
+alone leaves the move check permissive. Half a mechanism is not one (rule 2).
+
+⚠ `typevar_param_is_copy_bounded` was written to compare the **trailing
+segment** of both the written name and the canonical one, i.e. deliberately
+package-blind. A trailing segment is not an identity either.
+
+## 2. DOOR C′ WAS ON NO LIST, AND IT ADMITS A BOUND OVER A TYPE THAT IMPLEMENTS NOTHING
+
+Found by asking who else answers "does this satisfy `Copy`". `&T`, `*T`, `[T]`,
+fn pointers and trait-object fat pointers satisfy a `Copy` bound with **no impl
+at all** — they are bitwise-copyable handles, and that exemption belongs to the
+lang item. MEASURED on the base binary:
+
+    trait Copy { fn dup(&self) -> i32; }        // the FILE's own trait
+    fn pick<T: Copy>(t: T) -> T { return t; }
+    let r: &i32 = &n;  let s: &i32 = pick::<&i32>(r);   // rc 0, `s=7`
+
+`&i32` implements this file's `Copy` nowhere. Rust: E0277. Armed:
+`'pick': type '&i32' does not implement trait 'Copy'`, and the one-construct
+control (`use logos.lang.clone;` instead of the declaration) still prints `s=7`.
+Landed as `fail/copy_bound_handle_kind_needs_user_trait_impl` ×
+`pass/copy_bound_lang_item_handle_kind_exempt`.
+
+## 3. THE FIX — CARRY THE IDENTITY THE REGISTRIES ALREADY HOLD
+
+One helper pair in `sema_impl.hpp` (`trait_key_is_lang_item` /
+`bound_is_copy_lang_item`) reading `SemaTraitInfo::package`, and one in
+`borrow_check.cpp` (`lir_is_copy_lang_item`) reading `ImplView::identity_trait()`
+/ `FnTraitBoundView::identity_trait()`. A′ needed no lookup at all:
+`current_impl_trait_package_` was already resolved twelve hundred lines above the
+seeding site, through `find_trait_iter_scoped` — Rust's own shadowing order.
+
+**AN UNRESOLVABLE KEY IS A WILDCARD**, exactly as the `Drop` landing
+(`72c072095`) and `pkg_matches` treat an empty package: this test may only ever
+NARROW what the reader already returned, because losing a real `Copy` seed is an
+OVER-REFUSAL, and A16+A17 are one knot — removing auto-Copy reds 106 of 2534
+pass tests. Diff: +138/−20 across five compiler files, no second string
+comparison added anywhere.
+
+## 4. A16, RE-READ VERBATIM, IS WHAT DECIDES THIS — AND IT WAS NOT THE OWNER'S
+
+The previous round left the `Copy` half to the owner "because the seeding path
+is A16's own wire". A16's own text refutes that: it blesses structural auto-Copy
+and "**a manual `impl Copy`** still seeds the set" — an impl of THE `Copy`
+trait — and says in the same row that "`&mut T` fields do NOT qualify —
+exclusive references are move-only, so `struct S { r: &mut T }` stays move".
+A user's own trait spelled `Copy` is a different trait; admitting it CONTRADICTS
+A16 rather than extending it. Standing rule, second branch: answered from the
+divergence's own logic, landed, not escalated.
+
+The measurement that makes this concrete is A16's own excepted shape:
+
+    trait Copy { fn dup(&self) -> i32; }
+    struct S<'a> { r: &'a mut i32 }
+    impl<'a> Copy for S<'a> { … }
+    let s = S { r: &mut n };  bump(s); bump(s);      // base: rc 3, `a=1 b=2`
+
+One `&mut i32`, incremented through two live copies.
+
+## 5. COUNTER-EXAMPLES WRITTEN FOR THIS ROUND, NOT INHERITED (rule 5)
+
+Twelve programs, base → armed. Five defect shapes the pricing round did not use
+(a `&mut` field; a generic BOUND; a by-value method receiver `self`; two `let`s
+with no call at all; a METHODLESS marker trait textually identical to the lang
+item's declaration) all flipped from a run-time double free or a duplicated
+`&mut` to `use of moved variable`. Seven positives — structural auto-Copy, a
+lang-item `impl Copy`, the lang item over A16's excepted `&mut` shape, the
+CONDITIONAL `impl<P: Copy> Copy for Wrap<P>`, a lang-item `T: Copy` bound, the
+lang item as a supertrait, and a user `trait Copy` used as an ORDINARY trait —
+are byte-identical on both binaries.
+
+⚠ **A CEILING BOUNDS THE COUNT, NOT THE SET, AND THE SET WAS DIFFED BOTH WAYS.**
+Two shapes are refused on BOTH binaries and are NOT closed by this change:
+
+  * an ENUM with an owning payload — `is_move_type`'s enum arm asks
+    `has_droppable_fields`, never `struct_type_is_copy`, so the spelling never
+    reached the question;
+  * a by-value read of an ARRAY element — a different rule answers first.
+
+And one program's SENTENCE moved without its verdict: the array shape says
+`cannot move out of an index (E0507)` armed where it said `cannot move out of
+type '[Own; 1]', a non-copy array` on base. Both refuse; the text is different
+because a different rule now reaches it first.
+
+## 6. ⚠ THE BUILD SYSTEM'S FIXED `/tmp` PATH RACES **WITHIN ONE BUILD DIR**
+
+`emit_module.cpp` composes its intermediates in
+`fs::temp_directory_path() / ("logos_emit_" + manifest.name)`. The hazard is
+recorded in `tests/logos/emit_shards_gate.sh` as "a live cross-worktree hazard".
+It is not only cross-worktree: **eight cmake targets in ONE build dir each
+declare `lib/logos/liblogos-lang.a` as their output**, and under `-j32` they
+race on that single path —
+
+    objcopy: error: the input file '/tmp/logos_emit_logos-lang/logos-lang.writ0' is empty
+    emit_module: … carries no readable .pkgi member after ar — the package index
+                 did not reach the archive; 63 package(s) would have been lost silently
+
+Two full `-j32` builds died this way, at 62% and 64%. The workaround that works
+is `--target stdlib_layers -j1` first, then `-j$(nproc)` for the rest. Last
+round recorded this as a cross-build-dir collision; it is not, and no second
+build dir was running either time. TOOLING IS FROZEN, so this is REPORTED.
+
+## 7. ⚠ AND A STALE OUTPUT FILE ALMOST BECAME A NULL RESULT
+
+`run_oracle.py` writes its table only at the END. A `wc -l` on the armed output
+path returned **6620 rows** while the armed run was still executing — the file
+was a leftover from a run at 09:36 the same morning. Read the MTIME, not the
+line count; a number from the right path is not a number from this run.
+

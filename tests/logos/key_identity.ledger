@@ -129,7 +129,30 @@
 #   mlir_gen_impl.hpp  1 -> 2. `is_anyval` and the new `is_stdlib_string_view`,
 #                      both pkg-checked; the literal is the bare name they
 #                      qualify, which is the intended shape.
-#SCAN borrow_check.cpp 6 f7194ec0
+# 2026-09-10f, THE `Copy` LANG-ITEM IDENTITY LANDING (nine bare-name intercepts
+# CONVERTED, in the direction this ledger exists to encourage):
+#   borrow_check.cpp  6 -> 4,  roster f7194ec0 -> 2e6b2e47. `impl.trait_name()
+#                     == "Copy"` (the borrow checker's OWN copy set, IN SERIES
+#                     with sema's) and `b.trait_name() == "Copy"` (copy_tvs_)
+#                     now read `identity_trait()`, always `pkg::Name`.
+#   sema.cpp          50 -> 48, roster 0a9e8634 -> 34452b58. `is_move_type`'s
+#                     TypeVar Copy-bound arm and `is_copy_tv` now ask
+#                     `bound_is_copy_lang_item`, which resolves the bound's
+#                     declaration package. (The `Drop` row pinned at 50 above
+#                     is untouched and still bare — a DIFFERENT decision, and
+#                     its own ground stands.)
+#   sema_collect.cpp  41 -> 36, roster c7be1d14 -> 17337e53. FIVE: the
+#                     `copy_types_` seeding site and its conditional-Copy bound
+#                     scan, the handle-kind bound-satisfaction arm, and two of
+#                     the four supertrait skips (the vtable walk and the
+#                     per-impl parity loop). All five read a declaration's
+#                     package now; none is a new key, and no comparison was
+#                     added — each is the SAME question asked of the identity
+#                     the registry already held.
+# The nine sites were a soundness hole, not a style point: a user's own
+# `trait Copy` conferred Copy on a `Box`-owning struct (rc 134, valgrind
+# Invalid free) and on DIVERGENCE A16's explicitly-excepted `&mut` shape.
+#SCAN borrow_check.cpp 4 2e6b2e47
 #SCAN borrow_flow_summary.inc 1 b14a7b80
 #SCAN emit_module.cpp 6 5ec06a0f
 #SCAN main.cpp 4 04f2bc11
@@ -162,9 +185,9 @@
 # words. What the test replaces is worse than a bare name: keying the destructor on
 # the MANGLED SYMBOL `<T>__drop`, which ran any inherent or other-trait `drop` at
 # scope exit (PROBES.md 2026-09-04land, root 3).
-#SCAN sema.cpp 50 0a9e8634
+#SCAN sema.cpp 48 34452b58
 #SCAN sema_auto_trait.cpp 15 9ab14bd6
-#SCAN sema_collect.cpp 41 c7be1d14
+#SCAN sema_collect.cpp 36 17337e53
 #SCAN sema_decl.cpp 2 ce09ff69
 #SCAN sema_expr.cpp 155 0f5c9f40
 # sema_impl.hpp 29 -> 32, 2026-09-07s. THREE new comparisons of a trait name

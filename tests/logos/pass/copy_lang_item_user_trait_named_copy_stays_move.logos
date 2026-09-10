@@ -1,0 +1,49 @@
+// CLOSES soundness-queue rows `user_trait_named_copy_confers_copy` (tier 1,
+// `run 134`) and `user_trait_named_copy_false_e0184` (tier 3, `refuses`).
+// A LOCALLY DECLARED `trait Copy` IS AN ORDINARY TRAIT. `Copy` is a lang item
+// (`logos.lang.clone::Copy`) and a local declaration SHADOWS the prelude's at
+// the item level, so `impl Copy for S` here confers no bitwise duplication and
+// does not collide with `impl Drop`. DIVERGENCE A16 blesses structural
+// auto-Copy and "a manual `impl Copy`" — an impl of THE `Copy` trait — and
+// keeps `&mut`-carrying structs move-only; it blesses no spelling.
+//
+// Pre-fix this program was REFUSED, with a sentence false about it:
+//   error [impl Hash for $tuple$8]: impl Copy for S: the type also implements
+//   Drop (E0184) …
+// because `sema.cpp`'s E0184 arm selected rows by the `impls_` KEY PREFIX
+// "Copy::", which a user's own trait shares. And had it compiled, `S` would
+// have been Copy: `sema_collect.cpp` seeded `copy_types_` off the trait's NAME
+// and `borrow_check.cpp` built its own copy set off the LIR impl's NAME — two
+// doors IN SERIES. All three now read the trait's DECLARATION (package).
+//
+// PAIR: fail/copy_lang_item_user_trait_named_copy_move_refused — this file with
+// the second `eat(s)` restored. THE ORACLE IS THE DESTRUCTOR COUNT: 1 = `s` was
+// moved once and dropped once (correct); 0 = it was treated as Copy and the
+// glue was suppressed; 2 = a double free. Do not relax it in either direction.
+package copy_lang_item_user_trait_named_copy_stays_move;
+use logos.lang.drop;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+static mut N: i64 = 0i64;
+
+trait Copy { fn dup(&self) -> i64; }
+
+struct S { k: i64 }
+impl Copy for S { fn dup(&self) -> i64 { return self.k * 2i64; } }
+impl Drop for S { fn drop(self: &mut S) { unsafe { N = N + 1i64; } } }
+
+fn eat(s: S) -> i64 { return s.k; }
+
+fn main() -> i32 {
+    {
+        let s: S = S { k: 5i64 };
+        if s.dup() != 10i64 { return 3i32; }
+        let a: i64 = eat(s);
+        if a != 5i64 { return 4i32; }
+    }
+    unsafe {
+        pr("DROPS=%ld\n", N);
+        if N != 1i64 { return 1i32; }
+    }
+    return 0i32;
+}

@@ -2799,16 +2799,11 @@ private:
         auto it = current_type_bounds_.find(
             std::string(TypeRef(t).type_var_name()));
         if (it == current_type_bounds_.end()) return false;
-        // A bound's written name may be bare (`Copy`) or the registry's
-        // canonical identity (`logos.lang.marker::Copy`) — #97/#100: a lookup
-        // KEY is not an IDENTITY, so compare the trailing segment of both.
-        auto last_seg = [](std::string_view s) -> std::string_view {
-            auto p = s.find_last_of(":.");
-            return p == std::string_view::npos ? s : s.substr(p + 1);
-        };
+        // ⚠ A TRAILING SEGMENT IS NOT AN IDENTITY: this site compared
+        // `last_seg(...) == "Copy"`, blind to a user's own `trait Copy`.
         for (auto& b : it->second)
-            if (last_seg(b.trait_name) == "Copy" ||
-                last_seg(b.canonical_trait) == "Copy") return true;
+            if (bound_is_copy_lang_item(b.trait_name, b.canonical_trait))
+                return true;
         return false;
     }
 
@@ -5973,6 +5968,43 @@ private:
         if (ti.package.empty() || ti.name.empty()) return std::string(regkey);
         return sema_key(ti.package, ti.name);
     }
+    // ── THE `Copy` MARKER IS A LANG ITEM, NOT A SPELLING ────────────────
+    // `logos.lang.clone::Copy`. A user's own `trait Copy` conferred Copy-ness
+    // at eleven sites in five layers — the same identity argument that landed
+    // for `Drop` in 72c072095. ⚠ AN UNRESOLVABLE KEY IS A WILDCARD: this test
+    // may only ever NARROW, because losing a real seed is an OVER-REFUSAL and
+    // A16/A17 are one knot. Ground, doors and measurements: PROBES.md
+    // 2026-09-10f.
+    static constexpr std::string_view kCopyLangPkg = "logos.lang.clone";
+    static constexpr std::string_view kDropLangPkg = "logos.lang.drop";
+    static std::string_view trait_last_seg(std::string_view s) noexcept {
+        auto p = s.find_last_of(":.");
+        return p == std::string_view::npos ? s : s.substr(p + 1);
+    }
+    bool trait_key_is_lang_item(std::string_view regkey,
+                                std::string_view item,
+                                std::string_view item_pkg) const {
+        auto it = traits_.find(std::string(regkey));
+        // Undeclared / already-qualified spelling the registry does not key:
+        // WILDCARD on the name alone. Narrowing here would refuse, and the
+        // refusing direction is the one this change must never take.
+        if (it == traits_.end()) return trait_last_seg(regkey) == item;
+        const auto& ti = it->second;
+        return ti.name == item &&
+               (ti.package.empty() || ti.package == item_pkg);
+    }
+    // A written name plus the identity captured for it at collect time
+    // (`TraitBound::canonical_trait`, `SemaImplInfo::canonical_trait`). The
+    // canonical half is the registry KEY, which is bare for whichever homonym
+    // holds the bare slot — so the resolution above still decides.
+    bool bound_is_copy_lang_item(std::string_view written,
+                                 std::string_view canonical) const {
+        if (trait_last_seg(written) != "Copy" &&
+            trait_last_seg(canonical) != "Copy") return false;
+        return trait_key_is_lang_item(canonical.empty() ? written : canonical,
+                                      "Copy", kCopyLangPkg);
+    }
+
     std::string canonical_trait_name(std::string_view name) {
         auto it = find_trait_iter_scoped(name);
         if (it != traits_.end()) return it->first;

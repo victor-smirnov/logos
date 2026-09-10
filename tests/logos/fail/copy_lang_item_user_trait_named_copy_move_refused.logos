@@ -1,0 +1,29 @@
+// The refusing half of the pair whose pass half is
+// pass/copy_lang_item_user_trait_named_copy_stays_move — this file with a
+// SECOND `eat(s)`. A user's own `trait Copy` is not the `Copy` lang item, so
+// `S` stays move-only and the second use is a use-after-move (Rust: E0382).
+//
+// Pre-fix (`ac6f342a01c2affb 43`) the whole file was refused for the WRONG
+// reason (a false E0184 on the local trait); with the `impl Drop` removed the
+// same shape COMPILED and double-freed at run time, rc 134, valgrind
+// `Invalid free()`. Row `user_trait_named_copy_confers_copy`, tier 1.
+package copy_lang_item_user_trait_named_copy_move_refused;
+use logos.lang.drop;
+extern fn printf(fmt: *const u8, ...) -> i32;
+static mut N: i64 = 0i64;
+
+trait Copy { fn dup(&self) -> i64; }
+
+struct S { k: i64 }
+impl Copy for S { fn dup(&self) -> i64 { return self.k * 2i64; } }
+impl Drop for S { fn drop(self: &mut S) { unsafe { N = N + 1i64; } } }
+
+fn eat(s: S) -> i64 { return s.k; }
+
+fn main() -> i32 {
+    let s: S = S { k: 5i64 };
+    let a: i64 = eat(s);
+    let b: i64 = eat(s);
+    if a + b != 10i64 { return 4i32; }
+    return 0i32;
+}

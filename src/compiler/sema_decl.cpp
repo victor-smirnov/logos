@@ -2459,7 +2459,8 @@ DeclBuilder SemaChecker::lower_trait_def(TinyMapView node) {
         {
             auto arr = b.array(tk::SUPERTRAITS);
             for (auto& s : tit->second.supertraits)
-                if (s.trait_name != "Copy") arr.push_str(s.trait_name);
+                if (!bound_is_copy_lang_item(s.trait_name, s.canonical_trait))
+                    arr.push_str(s.trait_name);
         }
         // Single-source the supertrait-closure vtable layout (slot order +
         // ordered upcast targets) for mlir-gen to consume verbatim.

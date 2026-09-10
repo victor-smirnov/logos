@@ -1,0 +1,29 @@
+// THE CONTROL IN THE EXPENSIVE DIRECTION: a manual `impl Copy` of the LANG
+// ITEM still seeds the Copy set. DIVERGENCE A16 says so in its own words
+// ("a manual `impl Copy` still seeds the set"), and losing it is an
+// OVER-REFUSAL — the direction that costs most in this class, because A16 and
+// A17 are one knot (removing auto-Copy reds 106 of 2534 pass tests).
+//
+// The subject is deliberately the shape A16 EXCEPTS from structural auto-Copy
+// (`&mut T` fields are move-only), so the only thing that can make this
+// program compile is the explicit impl. Its twin one construct away is
+// fail/struct_with_mut_ref_not_auto_copy, which has no impl and is refused.
+package copy_lang_item_manual_impl_still_seeds;
+use logos.lang.clone;
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+struct S<'a> { r: &'a mut i32 }
+impl<'a> Copy for S<'a> {}
+
+fn bump(s: S) -> i32 { *s.r = *s.r + 1i32; return *s.r; }
+
+fn main() -> i32 {
+    let mut n: i32 = 0i32;
+    let s: S = S { r: &mut n };
+    let a: i32 = bump(s);
+    let b: i32 = bump(s);
+    unsafe { printf("a=%d b=%d\n".as_ptr(), a, b); }
+    if a != 1i32 { return 1i32; }
+    if b != 2i32 { return 2i32; }
+    return 0i32;
+}

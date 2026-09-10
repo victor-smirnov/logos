@@ -1128,7 +1128,8 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // need an explicit `impl Copy`. `&mut T` is an exclusive (move-only)
             // borrow and is NOT Copy (falls through → impl lookup → error, as in
             // Rust). Concrete `impl Copy for <T>` types are handled below.
-            if (bound.trait_name == "Copy") {
+            if (bound_is_copy_lang_item(bound.trait_name,
+                                        bound.canonical_trait)) {
                 auto ck = cv.kind();
                 if (ck == LogosType::Kind::Ref ||
                     ck == LogosType::Kind::Ptr ||
@@ -5034,7 +5035,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
         }
     }
     // Register Copy types so is_move_type() can respect them.
-    if (trait_name == "Copy" && !target.empty()) {
+    // ⚠ THE LANG ITEM, NOT THE SPELLING — `current_impl_trait_package_` was
+    // resolved above through find_trait_iter_scoped (Rust's shadowing order).
+    // A16 blesses "a manual `impl Copy`", i.e. an impl of THE `Copy` trait,
+    // and keeps `&mut`-carrying structs move. PROBES.md 2026-09-10f.
+    const bool impl_is_copy_lang_item_ =
+        trait_name == "Copy" &&
+        (current_impl_trait_package_.empty() ||
+         current_impl_trait_package_ == kCopyLangPkg);
+    if (impl_is_copy_lang_item_ && !target.empty()) {
         if (impl_is_unsafe)
             error(std::format("impl Copy for {}: `unsafe impl` for a safe built-in trait Copy",
                               target));
@@ -5054,7 +5063,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 for (auto& tp : impl_tps) {
                     if (tp.name != tvn) continue;
                     for (auto& b : tp.bounds)
-                        if (b.trait_name == "Copy") {
+                        if (bound_is_copy_lang_item(b.trait_name,
+                                                    b.canonical_trait)) {
                             cond_positions.push_back(i);
                             break;
                         }
@@ -6795,7 +6805,9 @@ void SemaChecker::trait_vtable_layout(
         auto it = find_trait_iter_scoped(tn);
         if (it == traits_.end()) return;
         for (auto& s : it->second.supertraits) {
-            if (s.trait_name == "Copy") continue;   // marker, no vtable
+            // Only the LANG ITEM is the methodless marker with no vtable slot.
+            if (bound_is_copy_lang_item(s.trait_name, s.canonical_trait))
+                continue;   // marker, no vtable
             walk(s.trait_name);
         }
         if (tn != trait) upcast_supers.push_back(tn);
@@ -6812,7 +6824,8 @@ void SemaChecker::check_supertrait_impls() {
     // would silently miss them.
     for (auto& [tname, tinfo] : traits_) {
         for (auto& super : tinfo.supertraits) {
-            if (super.trait_name == "Copy") continue;
+            if (bound_is_copy_lang_item(super.trait_name,
+                                        super.canonical_trait)) continue;
             if (!traits_.count(super.trait_name)) {
                 ctx_ = std::format("trait {}", tname);
                 error(std::format("trait {}: unknown supertrait '{}'",
@@ -6850,7 +6863,9 @@ void SemaChecker::check_supertrait_impls() {
         if (tit == traits_.end()) continue;
         ctx_ = std::format("impl {} for {}", tname, target);  // set once per impl
         for (auto& super : tit->second.supertraits) {
-            if (super.trait_name == "Copy") continue;
+            // Only the LANG ITEM is exempt from supertrait impl parity.
+            if (bound_is_copy_lang_item(super.trait_name,
+                                        super.canonical_trait)) continue;
             // Bug 3: verify supertrait name is a known trait before checking impls.
             // B-mv-03: ask by the supertrait's IDENTITY, captured on the
             // TraitBound when the trait declaration was read. `trait Child: Hash`

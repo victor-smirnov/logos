@@ -1,0 +1,19 @@
+// THE EXEMPTION, CHECKED IN THE ABUSE DIRECTION — the twin of
+// fail/copy_bound_handle_kind_needs_user_trait_impl, one construct away: the
+// local `trait Copy { … }` replaced by `use logos.lang.clone;`. A shared
+// reference is bitwise-copyable and satisfies a `Copy` bound with no impl.
+// If the identity narrowing ever stopped recognising the lang item, this
+// program is refused and every `T: Copy` bound over a handle kind goes with it.
+package copy_bound_lang_item_handle_kind_exempt;
+use logos.lang.clone;
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+fn pick<T: Copy>(t: T) -> T { return t; }
+
+unsafe fn main() -> i32 {
+    let n: i32 = 7i32;
+    let r: &i32 = &n;
+    let s: &i32 = pick::<&i32>(r);
+    printf("s=%d\n".as_ptr(), *s);
+    return *s - 7i32;
+}

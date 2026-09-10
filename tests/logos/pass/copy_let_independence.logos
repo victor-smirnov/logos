@@ -1,4 +1,5 @@
 package copy_let_independence;
+use logos.lang.clone;
 // `let copy = orig` for `impl Copy` structs must produce an independent
 // slot, not alias the source. Mutating `copy` must NOT affect `orig`.
 // Regression for the codegen bug where gen_let aliased struct allocas.
@@ -6,8 +7,14 @@ package copy_let_independence;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn pr(s: str) { unsafe { printf(s.as_ptr()); } }
 
-trait Copy {}
-
+// ⚠ THIS FILE USED TO DECLARE ITS OWN `trait Copy {}` HERE. `Copy` is a LANG
+// ITEM (`logos.lang.clone::Copy`) and a local declaration shadows the prelude's
+// at the item level, so those two `impl Copy` blocks implemented an ordinary
+// user trait and seeded nothing — the fixture passed only because the compiler
+// selected the marker by SPELLING. Repaired 2026-09-10 with the identity
+// landing; `S` would still be Copy structurally (A16 auto-Copy), `B` would not:
+// its `[u8; 4]` field does not qualify, which is why this line is the whole
+// difference between `ok` and `use of moved variable 'bo'`.
 struct S { x: u64, y: u64, }
 impl Copy for S {}
 

@@ -1,0 +1,6 @@
+# `DROPS=1` is the oracle and rc 0 the second half: the type is move-only, its
+# lang-item destructor ran exactly once, and the false E0184 is gone. 0 would
+# mean the local `trait Copy` seeded the Copy set and suppressed the glue.
+exit: 0
+stdout:
+DROPS=1

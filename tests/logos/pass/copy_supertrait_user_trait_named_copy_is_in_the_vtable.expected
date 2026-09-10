@@ -1,0 +1,5 @@
+# `dup=30` is the oracle: the supertrait's method was reached THROUGH the
+# `Box<dyn Sh>` vtable. Pre-fix the file did not compile at all.
+exit: 0
+stdout:
+area=9 dup=30

@@ -3150,7 +3150,9 @@ bool SemaChecker::is_move_type(TypeRef t) const {
             auto it = current_type_bounds_.find(nm);
             if (it != current_type_bounds_.end())
                 for (auto& b : it->second)
-                    if (b.trait_name == "Copy") return std::optional<bool>(false);
+                    if (bound_is_copy_lang_item(b.trait_name,
+                                                b.canonical_trait))
+                        return std::optional<bool>(false);
             return std::optional<bool>(true);
         }
         return std::nullopt;
@@ -3347,7 +3349,9 @@ bool SemaChecker::has_droppable_fields(TypeRef t) const {
         // checked — see normalize_assoc_eq for the full ground.
         auto bit = current_type_bounds_.find(std::string(TypeRef(x).type_var_name()));
         if (bit != current_type_bounds_.end())
-            for (auto& b : bit->second) if (b.trait_name == "Copy") return true;
+            for (auto& b : bit->second)
+                if (bound_is_copy_lang_item(b.trait_name, b.canonical_trait))
+                    return true;
         return false;
     };
     auto member_droppable = [&](TypeRef m) -> bool {
@@ -3610,12 +3614,23 @@ void SemaChecker::compute_auto_copy_types() {
     // hazard). Auto-promotion above already skips Drop-bearing structs;
     // this catches the explicit pair. Both registries are complete here
     // (runs post-collection), so the check is ordering-independent.
+    //
+    // ⚠ THE TRAIT HALF OF THE KEY IS NOT AN IDENTITY EITHER. Selecting rows by
+    // the prefix `"Copy::"` refused programs implementing the lang item
+    // NOWHERE; both halves now ask the trait's declaration. PROBES.md
+    // 2026-09-10f.
     for (auto& [ikey, info] : impls_) {
         constexpr std::string_view kCopyPrefix = "Copy::";
         if (ikey.rfind(kCopyPrefix, 0) != 0) continue;
+        if (!bound_is_copy_lang_item(info.trait_name, info.canonical_trait))
+            continue;
         std::string target = ikey.substr(kCopyPrefix.size());
         auto dit = impls_.find("Drop::" + target);
-        if (dit != impls_.end()) {
+        if (dit != impls_.end() &&
+            trait_key_is_lang_item(dit->second.canonical_trait.empty()
+                                       ? dit->second.trait_name
+                                       : dit->second.canonical_trait,
+                                   "Drop", kDropLangPkg)) {
             // ── A LOOKUP KEY IS NOT AN IDENTITY: THE TARGET HALF (#88) ───
             // `impls_` is keyed `Trait::Target` with a BARE target, so the
             // stdlib's `Copy::TypeId` and a user package's `Drop::TypeId` met

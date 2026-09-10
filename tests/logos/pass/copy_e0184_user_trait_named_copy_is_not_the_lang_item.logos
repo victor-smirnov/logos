@@ -1,0 +1,42 @@
+// CLOSES soundness-queue row `user_trait_named_copy_false_e0184` (tier 3,
+// `refuses`). E0184 is a conflict between the `Copy` LANG ITEM and the `Drop`
+// LANG ITEM. This program implements the `Copy` lang item NOWHERE — `Copy`
+// here is its own trait, with a method — so there is no conflict and no
+// bitwise duplication for a destructor to re-run.
+//
+// Pre-fix (`ac6f342a01c2affb 43`) it was REFUSED:
+//   error [impl Hash for $tuple$8]: impl Copy for M: the type also implements
+//   Drop (E0184) — Copy types are duplicated bitwise, …
+// The arm selected rows by the `impls_` KEY PREFIX "Copy::"; the key's trait
+// half is the bare spelling, which a homonym shares. Both halves now ask the
+// trait's declaration. (⚠ The blame header `impl Hash for $tuple$8` names a
+// trait and a type that appear nowhere in the program and is FALSE on the base
+// binary for the pinned E0184 fail fixtures too — filed as its own tier-4
+// `diag` queue row, not repaired here.)
+//
+// PAIR: fail/copy_e0184_lang_item_copy_and_drop_conflict — this file with the
+// `trait Copy { … }` declaration replaced by `use logos.lang.clone;`, i.e. the
+// SAME `impl Copy for M` against the REAL lang item, which must still be
+// refused. That one construct is the whole variable.
+package copy_e0184_user_trait_named_copy_is_not_the_lang_item;
+use logos.lang.drop;
+extern fn printf(fmt: *const u8, ...) -> i32;
+static mut N: i64 = 0i64;
+
+trait Copy { fn dup(&self) -> i32; }
+
+struct M { v: i32 }
+impl Copy for M { fn dup(&self) -> i32 { return self.v; } }
+impl Drop for M { fn drop(self: &mut M) { unsafe { N = N + 1i64; } } }
+
+fn main() -> i32 {
+    {
+        let m: M = M { v: 7i32 };
+        if m.dup() != 7i32 { return 3i32; }
+    }
+    unsafe {
+        printf("DROPS=%ld\n".as_ptr(), N);
+        if N != 1i64 { return 1i32; }
+    }
+    return 0i32;
+}

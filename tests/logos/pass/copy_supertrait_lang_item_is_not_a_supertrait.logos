@@ -1,0 +1,27 @@
+// THE EXEMPTION, CHECKED IN THE ABUSE DIRECTION. The `Copy` LANG ITEM is a
+// methodless marker: it takes no vtable slot and is exempt from supertrait
+// impl parity (`tests/spec/pass/trait_5` pins
+// `trait.def.copy-not-a-supertrait`). `impl Sh for Sq` here carries NO
+// `impl Copy` and must keep compiling.
+//
+// This is the control for the narrowing landed in
+// pass/copy_supertrait_user_trait_named_copy_is_in_the_vtable: if the identity
+// test ever stopped recognising the lang item, this program would be refused
+// `missing impl Copy for Sq (required by supertrait)` and the `dyn Sh` vtable
+// would grow a slot for a method the marker does not have.
+package copy_supertrait_lang_item_is_not_a_supertrait;
+use logos.lang.clone;
+use logos.mem.boxed;
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Sh: Copy { fn area(&self) -> i32; }
+
+struct Sq { s: i32 }
+impl Sh for Sq { fn area(&self) -> i32 { return self.s * self.s; } }
+
+unsafe fn main() -> i32 {
+    let b: Box<dyn Sh> = Box::new(Sq { s: 3i32 });
+    let a: i32 = b.area();
+    printf("area=%d\n".as_ptr(), a);
+    return a - 9i32;
+}

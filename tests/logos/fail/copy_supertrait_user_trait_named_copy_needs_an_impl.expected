@@ -1,0 +1,1 @@
+missing impl Copy for Sq (required by supertrait)

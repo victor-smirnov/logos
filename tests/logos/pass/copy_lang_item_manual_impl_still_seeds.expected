@@ -1,0 +1,7 @@
+# `a=1 b=2` means `s` was DUPLICATED (both copies name the same `&mut i32`) —
+# which is what an explicit `impl Copy` of the lang item asks for. If the
+# identity check ever stops the lang item from seeding, this program is
+# refused `use of moved variable 's'` and this fixture reds.
+exit: 0
+stdout:
+a=1 b=2

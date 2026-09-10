@@ -1,0 +1,25 @@
+// The refusing half of the pair whose pass half is
+// pass/copy_e0184_user_trait_named_copy_is_not_the_lang_item — this file with
+// the `trait Copy { fn dup(&self) -> i32; }` declaration replaced by
+// `use logos.lang.clone;`, so `impl Copy for M` names the REAL lang item.
+// E0184 must still fire: a bitwise-duplicated value would re-run `Drop::drop`.
+//
+// It is here as the narrowing's control in the EXPENSIVE direction — a fix that
+// silenced E0184 for the lang item would be invisible to the pass half.
+package copy_e0184_lang_item_copy_and_drop_conflict;
+use logos.lang.clone;
+use logos.lang.drop;
+extern fn printf(fmt: *const u8, ...) -> i32;
+static mut N: i64 = 0i64;
+
+struct M { v: i32 }
+impl Copy for M {}
+impl Drop for M { fn drop(self: &mut M) { unsafe { N = N + 1i64; } } }
+
+fn main() -> i32 {
+    {
+        let m: M = M { v: 7i32 };
+        if m.v != 7i32 { return 3i32; }
+    }
+    return 0i32;
+}
