@@ -1,0 +1,5 @@
+#include "cxx_schema.dl"
+// Which sites compare against the string "Drop", and in which function?
+.decl q(File:symbol, Line:number, Ctx:symbol)
+.output q
+q(F, L, N) :- str_lit(I, "Drop"), loc(I, F, L, _), ctx_of(I, C), ctx_name(C, N).

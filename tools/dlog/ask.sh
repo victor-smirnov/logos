@@ -21,6 +21,11 @@ ROOT=$PWD
 Q="${1:?usage: ask.sh <question.dl> [source...]}"; shift
 [ -f "$Q" ] || Q="$ROOT/tools/dlog/$Q"
 [ -f "$Q" ] || { echo "ask: no such question: $1"; exit 2; }
+# ⚠ ABSOLUTISE. souffle runs after a `cd "$OUT"`, so a question given as a path
+# that happens to EXIST relative to the caller's cwd (`tools/dlog/x.dl`) stops
+# resolving there — while a bare name works, because the fallback above already
+# made it absolute. The failure reads "cannot open file" and looks like a typo.
+Q=$(readlink -f "$Q")
 
 command -v souffle >/dev/null || { echo "ask: souffle not installed"; exit 2; }
 # ⚠ RELINKING COSTS 11.5 s AND IS THE WHOLE WARM PATH. Rebuild only when the

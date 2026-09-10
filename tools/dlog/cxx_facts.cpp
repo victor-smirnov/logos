@@ -83,14 +83,14 @@ namespace {
 struct Out {
     std::ofstream node, loc, decl, decl_node, ref, call, enum_member, decl_name;
     std::ofstream type_of, type, type_pointee, type_decl, cast_kind, decl_loc;
-    std::ofstream cfg_block, cfg_entry, cfg_exit, cfg_edge, cfg_stmt;
+    std::ofstream cfg_block, cfg_entry, cfg_exit, cfg_edge, cfg_stmt, str_lit;
     long nodes = 0, decls = 0, refs = 0, calls = 0, types = 0, edges = 0;
     void flush() {
         node.flush(); loc.flush(); decl.flush(); decl_node.flush();
         ref.flush(); call.flush(); enum_member.flush(); decl_name.flush();
         type_of.flush(); type.flush(); type_pointee.flush(); type_decl.flush();
         cast_kind.flush(); decl_loc.flush(); cfg_block.flush(); cfg_entry.flush(); cfg_exit.flush();
-        cfg_edge.flush(); cfg_stmt.flush();
+        cfg_edge.flush(); cfg_stmt.flush(); str_lit.flush();
     }
     void open(const std::string &d) {
         auto p = [&](const char *n) { return d + "/" + n + ".facts"; };
@@ -104,6 +104,7 @@ struct Out {
         cfg_block.open(p("cfg_block")); cfg_entry.open(p("cfg_entry"));
         cfg_exit.open(p("cfg_exit"));   cfg_edge.open(p("cfg_edge"));
         cfg_stmt.open(p("cfg_stmt"));
+        str_lit.open(p("str_lit"));
     }
 };
 Out g_out;
@@ -164,6 +165,27 @@ public:
         }
         if (const auto *CE = dyn_cast<CastExpr>(S))
             g_out.cast_kind << id << '\t' << CE->getCastKindName() << '\n';
+        // ⚠ A STRING LITERAL'S TEXT IS A FACT, AND WITHOUT IT A WHOLE CLASS OF
+        // QUESTION FALLS BACK TO GREP. `node(Id,"StringLiteral",..)` said a
+        // literal was there and never what it said, so "which sites compare
+        // against \"Drop\"" — a question a round answered this week with 9 raw
+        // grep hits that could not tell a decision site from a pin — was not
+        // askable here at all. Tabs and newlines are escaped so one fact stays
+        // one line; the text is capped because a long literal is never the
+        // subject of such a question and an unbounded field is a denial of
+        // service on the fact file.
+        if (const auto *SL = dyn_cast<StringLiteral>(S)) {
+            std::string t = SL->getString().str();
+            if (t.size() > 200) t.resize(200);
+            std::string e;
+            for (char c : t) {
+                if (c == '\t') e += "\\t";
+                else if (c == '\n') e += "\\n";
+                else if (c == '\\') e += "\\\\";
+                else e += c;
+            }
+            g_out.str_lit << id << '\t' << e << '\n';
+        }
         if (const auto *DR = dyn_cast<DeclRefExpr>(S)) {
             std::string did = decl_id(DR->getDecl());
             if (!did.empty()) ++g_out.refs, g_out.ref << id << '\t' << did << '\n';

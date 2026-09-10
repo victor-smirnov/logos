@@ -7,6 +7,10 @@
 .decl node(id: symbol, kind: symbol, parent: symbol, index: number)
 .decl type_of(id: symbol, tid: symbol)
 .decl cast_kind(id: symbol, kind: symbol)
+// The TEXT of a string literal (tabs/newlines/backslashes escaped, capped at
+// 200 chars). Without it, "which sites compare against this string" is a grep
+// question, and a grep cannot tell a decision site from a pin.
+.decl str_lit(id: symbol, text: symbol)
 .decl loc(id: symbol, file: symbol, line: number, col: number)
 .decl decl(did: symbol, kind: symbol, qname: symbol)
 .decl decl_node(id: symbol, did: symbol)
@@ -17,6 +21,7 @@
 .input node
 .input type_of
 .input cast_kind
+.input str_lit
 .input loc
 .input decl
 .input decl_node
