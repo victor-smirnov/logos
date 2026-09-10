@@ -34363,3 +34363,47 @@ QUEUE: **75 → 74**. Two rows CLOSED (`method_arity_mismatch_says_no_such_metho
 LISTING: 74 rows, 74 programs on the shelf, tier1=19 tier2=9 tier3=40 tier4=**6**
 (was 7). Queue gate rc 0 before, at 73, and after. bc_admits 90 and
 bc_admits_blocked 8 UNTOUCHED — this round opened and closed no bc-ledger row.
+
+## 9. THE CONTROL REVERT
+
+Arm alone reverted (`sema_expr.cpp` only, 3 lines back / 55 lines out); the ten
+fixtures, the re-pin, both spec clauses, the ledger and the three re-derived pins
+left exactly as landed. Rebuilt: **`dfe24b0a4ecd8e58 43`**.
+
+    logos_06_diagnostics_fail_method_arity_too_few_refused            ***Failed
+    logos_06_diagnostics_fail_method_recv_shared_needs_mut_refused    ***Failed
+    logos_06_diagnostics_fail_method_arg_type_mismatch_refused        ***Failed
+    logos_06_diagnostics_fail_method_trait_impl_arity_refused         ***Failed
+    logos_06_diagnostics_fail_method_arg_wrapper_unsize_dispatch      ***Failed
+    logos_06_diagnostics_fail_method_name_truly_absent_no_method       Passed
+    ... all five pass twins                                            Passed
+    5 tests failed out of 12
+
+**All five moved sentences are held by the arm and by nothing else.** The sixth
+fail fixture is the ABUSE-DIRECTION control and it is GREEN ON BOTH BINARIES,
+which is the point of it: it pins the sentence the landing does NOT change, so a
+future arm that starts answering for a name it never found reds exactly there.
+The five pass twins are green on both binaries too — they never reach the exit.
+
+⚠ **THE QUEUE GATE IS rc 0 ON THE REVERTED BINARY AS WELL, AND THAT IS EVIDENCE,
+NOT AN ANOMALY.** The two closed rows are gone from the ledger (they are fixtures
+now), and the row this round OPENED —
+`overload_set_arg_mismatch_says_no_method` — reproduces on BOTH binaries,
+because its sentence is the fallback the arm restores. So the residue row is not
+held up by the arm: it is genuinely open, and reverting the round would not close
+it. A row that survives its own round's control revert is a row, not an artefact.
+
+Restored and the restore PROVEN: rebuilt **`d85aa868b6500eaa 43`**, the same
+twelve tests 100% passed, `git status` clean, and the key is STABLE across a
+no-op rebuild (`ninja: no work to do`, same key) — so codegen is deterministic
+here.
+
+⚠ A CLAIM I WROTE AND THEN MEASURED OUT OF THIS RECORD. I first wrote that the
+restored key differs from the landed key over byte-identical sources, blaming
+the §8 configure-timestamp mechanism. It does not: `6ac4ac6161c1ef3c` was the
+key of the **v1** build (direct-format arm, fixtures added), and the v2 build
+that actually landed had its key never read — my omission, not a key that moved.
+The version string is `...20260910T082726Z` on both sides of this revert, which
+is what says no reconfigure happened and therefore that §8's mechanism was not
+in play. Recorded because a wrong attribution to a known bug is worse than no
+attribution: it makes the bug look bigger than the measurement supports.
