@@ -4632,18 +4632,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         // `&mut Self` -> `&mut i64` vs the written `&mut &mut i64`)
                         // and every sentence this check could print is false. The
                         // type compare owns that verdict; this one declines.
-                        // DOOR 1, LANDED 2026-09-10selfrecvland. The hatch above
-                        // was written for a REPRESENTATION difference (a DST
-                        // alias: `str` -> `[u8]` vs the written `&str` -> `&[u8]`),
-                        // which differs by a reference layer at the SAME
-                        // indirection depth on both sides once the alias is
-                        // peeled. A different indirection PREFIX (`&mut S`
-                        // declared, `S` written) is not that artefact — it is the
-                        // receiver/parameter/return defect the check exists to
-                        // name — so the hatch declines to cover it. Without this
-                        // line the hatch is TRUE exactly when the check would
-                        // have something to say, and the receiver arm below is
-                        // dead by construction. PROBES.md 2026-09-10a.
+                        // DOOR 1 of `trait.impl.method-receiver-conforms`: the
+                        // hatch covers a SAME-PREFIX representation difference
+                        // only. PROBES.md 2026-09-10a-selfrecvland.
                         {
                             auto _pfx = [](TypeRef t) {
                                 std::string s;
@@ -4704,14 +4695,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             _t0_collapsed = _self_shape_artefact(
                                 m.param_types[0], _t0, c->param_types[0]);
                         }
-                        // DOOR 2, LANDED 2026-09-10selfrecvland. `_alpha_ok`
-                        // compares LIFETIME STRINGS only, so `&S` and `&mut S`
-                        // both collect the empty list and read as conformant.
-                        // This is the receiver twin of the
-                        // `|| !types_equal(tra, c->ret_type)` that landed for the
-                        // RETURN slot in 2026-09-09sigland. The two doors are in
-                        // SERIES: door 1 alone leaves `&Self` vs `&mut Self`
-                        // admitted, door 2 alone is never reached.
+                        // DOOR 2 of `trait.impl.method-receiver-conforms`, in
+                        // SERIES with door 1. PROBES.md 2026-09-10a-selfrecvland.
                         if (!_t0_collapsed &&
                             (!_alpha_ok(_t0, c->param_types[0], 0, false) ||
                              !types_equal(_t0, c->param_types[0]))) {
