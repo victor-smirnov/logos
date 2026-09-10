@@ -34969,3 +34969,290 @@ is to be unmoved); the two dropck admits are REFUSED with
   * `resolve_method_symbol`'s plain-base FALSE POSITIVE is still there — §4
     only removed one CONSUMER of it. Any other site that reads a bare
     `<T>__drop` answer as "this type has a destructor" is the same shape.
+
+---
+
+# 2026-09-10e — THE `Copy` MARKER IS CHOSEN BY A SPELLING AT **THREE** LAYERS TOO, AND A16 REFUTES THE READING THAT LEFT IT FOR THE OWNER; ONE DOOR DUPLICATES AN OWNED `Box` (rc 134, valgrind double free) AND TWO MORE — BOTH ON NO LIST — REFUSE AND ADMIT IN OPPOSITE DIRECTIONS
+
+Base `ac6f342a01c2affb 43` (HEAD `48cc71ae7`), armed `8cafa19930190406 43`
+(separate build dir `build-copy`, sources identical except the probes).
+Soundness-queue gate rc **0** on arrival, **75** rows, `# TOTAL 75` — re-derived
+by direct listing (tier1=19 tier2=9 tier3=41 tier4=6).
+
+## 0. THE PROMPT'S OWN CORRECTIONS, RE-VERIFIED AGAINST THE TEXT IN FRONT OF ME
+
+  * The STEP-1 gate command **does** carry `LOGOS_LIB_DIR` today. The complaint
+    recorded for four rounds is now stale and is not repeated (2026-09-06's own
+    rule: a complaint about an instruction is a claim with a timestamp).
+  * `PROBES.md` is `src/compiler/PROBES.md`, not a repo-root file.
+  * ⚠ **`scripts/build_hash.py` takes a POSITIONAL build dir, not `LOGOS_BUILD`.**
+    `LOGOS_BUILD=build-copy python3 scripts/build_hash.py` printed the BASE
+    hash, silently. This is the file whose own docstring says it has disagreed
+    with itself; it disagreed again, in a new way. Use `build_hash.py <dir>`.
+  * ⚠ **`scripts/stdlib-cost.sh` hardcodes `BIN=build/bin/logosc`** and ignores
+    `LOGOS_BUILD`, so it cannot price a probe that lives in another build dir.
+    The four layer compiles were run by hand, verbatim from the script.
+  * ⚠ `/tmp/logos_emit_<module>` is a FIXED path shared by every build dir
+    (`emit_module.cpp:2212`; `tests/logos/emit_shards_gate.sh:193` already calls
+    it "a live cross-worktree hazard"). The first `build-copy` build died at 62%
+    with `objcopy: the input file '/tmp/logos_emit_logos-lang/logos-lang.writ0'
+    is empty`; a plain re-run got past it. Two build dirs are the load profile's
+    recommended parallelism and this is what they collide on.
+
+## 1. A16 SAYS THE OPPOSITE OF WHAT LAST ROUND READ INTO IT
+
+`docs/DIVERGENCES.md` A16, verbatim, re-read this round:
+
+    "a struct is implicitly Copy iff it carries no `impl Drop` AND every field
+     type is Copy … `&mut T` fields do NOT qualify — exclusive references are
+     move-only, so `struct S { r: &mut T }` stays move. A manual `impl Copy`
+     still seeds the set"
+
+A16 blesses (a) structural auto-Copy and (b) a manual impl of **the** `Copy`
+trait. It says nothing that makes a FOREIGN trait spelled `Copy` count, and it
+explicitly keeps a `&mut`-carrying struct move-only. `2026-09-10c §6` called the
+seeding path "A16's own wire => owner's"; that is refuted by A16's own text.
+The standing rule's second branch applies and the answer is A16's own logic.
+**Not escalated.**
+
+## 2. THE CLASS, BY WHICH FACT EACH LAYER READS
+
+| door | site | fact read | direction | control, ONE variable |
+|---|---|---|---|---|
+| **A'** | `sema_collect.cpp` `collect_impl`, the `copy_types_` / `conditional_copy_` seeding | the TRAIT's NAME `"Copy"` | **ADMITS** | `c07` local `trait Copy` → rc 0 · `c08` renamed `Copyy` → CFAIL |
+| **D'** | `sema_collect.cpp` vtable/upcast walk, `check_supertrait_impls` (known-name + per-impl), `sema_decl.cpp` emitted supertrait list — 4 sites | the SUPERTRAIT's NAME | **BOTH**: refuses `dyn` dispatch, admits a missing impl | `d01` → `trait 'Sh' has no method 'dup'` · `d02` renamed `Kopy` → rc 0 and RUNS `area=9 dup=30` |
+| **E'** | `sema.cpp` E0184 Copy⊥Drop, keyed `"Copy::" + target` | the impls_ KEY's trait half | **REFUSES** | `e03` local `trait Copy` + real `impl Drop` → E0184 · `e04` renamed → rc 0 |
+
+Every one of the three has the identity ALREADY IN HAND one line away —
+`current_impl_trait_package_` (A'), `TraitBound::canonical_trait` (D'),
+`SemaImplInfo::canonical_trait` (E') — and returns before reading it. Censused
+on the hand programs: `copyseed:d01`, `copysuper:vtab:d01::Copy`,
+`copye0184:e03::Copy` against `copyseed:logos.lang.clone` /
+`copysuper:vtab:Copy` for the lang item. **Rule 16 answered: the fact is
+PRESENT, not absent.** And the trait ENGINE next door is already identity-correct
+and says so in its own sentence — `e05`: *"here 'Copy' denotes the trait
+registered as 'e05::Copy', and the impl registry was searched under that
+identity"*.
+
+## 3. THE ADMIT DOOR IS A RUN-TIME DOUBLE FREE, NOT A MISSED REFUSAL
+
+⚠ rc alone cannot tell "S is Copy" from "the move was missed", so the oracle is
+a RUN:
+
+    r07  struct S<'a> { r: &'a mut i32 };  local `trait Copy`;  bump(s) twice
+         base: compiles, RUNS, rc 3 — 1 + 2, the SAME i32 incremented through
+         TWO live `&mut` copies.  Renamed `Copyy` (r08): CFAIL.
+    s04  struct Own { b: Box<i64> };  local `trait Copy`;  eat(o) twice
+         base: compiles, prints a=41 c=41, then
+           free(): double free detected in tcache 2      rc 134
+         valgrind: "Invalid free() … Address 0x… free'd by Box$G1$i64__drop"
+         Renamed `Kopy` (s05): CFAIL `use of moved variable 'o'`.
+
+**An owned heap block is freed twice because a user's own trait is spelled
+`Copy`.** That is a tier-1 `run 134` shape, and there is no queue row for it.
+
+## 4. TWO NEGATIVE SHAPES — THE CLASS IS STRUCT-SHAPED, AND ONE SITE IS INERT
+
+  * `s06`/`s07` — the same defect written on an ENUM with a droppable payload:
+    refused on BOTH binaries. `is_move_type`'s enum arm asks
+    `has_droppable_fields`, not `struct_type_is_copy`, so the seeding never
+    reaches it. **A ceiling bounds the count, not the set** (rule 6): this is
+    the diff in the other direction.
+  * `check_supertrait_impls`'s *known-supertrait* skip (`sema_collect.cpp`,
+    "unknown supertrait") is a DEAD hatch: the prelude `logos.lang.clone::Copy`
+    is visible in a bare file with no `use` (measured: `p6` prints the
+    `tit != traits_.end()` sentence "`unsafe impl` for a safe trait"), so the
+    name always resolves and the skip changes nothing. Site live, hole absent.
+
+## 5. ⚠ A RECORDED FINDING FROM LAST ROUND IS WRONG, AND IT IS MINE
+
+`2026-09-10c §6` recorded, of `c06`/`c10`:
+
+    "`Copy`'s hatch admits an impl body declaring a method the trait never had,
+     with no diagnostic in either direction."
+
+MEASURED this round, `p7`: an ORDINARY user trait behaves identically —
+
+    trait Marker {}
+    impl Marker for S { fn f(self: S, x: i32, y: i32) -> i64 { … } }   rc 0
+
+An extra method in ANY trait impl is unchecked. `c06` is therefore evidence
+about method-parity in general, **not** about `builtin_marker_`, and it must not
+be cited as the abuse direction of the `Copy` hatch. The genuine abuse direction
+of that hatch could not be measured at all, because `Copy` always resolves.
+
+## 6. THE PROBES, AND THE PREDICTION MADE BEFORE THE ARMED BINARY EXISTED
+
+Four names in ONE build (`probe.hpp` gains `arm_copy(name)` = `copyall || name`
+and `copy_is_lang_item(q)`, where an empty or bare `Copy` stays a WILDCARD —
+the same rule `drop_fn_for`'s `pkg_matches` uses). No arm adds a second string
+comparison: each reads the identity its own registry already carries.
+Diff: +69/−6 across four files. Armed build INERT unarmed — all 30 hand shapes
+byte-identical to the base binary.
+
+Prediction, written to `PREDICT_copy.md` before the build finished:
+`copyseed` moves c07 c09 r07 s04; `copysuper` moves d01 f01; `copye0184` moves
+e01 e03; `copyall` is the union EXCEPT e01, which is NOT additive (rc 0 under
+`copye0184` alone, rc 1 under `copyall`, because the seeding is still keyed on
+the spelling in the first case). **Every clause held, digit for digit.**
+
+| prog | shape | base | copyall | seed | super | e0184 |
+|---|---|---|---|---|---|---|
+| c07 | local `trait Copy`, `S{r:&mut i32}` | 0 | **1** | **1** | 0 | 0 |
+| c09 | the same with an EMPTY local `trait Copy` | 0 | **1** | **1** | 0 | 0 |
+| r07 | c07 + two `bump(s)` calls, RUN | 0 (rc 3) | **1** | **1** | 0 | 0 |
+| s04 | `Own{b:Box<i64>}`, two `eat(o)`, RUN | 0 (rc **134**) | **1** | **1** | 0 | 0 |
+| d01 | user `Copy` as SUPERTRAIT, `b.dup()` via `Box<dyn Sh>` | 1 | **0** | 1 | **0** | 1 |
+| f01 | `trait Sh: Copy`, no `impl Copy for Sq` | 0 | **1** | 0 | **1** | 0 |
+| e01 | user `Copy` + `impl Drop` + `eat<T: Copy>` twice | 1 | 1 | 1 | 1 | **0** |
+| e03 | user `Copy` + `impl Drop`, no generics | 1 | **0** | 1 | 1 | **0** |
+| — | c00 c04 c05 c06 c08 d02 e02 e04 e05 e06 f02 f03 f04 r08 s05 s06 s07 s08 s09 p1 p4 p7 | | unmoved in EVERY arm | | | |
+
+`s08` (`impl Copy for P{x,y}`) and `s09` (`impl<P: Copy> Copy for Wrap<P>`, the
+CONDITIONAL path) are the positive controls the prompt demands: an ordinary
+stdlib `impl Copy` must still seed, and it does, in all four arms.
+
+Every moved diagnostic READ, not inferred: c07/c09/r07/s04/e01 →
+`use of moved variable '<x>'`, the same sentence their renamed twins print on
+the base binary; f01 → `impl Sh for Sq: missing impl Copy for Sq (required by
+supertrait)`; d01 and e03 compile AND RUN correctly armed (`area=9 dup=30` rc 0;
+rc 0).
+
+## 7. COST — EVERY COLUMN, AND THE POPULATION EACH ONE COULD NOT SEE
+
+| column | population | cost under `copyall` |
+|---|---|---|
+| stdlib, all four layers from source | lang lcm mem std | **0** — rc 0 each |
+| `fail_text_oracle.py` (rc / stderr-SHA / `.expected`) | **1478** | **0 moved** — the only column that sees an UN-REFUSAL, and D'/E' are the permissive direction |
+| `run_oracle.py` (ccrc / runrc / stdout-SHA) | **6627 triples** | **2 movers**: `cast-region-to-uint` (the documented subtraction) and `pass/copy_let_independence` ⇒ **1** |
+| corpus census of the three doors | 218 197 + 11 arrivals | see below |
+| soundness queue | 75 → **79** | 4 rows ADDED, gate rc 0 |
+
+**THE CENSUS IS WHY THE COST IS 1 AND NOT A GUESS.** Every arrival at all three
+doors over every `tests/**/*.logos` (6627 programs, `LOGOS_CENSUS`):
+
+    copyseed:logos.lang.clone      218197     the lang item — untouched
+    copyseed:copy_basic                 2  ⎫  the ONLY two corpus files that
+    copyseed:copy_let_independence      4  ⎭  declare their own `trait Copy {}`
+    copysuper:{vtab,emit,known,impl}:Copy  3/2/2/4   BARE ⇒ wildcard ⇒ untouched
+    copye0184:Copy                      4     BARE ⇒ wildcard ⇒ untouched
+
+and over the whole stdlib, `copyseed:logos.lang.clone` 438, with **no
+`copysuper` or `copye0184` arrival at all**. So the corpus exposure of D' and E'
+is ZERO by construction, and A' can touch exactly two files.
+
+**THE ONE MOVER, AND IT IS A CORPUS MISS RATHER THAN A COST.**
+`tests/logos/pass/copy_let_independence` line 27, `let mut bc: B = bo;` where
+`struct B { bytes: [u8; 4] }` — an ARRAY field, which A16's
+`field_kind_is_trivially_copy` does NOT admit, so `B` was Copy *only* because
+the file's own `trait Copy {}` seeded it. Under Rust that file does not compile.
+Its sibling `struct S { x: u64, y: u64 }` is auto-Copy and is unaffected, and
+`pass/copy_basic` (whose `Vec2 { x: i32, y: i32 }` is auto-Copy) does not move
+at all. **The repair is deleting one line** — the file's own `trait Copy {}`,
+after which `impl Copy for B {}` names the lang item: measured, compiles under
+`copyall`, links, runs, prints `ok`, rc 0. Same shape as `tests/spec/pass/coerce_2`
+last round. ⚠ It is a pass fixture that today asserts the defect, so per the
+standing rule it is REPORTED here rather than edited in a pricing round.
+
+Unmoved and re-read by hand: `pass/copy_basic`, `spec/pass/trait_5` (which pins
+`trait.def.copy-not-a-supertrait` — the lang item MUST stay skipped, and it
+does), `fail/copy_drop_e0184`, `spec/fail/type_diag_1__copy-drop-exclusive`,
+`spec/fail/trait_diag_2__copy-unsafe-impl` — message for message.
+
+## 8. WHAT WAS FILED — FOUR QUEUE ROWS, `# TOTAL 75 -> 79`, GATE rc 0
+
+    user_trait_named_copy_confers_copy         1  run 134   (double free, valgrind)
+    copy_named_supertrait_impl_parity_skipped  2  admits
+    copy_named_supertrait_loses_vtable_slot    3  refuses
+    user_trait_named_copy_false_e0184          3  refuses
+
+Re-derived by direct listing: 79 rows, tier1=20 tier2=10 tier3=43 tier4=6.
+
+## 9. A SECOND DEFECT AT THE E0184 SITE, PRESENT ON THE BASE BINARY
+
+    error [impl Hash for $tuple$8]: impl Copy for M: the type also implements Drop
+
+`Hash` and `$tuple$8` appear nowhere in any of these programs — and the same
+false header is printed by the two PINNED fail fixtures (`fail/copy_drop_e0184`,
+`spec/fail/type_diag_1__copy-drop-exclusive`) on the unmodified compiler. `ctx_`
+is stale: the E0184 loop runs after collection and never sets it. That is a
+`diag` row's worth on its own and is NOT part of the identity class; it is
+recorded here rather than filed because the queue's `diag` column records the
+SENTENCE, and this is the blame HEADER.
+
+## 10. WHAT DESERVES FUNDING
+
+1. **`copyseed` — FUND FIRST.** Tier-1, a run-time double free, cost 1 corpus
+   file repairable in one line, stdlib 0, fail-text 0. The identity is one
+   local variable away. A16 is not widened and its two pins
+   (`fail/struct_with_mut_ref_not_auto_copy`, `fail/core_2_5_mut_ref_no_auto_copy`)
+   are unmoved.
+2. **`copysuper` — FUND WITH IT, and it is the door nobody had looked at.**
+   Corpus exposure 0, two directions closed at once (a refused legal `dyn`
+   dispatch and an admitted missing supertrait impl). ⚠ Rule 2: the four sites
+   are in SERIES for the `dyn` path — `sema_decl.cpp`'s emitted list feeds the
+   vtable — so half of it is not a mechanism; `copysuper` arms all four and
+   that is what was priced.
+3. **`copye0184` — cheap and separable**, corpus exposure 0, and it is the only
+   arm whose verdict is NON-ADDITIVE with `copyseed` (e01: 0 alone, 1 together).
+   Rule 13 measured rather than assumed.
+4. **NOT this class**: the `builtin_marker_` existence hatch itself. `Copy`
+   always resolves (§4), so the hatch's abuse direction cannot be exercised, and
+   §5 shows the evidence last round attributed to it belongs to method-parity in
+   general.
+
+## 11. ⚠ THE ROUND'S OWN GATE FOUND A HOLE IN THE GATE THAT POLICES THIS EXACT CLASS
+
+`logos_00_key_identity_lint` went RED on the armed tree: *"sema_decl.cpp
+bare-name intercepts: count 3, ledger pins 2"*. The new site was the `copysuper`
+probe's `s.trait_name == "Copy"`. But the line it REPLACED was
+`if (s.trait_name != "Copy")` — the SAME intercept on the SAME field — and the
+ledger pinned that file at 2, not 3. So FACT 4 was not counting it.
+
+MEASURED at the regexes: `SCAN_LHS` and `SCAN_ACC` are written `\s*==\s*`,
+while `SCAN_FREE` and `SCAN_REV` accept `[!=]=`. **The NEGATED spelling of a
+bare-name intercept is invisible to two of FACT 4's four matchers.** Censused
+tree-wide with the two patterns re-spelled `!=`:
+
+    33 negated bare-name intercepts, 9 files, invisible to FACT 4
+      sema_stmt.cpp 9 · mono_clone.cpp 7 · sema_expr.cpp 7 · sema_collect.cpp 4
+      mlir_gen_stmt.cpp 2 · mlir_gen_expr.cpp 1 · mono_impl.hpp 1 · sema.cpp 1
+      sema_auto_trait.cpp 1
+    among the literals: "Copy" x2, "Drop" x2 — the very class 2026-09-10d and
+    this round are working through.
+
+The file's own docstring says a regex "can refuse to let one appear unnoticed,
+and that is FACT 4". In the negated form it does not. This is a REPORT, not a
+repair — tooling is frozen — and it is the reason the probes were REVERTED out
+of the tree rather than the pin moved: a pin moved for a probe would have
+written the hole into the ledger.
+
+## 12. ⚠ THE PROMPT'S OWN `git` FACTS ARE FALSE ABOUT THIS TREE
+
+STEP 1's `git log --oneline -3 && git status --short` reported HEAD
+`48cc71ae7` and a clean tree — the same three commits the session's `gitStatus`
+block carries. The primary working tree is at **`72c072095`** ("THE DESTRUCTOR
+WAS CHOSEN BY A SPELLING AT THREE LAYERS"), `git reflog` shows NO move during
+this session, and `48cc71ae7` exists as a commit but **`git merge-base
+--is-ancestor 72c072095 48cc71ae7` says it is NOT a descendant** — there is a
+divergent line of work in this repository. The tree is also NOT clean: four
+`tools/dlog` paths (`ask.sh`, `cxx_facts.cpp`, `cxx_schema.dl`, and a new
+`dropsites.dl` dated 12:24 today) are STAGED and are not this round's. They were
+left untouched and this commit names only its own paths.
+
+## 13. GATES
+
+    L1 (build/, sources at HEAD, probes reverted)   rc 0
+       801/801, 12 684 generated cases, 148 tier_commit gates — including
+       logos_00_soundness_queue at 79 rows and logos_00_key_identity_lint.
+    soundness queue gate                            rc 0  (79 rows, # TOTAL 79)
+    stdlib, four layers under `copyall`             rc 0
+    ⚠ A GATE LIED ONCE HERE, 16th kind: `nohup bash -c '… ; echo $? > RC' &`
+      wrote **rc 0** for an L1 whose log is THREE LINES — the run was cut off
+      when the launching Bash call returned. The rc file existed, said 0, and
+      was not a measurement of L1. The number above is a FOREGROUND run.
+
+The probe patch (+69/−6, four files) is preserved at
+`copy_probes_0910e.patch` in this round's scratchpad; it is NOT in the tree,
+for the reason in §11. The armed build dir `build-copy` (`8cafa19930190406 43`)
+is the artefact every number above was read from.

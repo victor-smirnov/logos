@@ -1,0 +1,27 @@
+// SOUNDNESS QUEUE row user_trait_named_copy_confers_copy (tier 1). A user's OWN
+// trait that happens to be spelled `Copy` seeds the Copy set, so a move-only
+// struct owning a heap Box is duplicated bitwise and freed TWICE — rc 134,
+// valgrind "Invalid free() … Address … free'd by Box$G1$i64__drop". The
+// byte-identical program with the trait renamed refuses with
+// "use of moved variable 'o'". Legal Rust: `Copy` here is an ordinary user
+// trait, `Own` stays move, the second `eat(o)` is refused at compile time.
+// Root: sema_collect.cpp collect_impl seeds copy_types_ off `trait_name ==
+// "Copy"` — the SPELLING — while `current_impl_trait_package_` right above it
+// already holds the identity (censused: `copyseed:logos.lang.clone` for the
+// lang item vs `copyseed:<userpkg>` here). DIVERGENCE A16 blesses auto-Copy and
+// "a manual `impl Copy`", and explicitly keeps `&mut`-carrying structs move —
+// it does not bless a foreign trait's spelling. PROBES.md 2026-09-10e.
+package user_trait_named_copy_confers_copy;
+use logos.mem.boxed;
+extern fn printf(fmt: *const u8, ...) -> i32;
+trait Copy { fn dup(&self) -> i32; }
+struct Own { b: Box<i64> }
+impl Copy for Own { fn dup(&self) -> i32 { return 0i32; } }
+fn eat(o: Own) -> i64 { return *o.b; }
+unsafe fn main() -> i32 {
+    let o: Own = Own { b: Box::new(41i64) };
+    let a: i64 = eat(o);
+    let c: i64 = eat(o);
+    printf("a=%lld c=%lld\n".as_ptr(), a, c);
+    return 0i32;
+}

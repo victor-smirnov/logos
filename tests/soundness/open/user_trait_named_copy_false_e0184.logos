@@ -1,0 +1,22 @@
+// SOUNDNESS QUEUE row user_trait_named_copy_false_e0184 (tier 3, refuses).
+// A user's own trait spelled `Copy` plus a REAL `impl Drop` is refused as an
+// E0184 Copy/Drop conflict that does not exist — the program implements the
+// lang item `Copy` nowhere. The byte-identical program with the trait renamed
+// `Kopy` compiles and runs, rc 0. Legal Rust. Root: sema.cpp's E0184 arm scans
+// `impls_` for the key prefix "Copy::" — the impls_ KEY's trait half is the
+// bare spelling — while `SemaImplInfo::canonical_trait` on the very same record
+// holds the identity (censused `copye0184:<userpkg>::Copy` here vs
+// `copye0184:Copy` for the four corpus arrivals, which are the lang item).
+// ⚠ SECOND DEFECT AT THE SAME SITE, present on the base binary for the pinned
+// fixtures too: the diagnostic's blame header is `error [impl Hash for
+// $tuple$8]` — a trait and a type that appear nowhere in the program.
+// PROBES.md 2026-09-10e.
+package user_trait_named_copy_false_e0184;
+trait Copy { fn dup(&self) -> i32; }
+struct M { v: i32 }
+impl Copy for M { fn dup(&self) -> i32 { return self.v; } }
+impl Drop for M { fn drop(&mut self) { } }
+fn main() -> i32 {
+    let m: M = M { v: 7i32 };
+    return m.dup() - 7i32;
+}

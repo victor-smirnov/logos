@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row copy_named_supertrait_impl_parity_skipped (tier 2,
+// admits). The OTHER direction of the same four spelling-keyed supertrait
+// skips: `trait Sh: Copy` where `Copy` is the user's OWN trait, and `Sq`
+// implements `Sh` but NOT `Copy`. Admitted, rc 0. Renaming the trait to `Kopy`
+// refuses correctly: "impl Sh for Sq: missing impl Kopy for Sq (required by
+// supertrait)". Rust refuses this (E0277). Root: check_supertrait_impls's
+// per-impl loop skips a supertrait named `Copy` before reading its
+// `canonical_trait`. PROBES.md 2026-09-10e.
+package copy_named_supertrait_impl_parity_skipped;
+trait Copy { fn dup(&self) -> i32; }
+trait Sh: Copy { fn area(&self) -> i32; }
+struct Sq { s: i32 }
+impl Sh for Sq { fn area(&self) -> i32 { return self.s * self.s; } }
+fn main() -> i32 {
+    let q: Sq = Sq { s: 3i32 };
+    return q.area() - 9i32;
+}
