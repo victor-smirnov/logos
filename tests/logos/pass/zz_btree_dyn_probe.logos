@@ -75,7 +75,7 @@ pub struct LeafN<const STORE_CFG: WritStatic> {
 // User Drop impl on LeafN — fires from auto-Drop chain triggered by
 // __drop_in_place's default body.
 impl<const STORE_CFG: WritStatic> Drop for LeafN<STORE_CFG> {
-    fn drop(self: LeafN<STORE_CFG>) {
+    fn drop(self: &mut LeafN<STORE_CFG>) {
         unsafe { *self.counter = *self.counter + 1u64; }
     }
 }
@@ -106,7 +106,7 @@ pub struct BranchN<const STORE_CFG: WritStatic> {
 
 // User Drop impl on BranchN — fires before auto-field-drop in the chain.
 impl<const STORE_CFG: WritStatic> Drop for BranchN<STORE_CFG> {
-    fn drop(self: BranchN<STORE_CFG>) {
+    fn drop(self: &mut BranchN<STORE_CFG>) {
         unsafe { *self.counter = *self.counter + 1u64; }
     }
 }
@@ -151,9 +151,9 @@ impl<const STORE_CFG: WritStatic> NodeARC<STORE_CFG> {
 }
 
 impl<const STORE_CFG: WritStatic> Drop for NodeARC<STORE_CFG> {
-    fn drop(self: NodeARC<STORE_CFG>) {
+    fn drop(self: &mut NodeARC<STORE_CFG>) {
         unsafe {
-            let data_p: *mut u8 = arc_data_ptr::<STORE_CFG>(&self);
+            let data_p: *mut u8 = arc_data_ptr::<STORE_CFG>(self);
             let rcp: *mut u64 = data_p as *mut u64;
             *rcp = *rcp - 1u64;
             if *rcp == 0u64 {

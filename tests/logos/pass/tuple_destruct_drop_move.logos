@@ -15,7 +15,7 @@ use logos.lang.drop;
 
 struct Res { tag: *mut u64 }
 impl Drop for Res {
-    fn drop(self: Res) { unsafe { *self.tag = *self.tag + 1u64; } }
+    fn drop(self: &mut Res) { unsafe { *self.tag = *self.tag + 1u64; } }
 }
 
 fn pair(tag: *mut u64) -> (Res, u64) { return (Res { tag: tag }, 5u64); }

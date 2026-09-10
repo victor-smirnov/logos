@@ -6,7 +6,7 @@ use logos.lang.rc;
 use logos.lang.mem;
 struct Noisy { counter: *mut i64, }
 impl Drop for Noisy {
-    fn drop(self: Noisy) { unsafe { self.counter[0] = self.counter[0] + 1i64; } }
+    fn drop(self: &mut Noisy) { unsafe { self.counter[0] = self.counter[0] + 1i64; } }
 }
 fn main() -> i32 {
     unsafe {

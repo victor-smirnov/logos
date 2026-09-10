@@ -22,7 +22,7 @@ static mut DROPS: i64 = 0;
 struct Marked { id: i64 }
 
 impl Drop for Marked {
-    fn drop(self: Marked) {
+    fn drop(self: &mut Marked) {
         unsafe { DROPS = DROPS + 1; }
     }
 }

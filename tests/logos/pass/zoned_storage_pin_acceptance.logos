@@ -47,7 +47,7 @@ impl Resident for HeapBlock {
 }
 
 impl Drop for HeapBlock {
-    fn drop(self: HeapBlock) {
+    fn drop(self: &mut HeapBlock) {
         unsafe {
             self.freed[0] = self.freed[0] + 1;
             free(self.buf);

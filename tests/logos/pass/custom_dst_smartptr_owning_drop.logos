@@ -14,7 +14,7 @@ trait Tr { fn v(&self) -> i64; }
 struct A { x: i64, freed: *mut i64 }
 impl Tr for A { fn v(&self) -> i64 { return self.x; } }
 impl Drop for A {
-    fn drop(self: A) { unsafe { self.freed[0] = self.freed[0] + 1; } }
+    fn drop(self: &mut A) { unsafe { self.freed[0] = self.freed[0] + 1; } }
 }
 
 struct Inner<T: ?Sized> { strong: i32, val: T }

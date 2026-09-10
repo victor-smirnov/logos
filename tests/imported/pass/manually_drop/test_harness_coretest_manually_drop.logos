@@ -31,7 +31,7 @@ use logos.mem.manually_drop;
 // A Drop type that records its drop by writing through a raw pointer.
 struct Tracked { flag: *mut i32 }
 impl Drop for Tracked {
-    fn drop(self: Tracked) { unsafe { *self.flag = 1i32; } }
+    fn drop(self: &mut Tracked) { unsafe { *self.flag = 1i32; } }
 }
 
 // smoke (suppression): wrapping in ManuallyDrop suppresses the inner Drop.

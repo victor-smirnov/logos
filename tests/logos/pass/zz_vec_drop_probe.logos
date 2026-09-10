@@ -13,7 +13,7 @@ use logos.lang.writ.wstatic;
 pub struct Bumper { pub counter: *mut u64 }
 
 impl Drop for Bumper {
-    fn drop(self: Bumper) {
+    fn drop(self: &mut Bumper) {
         unsafe { *self.counter = *self.counter + 1u64; }
     }
 }

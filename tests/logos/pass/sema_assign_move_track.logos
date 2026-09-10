@@ -14,7 +14,7 @@ struct Owner {
 }
 
 impl Drop for Owner {
-    fn drop(self: Owner) {
+    fn drop(self: &mut Owner) {
         unsafe {
             if self.p != 0 as *mut u8 { dealloc(self.p); }
         }

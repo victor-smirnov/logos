@@ -10,7 +10,7 @@ use logos.lang.option;
 
 struct Noisy { c: *mut i64, v: i64 }
 impl Drop for Noisy {
-    fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } }
+    fn drop(self: &mut Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } }
 }
 impl Noisy {
     fn get(self: &Noisy) -> i64 { return self.v; }

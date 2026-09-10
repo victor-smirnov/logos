@@ -20,7 +20,7 @@ use logos.lang.mem;
 
 struct Noisy { c: *mut i64, v: i64 }
 impl Drop for Noisy {
-    fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } }
+    fn drop(self: &mut Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } }
 }
 impl Noisy {
     fn get(self: &Noisy) -> i64 { return self.v; }
@@ -30,7 +30,7 @@ fn mk(c: *mut i64, v: i64) -> Noisy { return Noisy { c: c, v: v }; }
 // The struct-level-generic shape (Vec::length): method from `impl<T>`.
 struct GenBox<T> { c: *mut i64, v: T }
 impl<T> Drop for GenBox<T> {
-    fn drop(self: GenBox<T>) { unsafe { self.c[0] = self.c[0] + 1i64; } }
+    fn drop(self: &mut GenBox<T>) { unsafe { self.c[0] = self.c[0] + 1i64; } }
 }
 impl<T> GenBox<T> {
     pub fn get(&self) -> i64 { unsafe { return self.c[0]; } }

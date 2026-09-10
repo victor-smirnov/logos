@@ -4878,9 +4878,11 @@ Dropping a value recurses by type: a struct runs its user `impl Drop` then drops
 
 *Source:* `src/compiler/mlir_gen_impl.hpp#L1182-L1195`
 
-### `intrinsic.drop.owner-drops-fields-after-user-drop` — Owner drop runs user Drop then drops fields; nested by-value self stops at user Drop
+### `intrinsic.drop.owner-drops-fields-after-user-drop` — Owner drop runs user Drop then drops fields, at EVERY depth
 
-At the top level (owner semantics), after a value's user `impl Drop` runs, its fields/payload are ALSO dropped by the owner. A nested (non-top-level) drop calls only the user `impl Drop` and stops, because the by-value `self` consumes its own fields at the drop body's scope end.
+After a value's user `impl Drop` runs, its fields/payload are ALSO dropped by the owner — at the top level AND at every nesting depth. A nested (non-top-level) drop does NOT stop after the user `impl Drop`.
+
+⚠ **REPAIRED 2026-09-10.** This clause previously said a nested drop "calls only the user `impl Drop` and stops, because the by-value `self` consumes its own fields at the drop body's scope end". `1979d72f4` deleted that behaviour and `e6a13b523` repaired the two `expr.drop.*` twins (`expr.drop.struct-user-drop-then-fields`, `expr.drop.enum-user-drop-then-variant`) but missed this `intrinsic.*` one. The REASON it gave is independently false for every impl written against the stdlib `Drop`, whose declaration is `fn drop(self: &mut Self)` — such a `self` consumes nothing. Measured on the unmodified compiler at `911811129fca26d5 43` with a three-deep `Top { Mid { Leaf } }`, each level carrying a user `Drop` folding 100/10/1 into one counter: the program exits **111**, so all three run.
 
 *Related:* `intrinsic.drop.recursive-by-type`
 

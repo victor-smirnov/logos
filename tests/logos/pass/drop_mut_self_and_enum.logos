@@ -11,13 +11,13 @@ package drop_mut_self_and_enum;
 struct R { p: *mut i64 }
 impl Drop for R { fn drop(&mut self) { unsafe { *self.p = *self.p + 1i64; } } }
 
-// Enum Drop (by-value).
+// Enum Drop (`&mut self`, the Rust-canonical receiver).
 enum E { A(*mut i64), B(*mut i64) }
 impl Drop for E {
-    fn drop(self: E) {
+    fn drop(self: &mut E) {
         match self {
-            E::A(c) => { unsafe { *c = *c + 10i64; } }
-            E::B(c) => { unsafe { *c = *c + 20i64; } }
+            E::A(c) => { unsafe { **c = **c + 10i64; } }
+            E::B(c) => { unsafe { **c = **c + 20i64; } }
         }
     }
 }

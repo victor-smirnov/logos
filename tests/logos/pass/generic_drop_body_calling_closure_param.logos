@@ -27,7 +27,7 @@ struct MD<T> { value: T }
 // ── THE DEFECT ARM: drop body reads AND CALLS the closure. ─────────────
 struct A<F: FnOnce() -> ()> { f: MD<F>, armed: bool }
 impl<F: FnOnce() -> ()> Drop for A<F> {
-    fn drop(self: A<F>) {
+    fn drop(self: &mut A<F>) {
         if self.armed {
             let p: *const F = &self.f.value as *const F;
             let g: F = unsafe { read::<F>(p) };
@@ -46,7 +46,7 @@ fn a_out<F: FnOnce() -> ()>(a: A<F>) -> F {
 // ── THE CONTROL: byte-identical except the drop body does not CALL. ────
 struct B<F: FnOnce() -> ()> { f: MD<F>, armed: bool }
 impl<F: FnOnce() -> ()> Drop for B<F> {
-    fn drop(self: B<F>) {
+    fn drop(self: &mut B<F>) {
         if self.armed {
             let p: *const F = &self.f.value as *const F;
             let g: F = unsafe { read::<F>(p) };

@@ -11,7 +11,7 @@ use logos.lang.mem;
 
 struct Noisy { c: *mut i64 }
 impl Drop for Noisy {
-    fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } }
+    fn drop(self: &mut Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } }
 }
 fn mk(c: *mut i64) -> Noisy { return Noisy { c: c }; }
 

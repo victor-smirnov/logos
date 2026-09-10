@@ -8,7 +8,7 @@ package test;
 extern fn noop(p: *const u8);
 struct Inner { x: i64 }
 struct H { inner: Inner }
-impl Drop for H { fn drop(self: H) { unsafe { noop(0 as *const u8); } } }
+impl Drop for H { fn drop(self: &mut H) { unsafe { noop(0 as *const u8); } } }
 impl H { fn view(&self) -> &Inner { return &self.inner; } }
 fn make() -> H { return H { inner: Inner { x: 7 } }; }
 fn main() -> i32 {

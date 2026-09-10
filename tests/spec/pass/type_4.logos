@@ -9,7 +9,7 @@ use logos.lang.drop;
 static mut LOG: i64 = 0i64;
 
 struct Res { id: i64 }
-impl Drop for Res { fn drop(self: Res) { unsafe { LOG = LOG * 10i64 + self.id; } } }
+impl Drop for Res { fn drop(self: &mut Res) { unsafe { LOG = LOG * 10i64 + self.id; } } }
 
 // `fn drop(self: &mut Self)` — the canonical stdlib receiver shape (by-ref).
 struct MRes { id: i64 }
@@ -17,7 +17,7 @@ impl Drop for MRes { fn drop(self: &mut Self) { unsafe { LOG = LOG * 10i64 + sel
 
 // A drop body that does NOT call drop on its own `self` (no infinite recursion).
 struct SelfDrop { id: i64 }
-impl Drop for SelfDrop { fn drop(self: SelfDrop) { unsafe { LOG = LOG + 1i64; } } }
+impl Drop for SelfDrop { fn drop(self: &mut SelfDrop) { unsafe { LOG = LOG + 1i64; } } }
 
 // `#[no_auto_drop]` (the ManuallyDrop<T> lang-item shape) — suppresses inner
 // field destructors at scope exit.

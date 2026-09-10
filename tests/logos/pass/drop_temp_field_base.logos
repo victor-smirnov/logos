@@ -3,7 +3,7 @@
 package test;
 extern fn puts(s: *const u8) -> i32;
 struct H { x: i64 }
-impl Drop for H { fn drop(self: H) { unsafe { puts("drop\0".as_ptr()); } } }
+impl Drop for H { fn drop(self: &mut H) { unsafe { puts("drop\0".as_ptr()); } } }
 fn make() -> H { return H { x: 42 }; }
 fn main() -> i32 {
     let r = make().x;   // copies x out; the H temporary drops here, once

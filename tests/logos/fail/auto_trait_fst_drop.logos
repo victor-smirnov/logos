@@ -6,7 +6,7 @@ use logos.lang.marker;
 
 struct Handle { fd: i64 }
 impl Drop for Handle {
-    fn drop(self: Handle) { let _ = self.fd; }
+    fn drop(self: &mut Handle) { let _ = self.fd; }
 }
 
 fn need_fst<T: Fst>(v: T) -> T { return v; }

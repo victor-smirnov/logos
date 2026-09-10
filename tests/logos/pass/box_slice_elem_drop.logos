@@ -4,7 +4,7 @@ use logos.lang.mem;
 
 struct Noisy { p: *mut i64 }
 impl Drop for Noisy {
-    fn drop(self: Noisy) { unsafe { self.p[0] = self.p[0] + 1; } }
+    fn drop(self: &mut Noisy) { unsafe { self.p[0] = self.p[0] + 1; } }
 }
 
 fn main() -> i32 {
