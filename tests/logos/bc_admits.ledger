@@ -1869,3 +1869,86 @@ regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
 regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/regions-pattern-typing-issue-19552
 regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-bound  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ONE-ROW root, no separating pair measured. ⚠ Upstream's `static_id_wrong_way` (`where 'static: 'a`) is ALREADY REFUSED here, correctly, and is therefore left off this admit-shelf program; it is fail-shelf coverage nobody has landed
+# ── 2026-09-09 — THE E0502/E0499 HALF OF `bck.D` PRICED, 90 -> 90, NO ROW CLOSED,
+#    AND THE MERGE'S OWN GLOSS REFUTED BY ONE HAND PROGRAM (PROBES.md 2026-09-09m-tpb)
+# Priced as the DECLINE above ordered: 3, not 7. `lifereg.R2`'s two rows are priced
+# WITH them because that block's own 2026-09-08 re-port note claims the same mechanism.
+# NO COMPILER SOURCE WAS TOUCHED — both arms were already `probe::on` gates at HEAD.
+#
+# ⚠ "A TEMPORARY HAS NO OWNER TO KEY A LOAN ON" IS FALSE FOR THIS HALF. Measured on
+# build 58fd3c9773b9c475: `two_mut(&mut a, &mut a)` — BOTH loans pure argument
+# temporaries — is REFUSED, "cannot borrow 'a' as mutable: already mutably borrowed".
+# The discriminator over eight shapes is the MUTABILITY MIX, not temporariness:
+# `&mut`+`&mut` inline refuses; `&mut`+`&` inline admits in EITHER order (scalar,
+# array, struct, three-arg, method receiver); the same mixed pair sequenced into lets
+# refuses. The cause is the DELIBERATE two-phase reservation at
+# borrow_check.cpp::take_borrow, whose own comment states the exemption.
+#
+# THE ARRIVAL CENSUS, ALL 98 ADMIT PROGRAMS, TWO EXISTING census BUCKETS, NO EDIT:
+#   argresvsib/shared_over_reservation  --c-mut-and-shared-args, --c26, --t26   (3 of 98)
+#   argresvact/shared_live_at_call      --c-mut-and-shared-args                 (1 of 98)
+# `--a-fnmut-twice` and `--d-index-two-phase` are ZERO AT BOTH DOORS — the first kind
+# of zero, an UNREACHED SITE, proven live by the other 20+ buckets the same compile
+# fired. SO THE BLOCK IS FOUR MECHANISMS, and two of its five rows are MIS-ROOTED:
+#   --d  a user `Index::index` call mints NO shared borrow of its receiver root.
+#        ⚠ Its sequencing control (`let k = i[3]; i[k] = 4;`) is LEGAL Rust and admits,
+#        so --d has no separating pair by sequencing, unlike every other row here.
+#   --a  a call through a `FnMut` VALUE mints no borrow of the callee. Cheapest carrier
+#        is not the ledger program: `let mut c = |x: i64| { return x + 1i64; };
+#        let r = c(c(10i64));` — E0499 upstream, silent here, ZERO borrow records.
+#
+# THE TWO ARMS, BOTH ALREADY IN THE TREE AND UNARMED (ceiling-probe.sh, full cost line):
+#   argresvsibshared  fires 26  CEILING 3 (--c, --c26, --t26; predicted BY NAME,
+#                     predicted∖closed = ∅, closed∖predicted = ∅)  COST 8 legal +
+#                     1 text-only fail fixture + ⛔ `logos.mem` DOES NOT COMPILE
+#                     (10 refusals, first at `alt_expr_0`). CONDEMNED: its eight costs
+#                     ARE the two-phase corpus, and `v.push(v.len())` arrives at that
+#                     door with count 1. Rust's two-phase borrow exists to admit it.
+#   argresvact        fires 2   CEILING 1 (--c; predicted BY NAME, ∅ / ∅)
+#                     COST-fail 0 of 1478, STDLIB all four layers build,
+#                     COST(pass) = ONE fixture — see the corpus decision below.
+#                     Nine hand programs, shapes varied: it refuses `ms(&mut a, &a)`,
+#                     `sm(&a, &mut a)`, the struct root, the three-argument form and
+#                     the ledger row, and correctly ADMITS `v.push(v.len())`,
+#                     `s.set(s.get())` (upstream's own "But this is okay") and
+#                     `wr(&mut s, rd(&s))`.
+#
+# ⚠ A PASS FIXTURE ASSERTS THE EXACT CONSTRUCT OF A LEDGER ROW — CORPUS DECISION,
+#   OWNER'S, REPORTED AND NOT EDITED. `argresvact`'s entire cost is
+#   tests/imported/pass/nll/tpb-mut-with-shared-ref-arg.logos:
+#       fn write_then_read(m: &mut i32, r: &i32) -> i32 { *m = *r; return *m; }
+#       write_then_read(&mut x, &x)
+#   which is `double_access(&mut a, &a)` with a scalar root — the construct of row
+#   `two-phase-nonrecv-autoref--c-mut-and-shared-args`, pinned GREEN one shelf over.
+#   READ AT THE SOURCE, not cited: rustc @ da5114692c9,
+#   tests/ui/borrowck/two-phase-nonrecv-autoref.rs lines 104-112 mark it
+#   `//~ ERROR ... [E0502]` and mark the NEXT line `a.m(a.i(10))` "But this is okay".
+#   While that fixture stands, `ceiling-probe.sh` reads COST >= CEILING and stops the
+#   arm — correctly on the number, wrongly on the meaning.
+#
+#   ⚠ AND A SECOND ONE, VISIBLE ONLY TO THE RUNTIME COLUMN. run_oracle.py over 6602
+#   pass fixtures compiled+linked+RUN, base and armed from ONE configure: THREE rows
+#   differ — `cast-region-to-uint` (stack address, subtracted by name),
+#   `tpb-mut-with-shared-ref-arg`, and `tests/imported/pass/cmp/test_harness_coretest_cmp`,
+#   which is labelled outside `-L bc -L pass` and so is invisible to ceiling-probe.sh.
+#   Its line 125 is `let mut a: i32 = 5i32; assert_eq!((&mut a).cmp(&a), Ordering::Equal);`
+#   — `&mut a` and `&a` in one expression, E0502 upstream. Upstream's test_mut_int_totalord
+#   is `(&mut 5).cmp(&&mut 5)` over TEMPORARIES; the port replaced them with one named
+#   local and made the program illegal. SECOND corpus decision, reported, not edited.
+#   So argresvact's honest cost line is pass 1 / fail-text 0 / stdlib 0 / RUNTIME 2, and
+#   both runtime rows are corpus decisions rather than damage.
+#
+# WHY --c26/--t26 READ ZERO AT `argresvact` — the SECOND kind of zero, not the first.
+# `record_borrow` deposits the bare-place receiver's reservation inside its own
+# `in_call_args_++ / --` bracket, which runs BEFORE `visit_args` pushes the call-args
+# frame; `argresvact` iterates that frame AFTER `each_arg`, so the receiver's mut
+# reservation is in the wrong frame and the gate never asks. One line of scope
+# bookkeeping, not a new predicate.
+#
+# FUNDING: `argresvact` + the receiver reservation visible at activation. Predicted
+# ceiling 3, and it also closes `a.bump(&a)` — a hole in NO corpus. ⚠ RULE 13: the
+# halves are in SERIES (the receiver half alone has no arm and prices 0), so price the
+# pair WHOLE. ⚠ The widened form must be re-priced against `logos.mem`. ⚠ RULE "a row
+# closed by a wrong diagnostic is not closed": `argresvact` says "cannot borrow 'a' as
+# mutable: N shared borrow(s) active"; upstream's E0502 blames the SHARED side.
+# DO NOT FUND `argresvsibshared` in any crude form.
