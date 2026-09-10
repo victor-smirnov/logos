@@ -1,0 +1,49 @@
+// SOUNDNESS QUEUE row inherent_drop_runs_through_dyn_vtable (tier 1, run 1).
+// AN INHERENT METHOD NAMED `drop` — no trait anywhere in the program — RUNS AS
+// THE DESTRUCTOR when the value is dropped through a `Box<dyn Trait>` vtable
+// slot. `3478f9298` closed this by trait IDENTITY at the SCOPE-EXIT door only;
+// the vtable door was never keyed on a trait at all.
+//
+// The site: `mlir_gen_dyn.cpp` `emit_drop_in_place_glue` fills vtable slot 0
+// with `gen_drop_value(..., run_user_drop=true)`, and `gen_drop_value`
+// (`mlir_gen_stmt.cpp`, the Struct and Enum branches) selects the user
+// destructor with `resolve_method_symbol(name, "drop", pkg)` — a METHOD NAME,
+// with no trait fact reaching that layer. Sema's `drop_fn_for`/`is_drop_impl_`
+// never sees this path.
+//
+// ⚠ ONE-VARIABLE CONTROL, MEASURED 2026-09-10 on build `84fc082550ca57b6 43`:
+// this program with the inherent method renamed `wipe` — every other token
+// identical — exits 0. As written it exits 1. The ONLY difference is the name.
+// The SCOPE-EXIT twin of this program (drop the `Tracked` directly instead of
+// through a `Box<dyn Speak>`) exits 0, which is what says `3478f9298` really
+// did close the door it closed and that this is the OTHER door.
+//
+// Rust: exit 0. `Drop` is a lang item; an inherent `fn drop` is an ordinary
+// method and `drop_in_place::<T>` runs `<T as Drop>::drop` only when T
+// implements the lang item. ⚠ THERE IS NO rustc BINARY ON THIS BOX: the exit-0
+// claim rests on reading. What IS measured here is the Logos side and the
+// rename control.
+//
+// The oracle is the counter returned as the exit code: 0 = the inherent method
+// is ordinary (correct), 1 = it was run as a destructor (today). A leak reads
+// low and a double free high, so rc alone would not be admissible; here rc IS
+// the count.
+package inherent_drop_runs_through_dyn_vtable;
+use logos.mem.boxed;
+extern fn malloc(n: i64) -> *mut u8;
+
+trait Speak { fn say(&self) -> i64; }
+
+struct Tracked { c: *mut i64, v: i64 }
+impl Speak for Tracked { fn say(&self) -> i64 { return self.v; } }
+impl Tracked { fn drop(self: &mut Tracked) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
+
+unsafe fn main() -> i32 {
+    let c: *mut i64 = malloc(8) as *mut i64;
+    c[0] = 0i64;
+    {
+        let b: Box<dyn Speak> = box_new(Tracked { c: c, v: 5i64 });
+        if b.say() != 5i64 { return 99i32; }
+    }
+    return c[0] as i32;
+}

@@ -34578,3 +34578,220 @@ precisely so that this number would be small, and it is.
 claim that `fn drop(self: S)` against the implicit `Drop` "compiles and runs
 today" is FALSE on today's binary — it is refused with `the receiver is declared
 '&mut N' and the impl declares 'N'`. Re-verified, not copied.
+
+---
+
+# 2026-09-10c — THE PACKAGE-QUALIFIED DESTRUCTOR TRAIT PRICES AT ZERO IN EVERY COLUMN, AND THE COLUMN THAT SAYS SO IS HALF-BLIND: THE VTABLE DOOR NEVER SAW A TRAIT AT ALL
+
+Base `84fc082550ca57b6 43`, armed `ee24fdb9c18e632b 43` (separate build dir
+`build-droppkg`, own configure). Queue gate rc **0** at 76 rows on arrival.
+Subject: soundness-queue row `user_trait_named_drop_drives_glue` (tier 1, run 1).
+
+## 1. THE DECLINE THAT DID NOT SURVIVE ITS OWN GREP — THE MINTING SITE IS ONE LINE
+
+`2026-09-10b` §8.1 declined the compiler half on "`SemaFuncInfo` has no trait
+PACKAGE field and I could not find its `trait_name` write site in four greps".
+**Refuted by a fifth**: `sema_collect.cpp`, `SemaChecker::collect_fn`,
+`info.trait_name = std::string(trait_ctx);` — ONE site, and the only one. Rule 16
+is settled at the minting site and the answer is THE FACT IS ABSENT, not
+unrecorded. `mono.cpp`'s `info.trait_name = …` is `BlanketImplInfo`, a different
+struct, which is what the earlier greps were reading.
+
+## 2. THE ARM, AND WHAT IT COSTS — 16 ADDED LINES, 1 REMOVED
+
+  * `SemaFuncInfo` gains `std::string trait_package`.
+  * `collect_impl` resolves it ONCE through the reader that already exists —
+    `find_trait_iter_scoped(trait_name)`, which probes `cur_package_::Name`
+    first and is therefore Rust's own shadowing order — into
+    `current_impl_trait_package_`; `collect_fn` copies it onto the FuncInfo.
+  * `is_drop_impl_` becomes `trait_name == "Drop" && (trait_package.empty() ||
+    trait_package == "logos.lang.drop")`.
+
+Nothing narrows `builtin_marker_`; its cross-package merge stays exactly as its
+comment describes. The whole change is a fact CARRIED, not a second comparison.
+
+| column | population | cost |
+|---|---|---|
+| stdlib + examples build | the four layers + 203 ninja targets | **0** (rc 0) |
+| `gate-run.sh -L bc` | 2739 | **0** |
+| full `ctest` | 7434 | **1**, and it is `logos_00_soundness_queue` REDDING because its row is fixed |
+| `run_oracle.py` (ccrc/runrc/stdout-sha) | 6620 | **0** — one triple moves, `cast-region-to-uint`, the name this column is documented to subtract |
+| soundness queue, all 76 rows re-observed by hand, diffed BOTH ways | 76 | **1** row, `user_trait_named_drop_drives_glue`, `run 1 → run 0` |
+
+`fail_text_oracle.py` was NOT run and the reason is not laziness: it
+self-invalidates across a configure and the two binaries are two configures, so
+every one of its 1478 rows would differ on the ABI-freshness line. The
+admissible un-refusal column here is the full run's own `fail` half — 1478
+fixtures, `.expected` matched, zero moved.
+
+## 3. THE SELECTOR, MEASURED BEFORE AND AFTER, 14 PROGRAMS, EVERY PREDICTION NAMED FIRST
+
+Exit code IS the destructor's counter, so a leak reads low and a double free high.
+
+| # | shape | base | armed |
+|---|---|---|---|
+| d01 | local `trait Drop { fn drop(self: Self) }` (the row's program) | 1 | **0** |
+| d02 | the same renamed `Dropp`/`dropp` | 0 | 0 |
+| d03 | NO local declaration — the stdlib lang item | 1 | **1** |
+| d04 | local `trait Drop { fn wipe }` | 0 | 0 |
+| d05 | local `trait Drop2 { fn drop }` | 0 | 0 |
+| d06 | INHERENT `impl N { fn drop }`, scope exit | 0 | 0 |
+| d07 | local `trait Drop { fn drop(self, k) }`, arity 2 | 0 | 0 |
+| d08 | local `trait Drop { fn drop(self: &mut Self) }` | 1 | **0** |
+| d09 | local by-value trait, `impl<T> Drop for Cell<T>`, two instantiations | 2 | **0** |
+| d10 | local `trait Drop { fn drop(self: Self) -> i64 }` | 1 | **0** |
+| d12 | d10 plus an explicit `s.drop()` | 1 | 1 |
+| d13 | local trait, plain move, no counter | 0 | 0 |
+| d14 | ENUM payload carrying a struct with a local trait | 1 | **0** |
+| d19 | stdlib-dropped OWNER whose FIELD's type has a local trait | 1 | **0** |
+
+Fourteen predicted by name before the run, fourteen hit. **d03 is the one that
+matters**: the lang item still drives glue, so this is not "drop turned off".
+
+⚠ **A CORRECTION TO `2026-09-10b` §7.** That round explained the two
+`bc_dropcall_user_trait_*` pins as passing because "`drop_fn_for` requires arity
+1 with the receiver shapes it knows, and `-> i64` is not one of them". **d10
+refutes it**: `-> i64` with a local trait drives glue, counter 1. `drop_fn_for`
+never reads the return type. The pins pass for a different reason — d12: their
+explicit `s.drop()` CONSUMES the by-value receiver, so the moved-out path has no
+scope-exit drop left to run. Same verdict, wrong mechanism, and the wrong
+mechanism was about to be quoted into a spec clause.
+
+## 4. THE FINDING THAT CHANGES WHAT THE FIX IS — TWO DOORS, IN PARALLEL, AND ONLY ONE IS SEMA'S
+
+The full run's cost was 0 and `tests/spec/pass/coerce_2` was PREDICTED to move
+(it declares a local `trait Drop` and asserts two destructor counters). It did
+not. That is not luck and it is not a green fixture: it is a second door.
+
+    d15  local `trait Drop`, destructor reached through a `Box<dyn Speak>`
+         vtable slot                          base 1   ARMED 1
+    d16  the same program, trait renamed `Kill`  base 0   armed 0
+
+The site: `mlir_gen_dyn.cpp` `emit_drop_in_place_glue` fills vtable slot 0 with
+`gen_drop_value(…, run_user_drop=true)`, and `gen_drop_value`
+(`mlir_gen_stmt.cpp`, Struct and Enum branches) picks the user destructor with
+`resolve_method_symbol(name, "drop", pkg_name())` — **a METHOD NAME, and no
+trait fact reaches that layer at all.** Sema's `drop_fn_for` is not consulted.
+
+So RULE 2 in its own words: proven live is necessary, not sufficient. The arm
+closes the SCOPE-EXIT door (and, through it, the field recursion — d19 moves);
+the VTABLE door is emitted unconditionally for every dyn coercion and is
+untouched. **The measured cost 0 is therefore bounded by this hole, and a
+CORRECT fix does not close the same programs a crude one does (rule 7): under a
+two-door fix `coerce_2` returns 4.** Its repair is free and already measured —
+delete its one `trait Drop` line and it exits 0 on BOTH binaries. It is the
+124th conversion, missed because the corpus round's prefix did not reach
+`tests/spec/`.
+
+## 5. AND THE VTABLE DOOR IS ALSO A DEFECT ON ITS OWN — NEW QUEUE ROW
+
+    d17  INHERENT `impl Tracked { fn drop(&mut self) }`, NO trait anywhere,
+         dropped through a Box<dyn Speak>       base 1   armed 1
+    d18  the same, method renamed `wipe`        base 0   armed 0
+
+An ordinary user method named `drop` is run as a destructor. `3478f9298` closed
+`bug_destructor_keyed_on_mangled_name` by trait IDENTITY at the scope-exit door
+— d06 is that closing, still holding — and **the vtable door was never keyed on
+a trait to begin with**. Landed as soundness-queue row
+`inherent_drop_runs_through_dyn_vtable` (tier 1, `run 1`), gate re-derived by
+direct listing: 77 rows, `# TOTAL 77`, rc 0.
+
+## 6. `Copy` IS THE SAME MARKER LINE AND IT IS A SECOND ROOT, NOT A SECOND MEMBER
+
+`builtin_marker_` is literally `trait_name == "Copy" || trait_name == "Drop"`,
+and nobody had measured the `Copy` half. Measured now, one variable:
+
+    c07  local `trait Copy { fn dup(&self) -> i32; }` + `impl Copy for S<'a>`,
+         where `S { r: &'a mut i32 }` is A16-explicitly NOT auto-Copy    rc 0
+    c08  the same program, trait renamed `Copyy`                          CFAIL
+         `use of moved variable 's'`
+    c00  the same program with no trait at all                           CFAIL
+
+**A user's own trait spelled `Copy` confers Copy on a move-only type**, so an
+exclusive `&mut` alias is duplicated. The ONLY difference between c07 and c08 is
+the name. `c09` (a local EMPTY `trait Copy`) behaves the same.
+
+THE EXEMPTION CHECKED IN THE ABUSE DIRECTION, which is where it is worse than
+`Drop`'s:
+
+    c04  `impl Zork for S { fn f… }`   refused: `impl: unknown trait 'Zork'`
+    c05  `impl Drop for S { fn f… }`   refused: `impl Drop for S: missing method 'drop'`
+    c06  `impl Copy for S { fn f… }`   COMPILES CLEAN
+    c10  `impl Copy for S { fn f(self,x,y) -> i64 }` COMPILES CLEAN, and S is Copy
+
+`Copy`'s hatch admits an impl body declaring a method the trait never had, with
+no diagnostic in either direction.
+
+**GROUPING TESTED THE WAY THE LAST TWO ROUNDS TESTED THEIRS — and refuted at the
+arm.** One candidate change at `builtin_marker_` would move both; the arm
+actually priced (`is_drop_impl_`) moves only `Drop`, and every `c` program is
+byte-identical across the two binaries. Two roots reached through one hatch.
+
+⚠ **REPORTED, NOT LANDED, and the reason is named**: the seeding path is blessed
+divergence **A16**'s own text — *"a manual `impl Copy` still seeds the set"* —
+and A16 is load-bearing (removing auto-Copy reds 106 of 2534 pass tests). A16
+says nothing about the trait's IDENTITY, so this is not inside the divergence;
+but the repair lives on A16's wire and the prompt's instruction is explicit.
+Two fixtures declare a local `trait Copy {}` today — `pass/copy_basic`,
+`pass/copy_let_independence` — against the stdlib `pub trait Copy {}` in
+`logos.lang.clone`.
+
+## 7. THE CLASS, BY CENSUS RATHER THAN BY THE THREE SITES THE PROMPT NAMED
+
+Every bare-`"Drop"` string comparison in `src/compiler/*.cpp`, by direction:
+
+| site | what it decides | armed? |
+|---|---|---|
+| `sema_collect.cpp` `builtin_marker_` | merge any package's `Drop`/`Copy` into the lang item, skip the `traits_` check | no — load-bearing |
+| `sema.cpp` `is_drop_impl_` | scope-exit glue | **yes** |
+| `sema_collect.cpp` G156-5b `info.trait_name != "Drop"` | which of a clashing inherent/trait pair keeps the plain base | no |
+| `sema_expr.cpp` `prelude_drop` | UFCS `Drop::drop(x)` is E0040 | no |
+| `sema_expr.cpp` `explicit_destructor_call` | E0040 disarm | already package-aware |
+| `mono.cpp` `impl_trait == "Drop"` | pin `T__drop` as a mono root | no |
+| `mono_clone.cpp` `has_any_("Drop", …)` ×2 | `Fst` = no-Drop | no — and its own comment says mono HAS NO TRAIT REGISTRY and therefore cannot resolve the name |
+| `mlir_gen_stmt.cpp` `resolve_method_symbol(n,"drop",pkg)` ×2 | the vtable / closure-env / field destructor | no — **no trait fact at that layer at all** |
+
+Nine sites; the arm closes one; §4 and §5 are what the other eight cost.
+
+## 8. THE EIGHT FIXTURES DECLARING A LOCAL `trait Drop`, BY NAME, WITH WHAT EACH DOES UNDER THE ARM
+
+All eight measured, not predicted from the handed-down list.
+
+  * `pass/bc_dropcall_user_trait_method`, `…_path` — the PINS. Green on both
+    binaries, and after §3 for the right reason rather than by the selector's
+    accident.
+  * `pass/bc_dropck_shadowed_name_admit` — green both.
+  * `fail/bc_dropck_source_dies_first_fail` — I PREDICTED it would un-refuse
+    (the arm makes `H` not-Drop, and the B87 dropck rule is about a
+    Drop-carrying binding). **It still refuses.** The dropck side reads
+    `has_any_("Drop", …)` / the impl table, not `drop_fn_for` — §7's census is
+    what explains it, and the prediction was wrong in the SAFE direction, which
+    is still wrong.
+  * `imported/pass/drop/no-drop-flag-size-b154` — green both (a `sizeof`
+    assertion; Logos has no drop flag either way).
+  * `imported/pass/drop/drop-uninhabited-enum-b154` — green both; it is the file
+    left un-converted by row `stdlib_drop_uninhabited_enum_byvalue_consumer`,
+    which the arm does NOT close (re-observed: still refuses).
+  * `soundness/open/user_trait_named_drop_drives_glue` — the subject.
+  * `spec/pass/coerce_2` — §4. Green under this arm ONLY because of the vtable
+    hole; a correct two-door fix moves it, and its conversion is one deleted
+    line, rc 0 on both binaries.
+
+fires: the site is proven live by fourteen hand programs across FIVE syntactic
+shapes (by-value / `&mut Self` / generic impl / `-> i64` / enum-payload carrier /
+field recursion) rather than by an arrival count, with a one-variable rename
+control on each of the two defects and a NEGATIVE control (d03, the lang item)
+that must not move and does not. The queue's own 76 rows were re-observed
+program by program on both binaries and diffed both ways.
+
+## 9. WHAT DESERVES FUNDING, IN ORDER
+
+  1. **The two-door fix, not this arm alone.** The sema half is 16 lines and
+     costs nothing; landing it ALONE would leave `coerce_2` green for the wrong
+     reason and the new row open, which is a fix by spelling in the other
+     direction. The MLIR half needs a fact the layer does not have — the same
+     "carry the fact" shape one level down, and the same shape that paid here.
+  2. **`inherent_drop_runs_through_dyn_vtable`** is worth a round on its own
+     even if door 1 waits: it runs an ordinary user method as a destructor with
+     no trait in the program at all.
+  3. **The `Copy` half is the owner's**, with §6's numbers.
