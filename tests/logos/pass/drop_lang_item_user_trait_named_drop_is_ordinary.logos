@@ -1,0 +1,41 @@
+// CLOSES soundness-queue row `user_trait_named_drop_drives_glue` (tier 1,
+// `run 1`). A LOCALLY DECLARED `trait Drop` IS AN ORDINARY TRAIT. `Drop` is a
+// LANG ITEM: rustc selects it by `#[lang = "drop"]` and never by spelling, and
+// a local declaration SHADOWS the prelude's at the item level, so `impl Drop
+// for N` here implements nothing the compiler runs. Rust: exit 0.
+//
+// Pre-fix this program exited 1: `sema_collect.cpp` `collect_impl` set
+// `builtin_marker_` from the bare string ("Copy" || "Drop"), merging ANY
+// package's `trait Drop` into the lang item and skipping the `traits_`
+// existence check, and `sema.cpp` `drop_fn_for`'s `is_drop_impl_` then read
+// `c->trait_name == "Drop"`. The fix CARRIES the qualifier the trait registry
+// already holds (`SemaFuncInfo::trait_package`, resolved once in collect_impl
+// through find_trait_iter_scoped — Rust's own shadowing order) instead of
+// adding a second name comparison.
+//
+// PAIR: drop_lang_item_stdlib_drop_runs_at_scope_exit — the same program with
+// this declaration replaced by `use logos.lang.drop;`, i.e. the SAME `impl Drop
+// for N` against the REAL lang item, which prints DROPS=1. That difference is
+// the whole variable. THE ORACLE IS THE DESTRUCTOR COUNT, not the exit code: a
+// leak reads 0 and a double free 2, so the count is printed and asserted.
+package drop_lang_item_user_trait_named_drop_is_ordinary;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+static mut N: i64 = 0i64;
+
+trait Drop { fn drop(self: &mut Self); }
+
+struct S { k: i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { N = N + 1i64; } } }
+
+fn main() -> i32 {
+    {
+        let s: S = S { k: 5i64 };
+        if s.k != 5i64 { return 3i32; }
+    }
+    unsafe {
+        pr("DROPS=%ld\n", N);
+        if N != 0i64 { return 1i32; }
+    }
+    return 0i32;
+}

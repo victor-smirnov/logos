@@ -5681,8 +5681,8 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   TIERCOMMIT    148 ->  148   0    fixtures, none tier_commit, none imported.
 #                                    The two closed soundness-queue programs were
 #                                    never registered tests, so they move neither.)
-REGISTRY-ALL         9536
-REGISTRY-NOIMPORTED  5070
+REGISTRY-ALL         9543
+REGISTRY-NOIMPORTED  5077
 REGISTRY-TIERCOMMIT  148
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

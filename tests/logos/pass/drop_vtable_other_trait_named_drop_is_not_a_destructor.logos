@@ -1,0 +1,34 @@
+// THE MEMBER OF THE VTABLE-DOOR CLASS THAT THE QUEUE ROW'S OWN PROGRAM DID NOT
+// COVER, and the reason the fix is keyed on trait IDENTITY rather than on
+// "is there a trait at all": the method here belongs to a trait, just not to
+// the `Drop` lang item. MEASURED 2026-09-10 on `84fc082550ca57b6 43`: this
+// program exited 1 — `Kill::drop` was run as the destructor from vtable slot 0
+// — while the same trait at SCOPE EXIT exited 0, which is what separates this
+// door from the one `3478f9298` closed. Rust: exit 0.
+//
+// PAIR: drop_vtable_lang_item_drop_runs_through_vtable, one token apart —
+// `trait Kill` there is the imported `Drop`, and it prints DROPS=1.
+package drop_vtable_other_trait_named_drop_is_not_a_destructor;
+use logos.mem.boxed;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+static mut N: i64 = 0i64;
+
+trait Speak { fn say(&self) -> i64; }
+trait Kill  { fn drop(self: &mut Self); }
+
+struct Tracked { v: i64 }
+impl Speak for Tracked { fn say(&self) -> i64 { return self.v; } }
+impl Kill  for Tracked { fn drop(self: &mut Tracked) { unsafe { N = N + 1i64; } } }
+
+fn main() -> i32 {
+    {
+        let b: Box<dyn Speak> = box_new(Tracked { v: 5i64 });
+        if b.say() != 5i64 { return 99i32; }
+    }
+    unsafe {
+        pr("DROPS=%ld\n", N);
+        if N != 0i64 { return 1i32; }
+    }
+    return 0i32;
+}

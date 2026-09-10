@@ -1,0 +1,45 @@
+// CLOSES soundness-queue row `inherent_drop_runs_through_dyn_vtable` (tier 1,
+// `run 1`). AN INHERENT METHOD NAMED `drop` IS AN ORDINARY METHOD — no trait
+// appears in this program at all — AND MUST NOT BE RUN AS A DESTRUCTOR, not
+// even through a `Box<dyn Trait>` vtable slot. Rust: exit 0; `drop_in_place::<T>`
+// runs `<T as Drop>::drop` only when T implements the lang item.
+//
+// `3478f9298` closed the by-method-name defect at the SCOPE-EXIT door (sema's
+// drop_fn_for grew a trait test); the VTABLE door was never keyed on a trait at
+// all. `mlir_gen_dyn.cpp` `emit_drop_in_place_glue` fills vtable slot 0 with
+// `gen_drop_value(run_user_drop=true)`, whose struct and enum arms selected the
+// destructor with `resolve_method_symbol(name, "drop", pkg)` — a METHOD NAME,
+// with no trait fact reaching that layer. The fix carries the fact one level
+// down: `resolve_drop_symbol` consults the LIR impl blocks, whose
+// `identity_trait()` is always package-qualified (`logos.lang.drop::Drop`).
+//
+// PAIR: drop_vtable_lang_item_drop_runs_through_vtable — byte-identical except
+// `impl Tracked { fn drop … }` becomes `impl Drop for Tracked { fn drop … }`
+// against the imported lang item, which prints DROPS=1.
+// SIBLING: drop_vtable_other_trait_named_drop_is_not_a_destructor, the same
+// program with the method moved onto a trait `Kill` — the member of this class
+// the queue row's own program did not cover.
+// THE ORACLE IS THE DESTRUCTOR COUNT: a leak reads 0 and a double free 2.
+package drop_vtable_inherent_drop_is_not_a_destructor;
+use logos.mem.boxed;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+static mut N: i64 = 0i64;
+
+trait Speak { fn say(&self) -> i64; }
+
+struct Tracked { v: i64 }
+impl Speak   for Tracked { fn say(&self) -> i64 { return self.v; } }
+impl Tracked { fn drop(self: &mut Tracked) { unsafe { N = N + 1i64; } } }
+
+fn main() -> i32 {
+    {
+        let b: Box<dyn Speak> = box_new(Tracked { v: 5i64 });
+        if b.say() != 5i64 { return 99i32; }
+    }
+    unsafe {
+        pr("DROPS=%ld\n", N);
+        if N != 0i64 { return 1i32; }
+    }
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+# THE COUNT IS THE ORACLE. 0 = the local `trait Drop` is an ordinary trait
+# (correct, and what Rust does); 1 = it drove scope-exit glue (the queue row's
+# recorded behaviour); 2 would be a double free. Do not relax it in either
+# direction — the twin drop_lang_item_stdlib_drop_runs_at_scope_exit asserts 1
+# on the byte-identical program against the real lang item, and it is the
+# DIFFERENCE between the two files that pins the rule.
+exit: 0
+stdout:
+DROPS=0

@@ -3212,8 +3212,18 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
     // package's `trait Drop`), the same words explicit_destructor_call uses.
     // ⚠ PER-CANDIDATE, and it must not become a call to explicit_destructor_call:
     // that reader's global `traits_` bail costs 58 fixtures. PROBES.md 2026-09-04land root 3.
+    // ⚠ BY IDENTITY, NOT BY SPELLING. `trait_name` is the string the impl was
+    // WRITTEN with, and any package may declare `trait Drop`; collect_impl's
+    // builtin_marker_ lets such an impl through with no `traits_` check at all,
+    // so an ORDINARY user trait acquired scope-exit glue (soundness-queue row
+    // user_trait_named_drop_drives_glue, exit 1 vs 0 under a one-token rename).
+    // The qualifier is CARRIED on SemaFuncInfo::trait_package, resolved in
+    // collect_impl through find_trait_iter_scoped. Empty = the name resolved to
+    // no declared trait (the builtin_marker_ path, intrinsics, pre-pkg
+    // archives) — a wildcard, exactly as pkg_matches treats an empty package.
     auto is_drop_impl_ = [](const SemaFuncInfo* c) {
-        return c && c->trait_name == "Drop";
+        return c && c->trait_name == "Drop" &&
+               (c->trait_package.empty() || c->trait_package == "logos.lang.drop");
     };
     // B-mv-02: a candidate Drop impl must belong to the SAME package as `t`.
     // A user `struct Vec<T>` and the stdlib `Vec<T>` share the bare concrete

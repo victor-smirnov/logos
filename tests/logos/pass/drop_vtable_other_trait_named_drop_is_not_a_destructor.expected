@@ -1,0 +1,5 @@
+# 0 = `Kill::drop` is an ordinary trait method (correct). 1 = the vtable ran it
+# as the destructor.
+exit: 0
+stdout:
+DROPS=0

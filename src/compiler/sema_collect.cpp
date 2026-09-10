@@ -3782,6 +3782,16 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // Phase 6: scope the impl's trait name so `Self::Item<X>` inside
     // method bodies / signatures resolves before impls_ is populated.
     current_impl_trait_name_ = trait_name;
+    // Resolve the trait's PACKAGE once, through the reader that already
+    // implements Rust's shadowing order (cur_package_::Name first). A user
+    // `trait Drop` in this package resolves to THIS package; the prelude's
+    // resolves to logos.lang.drop. Empty when the name resolves to nothing
+    // (builtin_marker_ lets `Drop`/`Copy` impls through with no declaration).
+    current_impl_trait_package_.clear();
+    if (!trait_name.empty()) {
+        auto tit_ = find_trait_iter_scoped(trait_name);
+        if (tit_ != traits_.end()) current_impl_trait_package_ = tit_->second.package;
+    }
     // Resolve trait type args (e.g. impl Into<i32> for Celsius → T=i32)
     // and push them into current_type_params_ so method sigs resolve correctly.
     std::vector<TypeRef> trait_type_args;
@@ -6319,6 +6329,11 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
 
     SemaFuncInfo info;
     info.trait_name = std::string(trait_ctx);
+    // Carry the trait's package alongside its spelling — see
+    // SemaFuncInfo::trait_package. Only meaningful when this fn is being
+    // collected inside the impl block current_impl_trait_* describes.
+    if (!trait_ctx.empty() && std::string(trait_ctx) == current_impl_trait_name_)
+        info.trait_package = current_impl_trait_package_;
     // G156-1: carry the impl's concrete trait type-args (when this method is
     // collected within the current trait-impl) so collision detection + mangling
     // can distinguish `impl Trait<u64> for X` from `impl Trait<u8> for X`.

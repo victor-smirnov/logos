@@ -642,8 +642,26 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
         // GENERIC sibling; a plain `Pay` sibling defeats it identically, so
         // the condition it certifies is narrower than the defect.
         if (type_is_no_auto_drop(ty)) return false;
-        if (!resolve_method_symbol(name, "drop", TypeRef(ty).pkg_name()).empty()) return true;
-        if (auto sd = all_struct_defs_.find(name); sd != all_struct_defs_.end())
+        if (!resolve_drop_symbol(name, TypeRef(ty).pkg_name()).empty()) return true;
+        // #103 / #98 AGAIN, IN THE PREDICATE THIS TIME. `gen_drop_value`'s
+        // struct arm was made QUALIFIED-FIRST in 2026-08-22; this walk, which
+        // decides whether that arm runs AT ALL, was left asking the BARE
+        // first-registered-wins alias. It was invisible because the line above
+        // used to answer with a FALSE POSITIVE — `resolve_method_symbol` falls
+        // back to the plain base `<T>__drop` even when no such method exists
+        // (its own `stop_on_owned` fallback, and the G158-4 comment in the enum
+        // arm below says so), so every struct looked droppable and the field
+        // list was never consulted for the answer. Narrowing that reader to the
+        // `Drop` lang item removes the false positive and EXPOSES this one:
+        // MEASURED, pass/drop_glue_struct_homonym_field_list (`struct Item`, a
+        // homonym of logos.std.compiler.metaprog.Item) printed its one
+        // `INNER DROP n=7` line before and ZERO after, while its renamed
+        // `_control` twin printed one both times — the same 0-vs-1 pair, and
+        // the same root, that fixture was written for. Qualified first, bare
+        // last, the recorded find_struct_*_it order.
+        auto sd = find_struct_def_it(ty);
+        if (sd == all_struct_defs_.end()) sd = all_struct_defs_.find(name);
+        if (sd != all_struct_defs_.end())
             for (auto& f : sd->second.fields())
                 if (value_needs_drop(f.type(pool_impl()))) return true;
         return false;
@@ -654,7 +672,7 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     }
     if (k == K::Enum) {
         std::string ename(TypeRef(ty).enum_name());
-        if (!resolve_method_symbol(ename, "drop", TypeRef(ty).pkg_name()).empty()) return true;
+        if (!resolve_drop_symbol(ename, TypeRef(ty).pkg_name()).empty()) return true;
         if (auto* te = resolve_tagged_enum(ename, ty))
             for (auto& vp : te->variants)
                 for (auto ft : vp.logos_types) if (value_needs_drop(ft)) return true;
@@ -1053,7 +1071,7 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_use
         // drop FuncOp is emitted module-qualified; a direct lookupSymbol(bare)
         // would miss and SILENTLY SKIP the destructor (Rc/Box/RAII drop holes).
         if (run_user_drop)
-            if (auto ds = resolve_method_symbol(name, "drop", TypeRef(ty).pkg_name()); !ds.empty())
+            if (auto ds = resolve_drop_symbol(name, TypeRef(ty).pkg_name()); !ds.empty())
                 if (auto fn = find_func_op(mod, ds))
                     builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
         // #103 / #98 — A LOOKUP KEY IS NOT AN IDENTITY, and here the order was
@@ -1124,7 +1142,7 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_use
         // otherwise fall straight through to the variant-switched payload
         // recursion (G158-4 fix).
         if (run_user_drop)
-            if (auto ds = resolve_method_symbol(ename, "drop", TypeRef(ty).pkg_name()); !ds.empty())
+            if (auto ds = resolve_drop_symbol(ename, TypeRef(ty).pkg_name()); !ds.empty())
                 if (auto fn = find_func_op(mod, ds))  // chokepoint: bare→qualified
                     builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
         auto* te = resolve_tagged_enum(ename, ty);

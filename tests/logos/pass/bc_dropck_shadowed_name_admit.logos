@@ -16,12 +16,18 @@
 // The refuse twin is `fail/bc_dropck_source_dies_first_fail`: this pair is what
 // separates "keys on identity" from "stopped checking".
 package bc_dropck_shadowed_name_admit;
+use logos.lang.drop;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 
-trait Drop { fn drop(self: Self); }
+// ⚠ THE STDLIB LANG ITEM, NOT A LOCAL `trait Drop`. The rule this pair is
+// about — B87 dropck — is ABOUT the `Drop` lang item, and a locally declared
+// `trait Drop` is an ordinary trait that implements nothing (rustc: `Drop` is
+// selected by `#[lang = "drop"]`, never by spelling). While borrow_check's
+// drop set was keyed on the SYMBOL SPELLING `__drop` the distinction was
+// invisible; it no longer is, so the pair states its own subject.
 struct H<'a> { r: &'a i64 }
-impl<'a> Drop for H<'a> { fn drop(self: H<'a>) { } }
+impl<'a> Drop for H<'a> { fn drop(self: &mut H<'a>) { } }
 
 fn main() -> i32 {
     let outer: i64 = 7i64;

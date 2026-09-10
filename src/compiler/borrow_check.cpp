@@ -168,6 +168,44 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         if (cv.is_static()) continue;   // real global storage — borrow is sound
         ts.frame_consts.insert(std::string(cv.name()));
     }
+    // ── THE DROP SET IS THE `Drop` LANG ITEM'S, NOT EVERY `__drop` SYMBOL ──
+    //
+    // `register_drop_symbol` below reads a SYMBOL SPELLING: any function whose
+    // name contains `__drop` puts its type into `drop_types`, and `drop_types`
+    // is what the B87 dropck rule, the move classification and the loan-liveness
+    // extension all ask. No trait fact reaches this layer at all — it is the
+    // borrow checker's copy of the same defect `is_drop_impl_` (a trait NAME)
+    // and `gen_drop_value` (a METHOD NAME) carry. MEASURED 2026-09-10 on
+    // `84fc082550ca57b6 43`, one variable, the method's spelling:
+    //   struct H<'a>{r:&'a i64}  impl<'a> H<'a> { fn drop(self: H<'a>) {} }
+    //   let g: H; { let short: i64 = 2; g = H{r:&short}; }
+    // refused with `binding 'g' has a `Drop` impl and borrows local 'short'` —
+    // a sentence that is FALSE about the program, since H implements nothing —
+    // while the same file with `fn wipe` compiles, rc 0. A trait `Kill { fn
+    // drop }` refuses identically. Rust: both are legal.
+    //
+    // The fact is on the LIR impl block and is ALWAYS-QUALIFIED
+    // (`ImplView::identity_trait()` = `pkg::Name`), so the lang item is
+    // `logos.lang.drop::Drop` and a homonym is `theirpkg::Drop`.
+    // ⚠ THIS NARROWS A REFUSING SET — the permissive direction, invisible to a
+    // green corpus. The base key is deliberately COARSE (package prefix, `$G…`
+    // generic fold and `<…>` args all stripped) so that a real `Drop` impl can
+    // never fall out of the set through a spelling the symbol table happens to
+    // carry; what it removes is only a type with NO Drop impl anywhere.
+    std::unordered_set<std::string> drop_impl_targets;
+    {
+        auto base_key = [](std::string_view n) {
+            if (auto d = n.rfind('.');  d  != std::string_view::npos) n = n.substr(d + 1);
+            if (auto g = n.find('$');   g  != std::string_view::npos) n = n.substr(0, g);
+            if (auto lt = n.find('<');  lt != std::string_view::npos) n = n.substr(0, lt);
+            return std::string(n);
+        };
+        for (auto& im : prog.impls) {
+            if (!im) continue;
+            if (im.identity_trait() != "logos.lang.drop::Drop") continue;
+            drop_impl_targets.insert(base_key(im.target_type()));
+        }
+    }
     auto register_drop_symbol = [&](std::string_view sym) {
         // After unification, method names are pkg-qualified
         // (`pkg.Buf__drop__f__sig`). Strip pkg prefix before extracting
@@ -177,6 +215,11 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
             sym = sym.substr(dot + 1);
         if (auto p = sym.find("__drop"); p != std::string_view::npos) {
             auto base = sym.substr(0, p);
+            {
+                std::string_view bk = base;
+                if (auto g = bk.find('$'); g != std::string_view::npos) bk = bk.substr(0, g);
+                if (!drop_impl_targets.count(std::string(bk))) return;
+            }
             ts.drop_types.insert(std::string(base));
             // Mono-spec names (`Box$G1$i64__drop`) ALSO register the template
             // base ("Box"): fn-body TypeRefs spell the bare template name, so

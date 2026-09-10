@@ -1,0 +1,7 @@
+# ADMITTED. A refusal here is the over-refusal this fixture was written for, and
+# it must not be bought back by relaxing the dropck rule: fail/
+# bc_dropck_source_dies_first_fail is the same shape with a real `impl Drop` and
+# must stay REFUSED.
+exit: 0
+stdout:
+OK

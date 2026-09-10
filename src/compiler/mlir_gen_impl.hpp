@@ -587,6 +587,56 @@ private:
     // pkg) and its answer is a function of `prog_`, of nothing else.
     mutable std::unordered_map<std::string, std::pair<std::string, bool>> rms_memo_;
 
+    // ── THE DESTRUCTOR IS THE `Drop` LANG ITEM'S `drop` — AT THIS LAYER TOO ──
+    //
+    // `resolve_method_symbol(name, "drop", pkg)` answers with ANY method spelled
+    // `drop`: an inherent one, or another trait's. Sema's `drop_fn_for` keeps a
+    // trait test, but NOTHING it decides reaches here — the vtable's
+    // drop_in_place slot (mlir_gen_dyn's emit_drop_in_place_glue) and the
+    // recursive field walk both call gen_drop_value directly. MEASURED
+    // 2026-09-10 on `84fc082550ca57b6 43`, exit code = the destructor's counter:
+    // an INHERENT `fn drop` dropped through a `Box<dyn Speak>` ran (1) and the
+    // same program with the method renamed `wipe` did not (0); a DIFFERENT trait
+    // `Kill { fn drop }` through the same vtable also ran (1) while the same
+    // trait at scope exit did not (0). Two doors, one property.
+    //
+    // The fact the layer was missing is on the LIR impl block and is
+    // ALWAYS-QUALIFIED: `ImplView::identity_trait()` is `pkg::Name`
+    // (`sema_impl.hpp` impl_key_trait), so the lang item is
+    // `logos.lang.drop::Drop` and any homonym is `theirpkg::Drop`. Carry it —
+    // do not add a second name comparison.
+    static constexpr std::string_view kDropLangItem = "logos.lang.drop::Drop";
+    // A LIR target/struct spelling reduced to the base identity the drop sites
+    // hold: package prefix off, generic fold (`$G1$…`) off, `<…>` args off.
+    // ⚠ COARSER THAN THE PACKAGE — deliberately: this test only ever NARROWS
+    // what resolve_method_symbol already returned, and the package half of the
+    // question is what resolve_method_symbol itself answers.
+    static std::string drop_base_key(std::string_view n) noexcept {
+        auto dot = n.rfind('.');
+        if (dot != std::string_view::npos) n = n.substr(dot + 1);
+        if (auto d = n.find('$');  d  != std::string_view::npos) n = n.substr(0, d);
+        if (auto lt = n.find('<'); lt != std::string_view::npos) n = n.substr(0, lt);
+        return std::string(n);
+    }
+    void build_drop_impl_targets_() const {
+        drop_impl_targets_built_ = true;
+        if (!prog_) return;
+        for (auto& im : prog_->impls) {
+            if (!im) continue;
+            if (im.identity_trait() != kDropLangItem) continue;
+            drop_impl_targets_.insert(drop_base_key(im.target_type()));
+        }
+    }
+    // The ONE reader the drop sites use. Empty ⇒ this type has no `Drop` impl,
+    // whatever it may spell a method.
+    std::string resolve_drop_symbol(std::string_view name, std::string_view pkg) const {
+        if (!drop_impl_targets_built_) build_drop_impl_targets_();
+        if (!drop_impl_targets_.count(drop_base_key(name))) return {};
+        return resolve_method_symbol(name, "drop", pkg);
+    }
+    mutable std::unordered_set<std::string> drop_impl_targets_;
+    mutable bool drop_impl_targets_built_ = false;
+
     const TypePoolImpl* pool_impl() const noexcept {
         return prog_ ? prog_->type_pool.impl() : nullptr;
     }

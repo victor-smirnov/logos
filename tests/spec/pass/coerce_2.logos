@@ -3,6 +3,14 @@ package coerce_2;
 use logos.mem.boxed;
 use logos.mem.string;
 use logos.lang.option;
+// ⚠ THE STDLIB LANG ITEM, NOT A LOCAL `trait Drop`. This file used to declare
+// its own `trait Drop { fn drop(self: &mut Self); }` — the corpus idiom that
+// 123 fixtures were converted away from in 98a7f0eb7. The subject here is
+// COERCION, and `coerce.unsize.box-dyn-vtable-drops-concrete` asserts that the
+// vtable's drop_in_place slot runs the CONCRETE type's destructor; a user trait
+// that merely spells the name `Drop` is not a destructor, so the assertion only
+// means what it says with the lang item.
+use logos.lang.drop;
 
 // ── helpers for dyn / vtable coercion rules ────────────────────────────────
 trait Speak { fn say(&self) -> i64; }
@@ -11,7 +19,6 @@ struct Concrete { x: i64, y: i64 }
 impl Speak for Concrete { fn say(&self) -> i64 { return self.x + self.y; } }
 
 // Drop-instrumented types: dropping bumps a counter through a raw ptr.
-trait Drop { fn drop(self: &mut Self); }
 struct Tracked { c: *mut i64, v: i64 }
 impl Speak for Tracked { fn say(&self) -> i64 { return self.v; } }
 impl Drop  for Tracked { fn drop(self: &mut Self) { unsafe { *self.c += 1i64; } } }

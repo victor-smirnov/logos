@@ -34795,3 +34795,177 @@ program by program on both binaries and diffed both ways.
      even if door 1 waits: it runs an ordinary user method as a destructor with
      no trait in the program at all.
   3. **The `Copy` half is the owner's**, with §6's numbers.
+
+---
+
+# 2026-09-10d — THE DESTRUCTOR WAS CHOSEN BY A SPELLING AT **THREE** LAYERS, NOT ONE; TWO QUEUE ROWS CLOSE, THE THIRD DOOR REFUSED LEGAL PROGRAMS WITH A SENTENCE THAT WAS FALSE ABOUT THEM, AND NARROWING THE FIRST TWO EXPOSED A #103 RESIDUAL THAT HAD BEEN HIDDEN BY A FALSE POSITIVE
+
+Base `84fc082550ca57b6 43` (HEAD `0ae07742f`), queue gate rc 0 at 77 rows on
+arrival. Subject: soundness-queue row `user_trait_named_drop_drives_glue`
+(tier 1, `run 1`), and the class it is an instance of.
+
+## 1. THE CLASS, BY PROPERTY — THREE DOORS, EACH WITH ITS OWN ONE-VARIABLE CONTROL
+
+**THE DESTRUCTOR OF A VALUE IS SELECTED BY A SPELLING RATHER THAN BY THE `Drop`
+LANG ITEM'S IDENTITY.** Enumerated by asking, at every layer that decides
+"is this type dropped, and with what", WHICH FACT IT READS — not by grepping
+`"Drop"`, which finds nine sites and cannot tell a decision from a pin.
+
+| door | site | what it reads | direction | control (one variable) |
+|---|---|---|---|---|
+| **A** | `sema.cpp` `drop_fn_for`'s `is_drop_impl_` | the TRAIT's NAME, the string `"Drop"` | admits glue | local `trait Drop` → 1, renamed `Dropp` → 0 |
+| **B** | `mlir_gen_stmt.cpp` `gen_drop_value` + `value_needs_drop` (struct and enum arms, 4 call sites) | the METHOD's NAME, `"drop"` — **no trait fact reaches the layer at all** | admits glue | inherent `fn drop` через `Box<dyn>` → 1, renamed `wipe` → 0 |
+| **C** | `borrow_check.cpp` `register_drop_symbol` | the SYMBOL's SPELLING, substring `__drop` | **REFUSES** | inherent `fn drop` → refused, renamed `wipe` → rc 0 |
+
+Door **D** is the SEEDING path — `sema_collect.cpp` `collect_impl`'s
+`builtin_marker_ = trait_name == "Copy" || trait_name == "Drop"` — and it is
+**deliberately left exactly as its comment describes**. Narrowing it is not
+needed by any of A/B/C (each carries its own qualifier now) and its `Copy` half
+is blessed divergence **A16**'s own wire; that half stays REPORTED, not landed,
+on last round's numbers.
+
+The remaining bare-`"Drop"` sites are PINS or ROOTS, not decisions:
+`sema_collect.cpp` G156-5b (which of a clashing pair keeps the plain base),
+`sema_expr.cpp` `prelude_drop` / `explicit_destructor_call` (already
+package-aware, and in the OPPOSITE direction), `mono.cpp`'s mono-root pin, and
+`mono_clone.cpp`'s two `has_any_("Drop", …)` — whose own comment says mono has
+no trait registry. Over-instantiating a `T__drop` that no site can now select
+is dead code, not a defect.
+
+## 2. DOOR C WAS NOT ON THE HANDED-DOWN LIST AND IT IS THE ONE THAT REFUSES
+
+Found by asking who else answers "does this type have a `Drop` impl" —
+`ts.drop_types`, read by the B87 dropck rule, the move classification and the
+loan-liveness extension. MEASURED on the base binary:
+
+    struct H<'a> { r: &'a i64 }
+    impl<'a> H<'a> { fn drop(self: H<'a>) { } }        // INHERENT. no trait.
+    fn main() -> i32 { let g: H; { let short: i64 = 2i64; g = H { r: &short }; } return 0i32; }
+
+    error [fn main]: binding 'g' has a `Drop` impl and borrows local 'short', ...
+
+`H` implements nothing: **the diagnostic's own sentence is false about the
+program it refuses.** The one-variable control (`fn drop` → `fn wipe`, every
+other token identical) compiles rc 0; a trait `Kill { fn drop }` refuses
+identically. Rust admits both. Landed with its own pinned pair,
+`pass/bc_dropck_inherent_drop_is_not_a_drop_impl_admit` +
+`pass/bc_dropck_other_trait_named_drop_admit`, against the refuse twin
+`fail/bc_dropck_source_dies_first_fail`, which still refuses, message for
+message, on a REAL `impl Drop`.
+
+## 3. THE FIX IS ONE STRUCTURAL CHANGE: CARRY THE IDENTITY THE REGISTRIES ALREADY HOLD
+
+  * **A** — `SemaFuncInfo` gains `trait_package`, resolved ONCE in
+    `collect_impl` through `find_trait_iter_scoped` (which probes
+    `cur_package_::Name` first, i.e. Rust's own shadowing order) and copied on
+    in `collect_fn`. `is_drop_impl_` becomes `trait_name == "Drop" &&
+    (trait_package.empty() || trait_package == "logos.lang.drop")`; empty is a
+    wildcard exactly as `pkg_matches` treats an empty package.
+  * **B** and **C** — the same fact, one layer down, from the LIR impl block:
+    `ImplView::identity_trait()` is ALWAYS package-qualified
+    (`sema_impl.hpp` `impl_key_trait`), so the lang item is
+    `logos.lang.drop::Drop` and a homonym is `theirpkg::Drop`. Each layer builds
+    the target set once and consults it before accepting a `drop` symbol.
+    The base key is deliberately COARSE (package prefix, `$G…` generic fold and
+    `<…>` args stripped): the test only ever NARROWS what the existing reader
+    already returned, so coarseness can never lose a real destructor, and losing
+    one is a LEAK — the direction an exit code cannot see.
+
+**No second string comparison was added anywhere.** Diff: +155/−8 in the
+compiler across five files.
+
+## 4. ⚠ NARROWING A READER REMOVED A FALSE POSITIVE AND EXPOSED A DEFECT THAT HAD BEEN HIDING BEHIND IT
+
+The FIRST armed build priced 6620 run-oracle triples with **two** movers, one of
+them real: `pass/drop_glue_struct_homonym_field_list` printed its one
+`INNER DROP n=7` line before and **ZERO** after, while its renamed `_control`
+twin printed one both times — the exact 0-vs-1 pair, and the same root, that
+fixture was written for in 2026-08-22 (#103/#98).
+
+The cause is not door B. `value_needs_drop`'s struct arm asked
+`all_struct_defs_.find(name)` — the BARE, first-registered-wins alias — for the
+field list, where `gen_drop_value`'s struct arm had been made QUALIFIED-FIRST
+three weeks earlier. `struct Item` is a homonym of
+`logos.std.compiler.metaprog.Item`, so the walk read the WRONG field list and
+answered "no droppable field". It never mattered because the line ABOVE it
+answered first with a FALSE POSITIVE: `resolve_method_symbol` falls back to the
+plain base `<T>__drop` even when no such method exists (its own `stop_on_owned`
+fallback; the G158-4 comment in the enum arm below says the same thing about
+enums). Every struct therefore looked droppable and the field list was never
+consulted for the ANSWER. Remove the false positive and the older defect is
+suddenly load-bearing.
+
+Repaired at the same site, the same way, in the same commit: qualified first,
+bare last. **This is the shape to expect whenever a permissive reader is
+narrowed — the fixture that catches it is the one whose oracle is a DESTRUCTOR
+COUNT, and it caught this in the runtime column, not in any exit code.**
+
+## 5. COST — EVERY COLUMN, BOTH DIRECTIONS
+
+| column | population | cost |
+|---|---|---|
+| `cmake --build` incl. stdlib + examples | 203 targets, four layers | **0** (rc 0) |
+| `run_oracle.py` (ccrc / runrc / stdout-sha) | **6620 triples** | **1 mover**, `cast-region-to-uint`, the documented subtraction ⇒ **0** |
+| `fail_text_oracle.py` (rc / stderr-sha / `.expected` match) | **1478** | **0 moved** — the column that sees an UN-REFUSAL, and door C is the permissive direction, so this is the one that had to be clean |
+| the 8 fixtures declaring a local `trait Drop`, base vs armed | 8 | **1 moved**: `tests/spec/pass/coerce_2` |
+| soundness queue, both rows re-observed | 77 → 75 | 2 rows CLOSED |
+
+⚠ `fail_text_oracle.py` did NOT self-invalidate across the two configures, the
+failure mode last round declined to run it for: the base and armed tables are
+**byte-identical over all 1478 rows**. The recorded caveat is real for the
+ABI-freshness *warning* channel but did not fire here — re-measure it before
+citing it as a reason not to run the only oracle that sees an un-refusal.
+
+## 6. THE PINS, AND THE ONE FIXTURE THAT MOVED
+
+Eight fixtures declare a local `trait Drop`. Seven are unmoved and are now the
+fix's pins; the eighth is a corpus miss, not a cost:
+
+  * `pass/bc_dropcall_user_trait_method`, `pass/bc_dropcall_user_trait_path` —
+    LEGAL: a user `trait Drop` shadows the prelude's and `t.drop()` calls ITS
+    method. Unchanged, and they are the fixtures that say the fix narrows the
+    DESTRUCTOR selection and not the trait's ordinary use. (⚠ correcting
+    `2026-09-10b` §7 again: these pass because the explicit `s.drop()` consumes
+    the by-value receiver, not because `-> i64` suppresses glue — `-> i64` DOES
+    drive glue on the base binary.)
+  * `imported/pass/drop/no-drop-flag-size-b154`, `.../drop-uninhabited-enum-b154`
+    — compile-only / `sizeof` assertions. Unchanged.
+  * `pass/bc_dropck_shadowed_name_admit` + `fail/bc_dropck_source_dies_first_fail`
+    — the B87 pair. CONVERTED to the lang item in this commit, because door C
+    makes the distinction visible and the rule they pin is ABOUT the lang item.
+    Both verdicts, and the fail half's message, are identical before and after
+    on both binaries.
+  * `tests/spec/pass/coerce_2` — **MOVED, rc 0 → 4**, and it is the 124th
+    conversion of the corpus round `98a7f0eb7` closed at 123: its
+    `coerce.unsize.box-dyn-vtable-drops-concrete` rule asserts that the vtable's
+    slot 0 runs the CONCRETE type's destructor, which only means what it says
+    with the lang item. One line, `trait Drop {…}` → `use logos.lang.drop;`;
+    rc 0 on BOTH binaries after.
+
+## 7. WHAT IS PINNED NOW — SEVEN NEW FIXTURES, EVERY ORACLE A DESTRUCTOR COUNT OR A DIAGNOSTIC
+
+`pass/drop_lang_item_user_trait_named_drop_is_ordinary` (DROPS=0) ×
+`pass/drop_lang_item_stdlib_drop_runs_at_scope_exit` (DROPS=1) — door A.
+`pass/drop_vtable_inherent_drop_is_not_a_destructor` (0) ×
+`pass/drop_vtable_lang_item_drop_runs_through_vtable` (1) — door B, plus
+`pass/drop_vtable_other_trait_named_drop_is_not_a_destructor` (0), the member of
+the class the queue row's own program did NOT cover.
+`pass/bc_dropck_inherent_drop_is_not_a_drop_impl_admit` ×
+`pass/bc_dropck_other_trait_named_drop_admit` against the standing refuse twin —
+door C.
+
+CONTROL REVERT, base binary `84fc082550ca57b6 43`, all seven: the three
+count-0 fixtures print **DROPS=1** and exit 1; the two count-1 fixtures print
+DROPS=1 on both binaries (they are the expensive-direction pins, and their job
+is to be unmoved); the two dropck admits are REFUSED with
+`binding 'g' has a `Drop` impl …`.
+
+## 8. STILL OPEN, BY NAME
+
+  * **`Copy` in `builtin_marker_`** — a locally declared `trait Copy` confers
+    Copy on an A16-explicitly-move-only struct. Not touched by any of A/B/C
+    (measured last round: all 11 `c` programs byte-identical across the armed
+    binaries). Its seeding path is A16's own wire ⇒ owner's.
+  * `resolve_method_symbol`'s plain-base FALSE POSITIVE is still there — §4
+    only removed one CONSUMER of it. Any other site that reads a bare
+    `<T>__drop` answer as "this type has a destructor" is the same shape.

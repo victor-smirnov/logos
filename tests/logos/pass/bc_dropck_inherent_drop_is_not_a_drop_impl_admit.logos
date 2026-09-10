@@ -1,0 +1,35 @@
+// A LEGAL PROGRAM THAT WAS REFUSED, AND THE DIAGNOSTIC SAID SOMETHING FALSE
+// ABOUT IT. `H` implements nothing; `drop` here is an ordinary inherent method.
+// borrow_check's TypeSets builder (`register_drop_symbol`) put a type into
+// `ts.drop_types` on a SYMBOL SPELLING — any function whose name contains
+// `__drop` — and `drop_types` is what the B87 dropck rule, the move
+// classification and the loan-liveness extension all ask. So this program was
+// refused with
+//     binding 'g' has a `Drop` impl and borrows local 'short', ...
+// a sentence that is false about a program with no `Drop` impl anywhere.
+// MEASURED 2026-09-10 on `84fc082550ca57b6 43` against its one-variable
+// control (`fn drop` -> `fn wipe`, every other token identical), which compiled
+// rc 0. Rust: legal — `Drop` is a lang item, and dropck is about the lang item.
+//
+// The fix is the borrow checker's half of the same structural change that gave
+// sema's `drop_fn_for` a trait package and the MLIR drop walk a trait identity:
+// the LIR impl block's `identity_trait()` (always `pkg::Name`) decides, not the
+// symbol's spelling.
+//
+// TWIN, ONE TOKEN APART: pass/bc_dropck_other_trait_named_drop_admit (the
+// method moved onto a trait `Kill`).
+// REFUSE TWIN: fail/bc_dropck_source_dies_first_fail — the same shape with a
+// REAL `impl Drop`, which must still be refused. That pair is what separates
+// "keys on the lang item" from "stopped checking".
+package bc_dropck_inherent_drop_is_not_a_drop_impl_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+struct H<'a> { r: &'a i64 }
+impl<'a> H<'a> { fn drop(self: H<'a>) { } }
+
+fn main() -> i32 {
+    let g: H;
+    { let short: i64 = 2i64; g = H { r: &short }; }
+    unsafe { printf("OK\n".as_ptr()); }
+    return 0i32;
+}

@@ -1,0 +1,6 @@
+# EXACTLY ONCE. 0 is a leak (the destructor was selected away), 2 is a double
+# free. The twin drop_lang_item_user_trait_named_drop_is_ordinary asserts 0 on
+# the same program with a local `trait Drop`.
+exit: 0
+stdout:
+DROPS=1

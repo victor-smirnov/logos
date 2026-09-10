@@ -1,0 +1,4 @@
+# EXACTLY ONCE, through vtable slot 0. 0 is a leak, 2 a double free.
+exit: 0
+stdout:
+DROPS=1

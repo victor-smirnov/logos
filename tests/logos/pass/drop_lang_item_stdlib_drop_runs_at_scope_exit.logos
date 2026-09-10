@@ -1,0 +1,28 @@
+// THE TWIN of drop_lang_item_user_trait_named_drop_is_ordinary, differing in
+// exactly one declaration: `trait Drop { fn drop(self: &mut Self); }` replaced
+// by `use logos.lang.drop;`. The `impl Drop for S` below is character for
+// character the same text; only which `Drop` it names has changed.
+//
+// THIS IS THE EXPENSIVE DIRECTION. A fix that selects the destructor by trait
+// IDENTITY must still select it for the lang item — a lost destructor is a
+// LEAK, and a leak is invisible to an exit code. DROPS=1 says it ran once.
+package drop_lang_item_stdlib_drop_runs_at_scope_exit;
+use logos.lang.drop;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+static mut N: i64 = 0i64;
+
+struct S { k: i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { N = N + 1i64; } } }
+
+fn main() -> i32 {
+    {
+        let s: S = S { k: 5i64 };
+        if s.k != 5i64 { return 3i32; }
+    }
+    unsafe {
+        pr("DROPS=%ld\n", N);
+        if N != 1i64 { return 1i32; }
+    }
+    return 0i32;
+}

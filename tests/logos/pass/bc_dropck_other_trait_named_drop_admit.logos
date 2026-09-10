@@ -1,0 +1,17 @@
+// TWIN of bc_dropck_inherent_drop_is_not_a_drop_impl_admit, one token apart:
+// the method named `drop` belongs to a trait here — just not to the `Drop`
+// lang item. Refused identically before the fix, with the same false sentence.
+// Rust: legal. Third spelling of one property: the drop set is the LANG ITEM's.
+package bc_dropck_other_trait_named_drop_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Kill { fn drop(self: Self); }
+struct H<'a> { r: &'a i64 }
+impl<'a> Kill for H<'a> { fn drop(self: H<'a>) { } }
+
+fn main() -> i32 {
+    let g: H;
+    { let short: i64 = 2i64; g = H { r: &short }; }
+    unsafe { printf("OK\n".as_ptr()); }
+    return 0i32;
+}

@@ -1,0 +1,32 @@
+// THE TWIN of drop_vtable_inherent_drop_is_not_a_destructor, differing in the
+// one token that turns an inherent impl into a lang-item one: `impl Tracked`
+// becomes `impl Drop for Tracked`, with `use logos.lang.drop;` imported.
+//
+// THIS IS THE EXPENSIVE DIRECTION for the vtable door. Narrowing
+// `gen_drop_value`'s destructor reader to the `Drop` lang item must not lose
+// the destructor a `Box<dyn Trait>` really does own — that would be a LEAK, and
+// a leak is invisible to an exit code. DROPS=1 says slot 0 ran it exactly once.
+package drop_vtable_lang_item_drop_runs_through_vtable;
+use logos.mem.boxed;
+use logos.lang.drop;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+static mut N: i64 = 0i64;
+
+trait Speak { fn say(&self) -> i64; }
+
+struct Tracked { v: i64 }
+impl Speak for Tracked { fn say(&self) -> i64 { return self.v; } }
+impl Drop  for Tracked { fn drop(self: &mut Tracked) { unsafe { N = N + 1i64; } } }
+
+fn main() -> i32 {
+    {
+        let b: Box<dyn Speak> = box_new(Tracked { v: 5i64 });
+        if b.say() != 5i64 { return 99i32; }
+    }
+    unsafe {
+        pr("DROPS=%ld\n", N);
+        if N != 1i64 { return 1i32; }
+    }
+    return 0i32;
+}

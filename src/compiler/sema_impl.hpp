@@ -4978,6 +4978,14 @@ private:
                             // trait-qualified base `<target>__<trait>__<method>`
                             // (see trait_method_registry_).
                             std::string trait_name;
+                            // THE PACKAGE THE IMPL'S TRAIT WAS DECLARED IN.
+                            // `trait_name` is a SPELLING: two packages may each
+                            // declare `trait Drop` and both arrive here as the
+                            // string "Drop". `drop_fn_for` must select the
+                            // lang item BY IDENTITY, so carry the qualifier the
+                            // trait registry already holds on SemaTraitInfo.
+                            // Empty = inherent / free fn / trait unresolved.
+                            std::string trait_package;
                             // G156-1: the impl's concrete trait type-args
                             // (`impl Trait<u64> for X` → [u64]). Two impls of the
                             // same trait name for one type at distinct args mangle
@@ -5609,6 +5617,11 @@ private:
     // itself isn't yet in impls_ when method signatures are being
     // type-checked during collect_impl).
     std::string current_impl_trait_name_;
+    // Package of `current_impl_trait_name_`'s trait, resolved ONCE in
+    // collect_impl through find_trait_iter_scoped (which probes
+    // `cur_package_::Name` first — Rust's own shadowing order) and copied onto
+    // every SemaFuncInfo collect_fn mints inside the block.
+    std::string current_impl_trait_package_;
     // The lifetime params declared on the ENCLOSING impl header
     // (`impl<'a> H<'a> { fn get(self: &H<'a>) ... }`). Set/restored in
     // lower_impl_block; read by compute_fn_lifetime_outlives, whose `known()`

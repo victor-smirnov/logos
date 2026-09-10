@@ -1,0 +1,7 @@
+# 0 = the inherent method is ordinary (correct). 1 = it was run as a destructor
+# through vtable slot 0 (the queue row's recorded behaviour). The twin
+# drop_vtable_lang_item_drop_runs_through_vtable asserts 1 on the same program
+# with a real `impl Drop`, and it is the DIFFERENCE that pins the rule.
+exit: 0
+stdout:
+DROPS=0
