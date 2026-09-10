@@ -46,6 +46,10 @@
 //   type_pointee(TypeId, TypeId)    what a pointer or reference points at
 //   type_decl(TypeId, DeclId)       a record/enum type's declaration
 //   cast_kind(Id, Kind)             LValueToRValue, IntegralCast, NoOp, …
+//   binop(Id, Op)                   the comparison/arithmetic operator SPELLING
+//                                   ("==", "!=", "<", …) for BinaryOperator,
+//                                   CXXRewrittenBinaryOperator and the operator
+//                                   overload form CXXOperatorCallExpr alike.
 //   cfg_block(FnDeclId, B) / cfg_entry / cfg_exit / cfg_edge(FnDeclId, B, B2)
 //   cfg_stmt(FnDeclId, B, NodeId)
 //
@@ -83,14 +87,14 @@ namespace {
 struct Out {
     std::ofstream node, loc, decl, decl_node, ref, call, enum_member, decl_name;
     std::ofstream type_of, type, type_pointee, type_decl, cast_kind, decl_loc;
-    std::ofstream cfg_block, cfg_entry, cfg_exit, cfg_edge, cfg_stmt, str_lit;
+    std::ofstream cfg_block, cfg_entry, cfg_exit, cfg_edge, cfg_stmt, str_lit, binop;
     long nodes = 0, decls = 0, refs = 0, calls = 0, types = 0, edges = 0;
     void flush() {
         node.flush(); loc.flush(); decl.flush(); decl_node.flush();
         ref.flush(); call.flush(); enum_member.flush(); decl_name.flush();
         type_of.flush(); type.flush(); type_pointee.flush(); type_decl.flush();
         cast_kind.flush(); decl_loc.flush(); cfg_block.flush(); cfg_entry.flush(); cfg_exit.flush();
-        cfg_edge.flush(); cfg_stmt.flush(); str_lit.flush();
+        cfg_edge.flush(); cfg_stmt.flush(); str_lit.flush(); binop.flush();
     }
     void open(const std::string &d) {
         auto p = [&](const char *n) { return d + "/" + n + ".facts"; };
@@ -105,6 +109,7 @@ struct Out {
         cfg_exit.open(p("cfg_exit"));   cfg_edge.open(p("cfg_edge"));
         cfg_stmt.open(p("cfg_stmt"));
         str_lit.open(p("str_lit"));
+        binop.open(p("binop"));
     }
 };
 Out g_out;
@@ -185,6 +190,23 @@ public:
                 else e += c;
             }
             g_out.str_lit << id << '\t' << e << '\n';
+        }
+        // â  A COMPARISON'S OPERATOR IS A FACT, AND WITHOUT IT `==` AND `!=` ARE
+        // THE SAME NODE TO EVERY QUESTION. Three spellings carry one comparison
+        // in this codebase and only one of them is a plain BinaryOperator:
+        // `s == "X"` on a std::string is a CXXOperatorCallExpr, and under C++20
+        // `s != "X"` is a CXXRewrittenBinaryOperator whose callee decl is
+        // `operator==` â so a rule keyed on the callee reads a NEGATED intercept
+        // as a positive one, which is the exact direction a gate must not lose.
+        // The opcode is asked of the node, never inferred from its kind.
+        if (const auto *BO = dyn_cast<BinaryOperator>(S))
+            g_out.binop << id << '\t' << BO->getOpcodeStr().str() << '\n';
+        else if (const auto *ROp = dyn_cast<CXXRewrittenBinaryOperator>(S))
+            g_out.binop << id << '\t'
+                        << BinaryOperator::getOpcodeStr(ROp->getOperator()).str() << '\n';
+        else if (const auto *OC = dyn_cast<CXXOperatorCallExpr>(S)) {
+            const char *sp = getOperatorSpelling(OC->getOperator());
+            if (sp) g_out.binop << id << '\t' << sp << '\n';
         }
         if (const auto *DR = dyn_cast<DeclRefExpr>(S)) {
             std::string did = decl_id(DR->getDecl());

@@ -35396,3 +35396,140 @@ path returned **6620 rows** while the armed run was still executing — the file
 was a leftover from a run at 09:36 the same morning. Read the MTIME, not the
 line count; a number from the right path is not a number from this run.
 
+
+---
+
+# 2026-09-10g — THE GATE'S OWN ABUSE DIRECTION: `==` WAS POLICED, `!=` WAS NOT, AND THE FOUR SITES IT MISSED IN THE `Copy`/`Drop` CLASSES ARE THE ONES THE LAST TWO ROUNDS REPAIRED AT EIGHT LAYERS
+
+build: `3913eca704c4eaaa 43` (read, not assumed — unchanged: no compiler source
+was touched this round). Queue gate rc **0**, 76 rows / 76 programs, `# TOTAL 76`
+agrees with a direct listing. `probe-log-lint` 264 records, every site symbol
+resolves. L1 rc **0**, 801/801 + 12 684 generated + 148 gates.
+
+## 1. THE DEFECT, AND WHY IT IS THIS LINT'S OWN EXEMPTION
+
+`key_identity_lint.sh` FACT 4 censuses bare-name intercepts with four matchers.
+`SCAN_FREE` and `SCAN_REV` were widened to `[!=]=` when #99 landed, and the
+ground is written at `SCAN_FREE` in so many words — *"`!=` intercepts just as
+hard as `==`: it is the same decision with the arms swapped"*. `SCAN_LHS` and
+`SCAN_ACC`, the two matchers that came FIRST, were left on `==` **in that same
+edit**. So the gate policed one direction of the class it exists to police and
+vouched for the other.
+
+MEASURED over HEAD: **33 negated intercepts at 32 sites in 9 files**, +33 on a
+census of 437. Among them `trait_name != "Copy"` ×2 and `trait_name != "Drop"`
+×2 — members of the classes `4013c21a8` and `8b49a203f` repaired at eight
+layers, sitting green under the lint the whole time.
+
+**BITE TEST (the control, not a story).** Planted
+`return trait_name != "ZzzProbe";` in `sema_decl.cpp`:
+
+| matcher | verdict on the plant |
+|---|---|
+| widened (this round) | `FAIL: sema_decl.cpp bare-name intercepts: count 3, ledger pins 2.` |
+| shipped (`==` only)  | `#SCAN sema_decl.cpp 2 ce09ff69` — **identical to the pin, GREEN** |
+
+Plant reverted, `sema_decl.cpp` byte-identical, lint re-run **rc 0** — the green
+checkpoint between the two arms, not after them.
+
+## 2. ENUMERATED WITH `tools/dlog`, AND THE TOOL NEEDED A NEW FACT TO ANSWER
+
+Grep cannot answer this by construction, and neither could dlog as it stood:
+**direction is not derivable from the callee.** Under C++20 `s != "X"` on a
+`std::string` is a `CXXRewrittenBinaryOperator` **whose callee decl is
+`operator==`** — measured, not assumed (`probe2.dl`: `cmpcallee` returns
+`operator==` for every one of them). Three node kinds carry one comparison here
+and only one is a plain `BinaryOperator`.
+
+So `binop(Id, Op)` is now emitted for `BinaryOperator`,
+`CXXRewrittenBinaryOperator` and the overload form `CXXOperatorCallExpr` alike.
+The fact is mechanical — an opcode spelling; the CLAIM stays in the rule.
+`tools/dlog/name_intercept.dl` asks: a comparison node carrying `==`/`!=`, one
+operand a `str_lit`, the other reaching an entity-name producer derived the way
+the lint's own `PROD` derives it (callee ends in `name`, or is `type_str`).
+
+**KNOWN-ANSWER CONTROL for the extractor change**: `tools/dlog/selftest.sh` reads
+`19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty discriminates across
+756aed65 (1 -> 0)` — BEFORE the change and AFTER it, identical.
+
+⚠ **A SHAPE MISMATCH THAT LOOKED LIKE A CLEAN NEGATIVE.** The first version of
+the rule reached both operands with the schema's `through`, and answered **0
+intercepts / 10 residual** over a population the regex reads as hundreds.
+`through` sees through a node only when it carries its child's canonical type,
+and both wrappers here CHANGE it (a `StringLiteral` is `const char[5]` under an
+`ImplicitCastExpr` that is `const char *`). Bounded descent instead, depth 3,
+stated in the rule. This is finding #11's shape — a zero through a broken hop —
+caught by disbelieving the zero, not by the tool.
+
+## 3. THE CROSS-CHECK: TWO POPULATIONS, DIFFERING IN BOTH DIRECTIONS
+
+dlog **41 sites**, regex **32 sites**, **common 28** — so neither is the class.
+
+* **REGEX ONLY, 4** — `nm != "_"` (`sema_stmt.cpp` 5202/5523/5579/5870). `nm` is
+  in `SCAN_LHS`'s hand list and does not end in `name`, so the dlog rule files
+  them as **residual**, where they were confirmed present. Both are right about
+  the site; only the reach differs.
+* **DLOG ONLY, 13** — spellings `SCAN_LHS`'s hand list of LHS names cannot
+  reach: `kname` ×3, `aname` ×2, `bname`, `wname` ×4, `field_name`, `pkg_name()`,
+  and **`vname != "AnyVal"` (`sema_stmt.cpp:6699`)** — the #99 literal, in a file
+  #99's widening never touched. The lint's header already states "LHS name not in
+  `SCAN_LHS`'s list" as an HONEST LIMIT and calls it an open set; **this is the
+  first measurement of its size in the negated half alone.** RECORDED, NOT
+  FIXED: the fix is a hand-kept list of names, which is the drift this class is
+  made of.
+
+## 4. THE CLASSIFICATION THE PROMPT ORDERS — 45 SITES (the union), BY KIND
+
+Grep cannot make this distinction and this round does not pretend otherwise:
+every row below was read at its site.
+
+**BENIGN — 25.** The literal is not a user-declarable entity name at all.
+* `!= "_"` ×21 (`sema_stmt` 4414/5202/5523/5579/5799/5870/5972/5975/6066/6214/
+  6241/6360/6367/6594, `mlir_gen_expr` 4629/4956, `mlir_gen_stmt` 4671/5131/5756)
+  — `_` is the grammar's reserved pattern wildcard; a user cannot declare it.
+* `kname != "expected"` ×3 (`main.cpp` 5924, `sema_collect` 2279, `sema.cpp`
+  10645) — an attribute-map KEY, the `getenv` class the FACT-5 shape filter
+  already excludes.
+* `struct_name() != ""` ×1 (`sema_stmt` 5917) — an emptiness test.
+
+**PIN — 4.** The bare name is qualified at the site, or IS the key into an
+owner table.
+* `mono_impl.hpp:922` `struct_name() != "Box"` → the very next lines require
+  `pkg.empty() || pkg == "logos.mem.boxed"`. Guarded.
+* `sema.cpp:8886/8887` `struct_name() != "CtrClass"` → `pkg_name() !=
+  "logos.lcm.canon.metaclass"` on the next line; 8887 IS the qualifier.
+* `sema_stmt.cpp:6699` `vname != "AnyVal"` — a writ typed-map pattern's SURFACE
+  SYNTAX `@<K,V>{..}`, from a closed vocabulary shared with the adjacent
+  `map_tcs`/`arr_tcs` tables. The key into an owner table, the `make_synth_*`
+  shape.
+
+**DECISION — 16.** A bare entity name selects compiler behaviour; a user
+declaration of that name inherits it.
+| site | intercept | why it is a decision |
+|---|---|---|
+| `sema_collect.cpp` 3777 ×2, 3778 | `trait_name != "Copy"`, `!= "Drop"` | `builtin_marker_` / `trait_is_drop_`; the site's own comment says "lets the impl resolve via name alone" |
+| `sema_collect.cpp` 6546 | `info.trait_name != "Drop"` | the inherent/diff-sig arm, `g156.inherent.diffsig` |
+| `mono_clone.cpp` 232 · `sema_auto_trait.cpp` 104 | `trait_name != "Fst"` | auto-trait satisfaction for `FnItem`/`FnPtr`, a TWIN pair in two files |
+| `sema_expr.cpp` 9109 | `bound.trait_name != "Deref"` (twin `== "DerefMut"` above) | operator-deref dispatch. The `==` half was always visible to the gate; the `!=` half was not — **one decision, half-policed** |
+| `sema_expr.cpp` 19023/19030/20062/20073/22092 | `struct_name() != "Vec"` | quote / token-macro type recognition, **no package check at any of the five** |
+| `sema_expr.cpp` 1107 | `struct_name() != "WritMap"` | writ map-cast path; arm is an `internal:` refusal, so it is loud rather than silent |
+| `mono_clone.cpp` 1796/1973/2193/2285/2343/2461 | `fname != "uid"` ×5, `!= "name"` | template-identity recovery keyed on a bare STRUCT-LITERAL FIELD name |
+
+The four `Copy`/`Drop` rows are the same shape as the eight layers repaired in
+`8b49a203f` and `4013c21a8`, and the `Deref` row is the sharpest single finding:
+**a decision whose two arms were policed asymmetrically because the gate could
+only see one operator.**
+
+## 5. WHAT DESERVES FUNDING
+
+Ranked by "an arm that exists, reached through a fact the code does not carry":
+1. **`sema_expr.cpp` ×5 `struct_name() != "Vec"`** — one predicate, five call
+   sites, no package check, and the pkg-checked `is_stdlib_box` idiom already
+   exists in `mono_impl.hpp:922` to copy. The arm exists; the fact (the
+   declaration's package) is not carried.
+2. **`bound.trait_name != "Deref"` / `== "DerefMut"`** — the `bound_is_copy_lang_item`
+   landing from `4013c21a8` is the exact instrument, one trait over.
+3. **`trait_name != "Fst"` twins** — two files, one question; rule 18 says the
+   twin needs its own control twin.
+4. `sema_collect` `Copy`/`Drop` — read the two prior rounds' records FIRST; these
+   may already be the residual those landings deliberately left.

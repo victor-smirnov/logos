@@ -152,13 +152,57 @@
 # The nine sites were a soundness hole, not a style point: a user's own
 # `trait Copy` conferred Copy on a `Box`-owning struct (rc 134, valgrind
 # Invalid free) and on DIVERGENCE A16's explicitly-excepted `&mut` shape.
+# 2026-09-10g, THE GATE'S OWN ABUSE DIRECTION, MEASURED AND CLOSED: FACT 4's
+# SCAN_LHS and SCAN_ACC matched `==` ONLY. SCAN_FREE and SCAN_REV were widened
+# to `[!=]=` when #99 landed — the ground is written at SCAN_FREE, "`!=`
+# intercepts just as hard as `==`: it is the same decision with the arms
+# swapped" — and the two matchers that came FIRST were left on `==` in the same
+# edit. THIRTY-THREE negated intercepts at 32 sites in 9 files were invisible to
+# the gate, among them `trait_name != "Copy"` twice and `trait_name != "Drop"`
+# twice: members of the very classes the two rounds before this one repaired at
+# eight layers. The lint was green over all of them the whole time.
+#
+# The pins move UP, not down — nothing was converted; the gate simply stopped
+# lying about the size of its subject. +33, and no file gains a first row:
+#   mlir_gen_expr.cpp   2 ->   3    mono_impl.hpp        14 ->  15
+#   mlir_gen_stmt.cpp   1 ->   3    sema.cpp             48 ->  49
+#   mono_clone.cpp     97 -> 104    sema_auto_trait.cpp  15 ->  16
+#   sema_collect.cpp   36 ->  40    sema_expr.cpp       155 -> 162
+#   sema_stmt.cpp      13 ->  22
+# Total 437 -> 470.
+#
+# CROSS-CHECKED AGAINST A STRUCTURAL ENUMERATION, because a regex population is
+# not evidence about a class. `tools/dlog/name_intercept.dl` asks the same
+# question of the AST — a comparison node carrying opcode `==`/`!=`, one operand
+# a `str_lit`, the other reaching an entity-name producer derived the way this
+# file's own PROD is derived. That needed a new FACT: direction is NOT derivable
+# from the callee, because under C++20 `s != "X"` on a std::string is a
+# CXXRewrittenBinaryOperator whose callee decl IS `operator==`. `binop(Id, Op)`
+# is now emitted; `tools/dlog/selftest.sh` reads 19 walkers / 24 findings /
+# try_path 1-5 / domain 42-5 and the duty discrimination 1 -> 0 across
+# `756aed65` both before and after the extractor change.
+# The two populations DIFFER IN BOTH DIRECTIONS, which is the useful result:
+#   common 28 sites.
+#   REGEX ONLY, 4 — `nm != "_"` (sema_stmt 5202/5523/5579/5870). `nm` is in
+#     SCAN_LHS's hand list and does not end in `name`, so the dlog rule files
+#     them as residual. Both are right about the site; only the reach differs.
+#   DLOG ONLY, 13 — sites SCAN_LHS's hand list of LHS spellings cannot reach:
+#     `kname` (main.cpp 5924, sema_collect 2279, sema.cpp 10645), `aname`
+#     (mlir_gen_expr 4956, mlir_gen_stmt 5131), `bname` (sema_stmt 4414),
+#     `wname` (sema_stmt 6214/6241/6360/6367), `field_name` (sema_stmt 6066),
+#     `pkg_name()` (sema.cpp 8887) and `vname != "AnyVal"` (sema_stmt 6699).
+#     That last one is the #99 literal, in a file whose row #99 never touched.
+#     The header above already states "LHS name not in SCAN_LHS's list" as an
+#     HONEST LIMIT and calls it an open set; this is the first MEASUREMENT of
+#     how big it is in the negated half alone. It is recorded, not fixed: the
+#     fix is a hand-kept list of names, which is the drift this class is made of.
 #SCAN borrow_check.cpp 4 2e6b2e47
 #SCAN borrow_flow_summary.inc 1 b14a7b80
 #SCAN emit_module.cpp 6 5ec06a0f
 #SCAN main.cpp 4 04f2bc11
 #SCAN mlir_gen_debug.cpp 2 c5f7c386
 #SCAN mlir_gen_dyn.cpp 1 fad58de7
-#SCAN mlir_gen_expr.cpp 2 077ff06b
+#SCAN mlir_gen_expr.cpp 3 86ae8aa2
 #SCAN mlir_gen_impl.hpp 2 0d0525bf
 # 2026-09-09d: mlir_gen_stmt.cpp enters the roster at 1. THE LITERAL IS `_`
 # (md5-8 of the one-line roster "_" is b14a7b80), the WILDCARD TOKEN, and it is
@@ -170,11 +214,11 @@
 # (it refuses to classify; a human classifies at the pin move) and this is that
 # classification: a wildcard sentinel, not a name intercept, and no package can
 # qualify `_` because no package owns it.
-#SCAN mlir_gen_stmt.cpp 1 b14a7b80
+#SCAN mlir_gen_stmt.cpp 3 13158b82
 #SCAN mlir_gen_types.cpp 1 95c89e84
 #SCAN module_loader.cpp 1 dfda2a6a
-#SCAN mono_clone.cpp 97 64d05c85
-#SCAN mono_impl.hpp 14 3dae6516
+#SCAN mono_clone.cpp 104 410af9da
+#SCAN mono_impl.hpp 15 b3f162c1
 # 2026-09-04land, +1 (49 -> 50), roster 5a50bc47 -> 0a9e8634: `drop_fn_for`'s
 # per-candidate `c->trait_name == "Drop"` identity test. THE BARE NAME IS THE
 # CARRIED DECISION, not an oversight: `collect_impl`'s `builtin_marker_` merges a
@@ -185,11 +229,11 @@
 # words. What the test replaces is worse than a bare name: keying the destructor on
 # the MANGLED SYMBOL `<T>__drop`, which ran any inherent or other-trait `drop` at
 # scope exit (PROBES.md 2026-09-04land, root 3).
-#SCAN sema.cpp 48 34452b58
-#SCAN sema_auto_trait.cpp 15 9ab14bd6
-#SCAN sema_collect.cpp 36 17337e53
+#SCAN sema.cpp 49 cd0aa04c
+#SCAN sema_auto_trait.cpp 16 a2c3b0b4
+#SCAN sema_collect.cpp 40 0f9e28cc
 #SCAN sema_decl.cpp 2 ce09ff69
-#SCAN sema_expr.cpp 155 0f5c9f40
+#SCAN sema_expr.cpp 162 287f788d
 # sema_impl.hpp 29 -> 32, 2026-09-07s. THREE new comparisons of a trait name
 # against a literal, all inside `typevar_only_fn_once` / `callable_is_fn_once`,
 # the predicate that answers "is this callable consumed by its call?":
@@ -220,7 +264,7 @@
 # already holds at every binder door. NOT a package-qualified lookup and not a
 # carried decision; the sibling test in `mint_dbm_ref` was removed rather than
 # spelt twice.
-#SCAN sema_stmt.cpp 13 d8fbd320
+#SCAN sema_stmt.cpp 22 a6a4715e
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)
 mlir_gen_dyn.cpp	struct_types_	O	1	std::string(TypeRef(cur_t).struct_name())

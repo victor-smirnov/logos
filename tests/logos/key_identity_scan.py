@@ -301,12 +301,22 @@ def guards(src, ledger):
 # The LHS set is name-ish BY SHAPE, not a list of blessed literals: an entity
 # name arrives either in a variable whose name says so, or straight out of a
 # `…name()` / `target_type()` / `type_str()` accessor.
+# ⚠ THESE TWO MATCHED `==` ONLY, AND THAT WAS THIS GATE'S OWN ABUSE DIRECTION.
+# SCAN_FREE and SCAN_REV were widened to `[!=]=` when #99 landed, with the
+# ground written at SCAN_FREE — "`!=` intercepts just as hard as `==`: it is the
+# same decision with the arms swapped" — and the two matchers that came FIRST
+# were left on `==`. Measured 2026-09-10: 33 negated intercepts at 32 sites in 9
+# files that this gate could not see, among them `trait_name != "Copy"` twice
+# and `trait_name != "Drop"` twice — members of the very classes the two rounds
+# before this one repaired at eight layers. The lint was green over all of them
+# the whole time, which is the "green that vouches" its own FACT-4 header was
+# written against, one layer down and in the same direction.
 SCAN_LHS = re.compile(
     r'\b(?:callee|name|cn|base|bare|sname|tname|fname|tn|nm|target|cname|'
-    r'struct_name|trait_name|type_name|fn_name|callee_name)\s*==\s*"([^"\\]*)"')
+    r'struct_name|trait_name|type_name|fn_name|callee_name)\s*[!=]=\s*"([^"\\]*)"')
 SCAN_ACC = re.compile(
     r'\.(?:name|target_type|trait_name|struct_name|callee|type_name|type_str)'
-    r'\(\)\s*==\s*"([^"\\]*)"')
+    r'\(\)\s*[!=]=\s*"([^"\\]*)"')
 # ── FACT 4's MEASURED BLIND SPOT (task #99) ─────────────────────────────────
 # The two patterns above read an entity name out of a VARIABLE or out of a
 # METHOD on a receiver (`t.type_str() == "X"`). Neither can see the FREE-function

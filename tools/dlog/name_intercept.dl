@@ -1,0 +1,92 @@
+// name_intercept — EVERY comparison of an entity NAME against a string literal,
+// BY DIRECTION, asked of the general schema.
+//
+// THE QUESTION THE LINT COULD NOT ASK. `tests/logos/key_identity_lint.sh`
+// FACT 4 censuses this class with four regexes, and two of them (SCAN_LHS,
+// SCAN_ACC) were written for `==` alone — so `s.trait_name != "Copy"` was
+// invisible to the gate written to police exactly that decision. A regex cannot
+// tell the two apart cheaply because the NEGATED form is not a different
+// spelling of the same node: under C++20 `s != "X"` on a std::string is a
+// CXXRewrittenBinaryOperator whose CALLEE DECL IS `operator==`. Direction is a
+// property of the node's OPERATOR, which is why `binop` is now a fact.
+//
+// THE CLAIM IS NOT IN THE EXTRACTOR. `binop` and `str_lit` are mechanical: an
+// opcode spelling and a literal's text. What counts as an ENTITY-NAME PRODUCER
+// is DERIVED here by the same definition the lint's own header derives it by —
+// a call whose callee name ends in `name`, or is `type_str` — never a list of
+// blessed variable spellings, which is the drift this class is made of.
+#include "cxx_schema.dl"
+
+// ── the comparison, whichever of the three nodes carries it ─────────────────
+.decl cmp(c: symbol, op: symbol)
+cmp(C, Op) :- binop(C, Op), (Op = "==" ; Op = "!=").
+
+// An OPERAND. A CXXOperatorCallExpr's child 0 is the callee reference, not an
+// operand; the other two node kinds have exactly two children, both operands.
+.decl operand(c: symbol, x: symbol)
+operand(C, X) :- cmp(C, _), node(C, K, _, _), K != "CXXOperatorCallExpr", node(X, _, C, _).
+operand(C, X) :- cmp(C, _), node(C, "CXXOperatorCallExpr", _, _), node(X, _, C, I), I > 0.
+
+// ⚠ `through` DOES NOT REACH EITHER SIDE, AND THAT WAS MEASURED, NOT ASSUMED.
+// It sees through a node only when the node carries its child's canonical type,
+// and the two wrappers here both CHANGE it: a StringLiteral is `const char[5]`
+// under an ImplicitCastExpr that is `const char *`, and a by-value
+// `struct_name()` sits under a MaterializeTemporaryExpr. The first version of
+// this rule used `through` for both and answered 0 intercepts / 10 residual
+// over a population the regex reads as hundreds — a shape mismatch that looks
+// exactly like a clean negative. Bounded descent instead, depth stated.
+.decl sub(top: symbol, x: symbol, d: number)
+sub(N, N, 0) :- node(N, _, _, _).
+sub(N, C, D+1) :- sub(N, X, D), D < 3, node(C, _, X, _).
+
+// The literal side, seen through the wrappers clang inserts.
+.decl lit_side(c: symbol, x: symbol, text: symbol)
+lit_side(C, X, T) :- operand(C, X), sub(X, I, _), str_lit(I, T).
+
+// The OTHER side.
+.decl other_side(c: symbol, x: symbol)
+other_side(C, X) :- operand(C, X), !lit_side(C, X, _).
+
+// ── an ENTITY-NAME PRODUCER, DERIVED ───────────────────────────────────────
+// The lint's own derivation: a call whose callee name ends in `name`, or is
+// `type_str`. It is a shape over the tree's own declarations, not an
+// enumeration — a new `enum_name()` accessor joins without an edit here.
+.decl name_producer(did: symbol, name: symbol)
+name_producer(D, N) :- decl_name(D, N), match(".*name", N).
+name_producer(D, N) :- decl_name(D, N), N = "type_str".
+
+// The other side IS a call to one of those.
+.decl produced_name(c: symbol, callee: symbol)
+produced_name(C, Nm) :- other_side(C, X), sub(X, I, _), call(I, D), name_producer(D, Nm).
+
+// …or it is a REFERENCE to a declaration whose own name ends in `name`
+// (`trait_name`, `fname`, `tmpl_name`): a variable or field that a producer
+// filled. Same shape, applied to the declaration instead of the callee.
+.decl named_ref(c: symbol, var: symbol)
+named_ref(C, Nm) :- other_side(C, X), sub(X, I, _), ref(I, D), decl_name(D, Nm),
+                    match(".*name", Nm), !produced_name(C, _).
+
+// ── THE ANSWER ─────────────────────────────────────────────────────────────
+// One row per site: direction, literal, enclosing named context, and WHICH
+// producer supplied the name. The direction column is the whole point.
+.decl intercept(op: symbol, file: symbol, line: number, ctx: symbol,
+                text: symbol, producer: symbol)
+.output intercept
+intercept(Op, F, L, Ctx, T, P) :- cmp(C, Op), lit_side(C, _, T), loc(C, F, L, _),
+                                  ctx_of(C, K), ctx_name(K, Ctx), produced_name(C, P).
+intercept(Op, F, L, Ctx, T, P) :- cmp(C, Op), lit_side(C, _, T), loc(C, F, L, _),
+                                  ctx_of(C, K), ctx_name(K, Ctx), named_ref(C, P).
+
+// The RESIDUAL, stated rather than left for the next verify: a comparison
+// against a string literal whose other side is neither a derived producer nor a
+// name-shaped declaration. It is the population a per-site read must still
+// cover, and its size is the honest limit of this rule.
+.decl residual(op: symbol, file: symbol, line: number, ctx: symbol, text: symbol)
+.output residual
+residual(Op, F, L, Ctx, T) :- cmp(C, Op), lit_side(C, _, T), loc(C, F, L, _),
+                              ctx_of(C, K), ctx_name(K, Ctx),
+                              !produced_name(C, _), !named_ref(C, _).
+
+.decl counts(op: symbol, n: number)
+.output counts
+counts(Op, N) :- cmp(_, Op), N = count : { intercept(Op, _, _, _, _, _) }.

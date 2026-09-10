@@ -11,6 +11,11 @@
 // 200 chars). Without it, "which sites compare against this string" is a grep
 // question, and a grep cannot tell a decision site from a pin.
 .decl str_lit(id: symbol, text: symbol)
+// The OPERATOR SPELLING of a comparison, whichever of the three nodes carries
+// it. `s != "X"` on a std::string is a CXXRewrittenBinaryOperator whose callee
+// decl is `operator==`, so direction is NOT derivable from the callee — and a
+// gate that lost the negated half is exactly the defect this round measured.
+.decl binop(id: symbol, op: symbol)
 .decl loc(id: symbol, file: symbol, line: number, col: number)
 .decl decl(did: symbol, kind: symbol, qname: symbol)
 .decl decl_node(id: symbol, did: symbol)
@@ -21,6 +26,7 @@
 .input node
 .input type_of
 .input cast_kind
+.input binop
 .input str_lit
 .input loc
 .input decl
