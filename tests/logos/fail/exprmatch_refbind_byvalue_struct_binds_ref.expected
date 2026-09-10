@@ -1,0 +1,1 @@
+error [fn main]: let 'out': type mismatch — expected S, got &S

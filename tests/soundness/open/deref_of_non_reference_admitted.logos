@@ -1,0 +1,26 @@
+// SOUNDNESS QUEUE row deref_of_non_reference_admitted (tier 2, `admits`).
+// FOUND 2026-09-09g while writing the FAIL HALF of pass/refpat_refbind_depth2:
+// the obvious one-token twin of `*a` is `**a`, and it did not refuse. Probing
+// past the match door showed the permissiveness is general and has nothing to
+// do with patterns — `**n` on a plain `i64` LOCAL compiles clean too, which is
+// this program. A deref applied to a non-reference is silently a no-op.
+//
+// Rust refuses this: `error[E0614]: type `i64` cannot be dereferenced`. Logos
+// compiles it, links it, and runs it to exit 0 — so the wrong behaviour is the
+// COMPILE, and the oracle is `admits`, not a run.
+//
+// MEASURED on 97e13bfbd1d87021 43 (this round's binary) and INHERITED, not
+// caused by this round: the same program compiles clean on the base binary
+// 58fd3c9773b9c475 43, and this round's change touches only the match doors'
+// `ref` binder, which this program does not contain. Rule 14.
+//
+// WHY IT MATTERS BEYOND HYGIENE: an accepted extra `*` is the ONLY spelling a
+// pattern-binding fixture would naturally reach for to pin a binder's
+// indirection DEPTH from the refusing side, and it silently does not pin it.
+// Two of this round's fail halves had to be rewritten around it.
+package deref_of_non_reference_admitted;
+fn main() -> i32 {
+    let n: i64 = 6i64;
+    if **n != 6i64 { return 1i32; }
+    return 0i32;
+}

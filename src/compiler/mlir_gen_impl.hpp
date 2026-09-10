@@ -1610,6 +1610,12 @@ private:
     // fat handlers own the 16-byte layout. See mlir_gen_stmt.cpp.
     bool ref_bind_kind(TypeRef binding_type, TypeRef payload_type,
                        int& added_depth);
+    // `ref x` at a TOP-LEVEL MATCH DOOR — one implementation for the statement
+    // match and the expression match, which carried two textually identical
+    // copies that both decided by MLIR representation. Returns the bound name,
+    // or "" for `_`/anonymous. See mlir_gen_stmt.cpp.
+    std::string bind_match_ref_binder(lir_view::PatRef pat, mlir::Value scrut,
+                                      mlir::Value scrut_ptr, TypeRef scrut_ty);
     // Compute representation (the SSA value type). Today uniformly a thin pointer
     // (the fat pair lives in storage; the value is a pointer to it).
     mlir::Type  repr_value_type(RefReprKind k);

@@ -50,6 +50,78 @@ bool MLIRGenImpl::ref_bind_kind(TypeRef binding_type, TypeRef payload_type,
 }
 
 // ---------------------------------------------------------------------------
+// `ref x` AT A TOP-LEVEL MATCH DOOR — SINGLE IMPLEMENTATION (stmt + expr).
+// Both doors used to pick the bound value from the MLIR REPRESENTATION
+// (`scrut.getType() == ptr_type()`), which cannot separate the ADDRESS of a
+// by-value aggregate from the VALUE of a thin reference, and cannot see the
+// layers a `&`-pattern above already spent. Decide by LOGOS type instead:
+// PatRefBind's sema BIND_TYPE against the scrutinee's, through `ref_bind_kind`.
+// PROBES.md 2026-09-09g.
+// ---------------------------------------------------------------------------
+std::string MLIRGenImpl::bind_match_ref_binder(lir_view::PatRef pat,
+                                               mlir::Value scrut,
+                                               mlir::Value scrut_ptr,
+                                               TypeRef scrut_ty) {
+    std::string prbn(lir_view::PatRefBindView{pat}.name());
+    if (prbn.empty() || prbn == "_") return {};
+    TypeRef bind_ty = lir_view::PatRefBindView{pat}.bind_type(pool_impl());
+
+    mlir::Value bind_val;
+    if (scrut_ptr) {
+        bind_val = scrut_ptr;
+    } else if (scrut.getType() == ptr_type()) {
+        // `needed` = indirection layers the BINDING has over the scrutinee's own
+        // thin-ref layers; `have` = 1 when the pointer in hand is already the
+        // place's address (a by-value aggregate), 0 when it is the place's value.
+        int needed = 0;
+        ref_bind_kind(bind_ty, scrut_ty, needed);
+        int scrut_depth = 0;
+        for (TypeRef w = scrut_ty;
+             w && (w.kind() == LogosType::Kind::Ref ||
+                   w.kind() == LogosType::Kind::MutRef) && w.pointee() &&
+             ref_repr_of(w) == RefReprKind::ThinPtr;
+             w = w.pointee())
+            ++scrut_depth;
+        int diff = bind_ty ? needed - (scrut_depth == 0 ? 1 : 0) : 0;
+        bind_val = scrut;
+        for (int i = 0; i < diff; ++i) {          // owes an address: spill
+            auto tmp = create_entry_alloca(ptr_type());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, bind_val, tmp);
+            bind_val = tmp;
+        }
+        for (int i = 0; i < -diff; ++i)           // one layer too many: load
+            bind_val = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), bind_val);
+    } else {
+        auto tmp = create_entry_alloca(scrut.getType());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
+        bind_val = tmp;
+    }
+
+    TypeRef place_ty;
+    if (bind_ty && (bind_ty.kind() == LogosType::Kind::Ref ||
+                    bind_ty.kind() == LogosType::Kind::MutRef))
+        place_ty = bind_ty.pointee();
+    evict_var_shapes(prbn);
+    if (place_ty && (place_ty.kind() == LogosType::Kind::Struct ||
+                     place_ty.kind() == LogosType::Kind::ZonedStruct)) {
+        scope_[prbn] = bind_val;
+        let_vars_.insert(prbn);
+        var_struct_[prbn] = mlir_struct_key(place_ty);
+    } else if (place_ty && place_ty.kind() == LogosType::Kind::Tuple) {
+        scope_[prbn] = bind_val;
+        let_vars_.insert(prbn);
+        var_tuple_.insert(prbn);
+    } else {
+        auto alloca = create_entry_alloca(ptr_type());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, bind_val, alloca);
+        scope_[prbn] = alloca;
+        let_vars_.insert(prbn);
+        var_elem_types_[prbn] = ptr_type();
+    }
+    return prbn;
+}
+
+// ---------------------------------------------------------------------------
 // Enum payload binding (shared by stmt + expr match, for tuple-element enums)
 // ---------------------------------------------------------------------------
 
@@ -5044,30 +5116,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         }
         // ── PatRefBind: bind name as a reference (pointer to scrutinee) ──
         case pc::Code::RefBind: {
-            std::string prbn(lir_view::PatRefBindView{p}.name());
-            if (!prbn.empty() && prbn != "_") {
-                // P4-pm-17: if scrut is itself a pointer (e.g. `&T` from
-                // an outer PatRefPat over a borrowed scrutinee), the
-                // binding `a` aliases the pointer value directly — no
-                // extra spill-then-store-addr indirection. Otherwise we
-                // need to spill the scrut value to get an address.
-                mlir::Value bind_val;
-                if (scrut_ptr) {
-                    bind_val = scrut_ptr;
-                } else if (scrut.getType() == ptr_type()) {
-                    bind_val = scrut;
-                } else {
-                    auto tmp = create_entry_alloca(scrut.getType());
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
-                    bind_val = tmp;
-                }
-                auto alloca = create_entry_alloca(ptr_type());
-                builder_.create<mlir::LLVM::StoreOp>(loc_, bind_val, alloca);
-                evict_var_shapes(prbn);
-                scope_[prbn] = alloca;
-                let_vars_.insert(prbn);
-                var_elem_types_[prbn] = ptr_type();
-            }
+            // Single implementation, shared with the expression door — see
+            // MLIRGenImpl::bind_match_ref_binder.
+            bind_match_ref_binder(p, scrut, scrut_ptr, scrut_ty);
             return;
         }
         // ── PatRefPat: &pat or &mut pat — recurse into inner pattern ─────

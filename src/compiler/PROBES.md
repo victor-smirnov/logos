@@ -33439,3 +33439,138 @@ short of a run.
   3. `probe-log-lint.py`: 262 records before this record, 263 after — the count went up by
      the ONE record written. Its "every site symbol resolves" line is not cited; the three
      site symbols were grepped by hand and the counts are in the `build:` line.
+
+## 2026-09-09g-tlrefbind-landing — FOUR TIER-1 ROWS CLOSED BY ONE FUNCTION, AND THE CLASS ENUMERATED BY PROPERTY TURNED OUT TO HAVE FOUR MEMBERS THE PRICING ROUND'S TWO PROBES COULD NOT HAVE MOVED — INCLUDING A `&&ref a` THAT BOUND ONE LAYER TOO MANY, WHICH BOTH PRICED ARMS LEFT WRONG BECAUSE BOTH GATED ON `&`-DEPTH 0
+
+site: src/compiler/mlir_gen_stmt.cpp::bind_match_ref_binder (the new single
+implementation), src/compiler/mlir_gen_stmt.cpp::ref_bind_kind (the depth
+arithmetic it routes through), src/compiler/mlir_gen_expr.cpp::gen_expr_kind
+(the expression door, whose copy is gone)
+fires: no probe was installed this round — the arm LANDED. The measurements are
+hand programs (22 of them, 12 shapes the pricing round did not use) plus the two
+`run_oracle.py` passes below.
+build: base 58fd3c9773b9c475 43 (READ) · landed 97e13bfbd1d87021 43 (READ)
+
+### WHAT THE PRICING ROUND RECOMMENDED, AND WHY IT IS NOT WHAT LANDED
+
+2026-09-09f priced a `tlrb_refpat_depth` COUNTER: increment around the RefPat
+recursion, fire only at depth 0. That is a correct guard for the two rows it
+targeted and it is WRONG ONE STEP FURTHER OUT. Measured on the base binary:
+
+    match rr { &&ref a => *a }   over rr: &&i64     base exit 1, SILENTLY WRONG
+
+Two `&` spend both of the scrutinee's layers, so sema binds `a : &i64` — one
+layer FEWER than the pointer in hand carries — and the door aliased it anyway.
+A depth-0 gate does not fire here, so BOTH priced arms leave this program wrong.
+The defect is not "the arm fires at the wrong depth"; it is that the door has no
+opinion about depth at all, in EITHER direction. So what landed asks the binder's
+SEMA-ASSIGNED type (`PatRefBindView::bind_type`) against the scrutinee's, through
+`ref_bind_kind`, and materialises the difference with a sign:
+
+    needed = ref_bind_kind(bind_ty, scrut_ty)      // binding layers - scrut's own
+    have   = 1 when the pointer in hand is already the place's ADDRESS
+             (a by-value aggregate), 0 when it is the place's VALUE
+    diff = needed - have;  diff > 0 spill, diff < 0 LOAD, diff == 0 alias
+
+`diff < 0` is the arm no probe in the arc had; it is what closes `&&ref a`.
+
+### THE CLASS, ENUMERATED BY PROPERTY — AND THE PROPERTY IS NOT THE ROW'S SPELLING
+
+The property: *a match door picks the `ref` binder's value and shape from the
+MLIR REPRESENTATION of the scrutinee rather than from the LOGOS types.* Grep of
+the predicate `scrut.getType() == ptr_type()` returns 5 sites; reading all five,
+2 are the RefBind doors and 3 are tuple/array/slice scrutinee spills that never
+bind a name. Grep of `var_elem_types_[…] = ptr_type()` returns 10 sites; reading
+all ten names 6 more RefBind copies (struct-field ×2, slice-element ×3, pat_bind).
+Every one was given a hand program and MEASURED on the base binary, because a
+grep-defined class certifies what it cannot see:
+
+| copy | P1 value | P2 shape | measured on base |
+|---|---|---|---|
+| stmt `gen_match`/extract_payload RefBind | WRONG | WRONG | 139 / 1 |
+| expr `gen_expr_kind`/extract_arm_payload RefBind | WRONG | WRONG | 139 / 1 |
+| stmt struct-field RefBind | n/a (fp is an address) | ok (struct+tuple) | 0 |
+| expr struct-field RefBind | n/a | tuple shape MISSING in the source… | …but 0, measured |
+| stmt / expr slice-element RefBind ×3 | n/a | no shape in the source… | …but 0, measured |
+| `pat_bind` RefBind | n/a | ok — this is the MODEL the fix copies | 0 |
+
+The last two rows are the finding that keeps a grep from being an enumeration:
+**three copies are missing the shape in the source and are nonetheless correct at
+run time**, because tuple field access and slice element access do not consume
+`var_tuple_`/`var_struct_` the way struct field access does. They are not class
+members. Naming them from the source alone would have been four unnecessary edits.
+
+### THE FOUR ROWS, AND FOUR MORE DEFECTS NOBODY HAD ROWED
+
+Predicted BY NAME in `/home/logos/sandbox/rb2/PREDICTION.txt` before the compiler
+was edited: exactly 4 rows, `# TOTAL` 80 → 76. The armed queue gate names exactly
+those 4 of 78 candidates — **diff empty in BOTH directions**:
+
+    refbind_scalar_under_ref_segv              run 139 -> 0
+    toplevel_refbind_over_ref_scrutinee_segv   run 139 -> 0
+    exprmatch_refbind_over_ref_scrutinee_segv  run 139 -> 0
+    refbind_byvalue_struct_field_read_wrong    run   1 -> 0
+
+Found by varying the shape past what the prompt and the pricing round named, all
+compiling rc 0 with no diagnostic on the base binary, none of them rowed:
+
+    &&ref a over &&i64, read *a                        base 1  -> 0   (NEW KIND)
+    &ref a over &S, read a.a                           base 1  -> 0   (NEW KIND)
+    expression-position by-value struct, w.a           base 1  -> 0   (NEW KIND)
+    &mut scrutinee in an expression match               base 139 -> 0
+    the door reached through a NESTED match arm         base 139 -> 0
+    the binder handed to a fn taking &&i64              base 139 -> 0
+    a reference to an ARRAY (by-pointer payload)        base 139 -> 0
+    by-value struct, TWO fields / a NESTED field read   base 1  -> 0
+
+Shape controls correct on base AND after (rule 5 — these vary the SHAPE, not the
+count): `&ref a` at depth 1 (the three pinned `borrowed-ptr-pattern` fixtures);
+a tuple PATTERN with two `ref` binders over `&i64` elements (a2 — correct on base,
+because that path goes through `pat_bind`, which is why it is not a class member);
+by-value TUPLE `w.0` in both statement and expression position; `ref` over a
+non-reference scalar; a binder never read; `let q: &S = w; q.a`; a fat `&[i64]`
+scrutinee reached through a fn call; struct-field and slice-element `ref` binders.
+
+### ORACLES
+
+  * soundness queue gate (with `LOGOS_LIB_DIR`): rc 0 at `# TOTAL` **77** by
+    direct listing — 80 in, 4 closed, 1 filed (tier1 23 → 19, tier2 8 → 9).
+  * `run_oracle.py` over **6602** pass fixtures compiled, linked and RUN, both
+    binaries, diffed triple by triple: **1 changed, and it is
+    `cast-region-to-uint`**, which prints a stack address and is subtracted by
+    name. **Runtime cost 0 / 6602.** This is the column that condemned the crude
+    arm last round, and it is the only column that could have.
+  * A NEW ROW rather than a repair: `deref_of_non_reference_admitted` (tier 2,
+    `admits`). `**n` on a plain `i64` LOCAL compiles clean and runs 0 — Rust
+    refuses with E0614. INHERITED (rule 14): identical on the base binary, and
+    the program contains no match. It is filed because it BIT THIS ROUND — the
+    natural one-token fail half for a binder's depth is an extra `*`, and it does
+    not refuse, so two fail halves had to be rewritten to `let q: T = a;` instead.
+
+### TWO THINGS MEASURED ON THE WAY THAT CONTRADICT A RECORDED CLAIM
+
+**`build_hash.py` DOES NOT RETURN ACROSS A `cmake -B build` RECONFIGURE, AND THE
+CONTROL REVERT HAD TO BE PROVEN BEHAVIOURALLY INSTEAD.** Base 58fd3c9773b9c475 43
+→ armed 97e13bfbd1d87021 43 → a bare reconfigure (needed so the new fixtures
+register) 73da1d920bedace6 43 with NO source change → reverted 3ab0998b81137033 43,
+which is NOT the base. The file's own docstring names the cause it does not draw
+the conclusion from: the version string is stamped at CMake's CONFIGURE step and
+is IN the binary, so reconfiguring moves the key with nothing else moving. The
+count stayed 43 throughout, so this is not a shrunken file set. Consequence for
+the method: **after a round that adds fixtures, "the hash came back" is not
+available as the control-revert oracle** — it did not come back here and the
+revert was still exact (restoring the stash rebuilt to a5f458f318529f21 43, digit
+for digit the armed hash). What proved the revert is the BEHAVIOUR: on the
+reverted binary all four closed rows returned to their recorded 139/139/139/1 and
+all eight unrowed defects returned to wrong, while every one of the eleven shape
+controls stayed 0 on both binaries.
+
+**`key_identity_lint.sh` fired on this change, for a SPELLING, exactly as its own
+2026-09-09d ledger note predicts.** Extracting one binder out of two put the
+guard `x.empty() || x == "_"` in a function whose local was called `name`, and
+`name ==` is in SCAN_LHS while the `prbn` the two merged doors used was not. The
+literal is `_`, the wildcard token, which no package can qualify and which is not
+an entity name. Rather than move the pin to 2 and add a row that says that for
+the second time, the local keeps the identifier the merged sites already used
+(`prbn`) — the guard is textually the same guard, the lint's population rule is
+untouched, and the roster stays at 1. Recorded here so the choice is not silent.

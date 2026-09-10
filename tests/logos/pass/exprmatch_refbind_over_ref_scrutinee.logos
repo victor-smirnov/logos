@@ -1,0 +1,17 @@
+// Was SOUNDNESS QUEUE row exprmatch_refbind_over_ref_scrutinee_segv (tier 1,
+// `run 139`), closed 2026-09-09g. The EXPRESSION match carried its own copy of
+// the statement door's RefBind case; both are now one function
+// (MLIRGenImpl::bind_match_ref_binder), which is why this row and the
+// statement rows close together. The fail half one token away is
+// fail/exprmatch_refbind_over_ref_scrutinee_type.
+package exprmatch_refbind_over_ref_scrutinee;
+use logos.std.fmt;
+fn main() -> i32 {
+    let v: i64 = 12i64;
+    let out: i64 = match &v {
+        ref r => **r
+    };
+    println!("out={}", out);
+    if out != 12i64 { return 1i32; }
+    return 0i32;
+}

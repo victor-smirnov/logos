@@ -1,0 +1,54 @@
+// RULE 5, DISCHARGED IN THE TREE. The two statement rows closed in 2026-09-09g
+// were each ONE spelling of a top-level `ref` binder over a reference-typed
+// scrutinee; this fixture carries four MORE shapes that all exited 139 on the
+// base binary 58fd3c9773b9c475 43 and that no ledger row named:
+//   `&mut` scrutinee in an EXPRESSION match; the door reached through a NESTED
+//   match arm; the binder handed to a function expecting `&&i64`; and a
+//   reference to an ARRAY, where the payload is by-pointer rather than scalar.
+// They are one fixture and not four because they are the same defect at the
+// same door — the class is pinned per PROPERTY elsewhere; this pins its REACH.
+// The fail half one token away is fail/refbind_over_ref_scrutinee_shapes_type.
+package refbind_over_ref_scrutinee_shapes;
+use logos.std.fmt;
+fn thru(p: &&i64) -> i64 { return **p; }
+fn main() -> i32 {
+    let mut n: i64 = 7i64;
+    let m1: i64 = match &mut n {
+        ref w => **w
+    };
+    if m1 != 7i64 { return 1i32; }
+
+    let k: i64 = 21i64;
+    let flag: bool = true;
+    let mut m2: i64 = 0i64;
+    match flag {
+        true => {
+            match &k {
+                ref w => { m2 = **w; }
+            }
+        }
+        false => { return 2i32; }
+    }
+    if m2 != 21i64 { return 3i32; }
+
+    let j: i64 = 33i64;
+    let mut m3: i64 = 0i64;
+    match &j {
+        ref w => { m3 = thru(w); }
+    }
+    if m3 != 33i64 { return 4i32; }
+
+    let arr: [i64; 2] = [11i64, 12i64];
+    let r: &[i64; 2] = &arr;
+    let mut m4: i64 = 0i64;
+    match r {
+        ref w => {
+            let q: &[i64; 2] = *w;
+            m4 = q[1];
+        }
+    }
+    if m4 != 12i64 { return 5i32; }
+
+    println!("{} {} {} {}", m1, m2, m3, m4);
+    return 0i32;
+}

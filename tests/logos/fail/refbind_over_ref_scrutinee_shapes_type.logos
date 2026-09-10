@@ -1,0 +1,15 @@
+// The fail half of pass/refbind_over_ref_scrutinee_shapes, ONE TOKEN away: the
+// binder is handed to a function taking `&i64` instead of `&&i64`. A top-level
+// `ref w` over a `&i64` scrutinee binds `w : &&i64` whatever the surrounding
+// shape, and that extra layer is exactly what the closed defect dropped.
+package refbind_over_ref_scrutinee_shapes_type;
+fn thru(p: &i64) -> i64 { return *p; }
+fn main() -> i32 {
+    let j: i64 = 33i64;
+    match &j {
+        ref w => {
+            if thru(w) != 33i64 { return 1i32; }
+            return 0i32;
+        }
+    }
+}

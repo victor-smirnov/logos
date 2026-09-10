@@ -1,0 +1,19 @@
+// A NEW tier-1 defect, found and closed in the same round (2026-09-09g): the
+// EXPRESSION-match twin of pass/refbind_byvalue_struct_field_read. The pricing
+// round rowed the statement half only; enumerating the class BY THE PROPERTY
+// ("the door registers the binding with no shape") rather than by the row's
+// spelling names both copies, and this one measured exit 1 — a silent wrong
+// answer — on the base binary 58fd3c9773b9c475 43.
+// The fail half one token away is fail/exprmatch_refbind_byvalue_struct_binds_ref.
+package exprmatch_refbind_byvalue_struct_field;
+use logos.std.fmt;
+struct S { pub a: i64, pub b: i64 }
+fn main() -> i32 {
+    let s: S = S { a: 41i64, b: 1i64 };
+    let out: i64 = match s {
+        ref w => w.a + w.b
+    };
+    println!("out={}", out);
+    if out != 42i64 { return 1i32; }
+    return 0i32;
+}

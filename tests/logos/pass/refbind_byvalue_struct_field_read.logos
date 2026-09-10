@@ -1,0 +1,23 @@
+// Was SOUNDNESS QUEUE row refbind_byvalue_struct_field_read_wrong (tier 1,
+// `run 1` — a SILENT WRONG ANSWER, not a segfault), closed 2026-09-09g by
+// MLIRGenImpl::bind_match_ref_binder. Over a BY-VALUE struct the match door's
+// alias branch was right about the VALUE (`scrut` is the struct's address) and
+// wrong about the SHAPE: it registered `var_elem_types_[w] = ptr` with no
+// `var_struct_`, so `w.a` GEP'd through the alloca wrap and read the pointer's
+// own bytes as field `a`. The shape is now read off the binder's sema type, the
+// way pat_bind's RefBind case has always read it.
+// The fail half one token away is fail/refbind_byvalue_struct_binds_ref.
+package refbind_byvalue_struct_field_read;
+use logos.std.fmt;
+struct S { pub a: i64, pub b: i64 }
+fn main() -> i32 {
+    let s: S = S{ a: 4i64, b: 7i64 };
+    match s {
+        ref w => {
+            println!("a={} b={}", w.a, w.b);
+            if w.a != 4i64 { return 1i32; }
+            if w.b != 7i64 { return 2i32; }
+            return 0i32;
+        }
+    }
+}

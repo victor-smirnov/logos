@@ -1,0 +1,20 @@
+// Was SOUNDNESS QUEUE row refbind_scalar_under_ref_segv (tier 1, `run 139`),
+// closed 2026-09-09g by MLIRGenImpl::bind_match_ref_binder — the two match
+// doors used to choose the bound value from the MLIR REPRESENTATION, and a
+// `&i64` VALUE is pointer-represented, so `r` aliased the reference instead of
+// taking its address: `*r` handed back the payload and the second `*`
+// dereferenced 5 AS AN ADDRESS (SIGSEGV). `ref r` over a `&i64` scrutinee
+// binds `r : &&i64` in Rust and in sema; codegen now agrees.
+// The fail half one token away is fail/refbind_scalar_under_ref_depth.
+package refbind_scalar_under_ref;
+use logos.std.fmt;
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    let mut out: i64 = 0i64;
+    match &v {
+        ref r => { out = **r; }
+    }
+    println!("out={}", out);
+    if out != 5i64 { return 1i32; }
+    return 0i32;
+}

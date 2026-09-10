@@ -1,0 +1,22 @@
+// The fail half of pass/refpat_refbind_depth2, ONE TOKEN away: `let q: i64 = a;`
+// instead of `let q: i64 = *a;`. Two `&` in the pattern spend both of the
+// scrutinee's layers, so `ref a` binds `a : &i64` — and that binding type is
+// precisely the fact the closed defect's codegen contradicted, because it
+// aliased the scrutinee two layers up and handed `a` an address of an address.
+// ⚠ The obvious twin `**a` does NOT refuse: an extra deref of a non-reference
+// is silently accepted compiler-wide (soundness_queue row
+// deref_of_non_reference_admitted, filed the same round), so it could not pin
+// this binding's depth and is not the twin used here.
+package refpat_refbind_depth2_type;
+fn main() -> i32 {
+    let n: i64 = 6i64;
+    let r: &i64 = &n;
+    let rr: &&i64 = &r;
+    match rr {
+        &&ref a => {
+            let q: i64 = a;
+            if q != 6i64 { return 1i32; }
+            return 0i32;
+        }
+    }
+}

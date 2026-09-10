@@ -1,0 +1,22 @@
+// Was SOUNDNESS QUEUE row toplevel_refbind_over_ref_scrutinee_segv (tier 1,
+// `run 139`), closed 2026-09-09g by MLIRGenImpl::bind_match_ref_binder.
+// A TOP-LEVEL `ref w` over a REFERENCE-TYPED scrutinee: the default binding
+// mode is still `move` at the top level, so the written `ref` binds `w : &&i64`
+// — sema says so, and fail/toplevel_refbind_over_ref_scrutinee_type pins it.
+// Codegen chose the binding from the MLIR representation and a `&i64` value IS
+// a pointer, so `w` aliased the reference: `*w` was the payload 3 and `**w`
+// dereferenced 3 as an address. The fail half is one token away.
+package toplevel_refbind_over_ref_scrutinee;
+use logos.std.fmt;
+fn main() -> i32 {
+    let n: i64 = 3i64;
+    match &n {
+        ref w => {
+            let b: &i64 = *w;
+            let a: i64 = *b;
+            println!("a={}", a);
+            if a != 3i64 { return 1i32; }
+            return 0i32;
+        }
+    }
+}

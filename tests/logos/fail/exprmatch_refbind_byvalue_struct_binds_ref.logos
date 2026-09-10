@@ -1,0 +1,14 @@
+// The fail half of pass/exprmatch_refbind_byvalue_struct_field, ONE TOKEN away:
+// the arm yields `w` where an `S` is required. `ref w` over a by-value struct
+// binds `w : &S` in an expression match exactly as in a statement match, and
+// that is the sema fact the closed defect's codegen did not carry.
+package exprmatch_refbind_byvalue_struct_binds_ref;
+struct S { pub a: i64, pub b: i64 }
+fn main() -> i32 {
+    let s: S = S { a: 41i64, b: 1i64 };
+    let out: S = match s {
+        ref w => w
+    };
+    if out.a != 41i64 { return 1i32; }
+    return 0i32;
+}

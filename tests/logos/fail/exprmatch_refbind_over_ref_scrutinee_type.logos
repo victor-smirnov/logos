@@ -1,0 +1,13 @@
+// The fail half of pass/exprmatch_refbind_over_ref_scrutinee, ONE TOKEN away:
+// `*r` instead of `**r`. In an expression match exactly as in a statement
+// match, a top-level `ref r` over a `&i64` scrutinee binds `r : &&i64`, so the
+// arm's value at one deref is a `&i64` and cannot initialise an `i64`.
+package exprmatch_refbind_over_ref_scrutinee_type;
+fn main() -> i32 {
+    let v: i64 = 12i64;
+    let out: i64 = match &v {
+        ref r => *r
+    };
+    if out != 12i64 { return 1i32; }
+    return 0i32;
+}

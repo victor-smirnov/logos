@@ -1,0 +1,15 @@
+// The fail half of pass/toplevel_refbind_over_ref_scrutinee, ONE TOKEN away:
+// `let b: i64` instead of `let b: &i64`. It pins the SEMA fact the closed
+// defect's codegen contradicted — a top-level `ref w` over a `&i64` scrutinee
+// binds `w : &&i64`, so one deref is a `&i64`, not an `i64`.
+package toplevel_refbind_over_ref_scrutinee_type;
+fn main() -> i32 {
+    let n: i64 = 3i64;
+    match &n {
+        ref w => {
+            let b: i64 = *w;
+            if b != 3i64 { return 1i32; }
+            return 0i32;
+        }
+    }
+}

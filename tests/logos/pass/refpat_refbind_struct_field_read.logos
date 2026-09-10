@@ -1,0 +1,23 @@
+// A NEW tier-1 defect, found and closed in the same round (2026-09-09g).
+// `match x { &ref a => a.a }` over `x: &S`: the `&`-pattern spends the one
+// layer, sema binds `a : &S`, and the old door's alias branch got the VALUE
+// right and the SHAPE wrong — no `var_struct_`, so `a.a` GEP'd through the
+// alloca wrap and read the pointer's own bytes. Exit 1 on the base binary
+// 58fd3c9773b9c475 43, silently. This is the `&`-pattern sibling of the
+// by-value-struct row (pass/refbind_byvalue_struct_field_read): SAME missing
+// fact, a DIFFERENT way of arriving at the door, which is what makes it a
+// member of the class rather than a spelling of that row.
+// The fail half one token away is fail/refpat_refbind_struct_field_deref.
+package refpat_refbind_struct_field_read;
+use logos.std.fmt;
+struct S { pub a: i64, pub b: i64 }
+fn f(x: &S) -> i64 {
+    match x { &ref a => { return a.a + a.b; } }
+}
+fn main() -> i32 {
+    let s: S = S { a: 23i64, b: 19i64 };
+    let t: i64 = f(&s);
+    println!("t={}", t);
+    if t != 42i64 { return 1i32; }
+    return 0i32;
+}

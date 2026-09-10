@@ -4914,26 +4914,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             // Without this, the binding is missing and a deref-in-guard
             // (`ref r if *r < 0`) yields a null guard value → CondBranchOp
             // crash.
-            std::string prbn(lir_view::PatRefBindView{pat_ref}.name());
-            if (!prbn.empty() && prbn != "_") {
-                mlir::Value bind_val;
-                if (scrut_ptr) {
-                    bind_val = scrut_ptr;
-                } else if (scrut.getType() == ptr_type()) {
-                    bind_val = scrut;
-                } else {
-                    auto tmp = create_entry_alloca(scrut.getType());
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
-                    bind_val = tmp;
-                }
-                auto alloca = create_entry_alloca(ptr_type());
-                builder_.create<mlir::LLVM::StoreOp>(loc_, bind_val, alloca);
-                evict_var_shapes(prbn);
-                scope_[prbn] = alloca;
-                let_vars_.insert(prbn);
-                var_elem_types_[prbn] = ptr_type();
-                added.push_back(prbn);
-            }
+            // Single implementation, shared with the statement door — see
+            // MLIRGenImpl::bind_match_ref_binder.
+            auto prbn = bind_match_ref_binder(pat_ref, scrut, scrut_ptr, scrut_ty);
+            if (!prbn.empty()) added.push_back(prbn);
         } else if (pat_ref.kind() == pc::Code::RefPat) {
             // &pat / &mut pat — recurse into the inner pattern. A `&`-PATTERN
             // OVER A SCALAR IS A LOAD (see the statement door's RefPat case):

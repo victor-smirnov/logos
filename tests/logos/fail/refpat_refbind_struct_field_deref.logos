@@ -1,0 +1,15 @@
+// The fail half of pass/refpat_refbind_struct_field_read, ONE TOKEN away:
+// `let q: S = a;` instead of `let q: &S = a;`. `&ref a` over a `&S` scrutinee
+// binds `a : &S` — a BORROW — and it is that type the pass half's field access
+// must GEP through. The pass half asserts the shape; this asserts the type the
+// shape is derived from.
+package refpat_refbind_struct_field_deref;
+struct S { pub a: i64, pub b: i64 }
+fn f(x: &S) -> i64 {
+    match x { &ref a => { let q: S = a; return q.a; } }
+}
+fn main() -> i32 {
+    let s: S = S { a: 23i64, b: 19i64 };
+    if f(&s) != 23i64 { return 1i32; }
+    return 0i32;
+}

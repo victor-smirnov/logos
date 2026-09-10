@@ -1,0 +1,26 @@
+// A NEW tier-1 defect, found and closed in the same round (2026-09-09g) by
+// varying the SHAPE past what the pricing round's prompt named. `&&ref a` over
+// a `&&i64` scrutinee: the `&`-pattern spends TWO layers, so sema binds
+// `a : &i64` — one layer FEWER than the scrutinee value carries. The old match
+// door aliased the scrutinee unconditionally whenever it was pointer-
+// represented, so `a` held the address of the outer reference and `*a` read a
+// POINTER as an i64: exit 1, a silent wrong answer on the base binary
+// 58fd3c9773b9c475 43, with no diagnostic. Neither the crude nor the refined
+// arm the pricing round priced moved it — both gated on `&`-depth 0 — which is
+// why deciding by the binder's sema TYPE rather than by a depth counter is the
+// fix that covers the class in both directions.
+// The fail half one token away is fail/refpat_refbind_depth2_type.
+package refpat_refbind_depth2;
+use logos.std.fmt;
+fn main() -> i32 {
+    let n: i64 = 6i64;
+    let r: &i64 = &n;
+    let rr: &&i64 = &r;
+    match rr {
+        &&ref a => {
+            println!("a={}", *a);
+            if *a != 6i64 { return 1i32; }
+            return 0i32;
+        }
+    }
+}

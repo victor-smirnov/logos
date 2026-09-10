@@ -1,0 +1,1 @@
+error [fn f]: let 'q': type mismatch — expected S, got &S

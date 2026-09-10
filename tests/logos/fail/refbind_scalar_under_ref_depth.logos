@@ -1,0 +1,15 @@
+// The fail half of pass/refbind_scalar_under_ref, ONE TOKEN away: `*r` instead
+// of `**r`. `ref r` over a `&i64` scrutinee binds `r : &&i64`, so ONE deref is
+// a `&i64` and not an `i64`. This pins the TYPE the pass half's codegen must
+// match — the pass half asserts the value, this half asserts the indirection
+// depth sema assigns, which is the fact the old codegen disagreed with.
+package refbind_scalar_under_ref_depth;
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    let mut out: i64 = 0i64;
+    match &v {
+        ref r => { out = *r; }
+    }
+    if out != 5i64 { return 1i32; }
+    return 0i32;
+}
