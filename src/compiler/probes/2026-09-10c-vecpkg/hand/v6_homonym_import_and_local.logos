@@ -1,0 +1,22 @@
+// CE v6 — the HOMONYM shape: the package imports the stdlib Vec AND declares
+// its own `Vec`. Neither of the five sites can tell them apart; only a
+// downstream qualified check can, and this program asks which one wins.
+package v6_homonym_import_and_local;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+
+pub struct Vec<T> {
+    head: T,
+    n: i64,
+}
+
+#[fn_macro]
+pub fn addup6(args: Vec<ExprBlob>) -> ExprBlob {
+    return quote_expr! { 40i32 + 2i32 };
+}
+
+fn main() -> i32 {
+    let r: i32 = addup6!(1i32, 2i32);
+    return r - 42i32;
+}

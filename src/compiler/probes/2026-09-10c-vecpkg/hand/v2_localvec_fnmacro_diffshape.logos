@@ -1,0 +1,21 @@
+// CE v2 — same site (22097), DIFFERENT field shape: one by-value payload field
+// and one count, no raw pointer at all. If the bare-name recogniser accepts it
+// the packing code writes a stdlib Vec layout over a struct that has none.
+package v2_localvec_fnmacro_diffshape;
+
+use logos.std.compiler.metaprog;
+
+pub struct Vec<T> {
+    head: T,
+    n: i64,
+}
+
+#[fn_macro]
+pub fn addup2(args: Vec<ExprBlob>) -> ExprBlob {
+    return quote_expr! { 40i32 + 2i32 };
+}
+
+fn main() -> i32 {
+    let r: i32 = addup2!(1i32, 2i32);
+    return r - 42i32;
+}

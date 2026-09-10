@@ -1,0 +1,44 @@
+// CE v5b — v5 compiled and ran rc 0, which does NOT say the quote_item cursor
+// door fired: an EMPTY field list would also compile. This asks the generated
+// struct for the field the cursor was supposed to name.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+use logos.lang.writ.anyval;
+use logos.lang.fabric;
+
+pub struct Vec<T> {
+    head: T,
+    n: i64,
+}
+
+#[metaprog_handler("derive_one_col_b")]
+fn derive_one_col_b_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let item: WAny = view.node_at(target_offset);
+    if view.ast_node_name(item).len == (0 as u64) { return; }
+
+    let s_a: str = "zz";
+    let col_names: Vec<Ident> = Vec { head: Ident::new(s_a), n: 1i64 };
+
+    let blob: QuoteItemBlob = quote_item! {
+        pub struct GeneratedTwo {
+            #( pub #col_names: u64 ),*
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[derive_one_col_b]
+pub struct TriggerB {
+    pub n: u64,
+}
+
+fn main() -> i32 {
+    let g: GeneratedTwo = GeneratedTwo { zz: 5u64 };
+    if g.zz != 5u64 { return 1; }
+    return 0;
+}

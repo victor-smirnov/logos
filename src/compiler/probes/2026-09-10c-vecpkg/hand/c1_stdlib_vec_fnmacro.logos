@@ -1,0 +1,16 @@
+// CONTROL c1 — the stdlib Vec in the same fn_macro parameter position. This
+// must not move under any candidate change.
+package c1_stdlib_vec_fnmacro;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+
+#[fn_macro]
+pub fn addupc(args: Vec<ExprBlob>) -> ExprBlob {
+    return quote_expr! { 40i32 + 2i32 };
+}
+
+fn main() -> i32 {
+    let r: i32 = addupc!(1i32, 2i32);
+    return r - 42i32;
+}

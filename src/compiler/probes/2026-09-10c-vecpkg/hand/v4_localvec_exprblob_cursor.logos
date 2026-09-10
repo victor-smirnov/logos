@@ -1,0 +1,30 @@
+// CE v4 — the other cursor door, sema_expr.cpp:20078 (`is_vec_exprblob_type`),
+// reached with a package-local `Vec` again but a DIFFERENT element type and a
+// THIRD field shape (two counts around the payload).
+package v4_localvec_exprblob_cursor;
+
+use logos.std.compiler.metaprog;
+
+pub struct Vec<T> {
+    lo: i64,
+    head: T,
+    hi: i64,
+}
+
+#[fn_macro]
+pub fn steps(a: ExprBlob) -> ExprBlob {
+    let frags: Vec<ExprBlob> = Vec { lo: 0i64, head: parse_expr("t = t + 5i64;"), hi: 1i64 };
+    return quote_expr! {
+        {
+            let mut t: i64 = 1i64;
+            #( #frags; )*
+            t
+        }
+    };
+}
+
+fn main() -> i32 {
+    let r: i64 = steps!(1i32);
+    if r != 6i64 { return 1i32; }
+    return 0i32;
+}

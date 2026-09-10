@@ -1,0 +1,45 @@
+// CE v5 — the QUOTE-ITEM doors, sema_expr.cpp:19028/19035 (`is_vec_ident_qi` /
+// `is_vec_exprblob_qi`). A package-local `struct Vec<T>` drives a
+// `quote_item!` field-list repeat group, the shape
+// `pass/quote_item_field_repeat_group` drives with the stdlib Vec.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+use logos.lang.writ.anyval;
+use logos.lang.fabric;
+
+pub struct Vec<T> {
+    head: T,
+    n: i64,
+}
+
+#[metaprog_handler("derive_one_col")]
+fn derive_one_col_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let item: WAny = view.node_at(target_offset);
+    if view.ast_node_name(item).len == (0 as u64) { return; }
+
+    let s_a: str = "a";
+    let col_names: Vec<Ident> = Vec { head: Ident::new(s_a), n: 1i64 };
+
+    let blob: QuoteItemBlob = quote_item! {
+        pub struct GeneratedOne {
+            #( pub #col_names: u64 ),*
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[derive_one_col]
+pub struct Trigger {
+    pub n: u64,
+}
+
+fn main() -> i32 {
+    let sz: i64 = sizeof::<GeneratedOne>();
+    if sz <= 0i64 { return 1; }
+    return 0;
+}

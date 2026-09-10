@@ -1,0 +1,9 @@
+run_oracle.py — 6634 pass fixtures compiled + linked + RUN, base vs LOGOS_PROBE=vecqual
+build: base 985dbfa59a273565 43 (armed binary, unarmed run) vs the same binary armed
+rows differing (ccrc, runrc, stdout-sha):
+1056c1056
+< logos_02_semantic_core_pass_cast-region-to-uint	0	0	4b21ec167ef71ae3
+---
+> logos_02_semantic_core_pass_cast-region-to-uint	0	0	e42530e8515de381
+-> 1 row, and it is cast-region-to-uint, the by-name subtraction (prints a stack address).
+-> RUNTIME COST = 0 of 6634.

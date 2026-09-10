@@ -1,0 +1,43 @@
+// CONTROL c2 — the stdlib Vec<Ident> cursor door (20067) and Vec<ExprBlob>
+// cursor door (20078) in one program. Must not move.
+package c2_stdlib_vec_ident_cursor;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+
+#[fn_macro]
+pub fn sum3c(args: Vec<ExprBlob>) -> ExprBlob {
+    let mut names: Vec<Ident> = vec_new::<Ident>();
+    names.push(Ident::new("a1"));
+    names.push(Ident::new("a2"));
+    return quote_expr! {
+        {
+            let mut acc: i64 = 0i64;
+            #( acc = acc + #names; )*
+            acc
+        }
+    };
+}
+
+#[fn_macro]
+pub fn runc(args: Vec<ExprBlob>) -> ExprBlob {
+    let mut frags: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    frags.push(parse_expr("{ t = t + 5i64; }"));
+    return quote_expr! {
+        {
+            let mut t: i64 = 1i64;
+            #( #frags; )*
+            t
+        }
+    };
+}
+
+fn main() -> i32 {
+    let a1: i64 = 10i64;
+    let a2: i64 = 20i64;
+    let s: i64 = sum3c!();
+    if s != 30i64 { return 1i32; }
+    let r: i64 = runc!();
+    if r != 6i64 { return 2i32; }
+    return 0i32;
+}

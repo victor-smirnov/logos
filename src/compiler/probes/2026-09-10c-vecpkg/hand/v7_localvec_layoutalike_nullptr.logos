@@ -1,0 +1,32 @@
+// CE v7 — the LOUD-vs-SILENT split. v3/v4 gave the package-local `Vec` a shape
+// with no `ptr` field, so mlir-gen died. Here the local `Vec` is LAYOUT-ALIKE
+// (ptr/len/cap, exactly the stdlib's), so the field read succeeds and the
+// cursor machinery reads a span the user chose — here a NULL buffer of
+// claimed length 2. Nothing in the five sites can tell this from the stdlib Vec.
+package v7_localvec_layoutalike_nullptr;
+
+use logos.std.compiler.metaprog;
+
+pub struct Vec<T> {
+    ptr: *mut T,
+    len: i64,
+    cap: i64,
+}
+
+#[fn_macro]
+pub fn fold7(a: ExprBlob) -> ExprBlob {
+    let names: Vec<Ident> = Vec { ptr: (0 as *mut Ident), len: 2i64, cap: 2i64 };
+    return quote_expr! {
+        {
+            let mut acc: i64 = 0i64;
+            #( acc = acc + #names; )*
+            acc
+        }
+    };
+}
+
+fn main() -> i32 {
+    let s: i64 = fold7!(1i32);
+    if s != 0i64 { return 1i32; }
+    return 0i32;
+}

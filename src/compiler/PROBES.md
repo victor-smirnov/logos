@@ -35714,3 +35714,267 @@ population member the rule reports and a defect it is not. This is the
 `ctx_of`-coarsening failure from the other side: the rule under-claims rather
 than over-claims, which is the safe direction, and the honest report is the two
 numbers side by side — **58 sites in the class, 2 defects in it.**
+
+---
+
+# 2026-09-10c — THE FIVE `struct_name() != "Vec"` SITES ARE LIVE, THE ROUND THAT DECLINED THEM MEASURED ONLY THE OUTER DOOR OF A SERIES, AND THE CLASS IS NOT FIVE SITES BUT ELEVEN — TWO OF WHICH ARE A SEGV AND AN OVER-REFUSAL
+
+base `827dc89b0`, build_hash `6f9c16bc77c96dae 43` -> armed `985dbfa59a273565 43`.
+
+## 1. STEP 1, RUN AS GIVEN
+
+| measurement | value |
+|---|---|
+| soundness queue gate | **rc 0** — `OK: soundness queue holds — 76 open row(s) (tier1=19 tier2=9 tier3=41 tier4=7), '# TOTAL' says 76` |
+| `# TOTAL` | soundness_queue **76**, bc_admits **90**, bc_admits_blocked **8** |
+| direct listing | **76** rows |
+| `probe-log-lint.py` | 264 records, every site symbol resolves |
+| `build_hash.py` | `6f9c16bc77c96dae 43` |
+| git | `827dc89b0`, clean |
+
+CORRECTIONS TO THE PROMPT, both re-verified against the text given rather than
+copied from the journal:
+
+* The STEP-1 gate line **carries `LOGOS_LIB_DIR`** and ran rc 0 as written. This
+  is the fourth consecutive round in which that correction is STALE.
+* The five line numbers are **19028 / 19035 / 20067 / 20078 / 22097**, not
+  19023/19030/20062/20073/22092 — five lines later, because `827dc89b0` added
+  `bound_is_deref_lang_item`'s call above them. The COUNT and the ORDER hold; a
+  mechanical replace of the exact literal hit **exactly 5**.
+* The session's opening `gitStatus` names `48cc71ae7` as HEAD; HEAD is
+  `827dc89b0`, three commits later.
+
+## 2. THE THREE RECORDED CONTROLS, RE-VERIFIED FIRST
+
+`827dc89b0` DECLINED this block — it was that round's **#1** recommendation —
+on "**0 wrong verdicts in 2 shapes**", and stated its own limit: *"CE9 is
+inconclusive about whether `is_vec_ident_qi` returned true — the doors are in
+SERIES and only the outer one was observed."* Both of its shapes were rewritten
+(the sources were not kept) and both still reproduce on today's binary: v1, v2
+and v6 below are CE8's shape and all three die at the SAME downstream qualified
+check, `type mismatch — expected <pkg>.Vec<ExprBlob>, got
+logos.mem.collections.vec.Vec<ExprBlob>`.
+
+**That declension was a zero through a broken hop (rule 11), and the hop is
+named in the record that made it.** CE8/CE9 both entered through the
+`#[fn_macro]` PARAMETER, and the parameter door is followed by a qualified
+type-identity check. The four CURSOR doors are reachable without it: give the
+macro signature (a) `(ExprBlob) -> ExprBlob` and the only `Vec` the compiler
+meets is the package-local one.
+
+## 3. THE CLASS, ENUMERATED BY PROPERTY WITH `tools/dlog` — AND IT IS NOT FIVE
+
+`tools/dlog/selftest.sh` was run BEFORE relying on the tool: **rc 0**,
+`19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty discriminates
+across 756aed65 (1 -> 0)`. No extractor change and no new rule this round;
+`name_intercept.dl` used as `f9b6db073` shipped it, over the PRISTINE
+`sema_expr.cpp` (the probe edits were stashed for the extraction and popped
+after — the cache is keyed on the file's bytes, so an armed source would have
+answered about the armed source).
+
+`name_intercept` over `sema_expr.cpp`: **141 `==` / 6 `!=` intercepts**, of
+which the `Vec` literal accounts for **8** — and the handed-down list contains
+five of them.
+
+| dir | line | ctx | in the prompt's five? |
+|---|---|---|---|
+| `!=` | 19028 | `is_vec_ident_qi` | yes (S1) |
+| `!=` | 19035 | `is_vec_exprblob_qi` | yes (S2) |
+| `!=` | 20067 | `is_vec_ident_type` | yes (S3) |
+| `!=` | 20078 | `is_vec_exprblob_type` | yes (S4) |
+| `!=` | 22097 | `is_vec_exprblob` | yes (S5) |
+| `==` | 8407 | `lower_method_call` | **NO** |
+| `==` | 19049 | `cursor_nesting_depth` | **NO** |
+| `==` | 25166 | `lower_fn_macro_call_item` | **NO** |
+
+**THE CROSS-CHECK, BOTH DIRECTIONS, AS THE PROMPT ORDERS.**
+
+* **dlog-only, 3** — the three `==` rows above. The handed-down list is a
+  hypothesis about the `!=` half alone (rule 17), which is precisely the half
+  `f9b6db073` widened the lint to see; nobody re-asked the `==` half about
+  `Vec`.
+* **per-site-read-only, 3** — sites dlog's rule cannot reach BY CONSTRUCTION,
+  because it asks about the operands of a `==`/`!=` node:
+  * `sema_expr.cpp:21727` — `is_named_struct(hint_call_return_type_, "Vec")`.
+    The literal is a call ARGUMENT, not an operand. A HELPER hides the
+    comparison from the rule exactly as a header hid three sites from a
+    nine-file regex last round.
+  * `sema_stmt.cpp:7614` and `sema.cpp:2322` — a different TU. `ask.sh` was
+    given one file; the class is not a property of a file.
+
+So: **8 by dlog in one TU, 9 by a per-site read in that TU, 11 tree-wide.** The
+two numbers are reported side by side and neither is the class.
+
+## 4. COUNTER-EXAMPLES ON THE UNMODIFIED COMPILER — SHAPE VARIED, NOT COUNT (rule 5)
+
+Nine programs, five different `Vec` field shapes (stdlib-alike `{ptr,len,cap}`;
+`{head:T,n}`; `{lo,head:T,hi}`; `{a,b}` with no payload at all), three different
+doors, three element types, and two controls that must not move.
+
+| # | shape | door | verdict on `827dc89b0`'s binary |
+|---|---|---|---|
+| c1 | stdlib `Vec<ExprBlob>` fn_macro param | S5 | rc 0, runs — CONTROL |
+| c2 | stdlib `Vec<Ident>` + `Vec<ExprBlob>` cursors | S3,S4 | rc 0, runs — CONTROL |
+| v1 | local `Vec` `{ptr,len,cap}`, fn_macro param | S5 | refused downstream: `type mismatch — expected …Vec<ExprBlob>, got logos.mem.collections.vec.Vec<ExprBlob>` |
+| v2 | local `Vec` `{head,n}`, fn_macro param | S5 | same |
+| v6 | local `Vec` **and** `use logos.mem.collections.vec` | S5 | same |
+| **v3** | local `Vec` `{head,n}` as a `Vec<Ident>` cursor | **S3** | **`mlir_gen: internal: struct 'v3….Vec$G1$Ident$M2b09…' has no field 'ptr'` + 5 more; `mlir_gen: 6 self-diagnosed malfunction(s) — COMPILE FAILED`** |
+| **v4** | local `Vec` `{lo,head,hi}` as a `Vec<ExprBlob>` cursor | **S4** | same shape, `has no field 'ptr'` |
+| **v7** | local `Vec` **layout-alike** `{ptr,len,cap}`, null buffer, len 2 | **S3** | same — the field read is not what stops it |
+| **v5b** | local `Vec` `{head,n}` as a `quote_item!` cursor | **S1** | **`logos_emit_item_blob_subst: ident idx 4194304 out of range (count=0)`**, the item is silently NOT emitted, and the user sees `unknown type 'GeneratedTwo'` |
+| v5 | the same shape, different ident text | S1 | **compiles rc 0** — same door, opposite outcome, memory-content dependent |
+
+**THE INNER DOOR IS LIVE.** v3/v4/v7/v5/v5b are the measurement `827dc89b0`
+could not make: the four cursor sites DO return true for a package-local `Vec`,
+and what follows is an INTERNAL `mlir_gen:` malfunction (v3/v4/v7), a silent
+non-emission with a misleading `unknown type` (v5b), or a clean rc 0 over an
+unverified item (v5). The correct answer is written in the spec already —
+`metaprog.quote-expr.repeat-cursor-type` (`docs/spec/metaprogramming.md`) says
+any other type "is rejected (`expected [Ident; N], Vec<Ident>, or
+Vec<ExprBlob>`)" — and it NAMES NO IDENTITY for `Vec`. Under-specified, not
+blessed: the same shape as last round's `trait.method-dispatch.deref-bound-fallback`.
+Both registries were searched by CONSTRUCT: `DIVERGENCES.md` A1..A17 has no row
+for it; `docs/spec/divergences.md` carries the clause but its text is about the
+cursor TYPE SET, not about which `Vec`.
+
+## 5. THE PROBE TABLE
+
+Two names at the same five sites, because the inner predicate has a tolerance
+and rule 9 says a tolerance needs its own name:
+
+* `vecqual`  — `is_stdlib_vec`: bare name **plus** `pkg.empty() || pkg == "logos.mem.collections.vec"` (the `is_stdlib_box` idiom).
+* `vecqualx` — `is_stdlib_vec_strict`: `pkg == "logos.mem.collections.vec"`, no empty tolerance.
+
+| probe | fires | CEILING | COST pass | COST fail (1478) | COST stdlib | COST runtime |
+|---|---|---|---|---|---|---|
+| `vecqual`  | **6406** | 0 rows | 0 | 0 changed (rc 0, `.expected` 0, **text-only 0**) | all four layers compile | see §7 |
+| `vecqualx` | **6406** | 0 rows | 0 | 0 changed (rc 0, `.expected` 0, text-only 0) | all four layers compile | — |
+
+**CEILING 0 IS THE EXPECTED AND CORRECT ANSWER HERE, AND IT IS NOT A
+REFUTATION.** The ceiling counts `bc_admits.ledger` rows; this defect has no
+ledger row in either ledger — it is a metaprogramming door, and the harness
+that would see it is the one this round wrote. The number that matters is COST,
+and it is 0 in all three populations with the site proven live 6406 times.
+
+**RULE 9, AND THE ANSWER IS THAT THE TWIN IS UNSEPARATED.** `vecqual` and
+`vecqualx` are identical digit for digit in every harness column AND on all nine
+hand programs AND on both controls. Nothing available to this round exercises
+the `pkg.empty()` tolerance at these five sites — so the tolerance is neither
+justified nor refuted by measurement, and that is the honest record. It is
+carried because `is_stdlib_box`'s own comment gives the reason (internal paths
+that strip the package) and narrowing there would be an OVER-REFUSAL.
+
+## 6. THE ARMED VERDICTS — EVERY ONE IS THE SENTENCE THE SPEC ALREADY NAMES
+
+Identical under `vecqual` and `vecqualx`:
+
+| # | armed verdict |
+|---|---|
+| c1, c2 | **rc 0, unchanged** |
+| v1, v2, v6 | `fn_macro: 'addup' must have signature `(ExprBlob) -> ExprBlob` or `(Vec<ExprBlob>) -> ExprBlob`` |
+| v3, v4, v7 | `quote_expr!: `#names` inside repeat — expected [Ident; N], Vec<Ident>, or Vec<ExprBlob>` — the clause's own sentence |
+| v5, v5b | `quote_item!: `#col_names` inside `#(...)*` — expected Vec<Ident> or Vec<ExprBlob>` |
+
+Six internal `mlir_gen:` malfunctions and one silent non-emission become four
+user diagnostics that the spec specifies verbatim. No fixture, no `.expected`
+and no stdlib layer moves.
+
+## 7. WHAT THE ENUMERATION FOUND OUTSIDE THE FIVE — TWO OF THEM ARE WORSE THAN THE FIVE
+
+Three rows added to `tests/soundness_queue.ledger`, `# TOTAL` **76 -> 79**
+re-derived by direct listing, gate **rc 0**
+(`tier1=19 tier2=10 tier3=42 tier4=8`):
+
+* **`localvec_ref_coerces_to_slice_admits`** (tier 2, `admits`) —
+  `sema.cpp:2322`. `&Vec<T>` -> `&[T]` is admitted for ANY struct named `Vec`.
+  The site's own comment says *"Hardcoded to the stdlib Vec struct"* and it is
+  hardcoded to nothing but the NAME; the next sentence explains why that is
+  unsound — *"the pointer is reused verbatim"*. A package-local
+  `struct Vec<T> { a: i64, b: i64 }` passed as `&[i64]` **compiles clean and
+  SEGVs, rc 139**: 7 becomes the data pointer and 3 the length.
+* **`localvec_get_refused_by_stdlib_rule`** (tier 3, `refuses`) —
+  `sema_expr.cpp:8407`. A legal program is refused with the A16/A17 sentence
+  *"cannot move a non-Copy element out of `Vec` via `get`"* — for a package's
+  own `Vec`, its own `get`, which returns `i64` and never touches the element —
+  and the remedy it prints (`.borrow(i)`, `.remove(..)`, `.pop()`) names methods
+  the type does not have. An over-refusal is the most expensive direction in
+  this queue. A16/A17 are canonised divergences ABOUT THE STDLIB CONTAINER;
+  extending them coherently means the rule is keyed on
+  `logos.mem.collections.vec.Vec`, not on a spelling.
+* **`localvec_for_ref_names_stdlib_as_slice`** (tier 4, `diag`) —
+  `sema_stmt.cpp:7614`. `for x in &v` desugars to `v.as_slice()` by bare name,
+  resolves the STDLIB `Vec__as_slice`, and refuses with
+  `expected &Vec<i64>, got &Vec<i64>` — two character-identical type strings,
+  the `typestr_minted_alike` shape through a different door.
+
+`sema_expr.cpp:19049` (`cursor_nesting_depth`, the `Vec<Vec<Ident>>` depth-2
+arm) and `25166` (`sig_vec` for the ITEM macro) and `21727`
+(`is_named_struct(hint_call_return_type_, "Vec")`, the `vec!` element hint) are
+named and NOT measured: they are the same mechanism and the crude arm does not
+cover them. **Rule 2: half a mechanism is not one — the five-site arm priced
+here is a PARTIAL fix, and the round that lands it must take all nine in
+`sema_expr.cpp` plus the two outside it, or say which it left.**
+
+## 8. WHAT DESERVES FUNDING
+
+1. **`is_stdlib_vec` at all eleven sites.** The arm exists (`is_stdlib_box`),
+   the fact is carried (`pkg_name()`), the five priced sites cost 0 across
+   pass + fail(1478) + stdlib with 6406 fires, and the diagnostics they produce
+   are the ones the spec already writes. The two sites OUTSIDE the priced five
+   are worth more than the five: one is a SEGV, one is an over-refusal.
+2. **The three queue rows are the acceptance test for it** — closing them
+   deletes three rows and lands three fixtures.
+3. Not this: a general "qualify every bare type name" sweep. `Vec` is a TYPE and
+   `bound_is_*_lang_item` does not transfer; measured, not assumed.
+
+## 9. THE TREE AFTER, AND ONE THING THAT DID NOT RESTORE
+
+Sources reverted (`git diff` names only `PROBES.md` and the ledger), rebuilt,
+queue gate **rc 0** at 79 rows, `test-levels.sh L1` **803/803, rc 0**, and the
+148 `tier_commit` gates pass — so no census pin moves under the three new rows.
+
+⚠ **`build_hash.py` did NOT return to its pre-round value.** Pre-round
+`6f9c16bc77c96dae 43`, armed `985dbfa59a273565 43`, and after the revert +
+rebuild `f70bdf961b18b9e1 43` — with the compiler sources byte-identical to
+`827dc89b0`. The hash covers `bin/logosc` + `lib/logos/**` + the fixture
+archives, and the stdlib layers were rebuilt twice in this round; a rebuilt
+archive is not bit-identical. RECORDED, NOT DIAGNOSED: a build key that does not
+come back to its own value under a source revert cannot certify a control
+revert, which is the one job it has. The behavioural restoration is asserted by
+the gate and L1 instead, which is weaker and is said so here.
+
+## vecqual — QUALIFY THE FIVE `struct_name() != "Vec"` INTERCEPTS BY PACKAGE
+
+site: src/compiler/sema_expr.cpp::is_vec_ident_type (and its four siblings
+`is_vec_ident_qi`, `is_vec_exprblob_qi`, `is_vec_exprblob_type`,
+`is_vec_exprblob` — one predicate, five call sites, all five rewritten to
+`is_stdlib_vec`)
+build: 985dbfa59a273565 (armed) from base 6f9c16bc77c96dae
+fires: 6406
+ceiling: 0 rows — and CORRECTLY so: this defect has no row in either ledger,
+it is a metaprogramming door. The number that carries the round is COST.
+cost: 0 legal programs [pass(ledger+legal)] · 0 of 1478 `-L bc -L fail`
+(rc 0, `.expected`-match 0, text-only 0) · stdlib all four layers compile ·
+RUNTIME 6634 pass fixtures compiled+linked+RUN, **1 row differs and it is
+`cast-region-to-uint`, the by-name subtraction (it prints a stack address)**
+— so 0 of 6634.
+verdict: FUND, and widen. Nine hand programs, five `Vec` field shapes, three
+doors: the five sites accept a package-local `struct Vec<T>` and what follows
+is an internal `mlir_gen:` malfunction, a silent non-emission, or a clean rc 0
+over an unverified item. Armed, all nine get the sentence
+`metaprog.quote-expr.repeat-cursor-type` already specifies, and both controls
+are unchanged.
+
+## vecqualx — THE SAME FIVE SITES WITHOUT THE `pkg.empty()` TOLERANCE (rule 9)
+
+site: src/compiler/sema_expr.cpp::is_vec_exprblob (the twin arm, `is_stdlib_vec_strict`)
+build: 985dbfa59a273565 (armed) from base 6f9c16bc77c96dae
+fires: 6406
+ceiling: 0 rows
+cost: 0 · 0 of 1478 · stdlib all four layers compile
+verdict: **UNSEPARATED, and that is the record.** Identical to `vecqual` digit
+for digit in every harness column and on all nine hand programs and both
+controls. Nothing available exercises the `pkg.empty()` tolerance at these five
+sites, so it is neither justified nor refuted by measurement — carried because
+`is_stdlib_box`'s own comment gives the reason (internal paths that strip the
+package) and narrowing there is an OVER-REFUSAL.

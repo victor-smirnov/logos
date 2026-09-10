@@ -1,0 +1,24 @@
+// CE v8 — sema_expr.cpp:8407, a site the handed-down five does NOT contain.
+// `.get()` on ANY struct named `Vec` with one type arg and a MOVE element is
+// refused with the A16/A17 sentence at the CALL site. This package's `Vec` is
+// its own and its `get` is its own; the element is move-only.
+package v8_localvec_get_moveelem_overrefusal;
+
+pub struct Own { p: *mut u8 }
+impl Drop for Own { fn drop(&mut self) { } }
+
+pub struct Vec<T> {
+    head: T,
+    n: i64,
+}
+
+impl<T> Vec<T> {
+    fn get(&self, i: i64) -> i64 { return self.n; }
+}
+
+fn main() -> i32 {
+    let v = Vec { head: Own { p: (0 as *mut u8) }, n: 4i64 };
+    let k: i64 = v.get(0i64);
+    if k != 4i64 { return 1i32; }
+    return 0i32;
+}

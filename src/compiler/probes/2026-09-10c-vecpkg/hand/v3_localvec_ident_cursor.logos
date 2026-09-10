@@ -1,0 +1,31 @@
+// CE v3 — the CURSOR door, sema_expr.cpp:20067 (`is_vec_ident_type`). The macro
+// takes signature (a) `(ExprBlob) -> ExprBlob`, so the parameter door of v1/v2
+// is NOT in the way: the only "Vec" the compiler meets is the LOCAL one whose
+// type is `Vec<Ident>` with a package-local `Vec` of a shape with no pointer.
+package v3_localvec_ident_cursor;
+
+use logos.std.compiler.metaprog;
+
+pub struct Vec<T> {
+    head: T,
+    n: i64,
+}
+
+#[fn_macro]
+pub fn fold1(a: ExprBlob) -> ExprBlob {
+    let names: Vec<Ident> = Vec { head: Ident::new("a1"), n: 1i64 };
+    return quote_expr! {
+        {
+            let mut acc: i64 = 0i64;
+            #( acc = acc + #names; )*
+            acc
+        }
+    };
+}
+
+fn main() -> i32 {
+    let a1: i64 = 7i64;
+    let s: i64 = fold1!(1i32);
+    if s != 7i64 { return 1i32; }
+    return 0i32;
+}

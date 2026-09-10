@@ -1,0 +1,25 @@
+// CE v9 — sema.cpp:2322. `&Vec<T>` -> `&[T]` is admitted for ANY struct named
+// `Vec`; the site's own comment claims it is "Hardcoded to the stdlib Vec
+// struct" and it is not. This package's `Vec` has NO pointer at all, so the
+// slice fat-pointer is read out of two i64 counters.
+package v9_localvec_slice_coercion_admits;
+
+pub struct Vec<T> {
+    a: i64,
+    b: i64,
+}
+
+fn total(s: &[i64]) -> i64 {
+    let mut t: i64 = 0i64;
+    for x in s {
+        t = t + *x;
+    }
+    return t;
+}
+
+fn main() -> i32 {
+    let v: Vec<i64> = Vec { a: 7i64, b: 3i64 };
+    let n: i64 = total(&v);
+    if n != 0i64 { return 1i32; }
+    return 0i32;
+}

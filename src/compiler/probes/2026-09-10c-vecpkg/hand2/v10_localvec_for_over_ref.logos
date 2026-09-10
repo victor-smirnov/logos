@@ -1,0 +1,18 @@
+// CE v10 — sema_stmt.cpp:7614. `for x in &v` desugars to `v.as_slice()` for
+// ANY struct named `Vec`, then looks up the STDLIB `Vec__as_slice` by name.
+package v10_localvec_for_over_ref;
+
+pub struct Vec<T> {
+    a: i64,
+    b: i64,
+}
+
+fn main() -> i32 {
+    let v: Vec<i64> = Vec { a: 1i64, b: 2i64 };
+    let mut t: i64 = 0i64;
+    for x in &v {
+        t = t + *x;
+    }
+    if t != 0i64 { return 1i32; }
+    return 0i32;
+}

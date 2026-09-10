@@ -1,0 +1,23 @@
+// CE v1 — a package-local `struct Vec<T>` whose field shape is IDENTICAL to the
+// stdlib Vec, standing in the `#[fn_macro]` parameter position that
+// sema_expr.cpp:22097 recognises by BARE NAME (`struct_name() != "Vec"`).
+// The payload `ExprBlob` is package-qualified at that site; the container is not.
+package v1_localvec_fnmacro_sameshape;
+
+use logos.std.compiler.metaprog;
+
+pub struct Vec<T> {
+    ptr: *mut T,
+    len: i64,
+    cap: i64,
+}
+
+#[fn_macro]
+pub fn addup(args: Vec<ExprBlob>) -> ExprBlob {
+    return quote_expr! { 40i32 + 2i32 };
+}
+
+fn main() -> i32 {
+    let r: i32 = addup!(1i32, 2i32);
+    return r - 42i32;
+}

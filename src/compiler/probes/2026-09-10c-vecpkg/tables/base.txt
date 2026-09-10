@@ -1,0 +1,8 @@
+c1_stdlib_vec_fnmacro	COMPILE=0	rc=0	stdout=[]
+c2_stdlib_vec_ident_cursor	COMPILE=0	rc=0	stdout=[]
+v1_localvec_fnmacro_sameshape	COMPILE=1	-	let 'v': type mismatch — expected v1_localvec_fnmacro_sameshape.Vec<ExprBlob>, got logos.mem.collections.vec
+v2_localvec_fnmacro_diffshape	COMPILE=1	-	let 'v': type mismatch — expected v2_localvec_fnmacro_diffshape.Vec<ExprBlob>, got logos.mem.collections.vec
+v3_localvec_ident_cursor	COMPILE=1	-	
+v4_localvec_exprblob_cursor	COMPILE=1	-	
+v5_localvec_qi_item_cursor	COMPILE=0	rc=0	stdout=[]
+v6_homonym_import_and_local	COMPILE=1	-	let 'v': type mismatch — expected v6_homonym_import_and_local.Vec<ExprBlob>, got logos.mem.collections.vec.V

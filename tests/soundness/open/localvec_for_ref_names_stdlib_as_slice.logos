@@ -1,0 +1,34 @@
+// SOUNDNESS QUEUE row localvec_for_ref_names_stdlib_as_slice (tier 4, `diag`).
+// THE RIGHT VERDICT, THROUGH THE WRONG TYPE, PRINTED AS TWO IDENTICAL STRINGS.
+//
+// FOUND 2026-09-10c. `for x in &v` in src/compiler/sema_stmt.cpp desugars to
+// `v.as_slice()` for any struct whose bare name is `Vec`, then resolves
+// `Vec__as_slice` — the STDLIB one — by name. This package's `Vec` has no
+// `as_slice`, so the refusal is correct; the SENTENCE is not:
+//
+//   error [fn main]: call to 'logos.mem.collections.vec.Vec__as_slice' arg 1:
+//   expected &Vec<i64>, got &Vec<i64>
+//
+// It names a stdlib function the program never mentions, and its two type
+// strings are character-identical because neither is package-qualified — the
+// `typestr_minted_alike` shape (tier 4) reached through a different door.
+//
+// FIX = the diagnostic a user can act on: either the coercion/desugar does not
+// fire for a non-stdlib `Vec` (leaving "no method 'as_slice'"/"not iterable"),
+// or the two types print qualified.
+package localvec_for_ref_names_stdlib_as_slice;
+
+pub struct Vec<T> {
+    a: i64,
+    b: i64,
+}
+
+fn main() -> i32 {
+    let v: Vec<i64> = Vec { a: 1i64, b: 2i64 };
+    let mut t: i64 = 0i64;
+    for x in &v {
+        t = t + *x;
+    }
+    if t != 0i64 { return 1i32; }
+    return 0i32;
+}
