@@ -1,0 +1,5 @@
+exit: 0
+stdout:
+alpha_dyn_mark=1005
+beta_dyn_mark=2005
+nondyn=18

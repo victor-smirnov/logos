@@ -1,0 +1,46 @@
+// THE `dyn_vtable_methods_` BARE KEY, MADE OBSERVABLE.
+//
+// `mlir_gen_dyn.cpp:962/982` file every vtable's method vector under
+// `td.name() + "::" + ib.target_type()` — a BARE trait name and a BARE target
+// name — while the LIR carries `ImplView::identity_trait()` (always
+// `pkg::Name`) and `ImplView::target_typeref()`. `ensure_vtable_global`'s own
+// comment states the assumption this fixture refutes: "Within one compile a
+// (trait, type) pair is unique".
+//
+// `coex/alpha.logos` and `coex/beta.logos` are two packages of ONE module, each
+// declaring `pub trait Dyg` and `pub struct Dz` and each coercing its own
+// `&dyn Dyg`. Both file under the single key `Dyg::Dz`; the second registration
+// overwrites the first, and the loser dispatches through the winner's method.
+//
+// ⚠ THE ORACLE IS WHICH METHOD RAN, NOT THAT TWO TARGETS BUILT. 5.58% of all
+// registrations collide today (413 603 of 7 413 092 over 4342 compiles) and the
+// corpus is green, so a fixture that merely builds two same-named targets
+// proves nothing. The two `mark` bodies differ by 1000 on purpose.
+//
+// ⚠ THE VTABLE SYMBOLS ARE ALREADY MODULE-DISTINCT (`nm`:
+// `__logos_vtable__Dyg__Dz$M…` twice, different fingerprints). It is the METHOD
+// VECTOR behind one of them that is another package's.
+//
+// CORRECT: alpha_dyn_mark(5) = 1005, beta_dyn_mark(5) = 2005.
+package coex_dyn_bare_key;
+
+use alpha;
+use beta;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+
+fn main() -> i32 {
+    let a: i64 = alpha_dyn_mark(5i64);
+    let b: i64 = beta_dyn_mark(5i64);
+    pr("alpha_dyn_mark=%ld\n", a);
+    pr("beta_dyn_mark=%ld\n", b);
+    // Control, in the direction a "the fixture stopped asking" failure would
+    // take: the non-dyn cross-package facts of this module still answer.
+    let m: i32 = alpha_only() + beta_only();
+    pr("nondyn=%ld\n", m as i64);
+    if a != 1005i64 { return 10; }
+    if b != 2005i64 { return 11; }
+    if m != 18i32   { return 12; }
+    return 0;
+}

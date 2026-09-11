@@ -261,5 +261,22 @@ dyn_vtable_bare_key_miscompile  defect     2  src/compiler/mlir_gen_dyn.cpp:962,
     # 2026-09-11i. ⚠ A "cannot be written" recorded without grepping the tree is a
     # claim about my attention, not about the tree.
     # ⚠ NOT a row moved and not a defect closed: the defect is measured and standing.
+    # ⚠ 2026-09-11, CARRIER WRITTEN AND RED — `tests/logos/pass/coex_dyn_bare_key`, on
+    # the EXISTING `coex` mechanism (one module, two packages, `coex_binary`, a GLOB),
+    # 12 lines appended to each of `coex/{alpha,beta}.logos` and one word of cmake.
+    # On the unmodified compiler at build hash cccc3157d76a7856: `beta_dyn_mark=1005`,
+    # rc 11, expected 0 — beta dispatched through ALPHA's method. The 09-10g scratch
+    # repro on today's binary loses the OPPOSITE side (`alpha=2005`), so which
+    # registration wins the key is collection order: EVERY first-wins repair is this
+    # defect with a different victim, now measured in both directions and not argued.
+    # ⚠ THE ENTRY IS STILL NOT A ROW, AND WHAT IT NEEDS HAS CHANGED: not a carrier
+    # (it has one) but a decision on the SECOND repair arm — key the registration on
+    # the QUALIFIED target (`ImplView::target_typeref` -> `concrete_struct_name`, the
+    # `$M`-spelling `ensure_vtable_global` ALREADY probes first), additive at
+    # mlir_gen_dyn.cpp:962/982. It closes the cross-package half only; the 834
+    # `rekey.diff` events of 09-10g collide on the TRAIT axis with the same target
+    # and still need the trait-plane change. The number that partitions them is one
+    # bucket on 09-10g's own probe (do the two registrations' `concrete_struct_name`
+    # differ?) and has NOT been run. See PROBES.md 2026-09-11 §5.
 
 # TOTAL 18

@@ -34,3 +34,20 @@ pub fn alpha_is_limit(x: i32) -> bool {
         _ => { return false; }
     }
 }
+
+// ── dyn_vtable_bare_key carrier (2026-09-11) ────────────────────────────────
+// `alpha::Dyg` and `beta::Dyg` are same-named traits in different packages of
+// ONE module, each implemented for its OWN same-named `Dz`. `mlir_gen_dyn.cpp`
+// registers the method vector under `td.name() + "::" + ib.target_type()` —
+// BOTH SIDES BARE — so both packages file under the single key `Dyg::Dz` and
+// the second registration overwrites the first. `alpha_dyn_mark()` then
+// dispatches through beta's `mark`. The two vtable GLOBALS are module-distinct
+// (`__logos_vtable__Dyg__Dz$M…`); the method VECTOR behind one of them is not.
+pub trait Dyg { fn mark(&self) -> i64; }
+pub struct Dz { pub v: i64 }
+impl Dyg for Dz { fn mark(&self) -> i64 { return self.v + 1000i64; } }
+pub fn alpha_dyn_mark(n: i64) -> i64 {
+    let t: Dz = Dz { v: n };
+    let d: &dyn Dyg = &t;
+    return d.mark();
+}

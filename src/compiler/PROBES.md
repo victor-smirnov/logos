@@ -37440,3 +37440,151 @@ are defects, and the two disagreed completely here: of the ten sites nominated
 as decisions, zero are; the one real defect in the same registry class was at a
 site the classification never listed, because it is a LOOKUP ORDER and not a key
 shape, and no relation in `name_key.dl` can see an order.
+
+---
+
+# 2026-09-11 — THE CARRIER IS WRITTEN, IT IS RED, AND IT LOSES THE **OTHER** SIDE THAN THE SCRATCH REPRO DID — WHICH IS THE FACT THAT KILLS EVERY FIRST-WINS REPAIR AND NAMES A SECOND, CHEAPER ARM THE LAST ROUND DID NOT SEE
+
+## 1. STEP 1, AND THE PROMPT'S ONE CORRECTION IS ALREADY CARRIED
+
+    HEAD                7044fd793   tree clean
+    soundness_queue     # TOTAL 77   (77 rows by direct listing — agrees)
+    bc_admits           # TOTAL 90
+    bc_admits_blocked   # TOTAL 8
+    unrowed_backlog     # TOTAL 18
+    probe-log-lint      266 records, every site symbol resolves
+    build_hash.py       cccc3157d76a7856 43        (READ, not assumed)
+    soundness_queue_gate.sh  rc 0  with LOGOS_LIB_DIR set
+
+⚠ AND THE HASH MOVED WITHOUT A COMPILER SOURCE CHANGE. Registering the carrier
+edits `tests/logos/CMakeLists.txt` only; the reconfigure that followed rebuilt
+`logosc` anyway and `build_hash.py` READ BACK **c447f93a044ab0cc 43**. Not one
+line under `src/compiler` or `include` differs between the two readings. So a
+`build:` in this file identifies a BUILD, not a compiler source state, and the
+two carrier measurements below — one at each hash, same answer — are the control
+that says the difference is not in the defect.
+
+⚠ The STEP-1 gate command in this round's prompt **does** carry
+`LOGOS_LIB_DIR=$PWD/build/lib/logos`. Four rounds recorded that it did not, then
+two more repeated the complaint after it was fixed. Checked against the text
+actually given: nothing to correct. This line exists so the seventh round does
+not repeat it either.
+
+## 2. THE CONTROL, RE-VERIFIED ON TODAY'S BINARY
+
+09-10g's two-package repro (`zzalpha`/`zzbeta`, one module, each declaring
+`pub trait Sig` + `pub struct Zt`) was rebuilt from its record and run against
+`cccc3157d76a7856` — a different binary from the `0e8ecc17b99f4077` it was
+measured on. It still reproduces:
+
+    alpha=2005      <- WRONG; alpha_dyn(5) dispatched through zzbeta::Sig::b
+    beta=2005
+    rc 10
+
+Compiles clean, no `unsafe`, no diagnostic, runs wrong.
+
+## 3. THE CARRIER — `tests/logos/pass/coex_dyn_bare_key`, ON THE EXISTING `coex` MECHANISM
+
+No new machinery. `tests/logos/coex/` is already a ONE-module, TWO-package
+archive built by `coex_binary` from a `file(GLOB ...)`, consumed via
+`LOCAL_COEX_USERS`. The carrier is 12 lines appended to each of `alpha.logos`
+and `beta.logos` — `pub trait Dyg`, `pub struct Dz`, `impl Dyg for Dz` whose
+`mark` bodies differ by 1000, and a `&dyn Dyg` coercion in each — plus one
+consumer and one list entry. Nothing was created; `cmake` needed one word.
+
+MEASURED ON THE UNMODIFIED COMPILER, before any compiler edit:
+
+    alpha_dyn_mark=1005     correct
+    beta_dyn_mark=1005      WRONG — beta dispatched through ALPHA's `mark`
+    nondyn=18               control: the non-dyn cross-package facts still answer
+    rc 11                                     (expected rc 0)
+
+Re-measured AS A REGISTERED ctest TEST after the CMake wiring, on the rebuilt
+binary `c447f93a044ab0cc 43` — byte-identical stdout, rc 11:
+
+    ctest -R 'coex|cross_pkg'   13 tests, 12 passed, 1 failed
+    the one failure is 4458 logos_02_semantic_core_pass_coex_dyn_bare_key
+
+fires: coex_dyn_bare_key 1/1 red, 12/12 neighbours green
+build: cccc3157d76a7856 43 (hand) and c447f93a044ab0cc 43 (ctest), same answer
+
+CONTROL THAT THIS IS THE CARRIER AND NOT THE HARNESS: `cross_pkg_coexistence`,
+`cross_pkg_type_id_distinct`, `cross_pkg_const_scoped`,
+`fail/cross_pkg_ambiguous_call`, `fail/cross_pkg_const_ambiguous` all stay GREEN
+against the rebuilt archive. `cross_pkg_type_coexistence` fails under a HAND
+`run_test.sh` invocation with "cc link failed" — and it fails identically with
+the coex edits STASHED and against the pre-edit CMake-built `libcoex.a`, so it
+is a property of the hand link line, not of this change.
+
+## 4. THE FINDING: THE LOSING SIDE IS NOT FIXED, AND THAT IS THE REPAIR-KILLING FACT
+
+Same defect, same shape, one module apart, and the two carriers lose OPPOSITE
+sides:
+
+    zzalpha/zzbeta scratch repro      ALPHA loses   (alpha_dyn -> beta's method)
+    coex alpha/beta in-tree carrier   BETA  loses   (beta_dyn_mark -> alpha's)
+
+Which registration wins the key `Dyg::Dz` is an artefact of collection order.
+09-10g predicted this in prose — "a `!count(bare)` first-wins guard would fix
+`alpha` and break `beta`, the same defect with the sign flipped" — and the two
+carriers now MEASURE it in both directions rather than arguing it. Any repair
+that picks a winner is the defect with a different victim.
+
+## 5. A SECOND REPAIR ARM, CHEAPER THAN THE ONE RECORDED AS THE WALL — PRICED BY READING, NOT FUNDED
+
+09-10g named ONE repair and declared it out of budget: carry
+`identity_trait()` into the dyn TYPE so the LOOKUP has the identity too — a
+type-plane change with every dyn dispatch downstream of it. That is correct
+about the TRAIT axis. It is not the only axis.
+
+The key is `td.name() + "::" + ib.target_type()` — **both halves bare**, and a
+collision needs BOTH halves to collide. Disambiguating EITHER half separates
+these two carriers. And the TYPE half's qualified spelling is already present on
+both sides of the transaction:
+
+  * at the LOOKUP, `ensure_vtable_global`'s `type_name` IS
+    `concrete_struct_name(...)`, carrying `$M<module_id>` — its own comment says
+    so, and it tries that key FIRST before falling back to the bare one;
+  * at the REGISTRATION, `ImplView::target_typeref(pool)` is in the same
+    `lir_view.hpp` block as `identity_trait()`, and `concrete_struct_name` is
+    reachable from `mlir_gen` (`mlir_gen_impl.hpp:1199/1216/1227` call it).
+
+So the registration has the fact and does not carry it into the key — the shape
+the round brief says has paid every time. The arm is ADDITIVE at
+`mlir_gen_dyn.cpp:962/982`: file the qualified key ALONGSIDE the bare one. No
+lookup changes (the qualified probe already runs first and currently misses),
+the bare entry stays for everything that depends on it, and the two carriers'
+keys become `Dyg::Dz$M<alpha-fp>` and `Dyg::Dz$M<beta-fp>` — the `nm` output
+already proves those fingerprints are distinct, because the vtable GLOBALS
+carry them today while the method VECTOR behind one of them does not.
+
+⚠ **IT CLOSES ONE HALF OF THE CLASS, NOT THE CLASS, AND THE OTHER HALF IS THE
+MAJORITY BY COUNT.** 09-10g's 834 `rekey.diff` events in 21 fixtures were
+classified by ONE fact: "every one of those fixtures declares a trait whose BARE
+NAME is also a stdlib trait's" — keys `Add::W`, `Copy::DView`, `Hash::str`,
+`Sum::$slice$u8`. Those collide on the TRAIT axis with the SAME target type, so
+a qualified-type key does not separate them and they still need the trait-plane
+repair. This arm is for the cross-package half — the half that is a MEASURED
+MISCOMPILE with a carrier, which the 21 in-corpus collisions are not (they are
+green and correct today).
+
+⚠ **NOT MEASURED, AND THE NUMBER THAT WOULD DECIDE IT IS NAMED.** The census
+that prices this arm is a one-bucket extension of 09-10g's own probe: on a
+`rekey.diff`, also record whether the two registrations' `concrete_struct_name`
+DIFFER. That partitions the 834 into "closed by the type axis" and "needs the
+trait axis" and costs one build. It was not run this round — the round's budget
+went to the carrier the prompt ordered first, and a repair arm priced by reading
+is a hypothesis (rule 17), not a number.
+
+## 6. WHAT THIS COMMIT COSTS, STATED PLAINLY
+
+`logos_01_pass_coex_dyn_bare_key` is RED at this commit, BY CONSTRUCTION and by
+instruction: "a carrier that is green before the fix is not a carrier". The
+corpus therefore has one red test until the fix lands. It is not a weakened
+test, not a skip, and not a `fail/` door pinning today's wrong answer as the
+rule — `pass/trait_ident_pkg_chain`'s header refuses exactly that move for the
+same class one registry over, and this fixture asserts 1005/2005, the CORRECT
+answer, which is what makes it go green the day the defect dies.
+
+The next commit is the fix or a revert of the CMake registration; nothing else
+should be built on top of a red corpus.

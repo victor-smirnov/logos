@@ -27,3 +27,15 @@ pub fn beta_is_limit(x: i32) -> bool {
         _ => { return false; }
     }
 }
+
+// ── dyn_vtable_bare_key carrier (2026-09-11) ────────────────────────────────
+// beta's half. DIFFERENT method body (+2000) on purpose: an overwrite is only
+// observable when the two method vectors disagree. See alpha.logos.
+pub trait Dyg { fn mark(&self) -> i64; }
+pub struct Dz { pub v: i64 }
+impl Dyg for Dz { fn mark(&self) -> i64 { return self.v + 2000i64; } }
+pub fn beta_dyn_mark(n: i64) -> i64 {
+    let t: Dz = Dz { v: n };
+    let d: &dyn Dyg = &t;
+    return d.mark();
+}
