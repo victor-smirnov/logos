@@ -1,0 +1,12 @@
+# negative_out.claim — THE CLAIM, OUT OF THE RULE.
+#
+# A callee that answers with an AUTHORITATIVE NEGATIVE through an out-parameter
+# (or a defaulted trailing parameter) which a caller may silently decline to
+# read. Column 2 is that parameter's 0-BASED POSITION in the parameter list.
+#
+# An entry here is a claim with an author. Derived by reading the declarations
+# in src/compiler/mlir_gen_impl.hpp: `resolve_method_symbol`'s fourth parameter
+# `bool* pkg_owns_struct` is documented in the source as "an AUTHORITATIVE
+# NEGATIVE — that type has no such method — and [the caller] must not go on to
+# resolve `base` through any package-blind channel."
+resolve_method_symbol 3

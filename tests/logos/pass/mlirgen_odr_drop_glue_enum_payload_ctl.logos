@@ -1,0 +1,17 @@
+// CONTROL for mlirgen_odr_drop_glue_enum_payload — the homonym renamed.
+// PAYLOAD**. Third carrier of one mechanism (struct field / tuple element /
+// enum payload); rc 139 on the same binary, in no ledger, found 2026-09-10e.
+// PAIR: mlirgen_odr_drop_glue_enum_payload_ctl, one token apart.
+package test;
+struct ZqStr { pub a: i64 }
+enum Wrap { W(ZqStr), N }
+fn main() -> i32 {
+    let mut ys: Vec<Wrap> = Vec::<Wrap>::new();
+    ys.push(Wrap::W(ZqStr{a:9i64}));
+    let mut n: i64 = 0i64;
+    match ys.borrow(0u64) {
+        Wrap::W(s) => { n = s.a; }
+        Wrap::N => { n = 1i64; }
+    }
+    return n as i32;
+}

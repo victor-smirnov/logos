@@ -631,8 +631,15 @@ private:
     // whatever it may spell a method.
     std::string resolve_drop_symbol(std::string_view name, std::string_view pkg) const {
         if (!drop_impl_targets_built_) build_drop_impl_targets_();
+        // ⚠ this set is keyed BARE: it says only that SOME package's struct of
+        // this name has a Drop impl. PROBES.md 2026-09-10e §authneg.
         if (!drop_impl_targets_.count(drop_base_key(name))) return {};
-        return resolve_method_symbol(name, "drop", pkg);
+        // TAKE THE AUTHORITATIVE NEGATIVE (pkg_owns_struct, above): `owns` plus
+        // the plain fallback = this package owns the struct and it has NO drop.
+        bool owns = false;
+        auto sym = resolve_method_symbol(name, "drop", pkg, &owns);
+        if (owns && sym == std::string(strip_struct_pkg(name)) + "__drop") return {};
+        return sym;
     }
     mutable std::unordered_set<std::string> drop_impl_targets_;
     mutable bool drop_impl_targets_built_ = false;

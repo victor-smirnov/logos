@@ -1,0 +1,61 @@
+// authoritative_negative — WHICH CALLERS DECLINE AN AUTHORITATIVE NEGATIVE.
+//
+// The "keyed on a bare name" class has a third form neither name_intercept
+// (PREDICATION) nor name_key (RESOLUTION) can see, because the bare name is
+// nowhere in the call: the resolver ALREADY KNOWS the answer is package-scoped
+// and offers it through an out-parameter, and the caller does not take it. The
+// site then hands the resolver's BARE convention fallback to a package-blind
+// chokepoint — which is the original defect, one hop later.
+//
+// A grep cannot ask this. The distinguishing feature is an ABSENT argument,
+// and an absence has no spelling. clang materialises a defaulted parameter as
+// a CXXDefaultArgExpr node, so "declined" is a positive fact here.
+//
+// THE CLAIM IS NOT IN THE RULE: `negative_out.claim` lists the callee and the
+// 0-based position of the negative-bearing parameter.
+#include "cxx_schema.dl"
+
+.decl negative_out(callee: symbol, pidx: number)
+.input negative_out
+
+// Child 0 of a call node is the CALLEE expression; every child above it is an
+// argument, so parameter P sits at child index P+1.
+.decl arg(callid: symbol, idx: number, x: symbol)
+arg(C, I, X) :- call(C, _), node(X, _, C, I), I > 0.
+
+.decl callee_name(callid: symbol, name: symbol)
+callee_name(C, N) :- call(C, D), decl_name(D, N).
+
+.decl watched(callid: symbol, callee: symbol, pidx: number)
+watched(C, N, P) :- callee_name(C, N), negative_out(N, P).
+
+.decl at(callid: symbol, file: symbol, line: number, ctx: symbol)
+at(C, F, L, K) :- watched(C, _, _), loc(C, F, L, _), ctx_of(C, X), ctx_name(X, K).
+
+// The KIND of whatever occupies the negative-bearing position. Reported rather
+// than judged: a reader sees CXXDefaultArgExpr and knows the argument is not
+// there, and sees UnaryOperator and knows an `&flag` was passed.
+.decl neg_slot(file: symbol, line: number, ctx: symbol, callee: symbol, kind: symbol)
+.output neg_slot
+neg_slot(F, L, Ctx, Cal, K) :- watched(C, Cal, P), at(C, F, L, Ctx),
+                               arg(C, P+1, X), node(X, K, _, _).
+
+// DECLINED — the parameter is defaulted away, or absent from the call entirely.
+.decl declined(file: symbol, line: number, ctx: symbol, callee: symbol)
+.output declined
+declined(F, L, Ctx, Cal) :- watched(C, Cal, P), at(C, F, L, Ctx),
+                            arg(C, P+1, X), node(X, "CXXDefaultArgExpr", _, _).
+declined(F, L, Ctx, Cal) :- watched(C, Cal, P), at(C, F, L, Ctx),
+                            !arg(C, P+1, _).
+
+// TAKEN — something real is in the slot.
+.decl taken(file: symbol, line: number, ctx: symbol, callee: symbol)
+.output taken
+taken(F, L, Ctx, Cal) :- watched(C, Cal, P), at(C, F, L, Ctx),
+                         arg(C, P+1, X), node(X, K, _, _), K != "CXXDefaultArgExpr".
+
+.decl an_count(what: symbol, n: number)
+.output an_count
+an_count("call_sites", N) :- N = count : { watched(_,_,_) }.
+an_count("declined",   N) :- N = count : { declined(_,_,_,_) }.
+an_count("taken",      N) :- N = count : { taken(_,_,_,_) }.

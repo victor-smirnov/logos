@@ -1,0 +1,18 @@
+// THE HOMONYM HALF of mlirgen_odr_drop_glue_field_ctl — ONE TOKEN APART (the
+// field type is `String`, a homonym of `logos.mem.string.String`, where the
+// control writes `ZqStr`). Was tests/soundness/open/homonym_field_drop_glue_segv
+// (tier 1, `run 139`); closed 2026-09-10e.
+//
+// `Holder`'s drop glue resolved its FIELD's destructor by bare name and bound
+// `logos.mem.string.String__drop__f__refmut_String`, which read `a: i64` as a
+// heap pointer and free()d it — SIGSEGV, 8 lines, no unsafe. The object file is
+// the second oracle: `nm -C` must NOT show that symbol as undefined here.
+package test;
+struct String { pub a: i64 }
+struct Holder { pub s: String, pub t: String }
+fn main() -> i32 {
+    let mut ys: Vec<Holder> = Vec::<Holder>::new();
+    ys.push(Holder{ s: String{a:1i64}, t: String{a:2i64} });
+    let n: i64 = ys.borrow(0u64).s.a + ys.borrow(0u64).t.a;
+    return n as i32;
+}

@@ -36517,3 +36517,157 @@ that way.
    rule limit, not a tree fact, and it is the next `dlog` increment.
 3. **NOT the mono back-compat aliases.** Documented, deliberate, last-wins, and
    an owner's call.
+
+# 2026-09-10e — THE THIRD FORM OF "KEYED ON A BARE NAME" IS AN ARGUMENT THAT IS NOT THERE
+
+`build: 65541d3ed79353a1 43` (was `dff89684a1bee6e6 43`) · queue `# TOTAL` 78 → **77**
+
+## 1. THE FORM NEITHER EXISTING RULE COULD SEE
+
+`name_intercept.dl` asks about PREDICATION (`x == "Drop"`) and `name_key.dl` about
+RESOLUTION (a bare name as a key, an argument, a concatenation, a subscript).
+Both need the name to BE somewhere in the site. There is a third form in which
+the bare name appears nowhere at all: the resolver ALREADY KNOWS the answer is
+package-scoped and offers it through an out-parameter, **and the caller does not
+take it**. `resolve_method_symbol`'s own comment states the contract — `owns`
+plus the plain `base` fallback means "this package owns a struct of that name
+and it has no such method", and a caller with that answer "must not go on to
+resolve `base` through any package-blind channel".
+
+**A grep cannot ask this. The distinguishing feature is an ABSENT ARGUMENT, and
+an absence has no spelling.** clang materialises a defaulted parameter as a
+`CXXDefaultArgExpr`, so "declined" is a POSITIVE fact in the AST and therefore a
+Datalog question. New rule `tools/dlog/authoritative_negative.dl`, claim
+`negative_out.claim` (callee + the 0-based position of the negative-bearing
+parameter — the claim is not in the rule). `selftest.sh` **rc 0 before and after**,
+reading identically (19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty
+1 → 0). The extractor was NOT touched.
+
+Full sweep, 37 TUs, 46 s warm:
+
+| | |
+|---|---|
+| watched call sites | 10 (4 distinct `file:line` after dedup) |
+| **taken** | 1 — `mlir_gen_stmt.cpp:1319 emit_body` (`UnaryOperator`, i.e. `&owns`) |
+| **declined** | 3 — `mlir_gen_impl.hpp:635 resolve_drop_symbol`, `mlir_gen_stmt.cpp:1366 emit_body`, `mlir_gen_expr.cpp:5890 emit_dst_len` |
+
+**Cross-check, both ways.** dlog 4 distinct sites; `grep -rn 'resolve_method_symbol('`
+5 lines, of which 1 is the definition and 1 is prose inside a comment — 4 real,
+0 dlog-only, 0 regex-only. Exact agreement, and the per-site read confirmed each.
+
+⚠ **A CORRECTION TO THE PREVIOUS ROUND'S RECORD.** §8 above says R3b holds
+"`mlir_gen_impl.hpp:481 resolve_method_symbol(struct_name + method_name)` — the
+`dyn`-vtable door". Line 481 is `mkey.append(struct_name)` — the construction of
+`rms_memo_`'s **cache key**, inside `resolve_method_symbol` itself. It is not a
+resolution door and there is no `dyn`-vtable door there. R3b matched a memo key;
+the classification was wrong and a per-site read is what caught it, exactly as
+the standing warning says.
+
+## 2. WHAT DECLINING IT COST — THREE CARRIERS OF ONE MECHANISM
+
+`resolve_drop_symbol` is "the ONE reader the drop sites use" (4 call sites:
+`mlir_gen_stmt.cpp` 645 / 675 / 1074 / 1145). Its first test,
+`drop_impl_targets_.count(drop_base_key(name))`, is keyed BARE — deliberately —
+so it says only that SOME package's struct of this name has a `Drop` impl. It
+then called `resolve_method_symbol` **without** `pkg_owns_struct`, so a user
+`struct String { a: i64 }` came back with the bare convention fallback
+`String__drop`, which `find_func_op`'s `ffo_canonical` (THE package-blind
+chokepoint) bound to `logos.mem.string.String__drop__f__refmut_String` — which
+reads `a: i64` as a heap pointer and `free()`s it.
+
+Measured on `b7df0866-dirty` (the round's base binary), then on the fixed one.
+**The counter-examples were written before the edit and vary the CARRIER, not the
+count** — the queue row is only the first of three:
+
+| carrier | program | base | fixed |
+|---|---|---|---|
+| struct FIELD | `Vec<Holder>`, `Holder{s: String, t: String}` | **rc 139** | rc 3 |
+| TUPLE element | `Vec<(String, i64)>` | **rc 139** | rc 5 |
+| ENUM payload | `Vec<Wrap>`, `Wrap::W(String)` | **rc 139** | rc 9 |
+| *(control)* user `String` **with** `impl Drop` under the homonym | destructor count | rc 2 | rc 2 |
+| *(control)* homonym field, **no** `Vec` | | rc 7 | rc 7 |
+| *(control)* the real `logos.mem.string.String` | | rc 2 | rc 2 |
+
+Two of the three had no row anywhere. The object file is the second oracle:
+`nm -C` on all three now shows **0** references to
+`logos.mem.string.String__drop`, where the base binary left it undefined in each.
+
+## 3. THE FIX, AND THE CANDIDATE DECLINED BEFORE IT WAS IMPLEMENTED
+
+Declared budget ≤ 30 lines of code; spent **11** (`git diff --numstat` 8/1 + 6/1,
+comments included). `resolve_drop_symbol` and `mlir_gen_stmt.cpp:1366` now take
+the negative and return nothing when the owning package has no `drop`.
+
+**Candidate B — package-qualify `drop_impl_targets_` — was declined BEFORE
+implementing**, not after: `ImplView::target_type()`'s package spelling is
+unverified, and a qualified key that misses SKIPS a real destructor, which is the
+expensive direction. The authoritative negative is an already-documented contract
+with a caller that already honours it (`:1319`), so it is the narrower change.
+
+`mlir_gen_expr.cpp:5890 emit_dst_len` is the third declining site and is **left
+alone, measured inert**: it feeds the result to an exact
+`lookupSymbol<FuncOp>(sym)`, not to `ffo_canonical`. A cross-package homonym's
+symbol is emitted module-qualified (`pkg.Foo__dst_len`), so the bare fallback
+cannot bind it; and a package-less struct gives `pkg.empty()`, hence `owns ==
+false` and no negative to take. Taking it there would change `sym` from a name
+that resolves to nothing into an empty name that resolves to nothing.
+
+## 4. ROWS DECLINED BY NAME, WITH THE NUMBER
+
+* **`localvec_mangled_collision_listcomp_internal`** (tier 3, `refuses`).
+  Unmoved by this fix — still `'Vec$G1$i64__push' does not reference a valid
+  function`, verbatim. It needs the mono symbol STEM to carry a package, and the
+  `$G` fold is written at **34 literal `"$G"` sites across 23 files** (grep, not
+  dlog — the box was saturated). That is an order of magnitude over this round's
+  budget and it moves every recorded symbol name in the corpus with it.
+* **`stdlib_drop_uninhabited_enum_byvalue_consumer`** (tier 3, `refuses`).
+  Unmoved, verbatim. It is **not a member of this class at all**: the enumeration
+  above has 4 sites and none of them is on its path — an uninhabited `enum` with
+  a by-value consumer lowers a `func.call` operand as `i32` where `!llvm.ptr` is
+  expected, which is an ABI/lowering fact, not a name fact. Grouping it with the
+  drop plane in `TARGET_ROWS.txt` was a hypothesis about the program and it is
+  refuted; the row stays with its symptom, not with this mechanism.
+
+## 5. WHAT THIS LEAVES OPEN
+
+`drop_impl_targets_` is **still keyed on a bare name**, and the negative only
+neutralises it when a package is in hand. `resolve_drop_symbol(name, "")` — no
+package — still answers "yes" for any homonym of a `Drop`-implementing struct.
+Nothing in the corpus reaches that today (3 carriers repaired, 0 regressions),
+but it is the same door one argument away from open.
+
+## 6. THE TWO GATES THAT WENT RED, AND WHY ONLY ONE OF THEM WAS A FACT
+
+Full `gate-run.sh` (no filter), build **1025**, 9562 recorded: **9555 passed / 2
+failed / 5 disabled**. Both failures were population bookkeeping, not behaviour,
+and the store dates them — `logos_00_population_pin_lint` and
+`logos_09_direct_door_census` both read **passed at build 1023** (`b7df0866e`).
+
+* `logos_00_population_pin_lint` — a REAL drift, and exactly the one the gate
+  exists for: `PIN['corpus']` 3017 → **3022**, `PIN['nonglob']` 2826 → **2831**,
+  re-derived by direct listing in the gate that holds them
+  (`direct_door_census_gate.sh`), naming the five fixtures and which half they
+  joined. Green.
+* `logos_09_direct_door_census` — **not a fact about the tree, and the first two
+  re-runs were not either.** Its first red named the five new fixtures, which
+  CMake had not yet globbed into `logos_facts_all`; `cmake --build` re-globbed
+  and registered them (`ctest -N` 3018 → 3023). The next three reds named a
+  DIFFERENT random old fixture each time — `hashset_basic`,
+  `core_6_adv_const_in_impl`, then five at once by hand — and every named
+  directory was complete on disk seconds later.
+  ⚠ **THE CAUSE WAS A STRAY PROCESS OF MY OWN.** An earlier
+  `ctest -R … -j2` had exceeded its foreground timeout, been moved to the
+  background, and was still re-running all 3022 producers — and `facts_emit.sh`
+  `rm -rf`s a facts directory FIRST. Every later census was reading a corpus
+  another scheduler was deleting out from under it. **CHECK THE BOX BEFORE THE
+  SUITE**: `pgrep -a ctest` named it in one line, after three full re-runs had
+  been spent treating a contended box as a tree fact. Killed; the census is
+  **3023/3023, rc 0**.
+* `logos_00_census_pin` went red on the NEXT full run — and only then, because
+  the run before it was made before CMake had re-globbed. `ALL 9562 → 9567`,
+  `-LE imported 5096 → 5101`, `tier_commit 148 → 148`: exactly +5, which is the
+  delta this round predicted. Re-derived with its changelog entry. **Three
+  separate population statements had to move for five fixtures** —
+  `census_pin`'s registry triple, `direct_door`'s corpus/nonglob pair, and the
+  queue's own `# TOTAL` — and `population_pin_lint` exists precisely because two
+  of those three used to drift apart silently.

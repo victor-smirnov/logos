@@ -5700,8 +5700,20 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                    imported. TWO soundness-queue rows closed, `# TOTAL`
 #                                    79 -> 77; their programs were never registered tests,
 #                                    so they move none of these three.)
-REGISTRY-ALL         9562
-REGISTRY-NOIMPORTED  5096
+# 2026-09-10e (the authoritative-negative drop landing:
+#   ALL          9562 -> 9567  +5    five PASS halves, all of which RUN and assert an exit
+#   NOIMPORTED   5096 -> 5101  +5    code: mlirgen_odr_drop_glue_field (the closed
+#   TIERCOMMIT    148 ->  148   0    soundness-queue program homonym_field_drop_glue_segv,
+#                                    landed against the `_ctl` twin that already existed),
+#                                    and the two NEW carriers the round found by varying the
+#                                    carrier rather than the count, each with its own
+#                                    one-token control: mlirgen_odr_drop_glue_tuple_elem{,_ctl}
+#                                    and mlirgen_odr_drop_glue_enum_payload{,_ctl}. All five
+#                                    native, none tier_commit, none imported. The round
+#                                    declared NO fail fixture. ONE soundness-queue row closed,
+#                                    `# TOTAL` 78 -> 77.)
+REGISTRY-ALL         9567
+REGISTRY-NOIMPORTED  5101
 REGISTRY-TIERCOMMIT  148
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

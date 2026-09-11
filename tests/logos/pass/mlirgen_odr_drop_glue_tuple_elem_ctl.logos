@@ -1,0 +1,13 @@
+// CONTROL for mlirgen_odr_drop_glue_tuple_elem — the homonym renamed.
+// ELEMENT** instead of a struct field. Found 2026-09-10e by varying the CARRIER
+// while closing homonym_field_drop_glue_segv: it was rc 139 on the same binary
+// and is in no ledger. PAIR: mlirgen_odr_drop_glue_tuple_elem_ctl, one token
+// apart (`ZqStr` -> `ZqStr`).
+package test;
+struct ZqStr { pub a: i64 }
+fn main() -> i32 {
+    let mut ys: Vec<(ZqStr, i64)> = Vec::<(ZqStr, i64)>::new();
+    ys.push((ZqStr{a:5i64}, 1i64));
+    let n: i64 = ys.borrow(0u64).0.a;
+    return n as i32;
+}

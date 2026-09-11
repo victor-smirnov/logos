@@ -1363,7 +1363,12 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
                 dfn  = dfn.substr(dot + 1);
             }
             if (auto p = dfn.find("__drop"); p != std::string_view::npos) {
-                auto resolved = resolve_method_symbol(dfn.substr(0, p), "drop", dpkg);
+                // TAKE THE AUTHORITATIVE NEGATIVE, as the pass above does.
+                bool owns2 = false;
+                auto resolved = resolve_method_symbol(dfn.substr(0, p), "drop",
+                                                      dpkg, &owns2);
+                if (owns2 && resolved == std::string(dfn.substr(0, p)) + "__drop")
+                    resolved.clear();
                 if (!resolved.empty())
                     fn = find_func_op(mod, resolved);
             }
