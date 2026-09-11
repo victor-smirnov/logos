@@ -38698,3 +38698,45 @@ repaired here, and neither is an over-refusal:
 So the `&dyn`-parameter surface is complete for `Box` and incomplete for `Rc`/`&mut` for a
 DIFFERENT reason, in a different phase. Recorded, not rowed here: the queue's oracle is a
 run, and these do not produce a binary.
+
+## 2026-09-11 bufdrop — `BufReader`/`BufWriter` free on drop: PRICED AT ZERO, AND E0367 SPLITS IT
+
+Round record: `docs/probes/bufdrop-2026-09-11/ROUND.md`. No compiler source touched.
+
+**The two previous rounds' "an API decision with an owner" is retired by measurement.**
+Both divergence registries were grepped BY CONSTRUCT, in their own schemes:
+`docs/DIVERGENCES.md` holds 17 LETTER rows (`A1`..`A17`, enumerated — none is io/buffered)
+and `docs/spec/*.md` holds 3851 clauses (497 in `divergences.md`); `bufreader|bufwriter`
+returns **0 lines over all of `docs/spec/`**. Neither registry covers them, so the standing
+rule decides and the answer is Rust's: they free on drop.
+
+**E0367 splits the fix, along the line Rust itself draws.** The naive transcription
+`impl<R: Read> Drop for BufReader<R>` is REFUSED, correctly, by `sema_collect.cpp:7008`
+("`R: Read` is required by the `Drop` impl but not by `BufReader`", pinned by four
+`tests/logos/fail/bc_dropwf_*` and three imported `dropck` ports) — the structs are declared
+unbounded and the bounds live only on the inherent impls. So:
+
+  * `BufReader` — an unbounded `impl<R> Drop` that frees is the whole job;
+  * `BufWriter` — the Rust-canonical drop FLUSHES, flushing needs `W: Write`, and under
+    E0367 that bound can only come from the STRUCT DECLARATION. Which is where Rust puts it.
+
+**Two candidates, both built, both zero.** stdlib `cmake --build --target stdlib_layers`
+rc 0; `scripts/run_oracle.py` 6,661 pass fixtures compiled + linked + RUN, diffed BOTH WAYS
+against a PROVEN revert in the SAME build dir — **1 differing row, `cast-region-to-uint`,
+the one the prompt names because it prints a stack address**; the 9 `vg_leak_records`
+entries (over **6** fixtures, not 7 — `adv3_generic_field_method_call` is clean) all go to
+0; ABI additive, 3 `__drop` symbols, **PRESERVING, no minor bump**.
+
+**S12 is the shape that separates them.** Three bytes written into a 4,096-byte buffer and
+dropped without `flush`: free-only Drop discards them (rc 0, as base does); the bounded,
+flushing Drop delivers them (**rc 3**). A leak fix that is not Rust is still not Rust.
+
+**⚠ THE ABI INSTRUMENT IS BLIND TO THE BOUND.** The two candidates emit a **byte-identical**
+`logos.abi` — the `type` record carries a field list and no bounds — so tightening a public
+struct's declaration to `<W: Write>` leaves no trace any of `abi-check.sh`'s five checks can
+see. Inside this tree the blast radius is one symbol (`buf_writer_inner_mut`, the only
+unbounded mention); outside it the spec says nothing.
+
+**⚠ A LEAK IS SILENT BY ORACLE HERE.** All six leaking fixtures exit 42 on both arms. The
+landing must add a destructor-count pair (`close`-then-scope-exit, and scope-exit alone) or
+the corpus will not hold the fix.
