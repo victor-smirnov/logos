@@ -31,7 +31,23 @@
 .decl seed(x: symbol)
 .decl sub(top: symbol, x: symbol, d: number)
 sub(N, N, 0) :- seed(N).
-sub(N, C, D+1) :- sub(N, X, D), D < 3, node(C, _, X, _).
+// ⚠ DEPTH 10, AND THREE IS WHERE A WHOLE FORM WAS INVISIBLE. Measured over the
+// full 37-TU sweep, distinct file:line, d3 -> d10:
+//   name_arg 120 -> 367 · lit_arg 47 -> 67 · name_concat 165 -> 363
+//   name_name_concat 14 -> 76 · name_subscript 270 -> 331
+//   lit_subscript 0 -> 55      <- produced NOTHING at depth 3
+//   TOTAL 616 -> 1259
+// Monotone: 0 sites are lost in any of the six relations, so d3 is a strict
+// subset and the horizon was a floor, not a filter. `pkg + "." + name` parses
+// as `(pkg + ".") + name` and the literal in the nested half sits five levels
+// below the outer `+`; a three-level horizon cannot reach it, which is why
+// mono.cpp:509 — the pkg-qualified half of an alias pair this class exists to
+// find — was absent while a plain grep found it. Cost of the depth: NONE
+// measurable, 48.6 s at d10 against 48.4 s at d3 over the same 37 TUs.
+// ⚠ MORE SITES ARE NOT MORE DEFECTS. The one classified population read 18
+// confirmed decisions out of 656; the classification must be re-run over 1259
+// and the ratio re-measured, not assumed.
+sub(N, C, D+1) :- sub(N, X, D), D < 10, node(C, _, X, _).
 
 // ── an ENTITY-NAME PRODUCER, DERIVED (same definition as name_intercept) ───
 .decl name_producer(did: symbol, name: symbol)
