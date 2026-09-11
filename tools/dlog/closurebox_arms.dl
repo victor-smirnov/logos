@@ -1,0 +1,19 @@
+// ROUND 2026-09-11b — enumerate BY PROPERTY the contexts that dispatch on the
+// LIR expression code `ClosureBox`. The source comment at
+// borrow_check.cpp::visit claims "there are exactly TWO ClosureBox arms in this
+// file"; a name grep cannot check that (lir_schema.hpp declares FIVE enums
+// named `Code`, and the constant is spelled Code::/EC::/K:: at different sites).
+// ⚠ ctx_of COARSENS TO THE ENCLOSING FUNCTION (the 2026-08-27 37-vs-0 finding),
+// so this answers "which FUNCTIONS test the code", and every row is then read
+// per-site by hand before it is believed.
+#include "cxx_schema.dl"
+#include "lir_dispatch.dl"
+target_enum(E) :- decl(E, "Enum", "logos::compiler::lir_schema::expr::Code").
+
+.decl cbox_arm(fn: symbol, pos: symbol)
+.output cbox_arm
+cbox_arm(F, P) :- tests(F, "ClosureBox", P).
+
+.decl cbox_code(k: symbol)
+.output cbox_code
+cbox_code(K) :- expr_code(K), K = "ClosureBox".

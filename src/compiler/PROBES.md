@@ -38058,3 +38058,183 @@ duplicated NAME-string walker, +35 lines, whose census bucket `e0207.impl.with_l
 counted every impl rather than what its name says — a misnamed fact in an authoritative
 form, which is the failure this tool exists to avoid). The two census buckets that remain
 ride facts the predicate already computes and cost no extra walk.
+
+## 2026-09-11b-capvis — THE `*.NEW-CAPLOAN` GLOSS IS REFUTED: THE CAPTURE-LOAN CHANNEL IS COMPLETE AND ONLY RUNS IN `let` POSITION, AND WHEN THE MISSING FRAME IS ARMED FOUR OF ITS FIVE CLOSINGS ARE THE WRONG SENTENCE
+
+site: src/compiler/borrow_check.cpp::visit (the NON-`let` `case Code::ClosureBox`;
+the `let`-position one is in src/compiler/borrow_check.cpp::take_ref_borrows)
+fires: capvisloan 54 · capvisloanmut 31 · capvisloanb 54 · capvisloanbmut 31
+build: base fbb52c741c4e8469 43 (READ) -> armed 264ab068c5124368 43 (pre-walk pair,
+READ) -> armed 6787708d0bc8536b 43 (post-walk pair, READ). Tree restored and the
+revert asserted BY BEHAVIOUR as well as by a re-read hash.
+Round files: build/round-2026-09-11b/{targets,PREDICTION}-2026-09-11b.txt (targets
+written before the compiler was touched, prediction before each armed binary existed).
+
+TARGET: `*.NEW-CAPLOAN`, three rows — `issue-58776-borrowck-scans-children`
+(bck., E0506), `mut-borrow-conflict-in-closures-vec--bounded` (bck., E0499),
+`issue-51268` (nllmoves., E0502). Chosen because it is the largest root never
+priced at its own site, and because its recorded pair says the DEPOSIT ARM EXISTS
+and the capture channel does not reach it — the shape that has paid every time.
+
+### 1. THE RECORDED ROOT IS WRONG, AND ONE NUMBER SAYS SO (prompt finding 1)
+`bck.C`'s successor gloss reads "a loan that CROSSES the closure boundary deposits
+nothing in the enclosing body". MEASURED on the base binary: the capture channel
+deposits a full loan — `record_borrow` with a holder, `inherit_loans`, NLL release
+— and has since 2026-08-31t. The discriminator is the closure literal's POSITION,
+one variable, everything else identical:
+
+    let c = || { let _ = s; };  s = 2;    REFUSED  "cannot assign to 's' because it is borrowed"   1 capture deposited
+    take(|| { let _ = s; });    s = 2;    ADMITTED                                                 0 deposited
+    (|| { return &s; })();      s = 2;    ADMITTED                                                 0 deposited
+    Box::new(|| { let _ = s; });s = 2;    ADMITTED                                                 0 deposited
+
+`LOGOS_DUMP_BC_CAPTURE` + `LOGOS_CENSUS` on all three ledger rows: ZERO `[bc-capture]`
+lines, zero `capshared/*` arrivals — and the site is PROVEN LIVE by the `let` control
+in the same binary (rule 1). The root is re-derived as: **the non-`let` ClosureBox arm
+mints no capture loan**, and it is an ARM THAT EXISTS reached through a position the
+other arm does not cover.
+
+⚠ THIS IS THE FRAME A RECORD ASKED FOR ON 2026-08-31 AND NOBODY TOOK UP. `capargclos`
+(still installed, two sites) was refuted then with "the site is provably live and the
+decision is taken in a frame ABOVE it — the next question is the LET/statement gate,
+not these two arms". The frame is this arm, and a census under `capvis.arrive` reads
+2 / 2 / 1 on the three rows where `capargclos` read 0.
+
+### 2. tools/dlog — THE CLASS ENUMERATED BY PROPERTY, AND THE SOURCE COMMENT IS WRONG BY EIGHT
+`selftest.sh` RUN FIRST, rc 0: "19 walkers / 24 findings / try_path 1-5 / domain 42-5;
+duty discriminates across 756aed65 (1 -> 0)" — the known answer reproduces.
+NEW RULE `tools/dlog/closurebox_arms.dl` (declared here as the round record requires):
+`cbox_arm(Fn, Pos) :- tests(Fn, "ClosureBox", Pos)` over `lir_dispatch`'s derived
+domain, subject `src/compiler/borrow_check.cpp`.
+The arm's own comment says *"There are exactly TWO ClosureBox arms in this file"*.
+By the PROPERTY there are **12 dispatch contexts in 10 functions**: `one`,
+`scan_uses_expr`, `note_closure_caps`, `collect_ref_sources_paths` (×2),
+`retains_borrowing_operand`, `prov_of_retained`, `visit`, `take_ref_borrows` (×2),
+`taint_of`, `is_place_projection`.
+CROSS-CHECKED PER SITE, as the standing warning requires, and the two numbers are
+reported side by side: a hand read of all 26 `ClosureBox` occurrences finds **12**
+that actually dispatch (10 `case` labels + 2 `a.kind() ==` conditions) — dlog 12,
+per-site read 12, AGREE. The comment is true only of the narrower class "arms that
+walk the capture list for the loan channel"; as written it is a claim about the file
+and it is wrong by eight.
+
+### 3. THE PROBE TABLE — ALL COLUMNS, THE ORDER AS THE ONE VARIABLE
+Two positions x two strengths. `capvisloan`/`capvisloanmut` deposit BEFORE the body
+walk; `capvisloanb`/`capvisloanbmut` deposit AFTER it. Nothing else differs.
+
+    probe            fires  ceiling  cost(pass)  cfail          stdlib  runtime   hand-legal cost
+    capvisloan          54        5           1  1 of 1485 text  4 of 4  not run   1 of 10
+    capvisloanmut       31        4           1  1 of 1485 text  4 of 4  not run   0 of 10
+    capvisloanb         54        1           0  0 of 1485       4 of 4  0 of 6652  4 of 15
+    capvisloanbmut          31        0           0  0 of 1485       4 of 4  not run   0 of 15
+
+⚠ THE `cost 0` ON `capvisloanb` IS NOT A SAFETY CLAIM AND THE COUNTER-EXAMPLES ARE
+IN HAND (rule 5, shapes varied not counted). FOUR legal programs are refused that no
+corpus column contains, all ONE cause — a holder-less loan never retires:
+    L2  `(|| { let _ = x; })(); x = 2;`                      "cannot assign to 'x' because it is borrowed"
+    M1  `|| { let _ = x; }; x = 2;`               (statement) same sentence
+    M2  the same IIFE inside a `while`, `n` mutated each turn same sentence
+    M4  `let a = (|| { return v + 1; })(); v = 7;`           same sentence
+ELEVEN legal shapes admitted armed and unarmed: a closure ARG then assign · an arg
+that MUTATES then a read · an arg capturing a disjoint FIELD then a sibling write ·
+`Box::new(|| x)` then a call · a `move` arg then assign · nested shared reads ·
+an arg capturing an INDEX then another index · a method-call arg then assign · a
+closure returned through `Box<dyn Fn + 'a>` over a `&'a` param · an arg then a MOVE
+of the captured root · two args over two disjoint roots.
+⚠ ONE ILLEGAL PROGRAM IS INHERITED, NOT BOUGHT (rule 14): `X4` (`(|| &s.a)()` then
+`s.a = 2`) is ALREADY refused unarmed as "cannot return reference to temporary".
+
+### 4. SETS, DIFFED BOTH WAYS, EVERY DIAGNOSTIC READ ON THE ARMED BINARY
+`capvisloan` predicted {issue-58776, mut-borrow-conflict-in-closures-vec--bounded}.
+ACTUAL five:
+    issue-58776-borrowck-scans-children        "cannot assign to 'greeting' because it is borrowed"
+    issue-75904-move-closure-loop              "cannot borrow 'a' as mutable: already mutably borrowed"
+    issue-40510-3                              "cannot use 'x' while it is mutably borrowed"
+    issue-42574-…--b                           "cannot borrow 'data' as mutable: already mutably borrowed"
+    issue-42574-…--t15                         the same
+predicted∖actual = {mut-borrow-conflict-in-closures-vec--bounded}
+actual∖predicted = {issue-75904, issue-40510-3, issue-42574--b, issue-42574--t15}
+
+⚠ FOUR OF THE FIVE ARE NOT ROWS THIS ARM MAY CLAIM, AND THE READING SAYS WHY:
+  · `issue-75904-move-closure-loop` HAS NO ROW HERE. It lives in
+    `bc_admits_blocked.ledger:155` as BUCKET-3 DIVERGENCE-A16 — under A16 structural
+    auto-Copy the program is LEGAL in Logos. Refusing it is a COST, not a ceiling row.
+  · `issue-40510-3` upstream is *"captured variable cannot escape `FnMut` closure
+    body"* (.stderr READ on the box). The armed sentence is an ALIASING one. Wrong reason.
+  · `issue-42574--b` / `--t15` upstream is *"lifetime may not live long enough"* +
+    E0597 `data` does not live long enough, over ONE borrow. The armed sentence says
+    "already mutably borrowed" — there is no second borrow. Wrong reason, twice.
+  A row closed by a wrong diagnostic is not closed; the honest ceiling of the crude
+  pre-walk spelling is **1**, not 5.
+
+⚠ AND THE THREE WRONG SENTENCES HAVE ONE CAUSE, WHICH IS AN ORDER, AND IT WAS
+TESTED AS THE SINGLE VARIABLE. The `let`-position arm walks the closure BODY BEFORE
+depositing, and its own comment states the reason: the body's use of a capture
+otherwise conflicts with that capture's own loan. `capvisloanb` is the SAME deposit
+moved after `walk_closure_body` — nothing else differs — and it closes
+{issue-58776} alone, PREDICTED BY NAME BEFORE THE RUN, predicted∖actual = ∅,
+actual∖predicted = ∅, at cost 0 / cfail 0 / stdlib 4 of 4.
+`capvisloanbmut` is its rule-9 control twin: the SHARED capture is what buys the row.
+
+### 5. THE BLOCK SPLITS — THREE ROWS, THREE MECHANISMS (the arrival census decided it)
+  T1 `issue-58776`  CLOSED by the arm, right reason (upstream E0506 "cannot assign").
+  T2 `mut-borrow-conflict-in-closures-vec--bounded`  NOT closed, and not by an
+     unreached site: census reads `capvis.mut 2`, and the two mut captures of `y` are
+     BOTH deposited and coexist in silence. `record_borrow` is RECORD-ONLY — a second
+     mut record raises nothing; the verb that raises a borrow-vs-borrow conflict is
+     `take_borrow`. A SECOND mechanism, one layer down, not this deposit.
+  T3 `issue-51268`  NOT closed, and it is not a defect under Logos's own design.
+     Upstream's test is pinned `//@ edition:2015..2021` — WHOLE-`self` capture. Logos
+     captures `self.number` precisely, `docs/spec/ownership.md`
+     `borrow.closure.disjoint-field-capture` / `borrow.closure.capture-by-ref-loan`,
+     and under precise capture `self.thing` and `self.number` are DISJOINT. Rust 2024
+     accepts this program. CORPUS DECISION, reported, not edited.
+
+### 6. `bck.NEW` SURVEYED ON THE WAY IN, AND IT IS NOT A BLOCK — FOUR MECHANISMS, TWO OF THEM PROBABLY NOT DEFECTS
+All four re-verified ADMITTED on build fbb52c741c4e8469 before anything was touched.
+  · `borrowck-move-from-unsafe-ptr` (E0507) — ALREADY PRICED AND CONDEMNED, round
+    2026-09-03j §6: both raw-pointer doors opened = ceiling 1 / cost 1 pass fixture /
+    cfail 8 / **stdlib REFUSED at `lang`** (`PrimVec__get` is itself a direct `*p`).
+    RE-CHECKED BY READING ONLY, the wall is where it was. The arm EXISTS and is
+    correct one hop over: `let y = *r` through `&Own`/`&mut Own` is refused
+    ("cannot move out of a value behind a reference / out of an index (E0507)")
+    while `*const`/`*mut` is admitted at THREE doors (let-init, return, call arg).
+  · `slice-index-bounds-check-invalidation--t35` (E0510) — NO ARM AT ALL. `x[1][{ x =
+    yr; 2 }]` compiles, and so does upstream's own OK form. One row, no rule.
+  · `borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed` — ⚠ **THIS ROW
+    LOOKS LIKE LEGAL RUST AND THE COMPILER IS RIGHT TO ADMIT IT.** It is not a port;
+    its header calls it a "MINIMAL admitting reduction" of upstream t14, and the
+    reduction DROPPED the only later use of the loan (`y.a = x`, which is what makes
+    upstream's E0505). Under NLL a `&mut` never used again is dead. MEASURED as a
+    2x2 with one variable, on the base binary:
+        let-init move, loan used later   REFUSED "cannot move 'x' while it is borrowed"
+        let-init move, loan NOT used     ADMITTED      <- the row
+        call-arg move, loan used later   REFUSED (same sentence)
+        call-arg move, loan NOT used     ADMITTED
+    Logos's E0505 arm is NLL-correct; the row's program is the admitting cell.
+  · `reborrow-sugg-move-then-borrow` — ⚠ SAME SUSPICION, ON A READING. Upstream moves
+    the `&mut` through `for _ in state` (an `IntoIterator` by-value call); the port
+    substituted `let moved: &mut State = state;`, and a `let` with an explicit
+    reference ANNOTATION is a rustc COERCION SITE, where an implicit reborrow
+    `&mut *state` is inserted — not a move. If that reading is right the port is legal
+    Rust. ⚠ NO rustc BINARY ON THIS BOX: this rests on my reading of the coercion
+    rule, not on a run.
+  BOTH of the last two are CORPUS DECISIONS with an owner. Reported, not edited.
+
+### 7. WHAT DESERVES FUNDING
+NOT any spelling measured here. `capvisloanb` is the right FRAME and the right ORDER
+and still mints a HOLDER-LESS loan, and every one of its four hand costs is that one
+fact: `release_dead_borrows`' loops skip an empty holder (the 2026-08-27 `capscope`
+finding), so the loan is LEXICAL and outlives the closure temporary that justified it.
+The fundable shape is the same deposit WITH A HOLDER that dies with the closure value
+— the call's own temporary in argument position, the statement in IIFE/statement
+position — which is what the `let`-position arm gets for free from the binding.
+Predicted ceiling after that repair: still 1 row here (`issue-58776`), plus the four
+hand programs restored. A one-row mechanism at a real cost is not worth a landing
+until the holder question is answered; it IS worth the answer, because the same
+missing holder is what makes this arm "the weaker of the two, knowingly" in its own
+comment.
+SECOND, and cheaper to state than to buy: `record_borrow` is record-only, so two mut
+capture deposits of one root never conflict (T2). Any future arm that wants E0499 out
+of captures needs `take_borrow`, and that verb carries the binding-mut question that
+priced `recvresvamut`/`recvamutarg` out twice.

@@ -2104,3 +2104,73 @@ regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-boun
 # naming another package's function is not closed. Fix the loc (and the `''a'`
 # double-quoting) and this block is three rows for one arm.
 # Full numbers: src/compiler/PROBES.md 2026-09-11a-e0207.
+# ── 2026-09-11b — 87 -> 87. `*.NEW-CAPLOAN` IS RE-ROOTED, NOT BOUGHT: THE ────
+#    CAPTURE-LOAN CHANNEL IS COMPLETE AND ONLY RUNS IN `let` POSITION, AND THE
+#    THREE ROWS UNDER THAT NAME ARE THREE MECHANISMS
+#
+# NO COMPILER SOURCE IS CHANGED. Four probes were installed, measured and
+# REVERTED; the revert is asserted by BEHAVIOUR (all four names inert, the three
+# rows admit again, `capvis.arrive` gone) as well as by a re-read build hash.
+#
+# THE GLOSS IS FALSE. `NEW-CAPLOAN` reads "a loan that CROSSES the closure
+# boundary deposits nothing in the enclosing body". MEASURED on the base binary
+# with LOGOS_DUMP_BC_CAPTURE + LOGOS_CENSUS: it deposits a full loan — holder,
+# `inherit_loans`, NLL release — and has since 2026-08-31t. The discriminator is
+# the closure literal's POSITION, one variable, everything else identical:
+#   let c = || { let _ = s; };   s = 2;   REFUSED, 1 capture deposited
+#   take(|| { let _ = s; });     s = 2;   ADMITTED, 0 deposited
+#   (|| { return &s; })();       s = 2;   ADMITTED, 0 deposited
+#   Box::new(|| { let _ = s; }); s = 2;   ADMITTED, 0 deposited
+# The root is the NON-`let` ClosureBox arm (borrow_check.cpp::visit), which mints
+# no capture loan. It is the frame the 2026-08-31 `capargclos` record asked for
+# and nobody took up: `capvis.arrive` reads 2 / 2 / 1 on the three rows where
+# `capargclos` read 0.
+#
+# THE BLOCK SPLITS, AND THE ARRIVAL CENSUS DECIDED IT BEFORE THE ARMS DID:
+#   issue-58776-borrowck-scans-children   CLOSABLE, right sentence (E0506
+#     "cannot assign to 'greeting' because it is borrowed"). ceiling 1 / cost 0 /
+#     cfail 0 of 1485 / stdlib 4 of 4 (`capvisloanb`) — and FOUR legal hand
+#     programs no corpus column contains are refused, all one cause.
+#   mut-borrow-conflict-in-closures-vec--bounded   NOT an unreached site: both
+#     mut captures ARE deposited (`capvis.mut 2`) and coexist in silence.
+#     `record_borrow` is RECORD-ONLY; the verb that raises a borrow-vs-borrow
+#     conflict is `take_borrow`. A SECOND mechanism one layer down.
+#   issue-51268   ⚠ NOT A DEFECT UNDER LOGOS'S OWN DESIGN, AND THIS IS A CORPUS
+#     DECISION FOR THE OWNER. Upstream's test is pinned `//@ edition:2015..2021`
+#     — whole-`self` capture. Logos captures `self.number` precisely
+#     (docs/spec/ownership.md `borrow.closure.disjoint-field-capture`,
+#     `borrow.closure.capture-by-ref-loan`), so `self.thing` and `self.number`
+#     are DISJOINT and Rust 2024 accepts the program too.
+#
+# ⚠ AND THE CRUDE SPELLING'S EXTRA FOUR ROWS ARE NOT ROWS. Depositing BEFORE the
+# body walk (`capvisloan`) reads ceiling 5; the four extra closings are
+# issue-75904-move-closure-loop (whose row is in bc_admits_blocked.ledger as a
+# blessed A16 divergence — refusing it is a COST), issue-40510-3 (upstream:
+# "captured variable cannot escape `FnMut` closure body"; armed sentence is an
+# aliasing one) and issue-42574--b/--t15 (upstream: a `'static` lifetime error
+# over ONE borrow; armed sentence says "already mutably borrowed"). All four are
+# the SELF-CONFLICT the `let`-position arm avoids by walking the body FIRST, and
+# moving the deposit after the walk removes exactly those four and keeps the one.
+# ORDER WAS THE SINGLE VARIABLE.
+#
+# ── 2026-09-11b — `bck.NEW` SURVEYED AND IT IS NOT A BLOCK ──────────────────
+# Four rows, four mechanisms, all four re-verified ADMITTED on build
+# fbb52c741c4e8469:
+#   borrowck-move-from-unsafe-ptr           E0507, priced and condemned 2026-09-03j
+#     (both raw doors = ceiling 1 / cost 1 / cfail 8 / stdlib REFUSED at `lang`).
+#     The arm EXISTS one hop over: `let y = *r` through `&Own` / `&mut Own` is
+#     refused; `*const` / `*mut` is admitted at THREE doors.
+#   slice-index-bounds-check-invalidation--t35   E0510, NO arm at all.
+#   borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed  ⚠ LEGAL
+#     RUST. It is not a port but a "minimal admitting reduction", and the
+#     reduction dropped upstream's `y.a = x` — the only later USE of the loan.
+#     2x2 measured on the base binary: the move is refused ("cannot move 'x'
+#     while it is borrowed") in BOTH the let-init and call-arg spellings when the
+#     loan is used later, and admitted in both when it is not. The NLL arm is
+#     correct and the row is the admitting cell. CORPUS DECISION.
+#   reborrow-sugg-move-then-borrow  ⚠ SAME SUSPICION, ON A READING ONLY (no rustc
+#     binary on this box): the port replaced upstream's `for _ in state` (a
+#     by-value `IntoIterator` call) with `let moved: &mut State = state;`, and a
+#     `let` with an explicit reference annotation is a coercion site where rustc
+#     inserts a REBORROW, not a move. CORPUS DECISION.
+# Full numbers: src/compiler/PROBES.md 2026-09-11b-capvis.
