@@ -1,0 +1,18 @@
+// LEGAL twin of fail/bc_e0207_assoc_names_unconstrained_binder, one token apart:
+// the associated type names `'static`, so the binder `'zz` is named by NO
+// associated type and E0207 does not apply to it.
+package bc_e0207_assoc_names_static_not_binder;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { n: i64 }
+struct T3 { n: i64 }
+trait Tr { type Item; fn go(self: Self) -> i64; }
+impl<'zz> Tr for &S {
+    type Item = &'static T3;
+    fn go(self: Self) -> i64 { return 1i64; }
+}
+unsafe fn main() -> i32 {
+    let s = S { n: 41i64 };
+    let r: &S = &s;
+    printf("e0207a %d\n".as_ptr(), (r.go() + s.n) as i32);
+    return 0i32;
+}

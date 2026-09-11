@@ -3171,6 +3171,82 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // never-instantiated generic template. (Cleared again at teardown.)
     if (target.rfind("$fnptr$", 0) == 0)
         impl_type_params_.clear();
+    // E0207 (lifetime half): a binder NAMED BY ONE OF THIS IMPL'S OWN ASSOCIATED
+    // TYPES and mentioned nowhere in the impl HEADER is unconstrained. Header =
+    // the impl node minus the binder list and the body, at any depth, so a
+    // nested `W<'a>` / `Tr2<W<'a>>` constrains and the trait-arg lifetime the
+    // resolve loop above discards by design is carried here by construction.
+    // WHERE counts as constraining: under-refusal by choice (PROBES.md 2026-09-11b).
+    if (!current_impl_lifetime_params_.empty()) {
+        namespace lh = logos::writ;
+        // Every lifetime NAME under `n` at ANY depth — a LIFETIME key (`&'a T`)
+        // and a LIFETIME_PARAM node's NAME alike. `sk` names DIRECT children of
+        // the impl node to skip and is NOT carried into the recursion: ITEMS is
+        // the body at the top and a generic's argument list one level down, and
+        // masking it everywhere hid `W<'a>` and `Tr<'a>` from the walk.
+        std::function<void(TinyMapView, StrSet&, uint64_t)> lt_names =
+            [&](TinyMapView n2, StrSet& out, uint64_t sk) {
+            if (code_of(n2) == la::LIFETIME_PARAM && n2.has_key(la::NAME)) {
+                auto nv = n2.get(la::NAME.code);
+                if (!nv.is_null()) out.insert(std::string(str_of(nv)));
+            }
+            if (n2.has_key(la::LIFETIME)) {
+                auto lv = n2.get(la::LIFETIME.code);
+                if (!lv.is_null()) out.insert(std::string(str_of(lv)));
+            }
+            uint64_t bm = n2.bitmap();
+            for (uint8_t k = 0; k < lh::TinyObjectMap::MAX_KEYS; ++k) {
+                if (!(bm & (1ULL << k)) || (sk & (1ULL << k))) continue;
+                AnyVal av = n2.get(k);
+                if (av.is_null() || !av.is_pointer()) continue;
+                const uint8_t* pv = av.resolve();
+                if (!pv) continue;
+                uint64_t tc = lh::TypeTag::read_before(pv).type_code();
+                if (tc == lh::type_hash::TinyObjectMap) lt_names(map_of(av), out, 0);
+                else if (tc == lh::type_hash::Array) {
+                    auto arr = arr_of(av);
+                    for (uint64_t ai = 0; ai < arr.size(); ++ai)
+                        lt_names(map_of(arr.get(ai)), out, 0);
+                }
+            }
+        };
+        uint64_t skip = (1ULL << la::ITEMS.code) | (1ULL << la::IMPL_TYPE_PARAMS.code);
+        if (trait_name.empty()) skip |= (1ULL << la::TYPE_PARAMS.code);
+        StrSet header_lts;
+        lt_names(node, header_lts, skip);
+        StrSet assoc_lts;
+        if (node.has_key(la::ITEMS)) {
+            auto aits = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < aits.size(); ++i) {
+                auto am = map_of(aits.get(i));
+                if (code_of(am) == la::ASSOC_TYPE_IMPL)
+                    lt_names(am, assoc_lts, 0);
+            }
+        }
+        // CLASS CENSUS. Both buckets ride facts the predicate already has, so
+        // they cost no extra walk: `named_by_assoc` is what this arm refuses,
+        // `not_named` is the binder Rust permits and this arm admits.
+        for (auto& lb : current_impl_lifetime_params_)
+            if (!header_lts.count(lb))
+                logos::probe::census(assoc_lts.count(lb)
+                    ? "e0207.lt.unconstrained.named_by_assoc"
+                    : "e0207.lt.unconstrained.not_named");
+        for (auto& lb : current_impl_lifetime_params_) {
+            if (!assoc_lts.count(lb) || header_lts.count(lb)) continue;
+            // The impl's OWN header line and context: lower_impl_block sets
+            // neither, so error() would inherit the last fn lowered.
+            std::string saved_ctx = ctx_;
+            uint32_t saved_line = node_line_;
+            ctx_ = trait_name.empty() ? std::format("impl {}", target)
+                                      : std::format("impl {} for {}", trait_name, target);
+            node_line_ = get_line(node);
+            error(std::format(
+                "the lifetime parameter `{}` is not constrained by the impl trait, "
+                "self type, or predicates (E0207)", lb));
+            ctx_ = std::move(saved_ctx);
+            node_line_ = saved_line;
+        }
+    }
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
         // Phase A.2: doc-line sweep — pending_doc_ primes the next lower_fn.

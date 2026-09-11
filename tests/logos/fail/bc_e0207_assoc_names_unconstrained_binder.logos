@@ -1,0 +1,13 @@
+// E0207, and the PAIR is `'static` -> `'zz` in the associated type, one token.
+// The binder is spelled `'zz`, not `'a`: a rule keyed on the SPELLING passes a
+// corpus of `'a` by coincidence (rule 12).
+// PASS TWIN: tests/logos/pass/bc_e0207_assoc_names_static_not_binder.logos
+package bc_e0207_assoc_names_unconstrained_binder;
+struct S { n: i64 }
+struct T3 { n: i64 }
+trait Tr { type Item; fn go(self: Self) -> i64; }
+impl<'zz> Tr for &S {
+    type Item = &'zz T3;
+    fn go(self: Self) -> i64 { return 1i64; }
+}
+fn main() -> i32 { return 0i32; }

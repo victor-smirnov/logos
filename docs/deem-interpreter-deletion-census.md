@@ -5736,9 +5736,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                   ACCEPTED and what is pinned is that it runs and
 #                                   exits 0. NO soundness-queue row moved, `# TOTAL`
 #                                   stays 77.)
-REGISTRY-ALL         9570
-REGISTRY-NOIMPORTED  5104
-REGISTRY-TIERCOMMIT  148
+# 2026-09-11b (the E0207 landing. RE-DERIVED BY DIRECT LISTING, and each delta is
+#                what the change predicts, which is the gate earning its keep:
+#                ALL +10 = +10 new NATIVE fixtures (6 pass, 4 fail) and +3 new
+#                imported fail tests MINUS the 3 `logos_00_bc_admit_*` tests whose
+#                programs moved off the admit shelf. NOIMPORTED +7 = the same +10
+#                native less those 3 admit tests, which do not carry the imported
+#                label. TIERCOMMIT -3 = exactly those 3 admit tests. bc_admits
+#                `# TOTAL` 90 -> 87, soundness_queue `# TOTAL` 77 -> 78.)
+REGISTRY-ALL         9580
+REGISTRY-NOIMPORTED  5111
+REGISTRY-TIERCOMMIT  145
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

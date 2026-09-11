@@ -1,0 +1,1 @@
+error [impl Tr3 for S]: the lifetime parameter `'b` is not constrained by the impl trait, self type, or predicates (E0207)

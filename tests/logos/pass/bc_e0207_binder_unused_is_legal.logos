@@ -1,0 +1,21 @@
+// LEGAL twin of tests/imported/fail/lifetimes/missing-lifetime-in-assoc-type-1,
+// differing only in the associated type's right-hand side (`&'a T3` -> `T3`).
+// An impl lifetime binder that NO associated type names is permitted in Rust —
+// E0207 for a lifetime is about the associated types, not about being unused —
+// so this half pins the discriminator itself.
+package bc_e0207_binder_unused_is_legal;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { n: i64 }
+struct T3 { n: i64 }
+trait Tr { type Item; type IntoIter; fn into_iter(self: Self) -> i64; }
+impl<'a> Tr for &S {
+    type Item = T3;
+    type IntoIter = i64;
+    fn into_iter(self: Self) -> i64 { return 6i64; }
+}
+unsafe fn main() -> i32 {
+    let s = S { n: 36i64 };
+    let r: &S = &s;
+    printf("e0207e %d\n".as_ptr(), (r.into_iter() + 36i64) as i32);
+    return 0i32;
+}

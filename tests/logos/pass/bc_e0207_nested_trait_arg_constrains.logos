@@ -1,0 +1,17 @@
+// LEGAL twin of fail/bc_e0207_nested_trait_arg_other_binder, one token apart
+// (`W<'a>` -> `W<'b>`): the binder the associated type names is mentioned inside
+// the trait argument's own type arguments, which constrains it.
+package bc_e0207_nested_trait_arg_constrains;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { n: i64 }
+struct W<'a> { r: &'a i64 }
+trait Tr2<A> { type Item; fn go(self: Self) -> i64; }
+impl<'a, 'b> Tr2<W<'b>> for S {
+    type Item = &'b i64;
+    fn go(self: Self) -> i64 { return 3i64; }
+}
+unsafe fn main() -> i32 {
+    let s = S { n: 39i64 };
+    printf("e0207c %d\n".as_ptr(), (s.go() + 39i64) as i32);
+    return 0i32;
+}

@@ -1,0 +1,17 @@
+// LEGAL twin of fail/bc_e0207_nested_in_assoc_type, one token apart
+// (`W<'b>` -> `W<'a>`): the binder the associated type names is the one the self
+// type mentions.
+package bc_e0207_nested_in_assoc_type_ok;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct W<'a> { r: &'a i64 }
+trait Tr { type Item; fn go(self: Self) -> i64; }
+impl<'a, 'b> Tr for W<'a> {
+    type Item = W<'a>;
+    fn go(self: Self) -> i64 { return 4i64; }
+}
+unsafe fn main() -> i32 {
+    let n: i64 = 38i64;
+    let w = W { r: &n };
+    printf("e0207f %d\n".as_ptr(), (w.go() + 38i64) as i32);
+    return 0i32;
+}

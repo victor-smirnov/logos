@@ -1,0 +1,39 @@
+// stale_blame — WHICH CONTEXTS EMIT A DIAGNOSTIC THEY CANNOT HAVE ADDRESSED.
+//
+// `error()` stamps the diagnostic with `ctx_` and `node_line_` as they stand.
+// A function that CALLS error and never mentions either member cannot have set
+// them, so every diagnostic it emits inherits whatever the last function to
+// write them left behind — the soundness_queue row
+// `e0184_blame_header_names_unrelated_impl` is one instance of exactly this.
+//
+// The class is defined by the PROPERTY "emits and never mentions", not by the
+// spelling of any header: a grep for a wrong header can only find the ones
+// somebody already noticed, and an absence has no spelling.
+//
+// ⚠ SOUNDNESS OF THE ANSWER, STATED: `ref` does not distinguish a read from a
+// write, so `mentions` is WIDER than `sets` — a context that only READS ctx_
+// (to save it) counts as mentioning it and drops out of the class. The answer
+// is therefore a LOWER BOUND on the class, which is the safe direction for an
+// enumeration meant to be acted on.
+// ⚠ Not modelled: a context that delegates to a helper which calls error.
+// ⚠ ctx_of COARSENS to the enclosing named context; that is the granularity
+// this question wants ("which function emits"), not a site-level claim.
+#include "cxx_schema.dl"
+
+.decl emits_error(ctx: symbol)
+emits_error(CN) :-
+    call(CA, CE), decl_name(CE, "error"), ctx_of(CA, C), ctx_name(C, CN).
+
+.decl mentions_blame(ctx: symbol)
+mentions_blame(CN) :-
+    ref(U, D), decl_name(D, "ctx_"), ctx_of(U, C), ctx_name(C, CN).
+mentions_blame(CN) :-
+    ref(U, D), decl_name(D, "node_line_"), ctx_of(U, C), ctx_name(C, CN).
+
+.decl stale_blame_ctx(ctx: symbol)
+.output stale_blame_ctx
+stale_blame_ctx(CN) :- emits_error(CN), !mentions_blame(CN).
+
+.decl blame_aware_ctx(ctx: symbol)
+.output blame_aware_ctx
+blame_aware_ctx(CN) :- emits_error(CN), mentions_blame(CN).

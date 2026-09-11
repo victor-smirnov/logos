@@ -1,6 +1,8 @@
 // rustc lifetimes/missing-lifetime-in-assoc-type-1.rs — upstream E0207 unconstrained lifetime parameter
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-E0207
+// shelf: FAIL — the `lifereg.NEW-E0207` row was CLOSED 2026-09-11 and deleted from
+// tests/logos/bc_admits.ledger. logosc now refuses this impl for the upstream reason;
+// the sentence is pinned in full in the sibling .expected, header included.
 // RE-PORTED AS-IS 2026-09-07 (stage 3). The old port DROPPED THE ASSOCIATED TYPE
 // — it kept `impl<'a> ... for &S` but gave the impl no associated type mentioning
 // `'a`, so `'a` was merely unused rather than UNCONSTRAINED and E0207 legitimately
@@ -33,7 +35,7 @@ package missing_lifetime_in_assoc_type_1;
 struct S { n: i64 }
 struct T3 { n: i64 }
 trait Tr { type Item; type IntoIter; fn into_iter(self: Self) -> i64; }
-impl<'a> Tr for &S {                // THE DEFECT: admitted, upstream E0207
+impl<'a> Tr for &S {                // REFUSED, upstream E0207
     type Item = &'a T3;
     type IntoIter = &'a i64;
     fn into_iter(self: Self) -> i64 { return 1i64; }

@@ -37899,3 +37899,162 @@ dlog verdict. Re-run with the argument, both passes, on ONE build — 6646 vs 66
 landed in a compiled source. The round's prose is here and in
 `src/compiler/probes/2026-09-11a-e0207/`. No ledger row moved: `bc_admits.ledger`
 `# TOTAL` stays 90, `bc_admits_blocked.ledger` 8, `soundness_queue.ledger` 77.
+
+## 2026-09-11b — E0207 LANDS ON THE LIFETIME HALF; THE TYPE HALF IS DECLINED ON A MEASURED POPULATION OF ZERO, AND THE THING THAT NEARLY SHIPPED WAS A ONE-WORD SCOPE BUG IN THE WALK
+
+Target rows, named before the compiler was touched
+(`src/compiler/probes/2026-09-11b-e0207-land/PREDICTION.md`): `missing-lifetime-in-assoc-type-1`,
+`-5`, `-6`, all `lifereg.NEW-E0207`. Predicted closed set: those three and nothing else.
+MEASURED closed set: those three and nothing else. Both differences EMPTY.
+
+### THE ARM, AND WHERE IT DIFFERS FROM THE PROBE THAT PRICED IT (rule 7)
+`lower_impl_block`, one predicate: a lifetime binder that one of the impl's own
+ASSOCIATED-TYPE definitions names, and that the impl HEADER does not mention, is
+unconstrained. The probe read `LIFETIME_PARAM` nodes at two named positions; the landing
+does ONE recursive walk of the impl node with the binder list and the body excluded. That
+is not a tidier spelling of the same rule — it is a WIDER constrained-set, and three of my
+own counter-examples say so.
+
+### THE COUNTER-EXAMPLES DID THE WORK, AND THEY KILLED THE FIRST BUILD
+Eleven hand programs in shapes the pricing phase did not use. On the FIRST armed build,
+THREE LEGAL PROGRAMS WERE REFUSED:
+    n1   `impl<'a> Tr3<'a> for S`        a bare lifetime at a trait-ARGUMENT position
+    n10  `impl<'a> Tr2<W<'a>> for S`     a lifetime NESTED inside a trait argument
+    n11  `impl<'a> Tr for W<'a>`         a lifetime NESTED inside the self type's arguments
+The cause is one word. The skip mask names DIRECT children of the impl node — ITEMS is the
+body, IMPL_TYPE_PARAMS is the binder list — and I carried it into the recursion, where
+ITEMS is a generic's own argument list. `W<'a>` and `Tr<'a>` were invisible to the walk at
+depth 2. Rule 5 in its sharpest form: the pricing phase's seven correct hand verdicts and
+four zero columns could not see this, because none of its shapes nested a lifetime.
+`n2` (`&'a mut S`) passed throughout, which is exactly why the bug survived to a build: the
+DEPTH-1 case works and looks like the general case.
+
+### THE CLASS, ENUMERATED BY A COMPILER CENSUS, NOT BY A GREP
+A census counter at the site, armed over **9839** `.logos` files (tests + stdlib + examples)
+and **6,341,664** impl-lowering arrivals:
+    e0207.lt.unconstrained.named_by_assoc      7    ← the class this arm refuses
+    e0207.lt.unconstrained.not_named          14    ← LEGAL in Rust; the arm admits all 14
+    e0207.ty.unconstrained                     0    ← the TYPE half of E0207
+KNOWN-ANSWER CONTROL for the type counter, because a zero is not an answer until the site
+is proven live (rule 1): the hand program `impl<U> Tr for S { type Item = U; }` makes that
+same counter read **2**. The site is live and the corpus zero is a real zero.
+
+### DECLINED BY NAME, WITH THE NUMBER
+**The TYPE half of E0207** — `impl<U> Tr for S`, which Rust refuses ALWAYS rather than only
+when an associated type names the parameter. Population in the whole tree: **0**. It closes
+no `bc_admits` row and no `soundness_queue` row, its only instance is a hand program, and
+the census walk that sized it is a crude NAME-string match by construction (a type
+parameter and an unrelated struct of the same spelling are one hit) — good enough to SIZE
+the half, not good enough to refuse with. Landing a refusal whose population is zero buys
+nothing and cannot be wrong in a direction the corpus would report.
+**A `where`-only E0207.** `WHERE` counts as CONSTRAINING in the landed walk. Rust's rule is
+narrower: an outlives predicate does not constrain, only a projection predicate does, and
+with no rustc on this box the two cannot be told apart from the AST here. The conservative
+direction is ADMIT, so this is a named UNDER-refusal, not a divergence claim.
+
+### THE BLAME HEADER — FIXED AT THIS SITE, AND THE GENERAL DEFECT ENUMERATED
+The pricing round's blocker: the arm printed at line 557 of a 40-line file and blamed
+`fn iter_partition_vec`, a stdlib function. `lower_impl_block` sets neither `ctx_` nor
+`node_line_`, so `error()` stamps whatever the last function lowered left behind. The
+landing sets both around the refusal and restores them; all three rows now read
+`…missing-lifetime-in-assoc-type-1.logos:36: error [impl Tr for $ref_S]: …`, line 36 being
+the impl header. The `''a'` double-quoting is gone with it — the stored binder name already
+carries its own leading quote, so the format string must not add quotes.
+
+### THE PINS — SIX PAIRS, EACH ONE TOKEN APART, EACH PINNING ONE PROPERTY
+    property pinned                        fail half                                   pass half
+    the assoc-type mention discriminates   imported …-in-assoc-type-1                  bc_e0207_binder_unused_is_legal
+    'static is not the binder, under 'zz   bc_e0207_assoc_names_unconstrained_binder   bc_e0207_assoc_names_static_not_binder
+    a bare trait-ARG lifetime constrains   bc_e0207_trait_arg_names_other_binder       bc_e0207_trait_arg_constrains
+    a NESTED trait-arg mention constrains  bc_e0207_nested_trait_arg_other_binder      bc_e0207_nested_trait_arg_constrains
+    a NESTED assoc-type mention is seen    bc_e0207_nested_in_assoc_type               bc_e0207_nested_in_assoc_type_ok
+    the self-type reference constrains     imported …-in-assoc-type-1                  bc_e0207_self_ref_constrains
+Every pass half RUNS and asserts an exit code and a stdout line. Two pairs are keyed on the
+ALPHA-RENAMED `'zz` rather than `'a` (rule 12): a rule that compared spellings would pass a
+corpus of `'a` by coincidence.
+
+### COST, EVERY COLUMN, AND THE CONTROL REVERT ASSERTED BY BEHAVIOUR
+    run_oracle.py       6646 rows joined base vs armed, both differences empty, ONE row
+                        differs — `cast-region-to-uint`, the named stack-address exclusion.
+    fail_text_oracle.py 1485 rows, ONE population (the reverted and the landed binary on
+                        the SAME configure, so the table does not self-invalidate), both
+                        differences EMPTY. SEVEN rows differ and they are exactly the three
+                        imported rows and the four new native fail fixtures, each going
+                        base rc 0 / `.expected` unmatched -> landed rc 1 / matched. ZERO of
+                        the 1478 pre-existing fail fixtures moved in rc, in
+                        normalised-stderr sha, or in `.expected` match — rule 15's
+                        text-only shape measured, not assumed.
+    `-L bc` (gate-run)  2751 passed / 0 failed of 2753 recorded; the +10 over the previous
+                        2743 are this round's own fixtures and all ten pass.
+    stdlib              four layers build; STRUCTURAL zero, stated rather than counted.
+CONTROL REVERT, ASSERTED BY BEHAVIOUR AND NOT BY A HASH: with `sema_decl.cpp` reverted and
+rebuilt, all SEVEN illegal programs (the three imported rows and the four new fail
+fixtures) compile **rc 0**; on the armed binary all seven are **rc 1** with the pinned
+sentence. ⚠ The build hash moved across the revert (`4c20926a340d2c68` vs the round's
+opening `03d9290a7ee96c2a`) with the compiler sources byte-identical to HEAD — the recorded
+caveat that `build_hash.py` identifies a BUILD, not a compiler source state, holds again
+here, because this round adds fixtures and so reconfigures. Behaviour is the proof.
+
+### THE TWO POPULATION PINS DRIFTED BY DESIGN, AND EVERY DELTA IS WHAT THE CHANGE PREDICTS
+L1's gates tier reds on exactly two tests, both pins, and the arithmetic is the check:
+    census_pin       REGISTRY-ALL        9570 -> 9580  = +10 new NATIVE fixtures and +3 new
+                                                         imported fail tests, MINUS the 3
+                                                         `logos_00_bc_admit_*` tests whose
+                                                         programs left the admit shelf
+                     REGISTRY-NOIMPORTED 5104 -> 5111  = the same +10 native less those 3
+                                                         admit tests, which carry no
+                                                         imported label
+                     REGISTRY-TIERCOMMIT  148 -> 145   = exactly those 3 admit tests
+    direct_door      corpus  3025 -> 3031, nonglob 2834 -> 2840 = the SIX pass halves; the
+                     four native fail halves and the three imported fail fixtures do not
+                     live in that population, and none of the six matches the glob.
+Both re-derived BY DIRECT LISTING in this commit. ⚠ And the L1 reading was taken from the
+FAILURE LIST, not the count: `99% tests passed, 2 tests failed out of 145` names
+`logos_00_census_pin` and `logos_00_population_pin_lint`, and `logos_00_soundness_queue`
+PASSED in the same run at 78 rows.
+
+### DLOG — A SECOND NEW RULE, DECLARED, WITH ITS KNOWN-ANSWER CONTROL
+`tools/dlog/selftest.sh` run FIRST: **PASSES**, same known answer (19 walkers / 24 findings /
+try_path 1-5 / domain 42-5; duty discriminates 1 -> 0 across `756aed65`).
+
+New question `tools/dlog/stale_blame.dl` — the BLAME class, by the property rather than by
+the spelling of any wrong header, because an absence has no spelling and a grep can only
+find the ones somebody already noticed. `error()` stamps a diagnostic with `ctx_` and
+`node_line_` as they stand; a context that calls `error` and never mentions either cannot
+have set them, so its header is a leftover from whatever ran last.
+
+    emits_error                   208 named contexts
+    blame_aware_ctx                59  mention ctx_ or node_line_
+    stale_blame_ctx               149  DO NOT — 72% of every diagnostic-emitting
+                                       context in the compiler
+
+KNOWN-ANSWER CONTROL, and it is the standing queue row: `e0184_blame_header_names_unrelated_impl`
+records that the E0184 Copy/Drop refusal prints `error [impl Hash for $tuple$8]` for a
+program containing neither. Its site is `src/compiler/sema.cpp:3655`, whose enclosing
+function is `compute_auto_copy_types` — and `compute_auto_copy_types` is in
+`stale_blame_ctx`. The rule finds the one instance that was already independently known.
+DISCRIMINATION, the second half of a control: `lower_impl_block` reads `blame_aware 1 /
+stale 0` on this tree and read the opposite before this round's fix. The rule moves with
+the repair rather than merely agreeing with the tree.
+⚠ SOUNDNESS OF THE ANSWER, STATED IN THE RULE: `ref` cannot tell a read from a write, so
+"mentions" is WIDER than "sets" and a context that only SAVES `ctx_` drops out of the class.
+149 is therefore a LOWER BOUND — the safe direction for an enumeration meant to be acted on.
+Delegation through a helper is not modelled. `ctx_of` coarsens to the enclosing named
+context, which is this question's own granularity ("which function emits"), not the
+site-level question that produced the 37-vs-0 divergence.
+⚠ NOT FIXED HERE, AND NAMED AS SUCH. This round repaired ONE of the 149. A general repair
+is a different change with a different cost — `error()` would have to refuse a diagnostic
+whose context was never set, and 149 call sites would have to be given one — and its
+carrier already exists as a queue row. Reported, not started.
+
+### POST-ROUND TOOL-USE CHECK
+`git diff --stat src/compiler include` = ONE file, `sema_decl.cpp`, +76/-0, of which 16 are
+comment lines. They are mechanism at the site (what the predicate is, why the skip mask is
+not carried into the recursion, why `ctx_`/`node_line_` are saved and restored), not this
+round's narrative, which is here. No probe is installed and no `LOGOS_*` debug env remains:
+`grep -rn 'LOGOS_DUMP_E0207\|e0207assoc\|e0207unc' src/ include/` hits PROBES.md prose only.
+Two candidate implementations were written and the SMALLER was landed (the first carried a
+duplicated NAME-string walker, +35 lines, whose census bucket `e0207.impl.with_lt_binders`
+counted every impl rather than what its name says — a misnamed fact in an authoritative
+form, which is the failure this tool exists to avoid). The two census buckets that remain
+ride facts the predicate already computes and cost no extra walk.

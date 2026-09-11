@@ -39,6 +39,7 @@
 # `tier`:  1 memory corruption / wrong code runs      2 a class is not checked
 #          3 legal Rust refused                        4 diagnostics and hygiene
 #
+e0207_unconstrained_impl_type_param 2 tests/soundness/open/e0207_unconstrained_impl_type_param admits
 declare_pat_bindings_field_nomut_addrmut_admit 2 tests/soundness/open/declare_pat_bindings_field_nomut_addrmut_admit admits
 array_typed_field_binding_shape_lost 3 tests/soundness/open/array_typed_field_binding_shape_lost refuses
 let_at_binding_tuple_sub_unsupported 3 tests/soundness/open/let_at_binding_tuple_sub_unsupported refuses
@@ -46,7 +47,7 @@ operator_autoref_temp_never_dropped 1 tests/soundness/open/operator_autoref_temp
 self_call_in_return_kills_param_drops 1 tests/soundness/open/self_call_in_return_kills_param_drops run 1
 weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped      run 1
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
-# TOTAL 77
+# TOTAL 78
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits

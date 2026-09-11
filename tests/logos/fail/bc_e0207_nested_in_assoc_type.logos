@@ -1,0 +1,12 @@
+// E0207. The associated type names `'b` only through a NESTED generic argument
+// (`W<'b>`), never as a bare `&'b T`.
+// PASS TWIN: tests/logos/pass/bc_e0207_nested_in_assoc_type_ok.logos, one token
+// (`W<'b>` -> `W<'a>`).
+package bc_e0207_nested_in_assoc_type;
+struct W<'a> { r: &'a i64 }
+trait Tr { type Item; fn go(self: Self) -> i64; }
+impl<'a, 'b> Tr for W<'a> {
+    type Item = W<'b>;
+    fn go(self: Self) -> i64 { return 4i64; }
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,16 @@
+// LEGAL twin of fail/bc_e0207_trait_arg_names_other_binder, one token apart
+// (`Tr3<'a>` -> `Tr3<'b>`): the binder the associated type names is the one at
+// the trait-argument position, so it IS constrained.
+package bc_e0207_trait_arg_constrains;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { n: i64 }
+trait Tr3<'x> { type Item; fn go(self: Self) -> i64; }
+impl<'a, 'b> Tr3<'b> for S {
+    type Item = &'b i64;
+    fn go(self: Self) -> i64 { return 2i64; }
+}
+unsafe fn main() -> i32 {
+    let s = S { n: 40i64 };
+    printf("e0207b %d\n".as_ptr(), (s.go() + 40i64) as i32);
+    return 0i32;
+}

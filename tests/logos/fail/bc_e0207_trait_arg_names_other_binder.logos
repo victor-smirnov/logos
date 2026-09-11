@@ -1,0 +1,13 @@
+// E0207. `'b` is named by the associated type and appears NOWHERE in the header;
+// `'a` sits at the trait-argument position and is constrained.
+// PASS TWIN: tests/logos/pass/bc_e0207_trait_arg_constrains.logos — `Tr3<'a>` -> `Tr3<'b>`,
+// one token, which is the whole content of DOOR 2: a lifetime at a trait-ARGUMENT
+// position constrains, and sema_decl's resolve loop discards it by design.
+package bc_e0207_trait_arg_names_other_binder;
+struct S { n: i64 }
+trait Tr3<'x> { type Item; fn go(self: Self) -> i64; }
+impl<'a, 'b> Tr3<'a> for S {
+    type Item = &'b i64;
+    fn go(self: Self) -> i64 { return 2i64; }
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,19 @@
+// LEGAL twin of tests/imported/fail/lifetimes/missing-lifetime-in-assoc-type-1,
+// ONE TOKEN apart (`for &S` -> `for &'a S`): writing the binder into the self
+// type is exactly the repair upstream's diagnostic asks for.
+package bc_e0207_self_ref_constrains;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { n: i64 }
+struct T3 { n: i64 }
+trait Tr { type Item; type IntoIter; fn into_iter(self: Self) -> i64; }
+impl<'a> Tr for &'a S {
+    type Item = &'a T3;
+    type IntoIter = &'a i64;
+    fn into_iter(self: Self) -> i64 { return 5i64; }
+}
+unsafe fn main() -> i32 {
+    let s = S { n: 37i64 };
+    let r: &S = &s;
+    printf("e0207d %d\n".as_ptr(), (r.into_iter() + 37i64) as i32);
+    return 0i32;
+}
