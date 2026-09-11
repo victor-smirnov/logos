@@ -36671,3 +36671,19 @@ and the store dates them — `logos_00_population_pin_lint` and
   `census_pin`'s registry triple, `direct_door`'s corpus/nonglob pair, and the
   queue's own `# TOTAL` — and `population_pin_lint` exists precisely because two
   of those three used to drift apart silently.
+
+## 7. THE RUNTIME COLUMN
+
+`scripts/run_oracle.py` on the landed tree: **6643 pass fixtures compiled, linked
+and RUN**; 20 do not compile under it (the `--test`/`fail`-mode population it does
+not carry flags for). Against the previous round's column (`ro_vecqual.tsv`,
+2026-09-10 17:50 — a snapshot of an EARLIER binary, not a one-variable control of
+this edit, and said so): **6634 rows in common, exactly 1 differs**, and it is
+`cast-region-to-uint`, the fixture the standing instruction says to subtract by
+name because it prints a stack address. The 9 rows only in the new column are this
+round's 5 and 4 the older snapshot predates.
+
+The stronger statement is the store's, because it IS a one-variable before/after:
+`gate-run.sh` with no filter, **build 1026, 9567 recorded, 0 failed**, against
+build 1023's full green at `b7df0866e` — and every pass fixture in it is compiled,
+linked, RUN, and checked against its `.expected` exit code and stdout.
