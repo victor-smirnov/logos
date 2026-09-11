@@ -240,4 +240,20 @@ e0713_mutref_past_destructor_needs_a_new_carrier carrier 2 tests/imported/fail/n
     # only two observations of another. A row's program is its instrument, and a stronger
     # rule upstream of it can silently retire the instrument while leaving the defect.
 
-# TOTAL 17
+dyn_vtable_bare_key_miscompile  defect     2  src/compiler/mlir_gen_dyn.cpp:962,982
+    # 2026-09-11 — A CONFIRMED MISCOMPILE WITH NO ROW, BECAUSE ITS CARRIER CANNOT BE
+    # WRITTEN UNDER THE CURRENT GATE. `dyn_vtable_methods_` keys on
+    # `td.name() + "::" + ib.target_type()` — BARE — while the LIR carries
+    # `ImplView::identity_trait()`. Measured by census over 4342 compiles:
+    # 7 413 092 registrations, 413 603 DUPLICATE KEYS (5.58%; 5.80% on the 5288-file
+    # population a day earlier, so the ratio is stable). A duplicate key overwrites a
+    # vtable's method vector with a different one.
+    # ⚠ WHY IT IS HERE AND NOT IN THE QUEUE: the smallest reproduction needs TWO
+    # PACKAGES declaring a same-named trait or target, and `soundness_queue_gate.sh`
+    # compiles ONE FILE. The row cannot be written until a multi-module fixture
+    # carrier exists. This is the SECOND finding blocked on that carrier (see the
+    # `type_aliases_` read at `sema_collect.cpp` found 2026-09-11i), so the carrier is
+    # worth more than either.
+    # ⚠ NOT a row moved and not a defect closed: the defect is measured and standing.
+
+# TOTAL 18
