@@ -248,12 +248,18 @@ dyn_vtable_bare_key_miscompile  defect     2  src/compiler/mlir_gen_dyn.cpp:962,
     # 7 413 092 registrations, 413 603 DUPLICATE KEYS (5.58%; 5.80% on the 5288-file
     # population a day earlier, so the ratio is stable). A duplicate key overwrites a
     # vtable's method vector with a different one.
-    # ⚠ WHY IT IS HERE AND NOT IN THE QUEUE: the smallest reproduction needs TWO
-    # PACKAGES declaring a same-named trait or target, and `soundness_queue_gate.sh`
-    # compiles ONE FILE. The row cannot be written until a multi-module fixture
-    # carrier exists. This is the SECOND finding blocked on that carrier (see the
-    # `type_aliases_` read at `sema_collect.cpp` found 2026-09-11i), so the carrier is
-    # worth more than either.
+    # ⚠ CORRECTED 2026-09-11, and the correction is mine: "no multi-module carrier
+    # exists" was FALSE OF THE TREE and true only of `soundness_queue_gate.sh`, which
+    # compiles ONE FILE. The corpus already carries the scaffolding —
+    # `tests/logos/trait_ident_chain/{lhom,hmid}` with `.module` manifests, wired by
+    # `LOCAL_TRAIT_IDENT_CHAIN_USERS`, and its consumer `pass/trait_ident_pkg_chain`
+    # exists for THIS VERY CLASS: "the consumer links both and must NOT see lhom's
+    # `Hash` impls through the bare registry slot". Also present: `coex_from_a/b` (two
+    # modules both declaring `widgets::Widget`) and the G156-1 `cross_pkg_*` set.
+    # So the carrier belongs in the ORDINARY pass/fail corpus, not in the soundness
+    # queue, and the same goes for the `type_aliases_` cross-package read of
+    # 2026-09-11i. ⚠ A "cannot be written" recorded without grepping the tree is a
+    # claim about my attention, not about the tree.
     # ⚠ NOT a row moved and not a defect closed: the defect is measured and standing.
 
 # TOTAL 18
