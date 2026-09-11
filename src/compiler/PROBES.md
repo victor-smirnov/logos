@@ -36845,3 +36845,144 @@ BOTH ways with ±2 lines of slack for multi-line calls:
 | R3 | 165 | 140 | 95 | 65 | **neither is a superset** — and the 65 grep-only are the depth-3 hole of §5. |
 | R3b | 14 | 1 | **13** | 0 | **grep could not have found it.** `name + name` is spelled `tname + "::" + cname` — a three-way chain — so a `name\s*\+\s*name` regex matches 1 of 14. |
 
+
+# 2026-09-10g — PRICING THE FIVE INVENTORY SITES: FOUR DECLINED BY NUMBER, AND THE FIFTH IS A MEASURED MISCOMPILE WITH NO SINGLE-FILE CARRIER
+
+The 09-10f inventory nominated five sites as "anybody's to price". This round
+priced all five WITH A CENSUS OVER THE WHOLE CORPUS rather than by reading, and
+the population numbers decided four of them. No compiler source survives this
+round: the probe was installed, measured, reverted, and `build_hash.py` READ
+back to `0e8ecc17b99f4077 43` — the exact value it held at the round's start.
+
+## 1. THE INSTRUMENT
+
+Three `logos::probe::census` buckets, installed at the three sites the
+inventory named, built in 19 s (incremental, one TU + link):
+
+  * `mlir_gen_expr.cpp:5890` (`emit_dst_len`) — `dstlen.arrive` at the call, and
+    `dstlen.owned_negative` when `resolve_method_symbol` returns `owns == true`
+    TOGETHER WITH the plain `<bare>__dst_len` fallback. That pair is exactly the
+    authoritative negative `3cad21dcc` taught the three drop sites to take, and
+    this is the one call site that declines it.
+  * `mlir_gen_dyn.cpp:962` and `:982` (`dyn_vtable_methods_`) — `dynvt.reg.*` at
+    every registration, and on a key that is ALREADY PRESENT,
+    `dynvt.rekey.same` / `dynvt.rekey.diff:<key>` by whether the method vector
+    being written EQUALS the one already filed. A bare key that is only ever
+    rewritten with the same answer is a duplicate; one rewritten with a
+    DIFFERENT answer is a lost registration.
+
+POPULATION: every `tests/logos/pass`, `tests/logos/fail` and
+`tests/soundness/open` program — 5288 compiles, 5 m 54 s at `-P32`.
+
+## 2. `emit_dst_len` — DECLINED, POPULATION 0 OVER 5288 COMPILES
+
+    dstlen.arrive            18
+    dstlen.owned_negative     0        (bucket absent)
+
+The site is PROVEN LIVE (18 arrivals; rule 1) and the defect's population over
+the corpus is zero. And the reading agrees with the number: unlike the drop
+sites, the theft the out-parameter exists to stop CANNOT HAPPEN HERE — pass 1 of
+`resolve_method_symbol` already returns the bare base `b` on `stop_on_owned`
+rather than falling through to a homonym, and `emit_dst_len`'s only use of the
+answer is `parent_mod.lookupSymbol<func::FuncOp>(sym)`, which fails and takes
+the documented `len = 0` fallback. Taking the out-param would let the site
+distinguish "no impl anywhere" from "this package's struct has none" — a better
+diagnostic, not a different emission. DECLINED: 0.
+
+## 3. `sema_collect.cpp:5234/5235` — DECLINED BY READING, AND THE INVENTORY'S CLAIM ABOUT THEM IS FALSE
+
+TARGET_ROWS said of these two: "*no qualified sibling at all, so the bare key IS
+the only key*". Measured on the tree: the identity-keyed sibling is written
+SEVEN LINES BELOW, at `sema_collect.cpp:5241-5243`, guarded by
+`ident_trait != trait_name && !ident_trait.empty()` — and `sema_impl.hpp`'s
+`check_impl_registry_key_identity()` walks the WHOLE `impls_` population and
+`std::abort()`s if either key of the pair is missing. The `str` → `&[u8]` alias
+is named in that checker's own comment as one of the entries it covers. These
+are not an unguarded bare key; they are the alias pair with a mechanical gate
+over it. DECLINED: 2 sites, 0 defects, and the inventory row that nominated them
+is corrected here.
+
+## 4. `mlir_gen_dyn.cpp:962/982` — THE CLASS IS LIVE: 834 LOST REGISTRATIONS IN 21 OF 5288 FIXTURES
+
+    dynvt.reg.bare        1 860 563
+    dynvt.reg.concrete   13 861 744
+    dynvt.rekey.same        910 812
+    dynvt.rekey.diff            834      in 21 distinct fixtures
+
+A `rekey.diff` is a `(trait, target)` pair registered twice with DIFFERENT
+method vectors: the second write wins and the first resolution is lost.
+
+THE CLASSIFYING FACT, and it is one fact for all 21: **every one of those
+fixtures declares a trait whose BARE NAME is also a stdlib trait's** —
+`Add`, `Sub`, `Eq`, `Copy`, `Hash`, `Sum`, `Container`, `Storage`. The keys read
+`Add::W`, `Copy::DView`, `Container::DView`, `Hash::str`, `Sum::$slice$u8`. The
+registry's key is `td.name() + "::" + ib.target_type()` — a BARE trait name —
+while the LIR carries `ImplView::identity_trait()` (`pkg::Name`), the
+always-qualified fact the drop layer was taught to use. `ensure_vtable_global`'s
+own comment states the assumption the number refutes: *"Within one compile a
+(trait, type) pair is unique"*.
+
+## 5. IT MISCOMPILES — MEASURED, AND THE WINNING SIDE IS PINNED GREEN
+
+Counter-examples were written BEFORE any edit and vary the CARRIER, not the
+count. THREE single-TU shapes do NOT reproduce it:
+
+  * a user `trait Eq` + `struct String` (both homonyms of stdlib) + `&dyn Eq` — rc 7, correct;
+  * the same with `use logos.mem.string; use logos.lang.cmp;` — rc 7, correct;
+  * the control with the struct renamed, and the control with the trait renamed — rc 7, correct.
+
+The reason is structural: in ONE translation unit the user's trait ALWAYS wins
+the key (it is registered last), and `tests/logos/pass/dyn_trait_shadowing`
+pins exactly that direction green. The LOSING side cannot even be NAMED in one
+file — `&dyn logos.lang.any.Any` is a **syntax error near 'logos'**, measured;
+there is no path-qualified dyn type.
+
+TWO PACKAGES REPRODUCE IT. A two-file module (`zzalpha`, `zzbeta`), each package
+declaring `pub trait Sig` and `pub struct Zt` and coercing its OWN `&dyn Sig`:
+
+    package zzalpha;                        package zzbeta;
+    pub trait Sig { fn a(&self) -> i64; }   pub trait Sig { fn b(&self) -> i64; }
+    pub struct Zt { pub v: i64 }            pub struct Zt { pub v: i64 }
+    impl Sig for Zt { fn a(&self) -> i64 { return self.v + 1000i64; } }
+    impl Sig for Zt { fn b(&self) -> i64 { return self.v + 2000i64; } }
+    pub fn alpha_dyn(n: i64) -> i64 { let t: Zt = Zt{v:n}; let d: &dyn Sig = &t; return d.a(); }
+    pub fn beta_dyn(n: i64) -> i64  { let t: Zt = Zt{v:n}; let d: &dyn Sig = &t; return d.b(); }
+
+`--emit-module` prints `dynvt.rekey.diff:Sig::Zt 1` and exits 0. A consumer that
+calls both and discriminates WHICH package's method each dyn call reached exits
+**10**: `beta_dyn(5)` = 2005, correct; **`alpha_dyn(5)` = 2005 as well — it
+dispatched through `zzbeta::Sig::b`**, another package's method, on a receiver
+of its own `Zt`. Compiles clean, no `unsafe`, runs wrong. Both vtable globals
+exist in the archive (`nm`: `__logos_vtable__Sig__Zt$M421a…` and `…$M9d22…`) —
+the SYMBOLS are module-distinct; the METHOD VECTOR behind one of them is not.
+
+## 6. NOT REPAIRED THIS ROUND, AND THE WALL IS NAMED
+
+The repair is not a call-site change. `coerce_to_dyn` receives `trait_name` as a
+BARE STRING off the LIR dyn type, so the identity the registration would need is
+not present at the LOOKUP either: fixing the key alone moves the theft, it does
+not stop it. Carrying the trait identity into the dyn TYPE is a type-plane
+change with every dyn dispatch downstream of it — outside what this round's
+classification forces, and outside its budget.
+
+Two repairs that look cheap and are WRONG, so that the next round does not price
+them again: (a) a `!count(bare)` first-wins guard like `mlir_gen.cpp:129/140` —
+it would fix `alpha` and break `beta`, the same defect with the sign flipped;
+(b) refusing the compile on a differing rekey — 21 green fixtures collide TODAY
+and are correct, so that buys a ledger row with 21 legal-program refusals.
+
+⚠ **AND IT CANNOT BE A QUEUE ROW.** `soundness_queue_gate.sh`'s `observe()`
+compiles ONE `$src` and links the stdlib archives; a defect whose smallest
+reproduction is a two-package MODULE has no carrier the queue can hold. The
+carrier the next round needs is a CMake-built module fixture of the `coex`
+shape plus one run test asserting 1005/2005 — which exits 10 today.
+
+## 7. INCIDENTAL, FROM THE MODULE EXPERIMENT — NOT FILED, NOT REPRODUCED ALONE
+
+The first cut of the module named its struct `T`. The CONSUMER then failed with
+`'func.call' op 'logos_lang.logos.lang.any$type_id_of__g__void__T' does not
+reference a valid function` — the mangling of a generic over an unsubstituted
+typevar `T` collides with a struct actually named `T` coming from a binary
+module. Renaming the struct `Zt` cleared it. It does NOT reproduce in one file
+(`struct T` + `type_id_of::<T>()` → rc 0, and its renamed control → rc 0), so it
+is recorded here and not filed as a row.

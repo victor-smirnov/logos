@@ -1,39 +1,52 @@
-TARGET ROWS — written for the NEXT round, from the classified inventory.
-No compiler source was edited this round (build hash 0e8ecc17b99f4077 43,
-READ before and after); the deliverable was the inventory itself.
+TARGET ROWS — the 09-10f inventory's five sites, PRICED 2026-09-10g.
+Full record: src/compiler/PROBES.md §2026-09-10g. No compiler source was edited
+in either round (build hash 0e8ecc17b99f4077 43, READ before and after; the
+census probe of §1 was installed, measured and reverted).
 
-WHAT THE INVENTORY SAYS THE REMAINING REPAIR IS: 18 confirmed decisions across
-all five groups, of which 13 are the owner's documented back-compat aliases.
-FIVE are anybody's to price, and only one of them is a call site:
+PRICED AND DECLINED, WITH THE NUMBER
+ 1. mlir_gen_expr.cpp:5890  emit_dst_len            DECLINED — population 0.
+    Census over 5288 compiles (pass + fail + soundness/open): dstlen.arrive 18
+    (the site is PROVEN LIVE), dstlen.owned_negative 0. And the reading agrees:
+    `resolve_method_symbol` already returns the bare base on stop_on_owned, so
+    the homonym theft the out-param stops cannot occur here — the only consumer
+    is a lookupSymbol that misses and takes the documented len = 0 fallback.
+ 2-3. sema_collect.cpp:5234, :5235   DECLINED — the inventory's claim is FALSE.
+    They are NOT "a bare key with no qualified sibling": the identity key is
+    written at :5241-5243 and sema_impl.hpp's check_impl_registry_key_identity()
+    aborts over the WHOLE impls_ population if either half of the pair is
+    missing. Alias pair + mechanical gate, not an unguarded key.
 
-1. mlir_gen_expr.cpp:5890  emit_dst_len            R2, the single DECLINE
-   `resolve_method_symbol(sname, "dst_len", dstref_pkg)` passes the package and
-   DECLINES the out-parameter `pkg_owns_struct`. `mlir_gen_impl.hpp:640` and
-   both mlir_gen_stmt.cpp drop sites take it since `3cad21dcc`; this one does
-   not. Same mechanism, one hop from a landing — the shape that has paid.
-   ⚠ It is NOT drop glue, so predict the population before pricing: it bites
-   only where a package owns a struct of this name that has no `dst_len`.
+PRICED AND CONFIRMED — A MEASURED MISCOMPILE, NOT REPAIRED (wall named)
+ 4-5. mlir_gen_dyn.cpp:962, :982   dyn_vtable_methods_
+    834 lost registrations in 21 of 5288 fixtures; the classifying fact is one
+    fact — every one of the 21 declares a trait whose BARE NAME is a stdlib
+    trait's (Add Sub Eq Copy Hash Sum Container Storage). The key is
+    td.name() + "::" + ib.target_type() while the LIR carries the
+    always-qualified ImplView::identity_trait().
+    REPRODUCED: a two-package module (zzalpha/zzbeta, homonym `Sig` over a
+    same-named `Zt`) — alpha's own `&dyn Sig` dispatches to zzbeta::Sig::b.
+    Compiles clean, no unsafe, runs wrong. Verbatim sources in PROBES.md §5.
+    NOT a queue row: soundness_queue_gate.sh compiles ONE file, and there is no
+    single-TU reproduction — the shadowing trait always wins the key in one TU
+    (pinned green by pass/dyn_trait_shadowing) and the losing trait cannot be
+    named, `&dyn logos.lang.any.Any` being a syntax error.
+    THE WALL: the fix is not a call site. coerce_to_dyn receives trait_name as a
+    bare string off the LIR dyn type, so the LOOKUP has no identity either;
+    carrying the identity into the dyn TYPE is a type-plane change.
+    ⚠ Two cheap-looking repairs are WRONG — a !count(bare) first-wins guard
+    flips which package is robbed, and refusing a differing rekey refuses 21
+    legal fixtures.
 
-2-5. mlir_gen_dyn.cpp:962, :982  (dyn_vtable_methods_)
-     sema_collect.cpp:5234, :5235 (impls_, impls_all_)      R3, bare-key
-   A key concatenated from a bare entity name, landing in a registry that is
-   NOT a local scope map and that gets no qualified key beside it. Unlike the
-   13 alias-pair sites these have no qualified sibling at all, so the bare key
-   IS the only key — which makes them a different and possibly worse shape.
+WHAT THE NEXT ROUND NEEDS FIRST (in order)
+ a. THE CARRIER for 4-5: a CMake-built module fixture of the `coex` shape plus
+    one run test asserting alpha 1005 / beta 2005. It exits 10 today.
+ b. Deepen name_key.dl's name_val/name_lit from 3 to 8 (measured +251 R3 sites),
+    in a round that re-pins the counts.
+ c. The second hop for R3's 6-stored (65 sites).
 
-NOT chosen, and why the next round should not re-open them:
- · R1's 102 `4-no-qual-param` rows. The callee has no package parameter; the
-   bare name is the interface. Repairing one is an interface change, not a call
-   site change. That is a bigger question than the ledger is asking.
+STILL NOT CHOSEN, AND WHY (carried from 09-10f, unchanged)
+ · R1's 102 `4-no-qual-param` rows — the callee has no package parameter; the
+   bare name IS the interface. An interface change, not a call-site one.
  · The 13 alias-pair sites (mono x9, mlir_gen x4). Documented, deliberate,
-   owner's. ⚠ But RECORD the asymmetry: mlir_gen guards its bare alias with
-   `!count(bare)` (first-wins) and mono does not (last-wins). That difference
-   is a question for the owner, not a repair.
-
-THE NEXT `dlog` INCREMENT, IN ORDER OF WHAT IT BUYS:
- a. Deepen `name_key.dl`'s `name_val`/`name_lit` from 3 to 8. MEASURED: it adds
-    251 sites to R3 (165 -> 416), including the pkg-qualified halves of the very
-    alias pairs the class is about. Do it in a round that re-pins the counts.
- b. The second hop for R3's `6-stored` (65 sites): a key built into a local and
-    subscripted with it later. `pkg_var` already follows exactly one initialiser
-    hop; this is the same hop pointed the other way.
+   owner's. The asymmetry stands as a question for the owner: mlir_gen guards
+   its bare alias with !count(bare) (first-wins), mono does not (last-wins).
