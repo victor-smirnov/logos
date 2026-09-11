@@ -647,6 +647,14 @@ When a function-call result is bound to a reference (`let r = f(&a, &b)`), each 
 
 Source: `src/compiler/borrow_check.cpp#L2127-L2143`
 
+### `borrow.scoped.closure-call-result-holds-capture-borrows` — A borrow-carrying closure-call result holds a shared borrow of every capture root, for a NAMED closure and for a closure LITERAL alike
+
+When a closure call's result type is a reference or a borrow-carrying type, each captured root that is a local (not a parameter) is borrowed shared under the holder; NLL releases at the holder's last use. A `move` closure's captures are owned and register nothing. The capture list is read from the callee's **closure value**, which is the closure LITERAL when the callee is one (`(|| &g)()`) and the recorded list of the binding when the callee names a closure local (`let c = || &g; c()`); the two forms are identical in verdict and in diagnostic. A genuine fn pointer has no captures and takes the call-argument rule (`borrow.scoped.call-result-aliases-ref-args`) instead. The result type is the gate: a unit- or scalar-returning closure call ties nothing, in either callee form.
+
+*See also:* `borrow.closure.capture-by-ref-loan`, `borrow.scoped.call-result-aliases-ref-args`, `region.return.dangling-local-or-temp`
+
+Source: `src/compiler/borrow_check.cpp` — `closure_caps_of`, and its four consumers `take_ref_borrows`, `prov_of`, `bc_hop_roots`, `collect_ref_sources_paths`
+
 ### `borrow.scoped.method-result-holds-receiver-borrow` — A reference-returning method holds a borrow of its receiver for the result's lifetime
 
 A method whose result borrows self (fully-elided &self->&ret, or borrow-carrying result) holds a scoped borrow of the receiver's root place under the holder, with the receiver's mutability; `let v = c.get_ref(); c.set(...)` while v is live is rejected. The borrow is field-precise when the receiver is a field chain, and whole-root otherwise.

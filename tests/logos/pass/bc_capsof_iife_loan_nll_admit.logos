@@ -1,0 +1,11 @@
+// PAIR A, pass half — the SAME IIFE loan, retired at `r`'s last use (NLL) before
+// the write. One token apart from fail/bc_capsof_iife_loan_live_refuse: the
+// statement order. This is the over-refusal guard for the literal-callee fix.
+package bc_capsof_iife_loan_nll_admit;
+fn main() -> i32 {
+    let mut g: i64 = 1i64;
+    let r: &i64 = (|| -> &i64 { return &g; })();
+    let x: i64 = *r;
+    g = 2i64;
+    return (x + g) as i32;
+}

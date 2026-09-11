@@ -1,0 +1,16 @@
+// PAIR E, fail half — an IIFE loan inside a loop body, written while live. One
+// token apart from pass/bc_capsof_iife_loop_nll_admit: the order of the two
+// statements inside the body. Guards the loop back edge, where a holder-less
+// (lexical) loan would have survived the turn.
+package bc_capsof_iife_loop_live_refuse;
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        let r: &i64 = (|| -> &i64 { return &n; })();
+        n = n + 1i64;
+        let t: i64 = *r;
+        i = i + t - t + 1i64;
+    }
+    return n as i32;
+}

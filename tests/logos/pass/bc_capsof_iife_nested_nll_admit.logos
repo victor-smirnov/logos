@@ -1,0 +1,10 @@
+// PAIR D, pass half — the same nested IIFE, loan retired at `res`'s last use.
+// One token apart from fail/bc_capsof_iife_nested_refuse: the statement order.
+package bc_capsof_iife_nested_nll_admit;
+fn main() -> i32 {
+    let mut g: i64 = 1i64;
+    let res: &i64 = (|| -> &i64 { return (|| -> &i64 { return &g; })(); })();
+    let x: i64 = *res;
+    g = 2i64;
+    return (x + g) as i32;
+}

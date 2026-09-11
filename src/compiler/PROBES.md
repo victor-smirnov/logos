@@ -38238,3 +38238,158 @@ SECOND, and cheaper to state than to buy: `record_borrow` is record-only, so two
 capture deposits of one root never conflict (T2). Any future arm that wants E0499 out
 of captures needs `take_borrow`, and that verb carries the binding-mut question that
 priced `recvresvamut`/`recvamutarg` out twice.
+
+## 2026-09-11c-capsof — THE `NEW-CAPLOAN` ROW IS NOT A MISSING DEPOSIT ARM: THE DEPOSIT ARM IS THERE AND ITS CAPTURE LIST IS KEYED ON A NAME THE CALLEE DOES NOT HAVE
+
+site: src/compiler/borrow_check.cpp::closure_caps_of (one early exit removed)
+fires: n/a — LANDED, not probe-gated. Census `capsof.arrive/literal/varref/other_kind`.
+build: base fbb52c741c4e8469 43 (READ) -> armed 401c273bb5a28b66 43 (READ).
+Round files: build/round-2026-09-11c/PREDICTION-2026-09-11c.txt (written before any
+compiler source was edited), build/round-2026-09-11c/RESULT-2026-09-11c.txt.
+
+### 1. THE RECORDED ROOT IS WRONG AGAIN, ONE ROUND LATER, AND ONE PAIR SAYS SO
+2026-09-11b re-rooted `*.NEW-CAPLOAN` as "the non-`let` ClosureBox arm of
+`visit` mints no capture loan" and proposed funding a capture DEPOSIT with a
+holder that dies with the closure value. MEASURED on the base binary, the
+callee's expression KIND as the single variable and nothing else different:
+
+    let c = || -> &i64 { return &g; }; let r: &i64 = c();  g = 2;  REFUSED
+        "cannot assign to 'g' because it is borrowed"
+    let r: &i64 = (|| -> &i64 { return &g; })();           g = 2;  ADMITTED
+
+    fn get() -> &i64 { let l=5i64; let c = || -> &i64 {return &l;}; return c(); }  REFUSED
+        "cannot return reference to local variable 'l': dangling reference"
+    fn get() -> &i64 { let l=5i64; return (|| -> &i64 {return &l;})(); }           ADMITTED
+
+⚠ THE SECOND PAIR IS A DANGLING REFERENCE ADMITTED, not merely a missing loan.
+`take_ref_borrows`' `case Code::ClosureCall` ALREADY records a shared borrow of
+every capture root WITH THE HOLDER when the call's result carries a borrow, and
+`prov_of`'s arm already answers `is_local` for a captured local. Neither is
+reachable for an immediately-invoked closure LITERAL, because `closure_caps_of`
+early-exits on `callee.kind() != Code::VarRef`: `note_closure_caps` records the
+capture list at the BINDING, keyed by NAME, and a literal has no name.
+A LOOKUP KEY IS NOT AN IDENTITY — the same shape as the `dyn_vtable_methods_`
+finding, one subsystem over.
+
+### 2. THE CLASS, ENUMERATED BY PROPERTY WITH tools/dlog, AND AN ABSENCE PROVED
+`selftest.sh` RUN FIRST, rc 0: "19 walkers / 24 findings / try_path 1-5 /
+domain 42-5; duty discriminates across 756aed65 (1 -> 0)" — known answer reproduced.
+
+(a) THE EXISTING RULE ALREADY HELD BOTH HALVES OF THIS DEFECT, UNCLASSIFIED.
+`name_key.dl` over `src/compiler/borrow_check.cpp` (R1/R2/R3/R3b/R4/R4b =
+6/0/4/4/29/0, residual 591) reports the WRITE half as R4
+`borrow_check.cpp 12320 note_closure_caps name closure_caps_` and the READ half
+in the residual column, `borrow_check.cpp 12352 closure_caps_of find name`.
+Cross-checked per site by hand, as the standing warning requires, and the two
+numbers are reported side by side: a hand read of every `closure_caps_`
+occurrence finds FOUR key-bearing sites (12315 erase, 12319 erase, 12320
+subscript-write, 12352 find) plus one `.clear()` and the declaration — dlog 4,
+per-site read 4, AGREE, line for line.
+
+(b) NEW RULE `tools/dlog/capsof_consumers.dl` (declared here as the round record
+requires; claims `capsof_accessor.claim` / `capsof_container.claim` are INPUTS,
+not in the rule). Two relations:
+  consumer(ctx,file,line)      — every CALL to the accessor, by its context:
+      collect_ref_sources_paths 4011 · bc_hop_roots 7604 · prov_of 8064 ·
+      take_ref_borrows 9629.                                          FOUR.
+  container_ref(ctx,file,line) — every reference to the CONTAINER:
+      closure_caps_of 12352/12353 · note_closure_caps 12315/12319/12320 ·
+      check 14262 (`.clear()`).                                       NO OTHER ROUTE.
+The second relation is the point: it is an ABSENCE, and an absence has no
+spelling. It is what licenses "one change at the accessor is a CLASS fix"
+rather than an instance fix — derived, not asserted. Known-answer control: the
+accessor and its writer appear as their own contexts and nothing else does;
+hand read of `closure_caps_of(` finds the same four call sites.
+
+### 3. THE CHANGE
+`closure_caps_of` reads the capture list off a `Code::ClosureBox` callee
+directly, cached in `lit_caps_` keyed on the mirror address (the stable node
+identity — a literal has no name to key by, which is the whole defect). Nothing
+else moves; the four consumers are untouched and inherit the fix.
+
+### 4. CEILING AND COST, EVERY COLUMN, DIFFED BOTH WAYS
+    ceiling (87 ledger programs, armed) .... 1
+    predicted BY NAME before the edit ...... { issue-58776-borrowck-scans-children }
+    predicted \ actual ..................... EMPTY
+    actual \ predicted ..................... EMPTY
+    diagnostic READ ........................ "cannot assign to 'greeting' because
+                                              it is borrowed"  (upstream E0506)
+    bc_admits_blocked (8 programs) ......... 0 newly refused — issue-75904's
+                                             blessed A16 divergence is NOT costed
+    ctest -L bc (gate-db 1033 -> 1040) ..... 2756 measured under both, 0 CHANGED
+    stdlib-cost.sh ......................... 4 of 4 layers
+    hand-legal, VARIED IN SHAPE ............ 0 refused of 23
+
+### 5. RULE 5 IS DISCHARGED BY CONSTRUCTION, NOT BY A COUNT
+The arm 2026-09-11b recommended (`capvisloanb`, a holder-less capture deposit)
+refused FOUR legal programs its three zero columns could not see. All nineteen
+of that round's hand programs were re-run on this binary: `L1..L10`, `M1..M5`,
+`X1`, `X3` all ADMIT, including the four that condemned `capvisloanb` —
+`L2` `(|| { let _ = x; })(); x = 2;`, `M1` the statement form, `M2` the same in
+a loop, `M4` `let a = (|| v + 1)(); v = 7;`. They cannot be reached here: the
+loan channel is gated on the RESULT TYPE carrying a borrow, and all four return
+unit or a scalar. `X2` (the illegal one) is now refused; `X4` was already
+refused unarmed (inherited, rule 14).
+EIGHT further shapes written for THIS round, none drawn from that syntax, all
+ADMITTED armed and unarmed: NLL retirement before the write · a PARAM capture
+returned out of a function · a scalar-result IIFE · a unit-result IIFE · a
+whole-struct ref with a sibling field written · an IIFE loan inside a LOOP
+consumed each turn (the back edge) · TWO shared IIFE loans of one root
+coexisting · an IIFE result used through a method beside a use of the root.
+TWO illegal ones, both newly refused with the sentence a reader wants:
+`D1` E0506, `D2` "cannot return reference to local variable 'l': dangling
+reference" — and each now AGREES with its named-closure twin one token apart,
+which is the property the fix is for.
+
+### 6. DECLINED BY NAME, WITH THE NUMBER
+  · `mut-borrow-conflict-in-closures-vec--bounded` — ceiling of THIS mechanism
+    on it is 0, measured (it is not in the armed refusal set). Its closures are
+    `Box::new(|| …)` call ARGUMENTS, not a called literal, and 2026-09-11b
+    measured `capvis.mut 2`: both mut captures ARE deposited and coexist because
+    `record_borrow` is record-only. A second mechanism one layer down, untouched.
+  · `issue-51268` — CORPUS DECISION, reported and not edited. Upstream pins
+    `//@ edition:2015..2021` (whole-`self` capture); Logos captures `self.number`
+    precisely per `docs/spec/ownership.md` `borrow.closure.disjoint-field-capture`
+    (and `borrow.closure.capture-by-ref-loan` in `docs/spec/divergences.md`), so
+    `self.thing` and `self.number` are disjoint and Rust 2024 accepts it too.
+    Both registries were grepped by CONSTRUCT, not by a guessed id.
+  · The 2026-09-11b recommendation itself ("the same deposit WITH A HOLDER that
+    dies with the closure value") — NOT FUNDED, and the number that condemns it
+    is its own ceiling: the row it was aimed at closes here at ceiling 1 / cost 0
+    without any new deposit, and the remaining `NEW-CAPLOAN` member is priced at
+    ceiling 0 for a capture deposit of either spelling.
+
+### 7. TOOL-USE MISTAKES, RECORDED
+  · `/tmp/.../ro_armed.tsv` and `ro_base.tsv` were ALREADY ON DISK, dated
+    2026-09-08, in this session's scratchpad — the same stale-artefact near-miss
+    2026-09-11b recorded. Caught by `ls -la` before any read; the file's MTIME,
+    not its name, is what says whether it is this round's.
+  · `pkill -f 'scripts/run_oracle.py'` matched its own shell again (rc 144).
+
+### 8. THE FULL ORACLE SET, ON THE FINAL BINARY, AND THE CONTROL REVERT
+Final armed build 411ed23b6b9fea05 43 (READ). Control-revert build a5891935d39cf935
+43 (READ) — ⚠ NOT the session's opening hash fbb52c741c4e8469, because the tree
+also carries the fixtures, the pins and the docs; `build_hash.py` identifies a
+BUILD, so the revert is asserted BY BEHAVIOUR below and not by that number.
+    L1 ......................... rc 0, 804/804, "=== Failures === (none)" READ,
+                                 gates tier 144/144 (was 145: the one
+                                 `logos_00_bc_admit_*` test whose program left
+                                 the admit shelf). The two population pins drifted
+                                 +10 ALL / +9 NOIMPORTED / -1 TIERCOMMIT and every
+                                 delta is accounted for by direct listing.
+    L4 bc ...................... rc 0, 5120/5120 then 1572/1572, no FAILED block
+    ctest -L bc (db 1033->1040)  2756 measured under both, 0 changed
+    stdlib-cost.sh ............. 4 of 4 layers
+    fail_text_oracle ........... 1491 fixtures, base vs armed: SIX rows differ in
+                                 rc, sha AND expected-match, and they are exactly
+                                 the six fail halves this round adds. ZERO
+                                 text-only changes, ZERO un-refusals elsewhere.
+    run_oracle ................. 6657 fixtures compiled, linked and RUN on BOTH
+                                 binaries, joined both ways, none missing: ONE
+                                 differing row, `cast-region-to-uint` — the named
+                                 exclusion (it prints a stack address). Cost 0.
+    soundness_queue_gate ....... rc 0, 78 rows, '# TOTAL' 78, unchanged
+CONTROL REVERT, BY BEHAVIOUR: with only `borrow_check.cpp` reverted and rebuilt,
+the closed row's program compiles again (rc 0), `D1`/`D2`/`X2`/`B_iife` all
+compile again, and all SIX fail halves go RED while the five pass halves stay
+green — which is the right asymmetry, since the pass halves are legal programs.

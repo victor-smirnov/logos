@@ -1,0 +1,58 @@
+// capsof_consumers — WHO ASKS A CALL "WHAT DOES THIS CLOSURE CAPTURE?", BY THE
+// PROPERTY (a call to the accessor) AND NOT BY THE SPELLING.
+//
+// WHY THIS QUESTION. Round 2026-09-11c closed a ledger row by removing ONE
+// early exit in `closure_caps_of` (`callee.kind() != Code::VarRef`), and the
+// class of defect is "every consumer of that accessor was blind to a closure
+// LITERAL in exactly the same way". A fix at the accessor is a CLASS fix only
+// if the accessor is the sole route; a grep for `closure_caps_of` would find
+// the same lines, but a grep keys on a NAME and would miss a consumer reaching
+// the container by any other route, and would also count a mention in a
+// comment as a consumer. Both halves are asked here:
+//
+//   consumer(Ctx, File, Line)  — a CALL to the accessor, with its enclosing
+//                                named context. The class the fix covers.
+//   direct(Ctx, File, Line)    — a reference to the underlying CONTAINER decl
+//                                from OUTSIDE the accessor and its writer.
+//                                A non-empty `direct` means the accessor is
+//                                NOT the sole route and the fix is partial.
+//
+// THE CLAIM IS OUT OF THE RULE: the two declaration names are given as inputs
+// (capsof_accessor.claim, capsof_container.claim), so this rule is reusable for
+// any accessor/container pair without an edit.
+//
+// KNOWN-ANSWER CONTROL used when this rule was added (round record 2026-09-11c):
+// run on src/compiler/borrow_check.cpp it must report `note_closure_caps` and
+// `closure_caps_of` themselves as the only WRITER/ACCESSOR contexts, and the
+// consumer list must be non-empty; the per-site hand read of the same file is
+// reported beside it, and the two must agree.
+#include "cxx_schema.dl"
+
+.decl capsof_accessor(n: symbol)
+.input capsof_accessor
+.decl capsof_container(n: symbol)
+.input capsof_container
+
+// The accessor's own declaration(s) — identity is the DECL, not the spelling,
+// so an overload or a template instantiation joins here without an edit.
+.decl accessor_decl(did: symbol)
+accessor_decl(D) :- decl_name(D, N), capsof_accessor(N).
+
+.decl container_decl(did: symbol)
+container_decl(D) :- decl_name(D, N), capsof_container(N).
+
+// A CALL to the accessor, attributed to its enclosing named context.
+.decl consumer(ctx: symbol, file: symbol, line: number)
+consumer(Name, F, L) :- call(C, D), accessor_decl(D),
+                        ctx_of(C, Ctx), ctx_name(Ctx, Name),
+                        loc(C, F, L, _), Name != "closure_caps_of".
+.output consumer
+
+// Every reference to the CONTAINER, with the context that makes it. Anything
+// here other than the accessor and its writer is a route the accessor-level
+// fix does not cover.
+.decl container_ref(ctx: symbol, file: symbol, line: number)
+container_ref(Name, F, L) :- ref(U, D), container_decl(D),
+                             ctx_of(U, Ctx), ctx_name(Ctx, Name),
+                             loc(U, F, L, _).
+.output container_ref

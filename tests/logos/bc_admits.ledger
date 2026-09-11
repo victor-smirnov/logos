@@ -1764,7 +1764,7 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # arm printed at line 557 of a 40-line file and blamed a stdlib function. The
 # landing sets both around the refusal. The GENERAL defect is unchanged and is
 # the standing soundness_queue row `e0184_blame_header_names_unrelated_impl`.
-# TOTAL 87
+# TOTAL 86
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1812,7 +1812,6 @@ borrowed-data-escapes-closure-148392 bck.NEW-CESC tests/imported/admit/borrowck/
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
 issue-36082 bck.NEW-BCS tests/imported/admit/borrowck/issue-36082
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
-issue-58776-borrowck-scans-children bck.NEW-CAPLOAN tests/imported/admit/borrowck/issue-58776-borrowck-scans-children  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 issue-95079-missing-move-in-nested-closure bck.NEW-CESC tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 mut-borrow-conflict-in-closures-vec--bounded bck.NEW-CAPLOAN tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec--bounded  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error
@@ -2174,3 +2173,62 @@ regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-boun
 #     `let` with an explicit reference annotation is a coercion site where rustc
 #     inserts a REBORROW, not a move. CORPUS DECISION.
 # Full numbers: src/compiler/PROBES.md 2026-09-11b-capvis.
+# ── 2026-09-11c — 87 -> 86. `issue-58776-borrowck-scans-children` CLOSED. THE ─
+#    DEPOSIT ARM WAS NEVER MISSING: ITS CAPTURE LIST IS KEYED ON A NAME, AND AN
+#    IMMEDIATELY-INVOKED CLOSURE LITERAL HAS NONE
+#
+# ⚠ THE ROOT RECORDED ONE ROUND AGO (2026-09-11b, directly above) IS WRONG, AND
+# ONE PAIR SAYS SO. That round re-rooted `*.NEW-CAPLOAN` as "the non-`let`
+# ClosureBox arm of `visit` mints no capture loan" and recommended funding a
+# capture DEPOSIT with a holder. MEASURED on the base binary with the callee's
+# expression KIND as the single variable:
+#   let c = || -> &i64 { return &g; }; let r: &i64 = c();  g = 2;  REFUSED
+#   let r: &i64 = (|| -> &i64 { return &g; })();           g = 2;  ADMITTED
+#   fn get()->&i64{let l=5i64; let c=||->&i64{return &l;}; return c();}  REFUSED
+#       "cannot return reference to local variable 'l': dangling reference"
+#   fn get()->&i64{let l=5i64; return (||->&i64{return &l;})();}         ADMITTED
+# `take_ref_borrows`' ClosureCall arm already records a shared borrow of every
+# capture root WITH THE HOLDER when the result carries a borrow, and `prov_of`
+# already answers `is_local` for a captured local. Both were unreachable because
+# `closure_caps_of` early-exits on `callee.kind() != Code::VarRef` —
+# `note_closure_caps` records the capture list at the BINDING, keyed by NAME.
+# A LOOKUP KEY IS NOT AN IDENTITY. The second pair above is a DANGLING REFERENCE
+# admitted, which no row in this file exhibited.
+#
+# THE CLASS, BY PROPERTY, WITH tools/dlog (selftest rc 0 first, known answer
+# reproduced). New rule `tools/dlog/capsof_consumers.dl`: FOUR consumers of the
+# accessor (collect_ref_sources_paths 4011, bc_hop_roots 7604, prov_of 8064,
+# take_ref_borrows 9629) and — the load-bearing half, an ABSENCE — NO other
+# route to the container at all, so one change at the accessor is a CLASS fix
+# and not an instance fix. Cross-checked per site by hand: dlog 4, hand read 4.
+# `name_key.dl` turns out to have held both halves of this defect already,
+# unclassified: R4 `12320 note_closure_caps name closure_caps_` and residual
+# `12352 closure_caps_of find name`.
+#
+# CEILING 1, PREDICTED BY NAME BEFORE THE EDIT, BOTH DIFFERENCES EMPTY, and the
+# diagnostic is upstream's own E0506 sentence, READ:
+#   "cannot assign to 'greeting' because it is borrowed"
+# COST: `ctest -L bc` gate-db 1033 -> 1040, 2756 measured under both, 0 CHANGED;
+# stdlib 4 of 4; `bc_admits_blocked` 0 newly refused (issue-75904's blessed A16
+# divergence is NOT costed); 23 legal hand programs refused 0.
+#
+# ⚠ RULE 5 IS DISCHARGED BY CONSTRUCTION. 2026-09-11b's recommended arm refused
+# FOUR legal programs no corpus column contained. All nineteen of that round's
+# hand programs were re-run here and every legal one ADMITS, the four included —
+# they return unit or a scalar, and the loan channel's gate is the RESULT TYPE.
+#
+# THE OTHER TWO `NEW-CAPLOAN` MEMBERS STAY OPEN, EACH DECLINED WITH ITS NUMBER:
+#   mut-borrow-conflict-in-closures-vec--bounded — ceiling of THIS mechanism on
+#     it is 0 (measured: not in the armed refusal set). `Box::new(|| …)` call
+#     arguments, not a called literal; its defect is `record_borrow` being
+#     record-only (2026-09-11b §5 T2), one layer down.
+#   issue-51268 — ⚠ CORPUS DECISION, unchanged. Upstream pins
+#     `//@ edition:2015..2021` (whole-`self` capture); Logos captures
+#     `self.number` precisely (docs/spec/ownership.md
+#     `borrow.closure.disjoint-field-capture`), so the paths are disjoint and
+#     Rust 2024 accepts the program. Both divergence registries grepped by
+#     CONSTRUCT.
+# The root `bck.NEW-CAPLOAN` therefore survives with one member; `nllmoves.NEW-
+# CAPLOAN` survives with one, and that one is the corpus decision above.
+# New spec clause: `borrow.scoped.closure-call-result-holds-capture-borrows`.
+# Full numbers: src/compiler/PROBES.md 2026-09-11c-capsof.

@@ -1,0 +1,12 @@
+// PAIR B, pass half — the same IIFE returning a captured reference, except the
+// captured root is a PARAMETER, which outlives the call. One token apart from
+// fail/bc_capsof_iife_dangling_local_refuse.
+package bc_capsof_iife_param_return_admit;
+fn pick(p: &i64) -> &i64 {
+    return (|| -> &i64 { return p; })();
+}
+fn main() -> i32 {
+    let n: i64 = 7i64;
+    let r: &i64 = pick(&n);
+    return *r as i32;
+}

@@ -1,0 +1,11 @@
+// PAIR D, fail half — TWO nested immediately-invoked closures, the shape of
+// imported row issue-58776-borrowck-scans-children. The inner literal's capture
+// list has to reach the outer call's loan record. One token apart from
+// pass/bc_capsof_iife_nested_nll_admit: the write is before `res`'s last use.
+package bc_capsof_iife_nested_refuse;
+fn main() -> i32 {
+    let mut g: i64 = 1i64;
+    let res: &i64 = (|| -> &i64 { return (|| -> &i64 { return &g; })(); })();
+    g = 2i64;
+    return *res as i32;
+}

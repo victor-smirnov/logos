@@ -1,0 +1,15 @@
+// PAIR E, pass half — the same loop, the loan retired at `r`'s last use before
+// the write, on EVERY turn including across the back edge. One token apart from
+// fail/bc_capsof_iife_loop_live_refuse: the order of the two body statements.
+package bc_capsof_iife_loop_nll_admit;
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        let r: &i64 = (|| -> &i64 { return &n; })();
+        let t: i64 = *r;
+        n = t + 1i64;
+        i = i + 1i64;
+    }
+    return n as i32;
+}

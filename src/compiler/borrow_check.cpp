@@ -2122,6 +2122,9 @@ class BorrowChecker {
     // its captures, and the captures are not operands of the call, so the call
     // site cannot reach them without this. See closure_caps_of.
     std::unordered_map<std::string, std::vector<std::string>> closure_caps_;
+    // Capture lists of closure LITERALS called in place, keyed on the mirror
+    // address (the stable node identity). PROBES.md 2026-09-11c-capsof.
+    mutable std::unordered_map<const void*, std::vector<std::string>> lit_caps_;
     std::unordered_set<std::string>      param_names_;
     std::unordered_set<std::string>      param_byval_;   // census: by-VALUE params (not &/&mut/*)
     // Round F/B scaffolding — see src/compiler/PROBES.md.
@@ -12320,7 +12323,26 @@ private:
         const auto* pool = prog_.type_pool.impl();
         TypeRef ct = callee.type(pool);
         if (!ct || ct.kind() != LogosType::Kind::Closure) return nullptr;
-        if (callee.kind() != Code::VarRef) return nullptr;
+        // A literal callee has no NAME to key `closure_caps_` by; its capture
+        // list is on the literal. PROBES.md 2026-09-11c-capsof.
+        logos::probe::census("capsof.arrive");
+        if (callee.kind() == Code::ClosureBox) {
+            logos::probe::census("capsof.literal");
+            auto lit = lit_caps_.find(callee.addr());
+            if (lit != lit_caps_.end())
+                return lit->second.empty() ? nullptr : &lit->second;
+            std::vector<std::string> caps;
+            lir_view::EClosureBoxView{callee}.each_capture_name(
+                [&](std::string_view c){ caps.emplace_back(c); });
+            auto& slot = lit_caps_[callee.addr()];
+            slot = std::move(caps);
+            return slot.empty() ? nullptr : &slot;
+        }
+        if (callee.kind() != Code::VarRef) {
+            logos::probe::census("capsof.other_kind");
+            return nullptr;
+        }
+        logos::probe::census("capsof.varref");
         auto it = closure_caps_.find(std::string(lir_view::EVarRefView{callee}.name()));
         return it == closure_caps_.end() ? nullptr : &it->second;
     }

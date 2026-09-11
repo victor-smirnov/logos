@@ -1,0 +1,11 @@
+// PAIR C, pass half — a scalar-returning IIFE carries no borrow out, so nothing
+// is tied and the captured root stays writable. One token apart from
+// fail/bc_capsof_iife_ref_result_refuse: the `&`. This is the gate that keeps
+// the 2026-09-11b rule-5 counter-examples (unit/scalar IIFEs) legal.
+package bc_capsof_iife_scalar_result_admit;
+fn main() -> i32 {
+    let mut v: i64 = 1i64;
+    let a: i64 = (|| -> i64 { return v; })();
+    v = 7i64;
+    return (a + v) as i32;
+}

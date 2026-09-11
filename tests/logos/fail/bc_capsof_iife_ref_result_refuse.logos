@@ -1,0 +1,9 @@
+// PAIR C, fail half — the IIFE's result TYPE is what opens the loan channel.
+// One token apart from pass/bc_capsof_iife_scalar_result_admit: the `&`.
+package bc_capsof_iife_ref_result_refuse;
+fn main() -> i32 {
+    let mut v: i64 = 1i64;
+    let a: &i64 = (|| -> &i64 { return &v; })();
+    v = 7i64;
+    return (*a + v) as i32;
+}

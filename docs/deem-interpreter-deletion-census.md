@@ -5744,9 +5744,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                native less those 3 admit tests, which do not carry the imported
 #                label. TIERCOMMIT -3 = exactly those 3 admit tests. bc_admits
 #                `# TOTAL` 90 -> 87, soundness_queue `# TOTAL` 77 -> 78.)
-REGISTRY-ALL         9580
-REGISTRY-NOIMPORTED  5111
-REGISTRY-TIERCOMMIT  145
+# 2026-09-11c (the closure-literal capture-list landing. RE-DERIVED BY DIRECT
+#                LISTING, every delta accounted for by name:
+#                ALL +10 = +10 new NATIVE fixtures (5 pass, 5 fail) and +1 new
+#                imported fail test (issue-58776-borrowck-scans-children) MINUS
+#                the 1 `logos_00_bc_admit_*` test whose program moved off the
+#                admit shelf. NOIMPORTED +9 = the same +10 native less that 1
+#                admit test, which does not carry the imported label (the
+#                relanded fail test does, so it does not join here).
+#                TIERCOMMIT -1 = exactly that admit test. bc_admits `# TOTAL`
+#                87 -> 86, soundness_queue `# TOTAL` unchanged at 78.)
+REGISTRY-ALL         9590
+REGISTRY-NOIMPORTED  5120
+REGISTRY-TIERCOMMIT  144
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

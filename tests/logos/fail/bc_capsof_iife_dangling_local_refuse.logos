@@ -1,0 +1,11 @@
+// PAIR B, fail half — an IIFE returns a reference to a frame LOCAL and that
+// reference is returned out of the function. One token apart from
+// pass/bc_capsof_iife_param_return_admit: the captured root is a local (`l`)
+// rather than a parameter (`p`). The named-closure twin was already refused;
+// the literal-callee form compiled until 2026-09-11c.
+package bc_capsof_iife_dangling_local_refuse;
+fn get() -> &i64 {
+    let l: i64 = 5i64;
+    return (|| -> &i64 { return &l; })();
+}
+fn main() -> i32 { return *get() as i32; }

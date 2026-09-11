@@ -1,0 +1,12 @@
+// PAIR A, fail half — the IIFE's result carries a loan of the captured root, and
+// the root is assigned while that loan is still live. One token apart from
+// pass/bc_capsof_iife_loan_nll_admit: the write is BEFORE `r`'s last use here.
+// Upstream rustc calls this E0506. Before 2026-09-11c this compiled, because
+// `closure_caps_of` was keyed on the callee's NAME and a closure LITERAL has none.
+package bc_capsof_iife_loan_live_refuse;
+fn main() -> i32 {
+    let mut g: i64 = 1i64;
+    let r: &i64 = (|| -> &i64 { return &g; })();
+    g = 2i64;
+    return *r as i32;
+}
