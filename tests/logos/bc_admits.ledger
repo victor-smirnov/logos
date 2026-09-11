@@ -1837,7 +1837,7 @@ e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/life
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a METHOD CALL whose receiver-region demand is never checked. PAIR: the same escape through two FREE fns REFUSES (`return type mismatch: variance mismatch — expected &'static bool, got &'s bool`); through `self.a()` it admits. Writing 's explicitly changes nothing, so elision is NOT the variable
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port was the ARRAY door again (a near-copy of --t17); restored to upstream's STRUCT door (`&mut Struct` reborrow, `dst.head = y`). ROOT lifereg.B CONFIRMED by a one-variable pair: the same store to the ROOT local (`let mut out: &i64 = x; out = y;`) is REFUSED, through a FIELD it is admitted
-mut-slice-struct-lifetime-transmute--t17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT lifereg.B CONFIRMED by the same pair as --c17: root-local store REFUSED, through an INDEX admitted. The two rows are one mechanism at two projections and are now two DIFFERENT programs (field vs index), which they were not before
+mut-slice-struct-lifetime-transmute--t17 lifereg.NEW-B2 tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17  # 2026-09-11d RE-ROOTED lifereg.B -> lifereg.NEW-B2 on an arrival census: the slice-element store reaches NONE of the five holder-deposit doors (0 arrivals, incl. the index_mut receiver door), so no fact carried to a door helps it; --c17's field door arrives and closes at ceiling 1. The two rows are TWO mechanisms. PRIOR: STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT lifereg.B CONFIRMED by the same pair as --c17: root-local store REFUSED, through an INDEX admitted. The two rows are one mechanism at two projections and are now two DIFFERENT programs (field vs index), which they were not before
 temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.D REFUTED for this row: the temporary DOES have a loan — `let g: &T = keep(&temp());` is REFUSED with the right E0716 sentence. ONE-VARIABLE PAIR: same call, same temporary, only the RETURN TYPE varies — `-> &'a T` REFUSED, `-> X<'a>` (a struct carrying the region) ADMITTED. Propose lifereg.NEW-STRUCTCARRY
 trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion
 trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a DECLARATION-site elision (a trait method's elided return lifetime), not a call. CONTROL: writing `BVH<'a, R>` explicitly is legal Rust and also admits, so the ELIDED slot is the variable
@@ -2232,3 +2232,47 @@ regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-boun
 # CAPLOAN` survives with one, and that one is the corpus decision above.
 # New spec clause: `borrow.scoped.closure-call-result-holds-capture-borrows`.
 # Full numbers: src/compiler/PROBES.md 2026-09-11c-capsof.
+#
+# ── 2026-09-11d — `lifereg.B` SPLITS. NO ROW CLOSED, NO COUNT CHANGED (86). ──
+# The 2026-09-08 note on these two rows says they are "one mechanism at two
+# projections". MEASURED, and ONE candidate change does not move both.
+#   THE ARM THAT EXISTS: `check_return_value` case 2 (borrow_check.cpp:9396)
+#   refuses the ROOT-LOCAL spelling today — `let mut out: &i64 = x; out = y;
+#   return out;` -> "lifetime mismatch: return type has lifetime 'a but 'y' has
+#   lifetime (elided)" (READ; recorded control RE-VERIFIED on today's binary).
+#   THE FACT IT DOES NOT CARRY: `note_holder_escape_prov` records the ESCAPE
+#   bit (is_local/is_temp) and NEVER `params`, deliberately, per its own
+#   comment — so a store of a PARAM-rooted borrow into a holder deposits
+#   nothing and the arm never learns the param fed the binding.
+#   ARRIVAL CENSUS over all 86 programs here: `liferegb.arrive` = 1, and it is
+#   `--c17`. `--t17` = 0, at EVERY ONE of the five deposit doors (dlog
+#   `provdep.dl` holder_call; hand grep agrees, 5 and 5). A second armed build
+#   adding the array-index descent refuses `out[0]=y` on an ARRAY local and
+#   STILL leaves --t17 admitted with zero arrivals: it writes through a
+#   `&mut [&i64]` SLICE local and does not reach the
+#   `SDerefWrite(MethodCall(index_mut …))` door either (censused; that door
+#   fires ONCE over the whole ledger and that once is `.noborrow`).
+#   --c17 -> root stays `lifereg.B` (the field/holder deposit).
+#   --t17 -> re-rooted `lifereg.NEW-B2`: the slice-element store reaches NO
+#   deposit door. The fact is not uncarried; the DOOR IS MISSING. Needs its own
+#   round and must not be priced with --c17 again.
+# PROBE `liferegbparam` (params OR-ed into `prov_[holder]`) DECLINED, with the
+# numbers: CEILING 1 (`--c17`; predicted {--c17,--t17}, predicted∖actual =
+# {--t17}, actual∖predicted = EMPTY), COST 0 on pass, 0 of 1491 `-L bc -L fail`,
+# stdlib 4 of 4 — and THREE LEGAL PROGRAMS REFUSED BY HAND that no corpus column
+# contains: a sibling FIELD still carrying 'a, a sibling ELEMENT, and an
+# OVERWRITE (`u.h = y; u.h = x; return u.h;`). The deposit is ROOT-keyed and
+# ADDITIVE; a region obligation is per-PLACE and is killed by a later write to
+# that place. The fundable shape is the PER-FIELD-PATH record this file already
+# built for dropck (`dropck_field_srcs_[root][path]`, borrow_check.cpp:13322).
+# ⚠ AND A PRIOR NEGATIVE RESULT AT A DIFFERENT SITE — A ROOT NAME IS NOT A SITE.
+# borrow_check.cpp:13225 records 2026-08-28: 187 fires, CEILING 0, COST 0,
+# "Predicted --c17 (and predicted --t17 would NOT close). Neither closed." That
+# round probed the §B6 `ref_sources` walk; at the `prov_` deposit the same root
+# closes --c17. `lifereg.B` was NOT unsurveyed, and a by-name check said it was.
+# ⚠ A DANGLING SHAPE WITH NO ROW, measured admitted on the UNMODIFIED compiler:
+#   fn f<'a>(x:&'a i64, y:&i64)->&'a i64 { let mut out:&i64=x;
+#     { let d:&mut &i64 = &mut out; *d = y; } return out; }
+# the DEREF projection of the same defect. Reported, not counted, no row opened
+# by this round.
+# Full numbers: src/compiler/PROBES.md 2026-09-11d-liferegb.

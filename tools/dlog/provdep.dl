@@ -1,0 +1,49 @@
+// provdep — WHO TOUCHES THE RETURN GATE'S PROVENANCE MAP, BY PROPERTY.
+//
+// WHY THIS QUESTION (round 2026-09-11d, `lifereg.B`). The arm that refuses
+// `return out;` after `out = y` is `check_return_value` case 2, and the fact it
+// reads is `prov_`. The ledger root says a store THROUGH A PROJECTION deposits
+// nothing. A fix at ONE deposit helper (`note_holder_escape_prov`) is a CLASS
+// fix only if that helper is the route every projected store takes, and if the
+// readers of `prov_` are the set I think they are. A grep for `prov_` keys on a
+// NAME and cannot separate a deposit from a read, nor attribute either to its
+// enclosing function; `ctx_of` can.
+//
+// ⚠ ctx_of COARSENS (the 37-vs-0 finding). This question is deliberately
+// CONTEXT-level — "which named functions touch this container at all" — which
+// is the granularity it answers correctly. Every verdict below is cross-checked
+// against a per-site hand read and both numbers are reported.
+//
+// KNOWN-ANSWER CONTROL used when this rule was added: on
+// src/compiler/borrow_check.cpp, `note_holder_escape_prov` must appear in BOTH
+// `holder_call` (it is called) and `container_ref` (it deposits), and
+// `check_return_value` must appear in neither — it reads `prov_` only through
+// `prov_of`, which must itself appear in `container_ref`. If `check_return_value`
+// shows up as a direct container_ref the rule is reading something else.
+#include "cxx_schema.dl"
+
+.decl provdep_accessor(n: symbol)
+.input provdep_accessor
+.decl provdep_container(n: symbol)
+.input provdep_container
+
+.decl accessor_decl(did: symbol)
+accessor_decl(D) :- decl_name(D, N), provdep_accessor(N).
+
+.decl container_decl(did: symbol)
+container_decl(D) :- decl_name(D, N), provdep_container(N).
+
+// Every CALL of the deposit helper, by its enclosing named context — the doors.
+.decl holder_call(ctx: symbol, file: symbol, line: number)
+holder_call(Name, F, L) :- call(C, D), accessor_decl(D),
+                           ctx_of(C, Ctx), ctx_name(Ctx, Name),
+                           loc(C, F, L, _).
+.output holder_call
+
+// Every reference to the container itself, by context. Anything outside the
+// deposit helper and the accessor it is read through is another route.
+.decl container_ref(ctx: symbol, file: symbol, line: number)
+container_ref(Name, F, L) :- ref(U, D), container_decl(D),
+                             ctx_of(U, Ctx), ctx_name(Ctx, Name),
+                             loc(U, F, L, _).
+.output container_ref

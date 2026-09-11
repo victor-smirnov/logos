@@ -38393,3 +38393,127 @@ CONTROL REVERT, BY BEHAVIOUR: with only `borrow_check.cpp` reverted and rebuilt,
 the closed row's program compiles again (rc 0), `D1`/`D2`/`X2`/`B_iife` all
 compile again, and all SIX fail halves go RED while the five pass halves stay
 green — which is the right asymmetry, since the pass halves are legal programs.
+
+## 2026-09-11d-liferegb — `lifereg.B` IS TWO ROWS AND TWO MECHANISMS: THE FIELD HALF CLOSES AT A DEPOSIT HELPER THAT RECORDS THE ESCAPE BIT AND DELIBERATELY NOT THE PARAM, AND THE SLICE HALF REACHES NONE OF THE FIVE DEPOSIT DOORS AT ALL — SO THE ARM IS PRICED, DECLINED ON THREE HAND-LEGAL REFUSALS, AND THE ROOT IS SPLIT
+
+site: src/compiler/borrow_check.cpp::note_holder_escape_prov (deposit) reaching
+      check_return_value case 2 (:9396, the arm that already exists)
+build: base 411ed23b6b9fea05 43 (READ) -> armed 6820bf7c18965cb7 43 (READ);
+control revert rebuilt to 411ed23b6b9fea05 43 (READ) AND asserted by BEHAVIOUR
+(probe name inert, census names produce zero records — the code is gone, not
+merely unarmed).
+all builds, READ: base 411ed23b6b9fea05 43 · armed-1 6820bf7c18965cb7 43
+(`liferegbparam`) · armed-2 4930d1ed7bc8cdb6 43 (+`liferegbboth`) · armed-3
+e830237ffdcef89b 43 (+per-door census).
+Round files: src/compiler/probes/2026-09-11d-liferegb/{TARGETS.md written before
+the compiler was touched, PREDICTION.md before the armed binary existed,
+RESULT.md}.
+
+TARGET ROWS, BY ID, named before any edit: `mut-slice-struct-lifetime-transmute--c17`
+and `--t17`, the whole of root `lifereg.B`. Chosen for the shape the prompt says
+has paid every time — AN ARM THAT EXISTS reached through A FACT THE CODE DOES
+NOT CARRY: `check_return_value`'s explicit-lifetime arm FIRES today on the
+root-local spelling (`let mut out: &i64 = x; out = y; return out;` → "lifetime
+mismatch: return type has lifetime 'a but 'y' has lifetime (elided)", READ,
+re-verified on today's binary) and is silent the moment the same store goes
+through a FIELD, an INDEX or a DEREF.
+
+fires: liferegbparam 341 (cost corpus) · liferegb.arrive 1 over the 86-row ledger.
+
+    probe            ceiling  cost(pass)  cfail        stdlib  runtime
+    liferegbparam          1  0           0 of 1491    4 of 4  0 of 6657*
+    liferegbboth        (1)   not priced — condemned by L7 before pricing
+
+CEILING PREDICTED BY NAME {c17, t17}; ACTUAL {c17}.
+  predicted ∖ actual = { mut-slice-struct-lifetime-transmute--t17 }
+  actual ∖ predicted = EMPTY
+Diagnostic READ, and it is upstream's own verdict in Logos' words — upstream
+`tests/ui/lifetimes/lifetime-errors/mut-slice-struct-lifetime-transmute.stderr`
+(on the box, read via `scripts/report-worksheet.py`) is E0621 "explicit lifetime
+required in the type of `y`", blamed at the READ-BACK:
+    error [fn lifetime_transmute_struct]: lifetime mismatch: return type has
+    lifetime 'a but 'y' has lifetime (elided)
+
+### 1. THE ARRIVAL CENSUS DECIDED THE BLOCK BEFORE THE ARMS DID, AGAIN
+`liferegb.arrive` = 1 over all 86 ledger programs and it is c17; 0 on t17, 0 on
+`out[0]=y`, 0 on `*d=y`. A second armed build added the array-index descent
+(`liferegbboth`): X5 (`out[0]=y` on an ARRAY local) starts arriving and is
+refused, and **t17 still admits with zero arrivals**. t17 writes through a
+`&mut [&i64]` SLICE local; `liferegb.recvdoor`, censused at the
+`SDerefWrite(MethodCall(index_mut …))` door the :13488 comment says such a write
+takes, NEVER FIRES on it — over the whole ledger that door fires once, and that
+once is `.noborrow`. THE DOOR IS NOT REACHED, so no fact carried to it can help.
+
+### 2. THE LEDGER'S RECORDED GROUPING IS REFUTED BY ITS OWN TEST
+The file says (2026-09-08) the two rows are "one mechanism at two projections".
+ONE candidate change moves ONE of them, under either spelling. `lifereg.B` is
+TWO ROOTS. Third handed-down grouping to split this way in four rounds.
+
+### 3. A PRIOR NEGATIVE RESULT AT A DIFFERENT SITE — A ROOT NAME IS NOT A SITE
+`borrow_check.cpp:13225` already records 2026-08-28: 187 fires, CEILING 0, COST
+0, "Predicted c17 (and predicted --t17 would NOT close). Neither closed." That
+round probed the §B6 `ref_sources` walk. At the `prov_` deposit the same root
+closes c17 at ceiling 1. The old round's t17 prediction is confirmed here WITH
+the mechanism it lacked. ⚠ My own TARGETS.md called `lifereg.B` "never
+surveyed" on a by-property check that looked at the two installed `lifereg_*`
+probes at the RETURN site; it missed `lifereg_indexstore`, installed at the
+STORE site, because the ledger root name appears nowhere near it. Recorded as a
+tool-use mistake, not softened.
+
+### 4. RULE 5 — FOURTEEN LEGAL SHAPES, THREE REFUSED, AND EVERY CORPUS COLUMN IS ZERO
+Legal and ADMITTED (11): both params 'a · `where 'b: 'a` · `&'static` source ·
+non-reference return ×2 · the reborrow store being of `x` itself · read-back
+through a call · the store in a CALLEE taking `&mut H` (params skipped, #78) ·
+nested field both 'a · a store on a not-taken path returning `x` · a struct
+literal initialised from `y` then overwritten.
+Legal and REFUSED (3) — none of them in any corpus column:
+  L1  `p.b = y; return p.a;`              sibling FIELD
+  L7  `arr[1]=y; return arr[0];`          sibling ELEMENT (under liferegbboth)
+  L5b `u.h = y; u.h = x; return u.h;`     OVERWRITE, legal Rust
+Illegal and newly refused: X1 (=c17), X4 (field, no reborrow), X5 (array index,
+under liferegbboth only). Still admitted: X2/t17 (slice), X3 (`*d = y` through
+`&mut &i64`) — **X3 is a shape NO ROW IN THE FILE EXHIBITS and it is admitted
+both armed and unarmed; reported, not counted.**
+
+The deposit is ROOT-keyed and ADDITIVE, and those are exactly the two properties
+that make the helper CORRECT for the escape bits: an escape bit is monotone in
+the holder, a REGION obligation is per-PLACE and is killed by a later write to
+the same place. The fundable shape is a PER-FIELD-PATH record — which this file
+has already built once, for dropck (`dropck_field_srcs_[root][path]`, :13322),
+with the order-sensitive pair that forced it pinned in
+`fail/bc_dropck_field_two_paths_fail` and its `_swapped_` twin.
+
+### 5. DLOG — NEW RULE `tools/dlog/provdep.dl`, DECLARED, WITH ITS CONTROL
+`selftest.sh` RUN FIRST, rc 0, known answer reproduced (19 walkers / 24 findings
+/ try_path 1-5 / domain 42-5; duty discriminates across 756aed65, 1 -> 0).
+Claims are INPUTS (`provdep_accessor.claim`, `provdep_container.claim`).
+  holder_call    5 sites / 3 contexts — visit_stmt 12836/13389/13505,
+                 apply_flow_outparams 4945, visit 15523
+  container_ref  53 references / 14 contexts
+KNOWN-ANSWER CONTROL, stated before the run: the helper must appear in
+`container_ref` and `check_return_value` in NEITHER relation, because it reads
+`prov_` only through `prov_of` — which must itself appear. It does.
+PER-SITE CROSS-CHECK, both numbers side by side: `grep -n
+"note_holder_escape_prov("` = 5 calls + 1 definition; dlog = 5 calls. AGREE.
+⚠ AND THE TOOL CHANGED THE VERDICT, in the direction that costs money: yesterday
+the same shape licensed a CLASS fix at `closure_caps_of` because the
+container-reference relation was EMPTY outside the accessor. Here it is 53 sites
+in 14 contexts, so an edit at this helper is an INSTANCE fix and must be priced
+as one. An absence has no spelling; a NON-absence is just as decisive and a grep
+for `prov_` would have shown the lines without the attribution that settles it.
+⚠ A STALE COMMENT THE TOOL CAUGHT: the helper's own header says "ONE helper,
+FOUR call sites". There are FIVE.
+
+### 6. WHAT DESERVES FUNDING
+NOT `liferegbparam` as spelled — ceiling 1 against three legal refusals, none of
+which any corpus column can see (cost 0 in all four, including the runtime one).
+(1) The PER-FIELD-PATH param record, modelled on `dropck_field_srcs_`, priced
+    against L1/L5b/L7 as its acceptance test before any ledger column is read.
+    Predicted ceiling: still 1 (c17). A one-row mechanism at a real cost is not
+    worth a landing until the keying question is answered; it IS worth the
+    answer, because the same root-keyed/additive pair is what two other arms in
+    this helper are already caveated for.
+(2) t17 is NOT that work. Its slice-element store reaches no deposit door; it
+    needs the door first, and that is `lifereg.B2`'s own round.
+(3) X3 (`*d = y` through `&mut &i64`) is a dangling-region shape with NO LEDGER
+    ROW, admitted on the unmodified compiler. It belongs in the file.
