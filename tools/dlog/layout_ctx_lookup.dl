@@ -1,0 +1,124 @@
+// layout_ctx_lookup — WHICH LAYOUT DECISION SITES RESOLVE A TYPE'S REGISTRY
+// ENTRY THROUGH THE *CALLER'S* CONTEXT INSTEAD OF THE TYPE'S OWN PACKAGE?
+//
+// The tree carries TWO flavours of registry lookup for the same registries:
+//
+//   * CONTEXT-DEPENDENT — `find_struct_by_name` / `find_datatype_by_name` /
+//     `find_enum_by_name`, all `lookup_qualified_<true>`: they answer from
+//     `cur_package_` + `effective_import_pkgs()`, they run `check_pub_access`,
+//     and they fall back to a BARE key. What they return therefore depends on
+//     WHO IS ASKING, not on what is being asked about.
+//   * PACKAGE-KEYED — `find_struct_repr_` / `find_datatype_repr_` /
+//     `find_enum_repr_`: keyed on the TYPE's own `pkg_name()`, pub-check free.
+//     Written for exactly this — "visibility is irrelevant to a layout
+//     question" is their own comment.
+//
+// A layout engine runs from wherever a size is first demanded, so the caller's
+// package and import set are ARBITRARY with respect to the type being sized.
+// A context-dependent lookup inside a layout decision is therefore a defect by
+// construction: it silently answers "unknown" and the engine takes a DEFAULT.
+// Measured 2026-09-11: `sema_niche_arm` asked `find_struct_by_name` whether a
+// payload is `#[non_null]`, got null, and every `Option<Box<T>>` in a struct
+// FIELD came out 24 bytes against LLVM's 16 — an abort under
+// LOGOS_VERIFY_LAYOUT=1, which the pass tier sets on every fixture.
+//
+// ⚠ A GREP CANNOT ANSWER THIS. `find_struct_by_name` has 30+ call sites and
+// almost all of them are ordinary name resolution, where consulting the
+// caller's imports is exactly right. The class is not the SPELLING of the
+// callee, it is the spelling of the callee INSIDE a layout decision — and the
+// set of layout decisions is itself derived here, from who calls the LAW, not
+// from a list of function names I would have had to feel complete about.
+#include "cxx_schema.dl"
+
+// ── the domain: a LAYOUT DECISION SITE, derived from the law's own API ──────
+// `layout_law.hpp` is the single copy of the accumulation/union/enum/niche
+// rules. Anything that decides a layout calls it, or files its answer in the
+// cross-engine ledger. Both halves are here so an engine that computes without
+// recording, or records without computing, is still in the domain.
+.decl law_api(did: symbol, name: symbol)
+law_api(D, N) :- decl(D, "Function", _), decl_name(D, N),
+                 (N = "aggregate_layout" ; N = "enum_layout" ;
+                  N = "classify_niche"   ; N = "arm_desc_of_kind" ;
+                  N = "backing_layout"   ; N = "any_payload").
+.decl ledger_api(did: symbol, name: symbol)
+ledger_api(D, N) :- decl(D, "Function", _), decl_name(D, N),
+                    (N = "record" ; N = "record_declined").
+
+.decl layout_decider(ctx: symbol)
+layout_decider(C) :- law_api(D, _),    call(U, D), ctx_of(U, X), ctx_name(X, C).
+layout_decider(C) :- ledger_api(D, _), call(U, D), ctx_of(U, X), ctx_name(X, C).
+.output layout_decider
+
+// ── the two lookup flavours, by DECLARATION identity ────────────────────────
+.decl ctx_dependent_lookup(did: symbol, name: symbol)
+ctx_dependent_lookup(D, N) :- decl(D, "CXXMethod", _), decl_name(D, N),
+                              (N = "find_struct_by_name" ;
+                               N = "find_datatype_by_name" ;
+                               N = "find_enum_by_name").
+.decl pkg_keyed_lookup(did: symbol, name: symbol)
+pkg_keyed_lookup(D, N) :- decl(D, "CXXMethod", _), decl_name(D, N),
+                          (N = "find_struct_repr_" ;
+                           N = "find_datatype_repr_" ;
+                           N = "find_enum_repr_").
+
+// every call of either flavour, with the context that makes it
+.decl lookup_call(ctx: symbol, flavour: symbol, callee: symbol,
+                  file: symbol, line: number)
+lookup_call(C, "context-dependent", N, F, L) :-
+    ctx_dependent_lookup(D, N), call(U, D), ctx_of(U, X), ctx_name(X, C),
+    loc(U, F, L, _).
+lookup_call(C, "package-keyed", N, F, L) :-
+    pkg_keyed_lookup(D, N), call(U, D), ctx_of(U, X), ctx_name(X, C),
+    loc(U, F, L, _).
+.output lookup_call
+
+// ── THE FINDING: a layout decision that asks the caller's context ───────────
+.decl layout_ctx_defect(ctx: symbol, callee: symbol, file: symbol, line: number)
+layout_ctx_defect(C, N, F, L) :- layout_decider(C),
+                                 lookup_call(C, "context-dependent", N, F, L).
+.output layout_ctx_defect
+
+// ── THE CONTROL HALF: a layout decision that asks correctly. A rule that only
+// ever prints violations cannot be told from a rule that prints everything;
+// this pair is what makes the run above a measurement.
+.decl layout_pkg_keyed(ctx: symbol, callee: symbol, file: symbol, line: number)
+layout_pkg_keyed(C, N, F, L) :- layout_decider(C),
+                                lookup_call(C, "package-keyed", N, F, L).
+.output layout_pkg_keyed
+
+// ── SHARPENING: the context-level verdict above OVERCOUNTS 9 : 1 ────────────
+// Measured 2026-09-11, per-site read of all nine rows: eight of them are in
+// `lower_field_read` / `lower_offset_of`, which are AST LOWERING sites. There
+// the caller's package and imports ARE the right context — the type was spelled
+// in the very file being lowered — and the failure path ERRORS ("unknown
+// struct", "has no field") rather than silently taking a layout default. One of
+// them (sema_expr.cpp:11440) IS the pub check, where a pub-CHECKING lookup is
+// the entire point. This is the `ctx_of` coarsening the tool has already been
+// burned by once (37 reported, 0 real): `lower_field_read` both resolves names
+// and computes a DST prefix layout, so a per-FUNCTION guard cannot separate
+// them.
+//
+// The derivable property that does separate them is REACHABILITY, not the site:
+// a layout engine is reached only from another layout engine (something asked
+// for a size), whereas a lowering function is reached from the AST dispatch.
+// So: a layout decider every one of whose callers is itself a layout decider
+// runs in an ARBITRARY package context and must not ask the caller's imports.
+.decl ctx_calls(caller: symbol, callee_ctx: symbol)
+ctx_calls(C1, C2) :- call(U, D), ctx_of(U, X), ctx_name(X, C1),
+                     decl_name(D, C2), C1 != C2.
+
+.decl called_by_nonlayout(ctx: symbol)
+called_by_nonlayout(C) :- ctx_calls(C1, C), !layout_decider(C1).
+
+// A layout decider reached ONLY through layout. (A context with no caller at
+// all in these TUs is vacuously here — there is none among the deciders, and a
+// nullary domain would be reported as an empty relation, not hidden.)
+.decl layout_only_ctx(ctx: symbol)
+layout_only_ctx(C) :- layout_decider(C), !called_by_nonlayout(C).
+.output layout_only_ctx
+
+// THE SHARPENED FINDING.
+.decl layout_ctx_defect_sharp(ctx: symbol, callee: symbol, file: symbol, line: number)
+layout_ctx_defect_sharp(C, N, F, L) :- layout_only_ctx(C),
+                                       lookup_call(C, "context-dependent", N, F, L).
+.output layout_ctx_defect_sharp

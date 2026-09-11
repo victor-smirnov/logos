@@ -1,0 +1,30 @@
+// CONTROL TWIN of `option_ptr_wrapper_niche_struct_field`, ONE token apart: the
+// `#[non_null]` attribute is GONE. Without it the payload is an ordinary 8-byte
+// struct, the null-pointer niche must NOT apply, and the field is TAGGED — 24,
+// not 16. This half is what makes the other half a measurement: a "fix" that
+// made every 8-byte single-pointer struct a niche would pass that one and red
+// this one. It was ALREADY green before the 2026-09-11 sema_niche_arm fix (the
+// tagged path was the only path), so it also pins that the fix took nothing away.
+package option_ptr_wrapper_niche_struct_field_ctl;
+
+use logos.std.fmt;
+
+struct Handle {
+    p: *mut i64,
+}
+
+struct HolderLocal {
+    a:    i32,
+    next: Option<Handle>,
+}
+
+fn main() -> i32 {
+    // disc 8 + payload 8 = 16, plus i32 + pad4 = 24.
+    println!("local={}", sizeof::<HolderLocal>());
+    let n: HolderLocal = HolderLocal { a: 9i32, next: Option::None };
+    match n.next {
+        Option::Some(_) => { println!("none MISREAD"); }
+        Option::None    => { println!("none a={}", n.a); }
+    }
+    return 0;
+}

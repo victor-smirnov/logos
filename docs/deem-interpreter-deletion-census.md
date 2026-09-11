@@ -5787,8 +5787,8 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                bc_admits unchanged at 85 — this landing closed NO ledger row; its
 #                subject was the `unrowed_backlog.ledger` vg_leak_records group,
 #                whose count goes 50 -> 39 records (9 buffered + 2 BTreeMap).
-REGISTRY-ALL         9599
-REGISTRY-NOIMPORTED  5127
+REGISTRY-ALL         9602
+REGISTRY-NOIMPORTED  5130
 REGISTRY-TIERCOMMIT  143
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

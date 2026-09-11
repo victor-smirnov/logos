@@ -38839,3 +38839,90 @@ list in the corpus. That is the move this tree forbids outright.
 case, and a per-site read (the four controls above) that already names the exact
 discriminator. It is worth more than its own row: it is the gate on porting any fixture from
 raw pointers to `Box`, which is the direction the owner asked this whole class to move.
+
+---
+
+## 2026-09-11 — `layout_verify_optbox_struct_field` CLOSED: a layout engine asked the CALLER's imports whether a payload is `#[non_null]`
+
+**THE DEFECT, one site.** `SemaChecker::sema_niche_arm` (sema.cpp:5248) resolved the payload
+struct with `find_struct_by_name(struct_name())` — `lookup_qualified_<true>`, which answers
+from `cur_package_` + `effective_import_pkgs()`, runs `check_pub_access`, and falls back to a
+BARE key. A layout engine runs from wherever a size is first demanded, so the caller's package
+and import set are ARBITRARY with respect to the type being sized. The lookup returned null,
+`nonnull_wrapper` stayed false, the law classified the arm as `Other`, `classify_niche` gave
+`NicheKind::None`, and every `Option<Box/Rc/Arc<T>>` **in a struct FIELD** came out tagged —
+24 bytes against `layout_of`'s and `llvm::DataLayout`'s 16. Under `LOGOS_VERIFY_LAYOUT=1`,
+which `tests/logos/CMakeLists.txt:1097` sets on EVERY pass fixture, that is an abort, rc 134.
+
+The struct branch of `sema_abi_layout` (sema.cpp:5302/5303) had ALREADY been moved to the
+package-keyed, pub-check-free `find_struct_repr_`/`find_datatype_repr_` for exactly this
+reason — its own comment says "visibility is irrelevant to a layout question". The niche arm
+was the one site of that engine still asking the other way. The fix is that same two-registry
+lookup, keyed on `TypeRef(t).pkg_name()`: **8 lines, 1 site.**
+
+**WHY THE FIELD POSITION WAS THE DISCRIMINATOR, AND WHY IT IS NOT WHAT IT LOOKS LIKE.** The
+previous round recorded "FIELD POSITION, not recursion, not niches generally". That reading is
+correct as an observation and wrong as a mechanism: sema's layout engine is only *invoked* on
+an `Option<…>` when it is reached as a struct FIELD. `option_ptr_wrapper_niche` — a fixture
+that has been green the whole time — pins `Option<Box/Rc/Arc> == 8` at the TOP level, where
+only `layout_of` and `mono_abi_layout` (both correct) answer. A cross-package hypothesis was
+also refuted before the fix: a `#[non_null]` wrapper declared in the fixture's OWN package
+failed identically (`c1_localbox`, 24 vs 16), so it was never `check_pub_access`.
+
+**THE CLASS, ENUMERATED BY PROPERTY — `tools/dlog/layout_ctx_lookup.dl` (new rule).** The
+domain is DERIVED, not listed: a *layout decider* is any context that calls the law's own API
+(`aggregate_layout` / `enum_layout` / `classify_niche` / `arm_desc_of_kind` / `backing_layout`
+/ `any_payload`) or the cross-engine ledger (`record` / `record_declined`). **15 contexts.**
+The two lookup flavours are matched by DECLARATION identity, not spelling.
+
+| reading | sites | contexts |
+|---|---|---|
+| coarse dlog rule (context-level) | **9** | 3 |
+| per-site read of all 9, by hand | **1** | 1 |
+| sharpened dlog rule (reachability) | **1** | 1 |
+
+The coarse rule overcounts 9 : 1 because `ctx_of` coarsens — exactly the failure this tool was
+already burned by (37 reported, 0 real). Eight of the nine are in `lower_field_read` /
+`lower_offset_of`, which are AST **lowering** sites: there the caller IS the program point, the
+type was spelled in the file being lowered, the failure path ERRORS ("unknown struct", "has no
+field") rather than taking a layout default, and one of them (sema_expr.cpp:11440) *is* the pub
+check. The derivable property that separates them is REACHABILITY, not the site: a layout
+engine is reached only from another layout engine, a lowering function from the AST dispatch.
+`layout_only_ctx` (a decider all of whose callers are deciders) is **6 of 15** —
+`enum_def_layout`, `mono_enum_layout`, `mono_niche_arm`, `niche_arm_desc`, `sema_niche_arm`,
+`struct_def_layout` — and the sharpened rule reports exactly one row, **agreeing with the
+per-site read**. The coarse rule is kept as the superset that clears `layout_of`,
+`mono_abi_layout` and `sema_abi_layout` outright (no context-dependent lookup in any of them).
+
+**SIBLING CONTROL — the class is genuinely ONE member.** The other two engines' niche arms are
+in `layout_only_ctx` beside `sema_niche_arm` and ask the same `#[non_null]` question:
+`MLIRGenImpl::niche_arm_desc` (mlir_gen_types.cpp:1050) uses `find_struct_def_it`,
+pkg-qualified-first; `Mono::mono_niche_arm` (mono_clone.cpp:547) uses `resolve_struct_layout`.
+Both already correct. That is why two engines agreed with LLVM and one did not.
+
+**KNOWN-ANSWER CONTROL for the new rule** (authorised tool development, reported as required):
+the rule must flag the known defect and must NOT flag the site already repaired. It reports
+`sema_niche_arm` sema.cpp:5248 and `layout_pkg_keyed` separately reports `sema_abi_layout`
+sema.cpp:5302/5303/5329 — a discriminating pair inside one function's own file, 21 lines apart.
+
+**THE PIN IS A PAIR ONE TOKEN APART, AND THE TOKEN IS `#[non_null]`.**
+
+| fixture | old binary `d10ce02056b41dc8` | new binary `d7f5ee2424d9ea96` |
+|---|---|---|
+| `option_ptr_wrapper_niche_struct_field` (attribute PRESENT) | **rc 1**, 8 disagreements | rc 0, `local=16 box=16 rc=16 arc=16` |
+| `option_ptr_wrapper_niche_struct_field_ctl` (attribute ABSENT) | rc 0, `local=24` | rc 0, `local=24` |
+| `option_box_recursive_struct_field_list` (the row's program) | **rc 1**, 2 disagreements | rc 0, `size=16`, prints 1/2/3 |
+| `option_ptr_wrapper_niche` (pre-existing, top level) | rc 0 | rc 0 |
+
+The `_ctl` half is what makes the other half a measurement: a "fix" that made every 8-byte
+single-pointer struct a niche would pass the first row and red the second. And the sizes are
+read by the PROGRAM through `sizeof::<T>()`, not only by the verifier — so the pin survives
+`LOGOS_VERIFY_LAYOUT` being off.
+
+**WHAT THIS UNBLOCKS AND WHAT IT DOES NOT.** It is the wall the raw-`malloc` triage round named:
+`tests/logos/pass/bst.logos` and `tests/logos/pass/linked_list.logos` ("rewritten with struct +
+malloc after class removal") can now be written with `Box`. That port is NOT done here — it is a
+corpus rewrite of two fixtures with their own before/after obligation, and this round's subject
+was the queue row. `layout_verify_recursive_ref` is UNCHANGED and still rc 139 (segfault, no
+diagnostic) on the fixed binary: a different mechanism, and its own non-self-referential control
+was green before this fix too.

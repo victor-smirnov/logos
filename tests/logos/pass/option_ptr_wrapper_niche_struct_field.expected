@@ -1,0 +1,4 @@
+stdout:
+local=16 box=16 rc=16 arc=16
+some a=7 v=42
+none a=9

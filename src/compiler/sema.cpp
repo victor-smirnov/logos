@@ -5245,7 +5245,14 @@ lay::ArmDesc SemaChecker::sema_niche_arm(TypeRef t, logos::compiler::StrSet& see
         pointee_align = sema_abi_layout(TypeRef(t).pointee(), seen).align;
     bool nonnull_wrapper = false;
     if (k == K::Struct || k == K::ZonedStruct) {
-        auto [spkg, ssi] = find_struct_by_name(std::string(TypeRef(t).struct_name()));
+        // PKG-KEYED and pub-check-FREE, like the struct branch above: a layout
+        // engine runs in an ARBITRARY package context, so the caller's imports
+        // cannot decide whether the payload is `#[non_null]`. See PROBES.md
+        // (layout_verify_optbox_struct_field).
+        SemaStructInfo* ssi = find_struct_repr_(TypeRef(t).pkg_name(),
+                                                TypeRef(t).struct_name());
+        if (!ssi) ssi = find_datatype_repr_(TypeRef(t).pkg_name(),
+                                            TypeRef(t).struct_name());
         if (ssi && ssi->non_null)
             nonnull_wrapper = sema_abi_layout(t, seen).size == 8;
     }

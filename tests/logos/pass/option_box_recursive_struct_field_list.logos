@@ -1,0 +1,35 @@
+// The soundness-queue row `layout_verify_optbox_struct_field`, landed as a pass
+// fixture 2026-09-11. A struct recursive through `Option<Box<Self>>` — the shape
+// a linked list is written in with `Box` instead of raw `malloc` — is legal and
+// ran correctly by hand, but under LOGOS_VERIFY_LAYOUT=1 (which the pass tier
+// sets on EVERY fixture) the compiler ABORTED rc 134: sema's niche arm said the
+// node was 24 bytes, `layout_of` and llvm::DataLayout said 16. Recursion was
+// never the discriminator — the FIELD position was; see the `_ctl` twin of
+// `option_ptr_wrapper_niche_struct_field` for the one-token control.
+package option_box_recursive_struct_field_list;
+use logos.lang.option;
+use logos.mem.boxed;
+use logos.std.fmt;
+
+struct Node {
+    val:  i32,
+    next: Option<Box<Node>>,
+}
+
+fn main() -> i32 {
+    let n3: Box<Node> = box_new(Node { val: 3i32, next: Option::None });
+    let n2: Box<Node> = box_new(Node { val: 2i32, next: Option::Some(n3) });
+    let n1: Box<Node> = box_new(Node { val: 1i32, next: Option::Some(n2) });
+
+    println!("size={}", sizeof::<Node>());
+
+    let mut cur: &Node = &*n1;
+    loop {
+        println!("{}", cur.val);
+        match &cur.next {
+            Option::Some(nx) => { cur = &**nx; }
+            Option::None     => { break; }
+        }
+    }
+    return 0;
+}

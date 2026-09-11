@@ -1,0 +1,63 @@
+// Regression, the FIELD half of `option_ptr_wrapper_niche`. That fixture pins the
+// `#[non_null]` NullPtr niche for a TOP-LEVEL `Option<Box/Rc/Arc>` and was green
+// while this shape aborted the compiler: sema's layout engine only runs when such
+// an `Option` is a struct FIELD, and its niche arm asked the CALLER's imports
+// whether the payload is `#[non_null]` (`find_struct_by_name`) instead of the
+// type's own package. It got null, fell to the tagged layout, and said 24 where
+// LLVM and `layout_of` said 16 — an abort under LOGOS_VERIFY_LAYOUT=1, which the
+// pass tier sets on every fixture. See `..._ctl.logos`: ONE token (`#[non_null]`)
+// apart, and it must stay TAGGED. Fixed 2026-09-11 (sema_niche_arm, pkg-keyed).
+package option_ptr_wrapper_niche_struct_field;
+
+use logos.std.fmt;
+use logos.mem.sync;
+use logos.lang.rc;
+use logos.mem.boxed;
+
+// A local `#[non_null]` wrapper: the defect was NOT cross-package (a
+// same-package wrapper failed identically), so the pin names both.
+#[non_null]
+struct Handle {
+    p: *mut i64,
+}
+
+struct HolderLocal {
+    a:    i32,
+    next: Option<Handle>,
+}
+
+struct HolderBox {
+    a:    i32,
+    next: Option<Box<i64>>,
+}
+
+struct HolderRc {
+    a:    i32,
+    next: Option<Rc<i64>>,
+}
+
+struct HolderArc {
+    a:    i32,
+    next: Option<Arc<i64>>,
+}
+
+fn main() -> i32 {
+    // i32 + pad4 + 8 (niche) = 16 in every engine. Tagged would be 24.
+    println!("local={} box={} rc={} arc={}",
+             sizeof::<HolderLocal>(), sizeof::<HolderBox>(),
+             sizeof::<HolderRc>(), sizeof::<HolderArc>());
+
+    // The niche must still round-trip through the FIELD: None reads as null,
+    // Some carries the live pointer.
+    let h: HolderBox = HolderBox { a: 7i32, next: Option::Some(box_new::<i64>(42i64)) };
+    let n: HolderBox = HolderBox { a: 9i32, next: Option::None };
+    match h.next {
+        Option::Some(b) => { println!("some a={} v={}", h.a, *b); }
+        Option::None    => { println!("some MISREAD"); }
+    }
+    match n.next {
+        Option::Some(_) => { println!("none MISREAD"); }
+        Option::None    => { println!("none a={}", n.a); }
+    }
+    return 0;
+}
