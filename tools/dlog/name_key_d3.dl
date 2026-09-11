@@ -1,0 +1,183 @@
+// name_key — THE *RESOLUTION* HALF OF THE "KEYED ON A BARE NAME" CLASS.
+//
+// `name_intercept.dl` covers PREDICATION-by-comparison: `x == "Drop"`. That is
+// one of two forms, and the form a hand sweep is LEAST likely to miss, because
+// the literal is right there. This rule covers the other three directions, and
+// the third of them was recorded one round ago as something "no census in this
+// tree and no dlog rule can see" — which is FALSE, and measurably so: the
+// extractor already emits `binop` for EVERY operator spelling clang gives it,
+// `+` and `[]` included, so concatenation and subscript were always in reach
+// and nobody had asked. No extractor change was needed for this file.
+//
+//   R1  a name-shaped VALUE handed to a call        resolve_method_symbol(name, …)
+//   R2  a string LITERAL handed to a call           find_struct_by_name("Vec")
+//   R3  a name CONCATENATED into a key              base + "__into_iter"
+//   R4  a name-shaped value used as a SUBSCRIPT     containers_[ci.name]
+//
+// THE CLAIM IS NOT IN THE RULE. What counts as a RESOLVER is `resolver.claim`,
+// a list of regexes over a callee's bare name with an author. What counts as an
+// ENTITY-NAME PRODUCER is derived exactly as `name_intercept.dl` derives it — a
+// declaration or callee whose bare name ends in `name`, or is `type_str` — so a
+// new accessor joins without an edit here.
+#include "cxx_schema.dl"
+
+.decl resolver_pat(p: symbol)
+.input resolver_pat
+
+// ── bounded descent, SEEDED ────────────────────────────────────────────────
+// ⚠ NOT `sub(N,N,0) :- node(N,_,_,_)`. name_intercept seeds every node, which
+// is affordable over one TU and is 40x that over the full sweep. The tops here
+// are exactly the argument and operand positions the four forms ask about.
+.decl seed(x: symbol)
+.decl sub(top: symbol, x: symbol, d: number)
+sub(N, N, 0) :- seed(N).
+// ⚠ DEPTH 10, AND THREE IS WHERE A WHOLE FORM WAS INVISIBLE. Measured over the
+// full 37-TU sweep, distinct file:line, d3 -> d10:
+//   name_arg 120 -> 367 · lit_arg 47 -> 67 · name_concat 165 -> 363
+//   name_name_concat 14 -> 76 · name_subscript 270 -> 331
+//   lit_subscript 0 -> 55      <- produced NOTHING at depth 3
+//   TOTAL 616 -> 1259
+// Monotone: 0 sites are lost in any of the six relations, so d3 is a strict
+// subset and the horizon was a floor, not a filter. `pkg + "." + name` parses
+// as `(pkg + ".") + name` and the literal in the nested half sits five levels
+// below the outer `+`; a three-level horizon cannot reach it, which is why
+// mono.cpp:509 — the pkg-qualified half of an alias pair this class exists to
+// find — was absent while a plain grep found it. Cost of the depth: NONE
+// measurable, 48.6 s at d10 against 48.4 s at d3 over the same 37 TUs.
+// ⚠ MORE SITES ARE NOT MORE DEFECTS. The one classified population read 18
+// confirmed decisions out of 656; the classification must be re-run over 1259
+// and the ratio re-measured, not assumed.
+sub(N, C, D+1) :- sub(N, X, D), D < 3, node(C, _, X, _).
+
+// ── an ENTITY-NAME PRODUCER, DERIVED (same definition as name_intercept) ───
+.decl name_producer(did: symbol, name: symbol)
+name_producer(D, N) :- decl_name(D, N), match(".*name.*", N).
+name_producer(D, N) :- decl_name(D, N), N = "type_str".
+
+// A node that PRODUCES or HOLDS an entity name, anywhere within depth 3.
+.decl name_val(top: symbol, src: symbol)
+name_val(T, Nm) :- sub(T, I, _), call(I, D), name_producer(D, Nm).
+name_val(T, Nm) :- sub(T, I, _), ref(I, D), decl_name(D, Nm), match(".*name.*", Nm).
+
+// A node that carries a string LITERAL that could BE a name: no whitespace, and
+// short. Mechanical, not a list — an error message has spaces, a key does not.
+.decl name_lit(top: symbol, text: symbol)
+name_lit(T, X) :- sub(T, I, _), str_lit(I, X), !match(".* .*", X), strlen(X) < 40.
+
+// ── R1/R2 — a call ARGUMENT ────────────────────────────────────────────────
+// Child 0 of a call node is the CALLEE expression (or the MemberExpr), never an
+// argument; every child above it is one.
+.decl arg(callid: symbol, idx: number, x: symbol)
+arg(C, I, X) :- call(C, _), node(X, _, C, I), I > 0.
+seed(X) :- arg(_, _, X).
+
+.decl callee_name(callid: symbol, name: symbol)
+callee_name(C, N) :- call(C, D), decl_name(D, N).
+
+.decl is_resolver(name: symbol)
+is_resolver(N) :- callee_name(_, N), resolver_pat(P), match(P, N).
+
+.decl name_arg(file: symbol, line: number, ctx: symbol, callee: symbol,
+               idx: number, src: symbol)
+.output name_arg
+name_arg(F, L, Ctx, Cal, I, S) :- arg(C, I, X), name_val(X, S), callee_name(C, Cal),
+                                  is_resolver(Cal), loc(C, F, L, _),
+                                  ctx_of(C, K), ctx_name(K, Ctx).
+
+.decl lit_arg(file: symbol, line: number, ctx: symbol, callee: symbol,
+              idx: number, text: symbol)
+.output lit_arg
+lit_arg(F, L, Ctx, Cal, I, T) :- arg(C, I, X), name_lit(X, T), callee_name(C, Cal),
+                                 is_resolver(Cal), loc(C, F, L, _),
+                                 ctx_of(C, K), ctx_name(K, Ctx).
+
+// ⚠ THE RESIDUAL IS THE HONEST LIMIT. A name-shaped value handed to a callee
+// the CLAIM does not call a resolver. If the claim is short, this is where the
+// misses are, and its SIZE is the measurement of how much the claim assumes.
+.decl arg_residual(file: symbol, line: number, ctx: symbol, callee: symbol, src: symbol)
+.output arg_residual
+arg_residual(F, L, Ctx, Cal, S) :- arg(C, _, X), name_val(X, S), callee_name(C, Cal),
+                                   !is_resolver(Cal), loc(C, F, L, _),
+                                   ctx_of(C, K), ctx_name(K, Ctx).
+
+// ⚠⚠ THE R3 COUNT BELOW IS AN UNDERCOUNT AND THE NUMBER IS MEASURED: 165 SITES
+// HERE, 416 AT DEPTH 8. `name_val`/`name_lit` decide an operand at depth 3, and
+// `pkg + "." + name` does not fit — the nested half is MaterializeTemporaryExpr
+// -> CXXBindTemporaryExpr -> operator+ -> ImplicitCastExpr -> StringLiteral,
+// five levels, so the literal is invisible to the outer `+` and the inner `+`
+// has no name. The 251 sites that fall in the gap include mono.cpp:472/476/509/
+// 553 — the PKG-QUALIFIED halves of the very alias pairs this class exists to
+// find — and a plain grep found them. See `name_key_class.dl` relation
+// `deep_only`, and PROBES.md 2026-09-10f. The counts here are left as they were
+// so the round record that pins 122/47/171/28/288 still reads true; the class
+// SIZE is the deep number.
+// ── R3 — CONCATENATION into a key ──────────────────────────────────────────
+// `base + "__into_iter"`, `pkg + "." + name`. The operator spelling is already
+// a fact; the two operand positions of a CXXOperatorCallExpr are children 1
+// and 2, and of a plain BinaryOperator children 0 and 1.
+.decl concat(id: symbol)
+concat(N) :- binop(N, "+").
+concat(N) :- binop(N, "+=").
+
+.decl cop(c: symbol, x: symbol)
+cop(C, X) :- concat(C), node(C, K, _, _), K != "CXXOperatorCallExpr", node(X, _, C, _).
+cop(C, X) :- concat(C), node(C, "CXXOperatorCallExpr", _, _), node(X, _, C, I), I > 0.
+seed(X) :- cop(_, X).
+
+// A concatenation is a KEY CONSTRUCTION when one side is an entity name and the
+// other is a literal — arithmetic on numbers has neither.
+.decl name_concat(file: symbol, line: number, ctx: symbol, src: symbol, text: symbol)
+.output name_concat
+name_concat(F, L, Ctx, S, T) :- concat(C), cop(C, A), name_val(A, S),
+                                cop(C, B), B != A, name_lit(B, T),
+                                loc(C, F, L, _), ctx_of(C, K), ctx_name(K, Ctx).
+
+// …and the half where BOTH sides are names (`pkg + name`), which has no literal
+// to grep for at all and is therefore the direction a text search cannot reach.
+.decl name_name_concat(file: symbol, line: number, ctx: symbol, a: symbol, b: symbol)
+.output name_name_concat
+name_name_concat(F, L, Ctx, SA, SB) :- concat(C), cop(C, A), name_val(A, SA),
+                                       cop(C, B), B != A, name_val(B, SB), SA != SB,
+                                       loc(C, F, L, _), ctx_of(C, K), ctx_name(K, Ctx).
+
+// ── R4 — a name used as a SUBSCRIPT ────────────────────────────────────────
+// `containers_[ci.name] = …` is the literal shape of 5bd2724c0. The index is
+// child 2 of the operator call; child 1 is the container.
+.decl subs(c: symbol, x: symbol)
+subs(C, X) :- binop(C, "[]"), node(X, _, C, 2).
+seed(X) :- subs(_, X).
+
+// ⚠ THE CONTAINER IS THE CLASSIFYING FACT, AND WITHOUT IT ALL 278 ROWS ARE
+// UNDECIDED. A local scope map keyed on a bare local name is CORRECT — a local
+// has no package. A GLOBAL registry keyed on a bare entity name is the defect
+// 5bd2724c0 repaired. The two are the same node and differ only in WHICH map,
+// so the map's declaration goes in the answer rather than into a reader's head.
+.decl subs_container(c: symbol, x: symbol)
+subs_container(C, X) :- binop(C, "[]"), node(X, _, C, 1).
+seed(X) :- subs_container(_, X).
+
+.decl container_name(c: symbol, nm: symbol)
+container_name(C, Nm) :- subs_container(C, X), sub(X, I, _), ref(I, D), decl_name(D, Nm).
+
+.decl name_subscript(file: symbol, line: number, ctx: symbol, src: symbol, container: symbol)
+.output name_subscript
+name_subscript(F, L, Ctx, S, M) :- subs(C, X), name_val(X, S), loc(C, F, L, _),
+                                   ctx_of(C, K), ctx_name(K, Ctx), container_name(C, M).
+name_subscript(F, L, Ctx, S, "-") :- subs(C, X), name_val(X, S), loc(C, F, L, _),
+                                     ctx_of(C, K), ctx_name(K, Ctx), !container_name(C, _).
+
+.decl lit_subscript(file: symbol, line: number, ctx: symbol, text: symbol)
+.output lit_subscript
+lit_subscript(F, L, Ctx, T) :- subs(C, X), name_lit(X, T), loc(C, F, L, _),
+                               ctx_of(C, K), ctx_name(K, Ctx).
+
+// ── the four counts, in one place ──────────────────────────────────────────
+.decl form_count(form: symbol, n: number)
+.output form_count
+form_count("R1_name_arg",       N) :- N = count : { name_arg(_,_,_,_,_,_) }.
+form_count("R2_lit_arg",        N) :- N = count : { lit_arg(_,_,_,_,_,_) }.
+form_count("R3_name_concat",    N) :- N = count : { name_concat(_,_,_,_,_) }.
+form_count("R3b_name_name_cat", N) :- N = count : { name_name_concat(_,_,_,_,_) }.
+form_count("R4_name_subscript", N) :- N = count : { name_subscript(_,_,_,_,_) }.
+form_count("R4b_lit_subscript", N) :- N = count : { lit_subscript(_,_,_,_) }.
+form_count("residual_name_arg", N) :- N = count : { arg_residual(_,_,_,_,_) }.

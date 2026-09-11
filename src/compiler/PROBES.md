@@ -36986,3 +36986,232 @@ typevar `T` collides with a struct actually named `T` coming from a binary
 module. Renaming the struct `Zt` cleared it. It does NOT reproduce in one file
 (`struct T` + `type_id_of::<T>()` → rc 0, and its renamed control → rc 0), so it
 is recorded here and not filed as a row.
+
+---
+
+# 2026-09-11h — THE 551 SITES DEPTH 3 COULD NOT SEE: CLASSIFIED, AND POORER THAN THE SHALLOW POPULATION BY 1.7x
+
+**No compiler source was edited.** `python3 scripts/build_hash.py` READ before
+and after: `0e8ecc17b99f4077 43`, unchanged. The round is a dlog tool increment
+plus a classification; two `.dl` files are added and nothing else.
+
+## 1. CENSUS
+
+    git                e6d35bad2, working tree clean
+    soundness queue    GATE rc=0 — 77 open rows (tier1=18 tier2=9 tier3=42
+                       tier4=8), '# TOTAL' says 77
+    bc_admits          90        bc_admits_blocked 8
+    probe log          266 records, every site symbol resolves
+    build hash         0e8ecc17b99f4077 43
+
+⚠ CORRECTION TO THE PROMPT, RE-VERIFIED AGAINST THE TEXT HANDED TO THIS ROUND
+(not copied from the journal): the STEP-1 gate command **does** carry
+`LOGOS_LIB_DIR=$PWD/build/lib/logos`. The four-round complaint is FIXED and the
+two rounds that repeated it after the fix were wrong. Nothing to report here.
+
+⚠ SECOND CORRECTION. The prompt's numbered instruction 2 orders "RE-VERIFY THE
+THREE ROWS' RECORDED CONTROLS" and instruction 6 orders a probe table with a
+runtime cost column. **No three rows are named anywhere in the prompt**, and its
+own subject block says the subject is FIXED and is the 551 sites — a
+classification question with no probe, no arm and therefore no cost column at
+all. Those two instructions are carried over from a soundness-queue pricing
+round and do not apply to the subject actually assigned. This round answers the
+subject block. The queue gate was still run and is green; no queue row was
+touched.
+
+## 2. THE 551 RE-DERIVED, NOT TRUSTED
+
+`name_key_d3.dl` is `name_key.dl` with the single horizon constant 10 -> 3 and
+nothing else changed (`diff <(sed 's/D < 10/D < 3/' name_key.dl) name_key_d3.dl`
+is empty). Both asked over the same 37 TUs, distinct `file:line`, union over all
+six relations:
+
+    relation             d3    d10   lost
+    name_arg            120    367     0
+    lit_arg              47     67     0
+    name_concat         165    363     0
+    name_name_concat     14     76     0
+    name_subscript      270    331     0
+    lit_subscript         0     55     0
+    UNION               602   1153     0
+    d10-only                   551
+
+The handed-down 602 / 1153 / 551 / monotone REPRODUCES exactly. Note the
+`form_count` ROWS are larger than the SITES in every relation (e.g.
+`name_name_concat` 182 rows / 76 sites, because it emits `(A,B)` and `(B,A)`);
+the site numbers above are the ones that mean anything.
+
+## 3. THE TOOL INCREMENT, AND ITS KNOWN-ANSWER CONTROL
+
+`name_key_class_d10.dl` = `name_key_class.dl` with its `sub` horizon 3 -> 10 (so
+that the depth-10 population is actually in range of the classifier at all) plus
+ONE new section: a classifier for `lit_subscript`, the form that produced zero
+rows at depth 3. No extractor change; no new claim file.
+
+`lit_subscript` is not "a subscript whose index IS a literal". `name_lit` finds a
+literal anywhere in the index SUBTREE, so the relation is exactly *a subscript
+key built with a string literal in it* — `subst["Self"]` and
+`m[td_name + "::" + ib_target]` both. The classifying facts are the ones R4
+already used: the container's DECLARATION (`Var` = a lexical scope map, where a
+bare key is CORRECT) and whether a QUALIFIED sibling key reaches the same
+container in the same context.
+
+**THE CONTROL, chosen because two earlier rounds adjudicated it BY HAND IN
+OPPOSITE DIRECTIONS** (`tools/dlog/TARGET_ROWS.txt`):
+
+    site                      predicted     rule said      per-site read
+    mlir_gen_dyn.cpp:962/982  4-bare-key    4-bare-key  ✓  confirmed miscompile
+    mono.cpp:472/476/509/553  3-alias       2-qualified ✗  RULE RIGHT, ME WRONG
+    sema_collect.cpp:5234/5235/5244/5245
+                              4-bare-key    4-bare-key     BENIGN — RULE WRONG
+    sema.cpp:11122/11124      1-benign-lex  1-benign-lex ✓ "#0"/"@0", not a name
+
+Two of the four are worth their own sentence.
+
+**mono 472/476/509/553 — my prediction was wrong and the rule was right.** These
+are the PKG-QUALIFIED halves of the owner's back-compat alias pairs; the bare
+half is on the next line and carries no literal, so it is not in this relation at
+all. `2-qualified` is the correct answer and "3-alias" was my reading error.
+
+**sema_collect 5234/5235/5244/5245 — THE RULE IS WRONG, IN THE EXPENSIVE
+DIRECTION, FOR THE SECOND TIME IN THIS DIRECTORY.** The rule reports 4 bare
+registry keys; a per-site read reports 0 defects. 5234/5235 file the `&[u8]`
+alias under `trait_name`; 5244/5245 file the SAME alias under `ident_trait`,
+which is always package-qualified, and `sema_impl.hpp`'s
+`check_impl_registry_key_identity()` aborts over the whole `impls_` population if
+either half is missing. The rule cannot see it because `ident_trait` matches no
+pattern in `qualifier_pat.claim` — which lists `pkg`/`package`/`qualif`/`q*name`
+spellings and nothing else. **The two numbers side by side: dlog 4, per-site 0.**
+The claim file is NOT edited here: adding `.*ident.*` to it is a claim with an
+author and belongs to whoever makes it, not to a round that found the gap.
+
+## 4. THE 551, CLASSIFIED — benign / decision / undecided PER GROUP
+
+550 of the 551 fall in at least one classifier; 1 does not.
+
+    R1/R2 argument            255 sites
+      4-no-qual-param  230   the bare name IS the callee's interface — carried
+                             forward unchanged from 09-10f, an interface change
+      2-qualified       19   benign
+      1-foreign          5   benign (std::/llvm::/mlir:: by spelling)
+      3-declines         1   mlir_gen_stmt.cpp:1400 — BENIGN on a read: the
+                             very next lines document a deliberate qualified-
+                             first, bare-fallback lookup
+      => benign 25 · interface 230 · decision 0 · undecided 0
+
+    R3/R3b concatenation      200 sites
+      6-stored          75   UNDECIDED — the named rule limit, the second hop
+      7-arg             49   UNDECIDED
+      8-undecided       21   UNDECIDED
+      2-qualified       36   benign
+      5-probe           17   benign (count/find/contains/at/erase — a read)
+      1-text             1   benign
+      4-bare-key         2   DECISION: mono.cpp:286, mono.cpp:338
+      => benign 54 · decision 2 · undecided 145
+
+    R4 name-subscript          57 sites
+      2-registry        33   of which 2 are derived alias pairs (mono 472/476)
+      1-benign-lexical  26   benign
+      => benign 26 · registry 33 · alias 2
+
+    R4b lit-subscript          49 sites (of 55 in the relation)
+      4-bare-key        26   21 of them `current_type_params_["Self"]`
+      1-benign-lexical  17   benign
+      2-qualified        5   benign
+      3-alias            1   benign
+      => benign 23 · decision-shaped 26
+
+## 5. CONFIRMED DECISIONS: TEN, AND THE RATIO IS WORSE THAN THE SHALLOW ROUND'S
+
+Every site below was READ, not inferred from its class.
+
+    CONFIRMED DECISION — a registry keyed on a bare entity name, no qualified
+    sibling, no mechanical gate
+     1  mlir_gen_dyn.cpp:962   dyn_vtable_methods_   ALREADY PRICED 09-10g,
+     2  mlir_gen_dyn.cpp:982                         measured miscompile
+     3  mono.cpp:338           assoc_impls_          ALREADY CAVEATED IN SOURCE
+     4  mono_scan.cpp:417      dyn_coerced_targets_  ALREADY CAVEATED IN SOURCE
+     5  mono.cpp:286           assoc_const_values_   NEW, unmarked
+     6  mono.cpp:616           templates_            NEW, unmarked
+     7  mono.cpp:827           specs_                NEW, unmarked
+     8  mono.cpp:831           struct_specs_         NEW, unmarked
+     9  mlir_gen.cpp:245       type_aliases_         NEW, unmarked — SHARPEST
+    10  sema.cpp:9285          module_statics_       NEW, unmarked
+
+    BENIGN ON A READ, against a decision-shaped class
+      sema_collect.cpp:5234/5235/5244/5245  alias pair + identity gate (§3)
+      current_type_params_["Self"] x21      a scoped type-parameter map; `Self`
+                                            is the implicit parameter. Benign
+                                            PROVIDED `Self` is reserved — NOT
+                                            verified here, said so.
+      mono.cpp:301  info.assoc_types        a per-impl member, not a registry
+      mlir_gen_stmt.cpp:1400                documented qualified-first fallback
+
+    UNDECIDED, decision-shaped, NOT READ
+      sema_expr.cpp:23057 source_impls_["Writ"] and the remaining R4 2-registry
+      containers (sema_collect enums_/structs_, mono_clone m_out, the sema_stmt
+      closure maps). Not read, not counted either way.
+
+**THE RATIO, in the same units both times.** The shallow population was 602
+sites and yielded 18 confirmed decisions, 13 of them documented back-compat
+aliases: **3.0%**. The deep population is 551 sites and yields **10**: **1.8%**.
+The deeper sites are POORER by 1.7x, and 4 of the 10 were already known —
+2 priced, 2 already carrying a soundness caveat written into the source by an
+earlier round. **The honest prior in the prompt was right: a bigger haystack.**
+The deepening's real product remains CLASSIFICATION, not discovery.
+
+## 6. WHERE A PLAIN GREP WOULD HAVE SUFFICED, MEASURED PER GROUP
+
+    group             grep lines   dlog sites   grep finds
+    lit_subscript        119           55       55 / 55   — grep is SUFFICIENT
+    name_concat          371          363       (comparable)
+    name_arg            1209          367       6.6x noise, enumerable
+    name_subscript       185          331       grep UNDERCOUNTS by 146
+
+`grep -nE '\[[^]]*"'` over `src/compiler` returns 119 lines and **contains all 55
+`lit_subscript` sites**. The group the prompt ordered classified FIRST, because
+it was the only part of the new population with a demonstrated defect in it, is
+a group a grep enumerates perfectly at 2.2x noise. The tool's value there was
+the CLASSIFICATION — container declaration, alias-pair derivation — not the
+finding, exactly as it was for two of the four shallow groups. The one group
+where grep is genuinely beaten is `name_subscript`: the index is often a
+variable or spans lines, and a text search misses 146 of 331 sites.
+
+## 7. WHAT DESERVES FUNDING — ONE SITE, AND IT IS NOT THE BIGGEST COLUMN
+
+**`mlir_gen.cpp:245`, `type_aliases_[tav.name()]`.** It is the sharpest number in
+the round because the repair for its NEIGHBOUR is already in the tree, dated, and
+four lines below it:
+
+    for (auto& tav : prog.type_aliases)
+        type_aliases_[std::string(tav.name())] = logos_to_mlir(...);   // BARE
+
+    for (auto& cv : prog.consts) {
+        // G156-1: key by package-qualified name so same-name cross-package
+        // consts coexist; build the uniqueness index for bare-name resolution.
+        std::string ckey = cpkg.empty() ? cname : cpkg + "::" + cname;
+
+Two registries built by adjacent loops of one function over the same Writ mirror;
+one was deliberately repaired to be package-qualified and the other was not.
+The lookup is bare (`mlir_gen_types.cpp:155`), so cross-package same-named type
+aliases are LAST-WINS in the MLIR type map. ⚠ SEMA's own `type_aliases_` (a
+DIFFERENT map, `sema_impl.hpp`) already writes the alias pair —
+`sema_collect.cpp:2666` qualified, `:2671` bare — so the open question, and it is
+the one a funded round must answer FIRST, is what `TypeAliasView::name()`
+carries for the qualified entry. If sema emits one view per DECL with a bare
+name, mlir_gen is last-wins and this is a real conflation; if it emits one per
+map entry, the qualified key survives and the site is benign. **That is a read,
+not a probe, and it was not taken this round.**
+
+⚠ AND IT HITS THE SAME WALL AS 09-10g. The smallest reproduction is two packages
+declaring the same alias name, and `soundness_queue_gate.sh` compiles ONE file.
+The carrier named at the end of §6 of 2026-09-10g — a CMake-built module fixture
+of the `coex` shape — is now blocking TWO findings, not one. **That carrier is
+what deserves funding before any further enumeration of this class.**
+
+Declined for the next round, with the reason: the 145 UNDECIDED concatenation
+sites. The second hop (`6-stored`, 75 sites) is the named rule limit and the
+prompt authorised taking it if cheap — it is not cheap at depth 10 (the
+classifier already costs 49.8 s of souffle over 37 TUs), and at a 1.8% yield the
+hop buys an expected one to two decisions. The column is left at 145 rather than
+shrunk by guessing.

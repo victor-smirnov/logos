@@ -1,0 +1,406 @@
+// name_key_class — THE CLASSIFIER FOR THE FOUR GROUPS name_key.dl COUNTS.
+//
+// name_key.dl ENUMERATES; a count is not a defect. R4 was classified by the
+// CONTAINER'S DECLARATION — a fact the rule joins rather than a human reading
+// 288 lines — and each remaining group needs its own classifying fact. These
+// are they, and each is derived from facts the extractor already emits:
+//
+//   R1/R2  argument to a resolver
+//          · FOREIGN        — the callee is declared in a library namespace
+//                             (foreign_ns.claim). `resolver_pat`'s `^find_.*`
+//                             matches std::string::find_first_of by spelling.
+//          · QUALIFIED      — the SAME call already carries a package-shaped
+//                             argument, so the key it builds is not bare.
+//          · DECLINES       — this site carries none AND THE SAME CALLEE IS
+//                             CALLED WITH ONE SOMEWHERE ELSE. That is the
+//                             authoritative-negative shape, stated as a join
+//                             over call sites rather than as a claim about
+//                             parameter lists (the extractor emits no params).
+//          · UNDECIDED      — the rest. An honest column.
+//
+//   R3/R3b concatenation into a key
+//          · The classifying fact is WHERE THE BUILT KEY LANDS and WHETHER THE
+//            WHOLE CHAIN carries a package. ⚠ name_key.dl reports concatenation
+//            PAIRWISE, so a three-way `struct + method + pkg` reads as an
+//            unqualified pair; the chain is walked to its TOP here, which is
+//            why mlir_gen_impl.hpp:481 classifies QUALIFIED and not bare.
+//          · TEXT           — the chain lands in a diagnostic/emitter, not in a
+//                             map: not a key at all.
+//          · ALIAS_PAIR     — the container this key lands in receives, in the
+//                             SAME context, a key that IS qualified. That is
+//                             mono.cpp:509/510 exactly, derived rather than read.
+//
+// THE CLAIMS ARE OUT OF THE RULE: foreign_ns.claim, qualifier_pat.claim.
+#include "cxx_schema.dl"
+
+.decl resolver_pat(p: symbol)
+.input resolver_pat
+.decl foreign_ns(p: symbol)
+.input foreign_ns
+.decl qualifier_pat(p: symbol)
+.input qualifier_pat
+
+// ── shared vocabulary, IDENTICAL to name_key.dl ────────────────────────────
+.decl seed(x: symbol)
+.decl sub(top: symbol, x: symbol, d: number)
+sub(N, N, 0) :- seed(N).
+sub(N, C, D+1) :- sub(N, X, D), D < 10, node(C, _, X, _).
+
+.decl name_producer(did: symbol, name: symbol)
+name_producer(D, N) :- decl_name(D, N), match(".*name.*", N).
+name_producer(D, N) :- decl_name(D, N), N = "type_str".
+
+.decl name_val(top: symbol, src: symbol)
+name_val(T, Nm) :- sub(T, I, _), call(I, D), name_producer(D, Nm).
+name_val(T, Nm) :- sub(T, I, _), ref(I, D), decl_name(D, Nm), match(".*name.*", Nm).
+
+.decl name_lit(top: symbol, text: symbol)
+name_lit(T, X) :- sub(T, I, _), str_lit(I, X), !match(".* .*", X), strlen(X) < 40.
+
+.decl arg(callid: symbol, idx: number, x: symbol)
+arg(C, I, X) :- call(C, _), node(X, _, C, I), I > 0.
+seed(X) :- arg(_, _, X).
+
+.decl callee_name(callid: symbol, name: symbol)
+callee_name(C, N) :- call(C, D), decl_name(D, N).
+.decl is_resolver(name: symbol)
+is_resolver(N) :- callee_name(_, N), resolver_pat(P), match(P, N).
+
+// ── PACKAGE-SHAPED: a declaration whose value carries the package ──────────
+.decl pkg_decl(did: symbol)
+pkg_decl(D) :- decl_name(D, N), qualifier_pat(P), match(P, N).
+
+// ONE initialiser hop: `auto qcname = pkg + "." + cname;` makes qcname pkg-
+// shaped even when its spelling says nothing. ⚠ ONE hop, not a closure — the
+// residual is the UNDECIDED column and is reported, not hidden.
+.decl vsub(v: symbol, x: symbol, d: number)
+vsub(V, V, 0) :- node(V, "Var", _, _).
+vsub(V, C, D+1) :- vsub(V, X, D), D < 5, node(C, _, X, _).
+.decl pkg_var(did: symbol)
+pkg_var(D) :- node(V, "Var", _, _), decl_node(V, D), vsub(V, X, _), ref(X, E), pkg_decl(E).
+.decl pkg_any(did: symbol)
+pkg_any(D) :- pkg_decl(D).
+pkg_any(D) :- pkg_var(D).
+
+// A NODE that holds a package, anywhere within its own subtree.
+// ⚠ DEPTH 8, NOT 3, AND THAT IS A MEASUREMENT NOT A TASTE. `TypeRef(vt).pkg_name()`
+// handed to a `std::string_view` parameter is ImplicitCast -> CXXMemberCall
+// (operator basic_string_view) -> ImplicitCast -> MaterializeTemporary ->
+// CXXBindTemporary -> CXXMemberCall(pkg_name): SIX wrapper levels that clang
+// inserts for ONE user-level conversion. At depth 3 mlir_gen_stmt.cpp:1319
+// classified "declines an authoritative negative" while the source PASSES the
+// package on the next line — a confidently wrong answer in the expensive
+// direction, which is the failure this directory exists to prevent.
+.decl dsub(top: symbol, x: symbol, d: number)
+dsub(N, N, 0) :- seed(N).
+dsub(N, C, D+1) :- dsub(N, X, D), D < 8, node(C, _, X, _).
+.decl pkg_in(top: symbol)
+pkg_in(T) :- dsub(T, I, _), ref(I, D), pkg_any(D).
+pkg_in(T) :- dsub(T, I, _), call(I, D), pkg_any(D).
+
+// ── R1/R2 — classify each ARGUMENT site ───────────────────────────────────
+// ⚠ THE FIRST CUT OF THIS RULE ANSWERED A DIFFERENT QUESTION. With no parameter
+// list in the schema, "does the callee already take the qualifying fact?" was
+// approximated by "is this callee called WITH a package somewhere else?" — a
+// join over other CALL SITES, which is the `ctx_of` coarsening in a new coat:
+// it put 103 of 120 R1 rows in UNDECIDED and could not have separated them. The
+// extractor now emits `param`, so the question is asked of the DECLARATION.
+.decl param(did: symbol, idx: number, name: symbol, type: symbol)
+.input param
+
+.decl foreign_callee(callid: symbol)
+foreign_callee(C) :- call(C, D), decl(D, _, Q), foreign_ns(P), match(P, Q).
+
+// A parameter that CARRIES THE PACKAGE, by its own name.
+.decl pkg_param(did: symbol, idx: number)
+pkg_param(D, I) :- param(D, I, N, _), qualifier_pat(P), match(P, N).
+// …and the OTHER authoritative fact `authoritative_negative.dl` is about: an
+// out-parameter through which the callee reports what it KNOWS. Mechanical:
+// a pointer parameter. The name is not the claim; the type is the fact.
+.decl out_param(did: symbol, idx: number)
+out_param(D, I) :- param(D, I, N, T), match(".*\\*", T), match(".*(own|out|found|exist).*", N).
+
+.decl takes_qual(did: symbol, idx: number)
+takes_qual(D, I) :- pkg_param(D, I).
+takes_qual(D, I) :- out_param(D, I).
+
+// The call's argument for parameter I is child I+1: child 0 is the callee
+// expression. VERIFIED on resolve_method_symbol — param 1 `method_name` is the
+// child at index 2, which is where `lit_arg` reports the "drop" literal.
+.decl supplies(callid: symbol, idx: number)
+supplies(C, I) :- call(C, D), takes_qual(D, I), node(X, _, C, I+1), pkg_in(X).
+supplies(C, I) :- call(C, D), out_param(D, I), node(X, _, C, I+1),
+                  !node(X, "CXXNullPtrLiteralExpr", _, _).
+
+.decl declines(callid: symbol)
+declines(C) :- call(C, D), takes_qual(D, I), !supplies(C, I).
+
+.decl known_callee(callid: symbol)
+known_callee(C) :- call(C, D), param(D, _, _, _).
+
+.decl arg_site(file: symbol, line: number, ctx: symbol, callee: symbol,
+               form: symbol, callid: symbol)
+arg_site(F, L, Ctx, Cal, "R1", C) :- arg(C, I, X), name_val(X, _), callee_name(C, Cal),
+                                     is_resolver(Cal), loc(C, F, L, _),
+                                     ctx_of(C, K), ctx_name(K, Ctx), I > 0.
+arg_site(F, L, Ctx, Cal, "R2", C) :- arg(C, I, X), name_lit(X, _), callee_name(C, Cal),
+                                     is_resolver(Cal), loc(C, F, L, _),
+                                     ctx_of(C, K), ctx_name(K, Ctx), I > 0.
+
+.decl arg_class(form: symbol, file: symbol, line: number, ctx: symbol,
+                callee: symbol, class: symbol)
+.output arg_class
+arg_class(Fm, F, L, Ctx, Cal, "1-foreign") :-
+    arg_site(F, L, Ctx, Cal, Fm, C), foreign_callee(C).
+arg_class(Fm, F, L, Ctx, Cal, "2-qualified") :-
+    arg_site(F, L, Ctx, Cal, Fm, C), !foreign_callee(C), call(C, D), takes_qual(D, _),
+    !declines(C).
+arg_class(Fm, F, L, Ctx, Cal, "3-declines") :-
+    arg_site(F, L, Ctx, Cal, Fm, C), !foreign_callee(C), declines(C).
+arg_class(Fm, F, L, Ctx, Cal, "4-no-qual-param") :-
+    arg_site(F, L, Ctx, Cal, Fm, C), !foreign_callee(C), known_callee(C),
+    call(C, D), !takes_qual(D, _).
+arg_class(Fm, F, L, Ctx, Cal, "5-undecided") :-
+    arg_site(F, L, Ctx, Cal, Fm, C), !foreign_callee(C), !known_callee(C).
+
+// ── R3/R3b — classify each CONCATENATION site ─────────────────────────────
+.decl concat(id: symbol)
+concat(N) :- binop(N, "+").
+concat(N) :- binop(N, "+=").
+.decl cop(c: symbol, x: symbol)
+cop(C, X) :- concat(C), node(C, K, _, _), K != "CXXOperatorCallExpr", node(X, _, C, _).
+cop(C, X) :- concat(C), node(C, "CXXOperatorCallExpr", _, _), node(X, _, C, I), I > 0.
+seed(X) :- cop(_, X).
+
+.decl is_cat(id: symbol)
+is_cat(C) :- concat(C), cop(C, A), name_val(A, _), cop(C, B), B != A, name_lit(B, _).
+is_cat(C) :- concat(C), cop(C, A), name_val(A, SA), cop(C, B), B != A, name_val(B, SB), SA != SB.
+
+// THE MAXIMAL CHAIN. `a + b + c` nests, and one clang wrapper may sit between
+// the two `+` nodes, so an ancestor two levels up counts.
+// ⚠ THE SAME MEASUREMENT AGAIN. `a + b + c` on std::string nests the inner `+`
+// under CXXBindTemporaryExpr -> MaterializeTemporaryExpr -> ImplicitCastExpr
+// before the outer `+` sees it. A one-wrapper rule left 89 of 167 chain tops
+// reporting their own destination as `operator+`, i.e. not tops at all.
+.decl cat_anc(c: symbol, a: symbol, d: number)
+cat_anc(C, C, 0) :- concat(C).
+cat_anc(C, P, D+1) :- cat_anc(C, A, D), D < 4, node(A, _, P, _), P != "-".
+.decl cat_inner(c: symbol)
+cat_inner(C) :- cat_anc(C, A, D), D > 0, concat(A).
+.decl cat_top(c: symbol)
+cat_top(C) :- is_cat(C), !cat_inner(C).
+cat_top(T) :- is_cat(C), cat_inner(C), tsub(T, C, _), concat(T), !cat_inner(T).
+
+// descent from any concat, deeper than `sub`, to reach the whole chain
+.decl tsub(top: symbol, x: symbol, d: number)
+tsub(N, N, 0) :- concat(N).
+tsub(N, C, D+1) :- tsub(N, X, D), D < 7, node(C, _, X, _).
+
+.decl chain_qualified(top: symbol)
+chain_qualified(T) :- cat_top(T), tsub(T, I, _), ref(I, D), pkg_any(D).
+chain_qualified(T) :- cat_top(T), tsub(T, I, _), call(I, D), pkg_any(D).
+
+// WHERE THE KEY LANDS. Ancestors of the chain top, nearest first.
+.decl anc(x: symbol, a: symbol, d: number)
+anc(X, X, 0) :- cat_top(X).
+anc(X, P, D+1) :- anc(X, A, D), D < 8, node(A, _, P, _), P != "-".
+
+.decl dest_call_d(c: symbol, callee: symbol, d: number)
+dest_call_d(C, Nm, D) :- anc(C, A, D), D > 0, call(A, Dd), decl_name(Dd, Nm).
+.decl dest_callee(c: symbol, callee: symbol)
+dest_callee(C, Nm) :- dest_call_d(C, Nm, D), D = min X : { dest_call_d(C, _, X) }.
+
+.decl subs_container(c: symbol, x: symbol)
+subs_container(C, X) :- binop(C, "[]"), node(X, _, C, 1).
+seed(X) :- subs_container(_, X).
+.decl container_name(c: symbol, nm: symbol)
+container_name(C, Nm) :- subs_container(C, X), sub(X, I, _), ref(I, D), decl_name(D, Nm).
+
+.decl dest_container(c: symbol, nm: symbol)
+dest_container(C, Nm) :- anc(C, A, D), D > 0, binop(A, "[]"), container_name(A, Nm).
+
+// TEXT, not a key: the chain lands in a stream/diagnostic. Mechanical — the
+// destination callee is an operator<< or a name the claim already calls foreign
+// and that is not a resolver.
+.decl text_dest(c: symbol)
+text_dest(C) :- dest_callee(C, "operator<<").
+text_dest(C) :- dest_callee(C, Nm), match(".*(err|diag|warn|print|emit_error|push_text|message).*", Nm).
+
+// A MEMBERSHIP TEST, not a write: `m.count(key)`, `m.find(key)`. The key is
+// read against a map and nothing is registered under it, so a bare key here
+// cannot create an alias — it can only fail to find one.
+.decl probe_dest(c: symbol)
+probe_dest(C) :- dest_callee(C, Nm), match("^(count|find|contains|at|erase)$", Nm).
+
+// STORED IN A LOCAL — the destination is one hop further on, and this rule does
+// not follow it. ⚠ THIS IS THE HONEST RESIDUAL AND IT IS THE BIGGEST COLUMN:
+// the compiler builds a key, names it, and subscripts with the name later. The
+// next increment is that hop; naming the column is what keeps it from being
+// quietly absorbed into "benign".
+.decl var_anc(c: symbol, nm: symbol, d: number)
+var_anc(C, Nm, D) :- anc(C, A, D), D > 0, node(A, "Var", _, _),
+                     decl_node(A, Dd), decl_name(Dd, Nm).
+.decl call_nearer(c: symbol, d: number)
+call_nearer(C, D) :- var_anc(C, _, D), dest_call_d(C, _, E), E < D.
+.decl var_dest(c: symbol, nm: symbol)
+var_dest(C, Nm) :- var_anc(C, Nm, D), !dest_container(C, _), !call_nearer(C, D).
+
+// THE ALIAS PAIR, DERIVED: in ONE context, a container receives a QUALIFIED key
+// and a BARE one. mono.cpp:509/510 and mono_clone.cpp:6874/6875 are this shape.
+.decl subs_key(c: symbol, x: symbol)
+subs_key(C, X) :- binop(C, "[]"), node(X, _, C, 2).
+seed(X) :- subs_key(_, X).
+.decl ctx_container_qual(ctx: symbol, nm: symbol)
+ctx_container_qual(Ctx, Nm) :- subs_key(A, K), pkg_in(K), container_name(A, Nm),
+                               ctx_of(A, Kk), ctx_name(Kk, Ctx).
+.decl ctx_container_bare(ctx: symbol, nm: symbol)
+ctx_container_bare(Ctx, Nm) :- subs_key(A, K), !pkg_in(K), container_name(A, Nm),
+                               ctx_of(A, Kk), ctx_name(Kk, Ctx).
+.decl alias_pair(ctx: symbol, nm: symbol)
+alias_pair(Ctx, Nm) :- ctx_container_qual(Ctx, Nm), ctx_container_bare(Ctx, Nm).
+
+.decl cat_site(file: symbol, line: number, ctx: symbol, top: symbol)
+cat_site(F, L, Ctx, T) :- cat_top(T), loc(T, F, L, _), ctx_of(T, K), ctx_name(K, Ctx).
+
+.decl cat_class(file: symbol, line: number, ctx: symbol, dest: symbol, class: symbol)
+.output cat_class
+cat_class(F, L, Ctx, "-", "1-text")      :- cat_site(F, L, Ctx, T), text_dest(T).
+cat_class(F, L, Ctx, "-", "2-qualified") :- cat_site(F, L, Ctx, T), !text_dest(T), chain_qualified(T).
+cat_class(F, L, Ctx, M,   "3-alias")     :- cat_site(F, L, Ctx, T), !text_dest(T), !chain_qualified(T),
+                                            dest_container(T, M), alias_pair(Ctx, M).
+cat_class(F, L, Ctx, M,   "4-bare-key")  :- cat_site(F, L, Ctx, T), !text_dest(T), !chain_qualified(T),
+                                            dest_container(T, M), !alias_pair(Ctx, M).
+cat_class(F, L, Ctx, M,   "5-probe")     :- cat_site(F, L, Ctx, T), !text_dest(T), !chain_qualified(T),
+                                            !dest_container(T, _), probe_dest(T), dest_callee(T, M).
+cat_class(F, L, Ctx, M,   "6-stored")    :- cat_site(F, L, Ctx, T), !text_dest(T), !chain_qualified(T),
+                                            !dest_container(T, _), !probe_dest(T), var_dest(T, M).
+cat_class(F, L, Ctx, M,   "7-arg")       :- cat_site(F, L, Ctx, T), !text_dest(T), !chain_qualified(T),
+                                            !dest_container(T, _), !probe_dest(T), !var_dest(T, _),
+                                            dest_callee(T, M).
+cat_class(F, L, Ctx, "-", "8-undecided") :- cat_site(F, L, Ctx, T), !text_dest(T), !chain_qualified(T),
+                                            !dest_container(T, _), !probe_dest(T), !var_dest(T, _),
+                                            !dest_callee(T, _).
+
+// ── the counts, in one place ──────────────────────────────────────────────
+.decl class_count(group: symbol, class: symbol, n: number)
+.output class_count
+class_count(G, Cl, N) :- arg_class(G, _, _, _, _, Cl),
+                         N = count : { arg_class(G, _, _, _, _, Cl) }.
+// the DECLINE sites in full, since that is the only column that is a repair
+.decl decline_site(form: symbol, file: symbol, line: number, ctx: symbol,
+                   callee: symbol, pidx: number, pname: symbol)
+.output decline_site
+decline_site(Fm, F, L, Ctx, Cal, I, PN) :- arg_site(F, L, Ctx, Cal, Fm, C),
+                                           !foreign_callee(C), call(C, D),
+                                           takes_qual(D, I), !supplies(C, I),
+                                           param(D, I, PN, _).
+class_count("R3", Cl, N) :- cat_class(_, _, _, _, Cl),
+                            N = count : { cat_class(_, _, _, _, Cl) }.
+
+// ── R4 — RE-DERIVED, because a handed-down classification is a hypothesis ──
+// The prompt reports 131 benign-lexical / 37 decision-registry / 120 undecided
+// from the container's DECLARATION. Reproducing that split from the fact rather
+// than from the sentence is the known-answer control for this whole file: a
+// container declared as a local `Var` is a lexical scope map (a local has no
+// package and a bare key there is CORRECT); one declared as a `Field` is a
+// registry that outlives the scope, which is where 5bd2724c0's defect lived.
+.decl subs_site(file: symbol, line: number, ctx: symbol, src: symbol, c: symbol)
+subs_site(F, L, Ctx, S, C) :- subs_key(C, X), name_val(X, S), loc(C, F, L, _),
+                              ctx_of(C, K), ctx_name(K, Ctx).
+
+.decl container_decl(c: symbol, nm: symbol, kind: symbol)
+container_decl(C, Nm, K) :- subs_container(C, X), sub(X, I, _), ref(I, D),
+                            decl_name(D, Nm), decl(D, K, _).
+
+.decl subs_class(file: symbol, line: number, ctx: symbol, container: symbol,
+                 class: symbol)
+.output subs_class
+subs_class(F, L, Ctx, M, "1-benign-lexical") :- subs_site(F, L, Ctx, _, C),
+                                                container_decl(C, M, "Var").
+subs_class(F, L, Ctx, M, "2-registry") :- subs_site(F, L, Ctx, _, C),
+                                          container_decl(C, M, K), K != "Var".
+subs_class(F, L, Ctx, "-", "3-undecided") :- subs_site(F, L, Ctx, _, C),
+                                             !container_decl(C, _, _).
+
+// ⚠ THE ALIAS PAIR IS THE SHARPENING THE REGISTRY COLUMN NEEDED. A registry
+// keyed bare is only a defect if a QUALIFIED key for the same thing is written
+// beside it — otherwise the bare key IS the interface. mono.cpp:509/510 and
+// mono_clone.cpp:6874/6875 are this shape and are the owner's documented
+// back-compat aliases; the rule finds them without being told.
+.decl alias_site(file: symbol, line: number, ctx: symbol, container: symbol)
+.output alias_site
+alias_site(F, L, Ctx, M) :- subs_site(F, L, Ctx, _, C), container_decl(C, M, K),
+                            K != "Var", alias_pair(Ctx, M).
+
+.decl r4_count(class: symbol, n: number)
+.output r4_count
+r4_count(Cl, N) :- subs_class(_, _, _, _, Cl), N = count : { subs_class(_,_,_,_,Cl) }.
+r4_count("4-alias-pair", N) :- N = count : { alias_site(_,_,_,_) }.
+
+// ── THE R3 COUNT IS AN UNDERCOUNT, AND THIS MEASURES BY HOW MUCH ──────────
+// ⚠ name_key.dl decides "this `+` builds a key" from operands at depth 3, and
+// `pkg + "." + name` does not fit in three: the nested half is
+// MaterializeTemporary -> CXXBindTemporary -> operator+ -> ImplicitCast ->
+// StringLiteral, FIVE levels, so the literal is invisible and the outer node
+// sees only a name. mono.cpp:472/476/509/553 — the pkg-qualified halves of the
+// very alias pairs this class is about — are missing from R3 for that reason
+// and a grep found them. The deep form below is the same predicate at depth 8.
+.decl name_val_d(top: symbol, src: symbol)
+name_val_d(T, Nm) :- dsub(T, I, _), call(I, D), name_producer(D, Nm).
+name_val_d(T, Nm) :- dsub(T, I, _), ref(I, D), decl_name(D, Nm), match(".*name.*", Nm).
+.decl name_lit_d(top: symbol, text: symbol)
+name_lit_d(T, X) :- dsub(T, I, _), str_lit(I, X), !match(".* .*", X), strlen(X) < 40.
+seed(X) :- cop(_, X).
+
+.decl is_cat_d(id: symbol)
+is_cat_d(C) :- concat(C), cop(C, A), name_val_d(A, _), cop(C, B), B != A, name_lit_d(B, _).
+is_cat_d(C) :- concat(C), cop(C, A), name_val_d(A, SA), cop(C, B), B != A, name_val_d(B, SB), SA != SB.
+
+.decl deep_only(file: symbol, line: number, ctx: symbol)
+.output deep_only
+deep_only(F, L, Ctx) :- is_cat_d(C), !is_cat(C), loc(C, F, L, _),
+                        ctx_of(C, K), ctx_name(K, Ctx).
+
+// ═══ R4b — lit_subscript, THE FORM THAT PRODUCED NOTHING AT DEPTH 3 ═══════
+// 0 rows at depth 3, 55 at depth 10. The literal is not the whole index: it
+// sits INSIDE the index subtree, so this relation is exactly "a subscript key
+// built with a string literal in it" — `m[td_name + "::" + ib_target]` and
+// `subst["Self"]` both. The classifying facts are the ones R4 already uses —
+// the container's DECLARATION and whether a QUALIFIED sibling key is written
+// into the same container in the same context — plus whether the index subtree
+// itself carries a package.
+//
+// KNOWN-ANSWER CONTROL (two sites adjudicated by hand in OPPOSITE directions
+// by earlier rounds, see tools/dlog/TARGET_ROWS.txt):
+//   mlir_gen_dyn.cpp:962/982  CONFIRMED MISCOMPILE, bare key, no qualified
+//                             sibling            -> must land 4-bare-key
+//   mono.cpp:472/476/509/553  owner's documented back-compat alias pairs,
+//                             pkg-qualified sibling on the adjacent line
+//                                                -> must land 3-alias
+.decl lsub_site(file: symbol, line: number, ctx: symbol, text: symbol, c: symbol)
+lsub_site(F, L, Ctx, T, C) :- subs_key(C, X), name_lit(X, T), loc(C, F, L, _),
+                              ctx_of(C, K), ctx_name(K, Ctx).
+
+.decl lsub_qual(c: symbol)
+lsub_qual(C) :- subs_key(C, X), pkg_in(X).
+
+.decl lit_class(file: symbol, line: number, ctx: symbol, container: symbol,
+                text: symbol, class: symbol)
+.output lit_class
+lit_class(F, L, Ctx, M, T, "1-benign-lexical") :- lsub_site(F, L, Ctx, T, C),
+                                                  container_decl(C, M, "Var").
+lit_class(F, L, Ctx, M, T, "2-qualified") :- lsub_site(F, L, Ctx, T, C),
+                                             container_decl(C, M, K), K != "Var",
+                                             lsub_qual(C).
+lit_class(F, L, Ctx, M, T, "3-alias") :- lsub_site(F, L, Ctx, T, C),
+                                         container_decl(C, M, K), K != "Var",
+                                         !lsub_qual(C), alias_pair(Ctx, M).
+lit_class(F, L, Ctx, M, T, "4-bare-key") :- lsub_site(F, L, Ctx, T, C),
+                                            container_decl(C, M, K), K != "Var",
+                                            !lsub_qual(C), !alias_pair(Ctx, M).
+lit_class(F, L, Ctx, "-", T, "5-undecided") :- lsub_site(F, L, Ctx, T, C),
+                                               !container_decl(C, _, _).
+
+.decl lit_count(class: symbol, n: number)
+.output lit_count
+lit_count(Cl, N) :- lit_class(_, _, _, _, _, Cl), N = count : { lit_class(_,_,_,_,_,Cl) }.
