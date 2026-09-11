@@ -128,7 +128,7 @@ closure_move_of_refmut_local_over_refusal  defect  1  round 2026-09-08 (stage 7 
     # no stage1 under /home/logos/cxx/rust). To make it a row: run these two programs
     # through a real rustc; if rustc accepts them this is a tier-3 `refuses` row for
     # soundness_queue.ledger, and an over-refusal is the most expensive kind here.
-vg_leak_records            sweep     20  sandbox/vg-round3/{leaks.tsv,recs3.pkl}
+vg_leak_records            sweep     39  sandbox/vg-round3/{leaks.tsv,recs3.pkl}
     # 2026-09-11 RE-SWEPT WHOLE on build 19ff93338332ba46 43, same 93 fixtures, same
     # per-fixture CMake ENVIRONMENT. ⚠ THE 09-08 DATA IS DEAD AND MUST NOT BE INHERITED:
     #   09-08  87 LEAK   3 OK   3 CORRUPT   270 recs  39 sites  75 pairs  110 stacks
@@ -181,15 +181,51 @@ vg_leak_records            sweep     20  sandbox/vg-round3/{leaks.tsv,recs3.pkl}
     # boxdyn_borrow_arg_keeps_box_drop. The record is RESOLVED, not moved.
     #
     # WHAT IS LEFT — 50 records, and the ONE thing each needs to become a row:
-    #    9 recs / 7 fixtures   `buf_reader_wrap` / `buf_writer_wrap`. THIS IS A STDLIB
-    #                          QUESTION WITH AN OWNER, NOT A COMPILER DEFECT: `BufReader`
-    #                          and `BufWriter` hold a raw `alloc(cap)` and stdlib/std/io/
-    #                          buffered/buffered.logos declares NO `impl Drop` for either
-    #                          — the doc comment says "Call `close` to free the buffer".
-    #                          The seven fixtures never call it. Rust's BufReader frees on
-    #                          drop, so under the standing Rust rule the stdlib is wrong;
-    #                          but adding `impl Drop` to two public types is a corpus/API
-    #                          decision. NEEDS: the owner's yes, then it is one stdlib fix.
+    #    CLOSED 2026-09-11c — 11 recs / 8 fixtures, and the CLASS WAS ONE MEMBER LARGER
+    #                          THAN THIS ENTRY SAID. The entry's own class was
+    #                          `buf_reader_wrap`/`buf_writer_wrap`, 9 recs over what it
+    #                          recorded as 7 fixtures (MEASURED: SIX — adv3_generic_field_
+    #                          method_call is valgrind-clean and exits 0, not 42). It was
+    #                          defined by which fixtures valgrind caught. Enumerated by
+    #                          PROPERTY instead — a stdlib struct whose VALUE-returning
+    #                          ctor heap-allocates a buffer it stores, with an explicit
+    #                          release fn and no `impl Drop` — the class is THREE:
+    #                          BufWriter, BufReader, and **BTreeMap**, whose one leaking
+    #                          fixture `deem_btreemap_source` this file had filed below
+    #                          under "10 singles with no group yet". Five more allocating
+    #                          types (Chan, FutureSlot, Scheduler, SpscRing, ThreadPool)
+    #                          are NOT the class: their ctors return `*mut T`, which has
+    #                          no drop glue for an `impl Drop` to hook, so that zero is
+    #                          structural. 13 comparable types already declare Drop.
+    #                          ⚠ "an API decision with an owner" is RETIRED as a verdict:
+    #                          both divergence registries were grepped BY CONSTRUCT —
+    #                          docs/DIVERGENCES.md is 17 letter rows A1..A17 with no
+    #                          io/buffered row, and `bufreader|bufwriter|buf_reader|
+    #                          buf_writer|io/buffered` over all 3854 docs/spec clauses
+    #                          exits 1 — so the standing Rust rule settles it.
+    #                          Fix: the release fn nulls what it freed and `Drop` performs
+    #                          the same guarded release, at all three sites. `close` was
+    #                          already half of that; `btreemap_free` was not, and a Drop
+    #                          on top of it as it stood double-freed at
+    #                          tests/logos/pass/btreemap_basic.logos:82.
+    #                          9 recs / 6 fixtures (bufio_generic_reader 5 b, http_parse_
+    #                          stream 96 b, http_framing_readers 80 b, http_chunked_reader
+    #                          16 b, http_chunked_body_helper 64 b, http_serialize_stream
+    #                          64 b) and 2 recs / 1 fixture (deem_btreemap_source 128 b)
+    #                          ALL -> 0, every exit code unchanged, no Invalid free.
+    #                          Pinned by two pairs one token apart: tests/logos/pass/
+    #                          bufwriter_{drop_flushes_buffer,close_then_drop_flushes_once}
+    #                          (a DESTRUCTOR COUNT — `flushes=0|1|2` — whose pass half is
+    #                          RED on the pre-fix binary) and btreemap_{drop_frees_storage,
+    #                          free_then_drop_frees_once}. ⚠ the BTreeMap pair pins only
+    #                          the DOUBLE-FREE direction by exit code: that type runs no
+    #                          element destructors, so no count exists and its leak
+    #                          direction is held by the valgrind number alone.
+    #                          DECLINED by name: element drops in BTreeMap (nothing drops
+    #                          K/V anywhere — `remove` shifts and discards — so fixing it
+    #                          on the drop path alone is a double-drop; 0 of the 11 records
+    #                          closed were element leaks). See docs/probes/
+    #                          bufdrop-2026-09-11/ROUND-LANDING.md.
     #   19 recs / 8 fixtures   writ/fabric/dview stores — DView__new_store (5/5),
     #                          DViewStore__storage_push (5/4), PrimVec push/insert_at
     #                          (4/3), WritStringStorage__storage_push (2/1), WAny and i64
@@ -208,7 +244,10 @@ vg_leak_records            sweep     20  sandbox/vg-round3/{leaks.tsv,recs3.pkl}
     #                          main, and returned from a factory, are ALL CLEAN, so "a heap
     #                          owner in main is not dropped" is REFUTED and must not be
     #                          re-proposed), recursion-tail-call-no-arg-leak
-    #                          (`str__to_string`), deem_btreemap_source (btreemap_new x2),
+    #                          (`str__to_string`), deem_btreemap_source — ⚠ CLOSED
+    #                          2026-09-11c with the group above; it was NEVER a single,
+    #                          it was the third member of the buffered class and this
+    #                          file's own "no group yet" was the premature closure —
     #                          generic_chain_write_through_ptr (a fixture-local `test_rc_new`
     #                          x2), derive_branch_node_shuttle (3), podref_buffer (1),
     #                          ptr_drop_in_place_recurses (1).

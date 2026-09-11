@@ -12124,11 +12124,14 @@ sym	logos_mem.logos.std.compiler.metaprog$view_of_string__f__ref_String
 sym	logos_mem.logos.std.compiler.tokens$span_unknown__f__void
 sym	logos_mem.logos.std.compiler.tokens$token_stream_new__f__void
 sym	logos_std..logos.std.io.buffered.BufReader$G1$AsyncTcpStream__close__g__refmut_BufReader$G1$R
+sym	logos_std..logos.std.io.buffered.BufReader$G1$AsyncTcpStream__drop__g__refmut_BufReader$G1$R
 sym	logos_std..logos.std.io.buffered.BufReader$G1$AsyncTcpStream__read__g__refmut_BufReader$G1$R__pmut_u8__i64
 sym	logos_std..logos.std.io.buffered.BufReader$G1$AsyncTcpStream__read_bytes__g__refmut_BufReader$G1$R__pmut_u8__i64
 sym	logos_std..logos.std.io.buffered.BufReader$G1$AsyncTcpStream__read_line__g__refmut_BufReader$G1$R__refmut_String
+sym	logos_std..logos.std.io.buffered.BufReader$G1$FdReader__drop__g__refmut_BufReader$G1$R
 sym	logos_std..logos.std.io.buffered.BufReader$G1$FdReader__read__g__refmut_BufReader$G1$R__pmut_u8__i64
 sym	logos_std..logos.std.io.buffered.BufReader$G1$FdReader__read_bytes__g__refmut_BufReader$G1$R__pmut_u8__i64
+sym	logos_std..logos.std.io.buffered.BufWriter$G1$FdWriter__drop__g__refmut_BufWriter$G1$W
 sym	logos_std..logos.std.io.buffered.BufWriter$G1$FdWriter__flush__g__refmut_BufWriter$G1$W
 sym	logos_std..logos.std.io.buffered.BufWriter$G1$FdWriter__write__g__refmut_BufWriter$G1$W__pcst_u8__i64
 sym	logos_std..logos.std.io.buffered.BufWriter$G1$FdWriter__write_bytes__g__refmut_BufWriter$G1$W__pcst_u8__i64

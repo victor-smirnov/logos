@@ -24,6 +24,8 @@ use logos.mem.bt.map;            // trait OrderedMapSource — the query plane (
 ///
 /// `get`/`contains_key` are `O(log n)` binary search; `insert`/`remove` are `O(n)`
 /// due to element shifting.
+///
+/// The backing storage is freed on drop; `btreemap_free` does the same eagerly.
 pub struct BTreeMap<K, V> {
     keys: *mut K,
     vals: *mut V,
@@ -194,10 +196,40 @@ impl<K: Ord, V> Iterator<ZipPair<&K, &V>> for BTreeMapIter<K, V> {
     }
 }
 
-/// Deallocates the `keys`/`vals` backing storage of `m`.
+/// Deallocates the `keys`/`vals` backing storage of `m` and nulls both fields,
+/// so that the `Drop` impl below is a no-op afterwards.  Calling this is
+/// optional: the map frees its own storage on drop.  It does NOT drop the
+/// contained keys and values -- neither does `remove`, which only shifts them.
 pub unsafe fn btreemap_free<K: Ord, V>(m: *mut BTreeMap<K, V>) {
-    dealloc(m.keys as *mut u8);
-    dealloc(m.vals as *mut u8);
+    if m.keys as i64 != 0 as i64 {
+        dealloc(m.keys as *mut u8);
+        m.keys = 0 as *mut K;
+    }
+    if m.vals as i64 != 0 as i64 {
+        dealloc(m.vals as *mut u8);
+        m.vals = 0 as *mut V;
+    }
+}
+
+// The map owns its two parallel arrays, so it releases them on drop -- the same
+// guarded release `btreemap_free` performs eagerly, and guarded the same way, so
+// free-then-scope-exit frees exactly once.  Only the ARRAYS: the contained keys
+// and values are not dropped here, because nothing in this type drops them
+// anywhere (`remove` shifts and discards), and dropping them only on this path
+// would be inconsistent with `remove`.
+impl<K, V> Drop for BTreeMap<K, V> {
+    fn drop(self: &mut BTreeMap<K, V>) {
+        unsafe {
+            if self.keys as i64 != 0 as i64 {
+                dealloc(self.keys as *mut u8);
+                self.keys = 0 as *mut K;
+            }
+            if self.vals as i64 != 0 as i64 {
+                dealloc(self.vals as *mut u8);
+                self.vals = 0 as *mut V;
+            }
+        }
+    }
 }
 
 // ── the query plane (ADR 0024 S6) ───────────────────────────────────────────

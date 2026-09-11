@@ -47,8 +47,9 @@ impl Write for FdWriter {
 // ---- BufWriter -------------------------------------------------------------
 
 /// Buffers writes to a wrapped `Write` sink; flushes when the buffer fills.
-/// Call `close` to flush and free the buffer when done.
-pub struct BufWriter<W> {
+/// The buffer is flushed and freed on drop; `close` does the same eagerly and
+/// returns the flush result, which drop discards.
+pub struct BufWriter<W: Write> {
     writer: W,
     buf:    *mut u8,
     pos:    i64,
@@ -141,10 +142,26 @@ impl<W: Write> BufWriter<W> {
     }
 }
 
+// Rust's `BufWriter` flushes and frees on drop, ignoring the flush error
+// (`library/std/src/io/buffered/bufwriter.rs`); `close` is the eager form that
+// returns it.  Both are guarded on a null `buf`, so close-then-scope-exit
+// frees exactly once.
+impl<W: Write> Drop for BufWriter<W> {
+    fn drop(self: &mut BufWriter<W>) {
+        unsafe {
+            if self.buf as i64 != 0 as i64 {
+                let _r: i64 = buf_writer_flush_inner::<W>(self);
+                dealloc(self.buf);
+                self.buf = 0 as *mut u8;
+            }
+        }
+    }
+}
+
 // ---- BufReader -------------------------------------------------------------
 
 /// Buffers reads from a wrapped `Read` source.
-/// Call `close` to free the buffer when done.
+/// The buffer is freed on drop; `close` does the same eagerly.
 pub struct BufReader<R> {
     reader: R,
     buf:    *mut u8,
@@ -267,6 +284,19 @@ impl<R: Read> BufReader<R> {
     }
 }
 
+// Rust's `BufReader` owns its buffer as a `Box<[u8]>`, so it is freed on drop
+// with no `impl Drop` written; Logos holds a raw `alloc(cap)` and so states it.
+impl<R> Drop for BufReader<R> {
+    fn drop(self: &mut BufReader<R>) {
+        unsafe {
+            if self.buf as i64 != 0 as i64 {
+                dealloc(self.buf);
+                self.buf = 0 as *mut u8;
+            }
+        }
+    }
+}
+
 /// Borrows the inner reader mutably.
 /// Useful when the caller must also write to the same underlying stream (e.g.
 /// an HTTP server reading via `BufReader<TcpStream>` and replying directly).
@@ -277,7 +307,7 @@ pub fn buf_reader_inner_mut<R>(br: &mut BufReader<R>) -> &mut R {
 
 /// Borrows the inner writer mutably.
 /// Direct writes to it land before any still-buffered bytes — flush first.
-pub fn buf_writer_inner_mut<W>(bw: &mut BufWriter<W>) -> &mut W {
+pub fn buf_writer_inner_mut<W: Write>(bw: &mut BufWriter<W>) -> &mut W {
     return &mut bw.writer;
 }
 

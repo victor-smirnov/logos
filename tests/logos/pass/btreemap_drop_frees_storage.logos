@@ -1,0 +1,36 @@
+// PASS HALF of the pair pinning `BTreeMap`'s drop.  One token apart from
+// `btreemap_free_then_drop_frees_once.logos`, whose only difference is the
+// single added statement `btreemap_free::<i64, i64>(&mut m);`.
+//
+// ⚠ THE EXIT CODE IS HALF AN ORACLE HERE, AND DELIBERATELY SO.  A `BTreeMap`
+// holds two `*mut` arrays and no element destructors run, so the LEAK direction
+// is invisible to a run: this program exits 42 whether or not the storage is
+// released.  The leak direction is pinned by valgrind in
+// `docs/probes/bufdrop-2026-09-11/ROUND.md` (128 bytes in 2 blocks -> 0); the
+// DOUBLE-FREE direction is what the pair pins in the corpus, because a second
+// release aborts the process and that the exit code does see.
+//
+// `BTreeMap` reached this fix as the third member of the class enumerated by
+// property -- a value-returning allocating constructor, an explicit release
+// function, no `impl Drop` -- alongside `BufReader` and `BufWriter`.  The leak
+// sweep had filed its one leaking fixture, `deem_btreemap_source`, as a single
+// with "no group yet", because the class had been defined by which fixtures
+// valgrind happened to catch rather than by the property.
+package test;
+
+use logos.mem.collections.btree;
+
+fn main() -> i32 {
+    unsafe {
+        {
+            let mut m: BTreeMap<i64, i64> = btreemap_new::<i64, i64>();
+            m.insert(3 as i64, 30 as i64);
+            m.insert(1 as i64, 10 as i64);
+            m.insert(2 as i64, 20 as i64);
+            if m.len() != 3 as i64 { return 2; }
+            if !m.contains_key(&1) { return 3; }
+            // No explicit free.  The drop is the only release.
+        }
+    }
+    return 42;
+}

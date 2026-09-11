@@ -5774,8 +5774,21 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                CLOSED and deleted, two OPENED — both mlir-gen refusals of legal
 #                programs, measured identical on the control binary). bc_admits
 #                `# TOTAL` unchanged at 85.
-REGISTRY-ALL         9595
-REGISTRY-NOIMPORTED  5123
+# 2026-09-11-bufdrop (the owning-buffer drop-glue class landing). ALL +4 = the
+#                two fixture PAIRS
+#                tests/logos/pass/bufwriter_drop_flushes_buffer.logos
+#                tests/logos/pass/bufwriter_close_then_drop_flushes_once.logos
+#                tests/logos/pass/btreemap_drop_frees_storage.logos
+#                tests/logos/pass/btreemap_free_then_drop_frees_once.logos
+#                — all four native PASS halves — the round declared NO fail fixture,
+#                because the defect is a leak and a leak has no diagnostic to pin.
+#                NOIMPORTED +4 = the same four. TIERCOMMIT unmoved: none declares
+#                tier_commit. soundness_queue `# TOTAL` unchanged at 82 and
+#                bc_admits unchanged at 85 — this landing closed NO ledger row; its
+#                subject was the `unrowed_backlog.ledger` vg_leak_records group,
+#                whose count goes 50 -> 39 records (9 buffered + 2 BTreeMap).
+REGISTRY-ALL         9599
+REGISTRY-NOIMPORTED  5127
 REGISTRY-TIERCOMMIT  143
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
