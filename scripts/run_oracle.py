@@ -82,7 +82,30 @@ def one(row):
         shutil.rmtree(d, ignore_errors=True)
 
 def main():
+    # ⚠ THREE FALSE MEASUREMENTS CAME OUT OF THIS ONE ARGUMENT, so it is checked.
+    #   * driven with a `>` redirect instead of argv[1]: the table was written to a
+    #     file named by whatever argv[1] happened to be, and the join against it
+    #     read "19+ fixtures damaged" — a per-site read of the first said rc 0 both
+    #     armed and unarmed (2026-09-11);
+    #   * invoked bare: a file literally named `--help` appeared in the tree, twice;
+    #   * with a RELATIVE `LOGOS_BUILD`: 6627 rows of `ERR:FileNotFoundError` and a
+    #     diff of ZERO movers — a null result through a broken channel, which reads
+    #     exactly like a clean measurement (2026-09-10).
+    # A cost column that can be wrong in the reassuring direction must refuse rather
+    # than produce a table.
+    if len(sys.argv) != 2 or sys.argv[1].startswith("-"):
+        print(__doc__.strip().splitlines()[0], file=sys.stderr)
+        print("run-oracle: needs exactly one argument, the OUTPUT PATH. A `>` "
+              "redirect does not work: the table is written to argv[1], and the "
+              "join then reads phantom damage.", file=sys.stderr)
+        return 2
     out = sys.argv[1]
+    lb = os.environ.get("LOGOS_BUILD")
+    if lb and not os.path.isabs(lb):
+        print("run-oracle: LOGOS_BUILD=%r is RELATIVE. Every compile would fail with "
+              "FileNotFoundError and the diff would show zero movers — a null result "
+              "through a broken channel. Pass an absolute path." % lb, file=sys.stderr)
+        return 2
     rows = population()
     if not rows:
         print("run-oracle: the selection %r names NO pass fixture" % " ".join(SEL), file=sys.stderr)
