@@ -2786,6 +2786,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         if (ident != trait_name) ib.str(ik::IDENTITY_TRAIT, ident);
     }
     ib.str(ik::TARGET_TYPE, target);
+    // The impl's OWN package (impl_keys::IMPL_PKG). mlir_gen's vtable registry
+    // keys on `trait_name::target_type`, both bare, and two packages of one
+    // module may collide on both halves at once; this is the fact that tells
+    // those registrations apart. Written only when non-empty.
+    if (!cur_package_.empty()) ib.str(ik::IMPL_PKG, cur_package_);
     // CP-cm-16 follow-up: full impl-target pattern with TypeVars unsubstituted.
     // Set for generic-target impls (`impl<T,E> ... for Foo<Vec<T>, E>`) so
     // mono can pattern-unify against the concrete receiver. Null for the

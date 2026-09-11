@@ -5721,8 +5721,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                   program is ACCEPTED, and the thing pinned is
 #                                   that it compiles, runs and exits 0. NO
 #                                   soundness-queue row moved, `# TOTAL` stays 77.)
-REGISTRY-ALL         9569
-REGISTRY-NOIMPORTED  5103
+# 2026-09-11j (ALL +1, NOIMPORTED +1, TIERCOMMIT 0 — the dyn-vtable package-key
+#   ALL          9569 -> 9570  +1   landing. The +1 is `coex_dyn_bare_key`, the
+#   NOIMPORTED   5103 -> 5104  +1   multi-package carrier registered by the
+#   TIERCOMMIT    148 ->  148   0   PRECEDING commit (7eabc226a), which added the
+#                                   fixture and did NOT move these pins — so both
+#                                   population gates have been red since it, and
+#                                   that commit's record reported only the carrier
+#                                   itself as L1's one failure. Re-derived here by
+#                                   direct listing, in the commit that makes the
+#                                   corpus green again. One native pass fixture,
+#                                   not tier_commit, not imported. NO fail fixture
+#                                   declared: after the repair the program is
+#                                   ACCEPTED and what is pinned is that it runs and
+#                                   exits 0. NO soundness-queue row moved, `# TOTAL`
+#                                   stays 77.)
+REGISTRY-ALL         9570
+REGISTRY-NOIMPORTED  5104
 REGISTRY-TIERCOMMIT  148
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

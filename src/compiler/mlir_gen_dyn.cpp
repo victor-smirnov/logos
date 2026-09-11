@@ -883,6 +883,28 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             // suffixes with strncmp; method_base is set by sema's
             // lower_fn (raw_name from AST) and propagated by
             // mono_clone's clone_fn.
+            // The impl's OWN package (impl_keys::IMPL_PKG), empty on a
+            // package-less compile or a pre-key archive. Two packages of one
+            // module can declare the SAME trait name AND the SAME target type,
+            // so `belongs_to_target` — which strips the pkg prefix before
+            // matching `<Owner>__<method>` — matches BOTH packages' methods and
+            // takes whichever mono emitted first. Every such impl then
+            // dispatched through one package's method. `want_pkg` makes the
+            // package-exact candidate win when one exists; when none does the
+            // first match is still taken, so this cannot lose a resolution that
+            // resolved before.
+            std::string_view want_pkg = ib.pkg();
+            // Package segment of an emitted symbol `<module_id>..<pkg>.<Owner>__<m>`
+            // (or `<pkg>.<Owner>__<m>`): the last dotted segment BEFORE the
+            // owner. Empty for an unqualified symbol.
+            auto sym_pkg = [](std::string_view nm) -> std::string_view {
+                auto dot = nm.rfind('.');
+                if (dot == std::string_view::npos) return {};
+                nm = nm.substr(0, dot);
+                if (auto d2 = nm.rfind('.'); d2 != std::string_view::npos)
+                    nm = nm.substr(d2 + 1);
+                return nm;
+            };
             auto resolve_methods = [&](std::string_view target) -> std::vector<std::string> {
                 auto belongs_to_target = [&](std::string_view nm) -> bool {
                     if (auto dot = nm.rfind('.'); dot != std::string_view::npos)
@@ -909,9 +931,11 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                         if (auto it = method_base_idx.find(mname);
                             it != method_base_idx.end()) {
                             for (auto fp : it->second) {
-                                if (belongs_to_target(fp.name())) {
-                                    sym = link_name(fp); break;
-                                }
+                                if (!belongs_to_target(fp.name())) continue;
+                                if (sym.empty()) sym = link_name(fp);   // first match
+                                if (want_pkg.empty()) break;
+                                if (sym_pkg(fp.name()) != want_pkg) continue;
+                                sym = link_name(fp); break;             // package-exact wins
                             }
                         }
                     }
@@ -921,9 +945,11 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                             if (auto it = sit->second.find(mname);
                                 it != sit->second.end()) {
                                 for (auto mp : it->second) {
-                                    if (belongs_to_target(mp.name())) {
-                                        sym = link_name(mp); break;
-                                    }
+                                    if (!belongs_to_target(mp.name())) continue;
+                                    if (sym.empty()) sym = link_name(mp);
+                                    if (want_pkg.empty()) break;
+                                    if (sym_pkg(mp.name()) != want_pkg) continue;
+                                    sym = link_name(mp); break;
                                 }
                             }
                         }
@@ -959,8 +985,26 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             // Bare-target entry — used by non-generic impls and as a default
             // fallback. For non-generic structs, this is also the lookup key.
             std::string ib_target(ib.target_type());
-            dyn_vtable_methods_[td_name + "::" + ib_target] =
-                resolve_methods(ib_target);
+            {
+                auto meth = resolve_methods(ib_target);
+                // The bare key stays exactly as it was — every lookup that
+                // resolves through it today keeps resolving through it.
+                dyn_vtable_methods_[td_name + "::" + ib_target] = meth;
+                // ADDITIVE package-qualified twin. `ensure_vtable_global`'s
+                // lookup key is `trait::concrete_struct_name(T)`, which carries
+                // the G156-1 `$M<hash>` fold for a name declared in more than
+                // one package, and it probes that key FIRST — falling back to
+                // the bare one only when it misses. Filing the twin here is
+                // what makes that first probe hit, so two packages' impls of
+                // same-named traits for same-named targets stop sharing one
+                // slot. type_module_suffix returns "" wherever the name is not
+                // ambiguous, and then no twin is written at all.
+                if (!want_pkg.empty()) {
+                    std::string suffix = type_module_suffix(ib_target, want_pkg);
+                    if (!suffix.empty())
+                        dyn_vtable_methods_[td_name + "::" + ib_target + suffix] = meth;
+                }
+            }
 
             // Concrete-target entries — for generic impls, register one
             // vtable per concrete struct instantiation found in mono's

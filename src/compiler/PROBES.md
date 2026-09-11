@@ -37588,3 +37588,193 @@ answer, which is what makes it go green the day the defect dies.
 
 The next commit is the fix or a revert of the CMake registration; nothing else
 should be built on top of a red corpus.
+
+---
+
+# 2026-09-11j — THE HANDED-DOWN REPAIR ARM IS REFUTED BY THE FACT IT WOULD HAVE READ, AND THE DEFECT IS NOT A MAP OVERWRITE AT ALL: BOTH PACKAGES WERE ALREADY RESOLVING TO THE SAME METHOD SYMBOL
+
+## 1. CENSUS (STEP 1, run, not copied)
+
+    git                7eabc226a (the carrier commit), working tree clean
+    soundness queue    GATE rc=0 — 77 rows by direct listing, '# TOTAL' says 77
+    bc_admits          90        bc_admits_blocked 8
+    probe log          266 records, every site symbol resolves
+    build hash         c447f93a044ab0cc 43  (start)
+                       03d9290a7ee96c2a 43  (this landing)
+
+⚠ CORRECTION TO THE PROMPT: none. The STEP-1 gate command carries
+`LOGOS_LIB_DIR=$PWD/build/lib/logos`, as 09-11h also re-verified.
+
+⚠ CORRECTION TO THE PRECEDING COMMIT'S RECORD. 7eabc226a reported "L1 rc 1,
+803/804, and the ONE failure is this test". Measured here at that commit: L1's
+**gates tier was also red, on two population pins nobody moved** —
+`logos_00_population_pin_lint` (direct_door `corpus` 3024 pinned / 3025 listed,
+`nonglob` 2833 / 2834) and `logos_00_census_pin` (REGISTRY-ALL 9569 / 9570,
+NOIMPORTED 5103 / 5104). Both drifted by exactly +1, and the +1 is
+`coex_dyn_bare_key` itself. Registering a fixture moves those pins; the carrier
+commit added one and moved neither. Re-derived by direct listing in THIS commit.
+A gate's rc is a measurement with a timestamp, and "the one failure" was three.
+
+## 2. THE HANDED-DOWN ARM, AND THE NUMBER THAT KILLS IT
+
+09-11i priced one repair BY READING and handed it forward: at the registration,
+`ImplView::target_typeref()` is "in the same `lir_view.hpp` block as
+`identity_trait()`", so file an additive key under
+`concrete_struct_name(target_typeref())`. Measured with a census probe at
+`mlir_gen_dyn.cpp:962`, over the `coex` module (424 registrations):
+
+    dynvt2.qual_NULL                 275      target_typeref() is NULL
+    dynvt2.qual_eq_bare               32
+    dynvt2.qual_differs_from_bare    117
+
+and for the carrier's own key, `qual` is **empty**. The fact the arm would read
+is not there, and it is not there BY DESIGN — `sema_decl.cpp` writes
+`ib.type(ik::TARGET_TYPEREF, target_resolved)` under its own comment: *"Null for
+the concrete + non-generic + primitive + special-target cases"*. The carrier's
+`impl Dyg for Dz` is precisely a concrete non-generic impl. **A repair arm priced
+by reading is a hypothesis (rule 17); this one was refuted by the first number
+taken against it.**
+
+## 3. AND THE RECORDED MECHANISM IS WRONG TOO — THERE IS NO LOST REGISTRATION
+
+The class has been described for two rounds as an overwrite: "a duplicate key
+overwrites one vtable's method vector with another's", "the second write wins
+and the first resolution is lost". Traced at the site, the carrier's key
+`Dyg::Dz` is written **four** times and the `rekey.diff` bucket is **0** — every
+write files the SAME vector:
+
+    dynvt2.trace:Dyg::Dz td.pkg=alpha ident=alpha::Dyg m0=…alpha.Dz__mark…   1
+    dynvt2.trace:Dyg::Dz td.pkg=alpha ident=beta::Dyg  m0=…alpha.Dz__mark…   1
+    dynvt2.trace:Dyg::Dz td.pkg=beta  ident=alpha::Dyg m0=…alpha.Dz__mark…   1
+    dynvt2.trace:Dyg::Dz td.pkg=beta  ident=beta::Dyg  m0=…alpha.Dz__mark…   1
+
+Two independent defects, and the trace separates them:
+
+  * **(A) the td↔impl pairing is by BARE trait name.** `emit_trait_vtables`
+    walks `prog.traits` × `prog.impls` and keeps `ib.trait_name() == td.name()`,
+    so alpha's trait pairs with beta's impl and vice versa — the 2×2
+    cross-product above, where the identity says 2 of the 4 are spurious
+    (`dynvt2.ident_MISMATCH_td` = 2 in this module).
+  * **(B) `resolve_methods` picks the wrong package's symbol.** Its
+    `belongs_to_target` strips the pkg prefix with `nm.rfind('.')` and then
+    matches `<Owner>__<method>`, so `alpha.Dz__mark` and `beta.Dz__mark` are
+    indistinguishable to it and the first match wins. Note the row that matters:
+    even the CORRECT pairing `td.pkg=beta ident=beta::Dyg` resolves to
+    **alpha's** symbol.
+
+**(B) is the defect. (A) only multiplies it.** This also says why every
+first-wins / refuse-on-rekey repair the last two rounds priced was aimed at the
+wrong thing: there is nothing to arbitrate, because the two registrations never
+disagreed.
+
+## 4. THE REPAIR — ONE FACT CARRIED, TWO READERS TAUGHT TO USE IT
+
+The disambiguating fact is the impl's OWN package, and the LIR did not carry it:
+`ImplView` exposes `trait_name`/`canonical_trait`/`identity_trait` for the TRAIT
+and `target_type`/`target_typeref` for the TARGET, and nothing for the impl.
+This is the same shape as the `IDENTITY_TRAIT` landing — the reader was using a
+bare spelling where an identity was needed — so it takes the same answer.
+
+  * `lir_schema.hpp`: `impl_keys::IMPL_PKG` (code 20, Varchar, **sparse**).
+  * `lir_view.hpp`: `ImplView::pkg()`, empty on a package-less compile or an
+    archive that predates the key, so an old archive degrades to today's
+    behaviour rather than losing an impl.
+  * `sema_decl.cpp`: written from `cur_package_` beside `TARGET_TYPE`.
+  * `mlir_gen_dyn.cpp`, and BOTH halves are needed — measured, not assumed:
+      a. symbol resolution PREFERS a candidate whose symbol package segment
+         equals the impl's package, and still takes the first match when none
+         does. Without this, both keys hold the same wrong vector.
+      b. beside the unchanged bare key, an ADDITIVE twin under
+         `trait::target + type_module_suffix(target, pkg)` — which is exactly
+         the key `ensure_vtable_global` already probes FIRST before falling back
+         to the bare one. Without this, the two now-different vectors collide on
+         one key and the last write wins.
+    `type_module_suffix` returns "" for a stdlib package and for any name not
+    declared in ≥2 packages, so where the name is unambiguous NO twin is written
+    and the registry is byte-for-byte what it was.
+
+## 5. COUNTER-EXAMPLES, WRITTEN HERE, IN SHAPES THE CARRIER DOES NOT USE
+
+A four-shape module (`cex`, packages `ca`/`cb`) + consumer, each shape chosen
+against a different way the fix could be wrong, run on BOTH binaries:
+
+| shape | base `logosc` | fixed `logosc` |
+|---|---|---|
+| trait with **TWO** methods (slot order, not just slot 0) | `cb_two=15025` **WRONG** | `cb_two=35045` correct |
+| same trait name, **DIFFERENT** target names (control) | `6`/`7` correct | `6`/`7` correct |
+| **droppable** target through `&dyn`, destructor COUNT | tag `100` **WRONG** | tag `200` correct |
+| destructor lines | `ca_drop` ×1, `cb_drop` ×1 | `ca_drop` ×1, `cb_drop` ×1 |
+
+base rc **21**, fixed rc **0**. The two-method row is the one the carrier could
+not have caught: base returns ca's vector for BOTH slots, so the defect is per
+method VECTOR, not per slot. The different-target-name row is the control in the
+direction that matters — a fix that simply qualified every key would have moved
+it, and it does not move. The destructor count is equal on both binaries, i.e.
+the drop glue was never the broken half and this change does not perturb it.
+
+## 6. ORACLES — ALL GREEN, AND BOTH RUN OVER A BASE TREE BUILT FOR THE CONTROL
+
+    L1                     rc 0 — 804/804 (was 803/804), smoke 12 684, gates 148/148
+    L4 bc (detached)       rc 0 — 1568 passed / 0 failed / 2 disabled (gate-db build 1028)
+    ctest -R coex|cross_pkg   13/13 (was 12/13)
+    soundness queue gate   rc 0 — 77 rows by direct listing, '# TOTAL' 77, UNCHANGED
+    stdlib-cost.sh         rc 0 — all four layers compile under 'nothing armed'
+    full cmake --build     rc 0
+    build hash             c447f93a044ab0cc 43 -> 03d9290a7ee96c2a 43
+    bc_admits              90, bc_admits_blocked 8 — UNTOUCHED this round
+
+⚠ THE TWO EXPENSIVE COLUMNS WERE MEASURED AGAINST A BASE TREE, NOT AGAINST A
+RECORDED NUMBER. The fix changes symbol resolution for EVERY impl in a
+package-ful compile, and the stdlib is package-ful — `type_module_suffix`
+declines for a `logos.` package so no twin key is written there, but the
+`want_pkg` PREFERENCE still applies. That is the regression surface, so the
+whole tree was rebuilt with the fix stashed and both oracles re-run on it:
+
+    run_oracle.py        6646 fixtures compiled, linked and RUN on EACH tree.
+                         6645 rows byte-identical. The ONE differing row is
+                         `cast-region-to-uint` — the name the harness subtracts
+                         because it prints a stack address; rc 0/0 on both, only
+                         the stdout sha moves. NET CHANGE: ZERO.
+    fail_text_oracle.py  1478 fail fixtures on EACH tree, 1478/1478 identical —
+                         no un-refusal, no added line, no changed diagnostic.
+
+CONTROL REVERT, proven in both directions: stashing the four source files and
+rebuilding reproduced the defect (carrier rc 11, counter-examples rc 21);
+restoring and rebuilding produced a binary **bit-identical** (`cmp`) to the one
+the measurements above were taken on.
+
+## 7. WHAT THIS DOES NOT CLOSE, DECLARED IN ADVANCE AND STILL TRUE
+
+**The TRAIT axis.** 09-10g's 834 `rekey.diff` events over 21 fixtures collide on
+a user trait homonymous with a stdlib one and the SAME target (`Hash::str`,
+`Copy::DView`, `Sum::$slice$u8`). `type_module_suffix` declines for a
+`logos.`-prefixed package by construction, so no twin key is written for any of
+them and their bare key holds exactly what it held before — which is why they
+are predicted, and measured, UNCHANGED. Separating those needs the trait
+identity carried into the dyn TYPE, which is the type-plane change 09-10g named
+and this round does not take.
+
+⚠ And **(A) is left standing deliberately**: the spurious cross-pairings still
+happen, they now write the same correct entries under package-keyed twins, and
+removing them is a separate change with its own control. It is a redundancy, not
+a defect, once (B) is fixed — but it is unpinned, and that is recorded here
+rather than fixed quietly.
+
+## 8. POST-ROUND TOOL-USE CHECK (Victor 08-31)
+
+  * `git diff --stat src/compiler include` = the four fix files and nothing
+    else; no prose landed in a compiled source beyond the comments attached to
+    the new key, the new accessor and the two changed readers.
+  * `probe-log-lint.py`: 266 records, every site symbol resolves — unchanged;
+    this round installed a census probe and REMOVED it (the tree carries no
+    `dynvt2` bucket), so it added no record.
+  * ⚠ TWO OF MY OWN MISTAKES, RECORDED BECAUSE THEY COST TIME:
+    (1) `LOGOS_CENSUS` is a FILE PATH, not a flag. `LOGOS_CENSUS=1` silently
+        wrote a file literally named `1` into the REPO ROOT and I read an empty
+        census as "the bucket never fired". Caught only by `git status` at the
+        end; the file is deleted.
+    (2) I overwrote `build/bin/logosc` with the fix WHILE a corpus census was
+        still running against it. That census is a mix of two binaries and was
+        discarded, not reported. The load-profile table says two saturating jobs
+        never overlap; it does not say the obvious corollary, which is that a
+        BUILD must not overlap a measurement that reads the thing being built.

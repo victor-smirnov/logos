@@ -751,6 +751,15 @@ inline constexpr Key IDENTITY_TRAIT       {"IDENTITY_TRAIT",       17}; // Varch
 // text and mono admits whichever homonym's concretes are filed under it.
 inline constexpr Key IDENTITY_BOUND_TRAIT {"IDENTITY_BOUND_TRAIT", 18}; // Varchar (sparse)
 inline constexpr Key IDENTITY_EXTRA_BOUNDS{"IDENTITY_EXTRA_BOUNDS",19}; // Array<Varchar> (sparse)
+// The impl's OWN package — the `package` of the source file the `impl` block was
+// written in, not the trait's and not the target type's. Two packages of one
+// module may each declare a same-named trait AND a same-named target, so
+// `TRAIT_NAME + "::" + TARGET_TYPE` is not an identity; this is the fact that
+// separates them. TARGET_TYPEREF above cannot serve: it is deliberately null for
+// the concrete non-generic impls, which is exactly this case. Sparse: absent on
+// package-less compiles and on older archives, where readers fall back to the
+// bare-key behaviour rather than losing the impl.
+inline constexpr Key IMPL_PKG             {"IMPL_PKG",             20}; // Varchar (sparse)
 } // namespace impl_keys
 
 // assoc_entry sub-map keys (own space — element of ASSOC_TYPES / PRIMARY_ASSOC_EQS

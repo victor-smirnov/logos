@@ -1333,6 +1333,11 @@ struct ImplView {
     std::vector<std::string_view> extra_bounds() const noexcept {
         return detail::read_string_array(self, lir_schema::impl_keys::EXTRA_BOUNDS.code);
     }
+    // The impl block's own package — see impl_keys::IMPL_PKG. Empty when the
+    // compile has no packages or the archive predates the key.
+    std::string_view pkg() const noexcept {
+        return detail::read_string(self, lir_schema::impl_keys::IMPL_PKG.code);
+    }
     TypeRef target_typeref(const TypePoolImpl* pool) const noexcept {
         return self.decl_type(lir_schema::impl_keys::TARGET_TYPEREF.code, pool);
     }
