@@ -1,0 +1,16 @@
+# foreign_ns.claim — WHICH NAMESPACES ARE NOT THE LOGOS ENTITY NAMESPACE.
+#
+# A regex over a callee's QUALIFIED name. A callee declared in one of these is
+# a LIBRARY api: `std::string::find_first_of("eE")` is a character-set search,
+# not an entity resolution, and `resolver_pat`'s `^find_.*` matches it purely
+# by spelling. Splitting the claim's over-match OUT is what makes the rest of
+# the count mean something.
+#
+# ⚠ FOREIGN IS NOT AUTOMATICALLY BENIGN and the rule does not say it is: it is
+# a SEPARATE column. `mlir::…::lookupSymbol` is foreign AND a real resolution —
+# of an already-mangled symbol, which is why it lands benign for a different
+# reason, stated per row.
+^std::.*
+^__gnu_cxx::.*
+^llvm::.*
+^mlir::.*

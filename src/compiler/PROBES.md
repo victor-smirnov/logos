@@ -36687,3 +36687,161 @@ The stronger statement is the store's, because it IS a one-variable before/after
 `gate-run.sh` with no filter, **build 1026, 9567 recorded, 0 failed**, against
 build 1023's full green at `b7df0866e` — and every pass fixture in it is compiled,
 linked, RUN, and checked against its `.expected` exit code and stdout.
+
+---
+
+# 2026-09-10f — CLASSIFYING THE FOUR UNCLASSIFIED GROUPS OF THE 37-TU SWEEP
+
+No compiler source was edited. `scripts/build_hash.py` READ before and after:
+**0e8ecc17b99f4077 43**, unchanged. Soundness queue gate rc **0**, **77** rows
+(was 78 — `a17538452` closed one). `probe-log-lint.py`: 266 records, every site
+symbol resolves. Ledgers: bc_admits 90, bc_admits_blocked 8.
+
+`tools/dlog/selftest.sh` rc 0 **three times** — before any change, after the
+`param` relation, and after the FunctionTemplate fix — reading identically each
+time: `19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty discriminates
+across 756aed65 (1 -> 0)`.
+
+## 1. THE FIVE COUNTS RE-DERIVED
+
+Every number in the prompt was re-derived on today's tree (7 TUs had changed
+under `3cad21dcc`) and **all five reproduce exactly**: R1 122, R2 47, R3 171,
+R3b 28, R4 288.
+
+⚠ **TWO OF THEM ARE DOUBLE COUNTS, AND ONE IS 2x EXACTLY.** Rows are not sites:
+
+| group | rows | distinct (file,line) |
+|---|---|---|
+| R1 name_arg | 122 | **120** |
+| R2 lit_arg | 47 | 47 |
+| R3 name_concat | 171 | **165** |
+| R3b name_name_concat | 28 | **14** — the rule emits `(A,B)` and `(B,A)` |
+| R4 name_subscript | 288 | **270** |
+
+## 2. THE CLASSIFYING FACT PER GROUP, AND THE EXTRACTOR INCREMENT IT NEEDED
+
+`name_key_class.dl` (new) + `foreign_ns.claim`, `qualifier_pat.claim` (new).
+
+⚠ **THE FIRST CUT ANSWERED A DIFFERENT QUESTION.** With no parameter list in the
+schema, "does this callee already take the qualifying fact?" was approximated by
+"is this callee called WITH a package *somewhere else*?" — a join over other CALL
+SITES, which is the `ctx_of` coarsening wearing a new coat. It put **103 of 120**
+R1 rows in UNDECIDED and could not have separated them. So the extractor gained
+one mechanical, claim-free relation:
+
+    param(DeclId, Idx, Name, CanonicalType)      7254 rows over 37 TUs
+
+and the question is now asked of the DECLARATION. Two extractor bugs, both found
+by a column that would not shrink:
+
+* `TypeRef(vt).pkg_name()` handed to a `std::string_view` parameter is SIX
+  clang wrapper levels (ImplicitCast → CXXMemberCall(operator basic_string_view)
+  → ImplicitCast → MaterializeTemporary → CXXBindTemporary → CXXMemberCall).
+  At the inherited depth 3 `mlir_gen_stmt.cpp:1319` classified **"declines an
+  authoritative negative" while the source passes the package on the next line**
+  — a confidently wrong answer in the expensive direction. `pkg_in` is depth 8.
+* **A `FunctionTemplateDecl` IS NOT A `FunctionDecl`.** `lookup_qualified_` —
+  the resolver that DOES the package qualification — reported an empty parameter
+  list, and its four call sites could only be filed UNDECIDED. Two lines
+  (`getTemplatedDecl()`), four rows, R1's undecided column to **zero**.
+
+## 3. THE INVENTORY — `benign / decision / undecided`, per group
+
+| group | sites | benign | decision | undecided |
+|---|---|---|---|---|
+| R1 name-as-argument | 120 | 14 foreign + 4 already-qualified + **102 no-qual-param** | 0 | **0** |
+| R2 literal-as-argument | 47 | 12 foreign + 5 already-qualified + 29 no-qual-param | **1** | **0** |
+| R3+R3b concatenation | 151 | 4 qualified + 27 membership-probe | **4 bare-key** | 65 stored + 33 arg + 21 = **119** |
+| R4 name-as-subscript | 286 | 94 lexical (`Var` container) | **13 alias-pair** | 0 |
+
+**ONE TOTAL FOR CONFIRMED DECISIONS ACROSS ALL FIVE GROUPS: 18** — 1 (R2) +
+4 (R3) + 13 (R4). That, not 656 raw hits, is the size of the remaining repair,
+and **13 of the 18 are the owner's documented back-compat aliases**, so the part
+that is anybody's to price is **5**.
+
+`4-no-qual-param` is not "undecided" and not a site-level defect: the callee has
+NO package parameter at all, so the bare name IS the interface. Repairing one is
+an interface change, not a call-site change, which is a different and larger
+question than this round was asked.
+
+## 4. THE ONE DECLINE, AND THE ONE FALSE POSITIVE A PER-SITE READ CAUGHT
+
+    dlog verdict 2 sites | per-site read 1 true, 1 FALSE
+
+* **TRUE — `mlir_gen_expr.cpp:5890` `emit_dst_len`**:
+  `resolve_method_symbol(sname, "dst_len", dstref_pkg)` — the package IS passed;
+  the **out-parameter `pkg_owns_struct` is not**. This site does not take the
+  authoritative negative that `mlir_gen_impl.hpp:640` and both
+  `mlir_gen_stmt.cpp` drop sites now do. Same shape as
+  `authoritative_negative.dl`, one hop away from the landing of `3cad21dcc`.
+* **FALSE — `mlir_gen_expr.cpp:6908` `qualify_pkg(kWritStaticPkg, "WritStatic")`**:
+  the argument is a package literal and the rule said DECLINES, because
+  `qualifier_pat` was written `.*pkg.*` and the constant is spelled `…Pkg`.
+  **Case. Half of a two-row answer was wrong and the read is what caught it.**
+  Claim corrected to `.*[Pp][Kk][Gg].*`; the site reclassifies as qualified.
+
+⚠ **THE PROMPT'S TWO NAMED R2 SITES NO LONGER REPRODUCE.** `mlir_gen_stmt.cpp:1319`
+and `:1368` are recorded as "NOT gated on identity"; on today's tree both take
+`&owns`/`&owns2` and both classify **2-qualified**. `3cad21dcc` landed between
+that record and this one. A control is a measurement with a timestamp.
+
+## 5. R3 — THE COUNT ITSELF IS WRONG, AND BY 60%
+
+⚠ **165 sites at depth 3; 416 at depth 8. `deep_only` = 251.**
+`pkg + "." + name` parses as `(pkg + ".") + name`: the outer `+` sees a name on
+one side and, on the other, a nested chain whose StringLiteral is FIVE levels
+down — past `name_lit`'s depth-3 horizon — while the inner `+` has a literal and
+no name. So a three-way key with the package in the nested half is invisible to
+R3, **and that is exactly the shape of the thing R3 is for**: `mono.cpp:472`,
+`476`, `509`, `553` — the pkg-qualified halves of the alias pairs — are all in
+the gap, and **a plain grep found them**. 8 of 8 `deep_only` rows sampled and
+read are genuine multi-part key constructions; zero over-reach.
+`name_key.dl` is left unedited so the round record that pins 171 still reads
+true, with a ⚠ at the rule pointing here.
+
+## 6. R4 — THE HANDED-DOWN CLASSIFICATION DOES NOT SURVIVE RE-DERIVATION
+
+The prompt reports **131 benign-lexical / 37 decision-registry / 120 undecided**.
+Re-derived from the container's declaration: **0 of 288 rows lack a container
+declaration**, so the 120-undecided column does not reproduce at all, and a
+`Var`-vs-`Field` split of the container gives **94 / 192**, not 131 / 37.
+I could not reproduce the criterion that produces 131/37/120 and do not claim to
+have found it; `scope_`, `var_elem_types_` and `current_type_params_` are Fields
+that are nonetheless lexical scope maps, which is presumably where the hand
+classification and the declaration kind part company.
+
+**What DOES hold up is a sharper fact than either**: `alias_pair` — one context
+writing BOTH a qualified and a bare key into the SAME registry. **13 sites, and
+13 of 13 confirmed by a per-site read, each under a comment saying so:**
+
+    mono.cpp 473 477 509 510 553 554   all_structs_, struct_templates_,
+                                       struct_method_templates_   LAST-WINS
+    mono_clone.cpp 6874 6875 6901 6902 concrete_struct_types_     LAST-WINS
+    mlir_gen.cpp 129 140               all_struct_defs_           first-wins (guarded)
+    mlir_gen_types.cpp 462             struct_types_              first-wins (guarded)
+
+⚠ **THE ASYMMETRY IS THE FINDING.** The two `mlir_gen` registries guard the bare
+alias with `!…count(bare)` — first-registered wins. The five `mono` ones do not:
+the bare key is overwritten unconditionally. A last-wins bare alias is the shape
+`5bd2724c0` repaired. **Six sites nobody had named** (`mlir_gen.cpp:129/140`,
+`mlir_gen_types.cpp:462`, `mono.cpp:473/477/553/554`) came out of the rule beside
+the seven the last round found by hand. All are the owner's; none touched.
+
+⚠ **AND THE PROMPT ATTRIBUTES THEM TO THE WRONG GROUP.** It says the R3
+concatenation fact "caught `mono.cpp:509-510` and `mono_clone.cpp:6874/…`".
+Measured: `mono.cpp:509` is not in R3's output at all (§5 says why) — those sites
+are **R4 subscripts**, and it was R4's container fact that found them.
+
+## 7. THE GREP CROSS-CHECK, PER GROUP — where grep would have sufficed
+
+No grep cross-check had ever been run on the RESOLUTION half. Regexes a
+determined person would write, over every `src/compiler/*.{cpp,hpp,inc}`, diffed
+BOTH ways with ±2 lines of slack for multi-line calls:
+
+| group | dlog | grep | dlog-only | grep-only | verdict |
+|---|---|---|---|---|---|
+| R1 | 120 | 335 | 2 | **205** | **grep would have sufficed** — it is a superset at 2.8x the reading. dlog's value in R1 is the *classification*, not the enumeration. |
+| R2 | 47 | 77 | 2 | 32 | grep suffices to ENUMERATE; the 2 dlog-only are the multi-line `resolve_method_symbol` drop calls. |
+| R3 | 165 | 140 | 95 | 65 | **neither is a superset** — and the 65 grep-only are the depth-3 hole of §5. |
+| R3b | 14 | 1 | **13** | 0 | **grep could not have found it.** `name + name` is spelled `tname + "::" + cname` — a three-way chain — so a `name\s*\+\s*name` regex matches 1 of 14. |
+

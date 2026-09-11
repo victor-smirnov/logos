@@ -1,0 +1,24 @@
+# qualifier_pat.claim — WHAT A PACKAGE-QUALIFYING VALUE IS SPELLED LIKE.
+#
+# A regex over the BARE name of a declaration whose value carries the package
+# (or an already-package-qualified key). If a resolution site holds one of
+# these, the key it builds is not bare and the site is not in the class.
+#
+# Derived by reading the sites 1daeffa5b / 5bd2724c0 repaired plus the two the
+# authoritative-negative round landed (mlir_gen_stmt.cpp:1319, :1366): the
+# spellings that actually occur are `pkg`, `sd_pkg`, `dpkg`, `pkg_name`,
+# `trait_package`, `qualified_cname`, `qcname`.
+#
+# ⚠ `qcname`/`qualified_*` are the SECOND-HOP form: the variable is qualified
+# because an EARLIER statement built it from a package. The rule follows one
+# initialiser hop (pkg_var) and this list catches the rest; a key qualified by
+# a hop the rule does not follow lands in UNDECIDED, which is the honest place.
+# ⚠ CASE. `kWritStaticPkg` is a package constant and `.*pkg.*` does not match
+# it. That one miss put mlir_gen_expr.cpp:6908 in the DECLINES column — a site
+# whose very next token is a package literal — and a per-site read is what
+# caught it, not the rule. Half of a two-row answer was wrong.
+.*[Pp][Kk][Gg].*
+.*[Pp]ackage.*
+.*[Qq]ualif.*
+^q[a-z]*name$
+^qc.*

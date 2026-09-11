@@ -1,24 +1,39 @@
-TARGET ROWS — written BEFORE any compiler edit (none were made this round).
-Chosen because the full-sweep inventory puts all three inside ONE mechanism:
-an entity decided by a bare name where the qualifying fact exists but is not
-carried to the site. Not a grouping by symptom — by the FACT that is missing.
+TARGET ROWS — written for the NEXT round, from the classified inventory.
+No compiler source was edited this round (build hash 0e8ecc17b99f4077 43,
+READ before and after); the deliverable was the inventory itself.
 
-1. homonym_field_drop_glue_segv            tier 1  run 139
-   inventory: R2 lit_arg `resolve_method_symbol(_, "drop", pkg)` at
-   mlir_gen_stmt.cpp:1319 and :1366 — both reached from a `__drop` SUBSTRING
-   search on a mangled name, with NO trait-identity fact. The one repaired
-   door (mlir_gen_impl.hpp:635 resolve_drop_symbol) gates on
-   `identity_trait() != kDropLangItem` FIRST; these two do not.
+WHAT THE INVENTORY SAYS THE REMAINING REPAIR IS: 18 confirmed decisions across
+all five groups, of which 13 are the owner's documented back-compat aliases.
+FIVE are anybody's to price, and only one of them is a call site:
 
-2. localvec_mangled_collision_listcomp_internal   tier 3  refuses
-   inventory: R3 name_concat — the mangling plane, 171 sites, `__drop` x4,
-   `__Drop__drop` x2. mono's symbol stem is built by concatenation from a bare
-   struct name, which is why both `Vec`s mangle to `Vec$G1$i64`.
+1. mlir_gen_expr.cpp:5890  emit_dst_len            R2, the single DECLINE
+   `resolve_method_symbol(sname, "dst_len", dstref_pkg)` passes the package and
+   DECLINES the out-parameter `pkg_owns_struct`. `mlir_gen_impl.hpp:640` and
+   both mlir_gen_stmt.cpp drop sites take it since `3cad21dcc`; this one does
+   not. Same mechanism, one hop from a landing — the shape that has paid.
+   ⚠ It is NOT drop glue, so predict the population before pricing: it bites
+   only where a package owns a struct of this name that has no `dst_len`.
 
-3. stdlib_drop_uninhabited_enum_byvalue_consumer  tier 3  refuses
-   same drop-glue plane; priced against 1 to test whether ONE change moves both.
+2-5. mlir_gen_dyn.cpp:962, :982  (dyn_vtable_methods_)
+     sema_collect.cpp:5234, :5235 (impls_, impls_all_)      R3, bare-key
+   A key concatenated from a bare entity name, landing in a registry that is
+   NOT a local scope map and that gets no qualified key beside it. Unlike the
+   13 alias-pair sites these have no qualified sibling at all, so the bare key
+   IS the only key — which makes them a different and possibly worse shape.
 
-NOT chosen: the 37 DECISION-registry subscript rows (R4). Two of the largest
-(mono.cpp:509/510, mono_clone.cpp:6874/6875/6901/6902) carry a comment saying
-the bare key is a DELIBERATE last-wins back-compat alias. Changing those is a
-corpus/owner decision, not a pricing question.
+NOT chosen, and why the next round should not re-open them:
+ · R1's 102 `4-no-qual-param` rows. The callee has no package parameter; the
+   bare name is the interface. Repairing one is an interface change, not a call
+   site change. That is a bigger question than the ledger is asking.
+ · The 13 alias-pair sites (mono x9, mlir_gen x4). Documented, deliberate,
+   owner's. ⚠ But RECORD the asymmetry: mlir_gen guards its bare alias with
+   `!count(bare)` (first-wins) and mono does not (last-wins). That difference
+   is a question for the owner, not a repair.
+
+THE NEXT `dlog` INCREMENT, IN ORDER OF WHAT IT BUYS:
+ a. Deepen `name_key.dl`'s `name_val`/`name_lit` from 3 to 8. MEASURED: it adds
+    251 sites to R3 (165 -> 416), including the pkg-qualified halves of the very
+    alias pairs the class is about. Do it in a round that re-pins the counts.
+ b. The second hop for R3's `6-stored` (65 sites): a key built into a local and
+    subscripted with it later. `pkg_var` already follows exactly one initialiser
+    hop; this is the same hop pointed the other way.

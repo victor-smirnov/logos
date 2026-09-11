@@ -84,6 +84,17 @@ arg_residual(F, L, Ctx, Cal, S) :- arg(C, _, X), name_val(X, S), callee_name(C, 
                                    !is_resolver(Cal), loc(C, F, L, _),
                                    ctx_of(C, K), ctx_name(K, Ctx).
 
+// ⚠⚠ THE R3 COUNT BELOW IS AN UNDERCOUNT AND THE NUMBER IS MEASURED: 165 SITES
+// HERE, 416 AT DEPTH 8. `name_val`/`name_lit` decide an operand at depth 3, and
+// `pkg + "." + name` does not fit — the nested half is MaterializeTemporaryExpr
+// -> CXXBindTemporaryExpr -> operator+ -> ImplicitCastExpr -> StringLiteral,
+// five levels, so the literal is invisible to the outer `+` and the inner `+`
+// has no name. The 251 sites that fall in the gap include mono.cpp:472/476/509/
+// 553 — the PKG-QUALIFIED halves of the very alias pairs this class exists to
+// find — and a plain grep found them. See `name_key_class.dl` relation
+// `deep_only`, and PROBES.md 2026-09-10f. The counts here are left as they were
+// so the round record that pins 122/47/171/28/288 still reads true; the class
+// SIZE is the deep number.
 // ── R3 — CONCATENATION into a key ──────────────────────────────────────────
 // `base + "__into_iter"`, `pkg + "." + name`. The operator spelling is already
 // a fact; the two operand positions of a CXXOperatorCallExpr are children 1

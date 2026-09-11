@@ -37,6 +37,7 @@
 //   decl(DeclId, Kind, QualifiedName)
 //   decl_name(DeclId, BareName)     the last component, for joins
 //   decl_loc(DeclId, File, Line)    where it is declared — for ANY decl seen
+//   param(DeclId, Idx, Name, Type)  a callee's parameter list, mechanically
 //   decl_node(Id, DeclId)           this NODE is a declaration of that ENTITY
 //   ref(UseId, DeclId)              a name use resolved to what it names
 //   call(CallId, CalleeDeclId)      a call resolved to its callee
@@ -87,13 +88,14 @@ namespace {
 struct Out {
     std::ofstream node, loc, decl, decl_node, ref, call, enum_member, decl_name;
     std::ofstream type_of, type, type_pointee, type_decl, cast_kind, decl_loc;
+    std::ofstream param;
     std::ofstream cfg_block, cfg_entry, cfg_exit, cfg_edge, cfg_stmt, str_lit, binop;
     long nodes = 0, decls = 0, refs = 0, calls = 0, types = 0, edges = 0;
     void flush() {
         node.flush(); loc.flush(); decl.flush(); decl_node.flush();
         ref.flush(); call.flush(); enum_member.flush(); decl_name.flush();
         type_of.flush(); type.flush(); type_pointee.flush(); type_decl.flush();
-        cast_kind.flush(); decl_loc.flush(); cfg_block.flush(); cfg_entry.flush(); cfg_exit.flush();
+        cast_kind.flush(); decl_loc.flush(); param.flush(); cfg_block.flush(); cfg_entry.flush(); cfg_exit.flush();
         cfg_edge.flush(); cfg_stmt.flush(); str_lit.flush(); binop.flush();
     }
     void open(const std::string &d) {
@@ -105,6 +107,7 @@ struct Out {
         type_of.open(p("type_of")); type.open(p("type"));
         type_pointee.open(p("type_pointee")); type_decl.open(p("type_decl"));
         cast_kind.open(p("cast_kind")); decl_loc.open(p("decl_loc"));
+        param.open(p("param"));
         cfg_block.open(p("cfg_block")); cfg_entry.open(p("cfg_entry"));
         cfg_exit.open(p("cfg_exit"));   cfg_edge.open(p("cfg_edge"));
         cfg_stmt.open(p("cfg_stmt"));
@@ -291,6 +294,32 @@ private:
                 g_out.decl_loc << id << '\t'
                                << llvm::sys::path::filename(P.getFilename()).str()
                                << '\t' << P.getLine() << '\n';
+                // ⚠ THE PARAMETER LIST, MECHANICALLY. A whole class of question
+                // — "does this callee already take the qualifying fact, and did
+                // THIS site decline to pass it?" — was undecidable with the
+                // relations above, because a call site's arguments are nodes and
+                // a callee's parameters were nothing at all. The classifier for
+                // the R1 group fell back to a join over OTHER call sites, which
+                // answers a different question and answers it badly. Names and
+                // canonical types only: no claim about what a package looks like
+                // lives here.
+                // ⚠ A FunctionTemplateDecl IS NOT A FunctionDecl, and this
+                // compiler's resolvers are templates. `lookup_qualified_` —
+                // the one that DOES the package qualification — came back with
+                // an empty parameter list, and the classifier could only file
+                // its four call sites as UNDECIDED. Two lines, four rows.
+                const FunctionDecl *FD2 = dyn_cast<FunctionDecl>(C);
+                if (!FD2)
+                    if (const auto *FT = dyn_cast<FunctionTemplateDecl>(C))
+                        FD2 = FT->getTemplatedDecl();
+                if (FD2)
+                    for (unsigned i = 0; i < FD2->getNumParams(); ++i) {
+                        const ParmVarDecl *PV = FD2->getParamDecl(i);
+                        g_out.param << id << '\t' << i << '\t'
+                                    << safe(PV->getNameAsString()) << '\t'
+                                    << safe(PV->getType().getCanonicalType()
+                                              .getAsString()) << '\n';
+                    }
             }
         return id;
     }
