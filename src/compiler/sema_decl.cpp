@@ -2379,7 +2379,7 @@ SemaChecker::lower_const_def(TinyMapView node) {
 // Writ mirror, and stores a TypeAliasView (struct LTypeAlias is gone).
 std::pair<std::string, TypeRef> SemaChecker::lower_type_alias_def(TinyMapView node) {
     auto name = std::string(str_of(node.get(la::NAME.code)));
-    auto ait = type_aliases_.find(name);
+    auto ait = alias_find(name);
     // Generic aliases have no concrete LIR type (they're inlined at use sites).
     TypeRef type = (ait != type_aliases_.end() && ait->second.type_params.empty())
                    ? ait->second.type : error_t();
@@ -2711,7 +2711,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             target = std::string(str_of(tnode.get(la::NAME.code)));
             // Unfold type aliases: `type ObjectArray = Array<AnyVal>;` makes
             // `impl Trait for ObjectArray` equivalent to `impl Trait for Array<AnyVal>`.
-            auto ait = type_aliases_.find(target);
+            auto ait = alias_find(target);
             if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
                 auto aliased = ait->second.type;
                 if (aliased && (TypeRef(aliased).kind() == LogosType::Kind::Struct ||

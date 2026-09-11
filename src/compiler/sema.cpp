@@ -7386,7 +7386,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
 
     // Generic type alias: type Foo<T> = Bar<T>;  →  Foo<i32> resolves to Bar<i32>
     {
-        auto ait = type_aliases_.find(std::string(name));
+        auto ait = alias_find(name);
         if (ait != type_aliases_.end() &&
             (!ait->second.type_params.empty() || !ait->second.lifetime_params.empty())) {
             // Resolve type and lifetime arguments at the call site.
@@ -8669,7 +8669,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         }
         // Bug 4 fix: give a more informative error when a generic alias is used
         // without its required type arguments.
-        auto ait = type_aliases_.find(std::string(name));
+        auto ait = alias_find(name);
         if (ait != type_aliases_.end() &&
             (!ait->second.type_params.empty() || !ait->second.lifetime_params.empty()))
             error(std::format("generic type alias '{}' requires type arguments", name));

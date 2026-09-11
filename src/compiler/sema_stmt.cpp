@@ -3725,7 +3725,7 @@ lir::Pattern SemaChecker::build_pattern_variant(TinyMapView pnode, TypeRef scrut
     // (G160-2) but also handles GENERIC aliases — the variant resolves on the
     // base enum name; the type-args are irrelevant to which variant matches.
     if (!enums_.count(pename) && !find_enum_by_name(pename).second) {
-        auto ait = type_aliases_.find(pename);
+        auto ait = alias_find(pename);
         if (ait != type_aliases_.end() && ait->second.type &&
             TypeRef(ait->second.type).kind() == LogosType::Kind::Enum) {
             std::string tgt(TypeRef(ait->second.type).enum_name());
@@ -3855,7 +3855,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     // pattern (`OptAlias::S(v)` where `type OptAlias<T> = Opt<T>`). Mirrors the
     // unit-variant peel in build_pattern_variant.
     if (!pvname.empty() && !enums_.count(pename) && !find_enum_by_name(pename).second) {
-        auto ait = type_aliases_.find(pename);
+        auto ait = alias_find(pename);
         if (ait != type_aliases_.end() && ait->second.type &&
             TypeRef(ait->second.type).kind() == LogosType::Kind::Enum) {
             std::string tgt(TypeRef(ait->second.type).enum_name());
@@ -5896,7 +5896,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             // match x { S2 { a, b } => … }`). Resolve the alias to its target
             // struct and match under the real name (codegen + scrutinee check
             // need it). Construction already resolves aliases.
-            auto ait = type_aliases_.find(sname);
+            auto ait = alias_find(sname);
             if (ait != type_aliases_.end() && ait->second.type &&
                 (TypeRef(ait->second.type).kind() == LogosType::Kind::Struct ||
                  TypeRef(ait->second.type).kind() == LogosType::Kind::ZonedStruct)) {

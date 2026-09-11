@@ -5418,6 +5418,21 @@ private:
     // Lifetime substitution map: "'z" → "'a"  (name → name, erased at codegen).
     using SemaLifetimeSubst = logos::compiler::StrMap<std::string>;
     logos::compiler::StrMap<TypeAliasEntry> type_aliases_;
+    // B-mv-02 probe order (cur_package_ :: name, bare, wildcard imports), once.
+    // Bare-first hands a FOREIGN same-name alias to the reader — PROBES.md 2026-09-11i.
+    auto alias_find(std::string_view name) {
+        if (!cur_package_.empty()) {
+            auto it = type_aliases_.find(sema_key(cur_package_, name));
+            if (it != type_aliases_.end()) return it;
+        }
+        auto it = type_aliases_.find(name);
+        if (it != type_aliases_.end()) return it;
+        for (auto& pkg : cur_imports_.wildcard_packages) {
+            auto qit = type_aliases_.find(sema_key(pkg, name));
+            if (qit != type_aliases_.end()) return qit;
+        }
+        return type_aliases_.end();
+    }
     // G156-1: package-scoped consts (Rust parity). module_consts_ /
     // module_const_values_ are keyed by the PACKAGE-QUALIFIED key
     // sema_key(pkg, name) so two `pub const FOO` in different packages coexist.

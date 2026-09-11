@@ -3609,7 +3609,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
             target = std::string(str_of(tnode.get(la::NAME.code)));
             // Unfold transparent type aliases so `impl Trait for Alias`
             // registers methods under the aliased type's concrete name.
-            auto ait = type_aliases_.find(target);
+            auto ait = alias_find(target);
             if (ait != type_aliases_.end() &&
                 ait->second.type_params.empty() && ait->second.lifetime_params.empty()) {
                 auto aliased = ait->second.type;
@@ -5828,7 +5828,7 @@ TypeRef SemaChecker::try_resolve_as_known_type(std::string_view name) {
     if (name == "isize") return prim(LogosType::Kind::Isize);
     if (name == "char")  return prim(LogosType::Kind::Char);
     if (name == "void") return prim(LogosType::Kind::Void);
-    auto ait = type_aliases_.find(std::string(name));
+    auto ait = alias_find(name);
     // Non-generic aliases only: generic aliases are resolved at use sites in resolve_type.
     if (ait != type_aliases_.end() && ait->second.type_params.empty())
         return ait->second.type;

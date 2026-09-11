@@ -1,0 +1,24 @@
+// THE ONE-TOKEN CONTROL for alias_local_shadows_imported_homonym: the SAME
+// program with the alias renamed to a name no imported package holds. It was
+// green before the repair and stays green, so the pair separates "the repair
+// works" from "alias construction works at all".
+package alias_local_shadows_imported_homonym_control;
+use logos.lang.num.nonzero;
+
+struct Big { a: i64, b: i64, c: i64 }
+type MyOwnU64 = Big;
+
+fn sum(x: MyOwnU64) -> i64 {
+    return x.a + x.b + x.c;
+}
+
+fn main() -> i32 {
+    // struct literal THROUGH the shadowed alias name
+    let b: MyOwnU64 = MyOwnU64 { a: 1i64, b: 2i64, c: 3i64 };
+    if b.a != 1i64 { return 1i32; }
+    if sum(b) != 6i64 { return 2i32; }
+    // and in type position, which already resolved correctly
+    let c: MyOwnU64 = Big { a: 10i64, b: 20i64, c: 30i64 };
+    if sum(c) != 60i64 { return 3i32; }
+    return 0i32;
+}

@@ -1,0 +1,15 @@
+// alias_reads — WHICH SITES READ THE ALIAS REGISTRY, BY DECLARATION IDENTITY.
+//
+// The question a grep cannot answer: `type_aliases_` is TWO different members
+// (SemaChecker's StrMap<TypeAliasEntry> and MLIRGenImpl's map<string,mlir::Type>)
+// and the class under study is "a read of the SEMA registry keyed on a BARE
+// name". Identity is the canonical declaration, not the spelling, so the two
+// members never merge and a rename could not hide a site.
+#include "cxx_schema.dl"
+
+.decl alias_member(did: symbol, qname: symbol)
+alias_member(D, Q) :- decl(D, _, Q), decl_name(D, "type_aliases_").
+
+.decl alias_read(Owner: symbol, File: symbol, Line: number)
+alias_read(Q, F, L) :- alias_member(D, Q), ref(U, D), loc(U, F, L, _).
+.output alias_read

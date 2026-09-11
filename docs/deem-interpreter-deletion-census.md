@@ -5712,8 +5712,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                    native, none tier_commit, none imported. The round
 #                                    declared NO fail fixture. ONE soundness-queue row closed,
 #                                    `# TOTAL` 78 -> 77.)
-REGISTRY-ALL         9567
-REGISTRY-NOIMPORTED  5101
+# 2026-09-11i (ALL +2, NOIMPORTED +2, TIERCOMMIT 0 — the alias-lookup-order
+#   ALL          9567 -> 9569  +2   landing: the pass PAIR one token apart,
+#   NOIMPORTED   5101 -> 5103  +2   alias_local_shadows_imported_homonym and its
+#   TIERCOMMIT    148 ->  148   0   _control. Both native pass fixtures, neither
+#                                   tier_commit, neither imported. The round
+#                                   declared NO fail fixture: after the repair the
+#                                   program is ACCEPTED, and the thing pinned is
+#                                   that it compiles, runs and exits 0. NO
+#                                   soundness-queue row moved, `# TOTAL` stays 77.)
+REGISTRY-ALL         9569
+REGISTRY-NOIMPORTED  5103
 REGISTRY-TIERCOMMIT  148
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

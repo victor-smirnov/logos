@@ -1,0 +1,37 @@
+PREDICTION — 2026-09-11i — ALIAS LOOKUP ORDER (B-mv-02 AT ONE DOOR, FIFTEEN SIBLINGS UNWIRED)
+
+THE CLASS, enumerated by property (tools/dlog alias_reads.dl, identity = canonical
+declaration, NOT the spelling): 46 refs to `SemaChecker::type_aliases_` over 7 TUs,
+25 distinct read sites, of which
+  * 1 site probes `cur_package_::name` BEFORE the bare slot  — sema.cpp:2995, the
+    B-mv-02 repair, whose own comment states the rule;
+  * 15 sites key on the BARE name only, or bare FIRST;
+  * the rest are registration / move / iterate.
+dlog also separates `MLIRGenImpl::type_aliases_` (4 refs) from the sema member — a
+grep on the spelling merges the two.
+
+THE DEFECT, measured on the pristine build/bin/logosc BEFORE any edit:
+  a_collide.logos   `use logos.lang.num.nonzero;` + `type NonZeroU64 = Big;` +
+                    `NonZeroU64 { a, b, c }`  →  REFUSED:
+                    "struct literal 'NonZero': unknown field 'a'"
+                    (the stdlib alias in the bare slot won; the user's own alias,
+                    registered under `a_collide::NonZeroU64` by B-mv-02's own
+                    registration branch, was never consulted)
+  c_renamed.logos   IDENTICAL, alias renamed one token  →  rc 0.
+Legal Rust: an explicitly declared item outranks a glob-imported name.
+
+DIFF BUDGET: <= 30 changed lines. One helper `alias_find(name)` on SemaChecker
+returning an iterator in B-mv-02 order (cur_package_ :: name, then bare, then each
+wildcard import), one line per converted site. Over budget by >2x = design smell.
+
+PREDICTED CLOSED SET (this is the whole prediction; a row not listed that closes is
+as much a miss as a listed one that does not):
+  1. a_collide.logos            REFUSED -> compiles, runs, exit 0
+  2. the same shape in TYPE position  already green, STAYS green (control)
+  3. c_renamed.logos            stays rc 0 (control)
+  0 soundness_queue rows close: no queue row records this defect. The queue
+    '# TOTAL' stays 77 unless the new program is filed as a row instead of fixed.
+  0 bc_admits rows move.
+PREDICTED CORPUS EFFECT: ZERO tests change verdict. The qualified probe is a NO-OP
+unless a same-name alias from another package holds the bare slot, which is exactly
+the collision branch at sema_collect.cpp:2662-2667.

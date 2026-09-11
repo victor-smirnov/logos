@@ -37215,3 +37215,228 @@ prompt authorised taking it if cheap — it is not cheap at depth 10 (the
 classifier already costs 49.8 s of souffle over 37 TUs), and at a 1.8% yield the
 hop buys an expected one to two decisions. The column is left at 145 rather than
 shrunk by guessing.
+
+---
+
+# 2026-09-11i — THE TEN "CONFIRMED DECISIONS" OF THE DEEP POPULATION PRICE OUT AT **ZERO** OVER 4342 COMPILES, THE MAP THE LAST ROUND CALLED ITS SHARPEST FINDING IS **WRITE-ONLY**, AND THE ONE REAL DEFECT IN THE CLASS WAS FOUND BY VARYING THE CARRIER: B-mv-02 LANDED AT ONE ALIAS DOOR AND FIFTEEN SIBLINGS WERE NEVER REWIRED
+
+## 1. CENSUS (STEP 1, run, not copied)
+
+    git                3ce0809a6, working tree clean
+    soundness queue    GATE rc=0 — 77 open rows (tier1=18 tier2=9 tier3=42
+                       tier4=8), '# TOTAL' says 77
+    bc_admits          90        bc_admits_blocked 8
+    probe log          266 records, every site symbol resolves
+    build hash         0e8ecc17b99f4077 43   (READ before the edit; and again
+                       after the census probe was reverted — same value)
+
+The handed-down report's §1 reproduces exactly.
+
+## 2. THE SUBJECT PRICED THE WAY 09-10g PRICED ITS FIVE, NOT BY READING
+
+09-11h classified 551 sites and nominated TEN CONFIRMED DECISIONS, four already
+known and six new, with `mlir_gen.cpp:245` (`type_aliases_`) named "the sharpest"
+and explicitly NOT read. A decision-shaped bare key is a hypothesis about
+emission; the population that condemns or funds it is a census, so all of them
+were censused in ONE build, together with `mlir_gen_dyn.cpp:962/982` as the
+KNOWN-ANSWER CONTROL (09-10g measured it at 5.80% duplicate keys and 834 of them
+differing).
+
+INSTRUMENT: `logos::probe::census` at each registration — `<site>.reg` on every
+write, `<site>.dup` when the key is ALREADY PRESENT, `<site>.dup.diff` when the
+value already filed DIFFERS (where the value is comparable) — plus
+`alias.lookup` / `alias.lookup.hit` at the alias map's ONE reader. Built in
+`build-copy` so the landing build kept its hash; reverted before the repair.
+
+POPULATION: every `tests/logos/pass` (3022), `tests/logos/fail` (1243) and
+`tests/soundness/open` (77) program = **4342 compiles**. ⚠ 09-10g records **5288**
+for the same three directory names; the three directories hold 4342 `.logos`
+files today, listed by `find`. The dyn control is therefore compared as a RATIO,
+not as an absolute.
+
+    site                              bucket        registrations   duplicate keys
+    mlir_gen.cpp:245  type_aliases_   alias           23 834             0
+    mono.cpp:286      assoc_const_    acv                 15             0
+    mono.cpp:616      templates_      tmpl         1 045 677             0
+    mono.cpp:827      specs_          spec                 4             3
+    mono.cpp:831      struct_specs_   sspec            4 441         2 207
+    sema.cpp:9285     module_statics_ mstatic              6             0
+    CONTROL mlir_gen_dyn.cpp:962/982  dynvt        7 413 092       413 603
+
+  * **`tmpl` is the number that settles the group**: over a MILLION bare-name
+    registrations of generic fn templates and **not one collision**, in 1559 of
+    4342 fixtures. Rule 1 is satisfied in the expensive direction — the site is
+    as live as a site gets — and the defect's population is zero. DECLINED: 0.
+  * `acv` 15 / 0 and `mstatic` 6 / 0 — DECLINED, and on populations so small
+    (8 and 3 fixtures) that rule 4 applies: this is not a refutation either. It
+    is a statement that nothing in the corpus exercises them.
+  * `spec` / `sspec` duplicate on purpose: both maps are `name -> vector`, so a
+    repeated key APPENDS. 2207 "duplicates" in 640 fixtures are specialisation
+    LISTS, which is the design. Not a defect, and the classification that called
+    them decision-shaped was reading the key, not the container.
+  * The CONTROL agrees: dup/reg = **5.58%** here against 09-10g's 5.80% on its
+    larger population, with the site still live at 7.4 M registrations. The
+    instrument can see the class it is pointed at.
+
+## 3. `mlir_gen.cpp:245` IS NOT A DECISION — THE MAP IT WRITES IS NEVER READ
+
+    alias.reg           23 834   in 1254 of 4342 fixtures
+    alias.dup                0
+    alias.lookup       423 886   in 1532 fixtures
+    alias.lookup.hit         0
+
+`MLIRGenImpl::type_aliases_` has exactly ONE reader (`mlir_gen_types.cpp:155`,
+`case Kind::Struct`), it was reached 423 886 times, and it **never once found an
+entry**. So the key's shape cannot change any emission: bare or qualified, the
+map is write-only over the whole corpus. The bare key also never collided.
+DECLINED TWICE OVER — and the reason is not the one 09-11h predicted. It asked
+what `TypeAliasView::name()` carries for the qualified entry; the answer that
+matters is that `TypeAliasView` has no `pkg()` accessor at all (`ConstView`,
+four lines below it at the same call site, does) — the fact is not in the Writ
+mirror, and nothing downstream needs it.
+
+⚠ FILED, NOT ACTED ON: a write-only map with a live-but-always-missing reader is
+a deletion candidate with a measurement behind it. 0 hits over 4342 compiles is
+a CEILING, not a proof (rule 6), the population excludes the stdlib build, and
+deleting it is its own round with its own control.
+
+## 4. WHAT THE CENSUS COULD NOT SEE, AND THE CARRIER THAT COULD
+
+Every number above says "this key never collides in the corpus". That is a
+statement about the CORPUS, and the 09-10g miscompile had to be carried by a
+program nobody had written. So the same question was asked of the OTHER
+`type_aliases_` — sema's — with a hand program instead of a count.
+
+THE CLASS, enumerated by property with `tools/dlog` (`alias_reads.dl`, new this
+round; identity = the canonical declaration, so the two same-spelled members
+never merge):
+
+    logos::compiler::SemaChecker::type_aliases_    46 refs   25 distinct sites
+    logos::compiler::MLIRGenImpl::type_aliases_     4 refs
+
+Read site by site, the 25 split:
+
+    probes cur_package_::name BEFORE the bare slot     1   sema.cpp:2995
+    keys on the BARE name only, or bare FIRST         15
+    registration / move / iterate                      9
+
+The ONE site with the right order carries the rule in its own comment (B-mv-02:
+"probe the current package's own alias FIRST so a user `type MemDestroyer`
+shadows a same-name stdlib alias that holds the bare slot"). Its fifteen
+siblings were never rewired — this is `feedback_stronger_rule_retires_the_instrument`
+in its other direction: the rule landed at ONE door and the class stayed open.
+
+⚠ WHERE GREP WOULD HAVE SUFFICED, MEASURED: `grep -n type_aliases_ src/compiler`
+returns 40 lines and contains every one of these sites. dlog's value here is
+NOT the finding — it is that it reports `MLIRGenImpl::type_aliases_` and
+`SemaChecker::type_aliases_` as two populations of 4 and 46 by DECLARATION
+IDENTITY, which is the split §3 and §4 turn on and which the spelling cannot
+make. Said plainly: on this question the tool bought the partition, not the hits.
+
+## 5. THE DEFECT, MEASURED ON THE PRISTINE BINARY BEFORE ANY EDIT
+
+    package x1_collide_lit;
+    use logos.lang.num.nonzero;              // stdlib NonZeroU64 takes the bare slot
+    struct Big { a: i64, b: i64, c: i64 }
+    type NonZeroU64 = Big;                   // filed under x1_collide_lit::NonZeroU64
+    fn main() -> i32 {
+        let b: NonZeroU64 = NonZeroU64 { a: 1i64, b: 2i64, c: 3i64 };
+        return (b.a + b.b + b.c) as i32 - 6i32;
+    }
+
+    build/bin/logosc (pristine)   rc 1, 5 errors, first:
+        error [fn main]: struct literal 'NonZero': unknown field 'a'
+    one-token control (alias renamed MyOwnU64)   rc 0
+
+A LEGAL program refused: in Rust an explicitly declared item outranks a
+glob-imported name, and `use pkg;` is exactly a wildcard import here
+(`cur_imports_.wildcard_packages`). No divergence covers it — the applicable
+clause, `expr.struct-lit.alias-resolution`, states the intended order as "in the
+current package, then in each wildcard-imported package" and the code did the
+opposite. The clause is right and the implementation was wrong.
+
+It is also worth naming what the defect ISN'T: in TYPE position the same program
+was always fine, because type position is the one door B-mv-02 fixed.
+
+## 6. THE REPAIR — ONE CONCEPT, FIFTEEN SITES, AND ITS OWN NO-OP ARGUMENT
+
+`SemaChecker::alias_find(name)` does the B-mv-02 probe once (cur_package_::name,
+then the bare slot, then each wildcard import) and returns an ITERATOR, so every
+site keeps its own predicate (non-generic / generic / enum / array / struct)
+unchanged and the diff is one line per site. The struct-literal site, which had
+its own three-probe lambda in the wrong order, is reordered in place.
+
+⚠ THE CHANGE IS A NO-OP EXCEPT ON THE COLLISION BRANCH, by construction: a
+qualified key `pkg::Name` is WRITTEN only by `collect_type_alias`'s
+`bare_taken_by_other` branch. Where no same-name alias from another package
+exists, `alias_find` misses the qualified probe and falls through to exactly the
+lookup that was there before.
+
+DIFF BUDGET declared before the edit: <= 30 changed lines. MEASURED:
+`git diff --numstat` over the repair alone:
+
+    src/compiler/sema_impl.hpp     15  0     (the helper, 3 lines of it prose)
+    src/compiler/sema_expr.cpp      8  7     (5 sites + the struct-literal lambda)
+    src/compiler/sema_stmt.cpp      3  3
+    src/compiler/sema.cpp           2  2
+    src/compiler/sema_collect.cpp   2  2
+    src/compiler/sema_decl.cpp      2  2
+                                   32 16  =  20 changed lines + a 12-line helper
+
+## 7. THE CLOSED SET, DIFFED BOTH WAYS
+
+PREDICTED (written to `PREDICTION_2026-09-11i-aliasorder.txt` before the edit):
+x1 closes; the type-position twin and the renamed control stay green; ZERO other
+corpus verdicts move; ZERO soundness-queue rows close; `# TOTAL` stays 77.
+
+MEASURED: exactly that set, in both directions — nothing closed that was not
+predicted, and nothing predicted failed to close.
+
+    alias_local_shadows_imported_homonym          REFUSED -> Passed 0.87 s
+    alias_local_shadows_imported_homonym_control  Passed  -> Passed 0.87 s
+    L1                          rc 0   804/804, smoke 12 684 cases,
+                                       gates tier 148/148 (the soundness queue
+                                       gate among them)
+    gate-run.sh -L bc           rc 0   2741 passed / 0 failed of 2743
+                                       (2 Disabled), gate-db build 1027
+    soundness queue             rc 0   77 rows, '# TOTAL' 77 — UNCHANGED
+    bc_admits / bc_admits_blocked      90 / 8 — UNCHANGED, no row opened or closed
+
+⚠ WHERE THE FIX DIFFERS FROM WHAT FOUND IT. The counter-example was found by
+reading the registration branch, not by the census: every census number in §2
+said "this key never collides in the corpus", and the sema registry's collision
+is invisible to all of them because no corpus program declares an alias
+homonymous with a stdlib one. The corpus cannot price a defect that needs a
+program nobody wrote — which is the same shape as 09-10g's two-package
+miscompile, and the reason both rounds had to vary the CARRIER.
+
+## 8. DECLINED BY NAME, WITH THE NUMBER
+
+  * `mlir_gen.cpp:245` `type_aliases_` — 0 duplicate keys in 23 834
+    registrations AND 0 hits in 423 886 reads. The last round's sharpest
+    nomination. DECLINED: 0/0.
+  * `mono.cpp:616` `templates_` — 0 in 1 045 677. DECLINED: 0.
+  * `mono.cpp:286` `assoc_const_values_` — 0 in 15. DECLINED, population too
+    small to be a refutation (rule 4).
+  * `sema.cpp:9285` `module_statics_` — 0 in 6. Same.
+  * `mono.cpp:827/831` `specs_` / `struct_specs_` — 3 in 4 and 2207 in 4441, and
+    both are `name -> vector`: the duplicate IS the container. Not a defect.
+  * The 119/145 UNDECIDED concatenation sites of 09-11h — not taken up. The
+    second hop was authorised only if cheap, and §2's yield says what it would
+    buy: the four groups this round could price produced ONE defect between
+    them, and it came from a hand program, not from a classification.
+  * `mlir_gen_dyn.cpp:962/982` — still open, still the 09-10g wall: the carrier
+    is a CMake module fixture and the repair is a type-plane change. Untouched.
+
+## 9. THE RATIO, IN THE SAME UNITS AS THE TWO ROUNDS BEFORE
+
+    09-11h (deep, 551 sites)     10 "confirmed decisions" — of which, priced:
+                                 0 defects at 6 sites censused over 4342 compiles
+    09-10g (shallow, 5 nominated) 1 defect (dyn vtable), 4 declined
+    this round                    1 defect, and it was NOT in the nominated set
+
+A classification nominates SITES; only a population or a carrier decides which
+are defects, and the two disagreed completely here: of the ten sites nominated
+as decisions, zero are; the one real defect in the same registry class was at a
+site the classification never listed, because it is a LOOKUP ORDER and not a key
+shape, and no relation in `name_key.dl` can see an order.

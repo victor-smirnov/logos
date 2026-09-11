@@ -11518,8 +11518,9 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 return ait->second.type;
             return nullptr;
         };
-        TypeRef aliased = check_alias(sname_buf);
-        if (!aliased && !cur_package_.empty()) aliased = check_alias(sema_key(cur_package_, sname_buf));
+        TypeRef aliased = nullptr;
+        if (!cur_package_.empty()) aliased = check_alias(sema_key(cur_package_, sname_buf));
+        if (!aliased) aliased = check_alias(sname_buf);
         if (!aliased) for (auto& pkg : cur_imports_.wildcard_packages) {
             aliased = check_alias(sema_key(pkg, sname_buf));
             if (aliased) break;
@@ -13729,7 +13730,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
     }
     // G160-2: peel a non-generic type-alias to an enum (`type A = Foo; A::Qux`).
     if (!enums_.count(ename_buf) && !find_enum_by_name(ename_buf).second) {
-        auto ait = type_aliases_.find(ename_buf);
+        auto ait = alias_find(ename_buf);
         if (ait != type_aliases_.end() && ait->second.type_params.empty() &&
             ait->second.type &&
             TypeRef(ait->second.type).kind() == LogosType::Kind::Enum)
@@ -13876,7 +13877,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
     }
     // G160-2: peel a non-generic type-alias to an enum.
     if (!enums_.count(ename_buf) && !find_enum_by_name(ename_buf).second) {
-        auto ait = type_aliases_.find(ename_buf);
+        auto ait = alias_find(ename_buf);
         if (ait != type_aliases_.end() && ait->second.type_params.empty() &&
             ait->second.type &&
             TypeRef(ait->second.type).kind() == LogosType::Kind::Enum)
@@ -16001,7 +16002,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         // resolves to the target enum.
         std::string enum_name(class_name);
         {
-            auto ait = type_aliases_.find(std::string(class_name));
+            auto ait = alias_find(class_name);
             if (ait != type_aliases_.end() && ait->second.type_params.empty() &&
                 ait->second.type &&
                 TypeRef(ait->second.type).kind() == LogosType::Kind::Enum)
@@ -16031,7 +16032,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     // makes `ObjectArray::init(...)` call `Array$G1$AnyVal__init(...)`.
     std::string resolved_class(class_name);
     {
-        auto ait = type_aliases_.find(resolved_class);
+        auto ait = alias_find(resolved_class);
         if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
             auto aliased = ait->second.type;
             if (aliased && (TypeRef(aliased).kind() == LogosType::Kind::Struct ||
@@ -16063,7 +16064,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     // also handle a generic-free alias chain. Mirrors Rust `[T; N]: Default`.
     if (method_name == "default" && arg_exprs.empty()) {
         TypeRef arr_t = nullptr;
-        auto ait = type_aliases_.find(std::string(class_name));
+        auto ait = alias_find(class_name);
         if (ait != type_aliases_.end() && ait->second.type_params.empty() &&
             ait->second.type &&
             TypeRef(ait->second.type).kind() == LogosType::Kind::Array)

@@ -1,0 +1,31 @@
+// A LOCAL type alias whose BARE NAME is also an imported alias's.
+//
+// `use logos.lang.num.nonzero;` puts the stdlib's `NonZeroU64` in the bare
+// alias slot, so collect_type_alias (B-mv-02) files THIS package's own
+// `NonZeroU64` under `alias_local_shadows_imported_homonym::NonZeroU64`.
+// Every reader of the alias registry except resolve_type probed the bare slot
+// FIRST and therefore resolved this file's name to the STDLIB's alias: the
+// struct literal below was refused with "struct literal 'NonZero': unknown
+// field 'a'". Legal Rust — an explicitly declared item outranks a
+// glob-imported name. Fixed by SemaChecker::alias_find (PROBES.md 2026-09-11i).
+// Its one-token control is alias_local_shadows_imported_homonym_control.logos.
+package alias_local_shadows_imported_homonym;
+use logos.lang.num.nonzero;
+
+struct Big { a: i64, b: i64, c: i64 }
+type NonZeroU64 = Big;
+
+fn sum(x: NonZeroU64) -> i64 {
+    return x.a + x.b + x.c;
+}
+
+fn main() -> i32 {
+    // struct literal THROUGH the shadowed alias name
+    let b: NonZeroU64 = NonZeroU64 { a: 1i64, b: 2i64, c: 3i64 };
+    if b.a != 1i64 { return 1i32; }
+    if sum(b) != 6i64 { return 2i32; }
+    // and in type position, which already resolved correctly
+    let c: NonZeroU64 = Big { a: 10i64, b: 20i64, c: 30i64 };
+    if sum(c) != 60i64 { return 3i32; }
+    return 0i32;
+}
