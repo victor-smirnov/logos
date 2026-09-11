@@ -1,0 +1,57 @@
+// ownfact_reads — WHO READS "THIS BINDING OWNS A `dyn`", AND DID THEY ALSO ASK
+// THE TYPE?
+//
+// The tree carries the SAME ownership fact twice:
+//   * NAME-KEYED   — `VarInfo::owning_dyn`, a bit on the BINDING, reachable
+//                    only through the variable's name (`lookup_owning_dyn`);
+//   * TYPE-KEYED   — `TypeRef::owning_trait_object()` / `trait_owning_kind()`,
+//                    a property of the EXPRESSION's own type.
+//
+// They disagree exactly where a deref-coercion re-types a borrow of an owning
+// `Box<dyn Tr>`: the expression is `&dyn Tr` (OwningKind::Borrow) while the
+// binding's bit is still set. `sema.cpp`'s drop emitter and the cond-move flag
+// both guard the name-keyed bit WITH the type-keyed one, in the same
+// expression. The question is which readers do NOT.
+//
+// A grep for "owning_dyn" cannot answer it: it also matches the LOCAL
+// `path_owning_dyn`, a different declaration, and it cannot tell a read that is
+// cross-checked from one that is not. Identity here is the canonical
+// declaration; the cross-check is a JOIN on the enclosing context.
+#include "cxx_schema.dl"
+
+// ── the two facts, by declaration identity ──────────────────────────────────
+.decl namekeyed_decl(did: symbol, qname: symbol)
+namekeyed_decl(D, Q) :- decl(D, "Field",  Q), decl_name(D, "owning_dyn").
+namekeyed_decl(D, Q) :- decl(D, "CXXMethod", Q), decl_name(D, "lookup_owning_dyn").
+
+.decl typekeyed_decl(did: symbol, qname: symbol)
+typekeyed_decl(D, Q) :- decl(D, "CXXMethod", Q), decl_name(D, "owning_trait_object").
+typekeyed_decl(D, Q) :- decl(D, "CXXMethod", Q), decl_name(D, "trait_owning_kind").
+
+// ── every read, with the context that performs it ───────────────────────────
+.decl namekeyed_read(ctx: symbol, file: symbol, line: number)
+namekeyed_read(C, F, L) :- namekeyed_decl(D, _), ref(U, D), ctx_of(U, X), ctx_name(X, C),
+                           loc(U, F, L, _).
+.output namekeyed_read
+
+.decl typekeyed_read(ctx: symbol, file: symbol, line: number)
+typekeyed_read(C, F, L) :- typekeyed_decl(D, _), ref(U, D), ctx_of(U, X), ctx_name(X, C),
+                           loc(U, F, L, _).
+.output typekeyed_read
+
+// ── THE CLAIM, CHECKED: a context that reads the name-keyed bit must also read
+// the type-keyed predicate somewhere in the same context. A violation is a site
+// that answers "does this own a dyn?" without ever looking at the expression's
+// own type.
+.decl ctx_reads_name(ctx: symbol)
+ctx_reads_name(C) :- namekeyed_read(C, _, _).
+.decl ctx_reads_type(ctx: symbol)
+ctx_reads_type(C) :- typekeyed_read(C, _, _).
+
+.decl uncrosschecked(ctx: symbol, file: symbol, line: number)
+uncrosschecked(C, F, L) :- namekeyed_read(C, F, L), !ctx_reads_type(C).
+.output uncrosschecked
+
+.decl crosschecked(ctx: symbol, file: symbol, line: number)
+crosschecked(C, F, L) :- namekeyed_read(C, F, L), ctx_reads_type(C).
+.output crosschecked

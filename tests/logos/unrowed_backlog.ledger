@@ -171,8 +171,14 @@ vg_leak_records            sweep     20  sandbox/vg-round3/{leaks.tsv,recs3.pkl}
     #                          rc_weak_dangling). One-variable control re-run today:
     #                          `Rc` alone CLEAN, `r.clone()` CLEAN, `r.downgrade()` 12 b.
     #
-    # ROWED THIS ROUND — 1 record, tier 1: soundness_queue
+    # ROWED 2026-09-11, CLOSED 2026-09-11b — 1 record, tier 1: soundness_queue
     # `boxdyn_arg_deref_borrow_kills_box_drop` (tests/spec/pass/coerce_box_dyn.logos).
+    # Root: `mark_moved_expr` read the NAME-keyed `owning_dyn` bit without asking the
+    # EXPRESSION's type, and `&b` on a `Box<dyn Tr>` local lowers to that local's own
+    # VarRef re-typed OwningKind::Borrow — so a BORROW was marked moved and the local's
+    # scope-exit drop was deleted. `coerce_box_dyn` re-measured on the fixed binary:
+    # 8 b definitely lost -> 0. Fixtures tests/logos/{pass,fail}/
+    # boxdyn_borrow_arg_keeps_box_drop. The record is RESOLVED, not moved.
     #
     # WHAT IS LEFT — 50 records, and the ONE thing each needs to become a row:
     #    9 recs / 7 fixtures   `buf_reader_wrap` / `buf_writer_wrap`. THIS IS A STDLIB

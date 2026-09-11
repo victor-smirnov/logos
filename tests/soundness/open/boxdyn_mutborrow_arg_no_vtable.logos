@@ -1,0 +1,36 @@
+// SOUNDNESS QUEUE row boxdyn_mutborrow_arg_no_vtable (tier 3). A LEGAL program
+// is refused, and by the BACKEND: passing `&mut b` for a `&mut dyn Tr`
+// parameter, where `b` is a `Box<dyn Tr>` local, fails in mlir-gen with
+//
+//   mlir_gen: internal: no vtable for '&dyn Sp' as '&dyn Sp' — the fat
+//   pointer's vtable half would be left uninitialised …
+//
+// i.e. it asks for a coercion from a type to ITSELF and has no answer. Compile
+// rc 1, no object file.
+//
+// ONE-VARIABLE CONTROL, same binary, one token changed: the SHARED spelling —
+// `use_ref(&b)` for a `&dyn Sp` parameter — compiles, runs rc 0 and is
+// valgrind-clean (it is the pass fixture
+// tests/logos/pass/boxdyn_borrow_arg_keeps_box_drop). So `&` works and `&mut`
+// does not, on the same local, at the same argument position.
+//
+// NOT the defect closed by boxdyn_arg_deref_borrow_kills_box_drop: measured on
+// BOTH binaries, base 19ff93338332ba46 43 and fixed 260d74a881ec778e 43, with
+// the identical message. That fix is in sema and this failure is in mlir-gen.
+//
+// Rust: legal — `&mut Box<dyn Sp>` deref-coerces to `&mut dyn Sp`. ⚠ There is
+// no rustc binary on this box; that legality claim rests on reading.
+package boxdyn_mutborrow_arg_no_vtable;
+use logos.mem.boxed;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn use_mut(r: &mut dyn Sp) -> i64 { return r.v(); }
+
+fn main() -> i32 {
+    let mut b: Box<dyn Sp> = box_new(A { x: 42i64 });
+    if use_mut(&mut b) != 42i64 { return 3i32; }
+    return 0i32;
+}

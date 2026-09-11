@@ -1,0 +1,35 @@
+// SOUNDNESS QUEUE row rcdyn_borrow_arg_no_vtable (tier 3). A LEGAL program is
+// refused, and by the BACKEND: passing `&r` for a `&dyn Tr` parameter, where
+// `r` is an `Rc<dyn Tr>` local, fails in mlir-gen with
+//
+//   mlir_gen: internal: no vtable for 'Rc$G1$udyn_Sp' as '&dyn Sp' — the fat
+//   pointer's vtable half would be left uninitialised …
+//
+// Compile rc 1, no object file.
+//
+// ONE-VARIABLE CONTROL, same binary, ONE TOKEN changed: `Box` in place of `Rc`
+// (and `box_new` for `rc_new`) compiles, runs rc 0, valgrind-clean — it is the
+// pass fixture tests/logos/pass/boxdyn_borrow_arg_keeps_box_drop. So the
+// owning-kind of the trait object is the whole difference; `Box<dyn>` reaches
+// a `&dyn` parameter and `Rc<dyn>` does not.
+//
+// NOT the defect closed by boxdyn_arg_deref_borrow_kills_box_drop: measured on
+// BOTH binaries, base 19ff93338332ba46 43 and fixed 260d74a881ec778e 43, with
+// the identical message.
+//
+// Rust: legal — `&Rc<dyn Sp>` deref-coerces to `&dyn Sp`. ⚠ There is no rustc
+// binary on this box; that legality claim rests on reading.
+package rcdyn_borrow_arg_no_vtable;
+use logos.lang.rc;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn use_ref(r: &dyn Sp) -> i64 { return r.v(); }
+
+fn main() -> i32 {
+    let r: Rc<dyn Sp> = rc_new(A { x: 42i64 });
+    if use_ref(&r) != 42i64 { return 3i32; }
+    return 0i32;
+}

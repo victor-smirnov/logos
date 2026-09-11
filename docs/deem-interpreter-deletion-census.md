@@ -5766,8 +5766,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                fixtures declares tier_commit. bc_admits `# TOTAL` 86 -> 85,
 #                soundness_queue `# TOTAL` 78 -> 80 (two rows OPENED, the deref
 #                and container projections of the same defect).
-REGISTRY-ALL         9593
-REGISTRY-NOIMPORTED  5121
+# 2026-09-11b-vgleak (the borrowed-`Box<dyn>` landing). ALL +2 = the fixture PAIR
+#                tests/logos/pass/boxdyn_borrow_arg_keeps_box_drop.logos and
+#                tests/logos/fail/boxdyn_borrow_arg_keeps_box_drop.logos, both
+#                native. NOIMPORTED +2 = the same two. TIERCOMMIT unmoved: neither
+#                declares tier_commit. soundness_queue `# TOTAL` 81 -> 82 (one row
+#                CLOSED and deleted, two OPENED — both mlir-gen refusals of legal
+#                programs, measured identical on the control binary). bc_admits
+#                `# TOTAL` unchanged at 85.
+REGISTRY-ALL         9595
+REGISTRY-NOIMPORTED  5123
 REGISTRY-TIERCOMMIT  143
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

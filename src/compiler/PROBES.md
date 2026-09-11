@@ -38609,3 +38609,92 @@ why it stays installed: rule 18 — a twin instrument needs its own control twin
    loop's OWN command line, and a `grep -qE "Built target"` marker this build system
    never prints. Both burned a 600 s window. A wait condition is a claim about the box
    and needs the same check as any other.
+
+## 2026-09-11b — A BORROW OF AN OWNING `Box<dyn>` IS THE OWNER'S OWN VarRef
+
+`boxdyn_arg_deref_borrow_kills_box_drop` (tier 1, `run 1`) is CLOSED, and it was never a
+coercion defect. The row's controls said the discriminator was the ARGUMENT POSITION —
+`use_ref(&b)` deleted the drop, `let r: &dyn Sp = &b;` did not — and that reading is wrong.
+Both go through the same lowering; only one reaches a consumer that marks moves.
+
+THE LOWERING IS THE ROOT. `&b` where `b: Box<dyn Tr>` does NOT produce an AddrOf. sema_expr
+("&Box<dyn Trait> → borrowed &dyn Trait (Deref coercion)") returns `builder().var_ref("b",
+…TraitOwningKind::Borrow)` — an owning trait object and a borrowed one are the same
+`{data, vtable}` fat pair, so the borrow IS the owner's own VarRef, re-typed. Every consumer
+downstream sees a bare `VarRef("b")`. `mark_moved_expr`'s VarRef arm then asked
+`lookup_owning_dyn(nm)` — a bit on the BINDING, reachable only by NAME — and marked the
+BORROW moved. `b`'s scope-exit drop was dropped from `collect_drops`, so the payload's
+destructor never ran and the block was never freed; a later read of `b` was refused
+"use of moved variable 'b'".
+
+### THE CLASS, ENUMERATED BY PROPERTY WITH `tools/dlog` — 6 READS, 2 UNCROSS-CHECKED, 1 SITE
+
+New rule `tools/dlog/ownfact_reads.dl`, over sema.cpp + sema_expr.cpp + sema_decl.cpp +
+sema_stmt.cpp. The tree carries this ownership fact TWICE: name-keyed (`VarInfo::owning_dyn`,
+`lookup_owning_dyn`) and type-keyed (`TypeRef::owning_trait_object` / `trait_owning_kind`).
+The claim the rule checks is the tree's own idiom — a context that reads the name-keyed bit
+reads the type-keyed predicate too:
+
+    namekeyed_read   6   cond_move_flag_for sema_impl.hpp:4190 · lower_fn sema_decl.cpp:1427
+                         lower_let sema_stmt.cpp:2901 · make_drop_stmt sema.cpp:4020
+                         lookup_owning_dyn sema_impl.hpp:4817 · mark_moved_expr :4497
+    crosschecked     4   (the two writers, plus both other readers)
+    uncrosschecked   2   lookup_owning_dyn:4817 (the ACCESSOR — the definition of the
+                         name-keyed read, not a decision site) and mark_moved_expr:4497.
+
+⚠ CROSS-CHECKED PER SITE BY READING, because `ctx_of` coarsens and a context-level guard
+cannot answer a site-level question — this tool has already been wrong in that exact
+direction (37 vs 0). Read by hand: sema.cpp:4020 is
+`owning_trait_object() || (info.owning_dyn && kind()==TraitObject)`; sema_impl.hpp:4203 is
+the same expression over the PATH type; sema_impl.hpp:4497 was `lookup_owning_dyn(nm)` with
+no type test at all. **dlog 1 decision site, per-site read 1 decision site — the two numbers
+agree.** Class size is genuinely one, and that is what was enumerated to know it.
+
+### THE FIX — ONE GATE AT ONE SITE
+
+`mark_moved_expr`'s VarRef arm: a VarRef whose OWN type is `Kind::TraitObject` with
+`!owning_trait_object()` is a borrowed trait object and is never moved. All three disjuncts
+(`is_move_type`, `lookup_owning_dyn`, `callable_is_fn_once`) sit behind it, because all three
+are answering "does this expression own something" and only the type can say so here.
+
+### MEASURED, BASE `19ff93338332ba46 43` → FIXED `260d74a881ec778e 43`
+
+Defect, four positions, none of which the row named as separate:
+
+| hand program | base | fixed |
+|---|---|---|
+| free-fn `&dyn` arg, `b` re-read after       | REFUSED "use of moved variable 'b'" | rc 0, 0 b |
+| METHOD `&dyn` arg (`h.use_ref(&b)`)         | rc 1, destructor 0, **16 b lost**   | rc 0, destructor 1, 0 b |
+| dyn UPCAST at a `&dyn` arg (`Box<dyn Ext>`) | rc 1                                | rc 0, 0 b |
+| two `&dyn` args in one scope                | rc 1                                | rc 0, 0 b |
+
+The row's own program: rc 1 → rc 0, 0 bytes. The corpus member the row cited,
+`tests/spec/pass/coerce_box_dyn.logos`: **8 b definitely lost → 0**.
+
+OVER-REFUSAL CONTROLS, written for this round in shapes the row's controls did not use, all
+UNCHANGED across the fix — each still refused with the identical sentence, which is the half
+a `run`-row fix is most likely to break:
+
+  * by-value `Box<dyn Sp>` argument, source re-read — "use of moved variable 'b'"
+  * `let c: Box<dyn Sp> = b;`, source re-read — "use of moved variable 'b'"
+  * `Rc<A>` → `Rc<dyn Sp>` CoerceUnsized (R1, the 2026-09-08b landing) — "…variable 'r'"
+  * BY-VALUE dyn upcast `Box<dyn Ext>` → `Box<dyn Sp>` at a call arg (R2) — "…variable 'b'"
+  * by-value `Box<dyn>` arg with NO reuse: rc 0, exactly one destructor, valgrind-clean
+  * `&Concrete` → `&dyn` at an arg: rc 0, one destructor (the operand is not a trait object,
+    so the new gate cannot see it — the shape 2026-09-08b said self-gating already covered)
+  * `let r: &dyn Sp = &b;` and a struct-literal field `&dyn Sp` from `&b`: both were already
+    clean and stay clean.
+
+### TWO NEIGHBOURS THAT ARE **NOT** THIS DEFECT, MEASURED AND LEFT
+
+Both fail in mlir-gen on the UNMODIFIED and the fixed binary alike, so neither is caused or
+repaired here, and neither is an over-refusal:
+
+  * `&mut b` → a `&mut dyn Sp` parameter: `mlir_gen: internal: no vtable for '&dyn Sp' as
+    '&dyn Sp'`, compile fails.
+  * an `Rc<dyn Sp>` local borrowed into a `&dyn Sp` parameter: `mlir_gen: internal: no vtable
+    for 'Rc$G1$udyn_Sp' as '&dyn Sp'`, compile fails.
+
+So the `&dyn`-parameter surface is complete for `Box` and incomplete for `Rc`/`&mut` for a
+DIFFERENT reason, in a different phase. Recorded, not rowed here: the queue's oracle is a
+run, and these do not produce a binary.

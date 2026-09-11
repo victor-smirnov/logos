@@ -4494,8 +4494,14 @@ private:
             // `apply(f); apply(f);` with `F: FnOnce` compiled and ran the
             // capture's destructor TWICE on the base binary. Same rule, same
             // predicate, as the call form in lower_call.
-            if (is_move_type(vt_) || lookup_owning_dyn(nm) ||
-                callable_is_fn_once(nm, vt_))
+            // A BORROWED trait object is not an owner — PROBES.md 2026-09-11b
+            // "A BORROW OF AN OWNING `Box<dyn>` IS THE OWNER'S OWN VarRef".
+            const bool borrowed_dyn =
+                vt_ && TypeRef(vt_).kind() == LogosType::Kind::TraitObject &&
+                !TypeRef(vt_).owning_trait_object();
+            if (!borrowed_dyn &&
+                (is_move_type(vt_) || lookup_owning_dyn(nm) ||
+                 callable_is_fn_once(nm, vt_)))
                 mark_moved(nm);
             return;
         }
