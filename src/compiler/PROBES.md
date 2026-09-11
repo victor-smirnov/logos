@@ -38740,3 +38740,102 @@ unbounded mention); outside it the spec says nothing.
 **⚠ A LEAK IS SILENT BY ORACLE HERE.** All six leaking fixtures exit 42 on both arms. The
 landing must add a destructor-count pair (`close`-then-scope-exit, and scope-exit alone) or
 the corpus will not hold the fix.
+
+---
+
+## 2026-09-11 — the raw-`malloc` pass fixtures: 55 keep, 0 delete, and the port the owner asked for is BLOCKED by a layout-engine defect nobody had filed
+
+**Census first.** Queue gate rc **0** (82 rows, tier1=18 tier2=12 tier3=44 tier4=8, `# TOTAL`
+82) on `build_hash` **d10ce02056b41dc8 43**; `probe-log-lint` 271 records, every site symbol
+resolves; `bc_admits` 85, `bc_admits_blocked` 8; tree clean at `1605b7627`.
+⚠ The STEP-1 gate command **does** carry `LOGOS_LIB_DIR` in the text I was given — the
+correction four rounds recorded is landed, and this is the third round that owed a check
+rather than a repeat.
+⚠ `tools/dlog` does NOT apply to this subject and was not used: it is a clang LibTooling
+extractor over the compiler's **C++** translation units, and the class here is a set of
+`.logos` **fixtures**. Enumerating it by property means reading 57 fixture headers, which is
+what was done. Saying so is the point — the instruction is about the C++ side.
+
+**RULE 17 BIT THE HANDED-DOWN NUMBER.** The prompt says 56 fixtures and gives the add-dates
+as April·June·July·August·September. Measured by direct listing: **57** `tests/logos/pass`
+fixtures mention `malloc`, **54 of them CALL it**, and the month split is April 9 · June 22 ·
+July 4 · August 12 · September 10 — not the 6/13/4/7/10 in the prompt. The three that are in
+the grep and not in the class:
+`sizeof_generic_enum_rendered` and `sizeof_type_without_value` mention `malloc` only in a
+COMMENT explaining the bug they pin; `generic_drop_body_calling_closure_param` (2026-09-09)
+carries `extern fn malloc(n: i64) -> *mut u8;` at line 21 and **never calls it** — a dead
+declaration, the one piece of actual litter the sweep found, left in place because removing
+it is not this round's authority and it emits nothing.
+
+**THE PREMISE IS REFUTED ON ITS OWN TERMS, AND THE OWNER SAID AGE IS NOT THE CRITERION.**
+Every verdict below is by SUBJECT. Six classes:
+
+| class | n | is the raw pointer the SUBJECT? | verdict |
+|---|---|---|---|
+| A `unsafe`/cast semantics — `cast_ptr` `unsafe_block` `unsafe_fn` `unsafe_method` `ptr_is_null` | 5 | YES — the `unsafe` block and the `*mut u8` cast ARE the assertion | KEEP |
+| B custom/self-describing DST + layout — `custom_dst_*`×4, `self_describing_*`×4, `sd_dst_module_methods`, `dst_write_prefix_tail`, `layout_dst_prefix_and_offset_of`, `layout_clike_enum_backing`, `fatret_customdst_selfdescribing_thin`, `partial_spec_bound_pattern` | 14 | YES — a custom DST has no constructor but a raw block; prefix+tail is written at byte offsets into it | KEEP |
+| C tag / writ byte-level encoding — `tag_dispatch_{call,tier2,table,sibling_concrete}`, `tag_system_basic`, `datatag_typecode`, `writ_{registry_lookup,tag_two_systems,typetag,anyval,objdata_roundtrip}` | 11 | SUBSTRATE, not subject | KEEP, with the caveat written here |
+| D zoned / relative pointers / arenas — `rel_ptr_basic`, `rel_any_tagged_dispatch`, `zoned_relative_basic`, `zoned_storage_pin_acceptance`, `zone_zvec_two_zones`, `zone_mut_fat_ref`, `zone_mut_tupleidx_fat_recv`, `zone_mut_thin_source_admits{,_aggregate,_generic}` | 10 | YES — a zone IS a raw block; `#[zoned]` means "heap, not stack" | KEEP |
+| E drop / borrow-check, where the block is the DETECTOR — `bc_dropident_heap_free`, `bc_fatval_deferred_init_len`, `bcs_temp_struct_let_e0716_ok`, `cond_move_field_overlap`, `no_auto_drop_container{,_ctl}`, `drop_glue_enum_payload_after_user_drop{,_ctl}`, `drop_glue_recurses_after_user_drop{,_ctl}`, `drop_body_{conditional_move,moves_own_field}_e0507_ok` | 12 | YES, and this is the reason ten were added THIS MONTH | KEEP |
+| F self-declared ARTEFACT — `bst`, `linked_list` | 2 | NO — both headers say *"rewritten with struct + malloc after class removal"* | PORT — **and the port does not compile; see below** |
+
+**TOTALS: kept 55 · ported 0 · deleted 0.** Nothing was deleted, so nothing is owed on the
+"nothing else asserted it" column. The only two fixtures that meet the owner's own artefact
+criterion are the two that say so in their own first line, and they are ten of ten on age —
+which is exactly why age is not the criterion: the other 55 include every September addition.
+
+Class C's caveat, written down so the next sweep does not re-ask: the heap arena in the tag
+fixtures could be a local `[u8; N]` with no change to any assertion — the subject is the tag
+bit-pattern read back through a cast, not the allocation. `datatag_typecode` records its own
+reason in-file (*"Use malloc for the buffer so pointer arithmetic is reliable"*). Porting
+them is a rewrite that buys nothing and risks the re-port rule; they stay.
+Class E's load-bearing detail, likewise: the block exists so that a MISSED destructor is
+`definitely lost` and a DOUBLED one is `Invalid free` — two directions an exit code cannot
+see (`cond_move_field_overlap` states it). And `zone_mut_fat_ref`'s
+`let _spacer: *mut u8 = malloc(64i64); // intervening alloc (clobber)` is the prompt's own
+example: without it the test would pass on data that merely survived in freed memory.
+
+### THE FINDING: `Option<Box<T>>` AS A STRUCT **FIELD** SPLITS THE THIRD LAYOUT ENGINE
+
+Porting `linked_list` off `malloc` means `struct Node { val: i32, next: Option<Box<Node>> }`.
+That program compiles clean, links, and **RUNS CORRECTLY** — `run_test.sh pass` rc 0, prints
+1/2/3. Under `LOGOS_VERIFY_LAYOUT=1`, which the pass tier sets on **every** fixture
+(`tests/logos/CMakeLists.txt:1097`), the compiler **ABORTS, rc 134**:
+
+```
+[product] linked_list.Node: size — sema_abi_layout says 24, llvm::DataLayout says 16
+[product] linked_list.Node: size — layout_of says 16, sema_abi_layout says 24
+```
+
+`sema_abi_layout` gives the field 16 bytes (tagged); `layout_of` and LLVM give it 8 (the
+`Box` niche). Two engines agree with LLVM, so `sema_abi_layout` is the odd one out.
+
+**FOUR CONTROLS, ONE PER SHAPE — RULE 5, varied by shape and not by count.** All on
+`d10ce02056b41dc8`, 2026-09-11:
+
+| program | shape | disagreements | rc |
+|---|---|---|---|
+| `struct P { a: i32, b: i64 }` | baseline, no `Option` | 0 | 0 |
+| `Option<Box<i64>>` as a **LOCAL** | the shape `pass/option_box.logos` already has | 0 | 0 |
+| `Option<&'static i64>` as a struct **FIELD** | a niche through a REFERENCE | 0 | 0 |
+| `Option<Box<i64>>` as a struct **FIELD**, non-recursive | | 2 — 24 vs 16 | **134** |
+| `Option<Box<Node>>`, RECURSIVE (the linked-list port) | | 2 — 24 vs 16 | **134** |
+| two `Option<Box<Node>>` fields (the BST port) | | 2 — 40 vs 24 | **134** |
+
+The discriminator is the **FIELD POSITION**, not recursion and not niches in general: the
+reference niche IS applied in a field, the `Box` niche is not, and the delta is exactly 8
+bytes per such field. This is **DISTINCT** from the existing row `layout_verify_recursive_ref`
+(rc 139, segfault, no diagnostic, `Option<&'a Self>`) — a shape whose non-self-referential
+control here is green. Filed as **`layout_verify_optbox_struct_field`, tier 3, `refuses`**;
+queue `# TOTAL` re-derived by direct listing 82 → **83**, tier3 44 → 45, gate rc **0**.
+`refuses` and not `run` because nothing in the emitted code consumed the 24.
+
+**So `bst` and `linked_list` stay as raw-`malloc` fixtures, with the blocker filed.** They are
+artefacts and the owner is right about them; the ported form **cannot exist as a pass fixture
+today**, and deleting them to close the sweep would delete the only BST and the only linked
+list in the corpus. That is the move this tree forbids outright.
+
+**WHAT DESERVES FUNDING.** `layout_verify_optbox_struct_field` — one engine, one missing niche
+case, and a per-site read (the four controls above) that already names the exact
+discriminator. It is worth more than its own row: it is the gate on porting any fixture from
+raw pointers to `Box`, which is the direction the owner asked this whole class to move.

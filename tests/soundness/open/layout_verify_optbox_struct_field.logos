@@ -1,0 +1,53 @@
+// SOUNDNESS QUEUE row layout_verify_optbox_struct_field (tier 3). A struct with a
+// FIELD of type `Option<Box<T>>` is legal, compiles clean and RUNS correctly by hand
+// (the three-node list below prints 1/2/3, exit 0, measured 2026-09-11) — but the
+// pass tier sets LOGOS_VERIFY_LAYOUT=1 on every fixture, and under it the third
+// layout engine disagrees with the other two and the compiler ABORTS, rc 134:
+//     [product] Node: size — sema_abi_layout says 24, llvm::DataLayout says 16
+//     [product] Node: size — layout_of says 16, sema_abi_layout says 24
+// `sema_abi_layout` gives the field 16 bytes (tagged) where `layout_of` and LLVM
+// give it 8 (the Box niche); the delta is exactly 8 per such field (a two-field BST
+// node measures 40 vs 24). CONTROLS, all on build d10ce02056b41dc8, 2026-09-11:
+//   * `Option<&'static i64>` as a struct FIELD  → 0 disagreements, rc 0  (the
+//     REFERENCE niche IS applied, so this is not "niches in fields" generally)
+//   * `Option<Box<i64>>` as a LOCAL             → 0 disagreements, rc 0  (which is
+//     why the pass fixture `option_box.logos` exists and is green)
+//   * a plain `struct P { a: i32, b: i64 }`     → 0 disagreements, rc 0  (baseline)
+//   * the same field made RECURSIVE             → identical 24-vs-16; recursion is
+//     NOT the discriminator, the FIELD position is.
+// DISTINCT from `layout_verify_recursive_ref`, which is rc 139 (segfault, no
+// diagnostic) on `Option<&'a Self>` — a shape this row's own control shows is FINE
+// when it is not self-referential. Two engines agree with LLVM, so `sema_abi_layout`
+// is the odd one out; nothing in the emitted code consumed its 24 here, hence
+// `refuses` and not `run`.
+// WHY IT MATTERS BEYOND THE VERIFIER: this is the wall that blocks porting the two
+// self-declared artefact fixtures `tests/logos/pass/bst.logos` and
+// `tests/logos/pass/linked_list.logos` ("rewritten with struct + malloc after class
+// removal") off raw `malloc` and onto `Box` — the ported form cannot exist as a pass
+// fixture today (2026-09-11 raw-malloc triage round).
+package layout_verify_optbox_struct_field;
+use logos.lang.option;
+use logos.mem.boxed;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+struct Node {
+    val:  i32,
+    next: Option<Box<Node>>,
+}
+
+fn main() -> i32 {
+    let n3: Box<Node> = box_new(Node { val: 3i32, next: Option::None });
+    let n2: Box<Node> = box_new(Node { val: 2i32, next: Option::Some(n3) });
+    let n1: Box<Node> = box_new(Node { val: 1i32, next: Option::Some(n2) });
+
+    let mut cur: &Node = &*n1;
+    loop {
+        printi("%d\n", cur.val);
+        match &cur.next {
+            Option::Some(nx) => { cur = &**nx; }
+            Option::None     => { break; }
+        }
+    }
+    return 0i32;
+}
