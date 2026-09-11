@@ -128,27 +128,87 @@ closure_move_of_refmut_local_over_refusal  defect  1  round 2026-09-08 (stage 7 
     # no stage1 under /home/logos/cxx/rust). To make it a row: run these two programs
     # through a real rustc; if rustc accepts them this is a tier-3 `refuses` row for
     # soundness_queue.ledger, and an over-refusal is the most expensive kind here.
-vg_leak_records            sweep     87  sandbox/vg-round2/{leaks.tsv,recs2.pkl}
-    # 2026-09-08 RE-MEASURED on build 8e5f92705b285d29 43 with the per-fixture CMake
-    # flags the first sweep dropped. 87 of the 90 still leak (old-closure-explicit-types,
-    # issue-19367-b170 and rfc2229_move_disjoint_field are now CLEAN — fixed since the
-    # vgfix build, which no longer exists). THE GROUPING THE ENTRY ASKED FOR, over 270
-    # loss records / 90 fixtures, 202 of them stdlib-allocated:
-    #     39  distinct IMMEDIATE allocation sites   <- the coarsest honest row unit
-    #     75  distinct (site, caller) pairs
-    #    110  distinct full allocation stacks
-    # So 90 hits is AT MOST 39 rows, not 90. The largest class is `vec$vec_new` reached
-    # from the fixture's own `mk` — 141 records over 32 fixtures — and ONE root inside it
-    # is now proven and rowed (soundness_queue `replace_site_skips_field_drop_glue`): the
-    # field drop glue is emitted only for a top-level local at scope exit, never at an
-    # assignment/replace site nor through a struct field. HOW MANY OF THE 32 THAT ROOT
-    # ACCOUNTS FOR IS NOT MEASURED and must not be claimed. ⚠ Two negative controls that
-    # cost this round real time: a plain `struct{Vec} + impl Drop` local does NOT leak,
-    # and a `Vec<T>` ELEMENT with a user Drop does NOT leak — so neither "user drop
-    # replaces glue" nor "container element glue" is the shape. What remains unattributed:
-    # 28 records allocated in `main`, 14 in `String__grow`, 8 in `buf_reader_wrap`, and
-    # ~15 one-fixture sites in writ/fabric/zvec arenas that may well be deliberate.
-
+vg_leak_records            sweep     20  sandbox/vg-round3/{leaks.tsv,recs3.pkl}
+    # 2026-09-11 RE-SWEPT WHOLE on build 19ff93338332ba46 43, same 93 fixtures, same
+    # per-fixture CMake ENVIRONMENT. ⚠ THE 09-08 DATA IS DEAD AND MUST NOT BE INHERITED:
+    #   09-08  87 LEAK   3 OK   3 CORRUPT   270 recs  39 sites  75 pairs  110 stacks
+    #   09-11  57 LEAK  34 OK   2 CORRUPT   137 recs  36 sites  42 pairs   53 stacks
+    # 30 fixtures went LEAK -> OK and NONE went the other way (diffed both ways). The
+    # entry's own headline root `replace_site_skips_field_drop_glue` IS NOT OPEN — it was
+    # closed by 1979d72f4 — and the question this entry said must not be claimed is now
+    # MEASURED: of the 32 fixtures in the `vec$vec_new`-from-`mk` class, 30 are clean
+    # (all 11 `cond_move_*`, all 7 `dupown_*`, all 11 `rawdup_*`, `no_auto_drop_sibling_ctl`)
+    # and 3 remain, 2 of them for reasons that are not that root at all.
+    #
+    # ATTRIBUTED AND CLOSED — 72 of the 137 records are NOT DEFECTS, with the evidence:
+    #   26 recs / 18 fixtures  bare `malloc` in the fixture's own `unsafe fn main()`
+    #                          (zone_mut_*, zoned_relative, rel_ptr, dst/layout probes);
+    #                          zone_mut_fat_ref even names one `_spacer` "intervening
+    #                          alloc (clobber)". Raw-pointer tests, freed by process exit.
+    #   29 recs /  5 fixtures  fixture-local `unsafe fn` allocators never freed:
+    #                          layout_dst_prefix_and_offset_of$zeroed, layout_clike_enum_
+    #                          backing$zeroed, fs_meta$cstr, process_lines$cstr,
+    #                          bst$new_node. fs_meta's own comment says "Leak the buffer
+    #                          for the lifetime of this call (test-only convenience)".
+    #   13 recs /  1 fixture   no_auto_drop_sibling: `#[no_auto_drop]` is a SUPPRESSION and
+    #                          13 is EXACTLY its 13 suppressed values. Its `_ctl` sibling,
+    #                          the same shapes without the attribute, is now CLEAN — the
+    #                          control holds in both directions.
+    #    3 recs /  2 fixtures  arenas: relany$arena_new and zvec$arena_new, 4096 b each,
+    #                          plus one indirect zvec.Heap__z_alloc inside the second.
+    #    1 rec  /  1 fixture   box_into_raw: `box_leak` — "never freed", by design.
+    #
+    # ATTRIBUTED TO ROWS THAT ALREADY EXIST — 14 more records, no new row owed:
+    #   11 recs / 3 fixtures   soundness_queue `operator_autoref_temp_never_dropped`.
+    #                          RE-VERIFIED today by hand: `s == String::from("hej")` loses
+    #                          8 b while the by-value argument and the method receiver are
+    #                          CLEAN. wql_el_cmp_measured's `m_string` compares SIX pairs
+    #                          of `k_string(..)` temporaries with `==` (8 recs);
+    #                          string_eq_empty has one; field-replace-in-struct-with-drop-
+    #                          b154, which that row's header already names, has two.
+    #    3 recs / 3 fixtures   soundness_queue `weak_local_never_dropped`, which already
+    #                          names all three (arc_weak_upgrade, rc_weak_upgrade,
+    #                          rc_weak_dangling). One-variable control re-run today:
+    #                          `Rc` alone CLEAN, `r.clone()` CLEAN, `r.downgrade()` 12 b.
+    #
+    # ROWED THIS ROUND — 1 record, tier 1: soundness_queue
+    # `boxdyn_arg_deref_borrow_kills_box_drop` (tests/spec/pass/coerce_box_dyn.logos).
+    #
+    # WHAT IS LEFT — 50 records, and the ONE thing each needs to become a row:
+    #    9 recs / 7 fixtures   `buf_reader_wrap` / `buf_writer_wrap`. THIS IS A STDLIB
+    #                          QUESTION WITH AN OWNER, NOT A COMPILER DEFECT: `BufReader`
+    #                          and `BufWriter` hold a raw `alloc(cap)` and stdlib/std/io/
+    #                          buffered/buffered.logos declares NO `impl Drop` for either
+    #                          — the doc comment says "Call `close` to free the buffer".
+    #                          The seven fixtures never call it. Rust's BufReader frees on
+    #                          drop, so under the standing Rust rule the stdlib is wrong;
+    #                          but adding `impl Drop` to two public types is a corpus/API
+    #                          decision. NEEDS: the owner's yes, then it is one stdlib fix.
+    #   19 recs / 8 fixtures   writ/fabric/dview stores — DView__new_store (5/5),
+    #                          DViewStore__storage_push (5/4), PrimVec push/insert_at
+    #                          (4/3), WritStringStorage__storage_push (2/1), WAny and i64
+    #                          __store_push (2/2), writ_new (1/1). NEEDS: read each store's
+    #                          lifetime contract; these are arena-shaped and an arena freed
+    #                          at process exit is not a leak, but nothing says so yet.
+    #   12 recs / 1 fixture    deem_incr_static_retract_e2e — 7 vec_new from
+    #                          `iq_incremental`, 4 indirect hashmap_with_capacity under
+    #                          `iq_apply`, 1 tuple-element Vec. NEEDS: one reduction; it is
+    #                          the only member of the old `vec_new`-from-`mk` class whose
+    #                          caller is not a `mk`.
+    #   10 recs / 9 fixtures   singles with no group yet: cross_pkg_dual_box_layout and
+    #                          mono_6 (`box_new` + `String::from` in main — ⚠ eight hand
+    #                          programs putting a String/Box/Vec local in `main`, in a
+    #                          callee, in a block, in a struct, in a plain and an `unsafe`
+    #                          main, and returned from a factory, are ALL CLEAN, so "a heap
+    #                          owner in main is not dropped" is REFUTED and must not be
+    #                          re-proposed), recursion-tail-call-no-arg-leak
+    #                          (`str__to_string`), deem_btreemap_source (btreemap_new x2),
+    #                          generic_chain_write_through_ptr (a fixture-local `test_rc_new`
+    #                          x2), derive_branch_node_shuttle (3), podref_buffer (1),
+    #                          ptr_drop_in_place_recurses (1).
+    #
+    # ⚠ THE 2 CORRUPT FIXTURES ARE NOT IN THIS ENTRY: custom_dst_smartptr_owning_drop has
+    # its own entry below, and bc_objlt_str_literal has none yet.
 
 custom_dst_smartptr_owning_drop_uaf valgrind 2 tests/logos/pass/custom_dst_smartptr_owning_drop
     # 2026-09-08. THE FIXTURE IS PINNED GREEN OVER A USE-AFTER-FREE. `exit: 42` holds on
