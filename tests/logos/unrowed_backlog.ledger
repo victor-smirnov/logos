@@ -176,30 +176,6 @@ vg_leak_records            sweep     87  sandbox/vg-round2/{leaks.tsv,recs2.pkl}
     # 28 records allocated in `main`, 14 in `String__grow`, 8 in `buf_reader_wrap`, and
     # ~15 one-fixture sites in writ/fabric/zvec arenas that may well be deliberate.
 
-run_oracle_c90_population_hole  defect  20  scripts/run_oracle.py, measured 2026-09-08c
-    # THE RUNTIME ORACLE'S RUN POPULATION IS 6533, NOT 6553, AND ITS SILENCE ABOUT THE
-    # OTHER 20 HAS BEEN READ AS COVERAGE. `run_oracle.py:65` sets ccrc=90 ("exited 0
-    # after self-diagnosing", the 14th bug kind) when logosc exits 0 AND stderr matches
-    # `^(mlir_gen|sema|mono): ` — and then `if cc != 0: return` NEVER LINKS AND NEVER
-    # RUNS the program. The regex does not exclude `warning:`. Re-run by hand on all 20
-    # sources (WITHOUT run_oracle's per-fixture flags and env): 16 of them match only on
-    # a `warning:` line (e.g. hrtb-double-quantifier prints "mlir_gen: warning: no MLIR
-    # type for TypeVar 'X'") and compile rc 0 — instrument false positives, and 16
-    # programs the runtime column has never executed.
-    # ⚠ THE OTHER 4 ARE NOT EXPLAINED AND ARE THE MEASUREMENT THIS ENTRY OWES:
-    #   imported/pass/match/issue-41888-b170            mlir_gen: internal: unknown tagged enum 'Result__void__<error>'
-    #   imported/pass/match/nested-tuple-in-variant-payload-b170  same, 'Result__(i64, (i64, i64))__<error>'
-    #   imported/pass/option-result/res-and-or-comb-or  same, 'Result__i32__F'
-    #   spec/pass/intrinsic_2                           mlir_gen: internal: unsupported cast: no lowering from 'i32' to metaprog Type array
-    # BY HAND ALL FOUR EXIT rc 1 — an honest refusal, NOT the 14th kind. But ccrc=90 is
-    # only reachable when rc IS 0, so under run_oracle's own invocation (cwd=build,
-    # per-fixture `extra` flags and env from the cmake registry) they exited 0 WITH that
-    # line. THE MEASUREMENT: reproduce all four under run_oracle's exact argv/env/cwd and
-    # say whether the exit code really differs. If it does, the 14th kind — recorded
-    # CLOSED 2026-08-22 by `0f4083f7` — has four live instances and each is a tier-1 row.
-    # If it does not, the entry is 20 instrument false positives and closes at zero.
-    # ⚠ TOOLING IS FROZEN: this entry records the hole, it does not authorise fixing the
-    # regex. Do not "fix" run_oracle to make the number go away.
 
 custom_dst_smartptr_owning_drop_uaf valgrind 2 tests/logos/pass/custom_dst_smartptr_owning_drop
     # 2026-09-08. THE FIXTURE IS PINNED GREEN OVER A USE-AFTER-FREE. `exit: 42` holds on
@@ -279,4 +255,4 @@ dyn_vtable_bare_key_miscompile  defect     2  src/compiler/mlir_gen_dyn.cpp:962,
     # bucket on 09-10g's own probe (do the two registrations' `concrete_struct_name`
     # differ?) and has NOT been run. See PROBES.md 2026-09-11 §5.
 
-# TOTAL 18
+# TOTAL 17

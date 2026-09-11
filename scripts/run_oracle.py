@@ -61,7 +61,20 @@ def one(row):
         p = subprocess.run([os.path.join(BUILD, "bin", "logosc"), src, "-o", d + "/f.o"] + extra,
                            capture_output=True, text=True, env=e, cwd=BUILD, timeout=300)
         cc = p.returncode
-        if cc == 0 and re.search(r'^(mlir_gen|sema|mono): ', p.stderr + p.stdout, re.M):
+        # ⚠ `warning:` IS NOT A SELF-DIAGNOSED MALFUNCTION, AND CONFLATING THE TWO
+        # COST THIS COLUMN 20 PROGRAMS. `cc = 90` exists because of the 14th gate
+        # lie — the compiler printed `mlir_gen:`, WROTE THE OBJECT and exited 0 —
+        # and everything below `if cc != 0` never links and never RUNS. But the
+        # compiler prints eight distinct `<stage>: warning:` forms, more than any
+        # other shape, so a program that merely warns was filed as malfunctioning
+        # and silently left out of the run population. Measured 2026-09-11:
+        # 6660 rows, 20 of them c90, 16 matching only on a `warning:` line while
+        # compiling rc 0 — and the column's silence about them had been read as
+        # coverage for the whole arc. Narrowed to exclude `warning:` only; every
+        # other spelling (`internal:`, `unsupported`, `module verification
+        # failed`, `note`, …) still counts as a malfunction.
+        if cc == 0 and re.search(r'^(mlir_gen|sema|mono): (?!warning:)',
+                                 p.stderr + p.stdout, re.M):
             cc = 90          # exited 0 after self-diagnosing
         if cc != 0:
             return (name, cc, "-", "-")
