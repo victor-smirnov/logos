@@ -2034,3 +2034,43 @@ regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-boun
 # sites into arrivals; (3) then the diagnostic rewritten to blame the SHARED side, as
 # E0502 does, since a row closed by a wrong sentence is not closed. Steps 2 and 3 are
 # cheap and already understood. Step 1 is not mine.
+#
+# ── 2026-09-11 — `lifereg.NEW-E0207` PRICED FOR THE FIRST TIME: 3 / 0 / 0 of ──
+#    1478 / 4 of 4 / 0 of 6646, AND THE ONE THING THAT BLOCKS IT IS THE SENTENCE
+#
+# NO ROW MOVED AND NO COMPILER SOURCE IS CHANGED — the probe was installed,
+# measured and REVERTED, and the revert is asserted by behaviour as well as by a
+# re-read build hash. `# TOTAL` stays 90.
+#
+# Three rows, ONE construct: `-5` and `-6` are byte-identical in the program body
+# and `-1` differs in ONE token (`&S` vs `&'_ S`). The grouping was TESTED, not
+# assumed — one candidate change moves all three, and it did.
+#
+# THE NARROW ARM IS RUSTC'S OWN RULE: an impl lifetime binder constrained by
+# neither the self type nor the trait args, AND named by an ASSOCIATED TYPE.
+# ceiling 3 (exactly these three rows, predicted by name, both differences empty),
+# cost 0 on pass+ledger, 0 of 1478 fail-text, all four stdlib layers, and 0 of 6646
+# at RUN time (the single differing row is `cast-region-to-uint`, the named
+# stack-address exclusion).
+#
+# THE CRUDE ARM IS DECLINED AND ITS EXTRA ROW IS NOT A ROW. `e0207unc` (any
+# unconstrained binder) closes a fourth, `trait-associated-constant` — but
+# upstream's .stderr for it, READ on the box, is **E0308 "const not compatible
+# with trait"**, not E0207: rustc builds its `lifetimes_in_associated_types` set
+# from associated TYPES, not consts. Honest ceiling 3 at cost 1
+# (`tests/logos/pass/bc_mcallvar_legal_twins`, a binder used only in a METHOD
+# SIGNATURE — legal Rust). Strictly worse than the narrow arm on both columns.
+#
+# ⚠ THE PREDICATE IS TWO DOORS IN SERIES AND THE SECOND HAS NO CARRIER.
+# `sema_decl.cpp` ~2971 DISCARDS a lifetime at a trait-argument position by
+# design — "L1: skip LIFETIME_PARAM at trait-arg position; Logos doesn't track
+# regions structurally for trait dispatch". Measured: without carrying it, BOTH
+# arms refuse the legal `impl<'a> Tr<'a> for W`. Any lifereg root that needs to
+# know which binders a trait ref constrains is blocked on the same missing fact.
+#
+# ⚠ WHAT BLOCKS THE LANDING IS THE DIAGNOSTIC, NOT THE PREDICATE. The refusal
+# prints at line 557 of a 40-line file and blames `fn iter_partition_vec`, a
+# STDLIB function: no loc is plumbed at that site. A row closed by a diagnostic
+# naming another package's function is not closed. Fix the loc (and the `''a'`
+# double-quoting) and this block is three rows for one arm.
+# Full numbers: src/compiler/PROBES.md 2026-09-11a-e0207.

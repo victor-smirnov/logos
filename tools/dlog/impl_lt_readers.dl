@@ -1,0 +1,36 @@
+// impl_lt_readers — WHICH NAMED CONTEXTS READ THE IMPL HEADER'S LIFETIME
+// BINDERS, AND WHICH OF THOSE CAN REFUSE.
+//
+// The E0207 question is "is this binder constrained", and the first thing to
+// know is HOW MANY LAYERS already hold the binders — a grep on
+// `current_impl_lifetime_params_` answers "how many textual hits", which is not
+// the same set: a hit inside a lambda is attributed to nothing, and a hit in a
+// save/restore pair is not a READ of the fact at all.
+//
+// ⚠ ctx_of COARSENS, and this question is deliberately CONTEXT-level: "which
+// function reads it" is exactly a context-level question, so the coarsening is
+// the right granularity here and not the defect it was in the 37-vs-0 round.
+// The per-site cross-check is the grep printed beside it in the round record.
+#include "cxx_schema.dl"
+
+.decl implt_read(ctx: symbol, file: symbol, line: number)
+.output implt_read
+implt_read(CN, F, L) :-
+    ref(U, D), decl_name(D, "current_impl_lifetime_params_"),
+    ctx_of(U, C), ctx_name(C, CN), loc(U, F, L, _).
+
+// A context that reads the binders AND can emit a diagnostic: the only places
+// an E0207 rule could live without a new carrier.
+.decl implt_reader_can_refuse(ctx: symbol)
+.output implt_reader_can_refuse
+implt_reader_can_refuse(CN) :-
+    implt_read(CN, _, _),
+    call(CA, CE), decl_name(CE, "error"), ctx_of(CA, C2), ctx_name(C2, CN).
+
+// The TRAIT-ARG lifetime drop site, by property rather than by comment text:
+// a context that reads the binders and also mentions LIFETIME_PARAM.
+.decl implt_reader_sees_ltparam(ctx: symbol)
+.output implt_reader_sees_ltparam
+implt_reader_sees_ltparam(CN) :-
+    implt_read(CN, _, _),
+    ref(U2, D2), decl_name(D2, "LIFETIME_PARAM"), ctx_of(U2, C3), ctx_name(C3, CN).

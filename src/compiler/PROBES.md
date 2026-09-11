@@ -37778,3 +37778,124 @@ rather than fixed quietly.
         discarded, not reported. The load-profile table says two saturating jobs
         never overlap; it does not say the obvious corollary, which is that a
         BUILD must not overlap a measurement that reads the thing being built.
+
+## 2026-09-11a-e0207 — THE E0207 PREDICATE IS TWO DOORS IN SERIES AND THE TRAIT-ARG DOOR HAS NO CARRIER AT ALL; THE NARROW ARM PRICES 3/0/0/0 AND IS STILL BLOCKED BY ITS OWN BLAME HEADER
+
+site: src/compiler/sema_decl.cpp::lower_impl_block
+build: base 03d9290a7ee96c2a 43 (READ) -> armed d369bf71c1cf4e7e 43 (READ). Tree restored,
+base binary rebuilt and its hash re-read as the SAME value **and the revert asserted by
+BEHAVIOUR as well** (`build_hash.py` identifies a BUILD, not a source state): both probe
+names inert, `LOGOS_DUMP_E0207` emits zero lines, the three rows admit again.
+Full round record in `src/compiler/probes/2026-09-11a-e0207/` (TARGETS.md written before the
+compiler was touched, PREDICTION.md before the armed binary existed, RESULT.md after).
+
+TARGET: `lifereg.NEW-E0207`, three rows — `missing-lifetime-in-assoc-type-1 / -5 / -6`.
+Chosen because it is the ledger's largest root that has NEVER been probed, and because the
+"never surveyed" claim was checked by PROPERTY and not by a name grep: `bck.NEW-CAPMOVE`
+looked equally untouched (one PROBES.md hit) and its site already carries five installed
+arms (`capmove` ceiling 2 / cost 3 ⛔, `capmoveloan` ceiling 1 / cost 0, `capmovety`,
+`capmovedrop`, `capmoveref`). A ROOT NAME IS NOT A SITE. `*.NEW-CESC` is worked (09-09i/j),
+`bck.D`+`nllmoves.D` carries the file's own 09-08 decline, and `argresvact` is blocked on
+the owner by this prompt.
+
+fires: e0207assoc 7 · e0207unc 5 (each impl header is lowered twice).
+
+    probe        ceiling  cost  cfail       stdlib          runtime
+    e0207assoc         3     0  0 of 1478   4 of 4 (empty)  0 of 6646
+    e0207unc           4     1  0 of 1478   4 of 4 (empty)  not run — declined on cost
+
+RUNTIME COLUMN, MEASURED, not skipped: `run_oracle.py` base vs `LOGOS_PROBE=e0207assoc`,
+6646 pass fixtures compiled + linked + RUN on ONE build, joined both ways with no fixture
+missing from either side. **ONE row differs and it is `cast-region-to-uint`**, the named
+exclusion that prints a stack address. Runtime cost 0.
+
+### THE CENSUS REFUTED MY OWN PREDICATE TWICE BEFORE ANY CORPUS COLUMN EXISTED
+
+1. `target_resolved` is NULL for every NAMED self type — it is set only on the REF_TYPE /
+   GENERIC_INST / TUPLE_TYPE branches. `LOGOS_DUMP_E0207` on the first armed build read
+   `selfty=0` on seven of ten hand programs and `selfty=1` only on the `&S` shapes, i.e.
+   only on the three target rows. A zero read there is an unreached site, not a cost.
+2. **A LIFETIME AT A TRAIT-ARGUMENT POSITION IS DROPPED, BY DESIGN, WITH A COMMENT SAYING
+   SO** — `sema_decl.cpp` ~2971, *"L1: skip LIFETIME_PARAM at trait-arg position; Logos
+   doesn't track regions structurally for trait dispatch"*. The name is checked for being
+   declared and then discarded, so `current_impl_trait_args_` cannot carry it. On the
+   second armed build `impl<'a> Tr<'a> for W` and the `'b` of `impl<'a,'b> Tr2<'b> for
+   W<'a>` both arrived as "unconstrained": two LEGAL impls both arms would have refused.
+   **The E0207 rule is two doors in SERIES and only one of them has a carrier** (rule 2).
+   The third build reads the LIFETIME_PARAM names back off the AST; a landing must decide
+   whether to keep that local or restore the fact at the collection loop.
+
+### SETS, DIFFED BOTH WAYS AGAINST A PREDICTION WRITTEN BEFORE THE BINARY
+
+`e0207assoc` closed {-1, -5, -6}; predicted the same three; both differences empty.
+`e0207unc` closed those three PLUS `bc_admit_nll_trait-associated-constant` and cost
+`pass_bc_mcallvar_legal_twins` — both predicted by name.
+⚠ **THE FOURTH IS NOT A CLOSED ROW.** Upstream's `tests/ui/nll/trait-associated-constant.stderr`,
+READ on the box, is `error[E0308]: const not compatible with trait`, NOT E0207: rustc builds
+`lifetimes_in_associated_types` from associated TYPES, so an assoc CONST naming an
+unconstrained binder is a different error. `e0207unc`'s honest ceiling is 3 at cost 1, which
+is strictly worse than `e0207assoc`'s 3 at 0. The crude arm is DECLINED.
+⚠ And the textual census over-counted in exactly the way PREDICTION.md said it might: the
+two `'static`-in-a-type-param-bound "binders" (`bc_ltbndenv_legal_shapes:57`,
+`bc_objlt_impl_bound:6`) never reach the site — the probe reads LIFETIME_PARAM nodes.
+Population 7 -> 5, and the compiler was right where the grep was wrong.
+
+### RULE 5 — TEN HAND PROGRAMS, THE SHAPE VARIED, AND TWO OF THEM CARRY THE WHOLE VERDICT
+Six legal shapes admitted by both arms (trait-arg binder, self-type binder, inherent impl,
+the `&'a S` FIX for the target rows, two binders one per door, a `Drop` impl). Two legal
+shapes ADMITTED by `e0207assoc` and REFUSED by `e0207unc` — a binder used only in a METHOD
+SIGNATURE, and a binder used only in an ASSOC CONST. Two illegal, both refused, and the
+two-binder one refuses `'b` only. The arms are identical in every harness column except one
+row and separate only on those two hand programs: rule 9 in its purest form.
+
+### STDLIB 4-of-4 IS A STRUCTURAL ZERO AND IS LABELLED AS ONE
+`grep -rnE "^ *impl<[^>]*'" --include=*.logos stdlib` = **0**. The stdlib declares no impl
+with a lifetime binder, so the site is unreachable there and the green column is not
+evidence about the arm (rule 1, stated in the honest direction).
+
+### WHAT BLOCKS THE LANDING IS THE DIAGNOSTIC, NOT THE PREDICATE
+    missing-lifetime-in-assoc-type-1.logos:557: error [fn iter_partition_vec]:
+      impl: the lifetime parameter ''a' is not constrained by the impl trait,
+      self type, or predicates (E0207)
+The file is 40 lines and `iter_partition_vec` is a STDLIB function: no loc is plumbed at
+this site, so the blame header names whatever was lowered last. Same shape as the standing
+soundness_queue row `e0184_blame_header_names_unrelated_impl`. A row closed by a diagnostic
+pointing at another package's function is not closed.
+
+### FUND NEXT — three rows for one arm, once two cheap things are true
+(1) the impl node's own loc at the refusal, and the `''a'` double-quoting fixed;
+(2) a decision on the trait-arg carrier: read LIFETIME_PARAM at the E0207 site (local,
+what the probe did) or stop discarding it at the collection loop (general, and it is the
+fact `lifereg` roots keep wanting). The predicate itself is measured and the numbers are
+3 / 0 / 0 of 1478 / 4 of 4 / 0 of 6646.
+
+### DLOG — A NEW RULE, DECLARED, WITH ITS CONTROL AND ITS PER-SITE CROSS-CHECK
+`tools/dlog/selftest.sh` run FIRST: PASSES, same known answer (19 walkers / 24 findings /
+try_path 1-5 / domain 42-5; duty discriminates 1 -> 0 across `756aed65`).
+New question `tools/dlog/impl_lt_readers.dl` — which named contexts reference the impl
+lifetime binders, which of those can `error`, which also mention LIFETIME_PARAM:
+  implt_read  11 sites / FOUR contexts: lower_impl_block (2532,2533,2557,2976,3179,3235),
+              lower_fn (1044,1513), compute_fn_lifetime_outlives (448,576), read_impl_lts (2545)
+  can_refuse  lower_fn · compute_fn_lifetime_outlives · lower_impl_block
+CROSS-CHECK, the two numbers side by side: `grep -n current_impl_lifetime_params_
+src/compiler/sema_decl.cpp` = 11 hits; dlog = 11 reference sites. They agree term for term.
+What dlog adds is the ATTRIBUTION a grep cannot give — three of `lower_impl_block`'s six
+hits are the save/clear/restore triple and are not reads of the fact, and 2545 is inside the
+`read_impl_lts` lambda, a producer. The reader class is THREE contexts, exactly one of which
+also holds the self type and the trait-arg node. The arm's placement is not a choice.
+⚠ `ctx_of` coarsens; this question is deliberately CONTEXT-level, which is the granularity it
+answers correctly, and not the site-level question that produced the 37-vs-0 divergence.
+
+### TOOL CORRECTION, MEASURED — `scripts/run_oracle.py` TAKES ITS OUTPUT PATH AS `argv[1]`
+Driven with a `>` redirect it produces a table of the wrong provenance. A first attempt's
+join showed **19+ fixtures damaged**, drop-count programs with changed stdout SHAs and
+`ccrc 1`. A per-site read of the first of them, `tests/logos/pass/destruct_field_nested_owned.logos`,
+compiled **rc 0 armed and rc 0 unarmed**. The table was a broken channel, not a measurement
+(rule 11); the per-site cross-check is what caught it, exactly as this prompt orders for a
+dlog verdict. Re-run with the argument, both passes, on ONE build — 6646 vs 6646.
+
+### POST-ROUND TOOL-USE CHECK
+`git diff --stat src/compiler include` after the revert = EMPTY; no probe and no prose
+landed in a compiled source. The round's prose is here and in
+`src/compiler/probes/2026-09-11a-e0207/`. No ledger row moved: `bc_admits.ledger`
+`# TOTAL` stays 90, `bc_admits_blocked.ledger` 8, `soundness_queue.ledger` 77.
