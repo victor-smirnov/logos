@@ -1,0 +1,24 @@
+TARGET ROWS — written BEFORE any compiler edit (none were made this round).
+Chosen because the full-sweep inventory puts all three inside ONE mechanism:
+an entity decided by a bare name where the qualifying fact exists but is not
+carried to the site. Not a grouping by symptom — by the FACT that is missing.
+
+1. homonym_field_drop_glue_segv            tier 1  run 139
+   inventory: R2 lit_arg `resolve_method_symbol(_, "drop", pkg)` at
+   mlir_gen_stmt.cpp:1319 and :1366 — both reached from a `__drop` SUBSTRING
+   search on a mangled name, with NO trait-identity fact. The one repaired
+   door (mlir_gen_impl.hpp:635 resolve_drop_symbol) gates on
+   `identity_trait() != kDropLangItem` FIRST; these two do not.
+
+2. localvec_mangled_collision_listcomp_internal   tier 3  refuses
+   inventory: R3 name_concat — the mangling plane, 171 sites, `__drop` x4,
+   `__Drop__drop` x2. mono's symbol stem is built by concatenation from a bare
+   struct name, which is why both `Vec`s mangle to `Vec$G1$i64`.
+
+3. stdlib_drop_uninhabited_enum_byvalue_consumer  tier 3  refuses
+   same drop-glue plane; priced against 1 to test whether ONE change moves both.
+
+NOT chosen: the 37 DECISION-registry subscript rows (R4). Two of the largest
+(mono.cpp:509/510, mono_clone.cpp:6874/6875/6901/6902) carry a comment saying
+the bare key is a DELIBERATE last-wins back-compat alias. Changing those is a
+corpus/owner decision, not a pricing question.

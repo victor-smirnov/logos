@@ -1,0 +1,18 @@
+# resolver.claim — THE CLAIM, OUT OF THE EXTRACTOR AND OUT OF THE RULE.
+#
+# A regex over a CALLEE's bare name that says "this callee RESOLVES an entity
+# from what it is handed". One pattern per line. The rule checks the domain
+# against this list; it does not contain it. Adding a spelling here is a claim
+# with an author, which is the point — the first extractor knew about walkers.
+#
+# Derived by reading the four commits of the June-July hand sweep (5bd2724c0,
+# 5e9203add, 50a5cffd4, 8c10eb4e9) plus 060ef3736 / 1daeffa5b, which the
+# handed-down list of four does not contain.
+.*by_name.*
+.*lookup.*
+.*resolve.*
+^find_.*
+.*_symbol$
+.*mangle.*
+.*link_name.*
+.*qualif.*

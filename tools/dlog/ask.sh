@@ -167,8 +167,13 @@ if [ ! -d "$OUT" ]; then
     NODES=$(wc -l < "$OUT/node.facts")
     [ "$NODES" -ge 1000 ] || { echo "ask: only $NODES nodes across ${#SRCS[@]} TUs — refusing"; exit 3; }
     cp "$ROOT"/tools/dlog/*.dl "$OUT/"
-    grep -vE '^\s*(#|$)' "$ROOT/tools/dlog/not_projection.claim" > "$OUT/not_projection.facts"
-        grep -vE '^\s*(#|$)' "$ROOT/tools/dlog/duty.claim" | tr -s ' ' '\t' > "$OUT/duty.facts"
+    # â  EVERY CLAIM, NOT TWO NAMED ONES. This was a literal list of two
+    # `.claim` files, and adding a third (`resolver.claim`) failed with "Cannot
+    # open fact file" â an enumeration inside the tool built to catch
+    # enumerations, for the fifth time in this directory. Take whatever is there.
+    for c in "$ROOT"/tools/dlog/*.claim; do
+        grep -vE '^\s*(#|$)' "$c" | tr -s ' ' '\t' > "$OUT/$(basename "$c" .claim).facts"
+    done
     (cd "$OUT" && souffle -F. -D. -I. "$Q" >"$OUT/souffle.log" 2>&1) || {
         echo "ask: souffle failed"; sed 's/^/  /' "$OUT/souffle.log" | head -20
         rm -rf "$OUT"; exit 2; }

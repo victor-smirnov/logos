@@ -51,8 +51,17 @@ other_side(C, X) :- operand(C, X), !lit_side(C, X, _).
 // The lint's own derivation: a call whose callee name ends in `name`, or is
 // `type_str`. It is a shape over the tree's own declarations, not an
 // enumeration — a new `enum_name()` accessor joins without an edit here.
+// ⚠ `.*name` (SUFFIX) WAS TOO NARROW, AND THE PER-SITE READ PROVED IT.
+// The full 37-TU sweep against the regex left three sites the regex found and
+// this rule did not: `sname_buf == "Self"` (sema_expr.cpp:11490) and
+// `ename_buf == "Self"` (13724, 13871). A buffer holding a struct/enum NAME is
+// an entity-name holder by every reading except the one this pattern used, and
+// the suffix anchor is the same premature closure the directory exists to
+// catch — an enumeration wearing a regex. Widened to CONTAINS, with the
+// arithmetic recorded: `==` 346 -> 353, `!=` 37 -> 37 over the full sweep, and
+// all three known sites now present.
 .decl name_producer(did: symbol, name: symbol)
-name_producer(D, N) :- decl_name(D, N), match(".*name", N).
+name_producer(D, N) :- decl_name(D, N), match(".*name.*", N).
 name_producer(D, N) :- decl_name(D, N), N = "type_str".
 
 // The other side IS a call to one of those.
@@ -64,7 +73,7 @@ produced_name(C, Nm) :- other_side(C, X), sub(X, I, _), call(I, D), name_produce
 // filled. Same shape, applied to the declaration instead of the callee.
 .decl named_ref(c: symbol, var: symbol)
 named_ref(C, Nm) :- other_side(C, X), sub(X, I, _), ref(I, D), decl_name(D, Nm),
-                    match(".*name", Nm), !produced_name(C, _).
+                    match(".*name.*", Nm), !produced_name(C, _).
 
 // ── THE ANSWER ─────────────────────────────────────────────────────────────
 // One row per site: direction, literal, enclosing named context, and WHICH

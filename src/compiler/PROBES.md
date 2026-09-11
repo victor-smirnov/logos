@@ -36293,3 +36293,227 @@ means. That single surviving row IS the fix, seen by the instrument.
 both.** Neither number is the class, and this round is the third consecutive one
 in which the enumeration that closed the rows was not the enumeration that found
 the next defect.
+
+---
+
+# 2026-09-10 — THE FULL 37-TU SWEEP OF THE "KEYED ON A BARE NAME" CLASS, BY libclang + DATALOG
+
+Build hash READ, unchanged all round: `dff89684a1bee6e6 43`. **No compiler source
+was edited.** The whole diff is `tools/dlog`. Queue gate rc **0** (78 rows,
+`# TOTAL` 78, with `LOGOS_LIB_DIR` — the prompt carries the correction and it is
+correct as written). `test-levels.sh L1` rc **0** — 803/803, smoke 12 684, 148
+tier_commit gates. `probe-log-lint` 266 records, every site symbol resolves.
+
+## 1. THE NUMBER NOBODY HAD: WHAT THE FULL SWEEP COSTS
+
+`ask.sh` has defaulted to the whole compilation database since it was written and
+every run before today passed 4-9 files by hand. Measured:
+
+| | |
+|---|---|
+| TUs in the compilation database (generated parsers excluded) | **37** |
+| nodes across all 37 | **2 446 838** |
+| wall, 8 of 37 cold | **56.7 s** |
+| wall, fully warm, one question | **48.4 s** |
+
+So the full sweep is under a minute and the reason it had never been run is not
+cost. `selftest.sh` rc 0 both before and after this round's changes, reading
+identically: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty 1 -> 0.
+
+## 2. THE PREDICATION HALF OVER THE WHOLE COMPILER, AND WHAT ONE TU WAS HIDING
+
+`name_intercept.dl`, unchanged rule, over 37 TUs instead of one:
+
+| | `sema_expr.cpp` alone (every previous round) | **all 37 TUs** |
+|---|---|---|
+| `==` | 138 | **346** |
+| `!=` | 2 | **37** |
+| total | 140 | **383** |
+| residual | — | 1099 |
+
+**2.7x.** Twenty files carry the class; the three rounds that priced it looked at
+one. `sema.cpp` 72, `sema_impl.hpp` 42, `sema_collect.cpp` 37, `sema_stmt.cpp` 30,
+`mono_clone.cpp` 23, `sema_auto_trait.cpp` 18, `mono_impl.hpp` 16 — none of which
+any round had asked.
+
+## 3. THE RESOLUTION HALF — A NEW RULE, AND NO EXTRACTOR CHANGE WAS NEEDED
+
+`tools/dlog/name_key.dl` + `tools/dlog/resolver_pat.claim` (new). Four forms:
+
+| form | sites |
+|---|---|
+| **R1** a name-shaped VALUE handed to a resolver | **122** |
+| **R2** a string LITERAL handed to a resolver | **47** |
+| **R3** a name CONCATENATED with a literal into a key | **171** |
+| **R3b** a name concatenated with ANOTHER name | **28** |
+| **R4** a name-shaped value used as a SUBSCRIPT | **288** |
+| residual (name-shaped value -> a callee the claim does not call a resolver) | 5855 |
+
+⚠ **THE PREVIOUS ROUND'S RECORDED LIMIT IS FALSE, AND MEASURABLY.** §12 of the
+2026-09-10 `Vec` record says the third direction — the name CONCATENATED into a
+key — is something "no census in this tree and **no `dlog` rule** can see", and
+that `find_struct_by_name("Vec")` as an ARGUMENT is out of reach. Both are now
+one relation each, **and the extractor was not touched**: `binop` has emitted
+*every* operator spelling clang gives it since `f9b6db073`, `+` and `[]`
+included. The fact was already there; nobody had asked. That is the same shape as
+the schema note about `forms_borrow_at_call` — the fix was one rule.
+
+`find_struct_by_name("Vec")` is now row `sema_expr.cpp:13084` of `lit_arg`, with
+its sibling `find_struct_by_name("HashMap")` at 13189 that no hand list named.
+
+## 4. THE KNOWN-ANSWER CONTROL, WHICH IS FREE, AND IT PASSES BOTH WAYS
+
+The sites Victor package-qualified in the hand sweep must come back QUALIFIED.
+
+* `containers_[...]` — the literal shape of `5bd2724c0` — appears **0 times** in
+  R4 (bare-name subscript) and its key construction appears in R3
+  (`sema_expr.cpp:24254`, `24274`, `name + "."`). Repaired, and the instrument
+  sees the repair. Three call sites: `sema_collect.cpp:1786`, `sema.cpp:9954`,
+  `sema_expr.cpp:24309`, all on `ckey`.
+* Package-qualified comparison literals across all 37 TUs: **27** — 16 in
+  `intercept` (whose `.*name` side is a name producer) and 11 in `residual`
+  (whose side is a `package`/`pkg` variable, so the rule cannot see it as a
+  name; stated because it biases the ratio below).
+* Bare capitalised literals in the same population: **139**.
+
+⚠ **AND A PLANTED CONTROL, because a rule that has stopped matching reads exactly
+like a clean tree.** The widening in §6 is one: three sites were known by
+per-site read to be missing, and the widened rule returns exactly those three and
+nothing else moves out of `residual`.
+
+## 5. THE CROSS-CHECK, BOTH WAYS, WITH A PER-SITE READ — AND IT PAID BOTH WAYS
+
+Comparison form, full sweep, `dlog` vs a four-alternative regex over
+`src/compiler/*.{cpp,hpp,inc}` + `include/logos/compiler/*.hpp`:
+
+| | |
+|---|---|
+| dlog sites | **351** distinct file:line (383 rows) |
+| regex lines | **358** |
+| common | **347** |
+| dlog-only | **4** |
+| regex-only | **11** |
+
+**Every one of the 15 was read at its site.**
+
+* **dlog-only 4 — all four are REAL code and the regex cannot reach them.**
+  `main.cpp:632` `std::string_view(filename) == "<metaprog>"` (a constructor
+  wrapper); `main.cpp:718`, `:4006`, `:7099`
+  `bare_fn_name(f.name()) == "__container_factory"` (a call of a call, and 4006
+  spans two lines so no single-line regex sees it).
+* **regex-only 11 — 8 are PROSE IN COMMENTS.** `// the if (name == "AnyVal")
+  arm`, `// pkg_name() == "logos.lang.option"`, `// validates
+  trait_name=="Sized"` … A grep cannot tell a decision site from a comment ABOUT
+  a decision site that was deleted.
+* **regex-only 3 are REAL, and they are a `dlog` MISS** — see §6.
+
+So the honest numbers are **dlog 351 true / 0 false, regex 350 true / 8 false**,
+union 354. The tool is not merely different from the grep here; on this
+population it is strictly better in both directions — but it was only *shown* to
+be by reading all fifteen.
+
+## 6. THE RULE WAS WRONG, THE PER-SITE READ CAUGHT IT, AND THE FIX IS RECORDED WITH ITS ARITHMETIC
+
+`name_producer` derived an entity-name holder as a declaration whose bare name
+matches `".*name"` — a SUFFIX anchor. The three regex-only real sites are
+`sname_buf == "Self"` (`sema_expr.cpp:11490`) and `ename_buf == "Self"` (13724,
+13871): a buffer holding a struct/enum name, by every reading except that
+pattern's. **An enumeration wearing a regex, inside the directory built to catch
+enumerations.** Widened to `".*name.*"` in both rules:
+
+| | suffix | contains |
+|---|---|---|
+| `==` | 346 | **349** |
+| `!=` | 37 | **44** |
+| total | 383 | **393** |
+| residual | 1099 | **1089** |
+
+The arithmetic closes exactly: **+10 intercept, -10 residual**, and all three
+known sites are present with producer `sname_buf` / `ename_buf`. R3 157 -> 171,
+R3b 14 -> 28, R4 274 -> 288 under the same widening.
+
+## 7. CLASSIFIED AT THE SITE, WITH AN HONEST UNDECIDED COLUMN
+
+R4's 288 rows were undecided until the rule emitted the CONTAINER's declaration —
+a local scope map keyed on a bare local name is CORRECT (a local has no package);
+a global registry keyed on a bare entity name is the defect `5bd2724c0` repaired,
+and the two are the same AST node. With the container in the answer:
+
+| | R4 rows |
+|---|---|
+| BENIGN — lexical (`scope_`, `var_*`, `*subst*`, `current_type_params_`) | **131** |
+| **DECISION — global registry** | **37** |
+| **UNDECIDED** (container is a local, a temporary, or unnamed) | **120** |
+
+The 37 span `struct_types_`, `concrete_struct_types_`, `struct_method_templates_`,
+`tagged_enums_`, `enum_types_`, `type_aliases_`, `funcs_`, `func_overloads_`,
+`generic_funcs_`, `module_statics_`, `trait_rels_`, `traits_`, `mappings_`,
+`prov_`, `all_struct_defs_`.
+
+**AND THE CONTROL'S REAL PAYOFF IS HERE.** `1daeffa5b` is titled *"sema:
+skeleton-skip gates on the QUALIFIED link name — bare aliases retired"*.
+They were retired in sema. In mono they are still there, and they say so:
+
+* `mono.cpp:509-510` — `struct_method_templates_[sd_pkg + "." + sd_name]` AND
+  `struct_method_templates_[sd_name]`, unconditionally.
+* `mono_clone.cpp:6874/6875` and `6901/6902` — `concrete_struct_types_[qcname]`
+  AND `[cname]`, under the comment *"Pkg-qualified primary key + bare
+  back-compat key (last-wins)"*.
+
+A deliberate, documented, **last-wins** bare alias in the registry that decides
+which struct a mono'd method belongs to. That is a corpus/owner decision and not
+a pricing question, so it is reported, not touched — but it is the direct answer
+to "how much did the hand sweep leave behind", and the answer is: the commit
+title generalises one file's repair to a class that has two more files in it.
+
+`sema_collect.cpp:6479/6486` (`func_overloads_`/`funcs_` keyed on `base_name`) is
+**benign by design** and says so: the `is_extern` arm only, where a raw ABI
+symbol is the point.
+
+## 8. THE DROP PLANE, WHICH IS WHY THE CLASS WAS SWEPT AT ALL
+
+R2 puts **`resolve_method_symbol(_, "drop", pkg)` at three sites**, and a per-site
+read separates them:
+
+| site | gated by a trait fact? |
+|---|---|
+| `mlir_gen_impl.hpp:635` `resolve_drop_symbol` | **YES** — `identity_trait() != kDropLangItem` first, then the bare `"drop"` |
+| `mlir_gen_stmt.cpp:1319` `emit_body` | **NO** — reached by `dfn.find("__drop")` on a mangled name; `owns` checked, no trait identity |
+| `mlir_gen_stmt.cpp:1366` `emit_body` | **NO** — same substring search, and not even `owns` |
+
+The prompt names one such door. There are **two ungated ones**, and the rule found
+both. `sema.cpp:3227 is_drop_impl_` is **already repaired** — it reads
+`c->trait_package` today (`6ae8bf7bc` / `08ec3b5bd`), so the prompt's claim that
+`SemaFuncInfo` "does not carry the package at all" is **stale**; recorded as a
+correction, because a complaint about the tree is a claim with a timestamp.
+
+R3's mangling census is the third direction laid out: `::` 37, `__` 35,
+`$blanket$` 8, `__index_mut` 5, **`__drop` 4**, `__index` 3, **`__Drop__drop` 2**,
+`__eq` 2, `__dst_len` 2, **`Drop::` 1** — at `mono_clone.cpp:5096/5206`,
+`mono.cpp:1160/1169`, `sema.cpp:3208/3304/3493`. R3b holds
+`mlir_gen_impl.hpp:481 resolve_method_symbol(struct_name + method_name)` — the
+`dyn`-vtable door, with no literal anywhere in it for a text search to find.
+
+## 9. TARGET ROWS, NAMED BEFORE ANY EDIT, AND WHY THIS BLOCK
+
+Written to `TARGET_ROWS.txt` before the compiler was touched (it never was):
+`homonym_field_drop_glue_segv` (1, run 139), `localvec_mangled_collision_listcomp_internal`
+(3, refuses), `stdlib_drop_uninhabited_enum_byvalue_consumer` (3, refuses). The
+grouping is not by symptom but by the MISSING FACT — a trait identity that exists
+(`identity_trait()`, `trait_package`) and is not carried to the two
+`mlir_gen_stmt.cpp` doors — which is the shape the prompt says has paid every
+time. Whether ONE change moves both of 1 and 3 is exactly what the next round
+must test rather than assume; both handed-down groupings before this were refuted
+that way.
+
+## 10. WHAT DESERVES FUNDING
+
+1. **`mlir_gen_stmt.cpp:1319` and `:1366`** — an arm that exists
+   (`resolve_drop_symbol`, with the `kDropLangItem` gate) reached through a fact
+   the site does not carry. Two doors in the same function; Rule 2 says price them
+   as a possible SERIES, not a sum.
+2. **The 120 UNDECIDED R4 rows** — the classifying fact is the container's
+   declaration and 120 of them have no named declaration to join to. That is a
+   rule limit, not a tree fact, and it is the next `dlog` increment.
+3. **NOT the mono back-compat aliases.** Documented, deliberate, last-wins, and
+   an owner's call.
