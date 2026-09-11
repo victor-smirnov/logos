@@ -2226,6 +2226,25 @@ class BorrowChecker {
     // `w.a = &inner; w = W{a:&o};` would keep `inner` and refuse legally.
     std::unordered_map<std::string, std::map<std::string, std::vector<RefSrc>>>
         dropck_field_srcs_;
+    // #86 MISS 1 / lifereg.B — THE `params` COMPONENT OF A STORED BORROW,
+    // PER PLACE PATH. `note_holder_escape_prov` records the ESCAPE bits
+    // (is_local/is_temp) into the root-keyed `prov_` and deliberately drops
+    // `params`; see the reason at that helper. Dropping it is why
+    // `{ let d: &mut S<&i64> = &mut out; d.head = y; } return out.head;`
+    // compiled while the identical store to the ROOT local was refused —
+    // check_return_value's explicit-lifetime arm never learned `y` fed the
+    // place it was asked about.
+    // ⚠ ROOT-KEYED IS THE WRONG SHAPE AND WAS MEASURED WRONG (2026-09-11d):
+    // an escape bit is MONOTONE in the holder, a REGION obligation is
+    // per-PLACE and is KILLED by a later write to that place. OR-ing `params`
+    // into `prov_[root]` refused three legal programs no corpus column
+    // contains (sibling FIELD, sibling ELEMENT, OVERWRITE). This map restores
+    // the missing dimension — the same repair, for the same reason, that
+    // `dropck_field_srcs_` is to `dropck_borrow_sources_`: a write REPLACES
+    // its own path and MERGES across paths.
+    // ⚠ A WHOLE-VALUE write re-owns and must CLEAR the root's whole subtree.
+    std::unordered_map<std::string, std::map<std::string,
+        std::unordered_set<std::string>>> holder_path_params_;
     // §B6 (NLL scope lifetime, rustc E0597): for EVERY reference / borrow-
     // carrying binding, the LOCAL variables it borrows from + the line of the
     // borrow. Generalises dropck_borrow_sources_ (which is gated on a Drop
@@ -3052,6 +3071,7 @@ private:
             dropck_borrow_sources_.erase(name);
             dropck_binding_line_.erase(name);
             dropck_field_srcs_.erase(name);
+            holder_path_params_.erase(name);
             erase_ref_sources_under(name);   // F6: the whole place subtree
             dangling_.erase(name);
         }
@@ -7159,10 +7179,17 @@ private:
     // left `prov_` empty, so the return gate (which DID open: mcb=1, and the
     // loan channel even names the source) found no provenance to refuse on.
     //
-    // ONE helper, four call sites, and it records the SAME thing SUB-SITE 2
-    // records: the ESCAPE fact only (is_local / is_temp), never `params`. A
-    // param-rooted store contributes nothing, so this cannot start
-    // check_return_value's elision arm on a binding that never fed it.
+    // ONE helper, FIVE call sites. It said "four" from #86 until 2026-09-11d
+    // counted them; tools/dlog `provdep.dl` holder_call and a hand grep both
+    // say 5. It records the SAME thing SUB-SITE 2 records: the ESCAPE fact
+    // (is_local / is_temp).
+    // ⚠ "AND NEVER `params`" WAS TRUE UNTIL 2026-09-11e AND IS NO LONGER.
+    // `params` is now recorded too — PER PLACE PATH, in `holder_path_params_`,
+    // and deliberately NOT into `prov_`: a root-keyed ADDITIVE `params` was
+    // measured (2026-09-11d) to refuse a legal sibling field, a legal sibling
+    // element and a legal overwrite, at cost 0 in all four corpus columns. See
+    // that member's own comment. The paragraph below still describes the
+    // ESCAPE deposit, which is unchanged.
     //
     // ADDITIVE, NOT REPLACING. A field write touches ONE field of a holder
     // whose OTHER fields may still carry an earlier borrow, so the escape bits
@@ -7176,9 +7203,44 @@ private:
     // still open (see apply_flow_outparams' `⚠ #77 round 2` note) — and
     // marking a parameter `is_local` here would refuse every later return of
     // that parameter, not just the stored borrow. Left open; see the ledger.
+    // THE PLACE PATH from `stop` (the root expression) down to `from`, in this
+    // file's own spelling: field NAME, tuple INDEX as digits, and a literal
+    // `[]` for an index step (an index is not a static path component — see
+    // take_field_borrow), so `a[i].p` and `a.p` cannot collide.
+    // ⚠ ONE WALKER. This was written inline for `dropck_field_srcs_` and is
+    // now also what `holder_path_params_` keys on; a SECOND walker that drifts
+    // from the first is the defect this file has already paid for twice
+    // (U0/U1, and `reborrow_referent` x 3) — the comment at the deref-write
+    // door says so in its own words.
+    static std::string place_path_under(lir_view::ExprRef from,
+                                        lir_view::ExprRef stop) {
+        using namespace lir_view;
+        using EC = lir_schema::expr::Code;
+        std::vector<std::string> segs;
+        for (ExprRef q = from; q && q != stop;) {
+            if (q.kind() == EC::FieldRead) {
+                segs.emplace_back(EFieldReadView{q}.field());
+                q = EFieldReadView{q}.receiver();
+            } else if (q.kind() == EC::TupleIndex) {
+                segs.emplace_back(std::to_string(ETupleIndexView{q}.index()));
+                q = ETupleIndexView{q}.receiver();
+            } else if (q.kind() == EC::IndexRead) {
+                segs.emplace_back("[]");
+                q = EIndexReadView{q}.receiver();
+            } else break;
+        }
+        std::string fp;
+        for (auto it = segs.rbegin(); it != segs.rend(); ++it) {
+            if (!fp.empty()) fp.push_back('.');
+            fp += *it;
+        }
+        return fp;
+    }
+
     void note_holder_escape_prov(const std::string& name, TypeRef holder_ty,
                                  lir_view::ExprRef val, uint32_t ln,
-                                 const char* site) {
+                                 const char* site,
+                                 const std::string& path = std::string{}) {
         if (name.empty() || !val) return;
         // #138 — same substitution as in `prov_of`: only a param whose referent
         // OUTLIVES the call is exempt from the holder-escape deposit. A by-value
@@ -7195,6 +7257,31 @@ private:
         RefProv vp = prov_of(val);
         if (!vp.is_local && !vp.is_temp && vp.params.empty())
             vp = prov_of_retained(val);
+        // ── lifereg.B: THE `params` COMPONENT, PER PATH, BEFORE THE ESCAPE
+        // EARLY EXIT. A param-rooted store is NEITHER local NOR temp, so the
+        // line below returns and every door dropped this fact — all five of
+        // them (dlog provdep.dl `holder_call`: 5 sites / 3 contexts; hand grep
+        // agrees at 5). The record REPLACES its own path: a second write to
+        // the same place kills the first obligation, which is the whole
+        // difference between this and an escape bit.
+        if (!vp.params.empty()) {
+            logos::probe::census("liferegbpath.deposit");
+            logos::probe::census(std::string("liferegbpath.door.") + site);
+            // PROBE liferegbroot — THE CONTROL TWIN FOR THE TWO PASS FIXTURES.
+            // It collapses the per-path key back to the ROOT, which is the form
+            // measured and DECLINED 2026-09-11d. Armed, the record is additive
+            // on one key, so a sibling read and an overwritten read both see
+            // the dead obligation. `bc_lifereg_path_sibling_admit` and
+            // `bc_lifereg_path_rewrite_admit` are RED under it and GREEN
+            // without it; that is what makes them carriers rather than two
+            // more programs that pass on every compiler.
+            if (logos::probe::on("liferegbroot")) {
+                auto& acc = holder_path_params_[name][std::string{}];
+                for (auto& nm : vp.params) acc.insert(nm);
+            } else {
+                holder_path_params_[name][path] = vp.params;
+            }
+        }
         if (!vp.is_local && !vp.is_temp) return;
         ++holder_escape_prov_fired_;
         {   // per-door tally (site is a literal from the four call sites)
@@ -7876,7 +7963,74 @@ private:
         return p;
     }
 
+    // lifereg.B READ SIDE. `holder_path_params_` records the `params` component
+    // of a borrow stored into a place; this is where it is read back. MERGED,
+    // NEVER SUBSTITUTED — the receiver's own provenance still carries the
+    // escape bits, and returning the path record alone would LOSE an
+    // `is_local` deposited by the same store (`p.h = if c { x } else { &loc };`
+    // would go from refused to admitted, the permissive direction).
+    // A record at a PREFIX of the read path counts: writing `p.q` whole is a
+    // write of `p.q.r`. A record at a SIBLING does not — that is the entire
+    // point of keying on the path, and the three legal programs the root-keyed
+    // form refused (2026-09-11d) are all sibling or overwrite shapes.
+    static bool path_is_prefix(const std::string& k, const std::string& path) {
+        if (k.empty()) return true;
+        if (k == path) return true;
+        return path.size() > k.size() && path.compare(0, k.size(), k) == 0 &&
+               path[k.size()] == '.';
+    }
+    bool path_params_of(lir_view::ExprRef e, RefProv& out) const {
+        using namespace lir_view;
+        using EC = lir_schema::expr::Code;
+        std::vector<std::string> segs;
+        ExprRef q = e;
+        while (q) {
+            if (q.kind() == EC::FieldRead) {
+                segs.emplace_back(EFieldReadView{q}.field());
+                q = EFieldReadView{q}.receiver();
+            } else if (q.kind() == EC::TupleIndex) {
+                segs.emplace_back(std::to_string(ETupleIndexView{q}.index()));
+                q = ETupleIndexView{q}.receiver();
+            } else if (q.kind() == EC::IndexRead) {
+                segs.emplace_back("[]");
+                q = EIndexReadView{q}.receiver();
+            } else break;
+        }
+        if (!q || q.kind() != EC::VarRef) return false;
+        std::string path;
+        for (auto it = segs.rbegin(); it != segs.rend(); ++it) {
+            if (!path.empty()) path.push_back('.');
+            path += *it;
+        }
+        // The SAME re-home the deposit does: a write through a `&mut` reborrow
+        // local stores into the referent, so the record is keyed on the
+        // referent and a read through either spelling must find it.
+        std::string root(EVarRefView{q}.name());
+        std::string rr = rehome_reborrow(root);
+        for (const std::string* k : {&root, &rr}) {
+            auto it = holder_path_params_.find(*k);
+            if (it == holder_path_params_.end()) continue;
+            for (auto& [key, ps] : it->second)
+                if (path_is_prefix(key, path))
+                    for (auto& nm : ps) out.params.insert(nm);
+            if (rr == root) break;
+        }
+        return !out.params.empty();
+    }
+
     RefProv prov_of(lir_view::ExprRef e) const {
+        RefProv p = prov_of_raw(e);
+        if (!holder_path_params_.empty() && e) {
+            RefProv extra;
+            if (path_params_of(e, extra)) {
+                logos::probe::census("liferegbpath.read");
+                p = merge_prov(p, extra);
+            }
+        }
+        return p;
+    }
+
+    RefProv prov_of_raw(lir_view::ExprRef e) const {
         if (!e) return {};
         using namespace lir_view;
         using Code = lir_schema::expr::Code;
@@ -12704,6 +12858,7 @@ private:
                         record_prov(name, ln, RefProv{{}, vp2.is_local, vp2.is_temp});
                     }
                 }
+                holder_path_params_.erase(name);   // lifereg.B: a `let` re-owns
                 // B87 dropck: record local borrow sources for Drop-lt bindings.
                 if (val && struct_is_dropck_relevant(t)) {
                     std::vector<RefSrc> sources;
@@ -12817,6 +12972,9 @@ private:
                 // #86's let arm had already been passed. The holder type is
                 // the VALUE's here — an assign carries its own type and needs
                 // no `holder_ty_` lookup.
+                // A whole-value write RE-OWNS: every per-path region obligation
+                // under this root dies with the storage it named.
+                holder_path_params_.erase(name);
                 note_holder_escape_prov(name, val ? val.type(pool) : TypeRef(nullptr),
                                         val, ln, "assign");
                 note_reborrow(name, val ? val.type(pool) : TypeRef(nullptr), val);  // H1
@@ -13284,25 +13442,8 @@ private:
                                     // names the container whole — spelled here
                                     // as a `[]` segment so `a[i].p` and `a.p`
                                     // cannot collide.
-                                    std::vector<std::string> segs2;
-                                    for (ExprRef q = atv.inner(); q && q != c;) {
-                                        if (q.kind() == EC::FieldRead) {
-                                            segs2.emplace_back(EFieldReadView{q}.field());
-                                            q = EFieldReadView{q}.receiver();
-                                        } else if (q.kind() == EC::TupleIndex) {
-                                            segs2.emplace_back(
-                                                std::to_string(ETupleIndexView{q}.index()));
-                                            q = ETupleIndexView{q}.receiver();
-                                        } else if (q.kind() == EC::IndexRead) {
-                                            segs2.emplace_back("[]");
-                                            q = EIndexReadView{q}.receiver();
-                                        } else break;
-                                    }
-                                    std::string fp2;
-                                    for (auto it2 = segs2.rbegin(); it2 != segs2.rend(); ++it2) {
-                                        if (!fp2.empty()) fp2.push_back('.');
-                                        fp2 += *it2;
-                                    }
+                                    std::string fp2 =
+                                        place_path_under(atv.inner(), c);
                                     dropck_field_srcs_[root][fp2] = std::move(dsrcs);
                                     std::vector<RefSrc> flat;
                                     for (auto& [pk, pv] : dropck_field_srcs_[root])
@@ -13370,7 +13511,8 @@ private:
                                 eroot86 = ref_place_root(eroot86);
                             if (eroot86.empty()) eroot86 = root;
                             note_holder_escape_prov(eroot86, holder_ty_of(eroot86),
-                                                    v.value(), ln, "derefwrite");
+                                                    v.value(), ln, "derefwrite",
+                                                    place_path_under(atv.inner(), c));
                         }
                     }
                     // Door A: the loan counterpart. `*<place> = c.mk()` — the
@@ -13486,7 +13628,8 @@ private:
                             cr = ref_place_root(cr);
                         if (!cr.empty() && var_has(NO_SLOT, cr))
                             note_holder_escape_prov(cr, holder_ty_of(cr),
-                                                    v.value(), ln, "derefwrite");
+                                                    v.value(), ln, "derefwrite",
+                                                    "[]");
                     }
                 }
                 // ── `*r = v`: THE WRITE QUESTION WAS NEVER ASKED ──────
@@ -14280,6 +14423,7 @@ public:
         dropck_borrow_sources_.clear();
         dropck_binding_line_.clear();
         dropck_field_srcs_.clear();
+        holder_path_params_.clear();
         param_inner_lifetimes_.clear();
         // Type-params carrying an explicit `Copy` bound — a bare TypeVar is
         // move UNLESS it is Copy (Rust generic-body semantics). Drives
@@ -15504,7 +15648,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                             if ((by_value_bc || stored_elem86) &&
                                 type_may_carry_borrow(at))
                                 note_holder_escape_prov(rn86, holder_ty_of(rn86),
-                                                        a, line, "recvstore");
+                                                        a, line, "recvstore", "[]");
                         });
                     }
                 }

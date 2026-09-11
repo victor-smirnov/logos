@@ -1,0 +1,22 @@
+// lifereg.B — THE OVERWRITE HALF OF THE PER-PATH `params` RECORD.
+// A region obligation is per-PLACE and is KILLED by a later write to the same
+// place: `u.h = y; u.h = x;` leaves `u.h` carrying 'a, so returning it is
+// LEGAL. `holder_path_params_` therefore REPLACES its own path rather than
+// OR-ing, which is exactly where it differs from the escape bits in `prov_`
+// (those are monotone in the holder and are ORed in on purpose).
+// ⚠ The root-keyed, ADDITIVE form measured 2026-09-11d REFUSED this program.
+// Sibling twin: tests/logos/pass/bc_lifereg_path_sibling_admit.
+package bc_lifereg_path_rewrite_admit;
+struct U<T> { h: T, g: T }
+fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+  let mut u: U<&i64> = U { h: x, g: x };
+  { let d: &mut U<&i64> = &mut u; d.h = y; d.h = x; }
+  return u.h;
+}
+fn main() -> i32 {
+  let p: i64 = 7i64;
+  let q: i64 = 8i64;
+  let r: &i64 = f(&p, &q);
+  if *r != 7i64 { return 1i32; }
+  return 0i32;
+}

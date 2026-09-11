@@ -1,0 +1,26 @@
+// lifereg.B — THE SIBLING HALF OF THE PER-PATH `params` RECORD.
+// `holder_path_params_` (borrow_check.cpp) carries the `params` component of a
+// borrow stored into a holder PER PLACE PATH. This program stores the
+// short-lived `y` into field `b` and returns field `a`, which still carries 'a.
+// It is LEGAL and must admit.
+// ⚠ IT IS THE WHOLE REASON THE RECORD IS KEYED ON THE PATH. The root-keyed
+// form (params OR-ed into `prov_[root]`) was measured 2026-09-11d and REFUSED
+// exactly this program — cost 0 in all four corpus columns, because no corpus
+// column contains the shape. Its fail twin is
+// tests/imported/fail/lifetimes/mut-slice-struct-lifetime-transmute--c17,
+// which is this program with `return p.a` changed to the field that was
+// written.
+package bc_lifereg_path_sibling_admit;
+struct P<T> { a: T, b: T }
+fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+  let mut p: P<&i64> = P { a: x, b: x };
+  { let d: &mut P<&i64> = &mut p; d.b = y; }
+  return p.a;
+}
+fn main() -> i32 {
+  let u: i64 = 11i64;
+  let v: i64 = 22i64;
+  let r: &i64 = f(&u, &v);
+  if *r != 11i64 { return 1i32; }
+  return 0i32;
+}

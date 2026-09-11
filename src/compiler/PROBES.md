@@ -38517,3 +38517,95 @@ which any corpus column can see (cost 0 in all four, including the runtime one).
     needs the door first, and that is `lifereg.B2`'s own round.
 (3) X3 (`*d = y` through `&mut &i64`) is a dangling-region shape with NO LEDGER
     ROW, admitted on the unmodified compiler. It belongs in the file.
+
+## 2026-09-11e-liferegb-path — `lifereg.B` CLOSED AT THE DEPOSIT, PER PLACE PATH
+
+**HEAD in** b98e04040 · build_hash in `411ed23b6b9fea05 43` (READ) · queue gate rc 0 /
+78 rows · `gate-run.sh -L bc` baseline = **build 1041, 6694 recorded, 0 failed**, READ
+from the store, nothing to run.
+
+### THE CLASS, BY PROPERTY
+`note_holder_escape_prov` returns on `!vp.is_local && !vp.is_temp` and by its own
+comment never records `params`. A PARAM-rooted store is neither local nor temp, so
+**every** holder-deposit door dropped the fact `check_return_value`'s explicit-lifetime
+arm needs. The members are the DOORS. Enumerated with `tools/dlog` (`provdep.dl`,
+`holder_call`) — 5 call sites / 3 contexts — and cross-checked per site against a hand
+grep: **dlog 5, grep 5, AGREE**. The two numbers are reported side by side because a
+dlog verdict has been wrong once in the expensive direction.
+  `:4964 outparam` · `:12849 assign` · `:13401 derefwrite(field/tuple)` ·
+  `:13535 derefwrite(index_mut recv)` · `:15535 recvstore(push)`
+
+ONE structural change: the helper takes a PLACE PATH; `holder_path_params_[root][path]`
+is written BEFORE the escape early exit; each door passes its own path. Read side:
+`path_params_of` walks the projection chain to the root and matches a record at the
+path OR AT A PREFIX, **merged into** `prov_of`, never substituted (substituting would
+LOSE an `is_local` deposited by the same store — the permissive direction).
+The path walker was NOT written twice: the inline walker that built `dropck_field_srcs_`
+is now `place_path_under` and both records key on it. This file has paid twice for a
+second walker that drifted (U0/U1, `reborrow_referent` x3).
+
+### THE NUMBERS
+| column | result |
+|---|---|
+| closed set over all 86 ledger programs | **{--c17}** — predicted {--c17}; both diffs EMPTY |
+| census over the same 86 | deposit **1** · door.derefwrite **1** · read **1** |
+| stdlib-cost.sh | **4 of 4 layers** compile |
+| 15 legal hand programs, 12 shapes | **all rc 0** (all 15 were rc 0 on the base binary too) |
+
+**THE SITE IS PROVEN LIVE IN BOTH DIRECTIONS — the admissions are not zeros.**
+  `bc_lifereg_path_sibling_admit`  deposit 1, **read 0** (the sibling path does not match)
+  `bc_lifereg_path_rewrite_admit`  deposit 2, read 1 (the second write REPLACED the first)
+  `N1_same_lifetime`               deposit 1, read 1 — admitted by the LIFETIME rule
+                                   (`src_lt == ret_lt`), with the fact present.
+
+### PROBE `liferegbroot` — THE CONTROL TWIN, INSTALLED AND MEASURED THIS ROUND
+Collapses the per-path key back to the ROOT: the form measured and DECLINED 2026-09-11d.
+Armed / unarmed, on ONE binary (`8f9de85440fa72e3 43`):
+  `bc_lifereg_path_sibling_admit`  rc **1** / rc 0
+  `bc_lifereg_path_rewrite_admit`  rc **1** / rc 0
+  `…--c17-samelt` (the one-token pass half)  rc **0** / rc 0
+⚠ **THE THIRD ONE IS NOT A CONTROL FOR THE ROOT-KEYED FORM** and is recorded as such so
+nobody re-derives it as a carrier: it discriminates a *different* wrong answer ("refuse
+every store through a projection"). Two carriers, not three.
+
+### WHAT IS STILL OPEN, WITH THE CENSUS THAT LOCATES IT (two new queue rows, 78 -> 80)
+  `lifereg_deref_store_param_admits`   `*d = y` — deposit **0**. `SDerefWrite` with
+      `ptr.kind()==VarRef` reaches neither the AddrOfTemp branch nor the `index_mut`
+      door. **THE DOOR IS MISSING**, same finding as `--t17`/`lifereg.NEW-B2`.
+  `lifereg_container_elem_read_admits` `v.push(y); return v[0]` — deposit **2** at the
+      outparam door, **read 0**. The index read is a desugared method call and the
+      projection walk stops there. **THE READ SIDE IS MISSING**, and repairing it prices
+      over every `v[i]` in the stdlib — a far larger population than the deposit. NOT
+      bundled here; its own round.
+
+## liferegbroot — THE CONTROL TWIN FOR THE PER-PATH `params` RECORD
+site: src/compiler/borrow_check.cpp::note_holder_escape_prov (the per-path deposit)
+build: base 411ed23b6b9fea05 43 (READ) -> landed+probe 8f9de85440fa72e3 43 (READ)
+measured: 2026-09-11
+fires: 1 over all 86 bc_admits programs (census liferegbpath.deposit; the arm rides the
+     SAME deposit, so its fire count IS the deposit count — deposit 1 / door.derefwrite 1
+     / read 1), plus 1 on `bc_lifereg_path_sibling_admit` and 2 on
+     `bc_lifereg_path_rewrite_admit`. NOT an unreached site: both carriers turn RED.
+ceiling: n/a — this arm exists to REFUTE, not to close. It closes 0 ledger rows and
+     REFUSES 2 legal programs, which is the whole measurement.
+arm: collapses `holder_path_params_[root][path]` to `holder_path_params_[root][""]`
+     and makes it ADDITIVE — i.e. exactly the root-keyed form measured and DECLINED
+     2026-09-11d. INSTALLED, not described.
+result: the two pass fixtures landed this round are RED armed and GREEN unarmed —
+     `bc_lifereg_path_sibling_admit` rc 1 / 0, `bc_lifereg_path_rewrite_admit` rc 1 / 0,
+     both with "lifetime mismatch: return type has lifetime 'a but 'y' has lifetime
+     (elided)" (READ). `…--c17-samelt` is rc 0 BOTH ways and is therefore NOT a carrier
+     for this form; recorded so it is not mistaken for one.
+why it stays installed: rule 18 — a twin instrument needs its own control twin, and the
+     next round to touch this record needs to re-red the carriers, not re-derive them.
+     Unarmed it is a single `probe::on` test and changes nothing.
+
+### TWO MISTAKES OF MY OWN, RECORDED
+1. I read the soundness-queue gate WHILE a rebuild was replacing `build/bin/logosc`.
+   Every row came back `cc=126` and the gate reported the whole queue closed by accident.
+   That reading was void; re-run on a quiet box it is rc 0 / 80 rows. **The load-profile
+   table is not only about speed — a gate read during a build is a gate that lies.**
+2. Two of my own `until` wait-loops were wrong: `pgrep -f "cmake --build"` matched the
+   loop's OWN command line, and a `grep -qE "Built target"` marker this build system
+   never prints. Both burned a 600 s window. A wait condition is a claim about the box
+   and needs the same check as any other.

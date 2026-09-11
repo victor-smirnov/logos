@@ -1,0 +1,27 @@
+// SOUNDNESS QUEUE — `admits`. Illegal Rust (upstream E0621: `y` must outlive
+// 'a once the Vec's element type is pinned to &'a i64 by the return), compiled
+// clean by logosc.
+//
+// THE CONTAINER PROJECTION of `lifereg.B`, and it is the READ side that is
+// missing, not the deposit — which is why it is worth its own row rather than
+// a line in a report. MEASURED on the 2026-09-11e binary:
+//   census liferegbpath.deposit      = 2   (both `push`es)
+//   census liferegbpath.door.outparam = 2   (the out-param door, path "")
+//   census liferegbpath.read         = 0
+// So the `params` fact IS carried to a record keyed on `v`. `return v[0u64]`
+// does not read it because the index READ is a desugared method call, not a
+// `Code::IndexRead`, and `path_params_of`'s projection walk stops there.
+// The repair is on the READ walk and prices over every `v[i]` in the stdlib —
+// a much larger population than the deposit — so it is NOT bundled into the
+// round that closed the field door. Its own round.
+//
+// ⚠ LEGALITY RESTS ON A READING: there is no rustc BINARY on this box.
+// Opened 2026-09-11e.
+package lifereg_container_elem_read_admits;
+fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+  let mut v: Vec<&i64> = Vec::new();
+  v.push(x);
+  v.push(y);                  // THE DEFECT: admitted, upstream E0621
+  return v[0u64];
+}
+fn main() -> i32 { return 0i32; }

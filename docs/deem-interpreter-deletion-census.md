@@ -5754,9 +5754,21 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                relanded fail test does, so it does not join here).
 #                TIERCOMMIT -1 = exactly that admit test. bc_admits `# TOTAL`
 #                87 -> 86, soundness_queue `# TOTAL` unchanged at 78.)
-REGISTRY-ALL         9590
-REGISTRY-NOIMPORTED  5120
-REGISTRY-TIERCOMMIT  144
+# 2026-09-11e (`lifereg.B` per-path landing). ALL +3 = FOUR tests added minus ONE
+#                removed. Added: the two native carriers
+#                logos_02_semantic_core_pass_bc_lifereg_path_{sibling,rewrite}_admit,
+#                the imported pass half ...--c17-samelt, and the imported fail
+#                fixture logos_06_diagnostics_fail_mut-slice-struct-lifetime-
+#                transmute--c17. Removed: the ONE logos_00_bc_admit_* test whose
+#                program moved off the admit shelf.
+#                NOIMPORTED +1 = the two native carriers less that admit test.
+#                TIERCOMMIT -1 = exactly that admit test; none of the four new
+#                fixtures declares tier_commit. bc_admits `# TOTAL` 86 -> 85,
+#                soundness_queue `# TOTAL` 78 -> 80 (two rows OPENED, the deref
+#                and container projections of the same defect).
+REGISTRY-ALL         9593
+REGISTRY-NOIMPORTED  5121
+REGISTRY-TIERCOMMIT  143
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

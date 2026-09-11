@@ -1764,7 +1764,7 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # arm printed at line 557 of a 40-line file and blamed a stdlib function. The
 # landing sets both around the refusal. The GENERAL defect is unchanged and is
 # the standing soundness_queue row `e0184_blame_header_names_unrelated_impl`.
-# TOTAL 86
+# TOTAL 85
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1836,7 +1836,6 @@ constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifeti
 e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a METHOD CALL whose receiver-region demand is never checked. PAIR: the same escape through two FREE fns REFUSES (`return type mismatch: variance mismatch — expected &'static bool, got &'s bool`); through `self.a()` it admits. Writing 's explicitly changes nothing, so elision is NOT the variable
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
-mut-slice-struct-lifetime-transmute--c17 lifereg.B tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--c17  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port was the ARRAY door again (a near-copy of --t17); restored to upstream's STRUCT door (`&mut Struct` reborrow, `dst.head = y`). ROOT lifereg.B CONFIRMED by a one-variable pair: the same store to the ROOT local (`let mut out: &i64 = x; out = y;`) is REFUSED, through a FIELD it is admitted
 mut-slice-struct-lifetime-transmute--t17 lifereg.NEW-B2 tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17  # 2026-09-11d RE-ROOTED lifereg.B -> lifereg.NEW-B2 on an arrival census: the slice-element store reaches NONE of the five holder-deposit doors (0 arrivals, incl. the index_mut receiver door), so no fact carried to a door helps it; --c17's field door arrives and closes at ceiling 1. The two rows are TWO mechanisms. PRIOR: STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT lifereg.B CONFIRMED by the same pair as --c17: root-local store REFUSED, through an INDEX admitted. The two rows are one mechanism at two projections and are now two DIFFERENT programs (field vs index), which they were not before
 temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.D REFUTED for this row: the temporary DOES have a loan — `let g: &T = keep(&temp());` is REFUSED with the right E0716 sentence. ONE-VARIABLE PAIR: same call, same temporary, only the RETURN TYPE varies — `-> &'a T` REFUSED, `-> X<'a>` (a struct carrying the region) ADMITTED. Propose lifereg.NEW-STRUCTCARRY
 trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion
@@ -2233,6 +2232,69 @@ regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-boun
 # New spec clause: `borrow.scoped.closure-call-result-holds-capture-borrows`.
 # Full numbers: src/compiler/PROBES.md 2026-09-11c-capsof.
 #
+# ── 2026-09-11e — `lifereg.B` CLOSED. 86 -> 85. ONE ROW, AND IT IS THE ONE
+# PREDICTED BY NAME: `mut-slice-struct-lifetime-transmute--c17` is deleted and
+# its program is now a `fail` fixture at tests/imported/fail/lifetimes/,
+# pinning in full "lifetime mismatch: return type has lifetime 'a but 'y' has
+# lifetime (elided)" — the Logos sentence for upstream's E0621, READ.
+#   THE CLASS, ENUMERATED BY THE PROPERTY, NOT BY THE SPELLING. Not "rows about
+#   a field store". The class is: THE `params` COMPONENT OF A STORED BORROW IS
+#   DROPPED AT EVERY HOLDER-DEPOSIT DOOR, because `note_holder_escape_prov`
+#   returns on `!vp.is_local && !vp.is_temp` and, by its own comment, never
+#   recorded `params` at all. The members are the DOORS, and they were
+#   enumerated with tools/dlog (`provdep.dl` holder_call: 5 call sites / 3
+#   contexts) and cross-checked per site against a hand grep (5 and 5 — agree),
+#   because a grep on the construct cannot tell a deposit from a pin:
+#     :4964 outparam · :12849 assign · :13401 derefwrite(field/tuple)
+#     :13535 derefwrite(index_mut recv) · :15535 recvstore(container push)
+#   ONE structural change covers all five: the helper takes a PLACE PATH and
+#   the `params` set is recorded in `holder_path_params_[root][path]` BEFORE
+#   the escape early exit; each door passes its own path. The read side
+#   (`path_params_of`, merged into `prov_of`) walks the projection chain back
+#   to the root and matches a record at the path OR AT A PREFIX of it.
+#   WHY PER-PATH AND NOT ROOT-KEYED — THE 2026-09-11d DECLINE, DISCHARGED.
+#   The root-keyed, additive form scored COST 0 IN ALL FOUR CORPUS COLUMNS and
+#   refused three legal programs no column contains. An escape bit is MONOTONE
+#   in the holder; a REGION obligation is per-PLACE and is KILLED by a later
+#   write to that place. Both properties are now PINNED, by fixtures that are
+#   RED under the declined form and GREEN under the landed one — measured both
+#   ways this round with the `liferegbroot` control probe, not inherited:
+#     tests/logos/pass/bc_lifereg_path_sibling_admit   (sibling field keeps 'a)
+#     tests/logos/pass/bc_lifereg_path_rewrite_admit   (overwrite kills it)
+#   plus the one-token-apart pass half of the closed row itself,
+#   tests/imported/pass/lifetimes/…--c17-samelt (`y: &i64` -> `y: &'a i64`),
+#   which RUNS and asserts its exit code. ⚠ THAT ONE IS NOT A CONTROL FOR THE
+#   ROOT-KEYED FORM — measured rc 0 under the probe too; it discriminates a
+#   "refuse every store through a projection" repair, which is a different
+#   wrong answer. Said here so nobody re-derives it as a third carrier.
+#   CLOSED SET, DIFFED BOTH WAYS, over all 86 programs: predicted {--c17},
+#   actual {--c17}. predicted∖actual = EMPTY, actual∖predicted = EMPTY.
+#   Census over the same 86: deposit 1, door.derefwrite 1, read 1 — and the
+#   site is proven LIVE IN BOTH DIRECTIONS by the counter-examples, not by a
+#   zero: the sibling program deposits 1 and READS 0, the overwrite program
+#   deposits 2 and reads 1.
+#   COLUMNS: stdlib 4 of 4 layers · `-L bc` build 1041 6694/0 · L1 · run_oracle.
+#   15 legal hand programs in 12 shapes (same-lifetime store, `where 'b:'a`,
+#   whole-value re-own, nested-path sibling, holder-not-returned, both-branches,
+#   elided-1-param, &STATIC, tuple sibling, shadowed holder, sibling under 'a,
+#   plus the three that condemned the last arm) — ALL still rc 0.
+# ⚠ `--t17` (`lifereg.NEW-B2`) IS UNTOUCHED AND WAS PREDICTED UNTOUCHED: 0
+#   deposits at all five doors. Its door does not exist; carrying a fact to a
+#   door cannot reach it.
+# ⚠ TWO PROJECTIONS OF THE SAME DEFECT ARE STILL OPEN AND NOW HAVE ROWS, in
+#   tests/logos/soundness_queue.ledger (78 -> 80), each with the census that
+#   locates it:
+#     lifereg_deref_store_param_admits    `*d = y` — deposit 0: SDerefWrite
+#                                          with ptr.kind()==VarRef reaches no
+#                                          door. THE DOOR IS MISSING.
+#     lifereg_container_elem_read_admits  `v.push(y); return v[0]` — deposit 2
+#                                          at the outparam door, READ 0: the
+#                                          index read is a desugared method
+#                                          call and the projection walk stops
+#                                          there. THE READ SIDE IS MISSING, and
+#                                          repairing it prices over every `v[i]`
+#                                          in the stdlib. Its own round.
+# Full numbers: src/compiler/PROBES.md 2026-09-11e-liferegb-path.
 # ── 2026-09-11d — `lifereg.B` SPLITS. NO ROW CLOSED, NO COUNT CHANGED (86). ──
 # The 2026-09-08 note on these two rows says they are "one mechanism at two
 # projections". MEASURED, and ONE candidate change does not move both.

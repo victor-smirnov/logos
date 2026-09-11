@@ -1,0 +1,31 @@
+// THE PASS HALF OF THE `lifereg.B` PAIR, ONE TOKEN APART FROM ITS FAIL TWIN
+// tests/imported/fail/lifetimes/mut-slice-struct-lifetime-transmute--c17:
+// `y: &i64` there, `y: &'a i64` here. Everything else is character-identical —
+// the struct local, the `&mut Struct` reborrow, the FIELD store of `y` through
+// it, and the read-back at 'a.
+//
+// WHY THE PAIR IS THE ASSERTION AND NOT THE FAIL HALF ALONE: the repair that
+// closed the twin carries the `params` component of a stored borrow PER PLACE
+// PATH. A repair that instead refused every store through a projection would
+// pass the fail half and RED this one. This half also RUNS and asserts its exit
+// code, so a refusal is not the only way it can go wrong: `out.head` must still
+// be `y`'s referent after the store.
+// Original path: tests/ui/lifetimes/lifetime-errors/mut-slice-struct-lifetime-transmute.rs
+// upstream commit: da5114692c9ebe46b869488c5f34f92eb10b98c1
+package mut_slice_struct_lifetime_transmute_c17_samelt;
+struct Struct<T> { head: T, _tail: i64 }
+fn lifetime_transmute_struct<'a>(x: &'a i64, y: &'a i64) -> &'a i64 {
+  let mut out: Struct<&i64> = Struct { head: x, _tail: 0i64 };
+  { let dst: &mut Struct<&i64> = &mut out; dst.head = y; }
+  return out.head;
+}
+fn main() -> i32 {
+  let a: i64 = 3i64;
+  let b: i64 = 40i64;
+  let r: &i64 = lifetime_transmute_struct(&a, &b);
+  // the store through the reborrow must have taken effect: r is `b`, not `a`
+  if *r != 40i64 { return 1i32; }
+  let s: &i64 = lifetime_transmute_struct(&b, &a);
+  if *s != 3i64 { return 2i32; }
+  return 0i32;
+}
