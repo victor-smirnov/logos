@@ -41792,3 +41792,149 @@ priced probe left open. Restored and rebuilt: hash back to 930ba7b870356185 43,
 digit for digit, and `git status --short` empty — the revert is PROVEN restored
 before the paired columns above were taken (the 09-12 rule about an un-restored
 control).
+
+## 2026-09-12m-calleedoor — THE E0716 TEMPORARY CHANNEL IS EXACT AT ONE CALLEE FORM AND BLIND AT THREE, `lifereg.NEW-STRUCTCARRY`'S OWN ONE-VARIABLE PAIR NO LONGER REPRODUCES BECAUSE THE VARIABLE WAS NEVER THE RETURN TYPE, AND THE CHEAP ARM IS CONDEMNED BY A CENSUS COLUMN THAT IS IDENTICAL DIGIT FOR DIGIT ON THREE LEGAL PROGRAMS AND THREE ILLEGAL ONES
+site: src/compiler/borrow_check.cpp::record_prov — the ONE E0716 report site, which
+      fires iff `vp.is_temp`; and `BorrowChecker::prov_of_raw` at its four call-form
+      arms (`Code::Call`, `Code::FnPtrCall`/`ClosureCall`, `Code::MethodCall`).
+      The census print sat in `visit_stmt`'s `let` provenance chain, immediately
+      above branch A (`is_ref_kind(t) || is_borrow_carrying_type(t)`).
+build: BASE 930ba7b870356185 43 (HEAD f88e5f84c, READ; build/bin/logosc dated
+       Sep 12 18:45) -> CENSUS-ONLY build in a SEPARATE dir `build-census`
+       (clang++-20, RelWithDebInfo, dated Sep 12 19:16, `strings | grep -c
+       calleedoor` = 1 there and 0 in build/bin/logosc). The print was reverted
+       and `git status --short` is empty; NO arm was ever armed.
+       ⚠ A fresh `cmake -S . -B build-census` DEFAULTS TO /usr/bin/c++ and the
+       GENERATED PARSER DOES NOT COMPILE UNDER GCC (`na_fail_0 was not declared
+       in this scope`, logos_parser.cpp:1906/7584/7773/27444, four errors, twice
+       in a row). `build/` is configured `CMAKE_CXX_COMPILER=/usr/bin/clang++-20`;
+       a census build dir must pass it explicitly. Two builds were lost to this.
+measured: 2026-09-12
+fires: n/a — NO PROBE WAS INSTALLED. This round is a census plus a hand battery;
+       the counts below are per-program `[calleedoor]` lines, not probe fires.
+ledger: NOTHING CLOSED. bc_admits `# TOTAL` stays 80; soundness queue 92, gate rc 0.
+
+### THE RECORDED CONTROL DECAYED, AND THE ROOT NAME IS WRONG
+`lifereg.D`'s 2026-09-08 note proposes `lifereg.NEW-STRUCTCARRY` on this pair:
+"same call, same temporary, only the RETURN TYPE varies — `-> &'a T` REFUSED,
+`-> X<'a>` ADMITTED". ON TODAY'S BINARY BOTH HALVES REFUSE. The 2×4 below holds the
+temporary-argument door fixed and varies the CALLEE FORM and the RETURN TYPE:
+
+    callee form        -> bare `&'a T`   -> `X<'a>` (struct carrying the region)
+    named fn ITEM         rc 1 REFUSED      rc 1 REFUSED
+    fn POINTER value      rc 0 admitted     rc 0 admitted
+    CLOSURE value         rc 0 admitted     rc 0 admitted
+    METHOD (named recv)   rc 0 admitted     rc 0 admitted
+
+The return-type column carries ZERO information. The variable is the callee form.
+`lifereg.NEW-STRUCTCARRY` as written is REFUTED and must not be carried forward.
+LEGAL controls, all three correct today (named owner instead of a temporary):
+`p(&v)`, `c(&v)`, `k.wrap(&v)` all rc 0.
+
+### THE CENSUS — WHICH DOOR IS REACHED, AND WHICH FACT IS PRESENT
+`[calleedoor]` prints the binding, the init's LIR kind, the three branch predicates
+and `prov_of(init)`. kinds: 7=Call 29=FnPtrCall 28=ClosureCall 8=MethodCall.
+
+    program                         kind refkind ltargs erased loc tmp  branch   rc
+    d3 fn item   -> &T   TEMP        7     1       0      1     1   1   A       1 REFUSED
+    d1 fn item   -> X<'a> TEMP       7     0       1      1     1   1   B       1 REFUSED
+    c5 method, TEMP RECEIVER -> &i64 8     1       0      1     1   1   A       1 REFUSED
+    d4 fn ptr    -> &T   TEMP       29     1       0      1     1   0   A       0 admitted
+    d6 closure   -> &T   TEMP       28     1       0      1     1   0   A       0 admitted
+    d8 method    -> &T   TEMP        8     1       0      1     1   0   A       0 admitted
+    d7 method    -> X<'a> TEMP       8     0       1      1     0   0   B       0 admitted
+    c4 method, TEMP RECEIVER -> Iter 8     0       1      1     0   0   B       0 admitted
+    d2 fn ptr    -> X<'a> TEMP      29     0       0      1     0   0   NONE    0 admitted
+    d5 closure   -> X<'a> TEMP      28     0       0      1     0   0   NONE    0 admitted
+
+Three distinct states, exactly as 2026-09-09k-bcs found three for its own block:
+  · **ARM REACHED, FACT ABSENT** — d4 d6 d8 d7 c4. Branch A or B fires, `prov_of`
+    answers `is_temp=0`, `record_prov` reports only on `is_temp`, silence.
+  · **ARM UNREACHED AND FACT ABSENT — DOORS IN SERIES (rule 2)** — d2 d5. The
+    result type of an INDIRECT call has **`ltargs=0`**: `fn(&T) -> X` returns an
+    UNSUBSTITUTED `X`, so branch B's `!t.lifetime_args().empty()` never fires, and
+    `is_borrow_carrying_type` is 0 as well. Compare d1/d7, the SAME return type
+    through a fn item or a method: `ltargs=1`. Two facts are missing here, not one.
+  · **WORKING** — d3 d1 c5.
+
+### THE MECHANISM IS PROVEN LIVE ONE ARM OVER (rule 1)
+`Code::Call` separates the two cases exactly, and nothing else in the row moves:
+    keep(&temp())  loc=1 **tmp=1**   REFUSED
+    keep(&v)       loc=1 **tmp=0**   admitted   (v a named local; legal)
+So the channel CAN carry the bit and `record_prov` CAN act on it. The zero at the
+other three arms is a dropped fact, not a dead site.
+
+### THE CHEAP ARM IS CONDEMNED BEFORE IT WAS BUILT, BY ITS OWN COLUMN
+The obvious repair — re-key `record_prov` on `is_local` instead of `is_temp`, since
+`loc=1` is present at every admitted door — REFUSES THREE LEGAL PROGRAMS. Measured
+on the census binary, named-local owner instead of a temporary:
+    e2 `let v=temp(); let p: fn(&T)->&T = keep; let g = p(&v);`   loc=1 tmp=0
+    e3 `let v=temp(); let g: &T = k.wrapr(&v);`                   loc=1 tmp=0
+    e4 `let v=temp(); let c=|r:&T|->&T{..}; let g = c(&v);`       loc=1 tmp=0
+IDENTICAL, digit for digit, to the illegal d4/d6/d8. `is_local` does not separate a
+temporary from a named local at these three arms — it is 1 for both — so any arm
+keyed on it buys the rows with three legal-program refusals. RULE: NEVER BUY A
+LEDGER ROW WITH A LEGAL-PROGRAM REFUSAL. Cost of learning this: zero builds beyond
+the census, because the counter-shapes were written before the arm was.
+
+### THE TARGET ROWS, AND THE GROUPING THAT WAS TESTED AND REFUTED
+    T1 temporary-lifetime-extension-tuple-ctor  lifereg.D   = the d2 shape:
+       fn-POINTER callee, borrow-carrying struct result. TWO doors in SERIES.
+    T2 borrowck-let-suggestion                  bck.NEW-BCS = the c4 shape:
+       METHOD callee, TEMPORARY RECEIVER, borrow-carrying struct result. ONE door
+       reached, ONE fact absent — and the blocker is the predicate 2026-09-09k-bcs
+       already named: `prov_of`'s MethodCall arm asks `is_plain_ref_kind(m_rt)`, so
+       the SAME temporary receiver answers tmp=1 for a bare `&i64` result (c5) and
+       tmp=0 for `Iter<'a>` (c4).
+    T3 issue-36082 (control member) — predicted NOT to move and it does not: its
+       receiver is itself a method-call temporary and its result is a bare `&i64`.
+NO SINGLE CANDIDATE MOVES T1 AND T2: T1 needs the indirect-call return type to keep
+its lifetime args BEFORE any provenance question is asked; T2's door is already
+reached. The handed-down pairing is refuted the way the last three rounds' were.
+
+### PREDICTED BY NAME BEFORE THE CENSUS BINARY EXISTED, DIFFED BOTH WAYS
+Declared in a file first (P1..P6). P1 P2 P3 P4 P6 measured as predicted.
+**P5 REFUTED**: c4/`borrowck-let-suggestion` was predicted to reach branch A via
+`bct=1` (assuming the 2026-09-09l widening); it reaches branch **B** via `ltargs=1`
+and `bct` is **0** — `is_borrow_carrying_type` keys on a NAME SET
+(`ts_.borrow_carrying`) and an ordinary `struct Iter<'a>` is not in it. Any arm
+priced on `is_borrow_carrying_type` for this row aims at a predicate that reads 0.
+Ceiling prediction from the admit shelf, by direct reading of every program that
+holds a fn-pointer local or a call-result receiver: fn-POINTER door = {T1} = 1;
+METHOD temp-receiver door = {T2} = 1. `issue-54124` and `issue-101280` hold
+fn-pointer locals but pass no temporary; `issue-95079` is a closure-move row.
+
+### WHAT DESERVES FUNDING, AND WHAT DOES NOT
+FUND T2's door: carry `is_temp` through `prov_of`'s MethodCall receiver clause when
+the result type NAMES THE RECEIVER'S OWN LIFETIME — the predicate 2026-09-09k-bcs
+named and nobody priced ("`Vecish::iter<'s>(&'s self) -> Iter<'s>` names the
+receiver's lifetime; `WRef<S>::any(&self) -> WAny` names none"). It is a SIGNATURE
+fact, it is present, and it is exactly what separates the row from the stdlib
+program that condemned every earlier widening. Ceiling 1; the cost columns are
+unmeasured and a landing must price `run_oracle.py`.
+DO NOT FUND T1 yet: two doors in series and the upstream one is a TYPE fact (an
+indirect call losing its return type's lifetime args), which is not a borrow-check
+change at all. File it; do not price it as a checker arm.
+DO NOT FUND the `is_local` re-key at any door: three legal-program refusals, above.
+
+### RUNTIME COLUMN, MEASURED AND HONEST
+Every admitted program here compiles, links and RUNS CORRECTLY (exit 5 where 5 is
+wanted, valgrind clean), including with an intervening frame-stomping call. The
+temporary lives in the caller's own frame and nothing reuses it. These are STATIC
+E0716 defects with no observable runtime damage in this shape; the runtime oracle
+is silent about them BY CONSTRUCTION and its silence is not evidence either way.
+
+### CORRECTIONS TO THE PROMPT, RE-VERIFIED AGAINST THE TEXT HANDED TO ME
+⚠ `PROBES.md` IS AT `src/compiler/PROBES.md`, NOT `tests/logos/PROBES.md`. The
+prompt names the latter twice; `ls` says it does not exist.
+⚠ The prompt's STEP-1 gate command DOES carry `LOGOS_LIB_DIR`. Verified against the
+text in front of me, not against the journal — the correction is landed.
+⚠ The prompt's counts are stale: it says bc_admits is 85 and the queue 85; direct
+listing says **80** and **92**. Its never-surveyed root list has decayed further —
+`nllmoves.R11-ASSIGN` and `nllmoves.R5` are gone from the ledger entirely,
+`bck.NEW-N4` does not exist (the root is `lifereg.NEW-N4`), and `bck.A-FNMUT` now
+carries a 2026-09-12g OWNER-BLOCKED note on three green pass pins. Four of seven.
+⚠ THE SCRATCHPAD LIED A THIRD TIME, in a new way: `scratchpad/hand/` held ~120
+`.logos` files from earlier rounds and a `for f in *.logos` ran all of them, mixing
+this round's eight programs into a 120-line table. Caught because the names were
+unfamiliar. This round's programs were moved to `scratchpad/r0912/hand/` first.
