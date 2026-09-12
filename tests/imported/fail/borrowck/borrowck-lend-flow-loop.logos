@@ -1,0 +1,27 @@
+// rustc borrowck/borrowck-lend-flow-loop.rs — upstream E0502 cannot borrow
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: FAIL — CLOSED 2026-09-12i, was `bck.NEW-2` on the admit shelf.
+// logosc: "cannot borrow 'v' as shared: already mutably borrowed"  rc 1
+// rustc : E0502 "cannot borrow `*v` as immutable because it is also borrowed as
+//         mutable" (borrowck-lend-flow-loop.stderr @ da5114692c9, the SECOND of
+//         its two errors — `**x += 1; borrow(&*v); … x = &mut v;`, which is this
+//         port's shape exactly). Same verdict.
+// The loan `x = &mut v` is raised at the body's BOTTOM and its holder's last use
+// `*x = *x + 1` is at the TOP: textually earlier, LATER IN TIME across the back
+// edge. Its admit half is tests/logos/pass/bc_backedge_reassign_holder_admit —
+// this file with the `borrow(&v)` line deleted.
+package borrowck_lend_flow_loop;
+fn borrow(v: &i64) -> i64 { return *v; }
+fn main() -> i32 {
+    let mut v: i64 = 3i64;
+    let mut w: i64 = 4i64;
+    let mut x: &mut i64 = &mut w;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        *x = *x + 1i64;
+        let _z: i64 = borrow(&v);
+        x = &mut v;
+        i = i + 1i64;
+    }
+    return 0i32;
+}

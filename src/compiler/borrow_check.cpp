@@ -983,14 +983,9 @@ struct BorrowRecord {
     // name-keyed lookup.
     uint32_t              holder_slot = 0xFFFFFFFFu;
     std::vector<uint32_t> co_holder_slots;   // parallel to co_holders
-    // The PROGRAM POINT at which this loan was raised — `stmt_point`'s packed
-    // (line, ordinal), the SAME space as `holders_last_use` and
-    // `release_dead_borrows`'s cursor, NOT the raw `line` the diagnostics use.
-    // See PROBES.md round 2026-09-12i (door 1): the NLL releaser keys on
-    // `holders_last_use`, a per-function MAXIMUM over those points, so inside a
-    // loop body a holder use that is textually ABOVE the raise is later in
-    // TIME (the back edge reorders them). Distinguishing that case needs the
-    // raise point, which no other field carries. 0 = not recorded.
+    // The PROGRAM POINT this loan was raised at — `stmt_point`'s packed
+    // (line, ordinal), the same space as `holders_last_use`, NOT the raw `line`
+    // the diagnostics take. Read by door 1; PROBES.md 2026-09-12i. 0 = unset.
     uint64_t              raise_point = 0;
 };
 
@@ -2455,11 +2450,9 @@ private:
         // exit — i.e. after the loop's own scopes unwind — so loop-local loans
         // are release-simulated against this baseline (loop_exit_snapshot).
         size_t                outer_scope_count = 0;
-        // The source point of the body's FIRST statement — the only number
-        // that says whether a given line lies inside THIS body. Door 1 needs
-        // it to tell "the holder's last use is above the raise, in the same
-        // body" (the back edge reorders them) from "the holder's last use is
-        // before the loop" (it does not). 0 = unknown / empty body.
+        // The body's FIRST statement point — the only number that says whether
+        // a point lies inside THIS body. Door 1's lower bound; PROBES.md
+        // 2026-09-12i. 0 = unknown / empty body.
         uint64_t              body_first_point = 0;
     };
     std::vector<LoopFrame> loop_stack_;
@@ -2878,7 +2871,11 @@ private:
             //   Bt1 (same statement at fn top level)      rc=1, unchanged
             //   Bt2 (block with no inner binding)         rc=1, unchanged
             //   K1  (loan rooted at an unrelated local)   rc=0, unchanged
-            if (scopes_.size() >= 2 && !suppress_reports_) {
+            // ⚠ NOT `&& !suppress_reports_`: pass 1 is the dry run that
+            // COMPUTES the back-edge state, and re-homing there is a dataflow
+            // fact, not a diagnostic. MUT-only, and that bound is MEASURED —
+            // PROBES.md 2026-09-12i door 2.
+            if (scopes_.size() >= 2) {
                 auto& frame = scopes_.back();
                 auto& parent = scopes_[scopes_.size() - 2];
                 // "Outer" means declared in a frame that SURVIVES this pop —
@@ -2926,6 +2923,8 @@ private:
                     // un-deposited co-holder tests FALSE and the loan dies at
                     // the inner `}`. Re-home everything held: strictly fewer
                     // releases, strictly longer loan lifetimes.
+                    // DOOR 2's measured bound — see the comment on the gate.
+                    if (suppress_reports_ && !rec.is_mut) return false;
                     if (logos::probe::on("rehome_all")) return true;
                     if (outer.count(rec.holder)) return true;
                     for (auto& h : rec.co_holders)
@@ -11523,20 +11522,12 @@ private:
         }
     }
 
-    // ── DOOR 1 (round 2026-09-12i) — IS THIS LOAN'S HOLDER LAST-USE REORDERED
-    //    BY A BACK EDGE? ──────────────────────────────────────────────────────
-    // `holders_last_use` is a per-function MAXIMUM over program points, and
-    // `release_dead_borrows` retires a loan as soon as that maximum is at or
-    // before the cursor. Inside a loop body that is wrong in one exact window:
-    // a holder use that sits textually ABOVE the raise is what makes the loan
-    // live again on iteration 2, so it is LATER in time, not earlier. The
-    // window is `body_first <= lu < raise_point`; outside it nothing changes —
-    // `lu > raise_point` is the ordinary intra-body NLL the D1 fixtures bought,
-    // and `lu < body_first` is a holder whose last use is before the loop.
-    // THE CLASS IS TWO SITES, not one: the whole-borrow loop and the
-    // field-borrow loop below it are two copies of the same comparison (dlog
-    // `loanretire.dl`: one context, five last-use reads, of which two decide).
-    // Both call this, so neither can be repaired without the other.
+    // DOOR 1 — the back edge reorders the holder's last use: inside a loop body
+    // a use textually ABOVE the raise is LATER in time, and `holders_last_use`
+    // is a per-function MAXIMUM that cannot see it. Window
+    // `body_first <= lu < raise_point`; outside it nothing changes. Called from
+    // BOTH retirement sites — the class is two, per dlog `loanretire.dl`.
+    // PROBES.md 2026-09-12i.
     bool lu_reordered_by_back_edge(uint64_t raise_point, uint64_t lu) const {
         if (raise_point == 0 || lu == 0 || loop_stack_.empty()) return false;
         uint64_t bf = loop_stack_.back().body_first_point;
@@ -11612,6 +11603,10 @@ private:
             // a holder note_use_slot never recorded (a projection place, a
             // synthesised temp), and `0 <= cur_line` retires the loan at the
             // very first sweep. Treat lu==0 as "never expires".
+            // DOOR 1, MEMBER 1 OF 2 — see lu_reordered_by_back_edge.
+            if (it->is_mut && lu_reordered_by_back_edge(it->raise_point, lu)) {
+                ++it; continue;
+            }
             if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++it; continue; }
             // Dropck liveness: the holder is used once more, at its drop.
             if (holder_drops_after_last_use(*it)) { ++it; continue; }
@@ -11636,6 +11631,12 @@ private:
         while (fit2 != frame.field_borrows.end()) {
             if (fit2->holder.empty()) { ++fit2; continue; }
             uint64_t lu = holders_last_use(*fit2);
+            // DOOR 1, MEMBER 2 OF 2. Zero arrivals in the corpus, four on
+            // fail/bc_backedge_field_lend_flow_refuse — unreached here, not
+            // absent. PROBES.md 2026-09-12i §4.
+            if (fit2->is_mut && lu_reordered_by_back_edge(fit2->raise_point, lu)) {
+                ++fit2; continue;
+            }
             if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++fit2; continue; }
             // CEILING PROBE `fldnlldrop` — the byte-identical guard in the
             // whole-borrow loop above fires 293 of 84,202; here it fires 0 of
@@ -11697,8 +11698,7 @@ private:
     // walk through here now; pass 1 is the dry run, and releasing there too is
     // what keeps post1_s/post2_s agreeing about which counters reach the back
     // edge.
-    // The point of a block's FIRST statement, or 0 for an empty block. Door 1
-    // (round 2026-09-12i) uses it as the loop body's lower bound.
+    // The point of a block's FIRST statement, or 0 for an empty block.
     uint64_t first_point_of(lir_view::BlockRef br) {
         uint64_t first = 0;
         br.each_stmt([&](lir_view::StmtRef sr) {

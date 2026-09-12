@@ -1,0 +1,25 @@
+// THE CHANGE'S OTHER DIRECTION, AND IT WAS NOT PREDICTED. Two holders, two
+// referents, both reassigned below their own uses: the BASE compiler REFUSES
+// this legal program twice over ("cannot borrow 'a' as mutable: already
+// mutably borrowed", and the same for 'b'), and door 1 + door 2 ADMIT it.
+// An over-refusal repaired by the same change that closed the ledger row, found
+// by writing counter-examples in a shape the pricing round's battery did not
+// contain — none of its twelve reassigned a holder inside a loop.
+package bc_backedge_two_holders_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let mut a: i64 = 0i64;
+    let mut b: i64 = 0i64;
+    let mut ax: &mut i64 = &mut a;
+    let mut bx: &mut i64 = &mut b;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        *ax = *ax + 1i64;
+        *bx = *bx + 2i64;
+        ax = &mut a;
+        bx = &mut b;
+        i = i + 1i64;
+    }
+    unsafe { printf("done\n".as_ptr()); }
+    return 0i32;
+}

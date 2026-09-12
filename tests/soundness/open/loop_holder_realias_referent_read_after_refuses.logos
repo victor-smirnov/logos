@@ -1,0 +1,24 @@
+// OVER-REFUSAL, tier 3 — legal Rust, refused. The holder is re-aliased away
+// from `a` inside the loop and `a` is READ AFTER the loop; no holder of the
+// loan on `a` is live at that read. logosc refuses with
+//     error [fn main]: cannot use 'a' while it is mutably borrowed
+// The loan raised BEFORE the loop (`let mut x: &mut i64 = &mut a;`) is what
+// survives: its holder's last use is inside the body, and the loop-exit
+// `merge_loans` re-raises the counter that the body's own release took down.
+// Distinct from loop_holder_realias_alternating_refuses by the SITE of the
+// refusal (a read after the loop, not a re-borrow inside it); they may share a
+// root and each carries its own program so that a repair of one is visible.
+// ⚠ Legality read from Rust's NLL by hand — no rustc binary on this box.
+package loop_holder_realias_referent_read_after_refuses;
+fn main() -> i32 {
+    let mut a: i64 = 0i64;
+    let mut b: i64 = 100i64;
+    let mut x: &mut i64 = &mut a;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        *x = *x + 1i64;
+        x = &mut b;
+        i = i + 1i64;
+    }
+    return (a + b - 103i64) as i32;
+}

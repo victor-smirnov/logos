@@ -1,0 +1,22 @@
+// F1 — THE FIELD-PATH TWIN of `borrowck-lend-flow-loop`, written to prove the
+// SECOND member of the retirement class LIVE (rule 1 / rule 11: a zero through
+// an unreached site is not a measurement). `r` holds a MUT FIELD loan on
+// `s.a`, raised at the body's bottom, and the holder's last use `*r` sits at
+// the TOP — exactly the Q < P window, one level down from the whole-borrow
+// site. Upstream refuses the whole-value spelling with E0502.
+package f1;
+struct S { a: i64, b: i64 }
+fn readit(v: &i64) -> i64 { return *v; }
+fn main() -> i32 {
+    let mut s: S = S { a: 0i64, b: 0i64 };
+    let mut t: S = S { a: 0i64, b: 0i64 };
+    let mut r: &mut i64 = &mut t.a;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        *r = *r + 1i64;
+        let _z: i64 = readit(&s.a);
+        r = &mut s.a;
+        i = i + 1i64;
+    }
+    return 0i32;
+}

@@ -5851,9 +5851,36 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                tests/logos/pass/*.logos -> 3060 (+5), ls
 #                tests/logos/fail/*.logos +5. bc_admits `# TOTAL` 84 -> 83;
 #                soundness_queue 85 -> 87 (two rows OPENED, no row closed).
-REGISTRY-ALL         9631
-REGISTRY-NOIMPORTED  5151
-REGISTRY-TIERCOMMIT  140
+# 2026-09-12i (LOOP BACK-EDGE LOAN RETIREMENT — a mut loan raised at point P
+#                inside a loop body is no longer retired by a holder last-use at
+#                a point Q with body_first <= Q < P, because the back edge makes
+#                Q LATER than P; and the pass-1 re-home in pop_scope is ungated
+#                for MUT loans. bc_admits row borrowck-lend-flow-loop CLOSED).
+#                FOUR new native fixtures: THREE pass halves
+#                bc_backedge_reassign_holder_admit (the closed row's own program
+#                with one line deleted), bc_backedge_field_use_below_raise_admit
+#                (the Q>P control at the FIELD site) and
+#                bc_backedge_two_holders_admit (a legal program the BASE binary
+#                refused and this change ADMITS), and ONE fail half
+#                bc_backedge_field_lend_flow_refuse — the only carrier the second
+#                member of the class has, since that site fired ZERO times across
+#                the whole acceptance population and four times here.
+#                The closed row's own program MOVED to
+#                tests/imported/fail/borrowck/ (declared RENAMED-FIXTURE below):
+#                -1 `logos_00_bc_admit_*`, +1 `logos_06_diagnostics_fail_*` — net
+#                0 on ALL and -1 on both NOIMPORTED and TIERCOMMIT, the same
+#                label asymmetry the 2026-09-12b block above derives. So ALL +4,
+#                NOIMPORTED +3 (+4 native, -1 for the admit test), TIERCOMMIT -1,
+#                and that is what the gate measured before the pin was touched.
+#                Re-derived by direct listing, not by adding: ls
+#                tests/logos/pass/*.logos -> 3063 (+3), ls
+#                tests/logos/fail/*.logos +1. bc_admits `# TOTAL` 82 -> 81;
+#                soundness_queue 89 -> 91 (two rows OPENED by this round's own
+#                counter-example battery — both PRE-EXISTING over-refusals that
+#                reproduce on the base binary — and no row closed).
+REGISTRY-ALL         9635
+REGISTRY-NOIMPORTED  5154
+REGISTRY-TIERCOMMIT  139
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is
@@ -9021,6 +9048,7 @@ GONE-FIXTURE  tests/logos/pass/wql_u64_sum_scalar_arith.logos  died with its sub
 GONE-FIXTURE  tests/logos/pass/wql_engine_source_e2e.logos  died with its subject at P5 (see its §3 row)
 RENAMED-FIXTURE  tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait.logos  tests/imported/fail/borrowck/borrow-immutable-upvar-mutation-impl-trait.logos  2026-09-12b: the bc_admits row it carried was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the Fn-family kind verdict at the `-> impl Fn` return position
 RENAMED-FIXTURE  tests/imported/admit/nll/issue-27868.logos  tests/imported/fail/nll/issue-27868.logos  2026-09-12f: the bc_admits row it carried was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning upstream's own E0506 sentence
+RENAMED-FIXTURE  tests/imported/admit/borrowck/borrowck-lend-flow-loop.logos  tests/imported/fail/borrowck/borrowck-lend-flow-loop.logos  2026-09-12i: the bc_admits row it carried (bck.NEW-2) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the E0502 verdict upstream's own .stderr gives it
 RENAMED-FIXTURE  tests/logos/pass/wql_agg_avg_bool_three_engines.logos  tests/logos/pass/wql_agg_avg_bool_value_rule.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/logos/pass/query_incr_f64_agg_three_engines.logos  tests/logos/pass/query_f64_agg_hand_derived.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/logos/pass/query_order_by_float_static_vs_dynamic.logos  tests/logos/pass/query_order_by_float_data_key.logos  P5: the old name stated a COUNT of engines the cut falsified

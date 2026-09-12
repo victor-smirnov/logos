@@ -1,0 +1,31 @@
+// OVER-REFUSAL, tier 3 — legal Rust, refused. A `&mut` holder re-aliased inside
+// a loop body to one of TWO referents by an if/else: Rust accepts, because each
+// iteration's loan is dead at the next `*r`. logosc refuses with
+//     error [fn main]: cannot borrow 'b' as mutable: already mutably borrowed
+//     error [fn main]: cannot borrow 'a' as mutable: already mutably borrowed
+// (the BASE binary printed only the 'a' line; the door-1 + door-2 change adds
+// the 'b' line to a program that was already refused — rule 14, a reworded red
+// buys nothing, and it is recorded here so the second line is not read later as
+// a new defect)
+// FOUND 2026-09-12i by the counter-example battery of the loop back-edge round,
+// and it is PRE-EXISTING: it reproduces on the base binary, and the door-1 +
+// door-2 change landed by that round neither causes nor repairs it (it does
+// repair the two-holder shape, pass/bc_backedge_two_holders_admit, which is one
+// property away — one holder per referent instead of one holder alternating).
+// ⚠ THE LEGALITY CLAIM RESTS ON A READING OF RUST, NOT ON RUSTC: there is no
+// rustc binary on this box. The reading is NLL's: `r`'s loan on `a` is live
+// only up to the `*r` that reads it, so the re-alias below it conflicts with
+// nothing.
+package loop_holder_realias_alternating_refuses;
+fn main() -> i32 {
+    let mut a: i64 = 1i64;
+    let mut b: i64 = 2i64;
+    let mut r: &mut i64 = &mut a;
+    let mut i: i64 = 0i64;
+    while i < 4i64 {
+        *r = *r + 1i64;
+        if i < 2i64 { r = &mut b; } else { r = &mut a; }
+        i = i + 1i64;
+    }
+    return 0i32;
+}

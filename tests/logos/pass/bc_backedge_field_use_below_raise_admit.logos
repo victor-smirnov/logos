@@ -1,0 +1,24 @@
+// THE FIELD MEMBER'S ADMIT HALF, ONE PROPERTY APART from
+// fail/bc_backedge_field_lend_flow_refuse: the raise moves ABOVE the holder's
+// use, so Q > P and the ordinary intra-body NLL rule still retires the loan at
+// the holder's last use. Door 1's window is `body_first <= lu < raise_point`
+// and this program sits just outside its upper edge — if the predicate widened
+// to "a mut loan never expires inside a loop body" (the crude arm of
+// 2026-09-12h) this program would refuse.
+package bc_backedge_field_use_below_raise_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { a: i64, b: i64 }
+fn readit(v: &i64) -> i64 { return *v; }
+fn main() -> i32 {
+    let mut s: S = S { a: 0i64, b: 0i64 };
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        let r: &mut i64 = &mut s.a;
+        *r = *r + 1i64;
+        acc = acc + readit(&s.a);
+        i = i + 1i64;
+    }
+    unsafe { printf("a=%ld acc=%ld\n".as_ptr(), s.a, acc); }
+    return 0i32;
+}

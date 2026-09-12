@@ -1,0 +1,32 @@
+// DOOR 1's ADMIT HALF, ONE LINE APART from imported/fail/borrowck/
+// borrowck-lend-flow-loop: that file's `let _z: i64 = borrow(&v);` is DELETED
+// and nothing else changes. `x = &mut v` raises a loan whose holder's last use
+// is `*x` at the TOP of the body — textually ABOVE the raise, and therefore
+// LATER in time, because the back edge reorders them. Door 1 keeps that loan
+// live across the back edge; with no conflicting use of `v` in the body there
+// is nothing for it to conflict with, so this must still COMPILE AND RUN.
+// This is the over-refusal half of door 1 and it is legal Rust.
+// ⚠ THE ASSERTION READS `*x`, NOT `v`/`w`, AND THAT IS NOT A STYLE CHOICE. The
+// first version printed `v` and `w` after the loop and REFUSED — "cannot use
+// 'w' while it is mutably borrowed" — on the loan `let mut x = &mut w` raised
+// BEFORE the loop, whose holder is re-aliased away inside it. That is an OPEN
+// over-refusal with its own queue row
+// (tests/soundness/open/loop_holder_realias_referent_read_after_refuses) and
+// not this change's doing: it reproduces identically on the base binary. The
+// fixture reads through the live holder so that it pins THIS property and not
+// that one.
+package bc_backedge_reassign_holder_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let mut v: i64 = 3i64;
+    let mut w: i64 = 4i64;
+    let mut x: &mut i64 = &mut w;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        *x = *x + 1i64;
+        x = &mut v;
+        i = i + 1i64;
+    }
+    unsafe { printf("x=%ld\n".as_ptr(), *x); }
+    return 0i32;
+}
