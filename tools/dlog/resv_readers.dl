@@ -1,0 +1,46 @@
+// resv_readers — WHICH EXCLUSIVITY ARMS CONSULT THE *RESERVATION* FACT, AND
+// WHICH CONSULT ONLY THE *BORROW* FACT?
+//
+// borrow_check.cpp carries a borrow of a place in TWO different records on the
+// same VarInfo: `mut_borrowed` (a let-position `&mut`) and `mut_reservations`
+// (an ARGUMENT-position `&mut`, taken as a two-phase reservation by the
+// `in_call_args_ > 0` arm). An exclusivity arm that reads only the first is
+// blind to every loan minted inside an argument list.
+//
+// A grep for "mut_reservations" cannot answer this: it cannot tell a READ in a
+// refusal arm from the INCREMENT at the deposit, and it keys on a name, while
+// identity here is the canonical FieldDecl. The join is on the enclosing
+// context, so the ctx_of coarsening applies — cross-check per site by line.
+#include "cxx_schema.dl"
+
+.decl borrowfact(did: symbol)
+borrowfact(D) :- decl(D, "Field", _), decl_name(D, "mut_borrowed").
+.decl sharedfact(did: symbol)
+sharedfact(D) :- decl(D, "Field", _), decl_name(D, "shared_borrows").
+.decl resvfact(did: symbol)
+resvfact(D) :- decl(D, "Field", _), decl_name(D, "mut_reservations").
+
+.decl borrow_read(ctx: symbol, file: symbol, line: number)
+borrow_read(C, F, L) :- borrowfact(D), ref(U, D), ctx_of(U, X), ctx_name(X, C), loc(U, F, L, _).
+.output borrow_read
+
+.decl resv_read(ctx: symbol, file: symbol, line: number)
+resv_read(C, F, L) :- resvfact(D), ref(U, D), ctx_of(U, X), ctx_name(X, C), loc(U, F, L, _).
+.output resv_read
+
+.decl shared_read(ctx: symbol, file: symbol, line: number)
+shared_read(C, F, L) :- sharedfact(D), ref(U, D), ctx_of(U, X), ctx_name(X, C), loc(U, F, L, _).
+.output shared_read
+
+.decl ctx_reads_resv(ctx: symbol)
+ctx_reads_resv(C) :- resv_read(C, _, _).
+
+// THE CLASS: a context that consults the borrow fact and NEVER the reservation
+// fact — an exclusivity decision blind to argument-position loans.
+.decl borrow_only(ctx: symbol, file: symbol, line: number)
+borrow_only(C, F, L) :- borrow_read(C, F, L), !ctx_reads_resv(C).
+.output borrow_only
+
+.decl both(ctx: symbol, file: symbol, line: number)
+both(C, F, L) :- borrow_read(C, F, L), ctx_reads_resv(C).
+.output both

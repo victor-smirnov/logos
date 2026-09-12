@@ -39905,3 +39905,148 @@ priced on the two sibling rows is the instance, not the class.
 `--t17` and `lifereg_derefwrite_descent_stops_at_deref_admits` are reachable —
 the hop exists and the escape door fires. What is missing is a discriminator in
 the dangling channel, not another hop. Price THAT, on the `'?'` population.
+
+## 2026-09-12e — THE ARGUMENT-POSITION `&mut` DEPOSITS A *RESERVATION*, AND THREE OF THE FOUR EXCLUSIVITY ARMS THAT REFUSE A LET-POSITION LOAN NEVER READ IT; ONE SITE, CEILING 1, COST 0 IN EVERY COLUMN AND ZERO ARRIVALS ELSEWHERE IN 9650 PROGRAMS
+
+site: src/compiler/borrow_check.cpp::visit_stmt Code::Assign (the
+      `it->mut_borrowed` exclusivity pair), and the same pair in Code::IndexWrite
+      and Code::FieldIndexWrite
+build: 130dc833802735ea 43 (armed tree; base tree was 2e1bc1d88ca55f26 43)
+fires: argresvassign 1 · argresvwrite 1 over the ledger corpus. ARRIVAL CENSUS
+       over EVERY `.logos` in `tests/` + `examples/` (9650 programs, 217783
+       census lines): `argresvwrite/assign` **1**, `argresvwrite/indexwrite`
+       **0**, `argresvwrite/fieldindexwrite` **0**.
+
+### THE ROOT, MEASURED BEFORE ANY EDIT
+
+`take_borrow_whole_` has TWO deposits for the same `&mut place`. In let position
+it sets `it->mut_borrowed`. Inside call-argument evaluation (`in_call_args_ > 0`,
+the B82 two-phase arm) it sets `it->mut_reservations++` instead. Six one-token
+twin pairs on the PRISTINE binary (2e1bc1d88ca55f26), let-position vs
+argument-position, one arm each:
+
+| arm | let-position loan | argument-position loan (`g(&mut x, …)`) | Rust |
+|---|---|---|---|
+| mut-vs-mut borrow | refuses (a3) | refuses (c7) | E0499 |
+| move while borrowed | refuses (p3) | refuses (c2) | E0505 |
+| **read while borrowed** | refuses (p1) | **ADMITS (c5)** | E0503 |
+| **shared borrow while borrowed** | refuses (a3) | **ADMITS (c1)** | E0502 |
+| **assign while borrowed** | refuses (p2) | **ADMITS (c8)** | E0506 |
+| **assign to array base** | refuses (p4) | **ADMITS (c3/c4)** | E0506 |
+
+The refusal ARM exists in every row. What is missing is the FACT: three of the
+arms read `mut_borrowed` and never `mut_reservations`.
+
+### THE CLASS BY PROPERTY, WITH `tools/dlog` — AND THE CROSS-CHECK GOES AGAINST THE TOOL, AGAIN
+
+`selftest.sh` run first, rc 0, recorded known answer reproduced verbatim:
+`ok 28fc7c75: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty
+discriminates across 756aed65 (1 -> 0)`. New rule `tools/dlog/resv_readers.dl`
+(declared here per the standing rule): every `ref` to the FieldDecls
+`mut_borrowed` / `shared_borrows` / `mut_reservations`, joined to its enclosing
+context, and the derived class `borrow_only` = a context that reads the borrow
+fact and never the reservation fact.
+
+    borrow_read 22 sites · resv_read 14 · shared_read 28
+    borrow_only (pristine, after subtracting this round's own 3 probe reads):
+      release_borrows_held_by · release_dead_borrows · release_place_retarget
+      place_write_loans · take_field_borrow_path_ · check_live
+      check_recv_conflict · check_place_mut_use · visit_stmt (4 assign arms)
+
+Two of those — `check_live` (5452) and the `visit_stmt` Assign arm (12918) — are
+exactly the two arms the hand pairs above measured blind, so dlog and the
+per-site read AGREE where the rule keys on one walk in one function.
+
+⚠ **AND IT COARSENS AGAIN, IN THE OPPOSITE DIRECTION FROM LAST TIME.** dlog puts
+`take_borrow_whole_` in `both` — it reads the reservation fact at 4590/4627/4643,
+so by the rule it is complete. The per-site read says its SHARED arm's
+reservation check (4643) is gated behind `logos::probe::on("argresvsibshared")`
+and therefore does nothing unarmed — which is why `g(&mut x, &x)` (c1) admits.
+**dlog: complete. Per-site read + measurement: blind unarmed. Reported side by
+side.** The rule cannot see a probe gate, and `ctx_of` cannot see which arm.
+
+### THE PROBE TABLE — ALL COLUMNS
+
+| name | site | fires | ceiling | cost pass | cost fail (1494) | cost stdlib | runtime |
+|---|---|---|---|---|---|---|---|
+| `argresvassign` | Code::Assign | 1 | **1** — `logos_00_bc_admit_nll_issue-27868` | 0 | 0 (rc 0 / .expected 0 / text-only 0) | 4 of 4 layers build | **0** of 6672 |
+| `argresviw` | Code::IndexWrite | 0 | 0 | 0 | — | — | — |
+| `argresvfiw` | Code::FieldIndexWrite | 0 | 0 | 0 | — | — | — |
+| `argresvwrite` | all three | 1 | **1** — same row | 0 | 0 | 4 of 4 | — |
+
+RUNTIME COLUMN, MEASURED not argued: `scripts/run_oracle.py` base vs
+`LOGOS_PROBE=argresvassign`, ONE build (130dc833802735ea), 6672 pass fixtures
+compiled + linked + RUN — `ro_base.tsv` 07:08, `ro_armed.tsv` 07:18, 6672 rows
+each. Diffed BOTH ways: one row in, one row out, and it is
+`logos_02_semantic_core_pass_cast-region-to-uint`, the stack-address printer the
+tool says to subtract by name. Every other ccrc / runrc / stdout-sha identical.
+
+ADDITIVITY CHECKED, NOT ASSUMED (rule 13): union == the single site's number, so
+the other two contribute nothing. RULE 1 — those two zeros are NOT refutations
+until the sites are proven live, and they are NOT: every hand program that would
+reach them is refused by an EARLIER door (`&mut a[0]` then `a[1] = 9` gives
+"cannot borrow 'a' as mutable: already mutably borrowed" on the BASE binary, I5;
+the `h.a[i]` spelling likewise, I4). They are doors in series behind a refusal
+that already exists. **A fix installs ONE site, not three.**
+
+### THE SET, DIFFED BOTH WAYS, AND THE DIAGNOSTIC READ
+
+Predicted by name before the run: ceiling 1 = `issue-27868`, nothing else.
+Measured: exactly that row, no other. Its sentence armed:
+
+    error [fn main]: cannot assign to 'vecvec' while it is borrowed (E0506)
+
+against upstream `tests/ui/nll/issue-27868.stderr` @ da5114692c9:
+`error[E0506]: cannot assign to 'vecvec' because it is borrowed`. Same verdict,
+same code, wording differs from upstream's "because"; the phrasing is copied
+from this file's own existing E0506 arm one line above.
+
+### THE HAND BATTERY — SHAPES, NOT COUNT (rule 5)
+
+Ten legal programs, each a DIFFERENT shape, all rc 0 armed and unarmed:
+two-phase receiver read `v.push(v.len())`; assignment AFTER the call; assignment
+to an unrelated local inside the arg block; a `static mut` write inside the arg
+block; an unrelated struct assignment; a loop-carried reserve-then-assign; a
+field-index write on an unrelated holder; `x += z` then a later `z = …`;
+`a[0] += …` then `a[1] = …`. Two more (nested `&mut x` twice; `&mut h.a[0]` with
+a sibling element write) are refused on the BASE binary — inherited, rule 14, not
+a cost.
+
+### THE SECOND ROW OF THIS BLOCK IS NOT A CHECKER HOLE — IT IS A16, AND IT IS THE OWNER'S
+
+`augmented-assignments` (`bck.NEW-1`) reads like the twin: `x += x`, upstream
+E0505 "cannot move out of `x` because it is borrowed". It is NOT closed by this
+arm and must not be. Upstream's `struct Int(i32)` is a MOVE type; the port's
+`struct Int { v: i32 }` is auto-`Copy` under `docs/DIVERGENCES.md` A16, so the
+RHS `x` is a COPY — and under the two-phase borrow this file already implements,
+a READ of a reserved place is exactly what the reservation permits (that is what
+`v.push(v.len())` is for). The illegality upstream relies on the operand being a
+MOVE. **The row as ported is an A16 artefact, like `bck.NEW-A16`'s two rows.**
+Measured the same way today: `ownership-struct-update-moved-error` (`bck.NEW-4`)
+is A16-blocked too — its `Mine` is all-`Copy`-fields, so there is no move to
+refuse; the identical program with `impl Drop for Mine` added is REFUSED
+("use of moved variable 'start'") at both the whole-value and the `start.test`
+projection spelling. Three roots (`bck.NEW-1`, `bck.NEW-4`, `bck.NEW-A16`), five
+rows, one blocker, and only one of them says so on its row today.
+
+### WHAT DESERVES FUNDING
+
+The `Code::Assign` site, ~10 lines, ceiling 1 / cost 0 / stdlib clean / 0 pinned
+diagnostics touched / 1 arrival in 9650 programs. It is narrow by construction:
+it refuses a WRITE to a reserved place, which Rust refuses (E0506) even while a
+two-phase borrow is only reserved — so it does NOT overlap `argresvact`, the
+owner-blocked arm that would refuse READS during a reservation.
+
+⚠ WHAT IT DOES NOT CLOSE, DECLARED: the READ arm (c5) and the SHARED-BORROW arm
+(c1) stay open. Both are the `argresvact` wall — Logos takes a reservation for
+EVERY argument-position `&mut`, where Rust two-phases only an autoref receiver,
+so closing them at the arm would refuse the TPB pass pins. The Rust-canonical
+repair there is at the DEPOSIT (reserve only for an autoref receiver), and that
+is its own round.
+
+⚠ THE TWO DEAD ARMS STAY INSTALLED because this record's build hash
+(130dc833802735ea) is the tree WITH them; deleting them now would leave the
+numbers above describing a binary no source file produces. The round that LANDS
+the Assign site deletes `argresviw` and `argresvfiw` in the same commit — they
+are measured dead, in the corpus and by hand, and a fix that installs them adds
+two unreachable decisions.

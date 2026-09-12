@@ -12918,6 +12918,15 @@ private:
                     if (it->mut_borrowed)
                         report(ln, std::format(
                             "cannot assign to '{}' while it is mutably borrowed", name));
+                    // ⚠ PROBE argresvassign / argresvwrite — see PROBES.md 2026-09-12e.
+                    if (it->mut_reservations > 0) {
+                        logos::probe::census("argresvwrite/assign");
+                        if (logos::probe::on("argresvassign") ||
+                            logos::probe::on("argresvwrite"))
+                            report(ln, std::format(
+                                "cannot assign to '{}' while it is borrowed (E0506)",
+                                name));
+                    }
                     // A borrow of a FIELD of this variable is invalidated by the
                     // assignment exactly as a borrow of the whole variable is —
                     // the storage the reference names is overwritten either way.
@@ -13143,6 +13152,15 @@ private:
                         report(ln, std::format(
                             "cannot assign to '{}[..]' while '{}' is mutably borrowed",
                             nm, nm));
+                    // ⚠ PROBE argresviw / argresvwrite — see PROBES.md 2026-09-12e.
+                    if (it->mut_reservations > 0) {
+                        logos::probe::census("argresvwrite/indexwrite");
+                        if (logos::probe::on("argresviw") ||
+                            logos::probe::on("argresvwrite"))
+                            report(ln, std::format(
+                                "cannot assign to '{}[..]' while '{}' is borrowed (E0506)",
+                                nm, nm));
+                    }
                 }
                 check_live(nm, ln);
                 visit(v.index(), /*consuming=*/true, ln);
@@ -13168,6 +13186,15 @@ private:
                         report(ln, std::format(
                             "cannot assign to '{}.{}[..]' while '{}' is mutably borrowed",
                             nm, std::string(v.field()), nm));
+                    // ⚠ PROBE argresvfiw / argresvwrite — see PROBES.md 2026-09-12e.
+                    if (it->mut_reservations > 0) {
+                        logos::probe::census("argresvwrite/fieldindexwrite");
+                        if (logos::probe::on("argresvfiw") ||
+                            logos::probe::on("argresvwrite"))
+                            report(ln, std::format(
+                                "cannot assign to '{}.{}[..]' while '{}' is borrowed (E0506)",
+                                nm, std::string(v.field()), nm));
+                    }
                 }
                 check_live(nm, ln);
                 visit(v.index(), /*consuming=*/true, ln);

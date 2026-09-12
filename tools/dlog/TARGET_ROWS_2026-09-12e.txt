@@ -1,0 +1,31 @@
+# 2026-09-12e — TARGET ROWS. Subject ledger: tests/logos/bc_admits.ledger
+# ⚠ HONEST TIMESTAMP: the block was CHOSEN by the census below at ~06:05-06:12,
+# the probe was installed 06:13 and this file written 06:16 — three minutes
+# AFTER the edit, not before. The reasoning is the census, not this file's mtime.
+#
+# TARGET (1 row, root nllmoves.R11-ASSIGN):
+issue-27868  nllmoves.R11-ASSIGN  tests/imported/admit/nll/issue-27868
+#
+# CANDIDATE MEASURED OUT OF THE BLOCK BEFORE PRICING (A16, owner's — see the
+# ledger rows' own new notes and PROBES.md 2026-09-12e):
+#   augmented-assignments               bck.NEW-1
+#   ownership-struct-update-moved-error bck.NEW-4
+#
+# WHY THIS BLOCK AND NOT THE OTHERS
+#  * the lifereg.B / NEW-B2 door plane is excluded by name (it would be a 4th
+#    round on it);
+#  * argresvact (arg-reservation ACTIVATION against READS) is owner-blocked on
+#    two green pass pins — this block touches only WRITES, which Rust refuses
+#    (E0506) even while a two-phase borrow is merely reserved, so it does not
+#    overlap that wall;
+#  * bck.D + nllmoves.D carry a decline in the ledger file; bck.NEW-CAPMOVE has
+#    five arms already installed at its site;
+#  * ROOTS NEVER SURVEYED, derived by grepping every root id against
+#    src/compiler/PROBES.md (suffix form, because a record writes `*.NEW-CAPLOAN`
+#    and a literal `bck.NEW-CAPLOAN` grep reads 0 — a false negative I hit):
+#    A-FNMUT, NEW-A16, NEW-BLOCKREF, NEW-N4, R11-ASSIGN, R14, R5 — seven roots,
+#    eight rows, zero mentions. R11-ASSIGN is one of them.
+#  * the SHAPE the prompt says has paid every time: the refusal ARM EXISTS (a
+#    let-position `&mut` makes `x = …` refuse, measured) and the FACT it reads
+#    (`mut_borrowed`) is not the fact an argument-position `&mut` deposits
+#    (`mut_reservations`).
