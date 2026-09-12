@@ -2338,3 +2338,42 @@ regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-boun
 # the DEREF projection of the same defect. Reported, not counted, no row opened
 # by this round.
 # Full numbers: src/compiler/PROBES.md 2026-09-11d-liferegb.
+# ── 2026-09-12 — `lifereg.NEW-B2` (`--t17`): ITS RECORDED MECHANISM IS WRONG. ──
+# NO ROW CLOSED, NO COUNT CHANGED (85). PRICED, AND THE PRICE IS NOT THE POINT.
+# This row and borrow_check.cpp both record the miss as "it writes through a
+# `&mut [&i64]` SLICE local", which reads as "widen the descent's `Kind::Array`
+# test to `Slice`". MEASURED with a ONE-VARIABLE control — same ARRAY type, the
+# reborrow hop present — and the array-typed reborrow gets 0 arrivals too:
+#     out[0u64] = y;                                (direct, Array)   ARRIVES
+#     { let s: &mut [&i64; 1] = &mut out; s[0]=y; } (ref-to-ARRAY)    0
+#     { let s: &mut [&i64]    = &mut out; s[0]=y; } (ref-to-SLICE)    0
+# PROBE `liferegbrbhop` (the AddrOfTemp/IndexRead descent looks THROUGH the
+# reference, pointee Array OR Slice) moved the ref-to-ARRAY spelling 0 -> 1 and
+# the ref-to-SLICE spelling NOT AT ALL: TWO DOORS IN SERIES, rule 2. So every
+# repair priced against "widen Array to Slice" is aimed at a door that is not
+# the one --t17 takes, and the slice-element store's LOWERING IS STILL
+# UNIDENTIFIED — it reaches neither that descent nor the
+# `SDerefWrite(MethodCall(index_mut …))` door, and `Code::IndexWrite` (which
+# nothing in sema constructs; only `mono_clone` re-emits it) carries
+# `place_write_loans` and NO `note_holder_escape_prov` at all.
+# ⚠ `--t17` IS NOT FUNDABLE UNTIL THAT LOWERING IS NAMED. The next round's first
+# command is one `census(ptr.kind())` at the SDerefWrite arm entry, NOT a repair.
+# `liferegbrbhop` IS DECLINED ON ITS OWN NUMBER, WHICH OUTRANKS ITS CEILING:
+# ceiling 0 here, cost 0 pass, 0 of 1492 `-L bc -L fail` — and ⛔ THE STDLIB DID
+# NOT COMPILE (`mem`, 2 refusals in `ts_scan`, both READ). fires 6530.
+# ⚠ AND AN ORACLE THIS ROW COULD HAVE BEEN CLOSED BY, WRONGLY. Reading an array
+# element back through a SHARED SLICE REF is refused as "cannot return reference
+# to local variable 'out': dangling reference" on the UNMODIFIED compiler — the
+# elided (illegal) twin therefore refuses for a reason that is not E0621. New
+# soundness_queue row `sliceref_read_of_local_array_says_dangling` (82 -> 83)
+# so nobody reads that rc 1 as this door closing.
+# THE SIBLING DOORS, PRICED IN THE SAME BUILD: `liferegbdwvar` (a deposit at
+# `SDerefWrite(ptr.kind()==VarRef)`) closes soundness_queue row
+# `lifereg_deref_store_param_admits` with upstream's own E0621 sentence, READ —
+# ceiling 0 HERE and that is expected, since no row in this file has that
+# spelling. Cost 0 in all four columns AND runtime 0 (run_oracle 6670 = 6670,
+# diffed both ways, 1 changed row = `cast-region-to-uint`, subtracted by name).
+# THE GROUPING WAS REFUTED, like both handed-down ones: --t17 and the deref row
+# are NOT one door — `*d = y` has `ptr.kind()==VarRef` and never enters the
+# descent --t17 goes through. Three projections, three doors, three defects.
+# Full numbers: src/compiler/PROBES.md 2026-09-12a-liferegb-doors.

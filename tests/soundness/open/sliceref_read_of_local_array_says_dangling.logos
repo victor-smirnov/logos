@@ -1,0 +1,33 @@
+// SOUNDNESS QUEUE — `refuses`. LEGAL Rust, refused by logosc.
+//
+// Reading an element OUT of a local array through a SHARED SLICE reference is
+// reported as returning a reference TO the array:
+//     error [fn f]: cannot return reference to local variable 'out':
+//     dangling reference
+// The element type is `&'a i64`, so `s[0]` yields a value whose lifetime is
+// `'a` and has nothing to do with the borrow of `out`; the borrow of `out`
+// ends with the function. Rust accepts.
+//
+// ONE-VARIABLE CONTROL, measured 2026-09-12 on the unmodified compiler
+// (build 4ce36eea9e50fa26 43) — only the READ spelling differs:
+//     return out[0u64];                         -> rc 0  (admitted, correct)
+//     let s: &[&'a i64] = &out; return s[0u64]; -> rc 1  (THIS DEFECT)
+// and the refusal is independent of the `lifereg.B` index-store arms: it is
+// identical with `lifereg_indexstore` and with `liferegbrbhop` armed.
+//
+// ⚠ IT ALSO MASKS A ROW'S ORACLE. The `refuses`-direction twin of this program
+// (`y: &i64` elided) is ILLEGAL Rust and logosc refuses it — but for THIS wrong
+// reason, not for E0621. A round that read that rc 1 as "the lifereg.B slice
+// door is closed" would be wrong; it was, and this row exists so it is not
+// read that way again.
+//
+// ⚠ LEGALITY RESTS ON A READING: there is no rustc BINARY on this box.
+// Opened 2026-09-12.
+package sliceref_read_of_local_array_says_dangling;
+fn f<'a>(x: &'a i64, y: &'a i64) -> &'a i64 {
+  let mut out: [&'a i64; 1] = [x];
+  out[0u64] = y;
+  let s: &[&'a i64] = &out;
+  return s[0u64];            // THE DEFECT: refused, "dangling reference"
+}
+fn main() -> i32 { return 0i32; }

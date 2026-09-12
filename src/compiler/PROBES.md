@@ -39526,3 +39526,158 @@ Declared: <= 80 lines of compiler change across <= 4 files. Landed: **55 lines o
 code added, 21 removed, across 5 files** (the fifth, `mono_*`, was not predicted —
 it was produced BY the fix, not chosen). Under budget on lines, one file over on
 the count, and the overrun is a discovery rather than a design smell.
+
+## 2026-09-12a-liferegb-doors — THE HOLDER-DEPOSIT DOOR PLANE, PRICED. ONE ARM FUNDABLE, ONE DECLINED ON THE STDLIB, AND THE LEDGER'S RECORDED MECHANISM FOR `lifereg.NEW-B2` IS REFUTED AT ZERO COST
+
+BUILD READ: base `4ce36eea9e50fa26 43` (`build_hash.py`, no argv). Armed batch
+built by `scripts/probe-batch.sh`, inert at L1 rc 0 with nothing armed.
+
+### THE BLOCK, AND WHY IT OVER THE OTHERS
+
+Three rows, one root family — the holder-deposit doors of `lifereg.B`, at the
+projections the 2026-09-11e landing measured as arriving at ZERO doors:
+
+  * `mut-slice-struct-lifetime-transmute--t17` — `lifereg.NEW-B2`,
+    tests/logos/bc_admits.ledger. `let s: &mut [&i64] = &mut out; s[0u64] = y;`
+  * `lifereg_deref_store_param_admits` — tier 2 `admits`, soundness queue.
+    `let d: &mut &i64 = &mut out; *d = y;`
+  * `lifereg_container_elem_read_admits` — tier 2 `admits`, soundness queue.
+    `v.push(y); return v[0u64];` — the READ side, not a door.
+
+`argresvact` is BLOCKED ON THE OWNER by two green pass pins and `bck.D +
+nllmoves.D` carries a 2026-09-08 DECLINE in the ledger itself; both excluded by
+their own notes, not by preference.
+
+### CONTROLS RE-VERIFIED ON TODAY'S BINARY — ALL THREE REPRODUCE
+
+    root-local store `out = y; return out;`        rc 1, READ:
+      "lifetime mismatch: return type has lifetime 'a but 'y' has lifetime (elided)"
+    --c17 (the FIELD door, closed 2026-09-11e)     rc 1, same sentence
+    --t17                                          rc 0  ADMITTED
+    lifereg_deref_store_param_admits               rc 0  ADMITTED
+    lifereg_container_elem_read_admits             rc 0  ADMITTED
+
+ARRIVAL CENSUS (rule 17), the 2026-09-11e hooks, today's binary — reproduces
+that round's recorded numbers digit for digit, so the instrument has not decayed:
+
+    --c17                deposit 1  door.derefwrite 1  read 1   (LIVE both ways)
+    --t17                deposit 0  (no door at all)
+    deref_store          deposit 0  (no door at all)
+    container_elem_read  deposit 2  door.outparam 2   read 0
+
+### ⚠ THE GROUPING WAS REFUTED BY MEASUREMENT, AS BOTH HANDED-DOWN ONES WERE
+
+Hypothesis H: `--t17` and `lifereg_deref_store_param_admits` are ONE door — "a
+store through a local reborrow deposits nothing, whatever the projection". ONE
+candidate change does not move both. `--t17` goes through the AddrOfTemp/
+IndexRead descent; `*d = y` has `ptr.kind() == VarRef` and never enters it.
+THREE DOORS, THREE DEFECTS. `lifereg_container_elem_read_admits` was predicted
+separate (read side) and is: neither probe moves it.
+
+### ⚠ AND THE LEDGER'S RECORDED MECHANISM FOR `lifereg.NEW-B2` IS WRONG
+
+bc_admits.ledger and borrow_check.cpp both record the `--t17` miss as "it writes
+through a `&mut [&i64]` SLICE local", which reads as "widen the descent's
+`Kind::Array` test to `Slice`". MEASURED WITH A ONE-VARIABLE CONTROL — the same
+ARRAY type, reborrow hop present — the array-typed reborrow gets 0 arrivals too:
+
+    out[0u64] = y;                              (direct, Array)      arrives
+    { let s: &mut [&i64; 1] = &mut out; s[0]=y; } (ref-to-ARRAY)     0 arrivals
+    { let s: &mut [&i64]    = &mut out; s[0]=y; } (ref-to-SLICE)     0 arrivals
+
+So the blocker is not slice-ness. `liferegbrbhop` widened the descent to look
+THROUGH the reference (pointee Array **or** Slice) and moved the ref-to-ARRAY
+spelling 0 -> 1 and the ref-to-SLICE spelling NOT AT ALL. TWO DOORS IN SERIES
+(rule 2): the slice element store reaches neither the AddrOfTemp/IndexRead
+descent nor the `SDerefWrite(MethodCall(index_mut …))` door. `Code::IndexWrite`
+has a `place_write_loans` call and NO `note_holder_escape_prov` at all, and
+nothing in sema constructs one (only `mono_clone` re-emits it) — so the lowering
+`s[0]=y` actually takes is UNIDENTIFIED and naming it is the next round's first
+command: one `census(ptr.kind())` at the SDerefWrite arm entry. I did not build
+that, and I say so rather than guessing it.
+
+### THE PROBE TABLE — ALL COLUMNS, INCLUDING THE RUNTIME ONE
+
+| probe | fires | ceiling (bc_admits) | queue | cost pass | cfail | stdlib | runtime | verdict |
+|---|---|---|---|---|---|---|---|---|
+| `liferegbrbhop` | 6530 | 0 | 0 | 0 | 0/1492 | ⛔ **REFUSED** | — | **DECLINED** |
+| `liferegbdwvar` | 3375 | 0 | **1** | 0 | 0/1492 | 4 of 4 | **0** | **FUNDABLE** |
+
+`liferegbrbhop` stdlib: `mem` 2 refusals, first read —
+  "error [fn ts_scan]: 'nm' does not live long enough: it is borrowed by 'out',
+   which is used here after 'nm' goes out of scope (E0597)"
+  "error [fn ts_scan]: cannot return reference to local variable 'out': dangling
+   reference"
+THE STDLIB OUTRANKS EVERY NUMBER ABOVE IT. Declined.
+
+`liferegbdwvar` RUNTIME COLUMN, taken as ONE VARIABLE on ONE binary (armed vs
+unarmed `LOGOS_PROBE`, same build, same tree — not two builds): 6670 rows each,
+DIFFED BOTH WAYS, 0 lost, 0 added, **1 changed** and it is `cast-region-to-uint`,
+subtracted by name because it prints a stack address. RUNTIME COST 0.
+⚠ A first diff was taken against a base file that was still being WRITTEN (6634
+of 6670 rows) and showed 106 differing lines. It was discarded, not reported.
+
+### `liferegbdwvar` CLOSES ITS ROW, AND THE DIAGNOSTIC WAS READ
+
+    lifereg_deref_store_param_admits   rc 0 -> rc 1
+    "lifetime mismatch: return type has lifetime 'a but 'y' has lifetime (elided)"
+which is the Logos sentence for upstream's E0621 and is the same one the closed
+`--c17` fail fixture pins. Census under the arm: deposit 1 / door.derefwrite 1 /
+read 1 — the site is proven LIVE IN BOTH DIRECTIONS, not by a zero.
+
+PREDICTED BY NAME BEFORE THE RUN, and both differences taken:
+  `liferegbdwvar` ledger predicted {} actual {} · queue predicted
+  {lifereg_deref_store_param_admits} actual {same}. Both differences EMPTY.
+  `liferegbrbhop` ledger predicted {--t17} actual {} — predicted∖actual =
+  {--t17}, actual∖predicted = EMPTY. THE PREDICTION WAS WRONG AND THAT IS THE
+  ROUND'S MAIN FINDING; it is what refutes the recorded mechanism.
+
+### HAND ORACLE — 12 SHAPES, NOT 12 COUNTS (rule 5)
+
+same-lifetime slice store · scalar slice store (no borrow) · borrow not returned
+· overwrite-back · sibling element · `Vec` index store · scalar deref write ·
+same-lifetime deref write · deref write not returned at `'a` · deref write of
+`&STATIC` · array-of-struct slice store · nested `[[i64;2];2]` index.
+ALL TWELVE admit under BOTH probes, identical to base. 0 legal refusals by hand.
+
+### A NEW DEFECT, FOUND BY THE RULE-5 BATTERY, ROW OPENED — 82 -> 83
+
+`sliceref_read_of_local_array_says_dangling`, tier 3 `refuses`. Reading an
+element out of a local array THROUGH A SHARED SLICE REF is reported as returning
+a reference to the array. One-variable control on the unmodified compiler:
+`return out[0u64]` rc 0, `let s:&[&'a i64]=&out; return s[0u64]` rc 1.
+⚠ IT MASKS AN ORACLE: the elided twin of that program is illegal Rust and IS
+refused — for this wrong reason, not for E0621. A round reading that rc 1 as
+"the slice door is closed" would be wrong. This round nearly did.
+
+### tools/dlog — USED, AND THE ANSWER CROSS-CHECKED PER SITE
+
+`selftest.sh` rc 0 first (19 walkers / 24 findings / try_path 1-5 / domain 42-5;
+duty discriminates 1 -> 0 across 756aed65). `provdep.dl` re-run: `holder_call` =
+**6 sites / 3 contexts** — and SIX is not the tree's number, it is 5 plus MY OWN
+probe, because the question was asked while probe-batch had the edits applied.
+Hand grep on the same file: 6 and 6, agree term for term; base = 5, which is the
+number 2026-09-11e recorded. Stated because a dlog answer taken over a dirty
+tree is the same trap as a batch price taken over one.
+The load-bearing half is the ABSENCE: `container_ref` puts `prov_` in 12
+contexts while `holder_call` puts the deposit helper in 3, so the helper is the
+route and a change there is a CLASS fix — and `Code::IndexWrite`'s arm contains
+none, which is why no grep for the deposit could have found that hole.
+
+### ⚠ AN INSTRUMENT THAT READS 0 ON A PROGRAM THAT DEPOSITS 1
+
+`LOGOS_DUMP_BC_HOLDERPROV` prints `fired=0 … derefwrite=0` on `--c17`, which the
+census says deposits 1 at the derefwrite door. Not a bug and not an orphan: the
+counters sit BELOW `note_holder_escape_prov`'s escape early-exit, so they count
+the `is_local || is_temp` channel only and are blind to the `params` channel
+2026-09-11e added above it. Recorded because "did a deposit happen?" asked of
+that dump answers NO on a program where it happened.
+
+### WHAT DESERVES FUNDING
+
+1. `liferegbdwvar` — the `SDerefWrite(ptr=VarRef)` deposit door. Ceiling 0 on
+   bc_admits and that is EXPECTED (no row in that file has the spelling), so the
+   payment is a soundness-queue row, cost 0 in all four columns plus runtime,
+   12 legal shapes unmoved. The smallest fundable thing in this block.
+2. NOT `liferegbrbhop`. Whatever ceiling 0 says, the stdlib did not compile.
+3. `--t17` is NOT fundable until its lowering is NAMED. One census line.
