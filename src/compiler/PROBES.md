@@ -40050,3 +40050,176 @@ numbers above describing a binary no source file produces. The round that LANDS
 the Assign site deletes `argresviw` and `argresvfiw` in the same commit — they
 are measured dead, in the corpus and by hand, and a fix that installs them adds
 two unreachable decisions.
+
+## 2026-09-12f — THE ARM LANDS AT **ONE** SITE BECAUSE THE CLASS IS ONE SITE BY MEASUREMENT: EVERY *PROJECTION* WRITE TO A RESERVED PLACE ALREADY DIES ONE DOOR EARLIER, AND THE WHOLE-VALUE `Code::Assign` IS THE ONLY SPELLING THAT IS NOT A BORROW
+
+site: src/compiler/borrow_check.cpp::visit_stmt — the `Code::Assign` arm, a
+      third exclusivity branch beside the `shared_borrows` / `mut_borrowed` pair.
+fires: NOT A PROBE — this is a LANDING, unconditional, no `probe::on` gate. The
+      pricing round's counts stand: `argresvassign` 1 fire / ceiling 1 over the
+      ledger corpus, and an arrival census of 1 over 9650 tree programs. The
+      three probe names `argresvassign` / `argresviw` / `argresvfiw` and the
+      union `argresvwrite` are DELETED from the sources by this commit.
+build: base 130dc833802735ea 43 (HEAD ebf5783ec) -> armed 0e2b64ecc2cb7064 43.
+       ONE configure, so the `fail_text_oracle` baselines are comparable.
+diff:  +13/-27 in borrow_check.cpp (the landing is 7 lines; the other 20 are the
+       two sibling PROBES deleted).
+
+### WHAT LANDED
+
+```
+                    if (it->mut_borrowed)
+                        report(ln, "cannot assign to '{}' while it is mutably borrowed", name);
++                   else if (!said_shared && it->mut_reservations > 0)
++                       report(ln, "cannot assign to '{}' because it is borrowed", name);
+```
+
+`!said_shared` is not decoration: a shared borrow taken INSIDE the same
+argument frame is compatible with the reservation by design
+(`borrow.take.call-arg-mut-reservation`), so both records can be non-zero at one
+statement and the second report would be the byte-identical sentence twice —
+the defect `assigndupdel` closed in 2026-08-31t. Measured with a program that
+holds both (`take(&mut x, { let s: &i64 = &x; x = 5i64; len(s) })`): ONE error
+line. Every illegal program in the battery prints exactly one.
+
+### THE CLASS, BY THE PROPERTY — AND THE TOOL'S OWN MISS, RECORDED
+
+`tools/dlog/selftest.sh` FIRST, rc 0, known answer reproduced verbatim:
+`28fc7c75: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty
+discriminates across 756aed65 (1 -> 0)`.
+
+New rule `tools/dlog/resv_write_arms.dl` over `lir_schema::stmt::Code`, with
+TWO independent mechanical domains, because ONE mechanical property is still a
+property chosen by hand:
+
+| domain | definition | arms |
+|---|---|---|
+| D1 | the arm calls `place_write_loans` | 7 |
+| D2 | the arm reads `mut_borrowed` / `shared_borrows` | 4 |
+| union | | **8** |
+
+⚠ **D1 MISSES `Code::Assign` — THIS ROUND'S OWN TARGET.** The whole-value
+assignment writes through a named root and calls `release_borrows_held_by` +
+`take_ref_borrows` instead of the loan hook, so a class defined by that one
+callee scores the arm being fixed here as not a write at all. That is the
+premature-closure failure the tool exists to catch, committed inside the tool,
+and it is why the rule reports a UNION and not a single domain. Anyone reading
+one number here would have enumerated 7 arms and missed the only live one.
+
+Of the 8, **5 read the reservation fact nowhere**: `ChainFieldWrite`,
+`DerefFieldWrite`, `DerefWrite`, `FieldWrite`, `TupleWrite`. (`Assign`,
+`IndexWrite`, `FieldIndexWrite` carried the 2026-09-12e probes.)
+
+### THE PER-SITE READ, WHICH IS WHAT THE `ctx_of` COARSENING REQUIRES
+
+A dlog verdict is scored per ARM, not per guarded write, and this tool has been
+wrong in the expensive direction once (37 vs 0). So one hand program per
+candidate spelling, all on the BASE binary 130dc833802735ea:
+
+| hand program (inside the args of `f(&mut R, …)`) | base verdict | door |
+|---|---|---|
+| `arr[0] = 9`   | REFUSED  | take_borrow_whole_ "already mutably borrowed" |
+| `h.xs[0] = 9`  | REFUSED  | same |
+| `h.n = 9`      | REFUSED  | same |
+| `o.i.n = 9`    | REFUSED  | same |
+| `t.0 = 9`      | REFUSED  | same |
+| `x = 5`        | **ADMITTED** | `Code::Assign` — scalar carrier |
+| `h = Holder{9}`| **ADMITTED** | `Code::Assign` — struct carrier |
+| `arr = [8,9]`  | **ADMITTED** | `Code::Assign` — array carrier |
+
+**dlog says 5 blind arms; the per-site read says 0 of those 5 is reachable in
+this state, and the one arm dlog's first domain could not see is the whole
+class.** Both numbers, side by side, as the standing instruction requires. The
+mechanism is a DOOR IN SERIES: every projection write takes an `&mut` of its own
+place first, and that borrow hits the B82 reservation conflict at
+`take_borrow_whole_`. A whole-value assignment is not a borrow and reaches no
+such door.
+
+### DECLINED BY NAME, WITH THE NUMBER
+
+* `Code::IndexWrite` — `argresviw` 0 arrivals over all 9650 `.logos` programs in
+  `tests/` + `examples/` (2026-09-12e census), 1 of 1 hand spelling already
+  refused. **Probe DELETED**, not left installed.
+* `Code::FieldIndexWrite` — `argresvfiw`, same, 0 arrivals. **Probe DELETED.**
+* `argresvwrite` (the union probe) — its only live site was `Code::Assign`.
+  **DELETED.**
+* `Code::DerefWrite` / `ChainFieldWrite` / `DerefFieldWrite` / `FieldWrite` /
+  `TupleWrite` — no arm proposed: 5 of 5 hand spellings refused one door
+  earlier. `FieldWrite` and `TupleWrite` additionally have a standing 0-arrival
+  measurement in this file (sema lowers both to `DerefWrite`).
+* The **READ** (E0503) and **SHARED-BORROW** (E0502) arms of the same
+  argument-position table STAY OPEN and are NOT bought here. They need the
+  DEPOSIT changed (reserve only for an autoref receiver, as Rust does), which is
+  the `argresvact` plane — owner-blocked on two green pass pins
+  (`bc_admits.ledger` `bck.D`). This arm is separable from it because it refuses
+  a WRITE, which Rust refuses under BOTH readings of the deposit: a two-phase
+  reservation permits shared READS of its place and no writes, and an explicit
+  `&mut x` argument is not two-phase in Rust at all.
+
+### RULE 5 — THE BATTERY, WRITTEN FOR THIS ROUND, IN TEN DIFFERENT SHAPES
+
+Every one compiles AND RUNS to its asserted exit code on BOTH binaries:
+
+| # | shape |
+|---|---|
+| l1 | two-phase receiver + a shared read of the same place in its argument |
+| l2 | a write to a DIFFERENT variable inside the same argument list |
+| l3 | a write to the same place AFTER the call returns |
+| l4 | a write to a local DECLARED inside the argument block |
+| l5 | two reservations of one place in sequence, then a write |
+| l6 | a reservation inside a `while` body, written on the next iteration |
+| l7 | a method receiver, then a FIELD write and a WHOLE-VALUE write |
+| l8 | nested calls, two roots reserved at once |
+| l9 | branches, with the struct and array carriers |
+| l10 | a SHADOWED name assigned inside the arguments (rule 12: a name is not a binding) |
+
+| l11 | a `&mut` PARAMETER passed on as an argument, then written through in the SAME body |
+| l12 | the argument is a CALL whose body assigns its own local |
+| l13 | a `while` loop INSIDE the argument block, assigning its counter |
+
+l10 is the one that would have caught a fix keyed on the spelling: the argument
+block declares its own `x` and assigns it while the OUTER `x` is reserved. l11
+is the second sharp one: the reserved place is reached through a parameter, so
+the deposit and the write are in different frames from the caller's.
+Thirteen shapes, all green armed and unarmed; five are landed as pass fixtures.
+
+### COST, EVERY COLUMN, ONE CONFIGURE — AND THE DIFFS TAKEN BOTH WAYS
+
+| column | population | base | armed | cost |
+|---|---|---|---|---|
+| runtime (`run_oracle.py`) | 6672 -> 6677 pass fixtures, compiled + linked + RUN | 07:43 | 08:00 | **0** |
+| fail text (`fail_text_oracle.py`) | 1494 -> 1498 fail fixtures (rc, normalised-stderr sha, `.expected` match) | 07:44 | 08:01 | **0** |
+| stdlib (`stdlib-cost.sh`) | 4 layers | — | "all four layers compile" | **0** |
+| full build | 90 targets | — | rc 0, 3m49 | **0** |
+
+⚠ **BOTH DIRECTIONS, AND THE JOIN COVERAGE QUOTED** so a diff cannot be clean by
+missing rows: `join` on the run population matched **6672 of 6672** base rows,
+on the fail population **1494 of 1494**. Rows only in ARMED: the 5 new pass
+fixtures and the 4 new fail fixtures (3 native + the moved port), all mine. Rows
+only in BASE: **0**. Changed on the intersection: run **1**, and it is
+`cast-region-to-uint`, which prints a stack address and is subtracted by name;
+fail **0**.
+
+⚠ The base `.tsv`s were taken at 07:43/07:44 against build 130dc833802735ea and
+the armed ones at 08:00/08:01 against 0e2b64ecc2cb7064 — `ls -la` timestamps
+quoted because this scratchpad has served another round's files twice.
+
+### THE ROW, AND ITS DIAGNOSTIC, READ
+
+```
+$ build/bin/logosc tests/imported/fail/nll/issue-27868.logos
+error [fn main]: cannot assign to 'vecvec' because it is borrowed          rc 1
+```
+rustc, `tests/ui/nll/issue-27868.stderr` @ da5114692c9:
+`error[E0506]: cannot assign to `vecvec` because it is borrowed`. Same sentence.
+ONE error line, not two (`grep -c '^error'` = 1 on every illegal program here).
+
+`bc_admits.ledger` **85 -> 84**, re-derived by direct listing
+(`awk '!/^#/ && NF' | wc -l` -> 84). soundness_queue unchanged at **85**; no new
+queue row — the read/shared arms that stay open are already `bck.D`, blocked.
+
+### CONTROL, TAKEN BEFORE THE EDIT ON THE BASE BINARY
+
+All 5 pass halves green with their exact asserted exit codes, and all 3 fail
+halves RED (`run_test.sh fail` rc 1: the compile succeeded) — the defect, in the
+fixtures that now pin it. The moved port compiled silently.

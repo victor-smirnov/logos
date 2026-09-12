@@ -12918,15 +12918,13 @@ private:
                     if (it->mut_borrowed)
                         report(ln, std::format(
                             "cannot assign to '{}' while it is mutably borrowed", name));
-                    // ⚠ PROBE argresvassign / argresvwrite — see PROBES.md 2026-09-12e.
-                    if (it->mut_reservations > 0) {
-                        logos::probe::census("argresvwrite/assign");
-                        if (logos::probe::on("argresvassign") ||
-                            logos::probe::on("argresvwrite"))
-                            report(ln, std::format(
-                                "cannot assign to '{}' while it is borrowed (E0506)",
-                                name));
-                    }
+                    // B82/E0506: an ARG-position `&mut` is a RESERVATION, and
+                    // a write to a reserved place is refused under both readings
+                    // of the deposit. `!said_shared` keeps `assigndupdel`'s
+                    // duplicate line closed. PROBES.md 2026-09-12f.
+                    else if (!said_shared && it->mut_reservations > 0)
+                        report(ln, std::format(
+                            "cannot assign to '{}' because it is borrowed", name));
                     // A borrow of a FIELD of this variable is invalidated by the
                     // assignment exactly as a borrow of the whole variable is —
                     // the storage the reference names is overwritten either way.
@@ -13152,15 +13150,10 @@ private:
                         report(ln, std::format(
                             "cannot assign to '{}[..]' while '{}' is mutably borrowed",
                             nm, nm));
-                    // ⚠ PROBE argresviw / argresvwrite — see PROBES.md 2026-09-12e.
-                    if (it->mut_reservations > 0) {
-                        logos::probe::census("argresvwrite/indexwrite");
-                        if (logos::probe::on("argresviw") ||
-                            logos::probe::on("argresvwrite"))
-                            report(ln, std::format(
-                                "cannot assign to '{}[..]' while '{}' is borrowed (E0506)",
-                                nm, nm));
-                    }
+                    // ⚠ NO `mut_reservations` ARM HERE, AND ITS ABSENCE IS A
+                    // MEASUREMENT: `argresviw` 0 arrivals in 9650 programs, and
+                    // the hand spelling is refused one door earlier.
+                    // PROBES.md 2026-09-12f.
                 }
                 check_live(nm, ln);
                 visit(v.index(), /*consuming=*/true, ln);
@@ -13186,15 +13179,8 @@ private:
                         report(ln, std::format(
                             "cannot assign to '{}.{}[..]' while '{}' is mutably borrowed",
                             nm, std::string(v.field()), nm));
-                    // ⚠ PROBE argresvfiw / argresvwrite — see PROBES.md 2026-09-12e.
-                    if (it->mut_reservations > 0) {
-                        logos::probe::census("argresvwrite/fieldindexwrite");
-                        if (logos::probe::on("argresvfiw") ||
-                            logos::probe::on("argresvwrite"))
-                            report(ln, std::format(
-                                "cannot assign to '{}.{}[..]' while '{}' is borrowed (E0506)",
-                                nm, std::string(v.field()), nm));
-                    }
+                    // ⚠ NO `mut_reservations` ARM HERE — same measurement as
+                    // Code::IndexWrite above. PROBES.md 2026-09-12f.
                 }
                 check_live(nm, ln);
                 visit(v.index(), /*consuming=*/true, ln);

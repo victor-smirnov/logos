@@ -1,0 +1,11 @@
+// PAIR B, pass half — the same struct write, one token over, to the sibling
+// that is NOT reserved.
+package bc_argresvassign_struct_admit;
+struct Holder { n: i64 }
+fn take(a: &mut Holder, b: i64) -> i64 { return a.n + b; }
+fn main() -> i32 {
+    let mut h: Holder = Holder { n: 1i64 };
+    let mut h2: Holder = Holder { n: 2i64 };
+    let r: i64 = take(&mut h, { h2 = Holder { n: 9i64 }; 0i64 });
+    return (r + h2.n) as i32;
+}

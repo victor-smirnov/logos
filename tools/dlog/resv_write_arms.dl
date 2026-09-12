@@ -1,0 +1,88 @@
+// resv_write_arms — WHICH STATEMENT ARMS WRITE THROUGH A NAMED PLACE ROOT, AND
+// WHICH OF THOSE CONSULT THE *RESERVATION* FACT?
+//
+// The class this round fixes is "a WRITE to a place while an argument-position
+// `&mut` reservation of the same root is live". Its members cannot be found by
+// grepping for `mut_reservations` (that finds only the arms that ALREADY read
+// it — an absence has no spelling) nor by grepping for "Write" in a case label
+// (`Assign` is a write and `ChainFieldRead` is not).
+//
+// THE PROPERTY IS MECHANICAL: an arm that writes through a named place root
+// calls `place_write_loans(root, value, line, through_ref)` — the loan-plane
+// hook every such arm already carries. That is the domain; the claim being
+// checked is "every member of it consults the reservation fact".
+//
+// ⚠ ctx_of COARSENS (measured 2026-08-27: a context-level guard answered a
+// site-level question and reported 37 defects where clang read 0). `in_arm` is
+// per-ARM, not per-context, but the reservation read is still scored anywhere in
+// the arm, not at the guarded write. Cross-check every row by a per-site read.
+#include "cxx_schema.dl"
+#include "lir_dispatch.dl"
+#include "lir_questions.dl"
+target_enum(E) :- decl(E, "Enum", "logos::compiler::lir_schema::stmt::Code").
+
+.decl resvfact(did: symbol)
+resvfact(D) :- decl(D, "Field", _), decl_name(D, "mut_reservations").
+.decl borrowfact(did: symbol)
+borrowfact(D) :- decl(D, "Field", _), decl_name(D, "mut_borrowed").
+
+// THE DOMAIN: arms that write through a named place root.
+.decl write_arm(f: symbol, k: symbol, line: number)
+.output write_arm
+write_arm(F, K, L) :- in_arm(N, K), call(N, D), decl_name(D, "place_write_loans"),
+                      ctx_of(N, X), ctx_name(X, F), loc(N, _, L, _).
+
+// THE TWO FACTS, read inside an arm.
+.decl arm_reads_resv(f: symbol, k: symbol, line: number)
+.output arm_reads_resv
+arm_reads_resv(F, K, L) :- in_arm(N, K), ref(N, D), resvfact(D),
+                           ctx_of(N, X), ctx_name(X, F), loc(N, _, L, _).
+
+.decl arm_reads_borrow(f: symbol, k: symbol, line: number)
+.output arm_reads_borrow
+arm_reads_borrow(F, K, L) :- in_arm(N, K), ref(N, D), borrowfact(D),
+                             ctx_of(N, X), ctx_name(X, F), loc(N, _, L, _).
+
+.decl resv_seen(f: symbol, k: symbol)
+resv_seen(F, K) :- arm_reads_resv(F, K, _).
+.decl borrow_seen(f: symbol, k: symbol)
+borrow_seen(F, K) :- arm_reads_borrow(F, K, _).
+
+// THE FINDING: a write arm that never consults the reservation fact.
+.decl write_blind(f: symbol, k: symbol, line: number)
+.output write_blind
+write_blind(F, K, L) :- write_arm(F, K, L), !resv_seen(F, K).
+
+// The sharper half: it consults the BORROW fact — so it is an exclusivity
+// decision that HAS a guard and the guard reads only one of the two records.
+.decl write_blind_but_guarded(f: symbol, k: symbol, line: number)
+.output write_blind_but_guarded
+write_blind_but_guarded(F, K, L) :- write_arm(F, K, L), !resv_seen(F, K), borrow_seen(F, K).
+
+// The complement, for the both-ways diff a ceiling never gives.
+.decl write_covered(f: symbol, k: symbol)
+.output write_covered
+write_covered(F, K) :- write_arm(F, K, _), resv_seen(F, K).
+
+// ── A SECOND, INDEPENDENT DOMAIN ───────────────────────────────────────────
+// ⚠ `place_write_loans` UNDERCOUNTS, and the miss is the round's own target:
+// `Code::Assign` writes through a named root and calls `release_borrows_held_by`
+// + `take_ref_borrows` instead, so a domain defined by that one callee scores
+// the arm this round fixes as not a write at all. One mechanical property is
+// still a property chosen by hand. So take a second one — an arm that consults
+// the borrow records at all — and report the UNION, then read each row per site.
+.decl guard_arm(f: symbol, k: symbol, line: number)
+.output guard_arm
+guard_arm(F, K, L) :- arm_reads_borrow(F, K, L).
+guard_arm(F, K, L) :- in_arm(N, K), ref(N, D), decl(D, "Field", _),
+                      decl_name(D, "shared_borrows"),
+                      ctx_of(N, X), ctx_name(X, F), loc(N, _, L, _).
+
+.decl candidate(f: symbol, k: symbol)
+.output candidate
+candidate(F, K) :- write_arm(F, K, _).
+candidate(F, K) :- guard_arm(F, K, _).
+
+.decl candidate_blind(f: symbol, k: symbol)
+.output candidate_blind
+candidate_blind(F, K) :- candidate(F, K), !resv_seen(F, K).

@@ -14,6 +14,11 @@
 //   unchanged. rustc: E0506 "cannot assign to `vecvec` because it is borrowed".
 //   (Backlog: generic_rhs_op_assign.)
 // 2026-09-08 re-port: STILL ADMITTED.
+// 2026-09-12f: CLOSED and moved admit/ -> fail/. `Code::Assign` gained the
+//   `mut_reservations` arm — an ARGUMENT-position `&mut` is deposited as a
+//   two-phase reservation, and the two exclusivity arms that were there read
+//   only `mut_borrowed` / `shared_borrows`. Refused now with upstream's own
+//   E0506 sentence, READ: "cannot assign to 'vecvec' because it is borrowed".
 package issue_27868;
 struct MyVec { v: i64 }
 impl Drop for MyVec { fn drop(self: &mut MyVec) { } }

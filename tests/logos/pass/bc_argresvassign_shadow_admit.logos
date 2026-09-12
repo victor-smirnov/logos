@@ -1,0 +1,12 @@
+// PAIR A', the guard rule 12 asks for: A NAME IS NOT A BINDING. The argument
+// block SHADOWS the reserved `x` and assigns the shadow. The reservation belongs
+// to the outer binding, so this is legal, and a fix keyed on the spelling rather
+// than on the VarInfo would refuse it. One token apart from
+// fail/bc_argresvassign_scalar_refuse: the inner `let`.
+package bc_argresvassign_shadow_admit;
+fn take(a: &mut i64, b: i64) -> i64 { *a = *a + b; return *a; }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let r: i64 = take(&mut x, { let mut x: i64 = 50i64; x = 2i64; x });
+    return r as i32;
+}

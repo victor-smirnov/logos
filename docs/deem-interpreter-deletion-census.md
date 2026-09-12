@@ -5814,9 +5814,27 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                +2. soundness_queue `# TOTAL` 83 -> 84 (one row DELETED, two
 #                OPENED); bc_admits unchanged at 85 — this landing closed NO
 #                ledger row, and `--t17` was explicitly declined by measurement.
-REGISTRY-ALL         9608
-REGISTRY-NOIMPORTED  5136
-REGISTRY-TIERCOMMIT  143
+# 2026-09-12f (argresvassign — the `Code::Assign` two-phase-RESERVATION arm).
+#                +8 registered tests: FIVE pass halves
+#                pass/bc_argresvassign_{scalar,struct,array,shadow,twophase_recv}_admit
+#                and THREE fail halves
+#                fail/bc_argresvassign_{scalar,struct,array}_refuse — the three
+#                carriers of the one live arm (scalar / struct literal / array
+#                literal), plus the shadowed-name guard (rule 12) and the
+#                two-phase-receiver guard. The closed bc_admits row's own program
+#                MOVED to tests/imported/fail/nll/issue-27868.logos (the old
+#                admit-shelf path is declared RENAMED-FIXTURE below), which is
+#                -1 `logos_00_bc_admit_*`
+#                and +1 `logos_06_diagnostics_fail_*`: net 0 on ALL, and -1 on both
+#                NOIMPORTED and TIERCOMMIT, because the admit-shelf test carries
+#                `tier_commit` and NOT the `imported` label while the fail-shelf one
+#                is the other way round. So ALL +8, NOIMPORTED +7, TIERCOMMIT -1.
+#                Re-derived by direct listing, not by adding: ls
+#                tests/logos/pass/*.logos -> 3055 (+5), ls tests/logos/fail/*.logos
+#                +3. bc_admits `# TOTAL` 85 -> 84; soundness_queue unchanged at 85.
+REGISTRY-ALL         9616
+REGISTRY-NOIMPORTED  5143
+REGISTRY-TIERCOMMIT  142
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is
@@ -8982,6 +9000,7 @@ GONE-FIXTURE  tests/logos/pass/wql_domain_u64_order_seams.logos  died with its s
 GONE-FIXTURE  tests/logos/pass/wql_u64_sum_accumulator.logos  died with its subject at P5 (see its §3 row)
 GONE-FIXTURE  tests/logos/pass/wql_u64_sum_scalar_arith.logos  died with its subject at P5 (see its §3 row)
 GONE-FIXTURE  tests/logos/pass/wql_engine_source_e2e.logos  died with its subject at P5 (see its §3 row)
+RENAMED-FIXTURE  tests/imported/admit/nll/issue-27868.logos  tests/imported/fail/nll/issue-27868.logos  2026-09-12f: the bc_admits row it carried was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning upstream's own E0506 sentence
 RENAMED-FIXTURE  tests/logos/pass/wql_agg_avg_bool_three_engines.logos  tests/logos/pass/wql_agg_avg_bool_value_rule.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/logos/pass/query_incr_f64_agg_three_engines.logos  tests/logos/pass/query_f64_agg_hand_derived.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/logos/pass/query_order_by_float_static_vs_dynamic.logos  tests/logos/pass/query_order_by_float_data_key.logos  P5: the old name stated a COUNT of engines the cut falsified

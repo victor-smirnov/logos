@@ -1,0 +1,16 @@
+// PAIR D, the OTHER over-refusal guard: the two-phase RECEIVER reservation must
+// keep admitting a shared read of the same place in a later argument — that is
+// what the reservation is for, and it is the shape the `argresvact` plane is
+// owner-blocked on. Nothing here writes the reserved place.
+package bc_argresvassign_twophase_recv_admit;
+struct Buf { n: i64 }
+impl Buf {
+    fn bump(self: &mut Buf, k: i64) -> i64 { self.n = self.n + k; return self.n; }
+    fn size(self: &Buf) -> i64 { return self.n; }
+}
+fn main() -> i32 {
+    let mut b: Buf = Buf { n: 1i64 };
+    let r: i64 = b.bump(b.size());
+    b = Buf { n: 5i64 };
+    return (r + b.n) as i32;
+}

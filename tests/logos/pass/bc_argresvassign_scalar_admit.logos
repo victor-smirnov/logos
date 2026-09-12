@@ -1,0 +1,12 @@
+// PAIR A, pass half — the very same call, and the argument block writes a
+// DIFFERENT local. One token apart from fail/bc_argresvassign_scalar_refuse:
+// the assigned NAME. This is the over-refusal guard: a reservation of `x` says
+// nothing about `y`.
+package bc_argresvassign_scalar_admit;
+fn take(a: &mut i64, b: i64) -> i64 { *a = *a + b; return *a; }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let mut y: i64 = 0i64;
+    let r: i64 = take(&mut x, { y = 5i64; y });
+    return r as i32;
+}

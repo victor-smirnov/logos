@@ -1,0 +1,14 @@
+// PAIR A, fail half — `&mut x` in ARGUMENT position deposits a two-phase
+// RESERVATION, and the argument evaluated after it assigns the reserved place.
+// rustc: E0506 "cannot assign to `x` because it is borrowed". One token apart
+// from pass/bc_argresvassign_scalar_admit: the assigned NAME.
+// Before 2026-09-12f this compiled — Code::Assign read `mut_borrowed` and
+// `shared_borrows` and never `mut_reservations`.
+package bc_argresvassign_scalar_refuse;
+fn take(a: &mut i64, b: i64) -> i64 { *a = *a + b; return *a; }
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let mut y: i64 = 0i64;
+    let r: i64 = take(&mut x, { x = 5i64; y });
+    return r as i32;
+}

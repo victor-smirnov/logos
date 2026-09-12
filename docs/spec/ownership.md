@@ -335,7 +335,7 @@ Source: `src/compiler/sema_stmt.cpp#L1773-L1895`
 
 ### `borrow.assign.borrowed-lhs` — Assignment to a borrowed variable is rejected
 
-Assigning to a variable `x` (`x = v`) is an error while `x` has any active borrow: a shared borrow ⇒ "cannot assign to 'x' because it is borrowed"; a mutable borrow ⇒ "cannot assign to 'x' while it is mutably borrowed".
+Assigning to a variable `x` (`x = v`) is an error while `x` has any active borrow: a shared borrow ⇒ "cannot assign to 'x' because it is borrowed"; a mutable borrow ⇒ "cannot assign to 'x' while it is mutably borrowed"; an argument-position `&mut x` **reservation** (`borrow.take.call-arg-mut-reservation`, live for the duration of the argument list) ⇒ "cannot assign to 'x' because it is borrowed", rustc's own E0506 sentence. The reservation arm is a WRITE rule only: a shared read of a reserved place in a later argument stays legal, which is what the reservation exists for.
 
 ```logos
 let r = &x; x = 1;  // error: x is borrowed
