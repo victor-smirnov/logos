@@ -1,0 +1,59 @@
+// loopstate.dl — WHICH STATE CHANNELS CROSS THE LOOP BACK EDGE, AND WHICH DO NOT.
+//
+// THE QUESTION, BY PROPERTY AND NOT BY SPELLING. `visit_loop_body` runs the
+// body TWICE: pass 1 is a dry run whose job is to compute the state that holds
+// on entry to iteration 2+, and pass 2 is authoritative. Which of the
+// BorrowChecker's own mutable member channels does that hand-off actually
+// carry? An UNCARRIED channel has no spelling — there is no token to grep for
+// a member that is simply absent from a save/restore list — so this is dlog's
+// case exactly.
+//
+// CLAIM-FREE BY CONSTRUCTION: nothing below names a channel. The domain is
+// every FieldDecl of `BorrowChecker` (mechanical), the subject is every such
+// field REFERENCED inside `visit_loop_body` (mechanical), and the answer is
+// the set difference. If the extractor's field or ref facts were wrong the
+// control below would not discriminate.
+//
+// KNOWN-ANSWER CONTROL (recorded 2026-09-12h): `states_`, `prov_`,
+// `ref_borrow_sources_`, `ref_borrow_line_` and `dangling_` are the five
+// channels the SOURCE COMMENT at visit_loop_body says it saves and restores,
+// and they must all appear in `loop_carried`. Any run where they do not is a
+// broken extractor, not a finding.
+#include "cxx_schema.dl"
+
+// Every field of the class the loop walker belongs to. `decl` carries the
+// qualified name, so the class is read off the qname rather than assumed.
+.decl bc_field(did: symbol, name: symbol)
+bc_field(D, N) :- decl(D, "Field", Q), contains("BorrowChecker::", Q), decl_name(D, N).
+
+.decl loop_ctx(c: symbol)
+loop_ctx(C) :- ctx_name(C, "visit_loop_body").
+
+// A field REFERENCED anywhere inside visit_loop_body's own body.
+.decl loop_carried(name: symbol)
+loop_carried(N) :- ctx_of(U, C), loop_ctx(C), ref(U, D), bc_field(D, N).
+
+// A field referenced inside the PLAIN block walker (the non-loop control):
+// a channel written there and absent from the loop hand-off is the shape the
+// defect has.
+.decl block_ctx(c: symbol)
+block_ctx(C) :- ctx_name(C, "visit_block").
+.decl block_touched(name: symbol)
+block_touched(N) :- ctx_of(U, C), block_ctx(C), ref(U, D), bc_field(D, N).
+
+.decl loop_uncarried(name: symbol)
+loop_uncarried(N) :- bc_field(_, N), !loop_carried(N).
+
+.decl field_count(n: number)
+field_count(C) :- C = count : { bc_field(_, _) }.
+.decl carried_count(n: number)
+carried_count(C) :- C = count : { loop_carried(_) }.
+.decl uncarried_count(n: number)
+uncarried_count(C) :- C = count : { loop_uncarried(_) }.
+
+.output loop_carried
+.output loop_uncarried
+.output block_touched
+.output field_count
+.output carried_count
+.output uncarried_count
