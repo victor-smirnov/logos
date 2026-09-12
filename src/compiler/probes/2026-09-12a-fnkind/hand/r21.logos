@@ -1,0 +1,11 @@
+package r21;
+struct D { v: i64 }
+impl Drop for D {
+    fn drop(self: &mut D) { println("drop D"); }
+}
+fn takes_fn<F: Fn() -> i64>(f: F) -> i64 { return f(); }
+fn main() -> i32 {
+    let d: D = D { v: 3i64 };
+    let c = move || -> i64 { let t: D = d; return t.v; };
+    return takes_fn(c) as i32;
+}

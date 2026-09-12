@@ -1,0 +1,9 @@
+package h14;
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    {
+        let c = || -> i64 { x += 1i64; return x; };
+        let _a: i64 = c();
+    }
+    return x as i32;
+}

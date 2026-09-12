@@ -1,0 +1,9 @@
+typevar_only_fn_once	sema_impl.hpp	2088
+closure_hint_for	sema_expr.cpp	3763
+check_bounds	sema_impl.hpp	3480
+read_trait_bound_args	sema.cpp	5498
+read_trait_bound_args	sema.cpp	5517
+infer_type_args	sema_expr.cpp	4900
+infer_type_args	sema_expr.cpp	4923
+lower_invoke_expr	sema_expr.cpp	7359
+closure_hint_from_fn_bound	sema_expr.cpp	17143

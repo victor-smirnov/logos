@@ -1,0 +1,7 @@
+package h9;
+struct Holder { f: Box<dyn Fn() -> i64> }
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    let h: Holder = Holder { f: Box::new(move || -> i64 { x += 1i64; return x; }) };
+    return (h.f)() as i32;
+}

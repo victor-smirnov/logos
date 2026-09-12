@@ -1,0 +1,9 @@
+package r15;
+fn bar() -> impl Fn() -> i64 {
+    return 7i64;
+}
+fn main() -> i32 {
+    let f = bar();
+    let v: i64 = f();
+    return v as i32;
+}

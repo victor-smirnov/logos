@@ -40223,3 +40223,52 @@ queue row — the read/shared arms that stay open are already `bck.D`, blocked.
 All 5 pass halves green with their exact asserted exit codes, and all 3 fail
 halves RED (`run_test.sh fail` rc 1: the compile succeeded) — the defect, in the
 fixtures that now pin it. The moved port compiled silently.
+
+---
+
+## 2026-09-12a — `bck.NEW-CMUT`: THE E0525 ARM EXISTS AND FIRES; WHAT IS MISSING IS THE ARRIVAL
+
+build `0e2b64ecc2cb7064 43`, read with `scripts/build_hash.py`. No compiler
+source edited; a PRICING round. Full record, hand programs and dlog answers:
+`src/compiler/probes/2026-09-12a-fnkind/` (TARGETS.md written before any edit).
+
+Target rows, never surveyed (re-derived — the handed-down list was stale:
+`nllmoves.R11-ASSIGN` is closed, `bck.NEW-N4` does not exist, the ledger spells
+it `lifereg.NEW-N4`): `borrow-immutable-upvar-mutation-impl-trait`
+(`bck.NEW-CMUT`), `borrowck-unboxed-closures` (`bck.A-FNMUT`),
+`borrowed-referent-issue-38899` (`bck.NEW-BLOCKREF`). Three roots, not one
+grouping — tested, not assumed.
+
+`tools/dlog/fnkind_readers.dl` (new rule; `selftest.sh` rc 0 first, known-answer
+control on `28fc7c75` unchanged) over 4 sema TUs: the Fn-family kind fact is read
+in exactly TWO contexts (`check_type_bounds`, `callable_is_fn_once`), and
+`check_type_bounds` is called from **12** sites, **none of them a return-type
+position or a `dyn` coercion**. That absence has no spelling; the grep that
+preceded it found the string and not the hole. ⚠ dlog derived **9** contexts
+reading `is_fn_family` with no kind fact; the per-site read says **1 of the 9**
+(`check_bounds`, the well-formedness sweep) is blind by design — both numbers
+reported, the per-site one is the one that funds anything.
+
+THE ROOT SPLITS IN TWO, and the row's two ports were admitted by different
+halves. R-a: `impl Trait` in return position is not a bound-check position AT ALL
+(`-> impl Fn()->i64 { return 7i64; }` compiles; so does a wrong-arity closure and
+an `impl Speak` returning a non-`Speak`) — but every one is refused at the
+CALLER, so it is a wrong diagnostic at a distance, not a runtime hole. R-b: the
+KIND is asked only at a generic type-param bound, so `Box<dyn Fn>` / `&dyn Fn` /
+a `let` annotation take the ordinary structural check and never the kind.
+
+⚠ A CONTROL THAT SAVED A WRONG FINDING: a `move` closure consuming its capture,
+called twice, is ADMITTED when the capture struct has no `impl Drop` and REFUSED
+when it does. The capture is auto-Copy — blessed divergence **A16** — so there is
+no move to see. Any program claiming a move-tracking defect needs `impl Drop`.
+
+Priced by direct arrival census, no probe installed: R-a's whole arrival set is
+11 programs (the row, one queue program, one pass fixture, 7 lattice forms, ZERO
+in the stdlib) — CEILING **1** on `bc_admits`, cost 0 in pass/cfail/stdlib/runtime
+BY READING, every arrival a read-only closure. Rules 4 and 5 both govern that
+table: it licenses building the probe, not a landing. R-b's ledger ceiling is
+**0** over a 30-program `dyn Fn` arrival set, 14 of them pass fixtures — it is
+soundness-queue material (`admits`), not ledger material, and it is the larger
+defect. `bck.A-FNMUT` is declined here: it needs an arm that exists nowhere —
+`refuse_not_mut_binding` is reached only from `take_borrow_whole_` and
+`check_recv_conflict`, and a closure call takes no borrow of its callee at all.

@@ -1,0 +1,7 @@
+package h13;
+fn takes_fn<F: Fn() -> i64>(f: F) -> i64 { return f(); }
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    let c = || -> i64 { x += 1i64; return x; };
+    return takes_fn(c) as i32;
+}

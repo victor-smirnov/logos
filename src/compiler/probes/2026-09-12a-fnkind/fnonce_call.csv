@@ -1,0 +1,3 @@
+callable_is_fn_once	sema_impl.hpp	2108
+mark_moved_expr	sema_impl.hpp	4504
+lower_call	sema_expr.cpp	3707

@@ -1,0 +1,5 @@
+package h17;
+fn bar() -> Box<dyn Fn(i64) -> i64> {
+    return Box::new(move || -> i64 { return 1i64; });
+}
+fn main() -> i32 { return 0i32; }

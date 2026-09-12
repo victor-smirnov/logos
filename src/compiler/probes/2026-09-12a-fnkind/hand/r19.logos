@@ -1,0 +1,10 @@
+package r19;
+trait Speak { fn speak(&self) -> i64; }
+struct A { v: i64 }
+fn bar() -> impl Speak {
+    return A { v: 42i64 };
+}
+fn main() -> i32 {
+    let a = bar();
+    return a.speak() as i32;
+}

@@ -1,0 +1,9 @@
+package r16;
+fn bar() -> impl Fn(i64) -> i64 {
+    return move || -> i64 { return 11i64; };
+}
+fn main() -> i32 {
+    let f = bar();
+    let v: i64 = f(5i64);
+    return v as i32;
+}

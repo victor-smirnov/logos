@@ -1,0 +1,9 @@
+package h5;
+fn bar() -> impl Fn() -> i64 {
+    let x: i64 = 7i64;
+    return move || -> i64 { return x; };
+}
+fn main() -> i32 {
+    let f = bar();
+    return f() as i32;
+}

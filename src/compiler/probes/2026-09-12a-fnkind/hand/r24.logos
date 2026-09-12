@@ -1,0 +1,15 @@
+package r24;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + 1i64; } } }
+fn takes_fn<F: Fn() -> i64>(f: F) -> i64 { return f(); }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let d: D = D { v: 5i64, c: p };
+        let c = move || -> i64 { let t: D = d; return t.v; };
+        let _q: i64 = takes_fn(c);
+    }
+    let got: i64 = unsafe { n };
+    return got as i32;
+}

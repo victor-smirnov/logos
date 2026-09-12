@@ -1,0 +1,10 @@
+package h10;
+struct D { v: i64 }
+fn bar() -> impl Fn() -> i64 {
+    let d: D = D { v: 3i64 };
+    return move || -> i64 { let t: D = d; return t.v; };
+}
+fn main() -> i32 {
+    let f = bar();
+    return f() as i32;
+}

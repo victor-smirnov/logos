@@ -1,0 +1,11 @@
+package r22;
+struct D { v: i64 }
+impl Drop for D {
+    fn drop(self: &mut D) { println("drop D"); }
+}
+fn main() -> i32 {
+    let d: D = D { v: 3i64 };
+    let c = move || -> i64 { return d.v; };
+    let a: i64 = c();
+    return a as i32;
+}

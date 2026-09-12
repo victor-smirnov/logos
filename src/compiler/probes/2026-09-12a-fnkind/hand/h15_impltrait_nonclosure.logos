@@ -1,0 +1,5 @@
+package h15;
+fn bar() -> impl Fn() -> i64 {
+    return 7i64;
+}
+fn main() -> i32 { return 0i32; }

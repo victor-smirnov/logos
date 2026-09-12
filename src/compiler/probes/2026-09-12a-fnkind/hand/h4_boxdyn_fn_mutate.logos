@@ -1,0 +1,9 @@
+package h4;
+fn bar() -> Box<dyn Fn() -> i64> {
+    let mut x: i64 = 0i64;
+    return Box::new(move || -> i64 { x += 1i64; return x; });
+}
+fn main() -> i32 {
+    let f = bar();
+    return f() as i32;
+}

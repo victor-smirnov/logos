@@ -1,0 +1,5 @@
+package h18;
+fn bar() -> Box<dyn Fn() -> i64> {
+    return Box::new(7i64);
+}
+fn main() -> i32 { return 0i32; }

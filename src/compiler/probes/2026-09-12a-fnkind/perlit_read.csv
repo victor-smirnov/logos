@@ -1,0 +1,3 @@
+callable_is_fn_once	sema_impl.hpp	2111
+callable_is_fn_once	sema_impl.hpp	2112
+lower_closure_expr	sema_expr.cpp	18426

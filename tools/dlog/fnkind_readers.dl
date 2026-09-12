@@ -1,0 +1,72 @@
+// fnkind_readers — WHO DECIDES AN Fn-FAMILY QUESTION, AND ON WHICH FACT?
+//
+// The tree carries the Fn-family (Fn / FnMut / FnOnce) verdict as THREE
+// facts, minted in one place and read in several:
+//   * `closure_kind_`        — SIGNATURE-keyed max over literals (open #90);
+//   * `closure_kind_by_id_`  — PER-LITERAL, keyed on VarInfo::closure_id;
+//   * `is_fn_family` on a Bound — "this BOUND names an Fn-family trait".
+// The E0525 refusal ("closure does not implement `Fn`") is produced in exactly
+// one context; every other position at which a closure value may meet an
+// Fn-family trait — an `impl Trait` return, a `dyn Trait` coercion, a local
+// annotation — is a position that must REACH that context or be blind.
+//
+// A grep for "closure_kind_" cannot answer this: it matches the DECLARATION,
+// the write site and the two reads alike, and it cannot tell which enclosing
+// context performs the read. Identity here is the canonical declaration.
+#include "cxx_schema.dl"
+
+.decl sigkeyed_decl(did: symbol, qname: symbol)
+sigkeyed_decl(D, Q) :- decl(D, "Field", Q), decl_name(D, "closure_kind_").
+
+.decl perlit_decl(did: symbol, qname: symbol)
+perlit_decl(D, Q) :- decl(D, "Field", Q), decl_name(D, "closure_kind_by_id_").
+
+.decl fnfamily_decl(did: symbol, qname: symbol)
+fnfamily_decl(D, Q) :- decl(D, "Field", Q), decl_name(D, "is_fn_family").
+
+.decl bounds_checker_decl(did: symbol, qname: symbol)
+bounds_checker_decl(D, Q) :- decl(D, "CXXMethod", Q), decl_name(D, "check_type_bounds").
+
+.decl fnonce_pred_decl(did: symbol, qname: symbol)
+fnonce_pred_decl(D, Q) :- decl(D, "CXXMethod", Q), decl_name(D, "callable_is_fn_once").
+fnonce_pred_decl(D, Q) :- decl(D, "CXXMethod", Q), decl_name(D, "typevar_only_fn_once").
+
+// ── every read of each fact, with the context that performs it ──────────────
+.decl sigkeyed_read(ctx: symbol, file: symbol, line: number)
+sigkeyed_read(C, F, L) :- sigkeyed_decl(D, _), ref(U, D), ctx_of(U, X), ctx_name(X, C), loc(U, F, L, _).
+.output sigkeyed_read
+
+.decl perlit_read(ctx: symbol, file: symbol, line: number)
+perlit_read(C, F, L) :- perlit_decl(D, _), ref(U, D), ctx_of(U, X), ctx_name(X, C), loc(U, F, L, _).
+.output perlit_read
+
+.decl fnfamily_read(ctx: symbol, file: symbol, line: number)
+fnfamily_read(C, F, L) :- fnfamily_decl(D, _), ref(U, D), ctx_of(U, X), ctx_name(X, C), loc(U, F, L, _).
+.output fnfamily_read
+
+.decl bounds_call(ctx: symbol, file: symbol, line: number)
+bounds_call(C, F, L) :- bounds_checker_decl(D, _), call(N, D), ctx_of(N, X), ctx_name(X, C), loc(N, F, L, _).
+.output bounds_call
+
+.decl fnonce_call(ctx: symbol, file: symbol, line: number)
+fnonce_call(C, F, L) :- fnonce_pred_decl(D, _), call(N, D), ctx_of(N, X), ctx_name(X, C), loc(N, F, L, _).
+.output fnonce_call
+
+// ── THE CLAIM, CHECKED. A context that asks the Fn-FAMILY-ness of a bound
+// (`is_fn_family`) is a context that has a closure meeting an Fn trait in its
+// hands. If it never reads either KIND fact and never calls the bounds checker,
+// it decides an Fn-family question WITHOUT the kind — that is the blind
+// position the ledger row names.
+.decl ctx_reads_kind(ctx: symbol)
+ctx_reads_kind(C) :- sigkeyed_read(C, _, _).
+ctx_reads_kind(C) :- perlit_read(C, _, _).
+ctx_reads_kind(C) :- bounds_call(C, _, _).
+ctx_reads_kind(C) :- fnonce_call(C, _, _).
+
+.decl fnfamily_without_kind(ctx: symbol, file: symbol, line: number)
+fnfamily_without_kind(C, F, L) :- fnfamily_read(C, F, L), !ctx_reads_kind(C).
+.output fnfamily_without_kind
+
+.decl fnfamily_with_kind(ctx: symbol, file: symbol, line: number)
+fnfamily_with_kind(C, F, L) :- fnfamily_read(C, F, L), ctx_reads_kind(C).
+.output fnfamily_with_kind

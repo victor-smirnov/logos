@@ -1,0 +1,12 @@
+type_bounds_satisfied_quiet	sema_impl.hpp	6752
+lower_call	sema_expr.cpp	4242
+resolve_type_generic_inst	sema.cpp	7731
+resolve_type_generic_inst	sema.cpp	7738
+resolve_type_generic_inst	sema.cpp	7746
+resolve_type_assoc_ref	sema.cpp	7241
+finish_generic_call	sema_expr.cpp	5216
+lower_generic_ref	sema_expr.cpp	7297
+lower_method_call	sema_expr.cpp	10459
+lower_struct_lit	sema_expr.cpp	11818
+lower_enum_lit_data	sema_expr.cpp	14290
+lower_enum_lit_data_from_static	sema_expr.cpp	14667

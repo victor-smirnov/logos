@@ -1,0 +1,9 @@
+package h8;
+fn call_it(f: &dyn Fn() -> i64) -> i64 {
+    return f();
+}
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    let c = move || -> i64 { x += 1i64; return x; };
+    return call_it(&c) as i32;
+}

@@ -1,0 +1,9 @@
+package h12;
+struct D { v: i64 }
+fn main() -> i32 {
+    let d: D = D { v: 3i64 };
+    let c = move || -> i64 { let t: D = d; return t.v; };
+    let a: i64 = c();
+    let b: i64 = c();
+    return (a + b) as i32;
+}

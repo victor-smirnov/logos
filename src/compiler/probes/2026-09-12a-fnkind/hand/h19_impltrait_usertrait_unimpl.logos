@@ -1,0 +1,7 @@
+package h19;
+trait Speak { fn speak(&self) -> i64; }
+struct A { v: i64 }
+fn bar() -> impl Speak {
+    return A { v: 1i64 };
+}
+fn main() -> i32 { return 0i32; }
