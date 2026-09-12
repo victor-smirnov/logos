@@ -1,0 +1,43 @@
+ROUND 2026-09-12j — TARGET ROWS, WRITTEN BEFORE THE COMPILER WAS TOUCHED
+(probe `uninitborrow`; build hash of the BASE binary read before any edit:
+ 4f617ed79acc85af 43)
+
+PRIMARY (bc_admits.ledger):
+  move-of-addr-of-mut        nllmoves.R5   tests/imported/admit/moves/move-of-addr-of-mut
+
+SECONDARY (soundness_queue.ledger — NEW row candidate, not yet on the shelf):
+  borrow-of-uninit-binding reads garbage at RUN TIME:
+      let x: S; let p: &S = &x; return p.v;    compiles clean, reads uninit memory
+
+WHY THIS BLOCK AND NOT THE OTHERS
+  * `nllmoves.R5` is one of the roots the last round named as NEVER SURVEYED,
+    and the list was re-derived here rather than carried: grepping every root id
+    in bc_admits.ledger against src/compiler/PROBES.md gives ZERO hits for
+    `nllmoves.R5` under BOTH spellings (full `nllmoves.R5` and the `*.R5` form
+    that the handed-down list's own false negative was about). Two other zero-hit
+    roots were found the same way and are NOT in the handed-down list —
+    `nllmoves.NEW-3` (issue-55394--b) and `nllmoves.R18` (trait-associated-
+    constant) — and one member of the handed-down list, `nllmoves.R11-ASSIGN`,
+    is indeed already closed (b6e916800). A HANDED-DOWN LIST IS A HYPOTHESIS.
+  * It is the shape the prompt says has paid every time: AN ARM THAT EXISTS
+    REACHED THROUGH A FACT THE CODE DOES NOT CARRY. The arm is
+    `sema_expr.cpp:874`, "use of possibly uninitialised binding", inside
+    `lower_var_ref`; the fact is `currently_uninit_vars_`, already computed,
+    already merged at if/match/loop joins, already spec'd
+    (`borrow.var-ref.definite-assignment`, docs/spec/ownership.md:269).
+  * THE TREE ALREADY SAYS THE HOLE IS THERE, ABOUT A DIFFERENT QUESTION. Both
+    unary-borrow arms carry the comment "This path routes around
+    `lower_var_ref`, so it asked nowhere" — written when the STATIC-UNSAFE
+    question was repaired at exactly these two arms. Definite assignment is the
+    next question down the same hole, and `static_access_needs_unsafe` is the
+    precedent for asking it ONCE rather than twice.
+  * EXPLICITLY NOT TAKEN: the `lifereg.B` / NEW-B2 holder-deposit door plane
+    (four rounds, excluded by name in the prompt); `bck.A-FNMUT` (owner-blocked
+    on three green pass pins, note in the ledger); `bck.NEW-A16` and
+    `bck.NEW-1`/`bck.NEW-4` (blessed divergence A16, not checker defects);
+    `bck.NEW-CAPMOVE` (five arms already installed); `bck.D`+`nllmoves.D`
+    (2026-09-08 decline in the file).
+
+CEILING PREDICTED BY NAME, BEFORE THE BUILD:  { move-of-addr-of-mut }  — exactly 1.
+  Derived, not guessed: exactly ONE file on the whole admit shelf (both ledgers)
+  contains a `let NAME: T;` declaration with no initialiser.

@@ -41409,3 +41409,179 @@ build hashes, so the unarmed side is not this round's assertion either.
     refuse the A16 program. Reported again, not fixed: the freeze stands and
     `ceiling-probe.sh` is not the named exception. It will bite the next arm
     that IS crude.
+
+# ═══ ROUND 2026-09-12j — THE TWO BORROW ARMS THAT "ROUTE AROUND
+# ═══ `lower_var_ref`" HAVE A **THIRD** UNASKED QUESTION, AND IT IS DEFINITE
+# ═══ ASSIGNMENT: `&x` / `&mut x` ON AN UNINITIALISED BINDING COMPILES, READS
+# ═══ GARBAGE AT RUN TIME (VALGRIND 99), AND THE ARM THAT REFUSES IT HAS BEEN
+# ═══ IN THE TREE THE WHOLE TIME, TWENTY LINES ABOVE ═══════════════════════════
+
+ROOT: `nllmoves.R5` — one of the roots NEVER SURVEYED. The list was RE-DERIVED,
+not carried: every root id in `bc_admits.ledger` grepped against this file under
+BOTH spellings (`nllmoves.R5` and the `*.R5` form whose absence was the handed-
+down list's own recorded false negative). `nllmoves.R5` reads ZERO both ways.
+⚠ THE HANDED-DOWN LIST IS A HYPOTHESIS AND IT WAS WRONG IN BOTH DIRECTIONS:
+`nllmoves.R11-ASSIGN` is already closed (`b6e916800`), and TWO zero-hit roots it
+does not name were found by the same derivation — `nllmoves.NEW-3`
+(issue-55394--b) and `nllmoves.R18` (trait-associated-constant), plus
+`nllmoves.NEW-S7-1` and `lifereg.NEW-E0226` at one mention each.
+
+## 1. THE MECHANISM — AN ARM THAT EXISTS, REACHED THROUGH A FACT NOT CARRIED
+
+`sema_expr.cpp:874`, inside `lower_var_ref`, refuses a read of a binding in
+`currently_uninit_vars_` (spec `borrow.var-ref.definite-assignment`,
+docs/spec/ownership.md:269; Rust E0381). The unary `&` and `&mut` arms take a
+`VAR_REF` child and mint `builder().addr_of(name, …)` DIRECTLY — they never call
+`lower_var_ref`, so they never ask. The tree already says this, in its own words,
+at BOTH arms, about a DIFFERENT question: *"This path routes around
+`lower_var_ref`, so it asked nowhere"* — written when the STATIC-UNSAFE question
+was repaired at exactly these two arms, once, in `static_access_needs_unsafe`.
+Definite assignment is the next question down the same hole.
+
+## 2. dlog — THE CLASS BY PROPERTY, AND ITS KNOWN-ANSWER CONTROL REFUTED THE
+##    FIRST FORM OF THE RULE
+
+`selftest.sh` run first: rc 0, `28fc7c75` still reads 19 walkers / 24 findings /
+try_path 1-5 / domain 42-5, duty still discriminates across `756aed65` (1 -> 0).
+
+NEW QUESTION `tools/dlog/uninit_bypass.dl` (authorised development; the claim is
+NOT in the extractor — the rule names one FIELD, `currently_uninit_vars_`, and
+two BUILDER methods, and derives everything else):
+  * `uninit_read`  — every `ref` to the field, by canonical declaration.
+  * `mint`         — every `addr_of` / `var_ref` construction call.
+  * `ctx_bypass`   — the COARSE answer (`ctx_of`).
+  * `site_bypass`  — the CFG answer: a mint in a block reachable from entry along
+                     a path on which no block reads the fact. This is the
+                     dominance question `arm_divergence` left open.
+
+⚠ **THE FIRST FORM WAS WRONG IN THE PERMISSIVE DIRECTION AND ITS CONTROL CAUGHT
+IT.** `cfg_stmt` names the CFG ELEMENT, not its sub-expressions;
+`currently_uninit_vars_` appears as a DeclRefExpr deep inside an `if` condition,
+so `block_reads` was EMPTY and all **126** minting sites came back "bypass" —
+including `lower_var_ref`'s OWN mints at sema_expr.cpp:912/932, which are
+unconditionally BELOW the check at :874. An answer of "everything" is not an
+enumeration. Fixed by an `in_block` rule that descends from the element into its
+sub-expressions; the control is that 912/932 must come back GUARDED, and they do.
+    site_bypass / site_guarded   before the fix: 126 / 0   after: 133 / 21
+
+DLOG VERDICT vs PER-SITE READ, SIDE BY SIDE (the 37-vs-0 discipline):
+  dlog says 133 minting sites are never dominated by the fact. Of those, the two
+  USER unary-borrow arms hold SIX: sema_expr.cpp 1501, 1502 (`&mut`) and 3142,
+  3145, 3151, 3180 (`&`). A per-site read says 3142/3151 are the module-static
+  branches and a static is never uninit, leaving **FOUR live sites**; a hand
+  program reaches all four (`&mut x` scalar and array -> 1501/1502, `&x` scalar
+  -> 3180, `&x` array -> 3145). The remaining 127 are compiler-synthesised
+  receivers (method autoref, for-each desugar, fat-value plumbing) whose NAME
+  arrives via `lower_var_ref` first — measured, not assumed: `x.get()` on an
+  uninitialised `x` already refuses on the BASE binary. A BYPASS SITE IS NOT A
+  HOLE UNTIL A PROGRAM REACHES IT.
+
+## 3. THE CLASS, MEASURED ON THE BASE BINARY BEFORE ANYTHING WAS EDITED
+
+Twelve one-shape-each programs, base binary `4f617ed79acc85af`. Which USES of an
+uninitialised binding does the tree already refuse?
+    REFUSED  x.v read · x.v = 3 · take(x) by value · x.get() · a[0] · &a[0] ·
+             t.0 · &x.v                                                    (8)
+    ADMITTED &x · &mut x · look(&x) · &a                                   (4)
+The partition is exactly "the place is the BARE BINDING": every projection asks,
+the binding itself does not. That is the same lowering distinction the
+`bck.A-REFPARAM` closing turned on (`Code::AddrOf` on a bare variable is the one
+lowering that borrows the binding), reached here from the other side.
+
+## 4. THE PROBE
+
+`uninitborrow` — `borrow_of_uninit_binding()` in sema_impl.hpp beside
+`static_access_needs_unsafe` (the precedent for asking a shared question ONCE),
+called at the head of each of the two arms, after `lookup` and before every
+sub-arm, so array / slice / Box / dyn / static spellings are all covered by one
+call each. DIFF BUDGET DECLARED BEFORE IMPLEMENTING: <= 25 added lines, helper
+form preferred over two inline copies. ACTUAL, by `git diff --numstat`:
+**19 added, 0 removed** (10 sema_expr.cpp + 9 sema_impl.hpp).
+
+build: c4594d5f9256736c  (base, read before the edit: 4f617ed79acc85af)
+fires: uninitborrow 15464 over the ledger corpus.
+
+## 5. THE COST TABLE — EVERY COLUMN, INCLUDING THE RUNTIME ONE
+
+    CEILING (bc_admits)  1 row      logos_00_bc_admit_moves_move-of-addr-of-mut
+    PREDICTED BY NAME    1 row      {move-of-addr-of-mut}
+                                    predicted∖closed = ∅   closed∖predicted = ∅
+    COST pass(ledger+legal)   0
+    COST fail(text)           0 of 1509  (rc 0, .expected-match 0, text-only 0)
+    COST stdlib               0     all four layers compile
+    COST runtime         6688 pass fixtures compiled, LINKED and RUN under the
+                         armed binary: 6684 exit 0, and the ONLY four non-zero
+                         rows are `cc=90` — issue-41888-b170,
+                         nested-tuple-in-variant-payload-b170,
+                         res-and-or-comb-or, intrinsic_2 — the four BACKEND
+                         self-diagnoses the previous round recorded BY NAME, in
+                         a layer this arm does not touch. Zero wrong exit codes,
+                         zero changed stdout hashes against the unarmed pass on
+                         THE SAME BUILD (see §8).
+
+⚠ THE CEILING WAS PREDICTABLE WITHOUT THE BUILD AND WAS PREDICTED: exactly ONE
+file on the whole admit shelf (both ledgers) contains a `let NAME: T;` with no
+initialiser. The pass corpus has 32 such files and NINE of them borrow a name
+that is declared uninitialised somewhere in the file — every one of the nine
+borrows it AFTER its definite assignment, which is why the cost is 0 and not 9.
+COST 0 IS NOT A SAFETY CLAIM: see §6.
+
+## 6. THE HAND BATTERY — 21 PROGRAMS, 21 SHAPES (RULE 5)
+
+15 LEGAL, all rc 0 armed and unarmed: init-then-borrow · both-if-branches-init
+· borrow of an initialised struct · borrow of a PARAMETER · `&s.v` field ·
+`&mut` in a while body after init · borrow inside a CLOSURE · `&STATIC` ·
+`&arr` after init · `&mut` written through · SHADOWED redeclaration
+(`let x: i64; let x: i64 = 11;`) · both MATCH arms init · init inside a bare
+BLOCK · method call through the borrow · `&Vec` after `push`.
+6 ILLEGAL, all rc **0 unarmed** and rc 1 armed, each a different shape:
+`&x` struct · `&mut x` struct · `&a` array · `look(&x)` at a call arg ·
+ONE-branch conditional init · inside a `while` body.
+The shadowing and the one-branch-conditional cases are the two the merge logic
+could have got wrong in opposite directions; both are right.
+
+## 7. THE ROW IS ALSO A SOUNDNESS DEFECT, AND AN INDEPENDENT ORACLE SAYS SO
+
+    let x: S; let p: &S = &x; let n: i64 = p.v; if n == 0 { … }
+compiles clean on the base binary, and under valgrind:
+    ==105771== Conditional jump or move depends on uninitialised value(s)
+    valgrind rc 99 (--error-exitcode)
+A COMPILE rc IS NOT A LEGALITY VERDICT — this one was run. The upstream oracle is
+ON THE BOX and was read, not guessed: tests/ui/moves/move-of-addr-of-mut.stderr @
+da5114692c9 is `error[E0381]: used binding 'x' isn't initialized`. The armed
+sentence is the tree's own E0381 wording, "use of possibly uninitialised binding
+'x'", identical to what :874 already prints for every other arrival. ⚠ The port's
+header is right that upstream's construct (`addr_of_mut!`) has no Logos syntax;
+the row stands on `&mut x`, which rustc ALSO refuses with E0381 by the ordinary
+rule — and there is no rustc BINARY here, so that half rests on reading.
+
+## 8. CONTROLS, RE-VERIFIED TODAY ON build c4594d5f9256736c
+
+    soundness_queue_gate.sh              rc 0 — 91 rows, all still wrong
+    two-phase-across-loop (bck.NEW-L)    unarmed rc 0, armed rc 0 — still
+                                         admitted, and this arm does not touch it
+    loop_holder_realias_alternating      refuses, same sentence, armed and not
+    loop_holder_realias_referent_read_…  refuses, same sentence, armed and not
+    CONTROL REVERT = the probe form, one binary: every one of the 6 illegal hand
+    programs is rc 0 unarmed and rc 1 armed; every one of the 15 legal ones is
+    rc 0 both ways.
+
+## 9. ⚠ THE SCRATCHPAD LIED FOR A THIRD TIME, AND THIS TIME IT WAS PRE-EMPTED
+
+The reused scratchpad already held `ro_base.tsv` / `ro_act.tsv` and empty
+`RC_BASE` / `RC_ACT` markers dated **Sep 9 20:34 / 20:44**, and a `ro_armed.txt`
+dated Sep 9 20:14 — one character from the name this round chose. A block on
+`RC_ACT` would have exited instantly on a three-day-old marker. Every marker was
+`rm`'d before being blocked on and every file diffed was `ls -la`'d; the numbers
+above are from files timestamped Sep 12 17:11 and later.
+
+## 10. WHAT DESERVES FUNDING
+
+The arm as installed: ceiling 1, cost 0 in five columns INCLUDING the runtime
+one, 21/21 hand verdicts across 21 shapes, an independent run-time oracle, and a
+diagnostic read against upstream's own `.stderr`. ⚠ Cost 0 has been wrong six
+times this arc; what is different here is that the refusal is the SAME predicate
+the same file already applies to every other use of the same binding — the
+change makes the checker MORE uniform, not more aggressive, and the one shape
+where a merge could have been wrong (shadowing, one-branch init) was tested in
+both directions.

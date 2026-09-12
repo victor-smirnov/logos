@@ -1,0 +1,81 @@
+// uninit_bypass — WHICH ADDRESS-CONSTRUCTION SITES ARE REACHED WITHOUT THE
+// DEFINITE-ASSIGNMENT FACT EVER BEING READ ON THE WAY?
+//
+// The tree answers "is this binding possibly uninitialised?" in exactly one
+// place per layer: a read of the field `currently_uninit_vars_`. The check that
+// fires lives inside `lower_var_ref`. Every arm that builds a variable's
+// ADDRESS or VALUE directly — `builder().addr_of(name, …)`, `builder().var_ref(
+// name, …)` — routes AROUND that function, and the tree already says so in its
+// own comments, twice, about a DIFFERENT question ("This path routes around
+// `lower_var_ref`, so it asked nowhere" — the static-unsafe question, repaired
+// at both arms). The definite-assignment question is the next one down that
+// same hole, and a grep for `addr_of` cannot separate a user `&x` arm from a
+// compiler-synthesised receiver, nor tell which arms are dominated by the read.
+//
+// ⚠ TWO ANSWERS ARE PRODUCED ON PURPOSE, because `ctx_of` COARSENS and a
+// context-level guard cannot answer a site-level question (dlog was wrong once,
+// 37 vs 0, exactly there). `ctx_bypass` is the coarse one; `site_bypass` is the
+// CFG one — a construction site in a block reachable from entry along a path on
+// which no block reads the fact. Report BOTH, and cross-check against a
+// per-site read of the source.
+#include "cxx_schema.dl"
+
+// ── the FACT: every read of the definite-assignment set ─────────────────────
+.decl uninit_read(n: symbol)
+uninit_read(N) :- ref(N, D), decl_name(D, "currently_uninit_vars_").
+
+.decl uninit_read_at(ctx: symbol, file: symbol, line: number)
+uninit_read_at(C, F, L) :- uninit_read(N), ctx_of(N, X), ctx_name(X, C), loc(N, F, L, _).
+.output uninit_read_at
+
+// ── the CONSUMERS: address / value construction keyed on a NAME ─────────────
+.decl mint(n: symbol, which: symbol)
+mint(N, "addr_of") :- call(N, P), decl_name(P, "addr_of").
+mint(N, "var_ref") :- call(N, P), decl_name(P, "var_ref").
+
+.decl mint_at(which: symbol, ctx: symbol, file: symbol, line: number)
+mint_at(W, C, F, L) :- mint(N, W), ctx_of(N, X), ctx_name(X, C), loc(N, F, L, _).
+.output mint_at
+
+// ── COARSE: the context never reads the fact at all ─────────────────────────
+.decl ctx_reads(ctx: symbol)
+ctx_reads(C) :- uninit_read_at(C, _, _).
+
+.decl ctx_bypass(which: symbol, ctx: symbol, file: symbol, line: number)
+ctx_bypass(W, C, F, L) :- mint_at(W, C, F, L), !ctx_reads(C).
+.output ctx_bypass
+
+.decl ctx_guarded(which: symbol, ctx: symbol, file: symbol, line: number)
+ctx_guarded(W, C, F, L) :- mint_at(W, C, F, L), ctx_reads(C).
+.output ctx_guarded
+
+// ── SITE-LEVEL: blocks reachable from entry with no read of the fact on the
+// way. This is the dominance question the `arm_divergence` record left open.
+// ⚠ KNOWN-ANSWER CONTROL, AND IT REFUTED THE FIRST FORM OF THIS RULE.
+// `cfg_stmt` names the CFG ELEMENT — a top-level statement — not its
+// sub-expressions. `currently_uninit_vars_` appears as a DeclRefExpr deep
+// inside `if (currently_uninit_vars_.count(...))`, so `cfg_stmt(F,B,N)` with N
+// the read matched NOTHING, `block_reads` was EMPTY, and every one of the 126
+// minting sites came back "bypass" — INCLUDING `lower_var_ref`'s own mints at
+// sema_expr.cpp:912/932, which are unconditionally BELOW the check at :874.
+// A rule whose answer is "everything" is not an enumeration. `in_block`
+// descends from the element into its sub-expressions; the control is that
+// lower_var_ref:912/932 must come back GUARDED.
+.decl in_block(fn: symbol, b: symbol, n: symbol)
+in_block(F, B, N) :- cfg_stmt(F, B, N).
+in_block(F, B, N) :- in_block(F, B, P), node(N, _, P, _).
+
+.decl block_reads(fn: symbol, b: symbol)
+block_reads(F, B) :- in_block(F, B, N), uninit_read(N).
+
+.decl unasked(fn: symbol, b: symbol)
+unasked(F, B) :- cfg_entry(F, B), !block_reads(F, B).
+unasked(F, C) :- unasked(F, B), cfg_edge(F, B, C), !block_reads(F, C).
+
+.decl site_bypass(which: symbol, fn: symbol, file: symbol, line: number)
+site_bypass(W, FN, F, L) :- mint(N, W), in_block(FN, B, N), unasked(FN, B), loc(N, F, L, _).
+.output site_bypass
+
+.decl site_guarded(which: symbol, fn: symbol, file: symbol, line: number)
+site_guarded(W, FN, F, L) :- mint(N, W), in_block(FN, B, N), !unasked(FN, B), loc(N, F, L, _).
+.output site_guarded

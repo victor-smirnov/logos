@@ -5531,6 +5531,15 @@ private:
         return true;
     }
 
+    // PROBE `uninitborrow` (2026-09-12, pricing only). The THIRD question the
+    // two BORROW arms route around `lower_var_ref` without asking. The first
+    // two were the static-unsafe pair, repaired above; this is definite
+    // assignment (`borrow.var-ref.definite-assignment`, Rust E0381).
+    bool borrow_of_uninit_binding(std::string_view name) const {
+        if (!logos::probe::on("uninitborrow")) return false;
+        return currently_uninit_vars_.count(std::string(name)) != 0;
+    }
+
     bool is_module_static_unshadowed(std::string_view name) const {
         if (module_statics_.find(std::string(name)) == module_statics_.end())
             return false;

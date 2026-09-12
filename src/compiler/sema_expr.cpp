@@ -1446,6 +1446,11 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                 error(std::format("'&mut': undefined variable '{}'", var_name));
                 return error_expr();
             }
+            if (borrow_of_uninit_binding(var_name)) {
+                error(std::format(
+                    "use of possibly uninitialised binding '{}'", var_name));
+                return error_expr();
+            }
             // A `#[zone_mut]` value has no zone to hand out from a PLACE (a
             // local/static is not in a Writ arena and names no allocator).
             if (reject_thin_zone_mut_ref(vt, /*src_ref_t=*/nullptr))
@@ -3099,6 +3104,11 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             auto vt = lookup(var_name);
             if (!vt) {
                 error(std::format("'&': undefined variable '{}'", var_name));
+                return error_expr();
+            }
+            if (borrow_of_uninit_binding(var_name)) {
+                error(std::format(
+                    "use of possibly uninitialised binding '{}'", var_name));
                 return error_expr();
             }
             // §6.2 statics (S25): `&STATIC` IS the global's address (stable,
