@@ -13,6 +13,7 @@
 
 #include <logos/compiler/probe.hpp>
 #include "sema_impl.hpp"
+#include "mono_impl.hpp"        // Mono::enum_instance_name — THE ONE composer
 
 // KEY-IDENTITY: `Self` is a TYPE-PARAMETER name, scoped to the signature being
 // lowered — the same namespace normalize_assoc_eq documents. Named here so the
@@ -5259,15 +5260,24 @@ lay::ArmDesc SemaChecker::sema_niche_arm(TypeRef t, logos::compiler::StrSet& see
     return lay::arm_desc_of_kind(k, pointee_align, nonnull_wrapper);
 }
 
-// ONE spelling of an enum's identity for the cross-engine ledger — the same
-// `base + module-suffix + $G<n>$<args>` shape a struct gets, so `Option<i64>`
-// and `Option<i32>` are two rows and not one. Non-generic enums (which is every
-// C-LIKE enum) come out as the bare name, which is what mlir-gen registers them
-// under, so those rows MATCH across all three engines.
+// ONE spelling of an enum's identity for the cross-engine ledger — and the ONE
+// composer that mints it is `Mono::enum_instance_name`, the same one
+// `record_needed_enum` uses and the same one mlir-gen registers `enum_types_`
+// under (mlir_gen.cpp, `enum_types_[ed.name()]`). `mono_abi_layout` already
+// calls it, for the reason its own comment states.
+//
+// ⚠ THIS USED TO CALL `concrete_struct_name_raw` — the STRUCT composer. It is a
+// different spelling of the same instance (`Option$G1$Location` against
+// `Option__Location`), so EVERY GENERIC ENUM sema sized reached the verifier as
+// an `unmatched` key: an answer no authority checked, because the key it was
+// filed under named nothing the other two engines had heard of. The two engines
+// that agreed were mono and mlir-gen; sema was the outlier. Non-generic enums
+// matched, which is exactly why the gap was invisible — the cells that were
+// non-zero were the ones with no type arguments.
 static std::string sema_enum_key(TypeRef tv) {
     std::vector<TypeRef> args;
     for (auto a : TypeRef(tv).type_args()) args.push_back(a);
-    return concrete_struct_name_raw(TypeRef(tv).enum_name(), args, TypeRef(tv).pkg_name());
+    return Mono::enum_instance_name(TypeRef(tv).enum_name(), args);
 }
 
 SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
@@ -5335,8 +5345,12 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
     case K::Enum: {
         SemaEnumInfo* esi = find_enum_repr_(tv.pkg_name(), tv.enum_name());
         if (!esi) {
+            // THE SAME KEY AS THE RECORD PATH BELOW. Keying a decline on the
+            // BARE enum name dropped the type arguments, so a declined
+            // `Option<i32>` and a declined `Option<i64>` filed under one key
+            // that names neither — and the verifier counts declines by key.
             lay::record_declined("sema_abi_layout",
-                                 lay::type_key(tv.pkg_name(), tv.enum_name()),
+                                 lay::type_key(tv.pkg_name(), sema_enum_key(tv)),
                                  "no enum repr registered for this type");
             return {8, 8};
         }

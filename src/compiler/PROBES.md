@@ -39030,3 +39030,92 @@ done by string. Root 1 is also the only one whose repair is testable by an exist
 ⚠ NOT A FIX. Nothing was landed; the arm still counts what it counted. A round that closes this
 by making the verifier check LESS has done the one thing this tree forbids — the direction here
 is strictly more cells checked.
+
+## 2026-09-11g — `sema_abi_layout` NAMED EVERY GENERIC ENUM WITH THE STRUCT COMPOSER, SO ITS ANSWERS REACHED THE VERIFIER AS `unmatched`
+
+Subject assigned: the layout verifier's `unmatched` answers — "an answer that no
+authority verified". Prompt's three-way question: legitimately unverifiable, a
+missing cross-check, or a real disagreement in hiding.
+
+**ANSWER FOR THE KEYS MEASURED: a MISSING CROSS-CHECK, and the miss was a
+SPELLING.** Not one of them is the "legitimately unverifiable" shape the
+verifier's own header predicts (a UNION or a custom DST). Measured: 0
+disagreements before and after, so not case 3 either.
+
+### The keys, NAMED (nobody had ever printed them)
+
+Measured with a throwaway `LOGOS_DUMP_UNMATCHED` print in the
+`!has_truth && !cross` arm of `mlir_gen_types.cpp` — installed, read, REVERTED
+(the landing diff touches `sema.cpp` only).
+
+    logos.lang.cmp.Ordering                         | mono_abi_layout | c-like
+    logos.lang.option.Option$G1$Location            | sema_abi_layout | tagged
+    logos.lang.option.Option$G1$Box$G1$Node         | sema_abi_layout | niche
+    logos.lang.result.Result$G2$void$Error          | sema_abi_layout | tagged
+    logos.std.compiler.metaprog.Ident$M2b09c0fe11e753e9 | sema_abi_layout | product
+
+The handed-down "constant floor of about two, program-independent" is
+`cmp.Ordering` + `Option$G1$Location`. **HALF THAT FLOOR WAS A GENERIC-ENUM
+SPELLING**, in every program, because the prelude sizes `Option<Location>`.
+
+### The defect, at its MINTING SITE — not a normalisation in the verifier
+
+`sema_enum_key` (sema.cpp) composed an ENUM's ledger key with
+`concrete_struct_name_raw` — the **STRUCT** composer (`Base$G<n>$arg` + module
+suffix). The **ENUM** composer is `Mono::enum_instance_name` (`Base__arg`).
+`mono_abi_layout` already calls it and says why in its own comment; mlir-gen's
+`truth` is keyed off `enum_types_[ed.name()]`, the same spelling. Two engines
+agreed, sema was the outlier, and its own comment said it had chosen "the same
+shape a struct gets" and that non-generic enums therefore matched — which is the
+admission, written down, that the generic ones did not.
+
+### CLASS, enumerated BY PROPERTY
+
+Property: *a site that composes a layout-ledger key for a type of `Kind::Enum`*.
+Four members, found by censusing all 19 `lay::record`/`record_declined` call
+sites rather than by grepping a spelling:
+
+| # | site | composer | verdict |
+|---|---|---|---|
+| 1 | `mono_abi_layout` (mono_clone.cpp) | `enum_instance_name` | correct |
+| 2 | `layout_of` (mlir_gen_types.cpp, `ekey` = registry name) | same spelling | correct |
+| 3 | `sema_abi_layout` RECORD (sema.cpp) | `concrete_struct_name_raw` | **DEFECT** |
+| 4 | `sema_abi_layout` DECLINE (sema.cpp) | bare `enum_name()`, **type args dropped** | **DEFECT, latent** |
+
+Member 4 was found only by the property enumeration — a declined `Option<i32>`
+and a declined `Option<i64>` filed under one key naming neither. It is latent
+because `declined` is 0 corpus-wide. Both defects fixed in one change; the class
+is closed at all four members.
+
+### MEASURED, 13 programs (5 named fixtures + 8 counter-examples), both arms in ONE binary
+
+`option_box_recursive_struct_field_list` **5 -> 2**; the other twelve **2 -> 1**.
+`sema_abi_layout x tagged` was **0 on all 13** and is now non-zero on all 13.
+CLOSED SET diffed BOTH ways: three keys closed, **OPENED is EMPTY on all 13**.
+`disagreements` 0 -> 0, `declined` 0 -> 0.
+
+The two survivors are the two other roots, DECLINED here by name:
+  * `logos.lang.cmp.Ordering` — `enum_types_` is keyed by the BARE enum name, so
+    `logos.lang.atomic.Ordering` and `logos.lang.cmp.Ordering` cannot both
+    register. ⚠ **MUST NOT be closed by any by-name normalisation: both are
+    4/4, so a string fix reads GREEN while comparing two different types.**
+    Filed as a soundness-queue candidate, NOT repaired here.
+  * `Ident$M2b09c0fe11e753e9` — the `$M<16hex>` fold on sema's STRUCT keys.
+    Different composer, different kind, separate root.
+
+### ⚠ THE ZERO THIS ROUND IS NOT ENTITLED TO
+
+`Mono::enum_instance_name` mangles an array as `"arr" + arr_size() + "_"`.
+`mangle_type_for_name` — the composer sema used BEFORE — was fixed for exactly
+that collapse (G156-1: a symbolic length became `arr0_`, so `[T; N]` and
+`[T; M]` were one symbol). This change therefore moves sema ONTO the unfixed
+mangler. `ce7_option_two_array_lengths` was written to catch a resulting FALSE
+MATCH — two distinct types on one key, which would read GREEN and be strictly
+worse than the `unmatched` it replaces.
+
+It did not fire, and **that zero is not a safety claim**: sema's enum ledger
+records 64-99 answers per program and the only generic-enum key it filed in any
+of the 13 programs is `Option__Location`. `Option<[i64;4]>` / `Option<[i64;8]>`,
+instantiated explicitly with `sizeof` taken, NEVER REACH `sema_abi_layout`'s
+enum arm. The hazard is **UNEXERCISED, not refuted**, and is unchanged in either
+direction by this round (mono and mlir-gen already used this mangler).

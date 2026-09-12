@@ -1,0 +1,20 @@
+package ce7_option_two_array_lengths;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+// TWO DISTINCT instances of ONE generic enum whose type arg differs ONLY in
+// array LENGTH. `Mono::enum_instance_name` mangles an array as
+// "arr" + arr_size() + "_", so these must stay TWO keys, not one.
+unsafe fn main() -> i32 {
+    let a: Option<[i64; 4]> = Option::Some([1i64, 2i64, 3i64, 4i64]);
+    let b: Option<[i64; 8]> = Option::Some([1i64, 2i64, 3i64, 4i64, 5i64, 6i64, 7i64, 8i64]);
+    let na: Option<[i64; 4]> = Option::None;
+    printi("%d ", (sizeof::<Option<[i64; 4]>>()) as i32);
+    printi("%d ", (sizeof::<Option<[i64; 8]>>()) as i32);
+    match na {
+        Option::Some(_) => { printi("%d ", 1i32); }
+        Option::None => { printi("%d ", 0i32); }
+    }
+    return 0;
+}

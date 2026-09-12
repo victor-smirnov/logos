@@ -1,0 +1,28 @@
+package ce8_option_refs_and_ptrs;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+struct S { a: i64, b: i64 }
+
+// Shapes that separate `mangle_type` (ref_/pcst_/pmut_) from
+// `mangle_type_for_name`: a NICHE arm (&S) against a TAGGED arm (raw ptr),
+// and a second niche over a DIFFERENT pointee alignment.
+unsafe fn main() -> i32 {
+    let s: S = S { a: 1i64, b: 2i64 };
+    let c: i8 = 7i8;
+    let r: Option<&S> = Option::Some(&s);
+    let q: Option<&i8> = Option::Some(&c);
+    printi("%d ", (sizeof::<Option<&S>>()) as i32);
+    printi("%d ", (sizeof::<Option<&i8>>()) as i32);
+    printi("%d ", (sizeof::<Option<*const S>>()) as i32);
+    match r {
+        Option::Some(x) => { printi("%d ", (x.a) as i32); }
+        Option::None => { printi("%d ", 0i32); }
+    }
+    match q {
+        Option::Some(y) => { printi("%d ", (*y) as i32); }
+        Option::None => { printi("%d ", 0i32); }
+    }
+    return 0;
+}

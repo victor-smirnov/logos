@@ -1,0 +1,21 @@
+package r3_ordering_collision;
+
+use logos.lang.cmp;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+// A user enum whose BARE name collides with a stdlib enum's bare name.
+// `enum_types_` is keyed by the bare name, so only one `Ordering` can register.
+// This one is 1 byte; logos.lang.cmp.Ordering is 4.
+enum Ordering : u8 {
+    Lo = 1,
+    Hi = 2,
+}
+
+unsafe fn main() -> i32 {
+    let o: Ordering = Ordering::Hi;
+    printi("%d ", (sizeof::<Ordering>()) as i32);
+    printi("%d ", (o as i64) as i32);
+    return 0;
+}
